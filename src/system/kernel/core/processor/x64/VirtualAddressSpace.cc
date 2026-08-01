@@ -351,19 +351,17 @@ bool X64VirtualAddressSpace::mapUnlocked(
         virtualAddress >= KERNEL_VIRTUAL_HEAP)
     {
         uint64_t thisPml4Entry = *pml4Entry;
-        /// \todo this can actually break if a process is removed from the
-        ///       scheduler while we iterate!
         for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
         {
-            Process *p = Scheduler::instance().getProcess(i);
-            if (!p)
+            Scheduler::ProcessLease process;
+            if (!Scheduler::instance().acquireProcess(process, i))
             {
                 continue;
             }
 
             X64VirtualAddressSpace *x64VAS =
                 reinterpret_cast<X64VirtualAddressSpace *>(
-                    p->getAddressSpace());
+                    process->getAddressSpace());
             uint64_t *otherPml4Entry =
                 TABLE_ENTRY(x64VAS->m_PhysicalPML4, pml4Index);
             *otherPml4Entry = thisPml4Entry;

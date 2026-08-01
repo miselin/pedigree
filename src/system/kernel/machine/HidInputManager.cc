@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/Machine.h"
@@ -28,12 +29,22 @@
 
 HidInputManager HidInputManager::m_Instance;
 
-HidInputManager::HidInputManager()
+HidInputManager::HidInputManager() : m_pTimer(nullptr)
 {
 }
 
 HidInputManager::~HidInputManager()
 {
+    Timer *timer = nullptr;
+    {
+        LockGuard<Spinlock> guard(m_KeyLock);
+        timer = m_pTimer;
+        m_pTimer = nullptr;
+    }
+    if (timer && !timer->unregisterHandler(this))
+    {
+        FATAL("HidInputManager could not drain its timer callback");
+    }
 }
 
 void HidInputManager::keyDown(uint8_t keyCode)
@@ -56,7 +67,17 @@ void HidInputManager::keyDown(uint8_t keyCode)
     {
         // If there was no key before, register the timer handler
         if (!m_KeyStates.count())
-            Machine::instance().getTimer()->registerHandler(this);
+        {
+            Timer *timer = Machine::instance().getTimer();
+            if (timer && timer->registerHandler(this))
+            {
+                m_pTimer = timer;
+            }
+            else
+            {
+                ERROR("HidInputManager could not register key repeat");
+            }
+        }
 
         // Resolve the key
         uint64_t key = keymapManager.resolveHidKeycode(keyCode);
@@ -121,8 +142,15 @@ void HidInputManager::timer(uint64_t delta, InterruptState &state)
     }
 
     // If we've got no more keys being held down, release the handler
-    if (!m_KeyStates.count())
-        Machine::instance().getTimer()->unregisterHandler(this);
+    if (!m_KeyStates.count() && m_pTimer)
+    {
+        Timer *timer = m_pTimer;
+        m_pTimer = nullptr;
+
+        // Self-removal is intentionally deferred until this callback returns.
+        // A new key can reactivate the same slot after m_KeyLock is released.
+        timer->unregisterHandler(this);
+    }
 }
 
 void HidInputManager::updateKeys()

@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
@@ -46,6 +47,113 @@ class Thread;
 class EXPORTED_PUBLIC Event
 {
   public:
+    /** Pins Event storage across one Thread::sendEvent admission attempt. */
+    class SendLease
+    {
+      public:
+        SendLease();
+        SendLease(SendLease &&other);
+        ~SendLease();
+
+        SendLease &operator=(SendLease &&other);
+
+        explicit operator bool() const
+        {
+            return m_pEvent != nullptr;
+        }
+
+      private:
+        friend class Event;
+        friend class Thread;
+
+        explicit SendLease(Event *event);
+        void reset();
+
+        SendLease(const SendLease &) = delete;
+        SendLease &operator=(const SendLease &) = delete;
+
+        Event *m_pEvent;
+    };
+
+    /**
+     * Keeps an Event alive while its owner removes every external source.
+     *
+     * Construction closes future delivery and registration admission. The
+     * destructor completes retirement, so callbacks cannot re-arm a raw Event
+     * pointer between source removal and deletion.
+     */
+    class Retirement
+    {
+      public:
+        Retirement();
+        Retirement(Retirement &&other);
+        ~Retirement();
+
+        Retirement &operator=(Retirement &&other);
+
+      private:
+        friend class Event;
+
+        explicit Retirement(Event *event);
+        void reset();
+
+        Retirement(const Retirement &) = delete;
+        Retirement &operator=(const Retirement &) = delete;
+
+        Event *m_pEvent;
+    };
+
+    /**
+     * Owns one event delivery after it has left a Thread's queue.
+     *
+     * The enqueue registration remains live until this object is destroyed,
+     * so an Event owner can safely wait for an in-flight scheduler delivery.
+     */
+    class Delivery
+    {
+      public:
+        Delivery();
+        Delivery(Delivery &&other);
+        ~Delivery();
+
+        Delivery &operator=(Delivery &&other);
+
+        Event *get() const
+        {
+            return m_pEvent;
+        }
+
+        Event *operator->() const
+        {
+            return m_pEvent;
+        }
+
+        explicit operator bool() const
+        {
+            return m_pEvent != nullptr;
+        }
+
+        /** Completes this delivery before the end of the enclosing scope. */
+        void reset();
+
+      private:
+        friend class Event;
+        friend class Thread;
+        friend class PerProcessorScheduler;
+
+        Delivery(Event *event, Thread *thread);
+        void beginDispatch();
+
+        Delivery(const Delivery &) = delete;
+        Delivery &operator=(const Delivery &) = delete;
+
+        Event *m_pEvent;
+        Thread *m_pThread;
+        Delivery *m_pPreviousActive;
+        Delivery *m_pNextActive;
+        bool m_bActive;
+    };
+
     /** Constructs an Event object.
         \param handlerAddress The address of the handling function.
         \param isDeletable Can the object be deleted after map()? This is used
@@ -135,18 +243,35 @@ class EXPORTED_PUBLIC Event
     Event(const Event &other);
     Event &operator=(const Event &other);
 
-    /** Register a thread with this object (to detect deletion while Thread
-     * still knows about it). */
-    void registerThread(Thread *thread);
-
-    /** Deregister a thread with this object. */
-    void deregisterThread(Thread *thread);
-
-    /** Gets the count of threads with this event currently pending delivery. */
+    /** Gets the number of queued or actively dispatched deliveries. */
     size_t pendingCount();
 
-    /** Waits until this event is no longer in any thread queues. */
+    /**
+     * Pins this Event while an external notification source stores its
+     * pointer. Returns an empty lease once retirement has begun.
+     */
+    bool tryAcquireRegistration(SendLease &registration);
+
+    /**
+     * Closes delivery admission and waits until every queued or active
+     * delivery has drained. Calling this from this Event's own active kernel
+     * handler is a contract violation; heap owners which can retire from a
+     * handler must use retire().
+     */
     virtual void waitForDeliveries();
+
+    /**
+     * Closes delivery admission and deletes this heap-owned Event after the
+     * final queued or active delivery drains. The caller must discard its
+     * pointer immediately.
+     */
+    void retire();
+
+    /**
+     * Begins retirement while keeping storage pinned so the owner can remove
+     * raw pointers from external notification registries.
+     */
+    void beginRetirement(Retirement &retirement);
 
   protected:
     /** Handler address. */
@@ -161,11 +286,53 @@ class EXPORTED_PUBLIC Event
     /** Magic number for verification. */
     uint64_t m_Magic;
 
-    /** Associated threads that have us in their queue. */
+    /** One entry per queued or actively dispatched delivery. */
     List<Thread *> m_Threads;
 
     /** Spinlock for controlling access to the thread list. */
     Spinlock m_Lock;
+
+  private:
+    friend class Thread;
+
+    /** Admits and pins one sender before it touches any other Event state. */
+    SendLease beginSend();
+    void endSend();
+    void finishRetirement();
+
+    /** Registers one enqueue while delivery admission remains open. */
+    bool registerThread(Thread *thread);
+
+    /** Deregisters exactly one enqueue without transferring ownership. */
+    void deregisterThread(Thread *thread);
+
+    /**
+     * Completes exactly one delivery. Deletable events are retired only after
+     * their final queued or active delivery releases its registration.
+     */
+    void completeDelivery(Thread *thread);
+
+    /** Tracks an Event::Delivery while its kernel callback is active. */
+    void beginDispatch(Delivery *delivery);
+    void endDispatch(Delivery *delivery);
+
+    /** A completed delivery requested deletion once all leases drain. */
+    bool m_DeleteWhenUnused;
+
+    /** No delivery can register after close-and-drain begins. */
+    bool m_DeliveriesClosed;
+
+    /** Exactly one owner may execute the permanent close-and-drain. */
+    bool m_DrainClaimed;
+
+    /** sendEvent calls admitted before close-and-drain. */
+    size_t m_SendersInFlight;
+
+    /** Intrusive active-callback list; Delivery owns the link storage. */
+    Delivery *m_pFirstActiveDelivery;
+
+    /** Waiters for the final queued or active delivery to drain. */
+    WaitQueue m_DeliveryWaiters;
 };
 
 #endif

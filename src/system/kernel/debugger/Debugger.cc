@@ -123,7 +123,7 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
 
     Log::LogEntry entry;
     entry << Log::Notice << " << Flushing log content >>";
-    Log::instance() << entry << Flush;
+    Log::instance().addEntry(entry);
 #if defined(VALGRIND) || defined(HAS_SANITIZERS)
     Processor::halt();
 #endif

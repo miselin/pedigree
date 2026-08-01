@@ -19,11 +19,17 @@
 
 #include "pedigree/kernel/process/Mutex.h"
 
-// NOTE, this is in its own file purely so that a vtable can be generated.
-Mutex::Mutex(bool bLocked) : Semaphore(bLocked ? 0 : 1)
+Mutex::Mutex() : Semaphore(1, false)
 {
+    initialiseMutex(false);
 }
 
 Mutex::~Mutex()
 {
+    destroyMutex();
+}
+
+bool Mutex::isOwnedByCurrentThread() const
+{
+    return mutexOwnedByCurrentThread();
 }

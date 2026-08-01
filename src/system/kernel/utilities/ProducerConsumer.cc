@@ -21,6 +21,7 @@
 
 #if PRODUCERCONSUMER_ASYNCHRONOUS
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/pocketknife.h"
 #endif
 
@@ -29,18 +30,42 @@ ProducerConsumer::ProducerConsumer() = default;
 ProducerConsumer::~ProducerConsumer()
 {
 #if PRODUCERCONSUMER_ASYNCHRONOUS
-    m_Lock.acquire();
-    if (m_Running)
+    if (m_pThreadHandle)
     {
-        m_Running = false;
-        m_Condition.signal();
-        m_Lock.release();
-
-        pocketknife::attachTo(m_pThreadHandle);
+        FATAL(
+            "ProducerConsumer destroyed before its most-derived destructor "
+            "stopped the worker.");
     }
-    else
+
+    // Tasks queued on an object that was never initialised are still owned by
+    // the base class and cannot have reached virtual consume().
+    for (auto it : m_Tasks)
+    {
+        delete it;
+    }
+#endif
+}
+
+void ProducerConsumer::destroy()
+{
+#if PRODUCERCONSUMER_ASYNCHRONOUS
+    m_Lock.acquire();
+    if (m_Destroyed)
     {
         m_Lock.release();
+        return;
+    }
+
+    m_Destroyed = true;
+    m_Running = false;
+    m_Condition.signal();
+    void *threadHandle = m_pThreadHandle;
+    m_pThreadHandle = nullptr;
+    m_Lock.release();
+
+    if (threadHandle)
+    {
+        pocketknife::attachTo(threadHandle);
     }
 
     // Clean up tasks that didn't get executed.
@@ -48,6 +73,7 @@ ProducerConsumer::~ProducerConsumer()
     {
         delete it;
     }
+    m_Tasks.clear();
 #endif
 }
 
@@ -56,6 +82,11 @@ bool ProducerConsumer::initialise()
 #if PRODUCERCONSUMER_ASYNCHRONOUS
     LockGuard<Mutex> guard(m_Lock);
 
+    if (m_Destroyed)
+    {
+        return false;
+    }
+
     if (m_Running)
     {
         return true;
@@ -63,7 +94,13 @@ bool ProducerConsumer::initialise()
 
     m_Running = true;
     m_pThreadHandle = pocketknife::runConcurrentlyAttached(thread, this);
-    return m_pThreadHandle != nullptr;
+    if (!m_pThreadHandle)
+    {
+        m_Running = false;
+        return false;
+    }
+
+    return true;
 #else
     return true;
 #endif
@@ -86,6 +123,12 @@ void ProducerConsumer::produce(
     task->p8 = p8;
 
     m_Lock.acquire();
+    if (m_Destroyed)
+    {
+        m_Lock.release();
+        delete task;
+        return;
+    }
     m_Tasks.pushBack(task);
     m_Condition.signal();
     m_Lock.release();
@@ -98,18 +141,25 @@ void ProducerConsumer::consumerThread()
 {
     LockGuard<Mutex> guard(m_Lock);
 
-    while (m_Running)
+    while (true)
     {
-        /// \todo should really use the result here.
-        m_Condition.wait(m_Lock);
+        while (m_Running && !m_Tasks.size())
+        {
+            ConditionVariable::Error error =
+                ConditionVariable::NoError;
+            if (!m_Condition.wait(m_Lock, error))
+            {
+                if (!ConditionVariable::mutexAcquired(error))
+                {
+                    guard.disown();
+                }
+                return;
+            }
+        }
 
         if (!m_Running)
         {
             break;
-        }
-        else if (!m_Tasks.size())
-        {
-            continue;
         }
 
         Task *task = m_Tasks.popFront();

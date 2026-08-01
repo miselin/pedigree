@@ -236,8 +236,10 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/KernelCoreSyscallManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/main.cc
     # /core/process/
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Completion.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/ConditionVariable.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Event.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/RelayEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/InfoBlock.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/initialiseMultitasking.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Ipc.cc
@@ -245,6 +247,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/MemoryPressureKiller.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/MemoryPressureManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Mutex.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/OperationBarrier.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/PerProcessorScheduler.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Process.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/ProcessorThreadAllocator.cc
@@ -254,10 +257,12 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/SchedulingAlgorithm.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Semaphore.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/SignalEvent.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/TerminationDeferral.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Thread.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/ThreadToCoreAllocationAlgorithm.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/TimeTracker.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Uninterruptible.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/WaitQueue.cc
     # /core/processor/
     ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/Disassembler.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/InterruptHandler.cc
@@ -336,6 +341,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/HidInputManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/InputManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/IrqHandler.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/machine/IrqHandlerRegistry.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/IrqManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/Keyboard.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/KeymapManager.cc
@@ -350,7 +356,6 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/network/IpAddress.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/network/MacAddress.cc
     # /time/
-    ${CMAKE_CURRENT_SOURCE_DIR}/time/Concurrent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/time/Conversion.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/time/Delay.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/time/Stopwatch.cc

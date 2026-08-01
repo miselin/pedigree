@@ -23,6 +23,7 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -33,15 +34,19 @@
 class Process;
 
 RequestQueue::RequestQueue(const String &name)
-    : m_Stop(false),
+    : m_pActiveRequest(nullptr), m_State(LifecycleState::Stopped),
 #if THREADS
-      m_RequestQueueMutex(false), m_pThread(0), m_Halted(false),
+      m_LifecycleMutex(), m_RequestQueueWaiters(), m_pThread(nullptr),
+      m_bWorkerReady(false), m_pOverrunTimer(nullptr),
 #endif
-      m_nMaxAsyncRequests(256), m_nAsyncRequests(0),
+      m_nMaxAsyncRequests(256), m_nAsyncRequests(0), m_nTotalRequests(0),
       m_Name(name.cstr(), name.length())
 {
-    for (size_t i = 0; i < REQUEST_QUEUE_NUM_PRIORITIES; i++)
-        m_pRequestQueue[i] = 0;
+    for (size_t i = 0; i < REQUEST_QUEUE_NUM_PRIORITIES; ++i)
+    {
+        m_pRequestQueue[i] = nullptr;
+        m_pRequestQueueTail[i] = nullptr;
+    }
 
 #if THREADS
     m_OverrunChecker.queue = this;
@@ -50,69 +55,191 @@ RequestQueue::RequestQueue(const String &name)
 
 RequestQueue::~RequestQueue()
 {
-    destroy();
+#if THREADS
+    bool active = false;
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        active = m_State != LifecycleState::Stopped || m_pThread ||
+                 m_pOverrunTimer || m_nTotalRequests;
+    }
+    if (active)
+    {
+        FATAL(
+            "RequestQueue '" << m_Name
+                             << "' reached its base destructor while active; "
+                                "the most-derived destructor must call "
+                                "destroy().");
+    }
+#endif
 }
 
 void RequestQueue::initialise()
 {
-// Start the worker thread.
-#if THREADS
-    if (m_pThread)
-    {
-        PEDANTRY("RequestQueue initialised multiple times - don't do this.");
-        return;
-    }
-
-    // Start RequestQueue workers in the kernel process only.
-    Process *pProcess = Scheduler::instance().getKernelProcess();
-
-    m_Stop = false;
-    m_pThread =
-        new Thread(pProcess, &trampoline, reinterpret_cast<void *>(this));
-    m_pThread->setName("RequestQueue worker");
-    m_Halted = false;
-
-    // Add our timer so we can figure out if we're not keeping up with
-    // synchronous requests
-    Timer *t = Machine::instance().getTimer();
-    if (t)
-    {
-        t->registerHandler(&m_OverrunChecker);
-    }
-#else
-    WARNING("RequestQueue: This build does not support threads");
-#endif
+    resume();
 }
+
+#if THREADS
+void RequestQueue::startWorker()
+{
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        if (m_State == LifecycleState::Accepting)
+        {
+            assert(m_pThread && m_bWorkerReady);
+            return;
+        }
+
+        if (
+            m_State == LifecycleState::Stopping || m_pThread ||
+            m_bWorkerReady)
+        {
+            ERROR(
+                "RequestQueue '" << m_Name << "' cannot start while stopping");
+            return;
+        }
+    }
+
+    Process *process = Scheduler::instance().getKernelProcess();
+    Thread *worker = new Thread(
+        process, &trampoline, reinterpret_cast<void *>(this), nullptr, false,
+        false, true);
+    worker->setName("RequestQueue worker");
+
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        assert(m_State == LifecycleState::Stopped);
+        assert(!m_pThread);
+        assert(!m_bWorkerReady);
+        m_State = LifecycleState::Accepting;
+        m_pThread = worker;
+        guard.wakeAll();
+    }
+
+    // The delayed worker cannot observe partially published queue state.
+    if (!worker->start())
+    {
+        FATAL("RequestQueue '" << m_Name << "' could not start its worker");
+    }
+
+    // A terminal request can retire a delayed Thread before its entry point
+    // runs. Do not publish a usable queue until work() has installed the
+    // queue-owned lifetime deferral.
+    while (true)
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        if (m_bWorkerReady)
+        {
+            break;
+        }
+        if (
+            m_State != LifecycleState::Accepting ||
+            m_pThread != worker)
+        {
+            FATAL(
+                "RequestQueue '" << m_Name
+                                 << "' lost its worker during startup");
+        }
+        const WaitQueue::WakeReason reason = guard.waitForCompletion(
+            WaitQueue::Channel(this, 2), Thread::CondWait,
+            reinterpret_cast<uintptr_t>(this));
+        (void) reason;
+    }
+}
+
+bool RequestQueue::stopWorker()
+{
+    Thread *worker = nullptr;
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        worker = m_pThread;
+        if (!worker)
+        {
+            m_State = LifecycleState::Stopped;
+            m_bWorkerReady = false;
+            return true;
+        }
+
+        if (worker == Processor::information().getCurrentThread())
+        {
+            ERROR("RequestQueue '" << m_Name << "' worker cannot halt itself");
+            return false;
+        }
+
+        if (m_State == LifecycleState::Accepting)
+        {
+            m_State = LifecycleState::Stopping;
+            guard.wakeAll();
+        }
+    }
+
+    if (!worker->joinForCompletion())
+    {
+        ERROR("RequestQueue '" << m_Name << "' could not join its worker");
+        return false;
+    }
+
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        m_pThread = nullptr;
+        m_State = LifecycleState::Stopped;
+        m_bWorkerReady = false;
+    }
+    return true;
+}
+#endif
 
 void RequestQueue::destroy()
 {
 #if THREADS
-    // Halt the queue - we're done.
-    halt();
-
-    // Clean up the queue in full.
-    m_RequestQueueMutex.acquire();
-    for (size_t i = 0; i < REQUEST_QUEUE_NUM_PRIORITIES; ++i)
+    TerminationDeferral terminationDeferral;
+    LockGuard<Mutex> lifecycleGuard(m_LifecycleMutex);
+    if (!stopWorker())
     {
-        Request *pRequest = m_pRequestQueue[i];
-
-        // No more requests at this priority, we're cleaning up.
-        m_pRequestQueue[i] = 0;
-
-        while (pRequest)
-        {
-            // Cancel the request, let the owner clean up.
-            pRequest->bReject = true;
-            pRequest->mutex.release();
-            pRequest = pRequest->next;
-        }
+        return;
     }
-    m_RequestQueueMutex.release();
 
-    Timer *t = Machine::instance().getTimer();
-    if (t)
+    if (m_pOverrunTimer)
     {
-        t->unregisterHandler(&m_OverrunChecker);
+        if (!m_pOverrunTimer->unregisterHandler(&m_OverrunChecker))
+        {
+            FATAL(
+                "RequestQueue '" << m_Name
+                                 << "' could not drain its timer callback");
+        }
+        m_pOverrunTimer = nullptr;
+    }
+
+    Request *cancelled = nullptr;
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        assert(!m_pActiveRequest);
+        for (size_t priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES;
+             ++priority)
+        {
+            Request *request = m_pRequestQueue[priority];
+            m_pRequestQueue[priority] = nullptr;
+            m_pRequestQueueTail[priority] = nullptr;
+
+            while (request)
+            {
+                Request *next = request->m_Next;
+                request->m_Next = cancelled;
+                cancelled = request;
+                request = next;
+            }
+        }
+        m_nTotalRequests = 0;
+        m_nAsyncRequests = 0;
+    }
+
+    while (cancelled)
+    {
+        Request *next = cancelled->m_Next;
+        cancelled->m_Next = nullptr;
+        cancelRequest(*cancelled);
+        completeRequest(cancelled, 0, true);
+        releaseRequest(cancelled);
+        cancelled = next;
     }
 #endif
 }
@@ -131,361 +258,468 @@ uint64_t RequestQueue::addRequest(
     uint64_t p8)
 {
 #if THREADS
-    // Create a new request object.
-    Request *pReq = new Request();
-    pReq->p1 = p1;
-    pReq->p2 = p2;
-    pReq->p3 = p3;
-    pReq->p4 = p4;
-    pReq->p5 = p5;
-    pReq->p6 = p6;
-    pReq->p7 = p7;
-    pReq->p8 = p8;
-    pReq->next = 0;
-    pReq->bReject = false;
-    pReq->refcnt = 1;
-    pReq->owner = this;
-    pReq->priority = priority;
+    Request *candidate =
+        new Request(priority, false, p1, p2, p3, p4, p5, p6, p7, p8);
 
-    // Do we own pReq?
-    bool bOwnRequest = true;
-
-    // Add to the request queue.
-    m_RequestQueueMutex.acquire();
-
-    if (m_pRequestQueue[priority] == 0)
-        m_pRequestQueue[priority] = pReq;
-    else
+    if (priority >= REQUEST_QUEUE_NUM_PRIORITIES)
     {
-        Request *p = m_pRequestQueue[priority];
-        while (p->next != 0)
-        {
-            // Wait for duplicates instead of re-inserting, if the compare
-            // function is defined.
-            if (compareRequests(*p, *pReq) && action != NewRequest)
-            {
-                bOwnRequest = false;
-                delete pReq;
-                pReq = p;
-                break;
-            }
-            p = p->next;
-        }
-
-        if (bOwnRequest && compareRequests(*p, *pReq) && action != NewRequest)
-        {
-            bOwnRequest = false;
-            delete pReq;
-            pReq = p;
-        }
-        else if (bOwnRequest)
-            p->next = pReq;
-    }
-
-    if (!bOwnRequest)
-    {
-        if (action == ReturnImmediately)
-        {
-            m_RequestQueueMutex.release();
-            return 0;
-        }
-        ++pReq->refcnt;
-    }
-    else
-    {
-        pReq->pThread = Processor::information().getCurrentThread();
-        pReq->pThread->addRequest(pReq);
-    }
-
-    ++m_nTotalRequests;
-
-    // One more item now available.
-    m_RequestQueueCondition.signal();
-    m_RequestQueueMutex.release();
-
-    // We are waiting on the worker thread - mark the thread as such.
-    Thread *pThread = Processor::information().getCurrentThread();
-    pThread->setBlockingThread(m_pThread);
-
-    if (pReq->bReject)
-    {
-        // Hmm, in the time the RequestQueueMutex was being acquired, we got
-        // pre-empted, and then an unexpected exit event happened. The request
-        // is to be rejected, so don't acquire the mutex at all.
-        if (!--pReq->refcnt)
-            delete pReq;
+        ERROR(
+            "RequestQueue '" << m_Name << "' rejected invalid priority "
+                             << priority);
+        discardRequest(candidate);
         return 0;
     }
 
-    // Wait for the request to be satisfied. This should sleep the thread.
-    pReq->mutex.acquire();
-
-    m_RequestQueueMutex.acquire();
-    --m_nTotalRequests;
-    m_RequestQueueMutex.release();
-
-    // Don't use the Thread object if it may be already freed
-    if (!pReq->bReject)
-        pThread->setBlockingThread(0);
-
-    if (pReq->bReject || pThread->wasInterrupted() ||
-        pThread->getUnwindState() == Thread::Exit)
+    Request *request = nullptr;
+    bool rejected = false;
+    bool executeInline = false;
     {
-        // The request was interrupted somehow. We cannot assume that pReq's
-        // contents are valid, so just return zero. The caller may have to redo
-        // their request.
-        // By releasing here, the worker thread can detect that the request was
-        // interrupted and clean up by itself.
-        NOTICE("RequestQueue::addRequest - interrupted");
-        if (pReq->bReject && !--pReq->refcnt)
-            delete pReq;  // Safe to delete, unexpected exit condition
+        auto guard = m_RequestQueueWaiters.acquire();
+        if (m_State != LifecycleState::Accepting)
+        {
+            rejected = true;
+        }
+        else if (m_pThread == Processor::information().getCurrentThread())
+        {
+            // A worker cannot wait for itself. Execute nested synchronous work
+            // inline after dropping the queue guard.
+            executeInline = true;
+        }
         else
-            pReq->mutex.release();
-        return 0;
+        {
+            if (action != NewRequest)
+            {
+                request = findDuplicate(*candidate);
+            }
+
+            if (request)
+            {
+                if (action == ReturnImmediately)
+                {
+                    rejected = true;
+                }
+                else
+                {
+                    retainRequest(request);
+                }
+            }
+            else
+            {
+                size_t requestPriority = candidate->m_Priority;
+                if (m_pRequestQueueTail[requestPriority])
+                {
+                    m_pRequestQueueTail[requestPriority]->m_Next = candidate;
+                }
+                else
+                {
+                    m_pRequestQueue[requestPriority] = candidate;
+                }
+                m_pRequestQueueTail[requestPriority] = candidate;
+                ++m_nTotalRequests;
+                guard.wakeOne();
+                request = candidate;
+                candidate = nullptr;
+            }
+        }
     }
 
-    // Grab the result.
-    uintptr_t ret = pReq->ret;
-
-    // Delete the request structure.
-    if (bOwnRequest && pReq->pThread)
-        pReq->pThread->removeRequest(pReq);
-    if (!--pReq->refcnt)
-        delete pReq;
-    else
-        pReq->mutex.release();
-
-    return ret;
+    if (executeInline)
+    {
+        delete candidate;
+        return executeRequest(p1, p2, p3, p4, p5, p6, p7, p8);
+    }
+    if (candidate)
+    {
+        discardRequest(candidate);
+    }
+    if (rejected)
+    {
+        return 0;
+    }
+    assert(request);
+    return waitForRequest(request);
 #else
+    if (priority >= REQUEST_QUEUE_NUM_PRIORITIES)
+    {
+        ERROR(
+            "RequestQueue '" << m_Name << "' rejected invalid priority "
+                             << priority);
+        Request *candidate =
+            new Request(priority, false, p1, p2, p3, p4, p5, p6, p7, p8);
+        discardRequest(candidate);
+        return 0;
+    }
     return executeRequest(p1, p2, p3, p4, p5, p6, p7, p8);
 #endif
-}
-
-int RequestQueue::doAsync(void *p)
-{
-    RequestQueue::Request *pReq = reinterpret_cast<RequestQueue::Request *>(p);
-
-    ++(pReq->owner->m_nAsyncRequests);
-
-    // Just return if the request is a duplicate, as our caller doesn't care and
-    // we're otherwise just using up another thread stack and burning time for
-    // no real reason.
-    uint64_t result = pReq->owner->addRequest(
-        pReq->priority, ReturnImmediately, pReq->p1, pReq->p2, pReq->p3,
-        pReq->p4, pReq->p5, pReq->p6, pReq->p7, pReq->p8);
-
-    --(pReq->owner->m_nAsyncRequests);
-
-    delete pReq;
-
-    return 0;
 }
 
 uint64_t RequestQueue::addAsyncRequest(
     size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
     uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
 {
-#if !THREADS
-    return addRequest(priority, p1, p2, p3, p4, p5, p6, p7, p8);
-#else
-    // Create a new request object.
-    Request *pReq = new Request();
-    pReq->p1 = p1;
-    pReq->p2 = p2;
-    pReq->p3 = p3;
-    pReq->p4 = p4;
-    pReq->p5 = p5;
-    pReq->p6 = p6;
-    pReq->p7 = p7;
-    pReq->p8 = p8;
-    pReq->next = 0;
-    pReq->bReject = false;
-    pReq->refcnt = 0;
-    pReq->owner = this;
-    pReq->priority = priority;
+    return addAsyncRequestInternal(priority, p1, p2, p3, p4, p5, p6, p7, p8);
+}
 
-    // We cannot block, so we just have to drop the request if the queue is
-    // already overloaded with async requests.
-    if (m_nAsyncRequests >= m_nMaxAsyncRequests)
+uint64_t RequestQueue::tryAddAsyncRequest(
+    size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
+    uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
+{
+    return addAsyncRequestInternal(priority, p1, p2, p3, p4, p5, p6, p7, p8);
+}
+
+uint64_t RequestQueue::addAsyncRequestInternal(
+    size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
+    uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
+{
+#if !THREADS
+    Request *request =
+        new Request(priority, true, p1, p2, p3, p4, p5, p6, p7, p8);
+    if (priority >= REQUEST_QUEUE_NUM_PRIORITIES)
+    {
+        ERROR(
+            "RequestQueue '" << m_Name << "' rejected invalid priority "
+                             << priority);
+        discardRequest(request);
+        return 0;
+    }
+    executeRequest(p1, p2, p3, p4, p5, p6, p7, p8);
+    delete request;
+    return 1;
+#else
+    Request *request =
+        new Request(priority, true, p1, p2, p3, p4, p5, p6, p7, p8);
+
+    if (priority >= REQUEST_QUEUE_NUM_PRIORITIES)
+    {
+        ERROR(
+            "RequestQueue '" << m_Name << "' rejected invalid priority "
+                             << priority);
+        discardRequest(request);
+        return 0;
+    }
+
+    bool rejected = false;
+    bool overloaded = false;
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        if (m_State != LifecycleState::Accepting)
+        {
+            rejected = true;
+        }
+        else if (findDuplicate(*request))
+        {
+            rejected = true;
+        }
+        else if (m_nAsyncRequests >= m_nMaxAsyncRequests)
+        {
+            rejected = true;
+            overloaded = true;
+        }
+        else
+        {
+            if (m_pRequestQueueTail[priority])
+            {
+                m_pRequestQueueTail[priority]->m_Next = request;
+            }
+            else
+            {
+                m_pRequestQueue[priority] = request;
+            }
+            m_pRequestQueueTail[priority] = request;
+            ++m_nAsyncRequests;
+            ++m_nTotalRequests;
+            guard.wakeOne();
+        }
+    }
+
+    if (overloaded)
     {
         ERROR(
             "RequestQueue: '" << m_Name
-                              << "' is not keeping up with demand for "
-                                 "async requests");
+                              << "' is not keeping up with async requests");
         ERROR(
             " -> priority=" << priority << ", p1=" << Hex << p1 << ", p2=" << p2
                             << ", p3=" << p3 << ", p4=" << p4);
         ERROR(
             " -> p5=" << Hex << p5 << ", p6=" << p6 << ", p7=" << p7
                       << ", p8=" << p8);
-        delete pReq;
+    }
+    if (rejected)
+    {
+        discardRequest(request);
         return 0;
     }
-
-    // Add to RequestQueue.
-    Process *pProcess = Scheduler::instance().getKernelProcess();
-    Thread *pThread =
-        new Thread(pProcess, &doAsync, reinterpret_cast<void *>(pReq));
-    pThread->setName("RequestQueue async request");
-    pThread->detach();
+    return 1;
 #endif
-
-    return 0;
 }
 
 void RequestQueue::halt()
 {
 #if THREADS
-    m_RequestQueueMutex.acquire();
-    if (!m_Halted)
-    {
-        m_Stop = true;
-        m_RequestQueueCondition.broadcast();
-
-        // Join now - we need to release the mutex so the worker thread can keep
-        // going, as it could be blocked on trying to acquire it right now.
-        m_RequestQueueMutex.release();
-        m_pThread->join();
-        m_RequestQueueMutex.acquire();
-
-        m_pThread = 0;
-        m_Halted = true;
-    }
-    m_RequestQueueMutex.release();
+    TerminationDeferral terminationDeferral;
+    LockGuard<Mutex> lifecycleGuard(m_LifecycleMutex);
+    stopWorker();
 #endif
 }
 
 void RequestQueue::resume()
 {
 #if THREADS
-    LockGuard<Mutex> guard(m_RequestQueueMutex);
+    TerminationDeferral terminationDeferral;
+    LockGuard<Mutex> lifecycleGuard(m_LifecycleMutex);
+    startWorker();
 
-    if (m_Halted)
+    if (!m_pOverrunTimer)
     {
-        initialise();
+        Timer *timer = Machine::instance().getTimer();
+        if (timer && timer->registerHandler(&m_OverrunChecker))
+        {
+            m_pOverrunTimer = timer;
+        }
     }
+#endif
+}
+
+RequestQueue::LifecycleState RequestQueue::getLifecycleState()
+{
+#if THREADS
+    auto guard = m_RequestQueueWaiters.acquire();
+#endif
+    return m_State;
+}
+
+bool RequestQueue::drain()
+{
+#if THREADS
+    TerminationDeferral terminationDeferral;
+    Thread *current = Processor::information().getCurrentThread();
+    while (true)
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        if (!m_nTotalRequests)
+        {
+            return true;
+        }
+        if (m_State != LifecycleState::Accepting)
+        {
+            ERROR(
+                "RequestQueue '" << m_Name
+                                 << "' cannot drain while it is stopping");
+            return false;
+        }
+        if (m_pThread == current)
+        {
+            ERROR("RequestQueue '" << m_Name << "' worker cannot drain itself");
+            return false;
+        }
+
+        const WaitQueue::WakeReason reason = guard.waitForCompletion(
+            WaitQueue::Channel(this, 1), Thread::CallbackDrain,
+            reinterpret_cast<uintptr_t>(this));
+        (void) reason;
+    }
+#else
+    return true;
 #endif
 }
 
 int RequestQueue::trampoline(void *p)
 {
-    RequestQueue *pRQ = reinterpret_cast<RequestQueue *>(p);
-    return pRQ->work();
+    RequestQueue *queue = reinterpret_cast<RequestQueue *>(p);
+    return queue->work();
 }
 
 RequestQueue::Request *RequestQueue::getNextRequest()
 {
-#if THREADS
-    // Must have the lock to be here.
-    assert(!m_RequestQueueMutex.getValue());
-#endif
-
-    // Get the most important queue with data in.
-    /// \todo Stop possible starvation here.
-    size_t priority = 0;
-    bool bFound = false;
-    for (priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES - 1; priority++)
+    for (size_t priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES;
+         ++priority)
     {
-        if (m_pRequestQueue[priority])
+        Request *request = m_pRequestQueue[priority];
+        if (!request)
         {
-            bFound = true;
+            continue;
+        }
+
+        m_pRequestQueue[priority] = request->m_Next;
+        if (!m_pRequestQueue[priority])
+        {
+            m_pRequestQueueTail[priority] = nullptr;
+        }
+        request->m_Next = nullptr;
+        return request;
+    }
+
+    return nullptr;
+}
+
+RequestQueue::Request *RequestQueue::findDuplicate(const Request &request)
+{
+    if (m_pActiveRequest &&
+        m_pActiveRequest->m_Priority == request.m_Priority &&
+        compareRequests(*m_pActiveRequest, request))
+    {
+        return m_pActiveRequest;
+    }
+
+    Request *queued = m_pRequestQueue[request.m_Priority];
+    while (queued)
+    {
+        if (compareRequests(*queued, request))
+        {
+            return queued;
+        }
+        queued = queued->m_Next;
+    }
+
+    return nullptr;
+}
+
+void RequestQueue::completeRequest(
+    Request *request, uint64_t returnValue, bool rejected)
+{
+#if THREADS
+    auto guard = request->m_Completion.acquire();
+    assert(!request->m_Completed);
+    request->m_ReturnValue = returnValue;
+    request->m_Rejected = rejected;
+    request->m_Completed = true;
+    guard.wakeAll();
+#else
+    request->m_ReturnValue = returnValue;
+    request->m_Rejected = rejected;
+    request->m_Completed = true;
+#endif
+}
+
+void RequestQueue::discardRequest(Request *request)
+{
+    cancelRequest(*request);
+    delete request;
+}
+
+#if THREADS
+void RequestQueue::retainRequest(Request *request)
+{
+    request->m_References += 1;
+}
+
+void RequestQueue::releaseRequest(Request *request)
+{
+    assert(static_cast<size_t>(request->m_References));
+    if ((request->m_References -= 1) == 0)
+    {
+        delete request;
+    }
+}
+
+uint64_t RequestQueue::waitForRequest(Request *request)
+{
+    uint64_t result = 0;
+
+    while (true)
+    {
+        auto guard = request->m_Completion.acquire();
+        if (request->m_Completed)
+        {
+            if (!request->m_Rejected)
+            {
+                result = request->m_ReturnValue;
+            }
             break;
         }
+
+        // A synchronous request transfers payload lifetime to the queue until
+        // execution completes. Signals and terminal teardown may wake this
+        // thread, but neither can make that completion contract optional.
+        WaitQueue::WakeReason reason = guard.waitForCompletion(
+            WaitQueue::Channel(), Thread::CondWait,
+            reinterpret_cast<uintptr_t>(request));
+        (void) reason;
     }
 
-    if (!bFound)
-    {
-        return 0;
-    }
-
-    Request *pReq = m_pRequestQueue[priority];
-    if (pReq != 0)
-    {
-        m_pRequestQueue[priority] = pReq->next;
-    }
-
-    return pReq;
+    releaseRequest(request);
+    return result;
 }
+#endif
 
 int RequestQueue::work()
 {
 #if THREADS
-    // Hold from the start - this will be released by the condition variable
-    // wait for us, and re-acquired on return, so we'll always have the lock
-    // until we explicitly release it.
-    m_RequestQueueMutex.acquire();
+    // The queue, not an unrelated terminal request, owns worker retirement.
+    // This prevents an idle death from leaving Accepting with no worker and
+    // prevents active executeRequest state from being abandoned.
+    TerminationDeferral workerLifetime;
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        if (
+            m_pThread != Processor::information().getCurrentThread() ||
+            m_State != LifecycleState::Accepting || m_bWorkerReady)
+        {
+            FATAL(
+                "RequestQueue '" << m_Name
+                                 << "' worker entered with invalid state");
+        }
+        m_bWorkerReady = true;
+        guard.wakeAll(
+            WaitQueue::WakeReason::Signalled,
+            WaitQueue::Channel(this, 2));
+    }
+
     while (true)
     {
-        // Do we need to stop?
-        if (m_Stop)
+        Request *request = nullptr;
         {
-            NOTICE("RequestQueue is terminating!");
-            m_RequestQueueMutex.release();
-            return 0;
-        }
-
-        Request *pReq = getNextRequest();
-        if (!pReq)
-        {
-            // Need to wait for another request.
-            /// \todo should handle errors properly here
-            m_RequestQueueCondition.wait(m_RequestQueueMutex);
-            continue;
-        }
-
-        // We have a request! We don't need to use the queue anymore.
-        m_RequestQueueMutex.release();
-
-        // Verify that it's still valid to run the request
-        if (!pReq->bReject)
-        {
-            // Perform the request.
-            bool finished = true;
-            pReq->ret = executeRequest(
-                pReq->p1, pReq->p2, pReq->p3, pReq->p4, pReq->p5, pReq->p6,
-                pReq->p7, pReq->p8);
-            if (pReq->mutex.tryAcquire())
+            auto guard = m_RequestQueueWaiters.acquire();
+            if (m_State != LifecycleState::Accepting)
             {
-                // Something's gone wrong - the calling thread has released the
-                // Mutex. Destroy the request and grab the next request from the
-                // queue. The calling thread has long since stopped caring about
-                // whether we're done or not.
-                NOTICE("RequestQueue::work - caller interrupted");
-                if (pReq->pThread)
-                    pReq->pThread->removeRequest(pReq);
-                finished = false;
+                m_State = LifecycleState::Stopped;
+                m_bWorkerReady = false;
+                return 0;
+            }
 
-                m_RequestQueueMutex.acquire();
+            request = getNextRequest();
+            if (!request)
+            {
+                WaitQueue::WakeReason reason = guard.waitForCompletion(
+                    WaitQueue::Channel(), Thread::CondWait,
+                    reinterpret_cast<uintptr_t>(this));
+                (void) reason;
                 continue;
             }
-            switch (
-                Processor::information().getCurrentThread()->getUnwindState())
-            {
-                case Thread::Continue:
-                    break;
-                case Thread::Exit:
-                    WARNING("RequestQueue: unwind state is Exit, request not "
-                            "cleaned up. Leak?");
-                    return 0;
-                case Thread::ReleaseBlockingThread:
-                    Processor::information().getCurrentThread()->setUnwindState(
-                        Thread::Continue);
-                    break;
-            }
 
-            // Request finished - post the request's mutex to wake the calling
-            // thread.
-            if (finished)
+            assert(!m_pActiveRequest);
+            m_pActiveRequest = request;
+        }
+
+        assert(request);
+
+        uint64_t result = executeRequest(
+            request->p1, request->p2, request->p3, request->p4, request->p5,
+            request->p6, request->p7, request->p8);
+        completeRequest(request, result, false);
+
+        {
+            auto guard = m_RequestQueueWaiters.acquire();
+            assert(m_pActiveRequest == request);
+            m_pActiveRequest = nullptr;
+            assert(m_nTotalRequests);
+            --m_nTotalRequests;
+            if (request->m_Asynchronous)
             {
-                pReq->bCompleted = true;
-                pReq->mutex.release();
+                assert(m_nAsyncRequests);
+                --m_nAsyncRequests;
+            }
+            if (!m_nTotalRequests)
+            {
+                guard.wakeAll(
+                    WaitQueue::WakeReason::Signalled,
+                    WaitQueue::Channel(this, 1));
             }
         }
 
-        // Acquire mutex ready to re-check condition.
-        // We do this here as the head of the loop must have the lock (to allow
-        // the condition variable to work with our lock correctly).
-        m_RequestQueueMutex.acquire();
+        // Drop the queue's ownership after removing the request from every
+        // location discoverable by duplicate detection.
+        releaseRequest(request);
     }
 #else
     return 0;
@@ -497,49 +731,39 @@ void RequestQueue::RequestQueueOverrunChecker::timer(
     uint64_t delta, InterruptState &)
 {
     m_Tick += delta;
-    if (delta < Time::Multiplier::Second)
+    if (m_Tick < Time::Multiplier::Second)
     {
         return;
     }
+    m_Tick %= Time::Multiplier::Second;
 
-    m_Tick -= Time::Multiplier::Second;
+    size_t lastSize = 0;
+    size_t currentSize = 0;
+    bool growing = false;
+    {
+        auto guard = queue->m_RequestQueueWaiters.acquire();
+        lastSize = m_LastQueueSize;
+        currentSize = queue->m_nTotalRequests;
+        if (queue->m_pActiveRequest && currentSize)
+        {
+            // A request already being executed is worker progress, not queue
+            // backlog. Long-running I/O must not look like newly accumulating
+            // work merely because it crosses a watchdog sample.
+            --currentSize;
+        }
+        bool accepting = queue->m_State == LifecycleState::Accepting;
+        m_LastQueueSize = currentSize;
+        growing = accepting && lastSize < currentSize;
+    }
 
-    queue->m_RequestQueueMutex.acquire();
-    size_t lastSize = m_LastQueueSize;
-    size_t currentSize = queue->m_nTotalRequests;
-    m_LastQueueSize = currentSize;
-    queue->m_RequestQueueMutex.release();
-
-    if (lastSize < currentSize)
+    if (growing)
     {
         FATAL(
             "RequestQueue '"
             << queue->m_Name
             << "' is NOT keeping up with incoming requests [1s ago we had "
-            << lastSize << " requests, now have " << currentSize << "]!");
+            << lastSize << " queued requests, now have " << currentSize
+            << "]!");
     }
 }
 #endif
-
-bool RequestQueue::isRequestValid(const Request *r)
-{
-#if THREADS
-    // Halted RequestQueue already has the RequestQueue mutex held.
-    LockGuard<Mutex> guard(m_RequestQueueMutex);
-#endif
-
-    for (size_t priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES - 1;
-         ++priority)
-    {
-        Request *pReq = m_pRequestQueue[priority];
-        while (pReq)
-        {
-            if (pReq == r)
-                return true;
-
-            pReq = pReq->next;
-        }
-    }
-
-    return false;
-}

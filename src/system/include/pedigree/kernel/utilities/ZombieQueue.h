@@ -30,6 +30,8 @@ class Process;
 /// the correct destructors called in MI situations.
 class ZombieObject
 {
+  public:
+    virtual ~ZombieObject() = default;
 };
 
 /// Special wrapper object for Process
@@ -61,6 +63,8 @@ class EXPORTED_PUBLIC ZombieQueue : public RequestQueue
     virtual uint64_t executeRequest(
         uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
         uint64_t p6, uint64_t p7, uint64_t p8);
+
+    virtual void cancelRequest(const Request &request);
 
     static ZombieQueue m_Instance;
 };

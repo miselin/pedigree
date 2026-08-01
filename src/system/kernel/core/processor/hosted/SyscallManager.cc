@@ -18,15 +18,18 @@
  */
 
 #include "SyscallManager.h"
-#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Process.h"
 
 HostedSyscallManager HostedSyscallManager::m_Instance;
+
+extern void system_reboot();
 
 SyscallManager &SyscallManager::instance()
 {
@@ -34,25 +37,14 @@ SyscallManager &SyscallManager::instance()
 }
 
 bool HostedSyscallManager::registerSyscallHandler(
-    Service_t Service, SyscallHandler *pHandler)
+    Service_t Service, SyscallHandler *pHandler,
+    Registration &registration)
 {
-    // Lock the class until the end of the function
-    LockGuard<Spinlock> lock(m_Lock);
-
-    if (UNLIKELY(Service >= serviceEnd))
-        return false;
-    if (UNLIKELY(pHandler != 0 && m_pHandler[Service] != 0))
-        return false;
-    if (UNLIKELY(pHandler == 0 && m_pHandler[Service] == 0))
-        return false;
-
-    m_pHandler[Service] = pHandler;
-    return true;
+    return registerHandler(Service, pHandler, registration);
 }
 
 void HostedSyscallManager::syscall(SyscallState &syscallState)
 {
-    SyscallHandler *pHandler;
     size_t serviceNumber = syscallState.getSyscallService();
 
     if (UNLIKELY(serviceNumber >= serviceEnd))
@@ -61,25 +53,92 @@ void HostedSyscallManager::syscall(SyscallState &syscallState)
         return;
     }
 
-    // Get the syscall handler
+    bool handled = false;
+    PostSyscallAction action;
     {
-        LockGuard<Spinlock> lock(m_Instance.m_Lock);
-        pHandler = m_Instance.m_pHandler[serviceNumber];
+        // The lease must retire before the deferral allows a pending terminal
+        // request to consume this thread's stack.
+        TerminationDeferral callbackDeferral;
+        HandlerLease handler;
+        if (m_Instance.acquireHandler(
+                static_cast<Service_t>(serviceNumber), handler,
+                action))
+        {
+            handled = true;
+            syscallState.setSyscallReturnValue(
+                handler.handler()->syscall(syscallState));
+            Thread *thread =
+                Processor::information().getCurrentThread();
+            syscallState.setSyscallErrno(thread->getErrno());
+            thread->setErrno(0);
+        }
     }
 
-    if (LIKELY(pHandler != 0))
+    if (handled)
     {
-        syscallState.setSyscallReturnValue(pHandler->syscall(syscallState));
-        syscallState.setSyscallErrno(
-            Processor::information().getCurrentThread()->getErrno());
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        if (
+            action.kind != NoPostSyscallAction &&
+            m_Instance.postSyscallHookHandled(action))
+        {
+            return;
+        }
+#endif
+        switch (action.kind)
+        {
+            case TerminateCurrentThread:
+                Processor::information()
+                    .getScheduler()
+                    .killCurrentThread();
+            case ExitCurrentProcess:
+                Processor::information()
+                    .getCurrentThread()
+                    ->getParent()
+                    ->getSubsystem()
+                    ->exit(static_cast<int>(action.value));
+                return;
+            case ReturnFromEvent:
+                Processor::information()
+                    .getScheduler()
+                    .eventHandlerReturned();
+            case PopEventState:
+                Processor::information()
+                    .getCurrentThread()
+                    ->abandonCurrentState(false);
+                break;
+            case RestoreProcessorState:
+                FATAL(
+                    "Processor-state restoration requested on hosted.");
+                return;
+            case JumpToUserspace:
+                Processor::information()
+                    .getCurrentThread()
+                    ->abandonAllStates();
+                Processor::jumpUser(
+                    nullptr, action.state.getInstructionPointer(),
+                    action.state.getStackPointer());
+            case RebootSystem:
+                Processor::information()
+                    .getCurrentThread()
+                    ->abandonAllStates();
+                system_reboot();
+                return;
+            case NoPostSyscallAction:
+                break;
+        }
 
-        if (Processor::information().getCurrentThread()->getUnwindState() ==
-            Thread::Exit)
+        Thread *pThread =
+            Processor::information().getCurrentThread();
+        const Thread::UnwindType unwindState =
+            pThread->getUnwindState();
+        if (unwindState == Thread::TerminateThread)
+        {
+            Processor::information().getScheduler().killCurrentThread();
+        }
+        if (unwindState == Thread::Exit)
         {
             NOTICE("Unwind state exit, in interrupt handler");
-            Processor::information()
-                .getCurrentThread()
-                ->getParent()
+            pThread->getParent()
                 ->getSubsystem()
                 ->exit(0);
         }
@@ -90,7 +149,16 @@ uintptr_t HostedSyscallManager::syscall(
     Service_t service, uintptr_t function, uintptr_t p1, uintptr_t p2,
     uintptr_t p3, uintptr_t p4, uintptr_t p5)
 {
-    return 0;
+    HostedSyscallState state = {};
+    state.service = service;
+    state.number = function;
+    state.p1 = p1;
+    state.p2 = p2;
+    state.p3 = p3;
+    state.p4 = p4;
+    state.p5 = p5;
+    syscall(state);
+    return state.result;
 }
 
 //
@@ -101,11 +169,8 @@ void HostedSyscallManager::initialiseProcessor()
 {
 }
 
-HostedSyscallManager::HostedSyscallManager() : m_Lock()
+HostedSyscallManager::HostedSyscallManager()
 {
-    // Initialise the pointers to the handler
-    for (size_t i = 0; i < serviceEnd; i++)
-        m_pHandler[i] = 0;
 }
 
 HostedSyscallManager::~HostedSyscallManager()

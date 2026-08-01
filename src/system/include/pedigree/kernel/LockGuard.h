@@ -68,6 +68,17 @@ class EXPORTED_PUBLIC LockGuard
             m_Lock.release();
     }
 
+    /** Stops managing the lock without releasing it. */
+    void disown()
+    {
+        m_bCondition = false;
+    }
+
+    bool ownsLock() const
+    {
+        return m_bCondition;
+    }
+
   private:
     LockGuard() = delete;
     NOT_COPYABLE_OR_ASSIGNABLE(LockGuard);

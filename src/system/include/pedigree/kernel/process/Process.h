@@ -23,8 +23,9 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/List.h"
@@ -40,6 +41,8 @@ class File;
 class User;
 class Group;
 class DynamicLinker;
+class ZombieProcess;
+class Scheduler;
 
 /**
  * An abstraction of a Process - a container for one or more threads all running
@@ -47,9 +50,58 @@ class DynamicLinker;
  */
 class EXPORTED_PUBLIC Process
 {
+    friend class PerProcessorScheduler;
+    friend class Scheduler;
     friend class Thread;
+    friend class ZombieProcess;
 
   public:
+    /**
+     * Pins one Thread together with its owning Process.
+     *
+     * Detached-thread deletion closes admission and drains these leases after
+     * the scheduler has switched off the target stack. Process destruction
+     * likewise drains the Process half before deleting retained Threads.
+     * Leases are thread-affine and must be released by their acquiring Thread.
+     */
+    class EXPORTED_PUBLIC ThreadLease
+    {
+      public:
+        ThreadLease();
+        ThreadLease(ThreadLease &&other);
+        ~ThreadLease();
+
+        ThreadLease &operator=(ThreadLease &&other);
+
+        Thread *get() const
+        {
+            return m_pThread;
+        }
+
+        Thread *operator->() const
+        {
+            return m_pThread;
+        }
+
+        explicit operator bool() const
+        {
+            return m_pThread != nullptr;
+        }
+
+        void reset();
+
+      private:
+        friend class Process;
+
+        ThreadLease(Process *process, Thread *thread);
+        ThreadLease(const ThreadLease &) = delete;
+        ThreadLease &operator=(const ThreadLease &) = delete;
+
+        Process *m_pProcess;
+        Thread *m_pThread;
+        TerminationDeferral m_TerminationDeferral;
+    };
+
     /** Subsystems may inherit Process to provide custom functionality. However,
      * they need to know whether a Process pointer is subsystem-specific. This
      * enumeration is designed to allow functions using Process objects in
@@ -99,8 +151,18 @@ class EXPORTED_PUBLIC Process
 
     /** Returns the number of threads in this process. */
     size_t getNumThreads();
-    /** Returns the n'th thread in this process. */
-    Thread *getThread(size_t n);
+    /**
+     * Pins the n'th thread in this process into \p lease.
+     * Any previous lease is released; failure leaves \p lease empty.
+     */
+    MUST_USE_RESULT bool acquireThread(ThreadLease &lease, size_t n);
+
+    /**
+     * Pins an expected Thread into \p lease if this Process still owns it.
+     * Any previous lease is released; failure leaves \p lease empty.
+     */
+    MUST_USE_RESULT bool acquireThread(
+        ThreadLease &lease, Thread *expected);
 
     /** Returns the process ID. */
     size_t getId()
@@ -131,13 +193,31 @@ class EXPORTED_PUBLIC Process
         return m_ExitStatus;
     }
 
-    /** Marks the process as reaped. */
-    void reap()
-    {
-        m_State = Reaped;
-    }
+    /**
+     * Marks the process as reaped.
+     *
+     * Callers must hold the parent's child-state wait guard so only one
+     * concurrent wait operation can claim the status.
+     */
+    void reap();
 
-    /** Kills the process. */
+    /**
+     * Atomically elects the current thread to own process exit and requests
+     * thread-only termination for every peer. Returns true only to the elected
+     * owner (including its nested-event re-entry).
+     */
+    bool beginTermination();
+
+    /**
+     * Claims shared teardown for the elected owner and waits until every peer
+     * is off-stack. Exactly one call can succeed.
+     */
+    bool quiesceTermination();
+
+    /** Completes an elected teardown and retires the current thread. */
+    void finishTermination() NORETURN;
+
+    /** Performs the complete election, quiesce, and teardown sequence. */
     void kill() NORETURN;
     /** Suspends the process. */
     void suspend();
@@ -147,7 +227,7 @@ class EXPORTED_PUBLIC Process
     /** Returns the parent process. */
     Process *getParent()
     {
-        return m_pParent;
+        return __atomic_load_n(&m_pParent, __ATOMIC_ACQUIRE);
     }
 
     /** Returns the current working directory. */
@@ -259,9 +339,19 @@ class EXPORTED_PUBLIC Process
         return Stock;
     }
 
-    void addWaiter(Semaphore *pWaiter);
-    void removeWaiter(Semaphore *pWaiter);
-    size_t waiterCount() const;
+    /**
+     * Serialises child-state inspection with blocking and with other waiters.
+     */
+    WaitQueue::Guard acquireChildStateWait()
+    {
+        return m_ChildStateWaiters.acquire();
+    }
+
+    /**
+     * Blocks a deferred reaper until the terminating thread is off-stack.
+     * Returns false rather than self-deadlocking if called by that thread.
+     */
+    bool waitUntilTerminationReapable();
 
     bool hasSuspended()
     {
@@ -278,13 +368,20 @@ class EXPORTED_PUBLIC Process
 
     ProcessState getState() const
     {
-        return m_State;
+        return __atomic_load_n(&m_State, __ATOMIC_ACQUIRE);
     }
 
-    void markTerminating()
+    bool isSuspended()
     {
-        m_State = Terminating;
+        return getState() == Suspended;
     }
+
+    void markTerminating();
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using TerminationElectionHook = void (*)(Process *, Thread *);
+    static void setTerminationElectionHook(TerminationElectionHook hook);
+#endif
 
     void trackHeap(ssize_t nBytes)
     {
@@ -414,6 +511,30 @@ class EXPORTED_PUBLIC Process
     /** Set the init process. */
     static void setInit(Process *pProcess);
 
+  protected:
+    /**
+     * Selects construction without scheduler publication. Derived Process
+     * classes must call publish() after all of their members are initialised.
+     */
+    struct DeferredPublication
+    {
+    };
+
+    Process(DeferredPublication);
+    Process(
+        DeferredPublication, Process *pParent, bool bCopyOnWrite = true);
+
+    /** Makes a completely constructed Process visible to enumeration. */
+    void publish();
+
+    /**
+     * Removes this process from enumeration and drains inspectors.
+     *
+     * Every derived destructor must call this before touching down its own
+     * members; the base destructor runs too late to protect derived storage.
+     */
+    void prepareForDestruction();
+
   private:
     Process(const Process &);
     Process &operator=(const Process &);
@@ -488,8 +609,38 @@ class EXPORTED_PUBLIC Process
     /** The subsystem for this process */
     Subsystem *m_pSubsystem;
 
-    /** Semaphores to release whenever we are killed, suspended, or resumed. */
-    List<Semaphore *> m_Waiters;
+    /** Waiters for state changes in any direct child of this process. */
+    WaitQueue m_ChildStateWaiters;
+
+    /** Completion used by deferred Process destruction. */
+    WaitQueue m_TerminationWaiters;
+
+    /** Predicate queue for the process stopped/running state. */
+    WaitQueue m_SuspensionWaiters;
+
+    /** Lifetime barrier for Thread::join operations using this process. */
+    WaitQueue m_ThreadJoinWaiters;
+
+    /** Join operations admitted before destruction closed the process. */
+    size_t m_nThreadJoinOperations;
+
+    /** Whether Process destruction has closed Thread::join admission. */
+    bool m_bThreadJoinAdmissionClosed;
+
+    /**
+     * Short predicate lock. Scheduler enumeration may nest this under the
+     * global scheduler lock; it is never held while waking lease drainers.
+     */
+    Spinlock m_ExternalLeaseLock;
+
+    /** Lifetime barrier for scheduler enumeration leases. */
+    WaitQueue m_ExternalLeaseWaiters;
+
+    /** Process leases admitted before scheduler removal. */
+    size_t m_nExternalLeases;
+
+    /** Whether scheduler removal has closed Process lease admission. */
+    bool m_bExternalLeaseAdmissionClosed;
 
     /** Whether we have suspended but not reported it. */
     bool m_bUnreportedSuspend;
@@ -501,16 +652,75 @@ class EXPORTED_PUBLIC Process
     ProcessState m_State;
 
     /**
-     * State we were in before suspend. Ensures if we were sleeping before,
-     * we still will be after a resume.
+     * Changes process state only if it still matches the expected state.
+     * Active and Suspended may alternate, but no caller may overwrite a
+     * terminal lifecycle transition.
      */
-    Thread::Status m_BeforeSuspendState;
+    bool transitionState(ProcessState expected, ProcessState desired);
+
+    /** Advances Active or Suspended to Terminating without downgrading. */
+    void transitionToTerminating();
+
+    /** Process destruction is iterating m_Threads and owns its cleanup. */
+    bool m_bDestroying;
+
+    /** Whether this object has been published to scheduler enumeration. */
+    bool m_bPublished;
+
+    /** Scheduler enumeration no longer contains this process. */
+    bool m_bUnregistered;
+
+    /** Thread that initiated exit, used to reject self-waiting destruction. */
+    Thread *m_pTerminatingThread;
+
+    /** Process-exit participants that have not yet switched off-stack. */
+    size_t m_nTerminationParticipants;
+
+    /** Process::kill has installed the complete live-thread rendezvous. */
+    bool m_bTerminationRendezvousStarted;
+
+    /** The elected owner has exclusively claimed shared process teardown. */
+    bool m_bTerminationCleanupStarted;
+
+    /** No further thread may join the rendezvous before publication. */
+    bool m_bTerminationSealed;
+
+    /** Whether the scheduler has completed the terminating thread switch. */
+    bool m_bTerminationReapable;
 
     /** Concurrency lock for complex Process data structures. */
     Spinlock m_Lock;
 
-    /** Releases all locks in m_Waiters once. */
-    void notifyWaiters();
+    /**
+     * Accounts for one process-exit participant after it is off-stack.
+     * The caller holds m_Lock. Returns true for the last participant and sets
+     * wakeOwner when an elected owner may be waiting for peer progress.
+     */
+    bool terminatingThreadReapable(Thread *pThread, bool &wakeOwner);
+
+    /** Publishes termination after the final participant is reapable. */
+    void publishTermination();
+
+    /** Pins this Process and its retained Thread objects for Thread::join. */
+    bool beginThreadJoin();
+
+    /** Releases a successful beginThreadJoin admission. */
+    void endThreadJoin();
+
+    /** Pins this Process while it remains in scheduler enumeration. */
+    bool beginExternalLease();
+
+    /** Releases a scheduler or ThreadLease pin. */
+    void endExternalLease();
+
+    /** Prevents any further ProcessLease or ThreadLease acquisition. */
+    void closeExternalLeaseAdmission();
+
+    /** Waits until all leases admitted before closure have left scope. */
+    void drainExternalLeases();
+
+    /** Releases both halves of an admitted ThreadLease. */
+    void releaseThreadLease(Thread *thread);
 
     /** Stores metadata about this process. */
     struct ProcessMetadata
@@ -555,8 +765,10 @@ class EXPORTED_PUBLIC Process
     /** Init process (terminated processes' children will reparent to this). */
     static Process *m_pInitProcess;
 
-  public:
-    Semaphore m_DeadThreads;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    static TerminationElectionHook m_TerminationElectionHook;
+#endif
+
 };
 
 #endif

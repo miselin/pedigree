@@ -18,6 +18,7 @@
  */
 
 #include "Pit.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
@@ -89,7 +90,13 @@ void Pit::uninitialise()
     if (m_IrqId != 0)
     {
         IrqManager &irqManager = *Machine::instance().getIrqManager();
-        irqManager.unregisterHandler(m_IrqId, this);
+        if (!irqManager.unregisterHandler(m_IrqId, this))
+        {
+            FATAL(
+                "PIT teardown could not synchronously unregister its IRQ "
+                "callback");
+        }
+        m_IrqId = 0;
     }
 
     // Free the PIT I/O range

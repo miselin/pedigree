@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/SyscallHandler.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -85,6 +86,7 @@ class EXPORTED_PUBLIC KernelCoreSyscallManager : public SyscallHandler
 
     /** Syscall lookup table for registerable syscalls. */
     SyscallCallback m_Functions[16];
+    SyscallManager::Registration m_Registration;
 };
 
 #endif

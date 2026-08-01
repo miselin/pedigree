@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -64,11 +65,15 @@ class InputEvent : public Event
 
 InputManager InputManager::m_Instance;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+InputManager::CallbackPinHook InputManager::m_CallbackPinHook = nullptr;
+#endif
+
 InputManager::InputManager()
     : m_InputQueue(), m_QueueLock(), m_Callbacks()
 #if THREADS
       ,
-      m_InputQueueSize(0), m_pThread(0)
+      m_InputQueueSize(0), m_pThread(0), m_pCallbackDispatchThread(nullptr)
 #endif
       ,
       m_bActive(false)
@@ -100,12 +105,42 @@ void InputManager::shutdown()
 
 #if THREADS
     m_InputQueueSize.release();
-    m_pThread->join();
+    if (m_pThread)
+    {
+        m_pThread->joinForCompletion();
+        m_pThread = nullptr;
+    }
 #endif
 
     // Clean up lists, in case anything came in while we were canceling.
-    m_Callbacks.clear();
-    m_InputQueue.clear();
+    Vector<CallbackItem *> callbacks;
+    Vector<InputNotification *> notifications;
+    m_QueueLock.acquire();
+    while (m_Callbacks.count())
+    {
+        CallbackItem *item = m_Callbacks.popFront();
+#if THREADS
+        if (item->inFlight)
+        {
+            FATAL("InputManager shut down with a pinned callback.");
+        }
+#endif
+        callbacks.pushBack(item);
+    }
+    while (m_InputQueue.count())
+    {
+        notifications.pushBack(m_InputQueue.popFront());
+    }
+    m_QueueLock.release();
+
+    for (auto item : callbacks)
+    {
+        delete item;
+    }
+    for (auto notification : notifications)
+    {
+        delete notification;
+    }
 }
 
 void InputManager::keyPressed(uint64_t key)
@@ -172,57 +207,81 @@ void InputManager::joystickUpdate(
 
 void InputManager::putNotification(InputNotification *note)
 {
-    // Early short-circuit - don't push onto the queue if no callbacks present.
-    if (m_Callbacks.count() == 0)
+#if THREADS
+    bool merged = false;
+    bool accepted = false;
+    m_QueueLock.acquire();
+    if (m_bActive && m_Callbacks.count())
+    {
+        // Mitigation keeps at most one queued relative-mouse notification.
+        if (note->type == Mouse)
+        {
+            for (auto queued : m_InputQueue)
+            {
+                if (queued->type != Mouse)
+                {
+                    continue;
+                }
+
+                queued->data.pointy.relx += note->data.pointy.relx;
+                queued->data.pointy.rely += note->data.pointy.rely;
+                queued->data.pointy.relz += note->data.pointy.relz;
+                for (size_t i = 0; i < 64; ++i)
+                {
+                    if (note->data.pointy.buttons[i])
+                    {
+                        queued->data.pointy.buttons[i] = true;
+                    }
+                }
+                merged = true;
+                break;
+            }
+        }
+
+        if (!merged)
+        {
+            m_InputQueue.pushBack(note);
+            accepted = true;
+        }
+    }
+    m_QueueLock.release();
+
+    if (merged)
+    {
+        delete note;
+        return;
+    }
+    if (!accepted)
     {
         WARNING("InputManager dropping input - no callbacks to send to!");
         delete note;
         return;
     }
 
-    LockGuard<Spinlock> guard(m_QueueLock);
-
-    // Can we mitigate this notification?
-    if (note->type == Mouse)
-    {
-        for (List<InputNotification *>::Iterator it = m_InputQueue.begin();
-             it != m_InputQueue.end(); it++)
-        {
-            if ((*it)->type == Mouse)
-            {
-                (*it)->data.pointy.relx += note->data.pointy.relx;
-                (*it)->data.pointy.rely += note->data.pointy.rely;
-                (*it)->data.pointy.relz += note->data.pointy.relz;
-
-                for (int i = 0; i < 64; i++)
-                {
-                    if (note->data.pointy.buttons[i])
-                        (*it)->data.pointy.buttons[i] = true;
-                }
-
-                // Merged, this precise logic means only one mouse event is ever
-                // in the queue, so it's safe to just return here.
-                return;
-            }
-        }
-    }
-
-#if THREADS
-    m_InputQueue.pushBack(note);
     m_InputQueueSize.release();
 #else
-    // No need for locking, as no threads exist
-    for (List<CallbackItem *>::Iterator it = m_Callbacks.begin();
-         it != m_Callbacks.end(); it++)
+    struct SynchronousCallback
     {
-        if (*it)
+        callback_t func;
+        void *meta;
+    };
+    Vector<SynchronousCallback> callbacks;
+
+    m_QueueLock.acquire();
+    for (auto item : m_Callbacks)
+    {
+        if (item && (item->filter & note->type))
         {
-            callback_t func = (*it)->func;
-            note->meta = (*it)->meta;
-            func(*note);
+            callbacks.pushBack({item->func, item->meta});
         }
     }
+    m_QueueLock.release();
 
+    for (auto callback : callbacks)
+    {
+        note->meta = callback.meta;
+        callback.func(*note);
+    }
     delete note;
 #endif
 }
@@ -231,7 +290,11 @@ void InputManager::installCallback(
     CallbackType filter, callback_t callback, void *meta, Thread *pThread,
     uintptr_t param)
 {
-    LockGuard<Spinlock> guard(m_QueueLock);
+    if (!callback)
+    {
+        return;
+    }
+
     CallbackItem *item = new CallbackItem;
     item->func = callback;
 #if THREADS
@@ -240,12 +303,24 @@ void InputManager::installCallback(
     item->nParam = param;
     item->filter = filter;
     item->meta = meta;
+#if THREADS
+    item->inFlight = 0;
+    item->enabled = true;
+    item->draining = false;
+    item->removers = 0;
+    item->deferredRemoval = false;
+#endif
+
+    LockGuard<Spinlock> guard(m_QueueLock);
     m_Callbacks.pushBack(item);
 }
 
 void InputManager::removeCallback(
     callback_t callback, void *meta, Thread *pThread)
 {
+#if THREADS
+    removeCallbacks(callback, meta, pThread, false);
+#else
     LockGuard<Spinlock> guard(m_QueueLock);
     for (List<CallbackItem *>::Iterator it = m_Callbacks.begin();
          it != m_Callbacks.end();)
@@ -266,31 +341,155 @@ void InputManager::removeCallback(
 
         ++it;
     }
+#endif
 }
 
 bool InputManager::removeCallbackByThread(Thread *pThread)
 {
 #if THREADS
-    LockGuard<Spinlock> guard(m_QueueLock);
-    for (List<CallbackItem *>::Iterator it = m_Callbacks.begin();
-         it != m_Callbacks.end();)
-    {
-        if (*it)
-        {
-            if (pThread == (*it)->pThread)
-            {
-                delete *it;
-                it = m_Callbacks.erase(it);
-                continue;
-            }
-        }
-
-        ++it;
-    }
-
+    return removeCallbacks(nullptr, nullptr, pThread, true);
+#else
     return false;
 #endif
 }
+
+#if THREADS
+bool InputManager::removeCallbacks(
+    callback_t callback, void *meta, Thread *pThread, bool byThread)
+{
+    if (byThread && !pThread)
+    {
+        return false;
+    }
+
+    TerminationDeferral terminationDeferral;
+    Vector<CallbackItem *> drain;
+    Vector<CallbackItem *> deleteNow;
+    bool removed = false;
+
+    Thread *current = Processor::information().getCurrentThread();
+    m_QueueLock.acquire();
+    const bool callbackContext =
+        current && current == m_pCallbackDispatchThread;
+
+    for (List<CallbackItem *>::Iterator it = m_Callbacks.begin();
+         it != m_Callbacks.end();)
+    {
+        CallbackItem *item = *it;
+        const bool matches =
+            byThread
+                ? item->pThread == pThread
+                : item->pThread == pThread && item->func == callback &&
+                      item->meta == meta;
+        if (!matches)
+        {
+            ++it;
+            continue;
+        }
+
+        removed = true;
+        item->enabled = false;
+
+        if (callbackContext)
+        {
+            if (!item->inFlight)
+            {
+                it = m_Callbacks.erase(it);
+                deleteNow.pushBack(item);
+            }
+            else
+            {
+                // A callback cannot drain its own snapshot pin. Keep the
+                // disabled item discoverable so an external remover can take
+                // over the synchronous drain before the callback returns.
+                if (!item->draining)
+                {
+                    item->deferredRemoval = true;
+                }
+                ++it;
+            }
+        }
+        else
+        {
+            item->deferredRemoval = false;
+            item->draining = true;
+            ++item->removers;
+            drain.pushBack(item);
+            ++it;
+        }
+    }
+    m_QueueLock.release();
+
+    for (auto item : deleteNow)
+    {
+        delete item;
+    }
+    for (auto item : drain)
+    {
+        drainCallback(item);
+    }
+
+    return removed;
+}
+
+void InputManager::drainCallback(CallbackItem *item)
+{
+    while (true)
+    {
+        bool complete = false;
+        {
+            auto waitGuard = item->drainWaiters.acquire();
+            m_QueueLock.acquire();
+            if (!item->inFlight)
+            {
+                complete = true;
+                m_QueueLock.release();
+            }
+            else
+            {
+                m_QueueLock.release();
+                const WaitQueue::WakeReason reason =
+                    waitGuard.waitForCompletion(
+                        WaitQueue::Channel(item), Thread::CallbackDrain,
+                        reinterpret_cast<uintptr_t>(item->func));
+                (void) reason;
+            }
+        }
+
+        if (complete)
+        {
+            break;
+        }
+    }
+
+    bool deleteItem = false;
+    m_QueueLock.acquire();
+    if (!item->removers)
+    {
+        FATAL("InputManager callback remover underflow.");
+    }
+    --item->removers;
+    if (!item->removers)
+    {
+        for (List<CallbackItem *>::Iterator it = m_Callbacks.begin();
+             it != m_Callbacks.end(); ++it)
+        {
+            if (*it == item)
+            {
+                m_Callbacks.erase(it);
+                deleteItem = true;
+                break;
+            }
+        }
+    }
+    m_QueueLock.release();
+
+    if (deleteItem)
+    {
+        delete item;
+    }
+}
+#endif
 
 int InputManager::trampoline(void *ptr)
 {
@@ -304,65 +503,156 @@ void InputManager::mainThread()
 #if THREADS
     while (isActive())
     {
-        m_InputQueueSize.acquire();
-        if (!m_InputQueue.count())
-            continue;  /// \todo Handle exit condition
-
-        m_QueueLock.acquire();
-        InputNotification *pNote = m_InputQueue.popFront();
-        m_QueueLock.release();
-
-        if (m_Callbacks.count() == 0)
+        if (!m_InputQueueSize.acquire())
         {
-            // Drop the input on the floor - no callbacks to read it in!
-            WARNING("InputManager dropping input - no callbacks to send to!");
-            delete pNote;
             continue;
         }
 
-        // Don't send the key to applications if it was zero
-        if (!pNote)
-            continue;
+        Vector<CallbackItem *> callbacks;
+        InputNotification *note = nullptr;
 
-        for (List<CallbackItem *>::Iterator it = m_Callbacks.begin();
-             it != m_Callbacks.end(); it++)
+        m_QueueLock.acquire();
+        if (m_InputQueue.count())
         {
-            if (*it)
+            note = m_InputQueue.popFront();
+        }
+        if (note)
+        {
+            for (auto item : m_Callbacks)
             {
-                if ((*it)->filter & pNote->type)
+                if (item && item->enabled && (item->filter & note->type))
                 {
-                    Thread *pThread = (*it)->pThread;
-                    callback_t func = (*it)->func;
-                    if (!pThread)
-                    {
-                        /// \todo Verify that the callback is in fact in the
-                        /// kernel
-                        pNote->meta = (*it)->meta;
-                        func(*pNote);
-                        continue;
-                    }
+                    ++item->inFlight;
+                    callbacks.pushBack(item);
+                }
+            }
+        }
+        m_QueueLock.release();
 
-                    InputEvent *pEvent = new InputEvent(
-                        pNote, (*it)->nParam,
-                        reinterpret_cast<uintptr_t>(func));
-                    NOTICE("InputManager: sending event " << pEvent << "!");
-                    if (!pThread->sendEvent(pEvent))
+        if (!note)
+        {
+            continue;
+        }
+
+        if (!callbacks.count())
+        {
+            WARNING("InputManager dropping input - no callbacks to send to!");
+            delete note;
+            continue;
+        }
+
+        TerminationDeferral dispatchDeferral;
+        Thread *current = Processor::information().getCurrentThread();
+        for (auto item : callbacks)
+        {
+            callback_t func = nullptr;
+            Thread *target = nullptr;
+            uintptr_t param = 0;
+            void *meta = nullptr;
+
+            m_QueueLock.acquire();
+            if (item->enabled)
+            {
+                func = item->func;
+                target = item->pThread;
+                param = item->nParam;
+                meta = item->meta;
+                m_pCallbackDispatchThread = current;
+            }
+            m_QueueLock.release();
+
+            if (func)
+            {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+                CallbackPinHook hook =
+                    __atomic_load_n(&m_CallbackPinHook, __ATOMIC_ACQUIRE);
+                if (hook)
+                {
+                    hook(func, meta);
+                }
+#endif
+
+                if (!target)
+                {
+                    note->meta = meta;
+                    func(*note);
+                }
+                else
+                {
+                    InputEvent *event = new InputEvent(
+                        note, param, reinterpret_cast<uintptr_t>(func));
+                    NOTICE("InputManager: sending event " << event << "!");
+                    if (!target->sendEvent(event))
                     {
-                        WARNING("InputManager - Thread::sendEvent failed, "
-                                "skipping this callback");
-                        delete pEvent;
+                        WARNING(
+                            "InputManager - Thread::sendEvent failed, "
+                            "skipping this callback");
+                        delete event;
                     }
                 }
+            }
+
+            bool deleteDeferred = false;
+            {
+                auto completionGuard = item->drainWaiters.acquire();
+                bool wakeDrainer = false;
+                m_QueueLock.acquire();
+                if (func)
+                {
+                    m_pCallbackDispatchThread = nullptr;
+                }
+                if (!item->inFlight)
+                {
+                    FATAL("InputManager callback pin underflow.");
+                }
+                --item->inFlight;
+                if (!item->inFlight)
+                {
+                    wakeDrainer = item->draining;
+                    deleteDeferred = item->deferredRemoval;
+                    if (deleteDeferred)
+                    {
+                        for (List<CallbackItem *>::Iterator it =
+                                 m_Callbacks.begin();
+                             it != m_Callbacks.end(); ++it)
+                        {
+                            if (*it == item)
+                            {
+                                m_Callbacks.erase(it);
+                                break;
+                            }
+                        }
+                    }
+                }
+                m_QueueLock.release();
+
+                if (wakeDrainer)
+                {
+                    completionGuard.wakeAll(
+                        WaitQueue::WakeReason::Signalled,
+                        WaitQueue::Channel(item));
+                }
+            }
+            if (deleteDeferred)
+            {
+                delete item;
             }
         }
 
         // Yield to run the events we just transmitted.
         Scheduler::instance().yield();
 
-        delete pNote;
+        delete note;
     }
 #endif
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void InputManager::setCallbackPinHook(CallbackPinHook hook)
+{
+    __atomic_store_n(&m_CallbackPinHook, hook, __ATOMIC_RELEASE);
+}
+#endif
 
 InputEvent::InputEvent(
     InputManager::InputNotification *pNote, uintptr_t param,

@@ -20,7 +20,6 @@
 #ifndef KERNEL_PROCESSOR_X64_SYSCALLMANAGER_H
 #define KERNEL_PROCESSOR_X64_SYSCALLMANAGER_H
 
-#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/Syscalls.h"
@@ -45,8 +44,9 @@ class X64SyscallManager : public ::SyscallManager
         return m_Instance;
     }
 
-    virtual bool
-    registerSyscallHandler(Service_t Service, SyscallHandler *pHandler);
+    virtual bool registerSyscallHandler(
+        Service_t Service, SyscallHandler *pHandler,
+        Registration &registration);
 
     /** Initialises this processors syscall handling
      *\note This should only be called from Processor::initialise1() and
@@ -74,12 +74,6 @@ class X64SyscallManager : public ::SyscallManager
     X64SyscallManager &operator=(const X64SyscallManager &);
     /** The destructor */
     virtual ~X64SyscallManager();
-
-    /** Spinlock protecting the member variables */
-    Spinlock m_Lock;
-
-    /** The syscall handlers */
-    SyscallHandler *m_pHandler[serviceEnd];
 
     /** The instance of the syscall manager  */
     static X64SyscallManager m_Instance;

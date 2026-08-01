@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/utilities/ZombieQueue.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/utilities/new"
 
@@ -29,6 +30,7 @@ ZombieQueue::ZombieQueue() : RequestQueue(MakeConstantString("ZombieQueue"))
 
 ZombieQueue::~ZombieQueue()
 {
+    RequestQueue::destroy();
 }
 
 ZombieQueue &ZombieQueue::instance()
@@ -53,11 +55,24 @@ uint64_t ZombieQueue::executeRequest(
     return 0;
 }
 
+void ZombieQueue::cancelRequest(const Request &request)
+{
+    delete reinterpret_cast<ZombieObject *>(request.p1);
+}
+
 ZombieProcess::ZombieProcess(Process *pProcess) : m_pProcess(pProcess)
 {
 }
 
 ZombieProcess::~ZombieProcess()
 {
+    if (!m_pProcess->waitUntilTerminationReapable())
+    {
+        WARNING(
+            "ZombieQueue rejected an exiting Process before its off-stack "
+            "completion; leaking it rather than deleting a live stack.");
+        return;
+    }
+    m_pProcess->prepareForDestruction();
     delete m_pProcess;
 }

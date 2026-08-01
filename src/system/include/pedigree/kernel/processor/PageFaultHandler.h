@@ -21,13 +21,17 @@
 #define KERNEL_CORE_PROCESSOR_PAGEFAULTHANDLER_H_
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
+#include "pedigree/kernel/process/DeferredScope.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/List.h"
 
 /** @addtogroup kernelprocessor
  * @{ */
+
+class Thread;
 
 class EXPORTED_PUBLIC MemoryTrapHandler
 {
@@ -58,11 +62,33 @@ class PageFaultHandler : private InterruptHandler
      * \return true if sucessful, false otherwise.  */
     bool initialise();
 
-    /** Registers a trap handler. */
-    void registerHandler(MemoryTrapHandler *pHandler)
-    {
-        m_Handlers.pushBack(pHandler);
-    }
+    /**
+     * Registers a trap handler.
+     *
+     * Duplicate handlers and registrations beyond the fixed registry capacity
+     * are rejected.
+     */
+    EXPORTED_PUBLIC bool registerHandler(MemoryTrapHandler *pHandler);
+
+    /**
+     * Stops new callbacks and waits for callbacks which already pinned the
+     * handler to return.
+     *
+     * A handler cannot synchronously drain its own active callback. Such a
+     * request returns false and retires the handler when that callback returns.
+     */
+    EXPORTED_PUBLIC bool unregisterHandler(MemoryTrapHandler *pHandler);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using HandlerPinHook = void (*)(MemoryTrapHandler *);
+
+    /** Installs a deterministic observer after a handler has been pinned. */
+    static EXPORTED_PUBLIC void setHandlerPinHook(HandlerPinHook hook);
+
+    /** Dispatches only the given handler through the production pin path. */
+    EXPORTED_PUBLIC bool
+    dispatchHandlerForTest(MemoryTrapHandler *pHandler);
+#endif
 
     //
     // InterruptHandler interface.
@@ -77,7 +103,52 @@ class PageFaultHandler : private InterruptHandler
      * Note not implemented.  */
     PageFaultHandler(const PageFaultHandler &);
 
-    List<MemoryTrapHandler *> m_Handlers;
+    bool dispatchHandlers(
+        InterruptState &state, uintptr_t address, bool bIsWrite,
+        MemoryTrapHandler *pOnlyHandler = nullptr);
+
+    static const size_t MaxMemoryTrapHandlers = 16;
+
+    struct HandlerSlot;
+
+    struct HandlerDispatch
+    {
+        void *owner;
+        PageFaultHandler *manager;
+        HandlerSlot *slot;
+        Thread *thread;
+        DeferredScopeRecord cleanup;
+        HandlerDispatch *next;
+    };
+
+    struct HandlerSlot
+    {
+        HandlerSlot()
+            : handler(nullptr), inFlight(0), enabled(false),
+              deferredRemoval(false), draining(false), dispatches(nullptr),
+              drainWaiters()
+        {
+        }
+
+        MemoryTrapHandler *handler;
+        size_t inFlight;
+        bool enabled;
+        bool deferredRemoval;
+        bool draining;
+        HandlerDispatch *dispatches;
+        WaitQueue drainWaiters;
+    };
+
+    static void abandonedHandlerCleanup(void *context);
+    void releaseDispatch(HandlerDispatch &dispatch, bool normalReturn);
+
+    /** Fixed storage keeps the fault path allocation-free. */
+    HandlerSlot m_Handlers[MaxMemoryTrapHandlers];
+    Spinlock m_HandlerLock;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    static HandlerPinHook m_HandlerPinHook;
+#endif
 
     /** The PageFaultHandler instance */
     EXPORTED_PUBLIC static PageFaultHandler m_Instance;

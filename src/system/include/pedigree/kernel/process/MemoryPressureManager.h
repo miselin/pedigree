@@ -20,10 +20,11 @@
 #ifndef MEMORY_PRESSURE_MANAGER_H
 #define MEMORY_PRESSURE_MANAGER_H
 
+#include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
 
 /** Maximum memory pressure handler priority (one list per priority level). */
@@ -38,7 +39,11 @@ class EXPORTED_PUBLIC MemoryPressureHandler
     MemoryPressureHandler();
     virtual ~MemoryPressureHandler();
 
-    virtual const String getMemoryPressureDescription() = 0;
+    /**
+     * Returns static storage so describing a recovery action cannot itself
+     * allocate memory.
+     */
+    virtual const char *getMemoryPressureDescription() = 0;
 
     /**
      * Called by MemoryPressureManager to request this handler to take
@@ -46,6 +51,23 @@ class EXPORTED_PUBLIC MemoryPressureHandler
      * \return true if pages were released, false otherwise.
      */
     virtual bool compact() = 0;
+
+  private:
+    friend class MemoryPressureManager;
+
+    MemoryPressureHandler *m_pPrevious;
+    MemoryPressureHandler *m_pNext;
+    size_t m_Priority;
+    size_t m_RegistrationSequence;
+    bool m_bRegistered;
+    bool m_bRemoving;
+
+#if THREADS
+    /** Callback lifetime state protected by m_CallbackWaiters' guard. */
+    size_t m_CallbacksInFlight;
+    const void *m_pCallbackOwner;
+    WaitQueue m_CallbackWaiters;
+#endif
 };
 
 /**
@@ -92,8 +114,20 @@ class EXPORTED_PUBLIC MemoryPressureManager
     /**
      * Attempt to alleviate memory pressure by requesting registered
      * handlers release pages that can be safely released.
+     *
+     * Registry state is never locked across a callback. A callback may
+     * register or remove another handler. Removing the currently executing
+     * handler from its own callback is rejected because a synchronous removal
+     * cannot wait for itself to finish.
      */
     bool compact();
+
+    /**
+     * True while the current execution context is already inside compact().
+     * Physical allocators use this to permit callback allocations without
+     * recursively starting another pressure pass.
+     */
+    bool compactingForCurrentExecution() const;
 
     /**
      * Register a new handler.
@@ -108,7 +142,15 @@ class EXPORTED_PUBLIC MemoryPressureManager
   private:
     static MemoryPressureManager m_Instance;
 
-    List<MemoryPressureHandler *> m_Handlers[MAX_MEMPRESSURE_PRIORITY];
+    Spinlock m_Lock;
+    MemoryPressureHandler *m_Handlers[MAX_MEMPRESSURE_PRIORITY];
+    MemoryPressureHandler *m_HandlerTails[MAX_MEMPRESSURE_PRIORITY];
+    size_t m_NextRegistrationSequence;
+    Atomic<bool> m_bCompacting;
+    const void *m_pCompactOwner;
+#if THREADS
+    WaitQueue m_CompactWaiters;
+#endif
 };
 
 #endif

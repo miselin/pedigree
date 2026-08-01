@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/StaticCord.h"
@@ -30,6 +31,7 @@
 class String;
 class StringView;
 class Cord;
+class Thread;
 
 /** @addtogroup kernel
  * @{ */
@@ -148,13 +150,6 @@ enum NumberType
     Oct
 };
 
-/** Modifiers for Log */
-enum Modifier
-{
-    /** Flush this log entry */
-    Flush,
-};
-
 /** Modifiers for LogEntry */
 enum LogEntryModifier
 {
@@ -218,25 +213,27 @@ class Log
     /** Initialises the default Log callback (to a serial port) */
     void initialise2();
 
-    /** Installs an output callback */
-    EXPORTED_PUBLIC void
+    /**
+     * Installs an output callback.
+     *
+     * A callback may only be registered once. Returns false for a null,
+     * duplicate, or full registration.
+     */
+    EXPORTED_PUBLIC bool
     installCallback(LogCallback *pCallback, bool bSkipBacklog = false);
 
-    /** Removes an output callback */
-    EXPORTED_PUBLIC void removeCallback(LogCallback *pCallback);
-
-    /** Adds an entry to the log. */
-    EXPORTED_PUBLIC Log &operator<<(const LogEntry &entry);
-
-    /** Modifier */
-    EXPORTED_PUBLIC Log &operator<<(Modifier type);
+    /**
+     * Closes a callback registration and drains committed invocations.
+     *
+     * Returns true once no invocation can still use the callback. A callback
+     * cannot drain its own stack frame, so self-removal closes the
+     * registration, defers final retirement until callback return, and
+     * returns false.
+     */
+    EXPORTED_PUBLIC bool removeCallback(LogCallback *pCallback);
 
     /** Adds an entry to the log and immediately flushes. */
-    EXPORTED_PUBLIC void
-    addEntry(const LogEntry &entry, bool lock = true, bool flush = true);
-
-    /** Perform a flush. */
-    void flushEntry(bool lock = true);
+    EXPORTED_PUBLIC void addEntry(const LogEntry &entry, bool lock = true);
 
     /** Get the number of static entries in the log.
      *\return the number of static entries in the log */
@@ -334,7 +331,32 @@ class Log
     void enableTimestamps();
     void disableTimestamps();
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using CallbackPinHook = void (*)(LogCallback *callback);
+    using EntrySnapshotHook = void (*)(const LogEntry &entry);
+
+    EXPORTED_PUBLIC static void setCallbackPinHook(CallbackPinHook hook);
+    EXPORTED_PUBLIC static void setEntrySnapshotHook(EntrySnapshotHook hook);
+#endif
+
   private:
+    struct CallbackSlot
+    {
+        LogCallback *callback;
+        size_t inFlight;
+        size_t removers;
+        bool enabled;
+        bool deferredRemoval;
+    };
+
+    struct CallbackPin
+    {
+        CallbackSlot *slot;
+        LogCallback *callback;
+        Thread *owner;
+        CallbackPin *next;
+    };
+
     /** Default constructor - does nothing. */
     Log();
     /** Default destructor - does nothing */
@@ -350,6 +372,19 @@ class Log
 
     const TinyStaticString &severityToString(SeverityLevel level) const;
 
+    size_t snapshotCallbacks(CallbackPin pins[LOG_CALLBACK_COUNT]);
+    bool pinCallback(CallbackSlot *slot, CallbackPin &pin);
+    bool callbackEnabled(const CallbackPin &pin);
+    void releaseCallback(CallbackPin &pin);
+    void dispatchCallbacks(
+        CallbackPin pins[LOG_CALLBACK_COUNT], size_t count,
+        const LogCord &message, bool locked);
+    void dispatchCallback(
+        CallbackSlot *slot, const LogCord &message, bool locked);
+    Thread *currentCallbackThread();
+    bool currentThreadOwnsPin(CallbackSlot *slot);
+    void clearCallback(CallbackSlot *slot);
+
     /** Static buffer of log messages. */
     StaticLogEntry m_StaticLog[LOG_ENTRIES];
     /** Dynamic buffer of log messages */
@@ -359,15 +394,13 @@ class Log
 
     size_t m_StaticEntryStart, m_StaticEntryEnd;
 
-    /** Temporary buffer which gets filled by calls to operator<<, and flushed
-     * by << Flush. */
-    StaticLogEntry m_Buffer;
-
     /** If we should output to serial */
     bool m_EchoToSerial;
 
-    /** Output callback list */
-    LogCallback *m_OutputCallbacks[LOG_CALLBACK_COUNT];
+    /** Callback registrations and their committed invocation pins. */
+    WaitQueue m_CallbackWaiters;
+    CallbackSlot m_OutputCallbacks[LOG_CALLBACK_COUNT];
+    CallbackPin *m_ActiveCallbackPins;
     size_t m_nOutputCallbacks;
 
     /** The Log instance (singleton class) */
@@ -404,6 +437,11 @@ class Log
     /** Dedupe information strings. */
     static NormalStaticString m_DedupeHead;
     static TinyStaticString m_DedupeTail;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    static CallbackPinHook m_CallbackPinHook;
+    static EntrySnapshotHook m_EntrySnapshotHook;
+#endif
 };
 
 /** @} */

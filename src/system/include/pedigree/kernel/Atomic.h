@@ -48,14 +48,23 @@ class EXPORTED_PUBLIC Atomic<T, true>
     }
     /** The copy-constructor
      *\param[in] x reference object */
-    inline Atomic(const Atomic &x) : m_Atom(x.m_Atom)
+    inline Atomic(const Atomic &x) : m_Atom(static_cast<T>(x))
     {
     }
     /** The assignment operator
      *\param[in] x reference object */
     inline Atomic &operator=(const Atomic &x)
     {
-        m_Atom = x.m_Atom;
+        return operator=(static_cast<T>(x));
+    }
+    /** Atomically stores a value. */
+    inline Atomic &operator=(T x)
+    {
+#if !TARGET_HAS_NO_ATOMICS
+        __atomic_store_n(&m_Atom, x, __ATOMIC_SEQ_CST);
+#else
+        m_Atom = x;
+#endif
         return *this;
     }
     /** The destructor does nothing */
@@ -145,12 +154,17 @@ class EXPORTED_PUBLIC Atomic<T, true>
      *\return the value of the Atomic */
     inline operator T() const
     {
+#if !TARGET_HAS_NO_ATOMICS
+        return __atomic_load_n(&m_Atom, __ATOMIC_SEQ_CST);
+#else
         return m_Atom;
+#endif
     }
 
-    const volatile T &value() const
+    /** Atomically loads the value without exposing the backing storage. */
+    T value() const
     {
-        return m_Atom;
+        return static_cast<T>(*this);
     }
 
     typedef T Type;
@@ -180,6 +194,12 @@ class EXPORTED_PUBLIC Atomic<bool, true> : public Atomic<processor_register_t>
     inline Atomic &operator=(const Atomic &x)
     {
         Atomic<processor_register_t>::operator=(x);
+        return *this;
+    }
+    /** Atomically stores a boolean value. */
+    inline Atomic &operator=(bool x)
+    {
+        Atomic<processor_register_t>::operator=(x ? 1 : 0);
         return *this;
     }
     /** The destructor does nothing */

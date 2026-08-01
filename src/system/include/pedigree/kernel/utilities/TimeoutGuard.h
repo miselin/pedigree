@@ -108,6 +108,9 @@ class EXPORTED_PUBLIC TimeoutGuard
     /** Saved nesting level. */
     size_t m_nLevel;
 
+    /** Cleanup records armed after the saved state must be abandoned. */
+    size_t m_StateCleanupCheckpoint;
+
     /** Our own personal lock. */
     Spinlock m_Lock;
 };

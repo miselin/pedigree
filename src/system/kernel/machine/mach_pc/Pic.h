@@ -22,13 +22,13 @@
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
 
 class Device;
@@ -56,7 +56,7 @@ class Pic : public IrqManager, private InterruptHandler
     virtual irq_id_t
     registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
     virtual void acknowledgeIrq(irq_id_t Id);
-    virtual void unregisterHandler(irq_id_t Id, IrqHandler *handler);
+    virtual bool unregisterHandler(irq_id_t Id, IrqHandler *handler);
 
     /** Initialises the PIC hardware and registers the interrupts with the
      *  InterruptManager.
@@ -100,8 +100,8 @@ class Pic : public IrqManager, private InterruptHandler
     /** The master PIC I/O Port range */
     IoPort m_MasterPort;
 
-    /** The IRQ handler */
-    List<IrqHandler *> m_Handler[16];
+    /** IRQ handlers and their callback lifetime state. */
+    IrqHandlerRegistry m_Handlers;
     /** Whether the IRQs are edge or level triggered */
     bool m_HandlerEdge[16];
     /** IRQ counts for given handlers */

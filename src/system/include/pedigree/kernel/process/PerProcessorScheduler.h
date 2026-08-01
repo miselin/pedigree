@@ -24,6 +24,7 @@
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -31,6 +32,7 @@
 
 class SchedulingAlgorithm;
 class Spinlock;
+class WaitQueue;
 
 class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
 {
@@ -43,16 +45,6 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
 
     /** Initialises the scheduler with the given thread. */
     void initialise(Thread *pThread);
-
-    /** Picks another thread to run, if there is one, and switches to it.
-        \param nextStatus The thread status to assign the current thread when
-                          it is swapped.
-        \param pNewThread Overrides the next thread to switch to.
-        \param pLock      Optional lock to release when the thread is safely
-                          locked. */
-    void schedule(
-        Thread::Status nextStatus = Thread::Ready, Thread *pNewThread = 0,
-        Spinlock *pLock = 0);
 
     /** Looks for event handlers to run, and if found, dispatches one.
         \param userStack The stack to use if the event has a user-mode handler.
@@ -82,13 +74,6 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
         \note This calls Thread::~Thread itself! */
     void killCurrentThread(Spinlock *pLock = 0) NORETURN;
 
-    /** Puts a thread to sleep.
-        \param pLock Optional, will release this lock when the thread is
-       successfully in the sleep state. \note This function is here because it
-       acts on the current thread. Its counterpart, wake(), is in Scheduler as
-       it could be called from any thread. */
-    void sleep(Spinlock *pLock = 0);
-
     /** TimerHandler callback. */
     void timer(uint64_t delta, InterruptState &state);
 
@@ -98,7 +83,21 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
 
     void setIdle(Thread *pThread);
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    /** Exercises the real add-worker predicate and owned shutdown path. */
+    bool runHostedNewThreadWorkerRegressions();
+#endif
+
   private:
+    friend class Scheduler;
+    friend class WaitQueue;
+
+    /** Picks another runnable thread and switches to it. */
+    void schedule(Thread::Status nextStatus = Thread::Ready);
+
+    /** Blocks the current thread after WaitQueue has published its wait record. */
+    void blockCurrent();
+
     /** Copy-constructor
      *  \note Not implemented - singleton class. */
     PerProcessorScheduler(const PerProcessorScheduler &);
@@ -116,6 +115,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
 
     static void deleteThread(Thread *pThread);
 
+    void startNewThreadWorker(Process *pParent);
+    void stopNewThreadWorker();
+
     /** The current SchedulingAlgorithm */
     SchedulingAlgorithm *m_pSchedulingAlgorithm;
 
@@ -123,8 +125,12 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
     ConditionVariable m_NewThreadDataCondition;
 
     List<void *> m_NewThreadData;
+    List<void *> m_DelayedNewThreadData;
+    bool m_NewThreadAdmissionOpen;
+    bool m_StopNewThreadWorker;
+    OwnedThread m_NewThreadWorker;
 
-    static int processorAddThread(void *instance) NORETURN;
+    static int processorAddThread(void *instance);
 
     Thread *m_pIdleThread;
 };

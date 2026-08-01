@@ -37,7 +37,7 @@ TimeoutGuard::TimeoutGuard(size_t timeoutSecs)
 #if THREADS
       m_State(),
 #endif
-      m_nLevel(0), m_Lock()
+      m_nLevel(0), m_StateCleanupCheckpoint(0), m_Lock()
 {
 #if THREADS
     if (timeoutSecs)
@@ -50,6 +50,8 @@ TimeoutGuard::TimeoutGuard(size_t timeoutSecs)
         Machine::instance().getTimer()->addAlarm(m_pEvent, timeoutSecs);
 
         // Generate the SchedulerState to restore to.
+        m_StateCleanupCheckpoint =
+            pThread->stateCleanupCheckpoint();
         Processor::saveState(m_State);
     }
 #else
@@ -68,7 +70,8 @@ TimeoutGuard::~TimeoutGuard()
     if (m_pEvent)
     {
         Machine::instance().getTimer()->removeAlarm(m_pEvent);
-        // Ensure that the event isn't queued.
+        // Exact-event culling retains caller ownership even when the event is
+        // deletable, so cancellation has one unambiguous delete site.
         Processor::information().getCurrentThread()->cullEvent(m_pEvent);
         delete m_pEvent;
         m_pEvent = 0;
@@ -84,6 +87,9 @@ void TimeoutGuard::cancel()
 
     m_pEvent = 0;
 
+    Processor::information()
+        .getCurrentThread()
+        ->retireDeferredScopesAfter(m_StateCleanupCheckpoint);
     Processor::restoreState(m_State);
 #endif
 }

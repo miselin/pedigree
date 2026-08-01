@@ -24,7 +24,10 @@
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/StaticCord.h"
 #include "pedigree/kernel/utilities/Cord.h"
@@ -74,12 +77,17 @@ static size_t g_RepeatedLengths[] = {
 
 static const size_t g_NumRepeatedStrings = 20;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+Log::CallbackPinHook Log::m_CallbackPinHook = nullptr;
+Log::EntrySnapshotHook Log::m_EntrySnapshotHook = nullptr;
+#endif
+
 Log::Log()
     :
       m_Lock(),
       m_StaticLog(), m_StaticEntries(0), m_StaticEntryStart(0), m_StaticEntryEnd(0),
-      m_Buffer(),
       m_EchoToSerial(LOG_TO_SERIAL),
+      m_CallbackWaiters(), m_OutputCallbacks(), m_ActiveCallbackPins(nullptr),
       m_nOutputCallbacks(0),
       m_LastEntryHash(0),
       m_LastEntrySeverity(Fatal),
@@ -89,7 +97,11 @@ Log::Log()
 {
     for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
     {
-        m_OutputCallbacks[i] = nullptr;
+        m_OutputCallbacks[i].callback = nullptr;
+        m_OutputCallbacks[i].inFlight = 0;
+        m_OutputCallbacks[i].removers = 0;
+        m_OutputCallbacks[i].enabled = false;
+        m_OutputCallbacks[i].deferredRemoval = false;
     }
 }
 
@@ -139,83 +151,343 @@ void Log::initialise2()
     }
 }
 
-void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
+bool Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
 {
+    if (!pCallback)
     {
-        LockGuard<Spinlock> guard(m_Lock);
-        bool ok = false;
+        return false;
+    }
+
+    CallbackSlot *slot = nullptr;
+    size_t entry = 0;
+    size_t remaining = 0;
+    {
+        // Registration and its backlog boundary are one transaction with
+        // entry publication. An entry is therefore delivered either through
+        // the captured backlog or through normal dispatch, never neither.
+        LockGuard<Spinlock> logGuard(m_Lock);
+        auto callbackGuard = m_CallbackWaiters.acquire();
         for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
         {
-            if (m_OutputCallbacks[i] == nullptr)
+            if (m_OutputCallbacks[i].callback == pCallback)
             {
-                m_OutputCallbacks[i] = pCallback;
+                return false;
+            }
+        }
+
+        for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
+        {
+            if (!m_OutputCallbacks[i].callback)
+            {
+                slot = &m_OutputCallbacks[i];
+                slot->callback = pCallback;
+                slot->inFlight = 0;
+                slot->removers = 0;
+                slot->enabled = true;
+                slot->deferredRemoval = false;
                 ++m_nOutputCallbacks;
-                ok = true;
                 break;
             }
         }
 
-        if (!ok)
+        if (!slot)
         {
-            /// \todo installCallback should return success/failure
-            return;
+            return false;
         }
+
+        entry = m_StaticEntryStart;
+        remaining = m_StaticEntries;
     }
 
     // Some callbacks want to skip a (potentially) massive backlog
     if (bSkipBacklog)
-        return;
+        return true;
 
     // Call the callback for the existing, flushed, log entries
-    size_t entry = m_StaticEntryStart;
-    LogCord msg;
-    while (1)
+    while (remaining--)
     {
-        msg.clear();
-
-        if (entry == m_StaticEntryEnd)
+        StaticLogEntry backlogEntry;
+        NormalStaticString timestamp;
+        bool timestamps = false;
         {
-            break;
+            LockGuard<Spinlock> guard(m_Lock);
+            backlogEntry = m_StaticLog[entry];
+            timestamps = m_Timestamps;
+            if (timestamps)
+            {
+                timestamp = getTimestamp();
+            }
         }
-        else if (m_StaticLog[entry].str.length())
+
+        if (backlogEntry.str.length())
         {
+            LogCord msg;
             msg.append("(backlog) ", 10);
 
-            const TinyStaticString &severity = severityToString(m_StaticLog[entry].severity);
+            const TinyStaticString &severity =
+                severityToString(backlogEntry.severity);
             msg.append(severity, severity.length());
-            if (m_Timestamps)
+            if (timestamps && timestamp.length())
             {
-                const NormalStaticString &ts = getTimestamp();
-                if (ts.length())
-                {
-                    msg.append(ts, ts.length());
-                }
+                msg.append(timestamp, timestamp.length());
             }
-            msg.append(m_StaticLog[entry].str, m_StaticLog[entry].str.length());
+            msg.append(backlogEntry.str, backlogEntry.str.length());
             msg.append(m_LineEnding, m_LineEnding.length());
-            bool locked = !m_StaticLog[entry].lockfree;
+            bool locked = !backlogEntry.lockfree;
 
             /// \note This could send a massive batch of log entries on the
             ///       callback. If the callback isn't designed to handle big
             ///       buffers this may fail.
-            pCallback->callback(msg, locked);
+            dispatchCallback(slot, msg, locked);
         }
 
         entry = (entry + 1) % LOG_ENTRIES;
     }
+
+    return true;
 }
-void Log::removeCallback(LogCallback *pCallback)
+
+bool Log::removeCallback(LogCallback *pCallback)
 {
-    LockGuard<Spinlock> guard(m_Lock);
-    for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
+    if (!pCallback)
     {
-        if (m_OutputCallbacks[i] == pCallback)
+        return true;
+    }
+
+    TerminationDeferral terminationDeferral;
+    CallbackSlot *slot = nullptr;
+    bool removerRegistered = false;
+
+    while (true)
+    {
+        auto guard = m_CallbackWaiters.acquire();
+        if (!slot)
         {
-            m_OutputCallbacks[i] = nullptr;
-            --m_nOutputCallbacks;
-            break;
+            for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
+            {
+                if (m_OutputCallbacks[i].callback == pCallback)
+                {
+                    slot = &m_OutputCallbacks[i];
+                    break;
+                }
+            }
+
+            if (!slot)
+            {
+                return true;
+            }
+        }
+
+        if (slot->enabled)
+        {
+            slot->enabled = false;
+            if (m_nOutputCallbacks)
+            {
+                --m_nOutputCallbacks;
+            }
+        }
+
+        // Waiting for a pin owned by this thread would deadlock the callback
+        // stack. Admission is already closed; the final pin retires the slot.
+        if (currentThreadOwnsPin(slot))
+        {
+            slot->deferredRemoval = true;
+            return false;
+        }
+
+        if (!removerRegistered)
+        {
+            ++slot->removers;
+            removerRegistered = true;
+        }
+
+        if (!slot->inFlight)
+        {
+            if (slot->removers)
+            {
+                --slot->removers;
+            }
+            if (!slot->removers)
+            {
+                clearCallback(slot);
+            }
+            return true;
+        }
+
+#if THREADS
+        const WaitQueue::WakeReason reason = guard.waitForCompletion(
+            WaitQueue::Channel(slot), Thread::CallbackDrain,
+            reinterpret_cast<uintptr_t>(pCallback));
+        (void) reason;
+#else
+        // A single-threaded build can only reach this through its own
+        // synchronous callback stack.
+        slot->deferredRemoval = true;
+        return false;
+#endif
+    }
+}
+
+Thread *Log::currentCallbackThread()
+{
+#if THREADS
+    return Processor::information().getCurrentThread();
+#else
+    return nullptr;
+#endif
+}
+
+bool Log::currentThreadOwnsPin(CallbackSlot *slot)
+{
+    Thread *current = currentCallbackThread();
+    for (CallbackPin *pin = m_ActiveCallbackPins; pin; pin = pin->next)
+    {
+        if (pin->slot == slot && pin->owner == current)
+        {
+            return true;
         }
     }
+    return false;
+}
+
+void Log::clearCallback(CallbackSlot *slot)
+{
+    slot->callback = nullptr;
+    slot->inFlight = 0;
+    slot->removers = 0;
+    slot->enabled = false;
+    slot->deferredRemoval = false;
+}
+
+size_t Log::snapshotCallbacks(CallbackPin pins[LOG_CALLBACK_COUNT])
+{
+    auto guard = m_CallbackWaiters.acquire();
+    Thread *owner = currentCallbackThread();
+    size_t count = 0;
+    for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
+    {
+        CallbackSlot *slot = &m_OutputCallbacks[i];
+        if (!slot->callback || !slot->enabled)
+        {
+            continue;
+        }
+
+        CallbackPin &pin = pins[count++];
+        pin.slot = slot;
+        pin.callback = slot->callback;
+        pin.owner = owner;
+        pin.next = m_ActiveCallbackPins;
+        m_ActiveCallbackPins = &pin;
+        ++slot->inFlight;
+    }
+    return count;
+}
+
+bool Log::pinCallback(CallbackSlot *slot, CallbackPin &pin)
+{
+    auto guard = m_CallbackWaiters.acquire();
+    if (!slot->callback || !slot->enabled)
+    {
+        return false;
+    }
+
+    pin.slot = slot;
+    pin.callback = slot->callback;
+    pin.owner = currentCallbackThread();
+    pin.next = m_ActiveCallbackPins;
+    m_ActiveCallbackPins = &pin;
+    ++slot->inFlight;
+    return true;
+}
+
+bool Log::callbackEnabled(const CallbackPin &pin)
+{
+    auto guard = m_CallbackWaiters.acquire();
+    return pin.slot->enabled && pin.slot->callback == pin.callback;
+}
+
+void Log::releaseCallback(CallbackPin &pin)
+{
+    auto guard = m_CallbackWaiters.acquire();
+
+    CallbackPin **cursor = &m_ActiveCallbackPins;
+    while (*cursor && *cursor != &pin)
+    {
+        cursor = &((*cursor)->next);
+    }
+    if (*cursor == &pin)
+    {
+        *cursor = pin.next;
+    }
+
+    CallbackSlot *slot = pin.slot;
+    if (slot->inFlight)
+    {
+        --slot->inFlight;
+    }
+
+    if (!slot->enabled && !slot->inFlight)
+    {
+        if (slot->removers)
+        {
+            guard.wakeAll(
+                WaitQueue::WakeReason::Signalled,
+                WaitQueue::Channel(slot));
+        }
+        else if (slot->deferredRemoval)
+        {
+            clearCallback(slot);
+        }
+    }
+
+    pin.slot = nullptr;
+    pin.callback = nullptr;
+    pin.owner = nullptr;
+    pin.next = nullptr;
+}
+
+void Log::dispatchCallbacks(
+    CallbackPin pins[LOG_CALLBACK_COUNT], size_t count,
+    const LogCord &message, bool locked)
+{
+    for (size_t i = 0; i < count; ++i)
+    {
+        CallbackPin &pin = pins[i];
+        if (callbackEnabled(pin))
+        {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+            CallbackPinHook hook =
+                __atomic_load_n(&m_CallbackPinHook, __ATOMIC_ACQUIRE);
+            if (hook)
+            {
+                hook(pin.callback);
+            }
+#endif
+            pin.callback->callback(message, locked);
+        }
+        releaseCallback(pin);
+    }
+}
+
+void Log::dispatchCallback(
+    CallbackSlot *slot, const LogCord &message, bool locked)
+{
+    CallbackPin pin = {};
+    if (!pinCallback(slot, pin))
+    {
+        return;
+    }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    CallbackPinHook hook =
+        __atomic_load_n(&m_CallbackPinHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(pin.callback);
+    }
+#endif
+    pin.callback->callback(message, locked);
+    releaseCallback(pin);
 }
 
 size_t Log::getStaticEntryCount() const
@@ -391,39 +663,23 @@ template Log::LogEntry &Log::LogEntry::operator<<(unsigned long);
 template Log::LogEntry &Log::LogEntry::operator<<(long long);
 template Log::LogEntry &Log::LogEntry::operator<<(unsigned long long);
 
-Log &Log::operator<<(const LogEntry &entry)
-{
-    m_Buffer = entry;
-    return *this;
-}
-
-Log &Log::operator<<(Modifier type)
-{
-    // Flush the buffer.
-    if (type == Flush)
-    {
-        flushEntry();
-    }
-
-    return *this;
-}
-
-void Log::addEntry(const LogEntry &entry, bool lock, bool flush)
-{
-    m_Buffer = entry;
-    if (flush)
-    {
-        flushEntry(lock);
-    }
-}
-
-void Log::flushEntry(bool lock)
+void Log::addEntry(const LogEntry &source, bool lock)
 {
     static bool handlingFatal = false;
 
+    StaticLogEntry entry = source;
     LogCord msg;
     TinyStaticString repeated;
+    NormalStaticString timestamp;
+    CallbackPin callbackPins[LOG_CALLBACK_COUNT] = {};
     msg.clear();
+
+    size_t outputCallbackCount = 0;
+    bool suppressOutput = false;
+    bool wasRepeated = false;
+    uint64_t repeatedTimes = 0;
+    bool showTimestamp = false;
+    bool shouldPanic = false;
 
     if (lock)
         m_Lock.acquire();
@@ -435,54 +691,76 @@ void Log::flushEntry(bool lock)
     else
         m_StaticEntries++;
 
-    m_StaticLog[m_StaticEntryEnd] = m_Buffer;
+    m_StaticLog[m_StaticEntryEnd] = entry;
     m_StaticEntryEnd = (m_StaticEntryEnd + 1) % LOG_ENTRIES;
 
-    // no need for lock anymore - all tracked now
-    // remaining work hits callbacks which can lock themselves
-    if (lock)
-        m_Lock.release();
-
-    if (m_nOutputCallbacks)
+    outputCallbackCount = snapshotCallbacks(callbackPins);
+    if (outputCallbackCount)
     {
-        bool wasRepeated = false;
-        uint64_t repeatedTimes = 0;
-
         // Have we seen this message before?
-        m_Buffer.str.allowHashing(true);  // calculate hash now
-        uint64_t currentHash = m_Buffer.str.hash();
-        m_Buffer.str.disableHashing();
+        entry.str.allowHashing(true);
+        uint64_t currentHash = entry.str.hash();
+        entry.str.disableHashing();
         if (currentHash == m_LastEntryHash)
         {
-            if (m_LastEntrySeverity == m_Buffer.severity)
+            if (m_LastEntrySeverity == entry.severity)
             {
                 ++m_HashMatchedCount;
 
                 if (m_HashMatchedCount < LOG_MAX_DEDUPE_MESSAGES)
                 {
-                    return;
+                    suppressOutput = true;
                 }
             }
         }
 
-        if (m_HashMatchedCount)
+        if (!suppressOutput)
         {
-            wasRepeated = true;
-            repeatedTimes = m_HashMatchedCount;
-            m_HashMatchedCount = 0;
+            if (m_HashMatchedCount)
+            {
+                wasRepeated = true;
+                repeatedTimes = m_HashMatchedCount;
+                m_HashMatchedCount = 0;
+            }
+
+            m_LastEntryHash = currentHash;
+            m_LastEntrySeverity = entry.severity;
+            showTimestamp = m_Timestamps;
+            if (showTimestamp)
+            {
+                timestamp = getTimestamp();
+            }
         }
+    }
 
-        m_LastEntryHash = currentHash;
-        m_LastEntrySeverity = m_Buffer.severity;
+    if (!suppressOutput && !handlingFatal && entry.severity == Fatal)
+    {
+        handlingFatal = true;
+        shouldPanic = true;
+    }
 
-        // We have output callbacks installed. Build the string we'll pass
-        // to each callback *now* and then send it.
+    if (lock)
+        m_Lock.release();
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    EntrySnapshotHook snapshotHook =
+        __atomic_load_n(&m_EntrySnapshotHook, __ATOMIC_ACQUIRE);
+    if (snapshotHook)
+    {
+        snapshotHook(entry);
+    }
+#endif
+
+    if (outputCallbackCount && !suppressOutput)
+    {
         if (wasRepeated)
         {
             msg.append(m_DedupeHead, m_DedupeHead.length());
             if (repeatedTimes < g_NumRepeatedStrings)
             {
-                msg.append(g_RepeatedStrings[repeatedTimes], g_RepeatedLengths[repeatedTimes]);
+                msg.append(
+                    g_RepeatedStrings[repeatedTimes],
+                    g_RepeatedLengths[repeatedTimes]);
             }
             else
             {
@@ -493,35 +771,29 @@ void Log::flushEntry(bool lock)
             msg.append(m_LineEnding, m_LineEnding.length());
         }
 
-        const TinyStaticString &severity = severityToString(m_Buffer.severity);
+        const TinyStaticString &severity = severityToString(entry.severity);
         msg.append(severity, severity.length());
-        if (m_Timestamps)
+        if (showTimestamp && timestamp.length())
         {
-            const NormalStaticString &ts = getTimestamp();
-            if (ts.length())
-            {
-                msg.append(ts, ts.length());
-            }
+            msg.append(timestamp, timestamp.length());
         }
-        msg.append(m_Buffer.str, m_Buffer.str.length());
+        msg.append(entry.str, entry.str.length());
         msg.append(m_LineEnding, m_LineEnding.length());
-        bool locked = !m_Buffer.lockfree;
-
-        for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
+        dispatchCallbacks(
+            callbackPins, outputCallbackCount, msg, !entry.lockfree);
+    }
+    else
+    {
+        for (size_t i = 0; i < outputCallbackCount; ++i)
         {
-            if (m_OutputCallbacks[i] != nullptr)
-            {
-                m_OutputCallbacks[i]->callback(msg, locked);
-            }
+            releaseCallback(callbackPins[i]);
         }
     }
 
     // Panic if that was a fatal error.
-    if ((!handlingFatal) && m_Buffer.severity == Fatal)
+    if (shouldPanic)
     {
-        handlingFatal = true;
-
-        const char *panicstr = static_cast<const char *>(m_Buffer.str);
+        const char *panicstr = static_cast<const char *>(entry.str);
 
         // Attempt to trap to debugger, panic if that fails.
         EMIT_IF(DEBUGGER)
@@ -534,13 +806,27 @@ void Log::flushEntry(bool lock)
 
 void Log::enableTimestamps()
 {
+    LockGuard<Spinlock> guard(m_Lock);
     m_Timestamps = true;
 }
 
 void Log::disableTimestamps()
 {
+    LockGuard<Spinlock> guard(m_Lock);
     m_Timestamps = false;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void Log::setCallbackPinHook(CallbackPinHook hook)
+{
+    __atomic_store_n(&m_CallbackPinHook, hook, __ATOMIC_RELEASE);
+}
+
+void Log::setEntrySnapshotHook(EntrySnapshotHook hook)
+{
+    __atomic_store_n(&m_EntrySnapshotHook, hook, __ATOMIC_RELEASE);
+}
+#endif
 
 const NormalStaticString &Log::getTimestamp()
 {

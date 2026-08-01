@@ -96,7 +96,7 @@ class IpcEndpoint
 {
   public:
     IpcEndpoint(const String &name)
-        : m_Name(name), m_Queue(), m_QueueSize(0), m_QueueLock(false)
+        : m_Name(name), m_Queue(), m_QueueSize(0), m_QueueLock()
     {
         NOTICE("Creating endpoint with name " << name);
         NOTICE("Endpoint is at " << reinterpret_cast<uintptr_t>(this));
@@ -107,22 +107,28 @@ class IpcEndpoint
         FATAL("IpcEndpoint " << m_Name << " is being destroyed.");
     }
 
-    Mutex *pushMessage(IpcMessage *pMessage, bool bAsync);
-
-    IpcMessage *getMessage(bool bBlock = false);
-
     const String &getName() const
     {
         return m_Name;
     }
 
   private:
+    class IpcCompletion;
+
+    friend bool send(IpcEndpoint *, IpcMessage *, bool);
+    friend bool recv(IpcEndpoint *, IpcMessage **, bool);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    friend bool runHostedIpcInterruptionRegression();
+#endif
+
+    IpcCompletion *pushMessage(IpcMessage *pMessage, bool bAsync);
+    IpcMessage *getMessage(bool bBlock = false);
+
     /// A queued message ready for retrieval.
     struct QueuedMessage
     {
-        Mutex *pMutex;
+        IpcCompletion *pCompletion;
         IpcMessage *pMessage;
-        bool bAsync;
     };
 
     String m_Name;
@@ -137,6 +143,10 @@ EXPORTED_PUBLIC bool
 send(IpcEndpoint *pEndpoint, IpcMessage *pMessage, bool bAsync = false);
 EXPORTED_PUBLIC bool
 recv(IpcEndpoint *pEndpoint, IpcMessage **pMessage, bool bAsync = false);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+EXPORTED_PUBLIC bool runHostedIpcInterruptionRegression();
+#endif
 
 EXPORTED_PUBLIC IpcEndpoint *getEndpoint(String &name);
 

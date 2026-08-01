@@ -82,6 +82,8 @@ class HostedSchedulerTimer : public SchedulerTimer, private IrqHandler
     /** The scheduler */
     TimerHandler *m_Handler;
 
+    bool m_bInitialized;
+
     /** The HostedSchedulerTimer class instance */
     static HostedSchedulerTimer m_Instance;
 };

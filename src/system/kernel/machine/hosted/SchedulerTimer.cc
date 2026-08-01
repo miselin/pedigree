@@ -86,21 +86,36 @@ bool HostedSchedulerTimer::initialise()
         return false;
     }
 
+    m_bInitialized = true;
     return true;
 }
 void HostedSchedulerTimer::uninitialise()
 {
+    if (!m_bInitialized)
+    {
+        return;
+    }
+    m_bInitialized = false;
+
     timer_delete(m_Timer);
 
     // Free the IRQ
     if (m_IrqId != 0)
     {
         IrqManager &irqManager = *Machine::instance().getIrqManager();
-        irqManager.unregisterHandler(m_IrqId, this);
+        if (!irqManager.unregisterHandler(m_IrqId, this))
+        {
+            FATAL(
+                "HostedSchedulerTimer teardown could not synchronously "
+                "unregister its IRQ callback");
+        }
+        m_IrqId = 0;
     }
+    m_Handler = nullptr;
 }
 
-HostedSchedulerTimer::HostedSchedulerTimer() : m_IrqId(0), m_Handler(0)
+HostedSchedulerTimer::HostedSchedulerTimer()
+    : m_IrqId(0), m_Handler(0), m_bInitialized(false)
 {
 }
 

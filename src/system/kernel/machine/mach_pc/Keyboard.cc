@@ -45,12 +45,13 @@ extern void toggleTracingAllocations();
 
 X86Keyboard::X86Keyboard(Ps2Controller *controller)
     : m_pPs2Controller(controller), m_Escape(KeymapManager::EscapeNone),
-      m_IrqId(0), m_LedState(0)
+      m_IrqId(0), m_LedState(0), m_ReaderThread()
 {
 }
 
 X86Keyboard::~X86Keyboard()
 {
+    m_ReaderThread.stop();
 }
 
 void X86Keyboard::initialise()
@@ -176,10 +177,16 @@ void X86Keyboard::setLedState(char state)
 
 void X86Keyboard::startReaderThread()
 {
+    if (m_ReaderThread)
+    {
+        FATAL("X86Keyboard reader started more than once.");
+    }
+
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     Thread *pThread = new Thread(pProcess, readerThreadTrampoline, this);
-    pThread->detach();
+    pThread->setName("X86 keyboard reader");
+    m_ReaderThread.adopt(pThread);
 
     // Now that we're listening - enable IRQs from the keyboard
     m_pPs2Controller->setIrqEnable(true, false);
@@ -189,6 +196,7 @@ int X86Keyboard::readerThreadTrampoline(void *param)
 {
     X86Keyboard *instance = reinterpret_cast<X86Keyboard *>(param);
     instance->readerThread();
+    return 0;
 }
 
 void X86Keyboard::readerThread()
@@ -198,6 +206,13 @@ void X86Keyboard::readerThread()
         uint8_t scancode;
         if (!m_pPs2Controller->readFirstPort(scancode))
         {
+            Thread *thread = Processor::information().getCurrentThread();
+            if (
+                thread &&
+                thread->getUnwindState() != Thread::Continue)
+            {
+                return;
+            }
             continue;
         }
         if (scancode == 0xFA || scancode == 0xFE)

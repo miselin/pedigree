@@ -40,6 +40,7 @@ class HostedMachine : public Machine
     }
 
     virtual void initialise() INITIALISATION_ONLY;
+    virtual void deinitialise();
 
     virtual void initialiseDeviceTree();
 

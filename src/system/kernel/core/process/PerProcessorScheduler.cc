@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/Subsystem.h"
@@ -29,6 +30,7 @@
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/RoundRobin.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -38,17 +40,24 @@
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/utility.h"
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
+#if HOSTED
+#include "pedigree/kernel/processor/hosted/Processor.h"
+#endif
 
 #define VERBOSE_SCHEDULER 0
 
 PerProcessorScheduler::PerProcessorScheduler()
-    : m_pSchedulingAlgorithm(0), m_NewThreadDataLock(false),
-      m_NewThreadDataCondition(), m_NewThreadData(), m_pIdleThread(0)
+    : m_pSchedulingAlgorithm(0), m_NewThreadDataLock(),
+      m_NewThreadDataCondition(), m_NewThreadData(),
+      m_DelayedNewThreadData(), m_NewThreadAdmissionOpen(false),
+      m_StopNewThreadWorker(false), m_NewThreadWorker(), m_pIdleThread(0)
 {
 }
 
 PerProcessorScheduler::~PerProcessorScheduler()
 {
+    stopNewThreadWorker();
+
     SchedulerTimer *pTimer = Machine::instance().getSchedulerTimer();
     if (!pTimer)
     {
@@ -68,22 +77,82 @@ struct newThreadData
     bool useSyscallState;
 };
 
+void PerProcessorScheduler::startNewThreadWorker(Process *pParent)
+{
+    m_NewThreadDataLock.acquire();
+    if (
+        m_NewThreadWorker || m_NewThreadData.count() ||
+        m_DelayedNewThreadData.count())
+    {
+        m_NewThreadDataLock.release();
+        FATAL("Per-processor thread add worker started with live state.");
+    }
+    m_StopNewThreadWorker = false;
+    m_NewThreadAdmissionOpen = true;
+    m_NewThreadDataLock.release();
+
+    Thread *pAddThread = new Thread(
+        pParent, processorAddThread, reinterpret_cast<void *>(this), 0,
+        false, true);
+    pAddThread->setName("PerProcessorScheduler thread add worker");
+    m_NewThreadWorker.adopt(pAddThread);
+}
+
+void PerProcessorScheduler::stopNewThreadWorker()
+{
+    m_NewThreadDataLock.acquire();
+    m_NewThreadAdmissionOpen = false;
+    m_StopNewThreadWorker = true;
+    while (m_DelayedNewThreadData.count())
+    {
+        m_NewThreadData.pushBack(m_DelayedNewThreadData.popFront());
+    }
+    const bool pending = m_NewThreadData.count();
+    m_NewThreadDataLock.release();
+
+    if (!m_NewThreadWorker)
+    {
+        if (pending)
+        {
+            FATAL("Per-processor thread add queue has no worker.");
+        }
+        return;
+    }
+
+    m_NewThreadDataCondition.broadcast();
+    m_NewThreadWorker.join();
+
+    m_NewThreadDataLock.acquire();
+    const bool drained =
+        !m_NewThreadData.count() && !m_DelayedNewThreadData.count();
+    m_NewThreadDataLock.release();
+    if (!drained)
+    {
+        FATAL("Per-processor thread add worker stopped before draining.");
+    }
+}
+
 int PerProcessorScheduler::processorAddThread(void *instance)
 {
     PerProcessorScheduler *pInstance =
         reinterpret_cast<PerProcessorScheduler *>(instance);
-    pInstance->m_NewThreadDataLock.acquire();
     while (true)
     {
-        if (!pInstance->m_NewThreadData.count())
+        pInstance->m_NewThreadDataLock.acquire();
+        while (!pInstance->m_NewThreadData.count())
         {
-            /// \todo handle result
-            pInstance->m_NewThreadDataCondition.wait(
+            if (pInstance->m_StopNewThreadWorker)
+            {
+                pInstance->m_NewThreadDataLock.release();
+                return 0;
+            }
+
+            pInstance->m_NewThreadDataCondition.waitForCompletion(
                 pInstance->m_NewThreadDataLock);
-            continue;
         }
 
         void *p = pInstance->m_NewThreadData.popFront();
+        pInstance->m_NewThreadDataLock.release();
 
         newThreadData *pData = reinterpret_cast<newThreadData *>(p);
 
@@ -95,30 +164,76 @@ int PerProcessorScheduler::processorAddThread(void *instance)
                 << " does not match current scheduler in processorAddThread!");
         }
 
-        // Only add thread if it's in a valid status for adding. Otherwise we
-        // need to spin. Yes - this is NOT efficient. Threads with delayed start
-        // should not do much between creation and starting.
-        if (!(pData->pThread->getStatus() == Thread::Running ||
-              pData->pThread->getStatus() == Thread::Ready))
+        Thread *pThread = pData->pThread;
+        pThread->m_Lock.acquire();
+        const bool retireBeforeStart =
+            pThread->getUnwindState() == Thread::TerminateThread;
+        if (
+            pThread->m_Status == Thread::Created &&
+            pThread->m_bStartRequested && !retireBeforeStart)
         {
-            pInstance->m_NewThreadData.pushBack(p);
-            pInstance->schedule();  // yield
+            pThread->m_bStartRequested = false;
+            pThread->m_Status = Thread::Ready;
+        }
+
+        const bool runnable =
+            pThread->m_Status == Thread::Running ||
+            pThread->m_Status == Thread::Ready;
+        if (retireBeforeStart)
+        {
+            pThread->m_Lock.release();
+            // This thread has never owned a running stack. The add worker owns
+            // the last queued reference and can complete its off-stack exit.
+            delete pData;
+            pThread->shutdown();
+            deleteThread(pThread);
             continue;
         }
 
-        pData->pThread->setCpuId(Processor::id());
-        pData->pThread->m_Lock.acquire();
+        if (!runnable)
+        {
+            if (pThread->m_Status != Thread::Created)
+            {
+                pThread->m_Lock.release();
+                FATAL(
+                    "Per-processor add worker cannot park an already "
+                    "scheduled thread.");
+            }
+
+            // State changes take m_Lock before publishing through
+            // threadStatusChanged(). Holding it until the parked record is
+            // visible closes the final lost-wakeup window.
+            pInstance->m_NewThreadDataLock.acquire();
+            const bool stopping = pInstance->m_StopNewThreadWorker;
+            if (!stopping)
+            {
+                pInstance->m_DelayedNewThreadData.pushBack(p);
+            }
+            pInstance->m_NewThreadDataLock.release();
+            pThread->m_Lock.release();
+            if (!stopping)
+            {
+                continue;
+            }
+
+            pThread->setUnwindState(Thread::TerminateThread);
+            delete pData;
+            pThread->shutdown();
+            deleteThread(pThread);
+            continue;
+        }
+
+        pThread->setCpuId(Processor::id());
         if (pData->useSyscallState)
         {
-            pInstance->addThread(pData->pThread, pData->state);
+            pInstance->addThread(pThread, pData->state);
         }
         else
         {
             pInstance->addThread(
-                pData->pThread, pData->pStartFunction, pData->pParam,
+                pThread, pData->pStartFunction, pData->pParam,
                 pData->bUsermode, pData->pStack);
         }
-
         delete pData;
     }
 }
@@ -143,15 +258,10 @@ void PerProcessorScheduler::initialise(Thread *pThread)
     }
     Machine::instance().getSchedulerTimer()->registerHandler(this);
 
-    Thread *pAddThread = new Thread(
-        pThread->getParent(), processorAddThread,
-        reinterpret_cast<void *>(this), 0, false, true);
-    pAddThread->setName("PerProcessorScheduler thread add worker");
-    pAddThread->detach();
+    startNewThreadWorker(pThread->getParent());
 }
 
-void PerProcessorScheduler::schedule(
-    Thread::Status nextStatus, Thread *pNewThread, Spinlock *pLock)
+void PerProcessorScheduler::schedule(Thread::Status nextStatus)
 {
     bool bWasInterrupts = Processor::getInterrupts();
     Processor::setInterrupts(false);
@@ -165,67 +275,68 @@ void PerProcessorScheduler::schedule(
     // Grab the current thread's lock.
     pCurrentThread->getLock().acquire();
 
-    // Event delivery and the transition to Sleeping must be serialized by the
-    // thread lock. Otherwise an event can arrive after sleep() checks the queue
-    // but while the thread is still Running, and no one will make the thread
-    // Ready after schedule() finally puts it to sleep.
-    if (nextStatus == Thread::Sleeping &&
-        pCurrentThread->hasEventsUnlocked())
+    bool dispatchEvent = false;
+    if (nextStatus == Thread::Sleeping)
     {
-        pCurrentThread->getLock().release();
-        if (pLock)
+        if (!pCurrentThread->hasActiveWaitUnlocked())
         {
-            pLock->release();
+            FATAL("Scheduler refused a sleep without an active WaitQueue.");
         }
-        else
+
+        // The wait record is published before blockCurrent(). A wake in that
+        // window changes it away from Waiting, so it is impossible to commit a
+        // stale Sleeping transition.
+        dispatchEvent = pCurrentThread->hasDeliverableEventsUnlocked();
+        if (dispatchEvent)
         {
+            pCurrentThread->interruptWaitUnlocked(
+                WaitQueue::WakeReason::Event);
+        }
+        if (
+            !pCurrentThread->activeWaitPendingUnlocked() || dispatchEvent)
+        {
+            pCurrentThread->getLock().release();
             Processor::setInterrupts(bWasInterrupts);
+            return;
         }
-        checkEventState(0);
-        return;
     }
 
     // Now attempt to get another thread to run.
     // This will also get the lock for the returned thread.
-    Thread *pNextThread;
-    if (!pNewThread)
+    Thread *pNextThread = m_pSchedulingAlgorithm->getNext(pCurrentThread);
+    if (pNextThread == 0)
     {
-        pNextThread = m_pSchedulingAlgorithm->getNext(pCurrentThread);
-        if (pNextThread == 0)
+        // No other thread in the scheduler - take a round trip through the
+        // idle thread before we schedule back to the yielding thread.
+        // In most cases a thread is yielding either because it needs to
+        // sleep to wait for something or because it has no work currently,
+        // so simply switching back to it makes no sense (and causes us to
+        // spin tightly rather than halting for an interrupt or other event)
+        if (m_pIdleThread == 0)
         {
-            // No other thread in the scheduler - take a round trip through the
-            // idle thread before we schedule back to the yielding thread.
-            // In most cases a thread is yielding either because it needs to
-            // sleep to wait for something or because it has no work currently,
-            // so simply switching back to it makes no sense (and causes us to
-            // spin tightly rather than halting for an interrupt or other event)
-            if (m_pIdleThread == 0)
-            {
-                // Ok, in this case we have no new thread to switch to and no
-                // idle thread yet, so we must return to the caller and accept
-                // the spinning here.
-                pCurrentThread->getLock().release();
-                Processor::setInterrupts(bWasInterrupts);
-                return;
-            }
-            else
-            {
-                pNextThread = m_pIdleThread;
-            }
+            // The scheduler is still bootstrapping, so spinning is the only
+            // available fallback.
+            pCurrentThread->getLock().release();
+            Processor::setInterrupts(bWasInterrupts);
+            return;
+        }
+        else
+        {
+            pNextThread = m_pIdleThread;
         }
     }
-    else
+
+    // The idle fallback can select an already-running idle thread. Saving and
+    // restoring the same hosted context does not yield and can strand the
+    // add-thread worker indefinitely, so treat that selection as a no-op.
+    if (pNextThread == pCurrentThread)
     {
-        pNextThread = pNewThread;
+        pCurrentThread->getLock().release();
+        Processor::setInterrupts(bWasInterrupts);
+        return;
     }
 
-    if (pNextThread == pNewThread)
-    {
-        WARNING("scheduler: next thread IS new thread");
-    }
-
-    if (pNextThread != pCurrentThread)
-        pNextThread->getLock().acquire();
+    pNextThread->getLock().acquire();
 
 #if VERBOSE_SCHEDULER
     NOTICE_NOLOCK("schedule: " << pCurrentThread << " -> " << pNextThread << " -- " << pCurrentThread->getName() << " -> " << pNextThread->getName());
@@ -236,14 +347,6 @@ void PerProcessorScheduler::schedule(
         pCurrentThread->setStatus(nextStatus);
     pNextThread->setStatus(Thread::Running);
     Processor::information().setCurrentThread(pNextThread);
-
-    // Should *never* happen
-    if (pLock &&
-        (pNextThread->getStateLevel() == reinterpret_cast<uintptr_t>(pLock)))
-        FATAL(
-            "STATE LEVEL = LOCK PASSED TO SCHEDULER: "
-            << pNextThread->getStateLevel() << "/"
-            << reinterpret_cast<uintptr_t>(pLock) << "!");
 
     // Load the new kernel stack into the TSS, and the new TLS base and switch
     // address spaces
@@ -258,24 +361,11 @@ void PerProcessorScheduler::schedule(
 
     pNextThread->getLock().release();
 
-    // We'll release the current thread's lock when we reschedule, so for now
-    // we just lie to the lock checker.
+    // The real switch releases the old current thread's lock after changing
+    // stacks, so retire that deferred release from the lock checker now.
     EMIT_IF(TRACK_LOCKS)
     {
         g_LocksCommand.lockReleased(&pCurrentThread->getLock());
-    }
-
-    if (pLock)
-    {
-        // We cannot call ->release() here, because this lock was grabbed
-        // before we disabled interrupts, so it may re-enable interrupts.
-        // And that would be a very bad thing.
-        //
-        // We instead store the interrupt state of the spinlock, and manually
-        // unlock it.
-        if (pLock->m_bInterrupts)
-            bWasInterrupts = true;
-        pLock->exit();
     }
 
     EMIT_IF(TRACK_LOCKS)
@@ -292,8 +382,13 @@ void PerProcessorScheduler::schedule(
         Processor::switchState(
             bWasInterrupts, pCurrentThread->state(), pNextThread->state(),
             &pCurrentThread->getLock().m_Atom.m_Atom);
+        const bool waitOwnsEventDispatch =
+            pCurrentThread->hasActiveWaitUnlocked();
         Processor::setInterrupts(bWasInterrupts);
-        checkEventState(0);
+        if (!waitOwnsEventDispatch)
+        {
+            checkEventState(0);
+        }
     }
     else
     {
@@ -302,12 +397,20 @@ void PerProcessorScheduler::schedule(
         {
             // Just context-restored, return.
 
+            // A resumed WaitQueue must retire its outer wait record before an
+            // event handler can enter another blocking operation. WaitQueue
+            // performs the event check immediately after that retirement.
+            const bool waitOwnsEventDispatch =
+                pCurrentThread->hasActiveWaitUnlocked();
+
             // Return to previous interrupt state.
             Processor::setInterrupts(bWasInterrupts);
-
-            // Check the event state - we don't have a user mode stack available
-            // to us, so pass zero and don't execute user-mode event handlers.
-            checkEventState(0);
+            if (!waitOwnsEventDispatch)
+            {
+                // We don't have a user-mode stack available here, so pass zero
+                // and don't execute user-mode event handlers.
+                checkEventState(0);
+            }
 
             return;
         }
@@ -342,15 +445,16 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
         return;
     }
 
-    if (!pThread->isInterruptible())
+    if (pThread->eventsDeferred())
     {
         // Cannot check for any events - we aren't allowed to handle them.
         Processor::setInterrupts(bWasInterrupts);
         return;
     }
 
-    Event *pEvent = pThread->getNextEvent();
-    if (!pEvent)
+    Event::Delivery eventDelivery = pThread->getNextEvent();
+    Event *pEvent = eventDelivery.get();
+    if (!eventDelivery)
     {
         Processor::setInterrupts(bWasInterrupts);
         return;
@@ -368,14 +472,20 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
             ERROR_NOLOCK(
                 "checkEventState: Handler address " << Hex << handlerAddress
                                                     << " not mapped!");
-            if (pEvent->isDeletable())
-                delete pEvent;
             Processor::setInterrupts(bWasInterrupts);
             return;
         }
     }
 
-    SchedulerState &oldState = pThread->pushState();
+    SchedulerState *oldState = pThread->pushState();
+    if (!oldState)
+    {
+        // Keep the event pending until an outer handler unwinds and makes a
+        // state slot available.
+        pThread->sendEvent(pEvent);
+        Processor::setInterrupts(bWasInterrupts);
+        return;
+    }
 
     physical_uintptr_t page;
     size_t flags;
@@ -425,6 +535,7 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
                     NOTICE_NOLOCK(
                         "User stack for event in checkEventState is the kernel's!");
                     pThread->sendEvent(pEvent);
+                    pThread->popState();
                     Processor::setInterrupts(bWasInterrupts);
                     return;
                 }
@@ -450,11 +561,24 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
         va.map(p, reinterpret_cast<void *>(addr), VirtualAddressSpace::Write);
     }
 
+    const bool deletableEvent = pEvent->isDeletable();
+    if (!deletableEvent && (flags & VirtualAddressSpace::KernelMode))
+    {
+        eventDelivery.beginDispatch();
+    }
     pEvent->serialize(reinterpret_cast<uint8_t *>(addr));
+
+    // Fire-and-forget events are fully represented by their serialized data.
+    // Stable kernel events retain the lease through their callback because
+    // that callback may intentionally refer back to the original object.
+    if (deletableEvent)
+    {
+        eventDelivery.reset();
+    }
 
     EMIT_IF(!SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
     {
-        if (Processor::saveState(oldState))
+        if (Processor::saveState(*oldState))
         {
             // Just context-restored.
             Processor::setInterrupts(bWasInterrupts);
@@ -462,26 +586,36 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
         }
     }
 
-    if (pEvent->isDeletable())
-        delete pEvent;
-
     if (flags & VirtualAddressSpace::KernelMode)
     {
-        void (*fn)(size_t) = reinterpret_cast<void (*)(size_t)>(handlerAddress);
+#if HOSTED
+        // Hosted state levels use distinct signal/scheduler stacks. Run the
+        // handler on the selected level so an interrupt cannot save a
+        // level-one frame that is physically still on level zero.
+        callOnStack(
+            reinterpret_cast<uintptr_t>(pThread->getKernelStack()),
+            handlerAddress, addr);
+#else
+        void (*fn)(size_t) =
+            reinterpret_cast<void (*)(size_t)>(handlerAddress);
         fn(addr);
-        pThread->popState();
+#endif
 
+        eventDelivery.reset();
+        pThread->popState();
         Processor::setInterrupts(bWasInterrupts);
         return;
     }
     else if (userStack != 0)
     {
+        // User delivery consumes only the serialized representation.
+        eventDelivery.reset();
         pThread->getParent()->trackTime(false);
         pThread->getParent()->recordTime(true);
         EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
         {
             Processor::saveAndJumpUser(
-                bWasInterrupts, oldState, 0, Event::getTrampoline(), userStack,
+                bWasInterrupts, *oldState, 0, Event::getTrampoline(), userStack,
                 handlerAddress, addr);
         }
         else
@@ -498,7 +632,7 @@ void PerProcessorScheduler::eventHandlerReturned()
     Processor::setInterrupts(false);
 
     Thread *pThread = Processor::information().getCurrentThread();
-    pThread->popState(false);  // can't safely clean, we're on the stack
+    pThread->abandonCurrentState(false);
 
     Processor::restoreState(pThread->state());
     // Not reached.
@@ -510,9 +644,8 @@ void PerProcessorScheduler::addThread(
 {
     // Handle wrong CPU, and handle thread not yet ready to schedule.
     if (this != &Processor::information().getScheduler() ||
-        pThread->getStatus() == Thread::Sleeping)
+        pThread->getStatus() == Thread::Created)
     {
-        NOTICE("wrong cpu => this=" << this << " sched=" << &Processor::information().getScheduler());
         newThreadData *pData = new newThreadData;
         pData->pThread = pThread;
         pData->pStartFunction = pStartFunction;
@@ -522,6 +655,13 @@ void PerProcessorScheduler::addThread(
         pData->useSyscallState = false;
 
         m_NewThreadDataLock.acquire();
+        if (!m_NewThreadAdmissionOpen)
+        {
+            m_NewThreadDataLock.release();
+            pThread->m_Lock.release();
+            delete pData;
+            FATAL("Thread admitted after its per-processor worker stopped.");
+        }
         m_NewThreadData.pushBack(pData);
         m_NewThreadDataLock.release();
 
@@ -566,7 +706,7 @@ void PerProcessorScheduler::addThread(
         bWasInterrupts = true;
     bool bWas = pThread->getLock().acquired();
     pThread->getLock().unwind();
-    pThread->getLock().m_Atom.m_Atom = 1;
+    pThread->getLock().m_Atom = true;
     EMIT_IF(TRACK_LOCKS)
     {
         // Satisfy the lock checker; we're releasing these out of order, so make
@@ -641,7 +781,7 @@ void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
 {
     // Handle wrong CPU, and handle thread not yet ready to schedule.
     if (this != &Processor::information().getScheduler() ||
-        pThread->getStatus() == Thread::Sleeping)
+        pThread->getStatus() == Thread::Created)
     {
         newThreadData *pData = new newThreadData;
         pData->pThread = pThread;
@@ -651,6 +791,12 @@ void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
         pThread->m_Lock.release();
 
         m_NewThreadDataLock.acquire();
+        if (!m_NewThreadAdmissionOpen)
+        {
+            m_NewThreadDataLock.release();
+            delete pData;
+            FATAL("Thread admitted after its per-processor worker stopped.");
+        }
         m_NewThreadData.pushBack(pData);
         m_NewThreadDataLock.release();
 
@@ -749,6 +895,10 @@ void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
 {
     Thread *pThread = Processor::information().getCurrentThread();
 
+    // No C++ destructors run after this call. Retire stack-owned lifetime
+    // records while their abandoned stack is still mapped.
+    pThread->retireDeferredScopes(true);
+
     // Start shutting down the current thread while we can still schedule it.
     pThread->shutdown();
 
@@ -762,17 +912,13 @@ void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
     EMIT_IF(TRACK_LOCKS)
     {
         g_LocksCommand.lockReleased(&pThread->getLock());
-        if (!g_LocksCommand.checkSchedule())
-        {
-            FATAL("Lock checker disallowed this reschedule.");
-        }
         if (pLock)
         {
             g_LocksCommand.lockReleased(pLock);
-            if (!g_LocksCommand.checkSchedule())
-            {
-                FATAL("Lock checker disallowed this reschedule.");
-            }
+        }
+        if (!g_LocksCommand.checkSchedule())
+        {
+            FATAL("Lock checker disallowed this reschedule.");
         }
     }
 
@@ -811,10 +957,54 @@ void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
 
 void PerProcessorScheduler::deleteThread(Thread *pThread)
 {
-    if (pThread->detached())
+    Process *pProcess = pThread->getParent();
+    // This runs on a temporary handoff stack before the replacement Thread
+    // has retired any WaitQueue record it resumed from. Blocking here would
+    // try to enrol that Thread in two queues at once. Close admission now;
+    // joins drain in ordinary thread context, while the final external lease
+    // completes deferred detached deletion.
+    pThread->closeExternalLeaseAdmission();
+    bool deleteTarget = false;
+    bool completesProcessExit = false;
+    bool wakeExitOwner = false;
     {
-        delete pThread;
+        RecursingLockGuard<Spinlock> processGuard(pProcess->m_Lock);
+        deleteTarget = pThread->markReapable();
+        completesProcessExit =
+            pProcess->terminatingThreadReapable(pThread, wakeExitOwner);
+
+        if (deleteTarget)
+        {
+            delete pThread;
+        }
     }
+
+    // killCurrentThread() keeps this lock closed until execution has left the
+    // target stack. Release it only after all outer Process locks have
+    // unwound: making another same-core thread runnable under those locks can
+    // otherwise resume straight into a conflicting terminal operation.
+    if (!deleteTarget)
+    {
+        pThread->getLock().unwind();
+        pThread->getLock().m_Atom.m_Atom = 1;
+    }
+
+    // Process-exit progress is a predicate update under m_Lock followed by an
+    // out-of-lock notification. Keeping the WaitQueue wake outside m_Lock
+    // prevents a resumed owner from acquiring the queue under an outer lock.
+    if (wakeExitOwner)
+    {
+        pProcess->m_TerminationWaiters.wakeAll();
+    }
+
+    if (!completesProcessExit)
+    {
+        return;
+    }
+
+    // This is the final Process access: publication can wake a reaper that
+    // destroys both the Process and its retained, reapable Thread objects.
+    pProcess->publishTermination();
 }
 
 void PerProcessorScheduler::removeThread(Thread *pThread)
@@ -822,9 +1012,9 @@ void PerProcessorScheduler::removeThread(Thread *pThread)
     m_pSchedulingAlgorithm->removeThread(pThread);
 }
 
-void PerProcessorScheduler::sleep(Spinlock *pLock)
+void PerProcessorScheduler::blockCurrent()
 {
-    schedule(Thread::Sleeping, 0, pLock);
+    schedule(Thread::Sleeping);
 }
 
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState &state)
@@ -833,14 +1023,231 @@ void PerProcessorScheduler::timer(uint64_t delta, InterruptState &state)
 
     // Check if the thread should exit.
     Thread *pThread = Processor::information().getCurrentThread();
-    if (pThread->getUnwindState() == Thread::Exit)
+    const Thread::UnwindType unwindState = pThread->getUnwindState();
+    if (unwindState == Thread::TerminateThread)
+    {
+        // A kernel-mode timer can interrupt code while it owns arbitrary
+        // locks. Defer to a WaitQueue/syscall boundary in that case.
+        if (!state.kernelMode())
+        {
+            killCurrentThread();
+        }
+        return;
+    }
+    if (unwindState == Thread::Exit)
         pThread->getParent()->getSubsystem()->exit(0);
 }
 
 void PerProcessorScheduler::threadStatusChanged(Thread *pThread)
 {
+    bool wakeWorker = false;
+    // Only Created threads can be parked in the add-worker predicate. Avoid
+    // taking a sleeping mutex from ordinary scheduling and interrupt paths.
+    if (pThread->getStatus() == Thread::Created)
+    {
+        m_NewThreadDataLock.acquire();
+        for (
+            List<void *>::Iterator it = m_DelayedNewThreadData.begin();
+            it != m_DelayedNewThreadData.end();)
+        {
+            newThreadData *pData =
+                reinterpret_cast<newThreadData *>(*it);
+            if (pData->pThread == pThread)
+            {
+                void *p = *it;
+                it = m_DelayedNewThreadData.erase(it);
+                m_NewThreadData.pushBack(p);
+                wakeWorker = true;
+            }
+            else
+            {
+                ++it;
+            }
+        }
+        m_NewThreadDataLock.release();
+    }
+
+    if (wakeWorker)
+    {
+        m_NewThreadDataCondition.signal();
+    }
     m_pSchedulingAlgorithm->threadStatusChanged(pThread);
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+namespace
+{
+int hostedNewThreadWorkerEntry(void *parameter)
+{
+    Atomic<size_t> *calls =
+        reinterpret_cast<Atomic<size_t> *>(parameter);
+    *calls += 1;
+    return 0;
+}
+}  // namespace
+
+bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions()
+{
+    if (this != &Processor::information().getScheduler() || !m_NewThreadWorker)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: per-processor worker regression requires "
+            "the active scheduler");
+        return false;
+    }
+
+    constexpr size_t Attempts = 10000;
+    auto isParked = [this](Thread *target) {
+        bool found = false;
+        m_NewThreadDataLock.acquire();
+        for (
+            List<void *>::Iterator it = m_DelayedNewThreadData.begin();
+            it != m_DelayedNewThreadData.end(); ++it)
+        {
+            newThreadData *pData =
+                reinterpret_cast<newThreadData *>(*it);
+            if (pData->pThread == target)
+            {
+                found = true;
+                break;
+            }
+        }
+        m_NewThreadDataLock.release();
+        return found;
+    };
+    auto waitUntilParked = [&isParked, Attempts](Thread *target) {
+        for (size_t attempt = 0; attempt < Attempts; ++attempt)
+        {
+            if (isParked(target))
+            {
+                return true;
+            }
+            Scheduler::instance().yield();
+        }
+        return false;
+    };
+    auto check = [](bool condition, const char *message) {
+        if (!condition)
+        {
+            ERROR("HOSTED-WAIT-TEST: " << message);
+        }
+        return condition;
+    };
+
+    Process *kernelProcess =
+        Processor::information().getCurrentThread()->getParent();
+    bool passed = true;
+
+    Atomic<size_t> delayedCalls(0);
+    Thread *delayed = new Thread(
+        kernelProcess, hostedNewThreadWorkerEntry, &delayedCalls, nullptr,
+        false, true, true);
+    delayed->setName("hosted delayed add-worker target");
+    const bool delayedParked = waitUntilParked(delayed);
+    for (size_t attempt = 0; attempt < 64; ++attempt)
+    {
+        Scheduler::instance().yield();
+    }
+    const bool stayedDormant =
+        delayedParked && isParked(delayed) && delayedCalls == 0;
+    const bool started = delayed->start();
+    const bool delayedJoined = delayed->joinForCompletion();
+    const bool delayedPassed = check(
+        stayedDormant && started && delayedJoined && delayedCalls == 1,
+        "delayed add-worker target did not remain parked until its single "
+        "start publication");
+    passed &= delayedPassed;
+    if (delayedPassed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS perprocessor-delayed-start-wake");
+    }
+
+    Atomic<size_t> terminatedCalls(0);
+    Thread *terminated = new Thread(
+        kernelProcess, hostedNewThreadWorkerEntry, &terminatedCalls, nullptr,
+        false, true, true);
+    terminated->setName("hosted terminated add-worker target");
+    const bool terminatedParked = waitUntilParked(terminated);
+    terminated->setUnwindState(Thread::TerminateThread);
+    const bool terminatedJoined = terminated->joinForCompletion();
+    const bool terminatedPassed = check(
+        terminatedParked && terminatedJoined && terminatedCalls == 0,
+        "terminate-before-start did not retire the parked add-worker target");
+    passed &= terminatedPassed;
+    if (terminatedPassed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS perprocessor-terminate-before-start");
+    }
+
+    Atomic<size_t> teardownCalls(0);
+    Thread *teardown = new Thread(
+        kernelProcess, hostedNewThreadWorkerEntry, &teardownCalls, nullptr,
+        false, true, true);
+    teardown->setName("hosted add-worker teardown target");
+    const bool teardownParked = waitUntilParked(teardown);
+    stopNewThreadWorker();
+    const bool teardownJoined = teardown->joinForCompletion();
+
+    m_NewThreadDataLock.acquire();
+    const bool teardownDrained =
+        !m_NewThreadAdmissionOpen && m_StopNewThreadWorker &&
+        !m_NewThreadData.count() && !m_DelayedNewThreadData.count();
+    m_NewThreadDataLock.release();
+    const bool workerJoined = !m_NewThreadWorker;
+
+    // A joined worker cannot be hiding on the condition variable or retain a
+    // detached reference to this scheduler's queue state.
+    m_NewThreadDataCondition.broadcast();
+    for (size_t attempt = 0; attempt < 64; ++attempt)
+    {
+        Scheduler::instance().yield();
+    }
+
+    const bool teardownPassed = check(
+        teardownParked && teardownJoined && teardownCalls == 0 &&
+            teardownDrained && workerJoined,
+        "owned add worker did not drain and join with pending parked work");
+    passed &= teardownPassed;
+    if (teardownPassed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS perprocessor-worker-teardown");
+    }
+
+    startNewThreadWorker(kernelProcess);
+
+    Atomic<size_t> restartCalls(0);
+    Thread *restart = new Thread(
+        kernelProcess, hostedNewThreadWorkerEntry, &restartCalls, nullptr,
+        false, true, true);
+    restart->setName("hosted restarted add-worker target");
+    const bool restartParked = waitUntilParked(restart);
+    const bool restartStarted = restart->start();
+    bool restartReapable = false;
+    for (size_t attempt = 0; attempt < Attempts; ++attempt)
+    {
+        if (restart->isReapableForHostedTest())
+        {
+            restartReapable = true;
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+    const bool restartJoined =
+        restartReapable && restart->joinForCompletion();
+    const bool restartPassed = check(
+        restartParked && restartStarted && restartJoined && restartCalls == 1,
+        "replacement add worker did not process a fresh delayed admission");
+    passed &= restartPassed;
+    if (restartPassed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS perprocessor-worker-restart");
+    }
+
+    return passed;
+}
+#endif
 
 void PerProcessorScheduler::setIdle(Thread *pThread)
 {

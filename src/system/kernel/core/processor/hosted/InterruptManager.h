@@ -62,6 +62,9 @@ class HostedInterruptManager : public ::InterruptManager
      *      Multiprocessor::applicationProcessorStartup() */
     static void initialiseProcessor() INITIALISATION_ONLY;
 
+    /** Stops hosted IRQ signal delivery before global teardown. */
+    static void quiesceProcessor();
+
     /** Signal handling shim for InterruptState protected access. */
     void signalShim(int which, void *siginfo, void *meta);
 
@@ -108,6 +111,9 @@ class HostedInterruptManager : public ::InterruptManager
 
     /** Original sigaction structs after we install our custom handlers. */
     static struct __pedigree_hosted::sigaction m_OriginalActions[MAX_SIGNAL];
+    static bool m_ActionInstalled[MAX_SIGNAL];
+
+    static bool m_bQuiesced;
 
     /** The instance of the interrupt manager  */
     static HostedInterruptManager m_Instance;

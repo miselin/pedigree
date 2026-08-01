@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -34,35 +35,58 @@ namespace Time
 {
 static void delayTimerFired(uint8_t *pBuffer)
 {
-    Processor::information().getCurrentThread()->setInterrupted(true);
+    Processor::information()
+        .getCurrentThread()
+        ->markTimeoutInterruptedWait();
 }
 
 class DelayTimerEvent : public Event
 {
   public:
-    DelayTimerEvent();
+    explicit DelayTimerEvent(
+        Thread *owner, size_t nestingLevel = ~0UL);
     virtual ~DelayTimerEvent();
 
     virtual size_t serialize(uint8_t *pBuffer);
     static bool unserialize(uint8_t *pBuffer, DelayTimerEvent &event);
     virtual size_t getNumber();
+
+    Thread *owner() const
+    {
+        return m_pOwner;
+    }
+
+  private:
+    Thread *m_pOwner;
 };
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+Atomic<size_t> g_HostedAlarmCreates(0);
+Atomic<size_t> g_HostedAlarmDestroys(0);
+#endif
 
 bool delay(Timestamp nanoseconds)
 {
     Thread *pThread = Processor::information().getCurrentThread();
     void *handle = addAlarm(nanoseconds);
 
-    /// \todo possible race condition for very short alarm times
     while (true)
     {
         if (!pThread->wasInterrupted())
-            Processor::information().getScheduler().sleep(0);
+            pThread->waitForEvent(&removeAlarm, handle);
 
-        if (pThread->wasInterrupted())
+        const Thread::InterruptionReason interruption =
+            pThread->getInterruptionReason();
+        if (interruption == Thread::InterruptedByTimeout)
         {
             removeAlarm(handle);
+            pThread->clearInterruption();
             break;
+        }
+        else if (interruption == Thread::InterruptedBySignal)
+        {
+            removeAlarm(handle);
+            return false;
         }
         else if (pThread->getUnwindState() != Thread::Continue)
         {
@@ -70,7 +94,7 @@ bool delay(Timestamp nanoseconds)
             return false;
         }
 
-        pThread->setInterrupted(false);
+        pThread->clearInterruption();
     }
 
     return true;
@@ -78,13 +102,17 @@ bool delay(Timestamp nanoseconds)
 
 void *addAlarm(Timestamp nanoseconds)
 {
-    Event *pEvent = new DelayTimerEvent();
+    Thread *pThread = Processor::information().getCurrentThread();
+    Event *pEvent =
+        new DelayTimerEvent(pThread, pThread->getStateLevel());
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    g_HostedAlarmCreates += 1;
+#endif
     uint64_t usecs = nanoseconds / Multiplier::Microsecond;
     if (!usecs)
         ++usecs;  /// \todo perhaps change addAlarm to take ns.
 
-    Thread *pThread = Processor::information().getCurrentThread();
-    pThread->setInterrupted(false);
+    pThread->clearInterruption();
     Machine::instance().getTimer()->addAlarm(pEvent, 0, usecs);
 
     return pEvent;
@@ -94,8 +122,8 @@ void removeAlarm(void *handle)
 {
     assert(handle != nullptr);
 
-    Thread *pThread = Processor::information().getCurrentThread();
-    Event *pEvent = reinterpret_cast<Event *>(handle);
+    DelayTimerEvent *pEvent =
+        reinterpret_cast<DelayTimerEvent *>(handle);
     Machine::instance().getTimer()->removeAlarm(pEvent);
 
     // Handle a race condition where the timeout triggers but hasn't been
@@ -103,17 +131,23 @@ void removeAlarm(void *handle)
     // in this thread's event queue. We also do so after removing the alarm
     // from the Machine implementation so that we don't get new events added
     // after our cull.
-    pThread->cullEvent(pEvent);
+    pEvent->owner()->cullEvent(pEvent);
 
     delete pEvent;
 }
 
-DelayTimerEvent::DelayTimerEvent()
-    : Event(reinterpret_cast<uintptr_t>(&delayTimerFired), false)
+DelayTimerEvent::DelayTimerEvent(
+    Thread *owner, size_t nestingLevel)
+    : Event(
+          reinterpret_cast<uintptr_t>(&delayTimerFired), false, nestingLevel),
+      m_pOwner(owner)
 {
 }
 DelayTimerEvent::~DelayTimerEvent()
 {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    g_HostedAlarmDestroys += 1;
+#endif
 }
 
 size_t DelayTimerEvent::serialize(uint8_t *pBuffer)
@@ -130,4 +164,16 @@ size_t DelayTimerEvent::getNumber()
 {
     return EventNumbers::DelayTimer;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+size_t getHostedAlarmCreateCount()
+{
+    return g_HostedAlarmCreates;
+}
+
+size_t getHostedAlarmDestroyCount()
+{
+    return g_HostedAlarmDestroys;
+}
+#endif
 }  // namespace Time

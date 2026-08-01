@@ -24,6 +24,7 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #undef _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
 class Thread;
@@ -42,14 +43,14 @@ class HostedProcessorInformation
   public:
     /** Get the current processor's VirtualAddressSpace
      *\return reference to the current processor's VirtualAddressSpace */
-    VirtualAddressSpace &getVirtualAddressSpace() const;
+    EXPORTED_PUBLIC VirtualAddressSpace &getVirtualAddressSpace() const;
     /** Set the current processor's VirtualAddressSpace
      *\param[in] virtualAddressSpace reference to the new VirtualAddressSpace */
     void setVirtualAddressSpace(VirtualAddressSpace &virtualAddressSpace);
 
     uintptr_t getKernelStack() const;
     void setKernelStack(uintptr_t stack);
-    Thread *getCurrentThread() const;
+    EXPORTED_PUBLIC Thread *getCurrentThread() const;
     void setCurrentThread(Thread *pThread);
     PerProcessorScheduler &getScheduler();
 

@@ -37,6 +37,7 @@ namespace __pedigree_hosted
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
+#include <time.h>
 };
 using namespace __pedigree_hosted;
 
@@ -48,6 +49,8 @@ namespace __pedigree_interrupt_manager_cc
 HostedInterruptManager HostedInterruptManager::m_Instance;
 
 struct sigaction HostedInterruptManager::m_OriginalActions[MAX_SIGNAL];
+bool HostedInterruptManager::m_ActionInstalled[MAX_SIGNAL] = {};
+bool HostedInterruptManager::m_bQuiesced = false;
 
 InterruptManager &InterruptManager::instance()
 {
@@ -291,6 +294,9 @@ struct sigaction HostedInterruptManager::getOriginalSigaction(int which) const
 
 void HostedInterruptManager::initialiseProcessor()
 {
+    m_bQuiesced = false;
+    ByteSet(m_ActionInstalled, 0, sizeof(m_ActionInstalled));
+
     // Set up our handler for every signal we want to trap.
     for (int i = 1; i < MAX_SIGNAL; ++i)
     {
@@ -311,10 +317,43 @@ void HostedInterruptManager::initialiseProcessor()
             act.sa_flags |= SA_NODEFER;
         }
 
-        sigaction(i, &act, &oact);
-
-        m_OriginalActions[i] = oact;
+        if (sigaction(i, &act, &oact) == 0)
+        {
+            m_OriginalActions[i] = oact;
+            m_ActionInstalled[i] = true;
+        }
     }
+}
+
+void HostedInterruptManager::quiesceProcessor()
+{
+    if (m_bQuiesced)
+    {
+        return;
+    }
+
+    sigset_t irqSignals;
+    sigemptyset(&irqSignals);
+    sigaddset(&irqSignals, SIGUSR1);
+    sigaddset(&irqSignals, SIGUSR2);
+    sigprocmask(SIG_BLOCK, &irqSignals, nullptr);
+
+    // The timers have already been deleted, so no new IRQ signals can be
+    // queued. Drain signals that were pending while interrupts were masked.
+    struct timespec noWait = {0, 0};
+    while (sigtimedwait(&irqSignals, nullptr, &noWait) >= 0)
+    {
+    }
+
+    for (size_t i = 1; i < MAX_SIGNAL; ++i)
+    {
+        if (m_ActionInstalled[i])
+        {
+            sigaction(i, &m_OriginalActions[i], nullptr);
+            m_ActionInstalled[i] = false;
+        }
+    }
+    m_bQuiesced = true;
 }
 
 HostedInterruptManager::HostedInterruptManager() : m_Lock()

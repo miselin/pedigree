@@ -1034,7 +1034,10 @@ void KernelElf::waitForModulesToLoad()
 {
     for (size_t i = 0; i < m_Modules.count(); ++i)
     {
-        m_ModuleProgress.acquire();
+        if (!m_ModuleProgress.acquireForCompletion())
+        {
+            FATAL("Module-load completion wait failed.");
+        }
     }
 
     NOTICE("SUCCESSFUL MODULES:");

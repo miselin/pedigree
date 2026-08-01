@@ -21,14 +21,14 @@
 #define PROCESS_INTERRUPTIBLE_H
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/DeferredScope.h"
+
+class Thread;
 
 /**
- * Uninterruptible provides an RAII helper to move the current thread into
- * an uninterruptible state. That means the thread will be able to be
- * scheduled, but will not be able to have any events sent to it until it
- * ceases to be uninterruptible. This can be important in certain cases where
- * an event would cause a re-entry into a mutual exclusion critical section or
- * some other undesirable event.
+ * Defers event delivery and terminal teardown for a nestable critical section.
+ * Events and termination remain pending until the outermost scope has retired
+ * the state it protects.
  *
  * \note Threads cannot be set uninterruptible without using this.
  */
@@ -40,6 +40,9 @@ class EXPORTED_PUBLIC Uninterruptible
 
   private:
     NOT_COPYABLE_OR_ASSIGNABLE(Uninterruptible);
+
+    Thread *m_pThread;
+    DeferredScopeRecord m_Record;
 };
 
 #endif  // PROCESS_INTERRUPTIBLE_H

@@ -58,9 +58,11 @@ EXPORTED_PUBLIC void *addAlarm(Timestamp nanoseconds);
 /** Remove an alarm created by addAlarm. */
 EXPORTED_PUBLIC void removeAlarm(void *handle);
 
-/** Run the given function (asynchronously) after the specified delay. */
-EXPORTED_PUBLIC void
-runAfter(int (*func)(void *), void *param, Timestamp nanoseconds);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+/** Hosted regression counters for exact alarm ownership. */
+EXPORTED_PUBLIC size_t getHostedAlarmCreateCount();
+EXPORTED_PUBLIC size_t getHostedAlarmDestroyCount();
+#endif
 
 /** Gets the system's current time. */
 EXPORTED_PUBLIC Timestamp getTime(bool sync = false);

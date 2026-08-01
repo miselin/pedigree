@@ -100,12 +100,10 @@ void ProcessorBase::deinitialise()
 {
     shutdownMultitasking();
 
-    // Shut down remaining singleton objects.
-    IoPortManager::instance().~IoPortManager();
+    // Release physical-memory bookkeeping while the global memory manager and
+    // allocator are still alive. Global destructors tear down the remaining
+    // singleton objects exactly once after this returns.
     X86CommonPhysicalMemoryManager::instance().shutdown();
-    PageFaultHandler::instance().~PageFaultHandler();
-    X64SyscallManager::instance().~X64SyscallManager();
-    X64InterruptManager::instance().~X64InterruptManager();
 }
 
 void ProcessorBase::initialise1(const BootstrapStruct_t &Info)

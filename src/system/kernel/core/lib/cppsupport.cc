@@ -74,13 +74,6 @@ void runKernelDestructors()
     uintptr_t *iterator = &start_kernel_dtors;
     while (iterator < &end_kernel_dtors)
     {
-        NOTICE("kernel dtor: " << reinterpret_cast<void *>(*iterator));
-        ++iterator;
-    }
-
-    iterator = &start_kernel_dtors;
-    while (iterator < &end_kernel_dtors)
-    {
         void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
         fp();
         iterator++;

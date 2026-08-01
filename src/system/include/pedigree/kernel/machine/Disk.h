@@ -53,16 +53,17 @@ class EXPORTED_PUBLIC Disk : public Device
     /**
      * Read from \p location on disk and return a pointer to it. \p location
      * must be 512 byte aligned. The pointer returned is within a page of
-     * cache that maps to 4096 bytes of disk area.
-     * \note If the Disk is backed by a Cache, the buffer returned should have
-     *       its refcount incremented by one by a successful run of read(). Use
-     *       unpin() to indicate you no longer care about the buffer.
+     * cache that maps to one native 4096-byte page of disk area.
+     * \note A successful read returns exactly one caller-owned reference to the
+     *       native cache page containing \p location. Use unpin() exactly once
+     *       when that page is no longer in use. Larger device block sizes are
+     *       internal I/O/readahead extents and do not extend this ownership.
      * \param location The offset from the start of the device, in bytes,
      *        to start the read, must be multiple of 512.
-     * \return Pointer to writable area of memory containing the data. If the
-     *         data is written, the page is marked as dirty and may be written
-     *         back to disk at any time (or forced with \c write()
-     *         or \c flush() ).
+     * \return Pointer to writable area of memory containing the data, or zero
+     *         on failure. If the data is written, the page is marked as dirty
+     *         and may be written back to disk at any time (or forced with
+     *         \c write() or \c flush() ).
      */
     virtual uintptr_t read(uint64_t location);
 
@@ -116,13 +117,17 @@ class EXPORTED_PUBLIC Disk : public Device
      * and unpin semantics allow for memory mappings to be made in a reasonably
      * safe manner, as it can be assumed that the physical page for a particular
      * cache block will not be freed.
+     *
+     * \return True only when this call acquired a reference to the page
+     * currently published for \p location. Callers must not use an address
+     * obtained before a failed pin.
      */
-    virtual void pin(uint64_t location);
+    MUST_USE_RESULT virtual bool pin(uint64_t location) = 0;
 
     /**
      * Unpins a cache page (see \c pin() for more information and rationale).
      */
-    virtual void unpin(uint64_t location);
+    virtual void unpin(uint64_t location) = 0;
 
     /**
      * \brief Whether or not the cache is critical and cannot be flushed or

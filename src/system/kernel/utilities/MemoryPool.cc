@@ -78,9 +78,9 @@ MemoryPoolPressureHandler::~MemoryPoolPressureHandler()
 {
 }
 
-const String MemoryPoolPressureHandler::getMemoryPressureDescription()
+const char *MemoryPoolPressureHandler::getMemoryPressureDescription()
 {
-    return String("MemoryPool: freeing unused pages");
+    return "MemoryPool: freeing unused pages";
 }
 
 bool MemoryPoolPressureHandler::compact()
@@ -91,29 +91,89 @@ bool MemoryPoolPressureHandler::compact()
 MemoryPool::MemoryPool()
     :
 #if THREADS
-      m_Condition(), m_Lock(),
+      m_Condition(), m_DrainCondition(), m_Lock(), m_MappingLock(),
 #endif
       m_BufferSize(1024), m_BufferCount(0), m_Pool("memory-pool"),
-      m_bInitialised(false), m_AllocBitmap(), m_PressureHandler(this)
+      m_bInitialised(false), m_bClosing(false), m_ActiveOperations(0),
+      m_AllocBitmap(), m_PressureHandler(this)
 {
 }
 
 MemoryPool::MemoryPool(const char *poolName)
     :
 #if THREADS
-      m_Condition(), m_Lock(),
+      m_Condition(), m_DrainCondition(), m_Lock(), m_MappingLock(),
 #endif
       m_BufferSize(1024), m_BufferCount(0), m_Pool(poolName),
-      m_bInitialised(false), m_AllocBitmap(), m_PressureHandler(this)
+      m_bInitialised(false), m_bClosing(false), m_ActiveOperations(0),
+      m_AllocBitmap(), m_PressureHandler(this)
 {
 }
 
 MemoryPool::~MemoryPool()
 {
-    // Free all the buffers
+    TerminationDeferral terminationDeferral;
+#if THREADS
+    m_Lock.acquire();
+#endif
+    bool wasInitialised = m_bInitialised;
+    m_bClosing = true;
     m_bInitialised = false;
 #if THREADS
     m_Condition.broadcast();
+    while (m_ActiveOperations)
+    {
+        m_DrainCondition.waitForCompletion(m_Lock);
+    }
+    m_Lock.release();
+#endif
+
+    if (wasInitialised)
+    {
+        MemoryPressureManager::instance().removeHandler(&m_PressureHandler);
+    }
+}
+
+MemoryPool::ActiveOperation::ActiveOperation(MemoryPool &pool)
+    : m_TerminationDeferral(),
+      m_Pool(pool.beginOperation() ? &pool : nullptr)
+{
+}
+
+MemoryPool::ActiveOperation::~ActiveOperation()
+{
+    if (m_Pool)
+    {
+        m_Pool->endOperation();
+    }
+}
+
+bool MemoryPool::beginOperation()
+{
+#if THREADS
+    LockGuard<Mutex> guard(m_Lock);
+#endif
+    if (m_bClosing || !m_bInitialised)
+    {
+        return false;
+    }
+
+    ++m_ActiveOperations;
+    return true;
+}
+
+void MemoryPool::endOperation()
+{
+#if THREADS
+    LockGuard<Mutex> guard(m_Lock);
+#endif
+    assert(m_ActiveOperations);
+    --m_ActiveOperations;
+#if THREADS
+    if (m_bClosing && !m_ActiveOperations)
+    {
+        m_DrainCondition.signal();
+    }
 #endif
 }
 
@@ -123,25 +183,36 @@ bool MemoryPool::initialise(size_t poolSize, size_t bufferSize)
     LockGuard<Mutex> guard(m_Lock);
 #endif
 
+    if (m_bClosing)
+        return false;
+
     if (m_bInitialised)
         return true;
 
-    if (!poolSize || !bufferSize ||
-        (bufferSize > (poolSize * PhysicalMemoryManager::getPageSize())))
+    if (!poolSize || !bufferSize)
         return false;
+
+    const size_t maxSize = ~static_cast<size_t>(0);
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    if (poolSize > (maxSize / pageSize))
+        return false;
+    const size_t poolBytes = poolSize * pageSize;
 
     // Find the next power of two for bufferSize, if it isn't already one
     if ((bufferSize & (bufferSize - 1)))
     {
         size_t powerOf2 = 1;
-        size_t lg2 = 0;
         while (powerOf2 < bufferSize)
         {
+            if (powerOf2 > (maxSize >> 1))
+                return false;
             powerOf2 <<= 1;
-            lg2++;
         }
         bufferSize = powerOf2;
     }
+
+    if (bufferSize > poolBytes)
+        return false;
 
     m_BufferSize = bufferSize;
 
@@ -155,7 +226,7 @@ bool MemoryPool::initialise(size_t poolSize, size_t bufferSize)
     if (!m_bInitialised)
         return false;
 
-    m_BufferCount = (poolSize * 0x1000) / bufferSize;
+    m_BufferCount = m_Pool.size() / m_BufferSize;
 
     // Register us as a memory pressure handler, with top priority. We should
     // very easily be able to free pages in most cases.
@@ -167,97 +238,151 @@ bool MemoryPool::initialise(size_t poolSize, size_t bufferSize)
 
 uintptr_t MemoryPool::allocate()
 {
-    if (!m_bInitialised)
-        return 0;
-
     return allocateDoer(true);
 }
 
 uintptr_t MemoryPool::allocateNow()
 {
-    if (!m_bInitialised)
-        return 0;
-
     return allocateDoer(false);
 }
 
 uintptr_t MemoryPool::allocateDoer(bool canBlock)
 {
-#if THREADS
-    m_Lock.acquire();
-#endif
-
-    // Find a free buffer
-    size_t poolSize = m_Pool.size();
-    size_t nBuffers = poolSize / m_BufferSize;
-    uintptr_t poolBase = reinterpret_cast<uintptr_t>(m_Pool.virtualAddress());
-
-    size_t n = 0;
-#if THREADS
-    while (true)
-    {
-        if (!m_BufferCount)
-        {
-            if (!canBlock)
-            {
-                m_Lock.release();
-                return 0;
-            }
-
-            ConditionVariable::WaitResult result = m_Condition.wait(m_Lock);
-            if (result.hasError())
-            {
-                /// \todo better error handling
-                return 0;
-            }
-            continue;
-        }
-#else
-    if (!m_BufferCount)
+    ActiveOperation operation(*this);
+    if (!operation)
     {
         return 0;
     }
+
+    uintptr_t result = 0;
+    {
+#if THREADS
+        LockGuard<Mutex> guard(m_Lock);
 #endif
 
+        size_t poolSize = m_Pool.size();
+        size_t nBuffers = poolSize / m_BufferSize;
+        uintptr_t poolBase =
+            reinterpret_cast<uintptr_t>(m_Pool.virtualAddress());
+
 #if THREADS
-        // Have a buffer available.
-        n = m_AllocBitmap.getFirstClear();
+        while (m_bInitialised && !m_BufferCount)
+        {
+            if (!canBlock)
+            {
+                return 0;
+            }
+
+            ConditionVariable::Error error =
+                ConditionVariable::NoError;
+            if (!m_Condition.wait(m_Lock, error))
+            {
+                if (!ConditionVariable::mutexAcquired(error))
+                {
+                    guard.disown();
+                }
+                return 0;
+            }
+        }
+
+        if (!m_bInitialised)
+        {
+            return 0;
+        }
+#else
+        if (!m_bInitialised || !m_BufferCount)
+        {
+            return 0;
+        }
+#endif
+
+        size_t n = m_AllocBitmap.getFirstClear();
         assert(n < nBuffers);
         m_AllocBitmap.set(n);
-        break;
+
+        size_t offset = n * m_BufferSize;
+        assert((offset % m_BufferSize) == 0);
+        assert(offset < poolSize);
+        assert(m_BufferSize <= (poolSize - offset));
+        result = poolBase + offset;
+
+        --m_BufferCount;
     }
-#endif
-
-    uintptr_t result = poolBase + (n * 0x1000);
-    map(result);
-
-    --m_BufferCount;
 
 #if THREADS
-    m_Lock.release();
+    {
+        LockGuard<Mutex> mappingGuard(m_MappingLock);
+        map(result);
+    }
+#else
+    map(result);
 #endif
-
     return result;
 }
 
 void MemoryPool::free(uintptr_t buffer)
 {
+    ActiveOperation operation(*this);
+    if (!operation)
+    {
+        return;
+    }
+
 #if THREADS
     LockGuard<Mutex> guard(m_Lock);
 #endif
 
-    if (!m_bInitialised)
+    if (!m_bInitialised || m_bClosing)
         return;
 
-    size_t n = (buffer - reinterpret_cast<uintptr_t>(m_Pool.virtualAddress())) /
-               m_BufferSize;
+    uintptr_t poolBase =
+        reinterpret_cast<uintptr_t>(m_Pool.virtualAddress());
+    size_t poolSize = m_Pool.size();
+    assert(buffer >= poolBase);
+    size_t offset = buffer - poolBase;
+    assert(offset < poolSize);
+    assert((offset % m_BufferSize) == 0);
+
+    size_t n = offset / m_BufferSize;
+    assert(n < (poolSize / m_BufferSize));
+    assert(m_AllocBitmap.test(n));
     m_AllocBitmap.clear(n);
 
     ++m_BufferCount;
+    assert(m_BufferCount <= (poolSize / m_BufferSize));
+
+#if THREADS
+    m_Condition.signal();
+#endif
 }
 
 bool MemoryPool::trim()
 {
+    ActiveOperation operation(*this);
+    if (!operation)
+    {
+        return false;
+    }
+
+#if THREADS
+    LockGuard<Mutex> guard(m_Lock);
+#endif
+
+    if (!m_bInitialised || m_bClosing)
+    {
+        return false;
+    }
+
+#if THREADS
+    // Compaction is opportunistic and can be entered by allocatePage() while
+    // this same execution context owns the mapping lock. Never wait on the
+    // allocator whose failure invoked us.
+    if (!m_MappingLock.tryAcquire())
+    {
+        return false;
+    }
+#endif
+
     size_t poolSize = m_Pool.size();
     size_t nBuffers = poolSize / m_BufferSize;
     uintptr_t poolBase = reinterpret_cast<uintptr_t>(m_Pool.virtualAddress());
@@ -271,7 +396,7 @@ bool MemoryPool::trim()
         {
             if (!m_AllocBitmap.test(n))
             {
-                uintptr_t page = poolBase + (n * 0x1000);
+                uintptr_t page = poolBase + (n * m_BufferSize);
                 for (size_t off = 0; off < m_BufferSize;
                      off += PhysicalMemoryManager::getPageSize())
                 {
@@ -304,11 +429,43 @@ bool MemoryPool::trim()
             if (!ok)
                 continue;
 
-            uintptr_t page = poolBase + (m * 0x1000);
+            uintptr_t page =
+                poolBase + (m * PhysicalMemoryManager::getPageSize());
             if (unmap(page))
                 ++nFreed;
         }
     }
 
+#if THREADS
+    m_MappingLock.release();
+#endif
     return nFreed > 0;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void MemoryPool::acquireHostedOperationLock()
+{
+    m_Lock.acquire();
+}
+
+void MemoryPool::releaseHostedOperationLock()
+{
+    m_Lock.release();
+}
+
+void MemoryPool::acquireHostedMappingLock()
+{
+    m_MappingLock.acquire();
+}
+
+void MemoryPool::releaseHostedMappingLock()
+{
+    m_MappingLock.release();
+}
+
+size_t MemoryPool::getHostedActiveOperationCount()
+{
+    LockGuard<Mutex> guard(m_Lock);
+    return m_ActiveOperations;
+}
+#endif

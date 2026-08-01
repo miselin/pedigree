@@ -18,12 +18,12 @@
  */
 
 #include "IrqManager.h"
-#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/state.h"
 
 namespace __pedigree_hosted
 {
@@ -32,10 +32,24 @@ using namespace __pedigree_hosted;
 
 #include <signal.h>
 
-static int irqToSignal[2] = {0};
-static int signalToIrq[NSIG] = {0};
+namespace
+{
+constexpr size_t NumHostedIrqs = 2;
+int irqToSignal[NumHostedIrqs] = {0};
 
-// TODO: Needs locking
+bool irqForSignal(size_t signal, uint8_t &irq)
+{
+    for (size_t i = 0; i < NumHostedIrqs; ++i)
+    {
+        if (irqToSignal[i] && static_cast<size_t>(irqToSignal[i]) == signal)
+        {
+            irq = static_cast<uint8_t>(i);
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
 
 HostedIrqManager HostedIrqManager::m_Instance;
 
@@ -51,11 +65,13 @@ bool HostedIrqManager::control(uint8_t irq, ControlCode code, size_t argument)
 irq_id_t HostedIrqManager::registerIsaIrqHandler(
     uint8_t irq, IrqHandler *handler, bool bEdge)
 {
-    if (UNLIKELY(irq >= 16))
+    if (
+        UNLIKELY(
+            irq >= NumHostedIrqs || !handler || !irqToSignal[irq]))
         return 0;
 
-    // Save the IrqHandler
-    m_Handler[irq].pushBack(handler);
+    if (!m_Handlers.registerHandler(irq, handler))
+        return 0;
 
     return irqToSignal[irq];
 }
@@ -66,11 +82,13 @@ HostedIrqManager::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
     if (UNLIKELY(!pDevice))
         return 0;
     irq_id_t irq = pDevice->getInterruptNumber();
-    if (UNLIKELY(irq >= 16))
+    if (
+        UNLIKELY(
+            irq >= NumHostedIrqs || !handler || !irqToSignal[irq]))
         return 0;
 
-    // Save the IrqHandler
-    m_Handler[irq].pushBack(handler);
+    if (!m_Handlers.registerHandler(irq, handler))
+        return 0;
 
     return irqToSignal[irq];
 }
@@ -79,20 +97,23 @@ void HostedIrqManager::acknowledgeIrq(irq_id_t Id)
 {
 }
 
-void HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandler *handler)
+bool HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandler *handler)
 {
-    size_t irq = signalToIrq[Id];
-
-    // Remove the handler
-    for (List<IrqHandler *>::Iterator it = m_Handler[irq].begin();
-         it != m_Handler[irq].end(); it++)
+    uint8_t irq = 0;
+    if (!irqForSignal(Id, irq))
     {
-        if (*it == handler)
-        {
-            m_Handler[irq].erase(it);
-            return;
-        }
+        return false;
     }
+
+    const IrqHandlerRegistry::UnregisterResult result =
+        m_Handlers.unregisterHandler(irq, handler);
+    if (result == IrqHandlerRegistry::UnregisterResult::Rejected)
+    {
+        ERROR(
+            "HostedIrqManager: rejected an IRQ removal which could not "
+            "synchronously drain");
+    }
+    return result == IrqHandlerRegistry::UnregisterResult::Completed;
 }
 
 bool HostedIrqManager::initialise()
@@ -107,35 +128,34 @@ bool HostedIrqManager::initialise()
     irqToSignal[0] = SIGUSR1;
     irqToSignal[1] = SIGUSR2;
 
-    signalToIrq[SIGUSR1] = 0;
-    signalToIrq[SIGUSR2] = 1;
-
     return true;
 }
 
-HostedIrqManager::HostedIrqManager() : m_Lock(false)
+HostedIrqManager::HostedIrqManager() : m_Handlers()
 {
-    for (size_t i = 0; i < 2; i++)
-    {
-        m_Handler[i].clear();
-    }
 }
 
 void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
 {
-    size_t irq = signalToIrq[interruptNumber];
-
-    // Call the irq handler, if any
-    if (LIKELY(m_Handler[irq].count() != 0))
+    uint8_t irq = 0;
+    if (!irqForSignal(interruptNumber, irq))
     {
-        for (List<IrqHandler *>::Iterator it = m_Handler[irq].begin();
-             it != m_Handler[irq].end(); it++)
-        {
-            (*it)->irq(irq, state);
-        }
+        NOTICE(
+            "HostedIrqManager: unmapped signal #" << interruptNumber
+                                                  << " occurred");
+        return;
     }
-    else
+
+    bool handled = false;
+    if (!m_Handlers.dispatch(irq, state, handled))
     {
         NOTICE("HostedIrqManager: unhandled irq #" << irq << " occurred");
     }
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void HostedIrqManager::setHandlerPinHook(HandlerPinHook hook)
+{
+    m_Instance.m_Handlers.setHandlerPinHook(hook);
+}
+#endif

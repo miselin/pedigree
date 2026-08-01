@@ -62,6 +62,13 @@ class EXPORTED_PUBLIC ProducerConsumer
         uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0,
         uint64_t p8 = 0);
 
+  protected:
+    /**
+     * Stops and joins the consumer thread. The most-derived destructor must
+     * call this before its state or virtual dispatch table can disappear.
+     */
+    void destroy();
+
   private:
     virtual void consume(
         uint64_t p0, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
@@ -83,6 +90,7 @@ class EXPORTED_PUBLIC ProducerConsumer
 
     void *m_pThreadHandle = nullptr;
     bool m_Running = false;
+    bool m_Destroyed = false;
 #endif
 };
 

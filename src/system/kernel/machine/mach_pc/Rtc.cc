@@ -28,6 +28,7 @@
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -67,6 +68,16 @@ Rtc::periodicIrqInfo_t Rtc::periodicIrqInfo[12] = {
 static uint8_t daysPerMonth[] = {31, 28, 31, 30, 31, 30,
                                  31, 31, 30, 31, 30, 31};
 
+static uint64_t addAlarmDuration(
+    uint64_t deadline, size_t count, uint64_t multiplier)
+{
+    if (count > ((Time::Infinity - deadline) / multiplier))
+    {
+        return Time::Infinity;
+    }
+    return deadline + (count * multiplier);
+}
+
 Rtc Rtc::m_Instance;
 
 void Rtc::addAlarm(Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
@@ -74,10 +85,10 @@ void Rtc::addAlarm(Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
     LockGuard<Spinlock> guard(m_Lock);
 
     // Figure out when to trigger the alarm.
-    uint64_t target = m_TickCount;
-    uint64_t delta = alarmSecs * Time::Multiplier::Second;
-    delta += alarmUsecs * Time::Multiplier::Microsecond;
-    target += delta;
+    uint64_t target = addAlarmDuration(
+        m_TickCount, alarmSecs, Time::Multiplier::Second);
+    target = addAlarmDuration(
+        target, alarmUsecs, Time::Multiplier::Microsecond);
     Alarm *pAlarm =
         new Alarm(pEvent, target, Processor::information().getCurrentThread());
     m_Alarms.pushBack(pAlarm);
@@ -106,7 +117,7 @@ size_t Rtc::removeAlarm(class Event *pEvent, bool bRetZero)
 {
     LockGuard<Spinlock> guard(m_Lock);
 
-    size_t currTime = getTickCount();
+    const uint64_t currTime = m_TickCount;
 
     for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();
          it++)
@@ -123,9 +134,12 @@ size_t Rtc::removeAlarm(class Event *pEvent, bool bRetZero)
                     ret = 0;
                 else
                 {
-                    /// \todo clarify units
-                    size_t diff = alarmEndTime - currTime;
-                    ret = (diff / 1000) + 1;
+                    const uint64_t diff = alarmEndTime - currTime;
+                    ret = diff / Time::Multiplier::Second;
+                    if (diff % Time::Multiplier::Second)
+                    {
+                        ++ret;
+                    }
                 }
             }
 
@@ -141,35 +155,174 @@ size_t Rtc::removeAlarm(class Event *pEvent, bool bRetZero)
 
 bool Rtc::registerHandler(TimerHandler *handler)
 {
-    // find a spare spot and install
-    size_t nHandler;
-    for (nHandler = 0; nHandler < MAX_TIMER_HANDLERS; nHandler++)
+    if (!handler)
     {
-        if (m_Handlers[nHandler] == 0)
+        return false;
+    }
+
+    LockGuard<Spinlock> guard(m_HandlerLock);
+    for (size_t i = 0; i < MAX_TIMER_HANDLERS; ++i)
+    {
+        if (m_Handlers[i].handler == handler)
         {
-            m_Handlers[nHandler] = handler;
+            if (
+                !m_Handlers[i].enabled &&
+                m_Handlers[i].deferredRemoval &&
+                !m_Handlers[i].drainers)
+            {
+                // A new user arrived before a callback's deferred
+                // self-removal completed.
+                m_Handlers[i].enabled = true;
+                m_Handlers[i].deferredRemoval = false;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    for (size_t i = 0; i < MAX_TIMER_HANDLERS; ++i)
+    {
+        HandlerSlot &slot = m_Handlers[i];
+        if (!slot.handler)
+        {
+            assert(!slot.inFlight);
+            assert(!slot.drainers);
+            assert(!slot.dispatches);
+            slot.handler = handler;
+            slot.enabled = true;
+            slot.deferredRemoval = false;
             return true;
         }
     }
 
-    // no room!
     return false;
 }
+
 bool Rtc::unregisterHandler(TimerHandler *handler)
 {
-    // find a spare spot and install
-    size_t nHandler;
-    for (nHandler = 0; nHandler < MAX_TIMER_HANDLERS; nHandler++)
+    if (!handler)
     {
-        if (m_Handlers[nHandler] == handler)
+        return false;
+    }
+
+    Thread *current = Processor::information().getCurrentThread();
+    const bool canYield = current && Processor::getInterrupts();
+
+    m_HandlerLock.acquire();
+
+    HandlerSlot *slot = nullptr;
+    for (size_t i = 0; i < MAX_TIMER_HANDLERS; ++i)
+    {
+        if (m_Handlers[i].handler == handler)
         {
-            m_Handlers[nHandler] = 0;
-            return true;
+            slot = &m_Handlers[i];
+            break;
         }
     }
 
-    // not found
-    return false;
+    if (!slot)
+    {
+        m_HandlerLock.release();
+        return false;
+    }
+
+    bool callbackContext = false;
+    bool selfUnregister = false;
+    for (size_t i = 0; i < MAX_TIMER_HANDLERS; ++i)
+    {
+        for (
+            HandlerDispatch *dispatch = m_Handlers[i].dispatches; dispatch;
+            dispatch = dispatch->next)
+        {
+            if (dispatch->thread == current)
+            {
+                callbackContext = true;
+                selfUnregister |= &m_Handlers[i] == slot;
+            }
+        }
+    }
+
+    if (selfUnregister)
+    {
+        // The synchronous ownership barrier cannot include the callback which
+        // is currently making the request. Reject that contract explicitly,
+        // but retire the legacy callback once it returns.
+        slot->enabled = false;
+        if (!slot->drainers)
+        {
+            slot->deferredRemoval = true;
+        }
+        m_HandlerLock.release();
+        return false;
+    }
+
+    if (callbackContext && slot->inFlight)
+    {
+        // A timer callback must not block on another callback's pin.
+        m_HandlerLock.release();
+        return false;
+    }
+
+    slot->enabled = false;
+    slot->deferredRemoval = false;
+    ++slot->drainers;
+    if (!slot->inFlight)
+    {
+        --slot->drainers;
+        if (!slot->drainers)
+        {
+            slot->handler = nullptr;
+        }
+        m_HandlerLock.release();
+        return true;
+    }
+    m_HandlerLock.release();
+
+    if (canYield)
+    {
+        TerminationDeferral terminationDeferral;
+        while (true)
+        {
+            auto guard = slot->drainWaiters.acquire();
+            m_HandlerLock.acquire();
+            if (!slot->inFlight)
+            {
+                assert(slot->drainers);
+                --slot->drainers;
+                if (!slot->drainers)
+                {
+                    slot->handler = nullptr;
+                }
+                m_HandlerLock.release();
+                return true;
+            }
+            m_HandlerLock.release();
+
+            const WaitQueue::WakeReason reason =
+                guard.waitForCompletion(
+                    WaitQueue::Channel(slot), Thread::CallbackDrain,
+                    reinterpret_cast<uintptr_t>(handler));
+            (void) reason;
+        }
+    }
+
+    while (true)
+    {
+        Processor::pause();
+        m_HandlerLock.acquire();
+        if (!slot->inFlight)
+        {
+            assert(slot->drainers);
+            --slot->drainers;
+            if (!slot->drainers)
+            {
+                slot->handler = nullptr;
+            }
+            m_HandlerLock.release();
+            return true;
+        }
+        m_HandlerLock.release();
+    }
 }
 size_t Rtc::getYear()
 {
@@ -216,7 +369,7 @@ uint64_t Rtc::getNanosecond()
 }
 uint64_t Rtc::getTickCount()
 {
-    return getTickCountNano() / 1000ULL;
+    return getTickCountNano() / Time::Multiplier::Millisecond;
 }
 uint64_t Rtc::getTickCountNano()
 {
@@ -242,8 +395,19 @@ bool Rtc::initialise1()
     // No IRQ yet.
     m_IrqId = 0;
 
-    // initialise handlers
-    ByteSet(m_Handlers, 0, sizeof(TimerHandler *) * MAX_TIMER_HANDLERS);
+    // Initialise handlers.
+    {
+        LockGuard<Spinlock> guard(m_HandlerLock);
+        for (size_t i = 0; i < MAX_TIMER_HANDLERS; ++i)
+        {
+            assert(!m_Handlers[i].inFlight);
+            assert(!m_Handlers[i].drainers);
+            assert(!m_Handlers[i].dispatches);
+            m_Handlers[i].handler = nullptr;
+            m_Handlers[i].enabled = false;
+            m_Handlers[i].deferredRemoval = false;
+        }
+    }
 
     // Are the RTC values in the CMOS encoded in BCD (or binary)?
     m_bBCD = (read(0x0B) & 0x04) != 0x04;
@@ -396,7 +560,13 @@ void Rtc::uninitialise()
 
     // Unregister the irq
     IrqManager &irqManager = *Machine::instance().getIrqManager();
-    irqManager.unregisterHandler(m_IrqId, this);
+    if (!irqManager.unregisterHandler(m_IrqId, this))
+    {
+        FATAL(
+            "RTC teardown could not synchronously unregister its IRQ "
+            "callback");
+    }
+    m_IrqId = 0;
 
     // Free the I/O port range
     m_IoPort.free();
@@ -405,7 +575,8 @@ void Rtc::uninitialise()
 Rtc::Rtc()
     : m_IoPort("CMOS"), m_IrqId(0), m_PeriodicIrqInfoIndex(0), m_bBCD(true),
       m_Year(1970), m_Month(0), m_DayOfMonth(0), m_Hour(0), m_Minute(0),
-      m_Second(0), m_Nanosecond(0), m_TickCount(0), m_Alarms()
+      m_Second(0), m_Nanosecond(0), m_TickCount(0), m_Handlers(),
+      m_HandlerLock(false), m_Alarms()
 {
 }
 
@@ -481,7 +652,12 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
         // Memory snapshot of current processes.
         for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
         {
-            Process *pProcess = Scheduler::instance().getProcess(i);
+            Scheduler::ProcessLease processLease;
+            if (!Scheduler::instance().acquireProcess(processLease, i))
+            {
+                continue;
+            }
+            Process *pProcess = processLease.get();
             LargeStaticString processListStr;
 
             ssize_t heapK = pProcess->getHeapUsage() / 1024;
@@ -547,12 +723,59 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
     // Acknowledging the IRQ (within the CMOS)
     read(0x0C);
 
-    // call handlers
-    for (size_t nHandler = 0; nHandler < MAX_TIMER_HANDLERS; nHandler++)
+    // Pin each callback under the registry lock, but never carry that lock
+    // across handler code. unregisterHandler disables future pins and drains
+    // any callback which has already committed here.
+    for (size_t i = 0; i < MAX_TIMER_HANDLERS; ++i)
     {
-        // timer delta is in nanoseconds
-        if (m_Handlers[nHandler])
-            m_Handlers[nHandler]->timer(delta, state);
+        HandlerDispatch dispatch = {
+            Processor::information().getCurrentThread(), nullptr};
+        TimerHandler *handler = nullptr;
+
+        m_HandlerLock.acquire();
+        HandlerSlot &slot = m_Handlers[i];
+        if (slot.handler && slot.enabled)
+        {
+            handler = slot.handler;
+            ++slot.inFlight;
+            dispatch.next = slot.dispatches;
+            slot.dispatches = &dispatch;
+        }
+        m_HandlerLock.release();
+
+        if (!handler)
+        {
+            continue;
+        }
+
+        // Timer delta is in nanoseconds.
+        handler->timer(delta, state);
+
+        bool wakeDrainers = false;
+        m_HandlerLock.acquire();
+        HandlerDispatch **link = &slot.dispatches;
+        while (*link && *link != &dispatch)
+        {
+            link = &(*link)->next;
+        }
+        assert(*link == &dispatch);
+        *link = dispatch.next;
+        assert(slot.inFlight);
+        --slot.inFlight;
+        wakeDrainers = !slot.inFlight && slot.drainers;
+        if (!slot.inFlight && slot.deferredRemoval)
+        {
+            slot.handler = nullptr;
+            slot.deferredRemoval = false;
+        }
+        m_HandlerLock.release();
+
+        if (wakeDrainers)
+        {
+            slot.drainWaiters.wakeAll(
+                WaitQueue::WakeReason::Signalled,
+                WaitQueue::Channel(&slot));
+        }
     }
 
     return true;

@@ -18,16 +18,15 @@
  */
 
 #include "pedigree/kernel/process/MemoryPressureManager.h"
-#include "pedigree/kernel/utilities/String.h"
-
 /** Handles killing processes if memory pressure is encountered. */
 class MemoryPressureProcessKiller : public MemoryPressureHandler
 {
   public:
-    virtual const String getMemoryPressureDescription()
+    virtual const char *getMemoryPressureDescription()
     {
-        return String("Process killer, killing high-memory processes.");
+        return "Process killer, killing high-memory processes.";
     }
 
+    /** Requests one victim's termination; reclamation completes asynchronously. */
     virtual bool compact();
 };

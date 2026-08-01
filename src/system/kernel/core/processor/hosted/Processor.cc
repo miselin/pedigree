@@ -173,7 +173,9 @@ void ProcessorBase::switchState(
     FATAL("switchState with a SyscallState is not implemented for the HOSTED cpu");
 }
 
-static void threadWrapper(uintptr_t func, volatile uintptr_t *pLock, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4)
+static void threadWrapper(
+    uintptr_t func, volatile uintptr_t *pLock, uintptr_t bInterrupts,
+    uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4)
 {
 #if HAS_SANITIZERS
     __sanitizer_finish_switch_fiber(nullptr, nullptr, nullptr);
@@ -184,22 +186,31 @@ static void threadWrapper(uintptr_t func, volatile uintptr_t *pLock, uintptr_t p
         // unlock other thread now that we are on the new stack
         *pLock = 1;
     }
+    Processor::setInterrupts(bInterrupts != 0);
     auto entry = reinterpret_cast<void (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t)>(func);
     entry(p1, p2, p3, p4);
     Thread::threadExited();
 }
 
 static void userThreadWrapper(
-    uintptr_t func, volatile uintptr_t *pLock, uintptr_t stack, uintptr_t p1,
-    uintptr_t p2, uintptr_t p3, uintptr_t p4)
+    uintptr_t func, volatile uintptr_t *pLock, uintptr_t bInterrupts,
+    uintptr_t stack, uintptr_t p1, uintptr_t p2, uintptr_t p3,
+    uintptr_t p4)
 {
 #if HAS_SANITIZERS
     __sanitizer_finish_switch_fiber(nullptr, nullptr, nullptr);
 #endif
 
+    if (pLock)
+    {
+        // The wrapper is already running on the new kernel stack.
+        *pLock = 1;
+    }
+    Processor::setInterrupts(bInterrupts != 0);
+
     // The ELF interpreter consumes the initial process state directly from
     // RSP, so the final transition cannot use a C call frame.
-    Processor::jumpUser(pLock, func, stack, p1, p2, p3, p4);
+    Processor::jumpUser(nullptr, func, stack, p1, p2, p3, p4);
 }
 
 void ProcessorBase::jumpKernel(
@@ -224,7 +235,10 @@ void ProcessorBase::saveAndJumpKernel(
     new_context.uc_stack.ss_sp = adjust_pointer(reinterpret_cast<void *>(stack), -KERNEL_STACK_SIZE);
     new_context.uc_stack.ss_size = KERNEL_STACK_SIZE;
     new_context.uc_link = NULL;
-    makecontext(&new_context, reinterpret_cast<void (*)()>(threadWrapper), 6, address, reinterpret_cast<uintptr_t>(pLock), p1, p2, p3, p4);
+    makecontext(
+        &new_context, reinterpret_cast<void (*)()>(threadWrapper), 7,
+        address, reinterpret_cast<uintptr_t>(pLock),
+        static_cast<uintptr_t>(bInterrupts), p1, p2, p3, p4);
 
 #if HAS_SANITIZERS
     void *fake_stack_save = nullptr;
@@ -254,8 +268,9 @@ void ProcessorBase::saveAndJumpUser(
     new_context.uc_stack.ss_size = KERNEL_STACK_SIZE;
     new_context.uc_link = NULL;
     makecontext(
-        &new_context, reinterpret_cast<void (*)()>(userThreadWrapper), 7,
-        address, reinterpret_cast<uintptr_t>(pLock), stack, p1, p2, p3, p4);
+        &new_context, reinterpret_cast<void (*)()>(userThreadWrapper), 8,
+        address, reinterpret_cast<uintptr_t>(pLock),
+        static_cast<uintptr_t>(bInterrupts), stack, p1, p2, p3, p4);
 
 #if HAS_SANITIZERS
     void *fake_stack_save = nullptr;

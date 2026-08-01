@@ -34,13 +34,18 @@
 InfoBlockManager InfoBlockManager::m_Instance;
 
 InfoBlockManager::InfoBlockManager()
-    : TimerHandler(), m_bInitialised(false), m_pInfoBlock(0)
+    : TimerHandler(), m_bInitialised(false), m_pTimer(nullptr),
+      m_pInfoBlock(0)
 {
 }
 
 InfoBlockManager::~InfoBlockManager()
 {
-    Machine::instance().getTimer()->unregisterHandler(this);
+    if (m_pTimer && !m_pTimer->unregisterHandler(this))
+    {
+        FATAL("InfoBlockManager could not drain its timer callback");
+    }
+    m_pTimer = nullptr;
 }
 
 InfoBlockManager &InfoBlockManager::instance()
@@ -84,7 +89,13 @@ bool InfoBlockManager::initialise()
 
     // Register ourselves with the main timer.
     m_bInitialised = true;
-    return Machine::instance().getTimer()->registerHandler(this);
+    Timer *timer = Machine::instance().getTimer();
+    if (timer && timer->registerHandler(this))
+    {
+        m_pTimer = timer;
+        return true;
+    }
+    return false;
 }
 
 void InfoBlockManager::timer(uint64_t, InterruptState &)

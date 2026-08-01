@@ -21,14 +21,17 @@
 
 #include "pedigree/kernel/debugger/commands/ThreadsCommand.h"
 #include "pedigree/kernel/debugger/DebuggerIO.h"
+#include "pedigree/kernel/debugger/commands/ThreadWaitDiagnostic.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/demangle.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 ThreadsCommand::ThreadsCommand()
     : DebuggerCommand(), Scrollable(), m_SelectedLine(0), m_nLines(0)
@@ -37,6 +40,107 @@ ThreadsCommand::ThreadsCommand()
 
 ThreadsCommand::~ThreadsCommand()
 {
+}
+
+static const char *debugStateName(Thread::DebugState state)
+{
+    switch (state)
+    {
+        case Thread::SemWait:
+            return "Sem-Wait";
+        case Thread::CondWait:
+            return "Cond-Wait";
+        case Thread::Joining:
+            return "Joining";
+        case Thread::FutexWait:
+            return "Futex-Wait";
+        case Thread::EventWait:
+            return "Event-Wait";
+        case Thread::ProcessWait:
+            return "Process-Wait";
+        case Thread::CallbackDrain:
+            return "Callback-Drain";
+        case Thread::None:
+            return nullptr;
+    }
+    return "<unknown DebugState>";
+}
+
+static void appendWaitState(Thread *thread, HugeStaticString &line)
+{
+    ThreadWaitDiagnostic diagnostic;
+    diagnostic.sleeping = thread->getStatus() == Thread::Sleeping;
+
+    Thread::WaitDebugInfo wait;
+    if (!thread->getWaitDebugInfo(wait))
+    {
+        appendThreadWaitDiagnostic(diagnostic, line);
+        return;
+    }
+
+    diagnostic.hasWait = true;
+    diagnostic.queue = reinterpret_cast<uintptr_t>(wait.queue);
+    diagnostic.channelOwner =
+        reinterpret_cast<uintptr_t>(wait.channelOwner);
+    diagnostic.channelValue = wait.channelValue;
+    diagnostic.reason = wait.reason;
+    diagnostic.stateLevel = wait.stateLevel;
+    diagnostic.queued = wait.queued;
+
+    uintptr_t debugAddress = 0;
+    if (
+        thread->getDebugState(debugAddress) == Thread::SemWait &&
+        wait.channelOwner)
+    {
+        const Semaphore *semaphore =
+            reinterpret_cast<const Semaphore *>(wait.channelOwner);
+        const void *owner = semaphore->getDebugMutexOwner();
+        if (owner)
+        {
+            diagnostic.mutexOwner = reinterpret_cast<uintptr_t>(owner);
+        }
+    }
+
+    appendThreadWaitDiagnostic(diagnostic, line);
+}
+
+static void selectLine(
+    size_t index, Scheduler::ProcessLease &selectedProcess,
+    Process::ThreadLease &selectedThread)
+{
+    size_t line = 0;
+    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
+    {
+        Scheduler::ProcessLease process;
+        if (!Scheduler::instance().acquireProcess(process, i))
+        {
+            continue;
+        }
+
+        if (index == line)
+        {
+            selectedProcess = pedigree_std::move(process);
+            return;
+        }
+        ++line;
+
+        for (size_t j = 0; j < process->getNumThreads(); ++j)
+        {
+            Process::ThreadLease thread;
+            const bool threadAcquired =
+                process->acquireThread(thread, j);
+            if (index == line)
+            {
+                if (threadAcquired)
+                {
+                    selectedProcess = pedigree_std::move(process);
+                    selectedThread = pedigree_std::move(thread);
+                }
+                return;
+            }
+            ++line;
+        }
+    }
 }
 
 void ThreadsCommand::autocomplete(
@@ -52,8 +156,13 @@ bool ThreadsCommand::execute(
     m_nLines = 0;
     for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
     {
+        Scheduler::ProcessLease process;
+        if (!Scheduler::instance().acquireProcess(process, i))
+        {
+            continue;
+        }
         m_nLines++;  // For the process.
-        m_nLines += Scheduler::instance().getProcess(i)->getNumThreads();
+        m_nLines += process->getNumThreads();
     }
 
     // Let's enter 'raw' screen mode.
@@ -171,34 +280,11 @@ const char *ThreadsCommand::getLine1(
     static NormalStaticString Line;
     Line.clear();
 
-    // Work through our process list.
-    size_t idx = 0;
-    Process *tehProcess = 0;
-    Thread *tehThread = 0;
-    bool stop = false;
-    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
-    {
-        tehProcess = Scheduler::instance().getProcess(i);
-        if (index == idx)
-        {
-            tehThread = 0;
-            break;
-        }
-        idx++;
-
-        for (size_t j = 0; j < tehProcess->getNumThreads(); j++)
-        {
-            if (index == idx)
-            {
-                tehThread = tehProcess->getThread(j);
-                stop = true;
-                break;
-            }
-            idx++;
-        }
-        if (stop)
-            break;
-    }
+    Scheduler::ProcessLease process;
+    Process::ThreadLease thread;
+    selectLine(index, process, thread);
+    Process *tehProcess = process.get();
+    Thread *tehThread = thread.get();
 
     if (!tehProcess)
     {
@@ -230,36 +316,13 @@ const char *ThreadsCommand::getLine2(
     size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
     DebuggerIO::Colour &bgColour)
 {
-    static LargeStaticString Line;
+    static HugeStaticString Line;
     Line.clear();
 
-    // Work through our process list.
-    size_t idx = 0;
-    Process *tehProcess = 0;
-    Thread *tehThread = 0;
-    bool stop = false;
-    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
-    {
-        tehProcess = Scheduler::instance().getProcess(i);
-        if (index == idx)
-        {
-            tehThread = 0;
-            break;
-        }
-        idx++;
-        for (size_t j = 0; j < tehProcess->getNumThreads(); j++)
-        {
-            if (index == idx)
-            {
-                tehThread = tehProcess->getThread(j);
-                stop = true;
-                break;
-            }
-            idx++;
-        }
-        if (stop)
-            break;
-    }
+    Scheduler::ProcessLease process;
+    Process::ThreadLease thread;
+    selectLine(index, process, thread);
+    Thread *tehThread = thread.get();
 
     if (tehThread != 0 &&
         tehThread != Processor::information().getCurrentThread())
@@ -267,6 +330,9 @@ const char *ThreadsCommand::getLine2(
         Thread::Status status = tehThread->getStatus();
         switch (status)
         {
+            case Thread::Created:
+                Line += "C";
+                break;
             case Thread::Running:
                 Line += "r";
                 break;
@@ -282,9 +348,6 @@ const char *ThreadsCommand::getLine2(
             case Thread::AwaitingJoin:
                 Line += "J";
                 break;
-            case Thread::Suspended:
-                Line += "s";
-                break;
         }
 
         Line += "[";
@@ -298,14 +361,8 @@ const char *ThreadsCommand::getLine2(
         Thread::DebugState state = tehThread->getDebugState(ip);
         if (state != Thread::None)
         {
-            if (state == Thread::SemWait)
-                Line += "Sem-Wait @ ";
-            else if (state == Thread::Joining)
-                Line += "Joining @";
-            else if (state == Thread::CondWait)
-                Line += "Cond-Wait @";
-            else
-                Line += "<unknown DebugState> @";
+            Line += debugStateName(state);
+            Line += " @ ";
             Line.append(ip, 16);
 
             uintptr_t symStart;
@@ -339,6 +396,7 @@ const char *ThreadsCommand::getLine2(
                 Line += sym;
             }
         }
+        appendWaitState(tehThread, Line);
         colour = DebuggerIO::LightGrey;
     }
     else if (tehThread != 0)  // tehThread == g_pCurrentThread
@@ -346,6 +404,9 @@ const char *ThreadsCommand::getLine2(
         Thread::Status status = tehThread->getStatus();
         switch (status)
         {
+            case Thread::Created:
+                Line += "C";
+                break;
             case Thread::Running:
                 Line += "r";
                 break;
@@ -361,29 +422,20 @@ const char *ThreadsCommand::getLine2(
             case Thread::AwaitingJoin:
                 Line += "J";
                 break;
-            case Thread::Suspended:
-                Line += "s";
-                break;
         }
         Line += "[";
         Line += "CPU";
         Line += tehThread->getCpuId();
         Line += ":";
         Line += tehThread->getId();
-        Line += "] - CURRENT";
+        Line += "] - CURRENT ";
 
         uintptr_t ip = 0;
         Thread::DebugState state = tehThread->getDebugState(ip);
         if (state != Thread::None)
         {
-            if (state == Thread::SemWait)
-                Line += "Sem-Wait @ ";
-            else if (state == Thread::Joining)
-                Line += "Joining @";
-            else if (state == Thread::CondWait)
-                Line += "Cond-Wait @";
-            else
-                Line += "<unknown DebugState> @";
+            Line += debugStateName(state);
+            Line += " @ ";
             Line.append(ip, 16);
 
             uintptr_t symStart;
@@ -397,6 +449,7 @@ const char *ThreadsCommand::getLine2(
                 Line += sym;
             }
         }
+        appendWaitState(tehThread, Line);
 
         colour = DebuggerIO::Yellow;
     }
@@ -416,33 +469,10 @@ size_t ThreadsCommand::getLineCount()
 
 bool ThreadsCommand::swapThread(InterruptState &state, DebuggerIO *pScreen)
 {
-    // Work through our process list.
-    size_t idx = 0;
-    Process *tehProcess = 0;
-    Thread *tehThread = 0;
-    bool stop = false;
-    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
-    {
-        tehProcess = Scheduler::instance().getProcess(i);
-        if (m_SelectedLine == idx)
-        {
-            tehThread = 0;
-            break;
-        }
-        idx++;
-        for (size_t j = 0; j < tehProcess->getNumThreads(); j++)
-        {
-            if (m_SelectedLine == idx)
-            {
-                tehThread = tehProcess->getThread(j);
-                stop = true;
-                break;
-            }
-            idx++;
-        }
-        if (stop)
-            break;
-    }
+    Scheduler::ProcessLease process;
+    Process::ThreadLease thread;
+    selectLine(m_SelectedLine, process, thread);
+    Thread *tehThread = thread.get();
 
     // We can only swap to threads, not entire processes!
     if (tehThread == 0)

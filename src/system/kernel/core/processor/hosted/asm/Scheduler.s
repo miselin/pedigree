@@ -51,6 +51,13 @@ _ZN21PerProcessorScheduler28deleteThreadThenRestoreStateEP6ThreadR20HostedSchedu
     ; Load the state pointer
     mov rcx, rsi
 
+    ; Match x64: release the caller lock immediately before abandoning the
+    ; target stack.
+    cmp rdx, 0
+    jz .no_caller_lock
+    mov qword [rdx], 1
+.no_caller_lock:
+
     ; Thread* already in rdi will be passed to PerProcessorScheduler::deleteThread(Thread *)
 
     ; We need to get OFF the current stack as it may get unmapped by the

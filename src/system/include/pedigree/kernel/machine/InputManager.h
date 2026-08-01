@@ -20,11 +20,14 @@
 #ifndef MACHINE_INPUT_MANAGER_H
 #define MACHINE_INPUT_MANAGER_H
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
 
 class Thread;
@@ -153,13 +156,27 @@ class EXPORTED_PUBLIC InputManager
         return m_bActive;
     }
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using CallbackPinHook = void (*)(callback_t callback, void *meta);
+
+    static void setCallbackPinHook(CallbackPinHook hook);
+#endif
+
   private:
     /// Static instance
     static InputManager m_Instance;
 
+    struct CallbackItem;
+
     /// Puts a notification into the queue (doer for all main functions)
     /// \note Deletes \p note if THREADS is not defined
     void putNotification(InputNotification *note);
+
+#if THREADS
+    bool removeCallbacks(
+        callback_t callback, void *meta, Thread *pThread, bool byThread);
+    void drainCallback(CallbackItem *item);
+#endif
 
     /// Item in the callback list. This stores information that may be needed
     /// to create and send an Event for a userspace callback.
@@ -184,6 +201,25 @@ class EXPORTED_PUBLIC InputManager
 
         /// Meta pointer for the InputNotifications we generate.
         void *meta;
+
+#if THREADS
+        /// Pins held by a worker snapshot or an active callback invocation.
+        size_t inFlight;
+
+        /// No new invocation may begin after this becomes false.
+        bool enabled;
+
+        /// An external remover owns final deletion after draining inFlight.
+        bool draining;
+
+        /// External removers which must all finish before final deletion.
+        size_t removers;
+
+        /// The input worker must delete this item after self-removal drains.
+        bool deferredRemoval;
+
+        WaitQueue drainWaiters;
+#endif
     };
 
     /// Input queue (for distribution to applications)
@@ -204,10 +240,17 @@ class EXPORTED_PUBLIC InputManager
 
     /// Thread object for our worker thread
     Thread *m_pThread;
+
+    /// Set only while the input worker is executing a committed callback.
+    Thread *m_pCallbackDispatchThread;
 #endif
 
     /// Are we active?
-    bool m_bActive;
+    Atomic<bool> m_bActive;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    static CallbackPinHook m_CallbackPinHook;
+#endif
 };
 
 #endif

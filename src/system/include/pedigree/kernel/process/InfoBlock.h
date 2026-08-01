@@ -51,6 +51,8 @@ struct InfoBlock
 
 #include "pedigree/kernel/machine/TimerHandler.h"
 
+class Timer;
+
 class InfoBlockManager : public TimerHandler
 {
   public:
@@ -69,6 +71,7 @@ class InfoBlockManager : public TimerHandler
     static InfoBlockManager m_Instance;
 
     bool m_bInitialised;
+    Timer *m_pTimer;
 
     struct InfoBlock *m_pInfoBlock;
 };

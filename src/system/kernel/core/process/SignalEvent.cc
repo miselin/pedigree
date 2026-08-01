@@ -51,6 +51,8 @@ size_t SignalEvent::serialize(uint8_t *pBuffer)
     Thread *pThread = Processor::information().getCurrentThread();
     if (pThread)
     {
+        pThread->markSignalInterruptedWait();
+
         constexpr uint64_t UnblockableSignals =
             (static_cast<uint64_t>(1) << (9 - 1)) |
             (static_cast<uint64_t>(1) << (19 - 1));

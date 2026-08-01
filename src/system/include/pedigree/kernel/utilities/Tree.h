@@ -308,6 +308,34 @@ class EXPORTED_PUBLIC Tree
         nItems--;
     }
 
+    /**
+     * Atomically move an element out of the tree and remove its key.
+     *
+     * This is useful when releasing the element can run arbitrary teardown:
+     * ownership is transferred to the caller before the node is destroyed, so
+     * the caller controls where the final release occurs.
+     */
+    bool take(const K &key, E &element)
+    {
+        Node *n = root;
+        while (n != 0)
+        {
+            if (n->key == key)
+                break;
+            else if (n->key > key)
+                n = n->leftChild;
+            else
+                n = n->rightChild;
+        }
+
+        if (!n)
+            return false;
+
+        element = pedigree_std::move(n->element);
+        remove(key);
+        return true;
+    }
+
     /** Clear the Vector */
     void clear()
     {

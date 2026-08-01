@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/process/Ipc.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/Completion.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -28,6 +29,10 @@
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/Result.h"
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#include "pedigree/kernel/process/Thread.h"
+#endif
+
 using namespace Ipc;
 
 #define MEMPOOL_BUFF_SIZE 4096
@@ -36,6 +41,160 @@ using namespace Ipc;
 static MemoryPool __ipc_mempool("IPC Message Pool");
 
 static RadixTree<IpcEndpoint *> __endpoints;
+
+class Ipc::IpcEndpoint::IpcCompletion
+{
+  public:
+    explicit IpcCompletion(bool asynchronous);
+
+    MUST_USE_RESULT bool wait();
+    void complete();
+
+  private:
+    ~IpcCompletion();
+    static void abandonWait(void *context);
+    void releaseReference();
+
+    Completion m_Completion;
+    Atomic<size_t> m_References;
+};
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+namespace
+{
+struct HostedIpcInterruptContext
+{
+    HostedIpcInterruptContext(IpcEndpoint *endpoint, Thread *thread)
+        : endpoint(endpoint), thread(thread), hookCalls(0), hookFailures(0),
+          eventWakes(0), rescues(0)
+    {
+    }
+
+    IpcEndpoint *endpoint;
+    Thread *thread;
+    size_t hookCalls;
+    size_t hookFailures;
+    size_t eventWakes;
+    size_t rescues;
+};
+
+HostedIpcInterruptContext *g_HostedIpcInterruptContext = nullptr;
+}  // namespace
+
+EXPORTED_PUBLIC bool Ipc::runHostedIpcInterruptionRegression()
+{
+    Thread *thread = Processor::information().getCurrentThread();
+    if (!thread)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: FAIL ipc-interruption: no current thread");
+        return false;
+    }
+
+    IpcEndpoint *endpoint =
+        new IpcEndpoint(MakeConstantString("Hosted IPC interruption"));
+    HostedIpcInterruptContext context(endpoint, thread);
+
+    g_HostedIpcInterruptContext = &context;
+    WaitQueue::setBeforeBlockHook(
+        [](WaitQueue *queue, Thread *waiter,
+           const WaitQueue::Channel &channel, size_t debugState) {
+            HostedIpcInterruptContext *hookContext =
+                g_HostedIpcInterruptContext;
+            if (!hookContext || debugState != Thread::SemWait)
+            {
+                return;
+            }
+
+            ++hookContext->hookCalls;
+            if (waiter != hookContext->thread)
+            {
+                ++hookContext->hookFailures;
+                return;
+            }
+
+            if (hookContext->hookCalls == 1)
+            {
+                if (queue->wakeOne(
+                        WaitQueue::WakeReason::Event, channel))
+                {
+                    ++hookContext->eventWakes;
+                }
+                else
+                {
+                    ++hookContext->hookFailures;
+                }
+            }
+            else if (hookContext->hookCalls == 2)
+            {
+                // Keep the unfixed path from hanging the suite after it
+                // incorrectly re-enters the semaphore wait.
+                ++hookContext->rescues;
+                if (!hookContext->endpoint->pushMessage(nullptr, true))
+                {
+                    ++hookContext->hookFailures;
+                }
+            }
+            else
+            {
+                ++hookContext->hookFailures;
+            }
+        });
+    IpcMessage *message = endpoint->getMessage(true);
+    WaitQueue::setBeforeBlockHook(nullptr);
+    g_HostedIpcInterruptContext = nullptr;
+
+    const bool passed =
+        !message && context.hookCalls == 1 && context.hookFailures == 0 &&
+        context.eventWakes == 1 && context.rescues == 0;
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS ipc-interruption");
+    }
+    else
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: FAIL ipc-interruption: calls="
+            << context.hookCalls << " failures=" << context.hookFailures
+            << " event-wakes=" << context.eventWakes
+            << " rescues=" << context.rescues << " message=" << message);
+    }
+    return passed;
+}
+#endif
+
+IpcEndpoint::IpcCompletion::IpcCompletion(bool asynchronous)
+    : m_Completion(), m_References(asynchronous ? 1 : 2)
+{
+}
+
+IpcEndpoint::IpcCompletion::~IpcCompletion() = default;
+
+bool IpcEndpoint::IpcCompletion::wait()
+{
+    bool result = m_Completion.wait(&IpcCompletion::abandonWait, this);
+    releaseReference();
+    return result;
+}
+
+void IpcEndpoint::IpcCompletion::complete()
+{
+    m_Completion.complete();
+    releaseReference();
+}
+
+void IpcEndpoint::IpcCompletion::abandonWait(void *context)
+{
+    reinterpret_cast<IpcCompletion *>(context)->releaseReference();
+}
+
+void IpcEndpoint::IpcCompletion::releaseReference()
+{
+    if ((m_References -= 1) == 0)
+    {
+        delete this;
+    }
+}
 
 IpcEndpoint *Ipc::getEndpoint(String &name)
 {
@@ -62,15 +221,15 @@ bool Ipc::send(IpcEndpoint *pEndpoint, IpcMessage *pMessage, bool bAsync)
     if (!(pEndpoint && pMessage))
         return false;
 
-    Mutex *pMutex = pEndpoint->pushMessage(pMessage, bAsync);
-    if (!pMutex)
+    IpcEndpoint::IpcCompletion *pCompletion =
+        pEndpoint->pushMessage(pMessage, bAsync);
+    if (!pCompletion)
         return false;
 
     // Block if we're allowed to.
     if (!bAsync)
     {
-        pMutex->acquire();
-        delete pMutex;
+        return pCompletion->wait();
     }
 
     return true;
@@ -95,19 +254,19 @@ bool Ipc::recv(IpcEndpoint *pEndpoint, IpcMessage **pMessage, bool bAsync)
     return false;
 }
 
-Mutex *IpcEndpoint::pushMessage(IpcMessage *pMessage, bool bAsync)
+IpcEndpoint::IpcCompletion *IpcEndpoint::pushMessage(
+    IpcMessage *pMessage, bool bAsync)
 {
     LockGuard<Mutex> guard(m_QueueLock);
 
     QueuedMessage *p = new QueuedMessage;
     p->pMessage = pMessage;
-    p->pMutex = new Mutex(true);
-    p->bAsync = bAsync;
+    p->pCompletion = new IpcCompletion(bAsync);
 
     m_Queue.pushBack(p);
     m_QueueSize.release();
 
-    return p->pMutex;
+    return p->pCompletion;
 }
 
 IpcMessage *IpcEndpoint::getMessage(bool bBlock)
@@ -122,9 +281,9 @@ IpcMessage *IpcEndpoint::getMessage(bool bBlock)
         {
             if (!bBlock)
                 return 0;
-            else
+            else if (!m_QueueSize.acquire())
             {
-                m_QueueSize.acquire();
+                return nullptr;
             }
         }
 
@@ -135,11 +294,7 @@ IpcMessage *IpcEndpoint::getMessage(bool bBlock)
 
     IpcMessage *pReturn = p->pMessage;
 
-    p->pMutex->release();
-    if (p->bAsync)
-    {
-        delete p->pMutex;
-    }
+    p->pCompletion->complete();
     delete p;
 
     return pReturn;

@@ -40,7 +40,12 @@ void KernelCoreSyscallManager::initialise()
     {
         m_Functions[i] = 0;
     }
-    SyscallManager::instance().registerSyscallHandler(kernelCore, this);
+    if (
+        !SyscallManager::instance().registerSyscallHandler(
+            kernelCore, this, m_Registration))
+    {
+        FATAL("Kernel-core syscall service registration failed.");
+    }
 }
 
 uintptr_t KernelCoreSyscallManager::call(

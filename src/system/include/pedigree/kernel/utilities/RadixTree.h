@@ -218,10 +218,35 @@ class EXPORTED_PUBLIC RadixTree
      *\param[in] key the key
      *\param[in] value the element */
     void insert(const String &key, const T &value);
-    /** Attempts to find an element with the given key.
-     *\return A Result that either has the found item, or an error if the item
-     *        is not found */
-    Result<T, bool> lookup(const String &key) const;
+    /**
+     * Attempts to find an element with the given key.
+     *
+     * This stable scalar-and-output form is safe across the native-kernel and
+     * cross-compiled module boundary. On failure, \p value is reset to T().
+     */
+    MUST_USE_RESULT bool lookup(const String &key, T &value) const;
+
+    /**
+     * Ergonomic lookup for locally instantiated trees.
+     *
+     * RadixTree<void *> is explicitly instantiated by the kernel and consumed
+     * by modules built with another compiler, so its aggregate Result-returning
+     * overload is intentionally unavailable.
+     */
+    template <typename U = T>
+    typename pedigree_std::enable_if<
+        pedigree_std::is_same<U, T>::value &&
+            !pedigree_std::is_same<U, void *>::value,
+        LookupType>::type
+    lookup(const String &key) const
+    {
+        T value = T();
+        if (lookup(key, value))
+        {
+            return LookupType::withValue(value);
+        }
+        return LookupType::withError(true);
+    }
     /** Attempts to remove an element with the given key. */
     void remove(const String &key);
 
@@ -489,18 +514,23 @@ void RadixTree<T>::insert(const String &key, const T &value)
 }
 
 template <class T>
-Result<T, bool> RadixTree<T>::lookup(const String &key) const
+bool RadixTree<T>::lookup(const String &key, T &value) const
 {
+    value = T();
+
     if (!m_pRoot)
     {
-        return LookupType::withError(true);
+        return false;
     }
 
     if (!key.length())
     {
         if (m_pRoot->hasValue())
-            return LookupType::withValue(m_pRoot->getValue());
-        return LookupType::withError(true);
+        {
+            value = m_pRoot->getValue();
+            return true;
+        }
+        return false;
     }
 
     Node *pNode = m_pRoot;
@@ -518,12 +548,13 @@ Result<T, bool> RadixTree<T>::lookup(const String &key) const
                     // No value here, exact match on key. This can happen in
                     // cases where we needed to create a node to split a key
                     // but nothing was attached to the split node.
-                    return LookupType::withError(true);
+                    return false;
                 }
-                return LookupType::withValue(pNode->getValue());
+                value = pNode->getValue();
+                return true;
             case Node::NoMatch:
             case Node::PartialMatch:
-                return LookupType::withError(true);
+                return false;
             case Node::OverMatch:
             {
                 cpKey += pNode->m_Key.length();
@@ -537,7 +568,7 @@ Result<T, bool> RadixTree<T>::lookup(const String &key) const
                 }
                 else
                 {
-                    return LookupType::withError(true);
+                    return false;
                 }
             }
         }

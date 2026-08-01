@@ -20,7 +20,6 @@
 #ifndef KERNEL_PROCESSOR_HOSTED_SYSCALLMANAGER_H
 #define KERNEL_PROCESSOR_HOSTED_SYSCALLMANAGER_H
 
-#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/processor/state_forward.h"
@@ -39,8 +38,9 @@ class HostedSyscallManager : public ::SyscallManager
         return m_Instance;
     }
 
-    virtual bool
-    registerSyscallHandler(Service_t Service, SyscallHandler *pHandler);
+    virtual bool registerSyscallHandler(
+        Service_t Service, SyscallHandler *pHandler,
+        Registration &registration);
 
     /** Initialises this processors syscall handling
      *\note This should only be called from Processor::initialise1() and
@@ -68,12 +68,6 @@ class HostedSyscallManager : public ::SyscallManager
     HostedSyscallManager &operator=(const HostedSyscallManager &);
     /** The destructor */
     virtual ~HostedSyscallManager();
-
-    /** Spinlock protecting the member variables */
-    Spinlock m_Lock;
-
-    /** The syscall handlers */
-    SyscallHandler *m_pHandler[serviceEnd];
 
     /** The instance of the syscall manager  */
     static HostedSyscallManager m_Instance;

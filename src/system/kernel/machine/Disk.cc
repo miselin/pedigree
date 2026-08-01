@@ -55,7 +55,7 @@ void Disk::dump(String &str)
 
 uintptr_t Disk::read(uint64_t location)
 {
-    return ~0;
+    return 0;
 }
 
 void Disk::write(uint64_t location)
@@ -74,14 +74,6 @@ size_t Disk::getSize() const
 size_t Disk::getBlockSize() const
 {
     return 0;
-}
-
-void Disk::pin(uint64_t location)
-{
-}
-
-void Disk::unpin(uint64_t location)
-{
 }
 
 bool Disk::cacheIsCritical()

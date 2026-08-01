@@ -20,11 +20,9 @@
 #ifndef KERNEL_PROCESS_CONDITIONVARIABLE_H
 #define KERNEL_PROCESS_CONDITIONVARIABLE_H
 
-#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/time/Time.h"
-#include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/Result.h"
 #include "pedigree/kernel/utilities/new"
 
 class Mutex;
@@ -40,31 +38,57 @@ class EXPORTED_PUBLIC ConditionVariable
     {
         NoError,
         TimedOut,
-        ThreadTerminating,
-        MutexNotLocked,
-        MutexNotAcquired
+        Interrupted,
+        TerminationDeferred,
+        MutexNotLocked
     };
 
-    typedef Result<bool, Error> WaitResult;
+    /** Whether wait() returned with ownership of the supplied mutex. */
+    static bool mutexAcquired(Error error)
+    {
+        return error != MutexNotLocked;
+    }
 
     ConditionVariable();
     ~ConditionVariable();
 
     /** Wait for a signal on the condition variable with a specific timeout.
      *
-     * If the given timeout is non-zero, it specifies a timeout for the wait
-     * operation. If the operation times out, the value will be set to zero.
-     * If the operation succeeds before the timeout expires, the value will be
-     * the amount of time remaining in the timeout.
+     * The timeout specifies a relative deadline in nanoseconds. Zero requests
+     * an immediate timeout; use Time::Infinity or the overload without a
+     * timeout parameter to wait indefinitely. If the operation times out, the
+     * value is set to zero. If it succeeds first, the value is the remaining
+     * timeout.
+     *
+     * The mutex is reacquired for every returning outcome. Forced thread
+     * termination ordinarily does not return; inside a TerminationDeferral it
+     * returns TerminationDeferred with the mutex held so stack-owned state can
+     * be retired. onAbandon runs exactly once only when teardown cannot return.
      *
      * \param[in] mutex an acquired mutex protecting the resource.
-     * \param[inout] timeout a timeout in nanoseconds to wait (or zero for
-     * none).
+     * \param[inout] timeout a relative timeout in nanoseconds, zero for an
+     * immediate deadline, or Time::Infinity for no deadline.
      */
-    WaitResult wait(Mutex &mutex, Time::Timestamp &timeout);
+    MUST_USE_RESULT bool wait(
+        Mutex &mutex, Time::Timestamp &timeout, Error &error,
+        WaitQueue::AbandonCallback onAbandon = nullptr,
+        void *abandonContext = nullptr);
 
     /** Wait for a signal on the condition variable with no timeout. */
-    WaitResult wait(Mutex &mutex);
+    MUST_USE_RESULT bool wait(
+        Mutex &mutex, Error &error,
+        WaitQueue::AbandonCallback onAbandon = nullptr,
+        void *abandonContext = nullptr);
+
+    /**
+     * Wait for a lifetime predicate which must be rechecked with mutex held.
+     *
+     * Signal and terminal events are delivered but cannot abandon the wait or
+     * mutex reacquisition. A delivered signal remains recorded on the current
+     * Thread so an outer syscall boundary can still report interruption after
+     * the protected lifetime state has drained.
+     */
+    void waitForCompletion(Mutex &mutex);
 
     /** Wake up at least one thread that is currently waiting. */
     void signal();
@@ -73,11 +97,9 @@ class EXPORTED_PUBLIC ConditionVariable
     void broadcast();
 
   private:
-    /// Lock around m_Waiters.
-    Spinlock m_Lock;
-
-    /// Threads waiting for a signal.
-    List<Thread *> m_Waiters;
+#if THREADS
+    WaitQueue m_Waiters;
+#endif
 
     /// Private data.
     void *m_Private;

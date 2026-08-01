@@ -24,6 +24,7 @@
 #include "pedigree/kernel/machine/Keyboard.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/processor/types.h"
 
 class Ps2Controller;
@@ -54,8 +55,8 @@ class X86Keyboard : public Keyboard
     void startReaderThread();
 
   private:
-    static int readerThreadTrampoline(void *) NORETURN;
-    void readerThread() NORETURN;
+    static int readerThreadTrampoline(void *);
+    void readerThread();
 
     /// Converts a scancode into an ASCII character (for use in debug state)
     char scancodeToAscii(uint8_t scancode);
@@ -71,6 +72,9 @@ class X86Keyboard : public Keyboard
 
     /// Current LED state
     char m_LedState;
+
+    /// The controller buffer may block this worker until teardown wakes it.
+    OwnedThread m_ReaderThread;
 };
 
 #endif

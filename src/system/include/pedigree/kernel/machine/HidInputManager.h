@@ -27,6 +27,8 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
+class Timer;
+
 /**
  * Global manager for all input from HID devices.
  */
@@ -81,6 +83,9 @@ class EXPORTED_PUBLIC HidInputManager : public TimerHandler
     ///       in the middle of an IRQ where it's potentially dangerous to
     ///       reschedule (which may happen with a Mutex or Semaphore).
     Spinlock m_KeyLock;
+
+    /** Non-null only while key-repeat callbacks are admitted. */
+    Timer *m_pTimer;
 };
 
 #endif

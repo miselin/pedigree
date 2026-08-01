@@ -28,6 +28,8 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/ProcessorThreadAllocator.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -38,6 +40,51 @@
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+namespace
+{
+Thread::StateTransitionHook g_StateTransitionHook = nullptr;
+Thread::JoinOperationHook g_JoinOperationHook = nullptr;
+using EventAdmissionHook = void (*)(Thread *);
+EventAdmissionHook g_EventAdmissionHook = nullptr;
+Thread *g_EventAdmissionTarget = nullptr;
+
+struct HostedStateCleanupOrder
+{
+    size_t values[8] = {};
+    size_t count = 0;
+};
+
+struct HostedStateCleanupItem
+{
+    HostedStateCleanupOrder *order;
+    size_t value;
+};
+
+void hostedStateCleanupCallback(void *context)
+{
+    HostedStateCleanupItem *item =
+        reinterpret_cast<HostedStateCleanupItem *>(context);
+    if (item && item->order && item->order->count < 8)
+    {
+        item->order->values[item->order->count++] = item->value;
+    }
+}
+
+void observeStateTransition(
+    Thread::StateTransitionWindow window, Thread *thread, size_t previousLevel,
+    size_t nextLevel)
+{
+    Thread::StateTransitionHook hook =
+        __atomic_load_n(&g_StateTransitionHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(window, thread, previousLevel, nextLevel);
+    }
+}
+}  // namespace
+#endif
 
 Thread::Thread(
     Process *pParent, ThreadStartFunc pStartFunction, void *pParam,
@@ -99,9 +146,11 @@ Thread::Thread(
     // balance us while we're starting.
     m_Lock.acquire();
 
-    if (delayedStart)
+    if (
+        delayedStart ||
+        getUnwindState() == Thread::TerminateThread)
     {
-        m_Status = Sleeping;
+        m_Status = Created;
     }
 
     // Add to the scheduler
@@ -184,9 +233,11 @@ Thread::Thread(Process *pParent, SyscallState &state, bool delayedStart)
 
     m_Lock.acquire();
 
-    if (delayedStart)
+    if (
+        delayedStart ||
+        getUnwindState() == Thread::TerminateThread)
     {
-        m_Status = Sleeping;
+        m_Status = Created;
     }
 
     // Now we are ready to go into the scheduler.
@@ -195,6 +246,42 @@ Thread::Thread(Process *pParent, SyscallState &state, bool delayedStart)
 
 Thread::~Thread()
 {
+    {
+        LockGuard<Spinlock> leaseGuard(m_ExternalLeaseLock);
+        if (
+            !m_bExternalLeaseAdmissionClosed ||
+            m_nExternalLeases || m_bExternalLeaseReleaseInProgress)
+        {
+            FATAL(
+                "Thread destroyed before external leases were closed and "
+                "drained.");
+        }
+    }
+
+    {
+        LockGuard<Spinlock> guard(m_DeferredScopeLock);
+        if (m_pDeferredScopes)
+        {
+            FATAL(
+                "Thread destroyed with armed state cleanup records.");
+        }
+    }
+    if (
+        __atomic_load_n(
+            &m_TerminationDeferralDepth, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&m_EventDeferralDepth, __ATOMIC_ACQUIRE))
+    {
+        FATAL(
+            "Thread destroyed with active deferral scopes: terminal="
+            << Dec
+            << __atomic_load_n(
+                   &m_TerminationDeferralDepth, __ATOMIC_ACQUIRE)
+            << ", event="
+            << __atomic_load_n(
+                   &m_EventDeferralDepth, __ATOMIC_ACQUIRE)
+            << ".");
+    }
+
     if (InputManager::instance().removeCallbackByThread(this))
     {
         WARNING("A thread is being removed, but it never removed itself from "
@@ -204,7 +291,7 @@ Thread::~Thread()
     }
 
     // Before removing from the scheduler, terminate if needed.
-    if (!m_bRemovingRequests)
+    if (!m_bShutdown)
     {
         shutdown();
     }
@@ -257,110 +344,80 @@ Thread::~Thread()
 
 void Thread::shutdown()
 {
-    // We are now removing requests from this thread - deny any other thread
-    // from doing so, as that may invalidate our iterators.
-    m_bRemovingRequests = true;
-
-    if (m_PendingRequests.count())
     {
-        for (List<RequestQueue::Request *>::Iterator it =
-                 m_PendingRequests.begin();
-             it != m_PendingRequests.end();)
+        auto senderGuard = m_EventSenderDrainWaiters.acquire();
+        LockGuard<Spinlock> guard(m_Lock);
+        if (m_bShutdown)
         {
-            RequestQueue::Request *pReq = *it;
-            RequestQueue *pQueue = pReq->owner;
+            return;
+        }
+        m_bShutdown = true;
+    }
 
-            if (!pQueue)
+    // Admission and this predicate share one WaitQueue guard. A sender which
+    // passed the shutdown check therefore either releases its pin before this
+    // check or publishes a wake after this waiter is visible.
+    while (true)
+    {
+        auto senderGuard = m_EventSenderDrainWaiters.acquire();
+        {
+            LockGuard<Spinlock> guard(m_Lock);
+            if (!m_EventSendersInFlight)
             {
-                ERROR("Thread::shutdown: request in pending requests list has "
-                      "no owner!");
-                ++it;
-                continue;
+                break;
             }
+        }
 
-            // Halt the owning RequestQueue while we tweak this request.
-            pReq->owner->halt();
+        const WaitQueue::WakeReason reason =
+            senderGuard.waitForCompletion(
+                WaitQueue::Channel(this), Thread::EventWait,
+                reinterpret_cast<uintptr_t>(this));
+        (void) reason;
+    }
 
-            // During the halt, we may have lost a request. Check.
-            if (!pQueue->isRequestValid(pReq))
-            {
-                // Resume queue and skip this request - it's dead.
-                // Async items are run in their own thread, parented to the
-                // kernel. So, for this to happen, a non-async request
-                // succeeded, and may or may not have cleaned up.
-                /// \todo identify a way to make cleanup work here.
-                pQueue->resume();
-                ++it;
-                continue;
-            }
-
-            // Check for an already completed request. If we called addRequest,
-            // the request will not have been destroyed as the RequestQueue is
-            // expecting the calling thread to handle it.
-            if (pReq->bCompleted)
-            {
-                // Only destroy if the refcount allows us to - other threads may
-                // be also referencing this request (as RequestQueue has dedup).
-                if (pReq->refcnt <= 1)
-                    delete pReq;
-                else
-                {
-                    pReq->refcnt--;
-
-                    // Ensure the RequestQueue is not referencing us - we're
-                    // dying.
-                    if (pReq->pThread == this)
-                        pReq->pThread = 0;
-                }
-            }
-            else
-            {
-                // Not completed yet and the queue is halted. If there's more
-                // than one thread waiting on the request, we can just decrease
-                // the refcount and carry on. Otherwise, we can kill off the
-                // request.
-                if (pReq->refcnt > 1)
-                {
-                    pReq->refcnt--;
-                    if (pReq->pThread == this)
-                        pReq->pThread = 0;
-                }
-                else
-                {
-                    // Terminate.
-                    pReq->bReject = true;
-                    pReq->pThread = 0;
-                    pReq->mutex.release();
-                }
-            }
-
-            // Allow the queue to resume operation now.
-            pQueue->resume();
-
-            // Remove the request from our internal list.
-            it = m_PendingRequests.erase(it);
+    // Cancel every outstanding wait before any state-level stack can be freed.
+    for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level)
+    {
+        WaitQueue::Waiter &waiter = m_StateLevels[level].m_Waiter;
+        WaitQueue *queue = waiter.loadQueue();
+        if (queue)
+        {
+            queue->cancel(
+                &waiter, WaitQueue::WakeReason::Terminating);
         }
     }
 
-    reportWakeup(WokenBecauseTerminating);
-
-    // Notify any waiters on this thread.
-    if (m_pWaiter)
+    // Once shutdown is visible, no sender can publish another event. Remove
+    // each queued registration under the thread lock, but complete it outside
+    // the lock because completion can wake waiters or destroy the Event.
+    while (true)
     {
-        m_pWaiter->getLock().acquire();
-        m_pWaiter->setStatus(Thread::Ready);
-        m_pWaiter->getLock().release();
+        Event *event = nullptr;
+        {
+            LockGuard<Spinlock> guard(m_Lock);
+            if (!m_EventQueue.count())
+            {
+                break;
+            }
+            event = m_EventQueue.popFront();
+        }
+
+        event->completeDelivery(this);
     }
 
-    // Mark us as waiting for a join if we aren't detached. This ensures that
-    // join will not block waiting for this thread if it is called after this
-    // point.
-    m_ConcurrencyLock.acquire();
-    if (!m_bDetached)
+    // Make a joiner runnable before the scheduler chooses our replacement.
+    // This matters during shutdown after the idle thread has been retired.
+    // join() still checks m_bReapable and cannot delete us until the scheduler
+    // has switched off this stack.
     {
-        m_Status = AwaitingJoin;
+        auto guard = m_JoinWaiters.acquire();
+        m_bExitStarted = true;
+        guard.wakeAll();
     }
-    m_ConcurrencyLock.release();
+
+    // This is only an exit-announced scheduler state. Join completion is
+    // deliberately delayed until markReapable().
+    m_Status = AwaitingJoin;
 }
 
 void Thread::forceToStartupProcessor()
@@ -419,27 +476,15 @@ void Thread::setStatus(Thread::Status s)
 
         for (auto pEvent : pendingEvents)
         {
-            pEvent->deregisterThread(this);
-            if (pEvent->isDeletable())
-            {
-                delete pEvent;
-            }
+            pEvent->completeDelivery(this);
         }
 
-        // Notify parent process we have become a zombie.
-        // We do this here to avoid an amazing race between calling
-        // notifyWaiters and scheduling a process into the Zombie state that can
-        // cause some processes to simply never be reaped.
-        if (m_pParent)
-        {
-            m_pParent->notifyWaiters();
-        }
+        // Process termination is published from deleteThread(), after the
+        // scheduler has switched away from this stack.
     }
 
     if (m_Status == Thread::Ready && previousStatus != Thread::Running)
     {
-        /// \todo provide a way to report this in Thread::setStatus API
-        reportWakeupUnlocked(Unknown);
     }
 
     if (m_pScheduler)
@@ -448,55 +493,169 @@ void Thread::setStatus(Thread::Status s)
     }
 }
 
+bool Thread::start()
+{
+    {
+        LockGuard<Spinlock> guard(m_Lock);
+        if (
+            m_Status != Thread::Created ||
+            getUnwindState() == Thread::TerminateThread ||
+            m_bStartRequested)
+        {
+            return false;
+        }
+
+        m_bStartRequested = true;
+    }
+
+    // The add worker parks while holding m_Lock, then observes this
+    // out-of-lock publication. This ordering makes start the wake predicate
+    // without allowing the worker to preempt us under the thread lock.
+    Scheduler::instance().threadStatusChanged(this);
+    return true;
+}
+
 SchedulerState &Thread::state()
 {
     return *(m_StateLevels[m_nStateLevel].m_State);
 }
 
-SchedulerState &Thread::pushState()
+SchedulerState *Thread::pushState()
 {
-    if ((m_nStateLevel + 1) >= MAX_NESTED_EVENTS)
+    const size_t previousLevel =
+        __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
+    if ((previousLevel + 1) >= MAX_NESTED_EVENTS)
     {
         ERROR("Thread: Max nested events!");
-        /// \todo Take some action here - possibly kill the thread?
-        return *(m_StateLevels[MAX_NESTED_EVENTS - 1].m_State);
+        return nullptr;
     }
-    m_nStateLevel++;
+    const size_t nextLevel = previousLevel + 1;
+
+    {
+        LockGuard<Spinlock> guard(m_DeferredScopeLock);
+        for (
+            DeferredScopeRecord *record = m_pDeferredScopes;
+            record; record = record->next)
+        {
+            if (record->stateLevel == nextLevel)
+            {
+                FATAL(
+                    "Thread state level reused with an armed cleanup "
+                    "record.");
+            }
+        }
+    }
+
+    // Prepare the unused level before publishing it to remote event senders.
+    // Stack allocation and replacing an old SharedPointer can free memory, so
+    // neither belongs in the short publication critical section below.
+    allocateStackAtLevel(nextLevel);
+    m_StateLevels[nextLevel].m_InhibitMask =
+        m_StateLevels[previousLevel].m_InhibitMask;
 #if X64
     // State levels are reused. A new handler must not inherit an FPU image
     // left behind by an earlier handler at the same nesting depth.
-    m_StateLevels[m_nStateLevel].m_State->flags &= ~(1U << 1);
+    m_StateLevels[nextLevel].m_State->flags &= ~(1U << 1);
 #endif
-    // NOTICE("New state level: " << m_nStateLevel << "...");
-    m_StateLevels[m_nStateLevel].m_InhibitMask =
-        m_StateLevels[m_nStateLevel - 1].m_InhibitMask;
-    m_StateLevels[m_nStateLevel].m_SignalMask =
-        m_StateLevels[m_nStateLevel - 1].m_SignalMask;
+    m_StateLevels[nextLevel].m_InterruptionReason = NotInterrupted;
+    m_StateLevels[nextLevel].m_bDispatchingWaitEvent = false;
 
-    allocateStackAtLevel(m_nStateLevel);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    observeStateTransition(
+        StatePushBeforePublish, this, previousLevel, nextLevel);
+#endif
+
+    SchedulerState *previousState = m_StateLevels[previousLevel].m_State;
+    {
+        LockGuard<Spinlock> guard(m_Lock);
+        if (m_nStateLevel != previousLevel)
+        {
+            FATAL("Thread state level changed during push publication.");
+        }
+
+        // Refresh mutable per-level scalars while serialised with their public
+        // accessors, then release-publish the completely prepared level.
+        m_StateLevels[nextLevel].m_SignalMask =
+            m_StateLevels[previousLevel].m_SignalMask;
+        m_StateLevels[nextLevel].m_Errno =
+            m_StateLevels[previousLevel].m_Errno;
+        __atomic_store_n(&m_nStateLevel, nextLevel, __ATOMIC_RELEASE);
+    }
 
     setKernelStack();
 
-    return *(m_StateLevels[m_nStateLevel - 1].m_State);
+    return previousState;
 }
 
 void Thread::popState(bool clean)
 {
-    size_t origStateLevel = m_nStateLevel;
+    const size_t origStateLevel =
+        __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
 
-    if (m_nStateLevel == 0)
+    if (origStateLevel == 0)
     {
         ERROR("Thread: Potential error: popStack() called with state level 0!");
         ERROR("Thread: (ignore this if longjmp has been called)");
         return;
     }
-    m_nStateLevel--;
+
+    {
+        LockGuard<Spinlock> guard(m_DeferredScopeLock);
+        for (
+            DeferredScopeRecord *record = m_pDeferredScopes;
+            record; record = record->next)
+        {
+            if (record->stateLevel == origStateLevel)
+            {
+                FATAL(
+                    "Normal state pop attempted with armed cleanup "
+                    "records.");
+            }
+        }
+    }
+
+    const size_t nextLevel = origStateLevel - 1;
+    {
+        LockGuard<Spinlock> guard(m_Lock);
+        if (m_nStateLevel != origStateLevel)
+        {
+            FATAL("Thread state level changed during pop publication.");
+        }
+        __atomic_store_n(&m_nStateLevel, nextLevel, __ATOMIC_RELEASE);
+    }
 
     setKernelStack();
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    observeStateTransition(
+        StatePopAfterPublish, this, origStateLevel, nextLevel);
+#endif
 
     if (clean)
     {
         cleanStateLevel(origStateLevel);
+    }
+}
+
+void Thread::abandonCurrentState(bool clean)
+{
+    const size_t level =
+        __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
+    if (!level)
+    {
+        FATAL("Cannot abandon the base Thread state.");
+    }
+    retireDeferredScopes(false, level);
+    popState(clean);
+}
+
+void Thread::abandonAllStates()
+{
+    while (getStateLevel())
+    {
+        // The caller is still running on the outermost physical stack until
+        // its no-return transition, so every logical pop preserves storage.
+        abandonCurrentState(false);
     }
 }
 
@@ -512,7 +671,7 @@ void Thread::setStateUserStack(VirtualAddressSpace::Stack *st)
 
 size_t Thread::getStateLevel() const
 {
-    return m_nStateLevel;
+    return __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
 }
 
 void Thread::threadExited()
@@ -563,12 +722,13 @@ void *Thread::getKernelStackBase(size_t *size) const
 
 void Thread::setKernelStack()
 {
+    uintptr_t stack = 0;
     if (m_StateLevels[m_nStateLevel].m_pKernelStack)
     {
-        uintptr_t stack = reinterpret_cast<uintptr_t>(
+        stack = reinterpret_cast<uintptr_t>(
             m_StateLevels[m_nStateLevel].m_pKernelStack->getTop());
-        Processor::information().setKernelStack(stack);
     }
+    Processor::information().setKernelStack(stack);
 }
 
 void Thread::pokeState(size_t stateLevel, SchedulerState &state)
@@ -585,81 +745,818 @@ void Thread::pokeState(size_t stateLevel, SchedulerState &state)
 
 bool Thread::sendEvent(Event *pEvent)
 {
-    // Check that we aren't already a zombie (can't receive events if so).
-    if (m_Status == Zombie)
+    Event::SendLease eventSendLease = pEvent->beginSend();
+    if (!eventSendLease)
     {
-        WARNING("Thread: dropping event as we are a zombie");
         return false;
     }
 
-    pEvent->registerThread(this);
-
-    // Queueing and waking are one transition with respect to schedule().
-    m_Lock.acquire();
-    if (m_Status == Zombie)
+    bool accepted = false;
     {
-        m_Lock.release();
-        pEvent->deregisterThread(this);
-        return false;
-    }
-    if (pEvent->isSignalEvent())
-    {
-        for (List<Event *>::Iterator it = m_EventQueue.begin();
-             it != m_EventQueue.end(); ++it)
+        auto senderGuard = m_EventSenderDrainWaiters.acquire();
         {
-            if ((*it)->isSignalEvent() &&
-                (*it)->getNumber() == pEvent->getNumber())
+            LockGuard<Spinlock> guard(m_Lock);
+            if (m_bShutdown || m_Status == Zombie)
             {
-                m_Lock.release();
-                pEvent->deregisterThread(this);
-                if (pEvent->isDeletable())
+                return false;
+            }
+            ++m_EventSendersInFlight;
+        }
+    }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    EventAdmissionHook admissionHook =
+        __atomic_load_n(&g_EventAdmissionHook, __ATOMIC_ACQUIRE);
+    Thread *admissionTarget =
+        __atomic_load_n(&g_EventAdmissionTarget, __ATOMIC_ACQUIRE);
+    if (admissionHook && admissionTarget == this)
+    {
+        admissionHook(this);
+    }
+#endif
+
+    // Event registration can allocate. The in-flight pin lets this happen
+    // outside m_Lock without opening a registration-vs-destruction gap.
+    const bool eventRegistered = pEvent->registerThread(this);
+
+    bool duplicate = false;
+    bool wakeThread = false;
+    if (eventRegistered)
+    {
+        // Serialise queue inspection in waitForEvent() with event publication.
+        auto eventWaitGuard = m_EventWaiters.acquire();
+        {
+            LockGuard<Spinlock> guard(m_Lock);
+            if (!m_bShutdown && m_Status != Zombie)
+            {
+                if (pEvent->isSignalEvent())
                 {
-                    delete pEvent;
+                    for (List<Event *>::Iterator it = m_EventQueue.begin();
+                         it != m_EventQueue.end(); ++it)
+                    {
+                        if (
+                            (*it)->isSignalEvent() &&
+                            (*it)->getNumber() == pEvent->getNumber())
+                        {
+                            duplicate = true;
+                            break;
+                        }
+                    }
                 }
-                return true;
+
+                if (!duplicate)
+                {
+                    m_EventQueue.pushBack(pEvent);
+                    wakeThread = hasDeliverableEventsUnlocked() &&
+                                 interruptWaitUnlocked(
+                                     WaitQueue::WakeReason::Event);
+                }
+                accepted = true;
             }
         }
+
     }
-    m_EventQueue.pushBack(pEvent);
-    size_t eventNumber = pEvent->getNumber();
-    bool signalBlocked =
-        pEvent->isSignalEvent() && eventNumber > 0 && eventNumber <= 64 &&
-        (m_StateLevels[m_nStateLevel].m_SignalMask &
-         (static_cast<uint64_t>(1) << (eventNumber - 1)));
 
-    bool wakeThread = false;
-    bool uninterruptibleSleep = false;
-    if (m_Status == Sleeping && !signalBlocked)
+    if (!eventRegistered)
     {
-        if (m_bInterruptible)
-        {
-            reportWakeupUnlocked(WokenByEvent);
-
-            // Interrupt the sleeping thread, there's an event firing
-            m_Status = Ready;
-            wakeThread = true;
-        }
-        else
-        {
-            uninterruptibleSleep = true;
-        }
+        accepted = false;
     }
-    m_Lock.release();
-
-    if (wakeThread)
+    else if (!accepted)
     {
-        // Notify the scheduler that we're now ready, so we get put into the
-        // scheduling algorithm's ready queue.
+        pEvent->deregisterThread(this);
+    }
+    else if (duplicate)
+    {
+        pEvent->completeDelivery(this);
+    }
+    else if (wakeThread)
+    {
         Scheduler::instance().threadStatusChanged(this);
     }
-    else if (uninterruptibleSleep)
+
     {
-        WARNING("Thread: not immediately waking up from event as we're not "
-                "interruptible");
+        auto senderGuard = m_EventSenderDrainWaiters.acquire();
+        bool drained = false;
+        {
+            LockGuard<Spinlock> guard(m_Lock);
+            assert(m_EventSendersInFlight);
+            drained = !--m_EventSendersInFlight;
+        }
+        if (drained)
+        {
+            senderGuard.wakeAll(
+                WaitQueue::WakeReason::Signalled,
+                WaitQueue::Channel(this));
+        }
+    }
+    return accepted;
+}
+
+void Thread::waitForEvent(
+    WaitQueue::AbandonCallback onAbandon, void *abandonContext)
+{
+    while (true)
+    {
+        bool ready = false;
+        WaitQueue::WakeReason reason = WaitQueue::WakeReason::Spurious;
+        {
+            auto guard = m_EventWaiters.acquire();
+
+            m_Lock.acquire();
+            ready = hasDeliverableEventsUnlocked();
+            m_Lock.release();
+            if (!ready)
+            {
+                reason = guard.wait(
+                    WaitQueue::Channel(), Thread::EventWait,
+                    reinterpret_cast<uintptr_t>(
+                        __builtin_return_address(0)),
+                    onAbandon, abandonContext);
+            }
+        }
+
+        if (ready)
+        {
+            // A pre-existing event did not pass through WaitQueue::wait(), so
+            // dispatch it explicitly after dropping the event-wait guard and
+            // identify it as the event which satisfied this wait.
+            const size_t stateLevel = getStateLevel();
+            m_StateLevels[stateLevel].m_bDispatchingWaitEvent = true;
+            Processor::information().getScheduler().checkEventState(0);
+            m_StateLevels[stateLevel].m_bDispatchingWaitEvent = false;
+            return;
+        }
+
+        if (
+            reason == WaitQueue::WakeReason::Event ||
+            reason == WaitQueue::WakeReason::Terminating ||
+            reason == WaitQueue::WakeReason::Unwinding)
+        {
+            return;
+        }
+    }
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+namespace
+{
+Atomic<size_t> g_HostedPrequeuedEventCalls(0);
+Atomic<size_t> g_HostedShutdownEventCalls(0);
+Atomic<size_t> g_HostedShutdownEventDestructions(0);
+Atomic<size_t> g_HostedShutdownThreadCalls(0);
+Atomic<size_t> g_HostedSelfRetireCalls(0);
+Atomic<size_t> g_HostedSelfRetireDestructions(0);
+Atomic<size_t> g_HostedAdmissionRetireDestructions(0);
+Event *g_pHostedSelfRetireEvent = nullptr;
+
+struct HostedAdmissionRetireContext
+{
+    HostedAdmissionRetireContext(Event *event, size_t destructionsBefore)
+        : event(event), destructionsBefore(destructionsBefore), calls(0),
+          destroyedInsideHook(0)
+    {
+    }
+
+    Event *event;
+    size_t destructionsBefore;
+    Atomic<size_t> calls;
+    Atomic<size_t> destroyedInsideHook;
+};
+
+HostedAdmissionRetireContext *g_pHostedAdmissionRetireContext = nullptr;
+
+void hostedPrequeuedEventHandler(size_t)
+{
+    g_HostedPrequeuedEventCalls += 1;
+}
+
+void hostedShutdownEventHandler(size_t)
+{
+    g_HostedShutdownEventCalls += 1;
+}
+
+void hostedSelfRetireEventHandler(size_t)
+{
+    Event *event = g_pHostedSelfRetireEvent;
+    g_pHostedSelfRetireEvent = nullptr;
+    if (event)
+    {
+        event->retire();
+        g_HostedSelfRetireCalls += 1;
+    }
+}
+
+void hostedAdmissionRetireHook(Thread *)
+{
+    HostedAdmissionRetireContext *context =
+        g_pHostedAdmissionRetireContext;
+    if (!context)
+    {
+        return;
+    }
+
+    context->calls += 1;
+    context->event->retire();
+    if (
+        g_HostedAdmissionRetireDestructions !=
+        context->destructionsBefore)
+    {
+        context->destroyedInsideHook += 1;
+    }
+}
+
+class HostedPrequeuedEvent : public Event
+{
+  public:
+    HostedPrequeuedEvent()
+        : Event(
+              reinterpret_cast<uintptr_t>(&hostedPrequeuedEventHandler),
+              false)
+    {
+    }
+
+    size_t serialize(uint8_t *) override
+    {
+        return 0;
+    }
+
+    size_t getNumber() override
+    {
+        return 0x57414954;
+    }
+};
+
+class HostedShutdownStableEvent : public Event
+{
+  public:
+    HostedShutdownStableEvent()
+        : Event(
+              reinterpret_cast<uintptr_t>(&hostedShutdownEventHandler),
+              false)
+    {
+    }
+
+    size_t serialize(uint8_t *) override
+    {
+        return 0;
+    }
+
+    size_t getNumber() override
+    {
+        return 0x53484453;
+    }
+};
+
+class HostedShutdownDeletableEvent : public Event
+{
+  public:
+    HostedShutdownDeletableEvent()
+        : Event(
+              reinterpret_cast<uintptr_t>(&hostedShutdownEventHandler),
+              true)
+    {
+    }
+
+    ~HostedShutdownDeletableEvent() override
+    {
+        g_HostedShutdownEventDestructions += 1;
+    }
+
+    size_t serialize(uint8_t *) override
+    {
+        return 0;
+    }
+
+    size_t getNumber() override
+    {
+        return 0x53484444;
+    }
+};
+
+class HostedSelfRetireEvent : public Event
+{
+  public:
+    HostedSelfRetireEvent()
+        : Event(
+              reinterpret_cast<uintptr_t>(&hostedSelfRetireEventHandler),
+              false)
+    {
+    }
+
+    ~HostedSelfRetireEvent() override
+    {
+        g_HostedSelfRetireDestructions += 1;
+    }
+
+    size_t serialize(uint8_t *) override
+    {
+        return 0;
+    }
+
+    size_t getNumber() override
+    {
+        return 0x53455254;
+    }
+};
+
+class HostedAdmissionRetireEvent : public Event
+{
+  public:
+    HostedAdmissionRetireEvent()
+        : Event(
+              reinterpret_cast<uintptr_t>(&hostedShutdownEventHandler),
+              false)
+    {
+    }
+
+    ~HostedAdmissionRetireEvent() override
+    {
+        g_HostedAdmissionRetireDestructions += 1;
+    }
+
+    size_t serialize(uint8_t *) override
+    {
+        return 0;
+    }
+
+    size_t getNumber() override
+    {
+        return 0x41525254;
+    }
+};
+
+int hostedShutdownThread(void *)
+{
+    g_HostedShutdownThreadCalls += 1;
+    return 0;
+}
+
+struct HostedStatePublicationContext
+{
+    HostedStatePublicationContext(Thread *thread, Event *event)
+        : thread(thread), event(event), calls(0), failures(0)
+    {
+    }
+
+    Thread *thread;
+    Event *event;
+    Atomic<size_t> calls;
+    Atomic<size_t> failures;
+};
+
+HostedStatePublicationContext *g_StatePublicationContext = nullptr;
+
+void hostedStatePublicationHook(
+    Thread::StateTransitionWindow window, Thread *thread, size_t previousLevel,
+    size_t nextLevel)
+{
+    HostedStatePublicationContext *context =
+        __atomic_load_n(&g_StatePublicationContext, __ATOMIC_ACQUIRE);
+    if (!context)
+    {
+        return;
+    }
+
+    context->calls += 1;
+    const size_t expectedVisibleLevel =
+        window == Thread::StatePushBeforePublish ? previousLevel : nextLevel;
+    if (
+        thread != context->thread ||
+        thread->getStateLevel() != expectedVisibleLevel ||
+        !thread->sendEvent(context->event))
+    {
+        context->failures += 1;
+    }
+}
+
+struct HostedDeliveryLeaseContext
+{
+    explicit HostedDeliveryLeaseContext(Event *event)
+        : event(event), entered(0), completed(0)
+    {
+    }
+
+    Event *event;
+    Atomic<size_t> entered;
+    Atomic<size_t> completed;
+};
+
+int hostedDeliveryLeaseWaiter(void *parameter)
+{
+    HostedDeliveryLeaseContext *context =
+        reinterpret_cast<HostedDeliveryLeaseContext *>(parameter);
+    context->entered += 1;
+    context->event->waitForDeliveries();
+    context->completed += 1;
+    return 0;
+}
+}  // namespace
+
+void Thread::setStateTransitionHook(StateTransitionHook hook)
+{
+    __atomic_store_n(&g_StateTransitionHook, hook, __ATOMIC_RELEASE);
+}
+
+void Thread::setJoinOperationHook(JoinOperationHook hook)
+{
+    __atomic_store_n(&g_JoinOperationHook, hook, __ATOMIC_RELEASE);
+}
+
+bool Thread::isReapableForHostedTest()
+{
+    auto guard = m_JoinWaiters.acquire();
+    return m_bReapable;
+}
+
+bool Thread::waitUntilReapableForHostedTest()
+{
+    TerminationDeferral terminationDeferral;
+    while (true)
+    {
+        auto guard = m_JoinWaiters.acquire();
+        if (m_bReapable)
+        {
+            return true;
+        }
+
+        const WaitQueue::WakeReason reason = guard.waitForCompletion(
+            WaitQueue::Channel(), Thread::Joining,
+            reinterpret_cast<uintptr_t>(this));
+        (void) reason;
+    }
+}
+
+bool Thread::runHostedPrequeuedEventRegression()
+{
+    if (Processor::information().getCurrentThread() != this)
+    {
+        return false;
+    }
+
+    constexpr size_t Iterations = 16;
+    HostedPrequeuedEvent event;
+    const size_t initialStateLevel = getStateLevel();
+    const size_t callsBefore = g_HostedPrequeuedEventCalls;
+    for (size_t iteration = 0; iteration < Iterations; ++iteration)
+    {
+        if (
+            !sendEvent(&event) || event.pendingCount() != 1 ||
+            !hasEvent(&event))
+        {
+            return false;
+        }
+
+        waitForEvent();
+
+        if (
+            g_HostedPrequeuedEventCalls !=
+                (callsBefore + iteration + 1) ||
+            event.pendingCount() != 0 || hasEvent(&event) ||
+            getStateLevel() != initialStateLevel)
+        {
+            return false;
+        }
     }
 
     return true;
 }
+
+bool Thread::runHostedStatePublicationRegression()
+{
+    if (
+        Processor::information().getCurrentThread() != this ||
+        (getStateLevel() + 1) >= MAX_NESTED_EVENTS)
+    {
+        return false;
+    }
+
+    HostedPrequeuedEvent event;
+    HostedStatePublicationContext context(this, &event);
+    const size_t initialStateLevel = getStateLevel();
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+
+    __atomic_store_n(
+        &g_StatePublicationContext, &context, __ATOMIC_RELEASE);
+    setStateTransitionHook(hostedStatePublicationHook);
+
+    SchedulerState *previousState = pushState();
+    const bool pushed =
+        previousState && getStateLevel() == (initialStateLevel + 1);
+    if (previousState)
+    {
+        popState();
+    }
+
+    setStateTransitionHook(nullptr);
+    __atomic_store_n(
+        &g_StatePublicationContext,
+        static_cast<HostedStatePublicationContext *>(nullptr),
+        __ATOMIC_RELEASE);
+
+    const bool publishedSafely =
+        pushed && getStateLevel() == initialStateLevel && context.calls == 2 &&
+        context.failures == 0 && event.pendingCount() == 2 &&
+        hasEvent(&event);
+    cullEvent(&event);
+    const bool deliveriesCulled =
+        event.pendingCount() == 0 && !hasEvent(&event);
+
+    Processor::setInterrupts(interruptsWereEnabled);
+    return publishedSafely && deliveriesCulled;
+}
+
+bool Thread::runHostedStateCleanupRegression()
+{
+    const size_t initialLevel = getStateLevel();
+    HostedStateCleanupOrder order;
+    HostedStateCleanupItem oldItem{&order, 0};
+    HostedStateCleanupItem firstItem{&order, 1};
+    HostedStateCleanupItem secondItem{&order, 2};
+    HostedStateCleanupItem normalItem{&order, 3};
+    HostedStateCleanupItem baseItem{&order, 4};
+    HostedStateCleanupItem levelItem{&order, 5};
+    DeferredScopeRecord oldRecord;
+    DeferredScopeRecord firstRecord;
+    DeferredScopeRecord secondRecord;
+    DeferredScopeRecord normalRecord;
+    DeferredScopeRecord baseRecord;
+    DeferredScopeRecord levelRecord;
+
+    armStateCleanup(
+        oldRecord, hostedStateCleanupCallback, &oldItem);
+    const size_t checkpoint = stateCleanupCheckpoint();
+    armStateCleanup(
+        firstRecord, hostedStateCleanupCallback, &firstItem);
+    armStateCleanup(
+        secondRecord, hostedStateCleanupCallback, &secondItem);
+    retireDeferredScopesAfter(checkpoint);
+
+    const bool checkpointPassed =
+        order.count == 2 && order.values[0] == 2 &&
+        order.values[1] == 1 && oldRecord.armed &&
+        !firstRecord.armed && !secondRecord.armed;
+    disarmStateCleanup(oldRecord);
+
+    armStateCleanup(
+        normalRecord, hostedStateCleanupCallback, &normalItem);
+    disarmStateCleanup(normalRecord);
+    const bool normalPassed =
+        order.count == 2 && !normalRecord.armed;
+
+    armStateCleanup(
+        baseRecord, hostedStateCleanupCallback, &baseItem);
+    const bool pushed = pushState() != nullptr;
+    if (pushed)
+    {
+        armStateCleanup(
+            levelRecord, hostedStateCleanupCallback, &levelItem);
+        abandonCurrentState(false);
+    }
+    const bool levelPassed =
+        pushed && getStateLevel() == initialLevel &&
+        order.count == 3 && order.values[2] == 5 &&
+        baseRecord.armed && !levelRecord.armed;
+    disarmStateCleanup(baseRecord);
+
+    return checkpointPassed && normalPassed && levelPassed &&
+           order.count == 3;
+}
+
+bool Thread::runHostedEventDeliveryLeaseRegression()
+{
+    if (Processor::information().getCurrentThread() != this)
+    {
+        return false;
+    }
+
+    HostedPrequeuedEvent event;
+    if (!sendEvent(&event))
+    {
+        return false;
+    }
+
+    Event::Delivery delivery = getNextEvent();
+    if (!delivery || delivery.get() != &event || hasEvent(&event) ||
+        event.pendingCount() != 1)
+    {
+        delivery.reset();
+        cullEvent(&event);
+        return false;
+    }
+
+    HostedDeliveryLeaseContext context(&event);
+    Thread *waiterA = new Thread(
+        Scheduler::instance().getKernelProcess(), hostedDeliveryLeaseWaiter,
+        &context, nullptr, false, true);
+    waiterA->setName("hosted event-delivery lease waiter A");
+
+    while (context.entered != static_cast<size_t>(1))
+    {
+        Scheduler::instance().yield();
+    }
+
+    for (size_t i = 0; i < 4; ++i)
+    {
+        Scheduler::instance().yield();
+    }
+    Thread::WaitDebugInfo waiterInfo = {};
+    const bool closePublished =
+        waiterA->getWaitDebugInfo(waiterInfo) &&
+        waiterInfo.channelOwner == &event &&
+        waiterInfo.queued;
+    const bool rejectedAfterClose =
+        closePublished && !sendEvent(&event);
+    const bool leaseHeld =
+        context.completed == 0 && event.pendingCount() == 1;
+
+    delivery.reset();
+    while (context.completed != static_cast<size_t>(1))
+    {
+        Scheduler::instance().yield();
+    }
+
+    const bool waiterAJoined = waiterA->join();
+    const bool deliveryLeasePassed =
+        closePublished && rejectedAfterClose && leaseHeld && waiterAJoined &&
+        event.pendingCount() == 0;
+
+    HostedPrequeuedEvent deferredEvent;
+    const size_t callsBefore = g_HostedPrequeuedEventCalls;
+    bool nestedDeferralPassed = false;
+    {
+        Uninterruptible outer;
+        {
+            Uninterruptible inner;
+            if (!sendEvent(&deferredEvent))
+            {
+                return false;
+            }
+            Processor::information().getScheduler().checkEventState(0);
+            nestedDeferralPassed =
+                g_HostedPrequeuedEventCalls == callsBefore &&
+                hasEvent(&deferredEvent) &&
+                deferredEvent.pendingCount() == 1;
+        }
+
+        Processor::information().getScheduler().checkEventState(0);
+        nestedDeferralPassed =
+            nestedDeferralPassed &&
+            g_HostedPrequeuedEventCalls == callsBefore &&
+            hasEvent(&deferredEvent) &&
+            deferredEvent.pendingCount() == 1;
+    }
+
+    Processor::information().getScheduler().checkEventState(0);
+    nestedDeferralPassed =
+        nestedDeferralPassed &&
+        g_HostedPrequeuedEventCalls == (callsBefore + 1) &&
+        !hasEvent(&deferredEvent) && deferredEvent.pendingCount() == 0;
+
+    const size_t retireCallsBefore = g_HostedSelfRetireCalls;
+    const size_t retireDestructionsBefore =
+        g_HostedSelfRetireDestructions;
+    HostedSelfRetireEvent *retiringEvent =
+        new HostedSelfRetireEvent;
+    g_pHostedSelfRetireEvent = retiringEvent;
+    const bool retireQueued = sendEvent(retiringEvent);
+    if (retireQueued)
+    {
+        waitForEvent();
+    }
+    else
+    {
+        g_pHostedSelfRetireEvent = nullptr;
+        delete retiringEvent;
+    }
+    const bool selfRetirePassed =
+        retireQueued && !g_pHostedSelfRetireEvent &&
+        g_HostedSelfRetireCalls == (retireCallsBefore + 1) &&
+        g_HostedSelfRetireDestructions ==
+            (retireDestructionsBefore + 1);
+
+    HostedAdmissionRetireEvent *admissionEvent =
+        new HostedAdmissionRetireEvent;
+    HostedAdmissionRetireContext admissionContext(
+        admissionEvent,
+        static_cast<size_t>(
+            g_HostedAdmissionRetireDestructions));
+    g_pHostedAdmissionRetireContext = &admissionContext;
+    __atomic_store_n(&g_EventAdmissionTarget, this, __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &g_EventAdmissionHook, &hostedAdmissionRetireHook,
+        __ATOMIC_RELEASE);
+    const bool rejectedByConcurrentRetire = !sendEvent(admissionEvent);
+    __atomic_store_n(
+        &g_EventAdmissionHook,
+        static_cast<EventAdmissionHook>(nullptr), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &g_EventAdmissionTarget, static_cast<Thread *>(nullptr),
+        __ATOMIC_RELEASE);
+    g_pHostedAdmissionRetireContext = nullptr;
+    const bool admissionRetirePassed =
+        rejectedByConcurrentRetire && admissionContext.calls == 1 &&
+        admissionContext.destroyedInsideHook == 0 &&
+        g_HostedAdmissionRetireDestructions ==
+            (admissionContext.destructionsBefore + 1);
+
+    return deliveryLeasePassed && nestedDeferralPassed &&
+           selfRetirePassed && admissionRetirePassed;
+}
+
+bool Thread::runHostedEventShutdownRegression()
+{
+    if (Processor::information().getCurrentThread() != this)
+    {
+        return false;
+    }
+
+    HostedShutdownStableEvent stableEvent;
+    HostedShutdownStableEvent racingEvent;
+    HostedShutdownStableEvent postShutdownEvent;
+    const size_t eventCallsBefore = g_HostedShutdownEventCalls;
+    const size_t destructionsBefore =
+        g_HostedShutdownEventDestructions;
+    const size_t threadCallsBefore = g_HostedShutdownThreadCalls;
+
+    Thread *target = new Thread(
+        Scheduler::instance().getKernelProcess(), hostedShutdownThread,
+        nullptr, nullptr, false, true, true);
+    target->setName("hosted event-queue shutdown regression");
+
+    const bool stableQueued = target->sendEvent(&stableEvent);
+    HostedShutdownDeletableEvent *deletableEvent =
+        new HostedShutdownDeletableEvent;
+    const bool deletableQueued =
+        stableQueued && target->sendEvent(deletableEvent);
+    if (!deletableQueued)
+    {
+        delete deletableEvent;
+    }
+
+    __atomic_store_n(
+        &g_EventAdmissionTarget, target, __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &g_EventAdmissionHook,
+        +[](Thread *admissionTarget) {
+            admissionTarget->setUnwindState(Thread::TerminateThread);
+            while (true)
+            {
+                {
+                    LockGuard<Spinlock> guard(admissionTarget->m_Lock);
+                    if (admissionTarget->m_bShutdown)
+                    {
+                        break;
+                    }
+                }
+                Scheduler::instance().yield();
+            }
+        },
+        __ATOMIC_RELEASE);
+    const bool rejectedDuringShutdown = !target->sendEvent(&racingEvent);
+    __atomic_store_n(
+        &g_EventAdmissionHook,
+        static_cast<EventAdmissionHook>(nullptr), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &g_EventAdmissionTarget, static_cast<Thread *>(nullptr),
+        __ATOMIC_RELEASE);
+
+    bool shutdownObserved = false;
+    constexpr size_t ShutdownAttempts = 10000;
+    for (size_t attempt = 0; attempt < ShutdownAttempts; ++attempt)
+    {
+        {
+            LockGuard<Spinlock> guard(target->m_Lock);
+            shutdownObserved = target->m_bShutdown;
+        }
+        if (shutdownObserved)
+        {
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+
+    bool rejectedAfterShutdown = false;
+    if (shutdownObserved)
+    {
+        rejectedAfterShutdown = !target->sendEvent(&postShutdownEvent);
+        if (!rejectedAfterShutdown)
+        {
+            target->cullEvent(&postShutdownEvent);
+        }
+    }
+
+    const bool joined = target->join();
+    return stableQueued && deletableQueued && rejectedDuringShutdown &&
+           shutdownObserved && rejectedAfterShutdown && joined &&
+           stableEvent.pendingCount() == 0 &&
+           racingEvent.pendingCount() == 0 &&
+           postShutdownEvent.pendingCount() == 0 &&
+           g_HostedShutdownEventCalls == eventCallsBefore &&
+           g_HostedShutdownEventDestructions == (destructionsBefore + 1) &&
+           g_HostedShutdownThreadCalls == threadCallsBefore;
+}
+#endif
 
 void Thread::inhibitEvent(size_t eventNumber, bool bInhibit)
 {
@@ -684,7 +1581,7 @@ void Thread::setSignalMask(uint64_t mask)
 
 void Thread::cullEvent(Event *pEvent)
 {
-    bool bDelete = false;
+    size_t removed = 0;
     {
         LockGuard<Spinlock> guard(m_Lock);
 
@@ -693,11 +1590,8 @@ void Thread::cullEvent(Event *pEvent)
         {
             if (*it == pEvent)
             {
-                if ((*it)->isDeletable())
-                {
-                    bDelete = true;
-                }
                 it = m_EventQueue.erase(it);
+                ++removed;
             }
             else
             {
@@ -706,12 +1600,11 @@ void Thread::cullEvent(Event *pEvent)
         }
     }
 
-    pEvent->deregisterThread(this);
-
-    // Delete last to avoid double frees.
-    if (bDelete)
+    // The caller retains ownership of an exact-event cull. Account for every
+    // enqueue independently, including duplicate enqueues of the same object.
+    while (removed--)
     {
-        delete pEvent;
+        pEvent->deregisterThread(this);
     }
 }
 
@@ -739,24 +1632,23 @@ void Thread::cullEvent(size_t eventNumber)
     // clean up events now that we're no longer locked
     for (auto it : deregisterEvents)
     {
-        it->deregisterThread(this);
-        if (it->isDeletable())
-            delete it;
+        it->completeDelivery(this);
     }
 }
 
-Event *Thread::getNextEvent()
+Event::Delivery Thread::getNextEvent()
 {
     Event *pResult = nullptr;
 
-    if (!m_bInterruptible)
-    {
-        // No events if we're not interruptible
-        return nullptr;
-    }
-
     {
         LockGuard<Spinlock> guard(m_Lock);
+
+        if (
+            __atomic_load_n(
+                &m_EventDeferralDepth, __ATOMIC_ACQUIRE))
+        {
+            return Event::Delivery();
+        }
 
         for (size_t i = 0; i < m_EventQueue.count(); i++)
         {
@@ -787,15 +1679,7 @@ Event *Thread::getNextEvent()
         }
     }
 
-    if (pResult)
-    {
-        // de-register thread outside of the Thread lock to avoid Event/Thread
-        // lock dependencies by accident
-        pResult->deregisterThread(this);
-        return pResult;
-    }
-
-    return 0;
+    return pResult ? Event::Delivery(pResult, this) : Event::Delivery();
 }
 
 bool Thread::hasEvents()
@@ -828,6 +1712,13 @@ bool Thread::hasEventsUnlocked()
     return false;
 }
 
+bool Thread::hasDeliverableEventsUnlocked()
+{
+    return !__atomic_load_n(
+               &m_EventDeferralDepth, __ATOMIC_ACQUIRE) &&
+           hasEventsUnlocked();
+}
+
 bool Thread::hasEvent(Event *pEvent)
 {
     LockGuard<Spinlock> guard(m_Lock);
@@ -858,30 +1749,6 @@ bool Thread::hasEvent(size_t eventNumber)
     }
 
     return false;
-}
-
-void Thread::addRequest(RequestQueue::Request *req)
-{
-    if (m_bRemovingRequests)
-        return;
-
-    m_PendingRequests.pushBack(req);
-}
-
-void Thread::removeRequest(RequestQueue::Request *req)
-{
-    if (m_bRemovingRequests)
-        return;
-
-    for (List<RequestQueue::Request *>::Iterator it = m_PendingRequests.begin();
-         it != m_PendingRequests.end(); it++)
-    {
-        if (req == *it)
-        {
-            m_PendingRequests.erase(it);
-            return;
-        }
-    }
 }
 
 void Thread::unexpectedExit()
@@ -968,78 +1835,324 @@ void Thread::setTlsBase(uintptr_t base)
 
 bool Thread::join()
 {
+    return joinInternal(false);
+}
+
+bool Thread::joinForCompletion()
+{
+    TerminationDeferral terminationDeferral;
+    return joinInternal(true);
+}
+
+bool Thread::joinInternal(bool completion)
+{
     Thread *pThisThread = Processor::information().getCurrentThread();
-
-    m_ConcurrencyLock.acquire();
-
-    // Can't join a detached thread.
-    if (m_bDetached)
+    if (pThisThread == this)
     {
-        m_ConcurrencyLock.release();
         return false;
     }
 
-    // Check thread state. Perhaps the join is just a matter of terminating this
-    // thread, as it has died.
-    if (m_Status != AwaitingJoin)
+    Process *pParent = nullptr;
     {
-        if (m_pWaiter)
+        auto guard = m_JoinWaiters.acquire();
+        if (m_bDetached || m_bJoinClaimed)
         {
-            // Another thread is already join()ing.
-            m_ConcurrencyLock.release();
             return false;
         }
-
-        m_pWaiter = pThisThread;
-        pThisThread->setDebugState(
-            Joining, reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
-        m_ConcurrencyLock.release();
-
-        while (1)
+        pParent = m_pParent;
+        if (!pParent->beginThreadJoin())
         {
-            Processor::information().getScheduler().sleep(0);
-            if (!(pThisThread->wasInterrupted() ||
-                  pThisThread->getUnwindState() != Thread::Continue))
-                break;
+            return false;
+        }
+        m_bJoinClaimed = true;
+    }
+
+    while (true)
+    {
+        bool reapable = false;
+        {
+            auto guard = m_JoinWaiters.acquire();
+            if (m_bReapable)
+            {
+                reapable = true;
+            }
+            else
+            {
+                const uintptr_t returnAddress =
+                    reinterpret_cast<uintptr_t>(
+                        __builtin_return_address(0));
+                WaitQueue::WakeReason reason =
+                    completion
+                        ? guard.waitForCompletion(
+                              WaitQueue::Channel(), Thread::Joining,
+                              returnAddress)
+                        : guard.wait(
+                              WaitQueue::Channel(), Thread::Joining,
+                              returnAddress, &Thread::abandonJoin, this);
+                if (
+                    reason == WaitQueue::WakeReason::Unwinding ||
+                    reason == WaitQueue::WakeReason::Terminating)
+                {
+                    if (completion)
+                    {
+                        continue;
+                    }
+                    {
+                        auto claimGuard = m_JoinWaiters.acquire();
+                        m_bJoinClaimed = false;
+                    }
+                    pParent->endThreadJoin();
+                    return false;
+                }
+            }
         }
 
-        pThisThread->setDebugState(None, 0);
+        if (!reapable)
+        {
+            continue;
+        }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        JoinOperationHook hook =
+            __atomic_load_n(&g_JoinOperationHook, __ATOMIC_ACQUIRE);
+        if (hook)
+        {
+            hook(this, pParent);
+        }
+#endif
+
+        // No new external inspector may enter once final retirement begins.
+        // Existing inspectors finish before the target can be deleted.
+        closeExternalLeaseAdmissionAndDrain();
+
+        // Serialise the final ownership check and deletion with Process::kill.
+        // Process exit retains every participant until Process destruction.
+        bool processOwnsTarget = false;
+        {
+            RecursingLockGuard<Spinlock> processGuard(pParent->m_Lock);
+            {
+                auto claimGuard = m_JoinWaiters.acquire();
+                if (!m_bReapable)
+                {
+                    continue;
+                }
+                if (m_bProcessExitOwned)
+                {
+                    m_bJoinClaimed = false;
+                    processOwnsTarget = true;
+                }
+            }
+
+            if (!processOwnsTarget)
+            {
+                // markReapable() runs only after the scheduler has switched
+                // away from this stack. Holding the Process lock keeps its
+                // thread vector stable.
+                delete this;
+            }
+        }
+
+        pParent->endThreadJoin();
+        return !processOwnsTarget;
     }
-    else
+}
+
+bool Thread::beginExternalLease()
+{
+    LockGuard<Spinlock> guard(m_ExternalLeaseLock);
+    if (m_bExternalLeaseAdmissionClosed)
     {
-        m_ConcurrencyLock.release();
+        return false;
     }
 
-    // Thread has terminated, we may now clean up.
-    delete this;
+    ++m_nExternalLeases;
     return true;
+}
+
+void Thread::endExternalLease()
+{
+    bool wake = false;
+    bool finishDetachedRetirement = false;
+    {
+        LockGuard<Spinlock> guard(m_ExternalLeaseLock);
+        if (!m_nExternalLeases)
+        {
+            FATAL("Thread external lease underflow.");
+        }
+
+        --m_nExternalLeases;
+        finishDetachedRetirement =
+            !m_nExternalLeases && m_bExternalLeaseAdmissionClosed;
+        if (finishDetachedRetirement)
+        {
+            m_bExternalLeaseReleaseInProgress = true;
+        }
+        else
+        {
+            wake = !m_nExternalLeases;
+        }
+    }
+
+    if (wake)
+    {
+        m_ExternalLeaseWaiters.wakeAll(
+            WaitQueue::WakeReason::Signalled,
+            WaitQueue::Channel(this));
+    }
+
+    if (!finishDetachedRetirement)
+    {
+        return;
+    }
+
+    // Process::ThreadLease keeps the parent pinned until this method returns.
+    // Serialising with Process teardown lets the final lease perform deferred
+    // detached deletion after the scheduler has already switched off-stack.
+    Process *parent = m_pParent;
+    bool deleteNow = false;
+    {
+        RecursingLockGuard<Spinlock> processGuard(parent->m_Lock);
+        {
+            auto joinGuard = m_JoinWaiters.acquire();
+            deleteNow =
+                m_bReapable && m_bDetached && !m_bProcessExitOwned &&
+                !m_bDetachedRetirementClaimed;
+            if (deleteNow)
+            {
+                m_bDetachedRetirementClaimed = true;
+            }
+        }
+
+        {
+            LockGuard<Spinlock> leaseGuard(m_ExternalLeaseLock);
+            m_bExternalLeaseReleaseInProgress = false;
+        }
+
+        if (!deleteNow)
+        {
+            // Keep the Process lock until the final queue access is complete.
+            // Scheduler-side retirement takes the same lock, so it cannot
+            // delete this Thread between clearing the handoff bit and waking
+            // a completion waiter.
+            m_ExternalLeaseWaiters.wakeAll(
+                WaitQueue::WakeReason::Signalled,
+                WaitQueue::Channel(this));
+        }
+
+        if (deleteNow)
+        {
+            delete this;
+        }
+    }
+}
+
+void Thread::closeExternalLeaseAdmission()
+{
+    LockGuard<Spinlock> guard(m_ExternalLeaseLock);
+    m_bExternalLeaseAdmissionClosed = true;
+}
+
+void Thread::closeExternalLeaseAdmissionAndDrain()
+{
+    TerminationDeferral terminationDeferral;
+    while (true)
+    {
+        auto guard = m_ExternalLeaseWaiters.acquire();
+        {
+            LockGuard<Spinlock> stateGuard(m_ExternalLeaseLock);
+            m_bExternalLeaseAdmissionClosed = true;
+            if (
+                !m_nExternalLeases &&
+                !m_bExternalLeaseReleaseInProgress)
+            {
+                return;
+            }
+        }
+
+        const WaitQueue::WakeReason reason = guard.waitForCompletion(
+            WaitQueue::Channel(this), Thread::Joining,
+            reinterpret_cast<uintptr_t>(this));
+        (void) reason;
+    }
+}
+
+void Thread::abandonJoin(void *context)
+{
+    Thread *target = reinterpret_cast<Thread *>(context);
+    Process *parent = target->m_pParent;
+    {
+        auto guard = target->m_JoinWaiters.acquire();
+        target->m_bJoinClaimed = false;
+    }
+    parent->endThreadJoin();
 }
 
 bool Thread::detach()
 {
-    if (m_Status == AwaitingJoin)
+    Process *pParent = m_pParent;
+    if (!pParent->beginThreadJoin())
     {
-        WARNING("Thread::detach() called on a thread that has already exited.");
-        return join();
+        return false;
     }
-    else
-    {
-        LockGuard<Spinlock> guard(m_ConcurrencyLock);
 
-        if (m_pWaiter)
+    bool deleteNow = false;
+    bool joinInProgress = false;
+    {
+        RecursingLockGuard<Spinlock> processGuard(pParent->m_Lock);
         {
-            ERROR("Thread::detach() called while other threads are joining.");
-            return false;
+            auto guard = m_JoinWaiters.acquire();
+            if (m_bJoinClaimed)
+            {
+                ERROR(
+                    "Thread::detach() called while other threads are "
+                    "joining.");
+                joinInProgress = true;
+            }
+            else
+            {
+                m_bDetached = true;
+                deleteNow =
+                    m_bReapable && !m_bProcessExitOwned &&
+                    !m_bDetachedRetirementClaimed;
+                if (deleteNow)
+                {
+                    m_bDetachedRetirementClaimed = true;
+                }
+            }
         }
-
-        m_bDetached = true;
-        return true;
     }
+
+    if (joinInProgress)
+    {
+        pParent->endThreadJoin();
+        return false;
+    }
+
+    if (deleteNow)
+    {
+        closeExternalLeaseAdmissionAndDrain();
+        RecursingLockGuard<Spinlock> processGuard(pParent->m_Lock);
+        {
+            auto guard = m_JoinWaiters.acquire();
+            deleteNow =
+                deleteNow && m_bDetached && m_bReapable &&
+                !m_bProcessExitOwned &&
+                m_bDetachedRetirementClaimed;
+        }
+        if (deleteNow)
+        {
+            delete this;
+        }
+    }
+
+    pParent->endThreadJoin();
+    return true;
 }
 
 Thread::StateLevel::StateLevel()
     : m_State(), m_pKernelStack(0), m_pUserStack(0), m_pAuxillaryStack(0),
-      m_InhibitMask(), m_SignalMask(0), m_pBlockingThread(0)
+      m_InhibitMask(), m_SignalMask(0), m_Errno(0),
+      m_InterruptionReason(NotInterrupted), m_bDispatchingWaitEvent(false)
 {
     m_State = new SchedulerState;
     ByteSet(m_State, 0, sizeof(SchedulerState));
@@ -1054,7 +2167,9 @@ Thread::StateLevel::~StateLevel()
 Thread::StateLevel::StateLevel(const Thread::StateLevel &s)
     : m_State(), m_pKernelStack(s.m_pKernelStack), m_pUserStack(s.m_pUserStack),
       m_pAuxillaryStack(s.m_pAuxillaryStack), m_InhibitMask(),
-      m_SignalMask(s.m_SignalMask), m_pBlockingThread(s.m_pBlockingThread)
+      m_SignalMask(s.m_SignalMask), m_Errno(s.m_Errno),
+      m_InterruptionReason(s.m_InterruptionReason),
+      m_bDispatchingWaitEvent(false)
 {
     m_State = new SchedulerState(*(s.m_State));
     m_InhibitMask =
@@ -1067,19 +2182,319 @@ Thread::StateLevel &Thread::StateLevel::operator=(const Thread::StateLevel &s)
     m_InhibitMask =
         SharedPointer<ExtensibleBitmap>::allocate(*(s.m_InhibitMask));
     m_SignalMask = s.m_SignalMask;
+    m_Errno = s.m_Errno;
+    m_InterruptionReason = s.m_InterruptionReason;
+    m_bDispatchingWaitEvent = false;
     m_pKernelStack = s.m_pKernelStack;
     return *this;
 }
 
-bool Thread::isInterruptible()
+void Thread::markTimeoutInterruptedWait()
 {
-    return m_bInterruptible;
+    const size_t interruptedLevel = m_nStateLevel ? m_nStateLevel - 1 : 0;
+    m_StateLevels[interruptedLevel].m_InterruptionReason =
+        InterruptedByTimeout;
 }
 
-void Thread::setInterruptible(bool state)
+void Thread::markSignalInterruptedWait()
 {
-    LockGuard<Spinlock> guard(m_Lock);
-    m_bInterruptible = state;
+    if (!m_nStateLevel)
+    {
+        return;
+    }
+
+    StateLevel &interrupted = m_StateLevels[m_nStateLevel - 1];
+    if (interrupted.m_bDispatchingWaitEvent)
+    {
+        interrupted.m_InterruptionReason = InterruptedBySignal;
+    }
+}
+
+bool Thread::eventsDeferred()
+{
+    return __atomic_load_n(
+               &m_EventDeferralDepth, __ATOMIC_ACQUIRE) != 0;
+}
+
+bool Thread::getWaitDebugInfo(WaitDebugInfo &info)
+{
+    const size_t level = __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
+    if (level >= MAX_NESTED_EVENTS)
+    {
+        return false;
+    }
+
+    WaitQueue::Waiter &waiter = m_StateLevels[level].m_Waiter;
+    WaitQueue *queue = waiter.loadQueue();
+    if (!queue)
+    {
+        return false;
+    }
+
+    info.queue = queue;
+    info.channelOwner = waiter.channel.owner;
+    info.channelValue = waiter.channel.value;
+    info.reason = waiter.loadReason();
+    info.stateLevel = waiter.stateLevel;
+    info.queued = waiter.isQueued();
+
+    // A concurrent wake may unpublish this persistent record. Reject a torn
+    // snapshot rather than taking the target lock, which may be frozen by the
+    // kernel debugger.
+    return waiter.loadQueue() == queue &&
+           __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE) == level;
+}
+
+void Thread::deferEvents()
+{
+    __atomic_add_fetch(
+        &m_EventDeferralDepth, static_cast<size_t>(1),
+        __ATOMIC_ACQ_REL);
+}
+
+void Thread::resumeEvents()
+{
+    const size_t depth =
+        __atomic_load_n(&m_EventDeferralDepth, __ATOMIC_ACQUIRE);
+    if (!depth)
+    {
+        FATAL("Unbalanced event-delivery deferral.");
+    }
+    __atomic_sub_fetch(
+        &m_EventDeferralDepth, static_cast<size_t>(1),
+        __ATOMIC_ACQ_REL);
+}
+
+void Thread::deferTermination()
+{
+    __atomic_add_fetch(
+        &m_TerminationDeferralDepth, static_cast<size_t>(1),
+        __ATOMIC_ACQ_REL);
+}
+
+void Thread::resumeTermination()
+{
+    const size_t depth = __atomic_load_n(
+        &m_TerminationDeferralDepth, __ATOMIC_ACQUIRE);
+    if (!depth)
+    {
+        FATAL("Unbalanced terminal-teardown deferral.");
+    }
+    __atomic_sub_fetch(
+        &m_TerminationDeferralDepth, static_cast<size_t>(1),
+        __ATOMIC_ACQ_REL);
+}
+
+void Thread::registerDeferredScope(
+    DeferredScopeRecord &record, bool termination, bool events)
+{
+    LockGuard<Spinlock> guard(m_DeferredScopeLock);
+    if (
+        record.armed || record.next ||
+        record.defersTermination || record.defersEvents)
+    {
+        FATAL("Deferred scope registered more than once.");
+    }
+
+    record.stateLevel =
+        __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
+    ++m_NextStateCleanupSequence;
+    if (!m_NextStateCleanupSequence)
+    {
+        FATAL("Thread state cleanup sequence exhausted.");
+    }
+    record.sequence = m_NextStateCleanupSequence;
+    record.defersTermination = termination;
+    record.defersEvents = events;
+    record.cleanup = nullptr;
+    record.context = nullptr;
+    record.armed = true;
+    record.next = m_pDeferredScopes;
+    m_pDeferredScopes = &record;
+
+    if (termination)
+    {
+        deferTermination();
+    }
+    if (events)
+    {
+        deferEvents();
+    }
+}
+
+void Thread::armStateCleanup(
+    DeferredScopeRecord &record,
+    DeferredScopeRecord::Cleanup cleanup, void *context)
+{
+    if (!cleanup)
+    {
+        FATAL("State cleanup armed without a callback.");
+    }
+
+    LockGuard<Spinlock> guard(m_DeferredScopeLock);
+    if (
+        record.armed || record.next ||
+        record.defersTermination || record.defersEvents)
+    {
+        FATAL("State cleanup record armed more than once.");
+    }
+
+    record.stateLevel =
+        __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
+    ++m_NextStateCleanupSequence;
+    if (!m_NextStateCleanupSequence)
+    {
+        FATAL("Thread state cleanup sequence exhausted.");
+    }
+    record.sequence = m_NextStateCleanupSequence;
+    record.cleanup = cleanup;
+    record.context = context;
+    record.armed = true;
+    record.next = m_pDeferredScopes;
+    m_pDeferredScopes = &record;
+}
+
+void Thread::unregisterDeferredScope(DeferredScopeRecord &record)
+{
+    LockGuard<Spinlock> guard(m_DeferredScopeLock);
+    DeferredScopeRecord **link = &m_pDeferredScopes;
+    while (*link && *link != &record)
+    {
+        link = &(*link)->next;
+    }
+    if (!*link || !record.armed)
+    {
+        FATAL("Deferred scope was not registered on this Thread.");
+    }
+
+    *link = record.next;
+    if (record.defersTermination)
+    {
+        resumeTermination();
+    }
+    if (record.defersEvents)
+    {
+        resumeEvents();
+    }
+    record = DeferredScopeRecord();
+}
+
+void Thread::disarmStateCleanup(DeferredScopeRecord &record)
+{
+    LockGuard<Spinlock> guard(m_DeferredScopeLock);
+    DeferredScopeRecord **link = &m_pDeferredScopes;
+    while (*link && *link != &record)
+    {
+        link = &(*link)->next;
+    }
+    if (!*link || !record.armed)
+    {
+        FATAL("State cleanup record was not armed on this Thread.");
+    }
+
+    *link = record.next;
+    record = DeferredScopeRecord();
+}
+
+void Thread::moveDeferredScope(
+    DeferredScopeRecord &from, DeferredScopeRecord &to)
+{
+    LockGuard<Spinlock> guard(m_DeferredScopeLock);
+    DeferredScopeRecord **link = &m_pDeferredScopes;
+    while (*link && *link != &from)
+    {
+        link = &(*link)->next;
+    }
+    if (!*link || !from.armed)
+    {
+        FATAL("Moved deferred scope was not registered.");
+    }
+
+    to = from;
+    *link = &to;
+    from = DeferredScopeRecord();
+}
+
+void Thread::retireDeferredScopes(
+    bool allStateLevels, size_t stateLevel)
+{
+    retireDeferredScopesMatching(
+        allStateLevels, stateLevel, false, 0);
+}
+
+size_t Thread::stateCleanupCheckpoint()
+{
+    LockGuard<Spinlock> guard(m_DeferredScopeLock);
+    return m_NextStateCleanupSequence;
+}
+
+void Thread::retireDeferredScopesAfter(size_t checkpoint)
+{
+    retireDeferredScopesMatching(
+        true, 0, true, checkpoint);
+}
+
+void Thread::retireDeferredScopesMatching(
+    bool allStateLevels, size_t stateLevel,
+    bool newerThanCheckpoint, size_t checkpoint)
+{
+    DeferredScopeRecord *retired = nullptr;
+    DeferredScopeRecord *retiredTail = nullptr;
+    {
+        LockGuard<Spinlock> guard(m_DeferredScopeLock);
+        DeferredScopeRecord **link = &m_pDeferredScopes;
+        while (*link)
+        {
+            DeferredScopeRecord *record = *link;
+            if (
+                (newerThanCheckpoint &&
+                 record->sequence <= checkpoint) ||
+                (!newerThanCheckpoint && !allStateLevels &&
+                 record->stateLevel != stateLevel))
+            {
+                link = &record->next;
+                continue;
+            }
+
+            *link = record->next;
+            if (record->defersTermination)
+            {
+                resumeTermination();
+            }
+            if (record->defersEvents)
+            {
+                resumeEvents();
+            }
+            record->armed = false;
+            record->next = nullptr;
+            if (retiredTail)
+            {
+                retiredTail->next = record;
+            }
+            else
+            {
+                retired = record;
+            }
+            retiredTail = record;
+        }
+    }
+
+    while (retired)
+    {
+        DeferredScopeRecord *next = retired->next;
+        DeferredScopeRecord::Cleanup cleanup = retired->cleanup;
+        void *context = retired->context;
+        retired->next = nullptr;
+        retired->defersTermination = false;
+        retired->defersEvents = false;
+        retired->cleanup = nullptr;
+        retired->context = nullptr;
+        if (cleanup)
+        {
+            cleanup(context);
+        }
+        retired = next;
+    }
 }
 
 void Thread::setScheduler(class PerProcessorScheduler *pScheduler)
@@ -1094,6 +2509,26 @@ PerProcessorScheduler *Thread::getScheduler() const
 
 void Thread::cleanStateLevel(size_t level)
 {
+    {
+        LockGuard<Spinlock> guard(m_DeferredScopeLock);
+        for (
+            DeferredScopeRecord *record = m_pDeferredScopes;
+            record; record = record->next)
+        {
+            if (record->stateLevel == level)
+            {
+                FATAL(
+                    "Thread state stack freed with an armed cleanup "
+                    "record.");
+            }
+        }
+    }
+
+    if (m_StateLevels[level].m_Waiter.loadQueue())
+    {
+        FATAL("Thread state stack was cleaned while still in a wait queue.");
+    }
+
     if (m_StateLevels[level].m_pKernelStack)
     {
         VirtualAddressSpace::getKernelAddressSpace().freeStack(
@@ -1119,45 +2554,91 @@ void Thread::cleanStateLevel(size_t level)
     m_StateLevels[level].m_InhibitMask.reset();
 }
 
-void Thread::addWakeupWatcher(WakeReason *watcher)
+void Thread::setUnwindState(UnwindType ut)
 {
-    LockGuard<Spinlock> guard(m_Lock);
-
-    m_WakeWatchers.pushBack(watcher);
-}
-
-void Thread::removeWakeupWatcher(WakeReason *watcher)
-{
-    LockGuard<Spinlock> guard(m_Lock);
-
-    for (auto it = m_WakeWatchers.begin(); it != m_WakeWatchers.end();)
+    bool becameReady = false;
+    bool queuedBeforeStart = false;
     {
-        if ((*it) == watcher)
+        LockGuard<Spinlock> guard(m_Lock);
+        __atomic_store_n(&m_UnwindState, ut, __ATOMIC_RELEASE);
+        queuedBeforeStart =
+            m_Status == Created && ut == TerminateThread;
+        if (ut != Continue)
         {
-            it = m_WakeWatchers.erase(it);
+            const bool terminating = ut == TerminateThread;
+            becameReady = interruptWaitUnlocked(
+                terminating ? WaitQueue::WakeReason::Terminating
+                            : WaitQueue::WakeReason::Unwinding);
         }
-        else
-        {
-            ++it;
-        }
+    }
+
+    if (becameReady || queuedBeforeStart)
+    {
+        Scheduler::instance().threadStatusChanged(this);
     }
 }
 
-void Thread::reportWakeup(WakeReason reason)
+Thread::UnwindType Thread::getUnwindState()
 {
-    LockGuard<Spinlock> guard(m_Lock);
-
-    reportWakeupUnlocked(reason);
+    return __atomic_load_n(&m_UnwindState, __ATOMIC_ACQUIRE);
 }
 
-void Thread::reportWakeupUnlocked(WakeReason reason)
+bool Thread::interruptWaitUnlocked(WaitQueue::WakeReason reason)
 {
-    for (auto it = m_WakeWatchers.begin(); it != m_WakeWatchers.end(); ++it)
+    WaitQueue::Waiter &waiter = m_StateLevels[m_nStateLevel].m_Waiter;
+    if (
+        !waiter.loadQueue() ||
+        waiter.loadReason() != WaitQueue::WakeReason::Waiting)
     {
-        *(*it) = reason;
+        return false;
     }
 
-    m_WakeWatchers.clear();
+    waiter.storeReason(reason);
+
+    if (m_Status == Sleeping)
+    {
+        m_Status = Ready;
+        return true;
+    }
+    return false;
+}
+
+bool Thread::hasActiveWaitUnlocked() const
+{
+    return m_StateLevels[m_nStateLevel].m_Waiter.loadQueue() != nullptr;
+}
+
+bool Thread::activeWaitPendingUnlocked() const
+{
+    const WaitQueue::Waiter &waiter = m_StateLevels[m_nStateLevel].m_Waiter;
+    return waiter.loadQueue() &&
+           waiter.loadReason() == WaitQueue::WakeReason::Waiting;
+}
+
+bool Thread::markReapable()
+{
+    auto guard = m_JoinWaiters.acquire();
+    m_bReapable = true;
+    if (!m_bDetached)
+    {
+        guard.wakeAll();
+    }
+
+    bool externalLeasesDrained = false;
+    {
+        LockGuard<Spinlock> leaseGuard(m_ExternalLeaseLock);
+        externalLeasesDrained =
+            m_bExternalLeaseAdmissionClosed && !m_nExternalLeases &&
+            !m_bExternalLeaseReleaseInProgress;
+    }
+    const bool deleteNow =
+        m_bDetached && !m_bProcessExitOwned &&
+        externalLeasesDrained && !m_bDetachedRetirementClaimed;
+    if (deleteNow)
+    {
+        m_bDetachedRetirementClaimed = true;
+    }
+    return deleteNow;
 }
 
 #endif  // THREADS

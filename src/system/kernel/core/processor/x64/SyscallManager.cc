@@ -18,11 +18,12 @@
  */
 
 #include "SyscallManager.h"
-#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/TimeTracker.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -34,31 +35,22 @@ X64SyscallManager X64SyscallManager::m_Instance;
 
 #define TIME_SYSCALLS 0
 
+extern void system_reboot();
+
 SyscallManager &SyscallManager::instance()
 {
     return X64SyscallManager::instance();
 }
 
 bool X64SyscallManager::registerSyscallHandler(
-    Service_t Service, SyscallHandler *pHandler)
+    Service_t Service, SyscallHandler *pHandler,
+    Registration &registration)
 {
-    // Lock the class until the end of the function
-    LockGuard<Spinlock> lock(m_Lock);
-
-    if (UNLIKELY(Service >= serviceEnd))
-        return false;
-    if (UNLIKELY(pHandler != 0 && m_pHandler[Service] != 0))
-        return false;
-    if (UNLIKELY(pHandler == 0 && m_pHandler[Service] == 0))
-        return false;
-
-    m_pHandler[Service] = pHandler;
-    return true;
+    return registerHandler(Service, pHandler, registration);
 }
 
 void X64SyscallManager::syscall(SyscallState &syscallState)
 {
-    SyscallHandler *pHandler;
     TimeTracker tracker(0, true);
 #if TIME_SYSCALLS
     Process *pProcess =
@@ -79,46 +71,114 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
         return;
     }
 
-    // Get the syscall handler
+    bool handled = false;
+    PostSyscallAction action;
     {
-        LockGuard<Spinlock> lock(m_Instance.m_Lock);
-        pHandler = m_Instance.m_pHandler[serviceNumber];
-    }
-
-    if (LIKELY(pHandler != 0))
-    {
-        uint64_t result = pHandler->syscall(syscallState);
-        uint64_t errno =
-            Processor::information().getCurrentThread()->getErrno();
-        /// \todo this is an extraordinary hack, this should be done in a way
-        /// more
-        ///       abstract way than this!!
-        if (serviceNumber == linuxCompat)
+        // The lease must retire before the deferral allows a pending terminal
+        // request to consume this thread's stack.
+        TerminationDeferral callbackDeferral;
+        HandlerLease handler;
+        if (m_Instance.acquireHandler(
+                static_cast<Service_t>(serviceNumber), handler,
+                action))
         {
-            if (errno != 0)
+            handled = true;
+            uint64_t result = handler.handler()->syscall(syscallState);
+            uint64_t errno =
+                Processor::information().getCurrentThread()->getErrno();
+            /// \todo this is an extraordinary hack, this should be done in a
+            /// way more abstract way than this!!
+            if (serviceNumber == linuxCompat)
             {
-                syscallState.setSyscallReturnValue(-errno);
+                if (errno != 0)
+                {
+                    syscallState.setSyscallReturnValue(-errno);
+                }
+                else
+                {
+                    syscallState.setSyscallReturnValue(result);
+                }
             }
             else
             {
                 syscallState.setSyscallReturnValue(result);
+                syscallState.setSyscallErrno(errno);
             }
+            // Reset error number now that we've extracted it.
+            Processor::information().getCurrentThread()->setErrno(0);
         }
-        else
-        {
-            syscallState.setSyscallReturnValue(result);
-            syscallState.setSyscallErrno(errno);
-        }
-        // Reset error number now that we've extracted it.
-        Processor::information().getCurrentThread()->setErrno(0);
+    }
 
-        if (Processor::information().getCurrentThread()->getUnwindState() ==
-            Thread::Exit)
+    if (handled)
+    {
+        switch (action.kind)
+        {
+            case TerminateCurrentThread:
+                Processor::information()
+                    .getScheduler()
+                    .killCurrentThread();
+            case ExitCurrentProcess:
+                Processor::information()
+                    .getCurrentThread()
+                    ->getParent()
+                    ->getSubsystem()
+                    ->exit(static_cast<int>(action.value));
+                return;
+            case ReturnFromEvent:
+                Processor::information()
+                    .getScheduler()
+                    .eventHandlerReturned();
+            case PopEventState:
+                Processor::information()
+                    .getCurrentThread()
+                    ->abandonCurrentState(false);
+                break;
+            case RestoreProcessorState:
+            {
+                // Linux rt_sigreturn replaces the current user register
+                // image; it does not own a Pedigree event state to pop.
+                const uintptr_t userStack = action.state.rsp;
+                const uint64_t userFlags = action.state.rflags;
+                uintptr_t interruptStack[24] = {};
+                action.state.setStackPointer(
+                    reinterpret_cast<uintptr_t>(
+                        interruptStack + 24));
+                InterruptState *returnState =
+                    InterruptState::construct(action.state, true);
+                returnState->setStackPointer(userStack);
+                returnState->setFlags(userFlags);
+                Processor::setInterrupts(false);
+                Processor::contextSwitch(returnState);
+            }
+            case JumpToUserspace:
+                Processor::information()
+                    .getCurrentThread()
+                    ->abandonAllStates();
+                Processor::jumpUser(
+                    nullptr, action.state.getInstructionPointer(),
+                    action.state.getStackPointer());
+            case RebootSystem:
+                Processor::information()
+                    .getCurrentThread()
+                    ->abandonAllStates();
+                system_reboot();
+                return;
+            case NoPostSyscallAction:
+                break;
+        }
+
+        Thread *pThread =
+            Processor::information().getCurrentThread();
+        const Thread::UnwindType unwindState =
+            pThread->getUnwindState();
+        if (unwindState == Thread::TerminateThread)
+        {
+            Processor::information().getScheduler().killCurrentThread();
+        }
+        if (unwindState == Thread::Exit)
         {
             NOTICE("Unwind state exit, in interrupt handler");
-            Processor::information()
-                .getCurrentThread()
-                ->getParent()
+            pThread->getParent()
                 ->getSubsystem()
                 ->exit(0);
         }
@@ -178,11 +238,8 @@ void X64SyscallManager::initialiseProcessor()
     Processor::writeMachineSpecificRegister(0xC0000084, 0x0000000000000300LL);
 }
 
-X64SyscallManager::X64SyscallManager() : m_Lock()
+X64SyscallManager::X64SyscallManager()
 {
-    // Initialise the pointers to the handler
-    for (size_t i = 0; i < serviceEnd; i++)
-        m_pHandler[i] = 0;
 }
 X64SyscallManager::~X64SyscallManager()
 {

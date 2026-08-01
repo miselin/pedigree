@@ -55,9 +55,18 @@ class IrqManager
      *IrqHandler::irq() function. If this is not called there won't be any
      *following irqs. \param[in] Id the irq's identifier */
     virtual void acknowledgeIrq(irq_id_t Id) = 0;
-    /** Unregister a previously registered IrqHandler
-     *\param[in] Id the irq's identifier */
-    virtual void unregisterHandler(irq_id_t Id, IrqHandler *handler) = 0;
+    /**
+     * Unregister a previously registered IrqHandler.
+     *
+     * A successful return is an ownership barrier: no callback can begin or
+     * remain active for the handler. A callback cannot synchronously remove
+     * itself, and an atomic context cannot wait for an active callback; those
+     * requests return false.
+     *
+     *\param[in] Id the irq's identifier
+     *\return true if removal completed synchronously
+     */
+    virtual bool unregisterHandler(irq_id_t Id, IrqHandler *handler) = 0;
 
     virtual void enable(uint8_t irq, bool enable) = 0;
 

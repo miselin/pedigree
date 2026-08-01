@@ -20,11 +20,10 @@
 #ifndef KERNEL_MACHINE_HOSTED_IRQMANAGER_H
 #define KERNEL_MACHINE_HOSTED_IRQMANAGER_H
 
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/machine/IrqManager.h"
-#include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
-#include "pedigree/kernel/processor/IoPort.h"
-#include "pedigree/kernel/utilities/List.h"
 
 /** @addtogroup kernelmachinehosted
  * @{ */
@@ -47,7 +46,7 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     virtual irq_id_t
     registerPciIrqHandler(IrqHandler *handler, class Device *pDevice);
     virtual void acknowledgeIrq(irq_id_t Id);
-    virtual void unregisterHandler(irq_id_t Id, IrqHandler *handler);
+    virtual bool unregisterHandler(irq_id_t Id, IrqHandler *handler);
 
     /** Initialises the PIC hardware and registers the interrupts with the
      *  InterruptManager.
@@ -63,6 +62,13 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     virtual void enable(uint8_t irq, bool enable)
     {
     }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using HandlerPinHook = IrqHandlerRegistry::HandlerPinHook;
+
+    /** Installs a deterministic observer after a handler has been pinned. */
+    static EXPORTED_PUBLIC void setHandlerPinHook(HandlerPinHook hook);
+#endif
 
   private:
     /** The default constructor */
@@ -83,11 +89,8 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     //
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
 
-    /** The IRQ handler */
-    List<IrqHandler *> m_Handler[2];
-
-    /** Main lock for all modifications */
-    Spinlock m_Lock;
+    /** IRQ handlers and their callback lifetime state. */
+    IrqHandlerRegistry m_Handlers;
 
     /** The HostedIrqManager instance */
     static HostedIrqManager m_Instance;

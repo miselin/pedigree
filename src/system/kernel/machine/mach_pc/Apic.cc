@@ -38,9 +38,10 @@ void Apic::acknowledgeIrq(irq_id_t Id)
 {
     // TODO
 }
-void Apic::unregisterHandler(irq_id_t Id, IrqHandler *handler)
+bool Apic::unregisterHandler(irq_id_t Id, IrqHandler *handler)
 {
     // TODO
+    return false;
 }
 void Apic::enable(irq_id_t Id, bool bEnable)
 {

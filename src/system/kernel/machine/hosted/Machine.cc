@@ -26,6 +26,7 @@
 #include "pedigree/kernel/machine/Controller.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "../../core/processor/hosted/InterruptManager.h"
 
 HostedMachine HostedMachine::m_Instance;
 
@@ -49,6 +50,21 @@ void HostedMachine::initialise()
 
 void HostedMachine::initialiseDeviceTree()
 {
+}
+
+void HostedMachine::deinitialise()
+{
+    if (!m_bInitialised)
+    {
+        return;
+    }
+
+    HostedSchedulerTimer::instance().uninitialise();
+    HostedTimer::instance().uninitialise();
+    HostedInterruptManager::quiesceProcessor();
+    Machine::deinitialise();
+
+    NOTICE("HOSTED-SHUTDOWN: timers and signals quiesced");
 }
 
 Serial *HostedMachine::getSerial(size_t n)
@@ -107,5 +123,5 @@ HostedMachine::HostedMachine()
 
 HostedMachine::~HostedMachine()
 {
-    HostedTimer::instance().uninitialise();
+    deinitialise();
 }

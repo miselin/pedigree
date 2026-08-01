@@ -20,29 +20,32 @@
 #ifndef REQUEST_QUEUE_H
 #define REQUEST_QUEUE_H
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/String.h"
 #if THREADS
 #include "pedigree/kernel/machine/TimerHandler.h"
 #endif
 
 class Thread;
+class Timer;
 
 #define REQUEST_QUEUE_NUM_PRIORITIES 4
 
-/** Implements a request queue, with one worker thread performing
- * all requests. All requests appear synchronous to the calling thread -
- * calling threads are blocked on mutexes (so they can be put to sleep) until
- * their request is complete. */
+/**
+ * Implements a request queue with one worker thread.
+ *
+ * Synchronous callers wait on a request completion owned by the queue.
+ * Asynchronous requests are placed directly on the same queue and never need
+ * a wrapper thread.
+ */
 class EXPORTED_PUBLIC RequestQueue
 {
-    friend class Thread;
-
 #if THREADS
     class RequestQueueOverrunChecker : public TimerHandler
     {
@@ -78,15 +81,26 @@ class EXPORTED_PUBLIC RequestQueue
         ReturnImmediately
     };
 
+    enum class LifecycleState
+    {
+        Stopped,
+        Accepting,
+        Stopping,
+    };
+
     /** Initialises the queue, spawning the worker thread. */
     virtual void initialise();
 
     /** Destroys the queue, killing the worker thread (safely) */
     virtual void destroy();
 
-    /** Adds a request to the queue. Blocks until it finishes and returns the
-       result. \param priority The priority to attach to this request. Lower
-       number is higher priority. */
+    /**
+     * Adds a request to the queue. Blocks until it finishes and returns the
+     * result, deferring signal and terminal interruption until completion.
+     *
+     * \param priority The priority to attach to this request. Lower number is
+     * higher priority.
+     */
     MUST_USE_RESULT uint64_t addRequest(
         size_t priority, uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,
         uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0,
@@ -99,14 +113,35 @@ class EXPORTED_PUBLIC RequestQueue
         uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0, uint64_t p5 = 0,
         uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
 
-    /** Adds an asynchronous request to the queue. Will not block. */
+    /**
+     * Adds an asynchronous request to the queue without waiting for execution.
+     *
+     * \return One if the request was accepted, zero if it was rejected or
+     * deduplicated.
+     */
     uint64_t addAsyncRequest(
         size_t priority, uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,
         uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0,
         uint64_t p8 = 0);
 
     /**
-     * Halt RequestQueue operations, but do not terminate the worker thread.
+     * Explicit asynchronous enqueue entry point for interrupt-side callers.
+     *
+     * This has the same acceptance semantics as addAsyncRequest(). Queue
+     * contention never causes rejection: the queue predicate is protected by
+     * a non-sleeping guard. Request allocation still happens first, so the
+     * active allocator must be interrupt-safe.
+     *
+     * \return One if the request was accepted, zero if it was otherwise
+     * rejected or deduplicated.
+     */
+    uint64_t tryAddAsyncRequest(
+        size_t priority, uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,
+        uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0,
+        uint64_t p8 = 0);
+
+    /**
+     * Stop and join the worker, retaining queued requests for resume().
      */
     void halt();
 
@@ -114,6 +149,16 @@ class EXPORTED_PUBLIC RequestQueue
      * Resume RequestQueue operations.
      */
     void resume();
+
+    /** Returns the current worker lifecycle state. */
+    LifecycleState getLifecycleState();
+
+    /**
+     * Waits until every request published before and during the wait has
+     * completed. Producers must already be quiesced; the queue remains
+     * accepting so callbacks may publish dependent work while draining.
+     */
+    bool drain();
 
   protected:
     /** Callback - classes are expected to inherit and override this function.
@@ -130,39 +175,49 @@ class EXPORTED_PUBLIC RequestQueue
     class Request
     {
       public:
-        Request()
-            : p1(0), p2(0), p3(0), p4(0), p5(0), p6(0), p7(0), p8(0), ret(0),
+        Request(
+            size_t requestPriority, bool asynchronous, uint64_t requestP1,
+            uint64_t requestP2, uint64_t requestP3, uint64_t requestP4,
+            uint64_t requestP5, uint64_t requestP6, uint64_t requestP7,
+            uint64_t requestP8)
+            : p1(requestP1), p2(requestP2), p3(requestP3), p4(requestP4),
+              p5(requestP5), p6(requestP6), p7(requestP7), p8(requestP8),
+              m_ReturnValue(0),
 #if THREADS
-              mutex(true), pThread(0),
+              m_Completion(), m_References(asynchronous ? 1 : 2),
 #endif
-              bReject(false), bCompleted(false), next(0), refcnt(0), owner(0),
-              priority(0)
+              m_Next(0), m_Priority(requestPriority),
+              m_Asynchronous(asynchronous), m_Rejected(false),
+              m_Completed(false)
         {
         }
-        ~Request()
-        {
-        }
+
         uint64_t p1, p2, p3, p4, p5, p6, p7, p8;
-        uint64_t ret;
-#if THREADS
-        Mutex mutex;
-        Thread *pThread;
-#endif
-        bool bReject;
-        bool bCompleted;
-        Request *next;
-        size_t refcnt;
-        RequestQueue *owner;
-        size_t priority;
 
       private:
+        friend class RequestQueue;
+
+        ~Request() = default;
+
+        uint64_t m_ReturnValue;
+#if THREADS
+        WaitQueue m_Completion;
+        Atomic<size_t> m_References;
+#endif
+        Request *m_Next;
+        size_t m_Priority;
+        bool m_Asynchronous;
+        bool m_Rejected;
+        bool m_Completed;
+
         Request(const Request &);
         void operator=(const Request &);
     };
 
     /**
      * Defaults to never comparing as equal. Used to determine duplicates
-     * when adding async requests.
+     * for synchronous and asynchronous requests. This runs under the queue's
+     * non-sleeping guard and therefore must not block.
      */
     virtual bool compareRequests(const Request &a, const Request &b)
     {
@@ -170,16 +225,20 @@ class EXPORTED_PUBLIC RequestQueue
     }
 
     /**
-     * Check whether the given request is still valid in terms of this
-     * RequestQueue.
+     * Releases payload ownership for a request that will not execute.
+     *
+     * This runs without the queue guard for rejected candidates (including
+     * stopped queues, duplicates and capacity limits) and queued requests
+     * cancelled by destroy(). Implementations used by interrupt-side queues
+     * must not sleep. Derived destructors must call destroy() while their
+     * override and member state are still alive.
      */
-    bool isRequestValid(const Request *r);
+    virtual void cancelRequest(const Request &request)
+    {
+    }
 
     /** Thread trampoline */
     static int trampoline(void *p);
-
-    /** Asynchronous thread trampoline */
-    static int doAsync(void *p);
 
     /** Thread worker function */
     int work();
@@ -187,33 +246,62 @@ class EXPORTED_PUBLIC RequestQueue
     /** Get the next Request, or NULL if no available requests. */
     Request *getNextRequest();
 
-    /** The request queue */
-    Request *m_pRequestQueue[REQUEST_QUEUE_NUM_PRIORITIES];
+    /** Find an equivalent queued or executing request. */
+    Request *findDuplicate(const Request &request);
 
-    /** True if the worker thread should cleanup and stop. */
-    volatile bool m_Stop;
+    /** Complete a request and wake every synchronous caller. */
+    static void
+    completeRequest(Request *request, uint64_t returnValue, bool rejected);
+
+    /** Reject and delete a candidate that was never published. */
+    void discardRequest(Request *request);
+
+    uint64_t addAsyncRequestInternal(
+        size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
+        uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8);
 
 #if THREADS
-    /** Mutex to be held when the request queue is being changed. */
-    Mutex m_RequestQueueMutex;
+    /** Reference management for requests shared by worker and callers. */
+    static void retainRequest(Request *request);
+    static void releaseRequest(Request *request);
+    static uint64_t waitForRequest(Request *request);
 
-    /** Condition variable for verifying if items exist. */
-    ConditionVariable m_RequestQueueCondition;
+    /** Start/stop helpers called with m_LifecycleMutex held. */
+    void startWorker();
+    bool stopWorker();
+#endif
 
-    /** Condition variable for verifying if we can do an async request. */
-    ConditionVariable m_AsyncRequestQueueCondition;
+    /** The request queue */
+    Request *m_pRequestQueue[REQUEST_QUEUE_NUM_PRIORITIES];
+    Request *m_pRequestQueueTail[REQUEST_QUEUE_NUM_PRIORITIES];
+
+    /** The request currently being executed by the worker. */
+    Request *m_pActiveRequest;
+
+    /** Worker lifecycle, protected by m_RequestQueueWaiters. */
+    LifecycleState m_State;
+
+#if THREADS
+    /** Serialises initialise/halt/resume/destroy, including worker joins. */
+    Mutex m_LifecycleMutex;
+
+    /** Non-sleeping request-list lock and worker predicate wait queue. */
+    WaitQueue m_RequestQueueWaiters;
 
     Thread *m_pThread;
 
-    bool m_Halted;
-    Mutex m_HaltAcknowledged;
+    /** The worker has entered work() and installed its lifetime deferral. */
+    bool m_bWorkerReady;
 
     RequestQueueOverrunChecker m_OverrunChecker;
+    Timer *m_pOverrunTimer;
 #endif
 
+    /** Maximum and current number of queued or executing async requests. */
     size_t m_nMaxAsyncRequests;
     size_t m_nAsyncRequests;
 
+    /** Number of queued or executing requests. */
     size_t m_nTotalRequests;
 
     NormalStaticString m_Name;

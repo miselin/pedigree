@@ -40,12 +40,13 @@ StationInfo::~StationInfo()
 {
 }
 
-Network::Network() : m_StationInfo()
+Network::Network() : m_StationInfo(), m_NetworkStackGeneration(0)
 {
     m_SpecificType.assign("Generic Network Device", 23);
 }
 
-Network::Network(Network *pDev) : Device(pDev), m_StationInfo()
+Network::Network(Network *pDev)
+    : Device(pDev), m_StationInfo(), m_NetworkStackGeneration(0)
 {
 }
 

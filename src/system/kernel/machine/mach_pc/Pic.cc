@@ -27,8 +27,6 @@
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-// TODO: Needs locking
-
 #define BASE_INTERRUPT_VECTOR 0x20
 
 // Number of IRQs in a single millisecond before an IRQ source is blocked.
@@ -44,18 +42,17 @@ void Pic::tick()
 
 bool Pic::control(uint8_t irq, ControlCode code, size_t argument)
 {
-    if (UNLIKELY(irq > 16))
+    if (UNLIKELY(irq >= 16))
         return false;
 
-    Spinlock lock;
-    LockGuard<Spinlock> guard(lock);
+    LockGuard<Spinlock> guard(m_Lock);
 
     switch (code)
     {
         case MitigationThreshold:
             if (LIKELY(argument))
             {
-                if (UNLIKELY(m_Handler[irq].count() > 1))
+                if (UNLIKELY(m_Handlers.handlerCount(irq) > 1))
                     m_MitigationThreshold[irq] += argument;
                 else
                     m_MitigationThreshold[irq] = argument;
@@ -74,8 +71,9 @@ Pic::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge)
     if (UNLIKELY(irq >= 16))
         return 0;
 
-    // Save the IrqHandler
-    m_Handler[irq].pushBack(handler);
+    if (!m_Handlers.registerHandler(irq, handler))
+        return 0;
+
     m_HandlerEdge[irq] = bEdge;
 
     // Enable/Unmask the IRQ
@@ -91,8 +89,9 @@ irq_id_t Pic::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
     if (UNLIKELY(irq >= 16))
         return 0;
 
-    // Save the IrqHandler
-    m_Handler[irq].pushBack(handler);
+    if (!m_Handlers.registerHandler(irq, handler))
+        return 0;
+
     m_HandlerEdge[irq] = false;  // PCI bus uses level triggered IRQs
 
     // Enable/Unmask the IRQ
@@ -108,24 +107,30 @@ void Pic::acknowledgeIrq(irq_id_t Id)
     enable(irq, true);
     eoi(irq);
 }
-void Pic::unregisterHandler(irq_id_t Id, IrqHandler *handler)
+bool Pic::unregisterHandler(irq_id_t Id, IrqHandler *handler)
 {
+    if (Id < BASE_INTERRUPT_VECTOR || Id >= BASE_INTERRUPT_VECTOR + 16)
+        return false;
+
     uint8_t irq = Id - BASE_INTERRUPT_VECTOR;
 
-    // Disable the IRQ
-    if (!m_Handler[irq].count())
-        enable(irq, false);
-
-    // Remove the handler
-    for (List<IrqHandler *>::Iterator it = m_Handler[irq].begin();
-         it != m_Handler[irq].end(); it++)
+    const IrqHandlerRegistry::UnregisterResult result =
+        m_Handlers.unregisterHandler(irq, handler);
+    if (
+        (result == IrqHandlerRegistry::UnregisterResult::Completed ||
+         result == IrqHandlerRegistry::UnregisterResult::Deferred) &&
+        !m_Handlers.handlerCount(irq))
     {
-        if (*it == handler)
-        {
-            m_Handler[irq].erase(it);
-            return;
-        }
+        enable(irq, false);
     }
+
+    if (result == IrqHandlerRegistry::UnregisterResult::Rejected)
+    {
+        ERROR(
+            "PIC: rejected an IRQ removal which could not synchronously "
+            "drain");
+    }
+    return result == IrqHandlerRegistry::UnregisterResult::Completed;
 }
 
 bool Pic::initialise()
@@ -169,12 +174,11 @@ bool Pic::initialise()
 }
 
 Pic::Pic()
-    : m_SlavePort("PIC #2"), m_MasterPort("PIC #1"), m_InterruptMask(0),
-      m_Lock(false)
+    : m_SlavePort("PIC #2"), m_MasterPort("PIC #1"), m_Handlers(),
+      m_InterruptMask(0), m_Lock(false)
 {
     for (size_t i = 0; i < 16; i++)
     {
-        m_Handler[i].clear();
         m_HandlerEdge[i] = false;
     }
 }
@@ -217,22 +221,15 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
         }
     }
 
-    // Call the irq handler, if any
-    if (LIKELY(m_Handler[irq].count() != 0))
+    bool bHandled = false;
+    if (LIKELY(m_Handlers.handlerCount(irq) != 0))
     {
         if (m_HandlerEdge[irq])
             eoi(irq);
 
-        bool bHandled = false;
-        for (List<IrqHandler *>::Iterator it = m_Handler[irq].begin();
-             it != m_Handler[irq].end(); it++)
-        {
-            bool tmp = (*it)->irq(irq, state);
-            if ((!bHandled) && tmp)
-                bHandled = true;
-        }
+        const bool admitted = m_Handlers.dispatch(irq, state, bHandled);
 
-        if (!bHandled)
+        if (admitted && !bHandled)
         {
             // Disable/Mask the IRQ line (the handler did not remove
             // the interrupt reason, yet)
@@ -241,6 +238,9 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
 
         if (!m_HandlerEdge[irq])
             eoi(irq);
+
+        if (!admitted)
+            NOTICE("PIC: unhandled irq #" << irq << " occurred");
     }
     else
     {

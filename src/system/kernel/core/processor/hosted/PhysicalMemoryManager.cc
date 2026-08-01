@@ -73,8 +73,7 @@ HostedPhysicalMemoryManager &HostedPhysicalMemoryManager::instance()
 
 physical_uintptr_t HostedPhysicalMemoryManager::allocatePage(size_t pageConstraints)
 {
-    static bool bDidHitWatermark = false;
-    static bool bHandlingPressure = false;
+    static Atomic<bool> bDidHitWatermark(false);
 
     m_Lock.acquire(true);
 
@@ -82,31 +81,28 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage(size_t pageConstrai
 
     // Some methods of handling memory pressure require allocating pages, so
     // we need to not end up recursively trying to release the pressure.
-    if (!bHandlingPressure)
+    MemoryPressureManager &pressureManager = MemoryPressureManager::instance();
+    if (!pressureManager.compactingForCurrentExecution())
     {
         if (m_PageStack.freePages() < MemoryPressureManager::getHighWatermark())
         {
-            bHandlingPressure = true;
-
             // Make sure the compact can trigger frees.
             m_Lock.release();
 
             WARNING_NOLOCK(
                 "Memory pressure encountered, performing a compact...");
-            if (!MemoryPressureManager::instance().compact())
+            if (!pressureManager.compact())
                 ERROR_NOLOCK("Compact did not alleviate any memory pressure.");
             else
                 NOTICE_NOLOCK("Compact was successful.");
 
             m_Lock.acquire(true);
 
-            bDidHitWatermark = true;
-            bHandlingPressure = false;
+            bDidHitWatermark.compareAndSwap(false, true);
         }
-        else if (bDidHitWatermark)
+        else if (bDidHitWatermark.compareAndSwap(true, false))
         {
             ERROR_NOLOCK("<pressure was hit, but is no longer being hit>");
-            bDidHitWatermark = false;
         }
     }
 

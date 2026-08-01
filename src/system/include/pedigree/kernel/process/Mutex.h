@@ -27,7 +27,8 @@
 class Mutex
 {
   public:
-    Mutex(bool bLocked = false);
+    Mutex();
+    Mutex(bool) = delete;
     ~Mutex();
 
     bool acquire();
@@ -52,16 +53,18 @@ class Mutex
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 
-/**
- * A mutex, or binary semaphore
- */
+/** An owner-tracked, non-recursive mutex. */
 class EXPORTED_PUBLIC Mutex : public Semaphore
 {
   public:
     /** Constructor */
-    Mutex(bool bLocked = false);
+    Mutex();
+    Mutex(bool) = delete;
     /** Destructor */
     ~Mutex();
+
+    /** True only when the calling thread currently owns this mutex. */
+    bool isOwnedByCurrentThread() const;
 };
 
 #endif  // THREADS

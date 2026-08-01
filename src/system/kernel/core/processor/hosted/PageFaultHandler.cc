@@ -151,14 +151,9 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
 
     if (page < reinterpret_cast<uintptr_t>(KERNEL_SPACE_START))
     {
-        // Check our handler list.
-        for (List<MemoryTrapHandler *>::Iterator it = m_Handlers.begin();
-             it != m_Handlers.end(); it++)
+        if (dispatchHandlers(state, page, isWrite))
         {
-            if ((*it)->trap(state, page, isWrite))
-            {
-                return;
-            }
+            return;
         }
     }
 
@@ -250,8 +245,4 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
                 ;
         }
     }
-}
-
-PageFaultHandler::PageFaultHandler() : m_Handlers()
-{
 }

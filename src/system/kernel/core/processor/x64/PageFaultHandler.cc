@@ -132,14 +132,9 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     /// address space?
     if (!va.memIsInKernelHeap(reinterpret_cast<void *>(page)))
     {
-        // Check our handler list.
-        for (List<MemoryTrapHandler *>::Iterator it = m_Handlers.begin();
-             it != m_Handlers.end(); it++)
+        if (dispatchHandlers(state, cr2, code & PFE_ATTEMPTED_WRITE))
         {
-            if ((*it)->trap(state, cr2, code & PFE_ATTEMPTED_WRITE))
-            {
-                return;
-            }
+            return;
         }
     }
 
@@ -227,8 +222,4 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
             pProcess->kill();
         }
     }
-}
-
-PageFaultHandler::PageFaultHandler() : m_Handlers()
-{
 }

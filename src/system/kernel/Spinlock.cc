@@ -43,6 +43,7 @@ Spinlock::Spinlock(bool bLocked, bool bAvoidTracking) : Spinlock()
 bool Spinlock::acquire(bool recurse, bool safe)
 {
     Thread *pThread = Processor::information().getCurrentThread();
+    bool reentered = false;
 
     // Save the current irq status.
 
@@ -95,6 +96,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
         {
             // Yes.
             ++m_Level;
+            reentered = true;
             break;
         }
 
@@ -160,7 +162,10 @@ bool Spinlock::acquire(bool recurse, bool safe)
         // isn't available)
         panic("Spinlock has deadlocked");
     }
-    m_Ra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    if (!reentered)
+    {
+        m_Ra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    }
 
 #if TRACK_LOCKS
     if (!m_bAvoidTracking)
@@ -178,15 +183,20 @@ bool Spinlock::acquire(bool recurse, bool safe)
     }
 #endif
 
-    if (recurse && !m_bOwned)
+    if (!reentered && recurse && !m_bOwned)
     {
         m_pOwner = static_cast<void *>(pThread);
         m_bOwned = true;
         m_Level = 1;
     }
 
-    m_bInterrupts = bInterrupts;
-    m_OwnedProcessor = Processor::id();
+    if (!reentered)
+    {
+        // A recursive acquisition occurs with interrupts already disabled by
+        // the outer level. Preserve that outer level's restoration state.
+        m_bInterrupts = bInterrupts;
+        m_OwnedProcessor = Processor::id();
+    }
 
     return true;
 }
@@ -270,7 +280,8 @@ void Spinlock::exit(uintptr_t ra)
 
 void Spinlock::release()
 {
-    bool bInterrupts = m_bInterrupts;
+    // Only the outermost recursive release owns the saved interrupt state.
+    bool bInterrupts = m_bInterrupts && m_Level <= 1;
 
     // Grab return address to push into exit() so failures are more useful
     uintptr_t myra =

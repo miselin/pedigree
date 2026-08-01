@@ -87,6 +87,7 @@
  */
 
 #include "pedigree/kernel/Archive.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/ServiceManager.h"
@@ -105,6 +106,7 @@
 #include "pedigree/kernel/process/InfoBlock.h"
 #include "pedigree/kernel/process/MemoryPressureKiller.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -144,7 +146,7 @@ EXPORTED_PUBLIC BootIO bootIO;
 BootstrapStruct_t *g_pBootstrapInfo;
 
 /** Do we need to shutdown? */
-static bool g_NeedsShutdown = false;
+static Atomic<bool> g_NeedsShutdown(false);
 
 /** Handles doing recovery on SLAM if memory pressure is encountered. */
 class SlamRecovery : public MemoryPressureHandler
@@ -482,13 +484,14 @@ void _cxx_main(BootstrapStruct_t &bsInf)
 
     TRACE("starting module load thread");
 
+    OwnedThread moduleLoadThread;
     EMIT_IF(THREADS)
     {
         Thread *pThread = new Thread(
             Processor::information().getCurrentThread()->getParent(),
             &loadModules, static_cast<void *>(&bsInf), 0);
         pThread->setName("module load thread");
-        pThread->detach();
+        moduleLoadThread.adopt(pThread);
     }
     else
     {
@@ -524,6 +527,14 @@ void _cxx_main(BootstrapStruct_t &bsInf)
 
     EMIT_IF(THREADS)
     {
+        // A module can request shutdown from its entry point. The loader still
+        // has bookkeeping and initrd cleanup to finish after that request, so
+        // module teardown must not race it.
+        moduleLoadThread.join();
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        NOTICE("HOSTED-WAIT-TEST: PASS module-loader-shutdown-join");
+#endif
+
         // The zombie worker must be joined while this thread can still act as
         // the scheduler's idle thread. Its destructor is too late: global
         // teardown runs after interrupts and the scheduler are unavailable.

@@ -23,6 +23,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 static size_t mb(size_t pages)
 {
@@ -31,46 +32,54 @@ static size_t mb(size_t pages)
 
 bool MemoryPressureProcessKiller::compact()
 {
-    Process *pCandidateProcess = 0;
+    Scheduler::ProcessLease candidate;
     for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
     {
-        Process *pProcess = Scheduler::instance().getProcess(i);
+        Scheduler::ProcessLease process;
+        if (!Scheduler::instance().acquireProcess(process, i))
+        {
+            continue;
+        }
 
         // Requires a subsystem to kill.
-        if (!pProcess->getSubsystem())
+        if (!process->getSubsystem())
             continue;
 
-        if (!pCandidateProcess)
-            pCandidateProcess = pProcess;
+        if (!candidate)
+            candidate = pedigree_std::move(process);
         else
         {
-            if (pProcess->getPhysicalPageCount() >
-                pCandidateProcess->getPhysicalPageCount())
+            if (process->getPhysicalPageCount() >
+                candidate->getPhysicalPageCount())
             {
-                pCandidateProcess = pProcess;
+                candidate = pedigree_std::move(process);
             }
         }
     }
 
-    if (!pCandidateProcess)
+    if (!candidate)
         return false;
 
     NOTICE_NOLOCK(
         "MemoryPressureProcessKiller will kill pid="
-        << Dec << pCandidateProcess->getId() << Hex);
+        << Dec << candidate->getId() << Hex);
     NOTICE_NOLOCK(
-        "virt=" << Dec << mb(pCandidateProcess->getVirtualPageCount())
-                << "m phys=" << mb(pCandidateProcess->getPhysicalPageCount())
-                << "m shared=" << mb(pCandidateProcess->getSharedPageCount())
+        "virt=" << Dec << mb(candidate->getVirtualPageCount())
+                << "m phys=" << mb(candidate->getPhysicalPageCount())
+                << "m shared=" << mb(candidate->getSharedPageCount())
                 << "m" << Hex);
 
     // Hard kill the process (SIGKILL, in POSIX terms).
     // We cannot afford to let the thread do anything else.
-    Subsystem *pSubsystem = pCandidateProcess->getSubsystem();
-    pSubsystem->kill(Subsystem::Unknown, pCandidateProcess->getThread(0));
+    Subsystem *pSubsystem = candidate->getSubsystem();
+    Process::ThreadLease target;
+    if (!candidate->acquireThread(target, static_cast<size_t>(0)))
+    {
+        return false;
+    }
+    pSubsystem->kill(Subsystem::Unknown, target.get());
 
-    // Give the process time to quit.
-    Scheduler::instance().yield();
-
+    // Success means a victim accepted termination, not that its pages are
+    // already reclaimed. The pressure manager may make another pass later.
     return true;
 }

@@ -24,6 +24,8 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/BloomFilter.h"
@@ -33,8 +35,10 @@
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/new"
+#include "pedigree/kernel/utilities/utility.h"
 
 class Thread;
+class Timer;
 class UnlikelyLock;
 
 #ifndef STANDALONE_CACHE
@@ -62,6 +66,8 @@ class CacheManager :
 #endif
     public RequestQueue
 {
+    friend class Cache;
+
   public:
     CacheManager();
     virtual ~CacheManager();
@@ -98,6 +104,39 @@ class CacheManager :
 #endif
 
   private:
+#if THREADS
+    struct CacheRequest
+    {
+        CacheRequest(Cache *requestCache, OperationBarrier::Lease &&requestLease)
+            : cache(requestCache),
+              lease(pedigree_std::move(requestLease))
+        {
+        }
+
+        Cache *cache;
+        OperationBarrier::Lease lease;
+    };
+
+    /** Pins a registered Cache while a request is being published. */
+    bool acquireCache(
+        Cache *cache, uint64_t &generation,
+        OperationBarrier::Lease &lease);
+
+    /** Finds and pins the first registered cache after a stable manager ID. */
+    bool acquireNextCache(
+        uint64_t afterId, uint64_t maximumId, Cache *&cache,
+        uint64_t &cacheId, OperationBarrier::Lease &lease);
+
+    /** Captures the last identity present at the start of a manager scan. */
+    uint64_t cacheGenerationWatermark();
+#endif
+
+    /** Publishes a request which owns the target Cache lifetime. */
+    uint64_t addCacheRequest(
+        Cache *cache, bool asynchronous,
+        CacheConstants::CallbackCause cause, uintptr_t key,
+        uintptr_t location = 0, bool transferredPin = false);
+
     /**
      * RequestQueue doer - children give us new jobs, and we call out to
      * them when they hit the front of the queue.
@@ -105,6 +144,7 @@ class CacheManager :
     virtual uint64_t executeRequest(
         uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
         uint64_t p6, uint64_t p7, uint64_t p8);
+    virtual void cancelRequest(const Request &request);
 
     /**
      * Used to ensure we only ever fire a WriteBack for the same page once -
@@ -113,8 +153,9 @@ class CacheManager :
      */
     virtual bool compareRequests(const Request &a, const Request &b)
     {
-        // p2 = CallbackCause, p3 = key in m_Pages
-        return (a.p2 == b.p2) && (a.p3 == b.p3);
+        // p1 = Cache, p2 = CallbackCause, p3 = key in m_Pages.
+        return (a.p1 == b.p1) && (a.p2 == b.p2) && (a.p3 == b.p3) &&
+               (a.p6 == b.p6);
     }
 
     static CacheManager *m_Instance;
@@ -122,15 +163,29 @@ class CacheManager :
     List<Cache *> m_Caches;
 
 #if THREADS
+    /** Serialises cache registration with callback admission. */
+    Mutex m_CachesLock;
+
+    /** Monotonic identity used to walk caches without holding m_CachesLock. */
+    uint64_t m_NextCacheId;
+
     Thread *m_pTrimThread;
+    WaitQueue m_TrimWaiters;
+    bool m_bTrimRequested;
+    uint64_t m_TrimDelta;
 #endif
 
+    /** Protected by m_TrimWaiters when threading is enabled. */
     bool m_bActive;
+
+    Timer *m_pTimer;
 };
 
 /** Provides an abstraction of a data cache. */
 class EXPORTED_PUBLIC Cache
 {
+    friend class CacheManager;
+
   private:
     struct CachePage
     {
@@ -143,6 +198,13 @@ class EXPORTED_PUBLIC Cache
         /// Reference count to handle release() being called with multiple
         /// threads having access to the page.
         size_t refcnt;
+
+        enum class EvictionState
+        {
+            None,
+            WriteBack,
+            Retiring,
+        } evictionState;
 
         /// Checksum of the page's contents (for dirty detection).
         uint64_t checksum[2];
@@ -195,7 +257,21 @@ class EXPORTED_PUBLIC Cache
     Cache(size_t pageConstraints = 0);
     virtual ~Cache();
 
-    /** Set the write back callback to the given function. */
+    /**
+     * Drains manager-owned work and writes back/evicts every page.
+     *
+     * Owners whose callback metadata points at an enclosing object must call
+     * this at the start of that object's teardown, while callback dependencies
+     * are still alive. Calling it again after completion is harmless.
+     */
+    void shutdown();
+
+    /**
+     * Installs the write-back callback before the Cache is used.
+     *
+     * Callback metadata remains owned by the caller and must outlive the
+     * Cache. Replacing or clearing a callback is deliberately unsupported.
+     */
     void setCallback(writeback_t newCallback, void *meta);
 
     /** Looks for \p key , increasing \c refcnt by one if returned. */
@@ -207,9 +283,13 @@ class EXPORTED_PUBLIC Cache
      * The new entry will already be marked as being edited, and so won't be
      * written back until the inserter calls markNoLongerEditing again.
      *
+     * The returned address never carries a caller-owned reference: a new
+     * entry has only its publication reference, and an existing entry may
+     * still be Editing. Serialise same-key fills, publish new data, then use
+     * lookup() when the caller needs a lifetime reference.
+     *
      * \param alreadyExisted can be used to find out if the return value is a
-     *        page that already existed, and no mapping was completed. This can
-     *        be used to do an 'insert or get' operation atomically.
+     *        page that already existed and no mapping was completed.
      */
     uintptr_t insert(uintptr_t key, bool *alreadyExisted = nullptr);
 
@@ -217,9 +297,16 @@ class EXPORTED_PUBLIC Cache
      *  this is just a monster allocation of a virtual address - the physical
      *  pages are NOT CONTIGUOUS.
      *
-     * \param alreadyExisted can be used to find out if the return value is a
-     *        page that already existed, and no mapping was completed. This can
-     *        be used to do an 'insert or get' operation atomically.
+     * The operation is all-or-nothing. A complete, contiguous existing range
+     * is returned unchanged; any partial overlap rejects the insertion before
+     * virtual address space or physical pages are allocated.
+     *
+     * As with the single-page overload, the returned address carries no
+     * caller-owned lifetime reference.
+     *
+     * \param alreadyExisted is true only when the complete contiguous range
+     *        already existed. It is false for a new range or a rejected
+     *        partial overlap.
      */
     uintptr_t
     insert(uintptr_t key, size_t size, bool *alreadyExisted = nullptr);
@@ -236,9 +323,19 @@ class EXPORTED_PUBLIC Cache
     bool evict(uintptr_t key);
 
     /**
+     * Discards a failed cache fill before it is published.
+     *
+     * This succeeds only for an Editing page with exactly its insertion-time
+     * reference. It never removes an externally pinned page and does not write
+     * failed data back to the backing store.
+     */
+    MUST_USE_RESULT bool discardEditing(uintptr_t key);
+
+    /**
      * Empties the cache.
      *
-     * Will not respect refcounts.
+     * Waits for external pins, then discards each page's publication-time
+     * base reference. Concurrent same-key eviction is joined safely.
      */
     void empty();
 
@@ -257,7 +354,7 @@ class EXPORTED_PUBLIC Cache
      *
      * \return false if key didn't exist, true otherwise
      */
-    bool pin(uintptr_t key);
+    MUST_USE_RESULT bool pin(uintptr_t key);
 
     /**
      * Attempts to trim the cache.
@@ -296,6 +393,10 @@ class EXPORTED_PUBLIC Cache
      */
     void startAtomic()
     {
+        if (!ensureUsable("startAtomic"))
+        {
+            return;
+        }
         m_bInCritical = 1;
     }
 
@@ -304,6 +405,10 @@ class EXPORTED_PUBLIC Cache
      */
     void endAtomic()
     {
+        if (!ensureUsable("endAtomic"))
+        {
+            return;
+        }
         m_bInCritical = 0;
     }
 
@@ -324,13 +429,24 @@ class EXPORTED_PUBLIC Cache
     void markNoLongerEditing(uintptr_t key, size_t length = 0);
 
   private:
+    enum class EvictionMode
+    {
+        Ordinary,
+        DiscardBaseReference,
+        DiscardEditing,
+    };
+
     /** mapping doer */
     bool map(uintptr_t virt) const;
 
-    /**
-     * evict doer
-     */
-    bool evict(uintptr_t key, bool bLock, bool bPhysicalLock, bool bRemove);
+    /** Retires one page according to the caller's refcount contract. */
+    bool evict(uintptr_t key, EvictionMode mode);
+
+    /** Waits until an in-progress same-key eviction has published its result. */
+    void waitForPageEviction(uintptr_t key);
+
+    /** Rejects use after the terminal shutdown contract has completed. */
+    bool ensureUsable(const char *operation) const;
 
     /**
      * LRU evict do-er.
@@ -390,7 +506,7 @@ class EXPORTED_PUBLIC Cache
      * store. If no callback is set for the Cache instance, the timer will
      * not fire.
      */
-    virtual void timer(uint64_t delta, InterruptState &state);
+    virtual void timer(uint64_t delta);
 
     /**
      * RequestQueue doer, called by the CacheManager instance.
@@ -422,6 +538,17 @@ class EXPORTED_PUBLIC Cache
     /** Lock for this cache. */
     Spinlock m_Lock;
 
+#if THREADS
+    /** Coordinates forced drains with callbacks and outstanding page pins. */
+    WaitQueue m_EvictionWaiters;
+
+    /** Drains manager callbacks before Cache storage is destroyed. */
+    OperationBarrier m_ManagerOperations;
+
+    /** Stable identity assigned while registered with CacheManager. */
+    uint64_t m_ManagerId;
+#endif
+
     /** Callback to be called in the write-back timer handler. */
     writeback_t m_Callback;
 
@@ -434,6 +561,9 @@ class EXPORTED_PUBLIC Cache
 
     /** Are we currently in a critical section? */
     Atomic<size_t> m_bInCritical;
+
+    /** 0 while active, 1 while shutting down, 2 after shutdown. */
+    Atomic<size_t> m_ShutdownState;
 
     /** Constraints we need to apply to each page we allocate. */
     size_t m_PageConstraints;

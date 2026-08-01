@@ -23,11 +23,12 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
 Uninterruptible::Uninterruptible()
+    : m_pThread(Processor::information().getCurrentThread()), m_Record()
 {
-    Processor::information().getCurrentThread()->setInterruptible(false);
+    m_pThread->registerDeferredScope(m_Record, true, true);
 }
 
 Uninterruptible::~Uninterruptible()
 {
-    Processor::information().getCurrentThread()->setInterruptible(true);
+    m_pThread->unregisterDeferredScope(m_Record);
 }

@@ -27,6 +27,7 @@
 #include "pedigree/kernel/process/Mutex.h"
 #endif
 #include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -44,7 +45,7 @@ class MemoryPoolPressureHandler : public MemoryPressureHandler
     MemoryPoolPressureHandler(MemoryPool *pool);
     virtual ~MemoryPoolPressureHandler();
 
-    virtual const String getMemoryPressureDescription();
+    virtual const char *getMemoryPressureDescription();
 
     virtual bool compact();
 
@@ -90,11 +91,44 @@ class EXPORTED_PUBLIC MemoryPool
     /// Trims the pool, freeing pages that are not otherwise in use.
     bool trim();
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    /** Hosted-only seam for forcing the operation-admission mutex window. */
+    void acquireHostedOperationLock();
+    void releaseHostedOperationLock();
+    void acquireHostedMappingLock();
+    void releaseHostedMappingLock();
+    size_t getHostedActiveOperationCount();
+#endif
+
   private:
 #if THREADS
     ConditionVariable m_Condition;
+    ConditionVariable m_DrainCondition;
     Mutex m_Lock;
+    Mutex m_MappingLock;
 #endif
+
+    class ActiveOperation
+    {
+      public:
+        explicit ActiveOperation(MemoryPool &pool);
+        ~ActiveOperation();
+
+        explicit operator bool() const
+        {
+            return m_Pool != nullptr;
+        }
+
+      private:
+        ActiveOperation(const ActiveOperation &) = delete;
+        ActiveOperation &operator=(const ActiveOperation &) = delete;
+
+        TerminationDeferral m_TerminationDeferral;
+        MemoryPool *m_Pool;
+    };
+
+    bool beginOperation();
+    void endOperation();
 
     /// Size of each buffer in this pool
     size_t m_BufferSize;
@@ -109,6 +143,12 @@ class EXPORTED_PUBLIC MemoryPool
 
     /// Has this instance been initialised yet?
     bool m_bInitialised;
+
+    /// Destruction has begun; no new operations may enter.
+    bool m_bClosing;
+
+    /// Operations which entered before destruction began.
+    size_t m_ActiveOperations;
 
     /// Allocation bitmap
     ExtensibleBitmap m_AllocBitmap;

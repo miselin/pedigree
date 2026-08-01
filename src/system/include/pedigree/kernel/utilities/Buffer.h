@@ -22,12 +22,13 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
 
-class Event;
 class Semaphore;
 class Thread;
 
@@ -145,8 +146,48 @@ class EXPORTED_PUBLIC Buffer
      */
     void cullMonitorTargets(Event *pEvent);
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    /** Hosted-only seam for forcing the operation-admission mutex window. */
+    void acquireHostedOperationLock();
+    void releaseHostedOperationLock();
+    size_t getHostedActiveOperationCount();
+#endif
+
   private:
     WITHOUT_IMPLICIT_CONSTRUCTORS(Buffer);
+
+    class ActiveOperation
+    {
+      public:
+        explicit ActiveOperation(Buffer &buffer)
+            : m_TerminationDeferral(),
+              m_Buffer(buffer.beginOperation() ? &buffer : nullptr)
+        {
+        }
+
+        ~ActiveOperation()
+        {
+            if (m_Buffer)
+            {
+                m_Buffer->endOperation();
+            }
+        }
+
+        explicit operator bool() const
+        {
+            return m_Buffer != nullptr;
+        }
+
+      private:
+        ActiveOperation(const ActiveOperation &) = delete;
+        ActiveOperation &operator=(const ActiveOperation &) = delete;
+
+        TerminationDeferral m_TerminationDeferral;
+        Buffer *m_Buffer;
+    };
+
+    bool beginOperation();
+    void endOperation();
 
     /**
      * Helper function to send events upon completing an action.
@@ -190,22 +231,27 @@ class EXPORTED_PUBLIC Buffer
      */
     struct MonitorTarget
     {
-        MonitorTarget() : pThread(0), pEvent(0), pSemaphore(0)
+        MonitorTarget() : pThread(0), pEvent(0), pSemaphore(0),
+                          eventRegistration()
         {
         }
 
-        MonitorTarget(Thread *thread, Event *event)
-            : pThread(thread), pEvent(event), pSemaphore(0)
+        MonitorTarget(
+            Thread *thread, Event *event, Event::SendLease registration)
+            : pThread(thread), pEvent(event), pSemaphore(0),
+              eventRegistration(pedigree_std::move(registration))
         {
         }
 
-        MonitorTarget(Semaphore *sem) : pThread(0), pEvent(0), pSemaphore(sem)
+        MonitorTarget(Semaphore *sem)
+            : pThread(0), pEvent(0), pSemaphore(sem), eventRegistration()
         {
         }
 
         Thread *pThread;
         Event *pEvent;
         Semaphore *pSemaphore;
+        Event::SendLease eventRegistration;
     };
 
     size_t m_BufferSize;
@@ -215,12 +261,15 @@ class EXPORTED_PUBLIC Buffer
 
     ConditionVariable m_WriteCondition;
     ConditionVariable m_ReadCondition;
+    ConditionVariable m_DrainCondition;
 
     List<Segment *> m_Segments;
     List<MonitorTarget *> m_MonitorTargets;
 
     bool m_bCanRead;
     bool m_bCanWrite;
+    bool m_bClosing;
+    size_t m_ActiveOperations;
 };
 
 // Specializations are in a .cc file.

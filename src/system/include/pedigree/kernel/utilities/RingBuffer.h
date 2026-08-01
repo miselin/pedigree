@@ -23,15 +23,21 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/Result.h"
+#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/new"
 #include "pedigree/kernel/process/Thread.h"
 
-class Event;
+#if THREADS
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#endif
 
 /// \todo rewrite this in the same way as TcpBuffer!
 
@@ -58,6 +64,37 @@ enum WaitType
 template <class T>
 class EXPORTED_PUBLIC RingBuffer
 {
+  private:
+    class ActiveOperation
+    {
+      public:
+        explicit ActiveOperation(RingBuffer &buffer)
+            : m_TerminationDeferral(),
+              m_Buffer(buffer.beginOperation() ? &buffer : nullptr)
+        {
+        }
+
+        ~ActiveOperation()
+        {
+            if (m_Buffer)
+            {
+                m_Buffer->endOperation();
+            }
+        }
+
+        explicit operator bool() const
+        {
+            return m_Buffer != nullptr;
+        }
+
+      private:
+        ActiveOperation(const ActiveOperation &) = delete;
+        ActiveOperation &operator=(const ActiveOperation &) = delete;
+
+        TerminationDeferral m_TerminationDeferral;
+        RingBuffer *m_Buffer;
+    };
+
   public:
     enum Error
     {
@@ -68,39 +105,82 @@ class EXPORTED_PUBLIC RingBuffer
 
         // ConditionVariable failure modes
         TimedOut,
+        Interrupted,
         ThreadTerminating,
-    };
 
-    typedef Result<T, Error> ReadResult;
+        // RingBuffer has closed and will not admit another operation.
+        Closed,
+    };
 
     RingBuffer();  // Not implemented, use RingBuffer(size_t)
 
     /// Constructor - pass in the desired size of the ring buffer.
     RingBuffer(size_t ringSize)
         : m_RingSize(ringSize), m_WriteCondition(), m_ReadCondition(), m_Ring(),
-          m_Lock(false)
+          m_Lock(), m_DrainCondition(), m_Closing(false),
+          m_ActiveOperations(0)
     {
     }
 
-    /// Destructor - destroys the ring; ensure nothing is calling waitFor.
+    /// Destructor - closes the ring and drains every admitted operation.
     ~RingBuffer()
     {
+        close();
+    }
+
+    /**
+     * Stop admitting operations, wake every blocked operation and monitor,
+     * and wait for already-admitted operations to retire.
+     */
+    void close()
+    {
+        TerminationDeferral terminationDeferral;
+        m_Lock.acquire();
+        if (!m_Closing)
+        {
+            m_Closing = true;
+            m_ReadCondition.broadcast();
+            m_WriteCondition.broadcast();
+            notifyMonitorsLocked();
+        }
+
+        while (m_ActiveOperations)
+        {
+            m_DrainCondition.waitForCompletion(m_Lock);
+        }
+        m_Lock.release();
     }
 
     /// write - write a byte to the ring buffer.
     Error write(const T &obj, Time::Timestamp &timeout)
     {
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            return Closed;
+        }
+
         m_Lock.acquire();
         while (true)
         {
+            if (m_Closing)
+            {
+                m_Lock.release();
+                return Closed;
+            }
+
             // Wait for room in the buffer if we're full.
             if (m_Ring.count() >= m_RingSize)
             {
-                ConditionVariable::WaitResult result =
-                    m_WriteCondition.wait(m_Lock, timeout);
-                if (result.hasError())
+                ConditionVariable::Error error =
+                    ConditionVariable::NoError;
+                if (!m_WriteCondition.wait(m_Lock, timeout, error))
                 {
-                    return errorFromConditionVariable(result.error());
+                    if (ConditionVariable::mutexAcquired(error))
+                    {
+                        m_Lock.release();
+                    }
+                    return errorFromConditionVariable(error);
                 }
 
                 continue;
@@ -129,6 +209,12 @@ class EXPORTED_PUBLIC RingBuffer
     /// write - write the given number of objects to the ring buffer.
     size_t write(const T *obj, size_t n, Time::Timestamp &timeout)
     {
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            return 0;
+        }
+
         if (n > m_RingSize)
             n = m_RingSize;
 
@@ -151,39 +237,79 @@ class EXPORTED_PUBLIC RingBuffer
         return write(obj, n, timeout);
     }
 
-    /// read - read a byte from the ring buffer.
-    ReadResult read(Time::Timestamp &timeout)
+    /**
+     * Read one object from the ring buffer.
+     *
+     * On success, \p out contains the removed object and \p error is NoError.
+     * On failure, \p out is reset to T() and \p error describes the failure.
+     * The internal mutex is reacquired after a wait and released before this
+     * function returns; no lock or reference into the ring escapes to the
+     * caller. The RingBuffer must outlive any blocked read.
+     */
+    MUST_USE_RESULT bool read(
+        T &out, Time::Timestamp &timeout, Error &error)
     {
-        T ret = T();
+        out = T();
+        error = NoError;
 
-        Time::Timestamp origTimeout = timeout;
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            error = Closed;
+            return false;
+        }
 
         m_Lock.acquire();
+        if (m_Closing)
+        {
+            m_Lock.release();
+            error = Closed;
+            return false;
+        }
+
         if (timeout == 0)
         {
             if (!m_Ring.count())
             {
                 m_Lock.release();
-                return ReadResult::withError(Empty);
+                error = Empty;
+                return false;
             }
         }
 
         while (true)
         {
+            if (m_Closing)
+            {
+                m_Lock.release();
+                error = Closed;
+                return false;
+            }
+
             // Wait for room in the buffer if we're full.
             if (m_Ring.count() == 0)
             {
-                ConditionVariable::WaitResult result =
-                    m_ReadCondition.wait(m_Lock, timeout);
-                if (result.hasError())
+                ConditionVariable::Error conditionError =
+                    ConditionVariable::NoError;
+                if (
+                    !m_ReadCondition.wait(
+                        m_Lock, timeout, conditionError))
                 {
-                    return ReadResult::withError(errorFromConditionVariable(result.error()));
+                    if (
+                        ConditionVariable::mutexAcquired(
+                            conditionError))
+                    {
+                        m_Lock.release();
+                    }
+                    error =
+                        errorFromConditionVariable(conditionError);
+                    return false;
                 }
 
                 continue;
             }
 
-            ret = m_Ring.popFront();
+            out = m_Ring.popFront();
             break;
         }
 
@@ -194,31 +320,35 @@ class EXPORTED_PUBLIC RingBuffer
         // Signal writers that may be waiting for buffer space.
         m_WriteCondition.signal();
 
-        return ReadResult::withValue(ret);
+        return true;
     }
 
-    ReadResult read()
+    MUST_USE_RESULT bool read(T &out, Error &error)
     {
         Time::Timestamp timeout = 0;
-        return read(timeout);
+        return read(out, timeout, error);
     }
 
     /// read - read up to the given number of objects from the ring buffer
     size_t read(T *out, size_t n, Time::Timestamp &timeout)
     {
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            return 0;
+        }
+
         if (n > m_RingSize)
             n = m_RingSize;
 
         size_t i;
         for (i = 0; i < n && timeout > 0; ++i)
         {
-            ReadResult result = read(timeout);
-            if (result.hasError())
+            Error error = NoError;
+            if (!read(out[i], timeout, error))
             {
                 return i;
             }
-
-            out[i] = result.value();
         }
 
         return i;
@@ -233,6 +363,12 @@ class EXPORTED_PUBLIC RingBuffer
     /// dataReady - is data ready for reading from the ring buffer?
     bool dataReady()
     {
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            return false;
+        }
+
         LockGuard<Mutex> guard(m_Lock);
         return m_Ring.count() > 0;
     }
@@ -240,28 +376,55 @@ class EXPORTED_PUBLIC RingBuffer
     /// canWrite - is it possible to write to the ring buffer without blocking?
     bool canWrite()
     {
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            return false;
+        }
+
         LockGuard<Mutex> guard(m_Lock);
-        return m_Ring.count() < m_RingSize;
+        return !m_Closing && m_Ring.count() < m_RingSize;
     }
 
     /// waitFor - block until the given condition is true (readable/writeable)
-    bool waitFor(RingBufferWait::WaitType wait, Time::Timestamp &timeout)
+    MUST_USE_RESULT bool waitFor(
+        RingBufferWait::WaitType wait, Time::Timestamp &timeout, Error &error)
     {
+        error = NoError;
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            error = Closed;
+            return false;
+        }
+
         m_Lock.acquire();
         if (wait == RingBufferWait::Writing)
         {
             while (true)
             {
+                if (m_Closing)
+                {
+                    m_Lock.release();
+                    error = Closed;
+                    return false;
+                }
+
                 if (m_Ring.count() < m_RingSize)
                 {
                     m_Lock.release();
                     return true;
                 }
 
-                ConditionVariable::WaitResult result =
-                    m_WriteCondition.wait(m_Lock, timeout);
-                if (result.hasError())
+                ConditionVariable::Error conditionError =
+                    ConditionVariable::NoError;
+                if (!m_WriteCondition.wait(m_Lock, timeout, conditionError))
                 {
+                    if (ConditionVariable::mutexAcquired(conditionError))
+                    {
+                        m_Lock.release();
+                    }
+                    error = errorFromConditionVariable(conditionError);
                     return false;
                 }
             }
@@ -270,16 +433,28 @@ class EXPORTED_PUBLIC RingBuffer
         {
             while (true)
             {
+                if (m_Closing)
+                {
+                    m_Lock.release();
+                    error = Closed;
+                    return false;
+                }
+
                 if (m_Ring.count())
                 {
                     m_Lock.release();
                     return true;
                 }
 
-                ConditionVariable::WaitResult result =
-                    m_ReadCondition.wait(m_Lock, timeout);
-                if (result.hasError())
+                ConditionVariable::Error conditionError =
+                    ConditionVariable::NoError;
+                if (!m_ReadCondition.wait(m_Lock, timeout, conditionError))
                 {
+                    if (ConditionVariable::mutexAcquired(conditionError))
+                    {
+                        m_Lock.release();
+                    }
+                    error = errorFromConditionVariable(conditionError);
                     return false;
                 }
             }
@@ -287,6 +462,12 @@ class EXPORTED_PUBLIC RingBuffer
 
         m_Lock.release();
         return false;
+    }
+
+    bool waitFor(RingBufferWait::WaitType wait, Time::Timestamp &timeout)
+    {
+        Error error = NoError;
+        return waitFor(wait, timeout, error);
     }
 
     bool waitFor(RingBufferWait::WaitType wait)
@@ -308,63 +489,227 @@ class EXPORTED_PUBLIC RingBuffer
      * or writes to the ring buffer between the event trigger and your
      * handling.
      */
-    void monitor(Thread *pThread, Event *pEvent)
+    bool monitor(Thread *pThread, Event *pEvent)
     {
-        m_Lock.acquire();
-        m_MonitorTargets.pushBack(new MonitorTarget(pThread, pEvent));
-        m_Lock.release();
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            Event::SendLease registration;
+            if (pEvent->tryAcquireRegistration(registration))
+            {
+                EMIT_IF(THREADS)
+                {
+                    pThread->sendEvent(pEvent);
+                }
+            }
+            return false;
+        }
+
+        LockGuard<Mutex> guard(m_Lock);
+        Event::SendLease registration;
+        if (!pEvent->tryAcquireRegistration(registration))
+        {
+            return false;
+        }
+
+        if (m_Closing)
+        {
+            EMIT_IF(THREADS)
+            {
+                pThread->sendEvent(pEvent);
+            }
+            return false;
+        }
+
+        m_MonitorTargets.pushBack(new MonitorTarget(
+            pThread, pEvent, pedigree_std::move(registration)));
+        return true;
+    }
+
+    /// Add a Semaphore to be signaled when readiness changes or the ring closes.
+    bool monitor(Semaphore *pSemaphore)
+    {
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            EMIT_IF(THREADS)
+            {
+                pSemaphore->release();
+            }
+            return false;
+        }
+
+        LockGuard<Mutex> guard(m_Lock);
+        if (m_Closing)
+        {
+            EMIT_IF(THREADS)
+            {
+                pSemaphore->release();
+            }
+            return false;
+        }
+
+        m_MonitorTargets.pushBack(new MonitorTarget(pSemaphore));
+        return true;
     }
 
     /// Cull all monitor targets pointing to \p pThread.
     void cullMonitorTargets(Thread *pThread)
     {
-        m_Lock.acquire();
-        for (typename List<MonitorTarget *>::Iterator it =
-                 m_MonitorTargets.begin();
-             it != m_MonitorTargets.end(); it++)
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            return;
+        }
+
+        LockGuard<Mutex> guard(m_Lock);
+        typename List<MonitorTarget *>::Iterator it =
+            m_MonitorTargets.begin();
+        while (it != m_MonitorTargets.end())
         {
             MonitorTarget *pMT = *it;
-
             if (pMT->pThread == pThread)
             {
                 delete pMT;
-                m_MonitorTargets.erase(it);
-                it = m_MonitorTargets.begin();
-                if (it == m_MonitorTargets.end())
-                    return;
+                it = m_MonitorTargets.erase(it);
+            }
+            else
+            {
+                ++it;
             }
         }
-        m_Lock.release();
+    }
+
+    /// Cull all monitor targets pointing to \p pSemaphore.
+    void cullMonitorTargets(Semaphore *pSemaphore)
+    {
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            return;
+        }
+
+        LockGuard<Mutex> guard(m_Lock);
+        typename List<MonitorTarget *>::Iterator it =
+            m_MonitorTargets.begin();
+        while (it != m_MonitorTargets.end())
+        {
+            MonitorTarget *pMT = *it;
+            if (pMT->pSemaphore == pSemaphore)
+            {
+                delete pMT;
+                it = m_MonitorTargets.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
+    /// Cull all monitor targets pointing to \p pEvent.
+    void cullMonitorTargets(Event *pEvent)
+    {
+        ActiveOperation operation(*this);
+        if (!operation)
+        {
+            return;
+        }
+
+        LockGuard<Mutex> guard(m_Lock);
+        typename List<MonitorTarget *>::Iterator it =
+            m_MonitorTargets.begin();
+        while (it != m_MonitorTargets.end())
+        {
+            MonitorTarget *pMT = *it;
+            if (pMT->pEvent == pEvent)
+            {
+                delete pMT;
+                it = m_MonitorTargets.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
     }
 
   private:
     /// Trigger event for threads waiting on us.
     void notifyMonitors()
     {
-        m_Lock.acquire();
+        LockGuard<Mutex> guard(m_Lock);
+        notifyMonitorsLocked();
+    }
+
+    void notifyMonitorsLocked()
+    {
         for (typename List<MonitorTarget *>::Iterator it =
                  m_MonitorTargets.begin();
              it != m_MonitorTargets.end(); it++)
         {
             MonitorTarget *pMT = *it;
 
-            EMIT_IF(THREADS)
+            if (pMT->pThread)
             {
-                pMT->pThread->sendEvent(pMT->pEvent);
+                EMIT_IF(THREADS)
+                {
+                    pMT->pThread->sendEvent(pMT->pEvent);
+                }
+            }
+            else if (pMT->pSemaphore)
+            {
+                EMIT_IF(THREADS)
+                {
+                    pMT->pSemaphore->release();
+                }
             }
             delete pMT;
         }
         m_MonitorTargets.clear();
-        m_Lock.release();
+    }
+
+    bool beginOperation()
+    {
+        LockGuard<Mutex> guard(m_Lock);
+        if (m_Closing)
+        {
+            return false;
+        }
+
+        ++m_ActiveOperations;
+        return true;
+    }
+
+    void endOperation()
+    {
+        LockGuard<Mutex> guard(m_Lock);
+        assert(m_ActiveOperations);
+        --m_ActiveOperations;
+        if (m_Closing && !m_ActiveOperations)
+        {
+            m_DrainCondition.broadcast();
+        }
     }
 
     Error errorFromConditionVariable(ConditionVariable::Error err)
     {
-        switch(err)
+        switch (err)
         {
             case ConditionVariable::TimedOut:
                 return TimedOut;
-            case ConditionVariable::ThreadTerminating:
+            case ConditionVariable::Interrupted:
+#if THREADS
+                // ConditionVariable consumes the detailed reason as part of
+                // its result contract. Preserve it for callers, such as
+                // lwIP, whose compatibility API collapses all failures to a
+                // timeout sentinel.
+                Processor::information()
+                    .getCurrentThread()
+                    ->setInterruptionReason(Thread::InterruptedBySignal);
+#endif
+                return Interrupted;
+            case ConditionVariable::TerminationDeferred:
                 return ThreadTerminating;
             default:
                 FATAL("invalid ConditionVariable::Error enum value for RingBuffer");
@@ -382,14 +727,29 @@ class EXPORTED_PUBLIC RingBuffer
 
     Mutex m_Lock;
 
+    ConditionVariable m_DrainCondition;
+    bool m_Closing;
+    size_t m_ActiveOperations;
+
     struct MonitorTarget
     {
-        MonitorTarget(Thread *pT, Event *pE) : pThread(pT), pEvent(pE)
+        MonitorTarget(
+            Thread *pT, Event *pE, Event::SendLease registration)
+            : pThread(pT), pEvent(pE), pSemaphore(nullptr),
+              eventRegistration(pedigree_std::move(registration))
+        {
+        }
+
+        explicit MonitorTarget(Semaphore *pS)
+            : pThread(nullptr), pEvent(nullptr), pSemaphore(pS),
+              eventRegistration()
         {
         }
 
         Thread *pThread;
         Event *pEvent;
+        Semaphore *pSemaphore;
+        Event::SendLease eventRegistration;
     };
 
     List<MonitorTarget *> m_MonitorTargets;

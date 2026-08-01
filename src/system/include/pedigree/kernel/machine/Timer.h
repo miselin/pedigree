@@ -64,7 +64,7 @@ class Timer
      *\return the tick count in nanoseconds */
     virtual uint64_t getTickCountNano()
     {
-        return getTickCount() * 1000U;
+        return getTickCount() * Time::Multiplier::Millisecond;
     }
 
     /** Get the time in UNIX timestamp form (seconds since Jan 1st, 1970). */
@@ -79,10 +79,12 @@ class Timer
      */
     virtual void
     addAlarm(class Event *pEvent, size_t alarmSecs, size_t alarmUsecs = 0) = 0;
-    /** Removes the event \p pEvent from the alarm queue.
+    /** Removes the event \p pEvent from the alarm queue. Once this returns,
+     * the timer will not begin another delivery of this event.
      *\param pEvent Event to remove alarm for. */
     virtual void removeAlarm(class Event *pEvent) = 0;
-    /** Removes the event \p pEvent from the alarm queue.
+    /** Removes the event \p pEvent from the alarm queue. Once this returns,
+     * the timer will not begin another delivery of this event.
      *\param pEvent Event to remove alarm for.
      *\param bRetZero If true, returns zero rather the time until firing
      *\return The number of seconds before the event would have fired,

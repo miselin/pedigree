@@ -421,7 +421,7 @@ void Device::foreachInternal(
         }
 
         // Traverse this child's tree.
-        foreachInternal(callback, child);
+        foreachInternal(callback, child, args...);
 
         ++i;
     }

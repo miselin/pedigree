@@ -31,34 +31,28 @@
 
 #define UNLIKELY_LOCK_MAX_READERS 9999
 
-/** An "Unlikely lock" is a lock which normally any number of threads can access
-    concurrently, but when locked, all threads must exit and never reenter.
-
-    This is implemented as a simple counting semaphore that starts at zero. Any
-    thread can acquire by adding one to the semaphore. If a thread discovers
-   that the semaphore was over a threshold (100000), it decrements again and
-   returns false.
-
-    Thus, the lock can be acquired by adding 100000 to the atomic member, and
-   waiting until the atomic member's value drops to exactly 100000, at which
-   point all threads will have exited.
-*/
+/**
+ * A reader/writer lock optimised for the case where exclusive access is rare.
+ *
+ * Admission waits internally until ownership is available. Signal delivery
+ * remains visible to the outer operation, but cannot make a caller retry and
+ * accidentally lose the interruption or bypass lock ownership.
+ */
 class EXPORTED_PUBLIC UnlikelyLock
 {
   public:
     UnlikelyLock();
     ~UnlikelyLock();
 
-    /** Enters the critical section.
-        \return True if the lock was able to be acquired, false otherwise. */
-    bool enter();
+    /** Enters the critical section after all active writers have left. */
+    void enter();
 
     /** Leaving the critical section. */
     void leave();
 
     /** Locks the lock. Will not return until all other threads have exited
         the critical region. */
-    bool acquire();
+    void acquire();
 
     /** Releases the lock. */
     void release();
@@ -68,6 +62,7 @@ class EXPORTED_PUBLIC UnlikelyLock
     ConditionVariable m_Condition;
 
     uint64_t m_nReaders;
+    uint64_t m_nWaitingWriters;
     bool m_bActiveWriter;
 };
 

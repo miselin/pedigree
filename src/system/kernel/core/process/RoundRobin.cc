@@ -63,16 +63,19 @@ Thread *RoundRobin::getNext(Thread *pCurrentThread)
     Thread *pThread = 0;
     for (size_t i = 0; i < MAX_PRIORITIES; i++)
     {
-        if (m_pReadyQueues[i].size())
+        // A stale current-thread entry must not hide runnable peers at the
+        // same priority. Bound the scan to the queue contents present on
+        // entry so malformed entries cannot turn selection into a spin.
+        size_t candidates = m_pReadyQueues[i].size();
+        while (candidates--)
         {
             pThread = m_pReadyQueues[i].popFront();
-            if (pThread == pCurrentThread)
-                continue;
-
-            if (pThread)
+            if (!pThread || pThread == pCurrentThread)
             {
-                return pThread;
+                continue;
             }
+
+            return pThread;
         }
     }
     return 0;
@@ -80,6 +83,8 @@ Thread *RoundRobin::getNext(Thread *pCurrentThread)
 
 void RoundRobin::threadStatusChanged(Thread *pThread)
 {
+    LockGuard<Spinlock> guard(m_Lock);
+
     if (RoundRobin::isReady(pThread))
     {
         assert(pThread->getPriority() < MAX_PRIORITIES);

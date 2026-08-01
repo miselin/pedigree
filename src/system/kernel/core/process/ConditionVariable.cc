@@ -30,92 +30,116 @@
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-ConditionVariable::ConditionVariable() : m_Lock(false), m_Waiters()
+namespace
+{
+struct ConditionAbandonment
+{
+    void *alarmHandle;
+    WaitQueue::AbandonCallback caller;
+    void *callerContext;
+};
+
+void abandonConditionWait(void *context)
+{
+    ConditionAbandonment *abandonment =
+        reinterpret_cast<ConditionAbandonment *>(context);
+    if (abandonment->alarmHandle)
+    {
+        Time::removeAlarm(abandonment->alarmHandle);
+        abandonment->alarmHandle = nullptr;
+    }
+    if (abandonment->caller)
+    {
+        abandonment->caller(abandonment->callerContext);
+    }
+}
+}  // namespace
+
+ConditionVariable::ConditionVariable() : m_Waiters()
 {
 }
 
 ConditionVariable::~ConditionVariable()
 {
-    broadcast();
 }
 
-ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex)
+bool ConditionVariable::wait(
+    Mutex &mutex, Error &error, WaitQueue::AbandonCallback onAbandon,
+    void *abandonContext)
 {
-    Time::Timestamp zero = Time::Infinity;
-    return wait(mutex, zero);
+    Time::Timestamp timeout = Time::Infinity;
+    return wait(
+        mutex, timeout, error, onAbandon, abandonContext);
 }
 
-ConditionVariable::WaitResult
-ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
+bool ConditionVariable::wait(
+    Mutex &mutex, Time::Timestamp &timeout, Error &error,
+    WaitQueue::AbandonCallback onAbandon, void *abandonContext)
 {
-    Time::Timestamp startTime = Time::getTimeNanoseconds();
+    error = NoError;
+    Time::Timestamp startTime = Time::getTicks();
 
-    if (mutex.getValue())
+    if (!mutex.isOwnedByCurrentThread())
     {
-        // Mutex must be acquired.
-        WARNING("ConditionVariable::wait called without a locked mutex");
-        return Result<bool, Error>::withError(MutexNotLocked);
+        WARNING("ConditionVariable::wait called without owning its mutex");
+        error = MutexNotLocked;
+        return false;
     }
 
     Thread *me = Processor::information().getCurrentThread();
+    me->clearInterruption();
 
-    m_Lock.acquire();
-    bool bWasInterrupts = m_Lock.interrupts();
+    auto guard = m_Waiters.acquire();
 
-    m_Waiters.pushBack(me);
-
-    void *alarmHandle = nullptr;
+    ConditionAbandonment abandonment = {
+        nullptr, onAbandon, abandonContext};
     if (timeout != Time::Infinity)
     {
-        alarmHandle = Time::addAlarm(timeout);
+        abandonment.alarmHandle = Time::addAlarm(timeout);
     }
 
-    // Safe now to release the mutex as we're about to sleep.
-    mutex.release();
-
     uintptr_t ra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-    me->setDebugState(Thread::CondWait, ra);
-    Processor::information().getScheduler().sleep(&m_Lock);
-    me->setDebugState(Thread::None, 0);
+    WaitQueue::WakeReason wakeReason =
+        guard.waitAndUnlock(
+            mutex, WaitQueue::Channel(), Thread::CondWait, ra,
+            (abandonment.alarmHandle || onAbandon)
+                ? &abandonConditionWait
+                : nullptr,
+            &abandonment);
 
-    bool interrupted = me->wasInterrupted();
+    // Event delivery can follow an ordinary wake which already won
+    // waiter.reason. The per-wait marker remains authoritative.
+    const Thread::InterruptionReason interruption =
+        me->getInterruptionReason();
 
     // Woken up by something. Remove any alarm we have pending as we're
     // finishing our wait now.
-    if (alarmHandle)
+    if (abandonment.alarmHandle)
     {
-        Time::removeAlarm(alarmHandle);
+        Time::removeAlarm(abandonment.alarmHandle);
+        abandonment.alarmHandle = nullptr;
     }
 
-    me->setInterrupted(false);
+    me->clearInterruption();
 
-    Processor::setInterrupts(bWasInterrupts);
-
-    Error err = NoError;
-
-    bool r = false;
-    if (interrupted)
+    if (interruption == Thread::InterruptedByTimeout)
     {
-        // Timeout.
-        err = TimedOut;
+        error = TimedOut;
     }
-    else if (me->getUnwindState() != Thread::Continue)
+    else if (interruption == Thread::InterruptedBySignal)
     {
-        // Thread needs to quit.
-        err = ThreadTerminating;
+        error = Interrupted;
     }
-    else
+    else if (
+        wakeReason == WaitQueue::WakeReason::Unwinding ||
+        wakeReason == WaitQueue::WakeReason::Terminating)
     {
-        // We just got woken by something! Time to re-check the condition.
-        /// \todo this is actually buggy as it won't respect the timeout
-        r = mutex.acquire();
-        if (!r)
-        {
-            err = MutexNotAcquired;
-        }
+        // This can return only inside a TerminationDeferral. WaitQueue has
+        // already reacquired mutex, so callers can retire stack-owned state.
+        error = TerminationDeferred;
     }
 
-    Time::Timestamp endTime = Time::getTimeNanoseconds();
+    Time::Timestamp endTime = Time::getTicks();
 
     // Update timeout value to suit. We want to be able to make consecutive
     // calls to wait() without changing the timeout value to allow for wakeups
@@ -133,58 +157,33 @@ ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
         }
     }
 
-    if (err != NoError)
+    return error == NoError;
+}
+
+void ConditionVariable::waitForCompletion(Mutex &mutex)
+{
+    if (!mutex.isOwnedByCurrentThread())
     {
-        // Remove us from the waiter list (error condition)
-        // This is important as for things like timeouts we would otherwise
-        // keep the reference in m_Waiters and it would never be cleaned up
-        // until a broadcast() finally happens.
-        LockGuard<Spinlock> guard(m_Lock);
-        for (auto it = m_Waiters.begin(); it != m_Waiters.end();)
-        {
-            if ((*it) == me)
-            {
-                it = m_Waiters.erase(it);
-            }
-            else
-            {
-                ++it;
-            }
-        }
-        return Result<bool, Error>::withError(err);
+        FATAL(
+            "ConditionVariable::waitForCompletion called without owning "
+            "its mutex");
     }
-    else
-    {
-        return Result<bool, Error>::withValue(r);
-    }
+
+    auto guard = m_Waiters.acquire();
+    uintptr_t ra =
+        reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    const WaitQueue::WakeReason reason =
+        guard.waitAndUnlockForCompletion(
+            mutex, WaitQueue::Channel(), Thread::CondWait, ra);
+    (void) reason;
 }
 
 void ConditionVariable::signal()
 {
-    LockGuard<Spinlock> guard(m_Lock);
-
-    if (!m_Waiters.count())
-    {
-        return;
-    }
-
-    // Mark the next thread ready.
-    Thread *pThread = m_Waiters.popFront();
-    pThread->getLock().acquire();
-    pThread->setStatus(Thread::Ready);
-    pThread->getLock().release();
+    m_Waiters.wakeOne();
 }
 
 void ConditionVariable::broadcast()
 {
-    LockGuard<Spinlock> guard(m_Lock);
-
-    for (auto pThread : m_Waiters)
-    {
-        pThread->getLock().acquire();
-        pThread->setStatus(Thread::Ready);
-        pThread->getLock().release();
-    }
-
-    m_Waiters.clear();
+    m_Waiters.wakeAll();
 }
