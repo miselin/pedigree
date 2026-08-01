@@ -416,6 +416,15 @@ RequestQueue::InterruptEnqueueResult RequestQueue::publishInterruptRequest(
     {
         return InterruptEnqueueResult::InvalidPriority;
     }
+
+#if THREADS
+    auto guard = m_RequestQueueWaiters.acquire();
+    if (m_State != LifecycleState::Accepting)
+    {
+        return InterruptEnqueueResult::QueueStopped;
+    }
+#endif
+
     if (!token.m_State.compareAndSwap(
             availableState, InterruptRequest::Claimed))
     {
@@ -447,36 +456,20 @@ RequestQueue::InterruptEnqueueResult RequestQueue::publishInterruptRequest(
     releaseInterruptRequest(request);
     return InterruptEnqueueResult::Accepted;
 #else
-    InterruptEnqueueResult result = InterruptEnqueueResult::Accepted;
+    token.m_State = InterruptRequest::Published;
+    if (m_pRequestQueueTail[priority])
     {
-        auto guard = m_RequestQueueWaiters.acquire();
-        if (m_State != LifecycleState::Accepting)
-        {
-            result = InterruptEnqueueResult::QueueStopped;
-        }
-        else
-        {
-            token.m_State = InterruptRequest::Published;
-            if (m_pRequestQueueTail[priority])
-            {
-                m_pRequestQueueTail[priority]->m_Next = request;
-            }
-            else
-            {
-                m_pRequestQueue[priority] = request;
-            }
-            m_pRequestQueueTail[priority] = request;
-            ++m_nAsyncRequests;
-            ++m_nTotalRequests;
-            guard.wakeOne();
-        }
+        m_pRequestQueueTail[priority]->m_Next = request;
     }
-
-    if (result != InterruptEnqueueResult::Accepted)
+    else
     {
-        token.m_State = availableState;
+        m_pRequestQueue[priority] = request;
     }
-    return result;
+    m_pRequestQueueTail[priority] = request;
+    ++m_nAsyncRequests;
+    ++m_nTotalRequests;
+    guard.wakeOne();
+    return InterruptEnqueueResult::Accepted;
 #endif
 }
 

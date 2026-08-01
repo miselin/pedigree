@@ -167,6 +167,8 @@ class EXPORTED_PUBLIC RequestQueue
     enum class InterruptEnqueueResult
     {
         Accepted,
+        // Another accepted publication, or a claim that cannot roll back,
+        // already owns this token.
         TokenBusy,
         QueueStopped,
         // Retained for source and module ABI compatibility. Preallocated
@@ -240,7 +242,8 @@ class EXPORTED_PUBLIC RequestQueue
      * It does not call compareRequests(): token identity is the interrupt-side
      * coalescing mechanism. Preallocated work bypasses the allocation-backed
      * asynchronous backlog limit. The same token cannot be republished until
-     * execution or cancellation has returned it to Idle.
+     * execution or cancellation has returned it to Idle. TokenBusy is returned
+     * only for work whose queue admission can no longer fail.
      */
     MUST_USE_RESULT InterruptEnqueueResult enqueueFromInterrupt(
         InterruptRequest &request, size_t priority, uint64_t p1 = 0,
