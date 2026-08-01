@@ -28,12 +28,14 @@
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 class Event;
@@ -79,8 +81,23 @@ static uint64_t addAlarmDuration(
 
 Rtc Rtc::m_Instance;
 
+static void *currentAlarmDispatchOwner()
+{
+    return static_cast<void *>(&Processor::information());
+}
+
 void Rtc::addAlarm(Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
 {
+    Alarm *pAlarm = nullptr;
+    m_Lock.acquire();
+    pAlarm = m_AlarmQueue.takeReusable();
+    m_Lock.release();
+
+    if (!pAlarm)
+    {
+        pAlarm = new Alarm;
+    }
+
     LockGuard<Spinlock> guard(m_Lock);
 
     // Figure out when to trigger the alarm.
@@ -88,68 +105,110 @@ void Rtc::addAlarm(Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
         m_TickCount, alarmSecs, Time::Multiplier::Second);
     target = addAlarmDuration(
         target, alarmUsecs, Time::Multiplier::Microsecond);
-    Alarm *pAlarm =
-        new Alarm(pEvent, target, Processor::information().getCurrentThread());
-    m_Alarms.pushBack(pAlarm);
+    pAlarm->prepare(
+        pEvent, target, Processor::information().getCurrentThread());
+    m_AlarmQueue.add(pAlarm);
+}
+
+void Rtc::drainRemoteAlarmDispatch(Event *pEvent, void *owner)
+{
+    Thread *current = Processor::information().getCurrentThread();
+    const bool canYield = current && Processor::getInterrupts();
+    TerminationDeferral terminationDeferral(canYield);
+    uintptr_t previousDebugAddress = 0;
+    Thread::DebugState previousDebugState = Thread::None;
+    bool debuggingDrain = false;
+
+    while (true)
+    {
+        m_Lock.acquire();
+        const bool dispatching =
+            m_AlarmQueue.hasRemoteInFlight(pEvent, owner);
+        m_Lock.release();
+
+        if (!dispatching)
+        {
+            break;
+        }
+
+        if (canYield)
+        {
+            if (!debuggingDrain)
+            {
+                previousDebugState =
+                    current->getDebugState(previousDebugAddress);
+                current->setDebugState(
+                    Thread::CallbackDrain, reinterpret_cast<uintptr_t>(pEvent));
+                debuggingDrain = true;
+            }
+            Scheduler::instance().yield();
+        }
+        else
+        {
+            Processor::pause();
+        }
+    }
+
+    if (debuggingDrain)
+    {
+        current->setDebugState(previousDebugState, previousDebugAddress);
+    }
 }
 
 void Rtc::removeAlarm(Event *pEvent)
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    void *owner = currentAlarmDispatchOwner();
+    bool remoteInFlight = false;
+    bool selfDeferred = false;
 
-    for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();)
+    m_Lock.acquire();
+    Alarm *reclaim = m_AlarmQueue.removeAllQueued(
+        pEvent, owner, remoteInFlight, selfDeferred);
+    m_AlarmQueue.recycleList(reclaim);
+    m_Lock.release();
+
+    (void) selfDeferred;
+    if (remoteInFlight)
     {
-        if ((*it)->m_pEvent == pEvent)
-        {
-            Alarm *pAlarm = *it;
-            it = m_Alarms.erase(it);
-            delete pAlarm;
-        }
-        else
-        {
-            ++it;
-        }
+        drainRemoteAlarmDispatch(pEvent, owner);
     }
 }
 
 size_t Rtc::removeAlarm(class Event *pEvent, bool bRetZero)
 {
-    LockGuard<Spinlock> guard(m_Lock);
+    void *owner = currentAlarmDispatchOwner();
 
+    m_Lock.acquire();
     const uint64_t currTime = m_TickCount;
-
-    for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();
-         it++)
+    RtcAlarmQueue::Removal removal =
+        m_AlarmQueue.removeFirst(pEvent, owner);
+    if (removal.record)
     {
-        if ((*it)->m_pEvent == pEvent)
-        {
-            size_t ret = 0;
-            if (!bRetZero)
-            {
-                size_t alarmEndTime = (*it)->m_Time;
+        m_AlarmQueue.recycleList(removal.record);
+    }
+    m_Lock.release();
 
-                // Is it later than the end of the alarm?
-                if (alarmEndTime < currTime)
-                    ret = 0;
-                else
-                {
-                    const uint64_t diff = alarmEndTime - currTime;
-                    ret = diff / Time::Multiplier::Second;
-                    if (diff % Time::Multiplier::Second)
-                    {
-                        ++ret;
-                    }
-                }
-            }
-
-            Alarm *pAlarm = *it;
-            m_Alarms.erase(it);
-            delete pAlarm;
-            return ret;
-        }
+    if (
+        removal.disposition ==
+        RtcAlarmQueue::RemovalDisposition::RemoteInFlight)
+    {
+        drainRemoteAlarmDispatch(pEvent, owner);
+        return 0;
+    }
+    if (
+        removal.disposition != RtcAlarmQueue::RemovalDisposition::Removed ||
+        bRetZero || removal.deadline < currTime)
+    {
+        return 0;
     }
 
-    return 0;
+    const uint64_t diff = removal.deadline - currTime;
+    size_t ret = diff / Time::Multiplier::Second;
+    if (diff % Time::Multiplier::Second)
+    {
+        ++ret;
+    }
+    return ret;
 }
 
 bool Rtc::registerHandler(TimerHandler *handler)
@@ -396,6 +455,26 @@ void Rtc::uninitialise()
 
     m_HandlerRegistry.reset();
 
+    Alarm *reclaim = nullptr;
+    Alarm *freeAlarms = nullptr;
+    {
+        LockGuard<Spinlock> guard(m_Lock);
+        reclaim = m_AlarmQueue.detachActive();
+        freeAlarms = m_AlarmQueue.detachFree();
+    }
+    while (reclaim)
+    {
+        Alarm *next = reclaim->next();
+        delete reclaim;
+        reclaim = next;
+    }
+    while (freeAlarms)
+    {
+        Alarm *next = freeAlarms->next();
+        delete freeAlarms;
+        freeAlarms = next;
+    }
+
     // Free the I/O port range
     m_IoPort.free();
 }
@@ -404,7 +483,7 @@ Rtc::Rtc()
     : m_IoPort("CMOS"), m_IrqId(0), m_PeriodicIrqInfoIndex(0), m_bBCD(true),
       m_Year(1970), m_Month(0), m_DayOfMonth(0), m_Hour(0), m_Minute(0),
       m_Second(0), m_Nanosecond(0), m_TickCount(0), m_HandlerRegistry(),
-      m_Alarms()
+      m_AlarmQueue(), m_Lock(false)
 {
 }
 
@@ -428,28 +507,29 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
     // Calculate the new time/date
     m_Nanosecond += delta;
 
-    // Check for alarms.
+    // Claim one due alarm under the queue lock, then publish it without
+    // carrying that lock into Event or allocator code. A remover which sees
+    // m_bDispatching waits for this ownership handoff to finish before it
+    // returns and permits the Event to be reclaimed.
+    while (true)
     {
-        LockGuard<Spinlock> guard(m_Lock);
-        while (true)
+        m_Lock.acquire();
+        Alarm *claimed = m_AlarmQueue.claimDue(
+            m_TickCount, currentAlarmDispatchOwner());
+        m_Lock.release();
+
+        if (!claimed)
         {
-            bool bDispatched = false;
-            for (List<Alarm *>::Iterator it = m_Alarms.begin();
-                 it != m_Alarms.end(); it++)
-            {
-                Alarm *pA = *it;
-                if (pA->m_Time <= m_TickCount)
-                {
-                    pA->m_pThread->sendEvent(pA->m_pEvent);
-                    m_Alarms.erase(it);
-                    bDispatched = true;
-                    delete pA;
-                    break;
-                }
-            }
-            if (!bDispatched)
-                break;
+            break;
         }
+
+        Thread *target = reinterpret_cast<Thread *>(claimed->target());
+        Event *event = reinterpret_cast<Event *>(claimed->event());
+        target->sendEvent(event);
+
+        m_Lock.acquire();
+        m_AlarmQueue.completeDispatch(claimed);
+        m_Lock.release();
     }
 
     if (UNLIKELY(m_Nanosecond >= Time::Multiplier::Millisecond))

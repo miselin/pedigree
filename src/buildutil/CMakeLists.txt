@@ -218,6 +218,7 @@ set(TESTSUITE_SRCS
     testsuite/test-memory.cc
     testsuite/test-Result.cc
     testsuite/test-RangeList.cc
+    testsuite/test-RtcAlarmQueue.cc
     testsuite/test-LocksCommand.cc
     testsuite/test-ThreadWaitDiagnostic.cc
     testsuite/test-List.cc

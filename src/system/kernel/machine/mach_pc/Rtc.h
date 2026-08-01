@@ -29,8 +29,8 @@
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
+#include "RtcAlarmQueue.h"
 
 class TimerHandler;
 
@@ -117,6 +117,9 @@ class Rtc : public Timer, private IrqHandler
      *\param[in] value the value */
     void write(uint8_t index, uint8_t value);
 
+    /** Drains a sendEvent handoff owned by another processor. */
+    void drainRemoteAlarmDispatch(class Event *pEvent, void *owner);
+
     /** The CMOS/Real-time Clock I/O port range */
     IoPort m_IoPort;
 
@@ -167,26 +170,11 @@ class Rtc : public Timer, private IrqHandler
     /** Timer handlers and their callback lifetime state. */
     TimerHandlerRegistry m_HandlerRegistry;
 
-    /** Alarm structure. */
-    class Alarm
-    {
-      public:
-        Alarm(class Event *pEvent, size_t time, class Thread *pThread)
-            : m_pEvent(pEvent), m_Time(time), m_pThread(pThread)
-        {
-        }
-        class Event *m_pEvent;
-        size_t m_Time;
-        class Thread *m_pThread;
+    using Alarm = RtcAlarmQueue::Record;
 
-      private:
-        Alarm(const Alarm &);
-        Alarm &operator=(const Alarm &);
-    };
-
-    /** List of alarms. */
-    List<Alarm *> m_Alarms;
-    /** Protects m_Alarms. */
+    /** Intrusive alarm ownership; queue operations never allocate in IRQs. */
+    RtcAlarmQueue m_AlarmQueue;
+    /** Protects the alarm queue and the dispatch-ownership transition. */
     Spinlock m_Lock;
 
     /** Tracks the number of nanoseconds per TSC tick. */
