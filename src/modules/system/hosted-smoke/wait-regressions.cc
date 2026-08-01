@@ -48,6 +48,7 @@ bool runHostedSignalInterruptionRegressions(Thread *thread);
 bool runHostedSyscallRegressions();
 bool runHostedTimerRegressions(Thread *thread);
 bool runHostedSplitIrqRegressions();
+bool runHostedThreadedIrqRegressions();
 bool runHostedUsbHcdPortChangeRegressions();
 EXPORTED_PUBLIC bool runHostedUsbSyncOwnershipRegression();
 
@@ -1899,6 +1900,7 @@ bool runHostedWaitRegressions()
         runHostedInterruptManagerRegressions() &&
         runHostedIrqRegressions() &&
         runHostedSplitIrqRegressions() &&
+        runHostedThreadedIrqRegressions() &&
         runHostedCdiIrqRegressions() &&
         runHostedInputRegressions() &&
         runHostedNetworkFilterRegressions() &&

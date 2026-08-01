@@ -701,6 +701,18 @@ bool IrqHandlerRegistry::dispatchThreaded(
     }
 #endif
 
+    struct Candidate
+    {
+        HandlerSlot *slot;
+        size_t publication;
+        IrqHandlerBase *handler;
+    };
+    Candidate candidates[MaxHandlerSlots];
+    size_t candidateCount = 0;
+
+    // A physical occurrence has a fixed callback set. Without this snapshot,
+    // a handler registered while an earlier callback is running could receive
+    // an interrupt which predates its registration.
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
         HandlerSlot &slot = m_Handlers[i];
@@ -720,6 +732,15 @@ bool IrqHandlerRegistry::dispatchThreaded(
         {
             continue;
         }
+
+        candidates[candidateCount++] = {&slot, publication, handler};
+    }
+
+    for (size_t i = 0; i < candidateCount; ++i)
+    {
+        HandlerSlot &slot = *candidates[i].slot;
+        const size_t publication = candidates[i].publication;
+        IrqHandlerBase *handler = candidates[i].handler;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
         HandlerPrePinHook prePinHook =
@@ -810,6 +831,25 @@ size_t IrqHandlerRegistry::handlerCount(uint8_t irq)
         }
     }
     return count;
+}
+
+IrqHandlerRegistry::LineMode IrqHandlerRegistry::lineMode(uint8_t irq)
+{
+    for (size_t i = 0; i < MaxHandlerSlots; ++i)
+    {
+        const size_t publication =
+            __atomic_load_n(&m_Handlers[i].publication, __ATOMIC_SEQ_CST);
+        if (modeOf(publication) != SlotMode::Enabled ||
+            irqOf(publication) != irq)
+        {
+            continue;
+        }
+
+        return deliveryOf(publication) == Delivery::Threaded ?
+                   LineMode::Threaded :
+                   LineMode::HardOnly;
+    }
+    return LineMode::Empty;
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

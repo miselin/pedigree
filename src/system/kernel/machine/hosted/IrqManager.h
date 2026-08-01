@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 
 /** @addtogroup kernelmachinehosted
@@ -55,6 +56,12 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
      *  InterruptManager.
      *\return true, if successfull, false otherwise */
     bool initialise() INITIALISATION_ONLY;
+
+    /** Starts manager-owned bottom-half workers after scheduler startup. */
+    bool initialiseThreaded();
+
+    /** Stops and joins every manager-owned bottom-half worker. */
+    bool shutdownThreaded();
 
     /** Called every millisecond, typically handles IRQ mitigation. */
     virtual void tick();
@@ -125,8 +132,14 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     //
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
 
+    static void dispatchThreadedLine(void *context, uint8_t irq, size_t cookie);
+
     /** IRQ handlers and their callback lifetime state. */
     IrqHandlerRegistry m_Handlers;
+
+    /** Stable one-worker-per-signal threaded IRQ dispatcher. */
+    ThreadedIrqDispatcher m_ThreadedDispatcher;
+    size_t m_ThreadedCookies[2];
 
     /** The HostedIrqManager instance */
     static HostedIrqManager m_Instance;

@@ -651,6 +651,49 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local threaded_irq_header=src/system/include/pedigree/kernel/machine/ThreadedIrqDispatcher.h
+    local threaded_irq_source=src/system/kernel/machine/ThreadedIrqDispatcher.cc
+    local hosted_irq_source=src/system/kernel/machine/hosted/IrqManager.cc
+    local hosted_machine_source=src/system/kernel/machine/hosted/Machine.cc
+    local threaded_irq_regressions=src/modules/system/hosted-smoke/threaded-irq-regressions.cc
+    if ! rg -q 'mutable Spinlock m_StateLock' "$threaded_irq_header" ||
+        ! rg -q -U \
+            '(?s)Line::markPending\(size_t cookie\).*?LockGuard<Spinlock> guard\(m_StateLock\).*?if \(!m_Started \|\| m_Stopping\).*?m_PendingCookie = cookie.*?m_WakePublished = true' \
+            "$threaded_irq_source" ||
+        ! rg -q -U \
+            '(?s)Line::beginStop\(\).*?LockGuard<Spinlock> guard\(m_StateLock\).*?m_Stopping = true.*?m_Work\.release\(\)' \
+            "$threaded_irq_source"; then
+        echo "Threaded IRQ publication and shutdown lost their shared admission lock."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)Line::run\(\).*?TerminationDeferral workerLifetime.*?acquireForCompletion\(\).*?m_Callback\(.*?m_CompletedCookie = cookie' \
+        "$threaded_irq_source" ||
+        ! rg -q 'completedCookieForTest' "$threaded_irq_header"; then
+        echo "Threaded IRQ workers lost owned lifetime or completion generations."
+        failed=1
+    fi
+
+    if rg -q 'SIGWINCH' "$hosted_irq_source" ||
+        ! rg -q -U \
+            '(?s)dispatchThreadedLine\(.*?cookie != __atomic_load_n\(.*?m_ThreadedCookies.*?dispatchThreaded\(' \
+            "$hosted_irq_source" ||
+        ! rg -q -U \
+            '(?s)shutdownThreaded\(\).*?HostedSchedulerTimer::instance\(\)\.uninitialise\(\)' \
+            "$hosted_machine_source"; then
+        echo "Hosted threaded IRQ delivery lost stale-work or live-service teardown protection."
+        failed=1
+    fi
+
+    if ! rg -q 'Candidate candidates\[MaxHandlerSlots\]' \
+        "$irq_registry_source" ||
+        ! rg -q 'irq-threaded-dispatcher-coalescing' \
+            "$threaded_irq_regressions"; then
+        echo "Threaded IRQ callback snapshots or deterministic coalescing coverage are missing."
+        failed=1
+    fi
+
     matches=$(rg -n \
         '(->|\.)register(Isa|Pci)IrqHandler\(' \
         src --glob '*.{cc,h}' || true)

@@ -451,6 +451,8 @@ assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS split-irq-wake-before-block"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS split-irq-coalescing"
 assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS irq-threaded-dispatcher-coalescing"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS split-irq-unregister-drain"
 assert_marker \
     "$populated_log" \

@@ -38,6 +38,13 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         NotFound,
     };
 
+    enum class LineMode
+    {
+        Empty,
+        Threaded,
+        HardOnly,
+    };
+
     IrqHandlerRegistry();
 
     /** Publishes an ordinary thread-context handler. */
@@ -71,6 +78,9 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         uint8_t irq, bool &handled, IrqHandler *onlyHandler = nullptr);
 
     size_t handlerCount(uint8_t irq);
+
+    /** Returns the delivery type of an enabled physical line. */
+    LineMode lineMode(uint8_t irq);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     enum class HandlerHazardStage

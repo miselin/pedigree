@@ -52,6 +52,14 @@ void HostedMachine::initialiseDeviceTree()
 {
 }
 
+void HostedMachine::initialise3()
+{
+    if (!HostedIrqManager::instance().initialiseThreaded())
+    {
+        panic("HostedMachine: threaded IRQ worker initialisation failed");
+    }
+}
+
 void HostedMachine::deinitialise()
 {
     if (!m_bInitialised)
@@ -59,6 +67,10 @@ void HostedMachine::deinitialise()
         return;
     }
 
+    if (!HostedIrqManager::instance().shutdownThreaded())
+    {
+        FATAL("HostedMachine: threaded IRQ workers did not stop");
+    }
     HostedSchedulerTimer::instance().uninitialise();
     HostedTimer::instance().uninitialise();
     HostedInterruptManager::quiesceProcessor();

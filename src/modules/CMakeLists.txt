@@ -283,6 +283,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/syscall-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/timer-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/split-irq-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/threaded-irq-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/usb-hcd-port-change-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/wait-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiIrq.cc

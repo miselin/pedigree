@@ -344,6 +344,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/IrqHandlerRegistry.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/IrqManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/SplitIrqHandler.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/machine/ThreadedIrqDispatcher.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/Keyboard.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/KeymapManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/Machine.cc

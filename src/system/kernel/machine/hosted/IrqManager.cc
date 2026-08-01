@@ -68,8 +68,15 @@ bool HostedIrqManager::control(uint8_t irq, ControlCode code, size_t argument)
 irq_id_t HostedIrqManager::registerIsaIrqHandler(
     uint8_t irq, IrqHandler *handler, bool bEdge)
 {
-    // Threaded line dispatch is added by the manager-owned worker checkpoint.
-    return 0;
+    if (UNLIKELY(
+            irq >= NumHostedIrqs || !handler || !irqToSignal[irq] ||
+            !m_ThreadedDispatcher.isInitialised()))
+        return 0;
+
+    if (!m_Handlers.registerThreadedHandler(irq, handler))
+        return 0;
+
+    return irqToSignal[irq];
 }
 
 irq_id_t HostedIrqManager::registerHardIsaIrqHandler(
@@ -87,8 +94,18 @@ irq_id_t HostedIrqManager::registerHardIsaIrqHandler(
 irq_id_t
 HostedIrqManager::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
 {
-    // Threaded line dispatch is added by the manager-owned worker checkpoint.
-    return 0;
+    if (UNLIKELY(!pDevice))
+        return 0;
+    irq_id_t irq = pDevice->getInterruptNumber();
+    if (UNLIKELY(
+            irq >= NumHostedIrqs || !handler || !irqToSignal[irq] ||
+            !m_ThreadedDispatcher.isInitialised()))
+        return 0;
+
+    if (!m_Handlers.registerThreadedHandler(irq, handler))
+        return 0;
+
+    return irqToSignal[irq];
 }
 
 irq_id_t HostedIrqManager::registerHardPciIrqHandler(
@@ -116,6 +133,14 @@ bool HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
 
     const IrqHandlerRegistry::UnregisterResult result =
         m_Handlers.unregisterHandler(irq, handler);
+    if ((result == IrqHandlerRegistry::UnregisterResult::Completed ||
+         result == IrqHandlerRegistry::UnregisterResult::Deferred) &&
+        !m_Handlers.handlerCount(irq))
+    {
+        __atomic_add_fetch(
+            &m_ThreadedCookies[irq], static_cast<size_t>(1),
+            __ATOMIC_ACQ_REL);
+    }
     if (result == IrqHandlerRegistry::UnregisterResult::Rejected)
     {
         ERROR(
@@ -140,7 +165,20 @@ bool HostedIrqManager::initialise()
     return true;
 }
 
-HostedIrqManager::HostedIrqManager() : m_Handlers()
+bool HostedIrqManager::initialiseThreaded()
+{
+    return m_ThreadedDispatcher.initialise();
+}
+
+bool HostedIrqManager::shutdownThreaded()
+{
+    return m_ThreadedDispatcher.shutdown();
+}
+
+HostedIrqManager::HostedIrqManager()
+    : m_Handlers(),
+      m_ThreadedDispatcher(NumHostedIrqs, dispatchThreadedLine, this),
+      m_ThreadedCookies()
 {
 }
 
@@ -155,11 +193,44 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
         return;
     }
 
+    if (m_Handlers.lineMode(irq) == IrqHandlerRegistry::LineMode::Threaded)
+    {
+        size_t cookie = __atomic_add_fetch(
+            &m_ThreadedCookies[irq], static_cast<size_t>(1),
+            __ATOMIC_ACQ_REL);
+        if (!cookie)
+        {
+            cookie = __atomic_add_fetch(
+                &m_ThreadedCookies[irq], static_cast<size_t>(1),
+                __ATOMIC_ACQ_REL);
+        }
+        if (!m_ThreadedDispatcher.publishFromInterrupt(irq, cookie))
+        {
+            ERROR_NOLOCK(
+                "HostedIrqManager: threaded IRQ publication was rejected");
+        }
+        return;
+    }
+
     bool handled = false;
     if (!m_Handlers.dispatchHard(irq, state, handled))
     {
         NOTICE("HostedIrqManager: unhandled irq #" << irq << " occurred");
     }
+}
+
+void HostedIrqManager::dispatchThreadedLine(
+    void *context, uint8_t irq, size_t cookie)
+{
+    HostedIrqManager *manager =
+        reinterpret_cast<HostedIrqManager *>(context);
+    if (cookie != __atomic_load_n(
+                      &manager->m_ThreadedCookies[irq], __ATOMIC_ACQUIRE))
+    {
+        return;
+    }
+    bool handled = false;
+    manager->m_Handlers.dispatchThreaded(irq, handled);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
