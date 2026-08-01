@@ -66,15 +66,18 @@ bool HostedInterruptManager::registerInterruptHandler(
     // Sanity checks
     if (UNLIKELY(nInterruptNumber >= MAX_SIGNAL))
         return false;
-    if (UNLIKELY(pHandler != 0 && m_pHandler[nInterruptNumber] != 0))
+    InterruptHandler *current =
+        __atomic_load_n(&m_pHandler[nInterruptNumber], __ATOMIC_ACQUIRE);
+    if (UNLIKELY(pHandler != 0 && current != 0))
         return false;
-    if (UNLIKELY(pHandler == 0 && m_pHandler[nInterruptNumber] == 0))
+    if (UNLIKELY(pHandler == 0 && current == 0))
         return false;
 
-    // Change the pHandler
-    m_pHandler[nInterruptNumber] = pHandler;
-
-    return true;
+    // Dispatch can re-enter on this CPU while the mutation lock is held.
+    // Publish the complete old or new pointer without involving that lock.
+    return __atomic_compare_exchange_n(
+        &m_pHandler[nInterruptNumber], &current, pHandler, false,
+        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
 
 #if DEBUGGER
@@ -88,15 +91,16 @@ bool HostedInterruptManager::registerInterruptHandlerDebugger(
     // Sanity checks
     if (UNLIKELY(nInterruptNumber >= MAX_SIGNAL))
         return false;
-    if (UNLIKELY(pHandler != 0 && m_pDbgHandler[nInterruptNumber] != 0))
+    InterruptHandler *current =
+        __atomic_load_n(&m_pDbgHandler[nInterruptNumber], __ATOMIC_ACQUIRE);
+    if (UNLIKELY(pHandler != 0 && current != 0))
         return false;
-    if (UNLIKELY(pHandler == 0 && m_pDbgHandler[nInterruptNumber] == 0))
+    if (UNLIKELY(pHandler == 0 && current == 0))
         return false;
 
-    // Change the pHandler
-    m_pDbgHandler[nInterruptNumber] = pHandler;
-
-    return true;
+    return __atomic_compare_exchange_n(
+        &m_pDbgHandler[nInterruptNumber], &current, pHandler, false,
+        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
 size_t HostedInterruptManager::getBreakpointInterruptNumber()
 {
@@ -115,13 +119,8 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
 
 #if DEBUGGER
     {
-        InterruptHandler *pHandler;
-
-        // Get the debugger handler
-        {
-            LockGuard<Spinlock> lockGuard(m_Instance.m_Lock);
-            pHandler = m_Instance.m_pDbgHandler[nIntNumber];
-        }
+        InterruptHandler *pHandler = __atomic_load_n(
+            &m_Instance.m_pDbgHandler[nIntNumber], __ATOMIC_ACQUIRE);
 
         // Call the kernel debugger's handler, if any
         if (pHandler != 0)
@@ -131,13 +130,8 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
     }
 #endif
 
-    InterruptHandler *pHandler;
-
-    // Get the interrupt handler
-    {
-        LockGuard<Spinlock> lockGuard(m_Instance.m_Lock);
-        pHandler = m_Instance.m_pHandler[nIntNumber];
-    }
+    InterruptHandler *pHandler = __atomic_load_n(
+        &m_Instance.m_pHandler[nIntNumber], __ATOMIC_ACQUIRE);
 
     // Call the normal interrupt handler, if any
     if (LIKELY(pHandler != 0))
@@ -355,6 +349,17 @@ void HostedInterruptManager::quiesceProcessor()
     }
     m_bQuiesced = true;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void HostedInterruptManager::withMutationLockForTest(MutationLockHook hook)
+{
+    LockGuard<Spinlock> lock(m_Instance.m_Lock);
+    if (hook)
+    {
+        hook();
+    }
+}
+#endif
 
 HostedInterruptManager::HostedInterruptManager() : m_Lock()
 {

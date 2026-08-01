@@ -106,7 +106,7 @@ class X64InterruptManager : public ::InterruptManager
         uint32_t res;
     } PACKED;
 
-    /** Spinlock protecting the member variables */
+    /** Serialises handler pointer mutations. Dispatch never takes this lock. */
     Spinlock m_Lock;
 
     /** The interrupt descriptor table (IDT) */

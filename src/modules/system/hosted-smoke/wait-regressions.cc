@@ -27,6 +27,7 @@ bool runHostedRequestQueueRegressions();
 bool runHostedSchedulerRegressions();
 bool runHostedCacheRegressions();
 bool runHostedInputRegressions();
+bool runHostedInterruptManagerRegressions();
 EXPORTED_PUBLIC bool runHostedFatSectorRegressions();
 EXPORTED_PUBLIC bool runHostedRawFsContractRegressions();
 EXPORTED_PUBLIC bool runHostedUnixDatagramRegressions();
@@ -1884,6 +1885,7 @@ bool runHostedWaitRegressions()
             .getBootstrapProcessorScheduler()
             ->runHostedNewThreadWorkerRegressions() &&
         runHostedSchedulerRegressions() &&
+        runHostedInterruptManagerRegressions() &&
         runHostedIrqRegressions() &&
         runHostedInputRegressions() &&
         runHostedNetworkFilterRegressions() &&

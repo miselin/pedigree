@@ -258,6 +258,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/cache-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/input-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/interrupt-manager-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/lifetime-lease-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/log-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/irq-regressions.cc

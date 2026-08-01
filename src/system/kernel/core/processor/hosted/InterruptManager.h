@@ -71,6 +71,14 @@ class HostedInterruptManager : public ::InterruptManager
     /** Get the original sigaction for an interrupt handler. */
     struct __pedigree_hosted::sigaction getOriginalSigaction(int which) const;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using MutationLockHook = void (*)();
+
+    /** Runs a deterministic test seam while handler mutation is locked. */
+    static EXPORTED_PUBLIC void
+    withMutationLockForTest(MutationLockHook hook);
+#endif
+
   private:
     /** Called when an interrupt was triggered
      *\param[in] interruptState reference to the usermode/kernel state before
@@ -99,7 +107,7 @@ class HostedInterruptManager : public ::InterruptManager
     /** The destructor */
     virtual ~HostedInterruptManager();
 
-    /** Spinlock protecting the member variables */
+    /** Serialises handler pointer mutations. Dispatch never takes this lock. */
     Spinlock m_Lock;
 
     /** The normal interrupt handlers */

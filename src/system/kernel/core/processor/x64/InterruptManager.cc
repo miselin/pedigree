@@ -88,15 +88,18 @@ bool X64InterruptManager::registerInterruptHandler(
     // Sanity checks
     if (UNLIKELY(nInterruptNumber >= 256))
         return false;
-    if (UNLIKELY(pHandler != 0 && m_pHandler[nInterruptNumber] != 0))
+    InterruptHandler *current =
+        __atomic_load_n(&m_pHandler[nInterruptNumber], __ATOMIC_ACQUIRE);
+    if (UNLIKELY(pHandler != 0 && current != 0))
         return false;
-    if (UNLIKELY(pHandler == 0 && m_pHandler[nInterruptNumber] == 0))
+    if (UNLIKELY(pHandler == 0 && current == 0))
         return false;
 
-    // Change the pHandler
-    m_pHandler[nInterruptNumber] = pHandler;
-
-    return true;
+    // Exceptions and IRQs can re-enter on this CPU while this lock is held.
+    // Publish the complete old or new pointer without involving that lock.
+    return __atomic_compare_exchange_n(
+        &m_pHandler[nInterruptNumber], &current, pHandler, false,
+        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
 
 #if DEBUGGER
@@ -110,15 +113,16 @@ bool X64InterruptManager::registerInterruptHandlerDebugger(
     // Sanity checks
     if (UNLIKELY(nInterruptNumber >= 256))
         return false;
-    if (UNLIKELY(pHandler != 0 && m_pDbgHandler[nInterruptNumber] != 0))
+    InterruptHandler *current =
+        __atomic_load_n(&m_pDbgHandler[nInterruptNumber], __ATOMIC_ACQUIRE);
+    if (UNLIKELY(pHandler != 0 && current != 0))
         return false;
-    if (UNLIKELY(pHandler == 0 && m_pDbgHandler[nInterruptNumber] == 0))
+    if (UNLIKELY(pHandler == 0 && current == 0))
         return false;
 
-    // Change the pHandler
-    m_pDbgHandler[nInterruptNumber] = pHandler;
-
-    return true;
+    return __atomic_compare_exchange_n(
+        &m_pDbgHandler[nInterruptNumber], &current, pHandler, false,
+        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
 size_t X64InterruptManager::getBreakpointInterruptNumber()
 {
@@ -138,13 +142,8 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
 
 #if DEBUGGER
     {
-        InterruptHandler *pHandler;
-
-        // Get the debugger handler
-        {
-            LockGuard<Spinlock> lockGuard(m_Instance.m_Lock);
-            pHandler = m_Instance.m_pDbgHandler[nIntNumber];
-        }
+        InterruptHandler *pHandler = __atomic_load_n(
+            &m_Instance.m_pDbgHandler[nIntNumber], __ATOMIC_ACQUIRE);
 
         // Call the kernel debugger's handler, if any
         if (pHandler != 0)
@@ -152,13 +151,8 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
     }
 #endif
 
-    InterruptHandler *pHandler;
-
-    // Get the interrupt handler
-    {
-        LockGuard<Spinlock> lockGuard(m_Instance.m_Lock);
-        pHandler = m_Instance.m_pHandler[nIntNumber];
-    }
+    InterruptHandler *pHandler = __atomic_load_n(
+        &m_Instance.m_pHandler[nIntNumber], __ATOMIC_ACQUIRE);
 
     // Call the normal interrupt handler, if any
     if (LIKELY(pHandler != 0))
