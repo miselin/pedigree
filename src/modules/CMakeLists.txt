@@ -232,11 +232,19 @@ pedigree_module(ext2 "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Node.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Symlink.cc)
 
+set(FAT_REGRESSION_SOURCES)
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+    list(APPEND FAT_REGRESSION_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/fat-sector-regressions.cc)
+endif ()
+
 pedigree_module(fat "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatDirectory.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFile.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatFilesystem.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatSymlink.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/fat/FatSymlink.cc
+    ${FAT_REGRESSION_SOURCES})
 
 pedigree_module(filesystems "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/filesystems/main.cc)
@@ -247,7 +255,32 @@ pedigree_module(gfx-deps "" ""
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
     pedigree_module(hosted-smoke "" ""
-        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc)
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/cache-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/input-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/lifetime-lease-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/log-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/irq-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/mutex-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/network-filter-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pagefault-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pipe-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/primitive-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/process-exit-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ps2mouse-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/requestqueue-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/signal-interruption-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/syscall-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/timer-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/wait-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/Ps2MouseCallbackRegistry.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/Filter.cc)
+endif ()
+
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    NOT PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+    pedigree_module(hosted-syscall-smoke "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/static-syscall-regressions.cc)
 endif ()
 
 if (PEDIGREE_WITH_INIT)
@@ -334,10 +367,22 @@ add_dependencies(lwip libc)  # TODO: modify arch.h to remove header dependency
 pedigree_module(mountroot "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/mountroot/main.cc)
 
+set(NETWORK_STACK_REGRESSION_SOURCES)
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    NOT PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+    list(APPEND NETWORK_STACK_REGRESSION_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/network-stack-regressions.cc)
+endif ()
+
 pedigree_module(network-stack "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/Filter.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/NetworkStack.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/NetworkStack.cc
+    ${NETWORK_STACK_REGRESSION_SOURCES})
 add_dependencies(network-stack lwip)
+if (NETWORK_STACK_REGRESSION_SOURCES)
+    target_compile_definitions(
+        network-stack PRIVATE PEDIGREE_HOSTED_NETWORK_REGRESSION=1)
+endif ()
 
 pedigree_module(nics "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/nics/main.cc)
@@ -353,10 +398,18 @@ pedigree_module(preload "" ""
 pedigree_module(ramfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ramfs/RamFs.cc)
 
+set(RAWFS_REGRESSION_SOURCES)
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+    list(APPEND RAWFS_REGRESSION_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/rawfs-contract-regressions.cc)
+endif ()
+
 pedigree_module(rawfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/rawfs/RawFs.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/rawfs/RawFsDir.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/rawfs/RawFsFile.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/rawfs/RawFsFile.cc
+    ${RAWFS_REGRESSION_SOURCES})
 
 pedigree_module(splash "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/splash/main.cc)
@@ -385,6 +438,11 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Pipe.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Symlink.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/VFS.cc)
+
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+    add_dependencies(hosted-smoke config users vfs fat rawfs usb)
+endif ()
 
 pedigree_module(3c90x "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/3c90x/3Com90x.cc
@@ -508,6 +566,7 @@ if (PEDIGREE_DRIVERDIR STREQUAL "x86")
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/pci/pci.cc)
 
     pedigree_module(ps2mouse "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/Ps2MouseCallbackRegistry.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/Ps2Mouse.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/main.cc)
 

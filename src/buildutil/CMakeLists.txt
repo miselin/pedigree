@@ -58,6 +58,8 @@ set(KERNEL_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/SymbolTable.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/IoBase.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Event.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/OperationBarrier.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/RelayEvent.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Semaphore.cc)
 add_library(kernel ${KERNEL_SRCS})
 target_compile_options(kernel PRIVATE ${NONCOVERAGE_FLAGS})
@@ -226,12 +228,14 @@ set(TESTSUITE_SRCS
     testsuite/test-stringlib.cc
     testsuite/test-ExtensibleBitmap.cc
     testsuite/test-Time.cc
+    testsuite/test-Atomic.cc
     testsuite/test-SymbolTable.cc
     testsuite/test-RadixTree.cc
     testsuite/test-HashTable.cc
     testsuite/test-StaticString.cc
     testsuite/test-LazyEvaluate.cc
     testsuite/test-ConditionVariable.cc
+    testsuite/test-ProducerConsumer.cc
     testsuite/test-StringView.cc
     testsuite/test-LruCache.cc
     testsuite/test-Log.cc
@@ -297,7 +301,20 @@ if (BENCHMARK_LIBRARY)
     target_include_directories(benchmarker PRIVATE ${BENCHMARK_INCLUDE_DIR})
     target_link_libraries(benchmarker PRIVATE
         ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
-    target_compile_options(benchmarker PRIVATE "-Os" "-march=k8" "-mtune=k8" "-mno-sse" "-mno-mmx" "-mno-red-zone" "-fno-omit-frame-pointer")
+    target_compile_options(benchmarker PRIVATE "-Os" "-fno-omit-frame-pointer")
+    if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+        target_compile_options(benchmarker PRIVATE
+            -mcpu=native
+        )
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
+        target_compile_options(benchmarker PRIVATE
+            -march=k8
+            -mtune=k8
+            -mno-sse
+            -mno-mmx
+            -mno-red-zone
+        )
+    endif()
     target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
 
     add_executable(benchmarker-native ${BENCHMARK_SRCS})
@@ -366,6 +383,8 @@ add_library(lwip
 target_include_directories(lwip PUBLIC
     ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/include)
 
+# No SOCK_NONBLOCK etc on Apple, should fix properly, just omitting for now
+if (NOT APPLE)
 add_executable(unixsockets
     netwrap/unixsockets.cc
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/FileDescriptor.cc
@@ -375,6 +394,7 @@ add_executable(unixsockets
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/util.cc)
 target_link_libraries(unixsockets PRIVATE
     lwip posix vfs utility kernel Threads::Threads)
+endif ()
 
 if (PEDIGREE_COVERAGE)
     SETUP_TARGET_FOR_COVERAGE(

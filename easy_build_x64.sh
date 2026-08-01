@@ -58,10 +58,10 @@ echo
 echo "Configuring the Pedigree UPdater..."
 
 $script_dir/setup_pup.py amd64
-$script_dir/run_pup.py sync
+$script_dir/run_pup.sh sync
 
 # Needed for libc
-$script_dir/run_pup.py install ncurses
+$script_dir/run_pup.sh install ncurses
 
 # Build Pedigree.
 mkdir -p build-host && cd build-host
@@ -70,7 +70,7 @@ make
 cd ..
 
 mkdir -p build && cd build
-cmake -DCMAKE_TOOLCHAIN_FILE=../build-etc/cmake/pedigree_amd64.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake ..
+cmake -DCMAKE_TOOLCHAIN_FILE=${script_dir}/build-etc/cmake/pedigree_amd64.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake ..
 
 # Build libc/libm
 make libc

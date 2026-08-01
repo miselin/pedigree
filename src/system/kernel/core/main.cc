@@ -90,6 +90,7 @@
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/BootIO.h"
@@ -105,6 +106,7 @@
 #include "pedigree/kernel/process/MemoryPressureKiller.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
@@ -116,6 +118,7 @@
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
+#include "pedigree/kernel/utilities/utility.h"
 
 #if DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
@@ -147,7 +150,7 @@ static bool g_NeedsShutdown = false;
 class SlamRecovery : public MemoryPressureHandler
 {
   public:
-    virtual const String getMemoryPressureDescription();
+    virtual const char *getMemoryPressureDescription();
     virtual bool compact();
 };
 
@@ -191,8 +194,8 @@ static int loadModules(void *inf)
         extern uintptr_t start_module_ctors;
         extern uintptr_t end_module_ctors;
 
-        // Call static constructors before we start. If we don't... there won't be
-        // any properly initialised ModuleInfo structures :)
+        // Call static constructors before we start. If we don't... there won't
+        // be any properly initialised ModuleInfo structures :)
         uintptr_t *iterator = &start_module_ctors;
         while (iterator < &end_module_ctors)
         {
@@ -213,10 +216,13 @@ static int loadModules(void *inf)
     {
         BootstrapStruct_t *bsInf = static_cast<BootstrapStruct_t *>(inf);
 
-        NOTICE("initrd @ " << Hex << bsInf->getInitrdAddress() << " -> " << (bsInf->getInitrdAddress() + bsInf->getInitrdSize()) << ", " << Dec << bsInf->getInitrdSize() << " bytes");
+        NOTICE(
+            "initrd @ " << Hex << bsInf->getInitrdAddress() << " -> "
+                        << (bsInf->getInitrdAddress() + bsInf->getInitrdSize())
+                        << ", " << Dec << bsInf->getInitrdSize() << " bytes");
 
-        /// \note We have to do this before we call Processor::initialisationDone()
-        /// otherwise the
+        /// \note We have to do this before we call
+        /// Processor::initialisationDone() otherwise the
         ///       BootstrapStruct_t might already be unmapped
         initrd = new Archive(bsInf->getInitrdAddress(), bsInf->getInitrdSize());
         bsInf = nullptr;
@@ -227,7 +233,16 @@ static int loadModules(void *inf)
             nFiles * 2;  // Each file has to be preloaded and executed.
         for (size_t i = 0; i < nFiles; i++)
         {
-            NOTICE("loading module #" << i << "...");
+            // Handle archives with `._<filename>` entries from Apple tar file
+            // creation
+            if (!StringCompareN(initrd->getFileName(i), "._", 2))
+            {
+                continue;
+            }
+
+            NOTICE(
+                "loading module #" << i << " (" << initrd->getFileName(i)
+                                   << ")...");
             Processor::setInterrupts(true);
             KernelElf::instance().loadModule(
                 reinterpret_cast<uint8_t *>(initrd->getFile(i)),
@@ -248,7 +263,8 @@ static int loadModules(void *inf)
     // after this point
     Processor::initialisationDone();
 
-    // Now that we've cleaned up and are done loading modules, we can run the init module.
+    // Now that we've cleaned up and are done loading modules, we can run the
+    // init module.
     KernelElf::instance().invokeInitModule();
 
     if (KernelElf::instance().hasPendingModules())
@@ -469,8 +485,8 @@ void _cxx_main(BootstrapStruct_t &bsInf)
     EMIT_IF(THREADS)
     {
         Thread *pThread = new Thread(
-            Processor::information().getCurrentThread()->getParent(), &loadModules,
-            static_cast<void *>(&bsInf), 0);
+            Processor::information().getCurrentThread()->getParent(),
+            &loadModules, static_cast<void *>(&bsInf), 0);
         pThread->setName("module load thread");
         pThread->detach();
     }
@@ -508,8 +524,13 @@ void _cxx_main(BootstrapStruct_t &bsInf)
 
     EMIT_IF(THREADS)
     {
-        // Shut down is beginning - we no longer have a valid idle thread as this
-        // is where we will manage the remainder of the shutdown from.
+        // The zombie worker must be joined while this thread can still act as
+        // the scheduler's idle thread. Its destructor is too late: global
+        // teardown runs after interrupts and the scheduler are unavailable.
+        ZombieQueue::instance().destroy();
+
+        // Shut down is beginning - we no longer have a valid idle thread as
+        // this is where we will manage the remainder of the shutdown from.
         Processor::information().getScheduler().setIdle(nullptr);
     }
 
@@ -546,17 +567,16 @@ void _cxx_main(BootstrapStruct_t &bsInf)
 
     Processor::setInterrupts(false);
 
-    NOTICE("All modules unloaded. Running destructors and terminating...");
-    runKernelDestructors();
-
-    // Clean up the kernel's ELF references (e.g. symbol table).
-    KernelElf::instance().~KernelElf();
-
-    // Bring down the machine abstraction.
+    // Stop active platform services while the singleton objects they use are
+    // still alive. Hosted timers in particular use process signal handlers.
     Machine::instance().deinitialise();
 
-    // Shut down the various pieces created by Processor
+    // Shut down the various pieces created by Processor before their global
+    // objects are destroyed.
     Processor::deinitialise();
+
+    NOTICE("All modules unloaded. Running destructors and terminating...");
+    runKernelDestructors();
 
     // Done - return to caller.
     // Boot code needs to handle this by resetting (or whatever makes sense)
@@ -570,9 +590,84 @@ void system_reset()
     g_NeedsShutdown = true;
 }
 
-const String SlamRecovery::getMemoryPressureDescription()
+void system_reboot()
 {
-    return String("SLAM recovery; freeing unused slabs.");
+    WARNING("System shutting down...");
+    const size_t shutdownProcessCount = Scheduler::instance().getNumProcesses();
+    for (size_t i = shutdownProcessCount; i > 0; --i)
+    {
+        Scheduler::ProcessLease process;
+        if (!Scheduler::instance().acquireProcess(process, i - 1))
+        {
+            continue;
+        }
+        Subsystem *subsystem = process->getSubsystem();
+        if (process.get() ==
+            Processor::information().getCurrentThread()->getParent())
+        {
+            continue;
+        }
+
+        if (subsystem)
+        {
+            Process::ThreadLease target;
+            if (process->acquireThread(target, static_cast<size_t>(0)))
+            {
+                subsystem->kill(Subsystem::Terminated, target.get());
+            }
+        }
+        else
+        {
+            Scheduler::instance().removeProcess(process.get());
+        }
+    }
+
+    Process *currentProcess =
+        Processor::information().getCurrentThread()->getParent();
+    while (true)
+    {
+        Scheduler::ProcessLease processToReap;
+        const size_t processCount = Scheduler::instance().getNumProcesses();
+        for (size_t i = 0; i < processCount; ++i)
+        {
+            Scheduler::ProcessLease candidate;
+            if (Scheduler::instance().acquireProcess(candidate, i) &&
+                candidate.get() != currentProcess)
+            {
+                processToReap = pedigree_std::move(candidate);
+                break;
+            }
+        }
+
+        if (!processToReap)
+        {
+            break;
+        }
+        if (!processToReap->waitUntilTerminationReapable())
+        {
+            FATAL(
+                "reboot attempted to reap the currently terminating "
+                "process");
+        }
+
+        Process *processIdentity = processToReap.get();
+        ZombieQueue::instance().addObject(new ZombieProcess(processIdentity));
+        processToReap.reset();
+        Scheduler::instance().waitUntilProcessRemoved(processIdentity);
+    }
+
+    system_reset();
+#if HOSTED
+    while (true)
+    {
+        Scheduler::instance().yield();
+    }
+#endif
+}
+
+const char *SlamRecovery::getMemoryPressureDescription()
+{
+    return "SLAM recovery; freeing unused slabs.";
 }
 
 bool SlamRecovery::compact()

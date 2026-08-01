@@ -4,6 +4,32 @@
 
 DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 
+LOCAL_PUP=1
+
+if [[ ${LOCAL_PUP} == 1 ]]; then
+    # Install the sibling pedigree-apps pup editably if not already present
+    repo_dir="$(cd "${DIR}/../pedigree-apps/pup" && pwd)"
+    module="pedigree_updater"
+
+    module_path="$(
+      python3 -c "
+import importlib.util
+spec = importlib.util.find_spec('$module')
+print(spec.origin or '' if spec else '')
+"
+)"
+
+    if [[ "$module_path" != "$repo_dir/"* ]]; then
+        echo "Installing local editable package..."
+        (
+            cd "$repo_dir"
+            python3 -m pip install -e .
+        )
+    fi
+
+    exec python3 -m "$module" --config="$DIR/scripts/pup/pup.conf" "$@"
+fi
+
 PUP_TMP="$DIR/scripts/pup.whl.tmp"
 PUP="$DIR/scripts/pup.whl"
 
