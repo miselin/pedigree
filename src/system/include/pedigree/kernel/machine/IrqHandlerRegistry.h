@@ -9,7 +9,7 @@
 #define PEDIGREE_KERNEL_MACHINE_IRQHANDLERREGISTRY_H
 
 #include "pedigree/kernel/Spinlock.h"
-#include "pedigree/kernel/process/WaitQueue.h"
+#include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -67,6 +67,7 @@ class IrqHandlerRegistry
     void setHandlerPinHook(HandlerPinHook hook);
     void setHandlerPrePinHook(HandlerPrePinHook hook);
     void withMutationLockForTest(MutationLockHook hook);
+    size_t activeDispatchCountForTest(IrqHandler *handler);
 #endif
 
   private:
@@ -93,29 +94,45 @@ class IrqHandlerRegistry
 
     struct ActiveDispatch
     {
-        ActiveDispatch() : owner(nullptr), slot(nullptr)
+        ActiveDispatch()
+            : token(nullptr), generation(0), owner(nullptr), slot(nullptr)
         {
         }
 
+        void *token;
+        size_t generation;
         void *owner;
         HandlerSlot *slot;
     };
 
     struct HandlerSlot
     {
-        HandlerSlot()
-            : handler(nullptr), publication(0), inFlight(0), drainWaiters()
+        HandlerSlot() : handler(nullptr), publication(0)
         {
         }
 
         IrqHandler *handler;
         size_t publication;
-        size_t inFlight;
-        WaitQueue drainWaiters;
     };
 
-    static size_t makePublication(
-        size_t generation, uint8_t irq, SlotMode mode);
+    struct DispatchCleanup
+    {
+        DispatchCleanup(
+            IrqHandlerRegistry *registry, HandlerSlot *handlerSlot,
+            void *dispatchOwner)
+            : registry(registry), slot(handlerSlot), owner(dispatchOwner),
+              cleanup()
+        {
+        }
+
+        IrqHandlerRegistry *registry;
+        HandlerSlot *slot;
+        void *owner;
+        AtomicStateCleanupRecord cleanup;
+    };
+
+    static size_t
+    makePublication(size_t generation, uint8_t irq, SlotMode mode);
     static size_t generationOf(size_t publication);
     static uint8_t irqOf(size_t publication);
     static SlotMode modeOf(size_t publication);
@@ -123,9 +140,11 @@ class IrqHandlerRegistry
     bool retireSlot(
         HandlerSlot &slot, size_t expectedPublication,
         IrqHandler *expectedHandler);
-    ActiveDispatch *publishDispatch(HandlerSlot &slot, void *owner);
-    void unpublishDispatch(ActiveDispatch *dispatch);
-    void releasePin(HandlerSlot &slot);
+    ActiveDispatch *
+    publishDispatch(HandlerSlot &slot, void *owner, void *token);
+    void unpublishDispatch(void *token, HandlerSlot &slot);
+    static void abandonDispatch(void *context);
+    bool hasActiveDispatch(HandlerSlot &slot) const;
     bool findCurrentDispatch(
         void *owner, HandlerSlot *target, bool &callbackContext) const;
     static void *currentDispatchOwner();

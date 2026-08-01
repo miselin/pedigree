@@ -323,8 +323,11 @@ bool PageFaultHandler::dispatchHandlers(
         }
 #endif
 
-        TerminationDeferral callbackDeferral;
-        const bool handled = handler->trap(state, address, bIsWrite);
+        bool handled = false;
+        {
+            TerminationDeferral callbackDeferral;
+            handled = handler->trap(state, address, bIsWrite);
+        }
         releaseDispatch(dispatch, true);
 
         if (handled)

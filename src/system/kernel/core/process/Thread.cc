@@ -258,9 +258,11 @@ Thread::~Thread()
         }
     }
 
+    for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level)
     {
-        LockGuard<Spinlock> guard(m_DeferredScopeLock);
-        if (m_pDeferredScopes)
+        if (
+            __atomic_load_n(
+                &m_pDeferredScopes[level], __ATOMIC_ACQUIRE))
         {
             FATAL(
                 "Thread destroyed with armed state cleanup records.");
@@ -531,19 +533,12 @@ SchedulerState *Thread::pushState()
     }
     const size_t nextLevel = previousLevel + 1;
 
+    if (
+        __atomic_load_n(
+            &m_pDeferredScopes[nextLevel], __ATOMIC_ACQUIRE))
     {
-        LockGuard<Spinlock> guard(m_DeferredScopeLock);
-        for (
-            DeferredScopeRecord *record = m_pDeferredScopes;
-            record; record = record->next)
-        {
-            if (record->stateLevel == nextLevel)
-            {
-                FATAL(
-                    "Thread state level reused with an armed cleanup "
-                    "record.");
-            }
-        }
+        FATAL(
+            "Thread state level reused with an armed cleanup record.");
     }
 
     // Prepare the unused level before publishing it to remote event senders.
@@ -599,19 +594,12 @@ void Thread::popState(bool clean)
         return;
     }
 
+    if (
+        __atomic_load_n(
+            &m_pDeferredScopes[origStateLevel], __ATOMIC_ACQUIRE))
     {
-        LockGuard<Spinlock> guard(m_DeferredScopeLock);
-        for (
-            DeferredScopeRecord *record = m_pDeferredScopes;
-            record; record = record->next)
-        {
-            if (record->stateLevel == origStateLevel)
-            {
-                FATAL(
-                    "Normal state pop attempted with armed cleanup "
-                    "records.");
-            }
-        }
+        FATAL(
+            "Normal state pop attempted with armed cleanup records.");
     }
 
     const size_t nextLevel = origStateLevel - 1;
@@ -1278,17 +1266,17 @@ bool Thread::runHostedStateCleanupRegression()
     HostedStateCleanupItem levelItem{&order, 5};
     DeferredScopeRecord oldRecord;
     DeferredScopeRecord firstRecord;
-    DeferredScopeRecord secondRecord;
+    AtomicStateCleanupRecord secondRecord;
     DeferredScopeRecord normalRecord;
     DeferredScopeRecord baseRecord;
-    DeferredScopeRecord levelRecord;
+    AtomicStateCleanupRecord levelRecord;
 
     armStateCleanup(
         oldRecord, hostedStateCleanupCallback, &oldItem);
     const size_t checkpoint = stateCleanupCheckpoint();
     armStateCleanup(
         firstRecord, hostedStateCleanupCallback, &firstItem);
-    armStateCleanup(
+    armAtomicStateCleanup(
         secondRecord, hostedStateCleanupCallback, &secondItem);
     retireDeferredScopesAfter(checkpoint);
 
@@ -1309,7 +1297,7 @@ bool Thread::runHostedStateCleanupRegression()
     const bool pushed = pushState() != nullptr;
     if (pushed)
     {
-        armStateCleanup(
+        armAtomicStateCleanup(
             levelRecord, hostedStateCleanupCallback, &levelItem);
         abandonCurrentState(false);
     }
@@ -1321,6 +1309,16 @@ bool Thread::runHostedStateCleanupRegression()
 
     return checkpointPassed && normalPassed && levelPassed &&
            order.count == 3;
+}
+
+void Thread::withDeferredScopeLockForTest(DeferredScopeLockHook hook)
+{
+    m_DeferredScopeRegressionLock.acquire();
+    if (hook)
+    {
+        hook();
+    }
+    m_DeferredScopeRegressionLock.release();
 }
 
 bool Thread::runHostedEventDeliveryLeaseRegression()
@@ -2288,29 +2286,34 @@ void Thread::resumeTermination()
 void Thread::registerDeferredScope(
     DeferredScopeRecord &record, bool termination, bool events)
 {
-    LockGuard<Spinlock> guard(m_DeferredScopeLock);
     if (
         record.armed || record.next ||
-        record.defersTermination || record.defersEvents)
+        record.defersTermination || record.defersEvents ||
+        record.sequence || record.cleanup || record.context)
     {
         FATAL("Deferred scope registered more than once.");
     }
 
-    record.stateLevel =
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+
+    const size_t level =
         __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
-    ++m_NextStateCleanupSequence;
-    if (!m_NextStateCleanupSequence)
+    const size_t sequence = __atomic_add_fetch(
+        &m_NextStateCleanupSequence, static_cast<size_t>(1),
+        __ATOMIC_ACQ_REL);
+    if (!sequence)
     {
         FATAL("Thread state cleanup sequence exhausted.");
     }
-    record.sequence = m_NextStateCleanupSequence;
+
+    record.stateLevel = level;
+    record.sequence = sequence;
     record.defersTermination = termination;
     record.defersEvents = events;
     record.cleanup = nullptr;
     record.context = nullptr;
     record.armed = true;
-    record.next = m_pDeferredScopes;
-    m_pDeferredScopes = &record;
 
     if (termination)
     {
@@ -2320,6 +2323,17 @@ void Thread::registerDeferredScope(
     {
         deferEvents();
     }
+
+    DeferredScopeRecord *head =
+        __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
+    do
+    {
+        record.next = head;
+    } while (!__atomic_compare_exchange_n(
+        &m_pDeferredScopes[level], &head, &record, false,
+        __ATOMIC_RELEASE, __ATOMIC_ACQUIRE));
+
+    Processor::setInterrupts(interruptsWereEnabled);
 }
 
 void Thread::armStateCleanup(
@@ -2331,43 +2345,63 @@ void Thread::armStateCleanup(
         FATAL("State cleanup armed without a callback.");
     }
 
-    LockGuard<Spinlock> guard(m_DeferredScopeLock);
     if (
         record.armed || record.next ||
-        record.defersTermination || record.defersEvents)
+        record.defersTermination || record.defersEvents ||
+        record.sequence || record.cleanup || record.context)
     {
         FATAL("State cleanup record armed more than once.");
     }
 
-    record.stateLevel =
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+
+    const size_t level =
         __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
-    ++m_NextStateCleanupSequence;
-    if (!m_NextStateCleanupSequence)
+    const size_t sequence = __atomic_add_fetch(
+        &m_NextStateCleanupSequence, static_cast<size_t>(1),
+        __ATOMIC_ACQ_REL);
+    if (!sequence)
     {
         FATAL("Thread state cleanup sequence exhausted.");
     }
-    record.sequence = m_NextStateCleanupSequence;
+
+    record.stateLevel = level;
+    record.sequence = sequence;
     record.cleanup = cleanup;
     record.context = context;
     record.armed = true;
-    record.next = m_pDeferredScopes;
-    m_pDeferredScopes = &record;
+
+    DeferredScopeRecord *head =
+        __atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
+    do
+    {
+        record.next = head;
+    } while (!__atomic_compare_exchange_n(
+        &m_pDeferredScopes[level], &head, &record, false,
+        __ATOMIC_RELEASE, __ATOMIC_ACQUIRE));
+
+    Processor::setInterrupts(interruptsWereEnabled);
 }
 
 void Thread::unregisterDeferredScope(DeferredScopeRecord &record)
 {
-    LockGuard<Spinlock> guard(m_DeferredScopeLock);
-    DeferredScopeRecord **link = &m_pDeferredScopes;
-    while (*link && *link != &record)
-    {
-        link = &(*link)->next;
-    }
-    if (!*link || !record.armed)
+    if (!record.armed || record.stateLevel >= MAX_NESTED_EVENTS)
     {
         FATAL("Deferred scope was not registered on this Thread.");
     }
 
-    *link = record.next;
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+
+    DeferredScopeRecord *expected = &record;
+    if (!__atomic_compare_exchange_n(
+            &m_pDeferredScopes[record.stateLevel], &expected,
+            record.next, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    {
+        FATAL("Deferred scopes were not released in LIFO order.");
+    }
+
     if (record.defersTermination)
     {
         resumeTermination();
@@ -2377,42 +2411,63 @@ void Thread::unregisterDeferredScope(DeferredScopeRecord &record)
         resumeEvents();
     }
     record = DeferredScopeRecord();
+
+    Processor::setInterrupts(interruptsWereEnabled);
 }
 
 void Thread::disarmStateCleanup(DeferredScopeRecord &record)
 {
-    LockGuard<Spinlock> guard(m_DeferredScopeLock);
-    DeferredScopeRecord **link = &m_pDeferredScopes;
-    while (*link && *link != &record)
-    {
-        link = &(*link)->next;
-    }
-    if (!*link || !record.armed)
+    if (!record.armed || record.stateLevel >= MAX_NESTED_EVENTS)
     {
         FATAL("State cleanup record was not armed on this Thread.");
     }
 
-    *link = record.next;
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+
+    DeferredScopeRecord *expected = &record;
+    if (!__atomic_compare_exchange_n(
+            &m_pDeferredScopes[record.stateLevel], &expected,
+            record.next, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    {
+        FATAL("State cleanup records were not disarmed in LIFO order.");
+    }
+
     record = DeferredScopeRecord();
+
+    Processor::setInterrupts(interruptsWereEnabled);
 }
 
 void Thread::moveDeferredScope(
     DeferredScopeRecord &from, DeferredScopeRecord &to)
 {
-    LockGuard<Spinlock> guard(m_DeferredScopeLock);
-    DeferredScopeRecord **link = &m_pDeferredScopes;
-    while (*link && *link != &from)
-    {
-        link = &(*link)->next;
-    }
-    if (!*link || !from.armed)
+    if (
+        &from == &to || !from.armed ||
+        from.stateLevel >= MAX_NESTED_EVENTS)
     {
         FATAL("Moved deferred scope was not registered.");
     }
+    if (
+        to.armed || to.next || to.defersTermination || to.defersEvents ||
+        to.sequence || to.cleanup || to.context)
+    {
+        FATAL("Deferred scope move destination was already registered.");
+    }
+
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
 
     to = from;
-    *link = &to;
+    DeferredScopeRecord *expected = &from;
+    if (!__atomic_compare_exchange_n(
+            &m_pDeferredScopes[from.stateLevel], &expected, &to, false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    {
+        FATAL("Deferred scopes were not moved in LIFO order.");
+    }
     from = DeferredScopeRecord();
+
+    Processor::setInterrupts(interruptsWereEnabled);
 }
 
 void Thread::retireDeferredScopes(
@@ -2424,8 +2479,8 @@ void Thread::retireDeferredScopes(
 
 size_t Thread::stateCleanupCheckpoint()
 {
-    LockGuard<Spinlock> guard(m_DeferredScopeLock);
-    return m_NextStateCleanupSequence;
+    return __atomic_load_n(
+        &m_NextStateCleanupSequence, __ATOMIC_ACQUIRE);
 }
 
 void Thread::retireDeferredScopesAfter(size_t checkpoint)
@@ -2440,61 +2495,121 @@ void Thread::retireDeferredScopesMatching(
 {
     DeferredScopeRecord *retired = nullptr;
     DeferredScopeRecord *retiredTail = nullptr;
+
+    if (!allStateLevels && stateLevel >= MAX_NESTED_EVENTS)
     {
-        LockGuard<Spinlock> guard(m_DeferredScopeLock);
-        DeferredScopeRecord **link = &m_pDeferredScopes;
-        while (*link)
+        FATAL("State cleanup retirement has an invalid level.");
+    }
+
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+
+    while (true)
+    {
+        DeferredScopeRecord *candidate = nullptr;
+        size_t candidateLevel = 0;
+
+        for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level)
         {
-            DeferredScopeRecord *record = *link;
             if (
-                (newerThanCheckpoint &&
-                 record->sequence <= checkpoint) ||
-                (!newerThanCheckpoint && !allStateLevels &&
-                 record->stateLevel != stateLevel))
+                !allStateLevels && level != stateLevel)
             {
-                link = &record->next;
                 continue;
             }
 
-            *link = record->next;
-            if (record->defersTermination)
+            DeferredScopeRecord *head =
+                __atomic_load_n(
+                    &m_pDeferredScopes[level], __ATOMIC_ACQUIRE);
+            if (
+                !head ||
+                (newerThanCheckpoint && head->sequence <= checkpoint))
             {
-                resumeTermination();
+                continue;
             }
-            if (record->defersEvents)
+            if (
+                !head->armed || head->stateLevel != level ||
+                !head->sequence)
             {
-                resumeEvents();
+                FATAL("Corrupt Thread state cleanup publication.");
             }
-            record->armed = false;
-            record->next = nullptr;
-            if (retiredTail)
+            if (!candidate || head->sequence > candidate->sequence)
             {
-                retiredTail->next = record;
+                candidate = head;
+                candidateLevel = level;
             }
-            else
-            {
-                retired = record;
-            }
-            retiredTail = record;
         }
+
+        if (!candidate)
+        {
+            break;
+        }
+
+        DeferredScopeRecord *expected = candidate;
+        if (!__atomic_compare_exchange_n(
+                &m_pDeferredScopes[candidateLevel], &expected,
+                candidate->next, false, __ATOMIC_ACQ_REL,
+                __ATOMIC_ACQUIRE))
+        {
+            continue;
+        }
+
+        if (candidate->defersTermination)
+        {
+            resumeTermination();
+        }
+        if (candidate->defersEvents)
+        {
+            resumeEvents();
+        }
+        candidate->armed = false;
+        candidate->next = nullptr;
+        if (retiredTail)
+        {
+            retiredTail->next = candidate;
+        }
+        else
+        {
+            retired = candidate;
+        }
+        retiredTail = candidate;
     }
+
+    Processor::setInterrupts(interruptsWereEnabled);
 
     while (retired)
     {
         DeferredScopeRecord *next = retired->next;
         DeferredScopeRecord::Cleanup cleanup = retired->cleanup;
         void *context = retired->context;
-        retired->next = nullptr;
-        retired->defersTermination = false;
-        retired->defersEvents = false;
-        retired->cleanup = nullptr;
-        retired->context = nullptr;
+        *retired = DeferredScopeRecord();
         if (cleanup)
         {
             cleanup(context);
         }
         retired = next;
     }
+}
+
+void Thread::armAtomicStateCleanup(
+    AtomicStateCleanupRecord &record,
+    AtomicStateCleanupRecord::Cleanup cleanup, void *context)
+{
+    if (Processor::information().getCurrentThread() != this)
+    {
+        FATAL(
+            "Interrupt/exception cleanup armed for a non-current Thread.");
+    }
+    armStateCleanup(record, cleanup, context);
+}
+
+void Thread::disarmAtomicStateCleanup(AtomicStateCleanupRecord &record)
+{
+    if (Processor::information().getCurrentThread() != this)
+    {
+        FATAL(
+            "Interrupt/exception cleanup disarmed for a non-current Thread.");
+    }
+    disarmStateCleanup(record);
 }
 
 void Thread::setScheduler(class PerProcessorScheduler *pScheduler)
@@ -2509,19 +2624,12 @@ PerProcessorScheduler *Thread::getScheduler() const
 
 void Thread::cleanStateLevel(size_t level)
 {
+    if (
+        __atomic_load_n(
+            &m_pDeferredScopes[level], __ATOMIC_ACQUIRE))
     {
-        LockGuard<Spinlock> guard(m_DeferredScopeLock);
-        for (
-            DeferredScopeRecord *record = m_pDeferredScopes;
-            record; record = record->next)
-        {
-            if (record->stateLevel == level)
-            {
-                FATAL(
-                    "Thread state stack freed with an armed cleanup "
-                    "record.");
-            }
-        }
+        FATAL(
+            "Thread state stack freed with an armed cleanup record.");
     }
 
     if (m_StateLevels[level].m_Waiter.loadQueue())

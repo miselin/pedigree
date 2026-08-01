@@ -83,6 +83,13 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     /** Runs a deterministic test seam while the writer lock is held. */
     static EXPORTED_PUBLIC void
     withRegistryMutationLockForTest(MutationLockHook hook);
+
+    /** Counts active hazards for deterministic abandoned-stack tests. */
+    static EXPORTED_PUBLIC size_t
+    activeDispatchCountForTest(IrqHandler *handler);
+
+    /** Abandons the current test Thread through the kernel scheduler. */
+    static EXPORTED_PUBLIC void abandonCurrentThreadForTest();
 #endif
 
   private:

@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/process/DeferredScope.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
@@ -40,6 +41,8 @@ class Process;
 class SyscallManager;
 class TerminationDeferral;
 class TimeoutGuard;
+class IrqHandlerRegistry;
+class TimerHandlerRegistry;
 
 /** Thread TLS area size */
 #define THREAD_TLS_SIZE 0x1000
@@ -64,6 +67,8 @@ class EXPORTED_PUBLIC Thread
     friend class TerminationDeferral;
     friend class SyscallManager;
     friend class TimeoutGuard;
+    friend class IrqHandlerRegistry;
+    friend class TimerHandlerRegistry;
 
   public:
     /** The state that a thread can possibly have. */
@@ -300,8 +305,23 @@ class EXPORTED_PUBLIC Thread
     /** True while stack-owned lifetime state must be retired before teardown. */
     bool isTerminationDeferred() const
     {
-        return __atomic_load_n(
-                   &m_TerminationDeferralDepth, __ATOMIC_ACQUIRE) != 0;
+        if (
+            __atomic_load_n(
+                &m_TerminationDeferralDepth, __ATOMIC_ACQUIRE) != 0)
+        {
+            return true;
+        }
+
+        for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level)
+        {
+            if (
+                __atomic_load_n(
+                    &m_pDeferredScopes[level], __ATOMIC_ACQUIRE))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Returns the thread's debug state. */
@@ -363,6 +383,7 @@ class EXPORTED_PUBLIC Thread
         StateTransitionWindow window, Thread *thread, size_t previousLevel,
         size_t nextLevel);
     using JoinOperationHook = void (*)(Thread *target, Process *parent);
+    using DeferredScopeLockHook = void (*)();
 
     /** Installs a deterministic observer around state-level publication. */
     static void setStateTransitionHook(StateTransitionHook hook);
@@ -393,6 +414,9 @@ class EXPORTED_PUBLIC Thread
 
     /** Exercises LIFO, checkpoint, and per-level abandoned-state cleanup. */
     bool runHostedStateCleanupRegression();
+
+    /** Simulates an interrupted legacy scope writer for IRQ regressions. */
+    void withDeferredScopeLockForTest(DeferredScopeLockHook hook);
 #endif
 
     /** Sets the given event number as inhibited.
@@ -596,6 +620,10 @@ class EXPORTED_PUBLIC Thread
     void retireDeferredScopesMatching(
         bool allStateLevels, size_t stateLevel,
         bool newerThanCheckpoint, size_t checkpoint);
+    void armAtomicStateCleanup(
+        AtomicStateCleanupRecord &record,
+        AtomicStateCleanupRecord::Cleanup cleanup, void *context);
+    void disarmAtomicStateCleanup(AtomicStateCleanupRecord &record);
 
   private:
     /** Copy-constructor */
@@ -814,12 +842,13 @@ class EXPORTED_PUBLIC Thread
     /** Nesting depth for scopes which must run cleanup before teardown. */
     size_t m_TerminationDeferralDepth = 0;
 
-    /** Serialises intrusive stack-scope deferral records. */
-    Spinlock m_DeferredScopeLock;
-
-    /** Stack-resident deferral scopes which teardown must retire explicitly. */
-    DeferredScopeRecord *m_pDeferredScopes = nullptr;
+    /** Per-state LIFO of stack records which teardown must retire explicitly. */
+    DeferredScopeRecord *m_pDeferredScopes[MAX_NESTED_EVENTS] = {};
     size_t m_NextStateCleanupSequence = 0;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    Spinlock m_DeferredScopeRegressionLock;
+#endif
 
 #if HOSTED
     /** Number of live host signal frames owned by this Pedigree thread. */

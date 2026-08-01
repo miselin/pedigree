@@ -22,6 +22,9 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/state.h"
 
@@ -174,5 +177,15 @@ void HostedIrqManager::withRegistryMutationLockForTest(
     MutationLockHook hook)
 {
     m_Instance.m_Handlers.withMutationLockForTest(hook);
+}
+
+size_t HostedIrqManager::activeDispatchCountForTest(IrqHandler *handler)
+{
+    return m_Instance.m_Handlers.activeDispatchCountForTest(handler);
+}
+
+void HostedIrqManager::abandonCurrentThreadForTest()
+{
+    Processor::information().getScheduler().killCurrentThread();
 }
 #endif

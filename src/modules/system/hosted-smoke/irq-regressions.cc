@@ -12,6 +12,8 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/time/Time.h"
 #include "system/kernel/machine/hosted/IrqManager.h"
 
@@ -35,6 +37,7 @@ bool check(
 struct RegistryDispatchContext;
 RegistryDispatchContext *g_RegistryDispatchContext = nullptr;
 void dispatchWhileWriterLocked();
+void dispatchWhileDeferredScopeLocked();
 
 class RegistryDispatchHandler : public IrqHandler
 {
@@ -54,8 +57,9 @@ struct RegistryDispatchContext
 {
     explicit RegistryDispatchContext(IrqManager *manager)
         : manager(manager), handler(*this), id(0), calls(0), hookCalls(0),
-          admitted(0), handled(0), unregisterSucceeded(0),
-          mutationRequested(0), state(nullptr)
+          admitted(0), handled(0), unregisterSucceeded(0), mutationRequested(0),
+          deferredScopeRequested(0), deferredScopeHookCalls(0),
+          deferredScopeAdmitted(0), deferredScopeHandled(0), state(nullptr)
     {
     }
 
@@ -68,6 +72,10 @@ struct RegistryDispatchContext
     Atomic<size_t> handled;
     Atomic<size_t> unregisterSucceeded;
     Atomic<size_t> mutationRequested;
+    Atomic<size_t> deferredScopeRequested;
+    Atomic<size_t> deferredScopeHookCalls;
+    Atomic<size_t> deferredScopeAdmitted;
+    Atomic<size_t> deferredScopeHandled;
     InterruptState *state;
 };
 
@@ -79,6 +87,14 @@ bool RegistryDispatchHandler::irq(irq_id_t, InterruptState &state)
         m_Context.state = &state;
         HostedIrqManager::withRegistryMutationLockForTest(
             dispatchWhileWriterLocked);
+        m_Context.state = nullptr;
+    }
+    if (m_Context.deferredScopeRequested.compareAndSwap(1, 2))
+    {
+        m_Context.state = &state;
+        Processor::information()
+            .getCurrentThread()
+            ->withDeferredScopeLockForTest(dispatchWhileDeferredScopeLocked);
         m_Context.state = nullptr;
     }
     return true;
@@ -107,6 +123,32 @@ void dispatchWhileWriterLocked()
     if (handled)
     {
         context->handled += 1;
+    }
+}
+
+void dispatchWhileDeferredScopeLocked()
+{
+    RegistryDispatchContext *context = g_RegistryDispatchContext;
+    if (!context)
+    {
+        return;
+    }
+
+    context->deferredScopeHookCalls += 1;
+    if (!context->state)
+    {
+        return;
+    }
+
+    bool handled = false;
+    if (HostedIrqManager::dispatchHandlerForTest(
+            1, &context->handler, *context->state, handled))
+    {
+        context->deferredScopeAdmitted += 1;
+    }
+    if (handled)
+    {
+        context->deferredScopeHandled += 1;
     }
 }
 
@@ -141,11 +183,42 @@ bool writerLockIndependentDispatch()
     return passed;
 }
 
+bool deferredScopeLockIndependentDispatch()
+{
+    constexpr const char *Test = "irq-dispatch-deferred-scope-lock-independent";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    RegistryDispatchContext context(manager);
+    context.id = manager->registerIsaIrqHandler(1, &context.handler);
+
+    g_RegistryDispatchContext = &context;
+    context.deferredScopeRequested = 1;
+    const bool signalQueued = raise(SIGUSR2) == 0;
+    g_RegistryDispatchContext = nullptr;
+
+    const bool cleaned =
+        context.id && manager->unregisterHandler(context.id, &context.handler);
+    bool passed = true;
+    passed &= check(
+        context.id != 0, "the test handler could not be registered", Test);
+    passed &= check(
+        signalQueued && context.deferredScopeHookCalls == 1 &&
+            context.deferredScopeAdmitted == 1 &&
+            context.deferredScopeHandled == 1 && context.calls >= 2,
+        "dispatch entered the interrupted Thread's deferred-scope lock", Test);
+    passed &= check(cleaned, "the test handler could not be removed", Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-dispatch-deferred-scope-lock-independent");
+    }
+    return passed;
+}
+
 void unregisterBeforePin(IrqHandler *handler)
 {
     RegistryDispatchContext *context = g_RegistryDispatchContext;
-    if (
-        !context || handler != &context->handler ||
+    if (!context || handler != &context->handler ||
         !context->hookCalls.compareAndSwap(0, 1))
     {
         return;
@@ -194,6 +267,94 @@ bool prePinUnregisterRevalidation()
         NOTICE(
             "HOSTED-WAIT-TEST: PASS "
             "irq-pre-pin-unregister-revalidation");
+    }
+    return passed;
+}
+
+struct AbandonedDispatchContext;
+
+class AbandoningIrqHandler : public IrqHandler
+{
+  public:
+    explicit AbandoningIrqHandler(AbandonedDispatchContext &context)
+        : m_Context(context)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override;
+
+  private:
+    AbandonedDispatchContext &m_Context;
+};
+
+struct AbandonedDispatchContext
+{
+    AbandonedDispatchContext()
+        : handler(*this), worker(nullptr), entered(0), returned(0)
+    {
+    }
+
+    AbandoningIrqHandler handler;
+    Thread *worker;
+    Atomic<size_t> entered;
+    Atomic<size_t> returned;
+};
+
+bool AbandoningIrqHandler::irq(irq_id_t, InterruptState &)
+{
+    if (Processor::information().getCurrentThread() != m_Context.worker)
+    {
+        return true;
+    }
+
+    m_Context.entered += 1;
+    HostedIrqManager::abandonCurrentThreadForTest();
+    return true;
+}
+
+int abandonIrqDispatch(void *parameter)
+{
+    AbandonedDispatchContext *context =
+        reinterpret_cast<AbandonedDispatchContext *>(parameter);
+    raise(SIGUSR2);
+    context->returned += 1;
+    return 1;
+}
+
+bool abandonedDispatchCleanup()
+{
+    constexpr const char *Test = "irq-abandoned-dispatch-cleanup";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    AbandonedDispatchContext context;
+    const irq_id_t id = manager->registerIsaIrqHandler(1, &context.handler);
+
+    context.worker = new Thread(
+        Scheduler::instance().getKernelProcess(), abandonIrqDispatch, &context,
+        nullptr, false, true, true);
+    context.worker->setName("hosted abandoned IRQ dispatch");
+    const bool started = context.worker->start();
+    const bool joined = started && context.worker->join();
+
+    const size_t active =
+        HostedIrqManager::activeDispatchCountForTest(&context.handler);
+    const bool cleaned = id && manager->unregisterHandler(id, &context.handler);
+
+    bool passed = true;
+    passed &= check(id != 0, "the test handler could not be registered", Test);
+    passed &= check(
+        started && joined && context.entered == 1 && !context.returned,
+        "the callback did not abandon its real worker stack", Test);
+    passed &= check(
+        active == 0, "stack abandonment leaked an active callback hazard",
+        Test);
+    passed &= check(
+        cleaned, "unregister could not retire the abandoned callback slot",
+        Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-abandoned-dispatch-cleanup");
     }
     return passed;
 }
@@ -276,8 +437,7 @@ class SelfRemovingHandler : public IrqHandler
 void handlerPinHook(IrqHandler *handler)
 {
     HandlerLifetimeContext *context = g_HandlerLifetimeContext;
-    if (
-        !context || handler != &context->handler ||
+    if (!context || handler != &context->handler ||
         !context->phase.compareAndSwap(0, 1))
     {
         return;
@@ -286,32 +446,23 @@ void handlerPinHook(IrqHandler *handler)
     context->hookCalls += 1;
     // Hosted IRQ signals remain masked while this signal frame is live, so a
     // tick-based deadline cannot advance here. Bound scheduler handoffs
-    // directly while the remover reaches the callback-drain queue.
+    // directly while the remover publishes its callback-drain state.
     for (size_t attempt = 0; attempt < 10000; ++attempt)
     {
-        Thread::WaitDebugInfo info = {};
         uintptr_t debugAddress = 0;
-        if (
-            context->phase == static_cast<size_t>(2) &&
-            context->remover->getWaitDebugInfo(info) && info.queue &&
-            info.channelOwner && info.queued &&
+        if (context->phase == static_cast<size_t>(2) &&
             context->remover->getDebugState(debugAddress) ==
                 Thread::CallbackDrain &&
-            debugAddress ==
-                reinterpret_cast<uintptr_t>(&context->handler))
+            debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
         {
             break;
         }
         Scheduler::instance().yield();
     }
 
-    Thread::WaitDebugInfo info = {};
     uintptr_t debugAddress = 0;
-    if (
-        context->phase == static_cast<size_t>(2) &&
+    if (context->phase == static_cast<size_t>(2) &&
         !context->unregisterReturned &&
-        context->remover->getWaitDebugInfo(info) && info.queue &&
-        info.channelOwner && info.queued &&
         context->remover->getDebugState(debugAddress) ==
             Thread::CallbackDrain &&
         debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
@@ -331,9 +482,8 @@ int unregisterPinnedHandler(void *parameter)
         reinterpret_cast<HandlerLifetimeContext *>(parameter);
     const Time::Timestamp deadline =
         Time::getTicks() + (500 * Time::Multiplier::Millisecond);
-    while (
-        context->phase != static_cast<size_t>(1) &&
-        Time::getTicks() < deadline)
+    while (context->phase != static_cast<size_t>(1) &&
+           Time::getTicks() < deadline)
     {
         Scheduler::instance().yield();
     }
@@ -384,8 +534,7 @@ bool handlerLifetimeBarrier()
     bool primaryCleanup = true;
     if (activeId && !context.unregisterSucceeded)
     {
-        primaryCleanup =
-            manager->unregisterHandler(activeId, &context.handler);
+        primaryCleanup = manager->unregisterHandler(activeId, &context.handler);
     }
 
     const size_t callsAtUnregisterReturn = context.handlerCalls;
@@ -397,8 +546,7 @@ bool handlerLifetimeBarrier()
     }
 
     SelfRemovingHandler selfRemoving(manager, context.id);
-    const irq_id_t selfId =
-        manager->registerIsaIrqHandler(0, &selfRemoving);
+    const irq_id_t selfId = manager->registerIsaIrqHandler(0, &selfRemoving);
     const Time::Timestamp selfDeadline =
         Time::getTicks() + (250 * Time::Multiplier::Millisecond);
     while (!selfRemoving.calls && Time::getTicks() < selfDeadline)
@@ -441,8 +589,7 @@ bool handlerLifetimeBarrier()
         context.hookCalls == 1 && context.hookObservedDrain == 1,
         "unregister returned instead of waiting for the pinned callback");
     passed &= check(
-        context.unregisterSucceeded == 1 &&
-            context.unregisterReturned == 1,
+        context.unregisterSucceeded == 1 && context.unregisterReturned == 1,
         "the pinned handler did not unregister successfully");
     passed &= check(
         primaryCleanup,
@@ -472,7 +619,9 @@ bool handlerLifetimeBarrier()
 bool runHostedIrqRegressions()
 {
     bool passed = writerLockIndependentDispatch();
+    passed &= deferredScopeLockIndependentDispatch();
     passed &= prePinUnregisterRevalidation();
+    passed &= abandonedDispatchCleanup();
     passed &= handlerLifetimeBarrier();
     return passed;
 }

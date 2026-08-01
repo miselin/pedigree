@@ -7,7 +7,9 @@
 
 #include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -28,8 +30,7 @@ size_t IrqHandlerRegistry::makePublication(
     size_t generation, uint8_t irq, SlotMode mode)
 {
     return (generation << GenerationShift) |
-           (static_cast<size_t>(irq) << IrqShift) |
-           static_cast<size_t>(mode);
+           (static_cast<size_t>(irq) << IrqShift) | static_cast<size_t>(mode);
 }
 
 size_t IrqHandlerRegistry::generationOf(size_t publication)
@@ -42,53 +43,54 @@ uint8_t IrqHandlerRegistry::irqOf(size_t publication)
     return static_cast<uint8_t>((publication & IrqMask) >> IrqShift);
 }
 
-IrqHandlerRegistry::SlotMode
-IrqHandlerRegistry::modeOf(size_t publication)
+IrqHandlerRegistry::SlotMode IrqHandlerRegistry::modeOf(size_t publication)
 {
     return static_cast<SlotMode>(publication & ModeMask);
 }
 
 bool IrqHandlerRegistry::retireSlot(
-    HandlerSlot &slot, size_t expectedPublication,
-    IrqHandler *expectedHandler)
+    HandlerSlot &slot, size_t expectedPublication, IrqHandler *expectedHandler)
 {
     const size_t retiringPublication = makePublication(
         generationOf(expectedPublication), irqOf(expectedPublication),
         SlotMode::Retiring);
     if (!__atomic_compare_exchange_n(
-            &slot.publication, &expectedPublication, retiringPublication,
-            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            &slot.publication, &expectedPublication, retiringPublication, false,
+            __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
     {
         return false;
     }
 
-    assert(
-        __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) ==
-        expectedHandler);
+    assert(__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) == expectedHandler);
     __atomic_store_n(&slot.handler, nullptr, __ATOMIC_RELEASE);
     __atomic_store_n(
         &slot.publication,
         makePublication(
             generationOf(retiringPublication), InvalidIrq, SlotMode::Empty),
-        __ATOMIC_RELEASE);
+        __ATOMIC_SEQ_CST);
     return true;
 }
 
 IrqHandlerRegistry::ActiveDispatch *
-IrqHandlerRegistry::publishDispatch(HandlerSlot &slot, void *owner)
+IrqHandlerRegistry::publishDispatch(HandlerSlot &slot, void *owner, void *token)
 {
     assert(owner);
+    assert(token);
     for (size_t i = 0; i < MaxActiveDispatches; ++i)
     {
         ActiveDispatch &dispatch = m_ActiveDispatches[i];
-        void *expectedOwner = nullptr;
+        void *expectedToken = nullptr;
         if (__atomic_compare_exchange_n(
-                &dispatch.owner, &expectedOwner, owner, false,
-                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                &dispatch.token, &expectedToken, token, false, __ATOMIC_SEQ_CST,
+                __ATOMIC_SEQ_CST))
         {
-            // Only this owner can observe itself in this record. Publish the
-            // target before entering handler code which can unregister it.
-            __atomic_store_n(&dispatch.slot, &slot, __ATOMIC_RELEASE);
+            __atomic_add_fetch(
+                &dispatch.generation, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+            __atomic_store_n(&dispatch.owner, owner, __ATOMIC_RELAXED);
+            // Publishing the slot commits the callback pin. A removal which
+            // closes admission before this store can retire the handler; the
+            // dispatch revalidation below will then reject this callback.
+            __atomic_store_n(&dispatch.slot, &slot, __ATOMIC_SEQ_CST);
             return &dispatch;
         }
     }
@@ -96,11 +98,75 @@ IrqHandlerRegistry::publishDispatch(HandlerSlot &slot, void *owner)
     return nullptr;
 }
 
-void IrqHandlerRegistry::unpublishDispatch(ActiveDispatch *dispatch)
+void IrqHandlerRegistry::unpublishDispatch(void *token, HandlerSlot &slot)
 {
-    assert(dispatch);
-    __atomic_store_n(&dispatch->slot, nullptr, __ATOMIC_RELEASE);
-    __atomic_store_n(&dispatch->owner, nullptr, __ATOMIC_RELEASE);
+    assert(token);
+    bool found = false;
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token)
+        {
+            continue;
+        }
+
+        __atomic_store_n(&dispatch.slot, nullptr, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&dispatch.owner, nullptr, __ATOMIC_RELAXED);
+        __atomic_store_n(&dispatch.token, nullptr, __ATOMIC_RELEASE);
+        found = true;
+        break;
+    }
+
+    if (!found)
+    {
+        FATAL_NOLOCK("IRQ callback hazard was released more than once.");
+        return;
+    }
+
+    if (hasActiveDispatch(slot))
+    {
+        return;
+    }
+
+    const size_t publication =
+        __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+    const SlotMode mode = modeOf(publication);
+    if (mode == SlotMode::Deferred)
+    {
+        IrqHandler *handler = __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
+        retireSlot(slot, publication, handler);
+    }
+}
+
+void IrqHandlerRegistry::abandonDispatch(void *context)
+{
+    DispatchCleanup *dispatch = reinterpret_cast<DispatchCleanup *>(context);
+    dispatch->registry->unpublishDispatch(dispatch, *dispatch->slot);
+}
+
+bool IrqHandlerRegistry::hasActiveDispatch(HandlerSlot &target) const
+{
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        const ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        HandlerSlot *slot = __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        if (slot == &target &&
+            __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) == token &&
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) ==
+                generation)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool IrqHandlerRegistry::findCurrentDispatch(
@@ -111,48 +177,39 @@ bool IrqHandlerRegistry::findCurrentDispatch(
     for (size_t i = 0; i < MaxActiveDispatches; ++i)
     {
         const ActiveDispatch &dispatch = m_ActiveDispatches[i];
-        if (__atomic_load_n(&dispatch.owner, __ATOMIC_ACQUIRE) == owner)
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        void *dispatchOwner =
+            __atomic_load_n(&dispatch.owner, __ATOMIC_RELAXED);
+        HandlerSlot *slot = __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token ||
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) !=
+                generation)
+        {
+            continue;
+        }
+
+        if (dispatchOwner == owner && slot)
         {
             callbackContext = true;
-            foundTarget |=
-                __atomic_load_n(&dispatch.slot, __ATOMIC_ACQUIRE) == target;
+            foundTarget |= slot == target;
         }
     }
     return foundTarget;
-}
-
-void IrqHandlerRegistry::releasePin(HandlerSlot &slot)
-{
-    const size_t remaining =
-        __atomic_sub_fetch(&slot.inFlight, 1, __ATOMIC_ACQ_REL);
-    if (remaining)
-    {
-        return;
-    }
-
-    const size_t publication =
-        __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE);
-    const SlotMode mode = modeOf(publication);
-    if (mode == SlotMode::Deferred)
-    {
-        IrqHandler *handler =
-            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
-        retireSlot(slot, publication, handler);
-    }
-    else if (mode == SlotMode::Draining)
-    {
-        slot.drainWaiters.wakeAll(
-            WaitQueue::WakeReason::Signalled,
-            WaitQueue::Channel(&slot));
-    }
 }
 
 void *IrqHandlerRegistry::currentDispatchOwner()
 {
     ProcessorInformation &information = Processor::information();
     Thread *thread = information.getCurrentThread();
-    return thread ? static_cast<void *>(thread)
-                  : static_cast<void *>(&information);
+    return thread ? static_cast<void *>(thread) :
+                    static_cast<void *>(&information);
 }
 
 bool IrqHandlerRegistry::registerHandler(uint8_t irq, IrqHandler *handler)
@@ -167,9 +224,8 @@ bool IrqHandlerRegistry::registerHandler(uint8_t irq, IrqHandler *handler)
     {
         HandlerSlot &slot = m_Handlers[i];
         const size_t publication =
-            __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE);
-        if (
-            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) == handler &&
+            __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+        if (__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) == handler &&
             irqOf(publication) == irq && modeOf(publication) != SlotMode::Empty)
         {
             if (modeOf(publication) == SlotMode::Deferred)
@@ -178,9 +234,8 @@ bool IrqHandlerRegistry::registerHandler(uint8_t irq, IrqHandler *handler)
                 const size_t enabledPublication = makePublication(
                     generationOf(publication), irq, SlotMode::Enabled);
                 return __atomic_compare_exchange_n(
-                    &slot.publication, &expectedPublication,
-                    enabledPublication, false, __ATOMIC_ACQ_REL,
-                    __ATOMIC_ACQUIRE);
+                    &slot.publication, &expectedPublication, enabledPublication,
+                    false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
             }
             return false;
         }
@@ -190,9 +245,8 @@ bool IrqHandlerRegistry::registerHandler(uint8_t irq, IrqHandler *handler)
     {
         HandlerSlot &slot = m_Handlers[i];
         const size_t publication =
-            __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE);
-        if (
-            modeOf(publication) == SlotMode::Empty &&
+            __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+        if (modeOf(publication) == SlotMode::Empty &&
             !__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE))
         {
             const size_t generation = generationOf(publication) + 1;
@@ -200,7 +254,7 @@ bool IrqHandlerRegistry::registerHandler(uint8_t irq, IrqHandler *handler)
             __atomic_store_n(
                 &slot.publication,
                 makePublication(generation, irq, SlotMode::Enabled),
-                __ATOMIC_RELEASE);
+                __ATOMIC_SEQ_CST);
             return true;
         }
     }
@@ -216,9 +270,6 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
         return UnregisterResult::NotFound;
     }
 
-    // Teardown must finish retiring registry-owned state before a terminal
-    // request is allowed to consume this thread's stack.
-    TerminationDeferral terminationDeferral;
     void *owner = currentDispatchOwner();
     Thread *current = Processor::information().getCurrentThread();
     const bool canYield = current && Processor::getInterrupts();
@@ -233,9 +284,8 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
         {
             HandlerSlot &candidate = m_Handlers[i];
             size_t publication =
-                __atomic_load_n(&candidate.publication, __ATOMIC_ACQUIRE);
-            if (
-                modeOf(publication) != SlotMode::Enabled ||
+                __atomic_load_n(&candidate.publication, __ATOMIC_SEQ_CST);
+            if (modeOf(publication) != SlotMode::Enabled ||
                 irqOf(publication) != irq ||
                 __atomic_load_n(&candidate.handler, __ATOMIC_ACQUIRE) !=
                     handler)
@@ -244,15 +294,14 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
             }
 
             bool callbackContext = false;
-            if (findCurrentDispatch(
-                    owner, &candidate, callbackContext))
+            if (findCurrentDispatch(owner, &candidate, callbackContext))
             {
                 const size_t deferredPublication = makePublication(
                     generationOf(publication), irq, SlotMode::Deferred);
                 if (__atomic_compare_exchange_n(
                         &candidate.publication, &publication,
-                        deferredPublication, false, __ATOMIC_ACQ_REL,
-                        __ATOMIC_ACQUIRE))
+                        deferredPublication, false, __ATOMIC_SEQ_CST,
+                        __ATOMIC_SEQ_CST))
                 {
                     return UnregisterResult::Deferred;
                 }
@@ -262,14 +311,13 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
             const size_t drainingPublication = makePublication(
                 generationOf(publication), irq, SlotMode::Draining);
             if (!__atomic_compare_exchange_n(
-                    &candidate.publication, &publication,
-                    drainingPublication, false, __ATOMIC_ACQ_REL,
-                    __ATOMIC_ACQUIRE))
+                    &candidate.publication, &publication, drainingPublication,
+                    false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
             {
                 return UnregisterResult::Rejected;
             }
 
-            if (__atomic_load_n(&candidate.inFlight, __ATOMIC_ACQUIRE))
+            if (hasActiveDispatch(candidate))
             {
                 size_t expectedPublication = drainingPublication;
                 __atomic_compare_exchange_n(
@@ -277,18 +325,22 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
                     makePublication(
                         generationOf(drainingPublication), irq,
                         SlotMode::Enabled),
-                    false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+                    false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
                 return UnregisterResult::Rejected;
             }
 
-            return retireSlot(candidate, drainingPublication, handler)
-                       ? UnregisterResult::Completed
-                       : UnregisterResult::Rejected;
+            return retireSlot(candidate, drainingPublication, handler) ?
+                       UnregisterResult::Completed :
+                       UnregisterResult::Rejected;
         }
 
         return UnregisterResult::NotFound;
     }
 
+    // Only an ordinary thread can synchronously drain. Keep its stack alive
+    // after the atomic callback path has returned without touching Thread
+    // deferred-scope state.
+    TerminationDeferral terminationDeferral;
     m_HandlerLock.acquire();
 
     HandlerSlot *slot = nullptr;
@@ -296,9 +348,8 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
         size_t candidatePublication =
-            __atomic_load_n(&m_Handlers[i].publication, __ATOMIC_ACQUIRE);
-        if (
-            modeOf(candidatePublication) != SlotMode::Empty &&
+            __atomic_load_n(&m_Handlers[i].publication, __ATOMIC_SEQ_CST);
+        if (modeOf(candidatePublication) != SlotMode::Empty &&
             irqOf(candidatePublication) == irq &&
             __atomic_load_n(&m_Handlers[i].handler, __ATOMIC_ACQUIRE) ==
                 handler)
@@ -329,12 +380,11 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
         size_t expectedPublication = publication;
         const bool deferred = __atomic_compare_exchange_n(
             &slot->publication, &expectedPublication,
-            makePublication(
-                generationOf(publication), irq, SlotMode::Deferred),
-            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+            makePublication(generationOf(publication), irq, SlotMode::Deferred),
+            false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
         m_HandlerLock.release();
-        return deferred ? UnregisterResult::Deferred
-                        : UnregisterResult::Rejected;
+        return deferred ? UnregisterResult::Deferred :
+                          UnregisterResult::Rejected;
     }
 
     if (modeOf(publication) != SlotMode::Enabled)
@@ -344,64 +394,54 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
     }
 
     size_t expectedPublication = publication;
-    const size_t drainingPublication = makePublication(
-        generationOf(publication), irq, SlotMode::Draining);
+    const size_t drainingPublication =
+        makePublication(generationOf(publication), irq, SlotMode::Draining);
     if (!__atomic_compare_exchange_n(
             &slot->publication, &expectedPublication, drainingPublication,
-            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
     {
         m_HandlerLock.release();
         return UnregisterResult::Rejected;
     }
 
-    if (
-        callbackContext &&
-        __atomic_load_n(&slot->inFlight, __ATOMIC_ACQUIRE))
+    if (callbackContext && hasActiveDispatch(*slot))
     {
         expectedPublication = drainingPublication;
         __atomic_compare_exchange_n(
             &slot->publication, &expectedPublication, publication, false,
-            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+            __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
         m_HandlerLock.release();
         return UnregisterResult::Rejected;
     }
 
-    if (!__atomic_load_n(&slot->inFlight, __ATOMIC_ACQUIRE))
+    if (!hasActiveDispatch(*slot))
     {
-        const bool retired =
-            retireSlot(*slot, drainingPublication, handler);
+        const bool retired = retireSlot(*slot, drainingPublication, handler);
         m_HandlerLock.release();
-        return retired ? UnregisterResult::Completed
-                       : UnregisterResult::Rejected;
+        return retired ? UnregisterResult::Completed :
+                         UnregisterResult::Rejected;
     }
     m_HandlerLock.release();
 
-    while (true)
+    uintptr_t previousDebugAddress = 0;
+    const Thread::DebugState previousDebugState =
+        current->getDebugState(previousDebugAddress);
+    current->setDebugState(
+        Thread::CallbackDrain, reinterpret_cast<uintptr_t>(handler));
+    while (hasActiveDispatch(*slot))
     {
-        auto waitGuard = slot->drainWaiters.acquire();
-        if (!__atomic_load_n(&slot->inFlight, __ATOMIC_ACQUIRE))
-        {
-            break;
-        }
-
-        const WaitQueue::WakeReason reason =
-            waitGuard.waitForCompletion(
-                WaitQueue::Channel(slot), Thread::CallbackDrain,
-                reinterpret_cast<uintptr_t>(handler));
-        (void) reason;
+        Scheduler::instance().yield();
     }
+    current->setDebugState(previousDebugState, previousDebugAddress);
 
     m_HandlerLock.acquire();
-    const bool retired =
-        retireSlot(*slot, drainingPublication, handler);
+    const bool retired = retireSlot(*slot, drainingPublication, handler);
     m_HandlerLock.release();
-    return retired ? UnregisterResult::Completed
-                   : UnregisterResult::Rejected;
+    return retired ? UnregisterResult::Completed : UnregisterResult::Rejected;
 }
 
 bool IrqHandlerRegistry::dispatch(
-    uint8_t irq, InterruptState &state, bool &handled,
-    IrqHandler *onlyHandler)
+    uint8_t irq, InterruptState &state, bool &handled, IrqHandler *onlyHandler)
 {
     bool admitted = false;
     handled = false;
@@ -410,16 +450,14 @@ bool IrqHandlerRegistry::dispatch(
     {
         HandlerSlot &slot = m_Handlers[i];
         const size_t publication =
-            __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE);
-        if (
-            modeOf(publication) != SlotMode::Enabled ||
+            __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+        if (modeOf(publication) != SlotMode::Enabled ||
             irqOf(publication) != irq)
         {
             continue;
         }
 
-        IrqHandler *handler =
-            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
+        IrqHandler *handler = __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
         if (!handler || (onlyHandler && handler != onlyHandler))
         {
             continue;
@@ -434,26 +472,41 @@ bool IrqHandlerRegistry::dispatch(
         }
 #endif
 
-        __atomic_add_fetch(&slot.inFlight, 1, __ATOMIC_ACQ_REL);
-        if (
-            __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE) !=
+        void *owner = currentDispatchOwner();
+        Thread *thread = Processor::information().getCurrentThread();
+        DispatchCleanup dispatchCleanup(this, &slot, owner);
+        if (thread)
+        {
+            // Publish cleanup before committing the active-dispatch hazard.
+            // A nested exception can therefore abandon this stack at every
+            // later instruction without leaking callback admission.
+            thread->armAtomicStateCleanup(
+                dispatchCleanup.cleanup, abandonDispatch, &dispatchCleanup);
+        }
+
+        if (!publishDispatch(slot, owner, &dispatchCleanup))
+        {
+            if (thread)
+            {
+                thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
+            }
+            FATAL_NOLOCK("IRQ callback hazard table exhausted.");
+            return admitted;
+        }
+
+        if (__atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) !=
                 publication ||
             __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler)
         {
-            releasePin(slot);
-            continue;
-        }
-
-        ActiveDispatch *activeDispatch =
-            publishDispatch(slot, currentDispatchOwner());
-        if (!activeDispatch)
-        {
-            releasePin(slot);
+            unpublishDispatch(&dispatchCleanup, slot);
+            if (thread)
+            {
+                thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
+            }
             continue;
         }
 
         admitted = true;
-        TerminationDeferral callbackDeferral;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
         HandlerPinHook hook =
@@ -465,8 +518,11 @@ bool IrqHandlerRegistry::dispatch(
 #endif
 
         handled |= handler->irq(irq, state);
-        unpublishDispatch(activeDispatch);
-        releasePin(slot);
+        unpublishDispatch(&dispatchCleanup, slot);
+        if (thread)
+        {
+            thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
+        }
     }
 
     return admitted;
@@ -478,9 +534,8 @@ size_t IrqHandlerRegistry::handlerCount(uint8_t irq)
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
         const size_t publication =
-            __atomic_load_n(&m_Handlers[i].publication, __ATOMIC_ACQUIRE);
-        if (
-            modeOf(publication) == SlotMode::Enabled &&
+            __atomic_load_n(&m_Handlers[i].publication, __ATOMIC_SEQ_CST);
+        if (modeOf(publication) == SlotMode::Enabled &&
             irqOf(publication) == irq)
         {
             ++count;
@@ -508,5 +563,32 @@ void IrqHandlerRegistry::withMutationLockForTest(MutationLockHook hook)
         hook();
     }
     m_HandlerLock.release();
+}
+
+size_t IrqHandlerRegistry::activeDispatchCountForTest(IrqHandler *handler)
+{
+    size_t count = 0;
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        HandlerSlot *slot = __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        IrqHandler *activeHandler =
+            slot ? __atomic_load_n(&slot->handler, __ATOMIC_ACQUIRE) : nullptr;
+        if (activeHandler == handler &&
+            __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) == token &&
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) ==
+                generation)
+        {
+            ++count;
+        }
+    }
+    return count;
 }
 #endif
