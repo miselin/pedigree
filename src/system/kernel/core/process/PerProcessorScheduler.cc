@@ -384,6 +384,14 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus)
             &pCurrentThread->getLock().m_Atom.m_Atom);
         const bool waitOwnsEventDispatch =
             pCurrentThread->hasActiveWaitUnlocked();
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        Processor::notifyHostedContextSwitchStage(
+            ProcessorBase::HostedContextSwitchStage::
+                SchedulerBookkeepingComplete);
+        Processor::notifyHostedContextSwitchStage(
+            ProcessorBase::HostedContextSwitchStage::
+                SchedulerRestoringInterrupts);
+#endif
         Processor::setInterrupts(bWasInterrupts);
         if (!waitOwnsEventDispatch)
         {
@@ -617,6 +625,7 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
             Processor::saveAndJumpUser(
                 bWasInterrupts, *oldState, 0, Event::getTrampoline(), userStack,
                 handlerAddress, addr);
+            Processor::setInterrupts(bWasInterrupts);
         }
         else
         {
@@ -744,6 +753,7 @@ void PerProcessorScheduler::addThread(
                 reinterpret_cast<uintptr_t>(pStack),
                 reinterpret_cast<uintptr_t>(pParam));
         }
+        Processor::setInterrupts(bWasInterrupts);
     }
     else
     {

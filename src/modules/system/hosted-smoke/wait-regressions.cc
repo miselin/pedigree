@@ -24,6 +24,7 @@
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
 
 bool runHostedRequestQueueRegressions();
+bool runHostedSchedulerRegressions();
 bool runHostedCacheRegressions();
 bool runHostedInputRegressions();
 EXPORTED_PUBLIC bool runHostedFatSectorRegressions();
@@ -1882,6 +1883,7 @@ bool runHostedWaitRegressions()
         Scheduler::instance()
             .getBootstrapProcessorScheduler()
             ->runHostedNewThreadWorkerRegressions() &&
+        runHostedSchedulerRegressions() &&
         runHostedIrqRegressions() &&
         runHostedInputRegressions() &&
         runHostedNetworkFilterRegressions() &&

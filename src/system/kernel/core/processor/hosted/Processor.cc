@@ -24,6 +24,7 @@
 #include "VirtualAddressSpace.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -36,9 +37,17 @@ namespace __pedigree_hosted
 };
 using namespace __pedigree_hosted;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+namespace
+{
+ProcessorBase::HostedContextSwitchHook g_HostedContextSwitchHook = nullptr;
+}
+#endif
+
 #include <setjmp.h>
 #include <signal.h>
 #include <ucontext.h>
+#include <unistd.h>
 
 bool ProcessorBase::m_bInterrupts;
 
@@ -162,8 +171,10 @@ void ProcessorBase::switchState(
 #if HAS_SANITIZERS
     __sanitizer_finish_switch_fiber(fake_stack_save, nullptr, nullptr);
 #endif
-    if (bInterrupts)
-        Processor::setInterrupts(true);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    notifyHostedContextSwitchStage(
+        HostedContextSwitchStage::SwitchStateReturnedMasked);
+#endif
 }
 
 void ProcessorBase::switchState(
@@ -250,8 +261,6 @@ void ProcessorBase::saveAndJumpKernel(
 #if HAS_SANITIZERS
     __sanitizer_finish_switch_fiber(fake_stack_save, nullptr, nullptr);
 #endif
-    if (bInterrupts)
-        Processor::setInterrupts(true);
 }
 
 void ProcessorBase::saveAndJumpUser(
@@ -282,8 +291,6 @@ void ProcessorBase::saveAndJumpUser(
 #if HAS_SANITIZERS
     __sanitizer_finish_switch_fiber(fake_stack_save, nullptr, nullptr);
 #endif
-    if (bInterrupts)
-        Processor::setInterrupts(true);
 }
 #endif  // SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
 
@@ -386,6 +393,39 @@ bool ProcessorBase::getInterrupts()
 {
     return m_bInterrupts;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void ProcessorBase::setHostedContextSwitchHook(
+    HostedContextSwitchHook hook)
+{
+    __atomic_store_n(
+        &g_HostedContextSwitchHook, hook, __ATOMIC_RELEASE);
+}
+
+void ProcessorBase::notifyHostedContextSwitchStage(
+    HostedContextSwitchStage stage)
+{
+    HostedContextSwitchHook hook = __atomic_load_n(
+        &g_HostedContextSwitchHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(stage);
+    }
+}
+
+bool ProcessorBase::queueHostedSchedulerTickForTest()
+{
+    SchedulerTimer *timer = Machine::instance().getSchedulerTimer();
+    if (!timer)
+    {
+        return false;
+    }
+
+    union sigval value = {};
+    value.sival_ptr = timer;
+    return sigqueue(getpid(), SIGUSR2, value) == 0;
+}
+#endif
 
 void ProcessorBase::setSingleStep(bool bEnable, InterruptState &state)
 {

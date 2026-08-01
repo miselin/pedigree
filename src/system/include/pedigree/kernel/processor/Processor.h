@@ -263,6 +263,27 @@ class EXPORTED_PUBLIC ProcessorBase
     /** Get the IRQ state
      *\return true, if interrupt requests are enabled, false otherwise */
     static bool getInterrupts();
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    enum class HostedContextSwitchStage
+    {
+        SwitchStateReturnedMasked,
+        SchedulerBookkeepingComplete,
+        SchedulerRestoringInterrupts,
+    };
+
+    using HostedContextSwitchHook =
+        void (*)(HostedContextSwitchStage stage);
+
+    /** Installs an observer for deterministic hosted context-switch tests. */
+    static void setHostedContextSwitchHook(HostedContextSwitchHook hook);
+
+    /** Reports a caller-owned post-switch stage to the hosted test observer. */
+    static void notifyHostedContextSwitchStage(
+        HostedContextSwitchStage stage);
+
+    /** Queues a scheduler IRQ while hosted interrupts are masked. */
+    static bool queueHostedSchedulerTickForTest();
+#endif
     /** Enable/Disable single-stepping
      *\param[in] bEnable true to enable single-stepping, false otherwise
      *\param[in] state the interrupt-state */
