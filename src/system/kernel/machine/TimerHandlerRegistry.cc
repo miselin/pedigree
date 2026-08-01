@@ -22,7 +22,7 @@ TimerHandlerRegistry::TimerHandlerRegistry()
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
       m_HandlerPinHook(nullptr), m_HandlerPrePinHook(nullptr),
-      m_HandlerAtomicDrainHook(nullptr)
+      m_HandlerHazardClaimHook(nullptr), m_HandlerAtomicDrainHook(nullptr)
 #endif
 {
 }
@@ -78,19 +78,37 @@ bool TimerHandlerRegistry::retireSlot(
     return true;
 }
 
-TimerHandlerRegistry::ActiveDispatch *
-TimerHandlerRegistry::publishDispatch(HandlerSlot &slot, void *owner)
+TimerHandlerRegistry::ActiveDispatch *TimerHandlerRegistry::publishDispatch(
+    HandlerSlot &slot, void *owner, void *token)
 {
     assert(owner);
+    assert(token);
     for (size_t i = 0; i < MaxActiveDispatches; ++i)
     {
         ActiveDispatch &dispatch = m_ActiveDispatches[i];
-        void *expectedOwner = nullptr;
+        void *expectedToken = nullptr;
         if (__atomic_compare_exchange_n(
-                &dispatch.owner, &expectedOwner, owner, false, __ATOMIC_ACQ_REL,
-                __ATOMIC_ACQUIRE))
+                &dispatch.token, &expectedToken, token, false, __ATOMIC_SEQ_CST,
+                __ATOMIC_SEQ_CST))
         {
-            __atomic_store_n(&dispatch.slot, &slot, __ATOMIC_RELEASE);
+            __atomic_add_fetch(
+                &dispatch.generation, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+            __atomic_store_n(&dispatch.owner, owner, __ATOMIC_RELAXED);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+            HandlerHazardClaimHook hazardClaimHook =
+                __atomic_load_n(&m_HandlerHazardClaimHook, __ATOMIC_ACQUIRE);
+            if (hazardClaimHook)
+            {
+                hazardClaimHook(
+                    __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE));
+            }
+#endif
+
+            // This store is the callback pin. Cleanup is armed before the
+            // token claim, so abandoning either side of this publication is
+            // recoverable without a separate in-flight counter.
+            __atomic_store_n(&dispatch.slot, &slot, __ATOMIC_SEQ_CST);
             return &dispatch;
         }
     }
@@ -98,11 +116,109 @@ TimerHandlerRegistry::publishDispatch(HandlerSlot &slot, void *owner)
     return nullptr;
 }
 
-void TimerHandlerRegistry::unpublishDispatch(ActiveDispatch *dispatch)
+bool TimerHandlerRegistry::unpublishDispatch(
+    void *token, HandlerSlot &slot, size_t admittedPublication, bool required)
 {
-    assert(dispatch);
-    __atomic_store_n(&dispatch->slot, nullptr, __ATOMIC_RELEASE);
-    __atomic_store_n(&dispatch->owner, nullptr, __ATOMIC_RELEASE);
+    assert(token);
+    bool found = false;
+    bool committed = false;
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token)
+        {
+            continue;
+        }
+
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        HandlerSlot *publishedSlot =
+            __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token ||
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) !=
+                generation)
+        {
+            continue;
+        }
+
+        if (publishedSlot && publishedSlot != &slot)
+        {
+            FATAL_NOLOCK("Timer callback hazard changed slots during release.");
+            return false;
+        }
+
+        committed = publishedSlot == &slot;
+        __atomic_store_n(&dispatch.slot, nullptr, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&dispatch.owner, nullptr, __ATOMIC_RELAXED);
+        __atomic_store_n(&dispatch.token, nullptr, __ATOMIC_RELEASE);
+        found = true;
+        break;
+    }
+
+    if (!found)
+    {
+        if (required)
+        {
+            FATAL_NOLOCK("Timer callback hazard was released more than once.");
+        }
+        return false;
+    }
+
+    if (!committed || hasActiveDispatch(slot))
+    {
+        return true;
+    }
+
+    const size_t publication =
+        __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+    if (generationOf(publication) != generationOf(admittedPublication))
+    {
+        // A remover won before a partial hazard publication committed and the
+        // slot has since been reused. This stale dispatch must not retire the
+        // new generation.
+        return true;
+    }
+
+    const SlotMode mode = modeOf(publication);
+    if (mode == SlotMode::Deferred || selfRemovalOf(publication))
+    {
+        TimerHandler *handler =
+            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
+        retireSlot(slot, publication, handler);
+    }
+    return true;
+}
+
+void TimerHandlerRegistry::abandonDispatch(void *context)
+{
+    DispatchCleanup *dispatch = reinterpret_cast<DispatchCleanup *>(context);
+    dispatch->registry->unpublishDispatch(
+        dispatch, *dispatch->slot, dispatch->publication, false);
+}
+
+bool TimerHandlerRegistry::hasActiveDispatch(HandlerSlot &target) const
+{
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        const ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        HandlerSlot *slot = __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        if (slot == &target &&
+            __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) == token &&
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) ==
+                generation)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool TimerHandlerRegistry::findCurrentDispatch(
@@ -113,34 +229,31 @@ bool TimerHandlerRegistry::findCurrentDispatch(
     for (size_t i = 0; i < MaxActiveDispatches; ++i)
     {
         const ActiveDispatch &dispatch = m_ActiveDispatches[i];
-        if (__atomic_load_n(&dispatch.owner, __ATOMIC_ACQUIRE) == owner)
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        void *dispatchOwner =
+            __atomic_load_n(&dispatch.owner, __ATOMIC_RELAXED);
+        HandlerSlot *slot = __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token ||
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) !=
+                generation)
+        {
+            continue;
+        }
+
+        if (dispatchOwner == owner && slot)
         {
             callbackContext = true;
-            foundTarget |=
-                __atomic_load_n(&dispatch.slot, __ATOMIC_ACQUIRE) == target;
+            foundTarget |= slot == target;
         }
     }
     return foundTarget;
-}
-
-void TimerHandlerRegistry::releasePin(HandlerSlot &slot)
-{
-    const size_t remaining =
-        __atomic_sub_fetch(&slot.inFlight, 1, __ATOMIC_SEQ_CST);
-    if (remaining)
-    {
-        return;
-    }
-
-    const size_t publication =
-        __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
-    const SlotMode mode = modeOf(publication);
-    if (mode == SlotMode::Deferred || selfRemovalOf(publication))
-    {
-        TimerHandler *handler =
-            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
-        retireSlot(slot, publication, handler);
-    }
 }
 
 void *TimerHandlerRegistry::currentDispatchOwner()
@@ -305,7 +418,7 @@ bool TimerHandlerRegistry::unregisterHandler(TimerHandler *handler)
                 }
 #endif
 
-                if (__atomic_load_n(&candidate.inFlight, __ATOMIC_SEQ_CST))
+                if (hasActiveDispatch(candidate))
                 {
                     size_t expectedPublication = drainingPublication;
                     const bool reopened = __atomic_compare_exchange_n(
@@ -403,7 +516,7 @@ bool TimerHandlerRegistry::unregisterHandler(TimerHandler *handler)
         publication = expectedPublication;
     }
 
-    if (!__atomic_load_n(&slot->inFlight, __ATOMIC_SEQ_CST))
+    if (!hasActiveDispatch(*slot))
     {
         const bool retired = retireSlot(*slot, drainingPublication, handler);
         const size_t finalPublication =
@@ -421,7 +534,7 @@ bool TimerHandlerRegistry::unregisterHandler(TimerHandler *handler)
         current->getDebugState(previousDebugAddress);
     current->setDebugState(
         Thread::CallbackDrain, reinterpret_cast<uintptr_t>(handler));
-    while (__atomic_load_n(&slot->inFlight, __ATOMIC_ACQUIRE))
+    while (hasActiveDispatch(*slot))
     {
         Scheduler::instance().yield();
     }
@@ -469,25 +582,40 @@ bool TimerHandlerRegistry::dispatch(
         }
 #endif
 
-        // The pin and admission close form a two-atomic handshake. Total
-        // ordering ensures the remover sees this pin or revalidation sees the
-        // closed publication.
-        __atomic_add_fetch(&slot.inFlight, 1, __ATOMIC_SEQ_CST);
+        void *owner = currentDispatchOwner();
+        Thread *thread = Processor::information().getCurrentThread();
+        DispatchCleanup dispatchCleanup(this, &slot, owner, publication);
+        if (thread)
+        {
+            // Cleanup is visible before even the hazard-table token is
+            // claimed. A no-return callback, nested exception, or timeout
+            // restore can therefore abandon every later publication point.
+            thread->armAtomicStateCleanup(
+                dispatchCleanup.cleanup, abandonDispatch, &dispatchCleanup);
+        }
+
+        ActiveDispatch *activeDispatch =
+            publishDispatch(slot, owner, &dispatchCleanup);
+        if (!activeDispatch)
+        {
+            if (thread)
+            {
+                thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
+            }
+            FATAL_NOLOCK("Timer callback hazard table exhausted.");
+            return admitted;
+        }
+
         if (__atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) !=
                 publication ||
             __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler)
         {
-            releasePin(slot);
+            unpublishDispatch(&dispatchCleanup, slot, publication, true);
+            if (thread)
+            {
+                thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
+            }
             continue;
-        }
-
-        ActiveDispatch *activeDispatch =
-            publishDispatch(slot, currentDispatchOwner());
-        if (!activeDispatch)
-        {
-            releasePin(slot);
-            FATAL_NOLOCK("Timer callback hazard table exhausted.");
-            return admitted;
         }
 
         admitted = true;
@@ -505,8 +633,11 @@ bool TimerHandlerRegistry::dispatch(
         // state: a timer interrupt can arrive while that state is being
         // mutated.
         handler->timer(delta, state);
-        unpublishDispatch(activeDispatch);
-        releasePin(slot);
+        unpublishDispatch(&dispatchCleanup, slot, publication, true);
+        if (thread)
+        {
+            thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
+        }
     }
 
     return admitted;
@@ -518,7 +649,7 @@ void TimerHandlerRegistry::reset()
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
         HandlerSlot &slot = m_Handlers[i];
-        assert(!__atomic_load_n(&slot.inFlight, __ATOMIC_ACQUIRE));
+        assert(!hasActiveDispatch(slot));
         const size_t publication =
             __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE);
         __atomic_store_n(&slot.handler, nullptr, __ATOMIC_RELEASE);
@@ -530,6 +661,8 @@ void TimerHandlerRegistry::reset()
 
     for (size_t i = 0; i < MaxActiveDispatches; ++i)
     {
+        assert(
+            !__atomic_load_n(&m_ActiveDispatches[i].token, __ATOMIC_ACQUIRE));
         assert(
             !__atomic_load_n(&m_ActiveDispatches[i].owner, __ATOMIC_ACQUIRE));
         assert(!__atomic_load_n(&m_ActiveDispatches[i].slot, __ATOMIC_ACQUIRE));
@@ -547,6 +680,12 @@ void TimerHandlerRegistry::setHandlerPrePinHook(HandlerPrePinHook hook)
     __atomic_store_n(&m_HandlerPrePinHook, hook, __ATOMIC_RELEASE);
 }
 
+void TimerHandlerRegistry::setHandlerHazardClaimHook(
+    HandlerHazardClaimHook hook)
+{
+    __atomic_store_n(&m_HandlerHazardClaimHook, hook, __ATOMIC_RELEASE);
+}
+
 void TimerHandlerRegistry::setHandlerAtomicDrainHook(
     HandlerAtomicDrainHook hook)
 {
@@ -561,5 +700,45 @@ void TimerHandlerRegistry::withMutationLockForTest(MutationLockHook hook)
         hook();
     }
     m_HandlerLock.release();
+}
+
+size_t TimerHandlerRegistry::activeDispatchCountForTest(TimerHandler *handler)
+{
+    size_t count = 0;
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        HandlerSlot *slot = __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        TimerHandler *activeHandler =
+            slot ? __atomic_load_n(&slot->handler, __ATOMIC_ACQUIRE) : nullptr;
+        if (activeHandler == handler &&
+            __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) == token &&
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) ==
+                generation)
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+size_t TimerHandlerRegistry::claimedDispatchCountForTest()
+{
+    size_t count = 0;
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        if (__atomic_load_n(&m_ActiveDispatches[i].token, __ATOMIC_ACQUIRE))
+        {
+            ++count;
+        }
+    }
+    return count;
 }
 #endif

@@ -76,6 +76,7 @@ class HostedTimer : public Timer, private IrqHandler
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     using HandlerPinHook = TimerHandlerRegistry::HandlerPinHook;
     using HandlerPrePinHook = TimerHandlerRegistry::HandlerPrePinHook;
+    using HandlerHazardClaimHook = TimerHandlerRegistry::HandlerHazardClaimHook;
     using HandlerAtomicDrainHook =
         TimerHandlerRegistry::HandlerAtomicDrainHook;
     using HandlerMutationLockHook = TimerHandlerRegistry::MutationLockHook;
@@ -84,6 +85,9 @@ class HostedTimer : public Timer, private IrqHandler
     static EXPORTED_PUBLIC void setHandlerPinHook(HandlerPinHook hook);
     /** Installs a deterministic observer before a handler pin commits. */
     static EXPORTED_PUBLIC void setHandlerPrePinHook(HandlerPrePinHook hook);
+    /** Installs an observer after a hazard token is claimed but before pin. */
+    static EXPORTED_PUBLIC void
+    setHandlerHazardClaimHook(HandlerHazardClaimHook hook);
     /** Installs an observer after an atomic caller closes admission. */
     static EXPORTED_PUBLIC void
     setHandlerAtomicDrainHook(HandlerAtomicDrainHook hook);
@@ -93,6 +97,11 @@ class HostedTimer : public Timer, private IrqHandler
     /** Dispatches one handler through the production registry path. */
     static EXPORTED_PUBLIC bool dispatchHandlerForTest(
         TimerHandler *handler, uint64_t delta, InterruptState &state);
+    /** Returns committed callback hazards for one handler. */
+    static EXPORTED_PUBLIC size_t
+    activeDispatchCountForTest(TimerHandler *handler);
+    /** Returns all claimed callback-hazard records, including partial pins. */
+    static EXPORTED_PUBLIC size_t claimedDispatchCountForTest();
 #endif
 
   protected:

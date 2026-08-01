@@ -9,6 +9,7 @@
 #define PEDIGREE_KERNEL_MACHINE_TIMERHANDLERREGISTRY_H
 
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -47,13 +48,17 @@ class TimerHandlerRegistry
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     using HandlerPinHook = void (*)(TimerHandler *);
     using HandlerPrePinHook = void (*)(TimerHandler *);
+    using HandlerHazardClaimHook = void (*)(TimerHandler *);
     using HandlerAtomicDrainHook = void (*)(TimerHandler *);
     using MutationLockHook = void (*)();
 
     void setHandlerPinHook(HandlerPinHook hook);
     void setHandlerPrePinHook(HandlerPrePinHook hook);
+    void setHandlerHazardClaimHook(HandlerHazardClaimHook hook);
     void setHandlerAtomicDrainHook(HandlerAtomicDrainHook hook);
     void withMutationLockForTest(MutationLockHook hook);
+    size_t activeDispatchCountForTest(TimerHandler *handler);
+    size_t claimedDispatchCountForTest();
 #endif
 
   private:
@@ -79,23 +84,42 @@ class TimerHandlerRegistry
 
     struct ActiveDispatch
     {
-        ActiveDispatch() : owner(nullptr), slot(nullptr)
+        ActiveDispatch()
+            : token(nullptr), generation(0), owner(nullptr), slot(nullptr)
         {
         }
 
+        void *token;
+        size_t generation;
         void *owner;
         HandlerSlot *slot;
     };
 
     struct HandlerSlot
     {
-        HandlerSlot() : handler(nullptr), publication(0), inFlight(0)
+        HandlerSlot() : handler(nullptr), publication(0)
         {
         }
 
         TimerHandler *handler;
         size_t publication;
-        size_t inFlight;
+    };
+
+    struct DispatchCleanup
+    {
+        DispatchCleanup(
+            TimerHandlerRegistry *handlerRegistry, HandlerSlot *handlerSlot,
+            void *dispatchOwner, size_t admittedPublication)
+            : registry(handlerRegistry), slot(handlerSlot),
+              owner(dispatchOwner), publication(admittedPublication), cleanup()
+        {
+        }
+
+        TimerHandlerRegistry *registry;
+        HandlerSlot *slot;
+        void *owner;
+        size_t publication;
+        AtomicStateCleanupRecord cleanup;
     };
 
     static size_t makePublication(
@@ -109,9 +133,13 @@ class TimerHandlerRegistry
     bool retireSlot(
         HandlerSlot &slot, size_t expectedPublication,
         TimerHandler *expectedHandler);
-    ActiveDispatch *publishDispatch(HandlerSlot &slot, void *owner);
-    void unpublishDispatch(ActiveDispatch *dispatch);
-    void releasePin(HandlerSlot &slot);
+    ActiveDispatch *
+    publishDispatch(HandlerSlot &slot, void *owner, void *token);
+    bool unpublishDispatch(
+        void *token, HandlerSlot &slot, size_t admittedPublication,
+        bool required);
+    static void abandonDispatch(void *context);
+    bool hasActiveDispatch(HandlerSlot &slot) const;
     bool findCurrentDispatch(
         void *owner, HandlerSlot *target, bool &callbackContext) const;
     static void *currentDispatchOwner();
@@ -123,6 +151,7 @@ class TimerHandlerRegistry
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     HandlerPinHook m_HandlerPinHook;
     HandlerPrePinHook m_HandlerPrePinHook;
+    HandlerHazardClaimHook m_HandlerHazardClaimHook;
     HandlerAtomicDrainHook m_HandlerAtomicDrainHook;
 #endif
 };

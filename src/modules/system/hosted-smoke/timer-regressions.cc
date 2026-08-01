@@ -11,6 +11,7 @@
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/RelayEvent.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
@@ -35,6 +36,8 @@ Atomic<size_t> g_DispositionACalls(0);
 Atomic<size_t> g_DispositionBCalls(0);
 Event *g_DispositionAEvent = nullptr;
 Event *g_DispositionBEvent = nullptr;
+
+bool check(bool condition, const char *test, const char *detail);
 
 struct RegistryDispatchContext;
 RegistryDispatchContext *g_TimerRegistryDispatchContext = nullptr;
@@ -240,6 +243,328 @@ int removeTimerAtomically(void *parameter)
         context->failures += 1;
     }
     return 0;
+}
+
+enum class TimerAbandonPoint
+{
+    PartialHazard,
+    CommittedHazard,
+    DeferredSelfRemoval,
+};
+
+struct TimerAbandonContext;
+TimerAbandonContext *g_TimerAbandonContext = nullptr;
+
+class AbandoningTimerHandler : public TimerHandler
+{
+  public:
+    explicit AbandoningTimerHandler(TimerAbandonContext &context)
+        : m_Context(context)
+    {
+    }
+
+    void timer(uint64_t, InterruptState &) override;
+
+  private:
+    TimerAbandonContext &m_Context;
+};
+
+struct TimerAbandonContext
+{
+    TimerAbandonContext(Timer *timer, TimerAbandonPoint abandonPoint)
+        : timer(timer), handler(*this), dispatcher(nullptr), remover(nullptr),
+          point(abandonPoint), phase(0), hookCalls(0), hookObservedDrain(0),
+          handlerCalls(0), dispatchReturned(0), unregisterReturned(0),
+          unregisterSucceeded(0), selfRemovalRejected(0), failures(0)
+    {
+    }
+
+    Timer *timer;
+    AbandoningTimerHandler handler;
+    Thread *dispatcher;
+    Thread *remover;
+    TimerAbandonPoint point;
+    Atomic<size_t> phase;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> hookObservedDrain;
+    Atomic<size_t> handlerCalls;
+    Atomic<size_t> dispatchReturned;
+    Atomic<size_t> unregisterReturned;
+    Atomic<size_t> unregisterSucceeded;
+    Atomic<size_t> selfRemovalRejected;
+    Atomic<size_t> failures;
+};
+
+void abandonCurrentTimerDispatcher()
+{
+    Processor::information()
+        .getCurrentThread()
+        ->getScheduler()
+        ->killCurrentThread();
+}
+
+void AbandoningTimerHandler::timer(uint64_t, InterruptState &)
+{
+    if (Processor::information().getCurrentThread() != m_Context.dispatcher)
+    {
+        return;
+    }
+
+    m_Context.handlerCalls += 1;
+    if (m_Context.point != TimerAbandonPoint::DeferredSelfRemoval)
+    {
+        m_Context.failures += 1;
+        return;
+    }
+
+    if (!m_Context.timer->unregisterHandler(this))
+    {
+        m_Context.selfRemovalRejected += 1;
+    }
+    else
+    {
+        m_Context.failures += 1;
+    }
+    abandonCurrentTimerDispatcher();
+}
+
+void abandonPartialTimerHazard(TimerHandler *handler)
+{
+    TimerAbandonContext *context = g_TimerAbandonContext;
+    if (!context || handler != &context->handler ||
+        context->point != TimerAbandonPoint::PartialHazard ||
+        Processor::information().getCurrentThread() != context->dispatcher)
+    {
+        return;
+    }
+
+    context->hookCalls += 1;
+    abandonCurrentTimerDispatcher();
+}
+
+void abandonCommittedTimerHazard(TimerHandler *handler)
+{
+    TimerAbandonContext *context = g_TimerAbandonContext;
+    if (!context || handler != &context->handler ||
+        context->point != TimerAbandonPoint::CommittedHazard ||
+        Processor::information().getCurrentThread() != context->dispatcher ||
+        !context->phase.compareAndSwap(0, 1))
+    {
+        return;
+    }
+
+    context->hookCalls += 1;
+    const uint64_t deadline = context->timer->getTickCountNano() +
+                              (500 * Time::Multiplier::Millisecond);
+    while (context->timer->getTickCountNano() < deadline)
+    {
+        uintptr_t debugAddress = 0;
+        if (context->phase == static_cast<size_t>(2) && context->remover &&
+            context->remover->getDebugState(debugAddress) ==
+                Thread::CallbackDrain &&
+            debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
+        {
+            context->hookObservedDrain += 1;
+            abandonCurrentTimerDispatcher();
+        }
+        Scheduler::instance().yield();
+    }
+
+    context->failures += 1;
+    abandonCurrentTimerDispatcher();
+}
+
+int awaitAbandoningTimer(void *parameter)
+{
+    TimerAbandonContext *context =
+        reinterpret_cast<TimerAbandonContext *>(parameter);
+    const uint64_t deadline = context->timer->getTickCountNano() +
+                              (500 * Time::Multiplier::Millisecond);
+    while (context->timer->getTickCountNano() < deadline)
+    {
+        Processor::pause();
+    }
+    context->failures += 1;
+    context->dispatchReturned += 1;
+    return 1;
+}
+
+int unregisterAbandoningTimer(void *parameter)
+{
+    TimerAbandonContext *context =
+        reinterpret_cast<TimerAbandonContext *>(parameter);
+    const uint64_t deadline =
+        context->timer->getTickCountNano() +
+        (500 * Time::Multiplier::Millisecond);
+    while (
+        context->phase != static_cast<size_t>(1) &&
+        context->timer->getTickCountNano() < deadline)
+    {
+        Scheduler::instance().yield();
+    }
+    if (context->phase != static_cast<size_t>(1))
+    {
+        context->failures += 1;
+        return 1;
+    }
+
+    context->phase = 2;
+    if (context->timer->unregisterHandler(&context->handler))
+    {
+        context->unregisterSucceeded += 1;
+    }
+    context->unregisterReturned += 1;
+    return 0;
+}
+
+bool timerPartialHazardAbandonment()
+{
+    constexpr const char *Test = "timer-partial-hazard-abandonment";
+    Timer *timer = Machine::instance().getTimer();
+    TimerAbandonContext context(timer, TimerAbandonPoint::PartialHazard);
+    context.dispatcher = new Thread(
+        Scheduler::instance().getKernelProcess(), awaitAbandoningTimer,
+        &context, nullptr, false, true, true);
+    context.dispatcher->setName("hosted partial timer hazard");
+
+    g_TimerAbandonContext = &context;
+    HostedTimer::setHandlerHazardClaimHook(abandonPartialTimerHazard);
+    const bool registered = timer->registerHandler(&context.handler);
+    const bool started = registered && context.dispatcher->start();
+    const bool joined = started && context.dispatcher->join();
+    HostedTimer::setHandlerHazardClaimHook(nullptr);
+    g_TimerAbandonContext = nullptr;
+
+    const size_t claimed = HostedTimer::claimedDispatchCountForTest();
+    const size_t active =
+        HostedTimer::activeDispatchCountForTest(&context.handler);
+    const bool removed =
+        registered && timer->unregisterHandler(&context.handler);
+    const bool reused = removed && timer->registerHandler(&context.handler);
+    const bool cleaned = reused && timer->unregisterHandler(&context.handler);
+
+    bool passed = true;
+    passed &= check(
+        registered && started && joined, Test,
+        "the partial-publication worker did not complete");
+    passed &= check(
+        context.hookCalls == 1 && context.handlerCalls == 0 &&
+            context.dispatchReturned == 0 && context.failures == 0,
+        Test, "dispatch escaped the forced partial-publication window");
+    passed &= check(
+        claimed == 0 && active == 0, Test,
+        "stack abandonment leaked a partial callback hazard");
+    passed &= check(
+        removed && reused && cleaned, Test,
+        "the handler slot could not be removed and reused after cleanup");
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS timer-partial-hazard-abandonment");
+    }
+    return passed;
+}
+
+bool timerCommittedHazardAbandonment()
+{
+    constexpr const char *Test = "timer-abandoned-dispatch-cleanup";
+    Timer *timer = Machine::instance().getTimer();
+    TimerAbandonContext context(timer, TimerAbandonPoint::CommittedHazard);
+    context.remover = new Thread(
+        Scheduler::instance().getKernelProcess(), unregisterAbandoningTimer,
+        &context, nullptr, false, true);
+    context.remover->setName("hosted abandoned timer remover");
+    context.dispatcher = new Thread(
+        Scheduler::instance().getKernelProcess(), awaitAbandoningTimer,
+        &context, nullptr, false, true, true);
+    context.dispatcher->setName("hosted abandoned timer dispatch");
+
+    g_TimerAbandonContext = &context;
+    HostedTimer::setHandlerPinHook(abandonCommittedTimerHazard);
+    const bool registered = timer->registerHandler(&context.handler);
+    if (!registered)
+    {
+        context.phase = 1;
+    }
+    const bool started = registered && context.dispatcher->start();
+    const bool dispatcherJoined = started && context.dispatcher->join();
+    const bool removerJoined = context.remover->join();
+    HostedTimer::setHandlerPinHook(nullptr);
+    g_TimerAbandonContext = nullptr;
+
+    if (!context.unregisterSucceeded && registered)
+    {
+        timer->unregisterHandler(&context.handler);
+    }
+    const size_t claimed = HostedTimer::claimedDispatchCountForTest();
+    const size_t active =
+        HostedTimer::activeDispatchCountForTest(&context.handler);
+    const bool reused =
+        context.unregisterSucceeded && timer->registerHandler(&context.handler);
+    const bool cleaned = reused && timer->unregisterHandler(&context.handler);
+
+    bool passed = true;
+    passed &= check(
+        registered && started && dispatcherJoined && removerJoined, Test,
+        "the abandoned-dispatch workers did not complete");
+    passed &= check(
+        context.failures == 0 && context.hookCalls == 1 &&
+            context.hookObservedDrain == 1,
+        Test, "the committed drain-and-abandon window was not reached");
+    passed &= check(
+        context.handlerCalls == 0 && context.dispatchReturned == 0, Test,
+        "the abandoned timer stack returned through normal dispatch");
+    passed &= check(
+        claimed == 0 && active == 0, Test,
+        "stack abandonment leaked a committed callback hazard");
+    passed &= check(
+        context.unregisterSucceeded == 1 && context.unregisterReturned == 1 &&
+            reused && cleaned,
+        Test, "cleanup did not release the synchronous unregister barrier");
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS timer-abandoned-dispatch-cleanup");
+    }
+    return passed;
+}
+
+bool timerDeferredSelfRemovalAbandonment()
+{
+    constexpr const char *Test = "timer-abandoned-self-removal";
+    Timer *timer = Machine::instance().getTimer();
+    TimerAbandonContext context(timer, TimerAbandonPoint::DeferredSelfRemoval);
+    context.dispatcher = new Thread(
+        Scheduler::instance().getKernelProcess(), awaitAbandoningTimer,
+        &context, nullptr, false, true, true);
+    context.dispatcher->setName("hosted abandoned timer self-removal");
+
+    const bool registered = timer->registerHandler(&context.handler);
+    const bool started = registered && context.dispatcher->start();
+    const bool joined = started && context.dispatcher->join();
+    const size_t claimed = HostedTimer::claimedDispatchCountForTest();
+    const size_t active =
+        HostedTimer::activeDispatchCountForTest(&context.handler);
+    const bool reused = registered && timer->registerHandler(&context.handler);
+    const bool cleaned = reused && timer->unregisterHandler(&context.handler);
+
+    bool passed = true;
+    passed &= check(
+        registered && started && joined, Test,
+        "the self-removing worker did not complete");
+    passed &= check(
+        context.handlerCalls == 1 && context.selfRemovalRejected == 1 &&
+            context.dispatchReturned == 0 && context.failures == 0,
+        Test, "the callback did not defer removal before abandoning its stack");
+    passed &= check(
+        claimed == 0 && active == 0, Test,
+        "deferred self-removal leaked a callback hazard");
+    passed &= check(
+        reused && cleaned, Test,
+        "final abandoned-stack cleanup did not retire and reuse the slot");
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS timer-abandoned-self-removal");
+    }
+    return passed;
 }
 
 struct HandlerLifetimeContext;
@@ -1068,9 +1393,10 @@ bool runHostedTimerRegressions(Thread *thread)
 {
     return timerWriterLockIndependentDispatch() &&
            timerPrePinUnregisterRevalidation() &&
-           timerAtomicDrainSelfRevival() &&
-           timerClockAndDeadline(thread) &&
-           timerAlarmRemovalLifetime() &&
+           timerAtomicDrainSelfRevival() && timerPartialHazardAbandonment() &&
+           timerCommittedHazardAbandonment() &&
+           timerDeferredSelfRemovalAbandonment() &&
+           timerClockAndDeadline(thread) && timerAlarmRemovalLifetime() &&
            timerHandlerLifetimeBarrier() &&
            semaphoreQueuedTimeoutCancellation(thread) &&
            relayUsesLatestDisposition(thread) &&

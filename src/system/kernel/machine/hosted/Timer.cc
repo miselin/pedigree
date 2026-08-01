@@ -151,6 +151,11 @@ void HostedTimer::setHandlerPrePinHook(HandlerPrePinHook hook)
     m_Instance.m_HandlerRegistry.setHandlerPrePinHook(hook);
 }
 
+void HostedTimer::setHandlerHazardClaimHook(HandlerHazardClaimHook hook)
+{
+    m_Instance.m_HandlerRegistry.setHandlerHazardClaimHook(hook);
+}
+
 void HostedTimer::setHandlerAtomicDrainHook(HandlerAtomicDrainHook hook)
 {
     m_Instance.m_HandlerRegistry.setHandlerAtomicDrainHook(hook);
@@ -165,6 +170,16 @@ bool HostedTimer::dispatchHandlerForTest(
     TimerHandler *handler, uint64_t delta, InterruptState &state)
 {
     return m_Instance.m_HandlerRegistry.dispatch(delta, state, handler);
+}
+
+size_t HostedTimer::activeDispatchCountForTest(TimerHandler *handler)
+{
+    return m_Instance.m_HandlerRegistry.activeDispatchCountForTest(handler);
+}
+
+size_t HostedTimer::claimedDispatchCountForTest()
+{
+    return m_Instance.m_HandlerRegistry.claimedDispatchCountForTest();
 }
 #endif
 
