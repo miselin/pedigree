@@ -397,6 +397,47 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local cdi_irq_source=src/modules/drivers/common/cdi/CdiIrq.cc
+    matches=$(rg -n \
+        'if[[:space:]]*\([[:space:]]*irq[[:space:]]*>[[:space:]]*IRQ_COUNT' \
+        "$cdi_irq_source" || true)
+    if [[ -n "$matches" ]]; then
+        echo "A CDI IRQ bounds check admitted IRQ_COUNT:"
+        echo "$matches"
+        failed=1
+    fi
+
+    local cdi_drain_pattern='while[[:space:]]*\([^)]*tryAcquire\([^)]*\)[[:space:]]*\)[[:space:]]*\{?[[:space:]]*[^;]*release[[:space:]]*\('
+    if ! printf '%s\n' \
+        'while (counter.tryAcquire())' '{' 'counter.release();' '}' |
+        rg -q -U "$cdi_drain_pattern"; then
+        echo "The CDI semaphore-drain detector failed its self-test."
+        failed=1
+    fi
+
+    matches=$(rg -n -U "$cdi_drain_pattern" "$cdi_irq_source" || true)
+    if [[ -n "$matches" ]]; then
+        echo "A CDI semaphore drain reacquired the item it just removed:"
+        echo "$matches"
+        failed=1
+    fi
+
+    matches=$(rg -n \
+        '(semaphore|counter)(->|\.)acquire[[:space:]]*\(|timeout[[:space:]]*\*[[:space:]]*1000' \
+        "$cdi_irq_source" || true)
+    if [[ -n "$matches" ]]; then
+        echo "CDI bypassed the checked millisecond IRQ-wait contract:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if ! rg -q 'counter\.drainAvailable\(\)' "$cdi_irq_source" ||
+        ! rg -q 'counter\.acquireWithError\(' "$cdi_irq_source" ||
+        ! rg -q 'timeout == 0' "$cdi_irq_source"; then
+        echo "CDI IRQ waits escaped the checked drain/wait APIs."
+        failed=1
+    fi
+
     matches=$(rg -n -U \
         'while[[:space:]]*\([^;{}]*acquireLock\([^;{}]*\)[[:space:]]*\)[[:space:]]*;' \
         src --glob '*.{cc,h}' || true)

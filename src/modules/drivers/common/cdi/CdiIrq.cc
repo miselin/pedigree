@@ -19,9 +19,6 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/types.h"
 
 struct cdi_device;
@@ -48,16 +45,43 @@ static struct cdi_device *driver_irq_device[IRQ_COUNT] = {nullptr};
 static Spinlock irqCountLock;
 static Semaphore *driver_irq_count[IRQ_COUNT] = {nullptr};
 
+namespace
+{
+size_t resetIrqCounter(Semaphore &counter)
+{
+    return counter.drainAvailable();
+}
+
+int waitForIrqCounter(Semaphore &counter, uint32_t timeout)
+{
+    if (timeout == 0)
+    {
+        return counter.tryAcquire() ? 0 : -3;
+    }
+
+    Semaphore::SemaphoreError error = Semaphore::NoError;
+    const bool acquired = counter.acquireWithError(
+        1, timeout / 1000, (timeout % 1000) * 1000, error);
+    return acquired ? 0 : -3;
+}
+}
+
 /**
  * Interner IRQ-Handler, der den IRQ-Handler des Treibers aufruft
  */
 bool CdiIrqHandler::irq(irq_id_t irq, InterruptState &state)
 {
-    if (driver_irq_count[irq])
+    if (irq >= IRQ_COUNT)
     {
-        irqCountLock.acquire();
-        driver_irq_count[irq]->release();
-        irqCountLock.release();
+        return false;
+    }
+
+    {
+        LockGuard<Spinlock> lock(irqCountLock);
+        if (driver_irq_count[irq])
+        {
+            driver_irq_count[irq]->release();
+        }
     }
 
     if (driver_irq_handler[irq])
@@ -117,23 +141,21 @@ EXPORTED_PUBLIC void cdi_register_irq(
  */
 EXPORTED_PUBLIC int cdi_reset_wait_irq(uint8_t irq)
 {
-    if (irq > IRQ_COUNT)
+    if (irq >= IRQ_COUNT)
     {
         return -1;
     }
 
-    if (driver_irq_count[irq])
+    LockGuard<Spinlock> lock(irqCountLock);
+    Semaphore *counter = driver_irq_count[irq];
+    if (!counter)
     {
-        irqCountLock.acquire();
-        while (driver_irq_count[irq]->tryAcquire())
-        {
-            driver_irq_count[irq]->release();
-        }
-        irqCountLock.release();
-        return 0;
+        return -1;
     }
 
-    return -1;
+    const size_t discarded = resetIrqCounter(*counter);
+    (void) discarded;
+    return 0;
 }
 
 /**
@@ -151,7 +173,7 @@ EXPORTED_PUBLIC int cdi_reset_wait_irq(uint8_t irq)
  */
 EXPORTED_PUBLIC int cdi_wait_irq(uint8_t irq, uint32_t timeout)
 {
-    if (irq > IRQ_COUNT)
+    if (irq >= IRQ_COUNT)
     {
         return -1;
     }
@@ -172,15 +194,58 @@ EXPORTED_PUBLIC int cdi_wait_irq(uint8_t irq, uint32_t timeout)
         }
     }
 
-    if (semaphore)
+    return semaphore ? waitForIrqCounter(*semaphore, timeout) : -2;
+}
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+namespace
+{
+void hostedCdiIrqHandler(struct cdi_device *)
+{
+}
+}
+
+bool runHostedCdiIrqRegressions()
+{
+    constexpr uint8_t TestIrq = IRQ_COUNT - 1;
+    Semaphore counter(3);
     {
-        semaphore->acquire(1, 0, timeout * 1000);
-        if (Processor::information().getCurrentThread()->wasInterrupted())
-        {
-            return -3;
-        }
-        return 0;
+        LockGuard<Spinlock> lock(irqCountLock);
+        driver_irq_handler[TestIrq] = hostedCdiIrqHandler;
+        driver_irq_device[TestIrq] = nullptr;
+        driver_irq_count[TestIrq] = &counter;
     }
-    return -2;
+
+    const bool reset = cdi_reset_wait_irq(TestIrq) == 0;
+    const bool emptyAfterReset = !counter.tryAcquire();
+    const bool zeroTimeout = cdi_wait_irq(TestIrq, 0) == -3;
+    counter.release();
+    const bool zeroSuccess = cdi_wait_irq(TestIrq, 0) == 0;
+    counter.release();
+    const bool finiteSuccess = cdi_wait_irq(TestIrq, 1) == 0;
+    const bool finiteTimeout = cdi_wait_irq(TestIrq, 1) == -3;
+    const bool invalidReset = cdi_reset_wait_irq(IRQ_COUNT) == -1;
+    const bool invalidWait = cdi_wait_irq(IRQ_COUNT, 0) == -1;
+
+    {
+        LockGuard<Spinlock> lock(irqCountLock);
+        driver_irq_handler[TestIrq] = nullptr;
+        driver_irq_device[TestIrq] = nullptr;
+        driver_irq_count[TestIrq] = nullptr;
+    }
+
+    const bool passed =
+        reset && emptyAfterReset && zeroTimeout && zeroSuccess &&
+        finiteSuccess && finiteTimeout && invalidReset && invalidWait;
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS cdi-irq-wait-contract");
+    }
+    else
+    {
+        ERROR("HOSTED-WAIT-TEST: FAIL cdi-irq-wait-contract");
+    }
+    return passed;
 }
-}
+#endif
