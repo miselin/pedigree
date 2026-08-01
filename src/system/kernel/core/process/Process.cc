@@ -405,10 +405,14 @@ Process::~Process()
         m_pSubsystem->acquire();
     }
 
-    // From this point through both cleanup passes, Thread destruction cannot
-    // concurrently erase entries from m_Threads.
-    RecursingLockGuard<Spinlock> guard(m_Lock);
-    m_bDestroying = true;
+    // Close topology mutation while holding the vector lock, then drop the
+    // spinlock before any lease drain or destructor can sleep. A remover that
+    // entered earlier finishes before this transition; later add/remove calls
+    // observe m_bDestroying and cannot mutate m_Threads.
+    {
+        LockGuard<Spinlock> guard(m_Lock);
+        m_bDestroying = true;
+    }
 
     for (Vector<Thread *>::Iterator it = m_Threads.begin();
          it != m_Threads.end(); ++it)

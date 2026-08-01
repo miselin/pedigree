@@ -840,6 +840,13 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
+        '(?s)\{[[:space:]]*LockGuard<Spinlock> guard\(m_Lock\);[[:space:]]*m_bDestroying = true;[[:space:]]*\}[[:space:]]*for \(Vector<Thread \*>::Iterator.*?closeExternalLeaseAdmissionAndDrain\(\)' \
+        src/system/kernel/core/process/Process.cc; then
+        echo "Process teardown can retain its topology spinlock while draining."
+        failed=1
+    fi
+
+    if ! rg -q -U \
         'Machine::instance\(\)\.deinitialise\(\);[[:space:]]*Processor::setInterrupts\(false\);[[:space:]]*// Shut down the various pieces created by Processor' \
         src/system/kernel/core/main.cc; then
         echo "Machine teardown no longer runs while callback drains can schedule."
