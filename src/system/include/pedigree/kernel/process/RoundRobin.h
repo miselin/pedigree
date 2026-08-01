@@ -22,8 +22,6 @@
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
-#include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/new"
 
 class Thread;
 
@@ -47,8 +45,11 @@ class RoundRobin : public SchedulingAlgorithm
   private:
     static bool isReady(Thread *pThread);
 
-    typedef List<Thread *> ThreadList;
-    ThreadList m_pReadyQueues[MAX_PRIORITIES];
+    void enqueue(Thread *pThread);
+    void unlink(Thread *pThread);
+
+    Thread *m_pReadyQueueHeads[MAX_PRIORITIES];
+    Thread *m_pReadyQueueTails[MAX_PRIORITIES];
 
     Spinlock m_Lock;
 };

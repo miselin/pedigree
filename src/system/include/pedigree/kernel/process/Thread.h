@@ -43,6 +43,7 @@ class TerminationDeferral;
 class TimeoutGuard;
 class IrqHandlerRegistry;
 class TimerHandlerRegistry;
+class RoundRobin;
 
 /** Thread TLS area size */
 #define THREAD_TLS_SIZE 0x1000
@@ -69,6 +70,7 @@ class EXPORTED_PUBLIC Thread
     friend class TimeoutGuard;
     friend class IrqHandlerRegistry;
     friend class TimerHandlerRegistry;
+    friend class RoundRobin;
 
   public:
     /** The state that a thread can possibly have. */
@@ -740,6 +742,12 @@ class EXPORTED_PUBLIC Thread
 
     /** Thread priority: 0..MAX_PRIORITIES-1, 0 being highest. */
     size_t m_Priority = DEFAULT_PRIORITY;
+
+    /** Intrusive ready-queue state; scheduler publication must not allocate. */
+    Thread *m_pReadyPrevious = nullptr;
+    Thread *m_pReadyNext = nullptr;
+    size_t m_ReadyQueuePriority = MAX_PRIORITIES;
+    bool m_bReadyQueued = false;
 
     /** Memory mapping for the TLS base of this thread (userspace-only) */
     void *m_pTlsBase = nullptr;

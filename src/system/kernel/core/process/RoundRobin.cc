@@ -22,16 +22,27 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/assert.h"
-#include "pedigree/kernel/utilities/utility.h"
 
 RoundRobin::RoundRobin() : m_Lock(false)
 {
+    for (size_t i = 0; i < MAX_PRIORITIES; ++i)
+    {
+        m_pReadyQueueHeads[i] = nullptr;
+        m_pReadyQueueTails[i] = nullptr;
+    }
 }
 
 RoundRobin::~RoundRobin()
 {
+    for (size_t i = 0; i < MAX_PRIORITIES; ++i)
+    {
+        while (m_pReadyQueueHeads[i])
+        {
+            unlink(m_pReadyQueueHeads[i]);
+        }
+        assert(!m_pReadyQueueTails[i]);
+    }
 }
 
 void RoundRobin::addThread(Thread *pThread)
@@ -41,19 +52,65 @@ void RoundRobin::addThread(Thread *pThread)
 void RoundRobin::removeThread(Thread *pThread)
 {
     LockGuard<Spinlock> guard(m_Lock);
+    unlink(pThread);
+}
 
-    for (size_t i = 0; i < MAX_PRIORITIES; i++)
+void RoundRobin::enqueue(Thread *pThread)
+{
+    assert(pThread);
+    assert(!pThread->m_bReadyQueued);
+    assert(!pThread->m_pReadyPrevious);
+    assert(!pThread->m_pReadyNext);
+    assert(pThread->getPriority() < MAX_PRIORITIES);
+
+    const size_t priority = pThread->getPriority();
+    pThread->m_pReadyPrevious = m_pReadyQueueTails[priority];
+    pThread->m_ReadyQueuePriority = priority;
+    pThread->m_bReadyQueued = true;
+    if (m_pReadyQueueTails[priority])
     {
-        for (ThreadList::Iterator it = m_pReadyQueues[i].begin();
-             it != m_pReadyQueues[i].end(); it++)
-        {
-            if (*it == pThread)
-            {
-                m_pReadyQueues[i].erase(it);
-                return;
-            }
-        }
+        m_pReadyQueueTails[priority]->m_pReadyNext = pThread;
     }
+    else
+    {
+        m_pReadyQueueHeads[priority] = pThread;
+    }
+    m_pReadyQueueTails[priority] = pThread;
+}
+
+void RoundRobin::unlink(Thread *pThread)
+{
+    if (!pThread || !pThread->m_bReadyQueued)
+    {
+        return;
+    }
+
+    const size_t priority = pThread->m_ReadyQueuePriority;
+    assert(priority < MAX_PRIORITIES);
+    if (pThread->m_pReadyPrevious)
+    {
+        pThread->m_pReadyPrevious->m_pReadyNext = pThread->m_pReadyNext;
+    }
+    else
+    {
+        assert(m_pReadyQueueHeads[priority] == pThread);
+        m_pReadyQueueHeads[priority] = pThread->m_pReadyNext;
+    }
+    if (pThread->m_pReadyNext)
+    {
+        pThread->m_pReadyNext->m_pReadyPrevious =
+            pThread->m_pReadyPrevious;
+    }
+    else
+    {
+        assert(m_pReadyQueueTails[priority] == pThread);
+        m_pReadyQueueTails[priority] = pThread->m_pReadyPrevious;
+    }
+
+    pThread->m_pReadyPrevious = nullptr;
+    pThread->m_pReadyNext = nullptr;
+    pThread->m_ReadyQueuePriority = MAX_PRIORITIES;
+    pThread->m_bReadyQueued = false;
 }
 
 Thread *RoundRobin::getNext(Thread *pCurrentThread)
@@ -63,15 +120,28 @@ Thread *RoundRobin::getNext(Thread *pCurrentThread)
     Thread *pThread = 0;
     for (size_t i = 0; i < MAX_PRIORITIES; i++)
     {
-        // A stale current-thread entry must not hide runnable peers at the
-        // same priority. Bound the scan to the queue contents present on
-        // entry so malformed entries cannot turn selection into a spin.
-        size_t candidates = m_pReadyQueues[i].size();
+        // Bound the scan so a stale entry whose priority changes cannot be
+        // requeued forever in the same selection pass.
+        size_t candidates = 0;
+        for (pThread = m_pReadyQueueHeads[i]; pThread;
+             pThread = pThread->m_pReadyNext)
+        {
+            ++candidates;
+        }
         while (candidates--)
         {
-            pThread = m_pReadyQueues[i].popFront();
-            if (!pThread || pThread == pCurrentThread)
+            pThread = m_pReadyQueueHeads[i];
+            assert(pThread);
+            unlink(pThread);
+
+            if (pThread == pCurrentThread || !isReady(pThread))
             {
+                continue;
+            }
+
+            if (pThread->getPriority() != i)
+            {
+                enqueue(pThread);
                 continue;
             }
 
@@ -85,23 +155,23 @@ void RoundRobin::threadStatusChanged(Thread *pThread)
 {
     LockGuard<Spinlock> guard(m_Lock);
 
+    if (pThread->m_bReadyQueued)
+    {
+        if (
+            !RoundRobin::isReady(pThread) ||
+            pThread->m_ReadyQueuePriority != pThread->getPriority())
+        {
+            unlink(pThread);
+        }
+        else
+        {
+            return;
+        }
+    }
+
     if (RoundRobin::isReady(pThread))
     {
-        assert(pThread->getPriority() < MAX_PRIORITIES);
-
-        for (List<Thread *>::Iterator it =
-                 m_pReadyQueues[pThread->getPriority()].begin();
-             it != m_pReadyQueues[pThread->getPriority()].end(); ++it)
-        {
-            if ((*it) == pThread)
-            {
-                // WARNING("RoundRobin: A thread was already in this priority
-                // queue");
-                return;
-            }
-        }
-
-        m_pReadyQueues[pThread->getPriority()].pushBack(pThread);
+        enqueue(pThread);
     }
 }
 
