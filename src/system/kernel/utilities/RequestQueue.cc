@@ -378,13 +378,6 @@ uint64_t RequestQueue::addAsyncRequest(
     return addAsyncRequestInternal(priority, p1, p2, p3, p4, p5, p6, p7, p8);
 }
 
-uint64_t RequestQueue::tryAddAsyncRequest(
-    size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
-    uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
-{
-    return addAsyncRequestInternal(priority, p1, p2, p3, p4, p5, p6, p7, p8);
-}
-
 RequestQueue::InterruptEnqueueResult RequestQueue::enqueueFromInterrupt(
     InterruptRequest &token, size_t priority, uint64_t p1, uint64_t p2,
     uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7,

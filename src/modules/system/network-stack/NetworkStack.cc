@@ -129,7 +129,8 @@ NetworkStack::NetworkStack()
       m_Lock()
 #endif
       ,
-      m_Interfaces(), m_NextInterfaceNumber(0), m_NextDeviceGeneration(1)
+      m_Interfaces(), m_NextInterfaceNumber(0), m_NextDeviceGeneration(1),
+      m_NextReceiveRequest(0)
 {
     if (stack)
     {
@@ -137,6 +138,10 @@ NetworkStack::NetworkStack()
     }
 
     stack = this;
+
+    // Couple the queue's admission bound to the preallocated publication
+    // slots rather than relying on RequestQueue's default remaining 256.
+    m_nMaxAsyncRequests = ReceiveRequestCapacity;
 
     initialise();
 
@@ -225,7 +230,16 @@ uint64_t NetworkStack::executeRequest(
 
 void NetworkStack::cancelRequest(const Request &request)
 {
-    if (request.p1)
+    cancelReceive(
+        static_cast<uintptr_t>(request.p1),
+        reinterpret_cast<Network *>(request.p2),
+        static_cast<size_t>(request.p3));
+}
+
+void NetworkStack::cancelReceive(
+    uintptr_t buffer, Network *card, size_t generation)
+{
+    if (buffer)
     {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
         HostedReceiveHook hook =
@@ -233,13 +247,10 @@ void NetworkStack::cancelRequest(const Request &request)
         if (hook)
         {
             hook(
-                HostedReceiveEvent::Cancelled,
-                static_cast<uintptr_t>(request.p1),
-                reinterpret_cast<Network *>(request.p2),
-                static_cast<size_t>(request.p3));
+                HostedReceiveEvent::Cancelled, buffer, card, generation);
         }
 #endif
-        pbuf_free(reinterpret_cast<struct pbuf *>(request.p1));
+        pbuf_free(reinterpret_cast<struct pbuf *>(buffer));
     }
 }
 
@@ -298,12 +309,26 @@ void NetworkStack::receive(
     }
 #endif
 
-    if (!tryAddAsyncRequest(
-            0, reinterpret_cast<uint64_t>(p),
-            reinterpret_cast<uintptr_t>(pCard), generation))
+    const size_t firstRequest = (m_NextReceiveRequest += 1) - 1;
+    for (size_t i = 0; i < ReceiveRequestCapacity; ++i)
     {
-        // RequestQueue::cancelRequest owns the pbuf on rejection.
+        const size_t request = (firstRequest + i) % ReceiveRequestCapacity;
+        const InterruptEnqueueResult result = enqueueFromInterrupt(
+            m_ReceiveRequests[request], 0, reinterpret_cast<uint64_t>(p),
+            reinterpret_cast<uintptr_t>(pCard), generation);
+        if (result == InterruptEnqueueResult::Accepted)
+        {
+            return;
+        }
+        if (result != InterruptEnqueueResult::TokenBusy)
+        {
+            break;
+        }
     }
+
+    // No queue token retained this payload, so preserve the same cancellation
+    // event and single pbuf release used by RequestQueue teardown.
+    cancelReceive(reinterpret_cast<uintptr_t>(p), pCard, generation);
 }
 
 void NetworkStack::registerDevice(Network *pDevice)
@@ -399,6 +424,11 @@ size_t NetworkStack::getHostedRegistrationGeneration(Network *card)
 {
     return __atomic_load_n(
         &card->m_NetworkStackGeneration, __ATOMIC_ACQUIRE);
+}
+
+size_t NetworkStack::getHostedReceiveRequestCapacity()
+{
+    return ReceiveRequestCapacity;
 }
 #endif
 

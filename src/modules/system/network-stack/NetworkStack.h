@@ -21,6 +21,7 @@
 #define MACHINE_NETWORK_STACK_H
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/MemoryPool.h"
@@ -144,6 +145,7 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue
 
     static void setHostedReceiveHook(HostedReceiveHook hook);
     static size_t getHostedRegistrationGeneration(Network *card);
+    static size_t getHostedReceiveRequestCapacity();
 #endif
 
   private:
@@ -157,6 +159,12 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue
         uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
         uint64_t p6, uint64_t p7, uint64_t p8);
     virtual void cancelRequest(const Request &request);
+
+    /** Releases a receive payload which the queue did not execute. */
+    static void cancelReceive(
+        uintptr_t buffer, Network *card, size_t generation);
+
+    static constexpr size_t ReceiveRequestCapacity = 256;
 
     /** Loopback device */
     Network *m_pLoopback;
@@ -179,6 +187,13 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue
 
     /** Next non-zero registration generation. */
     size_t m_NextDeviceGeneration;
+
+    // Keep interrupt publication state after the pre-existing fields so their
+    // offsets remain stable for inline accessors compiled into driver modules.
+    InterruptRequest m_ReceiveRequests[ReceiveRequestCapacity];
+
+    /** Starting token for the next bounded interrupt-side scan. */
+    Atomic<size_t> m_NextReceiveRequest;
 };
 
 #endif

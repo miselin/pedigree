@@ -9,6 +9,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/new"
 
 namespace
@@ -21,6 +22,130 @@ class HostedNetworkDevice final : public Network
         return true;
     }
 };
+
+struct ReceivePublicationContext
+{
+    static constexpr size_t MaxTrackedBuffers = 257;
+
+    ReceivePublicationContext(Network *device, bool holdFirst)
+        : device(device), holdFirst(holdFirst), workerEntered(0),
+          allowDispatch(0), queued(0), queuedWithInterruptsDisabled(0),
+          beforeDispatch(0), delivered(0), staleDiscards(0), cancellations(0),
+          failures(0)
+    {
+    }
+
+    Network *device;
+    bool holdFirst;
+    Semaphore workerEntered;
+    Semaphore allowDispatch;
+    Atomic<size_t> queued;
+    Atomic<size_t> queuedWithInterruptsDisabled;
+    Atomic<size_t> beforeDispatch;
+    Atomic<size_t> delivered;
+    Atomic<size_t> staleDiscards;
+    Atomic<size_t> cancellations;
+    Atomic<size_t> failures;
+    uintptr_t buffers[MaxTrackedBuffers] = {};
+    uint8_t terminalCounts[MaxTrackedBuffers] = {};
+
+    bool everyBufferTerminatedOnce(size_t expected) const
+    {
+        if (expected > MaxTrackedBuffers)
+        {
+            return false;
+        }
+        for (size_t i = 0; i < expected; ++i)
+        {
+            if (!buffers[i] || terminalCounts[i] != 1)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
+ReceivePublicationContext *g_ReceivePublicationContext = nullptr;
+
+void receivePublicationHook(
+    NetworkStack::HostedReceiveEvent event, uintptr_t buffer, Network *device,
+    size_t)
+{
+    ReceivePublicationContext *context = g_ReceivePublicationContext;
+    if (!context || device != context->device)
+    {
+        return;
+    }
+
+    bool terminalEvent = false;
+    switch (event)
+    {
+        case NetworkStack::HostedReceiveEvent::Queued:
+        {
+            const size_t index = (context->queued += 1) - 1;
+            if (index >= ReceivePublicationContext::MaxTrackedBuffers)
+            {
+                context->failures += 1;
+                break;
+            }
+            context->buffers[index] = buffer;
+            if (!Processor::getInterrupts())
+            {
+                context->queuedWithInterruptsDisabled += 1;
+            }
+            break;
+        }
+        case NetworkStack::HostedReceiveEvent::BeforeDispatch:
+            if (
+                (context->beforeDispatch += 1) == 1 &&
+                context->holdFirst)
+            {
+                context->workerEntered.release();
+                if (!context->allowDispatch.acquireForCompletion())
+                {
+                    context->failures += 1;
+                }
+            }
+            break;
+        case NetworkStack::HostedReceiveEvent::Delivered:
+            context->delivered += 1;
+            terminalEvent = true;
+            break;
+        case NetworkStack::HostedReceiveEvent::DiscardedStale:
+            context->staleDiscards += 1;
+            terminalEvent = true;
+            break;
+        case NetworkStack::HostedReceiveEvent::Cancelled:
+            context->cancellations += 1;
+            terminalEvent = true;
+            break;
+    }
+
+    if (!terminalEvent)
+    {
+        return;
+    }
+
+    bool found = false;
+    for (size_t i = 0; i < context->queued; ++i)
+    {
+        if (context->buffers[i] != buffer)
+        {
+            continue;
+        }
+        found = true;
+        if (++context->terminalCounts[i] != 1)
+        {
+            context->failures += 1;
+        }
+        break;
+    }
+    if (!found)
+    {
+        context->failures += 1;
+    }
+}
 
 struct ReceiveAbaContext
 {
@@ -109,6 +234,161 @@ bool check(bool condition, const char *detail)
 
     ERROR("HOSTED-NETWORK-TEST: FAIL receive-generation-aba: " << detail);
     return false;
+}
+
+bool check(bool condition, const char *test, const char *detail)
+{
+    if (condition)
+    {
+        return true;
+    }
+
+    ERROR("HOSTED-NETWORK-TEST: FAIL " << test << ": " << detail);
+    return false;
+}
+
+bool interruptReceivePublication()
+{
+    static const char *Test = "receive-interrupt-publication";
+
+    NetworkStack &stack = NetworkStack::instance();
+    HostedNetworkDevice device;
+    stack.registerDevice(&device);
+
+    ReceivePublicationContext context(&device, true);
+    g_ReceivePublicationContext = &context;
+    NetworkStack::setHostedReceiveHook(receivePublicationHook);
+
+    uint8_t packet[64] = {};
+    const bool interrupts = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    stack.receive(
+        sizeof(packet), reinterpret_cast<uintptr_t>(packet), &device, 0);
+    const bool remainedDisabled = !Processor::getInterrupts();
+    Processor::setInterrupts(interrupts);
+
+    const bool workerHeld = context.workerEntered.acquire(1, 2);
+    bool unregistered = false;
+    if (workerHeld)
+    {
+        stack.deRegisterDevice(&device);
+        unregistered = !stack.getInterface(&device) &&
+                       !NetworkStack::getHostedRegistrationGeneration(&device);
+    }
+    context.allowDispatch.release();
+    const bool drained = stack.drain();
+    NetworkStack::setHostedReceiveHook(nullptr);
+    g_ReceivePublicationContext = nullptr;
+    if (!unregistered)
+    {
+        stack.deRegisterDevice(&device);
+    }
+
+    const size_t terminalOwnershipEvents =
+        static_cast<size_t>(context.delivered) +
+        static_cast<size_t>(context.staleDiscards) +
+        static_cast<size_t>(context.cancellations);
+
+    bool passed = true;
+    passed &= check(
+        interrupts && remainedDisabled && context.queued == 1 &&
+            context.queuedWithInterruptsDisabled == 1,
+        Test, "receive did not publish while preserving IF=0");
+    passed &= check(
+        workerHeld && unregistered && drained &&
+            context.beforeDispatch == 1 && !context.delivered &&
+            context.staleDiscards == 1 && !context.cancellations &&
+            terminalOwnershipEvents == 1 &&
+            context.everyBufferTerminatedOnce(1) && !context.failures,
+        Test, "the interrupt-published pbuf did not transfer exactly once");
+    passed &= check(
+        NetworkStack::getHostedReceiveRequestCapacity() == 256, Test,
+        "the preallocated bank no longer preserves receive capacity");
+
+    if (passed)
+    {
+        NOTICE("HOSTED-NETWORK-TEST: PASS " << Test);
+    }
+    return passed;
+}
+
+bool boundedReceiveBurst()
+{
+    static const char *Test = "receive-bounded-burst";
+
+    NetworkStack &stack = NetworkStack::instance();
+    HostedNetworkDevice device;
+    stack.registerDevice(&device);
+
+    ReceivePublicationContext context(&device, true);
+    g_ReceivePublicationContext = &context;
+    NetworkStack::setHostedReceiveHook(receivePublicationHook);
+
+    uint8_t packet[64] = {};
+    stack.receive(
+        sizeof(packet), reinterpret_cast<uintptr_t>(packet), &device, 0);
+    const bool workerHeld = context.workerEntered.acquire(1, 2);
+    const size_t capacity =
+        NetworkStack::getHostedReceiveRequestCapacity();
+    if (workerHeld)
+    {
+        // The active request owns one token. Fill every remaining token, then
+        // submit one packet whose ownership must be cancelled synchronously.
+        for (size_t i = 1; i <= capacity; ++i)
+        {
+            stack.receive(
+                sizeof(packet), reinterpret_cast<uintptr_t>(packet), &device,
+                0);
+        }
+    }
+    const bool rejectedWhileHeld = context.cancellations == 1;
+
+    bool unregistered = false;
+    if (workerHeld)
+    {
+        stack.deRegisterDevice(&device);
+        unregistered = !stack.getInterface(&device) &&
+                       !NetworkStack::getHostedRegistrationGeneration(&device);
+    }
+
+    // Also releases a worker which arrived after the bounded wait above.
+    context.allowDispatch.release();
+    const bool drained = stack.drain();
+
+    NetworkStack::setHostedReceiveHook(nullptr);
+    g_ReceivePublicationContext = nullptr;
+    if (!unregistered)
+    {
+        stack.deRegisterDevice(&device);
+    }
+
+    const size_t terminalOwnershipEvents =
+        static_cast<size_t>(context.delivered) +
+        static_cast<size_t>(context.staleDiscards) +
+        static_cast<size_t>(context.cancellations);
+
+    bool passed = true;
+    passed &= check(
+        workerHeld && rejectedWhileHeld && unregistered && !context.failures,
+        Test,
+        "the full token bank did not reject one pbuf synchronously");
+    passed &= check(
+        drained && context.queued == capacity + 1 &&
+            context.beforeDispatch == capacity &&
+            !context.delivered && context.staleDiscards == capacity &&
+            context.cancellations == 1,
+        Test, "the accepted/rejected burst counts were inconsistent");
+    passed &= check(
+        terminalOwnershipEvents == capacity + 1 &&
+            context.everyBufferTerminatedOnce(capacity + 1),
+        Test,
+        "a burst pbuf did not have exactly one terminal owner");
+
+    if (passed)
+    {
+        NOTICE("HOSTED-NETWORK-TEST: PASS " << Test);
+    }
+    return passed;
 }
 
 bool queuedReceiveGenerationAba()
@@ -209,5 +489,8 @@ bool queuedReceiveGenerationAba()
 
 bool runHostedNetworkStackRegressions()
 {
-    return queuedReceiveGenerationAba();
+    bool passed = interruptReceivePublication();
+    passed &= boundedReceiveBurst();
+    passed &= queuedReceiveGenerationAba();
+    return passed;
 }

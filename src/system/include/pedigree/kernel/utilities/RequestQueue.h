@@ -217,15 +217,6 @@ class EXPORTED_PUBLIC RequestQueue
         uint64_t p8 = 0);
 
     /**
-     * Temporary compatibility entry point for the remaining legacy IRQ
-     * caller. New interrupt-side code must use enqueueFromInterrupt().
-     */
-    uint64_t tryAddAsyncRequest(
-        size_t priority, uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,
-        uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0,
-        uint64_t p8 = 0);
-
-    /**
      * Publishes preallocated work from an IRQ or timer callback.
      *
      * This path performs no allocation, deallocation, logging, or blocking.
