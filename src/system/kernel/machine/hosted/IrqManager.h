@@ -139,7 +139,8 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
 
     /** Stable one-worker-per-signal threaded IRQ dispatcher. */
     ThreadedIrqDispatcher m_ThreadedDispatcher;
-    size_t m_ThreadedCookies[2];
+    size_t m_ThreadedCookies[3];
+    size_t m_ThreadedPublicationFailures[3];
 
     /** The HostedIrqManager instance */
     static HostedIrqManager m_Instance;

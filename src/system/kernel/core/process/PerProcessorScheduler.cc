@@ -50,7 +50,8 @@ PerProcessorScheduler::PerProcessorScheduler()
     : m_pSchedulingAlgorithm(0), m_NewThreadDataLock(),
       m_NewThreadDataCondition(), m_NewThreadData(),
       m_DelayedNewThreadData(), m_NewThreadAdmissionOpen(false),
-      m_StopNewThreadWorker(false), m_NewThreadWorker(), m_pIdleThread(0)
+      m_StopNewThreadWorker(false), m_NewThreadWorker(),
+      m_IrqWorkDoorbell(0), m_pIdleThread(0)
 {
 }
 
@@ -1093,6 +1094,28 @@ void PerProcessorScheduler::threadStatusChanged(Thread *pThread)
     m_pSchedulingAlgorithm->threadStatusChanged(pThread);
 }
 
+void PerProcessorScheduler::ringIrqWorkDoorbell()
+{
+    m_IrqWorkDoorbell = 1;
+}
+
+void PerProcessorScheduler::serviceIrqWorkDoorbell()
+{
+    if (!m_pSchedulingAlgorithm ||
+        !Processor::information().getCurrentThread())
+    {
+        return;
+    }
+
+    // One bounded claim is enough: a racing ring remains set for the next
+    // interrupt exit, while the predicate-backed worker stays scheduler-
+    // visible in the meantime.
+    if (m_IrqWorkDoorbell.compareAndSwap(1, 0))
+    {
+        schedule();
+    }
+}
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 namespace
 {
@@ -1104,6 +1127,18 @@ int hostedNewThreadWorkerEntry(void *parameter)
     return 0;
 }
 }  // namespace
+
+bool PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest()
+{
+    return Processor::information()
+               .getScheduler()
+               .m_IrqWorkDoorbell.value() != 0;
+}
+
+void PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest()
+{
+    Processor::information().getScheduler().serviceIrqWorkDoorbell();
+}
 
 bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions()
 {

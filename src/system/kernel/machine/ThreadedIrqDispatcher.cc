@@ -6,17 +6,22 @@
  */
 
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
-#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+
+static_assert(
+    __atomic_always_lock_free(sizeof(size_t), nullptr),
+    "IRQ doorbell words must be lock-free");
 
 ThreadedIrqDispatcher::Line::Line()
     : m_Owner(nullptr), m_Callback(nullptr), m_CallbackContext(nullptr),
-      m_Thread(nullptr), m_Work(0, false), m_StateLock(false), m_Line(0),
-      m_PendingCookie(0), m_WakePublished(false), m_Stopping(true),
-      m_Started(false)
+      m_Thread(nullptr), m_Scheduler(nullptr), m_Line(0), m_PendingCookie(0),
+      m_CallbackActive(0), m_PublicationState(PublicationClosed), m_Started(0)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
       m_CompletedBatches(0), m_CompletedCookie(0)
@@ -26,7 +31,7 @@ ThreadedIrqDispatcher::Line::Line()
 
 ThreadedIrqDispatcher::Line::~Line()
 {
-    if (m_Started || m_Thread)
+    if (__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE) || m_Thread)
     {
         FATAL("A threaded IRQ worker was destroyed while active.");
     }
@@ -45,28 +50,36 @@ void ThreadedIrqDispatcher::Line::configure(
 bool ThreadedIrqDispatcher::Line::start()
 {
 #if THREADS
+    if (__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE) || m_Thread ||
+        !m_Owner || !m_Callback)
     {
-        LockGuard<Spinlock> guard(m_StateLock);
-        if (m_Started || m_Thread || !m_Owner || !m_Callback)
-        {
-            return false;
-        }
-
-        m_PendingCookie = 0;
-        m_WakePublished = false;
-        m_Stopping = false;
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-        m_CompletedBatches = 0;
-        m_CompletedCookie = 0;
-#endif
+        return false;
     }
-    const size_t staleWakeCount = m_Work.drainAvailable();
-    (void) staleWakeCount;
 
+    __atomic_store_n(&m_PendingCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(&m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_PublicationState, static_cast<size_t>(0), __ATOMIC_RELEASE);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    __atomic_store_n(
+        &m_CompletedBatches, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_CompletedCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
+#endif
+
+    m_Scheduler = &Processor::information().getScheduler();
     m_Thread = new Thread(
         Scheduler::instance().getKernelProcess(), workerEntry, this, nullptr,
         false, true, true);
     m_Thread->setName("threaded IRQ line");
+    m_Thread->setPriority(0);
+    if (!m_Thread->setSchedulerReadyPredicate(workerReady, this))
+    {
+        FATAL("A threaded IRQ worker could not install its ready predicate.");
+        return false;
+    }
+
+    __atomic_store_n(&m_Started, static_cast<size_t>(1), __ATOMIC_RELEASE);
     if (!m_Thread->start())
     {
         // This can only fail if a freshly-created delayed Thread has already
@@ -74,11 +87,6 @@ bool ThreadedIrqDispatcher::Line::start()
         // registered kernel Thread which cannot be safely reclaimed here.
         FATAL("A threaded IRQ worker could not be started.");
         return false;
-    }
-
-    {
-        LockGuard<Spinlock> guard(m_StateLock);
-        m_Started = true;
     }
     return true;
 #else
@@ -88,25 +96,22 @@ bool ThreadedIrqDispatcher::Line::start()
 
 void ThreadedIrqDispatcher::Line::beginStop()
 {
+    if (!__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE))
     {
-        LockGuard<Spinlock> guard(m_StateLock);
-        if (!m_Started)
-        {
-            return;
-        }
-        m_Stopping = true;
+        return;
     }
-    m_Work.release();
+    // One atomic word closes admission and counts publishers already inside
+    // publishFromInterrupt(). The worker does not exit until that count drains.
+    __atomic_fetch_or(
+        &m_PublicationState, PublicationClosed, __ATOMIC_ACQ_REL);
+    m_Scheduler->ringIrqWorkDoorbell();
 }
 
 bool ThreadedIrqDispatcher::Line::join()
 {
+    if (!__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE))
     {
-        LockGuard<Spinlock> guard(m_StateLock);
-        if (!m_Started)
-        {
-            return m_Thread == nullptr;
-        }
+        return m_Thread == nullptr;
     }
 
     if (!m_Thread || !m_Thread->joinForCompletion())
@@ -114,61 +119,72 @@ bool ThreadedIrqDispatcher::Line::join()
         return false;
     }
 
-    {
-        LockGuard<Spinlock> guard(m_StateLock);
-        m_Thread = nullptr;
-        m_Started = false;
-        m_PendingCookie = 0;
-        m_WakePublished = false;
-    }
-    const size_t staleWakeCount = m_Work.drainAvailable();
-    (void) staleWakeCount;
+    m_Thread = nullptr;
+    __atomic_store_n(&m_Started, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(&m_PendingCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(&m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
     return true;
 }
 
-ThreadedIrqDispatcher::Publication
-ThreadedIrqDispatcher::Line::markPending(size_t cookie)
+bool ThreadedIrqDispatcher::Line::publishFromInterrupt(size_t cookie)
 {
-    Publication result = {false, false};
     if (!cookie)
     {
-        return result;
+        return false;
     }
 
-    LockGuard<Spinlock> guard(m_StateLock);
-    if (!m_Started || m_Stopping)
+    const size_t admission = __atomic_fetch_add(
+        &m_PublicationState, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+    if (admission & PublicationClosed)
     {
-        return result;
+        __atomic_fetch_sub(
+            &m_PublicationState, static_cast<size_t>(1), __ATOMIC_RELEASE);
+        return false;
     }
 
-    if (!m_PendingCookie || generationReached(cookie, m_PendingCookie))
+    // Controller dispatch serialises the one hard producer for each physical
+    // line. The worker is the only consumer and can only exchange the value
+    // to zero, so this store cannot overwrite a newer producer publication.
+    const size_t pending =
+        __atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE);
+    if (!pending || generationReached(cookie, pending))
     {
-        m_PendingCookie = cookie;
+        __atomic_store_n(&m_PendingCookie, cookie, __ATOMIC_RELEASE);
     }
 
-    result.accepted = true;
-    result.wake = !m_WakePublished;
-    m_WakePublished = true;
-    return result;
-}
+    // The worker is pinned to this scheduler. Remote delivery can still
+    // require a reschedule IPI for immediate service, but it must never ring
+    // an unrelated CPU's doorbell.
+    m_Scheduler->ringIrqWorkDoorbell();
 
-void ThreadedIrqDispatcher::Line::wake(Publication publication)
-{
-    if (publication.accepted && publication.wake)
-    {
-        m_Work.release();
-    }
+    __atomic_fetch_sub(
+        &m_PublicationState, static_cast<size_t>(1), __ATOMIC_RELEASE);
+    return true;
 }
 
 bool ThreadedIrqDispatcher::Line::hasPending() const
 {
-    LockGuard<Spinlock> guard(m_StateLock);
-    return m_PendingCookie != 0;
+    return __atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE) != 0;
+}
+
+bool ThreadedIrqDispatcher::Line::isWorker(const Thread *thread) const
+{
+    return thread && thread == m_Thread;
 }
 
 int ThreadedIrqDispatcher::Line::workerEntry(void *context)
 {
     return reinterpret_cast<Line *>(context)->run();
+}
+
+bool ThreadedIrqDispatcher::Line::workerReady(void *context)
+{
+    Line *line = reinterpret_cast<Line *>(context);
+    return __atomic_load_n(&line->m_PendingCookie, __ATOMIC_ACQUIRE) ||
+           __atomic_load_n(&line->m_CallbackActive, __ATOMIC_ACQUIRE) ||
+           (__atomic_load_n(
+                &line->m_PublicationState, __ATOMIC_ACQUIRE) &
+            PublicationClosed);
 }
 
 int ThreadedIrqDispatcher::Line::run()
@@ -178,37 +194,49 @@ int ThreadedIrqDispatcher::Line::run()
     TerminationDeferral workerLifetime;
     while (true)
     {
-        if (!m_Work.acquireForCompletion())
-        {
-            continue;
-        }
-
-        size_t cookie = 0;
-        {
-            LockGuard<Spinlock> guard(m_StateLock);
-            // Clear the wake claim before consuming work. A later publisher
-            // records both a new predicate and a fresh semaphore wake.
-            m_WakePublished = false;
-            cookie = m_PendingCookie;
-            m_PendingCookie = 0;
-        }
+        // Stay scheduler-eligible from before the claim until all callback
+        // completion bookkeeping is published. Otherwise a timer preemption
+        // can park this worker after it clears the only pending predicate.
+        __atomic_store_n(
+            &m_CallbackActive, static_cast<size_t>(1), __ATOMIC_RELEASE);
+        const size_t cookie = __atomic_exchange_n(
+            &m_PendingCookie, static_cast<size_t>(0), __ATOMIC_ACQ_REL);
         if (cookie)
         {
             m_Callback(m_CallbackContext, m_Line, cookie);
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-            LockGuard<Spinlock> guard(m_StateLock);
-            ++m_CompletedBatches;
-            m_CompletedCookie = cookie;
+            __atomic_add_fetch(
+                &m_CompletedBatches, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+            __atomic_store_n(&m_CompletedCookie, cookie, __ATOMIC_RELEASE);
 #endif
+            __atomic_store_n(
+                &m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
+            continue;
         }
 
+        __atomic_store_n(
+            &m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
+        const size_t publicationState = __atomic_load_n(
+            &m_PublicationState, __ATOMIC_ACQUIRE);
+        if (publicationState & PublicationClosed)
         {
-            LockGuard<Spinlock> guard(m_StateLock);
-            if (m_Stopping && !m_PendingCookie)
+            if (publicationState & PublicationCountMask)
+            {
+                Scheduler::instance().yield();
+                continue;
+            }
+
+            // An admitted publisher stores its cookie before dropping the
+            // final count. Recheck after observing zero so close cannot race
+            // the worker past an already-accepted occurrence.
+            if (!__atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE))
             {
                 break;
             }
+            continue;
         }
+
+        Scheduler::instance().yield();
     }
 
     return 0;
@@ -223,14 +251,12 @@ bool ThreadedIrqDispatcher::Line::generationReached(
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 size_t ThreadedIrqDispatcher::Line::completedBatchesForTest() const
 {
-    LockGuard<Spinlock> guard(m_StateLock);
-    return m_CompletedBatches;
+    return __atomic_load_n(&m_CompletedBatches, __ATOMIC_ACQUIRE);
 }
 
 size_t ThreadedIrqDispatcher::Line::completedCookieForTest() const
 {
-    LockGuard<Spinlock> guard(m_StateLock);
-    return m_CompletedCookie;
+    return __atomic_load_n(&m_CompletedCookie, __ATOMIC_ACQUIRE);
 }
 #endif
 
@@ -272,6 +298,7 @@ bool ThreadedIrqDispatcher::initialise()
             {
                 m_Lines[j].beginStop();
             }
+            Processor::information().getScheduler().serviceIrqWorkDoorbell();
             for (size_t j = 0; j < i; ++j)
             {
                 m_Lines[j].join();
@@ -294,11 +321,17 @@ bool ThreadedIrqDispatcher::shutdown()
     {
         return true;
     }
+    if (isCurrentWorker())
+    {
+        return false;
+    }
 
     for (size_t i = 0; i < m_LineCount; ++i)
     {
         m_Lines[i].beginStop();
     }
+
+    Processor::information().getScheduler().serviceIrqWorkDoorbell();
 
     bool joined = true;
     for (size_t i = 0; i < m_LineCount; ++i)
@@ -321,29 +354,25 @@ bool ThreadedIrqDispatcher::isInitialised() const
     return __atomic_load_n(&m_Initialised, __ATOMIC_ACQUIRE) != 0;
 }
 
-ThreadedIrqDispatcher::Publication
-ThreadedIrqDispatcher::markPending(uint8_t line, size_t cookie)
+bool ThreadedIrqDispatcher::isCurrentWorker() const
 {
-    if (!isInitialised() || line >= m_LineCount)
+#if THREADS
+    const Thread *current = Processor::information().getCurrentThread();
+    for (size_t i = 0; i < m_LineCount; ++i)
     {
-        return {false, false};
+        if (m_Lines[i].isWorker(current))
+        {
+            return true;
+        }
     }
-    return m_Lines[line].markPending(cookie);
-}
-
-void ThreadedIrqDispatcher::wake(uint8_t line, Publication publication)
-{
-    if (line < m_LineCount)
-    {
-        m_Lines[line].wake(publication);
-    }
+#endif
+    return false;
 }
 
 bool ThreadedIrqDispatcher::publishFromInterrupt(uint8_t line, size_t cookie)
 {
-    const Publication publication = markPending(line, cookie);
-    wake(line, publication);
-    return publication.accepted;
+    return isInitialised() && line < m_LineCount &&
+           m_Lines[line].publishFromInterrupt(cookie);
 }
 
 bool ThreadedIrqDispatcher::hasPending(uint8_t line) const

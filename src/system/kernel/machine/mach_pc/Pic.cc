@@ -303,7 +303,8 @@ Pic::Pic()
     : m_SlavePort("PIC #2"), m_MasterPort("PIC #1"), m_Handlers(), m_IrqState(),
       m_ThreadedDispatcher(PicIrqState::LineCount, dispatchThreadedLine, this),
       m_ThreadedCookies(), m_ThreadedDispatchGenerations(),
-      m_UnregisterReservations(), m_ShuttingDown(false), m_Lock(false)
+      m_ThreadedPublicationFailures(), m_UnregisterReservations(),
+      m_ShuttingDown(false), m_Lock(false)
 {
 }
 
@@ -352,7 +353,7 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
     bool threaded = false;
     size_t dispatchGeneration = 0;
     size_t threadedCookie = 0;
-    ThreadedIrqDispatcher::Publication threadedPublication = {false, false};
+    bool threadedPublished = false;
     {
         LockGuard<Spinlock> guard(m_Lock);
         ++m_IrqCount[irq];
@@ -388,8 +389,8 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
             }
             threadedCookie = advanceThreadedCookieLocked(irq);
             m_ThreadedDispatchGenerations[irq] = dispatchGeneration;
-            threadedPublication =
-                m_ThreadedDispatcher.markPending(irq, threadedCookie);
+            threadedPublished = m_ThreadedDispatcher.publishFromInterrupt(
+                irq, threadedCookie);
             eoiLocked(irq);
         }
         else if (edgeTriggered)
@@ -400,10 +401,11 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
 
     if (threaded)
     {
-        m_ThreadedDispatcher.wake(irq, threadedPublication);
-        if (!threadedPublication.accepted)
+        if (!threadedPublished)
         {
-            ERROR_NOLOCK("PIC: threaded IRQ publication was rejected");
+            __atomic_add_fetch(
+                &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
         }
         return;
     }

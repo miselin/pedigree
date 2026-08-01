@@ -517,6 +517,20 @@ bool Thread::start()
     return true;
 }
 
+bool Thread::setSchedulerReadyPredicate(
+    SchedulerReadyPredicate predicate, void *context)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+    if (m_Status != Created || m_bStartRequested)
+    {
+        return false;
+    }
+
+    m_SchedulerReadyPredicate = predicate;
+    m_SchedulerReadyContext = context;
+    return true;
+}
+
 SchedulerState &Thread::state()
 {
     return *(m_StateLevels[m_nStateLevel].m_State);

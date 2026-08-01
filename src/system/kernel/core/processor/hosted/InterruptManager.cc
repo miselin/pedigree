@@ -29,7 +29,9 @@
 
 #if THREADS
 #include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #endif
 
 namespace __pedigree_hosted
@@ -137,6 +139,18 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
     if (LIKELY(pHandler != 0))
     {
         pHandler->interrupt(nIntNumber, interruptState);
+#if THREADS
+        // SIGSEGV/SIGBUS handlers can return while kernel locks are held.
+        // SIGUSR1/SIGUSR2 are the hosted external-IRQ boundary.
+        if (nIntNumber == SIGUSR1 || nIntNumber == SIGUSR2
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+            || nIntNumber == SIGURG
+#endif
+        )
+        {
+            Processor::information().getScheduler().serviceIrqWorkDoorbell();
+        }
+#endif
         return;
     }
 

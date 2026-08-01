@@ -37,7 +37,11 @@ using namespace __pedigree_hosted;
 
 namespace
 {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+constexpr size_t NumHostedIrqs = 3;
+#else
 constexpr size_t NumHostedIrqs = 2;
+#endif
 int irqToSignal[NumHostedIrqs] = {0};
 
 bool irqForSignal(size_t signal, uint8_t &irq)
@@ -158,9 +162,19 @@ bool HostedIrqManager::initialise()
         return false;
     if (IntManager.registerInterruptHandler(SIGUSR2, this) == false)
         return false;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    if (IntManager.registerInterruptHandler(SIGURG, this) == false)
+        return false;
+#endif
 
     irqToSignal[0] = SIGUSR1;
     irqToSignal[1] = SIGUSR2;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    // Both production hosted lines are permanently occupied by timer hard
+    // handlers. Keep one signal-backed line solely for end-to-end threaded
+    // IRQ regression coverage.
+    irqToSignal[2] = SIGURG;
+#endif
 
     return true;
 }
@@ -178,7 +192,7 @@ bool HostedIrqManager::shutdownThreaded()
 HostedIrqManager::HostedIrqManager()
     : m_Handlers(),
       m_ThreadedDispatcher(NumHostedIrqs, dispatchThreadedLine, this),
-      m_ThreadedCookies()
+      m_ThreadedCookies(), m_ThreadedPublicationFailures()
 {
 }
 
@@ -206,8 +220,9 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
         }
         if (!m_ThreadedDispatcher.publishFromInterrupt(irq, cookie))
         {
-            ERROR_NOLOCK(
-                "HostedIrqManager: threaded IRQ publication was rejected");
+            __atomic_add_fetch(
+                &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
         }
         return;
     }

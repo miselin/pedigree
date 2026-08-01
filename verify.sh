@@ -678,20 +678,49 @@ check_wait_api_boundaries()
     local hosted_irq_source=src/system/kernel/machine/hosted/IrqManager.cc
     local hosted_machine_source=src/system/kernel/machine/hosted/Machine.cc
     local threaded_irq_regressions=src/modules/system/hosted-smoke/threaded-irq-regressions.cc
-    if ! rg -q 'mutable Spinlock m_StateLock' "$threaded_irq_header" ||
-        ! rg -q -U \
-            '(?s)Line::markPending\(size_t cookie\).*?LockGuard<Spinlock> guard\(m_StateLock\).*?if \(!m_Started \|\| m_Stopping\).*?m_PendingCookie = cookie.*?m_WakePublished = true' \
+    local thread_header=src/system/include/pedigree/kernel/process/Thread.h
+    local scheduler_header=src/system/include/pedigree/kernel/process/PerProcessorScheduler.h
+    local scheduler_source=src/system/kernel/core/process/PerProcessorScheduler.cc
+    local round_robin_source=src/system/kernel/core/process/RoundRobin.cc
+    if rg -q 'Semaphore|Spinlock m_StateLock|m_WakePublished' \
+            "$threaded_irq_header" ||
+        ! rg -q 'SchedulerReadyPredicate' "$thread_header" ||
+        ! rg -q 'setSchedulerReadyPredicate\(workerReady, this\)' \
             "$threaded_irq_source" ||
         ! rg -q -U \
-            '(?s)Line::beginStop\(\).*?LockGuard<Spinlock> guard\(m_StateLock\).*?m_Stopping = true.*?m_Work\.release\(\)' \
+            '(?s)ThreadedIrqDispatcher::shutdown\(\).*?isCurrentWorker\(\)' \
+            "$threaded_irq_source" ||
+        ! rg -q 'isEligible\(pThread\)' "$round_robin_source" ||
+        ! rg -q 'ringIrqWorkDoorbell' "$scheduler_header" ||
+        ! rg -q -U \
+            '(?s)ringIrqWorkDoorbell\(\).*?m_IrqWorkDoorbell = 1' \
+            "$scheduler_source" ||
+        ! rg -q -U \
+            '(?s)Line::publishFromInterrupt\(size_t cookie\).*?__atomic_fetch_add\(.*?m_PublicationState.*?PublicationClosed.*?__atomic_store_n\(&m_PendingCookie, cookie.*?ringIrqWorkDoorbell\(\).*?__atomic_fetch_sub\(.*?m_PublicationState' \
+            "$threaded_irq_source" ||
+        ! rg -q -U \
+            '(?s)Line::beginStop\(\).*?__atomic_fetch_or\(.*?m_PublicationState, PublicationClosed' \
             "$threaded_irq_source"; then
-        echo "Threaded IRQ publication and shutdown lost their shared admission lock."
+        echo "Threaded IRQ publication lost its atomic scheduler doorbell."
+        failed=1
+    fi
+
+    local threaded_publish_body
+    threaded_publish_body=$(sed -n \
+        '/Line::publishFromInterrupt(size_t cookie)/,/Line::hasPending() const/p' \
+        "$threaded_irq_source")
+    matches=$(printf '%s\n' "$threaded_publish_body" | \
+        rg -n \
+            'LockGuard|Spinlock|Semaphore|WaitQueue|RequestQueue|new[[:space:]]|delete[[:space:]]|FATAL|ERROR|WARNING|NOTICE|while[[:space:]]*\(|for[[:space:]]*\(' || true)
+    if [[ -n "$matches" ]]; then
+        echo "Threaded IRQ hard publication contains a blocking or unbounded operation:"
+        echo "$matches"
         failed=1
     fi
 
     if ! rg -q -U \
-        '(?s)Line::run\(\).*?TerminationDeferral workerLifetime.*?acquireForCompletion\(\).*?m_Callback\(.*?m_CompletedCookie = cookie' \
-        "$threaded_irq_source" ||
+        '(?s)Line::run\(\).*?TerminationDeferral workerLifetime.*?__atomic_store_n\(.*?m_CallbackActive.*?__atomic_exchange_n\(.*?m_Callback\(.*?m_CompletedCookie.*?m_CallbackActive.*?Scheduler::instance\(\)\.yield\(\)' \
+            "$threaded_irq_source" ||
         ! rg -q 'completedCookieForTest' "$threaded_irq_header"; then
         echo "Threaded IRQ workers lost owned lifetime or completion generations."
         failed=1
@@ -711,6 +740,12 @@ check_wait_api_boundaries()
     if ! rg -q 'Candidate candidates\[MaxHandlerSlots\]' \
         "$irq_registry_source" ||
         ! rg -q 'irq-threaded-dispatcher-coalescing' \
+            "$threaded_irq_regressions" ||
+        ! rg -q 'currentIrqWorkDoorbellPendingForTest' \
+            "$threaded_irq_regressions" ||
+        ! rg -q 'selfShutdownRejected' \
+            "$threaded_irq_regressions" ||
+        ! rg -q 'irq-threaded-hosted-signal' \
             "$threaded_irq_regressions"; then
         echo "Threaded IRQ callback snapshots or deterministic coalescing coverage are missing."
         failed=1
@@ -745,12 +780,26 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
-        '(?s)Pic::interrupt\(.*?beginThreadedDispatch\(irq\).*?applyMaskLocked\(\).*?markPending\(irq, threadedCookie\).*?eoiLocked\(irq\).*?m_ThreadedDispatcher\.wake\(irq, threadedPublication\)' \
+        '(?s)Pic::interrupt\(.*?beginThreadedDispatch\(irq\).*?applyMaskLocked\(\).*?publishFromInterrupt\(.*?threadedCookie\).*?eoiLocked\(irq\)' \
         "$pic_source" ||
+        ! rg -q -U \
+            '(?s)if \(!threadedPublished\).*?__atomic_add_fetch\(.*?m_ThreadedPublicationFailures' \
+            "$pic_source" ||
         ! rg -q -U \
             '(?s)dispatchThreadedLine\(.*?dispatchThreaded\(irq, handled\).*?completeThreadedDispatch\([^;]*admitted && handled\)' \
             "$pic_source"; then
         echo "The PIC threaded path lost mask, EOI, publication, or rearm ordering."
+        failed=1
+    fi
+
+    local pic_threaded_tail
+    pic_threaded_tail=$(sed -n \
+        '/^    if (threaded)$/,/^    bool bHandled/p' "$pic_source")
+    matches=$(printf '%s\n' "$pic_threaded_tail" | \
+        rg -n '(ERROR|WARNING|NOTICE|FATAL)(_NOLOCK)?\(' || true)
+    if [[ -n "$matches" ]]; then
+        echo "The PIC threaded publication tail logs from hard IRQ context:"
+        echo "$matches"
         failed=1
     fi
 
@@ -775,7 +824,8 @@ check_wait_api_boundaries()
 
     matches=$(rg -n \
         '(->|\.)register(Isa|Pci)IrqHandler\(' \
-        src --glob '*.{cc,h}' || true)
+        src --glob '*.{cc,h}' \
+        --glob '!src/modules/system/hosted-smoke/**' || true)
     if [[ -n "$matches" ]]; then
         echo "A legacy hard callback entered the not-yet-enabled threaded registration API:"
         echo "$matches"

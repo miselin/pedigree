@@ -128,6 +128,8 @@ class Pic : public IrqManager, private InterruptHandler
     size_t m_ThreadedCookies[PicIrqState::LineCount];
     /** PIC dispatch generation associated with each queued cookie. */
     size_t m_ThreadedDispatchGenerations[PicIrqState::LineCount];
+    /** Atomic diagnostics for work rejected after dispatcher closure. */
+    size_t m_ThreadedPublicationFailures[PicIrqState::LineCount];
     /** Unregister operations which have not completed line accounting. */
     size_t m_UnregisterReservations[PicIrqState::LineCount];
     /** Closes registration and re-enable paths before worker shutdown. */

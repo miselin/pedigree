@@ -20,6 +20,7 @@
 #ifndef PERPROCESSORSCHEDULER_H
 #define PERPROCESSORSCHEDULER_H
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
@@ -81,11 +82,20 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
 
     void threadStatusChanged(Thread *pThread);
 
+    /** Atomic hard-IRQ publication; does not touch a lock or ready queue. */
+    void ringIrqWorkDoorbell();
+
+    /** Reschedules once after the outer interrupt dispatcher drops its pins. */
+    void serviceIrqWorkDoorbell();
+
     void setIdle(Thread *pThread);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     /** Exercises the real add-worker predicate and owned shutdown path. */
     bool runHostedNewThreadWorkerRegressions();
+
+    static bool currentIrqWorkDoorbellPendingForTest();
+    static void serviceCurrentIrqWorkDoorbellForTest();
 #endif
 
   private:
@@ -133,6 +143,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
     bool m_NewThreadAdmissionOpen;
     bool m_StopNewThreadWorker;
     OwnedThread m_NewThreadWorker;
+    Atomic<size_t> m_IrqWorkDoorbell;
 
     static int processorAddThread(void *instance);
 

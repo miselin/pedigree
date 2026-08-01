@@ -100,6 +100,16 @@ class EXPORTED_PUBLIC Thread
     /** Thread start function type. */
     typedef int (*ThreadStartFunc)(void *);
 
+    /**
+     * Optional scheduler-side admission predicate for a ready kernel worker.
+     *
+     * The thread remains on its processor's ready queue while the predicate is
+     * false, but the scheduler skips it. This lets an IRQ publish an atomic
+     * work predicate without mutating a wait queue or ready queue from hard
+     * context. It must be installed before start() on a delayed thread.
+     */
+    typedef bool (*SchedulerReadyPredicate)(void *);
+
     /** Creates a new Thread belonging to the given Process. It shares the
      Process' * virtual address space.
      *
@@ -214,6 +224,9 @@ class EXPORTED_PUBLIC Thread
      * WaitQueue may perform that transition.
      */
     bool start();
+
+    bool setSchedulerReadyPredicate(
+        SchedulerReadyPredicate predicate, void *context);
 
     /** Retrieves the exit status of the Thread. */
     int getExitCode()
@@ -750,6 +763,8 @@ class EXPORTED_PUBLIC Thread
     Thread *m_pReadyNext = nullptr;
     size_t m_ReadyQueuePriority = MAX_PRIORITIES;
     bool m_bReadyQueued = false;
+    SchedulerReadyPredicate m_SchedulerReadyPredicate = nullptr;
+    void *m_SchedulerReadyContext = nullptr;
 
     /** Memory mapping for the TLS base of this thread (userspace-only) */
     void *m_pTlsBase = nullptr;

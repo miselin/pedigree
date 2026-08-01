@@ -9,10 +9,10 @@
 #define PEDIGREE_KERNEL_MACHINE_THREADEDIRQDISPATCHER_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/types.h"
 
 class Thread;
+class PerProcessorScheduler;
 
 /**
  * Owns one coalescing worker for each physical IRQ line.
@@ -20,19 +20,14 @@ class Thread;
  * The controller performs the trigger-specific hard-stage work before
  * publishing a monotonically increasing, nonzero cookie. The worker invokes
  * the callback in ordinary thread context. Interrupted machine state is never
- * retained or exposed to the callback.
+ * retained or exposed to the callback. Publication records atomics and rings
+ * a scheduler doorbell; it never wakes a sleeping thread from hard context.
  */
 class EXPORTED_PUBLIC ThreadedIrqDispatcher
 {
   public:
     static constexpr size_t MaxLines = 16;
     using DispatchCallback = void (*)(void *, uint8_t, size_t);
-
-    struct Publication
-    {
-        bool accepted;
-        bool wake;
-    };
 
     ThreadedIrqDispatcher(
         size_t lineCount, DispatchCallback callback, void *callbackContext);
@@ -46,18 +41,14 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
 
     bool isInitialised() const;
 
+    /** True when called by one of this dispatcher's callback workers. */
+    bool isCurrentWorker() const;
+
     /**
-     * Coalesces a line occurrence without waking its worker yet.
-     *
-     * Controllers use this while their short state lock is held, then call
-     * wake() after dropping that lock.
+     * Marks a line and rings its owning scheduler in one bounded operation.
+     * Controller dispatch must serialise non-idempotent cookie producers for
+     * each line. A constant cookie is safe for multi-producer work-bit users.
      */
-    Publication markPending(uint8_t line, size_t cookie);
-
-    /** Completes a split markPending() publication. */
-    void wake(uint8_t line, Publication publication);
-
-    /** Marks and wakes a line when no controller lock must be split. */
     bool publishFromInterrupt(uint8_t line, size_t cookie);
 
     /** Whether an occurrence arrived after the worker claimed its batch. */
@@ -81,9 +72,9 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
         bool start();
         void beginStop();
         bool join();
-        Publication markPending(size_t cookie);
-        void wake(Publication publication);
+        bool publishFromInterrupt(size_t cookie);
         bool hasPending() const;
+        bool isWorker(const Thread *thread) const;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
         size_t completedBatchesForTest() const;
@@ -91,7 +82,13 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
 #endif
 
       private:
+        static constexpr size_t PublicationClosed =
+            static_cast<size_t>(1) << ((sizeof(size_t) * 8) - 1);
+        static constexpr size_t PublicationCountMask =
+            ~PublicationClosed;
+
         static int workerEntry(void *context);
+        static bool workerReady(void *context);
         int run();
         static bool generationReached(size_t current, size_t target);
 
@@ -99,13 +96,12 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
         DispatchCallback m_Callback;
         void *m_CallbackContext;
         Thread *m_Thread;
-        Semaphore m_Work;
-        mutable Spinlock m_StateLock;
+        PerProcessorScheduler *m_Scheduler;
         uint8_t m_Line;
         size_t m_PendingCookie;
-        bool m_WakePublished;
-        bool m_Stopping;
-        bool m_Started;
+        size_t m_CallbackActive;
+        size_t m_PublicationState;
+        size_t m_Started;
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
         size_t m_CompletedBatches;
         size_t m_CompletedCookie;

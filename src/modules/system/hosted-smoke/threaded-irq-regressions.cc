@@ -7,12 +7,18 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "system/kernel/machine/mach_pc/PicIrqState.h"
+
+#include <signal.h>
 
 namespace
 {
@@ -33,8 +39,8 @@ struct DispatcherContext
 {
     DispatcherContext()
         : firstEntered(0), releaseFirst(0), secondEntered(0),
-          publisher(nullptr), calls(0), failures(0), lines(), cookies(),
-          workers()
+          publisher(nullptr), dispatcher(nullptr), calls(0), failures(0),
+          selfShutdownRejected(false), lines(), cookies(), workers()
     {
     }
 
@@ -42,8 +48,10 @@ struct DispatcherContext
     Semaphore releaseFirst;
     Semaphore secondEntered;
     Thread *publisher;
+    ThreadedIrqDispatcher *dispatcher;
     Atomic<size_t> calls;
     Atomic<size_t> failures;
+    bool selfShutdownRejected;
     uint8_t lines[2];
     size_t cookies[2];
     Thread *workers[2];
@@ -71,6 +79,8 @@ void dispatchBatch(void *opaque, uint8_t line, size_t cookie)
 
     if (!call)
     {
+        context->selfShutdownRejected =
+            context->dispatcher && !context->dispatcher->shutdown();
         context->firstEntered.release();
         if (!context->releaseFirst.acquireForCompletion())
         {
@@ -88,24 +98,32 @@ bool threadedDispatcherCoalescing()
     DispatcherContext context;
     context.publisher = Processor::information().getCurrentThread();
     ThreadedIrqDispatcher dispatcher(2, dispatchBatch, &context);
+    context.dispatcher = &dispatcher;
     const bool initialised = dispatcher.initialise();
 
     const bool interruptsWereEnabled = Processor::getInterrupts();
     Processor::setInterrupts(false);
     const bool firstPublished =
         initialised && dispatcher.publishFromInterrupt(1, 1);
+    const bool firstDoorbell =
+        PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest();
     Processor::setInterrupts(interruptsWereEnabled);
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
 
     const bool firstObserved =
         firstPublished && context.firstEntered.acquireForCompletion(1, 2, 0);
     bool laterPublished = false;
+    bool laterDoorbell = false;
     if (firstObserved)
     {
         Processor::setInterrupts(false);
         laterPublished = dispatcher.publishFromInterrupt(1, 2) &&
                          dispatcher.publishFromInterrupt(1, 3) &&
                          dispatcher.publishFromInterrupt(1, 4);
+        laterDoorbell =
+            PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest();
         Processor::setInterrupts(interruptsWereEnabled);
+        PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
     }
 
     context.releaseFirst.release();
@@ -116,6 +134,9 @@ bool threadedDispatcherCoalescing()
     bool passed = true;
     passed &= check(initialised, "the dispatcher did not initialise");
     passed &= check(firstPublished, "wake-before-block publication failed");
+    passed &= check(
+        firstDoorbell && laterDoorbell,
+        "hard publication did not leave an atomic IRQ-work doorbell", Test);
     passed &= check(firstObserved, "the first worker batch did not enter");
     passed &= check(laterPublished, "a coalesced publication was rejected");
     passed &= check(secondObserved, "the coalesced worker batch did not enter");
@@ -123,6 +144,9 @@ bool threadedDispatcherCoalescing()
     passed &= check(
         context.calls == 2 && context.failures == 0,
         "callbacks did not run exactly twice in ordinary thread context");
+    passed &= check(
+        context.selfShutdownRejected,
+        "a callback mutated its own dispatcher before rejecting self-join");
     passed &= check(
         context.lines[0] == 1 && context.lines[1] == 1 &&
             context.cookies[0] == 1 && context.cookies[1] == 4,
@@ -140,6 +164,62 @@ bool threadedDispatcherCoalescing()
         NOTICE(
             "HOSTED-WAIT-TEST: PASS "
             "irq-threaded-dispatcher-coalescing");
+    }
+    return passed;
+}
+
+class HostedThreadedHandler : public IrqHandler
+{
+  public:
+    HostedThreadedHandler()
+        : entered(0), publisher(nullptr), calls(0), failures(0)
+    {
+    }
+
+    IrqDisposition irq(irq_id_t) override
+    {
+        calls += 1;
+        Thread *current = Processor::information().getCurrentThread();
+        if (!current || current == publisher || !Processor::getInterrupts() ||
+            current->getHostedSignalDepth())
+        {
+            failures += 1;
+        }
+        entered.release();
+        return IrqDisposition::Handled;
+    }
+
+    Semaphore entered;
+    Thread *publisher;
+    Atomic<size_t> calls;
+    Atomic<size_t> failures;
+};
+
+bool hostedThreadedSignalDelivery()
+{
+    constexpr const char *SignalTest = "irq-threaded-hosted-signal";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedThreadedHandler handler;
+    handler.publisher = Processor::information().getCurrentThread();
+
+    const irq_id_t id = manager->registerIsaIrqHandler(2, &handler);
+    const bool raised = id && raise(SIGURG) == 0;
+    const bool observed =
+        raised && handler.entered.acquireForCompletion(1, 2, 0);
+    const bool removed = id && manager->unregisterHandler(id, &handler);
+
+    bool passed = true;
+    passed &= check(
+        id != 0, "the threaded handler was not registered", SignalTest);
+    passed &= check(raised, "the hosted IRQ signal was not raised", SignalTest);
+    passed &= check(
+        observed && handler.calls == 1 && handler.failures == 0,
+        "the handler did not run once in an enabled ordinary thread",
+        SignalTest);
+    passed &= check(removed, "the threaded handler was not removed", SignalTest);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-hosted-signal");
     }
     return passed;
 }
@@ -243,6 +323,7 @@ bool picThreadedTriggerPolicy()
 bool runHostedThreadedIrqRegressions()
 {
     bool passed = threadedDispatcherCoalescing();
+    passed &= hostedThreadedSignalDelivery();
     passed &= picThreadedTriggerPolicy();
     return passed;
 }
