@@ -30,6 +30,7 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
+#include "PicIrqState.h"
 
 class Device;
 class IrqHandler;
@@ -88,12 +89,14 @@ class Pic : public IrqManager, private InterruptHandler
     //
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
 
-    void eoi(uint8_t irq);
+    void eoiLocked(uint8_t irq);
+    void applyMaskLocked();
+    void setEnabledLocked(uint8_t irq, bool enable);
     void enable(uint8_t irq, bool enable);
     void enableAll(bool enable);
 
-    /** Handle a potentially-spurious IRQ. */
-    bool spurious(size_t irq);
+    /** Handle a potentially-spurious IRQ while the PIC lock is held. */
+    bool spuriousLocked(size_t irq);
 
     /** The slave PIC I/O Port range */
     IoPort m_SlavePort;
@@ -102,17 +105,14 @@ class Pic : public IrqManager, private InterruptHandler
 
     /** IRQ handlers and their callback lifetime state. */
     IrqHandlerRegistry m_Handlers;
-    /** Whether the IRQs are edge or level triggered */
-    bool m_HandlerEdge[16];
+    /** Trigger mode, registration ownership and the complete 16-bit mask. */
+    PicIrqState m_IrqState;
     /** IRQ counts for given handlers */
     size_t m_IrqCount[16];
     /** Mitigated IRQs */
     bool m_MitigatedIrqs[16];
     /** Mitigation thresholds */
     size_t m_MitigationThreshold[16];
-    /** Interrupt enable mask. */
-    uint8_t m_InterruptMask;
-
     /** Main lock for all modifications */
     Spinlock m_Lock;
 

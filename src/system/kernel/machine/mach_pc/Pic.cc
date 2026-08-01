@@ -52,7 +52,7 @@ bool Pic::control(uint8_t irq, ControlCode code, size_t argument)
         case MitigationThreshold:
             if (LIKELY(argument))
             {
-                if (UNLIKELY(m_Handlers.handlerCount(irq) > 1))
+                if (UNLIKELY(m_IrqState.handlerCount(irq) > 1))
                     m_MitigationThreshold[irq] += argument;
                 else
                     m_MitigationThreshold[irq] = argument;
@@ -68,16 +68,22 @@ bool Pic::control(uint8_t irq, ControlCode code, size_t argument)
 irq_id_t
 Pic::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge)
 {
-    if (UNLIKELY(irq >= 16))
+    if (UNLIKELY(irq >= PicIrqState::LineCount || !handler))
         return 0;
 
+    LockGuard<Spinlock> guard(m_Lock);
+    if (!m_IrqState.canRegister(irq, bEdge))
+    {
+        ERROR(
+            "PIC: IRQ " << Dec << irq
+                         << " was registered with incompatible trigger modes");
+        return 0;
+    }
     if (!m_Handlers.registerHandler(irq, handler))
         return 0;
 
-    m_HandlerEdge[irq] = bEdge;
-
-    // Enable/Unmask the IRQ
-    enable(irq, true);
+    m_IrqState.handlerRegistered(irq, bEdge);
+    applyMaskLocked();
 
     return irq + BASE_INTERRUPT_VECTOR;
 }
@@ -86,42 +92,59 @@ irq_id_t Pic::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
     if (UNLIKELY(!pDevice))
         return 0;
     irq_id_t irq = pDevice->getInterruptNumber();
-    if (UNLIKELY(irq >= 16))
+    if (UNLIKELY(irq >= PicIrqState::LineCount || !handler))
         return 0;
 
+    LockGuard<Spinlock> guard(m_Lock);
+    if (!m_IrqState.canRegister(irq, false))
+    {
+        ERROR(
+            "PIC: PCI IRQ " << Dec << irq
+                             << " conflicts with an edge-triggered handler");
+        return 0;
+    }
     if (!m_Handlers.registerHandler(irq, handler))
         return 0;
 
-    m_HandlerEdge[irq] = false;  // PCI bus uses level triggered IRQs
-
-    // Enable/Unmask the IRQ
-    enable(irq, true);
+    m_IrqState.handlerRegistered(irq, false);
+    applyMaskLocked();
 
     return irq + BASE_INTERRUPT_VECTOR;
 }
 void Pic::acknowledgeIrq(irq_id_t Id)
 {
+    if (Id < BASE_INTERRUPT_VECTOR ||
+        Id >= BASE_INTERRUPT_VECTOR + PicIrqState::LineCount)
+    {
+        return;
+    }
     uint8_t irq = Id - BASE_INTERRUPT_VECTOR;
 
-    // Enable the irq again (the interrupt reason got removed)
-    enable(irq, true);
-    eoi(irq);
+    LockGuard<Spinlock> guard(m_Lock);
+    if (m_IrqState.acknowledge(irq))
+    {
+        applyMaskLocked();
+    }
 }
 bool Pic::unregisterHandler(irq_id_t Id, IrqHandler *handler)
 {
-    if (Id < BASE_INTERRUPT_VECTOR || Id >= BASE_INTERRUPT_VECTOR + 16)
+    if (Id < BASE_INTERRUPT_VECTOR ||
+        Id >= BASE_INTERRUPT_VECTOR + PicIrqState::LineCount || !handler)
         return false;
 
     uint8_t irq = Id - BASE_INTERRUPT_VECTOR;
 
     const IrqHandlerRegistry::UnregisterResult result =
         m_Handlers.unregisterHandler(irq, handler);
-    if (
-        (result == IrqHandlerRegistry::UnregisterResult::Completed ||
-         result == IrqHandlerRegistry::UnregisterResult::Deferred) &&
-        !m_Handlers.handlerCount(irq))
+    if (result == IrqHandlerRegistry::UnregisterResult::Completed ||
+        result == IrqHandlerRegistry::UnregisterResult::Deferred)
     {
-        enable(irq, false);
+        LockGuard<Spinlock> guard(m_Lock);
+        m_IrqState.handlerUnregistered(irq);
+        if (!m_IrqState.handlerCount(irq))
+        {
+            applyMaskLocked();
+        }
     }
 
     if (result == IrqHandlerRegistry::UnregisterResult::Rejected)
@@ -175,15 +198,11 @@ bool Pic::initialise()
 
 Pic::Pic()
     : m_SlavePort("PIC #2"), m_MasterPort("PIC #1"), m_Handlers(),
-      m_InterruptMask(0), m_Lock(false)
+      m_IrqState(), m_Lock(false)
 {
-    for (size_t i = 0; i < 16; i++)
-    {
-        m_HandlerEdge[i] = false;
-    }
 }
 
-bool Pic::spurious(size_t irq)
+bool Pic::spuriousLocked(size_t irq)
 {
     if (irq > 7)
     {
@@ -200,7 +219,7 @@ bool Pic::spurious(size_t irq)
         uint8_t mask = 1 << irq;
         m_MasterPort.write8(0x0B, 0);
         uint8_t isr = m_MasterPort.read8(0);
-        m_SlavePort.write8(0x0A, 0);
+        m_MasterPort.write8(0x0A, 0);
         return (isr & mask) == 0;
     }
 }
@@ -208,40 +227,65 @@ bool Pic::spurious(size_t irq)
 void Pic::interrupt(size_t interruptNumber, InterruptState &state)
 {
     size_t irq = (interruptNumber - BASE_INTERRUPT_VECTOR);
-    m_IrqCount[irq]++;
-
-    // If disable() has been called for this IRQ, we need to do spurious IRQ
-    // detection.
-    if (m_InterruptMask & (1 << irq))
+    if (irq >= PicIrqState::LineCount)
     {
-        if (spurious(irq))
+        return;
+    }
+
+    bool edgeTriggered = false;
+    size_t dispatchGeneration = 0;
+    {
+        LockGuard<Spinlock> guard(m_Lock);
+        ++m_IrqCount[irq];
+        edgeTriggered = m_IrqState.edgeTriggered(irq);
+
+        // IRQ7 and IRQ15 are the architectural spurious-vector cases. A
+        // disabled line can also have a vector already in flight, so retain
+        // the broader check before touching its in-service state.
+        if ((!m_IrqState.enabled(irq) || irq == 7 || irq == 15) &&
+            spuriousLocked(irq))
         {
+            if (irq > 7)
+            {
+                // A spurious slave vector never entered the slave ISR, but
+                // the master still accepted the cascade interrupt.
+                m_MasterPort.write8(0x62, 0);
+            }
             ERROR("PIC: spurious IRQ" << Dec << irq << Hex);
             return;
         }
-    }
 
-    if (m_HandlerEdge[irq])
-        eoi(irq);
+        dispatchGeneration = m_IrqState.beginDispatch(irq);
+        if (edgeTriggered)
+        {
+            eoiLocked(irq);
+        }
+    }
 
     bool bHandled = false;
     const bool admitted = m_Handlers.dispatch(irq, state, bHandled);
 
-    if (admitted && !bHandled)
     {
-        // Disable/Mask the IRQ line (the handler did not remove
-        // the interrupt reason, yet)
-        enable(irq, false);
-    }
+        LockGuard<Spinlock> guard(m_Lock);
+        const bool wasEnabled = m_IrqState.enabled(irq);
+        m_IrqState.completeDispatch(
+            irq, dispatchGeneration, admitted && !bHandled);
+        if (wasEnabled != m_IrqState.enabled(irq))
+        {
+            applyMaskLocked();
+        }
 
-    if (!m_HandlerEdge[irq])
-        eoi(irq);
+        if (!edgeTriggered)
+        {
+            eoiLocked(irq);
+        }
+    }
 
     if (!admitted)
         NOTICE("PIC: unhandled irq #" << irq << " occurred");
 }
 
-void Pic::eoi(uint8_t irq)
+void Pic::eoiLocked(uint8_t irq)
 {
     if (irq > 7)
     {
@@ -256,50 +300,32 @@ void Pic::eoi(uint8_t irq)
     }
 }
 
+void Pic::applyMaskLocked()
+{
+    m_MasterPort.write8(m_IrqState.masterMask(), 1);
+    m_SlavePort.write8(m_IrqState.slaveMask(), 1);
+}
+
+void Pic::setEnabledLocked(uint8_t irq, bool enable)
+{
+    m_IrqState.setEnabled(irq, enable);
+    applyMaskLocked();
+}
+
 void Pic::enable(uint8_t irq, bool enable)
 {
-    if (enable)
+    if (irq >= PicIrqState::LineCount)
     {
-        m_InterruptMask &= ~(1 << irq);
-    }
-    else
-    {
-        m_InterruptMask |= 1 << irq;
+        return;
     }
 
-    if (irq <= 7)
-    {
-        uint8_t mask = m_MasterPort.read8(1);
-        if (enable == true)
-            mask = mask & ~(1 << irq);
-        else
-            mask = mask | (1 << irq);
-
-        m_MasterPort.write8(mask, 1);
-    }
-    else
-    {
-        uint8_t mask = m_SlavePort.read8(1);
-        if (enable == true)
-            mask = mask & ~(1 << (irq - 8));
-        else
-            mask = mask | (1 << (irq - 8));
-
-        m_SlavePort.write8(mask, 1);
-    }
+    LockGuard<Spinlock> guard(m_Lock);
+    setEnabledLocked(irq, enable);
 }
 void Pic::enableAll(bool enable)
 {
-    if (enable == false)
-    {
-        m_InterruptMask = 0xFB;
-        m_MasterPort.write8(0xFB, 1);
-        m_SlavePort.write8(0xFB, 1);
-    }
-    else
-    {
-        m_InterruptMask = 0;
-        m_MasterPort.write8(0x00, 1);
-        m_SlavePort.write8(0x00, 1);
-    }
+    LockGuard<Spinlock> guard(m_Lock);
+    m_IrqState.setAllEnabled(enable);
+    m_MasterPort.write8(m_IrqState.masterMask(), 1);
+    m_SlavePort.write8(m_IrqState.slaveMask(), 1);
 }

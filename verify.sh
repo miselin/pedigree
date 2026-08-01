@@ -485,6 +485,70 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local pic_header=src/system/kernel/machine/mach_pc/Pic.h
+    local pic_source=src/system/kernel/machine/mach_pc/Pic.cc
+    local pic_state=src/system/kernel/machine/mach_pc/PicIrqState.h
+    matches=$(rg -n -U \
+        'uint8_t[[:space:]]+m_InterruptMask|m_HandlerEdge|m_(Master|Slave)Port\.read8\(1\)|setEnabledLocked\(irq, true\);[[:space:]]*eoiLocked\(irq\)' \
+        "$pic_header" "$pic_source" || true)
+    if [[ -n "$matches" ]]; then
+        echo "The dual PIC reverted to partial or hardware-derived line state:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if ! rg -q 'uint16_t m_Mask' "$pic_state" ||
+        ! rg -q '0xFFFB' "$pic_state" ||
+        ! rg -q 'm_DispatchGenerations' "$pic_state" ||
+        ! rg -q 'm_AcknowledgedGenerations' "$pic_state" ||
+        ! rg -q 'PicIrqState m_IrqState' "$pic_header" ||
+        ! rg -q 'm_MasterPort\.write8\(m_IrqState\.masterMask\(\), 1\)' \
+            "$pic_source" ||
+        ! rg -q 'm_SlavePort\.write8\(m_IrqState\.slaveMask\(\), 1\)' \
+            "$pic_source"; then
+        echo "The dual PIC lost its authoritative sixteen-line mask."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)registerIsaIrqHandler.*?LockGuard<Spinlock> guard\(m_Lock\);.*?canRegister\(.*?registerHandler\(.*?handlerRegistered\(.*?applyMaskLocked\(' \
+        "$pic_source" ||
+        ! rg -q -U \
+            '(?s)unregisterHandler.*?m_Handlers\.unregisterHandler\(.*?LockGuard<Spinlock> guard\(m_Lock\);.*?handlerUnregistered\(' \
+            "$pic_source"; then
+        echo "PIC registration accounting escaped its line-state lock."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        'Get ISR for master\.(?s:.*?)m_MasterPort\.write8\(0x0A, 0\)' \
+        "$pic_source" ||
+        ! rg -q \
+            'irq == 7 \|\| irq == 15' "$pic_source" ||
+        ! rg -q -U \
+            'spuriousLocked\(irq\)(?s:.*?)irq > 7(?s:.*?)m_MasterPort\.write8\(0x62, 0\)' \
+            "$pic_source"; then
+        echo "PIC spurious-vector handling lost its master acknowledgement."
+        failed=1
+    fi
+
+    if ! rg -q \
+        'edgeTriggered = m_IrqState\.edgeTriggered\(irq\)' "$pic_source" ||
+        ! rg -q 'if \(edgeTriggered\)' "$pic_source" ||
+        ! rg -q 'if \(!edgeTriggered\)' "$pic_source"; then
+        echo "PIC dispatch no longer uses one trigger-mode snapshot."
+        failed=1
+    fi
+
+    if ! rg -q 'm_IrqState\.beginDispatch\(irq\)' "$pic_source" ||
+        ! rg -q 'm_IrqState\.completeDispatch\(' "$pic_source" ||
+        ! rg -q 'm_IrqState\.acknowledge\(irq\)' "$pic_source" ||
+        ! rg -q 'const bool firstHandler = m_HandlerCounts\[irq\] == 0' \
+            "$pic_state"; then
+        echo "PIC acknowledgement ordering lost its dispatch generation."
+        failed=1
+    fi
+
     local irq_registry_source=src/system/kernel/machine/IrqHandlerRegistry.cc
     matches=$(rg -n \
         'Scheduler::instance\(\)\.yield\(\)' \

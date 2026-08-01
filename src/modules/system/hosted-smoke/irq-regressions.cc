@@ -17,6 +17,7 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/time/Time.h"
 #include "system/kernel/machine/hosted/IrqManager.h"
+#include "system/kernel/machine/mach_pc/PicIrqState.h"
 
 #include <signal.h>
 
@@ -33,6 +34,97 @@ bool check(
 
     ERROR("HOSTED-WAIT-TEST: FAIL " << test << ": " << detail);
     return false;
+}
+
+bool picLineStateLifecycle()
+{
+    constexpr const char *Test = "pic-line-state-mask-lifecycle";
+    PicIrqState state;
+    state.setAllEnabled(false);
+
+    bool passed = true;
+    passed &= check(
+        state.mask() == 0xFFFB && state.masterMask() == 0xFB &&
+            state.slaveMask() == 0xFF && state.enabled(2) &&
+            !state.enabled(12),
+        "the dual-PIC mask did not represent all sixteen lines", Test);
+
+    passed &= check(
+        state.canRegister(12, true),
+        "an unconfigured slave line rejected its trigger mode", Test);
+    state.setEnabled(2, false);
+    passed &= check(
+        !state.enabled(2),
+        "an idle cascade line could not be masked", Test);
+    state.handlerRegistered(12, true);
+    passed &= check(
+        state.handlerCount(12) == 1 && state.enabled(2) && state.enabled(12) &&
+            state.slaveMask() == 0xEF && state.edgeTriggered(12),
+        "registering IRQ12 did not unmask its slave bit and cascade", Test);
+
+    state.setEnabled(2, false);
+    passed &= check(
+        state.enabled(2),
+        "the cascade was masked while a slave line remained live", Test);
+
+    const size_t earlyAckDispatch = state.beginDispatch(12);
+    passed &= check(
+        state.acknowledge(12),
+        "an active handler could not acknowledge its dispatch", Test);
+    state.completeDispatch(12, earlyAckDispatch, true);
+    passed &= check(
+        state.enabled(12) && !state.acknowledgementPending(12),
+        "a raced acknowledgement was overwritten by the dispatch tail", Test);
+
+    const size_t deferredAckDispatch = state.beginDispatch(12);
+    state.completeDispatch(12, deferredAckDispatch, true);
+    passed &= check(
+        !state.enabled(12) && state.acknowledgementPending(12),
+        "a dispatch requiring acknowledgement did not mask its line", Test);
+
+    state.handlerRegistered(12, true);
+    passed &= check(
+        state.handlerCount(12) == 2 && !state.enabled(12),
+        "a shared registration reopened a pending-ack line", Test);
+    passed &= check(
+        state.acknowledge(12) && state.enabled(12) &&
+            !state.acknowledgementPending(12),
+        "a deferred acknowledgement did not reopen its line", Test);
+    state.handlerUnregistered(12);
+
+    // Model a new registration completing before the old unregister performs
+    // its final line accounting. The live replacement must remain unmasked.
+    state.handlerRegistered(12, true);
+    state.handlerUnregistered(12);
+    passed &= check(
+        state.handlerCount(12) == 1 && state.enabled(12),
+        "an older unregister masked a concurrently registered handler", Test);
+
+    state.handlerUnregistered(12);
+    passed &= check(
+        state.handlerCount(12) == 0 && !state.enabled(12),
+        "the final handler did not mask its slave line", Test);
+    passed &= check(
+        !state.acknowledge(12) && !state.enabled(12),
+        "a stale acknowledgement reopened a handlerless line", Test);
+    passed &= check(
+        !state.canRegister(12, false),
+        "a shared PIC line accepted incompatible edge and level modes", Test);
+
+    // Exercise the opposite ordering: final removal masks first, then a new
+    // compatible registration must reliably unmask the line again.
+    state.handlerRegistered(12, true);
+    passed &= check(
+        state.handlerCount(12) == 1 && state.enabled(12),
+        "registration after final removal left the line masked", Test);
+    state.handlerUnregistered(12);
+
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS pic-line-state-mask-lifecycle");
+    }
+    return passed;
 }
 
 struct IrqReadyPublicationContext
@@ -761,7 +853,8 @@ bool handlerLifetimeBarrier()
 
 bool runHostedIrqRegressions()
 {
-    bool passed = irqReadyPublication();
+    bool passed = picLineStateLifecycle();
+    passed &= irqReadyPublication();
     passed &= writerLockIndependentDispatch();
     passed &= deferredScopeLockIndependentDispatch();
     passed &= prePinUnregisterRevalidation();

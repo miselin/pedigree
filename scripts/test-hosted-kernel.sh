@@ -440,6 +440,8 @@ assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-handler-waitqueue-drain"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-lifetime"
 assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS pic-line-state-mask-lifecycle"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-waitqueue-drain"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-wait-ready-publication"

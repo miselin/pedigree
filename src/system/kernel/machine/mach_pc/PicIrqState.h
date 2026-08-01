@@ -1,0 +1,219 @@
+/*
+ * Copyright (c) 2026, Pedigree Developers
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted.
+ */
+
+#ifndef PEDIGREE_KERNEL_MACHINE_MACH_PC_PICIRQSTATE_H
+#define PEDIGREE_KERNEL_MACHINE_MACH_PC_PICIRQSTATE_H
+
+#include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/assert.h"
+
+/**
+ * Software ownership state for the dual 8259 PIC.
+ *
+ * The caller serialises every operation with the PIC lock and writes the
+ * returned master/slave masks to hardware. Registration counts are updated
+ * independently of the callback registry's drain latency, so a new handler
+ * cannot be hidden by the final accounting step of an older unregister.
+ */
+class PicIrqState
+{
+  public:
+    static constexpr size_t LineCount = 16;
+
+    enum class TriggerMode : uint8_t
+    {
+        Unconfigured,
+        Level,
+        Edge,
+    };
+
+    PicIrqState() : m_Mask(0)
+    {
+        for (size_t i = 0; i < LineCount; ++i)
+        {
+            m_TriggerModes[i] = TriggerMode::Unconfigured;
+            m_HandlerCounts[i] = 0;
+            m_DispatchGenerations[i] = 0;
+            m_AcknowledgedGenerations[i] = 0;
+            m_AcknowledgementPending[i] = false;
+        }
+    }
+
+    bool canRegister(size_t irq, bool edge) const
+    {
+        if (irq >= LineCount)
+        {
+            return false;
+        }
+
+        const TriggerMode requested =
+            edge ? TriggerMode::Edge : TriggerMode::Level;
+        return m_TriggerModes[irq] == TriggerMode::Unconfigured ||
+               m_TriggerModes[irq] == requested;
+    }
+
+    void handlerRegistered(size_t irq, bool edge)
+    {
+        assert(canRegister(irq, edge));
+        const bool firstHandler = m_HandlerCounts[irq] == 0;
+        if (m_TriggerModes[irq] == TriggerMode::Unconfigured)
+        {
+            m_TriggerModes[irq] =
+                edge ? TriggerMode::Edge : TriggerMode::Level;
+        }
+        ++m_HandlerCounts[irq];
+        if (firstHandler)
+        {
+            m_AcknowledgementPending[irq] = false;
+            m_AcknowledgedGenerations[irq] = m_DispatchGenerations[irq];
+            setEnabled(irq, true);
+        }
+    }
+
+    void handlerUnregistered(size_t irq)
+    {
+        assert(irq < LineCount);
+        assert(m_HandlerCounts[irq]);
+        --m_HandlerCounts[irq];
+        if (!m_HandlerCounts[irq])
+        {
+            m_AcknowledgementPending[irq] = false;
+            m_AcknowledgedGenerations[irq] = m_DispatchGenerations[irq];
+            setEnabled(irq, false);
+        }
+    }
+
+    size_t beginDispatch(size_t irq)
+    {
+        assert(irq < LineCount);
+        return ++m_DispatchGenerations[irq];
+    }
+
+    /**
+     * Completes a dispatch without losing an acknowledgement which raced the
+     * handler return. An acknowledgement covers every dispatch admitted
+     * before it observed the line.
+     */
+    void completeDispatch(
+        size_t irq, size_t dispatchGeneration, bool needsAcknowledgement)
+    {
+        assert(irq < LineCount);
+        if (!needsAcknowledgement || !m_HandlerCounts[irq] ||
+            generationReached(
+                m_AcknowledgedGenerations[irq], dispatchGeneration))
+        {
+            return;
+        }
+
+        m_AcknowledgementPending[irq] = true;
+        setEnabled(irq, false);
+    }
+
+    bool acknowledge(size_t irq)
+    {
+        assert(irq < LineCount);
+        if (!m_HandlerCounts[irq])
+        {
+            return false;
+        }
+
+        m_AcknowledgedGenerations[irq] = m_DispatchGenerations[irq];
+        if (m_AcknowledgementPending[irq])
+        {
+            m_AcknowledgementPending[irq] = false;
+            setEnabled(irq, true);
+        }
+        return true;
+    }
+
+    bool acknowledgementPending(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_AcknowledgementPending[irq];
+    }
+
+    size_t handlerCount(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_HandlerCounts[irq];
+    }
+
+    bool edgeTriggered(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_TriggerModes[irq] == TriggerMode::Edge;
+    }
+
+    bool enabled(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return (m_Mask & bit(irq)) == 0;
+    }
+
+    void setEnabled(size_t irq, bool enabled)
+    {
+        assert(irq < LineCount);
+        if (enabled)
+        {
+            m_Mask &= static_cast<uint16_t>(~bit(irq));
+            if (irq > 7)
+            {
+                m_Mask &= static_cast<uint16_t>(~bit(2));
+            }
+        }
+        else
+        {
+            if (irq == 2 && (m_Mask & 0xFF00) != 0xFF00)
+            {
+                return;
+            }
+            m_Mask |= bit(irq);
+        }
+    }
+
+    void setAllEnabled(bool enabled)
+    {
+        // IRQ2 is the cascade input and must remain available when device
+        // lines are masked, or every slave IRQ becomes unreachable.
+        m_Mask = enabled ? 0 : static_cast<uint16_t>(0xFFFB);
+    }
+
+    uint16_t mask() const
+    {
+        return m_Mask;
+    }
+
+    uint8_t masterMask() const
+    {
+        return static_cast<uint8_t>(m_Mask & 0xFF);
+    }
+
+    uint8_t slaveMask() const
+    {
+        return static_cast<uint8_t>(m_Mask >> 8);
+    }
+
+  private:
+    static uint16_t bit(size_t irq)
+    {
+        return static_cast<uint16_t>(static_cast<uint16_t>(1U) << irq);
+    }
+
+    static bool generationReached(size_t current, size_t target)
+    {
+        return static_cast<intptr_t>(current - target) >= 0;
+    }
+
+    uint16_t m_Mask;
+    TriggerMode m_TriggerModes[LineCount];
+    size_t m_HandlerCounts[LineCount];
+    size_t m_DispatchGenerations[LineCount];
+    size_t m_AcknowledgedGenerations[LineCount];
+    bool m_AcknowledgementPending[LineCount];
+};
+
+#endif
