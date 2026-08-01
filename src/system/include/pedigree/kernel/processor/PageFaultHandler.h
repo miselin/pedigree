@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -75,6 +76,8 @@ class PageFaultHandler : private InterruptHandler
      *
      * A handler cannot synchronously drain its own active callback. Such a
      * request returns false and retires the handler when that callback returns.
+     * A synchronous caller must not retain a resource which the active handler
+     * needs to finish.
      */
     EXPORTED_PUBLIC bool unregisterHandler(MemoryTrapHandler *pHandler);
 
@@ -181,9 +184,6 @@ class PageFaultHandler : private InterruptHandler
     bool retireSlot(
         HandlerSlot &slot, size_t expectedPublication,
         MemoryTrapHandler *expectedHandler);
-    bool completeDrain(
-        HandlerSlot &slot, size_t drainingPublication,
-        MemoryTrapHandler *expectedHandler);
     bool publishDispatch(HandlerSlot &slot, void *owner, void *token);
     void unpublishDispatch(void *token);
     static void abandonedHandlerCleanup(void *context);
@@ -195,6 +195,7 @@ class PageFaultHandler : private InterruptHandler
     /** Fixed storage keeps the fault path allocation-free. */
     HandlerSlot m_Handlers[MaxMemoryTrapHandlers];
     ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
+    WaitQueue m_DispatchWaiters;
     Spinlock m_HandlerLock;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

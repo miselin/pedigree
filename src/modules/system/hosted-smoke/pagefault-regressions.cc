@@ -607,6 +607,17 @@ bool LifetimeHandler::trap(InterruptState &, uintptr_t, bool)
     return true;
 }
 
+bool hasCallbackDrainWait(Thread *thread, MemoryTrapHandler *handler)
+{
+    Thread::WaitDebugInfo wait = {};
+    uintptr_t debugAddress = 0;
+    return thread && thread->getWaitDebugInfo(wait) && wait.queue &&
+           wait.channelOwner && wait.channelValue && wait.queued &&
+           wait.reason == WaitQueue::WakeReason::Waiting &&
+           thread->getDebugState(debugAddress) == Thread::CallbackDrain &&
+           debugAddress == reinterpret_cast<uintptr_t>(handler);
+}
+
 class SelfRemovingHandler : public MemoryTrapHandler
 {
   public:
@@ -646,25 +657,19 @@ void handlerPinHook(MemoryTrapHandler *handler)
     while (
         Time::getTicks() < deadline)
     {
-        uintptr_t debugAddress = 0;
         if (
             context->phase == static_cast<size_t>(2) &&
-            context->remover->getDebugState(debugAddress) ==
-                Thread::CallbackDrain &&
-            debugAddress ==
-                reinterpret_cast<uintptr_t>(&context->handler))
+            hasCallbackDrainWait(
+                context->remover, &context->handler))
         {
             break;
         }
         Scheduler::instance().yield();
     }
 
-    uintptr_t debugAddress = 0;
     if (
         context->phase == static_cast<size_t>(2) &&
-        context->remover->getDebugState(debugAddress) ==
-            Thread::CallbackDrain &&
-        debugAddress == reinterpret_cast<uintptr_t>(&context->handler) &&
+        hasCallbackDrainWait(context->remover, &context->handler) &&
         !context->unregisterReturned)
     {
         context->hookObservedDrain += 1;
@@ -833,6 +838,8 @@ bool handlerLifetimeBarrier()
     if (passed)
     {
         NOTICE(
+            "HOSTED-WAIT-TEST: PASS pagefault-handler-waitqueue-drain");
+        NOTICE(
             "HOSTED-WAIT-TEST: PASS pagefault-handler-lifetime");
     }
     return passed;
@@ -900,12 +907,10 @@ void abandonedDispatchPinHook(MemoryTrapHandler *handler)
         Time::getTicks() + (500 * Time::Multiplier::Millisecond);
     while (Time::getTicks() < deadline)
     {
-        uintptr_t debugAddress = 0;
         if (
             context->phase == static_cast<size_t>(2) &&
-            context->remover->getDebugState(debugAddress) ==
-                Thread::CallbackDrain &&
-            debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
+            hasCallbackDrainWait(
+                context->remover, &context->handler))
         {
             context->hookObservedDrain += 1;
             Processor::information()

@@ -425,6 +425,8 @@ assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS timer-clock-deadline"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS timer-handler-lifetime"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-handler-lifetime"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-handler-waitqueue-drain"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-lifetime"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-waitqueue-drain"

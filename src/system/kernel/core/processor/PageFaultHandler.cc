@@ -20,7 +20,6 @@
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -37,7 +36,8 @@ PageFaultHandler::AtomicDrainHook PageFaultHandler::m_AtomicDrainHook = nullptr;
 #endif
 
 PageFaultHandler::PageFaultHandler()
-    : m_Handlers(), m_ActiveDispatches(), m_HandlerLock(false)
+    : m_Handlers(), m_ActiveDispatches(), m_DispatchWaiters(),
+      m_HandlerLock(false)
 {
 }
 
@@ -88,54 +88,6 @@ bool PageFaultHandler::retireSlot(
             generationOf(retiringPublication), SlotMode::Empty),
         __ATOMIC_SEQ_CST);
     return true;
-}
-
-bool PageFaultHandler::completeDrain(
-    HandlerSlot &slot, size_t drainingPublication,
-    MemoryTrapHandler *expectedHandler)
-{
-    size_t publication = drainingPublication;
-    while (true)
-    {
-        const SlotMode mode = modeOf(publication);
-        if (mode == SlotMode::Draining || mode == SlotMode::Deferred)
-        {
-            if (!hasActiveDispatch(slot))
-            {
-                if (retireSlot(slot, publication, expectedHandler))
-                {
-                    return true;
-                }
-            }
-            else
-            {
-                Processor::pause();
-            }
-        }
-
-        publication =
-            __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
-        MemoryTrapHandler *handler =
-            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
-        if (modeOf(publication) == SlotMode::Empty)
-        {
-            return handler != expectedHandler;
-        }
-        if (modeOf(publication) == SlotMode::Retiring)
-        {
-            Processor::pause();
-            continue;
-        }
-        if (modeOf(publication) != SlotMode::Draining &&
-            modeOf(publication) != SlotMode::Deferred)
-        {
-            return false;
-        }
-        if (handler != expectedHandler)
-        {
-            return false;
-        }
-    }
 }
 
 bool PageFaultHandler::publishDispatch(
@@ -192,15 +144,32 @@ void PageFaultHandler::unpublishDispatch(void *token)
 
     const size_t publication =
         __atomic_load_n(&releasedSlot->publication, __ATOMIC_SEQ_CST);
-    if (modeOf(publication) == SlotMode::Deferred)
+    const SlotMode mode = modeOf(publication);
+    if (mode != SlotMode::Draining && mode != SlotMode::Deferred)
+    {
+        return;
+    }
+
+    const size_t drainGeneration = generationOf(publication);
+    auto guard = m_DispatchWaiters.acquire();
+    const size_t finalPublication =
+        __atomic_load_n(&releasedSlot->publication, __ATOMIC_SEQ_CST);
+    if (
+        generationOf(finalPublication) == drainGeneration &&
+        modeOf(finalPublication) == SlotMode::Deferred &&
+        !hasActiveDispatch(*releasedSlot))
     {
         MemoryTrapHandler *handler =
             __atomic_load_n(&releasedSlot->handler, __ATOMIC_ACQUIRE);
         if (handler)
         {
-            retireSlot(*releasedSlot, publication, handler);
+            retireSlot(*releasedSlot, finalPublication, handler);
         }
     }
+
+    guard.wakeAll(
+        WaitQueue::WakeReason::Signalled,
+        WaitQueue::Channel(releasedSlot, drainGeneration));
 }
 
 void PageFaultHandler::abandonedHandlerCleanup(void *context)
@@ -479,31 +448,47 @@ bool PageFaultHandler::unregisterHandler(MemoryTrapHandler *pHandler)
         return false;
     }
 
-    if (!hasActiveDispatch(*slot))
-    {
-        const bool retired =
-            completeDrain(*slot, drainingPublication, pHandler);
-        m_HandlerLock.release();
-        return retired;
-    }
     m_HandlerLock.release();
 
-    uintptr_t previousDebugAddress = 0;
-    const Thread::DebugState previousDebugState =
-        current->getDebugState(previousDebugAddress);
-    current->setDebugState(
-        Thread::CallbackDrain, reinterpret_cast<uintptr_t>(pHandler));
-    while (hasActiveDispatch(*slot))
+    const size_t drainGeneration = generationOf(drainingPublication);
+    while (true)
     {
-        Scheduler::instance().yield();
-    }
-    current->setDebugState(previousDebugState, previousDebugAddress);
+        auto guard = m_DispatchWaiters.acquire();
+        const size_t finalPublication =
+            __atomic_load_n(&slot->publication, __ATOMIC_SEQ_CST);
+        MemoryTrapHandler *finalHandler =
+            __atomic_load_n(&slot->handler, __ATOMIC_ACQUIRE);
+        if (generationOf(finalPublication) != drainGeneration)
+        {
+            return true;
+        }
 
-    m_HandlerLock.acquire();
-    const bool retired =
-        completeDrain(*slot, drainingPublication, pHandler);
-    m_HandlerLock.release();
-    return retired;
+        const SlotMode finalMode = modeOf(finalPublication);
+        if (finalMode == SlotMode::Empty)
+        {
+            return finalHandler != pHandler;
+        }
+        if (
+            finalHandler != pHandler ||
+            (finalMode != SlotMode::Draining &&
+             finalMode != SlotMode::Deferred))
+        {
+            return false;
+        }
+        if (!hasActiveDispatch(*slot))
+        {
+            if (retireSlot(*slot, finalPublication, pHandler))
+            {
+                return true;
+            }
+            continue;
+        }
+
+        const WaitQueue::WakeReason reason = guard.waitForCompletion(
+            WaitQueue::Channel(slot, drainGeneration), Thread::CallbackDrain,
+            reinterpret_cast<uintptr_t>(pHandler));
+        (void) reason;
+    }
 }
 
 bool PageFaultHandler::dispatchHandlers(

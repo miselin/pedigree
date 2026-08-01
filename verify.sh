@@ -462,6 +462,46 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local pagefault_registry_source=src/system/kernel/core/processor/PageFaultHandler.cc
+    matches=$(rg -n \
+        'Scheduler::instance\(\)\.yield\(\)|Processor::pause\(\)' \
+        "$pagefault_registry_source" || true)
+    if [[ -n "$matches" ]]; then
+        echo "The page-fault callback drain reverted to busy waiting:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if ! rg -q 'm_DispatchWaiters\.acquire\(\)' \
+        "$pagefault_registry_source" ||
+        ! rg -q 'guard\.waitForCompletion\(' \
+            "$pagefault_registry_source" ||
+        ! rg -q 'WaitQueue::Channel\(slot, drainGeneration\)' \
+            "$pagefault_registry_source"; then
+        echo "The page-fault callback drain escaped its generation-keyed wait."
+        failed=1
+    fi
+
+    if ! rg -q 'guard\.wakeAll\(' "$pagefault_registry_source" ||
+        ! rg -q \
+            'WaitQueue::Channel\(releasedSlot, drainGeneration\)' \
+            "$pagefault_registry_source" ||
+        ! rg -q -U \
+            'mode != SlotMode::Draining &&[[:space:]]*mode != SlotMode::Deferred\)[[:space:]]*\{[[:space:]]*return;[[:space:]]*\}[^}]*m_DispatchWaiters\.acquire\(\)' \
+            "$pagefault_registry_source"; then
+        echo "The page-fault callback drain escaped its closed-mode wake."
+        failed=1
+    fi
+
+    if ! rg -q \
+        'generationOf\(finalPublication\) != drainGeneration' \
+        "$pagefault_registry_source" ||
+        ! rg -q 'retireSlot\(\*slot, finalPublication, pHandler\)' \
+            "$pagefault_registry_source"; then
+        echo "The page-fault callback drain lost its slot-reuse boundary."
+        failed=1
+    fi
+
     matches=$(rg -n -U \
         'while[[:space:]]*\([^;{}]*acquireLock\([^;{}]*\)[[:space:]]*\)[[:space:]]*;' \
         src --glob '*.{cc,h}' || true)
