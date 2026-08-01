@@ -2,6 +2,8 @@
 
 set -Eeuo pipefail
 
+script_dir=$(cd -P -- "$(dirname -- "$0")/.." && pwd -P)
+
 usage()
 {
     cat >&2 <<EOF
@@ -9,9 +11,11 @@ Usage:
   $0 --static-kernel PATH --dynamic-kernel PATH \\
      --dynamic-config-module PATH --dynamic-smoke-module PATH \\
      --config PATH --disk-image PATH \\
-     [--require-asan] [--expected-heap slam|system]
+     [--require-asan] [--expected-heap slam|system] \\
+     [--wait-regressions-only]
 
 PEDIGREE_VERIFY_LOG_DIR selects the directory for durable per-rung logs.
+PEDIGREE_HOSTED_RUNG_TIMEOUT sets the GNU timeout duration (default: 60s).
 EOF
     exit 2
 }
@@ -24,6 +28,8 @@ configdb=
 disk_image=
 require_asan=0
 expected_heap=
+wait_regressions_only=0
+rung_timeout=${PEDIGREE_HOSTED_RUNG_TIMEOUT:-60s}
 
 if [ "$#" -gt 0 ]; then
     while [ "$#" -gt 0 ]; do
@@ -67,6 +73,10 @@ if [ "$#" -gt 0 ]; then
                 expected_heap=$2
                 shift 2
                 ;;
+            --wait-regressions-only)
+                wait_regressions_only=1
+                shift
+                ;;
             *)
                 usage
                 ;;
@@ -88,6 +98,12 @@ static_kernel=$(realpath "$static_kernel")
 dynamic_kernel=$(realpath "$dynamic_kernel")
 dynamic_config_module=$(realpath "$dynamic_config_module")
 dynamic_smoke_module=$(realpath "$dynamic_smoke_module")
+dynamic_module_dir=$(dirname "$dynamic_smoke_module")
+dynamic_users_module=$(realpath "$dynamic_module_dir/users.o")
+dynamic_vfs_module=$(realpath "$dynamic_module_dir/vfs.o")
+dynamic_fat_module=$(realpath "$dynamic_module_dir/fat.o")
+dynamic_rawfs_module=$(realpath "$dynamic_module_dir/rawfs.o")
+dynamic_usb_module=$(realpath "$dynamic_module_dir/usb.o")
 configdb=$(realpath "$configdb")
 disk_image=$(realpath "$disk_image")
 
@@ -139,6 +155,19 @@ assert_marker()
     fi
 }
 
+assert_all_wait_markers_once()
+{
+    local log=$1
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "python3 is required to enumerate hosted regression markers." >&2
+        return 1
+    fi
+
+    python3 "$script_dir/scripts/list-hosted-wait-markers.py" \
+        --check-log "$script_dir/src" "$log"
+}
+
 reject_marker()
 {
     local log=$1
@@ -185,6 +214,10 @@ assert_clean_log()
         "KERNELELF: Module relocation failed" \
         "KERNELELF: Hit an invalid module" \
         "invoke attempted with multiple threads" \
+        "HOSTED-WAIT-TEST: FAIL" \
+        "HOSTED-SYSCALL-TEST: FAIL" \
+        "HOSTED-NETWORK-TEST: FAIL" \
+        "HOSTED-SMOKE: FAIL" \
         "HOSTED-SMOKE: command exec failed" \
         "HOSTED-SMOKE: command failed" \
         "HOSTED-SMOKE: shutdown request failed"
@@ -235,7 +268,8 @@ run_kernel()
     if ! (
         cd "$rung_dir"
         env ASAN_OPTIONS="$asan_options" \
-            "$timeout_command" --signal=KILL 60s "${args[@]}" >"$log" 2>&1
+            "$timeout_command" --signal=KILL "$rung_timeout" \
+                "${args[@]}" >"$log" 2>&1
     ); then
         cat "$log"
         echo "Hosted smoke rung failed to complete: $name" >&2
@@ -251,6 +285,7 @@ assert_lifecycle()
     local checkpoint
     for checkpoint in \
         "Pedigree has started: all modules have been loaded." \
+        "HOSTED-SHUTDOWN: timers and signals quiesced" \
         "All modules unloaded. Running destructors and terminating..." \
         "trace: kernel main() terminating" \
         "main() returned, cleaning up..."
@@ -270,32 +305,196 @@ if [ "$require_asan" = "1" ]; then
     assert_asan_module \
         "$dynamic_config_module" "$scratch_dir/config-module.symbols"
     assert_asan_module \
+        "$dynamic_users_module" "$scratch_dir/users-module.symbols"
+    assert_asan_module \
+        "$dynamic_vfs_module" "$scratch_dir/vfs-module.symbols"
+    assert_asan_module \
+        "$dynamic_fat_module" "$scratch_dir/fat-module.symbols"
+    assert_asan_module \
+        "$dynamic_rawfs_module" "$scratch_dir/rawfs-module.symbols"
+    assert_asan_module \
+        "$dynamic_usb_module" "$scratch_dir/usb-module.symbols"
+    assert_asan_module \
         "$dynamic_smoke_module" "$scratch_dir/smoke-module.symbols"
 fi
 
-run_kernel 01-empty-initrd "$static_kernel" "$scratch_dir/empty-initrd.tar"
-empty_log="$log_dir/01-empty-initrd.log"
-assert_marker "$empty_log" "Hosted build has no smoke-test root; shutting down."
-assert_lifecycle "$empty_log"
+if [ "$wait_regressions_only" = "0" ]; then
+    run_kernel 01-empty-initrd "$static_kernel" "$scratch_dir/empty-initrd.tar"
+    empty_log="$log_dir/01-empty-initrd.log"
+    assert_marker \
+        "$empty_log" "Hosted build has no smoke-test root; shutting down."
+    assert_marker \
+        "$empty_log" \
+        "HOSTED-NETWORK-TEST: PASS receive-generation-aba"
+    assert_marker \
+        "$empty_log" \
+        "HOSTED-SYSCALL-TEST: PASS real-event-boundaries"
+    assert_lifecycle "$empty_log"
+fi
 
 mkdir "$scratch_dir/populated-initrd"
 cp "$dynamic_config_module" "$scratch_dir/populated-initrd/config.o"
+cp "$dynamic_users_module" "$scratch_dir/populated-initrd/users.o"
+cp "$dynamic_vfs_module" "$scratch_dir/populated-initrd/vfs.o"
+cp "$dynamic_fat_module" "$scratch_dir/populated-initrd/fat.o"
+cp "$dynamic_rawfs_module" "$scratch_dir/populated-initrd/rawfs.o"
+cp "$dynamic_usb_module" "$scratch_dir/populated-initrd/usb.o"
 cp "$dynamic_smoke_module" "$scratch_dir/populated-initrd/hosted-smoke.o"
 (
     cd "$scratch_dir/populated-initrd"
     cmake -E tar cf "$scratch_dir/populated-initrd.tar" \
-        --format=gnutar -- config.o hosted-smoke.o
+        --format=gnutar -- \
+        config.o users.o vfs.o fat.o rawfs.o usb.o hosted-smoke.o
 )
 
 run_kernel \
     02-module-populated-initrd "$dynamic_kernel" \
     "$scratch_dir/populated-initrd.tar"
 populated_log="$log_dir/02-module-populated-initrd.log"
-assert_marker "$populated_log" "there are 2 files"
+assert_marker "$populated_log" "there are 7 files"
 assert_marker "$populated_log" "KERNELELF: Preloaded module config"
+assert_marker "$populated_log" "KERNELELF: Preloaded module users"
+assert_marker "$populated_log" "KERNELELF: Preloaded module vfs"
+assert_marker "$populated_log" "KERNELELF: Preloaded module fat"
+assert_marker "$populated_log" "KERNELELF: Preloaded module rawfs"
+assert_marker "$populated_log" "KERNELELF: Preloaded module usb"
 assert_marker "$populated_log" "KERNELELF: Preloaded module hosted-smoke"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: BEGIN"
+assert_all_wait_markers_once "$populated_log"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS wake-before-block"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS semaphore-pre-block"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS terminal-cancel-callback-order"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS condition-variable-pre-block"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS condition-variable-completion-barrier"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS condition-variable-contended-signal-reacquire"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS condition-variable-contended-timeout-reacquire"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS condition-variable-terminal-reacquire"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS unlikely-lock-admission"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS hosted-timer-timeout-cleanup"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS mutex-ownership"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS cache-range-existence"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS fat-sector-page-boundary"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS fat-short-read-publication"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS rawfs-native-page-ownership"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS rawfs-parent-alignment-isolation"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS file-past-eof-no-read"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS usb-sync-timeout-cancel-drain"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS usb-sync-rejected-no-callback"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS usb-sync-timeout-completion-handoff"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS usb-pnp-registration-drain"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS timer-clock-deadline"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS timer-handler-lifetime"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-handler-lifetime"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-lifetime"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS input-callback-lifetime"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS ps2mouse-callback-lifetime"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS log-callback-lifetime"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS log-entry-snapshot"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS network-filter-callback-lifetime"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS cache-callback-lifetime"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS cache-queued-lifetime"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS cache-empty-reuse"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS cache-retirement-publication"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS fresh-thread-timer-progress"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS semaphore-timeout-cancel"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS relay-latest-disposition"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS timeoutguard-cancel-ownership"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS completion-lifecycle"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS terminal-completion-barrier"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS operation-barrier-lifecycle"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS condition-variable-timeout"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS memory-pool-lifecycle"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS memory-pool-close-drain"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS memory-pool-terminal-drain"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS memory-pressure-callback-barrier"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS buffer-close-drain"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS buffer-terminal-drain"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS terminal-operation-admission"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS terminal-timeout-cleanup"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS signal-interruption"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS syscall-handler-lifetime"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS semaphore-signal-after-ordinary-wake"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS condition-signal-after-ordinary-wake"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS ordinary-block-wake"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS process-suspend-resume"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS requestqueue-active-not-backlog"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS requestqueue-worker-terminal-ownership"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS ipc-interruption"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS prequeued-event"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS state-level-publication"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS radix-tree-exported-abi"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS event-delivery-lease"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS event-shutdown-drain"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS thread-join-lifecycle"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS owned-thread-terminal-join"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS lifetime-leases"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS join-terminal-abandonment"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS scheduler-same-priority-progress"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS join-reaper-lease"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS process-exit-rendezvous"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS process-publication-reparent"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS process-exit-election"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS process-resume-vs-termination"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS requestqueue-lifecycle"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS all"
 assert_marker "$populated_log" "HOSTED-SMOKE: populated initrd executed"
 assert_lifecycle "$populated_log"
+
+if [ "$wait_regressions_only" = "1" ]; then
+    echo "Hosted wait regressions passed."
+    echo "Logs: $log_dir"
+    exit
+fi
 
 run_kernel \
     03-root-mount "$static_kernel" "$scratch_dir/empty-initrd.tar" \
@@ -321,6 +520,8 @@ run_kernel \
 command_log="$log_dir/05-userspace-command.log"
 reject_marker "$command_log" "HOSTED-SMOKE: init launched"
 assert_marker "$command_log" "HOSTED-SMOKE: simple userspace command ran"
+assert_marker \
+    "$command_log" "HOSTED-SMOKE: PASS posix-lwip-loopback-roundtrip"
 reject_marker "$command_log" "HOSTED-SMOKE: requesting clean shutdown"
 assert_lifecycle "$command_log"
 

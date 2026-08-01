@@ -8,6 +8,15 @@ old=$(pwd)
 script_dir=$(cd -P -- "$(dirname -- "$0")" && pwd -P)
 cd "$script_dir"
 
+hosted_parallel_args=(--parallel)
+if [ -n "${PEDIGREE_VERIFY_JOBS:-}" ]; then
+    if [[ ! "$PEDIGREE_VERIFY_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+        echo "PEDIGREE_VERIFY_JOBS must be a positive integer." >&2
+        exit 2
+    fi
+    hosted_parallel_args=(--parallel "$PEDIGREE_VERIFY_JOBS")
+fi
+
 if [ "${PEDIGREE_HOSTED_CONTAINER:-0}" != "1" ] &&
     [ "${PEDIGREE_HOSTED_NATIVE:-0}" != "1" ]; then
     if ! command -v docker >/dev/null 2>&1; then
@@ -18,6 +27,22 @@ if [ "${PEDIGREE_HOSTED_CONTAINER:-0}" != "1" ] &&
         echo "Docker is installed but is not running." >&2
         exit 1
     fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "Python 3 is required to enforce the Docker build deadline." >&2
+        exit 1
+    fi
+
+    docker_build_timeout=${PEDIGREE_HOSTED_DOCKER_BUILD_TIMEOUT_SECONDS:-1200}
+    if [[ ! "$docker_build_timeout" =~ ^[1-9][0-9]*$ ]]; then
+        echo "PEDIGREE_HOSTED_DOCKER_BUILD_TIMEOUT_SECONDS must be a positive integer." >&2
+        exit 2
+    fi
+    reuse_image=${PEDIGREE_HOSTED_REUSE_IMAGE:-0}
+    if [ "$reuse_image" != "0" ] && [ "$reuse_image" != "1" ]; then
+        echo "PEDIGREE_HOSTED_REUSE_IMAGE must be 0 or 1." >&2
+        exit 2
+    fi
+    hosted_image=${PEDIGREE_HOSTED_IMAGE:-pedigree-hosted-build}
 
     linux_build_dir="$script_dir/build-hosted-linux"
     mkdir -p "$linux_build_dir/toolchain"
@@ -42,14 +67,43 @@ if [ "${PEDIGREE_HOSTED_CONTAINER:-0}" != "1" ] &&
             *) docker_run_args+=(--volume "$verify_log_dir:$verify_log_dir") ;;
         esac
     fi
+    if [ -n "${PEDIGREE_VERIFY_JOBS:-}" ]; then
+        docker_run_args+=(--env "PEDIGREE_VERIFY_JOBS=$PEDIGREE_VERIFY_JOBS")
+    fi
 
-    echo "Building the x86_64 Linux hosted kernel in Docker."
-    docker build --platform linux/amd64 \
-        --tag pedigree-hosted-build \
-        --file "$script_dir/build-etc/docker/hosted.Dockerfile" \
-        "$script_dir/build-etc/docker"
+    if [ "$reuse_image" = "1" ]; then
+        image_id=$(
+            docker image inspect --format '{{.Id}}' "$hosted_image" \
+                2>/dev/null || true
+        )
+        if [ -z "$image_id" ]; then
+            # Some Docker Desktop content-store versions list a tagged image
+            # but fail name-based inspect/run lookup. Resolve the immutable ID
+            # from the filtered image inventory in that case.
+            image_id=$(
+                docker image ls --no-trunc \
+                    --format '{{.Repository}}:{{.Tag}} {{.ID}}' \
+                    "$hosted_image" | awk 'NR == 1 { print $2 }'
+            )
+        fi
+        if [ -z "$image_id" ]; then
+            echo "The requested hosted build image is unavailable: $hosted_image" >&2
+            exit 1
+        fi
+        echo "Reusing hosted build image $hosted_image ($image_id)."
+        hosted_image=$image_id
+    else
+        echo "Building the x86_64 Linux hosted kernel in Docker."
+        python3 "$script_dir/scripts/run-with-deadline.py" \
+            --seconds "$docker_build_timeout" \
+            --label "hosted Docker image build" -- \
+            docker build --platform linux/amd64 \
+                --tag "$hosted_image" \
+                --file "$script_dir/build-etc/docker/hosted.Dockerfile" \
+                "$script_dir/build-etc/docker"
+    fi
     docker run "${docker_run_args[@]}" \
-        pedigree-hosted-build \
+        "$hosted_image" \
         ./easy_build_hosted.sh
     exit
 fi
@@ -70,11 +124,13 @@ if [ "${PEDIGREE_HOSTED_CONTAINER:-0}" = "1" ]; then
     host_build_dir="$script_dir/build-host-linux"
     hosted_build_dir="$script_dir/build-hosted-smoke-linux"
     dynamic_build_dir="$script_dir/build-hosted-modules-linux"
+    x64_build_dir="$script_dir/build-x64-check-linux"
 else
     real_os=ubuntu
     host_build_dir="$script_dir/build-host"
     hosted_build_dir="$script_dir/build-hosted-smoke"
     dynamic_build_dir="$script_dir/build-hosted-modules"
+    x64_build_dir="$script_dir/build-x64-check"
 fi
 
 echo
@@ -141,8 +197,8 @@ echo
 echo "Configuring and building native utilities and tests."
 cmake -S "$script_dir" -B "$host_build_dir" \
     -DPEDIGREE_BUILDUTILS_ASAN=OFF "${cmake_options[@]}"
-cmake --build "$host_build_dir" --parallel \
-    --target testsuite headerify ext2img keymap
+cmake --build "$host_build_dir" "${hosted_parallel_args[@]}" \
+    --target testsuite headerify ext2img keymap memorytracer unixsockets
 ctest --test-dir "$host_build_dir" --output-on-failure --no-tests=error
 
 first_heap=1
@@ -169,17 +225,43 @@ for heap in system slam; do
         first_heap=0
     fi
 
-    cmake --build "$hosted_build_dir" --parallel \
+    cmake --build "$hosted_build_dir" "${hosted_parallel_args[@]}" \
         --target kernelfinal hddimage
-    cmake --build "$dynamic_build_dir" --parallel \
-        --target kernelfinal config hosted-smoke
+    cmake --build "$dynamic_build_dir" "${hosted_parallel_args[@]}" \
+        --target kernelfinal config users vfs fat rawfs usb hosted-smoke
     run_hosted_smoke "$heap"
+done
+
+echo
+echo "Configuring the x86-64 PC compile-and-link matrix."
+cmake -S "$script_dir" -B "$x64_build_dir" \
+    -DCMAKE_TOOLCHAIN_FILE="$script_dir/build-etc/cmake/pedigree_amd64.cmake" \
+    -DIMPORT_EXECUTABLES="$host_build_dir/HostUtilities.cmake" \
+    -DPEDIGREE_WARNINGS=ON \
+    -DPEDIGREE_POSIX_VERBOSE=OFF \
+    -DPEDIGREE_STATIC_DRIVERS=OFF \
+    -DPEDIGREE_WITH_INIT=ON
+
+# musl invokes its own make and supplies the headers and CRT objects required
+# by both the kernel's userspace boundary and every initrd module.
+cmake --build "$x64_build_dir" --parallel 1 --target libc
+cmake --build "$x64_build_dir" "${hosted_parallel_args[@]}" \
+    --target kernelfinal initrd
+
+for artifact in \
+    "$x64_build_dir/src/system/kernel/kernel-mini64" \
+    "$x64_build_dir/src/modules/initrd.tar"
+do
+    if [ ! -s "$artifact" ]; then
+        echo "The x86-64 verification artifact is missing or empty: $artifact" >&2
+        exit 1
+    fi
 done
 
 cd "$old"
 
 echo
-echo "The AddressSanitizer hosted kernel matrix and native utilities are ready."
+echo "The AddressSanitizer hosted matrix, native utilities, and x86-64 PC artifacts are ready."
 if [ "${PEDIGREE_HOSTED_CONTAINER:-0}" = "1" ]; then
     echo "Re-run the complete build and smoke ladder from the host with:"
     echo "  ./easy_build_hosted.sh"
@@ -193,6 +275,9 @@ echo "  cmake --build '$hosted_build_dir' --parallel 1 --target libc"
 echo "  cmake --build '$hosted_build_dir' --parallel --target kernelfinal hddimage"
 echo "Rebuild the dynamic hosted module smoke artifacts with:"
 echo "  cmake --build '$dynamic_build_dir' --parallel 1 --target libc"
-echo "  cmake --build '$dynamic_build_dir' --parallel --target kernelfinal config hosted-smoke"
+echo "  cmake --build '$dynamic_build_dir' --parallel --target kernelfinal config users vfs fat rawfs usb hosted-smoke"
 echo "Re-run the hosted smoke ladder with:"
 echo "  '$script_dir/scripts/test-hosted-kernel.sh' --static-kernel '$hosted_build_dir/src/system/kernel/kernel' --dynamic-kernel '$dynamic_build_dir/src/system/kernel/kernel' --dynamic-config-module '$dynamic_build_dir/src/modules/config.o' --dynamic-smoke-module '$dynamic_build_dir/src/modules/hosted-smoke.o' --config '$hosted_build_dir/config.db' --disk-image '$hosted_build_dir/hdd.img' --require-asan --expected-heap slam"
+echo "Rebuild the x86-64 PC compile-and-link matrix with:"
+echo "  cmake --build '$x64_build_dir' --parallel 1 --target libc"
+echo "  cmake --build '$x64_build_dir' --parallel --target kernelfinal initrd"
