@@ -22,6 +22,10 @@
 
 #include "pedigree/kernel/compiler.h"
 
+#if THREADS && !defined(STANDALONE_MUTEXES)
+#include "pedigree/kernel/process/TerminationDeferral.h"
+#endif
+
 class Spinlock;
 class Mutex;
 class Semaphore;
@@ -87,6 +91,63 @@ class EXPORTED_PUBLIC LockGuard
     bool m_bCondition;
 };
 
+#if THREADS && !defined(STANDALONE_MUTEXES)
+/**
+ * Mutex ownership cannot be abandoned by an outer interruption marker.
+ * Terminal teardown remains deferred until after the owned mutex is released.
+ */
+template <>
+class EXPORTED_PUBLIC LockGuard<Mutex>
+{
+  public:
+    explicit LockGuard(Mutex &Lock, bool Condition = true);
+    ~LockGuard();
+
+    /**
+     * Transfers release responsibility to the caller and ends this guard's
+     * lifetime barrier. The caller must already have released the mutex or
+     * provide its own barrier while retaining ownership.
+     */
+    void disown();
+
+    bool ownsLock() const
+    {
+        return m_bCondition;
+    }
+
+  private:
+    LockGuard() = delete;
+    NOT_COPYABLE_OR_ASSIGNABLE(LockGuard);
+
+    TerminationDeferral m_TerminationDeferral;
+    Mutex &m_Lock;
+    bool m_bCondition;
+};
+
+template <>
+class EXPORTED_PUBLIC ConstexprLockGuard<Mutex, true>
+{
+  public:
+    explicit ConstexprLockGuard(Mutex &Lock) : m_Guard(Lock)
+    {
+    }
+
+  private:
+    ConstexprLockGuard() = delete;
+    NOT_COPYABLE_OR_ASSIGNABLE(ConstexprLockGuard);
+
+    LockGuard<Mutex> m_Guard;
+};
+
+/** Counting-semaphore acquisition is fallible and must be handled explicitly. */
+template <>
+class LockGuard<Semaphore>
+{
+  public:
+    LockGuard(Semaphore &, bool = true) = delete;
+};
+#endif
+
 template <class T>
 class EXPORTED_PUBLIC RecursingLockGuard
 {
@@ -114,10 +175,6 @@ class EXPORTED_PUBLIC RecursingLockGuard
 
 extern template class LockGuard<Spinlock>;
 extern template class RecursingLockGuard<Spinlock>;
-#if THREADS
-extern template class LockGuard<Mutex>;
-extern template class LockGuard<Semaphore>;
-#endif
 
 /** @} */
 

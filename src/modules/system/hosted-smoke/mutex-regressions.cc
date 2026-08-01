@@ -6,6 +6,7 @@
  */
 
 #include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
@@ -36,6 +37,32 @@ struct MutexOwnershipContext
     Atomic<size_t> timedAcquireSucceeded;
 };
 
+struct MutexGuardContext
+{
+    MutexGuardContext(Mutex *mutex, bool constexprGuard)
+        : mutex(mutex), worker(nullptr), constexprGuard(constexprGuard),
+          phase(0), entered(0), ownedInCritical(0), terminalPending(0),
+          deferredInCritical(0), releaseTransitions(0),
+          releaseSawDeferral(0), releasedAfterScope(0), returned(0)
+    {
+    }
+
+    Mutex *mutex;
+    Thread *worker;
+    bool constexprGuard;
+    Atomic<size_t> phase;
+    Atomic<size_t> entered;
+    Atomic<size_t> ownedInCritical;
+    Atomic<size_t> terminalPending;
+    Atomic<size_t> deferredInCritical;
+    Atomic<size_t> releaseTransitions;
+    Atomic<size_t> releaseSawDeferral;
+    Atomic<size_t> releasedAfterScope;
+    Atomic<size_t> returned;
+};
+
+MutexGuardContext *g_MutexGuardContext = nullptr;
+
 Atomic<size_t> g_AcquireTransitionSeen(0);
 Atomic<size_t> g_ReleaseTransitionSeen(0);
 Atomic<size_t> g_TransitionInterruptFailures(0);
@@ -57,15 +84,185 @@ void mutexTransitionHook(Semaphore::MutexTransitionWindow window)
     }
 }
 
-bool check(bool condition, const char *detail)
+void mutexGuardTransitionHook(Semaphore::MutexTransitionWindow window)
+{
+    MutexGuardContext *context = g_MutexGuardContext;
+    Thread *thread = Processor::information().getCurrentThread();
+    if (
+        !context || thread != context->worker ||
+        window != Semaphore::MutexOwnerReleased ||
+        context->phase != static_cast<size_t>(1))
+    {
+        return;
+    }
+
+    context->releaseTransitions += 1;
+    if (thread->isTerminationDeferred())
+    {
+        context->releaseSawDeferral += 1;
+    }
+}
+
+bool check(
+    bool condition, const char *detail,
+    const char *test = "mutex-ownership")
 {
     if (condition)
     {
         return true;
     }
 
-    ERROR("HOSTED-WAIT-TEST: FAIL mutex-ownership: " << detail);
+    ERROR("HOSTED-WAIT-TEST: FAIL " << test << ": " << detail);
     return false;
+}
+
+void observeGuardedCriticalSection(MutexGuardContext *context)
+{
+    Thread *thread = Processor::information().getCurrentThread();
+    context->entered += 1;
+    context->ownedInCritical =
+        context->mutex->isOwnedByCurrentThread() ? 1 : 0;
+    context->terminalPending =
+        thread->getUnwindState() == Thread::TerminateThread ? 1 : 0;
+    context->deferredInCritical =
+        thread->isTerminationDeferred() ? 1 : 0;
+    context->phase = 1;
+}
+
+int acquireTerminalMutexGuard(void *parameter)
+{
+    MutexGuardContext *context =
+        reinterpret_cast<MutexGuardContext *>(parameter);
+    Thread *thread = Processor::information().getCurrentThread();
+    if (context->constexprGuard)
+    {
+        ConstexprLockGuard<Mutex, true> guard(*context->mutex);
+        observeGuardedCriticalSection(context);
+    }
+    else
+    {
+        LockGuard<Mutex> guard(*context->mutex);
+        observeGuardedCriticalSection(context);
+    }
+
+    context->phase = 2;
+    context->releasedAfterScope =
+        !context->mutex->isOwnedByCurrentThread() &&
+                context->mutex->getValue() == 1
+            ? 1
+            : 0;
+    thread->setUnwindState(Thread::Continue);
+    context->returned += 1;
+    return 0;
+}
+
+bool waitForMutexGuardBlock(Thread *thread)
+{
+    for (size_t i = 0; i < 10000; ++i)
+    {
+        Thread::WaitDebugInfo wait = {};
+        uintptr_t debugAddress = 0;
+        if (
+            thread->getWaitDebugInfo(wait) && wait.queued &&
+            thread->getDebugState(debugAddress) == Thread::SemWait)
+        {
+            return true;
+        }
+        Scheduler::instance().yield();
+    }
+    return false;
+}
+
+bool terminalMutexGuardScenario(bool constexprGuard)
+{
+    Mutex mutex;
+    MutexGuardContext context(&mutex, constexprGuard);
+    const bool supervisorAcquired = mutex.acquireForCompletion();
+
+    Thread *worker = new Thread(
+        Scheduler::instance().getKernelProcess(), acquireTerminalMutexGuard,
+        &context, nullptr, false, true);
+    if (constexprGuard)
+    {
+        worker->setName("hosted constexpr terminal Mutex guard");
+    }
+    else
+    {
+        worker->setName("hosted terminal Mutex guard");
+    }
+    context.worker = worker;
+
+    const bool queued = waitForMutexGuardBlock(worker);
+    const bool enteredBeforeRelease =
+        context.entered != static_cast<size_t>(0);
+    g_MutexGuardContext = &context;
+    Semaphore::setMutexTransitionHook(mutexGuardTransitionHook);
+    worker->setUnwindState(Thread::TerminateThread);
+    if (supervisorAcquired)
+    {
+        mutex.release();
+    }
+    const bool joined = worker->joinForCompletion();
+    Semaphore::setMutexTransitionHook(nullptr);
+    g_MutexGuardContext = nullptr;
+
+    const bool recoverable = mutex.tryAcquire();
+    if (recoverable)
+    {
+        mutex.release();
+    }
+
+    return supervisorAcquired && queued && !enteredBeforeRelease && joined &&
+           context.entered == 1 && context.ownedInCritical == 1 &&
+           context.terminalPending == 1 && context.deferredInCritical == 1 &&
+           context.releaseTransitions == 1 &&
+           context.releaseSawDeferral == 1 &&
+           context.releasedAfterScope == 1 && context.returned == 1 &&
+           recoverable;
+}
+
+bool mutexGuardTerminalCompletion()
+{
+    constexpr const char *Test = "mutex-guard-terminal-completion";
+    bool passed = true;
+    passed &= check(
+        terminalMutexGuardScenario(false),
+        "LockGuard did not retain ownership and teardown deferral", Test);
+    passed &= check(
+        terminalMutexGuardScenario(true),
+        "ConstexprLockGuard did not retain ownership and teardown deferral",
+        Test);
+
+    Mutex conditionalMutex;
+    {
+        LockGuard<Mutex> guard(conditionalMutex, false);
+        passed &= check(
+            !guard.ownsLock() && !conditionalMutex.isOwnedByCurrentThread() &&
+                conditionalMutex.getValue() == 1,
+            "condition=false acquired or claimed the mutex", Test);
+    }
+
+    Mutex disownedMutex;
+    {
+        LockGuard<Mutex> guard(disownedMutex);
+        const bool acquired =
+            guard.ownsLock() && disownedMutex.isOwnedByCurrentThread();
+        disownedMutex.release();
+        guard.disown();
+        passed &= check(
+            acquired && !guard.ownsLock() &&
+                !disownedMutex.isOwnedByCurrentThread() &&
+                disownedMutex.getValue() == 1,
+            "disown did not transfer release responsibility", Test);
+    }
+
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "mutex-guard-terminal-completion");
+    }
+    return passed;
 }
 
 int attemptNonOwnerOperations(void *parameter)
@@ -264,6 +461,8 @@ bool runHostedMutexRegressions()
     passed &= check(
         Processor::getInterrupts() == initialInterruptState,
         "thread join or mutex teardown lost the caller interrupt state");
+
+    passed &= mutexGuardTerminalCompletion();
 
     if (passed)
     {

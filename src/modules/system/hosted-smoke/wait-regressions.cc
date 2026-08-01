@@ -1885,6 +1885,7 @@ bool runHostedWaitRegressions()
             .getBootstrapProcessorScheduler()
             ->runHostedNewThreadWorkerRegressions() &&
         runHostedSchedulerRegressions() &&
+        runHostedMutexRegressions() &&
         runHostedInterruptManagerRegressions() &&
         runHostedIrqRegressions() &&
         runHostedInputRegressions() &&
@@ -1904,7 +1905,6 @@ bool runHostedWaitRegressions()
         conditionVariableTerminalReacquire() &&
         conditionVariableCompletionBarrier() &&
         unlikelyLockAdmission() &&
-        runHostedMutexRegressions() &&
         runHostedPageFaultRegressions() &&
         runHostedPipeRegressions() &&
         runHostedUsbSyncOwnershipRegression() &&
