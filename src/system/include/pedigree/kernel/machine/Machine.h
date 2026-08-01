@@ -57,6 +57,10 @@ class EXPORTED_PUBLIC Machine
     virtual void initialise3()
     {
     }
+    /**
+     * Stops platform services while interrupts and the scheduler are alive.
+     * Implementations may synchronously drain callbacks and join workers.
+     */
     virtual void deinitialise()
     {
         m_bInitialised = false;

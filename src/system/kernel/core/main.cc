@@ -576,11 +576,11 @@ void _cxx_main(BootstrapStruct_t &bsInf)
     // Clean up the Cache subsystem
     CacheManager::destroyInstance();
 
-    Processor::setInterrupts(false);
-
     // Stop active platform services while the singleton objects they use are
-    // still alive. Hosted timers in particular use process signal handlers.
+    // still alive and their worker/callback drains can still schedule.
     Machine::instance().deinitialise();
+
+    Processor::setInterrupts(false);
 
     // Shut down the various pieces created by Processor before their global
     // objects are destroyed.

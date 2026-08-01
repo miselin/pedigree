@@ -755,6 +755,13 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    if ! rg -q -U \
+        'Machine::instance\(\)\.deinitialise\(\);[[:space:]]*Processor::setInterrupts\(false\);[[:space:]]*// Shut down the various pieces created by Processor' \
+        src/system/kernel/core/main.cc; then
+        echo "Machine teardown no longer runs while callback drains can schedule."
+        failed=1
+    fi
+
     return "$failed"
 }
 
