@@ -155,6 +155,19 @@ assert_marker()
     fi
 }
 
+assert_marker_once()
+{
+    local log=$1
+    local marker=$2
+    local count
+    count=$(grep -aFo "$marker" "$log" | wc -l | tr -d ' ' || true)
+    if [ "$count" -ne 1 ]; then
+        cat "$log"
+        echo "Expected one checkpoint, found $count: $marker" >&2
+        return 1
+    fi
+}
+
 assert_all_wait_markers_once()
 {
     local log=$1
@@ -323,12 +336,19 @@ if [ "$wait_regressions_only" = "0" ]; then
     empty_log="$log_dir/01-empty-initrd.log"
     assert_marker \
         "$empty_log" "Hosted build has no smoke-test root; shutting down."
-    assert_marker \
+    assert_marker_once \
         "$empty_log" \
         "HOSTED-NETWORK-TEST: PASS receive-generation-aba"
-    assert_marker \
-        "$empty_log" \
+    for checkpoint in \
+        "HOSTED-SYSCALL-TEST: PASS descriptor-close-pinning" \
+        "HOSTED-SYSCALL-TEST: PASS descriptor-close-generation" \
+        "HOSTED-SYSCALL-TEST: PASS poll-close-reuse-cleanup" \
+        "HOSTED-SYSCALL-TEST: PASS posix-teardown-contention" \
+        "HOSTED-SYSCALL-TEST: PASS socket-zero-result-signal" \
         "HOSTED-SYSCALL-TEST: PASS real-event-boundaries"
+    do
+        assert_marker_once "$empty_log" "$checkpoint"
+    done
     assert_lifecycle "$empty_log"
 fi
 
