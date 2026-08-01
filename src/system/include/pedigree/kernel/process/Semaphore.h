@@ -91,6 +91,9 @@ class EXPORTED_PUBLIC Semaphore
      * \return True if acquire succeeded, false otherwise. */
     bool tryAcquire(size_t n = 1);
 
+    /** Atomically removes and returns every currently available item. */
+    MUST_USE_RESULT size_t drainAvailable();
+
     /** Releases n items from the semaphore.
      * \param n The number of semaphore items to release. Must be non-zero. */
     void release(size_t n = 1);

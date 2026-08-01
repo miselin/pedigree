@@ -487,6 +487,8 @@ assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS ipc-interruption"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS prequeued-event"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS state-level-publication"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS radix-tree-exported-abi"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS semaphore-drain-available"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS event-delivery-lease"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS event-shutdown-drain"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS thread-join-lifecycle"

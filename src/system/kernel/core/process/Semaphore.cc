@@ -563,6 +563,28 @@ bool Semaphore::tryAcquire(size_t n)
     return true;
 }
 
+size_t Semaphore::drainAvailable()
+{
+    const size_t state = loadState(&magic);
+    assert(state == SemaphoreMagic || isMutexState(state));
+    if (isMutexState(state))
+    {
+        ERROR("Mutex items cannot be drained");
+        return 0;
+    }
+
+    ssize_t available = m_Counter;
+    while (available > 0)
+    {
+        if (m_Counter.compareAndSwap(available, 0))
+        {
+            return static_cast<size_t>(available);
+        }
+        available = m_Counter;
+    }
+    return 0;
+}
+
 void Semaphore::release(size_t n)
 {
     size_t state = loadState(&magic);

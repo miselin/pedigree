@@ -86,6 +86,27 @@ bool radixTreeExportedAbi()
     return passed;
 }
 
+bool semaphoreDrainAvailable()
+{
+    Semaphore semaphore(3);
+    const size_t firstDrain = semaphore.drainAvailable();
+    const bool emptyAfterFirstDrain = !semaphore.tryAcquire();
+    semaphore.release(2);
+    const size_t secondDrain = semaphore.drainAvailable();
+    const size_t emptyDrain = semaphore.drainAvailable();
+
+    const bool passed = check(
+        firstDrain == 3 && emptyAfterFirstDrain && secondDrain == 2 &&
+            emptyDrain == 0 && !semaphore.tryAcquire(),
+        "semaphore-drain-available",
+        "available items were not removed exactly once");
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS semaphore-drain-available");
+    }
+    return passed;
+}
+
 struct CompletionContext
 {
     explicit CompletionContext(Completion *completion)
@@ -1353,7 +1374,7 @@ bool terminalTimeoutCleanup()
 
 bool runHostedPrimitiveRegressions(Thread *thread)
 {
-    return radixTreeExportedAbi() &&
+    return radixTreeExportedAbi() && semaphoreDrainAvailable() &&
            completionLifecycle() && terminalCompletionBarrier() &&
            operationBarrierLifecycle() &&
            conditionVariableTimeoutAccounting(thread) &&
