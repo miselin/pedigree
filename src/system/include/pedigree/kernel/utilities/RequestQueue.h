@@ -124,12 +124,23 @@ class EXPORTED_PUBLIC RequestQueue
      *
      * The owner must keep this object alive until isAvailable() is true. A
      * successful enqueue transfers payload ownership to the queue; every
-     * rejection leaves ownership with the caller.
+     * rejection leaves ownership with the caller. An optional release
+     * callback runs after execution or cancellation, outside the request-list
+     * and waiter guard. The token remains unavailable until it returns; it may
+     * republish allocation-free dependent work through
+     * republishFromReleaseCallback().
+     * The callback can run on the queue worker, a teardown thread, or inline
+     * when threading is disabled. It must be bounded and nonblocking, and must
+     * not enter queue lifecycle operations or destroy the queue or token.
      */
     class EXPORTED_PUBLIC InterruptRequest
     {
       public:
+        using ReleaseCallback = void (*)(void *);
+
         InterruptRequest();
+        InterruptRequest(
+            ReleaseCallback releaseCallback, void *releaseContext);
         ~InterruptRequest();
 
         bool isAvailable() const;
@@ -143,10 +154,14 @@ class EXPORTED_PUBLIC RequestQueue
             Idle,
             Claimed,
             Published,
+            Releasing,
         };
 
         Request m_Request;
         Atomic<size_t> m_State;
+        Atomic<size_t> m_ReleaseDepth;
+        ReleaseCallback m_ReleaseCallback;
+        void *m_ReleaseContext;
     };
 
     enum class InterruptEnqueueResult
@@ -230,6 +245,18 @@ class EXPORTED_PUBLIC RequestQueue
         uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
 
     /**
+     * Republishes a token from its release callback.
+     *
+     * Ordinary producers must use enqueueFromInterrupt(). This operation is
+     * accepted only while this token's release callback is running, keeping
+     * isAvailable() false across callback execution and dependent work.
+     */
+    MUST_USE_RESULT InterruptEnqueueResult republishFromReleaseCallback(
+        InterruptRequest &request, size_t priority, uint64_t p1 = 0,
+        uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0, uint64_t p5 = 0,
+        uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
+
+    /**
      * Stop and join the worker, retaining queued requests for resume().
      */
     void halt();
@@ -303,6 +330,11 @@ class EXPORTED_PUBLIC RequestQueue
     void discardRequest(Request *request);
 
     uint64_t addAsyncRequestInternal(
+        size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
+        uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8);
+
+    InterruptEnqueueResult publishInterruptRequest(
+        InterruptRequest &request, InterruptRequest::State availableState,
         size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
         uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8);
 

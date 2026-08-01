@@ -410,11 +410,109 @@ int drainRequestQueue(void *parameter)
     return 0;
 }
 
+struct InterruptReleaseContext
+{
+    InterruptReleaseContext(
+        HostedRequestQueue *queue, bool requeueOnce, bool holdFirst = false)
+        : queue(queue), request(nullptr), requeueOnce(requeueOnce),
+          holdFirst(holdFirst), callbacks(0), requeues(0), failures(0),
+          callbackEntered(0), releaseCallback(0)
+    {
+    }
+
+    HostedRequestQueue *queue;
+    RequestQueue::InterruptRequest *request;
+    bool requeueOnce;
+    bool holdFirst;
+    Atomic<size_t> callbacks;
+    Atomic<size_t> requeues;
+    Atomic<size_t> failures;
+    Semaphore callbackEntered;
+    Semaphore releaseCallback;
+};
+
+void interruptRequestReleased(void *parameter)
+{
+    auto *context = reinterpret_cast<InterruptReleaseContext *>(parameter);
+    const size_t callback = (context->callbacks += 1);
+    if (!context->request || context->request->isAvailable())
+    {
+        context->failures += 1;
+    }
+
+    if (context->holdFirst && callback == 1)
+    {
+        context->callbackEntered.release();
+        if (!context->releaseCallback.acquireForCompletion())
+        {
+            context->failures += 1;
+            return;
+        }
+    }
+
+    if (
+        context->request && context->requeueOnce &&
+        context->requeues.compareAndSwap(0, 1))
+    {
+        if (
+            context->queue->republishFromReleaseCallback(
+                *context->request, 0, HostedRequestQueue::Sum, 20, 22) !=
+            RequestQueue::InterruptEnqueueResult::Accepted)
+        {
+            context->failures += 1;
+        }
+    }
+}
+
 bool interruptRequestRegressions()
 {
     using Result = RequestQueue::InterruptEnqueueResult;
 
     bool passed = true;
+    {
+        HostedRequestQueue queue;
+        InterruptReleaseContext releaseContext(&queue, true, true);
+        RequestQueue::InterruptRequest released(
+            interruptRequestReleased, &releaseContext);
+        releaseContext.request = &released;
+        queue.setMaxAsyncRequests(1);
+        queue.initialise();
+
+        passed &= check(
+            queue.republishFromReleaseCallback(
+                released, 0, HostedRequestQueue::Sum) == Result::TokenBusy &&
+                released.isAvailable(),
+            "an idle token accepted callback-only republication");
+        passed &= check(
+            queue.enqueueFromInterrupt(
+                released, 0, HostedRequestQueue::Sum, 19, 23) ==
+                Result::Accepted,
+            "release-callback request was not admitted");
+        passed &= check(
+            releaseContext.callbackEntered.acquire(),
+            "release callback did not enter its drain handoff");
+
+        RequestQueueDrainContext drainContext(&queue);
+        Thread *drainer = new Thread(
+            Scheduler::instance().getKernelProcess(), drainRequestQueue,
+            &drainContext, nullptr, false, true);
+        drainer->setName("hosted interrupt release drain regression");
+        const bool drainWaitPublished =
+            waitUntilQueued(drainer, Thread::CallbackDrain);
+        passed &= check(
+            drainWaitPublished && drainContext.finished == 0,
+            "drain observed a transient empty queue during release");
+
+        releaseContext.releaseCallback.release();
+        passed &= check(
+            drainer->join() && drainContext.result && released.isAvailable() &&
+                releaseContext.callbacks == 2 &&
+                releaseContext.requeues == 1 &&
+                releaseContext.failures == 0 && queue.executions == 2,
+            "release callback could not safely republish before drain");
+        queue.destroy();
+    }
+
     {
         HostedRequestQueue queue;
         RequestQueue::InterruptRequest request;
@@ -506,7 +604,10 @@ bool interruptRequestRegressions()
 
     {
         HostedRequestQueue queue;
-        RequestQueue::InterruptRequest cancelled;
+        InterruptReleaseContext releaseContext(&queue, false);
+        RequestQueue::InterruptRequest cancelled(
+            interruptRequestReleased, &releaseContext);
+        releaseContext.request = &cancelled;
         queue.initialise();
         passed &= check(
             queue.addAsyncRequest(
@@ -535,7 +636,9 @@ bool interruptRequestRegressions()
         passed &= check(
             destroyer->join() && destroyContext.finished == 1 &&
                 cancelled.isAvailable() && queue.cancellations == 1 &&
-                queue.queuedCancellations == 1,
+                queue.queuedCancellations == 1 &&
+                releaseContext.callbacks == 1 &&
+                releaseContext.failures == 0,
             "destroy did not cancel and release queued interrupt work");
         passed &= check(
             queue.enqueueFromInterrupt(

@@ -34,7 +34,15 @@
 class Process;
 
 RequestQueue::InterruptRequest::InterruptRequest()
-    : m_Request(0, true, 0, 0, 0, 0, 0, 0, 0, 0, this), m_State(Idle)
+    : InterruptRequest(nullptr, nullptr)
+{
+}
+
+RequestQueue::InterruptRequest::InterruptRequest(
+    ReleaseCallback releaseCallback, void *releaseContext)
+    : m_Request(0, true, 0, 0, 0, 0, 0, 0, 0, 0, this), m_State(Idle),
+      m_ReleaseDepth(0), m_ReleaseCallback(releaseCallback),
+      m_ReleaseContext(releaseContext)
 {
 }
 
@@ -48,7 +56,7 @@ RequestQueue::InterruptRequest::~InterruptRequest()
 
 bool RequestQueue::InterruptRequest::isAvailable() const
 {
-    return static_cast<size_t>(m_State) == Idle;
+    return static_cast<size_t>(m_State) == Idle && !m_ReleaseDepth;
 }
 
 RequestQueue::RequestQueue(const String &name)
@@ -383,12 +391,33 @@ RequestQueue::InterruptEnqueueResult RequestQueue::enqueueFromInterrupt(
     uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7,
     uint64_t p8)
 {
+    return publishInterruptRequest(
+        token, InterruptRequest::Idle, priority, p1, p2, p3, p4, p5, p6, p7,
+        p8);
+}
+
+RequestQueue::InterruptEnqueueResult
+RequestQueue::republishFromReleaseCallback(
+    InterruptRequest &token, size_t priority, uint64_t p1, uint64_t p2,
+    uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7,
+    uint64_t p8)
+{
+    return publishInterruptRequest(
+        token, InterruptRequest::Releasing, priority, p1, p2, p3, p4, p5, p6,
+        p7, p8);
+}
+
+RequestQueue::InterruptEnqueueResult RequestQueue::publishInterruptRequest(
+    InterruptRequest &token, InterruptRequest::State availableState,
+    size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
+    uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
+{
     if (priority >= REQUEST_QUEUE_NUM_PRIORITIES)
     {
         return InterruptEnqueueResult::InvalidPriority;
     }
     if (!token.m_State.compareAndSwap(
-            InterruptRequest::Idle, InterruptRequest::Claimed))
+            availableState, InterruptRequest::Claimed))
     {
         return InterruptEnqueueResult::TokenBusy;
     }
@@ -415,7 +444,7 @@ RequestQueue::InterruptEnqueueResult RequestQueue::enqueueFromInterrupt(
 #if !THREADS
     token.m_State = InterruptRequest::Published;
     executeRequest(p1, p2, p3, p4, p5, p6, p7, p8);
-    token.m_State = InterruptRequest::Idle;
+    releaseInterruptRequest(request);
     return InterruptEnqueueResult::Accepted;
 #else
     InterruptEnqueueResult result = InterruptEnqueueResult::Accepted;
@@ -449,7 +478,7 @@ RequestQueue::InterruptEnqueueResult RequestQueue::enqueueFromInterrupt(
 
     if (result != InterruptEnqueueResult::Accepted)
     {
-        token.m_State = InterruptRequest::Idle;
+        token.m_State = availableState;
     }
     return result;
 #endif
@@ -685,6 +714,38 @@ void RequestQueue::discardRequest(Request *request)
     delete request;
 }
 
+void RequestQueue::releaseInterruptRequest(Request *request)
+{
+    assert(request);
+    InterruptRequest *owner = request->m_pInterruptOwner;
+    assert(owner);
+    assert(&owner->m_Request == request);
+    assert(
+        static_cast<size_t>(owner->m_State) ==
+        InterruptRequest::Published);
+    owner->m_ReleaseDepth += 1;
+    owner->m_State = InterruptRequest::Releasing;
+    if (owner->m_ReleaseCallback)
+    {
+        owner->m_ReleaseCallback(owner->m_ReleaseContext);
+    }
+
+    const size_t state = owner->m_State;
+    if (state == InterruptRequest::Releasing)
+    {
+        owner->m_State = InterruptRequest::Idle;
+    }
+    else
+    {
+        // Published is an asynchronous callback republication. Idle is a
+        // nested inline republication when threading is disabled.
+        assert(
+            state == InterruptRequest::Published ||
+            state == InterruptRequest::Idle);
+    }
+    owner->m_ReleaseDepth -= 1;
+}
+
 #if THREADS
 void RequestQueue::retainRequest(Request *request)
 {
@@ -704,18 +765,6 @@ void RequestQueue::releaseRequest(Request *request)
     {
         delete request;
     }
-}
-
-void RequestQueue::releaseInterruptRequest(Request *request)
-{
-    assert(request);
-    InterruptRequest *owner = request->m_pInterruptOwner;
-    assert(owner);
-    assert(&owner->m_Request == request);
-    assert(
-        static_cast<size_t>(owner->m_State) ==
-        InterruptRequest::Published);
-    owner->m_State = InterruptRequest::Idle;
 }
 
 uint64_t RequestQueue::waitForRequest(Request *request)
@@ -809,12 +858,23 @@ int RequestQueue::work()
             assert(m_pActiveRequest == request);
             m_pActiveRequest = nullptr;
             assert(m_nTotalRequests);
-            --m_nTotalRequests;
             if (request->m_Asynchronous)
             {
                 assert(m_nAsyncRequests);
                 --m_nAsyncRequests;
             }
+        }
+
+        // Drop the queue's ownership after removing the request from every
+        // location discoverable by duplicate detection. An interrupt-token
+        // release callback may republish dependent work, so it runs before
+        // the final drain predicate is observed.
+        releaseRequest(request);
+
+        {
+            auto guard = m_RequestQueueWaiters.acquire();
+            assert(m_nTotalRequests);
+            --m_nTotalRequests;
             if (!m_nTotalRequests)
             {
                 guard.wakeAll(
@@ -822,10 +882,6 @@ int RequestQueue::work()
                     WaitQueue::Channel(this, 1));
             }
         }
-
-        // Drop the queue's ownership after removing the request from every
-        // location discoverable by duplicate detection.
-        releaseRequest(request);
     }
 #else
     return 0;
