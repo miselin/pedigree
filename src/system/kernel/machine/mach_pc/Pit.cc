@@ -22,7 +22,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/processor/types.h"
 
 /** One hundred hertz frequency. */
@@ -34,7 +34,7 @@
 
 Pit Pit::m_Instance;
 
-bool Pit::registerHandler(TimerHandler *handler)
+bool Pit::registerHandler(SchedulerTimerHandler *handler)
 {
     if (UNLIKELY(handler == 0 && m_Handler != 0))
         return false;
@@ -43,7 +43,7 @@ bool Pit::registerHandler(TimerHandler *handler)
     return true;
 }
 
-void Pit::removeHandler(TimerHandler *handler)
+void Pit::removeHandler(SchedulerTimerHandler *handler)
 {
     if (m_Handler == handler)
     {

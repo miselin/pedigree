@@ -63,7 +63,7 @@ class InfoBlockManager : public TimerHandler
 
     bool initialise();
 
-    virtual void timer(uint64_t delta, InterruptState &state);
+    virtual void timer(uint64_t delta);
 
     void setPid(size_t value);
 

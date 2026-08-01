@@ -505,7 +505,7 @@ Time::Timestamp IntervalTimer::getValue() const
     return m_Value;
 }
 
-void IntervalTimer::timer(uint64_t delta, InterruptState &state)
+void IntervalTimer::timer(uint64_t delta)
 {
     if (m_Mode != Hardware)
     {

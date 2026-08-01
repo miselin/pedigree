@@ -47,9 +47,9 @@ class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler
     //
     // SchedulerTimer interface
     //
-    virtual bool registerHandler(TimerHandler *handler);
+    virtual bool registerHandler(SchedulerTimerHandler *handler);
 
-    virtual void removeHandler(TimerHandler *handler);
+    virtual void removeHandler(SchedulerTimerHandler *handler);
 
     /** Initialises the class
      *\return true, if successful, false otherwise */
@@ -80,7 +80,7 @@ class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler
     __pedigree_hosted::timer_t m_Timer;
 
     /** The scheduler */
-    TimerHandler *m_Handler;
+    SchedulerTimerHandler *m_Handler;
 
     bool m_bInitialized;
 

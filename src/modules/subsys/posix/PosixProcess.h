@@ -118,7 +118,7 @@ class IntervalTimer : public TimerHandler
     Time::Timestamp getValue() const;
 
   private:
-    virtual void timer(uint64_t delta, InterruptState &state);
+    virtual void timer(uint64_t delta);
 
     void signal();
 

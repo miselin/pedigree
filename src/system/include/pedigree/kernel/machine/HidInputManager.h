@@ -58,7 +58,7 @@ class EXPORTED_PUBLIC HidInputManager : public TimerHandler
 
     /// Timer callback to handle repeating key press states
     /// when a key is held in the down state.
-    void timer(uint64_t delta, InterruptState &state);
+    void timer(uint64_t delta);
 
   private:
     /// Static instance

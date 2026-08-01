@@ -60,7 +60,7 @@ class EXPORTED_PUBLIC RequestQueue
         }
 
       private:
-        virtual void timer(uint64_t delta, InterruptState &state);
+        virtual void timer(uint64_t delta);
 
         size_t m_LastQueueSize;
         uint64_t m_Tick;

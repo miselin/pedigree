@@ -98,7 +98,7 @@ bool InfoBlockManager::initialise()
     return false;
 }
 
-void InfoBlockManager::timer(uint64_t, InterruptState &)
+void InfoBlockManager::timer(uint64_t)
 {
     // Update the timestamp in the info block.
     m_pInfoBlock->now = Time::getTimeNanoseconds();

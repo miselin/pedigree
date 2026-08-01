@@ -21,7 +21,7 @@
 #define PERPROCESSORSCHEDULER_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OwnedThread.h"
@@ -34,7 +34,7 @@ class SchedulingAlgorithm;
 class Spinlock;
 class WaitQueue;
 
-class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
+class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
 {
   public:
     /** Default constructor - Creates an empty scheduler with a new idle thread.
@@ -74,7 +74,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
         \note This calls Thread::~Thread itself! */
     void killCurrentThread(Spinlock *pLock = 0) NORETURN;
 
-    /** TimerHandler callback. */
+    /** SchedulerTimerHandler callback. */
     void timer(uint64_t delta, InterruptState &state);
 
     void removeThread(Thread *pThread);

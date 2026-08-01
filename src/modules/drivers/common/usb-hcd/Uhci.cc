@@ -1162,11 +1162,10 @@ void Uhci::cancelRequest(const Request &request)
     }
 }
 
-void Uhci::timer(uint64_t delta, InterruptState &state)
+void Uhci::timer(uint64_t delta)
 {
 #if !THREADS
     (void) delta;
-    (void) state;
     return;
 #else
     OperationBarrier::Lease callback;

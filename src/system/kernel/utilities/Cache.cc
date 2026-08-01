@@ -225,10 +225,9 @@ bool CacheManager::trimAll(size_t count)
     return totalEvicted != 0;
 }
 
-void CacheManager::timer(uint64_t delta, InterruptState &state)
+void CacheManager::timer(uint64_t delta)
 {
 #if THREADS
-    (void) state;
     {
         auto guard = m_TrimWaiters.acquire();
         m_bTrimRequested = true;

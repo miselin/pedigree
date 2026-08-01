@@ -97,7 +97,7 @@ class CacheManager :
      */
     bool trimAll(size_t count = 1);
 
-    virtual void timer(uint64_t delta, InterruptState &state);
+    virtual void timer(uint64_t delta);
 
 #if THREADS
     void trimThread();

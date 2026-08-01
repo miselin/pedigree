@@ -61,7 +61,7 @@ class Ib700Watchdog : public Device, public TimerHandler
 
     virtual void getName(String &str);
 
-    virtual void timer(uint64_t delta, InterruptState &state);
+    virtual void timer(uint64_t delta);
 
   private:
     IoBase *m_pBase;
@@ -157,7 +157,7 @@ void Ib700Watchdog::getName(String &str)
     str.assign("ib700_wdt", 10);
 }
 
-void Ib700Watchdog::timer(uint64_t delta, InterruptState &state)
+void Ib700Watchdog::timer(uint64_t delta)
 {
     // Timer fired, push the watchdog back now (watchdog expects to be
     // polled by the system regularly).

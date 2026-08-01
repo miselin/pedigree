@@ -21,7 +21,6 @@
 #define KERNEL_MACHINE_TIMERHANDLER_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelmachine
@@ -32,12 +31,11 @@
 class EXPORTED_PUBLIC TimerHandler
 {
   public:
-    /** Called when the handler is registered with the Timer/SchedulerTimer
-     *class and a timer event occured \param[in] delta time elapsed since the
-     *last event, in nanoseconds \param[in,out] state the state of the processor
-     *when the event occurred.
+    /** Called when the handler is registered with the Timer class and a timer
+     * event occurred. \param[in] delta time elapsed since the last event, in
+     * nanoseconds.
      */
-    virtual void timer(uint64_t delta, InterruptState &state) = 0;
+    virtual void timer(uint64_t delta) = 0;
 
   protected:
     virtual ~TimerHandler();

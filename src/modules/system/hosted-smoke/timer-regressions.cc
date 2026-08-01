@@ -62,7 +62,7 @@ class RegistryDispatchTimerHandler : public TimerHandler
     {
     }
 
-    void timer(uint64_t delta, InterruptState &state) override;
+    void timer(uint64_t delta) override;
 
   private:
     RegistryDispatchContext &m_Context;
@@ -72,7 +72,7 @@ struct RegistryDispatchContext
 {
     explicit RegistryDispatchContext(Timer *timer)
         : timer(timer), handler(*this), calls(0), hookCalls(0), admitted(0),
-          unregisterSucceeded(0), mutationRequested(0), delta(0), state(nullptr)
+          unregisterSucceeded(0), mutationRequested(0), delta(0)
     {
     }
 
@@ -84,19 +84,16 @@ struct RegistryDispatchContext
     Atomic<size_t> unregisterSucceeded;
     Atomic<size_t> mutationRequested;
     uint64_t delta;
-    InterruptState *state;
 };
 
-void RegistryDispatchTimerHandler::timer(uint64_t delta, InterruptState &state)
+void RegistryDispatchTimerHandler::timer(uint64_t delta)
 {
     m_Context.calls += 1;
     if (m_Context.mutationRequested.compareAndSwap(1, 2))
     {
         m_Context.delta = delta;
-        m_Context.state = &state;
         HostedTimer::withHandlerMutationLockForTest(
             dispatchTimerWhileWriterLocked);
-        m_Context.state = nullptr;
         m_Context.mutationRequested = 3;
     }
 }
@@ -110,9 +107,7 @@ void dispatchTimerWhileWriterLocked()
     }
 
     context->hookCalls += 1;
-    if (context->state &&
-        HostedTimer::dispatchHandlerForTest(
-            &context->handler, context->delta, *context->state))
+    if (HostedTimer::dispatchHandlerForTest(&context->handler, context->delta))
     {
         context->admitted += 1;
     }
@@ -129,7 +124,7 @@ class AtomicDrainRaceHandler : public TimerHandler
     {
     }
 
-    void timer(uint64_t, InterruptState &) override;
+    void timer(uint64_t) override;
 
   private:
     AtomicDrainRaceContext &m_Context;
@@ -163,7 +158,7 @@ struct AtomicDrainRaceContext
     Atomic<size_t> failures;
 };
 
-void AtomicDrainRaceHandler::timer(uint64_t, InterruptState &)
+void AtomicDrainRaceHandler::timer(uint64_t)
 {
     m_Context.handlerCalls += 1;
     if (m_Context.phase != static_cast<size_t>(2))
@@ -285,7 +280,7 @@ class AbandoningTimerHandler : public TimerHandler
     {
     }
 
-    void timer(uint64_t, InterruptState &) override;
+    void timer(uint64_t) override;
 
   private:
     TimerAbandonContext &m_Context;
@@ -325,7 +320,7 @@ void abandonCurrentTimerDispatcher()
         ->killCurrentThread();
 }
 
-void AbandoningTimerHandler::timer(uint64_t, InterruptState &)
+void AbandoningTimerHandler::timer(uint64_t)
 {
     if (Processor::information().getCurrentThread() != m_Context.dispatcher)
     {
@@ -598,7 +593,7 @@ class LifetimeHandler : public TimerHandler
     {
     }
 
-    void timer(uint64_t, InterruptState &) override;
+    void timer(uint64_t) override;
 
   private:
     HandlerLifetimeContext &m_Context;
@@ -636,7 +631,7 @@ struct HandlerLifetimeContext
     Atomic<size_t> failures;
 };
 
-void LifetimeHandler::timer(uint64_t, InterruptState &)
+void LifetimeHandler::timer(uint64_t)
 {
     m_Context.handlerCalls += 1;
     if (m_Context.unregisterReturned)
@@ -662,7 +657,7 @@ class SelfRemovingHandler : public TimerHandler
     {
     }
 
-    void timer(uint64_t, InterruptState &) override
+    void timer(uint64_t) override
     {
         calls += 1;
         if (!m_Timer->unregisterHandler(this))

@@ -170,7 +170,7 @@ class Uhci : public UsbHub,
     void doDequeue();
 
     /// Timer callback to handle port status changes
-    void timer(uint64_t delta, InterruptState &state);
+    void timer(uint64_t delta);
 
     virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
 

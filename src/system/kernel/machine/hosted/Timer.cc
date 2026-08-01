@@ -166,10 +166,9 @@ void HostedTimer::withHandlerMutationLockForTest(HandlerMutationLockHook hook)
     m_Instance.m_HandlerRegistry.withMutationLockForTest(hook);
 }
 
-bool HostedTimer::dispatchHandlerForTest(
-    TimerHandler *handler, uint64_t delta, InterruptState &state)
+bool HostedTimer::dispatchHandlerForTest(TimerHandler *handler, uint64_t delta)
 {
-    return m_Instance.m_HandlerRegistry.dispatch(delta, state, handler);
+    return m_Instance.m_HandlerRegistry.dispatch(delta, handler);
 }
 
 size_t HostedTimer::activeDispatchCountForTest(TimerHandler *handler)
@@ -457,7 +456,7 @@ bool HostedTimer::irq(irq_id_t number, InterruptState &state)
     }
 
     // Timer delta is in nanoseconds.
-    m_HandlerRegistry.dispatch(delta, state);
+    m_HandlerRegistry.dispatch(delta);
 
     return true;
 }

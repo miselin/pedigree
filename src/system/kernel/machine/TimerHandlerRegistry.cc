@@ -13,7 +13,6 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
-#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/assert.h"
 
 TimerHandlerRegistry::TimerHandlerRegistry()
@@ -590,8 +589,7 @@ bool TimerHandlerRegistry::unregisterHandler(TimerHandler *handler)
     }
 }
 
-bool TimerHandlerRegistry::dispatch(
-    uint64_t delta, InterruptState &state, TimerHandler *onlyHandler)
+bool TimerHandlerRegistry::dispatch(uint64_t delta, TimerHandler *onlyHandler)
 {
     bool admitted = false;
 
@@ -671,7 +669,7 @@ bool TimerHandlerRegistry::dispatch(
         // Keep callback entry and return independent of ordinary deferred-scope
         // state: a timer interrupt can arrive while that state is being
         // mutated.
-        handler->timer(delta, state);
+        handler->timer(delta);
         unpublishDispatch(&dispatchCleanup, slot, publication, true);
         if (thread)
         {

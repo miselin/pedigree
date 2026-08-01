@@ -95,8 +95,8 @@ class HostedTimer : public Timer, private HardIrqHandler
     static EXPORTED_PUBLIC void
     withHandlerMutationLockForTest(HandlerMutationLockHook hook);
     /** Dispatches one handler through the production registry path. */
-    static EXPORTED_PUBLIC bool dispatchHandlerForTest(
-        TimerHandler *handler, uint64_t delta, InterruptState &state);
+    static EXPORTED_PUBLIC bool
+    dispatchHandlerForTest(TimerHandler *handler, uint64_t delta);
     /** Returns committed callback hazards for one handler. */
     static EXPORTED_PUBLIC size_t
     activeDispatchCountForTest(TimerHandler *handler);

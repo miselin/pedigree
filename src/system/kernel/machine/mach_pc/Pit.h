@@ -27,7 +27,7 @@
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state_forward.h"
 
-class TimerHandler;
+class SchedulerTimerHandler;
 
 /** @addtogroup kernelmachinex86common
  * @{ */
@@ -45,8 +45,8 @@ class Pit : public SchedulerTimer, private HardIrqHandler
     //
     // SchedulerTimer interface
     //
-    virtual bool registerHandler(TimerHandler *handler);
-    virtual void removeHandler(TimerHandler *handler);
+    virtual bool registerHandler(SchedulerTimerHandler *handler);
+    virtual void removeHandler(SchedulerTimerHandler *handler);
 
     /** Initialises the class
      *\return true, if successful, false otherwise */
@@ -80,7 +80,7 @@ class Pit : public SchedulerTimer, private HardIrqHandler
     /** The PIT IRQ Id */
     irq_id_t m_IrqId;
     /** The scheduler */
-    TimerHandler *m_Handler;
+    SchedulerTimerHandler *m_Handler;
 
     /** The Pit class instance */
     static Pit m_Instance;

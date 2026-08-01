@@ -892,8 +892,7 @@ int RequestQueue::work()
 }
 
 #if THREADS
-void RequestQueue::RequestQueueOverrunChecker::timer(
-    uint64_t delta, InterruptState &)
+void RequestQueue::RequestQueueOverrunChecker::timer(uint64_t delta)
 {
     m_Tick += delta;
     if (m_Tick < Time::Multiplier::Second)

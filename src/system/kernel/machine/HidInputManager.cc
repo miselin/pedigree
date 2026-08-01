@@ -123,7 +123,7 @@ void HidInputManager::keyUp(uint8_t keyCode)
     }
 }
 
-void HidInputManager::timer(uint64_t delta, InterruptState &state)
+void HidInputManager::timer(uint64_t delta)
 {
     LockGuard<Spinlock> guard(m_KeyLock);
 

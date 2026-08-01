@@ -21,7 +21,7 @@
 
 #include "LocalApic.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -219,7 +219,7 @@ void LocalApic::interrupt(size_t nInterruptNumber, InterruptState &state)
         // schedules).
         ack();
 
-        TimerHandler *handler = m_Handlers.lookup(Processor::id());
+        SchedulerTimerHandler *handler = m_Handlers.lookup(Processor::id());
         // TODO: Delta is wrong.
         if (LIKELY(handler != 0))
         {

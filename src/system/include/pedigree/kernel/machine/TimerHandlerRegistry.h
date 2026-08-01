@@ -11,7 +11,6 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/process/WaitQueue.h"
-#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
 class TimerHandler;
@@ -41,9 +40,7 @@ class TimerHandlerRegistry
     bool unregisterHandler(TimerHandler *handler);
 
     /** Calls each handler admitted by the current publication. */
-    bool dispatch(
-        uint64_t delta, InterruptState &state,
-        TimerHandler *onlyHandler = nullptr);
+    bool dispatch(uint64_t delta, TimerHandler *onlyHandler = nullptr);
 
     /** Clears quiescent registry state during timer lifecycle transitions. */
     void reset();

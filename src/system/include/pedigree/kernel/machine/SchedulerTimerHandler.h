@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008-2014, Pedigree Developers
+ * Copyright (c) 2026, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
  * list of contributors.
@@ -17,34 +17,31 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef KERNEL_MACHINE_SCHEDULERTIMER_H
-#define KERNEL_MACHINE_SCHEDULERTIMER_H
+#ifndef KERNEL_MACHINE_SCHEDULERTIMERHANDLER_H
+#define KERNEL_MACHINE_SCHEDULERTIMERHANDLER_H
 
-class SchedulerTimerHandler;
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
 
 /** @addtogroup kernelmachine
  * @{ */
 
-/** Timer for scheduling */
-class SchedulerTimer
+/**
+ * Hard scheduler-tick callback.
+ *
+ * Scheduler timers retain the interrupted processor state because scheduling
+ * may switch away from that state directly. Ordinary TimerHandler callbacks
+ * deliberately do not expose it.
+ */
+class EXPORTED_PUBLIC SchedulerTimerHandler
 {
   public:
-    virtual bool registerHandler(SchedulerTimerHandler *handler) = 0;
-    virtual void removeHandler(SchedulerTimerHandler *handler) = 0;
+    /** Handles a scheduler tick in interrupt context. */
+    virtual void timer(uint64_t delta, InterruptState &state) = 0;
 
   protected:
-    /** The default constructor */
-    SchedulerTimer();
-    /** The destructor */
-    virtual ~SchedulerTimer();
-
-  private:
-    /** The copy-constructor
-     *\note NOT implemented */
-    SchedulerTimer(const SchedulerTimer &);
-    /** The assignment operator
-     *\note NOT implemented */
-    SchedulerTimer &operator=(const SchedulerTimer &);
+    virtual ~SchedulerTimerHandler();
 };
 
 /** @} */

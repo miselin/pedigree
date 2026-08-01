@@ -33,7 +33,7 @@
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/new"
 
-class TimerHandler;
+class SchedulerTimerHandler;
 
 #define IPI_HALT_VECTOR 0xFB
 #define ERROR_VECTOR 0xFC
@@ -104,14 +104,14 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
     //
     // SchedulerTimer interface
     //
-    virtual bool registerHandler(TimerHandler *handler)
+    virtual bool registerHandler(SchedulerTimerHandler *handler)
     {
         // insert() won't insert if the key is already present.
         m_Handlers.insert(Processor::id(), handler);
         return false;
     }
 
-    virtual void removeHandler(TimerHandler *handler)
+    virtual void removeHandler(SchedulerTimerHandler *handler)
     {
         m_Handlers.remove(Processor::id());
     }
@@ -141,7 +141,7 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
     MemoryMappedIo m_IoSpace;
 
     /** Timer handlers, tracked per processor. */
-    Tree<ProcessorId, TimerHandler *> m_Handlers;
+    Tree<ProcessorId, SchedulerTimerHandler *> m_Handlers;
 
     /** System bus frequency, for setting up the initial timer counter. */
     size_t m_BusFrequency;

@@ -632,7 +632,7 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
     read(0x0C);
 
     // Timer delta is in nanoseconds.
-    m_HandlerRegistry.dispatch(delta, state);
+    m_HandlerRegistry.dispatch(delta);
 
     return true;
 }
