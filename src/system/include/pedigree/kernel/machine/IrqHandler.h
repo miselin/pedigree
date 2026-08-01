@@ -27,8 +27,14 @@
 /** @addtogroup kernelmachine
  * @{ */
 
-/** Abstract base class for all irq-handlers. All irq-handlers must
- * be derived from this class */
+/**
+ * Legacy hard-IRQ callback interface.
+ *
+ * Directly deriving from this class opts the whole callback into hard IRQ
+ * context, where it must not block, allocate, invoke arbitrary callbacks, or
+ * retain InterruptState. SplitIrqHandler is only for devices which require a
+ * mandatory hard top half; it is not the normal threaded-delivery API.
+ */
 class EXPORTED_PUBLIC IrqHandler
 {
   public:

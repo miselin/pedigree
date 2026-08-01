@@ -573,6 +573,93 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local irq_handler_header=src/system/include/pedigree/kernel/machine/IrqHandler.h
+    local split_irq_header=src/system/include/pedigree/kernel/machine/SplitIrqHandler.h
+    local split_irq_source=src/system/kernel/machine/SplitIrqHandler.cc
+    if ! rg -q -U \
+        'class EXPORTED_PUBLIC SplitIrqHandler[[:space:]]*:[[:space:]]*private IrqHandler,[[:space:]]*private RequestQueue' \
+        "$split_irq_header" ||
+        ! rg -q -U \
+            'virtual HardIrqDisposition[[:space:]]+hardIrq\(' \
+            "$split_irq_header" ||
+        ! rg -q \
+            'virtual void threadedIrq\(size_t work\)' \
+            "$split_irq_header" ||
+        ! rg -q \
+            'virtual bool quiesceIrqSources\(\)' \
+            "$split_irq_header" ||
+        ! rg -q \
+            'virtual void rearmIrqSources\(size_t work\)' \
+            "$split_irq_header"; then
+        echo "The split IRQ adapter lost its hard/thread context boundary."
+        failed=1
+    fi
+
+    matches=$(rg -n -U \
+        'threadedIrq\([^)]*InterruptState' \
+        "$split_irq_header" "$split_irq_source" || true)
+    if [[ -n "$matches" ]]; then
+        echo "InterruptState escaped into a split IRQ bottom half:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)tryPublishWork\(\).*republishWhileReleasing\(m_WorkRequest, 0\).*enqueueFromInterrupt\(m_WorkRequest, 0\)' \
+        "$split_irq_source"; then
+        echo "The split IRQ adapter lost its release-seam publication order."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)publishWork\(size_t work\).*?__atomic_or_fetch\(&m_PendingWork, work, __ATOMIC_ACQ_REL\).*?tryPublishWork\(\)' \
+        "$split_irq_source"; then
+        echo "The split IRQ adapter published before recording pending work."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)shutdownSplitIrq\(\).*?Thread \*current.*?if \(!current \|\| !Processor::getInterrupts\(\)\).*?getHostedSignalDepth\(\).*?m_pThread == current.*?m_Quiescing = true.*?quiesceIrqSources\(\).*?unregisterHandler\(registration\.id, this\)' \
+        "$split_irq_source"; then
+        echo "Split IRQ shutdown can mutate state from an atomic callback context."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)shutdownSplitIrq\(\).*?m_Quiescing = true.*?quiesceIrqSources\(\).*?unregisterHandler\(registration\.id, this\).*?drain\(\).*?quiesceIrqSources\(\).*?m_Stopping = 1.*?RequestQueue::destroy\(\)' \
+        "$split_irq_source"; then
+        echo "The split IRQ adapter lost its quiesce, callback-drain, or stop order."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)executeRequest\(.*?threadedIrq\(work\).*?LockGuard<Spinlock> guard\(m_StateLock\).*?if \(!m_Quiescing\).*?rearmIrqSources\(work\).*?m_CompletedBatches' \
+        "$split_irq_source"; then
+        echo "A split IRQ bottom half can rearm outside the shutdown gate."
+        failed=1
+    fi
+
+    local split_irq_regressions=src/modules/system/hosted-smoke/split-irq-regressions.cc
+    if ! rg -q 'setHandlerPinHook\(holdPinnedHardCallback\)' \
+        "$split_irq_regressions" ||
+        ! rg -q 'hasCallbackDrainWait\(' "$split_irq_regressions" ||
+        ! rg -q 'split-irq-hard-callback-drain' \
+            "$split_irq_regressions" ||
+        ! rg -q 'split-irq-atomic-shutdown-rejected' \
+            "$split_irq_regressions" ||
+        ! rg -q 'split-irq-hard-shutdown-rejected' \
+            "$split_irq_regressions"; then
+        echo "Hosted split IRQ lifecycle race coverage is incomplete."
+        failed=1
+    fi
+
+    if ! rg -q 'Legacy hard-IRQ callback interface' "$irq_handler_header" ||
+        ! rg -q 'it is not the normal threaded-delivery API' \
+            "$irq_handler_header"; then
+        echo "The legacy hard-IRQ API lost its explicit context warning."
+        failed=1
+    fi
+
     local timer_registry_source=src/system/kernel/machine/TimerHandlerRegistry.cc
     local timer_registry_header=src/system/include/pedigree/kernel/machine/TimerHandlerRegistry.h
     matches=$(rg -n \

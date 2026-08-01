@@ -440,6 +440,19 @@ assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-handler-waitqueue-drain"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-lifetime"
 assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS split-irq-wake-before-block"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS split-irq-coalescing"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS split-irq-unregister-drain"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS split-irq-atomic-shutdown-rejected"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS split-irq-hard-shutdown-rejected"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS split-irq-hard-callback-drain"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pic-line-state-mask-lifecycle"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-waitqueue-drain"

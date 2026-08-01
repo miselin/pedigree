@@ -46,6 +46,7 @@ bool runHostedPs2MouseRegressions();
 bool runHostedSignalInterruptionRegressions(Thread *thread);
 bool runHostedSyscallRegressions();
 bool runHostedTimerRegressions(Thread *thread);
+bool runHostedSplitIrqRegressions();
 bool runHostedUsbHcdPortChangeRegressions();
 EXPORTED_PUBLIC bool runHostedUsbSyncOwnershipRegression();
 
@@ -1893,6 +1894,7 @@ bool runHostedWaitRegressions()
         runHostedMutexRegressions() &&
         runHostedInterruptManagerRegressions() &&
         runHostedIrqRegressions() &&
+        runHostedSplitIrqRegressions() &&
         runHostedCdiIrqRegressions() &&
         runHostedInputRegressions() &&
         runHostedNetworkFilterRegressions() &&

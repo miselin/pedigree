@@ -87,6 +87,9 @@ class HostedInterruptState
      *\return the interrupt number */
     inline size_t getInterruptNumber() const;
 
+    /** Get the object which requested this hosted interrupt, if any. */
+    inline uintptr_t getInterruptSource() const;
+
     /** Get the flags register
      *\return the flags register */
     inline uint64_t getFlags() const;
@@ -314,6 +317,10 @@ bool HostedInterruptState::kernelMode() const
 size_t HostedInterruptState::getInterruptNumber() const
 {
     return which;
+}
+uintptr_t HostedInterruptState::getInterruptSource() const
+{
+    return state;
 }
 
 uint64_t HostedInterruptState::getFlags() const
