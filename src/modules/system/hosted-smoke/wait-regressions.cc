@@ -45,6 +45,7 @@ bool runHostedPs2MouseRegressions();
 bool runHostedSignalInterruptionRegressions(Thread *thread);
 bool runHostedSyscallRegressions();
 bool runHostedTimerRegressions(Thread *thread);
+bool runHostedUsbHcdPortChangeRegressions();
 EXPORTED_PUBLIC bool runHostedUsbSyncOwnershipRegression();
 
 namespace
@@ -1886,6 +1887,7 @@ bool runHostedWaitRegressions()
             ->runHostedNewThreadWorkerRegressions() &&
         runHostedSchedulerRegressions() &&
         runHostedRequestQueueRegressions() &&
+        runHostedUsbHcdPortChangeRegressions() &&
         runHostedMutexRegressions() &&
         runHostedInterruptManagerRegressions() &&
         runHostedIrqRegressions() &&
