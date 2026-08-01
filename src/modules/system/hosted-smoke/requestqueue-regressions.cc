@@ -8,10 +8,13 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/RoundRobin.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/WaitQueue.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 
@@ -67,12 +70,14 @@ class HostedRequestQueue : public RequestQueue
         HoldWorker,
         CancelQueued,
         WakeAtWorkerBlock,
+        InterruptHold,
     };
 
     HostedRequestQueue()
         : RequestQueue(MakeConstantString("Hosted wait regression")),
           executions(0), cancellations(0), queuedCancellations(0),
-          wakeAtWorkerBlockExecutions(0), holdStarted(0), releaseHold(0)
+          wakeAtWorkerBlockExecutions(0), comparisons(0), holdStarted(0),
+          releaseHold(0)
     {
     }
 
@@ -85,6 +90,7 @@ class HostedRequestQueue : public RequestQueue
     Atomic<size_t> cancellations;
     Atomic<size_t> queuedCancellations;
     Atomic<size_t> wakeAtWorkerBlockExecutions;
+    Atomic<size_t> comparisons;
     Semaphore holdStarted;
     Semaphore releaseHold;
 
@@ -97,6 +103,11 @@ class HostedRequestQueue : public RequestQueue
     {
         auto guard = m_RequestQueueWaiters.acquire();
         return m_pThread;
+    }
+
+    void setMaxAsyncRequests(size_t maximum)
+    {
+        m_nMaxAsyncRequests = maximum;
     }
 
   protected:
@@ -114,6 +125,7 @@ class HostedRequestQueue : public RequestQueue
             case SelfSubmit:
                 return addRequest(0, SelfSubmitInner, p2, p3);
             case HoldWorker:
+            case InterruptHold:
                 holdStarted.release();
                 return releaseHold.acquire() ? p2 : 0;
             case WakeAtWorkerBlock:
@@ -132,6 +144,13 @@ class HostedRequestQueue : public RequestQueue
             queuedCancellations += 1;
         }
     }
+
+    bool compareRequests(const Request &, const Request &) override
+    {
+        comparisons += 1;
+        return false;
+    }
+
 };
 
 struct HeldRequestContext
@@ -390,10 +409,166 @@ int drainRequestQueue(void *parameter)
     context->finished += 1;
     return 0;
 }
+
+bool interruptRequestRegressions()
+{
+    using Result = RequestQueue::InterruptEnqueueResult;
+
+    bool passed = true;
+    {
+        HostedRequestQueue queue;
+        RequestQueue::InterruptRequest request;
+        RequestQueue::InterruptRequest capacity;
+
+        passed &= check(
+            queue.enqueueFromInterrupt(
+                request, 0, HostedRequestQueue::Sum, 20, 22) ==
+                Result::QueueStopped &&
+                request.isAvailable(),
+            "a stopped queue claimed an interrupt token");
+        passed &= check(
+            queue.enqueueFromInterrupt(
+                request, REQUEST_QUEUE_NUM_PRIORITIES,
+                HostedRequestQueue::Sum) == Result::InvalidPriority &&
+                request.isAvailable(),
+            "an invalid interrupt priority claimed its token");
+
+        queue.initialise();
+        Thread *worker = queue.workerThread();
+        bool workerSleeping = false;
+        for (size_t attempt = 0; attempt < WaitAttempts; ++attempt)
+        {
+            workerSleeping = worker &&
+                             worker->getStatus() == Thread::Sleeping &&
+                             waitUntilQueued(worker, Thread::CondWait);
+            if (workerSleeping)
+            {
+                break;
+            }
+            Scheduler::instance().yield();
+        }
+
+        const bool interrupts = Processor::getInterrupts();
+        const size_t comparisonsBefore = queue.comparisons;
+        Processor::setInterrupts(false);
+        const Result accepted = queue.enqueueFromInterrupt(
+            request, 0, HostedRequestQueue::Sum, 20, 22);
+        const Result busy = queue.enqueueFromInterrupt(
+            request, 0, HostedRequestQueue::Sum, 19, 23);
+        const bool workerReady = worker && worker->getStatus() == Thread::Ready;
+        Processor::setInterrupts(interrupts);
+
+        passed &= check(
+            workerSleeping && accepted == Result::Accepted &&
+                busy == Result::TokenBusy && workerReady &&
+                static_cast<size_t>(queue.comparisons) == comparisonsBefore,
+            "preallocated IF=0 enqueue did not wake exactly once or called "
+            "virtual duplicate detection");
+        passed &= check(
+            queue.drain() && request.isAvailable() && queue.executions == 1,
+            "executed interrupt work did not release its token");
+
+        passed &= check(
+            queue.enqueueFromInterrupt(
+                request, 0, HostedRequestQueue::InterruptHold, 42) ==
+                Result::Accepted &&
+                queue.holdStarted.acquire(),
+            "interrupt hold request was not admitted");
+        passed &= check(
+            queue.enqueueFromInterrupt(
+                request, 0, HostedRequestQueue::InterruptHold, 42) ==
+                Result::TokenBusy,
+            "a published interrupt token was admitted twice");
+        queue.setMaxAsyncRequests(1);
+        passed &= check(
+            queue.enqueueFromInterrupt(
+                capacity, 0, HostedRequestQueue::Sum, 1, 2) ==
+                    Result::QueueFull &&
+                capacity.isAvailable(),
+            "capacity rejection retained its interrupt token");
+        queue.setMaxAsyncRequests(256);
+        queue.releaseHold.release();
+        passed &= check(
+            queue.drain() && request.isAvailable(),
+            "held interrupt work did not release its token");
+
+        passed &= check(
+            queue.enqueueFromInterrupt(
+                capacity, 0, HostedRequestQueue::Sum, 19, 23) ==
+                Result::Accepted,
+            "a rejected interrupt token could not be reused");
+        passed &= check(
+            queue.drain() && capacity.isAvailable() &&
+                queue.executions == 3,
+            "a reused interrupt token did not complete once");
+        queue.destroy();
+    }
+
+    {
+        HostedRequestQueue queue;
+        RequestQueue::InterruptRequest cancelled;
+        queue.initialise();
+        passed &= check(
+            queue.addAsyncRequest(
+                0, HostedRequestQueue::HoldWorker, 42) == 1 &&
+                queue.holdStarted.acquire(),
+            "teardown setup did not hold the worker");
+        passed &= check(
+            queue.enqueueFromInterrupt(
+                cancelled, 0, HostedRequestQueue::CancelQueued) ==
+                Result::Accepted,
+            "teardown setup did not queue the interrupt token");
+
+        RequestQueueDestroyContext destroyContext(&queue);
+        Thread *destroyer = new Thread(
+            Scheduler::instance().getKernelProcess(), destroyRequestQueue,
+            &destroyContext, nullptr, false, true);
+        destroyer->setName("hosted interrupt request destroy regression");
+        while (
+            queue.getLifecycleState() !=
+            RequestQueue::LifecycleState::Stopping)
+        {
+            Scheduler::instance().yield();
+        }
+        queue.releaseHold.release();
+
+        passed &= check(
+            destroyer->join() && destroyContext.finished == 1 &&
+                cancelled.isAvailable() && queue.cancellations == 1 &&
+                queue.queuedCancellations == 1,
+            "destroy did not cancel and release queued interrupt work");
+        passed &= check(
+            queue.enqueueFromInterrupt(
+                cancelled, 0, HostedRequestQueue::Sum) ==
+                    Result::QueueStopped &&
+                cancelled.isAvailable(),
+            "a stopped queue retained a reused interrupt token");
+    }
+
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS requestqueue-interrupt-token");
+    }
+    return passed;
+}
 }  // namespace
 
 bool runHostedRequestQueueRegressions()
 {
+    Thread *current = Processor::information().getCurrentThread();
+    if (!check(
+            RoundRobin::runHostedIntrusiveQueueRegressions(current),
+            "intrusive scheduler ready-queue invariants failed"))
+    {
+        return false;
+    }
+    NOTICE("HOSTED-WAIT-TEST: PASS scheduler-intrusive-ready-queue");
+
+    if (!interruptRequestRegressions())
+    {
+        return false;
+    }
+
     {
         HostedRequestQueue activeRequestQueue;
         activeRequestQueue.initialise();

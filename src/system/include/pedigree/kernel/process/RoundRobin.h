@@ -42,6 +42,12 @@ class RoundRobin : public SchedulingAlgorithm
 
     virtual void threadStatusChanged(Thread *pThread);
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    /** Exercises intrusive ready-list invariants without scheduling. */
+    static EXPORTED_PUBLIC bool runHostedIntrusiveQueueRegressions(
+        Thread *pThread);
+#endif
+
   private:
     static bool isReady(Thread *pThread);
 

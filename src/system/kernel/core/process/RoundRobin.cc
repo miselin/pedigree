@@ -21,6 +21,7 @@
 #include "pedigree/kernel/process/RoundRobin.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/assert.h"
 
@@ -179,5 +180,68 @@ bool RoundRobin::isReady(Thread *pThread)
 {
     return pThread->getStatus() == Thread::Ready;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+bool RoundRobin::runHostedIntrusiveQueueRegressions(Thread *pThread)
+{
+    if (
+        !pThread || pThread->m_bReadyQueued || pThread->m_pReadyPrevious ||
+        pThread->m_pReadyNext)
+    {
+        return false;
+    }
+
+    const bool interrupts = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    const Thread::Status status = pThread->m_Status;
+    const size_t priority = pThread->m_Priority;
+    bool passed = true;
+
+    {
+        RoundRobin queue;
+        pThread->m_Status = Thread::Ready;
+        pThread->m_Priority = 1;
+        queue.threadStatusChanged(pThread);
+        queue.threadStatusChanged(pThread);
+        passed &= pThread->m_bReadyQueued &&
+                  pThread->m_ReadyQueuePriority == 1 &&
+                  !pThread->m_pReadyPrevious && !pThread->m_pReadyNext;
+
+        pThread->m_Priority = 2;
+        queue.threadStatusChanged(pThread);
+        passed &= pThread->m_bReadyQueued &&
+                  pThread->m_ReadyQueuePriority == 2 &&
+                  !pThread->m_pReadyPrevious && !pThread->m_pReadyNext;
+
+        pThread->m_Status = Thread::Sleeping;
+        passed &= !queue.getNext(nullptr) && !pThread->m_bReadyQueued;
+
+        pThread->m_Status = Thread::Ready;
+        queue.threadStatusChanged(pThread);
+        passed &= !queue.getNext(pThread) && !pThread->m_bReadyQueued;
+
+        pThread->m_Status = Thread::Ready;
+        queue.threadStatusChanged(pThread);
+        passed &= pThread->m_bReadyQueued;
+    }
+
+    passed &= !pThread->m_bReadyQueued && !pThread->m_pReadyPrevious &&
+              !pThread->m_pReadyNext &&
+              pThread->m_ReadyQueuePriority == MAX_PRIORITIES;
+    {
+        RoundRobin reused;
+        pThread->m_Status = Thread::Ready;
+        pThread->m_Priority = 0;
+        reused.threadStatusChanged(pThread);
+        passed &= reused.getNext(nullptr) == pThread &&
+                  !pThread->m_bReadyQueued;
+    }
+
+    pThread->m_Status = status;
+    pThread->m_Priority = priority;
+    Processor::setInterrupts(interrupts);
+    return passed;
+}
+#endif
 
 #endif

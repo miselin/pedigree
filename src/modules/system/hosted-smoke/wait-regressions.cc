@@ -1885,6 +1885,7 @@ bool runHostedWaitRegressions()
             .getBootstrapProcessorScheduler()
             ->runHostedNewThreadWorkerRegressions() &&
         runHostedSchedulerRegressions() &&
+        runHostedRequestQueueRegressions() &&
         runHostedMutexRegressions() &&
         runHostedInterruptManagerRegressions() &&
         runHostedIrqRegressions() &&
@@ -1915,7 +1916,7 @@ bool runHostedWaitRegressions()
         runHostedSignalInterruptionRegressions(g_ImmediateWaiter) &&
         runHostedSyscallRegressions() &&
         ordinaryBlockAndWake() &&
-        processSuspendResume() && runHostedRequestQueueRegressions() &&
+        processSuspendResume() &&
         immediateExitJoinLifecycle() && joinPublicationAndDetachExclusion() &&
         terminalJoinAbandonment() &&
         prequeuedEventDispatch() && stateLevelPublication() &&

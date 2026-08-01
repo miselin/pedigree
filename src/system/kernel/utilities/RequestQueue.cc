@@ -33,6 +33,24 @@
 
 class Process;
 
+RequestQueue::InterruptRequest::InterruptRequest()
+    : m_Request(0, true, 0, 0, 0, 0, 0, 0, 0, 0, this), m_State(Idle)
+{
+}
+
+RequestQueue::InterruptRequest::~InterruptRequest()
+{
+    if (!isAvailable())
+    {
+        FATAL("Destroying a published RequestQueue interrupt token.");
+    }
+}
+
+bool RequestQueue::InterruptRequest::isAvailable() const
+{
+    return static_cast<size_t>(m_State) == Idle;
+}
+
 RequestQueue::RequestQueue(const String &name)
     : m_pActiveRequest(nullptr), m_State(LifecycleState::Stopped),
 #if THREADS
@@ -367,6 +385,83 @@ uint64_t RequestQueue::tryAddAsyncRequest(
     return addAsyncRequestInternal(priority, p1, p2, p3, p4, p5, p6, p7, p8);
 }
 
+RequestQueue::InterruptEnqueueResult RequestQueue::enqueueFromInterrupt(
+    InterruptRequest &token, size_t priority, uint64_t p1, uint64_t p2,
+    uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7,
+    uint64_t p8)
+{
+    if (priority >= REQUEST_QUEUE_NUM_PRIORITIES)
+    {
+        return InterruptEnqueueResult::InvalidPriority;
+    }
+    if (!token.m_State.compareAndSwap(
+            InterruptRequest::Idle, InterruptRequest::Claimed))
+    {
+        return InterruptEnqueueResult::TokenBusy;
+    }
+
+    Request *request = &token.m_Request;
+    request->p1 = p1;
+    request->p2 = p2;
+    request->p3 = p3;
+    request->p4 = p4;
+    request->p5 = p5;
+    request->p6 = p6;
+    request->p7 = p7;
+    request->p8 = p8;
+    request->m_ReturnValue = 0;
+#if THREADS
+    request->m_References = 1;
+#endif
+    request->m_Next = nullptr;
+    request->m_Priority = priority;
+    request->m_Asynchronous = true;
+    request->m_Rejected = false;
+    request->m_Completed = false;
+
+#if !THREADS
+    token.m_State = InterruptRequest::Published;
+    executeRequest(p1, p2, p3, p4, p5, p6, p7, p8);
+    token.m_State = InterruptRequest::Idle;
+    return InterruptEnqueueResult::Accepted;
+#else
+    InterruptEnqueueResult result = InterruptEnqueueResult::Accepted;
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        if (m_State != LifecycleState::Accepting)
+        {
+            result = InterruptEnqueueResult::QueueStopped;
+        }
+        else if (m_nAsyncRequests >= m_nMaxAsyncRequests)
+        {
+            result = InterruptEnqueueResult::QueueFull;
+        }
+        else
+        {
+            token.m_State = InterruptRequest::Published;
+            if (m_pRequestQueueTail[priority])
+            {
+                m_pRequestQueueTail[priority]->m_Next = request;
+            }
+            else
+            {
+                m_pRequestQueue[priority] = request;
+            }
+            m_pRequestQueueTail[priority] = request;
+            ++m_nAsyncRequests;
+            ++m_nTotalRequests;
+            guard.wakeOne();
+        }
+    }
+
+    if (result != InterruptEnqueueResult::Accepted)
+    {
+        token.m_State = InterruptRequest::Idle;
+    }
+    return result;
+#endif
+}
+
 uint64_t RequestQueue::addAsyncRequestInternal(
     size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
     uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
@@ -605,11 +700,29 @@ void RequestQueue::retainRequest(Request *request)
 
 void RequestQueue::releaseRequest(Request *request)
 {
+    if (request->m_pInterruptOwner)
+    {
+        releaseInterruptRequest(request);
+        return;
+    }
+
     assert(static_cast<size_t>(request->m_References));
     if ((request->m_References -= 1) == 0)
     {
         delete request;
     }
+}
+
+void RequestQueue::releaseInterruptRequest(Request *request)
+{
+    assert(request);
+    InterruptRequest *owner = request->m_pInterruptOwner;
+    assert(owner);
+    assert(&owner->m_Request == request);
+    assert(
+        static_cast<size_t>(owner->m_State) ==
+        InterruptRequest::Published);
+    owner->m_State = InterruptRequest::Idle;
 }
 
 uint64_t RequestQueue::waitForRequest(Request *request)

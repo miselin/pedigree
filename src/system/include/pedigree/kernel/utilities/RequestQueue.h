@@ -46,7 +46,11 @@ class Timer;
  */
 class EXPORTED_PUBLIC RequestQueue
 {
+  public:
+    class InterruptRequest;
+
 #if THREADS
+  private:
     class RequestQueueOverrunChecker : public TimerHandler
     {
         friend class RequestQueue;
@@ -65,7 +69,95 @@ class EXPORTED_PUBLIC RequestQueue
     };
 #endif
 
+  protected:
+    /** Request structure shared by allocated and preallocated publications. */
+    class Request
+    {
+      public:
+        Request(
+            size_t requestPriority, bool asynchronous, uint64_t requestP1,
+            uint64_t requestP2, uint64_t requestP3, uint64_t requestP4,
+            uint64_t requestP5, uint64_t requestP6, uint64_t requestP7,
+            uint64_t requestP8, InterruptRequest *interruptOwner = nullptr)
+            : p1(requestP1), p2(requestP2), p3(requestP3), p4(requestP4),
+              p5(requestP5), p6(requestP6), p7(requestP7), p8(requestP8),
+              m_ReturnValue(0),
+#if THREADS
+              m_Completion(), m_References(asynchronous ? 1 : 2),
+#endif
+              m_Next(nullptr), m_Priority(requestPriority),
+              m_Asynchronous(asynchronous), m_Rejected(false),
+              m_Completed(false), m_pInterruptOwner(interruptOwner)
+        {
+        }
+
+        uint64_t p1, p2, p3, p4, p5, p6, p7, p8;
+
+      private:
+        friend class InterruptRequest;
+        friend class RequestQueue;
+
+        ~Request() = default;
+
+        uint64_t m_ReturnValue;
+#if THREADS
+        WaitQueue m_Completion;
+        Atomic<size_t> m_References;
+#endif
+        Request *m_Next;
+        size_t m_Priority;
+        bool m_Asynchronous;
+        bool m_Rejected;
+        bool m_Completed;
+        InterruptRequest *m_pInterruptOwner;
+
+        Request(const Request &);
+        void operator=(const Request &);
+    };
+
   public:
+    /**
+     * Single preallocated publication slot for IRQ and timer callbacks.
+     *
+     * Use one token per logical interrupt source. Republishing the same token
+     * coalesces work until the queued request has executed or been cancelled.
+     *
+     * The owner must keep this object alive until isAvailable() is true. A
+     * successful enqueue transfers payload ownership to the queue; every
+     * rejection leaves ownership with the caller.
+     */
+    class EXPORTED_PUBLIC InterruptRequest
+    {
+      public:
+        InterruptRequest();
+        ~InterruptRequest();
+
+        bool isAvailable() const;
+
+      private:
+        friend class RequestQueue;
+        NOT_COPYABLE_OR_ASSIGNABLE(InterruptRequest);
+
+        enum State
+        {
+            Idle,
+            Claimed,
+            Published,
+        };
+
+        Request m_Request;
+        Atomic<size_t> m_State;
+    };
+
+    enum class InterruptEnqueueResult
+    {
+        Accepted,
+        TokenBusy,
+        QueueStopped,
+        QueueFull,
+        InvalidPriority,
+    };
+
     /** Creates a new RequestQueue. */
     RequestQueue(const String &name);
     virtual ~RequestQueue();
@@ -125,20 +217,26 @@ class EXPORTED_PUBLIC RequestQueue
         uint64_t p8 = 0);
 
     /**
-     * Explicit asynchronous enqueue entry point for interrupt-side callers.
-     *
-     * This has the same acceptance semantics as addAsyncRequest(). Queue
-     * contention never causes rejection: the queue predicate is protected by
-     * a non-sleeping guard. Request allocation still happens first, so the
-     * active allocator must be interrupt-safe.
-     *
-     * \return One if the request was accepted, zero if it was otherwise
-     * rejected or deduplicated.
+     * Temporary compatibility entry point for the remaining legacy IRQ
+     * caller. New interrupt-side code must use enqueueFromInterrupt().
      */
     uint64_t tryAddAsyncRequest(
         size_t priority, uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,
         uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0,
         uint64_t p8 = 0);
+
+    /**
+     * Publishes preallocated work from an IRQ or timer callback.
+     *
+     * This path performs no allocation, deallocation, logging, or blocking.
+     * It does not call compareRequests(): token identity is the interrupt-side
+     * coalescing mechanism. The same token cannot be republished until
+     * execution or cancellation has returned it to Idle.
+     */
+    MUST_USE_RESULT InterruptEnqueueResult enqueueFromInterrupt(
+        InterruptRequest &request, size_t priority, uint64_t p1 = 0,
+        uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0, uint64_t p5 = 0,
+        uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
 
     /**
      * Stop and join the worker, retaining queued requests for resume().
@@ -170,49 +268,6 @@ class EXPORTED_PUBLIC RequestQueue
 
     RequestQueue(const RequestQueue &);
     void operator=(const RequestQueue &);
-
-    /** Request structure */
-    class Request
-    {
-      public:
-        Request(
-            size_t requestPriority, bool asynchronous, uint64_t requestP1,
-            uint64_t requestP2, uint64_t requestP3, uint64_t requestP4,
-            uint64_t requestP5, uint64_t requestP6, uint64_t requestP7,
-            uint64_t requestP8)
-            : p1(requestP1), p2(requestP2), p3(requestP3), p4(requestP4),
-              p5(requestP5), p6(requestP6), p7(requestP7), p8(requestP8),
-              m_ReturnValue(0),
-#if THREADS
-              m_Completion(), m_References(asynchronous ? 1 : 2),
-#endif
-              m_Next(0), m_Priority(requestPriority),
-              m_Asynchronous(asynchronous), m_Rejected(false),
-              m_Completed(false)
-        {
-        }
-
-        uint64_t p1, p2, p3, p4, p5, p6, p7, p8;
-
-      private:
-        friend class RequestQueue;
-
-        ~Request() = default;
-
-        uint64_t m_ReturnValue;
-#if THREADS
-        WaitQueue m_Completion;
-        Atomic<size_t> m_References;
-#endif
-        Request *m_Next;
-        size_t m_Priority;
-        bool m_Asynchronous;
-        bool m_Rejected;
-        bool m_Completed;
-
-        Request(const Request &);
-        void operator=(const Request &);
-    };
 
     /**
      * Defaults to never comparing as equal. Used to determine duplicates
@@ -259,6 +314,9 @@ class EXPORTED_PUBLIC RequestQueue
     uint64_t addAsyncRequestInternal(
         size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
         uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8);
+
+    /** Returns an executed or cancelled preallocated request to its owner. */
+    static void releaseInterruptRequest(Request *request);
 
 #if THREADS
     /** Reference management for requests shared by worker and callers. */
