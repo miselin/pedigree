@@ -29,19 +29,14 @@ class Process;
 
 Ps2Mouse::Ps2Mouse(Device *pDev)
     : m_pController(0), m_Buffer(), m_BufferIndex(0), m_BufferLock(),
-      m_IrqWait(0)
+      m_IrqWait(0), m_ReaderThread(), m_Callbacks()
 {
     setSpecificType(String("ps2-mouse"));
-
-    for (size_t i = 0; i < m_nHandlers; ++i)
-    {
-        m_Handlers[i] = nullptr;
-        m_HandlerParams[i] = nullptr;
-    }
 }
 
 Ps2Mouse::~Ps2Mouse()
 {
+    m_ReaderThread.stop();
 }
 
 bool Ps2Mouse::initialise(Ps2Controller *pController)
@@ -63,7 +58,8 @@ bool Ps2Mouse::initialise(Ps2Controller *pController)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     Thread *pThread = new Thread(pProcess, readerThreadTrampoline, this);
-    pThread->detach();
+    pThread->setName("PS/2 mouse reader");
+    m_ReaderThread.adopt(pThread);
 
     return true;
 }
@@ -76,32 +72,15 @@ void Ps2Mouse::write(const char *bytes, size_t len)
     }
 }
 
-void Ps2Mouse::subscribe(MouseHandlerFunction handler, void *param)
+bool Ps2Mouse::subscribe(
+    MouseHandlerFunction handler, void *param, Registration &registration)
 {
-    for (size_t i = 0; i < m_nHandlers; ++i)
-    {
-        if (m_Handlers[i])
-        {
-            continue;
-        }
-
-        m_Handlers[i] = handler;
-        m_HandlerParams[i] = param;
-        break;
-    }
+    return m_Callbacks.subscribe(handler, param, registration);
 }
 
 void Ps2Mouse::updateSubscribers(const void *buffer, size_t len)
 {
-    for (size_t i = 0; i < m_nHandlers; ++i)
-    {
-        if (!m_Handlers[i])
-        {
-            continue;
-        }
-
-        m_Handlers[i](m_HandlerParams[i], buffer, len);
-    }
+    m_Callbacks.dispatch(buffer, len);
 }
 
 int Ps2Mouse::readerThreadTrampoline(void *param)

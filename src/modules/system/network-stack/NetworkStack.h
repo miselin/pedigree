@@ -128,12 +128,35 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue
         return m_Interfaces.lookup(pCard);
     }
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    enum class HostedReceiveEvent
+    {
+        Queued,
+        BeforeDispatch,
+        Delivered,
+        DiscardedStale,
+        Cancelled,
+    };
+
+    using HostedReceiveHook = void (*)(
+        HostedReceiveEvent event, uintptr_t buffer, Network *card,
+        size_t generation);
+
+    static void setHostedReceiveHook(HostedReceiveHook hook);
+    static size_t getHostedRegistrationGeneration(Network *card);
+#endif
+
   private:
     static NetworkStack *stack;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    static HostedReceiveHook m_HostedReceiveHook;
+#endif
 
     virtual uint64_t executeRequest(
         uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
         uint64_t p6, uint64_t p7, uint64_t p8);
+    virtual void cancelRequest(const Request &request);
 
     /** Loopback device */
     Network *m_pLoopback;
@@ -153,6 +176,9 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue
 
     /** Next interface number to assign. */
     size_t m_NextInterfaceNumber;
+
+    /** Next non-zero registration generation. */
+    size_t m_NextDeviceGeneration;
 };
 
 #endif

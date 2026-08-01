@@ -20,9 +20,11 @@
 #ifndef NIC_3C90X_H
 #define NIC_3C90X_H
 
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/state_forward.h"
@@ -49,6 +51,11 @@ class Nic3C90x : public Network, public IrqHandler
     virtual bool setStationInfo(const StationInfo &info);
 
     virtual const StationInfo &getStationInfo();
+
+    bool isInitialised() const
+    {
+        return m_Initialised;
+    }
 
     // IRQ handler callback.
     virtual bool irq(irq_id_t number, InterruptState &state);
@@ -118,6 +125,10 @@ class Nic3C90x : public Network, public IrqHandler
     Semaphore m_TxMutex;
 
     List<void *> m_PendingPackets;
+    Spinlock m_PendingPacketsLock;
+    irq_id_t m_IrqId;
+    OwnedThread m_ReceiveThread;
+    bool m_Initialised;
 };
 
 #endif

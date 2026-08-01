@@ -59,7 +59,7 @@ class DiskImage : public Disk
         return 4096;
     }
 
-    virtual void pin(uint64_t location);
+    virtual bool pin(uint64_t location);
 
     virtual void unpin(uint64_t location);
 

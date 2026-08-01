@@ -33,7 +33,7 @@ class Controller;
 class IrqHandler;
 
 IsaAtaController::IsaAtaController(Controller *pDev, int nController)
-    : AtaController(pDev, nController)
+    : AtaController(pDev, nController), m_IrqId(0)
 {
     setSpecificType(String("ata-controller"));
 
@@ -113,7 +113,7 @@ IsaAtaController::IsaAtaController(Controller *pDev, int nController)
     bool masterInitialised = pMaster->initialise(masterN);
     bool slaveInitialised = pSlave->initialise(slaveN);
 
-    Machine::instance().getIrqManager()->registerIsaIrqHandler(
+    m_IrqId = Machine::instance().getIrqManager()->registerIsaIrqHandler(
         getInterruptNumber(), static_cast<IrqHandler *>(this));
 
     if (!masterInitialised)
@@ -131,6 +131,20 @@ IsaAtaController::IsaAtaController(Controller *pDev, int nController)
 
 IsaAtaController::~IsaAtaController()
 {
+    shutdownDiskCaches();
+    RequestQueue::destroy();
+    maskDiskInterrupts();
+
+    if (
+        m_IrqId &&
+        !Machine::instance().getIrqManager()->unregisterHandler(
+            m_IrqId, static_cast<IrqHandler *>(this)))
+    {
+        FATAL("ISA ATA controller could not drain its IRQ handler");
+    }
+    m_IrqId = 0;
+
+    stopDiskDma();
 }
 
 bool IsaAtaController::sendCommand(

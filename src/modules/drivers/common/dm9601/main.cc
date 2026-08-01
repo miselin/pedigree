@@ -36,6 +36,8 @@ static struct
 
 #define NUM_DEVICES (sizeof(g_Devices) / sizeof(g_Devices[0]))
 
+static UsbPnP::Registration g_Registrations[NUM_DEVICES];
+
 static UsbDevice *dm9601Connected(UsbDevice *pDevice)
 {
     return new Dm9601(pDevice);
@@ -44,14 +46,28 @@ static UsbDevice *dm9601Connected(UsbDevice *pDevice)
 static bool entry()
 {
     for (size_t i = 0; i < NUM_DEVICES; i++)
-        UsbPnP::instance().registerCallback(
-            g_Devices[i].vendor, g_Devices[i].product, dm9601Connected);
+    {
+        if (!UsbPnP::instance().registerCallback(
+                g_Devices[i].vendor, g_Devices[i].product, dm9601Connected,
+                g_Registrations[i]))
+        {
+            while (i)
+            {
+                g_Registrations[--i].reset();
+            }
+            return false;
+        }
+    }
 
     return true;
 }
 
 static void exit()
 {
+    for (size_t i = NUM_DEVICES; i; --i)
+    {
+        g_Registrations[i - 1].reset();
+    }
 }
 
 MODULE_INFO("dm9601", &entry, &exit, "usb", "network-stack");

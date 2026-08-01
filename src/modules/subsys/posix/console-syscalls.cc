@@ -41,8 +41,6 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 
-typedef Tree<size_t, FileDescriptor *> FdMap;
-
 #define NCCS_COMPATIBLE 20
 
 struct termios_compatible
@@ -61,7 +59,7 @@ class PosixTerminalEvent : public Event
   public:
     PosixTerminalEvent();
     PosixTerminalEvent(
-        uintptr_t handlerAddress, ProcessGroup *grp, ConsoleFile *tty,
+        uintptr_t handlerAddress, size_t groupId, ConsoleFile *tty,
         size_t specificNestingLevel = ~0UL);
     virtual ~PosixTerminalEvent();
 
@@ -69,14 +67,14 @@ class PosixTerminalEvent : public Event
 
     static bool unserialize(uint8_t *pBuffer, Event &event);
 
-    virtual ProcessGroup *getGroup() const;
+    virtual size_t getGroupId() const;
     virtual ConsoleFile *getConsole() const;
 
     virtual size_t getNumber();
     virtual bool isDeleteable();
 
   private:
-    ProcessGroup *pGroup;
+    size_t m_GroupId;
     ConsoleFile *pConsole;
 };
 
@@ -90,7 +88,7 @@ static void terminalEventHandler(uintptr_t serializeBuffer)
     }
 
     ConsoleFile *pConsole = evt.getConsole();
-    ProcessGroup *pGroup = evt.getGroup();
+    const size_t groupId = evt.getGroupId();
 
     // Grab the character which caused the event.
     char which = pConsole->getLast();
@@ -120,21 +118,35 @@ static void terminalEventHandler(uintptr_t serializeBuffer)
     // Send to each process.
     if (what != Subsystem::Other)
     {
-        // It's possible that in doing this, we'll terminate the last process
-        // that belongs to this group, thus destroying the group. Which then
-        // causes an access of a freed heap pointer.
-        // We also can't just iterate over the group members, because that
-        // list will be being modified if processes are terminated. That will
-        // invalidate our iterator but we have no way of knowing whether that
-        // actually happens.
-        List<PosixProcess *> targets = pGroup->Members;
-        for (List<PosixProcess *>::Iterator it = targets.begin();
-             it != targets.end(); ++it)
+        for (
+            size_t i = 0;
+            i < Scheduler::instance().getNumProcesses(); ++i)
         {
-            PosixProcess *pProcess = *it;
+            Scheduler::ProcessLease process;
+            if (
+                !Scheduler::instance().acquireProcess(process, i) ||
+                process->getType() != Process::Posix)
+            {
+                continue;
+            }
+            PosixProcess *pProcess =
+                static_cast<PosixProcess *>(process.get());
+            size_t candidateGroupId = 0;
+            if (
+                !pProcess->getProcessGroupId(candidateGroupId) ||
+                candidateGroupId != groupId)
+            {
+                continue;
+            }
             PosixSubsystem *pSubsystem =
                 static_cast<PosixSubsystem *>(pProcess->getSubsystem());
-            pSubsystem->threadException(pProcess->getThread(0), what);
+            Process::ThreadLease target;
+            const bool targetAcquired = pProcess->acquireThread(
+                target, static_cast<size_t>(0));
+            if (pSubsystem && targetAcquired)
+            {
+                pSubsystem->threadException(target.get(), what);
+            }
         }
     }
 
@@ -166,8 +178,8 @@ int posix_tcgetattr(int fd, struct termios *p)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -268,8 +280,8 @@ int posix_tcsetattr(int fd, int optional_actions, struct termios *p)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -404,8 +416,8 @@ int console_ptsname(int fd, char *buf)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -455,8 +467,8 @@ int console_ttyname(int fd, char *buf)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -475,13 +487,13 @@ int console_ttyname(int fd, char *buf)
     return 0;
 }
 
-static void setConsoleGroup(Process *pProcess, ProcessGroup *pGroup)
+static void setConsoleGroup(Process *pProcess, size_t groupId)
 {
     // Okay, we have a group. Create a PosixTerminalEvent with the relevant
     // information.
     ConsoleFile *pConsole = static_cast<ConsoleFile *>(pProcess->getCtty());
     PosixTerminalEvent *pEvent = new PosixTerminalEvent(
-        reinterpret_cast<uintptr_t>(terminalEventHandler), pGroup, pConsole);
+        reinterpret_cast<uintptr_t>(terminalEventHandler), groupId, pConsole);
 
     // Remove any existing event that might be on the terminal.
     if (pConsole->getEvent())
@@ -510,11 +522,11 @@ int console_setctty(File *file, bool steal)
     pProcess->setCtty(file);
 
     PosixProcess *pPosixProcess = static_cast<PosixProcess *>(pProcess);
-    ProcessGroup *pProcessGroup = pPosixProcess->getProcessGroup();
-    if (pProcessGroup)
+    size_t processGroupId = 0;
+    if (pPosixProcess->getProcessGroupId(processGroupId))
     {
         // Move the terminal into the same process group as this process.
-        setConsoleGroup(pProcess, pProcessGroup);
+        setConsoleGroup(pProcess, processGroupId);
     }
 
     return 0;
@@ -532,8 +544,8 @@ int console_setctty(int fd, bool steal)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -569,8 +581,8 @@ int posix_tcsetpgrp(int fd, pid_t pgid_id)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -586,34 +598,18 @@ int posix_tcsetpgrp(int fd, pid_t pgid_id)
         return -1;
     }
 
-    // Find the group ID.
-    ProcessGroup *pGroup = 0;
-    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
     {
-        Process *p = Scheduler::instance().getProcess(i);
-        if (p->getType() == Process::Posix)
+        RecursingLockGuard<Spinlock> groupGuard(
+            ProcessGroupManager::instance().lock());
+        if (!ProcessGroupManager::instance().findGroup(pgid_id))
         {
-            PosixProcess *pPosix = static_cast<PosixProcess *>(p);
-            pGroup = pPosix->getProcessGroup();
-            if (pGroup && (pGroup->processGroupId == pgid_id))
-            {
-                break;
-            }
-            else
-            {
-                pGroup = 0;
-            }
+            SYSCALL_ERROR(PermissionDenied);
+            F_NOTICE(" -> EPERM");
+            return -1;
         }
     }
 
-    if (!pGroup)
-    {
-        SYSCALL_ERROR(PermissionDenied);
-        F_NOTICE(" -> EPERM");
-        return -1;
-    }
-
-    setConsoleGroup(pProcess, pGroup);
+    setConsoleGroup(pProcess, pgid_id);
 
     F_NOTICE(" -> ok");
     return 0;
@@ -633,8 +629,8 @@ pid_t posix_tcgetpgrp(int fd)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -656,7 +652,7 @@ pid_t posix_tcgetpgrp(int fd)
     {
         PosixTerminalEvent *pEvent =
             static_cast<PosixTerminalEvent *>(pConsole->getEvent());
-        result = pEvent->getGroup()->processGroupId;
+        result = pEvent->getGroupId();
     }
     else
     {
@@ -683,8 +679,8 @@ unsigned int console_getptn(int fd)
         return ~0U;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -714,14 +710,14 @@ unsigned int console_getptn(int fd)
 }
 
 PosixTerminalEvent::PosixTerminalEvent()
-    : Event(0, false), pGroup(0), pConsole(0)
+    : Event(0, false), m_GroupId(0), pConsole(0)
 {
 }
 
 PosixTerminalEvent::PosixTerminalEvent(
-    uintptr_t handlerAddress, ProcessGroup *grp, ConsoleFile *tty,
+    uintptr_t handlerAddress, size_t groupId, ConsoleFile *tty,
     size_t specificNestingLevel)
-    : Event(handlerAddress, false, specificNestingLevel), pGroup(grp),
+    : Event(handlerAddress, false, specificNestingLevel), m_GroupId(groupId),
       pConsole(tty)
 {
 }
@@ -741,8 +737,8 @@ size_t PosixTerminalEvent::serialize(uint8_t *pBuffer)
     size_t offset = 0;
     MemoryCopy(pBuffer + offset, &eventNumber, sizeof(eventNumber));
     offset += sizeof(eventNumber);
-    MemoryCopy(pBuffer + offset, &pGroup, sizeof(pGroup));
-    offset += sizeof(pGroup);
+    MemoryCopy(pBuffer + offset, &m_GroupId, sizeof(m_GroupId));
+    offset += sizeof(m_GroupId);
     MemoryCopy(pBuffer + offset, &pConsole, sizeof(pConsole));
     offset += sizeof(pConsole);
     return offset;
@@ -754,15 +750,15 @@ bool PosixTerminalEvent::unserialize(uint8_t *pBuffer, Event &event)
     if (Event::getEventType(pBuffer) != EventNumbers::TerminalEvent)
         return false;
     size_t offset = sizeof(size_t);
-    MemoryCopy(&t.pGroup, pBuffer + offset, sizeof(t.pGroup));
-    offset += sizeof(t.pGroup);
+    MemoryCopy(&t.m_GroupId, pBuffer + offset, sizeof(t.m_GroupId));
+    offset += sizeof(t.m_GroupId);
     MemoryCopy(&t.pConsole, pBuffer + offset, sizeof(t.pConsole));
     return true;
 }
 
-ProcessGroup *PosixTerminalEvent::getGroup() const
+size_t PosixTerminalEvent::getGroupId() const
 {
-    return pGroup;
+    return m_GroupId;
 }
 
 ConsoleFile *PosixTerminalEvent::getConsole() const

@@ -24,6 +24,8 @@
 
 class UsbDevice;
 
+static UsbPnP::Registration g_Registration;
+
 static UsbDevice *hubConnected(UsbDevice *pDevice)
 {
     return new UsbHubDevice(pDevice);
@@ -31,13 +33,13 @@ static UsbDevice *hubConnected(UsbDevice *pDevice)
 
 static bool entry()
 {
-    UsbPnP::instance().registerCallback(
-        9, SubclassNone, ProtocolNone, hubConnected);
-    return true;
+    return UsbPnP::instance().registerCallback(
+        9, SubclassNone, ProtocolNone, hubConnected, g_Registration);
 }
 
 static void exit()
 {
+    g_Registration.reset();
 }
 
 MODULE_INFO("usb-hub", &entry, &exit, "usb");

@@ -19,6 +19,7 @@
 
 #include "RamFs.h"
 #include "modules/Module.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -30,7 +31,7 @@ String RamFs::m_VolumeLabel("ramfs");
 RamFile::RamFile(
     const String &name, uintptr_t inode, Filesystem *pParentFS, File *pParent)
     : File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_FileBlocks(),
-      m_nOwnerPid(0)
+      m_FileBlocksLock(), m_nOwnerPid(0)
 {
     // Full permissions.
     setPermissions(0777);
@@ -52,6 +53,7 @@ void RamFile::truncate()
 {
     if (canWrite())
     {
+        LockGuard<Mutex> guard(m_FileBlocksLock);
         // Empty the cache.
         m_FileBlocks.empty();
         setSize(0);
@@ -77,21 +79,30 @@ bool RamFile::canWrite()
 
 uintptr_t RamFile::readBlock(uint64_t location)
 {
+    LockGuard<Mutex> guard(m_FileBlocksLock);
     uintptr_t buffer = m_FileBlocks.lookup(location);
     if (!buffer)
     {
         // Super trivial. But we are a ram filesystem... can't compact.
-        buffer = m_FileBlocks.insert(location);
-        pinBlock(location);
-        /// \todo Kind of irrelevant here?
-        m_FileBlocks.markNoLongerEditing(location);
+        bool didExist = false;
+        buffer = m_FileBlocks.insert(location, &didExist);
+        if (!buffer)
+        {
+            return 0;
+        }
+        if (!didExist)
+        {
+            /// \todo Kind of irrelevant here?
+            m_FileBlocks.markNoLongerEditing(location);
+        }
+        buffer = m_FileBlocks.lookup(location);
     }
     return buffer;
 }
 
-void RamFile::pinBlock(uint64_t location)
+bool RamFile::pinBlock(uint64_t location)
 {
-    m_FileBlocks.pin(location);
+    return m_FileBlocks.pin(location);
 }
 
 void RamFile::unpinBlock(uint64_t location)

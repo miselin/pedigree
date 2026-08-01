@@ -567,8 +567,8 @@ int posix_close(int fd)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -579,6 +579,14 @@ int posix_close(int fd)
     F_NOTICE("close(" << fd << ")");
 #endif
 
+    // Remove only the generation we acquired. Another thread can close this
+    // descriptor and reuse the numeric fd while this path is still running;
+    // an unconditional free would then close the replacement by mistake.
+    if (!pSubsystem->closeFileDescriptor(fd, pFd))
+    {
+        return 0;
+    }
+
     // If this was a master psuedoterminal, we should unlock it now.
     if (ConsoleManager::instance().isConsole(pFd->file))
     {
@@ -588,7 +596,6 @@ int posix_close(int fd)
         }
     }
 
-    pSubsystem->freeFd(fd);
     return 0;
 }
 
@@ -621,8 +628,8 @@ int posix_read(int fd, char *ptr, int len)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -632,7 +639,7 @@ int posix_read(int fd, char *ptr, int len)
     if (pFd->networkImpl)
     {
         // Need to redirect to socket implementation.
-        return posix_recv(fd, ptr, len, 0);
+        return posix_recv_descriptor(pFd, ptr, len, 0);
     }
 
     if (pFd->file->isDirectory())
@@ -661,16 +668,14 @@ int posix_read(int fd, char *ptr, int len)
     uint64_t nRead = 0;
     if (ptr && len)
     {
-        pThread->setInterrupted(false);
-        Thread::WakeReason wakeReason = Thread::NotWoken;
-        pThread->addWakeupWatcher(&wakeReason);
+        pThread->clearInterruption();
         nRead = pFd->file->read(
             pFd->offset, len, reinterpret_cast<uintptr_t>(ptr), canBlock);
-        pThread->removeWakeupWatcher(&wakeReason);
-        /// \todo any mechanism used to block read() will cause a sleep+wake,
-        /// so need to rethink how to use wakeReason above to detect interrupted
-        /// state!
-        if ((!nRead) && pThread->wasInterrupted())
+        const bool signalInterrupted =
+            pThread->getInterruptionReason() ==
+            Thread::InterruptedBySignal;
+        pThread->clearInterruption();
+        if ((!nRead) && signalInterrupted)
         {
             SYSCALL_ERROR(Interrupted);
             F_NOTICE(" -> interrupted");
@@ -727,8 +732,8 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -738,15 +743,26 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
     if (pFd->networkImpl)
     {
         // Need to redirect to socket implementation.
-        return posix_send(fd, ptr, len, 0);
+        return posix_send_descriptor(pFd, ptr, len, 0);
     }
 
     // Copy to kernel.
     uint64_t nWritten = 0;
     if (ptr && len)
     {
+        pThread->clearInterruption();
         nWritten = pFd->file->write(
             pFd->offset, len, reinterpret_cast<uintptr_t>(ptr));
+        const bool signalInterrupted =
+            pThread->getInterruptionReason() ==
+            Thread::InterruptedBySignal;
+        pThread->clearInterruption();
+        if ((!nWritten) && signalInterrupted)
+        {
+            SYSCALL_ERROR(Interrupted);
+            F_NOTICE(" -> interrupted");
+            return -1;
+        }
         pFd->offset += nWritten;
     }
 
@@ -855,8 +871,8 @@ off_t posix_lseek(int file, off_t ptr, int dir)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(file);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(file, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -1029,8 +1045,8 @@ static int getdents_common(
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd || !pFd->file)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd) || !pFd->file)
     {
         // Error - no such file descriptor.
         F_NOTICE(" -> bad file");
@@ -1220,8 +1236,8 @@ int posix_ioctl(int fd, size_t command, void *buf)
         return -1;
     }
 
-    FileDescriptor *f = pSubsystem->getFileDescriptor(fd);
-    if (!f)
+    DescriptorLease f;
+    if (!pSubsystem->acquireFileDescriptor(fd, f))
     {
         // Error - no such FD.
         F_NOTICE("  -> ioctl for a file that doesn't exist");
@@ -1747,8 +1763,8 @@ int posix_dup(int fd)
         return -1;
     }
 
-    FileDescriptor *f = pSubsystem->getFileDescriptor(fd);
-    if (!f)
+    DescriptorLease f;
+    if (!pSubsystem->acquireFileDescriptor(fd, f))
     {
         SYSCALL_ERROR(BadFileDescriptor);
         return -1;
@@ -1787,8 +1803,8 @@ int posix_dup2(int fd1, int fd2)
         return -1;
     }
 
-    FileDescriptor *f = pSubsystem->getFileDescriptor(fd1);
-    if (!f)
+    DescriptorLease f;
+    if (!pSubsystem->acquireFileDescriptor(fd1, f))
     {
         SYSCALL_ERROR(BadFileDescriptor);
         return -1;
@@ -1800,10 +1816,9 @@ int posix_dup2(int fd1, int fd2)
     // we might accidentally trigger an EOF condition on a pipe! (if the write
     // refcount drops to zero)...
     FileDescriptor *f2 = new FileDescriptor(*f);
-    pSubsystem->addFileDescriptor(fd2, f2);
-
     // According to the spec, CLOEXEC is cleared on DUP.
     f2->fdflags &= ~FD_CLOEXEC;
+    pSubsystem->addFileDescriptor(fd2, f2);
 
     return fd2;
 }
@@ -1831,8 +1846,8 @@ int posix_isatty(int fd)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         ERROR("isatty: no such file descriptor (" << Dec << fd << Hex << ")");
@@ -1860,8 +1875,8 @@ int posix_fcntl(int fd, int cmd, void *arg)
         return -1;
     }
 
-    FileDescriptor *f = pSubsystem->getFileDescriptor(fd);
-    if (!f)
+    DescriptorLease f;
+    if (!pSubsystem->acquireFileDescriptor(fd, f))
     {
         SYSCALL_ERROR(BadFileDescriptor);
         return -1;
@@ -1878,10 +1893,9 @@ int posix_fcntl(int fd, int cmd, void *arg)
                 // Copy the descriptor (addFileDescriptor automatically frees
                 // the old one, if needed)
                 FileDescriptor *f2 = new FileDescriptor(*f);
-                pSubsystem->addFileDescriptor(fd2, f2);
-
                 // According to the spec, CLOEXEC is cleared on DUP.
                 f2->fdflags &= ~FD_CLOEXEC;
+                pSubsystem->addFileDescriptor(fd2, f2);
 
                 return static_cast<int>(fd2);
             }
@@ -1891,10 +1905,9 @@ int posix_fcntl(int fd, int cmd, void *arg)
 
                 // copy the descriptor
                 FileDescriptor *f2 = new FileDescriptor(*f);
-                pSubsystem->addFileDescriptor(fd2, f2);
-
                 // According to the spec, CLOEXEC is cleared on DUP.
                 f2->fdflags &= ~FD_CLOEXEC;
+                pSubsystem->addFileDescriptor(fd2, f2);
 
                 return static_cast<int>(fd2);
             }
@@ -2054,8 +2067,8 @@ void *posix_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
     else
     {
         // Valid file passed?
-        FileDescriptor *f = pSubsystem->getFileDescriptor(fd);
-        if (!f)
+        DescriptorLease f;
+        if (!pSubsystem->acquireFileDescriptor(fd, f))
         {
             SYSCALL_ERROR(BadFileDescriptor);
             return MAP_FAILED;
@@ -2227,8 +2240,8 @@ int posix_ftruncate(int a, off_t b)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(a);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(a, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -2284,8 +2297,8 @@ int posix_fsync(int fd)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -2389,8 +2402,8 @@ int posix_fchdir(int fd)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -2450,8 +2463,8 @@ int posix_fstatvfs(int fd, struct statvfs *buf)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);
@@ -2606,7 +2619,8 @@ int posix_flock(int fd, int operation)
     return 0;
 }
 
-static File *check_dirfd(int dirfd, int flags = 0)
+static File *check_dirfd(
+    int dirfd, DescriptorLease &descriptor, int flags = 0)
 {
     // Lookup this process.
     Process *pProcess =
@@ -2622,15 +2636,14 @@ static File *check_dirfd(int dirfd, int flags = 0)
     File *cwd = GET_CWD();
     if (dirfd != AT_FDCWD)
     {
-        FileDescriptor *pFd = pSubsystem->getFileDescriptor(dirfd);
-        if (!pFd)
+        if (!pSubsystem->acquireFileDescriptor(dirfd, descriptor))
         {
             F_NOTICE("  -> dirfd is a bad fd");
             SYSCALL_ERROR(BadFileDescriptor);
             return 0;
         }
 
-        File *file = pFd->file;
+        File *file = descriptor->file;
         if ((flags & AT_EMPTY_PATH) == 0)
         {
             if (!file->isDirectory())
@@ -2651,7 +2664,8 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
 {
     F_NOTICE("openat");
 
-    File *cwd = check_dirfd(dirfd);
+    DescriptorLease dirDescriptor;
+    File *cwd = check_dirfd(dirfd, dirDescriptor);
     if (!cwd)
     {
         return -1;
@@ -2889,43 +2903,27 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
         /// \todo should block until a reader is present if O_NONBLOCK is not
         /// set
         Pipe *pipe = Pipe::fromFile(file);
-        if (!pipe->getReaderCount())
+        if (flags & O_WRONLY)
         {
-            F_NOTICE("FIFO => might need to wait for a reader");
-            if (flags & O_WRONLY)
+            const bool bCanBlock = !(flags & O_NONBLOCK);
+            if (!pipe->waitForReader(bCanBlock))
             {
-                // non-blocking open for writing with no readers -> io error
-                if (flags & O_NONBLOCK)
+                if (!bCanBlock)
                 {
                     // FIFO + no readers yet = ENXIO
                     F_NOTICE("    -> ENXIO");
                     SYSCALL_ERROR(NoSuchDevice);
-                    pSubsystem->freeFd(fd);
-                    return -1;
                 }
                 else
                 {
-                    F_NOTICE("FIFO => not a non-blocking open");
-
-                    // need to wait for a reader
-                    if (!pipe->waitForReader())
-                    {
-                        // interrupted!
-                        F_NOTICE("    -> EINTR (fifo)");
-                        SYSCALL_ERROR(Interrupted);
-                        pSubsystem->freeFd(fd);
-                        return -1;
-                    }
-                    else
-                    {
-                        F_NOTICE("FIFO => successfully waited for a reader");
-                    }
+                    F_NOTICE("    -> EINTR (fifo)");
+                    SYSCALL_ERROR(Interrupted);
                 }
+                pSubsystem->freeFd(fd);
+                return -1;
             }
-        }
-        else
-        {
-            F_NOTICE("FIFO => " << pipe->getReaderCount() << " readers.");
+
+            F_NOTICE("FIFO => successfully observed a reader");
         }
     }
 
@@ -2943,7 +2941,8 @@ int posix_mkdirat(int dirfd, const char *pathname, mode_t mode)
 {
     F_NOTICE("mkdirat");
 
-    File *cwd = check_dirfd(dirfd);
+    DescriptorLease dirDescriptor;
+    File *cwd = check_dirfd(dirfd, dirDescriptor);
     if (!cwd)
     {
         return -1;
@@ -2978,7 +2977,8 @@ int posix_fchownat(
 {
     F_NOTICE("fchownat");
 
-    File *cwd = check_dirfd(dirfd, flags);
+    DescriptorLease dirDescriptor;
+    File *cwd = check_dirfd(dirfd, dirDescriptor, flags);
     if (!cwd)
     {
         return -1;
@@ -3012,6 +3012,7 @@ int posix_fchownat(
                     << group << ", " << flags << ")");
 
     File *file = 0;
+    DescriptorLease targetDescriptor;
 
     // Is there any need to change?
     if ((owner == group) && (owner == static_cast<uid_t>(-1)))
@@ -3041,15 +3042,14 @@ int posix_fchownat(
     // AT_EMPTY_PATH only takes effect if the pathname is actually empty
     if ((flags & AT_EMPTY_PATH) && ((pathname == 0) || (*pathname == 0)))
     {
-        FileDescriptor *pFd = pSubsystem->getFileDescriptor(dirfd);
-        if (!pFd)
+        if (!pSubsystem->acquireFileDescriptor(dirfd, targetDescriptor))
         {
             // Error - no such file descriptor.
             SYSCALL_ERROR(BadFileDescriptor);
             return -1;
         }
 
-        file = pFd->file;
+        file = targetDescriptor->file;
     }
     else
     {
@@ -3088,7 +3088,8 @@ int posix_futimesat(
 {
     F_NOTICE("futimesat");
 
-    File *cwd = check_dirfd(dirfd);
+    DescriptorLease dirDescriptor;
+    File *cwd = check_dirfd(dirfd, dirDescriptor);
     if (!cwd)
     {
         return -1;
@@ -3158,7 +3159,8 @@ int posix_unlinkat(int dirfd, const char *pathname, int flags)
 {
     F_NOTICE("unlinkat");
 
-    File *cwd = check_dirfd(dirfd);
+    DescriptorLease dirDescriptor;
+    File *cwd = check_dirfd(dirfd, dirDescriptor);
     if (!cwd)
     {
         return -1;
@@ -3208,13 +3210,15 @@ int posix_renameat(
 {
     F_NOTICE("renameat");
 
-    File *oldcwd = check_dirfd(olddirfd);
+    DescriptorLease oldDirDescriptor;
+    File *oldcwd = check_dirfd(olddirfd, oldDirDescriptor);
     if (!oldcwd)
     {
         return -1;
     }
 
-    File *newcwd = check_dirfd(newdirfd);
+    DescriptorLease newDirDescriptor;
+    File *newcwd = check_dirfd(newdirfd, newDirDescriptor);
     if (!newcwd)
     {
         return -1;
@@ -3307,13 +3311,15 @@ int posix_linkat(
 {
     F_NOTICE("linkat");
 
-    File *oldcwd = check_dirfd(olddirfd, flags);
+    DescriptorLease oldDirDescriptor;
+    File *oldcwd = check_dirfd(olddirfd, oldDirDescriptor, flags);
     if (!oldcwd)
     {
         return -1;
     }
 
-    File *newcwd = check_dirfd(newdirfd);
+    DescriptorLease newDirDescriptor;
+    File *newcwd = check_dirfd(newdirfd, newDirDescriptor);
     if (!newcwd)
     {
         return -1;
@@ -3353,17 +3359,18 @@ int posix_linkat(
     normalisePath(realLink, newpath);
 
     File *pTarget = 0;
+    DescriptorLease targetDescriptor;
     if ((flags & AT_EMPTY_PATH) && ((oldpath == 0) || (*oldpath == 0)))
     {
-        FileDescriptor *pFd = pSubsystem->getFileDescriptor(olddirfd);
-        if (!pFd)
+        if (!pSubsystem->acquireFileDescriptor(
+                olddirfd, targetDescriptor))
         {
             // Error - no such file descriptor.
             SYSCALL_ERROR(BadFileDescriptor);
             return -1;
         }
 
-        pTarget = pFd->file;
+        pTarget = targetDescriptor->file;
     }
     else
     {
@@ -3398,7 +3405,8 @@ int posix_symlinkat(const char *oldpath, int newdirfd, const char *newpath)
 {
     F_NOTICE("symlinkat");
 
-    File *cwd = check_dirfd(newdirfd);
+    DescriptorLease dirDescriptor;
+    File *cwd = check_dirfd(newdirfd, dirDescriptor);
     if (!cwd)
     {
         return -1;
@@ -3432,7 +3440,8 @@ int posix_readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz)
 {
     F_NOTICE("readlinkat");
 
-    File *cwd = check_dirfd(dirfd);
+    DescriptorLease dirDescriptor;
+    File *cwd = check_dirfd(dirfd, dirDescriptor);
     if (!cwd)
     {
         return -1;
@@ -3485,7 +3494,8 @@ int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
 {
     F_NOTICE("fchmodat");
 
-    File *cwd = check_dirfd(dirfd, flags);
+    DescriptorLease dirDescriptor;
+    File *cwd = check_dirfd(dirfd, dirDescriptor, flags);
     if (!cwd)
     {
         return -1;
@@ -3548,17 +3558,17 @@ int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
 
     // AT_EMPTY_PATH only takes effect if the pathname is actually empty
     File *file = 0;
+    DescriptorLease targetDescriptor;
     if ((flags & AT_EMPTY_PATH) && ((pathname == 0) || (*pathname == 0)))
     {
-        FileDescriptor *pFd = pSubsystem->getFileDescriptor(dirfd);
-        if (!pFd)
+        if (!pSubsystem->acquireFileDescriptor(dirfd, targetDescriptor))
         {
             // Error - no such file descriptor.
             SYSCALL_ERROR(BadFileDescriptor);
             return -1;
         }
 
-        file = pFd->file;
+        file = targetDescriptor->file;
     }
     else
     {
@@ -3596,7 +3606,8 @@ int posix_faccessat(int dirfd, const char *pathname, int mode, int flags)
 {
     F_NOTICE("faccessat");
 
-    File *cwd = check_dirfd(dirfd);
+    DescriptorLease dirDescriptor;
+    File *cwd = check_dirfd(dirfd, dirDescriptor);
     if (!cwd)
     {
         return -1;
@@ -3661,7 +3672,8 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
 {
     F_NOTICE("fstatat");
 
-    File *cwd = check_dirfd(dirfd, flags);
+    DescriptorLease dirDescriptor;
+    File *cwd = check_dirfd(dirfd, dirDescriptor, flags);
     if (!cwd)
     {
         F_NOTICE(" -> current working directory could not be determined");
@@ -3706,17 +3718,17 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
 
     // AT_EMPTY_PATH only takes effect if the pathname is actually empty
     File *file = 0;
+    DescriptorLease targetDescriptor;
     if ((flags & AT_EMPTY_PATH) && ((pathname == 0) || (*pathname == 0)))
     {
-        FileDescriptor *pFd = pSubsystem->getFileDescriptor(dirfd);
-        if (!pFd)
+        if (!pSubsystem->acquireFileDescriptor(dirfd, targetDescriptor))
         {
             // Error - no such file descriptor.
             SYSCALL_ERROR(BadFileDescriptor);
             return -1;
         }
 
-        file = pFd->file;
+        file = targetDescriptor->file;
     }
     else
     {
@@ -3976,8 +3988,8 @@ int posix_fstatfs(int fd, struct statfs *buf)
         return -1;
     }
 
-    FileDescriptor *pFd = pSubsystem->getFileDescriptor(fd);
-    if (!pFd)
+    DescriptorLease pFd;
+    if (!pSubsystem->acquireFileDescriptor(fd, pFd))
     {
         // Error - no such file descriptor.
         SYSCALL_ERROR(BadFileDescriptor);

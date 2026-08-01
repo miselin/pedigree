@@ -18,15 +18,12 @@
  */
 
 #include "PosixSubsystem.h"
-#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/errors.h"
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/time/Time.h"
-#include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/Tree.h"
 #include <pthread-syscalls.h>
 
 /// \todo add paths to include from path/to/musl-<vers>/src/internal/futex.h
@@ -76,18 +73,12 @@ struct FutexKey
     uintptr_t address;
 };
 
-typedef List<Thread *> FutexWaiters;
+static WaitQueue g_FutexWaiters;
 
-static Spinlock g_futexLock(false);
-static Tree<FutexKey, FutexWaiters *> g_futexes;
-
-static void removeEmptyFutex(const FutexKey &key, FutexWaiters *pWaiters)
+static WaitQueue::Channel futexChannel(const FutexKey &key)
 {
-    if (!pWaiters->count())
-    {
-        g_futexes.remove(key);
-        delete pWaiters;
-    }
+    return WaitQueue::Channel(
+        reinterpret_cast<const void *>(key.addressSpace), key.address);
 }
 
 int posix_futex(
@@ -186,70 +177,43 @@ int posix_futex(
                     seconds * Time::Multiplier::Second + nanoseconds;
             }
 
-            g_futexLock.acquire();
-            bool bWasInterrupts = g_futexLock.interrupts();
+            auto guard = g_FutexWaiters.acquire();
 
             if (*uaddr != val)
             {
-                g_futexLock.release();
                 PT_NOTICE(" -> value changed");
                 SYSCALL_ERROR(NoMoreProcesses);  // EAGAIN
                 r = -1;
             }
             else
             {
+                pThread->clearInterruption();
                 void *pAlarm = nullptr;
                 if (timeout)
                 {
                     pAlarm = Time::addAlarm(timeoutNanoseconds);
                 }
 
-                FutexWaiters *pWaiters = g_futexes.lookup(key);
-                if (!pWaiters)
-                {
-                    pWaiters = new FutexWaiters;
-                    g_futexes.insert(key, pWaiters);
-                }
-                pWaiters->pushBack(pThread);
-
                 PT_NOTICE(" -> waiting...");
-                // The scheduler releases this only after marking us Sleeping,
-                // so a concurrent wake cannot get lost after enrollment.
-                Processor::information().getScheduler().sleep(&g_futexLock);
+                WaitQueue::WakeReason wakeReason = guard.wait(
+                    futexChannel(key), Thread::FutexWait,
+                    reinterpret_cast<uintptr_t>(__builtin_return_address(0)),
+                    pAlarm ? &Time::removeAlarm : nullptr, pAlarm);
                 PT_NOTICE(" -> waiting complete!");
 
-                const bool interrupted = pThread->wasInterrupted();
+                const Thread::InterruptionReason interruption =
+                    pThread->getInterruptionReason();
                 if (pAlarm)
                 {
                     Time::removeAlarm(pAlarm);
                 }
-                pThread->setInterrupted(false);
+                pThread->clearInterruption();
 
-                Processor::setInterrupts(bWasInterrupts);
-
-                bool stillQueued = false;
-                g_futexLock.acquire();
-                pWaiters = g_futexes.lookup(key);
-                if (pWaiters)
+                if (wakeReason != WaitQueue::WakeReason::Signalled)
                 {
-                    for (FutexWaiters::Iterator it = pWaiters->begin();
-                         it != pWaiters->end(); ++it)
-                    {
-                        if ((*it) == pThread)
-                        {
-                            pWaiters->erase(it);
-                            stillQueued = true;
-                            break;
-                        }
-                    }
-
-                    removeEmptyFutex(key, pWaiters);
-                }
-                g_futexLock.release();
-
-                if (stillQueued)
-                {
-                    if (timeout && interrupted)
+                    if (
+                        timeout &&
+                        interruption == Thread::InterruptedByTimeout)
                     {
                         SYSCALL_ERROR(TimedOut);
                     }
@@ -274,27 +238,19 @@ int posix_futex(
                 break;
             }
 
-            g_futexLock.acquire();
-            FutexWaiters *pWaiters = g_futexes.lookup(key);
-            if (pWaiters)
+            auto guard = g_FutexWaiters.acquire();
+            int woken = 0;
+            for (int i = 0; i < val; ++i)
             {
-                int woken = 0;
-                for (int i = 0; i < val && pWaiters->count() > 0; ++i)
+                if (!guard.wakeOne(
+                        WaitQueue::WakeReason::Signalled, futexChannel(key)))
                 {
-                    Thread *pWakeThread = pWaiters->popFront();
-                    PT_NOTICE(" -> waking " << pWakeThread);
-                    pWakeThread->getLock().acquire();
-                    pWakeThread->setStatus(Thread::Ready);
-                    pWakeThread->getLock().release();
-                    PT_NOTICE(" -> woken!");
-                    ++woken;
+                    break;
                 }
-
-                PT_NOTICE(" -> woke " << Dec << woken << " threads.");
-                r = woken;
-                removeEmptyFutex(key, pWaiters);
+                ++woken;
             }
-            g_futexLock.release();
+            PT_NOTICE(" -> woke " << Dec << woken << " threads.");
+            r = woken;
             break;
         }
 
@@ -439,8 +395,13 @@ int posix_pedigree_thread_wait_for(void *waiter)
         return -1;
     }
 
-    while (!sem->acquire(1))
-        ;
+    // This descriptor remains owned by the subsystem until its matching
+    // trigger. A signal may run while blocked, but cannot abandon the waiter
+    // storage or consume the eventual notification.
+    if (!sem->acquireForCompletion())
+    {
+        FATAL("POSIX thread-waiter completion barrier failed.");
+    }
 
     return 0;
 }

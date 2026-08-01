@@ -21,7 +21,9 @@
 #define RAWFS_FILE_H
 
 #include "modules/system/vfs/File.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/String.h"
 
 class Disk;
@@ -36,11 +38,12 @@ class RawFsFile : public File
   public:
     /** Constructor, should only be called by RawFs. */
     RawFsFile(String name, class RawFs *pFs, File *pParent, Disk *pDisk);
-    ~RawFsFile()
-    {
-    }
+    ~RawFsFile();
 
     virtual uintptr_t readBlock(uint64_t location);
+    virtual void writeBlock(uint64_t location, uintptr_t address);
+    virtual bool pinBlock(uint64_t location);
+    virtual void unpinBlock(uint64_t location);
 
     virtual size_t getBlockSize() const;
 
@@ -50,6 +53,8 @@ class RawFsFile : public File
 
   private:
     Disk *m_pDisk;
+    Cache m_PageCache;
+    Mutex m_PageCacheLock;
 };
 
 #endif

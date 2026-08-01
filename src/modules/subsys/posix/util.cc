@@ -23,50 +23,73 @@
 #include "pedigree/kernel/processor/Processor.h"
 
 #if UTILITY_LINUX
+#include <mutex>
 #include <vector>
 
-std::vector<FileDescriptor *> g_Descriptors;
+std::vector<SharedPointer<FileDescriptor>> g_Descriptors;
+std::mutex g_DescriptorsLock;
 
-FileDescriptor *getDescriptor(int fd)
+bool acquireDescriptor(int fd, DescriptorLease &descriptor)
 {
-    if ((size_t)fd >= g_Descriptors.size())
+    descriptor.reset();
+    std::lock_guard<std::mutex> guard(g_DescriptorsLock);
+    if (fd < 0 || static_cast<size_t>(fd) >= g_Descriptors.size())
     {
-        return nullptr;
+        return false;
     }
 
-    return g_Descriptors[fd];
+    descriptor.retain(g_Descriptors[fd]);
+    return static_cast<bool>(descriptor);
 }
 
 void addDescriptor(int fd, FileDescriptor *f)
 {
-    FileDescriptor *old = getDescriptor(fd);
-    if (old)
+    if (fd < 0)
     {
-        delete old;
-    }
-
-    if ((size_t)fd > g_Descriptors.capacity())
-    {
-        g_Descriptors.reserve(fd + 1);
-    }
-
-    g_Descriptors.insert(g_Descriptors.begin() + fd, f);
-}
-
-void removeDescriptor(int fd)
-{
-    if (fd < 0 || static_cast<size_t>(fd) >= g_Descriptors.size())
-    {
+        delete f;
         return;
     }
 
-    delete g_Descriptors[fd];
-    g_Descriptors[fd] = nullptr;
+    SharedPointer<FileDescriptor> replacement(f);
+    SharedPointer<FileDescriptor> retiring;
+    {
+        std::lock_guard<std::mutex> guard(g_DescriptorsLock);
+        if (static_cast<size_t>(fd) >= g_Descriptors.size())
+        {
+            g_Descriptors.resize(fd + 1);
+        }
+
+        retiring = pedigree_std::move(g_Descriptors[fd]);
+        g_Descriptors[fd] = pedigree_std::move(replacement);
+    }
+    retiring.reset();
+}
+
+bool removeDescriptor(int fd, const DescriptorLease &descriptor)
+{
+    SharedPointer<FileDescriptor> retiring;
+    {
+        std::lock_guard<std::mutex> guard(g_DescriptorsLock);
+        if (
+            fd < 0 || static_cast<size_t>(fd) >= g_Descriptors.size() ||
+            g_Descriptors[fd] != descriptor.m_Descriptor)
+        {
+            return false;
+        }
+
+        retiring = pedigree_std::move(g_Descriptors[fd]);
+    }
+
+    retiring.reset();
+    return true;
 }
 
 size_t getAvailableDescriptor()
 {
-    return g_Descriptors.size();
+    std::lock_guard<std::mutex> guard(g_DescriptorsLock);
+    const size_t descriptor = g_Descriptors.size();
+    g_Descriptors.resize(descriptor + 1);
+    return descriptor;
 }
 #else
 /// \todo move these into a common area, this code is duplicated EVERYWHERE
@@ -85,10 +108,15 @@ PosixSubsystem *getSubsystem()
     return pSubsystem;
 }
 
-FileDescriptor *getDescriptor(int fd)
+bool acquireDescriptor(int fd, DescriptorLease &descriptor)
 {
     PosixSubsystem *pSubsystem = getSubsystem();
-    return pSubsystem->getFileDescriptor(fd);
+    if (!pSubsystem)
+    {
+        descriptor.reset();
+        return false;
+    }
+    return pSubsystem->acquireFileDescriptor(fd, descriptor);
 }
 
 void addDescriptor(int fd, FileDescriptor *f)
@@ -97,13 +125,10 @@ void addDescriptor(int fd, FileDescriptor *f)
     pSubsystem->addFileDescriptor(fd, f);
 }
 
-void removeDescriptor(int fd)
+bool removeDescriptor(int fd, const DescriptorLease &descriptor)
 {
     PosixSubsystem *pSubsystem = getSubsystem();
-    if (pSubsystem)
-    {
-        pSubsystem->freeFd(fd);
-    }
+    return pSubsystem && pSubsystem->closeFileDescriptor(fd, descriptor);
 }
 
 size_t getAvailableDescriptor()

@@ -26,6 +26,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -177,8 +178,11 @@ class ConsoleFile : public File
      */
     Event *m_pEvent;
 
-    /// Locked when we trigger an event, unlocked when eventComplete called.
-    Mutex m_EventTrigger;
+    /// One completion token is posted when an event handler finishes.
+    Semaphore m_EventTrigger;
+
+    /// Serialises m_Last with the matching event completion.
+    Mutex m_EventSerialiser;
 
     /// Check if the given character requires an event.
     bool checkForEvent(size_t flags, char check, const char *controlChars);

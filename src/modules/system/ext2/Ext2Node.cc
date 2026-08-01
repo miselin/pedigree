@@ -62,14 +62,14 @@ uintptr_t Ext2Node::readBlock(uint64_t location)
 {
     // Sanity check.
     uint32_t nBlock = location / m_pExt2Fs->m_BlockSize;
-    if (nBlock > m_Blocks.count())
+    if (nBlock >= m_Blocks.count())
     {
         ERROR(
             "Ext2Node::readBlock beyond blocks [" << nBlock << ", "
                                                   << m_Blocks.count() << "]");
         return 0;
     }
-    if (location > m_nSize)
+    if (location >= m_nSize)
     {
         ERROR(
             "Ext2Node::readBlock beyond size [" << location << ", " << m_nSize
@@ -77,8 +77,15 @@ uintptr_t Ext2Node::readBlock(uint64_t location)
         return 0;
     }
 
-    ensureBlockLoaded(nBlock);
+    if (!ensureBlockLoaded(nBlock))
+    {
+        return 0;
+    }
     uintptr_t result = m_pExt2Fs->readBlock(m_Blocks[nBlock]);
+    if (!result)
+    {
+        return 0;
+    }
 
     // Add any remaining offset we chopped off.
     result += location % m_pExt2Fs->m_BlockSize;
@@ -89,13 +96,16 @@ void Ext2Node::writeBlock(uint64_t location)
 {
     // Sanity check.
     uint32_t nBlock = location / m_pExt2Fs->m_BlockSize;
-    if (nBlock > m_Blocks.count())
+    if (nBlock >= m_Blocks.count())
         return;
-    if (location > m_nSize)
+    if (location >= m_nSize)
         return;
 
     // Update on disk.
-    ensureBlockLoaded(nBlock);
+    if (!ensureBlockLoaded(nBlock))
+    {
+        return;
+    }
     m_pExt2Fs->writeBlock(m_Blocks[nBlock]);
 }
 
@@ -116,7 +126,10 @@ void Ext2Node::wipe()
 {
     for (size_t i = 0; i < m_Blocks.count(); ++i)
     {
-        ensureBlockLoaded(i);
+        if (!ensureBlockLoaded(i))
+        {
+            continue;
+        }
         m_pExt2Fs->releaseBlock(m_Blocks[i]);
     }
     m_Blocks.clear();
@@ -212,6 +225,10 @@ bool Ext2Node::ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize
         // Load the block
         uint8_t *pBuffer =
             reinterpret_cast<uint8_t *>(m_pExt2Fs->readBlock(block));
+        if (!pBuffer)
+        {
+            return false;
+        }
 
         // do we need to zero it?
         bool zero = !nozeroblocks;
@@ -234,6 +251,7 @@ bool Ext2Node::ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize
         {
             ByteSet(pBuffer, 0, m_pExt2Fs->m_BlockSize);
         }
+        m_pExt2Fs->unpinBlock(block);
     }
 
     return true;
@@ -241,14 +259,16 @@ bool Ext2Node::ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize
 
 bool Ext2Node::ensureBlockLoaded(size_t nBlock)
 {
-    if (nBlock > m_Blocks.count())
+    if (nBlock >= m_Blocks.count())
     {
         FATAL(
             "EXT2: ensureBlockLoaded: Algorithmic error [block "
             << nBlock << " > " << m_Blocks.count() << "].");
     }
     if (m_Blocks[nBlock] == ~0U)
-        getBlockNumber(nBlock);
+    {
+        return getBlockNumber(nBlock);
+    }
 
     return true;
 }
@@ -261,30 +281,34 @@ bool Ext2Node::getBlockNumber(size_t nBlock)
 
     if (nBlock < nPerBlock + 12)
     {
-        getBlockNumberIndirect(
+        return getBlockNumberIndirect(
             LITTLE_TO_HOST32(m_pInode->i_block[12]), 12, nBlock);
-        return true;
     }
 
     if (nBlock < (nPerBlock * nPerBlock) + nPerBlock + 12)
     {
-        getBlockNumberBiindirect(
+        return getBlockNumberBiindirect(
             LITTLE_TO_HOST32(m_pInode->i_block[13]), nPerBlock + 12, nBlock);
-        return true;
     }
 
-    getBlockNumberTriindirect(
+    return getBlockNumberTriindirect(
         LITTLE_TO_HOST32(m_pInode->i_block[14]),
         (nPerBlock * nPerBlock) + nPerBlock + 12, nBlock);
-
-    return true;
 }
 
 bool Ext2Node::getBlockNumberIndirect(
     uint32_t inode_block, size_t nBlocks, size_t nBlock)
 {
+    if (!inode_block)
+    {
+        return false;
+    }
     uint32_t *buffer =
         reinterpret_cast<uint32_t *>(m_pExt2Fs->readBlock(inode_block));
+    if (!buffer)
+    {
+        return false;
+    }
 
     for (size_t i = 0;
          i < m_pExt2Fs->m_BlockSize / 4 && nBlocks < m_Blocks.count(); i++)
@@ -292,6 +316,7 @@ bool Ext2Node::getBlockNumberIndirect(
         m_Blocks[nBlocks++] = LITTLE_TO_HOST32(buffer[i]);
     }
 
+    m_pExt2Fs->unpinBlock(inode_block);
     return true;
 }
 
@@ -300,17 +325,25 @@ bool Ext2Node::getBlockNumberBiindirect(
 {
     size_t nPerBlock = m_pExt2Fs->m_BlockSize / 4;
 
+    if (!inode_block)
+    {
+        return false;
+    }
     uint32_t *buffer =
         reinterpret_cast<uint32_t *>(m_pExt2Fs->readBlock(inode_block));
+    if (!buffer)
+    {
+        return false;
+    }
 
     // What indirect block does nBlock exist on?
     size_t nIndirectBlock = (nBlock - nBlocks) / nPerBlock;
 
-    getBlockNumberIndirect(
-        LITTLE_TO_HOST32(buffer[nIndirectBlock]),
-        nBlocks + nIndirectBlock * nPerBlock, nBlock);
-
-    return true;
+    const uint32_t indirectBlock =
+        LITTLE_TO_HOST32(buffer[nIndirectBlock]);
+    m_pExt2Fs->unpinBlock(inode_block);
+    return getBlockNumberIndirect(
+        indirectBlock, nBlocks + nIndirectBlock * nPerBlock, nBlock);
 }
 
 bool Ext2Node::getBlockNumberTriindirect(
@@ -318,17 +351,24 @@ bool Ext2Node::getBlockNumberTriindirect(
 {
     size_t nPerBlock = m_pExt2Fs->m_BlockSize / 4;
 
+    if (!inode_block)
+    {
+        return false;
+    }
     uint32_t *buffer =
         reinterpret_cast<uint32_t *>(m_pExt2Fs->readBlock(inode_block));
+    if (!buffer)
+    {
+        return false;
+    }
 
     // What biindirect block does nBlock exist on?
     size_t nBiBlock = (nBlock - nBlocks) / (nPerBlock * nPerBlock);
 
-    getBlockNumberBiindirect(
-        LITTLE_TO_HOST32(buffer[nBiBlock]),
-        nBlocks + nBiBlock * nPerBlock * nPerBlock, nBlock);
-
-    return true;
+    const uint32_t biBlock = LITTLE_TO_HOST32(buffer[nBiBlock]);
+    m_pExt2Fs->unpinBlock(inode_block);
+    return getBlockNumberBiindirect(
+        biBlock, nBlocks + nBiBlock * nPerBlock * nPerBlock, nBlock);
 }
 
 bool Ext2Node::addBlock(uint32_t blockValue)
@@ -361,10 +401,15 @@ bool Ext2Node::addBlock(uint32_t blockValue)
 
             void *buffer =
                 reinterpret_cast<void *>(m_pExt2Fs->readBlock(newBlock));
+            if (!buffer)
+            {
+                return false;
+            }
             ByteSet(buffer, 0, m_pExt2Fs->m_BlockSize);
 
             // Write back the zeroed block to prepare the indirect block.
             m_pExt2Fs->writeBlock(newBlock);
+            m_pExt2Fs->unpinBlock(newBlock);
 
             // Taken on a new block - update block count (but don't track in
             // m_Blocks, as this is a metadata block).
@@ -375,9 +420,14 @@ bool Ext2Node::addBlock(uint32_t blockValue)
         uint32_t bufferBlock = LITTLE_TO_HOST32(m_pInode->i_block[12]);
         uint32_t *buffer =
             reinterpret_cast<uint32_t *>(m_pExt2Fs->readBlock(bufferBlock));
+        if (!buffer)
+        {
+            return false;
+        }
 
         buffer[indirectIdx] = HOST_TO_LITTLE32(blockValue);
         m_pExt2Fs->writeBlock(bufferBlock);
+        m_pExt2Fs->unpinBlock(bufferBlock);
     }
     else if (
         m_Blocks.count() <
@@ -409,7 +459,13 @@ bool Ext2Node::addBlock(uint32_t blockValue)
 
             void *buffer =
                 reinterpret_cast<void *>(m_pExt2Fs->readBlock(newBlock));
+            if (!buffer)
+            {
+                return false;
+            }
             ByteSet(buffer, 0, m_pExt2Fs->m_BlockSize);
+            m_pExt2Fs->writeBlock(newBlock);
+            m_pExt2Fs->unpinBlock(newBlock);
 
             // Taken on a new block - update block count (but don't track in
             // m_Blocks, as this is a metadata block).
@@ -420,6 +476,10 @@ bool Ext2Node::addBlock(uint32_t blockValue)
         uint32_t bufferBlock = LITTLE_TO_HOST32(m_pInode->i_block[13]);
         uint32_t *pBlock =
             reinterpret_cast<uint32_t *>(m_pExt2Fs->readBlock(bufferBlock));
+        if (!pBlock)
+        {
+            return false;
+        }
 
         // Do we need to start a new indirect block?
         if (indirectIdx == 0)
@@ -430,6 +490,7 @@ bool Ext2Node::addBlock(uint32_t blockValue)
             {
                 // We had a problem.
                 SYSCALL_ERROR(NoSpaceLeftOnDevice);
+                m_pExt2Fs->unpinBlock(bufferBlock);
                 return false;
             }
 
@@ -437,7 +498,14 @@ bool Ext2Node::addBlock(uint32_t blockValue)
 
             void *buffer =
                 reinterpret_cast<void *>(m_pExt2Fs->readBlock(newBlock));
+            if (!buffer)
+            {
+                m_pExt2Fs->unpinBlock(bufferBlock);
+                return false;
+            }
             ByteSet(buffer, 0, m_pExt2Fs->m_BlockSize);
+            m_pExt2Fs->writeBlock(newBlock);
+            m_pExt2Fs->unpinBlock(newBlock);
 
             // Taken on a new block - update block count (but don't track in
             // m_Blocks, as this is a metadata block).
@@ -447,11 +515,17 @@ bool Ext2Node::addBlock(uint32_t blockValue)
         // Cache this as it gets clobbered by the readBlock call (using the same
         // buffer).
         uint32_t nIndirectBlockNum = LITTLE_TO_HOST32(pBlock[indirectBlock]);
+        m_pExt2Fs->unpinBlock(bufferBlock);
+        if (!nIndirectBlockNum)
+        {
+            ERROR("Could not add to an unallocated indirect block.");
+            return false;
+        }
 
         // Grab the indirect block.
         pBlock = reinterpret_cast<uint32_t *>(
             m_pExt2Fs->readBlock(nIndirectBlockNum));
-        if (pBlock == reinterpret_cast<uint32_t *>(~0))
+        if (!pBlock)
         {
             ERROR(
                 "Could not read block (" << nIndirectBlockNum
@@ -462,6 +536,7 @@ bool Ext2Node::addBlock(uint32_t blockValue)
         // Set the correct entry.
         pBlock[indirectIdx] = HOST_TO_LITTLE32(blockValue);
         m_pExt2Fs->writeBlock(nIndirectBlockNum);
+        m_pExt2Fs->unpinBlock(nIndirectBlockNum);
     }
     else
     {
@@ -512,37 +587,44 @@ void Ext2Node::updateMetadata(uint16_t uid, uint16_t gid, uint32_t perms)
 void Ext2Node::sync(size_t offset, bool async)
 {
     uint32_t nBlock = offset / m_pExt2Fs->m_BlockSize;
-    if (nBlock > m_Blocks.count())
+    if (nBlock >= m_Blocks.count())
         return;
-    if (offset > m_nSize)
+    if (offset >= m_nSize)
         return;
 
     // Sync the block.
-    ensureBlockLoaded(nBlock);
+    if (!ensureBlockLoaded(nBlock))
+        return;
     m_pExt2Fs->sync(m_Blocks[nBlock] * m_pExt2Fs->m_BlockSize, async);
 }
 
-void Ext2Node::pinBlock(uint64_t location)
+bool Ext2Node::pinBlock(uint64_t location)
 {
     uint32_t nBlock = location / m_pExt2Fs->m_BlockSize;
-    if (nBlock > m_Blocks.count())
-        return;
-    if (location > m_nSize)
-        return;
+    if (nBlock >= m_Blocks.count())
+        return false;
+    if (location >= m_nSize)
+        return false;
 
-    ensureBlockLoaded(nBlock);
-    m_pExt2Fs->pinBlock(m_Blocks[nBlock]);
+    if (!ensureBlockLoaded(nBlock))
+        return false;
+    if (!m_Blocks[nBlock])
+        return true;
+    return m_pExt2Fs->pinBlock(m_Blocks[nBlock]);
 }
 
 void Ext2Node::unpinBlock(uint64_t location)
 {
     uint32_t nBlock = location / m_pExt2Fs->m_BlockSize;
-    if (nBlock > m_Blocks.count())
+    if (nBlock >= m_Blocks.count())
         return;
-    if (location > m_nSize)
+    if (location >= m_nSize)
         return;
 
-    ensureBlockLoaded(nBlock);
+    if (!ensureBlockLoaded(nBlock))
+        return;
+    if (!m_Blocks[nBlock])
+        return;
     m_pExt2Fs->unpinBlock(m_Blocks[nBlock]);
 }
 

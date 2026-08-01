@@ -24,6 +24,7 @@
 #include "cdi.h"
 #include "cdi/storage.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -53,6 +54,13 @@ class CdiDisk : public Disk
         // These are the functions that others call - they add a request to the parent controller's queue.
         virtual uintptr_t read(uint64_t location);
         virtual void write(uint64_t location);
+        virtual void align(uint64_t location);
+        virtual size_t getBlockSize() const
+        {
+            return 4096;
+        }
+        virtual bool pin(uint64_t location);
+        virtual void unpin(uint64_t location);
 
         /// Assume CDI-provided disks are never read-only.
         virtual bool cacheIsCritical()
@@ -73,6 +81,11 @@ class CdiDisk : public Disk
 
         struct cdi_storage_device* m_Device;
         Cache m_Cache;
+        Mutex m_CacheMutex;
+        uint64_t m_AlignPoints[8];
+        size_t m_nAlignPoints;
+
+        uint64_t getPageLocation(uint64_t location) const;
 };
 
 #endif

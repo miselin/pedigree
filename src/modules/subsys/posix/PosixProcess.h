@@ -28,6 +28,7 @@
 #include "pedigree/kernel/processor/types.h"
 
 class PosixProcess;
+class Timer;
 
 class PosixSession
 {
@@ -47,7 +48,8 @@ class PosixSession
 class ProcessGroup
 {
   public:
-    ProcessGroup() : processGroupId(0), Leader(0), Members()
+    ProcessGroup()
+        : processGroupId(0), Leader(0), Members(), registered(false)
     {
         Members.clear();
     }
@@ -65,6 +67,9 @@ class ProcessGroup
      *  obtain every Process in the process group.
      */
     List<PosixProcess *> Members;
+
+    /** Whether this group ID was installed in ProcessGroupManager. */
+    bool registered;
 
   private:
     ProcessGroup(const ProcessGroup &);
@@ -123,10 +128,13 @@ class IntervalTimer : public TimerHandler
     Time::Timestamp m_Interval;
     Spinlock m_Lock;
     bool m_Armed;
+    Timer *m_pTimer;
 };
 
 class EXPORTED_PUBLIC PosixProcess : public Process
 {
+    friend class ProcessGroup;
+
   public:
     /** Defines what status this Process has within its group */
     enum Membership
@@ -156,8 +164,17 @@ class EXPORTED_PUBLIC PosixProcess : public Process
     PosixProcess(Process *pParent, bool bCopyOnWrite = true);
     virtual ~PosixProcess();
 
-    void setProcessGroup(ProcessGroup *newGroup, bool bRemoveFromGroup = true);
+    /**
+     * Publishes a fully assembled POSIX process. Call after its subsystem,
+     * mappings, descriptors, and delayed initial Thread are ready.
+     */
+    void publish();
+
+    void setProcessGroup(ProcessGroup *newGroup);
+    void inheritProcessGroup(PosixProcess *parent);
     ProcessGroup *getProcessGroup() const;
+    bool getProcessGroupId(size_t &groupId) const;
+    void leaveProcessGroup();
 
     void setGroupMembership(Membership type);
     Membership getGroupMembership() const;
@@ -223,6 +240,7 @@ class EXPORTED_PUBLIC PosixProcess : public Process
     int64_t m_Suid;
     int64_t m_Sgid;
     Vector<int64_t> m_SupplementalIds;
+    bool m_bRegistered;
 };
 
 #endif

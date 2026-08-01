@@ -20,7 +20,9 @@
 #ifndef PARTITION_H
 #define PARTITION_H
 
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -56,20 +58,12 @@ class Partition : public Disk
     virtual uintptr_t read(uint64_t location)
     {
         // Ensure the read does not begin past the end of our partition
-        if (location > m_Length)
-            return 0;
-        else if ((location + 0x1000) > m_Length)
+        if (location >= m_Length || (m_Length - location) < 0x1000)
             return 0;
 
         Disk *pParent = static_cast<Disk *>(getParent());
 
-        if (!m_bAligned)
-        {
-            m_bAligned = true;
-            // Ensure that we get blocks aligned on our start position (which is
-            // quite likely to not be on a 4096-byte boundary).
-            pParent->align(m_Start);
-        }
+        ensureAligned(pParent);
 
         return pParent->read(location + m_Start);
     }
@@ -77,20 +71,12 @@ class Partition : public Disk
     virtual void write(uint64_t location)
     {
         // Ensure the read does not begin past the end of our partition
-        if (location > m_Length)
-            return;
-        else if ((location + 0x1000) > m_Length)
+        if (location >= m_Length || (m_Length - location) < 0x1000)
             return;
 
         Disk *pParent = static_cast<Disk *>(getParent());
 
-        if (!m_bAligned)
-        {
-            m_bAligned = true;
-            // Ensure that we get blocks aligned on our start position (which is
-            // quite likely to not be on a 4096-byte boundary).
-            pParent->align(m_Start);
-        }
+        ensureAligned(pParent);
 
         pParent->write(location + m_Start);
     }
@@ -104,6 +90,23 @@ class Partition : public Disk
     {
         const Disk *pParent = static_cast<const Disk *>(getParent());
         return pParent->getBlockSize();
+    }
+
+    virtual bool pin(uint64_t location)
+    {
+        if (location >= m_Length || (m_Length - location) < 0x1000)
+            return false;
+        Disk *pParent = static_cast<Disk *>(getParent());
+        ensureAligned(pParent);
+        return pParent->pin(location + m_Start);
+    }
+
+    virtual void unpin(uint64_t location)
+    {
+        if (location >= m_Length || (m_Length - location) < 0x1000)
+            return;
+        Disk *pParent = static_cast<Disk *>(getParent());
+        pParent->unpin(location + m_Start);
     }
 
     /** Returns the first byte of the parent disk that is in this partition. */
@@ -122,9 +125,22 @@ class Partition : public Disk
     }
 
   private:
+    void ensureAligned(Disk *pParent)
+    {
+        LockGuard<Mutex> guard(m_AlignmentLock);
+        if (!m_bAligned)
+        {
+            // A partition-relative page must map to one parent cache page even
+            // when the partition begins in the middle of a physical page.
+            pParent->align(m_Start);
+            m_bAligned = true;
+        }
+    }
+
     String m_Type;
     uint64_t m_Start;
     uint64_t m_Length;
+    Mutex m_AlignmentLock;
     bool m_bAligned;
 };
 

@@ -31,6 +31,7 @@
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/Pair.h"
 #include "pedigree/kernel/utilities/Result.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -70,7 +71,7 @@ File::File()
       m_Inode(0), m_pFilesystem(0), m_Size(0), m_pParent(0), m_nWriters(0),
       m_nReaders(0), m_Uid(0), m_Gid(0), m_Permissions(0),
       m_DataCache(FILE_BAD_BLOCK), m_bDirect(false),
-      m_FillCache(), m_Lock(), m_MonitorTargets()
+      m_FillCache(), m_FillCacheLock(), m_Lock(), m_MonitorTargets()
 {
 }
 
@@ -82,7 +83,7 @@ File::File(
       m_CreationTime(creationTime), m_Inode(inode), m_pFilesystem(pFs),
       m_Size(size), m_pParent(pParent), m_nWriters(0), m_nReaders(0), m_Uid(0),
       m_Gid(0), m_Permissions(0), m_DataCache(FILE_BAD_BLOCK), m_bDirect(false),
-      m_FillCache(), m_Lock(), m_MonitorTargets()
+      m_FillCache(), m_FillCacheLock(), m_Lock(), m_MonitorTargets()
 {
     size_t maxBlock = size / getBlockSize();
     if (size % getBlockSize())
@@ -96,6 +97,12 @@ File::File(
 
 File::~File()
 {
+    LockGuard<Mutex> guard(m_Lock);
+    for (auto target : m_MonitorTargets)
+    {
+        delete target;
+    }
+    m_MonitorTargets.clear();
 }
 
 uint64_t
@@ -108,21 +115,15 @@ File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         return readBytewise(location, size, buffer, bCanBlock);
     }
 
-    if ((location + size) >= m_Size)
+    if (!size || location >= m_Size)
     {
-        size_t oldSize = size;
-        size = m_Size - location;
-        if ((location + size) > m_Size)
-        {
-            // Completely broken read parameters.
-            ERROR(
-                "VFS: even after fixup, read at location "
-                << location << " is larger than file size (" << m_Size << ")");
-            ERROR(
-                "VFS:    fixup size: " << size
-                                       << ", original size: " << oldSize);
-            return 0;
-        }
+        return 0;
+    }
+
+    const uint64_t remaining = m_Size - location;
+    if (size > remaining)
+    {
+        size = remaining;
     }
 
     const size_t blockSize =
@@ -157,6 +158,7 @@ File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
                 reinterpret_cast<void *>(buff + offs), sz);
             buffer += sz;
         }
+        releaseReadReference(block);
 
         location += sz;
         size -= sz;
@@ -168,6 +170,17 @@ File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 uint64_t
 File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
 {
+    if (!size || location > (~static_cast<uint64_t>(0) - size))
+    {
+        return 0;
+    }
+
+    const uint64_t endLocation = location + size;
+    if (endLocation > static_cast<uint64_t>(~static_cast<size_t>(0)))
+    {
+        return 0;
+    }
+
     if (isBytewise())
     {
         // Have to perform bytewise reads
@@ -175,19 +188,13 @@ File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
         return writeBytewise(location, size, buffer, bCanBlock);
     }
 
-    const size_t blockSize = getBlockSize();
-
-    bool isEntireBlock = false;
-    if ((location % blockSize) == 0)
-    {
-        if ((size % blockSize) == 0)
-        {
-            isEntireBlock = true;
-        }
-    }
+    const size_t filesystemBlockSize = getBlockSize();
+    const size_t blockSize =
+        useFillCache() ? PhysicalMemoryManager::getPageSize()
+                       : filesystemBlockSize;
 
     // Extend the file before writing it if needed.
-    extend(location + size, location, size);
+    extend(static_cast<size_t>(endLocation), location, size);
 
     size_t n = 0;
     while (size)
@@ -209,7 +216,27 @@ File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
             reinterpret_cast<void *>(buffer), sz);
 
         // Trigger an immediate write-back - write-through cache.
-        writeBlock(block * blockSize, buff);
+        if (useFillCache())
+        {
+            const uint64_t pageOffset = block * blockSize;
+            const size_t firstBlock = offs / filesystemBlockSize;
+            const size_t endBlock =
+                (offs + sz + filesystemBlockSize - 1) /
+                filesystemBlockSize;
+            for (
+                size_t i = firstBlock; i < endBlock; ++i)
+            {
+                const size_t fileBlockOffset = i * filesystemBlockSize;
+                writeBlock(
+                    pageOffset + fileBlockOffset,
+                    buff + fileBlockOffset);
+            }
+        }
+        else
+        {
+            writeBlock(block * blockSize, buff);
+        }
+        releaseReadReference(block);
 
         location += sz;
         buffer += sz;
@@ -248,56 +275,63 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
     offset &= ~(blockSize - 1);
 
     // Quick and easy exit.
-    if (offset > m_Size)
+    if (offset >= m_Size)
     {
         return ~0UL;
     }
 
-    // Check if we have this page in the cache.
+    // Check if we have this page in the cache and acquire the cache reference
+    // before translating it. A cache address observed before a successful pin
+    // may already be retiring.
     uintptr_t vaddr = FILE_BAD_BLOCK;
+    bool pinned = false;
     if (LIKELY(!useFillCache()))
     {
-        // Not using fill cache, this is the easy and common case.
+        // A key can be evicted and replaced between the address snapshot and
+        // pinBlock(). Validate that the address still names the pinned page.
         vaddr = getCachedPage(offset / blockSize);
+        if ((!vaddr) || (vaddr == FILE_BAD_BLOCK) || !pinBlock(offset))
+        {
+            return ~0UL;
+        }
+        pinned = true;
+
+        if (getCachedPage(offset / blockSize) != vaddr)
+        {
+            unpinBlock(offset);
+            return ~0UL;
+        }
     }
     else
     {
         // Using the fill cache, because the filesystem has a block size
-        // smaller than our native page size.
+        // smaller than our native page size. lookup() itself acquires the
+        // reference; taking a second pin here would leak one on every mmap.
         vaddr = m_FillCache.lookup(offset);
         if (!vaddr)
         {
-            // Wasn't there. No physical page.
-            vaddr = FILE_BAD_BLOCK;
+            return ~0UL;
         }
+        pinned = true;
     }
 
-    if ((!vaddr) || (vaddr == FILE_BAD_BLOCK))
-    {
-        return ~0UL;
-    }
-
-    // Look up the page now that we've confirmed it is in the cache.
+    // Translate only while the exact published page remains pinned.
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
     if (va.isMapped(reinterpret_cast<void *>(vaddr)))
     {
         physical_uintptr_t phys = 0;
         size_t flags = 0;
         va.getMapping(reinterpret_cast<void *>(vaddr), phys, flags);
-
-        // Pin this key in the cache down, so we don't lose it.
-        if (UNLIKELY(useFillCache()))
-        {
-            m_FillCache.pin(offset);
-        }
-        else
-        {
-            pinBlock(offset);
-        }
-
         return phys;
     }
 
+    if (pinned)
+    {
+        if (UNLIKELY(useFillCache()))
+            m_FillCache.release(offset);
+        else
+            unpinBlock(offset);
+    }
     return ~0UL;
 }
 
@@ -317,12 +351,6 @@ void File::returnPhysicalPage(size_t offset)
     }
     offset &= ~(blockSize - 1);
 
-    // Quick and easy exit for bad input.
-    if (offset > m_Size)
-    {
-        return;
-    }
-
     // Release the page. Beware - this could cause a cache evict, which will
     // make the next read/write at this offset do real (slow) I/O.
     if (UNLIKELY(useFillCache()))
@@ -337,22 +365,59 @@ void File::returnPhysicalPage(size_t offset)
 
 void File::sync()
 {
-    LockGuard<Mutex> guard(m_Lock);
+    struct SyncPage
+    {
+        size_t block;
+        uintptr_t buffer;
+    };
+
+    size_t snapshotSize = 0;
+    {
+        LockGuard<Mutex> guard(m_Lock);
+        snapshotSize = m_DataCache.count();
+    }
+
+    // Reserve outside m_Lock. Allocation can trigger cache pressure, whose
+    // eviction callback removes entries under this same File lock.
+    Vector<SyncPage> pages(snapshotSize);
+    {
+        LockGuard<Mutex> guard(m_Lock);
+        const size_t count =
+            m_DataCache.count() < snapshotSize ? m_DataCache.count()
+                                               : snapshotSize;
+        for (size_t i = 0; i < count; ++i)
+        {
+            auto result = m_DataCache.getNth(i);
+            if (result.hasError())
+            {
+                break;
+            }
+
+            const uintptr_t buffer = result.value().second();
+            if (buffer != FILE_BAD_BLOCK)
+            {
+                pages.pushBack(
+                    {result.value().first().hash(), buffer});
+            }
+        }
+    }
 
     const size_t blockSize = getBlockSize();
-    for (size_t i = 0; i < m_DataCache.count(); ++i)
+    for (const SyncPage &page : pages)
     {
-        auto result = m_DataCache.getNth(i);
-        if (result.hasError())
+        const uint64_t location = page.block * blockSize;
+        if (!pinBlock(location))
         {
-            break;
+            continue;
         }
 
-        uintptr_t buffer = result.value().second();
-        if (buffer != FILE_BAD_BLOCK)
+        // m_DataCache is a weak identity index. Pin the producer cache, then
+        // verify that the snapshot still names the pinned page.
+        if (getCachedPage(page.block) == page.buffer)
         {
-            writeBlock(i * blockSize, buffer);
+            writeBlock(location, page.buffer);
         }
+        unpinBlock(location);
     }
 }
 
@@ -610,8 +675,9 @@ void File::extend(size_t newSize, uint64_t location, uint64_t size)
     extend(newSize);
 }
 
-void File::pinBlock(uint64_t location)
+bool File::pinBlock(uint64_t location)
 {
+    return false;
 }
 
 void File::unpinBlock(uint64_t location)
@@ -676,7 +742,12 @@ void File::monitor(Thread *pThread, Event *pEvent)
     EMIT_IF(THREADS)
     {
         LockGuard<Mutex> guard(m_Lock);
-        m_MonitorTargets.pushBack(new MonitorTarget(pThread, pEvent));
+        Event::SendLease registration;
+        if (pEvent->tryAcquireRegistration(registration))
+        {
+            m_MonitorTargets.pushBack(new MonitorTarget(
+                pThread, pEvent, pedigree_std::move(registration)));
+        }
     }
 }
 
@@ -686,18 +757,44 @@ void File::cullMonitorTargets(Thread *pThread)
     {
         LockGuard<Mutex> guard(m_Lock);
 
-        for (List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
-             it != m_MonitorTargets.end(); it++)
+        for (
+            List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
+            it != m_MonitorTargets.end();)
         {
             MonitorTarget *pMT = *it;
 
             if (pMT->pThread == pThread)
             {
                 delete pMT;
-                m_MonitorTargets.erase(it);
-                it = m_MonitorTargets.begin();
-                if (it == m_MonitorTargets.end())
-                    return;
+                it = m_MonitorTargets.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+}
+
+void File::cullMonitorTargets(Event *pEvent)
+{
+    EMIT_IF(THREADS)
+    {
+        LockGuard<Mutex> guard(m_Lock);
+
+        for (
+            List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
+            it != m_MonitorTargets.end();)
+        {
+            MonitorTarget *pMT = *it;
+            if (pMT->pEvent == pEvent)
+            {
+                delete pMT;
+                it = m_MonitorTargets.erase(it);
+            }
+            else
+            {
+                ++it;
             }
         }
     }
@@ -816,57 +913,103 @@ uintptr_t File::readIntoCache(uintptr_t block)
 {
     size_t blockSize = getBlockSize();
     size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
+    const bool fillCache = useFillCache();
 
-    size_t offset = block * blockSize;
-    size_t mask = blockSize - 1;
-    if (useFillCache())
+    const size_t offset =
+        block * (fillCache ? nativeBlockSize : blockSize);
+
+    if (fillCache)
     {
-        mask = nativeBlockSize - 1;
-    }
+        LockGuard<Mutex> fillGuard(m_FillCacheLock);
 
-    size_t blockOffset = offset & mask;
-    offset &= ~mask;
-
-    if (useFillCache())
-    {
         // Using Cache::insert() here is atomic compared to if we did a
         // lookup() followed by an insert() - means we don't need to lock the
         // File object to do this.
         bool didExist = false;
         uintptr_t vaddr =
             m_FillCache.insert(offset, nativeBlockSize, &didExist);
+        if (!vaddr)
+        {
+            return FILE_BAD_BLOCK;
+        }
 
         // If in direct mode we are required to read() again
-        if (didExist && !m_bDirect)
+        bool existingReference = false;
+        if (didExist)
         {
-            // Already in cache - don't re-read the file.
-            return vaddr;
+            vaddr = m_FillCache.lookup(offset);
+            if (!vaddr)
+            {
+                return FILE_BAD_BLOCK;
+            }
+            if (!m_bDirect)
+            {
+                return vaddr;
+            }
+            existingReference = true;
         }
 
         // Read the blocks
+        ByteSet(reinterpret_cast<void *>(vaddr), 0, nativeBlockSize);
         for (size_t i = 0; i < nativeBlockSize; i += blockSize)
         {
+            if ((offset + i) >= m_Size)
+            {
+                break;
+            }
             uintptr_t blockAddr = readBlock(offset + i);
-            /// \todo handle readBlock failing here
+            if (!blockAddr || blockAddr == FILE_BAD_BLOCK)
+            {
+                if (existingReference)
+                {
+                    m_FillCache.release(offset);
+                }
+                if (!didExist && !m_FillCache.discardEditing(offset))
+                {
+                    WARNING(
+                        "File::readIntoCache could not discard a failed fill "
+                        "for offset "
+                        << offset);
+                }
+                return FILE_BAD_BLOCK;
+            }
             ForwardMemoryCopy(
-                reinterpret_cast<void *>(vaddr),
+                reinterpret_cast<void *>(vaddr + i),
                 reinterpret_cast<void *>(blockAddr), blockSize);
+            unpinBlock(offset + i);
         }
 
         m_FillCache.markNoLongerEditing(offset, nativeBlockSize);
 
-        NOTICE("readIntoCache: fillcache blockOffset=" << blockOffset);
-        return vaddr + blockOffset;
+        if (existingReference)
+        {
+            return vaddr;
+        }
+
+        vaddr = m_FillCache.lookup(offset);
+        return vaddr ? vaddr : FILE_BAD_BLOCK;
     }
 
     uintptr_t buff = FILE_BAD_BLOCK;
     if (!m_bDirect)
     {
-        buff = getCachedPage(block);
+        while ((buff = getCachedPage(block)) != FILE_BAD_BLOCK)
+        {
+            if (!pinBlock(offset))
+            {
+                buff = FILE_BAD_BLOCK;
+                break;
+            }
+            if (getCachedPage(block) == buff)
+            {
+                return buff;
+            }
+            unpinBlock(offset);
+        }
     }
     if (buff == FILE_BAD_BLOCK)
     {
-        buff = readBlock(block * blockSize);
+        buff = readBlock(offset);
         if (!buff)
         {
             ERROR(
@@ -882,5 +1025,18 @@ uintptr_t File::readIntoCache(uintptr_t block)
         }
     }
 
-    return buff + blockOffset;
+    return buff;
+}
+
+void File::releaseReadReference(uintptr_t block)
+{
+    if (useFillCache())
+    {
+        m_FillCache.release(
+            block * PhysicalMemoryManager::getPageSize());
+    }
+    else
+    {
+        unpinBlock(block * getBlockSize());
+    }
 }

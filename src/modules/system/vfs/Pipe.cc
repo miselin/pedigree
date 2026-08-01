@@ -49,7 +49,7 @@ ZombiePipe::~ZombiePipe()
 
 Pipe::Pipe()
     : File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX),
-      m_ReaderSem(0)
+      m_ReaderCondition()
 {
 #if VERBOSE_KERNEL
     NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
@@ -64,7 +64,7 @@ Pipe::Pipe(
           name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
           pParent),
       m_bIsAnonymous(bIsAnonymous), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX),
-      m_ReaderSem(0)
+      m_ReaderCondition()
 {
 #if VERBOSE_KERNEL
     NOTICE(
@@ -139,6 +139,8 @@ bool Pipe::isFifo() const
 
 void Pipe::increaseRefCount(bool bIsWriter)
 {
+    LockGuard<Mutex> guard(m_Lock);
+
     if (bIsWriter)
     {
         // Enable writes if they were previously disabled.
@@ -155,7 +157,9 @@ void Pipe::increaseRefCount(bool bIsWriter)
         m_Buffer.enableReads();
         m_nReaders++;
 
-        m_ReaderSem.release();
+        // The predicate is "at least one reader", so one arrival satisfies
+        // every writer currently blocked in open().
+        m_ReaderCondition.broadcast();
     }
 }
 
@@ -226,7 +230,39 @@ void Pipe::decreaseRefCount(bool bIsWriter)
     }
 }
 
-bool Pipe::waitForReader()
+size_t Pipe::getReaderCount()
 {
-    return m_ReaderSem.acquire();
+    LockGuard<Mutex> guard(m_Lock);
+    return m_nReaders;
+}
+
+size_t Pipe::getWriterCount()
+{
+    LockGuard<Mutex> guard(m_Lock);
+    return m_nWriters;
+}
+
+bool Pipe::waitForReader(bool bCanBlock)
+{
+    m_Lock.acquire();
+    while (!m_nReaders)
+    {
+        if (!bCanBlock)
+        {
+            m_Lock.release();
+            return false;
+        }
+
+        ConditionVariable::Error error = ConditionVariable::NoError;
+        if (!m_ReaderCondition.wait(m_Lock, error))
+        {
+            if (ConditionVariable::mutexAcquired(error))
+            {
+                m_Lock.release();
+            }
+            return false;
+        }
+    }
+    m_Lock.release();
+    return true;
 }

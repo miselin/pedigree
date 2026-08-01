@@ -29,6 +29,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
 
@@ -42,7 +43,10 @@ static ProcFs *g_pProcFs = 0;
 
 static bool init()
 {
-    g_PosixSyscallManager.initialise();
+    if (!g_PosixSyscallManager.initialise())
+    {
+        return false;
+    }
 
     g_pDevFs = new DevFs();
     g_pDevFs->initialise(0);
@@ -100,6 +104,11 @@ static bool init()
 
 static void destroy()
 {
+    if (!g_PosixSyscallManager.shutdown())
+    {
+        FATAL("POSIX syscall handlers could not be retired safely.");
+    }
+
     VFS::instance().removeAllAliases(g_pProcFs, false);
     VFS::instance().removeAllAliases(g_pDevFs, false);
     VFS::instance().removeAllAliases(g_pUnixFilesystem, false);

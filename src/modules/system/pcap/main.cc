@@ -56,7 +56,7 @@ struct PcapRecord
 
 static size_t g_FilterEntry = 0;
 
-static Mutex g_PcapMutex(false);
+static Mutex g_PcapMutex;
 
 static Serial *getSerial() PURE;
 static Serial *getSerial()

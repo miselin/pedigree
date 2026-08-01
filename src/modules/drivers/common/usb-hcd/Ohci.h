@@ -27,6 +27,7 @@
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
@@ -150,6 +151,8 @@ class Ohci : public UsbHub,
             bool bLinked;
 
             Lists edType;
+            Atomic<size_t> completionState;
+            ssize_t completionResult;
 
             size_t id;
         } * pMetaData;
@@ -173,7 +176,7 @@ class Ohci : public UsbHub,
         size_t nBytes);
     virtual uintptr_t createTransaction(UsbEndpoint endpointInfo);
 
-    virtual void doAsync(
+    MUST_USE_RESULT virtual bool doAsync(
         uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t) = 0,
         uintptr_t pParam = 0);
     virtual void addInterruptInHandler(
@@ -190,6 +193,10 @@ class Ohci : public UsbHub,
     virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
 
   protected:
+    virtual void cancelAsyncAndDrain(
+        uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
+        uintptr_t pParam);
+
     virtual uint64_t executeRequest(
         uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
         uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
@@ -270,6 +277,8 @@ class Ohci : public UsbHub,
         OhciControlInterruptRoute = 0x100,
         OhciControlStateRunning =
             0x80,  // HostControllerFunctionalState bits for USBOPERATIONAL
+        OhciControlStateSuspended =
+            0xC0,  // HostControllerFunctionalState bits for USBSUSPEND
         OhciControlListsEnable = 0x30,  // 0x34     // PeriodicListEnable,
                                         // ControlListEnable and BulkListEnable
                                         // bits
@@ -305,6 +314,7 @@ class Ohci : public UsbHub,
     uintptr_t m_pHccaPhys;
 
     /// Lock for modifying the schedule list itself (m_FullSchedule)
+    Spinlock m_IrqProcessingLock;
     Spinlock m_ScheduleChangeLock;
 
     /// Lock for changing the periodic list.
@@ -357,6 +367,10 @@ class Ohci : public UsbHub,
     Semaphore m_DequeueCount;
 
     MemoryRegion m_OhciMR;
+
+    /** Closes and drains interrupt callbacks before controller teardown. */
+    OperationBarrier m_CallbackOperations;
+    irq_id_t m_IrqId;
 
     Ohci(const Ohci &);
     void operator=(const Ohci &);

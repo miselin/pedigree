@@ -25,6 +25,7 @@
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -80,6 +81,9 @@ class Ne2k : public Network, public IrqHandler
     List<packet *> m_PacketQueue;
 
     Spinlock m_PacketQueueLock;
+
+    irq_id_t m_IrqId;
+    OwnedThread m_ReceiveThread;
 
     Ne2k(const Ne2k &);
     void operator=(const Ne2k &);

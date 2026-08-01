@@ -29,7 +29,7 @@
 
 FileDisk::FileDisk(String file, AccessType mode)
     : m_pFile(0), m_Mode(mode), m_Cache(), m_MemRegion("FileDisk"),
-      m_ReqMutex(false), m_nAlignPoints(0)
+      m_ReqMutex(), m_nAlignPoints(0)
 {
     m_pFile = VFS::instance().find(file);
     if (!m_pFile)
@@ -73,7 +73,11 @@ FileDisk::FileDisk(String file, AccessType mode)
 
 FileDisk::~FileDisk()
 {
-    m_pFile->decreaseRefCount(false);
+    m_Cache.shutdown();
+    if (m_pFile)
+    {
+        m_pFile->decreaseRefCount(false);
+    }
 }
 
 bool FileDisk::initialise()
@@ -101,6 +105,13 @@ uintptr_t FileDisk::read(uint64_t location)
     // Determine which page the read is in
     uint64_t readPage = ((location - alignPoint) & ~0xFFFUL) + alignPoint;
     uint64_t pageOffset = (location - alignPoint) % 4096;
+    const uint64_t fileSize = m_pFile->getSize();
+    if (
+        location >= fileSize || readPage >= fileSize ||
+        (fileSize - readPage) < FILEDISK_PAGE_SIZE)
+    {
+        return 0;
+    }
 
     uintptr_t buffer = m_Cache.lookup(readPage);
 
@@ -108,13 +119,22 @@ uintptr_t FileDisk::read(uint64_t location)
         return buffer + pageOffset;
 
     buffer = m_Cache.insert(readPage);
+    if (!buffer)
+        return 0;
 
     // Read the data from the file itself
-    m_pFile->read(readPage, 4096, buffer);
+    if (m_pFile->read(readPage, FILEDISK_PAGE_SIZE, buffer) !=
+        FILEDISK_PAGE_SIZE)
+    {
+        const bool discarded = m_Cache.discardEditing(readPage);
+        (void) discarded;
+        return 0;
+    }
 
     m_Cache.markNoLongerEditing(readPage);
 
-    return buffer + pageOffset;
+    buffer = m_Cache.lookup(readPage);
+    return buffer ? buffer + pageOffset : 0;
 }
 
 void FileDisk::write(uint64_t location)
@@ -128,8 +148,65 @@ void FileDisk::write(uint64_t location)
 
 void FileDisk::align(uint64_t location)
 {
+    LockGuard<Mutex> guard(m_ReqMutex);
+    for (size_t i = 0; i < m_nAlignPoints; ++i)
+    {
+        if (m_AlignPoints[i] == location)
+        {
+            return;
+        }
+    }
     assert(m_nAlignPoints < 8);
     m_AlignPoints[m_nAlignPoints++] = location;
+}
+
+size_t FileDisk::getSize() const
+{
+    return m_pFile ? m_pFile->getSize() : 0;
+}
+
+bool FileDisk::pin(uint64_t location)
+{
+    LockGuard<Mutex> guard(m_ReqMutex);
+
+    uint64_t alignPoint = 0;
+    for (size_t i = 0; i < m_nAlignPoints; i++)
+        if (m_AlignPoints[i] <= location && m_AlignPoints[i] > alignPoint)
+            alignPoint = m_AlignPoints[i];
+    alignPoint %= FILEDISK_PAGE_SIZE;
+
+    const uint64_t page =
+        ((location - alignPoint) & ~(FILEDISK_PAGE_SIZE - 1)) + alignPoint;
+    const uint64_t fileSize = m_pFile ? m_pFile->getSize() : 0;
+    if (
+        location >= fileSize || page >= fileSize ||
+        (fileSize - page) < FILEDISK_PAGE_SIZE)
+    {
+        return false;
+    }
+    return m_Cache.pin(page);
+}
+
+void FileDisk::unpin(uint64_t location)
+{
+    LockGuard<Mutex> guard(m_ReqMutex);
+
+    uint64_t alignPoint = 0;
+    for (size_t i = 0; i < m_nAlignPoints; i++)
+        if (m_AlignPoints[i] <= location && m_AlignPoints[i] > alignPoint)
+            alignPoint = m_AlignPoints[i];
+    alignPoint %= FILEDISK_PAGE_SIZE;
+
+    const uint64_t page =
+        ((location - alignPoint) & ~(FILEDISK_PAGE_SIZE - 1)) + alignPoint;
+    const uint64_t fileSize = m_pFile ? m_pFile->getSize() : 0;
+    if (
+        location >= fileSize || page >= fileSize ||
+        (fileSize - page) < FILEDISK_PAGE_SIZE)
+    {
+        return;
+    }
+    m_Cache.release(page);
 }
 
 static bool init()

@@ -32,6 +32,8 @@ UsbMassStorageDevice::UsbMassStorageDevice(UsbDevice *dev)
 
 UsbMassStorageDevice::~UsbMassStorageDevice()
 {
+    shutdownDiskCaches();
+    RequestQueue::destroy();
 }
 
 void UsbMassStorageDevice::initialiseDriver()

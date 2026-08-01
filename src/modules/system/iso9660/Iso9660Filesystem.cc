@@ -76,7 +76,12 @@ bool Iso9660Filesystem::initialise(Disk *pDisk)
     bool bFound = false;
     for (size_t i = 16; i < 256; i++)
     {
-        uintptr_t buff = m_pDisk->read(i * m_BlockSize);
+        const uint64_t diskLocation = i * m_BlockSize;
+        uintptr_t buff = m_pDisk->read(diskLocation);
+        if (!buff)
+        {
+            return false;
+        }
 
         // Get the descriptor for this entry
         Iso9660VolumeDescriptor *vDesc =
@@ -85,18 +90,21 @@ bool Iso9660Filesystem::initialise(Disk *pDisk)
                 reinterpret_cast<const char *>(vDesc->Ident), "CD001", 5) != 0)
         {
             NOTICE("IDENT: " << reinterpret_cast<const char *>(vDesc->Ident));
+            m_pDisk->unpin(diskLocation);
             return false;
         }
 
+        const uint8_t descriptorType = vDesc->Type;
+
         // Is this a primary descriptor?
-        if (vDesc->Type == PRIM_VOL_DESC)
+        if (descriptorType == PRIM_VOL_DESC)
         {
             MemoryCopy(
                 &m_PrimaryVolDesc, reinterpret_cast<uint8_t *>(buff),
                 sizeof(Iso9660VolumeDescriptorPrimary));
             bFound = true;
         }
-        else if (vDesc->Type == SUPP_VOL_DESC)
+        else if (descriptorType == SUPP_VOL_DESC)
         {
             MemoryCopy(
                 &m_SuppVolDesc, reinterpret_cast<uint8_t *>(buff),
@@ -119,7 +127,9 @@ bool Iso9660Filesystem::initialise(Disk *pDisk)
             else
                 NOTICE("Not handling Joliet level");
         }
-        else if (vDesc->Type == TERM_VOL_DESC)
+        m_pDisk->unpin(diskLocation);
+
+        if (descriptorType == TERM_VOL_DESC)
             break;
     }
 

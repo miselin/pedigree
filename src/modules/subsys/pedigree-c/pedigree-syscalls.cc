@@ -32,6 +32,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/eventNumbers.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/syscallError.h"
 
 #include "pedigree/kernel/ServiceManager.h"
@@ -579,12 +580,14 @@ void pedigree_gfx_setpalette(void *p, uint32_t *data, size_t entries)
     pProvider->pFramebuffer->setPalette(data, entries);
 }
 
-void pedigree_event_return()
+int pedigree_event_return()
 {
-    // Return to the old code
-    Processor::information().getScheduler().eventHandlerReturned();
-
-    FATAL("event_return: should never get here");
+    if (!SyscallManager::instance().requestEventReturn())
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    return 0;
 }
 
 void *pedigree_sys_request_mem(size_t len)

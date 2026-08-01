@@ -19,6 +19,7 @@
 
 #include "ScsiController.h"
 #include "ScsiDisk.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/new"
 
 ScsiController::ScsiController(Controller *pDev)
@@ -33,7 +34,41 @@ ScsiController::ScsiController() : RequestQueue(MakeConstantString("ScsiControll
     initialise();
 }
 
-ScsiController::~ScsiController() = default;
+ScsiController::~ScsiController()
+{
+    // Known controllers close this before retiring their disk caches. Keep the
+    // base teardown safe if a controller never reached that phase.
+    m_DiskOperations.closeAndWait();
+    RequestQueue::destroy();
+}
+
+bool ScsiController::acquireDiskOperation(
+    OperationBarrier::Lease &operation)
+{
+    return m_DiskOperations.tryAcquire(operation);
+}
+
+void ScsiController::shutdownDiskCaches()
+{
+    // No new client may publish queue work or acquire cache ownership after
+    // this point. Cache callbacks deliberately bypass this gate below.
+    m_DiskOperations.closeAndWait();
+
+    if (!RequestQueue::drain())
+    {
+        FATAL("SCSI controller could not drain work before cache shutdown");
+    }
+
+    for (size_t i = 0; i < getNumChildren(); ++i)
+    {
+        static_cast<ScsiDisk *>(getChild(i))->shutdownCache();
+    }
+
+    if (!RequestQueue::drain())
+    {
+        FATAL("SCSI controller cache shutdown left queued work behind");
+    }
+}
 
 void ScsiController::searchDisks()
 {
@@ -55,9 +90,24 @@ uint64_t ScsiController::executeRequest(
     if (p1 == SCSI_REQUEST_READ)
         return pDisk->doRead(p3);
     else if (p1 == SCSI_REQUEST_WRITE)
-        return pDisk->doWrite(p3);
+    {
+        uint64_t result = pDisk->doWrite(p3);
+        // write() transfers its cache pin to the request. Cancellation and
+        // successful execution must release that ownership symmetrically.
+        pDisk->unpin(p3);
+        return result;
+    }
     else if (p1 == SCSI_REQUEST_SYNC)
         return pDisk->doSync(p3);
     else
         return 0;
+}
+
+void ScsiController::cancelRequest(const Request &request)
+{
+    if (request.p1 == SCSI_REQUEST_WRITE && request.p2)
+    {
+        ScsiDisk *disk = reinterpret_cast<ScsiDisk *>(request.p2);
+        disk->unpin(request.p3);
+    }
 }

@@ -21,6 +21,7 @@
 #define USBHUB_H
 
 #include "modules/system/usb/Usb.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/process/Semaphore.h"
@@ -45,11 +46,31 @@ class EXPORTED_PUBLIC UsbHub : public Device
     /// Creates a new transaction with the given endpoint data
     virtual uintptr_t createTransaction(UsbEndpoint endpointInfo) = 0;
 
-    /// Performs a transaction asynchronously, calling the given callback on
-    /// completion
-    virtual void doAsync(
+    /**
+     * Performs a transaction asynchronously.
+     *
+     * Returning true transfers one completion obligation to the controller:
+     * it must call the callback exactly once, and only after it can no longer
+     * access any transfer buffer. Returning false guarantees that the callback
+     * was not and will not be called, and that the rejected transaction no
+     * longer owns controller or transfer-buffer state.
+     */
+    MUST_USE_RESULT virtual bool doAsync(
         uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t) = 0,
         uintptr_t pParam = 0) = 0;
+
+    /**
+     * Cancels an accepted transaction or drains a completion which won the
+     * race. On return, the matching callback has run exactly once and the
+     * controller can no longer access any transfer buffer.
+     *
+     * The callback and parameter identify the original transaction generation,
+     * preventing a stale numeric transaction handle from cancelling a reused
+     * controller slot.
+     */
+    virtual void cancelAsyncAndDrain(
+        uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
+        uintptr_t pParam) = 0;
 
     /// Adds a new handler for an interrupt IN transaction
     virtual void addInterruptInHandler(
@@ -65,6 +86,11 @@ class EXPORTED_PUBLIC UsbHub : public Device
     /// Performs a transaction, blocks until it's completed and returns the
     /// result
     ssize_t doSync(uintptr_t nTransaction, uint32_t timeout = 5000);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    /** Exercises callback ownership at the synchronous timeout boundary. */
+    static bool runHostedSyncOwnershipRegression();
+#endif
 
     /// Gets a UsbDevice from a given vendor:product pair
     // void getDeviceByIds(size_t vendor, size_t product, void
@@ -94,14 +120,16 @@ class EXPORTED_PUBLIC UsbHub : public Device
     /// Structure used synchronous transactions
     struct SyncParam
     {
-        inline SyncParam() : semaphore(0), nResult(-1), timedOut(false)
+        inline SyncParam() : semaphore(0), nResult(-1), owners(2)
         {
         }
 
+        ~SyncParam();
+        void releaseOwner();
+
         Semaphore semaphore;
         ssize_t nResult;
-
-        bool timedOut;
+        Atomic<size_t> owners;
     };
 
     /// Callback used by synchronous transactions

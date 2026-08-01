@@ -55,10 +55,33 @@ PosixSyscallManager::~PosixSyscallManager()
 {
 }
 
-void PosixSyscallManager::initialise()
+bool PosixSyscallManager::initialise()
 {
-    SyscallManager::instance().registerSyscallHandler(linuxCompat, this);
-    SyscallManager::instance().registerSyscallHandler(posix, this);
+    SyscallManager &manager = SyscallManager::instance();
+    if (
+        !manager.registerSyscallHandler(
+            linuxCompat, this, m_LinuxRegistration))
+    {
+        return false;
+    }
+    if (
+        !manager.registerSyscallHandler(
+            posix, this, m_PosixRegistration))
+    {
+        if (!m_LinuxRegistration.reset())
+        {
+            FATAL("POSIX syscall registration rollback failed.");
+        }
+        return false;
+    }
+    return true;
+}
+
+bool PosixSyscallManager::shutdown()
+{
+    const bool posixRetired = m_PosixRegistration.reset();
+    const bool linuxRetired = m_LinuxRegistration.reset();
+    return posixRetired && linuxRetired;
 }
 
 uintptr_t PosixSyscallManager::call(
@@ -163,9 +186,28 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_EXIT:
             // If not Linux mode, we exit the entire process. If Linux, just
             // the current thread (as glibc uses exit_group for "all process").
-            posix_exit(p1, state.getSyscallService() != linuxCompat);
+            if (state.getSyscallService() == linuxCompat)
+            {
+                if (!SyscallManager::instance().requestThreadExit())
+                {
+                    FATAL("POSIX thread exit was not dispatched.");
+                }
+            }
+            else if (
+                !SyscallManager::instance().requestProcessExit(
+                    static_cast<int>(p1)))
+            {
+                FATAL("POSIX process exit was not dispatched.");
+            }
+            return 0;
         case POSIX_EXIT_GROUP:
-            posix_exit(p1, true);
+            if (
+                !SyscallManager::instance().requestProcessExit(
+                    static_cast<int>(p1)))
+            {
+                FATAL("POSIX process-group exit was not dispatched.");
+            }
+            return 0;
         case POSIX_TCGETATTR:
             return posix_tcgetattr(p1, reinterpret_cast<struct termios *>(p2));
         case POSIX_TCSETATTR:
@@ -378,6 +420,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             if (state.getSyscallService() == linuxCompat)
             {
                 LinuxAmd64Signal::sigreturn(state);
+                return 0;
             }
 #endif
             return pedigree_sigret();
@@ -435,8 +478,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
                 static_cast<int>(p1), reinterpret_cast<struct statvfs *>(p2));
 
         case PEDIGREE_UNWIND_SIGNAL:
-            pedigree_unwind_signal();
-            return 0;
+            return pedigree_unwind_signal();
 
         case POSIX_MSYNC:
             return posix_msync(

@@ -17,9 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #ifndef LWIP_ARCH_SYS_ARCH_H
 #define LWIP_ARCH_SYS_ARCH_H
+
+#ifdef fcntl
+#define __fcntl_prev fcntl
+#undef fcntl
+#endif
 
 // All pointer types which redirect to C++ types in implementation.
 #if UTILITY_LINUX
@@ -31,5 +35,10 @@ typedef void *sys_sem_t;
 typedef void *sys_mutex_t;
 typedef struct pedigree_mbox *sys_mbox_t;
 typedef void *sys_thread_t;
+
+#ifdef __fcntl_prev
+#undef fcntl
+#define fcntl __fcntl_prev
+#endif
 
 #endif  // LWIP_ARCH_SYS_ARCH_H

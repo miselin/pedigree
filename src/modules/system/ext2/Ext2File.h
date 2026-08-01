@@ -56,7 +56,7 @@ class Ext2File : public File, public Ext2Node
     virtual uintptr_t readBlock(uint64_t location);
     virtual void writeBlock(uint64_t location, uintptr_t addr);
 
-    virtual void pinBlock(uint64_t location);
+    virtual bool pinBlock(uint64_t location);
     virtual void unpinBlock(uint64_t location);
 
     using File::sync;

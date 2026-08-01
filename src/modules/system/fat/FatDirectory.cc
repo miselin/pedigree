@@ -41,7 +41,7 @@ FatDirectory::FatDirectory(
           LITTLE_TO_HOST32(info.creationTime), inode_num,
           static_cast<Filesystem *>(pFs), LITTLE_TO_HOST32(0), pParent),
       m_DirClus(dirClus), m_DirOffset(dirOffset), m_Type(FAT16), m_BlockSize(0),
-      m_bRootDir(false), m_Lock(false), m_DirBlockSize(0)
+      m_bRootDir(false), m_Lock(), m_DirBlockSize(0)
 {
     uint32_t permissions = 0777;  /// \todo Permissions
 

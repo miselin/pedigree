@@ -27,8 +27,8 @@
 #include "pedigree/kernel/processor/Processor.h"
 
 String UnixFilesystem::m_VolumeLabel("unix");
-Mutex UnixFilesystem::m_NamespaceLock(false);
-Mutex UnixSocket::m_ConnectionLock(false);
+Mutex UnixFilesystem::m_NamespaceLock;
+Mutex UnixSocket::m_ConnectionLock;
 
 UnixSocketConnection::UnixSocketConnection()
     : m_FirstStream(MAX_UNIX_STREAM_QUEUE),
@@ -191,13 +191,13 @@ uint64_t UnixSocket::recvfrom(
         return 0;
     }
 
-    DatagramBuffer::ReadResult result = m_Datagrams.read();
-    if (result.hasError())
+    struct buf *b = nullptr;
+    DatagramBuffer::Error error = DatagramBuffer::NoError;
+    if (!m_Datagrams.read(b, error))
     {
         // TODO: set an error
         return 0;
     }
-    struct buf *b = result.value();
     if (size > b->len)
         size = b->len;
     MemoryCopy(reinterpret_cast<void *>(buffer), b->pBuffer, size);
@@ -259,7 +259,14 @@ uint64_t UnixSocket::writeBytewise(
         StringCopyN(b->remotePath, reinterpret_cast<char *>(location), 255);
         b->remotePathLen = StringLength(b->remotePath);
     }
-    m_Datagrams.write(b);
+    const DatagramBuffer::Error error = m_Datagrams.write(b);
+    if (error != DatagramBuffer::NoError)
+    {
+        delete[] b->remotePath;
+        delete[] b->pBuffer;
+        delete b;
+        return 0;
+    }
 
     dataChanged();
 
@@ -323,6 +330,11 @@ void UnixSocket::unbind()
     }
 
     N_NOTICE("UnixSocket::unbind");
+
+    if (m_Type == Datagram)
+    {
+        m_Datagrams.close();
+    }
 
     if (connection)
     {
@@ -444,6 +456,12 @@ UnixSocket *UnixSocket::getSocket(bool block)
 
 void UnixSocket::addWaiter(Semaphore *waiter, bool read, bool write)
 {
+    if (m_Type == Datagram)
+    {
+        m_Datagrams.monitor(waiter);
+        return;
+    }
+
     SharedPointer<UnixSocketConnection> connection;
     bool side = false;
     {
@@ -474,6 +492,12 @@ void UnixSocket::addWaiter(Semaphore *waiter, bool read, bool write)
 
 void UnixSocket::removeWaiter(Semaphore *waiter)
 {
+    if (m_Type == Datagram)
+    {
+        m_Datagrams.cullMonitorTargets(waiter);
+        return;
+    }
+
     SharedPointer<UnixSocketConnection> connection;
     {
         LockGuard<Mutex> guard(m_ConnectionLock);
@@ -491,6 +515,12 @@ void UnixSocket::removeWaiter(Semaphore *waiter)
 
 void UnixSocket::addWaiter(Thread *thread, Event *event)
 {
+    if (m_Type == Datagram)
+    {
+        m_Datagrams.monitor(thread, event);
+        return;
+    }
+
     SharedPointer<UnixSocketConnection> connection;
     {
         LockGuard<Mutex> guard(m_ConnectionLock);
@@ -508,6 +538,12 @@ void UnixSocket::addWaiter(Thread *thread, Event *event)
 
 void UnixSocket::removeWaiter(Event *event)
 {
+    if (m_Type == Datagram)
+    {
+        m_Datagrams.cullMonitorTargets(event);
+        return;
+    }
+
     SharedPointer<UnixSocketConnection> connection;
     {
         LockGuard<Mutex> guard(m_ConnectionLock);
@@ -641,7 +677,7 @@ void UnixSocket::setCreds()
 }
 
 UnixDirectory::UnixDirectory(const String &name, Filesystem *pFs, File *pParent)
-    : Directory(name, 0, 0, 0, 0, pFs, 0, pParent), m_Lock(false)
+    : Directory(name, 0, 0, 0, 0, pFs, 0, pParent), m_Lock()
 {
     cacheDirectoryContents();
 }

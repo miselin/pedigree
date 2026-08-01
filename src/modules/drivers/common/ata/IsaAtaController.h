@@ -62,6 +62,8 @@ class IsaAtaController
   private:
     IsaAtaController(const IsaAtaController &);
     void operator=(const IsaAtaController &);
+
+    irq_id_t m_IrqId;
 };
 
 #endif

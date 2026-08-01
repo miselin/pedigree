@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/CacheConstants.h"
@@ -89,6 +90,9 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk
     ScsiDisk();
     virtual ~ScsiDisk();
 
+    /** Drains cache callbacks while the disk/controller state is still live. */
+    void shutdownCache();
+
     bool initialise(class ScsiController *pController, size_t nUnit);
 
     virtual uintptr_t read(uint64_t location);
@@ -131,10 +135,31 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk
         return m_NativeBlockSize;
     }
 
-    virtual void pin(uint64_t location);
+    virtual bool pin(uint64_t location);
     virtual void unpin(uint64_t location);
 
   protected:
+    /**
+     * Size of one cache fill performed by this implementation.
+     *
+     * The generic path owns independently evictable native pages. A subclass
+     * may opt into a larger extent only when its doRead() handles partially
+     * populated extents page by page.
+     */
+    virtual size_t getCacheFillSize() const
+    {
+        return 4096;
+    }
+
+    /**
+     * Returns the full-page portion of an extent that is safe to transfer.
+     *
+     * The final extent of a device may be shorter than the preferred
+     * readahead size, but it must still satisfy both cache-page and device
+     * block alignment.
+     */
+    size_t getCacheFillLength(uint64_t location) const;
+
     Cache &getCache()
     {
         return m_Cache;
@@ -156,6 +181,12 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk
 
     bool getCapacityInternal(size_t *blockNumber, size_t *blockSize);
 
+    /** Writes a cache page without client-operation admission. */
+    void flushCachePage(uint64_t location);
+
+    /** Snapshots the most recent alignment boundary for a location. */
+    uint64_t getAlignmentPoint(uint64_t location) const;
+
     static void cacheCallback(
         CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
         void *meta);
@@ -166,6 +197,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk
     Cache m_Cache;
     Inquiry *m_Inquiry;
 
+    mutable Mutex m_AlignmentLock;
     uint64_t m_AlignPoints[8];
     size_t m_nAlignPoints;
 

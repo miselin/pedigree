@@ -27,6 +27,9 @@
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
+#include "pedigree/kernel/process/OwnedThread.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/state_forward.h"
@@ -143,6 +146,8 @@ class Ehci : public UsbHub,
 
             bool bIgnore;  /// Ignore this QH when iterating over the list -
                            /// don't look at any of its qTDs
+            Atomic<size_t> completionState;
+            ssize_t completionResult;
         } * pMetaData;
     } PACKED ALIGN(32);
 
@@ -156,7 +161,7 @@ class Ehci : public UsbHub,
         size_t nBytes);
     virtual uintptr_t createTransaction(UsbEndpoint endpointInfo);
 
-    virtual void doAsync(
+    MUST_USE_RESULT virtual bool doAsync(
         uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t) = 0,
         uintptr_t pParam = 0);
     virtual void addInterruptInHandler(
@@ -175,6 +180,10 @@ class Ehci : public UsbHub,
     virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
 
   protected:
+    virtual void cancelAsyncAndDrain(
+        uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
+        uintptr_t pParam);
+
     virtual uint64_t executeRequest(
         uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
         uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
@@ -223,6 +232,10 @@ class Ehci : public UsbHub,
 
     Mutex m_Mutex;
 
+    /** Serialises transaction completion with synchronous cancellation. */
+    Spinlock m_IrqProcessingLock;
+    /** Drains callbacks deferred from the IRQ to the dequeue worker. */
+    Spinlock m_CompletionDeliveryLock;
     Spinlock m_QueueListChangeLock;
 
     QH *m_pQHList;
@@ -246,6 +259,15 @@ class Ehci : public UsbHub,
     QH *m_pCurrentQueueHead;
 
     MemoryRegion m_EhciMR;
+
+    /** Persistent reclaim worker; destruction wakes and joins it. */
+    Semaphore m_DequeueCount;
+    Atomic<bool> m_DequeueStopping;
+    OwnedThread m_DequeueThread;
+
+    /** Closes and drains interrupt callbacks before controller teardown. */
+    OperationBarrier m_CallbackOperations;
+    irq_id_t m_IrqId;
 
     Ehci(const Ehci &);
     void operator=(const Ehci &);

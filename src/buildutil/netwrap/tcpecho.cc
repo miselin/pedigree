@@ -231,7 +231,7 @@ static int open_tun(const char *interface)
     return fd;
 }
 
-static Mutex tcpipInitPending(false);
+static Mutex tcpipInitPending;
 
 static void tcpipInitComplete(void *)
 {

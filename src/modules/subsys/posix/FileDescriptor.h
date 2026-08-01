@@ -50,8 +50,8 @@ class EXPORTED_PUBLIC FileDescriptor
     /// Pointer copy constructor
     FileDescriptor(FileDescriptor *desc);
 
-    /// Assignment operator implementation
-    FileDescriptor &operator=(FileDescriptor &desc);
+    /// Descriptors own registrations and references which cannot be replaced.
+    FileDescriptor &operator=(FileDescriptor &desc) = delete;
 
     /// Destructor - decreases file reference count
     virtual ~FileDescriptor();

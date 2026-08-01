@@ -31,8 +31,8 @@
 #include <pedigree/kernel/utilities/pocketknife.h>
 
 #if UTILITY_LINUX
-#include <time.h>
 #include <errno.h>
+#include <time.h>
 
 static Spinlock g_Protection(false);
 #else
@@ -87,6 +87,10 @@ sys_thread_t sys_thread_new(
     meta->thread = thread;
     meta->arg = arg;
     StringCopy(meta->name, name);
+    // The configured lwIP tcpip thread has no stop protocol and runs forever.
+    // Its detached lifetime therefore requires the lwIP module to remain
+    // loaded; dynamic unload first needs producer quiescence and a stop/join
+    // extension in tcpip.c.
     pocketknife::runConcurrently(thread_shim, meta);
     return meta;
 }
@@ -156,62 +160,71 @@ void sys_sem_signal(sys_sem_t *sem)
 u32_t sys_arch_sem_wait(sys_sem_t *sem, u32_t timeout)
 {
 #if UTILITY_LINUX
-    if (!timeout)
-    {
-        if (sem_wait(sem) == 0)
-        {
-            return ERR_OK;
-        }
-        else
-        {
-            return ERR_ARG;  /// \todo incorrect for many cases
-        }
-    }
+    struct timespec started = {};
+    clock_gettime(CLOCK_MONOTONIC, &started);
 
-    struct timespec now, spec;
-    clock_gettime(CLOCK_REALTIME, &now);
-
-    int r = 0;
+    int result = 0;
     if (timeout)
     {
-        u32_t s = timeout / 1000;
-        u32_t ms = timeout % 1000;
+        struct timespec deadline = {};
+        clock_gettime(CLOCK_REALTIME, &deadline);
+        deadline.tv_sec += timeout / 1000;
+        deadline.tv_nsec += (timeout % 1000) * 1000000;
+        if (deadline.tv_nsec >= 1000000000)
+        {
+            ++deadline.tv_sec;
+            deadline.tv_nsec -= 1000000000;
+        }
 
-        spec.tv_sec = now.tv_sec + s;
-        spec.tv_nsec = now.tv_nsec + (ms * 1000000);
-
-        r = sem_timedwait(sem, &spec);
-    }
-    else
-    {
-        r = sem_wait(sem);
-    }
-
-    clock_gettime(CLOCK_REALTIME, &spec);
-
-    if (r == 0)
-    {
-        uint64_t orig_ms = (now.tv_sec * 1000U) + (now.tv_nsec * 1000000U);
-        uint64_t waited_ms = (spec.tv_sec * 1000U) + (spec.tv_nsec * 1000000U);
-
-        // return time we had to wait for the semaphore
-        return waited_ms - orig_ms;
-    }
-    else
-    {
-        /// \todo figure out if there's some better errors for this
-        return SYS_ARCH_TIMEOUT;
-    }
+#ifdef __APPLE__
+        // TODO: this is very wrong, it's a HACK
+        result = sem_wait(sem);
 #else
-    Time::Timestamp begin = Time::getTimeNanoseconds();
+        do
+        {
+            result = sem_timedwait(sem, &deadline);
+        } while (result == -1 && errno == EINTR);
+#endif
+    }
+    else
+    {
+        do
+        {
+            result = sem_wait(sem);
+        } while (result == -1 && errno == EINTR);
+    }
+
+    if (result == 0)
+    {
+        struct timespec completed = {};
+        clock_gettime(CLOCK_MONOTONIC, &completed);
+        const uint64_t startedNs =
+            (static_cast<uint64_t>(started.tv_sec) * 1000000000ULL) +
+            started.tv_nsec;
+        const uint64_t completedNs =
+            (static_cast<uint64_t>(completed.tv_sec) * 1000000000ULL) +
+            completed.tv_nsec;
+        return (completedNs - startedNs) / 1000000ULL;
+    }
+
+    return SYS_ARCH_TIMEOUT;
+#else
+    const Time::Timestamp begin = Time::getTicks();
 
     Semaphore *s = reinterpret_cast<Semaphore *>(*sem);
-    if (!s->acquire(1, timeout * 1000))  // ms -> us
+    const size_t timeoutSecs = timeout / 1000;
+    const size_t timeoutUsecs = (timeout % 1000) * 1000;
+
+    // lwIP has no interrupted-semaphore result, and many callers keep a
+    // stack-owned request alive until this wait completes. Defer a signal to
+    // the surrounding syscall boundary instead of misreporting it as timeout
+    // and abandoning that request.
+    if (!s->acquireForCompletion(1, timeoutSecs, timeoutUsecs))
     {
         return SYS_ARCH_TIMEOUT;
     }
 
-    Time::Timestamp end = Time::getTimeNanoseconds();
+    const Time::Timestamp end = Time::getTicks();
     return (end - begin) / Time::Multiplier::Millisecond;
 #endif
 }
@@ -224,7 +237,14 @@ err_t sys_mbox_new(sys_mbox_t *mbox, int size)
 
 void sys_mbox_free(sys_mbox_t *mbox)
 {
-    delete *mbox;
+    pedigree_mbox *mailbox = *mbox;
+    if (!mailbox)
+    {
+        return;
+    }
+
+    mailbox->buffer.close();
+    delete mailbox;
     *mbox = nullptr;
 }
 
@@ -243,15 +263,18 @@ u32_t sys_arch_mbox_tryfetch(sys_mbox_t *mbox, void **msg)
         return SYS_MBOX_EMPTY;
     }
 
-    RingBuffer<void *>::ReadResult result = (*mbox)->buffer.read();
-    if (result.hasError())
+    void *value = nullptr;
+    RingBuffer<void *>::Error error = RingBuffer<void *>::NoError;
+    if (!(*mbox)->buffer.read(value, error))
     {
         // TODO: what error?
-        ERROR("sys_arch_mbox_tryfetch: read() failed after dataReady() returned true");
+        ERROR(
+            "sys_arch_mbox_tryfetch: read() failed after dataReady() returned "
+            "true");
         return SYS_MBOX_EMPTY;
     }
 
-    *msg = result.value();
+    *msg = value;
     return 0;
 }
 
@@ -269,14 +292,15 @@ u32_t sys_arch_mbox_fetch(sys_mbox_t *mbox, void **msg, u32_t timeout)
         timeoutMs = timeout * Time::Multiplier::Millisecond;
     }
 
-    RingBuffer<void *>::ReadResult result = (*mbox)->buffer.read(timeoutMs);
-    if (result.hasError())
+    void *value = nullptr;
+    RingBuffer<void *>::Error error = RingBuffer<void *>::NoError;
+    if (!(*mbox)->buffer.read(value, timeoutMs, error))
     {
         // TODO: check the specific error
         return SYS_ARCH_TIMEOUT;
     }
 
-    *msg = result.value();
+    *msg = value;
 
     Time::Timestamp end = Time::getTimeNanoseconds();
     return (end - begin) / Time::Multiplier::Millisecond;

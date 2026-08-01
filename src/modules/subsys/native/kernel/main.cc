@@ -19,17 +19,22 @@
 
 #include "NativeSyscallManager.h"
 #include "modules/Module.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 
 static NativeSyscallManager g_NativeSyscallManager;
 
 static bool init()
 {
-    g_NativeSyscallManager.initialise();
-    return true;
+    return g_NativeSyscallManager.initialise();
 }
 
 static void destroy()
 {
+    if (!g_NativeSyscallManager.shutdown())
+    {
+        FATAL("Native syscall handler could not be retired safely.");
+    }
 }
 
 MODULE_INFO("native", &init, &destroy);

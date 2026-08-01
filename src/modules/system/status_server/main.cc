@@ -21,14 +21,19 @@
 #include "modules/system/network-stack/NetworkStack.h"
 #include "modules/system/vfs/Filesystem.h"
 #include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/Completion.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 #include "modules/system/lwip/include/lwip/api.h"
@@ -37,20 +42,24 @@
 
 #define LISTEN_PORT 1234
 
-static Tree<struct netconn *, Mutex *> g_Netconns;
+static Tree<struct netconn *, Completion *> g_Netconns;
+static Spinlock g_NetconnsLock;
 
-static bool g_Running = false;
+static Atomic<bool> g_Running(false);
 static Thread *g_pServerThread = nullptr;
+static List<Thread *> g_ClientThreads;
 
 static void
 netconnCallback(struct netconn *conn, enum netconn_evt evt, u16_t len)
 {
-    Mutex *mutex = g_Netconns.lookup(conn);
-    if (mutex && (evt == NETCONN_EVT_RCVPLUS || evt == NETCONN_EVT_SENDPLUS ||
-                  evt == NETCONN_EVT_ERROR))
+    LockGuard<Spinlock> guard(g_NetconnsLock);
+    Completion *completion = g_Netconns.lookup(conn);
+    if (
+        completion &&
+        (evt == NETCONN_EVT_RCVPLUS || evt == NETCONN_EVT_SENDPLUS ||
+         evt == NETCONN_EVT_ERROR))
     {
-        // wake up waiter, positive event
-        mutex->release();
+        completion->complete();
     }
 }
 
@@ -59,8 +68,13 @@ static int clientThread(void *p)
     if (!p)
         return 0;
 
+    // Connection teardown, callback deregistration, and netconn deletion are
+    // one lifetime unit. A terminal request may interrupt its waits, but must
+    // return through this function's cleanup.
+    TerminationDeferral clientLifetime;
     struct netconn *connection = reinterpret_cast<struct netconn *>(p);
     connection->callback = netconnCallback;
+    netconn_set_recvtimeout(connection, 500);
 
     bool stillOk = true;
     bool requestComplete = false;
@@ -68,7 +82,7 @@ static int clientThread(void *p)
     String httpRequest;
     String httpResponse;
     err_t err;
-    while (!requestComplete)
+    while (g_Running && !requestComplete)
     {
         struct netbuf *buf = nullptr;
         if ((err = netconn_recv(connection, &buf)) != ERR_OK)
@@ -78,6 +92,10 @@ static int clientThread(void *p)
                 WARNING("Unexpected disconnection from remote client.");
                 stillOk = false;
                 break;
+            }
+            else if (err == ERR_TIMEOUT)
+            {
+                continue;
             }
             else
             {
@@ -349,8 +367,13 @@ static int clientThread(void *p)
             "(KiB)</th><th>Shared Memory (KiB)</th>";
         for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
         {
+            Scheduler::ProcessLease processLease;
+            if (!Scheduler::instance().acquireProcess(processLease, i))
+            {
+                continue;
+            }
             responseContent += "<tr>";
-            Process *pProcess = Scheduler::instance().getProcess(i);
+            Process *pProcess = processLease.get();
             HugeStaticString str;
 
             ssize_t virtK = (pProcess->getVirtualPageCount() * 0x1000) / 1024;
@@ -388,9 +411,14 @@ static int clientThread(void *p)
     httpResponse += "\r\n\r\n";
     httpResponse += responseContent;
 
-    Mutex *mutex = new Mutex(true);
+    // The callback retains a pointer into this stack. The outer lifetime scope
+    // keeps it valid until registration is removed under the callback lock.
+    Completion completion;
 
-    g_Netconns.insert(connection, mutex);
+    {
+        LockGuard<Spinlock> guard(g_NetconnsLock);
+        g_Netconns.insert(connection, &completion);
+    }
 
     /// \todo error handling
     netconn_write(
@@ -398,15 +426,55 @@ static int clientThread(void *p)
         httpResponse.length(), 0);
     netconn_close(connection);
 
-    while (!mutex->acquire())
-        ;
+    bool completed = completion.wait();
 
-    g_Netconns.remove(connection);
+    {
+        // Serialising removal with the callback ensures it has finished using
+        // the stack-backed completion before this function returns.
+        LockGuard<Spinlock> guard(g_NetconnsLock);
+        g_Netconns.remove(connection);
+    }
 
     // Connection closed cleanly, delete our netconn now.
     netconn_delete(connection);
 
-    return 0;
+    return completed ? 0 : -1;
+}
+
+static void reapClientThreads(bool terminate)
+{
+    while (true)
+    {
+        Thread *client = nullptr;
+        for (List<Thread *>::Iterator it = g_ClientThreads.begin();
+             it != g_ClientThreads.end(); ++it)
+        {
+            if (
+                terminate ||
+                (*it)->getStatus() == Thread::AwaitingJoin)
+            {
+                client = *it;
+                g_ClientThreads.erase(it);
+                break;
+            }
+        }
+
+        if (!client)
+        {
+            return;
+        }
+
+        if (
+            terminate &&
+            client->getStatus() != Thread::AwaitingJoin)
+        {
+            client->setUnwindState(Thread::TerminateThread);
+        }
+        if (!client->joinForCompletion())
+        {
+            FATAL("Status Server could not retire an owned client thread.");
+        }
+    }
 }
 
 static int mainThread(void *)
@@ -424,16 +492,18 @@ static int mainThread(void *)
 
     netconn_listen(server);
 
-    g_Running = true;
     while (g_Running)
     {
+        reapClientThreads(false);
+
         struct netconn *connection;
         if (netconn_accept(server, &connection) == ERR_OK)
         {
             Thread *pThread = new Thread(
                 Processor::information().getCurrentThread()->getParent(),
                 clientThread, connection);
-            pThread->detach();
+            pThread->setName("Status Server client thread");
+            g_ClientThreads.pushBack(pThread);
         }
     }
 
@@ -445,6 +515,7 @@ static int mainThread(void *)
 
 static bool init()
 {
+    g_Running = true;
     g_pServerThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), mainThread,
         nullptr);
@@ -454,12 +525,16 @@ static bool init()
 
 static void destroy()
 {
-    /// \todo need to stop the listen thread's accept() call somehow
     g_Running = false;
     if (g_pServerThread)
     {
-        g_pServerThread->join();
+        if (!g_pServerThread->joinForCompletion())
+        {
+            FATAL("Status Server could not retire its listener thread.");
+        }
+        g_pServerThread = nullptr;
     }
+    reapClientThreads(true);
 }
 
 MODULE_INFO("Status Server", &init, &destroy, "config", "lwip", "network-stack");

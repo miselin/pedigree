@@ -26,7 +26,6 @@
 #include <memory>
 
 #include <benchmark/benchmark.h>
-#include <valgrind/callgrind.h>
 
 #include "modules/system/ramfs/RamFs.h"
 #include "modules/system/vfs/VFS.h"
@@ -840,12 +839,10 @@ static void BM_VFSShallowDirectoryTraverse(benchmark::State &state)
     VFS vfs;
     auto ramfs = prepareVFS(vfs);
 
-    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(vfs.find(g_ShallowPath));
     }
-    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
 
@@ -857,12 +854,10 @@ static void BM_VFSMediumDirectoryTraverse(benchmark::State &state)
     VFS vfs;
     auto ramfs = prepareVFS(vfs);
 
-    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(vfs.find(g_MiddlePath));
     }
-    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
 
@@ -874,12 +869,10 @@ static void BM_VFSDeepDirectoryTraverse(benchmark::State &state)
     VFS vfs;
     auto ramfs = prepareVFS(vfs);
 
-    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(vfs.find(g_DeepPath));
     }
-    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
 
@@ -891,12 +884,10 @@ static void BM_VFSRandomDirectoryTraverse(benchmark::State &state)
     VFS vfs;
     auto ramfs = prepareVFS(vfs);
 
-    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(vfs.find(randomPath()));
     }
-    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
 
@@ -908,12 +899,10 @@ static void BM_VFSShallowDirectoryTraverseNoFs(benchmark::State &state)
     VFS vfs;
     auto ramfs = prepareVFS(vfs);
 
-    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(vfs.find(g_ShallowPathNoFs, ramfs->getRoot()));
     }
-    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
 
@@ -925,12 +914,10 @@ static void BM_VFSMediumDirectoryTraverseNoFs(benchmark::State &state)
     VFS vfs;
     auto ramfs = prepareVFS(vfs);
 
-    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(vfs.find(g_MiddlePathNoFs, ramfs->getRoot()));
     }
-    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
 
@@ -942,12 +929,10 @@ static void BM_VFSDeepDirectoryTraverseNoFs(benchmark::State &state)
     VFS vfs;
     auto ramfs = prepareVFS(vfs);
 
-    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
         benchmark::DoNotOptimize(vfs.find(g_DeepPathNoFs, ramfs->getRoot()));
     }
-    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
 
@@ -959,14 +944,14 @@ static void BM_VFSRandomDirectoryTraverseNoFs(benchmark::State &state)
     VFS vfs;
     auto ramfs = prepareVFS(vfs);
 
-    CALLGRIND_START_INSTRUMENTATION;
     while (state.KeepRunning())
     {
         /// \todo VFS::find() should be able to accept a StringView
         StringView thisPath = randomPath().view();
-        benchmark::DoNotOptimize(vfs.find(thisPath.substring(7, thisPath.length()).toString(), ramfs->getRoot()));
+        benchmark::DoNotOptimize(vfs.find(
+            thisPath.substring(7, thisPath.length()).toString(),
+            ramfs->getRoot()));
     }
-    CALLGRIND_STOP_INSTRUMENTATION;
 
     state.SetItemsProcessed(int64_t(state.iterations()));
 

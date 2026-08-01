@@ -35,8 +35,6 @@
 
 #include <fcntl.h>
 
-typedef Tree<size_t, FileDescriptor *> FdMap;
-
 int posix_pipe(int filedes[2])
 {
     return posix_pipe2(filedes, 0);

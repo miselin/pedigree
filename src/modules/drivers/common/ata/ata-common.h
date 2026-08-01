@@ -25,6 +25,7 @@
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
 
 typedef union
 {
@@ -527,6 +528,11 @@ inline void ataLoadSwapped(char *out, const uint16_t *in16, size_t N)
 /// Performs a proper wait for the drive to become ready as per the ATA spec
 inline AtaStatus ataWait(IoBase *pBase, IoBase *pControl)
 {
+    const Time::Timestamp started = Time::getTicks();
+    const Time::Timestamp timeout = 10 * Time::Multiplier::Second;
+    const size_t maximumPolls = 10000000;
+    size_t polls = 0;
+
     // Wait 400ns before reading the status register.
     if (pControl)
     {
@@ -547,6 +553,14 @@ inline AtaStatus ataWait(IoBase *pBase, IoBase *pControl)
     // register are considered valid.
     while (status & 0x80)
     {
+        if (++polls >= maximumPolls ||
+            (Time::getTicks() - started) >= timeout)
+        {
+            ERROR(
+                "ATA: timed out waiting for BSY to clear, status=" << status);
+            status |= 0x01;
+            break;
+        }
         Processor::pause();
         status = pBase->read8(7);
     }
@@ -562,6 +576,15 @@ inline AtaStatus ataWait(IoBase *pBase, IoBase *pControl)
     {
         while (!(status & 0x41))
         {
+            if (++polls >= maximumPolls ||
+                (Time::getTicks() - started) >= timeout)
+            {
+                ERROR(
+                    "ATA: timed out waiting for DRQ, DRDY, or ERR, status="
+                    << status);
+                status |= 0x01;
+                break;
+            }
             Processor::pause();
             status = pBase->read8(7);
 

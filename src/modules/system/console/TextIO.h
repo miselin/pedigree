@@ -21,9 +21,11 @@
 #define TEXTIO_H
 
 #include "modules/system/vfs/File.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
@@ -230,7 +232,7 @@ class EXPORTED_PUBLIC TextIO : public File
         bool hidden;
     } VgaCell;
 
-    bool m_bInitialised;
+    Atomic<bool> m_bInitialised;
     bool m_bControlSeq;
     bool m_bBracket;
     bool m_bParenthesis;
@@ -294,6 +296,7 @@ class EXPORTED_PUBLIC TextIO : public File
     /**
      * Running flip thread for things like the cursor blinking.
      */
+    Semaphore m_FlipWake;
     Thread *m_pFlipThread;
 
     /**

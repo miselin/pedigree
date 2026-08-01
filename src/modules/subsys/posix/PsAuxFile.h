@@ -20,6 +20,7 @@
 #ifndef _POSIX_PSAUXFILE_H
 #define _POSIX_PSAUXFILE_H
 
+#include "modules/drivers/x86/ps2mouse/Ps2MouseCallbackRegistry.h"
 #include "modules/system/vfs/File.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 
@@ -28,17 +29,15 @@ class PsAuxFile : public File
   public:
     PsAuxFile(
         String str, size_t inode, Filesystem *pParentFS, File *pParentNode)
-        : File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode), m_Lock(false),
-          m_Buffer(1024)
+        : File(str, 0, 0, 0, inode, pParentFS, 0, pParentNode), m_Lock(),
+          m_Buffer(1024), m_MouseRegistration()
     {
         setPermissionsOnly(
             FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR | FILE_OW);
         setUidOnly(0);
         setGidOnly(0);
     }
-    ~PsAuxFile()
-    {
-    }
+    ~PsAuxFile();
 
     bool initialise();
 
@@ -54,6 +53,7 @@ class PsAuxFile : public File
   private:
     Mutex m_Lock;
     Buffer<uint8_t> m_Buffer;
+    Ps2MouseCallbackRegistry::Registration m_MouseRegistration;
 
     static void subscriber(void *param, const void *buffer, size_t len);
 

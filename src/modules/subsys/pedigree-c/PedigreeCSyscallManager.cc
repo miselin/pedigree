@@ -22,6 +22,8 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/String.h"
 
 #include "PedigreeCSyscallManager.h"
 #include "pedigreecSyscallNumbers.h"
@@ -37,10 +39,21 @@ PedigreeCSyscallManager::~PedigreeCSyscallManager()
 {
 }
 
-void PedigreeCSyscallManager::initialise()
+bool PedigreeCSyscallManager::initialise()
 {
-    SyscallManager::instance().registerSyscallHandler(pedigree_c, this);
+    if (
+        !SyscallManager::instance().registerSyscallHandler(
+            pedigree_c, this, m_Registration))
+    {
+        return false;
+    }
     pedigree_config_init();
+    return true;
+}
+
+bool PedigreeCSyscallManager::shutdown()
+{
+    return m_Registration.reset();
 }
 
 uintptr_t PedigreeCSyscallManager::call(
@@ -125,8 +138,26 @@ uintptr_t PedigreeCSyscallManager::syscall(SyscallState &state)
             pedigree_module_load(reinterpret_cast<char *>(p1));
             return 0;
         case PEDIGREE_MODULE_UNLOAD:
-            pedigree_module_unload(reinterpret_cast<char *>(p1));
+        {
+            if (!p1)
+            {
+                SYSCALL_ERROR(InvalidArgument);
+                return -1;
+            }
+
+            // KernelElf must not invoke this module's exit routine while its
+            // syscall handler is still pinned on the current stack.
+            String moduleName(reinterpret_cast<const char *>(p1));
+            if (moduleName.compare("pedigree-c"))
+            {
+                SYSCALL_ERROR(DeviceBusy);
+                return -1;
+            }
+
+            pedigree_module_unload(
+                const_cast<char *>(moduleName.cstr()));
             return 0;
+        }
         case PEDIGREE_MODULE_IS_LOADED:
             return pedigree_module_is_loaded(reinterpret_cast<char *>(p1));
         case PEDIGREE_MODULE_GET_DEPENDING:
@@ -203,7 +234,7 @@ uintptr_t PedigreeCSyscallManager::syscall(SyscallState &state)
             pedigree_input_inhibit_events(p1);
             return 0;
         case PEDIGREE_EVENT_RETURN:
-            pedigree_event_return();
+            return pedigree_event_return();
         case PEDIGREE_SYS_REQUEST_MEM:
             return reinterpret_cast<uintptr_t>(pedigree_sys_request_mem(p1));
         case PEDIGREE_HALTFS:

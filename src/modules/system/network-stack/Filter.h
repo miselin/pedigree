@@ -20,10 +20,13 @@
 #ifndef NETWORK_STACK_FILTER_H
 #define NETWORK_STACK_FILTER_H
 
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
-#include "pedigree/kernel/utilities/Tree.h"
+
+class Thread;
 
 /** Provides an interface for filtering network packets as they come in to
  * the system. */
@@ -68,11 +71,44 @@ class EXPORTED_PUBLIC NetworkFilter
     /** Removes a callback for a specific level. */
     void removeCallback(size_t level, size_t id);
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using CallbackPinHook = void (*)(bool (*)(uintptr_t, size_t), size_t);
+    static void setCallbackPinHook(CallbackPinHook hook);
+#endif
+
   private:
+    struct CallbackItem
+    {
+        size_t id;
+        bool (*callback)(uintptr_t, size_t);
+        size_t inFlight;
+        size_t removers;
+        bool enabled;
+        bool draining;
+        bool deferredRemoval;
+        WaitQueue drainWaiters;
+    };
+
+    struct ActiveInvocation
+    {
+        CallbackItem *item;
+        Thread *thread;
+        ActiveInvocation *next;
+    };
+
+    void drainCallback(size_t level, CallbackItem *item);
+    bool isSelfRemoval(CallbackItem *item, Thread *thread) const;
+
     static NetworkFilter m_Instance;
 
-    /// Level -> Callback list mapping
-    Tree<size_t, List<void *> *> m_Callbacks;
+    List<CallbackItem *> m_Callbacks[4];
+    Spinlock m_Lock;
+    size_t m_NextCallbackId;
+    ActiveInvocation *m_pActiveInvocations;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    static CallbackPinHook m_CallbackPinHook;
+#endif
 };
 
 #endif  // NETWORK_STACK_FILTER_H

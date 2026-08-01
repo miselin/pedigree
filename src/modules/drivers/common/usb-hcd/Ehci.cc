@@ -41,6 +41,7 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -50,6 +51,8 @@
 #define INDEX_FROM_QTD(ptr) \
     (((reinterpret_cast<uintptr_t>((ptr)) & 0xFFF) / sizeof(qTD)))
 #define PHYS_QTD(idx) (m_pqTDListPhys + ((idx) * sizeof(qTD)))
+
+static int threadStub(void *p);
 
 #define GET_PAGE(param, page, qhIndex)                              \
     do                                                              \
@@ -80,7 +83,10 @@
 
 Ehci::Ehci(Device *pDev)
     : UsbHub(pDev), RequestQueue(MakeConstantString("EHCI")),
-      m_pCurrentQueueTail(0), m_pCurrentQueueHead(0), m_EhciMR("Ehci-MR")
+      m_IrqProcessingLock(), m_CompletionDeliveryLock(),
+      m_pCurrentQueueTail(0), m_pCurrentQueueHead(0), m_EhciMR("Ehci-MR"),
+      m_DequeueCount(0), m_DequeueStopping(false), m_DequeueThread(),
+      m_CallbackOperations(), m_IrqId(0)
 {
     setSpecificType(String("EHCI"));
 }
@@ -262,7 +268,8 @@ bool Ehci::initialiseController()
 
 // Install the IRQ handler
 #if X86_COMMON
-    Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
+    m_IrqId =
+        Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
 #else
     InterruptManager::instance().registerInterruptHandler(
         getInterruptNumber(), this);
@@ -339,6 +346,11 @@ bool Ehci::initialiseController()
     // Set up the RequestQueue
     initialise();
 
+    m_DequeueThread.adopt(new Thread(
+        Processor::information().getCurrentThread()->getParent(), threadStub,
+        reinterpret_cast<void *>(this)));
+    m_DequeueThread->setName("EHCI dequeue");
+
     // Take over the ports
     m_pBase->write32(1, m_nOpRegsOffset + EHCI_CFGFLAG);
 
@@ -403,6 +415,26 @@ bool Ehci::initialiseController()
 
 Ehci::~Ehci()
 {
+    m_CallbackOperations.close();
+#if X86_COMMON
+    if (m_IrqId)
+    {
+        if (!Machine::instance().getIrqManager()->unregisterHandler(
+                m_IrqId, this))
+        {
+            FATAL(
+                "EHCI teardown could not synchronously unregister its IRQ "
+                "callback");
+        }
+        m_IrqId = 0;
+    }
+#endif
+    m_CallbackOperations.wait();
+
+    m_DequeueStopping = true;
+    m_DequeueCount.release();
+    m_DequeueThread.stop();
+    RequestQueue::destroy();
 }
 
 static int threadStub(void *p)
@@ -412,67 +444,117 @@ static int threadStub(void *p)
     return 0;
 }
 
+namespace
+{
+struct EhciDeferredCompletion
+{
+    void (*callback)(uintptr_t, ssize_t);
+    uintptr_t parameter;
+    ssize_t result;
+};
+}  // namespace
+
 void Ehci::doDequeue()
 {
-    // Absolutely cannot have queue insetions during a dequeue
-    LockGuard<Mutex> guard(m_Mutex);
-
-    for (size_t i = 1; i < 0x2000 / sizeof(QH); i++)
+    TerminationDeferral workerLifetime;
+    while (true)
     {
-        if (!m_QHBitmap.test(i))
-            continue;
+        const bool woken = m_DequeueCount.acquireForCompletion();
+        (void) woken;
+        if (m_DequeueStopping)
+            return;
 
-        QH *pQH = &m_pQHList[i];
-
-        // Is this QH valid?
-        if (!pQH->pMetaData)
+        List<EhciDeferredCompletion> completions;
+        bool ownsDelivery = false;
         {
+            // Absolutely cannot have queue insertions during a dequeue.
+            LockGuard<Mutex> guard(m_Mutex);
+
+            for (size_t i = 1; i < 0x2000 / sizeof(QH); i++)
+            {
+                if (!m_QHBitmap.test(i))
+                    continue;
+
+                QH *pQH = &m_pQHList[i];
+
+                // Is this QH valid?
+                if (!pQH->pMetaData)
+                {
 #ifdef USB_VERBOSE_DEBUG
-            DEBUG_LOG(
-                "Not performing dequeue on QH #"
-                << Dec << i << Hex << " as it's not even initialised.");
+                    DEBUG_LOG(
+                        "Not performing dequeue on QH #"
+                        << Dec << i << Hex << " as it's not even initialised.");
 #endif
-            continue;
+                    continue;
+                }
+
+                // Is this QH even linked!?
+                if (!pQH->pMetaData->bIgnore)
+                {
+#ifdef USB_VERBOSE_DEBUG
+                    DEBUG_LOG(
+                        "Not performing dequeue on QH #"
+                        << Dec << i << Hex << " as it's still active.");
+#endif
+                    continue;
+                }
+
+                if (pQH->pMetaData->pCallback)
+                {
+                    EhciDeferredCompletion completion = {
+                        pQH->pMetaData->pCallback, pQH->pMetaData->pParam,
+                        pQH->pMetaData->completionResult};
+                    completions.pushBack(completion);
+                    pQH->pMetaData->pCallback = nullptr;
+                }
+
+                // Remove all qTDs
+                size_t nQTDIndex = INDEX_FROM_QTD(pQH->pMetaData->pFirstQTD);
+                while (true)
+                {
+                    m_qTDBitmap.clear(nQTDIndex);
+
+                    qTD *pqTD = &m_pqTDList[nQTDIndex];
+                    bool shouldBreak = pqTD->bNextInvalid;
+                    if (!shouldBreak)
+                        nQTDIndex =
+                            ((pqTD->pNext << 5) & 0xFFF) / sizeof(qTD);
+
+                    ByteSet(pqTD, 0, sizeof(qTD));
+
+                    if (shouldBreak)
+                        break;
+                }
+
+                // Completely invalidate the QH
+                delete pQH->pMetaData;
+                ByteSet(pQH, 0, sizeof(QH));
+
+#ifdef USB_VERBOSE_DEBUG
+                DEBUG_LOG("Dequeue for QH #" << Dec << i << Hex << ".");
+#endif
+
+                // This QH is done
+                m_QHBitmap.clear(i);
+            }
+
+            if (completions.count())
+            {
+                // Claim delivery before publishing the cleared transaction
+                // slots. A racing cancellation which observes a cleared slot
+                // must then wait behind the callback, never overtake it.
+                m_CompletionDeliveryLock.acquire();
+                ownsDelivery = true;
+            }
         }
 
-        // Is this QH even linked!?
-        if (!pQH->pMetaData->bIgnore)
+        while (completions.count())
         {
-#ifdef USB_VERBOSE_DEBUG
-            DEBUG_LOG(
-                "Not performing dequeue on QH #" << Dec << i << Hex
-                                                 << " as it's still active.");
-#endif
-            continue;
+            EhciDeferredCompletion completion = completions.popFront();
+            completion.callback(completion.parameter, completion.result);
         }
-
-        // Remove all qTDs
-        size_t nQTDIndex = INDEX_FROM_QTD(pQH->pMetaData->pFirstQTD);
-        while (true)
-        {
-            m_qTDBitmap.clear(nQTDIndex);
-
-            qTD *pqTD = &m_pqTDList[nQTDIndex];
-            bool shouldBreak = pqTD->bNextInvalid;
-            if (!shouldBreak)
-                nQTDIndex = ((pqTD->pNext << 5) & 0xFFF) / sizeof(qTD);
-
-            ByteSet(pqTD, 0, sizeof(qTD));
-
-            if (shouldBreak)
-                break;
-        }
-
-        // Completely invalidate the QH
-        delete pQH->pMetaData;
-        ByteSet(pQH, 0, sizeof(QH));
-
-#ifdef USB_VERBOSE_DEBUG
-        DEBUG_LOG("Dequeue for QH #" << Dec << i << Hex << ".");
-#endif
-
-        // This QH is done
-        m_QHBitmap.clear(i);
+        if (ownsDelivery)
+            m_CompletionDeliveryLock.release();
     }
 }
 
@@ -482,6 +564,17 @@ bool Ehci::irq(irq_id_t number, InterruptState &state)
 void Ehci::interrupt(size_t number, InterruptState &state)
 #endif
 {
+    OperationBarrier::Lease callback;
+    if (!m_CallbackOperations.tryAcquire(callback))
+    {
+        return
+#if X86_COMMON
+            false
+#endif
+            ;
+    }
+    LockGuard<Spinlock> transactionGuard(m_IrqProcessingLock);
+
     /*
     uint32_t pciStatus = PciBus::instance().readConfigSpace(this, 1) >> 16;
     if(!(pciStatus & 8))
@@ -611,14 +704,15 @@ void Ehci::interrupt(size_t number, InterruptState &state)
                     // Last qTD or error condition?
                     if ((nResult < 0) || (pqTD == pQH->pMetaData->pLastQTD))
                     {
-                        // Valid callback?
-                        if (pQH->pMetaData->pCallback)
-                            pQH->pMetaData->pCallback(
-                                pQH->pMetaData->pParam,
-                                nResult < 0 ? nResult :
-                                              pQH->pMetaData->nTotalBytes);
+                        const ssize_t completionResult =
+                            nResult < 0 ? nResult :
+                                          pQH->pMetaData->nTotalBytes;
+                        const bool ownsCompletion =
+                            bPeriodic ||
+                            pQH->pMetaData->completionState.compareAndSwap(
+                                1, 2);
 
-                        if (!bPeriodic)
+                        if (!bPeriodic && ownsCompletion)
                         {
                             // Ensure the list doesn't change as we modify it
                             m_QueueListChangeLock
@@ -657,8 +751,16 @@ void Ehci::interrupt(size_t number, InterruptState &state)
 
                             // Now ready for dequeue.
                             pQH->pMetaData->bIgnore = true;
+                            pQH->pMetaData->completionResult =
+                                completionResult;
 
                             m_QueueListChangeLock.release();
+                        }
+
+                        if (bPeriodic && pQH->pMetaData->pCallback)
+                        {
+                            pQH->pMetaData->pCallback(
+                                pQH->pMetaData->pParam, completionResult);
                         }
                     }
                     // Interrupt qTDs need constant refresh
@@ -707,10 +809,7 @@ void Ehci::interrupt(size_t number, InterruptState &state)
 
     if (nStatus & EHCI_STS_ASYNCADVANCE)
     {
-        Thread *pThread = new Thread(
-            Processor::information().getCurrentThread()->getParent(),
-            threadStub, reinterpret_cast<void *>(this));
-        pThread->detach();
+        m_DequeueCount.release();
     }
 
 #if X86_COMMON
@@ -872,6 +971,10 @@ uintptr_t Ehci::createTransaction(UsbEndpoint endpointInfo)
     pMetaData->pPrev = 0;
     pMetaData->bIgnore = false;
     pMetaData->nTotalBytes = 0;
+    pMetaData->pCallback = nullptr;
+    pMetaData->pParam = 0;
+    pMetaData->completionState = 0;
+    pMetaData->completionResult = -TransactionError;
 
     pQH->pMetaData = pMetaData;
 
@@ -879,7 +982,7 @@ uintptr_t Ehci::createTransaction(UsbEndpoint endpointInfo)
     return nIndex;
 }
 
-void Ehci::doAsync(
+bool Ehci::doAsync(
     uintptr_t nTransaction, void (*pCallback)(uintptr_t, ssize_t),
     uintptr_t pParam)
 {
@@ -888,14 +991,26 @@ void Ehci::doAsync(
         !m_QHBitmap.test(nTransaction))
     {
         ERROR(
-            "EHCI: doAsync: didn't get a valid transaction id [" << nTransaction
-                                                                 << "].");
-        return;
+            "EHCI: doAsync: didn't get a valid transaction id ["
+            << nTransaction << "].");
+        return false;
     }
 
     QH *pQH = &m_pQHList[nTransaction];
+    if (!pQH->pMetaData || !pQH->pMetaData->pLastQTD)
+    {
+        ERROR(
+            "EHCI: doAsync: transaction has no transfers ["
+            << nTransaction << "].");
+        delete pQH->pMetaData;
+        ByteSet(pQH, 0, sizeof(QH));
+        m_QHBitmap.clear(nTransaction);
+        return false;
+    }
+
     pQH->pMetaData->pCallback = pCallback;
     pQH->pMetaData->pParam = pParam;
+    pQH->pMetaData->completionState = 1;
     pQH->pMetaData->pLastQTD->bIoc = 1;
 
     // Only one transaction on this QH?
@@ -954,6 +1069,127 @@ void Ehci::doAsync(
     else
     {
         ERROR("EHCI: Queue tail is null!");
+        return false;
+    }
+    return true;
+}
+
+void Ehci::cancelAsyncAndDrain(
+    uintptr_t nTransaction, void (*pCallback)(uintptr_t, ssize_t),
+    uintptr_t pParam)
+{
+    bool deliverCompletion = false;
+    ssize_t completionResult = -TransactionError;
+
+    {
+        LockGuard<Mutex> guard(m_Mutex);
+
+        const uint32_t savedInterrupts =
+            m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+        const uint32_t savedCommand =
+            m_pBase->read32(m_nOpRegsOffset + EHCI_CMD);
+        m_pBase->write32(0, m_nOpRegsOffset + EHCI_INTR);
+        m_pBase->write32(
+            savedCommand & ~EHCI_CMD_RUN, m_nOpRegsOffset + EHCI_CMD);
+        while (!(m_pBase->read32(m_nOpRegsOffset + EHCI_STS) &
+                 EHCI_STS_HALTED))
+        {
+            Time::delay(5 * Time::Multiplier::Millisecond);
+        }
+
+        {
+            LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+
+            if ((nTransaction != static_cast<uintptr_t>(-1)) &&
+                m_QHBitmap.test(nTransaction))
+            {
+                QH *pQH = &m_pQHList[nTransaction];
+                QH::MetaData *metadata = pQH->pMetaData;
+                if (metadata && metadata->pCallback == pCallback &&
+                    metadata->pParam == pParam)
+                {
+                    const bool cancellationWon =
+                        metadata->completionState.compareAndSwap(1, 2);
+                    const bool naturalCompletionPending =
+                        !cancellationWon &&
+                        static_cast<size_t>(metadata->completionState) == 2;
+                    deliverCompletion =
+                        cancellationWon || naturalCompletionPending;
+                    completionResult = cancellationWon ?
+                                           -TransactionError :
+                                           metadata->completionResult;
+
+                    if (deliverCompletion)
+                    {
+                        if (!metadata->bIgnore)
+                        {
+                            LockGuard<Spinlock> queueGuard(
+                                m_QueueListChangeLock);
+                            QH *pPrev = metadata->pPrev;
+                            QH *pNext = metadata->pNext;
+                            if (pPrev && pNext)
+                            {
+                                if (pQH->hrcl)
+                                    pNext->hrcl = 1;
+                                pPrev->pMetaData->pNext = pNext;
+                                pNext->pMetaData->pPrev = pPrev;
+                                pPrev->pNext = pQH->pNext;
+                                if (pQH == m_pCurrentQueueTail)
+                                    m_pCurrentQueueTail = pPrev;
+                            }
+                            metadata->bIgnore = true;
+                        }
+
+                        metadata->pCallback = nullptr;
+
+                        if (metadata->pFirstQTD)
+                        {
+                            size_t qtdIndex =
+                                INDEX_FROM_QTD(metadata->pFirstQTD);
+                            while (true)
+                            {
+                                m_qTDBitmap.clear(qtdIndex);
+                                qTD *pQtd = &m_pqTDList[qtdIndex];
+                                const bool last = pQtd->bNextInvalid;
+                                if (!last)
+                                {
+                                    qtdIndex =
+                                        ((pQtd->pNext << 5) & 0xFFF) /
+                                        sizeof(qTD);
+                                }
+                                ByteSet(pQtd, 0, sizeof(qTD));
+                                if (last)
+                                    break;
+                            }
+                        }
+
+                        delete metadata;
+                        ByteSet(pQH, 0, sizeof(QH));
+                        m_QHBitmap.clear(nTransaction);
+                    }
+                }
+            }
+        }
+
+        m_pBase->write32(savedCommand, m_nOpRegsOffset + EHCI_CMD);
+        if (savedCommand & EHCI_CMD_RUN)
+        {
+            while (m_pBase->read32(m_nOpRegsOffset + EHCI_STS) &
+                   EHCI_STS_HALTED)
+            {
+                Time::delay(5 * Time::Multiplier::Millisecond);
+            }
+        }
+        m_pBase->write32(savedInterrupts, m_nOpRegsOffset + EHCI_INTR);
+    }
+
+    if (deliverCompletion)
+        pCallback(pParam, completionResult);
+    else
+    {
+        // A dequeue worker can win after removing the transaction from the
+        // bitmap but before invoking its captured callback.
+        LockGuard<Spinlock> deliveryGuard(m_CompletionDeliveryLock);
     }
 }
 
@@ -961,25 +1197,41 @@ void Ehci::addInterruptInHandler(
     UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
     void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam)
 {
-    LockGuard<Mutex> guard(m_Mutex);
-
     // Find an empty frame entry
-    size_t nFrameIndex = m_FrameBitmap.getFirstClear();
-    if (nFrameIndex >= 1024)
+    size_t nFrameIndex = 0;
     {
-        ERROR("USB: EHCI: Frame list full");
-        return;
+        LockGuard<Mutex> guard(m_Mutex);
+        nFrameIndex = m_FrameBitmap.getFirstClear();
+        if (nFrameIndex >= 1024)
+        {
+            ERROR("USB: EHCI: Frame list full");
+            return;
+        }
+        m_FrameBitmap.set(nFrameIndex);
     }
-    m_FrameBitmap.set(nFrameIndex);
+
+    // Both helpers acquire m_Mutex themselves. Keep this guard beside the
+    // calls: wrapping this function in one broad lock recreates a same-thread
+    // deadlock before the first interrupt transfer is installed.
+    if (m_Mutex.isOwnedByCurrentThread())
+        FATAL("EHCI interrupt setup would recursively acquire m_Mutex");
 
     // Create a new transaction
     uintptr_t nTransaction = createTransaction(endpointInfo);
+    if (nTransaction == static_cast<uintptr_t>(-1))
+    {
+        LockGuard<Mutex> guard(m_Mutex);
+        m_FrameBitmap.clear(nFrameIndex);
+        return;
+    }
 
     // Get the QH and set the periodic flag
     QH *pQH = &m_pQHList[nTransaction];
     pQH->pMetaData->bPeriodic = true;
 
     // Add a single transfer to the transaction
+    if (m_Mutex.isOwnedByCurrentThread())
+        FATAL("EHCI interrupt setup would recursively acquire m_Mutex");
     addTransferToTransaction(nTransaction, false, UsbPidIn, pBuffer, nBytes);
     if (!pQH->pMetaData->pLastQTD)
     {
@@ -992,7 +1244,11 @@ void Ehci::addInterruptInHandler(
     pqTD->nErr = 0;
 
     // Add the QH to the frame list
-    m_pFrameList[nFrameIndex] = (m_pQHListPhys + nTransaction * sizeof(QH)) | 2;
+    {
+        LockGuard<Mutex> guard(m_Mutex);
+        m_pFrameList[nFrameIndex] =
+            (m_pQHListPhys + nTransaction * sizeof(QH)) | 2;
+    }
 }
 
 bool Ehci::portReset(uint8_t nPort, bool bErrorResponse)

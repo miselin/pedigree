@@ -82,6 +82,9 @@ class PciAtaController : public AtaController
         ICH5
     } m_PciControllerType;
 
+    irq_id_t m_IrqIds[3];
+    size_t m_IrqCount;
+
     void diskHelper(
         bool master, IoBase *cmd, IoBase *ctl, BusMasterIde *dma, size_t irq);
 

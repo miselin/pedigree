@@ -274,7 +274,9 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/timer-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/wait-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/x86/ps2mouse/Ps2MouseCallbackRegistry.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/Filter.cc)
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/Filter.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/UnixFilesystem.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/hosted-unix-regressions.cc)
 endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND

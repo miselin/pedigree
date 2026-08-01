@@ -350,7 +350,9 @@ static bool msdosReadExtTable(
 
             // Extended partition - read in 512 bytes and recurse.
             uintptr_t buff;
-            if ((buff = pDisk->read(pPartitions[i].start_lba * 512ULL)) == 0)
+            const uint64_t diskLocation =
+                pPartitions[i].start_lba * 512ULL;
+            if ((buff = pDisk->read(diskLocation)) == 0)
             {
                 WARNING(
                     "Couldn't read next sector for the extended partition.");
@@ -363,17 +365,21 @@ static bool msdosReadExtTable(
             if (buffer[510] != MSDOS_IDENT_1 || buffer[511] != MSDOS_IDENT_2)
             {
                 WARNING("Extended partition record read failed.");
+                pDisk->unpin(diskLocation);
                 continue;
             }
 
             // Call the extended partition reader. We pass in the current
             // extended partition record's base, along with the base of the
             // extended partition record we're about to parse.
-            MsdosPartitionInfo *pNextPartitions =
-                reinterpret_cast<MsdosPartitionInfo *>(
-                    &buffer[MSDOS_PARTTAB_START]);
+            MsdosPartitionInfo
+                nextPartitions[MSDOS_PARTTAB_NUM];
+            MemoryCopy(
+                nextPartitions, &buffer[MSDOS_PARTTAB_START],
+                sizeof(nextPartitions));
+            pDisk->unpin(diskLocation);
             if (!msdosReadExtTable(
-                    pNextPartitions, pDisk, MSDOS_PARTTAB_NUM, partitionBase,
+                    nextPartitions, pDisk, MSDOS_PARTTAB_NUM, partitionBase,
                     startLba))
                 WARNING("Reading the extended partition table failed");
         }
@@ -416,7 +422,8 @@ bool msdosReadTable(MsdosPartitionInfo *pPartitions, Disk *pDisk)
             // Extended partition - read in 512 bytes and recurse. The first
             // sector will always be relative to this sector (zero).
             uintptr_t buff;
-            if ((buff = pDisk->read(startLba * 512ULL)) == 0)
+            const uint64_t diskLocation = startLba * 512ULL;
+            if ((buff = pDisk->read(diskLocation)) == 0)
             {
                 WARNING(
                     "Couldn't read next sector for the extended partition.");
@@ -429,16 +436,20 @@ bool msdosReadTable(MsdosPartitionInfo *pPartitions, Disk *pDisk)
             if (buffer[510] != MSDOS_IDENT_1 || buffer[511] != MSDOS_IDENT_2)
             {
                 WARNING("Extended partition record read failed.");
+                pDisk->unpin(diskLocation);
                 continue;
             }
 
             // Call the extended partition reader, give it the base of this
             // partition entry for its calculations.
-            MsdosPartitionInfo *pReadPartitions =
-                reinterpret_cast<MsdosPartitionInfo *>(
-                    &buffer[MSDOS_PARTTAB_START]);
+            MsdosPartitionInfo
+                readPartitions[MSDOS_PARTTAB_NUM];
+            MemoryCopy(
+                readPartitions, &buffer[MSDOS_PARTTAB_START],
+                sizeof(readPartitions));
+            pDisk->unpin(diskLocation);
             if (!msdosReadExtTable(
-                    pReadPartitions, pDisk, MSDOS_PARTTAB_NUM, startLba,
+                    readPartitions, pDisk, MSDOS_PARTTAB_NUM, startLba,
                     startLba))
                 WARNING("Reading the extended partition table failed");
         }
@@ -473,12 +484,15 @@ bool msdosProbeDisk(Disk *pDisk)
     if (buffer[510] != MSDOS_IDENT_1 || buffer[511] != MSDOS_IDENT_2)
     {
         NOTICE("MS-DOS partition not found on disk " << diskName);
+        pDisk->unpin(0ULL);
         return false;
     }
 
     NOTICE("MS-DOS partition table found on disk " << diskName);
 
-    MsdosPartitionInfo *pPartitions =
-        reinterpret_cast<MsdosPartitionInfo *>(&buffer[MSDOS_PARTTAB_START]);
-    return msdosReadTable(pPartitions, pDisk);
+    MsdosPartitionInfo partitions[MSDOS_PARTTAB_NUM];
+    MemoryCopy(
+        partitions, &buffer[MSDOS_PARTTAB_START], sizeof(partitions));
+    pDisk->unpin(0ULL);
+    return msdosReadTable(partitions, pDisk);
 }

@@ -39,6 +39,7 @@ int attachTo(void *handle)
 {
     std::thread *thread = reinterpret_cast<std::thread *>(handle);
     thread->join();
+    delete thread;
     return 0;  /// \todo get return value from thread?
 }
 

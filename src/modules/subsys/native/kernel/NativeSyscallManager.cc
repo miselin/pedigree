@@ -44,9 +44,15 @@ NativeSyscallManager::~NativeSyscallManager()
 {
 }
 
-void NativeSyscallManager::initialise()
+bool NativeSyscallManager::initialise()
 {
-    SyscallManager::instance().registerSyscallHandler(native, this);
+    return SyscallManager::instance().registerSyscallHandler(
+        native, this, m_Registration);
+}
+
+bool NativeSyscallManager::shutdown()
+{
+    return m_Registration.reset();
 }
 
 uintptr_t NativeSyscallManager::call(

@@ -19,6 +19,7 @@
 
 #include "CdiDisk.h"
 #include <stddef.h>
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"
@@ -36,19 +37,22 @@ extern "C" {
 };
 
 CdiDisk::CdiDisk(Disk* pDev, struct cdi_storage_device* device) :
-    Disk(pDev), m_Device(device), m_Cache()
+    Disk(pDev), m_Device(device), m_Cache(), m_CacheMutex(),
+    m_nAlignPoints(0)
 {
     setSpecificType(String("CDI Disk"));
 }
 
 CdiDisk::CdiDisk(struct cdi_storage_device *device) :
-    Disk(), m_Device(device), m_Cache()
+    Disk(), m_Device(device), m_Cache(), m_CacheMutex(),
+    m_nAlignPoints(0)
 {
     setSpecificType(String("CDI Disk"));
 }
 
 CdiDisk::~CdiDisk()
 {
+    m_Cache.shutdown();
 }
 
 bool CdiDisk::initialise()
@@ -92,28 +96,95 @@ bool CdiDisk::initialise()
 // These are the functions that others call - they add a request to the parent controller's queue.
 uintptr_t CdiDisk::read(uint64_t location)
 {
+    LockGuard<Mutex> guard(m_CacheMutex);
     assert( (location % 512) == 0 );
-    uintptr_t buff = m_Cache.lookup(location);
+    const uint64_t pageLocation = getPageLocation(location);
+    const size_t pageOffset = location - pageLocation;
+    uintptr_t buff = m_Cache.lookup(pageLocation);
     if (!buff)
     {
-        buff = m_Cache.insert(location);
-        if (cdi_storage_read(m_Device, location, 512, reinterpret_cast<void*>(buff)) != 0)
+        buff = m_Cache.insert(pageLocation);
+        if (!buff)
             return 0;
 
-        m_Cache.markNoLongerEditing(location);
+        if (cdi_storage_read(
+                m_Device, pageLocation, getBlockSize(),
+                reinterpret_cast<void*>(buff)) != 0)
+        {
+            if (!m_Cache.discardEditing(pageLocation))
+            {
+                WARNING(
+                    "CdiDisk::read could not discard a failed fill at "
+                    << pageLocation);
+            }
+            return 0;
+        }
+
+        m_Cache.markNoLongerEditing(pageLocation);
+        buff = m_Cache.lookup(pageLocation);
+        if (!buff)
+        {
+            return 0;
+        }
     }
-    return buff;
+    return buff + pageOffset;
 }
 
 void CdiDisk::write(uint64_t location)
 {
+    LockGuard<Mutex> cacheGuard(m_CacheMutex);
     assert( (location % 512) == 0 );
-    uintptr_t buff = m_Cache.lookup(location);
+    const uint64_t pageLocation = getPageLocation(location);
+    uintptr_t buff = m_Cache.lookup(pageLocation);
     assert(buff);
-    CachePageGuard guard(m_Cache, location);
+    CachePageGuard pageGuard(m_Cache, pageLocation);
 
-    if (cdi_storage_write(m_Device, location, 512, reinterpret_cast<void*>(buff)) != 0)
+    if (cdi_storage_write(
+            m_Device, pageLocation, getBlockSize(),
+            reinterpret_cast<void*>(buff)) != 0)
         return;
+}
+
+void CdiDisk::align(uint64_t location)
+{
+    LockGuard<Mutex> guard(m_CacheMutex);
+    for (size_t i = 0; i < m_nAlignPoints; ++i)
+    {
+        if (m_AlignPoints[i] == location)
+        {
+            return;
+        }
+    }
+    assert(m_nAlignPoints < 8);
+    m_AlignPoints[m_nAlignPoints++] = location;
+}
+
+bool CdiDisk::pin(uint64_t location)
+{
+    LockGuard<Mutex> guard(m_CacheMutex);
+    return m_Cache.pin(getPageLocation(location));
+}
+
+void CdiDisk::unpin(uint64_t location)
+{
+    LockGuard<Mutex> guard(m_CacheMutex);
+    m_Cache.release(getPageLocation(location));
+}
+
+uint64_t CdiDisk::getPageLocation(uint64_t location) const
+{
+    uint64_t alignPoint = 0;
+    for (size_t i = 0; i < m_nAlignPoints; ++i)
+    {
+        if (
+            m_AlignPoints[i] <= location &&
+            m_AlignPoints[i] > alignPoint)
+        {
+            alignPoint = m_AlignPoints[i];
+        }
+    }
+
+    return location - ((location - alignPoint) % getBlockSize());
 }
 
 void cdi_cpp_disk_register(struct cdi_storage_device* device)

@@ -20,9 +20,11 @@
 #ifndef _PS2_MOUSE_H
 #define _PS2_MOUSE_H
 
+#include "Ps2MouseCallbackRegistry.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -34,7 +36,8 @@ extern class Ps2Mouse *g_Ps2Mouse WEAK;
 class Ps2Mouse : public Device
 {
   public:
-    typedef void (*MouseHandlerFunction)(void *, const void *, size_t);
+    using MouseHandlerFunction = Ps2MouseCallbackRegistry::Handler;
+    using Registration = Ps2MouseCallbackRegistry::Registration;
 
     Ps2Mouse(Device *pDev);
     virtual ~Ps2Mouse();
@@ -49,7 +52,9 @@ class Ps2Mouse : public Device
     EXPORTED_PUBLIC void write(const char *bytes, size_t len);
 
     // subscribe to the raw bus protocol
-    EXPORTED_PUBLIC void subscribe(MouseHandlerFunction handler, void *param);
+    EXPORTED_PUBLIC MUST_USE_RESULT bool subscribe(
+        MouseHandlerFunction handler, void *param,
+        Registration &registration);
 
   private:
     Ps2Controller *m_pController;
@@ -98,9 +103,8 @@ class Ps2Mouse : public Device
     Ps2Mouse(const Ps2Mouse &);
     void operator=(const Ps2Mouse &);
 
-    static const size_t m_nHandlers = 32;
-    MouseHandlerFunction m_Handlers[m_nHandlers];
-    void *m_HandlerParams[m_nHandlers];
+    OwnedThread m_ReaderThread;
+    Ps2MouseCallbackRegistry m_Callbacks;
 };
 
 #endif

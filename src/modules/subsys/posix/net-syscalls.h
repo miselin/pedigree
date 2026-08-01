@@ -44,9 +44,25 @@ struct netconn;
 
 class Semaphore;
 class FileDescriptor;
+class DescriptorLease;
 class UnixSocket;
 class Thread;
 class Event;
+
+/**
+ * Resolve signal interruption after an interruptible socket operation.
+ * Any non-negative result, including EOF and zero-length I/O, is a completed
+ * operation and wins over a concurrently delivered signal.
+ */
+bool finishInterruptibleSocketCall(Thread *thread, ssize_t result);
+bool finishInterruptibleSocketCall(Thread *thread, bool result) = delete;
+
+ssize_t posix_send_descriptor(
+    const DescriptorLease &descriptor, const void *buffer,
+    size_t bufferLength, int flags);
+ssize_t posix_recv_descriptor(
+    const DescriptorLease &descriptor, void *buffer,
+    size_t bufferLength, int flags);
 
 class NetworkSyscalls
 {
@@ -110,11 +126,6 @@ class NetworkSyscalls
         return m_Protocol;
     }
 
-    FileDescriptor *getFileDescriptor() const
-    {
-        return m_Fd;
-    }
-
     bool isBlocking() const;
 
     virtual void setBlocking(bool blocking);
@@ -126,7 +137,6 @@ class NetworkSyscalls
 
     bool m_Blocking;
 
-    FileDescriptor *m_Fd;
 };
 
 class LwipSocketSyscalls : public NetworkSyscalls

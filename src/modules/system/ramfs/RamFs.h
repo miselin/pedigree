@@ -29,6 +29,7 @@
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/Filesystem.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -51,12 +52,13 @@ class EXPORTED_PUBLIC RamFile : public File
   protected:
     virtual uintptr_t readBlock(uint64_t location);
 
-    virtual void pinBlock(uint64_t location);
+    virtual bool pinBlock(uint64_t location);
 
     virtual void unpinBlock(uint64_t location);
 
   private:
     Cache m_FileBlocks;
+    Mutex m_FileBlocksLock;
 
     size_t m_nOwnerPid;
 };

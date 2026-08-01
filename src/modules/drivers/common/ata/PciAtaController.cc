@@ -40,7 +40,9 @@
 class IrqHandler;
 
 PciAtaController::PciAtaController(Controller *pDev, int nController)
-    : AtaController(pDev, nController), m_PciControllerType(UnknownController)
+    : AtaController(pDev, nController), m_pCommandRegs(nullptr),
+      m_pControlRegs(nullptr), m_PciControllerType(UnknownController),
+      m_IrqIds(), m_IrqCount(0), m_nController(nController)
 {
     setSpecificType(String("ata-controller"));
 
@@ -296,18 +298,37 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
     // Install our IRQ handler
     if (getInterruptNumber() != 0xFF)
     {
-        Machine::instance().getIrqManager()->registerIsaIrqHandler(
+        irq_id_t irqId =
+            Machine::instance().getIrqManager()->registerIsaIrqHandler(
             getInterruptNumber(), static_cast<IrqHandler *>(this));
+        if (irqId)
+        {
+            m_IrqIds[m_IrqCount++] = irqId;
+        }
     }
 
     /// \todo Detect PCI IRQ, don't use ISA IRQs in native mode (etc...)
     size_t primaryIrq = 14, secondaryIrq = 15;
     if (primaryIrq != getInterruptNumber())
-        Machine::instance().getIrqManager()->registerIsaIrqHandler(
+    {
+        irq_id_t irqId =
+            Machine::instance().getIrqManager()->registerIsaIrqHandler(
             primaryIrq, static_cast<IrqHandler *>(this));
+        if (irqId)
+        {
+            m_IrqIds[m_IrqCount++] = irqId;
+        }
+    }
     if (secondaryIrq != getInterruptNumber())
-        Machine::instance().getIrqManager()->registerIsaIrqHandler(
+    {
+        irq_id_t irqId =
+            Machine::instance().getIrqManager()->registerIsaIrqHandler(
             secondaryIrq, static_cast<IrqHandler *>(this));
+        if (irqId)
+        {
+            m_IrqIds[m_IrqCount++] = irqId;
+        }
+    }
 
     // And finally, create disks
     if (masterControl)
@@ -333,6 +354,24 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
 
 PciAtaController::~PciAtaController()
 {
+    shutdownDiskCaches();
+    RequestQueue::destroy();
+    maskDiskInterrupts();
+
+    IrqManager *irqManager = Machine::instance().getIrqManager();
+    for (size_t i = 0; i < m_IrqCount; ++i)
+    {
+        if (
+            !irqManager->unregisterHandler(
+                m_IrqIds[i], static_cast<IrqHandler *>(this)))
+        {
+            FATAL("PCI ATA controller could not drain an IRQ handler");
+        }
+        m_IrqIds[i] = 0;
+    }
+    m_IrqCount = 0;
+
+    stopDiskDma();
 }
 
 void PciAtaController::diskHelper(
@@ -393,10 +432,10 @@ bool PciAtaController::irq(irq_id_t number, InterruptState &state)
             continue;
 
         BusMasterIde *pBusMaster = pDisk->getBusMaster();
-        if (pBusMaster && !pBusMaster->isActive())
+        if (pBusMaster)
         {
             // No active DMA transfer - clear interrupt/error bits.
-            pBusMaster->commandComplete();
+            pBusMaster->completeIdleTransaction();
         }
         pDisk->irqReceived();
     }

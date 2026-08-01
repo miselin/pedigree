@@ -190,7 +190,8 @@ bool DynamicLinker::loadProgram(
         // Extreme validation
         if (!*it)
             continue;
-        if (m_LoadedObjects.lookup(String(*it)).hasValue())
+        void *loadedObject = nullptr;
+        if (m_LoadedObjects.lookup(String(*it), loadedObject))
         {
             WARNING("Object `" << *it << "' has already been loaded");
             continue;
@@ -307,7 +308,8 @@ bool DynamicLinker::loadObject(File *pFile, bool bDryRun)
         // Extreme validation
         if (!*it)
             continue;
-        if (m_LoadedObjects.lookup(String(*it)).hasValue())
+        void *loadedObject = nullptr;
+        if (m_LoadedObjects.lookup(String(*it), loadedObject))
         {
             WARNING("Object `" << *it << "' has already been loaded");
             continue;
@@ -444,11 +446,16 @@ uintptr_t DynamicLinker::resolve(String name)
 
 DLTrapHandler::DLTrapHandler()
 {
-    PageFaultHandler::instance().registerHandler(this);
+    const bool registered =
+        PageFaultHandler::instance().registerHandler(this);
+    assert(registered);
 }
 
 DLTrapHandler::~DLTrapHandler()
 {
+    const bool unregistered =
+        PageFaultHandler::instance().unregisterHandler(this);
+    assert(unregistered);
 }
 
 bool DLTrapHandler::trap(

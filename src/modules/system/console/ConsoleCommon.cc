@@ -30,6 +30,8 @@
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 
 class Filesystem;
 
@@ -41,7 +43,8 @@ ConsoleFile::ConsoleFile(
       m_Flags(DEFAULT_FLAGS), m_Rows(25), m_Cols(80), m_LineBuffer(),
       m_LineBufferSize(0), m_LineBufferFirstNewline(~0), m_Last(0),
       m_Buffer(PTY_BUFFER_SIZE), m_ConsoleNumber(consoleNumber),
-      m_ConsoleName(consoleName), m_pEvent(0), m_EventTrigger(true)
+      m_ConsoleName(consoleName), m_pEvent(0), m_EventTrigger(0),
+      m_EventSerialiser()
 {
     MemoryCopy(m_ControlChars, defaultControl, MAX_CONTROL_CHAR);
 
@@ -430,14 +433,22 @@ void ConsoleFile::triggerEvent(char cause)
 {
     if (m_pOther->m_pEvent)
     {
+        // The handler reads m_Last asynchronously and acknowledges through a
+        // shared token. Keep each character paired with its own acknowledgement.
+        TerminationDeferral terminationDeferral;
+        LockGuard<Mutex> serialiser(m_EventSerialiser);
         Thread *pThread = Processor::information().getCurrentThread();
         m_Last = cause;
-        pThread->sendEvent(m_pOther->m_pEvent);
-        Scheduler::instance().yield();
+        if (!pThread->sendEvent(m_pOther->m_pEvent))
+        {
+            ERROR("ConsoleFile could not publish its control event");
+            return;
+        }
 
-        // Note that we do not release the mutex here.
-        while (!m_EventTrigger.acquire())
-            ;
+        if (!m_EventTrigger.acquireForCompletion())
+        {
+            FATAL("Console event completion barrier failed.");
+        }
     }
 }
 

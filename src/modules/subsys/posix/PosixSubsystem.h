@@ -21,7 +21,9 @@
 #define POSIX_SUBSYSTEM_H
 
 #include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Completion.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/SignalEvent.h"
@@ -31,23 +33,91 @@
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/LruCache.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
 #include "modules/subsys/posix/logging.h"
+#include "modules/subsys/posix/FileDescriptor.h"
 
 class File;
 class Filesystem;
 class UnixSocket;
 class LockedFile;
-class FileDescriptor;
 class PosixSubsystem;
+class ProcessGroup;
+
+/**
+ * A move-only lifetime pin for one published descriptor generation.
+ *
+ * The control block and raw pointer are deliberately not exposed. Numeric fd
+ * lookup can therefore only produce an object whose lexical lifetime keeps
+ * the descriptor alive across blocking operations and concurrent close/reuse.
+ */
+class DescriptorLease
+{
+  public:
+    DescriptorLease() : m_Descriptor()
+    {
+    }
+
+    DescriptorLease(DescriptorLease &&other)
+        : m_Descriptor(pedigree_std::move(other.m_Descriptor))
+    {
+    }
+
+    DescriptorLease &operator=(DescriptorLease &&other)
+    {
+        if (this != &other)
+        {
+            m_Descriptor = pedigree_std::move(other.m_Descriptor);
+        }
+        return *this;
+    }
+
+    DescriptorLease(const DescriptorLease &) = delete;
+    DescriptorLease &operator=(const DescriptorLease &) = delete;
+
+    FileDescriptor *operator->() const
+    {
+        return m_Descriptor.operator->();
+    }
+
+    FileDescriptor &operator*() const
+    {
+        return *m_Descriptor;
+    }
+
+    explicit operator bool() const
+    {
+        return static_cast<bool>(m_Descriptor);
+    }
+
+    void reset()
+    {
+        m_Descriptor.reset();
+    }
+
+  private:
+    friend class PosixSubsystem;
+    friend bool acquireDescriptor(int fd, DescriptorLease &descriptor);
+    friend bool removeDescriptor(
+        int fd, const DescriptorLease &descriptor);
+
+    void retain(const SharedPointer<FileDescriptor> &descriptor)
+    {
+        m_Descriptor = descriptor;
+    }
+
+    SharedPointer<FileDescriptor> m_Descriptor;
+};
 
 extern PosixSubsystem *getSubsystem();
-extern FileDescriptor *getDescriptor(int fd);
+extern bool acquireDescriptor(int fd, DescriptorLease &descriptor);
 extern void addDescriptor(int fd, FileDescriptor *f);
-extern void removeDescriptor(int fd);
+extern bool removeDescriptor(
+    int fd, const DescriptorLease &descriptor);
 extern size_t getAvailableDescriptor();
 
 // Grabs a subsystem for use.
@@ -94,12 +164,28 @@ class ProcessGroupManager
     /** Returns the given process group ID to the available pool. */
     void returnGroupId(size_t gid);
 
+    /** Installs/removes the concrete group behind a reserved ID. */
+    void registerGroup(size_t gid, ProcessGroup *group);
+    void unregisterGroup(size_t gid, ProcessGroup *group);
+
+    /** Caller must retain lock() while using the returned pointer. */
+    ProcessGroup *findGroup(size_t gid) const;
+
+    /** Serialises process-group pointers, membership lists, and destruction. */
+    Spinlock &lock()
+    {
+        return m_GroupLock;
+    }
+
   private:
     static ProcessGroupManager m_Instance;
     /**
      * Bitmap of available group IDs.
      */
     ExtensibleBitmap m_GroupIds;
+    Tree<size_t, ProcessGroup *> m_Groups;
+
+    mutable Spinlock m_GroupLock;
 };
 
 /** Defines the compatibility layer for the POSIX Subsystem */
@@ -121,10 +207,11 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
     /** Default constructor */
     PosixSubsystem()
         : Subsystem(Posix), m_SignalHandlers(), m_SignalHandlersLock(),
+          m_AlarmLock(false), m_pAlarmEvent(nullptr), m_pAlarmThread(nullptr),
           m_FdMap(), m_NextFd(0), m_FdLock(), m_FdBitmap(), m_LastFd(0),
-          m_FreeCount(1), m_SyncObjects(), m_Threads(),
-          m_ThreadWaiters(), m_NextThreadWaiter(0), m_Abi(PosixAbi),
-          m_bAcquired(false), m_pAcquiredThread(nullptr)
+          m_FreeCount(1), m_SyncObjects(), m_Threads(), m_ThreadWaiters(),
+          m_NextThreadWaiter(0), m_Abi(PosixAbi), m_bAcquired(false),
+          m_pAcquiredThread(nullptr)
     {
     }
 
@@ -134,10 +221,11 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
     /** Parameterised constructor */
     PosixSubsystem(SubsystemType type)
         : Subsystem(type), m_SignalHandlers(), m_SignalHandlersLock(),
+          m_AlarmLock(false), m_pAlarmEvent(nullptr), m_pAlarmThread(nullptr),
           m_FdMap(), m_NextFd(0), m_FdLock(), m_FdBitmap(), m_LastFd(0),
-          m_FreeCount(1), m_SyncObjects(), m_Threads(),
-          m_ThreadWaiters(), m_NextThreadWaiter(0), m_Abi(PosixAbi),
-          m_bAcquired(false), m_pAcquiredThread(nullptr)
+          m_FreeCount(1), m_SyncObjects(), m_Threads(), m_ThreadWaiters(),
+          m_NextThreadWaiter(0), m_Abi(PosixAbi), m_bAcquired(false),
+          m_pAcquiredThread(nullptr)
     {
     }
 
@@ -197,8 +285,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
         {
             if (pEvent)
             {
-                pEvent->waitForDeliveries();
-                delete pEvent;
+                pEvent->retire();
             }
         }
 
@@ -211,7 +298,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
 
             if (pEvent)
             {
-                delete pEvent;
+                pEvent->retire();
             }
 
             sig = s.sig;
@@ -269,11 +356,19 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
      */
     SignalEvent *createSignalDelivery(size_t sig, uint32_t *flags = nullptr);
 
+    /**
+     * Replaces the process alarm. The timer references a stable relay Event,
+     * not the currently installed SIGALRM disposition.
+     */
+    size_t setAlarm(size_t seconds);
+
+    /** Cancels the process alarm before its target thread can be destroyed. */
+    void cancelAlarm();
+
     /** Gets a signal handler */
     SignalHandler *getSignalHandler(size_t sig)
     {
-        while (!m_SignalHandlersLock.enter())
-            ;
+        m_SignalHandlersLock.enter();
         SignalHandler *ret = m_SignalHandlers.lookup(sig % 32);
         m_SignalHandlersLock.leave();
         return ret;
@@ -298,8 +393,25 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
     void freeMultipleFds(
         bool bOnlyCloExec = false, size_t iFirst = 0, size_t iLast = -1);
 
-    /** Gets a pointer to a FileDescriptor object from an fd number */
-    FileDescriptor *getFileDescriptor(size_t fd);
+    /**
+     * Pins the descriptor currently published at fd.
+     *
+     * Callers cannot obtain a borrowed table pointer: a successful lookup
+     * retains the descriptor until the returned handle leaves scope, even if
+     * another thread closes or replaces the descriptor in the meantime.
+     */
+    bool acquireFileDescriptor(
+        size_t fd, DescriptorLease &descriptor);
+
+    /**
+     * Unpublishes fd only if it still names the generation in descriptor.
+     *
+     * This is the close counterpart to acquireFileDescriptor: a concurrent
+     * close and reuse of the numeric fd must not allow an older close path to
+     * remove the replacement descriptor.
+     */
+    bool closeFileDescriptor(
+        size_t fd, const DescriptorLease &descriptor);
 
     /** Inserts a file descriptor */
     void addFileDescriptor(size_t fd, FileDescriptor *pFd);
@@ -372,7 +484,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
     {
       public:
         PosixThread()
-            : pThread(0), isRunning(true), returnValue(0), canReclaim(false),
+            : pThread(0), isRunning(), returnValue(0), canReclaim(false),
               isDetached(false), m_ThreadData(), m_ThreadKeys(), lastDataKey(0),
               nextDataKey(0)
         {
@@ -382,7 +494,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
         }
 
         Thread *pThread;
-        Mutex isRunning;
+        Completion isRunning;
         void *returnValue;
 
         bool canReclaim;
@@ -479,7 +591,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
     }
 
     bool checkAccess(
-        FileDescriptor *pFileDescriptor, bool bRead, bool bWrite,
+        const DescriptorLease &pFileDescriptor, bool bRead, bool bWrite,
         bool bExecute) const;
 
     /** Invokes the given command (thread mechanism). */
@@ -541,11 +653,20 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
     /** A lock for access to the signal handlers tree */
     UnlikelyLock m_SignalHandlersLock;
 
+    /** Serialises alarm replacement with process and thread teardown. */
+    Spinlock m_AlarmLock;
+
+    /** Stable timer-owned relay that resolves SIGALRM when delivered. */
+    Event *m_pAlarmEvent;
+
+    /** Thread whose lifetime is currently referenced by the timer alarm. */
+    Thread *m_pAlarmThread;
+
     /**
      * The file descriptor map. Maps number to pointers, the type of which is
      * decided by the subsystem.
      */
-    Tree<size_t, FileDescriptor *> m_FdMap;
+    Tree<size_t, SharedPointer<FileDescriptor>> m_FdMap;
     /**
      * The next available file descriptor.
      */

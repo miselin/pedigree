@@ -28,6 +28,7 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -54,16 +55,19 @@
 
 static int threadStub(void *p)
 {
+    TerminationDeferral workerLifetime;
     Uhci *pUhci = reinterpret_cast<Uhci *>(p);
     pUhci->doDequeue();
+    return 0;
 }
 
 Uhci::Uhci(Device *pDev)
     : UsbHub(pDev), RequestQueue(MakeConstantString("UHCI")), m_pBase(0),
-      m_nPorts(0), m_AsyncQueueListChangeLock(), m_UhciMR("Uhci-MR"),
+      m_CallbackOperations(), m_IrqId(0), m_TimerRegistered(false), m_nPorts(0),
+      m_IrqProcessingLock(), m_AsyncQueueListChangeLock(), m_UhciMR("Uhci-MR"),
       m_pCurrentAsyncQueueTail(0), m_pCurrentAsyncQueueHead(0),
       m_AsyncSchedule(), m_DequeueList(), m_DequeueCount(0),
-      m_nPortCheckTicks(0)
+      m_DequeueOperations(), m_pDequeueThread(nullptr), m_nPortCheckTicks(0)
 {
     setSpecificType(String("UHCI"));
 
@@ -115,13 +119,13 @@ Uhci::Uhci(Device *pDev)
     m_pCurrentAsyncQueueTail = m_pCurrentAsyncQueueHead = pDummyQH;
 
     // Dequeue main thread
-    Thread *pThread = new Thread(
+    m_pDequeueThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), threadStub,
         reinterpret_cast<void *>(this));
-    pThread->detach();
 
     // Install the IRQ handler
-    Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
+    m_IrqId =
+        Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
     Machine::instance().getIrqManager()->control(
         getInterruptNumber(), IrqManager::MitigationThreshold,
         (1500000 / 64));  // 12KB/ms (12Mbps) in bytes, divided by 64 bytes
@@ -193,18 +197,65 @@ Uhci::Uhci(Device *pDev)
     }
 
     // Install the timer handler for the periodic port checks
-    Machine::instance().getTimer()->registerHandler(this);
+    Timer *timer = Machine::instance().getTimer();
+    if (timer)
+    {
+        m_TimerRegistered = timer->registerHandler(this);
+    }
 }
 
 Uhci::~Uhci()
 {
+    m_CallbackOperations.close();
+
+    Timer *timer = Machine::instance().getTimer();
+    if (m_TimerRegistered)
+    {
+        if (!timer || !timer->unregisterHandler(this))
+        {
+            FATAL(
+                "UHCI teardown could not synchronously unregister its timer "
+                "callback");
+        }
+        m_TimerRegistered = false;
+    }
+
+    if (m_IrqId)
+    {
+        if (!Machine::instance().getIrqManager()->unregisterHandler(
+                m_IrqId, this))
+        {
+            FATAL(
+                "UHCI teardown could not synchronously unregister its IRQ "
+                "callback");
+        }
+        m_IrqId = 0;
+    }
+    m_CallbackOperations.wait();
+
+    m_DequeueOperations.close();
+    m_DequeueCount.release();
+    m_DequeueOperations.wait();
+    if (m_pDequeueThread)
+    {
+        m_pDequeueThread->joinForCompletion();
+        m_pDequeueThread = nullptr;
+    }
+
+    RequestQueue::destroy();
 }
 
 void Uhci::doDequeue()
 {
-    while (1)
+    while (true)
     {
-        m_DequeueCount.acquire();
+        if (m_DequeueOperations.isClosedAndDrained())
+        {
+            return;
+        }
+
+        const bool dequeuing = m_DequeueCount.acquireForCompletion();
+        (void) dequeuing;
 
         QH *pQH = 0;
         {
@@ -215,42 +266,47 @@ void Uhci::doDequeue()
         if (!pQH)
             continue;
 
-        // Remove all TDs
-        if (pQH->pMetaData->completedTdList.count())
         {
-            for (List<TD *>::Iterator it =
-                     pQH->pMetaData->completedTdList.begin();
-                 it != pQH->pMetaData->completedTdList.end(); it++)
+            LockGuard<Mutex> transactionGuard(m_Mutex);
+
+            // Remove all TDs
+            if (pQH->pMetaData->completedTdList.count())
             {
-                size_t idx = (*it)->id;
-                ByteSet(*it, 0, sizeof(TD));
+                for (List<TD *>::Iterator it =
+                         pQH->pMetaData->completedTdList.begin();
+                     it != pQH->pMetaData->completedTdList.end(); it++)
+                {
+                    size_t idx = (*it)->id;
+                    ByteSet(*it, 0, sizeof(TD));
 
-                m_TDBitmap.clear(idx);
+                    m_TDBitmap.clear(idx);
+                }
             }
-        }
 
-        // Will only be valid if we hit an error - some TDs may not have been
-        // run, so they'll not be in the completed list.
-        if (pQH->pMetaData->tdList.count())
-        {
-            for (List<TD *>::Iterator it = pQH->pMetaData->tdList.begin();
-                 it != pQH->pMetaData->tdList.end(); it++)
+            // Will only be valid if we hit an error - some TDs may not have
+            // been run, so they'll not be in the completed list.
+            if (pQH->pMetaData->tdList.count())
             {
-                size_t idx = (*it)->id;
-                ByteSet(*it, 0, sizeof(TD));
+                for (List<TD *>::Iterator it = pQH->pMetaData->tdList.begin();
+                     it != pQH->pMetaData->tdList.end(); it++)
+                {
+                    size_t idx = (*it)->id;
+                    ByteSet(*it, 0, sizeof(TD));
 
-                m_TDBitmap.clear(idx);
+                    m_TDBitmap.clear(idx);
+                }
             }
+
+            // This QH is done
+            size_t id = pQH->pMetaData->id;
+
+            // Completely invalidate the QH
+            delete pQH->pMetaData;
+            ByteSet(pQH, 0, sizeof(QH));
+
+            m_QHBitmap.clear(id);
         }
-
-        // This QH is done
-        size_t id = pQH->pMetaData->id;
-
-        // Completely invalidate the QH
-        delete pQH->pMetaData;
-        ByteSet(pQH, 0, sizeof(QH));
-
-        m_QHBitmap.clear(id);
+        m_DequeueOperations.leave();
 
 #ifdef USB_VERBOSE_DEBUG
         DEBUG_LOG("Dequeue complete.");
@@ -260,6 +316,13 @@ void Uhci::doDequeue()
 
 bool Uhci::irq(irq_id_t number, InterruptState &state)
 {
+    OperationBarrier::Lease callback;
+    if (!m_CallbackOperations.tryAcquire(callback))
+    {
+        return false;
+    }
+    LockGuard<Spinlock> transactionGuard(m_IrqProcessingLock);
+
     uint16_t nStatus = m_pBase->read16(UHCI_STS);
 
     if (!nStatus)
@@ -385,16 +448,16 @@ bool Uhci::irq(irq_id_t number, InterruptState &state)
                     // it gives no error
                     if (bEndOfTransfer)
                     {
-                        // Valid callback?
-                        if (pQH->pMetaData->pCallback)
-                        {
-                            pQH->pMetaData->pCallback(
-                                pQH->pMetaData->pParam,
-                                nResult < 0 ? nResult :
-                                              pQH->pMetaData->nTotalBytes);
-                        }
+                        bool notifyDequeue = false;
+                        const ssize_t completionResult =
+                            nResult < 0 ? nResult :
+                                          pQH->pMetaData->nTotalBytes;
+                        const bool ownsCompletion =
+                            bPeriodic ||
+                            pQH->pMetaData->completionState.compareAndSwap(
+                                1, 2);
 
-                        if (!bPeriodic)
+                        if (!bPeriodic && ownsCompletion)
                         {
                             // This queue head is done, dequeue.
                             /// \note The reason LockGuard isn't used here is
@@ -429,22 +492,25 @@ bool Uhci::irq(irq_id_t number, InterruptState &state)
                                     m_pCurrentAsyncQueueTail = pPrev;
                             }
 
-                            m_DequeueList.pushBack(pQH);
+                            const bool dequeueAdmitted =
+                                m_DequeueOperations.tryEnter();
+                            if (dequeueAdmitted)
+                            {
+                                m_DequeueList.pushBack(pQH);
+                                notifyDequeue = true;
+                            }
+
+                            // The queue head is detached before the controller
+                            // is resumed, but reclamation must not begin until
+                            // its completion callback has returned.
+                            pQH->pMetaData->bIgnore = true;
 
                             // Resume the controller, dequeue done.
                             start();
 
                             m_AsyncQueueListChangeLock.release();
-
-                            m_DequeueCount.release();
-
-                            // Ignore after the linked list update to avoid a
-                            // case where the dequeue call hits this QH while
-                            // we unlink it. This is a problem as the dequeue
-                            // call zeroes all TDs and the QH itself. Ouch!
-                            pQH->pMetaData->bIgnore = true;
                         }
-                        else
+                        else if (bPeriodic)
                         {
                             // Invert data toggle
                             pTD->bDataToggle = !pTD->bDataToggle;
@@ -453,6 +519,24 @@ bool Uhci::irq(irq_id_t number, InterruptState &state)
                             // each completed transfer
                             pQH->pMetaData->nTotalBytes = 0;
                         }
+
+                        // One-shot callbacks run only after stop() and unlink
+                        // have established the transfer-buffer release
+                        // boundary. Periodic callbacks retain their existing
+                        // per-poll semantics.
+                        if (ownsCompletion && pQH->pMetaData->pCallback)
+                        {
+                            void (*completion)(uintptr_t, ssize_t) =
+                                pQH->pMetaData->pCallback;
+                            const uintptr_t completionParam =
+                                pQH->pMetaData->pParam;
+                            if (!bPeriodic)
+                                pQH->pMetaData->pCallback = nullptr;
+                            completion(completionParam, completionResult);
+                        }
+
+                        if (notifyDequeue)
+                            m_DequeueCount.release();
                     }
 
                     // Interrupt TDs need to be always active
@@ -612,12 +696,15 @@ uintptr_t Uhci::createTransaction(UsbEndpoint endpointInfo)
     pQH->pMetaData->nTotalBytes = 0;
     pQH->pMetaData->pPrev = pQH->pMetaData->pNext = 0;
     pQH->pMetaData->bIgnore = false;
+    pQH->pMetaData->pCallback = nullptr;
+    pQH->pMetaData->pParam = 0;
+    pQH->pMetaData->completionState = 0;
     pQH->pMetaData->id = nIndex;
 
     return nIndex;
 }
 
-void Uhci::doAsync(
+bool Uhci::doAsync(
     uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
     uintptr_t pParam)
 {
@@ -629,7 +716,20 @@ void Uhci::doAsync(
             ERROR(
                 "UHCI: doAsync: didn't get a valid transaction id ["
                 << pTransaction << "].");
-            return;
+            return false;
+        }
+
+        QH *pRejectedQH = &m_pQHList[pTransaction];
+        if (!pRejectedQH->pMetaData ||
+            !pRejectedQH->pMetaData->pLastTD)
+        {
+            ERROR(
+                "UHCI: doAsync: transaction has no transfers ["
+                << pTransaction << "].");
+            delete pRejectedQH->pMetaData;
+            ByteSet(pRejectedQH, 0, sizeof(QH));
+            m_QHBitmap.clear(pTransaction);
+            return false;
         }
     }
 
@@ -642,6 +742,7 @@ void Uhci::doAsync(
     QH *pQH = &m_pQHList[pTransaction];
     pQH->pMetaData->pCallback = pCallback;
     pQH->pMetaData->pParam = pParam;
+    pQH->pMetaData->completionState = 1;
     pQH->pMetaData->pLastTD->bIoc = 1;
 
     // Do we need to configure the asynchronous schedule?
@@ -689,9 +790,98 @@ void Uhci::doAsync(
     else
     {
         ERROR("UHCI: Queue tail is null!");
+        start();
+        return false;
     }
 
     start();
+    return true;
+}
+
+void Uhci::cancelAsyncAndDrain(
+    uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
+    uintptr_t pParam)
+{
+    QH *pQH = nullptr;
+    bool ownsCancellation = false;
+    uint16_t interruptMask = 0;
+
+    {
+        LockGuard<Mutex> guard(m_Mutex);
+        if ((pTransaction != static_cast<uintptr_t>(-1)) &&
+            m_QHBitmap.test(pTransaction))
+        {
+            pQH = &m_pQHList[pTransaction];
+            if (pQH->pMetaData &&
+                pQH->pMetaData->pCallback == pCallback &&
+                pQH->pMetaData->pParam == pParam)
+            {
+                ownsCancellation =
+                    pQH->pMetaData->completionState.compareAndSwap(1, 2);
+            }
+        }
+
+        if (ownsCancellation)
+        {
+            // Halting UHCI is the synchronous DMA ownership boundary. The IRQ
+            // lock then drains any handler which entered before interrupts
+            // were masked.
+            interruptMask = m_pBase->read16(UHCI_INTR);
+            m_pBase->write16(0, UHCI_INTR);
+            stop();
+
+            LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+            LockGuard<Spinlock> queueGuard(m_AsyncQueueListChangeLock);
+
+            for (List<QH *>::Iterator it = m_AsyncSchedule.begin();
+                 it != m_AsyncSchedule.end();)
+            {
+                if (*it == pQH)
+                {
+                    m_AsyncSchedule.erase(it);
+                    break;
+                }
+                ++it;
+            }
+
+            QH *pPrev = pQH->pMetaData->pPrev;
+            QH *pNext = pQH->pMetaData->pNext;
+            if (pPrev && pNext)
+            {
+                pPrev->pMetaData->pNext = pNext;
+                pNext->pMetaData->pPrev = pPrev;
+                pPrev->pNext = pQH->pNext;
+                pPrev->bNextQH = 1;
+                pPrev->bNextInvalid = 0;
+                if (pQH == m_pCurrentAsyncQueueTail)
+                    m_pCurrentAsyncQueueTail = pPrev;
+            }
+            pQH->pMetaData->bIgnore = true;
+            pQH->pMetaData->pCallback = nullptr;
+
+            start();
+            m_pBase->write16(interruptMask, UHCI_INTR);
+        }
+    }
+
+    if (!ownsCancellation)
+    {
+        // A natural completion which won the CAS holds this lock through its
+        // callback. Acquiring it here turns that race into a drain.
+        LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+        return;
+    }
+
+    pCallback(pParam, -TransactionError);
+
+    if (m_DequeueOperations.tryEnter())
+    {
+        {
+            LockGuard<Spinlock> queueGuard(m_AsyncQueueListChangeLock);
+            m_DequeueList.pushBack(pQH);
+        }
+        m_DequeueCount.release();
+    }
 }
 
 void Uhci::addInterruptInHandler(
@@ -718,7 +908,8 @@ void Uhci::addInterruptInHandler(
     pTD->nErr = 0;
 
     // Let doAsync do the rest
-    doAsync(nTransaction, pCallback, pParam);
+    if (!doAsync(nTransaction, pCallback, pParam))
+        ERROR("USB: UHCI: Couldn't submit interrupt transaction!");
 }
 
 bool Uhci::portReset(uint8_t nPort, bool bErrorResponse)
@@ -834,6 +1025,12 @@ uint64_t Uhci::executeRequest(
 
 void Uhci::timer(uint64_t delta, InterruptState &state)
 {
+    OperationBarrier::Lease callback;
+    if (!m_CallbackOperations.tryAcquire(callback))
+    {
+        return;
+    }
+
     m_nPortCheckTicks += delta;
 
     // We check the ports once in a Millisecond

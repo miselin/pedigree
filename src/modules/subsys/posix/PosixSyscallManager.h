@@ -21,13 +21,15 @@
 #define POSIX_SYSCALL_MANAGER_H
 
 #include "pedigree/kernel/processor/SyscallHandler.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
 class PosixSyscallManager : public SyscallHandler
 {
   public:
-    void initialise();
+    bool initialise();
+    bool shutdown();
 
     /** Calls a syscall. */
     uintptr_t call(
@@ -51,6 +53,8 @@ class PosixSyscallManager : public SyscallHandler
     PosixSyscallManager &operator=(const PosixSyscallManager &);
     /** Records seen unknown syscalls so we don't spam logs. */
     Tree<uint64_t, bool> m_SeenUnknownSyscalls;
+    SyscallManager::Registration m_LinuxRegistration;
+    SyscallManager::Registration m_PosixRegistration;
 };
 
 #endif

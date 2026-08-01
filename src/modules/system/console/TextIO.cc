@@ -59,7 +59,8 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent)
       m_Backbuffer("TextIO Backbuffer"), m_pFramebuffer(0), m_pBackbuffer(0),
       m_pVga(0), m_TabStops(), m_OutBuffer(TEXTIO_BUFFER_SIZE), m_G0('B'),
       m_G1('B'), m_bUtf8(false), m_nCharacter(0), m_nUtf8Handled(0),
-      m_bActive(false), m_Lock(false), m_bOwnsConsole(false),
+      m_bActive(false), m_Lock(), m_FlipWake(0),
+      m_pFlipThread(nullptr), m_bOwnsConsole(false),
       m_InputMode(TextIO::Standard)
 {
     size_t backbufferSize =
@@ -95,25 +96,42 @@ TextIO::TextIO(String str, size_t inode, Filesystem *pParentFS, File *pParent)
 
 TextIO::~TextIO()
 {
+    // Callback removal is a synchronous drain. Retire it before any state the
+    // callback can reach begins disappearing.
+    InputManager::instance().removeCallback(inputCallback, this);
+
     // Join to the flip thread now that we're terminating.
     m_bInitialised = false;
-    m_pFlipThread->join();
+    m_FlipWake.release();
+    if (m_pFlipThread)
+    {
+        m_pFlipThread->joinForCompletion();
+        m_pFlipThread = nullptr;
+    }
 
     m_pBackbuffer = 0;
     m_Backbuffer.free();
-
-    InputManager::instance().removeCallback(inputCallback, this);
 }
 
 bool TextIO::initialise(bool bClear)
 {
-    LockGuard<Mutex> guard(m_Lock);
-
+    Thread *oldFlipThread = nullptr;
     if (m_bInitialised)
     {
-        m_bInitialised = false;
-        m_pFlipThread->join();
+        {
+            LockGuard<Mutex> guard(m_Lock);
+            m_bInitialised = false;
+            m_FlipWake.release();
+            oldFlipThread = m_pFlipThread;
+            m_pFlipThread = nullptr;
+        }
+        if (oldFlipThread)
+        {
+            oldFlipThread->joinForCompletion();
+        }
     }
+
+    LockGuard<Mutex> guard(m_Lock);
 
     // Move into not-initialised mode, reset any held state.
     m_bInitialised = false;
@@ -175,6 +193,9 @@ bool TextIO::initialise(bool bClear)
 
     if (m_bInitialised)
     {
+        while (m_FlipWake.tryAcquire())
+        {
+        }
         Process *parent =
             Processor::information().getCurrentThread()->getParent();
         m_pFlipThread = new Thread(parent, startFlipThread, this);
@@ -1707,7 +1728,9 @@ void TextIO::flipThread()
         flip(true, !bBlinkOn);
 
         // Wait for the next trigger time.
-        Time::delay(m_NextInterval * Time::Multiplier::Millisecond);
+        m_FlipWake.acquire(
+            1, m_NextInterval / 1000,
+            (m_NextInterval % 1000) * 1000);
     }
 }
 

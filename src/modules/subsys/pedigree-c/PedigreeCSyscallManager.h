@@ -21,12 +21,14 @@
 #define PEDIGREEC_SYSCALL_MANAGER_H
 
 #include "pedigree/kernel/processor/SyscallHandler.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/types.h"
 
 class PedigreeCSyscallManager : public SyscallHandler
 {
   public:
-    void initialise();
+    bool initialise();
+    bool shutdown();
 
     /** Calls a syscall. */
     uintptr_t call(
@@ -48,6 +50,8 @@ class PedigreeCSyscallManager : public SyscallHandler
     /** The copy-constructor
      *\note Not implemented (singleton) */
     PedigreeCSyscallManager &operator=(const PedigreeCSyscallManager &);
+
+    SyscallManager::Registration m_Registration;
 };
 
 #endif

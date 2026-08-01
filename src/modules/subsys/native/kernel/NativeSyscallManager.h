@@ -21,6 +21,7 @@
 #define NATIVE_SYSCALL_MANAGER_H
 
 #include "pedigree/kernel/processor/SyscallHandler.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/types.h"
 
 #include <native-base.h>
@@ -30,7 +31,8 @@
 class NativeSyscallManager : public SyscallHandler
 {
   public:
-    void initialise();
+    bool initialise();
+    bool shutdown();
 
     /** Calls a syscall. */
     uintptr_t call(
@@ -58,6 +60,7 @@ class NativeSyscallManager : public SyscallHandler
 
     /** Maps userspace object pointers to their respective kernel object. */
     Tree<void *, NativeBase *> m_NativeObjects;
+    SyscallManager::Registration m_Registration;
 };
 
 #endif

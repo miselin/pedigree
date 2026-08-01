@@ -21,12 +21,17 @@
 #include <PosixSubsystem.h>
 
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/RelayEvent.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
+#define MACHINE_FORWARD_DECL_ONLY
+#include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
@@ -69,14 +74,39 @@ extern char __posix_compat_vsyscall_base;
 #define FD_CLOEXEC 1
 
 typedef Tree<size_t, PosixSubsystem::SignalHandler *> sigHandlerTree;
-typedef Tree<size_t, FileDescriptor *> FdMap;
+typedef Tree<size_t, SharedPointer<FileDescriptor>> FdMap;
 
 ProcessGroupManager ProcessGroupManager::m_Instance;
 
 extern void pedigree_init_sigret();
 extern void pedigree_init_pthreads();
 
-ProcessGroupManager::ProcessGroupManager() : m_GroupIds()
+namespace
+{
+void posixAlarmEventHandler(Thread *thread)
+{
+    if (!thread || thread->getParent()->getType() != Process::Posix)
+    {
+        return;
+    }
+
+    PosixSubsystem *subsystem = static_cast<PosixSubsystem *>(
+        thread->getParent()->getSubsystem());
+    if (!subsystem)
+    {
+        return;
+    }
+
+    SignalEvent *delivery = subsystem->createSignalDelivery(SIGALRM);
+    if (delivery && !thread->sendEvent(delivery))
+    {
+        delete delivery;
+    }
+}
+}  // namespace
+
+ProcessGroupManager::ProcessGroupManager()
+    : m_GroupIds(), m_Groups(), m_GroupLock(false)
 {
     m_GroupIds.set(0);
 }
@@ -87,6 +117,7 @@ ProcessGroupManager::~ProcessGroupManager()
 
 size_t ProcessGroupManager::allocateGroupId()
 {
+    RecursingLockGuard<Spinlock> guard(m_GroupLock);
     size_t bit = m_GroupIds.getFirstClear();
     m_GroupIds.set(bit);
     return bit;
@@ -94,6 +125,7 @@ size_t ProcessGroupManager::allocateGroupId()
 
 void ProcessGroupManager::setGroupId(size_t gid)
 {
+    RecursingLockGuard<Spinlock> guard(m_GroupLock);
     if (m_GroupIds.test(gid))
     {
         PS_NOTICE("ProcessGroupManager: setGroupId called on a group ID that "
@@ -104,24 +136,58 @@ void ProcessGroupManager::setGroupId(size_t gid)
 
 bool ProcessGroupManager::isGroupIdValid(size_t gid) const
 {
+    RecursingLockGuard<Spinlock> guard(m_GroupLock);
     return m_GroupIds.test(gid);
 }
 
 void ProcessGroupManager::returnGroupId(size_t gid)
 {
+    RecursingLockGuard<Spinlock> guard(m_GroupLock);
     m_GroupIds.clear(gid);
 }
 
-PosixSubsystem::PosixSubsystem(PosixSubsystem &s)
-    : Subsystem(s), m_SignalHandlers(), m_SignalHandlersLock(), m_FdMap(),
-      m_NextFd(s.m_NextFd), m_FdLock(), m_FdBitmap(), m_LastFd(0),
-      m_FreeCount(s.m_FreeCount), m_SyncObjects(), m_Threads(), m_ThreadWaiters(),
-      m_NextThreadWaiter(1)
+void ProcessGroupManager::registerGroup(size_t gid, ProcessGroup *group)
 {
-    while (!m_SignalHandlersLock.acquire())
-        ;
-    while (!s.m_SignalHandlersLock.enter())
-        ;
+    RecursingLockGuard<Spinlock> guard(m_GroupLock);
+    ProcessGroup *existing = m_Groups.lookup(gid);
+    if (existing && existing != group)
+    {
+        FATAL("Two concrete POSIX process groups claimed one group ID.");
+    }
+    if (!existing)
+    {
+        m_Groups.insert(gid, group);
+    }
+    m_GroupIds.set(gid);
+}
+
+void ProcessGroupManager::unregisterGroup(
+    size_t gid, ProcessGroup *group)
+{
+    RecursingLockGuard<Spinlock> guard(m_GroupLock);
+    if (m_Groups.lookup(gid) == group)
+    {
+        m_Groups.remove(gid);
+        m_GroupIds.clear(gid);
+    }
+}
+
+ProcessGroup *ProcessGroupManager::findGroup(size_t gid) const
+{
+    return m_Groups.lookup(gid);
+}
+
+PosixSubsystem::PosixSubsystem(PosixSubsystem &s)
+    : Subsystem(s), m_SignalHandlers(), m_SignalHandlersLock(),
+      m_AlarmLock(false), m_pAlarmEvent(nullptr), m_pAlarmThread(nullptr),
+      m_FdMap(),
+      m_NextFd(s.m_NextFd), m_FdLock(), m_FdBitmap(), m_LastFd(0),
+      m_FreeCount(s.m_FreeCount), m_SyncObjects(), m_Threads(),
+      m_ThreadWaiters(), m_NextThreadWaiter(1), m_Abi(s.m_Abi),
+      m_bAcquired(false), m_pAcquiredThread(nullptr)
+{
+    m_SignalHandlersLock.acquire();
+    s.m_SignalHandlersLock.enter();
 
     // Copy all signal handlers
     for (sigHandlerTree::Iterator it = s.m_SignalHandlers.begin();
@@ -157,6 +223,13 @@ PosixSubsystem::~PosixSubsystem()
 {
     assert(--m_FreeCount == 0);
 
+    cancelAlarm();
+    if (m_pAlarmEvent)
+    {
+        m_pAlarmEvent->retire();
+        m_pAlarmEvent = nullptr;
+    }
+
     acquire();
 
     // Destroy all signal handlers
@@ -189,7 +262,7 @@ PosixSubsystem::~PosixSubsystem()
                          // there
 
         // If the thread is still running, it should be killed
-        if (!thread->isRunning.tryAcquire())
+        if (!thread->isRunning.isComplete())
         {
             WARNING(
                 "PosixSubsystem object freed when a thread is still running?");
@@ -236,17 +309,17 @@ PosixSubsystem::~PosixSubsystem()
     for (Tree<void *, Semaphore *>::Iterator it = m_ThreadWaiters.begin();
          it != m_ThreadWaiters.end(); ++it)
     {
-        // Wake up everything waiting and then destroy the waiter object.
-        Semaphore *sem = it.value();
-        sem->release(-sem->getValue());
-        delete sem;
+        // Process teardown has already quiesced every peer thread. Waking a
+        // waiter and immediately deleting its queue would manufacture a
+        // use-after-free; Semaphore/WaitQueue destruction instead verifies
+        // that the quiescence invariant is true.
+        delete it.value();
     }
 
     m_ThreadWaiters.clear();
 
     // Take the memory map lock before we become uninterruptible.
-    while (!MemoryMapManager::instance().acquireLock())
-        ;
+    MemoryMapManager::instance().acquireLock();
 
     // Spinlock as a quick way of disabling interrupts.
     Spinlock spinlock;
@@ -292,12 +365,10 @@ void PosixSubsystem::acquire()
 
     // Ensure that no descriptor operations are taking place (and then, will
     // take place)
-    while (!m_FdLock.acquire())
-        ;
+    m_FdLock.acquire();
 
     // Modifying signal handlers, ensure that they are not in use
-    while (!m_SignalHandlersLock.acquire())
-        ;
+    m_SignalHandlersLock.acquire();
 
     // Safe to do without spinlock as we hold the other locks now.
     m_pAcquiredThread = me;
@@ -440,7 +511,13 @@ void PosixSubsystem::exit(int code)
     NOTICE(
         "PosixSubsystem::exit(" << Dec << pProcess->getId() << ", code=" << code
                                 << ")");
-    pProcess->markTerminating();
+
+    if (!pProcess->beginTermination())
+    {
+        // Another thread owns all process-wide cleanup. This thread is already
+        // a rendezvous participant and must take only the thread exit path.
+        Processor::information().getScheduler().killCurrentThread();
+    }
 
     if (pProcess->getExitStatus() == 0 ||     // Normal exit.
         pProcess->getExitStatus() == 0x7F ||  // Suspended.
@@ -467,16 +544,20 @@ void PosixSubsystem::exit(int code)
         // can do anything.
         pThread->setUnwindState(Thread::Exit);
 
-        Thread *pBlockingThread =
-            pThread->getBlockingThread(pThread->getStateLevel() - 1);
-        while (pBlockingThread)
-        {
-            pBlockingThread->setUnwindState(Thread::ReleaseBlockingThread);
-            pBlockingThread = pBlockingThread->getBlockingThread();
-        }
-
         Processor::information().getScheduler().eventHandlerReturned();
     }
+
+    // Exit has reached the final cleanup context. Blocking cleanup below must
+    // not recursively transfer back into exit at every WaitQueue boundary.
+    pThread->setUnwindState(Thread::Continue);
+
+    if (!pProcess->quiesceTermination())
+    {
+        FATAL(
+            "POSIX exit owner could not claim process teardown for pid "
+            << Dec << pProcess->getId() << ".");
+    }
+
     Processor::setInterrupts(false);
 
     // We're the lowest in the stack, so we can proceed with the exit function.
@@ -489,42 +570,58 @@ void PosixSubsystem::exit(int code)
     if (pProcess->getType() == Process::Posix)
     {
         PosixProcess *p = static_cast<PosixProcess *>(pProcess);
-        ProcessGroup *pGroup = p->getProcessGroup();
-        if (pGroup)
-        {
-            if (p->getGroupMembership() == PosixProcess::Member)
-            {
-                for (List<PosixProcess *>::Iterator it =
-                         pGroup->Members.begin();
-                     it != pGroup->Members.end(); it++)
-                {
-                    if ((*it) == p)
-                    {
-                        it = pGroup->Members.erase(it);
-                        break;
-                    }
-                }
-            }
-            else if (p->getGroupMembership() == PosixProcess::Leader)
-            {
-                // Group loses a leader, this is fine
-                pGroup->Leader = nullptr;
-            }
-
-            if (!pGroup->Members.size())
-            {
-                // Destroy the group, we were the last process in it.
-                delete pGroup;
-                pGroup = 0;
-            }
-        }
+        p->leaveProcessGroup();
     }
 
-    // Notify parent that we terminated (we may be in a separate process group).
-    Process *pParent = pProcess->getParent();
-    if (pParent && pParent->getSubsystem())
+    // Pin both objects before dropping the parent/child guard. Notification can
+    // allocate an Event, so it must not run while that spinlock is held.
+    while (true)
     {
-        pParent->getSubsystem()->threadException(pParent->getThread(0), Child);
+        Process *expectedParent = pProcess->getParent();
+        if (!expectedParent)
+        {
+            break;
+        }
+
+        Scheduler::ProcessLease parentLease;
+        if (!Scheduler::instance().acquireProcess(
+                parentLease, expectedParent))
+        {
+            if (pProcess->getParent() != expectedParent)
+            {
+                continue;
+            }
+            break;
+        }
+
+        Process::ThreadLease parentThread;
+        const bool parentThreadAcquired = parentLease->acquireThread(
+            parentThread, static_cast<size_t>(0));
+        bool relationshipValid = false;
+        bool parentAcceptsSignal = false;
+        {
+            auto childGuard = parentLease->acquireChildStateWait();
+            relationshipValid =
+                pProcess->getParent() == parentLease.get();
+            const Process::ProcessState parentState =
+                parentLease->getState();
+            parentAcceptsSignal =
+                parentState == Process::Active ||
+                parentState == Process::Suspended;
+        }
+
+        if (!relationshipValid)
+        {
+            continue;
+        }
+        if (
+            parentThreadAcquired && parentAcceptsSignal &&
+            parentLease->getSubsystem())
+        {
+            parentLease->getSubsystem()->threadException(
+                parentThread.get(), Child);
+        }
+        break;
     }
 
     // Clean up the descriptor table
@@ -537,10 +634,10 @@ void PosixSubsystem::exit(int code)
         << m_FindFileCache.hits() << " hits and " << m_FindFileCache.misses()
         << " misses");
 
-    pProcess->kill();
+    pProcess->finishTermination();
 
     // Should NEVER get here.
-    FATAL("PosixSubsystem::exit() running after Process::kill()!");
+    FATAL("PosixSubsystem::exit() running after Process teardown!");
 }
 
 bool PosixSubsystem::kill(KillReason killReason, Thread *pThread)
@@ -772,8 +869,7 @@ void PosixSubsystem::sendSignal(Thread *pThread, int signal, bool yield)
 
 void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler *handler)
 {
-    while (!m_SignalHandlersLock.acquire())
-        ;
+    m_SignalHandlersLock.acquire();
 
     SignalHandler *removal = nullptr;
 
@@ -811,8 +907,7 @@ bool PosixSubsystem::getSignalDisposition(
         return false;
     }
 
-    while (!m_SignalHandlersLock.enter())
-        ;
+    m_SignalHandlersLock.enter();
 
     SignalHandler *handler = m_SignalHandlers.lookup(sig);
     if (handler)
@@ -841,8 +936,7 @@ SignalEvent *PosixSubsystem::createSignalDelivery(
         return nullptr;
     }
 
-    while (!m_SignalHandlersLock.enter())
-        ;
+    m_SignalHandlersLock.enter();
 
     SignalHandler *handler = m_SignalHandlers.lookup(sig);
     SignalEvent *delivery = nullptr;
@@ -860,6 +954,45 @@ SignalEvent *PosixSubsystem::createSignalDelivery(
     return delivery;
 }
 
+size_t PosixSubsystem::setAlarm(size_t seconds)
+{
+    LockGuard<Spinlock> guard(m_AlarmLock);
+    if (!m_pAlarmEvent)
+    {
+        m_pAlarmEvent =
+            new RelayEvent(&posixAlarmEventHandler, 0x414C4152);
+    }
+
+    Timer *timer = Machine::instance().getTimer();
+    if (!timer)
+    {
+        return 0;
+    }
+
+    size_t remaining = timer->removeAlarm(m_pAlarmEvent, false);
+    m_pAlarmThread = nullptr;
+    if (seconds)
+    {
+        timer->addAlarm(m_pAlarmEvent, seconds);
+        m_pAlarmThread = Processor::information().getCurrentThread();
+    }
+    return remaining;
+}
+
+void PosixSubsystem::cancelAlarm()
+{
+    LockGuard<Spinlock> guard(m_AlarmLock);
+    if (m_pAlarmEvent)
+    {
+        Timer *timer = Machine::instance().getTimer();
+        if (timer)
+        {
+            timer->removeAlarm(m_pAlarmEvent);
+        }
+    }
+    m_pAlarmThread = nullptr;
+}
+
 /**
  * Note: POSIX  requires open()/accept()/etc to be safe during a signal
  * handler, which requires us to not allow signals during these file descriptor
@@ -871,8 +1004,7 @@ size_t PosixSubsystem::getFd()
     Uninterruptible throughout;
 
     // Enter critical section for writing.
-    while (!m_FdLock.acquire())
-        ;
+    m_FdLock.acquire();
 
     // Try to recycle if possible
     for (size_t i = m_LastFd; i < m_NextFd; i++)
@@ -899,8 +1031,7 @@ void PosixSubsystem::allocateFd(size_t fdNum)
     Uninterruptible throughout;
 
     // Enter critical section for writing.
-    while (!m_FdLock.acquire())
-        ;
+    m_FdLock.acquire();
 
     if (fdNum >= m_NextFd)
         m_NextFd = fdNum + 1;
@@ -911,175 +1042,249 @@ void PosixSubsystem::allocateFd(size_t fdNum)
 
 void PosixSubsystem::freeFd(size_t fdNum)
 {
-    Uninterruptible throughout;
+    SharedPointer<FileDescriptor> retiring;
 
-    // Enter critical section for writing.
-    while (!m_FdLock.acquire())
-        ;
-
-    m_FdBitmap.clear(fdNum);
-
-    FileDescriptor *pFd = m_FdMap.lookup(fdNum);
-    if (pFd)
     {
-        m_FdMap.remove(fdNum);
-        delete pFd;
+        Uninterruptible throughout;
+
+        // Unpublish atomically. Keep a private reference so the descriptor's
+        // teardown cannot run while the table lock is held.
+        m_FdLock.acquire();
+
+        m_FdBitmap.clear(fdNum);
+        m_FdMap.take(fdNum, retiring);
+
+        if (fdNum < m_LastFd)
+            m_LastFd = fdNum;
+
+        m_FdLock.release();
     }
 
-    if (fdNum < m_LastFd)
-        m_LastFd = fdNum;
-
-    m_FdLock.release();
+    // File/socket/event retirement can block and can re-enter unrelated
+    // registries. It must happen after the descriptor-table lock is gone.
+    retiring.reset();
 }
 
 bool PosixSubsystem::copyDescriptors(PosixSubsystem *pSubsystem)
 {
-    Uninterruptible throughout;
-
     assert(pSubsystem);
+
+    Vector<SharedPointer<FileDescriptor>> retiring;
 
     // We're totally resetting our local state, ensure there's no files hanging
     // around.
     freeMultipleFds();
 
-    // Totally changing everything... Don't allow other functions to meddle.
-    while (!m_FdLock.acquire())
-        ;
-    while (!pSubsystem->m_FdLock.acquire())
-        ;
-
-    // Copy each descriptor across from the original subsystem
-    FdMap &map = pSubsystem->m_FdMap;
-    for (FdMap::Iterator it = map.begin(); it != map.end(); it++)
     {
-        FileDescriptor *pFd = it.value();
-        if (!pFd)
-            continue;
-        size_t newFd = it.key();
+        Uninterruptible throughout;
 
-        FileDescriptor *pNewFd = new FileDescriptor(*pFd);
+        // Totally changing everything... Don't allow other functions to
+        // meddle.
+        m_FdLock.acquire();
+        pSubsystem->m_FdLock.acquire();
 
-        // Perform the same action as addFileDescriptor. We need to duplicate
-        // here because we currently hold the FD lock, which will deadlock if we
-        // call any function which attempts to acquire it.
-        if (newFd >= m_NextFd)
-            m_NextFd = newFd + 1;
-        m_FdBitmap.set(newFd);
-        m_FdMap.insert(newFd, pNewFd);
+        // Copy each descriptor across from the original subsystem.
+        FdMap &map = pSubsystem->m_FdMap;
+        for (FdMap::Iterator it = map.begin(); it != map.end(); it++)
+        {
+            SharedPointer<FileDescriptor> pFd = it.value();
+            if (!pFd)
+                continue;
+            size_t newFd = it.key();
+
+            SharedPointer<FileDescriptor> pNewFd(new FileDescriptor(*pFd));
+
+            // Perform the same action as addFileDescriptor. We need to
+            // duplicate here because we currently hold the FD lock, which will
+            // deadlock if we call any function which attempts to acquire it.
+            if (newFd >= m_NextFd)
+                m_NextFd = newFd + 1;
+            m_FdBitmap.set(newFd);
+            SharedPointer<FileDescriptor> previous;
+            if (m_FdMap.take(newFd, previous))
+            {
+                retiring.pushBack(pedigree_std::move(previous));
+            }
+            m_FdMap.insert(newFd, pedigree_std::move(pNewFd));
+        }
+
+        pSubsystem->m_FdLock.release();
+        m_FdLock.release();
     }
 
-    pSubsystem->m_FdLock.release();
-    m_FdLock.release();
+    retiring.clear(true);
     return true;
 }
 
 void PosixSubsystem::freeMultipleFds(
     bool bOnlyCloExec, size_t iFirst, size_t iLast)
 {
-    Uninterruptible throughout;
-
     assert(iFirst < iLast);
 
-    while (!m_FdLock.acquire())
-        ;  // Don't allow any access to the FD data
-
-    // Because removing FDs as we go from the Tree can actually leave the Tree
-    // iterators in a dud state, we'll add all the FDs to remove to this list.
-    List<void *> fdsToRemove;
-
-    // Are all FDs to be freed? Or only a selection?
-    bool bAllToBeFreed = ((iFirst == 0 && iLast == ~0UL) && !bOnlyCloExec);
-    if (bAllToBeFreed)
-        m_LastFd = 0;
-
-    FdMap &map = m_FdMap;
-    for (FdMap::Iterator it = map.begin(); it != map.end(); it++)
-    {
-        size_t Fd = it.key();
-        FileDescriptor *pFd = it.value();
-        if (!pFd)
-            continue;
-
-        if (!(Fd >= iFirst && Fd <= iLast))
-            continue;
-
-        if (bOnlyCloExec)
-        {
-            if (!(pFd->fdflags & FD_CLOEXEC))
-                continue;
-        }
-
-        // Perform the same action as freeFd. We need to duplicate code here
-        // because we currently hold the FD lock, which will deadlock if we call
-        // any function which attempts to acquire it.
-
-        // No longer usable
-        m_FdBitmap.clear(Fd);
-
-        // Add to the list of FDs to remove, iff we won't be cleaning up the
-        // entire set
-        if (!bAllToBeFreed)
-            fdsToRemove.pushBack(reinterpret_cast<void *>(Fd));
-
-        // Delete the descriptor itself
-        delete pFd;
-
-        // And reset the "last freed" tracking variable, if this is lower than
-        // it already.
-        if (Fd < m_LastFd)
-            m_LastFd = Fd;
-    }
-
-    // Clearing all AND not caring about CLOEXEC FDs? If so, clear the map.
-    // Otherwise, only clear the FDs that are supposed to be cleared.
-    if (bAllToBeFreed)
-        m_FdMap.clear();
-    else
-    {
-        for (List<void *>::Iterator it = fdsToRemove.begin();
-             it != fdsToRemove.end(); it++)
-            m_FdMap.remove(reinterpret_cast<size_t>(*it));
-    }
-
-    m_FdLock.release();
-}
-
-FileDescriptor *PosixSubsystem::getFileDescriptor(size_t fd)
-{
-    Uninterruptible throughout;
-
-    // Enter the critical section, for reading.
-    while (!m_FdLock.enter())
-        ;
-
-    FileDescriptor *pFd = m_FdMap.lookup(fd);
-
-    m_FdLock.leave();
-
-    return pFd;
-}
-
-void PosixSubsystem::addFileDescriptor(size_t fd, FileDescriptor *pFd)
-{
-    /// \todo this is possibly racy
-    freeFd(fd);
-    allocateFd(fd);
+    // Table ownership is moved here before each node is erased. Destroying
+    // this vector after unlocking performs potentially blocking descriptor
+    // teardown outside the table critical section.
+    Vector<SharedPointer<FileDescriptor>> retiring;
 
     {
         Uninterruptible throughout;
 
-        // Enter critical section for writing.
-        while (!m_FdLock.acquire())
-            ;
+        m_FdLock.acquire();  // Don't allow any access to the FD data
 
-        m_FdMap.insert(fd, pFd);
+        // Because removing FDs as we go from the Tree can actually leave the
+        // Tree iterators in a dud state, remember all keys until traversal is
+        // complete.
+        List<void *> fdsToRemove;
+
+        // Are all FDs to be freed? Or only a selection?
+        bool bAllToBeFreed =
+            ((iFirst == 0 && iLast == ~0UL) && !bOnlyCloExec);
+        if (bAllToBeFreed)
+            m_LastFd = 0;
+
+        FdMap &map = m_FdMap;
+        for (FdMap::Iterator it = map.begin(); it != map.end(); it++)
+        {
+            size_t Fd = it.key();
+            SharedPointer<FileDescriptor> pFd = it.value();
+            if (!pFd)
+                continue;
+
+            if (!(Fd >= iFirst && Fd <= iLast))
+                continue;
+
+            if (bOnlyCloExec)
+            {
+                if (!(pFd->fdflags & FD_CLOEXEC))
+                    continue;
+            }
+
+            // No longer usable.
+            m_FdBitmap.clear(Fd);
+            fdsToRemove.pushBack(reinterpret_cast<void *>(Fd));
+
+            // Reset the "last freed" tracking variable, if this is lower than
+            // it already.
+            if (Fd < m_LastFd)
+                m_LastFd = Fd;
+        }
+
+        for (List<void *>::Iterator it = fdsToRemove.begin();
+             it != fdsToRemove.end(); it++)
+        {
+            SharedPointer<FileDescriptor> descriptor;
+            if (m_FdMap.take(reinterpret_cast<size_t>(*it), descriptor))
+            {
+                retiring.pushBack(pedigree_std::move(descriptor));
+            }
+        }
 
         m_FdLock.release();
     }
+
+    retiring.clear(true);
+}
+
+bool PosixSubsystem::acquireFileDescriptor(
+    size_t fd, DescriptorLease &descriptor)
+{
+    descriptor.reset();
+    {
+        Uninterruptible throughout;
+        m_FdLock.enter();
+        SharedPointer<FileDescriptor> retained = m_FdMap.lookup(fd);
+        m_FdLock.leave();
+        descriptor.retain(retained);
+    }
+    return static_cast<bool>(descriptor);
+}
+
+bool PosixSubsystem::closeFileDescriptor(
+    size_t fd, const DescriptorLease &descriptor)
+{
+    if (!descriptor)
+    {
+        return false;
+    }
+
+    SharedPointer<FileDescriptor> current;
+    SharedPointer<FileDescriptor> retiring;
+    bool removed = false;
+
+    {
+        Uninterruptible throughout;
+
+        m_FdLock.acquire();
+        current = m_FdMap.lookup(fd);
+        if (current == descriptor.m_Descriptor)
+        {
+            // Transfer the table owner rather than destroying it under the
+            // lock. The lease supplied by close keeps the exact generation
+            // alive while any descriptor-specific cleanup is performed.
+            removed = m_FdMap.take(fd, retiring);
+            if (removed)
+            {
+                m_FdBitmap.clear(fd);
+                if (fd < m_LastFd)
+                {
+                    m_LastFd = fd;
+                }
+            }
+        }
+        m_FdLock.release();
+    }
+
+    current.reset();
+    retiring.reset();
+    return removed;
+}
+
+void PosixSubsystem::addFileDescriptor(size_t fd, FileDescriptor *pFd)
+{
+    SharedPointer<FileDescriptor> replacement(pFd);
+    SharedPointer<FileDescriptor> retiring;
+
+    {
+        Uninterruptible throughout;
+
+        // Publish the replacement and update allocation metadata in one
+        // critical section. The old freeFd()/allocateFd() sequence briefly
+        // exposed fd as available and allowed another allocator to steal it.
+        m_FdLock.acquire();
+
+        m_FdMap.take(fd, retiring);
+        if (fd >= m_NextFd)
+            m_NextFd = fd + 1;
+        m_FdBitmap.set(fd);
+        m_FdMap.insert(fd, replacement);
+
+        m_FdLock.release();
+    }
+
+    retiring.reset();
 }
 
 void PosixSubsystem::threadRemoved(Thread *pThread)
 {
+    Event *alarmEvent = nullptr;
+    {
+        LockGuard<Spinlock> guard(m_AlarmLock);
+        alarmEvent = m_pAlarmEvent;
+        if (m_pAlarmThread == pThread)
+        {
+            Timer *timer = Machine::instance().getTimer();
+            if (timer && alarmEvent)
+            {
+                timer->removeAlarm(alarmEvent);
+            }
+            m_pAlarmThread = nullptr;
+        }
+    }
+    if (alarmEvent)
+    {
+        pThread->cullEvent(alarmEvent);
+    }
+
     for (Tree<size_t, PosixThread *>::Iterator it = m_Threads.begin();
          it != m_Threads.end(); it++)
     {
@@ -1091,13 +1296,13 @@ void PosixSubsystem::threadRemoved(Thread *pThread)
         // We do not however kill the thread object yet. It can be cleaned up
         // when the PosixSubsystem quits (if this was the last thread). Or, it
         // will be cleaned up by a join().
-        thread->isRunning.release();
+        thread->isRunning.complete();
         break;
     }
 }
 
 bool PosixSubsystem::checkAccess(
-    FileDescriptor *pFileDescriptor, bool bRead, bool bWrite,
+    const DescriptorLease &pFileDescriptor, bool bRead, bool bWrite,
     bool bExecute) const
 {
     return VFS::checkAccess(pFileDescriptor->file, bRead, bWrite, bExecute);
@@ -1526,13 +1731,10 @@ bool PosixSubsystem::invoke(
     const bool hasExecRandom = false;
 #endif
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
+    Thread *pThread = Processor::information().getCurrentThread();
+    Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
         static_cast<PosixSubsystem *>(pProcess->getSubsystem());
-
-    // Grab the thread we're going to return into - need to tweak it.
-    Thread *pThread = pProcess->getThread(0);
 
     // Ensure we only have one thread running (us).
     if (pProcess->getNumThreads() > 1)
@@ -1738,9 +1940,6 @@ bool PosixSubsystem::invoke(
     pThread->resetTlsBase();
     if (pSubsystem)
         pSubsystem->freeMultipleFds(true);
-    while (pThread->getStateLevel())
-        pThread->popState();
-
     if (pProcess->getType() == Process::Posix)
     {
         /// \todo should only do this for setuid/setgid programs
@@ -1953,9 +2152,13 @@ bool PosixSubsystem::invoke(
                 sig, false);
         }
 
-        // Jump to the new process.
-        Processor::jumpUser(
-            0, interpreterEntryPoint, reinterpret_cast<uintptr_t>(loaderStack));
+        if (!SyscallManager::instance().requestUserJump(
+                interpreterEntryPoint,
+                reinterpret_cast<uintptr_t>(loaderStack)))
+        {
+            FATAL("exec userspace jump was not dispatched.");
+        }
+        return true;
     }
 
     // unreachable

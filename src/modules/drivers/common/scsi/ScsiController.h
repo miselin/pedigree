@@ -22,12 +22,15 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Controller.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 
 #define SCSI_REQUEST_READ 1
 #define SCSI_REQUEST_WRITE 2
 #define SCSI_REQUEST_SYNC 3
+
+class ScsiDisk;
 
 /** Generic class for Scsi Controllers */
 class EXPORTED_PUBLIC ScsiController : public Controller, public RequestQueue
@@ -47,9 +50,22 @@ class EXPORTED_PUBLIC ScsiController : public Controller, public RequestQueue
         uint64_t p6, uint64_t p7, uint64_t p8);
 
   protected:
+    virtual void cancelRequest(const Request &request);
+
+    /** Drains disk work and retires child Cache callbacks while I/O is live. */
+    void shutdownDiskCaches();
+
     virtual size_t getNumUnits() = 0;
 
     void searchDisks();
+
+  private:
+    friend class ScsiDisk;
+
+    bool acquireDiskOperation(OperationBarrier::Lease &operation);
+
+    /** Rejects new filesystem-facing disk work while teardown drains. */
+    OperationBarrier m_DiskOperations;
 };
 
 #endif

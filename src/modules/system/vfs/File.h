@@ -21,6 +21,7 @@
 #define FILE_H
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
@@ -32,7 +33,6 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
 
-class Event;
 class Filesystem;
 class Thread;
 
@@ -211,6 +211,9 @@ class EXPORTED_PUBLIC File
     /** Walks the monitor-target queue, removing all for \p pThread .*/
     void cullMonitorTargets(Thread *pThread);
 
+    /** Walks the monitor-target queue, removing all for \p pEvent. */
+    void cullMonitorTargets(Event *pEvent);
+
     /** Does this File object support the given integer-based command? */
     virtual bool supports(const size_t command) const;
 
@@ -255,7 +258,14 @@ class EXPORTED_PUBLIC File
         uint64_t location, uint64_t size, uintptr_t buffer,
         bool bCanBlock = true);
 
-    /** Internal function to retrieve an aligned 512byte section of the file. */
+    /**
+     * Retrieves an aligned block with one caller-owned lifetime reference.
+     *
+     * Every successful call must be balanced by exactly one unpinBlock() at
+     * the same location. Cache-backed implementations must acquire a reference
+     * in addition to the cache entry's publication reference on both hit and
+     * miss paths.
+     */
     virtual uintptr_t readBlock(uint64_t location);
     /**
      * Internal function to write a block retrieved with readBlock back to
@@ -299,8 +309,12 @@ class EXPORTED_PUBLIC File
      * when it determines it is about to give a physical page to an upper
      * layer, and therefore will be unable to guarantee the virtual page's
      * dirty status is a correct reflection of the page's state.
+     *
+     * Returns true only when the page currently published for \p location is
+     * held until the matching unpinBlock(). The base implementation returns
+     * false so a cache-backed subclass cannot silently claim unsafe pages.
      */
-    virtual void pinBlock(uint64_t location);
+    MUST_USE_RESULT virtual bool pinBlock(uint64_t location);
 
     /**
      * Unpins the given page.
@@ -379,16 +393,21 @@ class EXPORTED_PUBLIC File
      * but that's an acceptable compromise.
      */
     Cache m_FillCache;
+    Mutex m_FillCacheLock;
 
     Mutex m_Lock;
 
     struct MonitorTarget
     {
-        MonitorTarget(Thread *pT, Event *pE) : pThread(pT), pEvent(pE)
+        MonitorTarget(
+            Thread *pT, Event *pE, Event::SendLease registration)
+            : pThread(pT), pEvent(pE),
+              eventRegistration(pedigree_std::move(registration))
         {
         }
         Thread *pThread;
         Event *pEvent;
+        Event::SendLease eventRegistration;
     };
 
     List<MonitorTarget *> m_MonitorTargets;
@@ -404,8 +423,15 @@ class EXPORTED_PUBLIC File
      * sizes. */
     bool useFillCache() const;
 
-    /** Read the given block into the relevant cache. */
+    /**
+     * Reads the given cache block and returns one per-use reference.
+     *
+     * m_DataCache is a weak identity index; it does not own this reference.
+     */
     uintptr_t readIntoCache(uintptr_t block);
+
+    /** Releases the per-use reference returned by readIntoCache(). */
+    void releaseReadReference(uintptr_t block);
 };
 
 #endif

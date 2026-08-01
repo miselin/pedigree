@@ -105,7 +105,12 @@ class Iso9660Directory : public Directory
         for (i = 0; i < numBlocks; i++)
         {
             // Read the block
-            uintptr_t block = myDisk->read((dirLoc + i) * 2048);
+            const uint64_t diskLocation = (dirLoc + i) * 2048;
+            uintptr_t block = myDisk->read(diskLocation);
+            if (!block)
+            {
+                break;
+            }
 
             // Complete, so start reading entries
             size_t offset = 0;
@@ -151,6 +156,8 @@ class Iso9660Directory : public Directory
                     addDirectoryEntry(fileName, file);
                 }
             }
+
+            myDisk->unpin(diskLocation);
 
             // Last in the block, but are there still blocks to read?
             if (bLastHit && ((i + 1) == numBlocks))

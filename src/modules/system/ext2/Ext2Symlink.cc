@@ -51,12 +51,11 @@ Ext2Symlink::~Ext2Symlink()
 uint64_t Ext2Symlink::readBytewise(
     uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock)
 {
-    if (location >= getSize())
+    if (!size || location >= getSize())
         return 0;
-    if ((location + size) >= getSize())
-        size = getSize() - location;
-    if (!size)
-        return 0;
+    const uint64_t remaining = getSize() - location;
+    if (size > remaining)
+        size = remaining;
 
     if (getSize() && Ext2Node::getInode()->i_blocks == 0)
     {
@@ -73,10 +72,14 @@ uint64_t Ext2Symlink::readBytewise(
     }
 
     uintptr_t block = Ext2Node::readBlock(location);
-    size_t offset = location % m_pExt2Fs->m_BlockSize;
+    if (!block)
+    {
+        return 0;
+    }
     MemoryCopy(
-        reinterpret_cast<void *>(buffer),
-        reinterpret_cast<void *>(block + offset), size);
+        reinterpret_cast<void *>(buffer), reinterpret_cast<void *>(block),
+        size);
+    Ext2Node::unpinBlock(location);
     m_Size = m_nSize;
     return size;
 }
@@ -94,11 +97,15 @@ uint64_t Ext2Symlink::writeBytewise(
     }
 
     uintptr_t block = Ext2Node::readBlock(location);
-    size_t offset = location % m_pExt2Fs->m_BlockSize;
+    if (!block)
+    {
+        return 0;
+    }
     MemoryCopy(
-        adjust_pointer(reinterpret_cast<void *>(block), offset),
-        reinterpret_cast<void *>(buffer), size);
+        reinterpret_cast<void *>(block), reinterpret_cast<void *>(buffer),
+        size);
     Ext2Node::writeBlock(location);
+    Ext2Node::unpinBlock(location);
     return size;
 }
 

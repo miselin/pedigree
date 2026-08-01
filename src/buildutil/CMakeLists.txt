@@ -114,7 +114,6 @@ set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/PhysicalMemoryManager.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/MemoryRegion.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/time/Conversion.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/time/Concurrent.cc  # Portable, unlike Delay.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/network/IpAddress.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/network/MacAddress.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/Atomic.cc
@@ -220,6 +219,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Result.cc
     testsuite/test-RangeList.cc
     testsuite/test-LocksCommand.cc
+    testsuite/test-ThreadWaitDiagnostic.cc
     testsuite/test-List.cc
     testsuite/test-SharedPointer.cc
     testsuite/test-UniquePointer.cc

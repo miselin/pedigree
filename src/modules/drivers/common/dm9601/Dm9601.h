@@ -21,10 +21,12 @@
 #define DM9601_H
 
 #include "modules/system/usb/UsbDevice.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
@@ -52,13 +54,13 @@ class Dm9601 : public UsbDevice, public Network
     virtual const StationInfo &getStationInfo();
 
   private:
-    static int recvTrampoline(void *p) NORETURN;
+    static int recvTrampoline(void *p);
 
-    static int trampoline(void *p) NORETURN;
+    static int trampoline(void *p);
 
-    void receiveThread() NORETURN;
+    void receiveThread();
 
-    void receiveLoop() NORETURN;
+    void receiveLoop();
 
     void doReceive();
 
@@ -179,6 +181,11 @@ class Dm9601 : public UsbDevice, public Network
 
     /** Internal state: which TX packet are we on at the moment */
     size_t m_TxPacket;
+
+    Atomic<bool> m_Running;
+    bool m_Registered;
+    OwnedThread m_PacketWorker;
+    OwnedThread m_ReceiveWorker;
 
     Dm9601(const Dm9601 &);
     void operator=(const Dm9601 &);

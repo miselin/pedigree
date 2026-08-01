@@ -23,7 +23,7 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-static Mutex g_sqlLock(false);
+static Mutex g_sqlLock;
 
 Config Config::m_Instance;
 

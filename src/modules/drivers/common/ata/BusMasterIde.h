@@ -20,6 +20,7 @@
 #ifndef BUSMASTERIDE_H
 #define BUSMASTERIDE_H
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
@@ -110,6 +111,14 @@ class BusMasterIde
      */
     bool initialise(IoBase *pBase);
 
+    /**
+     * Claims the bus-master state before preparing a command.
+     *
+     * Ownership begins before PRD construction so an interrupt cannot mistake a
+     * partially prepared command for an idle channel and reset it.
+     */
+    bool beginTransaction();
+
     /** \brief Adds a buffer to a DMA transaction.
      *  \param buffer Address of the buffer to be used for the transaction
      *  \param nBytes Size of the buffer
@@ -180,6 +189,14 @@ class BusMasterIde
      */
     void commandComplete();
 
+    /**
+     * Clears an interrupt on an otherwise idle channel.
+     *
+     * The temporary ownership claim closes the check-then-reset race with a
+     * command beginning PRD construction on another core.
+     */
+    bool completeIdleTransaction();
+
     /** \brief Is there currently a DMA transaction taking place?
      *
      * Calling begin() will begin a transaction, and calling commandComplete
@@ -190,7 +207,7 @@ class BusMasterIde
      */
     bool isActive() const
     {
-        return m_bActive;
+        return static_cast<bool>(m_bActive);
     }
 
   private:
@@ -213,8 +230,8 @@ class BusMasterIde
     /** MemoryRegion for the PRD table */
     MemoryRegion m_PrdTableMemRegion;
 
-    /** Whether or not a DMA transfer is currently active. */
-    bool m_bActive;
+    /** Whether a command owns the bus-master preparation/transfer state. */
+    Atomic<bool> m_bActive;
 
     /** Register layout */
     enum BusMasterIdeRegs

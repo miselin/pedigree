@@ -76,7 +76,14 @@ static bool entry()
 static void unload()
 {
     if (g_Ps2Mouse)
-        delete g_Ps2Mouse;
+    {
+        auto removeMouse = [](Device *device) {
+            return device == g_Ps2Mouse ? nullptr : device;
+        };
+        auto callback = pedigree_std::make_callable(removeMouse);
+        Device::foreach (callback, 0);
+        g_Ps2Mouse = nullptr;
+    }
 }
 
 MODULE_NAME("ps2mouse");

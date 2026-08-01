@@ -24,6 +24,8 @@
 
 class UsbDevice;
 
+static UsbPnP::Registration g_Registration;
+
 static UsbDevice *massStorageConnected(UsbDevice *pDevice)
 {
     return new UsbMassStorageDevice(pDevice);
@@ -31,13 +33,13 @@ static UsbDevice *massStorageConnected(UsbDevice *pDevice)
 
 static bool entry()
 {
-    UsbPnP::instance().registerCallback(
-        8, SubclassNone, ProtocolNone, massStorageConnected);
-    return true;
+    return UsbPnP::instance().registerCallback(
+        8, SubclassNone, ProtocolNone, massStorageConnected, g_Registration);
 }
 
 static void exit()
 {
+    g_Registration.reset();
 }
 
 MODULE_INFO("usb-mass-storage", &entry, &exit, "usb");

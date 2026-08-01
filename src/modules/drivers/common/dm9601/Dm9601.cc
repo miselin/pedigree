@@ -35,13 +35,40 @@
 
 Dm9601::Dm9601(UsbDevice *pDev)
     : UsbDevice(pDev), ::Network(), m_pInEndpoint(0), m_pOutEndpoint(0),
-      m_TxLock(false), m_IncomingPackets(false), m_RxPacketQueue(),
-      m_RxPacketQueueLock(), m_TxPacket(0)
+      m_TxLock(), m_IncomingPackets(false), m_RxPacketQueue(),
+      m_RxPacketQueueLock(), m_TxPacket(0), m_Running(false),
+      m_Registered(false), m_PacketWorker(), m_ReceiveWorker()
 {
 }
 
 Dm9601::~Dm9601()
 {
+    m_Running = false;
+
+    // Stop the USB producer before the packet consumer and queue storage.
+    m_ReceiveWorker.stop();
+    m_IncomingPackets.release();
+    m_PacketWorker.stop();
+
+    if (m_Registered)
+    {
+        NetworkStack::instance().deRegisterDevice(this);
+        m_Registered = false;
+    }
+
+    LockGuard<Spinlock> guard(m_RxPacketQueueLock);
+    while (m_RxPacketQueue.count())
+    {
+        Packet *packet = m_RxPacketQueue.popFront();
+        if (packet)
+        {
+            if (packet->buffer)
+            {
+                NetworkStack::instance().getMemPool().free(packet->buffer);
+            }
+            delete packet;
+        }
+    }
 }
 
 void Dm9601::initialiseDriver()
@@ -78,8 +105,12 @@ void Dm9601::initialiseDriver()
     m_StationInfo.mac.setMac(pMac, false);
 
     NOTICE(
-        "DM9601: MAC " << pMac[0] << ":" << pMac[1] << ":" << pMac[2] << ":"
-                       << pMac[3] << ":" << pMac[4] << ":" << pMac[5]);
+        "DM9601: MAC " << m_StationInfo.mac[0] << ":"
+                       << m_StationInfo.mac[1] << ":"
+                       << m_StationInfo.mac[2] << ":"
+                       << m_StationInfo.mac[3] << ":"
+                       << m_StationInfo.mac[4] << ":"
+                       << m_StationInfo.mac[5]);
 
     // Reset the chip
     writeRegister(NetworkControl, 1);
@@ -126,19 +157,22 @@ void Dm9601::initialiseDriver()
         readRegister(NetworkStatus, reinterpret_cast<uintptr_t>(p), 1);
         Time::delay(100 * Time::Multiplier::Millisecond);
     }
+    delete p;
 
+    m_Running = true;
     Thread *pThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), trampoline,
         this);
     pThread->setName("DM9601 RX worker");
-    pThread->detach();
+    m_PacketWorker.adopt(pThread);
     pThread = new Thread(
         Processor::information().getCurrentThread()->getParent(),
         recvTrampoline, this);
     pThread->setName("DM9601 RX loop");
-    pThread->detach();
+    m_ReceiveWorker.adopt(pThread);
 
     NetworkStack::instance().registerDevice(this);
+    m_Registered = true;
 
     m_UsbState = HasDriver;
 }
@@ -147,23 +181,38 @@ int Dm9601::recvTrampoline(void *p)
 {
     Dm9601 *pDm9601 = reinterpret_cast<Dm9601 *>(p);
     pDm9601->receiveLoop();
+    return 0;
 }
 
 int Dm9601::trampoline(void *p)
 {
     Dm9601 *pDm9601 = reinterpret_cast<Dm9601 *>(p);
     pDm9601->receiveThread();
+    return 0;
 }
 
 void Dm9601::receiveThread()
 {
-    while (true)
+    while (m_Running)
     {
-        m_IncomingPackets.acquire();
+        if (!m_IncomingPackets.acquire())
+        {
+            continue;
+        }
+        if (!m_Running)
+        {
+            return;
+        }
 
-        m_RxPacketQueueLock.acquire();
-        Packet *pPacket = m_RxPacketQueue.popFront();
-        m_RxPacketQueueLock.release();
+        Packet *pPacket = nullptr;
+        {
+            LockGuard<Spinlock> guard(m_RxPacketQueueLock);
+            pPacket = m_RxPacketQueue.popFront();
+        }
+        if (!pPacket)
+        {
+            continue;
+        }
 
         NetworkStack::instance().receive(
             pPacket->len, pPacket->buffer + pPacket->offset, this, 0);
@@ -177,8 +226,10 @@ void Dm9601::receiveThread()
 
 void Dm9601::receiveLoop()
 {
-    while (true)
+    while (m_Running)
+    {
         doReceive();
+    }
 }
 
 bool Dm9601::send(size_t nBytes, uintptr_t buffer)
@@ -227,6 +278,7 @@ bool Dm9601::send(size_t nBytes, uintptr_t buffer)
     // complete" indicator)
     readRegister(NetworkStatus, reinterpret_cast<uintptr_t>(p), 1);
 
+    delete p;
     return ret >= 0;
 }
 
@@ -239,7 +291,10 @@ void Dm9601::doReceive()
 
     if (ret < 0)
     {
-        WARNING("dm9601: rx failure due to USB error: " << ret);
+        if (m_Running)
+        {
+            WARNING("dm9601: rx failure due to USB error: " << ret);
+        }
         NetworkStack::instance().getMemPool().free(buff);
         return;
     }

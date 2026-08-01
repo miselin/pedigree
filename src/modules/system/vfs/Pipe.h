@@ -23,7 +23,7 @@
 #include "File.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Buffer.h"
@@ -88,18 +88,19 @@ class EXPORTED_PUBLIC Pipe : public File
         (and also when all readers have hung up so we can die). */
     virtual void decreaseRefCount(bool bIsWriter);
 
-    size_t getReaderCount() const
-    {
-        return m_nReaders;
-    }
+    /** Returns a locked diagnostic snapshot of the current reader count. */
+    size_t getReaderCount();
 
-    size_t getWriterCount() const
-    {
-        return m_nWriters;
-    }
+    /** Returns a locked diagnostic snapshot of the current writer count. */
+    size_t getWriterCount();
 
-    // Wait for a reader - returns false if interrupted before a reader arrived.
-    bool waitForReader();
+    /**
+     * Atomically tests for a reader and, when permitted, waits for one.
+     *
+     * All writers waiting on the predicate are released when a reader arrives.
+     * Returns false for a nonblocking miss or an interrupted blocking wait.
+     */
+    bool waitForReader(bool bCanBlock);
 
   protected:
     /** If we're an anonymous pipe, we should delete ourselves when all
@@ -112,8 +113,8 @@ class EXPORTED_PUBLIC Pipe : public File
     /** Internal pipe buffer. */
     Buffer<uint8_t> m_Buffer;
 
-    /** Reader semaphore to allow blocking until a reader arrives. */
-    Semaphore m_ReaderSem;
+    /** Writers waiting for the protected m_nReaders predicate. */
+    ConditionVariable m_ReaderCondition;
 
     virtual bool isBytewise() const
     {

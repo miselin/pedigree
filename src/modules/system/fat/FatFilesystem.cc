@@ -29,6 +29,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/StaticString.h"
@@ -79,10 +80,21 @@ bool FatFilesystem::initialise(Disk *pDisk)
 
     // Attempt to read the superblock.
     uint8_t *buffer = reinterpret_cast<uint8_t *>(m_pDisk->read(0));
+    if (!buffer)
+    {
+        return false;
+    }
 
     MemoryCopy(
         reinterpret_cast<void *>(&m_Superblock),
         reinterpret_cast<void *>(buffer), sizeof(Superblock));
+    MemoryCopy(
+        reinterpret_cast<void *>(&m_Superblock16),
+        reinterpret_cast<void *>(buffer + 36), sizeof(Superblock16));
+    MemoryCopy(
+        reinterpret_cast<void *>(&m_Superblock32),
+        reinterpret_cast<void *>(buffer + 36), sizeof(Superblock32));
+    m_pDisk->unpin(0);
 
     /** Validate the BPB and check for FAT FS */
     String devName;
@@ -123,15 +135,6 @@ bool FatFilesystem::initialise(Disk *pDisk)
     }
 
     /** Start loading actual FS info */
-
-    // load the 12/16/32 additional info structures (only one is actually VALID,
-    // but both are loaded nonetheless)
-    MemoryCopy(
-        reinterpret_cast<void *>(&m_Superblock16),
-        reinterpret_cast<void *>(buffer + 36), sizeof(Superblock16));
-    MemoryCopy(
-        reinterpret_cast<void *>(&m_Superblock32),
-        reinterpret_cast<void *>(buffer + 36), sizeof(Superblock32));
 
     // number of root directory sectors
     if (!m_Superblock.BPB_BytsPerSec)  // we sanity check the value, because we
@@ -417,7 +420,11 @@ uint64_t FatFilesystem::read(
     while (true)
     {
         // read in the entire cluster
-        readCluster(clus, reinterpret_cast<uintptr_t>(tmpBuffer));
+        if (!readCluster(clus, reinterpret_cast<uintptr_t>(tmpBuffer)))
+        {
+            delete[] tmpBuffer;
+            return bytesRead;
+        }
 
         // How many bytes should we copy?
         size_t bytesToCopy = finalSize - bytesRead;
@@ -830,8 +837,7 @@ void FatFilesystem::cacheDirectoryContents(File *pFile)
 bool FatFilesystem::readCluster(uint32_t block, uintptr_t buffer) const
 {
     block = getSectorNumber(block);
-    readSectorBlock(block, m_BlockSize, buffer);
-    return true;
+    return readSectorBlock(block, m_BlockSize, buffer);
 }
 
 bool FatFilesystem::readSectorBlock(uint32_t sec, size_t size, uintptr_t buffer) const
@@ -845,15 +851,17 @@ bool FatFilesystem::readSectorBlock(uint32_t sec, size_t size, uintptr_t buffer)
     while (size)
     {
         size_t sz = (size > 512) ? 512 : size;
-        uintptr_t buff = m_pDisk->read(
+        const uint64_t diskLocation =
             (static_cast<uint64_t>(m_Superblock.BPB_BytsPerSec) *
              static_cast<uint64_t>(sec)) +
-            off);
+            off;
+        uintptr_t buff = m_pDisk->read(diskLocation);
         if (!buff)
             return false;
         MemoryCopy(
             reinterpret_cast<void *>(buffer), reinterpret_cast<void *>(buff),
             sz);
+        m_pDisk->unpin(diskLocation);
         buffer += sz;
         size -= sz;
         off += sz;
@@ -864,8 +872,7 @@ bool FatFilesystem::readSectorBlock(uint32_t sec, size_t size, uintptr_t buffer)
 bool FatFilesystem::writeCluster(uint32_t block, uintptr_t buffer)
 {
     block = getSectorNumber(block);
-    writeSectorBlock(block, m_BlockSize, buffer);
-    return true;
+    return writeSectorBlock(block, m_BlockSize, buffer);
 }
 
 bool FatFilesystem::writeSectorBlock(
@@ -879,18 +886,25 @@ bool FatFilesystem::writeSectorBlock(
     size_t off = 0;
     while (size)
     {
-        size_t sz = (size > 4096) ? 4096 : size;
-        uintptr_t buff = m_pDisk->read(
+        const uint64_t diskLocation =
             static_cast<uint64_t>(m_Superblock.BPB_BytsPerSec) *
                 static_cast<uint64_t>(sec) +
-            off);
+            off;
+        const size_t pageOffset =
+            diskLocation % PhysicalMemoryManager::getPageSize();
+        const size_t pageRemaining =
+            PhysicalMemoryManager::getPageSize() - pageOffset;
+        const size_t sz = (size > pageRemaining) ? pageRemaining : size;
+        uintptr_t buff = m_pDisk->read(diskLocation);
+        if (!buff)
+        {
+            return false;
+        }
         MemoryCopy(
             reinterpret_cast<void *>(buff), reinterpret_cast<void *>(buffer),
             sz);
-        m_pDisk->write(
-            static_cast<uint64_t>(m_Superblock.BPB_BytsPerSec) *
-                static_cast<uint64_t>(sec) +
-            off);
+        m_pDisk->write(diskLocation);
+        m_pDisk->unpin(diskLocation);
         buffer += sz;
         size -= sz;
         off += sz;
@@ -924,10 +938,7 @@ uint32_t FatFilesystem::getClusterEntry(uint32_t cluster, bool bLock)
     // uint8_t *fatBlocks = new uint8_t[m_Superblock.BPB_BytsPerSec * 2];
 
     // Reading from the FAT - critical section
-    while (!m_FatLock.enter())
-    {
-        Scheduler::instance().yield();
-    }
+    m_FatLock.enter();
     uint32_t *fatBlocks = reinterpret_cast<uint32_t *>(
         m_FatCache.lookup(fatOffset / m_Superblock.BPB_BytsPerSec));
     m_FatLock.leave();

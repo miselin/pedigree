@@ -20,6 +20,11 @@
 #include "modules/subsys/posix/PsAuxFile.h"
 #include "modules/drivers/x86/ps2mouse/Ps2Mouse.h"
 
+PsAuxFile::~PsAuxFile()
+{
+    m_MouseRegistration.reset();
+}
+
 bool PsAuxFile::initialise()
 {
     // g_Ps2Mouse is a weak extern, so if nothing defines it it'll be null
@@ -29,8 +34,8 @@ bool PsAuxFile::initialise()
         return false;
     }
 
-    g_Ps2Mouse->subscribe(subscriber, this);
-    return true;
+    return g_Ps2Mouse->subscribe(
+        subscriber, this, m_MouseRegistration);
 }
 
 uint64_t PsAuxFile::readBytewise(

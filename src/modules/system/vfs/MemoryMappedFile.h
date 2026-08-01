@@ -23,6 +23,9 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -392,8 +395,13 @@ class MemoryMappedFile : public MemoryMappedObject
     /** List of existing mappings. */
     Tree<uintptr_t, physical_uintptr_t> m_Mappings;
 
-    /** Lock for anything to do with the memory mapped file. */
-    Spinlock m_Lock;
+    /**
+     * Lock for anything to do with the memory mapped file.
+     *
+     * Backing-file reads and synchronisation may block, so this must be a
+     * sleeping lock rather than a Spinlock.
+     */
+    Mutex m_Lock;
 };
 
 /**
@@ -411,6 +419,16 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler,
     {
         return m_Instance;
     }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    /** Deterministic contention control for the hosted teardown regression. */
+    void acquireLifecycleGateForHostedTest();
+    void releaseLifecycleGateForHostedTest();
+    const void *lifecycleGateAddressForHostedTest() const
+    {
+        return static_cast<const Semaphore *>(&m_LifecycleLock);
+    }
+#endif
 
     /**
      * Map in the given File.
@@ -502,9 +520,9 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler,
      */
     virtual bool compact();
 
-    virtual const String getMemoryPressureDescription()
+    virtual const char *getMemoryPressureDescription()
     {
-        return String("Unmap safe pages from memory mapped files.");
+        return "Unmap safe pages from memory mapped files.";
     }
 
   protected:
@@ -516,25 +534,47 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler,
     void unmapAllUnlocked();
 
     /**
-     * Acquire the manager's lock.
+     * Acquire the manager's operation gate.
      *
-     * Take this to be able to call unmapAllUnlocked; this could be used
-     * for cases where a caller cannot be rescheduled but needs to be able
-     * to unmap all mappings. That caller could acquire this lock, then
-     * become un-scheduleable, then perform the needed actions. Without
-     * this, the caller could fail if the manager's lock is taken already.
+     * Take this before becoming unscheduleable when a caller needs to invoke
+     * unmapAllUnlocked. Contention sleeps through the operation barrier rather
+     * than spinning until the gate becomes available.
      */
-    bool acquireLock();
+    void acquireLock();
 
     /**
-     * Release the manager's lock.
+     * Release the manager's operation gate.
      */
     void releaseLock();
 
   private:
+    /**
+     * A terminal-safe, same-thread recursive gate for manager operations.
+     *
+     * The gate keeps object lists and object lifetimes stable while allowing
+     * the short cache Spinlock to be released before invoking an object.
+     */
+    class OperationGuard
+    {
+      public:
+        explicit OperationGuard(MemoryMapManager &manager);
+        ~OperationGuard();
+
+      private:
+        NOT_COPYABLE_OR_ASSIGNABLE(OperationGuard);
+
+        Uninterruptible m_EventDeferral;
+        TerminationDeferral m_TerminationDeferral;
+        MemoryMapManager &m_Manager;
+    };
+
     /** Default and only constructor. Registers with PageFaultHandler. */
     MemoryMapManager();
     ~MemoryMapManager();
+
+    void enterOperation();
+    bool tryEnterOperation();
+    void leaveOperation();
 
     bool sanitiseAddress(uintptr_t &address, size_t length);
 
@@ -556,6 +596,18 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler,
 
     /** Lock for the cache. */
     Spinlock m_Lock;
+
+    /**
+     * Keeps the object-list topology and object lifetimes stable while an
+     * operation is running without holding m_Lock across object callbacks.
+     */
+    Mutex m_LifecycleLock;
+
+    /** Protects recursive lifecycle-gate ownership metadata. */
+    Spinlock m_LifecycleStateLock;
+
+    void *m_pLifecycleOwner;
+    size_t m_LifecycleDepth;
 };
 
 /** @} */

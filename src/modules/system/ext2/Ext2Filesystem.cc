@@ -67,7 +67,7 @@ Ext2Filesystem::Ext2Filesystem()
       m_pInodeBitmaps(0), m_pBlockBitmaps(0), m_BlockSize(0), m_InodeSize(0),
       m_nGroupDescriptors(0),
 #if THREADS
-      m_WriteLock(false),
+      m_WriteLock(),
 #endif
       m_pRoot(0)
 {
@@ -75,11 +75,73 @@ Ext2Filesystem::Ext2Filesystem()
 
 Ext2Filesystem::~Ext2Filesystem()
 {
+    delete m_pRoot;
+
+    if (m_pDisk && m_pSuperblock)
+    {
+        if (m_pGroupDescriptors)
+        {
+            for (size_t group = 0; group < m_nGroupDescriptors; ++group)
+            {
+                GroupDesc *descriptor = m_pGroupDescriptors[group];
+                if (!descriptor)
+                {
+                    continue;
+                }
+
+                if (m_pBlockBitmaps)
+                {
+                    const uint32_t start = LITTLE_TO_HOST32(
+                        descriptor->bg_block_bitmap);
+                    for (
+                        size_t i = 0; i < m_pBlockBitmaps[group].count(); ++i)
+                    {
+                        unpinBlock(start + i);
+                    }
+                }
+                if (m_pInodeBitmaps)
+                {
+                    const uint32_t start = LITTLE_TO_HOST32(
+                        descriptor->bg_inode_bitmap);
+                    for (
+                        size_t i = 0; i < m_pInodeBitmaps[group].count(); ++i)
+                    {
+                        unpinBlock(start + i);
+                    }
+                }
+                if (m_pInodeTables)
+                {
+                    const uint32_t start = LITTLE_TO_HOST32(
+                        descriptor->bg_inode_table);
+                    for (
+                        size_t i = 0; i < m_pInodeTables[group].count(); ++i)
+                    {
+                        unpinBlock(start + i);
+                    }
+                }
+            }
+
+            const uint32_t gdBlock =
+                LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
+            for (size_t i = 0; i < m_nGroupDescriptors; ++i)
+            {
+                if (m_pGroupDescriptors[i])
+                {
+                    const size_t block =
+                        gdBlock + ((i * sizeof(GroupDesc)) / m_BlockSize);
+                    unpinBlock(block);
+                }
+            }
+        }
+
+        // The successful read() is the persistent superblock reference.
+        m_pDisk->unpin(1024ULL);
+    }
+
     delete[] m_pBlockBitmaps;
     delete[] m_pInodeBitmaps;
     delete[] m_pInodeTables;
     delete[] m_pGroupDescriptors;
-    delete m_pRoot;
 }
 
 bool Ext2Filesystem::initialise(Disk *pDisk)
@@ -88,22 +150,20 @@ bool Ext2Filesystem::initialise(Disk *pDisk)
     m_pDisk = pDisk;
     pDisk->getName(devName);
 
-    // Attempt to read the superblock.
-    // We need to pin the block, as we'll hold onto it.
+    // Attempt to read the superblock. A successful Disk::read() transfers the
+    // persistent reference that this filesystem holds until destruction.
     uintptr_t block = m_pDisk->read(1024ULL);
-    if (!block || block == ~static_cast<uintptr_t>(0U))
+    if (!block)
     {
         ERROR("Ext2: Failed to read a superblock on " << devName);
         return false;
     }
-    m_pDisk->pin(1024ULL);
     m_pSuperblock = reinterpret_cast<Superblock *>(block);
 
     // Read correctly?
     if (LITTLE_TO_HOST16(m_pSuperblock->s_magic) != 0xEF53)
     {
         ERROR("Ext2: Superblock was not found on device " << devName);
-        m_pDisk->unpin(1024ULL);
         return false;
     }
 
@@ -202,12 +262,21 @@ bool Ext2Filesystem::initialise(Disk *pDisk)
 
     // Add an entry to the group descriptor tree for each GD.
     m_pGroupDescriptors = new GroupDesc *[m_nGroupDescriptors];
+    for (size_t i = 0; i < m_nGroupDescriptors; ++i)
+    {
+        m_pGroupDescriptors[i] = 0;
+    }
     for (size_t i = 0; i < m_nGroupDescriptors; i++)
     {
         uintptr_t idx = (i * sizeof(GroupDesc)) / m_BlockSize;
         uintptr_t off = (i * sizeof(GroupDesc)) % m_BlockSize;
 
         uintptr_t groupBlock = readBlock(gdBlock + idx);
+        if (!groupBlock)
+        {
+            ERROR("Ext2: Failed to read block group descriptor " << i);
+            return false;
+        }
         m_pGroupDescriptors[i] =
             reinterpret_cast<GroupDesc *>(groupBlock + off);
     }
@@ -596,13 +665,21 @@ void Ext2Filesystem::writeBlock(uint32_t block)
         static_cast<uint64_t>(m_BlockSize) * static_cast<uint64_t>(block));
 }
 
-void Ext2Filesystem::pinBlock(uint64_t location)
+bool Ext2Filesystem::pinBlock(uint64_t location)
 {
-    m_pDisk->pin(static_cast<uint64_t>(m_BlockSize) * location);
+    if (!location)
+    {
+        return true;
+    }
+    return m_pDisk->pin(static_cast<uint64_t>(m_BlockSize) * location);
 }
 
 void Ext2Filesystem::unpinBlock(uint64_t location)
 {
+    if (!location)
+    {
+        return;
+    }
     m_pDisk->unpin(static_cast<uint64_t>(m_BlockSize) * location);
 }
 
@@ -677,7 +754,10 @@ size_t Ext2Filesystem::findFreeBlocksInGroup(
         return currentCount;
     }
 
-    ensureFreeBlockBitmapLoaded(group);
+    if (!ensureFreeBlockBitmapLoaded(group))
+    {
+        return 0;
+    }
 
     // 8 blocks per byte - i == bitmap offset in bytes.
     Vector<size_t> &list = m_pBlockBitmaps[group];
@@ -807,7 +887,10 @@ uint32_t Ext2Filesystem::findFreeInode()
         }
 
         // Make sure this block group's inode bitmap has been loaded.
-        ensureFreeInodeBitmapLoaded(group);
+        if (!ensureFreeInodeBitmapLoaded(group))
+        {
+            return 0;
+        }
 
         // 8 inodes per byte - i == bitmap offset in bytes.
         Vector<size_t> &list = m_pInodeBitmaps[group];
@@ -899,7 +982,10 @@ void Ext2Filesystem::releaseBlock(uint32_t block)
         FATAL("Releasing block zero!");
     }
 
-    ensureFreeBlockBitmapLoaded(group);
+    if (!ensureFreeBlockBitmapLoaded(group))
+    {
+        return;
+    }
 
     // Free block.
     GroupDesc *pDesc = m_pGroupDescriptors[group];
@@ -954,7 +1040,10 @@ bool Ext2Filesystem::releaseInode(uint32_t inode)
         // Set dtime on inode.
         pInode->i_dtime = HOST_TO_LITTLE32(getUnixTimestamp());
 
-        ensureFreeInodeBitmapLoaded(group);
+        if (!ensureFreeInodeBitmapLoaded(group))
+        {
+            return false;
+        }
 
         // Free inode.
         GroupDesc *pDesc = m_pGroupDescriptors[group];
@@ -1032,7 +1121,10 @@ void Ext2Filesystem::writeInode(uint32_t inode)
     uint32_t group = inode / inodesPerGroup;
     uint32_t index = inode % inodesPerGroup;
 
-    ensureInodeTableLoaded(group);
+    if (!ensureInodeTableLoaded(group))
+    {
+        return;
+    }
 
     size_t blockNum = (index * m_InodeSize) / m_BlockSize;
     uint64_t diskBlock =
@@ -1066,7 +1158,7 @@ bool Ext2Filesystem::ensureFreeBlockBitmapLoaded(size_t group)
     assert(group < m_nGroupDescriptors);
     Vector<size_t> &list = m_pBlockBitmaps[group];
 
-    if (list.size() > 0)
+    if (list.count() > 0)
         // Descriptors already loaded.
         return true;
 
@@ -1078,14 +1170,28 @@ bool Ext2Filesystem::ensureFreeBlockBitmapLoaded(size_t group)
     if (blocksPerGroup % (m_BlockSize * 8))
         nBlocks++;
 
+    const uint32_t start =
+        LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap);
     for (size_t i = 0; i < nBlocks; i++)
     {
-        uint32_t blockNumber =
-            LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + i;
+        uint32_t blockNumber = start + i;
+        if (!blockNumber)
+        {
+            while (list.count())
+            {
+                unpinBlock(start + list.count() - 1);
+                list.popBack();
+            }
+            return false;
+        }
         uintptr_t buffer = readBlock(blockNumber);
         if (!buffer)
         {
-            // bad read - inode table isn't sane
+            while (list.count())
+            {
+                unpinBlock(start + list.count() - 1);
+                list.popBack();
+            }
             return false;
         }
         list.pushBack(buffer);
@@ -1099,7 +1205,7 @@ bool Ext2Filesystem::ensureFreeInodeBitmapLoaded(size_t group)
     assert(group < m_nGroupDescriptors);
     Vector<size_t> &list = m_pInodeBitmaps[group];
 
-    if (list.size() > 0)
+    if (list.count() > 0)
         // Descriptors already loaded.
         return true;
 
@@ -1111,14 +1217,28 @@ bool Ext2Filesystem::ensureFreeInodeBitmapLoaded(size_t group)
     if (inodesPerGroup % (m_BlockSize * 8))
         nBlocks++;
 
+    const uint32_t start =
+        LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_bitmap);
     for (size_t i = 0; i < nBlocks; i++)
     {
-        uint32_t blockNumber =
-            LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_bitmap) + i;
+        uint32_t blockNumber = start + i;
+        if (!blockNumber)
+        {
+            while (list.count())
+            {
+                unpinBlock(start + list.count() - 1);
+                list.popBack();
+            }
+            return false;
+        }
         uintptr_t buffer = readBlock(blockNumber);
         if (!buffer)
         {
-            // bad read - inode table isn't sane
+            while (list.count())
+            {
+                unpinBlock(start + list.count() - 1);
+                list.popBack();
+            }
             return false;
         }
         list.pushBack(buffer);
@@ -1132,7 +1252,7 @@ bool Ext2Filesystem::ensureInodeTableLoaded(size_t group)
     assert(group < m_nGroupDescriptors);
     Vector<size_t> &list = m_pInodeTables[group];
 
-    if (list.size() > 0)
+    if (list.count() > 0)
     {
         // Descriptors already loaded.
         return true;
@@ -1141,9 +1261,10 @@ bool Ext2Filesystem::ensureInodeTableLoaded(size_t group)
     // Determine how many blocks to load to bring in the full inode table.
     uint32_t inodesPerGroup =
         LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
-    size_t nBlocks = (inodesPerGroup * m_InodeSize) / m_BlockSize;
-    if ((inodesPerGroup * m_InodeSize) / m_BlockSize)
-        nBlocks++;
+    const uint64_t inodeTableBytes =
+        static_cast<uint64_t>(inodesPerGroup) * m_InodeSize;
+    const size_t nBlocks =
+        (inodeTableBytes + m_BlockSize - 1) / m_BlockSize;
 
     if (!nBlocks)
     {
@@ -1152,18 +1273,28 @@ bool Ext2Filesystem::ensureInodeTableLoaded(size_t group)
     }
 
     // Load each block in the inode table.
+    const uint32_t inodeTableStart =
+        LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table);
+    if (!inodeTableStart)
+    {
+        return false;
+    }
     for (size_t i = 0; i < nBlocks; i++)
     {
-        uint32_t blockNumber =
-            LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table) + i;
+        uint32_t blockNumber = inodeTableStart + i;
         uintptr_t buffer = readBlock(blockNumber);
-        if (buffer == ~0ULL)
+        if (!buffer)
         {
-            // bad read - inode table isn't sane
+            // Do not publish a partially loaded table. Every successful
+            // read() above owns exactly one reference.
+            while (list.count())
+            {
+                const size_t loaded = list.count() - 1;
+                unpinBlock(inodeTableStart + loaded);
+                list.popBack();
+            }
             return false;
         }
-        // Avoid callbacks allowing the wipeout of our inode.
-        pinBlock(blockNumber);
         list.pushBack(buffer);
     }
 

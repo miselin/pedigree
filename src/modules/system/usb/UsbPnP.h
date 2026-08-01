@@ -20,9 +20,9 @@
 #ifndef USBPNP_H
 #define USBPNP_H
 
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
 
 class Device;
@@ -40,10 +40,48 @@ enum UsbPnPConstants
 class EXPORTED_PUBLIC UsbPnP
 {
   private:
+    struct CallbackItem;
+
     /// Callback function type
     typedef UsbDevice *(*callback_t)(UsbDevice *);
 
   public:
+    /**
+     * Owns one callback registration.
+     *
+     * reset() closes admission to the factory/probe callback and waits for
+     * callbacks which were already admitted. It does not retire successfully
+     * bound driver instances; a module must detach and destroy those objects
+     * separately before its code can be unloaded.
+     */
+    class EXPORTED_PUBLIC Registration
+    {
+      public:
+        Registration();
+        Registration(Registration &&other);
+        ~Registration();
+
+        Registration &operator=(Registration &&other);
+
+        void reset();
+
+        explicit operator bool() const
+        {
+            return m_Item != nullptr;
+        }
+
+      private:
+        friend class UsbPnP;
+
+        void adopt(UsbPnP *owner, CallbackItem *item);
+
+        Registration(const Registration &) = delete;
+        Registration &operator=(const Registration &) = delete;
+
+        UsbPnP *m_Owner;
+        CallbackItem *m_Item;
+    };
+
     UsbPnP();
     virtual ~UsbPnP();
 
@@ -54,21 +92,35 @@ class EXPORTED_PUBLIC UsbPnP
     }
 
     /// Register a callback for the given vendor and product IDs
-    void registerCallback(
-        uint16_t nVendorId, uint16_t nProductId, callback_t callback);
+    MUST_USE_RESULT bool registerCallback(
+        uint16_t nVendorId, uint16_t nProductId, callback_t callback,
+        Registration &registration);
 
     /// Register a callback for the given class, subclass and protocol numbers
-    void registerCallback(
+    MUST_USE_RESULT bool registerCallback(
         uint8_t nClass, uint8_t nSubclass, uint8_t nProtocol,
-        callback_t callback);
+        callback_t callback, Registration &registration);
 
     /// Tries to find a suitable driver for the given USB device
     bool probeDevice(Device *pDeviceBase);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    static bool runHostedRegistrationRegression();
+    bool invokeCallbackForTest();
+    size_t callbackCountForTest();
+#endif
 
   private:
     /// Probes a device and returns the new device if it was successfully
     /// loaded and owned by a driver, or the original pointer otherwise.
     Device *doProbe(Device *pDeviceBase);
+
+    bool registerCallbackItem(
+        CallbackItem *item, Registration &registration, bool reprobe);
+    void unregisterCallback(CallbackItem *item);
+    bool acquireCallback(
+        UsbDevice *device, size_t afterSequence, CallbackItem *&item,
+        callback_t &callback, size_t &sequence);
 
     /// Static instance
     static UsbPnP m_Instance;
@@ -76,25 +128,11 @@ class EXPORTED_PUBLIC UsbPnP
     /// Goes down the device tree, reprobing every USB device
     void reprobeDevices(Device *pParent);
 
-    /// Item in the callback list. This stores information that's needed
-    /// to choose a specific callback for a device.
-    struct CallbackItem
-    {
-        /// The callback function
-        callback_t callback;
-
-        /// Vendor and product IDs
-        uint16_t nVendorId;
-        uint16_t nProductId;
-
-        /// Class, subclass and protocol numbers
-        uint8_t nClass;
-        uint8_t nSubclass;
-        uint8_t nProtocol;
-    };
-
-    /// Callback list
-    List<CallbackItem *> m_Callbacks;
+    CallbackItem *m_FirstCallback;
+    CallbackItem *m_LastCallback;
+    size_t m_CallbackCount;
+    Spinlock m_CallbackLock;
+    size_t m_NextCallbackSequence;
 };
 
 #endif

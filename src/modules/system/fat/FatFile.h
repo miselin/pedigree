@@ -21,6 +21,7 @@
 #define FAT_FILE_H
 
 #include "modules/system/vfs/File.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
@@ -70,7 +71,7 @@ class FatFile : public File
     using File::sync;
     virtual void sync(size_t offset, bool async);
 
-    virtual void pinBlock(uint64_t location);
+    virtual bool pinBlock(uint64_t location);
     virtual void unpinBlock(uint64_t location);
 
   private:
@@ -78,6 +79,7 @@ class FatFile : public File
     uint32_t m_DirOffset;
 
     Cache m_FileBlockCache;
+    Mutex m_FileBlockCacheLock;
 };
 
 #endif

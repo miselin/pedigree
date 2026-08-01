@@ -23,7 +23,9 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Semaphore.h"
 
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
@@ -56,7 +58,8 @@ class MeminfoFile : public File
 
   private:
     Thread *m_pUpdateThread;
-    bool m_bRunning;
+    Atomic<bool> m_bRunning;
+    Semaphore m_UpdateWake;
     String m_Contents;
     Mutex m_Lock;
 

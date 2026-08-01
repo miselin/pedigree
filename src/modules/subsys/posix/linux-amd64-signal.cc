@@ -27,6 +27,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/lib.h"
@@ -182,10 +183,12 @@ uintptr_t signalAddress(
                : state.getInstructionPointer();
 }
 
-void badFrame() NORETURN;
 void badFrame()
 {
-    posix_exit(128 + SIGSEGV);
+    if (!SyscallManager::instance().requestProcessExit(128 + SIGSEGV))
+    {
+        FATAL("Invalid signal frame exit was not dispatched.");
+    }
 }
 }  // namespace
 
@@ -346,12 +349,14 @@ void LinuxAmd64Signal::sigreturn(SyscallState &state)
     if (syscallStack < 8)
     {
         badFrame();
+        return;
     }
     uintptr_t frameAddress = syscallStack - 8;
     if (!userRegion(
             frameAddress, sizeof(RtSigframe), PosixSubsystem::SafeRead))
     {
         badFrame();
+        return;
     }
 
     RtSigframe frame = {};
@@ -368,6 +373,7 @@ void LinuxAmd64Signal::sigreturn(SyscallState &state)
             context.fpstate, sizeof(Fpstate), PosixSubsystem::SafeRead))
     {
         badFrame();
+        return;
     }
 
     int alternateFlags = frame.ucontext.stack.flags;
@@ -377,6 +383,7 @@ void LinuxAmd64Signal::sigreturn(SyscallState &state)
          (alternateFlags & SS_DISABLE)))
     {
         badFrame();
+        return;
     }
 
     Thread::AlternateSignalStack restoredAlternate;
@@ -394,6 +401,7 @@ void LinuxAmd64Signal::sigreturn(SyscallState &state)
              !onAlternateStack(context.rsp, restoredAlternate)))
         {
             badFrame();
+            return;
         }
     }
 
@@ -406,11 +414,13 @@ void LinuxAmd64Signal::sigreturn(SyscallState &state)
         if (fpstate.reserved3[i])
         {
             badFrame();
+            return;
         }
     }
     if (!NMFaultHandler::restoreCurrentThreadFpuState(&fpstate))
     {
         badFrame();
+        return;
     }
 
     Thread *thread = Processor::information().getCurrentThread();
@@ -439,17 +449,10 @@ void LinuxAmd64Signal::sigreturn(SyscallState &state)
         (context.rflags & RestorableRflags) | SafeUserRflags;
     restored.rsp = context.rsp;
 
-    uintptr_t interruptStack[24] = {};
-    restored.setStackPointer(
-        reinterpret_cast<uintptr_t>(interruptStack + 24));
-    InterruptState *returnState =
-        X64InterruptState::construct(restored, true);
-    returnState->setStackPointer(context.rsp);
-    returnState->setFlags(
-        (context.rflags & RestorableRflags) | SafeUserRflags);
-
-    Processor::setInterrupts(false);
-    Processor::contextSwitch(returnState);
+    if (!SyscallManager::instance().requestStateRestore(restored))
+    {
+        FATAL("Signal state restoration was not dispatched.");
+    }
 }
 
 #endif

@@ -71,6 +71,12 @@ class AtaController : public ScsiController, public IrqHandler
   protected:
     int m_nController;
 
+    /** Masks fresh device IRQ generation on every child channel. */
+    void maskDiskInterrupts();
+
+    /** Stops and acknowledges bus-master state after IRQ callbacks drain. */
+    void stopDiskDma();
+
     virtual size_t getNumUnits()
     {
         return getNumChildren();

@@ -22,6 +22,7 @@
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/system/console/Console.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
 
 extern DevFs *g_pDevFs;
 
@@ -349,7 +350,13 @@ void VirtualTerminalManager::sendSignal(size_t n, bool acq)
     }
 
 #if THREADS
-    Process *pProcess = m_Terminals[n].owner;
+    Scheduler::ProcessLease process;
+    if (!Scheduler::instance().acquireProcess(
+            process, m_Terminals[n].owner))
+    {
+        return;
+    }
+    Process *pProcess = process.get();
     PosixSubsystem *pSubsystem =
         static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
@@ -359,7 +366,11 @@ void VirtualTerminalManager::sendSignal(size_t n, bool acq)
     }
 
     NOTICE("VirtualTerminalManager: signaling VT #" << n);
-    pSubsystem->sendSignal(
-        pProcess->getThread(0), acq ? mode.acqsig : mode.relsig);
+    Process::ThreadLease target;
+    if (pProcess->acquireThread(target, static_cast<size_t>(0)))
+    {
+        pSubsystem->sendSignal(
+            target.get(), acq ? mode.acqsig : mode.relsig);
+    }
 #endif
 }

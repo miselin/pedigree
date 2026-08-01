@@ -21,11 +21,14 @@
 #include "modules/Module.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
+#include "pedigree/kernel/utilities/utility.h"
 
 class Network;
 
 static bool bFound = false;
+static List<Ne2k *> g_Cards;
 
 static void probeDevice(Device *pDev)
 {
@@ -38,6 +41,7 @@ static void probeDevice(Device *pDev)
     pNe2k->setParent(pDev->getParent());
     pDev->getParent()->replaceChild(pDev, pNe2k);
 
+    g_Cards.pushBack(pNe2k);
     bFound = true;
 }
 
@@ -51,6 +55,16 @@ static bool entry()
 
 static void exit()
 {
+    auto removeCard = [](Device *device, Device *target) {
+        return device == target ? nullptr : device;
+    };
+    auto callback = pedigree_std::make_callable(removeCard);
+    while (g_Cards.count())
+    {
+        Device *card = g_Cards.popFront();
+        Device::foreach (callback, 0, card);
+    }
+    bFound = false;
 }
 
 MODULE_NAME("ne2k");

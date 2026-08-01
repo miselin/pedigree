@@ -38,7 +38,8 @@ extern size_t g_AllocedPages;
 
 MeminfoFile::MeminfoFile(size_t inode, Filesystem *pParentFS, File *pParent)
     : File(String("meminfo"), 0, 0, 0, inode, pParentFS, 0, pParent),
-      m_pUpdateThread(0), m_bRunning(false), m_Contents(), m_Lock(false)
+      m_pUpdateThread(0), m_bRunning(false), m_UpdateWake(0), m_Contents(),
+      m_Lock()
 {
     setPermissionsOnly(FILE_UR | FILE_UW | FILE_GR | FILE_GW | FILE_OR);
     setUidOnly(0);
@@ -53,7 +54,9 @@ MeminfoFile::MeminfoFile(size_t inode, Filesystem *pParentFS, File *pParent)
 MeminfoFile::~MeminfoFile()
 {
     m_bRunning = false;
-    m_pUpdateThread->join();
+    m_UpdateWake.release();
+    m_pUpdateThread->joinForCompletion();
+    m_pUpdateThread = nullptr;
 }
 
 size_t MeminfoFile::getSize()
@@ -81,7 +84,7 @@ void MeminfoFile::updateThread()
             freeKb + allocKb, freeKb, freeKb);
         m_Lock.release();
 
-        Time::delay(1 * Time::Multiplier::Second);
+        m_UpdateWake.acquire(1, 1, 0);
     }
 
     NOTICE("MeminfoFile::updateThread completed");

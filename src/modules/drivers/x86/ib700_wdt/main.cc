@@ -65,6 +65,7 @@ class Ib700Watchdog : public Device, public TimerHandler
 
   private:
     IoBase *m_pBase;
+    Timer *m_pTimer;
 };
 
 static bool entry()
@@ -102,13 +103,23 @@ static void exit()
 
 MODULE_INFO("ib700_wdt", &entry, &exit);
 
-Ib700Watchdog::Ib700Watchdog(Device *pDev) : Device(pDev)
+Ib700Watchdog::Ib700Watchdog(Device *pDev)
+    : Device(pDev), m_pBase(nullptr), m_pTimer(nullptr)
 {
     setSpecificType(String("watchdog-timer"));
 }
 
 Ib700Watchdog::~Ib700Watchdog()
 {
+    if (m_pTimer)
+    {
+        if (!m_pTimer->unregisterHandler(this))
+        {
+            FATAL("IB700 watchdog could not drain its timer callback");
+        }
+        m_pTimer = nullptr;
+    }
+
     if (m_pBase)
     {
         // Disable any existing timer.
@@ -128,9 +139,9 @@ bool Ib700Watchdog::initialise()
     // Register ourselves with the core timer so we can continually
     // reset the watchdog timer as needed.
     Timer *t = Machine::instance().getTimer();
-    if (t)
+    if (t && t->registerHandler(this))
     {
-        t->registerHandler(this);
+        m_pTimer = t;
 
         // Enable our timer with a 10 second timeout.
         m_pBase->write16(Seconds10, 2);

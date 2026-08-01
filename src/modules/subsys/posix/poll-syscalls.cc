@@ -29,6 +29,7 @@
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -76,6 +77,11 @@ int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout)
 int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
 {
     POLL_NOTICE("poll_safe(" << Dec << nfds << ", " << timeout << Hex << ")");
+
+    // File, socket, and Event monitor registrations below retain pointers to
+    // this call's storage. A terminal request may wake the wait, but cleanup
+    // must unregister every target before this stack can be consumed.
+    TerminationDeferral registrationLifetime;
 
     // Investigate the timeout parameter.
     TimeoutType timeoutType;
@@ -140,6 +146,12 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         pSem.reset(new Semaphore(0, true));
     }
 
+    // Keep the exact descriptor generation used during registration pinned
+    // until every file event and socket waiter has been removed. Re-looking up
+    // the numeric fd during wakeup or cleanup could target a reused descriptor
+    // and leave a registration pointing into this stack behind.
+    DescriptorLease *descriptors = new DescriptorLease[nfds];
+
     for (unsigned int i = 0; i < nfds; i++)
     {
         // Grab the pollfd structure.
@@ -151,8 +163,9 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         }
 
         // valid fd?
-        FileDescriptor *pFd = getDescriptor(me->fd);
-        if (!pFd)
+        const bool acquired = acquireDescriptor(me->fd, descriptors[i]);
+        DescriptorLease &pFd = descriptors[i];
+        if (!acquired)
         {
             // Error - no such file descriptor.
             POLL_NOTICE(
@@ -336,19 +349,13 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                 }
             }
 
-            Semaphore::SemaphoreResult result =
-                pSem->acquireWithResult(1, waitSecs, waitUSecs);
+            Semaphore::SemaphoreError error = Semaphore::NoError;
+            bool acquired =
+                pSem->acquireWithError(1, waitSecs, waitUSecs, error);
 
             // Did we actually get the semaphore or did we timeout?
-            if (result.hasValue())
+            if (acquired)
             {
-                // If we didn't actually get the Semaphore but there's not any
-                // other error state, just go around for another go.
-                if (!result.value())
-                {
-                    continue;
-                }
-
                 // We were signalled, so one more FD ready.
                 // While the semaphore is nonzero, more FDs are ready.
                 while (pSem->tryAcquire())
@@ -363,7 +370,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
                 for (size_t i = 0; i < nfds; ++i)
                 {
                     struct pollfd *me = &fds[i];
-                    FileDescriptor *pFd = getDescriptor(me->fd);
+                    DescriptorLease &pFd = descriptors[i];
                     if (!pFd)
                     {
                         continue;
@@ -409,7 +416,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
             }
             else
             {
-                if (result.error() == Semaphore::TimedOut)
+                if (error == Semaphore::TimedOut)
                 {
                     // timed out, not an error
                     POLL_NOTICE(" -> poll interrupted by timeout");
@@ -476,7 +483,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
         }
 
         // Clean up socket Semaphores that we registered, if any.
-        FileDescriptor *pFd = getDescriptor(fds[i].fd);
+        DescriptorLease &pFd = descriptors[i];
         if (!pFd)
         {
             continue;
@@ -491,5 +498,7 @@ int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout)
     POLL_NOTICE("    -> " << Dec << ((bError) ? -1 : (int) nRet) << Hex);
     POLL_NOTICE("    -> nRet is " << nRet << ", error is " << bError);
 
-    return (bError) ? -1 : nRet;
+    const int result = bError ? -1 : static_cast<int>(nRet);
+    delete[] descriptors;
+    return result;
 }

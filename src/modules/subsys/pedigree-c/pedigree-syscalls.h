@@ -105,7 +105,7 @@ void pedigree_input_remove_callback(void *p);
 int pedigree_load_keymap(uint32_t *buffer, size_t len);
 void pedigree_input_inhibit_events(int inhibit);
 
-void pedigree_event_return() NORETURN;
+int pedigree_event_return();
 
 int pedigree_gfx_get_provider(void *p);
 int pedigree_gfx_get_curr_mode(void *p, void *sm);

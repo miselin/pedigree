@@ -78,7 +78,7 @@ class Ext2Filesystem : public Filesystem
     /** Writes a block of data to the disk. */
     void writeBlock(uint32_t block);
 
-    void pinBlock(uint64_t location);
+    bool pinBlock(uint64_t location);
     void unpinBlock(uint64_t location);
 
     void sync(size_t offset, bool async);

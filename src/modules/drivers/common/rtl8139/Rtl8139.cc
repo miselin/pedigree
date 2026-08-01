@@ -142,7 +142,6 @@ void Rtl8139::reset()
     // enable all good irqs
     m_pBase->write16(RTL_IMR_RXOK | RTL_IMR_RXERR, RTL_IMR);
     m_pBase->write16(0xffff, RTL_ISR);
-    m_RxLock = false;
     NOTICE("RTL8139: Reset");
 }
 
@@ -174,9 +173,7 @@ bool Rtl8139::send(size_t nBytes, uintptr_t buffer)
 
 void Rtl8139::recv()
 {
-    while (m_RxLock)
-        ;
-    m_RxLock = true;
+    LockGuard<Spinlock> guard(m_RxLock);
 
     // get the address of the start of the packet;
     uintptr_t rxPacket = reinterpret_cast<uintptr_t>(m_pRxBuffVirt + m_RxCurr);
@@ -226,7 +223,6 @@ void Rtl8139::recv()
     NetworkStack::instance().receive(
         length - 4, reinterpret_cast<uintptr_t>(packBuff), this, 0);
 
-    m_RxLock = false;
 }
 
 bool Rtl8139::setStationInfo(StationInfo info)

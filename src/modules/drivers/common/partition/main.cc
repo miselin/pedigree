@@ -49,6 +49,9 @@ static bool probeDevice(Disk *pDev)
 
 static Device *checkNode(Device *pDev)
 {
+    String s;
+    pDev->getName(s);
+    NOTICE("checkNode(" << pDev << " / " << s << ")");
     bool hasPartitions = false;
     if (pDev->getType() == Device::Disk)
     {
@@ -67,9 +70,14 @@ static Device *checkNode(Device *pDev)
         }
 
         if (!hasPartitions)
+        {
+            NOTICE("probe...");
             probeDevice(static_cast<Disk *>(pDev));
+            NOTICE("probe done...");
+        }
     }
 
+    NOTICE("checkNode(" << pDev << ") - complete!");
     return pDev;
 }
 
@@ -103,6 +111,8 @@ static bool entry()
     // Walk the device tree looking for disks that don't have "partition"
     // children.
     Device::foreach (checkNode);
+
+    NOTICE("partition entry() is done");
 
     // Never fail, even if no partitions found. The partition service is still
     // critical to the system.

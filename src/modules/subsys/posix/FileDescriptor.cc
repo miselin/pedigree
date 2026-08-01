@@ -27,6 +27,72 @@
 
 #define ENABLE_LOCKED_FILES 0
 
+namespace
+{
+bool isReadWrite(int flags)
+{
+    return (flags & O_ACCMODE) == O_RDWR;
+}
+
+void increaseFileReferences(File *file, int flags)
+{
+    if (!file)
+    {
+        return;
+    }
+
+    const bool writer = (flags & O_ACCMODE) != O_RDONLY;
+    file->increaseRefCount(writer);
+
+    // The historical boolean API cannot express that O_RDWR is both ends of a
+    // FIFO. Account its reader side separately so it satisfies waiting writers.
+    if (isReadWrite(flags) && (file->isPipe() || file->isFifo()))
+    {
+        file->increaseRefCount(false);
+    }
+}
+
+void decreaseFileReferences(File *file, int flags)
+{
+    if (!file)
+    {
+        return;
+    }
+
+    const bool writer = (flags & O_ACCMODE) != O_RDONLY;
+    file->decreaseRefCount(writer);
+    if (isReadWrite(flags) && (file->isPipe() || file->isFifo()))
+    {
+        file->decreaseRefCount(false);
+    }
+}
+
+void retireIoEvent(
+    File *file, SharedPointer<NetworkSyscalls> &networkImpl, IoEvent *&ioevent)
+{
+    if (!ioevent)
+    {
+        return;
+    }
+
+    IoEvent *retiring = ioevent;
+    ioevent = nullptr;
+    Event::Retirement retirement;
+    retiring->beginRetirement(retirement);
+
+    // Close admission before removing raw registry pointers. A callback which
+    // is already active can no longer re-arm itself after this pass.
+    if (file)
+    {
+        file->cullMonitorTargets(retiring);
+    }
+    if (networkImpl)
+    {
+        networkImpl->unmonitor(retiring);
+    }
+}
+}  // namespace
+
 #if ENABLE_LOCKED_FILES
 RadixTree<LockedFile *> g_PosixGlobalLockedFiles;
 #endif
@@ -51,7 +117,7 @@ FileDescriptor::FileDescriptor(
 #if ENABLE_LOCKED_FILES
         lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
 #endif
-        file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
+        increaseFileReferences(file, flflags);
     }
 }
 
@@ -66,7 +132,7 @@ FileDescriptor::FileDescriptor(FileDescriptor &desc)
 #if ENABLE_LOCKED_FILES
         lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
 #endif
-        file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
+        increaseFileReferences(file, flflags);
     }
 
 #if THREADS
@@ -96,7 +162,7 @@ FileDescriptor::FileDescriptor(FileDescriptor *desc)
 #if ENABLE_LOCKED_FILES
         lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
 #endif
-        file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
+        increaseFileReferences(file, flflags);
     }
 
 #if THREADS
@@ -107,38 +173,13 @@ FileDescriptor::FileDescriptor(FileDescriptor *desc)
 #endif
 }
 
-/// Assignment operator implementation
-FileDescriptor &FileDescriptor::operator=(FileDescriptor &desc)
-{
-    file = desc.file;
-    offset = desc.offset;
-    fd = desc.fd;
-    fdflags = desc.fdflags;
-    flflags = desc.flflags;
-    networkImpl = desc.networkImpl;
-    if (file)
-    {
-#if ENABLE_LOCKED_FILES
-        lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
-#endif
-        file->increaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
-    }
-#if THREADS
-    if (desc.ioevent)
-    {
-        ioevent = new IoEvent(*desc.ioevent);
-    }
-    else
-    {
-        ioevent = nullptr;
-    }
-#endif
-    return *this;
-}
-
 /// Destructor - decreases file reference count
 FileDescriptor::~FileDescriptor()
 {
+#if THREADS
+    retireIoEvent(file, networkImpl, ioevent);
+#endif
+
     if (file)
     {
 #if ENABLE_LOCKED_FILES
@@ -150,30 +191,12 @@ FileDescriptor::~FileDescriptor()
             delete lockedFile;
         }
 #endif
-        file->decreaseRefCount((flflags & O_RDWR) || (flflags & O_WRONLY));
+        decreaseFileReferences(file, flflags);
     }
-#if THREADS
-    if (ioevent)
-    {
-        if (networkImpl)
-        {
-            networkImpl->unmonitor(ioevent);
-        }
-        delete ioevent;
-    }
-#endif
 
     /// \note sockets are cleaned up by their reference count hitting zero
     /// (SharedPointer)
 
-    if (networkImpl)
-    {
-        if (networkImpl->getFileDescriptor() == this)
-        {
-            // disassociate from this descriptor
-            networkImpl->associate(nullptr);
-        }
-    }
 }
 
 void FileDescriptor::setFlags(int newFlags)

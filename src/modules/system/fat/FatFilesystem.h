@@ -86,10 +86,10 @@ class FatFilesystem : public Filesystem
     /** Writes a cluster to the disk. */
     bool writeCluster(uint32_t block, uintptr_t buffer);
 
-    /** Reads a block starting from a specific sector from the disk. */
+    /** Writes a block starting from a specific sector to the disk. */
     bool writeSectorBlock(uint32_t sec, size_t size, uintptr_t buffer);
 
-    /** Writes a block starting from a specific sector to the disk. */
+    /** Reads a block starting from a specific sector from the disk. */
     bool readSectorBlock(uint32_t sec, size_t size, uintptr_t buffer) const;
 
     /** Obtains the first sector given a cluster number */

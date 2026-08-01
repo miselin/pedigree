@@ -21,7 +21,9 @@
 #include "modules/Module.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
+#include "pedigree/kernel/utilities/utility.h"
 
 class Network;
 
@@ -61,6 +63,7 @@ static struct nic potential_nics[] = {
 #define NUM_POTENTIAL_NICS (sizeof(potential_nics) / sizeof(potential_nics[0]))
 
 static bool bFound = false;
+static List<Nic3C90x *> g_Cards;
 
 static void probeDevice(Device *pDev)
 {
@@ -68,10 +71,16 @@ static void probeDevice(Device *pDev)
 
     // Create a new node
     Nic3C90x *pCard = new Nic3C90x(reinterpret_cast<Network *>(pDev));
+    if (!pCard->isInitialised())
+    {
+        delete pCard;
+        return;
+    }
 
     // Replace pDev with pCard
     pCard->setParent(pDev->getParent());
     pDev->getParent()->replaceChild(pDev, pCard);
+    g_Cards.pushBack(pCard);
 }
 
 static bool entry()
@@ -85,6 +94,16 @@ static bool entry()
 
 static void exit()
 {
+    auto removeCard = [](Device *device, Device *target) {
+        return device == target ? nullptr : device;
+    };
+    auto callback = pedigree_std::make_callable(removeCard);
+    while (g_Cards.count())
+    {
+        Device *card = g_Cards.popFront();
+        Device::foreach (callback, 0, card);
+    }
+    bFound = false;
 }
 
 MODULE_INFO("3c90x", &entry, &exit, "network-stack");

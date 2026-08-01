@@ -19,6 +19,7 @@
 
 #include "FatFile.h"
 #include "FatFilesystem.h"
+#include "pedigree/kernel/LockGuard.h"
 
 FatFile::FatFile(
     String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
@@ -27,7 +28,8 @@ FatFile::FatFile(
     : File(
           name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
           pParent),
-      m_DirClus(dirClus), m_DirOffset(dirOffset), m_FileBlockCache()
+      m_DirClus(dirClus), m_DirOffset(dirOffset), m_FileBlockCache(),
+      m_FileBlockCacheLock()
 {
     m_FileBlockCache.setCallback(writeCallback, static_cast<File *>(this));
 
@@ -39,17 +41,57 @@ FatFile::FatFile(
 
 FatFile::~FatFile()
 {
+    m_FileBlockCache.shutdown();
 }
 
 uintptr_t FatFile::readBlock(uint64_t location)
 {
+    LockGuard<Mutex> guard(m_FileBlockCacheLock);
     FatFilesystem *pFs = static_cast<FatFilesystem *>(m_pFilesystem);
 
-    uintptr_t buffer = m_FileBlockCache.insert(location);
-    pFs->read(this, location, getBlockSize(), buffer);
-    m_FileBlockCache.markNoLongerEditing(location);
+    uintptr_t buffer = m_FileBlockCache.lookup(location);
+    if (buffer)
+    {
+        return buffer;
+    }
 
-    return buffer;
+    bool didExist = false;
+    buffer = m_FileBlockCache.insert(location, &didExist);
+    if (!buffer)
+    {
+        return 0;
+    }
+
+    if (!didExist)
+    {
+        if (location >= getSize())
+        {
+            const bool discarded = m_FileBlockCache.discardEditing(location);
+            (void) discarded;
+            return 0;
+        }
+
+        const size_t expected =
+            ((getSize() - location) < getBlockSize())
+                ? (getSize() - location)
+                : getBlockSize();
+        ByteSet(reinterpret_cast<void *>(buffer), 0, getBlockSize());
+        const uint64_t bytesRead =
+            pFs->read(this, location, getBlockSize(), buffer);
+        if (bytesRead != expected)
+        {
+            if (!m_FileBlockCache.discardEditing(location))
+            {
+                WARNING(
+                    "FatFile::readBlock could not discard a failed fill at "
+                    << location);
+            }
+            return 0;
+        }
+        m_FileBlockCache.markNoLongerEditing(location);
+    }
+
+    return m_FileBlockCache.lookup(location);
 }
 
 void FatFile::writeBlock(uint64_t location, uintptr_t addr)
@@ -69,9 +111,9 @@ void FatFile::sync(size_t offset, bool async)
     m_FileBlockCache.sync(offset, async);
 }
 
-void FatFile::pinBlock(uint64_t location)
+bool FatFile::pinBlock(uint64_t location)
 {
-    m_FileBlockCache.pin(location);
+    return m_FileBlockCache.pin(location);
 }
 
 void FatFile::unpinBlock(uint64_t location)

@@ -34,7 +34,15 @@
 
 NetworkStack *NetworkStack::stack = 0;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+NetworkStack::HostedReceiveHook NetworkStack::m_HostedReceiveHook = nullptr;
+#endif
+
 static NetworkStack *g_NetworkStack = 0;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS && PEDIGREE_HOSTED_NETWORK_REGRESSION
+extern bool runHostedNetworkStackRegressions();
+#endif
 
 static err_t linkOutput(struct netif *netif, struct pbuf *p)
 {
@@ -53,6 +61,7 @@ static err_t linkOutput(struct netif *netif, struct pbuf *p)
             1, reinterpret_cast<uintptr_t>(output), totalLength))
     {
         pDevice->droppedPacket();
+        delete[] output;
         return ERR_IF;  // Drop the packet.
     }
 
@@ -115,12 +124,12 @@ static err_t netifInit(struct netif *netif)
 NetworkStack::NetworkStack()
     : RequestQueue(MakeConstantString("Network Stack")), m_pLoopback(0), m_Children(),
       m_MemPool("network-pool")
-#if UTILITY_LINUX
+#if THREADS || UTILITY_LINUX
       ,
-      m_Lock(false)
+      m_Lock()
 #endif
       ,
-      m_NextInterfaceNumber(0)
+      m_Interfaces(), m_NextInterfaceNumber(0), m_NextDeviceGeneration(1)
 {
     if (stack)
     {
@@ -153,6 +162,21 @@ uint64_t NetworkStack::executeRequest(
     uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
     uint64_t p6, uint64_t p7, uint64_t p8)
 {
+    struct pbuf *p = reinterpret_cast<struct pbuf *>(p1);
+    Network *card = reinterpret_cast<Network *>(p2);
+    const size_t generation = static_cast<size_t>(p3);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    HostedReceiveHook hook =
+        __atomic_load_n(&m_HostedReceiveHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(
+            HostedReceiveEvent::BeforeDispatch, reinterpret_cast<uintptr_t>(p),
+            card, generation);
+    }
+#endif
+
     // OK, we are now processing the packet.
     // We hold a lock that allows us to handle concurrency (not an issue with
     // a true RequestQueue, but is an issue on other environments).
@@ -160,12 +184,63 @@ uint64_t NetworkStack::executeRequest(
     LockGuard<Mutex> guard(m_Lock);
 #endif
 
-    struct pbuf *p = reinterpret_cast<struct pbuf *>(p1);
-    struct netif *iface = reinterpret_cast<struct netif *>(p2);
+    struct netif *iface = m_Interfaces.lookup(card);
+    const size_t activeGeneration =
+        iface ? __atomic_load_n(
+                    &card->m_NetworkStackGeneration, __ATOMIC_ACQUIRE)
+              : 0;
 
-    iface->input(p, iface);
+    if (iface && generation && generation == activeGeneration)
+    {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        hook = __atomic_load_n(&m_HostedReceiveHook, __ATOMIC_ACQUIRE);
+        if (hook)
+        {
+            hook(
+                HostedReceiveEvent::Delivered, reinterpret_cast<uintptr_t>(p),
+                card, generation);
+        }
+#endif
+        iface->input(p, iface);
+    }
+    else
+    {
+        // Device removal can overtake work which was already copied into the
+        // queue. Resolve the interface under the same lock as deregistration
+        // instead of retaining a freed netif pointer in the request.
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        hook = __atomic_load_n(&m_HostedReceiveHook, __ATOMIC_ACQUIRE);
+        if (hook)
+        {
+            hook(
+                HostedReceiveEvent::DiscardedStale,
+                reinterpret_cast<uintptr_t>(p), card, generation);
+        }
+#endif
+        pbuf_free(p);
+    }
 
     return 0;
+}
+
+void NetworkStack::cancelRequest(const Request &request)
+{
+    if (request.p1)
+    {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        HostedReceiveHook hook =
+            __atomic_load_n(&m_HostedReceiveHook, __ATOMIC_ACQUIRE);
+        if (hook)
+        {
+            hook(
+                HostedReceiveEvent::Cancelled,
+                static_cast<uintptr_t>(request.p1),
+                reinterpret_cast<Network *>(request.p2),
+                static_cast<size_t>(request.p3));
+        }
+#endif
+        pbuf_free(reinterpret_cast<struct pbuf *>(request.p1));
+    }
 }
 
 void NetworkStack::receive(
@@ -178,14 +253,6 @@ void NetworkStack::receive(
     {
         pCard->droppedPacket();
         return;  // Drop the packet.
-    }
-
-    struct netif *iface = getInterface(pCard);
-    if (!iface)
-    {
-        ERROR("Network Stack: no lwIP interface for received packet");
-        pCard->droppedPacket();
-        return;
     }
 
     struct pbuf *p = pbuf_alloc(PBUF_RAW, nBytes, PBUF_POOL);
@@ -212,8 +279,31 @@ void NetworkStack::receive(
         return;
     }
 
-    uint64_t result = addRequest(
-        0, reinterpret_cast<uint64_t>(p), reinterpret_cast<uintptr_t>(iface));
+    const size_t generation = __atomic_load_n(
+        &pCard->m_NetworkStackGeneration, __ATOMIC_ACQUIRE);
+    if (!generation)
+    {
+        pbuf_free(p);
+        return;
+    }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    HostedReceiveHook hook =
+        __atomic_load_n(&m_HostedReceiveHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(
+            HostedReceiveEvent::Queued, reinterpret_cast<uintptr_t>(p), pCard,
+            generation);
+    }
+#endif
+
+    if (!tryAddAsyncRequest(
+            0, reinterpret_cast<uint64_t>(p),
+            reinterpret_cast<uintptr_t>(pCard), generation))
+    {
+        // RequestQueue::cancelRequest owns the pbuf on rejection.
+    }
 }
 
 void NetworkStack::registerDevice(Network *pDevice)
@@ -230,6 +320,14 @@ void NetworkStack::registerDevice(Network *pDevice)
     }
 
     m_Children.pushBack(pDevice);
+
+    size_t generation = m_NextDeviceGeneration++;
+    if (!generation)
+    {
+        generation = m_NextDeviceGeneration++;
+    }
+    __atomic_store_n(
+        &pDevice->m_NetworkStackGeneration, generation, __ATOMIC_RELEASE);
 
     struct netif *iface = new struct netif;
     ByteSet(iface, 0, sizeof(*iface));
@@ -264,6 +362,13 @@ size_t NetworkStack::getNumDevices()
 
 void NetworkStack::deRegisterDevice(Network *pDevice)
 {
+#if THREADS || UTILITY_LINUX
+    LockGuard<Mutex> guard(m_Lock);
+#endif
+
+    __atomic_store_n(
+        &pDevice->m_NetworkStackGeneration, 0, __ATOMIC_RELEASE);
+
     int i = 0;
     for (Vector<Network *>::Iterator it = m_Children.begin();
          it != m_Children.end(); it++, i++)
@@ -283,6 +388,19 @@ void NetworkStack::deRegisterDevice(Network *pDevice)
         delete iface;
     }
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void NetworkStack::setHostedReceiveHook(HostedReceiveHook hook)
+{
+    __atomic_store_n(&m_HostedReceiveHook, hook, __ATOMIC_RELEASE);
+}
+
+size_t NetworkStack::getHostedRegistrationGeneration(Network *card)
+{
+    return __atomic_load_n(
+        &card->m_NetworkStackGeneration, __ATOMIC_ACQUIRE);
+}
+#endif
 
 NetworkStack::Packet::Packet() = default;
 
@@ -313,6 +431,15 @@ bool NetworkStack::Packet::copyFrom(uintptr_t otherPacket, size_t size)
 static bool entry()
 {
     g_NetworkStack = new NetworkStack();
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS && PEDIGREE_HOSTED_NETWORK_REGRESSION
+    if (!runHostedNetworkStackRegressions())
+    {
+        delete g_NetworkStack;
+        g_NetworkStack = nullptr;
+        return false;
+    }
+#endif
 
     return true;
 }

@@ -186,11 +186,18 @@ uintptr_t UsbHubDevice::createTransaction(UsbEndpoint endpointInfo)
     return m_pHub->createTransaction(endpointInfo);
 }
 
-void UsbHubDevice::doAsync(
+bool UsbHubDevice::doAsync(
     uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
     uintptr_t pParam)
 {
-    m_pHub->doAsync(pTransaction, pCallback, pParam);
+    return m_pHub->doAsync(pTransaction, pCallback, pParam);
+}
+
+void UsbHubDevice::cancelAsyncAndDrain(
+    uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
+    uintptr_t pParam)
+{
+    m_pHub->cancelAsyncAndDrain(pTransaction, pCallback, pParam);
 }
 
 void UsbHubDevice::addInterruptInHandler(

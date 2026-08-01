@@ -20,6 +20,22 @@
 #include "AtaController.h"
 #include "AtaDisk.h"
 
+void AtaController::maskDiskInterrupts()
+{
+    for (size_t i = 0; i < getNumChildren(); ++i)
+    {
+        static_cast<AtaDisk *>(getChild(i))->maskInterrupts();
+    }
+}
+
+void AtaController::stopDiskDma()
+{
+    for (size_t i = 0; i < getNumChildren(); ++i)
+    {
+        static_cast<AtaDisk *>(getChild(i))->stopDma();
+    }
+}
+
 bool AtaController::compareRequests(
     const RequestQueue::Request &a, const RequestQueue::Request &b)
 {

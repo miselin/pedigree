@@ -307,9 +307,9 @@ bool Nic3C90x::send(size_t nBytes, uintptr_t buffer)
     while (m_pBase->read32(regDnListPtr_l) != 0)
         ;
 
-    m_TxMutex.acquire();
-
-    return true;
+    // The card may still DMA from the caller's buffer after an interruptible
+    // wake. Do not return until the IRQ has transferred completion ownership.
+    return m_TxMutex.acquireForCompletion();
 }
 
 Nic3C90x::Nic3C90x(Network *pDev)
@@ -317,7 +317,9 @@ Nic3C90x::Nic3C90x(Network *pDev)
       m_pRxBuffVirt(0), m_pTxBuffVirt(0), m_pRxBuffPhys(0), m_pTxBuffPhys(0),
       m_RxBuffMR("3c90x-rxbuffer"), m_TxBuffMR("3c90x-txbuffer"), m_pDPD(0),
       m_DPDMR("3c90x-dpd"), m_pUPD(0), m_UPDMR("3c90x-upd"), m_TransmitDPD(0),
-      m_ReceiveUPD(0), m_RxMutex(0), m_TxMutex(0), m_PendingPackets()
+      m_ReceiveUPD(0), m_RxMutex(0), m_TxMutex(0), m_PendingPackets(),
+      m_PendingPacketsLock(), m_IrqId(0), m_ReceiveThread(),
+      m_Initialised(false)
 {
     setSpecificType(String("3c90x-card"));
 
@@ -597,17 +599,37 @@ Nic3C90x::Nic3C90x(Network *pDev)
     Thread *pThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), &trampoline,
         reinterpret_cast<void *>(this));
-    pThread->detach();
+    pThread->setName("3C90x receive worker");
+    m_ReceiveThread.adopt(pThread);
 #endif
 
     // install the IRQ
-    Machine::instance().getIrqManager()->registerIsaIrqHandler(
+    m_IrqId = Machine::instance().getIrqManager()->registerIsaIrqHandler(
         getInterruptNumber(), static_cast<IrqHandler *>(this));
     NetworkStack::instance().registerDevice(this);
+    m_Initialised = true;
 }
 
 Nic3C90x::~Nic3C90x()
 {
+    if (!m_Initialised)
+    {
+        return;
+    }
+
+    issueCommand(cmdSetInterruptEnable, 0);
+    if (
+        m_IrqId &&
+        !Machine::instance().getIrqManager()->unregisterHandler(
+            m_IrqId, this))
+    {
+        FATAL("3C90x teardown could not unregister its IRQ callback.");
+    }
+    m_IrqId = 0;
+
+    m_ReceiveThread.stop();
+    NetworkStack::instance().deRegisterDevice(this);
+    m_Initialised = false;
 }
 
 int Nic3C90x::trampoline(void *p)
@@ -621,15 +643,22 @@ void Nic3C90x::receiveThread()
 {
     while (true)
     {
-        m_RxMutex.acquire();
+        if (!m_RxMutex.acquire())
+        {
+            return;
+        }
 
         // When we come here, the UpListPtr register will hold the *next* UPD...
         // What we want is the one that it used! That's ok, it's not difficult
         // to find that out...
         // However, if the next is zero, the IRQ notified us of the *last* UPD
         // in the list. That needs to be handled properly too.
-        uintptr_t currUpdPhys =
-            reinterpret_cast<uintptr_t>(m_PendingPackets.popFront());
+        uintptr_t currUpdPhys = 0;
+        {
+            LockGuard<Spinlock> guard(m_PendingPacketsLock);
+            currUpdPhys =
+                reinterpret_cast<uintptr_t>(m_PendingPackets.popFront());
+        }
         uintptr_t myNum;
         if (currUpdPhys != 0)
         {
@@ -685,7 +714,10 @@ bool Nic3C90x::irq(irq_id_t number, InterruptState &state)
         {
             void *currPhys =
                 reinterpret_cast<void *>(m_pBase->read32(regUpListPtr_l));
-            m_PendingPackets.pushBack(currPhys);
+            {
+                LockGuard<Spinlock> guard(m_PendingPacketsLock);
+                m_PendingPackets.pushBack(currPhys);
+            }
             m_RxMutex.release();
         }
 

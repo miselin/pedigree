@@ -36,6 +36,7 @@
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/StackFrame.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
@@ -43,6 +44,8 @@
 #include "pedigree/kernel/utilities/lib.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/ZombieQueue.h"
+#include "pedigree/kernel/utilities/utility.h"
 #include "pipe-syscalls.h"
 #include "posixSyscallNumbers.h"
 #include "pthread-syscalls.h"
@@ -342,7 +345,10 @@ long posix_clone(
             *ptid = pThread->getId();
         }
 
-        pThread->setStatus(Thread::Ready);  // good to go now.
+        if (!pThread->start())
+        {
+            FATAL("clone(): delayed thread could not be started.");
+        }
 
         // Parent gets the new thread ID.
         SC_NOTICE(" -> " << pThread->getId() << " [new thread]");
@@ -400,10 +406,6 @@ long posix_clone(
     if (pParentProcess->getType() == Process::Posix)
     {
         PosixProcess *p = static_cast<PosixProcess *>(pParentProcess);
-        pProcess->setProcessGroup(p->getProcessGroup());
-
-        // default to being a member of the group
-        pProcess->setGroupMembership(PosixProcess::Member);
 
         // Do not adopt leadership status.
         if (p->getGroupMembership() == PosixProcess::Leader)
@@ -415,8 +417,8 @@ long posix_clone(
             SC_NOTICE(
                 "fork parent had status "
                 << static_cast<int>(p->getGroupMembership()) << "...");
-            pProcess->setGroupMembership(p->getGroupMembership());
         }
+        pProcess->inheritProcessGroup(p);
     }
 
     // Register with the dynamic linker.
@@ -451,17 +453,19 @@ long posix_clone(
     }
 
     // Create a new thread for the new process.
-    Thread *pThread = new Thread(pProcess, clonedState);
+    Thread *pThread = new Thread(pProcess, clonedState, true);
     pThread->setName("posix clone() forked thread");
     pThread->detach();
 
-    // Fix up the main thread in the child.
-    /// \todo this is too late - the Thread constructor starts the thread
-    ///       already! We need a way to have threads start suspended so they
-    ///       can be unblocked by callers when they are ready to run.
+    // Finish publishing the child-side POSIX state before it can execute.
     pedigree_copy_posix_thread(
         Processor::information().getCurrentThread(), pParentSubsystem, pThread,
         pSubsystem);
+    pProcess->publish();
+    if (!pThread->start())
+    {
+        FATAL("fork(): delayed child thread could not be started.");
+    }
 
     // Parent returns child ID.
     SC_NOTICE(" -> " << pProcess->getId() << " [new process]");
@@ -532,45 +536,44 @@ int posix_execve(
     return 0;
 }
 
-/**
- * Class intended to be used for RAII to clean up waitpid state on exit.
- */
-class WaitCleanup
+static bool waitpidEligibleChild(
+    PosixProcess *pParent, bool parentHasGroup, size_t parentGroupId,
+    Process *pCandidate, int pid)
 {
-  public:
-    WaitCleanup(List<Process *> *cleanupList, Semaphore *lock)
-        : m_List(cleanupList), m_Lock(lock), m_pTerminated(0)
+    if (!pCandidate || pCandidate == pParent ||
+        pCandidate->getType() != Process::Posix ||
+        pCandidate->getParent() != pParent ||
+        pCandidate->getState() == Process::Reaped)
     {
+        return false;
     }
 
-    /**
-     * Call this with the process that terminated most recently, which
-     * is necessary because otherwise upon exit from waitpid() we attempt
-     * to access the (deleted) Process object, which is not safe.
-     */
-    void terminated(Process *pProcess)
+    if (pid > 0)
     {
-        m_pTerminated = pProcess;
-        pProcess->removeWaiter(m_Lock);
+        return static_cast<int>(pCandidate->getId()) == pid;
     }
 
-    ~WaitCleanup()
+    if (pid == -1)
     {
-        for (List<Process *>::Iterator it = m_List->begin();
-             it != m_List->end(); ++it)
-        {
-            if ((*it) == m_pTerminated)
-                continue;
-
-            (*it)->removeWaiter(m_Lock);
-        }
+        return true;
     }
 
-  private:
-    List<Process *> *m_List;
-    Semaphore *m_Lock;
-    Process *m_pTerminated;
-};
+    PosixProcess *pPosixCandidate =
+        static_cast<PosixProcess *>(pCandidate);
+    size_t candidateGroupId = 0;
+    if (!pPosixCandidate->getProcessGroupId(candidateGroupId))
+    {
+        return false;
+    }
+
+    if (pid == 0)
+    {
+        return parentHasGroup && candidateGroupId == parentGroupId;
+    }
+
+    return static_cast<int64_t>(candidateGroupId) ==
+           -static_cast<int64_t>(pid);
+}
 
 int posix_waitpid(const int pid, int *status, int options)
 {
@@ -587,24 +590,11 @@ int posix_waitpid(const int pid, int *status, int options)
         "waitpid(" << pid << " [" << Dec << pid << Hex << "], " << options
                    << ")");
 
-    // Find the set of processes to check.
-    List<Process *> processList;
-
-    // Our lock, which we will assign to each process (assuming WNOHANG is not
-    // set).
-    Semaphore waitLock(0);
-
-    // RAII object to clean up when we return (instead of goto or other
-    // ugliness).
-    WaitCleanup cleanup(&processList, &waitLock);
-
     // Metadata about the calling process.
     PosixProcess *pThisProcess = static_cast<PosixProcess *>(
         Processor::information().getCurrentThread()->getParent());
-    ProcessGroup *pThisGroup = pThisProcess->getProcessGroup();
 
-    // Check for the process(es) we need to check for.
-    bool bBlock = (options & WNOHANG) != WNOHANG;
+    const bool bBlock = (options & WNOHANG) != WNOHANG;
     if (bBlock)
     {
         SC_NOTICE(" -> blocking until a process reports status");
@@ -614,155 +604,129 @@ int posix_waitpid(const int pid, int *status, int options)
         SC_NOTICE(" -> WNOHANG");
     }
 
-    size_t i = 0;
-    for (; i < Scheduler::instance().getNumProcesses(); ++i)
+    WaitQueue::WakeReason previousWake = WaitQueue::WakeReason::Signalled;
+    while (true)
     {
-        Process *pProcess = Scheduler::instance().getProcess(i);
-        if (pProcess == pThisProcess)
-            continue;  // Don't wait for ourselves.
+        Process *pReapedProcess = 0;
+        int resultPid = -1;
+        int resultStatus = 0;
+        bool hasResult = false;
 
-        if (pProcess->getState() == Process::Reaped)
-            continue;  // Reaped but not yet destroyed.
-
-        if ((pid <= 0) && (pProcess->getType() == Process::Posix))
         {
-            PosixProcess *pPosixProcess = static_cast<PosixProcess *>(pProcess);
-            ProcessGroup *pGroup = pPosixProcess->getProcessGroup();
-            if (pid == 0)
+            // This guard is both the concurrent-reaper lock and the atomic
+            // predicate-to-sleep handoff for every child of this process.
+            auto guard = pThisProcess->acquireChildStateWait();
+            bool hasEligibleChild = false;
+
+            // Rebuild the candidates after every wake. No Process pointer is
+            // retained across a blocking point.
+            size_t parentGroupId = 0;
+            const bool parentHasGroup =
+                pThisProcess->getProcessGroupId(parentGroupId);
+            for (size_t i = 0;; ++i)
             {
-                // Any process in the same process group as the caller.
-                if (!(pGroup && pThisGroup))
-                    continue;
-                if (pGroup->processGroupId != pThisGroup->processGroupId)
-                    continue;
-            }
-            else if (pid == -1)
-            {
-                // Wait for any child.
-                if (pProcess->getParent() != pThisProcess)
-                    continue;
-            }
-            else if (pGroup && (pGroup->processGroupId != (pid * -1)))
-            {
-                // Absolute group ID reference
-                continue;
-            }
-        }
-        else if ((pid > 0) && (static_cast<int>(pProcess->getId()) != pid))
-            continue;
-        else if (pProcess->getType() != Process::Posix)
-            continue;
-
-        // Okay, the process is good.
-        processList.pushBack(pProcess);
-
-        // If not WNOHANG, subscribe our lock to this process' state changes.
-        // If the process is in the process of terminating, we can add our
-        // lock and hope for the best.
-        if (bBlock || (pProcess->getState() == Process::Terminating))
-        {
-            SC_NOTICE(
-                "  -> adding our wait lock to process " << Dec
-                                                        << pProcess->getId());
-            pProcess->addWaiter(&waitLock);
-            bBlock = true;
-        }
-    }
-
-    // No children?
-    if (processList.count() == 0)
-    {
-        SYSCALL_ERROR(NoChildren);
-        SC_NOTICE("  -> no children");
-        return -1;
-    }
-
-    // Main wait loop.
-    while (1)
-    {
-        // Check each process for state.
-        for (List<Process *>::Iterator it = processList.begin();
-             it != processList.end(); ++it)
-        {
-            Process *pProcess = *it;
-            int this_pid = pProcess->getId();
-
-            // Does this process even exist anymore?
-
-            // Zombie or reaped?
-            // Because processes don't get actually destroyed until no more
-            // waiters exist on them, we can safely do this and it makes sure
-            // multiple waitpid() calls on the same process do the right thing
-            if (pProcess->getState() == Process::Terminated ||
-                pProcess->getState() == Process::Reaped)
-            {
-                if (status)
-                    *status = pProcess->getExitStatus();
-
-                // Delete the process; it's been reaped good and proper.
-                SC_NOTICE(
-                    "waitpid: " << Dec << this_pid << " reaped ["
-                                << pProcess->getExitStatus() << "]");
-                cleanup.terminated(pProcess);
-                if (pProcess->waiterCount() < 1)
+                Process *pProcess =
+                    Scheduler::instance().getChildProcess(pThisProcess, i);
+                if (!pProcess)
                 {
-                    SC_NOTICE("waitpid: destroying reaped process");
-                    delete pProcess;
+                    break;
                 }
-                else
+
+                if (!waitpidEligibleChild(
+                        pThisProcess, parentHasGroup, parentGroupId,
+                        pProcess, pid))
                 {
-                    SC_NOTICE("waitpid: marking process reaped");
+                    continue;
+                }
+
+                hasEligibleChild = true;
+                resultPid = static_cast<int>(pProcess->getId());
+
+                if (pProcess->getState() == Process::Terminated)
+                {
+                    resultStatus = pProcess->getExitStatus();
                     pProcess->reap();
+                    pReapedProcess = pProcess;
+                    hasResult = true;
+                    SC_NOTICE(
+                        "waitpid: " << Dec << resultPid << " reaped ["
+                                    << resultStatus << "]");
+                    break;
                 }
-                return this_pid;
-            }
-            // Suspended (and WUNTRACED)?
-            else if ((options & 2) && pProcess->hasSuspended())
-            {
-                if (status)
-                    *status = pProcess->getExitStatus();
 
-                SC_NOTICE("waitpid: " << Dec << this_pid << " suspended.");
-                return this_pid;
-            }
-            // Continued (and WCONTINUED)?
-            else if ((options & 4) && pProcess->hasResumed())
-            {
-                if (status)
-                    *status = pProcess->getExitStatus();
+                if ((options & WUNTRACED) && pProcess->hasSuspended())
+                {
+                    resultStatus = pProcess->getExitStatus();
+                    hasResult = true;
+                    SC_NOTICE(
+                        "waitpid: " << Dec << resultPid << " suspended.");
+                    break;
+                }
 
-                SC_NOTICE("waitpid: " << Dec << this_pid << " resumed.");
-                return this_pid;
-            }
-            else
-            {
+                if ((options & WCONTINUED) && pProcess->hasResumed())
+                {
+                    resultStatus = pProcess->getExitStatus();
+                    hasResult = true;
+                    SC_NOTICE(
+                        "waitpid: " << Dec << resultPid << " resumed.");
+                    break;
+                }
+
                 SC_NOTICE(
-                    "waitpid: " << Dec << this_pid << " has no status change");
+                    "waitpid: " << Dec << resultPid
+                                << " has no status change");
+            }
+
+            if (!hasResult)
+            {
+                if (!hasEligibleChild)
+                {
+                    SYSCALL_ERROR(NoChildren);
+                    SC_NOTICE("waitpid: no eligible children");
+                    return -1;
+                }
+
+                if (!bBlock)
+                {
+                    SC_NOTICE("waitpid: not blocking, no status to report");
+                    return 0;
+                }
+
+                // Event delivery historically only prompted another rescan
+                // (not EINTR). Forced unwind/termination must leave the
+                // persistent WaitQueue record and return.
+                if (
+                    previousWake == WaitQueue::WakeReason::Unwinding ||
+                    previousWake == WaitQueue::WakeReason::Terminating)
+                {
+                    SYSCALL_ERROR(Interrupted);
+                    SC_NOTICE("waitpid: interrupted");
+                    return -1;
+                }
+
+                previousWake = guard.wait(
+                    WaitQueue::Channel(), Thread::ProcessWait,
+                    reinterpret_cast<uintptr_t>(
+                        __builtin_return_address(0)));
             }
         }
 
-        // Don't wait for any processes to report status if we are not meant
-        // to be blocking.
-        if (!bBlock)
+        if (hasResult)
         {
-            SC_NOTICE("waitpid: not blocking, no status to report");
-            return 0;
+            if (status)
+            {
+                *status = resultStatus;
+            }
+
+            if (pReapedProcess)
+            {
+                // Destruction is deferred, and termination was not made
+                // observable until the exiting thread was already off-stack.
+                ZombieQueue::instance().addObject(
+                    new ZombieProcess(pReapedProcess));
+            }
+            return resultPid;
         }
-
-        // Wait for processes to report in.
-        waitLock.acquire();
-
-        // We can get woken up by our process dying. Handle that here.
-        if (Processor::information().getCurrentThread()->getUnwindState() ==
-            Thread::Exit)
-        {
-            SC_NOTICE("waitpid: unwind state means exit");
-            return -1;
-        }
-
-        // We get notified by processes just before they change state.
-        // Make sure they are scheduled into that state by yielding.
-        Scheduler::instance().yield();
     }
 }
 
@@ -806,9 +770,29 @@ int posix_getppid()
 
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
-    if (!pProcess->getParent())
-        return 0;
-    return pProcess->getParent()->getId();
+    while (true)
+    {
+        Process *expectedParent = pProcess->getParent();
+        if (!expectedParent)
+        {
+            return 0;
+        }
+
+        Scheduler::ProcessLease parent;
+        if (!Scheduler::instance().acquireProcess(
+                parent, expectedParent))
+        {
+            if (pProcess->getParent() != expectedParent)
+            {
+                continue;
+            }
+            return 0;
+        }
+        if (pProcess->getParent() == parent.get())
+        {
+            return parent->getId();
+        }
+    }
 }
 
 int posix_gettimeofday(timeval *tv, struct timezone *tz)
@@ -1194,8 +1178,11 @@ int posix_setsid()
     PosixProcess::Membership myMembership = pProcess->getGroupMembership();
     if (myMembership != PosixProcess::NoGroup)
     {
+        size_t oldGroupId = 0;
+        const bool hasOldGroup =
+            pProcess->getProcessGroupId(oldGroupId);
         // If we don't actually have a group, something's gone wrong
-        if (!pProcess->getProcessGroup())
+        if (!hasOldGroup)
             FATAL("Process' is apparently a member of a group, but its group "
                   "pointer is invalid.");
 
@@ -1210,21 +1197,11 @@ int posix_setsid()
         {
             SC_NOTICE(
                 "setsid() called while a member of another group ["
-                << pProcess->getProcessGroup()->processGroupId << "]");
+                << oldGroupId << "]");
         }
     }
 
-    // Delete the old group, if any
-    ProcessGroup *pGroup = pProcess->getProcessGroup();
-    if (pGroup)
-    {
-        pProcess->setProcessGroup(0);
-
-        /// \todo Remove us from the list
-        /// \todo Remove others from the list!?
-        if (pGroup->Members.count() <= 1)  // Us or nothing
-            delete pGroup;
-    }
+    pProcess->leaveProcessGroup();
 
     // Create the new session.
     PosixSession *pNewSession = new PosixSession();
@@ -1244,12 +1221,12 @@ int posix_setsid()
     // Remove controlling terminal.
     pProcess->setCtty(0);
 
+    const size_t newGroupId = pProcess->getId();
     SC_NOTICE(
-        "setsid: now part of a group [id=" << pNewGroup->processGroupId
-                                           << "]!");
+        "setsid: now part of a group [id=" << newGroupId << "]!");
 
     // Success!
-    return pNewGroup->processGroupId;
+    return newGroupId;
 }
 
 int posix_setpgid(int pid_, int pgid)
@@ -1275,6 +1252,7 @@ int posix_setpgid(int pid_, int pgid)
 
     // Are we already a leader of a session?
     PosixProcess *pProcess = static_cast<PosixProcess *>(pBaseProcess);
+    Scheduler::ProcessLease targetProcessLease;
 
     // Handle zero PID and PGID.
     if (!pid)
@@ -1286,44 +1264,38 @@ int posix_setpgid(int pid_, int pgid)
         pgid = pid;
     }
 
-    ProcessGroup *pGroup = pProcess->getProcessGroup();
+    size_t currentGroupId = 0;
+    bool hasCurrentGroup =
+        pProcess->getProcessGroupId(currentGroupId);
     PosixSession *pSession = pProcess->getSession();
 
     // Is this us or a child of us?
     /// \todo pid == child, but child not in this session = EPERM
     if (pid != pProcess->getId())
     {
-        // Find the target process - it's not us
-        Process *pTargetProcess = nullptr;
-        for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
-        {
-            Process *check = Scheduler::instance().getProcess(i);
-            if (check->getType() != Process::Posix)
-                continue;
-
-            if (check->getId() == pid)
-            {
-                pTargetProcess = check;
-                break;
-            }
-        }
-
-        if (!pTargetProcess)
+        if (
+            !Scheduler::instance().acquireProcessById(
+                targetProcessLease, pid) ||
+            targetProcessLease->getType() != Process::Posix)
         {
             SC_NOTICE("  -> process doesn't exist");
             SYSCALL_ERROR(NoSuchProcess);
             return -1;
         }
+        Process *pTargetProcess = targetProcessLease.get();
 
         // Is this process a child of us?
         Process *parent = pTargetProcess->getParent();
-        while (parent != nullptr)
+        while (parent && parent != pProcess)
         {
-            if (parent == pProcess)
+            Scheduler::ProcessLease parentLease;
+            if (!Scheduler::instance().acquireProcess(
+                    parentLease, parent))
             {
-                // ok!
+                parent = nullptr;
                 break;
             }
+            parent = parentLease->getParent();
         }
 
         if (parent != pProcess)
@@ -1345,11 +1317,12 @@ int posix_setpgid(int pid_, int pgid)
 
         pBaseProcess = pTargetProcess;
         pProcess = static_cast<PosixProcess *>(pTargetProcess);
-        pGroup = pProcess->getProcessGroup();
+        hasCurrentGroup =
+            pProcess->getProcessGroupId(currentGroupId);
         pSession = pProcess->getSession();
     }
 
-    if (pGroup && (pGroup->processGroupId == pgid))
+    if (hasCurrentGroup && currentGroupId == static_cast<size_t>(pgid))
     {
         // Already a member.
         SC_NOTICE(" -> OK, already a member!");
@@ -1361,43 +1334,61 @@ int posix_setpgid(int pid_, int pgid)
         // Already a session leader.
         SYSCALL_ERROR(PermissionDenied);
         SC_NOTICE(" -> EPERM (already leader)");
-        return 0;
+        return -1;
     }
 
-    // Does the process group exist?
-    Process *check = 0;
-    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
-    {
-        check = Scheduler::instance().getProcess(i);
-        if (check->getType() != Process::Posix)
-            continue;
+    // Allocate outside the group spinlock. A concurrent creator can win while
+    // we search; the locked recheck below then joins its group and discards
+    // this unregistered candidate.
+    ProcessGroup *newGroup = new ProcessGroup;
+    newGroup->processGroupId = pProcess->getId();
+    newGroup->Leader = pProcess;
+    newGroup->Members.clear();
 
-        PosixProcess *posixCheck = static_cast<PosixProcess *>(check);
-        ProcessGroup *pGroupCheck = posixCheck->getProcessGroup();
-        if (pGroupCheck)
+    bool joined = false;
+    bool created = false;
+    {
+        RecursingLockGuard<Spinlock> groupGuard(
+            ProcessGroupManager::instance().lock());
+
+        ProcessGroup *targetGroup = pProcess->getProcessGroup();
+        if (
+            targetGroup &&
+            static_cast<size_t>(targetGroup->processGroupId) ==
+                static_cast<size_t>(pgid))
         {
-            if (pGroupCheck->processGroupId == pgid)
-            {
-                // Join this group.
-                pProcess->setProcessGroup(pGroupCheck);
-                pProcess->setGroupMembership(PosixProcess::Member);
-                SC_NOTICE(" -> OK, joined!");
-                return 0;
-            }
+            joined = true;
+        }
+        else if (
+            ProcessGroup *existingGroup =
+                ProcessGroupManager::instance().findGroup(pgid))
+        {
+            pProcess->setProcessGroup(existingGroup);
+            pProcess->setGroupMembership(PosixProcess::Member);
+            joined = true;
+        }
+        else if (
+            static_cast<size_t>(pgid) == pProcess->getId() &&
+            !ProcessGroupManager::instance().isGroupIdValid(pgid))
+        {
+            pProcess->setProcessGroup(newGroup);
+            pProcess->setGroupMembership(PosixProcess::Leader);
+            created = true;
         }
     }
 
-    // No, the process group does not exist. Create it.
-    ProcessGroup *pNewGroup = new ProcessGroup;
-    pNewGroup->processGroupId = pProcess->getId();
-    pNewGroup->Leader = pProcess;
-    pNewGroup->Members.clear();
+    if (!created)
+    {
+        delete newGroup;
+    }
+    if (!joined && !created)
+    {
+        SYSCALL_ERROR(PermissionDenied);
+        SC_NOTICE(" -> EPERM (group does not exist)");
+        return -1;
+    }
 
-    // We're now a group leader - we got promoted!
-    pProcess->setProcessGroup(pNewGroup);
-    pProcess->setGroupMembership(PosixProcess::Leader);
-
-    SC_NOTICE(" -> OK, created!");
+    SC_NOTICE(created ? " -> OK, created!" : " -> OK, joined!");
     return 0;
 }
 
@@ -1412,35 +1403,23 @@ int posix_getpgid(int pid)
 
     SC_NOTICE("getpgid(" << pid << ")");
 
-    // Find the target process - it's not us
-    Process *pTargetProcess = nullptr;
-    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
-    {
-        Process *check = Scheduler::instance().getProcess(i);
-        if (check->getType() != Process::Posix)
-            continue;
-
-        if (check->getId() == pid_)
-        {
-            pTargetProcess = check;
-            break;
-        }
-    }
-
-    if (!pTargetProcess)
+    Scheduler::ProcessLease target;
+    if (
+        !Scheduler::instance().acquireProcessById(target, pid_) ||
+        target->getType() != Process::Posix)
     {
         SC_NOTICE(" -> target process not found");
         SYSCALL_ERROR(NoSuchProcess);
         return -1;
     }
 
-    PosixProcess *pProcess = static_cast<PosixProcess *>(pTargetProcess);
-    ProcessGroup *pGroup = pProcess->getProcessGroup();
-
-    if (pGroup)
+    PosixProcess *pProcess =
+        static_cast<PosixProcess *>(target.get());
+    size_t groupId = 0;
+    if (pProcess->getProcessGroupId(groupId))
     {
-        SC_NOTICE(" -> " << pGroup->processGroupId);
-        return pGroup->processGroupId;
+        SC_NOTICE(" -> " << groupId);
+        return groupId;
     }
 
     SC_NOTICE(" -> target process did not have a group");
@@ -1454,13 +1433,13 @@ int posix_getpgrp()
 
     PosixProcess *pProcess = static_cast<PosixProcess *>(
         Processor::information().getCurrentThread()->getParent());
-    ProcessGroup *pGroup = pProcess->getProcessGroup();
 
     int result = 0;
-    if (pGroup)
+    size_t groupId = 0;
+    if (pProcess->getProcessGroupId(groupId))
     {
         SC_NOTICE(" -> using existing group id");
-        result = pGroup->processGroupId;
+        result = static_cast<int>(groupId);
     }
     else
     {
@@ -1523,7 +1502,7 @@ int posix_linux_syslog(int type, char *buf, int len)
             /// \todo expose kernel log via this interface
             // NOTE: blocking call...
             SC_NOTICE(" -> read log");
-            Processor::information().getScheduler().sleep(nullptr);
+            Processor::information().getCurrentThread()->waitForEvent();
             return 0;
 
         case 3:
@@ -1591,8 +1570,6 @@ int posix_syslog(const char *msg, int prio)
     return 0;
 }
 
-extern void system_reset();
-
 EXPORTED_PUBLIC int pedigree_reboot()
 {
     // Are we superuser?
@@ -1604,88 +1581,10 @@ EXPORTED_PUBLIC int pedigree_reboot()
         return -1;
     }
 
-    WARNING("System shutting down...");
-    for (int i = Scheduler::instance().getNumProcesses() - 1; i >= 0; i--)
+    if (!SyscallManager::instance().requestReboot())
     {
-        Process *proc = Scheduler::instance().getProcess(i);
-        Subsystem *subsys = proc->getSubsystem();
-
-        if (proc == Processor::information().getCurrentThread()->getParent())
-            continue;
-
-        if (subsys)
-        {
-            // If there's a subsystem, kill it that way.
-            /// \todo need to set a timeout and SIGKILL if it expires...
-            subsys->kill(Subsystem::Terminated, proc->getThread(0));
-        }
-        else
-        {
-            // If no subsystem, outright kill the process without sending a
-            // signal
-            Scheduler::instance().removeProcess(proc);
-
-            /// \todo Process::kill() acts as if that process is already
-            /// running.
-            ///       It needs to allow other Processes to call it without
-            ///       causing the calling thread to become a zombie.
-            // proc->kill();
-        }
+        FATAL("Reboot was not dispatched.");
     }
-
-    // Wait for remaining processes to terminate.
-    while (true)
-    {
-        Processor::setInterrupts(false);
-        if (Scheduler::instance().getNumProcesses() <= 1)
-        {
-            break;
-        }
-        bool allZombie = true;
-        for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++)
-        {
-            if (Scheduler::instance().getProcess(i) ==
-                Processor::information().getCurrentThread()->getParent())
-            {
-                continue;
-            }
-            if (Scheduler::instance()
-                    .getProcess(i)
-                    ->getThread(0)
-                    ->getStatus() != Thread::Zombie)
-            {
-                allZombie = false;
-            }
-        }
-
-        if (allZombie)
-        {
-            break;
-        }
-        Processor::setInterrupts(true);
-
-        Scheduler::instance().yield();
-    }
-
-    // All dead, reap them all.
-    while (Scheduler::instance().getNumProcesses() > 1)
-    {
-        if (Scheduler::instance().getProcess(0) ==
-            Processor::information().getCurrentThread()->getParent())
-        {
-            continue;
-        }
-        delete Scheduler::instance().getProcess(0);
-    }
-
-    // Reset the system
-    system_reset();
-#if HOSTED
-    // A successful reboot never returns to userspace. Leave the hosted idle
-    // thread to observe the shutdown request and own kernel teardown.
-    Processor::information().getScheduler().schedule(Thread::Suspended);
-    FATAL("Hosted reboot thread resumed after shutdown");
-#endif
     return 0;
 }
 
@@ -1758,7 +1657,7 @@ int posix_pause()
 {
     SC_NOTICE("pause");
 
-    Processor::information().getScheduler().sleep();
+    Processor::information().getCurrentThread()->waitForEvent();
 
     SYSCALL_ERROR(Interrupted);
     return -1;

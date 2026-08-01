@@ -23,6 +23,7 @@
 #include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
@@ -59,7 +60,7 @@
 
 Tree<struct netconn *, LwipSocketSyscalls *>
     LwipSocketSyscalls::m_SyscallObjects;
-Mutex LwipSocketSyscalls::m_SyscallObjectsLock(false);
+Mutex LwipSocketSyscalls::m_SyscallObjectsLock;
 
 extern UnixFilesystem *g_pUnixFilesystem;
 
@@ -85,9 +86,32 @@ static void releaseTrackedUnixSocket(File *file)
     VFS::instance().untrackFile(file);
 }
 
+static Thread *beginInterruptibleSocketCall()
+{
+    Thread *thread = Processor::information().getCurrentThread();
+    thread->clearInterruption();
+    return thread;
+}
+
+bool finishInterruptibleSocketCall(Thread *thread, ssize_t result)
+{
+    const bool interrupted =
+        thread->getInterruptionReason() == Thread::InterruptedBySignal;
+    thread->clearInterruption();
+
+    if (interrupted && result < 0)
+    {
+        SYSCALL_ERROR(Interrupted);
+        return false;
+    }
+
+    return true;
+}
+
 /// Pass is_create = true to indicate that the operation is permitted to
 // operate if the socket does not yet have valid members (i.e. before a bind).
-static bool isSaneSocket(FileDescriptor *f, bool is_create = false)
+static bool isSaneSocket(
+    const DescriptorLease &f, bool is_create = false)
 {
     if (!f)
     {
@@ -391,7 +415,8 @@ int posix_connect(int sock, const struct sockaddr_storage *address, socklen_t ad
         "connect(" << sock << ", " << reinterpret_cast<uintptr_t>(address)
                    << ", " << addrlen << ")");
 
-    FileDescriptor *f = getDescriptor(sock);
+    DescriptorLease f;
+    acquireDescriptor(sock, f);
     if (!isSaneSocket(f, true))
     {
         return -1;
@@ -404,7 +429,12 @@ int posix_connect(int sock, const struct sockaddr_storage *address, socklen_t ad
         return -1;
     }
 
-    return f->networkImpl->connect(address, addrlen);
+    Thread *thread = beginInterruptibleSocketCall();
+    const int result = f->networkImpl->connect(address, addrlen);
+    return finishInterruptibleSocketCall(
+               thread, static_cast<ssize_t>(result))
+               ? result
+               : -1;
 }
 
 ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
@@ -434,13 +464,23 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
         }
     }
 
-    FileDescriptor *f = getDescriptor(sock);
+    DescriptorLease f;
+    acquireDescriptor(sock, f);
+    return posix_send_descriptor(f, buff, bufflen, flags);
+}
+
+ssize_t posix_send_descriptor(
+    const DescriptorLease &f, const void *buff, size_t bufflen, int flags)
+{
     if (!isSaneSocket(f))
     {
         return -1;
     }
 
-    return f->networkImpl->sendto(buff, bufflen, flags, nullptr, 0);
+    Thread *thread = beginInterruptibleSocketCall();
+    const ssize_t result =
+        f->networkImpl->sendto(buff, bufflen, flags, nullptr, 0);
+    return finishInterruptibleSocketCall(thread, result) ? result : -1;
 }
 
 ssize_t posix_sendto(
@@ -483,13 +523,17 @@ ssize_t posix_sendto(
         }
     }
 
-    FileDescriptor *f = getDescriptor(sock);
+    DescriptorLease f;
+    acquireDescriptor(sock, f);
     if (!isSaneSocket(f))
     {
         return -1;
     }
 
-    return f->networkImpl->sendto(buff, bufflen, flags, address, addrlen);
+    Thread *thread = beginInterruptibleSocketCall();
+    const ssize_t result =
+        f->networkImpl->sendto(buff, bufflen, flags, address, addrlen);
+    return finishInterruptibleSocketCall(thread, result) ? result : -1;
 }
 
 ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
@@ -509,14 +553,9 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
         "recv(" << sock << ", " << buff << ", " << bufflen << ", " << flags
                 << ")");
 
-    FileDescriptor *f = getDescriptor(sock);
-    if (!isSaneSocket(f))
-    {
-        return -1;
-    }
-
-    ssize_t n =
-        f->networkImpl->recvfrom(buff, bufflen, flags, nullptr, nullptr);
+    DescriptorLease f;
+    acquireDescriptor(sock, f);
+    ssize_t n = posix_recv_descriptor(f, buff, bufflen, flags);
 
     EMIT_IF(LOG_SEND_RECV_BUFFERS)
     {
@@ -529,6 +568,24 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
     }
 
     N_NOTICE(" -> " << n);
+    return n;
+}
+
+ssize_t posix_recv_descriptor(
+    const DescriptorLease &f, void *buff, size_t bufflen, int flags)
+{
+    if (!isSaneSocket(f))
+    {
+        return -1;
+    }
+
+    Thread *thread = beginInterruptibleSocketCall();
+    ssize_t n =
+        f->networkImpl->recvfrom(buff, bufflen, flags, nullptr, nullptr);
+    if (!finishInterruptibleSocketCall(thread, n))
+    {
+        return -1;
+    }
     return n;
 }
 
@@ -555,14 +612,20 @@ ssize_t posix_recvfrom(
         "recvfrom(" << sock << ", " << buff << ", " << bufflen << ", " << flags
                     << ", " << address << ", " << addrlen);
 
-    FileDescriptor *f = getDescriptor(sock);
+    DescriptorLease f;
+    acquireDescriptor(sock, f);
     if (!isSaneSocket(f))
     {
         return -1;
     }
 
+    Thread *thread = beginInterruptibleSocketCall();
     ssize_t n =
         f->networkImpl->recvfrom(buff, bufflen, flags, address, addrlen);
+    if (!finishInterruptibleSocketCall(thread, n))
+    {
+        return -1;
+    }
 
     EMIT_IF(LOG_SEND_RECV_BUFFERS)
     {
@@ -595,7 +658,8 @@ int posix_bind(int sock, const struct sockaddr_storage *address, socklen_t addrl
 
     N_NOTICE("bind(" << sock << ", " << address << ", " << addrlen << ")");
 
-    FileDescriptor *f = getDescriptor(sock);
+    DescriptorLease f;
+    acquireDescriptor(sock, f);
     if (!isSaneSocket(f, true))
     {
         return -1;
@@ -614,7 +678,8 @@ int posix_listen(int sock, int backlog)
 {
     N_NOTICE("listen(" << sock << ", " << backlog << ")");
 
-    FileDescriptor *f = getDescriptor(sock);
+    DescriptorLease f;
+    acquireDescriptor(sock, f);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -684,7 +749,8 @@ int posix_accept4(
         "accept4(" << sock << ", " << address << ", " << addrlen << ", "
                    << flags << ")");
 
-    FileDescriptor *f = getDescriptor(sock);
+    DescriptorLease f;
+    acquireDescriptor(sock, f);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -696,8 +762,13 @@ int posix_accept4(
         return -1;
     }
 
+    Thread *thread = beginInterruptibleSocketCall();
     int r =
         f->networkImpl->accept(&acceptedAddress, &acceptedLength, flags);
+    if (!finishInterruptibleSocketCall(thread, static_cast<ssize_t>(r)))
+    {
+        return -1;
+    }
     if (r >= 0 && returnAddress)
     {
         const size_t copyLength =
@@ -718,7 +789,8 @@ int posix_shutdown(int socket, int how)
 {
     N_NOTICE("shutdown(" << socket << ", " << how << ")");
 
-    FileDescriptor *f = getDescriptor(socket);
+    DescriptorLease f;
+    acquireDescriptor(socket, f);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -748,7 +820,8 @@ int posix_getpeername(
         "getpeername(" << socket << ", " << address << ", " << address_len
                        << ")");
 
-    FileDescriptor *f = getDescriptor(socket);
+    DescriptorLease f;
+    acquireDescriptor(socket, f);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -778,7 +851,8 @@ int posix_getsockname(
         "getsockname(" << socket << ", " << address << ", " << address_len
                        << ")");
 
-    FileDescriptor *f = getDescriptor(socket);
+    DescriptorLease f;
+    acquireDescriptor(socket, f);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -803,7 +877,8 @@ int posix_setsockopt(
         return -1;
     }
 
-    FileDescriptor *f = getDescriptor(sock);
+    DescriptorLease f;
+    acquireDescriptor(sock, f);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -838,7 +913,8 @@ int posix_getsockopt(
         return -1;
     }
 
-    FileDescriptor *f = getDescriptor(sock);
+    DescriptorLease f;
+    acquireDescriptor(sock, f);
     if (!isSaneSocket(f))
     {
         return -1;
@@ -872,13 +948,19 @@ ssize_t posix_sendmsg(int sockfd, const struct msghdr *msg, int flags)
 
     /// \todo check address
 
-    FileDescriptor *f = getDescriptor(sockfd);
+    DescriptorLease f;
+    acquireDescriptor(sockfd, f);
     if (!isSaneSocket(f))
     {
         return -1;
     }
 
+    Thread *thread = beginInterruptibleSocketCall();
     ssize_t n = f->networkImpl->sendto_msg(msg);
+    if (!finishInterruptibleSocketCall(thread, n))
+    {
+        return -1;
+    }
     N_NOTICE(" -> " << n);
     return n;
 }
@@ -889,20 +971,25 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr *msg, int flags)
 
     /// \todo check address
 
-    FileDescriptor *f = getDescriptor(sockfd);
+    DescriptorLease f;
+    acquireDescriptor(sockfd, f);
     if (!isSaneSocket(f))
     {
         return -1;
     }
 
+    Thread *thread = beginInterruptibleSocketCall();
     ssize_t n = f->networkImpl->recvfrom_msg(msg);
+    if (!finishInterruptibleSocketCall(thread, n))
+    {
+        return -1;
+    }
     N_NOTICE(" -> " << n);
     return n;
 }
 
 NetworkSyscalls::NetworkSyscalls(int domain, int type, int protocol)
-    : m_Domain(domain), m_Type(type), m_Protocol(protocol), m_Blocking(true),
-    m_Fd(nullptr)
+    : m_Domain(domain), m_Type(type), m_Protocol(protocol), m_Blocking(true)
 {
 }
 
@@ -1000,7 +1087,6 @@ bool NetworkSyscalls::unmonitor(Event *pEvent)
 
 void NetworkSyscalls::associate(FileDescriptor *fd)
 {
-    m_Fd = fd;
     m_Blocking = !fd || !(fd->flflags & O_NONBLOCK);
 }
 
@@ -1164,8 +1250,7 @@ int LwipSocketSyscalls::connect(
     }
 
     // set blocking status if needed
-    bool blocking =
-        !((getFileDescriptor()->flflags & O_NONBLOCK) == O_NONBLOCK);
+    bool blocking = isBlocking();
     netconn_set_nonblocking(m_Socket, blocking ? 0 : 1);
 
     N_NOTICE("using socket " << m_Socket << "!");
@@ -1827,7 +1912,7 @@ void LwipSocketSyscalls::lwipToSyscallError(err_t err)
 }
 
 LwipSocketSyscalls::LwipMetadata::LwipMetadata()
-    : recv(0), send(0), error(ERR_OK), closed(false), lock(false), semaphores(),
+    : recv(0), send(0), error(ERR_OK), closed(false), lock(), semaphores(),
       offset(0), pb(nullptr), buf(nullptr)
 {
 }

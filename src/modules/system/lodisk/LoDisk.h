@@ -74,6 +74,9 @@ class EXPORTED_PUBLIC FileDisk : public Disk
     virtual uintptr_t read(uint64_t location);
     virtual void write(uint64_t location);
     virtual void align(uint64_t location);
+    virtual size_t getSize() const;
+    virtual bool pin(uint64_t location);
+    virtual void unpin(uint64_t location);
 
     /// None of our writes ever end up back on the loaded file.
     /// \todo Could it be possible to allow writes to go through to the file

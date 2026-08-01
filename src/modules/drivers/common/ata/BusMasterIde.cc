@@ -30,7 +30,7 @@
 #include "pedigree/kernel/utilities/new"
 
 BusMasterIde::BusMasterIde()
-    : m_pBase(0), m_PrdTableLock(false), m_PrdTable(0), m_LastPrdTableOffset(0),
+    : m_pBase(0), m_PrdTableLock(), m_PrdTable(0), m_LastPrdTableOffset(0),
       m_PrdTablePhys(0), m_PrdTableMemRegion("bus-master-ide"), m_bActive(false)
 {
 }
@@ -83,11 +83,27 @@ bool BusMasterIde::initialise(IoBase *pBase)
     m_pBase = pBase;
     return true;
 }
+
+bool BusMasterIde::beginTransaction()
+{
+    if (!m_pBase)
+    {
+        return false;
+    }
+
+    return m_bActive.compareAndSwap(false, true);
+}
+
 bool BusMasterIde::add(uintptr_t buffer, size_t nBytes)
 {
     // Sanity check
     if (!buffer || !nBytes || !m_pBase)
         return false;
+    if (!m_bActive)
+    {
+        ERROR("BusMasterIde::add called without transaction ownership");
+        return false;
+    }
 
     // A couple of useful things to know
     size_t prdTableEntries =
@@ -191,8 +207,11 @@ bool BusMasterIde::add(uintptr_t buffer, size_t nBytes)
 
 bool BusMasterIde::begin(bool bWrite)
 {
-    // Beginning a DMA transfer.
-    m_bActive = true;
+    if (!m_bActive)
+    {
+        ERROR("BusMasterIde::begin called without transaction ownership");
+        return false;
+    }
 
     // If no other command is running, set the PRD physical address and
     // begin the command.
@@ -214,7 +233,6 @@ bool BusMasterIde::begin(bool bWrite)
     {
         // Oops, something went wrong - no more transfer.
         WARNING("BusMaster IDE hit a bad status in begin(): " << statusReg);
-        m_bActive = false;
         return false;
     }
 
@@ -258,7 +276,10 @@ void BusMasterIde::commandComplete()
 {
     // Sanity check
     if (!m_pBase)
+    {
+        m_bActive = false;
         return;
+    }
 
     // Read the status register to dump information about the command completion
     uint8_t statusReg = m_pBase->read8(Status);
@@ -301,9 +322,20 @@ void BusMasterIde::commandComplete()
     // And ack whatever's in the status register too
     m_pBase->write8(statusReg, Status);
 
-    // Now cleared the status register - okay.
-    m_bActive = false;
-
     // This transfer is now complete.
     m_LastPrdTableOffset = 0;
+
+    // Publish idle only after every transaction-owned field is reset.
+    m_bActive = false;
+}
+
+bool BusMasterIde::completeIdleTransaction()
+{
+    if (!m_bActive.compareAndSwap(false, true))
+    {
+        return false;
+    }
+
+    commandComplete();
+    return true;
 }

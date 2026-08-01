@@ -21,56 +21,67 @@
 #include "ProcFs.h"
 
 #include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include <signal.h>
 
 ProcessGroup::~ProcessGroup()
 {
+    RecursingLockGuard<Spinlock> guard(
+        ProcessGroupManager::instance().lock());
+
     // Remove all processes in the list from this group
     for (List<PosixProcess *>::Iterator it = Members.begin();
          it != Members.end(); ++it)
     {
         if (*it)
         {
-            (*it)->setGroupMembership(PosixProcess::NoGroup);
-            (*it)->setProcessGroup(0, false);
+            if ((*it)->m_pProcessGroup == this)
+            {
+                (*it)->m_pProcessGroup = 0;
+                (*it)->m_GroupMembership = PosixProcess::NoGroup;
+            }
         }
     }
 
-    ProcessGroupManager::instance().returnGroupId(processGroupId);
+    if (registered)
+    {
+        ProcessGroupManager::instance().unregisterGroup(
+            processGroupId, this);
+    }
 
     // All have been removed, update our list accordingly
     Members.clear();
 }
 
 PosixProcess::PosixProcess()
-    : Process(), m_pSession(0), m_pProcessGroup(0), m_GroupMembership(NoGroup),
-      m_Mask(0), m_RealIntervalTimer(this, IntervalTimer::Hardware),
+    : Process(DeferredPublication()), m_pSession(0), m_pProcessGroup(0),
+      m_GroupMembership(NoGroup), m_Mask(0),
+      m_RobustListData(),
+      m_RealIntervalTimer(this, IntervalTimer::Hardware),
       m_VirtualIntervalTimer(this, IntervalTimer::Virtual),
       m_ProfileIntervalTimer(this, IntervalTimer::Profile), m_Uid(0), m_Gid(0),
-      m_Euid(0), m_Egid(0), m_Suid(0), m_Sgid(0), m_SupplementalIds()
+      m_Euid(0), m_Egid(0), m_Suid(0), m_Sgid(0), m_SupplementalIds(),
+      m_bRegistered(false)
 {
-    registerProcess();
 }
 
 /** Copy constructor. */
 PosixProcess::PosixProcess(Process *pParent, bool bCopyOnWrite)
-    : Process(pParent, bCopyOnWrite), m_pSession(0), m_pProcessGroup(0),
-      m_GroupMembership(NoGroup), m_Mask(0),
+    : Process(DeferredPublication(), pParent, bCopyOnWrite), m_pSession(0),
+      m_pProcessGroup(0), m_GroupMembership(NoGroup), m_Mask(0),
+      m_RobustListData(),
       m_RealIntervalTimer(this, IntervalTimer::Hardware),
       m_VirtualIntervalTimer(this, IntervalTimer::Virtual),
-      m_ProfileIntervalTimer(this, IntervalTimer::Profile)
+      m_ProfileIntervalTimer(this, IntervalTimer::Profile), m_Uid(0), m_Gid(0),
+      m_Euid(0), m_Egid(0), m_Suid(0), m_Sgid(0), m_SupplementalIds(),
+      m_bRegistered(false)
 {
     if (pParent->getType() == Posix)
     {
         PosixProcess *pPosixParent = static_cast<PosixProcess *>(pParent);
         m_pSession = pPosixParent->m_pSession;
-        setProcessGroup(pPosixParent->getProcessGroup());
-        if (m_pProcessGroup)
-        {
-            setGroupMembership(Member);
-        }
 
         // Child inherits parent's mask.
         m_Mask = pPosixParent->getMask();
@@ -88,30 +99,51 @@ PosixProcess::PosixProcess(Process *pParent, bool bCopyOnWrite)
     m_Suid = -1;
     m_Sgid = -1;
 
-    registerProcess();
 }
 
 PosixProcess::~PosixProcess()
 {
+    prepareForDestruction();
+    leaveProcessGroup();
     unregisterProcess();
 }
 
-void PosixProcess::setProcessGroup(
-    ProcessGroup *newGroup, bool bRemoveFromGroup)
+void PosixProcess::publish()
 {
+    // Scheduler enumeration must not observe this object until the caller has
+    // installed all child-side state and a non-runnable initial Thread.
+    Process::publish();
+    registerProcess();
+}
+
+void PosixProcess::setProcessGroup(ProcessGroup *newGroup)
+{
+    RecursingLockGuard<Spinlock> guard(
+        ProcessGroupManager::instance().lock());
+
+    ProcessGroup *oldGroup = m_pProcessGroup;
+    if (oldGroup == newGroup)
+    {
+        return;
+    }
+
     // Remove ourselves from our existing group.
-    if (m_pProcessGroup && bRemoveFromGroup)
+    if (oldGroup)
     {
         for (List<PosixProcess *>::Iterator it =
-                 m_pProcessGroup->Members.begin();
-             it != m_pProcessGroup->Members.end();)
+                 oldGroup->Members.begin();
+             it != oldGroup->Members.end();)
         {
             if ((*it) == this)
             {
-                it = m_pProcessGroup->Members.erase(it);
+                it = oldGroup->Members.erase(it);
             }
             else
                 ++it;
+        }
+        if (oldGroup->Leader == this)
+        {
+            oldGroup->Leader = 0;
         }
     }
 
@@ -119,9 +151,58 @@ void PosixProcess::setProcessGroup(
     m_pProcessGroup = newGroup;
     if (m_pProcessGroup)
     {
-        m_pProcessGroup->Members.pushBack(this);
-        ProcessGroupManager::instance().setGroupId(
-            m_pProcessGroup->processGroupId);
+        bool alreadyMember = false;
+        for (List<PosixProcess *>::Iterator it =
+                 m_pProcessGroup->Members.begin();
+             it != m_pProcessGroup->Members.end(); ++it)
+        {
+            if (*it == this)
+            {
+                alreadyMember = true;
+                break;
+            }
+        }
+        if (!alreadyMember)
+        {
+            m_pProcessGroup->Members.pushBack(this);
+        }
+        if (!m_pProcessGroup->registered)
+        {
+            ProcessGroupManager::instance().registerGroup(
+                m_pProcessGroup->processGroupId, m_pProcessGroup);
+            m_pProcessGroup->registered = true;
+        }
+    }
+
+    if (
+        oldGroup && oldGroup != m_pProcessGroup &&
+        !oldGroup->Members.count())
+    {
+        delete oldGroup;
+    }
+}
+
+void PosixProcess::inheritProcessGroup(PosixProcess *parent)
+{
+    if (!parent)
+    {
+        return;
+    }
+
+    RecursingLockGuard<Spinlock> guard(
+        ProcessGroupManager::instance().lock());
+    setProcessGroup(parent->m_pProcessGroup);
+    if (!m_pProcessGroup)
+    {
+        m_GroupMembership = NoGroup;
+    }
+    else if (parent->m_GroupMembership == Leader)
+    {
+        m_GroupMembership = Member;
+    }
+    else
+    {
+        m_GroupMembership = parent->m_GroupMembership;
     }
 }
 
@@ -130,13 +211,68 @@ ProcessGroup *PosixProcess::getProcessGroup() const
     return m_pProcessGroup;
 }
 
+bool PosixProcess::getProcessGroupId(size_t &groupId) const
+{
+    RecursingLockGuard<Spinlock> guard(
+        ProcessGroupManager::instance().lock());
+    if (!m_pProcessGroup)
+    {
+        return false;
+    }
+
+    groupId = m_pProcessGroup->processGroupId;
+    return true;
+}
+
+void PosixProcess::leaveProcessGroup()
+{
+    RecursingLockGuard<Spinlock> guard(
+        ProcessGroupManager::instance().lock());
+    ProcessGroup *group = m_pProcessGroup;
+    if (!group)
+    {
+        m_GroupMembership = NoGroup;
+        return;
+    }
+
+    for (List<PosixProcess *>::Iterator it = group->Members.begin();
+         it != group->Members.end();)
+    {
+        if (*it == this)
+        {
+            it = group->Members.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    if (group->Leader == this)
+    {
+        group->Leader = 0;
+    }
+
+    // Clear the raw back-pointer before group destruction can run.
+    m_pProcessGroup = 0;
+    m_GroupMembership = NoGroup;
+    if (!group->Members.count())
+    {
+        delete group;
+    }
+}
+
 void PosixProcess::setGroupMembership(Membership type)
 {
+    RecursingLockGuard<Spinlock> guard(
+        ProcessGroupManager::instance().lock());
     m_GroupMembership = type;
 }
 
 PosixProcess::Membership PosixProcess::getGroupMembership() const
 {
+    RecursingLockGuard<Spinlock> guard(
+        ProcessGroupManager::instance().lock());
     return m_GroupMembership;
 }
 
@@ -185,10 +321,16 @@ void PosixProcess::registerProcess()
 
     ProcFs *pProcFs = static_cast<ProcFs *>(pFs);
     pProcFs->addProcess(this);
+    m_bRegistered = true;
 }
 
 void PosixProcess::unregisterProcess()
 {
+    if (!m_bRegistered)
+    {
+        return;
+    }
+
     Filesystem *pFs = VFS::instance().lookupFilesystem(String("proc"));
     if (!pFs)
     {
@@ -197,6 +339,7 @@ void PosixProcess::unregisterProcess()
 
     ProcFs *pProcFs = static_cast<ProcFs *>(pFs);
     pProcFs->removeProcess(this);
+    m_bRegistered = false;
 }
 
 IntervalTimer &PosixProcess::getRealIntervalTimer()
@@ -224,6 +367,12 @@ void PosixProcess::reportTimesUpdated(
 void PosixProcess::processTerminated()
 {
     // Cancel all timers.
+    PosixSubsystem *subsystem =
+        static_cast<PosixSubsystem *>(getSubsystem());
+    if (subsystem)
+    {
+        subsystem->cancelAlarm();
+    }
     m_RealIntervalTimer.setIntervalAndValue(0, 0);
     m_VirtualIntervalTimer.setIntervalAndValue(0, 0);
     m_ProfileIntervalTimer.setIntervalAndValue(0, 0);
@@ -231,27 +380,31 @@ void PosixProcess::processTerminated()
 
 IntervalTimer::IntervalTimer(PosixProcess *pProcess, Mode mode)
     : m_Process(pProcess), m_Mode(mode), m_Value(0), m_Interval(0),
-      m_Lock(false), m_Armed(false)
+      m_Lock(false), m_Armed(false), m_pTimer(nullptr)
 {
     if (m_Mode == Hardware)
     {
         Timer *t = Machine::instance().getTimer();
-        if (t)
+        if (t && t->registerHandler(this))
         {
-            t->registerHandler(this);
+            m_pTimer = t;
+        }
+        else
+        {
+            ERROR("IntervalTimer could not register its hardware callback");
         }
     }
 }
 
 IntervalTimer::~IntervalTimer()
 {
-    if (m_Mode == Hardware)
+    if (m_pTimer)
     {
-        Timer *t = Machine::instance().getTimer();
-        if (t)
+        if (!m_pTimer->unregisterHandler(this))
         {
-            t->unregisterHandler(this);
+            FATAL("IntervalTimer could not drain its hardware callback");
         }
+        m_pTimer = nullptr;
     }
 }
 
@@ -405,11 +558,23 @@ void IntervalTimer::signal()
     }
 
     /// \todo sanity check that this is absolutely a PosixSubsystem
+    Scheduler::ProcessLease process;
+    if (!Scheduler::instance().acquireProcess(process, m_Process))
+    {
+        return;
+    }
     PosixSubsystem *pSubsystem =
-        static_cast<PosixSubsystem *>(m_Process->getSubsystem());
+        static_cast<PosixSubsystem *>(process->getSubsystem());
+    Process::ThreadLease target;
+    const bool targetAcquired =
+        process->acquireThread(target, static_cast<size_t>(0));
+    if (!pSubsystem || !targetAcquired)
+    {
+        return;
+    }
 
     // Don't yield in the middle of the timer handler
-    pSubsystem->sendSignal(m_Process->getThread(0), signal, false);
+    pSubsystem->sendSignal(target.get(), signal, false);
 }
 
 int64_t PosixProcess::getUserId() const

@@ -33,8 +33,10 @@
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
@@ -276,10 +278,52 @@ void Spinlock::exit(uintptr_t)
     m_Atom.compareAndSwap(false, true);
 }
 
+/**
+ * Event uses a WaitQueue as its delivery barrier even when THREADS is disabled.
+ * Native utilities only need its guard to preserve Event's lock ordering; an
+ * actual wait remains unavailable in this single-threaded configuration.
+ */
+WaitQueue::WaitQueue()
+    : m_Lock(false), m_pFirstWaiter(nullptr), m_pLastWaiter(nullptr),
+      m_WaiterCount(0)
+{
+}
+
+WaitQueue::~WaitQueue() = default;
+
+WaitQueue::Guard::Guard(WaitQueue &queue)
+    : m_Queue(&queue), m_OwnsLock(true), m_pFirstReady(nullptr),
+      m_pLastReady(nullptr)
+{
+    m_Queue->m_Lock.acquire();
+}
+
+WaitQueue::Guard::~Guard()
+{
+    release();
+}
+
+void WaitQueue::Guard::release()
+{
+    if (m_Queue && m_OwnsLock)
+    {
+        m_Queue->m_Lock.release();
+        m_OwnsLock = false;
+    }
+}
+
+size_t WaitQueue::Guard::wakeAll(
+    WakeReason reason, const Channel &channel)
+{
+    (void) reason;
+    (void) channel;
+    return 0;
+}
+
 /** ConditionVariable implementation. */
 
 ConditionVariable::ConditionVariable()
-    : m_Lock(false), m_Waiters(), m_Private(0)
+    : m_Private(0)
 {
     pthread_cond_t *cond = new pthread_cond_t;
     *cond = PTHREAD_COND_INITIALIZER;
@@ -297,20 +341,28 @@ ConditionVariable::~ConditionVariable()
     delete cond;
 }
 
-ConditionVariable::WaitResult ConditionVariable::wait(Mutex &mutex)
+TerminationDeferral::TerminationDeferral(bool) : m_pThread(nullptr)
 {
-    Time::Timestamp zero = Time::Infinity;
-    return wait(mutex, zero);
 }
 
-ConditionVariable::WaitResult
-ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
+TerminationDeferral::~TerminationDeferral() = default;
+
+bool ConditionVariable::wait(
+    Mutex &mutex, Error &error, WaitQueue::AbandonCallback,
+    void *)
 {
+    Time::Timestamp timeout = Time::Infinity;
+    return wait(mutex, timeout, error, nullptr, nullptr);
+}
+
+bool ConditionVariable::wait(
+    Mutex &mutex, Time::Timestamp &timeout, Error &error,
+    WaitQueue::AbandonCallback, void *)
+{
+    error = NoError;
     pthread_cond_t *cond = reinterpret_cast<pthread_cond_t *>(m_Private);
     pthread_mutex_t *m =
         reinterpret_cast<pthread_mutex_t *>(mutex.getPrivate());
-
-    Error err = NoError;
 
     int r = 0;
     if (timeout == Time::Infinity)
@@ -323,6 +375,11 @@ ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_sec += timeout / Time::Multiplier::Second;
         ts.tv_nsec += timeout % Time::Multiplier::Second;
+        if (ts.tv_nsec >= static_cast<long>(Time::Multiplier::Second))
+        {
+            ++ts.tv_sec;
+            ts.tv_nsec -= Time::Multiplier::Second;
+        }
 
         r = pthread_cond_timedwait(cond, m, &ts);
 
@@ -330,29 +387,55 @@ ConditionVariable::wait(Mutex &mutex, Time::Timestamp &timeout)
         {
             // no more time remaining
             timeout = 0;
-            err = TimedOut;
+            error = TimedOut;
         }
         else
         {
             struct timespec ts2;
             clock_gettime(CLOCK_REALTIME, &ts2);
 
-            // Need to calculate the time remaining.
-            uint64_t sec = ts.tv_sec - ts2.tv_sec;
-            uint64_t nsec = ts.tv_nsec - ts2.tv_nsec;
-
-            timeout = (sec * Time::Multiplier::Second) + nsec;
+            if (
+                ts2.tv_sec > ts.tv_sec ||
+                (ts2.tv_sec == ts.tv_sec && ts2.tv_nsec >= ts.tv_nsec))
+            {
+                timeout = 0;
+            }
+            else
+            {
+                uint64_t sec = ts.tv_sec - ts2.tv_sec;
+                int64_t nsec = ts.tv_nsec - ts2.tv_nsec;
+                if (nsec < 0)
+                {
+                    --sec;
+                    nsec += Time::Multiplier::Second;
+                }
+                timeout =
+                    (sec * Time::Multiplier::Second) +
+                    static_cast<uint64_t>(nsec);
+            }
         }
     }
 
-    if (err != NoError)
+    if (error != NoError)
     {
-        return Result<bool, Error>::withError(err);
+        return false;
     }
-    else
+
+    if (r != 0)
     {
-        /// \todo should capture more error states
-        return Result<bool, Error>::withValue(r == 0);
+        error = Interrupted;
+        return false;
+    }
+
+    return true;
+}
+
+void ConditionVariable::waitForCompletion(Mutex &mutex)
+{
+    Error error = NoError;
+    while (!wait(mutex, error))
+    {
+        error = NoError;
     }
 }
 
@@ -370,7 +453,7 @@ void ConditionVariable::broadcast()
 
 /** Mutex implementation. */
 
-Mutex::Mutex(bool bLocked) : m_Private(0)
+Mutex::Mutex() : m_Private(0)
 {
     pthread_mutex_t *mutex = new pthread_mutex_t;
     *mutex = PTHREAD_MUTEX_INITIALIZER;

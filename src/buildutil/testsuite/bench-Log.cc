@@ -134,7 +134,7 @@ BENCHMARK_DEFINE_F(LogFixture, LogThroughputExistingEntry)(benchmark::State& sta
 
     while (state.KeepRunning())
     {
-        Log::instance() << entry << Flush;
+        Log::instance().addEntry(entry);
     }
 
     state.SetItemsProcessed(int64_t(state.iterations()));

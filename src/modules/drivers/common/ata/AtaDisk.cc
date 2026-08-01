@@ -20,6 +20,7 @@
 #include "AtaDisk.h"
 #include "AtaController.h"
 #include "ata-common.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/panic.h"
@@ -38,7 +39,141 @@
 // #define ATA_DEFAULT_BLOCK_SIZE 0x1000
 #define ATA_DEFAULT_BLOCK_SIZE 0x10000 * 2
 
-// Note the IrqReceived mutex is deliberately started in the locked state.
+namespace
+{
+class ScopedBusMasterTransaction
+{
+  public:
+    explicit ScopedBusMasterTransaction(BusMasterIde *busMaster)
+        : m_BusMaster(busMaster), m_OwnsTransaction(false)
+    {
+    }
+
+    ~ScopedBusMasterTransaction()
+    {
+        complete();
+    }
+
+    bool add(uintptr_t buffer, size_t bytes)
+    {
+        if (!m_BusMaster)
+        {
+            return false;
+        }
+        if (
+            !m_OwnsTransaction &&
+            !(m_OwnsTransaction = m_BusMaster->beginTransaction()))
+        {
+            return false;
+        }
+        return m_BusMaster->add(buffer, bytes);
+    }
+
+    bool begin(bool write)
+    {
+        return m_OwnsTransaction && m_BusMaster->begin(write);
+    }
+
+    void complete()
+    {
+        if (m_OwnsTransaction)
+        {
+            m_BusMaster->commandComplete();
+            m_OwnsTransaction = false;
+        }
+    }
+
+  private:
+    ScopedBusMasterTransaction(const ScopedBusMasterTransaction &) = delete;
+    ScopedBusMasterTransaction &
+    operator=(const ScopedBusMasterTransaction &) = delete;
+
+    BusMasterIde *m_BusMaster;
+    bool m_OwnsTransaction;
+};
+
+class CachePageFillGuard
+{
+  public:
+    CachePageFillGuard(
+        Cache &cache, uint64_t location, bool *insertedPages, size_t pageCount)
+        : m_Cache(cache), m_Location(location),
+          m_InsertedPages(insertedPages), m_PageCount(pageCount),
+          m_Published(false)
+    {
+    }
+
+    ~CachePageFillGuard()
+    {
+        if (m_Published)
+        {
+            return;
+        }
+
+        bool discarded = true;
+        for (size_t i = 0; i < m_PageCount; ++i)
+        {
+            if (
+                m_InsertedPages[i] &&
+                !m_Cache.discardEditing(m_Location + (i * 4096)))
+            {
+                discarded = false;
+            }
+        }
+        if (!discarded)
+        {
+            WARNING(
+                "AtaDisk could not discard every page from a failed cache "
+                "fill at "
+                << m_Location);
+        }
+    }
+
+    void publish()
+    {
+        for (size_t i = 0; i < m_PageCount; ++i)
+        {
+            if (m_InsertedPages[i])
+            {
+                m_Cache.markNoLongerEditing(m_Location + (i * 4096));
+            }
+        }
+        m_Published = true;
+    }
+
+  private:
+    CachePageFillGuard(const CachePageFillGuard &) = delete;
+    CachePageFillGuard &operator=(const CachePageFillGuard &) = delete;
+
+    Cache &m_Cache;
+    uint64_t m_Location;
+    bool *m_InsertedPages;
+    size_t m_PageCount;
+    bool m_Published;
+};
+}  // namespace
+
+AtaDisk::IrqCompletion::IrqCompletion(AtaDisk &disk)
+    : m_Disk(disk), m_Completion(0)
+{
+    LockGuard<Spinlock> guard(m_Disk.m_IrqLock);
+    if (m_Disk.m_IrqReceived)
+    {
+        FATAL("ATA command attempted to replace a live IRQ completion");
+    }
+    m_Disk.m_IrqReceived = &m_Completion;
+}
+
+AtaDisk::IrqCompletion::~IrqCompletion()
+{
+    LockGuard<Spinlock> guard(m_Disk.m_IrqLock);
+    if (m_Disk.m_IrqReceived != &m_Completion)
+    {
+        FATAL("ATA IRQ completion publication was corrupted");
+    }
+    m_Disk.m_IrqReceived = nullptr;
+}
+
 AtaDisk::AtaDisk(
     AtaController *pDev, bool isMaster, IoBase *commandRegs,
     IoBase *controlRegs, BusMasterIde *busMaster)
@@ -46,7 +181,7 @@ AtaDisk::AtaDisk(
       m_SupportsLBA48(false), m_BlockSize(ATA_DEFAULT_BLOCK_SIZE),
       m_IrqReceived(0), m_AtaDiskType(NotPacket), m_PacketSize(0),
       m_Removable(false), m_CommandRegs(commandRegs),
-      m_ControlRegs(controlRegs), m_BusMaster(busMaster), m_PrdTableLock(false),
+      m_ControlRegs(controlRegs), m_BusMaster(busMaster), m_PrdTableLock(),
       m_PrdTable(0), m_LastPrdTableOffset(0), m_PrdTablePhys(0),
       m_PrdTableMemRegion("ata-prdtable"), m_bDma(true)
 {
@@ -55,6 +190,23 @@ AtaDisk::AtaDisk(
 
 AtaDisk::~AtaDisk()
 {
+}
+
+void AtaDisk::maskInterrupts()
+{
+    if (m_ControlRegs)
+    {
+        // nIEN prevents fresh device IRQs after the controller queue drains.
+        m_ControlRegs->write8(0x02, 2);
+    }
+}
+
+void AtaDisk::stopDma()
+{
+    if (m_BusMaster)
+    {
+        m_BusMaster->commandComplete();
+    }
 }
 
 bool AtaDisk::initialise(size_t nUnit)
@@ -441,7 +593,7 @@ bool AtaDisk::initialise(size_t nUnit)
         const ScsiDisk::Inquiry *pInquiry = getInquiry();
         m_Removable = ((pInquiry->Removable & (1 << 7)) != 0);
         AtaDiskType inquiryType =
-            static_cast<AtaDiskType>(pInquiry->Peripheral);
+            static_cast<AtaDiskType>(pInquiry->Peripheral & 0x1F);
         if (inquiryType != m_AtaDiskType)
         {
             ERROR("ATAPI: IDENTIY PACKET DEVICE and SCSI INQUIRY disagree on "
@@ -490,16 +642,25 @@ bool AtaDisk::sendCommand(
 
     uint16_t *tmpPacket = new uint16_t[m_PacketSize / 2];
     PointerGuard<uint16_t> tmpGuard(tmpPacket, true);
+    if (nCommandSize > m_PacketSize)
+    {
+        ERROR(
+            "ATAPI command is " << Dec << nCommandSize
+                                << " bytes, but the device accepts only "
+                                << m_PacketSize << Hex);
+        return false;
+    }
     MemoryCopy(tmpPacket, reinterpret_cast<void *>(pCommand), nCommandSize);
-    ByteSet(tmpPacket + (nCommandSize / 2), 0, m_PacketSize - nCommandSize);
+    ByteSet(
+        reinterpret_cast<uint8_t *>(tmpPacket) + nCommandSize, 0,
+        m_PacketSize - nCommandSize);
 
     // Set nIEN as we poll in sendCommand().
     controlRegs->write8(2, 2);
 
-    // Wait for the device to finish any outstanding operations
-    ataWait(commandRegs, controlRegs);
-
-    // Select the device to transmit to
+    // Status belongs to the currently selected device. Select our target
+    // before waiting so a failed probe of the other device cannot strand us
+    // polling an absent slave forever.
     uint8_t devSelect = m_IsMaster ? 0xA0 : 0xB0;
     commandRegs->write8(devSelect, 6);
     ataWait(commandRegs, controlRegs);
@@ -511,10 +672,17 @@ bool AtaDisk::sendCommand(
         return false;
     }
 
+    ScopedBusMasterTransaction dmaTransaction(m_BusMaster);
     bool bDmaSetup = false;
     if (m_bDma && nRespBytes)
     {
-        bDmaSetup = m_BusMaster->add(pRespBuffer, nRespBytes);
+        bDmaSetup = dmaTransaction.add(pRespBuffer, nRespBytes);
+        if (bDmaSetup)
+        {
+            // Start the bus master before selecting PACKET DMA. If this fails,
+            // the command can still be issued cleanly in PIO mode.
+            bDmaSetup = dmaTransaction.begin(bWrite);
+        }
     }
 
     // PACKET command
@@ -544,12 +712,6 @@ bool AtaDisk::sendCommand(
             "ATAPI Packet command error [status=" << status.__reg_contents
                                                   << "]!");
         return false;
-    }
-
-    // If DMA is set up, begin that now, before sending the SCSI command.
-    if (m_bDma && nRespBytes && bDmaSetup)
-    {
-        bDmaSetup = m_BusMaster->begin(bWrite);
     }
 
     // Transmit the command (padded as needed)
@@ -591,91 +753,93 @@ bool AtaDisk::sendCommand(
         return !status.reg.err;
     }
 
-    while (true)
+    if (bDmaSetup)
     {
-        // Ensure we are not busy before continuing handling.
-        status = ataWait(commandRegs, controlRegs);
-        if (status.reg.err)
+        while (true)
         {
-            /// \todo What's the best way to handle this?
-            if (m_bDma && bDmaSetup)
+            status = ataWait(commandRegs, controlRegs);
+            if (status.reg.err)
             {
-                m_BusMaster->commandComplete();
                 WARNING("ATAPI: read failed during DMA data transfer");
+                return false;
             }
-            return false;
-        }
 
-        // Poll for completion.
-        if (m_bDma && bDmaSetup)
-        {
             if (m_BusMaster->hasInterrupt() || m_BusMaster->hasCompleted())
             {
                 // commandComplete effectively resets the device state, so we
                 // need to get the error register first.
                 bool bError = m_BusMaster->hasError();
-                m_BusMaster->commandComplete();
+                dmaTransaction.complete();
                 if (bError)
                     return false;
                 else
                     break;
             }
         }
-        else
+
+        status = ataWait(commandRegs, controlRegs);
+        if (status.reg.err)
         {
-            break;
+            WARNING("ATAPI sendCommand failed after sending command packet");
+            logAtaStatus(status);
+            return false;
         }
-    }
 
-    status = ataWait(commandRegs, controlRegs);
-    if (status.reg.err)
-    {
-        WARNING("ATAPI sendCommand failed after sending command packet");
-        logAtaStatus(status);
-        return false;
-    }
-
-    // Check for DRQ, if not set, there's nothing to read
-    if (!status.reg.drq)
         return true;
-
-    // Read in the data, if we need to
-    if (!m_bDma && !bDmaSetup)
-    {
-        size_t realSz = commandRegs->read8(4) | (commandRegs->read8(5) << 8);
-        uint16_t *dest = reinterpret_cast<uint16_t *>(pRespBuffer);
-        if (nRespBytes)
-        {
-            size_t sizeToRead =
-                ((realSz > nRespBytes) ? nRespBytes : realSz) / 2;
-            for (size_t i = 0; i < sizeToRead; i++)
-            {
-                if (bWrite)
-                    commandRegs->write16(dest[i], 0);
-                else
-                    dest[i] = commandRegs->read16(0);
-            }
-        }
-
-        // Discard unread data (or write pretend data)
-        if (realSz > nRespBytes)
-        {
-            NOTICE(
-                "sendCommand has to read beyond provided buffer ["
-                << realSz << " is bigger than " << nRespBytes << "]");
-            for (size_t i = nRespBytes; i < realSz; i += 2)
-            {
-                if (bWrite)
-                    commandRegs->write16(0xFFFF, 0);
-                else
-                    commandRegs->read16(0);
-            }
-        }
     }
 
-    // Complete
-    uint8_t endStatus = commandRegs->read8(7);
-    return (!(endStatus & 0x01));
+    // ATAPI PIO may split a response into multiple DRQ phases. This commonly
+    // happens for CD reads, where each phase is limited to one native sector.
+    size_t transferred = 0;
+    while (true)
+    {
+        status = ataWait(commandRegs, controlRegs);
+        if (status.reg.err)
+        {
+            WARNING("ATAPI PIO command failed during a data phase");
+            logAtaStatus(status);
+            return false;
+        }
+        if (!status.reg.drq)
+        {
+            return true;
+        }
+
+        size_t realSz = commandRegs->read8(4) | (commandRegs->read8(5) << 8);
+        if (!realSz)
+        {
+            ERROR("ATAPI PIO data phase reported a zero byte count");
+            return false;
+        }
+        if (realSz & 1)
+        {
+            ERROR("ATAPI PIO data phase reported an odd byte count");
+            return false;
+        }
+
+        const size_t remaining =
+            transferred < nRespBytes ? nRespBytes - transferred : 0;
+        const size_t transferSz = realSz < remaining ? realSz : remaining;
+        uint16_t *dest =
+            reinterpret_cast<uint16_t *>(pRespBuffer + transferred);
+        for (size_t i = 0; i < (transferSz / 2); ++i)
+        {
+            if (bWrite)
+                commandRegs->write16(dest[i], 0);
+            else
+                dest[i] = commandRegs->read16(0);
+        }
+
+        // Finish the device's phase even if its response exceeds our buffer.
+        for (size_t i = transferSz; i < realSz; i += 2)
+        {
+            if (bWrite)
+                commandRegs->write16(0xFFFF, 0);
+            else
+                commandRegs->read16(0);
+        }
+        transferred += transferSz;
+    }
 }
 
 uint64_t AtaDisk::doRead(uint64_t location)
@@ -687,14 +851,24 @@ uint64_t AtaDisk::doRead(uint64_t location)
     static char alreadyRead[4096] ALIGN(4096);
 
     // Create our set of buffers to read into.
-    size_t nBytes = getBlockSize();
-    location &= ~(nBytes - 1);  // Align location to block size.
+    size_t nBytes = getCacheFillLength(location);
+    if (!nBytes)
+    {
+        return 0;
+    }
+    const uint64_t cacheLocation = location;
+    uint64_t ioLocation = location;
 
     // Allocate list of buffers, allowing us to handle cache pages being widely
     // distributed around the virtual address space.
     size_t nBuffers = nBytes / 0x1000;  /// \todo getPageSize() here
     Buffer *buffers = new Buffer[nBuffers];
     PointerGuard<Buffer> guard2(buffers, true);
+    bool *insertedPages = new bool[nBuffers];
+    PointerGuard<bool> insertedPagesGuard(insertedPages, true);
+    ByteSet(insertedPages, 0, nBuffers * sizeof(bool));
+    CachePageFillGuard fillGuard(
+        getCache(), cacheLocation, insertedPages, nBuffers);
 
     bool bAlreadyAllRead = true;
     for (size_t i = 0; i < nBuffers; ++i)
@@ -709,11 +883,24 @@ uint64_t AtaDisk::doRead(uint64_t location)
         }
         else
         {
-            buffer = getCache().insert(location + buffers[i].offset);
+            bool didExist = false;
+            buffer = getCache().insert(
+                location + buffers[i].offset, &didExist);
             if (!buffer)
+            {
                 FATAL("AtaDisk::doRead - couldn't get a buffer!");
+                return 0;
+            }
 
-            bAlreadyAllRead = false;
+            if (didExist)
+            {
+                buffer = reinterpret_cast<uintptr_t>(alreadyRead);
+            }
+            else
+            {
+                insertedPages[i] = true;
+                bAlreadyAllRead = false;
+            }
         }
 
         buffers[i].buffer = buffer;
@@ -751,6 +938,8 @@ uint64_t AtaDisk::doRead(uint64_t location)
     size_t buffersConsumed = 0;
     while (nSectors > 0)
     {
+        ScopedBusMasterTransaction dmaTransaction(m_BusMaster);
+
         // Wait for status to be ready - spin until READY bit is set.
         while (!(commandRegs->read8(7) & 0x40))
             ;
@@ -763,38 +952,36 @@ uint64_t AtaDisk::doRead(uint64_t location)
         // Buffers are 4K each, so calculate the number of buffers used for
         // this particular read.
         size_t buffersThisRead = (nSectorsToRead * 512) / 0x1000;
+        const size_t firstBuffer = buffersConsumed;
 
         bool bDmaSetup = false;
         if (m_bDma)
         {
             for (size_t i = 0; i < buffersThisRead; ++i)
             {
-                bDmaSetup = m_BusMaster->add(
-                    buffers[buffersConsumed + i].buffer, 0x1000);
+                bDmaSetup = dmaTransaction.add(
+                    buffers[firstBuffer + i].buffer, 0x1000);
                 if (!bDmaSetup)
                 {
                     ERROR("DMA setup failed!");
                     break;
                 }
             }
-
-            buffersConsumed += buffersThisRead;
         }
 
         if (m_SupportsLBA48)
-            setupLBA48(location, nSectorsToRead);
+            setupLBA48(ioLocation, nSectorsToRead);
         else
         {
-            if (location >= 0x2000000000ULL)
+            if (ioLocation >= 0x2000000000ULL)
             {
                 WARNING("Ata: Sector > 128GB requested but LBA48 addressing "
                         "not supported!");
             }
-            setupLBA28(location, nSectorsToRead);
+            setupLBA28(ioLocation, nSectorsToRead);
         }
 
-        m_IrqReceived = new Mutex(true);
-        PointerGuard<Mutex> irqGuard(&m_IrqReceived);
+        IrqCompletion irqCompletion(*this);
 
         if (getInterruptNumber() != 0xFF)
         {
@@ -809,7 +996,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
         if (m_bDma && bDmaSetup)
         {
             // Prepare DMA before we send the command.
-            bDmaSetup = m_BusMaster->begin(false);
+            bDmaSetup = dmaTransaction.begin(false);
 
             if (!m_SupportsLBA48)
             {
@@ -841,7 +1028,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
         {
             if (getInterruptNumber() != 0xFF)
             {
-                if (!m_IrqReceived->acquire(1, 10))
+                if (!irqCompletion->acquireForCompletion(1, 10))
                 {
                     // Timeout.
                     ERROR("ATA: timeout during data transfer");
@@ -856,7 +1043,6 @@ uint64_t AtaDisk::doRead(uint64_t location)
                 /// \todo What's the best way to handle this?
                 if (m_bDma && bDmaSetup)
                 {
-                    m_BusMaster->commandComplete();
                     WARNING("ATA: read failed during DMA data transfer");
                 }
                 return false;
@@ -869,7 +1055,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
                     // commandComplete effectively resets the device state, so
                     // we need to get the error register first.
                     bool bError = m_BusMaster->hasError();
-                    m_BusMaster->commandComplete();
+                    dmaTransaction.complete();
                     if (bError)
                     {
                         return 0;
@@ -886,9 +1072,9 @@ uint64_t AtaDisk::doRead(uint64_t location)
             }
         }
 
-        if (!m_bDma && !bDmaSetup)
+        if (!bDmaSetup)
         {
-            size_t byteOffset = buffersConsumed * 0x1000;
+            size_t byteOffset = firstBuffer * 0x1000;
             for (int i = 0; i < nSectorsToRead; i++)
             {
                 // Wait until !BUSY
@@ -917,22 +1103,13 @@ uint64_t AtaDisk::doRead(uint64_t location)
             }
         }
 
-        location += nSectorsToRead * 512;
+        buffersConsumed += buffersThisRead;
+        ioLocation += nSectorsToRead * 512;
     }
 
     assert(buffersConsumed == nBuffers);
 
-    // Update Cache - we're done reading.
-    for (size_t i = 0; i < nBuffers; ++i)
-    {
-        if (buffers[i].buffer == reinterpret_cast<uintptr_t>(alreadyRead))
-        {
-            continue;
-        }
-
-        getCache().markNoLongerEditing(location + buffers[i].offset);
-    }
-
+    fillGuard.publish();
     return nBytes;
 }
 
@@ -1006,6 +1183,8 @@ uint64_t AtaDisk::doWrite(uint64_t location)
 
     while (nSectors > 0)
     {
+        ScopedBusMasterTransaction dmaTransaction(m_BusMaster);
+
         // Wait for status to be ready - spin until READY bit is set.
         while (!(commandRegs->read8(7) & 0x40))
             ;
@@ -1018,7 +1197,8 @@ uint64_t AtaDisk::doWrite(uint64_t location)
         bool bDmaSetup = false;
         if (m_bDma)
         {
-            bDmaSetup = m_BusMaster->add(buffer, nSectorsToWrite * 512);
+            bDmaSetup =
+                dmaTransaction.add(buffer, nSectorsToWrite * 512);
         }
 
         if (m_SupportsLBA48)
@@ -1036,10 +1216,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
         // Enable IRQs so we can avoid spinning if possible.
         controlRegs->write8(0, 2);
 
-        if (m_IrqReceived)
-            WARNING("ATA: IRQ mutex already existed");
-        m_IrqReceived = new Mutex(true);
-        PointerGuard<Mutex> guardReceivedMutex(&m_IrqReceived);
+        IrqCompletion irqCompletion(*this);
 
         bool oldInterrupts = Processor::getInterrupts();
         if (!oldInterrupts)
@@ -1048,7 +1225,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
         if (m_bDma && bDmaSetup)
         {
             // Start DMA before we send the command.
-            bDmaSetup = m_BusMaster->begin(true);
+            bDmaSetup = dmaTransaction.begin(true);
 
             if (!m_SupportsLBA48)
             {
@@ -1081,9 +1258,13 @@ uint64_t AtaDisk::doWrite(uint64_t location)
             if (getInterruptNumber() != 0xFF)
             {
                 // 10 second timeout.
-                if (!m_IrqReceived->acquire(1, 10))
+                if (!irqCompletion->acquireForCompletion(1, 10))
                 {
                     WARNING("ATA: failed to get IRQ");
+                    if (bDmaSetup)
+                    {
+                        return 0;
+                    }
                 }
             }
 
@@ -1094,8 +1275,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
                 /// \todo What's the best way to handle this?
                 if (m_bDma && bDmaSetup)
                 {
-                    m_BusMaster->commandComplete();
-                    WARNING("ATA: read failed during DMA data transfer");
+                    WARNING("ATA: write failed during DMA data transfer");
                 }
                 return false;
             }
@@ -1107,7 +1287,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
                     // commandComplete effectively resets the device state, so
                     // we need to get the error register first.
                     bool bError = m_BusMaster->hasError();
-                    m_BusMaster->commandComplete();
+                    dmaTransaction.complete();
                     if (bError)
                         return 0;
                     else
@@ -1118,7 +1298,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
                 break;
         }
 
-        if (!m_bDma && !bDmaSetup)
+        if (!bDmaSetup)
         {
             for (int i = 0; i < nSectorsToWrite; i++)
             {
@@ -1147,8 +1327,11 @@ uint64_t AtaDisk::doWrite(uint64_t location)
 
 void AtaDisk::irqReceived()
 {
+    LockGuard<Spinlock> guard(m_IrqLock);
     if (m_IrqReceived)
+    {
         m_IrqReceived->release();
+    }
 }
 
 void AtaDisk::setupLBA28(uint64_t n, uint32_t nSectors)
@@ -1255,6 +1438,15 @@ size_t AtaDisk::getBlockSize() const
     if (m_AtaDiskType != NotPacket)
     {
         return ScsiDisk::getBlockSize();
+    }
+    return m_BlockSize;
+}
+
+size_t AtaDisk::getCacheFillSize() const
+{
+    if (m_AtaDiskType != NotPacket)
+    {
+        return ScsiDisk::getCacheFillSize();
     }
     return m_BlockSize;
 }

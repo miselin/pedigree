@@ -45,7 +45,7 @@ class UsbHubDevice : public UsbDevice, public UsbHub
         uintptr_t pTransaction, bool bToggle, UsbPid pid, uintptr_t pBuffer,
         size_t nBytes);
     virtual uintptr_t createTransaction(UsbEndpoint endpointInfo);
-    virtual void doAsync(
+    MUST_USE_RESULT virtual bool doAsync(
         uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t) = 0,
         uintptr_t pParam = 0);
     virtual void addInterruptInHandler(
@@ -53,6 +53,11 @@ class UsbHubDevice : public UsbDevice, public UsbHub
         void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
 
     virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
+
+  protected:
+    virtual void cancelAsyncAndDrain(
+        uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
+        uintptr_t pParam);
 
   private:
     enum HubFeatureSelectors

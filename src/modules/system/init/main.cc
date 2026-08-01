@@ -193,8 +193,14 @@ static bool init()
     pSubsystem->addFileDescriptor(0, stdinDescriptor);
     pSubsystem->addFileDescriptor(1, stdoutDescriptor);
 
-    g_pStage2Thread = new Thread(pProcess, init_stage2, 0);
+    g_pStage2Thread =
+        new Thread(pProcess, init_stage2, 0, 0, false, false, true);
     g_pStage2Thread->setName("init");
+    pProcess->publish();
+    if (!g_pStage2Thread->start())
+    {
+        FATAL("init: delayed initial thread could not be started.");
+    }
 
     // wait for the other process to start before we move on with startup
     g_pStage2Thread->join();

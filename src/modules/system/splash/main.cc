@@ -69,7 +69,7 @@ static bool g_LogMode = false;
 
 static bool g_NoGraphics = false;
 
-static Mutex g_PrintLock(false);
+static Mutex g_PrintLock;
 
 static void printChar(char c, size_t x, size_t y)
 {
@@ -271,15 +271,13 @@ static void keyCallback(InputManager::InputNotification &note)
 
 static void progress(const char *text)
 {
-    LockGuard<Mutex> guard(g_PrintLock);
-
-    // Calculate percentage.
-    if (g_BootProgressTotal == 0)
-        return;
-
-    bool bFinished = false;
-    if ((g_BootProgressCurrent + 1) >= g_BootProgressTotal)
+    const bool bFinished =
+        g_BootProgressTotal &&
+        ((g_BootProgressCurrent + 1) >= g_BootProgressTotal);
+    if (bFinished)
     {
+        // Callback removal can wait for an invocation which needs
+        // g_PrintLock, so it must happen before this function takes that lock.
         Log::instance().removeCallback(&g_StreamLogger);
 
         EMIT_IF(DEBUGGER)
@@ -289,9 +287,13 @@ static void progress(const char *text)
                 InputManager::instance().removeCallback(keyCallback);
             }
         }
-
-        bFinished = true;
     }
+
+    LockGuard<Mutex> guard(g_PrintLock);
+
+    // Calculate percentage.
+    if (g_BootProgressTotal == 0)
+        return;
 
     if (g_LogMode && (g_LogH == g_Height))
         return;
@@ -697,8 +699,6 @@ static bool init()
 
 static void destroy()
 {
-    LockGuard<Mutex> guard(g_PrintLock);
-
     Log::instance().removeCallback(&g_StreamLogger);
 
     EMIT_IF(DEBUGGER)
@@ -708,6 +708,8 @@ static void destroy()
             InputManager::instance().removeCallback(keyCallback);
         }
     }
+
+    LockGuard<Mutex> guard(g_PrintLock);
 
     g_BootProgressUpdate = 0;
 }

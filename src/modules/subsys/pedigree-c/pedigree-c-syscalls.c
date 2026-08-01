@@ -47,7 +47,7 @@ EXPORTED_PUBLIC void pedigree_input_remove_callback(void *p);
 
 EXPORTED_PUBLIC void pedigree_input_inhibit_events(int inhibit);
 
-EXPORTED_PUBLIC void pedigree_event_return(void);
+EXPORTED_PUBLIC int pedigree_event_return(void);
 
 EXPORTED_PUBLIC void pedigree_module_load(char *file);
 
@@ -176,9 +176,9 @@ void pedigree_input_inhibit_events(int inhibit)
     syscall1(PEDIGREE_INPUT_INHIBIT_EVENTS, inhibit);
 }
 
-void pedigree_event_return()
+int pedigree_event_return()
 {
-    syscall0(PEDIGREE_EVENT_RETURN);
+    return (int) syscall0(PEDIGREE_EVENT_RETURN);
 }
 
 void pedigree_module_load(char *file)

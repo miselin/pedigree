@@ -76,8 +76,15 @@ bool Ext2Directory::addEntry(const String &filename, File *pFile, size_t type)
     Dir *pBlockEnd = 0;
     for (i = 0; i < m_Blocks.count(); i++)
     {
-        ensureBlockLoaded(i);
+        if (!ensureBlockLoaded(i))
+        {
+            return false;
+        }
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
+        if (!buffer)
+        {
+            return false;
+        }
         pLastDir = pDir;
         pDir = reinterpret_cast<Dir *>(buffer);
         pBlockEnd = adjust_pointer(pDir, m_pExt2Fs->m_BlockSize);
@@ -132,6 +139,7 @@ bool Ext2Directory::addEntry(const String &filename, File *pFile, size_t type)
         }
         if (bFound)
             break;
+        m_pExt2Fs->unpinBlock(m_Blocks[i]);
     }
 
     if (!bFound || !pDir)
@@ -155,8 +163,15 @@ bool Ext2Directory::addEntry(const String &filename, File *pFile, size_t type)
         ///       point to this new entry (as directory entries cannot cross
         ///       block boundaries).
 
-        ensureBlockLoaded(i);
+        if (!ensureBlockLoaded(i))
+        {
+            return false;
+        }
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
+        if (!buffer)
+        {
+            return false;
+        }
 
         ByteSet(reinterpret_cast<void *>(buffer), 0, m_pExt2Fs->m_BlockSize);
         pDir = reinterpret_cast<Dir *>(buffer);
@@ -204,6 +219,7 @@ bool Ext2Directory::addEntry(const String &filename, File *pFile, size_t type)
 
     // Trigger write back to disk.
     m_pExt2Fs->writeBlock(m_Blocks[i]);
+    m_pExt2Fs->unpinBlock(m_Blocks[i]);
 
     m_Size = m_nSize;
 
@@ -221,8 +237,15 @@ bool Ext2Directory::removeEntry(const String &filename, Ext2Node *pFile)
     Dir *pDir, *pLastDir = 0;
     for (i = 0; i < m_Blocks.count(); i++)
     {
-        ensureBlockLoaded(i);
+        if (!ensureBlockLoaded(i))
+        {
+            return false;
+        }
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
+        if (!buffer)
+        {
+            return false;
+        }
         pDir = reinterpret_cast<Dir *>(buffer);
         pLastDir = 0;
         while (reinterpret_cast<uintptr_t>(pDir) <
@@ -265,6 +288,7 @@ bool Ext2Directory::removeEntry(const String &filename, Ext2Node *pFile)
                 LITTLE_TO_HOST16(pDir->d_reclen));
         }
 
+        m_pExt2Fs->unpinBlock(m_Blocks[i]);
         if (bFound)
             break;
     }
@@ -299,12 +323,20 @@ void Ext2Directory::cacheDirectoryContents()
     size_t blockOffset = 0;
     for (i = 0; i < m_Blocks.count(); i++)
     {
-        ensureBlockLoaded(i);
+        if (!ensureBlockLoaded(i))
+        {
+            ERROR("Ext2: failed to resolve directory block " << i);
+            return;
+        }
 
         // Grab the block and pin it while we parse it.
         uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
+        if (!buffer)
+        {
+            ERROR("Ext2: failed to read directory block " << m_Blocks[i]);
+            return;
+        }
         uintptr_t endOfBlock = buffer + m_pExt2Fs->m_BlockSize;
-        assert(buffer);  /// \todo need to handle short/failed reads better
 
         // add offset in case we crossed a block boundary previously
         pDir = reinterpret_cast<Dir *>(buffer + blockOffset);
@@ -347,11 +379,25 @@ void Ext2Directory::cacheDirectoryContents()
                 char *rec = new char[reclen];
                 MemoryCopy(rec, pDir, bytesThisBlock);
 
+                if ((i + 1) >= m_Blocks.count())
+                {
+                    delete[] rec;
+                    ERROR("Ext2: directory entry extends past its final block");
+                    break;
+                }
+
                 uintptr_t nextBlock = m_pExt2Fs->readBlock(m_Blocks[i + 1]);
+                if (!nextBlock)
+                {
+                    delete[] rec;
+                    ERROR("Ext2: failed to read a straddled directory entry");
+                    break;
+                }
                 MemoryCopy(
                     rec + bytesThisBlock,
                     reinterpret_cast<const void *>(nextBlock),
                     reclen - bytesThisBlock);
+                m_pExt2Fs->unpinBlock(m_Blocks[i + 1]);
 
                 pDir = reinterpret_cast<Dir *>(rec);
                 dirStraddles = true;

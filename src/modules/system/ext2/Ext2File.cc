@@ -88,9 +88,9 @@ void Ext2File::writeBlock(uint64_t location, uintptr_t addr)
     Ext2Node::writeBlock(location);
 }
 
-void Ext2File::pinBlock(uint64_t location)
+bool Ext2File::pinBlock(uint64_t location)
 {
-    Ext2Node::pinBlock(location);
+    return Ext2Node::pinBlock(location);
 }
 
 void Ext2File::unpinBlock(uint64_t location)

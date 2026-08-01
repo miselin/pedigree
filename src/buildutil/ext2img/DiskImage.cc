@@ -112,12 +112,15 @@ bool DiskImage::initialise()
 
 uintptr_t DiskImage::read(uint64_t location)
 {
-    if ((location > m_nSize) || !m_pFile)
+    const uint64_t pageLocation = location & ~0xFFFULL;
+    if (
+        !m_pFile || location >= m_nSize ||
+        pageLocation >= m_nSize || (m_nSize - pageLocation) < 4096)
     {
         fprintf(
             stderr, "DiskImage::read: read past EOF (%lu vs %lu)\n", location,
             m_nSize);
-        return ~0;
+        return 0;
     }
 
     uint64_t off = location & 0xFFF;
@@ -126,7 +129,7 @@ uintptr_t DiskImage::read(uint64_t location)
     fseek(m_pFile, location, SEEK_SET);
     ssize_t x = fread(adjust_pointer(m_pBuffer, location), 4096, 1, m_pFile);
     if (!x)
-        return ~0;
+        return 0;
     return reinterpret_cast<uintptr_t>(m_pBuffer) + location + off;
 #elif HAS_ADDRESS_SANITIZER
     location &= ~0xFFF;
@@ -141,7 +144,7 @@ uintptr_t DiskImage::read(uint64_t location)
     if (p == MAP_FAILED)
     {
         fprintf(stderr, "DiskImage::read: mmap failed (%s)\n", strerror(errno));
-        return ~0;
+        return 0;
     }
 
     m_BufferMap.insert({location, p});
@@ -153,7 +156,10 @@ uintptr_t DiskImage::read(uint64_t location)
 
 void DiskImage::write(uint64_t location)
 {
-    if ((location > m_nSize) || !m_pFile)
+    const uint64_t pageLocation = location & ~0xFFFULL;
+    if (
+        !m_pFile || location >= m_nSize ||
+        pageLocation >= m_nSize || (m_nSize - pageLocation) < 4096)
     {
         return;
     }
@@ -179,8 +185,12 @@ size_t DiskImage::getSize() const
     return m_nSize;
 }
 
-void DiskImage::pin(uint64_t location)
+bool DiskImage::pin(uint64_t location)
 {
+    const uint64_t pageLocation = location & ~0xFFFULL;
+    return m_pFile && location < m_nSize &&
+           pageLocation < m_nSize &&
+           (m_nSize - pageLocation) >= 4096;
 }
 
 void DiskImage::unpin(uint64_t location)

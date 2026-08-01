@@ -28,6 +28,7 @@
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 
 #define MACHINE_FORWARD_DECL_ONLY
 #include "pedigree/kernel/machine/Machine.h"
@@ -422,32 +423,34 @@ int posix_raise(int sig, SyscallState &State)
     return 0;
 }
 
-int pedigree_sigret() NORETURN;
 int pedigree_sigret()
 {
     SG_NOTICE("pedigree_sigret");
 
-    Thread *pThread = Processor::information().getCurrentThread();
-
-    // Return to the old code
-    Processor::information().getScheduler().eventHandlerReturned();
-
-    FATAL("eventHandlerReturned() returned!");
+    if (!SyscallManager::instance().requestEventReturn())
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    return 0;
 }
 
-void pedigree_unwind_signal()
+int pedigree_unwind_signal()
 {
     SG_NOTICE("pedigree_unwind_signal");
 
-    // Pop a state from the thread, but don't jump to it.
-    Thread *pThread = Processor::information().getCurrentThread();
-    pThread->popState();
+    if (!SyscallManager::instance().requestEventStatePop())
+    {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    return 0;
 }
 
 static int doThreadKill(Thread *p, int sig)
 {
     // Are we allowed to do this?
-    if (p->getStatus() == Thread::Suspended)
+    if (p->getParent()->isSuspended())
     {
         if (!(sig == SIGKILL || sig == SIGCONT))
         {
@@ -456,9 +459,6 @@ static int doThreadKill(Thread *p, int sig)
             return -1;
         }
     }
-
-    Process *pThisProcess =
-        Processor::information().getCurrentThread()->getParent();
 
     // Build the pending signal and pass it in
     PosixSubsystem *pSubsystem =
@@ -478,15 +478,8 @@ static int doThreadKill(Thread *p, int sig)
             delete signalEvent;
         }
 
-        // Don't schedule to the process if that process is us.
-        if (p->getParent() != pThisProcess)
-        {
-            // Switch to that context in order to handle the event
-            bool bWasInterrupts = Processor::getInterrupts();
-            Processor::setInterrupts(false);
-            Processor::information().getScheduler().schedule(Thread::Ready, p);
-            Processor::setInterrupts(bWasInterrupts);
-        }
+        // sendEvent() wakes an active WaitQueue atomically. No scheduler status
+        // transition is needed here, including for a stopped process.
     }
 
     return 0;
@@ -494,19 +487,24 @@ static int doThreadKill(Thread *p, int sig)
 
 static int doProcessKill(Process *p, int sig)
 {
-    return doThreadKill(p->getThread(0), sig);
+    Process::ThreadLease target;
+    return p->acquireThread(target, static_cast<size_t>(0))
+               ? doThreadKill(target.get(), sig)
+               : -1;
 }
 
 int posix_kill(int pid, int sig)
 {
     SG_NOTICE("kill(" << pid << ", " << sig << ")");
 
-    List<Process *> processList;
+    List<size_t> processList;
 
     // Metadata about the calling process.
     PosixProcess *pThisProcess = static_cast<PosixProcess *>(
         Processor::information().getCurrentThread()->getParent());
-    ProcessGroup *pThisGroup = pThisProcess->getProcessGroup();
+    size_t thisGroupId = 0;
+    const bool thisHasGroup =
+        pThisProcess->getProcessGroupId(thisGroupId);
 
     bool bKillingSelf = false;
 
@@ -514,9 +512,20 @@ int posix_kill(int pid, int sig)
     size_t i = 0;
     for (; i < Scheduler::instance().getNumProcesses(); ++i)
     {
-        Process *pProcess = Scheduler::instance().getProcess(i);
+        Scheduler::ProcessLease process;
+        if (!Scheduler::instance().acquireProcess(process, i))
+        {
+            continue;
+        }
+        Process *pProcess = process.get();
+        Process::ThreadLease primaryThread;
+        if (!pProcess->acquireThread(
+                primaryThread, static_cast<size_t>(0)))
+        {
+            continue;
+        }
 
-        if (pProcess->getThread(0)->getStatus() == Thread::Zombie)
+        if (primaryThread->getStatus() == Thread::Zombie)
         {
             // Oops, process already been terminated.
             if (static_cast<int>(pProcess->getId()) == pid)
@@ -527,23 +536,20 @@ int posix_kill(int pid, int sig)
         else if ((pid <= 0) && (pProcess->getType() == Process::Posix))
         {
             PosixProcess *pPosixProcess = static_cast<PosixProcess *>(pProcess);
-            ProcessGroup *pGroup = pPosixProcess->getProcessGroup();
+            size_t groupId = 0;
+            const bool hasGroup =
+                pPosixProcess->getProcessGroupId(groupId);
             if (pid == 0)
             {
                 // Any process in the same process group as the caller.
-                if (!(pGroup && pThisGroup))
+                if (!hasGroup || !thisHasGroup)
                     continue;
-                if (pGroup->processGroupId != pThisGroup->processGroupId)
+                if (groupId != thisGroupId)
                     continue;
-
-                if (pGroup != pThisGroup)
-                {
-                    SC_NOTICE(" -> same group IDs but different groups??");
-                }
 
                 SC_NOTICE(
                     " -> killing process " << pProcess->getId() << " in group ["
-                                           << pGroup->processGroupId << "]");
+                                           << groupId << "]");
             }
             else if (pid == -1)
             {
@@ -552,7 +558,10 @@ int posix_kill(int pid, int sig)
                 if (pProcess->getParent() != pThisProcess)
                     continue;
             }
-            else if (pGroup && (pGroup->processGroupId != (pid * -1)))
+            else if (
+                !hasGroup ||
+                groupId != static_cast<size_t>(
+                               -static_cast<int64_t>(pid)))
             {
                 // Absolute group ID reference
                 continue;
@@ -569,7 +578,7 @@ int posix_kill(int pid, int sig)
         }
 
         // Okay, the process is good.
-        processList.pushBack(pProcess);
+        processList.pushBack(pProcess->getId());
     }
 
     // No process(es) found?
@@ -581,18 +590,25 @@ int posix_kill(int pid, int sig)
     }
 
     // Go ahead and kill each process.
-    for (List<Process *>::Iterator it = processList.begin();
+    for (List<size_t>::Iterator it = processList.begin();
          it != processList.end(); ++it)
     {
-        PosixProcess *member = static_cast<PosixProcess *>(*it);
-        if (member != pThisProcess)
+        if (*it != pThisProcess->getId())
         {
+            Scheduler::ProcessLease member;
+            if (
+                !Scheduler::instance().acquireProcessById(member, *it) ||
+                member->getType() != Process::Posix)
+            {
+                continue;
+            }
             SG_NOTICE(
-                " -> not killing current process, killing " << member->getId());
+                " -> not killing current process, killing "
+                    << member->getId());
             NOTICE(
                 "sending #" << Dec << member->getId() << " signal #" << sig
                             << " from #" << pThisProcess->getId());
-            doProcessKill(member, sig);
+            doProcessKill(member.get(), sig);
         }
         else
         {
@@ -709,36 +725,7 @@ size_t posix_alarm(uint32_t seconds)
         return -1;
     }
 
-    PosixSubsystem::SignalHandler *signalHandler =
-        pSubsystem->getSignalHandler(SIGALRM);
-    Event *pEvent = signalHandler->pEvent;
-
-    // We now have the Event...
-    if (seconds == 0)
-    {
-        // Cancel the previous alarm, return the time it still had to go
-        if (pEvent)
-            return Machine::instance().getTimer()->removeAlarm(pEvent, false);
-        return 0;
-    }
-    else
-    {
-        if (pEvent)
-        {
-            // Stop any previous alarm
-            size_t ret =
-                Machine::instance().getTimer()->removeAlarm(pEvent, false);
-
-            // Install the new one
-            Machine::instance().getTimer()->addAlarm(pEvent, seconds);
-
-            // Return the time the previous event still had to go
-            return ret;
-        }
-    }
-
-    // All done
-    return 0;
+    return pSubsystem->setAlarm(seconds);
 }
 
 int posix_sleep(uint32_t seconds)
@@ -746,24 +733,22 @@ int posix_sleep(uint32_t seconds)
     SG_NOTICE("sleep");
 
     uint64_t startTick = Machine::instance().getTimer()->getTickCount();
-    Time::delay(seconds * Time::Multiplier::Second);
-
-    /// \todo delay() won't stop until the time completes, but we should be
-    ///       interruptible such that we can return the time elapsed before the
-    ///       sleep() ceased.
-
-    if (Processor::information().getCurrentThread()->wasInterrupted())
+    const bool completed =
+        Time::delay(seconds * Time::Multiplier::Second);
+    Thread *thread = Processor::information().getCurrentThread();
+    if (
+        !completed &&
+        thread->getInterruptionReason() == Thread::InterruptedBySignal)
     {
-        // Note: seconds is a uint32, therefore it should be safe to cast
-        // to half the width
         uint64_t endTick = Machine::instance().getTimer()->getTickCount();
         uint64_t elapsed = endTick - startTick;
-        uint32_t elapsedSecs = static_cast<uint32_t>(elapsed / 1000) + 1;
+        uint32_t elapsedSecs = static_cast<uint32_t>(elapsed / 1000);
+        thread->clearInterruption();
 
         if (elapsedSecs >= seconds)
             return 0;
         else
-            return elapsedSecs;
+            return seconds - elapsedSecs;
     }
 
     return 0;
@@ -773,11 +758,17 @@ int posix_usleep(size_t useconds)
 {
     SG_NOTICE("usleep");
 
-    Time::delay(useconds * Time::Multiplier::Microsecond);
-
-    /// \todo delay() won't stop until the time completes, but we should be
-    ///       interruptible such that we can return the time elapsed before the
-    ///       usleep() ceased.
+    const bool completed =
+        Time::delay(useconds * Time::Multiplier::Microsecond);
+    Thread *thread = Processor::information().getCurrentThread();
+    if (
+        !completed &&
+        thread->getInterruptionReason() == Thread::InterruptedBySignal)
+    {
+        thread->clearInterruption();
+        SYSCALL_ERROR(Interrupted);
+        return -1;
+    }
 
     return 0;
 }
@@ -803,17 +794,27 @@ int posix_nanosleep(const struct timespec *rqtp, struct timespec *rmtp)
 
     Time::Timestamp ts =
         (rqtp->tv_sec * Time::Multiplier::Second) + rqtp->tv_nsec;
-    Time::delay(ts);
+    const Time::Timestamp start = Time::getTicks();
+    const bool completed = Time::delay(ts);
 
-    if (rmtp)
+    Thread *thread = Processor::information().getCurrentThread();
+    if (
+        !completed &&
+        thread->getInterruptionReason() == Thread::InterruptedBySignal)
     {
-        rmtp->tv_nsec = rqtp->tv_nsec;
-        rmtp->tv_sec = rqtp->tv_sec;
+        const Time::Timestamp elapsed = Time::getTicks() - start;
+        const Time::Timestamp remaining = elapsed < ts ? ts - elapsed : 0;
+        if (rmtp)
+        {
+            rmtp->tv_sec =
+                remaining / Time::Multiplier::Second;
+            rmtp->tv_nsec =
+                remaining % Time::Multiplier::Second;
+        }
+        thread->clearInterruption();
+        SYSCALL_ERROR(Interrupted);
+        return -1;
     }
-
-    /// \todo delay() won't stop until the time completes, but we should be
-    ///       interruptible such that we can return the time elapsed before the
-    ///       nanosleep() ceased.
 
     return 0;
 }

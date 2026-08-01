@@ -40,7 +40,7 @@
 
 Ne2k::Ne2k(Network *pDev)
     : Network(pDev), m_pBase(0), m_NextPacket(0), m_PacketQueueSize(0),
-      m_PacketQueue(), m_PacketQueueLock()
+      m_PacketQueue(), m_PacketQueueLock(), m_IrqId(0), m_ReceiveThread()
 {
     setSpecificType(String("ne2k-card"));
 
@@ -125,12 +125,13 @@ Ne2k::Ne2k(Network *pDev)
     Thread *pThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), &trampoline,
         reinterpret_cast<void *>(this));
-    pThread->detach();
+    pThread->setName("NE2K receive worker");
+    m_ReceiveThread.adopt(pThread);
 #endif
 
     // install the IRQ
     NOTICE("NE2K: IRQ is " << getInterruptNumber());
-    Machine::instance().getIrqManager()->registerIsaIrqHandler(
+    m_IrqId = Machine::instance().getIrqManager()->registerIsaIrqHandler(
         getInterruptNumber(), static_cast<IrqHandler *>(this));
 
     // clear interrupts and enable the ones we want
@@ -145,6 +146,30 @@ Ne2k::Ne2k(Network *pDev)
 
 Ne2k::~Ne2k()
 {
+    m_pBase->write8(0x00, NE_IMR);
+    if (m_IrqId &&
+        !Machine::instance().getIrqManager()->unregisterHandler(m_IrqId, this))
+    {
+        FATAL("NE2K teardown could not unregister its IRQ callback.");
+    }
+    m_IrqId = 0;
+
+    m_ReceiveThread.stop();
+    NetworkStack::instance().deRegisterDevice(this);
+
+    LockGuard<Spinlock> guard(m_PacketQueueLock);
+    while (m_PacketQueue.count())
+    {
+        packet *pending = m_PacketQueue.popFront();
+        if (pending)
+        {
+            if (pending->ptr)
+            {
+                NetworkStack::instance().getMemPool().free(pending->ptr);
+            }
+            delete pending;
+        }
+    }
 }
 
 bool Ne2k::send(size_t nBytes, uintptr_t buffer)
@@ -250,7 +275,7 @@ void Ne2k::recv()
 
         m_pBase->write8(4, NE_RSAR0);
         m_pBase->write8(m_NextPacket, NE_RSAR1);
-        m_pBase->write8((length) &0xff, NE_RBCR0);
+        m_pBase->write8((length) & 0xff, NE_RBCR0);
         m_pBase->write8((length) >> 8, NE_RBCR1);
         m_pBase->write8(0x0a, NE_CMD);
 
@@ -312,7 +337,10 @@ void Ne2k::receiveThread()
     while (true)
     {
         // handle the incoming packet
-        m_PacketQueueSize.acquire();
+        if (!m_PacketQueueSize.acquire())
+        {
+            continue;
+        }
 
         // grab from the front
         packet *p = 0;

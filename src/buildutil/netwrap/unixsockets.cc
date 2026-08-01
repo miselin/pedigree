@@ -29,8 +29,8 @@
 
 #include "modules/system/vfs/VFS.h"
 
-#include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/FileDescriptor.h"
+#include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/UnixFilesystem.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/subsys/posix/poll-syscalls.h"
@@ -39,6 +39,7 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/StaticCord.h"
 
+#include <sys/socket.h>
 #include <sys/un.h>
 
 UnixFilesystem *g_pUnixFilesystem = 0;
@@ -67,8 +68,9 @@ class StreamingStderrLogger : public Log::LogCallback
 
 static void closeSocket(int fd)
 {
-    assert(getDescriptor(fd));
-    removeDescriptor(fd);
+    DescriptorLease descriptor;
+    assert(acquireDescriptor(fd, descriptor));
+    assert(removeDescriptor(fd, descriptor));
 }
 
 int main(int argc, char **argv)
@@ -120,7 +122,8 @@ int main(int argc, char **argv)
     strcpy(sun1.sun_path, "unix»/s1");
     socklen = strlen(sun1.sun_path) + sizeof(sa_family_t);
 
-    int rc = posix_bind(s1, reinterpret_cast<const sockaddr_storage *>(&sun1), socklen);
+    int rc = posix_bind(
+        s1, reinterpret_cast<const sockaddr_storage *>(&sun1), socklen);
     if (rc != 0)
     {
         fprintf(
@@ -130,14 +133,17 @@ int main(int argc, char **argv)
     }
 
     assert(
-        posix_connect(s2, reinterpret_cast<struct sockaddr_storage *>(&sun1), socklen) == 0);
+        posix_connect(
+            s2, reinterpret_cast<struct sockaddr_storage *>(&sun1), socklen) ==
+        0);
 
     const char *msg = "hello";
 
     assert(posix_send(s2, msg, 6, 0) == 6);
     assert(
         posix_recvfrom(
-            s1, buf, 128, 0, reinterpret_cast<struct sockaddr_storage *>(&sun_misc),
+            s1, buf, 128, 0,
+            reinterpret_cast<struct sockaddr_storage *>(&sun_misc),
             &socklen_misc) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
@@ -156,7 +162,8 @@ int main(int argc, char **argv)
 
     assert(
         posix_sendto(
-            s2, msg, 6, 0, reinterpret_cast<struct sockaddr_storage *>(&sun1), socklen) == 6);
+            s2, msg, 6, 0, reinterpret_cast<struct sockaddr_storage *>(&sun1),
+            socklen) == 6);
     assert(posix_recv(s1, buf, 128, 0) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
@@ -171,7 +178,8 @@ int main(int argc, char **argv)
     strcpy(sun2.sun_path, "unix»/s2");
     socklen = strlen(sun2.sun_path) + sizeof(sa_family_t);
 
-    rc = posix_bind(s2, reinterpret_cast<const sockaddr_storage *>(&sun2), socklen);
+    rc = posix_bind(
+        s2, reinterpret_cast<const sockaddr_storage *>(&sun2), socklen);
     if (rc != 0)
     {
         fprintf(
@@ -182,17 +190,20 @@ int main(int argc, char **argv)
 
     assert(
         posix_sendto(
-            s1, msg, 6, 0, reinterpret_cast<struct sockaddr_storage *>(&sun2), socklen) == 6);
+            s1, msg, 6, 0, reinterpret_cast<struct sockaddr_storage *>(&sun2),
+            socklen) == 6);
     assert(
         posix_sendto(
-            s2, msg, 6, 0, reinterpret_cast<struct sockaddr_storage *>(&sun1), socklen) == 6);
+            s2, msg, 6, 0, reinterpret_cast<struct sockaddr_storage *>(&sun1),
+            socklen) == 6);
     assert(posix_recv(s1, buf, 128, 0) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
     socklen_misc = sizeof(sun_misc);
     assert(
         posix_recvfrom(
-            s2, buf, 128, 0, reinterpret_cast<struct sockaddr_storage *>(&sun_misc),
+            s2, buf, 128, 0,
+            reinterpret_cast<struct sockaddr_storage *>(&sun_misc),
             &socklen_misc) == 6);
     assert(!memcmp(buf, "hello", 6));
     memset(buf, 0, 128);
@@ -226,7 +237,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    rc = posix_bind(s1, reinterpret_cast<const sockaddr_storage *>(&sun1), socklen);
+    rc = posix_bind(
+        s1, reinterpret_cast<const sockaddr_storage *>(&sun1), socklen);
     if (rc != 0)
     {
         fprintf(
@@ -244,7 +256,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    rc = posix_connect(s2, reinterpret_cast<const sockaddr_storage *>(&sun1), socklen);
+    rc = posix_connect(
+        s2, reinterpret_cast<const sockaddr_storage *>(&sun1), socklen);
     if (rc != 0)
     {
         fprintf(
@@ -270,7 +283,8 @@ int main(int argc, char **argv)
     }
 
     int fd2 = posix_accept(
-        s1, reinterpret_cast<struct sockaddr_storage *>(&sun_misc), &socklen_misc);
+        s1, reinterpret_cast<struct sockaddr_storage *>(&sun_misc),
+        &socklen_misc);
     if (fd2 < 0)
     {
         fprintf(
@@ -370,8 +384,8 @@ int main(int argc, char **argv)
     errno = 0;
     assert(
         posix_sendto(
-            wrongType, msg, 6, 0,
-            reinterpret_cast<sockaddr_storage *>(&sun1), socklen) == -1);
+            wrongType, msg, 6, 0, reinterpret_cast<sockaddr_storage *>(&sun1),
+            socklen) == -1);
     assert(errno == EPROTOTYPE);
     closeSocket(wrongType);
 
@@ -407,8 +421,8 @@ int main(int argc, char **argv)
     socklen_t socketErrorLength = sizeof(socketError);
     assert(
         posix_getsockopt(
-            client, SOL_SOCKET, SO_ERROR, &socketError,
-            &socketErrorLength) == 0);
+            client, SOL_SOCKET, SO_ERROR, &socketError, &socketErrorLength) ==
+        0);
     assert(socketError == 0);
 
     peerLength = sizeof(peerAddress);
@@ -527,11 +541,9 @@ int main(int argc, char **argv)
         assert(client >= 0);
         std::atomic<int> connectResult(0);
         std::thread connectThread([&]() {
-            connectResult.store(
-                posix_connect(
-                    client,
-                    reinterpret_cast<const sockaddr_storage *>(&sun1),
-                    socklen));
+            connectResult.store(posix_connect(
+                client, reinterpret_cast<const sockaddr_storage *>(&sun1),
+                socklen));
         });
         std::thread closeThread([&]() { closeSocket(listener); });
         connectThread.join();

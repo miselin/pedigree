@@ -33,8 +33,9 @@ TEST(PedigreeConditionVariable, Timeout)
 
     Time::Timestamp timeout = 500;
 
-    ConditionVariable::WaitResult result = cond.wait(m, timeout);
+    ConditionVariable::Error error = ConditionVariable::NoError;
+    const bool result = cond.wait(m, timeout, error);
 
-    EXPECT_TRUE(result.hasError());
-    EXPECT_EQ(result.error(), ConditionVariable::TimedOut);
+    EXPECT_FALSE(result);
+    EXPECT_EQ(error, ConditionVariable::TimedOut);
 }

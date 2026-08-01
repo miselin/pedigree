@@ -19,7 +19,7 @@
 
 #include "modules/Module.h"
 
-#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Completion.h"
 
 #include "modules/system/lwip/include/lwip/init.h"
 #include "modules/system/lwip/include/lwip/tcpip.h"
@@ -27,22 +27,23 @@
 // Switch the module-specific pieces of the module over to hidden visibility
 #pragma GCC visibility push(hidden)
 
-static Mutex tcpipInitPending(false);
+static Completion tcpipInitPending;
 
 static void tcpipInitComplete(void *)
 {
-    tcpipInitPending.release();
+    tcpipInitPending.complete();
 }
 
 static bool entry()
 {
-    tcpipInitPending.acquire();
-
     // make sure the multi threaded lwIP implementation is ready to go
     /// \todo check if tcpip_init fails somehow
     tcpip_init(tcpipInitComplete, nullptr);
 
-    tcpipInitPending.acquire();
+    if (!tcpipInitPending.wait())
+    {
+        return false;
+    }
 
     return true;
 }

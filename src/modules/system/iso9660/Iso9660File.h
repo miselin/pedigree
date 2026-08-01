@@ -61,6 +61,8 @@ class Iso9660File : public File
 
   protected:
     virtual uintptr_t readBlock(uint64_t location);
+    virtual bool pinBlock(uint64_t location);
+    virtual void unpinBlock(uint64_t location);
 
     virtual size_t getBlockSize() const
     {

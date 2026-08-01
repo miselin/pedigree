@@ -24,8 +24,9 @@
 #include "ata-common.h"
 #include "modules/drivers/common/scsi/ScsiDisk.h"
 #include "pedigree/kernel/Atomic.h"
-#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -42,6 +43,26 @@ class IoBase;
 class AtaDisk : public ScsiDisk
 {
   private:
+    /**
+     * Publishes stack-owned command completion storage to the IRQ handler and
+     * withdraws it under the same non-sleeping lock before destruction.
+     */
+    class IrqCompletion
+    {
+      public:
+        explicit IrqCompletion(AtaDisk &disk);
+        ~IrqCompletion();
+
+        Semaphore *operator->()
+        {
+            return &m_Completion;
+        }
+
+      private:
+        AtaDisk &m_Disk;
+        Semaphore m_Completion;
+    };
+
     enum AtaDiskType
     {
         Block = 0x00,
@@ -84,6 +105,12 @@ class AtaDisk : public ScsiDisk
     /** Called when an IRQ is received by the controller. */
     virtual void irqReceived();
 
+    /** Masks fresh device interrupts before controller IRQ removal. */
+    void maskInterrupts();
+
+    /** Stops and acknowledges the bus-master channel after IRQ removal. */
+    void stopDma();
+
     /** Retrieve the BusMaster IDE interface for this disk. */
     virtual BusMasterIde *getBusMaster() const
     {
@@ -101,6 +128,8 @@ class AtaDisk : public ScsiDisk
         uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
 
   private:
+    virtual size_t getCacheFillSize() const;
+
     /** Sets the drive up for reading from address 'n' in LBA28 mode. */
     void setupLBA28(uint64_t n, uint32_t nSectors);
     /** Sets the drive up for reading from address 'n' in LBA48 mode. */
@@ -148,13 +177,10 @@ class AtaDisk : public ScsiDisk
     size_t m_BlockSize;
 
     /**
-     * When we wait for an IRQ, we create a Mutex and assign it here. When an
-     * IRQ fires, the mutex is released and the locked thread can continue.
-     * \todo A condvar would really be better here.
+     * A per-command completion released by the interrupt handler.
      */
-    Mutex *m_IrqReceived;
-    Mutex m_IrqLock;
-    ConditionVariable m_IrqCondition;
+    Semaphore *m_IrqReceived;
+    Spinlock m_IrqLock;
 
     /** What type of disk are we? */
     AtaDiskType m_AtaDiskType;

@@ -50,7 +50,7 @@ int posix_raise(int sig, SyscallState &State);
 int posix_kill(int pid, int sig);
 int posix_sigprocmask(
     int how, const void *set, void *oset, size_t sigsetSize, bool linuxCompat);
-void pedigree_unwind_signal();
+int pedigree_unwind_signal();
 
 int posix_sigaltstack(const stack_t *stack, stack_t *oldstack);
 

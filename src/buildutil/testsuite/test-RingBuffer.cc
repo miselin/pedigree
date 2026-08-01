@@ -30,9 +30,10 @@ TEST(PedigreeRingBuffer, ReadEmpty)
 {
     RingBuffer<char> buffer(32768);
     Time::Timestamp zero = 0;
-    RingBuffer<char>::ReadResult result = buffer.read(zero);
-    EXPECT_TRUE(result.hasError());
-    EXPECT_EQ(result.error(), RingBuffer<char>::Empty);
+    char value = 0;
+    RingBuffer<char>::Error error = RingBuffer<char>::NoError;
+    EXPECT_FALSE(buffer.read(value, zero, error));
+    EXPECT_EQ(error, RingBuffer<char>::Empty);
 }
 
 TEST(PedigreeRingBuffer, WriteRead)
@@ -48,9 +49,10 @@ TEST(PedigreeRingBuffer, WriteRead)
     EXPECT_FALSE(buffer.canWrite());
     EXPECT_TRUE(buffer.dataReady());
 
-    RingBuffer<char>::ReadResult result = buffer.read();
-    EXPECT_TRUE(result.hasValue());
-    EXPECT_EQ(result.value(), 'a');
+    char value = 0;
+    RingBuffer<char>::Error readError = RingBuffer<char>::NoError;
+    EXPECT_TRUE(buffer.read(value, readError));
+    EXPECT_EQ(value, 'a');
 
     EXPECT_TRUE(buffer.canWrite());
     EXPECT_FALSE(buffer.dataReady());
@@ -69,13 +71,35 @@ TEST(PedigreeRingBuffer, Overflow)
 
     for (size_t i = 0; i < 8; ++i)
     {
-        RingBuffer<char>::ReadResult result = buffer.read(zero);
-        EXPECT_TRUE(result.hasValue());
-        EXPECT_EQ(result.value(), '\xAB');
+        char value = 0;
+        RingBuffer<char>::Error error = RingBuffer<char>::NoError;
+        EXPECT_TRUE(buffer.read(value, zero, error));
+        EXPECT_EQ(value, '\xAB');
     }
 
-    RingBuffer<char>::ReadResult result = buffer.read(zero);
-    EXPECT_TRUE(result.hasError());
+    char value = 0;
+    RingBuffer<char>::Error error = RingBuffer<char>::NoError;
+    EXPECT_FALSE(buffer.read(value, zero, error));
+}
+
+TEST(PedigreeRingBuffer, ClosedOperations)
+{
+    RingBuffer<char> buffer(1);
+    buffer.close();
+
+    Time::Timestamp timeout = 0;
+    RingBuffer<char>::Error error = RingBuffer<char>::NoError;
+    char value = 0;
+
+    EXPECT_EQ(buffer.write('a', timeout), RingBuffer<char>::Closed);
+    EXPECT_FALSE(buffer.read(value, timeout, error));
+    EXPECT_EQ(error, RingBuffer<char>::Closed);
+
+    error = RingBuffer<char>::NoError;
+    EXPECT_FALSE(buffer.waitFor(RingBufferWait::Reading, timeout, error));
+    EXPECT_EQ(error, RingBuffer<char>::Closed);
+    EXPECT_FALSE(buffer.canWrite());
+    EXPECT_FALSE(buffer.dataReady());
 }
 
 #if 0

@@ -75,7 +75,7 @@ class Rtl8139 : public Network, public IrqHandler
     uint32_t m_RxCurr;
     uint8_t m_TxCurr;
 
-    volatile bool m_RxLock;
+    Spinlock m_RxLock;
     Spinlock m_TxLock;
 
     uint8_t *m_pRxBuffVirt;

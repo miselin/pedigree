@@ -23,6 +23,8 @@
 #include "modules/system/usb/UsbPnP.h"
 #include "pedigree/kernel/utilities/new"
 
+static UsbPnP::Registration g_Registration;
+
 static UsbDevice *hidConnected(UsbDevice *pDevice)
 {
     // We have to use VMware's second mouse interface, the first one is
@@ -36,13 +38,13 @@ static UsbDevice *hidConnected(UsbDevice *pDevice)
 
 static bool entry()
 {
-    UsbPnP::instance().registerCallback(
-        3, SubclassNone, ProtocolNone, hidConnected);
-    return true;
+    return UsbPnP::instance().registerCallback(
+        3, SubclassNone, ProtocolNone, hidConnected, g_Registration);
 }
 
 static void exit()
 {
+    g_Registration.reset();
 }
 
 MODULE_INFO("usb-hid", &entry, &exit, "hid", "usb");

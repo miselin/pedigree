@@ -29,7 +29,7 @@ LockedFile::LockedFile(File *pFile)
     : m_File(pFile), m_bLocked(false), m_LockerPid(0)
 #if THREADS
       ,
-      m_Lock(false)
+      m_Lock()
 #endif
           {};
 
@@ -37,7 +37,7 @@ LockedFile::LockedFile(LockedFile &c)
     : m_File(0), m_bLocked(false), m_LockerPid(0)
 #if THREADS
       ,
-      m_Lock(false)
+      m_Lock()
 #endif
 {
     m_File = c.m_File;

@@ -40,7 +40,7 @@ DeliveryResult deliverSynchronous(
     Subsystem::ExceptionType exception, InterruptState &state,
     uintptr_t faultAddress, uintptr_t errorCode);
 
-void sigreturn(SyscallState &state) NORETURN;
+void sigreturn(SyscallState &state);
 #endif
 }  // namespace LinuxAmd64Signal
 

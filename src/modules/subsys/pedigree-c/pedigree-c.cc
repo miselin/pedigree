@@ -23,17 +23,21 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
 
 static PedigreeCSyscallManager g_PedigreeCSyscallManager;
 
 static bool init()
 {
-    g_PedigreeCSyscallManager.initialise();
-    return true;
+    return g_PedigreeCSyscallManager.initialise();
 }
 
 static void destroy()
 {
+    if (!g_PedigreeCSyscallManager.shutdown())
+    {
+        FATAL("Pedigree-C syscall handler could not be retired safely.");
+    }
 }
 
 MODULE_INFO("pedigree-c", &init, &destroy);

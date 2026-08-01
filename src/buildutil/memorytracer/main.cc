@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iomanip>
@@ -55,15 +56,18 @@ struct CallerCountEntry
     std::shared_ptr<AllocationTraceEntry> entry;
 };
 
-/// \todo if uintptr_t == uint32_t, this will not work.
-uintptr_t extendPointer(uint32_t pointer)
+static uintptr_t extendPointer(uint32_t pointer)
 {
+#if UINTPTR_MAX > UINT32_MAX
     return static_cast<uintptr_t>(pointer) | 0xFFFFFFFF00000000ULL;
+#else
+    return pointer;
+#endif
 }
 
-uintptr_t extendPointer(uintptr_t pointer)
+static uintptr_t extendPointer(uint64_t pointer)
 {
-    return pointer;
+    return static_cast<uintptr_t>(pointer);
 }
 
 std::string symbolToName(uintptr_t function)
@@ -421,8 +425,7 @@ int main(int argc, char *argv[])
                 input_file = optarg;
                 break;
 
-            case 'm':
-            {
+            case 'm': {
                 if (!optarg)
                 {
                     maximum = INT_MAX;

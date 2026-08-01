@@ -30,6 +30,7 @@
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/state_forward.h"
@@ -42,6 +43,7 @@
 
 class Device;
 class IoBase;
+class Thread;
 
 /** Device driver for the Uhci class */
 class Uhci : public UsbHub,
@@ -138,6 +140,7 @@ class Uhci : public UsbHub,
 
             bool bIgnore;  /// Ignore this QH when iterating over the list -
                            /// don't look at any of its TDs
+            Atomic<size_t> completionState;
 
             size_t id;
         } * pMetaData;
@@ -153,7 +156,7 @@ class Uhci : public UsbHub,
         size_t nBytes);
     virtual uintptr_t createTransaction(UsbEndpoint endpointInfo);
 
-    virtual void doAsync(
+    MUST_USE_RESULT virtual bool doAsync(
         uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t) = 0,
         uintptr_t pParam = 0);
     virtual void addInterruptInHandler(
@@ -163,7 +166,7 @@ class Uhci : public UsbHub,
     /// IRQ handler
     virtual bool irq(irq_id_t number, InterruptState &state);
 
-    void doDequeue() NORETURN;
+    void doDequeue();
 
     /// Timer callback to handle port status changes
     void timer(uint64_t delta, InterruptState &state);
@@ -171,6 +174,10 @@ class Uhci : public UsbHub,
     virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
 
   protected:
+    virtual void cancelAsyncAndDrain(
+        uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
+        uintptr_t pParam);
+
     virtual uint64_t executeRequest(
         uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
         uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
@@ -208,11 +215,16 @@ class Uhci : public UsbHub,
     };
 
     IoBase *m_pBase;
+    OperationBarrier m_CallbackOperations;
+    irq_id_t m_IrqId;
+    bool m_TimerRegistered;
 
     uint8_t m_nPorts;
 
     Mutex m_Mutex;
 
+    /** Serialises transaction completion with synchronous cancellation. */
+    Spinlock m_IrqProcessingLock;
     Spinlock m_AsyncQueueListChangeLock;
 
     uint32_t *m_pFrameList;
@@ -247,6 +259,13 @@ class Uhci : public UsbHub,
 
     /// Semaphore for the dequeue list
     Semaphore m_DequeueCount;
+
+    /**
+     * Protects queue-head admission from racing controller teardown.
+     * The persistent worker is joined separately after admitted work drains.
+     */
+    OperationBarrier m_DequeueOperations;
+    Thread *m_pDequeueThread;
 
     /// The time passed since last port check
     uint64_t m_nPortCheckTicks;
