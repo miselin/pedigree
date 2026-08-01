@@ -88,8 +88,9 @@ void HostedTimer::removeAlarm(Event *pEvent)
     {
         if ((*it)->m_pEvent == pEvent)
         {
+            Alarm *alarm = *it;
             m_Alarms.erase(it);
-            delete *it;
+            delete alarm;
             return;
         }
     }
@@ -105,10 +106,11 @@ size_t HostedTimer::removeAlarm(class Event *pEvent, bool bRetZero)
     {
         if ((*it)->m_pEvent == pEvent)
         {
+            Alarm *alarm = *it;
             size_t ret = 0;
             if (!bRetZero)
             {
-                size_t alarmEndTime = (*it)->m_Time;
+                size_t alarmEndTime = alarm->m_Time;
 
                 // Is it later than the end of the alarm?
                 if (alarmEndTime < currTime)
@@ -125,7 +127,7 @@ size_t HostedTimer::removeAlarm(class Event *pEvent, bool bRetZero)
             }
 
             m_Alarms.erase(it);
-            delete *it;
+            delete alarm;
             return ret;
         }
     }

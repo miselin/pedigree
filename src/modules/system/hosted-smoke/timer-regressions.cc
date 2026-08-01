@@ -340,6 +340,50 @@ bool timerClockAndDeadline(Thread *thread)
     return passed;
 }
 
+bool timerAlarmRemovalLifetime()
+{
+    constexpr size_t AlarmBatchSize = 17;
+    constexpr size_t AlarmDelaySeconds = ~static_cast<size_t>(0);
+    Timer *timer = Machine::instance().getTimer();
+    TimerTestEvent *events[AlarmBatchSize] = {};
+    bool passed = true;
+
+    // The alarm list retains sixteen erased nodes. The seventeenth removal
+    // forces a node free, making an erase-then-dereference bug visible to ASan.
+    for (size_t i = 0; i < AlarmBatchSize; ++i)
+    {
+        events[i] = new TimerTestEvent(TimerTestEventNumber, false);
+        timer->addAlarm(events[i], AlarmDelaySeconds);
+    }
+    for (size_t i = 0; i < AlarmBatchSize; ++i)
+    {
+        timer->removeAlarm(events[i]);
+        passed &= timer->removeAlarm(events[i], false) == 0;
+        delete events[i];
+    }
+
+    for (size_t i = 0; i < AlarmBatchSize; ++i)
+    {
+        events[i] = new TimerTestEvent(TimerTestEventNumber, false);
+        timer->addAlarm(events[i], AlarmDelaySeconds);
+    }
+    for (size_t i = 0; i < AlarmBatchSize; ++i)
+    {
+        passed &= timer->removeAlarm(events[i], false) > 0;
+        passed &= timer->removeAlarm(events[i], false) == 0;
+        delete events[i];
+    }
+
+    passed &= check(
+        passed, "timer-alarm-removal-lifetime",
+        "an alarm removal overload left its alarm registered");
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS timer-alarm-removal-lifetime");
+    }
+    return passed;
+}
+
 bool timerHandlerLifetimeBarrier()
 {
     Timer *timer = Machine::instance().getTimer();
@@ -618,6 +662,7 @@ bool exactCullRetainsOwnership(Thread *thread)
 bool runHostedTimerRegressions(Thread *thread)
 {
     return timerClockAndDeadline(thread) &&
+           timerAlarmRemovalLifetime() &&
            timerHandlerLifetimeBarrier() &&
            semaphoreQueuedTimeoutCancellation(thread) &&
            relayUsesLatestDisposition(thread) &&
