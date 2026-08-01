@@ -37,6 +37,7 @@
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "PortChangeRequest.h"
 
 class Device;
 class IoBase;
@@ -187,6 +188,7 @@ class Ehci : public UsbHub,
     virtual uint64_t executeRequest(
         uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
         uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
+    void cancelRequest(const Request &request) override;
 
   private:
     enum EhciConstants
@@ -219,16 +221,29 @@ class Ehci : public UsbHub,
 
         EHCI_PORTSC_PPOW = 0x1000,  // Port Power bit
         EHCI_PORTSC_PRES = 0x100,   // Port Reset bit
+        EHCI_PORTSC_OCCH = 0x20,    // Over-current Change bit
         EHCI_PORTSC_ENCH = 0x8,     // Port Enable/Disable Change bit
         EHCI_PORTSC_EN = 0x4,       // Port Enabled bit
         EHCI_PORTSC_CSCH = 0x2,     // Port Connect Status Change bit
         EHCI_PORTSC_CONN = 0x1,     // Port Connected bit
     };
 
+    /** Keep non-interrupt PORTSC writes from acknowledging W1C changes. */
+    static uint32_t portControlValue(uint32_t value)
+    {
+        return value &
+               ~(EHCI_PORTSC_OCCH | EHCI_PORTSC_ENCH | EHCI_PORTSC_CSCH);
+    }
+
+    void modifyPortControl(
+        size_t portRegister, uint32_t clearMask, uint32_t setMask);
+
     IoBase *m_pBase;
 
     uint8_t m_nOpRegsOffset;
     uint8_t m_nPorts;
+    UsbHcd::PortChangeRequest m_PortChanges[UsbHcd::EhciRootPortCount];
+    UsbHcd::DeferredPortChanges m_DeferredPortChanges;
 
     Mutex m_Mutex;
 
@@ -268,6 +283,9 @@ class Ehci : public UsbHub,
     /** Closes and drains interrupt callbacks before controller teardown. */
     OperationBarrier m_CallbackOperations;
     irq_id_t m_IrqId;
+    bool m_InterruptHandlerRegistered;
+    /** 0=open, 1=PORTCH closed, 2=all controller IRQs closed. */
+    Atomic<size_t> m_InterruptClosure;
 
     Ehci(const Ehci &);
     void operator=(const Ehci &);

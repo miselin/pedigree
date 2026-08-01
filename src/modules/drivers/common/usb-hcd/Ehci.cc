@@ -83,10 +83,12 @@ static int threadStub(void *p);
 
 Ehci::Ehci(Device *pDev)
     : UsbHub(pDev), RequestQueue(MakeConstantString("EHCI")),
+      m_pBase(nullptr), m_nOpRegsOffset(0), m_nPorts(0),
       m_IrqProcessingLock(), m_CompletionDeliveryLock(),
       m_pCurrentQueueTail(0), m_pCurrentQueueHead(0), m_EhciMR("Ehci-MR"),
       m_DequeueCount(0), m_DequeueStopping(false), m_DequeueThread(),
-      m_CallbackOperations(), m_IrqId(0)
+      m_CallbackOperations(), m_IrqId(0),
+      m_InterruptHandlerRegistered(false), m_InterruptClosure(0)
 {
     setSpecificType(String("EHCI"));
 }
@@ -154,6 +156,11 @@ bool Ehci::initialiseController()
     // we have available to us.
     uint32_t hcsparams = m_pBase->read32(EHCI_HCSPARAMS);
     m_nPorts = hcsparams & 0xF;
+    if (!UsbHcd::validEhciRootPortCount(m_nPorts))
+    {
+        ERROR("EHCI: unsupported root-port count " << Dec << m_nPorts << Hex);
+        return false;
+    }
 #ifdef USB_VERBOSE_DEBUG
     NOTICE(
         "EHCI controller has " << Dec << m_nPorts << Hex << " physical ports.");
@@ -266,14 +273,54 @@ bool Ehci::initialiseController()
         << m_pBase->read32(m_nOpRegsOffset + EHCI_STS) << ".");
 #endif
 
+    // The queue and every port token must be live before the interrupt source
+    // can publish a port change.
+#if THREADS
+    RequestQueue::initialise();
+    if (getLifecycleState() != RequestQueue::LifecycleState::Accepting)
+    {
+        ERROR("EHCI: request queue did not enter the accepting state");
+        RequestQueue::destroy();
+        return false;
+    }
+    for (size_t i = 0; i < m_nPorts; ++i)
+    {
+        if (!m_PortChanges[i].configure(*this, 0, i))
+        {
+            ERROR("EHCI: could not configure root-port publication " << i);
+            RequestQueue::destroy();
+            return false;
+        }
+    }
+#endif
+
+    // Do not rely on reset defaults while installing the handler.
+    m_pBase->write32(0, m_nOpRegsOffset + EHCI_INTR);
+    (void) m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+
 // Install the IRQ handler
 #if X86_COMMON
     m_IrqId =
         Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
+    m_InterruptHandlerRegistered = m_IrqId != 0;
 #else
-    InterruptManager::instance().registerInterruptHandler(
-        getInterruptNumber(), this);
+    // InterruptManager pointer removal cannot drain a dispatch that already
+    // loaded this handler. Do not advertise teardown safety on that dormant
+    // platform path until it has a synchronous registration API.
+    ERROR("EHCI requires synchronous IRQ handler lifetime management");
+#if THREADS
+    RequestQueue::destroy();
 #endif
+    return false;
+#endif
+    if (!m_InterruptHandlerRegistered)
+    {
+        ERROR("EHCI: could not register interrupt handler");
+#if THREADS
+        RequestQueue::destroy();
+#endif
+        return false;
+    }
     Machine::instance().getIrqManager()->control(
         getInterruptNumber(), IrqManager::MitigationThreshold,
         7500000 / 64);  // 58 MB/s (480Mbps) in bytes/s, divided by 64 bytes
@@ -282,7 +329,7 @@ bool Ehci::initialiseController()
     // Zero the top 64 bits for addresses of EHCI data structures
     m_pBase->write32(0, m_nOpRegsOffset + EHCI_CTRLDSEG);
 
-    // Enable interrupts
+    // Enable non-port interrupts. PORTCH remains masked until the final scan.
     m_pBase->write32(0x3b, m_nOpRegsOffset + EHCI_INTR);
 
     // Write the base address of the periodic frame list - all T-bits are set to
@@ -343,9 +390,6 @@ bool Ehci::initialiseController()
     while (m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & EHCI_STS_HALTED)
         Time::delay(5 * Time::Multiplier::Millisecond);
 
-    // Set up the RequestQueue
-    initialise();
-
     m_DequeueThread.adopt(new Thread(
         Processor::information().getCurrentThread()->getParent(), threadStub,
         reinterpret_cast<void *>(this)));
@@ -370,7 +414,12 @@ bool Ehci::initialiseController()
     while (!(m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & 0x8000))
         Time::delay(5 * Time::Multiplier::Millisecond);
 
-    // Search for ports with devices and initialise them
+    // Clear the aggregate before scanning. Any edge after this flush remains
+    // pending for the live publication path when PORTCH is enabled below.
+    m_pBase->write32(EHCI_STS_PORTCH, m_nOpRegsOffset + EHCI_STS);
+    (void) m_pBase->read32(m_nOpRegsOffset + EHCI_STS);
+
+    // Search for ports with devices and initialise them.
     for (size_t i = 0; i < m_nPorts; i++)
     {
 #ifdef USB_VERBOSE_DEBUG
@@ -383,8 +432,9 @@ bool Ehci::initialiseController()
         if (!(m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + i * 4) &
               EHCI_PORTSC_PPOW))
         {
-            m_pBase->write32(
-                EHCI_PORTSC_PPOW, m_nOpRegsOffset + EHCI_PORTSC + i * 4);
+            modifyPortControl(
+                m_nOpRegsOffset + EHCI_PORTSC + i * 4, 0,
+                EHCI_PORTSC_PPOW);
             Time::delay(20 * Time::Multiplier::Millisecond);
 #ifdef USB_VERBOSE_DEBUG
             DEBUG_LOG(
@@ -395,29 +445,78 @@ bool Ehci::initialiseController()
         }
 
         // Check for an existing reset on the port and request termination
-        m_pBase->write32(
-            m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (i * 4)) &
-                ~EHCI_PORTSC_PRES,
-            m_nOpRegsOffset + EHCI_PORTSC + (i * 4));
+        modifyPortControl(
+            m_nOpRegsOffset + EHCI_PORTSC + (i * 4), EHCI_PORTSC_PRES,
+            0);
         while (m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (i * 4)) &
                EHCI_PORTSC_PRES)
             Time::delay(5 * Time::Multiplier::Millisecond);
 
+        constexpr uint32_t ChangeMask =
+            EHCI_PORTSC_CSCH | EHCI_PORTSC_ENCH | EHCI_PORTSC_OCCH;
+        const size_t portRegister =
+            m_nOpRegsOffset + EHCI_PORTSC + i * 4;
+        const uint32_t portStatus = m_pBase->read32(portRegister);
+        const uint32_t acknowledgeMask = portStatus & ChangeMask;
+        if (acknowledgeMask)
+        {
+            m_pBase->write32(
+                UsbHcd::selectiveW1cValue(
+                    portStatus, ChangeMask, acknowledgeMask),
+                portRegister);
+            (void) m_pBase->read32(portRegister);
+        }
+
         executeRequest(i);
     }
 
-    // Enable port status change interrupt and clear it from status
-    m_pBase->write32(EHCI_STS_PORTCH, m_nOpRegsOffset + EHCI_STS);
+#if THREADS
     m_pBase->write32(0x3f, m_nOpRegsOffset + EHCI_INTR);
+#else
+    // Enumerating a device can block and must never run in interrupt context.
+    m_pBase->write32(0x3b, m_nOpRegsOffset + EHCI_INTR);
+#endif
 
     return true;
 }
 
 Ehci::~Ehci()
 {
+    // Quiesce only the port producer first. Transfer completion IRQs and the
+    // dequeue worker must remain live while an active port request drains.
+    {
+        LockGuard<Spinlock> transactionGuard(m_IrqProcessingLock);
+        m_InterruptClosure = 1;
+        if (m_pBase && m_nOpRegsOffset)
+        {
+            const uint32_t interrupts =
+                m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+            m_pBase->write32(
+                interrupts & ~EHCI_STS_PORTCH,
+                m_nOpRegsOffset + EHCI_INTR);
+            (void) m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+        }
+    }
+
+    // The PORTCH mask and IRQ serialization above close and drain observe().
+    for (size_t i = 0; i < m_nPorts; ++i)
+    {
+        m_PortChanges[i].stopAfterQuiesce();
+    }
+    RequestQueue::destroy();
+
     m_CallbackOperations.close();
+    {
+        LockGuard<Spinlock> transactionGuard(m_IrqProcessingLock);
+        m_InterruptClosure = 2;
+        if (m_pBase && m_nOpRegsOffset)
+        {
+            m_pBase->write32(0, m_nOpRegsOffset + EHCI_INTR);
+            (void) m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+        }
+    }
 #if X86_COMMON
-    if (m_IrqId)
+    if (m_InterruptHandlerRegistered)
     {
         if (!Machine::instance().getIrqManager()->unregisterHandler(
                 m_IrqId, this))
@@ -427,14 +526,13 @@ Ehci::~Ehci()
                 "callback");
         }
         m_IrqId = 0;
+        m_InterruptHandlerRegistered = false;
     }
 #endif
     m_CallbackOperations.wait();
-
     m_DequeueStopping = true;
     m_DequeueCount.release();
     m_DequeueThread.stop();
-    RequestQueue::destroy();
 }
 
 static int threadStub(void *p)
@@ -601,8 +699,22 @@ void Ehci::interrupt(size_t number, InterruptState &state)
             ;
     }
 
-    // ACK the cause of the interrupt early.
-    m_pBase->write32(nStatus, m_nOpRegsOffset + EHCI_STS);
+    // Clear and flush the aggregate before scanning. A later edge will relatch
+    // PORTCH instead of being erased after its port was already scanned.
+#if THREADS
+    if (nStatus & EHCI_STS_PORTCH)
+    {
+        m_pBase->write32(EHCI_STS_PORTCH, m_nOpRegsOffset + EHCI_STS);
+        (void) m_pBase->read32(m_nOpRegsOffset + EHCI_STS);
+    }
+#endif
+
+    // ACK non-port causes early.
+    const uint32_t immediateStatus = nStatus & ~EHCI_STS_PORTCH;
+    if (immediateStatus)
+    {
+        m_pBase->write32(immediateStatus, m_nOpRegsOffset + EHCI_STS);
+    }
 
     if (nStatus & 0x16)
     {
@@ -612,22 +724,76 @@ void Ehci::interrupt(size_t number, InterruptState &state)
 #ifdef USB_VERBOSE_DEBUG
     DEBUG_LOG_NOLOCK("EHCI IRQ " << nStatus);
 #endif
+#if THREADS
     if (nStatus & EHCI_STS_PORTCH)
     {
+        constexpr uint32_t ChangeMask =
+            EHCI_PORTSC_CSCH | EHCI_PORTSC_ENCH | EHCI_PORTSC_OCCH;
         for (size_t i = 0; i < m_nPorts; i++)
         {
-            if (m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + i * 4) &
-                EHCI_PORTSC_CSCH)
+            const size_t portRegister =
+                m_nOpRegsOffset + EHCI_PORTSC + i * 4;
+            const uint32_t portStatus = m_pBase->read32(portRegister);
+            const bool ignored = m_IgnoredPorts.test(i);
+            uint32_t acknowledgeMask =
+                portStatus & (EHCI_PORTSC_ENCH | EHCI_PORTSC_OCCH);
+
+            if (portStatus & EHCI_PORTSC_CSCH)
+            {
+                if (ignored)
+                {
+                    acknowledgeMask |= EHCI_PORTSC_CSCH;
+                }
+                else
+                {
+                    const auto observation = m_PortChanges[i].observe();
+                    const bool accepted =
+                        UsbHcd::PortChangeRequest::canAcknowledge(
+                            observation.result);
+                    assert(accepted);
+                    if (!accepted)
+                    {
+                        // Queue acceptance is established before PORTCH is
+                        // enabled and is retained until after PORTCH drains.
+                        // Preserve CSC and fail closed if that invariant ever
+                        // regresses in a non-asserting build.
+                        m_InterruptClosure = 1;
+                        const uint32_t interrupts =
+                            m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+                        m_pBase->write32(
+                            interrupts & ~EHCI_STS_PORTCH,
+                            m_nOpRegsOffset + EHCI_INTR);
+                        (void) m_pBase->read32(
+                            m_nOpRegsOffset + EHCI_INTR);
+                        continue;
+                    }
+
+                    acknowledgeMask |= EHCI_PORTSC_CSCH;
+                    m_DeferredPortChanges.defer(i, observation.generation);
+                }
+            }
+
+            if (acknowledgeMask)
             {
                 m_pBase->write32(
-                    m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + i * 4),
-                    m_nOpRegsOffset + EHCI_PORTSC + i * 4);
+                    UsbHcd::selectiveW1cValue(
+                        portStatus, ChangeMask, acknowledgeMask),
+                    portRegister);
+                // Flush posted MMIO before allowing the worker to sample.
+                (void) m_pBase->read32(portRegister);
+            }
+        }
 
-                if (!m_IgnoredPorts.test(i))
-                    addAsyncRequest(0, i);
+        for (size_t i = 0; i < m_nPorts; ++i)
+        {
+            const size_t generation = m_DeferredPortChanges.release(i);
+            if (generation)
+            {
+                m_PortChanges[i].acknowledge(generation);
             }
         }
     }
+#endif
 
     // Because there's no IOC for *every* transfer, we need to handle errors
     // that occur before the last transfer. These will create an error status
@@ -1180,7 +1346,22 @@ void Ehci::cancelAsyncAndDrain(
                 Time::delay(5 * Time::Multiplier::Millisecond);
             }
         }
-        m_pBase->write32(savedInterrupts, m_nOpRegsOffset + EHCI_INTR);
+        {
+            LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+            uint32_t restoredInterrupts = savedInterrupts;
+            const size_t closure = m_InterruptClosure;
+            if (closure >= 2)
+            {
+                restoredInterrupts = 0;
+            }
+            else if (closure == 1)
+            {
+                restoredInterrupts &= ~EHCI_STS_PORTCH;
+            }
+            m_pBase->write32(
+                restoredInterrupts, m_nOpRegsOffset + EHCI_INTR);
+            (void) m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+        }
     }
 
     if (deliverCompletion)
@@ -1251,8 +1432,21 @@ void Ehci::addInterruptInHandler(
     }
 }
 
+void Ehci::modifyPortControl(
+    size_t portRegister, uint32_t clearMask, uint32_t setMask)
+{
+    LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+    uint32_t control = portControlValue(m_pBase->read32(portRegister));
+    control &= ~clearMask;
+    control |= portControlValue(setMask);
+    m_pBase->write32(control, portRegister);
+    (void) m_pBase->read32(portRegister);
+}
+
 bool Ehci::portReset(uint8_t nPort, bool bErrorResponse)
 {
+    const size_t portRegister =
+        m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4);
     int retry;
     for (retry = 0; retry < 3; retry++)
     {
@@ -1264,18 +1458,12 @@ bool Ehci::portReset(uint8_t nPort, bool bErrorResponse)
 #endif
 
         // Set the reset bit
-        m_pBase->write32(
-            m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)) |
-                EHCI_PORTSC_PRES,
-            m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4));
+        modifyPortControl(portRegister, 0, EHCI_PORTSC_PRES);
 
         Time::delay(50 * Time::Multiplier::Millisecond);
 
         // Unset the reset bit
-        m_pBase->write32(
-            m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)) &
-                ~EHCI_PORTSC_PRES,
-            m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4));
+        modifyPortControl(portRegister, EHCI_PORTSC_PRES, 0);
 
         // Wait for the reset to complete
         while (m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)) &
@@ -1304,10 +1492,7 @@ bool Ehci::portReset(uint8_t nPort, bool bErrorResponse)
                 "USB: EHCI: Port " << Dec << nPort << Hex
                                    << " seems to be not HighSpeed. Returning "
                                       "to companion controllers.");
-            m_pBase->write32(
-                m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4)) |
-                    0x2000,
-                m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4));
+            modifyPortControl(portRegister, 0, 0x2000);
         }
     }
 
@@ -1320,6 +1505,17 @@ uint64_t Ehci::executeRequest(
     uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
     uint64_t p6, uint64_t p7, uint64_t p8)
 {
+    if (p1 >= m_nPorts)
+    {
+        return 0;
+    }
+    UsbHcd::PortChangeRequest::Completion completion(
+        m_PortChanges[p1], static_cast<size_t>(p8));
+    if (!completion)
+    {
+        return 0;
+    }
+
     // See if there's any device attached on the port
     if (m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + p1 * 4) &
         EHCI_PORTSC_CONN)
@@ -1336,11 +1532,15 @@ uint64_t Ehci::executeRequest(
         DEBUG_LOG("USB: EHCI: Port " << Dec << p1 << Hex << " is disconnected");
 
         deviceDisconnected(p1);
-
-        // Clean any bits that would remain
-        m_pBase->write32(
-            m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + p1 * 4),
-            m_nOpRegsOffset + EHCI_PORTSC + p1 * 4);
     }
     return 0;
+}
+
+void Ehci::cancelRequest(const Request &request)
+{
+    if (request.p1 < m_nPorts)
+    {
+        m_PortChanges[request.p1].cancel(
+            static_cast<size_t>(request.p8));
+    }
 }
