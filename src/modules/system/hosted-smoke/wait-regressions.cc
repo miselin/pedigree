@@ -20,6 +20,7 @@
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/WaitQueue.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
 
@@ -847,15 +848,15 @@ int resumeBlockedProcess(void *parameter)
 
 struct BlockingContext
 {
-    BlockingContext()
-        : channel(this, 0x57414954), waiter(nullptr), phase(0), hookCalls(0),
+    explicit BlockingContext(Thread *waiter)
+        : channel(this, 0x57414954), waiter(waiter), phase(0), hookCalls(0),
           hookFailures(0), workerWoke(0)
     {
     }
 
     WaitQueue queue;
     WaitQueue::Channel channel;
-    Thread *waiter;
+    Thread *const waiter;
     Atomic<size_t> phase;
     Atomic<size_t> hookCalls;
     Atomic<size_t> hookFailures;
@@ -868,18 +869,21 @@ void blockingHook(
     WaitQueue *queue, Thread *thread, const WaitQueue::Channel &channel,
     size_t debugState)
 {
-    BlockingContext *context = g_BlockingContext;
+    BlockingContext *context =
+        __atomic_load_n(&g_BlockingContext, __ATOMIC_ACQUIRE);
     if (!context)
     {
         return;
     }
 
+    if (queue != &context->queue || !(channel == context->channel) ||
+        debugState != Thread::EventWait || thread != context->waiter)
+    {
+        return;
+    }
+
     context->hookCalls += 1;
-    context->waiter = thread;
-    if (
-        queue != &context->queue || !(channel == context->channel) ||
-        debugState != Thread::EventWait ||
-        !context->phase.compareAndSwap(0, 1))
+    if (!context->phase.compareAndSwap(0, 1))
     {
         context->hookFailures += 1;
     }
@@ -1427,21 +1431,21 @@ bool unlikelyLockAdmission()
 
 bool ordinaryBlockAndWake()
 {
-    BlockingContext context;
-    g_BlockingContext = &context;
+    BlockingContext context(Processor::information().getCurrentThread());
 
     Thread *waker = new Thread(
         Scheduler::instance().getKernelProcess(), blockingWaker, &context,
         nullptr, false, true);
     waker->setName("hosted wait regression waker");
 
+    __atomic_store_n(&g_BlockingContext, &context, __ATOMIC_RELEASE);
     WaitQueue::setBeforeBlockHook(blockingHook);
     auto guard = context.queue.acquire();
     const WaitQueue::WakeReason reason = guard.wait(
         context.channel, Thread::EventWait,
         reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
     WaitQueue::setBeforeBlockHook(nullptr);
-    g_BlockingContext = nullptr;
+    __atomic_store_n(&g_BlockingContext, nullptr, __ATOMIC_RELEASE);
 
     const bool joined = waker->join();
 

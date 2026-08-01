@@ -138,14 +138,18 @@ class AtomicDrainRaceHandler : public TimerHandler
 struct AtomicDrainRaceContext
 {
     explicit AtomicDrainRaceContext(Timer *timer)
-        : timer(timer), handler(*this), phase(0), pinHookCalls(0),
-          drainHookCalls(0), handlerCalls(0), selfRemovalRejected(0),
-          revivalSucceeded(0), atomicRemovalRejected(0), failures(0)
+        : timer(timer), handler(*this), removerReady(0, false),
+          beginDrain(0, false), phase(0), pinHookCalls(0), drainHookCalls(0),
+          handlerCalls(0), selfRemovalRejected(0), revivalSucceeded(0),
+          atomicRemovalRejected(0), beginDrainTimedOut(0),
+          pinTransitionTimedOut(0), drainCompletionTimedOut(0), failures(0)
     {
     }
 
     Timer *timer;
     AtomicDrainRaceHandler handler;
+    Semaphore removerReady;
+    Semaphore beginDrain;
     Atomic<size_t> phase;
     Atomic<size_t> pinHookCalls;
     Atomic<size_t> drainHookCalls;
@@ -153,6 +157,9 @@ struct AtomicDrainRaceContext
     Atomic<size_t> selfRemovalRejected;
     Atomic<size_t> revivalSucceeded;
     Atomic<size_t> atomicRemovalRejected;
+    Atomic<size_t> beginDrainTimedOut;
+    Atomic<size_t> pinTransitionTimedOut;
+    Atomic<size_t> drainCompletionTimedOut;
     Atomic<size_t> failures;
 };
 
@@ -186,6 +193,7 @@ void atomicDrainPinHook(TimerHandler *handler)
     }
 
     context->pinHookCalls += 1;
+    context->beginDrain.release();
     for (size_t i = 0;
          context->phase != static_cast<size_t>(2) && i < YieldLimit; ++i)
     {
@@ -193,6 +201,7 @@ void atomicDrainPinHook(TimerHandler *handler)
     }
     if (context->phase != static_cast<size_t>(2))
     {
+        context->pinTransitionTimedOut += 1;
         context->failures += 1;
         context->phase = 3;
     }
@@ -220,6 +229,7 @@ void atomicDrainTransitionHook(TimerHandler *handler)
     }
     if (context->phase != static_cast<size_t>(3))
     {
+        context->drainCompletionTimedOut += 1;
         context->failures += 1;
         context->phase = 3;
     }
@@ -227,13 +237,14 @@ void atomicDrainTransitionHook(TimerHandler *handler)
 
 int removeTimerAtomically(void *parameter)
 {
-    constexpr size_t YieldLimit = 10000;
     AtomicDrainRaceContext *context =
         reinterpret_cast<AtomicDrainRaceContext *>(parameter);
-    for (size_t i = 0;
-         context->phase != static_cast<size_t>(1) && i < YieldLimit; ++i)
+    context->removerReady.release();
+    if (!context->beginDrain.acquireForCompletion(1, 2))
     {
-        Scheduler::instance().yield();
+        context->beginDrainTimedOut += 1;
+        context->failures += 1;
+        return 1;
     }
     if (context->phase != static_cast<size_t>(1))
     {
@@ -981,10 +992,14 @@ bool timerAtomicDrainSelfRevival()
         &context, nullptr, false, true);
     remover->setName("hosted atomic timer-handler remover");
 
-    const bool registered = timer->registerHandler(&context.handler);
+    const bool removerWasReady =
+        context.removerReady.acquireForCompletion(1, 2);
+    const bool registered =
+        removerWasReady && timer->registerHandler(&context.handler);
     if (!registered)
     {
         context.phase = 1;
+        context.beginDrain.release();
     }
     const bool joined = remover->join();
     HostedTimer::setHandlerAtomicDrainHook(nullptr);
@@ -1005,7 +1020,19 @@ bool timerAtomicDrainSelfRevival()
         registered && timer->unregisterHandler(&context.handler);
 
     bool passed = true;
+    passed &= check(
+        removerWasReady, Test,
+        "the atomic remover did not become ready before registration");
     passed &= check(registered, Test, "the test handler could not be registered");
+    passed &= check(
+        context.beginDrainTimedOut == 0, Test,
+        "the atomic remover timed out waiting for the pin hook");
+    passed &= check(
+        context.pinTransitionTimedOut == 0, Test,
+        "the pin hook timed out waiting for the atomic drain transition");
+    passed &= check(
+        context.drainCompletionTimedOut == 0, Test,
+        "the atomic drain hook timed out waiting for callback revival");
     passed &= check(
         joined && context.failures == 0 && context.pinHookCalls == 1 &&
             context.drainHookCalls == 1,
