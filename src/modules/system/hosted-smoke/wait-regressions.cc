@@ -768,7 +768,9 @@ void joinPublicationHook(
 {
     JoinPublicationContext *context =
         __atomic_load_n(&g_JoinPublicationContext, __ATOMIC_ACQUIRE);
-    if (!context)
+    if (
+        !context || thread != context->joiner ||
+        debugState != Thread::Joining)
     {
         return;
     }
@@ -776,7 +778,6 @@ void joinPublicationHook(
     context->hookCalls += 1;
     Thread::WaitDebugInfo wait = {};
     if (
-        thread != context->joiner || debugState != Thread::Joining ||
         !thread->getWaitDebugInfo(wait) || !wait.queue || !wait.queued ||
         wait.reason != WaitQueue::WakeReason::Waiting)
     {
