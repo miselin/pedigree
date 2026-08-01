@@ -189,6 +189,10 @@ bool SyscallManager::unregisterHandler(Registration &registration)
         return false;
     }
 
+    Thread *current = Processor::information().getCurrentThread();
+    // Spinlock acquisition disables interrupts, so schedulability must be
+    // captured before taking m_HandlerLock.
+    const bool canYield = current && Processor::getInterrupts();
     TerminationDeferral terminationDeferral;
     m_HandlerLock.acquire();
     HandlerSlot &slot =
@@ -221,8 +225,7 @@ bool SyscallManager::unregisterHandler(Registration &registration)
         }
     }
 
-    Thread *current = Processor::information().getCurrentThread();
-    if (selfUnregister || !current || !Processor::getInterrupts())
+    if (selfUnregister || !canYield)
     {
         // A callback cannot drain its own admission, and waiting without a
         // schedulable thread cannot make progress. Keep the registration live
