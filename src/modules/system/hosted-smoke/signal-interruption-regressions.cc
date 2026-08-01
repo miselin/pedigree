@@ -591,10 +591,21 @@ bool ringBufferMonitorDestructor(Thread *thread)
         buffer.monitor(thread, event);
     }
 
-    event->retire();
+    // RingBuffer closure legitimately queued one final readiness event. Keep
+    // retirement pinned while removing that delivery so deletion now depends
+    // only on whether the destroyed RingBuffer released its source lease.
+    const bool closeNotified =
+        event->pendingCount() == 1 && thread->hasEvent(event);
+    {
+        Event::Retirement retirement;
+        event->beginRetirement(retirement);
+        thread->cullEvent(event);
+    }
     return check(
-        g_MonitorEventDestructions == (destructionsBefore + 1),
-        "RingBuffer destruction retained an Event registration lease");
+        closeNotified &&
+            g_MonitorEventDestructions == (destructionsBefore + 1),
+        "RingBuffer destruction retained its Event source lease after the "
+        "queued close notification drained");
 }
 
 bool delaySignalInterruption(Thread *thread)
