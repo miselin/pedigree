@@ -160,6 +160,14 @@ class EXPORTED_PUBLIC Scheduler
 
     void threadStatusChanged(Thread *pThread);
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using GenericThreadStatusHook = void (*)(Thread *thread);
+
+    /** Observes calls which still require the long-term scheduler lookup. */
+    static EXPORTED_PUBLIC void
+    setGenericThreadStatusHook(GenericThreadStatusHook hook);
+#endif
+
     Process *getKernelProcess() const
     {
         return m_pKernelProcess;

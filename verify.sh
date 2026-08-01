@@ -199,6 +199,26 @@ check_wait_api_boundaries()
     fi
 
     matches=$(rg -n \
+        'Scheduler::instance\(\)\.threadStatusChanged' \
+        src/system/kernel/core/process/WaitQueue.cc || true)
+    if [[ -n "$matches" ]]; then
+        echo "A WaitQueue wake re-entered the global scheduler registry:"
+        echo "$matches"
+        failed=1
+    fi
+
+    local generic_thread_publications
+    generic_thread_publications=$(rg -c \
+        'Scheduler::instance\(\)\.threadStatusChanged\(this\)' \
+        src/system/kernel/core/process/Thread.cc || true)
+    if [[ "$generic_thread_publications" != "2" ]]; then
+        echo "Thread has an unexpected number of global scheduler publications:"
+        rg -n 'Scheduler::instance\(\)\.threadStatusChanged' \
+            src/system/kernel/core/process/Thread.cc || true
+        failed=1
+    fi
+
+    matches=$(rg -n \
         '(\bMutex\s*\(\s*(true|false)\s*\)|\bMutex\s+[A-Za-z_][A-Za-z0-9_]*\s*\(\s*(true|false)\s*\))' \
         src --glob '*.{cc,h}' || true)
     if [[ -n "$matches" ]]; then

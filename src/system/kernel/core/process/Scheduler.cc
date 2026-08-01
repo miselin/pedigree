@@ -34,6 +34,13 @@
 
 Scheduler Scheduler::m_Instance;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+namespace
+{
+Scheduler::GenericThreadStatusHook g_GenericThreadStatusHook = nullptr;
+}
+#endif
+
 // Scheduler can be used at times where it is not yet safe to do the useful
 // "safer" Spinlock deadlock detection.
 #define SCHEDULER_HAS_SAFE_SPINLOCKS true
@@ -359,6 +366,14 @@ Process *Scheduler::getChildProcess(Process *pParent, size_t n)
 
 void Scheduler::threadStatusChanged(Thread *pThread)
 {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    GenericThreadStatusHook hook =
+        __atomic_load_n(&g_GenericThreadStatusHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(pThread);
+    }
+#endif
     m_SchedulerLock.acquire(
         SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
     PerProcessorScheduler *pSched = m_TPMap.lookup(pThread);
@@ -367,5 +382,12 @@ void Scheduler::threadStatusChanged(Thread *pThread)
 
     pSched->threadStatusChanged(pThread);
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void Scheduler::setGenericThreadStatusHook(GenericThreadStatusHook hook)
+{
+    __atomic_store_n(&g_GenericThreadStatusHook, hook, __ATOMIC_RELEASE);
+}
+#endif
 
 #endif

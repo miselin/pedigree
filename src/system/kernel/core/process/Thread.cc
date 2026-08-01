@@ -769,6 +769,7 @@ bool Thread::sendEvent(Event *pEvent)
 
     bool duplicate = false;
     bool wakeThread = false;
+    PerProcessorScheduler *readyScheduler = nullptr;
     if (eventRegistered)
     {
         // Serialise queue inspection in waitForEvent() with event publication.
@@ -797,7 +798,8 @@ bool Thread::sendEvent(Event *pEvent)
                     m_EventQueue.pushBack(pEvent);
                     wakeThread = hasDeliverableEventsUnlocked() &&
                                  interruptWaitUnlocked(
-                                     WaitQueue::WakeReason::Event);
+                                     WaitQueue::WakeReason::Event,
+                                     readyScheduler);
                 }
                 accepted = true;
             }
@@ -819,7 +821,8 @@ bool Thread::sendEvent(Event *pEvent)
     }
     else if (wakeThread)
     {
-        Scheduler::instance().threadStatusChanged(this);
+        assert(readyScheduler);
+        readyScheduler->publishReadyFromWait(this);
     }
 
     {
@@ -2666,6 +2669,7 @@ void Thread::setUnwindState(UnwindType ut)
 {
     bool becameReady = false;
     bool queuedBeforeStart = false;
+    PerProcessorScheduler *readyScheduler = nullptr;
     {
         LockGuard<Spinlock> guard(m_Lock);
         __atomic_store_n(&m_UnwindState, ut, __ATOMIC_RELEASE);
@@ -2676,11 +2680,17 @@ void Thread::setUnwindState(UnwindType ut)
             const bool terminating = ut == TerminateThread;
             becameReady = interruptWaitUnlocked(
                 terminating ? WaitQueue::WakeReason::Terminating
-                            : WaitQueue::WakeReason::Unwinding);
+                            : WaitQueue::WakeReason::Unwinding,
+                readyScheduler);
         }
     }
 
-    if (becameReady || queuedBeforeStart)
+    if (becameReady)
+    {
+        assert(readyScheduler);
+        readyScheduler->publishReadyFromWait(this);
+    }
+    else if (queuedBeforeStart)
     {
         Scheduler::instance().threadStatusChanged(this);
     }
@@ -2691,8 +2701,11 @@ Thread::UnwindType Thread::getUnwindState()
     return __atomic_load_n(&m_UnwindState, __ATOMIC_ACQUIRE);
 }
 
-bool Thread::interruptWaitUnlocked(WaitQueue::WakeReason reason)
+bool Thread::interruptWaitUnlocked(
+    WaitQueue::WakeReason reason,
+    PerProcessorScheduler *&readyScheduler)
 {
+    readyScheduler = nullptr;
     WaitQueue::Waiter &waiter = m_StateLevels[m_nStateLevel].m_Waiter;
     if (
         !waiter.loadQueue() ||
@@ -2706,6 +2719,8 @@ bool Thread::interruptWaitUnlocked(WaitQueue::WakeReason reason)
     if (m_Status == Sleeping)
     {
         m_Status = Ready;
+        readyScheduler = waiter.scheduler;
+        assert(readyScheduler);
         return true;
     }
     return false;

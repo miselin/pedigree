@@ -11,6 +11,7 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -32,6 +33,139 @@ bool check(
 
     ERROR("HOSTED-WAIT-TEST: FAIL " << test << ": " << detail);
     return false;
+}
+
+struct IrqReadyPublicationContext
+{
+    IrqReadyPublicationContext()
+        : gate(0), waiter(nullptr), armed(0), entered(0), completed(0),
+          handlerCalls(0), genericPublications(0)
+    {
+    }
+
+    Semaphore gate;
+    Thread *waiter;
+    Atomic<size_t> armed;
+    Atomic<size_t> entered;
+    Atomic<size_t> completed;
+    Atomic<size_t> handlerCalls;
+    Atomic<size_t> genericPublications;
+};
+
+IrqReadyPublicationContext *g_IrqReadyPublicationContext = nullptr;
+
+int waitForIrqReadyPublication(void *parameter)
+{
+    IrqReadyPublicationContext *context =
+        reinterpret_cast<IrqReadyPublicationContext *>(parameter);
+    context->entered += 1;
+    if (context->gate.acquireForCompletion())
+    {
+        context->completed += 1;
+    }
+    return 0;
+}
+
+class IrqReadyPublicationHandler : public IrqHandler
+{
+  public:
+    explicit IrqReadyPublicationHandler(IrqReadyPublicationContext &context)
+        : m_Context(context)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override
+    {
+        if (
+            !m_Context.armed ||
+            !m_Context.handlerCalls.compareAndSwap(0, 1))
+        {
+            return true;
+        }
+
+        m_Context.gate.release();
+        return true;
+    }
+
+  private:
+    IrqReadyPublicationContext &m_Context;
+};
+
+void observeGenericThreadStatus(Thread *thread)
+{
+    IrqReadyPublicationContext *context =
+        g_IrqReadyPublicationContext;
+    if (context && thread == context->waiter)
+    {
+        context->genericPublications += 1;
+    }
+}
+
+bool irqReadyPublication()
+{
+    constexpr const char *Test = "irq-wait-ready-publication";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    IrqReadyPublicationContext context;
+    IrqReadyPublicationHandler handler(context);
+    context.waiter = new Thread(
+        Scheduler::instance().getKernelProcess(), waitForIrqReadyPublication,
+        &context, nullptr, false, true);
+    context.waiter->setName("hosted IRQ-ready publication waiter");
+
+    constexpr size_t Attempts = 10000;
+    bool waiterBlocked = false;
+    for (size_t attempt = 0; attempt < Attempts; ++attempt)
+    {
+        Thread::WaitDebugInfo wait = {};
+        uintptr_t debugAddress = 0;
+        if (
+            context.entered == 1 &&
+            context.waiter->getWaitDebugInfo(wait) && wait.queued &&
+            context.waiter->getDebugState(debugAddress) == Thread::SemWait)
+        {
+            waiterBlocked = true;
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+
+    const irq_id_t id =
+        waiterBlocked ? manager->registerIsaIrqHandler(1, &handler) : 0;
+    g_IrqReadyPublicationContext = &context;
+    Scheduler::setGenericThreadStatusHook(observeGenericThreadStatus);
+    context.armed = 1;
+    const bool signalQueued = id && raise(SIGUSR2) == 0;
+    context.armed = 0;
+    Scheduler::setGenericThreadStatusHook(nullptr);
+    g_IrqReadyPublicationContext = nullptr;
+
+    if (!context.handlerCalls)
+    {
+        context.gate.release();
+    }
+    const bool waiterJoined = context.waiter->join();
+    const bool cleaned = id && manager->unregisterHandler(id, &handler);
+
+    bool passed = true;
+    passed &= check(
+        waiterBlocked, "the waiter did not publish its semaphore wait", Test);
+    passed &= check(id != 0, "the IRQ handler could not be registered", Test);
+    passed &= check(
+        signalQueued && context.handlerCalls == 1,
+        "the hosted IRQ did not dispatch exactly once", Test);
+    passed &= check(
+        context.genericPublications == 0,
+        "the IRQ wake entered the global scheduler registry", Test);
+    passed &= check(
+        waiterJoined && context.completed == 1,
+        "the IRQ wake did not make the waiter runnable", Test);
+    passed &= check(cleaned, "the IRQ handler could not be removed", Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS irq-wait-ready-publication");
+    }
+    return passed;
 }
 
 struct RegistryDispatchContext;
@@ -618,7 +752,8 @@ bool handlerLifetimeBarrier()
 
 bool runHostedIrqRegressions()
 {
-    bool passed = writerLockIndependentDispatch();
+    bool passed = irqReadyPublication();
+    passed &= writerLockIndependentDispatch();
     passed &= deferredScopeLockIndependentDispatch();
     passed &= prePinUnregisterRevalidation();
     passed &= abandonedDispatchCleanup();

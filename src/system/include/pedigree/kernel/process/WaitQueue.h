@@ -13,6 +13,7 @@
 #include "pedigree/kernel/processor/types.h"
 
 class Mutex;
+class PerProcessorScheduler;
 class Thread;
 
 /**
@@ -197,6 +198,7 @@ class EXPORTED_PUBLIC WaitQueue
         }
 
         Thread *thread = nullptr;
+        PerProcessorScheduler *scheduler = nullptr;
         WaitQueue *queue = nullptr;
         Channel channel;
         size_t stateLevel = 0;
@@ -219,6 +221,7 @@ class EXPORTED_PUBLIC WaitQueue
         Guard &guard, WakeReason reason, const Channel &channel);
     bool completeWaiter(
         Guard &guard, Waiter *waiter, WakeReason reason);
+    static void publishReady(Waiter *waiter);
     void removeWaiterLocked(Waiter *waiter);
     void cancel(Waiter *waiter, WakeReason reason);
 

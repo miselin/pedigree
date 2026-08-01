@@ -289,8 +289,9 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus)
         dispatchEvent = pCurrentThread->hasDeliverableEventsUnlocked();
         if (dispatchEvent)
         {
+            PerProcessorScheduler *readyScheduler = nullptr;
             pCurrentThread->interruptWaitUnlocked(
-                WaitQueue::WakeReason::Event);
+                WaitQueue::WakeReason::Event, readyScheduler);
         }
         if (
             !pCurrentThread->activeWaitPendingUnlocked() || dispatchEvent)
@@ -1025,6 +1026,14 @@ void PerProcessorScheduler::removeThread(Thread *pThread)
 void PerProcessorScheduler::blockCurrent()
 {
     schedule(Thread::Sleeping);
+}
+
+void PerProcessorScheduler::publishReadyFromWait(Thread *pThread)
+{
+    assert(pThread);
+    assert(pThread->getScheduler() == this);
+    assert(pThread->getStatus() == Thread::Ready);
+    m_pSchedulingAlgorithm->threadStatusChanged(pThread);
 }
 
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState &state)

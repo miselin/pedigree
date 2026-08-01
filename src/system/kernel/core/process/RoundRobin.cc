@@ -213,7 +213,7 @@ bool RoundRobin::runHostedIntrusiveQueueRegressions(Thread *pThread)
                   pThread->m_ReadyQueuePriority == 2 &&
                   !pThread->m_pReadyPrevious && !pThread->m_pReadyNext;
 
-        pThread->m_Status = Thread::Sleeping;
+        pThread->m_Status = Thread::AwaitingJoin;
         passed &= !queue.getNext(nullptr) && !pThread->m_bReadyQueued;
 
         pThread->m_Status = Thread::Ready;

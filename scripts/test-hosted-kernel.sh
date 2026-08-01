@@ -426,6 +426,8 @@ assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS timer-handler-lifetime"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-handler-lifetime"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-lifetime"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS irq-wait-ready-publication"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS input-callback-lifetime"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS ps2mouse-callback-lifetime"

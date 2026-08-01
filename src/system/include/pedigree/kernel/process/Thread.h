@@ -670,7 +670,9 @@ class EXPORTED_PUBLIC Thread
     void closeExternalLeaseAdmissionAndDrain();
 
     /** Interrupts the active wait at the current event nesting level. */
-    bool interruptWaitUnlocked(WaitQueue::WakeReason reason);
+    bool interruptWaitUnlocked(
+        WaitQueue::WakeReason reason,
+        PerProcessorScheduler *&readyScheduler);
     bool hasActiveWaitUnlocked() const;
     bool activeWaitPendingUnlocked() const;
 

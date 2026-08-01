@@ -11,7 +11,6 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -89,15 +88,15 @@ void WaitQueue::Guard::release()
         m_Queue->m_Lock.release();
         m_OwnsLock = false;
 
-        // Scheduler bookkeeping can take the global scheduler lock. It must
-        // never run under a WaitQueue lock, because scheduler-owned lifecycle
-        // state can itself contain completion queues.
+        // Ready publication takes scheduler-owned locks. Keep that ordering
+        // outside the WaitQueue lock because scheduler lifecycle paths can
+        // themselves complete waits.
         while (m_pFirstReady)
         {
             Waiter *waiter = m_pFirstReady;
             m_pFirstReady = waiter->notificationNext;
             waiter->notificationNext = nullptr;
-            Scheduler::instance().threadStatusChanged(waiter->thread);
+            WaitQueue::publishReady(waiter);
         }
         m_pLastReady = nullptr;
     }
@@ -235,6 +234,8 @@ WaitQueue::WakeReason WaitQueue::wait(
             thread, unwindState, onAbandon, abandonContext);
     }
     waiter.thread = thread;
+    waiter.scheduler = thread->m_pScheduler;
+    assert(waiter.scheduler);
     waiter.channel = channel;
     waiter.stateLevel = stateLevel;
     waiter.storeReason(WakeReason::Waiting);
@@ -297,6 +298,7 @@ WaitQueue::WakeReason WaitQueue::wait(
     terminalAbandonContext = waiter.abandonContext;
     waiter.onAbandon = nullptr;
     waiter.abandonContext = nullptr;
+    waiter.scheduler = nullptr;
     thread->m_DebugState = Thread::None;
     thread->m_DebugStateAddress = 0;
     thread->m_Lock.release();
@@ -465,6 +467,16 @@ bool WaitQueue::completeWaiter(
     return completed;
 }
 
+void WaitQueue::publishReady(Waiter *waiter)
+{
+    assert(waiter);
+    Thread *thread = waiter->thread;
+    PerProcessorScheduler *scheduler = waiter->scheduler;
+    assert(thread);
+    assert(scheduler);
+    scheduler->publishReadyFromWait(thread);
+}
+
 void WaitQueue::removeWaiterLocked(Waiter *waiter)
 {
     if (!waiter->isQueued())
@@ -554,7 +566,7 @@ void WaitQueue::cancel(Waiter *waiter, WakeReason reason)
 
     if (becameReady)
     {
-        Scheduler::instance().threadStatusChanged(thread);
+        publishReady(waiter);
     }
 }
 

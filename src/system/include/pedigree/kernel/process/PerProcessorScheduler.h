@@ -90,6 +90,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
 
   private:
     friend class Scheduler;
+    friend class Thread;
     friend class WaitQueue;
 
     /** Picks another runnable thread and switches to it. */
@@ -97,6 +98,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
 
     /** Blocks the current thread after WaitQueue has published its wait record. */
     void blockCurrent();
+
+    /** Publishes a completed wait directly to this scheduler's ready queue. */
+    void publishReadyFromWait(Thread *pThread);
 
     /** Copy-constructor
      *  \note Not implemented - singleton class. */
