@@ -9,6 +9,7 @@
 #define PEDIGREE_KERNEL_MACHINE_TIMERHANDLERREGISTRY_H
 
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
@@ -21,7 +22,7 @@ class TimerHandler;
  * Dispatch pins atomically published slots without taking the writer lock.
  * Removal closes admission before draining callbacks which committed a pin.
  */
-class TimerHandlerRegistry
+class EXPORTED_PUBLIC TimerHandlerRegistry
 {
   public:
     TimerHandlerRegistry();

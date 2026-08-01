@@ -25,20 +25,32 @@ class IrqEventCounter
     {
     }
 
-    /** Records one event without allowing counter wrap to look like idle. */
-    bool recordFromInterrupt()
+    /**
+     * Records a batch with one bounded atomic operation.
+     *
+     * Returns false when the exact batch cannot be represented. Callers must
+     * treat that loss of fidelity as fatal before assuming the batch was
+     * recorded.
+     */
+    bool recordFromInterrupt(size_t occurrences = 1)
     {
-        constexpr size_t Maximum = ~static_cast<size_t>(0);
-        size_t count = m_Count.value();
-        while (count != Maximum)
+        if (!occurrences)
         {
-            if (m_Count.compareAndSwap(count, count + 1))
-            {
-                return true;
-            }
-            count = m_Count.value();
+            return true;
         }
-        return false;
+
+        constexpr size_t Maximum = ~static_cast<size_t>(0);
+        const size_t count = m_Count.value();
+        if (occurrences > (Maximum - count))
+        {
+            return false;
+        }
+
+        // There is one hard producer. A concurrent consumer can only reset
+        // the counter to zero, which creates capacity rather than invalidating
+        // this preflight check.
+        m_Count += occurrences;
+        return true;
     }
 
     /** Claims every event recorded before this atomic handoff. */

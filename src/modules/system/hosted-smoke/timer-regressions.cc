@@ -10,6 +10,7 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/machine/TimerHandlerRegistry.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/RelayEvent.h"
@@ -28,6 +29,7 @@ constexpr size_t CullTestEventNumber = EventNumbers::UserStart + 2;
 constexpr size_t RelayTestEventNumber = EventNumbers::UserStart + 3;
 constexpr size_t DispositionAEventNumber = EventNumbers::UserStart + 4;
 constexpr size_t DispositionBEventNumber = EventNumbers::UserStart + 5;
+constexpr size_t AlarmLinearizationEventNumber = EventNumbers::UserStart + 6;
 
 Atomic<size_t> g_CullEventDestructions(0);
 Atomic<size_t> g_RelayDisposition(0);
@@ -288,15 +290,19 @@ class AbandoningTimerHandler : public TimerHandler
 
 struct TimerAbandonContext
 {
-    TimerAbandonContext(Timer *timer, TimerAbandonPoint abandonPoint)
-        : timer(timer), handler(*this), dispatcher(nullptr), remover(nullptr),
-          point(abandonPoint), phase(0), hookCalls(0), hookObservedDrain(0),
-          handlerCalls(0), dispatchReturned(0), unregisterReturned(0),
-          unregisterSucceeded(0), selfRemovalRejected(0), failures(0)
+    TimerAbandonContext(
+        Timer *timer, TimerHandlerRegistry *registry,
+        TimerAbandonPoint abandonPoint)
+        : timer(timer), registry(registry), handler(*this), dispatcher(nullptr),
+          remover(nullptr), point(abandonPoint), phase(0), hookCalls(0),
+          hookObservedDrain(0), handlerCalls(0), dispatchReturned(0),
+          unregisterReturned(0), unregisterSucceeded(0),
+          selfRemovalRejected(0), failures(0)
     {
     }
 
     Timer *timer;
+    TimerHandlerRegistry *registry;
     AbandoningTimerHandler handler;
     Thread *dispatcher;
     Thread *remover;
@@ -334,7 +340,7 @@ void AbandoningTimerHandler::timer(uint64_t)
         return;
     }
 
-    if (!m_Context.timer->unregisterHandler(this))
+    if (!m_Context.registry->unregisterHandler(this))
     {
         m_Context.selfRemovalRejected += 1;
     }
@@ -393,12 +399,12 @@ int awaitAbandoningTimer(void *parameter)
 {
     TimerAbandonContext *context =
         reinterpret_cast<TimerAbandonContext *>(parameter);
-    const uint64_t deadline = context->timer->getTickCountNano() +
-                              (500 * Time::Multiplier::Millisecond);
-    while (context->timer->getTickCountNano() < deadline)
-    {
-        Processor::pause();
-    }
+
+    // These tests deliberately abandon this exact dispatcher stack from a
+    // registry hook or callback. Drive the registry directly so the lifetime
+    // test does not depend on which thread services the hardware timer.
+    context->registry->dispatch(
+        Time::Multiplier::Millisecond, &context->handler);
     context->failures += 1;
     context->dispatchReturned += 1;
     return 1;
@@ -424,7 +430,7 @@ int unregisterAbandoningTimer(void *parameter)
     }
 
     context->phase = 2;
-    if (context->timer->unregisterHandler(&context->handler))
+    if (context->registry->unregisterHandler(&context->handler))
     {
         context->unregisterSucceeded += 1;
     }
@@ -436,27 +442,30 @@ bool timerPartialHazardAbandonment()
 {
     constexpr const char *Test = "timer-partial-hazard-abandonment";
     Timer *timer = Machine::instance().getTimer();
-    TimerAbandonContext context(timer, TimerAbandonPoint::PartialHazard);
+    TimerHandlerRegistry registry;
+    TimerAbandonContext context(
+        timer, &registry, TimerAbandonPoint::PartialHazard);
     context.dispatcher = new Thread(
         Scheduler::instance().getKernelProcess(), awaitAbandoningTimer,
         &context, nullptr, false, true, true);
     context.dispatcher->setName("hosted partial timer hazard");
 
     g_TimerAbandonContext = &context;
-    HostedTimer::setHandlerHazardClaimHook(abandonPartialTimerHazard);
-    const bool registered = timer->registerHandler(&context.handler);
+    registry.setHandlerHazardClaimHook(abandonPartialTimerHazard);
+    const bool registered = registry.registerHandler(&context.handler);
     const bool started = registered && context.dispatcher->start();
     const bool joined = started && context.dispatcher->join();
-    HostedTimer::setHandlerHazardClaimHook(nullptr);
+    registry.setHandlerHazardClaimHook(nullptr);
     g_TimerAbandonContext = nullptr;
 
-    const size_t claimed = HostedTimer::claimedDispatchCountForTest();
+    const size_t claimed = registry.claimedDispatchCountForTest();
     const size_t active =
-        HostedTimer::activeDispatchCountForTest(&context.handler);
+        registry.activeDispatchCountForTest(&context.handler);
     const bool removed =
-        registered && timer->unregisterHandler(&context.handler);
-    const bool reused = removed && timer->registerHandler(&context.handler);
-    const bool cleaned = reused && timer->unregisterHandler(&context.handler);
+        registered && registry.unregisterHandler(&context.handler);
+    const bool reused = removed && registry.registerHandler(&context.handler);
+    const bool cleaned =
+        reused && registry.unregisterHandler(&context.handler);
 
     bool passed = true;
     passed &= check(
@@ -483,7 +492,9 @@ bool timerCommittedHazardAbandonment()
 {
     constexpr const char *Test = "timer-abandoned-dispatch-cleanup";
     Timer *timer = Machine::instance().getTimer();
-    TimerAbandonContext context(timer, TimerAbandonPoint::CommittedHazard);
+    TimerHandlerRegistry registry;
+    TimerAbandonContext context(
+        timer, &registry, TimerAbandonPoint::CommittedHazard);
     context.remover = new Thread(
         Scheduler::instance().getKernelProcess(), unregisterAbandoningTimer,
         &context, nullptr, false, true);
@@ -494,8 +505,8 @@ bool timerCommittedHazardAbandonment()
     context.dispatcher->setName("hosted abandoned timer dispatch");
 
     g_TimerAbandonContext = &context;
-    HostedTimer::setHandlerPinHook(abandonCommittedTimerHazard);
-    const bool registered = timer->registerHandler(&context.handler);
+    registry.setHandlerPinHook(abandonCommittedTimerHazard);
+    const bool registered = registry.registerHandler(&context.handler);
     if (!registered)
     {
         context.phase = 1;
@@ -503,19 +514,21 @@ bool timerCommittedHazardAbandonment()
     const bool started = registered && context.dispatcher->start();
     const bool dispatcherJoined = started && context.dispatcher->join();
     const bool removerJoined = context.remover->join();
-    HostedTimer::setHandlerPinHook(nullptr);
+    registry.setHandlerPinHook(nullptr);
     g_TimerAbandonContext = nullptr;
 
     if (!context.unregisterSucceeded && registered)
     {
-        timer->unregisterHandler(&context.handler);
+        registry.unregisterHandler(&context.handler);
     }
-    const size_t claimed = HostedTimer::claimedDispatchCountForTest();
+    const size_t claimed = registry.claimedDispatchCountForTest();
     const size_t active =
-        HostedTimer::activeDispatchCountForTest(&context.handler);
+        registry.activeDispatchCountForTest(&context.handler);
     const bool reused =
-        context.unregisterSucceeded && timer->registerHandler(&context.handler);
-    const bool cleaned = reused && timer->unregisterHandler(&context.handler);
+        context.unregisterSucceeded &&
+        registry.registerHandler(&context.handler);
+    const bool cleaned =
+        reused && registry.unregisterHandler(&context.handler);
 
     bool passed = true;
     passed &= check(
@@ -546,20 +559,24 @@ bool timerDeferredSelfRemovalAbandonment()
 {
     constexpr const char *Test = "timer-abandoned-self-removal";
     Timer *timer = Machine::instance().getTimer();
-    TimerAbandonContext context(timer, TimerAbandonPoint::DeferredSelfRemoval);
+    TimerHandlerRegistry registry;
+    TimerAbandonContext context(
+        timer, &registry, TimerAbandonPoint::DeferredSelfRemoval);
     context.dispatcher = new Thread(
         Scheduler::instance().getKernelProcess(), awaitAbandoningTimer,
         &context, nullptr, false, true, true);
     context.dispatcher->setName("hosted abandoned timer self-removal");
 
-    const bool registered = timer->registerHandler(&context.handler);
+    const bool registered = registry.registerHandler(&context.handler);
     const bool started = registered && context.dispatcher->start();
     const bool joined = started && context.dispatcher->join();
-    const size_t claimed = HostedTimer::claimedDispatchCountForTest();
+    const size_t claimed = registry.claimedDispatchCountForTest();
     const size_t active =
-        HostedTimer::activeDispatchCountForTest(&context.handler);
-    const bool reused = registered && timer->registerHandler(&context.handler);
-    const bool cleaned = reused && timer->unregisterHandler(&context.handler);
+        registry.activeDispatchCountForTest(&context.handler);
+    const bool reused =
+        registered && registry.registerHandler(&context.handler);
+    const bool cleaned =
+        reused && registry.unregisterHandler(&context.handler);
 
     bool passed = true;
     passed &= check(
@@ -851,6 +868,116 @@ class TimerTestEvent : public Event
     size_t m_Number;
 };
 
+struct AlarmLinearizationContext;
+
+class AlarmLinearizationEvent : public TimerTestEvent
+{
+  public:
+    explicit AlarmLinearizationEvent(AlarmLinearizationContext &context);
+    ~AlarmLinearizationEvent() override;
+
+  private:
+    AlarmLinearizationContext &m_Context;
+};
+
+struct AlarmLinearizationContext
+{
+    AlarmLinearizationContext(Timer *timer, Thread *owner)
+        : timer(timer), owner(owner), event(nullptr), removerReady(0, false),
+          phase(0), hookCalls(0), lockBoundaryObserved(0), removerReturned(0),
+          destructions(0), failures(0)
+    {
+    }
+
+    Timer *timer;
+    Thread *owner;
+    AlarmLinearizationEvent *event;
+    Semaphore removerReady;
+    Atomic<size_t> phase;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> lockBoundaryObserved;
+    Atomic<size_t> removerReturned;
+    Atomic<size_t> destructions;
+    Atomic<size_t> failures;
+};
+
+AlarmLinearizationContext *g_AlarmLinearizationContext = nullptr;
+
+AlarmLinearizationEvent::AlarmLinearizationEvent(
+    AlarmLinearizationContext &context)
+    : TimerTestEvent(AlarmLinearizationEventNumber, false), m_Context(context)
+{
+}
+
+AlarmLinearizationEvent::~AlarmLinearizationEvent()
+{
+    m_Context.destructions += 1;
+}
+
+void observeAlarmSendAdmission(Event *event)
+{
+    AlarmLinearizationContext *context = g_AlarmLinearizationContext;
+    if (!context || event != context->event)
+    {
+        return;
+    }
+
+    context->hookCalls += 1;
+    const bool lockHeld = HostedTimer::alarmLockHeldForTest();
+    const bool interruptsDisabled = !Processor::getInterrupts();
+    if (lockHeld && interruptsDisabled && !context->removerReturned &&
+        !context->destructions)
+    {
+        context->lockBoundaryObserved += 1;
+    }
+    else
+    {
+        context->failures += 1;
+    }
+    context->phase = 1;
+
+    // If a future change reopens the claim-to-send gap, let the remover win
+    // that gap so ASan observes the stale Event use deterministically.
+    if (!lockHeld && Processor::getInterrupts())
+    {
+        const uint64_t deadline =
+            context->timer->getTickCountNano() +
+            (500 * Time::Multiplier::Millisecond);
+        while (!context->destructions &&
+               context->timer->getTickCountNano() < deadline)
+        {
+            Scheduler::instance().yield();
+        }
+    }
+}
+
+int removeLinearizingAlarm(void *parameter)
+{
+    AlarmLinearizationContext *context =
+        reinterpret_cast<AlarmLinearizationContext *>(parameter);
+    context->removerReady.release();
+
+    const uint64_t deadline =
+        context->timer->getTickCountNano() +
+        (500 * Time::Multiplier::Millisecond);
+    while (!context->phase && context->timer->getTickCountNano() < deadline)
+    {
+        Scheduler::instance().yield();
+    }
+    if (!context->phase)
+    {
+        context->failures += 1;
+        return 1;
+    }
+
+    context->timer->removeAlarm(context->event);
+    context->owner->cullEvent(context->event);
+    delete context->event;
+    context->event = nullptr;
+    context->removerReturned = 1;
+    return 0;
+}
+
 bool check(bool condition, const char *test, const char *detail)
 {
     if (condition)
@@ -1049,6 +1176,170 @@ bool timerAtomicDrainSelfRevival()
     return passed;
 }
 
+class ThreadContextTimerHandler : public TimerHandler
+{
+  public:
+    explicit ThreadContextTimerHandler(Thread *registeringThread)
+        : registeringThread(registeringThread), calls(0), failures(0),
+          failureMask(0), workerAddress(0)
+    {
+    }
+
+    void timer(uint64_t delta) override
+    {
+        Thread *current = Processor::information().getCurrentThread();
+        const size_t currentAddress = reinterpret_cast<size_t>(current);
+        size_t expectedWorker = workerAddress.value();
+        if (!expectedWorker && current)
+        {
+            workerAddress.compareAndSwap(0, currentAddress);
+            expectedWorker = workerAddress.value();
+        }
+
+        size_t failed = 0;
+        failed |= !current ? 1 : 0;
+        failed |= current == registeringThread ? 2 : 0;
+        failed |= expectedWorker != currentAddress ? 4 : 0;
+        failed |= !Processor::getInterrupts() ? 8 : 0;
+        failed |= current && current->getHostedSignalDepth() ? 16 : 0;
+        failed |= !delta || (delta % Time::Multiplier::Millisecond) ? 32 : 0;
+        if (failed)
+        {
+            failures += 1;
+            failureMask |= failed;
+        }
+        calls += 1;
+    }
+
+    Thread *registeringThread;
+    Atomic<size_t> calls;
+    Atomic<size_t> failures;
+    Atomic<size_t> failureMask;
+    Atomic<size_t> workerAddress;
+};
+
+bool hostedTimerThreadContext(Thread *registeringThread)
+{
+    constexpr const char *Test = "hosted-timer-thread-context";
+    Timer *timer = Machine::instance().getTimer();
+    ThreadContextTimerHandler handler(registeringThread);
+    const bool registered = timer->registerHandler(&handler);
+
+    const uint64_t deadline =
+        timer->getTickCountNano() +
+        (250 * Time::Multiplier::Millisecond);
+    while (registered && handler.calls < static_cast<size_t>(2) &&
+           timer->getTickCountNano() < deadline)
+    {
+        Scheduler::instance().yield();
+    }
+
+    const bool removed = registered && timer->unregisterHandler(&handler);
+    const bool passed = check(
+        registered && removed && handler.calls >= static_cast<size_t>(2) &&
+            handler.failures == 0 &&
+            handler.workerAddress != static_cast<size_t>(0),
+        Test,
+        "timer callbacks did not remain on one ordinary worker context");
+    if (!passed)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: INFO " << Test
+                                      << ": calls=" << handler.calls.value()
+                                      << ", failures="
+                                      << handler.failures.value()
+                                      << ", mask=" << Hex
+                                      << handler.failureMask.value()
+                                      << ", worker="
+                                      << handler.workerAddress.value()
+                                      << ", registrar="
+                                      << reinterpret_cast<uintptr_t>(
+                                             registeringThread));
+    }
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS hosted-timer-thread-context");
+    }
+    return passed;
+}
+
+class HostedTimerOverrunHandler : public TimerHandler
+{
+  public:
+    HostedTimerOverrunHandler() : calls(0), maximumDelta(0)
+    {
+    }
+
+    void timer(uint64_t delta) override
+    {
+        uint64_t maximum = maximumDelta.value();
+        while (delta > maximum && !maximumDelta.compareAndSwap(maximum, delta))
+        {
+            maximum = maximumDelta.value();
+        }
+        calls += 1;
+    }
+
+    Atomic<size_t> calls;
+    Atomic<uint64_t> maximumDelta;
+};
+
+bool hostedTimerOverrunAccounting()
+{
+    constexpr const char *Test = "hosted-timer-overrun-accounting";
+    Timer *timer = Machine::instance().getTimer();
+    HostedTimerOverrunHandler handler;
+    const bool registered = timer->registerHandler(&handler);
+
+    const uint64_t baselineDeadline =
+        timer->getTickCountNano() +
+        (250 * Time::Multiplier::Millisecond);
+    while (registered && !handler.calls &&
+           timer->getTickCountNano() < baselineDeadline)
+    {
+        Scheduler::instance().yield();
+    }
+
+    const bool baselineObserved = handler.calls != static_cast<size_t>(0);
+    handler.maximumDelta = 0;
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    if (baselineObserved && interruptsWereEnabled)
+    {
+        Processor::setInterrupts(false);
+        const uint64_t blockedUntil =
+            timer->getTickCountNano() +
+            (30 * Time::Multiplier::Millisecond);
+        while (timer->getTickCountNano() < blockedUntil)
+        {
+            Processor::pause();
+        }
+        Processor::setInterrupts(true);
+    }
+
+    const uint64_t overrunDeadline =
+        timer->getTickCountNano() +
+        (250 * Time::Multiplier::Millisecond);
+    while (handler.maximumDelta <= Time::Multiplier::Millisecond &&
+           timer->getTickCountNano() < overrunDeadline)
+    {
+        Scheduler::instance().yield();
+    }
+
+    const bool removed = registered && timer->unregisterHandler(&handler);
+    const uint64_t maximumDelta = handler.maximumDelta.value();
+    const bool passed = check(
+        registered && baselineObserved && interruptsWereEnabled && removed &&
+            maximumDelta > Time::Multiplier::Millisecond &&
+            !(maximumDelta % Time::Multiplier::Millisecond),
+        Test,
+        "deferred POSIX expirations were not preserved in callback delta");
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS hosted-timer-overrun-accounting");
+    }
+    return passed;
+}
+
 bool timerClockAndDeadline(Thread *thread)
 {
     Timer *timer = Machine::instance().getTimer();
@@ -1135,6 +1426,61 @@ bool timerClockAndDeadline(Thread *thread)
     if (passed)
     {
         NOTICE("HOSTED-WAIT-TEST: PASS timer-clock-deadline");
+    }
+    return passed;
+}
+
+bool timerAlarmSendLinearization()
+{
+    constexpr const char *Test = "timer-alarm-send-linearization";
+    Timer *timer = Machine::instance().getTimer();
+    Thread *owner = Processor::information().getCurrentThread();
+    AlarmLinearizationContext context(timer, owner);
+    context.event = new AlarmLinearizationEvent(context);
+    owner->inhibitEvent(AlarmLinearizationEventNumber, true);
+
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    g_AlarmLinearizationContext = &context;
+    HostedTimer::setAlarmSendAdmissionHookForTest(observeAlarmSendAdmission);
+    Processor::setInterrupts(interruptsWereEnabled);
+
+    Thread *remover = new Thread(
+        Scheduler::instance().getKernelProcess(), removeLinearizingAlarm,
+        &context, nullptr, false, true);
+    remover->setName("hosted alarm linearization remover");
+    const bool removerReady =
+        context.removerReady.acquireForCompletion(1, 2);
+    if (removerReady)
+    {
+        timer->addAlarm(context.event, 0, 1000);
+    }
+    const bool removerJoined = remover->join();
+
+    Processor::setInterrupts(false);
+    HostedTimer::setAlarmSendAdmissionHookForTest(nullptr);
+    g_AlarmLinearizationContext = nullptr;
+    Processor::setInterrupts(interruptsWereEnabled);
+
+    if (context.event)
+    {
+        timer->removeAlarm(context.event);
+        owner->cullEvent(context.event);
+        delete context.event;
+        context.event = nullptr;
+    }
+    owner->inhibitEvent(AlarmLinearizationEventNumber, false);
+
+    const bool passed = check(
+        interruptsWereEnabled && removerReady && removerJoined &&
+            context.hookCalls == 1 && context.lockBoundaryObserved == 1 &&
+            context.removerReturned == 1 && context.destructions == 1 &&
+            context.failures == 0,
+        Test,
+        "alarm cancellation crossed the Event send-admission boundary");
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS timer-alarm-send-linearization");
     }
     return passed;
 }
@@ -1489,12 +1835,16 @@ bool exactCullRetainsOwnership(Thread *thread)
 
 bool runHostedTimerRegressions(Thread *thread)
 {
-    return timerWriterLockIndependentDispatch() &&
+    return hostedTimerThreadContext(
+               Processor::information().getCurrentThread()) &&
+           hostedTimerOverrunAccounting() &&
+           timerWriterLockIndependentDispatch() &&
            timerPrePinUnregisterRevalidation() &&
            timerAtomicDrainSelfRevival() && timerPartialHazardAbandonment() &&
            timerCommittedHazardAbandonment() &&
            timerDeferredSelfRemovalAbandonment() &&
-           timerClockAndDeadline(thread) && timerAlarmRemovalLifetime() &&
+           timerClockAndDeadline(thread) && timerAlarmSendLinearization() &&
+           timerAlarmRemovalLifetime() &&
            timerHandlerLifetimeBarrier() &&
            semaphoreQueuedTimeoutCancellation(thread) &&
            relayUsesLatestDisposition(thread) &&

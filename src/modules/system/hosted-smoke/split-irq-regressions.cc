@@ -42,6 +42,36 @@ bool waitForSemaphore(Semaphore &semaphore)
     return semaphore.acquireForCompletion(1, 2, 0);
 }
 
+bool irqEventCounterArithmeticRegression()
+{
+    constexpr const char *Test = "irq-event-counter-bounded-arithmetic";
+    constexpr size_t Maximum = ~static_cast<size_t>(0);
+    IrqEventCounter counter;
+
+    bool passed = check(
+        counter.recordFromInterrupt(1) &&
+            counter.recordFromInterrupt(14) && counter.takeAll() == 15 &&
+            counter.recordFromInterrupt(0) && !counter.pending(),
+        "bounded batches did not preserve their exact event count", Test);
+    passed &= check(
+        counter.recordFromInterrupt(Maximum) &&
+            !counter.recordFromInterrupt(1) && counter.takeAll() == Maximum,
+        "counter overflow changed state or accepted lost event fidelity",
+        Test);
+    counter.reset();
+    passed &= check(
+        !counter.pending() && counter.recordFromInterrupt(8) &&
+            counter.takeAll() == 8,
+        "an overflowed counter could not be explicitly reset", Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-event-counter-bounded-arithmetic");
+    }
+    return passed;
+}
+
 bool waitForThreadState(Thread *thread, Thread::DebugState state)
 {
     const Time::Timestamp deadline = Time::getTicks() + WaitTimeout;
@@ -80,7 +110,8 @@ class HostedSplitIrq final : public SplitIrqHandler
           observedEventTime(0), bottomEntered(0), releaseBottom(0),
           bottomCompleted(0), quiesceCalls(0), rearmCalls(0), rearmedWork(0),
           hardShutdownAttempts(0), hardShutdownSucceeded(0), m_Started(false),
-          m_NextWork(1), m_HoldNext(0), m_ShutdownFromHard(0), m_EventPhase(0)
+          m_NextWork(1), m_NextEvents(1), m_HoldNext(0),
+          m_ShutdownFromHard(0), m_EventPhase(0)
     {
     }
 
@@ -128,6 +159,11 @@ class HostedSplitIrq final : public SplitIrqHandler
     void setNextWork(size_t work)
     {
         m_NextWork = work;
+    }
+
+    void setNextEventCount(size_t events)
+    {
+        m_NextEvents = events;
     }
 
     void holdNextBottom()
@@ -196,7 +232,7 @@ class HostedSplitIrq final : public SplitIrqHandler
         }
 
         hardCalls += 1;
-        if (!m_ExactEvents.recordFromInterrupt())
+        if (!m_ExactEvents.recordFromInterrupt(m_NextEvents.value()))
         {
             FATAL_NOLOCK("Split IRQ event counter saturated.");
         }
@@ -261,6 +297,7 @@ class HostedSplitIrq final : public SplitIrqHandler
   private:
     bool m_Started;
     Atomic<size_t> m_NextWork;
+    Atomic<size_t> m_NextEvents;
     Atomic<size_t> m_HoldNext;
     Atomic<size_t> m_ShutdownFromHard;
     size_t m_EventPhase;
@@ -395,11 +432,13 @@ bool coalescingRegression()
 
     handler.holdNextBottom();
     handler.setNextWork(1);
+    handler.setNextEventCount(1);
     bool raised = raise(SIGUSR1) == 0;
     const bool entered = waitForSemaphore(handler.bottomEntered);
     for (size_t work = 2; work <= 8; work <<= 1)
     {
         handler.setNextWork(work);
+        handler.setNextEventCount(work);
         raised &= raise(SIGUSR1) == 0;
     }
 
@@ -415,8 +454,8 @@ bool coalescingRegression()
         "the held worker did not complete both batches", Test);
     passed &= check(
         handler.hardCalls == 4 && handler.bottomCalls == 2 &&
-            handler.observedWork == 15 && handler.observedEvents == 4 &&
-            handler.observedEventTime == 3906250,
+            handler.observedWork == 15 && handler.observedEvents == 15 &&
+            handler.observedEventTime == 14648437,
         "an IRQ storm was not coalesced into one follow-up batch", Test);
     passed &= check(
         handler.hardOutsideSignal == 0 && handler.bottomInsideSignal == 0 &&
@@ -756,7 +795,8 @@ bool hardCallbackDrainRegression()
 
 bool runHostedSplitIrqRegressions()
 {
-    bool passed = wakeBeforeBlockRegression();
+    bool passed = irqEventCounterArithmeticRegression();
+    passed &= wakeBeforeBlockRegression();
     passed &= coalescingRegression();
     passed &= unregisterDrainRegression();
     passed &= atomicShutdownRejectionRegression();

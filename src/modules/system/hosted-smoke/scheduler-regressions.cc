@@ -15,6 +15,10 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/time/Time.h"
+#include "system/kernel/machine/hosted/SchedulerTimer.h"
+
+#include <signal.h>
 
 namespace
 {
@@ -37,6 +41,83 @@ struct ContextSwitchContext
 };
 
 ContextSwitchContext *g_ContextSwitchContext = nullptr;
+
+struct SchedulerTimerContext
+{
+    SchedulerTimerContext() : calls(0), failures(0)
+    {
+    }
+
+    Atomic<size_t> calls;
+    Atomic<size_t> failures;
+};
+
+SchedulerTimerContext *g_SchedulerTimerContext = nullptr;
+
+void observeSchedulerTimerHardContext(uint64_t delta, InterruptState &state)
+{
+    SchedulerTimerContext *context = __atomic_load_n(
+        &g_SchedulerTimerContext, __ATOMIC_ACQUIRE);
+    if (!context)
+    {
+        return;
+    }
+
+    Thread *current = Processor::information().getCurrentThread();
+    const uint64_t interval = 100 * Time::Multiplier::Millisecond;
+    if (delta < interval || (delta % interval) || !current ||
+        !current->getHostedSignalDepth() ||
+        state.getInterruptNumber() != SIGUSR2 ||
+        state.getInterruptSource() != HostedSchedulerTimer::sourceForTest())
+    {
+        context->failures += 1;
+    }
+    context->calls += 1;
+}
+
+bool schedulerTimerHardContext()
+{
+    constexpr const char *Test = "hosted-scheduler-timer-hard-context";
+    SchedulerTimerContext context;
+
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    __atomic_store_n(
+        &g_SchedulerTimerContext, &context, __ATOMIC_RELEASE);
+    HostedSchedulerTimer::setHardContextHookForTest(
+        observeSchedulerTimerHardContext);
+    Processor::setInterrupts(interruptsWereEnabled);
+
+    const Time::Timestamp deadline =
+        Time::getTicks() + (2 * Time::Multiplier::Second);
+    while (!context.calls && Time::getTicks() < deadline)
+    {
+        Scheduler::instance().yield();
+    }
+
+    Processor::setInterrupts(false);
+    HostedSchedulerTimer::setHardContextHookForTest(nullptr);
+    __atomic_store_n(
+        &g_SchedulerTimerContext,
+        static_cast<SchedulerTimerContext *>(nullptr), __ATOMIC_RELEASE);
+    Processor::setInterrupts(interruptsWereEnabled);
+
+    const bool passed = context.calls && !context.failures;
+    if (!passed)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: FAIL " << Test
+                                      << ": the scheduler timer escaped its "
+                                         "hard signal context");
+    }
+    else
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "hosted-scheduler-timer-hard-context");
+    }
+    return passed;
+}
 
 class QueuedTickHandler : public HardIrqHandler
 {
@@ -139,6 +220,11 @@ bool check(bool condition, const char *detail)
 
 bool runHostedSchedulerRegressions()
 {
+    if (!schedulerTimerHardContext())
+    {
+        return false;
+    }
+
     Thread *driver = Processor::information().getCurrentThread();
     ContextSwitchContext context(driver);
     QueuedTickHandler tickHandler(context);

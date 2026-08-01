@@ -22,11 +22,11 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/panic.h"
 
+#include "../../core/processor/hosted/InterruptManager.h"
 #include "pedigree/kernel/machine/Bus.h"
 #include "pedigree/kernel/machine/Controller.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Disk.h"
-#include "../../core/processor/hosted/InterruptManager.h"
 
 HostedMachine HostedMachine::m_Instance;
 
@@ -41,8 +41,14 @@ void HostedMachine::initialise()
     m_Serial[0].setBase(0);
     m_Serial[1].setBase(1);
     m_Vga.initialise();
-    HostedTimer::instance().initialise();
-    HostedSchedulerTimer::instance().initialise();
+    if (!HostedTimer::instance().initialise1())
+    {
+        panic("HostedMachine: timer preparation failed");
+    }
+    if (!HostedSchedulerTimer::instance().initialise())
+    {
+        panic("HostedMachine: scheduler timer initialisation failed");
+    }
     m_Keyboard = new HostedKeyboard();
     m_Keyboard->initialise();
     m_bInitialised = true;
@@ -58,6 +64,10 @@ void HostedMachine::initialise3()
     {
         panic("HostedMachine: threaded IRQ worker initialisation failed");
     }
+    if (!HostedTimer::instance().initialise3())
+    {
+        panic("HostedMachine: timer bottom-half initialisation failed");
+    }
 }
 
 void HostedMachine::deinitialise()
@@ -67,12 +77,12 @@ void HostedMachine::deinitialise()
         return;
     }
 
+    HostedTimer::instance().uninitialise();
     if (!HostedIrqManager::instance().shutdownThreaded())
     {
         FATAL("HostedMachine: threaded IRQ workers did not stop");
     }
     HostedSchedulerTimer::instance().uninitialise();
-    HostedTimer::instance().uninitialise();
     HostedInterruptManager::quiesceProcessor();
     Machine::deinitialise();
 

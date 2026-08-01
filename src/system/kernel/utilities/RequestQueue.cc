@@ -63,7 +63,8 @@ RequestQueue::RequestQueue(const String &name)
     : m_pActiveRequest(nullptr), m_State(LifecycleState::Stopped),
 #if THREADS
       m_LifecycleMutex(), m_RequestQueueWaiters(), m_pThread(nullptr),
-      m_bWorkerReady(false), m_pOverrunTimer(nullptr),
+      m_bWorkerReady(false), m_WorkerProgressGeneration(0),
+      m_pOverrunTimer(nullptr),
 #endif
       m_nMaxAsyncRequests(256), m_nAsyncRequests(0), m_nTotalRequests(0),
       m_Name(name.cstr(), name.length())
@@ -136,6 +137,7 @@ void RequestQueue::startWorker()
         assert(m_State == LifecycleState::Stopped);
         assert(!m_pThread);
         assert(!m_bWorkerReady);
+        m_OverrunChecker.resetBaselineLocked();
         m_State = LifecycleState::Accepting;
         m_pThread = worker;
         guard.wakeAll();
@@ -847,6 +849,7 @@ int RequestQueue::work()
 
             assert(!m_pActiveRequest);
             m_pActiveRequest = request;
+            ++m_WorkerProgressGeneration;
         }
 
         assert(request);
@@ -892,6 +895,61 @@ int RequestQueue::work()
 }
 
 #if THREADS
+void RequestQueue::RequestQueueOverrunChecker::resetBaselineLocked()
+{
+    m_LastQueueSize = 0;
+    m_LastProgressGeneration = queue->m_WorkerProgressGeneration;
+    m_HasBacklogBaseline = false;
+}
+
+RequestQueue::OverrunStatus
+RequestQueue::RequestQueueOverrunChecker::sample(
+    size_t &lastSize, size_t &currentSize)
+{
+    auto guard = queue->m_RequestQueueWaiters.acquire();
+    lastSize = m_LastQueueSize;
+    currentSize = 0;
+    for (size_t priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES;
+         ++priority)
+    {
+        for (Request *request = queue->m_pRequestQueue[priority]; request;
+             request = request->m_Next)
+        {
+            ++currentSize;
+        }
+    }
+
+    const size_t progress = queue->m_WorkerProgressGeneration;
+    if (
+        queue->m_State != LifecycleState::Accepting || !currentSize)
+    {
+        resetBaselineLocked();
+        return OverrunStatus::Clear;
+    }
+
+    OverrunStatus status = OverrunStatus::Armed;
+    if (m_HasBacklogBaseline)
+    {
+        if (
+            progress == m_LastProgressGeneration &&
+            currentSize >= m_LastQueueSize)
+        {
+            status = OverrunStatus::Stalled;
+        }
+        else if (
+            progress != m_LastProgressGeneration &&
+            currentSize > m_LastQueueSize)
+        {
+            status = OverrunStatus::Overloaded;
+        }
+    }
+
+    m_LastQueueSize = currentSize;
+    m_LastProgressGeneration = progress;
+    m_HasBacklogBaseline = true;
+    return status;
+}
+
 void RequestQueue::RequestQueueOverrunChecker::timer(uint64_t delta)
 {
     m_Tick += delta;
@@ -903,31 +961,30 @@ void RequestQueue::RequestQueueOverrunChecker::timer(uint64_t delta)
 
     size_t lastSize = 0;
     size_t currentSize = 0;
-    bool growing = false;
-    {
-        auto guard = queue->m_RequestQueueWaiters.acquire();
-        lastSize = m_LastQueueSize;
-        currentSize = queue->m_nTotalRequests;
-        if (queue->m_pActiveRequest && currentSize)
-        {
-            // A request already being executed is worker progress, not queue
-            // backlog. Long-running I/O must not look like newly accumulating
-            // work merely because it crosses a watchdog sample.
-            --currentSize;
-        }
-        bool accepting = queue->m_State == LifecycleState::Accepting;
-        m_LastQueueSize = currentSize;
-        growing = accepting && lastSize < currentSize;
-    }
-
-    if (growing)
+    const OverrunStatus status = sample(lastSize, currentSize);
+    if (status == OverrunStatus::Stalled)
     {
         FATAL(
             "RequestQueue '"
             << queue->m_Name
-            << "' is NOT keeping up with incoming requests [1s ago we had "
-            << lastSize << " queued requests, now have " << currentSize
-            << "]!");
+            << "' made no worker progress for a full watchdog interval with "
+            << currentSize << " queued requests!");
     }
+    else if (status == OverrunStatus::Overloaded)
+    {
+        WARNING(
+            "RequestQueue '"
+            << queue->m_Name << "' backlog grew from " << lastSize << " to "
+            << currentSize << " despite worker progress.");
+    }
+}
+#endif
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+RequestQueue::OverrunStatus RequestQueue::sampleOverrunForTest()
+{
+    size_t lastSize = 0;
+    size_t currentSize = 0;
+    return m_OverrunChecker.sample(lastSize, currentSize);
 }
 #endif

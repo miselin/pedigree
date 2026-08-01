@@ -20,9 +20,10 @@
 #ifndef KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
 #define KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
 
+#include "pedigree/kernel/machine/IrqEventCounter.h"
 #include "pedigree/kernel/machine/IrqManager.h"
-#include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/machine/SplitIrqHandler.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/machine/TimerHandlerRegistry.h"
 #include "pedigree/kernel/processor/state_forward.h"
@@ -37,7 +38,7 @@ namespace __pedigree_hosted
 /** @addtogroup kernelmachinehosted
  * @{ */
 
-class HostedTimer : public Timer, private HardIrqHandler
+class HostedTimer : public Timer, private SplitIrqHandler
 {
   public:
     inline static HostedTimer &instance()
@@ -65,9 +66,11 @@ class HostedTimer : public Timer, private HardIrqHandler
     virtual uint64_t getTickCount();
     virtual uint64_t getTickCountNano();
 
-    /** Initialises the class
+    /** Prepares the unarmed POSIX timer
      *\return true, if successfull, false otherwise */
-    bool initialise() INITIALISATION_ONLY;
+    bool initialise1() INITIALISATION_ONLY;
+    /** Starts the timer bottom half before enabling periodic delivery. */
+    bool initialise3();
     /** Synchronise the time/date with the hardware */
     virtual void synchronise(bool tohw = false);
     /** Uninitialises the class */
@@ -77,9 +80,9 @@ class HostedTimer : public Timer, private HardIrqHandler
     using HandlerPinHook = TimerHandlerRegistry::HandlerPinHook;
     using HandlerPrePinHook = TimerHandlerRegistry::HandlerPrePinHook;
     using HandlerHazardClaimHook = TimerHandlerRegistry::HandlerHazardClaimHook;
-    using HandlerAtomicDrainHook =
-        TimerHandlerRegistry::HandlerAtomicDrainHook;
+    using HandlerAtomicDrainHook = TimerHandlerRegistry::HandlerAtomicDrainHook;
     using HandlerMutationLockHook = TimerHandlerRegistry::MutationLockHook;
+    using AlarmSendAdmissionHook = void (*)(class Event *event);
 
     /** Installs a deterministic observer after a handler has been pinned. */
     static EXPORTED_PUBLIC void setHandlerPinHook(HandlerPinHook hook);
@@ -102,6 +105,11 @@ class HostedTimer : public Timer, private HardIrqHandler
     activeDispatchCountForTest(TimerHandler *handler);
     /** Returns all claimed callback-hazard records, including partial pins. */
     static EXPORTED_PUBLIC size_t claimedDispatchCountForTest();
+    /** Observes the alarm-to-Event ownership handoff. */
+    static EXPORTED_PUBLIC void
+    setAlarmSendAdmissionHookForTest(AlarmSendAdmissionHook hook);
+    /** Reports whether the alarm queue is locked by the current handoff. */
+    static EXPORTED_PUBLIC bool alarmLockHeldForTest();
 #endif
 
   protected:
@@ -118,10 +126,14 @@ class HostedTimer : public Timer, private HardIrqHandler
      *\note NOT implemented */
     HostedTimer &operator=(const HostedTimer &);
 
-    //
-    // HardIrqHandler interface
-    //
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    HardIrqDisposition
+    hardIrq(irq_id_t number, InterruptState &state, size_t &work) override;
+    void threadedIrq(size_t work) override;
+    bool quiesceIrqSources() override;
+    void rearmIrqSources(size_t work) override;
+
+    /** Applies one captured expiration batch in ordinary thread context. */
+    void processTimerBatch(uint64_t delta);
 
     /** The current year */
     size_t m_Year;
@@ -145,6 +157,9 @@ class HostedTimer : public Timer, private HardIrqHandler
 
     /** Registered handler. */
     irq_id_t m_IrqId;
+
+    /** Delivered expirations preserved across worker coalescing. */
+    IrqEventCounter m_PendingExpirations;
 
     /** The HostedTimer class instance */
     static HostedTimer m_Instance;
@@ -175,8 +190,15 @@ class HostedTimer : public Timer, private HardIrqHandler
     /** Alarm modification lock. */
     Spinlock m_AlarmLock;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    static AlarmSendAdmissionHook m_AlarmSendAdmissionHook;
+#endif
+
     /** Are we init-ed? */
     bool m_bInitialized = false;
+
+    /** Has the unarmed POSIX timer been created? */
+    bool m_bPrepared = false;
 };
 
 /** @} */

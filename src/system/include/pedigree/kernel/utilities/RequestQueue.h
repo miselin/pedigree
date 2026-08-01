@@ -49,21 +49,40 @@ class EXPORTED_PUBLIC RequestQueue
   public:
     class InterruptRequest;
 
+    enum class OverrunStatus
+    {
+        Clear,
+        Armed,
+        Stalled,
+        Overloaded,
+    };
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    /** Takes one watchdog snapshot without reporting it as fatal. */
+    OverrunStatus sampleOverrunForTest();
+#endif
+
 #if THREADS
   private:
     class RequestQueueOverrunChecker : public TimerHandler
     {
         friend class RequestQueue;
 
-        RequestQueueOverrunChecker() : m_LastQueueSize(0), m_Tick(0), queue(0)
+        RequestQueueOverrunChecker()
+            : m_LastQueueSize(0), m_LastProgressGeneration(0), m_Tick(0),
+              m_HasBacklogBaseline(false), queue(0)
         {
         }
 
       private:
         virtual void timer(uint64_t delta);
+        OverrunStatus sample(size_t &lastSize, size_t &currentSize);
+        void resetBaselineLocked();
 
         size_t m_LastQueueSize;
+        size_t m_LastProgressGeneration;
         uint64_t m_Tick;
+        bool m_HasBacklogBaseline;
 
         RequestQueue *queue;
     };
@@ -379,6 +398,9 @@ class EXPORTED_PUBLIC RequestQueue
 
     /** The worker has entered work() and installed its lifetime deferral. */
     bool m_bWorkerReady;
+
+    /** Changes whenever the worker claims another queued request. */
+    size_t m_WorkerProgressGeneration;
 
     RequestQueueOverrunChecker m_OverrunChecker;
     Timer *m_pOverrunTimer;

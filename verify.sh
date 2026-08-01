@@ -397,6 +397,27 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local request_queue_header=src/system/include/pedigree/kernel/utilities/RequestQueue.h
+    local request_queue_source=src/system/kernel/utilities/RequestQueue.cc
+    local request_queue_regressions=src/modules/system/hosted-smoke/requestqueue-regressions.cc
+    local request_queue_sample
+    request_queue_sample=$(sed -n \
+        '/RequestQueueOverrunChecker::sample(/,/^void RequestQueue::RequestQueueOverrunChecker::timer/p' \
+        "$request_queue_source")
+    if ! rg -q 'm_WorkerProgressGeneration' "$request_queue_header" ||
+        ! rg -q -U \
+            '(?s)RequestQueueOverrunChecker::sample\(.*?m_pRequestQueue\[priority\].*?m_WorkerProgressGeneration.*?m_HasBacklogBaseline.*?OverrunStatus::Stalled.*?OverrunStatus::Overloaded' \
+            "$request_queue_source" ||
+        rg -q 'm_nTotalRequests' <<<"$request_queue_sample" ||
+        ! rg -q -U \
+            '(?s)RequestQueueOverrunChecker::timer\(.*?OverrunStatus::Stalled.*?OverrunStatus::Overloaded' \
+            "$request_queue_source" ||
+        ! rg -q 'requestqueue-watchdog-progress' \
+            "$request_queue_regressions"; then
+        echo "RequestQueue watchdog snapshots again confuse admission with stalled progress."
+        failed=1
+    fi
+
     local usb_port_change_header=src/modules/drivers/common/usb-hcd/PortChangeRequest.h
     matches=$(rg -n \
         'Scheduler::instance\(\)\.yield\(\)' \
@@ -862,6 +883,80 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local hosted_timer_source=src/system/kernel/machine/hosted/Timer.cc
+    local hosted_timer_header=src/system/kernel/machine/hosted/Timer.h
+    local hosted_scheduler_timer_source=src/system/kernel/machine/hosted/SchedulerTimer.cc
+    local hosted_scheduler_timer_header=src/system/kernel/machine/hosted/SchedulerTimer.h
+    local hosted_processor_source=src/system/kernel/core/processor/hosted/Processor.cc
+    local timer_regressions=src/modules/system/hosted-smoke/timer-regressions.cc
+    local scheduler_regressions=src/modules/system/hosted-smoke/scheduler-regressions.cc
+    local hosted_timer_hard
+    hosted_timer_hard=$(sed -n \
+        '/HostedTimer::hardIrq(/,/^void HostedTimer::threadedIrq/p' \
+        "$hosted_timer_source")
+    if ! rg -q \
+            'class HostedTimer : public Timer, private SplitIrqHandler' \
+            "$hosted_timer_header" ||
+        ! rg -q -U \
+            '(?s)HostedTimer::hardIrq\(.*?getInterruptNumber\(\) != SIGUSR1.*?si_signo != SIGUSR1.*?si_code != SI_TIMER.*?si_overrun.*?recordFromInterrupt\(expirations\).*?work = 1.*?HardIrqDisposition::Deferred' \
+            "$hosted_timer_source" ||
+        rg -q \
+            'sendEvent|m_Alarm|synchronise|getIrqManager|m_HandlerRegistry|while[[:space:]]*\(|compareAndSwap' \
+            <<<"$hosted_timer_hard" ||
+        ! rg -q -U \
+            '(?s)HostedTimer::threadedIrq\(.*?m_PendingExpirations\.takeAll\(\).*?MaximumDelta / INTERVAL.*?FATAL\("HostedTimer elapsed-time batch overflowed"\).*?processTimerBatch\(delta\)' \
+            "$hosted_timer_source" ||
+        ! rg -q -U \
+            '(?s)HostedTimer::processTimerBatch\(.*?m_AlarmLock\.acquire\(\).*?sendEvent\(.*?m_Alarms\.erase\(it\).*?m_AlarmLock\.release\(\)' \
+            "$hosted_timer_source" ||
+        ! rg -q -U \
+            '(?s)HostedTimer::initialise3\(\).*?initialiseSplitIrq\(\).*?registerIsaSplitIrq\(.*?timer_settime\(' \
+            "$hosted_timer_source"; then
+        echo "HostedTimer work escaped its counted hard top half and ordinary bottom half."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+            '(?s)HostedMachine::initialise3\(\).*?initialiseThreaded\(\).*?HostedTimer::instance\(\)\.initialise3\(\)' \
+            "$hosted_machine_source" ||
+        ! rg -q -U \
+            '(?s)HostedMachine::deinitialise\(\).*?HostedTimer::instance\(\)\.uninitialise\(\).*?shutdownThreaded\(\).*?HostedSchedulerTimer::instance\(\)\.uninitialise\(\)' \
+            "$hosted_machine_source"; then
+        echo "Hosted timer workers escaped their schedulable machine lifecycle."
+        failed=1
+    fi
+
+    if ! rg -q \
+            'class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler' \
+            "$hosted_scheduler_timer_header" ||
+        ! rg -q -U \
+            '(?s)HostedSchedulerTimer::initialise\(\).*?timer_create\(CLOCK_MONOTONIC.*?registerHardIsaIrqHandler\(1, this\).*?timer_settime\(' \
+            "$hosted_scheduler_timer_source" ||
+        ! rg -q -U \
+            '(?s)HostedSchedulerTimer::uninitialise\(\).*?timer_settime\(.*?unregisterHandler\(m_IrqId, this\).*?timer_delete\(' \
+            "$hosted_scheduler_timer_source" ||
+        ! rg -q -U \
+            '(?s)HostedSchedulerTimer::irq\(.*?getInterruptNumber\(\) != SIGUSR2.*?si_signo != SIGUSR2.*?si_code != SI_TIMER.*?si_overrun.*?m_Handler->timer\(delta, state\)' \
+            "$hosted_scheduler_timer_source" ||
+        ! rg -q 'hosted-scheduler-timer-hard-context' \
+            "$scheduler_regressions" ||
+        ! rg -q 'hosted-timer-thread-context' "$timer_regressions" ||
+        ! rg -q 'hosted-timer-overrun-accounting' "$timer_regressions" ||
+        ! rg -q 'timer-alarm-send-linearization' "$timer_regressions" ||
+        ! rg -q 'alarmLockHeldForTest' "$timer_regressions" ||
+        ! rg -q 'dispatchHandlerForTest' "$timer_regressions" ||
+        ! rg -q 'TimerHandlerRegistry registry' "$timer_regressions"; then
+        echo "Hosted hard scheduler and ordinary timer context coverage is incomplete."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)static void threadWrapper\(.*?\(void\) bInterrupts;.*?Processor::setInterrupts\(true\)' \
+        "$hosted_processor_source"; then
+        echo "A new hosted kernel thread can inherit an atomic creator context."
+        failed=1
+    fi
+
     local rtc_source=src/system/kernel/machine/mach_pc/Rtc.cc
     local rtc_header=src/system/kernel/machine/mach_pc/Rtc.h
     local irq_event_counter=src/system/include/pedigree/kernel/machine/IrqEventCounter.h
@@ -873,7 +968,9 @@ check_wait_api_boundaries()
         ! rg -q -U \
             '(?s)Rtc::hardIrq\(.*?read\(0x0C\).*?recordFromInterrupt\(\).*?work = RtcPeriodicWork.*?HardIrqDisposition::Deferred' \
             "$rtc_source" ||
-        rg -q 'sendEvent|m_AlarmQueue|m_HandlerRegistry\.dispatch' <<<"$rtc_hard" ||
+        rg -q \
+            'sendEvent|m_AlarmQueue|m_HandlerRegistry\.dispatch|while[[:space:]]*\(|compareAndSwap' \
+            <<<"$rtc_hard" ||
         ! rg -q -U \
             '(?s)Rtc::threadedIrq\(.*?m_PendingTicks\.takeAll\(\).*?processPeriodicTick\(delta\)' \
             "$rtc_source" ||
@@ -885,10 +982,18 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q 'class IrqEventCounter' "$irq_event_counter" ||
-        ! rg -q 'recordFromInterrupt\(\)' "$irq_event_counter" ||
+        ! rg -q 'recordFromInterrupt\(size_t occurrences = 1\)' \
+            "$irq_event_counter" ||
+        ! rg -q 'occurrences > \(Maximum - count\)' \
+            "$irq_event_counter" ||
+        ! rg -q 'm_Count \+= occurrences' "$irq_event_counter" ||
         ! rg -q 'takeAll\(\)' "$irq_event_counter" ||
-        ! rg -q 'observedEvents == 4' "$split_irq_regressions" ||
-        ! rg -q 'observedEventTime == 3906250' "$split_irq_regressions"; then
+        ! rg -q 'irq-event-counter-bounded-arithmetic' \
+            "$split_irq_regressions" ||
+        ! rg -q 'recordFromInterrupt\(m_NextEvents\.value\(\)\)' \
+            "$split_irq_regressions" ||
+        ! rg -q 'observedEvents == 15' "$split_irq_regressions" ||
+        ! rg -q 'observedEventTime == 14648437' "$split_irq_regressions"; then
         echo "Counted split IRQ occurrences can again collapse into a work bit."
         failed=1
     fi
@@ -915,7 +1020,9 @@ check_wait_api_boundaries()
         failed=1
     fi
 
-    if ! rg -q 'WaitQueue m_DispatchWaiters' "$timer_registry_header" ||
+    if ! rg -q 'class EXPORTED_PUBLIC TimerHandlerRegistry' \
+            "$timer_registry_header" ||
+        ! rg -q 'WaitQueue m_DispatchWaiters' "$timer_registry_header" ||
         ! rg -q 'm_DispatchWaiters\.acquire\(\)' \
             "$timer_registry_source" ||
         ! rg -q 'guard\.waitForCompletion\(' \

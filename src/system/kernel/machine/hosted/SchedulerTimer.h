@@ -57,6 +57,16 @@ class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler
     /** Uninitialises the class */
     void uninitialise();
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using HardContextHook = void (*)(uint64_t, InterruptState &);
+
+    /** Observes a real scheduler tick without replacing its handler. */
+    static EXPORTED_PUBLIC void
+    setHardContextHookForTest(HardContextHook hook);
+    /** Returns the opaque source carried by the real scheduler signal. */
+    static EXPORTED_PUBLIC uintptr_t sourceForTest();
+#endif
+
   protected:
     /** The default constructor */
     HostedSchedulerTimer() INITIALISATION_ONLY;
@@ -83,6 +93,10 @@ class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler
     SchedulerTimerHandler *m_Handler;
 
     bool m_bInitialized;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    static HardContextHook m_HardContextHook;
+#endif
 
     /** The HostedSchedulerTimer class instance */
     static HostedSchedulerTimer m_Instance;

@@ -153,6 +153,54 @@ class HostedRequestQueue : public RequestQueue
 
 };
 
+bool watchdogProgressRegression()
+{
+    HostedRequestQueue queue;
+    queue.initialise();
+
+    bool passed = queue.addAsyncRequest(
+                      0, HostedRequestQueue::HoldWorker, 42) == 1 &&
+                  queue.holdStarted.acquire();
+    passed &= queue.addAsyncRequest(
+                  0, HostedRequestQueue::Sum, 20, 22) == 1;
+    const RequestQueue::OverrunStatus transient =
+        queue.sampleOverrunForTest();
+
+    queue.releaseHold.release();
+    const bool firstDrained = queue.drain();
+    const RequestQueue::OverrunStatus cleared = queue.sampleOverrunForTest();
+
+    passed &= queue.addAsyncRequest(
+                  0, HostedRequestQueue::HoldWorker, 42) == 1 &&
+              queue.holdStarted.acquire();
+    passed &= queue.addAsyncRequest(
+                  0, HostedRequestQueue::Sum, 19, 23) == 1;
+    const RequestQueue::OverrunStatus baseline =
+        queue.sampleOverrunForTest();
+    const RequestQueue::OverrunStatus stalled =
+        queue.sampleOverrunForTest();
+
+    queue.releaseHold.release();
+    const bool secondDrained = queue.drain();
+    queue.destroy();
+
+    passed &= transient == RequestQueue::OverrunStatus::Armed &&
+              firstDrained && cleared == RequestQueue::OverrunStatus::Clear &&
+              baseline == RequestQueue::OverrunStatus::Armed &&
+              stalled == RequestQueue::OverrunStatus::Stalled &&
+              secondDrained;
+    if (!check(
+            passed,
+            "the watchdog confused transient admission with a full "
+            "no-progress interval"))
+    {
+        return false;
+    }
+
+    NOTICE("HOSTED-WAIT-TEST: PASS requestqueue-watchdog-progress");
+    return true;
+}
+
 struct HeldRequestContext
 {
     explicit HeldRequestContext(HostedRequestQueue *queue)
@@ -704,6 +752,11 @@ bool runHostedRequestQueueRegressions()
     NOTICE("HOSTED-WAIT-TEST: PASS scheduler-intrusive-ready-queue");
 
     if (!interruptRequestRegressions())
+    {
+        return false;
+    }
+
+    if (!watchdogProgressRegression())
     {
         return false;
     }

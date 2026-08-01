@@ -544,24 +544,18 @@ Rtc::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
         return HardIrqDisposition::Handled;
     }
 
-    size_t phase = m_CapturePhase.value();
-    while (!m_CapturePhase.compareAndSwap(phase, phase ^ 1))
-    {
-        phase = m_CapturePhase.value();
-    }
+    // IRQ8 is serialized until EOI. Use one bounded RMW for each captured
+    // value so a bottom-half reader cannot make the hard top spin.
+    const size_t phase = (m_CapturePhase ^= 1) ^ 1;
     const uint64_t delta = periodicIrqInfo[m_PeriodicIrqInfoIndex].ns[phase];
-    uint64_t tickCount = m_TickCount.value();
-    while (true)
+    constexpr uint64_t MaximumTick = ~static_cast<uint64_t>(0);
+    const uint64_t tickCount = m_TickCount.value();
+    if (tickCount > (MaximumTick - delta))
     {
-        const uint64_t maximum = ~static_cast<uint64_t>(0);
-        const uint64_t next =
-            tickCount > maximum - delta ? maximum : tickCount + delta;
-        if (m_TickCount.compareAndSwap(tickCount, next))
-        {
-            break;
-        }
-        tickCount = m_TickCount.value();
+        FATAL_NOLOCK("RTC monotonic tick counter overflowed");
+        return HardIrqDisposition::Handled;
     }
+    m_TickCount += delta;
 
     if (!m_PendingTicks.recordFromInterrupt())
     {

@@ -197,7 +197,10 @@ static void threadWrapper(
         // unlock other thread now that we are on the new stack
         *pLock = 1;
     }
-    Processor::setInterrupts(bInterrupts != 0);
+    // The saved interrupt state belongs to the thread which created us.
+    // Native kernel-thread entry always starts with interrupts enabled.
+    (void) bInterrupts;
+    Processor::setInterrupts(true);
     auto entry = reinterpret_cast<void (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t)>(func);
     entry(p1, p2, p3, p4);
     Thread::threadExited();
