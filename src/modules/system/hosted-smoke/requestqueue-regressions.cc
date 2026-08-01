@@ -372,7 +372,11 @@ void queuedRequestWaitHook(
         return;
     }
 
-    context->waiter = thread;
+    if (thread != context->waiter)
+    {
+        return;
+    }
+
     if (
         !queue || channel.owner || channel.value ||
         debugState != Thread::CondWait)
@@ -386,6 +390,7 @@ int submitQueuedRequest(void *parameter)
 {
     QueuedRequestContext *context =
         reinterpret_cast<QueuedRequestContext *>(parameter);
+    context->waiter = Processor::information().getCurrentThread();
     context->result =
         context->queue->addRequest(0, HostedRequestQueue::CancelQueued);
     context->finished += 1;
