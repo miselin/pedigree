@@ -438,6 +438,30 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local irq_registry_source=src/system/kernel/machine/IrqHandlerRegistry.cc
+    matches=$(rg -n \
+        'Scheduler::instance\(\)\.yield\(\)' \
+        "$irq_registry_source" || true)
+    if [[ -n "$matches" ]]; then
+        echo "The IRQ callback drain reverted to scheduler yielding:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        'm_DispatchWaiters\.acquire\(\)[^;]*;[[:space:]]*if[[:space:]]*\([^)]*!hasActiveDispatch[^)]*\)[^{]*\{[[:space:]]*break;[^}]*\}[[:space:]]*const WaitQueue::WakeReason[^=]*=[[:space:]]*guard\.waitForCompletion\(' \
+        "$irq_registry_source"; then
+        echo "The IRQ callback drain escaped its predicate-coupled wait."
+        failed=1
+    fi
+
+    if ! rg -q 'mode == SlotMode::Draining' "$irq_registry_source" ||
+        ! rg -q 'guard\.wakeAll\(' "$irq_registry_source" ||
+        ! rg -q 'WaitQueue::Channel\(&slot\)' "$irq_registry_source"; then
+        echo "The IRQ callback drain escaped its predicate-coupled wake."
+        failed=1
+    fi
+
     matches=$(rg -n -U \
         'while[[:space:]]*\([^;{}]*acquireLock\([^;{}]*\)[[:space:]]*\)[[:space:]]*;' \
         src --glob '*.{cc,h}' || true)

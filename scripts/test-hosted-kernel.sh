@@ -427,6 +427,8 @@ assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-handler-lifetime"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-lifetime"
 assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-waitqueue-drain"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-wait-ready-publication"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS cdi-irq-wait-contract"

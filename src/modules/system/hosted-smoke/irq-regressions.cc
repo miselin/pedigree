@@ -583,8 +583,12 @@ void handlerPinHook(IrqHandler *handler)
     // directly while the remover publishes its callback-drain state.
     for (size_t attempt = 0; attempt < 10000; ++attempt)
     {
+        Thread::WaitDebugInfo wait = {};
         uintptr_t debugAddress = 0;
         if (context->phase == static_cast<size_t>(2) &&
+            context->remover->getWaitDebugInfo(wait) && wait.queue &&
+            wait.channelOwner && wait.queued &&
+            wait.reason == WaitQueue::WakeReason::Waiting &&
             context->remover->getDebugState(debugAddress) ==
                 Thread::CallbackDrain &&
             debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
@@ -594,9 +598,13 @@ void handlerPinHook(IrqHandler *handler)
         Scheduler::instance().yield();
     }
 
+    Thread::WaitDebugInfo wait = {};
     uintptr_t debugAddress = 0;
     if (context->phase == static_cast<size_t>(2) &&
         !context->unregisterReturned &&
+        context->remover->getWaitDebugInfo(wait) && wait.queue &&
+        wait.channelOwner && wait.queued &&
+        wait.reason == WaitQueue::WakeReason::Waiting &&
         context->remover->getDebugState(debugAddress) ==
             Thread::CallbackDrain &&
         debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
@@ -744,6 +752,7 @@ bool handlerLifetimeBarrier()
 
     if (passed)
     {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-handler-waitqueue-drain");
         NOTICE("HOSTED-WAIT-TEST: PASS irq-handler-lifetime");
     }
     return passed;

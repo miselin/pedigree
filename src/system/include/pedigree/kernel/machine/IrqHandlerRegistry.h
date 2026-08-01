@@ -10,6 +10,7 @@
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -43,7 +44,8 @@ class IrqHandlerRegistry
      *
      * Self-removal cannot synchronously drain its own callback and is deferred
      * until that callback returns. Atomic contexts reject a removal which
-     * would otherwise have to wait.
+     * would otherwise have to wait. A synchronous caller must not retain a
+     * resource which the active handler needs to finish.
      */
     UnregisterResult unregisterHandler(uint8_t irq, IrqHandler *handler);
 
@@ -151,6 +153,7 @@ class IrqHandlerRegistry
 
     HandlerSlot m_Handlers[MaxHandlerSlots];
     ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
+    WaitQueue m_DispatchWaiters;
     Spinlock m_HandlerLock;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

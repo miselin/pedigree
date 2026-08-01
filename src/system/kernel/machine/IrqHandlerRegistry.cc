@@ -9,7 +9,6 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -18,7 +17,8 @@
 #include "pedigree/kernel/utilities/assert.h"
 
 IrqHandlerRegistry::IrqHandlerRegistry()
-    : m_Handlers(), m_ActiveDispatches(), m_HandlerLock(false)
+    : m_Handlers(), m_ActiveDispatches(), m_DispatchWaiters(),
+      m_HandlerLock(false)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
       m_HandlerPinHook(nullptr), m_HandlerPrePinHook(nullptr)
@@ -131,6 +131,17 @@ void IrqHandlerRegistry::unpublishDispatch(void *token, HandlerSlot &slot)
     const size_t publication =
         __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
     const SlotMode mode = modeOf(publication);
+    if (mode == SlotMode::Draining)
+    {
+        auto guard = m_DispatchWaiters.acquire();
+        if (!hasActiveDispatch(slot))
+        {
+            guard.wakeAll(
+                WaitQueue::WakeReason::Signalled,
+                WaitQueue::Channel(&slot));
+        }
+    }
+
     if (mode == SlotMode::Deferred)
     {
         IrqHandler *handler = __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
@@ -423,16 +434,19 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
     }
     m_HandlerLock.release();
 
-    uintptr_t previousDebugAddress = 0;
-    const Thread::DebugState previousDebugState =
-        current->getDebugState(previousDebugAddress);
-    current->setDebugState(
-        Thread::CallbackDrain, reinterpret_cast<uintptr_t>(handler));
-    while (hasActiveDispatch(*slot))
+    while (true)
     {
-        Scheduler::instance().yield();
+        auto guard = m_DispatchWaiters.acquire();
+        if (!hasActiveDispatch(*slot))
+        {
+            break;
+        }
+
+        const WaitQueue::WakeReason reason = guard.waitForCompletion(
+            WaitQueue::Channel(slot), Thread::CallbackDrain,
+            reinterpret_cast<uintptr_t>(handler));
+        (void) reason;
     }
-    current->setDebugState(previousDebugState, previousDebugAddress);
 
     m_HandlerLock.acquire();
     const bool retired = retireSlot(*slot, drainingPublication, handler);
