@@ -156,6 +156,13 @@ void Pc::initialise()
 
 void Pc::deinitialise()
 {
+    if (!m_bInitialised)
+    {
+        return;
+    }
+
+    Rtc::instance().uninitialise();
+    Pit::instance().uninitialise();
     if (!Pic::instance().shutdownThreaded())
     {
         FATAL("Pc: threaded IRQ workers did not stop");
@@ -179,6 +186,10 @@ void Pc::initialise3()
     if (!Pic::instance().initialiseThreaded())
     {
         panic("Pc: threaded IRQ worker initialisation failed");
+    }
+    if (!Rtc::instance().initialise3())
+    {
+        panic("Pc: RTC bottom-half initialisation failed");
     }
     m_Keyboard->startReaderThread();
 }

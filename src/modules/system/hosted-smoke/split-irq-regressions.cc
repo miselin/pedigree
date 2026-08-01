@@ -7,6 +7,7 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/IrqEventCounter.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/SplitIrqHandler.h"
@@ -75,10 +76,11 @@ class HostedSplitIrq final : public SplitIrqHandler
     HostedSplitIrq()
         : SplitIrqHandler(MakeConstantString("Hosted split IRQ regression")),
           hardCalls(0), hardOutsideSignal(0), bottomCalls(0),
-          bottomInsideSignal(0), observedWork(0), bottomEntered(0),
-          releaseBottom(0), bottomCompleted(0), quiesceCalls(0), rearmCalls(0),
-          rearmedWork(0), hardShutdownAttempts(0), hardShutdownSucceeded(0),
-          m_Started(false), m_NextWork(1), m_HoldNext(0), m_ShutdownFromHard(0)
+          bottomInsideSignal(0), observedWork(0), observedEvents(0),
+          observedEventTime(0), bottomEntered(0), releaseBottom(0),
+          bottomCompleted(0), quiesceCalls(0), rearmCalls(0), rearmedWork(0),
+          hardShutdownAttempts(0), hardShutdownSucceeded(0), m_Started(false),
+          m_NextWork(1), m_HoldNext(0), m_ShutdownFromHard(0), m_EventPhase(0)
     {
     }
 
@@ -173,6 +175,8 @@ class HostedSplitIrq final : public SplitIrqHandler
     Atomic<size_t> bottomCalls;
     Atomic<size_t> bottomInsideSignal;
     Atomic<size_t> observedWork;
+    Atomic<size_t> observedEvents;
+    Atomic<uint64_t> observedEventTime;
     Semaphore bottomEntered;
     Semaphore releaseBottom;
     Semaphore bottomCompleted;
@@ -192,6 +196,10 @@ class HostedSplitIrq final : public SplitIrqHandler
         }
 
         hardCalls += 1;
+        if (!m_ExactEvents.recordFromInterrupt())
+        {
+            FATAL_NOLOCK("Split IRQ event counter saturated.");
+        }
         Thread *current = Processor::information().getCurrentThread();
         if (!current || !current->getHostedSignalDepth())
         {
@@ -215,6 +223,13 @@ class HostedSplitIrq final : public SplitIrqHandler
     {
         bottomCalls += 1;
         observedWork |= work;
+        size_t events = m_ExactEvents.takeAll();
+        observedEvents += events;
+        while (events--)
+        {
+            observedEventTime += m_EventPhase ? 976563 : 976562;
+            m_EventPhase ^= 1;
+        }
 
         Thread *current = Processor::information().getCurrentThread();
         if (current && current->getHostedSignalDepth())
@@ -248,6 +263,8 @@ class HostedSplitIrq final : public SplitIrqHandler
     Atomic<size_t> m_NextWork;
     Atomic<size_t> m_HoldNext;
     Atomic<size_t> m_ShutdownFromHard;
+    size_t m_EventPhase;
+    IrqEventCounter m_ExactEvents;
 };
 
 bool waitForCompletedBatches(HostedSplitIrq &handler, size_t batches)
@@ -398,7 +415,8 @@ bool coalescingRegression()
         "the held worker did not complete both batches", Test);
     passed &= check(
         handler.hardCalls == 4 && handler.bottomCalls == 2 &&
-            handler.observedWork == 15,
+            handler.observedWork == 15 && handler.observedEvents == 4 &&
+            handler.observedEventTime == 3906250,
         "an IRQ storm was not coalesced into one follow-up batch", Test);
     passed &= check(
         handler.hardOutsideSignal == 0 && handler.bottomInsideSignal == 0 &&

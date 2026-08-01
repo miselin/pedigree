@@ -847,6 +847,65 @@ check_wait_api_boundaries()
 
     local timer_registry_source=src/system/kernel/machine/TimerHandlerRegistry.cc
     local timer_registry_header=src/system/include/pedigree/kernel/machine/TimerHandlerRegistry.h
+    local timer_handler_header=src/system/include/pedigree/kernel/machine/TimerHandler.h
+    local scheduler_timer_handler_header=src/system/include/pedigree/kernel/machine/SchedulerTimerHandler.h
+    local scheduler_timer_header=src/system/include/pedigree/kernel/machine/SchedulerTimer.h
+    if ! rg -q 'virtual void timer\(uint64_t delta\) = 0' \
+            "$timer_handler_header" ||
+        rg -q 'InterruptState' "$timer_handler_header" ||
+        ! rg -q 'timer\(uint64_t delta, InterruptState &state\) = 0' \
+            "$scheduler_timer_handler_header" ||
+        ! rg -q 'registerHandler\(SchedulerTimerHandler \*handler\)' \
+            "$scheduler_timer_header" ||
+        ! rg -q 'handler->timer\(delta\)' "$timer_registry_source"; then
+        echo "Ordinary and hard scheduler timer callback contexts were conflated."
+        failed=1
+    fi
+
+    local rtc_source=src/system/kernel/machine/mach_pc/Rtc.cc
+    local rtc_header=src/system/kernel/machine/mach_pc/Rtc.h
+    local irq_event_counter=src/system/include/pedigree/kernel/machine/IrqEventCounter.h
+    local pc_source=src/system/kernel/machine/mach_pc/Pc.cc
+    local rtc_hard
+    rtc_hard=$(sed -n '/Rtc::hardIrq(/,/^void Rtc::threadedIrq/p' "$rtc_source")
+    if ! rg -q 'class Rtc : public Timer, private SplitIrqHandler' \
+            "$rtc_header" ||
+        ! rg -q -U \
+            '(?s)Rtc::hardIrq\(.*?read\(0x0C\).*?recordFromInterrupt\(\).*?work = RtcPeriodicWork.*?HardIrqDisposition::Deferred' \
+            "$rtc_source" ||
+        rg -q 'sendEvent|m_AlarmQueue|m_HandlerRegistry\.dispatch' <<<"$rtc_hard" ||
+        ! rg -q -U \
+            '(?s)Rtc::threadedIrq\(.*?m_PendingTicks\.takeAll\(\).*?processPeriodicTick\(delta\)' \
+            "$rtc_source" ||
+        ! rg -q -U \
+            '(?s)Rtc::quiesceIrqSources\(\).*?setPeriodicInterruptEnabled\(false\)' \
+            "$rtc_source"; then
+        echo "RTC work escaped its acknowledge/count top half and threaded bottom half."
+        failed=1
+    fi
+
+    if ! rg -q 'class IrqEventCounter' "$irq_event_counter" ||
+        ! rg -q 'recordFromInterrupt\(\)' "$irq_event_counter" ||
+        ! rg -q 'takeAll\(\)' "$irq_event_counter" ||
+        ! rg -q 'observedEvents == 4' "$split_irq_regressions" ||
+        ! rg -q 'observedEventTime == 3906250' "$split_irq_regressions"; then
+        echo "Counted split IRQ occurrences can again collapse into a work bit."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+            '(?s)Pc::initialise3\(\).*?Rtc::instance\(\)\.initialise3\(\).*?startReaderThread\(\)' \
+            "$pc_source" ||
+        ! rg -q -U \
+            '(?s)Pc::deinitialise\(\).*?Rtc::instance\(\)\.uninitialise\(\).*?Pic::instance\(\)\.shutdownThreaded\(\)' \
+            "$pc_source" ||
+        ! rg -q 'statusB & ~RtcUpdateInhibit' "$rtc_source" ||
+        ! rg -q 'statusB \| RtcUpdateInhibit' "$rtc_source" ||
+        ! rg -q 'status & ~RtcInterruptEnableMask' "$rtc_source"; then
+        echo "RTC worker lifecycle or CMOS control-bit preservation regressed."
+        failed=1
+    fi
+
     matches=$(rg -n \
         'Scheduler::instance\(\)\.yield\(\)' \
         "$timer_registry_source" || true)

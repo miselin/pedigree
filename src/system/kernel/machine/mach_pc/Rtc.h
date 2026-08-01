@@ -20,9 +20,11 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_RTC_H
 #define KERNEL_MACHINE_X86_COMMON_RTC_H
 
+#include "RtcAlarmQueue.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/IrqEventCounter.h"
+#include "pedigree/kernel/machine/SplitIrqHandler.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/machine/TimerHandlerRegistry.h"
 #include "pedigree/kernel/machine/types.h"
@@ -30,7 +32,6 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
-#include "RtcAlarmQueue.h"
 
 class TimerHandler;
 
@@ -38,7 +39,7 @@ class TimerHandler;
  * @{ */
 
 /** Class for the Real-time clock / CMOS implementing the Timer interface */
-class Rtc : public Timer, private HardIrqHandler
+class Rtc : public Timer, private SplitIrqHandler
 {
   public:
     inline static Rtc &instance()
@@ -69,8 +70,10 @@ class Rtc : public Timer, private HardIrqHandler
     /** Initialises the class
      *\return true, if successful, false otherwise */
     bool initialise1() INITIALISATION_ONLY;
-    /** Initialises the RTC's IRQ. */
+    /** Calibrates the TSC while the RTC line remains masked. */
     bool initialise2() INITIALISATION_ONLY;
+    /** Starts the RTC bottom half and enables periodic IRQ delivery. */
+    bool initialise3();
     /** Synchronise the time/date with the hardware */
     virtual void synchronise(bool tohw = false);
     /** Uninitialises the class */
@@ -92,14 +95,21 @@ class Rtc : public Timer, private HardIrqHandler
      *\note NOT implemented */
     Rtc &operator=(const Rtc &);
 
-    //
-    // HardIrqHandler interface
-    //
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    HardIrqDisposition
+    hardIrq(irq_id_t number, InterruptState &state, size_t &work) override;
+    void threadedIrq(size_t work) override;
+    bool quiesceIrqSources() override;
+    void rearmIrqSources(size_t work) override;
+
+    /** Applies one periodic event in ordinary thread context. */
+    void processPeriodicTick(uint64_t delta);
+
+    /** Atomically changes the RTC periodic-interrupt source and clears C. */
+    void setPeriodicInterruptEnabled(bool enabled);
 
     /** Set the index register
      *\param[in] index the new index */
-    void setIndex(uint8_t index);
+    void setIndexLocked(uint8_t index);
     /** Wait until the Update of the RTC entries in the CMOS is complete,
      * if we want to access one of those entries
      *\param[in] index the index we want to access afterwards */
@@ -108,6 +118,8 @@ class Rtc : public Timer, private HardIrqHandler
      *\param[in] index the index we want to access / have accessed
      *\param[in] enable Do we want to enable or disable? */
     void enableRtcUpdates(bool enable);
+    uint8_t readLocked(uint8_t index);
+    void writeLocked(uint8_t index, uint8_t value);
     /** Read the value in the CMOS at a specific index
      *\param[in] index the index
      *\return the value at the index */
@@ -129,6 +141,15 @@ class Rtc : public Timer, private HardIrqHandler
     /** Index into the periodicIrqInfo table */
     size_t m_PeriodicIrqInfoIndex;
 
+    /** Selects the alternating fractional-nanosecond periodic delta. */
+    size_t m_PeriodicPhase;
+
+    /** Hard-stage phase used to advance the authoritative alarm clock. */
+    Atomic<size_t> m_CapturePhase;
+
+    /** Delivered periodic IRQ callbacks preserved across worker coalescing. */
+    IrqEventCounter m_PendingTicks;
+
     /** BCD mode? (otherwise in binary mode) */
     bool m_bBCD;
 
@@ -147,8 +168,11 @@ class Rtc : public Timer, private HardIrqHandler
     /** The current nanosecond */
     uint64_t m_Nanosecond;
 
-    /** The current tick count in nanoseconds */
-    uint64_t m_TickCount;
+    /** Current captured time used when callers create or remove alarms. */
+    Atomic<uint64_t> m_TickCount;
+
+    /** Bottom-half cursor used to deliver due alarms in event order. */
+    uint64_t m_ProcessedTickCount;
 
     /** Holds information about the RTC periodic irq */
     struct periodicIrqInfo_t
@@ -176,6 +200,9 @@ class Rtc : public Timer, private HardIrqHandler
     RtcAlarmQueue m_AlarmQueue;
     /** Protects the alarm queue and the dispatch-ownership transition. */
     Spinlock m_Lock;
+
+    /** Serialises the CMOS index/data register pair across processors. */
+    Spinlock m_CmosLock;
 
     /** Tracks the number of nanoseconds per TSC tick. */
     uint64_t m_TscTicksPerNanosecond;

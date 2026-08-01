@@ -48,8 +48,22 @@ class Event;
 #else
 #define INITIAL_RTC_HZ 512
 #endif
-#define BCD_TO_BIN8(x) (((((x) &0xF0) >> 4) * 10) + ((x) &0x0F))
+#define BCD_TO_BIN8(x) (((((x) & 0xF0) >> 4) * 10) + ((x) & 0x0F))
 #define BIN_TO_BCD8(x) ((((x) / 10) * 16) + ((x) % 10))
+
+namespace
+{
+constexpr uint8_t RtcPeriodicInterruptEnable = 1U << 6;
+constexpr uint8_t RtcAlarmInterruptEnable = 1U << 5;
+constexpr uint8_t RtcUpdateEndedInterruptEnable = 1U << 4;
+constexpr uint8_t RtcInterruptEnableMask = RtcPeriodicInterruptEnable |
+                                           RtcAlarmInterruptEnable |
+                                           RtcUpdateEndedInterruptEnable;
+constexpr uint8_t RtcUpdateInhibit = 1U << 7;
+constexpr uint8_t RtcInterruptRequested = 1U << 7;
+constexpr uint8_t RtcPeriodicFlag = 1U << 6;
+constexpr size_t RtcPeriodicWork = 1;
+}  // namespace
 
 Rtc::periodicIrqInfo_t Rtc::periodicIrqInfo[12] = {
     {4, 0x0e, {250000000ULL, 250000000ULL}},
@@ -69,8 +83,8 @@ Rtc::periodicIrqInfo_t Rtc::periodicIrqInfo[12] = {
 static uint8_t daysPerMonth[] = {31, 28, 31, 30, 31, 30,
                                  31, 31, 30, 31, 30, 31};
 
-static uint64_t addAlarmDuration(
-    uint64_t deadline, size_t count, uint64_t multiplier)
+static uint64_t
+addAlarmDuration(uint64_t deadline, size_t count, uint64_t multiplier)
 {
     if (count > ((Time::Infinity - deadline) / multiplier))
     {
@@ -102,9 +116,9 @@ void Rtc::addAlarm(Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
 
     // Figure out when to trigger the alarm.
     uint64_t target = addAlarmDuration(
-        m_TickCount, alarmSecs, Time::Multiplier::Second);
-    target = addAlarmDuration(
-        target, alarmUsecs, Time::Multiplier::Microsecond);
+        m_TickCount.value(), alarmSecs, Time::Multiplier::Second);
+    target =
+        addAlarmDuration(target, alarmUsecs, Time::Multiplier::Microsecond);
     pAlarm->prepare(
         pEvent, target, Processor::information().getCurrentThread());
     m_AlarmQueue.add(pAlarm);
@@ -122,8 +136,7 @@ void Rtc::drainRemoteAlarmDispatch(Event *pEvent, void *owner)
     while (true)
     {
         m_Lock.acquire();
-        const bool dispatching =
-            m_AlarmQueue.hasRemoteInFlight(pEvent, owner);
+        const bool dispatching = m_AlarmQueue.hasRemoteInFlight(pEvent, owner);
         m_Lock.release();
 
         if (!dispatching)
@@ -179,24 +192,21 @@ size_t Rtc::removeAlarm(class Event *pEvent, bool bRetZero)
     void *owner = currentAlarmDispatchOwner();
 
     m_Lock.acquire();
-    const uint64_t currTime = m_TickCount;
-    RtcAlarmQueue::Removal removal =
-        m_AlarmQueue.removeFirst(pEvent, owner);
+    const uint64_t currTime = m_TickCount.value();
+    RtcAlarmQueue::Removal removal = m_AlarmQueue.removeFirst(pEvent, owner);
     if (removal.record)
     {
         m_AlarmQueue.recycleList(removal.record);
     }
     m_Lock.release();
 
-    if (
-        removal.disposition ==
+    if (removal.disposition ==
         RtcAlarmQueue::RemovalDisposition::RemoteInFlight)
     {
         drainRemoteAlarmDispatch(pEvent, owner);
         return 0;
     }
-    if (
-        removal.disposition != RtcAlarmQueue::RemovalDisposition::Removed ||
+    if (removal.disposition != RtcAlarmQueue::RemovalDisposition::Removed ||
         bRetZero || removal.deadline < currTime)
     {
         return 0;
@@ -338,47 +348,78 @@ bool Rtc::initialise2()
 {
     NOTICE("Rtc::initialise2");
 
-    // Register the irq
-    IrqManager &irqManager = *Machine::instance().getIrqManager();
-    m_IrqId = irqManager.registerHardIsaIrqHandler(8, this);
-    if (m_IrqId == 0)
-        return false;
+    // Calibrate against TSC without making pre-scheduler IRQ callbacks do
+    // runtime policy work. IRQ8 is still masked because it has no handler;
+    // register C remains pollable and clears each periodic occurrence.
+    constexpr size_t CalibrationPeriods = 50;
+    setPeriodicInterruptEnabled(true);
+    while (!(read(0x0C) & RtcPeriodicFlag))
+    {
+        Processor::pause();
+    }
 
-    // Activate the IRQ
-    uint8_t statusb = read(0x0B);
-    write(0x0B, statusb | 0x40);
-    read(0x0C);  // Some RTC chips need the interrupt status to be cleared after
-                 // changing the control register.
-
-    bool wasInterrupts = Processor::getInterrupts();
-    Processor::setInterrupts(true);
-
-    // Calibrate against TSC (assumes constant TSC - need to check CPUID!)
     uint64_t tsc0, tsc1;
 
     uint32_t edx, eax;
     asm volatile("rdtsc" : "=d"(edx), "=a"(eax)::"memory");
     tsc0 = (static_cast<uint64_t>(edx) << 32UL) | eax;
 
-    m_TickCount = 0;
-
-    // Burn some cycles.
-    for (size_t i = 0; i < 50; ++i)
+    size_t periods = 0;
+    while (periods < CalibrationPeriods)
     {
-        Processor::haltUntilInterrupt();
+        if (read(0x0C) & RtcPeriodicFlag)
+        {
+            ++periods;
+        }
+        Processor::pause();
     }
 
     asm volatile("rdtsc" : "=d"(edx), "=a"(eax)::"memory");
     tsc1 = (static_cast<uint64_t>(edx) << 32UL) | eax;
+    setPeriodicInterruptEnabled(false);
 
+    uint64_t elapsedNanoseconds = 0;
+    for (size_t i = 0; i < CalibrationPeriods; ++i)
+    {
+        elapsedNanoseconds += periodicIrqInfo[m_PeriodicIrqInfoIndex].ns[i & 1];
+    }
     uint64_t diff = tsc1 - tsc0;
-    m_TscTicksPerNanosecond = diff / m_TickCount;
+    m_TscTicksPerNanosecond = diff / elapsedNanoseconds;
+    if (!m_TscTicksPerNanosecond)
+    {
+        m_TscTicksPerNanosecond = 1;
+    }
     NOTICE("TSC ticks/ns: " << m_TscTicksPerNanosecond);
 
+    m_TickCount = 0;
+    m_ProcessedTickCount = 0;
     m_Tsc0 = tsc1;
+    m_PeriodicPhase = 0;
+    m_CapturePhase = 0;
+    m_PendingTicks.reset();
 
-    Processor::setInterrupts(wasInterrupts);
+    return true;
+}
 
+bool Rtc::initialise3()
+{
+    if (!initialiseSplitIrq())
+    {
+        return false;
+    }
+
+    IrqManager &irqManager = *Machine::instance().getIrqManager();
+    m_IrqId = registerIsaSplitIrq(irqManager, 8);
+    if (!m_IrqId)
+    {
+        if (!shutdownSplitIrq())
+        {
+            FATAL("RTC could not stop its unregistered bottom-half worker");
+        }
+        return false;
+    }
+
+    setPeriodicInterruptEnabled(true);
     return true;
 }
 
@@ -437,21 +478,13 @@ void Rtc::synchronise(bool tohw)
 }
 void Rtc::uninitialise()
 {
-    // Deactivate the IRQ
-    uint8_t statusb = read(0x0B);
-    write(0x0B, statusb & ~0x40);
-
-    synchronise(true);
-
-    // Unregister the irq
-    IrqManager &irqManager = *Machine::instance().getIrqManager();
-    if (!irqManager.unregisterHandler(m_IrqId, this))
+    if (!shutdownSplitIrq())
     {
-        FATAL(
-            "RTC teardown could not synchronously unregister its IRQ "
-            "callback");
+        FATAL("RTC teardown could not drain its split IRQ worker");
     }
     m_IrqId = 0;
+
+    synchronise(true);
 
     m_HandlerRegistry.reset();
 
@@ -480,25 +513,99 @@ void Rtc::uninitialise()
 }
 
 Rtc::Rtc()
-    : m_IoPort("CMOS"), m_IrqId(0), m_PeriodicIrqInfoIndex(0), m_bBCD(true),
-      m_Year(1970), m_Month(0), m_DayOfMonth(0), m_Hour(0), m_Minute(0),
-      m_Second(0), m_Nanosecond(0), m_TickCount(0), m_HandlerRegistry(),
-      m_AlarmQueue(), m_Lock(false)
+    : SplitIrqHandler(MakeConstantString("RTC bottom half")), m_IoPort("CMOS"),
+      m_IrqId(0), m_PeriodicIrqInfoIndex(0), m_PeriodicPhase(0),
+      m_CapturePhase(0), m_PendingTicks(), m_bBCD(true), m_Year(1970),
+      m_Month(0), m_DayOfMonth(0), m_Hour(0), m_Minute(0), m_Second(0),
+      m_Nanosecond(0), m_TickCount(0), m_ProcessedTickCount(0),
+      m_HandlerRegistry(), m_AlarmQueue(), m_Lock(false), m_CmosLock(false),
+      m_TscTicksPerNanosecond(1), m_Tsc0(0)
 {
 }
 
 extern size_t g_FreePages;
 extern size_t g_AllocedPages;
 
-bool Rtc::irq(irq_id_t number, InterruptState &state)
+SplitIrqHandler::HardIrqDisposition
+Rtc::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
 {
-    static size_t index = 0;
-    // Update the Tick Count
-    uint64_t delta = periodicIrqInfo[m_PeriodicIrqInfoIndex].ns[index];
-    index = (index == 0) ? 1 : 0;
-    uint64_t prevTickCount = m_TickCount;
-    m_TickCount += delta;
-    if (m_TickCount < prevTickCount)
+    (void) number;
+    (void) state;
+
+    // Register C is the device acknowledgement and must be sampled before
+    // any work leaves hard IRQ context.
+    const uint8_t status = read(0x0C);
+    if (!(status & RtcInterruptRequested))
+    {
+        return HardIrqDisposition::Handled;
+    }
+    if (!(status & RtcPeriodicFlag))
+    {
+        return HardIrqDisposition::Handled;
+    }
+
+    size_t phase = m_CapturePhase.value();
+    while (!m_CapturePhase.compareAndSwap(phase, phase ^ 1))
+    {
+        phase = m_CapturePhase.value();
+    }
+    const uint64_t delta = periodicIrqInfo[m_PeriodicIrqInfoIndex].ns[phase];
+    uint64_t tickCount = m_TickCount.value();
+    while (true)
+    {
+        const uint64_t maximum = ~static_cast<uint64_t>(0);
+        const uint64_t next =
+            tickCount > maximum - delta ? maximum : tickCount + delta;
+        if (m_TickCount.compareAndSwap(tickCount, next))
+        {
+            break;
+        }
+        tickCount = m_TickCount.value();
+    }
+
+    if (!m_PendingTicks.recordFromInterrupt())
+    {
+        FATAL_NOLOCK("RTC periodic-event counter saturated");
+        return HardIrqDisposition::Handled;
+    }
+    work = RtcPeriodicWork;
+    return HardIrqDisposition::Deferred;
+}
+
+void Rtc::threadedIrq(size_t work)
+{
+    if (!(work & RtcPeriodicWork))
+    {
+        return;
+    }
+
+    size_t ticks = m_PendingTicks.takeAll();
+    while (ticks--)
+    {
+        const uint64_t delta =
+            periodicIrqInfo[m_PeriodicIrqInfoIndex].ns[m_PeriodicPhase];
+        m_PeriodicPhase ^= 1;
+        processPeriodicTick(delta);
+    }
+}
+
+bool Rtc::quiesceIrqSources()
+{
+    setPeriodicInterruptEnabled(false);
+    return true;
+}
+
+void Rtc::rearmIrqSources(size_t work)
+{
+    // Reading register C in hardIrq() already rearmed the RTC source.
+    (void) work;
+}
+
+void Rtc::processPeriodicTick(uint64_t delta)
+{
+    const uint64_t prevTickCount = m_ProcessedTickCount;
+    m_ProcessedTickCount += delta;
+    if (m_ProcessedTickCount < prevTickCount)
     {
         WARNING("RTC: rolled over.");
         /// \todo figure out how best to handle this
@@ -515,7 +622,7 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
     {
         m_Lock.acquire();
         Alarm *claimed = m_AlarmQueue.claimDue(
-            m_TickCount, currentAlarmDispatchOwner());
+            m_ProcessedTickCount, currentAlarmDispatchOwner());
         m_Lock.release();
 
         if (!claimed)
@@ -628,16 +735,11 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
         }
     }
 
-    // Acknowledging the IRQ (within the CMOS)
-    read(0x0C);
-
     // Timer delta is in nanoseconds.
     m_HandlerRegistry.dispatch(delta);
-
-    return true;
 }
 
-void Rtc::setIndex(uint8_t index)
+void Rtc::setIndexLocked(uint8_t index)
 {
     uint8_t idx = m_IoPort.read8(0);
     m_IoPort.write8((idx & 0x80) | (index & 0x7F), 0);
@@ -646,39 +748,76 @@ void Rtc::waitForUpdateCompletion(uint8_t index)
 {
     if (index <= 9 || index == 50)
     {
-        setIndex(0x0A);
-        while ((m_IoPort.read8(1) & 0x80) == 0x80)
-            ;
+        while (true)
+        {
+            bool updating = false;
+            {
+                LockGuard<Spinlock> guard(m_CmosLock);
+                setIndexLocked(0x0A);
+                updating = (m_IoPort.read8(1) & 0x80) != 0;
+            }
+            if (!updating)
+            {
+                break;
+            }
+            Processor::pause();
+        }
     }
 }
 void Rtc::enableRtcUpdates(bool enable)
 {
+    LockGuard<Spinlock> guard(m_CmosLock);
+
     // Write the index
-    setIndex(0x0B);
+    setIndexLocked(0x0B);
 
     // Update the status register
-    uint8_t statusA = m_IoPort.read8(1);
-    m_IoPort.write8((statusA & 0x80) | (enable ? 0 : (1 << 7)), 1);
+    uint8_t statusB = m_IoPort.read8(1);
+    statusB = enable ? static_cast<uint8_t>(statusB & ~RtcUpdateInhibit) :
+                       static_cast<uint8_t>(statusB | RtcUpdateInhibit);
+    m_IoPort.write8(statusB, 1);
 }
 uint8_t Rtc::read(uint8_t index)
 {
     // Wait until the RTC Update is completed
     waitForUpdateCompletion(index);
 
-    // Write the index
-    setIndex(index);
+    LockGuard<Spinlock> guard(m_CmosLock);
+    return readLocked(index);
+}
 
-    // Read the data at that index
+uint8_t Rtc::readLocked(uint8_t index)
+{
+    setIndexLocked(index);
     return m_IoPort.read8(1);
 }
+
 void Rtc::write(uint8_t index, uint8_t value)
 {
     // Wait until the RTC Update is completed
     waitForUpdateCompletion(index);
 
-    // Write the index
-    setIndex(index);
+    LockGuard<Spinlock> guard(m_CmosLock);
+    writeLocked(index, value);
+}
 
-    // Write the data to that index
+void Rtc::writeLocked(uint8_t index, uint8_t value)
+{
+    setIndexLocked(index);
     m_IoPort.write8(value, 1);
+}
+
+void Rtc::setPeriodicInterruptEnabled(bool enabled)
+{
+    LockGuard<Spinlock> guard(m_CmosLock);
+    const uint8_t status = readLocked(0x0B);
+    const uint8_t quiescentStatus =
+        static_cast<uint8_t>(status & ~RtcInterruptEnableMask);
+    writeLocked(
+        0x0B, enabled ? static_cast<uint8_t>(
+                            quiescentStatus | RtcPeriodicInterruptEnable) :
+                        quiescentStatus);
+
+    // Some RTCs require register C to be cleared after control changes.
+    (void) readLocked(0x0C);
 }
