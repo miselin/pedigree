@@ -16,23 +16,135 @@
 #include "pedigree/kernel/utilities/assert.h"
 
 IrqHandlerRegistry::IrqHandlerRegistry()
-    : m_Handlers(), m_HandlerLock(false)
+    : m_Handlers(), m_ActiveDispatches(), m_HandlerLock(false)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
-      m_HandlerPinHook(nullptr)
+      m_HandlerPinHook(nullptr), m_HandlerPrePinHook(nullptr)
 #endif
 {
 }
 
-void IrqHandlerRegistry::clearSlot(HandlerSlot &slot)
+size_t IrqHandlerRegistry::makePublication(
+    size_t generation, uint8_t irq, SlotMode mode)
 {
-    assert(!slot.inFlight);
-    assert(!slot.dispatches);
-    slot.handler = nullptr;
-    slot.irq = InvalidIrq;
-    slot.enabled = false;
-    slot.deferredRemoval = false;
-    slot.draining = false;
+    return (generation << GenerationShift) |
+           (static_cast<size_t>(irq) << IrqShift) |
+           static_cast<size_t>(mode);
+}
+
+size_t IrqHandlerRegistry::generationOf(size_t publication)
+{
+    return publication >> GenerationShift;
+}
+
+uint8_t IrqHandlerRegistry::irqOf(size_t publication)
+{
+    return static_cast<uint8_t>((publication & IrqMask) >> IrqShift);
+}
+
+IrqHandlerRegistry::SlotMode
+IrqHandlerRegistry::modeOf(size_t publication)
+{
+    return static_cast<SlotMode>(publication & ModeMask);
+}
+
+bool IrqHandlerRegistry::retireSlot(
+    HandlerSlot &slot, size_t expectedPublication,
+    IrqHandler *expectedHandler)
+{
+    const size_t retiringPublication = makePublication(
+        generationOf(expectedPublication), irqOf(expectedPublication),
+        SlotMode::Retiring);
+    if (!__atomic_compare_exchange_n(
+            &slot.publication, &expectedPublication, retiringPublication,
+            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    {
+        return false;
+    }
+
+    assert(
+        __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) ==
+        expectedHandler);
+    __atomic_store_n(&slot.handler, nullptr, __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &slot.publication,
+        makePublication(
+            generationOf(retiringPublication), InvalidIrq, SlotMode::Empty),
+        __ATOMIC_RELEASE);
+    return true;
+}
+
+IrqHandlerRegistry::ActiveDispatch *
+IrqHandlerRegistry::publishDispatch(HandlerSlot &slot, void *owner)
+{
+    assert(owner);
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *expectedOwner = nullptr;
+        if (__atomic_compare_exchange_n(
+                &dispatch.owner, &expectedOwner, owner, false,
+                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        {
+            // Only this owner can observe itself in this record. Publish the
+            // target before entering handler code which can unregister it.
+            __atomic_store_n(&dispatch.slot, &slot, __ATOMIC_RELEASE);
+            return &dispatch;
+        }
+    }
+
+    return nullptr;
+}
+
+void IrqHandlerRegistry::unpublishDispatch(ActiveDispatch *dispatch)
+{
+    assert(dispatch);
+    __atomic_store_n(&dispatch->slot, nullptr, __ATOMIC_RELEASE);
+    __atomic_store_n(&dispatch->owner, nullptr, __ATOMIC_RELEASE);
+}
+
+bool IrqHandlerRegistry::findCurrentDispatch(
+    void *owner, HandlerSlot *target, bool &callbackContext) const
+{
+    callbackContext = false;
+    bool foundTarget = false;
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        const ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        if (__atomic_load_n(&dispatch.owner, __ATOMIC_ACQUIRE) == owner)
+        {
+            callbackContext = true;
+            foundTarget |=
+                __atomic_load_n(&dispatch.slot, __ATOMIC_ACQUIRE) == target;
+        }
+    }
+    return foundTarget;
+}
+
+void IrqHandlerRegistry::releasePin(HandlerSlot &slot)
+{
+    const size_t remaining =
+        __atomic_sub_fetch(&slot.inFlight, 1, __ATOMIC_ACQ_REL);
+    if (remaining)
+    {
+        return;
+    }
+
+    const size_t publication =
+        __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE);
+    const SlotMode mode = modeOf(publication);
+    if (mode == SlotMode::Deferred)
+    {
+        IrqHandler *handler =
+            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
+        retireSlot(slot, publication, handler);
+    }
+    else if (mode == SlotMode::Draining)
+    {
+        slot.drainWaiters.wakeAll(
+            WaitQueue::WakeReason::Signalled,
+            WaitQueue::Channel(&slot));
+    }
 }
 
 void *IrqHandlerRegistry::currentDispatchOwner()
@@ -54,16 +166,21 @@ bool IrqHandlerRegistry::registerHandler(uint8_t irq, IrqHandler *handler)
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
         HandlerSlot &slot = m_Handlers[i];
-        if (slot.handler == handler && slot.irq == irq)
+        const size_t publication =
+            __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE);
+        if (
+            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) == handler &&
+            irqOf(publication) == irq && modeOf(publication) != SlotMode::Empty)
         {
-            if (
-                !slot.enabled && slot.deferredRemoval && !slot.draining)
+            if (modeOf(publication) == SlotMode::Deferred)
             {
-                // A new owner arrived before a callback's deferred
-                // self-removal completed.
-                slot.enabled = true;
-                slot.deferredRemoval = false;
-                return true;
+                size_t expectedPublication = publication;
+                const size_t enabledPublication = makePublication(
+                    generationOf(publication), irq, SlotMode::Enabled);
+                return __atomic_compare_exchange_n(
+                    &slot.publication, &expectedPublication,
+                    enabledPublication, false, __ATOMIC_ACQ_REL,
+                    __ATOMIC_ACQUIRE);
             }
             return false;
         }
@@ -72,15 +189,18 @@ bool IrqHandlerRegistry::registerHandler(uint8_t irq, IrqHandler *handler)
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
         HandlerSlot &slot = m_Handlers[i];
-        if (!slot.handler)
+        const size_t publication =
+            __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE);
+        if (
+            modeOf(publication) == SlotMode::Empty &&
+            !__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE))
         {
-            assert(!slot.inFlight);
-            assert(!slot.draining);
-            assert(!slot.dispatches);
-            slot.handler = handler;
-            slot.irq = irq;
-            slot.enabled = true;
-            slot.deferredRemoval = false;
+            const size_t generation = generationOf(publication) + 1;
+            __atomic_store_n(&slot.handler, handler, __ATOMIC_RELEASE);
+            __atomic_store_n(
+                &slot.publication,
+                makePublication(generation, irq, SlotMode::Enabled),
+                __ATOMIC_RELEASE);
             return true;
         }
     }
@@ -103,14 +223,88 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
     Thread *current = Processor::information().getCurrentThread();
     const bool canYield = current && Processor::getInterrupts();
 
+    if (!canYield)
+    {
+        // Callback and early atomic contexts cannot wait on a writer. A
+        // callback can close its own admission and let its final pin retire
+        // the slot; a non-callback removal completes only when no callback is
+        // already committed.
+        for (size_t i = 0; i < MaxHandlerSlots; ++i)
+        {
+            HandlerSlot &candidate = m_Handlers[i];
+            size_t publication =
+                __atomic_load_n(&candidate.publication, __ATOMIC_ACQUIRE);
+            if (
+                modeOf(publication) != SlotMode::Enabled ||
+                irqOf(publication) != irq ||
+                __atomic_load_n(&candidate.handler, __ATOMIC_ACQUIRE) !=
+                    handler)
+            {
+                continue;
+            }
+
+            bool callbackContext = false;
+            if (findCurrentDispatch(
+                    owner, &candidate, callbackContext))
+            {
+                const size_t deferredPublication = makePublication(
+                    generationOf(publication), irq, SlotMode::Deferred);
+                if (__atomic_compare_exchange_n(
+                        &candidate.publication, &publication,
+                        deferredPublication, false, __ATOMIC_ACQ_REL,
+                        __ATOMIC_ACQUIRE))
+                {
+                    return UnregisterResult::Deferred;
+                }
+                return UnregisterResult::Rejected;
+            }
+
+            const size_t drainingPublication = makePublication(
+                generationOf(publication), irq, SlotMode::Draining);
+            if (!__atomic_compare_exchange_n(
+                    &candidate.publication, &publication,
+                    drainingPublication, false, __ATOMIC_ACQ_REL,
+                    __ATOMIC_ACQUIRE))
+            {
+                return UnregisterResult::Rejected;
+            }
+
+            if (__atomic_load_n(&candidate.inFlight, __ATOMIC_ACQUIRE))
+            {
+                size_t expectedPublication = drainingPublication;
+                __atomic_compare_exchange_n(
+                    &candidate.publication, &expectedPublication,
+                    makePublication(
+                        generationOf(drainingPublication), irq,
+                        SlotMode::Enabled),
+                    false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+                return UnregisterResult::Rejected;
+            }
+
+            return retireSlot(candidate, drainingPublication, handler)
+                       ? UnregisterResult::Completed
+                       : UnregisterResult::Rejected;
+        }
+
+        return UnregisterResult::NotFound;
+    }
+
     m_HandlerLock.acquire();
 
     HandlerSlot *slot = nullptr;
+    size_t publication = 0;
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
-        if (m_Handlers[i].handler == handler && m_Handlers[i].irq == irq)
+        size_t candidatePublication =
+            __atomic_load_n(&m_Handlers[i].publication, __ATOMIC_ACQUIRE);
+        if (
+            modeOf(candidatePublication) != SlotMode::Empty &&
+            irqOf(candidatePublication) == irq &&
+            __atomic_load_n(&m_Handlers[i].handler, __ATOMIC_ACQUIRE) ==
+                handler)
         {
             slot = &m_Handlers[i];
+            publication = candidatePublication;
             break;
         }
     }
@@ -122,69 +316,73 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
     }
 
     bool callbackContext = false;
-    bool selfUnregister = false;
-    for (size_t i = 0; i < MaxHandlerSlots; ++i)
-    {
-        for (
-            HandlerDispatch *dispatch = m_Handlers[i].dispatches; dispatch;
-            dispatch = dispatch->next)
-        {
-            if (dispatch->owner == owner)
-            {
-                callbackContext = true;
-                selfUnregister |= &m_Handlers[i] == slot;
-            }
-        }
-    }
-
+    const bool selfUnregister =
+        findCurrentDispatch(owner, slot, callbackContext);
     if (selfUnregister)
     {
-        // Waiting for this callback's own pin would deadlock. Close admission
-        // now and release the slot when the callback unwinds.
-        if (!slot->draining)
+        if (modeOf(publication) != SlotMode::Enabled)
         {
-            slot->enabled = false;
-            slot->deferredRemoval = true;
+            m_HandlerLock.release();
+            return UnregisterResult::Rejected;
         }
+
+        size_t expectedPublication = publication;
+        const bool deferred = __atomic_compare_exchange_n(
+            &slot->publication, &expectedPublication,
+            makePublication(
+                generationOf(publication), irq, SlotMode::Deferred),
+            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
         m_HandlerLock.release();
-        return UnregisterResult::Deferred;
+        return deferred ? UnregisterResult::Deferred
+                        : UnregisterResult::Rejected;
     }
 
-    if (
-        slot->draining ||
-        (slot->inFlight && (!canYield || callbackContext)))
+    if (modeOf(publication) != SlotMode::Enabled)
     {
-        // A callback stack must not wait on another callback, and an atomic
-        // context cannot enter the scheduler. Leave ownership unchanged so
-        // the caller cannot mistake a partial removal for safe destruction.
         m_HandlerLock.release();
         return UnregisterResult::Rejected;
     }
 
-    slot->enabled = false;
-    slot->deferredRemoval = false;
-    slot->draining = true;
-    if (!slot->inFlight)
+    size_t expectedPublication = publication;
+    const size_t drainingPublication = makePublication(
+        generationOf(publication), irq, SlotMode::Draining);
+    if (!__atomic_compare_exchange_n(
+            &slot->publication, &expectedPublication, drainingPublication,
+            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
     {
-        clearSlot(*slot);
         m_HandlerLock.release();
-        return UnregisterResult::Completed;
+        return UnregisterResult::Rejected;
+    }
+
+    if (
+        callbackContext &&
+        __atomic_load_n(&slot->inFlight, __ATOMIC_ACQUIRE))
+    {
+        expectedPublication = drainingPublication;
+        __atomic_compare_exchange_n(
+            &slot->publication, &expectedPublication, publication, false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+        m_HandlerLock.release();
+        return UnregisterResult::Rejected;
+    }
+
+    if (!__atomic_load_n(&slot->inFlight, __ATOMIC_ACQUIRE))
+    {
+        const bool retired =
+            retireSlot(*slot, drainingPublication, handler);
+        m_HandlerLock.release();
+        return retired ? UnregisterResult::Completed
+                       : UnregisterResult::Rejected;
     }
     m_HandlerLock.release();
 
     while (true)
     {
         auto waitGuard = slot->drainWaiters.acquire();
-        m_HandlerLock.acquire();
-        if (!slot->inFlight)
+        if (!__atomic_load_n(&slot->inFlight, __ATOMIC_ACQUIRE))
         {
-            assert(slot->handler == handler);
-            assert(slot->draining);
-            clearSlot(*slot);
-            m_HandlerLock.release();
-            return UnregisterResult::Completed;
+            break;
         }
-        m_HandlerLock.release();
 
         const WaitQueue::WakeReason reason =
             waitGuard.waitForCompletion(
@@ -192,6 +390,13 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandler *handler)
                 reinterpret_cast<uintptr_t>(handler));
         (void) reason;
     }
+
+    m_HandlerLock.acquire();
+    const bool retired =
+        retireSlot(*slot, drainingPublication, handler);
+    m_HandlerLock.release();
+    return retired ? UnregisterResult::Completed
+                   : UnregisterResult::Rejected;
 }
 
 bool IrqHandlerRegistry::dispatch(
@@ -203,24 +408,47 @@ bool IrqHandlerRegistry::dispatch(
 
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
-        HandlerDispatch dispatch = {currentDispatchOwner(), nullptr};
-        IrqHandler *handler = nullptr;
-
-        m_HandlerLock.acquire();
         HandlerSlot &slot = m_Handlers[i];
+        const size_t publication =
+            __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE);
         if (
-            slot.handler && slot.irq == irq && slot.enabled &&
-            (!onlyHandler || slot.handler == onlyHandler))
+            modeOf(publication) != SlotMode::Enabled ||
+            irqOf(publication) != irq)
         {
-            handler = slot.handler;
-            ++slot.inFlight;
-            dispatch.next = slot.dispatches;
-            slot.dispatches = &dispatch;
+            continue;
         }
-        m_HandlerLock.release();
 
-        if (!handler)
+        IrqHandler *handler =
+            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
+        if (!handler || (onlyHandler && handler != onlyHandler))
         {
+            continue;
+        }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        HandlerPrePinHook prePinHook =
+            __atomic_load_n(&m_HandlerPrePinHook, __ATOMIC_ACQUIRE);
+        if (prePinHook)
+        {
+            prePinHook(handler);
+        }
+#endif
+
+        __atomic_add_fetch(&slot.inFlight, 1, __ATOMIC_ACQ_REL);
+        if (
+            __atomic_load_n(&slot.publication, __ATOMIC_ACQUIRE) !=
+                publication ||
+            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler)
+        {
+            releasePin(slot);
+            continue;
+        }
+
+        ActiveDispatch *activeDispatch =
+            publishDispatch(slot, currentDispatchOwner());
+        if (!activeDispatch)
+        {
+            releasePin(slot);
             continue;
         }
 
@@ -237,31 +465,8 @@ bool IrqHandlerRegistry::dispatch(
 #endif
 
         handled |= handler->irq(irq, state);
-
-        bool wakeDrainer = false;
-        m_HandlerLock.acquire();
-        HandlerDispatch **link = &slot.dispatches;
-        while (*link && *link != &dispatch)
-        {
-            link = &(*link)->next;
-        }
-        assert(*link == &dispatch);
-        *link = dispatch.next;
-        assert(slot.inFlight);
-        --slot.inFlight;
-        wakeDrainer = !slot.inFlight && slot.draining;
-        if (!slot.inFlight && slot.deferredRemoval)
-        {
-            clearSlot(slot);
-        }
-        m_HandlerLock.release();
-
-        if (wakeDrainer)
-        {
-            slot.drainWaiters.wakeAll(
-                WaitQueue::WakeReason::Signalled,
-                WaitQueue::Channel(&slot));
-        }
+        unpublishDispatch(activeDispatch);
+        releasePin(slot);
     }
 
     return admitted;
@@ -270,12 +475,13 @@ bool IrqHandlerRegistry::dispatch(
 size_t IrqHandlerRegistry::handlerCount(uint8_t irq)
 {
     size_t count = 0;
-    LockGuard<Spinlock> guard(m_HandlerLock);
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
+        const size_t publication =
+            __atomic_load_n(&m_Handlers[i].publication, __ATOMIC_ACQUIRE);
         if (
-            m_Handlers[i].handler && m_Handlers[i].irq == irq &&
-            m_Handlers[i].enabled)
+            modeOf(publication) == SlotMode::Enabled &&
+            irqOf(publication) == irq)
         {
             ++count;
         }
@@ -287,5 +493,20 @@ size_t IrqHandlerRegistry::handlerCount(uint8_t irq)
 void IrqHandlerRegistry::setHandlerPinHook(HandlerPinHook hook)
 {
     __atomic_store_n(&m_HandlerPinHook, hook, __ATOMIC_RELEASE);
+}
+
+void IrqHandlerRegistry::setHandlerPrePinHook(HandlerPrePinHook hook)
+{
+    __atomic_store_n(&m_HandlerPrePinHook, hook, __ATOMIC_RELEASE);
+}
+
+void IrqHandlerRegistry::withMutationLockForTest(MutationLockHook hook)
+{
+    m_HandlerLock.acquire();
+    if (hook)
+    {
+        hook();
+    }
+    m_HandlerLock.release();
 }
 #endif

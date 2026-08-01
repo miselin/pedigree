@@ -18,8 +18,10 @@ class IrqHandler;
 /**
  * Allocation-free IRQ callback registry with synchronous removal.
  *
- * Dispatch pins a handler before dropping the registry lock. Removal first
- * closes admission and then drains any pins which were already committed.
+ * Dispatch never takes the registry's writer lock. It pins an atomically
+ * published slot and revalidates that publication before entering the
+ * callback. Removal first closes admission and then drains callbacks which
+ * committed their pins before that transition.
  */
 class IrqHandlerRegistry
 {
@@ -59,47 +61,82 @@ class IrqHandlerRegistry
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     using HandlerPinHook = void (*)(IrqHandler *);
+    using HandlerPrePinHook = void (*)(IrqHandler *);
+    using MutationLockHook = void (*)();
 
     void setHandlerPinHook(HandlerPinHook hook);
+    void setHandlerPrePinHook(HandlerPrePinHook hook);
+    void withMutationLockForTest(MutationLockHook hook);
 #endif
 
   private:
     static constexpr size_t MaxHandlerSlots = 64;
+    static constexpr size_t MaxActiveDispatches = 64;
     static constexpr uint8_t InvalidIrq = 0xFF;
 
-    struct HandlerDispatch
+    enum class SlotMode : size_t
     {
+        Empty = 0,
+        Enabled,
+        Draining,
+        Deferred,
+        Retiring,
+    };
+
+    static constexpr size_t ModeBits = 3;
+    static constexpr size_t ModeMask = (1 << ModeBits) - 1;
+    static constexpr size_t IrqShift = ModeBits;
+    static constexpr size_t IrqMask = 0xFF << IrqShift;
+    static constexpr size_t GenerationShift = IrqShift + 8;
+
+    struct HandlerSlot;
+
+    struct ActiveDispatch
+    {
+        ActiveDispatch() : owner(nullptr), slot(nullptr)
+        {
+        }
+
         void *owner;
-        HandlerDispatch *next;
+        HandlerSlot *slot;
     };
 
     struct HandlerSlot
     {
         HandlerSlot()
-            : handler(nullptr), irq(InvalidIrq), inFlight(0), enabled(false),
-              deferredRemoval(false), draining(false), dispatches(nullptr),
-              drainWaiters()
+            : handler(nullptr), publication(0), inFlight(0), drainWaiters()
         {
         }
 
         IrqHandler *handler;
-        uint8_t irq;
+        size_t publication;
         size_t inFlight;
-        bool enabled;
-        bool deferredRemoval;
-        bool draining;
-        HandlerDispatch *dispatches;
         WaitQueue drainWaiters;
     };
 
-    static void clearSlot(HandlerSlot &slot);
+    static size_t makePublication(
+        size_t generation, uint8_t irq, SlotMode mode);
+    static size_t generationOf(size_t publication);
+    static uint8_t irqOf(size_t publication);
+    static SlotMode modeOf(size_t publication);
+
+    bool retireSlot(
+        HandlerSlot &slot, size_t expectedPublication,
+        IrqHandler *expectedHandler);
+    ActiveDispatch *publishDispatch(HandlerSlot &slot, void *owner);
+    void unpublishDispatch(ActiveDispatch *dispatch);
+    void releasePin(HandlerSlot &slot);
+    bool findCurrentDispatch(
+        void *owner, HandlerSlot *target, bool &callbackContext) const;
     static void *currentDispatchOwner();
 
     HandlerSlot m_Handlers[MaxHandlerSlots];
+    ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
     Spinlock m_HandlerLock;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     HandlerPinHook m_HandlerPinHook;
+    HandlerPrePinHook m_HandlerPrePinHook;
 #endif
 };
 

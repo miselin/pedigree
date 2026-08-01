@@ -15,17 +15,187 @@
 #include "pedigree/kernel/time/Time.h"
 #include "system/kernel/machine/hosted/IrqManager.h"
 
+#include <signal.h>
+
 namespace
 {
-bool check(bool condition, const char *detail)
+bool check(
+    bool condition, const char *detail,
+    const char *test = "irq-handler-lifetime")
 {
     if (condition)
     {
         return true;
     }
 
-    ERROR("HOSTED-WAIT-TEST: FAIL irq-handler-lifetime: " << detail);
+    ERROR("HOSTED-WAIT-TEST: FAIL " << test << ": " << detail);
     return false;
+}
+
+struct RegistryDispatchContext;
+RegistryDispatchContext *g_RegistryDispatchContext = nullptr;
+void dispatchWhileWriterLocked();
+
+class RegistryDispatchHandler : public IrqHandler
+{
+  public:
+    explicit RegistryDispatchHandler(RegistryDispatchContext &context)
+        : m_Context(context)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override;
+
+  private:
+    RegistryDispatchContext &m_Context;
+};
+
+struct RegistryDispatchContext
+{
+    explicit RegistryDispatchContext(IrqManager *manager)
+        : manager(manager), handler(*this), id(0), calls(0), hookCalls(0),
+          admitted(0), handled(0), unregisterSucceeded(0),
+          mutationRequested(0), state(nullptr)
+    {
+    }
+
+    IrqManager *manager;
+    RegistryDispatchHandler handler;
+    irq_id_t id;
+    Atomic<size_t> calls;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> admitted;
+    Atomic<size_t> handled;
+    Atomic<size_t> unregisterSucceeded;
+    Atomic<size_t> mutationRequested;
+    InterruptState *state;
+};
+
+bool RegistryDispatchHandler::irq(irq_id_t, InterruptState &state)
+{
+    m_Context.calls += 1;
+    if (m_Context.mutationRequested.compareAndSwap(1, 2))
+    {
+        m_Context.state = &state;
+        HostedIrqManager::withRegistryMutationLockForTest(
+            dispatchWhileWriterLocked);
+        m_Context.state = nullptr;
+    }
+    return true;
+}
+
+void dispatchWhileWriterLocked()
+{
+    RegistryDispatchContext *context = g_RegistryDispatchContext;
+    if (!context)
+    {
+        return;
+    }
+
+    context->hookCalls += 1;
+    if (!context->state)
+    {
+        return;
+    }
+
+    bool handled = false;
+    if (HostedIrqManager::dispatchHandlerForTest(
+            1, &context->handler, *context->state, handled))
+    {
+        context->admitted += 1;
+    }
+    if (handled)
+    {
+        context->handled += 1;
+    }
+}
+
+bool writerLockIndependentDispatch()
+{
+    constexpr const char *Test = "irq-dispatch-writer-lock-independent";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    RegistryDispatchContext context(manager);
+    context.id = manager->registerIsaIrqHandler(1, &context.handler);
+
+    g_RegistryDispatchContext = &context;
+    context.mutationRequested = 1;
+    const bool signalQueued = raise(SIGUSR2) == 0;
+    g_RegistryDispatchContext = nullptr;
+
+    const bool cleaned =
+        context.id && manager->unregisterHandler(context.id, &context.handler);
+    bool passed = true;
+    passed &= check(
+        context.id != 0, "the test handler could not be registered", Test);
+    passed &= check(
+        signalQueued && context.hookCalls == 1 && context.admitted == 1 &&
+            context.handled == 1 && context.calls >= 2,
+        "dispatch or callback completion waited for the writer lock", Test);
+    passed &= check(cleaned, "the test handler could not be removed", Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-dispatch-writer-lock-independent");
+    }
+    return passed;
+}
+
+void unregisterBeforePin(IrqHandler *handler)
+{
+    RegistryDispatchContext *context = g_RegistryDispatchContext;
+    if (
+        !context || handler != &context->handler ||
+        !context->hookCalls.compareAndSwap(0, 1))
+    {
+        return;
+    }
+
+    if (context->manager->unregisterHandler(context->id, &context->handler))
+    {
+        context->unregisterSucceeded += 1;
+    }
+}
+
+bool prePinUnregisterRevalidation()
+{
+    constexpr const char *Test = "irq-pre-pin-unregister-revalidation";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    RegistryDispatchContext context(manager);
+    context.id = manager->registerIsaIrqHandler(1, &context.handler);
+
+    g_RegistryDispatchContext = &context;
+    const size_t callsBeforeDispatch = context.calls;
+    HostedIrqManager::setHandlerPrePinHook(unregisterBeforePin);
+    const bool signalQueued = raise(SIGUSR2) == 0;
+    HostedIrqManager::setHandlerPrePinHook(nullptr);
+    g_RegistryDispatchContext = nullptr;
+
+    const irq_id_t reusedId =
+        manager->registerIsaIrqHandler(1, &context.handler);
+    const bool reused = reusedId != 0;
+    const bool cleaned =
+        reused && manager->unregisterHandler(reusedId, &context.handler);
+
+    bool passed = true;
+    passed &= check(
+        context.id != 0, "the test handler could not be registered", Test);
+    passed &= check(
+        context.hookCalls == 1 && context.unregisterSucceeded == 1,
+        "unregister did not retire the pre-pin publication", Test);
+    passed &= check(
+        signalQueued && context.calls == callsBeforeDispatch,
+        "a stale pre-pin snapshot entered the retired callback", Test);
+    passed &= check(
+        reused && cleaned,
+        "the revalidated slot could not be reused and removed", Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-pre-pin-unregister-revalidation");
+    }
+    return passed;
 }
 
 struct HandlerLifetimeContext;
@@ -301,5 +471,8 @@ bool handlerLifetimeBarrier()
 
 bool runHostedIrqRegressions()
 {
-    return handlerLifetimeBarrier();
+    bool passed = writerLockIndependentDispatch();
+    passed &= prePinUnregisterRevalidation();
+    passed &= handlerLifetimeBarrier();
+    return passed;
 }

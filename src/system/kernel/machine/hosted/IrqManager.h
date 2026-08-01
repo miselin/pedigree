@@ -65,9 +65,24 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     using HandlerPinHook = IrqHandlerRegistry::HandlerPinHook;
+    using HandlerPrePinHook = IrqHandlerRegistry::HandlerPrePinHook;
+    using MutationLockHook = IrqHandlerRegistry::MutationLockHook;
 
     /** Installs a deterministic observer after a handler has been pinned. */
     static EXPORTED_PUBLIC void setHandlerPinHook(HandlerPinHook hook);
+
+    /** Installs a deterministic observer before a tentative pin commits. */
+    static EXPORTED_PUBLIC void setHandlerPrePinHook(HandlerPrePinHook hook);
+
+    /** Dispatches one handler through the production registry path. */
+    static EXPORTED_PUBLIC bool
+    dispatchHandlerForTest(
+        uint8_t irq, IrqHandler *handler, InterruptState &state,
+        bool &handled);
+
+    /** Runs a deterministic test seam while the writer lock is held. */
+    static EXPORTED_PUBLIC void
+    withRegistryMutationLockForTest(MutationLockHook hook);
 #endif
 
   private:

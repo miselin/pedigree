@@ -221,31 +221,24 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
         }
     }
 
+    if (m_HandlerEdge[irq])
+        eoi(irq);
+
     bool bHandled = false;
-    if (LIKELY(m_Handlers.handlerCount(irq) != 0))
+    const bool admitted = m_Handlers.dispatch(irq, state, bHandled);
+
+    if (admitted && !bHandled)
     {
-        if (m_HandlerEdge[irq])
-            eoi(irq);
-
-        const bool admitted = m_Handlers.dispatch(irq, state, bHandled);
-
-        if (admitted && !bHandled)
-        {
-            // Disable/Mask the IRQ line (the handler did not remove
-            // the interrupt reason, yet)
-            enable(irq, false);
-        }
-
-        if (!m_HandlerEdge[irq])
-            eoi(irq);
-
-        if (!admitted)
-            NOTICE("PIC: unhandled irq #" << irq << " occurred");
+        // Disable/Mask the IRQ line (the handler did not remove
+        // the interrupt reason, yet)
+        enable(irq, false);
     }
-    else
-    {
+
+    if (!m_HandlerEdge[irq])
+        eoi(irq);
+
+    if (!admitted)
         NOTICE("PIC: unhandled irq #" << irq << " occurred");
-    }
 }
 
 void Pic::eoi(uint8_t irq)

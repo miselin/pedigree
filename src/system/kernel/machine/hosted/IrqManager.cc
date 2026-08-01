@@ -158,4 +158,21 @@ void HostedIrqManager::setHandlerPinHook(HandlerPinHook hook)
 {
     m_Instance.m_Handlers.setHandlerPinHook(hook);
 }
+
+void HostedIrqManager::setHandlerPrePinHook(HandlerPrePinHook hook)
+{
+    m_Instance.m_Handlers.setHandlerPrePinHook(hook);
+}
+
+bool HostedIrqManager::dispatchHandlerForTest(
+    uint8_t irq, IrqHandler *handler, InterruptState &state, bool &handled)
+{
+    return m_Instance.m_Handlers.dispatch(irq, state, handled, handler);
+}
+
+void HostedIrqManager::withRegistryMutationLockForTest(
+    MutationLockHook hook)
+{
+    m_Instance.m_Handlers.withMutationLockForTest(hook);
+}
 #endif
