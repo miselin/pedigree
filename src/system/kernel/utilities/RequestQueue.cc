@@ -397,7 +397,7 @@ RequestQueue::InterruptEnqueueResult RequestQueue::enqueueFromInterrupt(
 }
 
 RequestQueue::InterruptEnqueueResult
-RequestQueue::republishFromReleaseCallback(
+RequestQueue::republishWhileReleasing(
     InterruptRequest &token, size_t priority, uint64_t p1, uint64_t p2,
     uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7,
     uint64_t p8)
@@ -730,18 +730,32 @@ void RequestQueue::releaseInterruptRequest(Request *request)
         owner->m_ReleaseCallback(owner->m_ReleaseContext);
     }
 
-    const size_t state = owner->m_State;
-    if (state == InterruptRequest::Releasing)
+    while (true)
     {
-        owner->m_State = InterruptRequest::Idle;
-    }
-    else
-    {
-        // Published is an asynchronous callback republication. Idle is a
-        // nested inline republication when threading is disabled.
+        const size_t state = owner->m_State;
+        if (state == InterruptRequest::Releasing)
+        {
+            if (owner->m_State.compareAndSwap(
+                    InterruptRequest::Releasing, InterruptRequest::Idle))
+            {
+                break;
+            }
+            continue;
+        }
+        if (state == InterruptRequest::Claimed)
+        {
+            // A hardware producer won the final Releasing handoff. It only
+            // needs the queue's non-sleeping guard to finish publication.
+            Processor::pause();
+            continue;
+        }
+
+        // Published is an asynchronous republication. Idle is a nested inline
+        // republication when threading is disabled.
         assert(
             state == InterruptRequest::Published ||
             state == InterruptRequest::Idle);
+        break;
     }
     owner->m_ReleaseDepth -= 1;
 }

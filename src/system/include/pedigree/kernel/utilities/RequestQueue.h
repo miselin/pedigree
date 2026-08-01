@@ -128,7 +128,7 @@ class EXPORTED_PUBLIC RequestQueue
      * callback runs after execution or cancellation, outside the request-list
      * and waiter guard. The token remains unavailable until it returns; it may
      * republish allocation-free dependent work through
-     * republishFromReleaseCallback().
+     * republishWhileReleasing().
      * The callback can run on the queue worker, a teardown thread, or inline
      * when threading is disabled. It must be bounded and nonblocking, and must
      * not enter queue lifecycle operations or destroy the queue or token.
@@ -245,13 +245,13 @@ class EXPORTED_PUBLIC RequestQueue
         uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
 
     /**
-     * Republishes a token from its release callback.
+     * Republishes a token while its release callback is retiring it.
      *
-     * Ordinary producers must use enqueueFromInterrupt(). This operation is
-     * accepted only while this token's release callback is running, keeping
-     * isAvailable() false across callback execution and dependent work.
+     * This is accepted only from the Releasing state. Besides callback-driven
+     * work, an owner may use it to close the final callback-versus-hardware
+     * producer race before falling back to enqueueFromInterrupt().
      */
-    MUST_USE_RESULT InterruptEnqueueResult republishFromReleaseCallback(
+    MUST_USE_RESULT InterruptEnqueueResult republishWhileReleasing(
         InterruptRequest &request, size_t priority, uint64_t p1 = 0,
         uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0, uint64_t p5 = 0,
         uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);

@@ -455,7 +455,7 @@ void interruptRequestReleased(void *parameter)
         context->requeues.compareAndSwap(0, 1))
     {
         if (
-            context->queue->republishFromReleaseCallback(
+            context->queue->republishWhileReleasing(
                 *context->request, 0, HostedRequestQueue::Sum, 20, 22) !=
             RequestQueue::InterruptEnqueueResult::Accepted)
         {
@@ -471,7 +471,7 @@ bool interruptRequestRegressions()
     bool passed = true;
     {
         HostedRequestQueue queue;
-        InterruptReleaseContext releaseContext(&queue, true, true);
+        InterruptReleaseContext releaseContext(&queue, false, true);
         RequestQueue::InterruptRequest released(
             interruptRequestReleased, &releaseContext);
         releaseContext.request = &released;
@@ -479,10 +479,10 @@ bool interruptRequestRegressions()
         queue.initialise();
 
         passed &= check(
-            queue.republishFromReleaseCallback(
+            queue.republishWhileReleasing(
                 released, 0, HostedRequestQueue::Sum) == Result::TokenBusy &&
                 released.isAvailable(),
-            "an idle token accepted callback-only republication");
+            "an idle token accepted release-only republication");
         passed &= check(
             queue.enqueueFromInterrupt(
                 released, 0, HostedRequestQueue::Sum, 19, 23) ==
@@ -503,13 +503,40 @@ bool interruptRequestRegressions()
             drainWaitPublished && drainContext.finished == 0,
             "drain observed a transient empty queue during release");
 
+        passed &= check(
+            queue.republishWhileReleasing(
+                released, 0, HostedRequestQueue::Sum, 20, 22) ==
+                    Result::Accepted &&
+                !released.isAvailable(),
+            "a producer could not win the final release handoff");
         releaseContext.releaseCallback.release();
         passed &= check(
             drainer->join() && drainContext.result && released.isAvailable() &&
                 releaseContext.callbacks == 2 &&
+                releaseContext.requeues == 0 &&
+                releaseContext.failures == 0 && queue.executions == 2,
+            "producer-assisted release work escaped drain");
+        queue.destroy();
+    }
+
+    {
+        HostedRequestQueue queue;
+        InterruptReleaseContext releaseContext(&queue, true);
+        RequestQueue::InterruptRequest released(
+            interruptRequestReleased, &releaseContext);
+        releaseContext.request = &released;
+        queue.setMaxAsyncRequests(1);
+        queue.initialise();
+
+        passed &= check(
+            queue.enqueueFromInterrupt(
+                released, 0, HostedRequestQueue::Sum, 19, 23) ==
+                    Result::Accepted &&
+                queue.drain() && released.isAvailable() &&
+                releaseContext.callbacks == 2 &&
                 releaseContext.requeues == 1 &&
                 releaseContext.failures == 0 && queue.executions == 2,
-            "release callback could not safely republish before drain");
+            "release callback could not safely republish at capacity");
         queue.destroy();
     }
 
