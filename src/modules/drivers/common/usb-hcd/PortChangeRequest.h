@@ -299,6 +299,11 @@ class PortChangeRequest
 
     void released()
     {
+#if THREADS
+        // stopAfterQuiesce must either precede this publication or wait until
+        // it is fully visible to RequestQueue teardown.
+        auto guard = m_AcknowledgementWaiters.acquire();
+#endif
         if (m_Stopping)
         {
             return;

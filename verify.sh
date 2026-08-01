@@ -428,6 +428,13 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
+        '(?s)void released\(\).*m_AcknowledgementWaiters\.acquire\(\).*m_Stopping.*publishGeneration\(observed, false\)' \
+        "$usb_port_change_header"; then
+        echo "USB port stop no longer serialises follow-up republication."
+        failed=1
+    fi
+
+    if ! rg -q -U \
         '(?s)waitUntilAcknowledged\(size_t generation\).*m_AcknowledgementWaiters\.acquire\(\).*m_Stopping.*m_Acknowledged >= generation.*guard\.waitForCompletion\(' \
         "$usb_port_change_header" ||
         ! rg -q \

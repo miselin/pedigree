@@ -426,6 +426,9 @@ assert_marker \
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS usb-hcd-port-change-waitqueue-stop"
 assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS usb-hcd-port-change-stop-suppresses-republish"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS usb-hcd-port-change-publication"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS timer-clock-deadline"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS timer-handler-lifetime"

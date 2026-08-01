@@ -487,17 +487,30 @@ bool runHostedUsbHcdPortChangeRegressions()
     passed &= check(
         stopWorkerEntered && stopWaitPublished,
         "worker did not enter its unacknowledged generation wait");
+    const Publication::Observation stopFollowUp = unacknowledged.observe();
+    const bool stopFollowUpRetained =
+        stopFollowUp.result == Result::Coalesced &&
+        stopFollowUp.generation == 2;
+    passed &= check(
+        stopFollowUpRetained,
+        "stop-wait port token did not retain its pending follow-up");
     unacknowledged.stopAfterQuiesce();
     const bool stopWakePassed =
         stopQueue.drain() && unacknowledged.isIdle() &&
-        stopQueue.suppressed == 1;
+        stopQueue.suppressed == 1 && !stopQueue.workerEntered.tryAcquire() &&
+        !unacknowledged.hasPublicationFailure();
     passed &= check(
         stopWakePassed,
         "stop did not release an unacknowledged active worker");
-    if (stopWorkerEntered && stopWaitPublished && stopWakePassed)
+    if (
+        stopWorkerEntered && stopWaitPublished && stopFollowUpRetained &&
+        stopWakePassed)
     {
         NOTICE(
             "HOSTED-WAIT-TEST: PASS usb-hcd-port-change-waitqueue-stop");
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "usb-hcd-port-change-stop-suppresses-republish");
     }
     stopQueue.destroy();
 
