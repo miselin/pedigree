@@ -20,11 +20,10 @@
 #ifndef KERNEL_CORE_PROCESSOR_PAGEFAULTHANDLER_H_
 #define KERNEL_CORE_PROCESSOR_PAGEFAULTHANDLER_H_
 
-#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/Spinlock.h"
-#include "pedigree/kernel/process/WaitQueue.h"
+#include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
-#include "pedigree/kernel/process/DeferredScope.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -81,13 +80,29 @@ class PageFaultHandler : private InterruptHandler
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     using HandlerPinHook = void (*)(MemoryTrapHandler *);
+    using HandlerPrePinHook = void (*)(MemoryTrapHandler *);
+    using AtomicDrainHook = void (*)(MemoryTrapHandler *);
+    using MutationLockHook = void (*)();
 
     /** Installs a deterministic observer after a handler has been pinned. */
     static EXPORTED_PUBLIC void setHandlerPinHook(HandlerPinHook hook);
 
+    /** Installs a deterministic observer before callback admission commits. */
+    static EXPORTED_PUBLIC void setHandlerPrePinHook(HandlerPrePinHook hook);
+
+    /** Observes atomic admission close before its active-hazard scan. */
+    static EXPORTED_PUBLIC void setAtomicDrainHook(AtomicDrainHook hook);
+
+    /** Runs a hook while the registry's mutation lock is held. */
+    EXPORTED_PUBLIC void withMutationLockForTest(MutationLockHook hook);
+
     /** Dispatches only the given handler through the production pin path. */
     EXPORTED_PUBLIC bool
     dispatchHandlerForTest(MemoryTrapHandler *pHandler);
+
+    /** Counts committed callback hazards for a handler. */
+    EXPORTED_PUBLIC size_t
+    activeDispatchCountForTest(MemoryTrapHandler *pHandler);
 #endif
 
     //
@@ -108,46 +123,84 @@ class PageFaultHandler : private InterruptHandler
         MemoryTrapHandler *pOnlyHandler = nullptr);
 
     static const size_t MaxMemoryTrapHandlers = 16;
+    static const size_t MaxActiveDispatches = 64;
+
+    enum class SlotMode : size_t
+    {
+        Empty = 0,
+        Enabled,
+        Draining,
+        Deferred,
+        Retiring,
+    };
+
+    static const size_t ModeBits = 3;
+    static const size_t ModeMask = (1 << ModeBits) - 1;
+    static const size_t GenerationShift = ModeBits;
 
     struct HandlerSlot;
 
-    struct HandlerDispatch
+    struct ActiveDispatch
     {
+        ActiveDispatch()
+            : token(nullptr), generation(0), owner(nullptr), slot(nullptr)
+        {
+        }
+
+        void *token;
+        size_t generation;
         void *owner;
-        PageFaultHandler *manager;
         HandlerSlot *slot;
-        Thread *thread;
-        DeferredScopeRecord cleanup;
-        HandlerDispatch *next;
     };
 
     struct HandlerSlot
     {
-        HandlerSlot()
-            : handler(nullptr), inFlight(0), enabled(false),
-              deferredRemoval(false), draining(false), dispatches(nullptr),
-              drainWaiters()
+        HandlerSlot() : handler(nullptr), publication(0)
         {
         }
 
         MemoryTrapHandler *handler;
-        size_t inFlight;
-        bool enabled;
-        bool deferredRemoval;
-        bool draining;
-        HandlerDispatch *dispatches;
-        WaitQueue drainWaiters;
+        size_t publication;
     };
 
+    struct DispatchCleanup
+    {
+        explicit DispatchCleanup(PageFaultHandler *registry)
+            : registry(registry), cleanup()
+        {
+        }
+
+        PageFaultHandler *registry;
+        AtomicStateCleanupRecord cleanup;
+    };
+
+    static size_t makePublication(size_t generation, SlotMode mode);
+    static size_t generationOf(size_t publication);
+    static SlotMode modeOf(size_t publication);
+
+    bool retireSlot(
+        HandlerSlot &slot, size_t expectedPublication,
+        MemoryTrapHandler *expectedHandler);
+    bool completeDrain(
+        HandlerSlot &slot, size_t drainingPublication,
+        MemoryTrapHandler *expectedHandler);
+    bool publishDispatch(HandlerSlot &slot, void *owner, void *token);
+    void unpublishDispatch(void *token);
     static void abandonedHandlerCleanup(void *context);
-    void releaseDispatch(HandlerDispatch &dispatch, bool normalReturn);
+    bool hasActiveDispatch(HandlerSlot &slot) const;
+    bool findCurrentDispatch(
+        void *owner, HandlerSlot *target, bool &callbackContext) const;
+    static void *currentDispatchOwner();
 
     /** Fixed storage keeps the fault path allocation-free. */
     HandlerSlot m_Handlers[MaxMemoryTrapHandlers];
+    ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
     Spinlock m_HandlerLock;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     static HandlerPinHook m_HandlerPinHook;
+    static HandlerPrePinHook m_HandlerPrePinHook;
+    static AtomicDrainHook m_AtomicDrainHook;
 #endif
 
     /** The PageFaultHandler instance */

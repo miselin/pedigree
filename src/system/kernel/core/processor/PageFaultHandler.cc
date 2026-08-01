@@ -19,32 +19,268 @@
 
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/state.h"
-#include "pedigree/kernel/utilities/assert.h"
 
 MemoryTrapHandler::~MemoryTrapHandler() = default;
 
-namespace
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+PageFaultHandler::HandlerPinHook PageFaultHandler::m_HandlerPinHook = nullptr;
+PageFaultHandler::HandlerPrePinHook PageFaultHandler::m_HandlerPrePinHook =
+    nullptr;
+PageFaultHandler::AtomicDrainHook PageFaultHandler::m_AtomicDrainHook = nullptr;
+#endif
+
+PageFaultHandler::PageFaultHandler()
+    : m_Handlers(), m_ActiveDispatches(), m_HandlerLock(false)
 {
-void *currentDispatchOwner()
+}
+
+size_t PageFaultHandler::makePublication(size_t generation, SlotMode mode)
+{
+    return (generation << GenerationShift) | static_cast<size_t>(mode);
+}
+
+size_t PageFaultHandler::generationOf(size_t publication)
+{
+    return publication >> GenerationShift;
+}
+
+PageFaultHandler::SlotMode PageFaultHandler::modeOf(size_t publication)
+{
+    return static_cast<SlotMode>(publication & ModeMask);
+}
+
+bool PageFaultHandler::retireSlot(
+    HandlerSlot &slot, size_t expectedPublication,
+    MemoryTrapHandler *expectedHandler)
+{
+    const size_t retiringPublication = makePublication(
+        generationOf(expectedPublication), SlotMode::Retiring);
+    if (!__atomic_compare_exchange_n(
+            &slot.publication, &expectedPublication, retiringPublication,
+            false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+    {
+        return false;
+    }
+
+    MemoryTrapHandler *handler =
+        __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
+    if (handler != expectedHandler)
+    {
+        size_t expectedRetiringPublication = retiringPublication;
+        __atomic_compare_exchange_n(
+            &slot.publication, &expectedRetiringPublication,
+            expectedPublication, false, __ATOMIC_SEQ_CST,
+            __ATOMIC_SEQ_CST);
+        return false;
+    }
+
+    __atomic_store_n(&slot.handler, nullptr, __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &slot.publication,
+        makePublication(
+            generationOf(retiringPublication), SlotMode::Empty),
+        __ATOMIC_SEQ_CST);
+    return true;
+}
+
+bool PageFaultHandler::completeDrain(
+    HandlerSlot &slot, size_t drainingPublication,
+    MemoryTrapHandler *expectedHandler)
+{
+    size_t publication = drainingPublication;
+    while (true)
+    {
+        const SlotMode mode = modeOf(publication);
+        if (mode == SlotMode::Draining || mode == SlotMode::Deferred)
+        {
+            if (!hasActiveDispatch(slot))
+            {
+                if (retireSlot(slot, publication, expectedHandler))
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                Processor::pause();
+            }
+        }
+
+        publication =
+            __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+        MemoryTrapHandler *handler =
+            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
+        if (modeOf(publication) == SlotMode::Empty)
+        {
+            return handler != expectedHandler;
+        }
+        if (modeOf(publication) == SlotMode::Retiring)
+        {
+            Processor::pause();
+            continue;
+        }
+        if (modeOf(publication) != SlotMode::Draining &&
+            modeOf(publication) != SlotMode::Deferred)
+        {
+            return false;
+        }
+        if (handler != expectedHandler)
+        {
+            return false;
+        }
+    }
+}
+
+bool PageFaultHandler::publishDispatch(
+    HandlerSlot &slot, void *owner, void *token)
+{
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *expectedToken = nullptr;
+        if (__atomic_compare_exchange_n(
+                &dispatch.token, &expectedToken, token, false,
+                __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+        {
+            __atomic_add_fetch(
+                &dispatch.generation, static_cast<size_t>(1),
+                __ATOMIC_ACQ_REL);
+            __atomic_store_n(&dispatch.owner, owner, __ATOMIC_RELAXED);
+            // This final store commits the callback hazard. Admission close
+            // either observes it or wins the total order and is then observed
+            // by dispatch revalidation.
+            __atomic_store_n(&dispatch.slot, &slot, __ATOMIC_SEQ_CST);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void PageFaultHandler::unpublishDispatch(void *token)
+{
+    HandlerSlot *releasedSlot = nullptr;
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token)
+        {
+            continue;
+        }
+
+        releasedSlot =
+            __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&dispatch.slot, nullptr, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&dispatch.owner, nullptr, __ATOMIC_RELAXED);
+        __atomic_store_n(&dispatch.token, nullptr, __ATOMIC_RELEASE);
+        break;
+    }
+
+    // Cleanup may run after it was armed but before a hazard entry was
+    // claimed, so a missing token is a valid abandoned-stack outcome.
+    if (!releasedSlot || hasActiveDispatch(*releasedSlot))
+    {
+        return;
+    }
+
+    const size_t publication =
+        __atomic_load_n(&releasedSlot->publication, __ATOMIC_SEQ_CST);
+    if (modeOf(publication) == SlotMode::Deferred)
+    {
+        MemoryTrapHandler *handler =
+            __atomic_load_n(&releasedSlot->handler, __ATOMIC_ACQUIRE);
+        if (handler)
+        {
+            retireSlot(*releasedSlot, publication, handler);
+        }
+    }
+}
+
+void PageFaultHandler::abandonedHandlerCleanup(void *context)
+{
+    DispatchCleanup *dispatch =
+        reinterpret_cast<DispatchCleanup *>(context);
+    if (dispatch && dispatch->registry)
+    {
+        dispatch->registry->unpublishDispatch(dispatch);
+    }
+}
+
+bool PageFaultHandler::hasActiveDispatch(HandlerSlot &target) const
+{
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        const ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        HandlerSlot *slot =
+            __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        if (slot == &target &&
+            __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) == token &&
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) ==
+                generation)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool PageFaultHandler::findCurrentDispatch(
+    void *owner, HandlerSlot *target, bool &callbackContext) const
+{
+    callbackContext = false;
+    bool foundTarget = false;
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        const ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        void *dispatchOwner =
+            __atomic_load_n(&dispatch.owner, __ATOMIC_RELAXED);
+        HandlerSlot *slot =
+            __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        if (__atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) != token ||
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) !=
+                generation)
+        {
+            continue;
+        }
+
+        if (dispatchOwner == owner && slot)
+        {
+            callbackContext = true;
+            foundTarget |= slot == target;
+        }
+    }
+    return foundTarget;
+}
+
+void *PageFaultHandler::currentDispatchOwner()
 {
     ProcessorInformation &information = Processor::information();
     Thread *thread = information.getCurrentThread();
-    return thread ? static_cast<void *>(thread)
-                  : static_cast<void *>(&information);
-}
-}  // namespace
-
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-PageFaultHandler::HandlerPinHook PageFaultHandler::m_HandlerPinHook = nullptr;
-#endif
-
-PageFaultHandler::PageFaultHandler() : m_Handlers(), m_HandlerLock()
-{
+    return thread ? static_cast<void *>(thread) :
+                    static_cast<void *>(&information);
 }
 
 bool PageFaultHandler::registerHandler(MemoryTrapHandler *pHandler)
@@ -54,10 +290,22 @@ bool PageFaultHandler::registerHandler(MemoryTrapHandler *pHandler)
         return false;
     }
 
+    bool callbackContext = false;
+    findCurrentDispatch(
+        currentDispatchOwner(), nullptr, callbackContext);
+    if (callbackContext)
+    {
+        return false;
+    }
+
     LockGuard<Spinlock> guard(m_HandlerLock);
     for (size_t i = 0; i < MaxMemoryTrapHandlers; ++i)
     {
-        if (m_Handlers[i].handler == pHandler)
+        HandlerSlot &slot = m_Handlers[i];
+        const size_t publication =
+            __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+        if (__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) == pHandler &&
+            modeOf(publication) != SlotMode::Empty)
         {
             return false;
         }
@@ -66,14 +314,21 @@ bool PageFaultHandler::registerHandler(MemoryTrapHandler *pHandler)
     for (size_t i = 0; i < MaxMemoryTrapHandlers; ++i)
     {
         HandlerSlot &slot = m_Handlers[i];
-        if (!slot.handler)
+        const size_t publication =
+            __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+        if (modeOf(publication) == SlotMode::Empty &&
+            !__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE))
         {
-            assert(!slot.inFlight);
-            assert(!slot.draining);
-            assert(!slot.dispatches);
-            slot.handler = pHandler;
-            slot.enabled = true;
-            slot.deferredRemoval = false;
+            const size_t generation = generationOf(publication) + 1;
+            if (!generation)
+            {
+                return false;
+            }
+            __atomic_store_n(&slot.handler, pHandler, __ATOMIC_RELEASE);
+            __atomic_store_n(
+                &slot.publication,
+                makePublication(generation, SlotMode::Enabled),
+                __ATOMIC_SEQ_CST);
             return true;
         }
     }
@@ -88,187 +343,167 @@ bool PageFaultHandler::unregisterHandler(MemoryTrapHandler *pHandler)
         return false;
     }
 
-    // Destruction must return through this ownership barrier even if a
-    // terminal request arrives while another CPU owns the final callback pin.
-    TerminationDeferral terminationDeferral;
     void *owner = currentDispatchOwner();
     Thread *current = Processor::information().getCurrentThread();
     const bool canYield = current && Processor::getInterrupts();
+    bool callbackContext = false;
+    findCurrentDispatch(owner, nullptr, callbackContext);
 
+    // Exception and callback contexts cannot wait on a writer or on another
+    // callback. Self-removal closes admission and lets the final callback
+    // hazard retire the slot.
+    if (!canYield || callbackContext)
+    {
+        for (size_t i = 0; i < MaxMemoryTrapHandlers; ++i)
+        {
+            HandlerSlot &slot = m_Handlers[i];
+            size_t publication =
+                __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+            if (modeOf(publication) == SlotMode::Empty ||
+                __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != pHandler)
+            {
+                continue;
+            }
+
+            bool currentTargetDispatch = false;
+            const bool selfUnregister = findCurrentDispatch(
+                owner, &slot, currentTargetDispatch);
+            if (selfUnregister)
+            {
+                while (true)
+                {
+                    const SlotMode mode = modeOf(publication);
+                    if (mode == SlotMode::Deferred ||
+                        mode == SlotMode::Empty ||
+                        mode == SlotMode::Retiring)
+                    {
+                        return false;
+                    }
+                    if (mode != SlotMode::Enabled &&
+                        mode != SlotMode::Draining)
+                    {
+                        return false;
+                    }
+
+                    const size_t deferredPublication = makePublication(
+                        generationOf(publication), SlotMode::Deferred);
+                    if (__atomic_compare_exchange_n(
+                            &slot.publication, &publication,
+                            deferredPublication, false, __ATOMIC_SEQ_CST,
+                            __ATOMIC_SEQ_CST))
+                    {
+                        return false;
+                    }
+                    if (__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) !=
+                        pHandler)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            if (callbackContext || modeOf(publication) != SlotMode::Enabled)
+            {
+                return false;
+            }
+
+            const size_t drainingPublication = makePublication(
+                generationOf(publication), SlotMode::Draining);
+            if (!__atomic_compare_exchange_n(
+                    &slot.publication, &publication, drainingPublication,
+                    false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+            {
+                return false;
+            }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+            AtomicDrainHook drainHook =
+                __atomic_load_n(&m_AtomicDrainHook, __ATOMIC_ACQUIRE);
+            if (drainHook)
+            {
+                drainHook(pHandler);
+            }
+#endif
+
+            if (hasActiveDispatch(slot))
+            {
+                size_t expectedPublication = drainingPublication;
+                __atomic_compare_exchange_n(
+                    &slot.publication, &expectedPublication,
+                    makePublication(
+                        generationOf(drainingPublication), SlotMode::Enabled),
+                    false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+                return false;
+            }
+
+            return retireSlot(slot, drainingPublication, pHandler);
+        }
+        return false;
+    }
+
+    // Keep this ordinary unregister stack alive while admitted callbacks
+    // drain. Dispatch itself never touches ordinary deferral state.
+    TerminationDeferral terminationDeferral;
     m_HandlerLock.acquire();
 
     HandlerSlot *slot = nullptr;
+    size_t publication = 0;
     for (size_t i = 0; i < MaxMemoryTrapHandlers; ++i)
     {
-        if (m_Handlers[i].handler == pHandler)
+        const size_t candidatePublication =
+            __atomic_load_n(&m_Handlers[i].publication, __ATOMIC_SEQ_CST);
+        if (modeOf(candidatePublication) != SlotMode::Empty &&
+            __atomic_load_n(&m_Handlers[i].handler, __ATOMIC_ACQUIRE) ==
+                pHandler)
         {
             slot = &m_Handlers[i];
+            publication = candidatePublication;
             break;
         }
     }
 
-    if (!slot)
+    if (!slot || modeOf(publication) != SlotMode::Enabled)
     {
         m_HandlerLock.release();
         return false;
     }
 
-    bool callbackContext = false;
-    bool selfUnregister = false;
-    for (size_t i = 0; i < MaxMemoryTrapHandlers; ++i)
+    size_t expectedPublication = publication;
+    const size_t drainingPublication = makePublication(
+        generationOf(publication), SlotMode::Draining);
+    if (!__atomic_compare_exchange_n(
+            &slot->publication, &expectedPublication, drainingPublication,
+            false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
     {
-        auto pinGuard = m_Handlers[i].drainWaiters.acquire();
-        for (
-            HandlerDispatch *dispatch = m_Handlers[i].dispatches; dispatch;
-            dispatch = dispatch->next)
-        {
-            if (dispatch->owner == owner)
-            {
-                callbackContext = true;
-                selfUnregister |= &m_Handlers[i] == slot;
-            }
-        }
-    }
-
-    if (selfUnregister)
-    {
-        // Waiting for this callback's own pin would deadlock. Disable future
-        // pins now and release the slot when the callback unwinds.
-        slot->enabled = false;
-        if (!slot->draining)
-        {
-            slot->deferredRemoval = true;
-        }
         m_HandlerLock.release();
         return false;
     }
 
-    bool mustDrain = false;
-    bool rejected = false;
+    if (!hasActiveDispatch(*slot))
     {
-        auto pinGuard = slot->drainWaiters.acquire();
-        if (callbackContext && slot->inFlight)
-        {
-            // A nested fault callback cannot wait for another callback on its
-            // own fault stack. Leave that handler registered.
-            rejected = true;
-        }
-        else if (slot->draining || slot->deferredRemoval)
-        {
-            rejected = true;
-        }
-        else
-        {
-            // Closing admission and inspecting the completion predicate are
-            // atomic with future pins.
-            slot->enabled = false;
-            slot->draining = true;
-            mustDrain = slot->inFlight != 0;
-        }
+        const bool retired =
+            completeDrain(*slot, drainingPublication, pHandler);
+        m_HandlerLock.release();
+        return retired;
     }
-    // Preserve strict LIFO lock release. Once enabled is false, the guarded
-    // predicate loop below cannot miss a completion even though we drop both
-    // locks before enrolling.
     m_HandlerLock.release();
-    if (rejected)
-    {
-        return false;
-    }
 
-    if (canYield)
+    uintptr_t previousDebugAddress = 0;
+    const Thread::DebugState previousDebugState =
+        current->getDebugState(previousDebugAddress);
+    current->setDebugState(
+        Thread::CallbackDrain, reinterpret_cast<uintptr_t>(pHandler));
+    while (hasActiveDispatch(*slot))
     {
-        while (true)
-        {
-            auto pinGuard = slot->drainWaiters.acquire();
-            if (!slot->inFlight)
-            {
-                break;
-            }
-            const WaitQueue::WakeReason reason =
-                pinGuard.waitForCompletion(
-                    WaitQueue::Channel(slot), Thread::CallbackDrain,
-                    reinterpret_cast<uintptr_t>(pHandler));
-            (void) reason;
-        }
+        Scheduler::instance().yield();
     }
-    else if (mustDrain)
-    {
-        while (true)
-        {
-            {
-                auto pinGuard = slot->drainWaiters.acquire();
-                if (!slot->inFlight)
-                {
-                    break;
-                }
-            }
-
-            // Page-fault/early-boot atomic contexts cannot enter the
-            // scheduler, but still inspect the guarded completion predicate.
-            Processor::pause();
-        }
-    }
+    current->setDebugState(previousDebugState, previousDebugAddress);
 
     m_HandlerLock.acquire();
-    assert(slot->handler == pHandler);
-    assert(slot->draining);
-    assert(!slot->inFlight);
-    slot->handler = nullptr;
-    slot->draining = false;
+    const bool retired =
+        completeDrain(*slot, drainingPublication, pHandler);
     m_HandlerLock.release();
-    return true;
-}
-
-void PageFaultHandler::abandonedHandlerCleanup(void *context)
-{
-    HandlerDispatch *dispatch =
-        reinterpret_cast<HandlerDispatch *>(context);
-    if (dispatch && dispatch->manager && dispatch->slot)
-    {
-        dispatch->manager->releaseDispatch(*dispatch, false);
-    }
-}
-
-void PageFaultHandler::releaseDispatch(
-    HandlerDispatch &dispatch, bool normalReturn)
-{
-    HandlerSlot *slot = dispatch.slot;
-    assert(slot);
-
-    m_HandlerLock.acquire();
-    if (normalReturn && dispatch.thread)
-    {
-        dispatch.thread->disarmStateCleanup(dispatch.cleanup);
-    }
-
-    auto pinGuard = slot->drainWaiters.acquire();
-    HandlerDispatch **link = &slot->dispatches;
-    while (*link && *link != &dispatch)
-    {
-        link = &(*link)->next;
-    }
-    assert(*link == &dispatch);
-    *link = dispatch.next;
-    assert(slot->inFlight);
-    --slot->inFlight;
-
-    if (slot->deferredRemoval && !slot->inFlight)
-    {
-        slot->handler = nullptr;
-        slot->deferredRemoval = false;
-    }
-    if (!slot->inFlight)
-    {
-        pinGuard.wakeAll(
-            WaitQueue::WakeReason::Signalled,
-            WaitQueue::Channel(slot));
-    }
-
-    dispatch.manager = nullptr;
-    dispatch.slot = nullptr;
-    dispatch.thread = nullptr;
-    dispatch.next = nullptr;
-    m_HandlerLock.release();
+    return retired;
 }
 
 bool PageFaultHandler::dispatchHandlers(
@@ -277,39 +512,60 @@ bool PageFaultHandler::dispatchHandlers(
 {
     for (size_t i = 0; i < MaxMemoryTrapHandlers; ++i)
     {
-        Thread *thread = Processor::information().getCurrentThread();
-        HandlerDispatch dispatch = {};
-        dispatch.owner = currentDispatchOwner();
-        dispatch.manager = this;
-        dispatch.thread = thread;
-        MemoryTrapHandler *handler = nullptr;
+        HandlerSlot &slot = m_Handlers[i];
+        const size_t publication =
+            __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+        if (modeOf(publication) != SlotMode::Enabled)
+        {
+            continue;
+        }
 
+        MemoryTrapHandler *handler =
+            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
+        if (!handler || (pOnlyHandler && handler != pOnlyHandler))
+        {
+            continue;
+        }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        HandlerPrePinHook prePinHook =
+            __atomic_load_n(&m_HandlerPrePinHook, __ATOMIC_ACQUIRE);
+        if (prePinHook)
+        {
+            prePinHook(handler);
+        }
+#endif
+
+        Thread *thread = Processor::information().getCurrentThread();
+        DispatchCleanup dispatchCleanup(this);
         if (thread)
         {
-            thread->armStateCleanup(
-                dispatch.cleanup, abandonedHandlerCleanup, &dispatch);
+            // Cleanup is visible before callback admission commits. Every
+            // later stack-abandonment point can therefore release the hazard.
+            thread->armAtomicStateCleanup(
+                dispatchCleanup.cleanup, abandonedHandlerCleanup,
+                &dispatchCleanup);
         }
 
-        m_HandlerLock.acquire();
-        HandlerSlot &slot = m_Handlers[i];
-        if (
-            slot.handler && slot.enabled &&
-            (!pOnlyHandler || slot.handler == pOnlyHandler))
-        {
-            auto pinGuard = slot.drainWaiters.acquire();
-            handler = slot.handler;
-            ++slot.inFlight;
-            dispatch.slot = &slot;
-            dispatch.next = slot.dispatches;
-            slot.dispatches = &dispatch;
-        }
-        m_HandlerLock.release();
-
-        if (!handler)
+        if (!publishDispatch(
+                slot, currentDispatchOwner(), &dispatchCleanup))
         {
             if (thread)
             {
-                thread->disarmStateCleanup(dispatch.cleanup);
+                thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
+            }
+            FATAL_NOLOCK("Page-fault callback hazard table exhausted.");
+            return false;
+        }
+
+        if (__atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) !=
+                publication ||
+            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler)
+        {
+            unpublishDispatch(&dispatchCleanup);
+            if (thread)
+            {
+                thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
             }
             continue;
         }
@@ -323,12 +579,12 @@ bool PageFaultHandler::dispatchHandlers(
         }
 #endif
 
-        bool handled = false;
+        const bool handled = handler->trap(state, address, bIsWrite);
+        unpublishDispatch(&dispatchCleanup);
+        if (thread)
         {
-            TerminationDeferral callbackDeferral;
-            handled = handler->trap(state, address, bIsWrite);
+            thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
         }
-        releaseDispatch(dispatch, true);
 
         if (handled)
         {
@@ -345,9 +601,58 @@ void PageFaultHandler::setHandlerPinHook(HandlerPinHook hook)
     __atomic_store_n(&m_HandlerPinHook, hook, __ATOMIC_RELEASE);
 }
 
+void PageFaultHandler::setHandlerPrePinHook(HandlerPrePinHook hook)
+{
+    __atomic_store_n(&m_HandlerPrePinHook, hook, __ATOMIC_RELEASE);
+}
+
+void PageFaultHandler::setAtomicDrainHook(AtomicDrainHook hook)
+{
+    __atomic_store_n(&m_AtomicDrainHook, hook, __ATOMIC_RELEASE);
+}
+
+void PageFaultHandler::withMutationLockForTest(MutationLockHook hook)
+{
+    m_HandlerLock.acquire();
+    if (hook)
+    {
+        hook();
+    }
+    m_HandlerLock.release();
+}
+
 bool PageFaultHandler::dispatchHandlerForTest(MemoryTrapHandler *pHandler)
 {
     InterruptState state;
     return dispatchHandlers(state, 0, false, pHandler);
+}
+
+size_t PageFaultHandler::activeDispatchCountForTest(
+    MemoryTrapHandler *pHandler)
+{
+    size_t count = 0;
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        HandlerSlot *slot =
+            __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        MemoryTrapHandler *handler =
+            slot ? __atomic_load_n(&slot->handler, __ATOMIC_ACQUIRE) : nullptr;
+        if (handler == pHandler &&
+            __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) == token &&
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) ==
+                generation)
+        {
+            ++count;
+        }
+    }
+    return count;
 }
 #endif
