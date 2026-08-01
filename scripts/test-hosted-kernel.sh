@@ -421,6 +421,12 @@ assert_marker \
     "HOSTED-WAIT-TEST: PASS usb-sync-timeout-completion-handoff"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS usb-pnp-registration-drain"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS usb-hcd-port-change-waitqueue-ack"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS usb-hcd-port-change-waitqueue-stop"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS usb-hcd-port-change-publication"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS timer-clock-deadline"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS timer-handler-lifetime"
 assert_marker \

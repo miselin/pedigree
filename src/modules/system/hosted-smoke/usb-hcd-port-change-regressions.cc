@@ -55,6 +55,11 @@ class HostedUsbPortQueue final : public RequestQueue
         m_nMaxAsyncRequests = maximum;
     }
 
+    Thread *workerThread() const
+    {
+        return m_pThread;
+    }
+
     Semaphore workerEntered;
     Semaphore holdEntered;
     Semaphore releaseHold;
@@ -121,6 +126,69 @@ class HostedUsbPortQueue final : public RequestQueue
   private:
     using PublicationCompletion = UsbHcd::PortChangeRequest::Completion;
 };
+
+struct AcknowledgeWaitContext
+{
+    AcknowledgeWaitContext(
+        UsbHcd::PortChangeRequest *request, Thread *worker, size_t generation)
+        : request(request), worker(worker), generation(generation), hookCalls(0),
+          hookFailures(0), wakeBeforeBlock(0)
+    {
+    }
+
+    UsbHcd::PortChangeRequest *request;
+    Thread *worker;
+    size_t generation;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> hookFailures;
+    Atomic<size_t> wakeBeforeBlock;
+};
+
+AcknowledgeWaitContext *g_AcknowledgeWaitContext = nullptr;
+
+void acknowledgeBeforeBlockHook(
+    WaitQueue *queue, Thread *thread, const WaitQueue::Channel &channel,
+    size_t debugState)
+{
+    AcknowledgeWaitContext *context = g_AcknowledgeWaitContext;
+    if (
+        !context || thread != context->worker ||
+        channel.owner != context->request)
+    {
+        return;
+    }
+
+    context->hookCalls += 1;
+    Thread::WaitDebugInfo wait = {};
+    uintptr_t debugAddress = 0;
+    const bool validPublication =
+        queue && !channel.value && debugState == Thread::CallbackDrain &&
+        thread->getWaitDebugInfo(wait) && wait.queue == queue &&
+        wait.channelOwner == channel.owner &&
+        wait.channelValue == channel.value && wait.queued &&
+        wait.reason == WaitQueue::WakeReason::Waiting &&
+        thread->getDebugState(debugAddress) == Thread::CallbackDrain &&
+        debugAddress == reinterpret_cast<uintptr_t>(context->request);
+
+    // Always release the worker so a failed assertion cannot strand the
+    // RequestQueue thread inside the test.
+    context->request->acknowledge(context->generation);
+
+    Thread::WaitDebugInfo signalledWait = {};
+    if (
+        validPublication && thread->getWaitDebugInfo(signalledWait) &&
+        signalledWait.queue == queue &&
+        signalledWait.channelOwner == channel.owner &&
+        signalledWait.channelValue == channel.value && signalledWait.queued &&
+        signalledWait.reason == WaitQueue::WakeReason::Signalled)
+    {
+        context->wakeBeforeBlock += 1;
+    }
+    else
+    {
+        context->hookFailures += 1;
+    }
+}
 
 struct DestroyContext
 {
@@ -243,11 +311,44 @@ bool runHostedUsbHcdPortChangeRegressions()
             queue, 0, HostedUsbPortQueue::Ehci, 0,
             reinterpret_cast<uintptr_t>(&ordered), 1, 1),
         "ordered port token configuration was rejected");
+
+    AcknowledgeWaitContext acknowledgeWait(
+        &ordered, queue.workerThread(), 1);
+    g_AcknowledgeWaitContext = &acknowledgeWait;
+    WaitQueue::setBeforeBlockHook(acknowledgeBeforeBlockHook);
     const Publication::Observation first = ordered.observe();
+    const bool workerEntered =
+        first.result == Result::Accepted && queue.workerEntered.acquire();
+    constexpr size_t AcknowledgeWaitAttempts = 10000;
+    for (size_t i = 0;
+         i < AcknowledgeWaitAttempts && !acknowledgeWait.wakeBeforeBlock &&
+         !acknowledgeWait.hookFailures;
+         ++i)
+    {
+        Scheduler::instance().yield();
+    }
+    if (!acknowledgeWait.wakeBeforeBlock)
+    {
+        ordered.acknowledge(first.generation);
+    }
+    WaitQueue::setBeforeBlockHook(nullptr);
+    g_AcknowledgeWaitContext = nullptr;
+
     passed &= check(
-        first.result == Result::Accepted && queue.workerEntered.acquire(),
+        workerEntered,
         "worker did not reach the pre-ACK publication barrier");
-    ordered.acknowledge(first.generation);
+    const bool waitQueueAcknowledgementPassed =
+        first.generation == 1 && acknowledgeWait.hookCalls == 1 &&
+        acknowledgeWait.hookFailures == 0 &&
+        acknowledgeWait.wakeBeforeBlock == 1;
+    passed &= check(
+        waitQueueAcknowledgementPassed,
+        "hardware ACK did not signal the published pre-block waiter");
+    if (waitQueueAcknowledgementPassed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS usb-hcd-port-change-waitqueue-ack");
+    }
     passed &= check(
         queue.holdEntered.acquire(),
         "acknowledged worker did not reach the execution hold");
@@ -363,15 +464,41 @@ bool runHostedUsbHcdPortChangeRegressions()
             reinterpret_cast<uintptr_t>(&unacknowledged), 1),
         "stop-wait port token configuration was rejected");
     const Publication::Observation waiting = unacknowledged.observe();
-    passed &= check(
+    const bool stopWorkerEntered =
         waiting.result == Result::Accepted &&
-            stopQueue.workerEntered.acquire(),
+        stopQueue.workerEntered.acquire();
+    bool stopWaitPublished = false;
+    for (size_t i = 0; i < 10000 && !stopWaitPublished; ++i)
+    {
+        Thread::WaitDebugInfo wait = {};
+        uintptr_t debugAddress = 0;
+        stopWaitPublished =
+            stopQueue.workerThread()->getWaitDebugInfo(wait) && wait.queue &&
+            wait.channelOwner == &unacknowledged && !wait.channelValue &&
+            wait.queued && wait.reason == WaitQueue::WakeReason::Waiting &&
+            stopQueue.workerThread()->getDebugState(debugAddress) ==
+                Thread::CallbackDrain &&
+            debugAddress == reinterpret_cast<uintptr_t>(&unacknowledged);
+        if (!stopWaitPublished)
+        {
+            Scheduler::instance().yield();
+        }
+    }
+    passed &= check(
+        stopWorkerEntered && stopWaitPublished,
         "worker did not enter its unacknowledged generation wait");
     unacknowledged.stopAfterQuiesce();
-    passed &= check(
+    const bool stopWakePassed =
         stopQueue.drain() && unacknowledged.isIdle() &&
-            stopQueue.suppressed == 1,
+        stopQueue.suppressed == 1;
+    passed &= check(
+        stopWakePassed,
         "stop did not release an unacknowledged active worker");
+    if (stopWorkerEntered && stopWaitPublished && stopWakePassed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS usb-hcd-port-change-waitqueue-stop");
+    }
     stopQueue.destroy();
 
     HostedUsbPortQueue cancellationQueue;

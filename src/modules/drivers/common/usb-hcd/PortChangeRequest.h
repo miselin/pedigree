@@ -9,7 +9,8 @@
 #define USB_HCD_PORTCHANGEREQUEST_H
 
 #include "pedigree/kernel/Atomic.h"
-#include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 
 namespace UsbHcd
@@ -158,7 +159,7 @@ class PortChangeRequest
     PortChangeRequest()
         : m_Request(requestReleased, this), m_Queue(nullptr), m_Priority(0),
           m_Configured(0), m_Observed(0), m_Acknowledged(0), m_Consumed(0),
-          m_Stopping(0), m_ReleaseFailures(0)
+          m_Stopping(0), m_ReleaseFailures(0), m_AcknowledgementWaiters()
     {
         for (size_t i = 0; i < 7; ++i)
         {
@@ -209,7 +210,14 @@ class PortChangeRequest
 
     void acknowledge(size_t generation)
     {
+#if THREADS
+        auto guard = m_AcknowledgementWaiters.acquire();
+#endif
         advance(m_Acknowledged, generation);
+#if THREADS
+        guard.wakeAll(
+            WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+#endif
     }
 
     /**
@@ -221,7 +229,14 @@ class PortChangeRequest
      */
     void stopAfterQuiesce()
     {
+#if THREADS
+        auto guard = m_AcknowledgementWaiters.acquire();
+#endif
         m_Stopping = 1;
+#if THREADS
+        guard.wakeAll(
+            WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+#endif
     }
 
     void cancel(size_t generation)
@@ -328,12 +343,26 @@ class PortChangeRequest
     bool waitUntilAcknowledged(size_t generation)
     {
 #if THREADS
-        while (m_Acknowledged < generation && !m_Stopping)
+        while (true)
         {
-            Scheduler::instance().yield();
+            auto guard = m_AcknowledgementWaiters.acquire();
+            if (m_Stopping)
+            {
+                return false;
+            }
+            if (m_Acknowledged >= generation)
+            {
+                return true;
+            }
+
+            const WaitQueue::WakeReason reason = guard.waitForCompletion(
+                WaitQueue::Channel(this), Thread::CallbackDrain,
+                reinterpret_cast<uintptr_t>(this));
+            (void) reason;
         }
-#endif
+#else
         return !m_Stopping && m_Acknowledged >= generation;
+#endif
     }
 
     void consume(size_t generation)
@@ -351,6 +380,7 @@ class PortChangeRequest
     Atomic<size_t> m_Consumed;
     Atomic<size_t> m_Stopping;
     Atomic<size_t> m_ReleaseFailures;
+    WaitQueue m_AcknowledgementWaiters;
 };
 }  // namespace UsbHcd
 

@@ -397,6 +397,46 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local usb_port_change_header=src/modules/drivers/common/usb-hcd/PortChangeRequest.h
+    matches=$(rg -n \
+        'Scheduler::instance\(\)\.yield\(\)' \
+        "$usb_port_change_header" || true)
+    if [[ -n "$matches" ]]; then
+        echo "A USB port-change worker reverted to acknowledgement polling:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if ! rg -q 'WaitQueue m_AcknowledgementWaiters' \
+        "$usb_port_change_header" ||
+        ! rg -q 'guard\.waitForCompletion\(' \
+            "$usb_port_change_header" ||
+        ! rg -q 'WaitQueue::Channel\(this\), Thread::CallbackDrain' \
+            "$usb_port_change_header"; then
+        echo "The USB port-change worker escaped its acknowledgement queue."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        'void acknowledge\(size_t generation\)[^{]*\{[^}]*m_AcknowledgementWaiters\.acquire\(\)[^}]*advance\(m_Acknowledged, generation\)[^}]*guard\.wakeAll\([^}]*WaitQueue::Channel\(this\)' \
+        "$usb_port_change_header" ||
+        ! rg -q -U \
+            'void stopAfterQuiesce\(\)[^{]*\{[^}]*m_AcknowledgementWaiters\.acquire\(\)[^}]*m_Stopping = 1[^}]*guard\.wakeAll\([^}]*WaitQueue::Channel\(this\)' \
+            "$usb_port_change_header"; then
+        echo "A USB ACK or stop escaped its predicate-coupled wake."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)waitUntilAcknowledged\(size_t generation\).*m_AcknowledgementWaiters\.acquire\(\).*m_Stopping.*m_Acknowledged >= generation.*guard\.waitForCompletion\(' \
+        "$usb_port_change_header" ||
+        ! rg -q \
+            'reinterpret_cast<uintptr_t>\(this\)' \
+            "$usb_port_change_header"; then
+        echo "The USB acknowledgement predicate escaped its wait guard."
+        failed=1
+    fi
+
     local cdi_irq_source=src/modules/drivers/common/cdi/CdiIrq.cc
     matches=$(rg -n \
         'if[[:space:]]*\([[:space:]]*irq[[:space:]]*>[[:space:]]*IRQ_COUNT' \
