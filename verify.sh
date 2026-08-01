@@ -462,6 +462,52 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local timer_registry_source=src/system/kernel/machine/TimerHandlerRegistry.cc
+    local timer_registry_header=src/system/include/pedigree/kernel/machine/TimerHandlerRegistry.h
+    matches=$(rg -n \
+        'Scheduler::instance\(\)\.yield\(\)' \
+        "$timer_registry_source" || true)
+    if [[ -n "$matches" ]]; then
+        echo "The timer callback drain reverted to scheduler yielding:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if ! rg -q 'WaitQueue m_DispatchWaiters' "$timer_registry_header" ||
+        ! rg -q 'm_DispatchWaiters\.acquire\(\)' \
+            "$timer_registry_source" ||
+        ! rg -q 'guard\.waitForCompletion\(' \
+            "$timer_registry_source" ||
+        ! rg -q 'WaitQueue::Channel\(slot, drainGeneration\)' \
+            "$timer_registry_source"; then
+        echo "The timer callback drain escaped its generation-keyed wait."
+        failed=1
+    fi
+
+    if ! rg -q 'guard\.wakeAll\(' "$timer_registry_source" ||
+        ! rg -q 'WaitQueue::Channel\(&slot, drainGeneration\)' \
+            "$timer_registry_source" ||
+        ! rg -q -U \
+            'mode != SlotMode::Draining && mode != SlotMode::Deferred[^}]*!selfRemovalOf\(publication\)[^{]*\{[[:space:]]*return true;[[:space:]]*\}[^}]*m_DispatchWaiters\.acquire\(\)' \
+            "$timer_registry_source"; then
+        echo "The timer callback drain escaped its closed-mode wake."
+        failed=1
+    fi
+
+    if ! rg -q \
+        'generationOf\(finalPublication\) != drainGeneration' \
+        "$timer_registry_source" ||
+        ! rg -q 'synchronousDrainOf\(finalPublication\)' \
+            "$timer_registry_source" ||
+        ! rg -q \
+            'selfRemovalOf\(finalPublication\) && !synchronousDrain' \
+            "$timer_registry_source" ||
+        ! rg -q 'retireSlot\(\*slot, finalPublication, handler\)' \
+            "$timer_registry_source"; then
+        echo "The timer callback drain lost its slot-reuse boundary."
+        failed=1
+    fi
+
     local pagefault_registry_source=src/system/kernel/core/processor/PageFaultHandler.cc
     matches=$(rg -n \
         'Scheduler::instance\(\)\.yield\(\)|Processor::pause\(\)' \

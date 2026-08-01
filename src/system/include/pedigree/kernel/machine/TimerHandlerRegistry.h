@@ -10,6 +10,7 @@
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -34,6 +35,8 @@ class TimerHandlerRegistry
      * Self-removal is deferred until the callback returns and reports false,
      * preserving Timer's synchronous boolean contract. Other atomic callers
      * report false instead of waiting for an in-flight callback.
+     * A synchronous caller must not retain a resource which the active handler
+     * needs to finish.
      */
     bool unregisterHandler(TimerHandler *handler);
 
@@ -146,6 +149,7 @@ class TimerHandlerRegistry
 
     HandlerSlot m_Handlers[MaxHandlerSlots];
     ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
+    WaitQueue m_DispatchWaiters;
     Spinlock m_HandlerLock;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

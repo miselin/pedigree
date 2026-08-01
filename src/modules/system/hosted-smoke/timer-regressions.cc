@@ -39,6 +39,17 @@ Event *g_DispositionBEvent = nullptr;
 
 bool check(bool condition, const char *test, const char *detail);
 
+bool hasTimerCallbackDrainWait(Thread *thread, TimerHandler *handler)
+{
+    Thread::WaitDebugInfo wait = {};
+    uintptr_t debugAddress = 0;
+    return thread && thread->getWaitDebugInfo(wait) && wait.queue &&
+           wait.channelOwner && wait.channelValue && wait.queued &&
+           wait.reason == WaitQueue::WakeReason::Waiting &&
+           thread->getDebugState(debugAddress) == Thread::CallbackDrain &&
+           debugAddress == reinterpret_cast<uintptr_t>(handler);
+}
+
 struct RegistryDispatchContext;
 RegistryDispatchContext *g_TimerRegistryDispatchContext = nullptr;
 void dispatchTimerWhileWriterLocked();
@@ -358,11 +369,9 @@ void abandonCommittedTimerHazard(TimerHandler *handler)
                               (500 * Time::Multiplier::Millisecond);
     while (context->timer->getTickCountNano() < deadline)
     {
-        uintptr_t debugAddress = 0;
         if (context->phase == static_cast<size_t>(2) && context->remover &&
-            context->remover->getDebugState(debugAddress) ==
-                Thread::CallbackDrain &&
-            debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
+            hasTimerCallbackDrainWait(
+                context->remover, &context->handler))
         {
             context->hookObservedDrain += 1;
             abandonCurrentTimerDispatcher();
@@ -591,7 +600,8 @@ struct HandlerLifetimeContext
           hookCalls(0), hookObservedDrain(0), handlerCalls(0),
           callbacksAfterReturn(0), unregisterReturned(0),
           unregisterSucceeded(0), selfRemovalPending(1), selfRemovalRejected(0),
-          revivalBlocked(0), failures(0)
+          revivalBlocked(0), waitHookCalls(0), waitHookFailures(0),
+          drainWaitPublished(0), wakeBeforeBlock(0), failures(0)
     {
     }
 
@@ -608,6 +618,10 @@ struct HandlerLifetimeContext
     Atomic<size_t> selfRemovalPending;
     Atomic<size_t> selfRemovalRejected;
     Atomic<size_t> revivalBlocked;
+    Atomic<size_t> waitHookCalls;
+    Atomic<size_t> waitHookFailures;
+    Atomic<size_t> drainWaitPublished;
+    Atomic<size_t> wakeBeforeBlock;
     Atomic<size_t> failures;
 };
 
@@ -651,6 +665,55 @@ class SelfRemovingHandler : public TimerHandler
     Atomic<size_t> rejectionSeen;
 };
 
+void timerDrainBeforeBlockHook(
+    WaitQueue *queue, Thread *thread, const WaitQueue::Channel &channel,
+    size_t debugState)
+{
+    constexpr size_t YieldLimit = 10000;
+    HandlerLifetimeContext *context = g_HandlerLifetimeContext;
+    if (!context || thread != context->remover)
+    {
+        return;
+    }
+
+    context->waitHookCalls += 1;
+    Thread::WaitDebugInfo wait = {};
+    if (
+        !queue || !channel.owner || !channel.value ||
+        debugState != Thread::CallbackDrain ||
+        !thread->getWaitDebugInfo(wait) || wait.queue != queue ||
+        wait.channelOwner != channel.owner ||
+        wait.channelValue != channel.value || !wait.queued ||
+        wait.reason != WaitQueue::WakeReason::Waiting ||
+        !hasTimerCallbackDrainWait(thread, &context->handler))
+    {
+        context->waitHookFailures += 1;
+        return;
+    }
+
+    context->drainWaitPublished += 1;
+    const uint64_t deadline = context->timer->getTickCountNano() +
+                              (500 * Time::Multiplier::Millisecond);
+    for (size_t i = 0;
+         context->timer->getTickCountNano() < deadline && i < YieldLimit; ++i)
+    {
+        Thread::WaitDebugInfo currentWait = {};
+        if (
+            thread->getWaitDebugInfo(currentWait) &&
+            currentWait.queue == queue &&
+            currentWait.channelOwner == channel.owner &&
+            currentWait.channelValue == channel.value &&
+            currentWait.reason == WaitQueue::WakeReason::Signalled)
+        {
+            context->wakeBeforeBlock += 1;
+            return;
+        }
+        Scheduler::instance().yield();
+    }
+
+    context->waitHookFailures += 1;
+}
+
 void handlerPinHook(TimerHandler *handler)
 {
     constexpr size_t YieldLimit = 10000;
@@ -668,12 +731,10 @@ void handlerPinHook(TimerHandler *handler)
     for (size_t i = 0;
          context->timer->getTickCountNano() < deadline && i < YieldLimit; ++i)
     {
-        uintptr_t debugAddress = 0;
         if (context->phase == static_cast<size_t>(2) &&
-            !context->unregisterReturned && context->remover &&
-            context->remover->getDebugState(debugAddress) ==
-                Thread::CallbackDrain &&
-            debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
+            context->drainWaitPublished && !context->unregisterReturned &&
+            hasTimerCallbackDrainWait(
+                context->remover, &context->handler))
         {
             observedDrain = true;
             break;
@@ -1112,8 +1173,10 @@ bool timerHandlerLifetimeBarrier()
 
     g_HandlerLifetimeContext = &context;
     HostedTimer::setHandlerPinHook(handlerPinHook);
+    WaitQueue::setBeforeBlockHook(timerDrainBeforeBlockHook);
     const bool registered = timer->registerHandler(&context.handler);
     const bool joined = remover->join();
+    WaitQueue::setBeforeBlockHook(nullptr);
     HostedTimer::setHandlerPinHook(nullptr);
     g_HandlerLifetimeContext = nullptr;
 
@@ -1170,6 +1233,19 @@ bool timerHandlerLifetimeBarrier()
         context.hookCalls == 1 && context.hookObservedDrain == 1,
         "timer-handler-lifetime",
         "unregister returned instead of waiting for the pinned callback");
+    const bool waitQueueDrainPassed =
+        registered && joined && context.waitHookCalls == 1 &&
+        context.waitHookFailures == 0 && context.drainWaitPublished == 1 &&
+        context.wakeBeforeBlock == 1 && context.hookObservedDrain == 1 &&
+        context.unregisterSucceeded == 1 && context.unregisterReturned == 1;
+    passed &= check(
+        waitQueueDrainPassed, "timer-handler-waitqueue-drain",
+        "callback drain did not publish and consume a pre-block wake");
+    if (waitQueueDrainPassed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS timer-handler-waitqueue-drain");
+    }
     passed &= check(
         context.unregisterSucceeded == 1 &&
             context.unregisterReturned == 1,

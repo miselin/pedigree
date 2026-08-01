@@ -9,7 +9,6 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -18,7 +17,8 @@
 #include "pedigree/kernel/utilities/assert.h"
 
 TimerHandlerRegistry::TimerHandlerRegistry()
-    : m_Handlers(), m_ActiveDispatches(), m_HandlerLock(false)
+    : m_Handlers(), m_ActiveDispatches(), m_DispatchWaiters(),
+      m_HandlerLock(false)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
       m_HandlerPinHook(nullptr), m_HandlerPrePinHook(nullptr),
@@ -180,11 +180,42 @@ bool TimerHandlerRegistry::unpublishDispatch(
     }
 
     const SlotMode mode = modeOf(publication);
-    if (mode == SlotMode::Deferred || selfRemovalOf(publication))
+    if (
+        mode != SlotMode::Draining && mode != SlotMode::Deferred &&
+        !selfRemovalOf(publication))
+    {
+        return true;
+    }
+
+    const size_t drainGeneration = generationOf(publication);
+    auto guard = m_DispatchWaiters.acquire();
+    const size_t finalPublication =
+        __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+    if (
+        generationOf(finalPublication) != drainGeneration ||
+        hasActiveDispatch(slot))
+    {
+        return true;
+    }
+
+    const bool synchronousDrain = synchronousDrainOf(finalPublication);
+    if (
+        modeOf(finalPublication) == SlotMode::Deferred ||
+        (selfRemovalOf(finalPublication) && !synchronousDrain))
     {
         TimerHandler *handler =
             __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
-        retireSlot(slot, publication, handler);
+        if (handler)
+        {
+            retireSlot(slot, finalPublication, handler);
+        }
+    }
+
+    if (synchronousDrain)
+    {
+        guard.wakeAll(
+            WaitQueue::WakeReason::Signalled,
+            WaitQueue::Channel(&slot, drainGeneration));
     }
     return true;
 }
@@ -516,39 +547,47 @@ bool TimerHandlerRegistry::unregisterHandler(TimerHandler *handler)
         publication = expectedPublication;
     }
 
-    if (!hasActiveDispatch(*slot))
+    m_HandlerLock.release();
+
+    const size_t drainGeneration = generationOf(drainingPublication);
+    while (true)
     {
-        const bool retired = retireSlot(*slot, drainingPublication, handler);
+        auto guard = m_DispatchWaiters.acquire();
         const size_t finalPublication =
             __atomic_load_n(&slot->publication, __ATOMIC_SEQ_CST);
-        const bool retiredByFinalRelease =
-            modeOf(finalPublication) == SlotMode::Empty &&
-            __atomic_load_n(&slot->handler, __ATOMIC_ACQUIRE) != handler;
-        m_HandlerLock.release();
-        return retired || retiredByFinalRelease;
-    }
-    m_HandlerLock.release();
+        TimerHandler *finalHandler =
+            __atomic_load_n(&slot->handler, __ATOMIC_ACQUIRE);
+        if (generationOf(finalPublication) != drainGeneration)
+        {
+            return true;
+        }
 
-    uintptr_t previousDebugAddress = 0;
-    const Thread::DebugState previousDebugState =
-        current->getDebugState(previousDebugAddress);
-    current->setDebugState(
-        Thread::CallbackDrain, reinterpret_cast<uintptr_t>(handler));
-    while (hasActiveDispatch(*slot))
-    {
-        Scheduler::instance().yield();
-    }
-    current->setDebugState(previousDebugState, previousDebugAddress);
+        const SlotMode finalMode = modeOf(finalPublication);
+        if (finalMode == SlotMode::Empty)
+        {
+            return finalHandler != handler;
+        }
+        if (
+            finalHandler != handler || !synchronousDrainOf(finalPublication) ||
+            (finalMode != SlotMode::Draining &&
+             finalMode != SlotMode::Deferred))
+        {
+            return false;
+        }
+        if (!hasActiveDispatch(*slot))
+        {
+            if (retireSlot(*slot, finalPublication, handler))
+            {
+                return true;
+            }
+            continue;
+        }
 
-    m_HandlerLock.acquire();
-    const bool retired = retireSlot(*slot, drainingPublication, handler);
-    const size_t finalPublication =
-        __atomic_load_n(&slot->publication, __ATOMIC_SEQ_CST);
-    const bool retiredByFinalRelease =
-        modeOf(finalPublication) == SlotMode::Empty &&
-        __atomic_load_n(&slot->handler, __ATOMIC_ACQUIRE) != handler;
-    m_HandlerLock.release();
-    return retired || retiredByFinalRelease;
+        const WaitQueue::WakeReason reason = guard.waitForCompletion(
+            WaitQueue::Channel(slot, drainGeneration), Thread::CallbackDrain,
+            reinterpret_cast<uintptr_t>(handler));
+        (void) reason;
+    }
 }
 
 bool TimerHandlerRegistry::dispatch(
