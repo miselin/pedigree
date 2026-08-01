@@ -22,6 +22,7 @@
 
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbHub.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
@@ -38,6 +39,7 @@
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
+#include "PortChangeRequest.h"
 
 class Device;
 class IoBase;
@@ -52,6 +54,14 @@ class Ohci : public UsbHub,
              public RequestQueue
 {
   private:
+#if THREADS
+    using ControllerLock = Mutex;
+#else
+    // Non-threaded kernels still need IRQ-safe exclusion, but Mutex has no
+    // implementation in that configuration.
+    using ControllerLock = Spinlock;
+#endif
+
     /// Enumeration of lists that can be stopped or started.
     enum Lists
     {
@@ -64,6 +74,11 @@ class Ohci : public UsbHub,
   public:
     Ohci(Device *pDev);
     virtual ~Ohci();
+
+    bool initialised() const
+    {
+        return m_Initialised;
+    }
 
     struct TD
     {
@@ -200,6 +215,7 @@ class Ohci : public UsbHub,
     virtual uint64_t executeRequest(
         uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
         uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
+    void cancelRequest(const Request &request) override;
 
   private:
     /// Stops the controller from processing the given list.
@@ -207,6 +223,14 @@ class Ohci : public UsbHub,
 
     /// Starts processing of the given list.
     void start(Lists list);
+
+    /**
+     * Changes only the RootHubStatusChange interrupt source.
+     *
+     * Callers hold m_RootHubLock so reset and interrupt paths cannot race the
+     * source mask.
+     */
+    void setRootHubStatusChangeSource(bool enabled);
 
     /// Prepares an ED to be reclaimed.
     void removeED(ED *pED);
@@ -289,32 +313,68 @@ class Ohci : public UsbHub,
         OhciCommandHcReset = 0x01,            // HostControllerReset bit
 
         OhciInterruptMIE = 0x80000000,    // MasterInterruptEnable bit
+        OhciInterruptOwnershipChange = 0x40000000,
         OhciInterruptRhStsChange = 0x40,  // RootHubStatusChange bit
+        OhciInterruptFrameNumberOverflow = 0x20,
         OhciInterruptUnrecoverableError = 0x10,
+        OhciInterruptResumeDetected = 0x08,
         OhciInterruptWbDoneHead = 0x02,    // WritebackDoneHead bit
+        OhciInterruptSchedulingOverrun = 0x01,
         OhciInterruptStartOfFrame = 0x04,  // StartOfFrame interrupt
+        OhciInterruptAll =
+            OhciInterruptMIE | OhciInterruptOwnershipChange | 0x7F,
+        OhciInterruptOperational =
+            OhciInterruptMIE | OhciInterruptFrameNumberOverflow |
+            OhciInterruptUnrecoverableError | OhciInterruptWbDoneHead |
+            OhciInterruptSchedulingOverrun,
 
-        OhciRhPortStsResCh = 0x100000,     // PortResetStatusChange bit
-        OhciRhPortStsConnStsCh = 0x10000,  // ConnectStatusChange bit
-        OhciRhPortStsLoSpeed = 0x200,      // LowSpeedDeviceAttached bit
-        OhciRhPortStsPower = 0x100,        // PortPowerStatus / SetPortPower bit
-        OhciRhPortStsReset = 0x10,         // SetPortReset bit
-        OhciRhPortStsEnable = 0x02,        // SetPortEnable bit
-        OhciRhPortStsConnected = 0x01,     // CurrentConnectStatus bit
+        // This bit reads as LPSC but writes as SetGlobalPower. It must never
+        // be echoed as a generic change acknowledgement.
+        OhciRhHubStsSetGlobalPower = 0x10000,
+        OhciRhHubStsOverCurrentCh = 0x20000,
+
+        OhciRhPortStsResCh = 0x100000,      // PortResetStatusChange bit
+        OhciRhPortStsOverCurrentCh = 0x80000,
+        OhciRhPortStsSuspendCh = 0x40000,
+        OhciRhPortStsEnableCh = 0x20000,
+        OhciRhPortStsConnStsCh = 0x10000,   // ConnectStatusChange bit
+        OhciRhPortStsChangeMask =
+            OhciRhPortStsResCh | OhciRhPortStsOverCurrentCh |
+            OhciRhPortStsSuspendCh | OhciRhPortStsEnableCh |
+            OhciRhPortStsConnStsCh,
+        OhciRhPortStsLoSpeed = 0x200,       // LowSpeedDeviceAttached bit
+        OhciRhPortStsPower = 0x100,         // PortPowerStatus / SetPortPower bit
+        OhciRhPortStsReset = 0x10,          // SetPortReset bit
+        OhciRhPortStsEnable = 0x02,         // SetPortEnable bit
+        OhciRhPortStsConnected = 0x01,      // CurrentConnectStatus bit
     };
 
     IoBase *m_pBase;
 
     uint8_t m_nPorts;
+    bool m_Initialised;
+    UsbHcd::PortChangeRequest m_PortChanges[UsbHcd::OhciRootPortCount];
+    UsbHcd::DeferredPortChanges m_DeferredPortChanges;
 
     /// Global lock.
-    Mutex m_Mutex;
+    ControllerLock m_Mutex;
+
+    /// Serializes threaded root-port resets without holding an IRQ-safe lock
+    /// while waiting for hardware.
+    ControllerLock m_PortResetMutex;
 
     Hcca *m_pHcca;
     uintptr_t m_pHccaPhys;
 
     /// Lock for modifying the schedule list itself (m_FullSchedule)
     Spinlock m_IrqProcessingLock;
+
+    /// Serializes root-hub register access between reset and IRQ paths.
+    Spinlock m_RootHubLock;
+    bool m_RootHubStatusChangeDesired;
+    bool m_PortResetActive;
+    Atomic<size_t> m_TeardownPhase;
+
     Spinlock m_ScheduleChangeLock;
 
     /// Lock for changing the periodic list.

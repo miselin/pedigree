@@ -77,6 +77,12 @@ static void probeOhci(Device *pDev)
 
     // Create a new Ohci node
     Ohci *pOhci = new Ohci(pDev);
+    if (!pOhci->initialised())
+    {
+        NOTICE("USB: OHCI failed to initialise");
+        delete pOhci;
+        return;
+    }
 
     // Replace pDev with pOhci, then delete pDev
     pDev->getParent()->replaceChild(pDev, pOhci);

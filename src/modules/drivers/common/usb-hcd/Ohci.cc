@@ -53,16 +53,27 @@
 #define PHYS_TD(idx) (m_pTDListPhys + ((idx) * sizeof(TD)))
 
 Ohci::Ohci(Device *pDev)
-    : UsbHub(pDev), RequestQueue(MakeConstantString("OHCI")), m_Mutex(),
-      m_IrqProcessingLock(), m_ScheduleChangeLock(), m_PeriodicListChangeLock(),
-      m_ControlListChangeLock(), m_BulkListChangeLock(), m_PeriodicEDBitmap(),
-      m_ControlEDBitmap(), m_BulkEDBitmap(), m_pBulkQueueHead(0),
-      m_pControlQueueHead(0), m_pBulkQueueTail(0), m_pControlQueueTail(0),
-      m_pPeriodicQueueTail(0), m_DequeueListLock(), m_DequeueList(),
-      m_DequeueCount(0), m_OhciMR("Ohci-MR"), m_CallbackOperations(),
-      m_IrqId(0)
+    : UsbHub(pDev), RequestQueue(MakeConstantString("OHCI")), m_pBase(0),
+      m_nPorts(0), m_Initialised(false), m_Mutex(), m_PortResetMutex(),
+      m_IrqProcessingLock(), m_RootHubLock(),
+      m_RootHubStatusChangeDesired(false), m_PortResetActive(false),
+      m_TeardownPhase(0), m_ScheduleChangeLock(),
+      m_PeriodicListChangeLock(), m_ControlListChangeLock(),
+      m_BulkListChangeLock(), m_PeriodicEDBitmap(), m_ControlEDBitmap(),
+      m_BulkEDBitmap(), m_pBulkQueueHead(0), m_pControlQueueHead(0),
+      m_pBulkQueueTail(0), m_pControlQueueTail(0), m_pPeriodicQueueTail(0),
+      m_DequeueListLock(), m_DequeueList(), m_DequeueCount(0),
+      m_OhciMR("Ohci-MR"), m_CallbackOperations(), m_IrqId(0)
 {
     setSpecificType(String("OHCI"));
+
+#if !X86_COMMON
+    // InterruptManager cannot synchronously unregister a raw handler. Refuse
+    // publication until that platform can provide the same lifetime barrier
+    // as IrqManager.
+    ERROR("OHCI requires synchronous IRQ unregistration on this platform");
+    return;
+#endif
 
     // Allocate the memory region
     if (!PhysicalMemoryManager::instance().allocateRegion(
@@ -127,6 +138,11 @@ Ohci::Ohci(Device *pDev)
         << Dec << ((version & 0xF0) >> 4) << "." << (version & 0xF) << Hex
         << ".");
 
+    // Do not let a firmware-programmed source reach the PCI line while the
+    // controller is being taken over and reset.
+    m_pBase->write32(OhciInterruptAll, OhciInterruptDisable);
+    (void) m_pBase->read32(OhciInterruptEnable);
+
     // Determine first of all if the HC is controlled by the BIOS.
     uint32_t control = m_pBase->read32(OhciControl);
     if (control & OhciControlInterruptRoute)
@@ -175,11 +191,13 @@ Ohci::Ohci(Device *pDev)
     m_pBase->write32(m_pControlEDListPhys, OhciControlHeadED);
     m_pBase->write32(m_pBulkEDListPhys, OhciBulkHeadED);
 
-    // Disable and then enable the interrupts we want.
-    m_pBase->write32(0x4000007F, OhciInterruptDisable);
+    // Reset may restore interrupt state, so keep the device silent until its
+    // IRQ callback and preallocated port publications are ready.
+    m_pBase->write32(OhciInterruptAll, OhciInterruptDisable);
+    (void) m_pBase->read32(OhciInterruptEnable);
     m_pBase->write32(
-        OhciInterruptMIE | OhciInterruptWbDoneHead | 0x1 | 0x10 | 0x20,
-        OhciInterruptEnable);
+        OhciInterruptOwnershipChange | 0x7F, OhciInterruptStatus);
+    (void) m_pBase->read32(OhciInterruptStatus);
 
     // Prepare the control register
     control = m_pBase->read32(OhciControl);
@@ -199,10 +217,18 @@ Ohci::Ohci(Device *pDev)
         "USB: OHCI: maximum packet size is " << ((interval >> 16) & 0xEFFF));
 
     // Turn on all ports on the root hub.
-    m_pBase->write32(0x10000, OhciRhStatus);
+    m_pBase->write32(OhciRhHubStsSetGlobalPower, OhciRhStatus);
 
     // Set up the RequestQueue
     initialise();
+
+#if THREADS
+    if (getLifecycleState() != RequestQueue::LifecycleState::Accepting)
+    {
+        ERROR("OHCI: request queue did not enter the accepting state");
+        return;
+    }
+#endif
 
 // Dequeue main thread
 // new Thread(Processor::information().getCurrentThread()->getParent(),
@@ -212,6 +238,11 @@ Ohci::Ohci(Device *pDev)
 #if X86_COMMON
     m_IrqId =
         Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
+    if (!m_IrqId)
+    {
+        ERROR("OHCI: could not register the PCI interrupt callback");
+        return;
+    }
     Machine::instance().getIrqManager()->control(
         getInterruptNumber(), IrqManager::MitigationThreshold,
         (1500000 / 64));  // 12KB/ms (12Mbps) in bytes, divided by 64 bytes
@@ -226,9 +257,60 @@ Ohci::Ohci(Device *pDev)
     uint8_t powerWait = ((rhDescA >> 24) & 0xFF) * 2;
     m_nPorts = rhDescA & 0xFF;
 
+    if (!UsbHcd::validOhciRootPortCount(m_nPorts))
+    {
+        ERROR("OHCI: unsupported root-port count " << Dec << m_nPorts << Hex);
+        m_nPorts = 0;
+        return;
+    }
+
+    for (size_t i = 0; i < m_nPorts; ++i)
+    {
+        if (!m_PortChanges[i].configure(*this, 0, i))
+        {
+            ERROR("OHCI: could not configure root-port publication " << i);
+            return;
+        }
+    }
+
     DEBUG_LOG(
         "USB: OHCI: Reset complete, " << Dec << m_nPorts << Hex
                                       << " ports available");
+
+    if (m_nPorts)
+    {
+        LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+
+        // Establish a clean aggregate before the initial state scan. Changes
+        // after this flush remain pending until RHSC is enabled below.
+        m_pBase->write32(OhciInterruptRhStsChange, OhciInterruptStatus);
+        (void) m_pBase->read32(OhciInterruptStatus);
+
+        if (m_pBase->read32(OhciRhStatus) & OhciRhHubStsOverCurrentCh)
+        {
+            m_pBase->write32(OhciRhHubStsOverCurrentCh, OhciRhStatus);
+            (void) m_pBase->read32(OhciRhStatus);
+        }
+
+        // The initial scan samples the current connection state directly, so
+        // stale change indications can be retired without losing that state.
+        for (size_t i = 0; i < m_nPorts; ++i)
+        {
+            const size_t portRegister = OhciRhPortStatus + (i * 4);
+            const uint32_t portChanges =
+                m_pBase->read32(portRegister) & OhciRhPortStsChangeMask;
+            if (portChanges)
+            {
+                m_pBase->write32(portChanges, portRegister);
+                (void) m_pBase->read32(portRegister);
+            }
+        }
+    }
+
+    // Transfer-completion sources become live only after IRQ registration,
+    // queue startup, and root-port token configuration have all succeeded.
+    m_pBase->write32(OhciInterruptOperational, OhciInterruptEnable);
+    (void) m_pBase->read32(OhciInterruptEnable);
 
     for (size_t i = 0; i < m_nPorts; i++)
     {
@@ -251,16 +333,51 @@ Ohci::Ohci(Device *pDev)
             executeRequest(i);
     }
 
-    // Enable RootHubStatusChange interrupt now that it's safe to
-    m_pBase->write32(OhciInterruptRhStsChange, OhciInterruptStatus);
-    m_pBase->write32(
-        OhciInterruptMIE | OhciInterruptRhStsChange | OhciInterruptWbDoneHead,
-        OhciInterruptEnable);
+#if THREADS
+    if (m_nPorts)
+    {
+        LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+        m_RootHubStatusChangeDesired = true;
+        setRootHubStatusChangeSource(true);
+    }
+#endif
+
+    m_Initialised = true;
 }
 
 Ohci::~Ohci()
 {
-    m_CallbackOperations.close();
+    // Quiesce only the root-port producer first. Transfer and SOF callbacks
+    // must remain live while an active enumeration request drains.
+    if (m_pBase)
+    {
+        LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+        LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+        m_TeardownPhase = 1;
+        m_RootHubStatusChangeDesired = false;
+        setRootHubStatusChangeSource(false);
+    }
+
+    // The RHSC mask and IRQ serialization above close and drain observe().
+    for (size_t i = 0; i < m_nPorts; ++i)
+    {
+        m_PortChanges[i].stopAfterQuiesce();
+    }
+    RequestQueue::destroy();
+
+    {
+        LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+        m_TeardownPhase = 2;
+        if (m_pBase)
+        {
+            m_pBase->write32(OhciInterruptAll, OhciInterruptDisable);
+            (void) m_pBase->read32(OhciInterruptEnable);
+        }
+        // Close admission while the IRQ lock prevents a level source from
+        // repeatedly entering a just-closed callback path.
+        m_CallbackOperations.close();
+    }
+
 #if X86_COMMON
     if (m_IrqId)
     {
@@ -276,7 +393,36 @@ Ohci::~Ohci()
 #endif
     m_CallbackOperations.wait();
 
-    RequestQueue::destroy();
+    if (m_pBase)
+    {
+        // USB suspend takes effect at a frame boundary. Once two frames have
+        // elapsed, the controller no longer owns the HCCA/ED/TD memory that
+        // the MemoryRegion destructor will release.
+        uint32_t control = m_pBase->read32(OhciControl);
+        control &= ~(OhciControlStateFunctionalMask | 0x3C);
+        m_pBase->write32(
+            control | OhciControlStateSuspended, OhciControl);
+        (void) m_pBase->read32(OhciControl);
+        Time::delay(2 * Time::Multiplier::Millisecond);
+
+        m_pBase->write32(0, OhciHcca);
+        m_pBase->write32(0, OhciControlHeadED);
+        m_pBase->write32(0, OhciBulkHeadED);
+        (void) m_pBase->read32(OhciHcca);
+
+        // Leave the host controller in USBRESET, with every schedule disabled.
+        m_pBase->write32(control, OhciControl);
+        (void) m_pBase->read32(OhciControl);
+        m_pHcca = nullptr;
+    }
+}
+
+void Ohci::setRootHubStatusChangeSource(bool enabled)
+{
+    m_pBase->write32(
+        OhciInterruptRhStsChange,
+        enabled ? OhciInterruptEnable : OhciInterruptDisable);
+    (void) m_pBase->read32(OhciInterruptEnable);
 }
 
 void Ohci::removeED(ED *pED)
@@ -529,12 +675,92 @@ void Ohci::interrupt(size_t number, InterruptState &state)
         }
     }
 
-    // Check for newly connected / disconnected devices
+    // Check for newly connected / disconnected devices. A threadless build
+    // leaves RHSC masked because enumeration can block and allocate.
+#if THREADS
     if (nStatus & OhciInterruptRhStsChange)
+    {
+        LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+
+        // Clear and flush the aggregate before scanning. A change after its
+        // port has been scanned will relatch RHSC and cannot be erased by a
+        // trailing aggregate acknowledgement.
+        m_pBase->write32(OhciInterruptRhStsChange, OhciInterruptStatus);
+        (void) m_pBase->read32(OhciInterruptStatus);
+
+        if (m_pBase->read32(OhciRhStatus) & OhciRhHubStsOverCurrentCh)
+        {
+            m_pBase->write32(OhciRhHubStsOverCurrentCh, OhciRhStatus);
+            (void) m_pBase->read32(OhciRhStatus);
+        }
+
         for (size_t i = 0; i < m_nPorts; i++)
-            if (m_pBase->read32(OhciRhPortStatus + (i * 4)) &
-                OhciRhPortStsConnStsCh)
-                addAsyncRequest(0, i);
+        {
+            const size_t portRegister = OhciRhPortStatus + (i * 4);
+            const uint32_t portStatus = m_pBase->read32(portRegister);
+            uint32_t acknowledgeMask =
+                portStatus &
+                (OhciRhPortStsEnableCh | OhciRhPortStsSuspendCh |
+                 OhciRhPortStsOverCurrentCh);
+
+            // A reset worker masks RHSC before issuing reset and owns PRSC
+            // until it has sampled and cleared completion. A stale PRSC with
+            // no owner can be retired here instead of causing an IRQ storm.
+            if ((portStatus & OhciRhPortStsResCh) && !m_PortResetActive)
+            {
+                acknowledgeMask |= OhciRhPortStsResCh;
+            }
+
+            if (portStatus & OhciRhPortStsConnStsCh)
+            {
+                const bool ignored = m_IgnoredPorts.test(i);
+                bool acknowledge = ignored;
+                size_t generation = 0;
+                if (!ignored)
+                {
+                    const auto observation = m_PortChanges[i].observe();
+                    acknowledge =
+                        UsbHcd::PortChangeRequest::canAcknowledge(
+                            observation.result);
+                    assert(acknowledge);
+                    if (acknowledge)
+                    {
+                        generation = observation.generation;
+                        m_DeferredPortChanges.defer(i, generation);
+                    }
+                }
+
+                if (acknowledge)
+                {
+                    acknowledgeMask |= OhciRhPortStsConnStsCh;
+                }
+                else
+                {
+                    // A configured preallocated token has no fallible
+                    // admission path while the queue is accepting. Preserve
+                    // CSC for diagnosis, but mask RHSC to avoid a hard-IRQ
+                    // livelock if that invariant is ever violated.
+                    m_RootHubStatusChangeDesired = false;
+                    setRootHubStatusChangeSource(false);
+                }
+            }
+
+            if (acknowledgeMask)
+            {
+                // OHCI root-port command bits alias the readable status bits;
+                // writing only upper change bits avoids replaying commands.
+                m_pBase->write32(acknowledgeMask, portRegister);
+                (void) m_pBase->read32(portRegister);
+            }
+
+            const size_t generation = m_DeferredPortChanges.release(i);
+            if (generation)
+            {
+                m_PortChanges[i].acknowledge(generation);
+            }
+        }
+    }
+#endif
 
     // A list of EDs that persist in the schedule. Used to repopulate the
     // schedule list.
@@ -685,11 +911,20 @@ void Ohci::interrupt(size_t number, InterruptState &state)
         }
     }
 
-    // Clear the interrupt status now.
-    m_pBase->write32(nStatus, OhciInterruptStatus);
+    // RHSC was acknowledged before its scan so a later port edge cannot be
+    // erased here.
+    const uint32_t acknowledgeStatus =
+        nStatus & ~OhciInterruptRhStsChange;
+    if (acknowledgeStatus)
+    {
+        m_pBase->write32(acknowledgeStatus, OhciInterruptStatus);
+        (void) m_pBase->read32(OhciInterruptStatus);
+    }
 
-    // Re-enable all interrupts.
-    m_pBase->write32(OhciInterruptMIE, OhciInterruptEnable);
+    if (m_TeardownPhase < 2)
+    {
+        m_pBase->write32(OhciInterruptMIE, OhciInterruptEnable);
+    }
 
 #if X86_COMMON
     return true;
@@ -703,7 +938,7 @@ void Ohci::addTransferToTransaction(
     // Atomic operation: find clear bit, set it
     size_t nIndex = 0;
     {
-        LockGuard<Mutex> guard(m_Mutex);
+        LockGuard<ControllerLock> guard(m_Mutex);
         nIndex = m_TDBitmap.getFirstClear();
         if (nIndex >= (0x1000 / sizeof(TD)))
         {
@@ -822,7 +1057,7 @@ uintptr_t Ohci::createTransaction(UsbEndpoint endpointInfo)
     ED *pED = 0;
     size_t nIndex = 0;
     {
-        LockGuard<Mutex> guard(m_Mutex);
+        LockGuard<ControllerLock> guard(m_Mutex);
 
         if (bIsBulk)
             nIndex = m_BulkEDBitmap.getFirstClear();
@@ -894,7 +1129,7 @@ bool Ohci::doAsync(
 
     ED *pED = 0;
     {
-        LockGuard<Mutex> guard(m_Mutex);
+        LockGuard<ControllerLock> guard(m_Mutex);
 
         bool bValid = false;
         if (transactionType == 0)
@@ -1079,7 +1314,7 @@ void Ohci::cancelAsyncAndDrain(
     ED *pED = nullptr;
 
     {
-        LockGuard<Mutex> guard(m_Mutex);
+        LockGuard<ControllerLock> guard(m_Mutex);
 
         // USBSUSPEND takes effect at a frame boundary. Waiting two frames
         // establishes the DMA ownership boundary before any TD is reclaimed.
@@ -1151,10 +1386,18 @@ void Ohci::cancelAsyncAndDrain(
 
                 removeED(pED);
             }
-        }
 
-        m_pBase->write32(savedControl, OhciControl);
-        m_pBase->write32(OhciInterruptMIE, OhciInterruptEnable);
+            if (m_TeardownPhase < 2)
+            {
+                m_pBase->write32(savedControl, OhciControl);
+                m_pBase->write32(OhciInterruptMIE, OhciInterruptEnable);
+            }
+            else
+            {
+                m_pBase->write32(OhciInterruptAll, OhciInterruptDisable);
+            }
+            (void) m_pBase->read32(OhciInterruptEnable);
+        }
     }
 
     if (deliverCompletion)
@@ -1169,7 +1412,7 @@ void Ohci::addInterruptInHandler(
     ED *pED = 0;
     size_t nIndex = 0;
     {
-        LockGuard<Mutex> guard(m_Mutex);
+        LockGuard<ControllerLock> guard(m_Mutex);
 
         nIndex = m_PeriodicEDBitmap.getFirstClear();
         if (nIndex >= (0x1000 / sizeof(ED)))
@@ -1242,27 +1485,100 @@ bool Ohci::portReset(uint8_t nPort, bool bErrorResponse)
 {
     /// \todo Error handling? Device fails to reset? Not present after reset?
 
-    // Perform a reset of the port
-    m_pBase->write32(
-        OhciRhPortStsReset | OhciRhPortStsConnStsCh,
-        OhciRhPortStatus + (nPort * 4));
-    while (
-        !(m_pBase->read32(OhciRhPortStatus + (nPort * 4)) & OhciRhPortStsResCh))
+    if (nPort >= m_nPorts)
+    {
+        return false;
+    }
+
+#if THREADS
+    LockGuard<ControllerLock> resetGuard(m_PortResetMutex);
+#endif
+    const size_t portRegister = OhciRhPortStatus + (nPort * 4);
+
+    {
+        LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+
+        // PRSC is level-signalled through RHSC. Mask the source while reset is
+        // in flight so the worker that must clear PRSC cannot be starved by a
+        // same-core interrupt loop.
+        m_PortResetActive = true;
+        setRootHubStatusChangeSource(false);
+
+        // Root-port lower bits are write commands, not an RMW-safe control
+        // image. Writing only SetPortReset cannot echo unrelated W1C bits.
+        m_pBase->write32(OhciRhPortStsReset, portRegister);
+        (void) m_pBase->read32(portRegister);
+    }
+
+    bool resetComplete = false;
+    constexpr size_t ResetPolls = 200;
+    for (size_t attempt = 0; attempt < ResetPolls; ++attempt)
+    {
+        if (m_pBase->read32(portRegister) & OhciRhPortStsResCh)
+        {
+            resetComplete = true;
+            break;
+        }
+        if (m_TeardownPhase)
+        {
+            break;
+        }
         Time::delay(5 * Time::Multiplier::Millisecond);
-    m_pBase->write32(OhciRhPortStsResCh, OhciRhPortStatus + (nPort * 4));
+    }
 
-    // Enable the port if not already enabled
-    if (!(m_pBase->read32(OhciRhPortStatus + (nPort * 4)) &
-          OhciRhPortStsEnable))
-        m_pBase->write32(OhciRhPortStsEnable, OhciRhPortStatus + (nPort * 4));
+    {
+        LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
 
-    return true;
+        // The reset worker exclusively owns PRSC while RHSC is masked. A
+        // completion that arrived at the timeout boundary is still retired.
+        const uint32_t portStatus = m_pBase->read32(portRegister);
+        resetComplete = resetComplete || (portStatus & OhciRhPortStsResCh);
+        if (portStatus & OhciRhPortStsResCh)
+        {
+            m_pBase->write32(OhciRhPortStsResCh, portRegister);
+            (void) m_pBase->read32(portRegister);
+        }
+
+        // SetPortEnable is also a command bit; do not echo the status image.
+        if (
+            resetComplete &&
+            !(m_pBase->read32(portRegister) & OhciRhPortStsEnable))
+        {
+            m_pBase->write32(OhciRhPortStsEnable, portRegister);
+            (void) m_pBase->read32(portRegister);
+        }
+
+        m_PortResetActive = false;
+        if (m_RootHubStatusChangeDesired)
+        {
+            // Any CSC that arrived during reset remained set while the source
+            // was masked and becomes deliverable again here.
+            setRootHubStatusChangeSource(true);
+        }
+    }
+
+    if (!resetComplete && !m_TeardownPhase)
+    {
+        ERROR("OHCI: timed out resetting root port " << nPort);
+    }
+    return resetComplete;
 }
 
 uint64_t Ohci::executeRequest(
     uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
     uint64_t p6, uint64_t p7, uint64_t p8)
 {
+    if (p1 >= m_nPorts)
+    {
+        return 0;
+    }
+    UsbHcd::PortChangeRequest::Completion completion(
+        m_PortChanges[p1], static_cast<size_t>(p8));
+    if (!completion)
+    {
+        return 0;
+    }
+
     // Check for a connected device
     if (m_pBase->read32(OhciRhPortStatus + (p1 * 4)) & OhciRhPortStsConnected)
     {
@@ -1290,6 +1606,15 @@ uint64_t Ohci::executeRequest(
     else
         deviceDisconnected(p1);
     return 0;
+}
+
+void Ohci::cancelRequest(const Request &request)
+{
+    if (request.p1 < m_nPorts)
+    {
+        m_PortChanges[request.p1].cancel(
+            static_cast<size_t>(request.p8));
+    }
 }
 
 void Ohci::stop(Lists list)
