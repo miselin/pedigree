@@ -35,7 +35,7 @@
 #define RTL8139_DEVICE_ID 0x8139
 
 /** Device driver for the RTL8139 class of network device */
-class Rtl8139 : public Network, public IrqHandler
+class Rtl8139 : public Network, public HardIrqHandler
 {
   public:
     Rtl8139(Network *pDev);

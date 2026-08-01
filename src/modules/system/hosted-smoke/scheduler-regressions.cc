@@ -38,7 +38,7 @@ struct ContextSwitchContext
 
 ContextSwitchContext *g_ContextSwitchContext = nullptr;
 
-class QueuedTickHandler : public IrqHandler
+class QueuedTickHandler : public HardIrqHandler
 {
   public:
     explicit QueuedTickHandler(ContextSwitchContext &context)
@@ -143,7 +143,8 @@ bool runHostedSchedulerRegressions()
     ContextSwitchContext context(driver);
     QueuedTickHandler tickHandler(context);
     IrqManager *irqManager = Machine::instance().getIrqManager();
-    const irq_id_t tickId = irqManager->registerIsaIrqHandler(1, &tickHandler);
+    const irq_id_t tickId =
+        irqManager->registerHardIsaIrqHandler(1, &tickHandler);
 
     Thread *target = new Thread(
         Scheduler::instance().getKernelProcess(), contextSwitchTarget, &context,

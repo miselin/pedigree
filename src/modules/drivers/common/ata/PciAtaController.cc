@@ -37,7 +37,7 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-class IrqHandler;
+class HardIrqHandler;
 
 PciAtaController::PciAtaController(Controller *pDev, int nController)
     : AtaController(pDev, nController), m_pCommandRegs(nullptr),
@@ -299,8 +299,8 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
     if (getInterruptNumber() != 0xFF)
     {
         irq_id_t irqId =
-            Machine::instance().getIrqManager()->registerIsaIrqHandler(
-            getInterruptNumber(), static_cast<IrqHandler *>(this));
+            Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
+            getInterruptNumber(), static_cast<HardIrqHandler *>(this));
         if (irqId)
         {
             m_IrqIds[m_IrqCount++] = irqId;
@@ -312,8 +312,8 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
     if (primaryIrq != getInterruptNumber())
     {
         irq_id_t irqId =
-            Machine::instance().getIrqManager()->registerIsaIrqHandler(
-            primaryIrq, static_cast<IrqHandler *>(this));
+            Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
+            primaryIrq, static_cast<HardIrqHandler *>(this));
         if (irqId)
         {
             m_IrqIds[m_IrqCount++] = irqId;
@@ -322,8 +322,8 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
     if (secondaryIrq != getInterruptNumber())
     {
         irq_id_t irqId =
-            Machine::instance().getIrqManager()->registerIsaIrqHandler(
-            secondaryIrq, static_cast<IrqHandler *>(this));
+            Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
+            secondaryIrq, static_cast<HardIrqHandler *>(this));
         if (irqId)
         {
             m_IrqIds[m_IrqCount++] = irqId;
@@ -363,7 +363,7 @@ PciAtaController::~PciAtaController()
     {
         if (
             !irqManager->unregisterHandler(
-                m_IrqIds[i], static_cast<IrqHandler *>(this)))
+                m_IrqIds[i], static_cast<HardIrqHandler *>(this)))
         {
             FATAL("PCI ATA controller could not drain an IRQ handler");
         }

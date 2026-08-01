@@ -37,7 +37,7 @@ namespace __pedigree_hosted
 /** @addtogroup kernelmachinehosted
  * @{ */
 
-class HostedTimer : public Timer, private IrqHandler
+class HostedTimer : public Timer, private HardIrqHandler
 {
   public:
     inline static HostedTimer &instance()
@@ -119,7 +119,7 @@ class HostedTimer : public Timer, private IrqHandler
     HostedTimer &operator=(const HostedTimer &);
 
     //
-    // IrqHandler interface
+    // HardIrqHandler interface
     //
     virtual bool irq(irq_id_t number, InterruptState &state);
 

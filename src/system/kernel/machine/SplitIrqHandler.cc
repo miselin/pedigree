@@ -16,7 +16,7 @@
 #include "pedigree/kernel/utilities/String.h"
 
 SplitIrqHandler::SplitIrqHandler(const String &name)
-    : IrqHandler(), RequestQueue(name), m_Registrations(),
+    : HardIrqHandler(), RequestQueue(name), m_Registrations(),
       m_RegistrationCount(0), m_WorkRequest(&workReleased, this),
       m_StateLock(false), m_Quiescing(true), m_Stopping(1),
       m_PublicationFailures(0), m_DeferredIrqs(0), m_CompletedBatches(0),
@@ -72,7 +72,7 @@ irq_id_t SplitIrqHandler::registerIsaSplitIrq(
         return 0;
     }
 
-    const irq_id_t id = manager.registerIsaIrqHandler(irq, this, edge);
+    const irq_id_t id = manager.registerHardIsaIrqHandler(irq, this, edge);
     if (!id)
     {
         return 0;
@@ -92,7 +92,7 @@ SplitIrqHandler::registerPciSplitIrq(IrqManager &manager, Device &device)
         return 0;
     }
 
-    const irq_id_t id = manager.registerPciIrqHandler(this, &device);
+    const irq_id_t id = manager.registerHardPciIrqHandler(this, &device);
     if (!id)
     {
         return 0;
@@ -273,7 +273,7 @@ void SplitIrqHandler::workReleased()
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-IrqHandler *SplitIrqHandler::hardHandlerForTest()
+HardIrqHandler *SplitIrqHandler::hardHandlerForTest()
 {
     return this;
 }

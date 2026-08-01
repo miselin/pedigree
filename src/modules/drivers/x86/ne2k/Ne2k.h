@@ -39,7 +39,7 @@ class IoBase;
 #define NE2K_DEVICE_ID 0x8029
 
 /** Device driver for the NE2K class of network device */
-class Ne2k : public Network, public IrqHandler
+class Ne2k : public Network, public HardIrqHandler
 {
   public:
     Ne2k(Network *pDev);

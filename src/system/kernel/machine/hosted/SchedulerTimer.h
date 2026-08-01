@@ -35,7 +35,7 @@ namespace __pedigree_hosted
 /** @addtogroup kernelmachinehosted
  * @{ */
 
-class HostedSchedulerTimer : public SchedulerTimer, private IrqHandler
+class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler
 {
   public:
     /** Get the HostedSchedulerTimer class instance */
@@ -72,7 +72,7 @@ class HostedSchedulerTimer : public SchedulerTimer, private IrqHandler
     HostedSchedulerTimer &operator=(const HostedSchedulerTimer &);
 
     //
-    // IrqHandler interface
+    // HardIrqHandler interface
     //
     virtual bool irq(irq_id_t number, InterruptState &state);
 

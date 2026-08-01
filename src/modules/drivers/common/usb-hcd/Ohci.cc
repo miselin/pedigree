@@ -237,7 +237,7 @@ Ohci::Ohci(Device *pDev)
 // Install the IRQ handler
 #if X86_COMMON
     m_IrqId =
-        Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
+        Machine::instance().getIrqManager()->registerHardPciIrqHandler(this, this);
     if (!m_IrqId)
     {
         ERROR("OHCI: could not register the PCI interrupt callback");

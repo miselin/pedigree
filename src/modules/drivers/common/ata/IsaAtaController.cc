@@ -30,7 +30,7 @@
 #include "pedigree/kernel/utilities/new"
 
 class Controller;
-class IrqHandler;
+class HardIrqHandler;
 
 IsaAtaController::IsaAtaController(Controller *pDev, int nController)
     : AtaController(pDev, nController), m_IrqId(0)
@@ -113,8 +113,8 @@ IsaAtaController::IsaAtaController(Controller *pDev, int nController)
     bool masterInitialised = pMaster->initialise(masterN);
     bool slaveInitialised = pSlave->initialise(slaveN);
 
-    m_IrqId = Machine::instance().getIrqManager()->registerIsaIrqHandler(
-        getInterruptNumber(), static_cast<IrqHandler *>(this));
+    m_IrqId = Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
+        getInterruptNumber(), static_cast<HardIrqHandler *>(this));
 
     if (!masterInitialised)
     {
@@ -138,7 +138,7 @@ IsaAtaController::~IsaAtaController()
     if (
         m_IrqId &&
         !Machine::instance().getIrqManager()->unregisterHandler(
-            m_IrqId, static_cast<IrqHandler *>(this)))
+            m_IrqId, static_cast<HardIrqHandler *>(this)))
     {
         FATAL("ISA ATA controller could not drain its IRQ handler");
     }

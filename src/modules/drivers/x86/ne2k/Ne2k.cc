@@ -131,8 +131,8 @@ Ne2k::Ne2k(Network *pDev)
 
     // install the IRQ
     NOTICE("NE2K: IRQ is " << getInterruptNumber());
-    m_IrqId = Machine::instance().getIrqManager()->registerIsaIrqHandler(
-        getInterruptNumber(), static_cast<IrqHandler *>(this));
+    m_IrqId = Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
+        getInterruptNumber(), static_cast<HardIrqHandler *>(this));
 
     // clear interrupts and enable the ones we want
     m_pBase->write8(0xff, NE_ISR);

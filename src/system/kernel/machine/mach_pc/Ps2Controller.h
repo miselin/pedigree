@@ -31,7 +31,7 @@
 
 class IoBase;
 
-class Ps2Controller : public Controller, private IrqHandler
+class Ps2Controller : public Controller, private HardIrqHandler
 {
   public:
     Ps2Controller(Controller *pDev);

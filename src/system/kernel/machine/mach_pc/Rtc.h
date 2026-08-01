@@ -38,7 +38,7 @@ class TimerHandler;
  * @{ */
 
 /** Class for the Real-time clock / CMOS implementing the Timer interface */
-class Rtc : public Timer, private IrqHandler
+class Rtc : public Timer, private HardIrqHandler
 {
   public:
     inline static Rtc &instance()
@@ -93,7 +93,7 @@ class Rtc : public Timer, private IrqHandler
     Rtc &operator=(const Rtc &);
 
     //
-    // IrqHandler interface
+    // HardIrqHandler interface
     //
     virtual bool irq(irq_id_t number, InterruptState &state);
 

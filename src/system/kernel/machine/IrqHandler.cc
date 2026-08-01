@@ -19,5 +19,9 @@
 
 #include "pedigree/kernel/machine/IrqHandler.h"
 
+IrqHandlerBase::IrqHandlerBase() = default;
+IrqHandlerBase::~IrqHandlerBase() = default;
 IrqHandler::IrqHandler() = default;
 IrqHandler::~IrqHandler() = default;
+HardIrqHandler::HardIrqHandler() = default;
+HardIrqHandler::~HardIrqHandler() = default;

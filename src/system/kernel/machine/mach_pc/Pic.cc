@@ -68,6 +68,13 @@ bool Pic::control(uint8_t irq, ControlCode code, size_t argument)
 irq_id_t
 Pic::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge)
 {
+    // Threaded line dispatch is added by the manager-owned worker checkpoint.
+    return 0;
+}
+
+irq_id_t
+Pic::registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler *handler, bool bEdge)
+{
     if (UNLIKELY(irq >= PicIrqState::LineCount || !handler))
         return 0;
 
@@ -76,10 +83,10 @@ Pic::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge)
     {
         ERROR(
             "PIC: IRQ " << Dec << irq
-                         << " was registered with incompatible trigger modes");
+                        << " was registered with incompatible trigger modes");
         return 0;
     }
-    if (!m_Handlers.registerHandler(irq, handler))
+    if (!m_Handlers.registerHardHandler(irq, handler))
         return 0;
 
     m_IrqState.handlerRegistered(irq, bEdge);
@@ -88,6 +95,13 @@ Pic::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge)
     return irq + BASE_INTERRUPT_VECTOR;
 }
 irq_id_t Pic::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
+{
+    // Threaded line dispatch is added by the manager-owned worker checkpoint.
+    return 0;
+}
+
+irq_id_t
+Pic::registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice)
 {
     if (UNLIKELY(!pDevice))
         return 0;
@@ -100,10 +114,10 @@ irq_id_t Pic::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
     {
         ERROR(
             "PIC: PCI IRQ " << Dec << irq
-                             << " conflicts with an edge-triggered handler");
+                            << " conflicts with an edge-triggered handler");
         return 0;
     }
-    if (!m_Handlers.registerHandler(irq, handler))
+    if (!m_Handlers.registerHardHandler(irq, handler))
         return 0;
 
     m_IrqState.handlerRegistered(irq, false);
@@ -111,22 +125,7 @@ irq_id_t Pic::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
 
     return irq + BASE_INTERRUPT_VECTOR;
 }
-void Pic::acknowledgeIrq(irq_id_t Id)
-{
-    if (Id < BASE_INTERRUPT_VECTOR ||
-        Id >= BASE_INTERRUPT_VECTOR + PicIrqState::LineCount)
-    {
-        return;
-    }
-    uint8_t irq = Id - BASE_INTERRUPT_VECTOR;
-
-    LockGuard<Spinlock> guard(m_Lock);
-    if (m_IrqState.acknowledge(irq))
-    {
-        applyMaskLocked();
-    }
-}
-bool Pic::unregisterHandler(irq_id_t Id, IrqHandler *handler)
+bool Pic::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
 {
     if (Id < BASE_INTERRUPT_VECTOR ||
         Id >= BASE_INTERRUPT_VECTOR + PicIrqState::LineCount || !handler)
@@ -197,8 +196,8 @@ bool Pic::initialise()
 }
 
 Pic::Pic()
-    : m_SlavePort("PIC #2"), m_MasterPort("PIC #1"), m_Handlers(),
-      m_IrqState(), m_Lock(false)
+    : m_SlavePort("PIC #2"), m_MasterPort("PIC #1"), m_Handlers(), m_IrqState(),
+      m_Lock(false)
 {
 }
 
@@ -263,7 +262,7 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
     }
 
     bool bHandled = false;
-    const bool admitted = m_Handlers.dispatch(irq, state, bHandled);
+    const bool admitted = m_Handlers.dispatchHard(irq, state, bHandled);
 
     {
         LockGuard<Spinlock> guard(m_Lock);

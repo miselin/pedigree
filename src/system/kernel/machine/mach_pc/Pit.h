@@ -33,7 +33,7 @@ class TimerHandler;
  * @{ */
 
 /** The programmable interval timer implements the SchedulerTimer interface */
-class Pit : public SchedulerTimer, private IrqHandler
+class Pit : public SchedulerTimer, private HardIrqHandler
 {
   public:
     /** Get the Pit class instance */
@@ -71,7 +71,7 @@ class Pit : public SchedulerTimer, private IrqHandler
     Pit &operator=(const Pit &);
 
     //
-    // IrqHandler interface
+    // HardIrqHandler interface
     //
     virtual bool irq(irq_id_t number, InterruptState &state);
 

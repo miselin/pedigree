@@ -604,8 +604,8 @@ Nic3C90x::Nic3C90x(Network *pDev)
 #endif
 
     // install the IRQ
-    m_IrqId = Machine::instance().getIrqManager()->registerIsaIrqHandler(
-        getInterruptNumber(), static_cast<IrqHandler *>(this));
+    m_IrqId = Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
+        getInterruptNumber(), static_cast<HardIrqHandler *>(this));
     NetworkStack::instance().registerDevice(this);
     m_Initialised = true;
 }

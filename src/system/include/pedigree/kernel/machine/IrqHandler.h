@@ -27,30 +27,62 @@
 /** @addtogroup kernelmachine
  * @{ */
 
+/** Result of an ordinary thread-context IRQ callback. */
+enum class IrqDisposition
+{
+    NotHandled,
+    Handled,
+};
+
+/** Common identity for handlers stored by an IRQ registry. */
+class EXPORTED_PUBLIC IrqHandlerBase
+{
+  protected:
+    IrqHandlerBase();
+
+    /** Handlers are owned by their registering device, not the registry. */
+    virtual ~IrqHandlerBase();
+};
+
 /**
- * Legacy hard-IRQ callback interface.
+ * Normal IRQ callback interface.
+ *
+ * Callbacks run in an ordinary kernel thread after the hard interrupt path has
+ * recorded the physical-line event. They may use thread-context APIs and are
+ * deliberately not given the interrupted processor state.
+ */
+class EXPORTED_PUBLIC IrqHandler : public IrqHandlerBase
+{
+  public:
+    IrqHandler();
+
+    /** Handles a pending IRQ in thread context. */
+    virtual IrqDisposition irq(irq_id_t number) = 0;
+
+  protected:
+    /** Virtual destructor */
+    virtual ~IrqHandler();
+};
+
+/**
+ * Explicit hard-IRQ callback interface.
  *
  * Directly deriving from this class opts the whole callback into hard IRQ
  * context, where it must not block, allocate, invoke arbitrary callbacks, or
  * retain InterruptState. SplitIrqHandler is only for devices which require a
  * mandatory hard top half; it is not the normal threaded-delivery API.
  */
-class EXPORTED_PUBLIC IrqHandler
+class EXPORTED_PUBLIC HardIrqHandler : public IrqHandlerBase
 {
   public:
-    IrqHandler();
+    HardIrqHandler();
 
-    /** Called when the handler is registered with the irq manager and the irq
-     *occurred \note If this function returns false you have to call
-     *IrqManager::acknowledgeIrq() when you removed the interrupt reason.
-     *\param[in] number the irq number
-     *\return should return true, if the interrupt reason was removed, or false
-     *otherwise */
+    /** Handles an IRQ synchronously in hard interrupt context. */
     virtual bool irq(irq_id_t number, InterruptState &state) = 0;
 
   protected:
     /** Virtual destructor */
-    virtual ~IrqHandler();
+    virtual ~HardIrqHandler();
 };
 
 /** @} */

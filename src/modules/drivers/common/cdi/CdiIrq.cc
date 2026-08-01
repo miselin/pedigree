@@ -23,7 +23,7 @@
 
 struct cdi_device;
 
-class CdiIrqHandler : public IrqHandler
+class CdiIrqHandler : public HardIrqHandler
 {
   public:
     bool irq(irq_id_t number, InterruptState &state) override;
@@ -128,8 +128,8 @@ EXPORTED_PUBLIC void cdi_register_irq(
     driver_irq_handler[irq] = handler;
     driver_irq_device[irq] = device;
 
-    Machine::instance().getIrqManager()->registerIsaIrqHandler(
-        irq, static_cast<IrqHandler *>(&cdi_irq_handler));
+    Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
+        irq, static_cast<HardIrqHandler *>(&cdi_irq_handler));
 }
 
 /**

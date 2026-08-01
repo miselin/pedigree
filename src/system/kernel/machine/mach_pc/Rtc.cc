@@ -340,7 +340,7 @@ bool Rtc::initialise2()
 
     // Register the irq
     IrqManager &irqManager = *Machine::instance().getIrqManager();
-    m_IrqId = irqManager.registerIsaIrqHandler(8, this);
+    m_IrqId = irqManager.registerHardIsaIrqHandler(8, this);
     if (m_IrqId == 0)
         return false;
 

@@ -58,7 +58,7 @@ bool waitForThreadState(Thread *thread, Thread::DebugState state)
     return false;
 }
 
-bool hasCallbackDrainWait(Thread *thread, IrqHandler *handler)
+bool hasCallbackDrainWait(Thread *thread, IrqHandlerBase *handler)
 {
     Thread::WaitDebugInfo wait = {};
     uintptr_t address = 0;
@@ -138,7 +138,7 @@ class HostedSplitIrq final : public SplitIrqHandler
         m_ShutdownFromHard = 1;
     }
 
-    ::IrqHandler *hardHandler()
+    ::HardIrqHandler *hardHandler()
     {
         return hardHandlerForTest();
     }
@@ -615,7 +615,7 @@ struct HardCallbackDrainContext
 
 HardCallbackDrainContext *g_HardCallbackDrain = nullptr;
 
-void holdPinnedHardCallback(IrqHandler *handler)
+void holdPinnedHardCallback(IrqHandlerBase *handler)
 {
     constexpr size_t YieldLimit = 10000;
     HardCallbackDrainContext *context = g_HardCallbackDrain;

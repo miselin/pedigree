@@ -301,7 +301,7 @@ bool Ehci::initialiseController()
 // Install the IRQ handler
 #if X86_COMMON
     m_IrqId =
-        Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
+        Machine::instance().getIrqManager()->registerHardPciIrqHandler(this, this);
     m_InterruptHandlerRegistered = m_IrqId != 0;
 #else
     // InterruptManager pointer removal cannot drain a dispatch that already

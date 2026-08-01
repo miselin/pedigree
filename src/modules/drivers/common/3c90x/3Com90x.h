@@ -35,7 +35,7 @@
 class IoBase;
 
 /** Device driver for the Nic3C90x class of network device */
-class Nic3C90x : public Network, public IrqHandler
+class Nic3C90x : public Network, public HardIrqHandler
 {
   public:
     Nic3C90x(Network *pDev);

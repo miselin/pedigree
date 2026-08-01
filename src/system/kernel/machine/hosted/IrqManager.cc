@@ -23,9 +23,9 @@
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
-#include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/state.h"
 
 namespace __pedigree_hosted
@@ -68,12 +68,17 @@ bool HostedIrqManager::control(uint8_t irq, ControlCode code, size_t argument)
 irq_id_t HostedIrqManager::registerIsaIrqHandler(
     uint8_t irq, IrqHandler *handler, bool bEdge)
 {
-    if (
-        UNLIKELY(
-            irq >= NumHostedIrqs || !handler || !irqToSignal[irq]))
+    // Threaded line dispatch is added by the manager-owned worker checkpoint.
+    return 0;
+}
+
+irq_id_t HostedIrqManager::registerHardIsaIrqHandler(
+    uint8_t irq, HardIrqHandler *handler, bool bEdge)
+{
+    if (UNLIKELY(irq >= NumHostedIrqs || !handler || !irqToSignal[irq]))
         return 0;
 
-    if (!m_Handlers.registerHandler(irq, handler))
+    if (!m_Handlers.registerHardHandler(irq, handler))
         return 0;
 
     return irqToSignal[irq];
@@ -82,25 +87,26 @@ irq_id_t HostedIrqManager::registerIsaIrqHandler(
 irq_id_t
 HostedIrqManager::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
 {
+    // Threaded line dispatch is added by the manager-owned worker checkpoint.
+    return 0;
+}
+
+irq_id_t HostedIrqManager::registerHardPciIrqHandler(
+    HardIrqHandler *handler, Device *pDevice)
+{
     if (UNLIKELY(!pDevice))
         return 0;
     irq_id_t irq = pDevice->getInterruptNumber();
-    if (
-        UNLIKELY(
-            irq >= NumHostedIrqs || !handler || !irqToSignal[irq]))
+    if (UNLIKELY(irq >= NumHostedIrqs || !handler || !irqToSignal[irq]))
         return 0;
 
-    if (!m_Handlers.registerHandler(irq, handler))
+    if (!m_Handlers.registerHardHandler(irq, handler))
         return 0;
 
     return irqToSignal[irq];
 }
 
-void HostedIrqManager::acknowledgeIrq(irq_id_t Id)
-{
-}
-
-bool HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandler *handler)
+bool HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
 {
     uint8_t irq = 0;
     if (!irqForSignal(Id, irq))
@@ -150,7 +156,7 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
     }
 
     bool handled = false;
-    if (!m_Handlers.dispatch(irq, state, handled))
+    if (!m_Handlers.dispatchHard(irq, state, handled))
     {
         NOTICE("HostedIrqManager: unhandled irq #" << irq << " occurred");
     }
@@ -167,21 +173,36 @@ void HostedIrqManager::setHandlerPrePinHook(HandlerPrePinHook hook)
     m_Instance.m_Handlers.setHandlerPrePinHook(hook);
 }
 
-bool HostedIrqManager::dispatchHandlerForTest(
-    uint8_t irq, IrqHandler *handler, InterruptState &state, bool &handled)
+void HostedIrqManager::setHandlerHazardHook(HandlerHazardHook hook)
 {
-    return m_Instance.m_Handlers.dispatch(irq, state, handled, handler);
+    m_Instance.m_Handlers.setHandlerHazardHook(hook);
 }
 
-void HostedIrqManager::withRegistryMutationLockForTest(
-    MutationLockHook hook)
+bool HostedIrqManager::dispatchHandlerForTest(
+    uint8_t irq, HardIrqHandler *handler, InterruptState &state, bool &handled)
+{
+    return m_Instance.m_Handlers.dispatchHard(irq, state, handled, handler);
+}
+
+void HostedIrqManager::withRegistryMutationLockForTest(MutationLockHook hook)
 {
     m_Instance.m_Handlers.withMutationLockForTest(hook);
 }
 
-size_t HostedIrqManager::activeDispatchCountForTest(IrqHandler *handler)
+size_t HostedIrqManager::activeDispatchCountForTest(IrqHandlerBase *handler)
 {
     return m_Instance.m_Handlers.activeDispatchCountForTest(handler);
+}
+
+size_t HostedIrqManager::claimedDispatchCountForTest()
+{
+    return m_Instance.m_Handlers.claimedDispatchCountForTest();
+}
+
+bool HostedIrqManager::containsHandlerForTest(
+    uint8_t irq, IrqHandlerBase *handler)
+{
+    return m_Instance.m_Handlers.containsHandlerForTest(irq, handler);
 }
 
 void HostedIrqManager::abandonCurrentThreadForTest()

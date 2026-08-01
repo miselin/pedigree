@@ -28,7 +28,9 @@
 #include "pedigree/kernel/processor/types.h"
 
 class Device;
+class HardIrqHandler;
 class IrqHandler;
+class IrqHandlerBase;
 
 /** @addtogroup kernelmachinex86common
  * @{ */
@@ -54,8 +56,11 @@ class Apic : public IrqManager
     registerIsaIrqHandler(uint8_t, IrqHandler *handler, bool bEdge = false);
     virtual irq_id_t
     registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
-    virtual void acknowledgeIrq(irq_id_t Id);
-    virtual bool unregisterHandler(irq_id_t Id, IrqHandler *handler);
+    virtual irq_id_t registerHardIsaIrqHandler(
+        uint8_t, HardIrqHandler *handler, bool bEdge = false);
+    virtual irq_id_t
+    registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice);
+    virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler);
     virtual void enable(irq_id_t Id, bool bEnable);
 
     bool initialise() INITIALISATION_ONLY;

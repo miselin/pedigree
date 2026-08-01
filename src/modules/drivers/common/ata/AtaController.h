@@ -34,7 +34,7 @@ class Controller;
 class IoBase;
 
 /** Base class for an ATA controller. */
-class AtaController : public ScsiController, public IrqHandler
+class AtaController : public ScsiController, public HardIrqHandler
 {
   public:
     AtaController(Controller *pDev, int nController = 0)

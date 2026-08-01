@@ -88,13 +88,13 @@ void Ps2Controller::initialise()
                                            << ", " << extra);
 
     IrqManager &irqManager = *Machine::instance().getIrqManager();
-    m_FirstIrqId = irqManager.registerIsaIrqHandler(1, this, true);
+    m_FirstIrqId = irqManager.registerHardIsaIrqHandler(1, this, true);
     if (m_FirstIrqId == 0)
     {
         ERROR("PS/2: failed to register first IRQ handler!");
     }
 
-    m_SecondIrqId = irqManager.registerIsaIrqHandler(12, this, true);
+    m_SecondIrqId = irqManager.registerHardIsaIrqHandler(12, this, true);
     if (m_SecondIrqId == 0)
     {
         ERROR("PS/2: failed to register second IRQ handler!");

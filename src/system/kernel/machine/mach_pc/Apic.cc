@@ -22,7 +22,9 @@
 #include "Apic.h"
 
 class Device;
+class HardIrqHandler;
 class IrqHandler;
+class IrqHandlerBase;
 
 irq_id_t Apic::registerIsaIrqHandler(uint8_t, IrqHandler *handler, bool bEdge)
 {
@@ -34,11 +36,19 @@ irq_id_t Apic::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
     // TODO
     return 0;
 }
-void Apic::acknowledgeIrq(irq_id_t Id)
+irq_id_t
+Apic::registerHardIsaIrqHandler(uint8_t, HardIrqHandler *handler, bool bEdge)
 {
     // TODO
+    return 0;
 }
-bool Apic::unregisterHandler(irq_id_t Id, IrqHandler *handler)
+irq_id_t
+Apic::registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice)
+{
+    // TODO
+    return 0;
+}
+bool Apic::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
 {
     // TODO
     return false;

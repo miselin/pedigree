@@ -48,7 +48,7 @@ class Thread;
 
 /** Device driver for the Uhci class */
 class Uhci : public UsbHub,
-             public IrqHandler,
+             public HardIrqHandler,
              public RequestQueue,
              public TimerHandler
 {

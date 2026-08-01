@@ -511,7 +511,7 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
-        '(?s)registerIsaIrqHandler.*?LockGuard<Spinlock> guard\(m_Lock\);.*?canRegister\(.*?registerHandler\(.*?handlerRegistered\(.*?applyMaskLocked\(' \
+        '(?s)registerHardIsaIrqHandler.*?LockGuard<Spinlock> guard\(m_Lock\);.*?canRegister\(.*?registerHardHandler\(.*?handlerRegistered\(.*?applyMaskLocked\(' \
         "$pic_source" ||
         ! rg -q -U \
             '(?s)unregisterHandler.*?m_Handlers\.unregisterHandler\(.*?LockGuard<Spinlock> guard\(m_Lock\);.*?handlerUnregistered\(' \
@@ -542,7 +542,6 @@ check_wait_api_boundaries()
 
     if ! rg -q 'm_IrqState\.beginDispatch\(irq\)' "$pic_source" ||
         ! rg -q 'm_IrqState\.completeDispatch\(' "$pic_source" ||
-        ! rg -q 'm_IrqState\.acknowledge\(irq\)' "$pic_source" ||
         ! rg -q 'const bool firstHandler = m_HandlerCounts\[irq\] == 0' \
             "$pic_state"; then
         echo "PIC acknowledgement ordering lost its dispatch generation."
@@ -566,18 +565,103 @@ check_wait_api_boundaries()
         failed=1
     fi
 
-    if ! rg -q 'mode == SlotMode::Draining' "$irq_registry_source" ||
+    if ! rg -q \
+        'modeOf\(finalPublication\) == SlotMode::Draining' \
+        "$irq_registry_source" ||
         ! rg -q 'guard\.wakeAll\(' "$irq_registry_source" ||
         ! rg -q 'WaitQueue::Channel\(&slot\)' "$irq_registry_source"; then
         echo "The IRQ callback drain escaped its predicate-coupled wake."
         failed=1
     fi
 
+    if ! rg -q -U \
+        '(?s)findCurrentDispatch\(owner, nullptr, 0, callbackContext\);.*?if \(!canYield \|\| callbackContext\).*?m_HandlerLock\.acquire\(\)' \
+        "$irq_registry_source" ||
+        ! rg -q \
+            'canYield = canYield && !current->getHostedSignalDepth\(\)' \
+            "$irq_registry_source"; then
+        echo "IRQ callback removal can reach the blocking writer-lock path."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)unpublishDispatch\([^)]*bool required\).*?if \(required\).*?released more than once' \
+        "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)abandonDispatch\(void \*context\).*?unpublishDispatch\([^;]*false\);' \
+            "$irq_registry_source"; then
+        echo "IRQ abandonment lost partial-publication cleanup semantics."
+        failed=1
+    fi
+
+    if ! rg -q 'size_t admittedPublication' \
+        src/system/include/pedigree/kernel/machine/IrqHandlerRegistry.h ||
+        ! rg -q -U \
+            'generationOf\(dispatchPublication\)[[:space:]]*==[[:space:]]*generationOf\(admittedPublication\)' \
+            "$irq_registry_source" ||
+        ! rg -q \
+            'hasActiveDispatch\(slot, admittedPublication\)' \
+            "$irq_registry_source" ||
+        ! rg -q 'HandlerHazardStage::Committed' "$irq_registry_source"; then
+        echo "IRQ hazards lost generation-aware slot reuse protection."
+        failed=1
+    fi
+
     local irq_handler_header=src/system/include/pedigree/kernel/machine/IrqHandler.h
+    local irq_registry_header=src/system/include/pedigree/kernel/machine/IrqHandlerRegistry.h
     local split_irq_header=src/system/include/pedigree/kernel/machine/SplitIrqHandler.h
     local split_irq_source=src/system/kernel/machine/SplitIrqHandler.cc
     if ! rg -q -U \
-        'class EXPORTED_PUBLIC SplitIrqHandler[[:space:]]*:[[:space:]]*private IrqHandler,[[:space:]]*private RequestQueue' \
+        'class EXPORTED_PUBLIC IrqHandler[[:space:]]*:[[:space:]]*public IrqHandlerBase' \
+        "$irq_handler_header" ||
+        ! rg -q \
+            'virtual IrqDisposition irq\(irq_id_t number\)' \
+            "$irq_handler_header" ||
+        ! rg -q -U \
+            'class EXPORTED_PUBLIC HardIrqHandler[[:space:]]*:[[:space:]]*public IrqHandlerBase' \
+            "$irq_handler_header" ||
+        ! rg -q -U \
+            'virtual bool irq\(irq_id_t number, InterruptState &state\)' \
+            "$irq_handler_header"; then
+        echo "The IRQ API lost its explicit thread and hard-context types."
+        failed=1
+    fi
+
+    if ! rg -q 'enum class Delivery' "$irq_registry_header" ||
+        ! rg -q 'registerThreadedHandler\(uint8_t irq, IrqHandler \*handler\)' \
+            "$irq_registry_header" ||
+        ! rg -q 'registerHardHandler\(uint8_t irq, HardIrqHandler \*handler\)' \
+            "$irq_registry_header" ||
+        ! rg -q 'dispatchHard\(' "$irq_registry_header" ||
+        ! rg -q 'dispatchThreaded\(' "$irq_registry_header" ||
+        ! rg -q 'deliveryOf\(publication\) != delivery' \
+            "$irq_registry_source" ||
+        ! rg -q 'deliveryOf\(publication\) != Delivery::HardOnly' \
+            "$irq_registry_source" ||
+        ! rg -q 'deliveryOf\(publication\) != Delivery::Threaded' \
+            "$irq_registry_source"; then
+        echo "The IRQ registry lost typed delivery or mixed-line rejection."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)dispatchThreaded\([^)]*\).*?if \(!dispatchThread \|\| !Processor::getInterrupts\(\)\).*?getHostedSignalDepth\(\)' \
+        "$irq_registry_source"; then
+        echo "Threaded IRQ dispatch no longer rejects atomic or signal context."
+        failed=1
+    fi
+
+    matches=$(rg -n \
+        '(->|\.)register(Isa|Pci)IrqHandler\(' \
+        src --glob '*.{cc,h}' || true)
+    if [[ -n "$matches" ]]; then
+        echo "A legacy hard callback entered the not-yet-enabled threaded registration API:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        'class EXPORTED_PUBLIC SplitIrqHandler[[:space:]]*:[[:space:]]*private HardIrqHandler,[[:space:]]*private RequestQueue' \
         "$split_irq_header" ||
         ! rg -q -U \
             'virtual HardIrqDisposition[[:space:]]+hardIrq\(' \
@@ -653,10 +737,10 @@ check_wait_api_boundaries()
         failed=1
     fi
 
-    if ! rg -q 'Legacy hard-IRQ callback interface' "$irq_handler_header" ||
+    if ! rg -q 'Explicit hard-IRQ callback interface' "$irq_handler_header" ||
         ! rg -q 'it is not the normal threaded-delivery API' \
             "$irq_handler_header"; then
-        echo "The legacy hard-IRQ API lost its explicit context warning."
+        echo "The explicit hard-IRQ API lost its context warning."
         failed=1
     fi
 

@@ -47,7 +47,7 @@ class IoBase;
 /** Device driver for the Ohci class */
 class Ohci : public UsbHub,
 #if X86_COMMON
-             public IrqHandler,
+             public HardIrqHandler,
 #else
              public InterruptHandler,
 #endif

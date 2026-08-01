@@ -24,7 +24,9 @@
 #include "pedigree/kernel/processor/types.h"
 
 class Device;
+class HardIrqHandler;
 class IrqHandler;
+class IrqHandlerBase;
 
 /** @addtogroup kernelmachine
  * @{ */
@@ -51,10 +53,14 @@ class IrqManager
     /** Register a PCI irq */
     virtual irq_id_t
     registerPciIrqHandler(IrqHandler *handler, Device *pDevice) = 0;
-    /** Acknoledge the IRQ reception, in case you returned false in the
-     *IrqHandler::irq() function. If this is not called there won't be any
-     *following irqs. \param[in] Id the irq's identifier */
-    virtual void acknowledgeIrq(irq_id_t Id) = 0;
+
+    /** Register an ISA handler which must run in hard IRQ context. */
+    virtual irq_id_t registerHardIsaIrqHandler(
+        uint8_t irq, HardIrqHandler *handler, bool bEdge = false) = 0;
+
+    /** Register a PCI handler which must run in hard IRQ context. */
+    virtual irq_id_t
+    registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice) = 0;
     /**
      * Unregister a previously registered IrqHandler.
      *
@@ -66,7 +72,7 @@ class IrqManager
      *\param[in] Id the irq's identifier
      *\return true if removal completed synchronously
      */
-    virtual bool unregisterHandler(irq_id_t Id, IrqHandler *handler) = 0;
+    virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler) = 0;
 
     virtual void enable(uint8_t irq, bool enable) = 0;
 

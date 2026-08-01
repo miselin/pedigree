@@ -45,8 +45,11 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge = false);
     virtual irq_id_t
     registerPciIrqHandler(IrqHandler *handler, class Device *pDevice);
-    virtual void acknowledgeIrq(irq_id_t Id);
-    virtual bool unregisterHandler(irq_id_t Id, IrqHandler *handler);
+    virtual irq_id_t registerHardIsaIrqHandler(
+        uint8_t irq, HardIrqHandler *handler, bool bEdge = false);
+    virtual irq_id_t
+    registerHardPciIrqHandler(HardIrqHandler *handler, class Device *pDevice);
+    virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler);
 
     /** Initialises the PIC hardware and registers the interrupts with the
      *  InterruptManager.
@@ -66,6 +69,8 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     using HandlerPinHook = IrqHandlerRegistry::HandlerPinHook;
     using HandlerPrePinHook = IrqHandlerRegistry::HandlerPrePinHook;
+    using HandlerHazardHook = IrqHandlerRegistry::HandlerHazardHook;
+    using HandlerHazardStage = IrqHandlerRegistry::HandlerHazardStage;
     using MutationLockHook = IrqHandlerRegistry::MutationLockHook;
 
     /** Installs a deterministic observer after a handler has been pinned. */
@@ -74,10 +79,12 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     /** Installs a deterministic observer before a tentative pin commits. */
     static EXPORTED_PUBLIC void setHandlerPrePinHook(HandlerPrePinHook hook);
 
+    /** Installs an observer around active-hazard publication. */
+    static EXPORTED_PUBLIC void setHandlerHazardHook(HandlerHazardHook hook);
+
     /** Dispatches one handler through the production registry path. */
-    static EXPORTED_PUBLIC bool
-    dispatchHandlerForTest(
-        uint8_t irq, IrqHandler *handler, InterruptState &state,
+    static EXPORTED_PUBLIC bool dispatchHandlerForTest(
+        uint8_t irq, HardIrqHandler *handler, InterruptState &state,
         bool &handled);
 
     /** Runs a deterministic test seam while the writer lock is held. */
@@ -86,7 +93,14 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
 
     /** Counts active hazards for deterministic abandoned-stack tests. */
     static EXPORTED_PUBLIC size_t
-    activeDispatchCountForTest(IrqHandler *handler);
+    activeDispatchCountForTest(IrqHandlerBase *handler);
+
+    /** Counts claimed hazards, including claims not yet committed to a slot. */
+    static EXPORTED_PUBLIC size_t claimedDispatchCountForTest();
+
+    /** Reports whether any nonempty line slot still publishes a handler. */
+    static EXPORTED_PUBLIC bool
+    containsHandlerForTest(uint8_t irq, IrqHandlerBase *handler);
 
     /** Abandons the current test Thread through the kernel scheduler. */
     static EXPORTED_PUBLIC void abandonCurrentThreadForTest();

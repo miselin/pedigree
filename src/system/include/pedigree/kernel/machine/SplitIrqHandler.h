@@ -36,7 +36,8 @@ class String;
  * unmask it; the base calls rearmIrqSources() only while rearm is serialised
  * against shutdown.
  */
-class EXPORTED_PUBLIC SplitIrqHandler : private IrqHandler, private RequestQueue
+class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler,
+                                        private RequestQueue
 {
   public:
     enum class HardIrqDisposition : size_t
@@ -93,7 +94,7 @@ class EXPORTED_PUBLIC SplitIrqHandler : private IrqHandler, private RequestQueue
     virtual void rearmIrqSources(size_t work) = 0;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    IrqHandler *hardHandlerForTest();
+    HardIrqHandler *hardHandlerForTest();
     WaitQueue *workerWaitQueueForTest();
     size_t publicationFailuresForTest() const;
     size_t pendingWorkForTest() const;

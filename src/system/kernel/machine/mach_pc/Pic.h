@@ -20,6 +20,7 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_PIC_H
 #define KERNEL_MACHINE_X86_COMMON_PIC_H
 
+#include "PicIrqState.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqHandlerRegistry.h"
@@ -30,10 +31,11 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
-#include "PicIrqState.h"
 
 class Device;
+class HardIrqHandler;
 class IrqHandler;
+class IrqHandlerBase;
 
 /** @addtogroup kernelmachinex86common
  * @{ */
@@ -56,8 +58,11 @@ class Pic : public IrqManager, private InterruptHandler
     registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge = false);
     virtual irq_id_t
     registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
-    virtual void acknowledgeIrq(irq_id_t Id);
-    virtual bool unregisterHandler(irq_id_t Id, IrqHandler *handler);
+    virtual irq_id_t registerHardIsaIrqHandler(
+        uint8_t irq, HardIrqHandler *handler, bool bEdge = false);
+    virtual irq_id_t
+    registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice);
+    virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler);
 
     /** Initialises the PIC hardware and registers the interrupts with the
      *  InterruptManager.
