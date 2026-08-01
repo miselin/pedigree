@@ -36,6 +36,212 @@ Atomic<size_t> g_DispositionBCalls(0);
 Event *g_DispositionAEvent = nullptr;
 Event *g_DispositionBEvent = nullptr;
 
+struct RegistryDispatchContext;
+RegistryDispatchContext *g_TimerRegistryDispatchContext = nullptr;
+void dispatchTimerWhileWriterLocked();
+
+class RegistryDispatchTimerHandler : public TimerHandler
+{
+  public:
+    explicit RegistryDispatchTimerHandler(RegistryDispatchContext &context)
+        : m_Context(context)
+    {
+    }
+
+    void timer(uint64_t delta, InterruptState &state) override;
+
+  private:
+    RegistryDispatchContext &m_Context;
+};
+
+struct RegistryDispatchContext
+{
+    explicit RegistryDispatchContext(Timer *timer)
+        : timer(timer), handler(*this), calls(0), hookCalls(0), admitted(0),
+          unregisterSucceeded(0), mutationRequested(0), delta(0), state(nullptr)
+    {
+    }
+
+    Timer *timer;
+    RegistryDispatchTimerHandler handler;
+    Atomic<size_t> calls;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> admitted;
+    Atomic<size_t> unregisterSucceeded;
+    Atomic<size_t> mutationRequested;
+    uint64_t delta;
+    InterruptState *state;
+};
+
+void RegistryDispatchTimerHandler::timer(uint64_t delta, InterruptState &state)
+{
+    m_Context.calls += 1;
+    if (m_Context.mutationRequested.compareAndSwap(1, 2))
+    {
+        m_Context.delta = delta;
+        m_Context.state = &state;
+        HostedTimer::withHandlerMutationLockForTest(
+            dispatchTimerWhileWriterLocked);
+        m_Context.state = nullptr;
+        m_Context.mutationRequested = 3;
+    }
+}
+
+void dispatchTimerWhileWriterLocked()
+{
+    RegistryDispatchContext *context = g_TimerRegistryDispatchContext;
+    if (!context)
+    {
+        return;
+    }
+
+    context->hookCalls += 1;
+    if (context->state &&
+        HostedTimer::dispatchHandlerForTest(
+            &context->handler, context->delta, *context->state))
+    {
+        context->admitted += 1;
+    }
+}
+
+struct AtomicDrainRaceContext;
+AtomicDrainRaceContext *g_AtomicDrainRaceContext = nullptr;
+
+class AtomicDrainRaceHandler : public TimerHandler
+{
+  public:
+    explicit AtomicDrainRaceHandler(AtomicDrainRaceContext &context)
+        : m_Context(context)
+    {
+    }
+
+    void timer(uint64_t, InterruptState &) override;
+
+  private:
+    AtomicDrainRaceContext &m_Context;
+};
+
+struct AtomicDrainRaceContext
+{
+    explicit AtomicDrainRaceContext(Timer *timer)
+        : timer(timer), handler(*this), phase(0), pinHookCalls(0),
+          drainHookCalls(0), handlerCalls(0), selfRemovalRejected(0),
+          revivalSucceeded(0), atomicRemovalRejected(0), failures(0)
+    {
+    }
+
+    Timer *timer;
+    AtomicDrainRaceHandler handler;
+    Atomic<size_t> phase;
+    Atomic<size_t> pinHookCalls;
+    Atomic<size_t> drainHookCalls;
+    Atomic<size_t> handlerCalls;
+    Atomic<size_t> selfRemovalRejected;
+    Atomic<size_t> revivalSucceeded;
+    Atomic<size_t> atomicRemovalRejected;
+    Atomic<size_t> failures;
+};
+
+void AtomicDrainRaceHandler::timer(uint64_t, InterruptState &)
+{
+    m_Context.handlerCalls += 1;
+    if (m_Context.phase != static_cast<size_t>(2))
+    {
+        return;
+    }
+
+    if (!m_Context.timer->unregisterHandler(this))
+    {
+        m_Context.selfRemovalRejected += 1;
+    }
+    if (m_Context.timer->registerHandler(this))
+    {
+        m_Context.revivalSucceeded += 1;
+    }
+    m_Context.phase = 3;
+}
+
+void atomicDrainPinHook(TimerHandler *handler)
+{
+    constexpr size_t YieldLimit = 10000;
+    AtomicDrainRaceContext *context = g_AtomicDrainRaceContext;
+    if (!context || handler != &context->handler ||
+        !context->phase.compareAndSwap(0, 1))
+    {
+        return;
+    }
+
+    context->pinHookCalls += 1;
+    for (size_t i = 0;
+         context->phase != static_cast<size_t>(2) && i < YieldLimit; ++i)
+    {
+        Scheduler::instance().yield();
+    }
+    if (context->phase != static_cast<size_t>(2))
+    {
+        context->failures += 1;
+        context->phase = 3;
+    }
+}
+
+void atomicDrainTransitionHook(TimerHandler *handler)
+{
+    constexpr size_t YieldLimit = 10000;
+    AtomicDrainRaceContext *context = g_AtomicDrainRaceContext;
+    if (!context || handler != &context->handler ||
+        !context->phase.compareAndSwap(1, 2))
+    {
+        if (context && handler == &context->handler)
+        {
+            context->failures += 1;
+        }
+        return;
+    }
+
+    context->drainHookCalls += 1;
+    for (size_t i = 0;
+         context->phase != static_cast<size_t>(3) && i < YieldLimit; ++i)
+    {
+        Scheduler::instance().yield();
+    }
+    if (context->phase != static_cast<size_t>(3))
+    {
+        context->failures += 1;
+        context->phase = 3;
+    }
+}
+
+int removeTimerAtomically(void *parameter)
+{
+    constexpr size_t YieldLimit = 10000;
+    AtomicDrainRaceContext *context =
+        reinterpret_cast<AtomicDrainRaceContext *>(parameter);
+    for (size_t i = 0;
+         context->phase != static_cast<size_t>(1) && i < YieldLimit; ++i)
+    {
+        Scheduler::instance().yield();
+    }
+    if (context->phase != static_cast<size_t>(1))
+    {
+        context->failures += 1;
+        return 1;
+    }
+
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    const bool removed = context->timer->unregisterHandler(&context->handler);
+    Processor::setInterrupts(interruptsWereEnabled);
+    if (!removed)
+    {
+        context->atomicRemovalRejected += 1;
+    }
+    else
+    {
+        context->failures += 1;
+    }
+    return 0;
+}
+
 struct HandlerLifetimeContext;
 HandlerLifetimeContext *g_HandlerLifetimeContext = nullptr;
 
@@ -56,9 +262,11 @@ class LifetimeHandler : public TimerHandler
 struct HandlerLifetimeContext
 {
     explicit HandlerLifetimeContext(Timer *timer)
-        : timer(timer), handler(*this), remover(nullptr), phase(0), hookCalls(0),
-          hookObservedDrain(0), handlerCalls(0), callbacksAfterReturn(0),
-          unregisterReturned(0), unregisterSucceeded(0), failures(0)
+        : timer(timer), handler(*this), remover(nullptr), phase(0),
+          hookCalls(0), hookObservedDrain(0), handlerCalls(0),
+          callbacksAfterReturn(0), unregisterReturned(0),
+          unregisterSucceeded(0), selfRemovalPending(1), selfRemovalRejected(0),
+          revivalBlocked(0), failures(0)
     {
     }
 
@@ -72,6 +280,9 @@ struct HandlerLifetimeContext
     Atomic<size_t> callbacksAfterReturn;
     Atomic<size_t> unregisterReturned;
     Atomic<size_t> unregisterSucceeded;
+    Atomic<size_t> selfRemovalPending;
+    Atomic<size_t> selfRemovalRejected;
+    Atomic<size_t> revivalBlocked;
     Atomic<size_t> failures;
 };
 
@@ -81,6 +292,15 @@ void LifetimeHandler::timer(uint64_t, InterruptState &)
     if (m_Context.unregisterReturned)
     {
         m_Context.callbacksAfterReturn += 1;
+    }
+    if (m_Context.selfRemovalPending.compareAndSwap(1, 0) &&
+        !m_Context.timer->unregisterHandler(this))
+    {
+        m_Context.selfRemovalRejected += 1;
+        if (!m_Context.timer->registerHandler(this))
+        {
+            m_Context.revivalBlocked += 1;
+        }
     }
 }
 
@@ -116,27 +336,25 @@ void handlerPinHook(TimerHandler *handler)
     }
 
     context->hookCalls += 1;
-    const uint64_t deadline =
-        context->timer->getTickCountNano() +
-        (500 * Time::Multiplier::Millisecond);
-    while (
-        context->phase != static_cast<size_t>(2) &&
-        context->timer->getTickCountNano() < deadline)
+    const uint64_t deadline = context->timer->getTickCountNano() +
+                              (500 * Time::Multiplier::Millisecond);
+    bool observedDrain = false;
+    while (context->timer->getTickCountNano() < deadline)
     {
+        uintptr_t debugAddress = 0;
+        if (context->phase == static_cast<size_t>(2) &&
+            !context->unregisterReturned && context->remover &&
+            context->remover->getDebugState(debugAddress) ==
+                Thread::CallbackDrain &&
+            debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
+        {
+            observedDrain = true;
+            break;
+        }
         Scheduler::instance().yield();
     }
 
-    Thread::WaitDebugInfo info = {};
-    uintptr_t debugAddress = 0;
-    if (
-        context->phase == static_cast<size_t>(2) &&
-        !context->unregisterReturned && context->remover &&
-        context->remover->getWaitDebugInfo(info) && info.queue &&
-        info.channelOwner && info.queued &&
-        context->remover->getDebugState(debugAddress) ==
-            Thread::CallbackDrain &&
-        debugAddress ==
-            reinterpret_cast<uintptr_t>(&context->handler))
+    if (observedDrain)
     {
         // This is the debugger-visible ownership barrier, not merely evidence
         // that the remover happened to lose a timeslice while polling.
@@ -248,6 +466,177 @@ bool check(bool condition, const char *test, const char *detail)
 
     ERROR("HOSTED-WAIT-TEST: FAIL " << test << ": " << detail);
     return false;
+}
+
+bool timerWriterLockIndependentDispatch()
+{
+    constexpr const char *Test = "timer-dispatch-writer-lock-independent";
+    Timer *timer = Machine::instance().getTimer();
+    RegistryDispatchContext context(timer);
+    const bool registered = timer->registerHandler(&context.handler);
+
+    if (registered)
+    {
+        g_TimerRegistryDispatchContext = &context;
+        context.mutationRequested = 1;
+        const uint64_t deadline =
+            timer->getTickCountNano() + (250 * Time::Multiplier::Millisecond);
+        while (context.mutationRequested != static_cast<size_t>(3) &&
+               timer->getTickCountNano() < deadline)
+        {
+            Scheduler::instance().yield();
+        }
+        g_TimerRegistryDispatchContext = nullptr;
+    }
+
+    const bool cleaned =
+        registered && timer->unregisterHandler(&context.handler);
+    bool passed = true;
+    passed &=
+        check(registered, Test, "the test handler could not be registered");
+    passed &= check(
+        context.mutationRequested == 3 && context.hookCalls == 1 &&
+            context.admitted == 1 && context.calls >= 2,
+        Test, "dispatch or callback completion waited for the writer lock");
+    passed &= check(cleaned, Test, "the test handler could not be removed");
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "timer-dispatch-writer-lock-independent");
+    }
+    return passed;
+}
+
+void unregisterTimerBeforePin(TimerHandler *handler)
+{
+    RegistryDispatchContext *context = g_TimerRegistryDispatchContext;
+    if (!context || handler != &context->handler ||
+        !context->hookCalls.compareAndSwap(0, 1))
+    {
+        return;
+    }
+
+    if (context->timer->unregisterHandler(&context->handler))
+    {
+        context->unregisterSucceeded += 1;
+    }
+    context->hookCalls = 2;
+}
+
+bool timerPrePinUnregisterRevalidation()
+{
+    constexpr const char *Test = "timer-pre-pin-unregister-revalidation";
+    Timer *timer = Machine::instance().getTimer();
+    RegistryDispatchContext context(timer);
+
+    g_TimerRegistryDispatchContext = &context;
+    HostedTimer::setHandlerPrePinHook(unregisterTimerBeforePin);
+    const bool registered = timer->registerHandler(&context.handler);
+    if (registered)
+    {
+        const uint64_t deadline =
+            timer->getTickCountNano() + (250 * Time::Multiplier::Millisecond);
+        while (context.hookCalls != static_cast<size_t>(2) &&
+               timer->getTickCountNano() < deadline)
+        {
+            Scheduler::instance().yield();
+        }
+    }
+    HostedTimer::setHandlerPrePinHook(nullptr);
+    g_TimerRegistryDispatchContext = nullptr;
+
+    const bool reused =
+        context.unregisterSucceeded && timer->registerHandler(&context.handler);
+    bool cleaned = true;
+    if (reused)
+    {
+        cleaned = timer->unregisterHandler(&context.handler);
+    }
+    else if (registered && !context.unregisterSucceeded)
+    {
+        cleaned = timer->unregisterHandler(&context.handler);
+    }
+
+    bool passed = true;
+    passed &=
+        check(registered, Test, "the test handler could not be registered");
+    passed &= check(
+        context.hookCalls == 2 && context.unregisterSucceeded == 1, Test,
+        "unregister did not retire the pre-pin publication");
+    passed &= check(
+        context.calls == 0, Test,
+        "a stale pre-pin snapshot entered the retired callback");
+    passed &= check(
+        reused && cleaned, Test,
+        "the revalidated slot could not be reused and removed");
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "timer-pre-pin-unregister-revalidation");
+    }
+    return passed;
+}
+
+bool timerAtomicDrainSelfRevival()
+{
+    constexpr const char *Test = "timer-atomic-drain-self-revival";
+    Timer *timer = Machine::instance().getTimer();
+    AtomicDrainRaceContext context(timer);
+
+    g_AtomicDrainRaceContext = &context;
+    HostedTimer::setHandlerPinHook(atomicDrainPinHook);
+    HostedTimer::setHandlerAtomicDrainHook(atomicDrainTransitionHook);
+    Thread *remover = new Thread(
+        Scheduler::instance().getKernelProcess(), removeTimerAtomically,
+        &context, nullptr, false, true);
+    remover->setName("hosted atomic timer-handler remover");
+
+    const bool registered = timer->registerHandler(&context.handler);
+    if (!registered)
+    {
+        context.phase = 1;
+    }
+    const bool joined = remover->join();
+    HostedTimer::setHandlerAtomicDrainHook(nullptr);
+    HostedTimer::setHandlerPinHook(nullptr);
+    g_AtomicDrainRaceContext = nullptr;
+
+    const size_t callsAtAtomicReturn = context.handlerCalls;
+    const uint64_t liveDeadline =
+        timer->getTickCountNano() +
+        (250 * Time::Multiplier::Millisecond);
+    while (context.handlerCalls == callsAtAtomicReturn &&
+           timer->getTickCountNano() < liveDeadline)
+    {
+        Scheduler::instance().yield();
+    }
+    const bool remainedLive = context.handlerCalls > callsAtAtomicReturn;
+    const bool cleaned =
+        registered && timer->unregisterHandler(&context.handler);
+
+    bool passed = true;
+    passed &= check(registered, Test, "the test handler could not be registered");
+    passed &= check(
+        joined && context.failures == 0 && context.pinHookCalls == 1 &&
+            context.drainHookCalls == 1,
+        Test, "the atomic drainer interleaving did not complete cleanly");
+    passed &= check(
+        context.selfRemovalRejected == 1 &&
+            context.atomicRemovalRejected == 1 &&
+            context.revivalSucceeded == 1,
+        Test, "the self-removal request was lost or could not be revived");
+    passed &= check(
+        remainedLive && cleaned, Test,
+        "the revived handler was not live or could not be removed");
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "timer-atomic-drain-self-revival");
+    }
+    return passed;
 }
 
 bool timerClockAndDeadline(Thread *thread)
@@ -459,6 +848,20 @@ bool timerHandlerLifetimeBarrier()
             context.unregisterReturned == 1,
         "timer-handler-lifetime",
         "the pinned handler did not unregister successfully");
+    const bool selfDrainRacePassed =
+        registered && joined && context.failures == 0 &&
+        context.hookObservedDrain == 1 && context.selfRemovalPending == 0 &&
+        context.selfRemovalRejected == 1 && context.unregisterSucceeded == 1 &&
+        context.unregisterReturned == 1 && context.revivalBlocked == 1;
+    passed &= check(
+        selfDrainRacePassed, "timer-self-unregister-vs-drainer",
+        "self-removal escaped or revived a synchronous drain");
+    if (selfDrainRacePassed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "timer-self-unregister-vs-drainer");
+    }
     passed &= check(
         context.handlerCalls >= 1 &&
             context.handlerCalls == callsAtUnregisterReturn &&
@@ -661,7 +1064,10 @@ bool exactCullRetainsOwnership(Thread *thread)
 
 bool runHostedTimerRegressions(Thread *thread)
 {
-    return timerClockAndDeadline(thread) &&
+    return timerWriterLockIndependentDispatch() &&
+           timerPrePinUnregisterRevalidation() &&
+           timerAtomicDrainSelfRevival() &&
+           timerClockAndDeadline(thread) &&
            timerAlarmRemovalLifetime() &&
            timerHandlerLifetimeBarrier() &&
            semaphoreQueuedTimeoutCancellation(thread) &&

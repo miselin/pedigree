@@ -24,8 +24,8 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/machine/TimerHandlerRegistry.h"
 #include "pedigree/kernel/machine/types.h"
-#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -33,8 +33,6 @@
 #include "pedigree/kernel/utilities/new"
 
 class TimerHandler;
-
-#define MAX_TIMER_HANDLERS 32
 
 /** @addtogroup kernelmachinex86common
  * @{ */
@@ -166,32 +164,8 @@ class Rtc : public Timer, private IrqHandler
     /** The Rtc class instance */
     static Rtc m_Instance;
 
-    struct HandlerDispatch
-    {
-        class Thread *thread;
-        HandlerDispatch *next;
-    };
-
-    struct HandlerSlot
-    {
-        HandlerSlot()
-            : handler(nullptr), inFlight(0), enabled(false),
-              deferredRemoval(false), drainers(0), dispatches(nullptr)
-        {
-        }
-
-        TimerHandler *handler;
-        size_t inFlight;
-        bool enabled;
-        bool deferredRemoval;
-        size_t drainers;
-        HandlerDispatch *dispatches;
-        WaitQueue drainWaiters;
-    };
-
     /** Timer handlers and their callback lifetime state. */
-    HandlerSlot m_Handlers[MAX_TIMER_HANDLERS];
-    Spinlock m_HandlerLock;
+    TimerHandlerRegistry m_HandlerRegistry;
 
     /** Alarm structure. */
     class Alarm

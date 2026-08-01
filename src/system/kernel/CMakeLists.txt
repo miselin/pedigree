@@ -351,6 +351,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/Serial.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/Timer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/TimerHandler.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/machine/TimerHandlerRegistry.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/machine/Vga.cc
     # /network/
     ${CMAKE_CURRENT_SOURCE_DIR}/network/IpAddress.cc
