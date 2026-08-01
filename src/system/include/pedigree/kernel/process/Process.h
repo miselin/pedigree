@@ -381,6 +381,16 @@ class EXPORTED_PUBLIC Process
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     using TerminationElectionHook = void (*)(Process *, Thread *);
     static void setTerminationElectionHook(TerminationElectionHook hook);
+
+    enum class OrphanPublicationPhase
+    {
+        Preparing,
+        Published,
+    };
+    using OrphanPublicationHook = void (*)(
+        Process *, OrphanPublicationPhase, bool interruptsEnabled,
+        bool processLockHeld);
+    static void setOrphanPublicationHook(OrphanPublicationHook hook);
 #endif
 
     void trackHeap(ssize_t nBytes)
@@ -526,6 +536,14 @@ class EXPORTED_PUBLIC Process
 
     /** Makes a completely constructed Process visible to enumeration. */
     void publish();
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    /**
+     * Clears the requested parent before a deferred hosted-test publication.
+     * The Process retains the owned address-space clone made from that parent.
+     */
+    void makeOrphanBeforePublicationForHostedTest();
+#endif
 
     /**
      * Removes this process from enumeration and drains inspectors.
@@ -767,6 +785,7 @@ class EXPORTED_PUBLIC Process
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     static TerminationElectionHook m_TerminationElectionHook;
+    static OrphanPublicationHook m_OrphanPublicationHook;
 #endif
 
 };

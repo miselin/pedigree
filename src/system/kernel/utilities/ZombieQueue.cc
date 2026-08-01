@@ -24,8 +24,16 @@
 
 ZombieQueue ZombieQueue::m_Instance;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+ZombieProcess::ReapHook ZombieProcess::m_ReapHook = nullptr;
+#endif
+
 ZombieQueue::ZombieQueue() : RequestQueue(MakeConstantString("ZombieQueue"))
 {
+    // Destruction publication transfers mandatory lifetime ownership. Unlike a
+    // best-effort work queue, ZombieQueue cannot discard a burst above the
+    // ordinary asynchronous backlog limit without leaking the target object.
+    m_nMaxAsyncRequests = ~static_cast<size_t>(0);
 }
 
 ZombieQueue::~ZombieQueue()
@@ -40,7 +48,17 @@ ZombieQueue &ZombieQueue::instance()
 
 void ZombieQueue::addObject(ZombieObject *pObject)
 {
-    addAsyncRequest(1, reinterpret_cast<uint64_t>(pObject));
+    if (!pObject)
+    {
+        FATAL("ZombieQueue cannot publish a null object.");
+        return;
+    }
+
+    if (!addAsyncRequest(1, reinterpret_cast<uint64_t>(pObject)))
+    {
+        FATAL(
+            "ZombieQueue rejected mandatory destruction work while stopped.");
+    }
 }
 
 uint64_t ZombieQueue::executeRequest(
@@ -66,6 +84,13 @@ ZombieProcess::ZombieProcess(Process *pProcess) : m_pProcess(pProcess)
 
 ZombieProcess::~ZombieProcess()
 {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    ReapHook reapHook = __atomic_load_n(&m_ReapHook, __ATOMIC_ACQUIRE);
+    if (reapHook)
+    {
+        reapHook(m_pProcess, ReapPhase::Entered);
+    }
+#endif
     if (!m_pProcess->waitUntilTerminationReapable())
     {
         WARNING(
@@ -73,6 +98,19 @@ ZombieProcess::~ZombieProcess()
             "completion; leaking it rather than deleting a live stack.");
         return;
     }
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    if (reapHook)
+    {
+        reapHook(m_pProcess, ReapPhase::Reapable);
+    }
+#endif
     m_pProcess->prepareForDestruction();
     delete m_pProcess;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void ZombieProcess::setReapHook(ReapHook hook)
+{
+    __atomic_store_n(&m_ReapHook, hook, __ATOMIC_RELEASE);
+}
+#endif

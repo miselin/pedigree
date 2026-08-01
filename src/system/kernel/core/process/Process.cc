@@ -49,6 +49,7 @@ Process *Process::m_pInitProcess = 0;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 Process::TerminationElectionHook Process::m_TerminationElectionHook = nullptr;
+Process::OrphanPublicationHook Process::m_OrphanPublicationHook = nullptr;
 #endif
 
 namespace
@@ -301,6 +302,20 @@ void Process::publish()
     m_bPublished = true;
     parentGuard.wakeAll();
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void Process::makeOrphanBeforePublicationForHostedTest()
+{
+    if (m_bPublished)
+    {
+        FATAL(
+            "Process test fixture attempted to become an orphan after "
+            "publication.");
+    }
+    __atomic_store_n(
+        &m_pParent, static_cast<Process *>(nullptr), __ATOMIC_RELEASE);
+}
+#endif
 
 void Process::prepareForDestruction()
 {
@@ -972,7 +987,6 @@ void Process::finishTermination()
     // Derived cleanup may acquire blocking locks without coupling them to the
     // Process lock.
     processTerminated();
-    m_Lock.acquire();
 
     // Add to the zombie queue if the process is an orphan.
     if (!getParent())
@@ -980,17 +994,49 @@ void Process::finishTermination()
         NOTICE(
             "Process::kill() - process is an orphan, adding to ZombieQueue.");
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        OrphanPublicationHook publicationHook = __atomic_load_n(
+            &m_OrphanPublicationHook, __ATOMIC_ACQUIRE);
+        if (publicationHook)
+        {
+            publicationHook(
+                this, OrphanPublicationPhase::Preparing,
+                Processor::getInterrupts(), m_Lock.acquired());
+        }
+#endif
         ZombieQueue::instance().addObject(new ZombieProcess(this));
-        Processor::information().getScheduler().killCurrentThread(&m_Lock);
-
-        // Should never get here.
-        FATAL("Process: should never get here");
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        if (publicationHook)
+        {
+            publicationHook(
+                this, OrphanPublicationPhase::Published,
+                Processor::getInterrupts(), m_Lock.acquired());
+        }
+#endif
     }
 
-    // We'll get reaped elsewhere
+    m_Lock.acquire();
+    if (
+        !m_bTerminationCleanupStarted ||
+        m_pTerminatingThread != pCurrentThread ||
+        m_nTerminationParticipants != 1 ||
+        !pCurrentThread->m_bProcessExitParticipant)
+    {
+        FATAL(
+            "Process::finishTermination lost exclusive off-stack teardown "
+            "ownership for pid "
+            << Dec << m_Id << ".");
+    }
+
+    // Parent-owned processes are reaped by waitpid; orphan publication above
+    // may already have blocked its worker on the off-stack completion.
 #if VERBOSE_KERNEL
-    NOTICE(
-        "Process::kill() - not adding to ZombieQueue, process has a parent.");
+    if (getParent())
+    {
+        NOTICE(
+            "Process::kill() - not adding to ZombieQueue, process has a "
+            "parent.");
+    }
 #endif
     Processor::information().getScheduler().killCurrentThread(&m_Lock);
 
@@ -1016,6 +1062,11 @@ void Process::kill()
 void Process::setTerminationElectionHook(TerminationElectionHook hook)
 {
     m_TerminationElectionHook = hook;
+}
+
+void Process::setOrphanPublicationHook(OrphanPublicationHook hook)
+{
+    __atomic_store_n(&m_OrphanPublicationHook, hook, __ATOMIC_RELEASE);
 }
 #endif
 

@@ -41,8 +41,22 @@ class ZombieProcess : public ZombieObject
     ZombieProcess(Process *pProcess);
     virtual ~ZombieProcess();
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    enum class ReapPhase
+    {
+        Entered,
+        Reapable,
+    };
+    using ReapHook = void (*)(Process *, ReapPhase);
+    static EXPORTED_PUBLIC void setReapHook(ReapHook hook);
+#endif
+
   private:
     Process *m_pProcess;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    static ReapHook m_ReapHook;
+#endif
 };
 
 /**

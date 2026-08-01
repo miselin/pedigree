@@ -13,6 +13,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/utilities/ZombieQueue.h"
 
 namespace
 {
@@ -533,6 +534,267 @@ bool exitElectionQuiescence(Process *kernelProcess)
     }
     return passed;
 }
+
+struct OrphanExitContext
+{
+    OrphanExitContext()
+        : process(nullptr), preparingCalls(0), publishedCalls(0),
+          workerEntered(0), workerEnteredBeforeOwnerExit(0), reapableCalls(0),
+          destructorCalls(0), cleanupCalls(0), hookFailures(0),
+          ownerInPublication(0)
+    {
+    }
+
+    Process *process;
+    Atomic<size_t> preparingCalls;
+    Atomic<size_t> publishedCalls;
+    Atomic<size_t> workerEntered;
+    Atomic<size_t> workerEnteredBeforeOwnerExit;
+    Atomic<size_t> reapableCalls;
+    Atomic<size_t> destructorCalls;
+    Atomic<size_t> cleanupCalls;
+    Atomic<size_t> hookFailures;
+    Atomic<size_t> ownerInPublication;
+};
+
+OrphanExitContext *g_OrphanExitContext = nullptr;
+
+class OrphanExitProcess : public Process
+{
+  public:
+    OrphanExitProcess(Process *parent, OrphanExitContext *context)
+        : Process(DeferredPublication(), parent), m_Context(context)
+    {
+        makeOrphanBeforePublicationForHostedTest();
+        publish();
+    }
+
+    ~OrphanExitProcess() override
+    {
+        prepareForDestruction();
+        if (
+            static_cast<size_t>(m_Context->reapableCalls) != 1 ||
+            getState() != Process::Terminated)
+        {
+            m_Context->hookFailures += 1;
+        }
+        m_Context->destructorCalls += 1;
+    }
+
+  private:
+    void processTerminated() override
+    {
+        m_Context->cleanupCalls += 1;
+    }
+
+    OrphanExitContext *m_Context;
+};
+
+void orphanPublicationHook(
+    Process *process, Process::OrphanPublicationPhase phase,
+    bool interruptsEnabled, bool processLockHeld)
+{
+    OrphanExitContext *context =
+        __atomic_load_n(&g_OrphanExitContext, __ATOMIC_ACQUIRE);
+    if (!context || context->process != process)
+    {
+        return;
+    }
+
+    if (!interruptsEnabled || processLockHeld)
+    {
+        context->hookFailures += 1;
+    }
+
+    if (phase == Process::OrphanPublicationPhase::Preparing)
+    {
+        context->preparingCalls += 1;
+        context->ownerInPublication = 1;
+        return;
+    }
+
+    context->publishedCalls += 1;
+    constexpr size_t Attempts = 10000;
+    for (size_t attempt = 0; attempt < Attempts; ++attempt)
+    {
+        if (context->workerEntered)
+        {
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+    if (!context->workerEntered)
+    {
+        context->hookFailures += 1;
+    }
+    context->ownerInPublication = 0;
+}
+
+void orphanReapHook(Process *process, ZombieProcess::ReapPhase phase)
+{
+    OrphanExitContext *context =
+        __atomic_load_n(&g_OrphanExitContext, __ATOMIC_ACQUIRE);
+    if (!context || context->process != process)
+    {
+        return;
+    }
+
+    if (phase == ZombieProcess::ReapPhase::Entered)
+    {
+        context->workerEntered += 1;
+        if (context->ownerInPublication)
+        {
+            context->workerEnteredBeforeOwnerExit += 1;
+        }
+        else
+        {
+            context->hookFailures += 1;
+        }
+        return;
+    }
+
+    context->reapableCalls += 1;
+    if (process->getState() != Process::Terminated)
+    {
+        context->hookFailures += 1;
+    }
+}
+
+bool orphanPublicationInterleaving(Process *kernelProcess)
+{
+    OrphanExitContext *context = new OrphanExitContext;
+    OrphanExitProcess *process =
+        new OrphanExitProcess(kernelProcess, context);
+    context->process = process;
+
+    __atomic_store_n(&g_OrphanExitContext, context, __ATOMIC_RELEASE);
+    Process::setOrphanPublicationHook(orphanPublicationHook);
+    ZombieProcess::setReapHook(orphanReapHook);
+
+    Thread *owner = new Thread(
+        process, terminateChildProcess, process, nullptr, false, true, true);
+    owner->setName("hosted orphan-exit owner");
+    if (!owner->start())
+    {
+        Process::setOrphanPublicationHook(nullptr);
+        ZombieProcess::setReapHook(nullptr);
+        __atomic_store_n(
+            &g_OrphanExitContext, static_cast<OrphanExitContext *>(nullptr),
+            __ATOMIC_RELEASE);
+        delete process;
+        delete context;
+        return check(false, "the orphan-exit owner did not start");
+    }
+
+    constexpr size_t Attempts = 20000;
+    for (size_t attempt = 0; attempt < Attempts; ++attempt)
+    {
+        if (context->destructorCalls)
+        {
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+
+    const bool destroyed = context->destructorCalls == 1;
+    const bool drained = destroyed && ZombieQueue::instance().drain();
+    Process::setOrphanPublicationHook(nullptr);
+    ZombieProcess::setReapHook(nullptr);
+    __atomic_store_n(
+        &g_OrphanExitContext, static_cast<OrphanExitContext *>(nullptr),
+        __ATOMIC_RELEASE);
+
+    if (!destroyed || !drained)
+    {
+        // A late Process destructor still owns this diagnostic storage.
+        return check(false, "orphan destruction did not complete and drain");
+    }
+
+    bool passed = true;
+    passed &= check(
+        context->preparingCalls == 1 && context->publishedCalls == 1,
+        "orphan publication did not cross both unlocked checkpoints");
+    passed &= check(
+        context->workerEntered == 1 &&
+            context->workerEnteredBeforeOwnerExit == 1,
+        "the ZombieQueue worker did not enter before owner stack retirement");
+    passed &= check(
+        context->reapableCalls == 1 && context->destructorCalls == 1 &&
+            context->cleanupCalls == 1,
+        "orphan destruction was not exactly once and post-reapable");
+    passed &= check(
+        context->hookFailures == 0,
+        "orphan publication retained its Process lock or disabled interrupts");
+    delete context;
+
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS process-orphan-publication-handoff");
+    }
+    return passed;
+}
+
+struct ZombieBacklogContext
+{
+    ZombieBacklogContext()
+        : release(0, false), entered(0), destroyed(0), failures(0)
+    {
+    }
+
+    Semaphore release;
+    Atomic<size_t> entered;
+    Atomic<size_t> destroyed;
+    Atomic<size_t> failures;
+};
+
+class HostedBacklogZombie : public ZombieObject
+{
+  public:
+    explicit HostedBacklogZombie(ZombieBacklogContext *context)
+        : m_Context(context)
+    {
+    }
+
+    ~HostedBacklogZombie() override
+    {
+        m_Context->entered += 1;
+        if (!m_Context->release.acquireForCompletion())
+        {
+            m_Context->failures += 1;
+        }
+        m_Context->destroyed += 1;
+    }
+
+  private:
+    ZombieBacklogContext *m_Context;
+};
+
+bool mandatoryZombieBacklog()
+{
+    constexpr size_t Backlog = 300;
+    ZombieBacklogContext context;
+    for (size_t i = 0; i < Backlog; ++i)
+    {
+        ZombieQueue::instance().addObject(new HostedBacklogZombie(&context));
+    }
+
+    bool passed = check(
+        context.destroyed == 0,
+        "mandatory ZombieQueue work executed through its closed test gate");
+    context.release.release(Backlog);
+    passed &= check(
+        ZombieQueue::instance().drain(),
+        "mandatory ZombieQueue backlog did not drain");
+    passed &= check(
+        context.entered == Backlog && context.destroyed == Backlog &&
+            context.failures == 0,
+        "mandatory ZombieQueue work above the legacy limit was lost");
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS zombiequeue-mandatory-backlog");
+    }
+    return passed;
+}
 }  // namespace
 
 bool runHostedProcessExitRegressions()
@@ -547,6 +809,8 @@ bool runHostedProcessExitRegressions()
     {
         return false;
     }
+    passed &= mandatoryZombieBacklog();
+    passed &= orphanPublicationInterleaving(kernelProcess);
     passed &= exitElectionQuiescence(kernelProcess);
 
     DeferredHostedProcess *publishedChild =
