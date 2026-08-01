@@ -190,8 +190,8 @@ extern "C" EXPORTED_PUBLIC int cdi_wait_irq(uint8_t irq, uint32_t timeout)
  * \german
  * Reserviert einen Speicherbereich.
  *
- * @param size Größe des Speicherbereichs in Bytes
- * @param flags Flags, die zusätzliche Anforderungen beschreiben
+ * @param size GrÃ¶ÃŸe des Speicherbereichs in Bytes
+ * @param flags Flags, die zusÃ¤tzliche Anforderungen beschreiben
  *
  * @return Eine cdi_mem_area bei Erfolg, NULL im Fehlerfall
  * \endgerman
@@ -233,10 +233,10 @@ extern "C" EXPORTED_PUBLIC struct cdi_mem_area* cdi_mem_alloc(size_t size, cdi_m
 
 /**
  * \german
- * Reserviert physisch zusammenhägenden Speicher an einer definierten Adresse
+ * Reserviert physisch zusammenhÃ¤genden Speicher an einer definierten Adresse
  *
  * @param paddr Physische Adresse des angeforderten Speicherbereichs
- * @param size Größe des benötigten Speichers in Bytes
+ * @param size GrÃ¶ÃŸe des benÃ¶tigten Speichers in Bytes
  *
  * @return Eine cdi_mem_area bei Erfolg, NULL im Fehlerfall
  * \endgerman
@@ -297,15 +297,15 @@ extern "C" EXPORTED_PUBLIC void cdi_mem_free(struct cdi_mem_area* p)
 
 /**
  * \german
- * Gibt einen Speicherbereich zurück, der dieselben Daten wie @a p beschreibt,
+ * Gibt einen Speicherbereich zurÃ¼ck, der dieselben Daten wie @a p beschreibt,
  * aber mindestens die gegebenen Flags gesetzt hat.
  *
  * Diese Funktion kann denselben virtuellen und physischen Speicherbereich wie
- * @p benutzen oder sogar @p selbst zurückzugeben, solange der gemeinsam
+ * @p benutzen oder sogar @p selbst zurÃ¼ckzugeben, solange der gemeinsam
  * benutzte Speicher erst dann freigegeben wird, wenn sowohl @a p als auch der
- * Rückgabewert durch cdi_mem_free freigegeben worden sind.
+ * RÃ¼ckgabewert durch cdi_mem_free freigegeben worden sind.
  *
- * Ansonsten wird ein neuer Speicherbereich reserviert und (außer wenn das
+ * Ansonsten wird ein neuer Speicherbereich reserviert und (auÃŸer wenn das
  * Flag CDI_MEM_NOINIT gesetzt ist) die Daten werden aus @a p in den neu
  * reservierten Speicher kopiert.
  * \endgerman
@@ -332,8 +332,8 @@ extern "C" EXPORTED_PUBLIC struct cdi_mem_area* cdi_mem_require_flags(struct cdi
 
 /**
  * \german
- * Kopiert die Daten von @a src nach @a dest. Beide Speicherbereiche müssen
- * gleich groß sein.
+ * Kopiert die Daten von @a src nach @a dest. Beide Speicherbereiche mÃ¼ssen
+ * gleich groÃŸ sein.
  *
  * Das bedeutet nicht unbedingt eine physische Kopie: Wenn beide
  * Speicherbereiche auf denselben physischen Speicher zeigen, macht diese
