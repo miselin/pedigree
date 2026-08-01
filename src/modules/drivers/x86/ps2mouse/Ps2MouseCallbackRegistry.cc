@@ -115,6 +115,8 @@ bool Ps2MouseCallbackRegistry::subscribe(
 void Ps2MouseCallbackRegistry::unregister(
     CallbackSlot *slot, Registration *registration)
 {
+    Thread *current = Processor::information().getCurrentThread();
+    const bool canYield = current && Processor::getInterrupts();
     TerminationDeferral terminationDeferral;
     m_CallbackLock.acquire();
     if (
@@ -144,10 +146,7 @@ void Ps2MouseCallbackRegistry::unregister(
         }
     }
 
-    if (
-        slot->inFlight &&
-        (!Processor::information().getCurrentThread() ||
-         !Processor::getInterrupts()))
+    if (slot->inFlight && !canYield)
     {
         m_CallbackLock.release();
         FATAL(
