@@ -40,6 +40,7 @@
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
+#include "PortChangeRequest.h"
 
 class Device;
 class IoBase;
@@ -181,6 +182,7 @@ class Uhci : public UsbHub,
     virtual uint64_t executeRequest(
         uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
         uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
+    void cancelRequest(const Request &request) override;
 
   private:
     /// Stops the UHCI controller
@@ -188,6 +190,10 @@ class Uhci : public UsbHub,
 
     /// Starts the UHCI controller
     void start();
+
+    /// Serialises control RMWs with scanning without echoing W1C status bits.
+    void modifyPortControl(
+        size_t portRegister, uint16_t clearMask, uint16_t setMask);
 
     enum UhciConstants
     {
@@ -218,8 +224,11 @@ class Uhci : public UsbHub,
     OperationBarrier m_CallbackOperations;
     irq_id_t m_IrqId;
     bool m_TimerRegistered;
+    Atomic<bool> m_InterruptsClosing;
 
     uint8_t m_nPorts;
+    UsbHcd::PortChangeRequest m_PortChanges[UsbHcd::UhciRootPortCount];
+    Spinlock m_PortChangeLock;
 
     Mutex m_Mutex;
 

@@ -63,7 +63,8 @@ static int threadStub(void *p)
 
 Uhci::Uhci(Device *pDev)
     : UsbHub(pDev), RequestQueue(MakeConstantString("UHCI")), m_pBase(0),
-      m_CallbackOperations(), m_IrqId(0), m_TimerRegistered(false), m_nPorts(0),
+      m_CallbackOperations(), m_IrqId(0), m_TimerRegistered(false),
+      m_InterruptsClosing(false), m_nPorts(0), m_PortChangeLock(),
       m_IrqProcessingLock(), m_AsyncQueueListChangeLock(), m_UhciMR("Uhci-MR"),
       m_pCurrentAsyncQueueTail(0), m_pCurrentAsyncQueueHead(0),
       m_AsyncSchedule(), m_DequeueList(), m_DequeueCount(0),
@@ -123,17 +124,6 @@ Uhci::Uhci(Device *pDev)
         Processor::information().getCurrentThread()->getParent(), threadStub,
         reinterpret_cast<void *>(this));
 
-    // Install the IRQ handler
-    m_IrqId =
-        Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
-    Machine::instance().getIrqManager()->control(
-        getInterruptNumber(), IrqManager::MitigationThreshold,
-        (1500000 / 64));  // 12KB/ms (12Mbps) in bytes, divided by 64 bytes
-                          // maximum per transfer/IRQ
-
-    // Set up the RequestQueue
-    initialise();
-
     uint32_t nCommand = PciBus::instance().readConfigSpace(this, 1);
 #ifdef USB_VERBOSE_DEBUG
     DEBUG_LOG("USB: UHCI: Pci command+status: " << nCommand);
@@ -158,6 +148,38 @@ Uhci::Uhci(Device *pDev)
     // Write frame list pointer
     m_pBase->write32(m_pFrameListPhys, UHCI_FRLP);
 
+    // Close and flush the controller source before registering with the PIC.
+    // Registration unmasks the shared line immediately.
+    m_pBase->write16(0, UHCI_INTR);
+    (void) m_pBase->read16(UHCI_INTR);
+    const uint16_t pendingStatus = m_pBase->read16(UHCI_STS);
+    if (pendingStatus)
+    {
+        m_pBase->write16(pendingStatus, UHCI_STS);
+        (void) m_pBase->read16(UHCI_STS);
+    }
+
+    m_IrqId =
+        Machine::instance().getIrqManager()->registerPciIrqHandler(this, this);
+    if (!m_IrqId)
+    {
+        FATAL("UHCI could not register its PCI IRQ handler");
+        return;
+    }
+    Machine::instance().getIrqManager()->control(
+        getInterruptNumber(), IrqManager::MitigationThreshold,
+        (1500000 / 64));  // 12KB/ms (12Mbps) in bytes, divided by 64 bytes
+                          // maximum per transfer/IRQ
+
+    RequestQueue::initialise();
+#if THREADS
+    if (getLifecycleState() != RequestQueue::LifecycleState::Accepting)
+    {
+        FATAL("UHCI request queue did not enter the accepting state");
+        return;
+    }
+#endif
+
     // Enable wanted interrupts
     m_pBase->write16(0xf, UHCI_INTR);
 
@@ -179,7 +201,7 @@ Uhci::Uhci(Device *pDev)
     // Give time for ports to resume and stabilise.
     Time::delay(100 * Time::Multiplier::Millisecond);
 
-    for (size_t i = 0; i < 8; i++)
+    for (size_t i = 0; i < UsbHcd::UhciRootPortCount; i++)
     {
         uint16_t nPortStatus = m_pBase->read16(UHCI_PORTSC + (i * 2));
         NOTICE("Port status is " << nPortStatus);
@@ -189,25 +211,71 @@ Uhci::Uhci(Device *pDev)
                     // the spec.
         }
 
-        // Reset the port (the timer will receive the connection status changes)
-        if (portReset(i))
-            executeRequest(i);
-
-        m_nPorts++;
+        ++m_nPorts;
     }
 
-    // Install the timer handler for the periodic port checks
+    if (!UsbHcd::validUhciRootPortCount(m_nPorts))
+    {
+        FATAL("UHCI detected an unsupported root-port count");
+        return;
+    }
+
+    for (size_t i = 0; i < m_nPorts; ++i)
+    {
+        if (!m_PortChanges[i].configure(*this, 0, i))
+        {
+            FATAL(
+                "UHCI could not configure its root-port publication token "
+                << Dec << i << Hex);
+            return;
+        }
+    }
+
+    for (size_t i = 0; i < m_nPorts; ++i)
+    {
+        if (!portReset(i))
+        {
+            continue;
+        }
+
+        const size_t portRegister = UHCI_PORTSC + (i * 2);
+        {
+            LockGuard<Spinlock> portChangeGuard(m_PortChangeLock);
+            const uint16_t portStatus = m_pBase->read16(portRegister);
+            if (portStatus & UHCI_PORTSC_CSCH)
+            {
+                constexpr uint16_t ChangeMask =
+                    UHCI_PORTSC_CSCH | UHCI_PORTSC_EDCH;
+                m_pBase->write16(
+                    UsbHcd::selectiveW1cValue(
+                        portStatus, ChangeMask,
+                        static_cast<uint16_t>(UHCI_PORTSC_CSCH)),
+                    portRegister);
+                (void) m_pBase->read16(portRegister);
+            }
+        }
+        executeRequest(i);
+    }
+
+    // Install the timer handler for the periodic port checks. A threadless
+    // build cannot safely enumerate a device from timer interrupt context.
+#if THREADS
     Timer *timer = Machine::instance().getTimer();
     if (timer)
     {
         m_TimerRegistered = timer->registerHandler(this);
     }
+    if (!m_TimerRegistered)
+    {
+        ERROR("UHCI could not register its root-port polling callback");
+    }
+#endif
 }
 
 Uhci::~Uhci()
 {
-    m_CallbackOperations.close();
-
+    // The timer is the only port-change producer, and unregistration drains
+    // any callback already admitted by the timer registry.
     Timer *timer = Machine::instance().getTimer();
     if (m_TimerRegistered)
     {
@@ -218,6 +286,27 @@ Uhci::~Uhci()
                 "callback");
         }
         m_TimerRegistered = false;
+    }
+
+    for (size_t i = 0; i < m_nPorts; ++i)
+    {
+        m_PortChanges[i].stopAfterQuiesce();
+    }
+    RequestQueue::destroy();
+
+    // Port enumeration has drained. Transfer IRQs can now be closed without
+    // stranding synchronous USB I/O owned by the RequestQueue worker.
+    {
+        LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+        m_InterruptsClosing = true;
+        if (m_pBase)
+        {
+            m_pBase->write16(0, UHCI_INTR);
+            (void) m_pBase->read16(UHCI_INTR);
+        }
+        // Close admission while the IRQ serialization lock keeps a level
+        // interrupt from repeatedly entering the just-closed callback path.
+        m_CallbackOperations.close();
     }
 
     if (m_IrqId)
@@ -233,6 +322,13 @@ Uhci::~Uhci()
     }
     m_CallbackOperations.wait();
 
+    if (m_pBase)
+    {
+        stop();
+        m_pBase->write32(0, UHCI_FRLP);
+        (void) m_pBase->read32(UHCI_FRLP);
+    }
+
     m_DequeueOperations.close();
     m_DequeueCount.release();
     m_DequeueOperations.wait();
@@ -241,8 +337,6 @@ Uhci::~Uhci()
         m_pDequeueThread->joinForCompletion();
         m_pDequeueThread = nullptr;
     }
-
-    RequestQueue::destroy();
 }
 
 void Uhci::doDequeue()
@@ -859,8 +953,16 @@ void Uhci::cancelAsyncAndDrain(
             pQH->pMetaData->bIgnore = true;
             pQH->pMetaData->pCallback = nullptr;
 
-            start();
-            m_pBase->write16(interruptMask, UHCI_INTR);
+            if (!m_InterruptsClosing)
+            {
+                start();
+                m_pBase->write16(interruptMask, UHCI_INTR);
+            }
+            else
+            {
+                m_pBase->write16(0, UHCI_INTR);
+            }
+            (void) m_pBase->read16(UHCI_INTR);
         }
     }
 
@@ -912,39 +1014,46 @@ void Uhci::addInterruptInHandler(
         ERROR("USB: UHCI: Couldn't submit interrupt transaction!");
 }
 
+void Uhci::modifyPortControl(
+    size_t portRegister, uint16_t clearMask, uint16_t setMask)
+{
+    constexpr uint16_t ChangeMask = UHCI_PORTSC_CSCH | UHCI_PORTSC_EDCH;
+    LockGuard<Spinlock> portChangeGuard(m_PortChangeLock);
+    uint16_t portControl = UsbHcd::selectiveW1cValue(
+        m_pBase->read16(portRegister), ChangeMask, static_cast<uint16_t>(0));
+    portControl &= ~clearMask;
+    portControl |= setMask & ~ChangeMask;
+    m_pBase->write16(portControl, portRegister);
+}
+
 bool Uhci::portReset(uint8_t nPort, bool bErrorResponse)
 {
 #ifdef USB_VERBOSE_DEBUG
     DEBUG_LOG("USB: UHCI: Reset on port " << nPort);
 #endif
 
+    const size_t portRegister = UHCI_PORTSC + (nPort * 2);
+    constexpr uint16_t ChangeMask = UHCI_PORTSC_CSCH | UHCI_PORTSC_EDCH;
+
     if (bErrorResponse)
     {
         // Before port reset, disable the port
-        m_pBase->write16(
-            m_pBase->read16(UHCI_PORTSC + (nPort * 2)) & ~UHCI_PORTSC_ENABLE,
-            UHCI_PORTSC + (nPort * 2));
-        while (m_pBase->read16(UHCI_PORTSC + (nPort * 2)) & UHCI_PORTSC_ENABLE)
+        modifyPortControl(portRegister, UHCI_PORTSC_ENABLE, 0);
+        while (m_pBase->read16(portRegister) & UHCI_PORTSC_ENABLE)
             Time::delay(10 * Time::Multiplier::Millisecond);
     }
 
     // Perform a reset of the port
-    m_pBase->write16(
-        m_pBase->read16(UHCI_PORTSC + (nPort * 2)) | UHCI_PORTSC_PRES,
-        UHCI_PORTSC + (nPort * 2));
+    modifyPortControl(portRegister, 0, UHCI_PORTSC_PRES);
     Time::delay(50 * Time::Multiplier::Millisecond);
-    m_pBase->write16(
-        m_pBase->read16(UHCI_PORTSC + (nPort * 2)) & ~UHCI_PORTSC_PRES,
-        UHCI_PORTSC + (nPort * 2));
+    modifyPortControl(portRegister, UHCI_PORTSC_PRES, 0);
 
     // Enable the port
-    m_pBase->write16(
-        m_pBase->read16(UHCI_PORTSC + (nPort * 2)) | UHCI_PORTSC_ENABLE,
-        UHCI_PORTSC + (nPort * 2));
+    modifyPortControl(portRegister, 0, UHCI_PORTSC_ENABLE);
     Time::delay((bErrorResponse ? 500 : 100) * Time::Multiplier::Millisecond);
 
     // Check that the device is completely enabled
-    if (!(m_pBase->read16(UHCI_PORTSC + (nPort * 2)) & UHCI_PORTSC_ENABLE))
+    if (!(m_pBase->read16(portRegister) & UHCI_PORTSC_ENABLE))
     {
         //#ifdef USB_VERBOSE_DEBUG
         DEBUG_LOG(
@@ -954,14 +1063,24 @@ bool Uhci::portReset(uint8_t nPort, bool bErrorResponse)
         return false;
     }
 
-    // Clear the "enable/disable change status" register
-    m_pBase->write16(
-        m_pBase->read16(UHCI_PORTSC + (nPort * 2)) |
-            (UHCI_PORTSC_EDCH | UHCI_PORTSC_CSCH),
-        UHCI_PORTSC + (nPort * 2));
+    // Retire the enable-change generated by reset. Leave CSC asserted for the
+    // timer so a disconnect/reconnect during reset cannot be erased here.
+    {
+        LockGuard<Spinlock> portChangeGuard(m_PortChangeLock);
+        const uint16_t portStatus = m_pBase->read16(portRegister);
+        if (portStatus & UHCI_PORTSC_EDCH)
+        {
+            m_pBase->write16(
+                UsbHcd::selectiveW1cValue(
+                    portStatus, ChangeMask,
+                    static_cast<uint16_t>(UHCI_PORTSC_EDCH)),
+                portRegister);
+            (void) m_pBase->read16(portRegister);
+        }
+    }
 
     // Verify that we have a device connected here
-    if (!(m_pBase->read16(UHCI_PORTSC + (nPort * 2)) & UHCI_PORTSC_CONN))
+    if (!(m_pBase->read16(portRegister) & UHCI_PORTSC_CONN))
     {
         //#ifdef USB_VERBOSE_DEBUG
         DEBUG_LOG(
@@ -974,9 +1093,7 @@ bool Uhci::portReset(uint8_t nPort, bool bErrorResponse)
     }
 
 #ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG(
-        "USB: Post-reset status is "
-        << m_pBase->read16(UHCI_PORTSC + (nPort * 2)));
+    DEBUG_LOG("USB: Post-reset status is " << m_pBase->read16(portRegister));
 #endif
 
     return true;
@@ -986,11 +1103,25 @@ uint64_t Uhci::executeRequest(
     uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
     uint64_t p6, uint64_t p7, uint64_t p8)
 {
+    if (p1 >= m_nPorts)
+    {
+        return 0;
+    }
+    UsbHcd::PortChangeRequest::Completion completion(
+        m_PortChanges[p1], static_cast<size_t>(p8));
+    if (!completion)
+    {
+        return 0;
+    }
+
+    const uint16_t portStatus =
+        m_pBase->read16(UHCI_PORTSC + (p1 * 2));
+
     // Check for a connected device
-    if (m_pBase->read16(UHCI_PORTSC + (p1 * 2)) & UHCI_PORTSC_CONN)
+    if (portStatus & UHCI_PORTSC_CONN)
     {
         // Determine the speed of the attached device
-        if (m_pBase->read16(UHCI_PORTSC + (p1 * 2)) & UHCI_PORTSC_LOSPEED)
+        if (portStatus & UHCI_PORTSC_LOSPEED)
         {
             DEBUG_LOG(
                 "USB: UHCI [" << this << "]: Port " << Dec << p1 << Hex
@@ -1023,38 +1154,83 @@ uint64_t Uhci::executeRequest(
     return 0;
 }
 
+void Uhci::cancelRequest(const Request &request)
+{
+    if (request.p1 < m_nPorts)
+    {
+        m_PortChanges[request.p1].cancel(request.p8);
+    }
+}
+
 void Uhci::timer(uint64_t delta, InterruptState &state)
 {
+#if !THREADS
+    (void) delta;
+    (void) state;
+    return;
+#else
     OperationBarrier::Lease callback;
     if (!m_CallbackOperations.tryAcquire(callback))
     {
         return;
     }
 
-    m_nPortCheckTicks += delta;
-
-    // We check the ports once in a Millisecond
-    if (m_nPortCheckTicks >= 1000000)
     {
-        // Reset the counter
+        LockGuard<Spinlock> portChangeGuard(m_PortChangeLock);
+
+        m_nPortCheckTicks += delta;
+        if (m_nPortCheckTicks < 1000000)
+        {
+            return;
+        }
+
+        // We check the ports once in a Millisecond.
         m_nPortCheckTicks = 0;
 
         // Check every port for a change
         for (size_t i = 0; i < m_nPorts; i++)
         {
-            if (m_pBase->read16(UHCI_PORTSC + (i * 2)) & UHCI_PORTSC_CSCH)
-            {
-                // Clear the port status change
-                m_pBase->write16(
-                    m_pBase->read16(UHCI_PORTSC + (i * 2)) | UHCI_PORTSC_CSCH,
-                    UHCI_PORTSC + (i * 2));
+            const size_t portRegister = UHCI_PORTSC + (i * 2);
+            const uint16_t portStatus = m_pBase->read16(portRegister);
+            constexpr uint16_t ChangeMask =
+                UHCI_PORTSC_CSCH | UHCI_PORTSC_EDCH;
+            uint16_t acknowledgeMask = portStatus & UHCI_PORTSC_EDCH;
+            size_t acknowledgeGeneration = 0;
 
-                // Now we can safely add the request
-                if (!m_IgnoredPorts.test(i))
-                    addAsyncRequest(0, i);
+            if (portStatus & UHCI_PORTSC_CSCH)
+            {
+                const bool ignored = m_IgnoredPorts.test(i);
+                if (ignored)
+                {
+                    acknowledgeMask |= UHCI_PORTSC_CSCH;
+                }
+                else
+                {
+                    const auto observation = m_PortChanges[i].observe();
+                    if (UsbHcd::PortChangeRequest::canAcknowledge(
+                            observation.result))
+                    {
+                        acknowledgeMask |= UHCI_PORTSC_CSCH;
+                        acknowledgeGeneration = observation.generation;
+                    }
+                }
+            }
+
+            if (acknowledgeMask)
+            {
+                m_pBase->write16(
+                    UsbHcd::selectiveW1cValue(
+                        portStatus, ChangeMask, acknowledgeMask),
+                    portRegister);
+                (void) m_pBase->read16(portRegister);
+            }
+            if (acknowledgeGeneration)
+            {
+                m_PortChanges[i].acknowledge(acknowledgeGeneration);
             }
         }
     }
+#endif
 }
 
 void Uhci::stop()
