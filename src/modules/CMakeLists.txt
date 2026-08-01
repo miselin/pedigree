@@ -177,6 +177,14 @@ function(pedigree_module name opts libs)
     endif ()
 endfunction()
 
+# CDI is not part of the supported module set, but keep its IRQ wait shim
+# compiling so dormant concurrency fixes cannot silently decay.
+add_library(cdi-irq-compile-check OBJECT EXCLUDE_FROM_ALL
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiIrq.cc)
+target_compile_options(cdi-irq-compile-check PRIVATE
+    ${PEDIGREE_MODULE_CXXFLAGS} -fno-rtti -fno-exceptions
+    -fno-asynchronous-unwind-tables)
+
 if (NOT PEDIGREE_STATIC_DRIVERS)
     add_library(module STATIC
         ${CMAKE_CURRENT_SOURCE_DIR}/Module.cc)
@@ -526,6 +534,7 @@ pedigree_module(usb-mass-storage "" ""
 if (PEDIGREE_DRIVERDIR STREQUAL "x86")
     # pedigree_module(cdi "" ""
     #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiDisk.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiIrq.cc
     #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiNet.cc
     #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/_list.cc
     #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/cdi.cc

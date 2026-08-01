@@ -228,7 +228,8 @@ for heap in system slam; do
     cmake --build "$hosted_build_dir" "${hosted_parallel_args[@]}" \
         --target kernelfinal hddimage
     cmake --build "$dynamic_build_dir" "${hosted_parallel_args[@]}" \
-        --target kernelfinal config users vfs fat rawfs usb hosted-smoke
+        --target kernelfinal config users vfs fat rawfs usb hosted-smoke \
+        cdi-irq-compile-check
     run_hosted_smoke "$heap"
 done
 
@@ -246,7 +247,7 @@ cmake -S "$script_dir" -B "$x64_build_dir" \
 # by both the kernel's userspace boundary and every initrd module.
 cmake --build "$x64_build_dir" --parallel 1 --target libc
 cmake --build "$x64_build_dir" "${hosted_parallel_args[@]}" \
-    --target kernelfinal initrd
+    --target kernelfinal initrd cdi-irq-compile-check
 
 for artifact in \
     "$x64_build_dir/src/system/kernel/kernel-mini64" \
@@ -275,9 +276,9 @@ echo "  cmake --build '$hosted_build_dir' --parallel 1 --target libc"
 echo "  cmake --build '$hosted_build_dir' --parallel --target kernelfinal hddimage"
 echo "Rebuild the dynamic hosted module smoke artifacts with:"
 echo "  cmake --build '$dynamic_build_dir' --parallel 1 --target libc"
-echo "  cmake --build '$dynamic_build_dir' --parallel --target kernelfinal config users vfs fat rawfs usb hosted-smoke"
+echo "  cmake --build '$dynamic_build_dir' --parallel --target kernelfinal config users vfs fat rawfs usb hosted-smoke cdi-irq-compile-check"
 echo "Re-run the hosted smoke ladder with:"
 echo "  '$script_dir/scripts/test-hosted-kernel.sh' --static-kernel '$hosted_build_dir/src/system/kernel/kernel' --dynamic-kernel '$dynamic_build_dir/src/system/kernel/kernel' --dynamic-config-module '$dynamic_build_dir/src/modules/config.o' --dynamic-smoke-module '$dynamic_build_dir/src/modules/hosted-smoke.o' --config '$hosted_build_dir/config.db' --disk-image '$hosted_build_dir/hdd.img' --require-asan --expected-heap slam"
 echo "Rebuild the x86-64 PC compile-and-link matrix with:"
 echo "  cmake --build '$x64_build_dir' --parallel 1 --target libc"
-echo "  cmake --build '$x64_build_dir' --parallel --target kernelfinal initrd"
+echo "  cmake --build '$x64_build_dir' --parallel --target kernelfinal initrd cdi-irq-compile-check"
