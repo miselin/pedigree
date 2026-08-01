@@ -25,6 +25,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/IoPort.h"
@@ -69,6 +70,12 @@ class Pic : public IrqManager, private InterruptHandler
      *\return true, if successfull, false otherwise */
     bool initialise() INITIALISATION_ONLY;
 
+    /** Starts manager-owned bottom-half workers after scheduler startup. */
+    bool initialiseThreaded();
+
+    /** Masks all lines, cancels queued batches, then joins every worker. */
+    bool shutdownThreaded();
+
     /** Called every millisecond, typically handles IRQ mitigation. */
     virtual void tick();
 
@@ -94,6 +101,9 @@ class Pic : public IrqManager, private InterruptHandler
     //
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
 
+    static void dispatchThreadedLine(void *context, uint8_t irq, size_t cookie);
+    size_t advanceThreadedCookieLocked(uint8_t irq);
+
     void eoiLocked(uint8_t irq);
     void applyMaskLocked();
     void setEnabledLocked(uint8_t irq, bool enable);
@@ -112,6 +122,16 @@ class Pic : public IrqManager, private InterruptHandler
     IrqHandlerRegistry m_Handlers;
     /** Trigger mode, registration ownership and the complete 16-bit mask. */
     PicIrqState m_IrqState;
+    /** Stable one-worker-per-physical-line bottom-half dispatcher. */
+    ThreadedIrqDispatcher m_ThreadedDispatcher;
+    /** Invalidates queued work when a physical line changes ownership. */
+    size_t m_ThreadedCookies[PicIrqState::LineCount];
+    /** PIC dispatch generation associated with each queued cookie. */
+    size_t m_ThreadedDispatchGenerations[PicIrqState::LineCount];
+    /** Unregister operations which have not completed line accounting. */
+    size_t m_UnregisterReservations[PicIrqState::LineCount];
+    /** Closes registration and re-enable paths before worker shutdown. */
+    bool m_ShuttingDown;
     /** IRQ counts for given handlers */
     size_t m_IrqCount[16];
     /** Mitigated IRQs */

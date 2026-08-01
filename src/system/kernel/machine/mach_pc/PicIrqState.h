@@ -40,6 +40,8 @@ class PicIrqState
             m_DispatchGenerations[i] = 0;
             m_AcknowledgedGenerations[i] = 0;
             m_AcknowledgementPending[i] = false;
+            m_ThreadedPending[i] = false;
+            m_RequestedEnabled[i] = true;
         }
     }
 
@@ -62,15 +64,16 @@ class PicIrqState
         const bool firstHandler = m_HandlerCounts[irq] == 0;
         if (m_TriggerModes[irq] == TriggerMode::Unconfigured)
         {
-            m_TriggerModes[irq] =
-                edge ? TriggerMode::Edge : TriggerMode::Level;
+            m_TriggerModes[irq] = edge ? TriggerMode::Edge : TriggerMode::Level;
         }
         ++m_HandlerCounts[irq];
         if (firstHandler)
         {
             m_AcknowledgementPending[irq] = false;
+            m_ThreadedPending[irq] = false;
             m_AcknowledgedGenerations[irq] = m_DispatchGenerations[irq];
-            setEnabled(irq, true);
+            m_RequestedEnabled[irq] = true;
+            rebuildMask();
         }
     }
 
@@ -82,8 +85,10 @@ class PicIrqState
         if (!m_HandlerCounts[irq])
         {
             m_AcknowledgementPending[irq] = false;
+            m_ThreadedPending[irq] = false;
             m_AcknowledgedGenerations[irq] = m_DispatchGenerations[irq];
-            setEnabled(irq, false);
+            m_RequestedEnabled[irq] = false;
+            rebuildMask();
         }
     }
 
@@ -110,7 +115,7 @@ class PicIrqState
         }
 
         m_AcknowledgementPending[irq] = true;
-        setEnabled(irq, false);
+        rebuildMask();
     }
 
     bool acknowledge(size_t irq)
@@ -125,9 +130,47 @@ class PicIrqState
         if (m_AcknowledgementPending[irq])
         {
             m_AcknowledgementPending[irq] = false;
-            setEnabled(irq, true);
+            rebuildMask();
         }
         return true;
+    }
+
+    /** Masks a level-triggered line until its bottom half completes. */
+    void beginThreadedDispatch(size_t irq)
+    {
+        assert(irq < LineCount);
+        if (!edgeTriggered(irq))
+        {
+            m_ThreadedPending[irq] = true;
+            rebuildMask();
+        }
+    }
+
+    /**
+     * Completes the latest threaded batch. A stale batch cannot reopen a line
+     * which has since delivered another occurrence.
+     */
+    bool completeThreadedDispatch(
+        size_t irq, size_t dispatchGeneration, bool allowRearm)
+    {
+        assert(irq < LineCount);
+        if (m_DispatchGenerations[irq] != dispatchGeneration)
+        {
+            return false;
+        }
+
+        if (!edgeTriggered(irq) && (allowRearm || !m_HandlerCounts[irq]))
+        {
+            m_ThreadedPending[irq] = false;
+            rebuildMask();
+        }
+        return true;
+    }
+
+    bool threadedPending(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_ThreadedPending[irq];
     }
 
     bool acknowledgementPending(size_t irq) const
@@ -157,29 +200,24 @@ class PicIrqState
     void setEnabled(size_t irq, bool enabled)
     {
         assert(irq < LineCount);
-        if (enabled)
-        {
-            m_Mask &= static_cast<uint16_t>(~bit(irq));
-            if (irq > 7)
-            {
-                m_Mask &= static_cast<uint16_t>(~bit(2));
-            }
-        }
-        else
-        {
-            if (irq == 2 && (m_Mask & 0xFF00) != 0xFF00)
-            {
-                return;
-            }
-            m_Mask |= bit(irq);
-        }
+        m_RequestedEnabled[irq] = enabled;
+        rebuildMask();
     }
 
     void setAllEnabled(bool enabled)
     {
+        for (size_t i = 0; i < LineCount; ++i)
+        {
+            m_RequestedEnabled[i] = enabled;
+        }
+
         // IRQ2 is the cascade input and must remain available when device
         // lines are masked, or every slave IRQ becomes unreachable.
-        m_Mask = enabled ? 0 : static_cast<uint16_t>(0xFFFB);
+        if (!enabled)
+        {
+            m_RequestedEnabled[2] = true;
+        }
+        rebuildMask();
     }
 
     uint16_t mask() const
@@ -208,12 +246,36 @@ class PicIrqState
         return static_cast<intptr_t>(current - target) >= 0;
     }
 
+    void rebuildMask()
+    {
+        uint16_t mask = 0;
+        for (size_t i = 0; i < LineCount; ++i)
+        {
+            if (!m_RequestedEnabled[i] || m_AcknowledgementPending[i] ||
+                m_ThreadedPending[i])
+            {
+                mask |= bit(i);
+            }
+        }
+
+        // The master IRQ2 bit represents both a direct IRQ2 source and every
+        // slave line, so a live slave always wins over a direct-line mask.
+        if ((mask & static_cast<uint16_t>(0xFF00)) !=
+            static_cast<uint16_t>(0xFF00))
+        {
+            mask &= static_cast<uint16_t>(~bit(2));
+        }
+        m_Mask = mask;
+    }
+
     uint16_t m_Mask;
     TriggerMode m_TriggerModes[LineCount];
     size_t m_HandlerCounts[LineCount];
     size_t m_DispatchGenerations[LineCount];
     size_t m_AcknowledgedGenerations[LineCount];
     bool m_AcknowledgementPending[LineCount];
+    bool m_ThreadedPending[LineCount];
+    bool m_RequestedEnabled[LineCount];
 };
 
 #endif

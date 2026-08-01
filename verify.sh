@@ -498,7 +498,8 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q 'uint16_t m_Mask' "$pic_state" ||
-        ! rg -q '0xFFFB' "$pic_state" ||
+        ! rg -q 'm_RequestedEnabled\[2\] = true' "$pic_state" ||
+        ! rg -q 'void rebuildMask\(\)' "$pic_state" ||
         ! rg -q 'm_DispatchGenerations' "$pic_state" ||
         ! rg -q 'm_AcknowledgedGenerations' "$pic_state" ||
         ! rg -q 'PicIrqState m_IrqState' "$pic_header" ||
@@ -691,6 +692,63 @@ check_wait_api_boundaries()
         ! rg -q 'irq-threaded-dispatcher-coalescing' \
             "$threaded_irq_regressions"; then
         echo "Threaded IRQ callback snapshots or deterministic coalescing coverage are missing."
+        failed=1
+    fi
+
+    local pic_source=src/system/kernel/machine/mach_pc/Pic.cc
+    local pic_header=src/system/kernel/machine/mach_pc/Pic.h
+    local pic_state=src/system/kernel/machine/mach_pc/PicIrqState.h
+    local pc_source=src/system/kernel/machine/mach_pc/Pc.cc
+    if ! rg -q 'ThreadedIrqDispatcher m_ThreadedDispatcher' "$pic_header" ||
+        ! rg -q -U \
+            '(?s)registerIsaIrqHandler\([^)]*IrqHandler \*handler.*?registerThreadedHandler\(irq, handler\).*?handlerRegistered\(irq, bEdge\)' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)registerPciIrqHandler\(IrqHandler \*handler.*?registerThreadedHandler\(irq, handler\).*?handlerRegistered\(irq, false\)' \
+            "$pic_source"; then
+        echo "The PIC normal registration path escaped manager-owned threaded delivery."
+        failed=1
+    fi
+
+    if rg -q -U \
+        '(?s)Pic::unregisterHandler\(.*?\+\+m_UnregisterReservations\[irq\].*?advanceThreadedCookieLocked\(irq\).*?m_Handlers\.unregisterHandler\(' \
+        "$pic_source" ||
+        ! rg -q -U \
+        '(?s)registerIsaIrqHandler\(.*?m_UnregisterReservations\[irq\].*?registerThreadedHandler' \
+        "$pic_source" ||
+        ! rg -q -U \
+            '(?s)unregisterHandler\(.*?\+\+m_UnregisterReservations\[irq\].*?m_Handlers\.unregisterHandler\(.*?--m_UnregisterReservations\[irq\].*?UnregisterResult::Completed.*?handlerUnregistered\(irq\).*?advanceThreadedCookieLocked\(irq\)' \
+            "$pic_source"; then
+        echo "PIC registration can cross final-unregister accounting or invalidate failed removals."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)Pic::interrupt\(.*?beginThreadedDispatch\(irq\).*?applyMaskLocked\(\).*?markPending\(irq, threadedCookie\).*?eoiLocked\(irq\).*?m_ThreadedDispatcher\.wake\(irq, threadedPublication\)' \
+        "$pic_source" ||
+        ! rg -q -U \
+            '(?s)dispatchThreadedLine\(.*?dispatchThreaded\(irq, handled\).*?completeThreadedDispatch\([^;]*admitted && handled\)' \
+            "$pic_source"; then
+        echo "The PIC threaded path lost mask, EOI, publication, or rearm ordering."
+        failed=1
+    fi
+
+    if ! rg -q 'bool m_ThreadedPending\[LineCount\]' "$pic_state" ||
+        ! rg -q 'bool m_RequestedEnabled\[LineCount\]' "$pic_state" ||
+        ! rg -q 'm_DispatchGenerations\[irq\] != dispatchGeneration' \
+            "$pic_state" ||
+        ! rg -q 'pic-threaded-trigger-policy' "$threaded_irq_regressions"; then
+        echo "PIC mask reasons, stale-generation protection, or trigger tests are incomplete."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)Pc::initialise3\(\).*?Pic::instance\(\)\.initialiseThreaded\(\).*?startReaderThread\(\)' \
+        "$pc_source" ||
+        ! rg -q -U \
+            '(?s)Pc::deinitialise\(\).*?Pic::instance\(\)\.shutdownThreaded\(\).*?m_bInitialised = false' \
+            "$pc_source"; then
+        echo "PIC bottom-half workers escaped the schedulable machine lifecycle."
         failed=1
     fi
 

@@ -156,6 +156,10 @@ void Pc::initialise()
 
 void Pc::deinitialise()
 {
+    if (!Pic::instance().shutdownThreaded())
+    {
+        FATAL("Pc: threaded IRQ workers did not stop");
+    }
     m_bInitialised = false;
 }
 
@@ -172,6 +176,10 @@ void Pc::initialiseProcessor()
 
 void Pc::initialise3()
 {
+    if (!Pic::instance().initialiseThreaded())
+    {
+        panic("Pc: threaded IRQ worker initialisation failed");
+    }
     m_Keyboard->startReaderThread();
 }
 

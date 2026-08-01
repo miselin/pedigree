@@ -68,8 +68,34 @@ bool Pic::control(uint8_t irq, ControlCode code, size_t argument)
 irq_id_t
 Pic::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge)
 {
-    // Threaded line dispatch is added by the manager-owned worker checkpoint.
-    return 0;
+    if (UNLIKELY(
+            irq >= PicIrqState::LineCount || !handler ||
+            !m_ThreadedDispatcher.isInitialised()))
+        return 0;
+
+    LockGuard<Spinlock> guard(m_Lock);
+    if (m_ShuttingDown || m_UnregisterReservations[irq] ||
+        !m_ThreadedDispatcher.isInitialised())
+        return 0;
+    if (!m_IrqState.canRegister(irq, bEdge))
+    {
+        ERROR(
+            "PIC: IRQ " << Dec << irq
+                        << " was registered with incompatible trigger modes");
+        return 0;
+    }
+    const bool firstHandler = !m_IrqState.handlerCount(irq);
+    if (!m_Handlers.registerThreadedHandler(irq, handler))
+        return 0;
+
+    if (firstHandler)
+    {
+        advanceThreadedCookieLocked(irq);
+    }
+    m_IrqState.handlerRegistered(irq, bEdge);
+    applyMaskLocked();
+
+    return irq + BASE_INTERRUPT_VECTOR;
 }
 
 irq_id_t
@@ -79,6 +105,8 @@ Pic::registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler *handler, bool bEdge)
         return 0;
 
     LockGuard<Spinlock> guard(m_Lock);
+    if (m_ShuttingDown || m_UnregisterReservations[irq])
+        return 0;
     if (!m_IrqState.canRegister(irq, bEdge))
     {
         ERROR(
@@ -86,9 +114,14 @@ Pic::registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler *handler, bool bEdge)
                         << " was registered with incompatible trigger modes");
         return 0;
     }
+    const bool firstHandler = !m_IrqState.handlerCount(irq);
     if (!m_Handlers.registerHardHandler(irq, handler))
         return 0;
 
+    if (firstHandler)
+    {
+        advanceThreadedCookieLocked(irq);
+    }
     m_IrqState.handlerRegistered(irq, bEdge);
     applyMaskLocked();
 
@@ -96,8 +129,37 @@ Pic::registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler *handler, bool bEdge)
 }
 irq_id_t Pic::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
 {
-    // Threaded line dispatch is added by the manager-owned worker checkpoint.
-    return 0;
+    if (UNLIKELY(!pDevice))
+        return 0;
+    irq_id_t irq = pDevice->getInterruptNumber();
+    if (UNLIKELY(
+            irq >= PicIrqState::LineCount || !handler ||
+            !m_ThreadedDispatcher.isInitialised()))
+        return 0;
+
+    LockGuard<Spinlock> guard(m_Lock);
+    if (m_ShuttingDown || m_UnregisterReservations[irq] ||
+        !m_ThreadedDispatcher.isInitialised())
+        return 0;
+    if (!m_IrqState.canRegister(irq, false))
+    {
+        ERROR(
+            "PIC: PCI IRQ " << Dec << irq
+                            << " conflicts with an edge-triggered handler");
+        return 0;
+    }
+    const bool firstHandler = !m_IrqState.handlerCount(irq);
+    if (!m_Handlers.registerThreadedHandler(irq, handler))
+        return 0;
+
+    if (firstHandler)
+    {
+        advanceThreadedCookieLocked(irq);
+    }
+    m_IrqState.handlerRegistered(irq, false);
+    applyMaskLocked();
+
+    return irq + BASE_INTERRUPT_VECTOR;
 }
 
 irq_id_t
@@ -110,6 +172,8 @@ Pic::registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice)
         return 0;
 
     LockGuard<Spinlock> guard(m_Lock);
+    if (m_ShuttingDown || m_UnregisterReservations[irq])
+        return 0;
     if (!m_IrqState.canRegister(irq, false))
     {
         ERROR(
@@ -117,9 +181,14 @@ Pic::registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice)
                             << " conflicts with an edge-triggered handler");
         return 0;
     }
+    const bool firstHandler = !m_IrqState.handlerCount(irq);
     if (!m_Handlers.registerHardHandler(irq, handler))
         return 0;
 
+    if (firstHandler)
+    {
+        advanceThreadedCookieLocked(irq);
+    }
     m_IrqState.handlerRegistered(irq, false);
     applyMaskLocked();
 
@@ -133,15 +202,29 @@ bool Pic::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
 
     uint8_t irq = Id - BASE_INTERRUPT_VECTOR;
 
-    const IrqHandlerRegistry::UnregisterResult result =
-        m_Handlers.unregisterHandler(irq, handler);
-    if (result == IrqHandlerRegistry::UnregisterResult::Completed ||
-        result == IrqHandlerRegistry::UnregisterResult::Deferred)
     {
         LockGuard<Spinlock> guard(m_Lock);
-        m_IrqState.handlerUnregistered(irq);
         if (!m_IrqState.handlerCount(irq))
         {
+            return false;
+        }
+        ++m_UnregisterReservations[irq];
+    }
+
+    const IrqHandlerRegistry::UnregisterResult result =
+        m_Handlers.unregisterHandler(irq, handler);
+    {
+        LockGuard<Spinlock> guard(m_Lock);
+        assert(m_UnregisterReservations[irq]);
+        --m_UnregisterReservations[irq];
+        if (result == IrqHandlerRegistry::UnregisterResult::Completed ||
+            result == IrqHandlerRegistry::UnregisterResult::Deferred)
+        {
+            m_IrqState.handlerUnregistered(irq);
+            if (!m_IrqState.handlerCount(irq))
+            {
+                advanceThreadedCookieLocked(irq);
+            }
             applyMaskLocked();
         }
     }
@@ -195,10 +278,44 @@ bool Pic::initialise()
     return true;
 }
 
+bool Pic::initialiseThreaded()
+{
+    return m_ThreadedDispatcher.initialise();
+}
+
+bool Pic::shutdownThreaded()
+{
+    {
+        LockGuard<Spinlock> guard(m_Lock);
+        m_ShuttingDown = true;
+        m_IrqState.setAllEnabled(false);
+        m_IrqState.setEnabled(2, false);
+        for (size_t irq = 0; irq < PicIrqState::LineCount; ++irq)
+        {
+            advanceThreadedCookieLocked(static_cast<uint8_t>(irq));
+        }
+        applyMaskLocked();
+    }
+    return m_ThreadedDispatcher.shutdown();
+}
+
 Pic::Pic()
     : m_SlavePort("PIC #2"), m_MasterPort("PIC #1"), m_Handlers(), m_IrqState(),
-      m_Lock(false)
+      m_ThreadedDispatcher(PicIrqState::LineCount, dispatchThreadedLine, this),
+      m_ThreadedCookies(), m_ThreadedDispatchGenerations(),
+      m_UnregisterReservations(), m_ShuttingDown(false), m_Lock(false)
 {
+}
+
+size_t Pic::advanceThreadedCookieLocked(uint8_t irq)
+{
+    assert(irq < PicIrqState::LineCount);
+    size_t cookie = ++m_ThreadedCookies[irq];
+    if (!cookie)
+    {
+        cookie = ++m_ThreadedCookies[irq];
+    }
+    return cookie;
 }
 
 bool Pic::spuriousLocked(size_t irq)
@@ -232,7 +349,10 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
     }
 
     bool edgeTriggered = false;
+    bool threaded = false;
     size_t dispatchGeneration = 0;
+    size_t threadedCookie = 0;
+    ThreadedIrqDispatcher::Publication threadedPublication = {false, false};
     {
         LockGuard<Spinlock> guard(m_Lock);
         ++m_IrqCount[irq];
@@ -255,10 +375,37 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
         }
 
         dispatchGeneration = m_IrqState.beginDispatch(irq);
-        if (edgeTriggered)
+        threaded =
+            m_Handlers.lineMode(irq) == IrqHandlerRegistry::LineMode::Threaded;
+        if (threaded)
+        {
+            // Level lines must be masked before EOI. Edge lines remain open
+            // so hardware edges are not collapsed while the worker runs.
+            m_IrqState.beginThreadedDispatch(irq);
+            if (!edgeTriggered)
+            {
+                applyMaskLocked();
+            }
+            threadedCookie = advanceThreadedCookieLocked(irq);
+            m_ThreadedDispatchGenerations[irq] = dispatchGeneration;
+            threadedPublication =
+                m_ThreadedDispatcher.markPending(irq, threadedCookie);
+            eoiLocked(irq);
+        }
+        else if (edgeTriggered)
         {
             eoiLocked(irq);
         }
+    }
+
+    if (threaded)
+    {
+        m_ThreadedDispatcher.wake(irq, threadedPublication);
+        if (!threadedPublication.accepted)
+        {
+            ERROR_NOLOCK("PIC: threaded IRQ publication was rejected");
+        }
+        return;
     }
 
     bool bHandled = false;
@@ -282,6 +429,48 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
 
     if (!admitted)
         NOTICE("PIC: unhandled irq #" << irq << " occurred");
+}
+
+void Pic::dispatchThreadedLine(void *context, uint8_t irq, size_t cookie)
+{
+    Pic *pic = reinterpret_cast<Pic *>(context);
+    size_t dispatchGeneration = 0;
+    {
+        LockGuard<Spinlock> guard(pic->m_Lock);
+        if (irq >= PicIrqState::LineCount ||
+            cookie != pic->m_ThreadedCookies[irq] ||
+            pic->m_Handlers.lineMode(irq) !=
+                IrqHandlerRegistry::LineMode::Threaded)
+        {
+            return;
+        }
+        dispatchGeneration = pic->m_ThreadedDispatchGenerations[irq];
+    }
+
+    bool handled = false;
+    const bool admitted = pic->m_Handlers.dispatchThreaded(irq, handled);
+
+    {
+        LockGuard<Spinlock> guard(pic->m_Lock);
+        if (cookie != pic->m_ThreadedCookies[irq] ||
+            dispatchGeneration != pic->m_ThreadedDispatchGenerations[irq])
+        {
+            return;
+        }
+
+        const bool wasEnabled = pic->m_IrqState.enabled(irq);
+        pic->m_IrqState.completeThreadedDispatch(
+            irq, dispatchGeneration, admitted && handled);
+        if (wasEnabled != pic->m_IrqState.enabled(irq))
+        {
+            pic->applyMaskLocked();
+        }
+    }
+
+    if (!admitted)
+    {
+        NOTICE("PIC: unhandled threaded irq #" << irq << " occurred");
+    }
 }
 
 void Pic::eoiLocked(uint8_t irq)
@@ -319,6 +508,10 @@ void Pic::enable(uint8_t irq, bool enable)
     }
 
     LockGuard<Spinlock> guard(m_Lock);
+    if (m_ShuttingDown && enable)
+    {
+        return;
+    }
     setEnabledLocked(irq, enable);
 }
 void Pic::enableAll(bool enable)
