@@ -328,6 +328,7 @@ class SelfRemovingHandler : public TimerHandler
 
 void handlerPinHook(TimerHandler *handler)
 {
+    constexpr size_t YieldLimit = 10000;
     HandlerLifetimeContext *context = g_HandlerLifetimeContext;
     if (!context || handler != &context->handler ||
         !context->phase.compareAndSwap(0, 1))
@@ -339,7 +340,8 @@ void handlerPinHook(TimerHandler *handler)
     const uint64_t deadline = context->timer->getTickCountNano() +
                               (500 * Time::Multiplier::Millisecond);
     bool observedDrain = false;
-    while (context->timer->getTickCountNano() < deadline)
+    for (size_t i = 0;
+         context->timer->getTickCountNano() < deadline && i < YieldLimit; ++i)
     {
         uintptr_t debugAddress = 0;
         if (context->phase == static_cast<size_t>(2) &&
