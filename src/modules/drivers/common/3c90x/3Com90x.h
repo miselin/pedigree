@@ -65,7 +65,8 @@ class Nic3C90x : public Network, public IrqHandler
 
     int setWindow(int window);
 
-    uint16_t readEeprom(int address);
+    bool waitForEepromReady();
+    bool readEeprom(int address, uint16_t &value);
 
     int writeEepromWord(int address, uint16_t value);
     int writeEeprom(int address, uint16_t value);

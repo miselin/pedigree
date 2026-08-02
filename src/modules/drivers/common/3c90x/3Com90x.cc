@@ -85,6 +85,7 @@ namespace
 constexpr size_t CommandPollLimit = 100;
 constexpr size_t ResetCommandPollLimit = 5000;
 constexpr size_t DownloadPollLimit = 100;
+constexpr size_t EepromPollLimit = 100;
 constexpr uint32_t UpPacketComplete = 1U << 15U;
 constexpr uint32_t UpPacketError = 1U << 14U;
 constexpr uint32_t UpPacketLengthMask = 0x1FFF;
@@ -147,62 +148,78 @@ int Nic3C90x::setWindow(int window)
     return 0;
 }
 
-uint16_t Nic3C90x::readEeprom(int address)
+bool Nic3C90x::waitForEepromReady()
 {
-    uint16_t val;
+    for (size_t poll = 0; poll < EepromPollLimit; ++poll)
+    {
+        if (!(m_pBase->read16(regEepromCommand_0_w) & (1U << 15U)))
+            return true;
 
+        if (!Time::delay(Time::Multiplier::Millisecond))
+            break;
+    }
+
+    ERROR("3C90x: EEPROM command timed out");
+    return false;
+}
+
+bool Nic3C90x::readEeprom(int address, uint16_t &value)
+{
     /** Select correct window **/
-    setWindow(winEepromBios0);
+    if (setWindow(winEepromBios0) < 0)
+        return false;
 
     /** Make sure the eeprom isn't busy **/
-    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
-        ;
+    if (!waitForEepromReady())
+        return false;
 
     /** Read the value */
     m_pBase->write16(address + (0x02 << 6), regEepromCommand_0_w);
-    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
-        ;
-    val = m_pBase->read16(regEepromData_0_w);
+    if (!waitForEepromReady())
+        return false;
 
-    return val;
+    value = m_pBase->read16(regEepromData_0_w);
+    return true;
 }
 
 int Nic3C90x::writeEepromWord(int address, uint16_t value)
 {
     /** Select register window **/
-    setWindow(winEepromBios0);
+    if (setWindow(winEepromBios0) < 0)
+        return -1;
 
     /** Verify Eeprom not busy **/
-    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
-        ;
+    if (!waitForEepromReady())
+        return -1;
 
     /** Issue WriteEnable, and wait for completion **/
     m_pBase->write16(0x30, regEepromCommand_0_w);
-    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
-        ;
+    if (!waitForEepromReady())
+        return -1;
 
     /** Issue EraseReigster, and wait for completion **/
     m_pBase->write16(address + (0x03 << 6), regEepromCommand_0_w);
-    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
-        ;
+    if (!waitForEepromReady())
+        return -1;
 
     /** Send the new data to the eeprom, and wait for completion **/
     m_pBase->write16(value, regEepromData_0_w);
     m_pBase->write16(0x30, regEepromCommand_0_w);
-    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
-        ;
+    if (!waitForEepromReady())
+        return -1;
 
     /** Burn the new data into the eeprom, and wait for completion **/
     m_pBase->write16(address + (0x01 << 6), regEepromCommand_0_w);
-    while ((1 << 15) & m_pBase->read16(regEepromCommand_0_w))
-        ;
+    if (!waitForEepromReady())
+        return -1;
 
     return 0;
 }
 
 int Nic3C90x::writeEeprom(int address, uint16_t value)
 {
-    int cksum = 0, v;
+    int cksum = 0;
+    uint16_t v = 0;
     int i;
     int maxAddress, cksumAddress;
 
@@ -224,7 +241,8 @@ int Nic3C90x::writeEeprom(int address, uint16_t value)
     /** Recompute the checksum **/
     for (i = 0; i <= maxAddress; i++)
     {
-        v = readEeprom(i);
+        if (!readEeprom(i, v))
+            return -1;
         cksum ^= (v & 0xff);
         cksum ^= ((v >> 8) & 0xff);
     }
@@ -534,7 +552,14 @@ Nic3C90x::Nic3C90x(Network *pDev)
         return;
     }
 
-    switch (readEeprom(0x03))
+    uint16_t productId = 0;
+    if (!readEeprom(0x03, productId))
+    {
+        ERROR("3C90x: failed to read product ID from EEPROM");
+        return;
+    }
+
+    switch (productId)
     {
         case 0x9000: /** 10 Base TPO **/
         case 0x9001: /** 10/100 T4 **/
@@ -559,30 +584,50 @@ Nic3C90x::Nic3C90x(Network *pDev)
     if (m_isBrev)
     {
         for (i = 0; i < 0x20; i++)
-            eeprom[i] = readEeprom(i);
+        {
+            if (!readEeprom(i, eeprom[i]))
+            {
+                ERROR("3C90x: failed to load EEPROM contents");
+                return;
+            }
+        }
 
 #ifdef CFG_3C90X_BOOTROM_FIX
         /** Set xcvrSelect in InternalConfig in eeprom. **/
         /* only necessary for 3c905b revision cards with boot PROM bug!!! */
-        writeEeprom(0x13, 0x0160);
+        if (writeEeprom(0x13, 0x0160) < 0)
+            return;
 #endif
 
 #ifdef CFG_3C90X_XCVR
         /** Clear the LanWorks register **/
         if (CFG_3C90X_XCVR == 255)
-            writeEeprom(0x16, 0);
+        {
+            if (writeEeprom(0x16, 0) < 0)
+                return;
+        }
 
         /** Set the selected permanent-xcvrSelect in the
          ** LanWorks register
          **/
         else
-            writeEeprom(0x16, XCVR_MAGIC + ((CFG_3C90X_XCVR) & 0x000F));
+        {
+            if (writeEeprom(
+                    0x16, XCVR_MAGIC + ((CFG_3C90X_XCVR) & 0x000F)) < 0)
+                return;
+        }
 #endif
     }
     else
     {
         for (i = 0; i < 0x17; i++)
-            eeprom[i] = readEeprom(i);
+        {
+            if (!readEeprom(i, eeprom[i]))
+            {
+                ERROR("3C90x: failed to load EEPROM contents");
+                return;
+            }
+        }
     }
 
     /** Get the hardware address */
