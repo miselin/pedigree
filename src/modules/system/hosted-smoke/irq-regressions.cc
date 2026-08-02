@@ -206,9 +206,9 @@ bool deviceHardIrqContextTracking()
     const size_t postHardDepth = Processor::deviceHardIrqDepthForTest();
     const bool postHardMarked = Processor::inDeviceHardIrq();
 
-    const IrqHandlerRegistry::ThreadedDispatchResult threadedResult =
-        threadedRegistry.dispatchThreaded(8);
-    const bool threadedAdmitted = threadedResult.admitted;
+    IrqHandlerRegistry::ThreadedDispatchResult threadedResult = {};
+    const bool threadedAdmitted =
+        threadedRegistry.dispatchThreaded(8, threadedResult);
     const bool threadedHandled = threadedResult.handled;
 
     const bool outerRemoved =
@@ -239,8 +239,8 @@ bool deviceHardIrqContextTracking()
         postHardDepth == 0 && !postHardMarked,
         "hard dispatch leaked its device marker after return", Test);
     passed &= check(
-        threadedAdmitted && threadedHandled && threaded.depth == 0 &&
-            !threaded.marked,
+        threadedAdmitted && threadedHandled && threadedResult.allowRearm &&
+            threaded.depth == 0 && !threaded.marked,
         "threaded dispatch inherited device hard-IRQ state", Test);
     passed &= check(
         outerRemoved && nestedRemoved && threadedRemoved,
@@ -248,6 +248,7 @@ bool deviceHardIrqContextTracking()
 
     if (passed)
     {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-result-abi");
         NOTICE("HOSTED-WAIT-TEST: PASS device-hard-irq-context");
     }
     return passed;
@@ -279,9 +280,8 @@ class DeliveryContextProbe : public HardIrqHandler
             hardHandled += 1;
         }
 
-        const IrqHandlerRegistry::ThreadedDispatchResult threadedResult =
-            m_Registry.dispatchThreaded(5);
-        if (threadedResult.admitted)
+        IrqHandlerRegistry::ThreadedDispatchResult threadedResult = {};
+        if (m_Registry.dispatchThreaded(5, threadedResult))
         {
             signalThreadedAdmitted += 1;
         }
@@ -321,12 +321,14 @@ bool deliveryModeSeparation()
 
     const bool interruptsWereEnabled = Processor::getInterrupts();
     Processor::setInterrupts(false);
-    const IrqHandlerRegistry::ThreadedDispatchResult atomicResult =
-        registry->dispatchThreaded(5);
+    IrqHandlerRegistry::ThreadedDispatchResult atomicResult = {true, true};
+    const bool atomicAdmitted =
+        registry->dispatchThreaded(5, atomicResult);
     Processor::setInterrupts(interruptsWereEnabled);
 
-    const IrqHandlerRegistry::ThreadedDispatchResult threadedResult =
-        registry->dispatchThreaded(5);
+    IrqHandlerRegistry::ThreadedDispatchResult threadedResult = {};
+    const bool threadedAdmitted =
+        registry->dispatchThreaded(5, threadedResult);
     const bool threadedRemoved =
         registry->unregisterHandler(5, &threaded) ==
         IrqHandlerRegistry::UnregisterResult::Completed;
@@ -338,8 +340,10 @@ bool deliveryModeSeparation()
     const bool hardRegistered = registry->registerHardHandler(6, &hard);
     const bool threadedMixRejected =
         !registry->registerThreadedHandler(6, &threaded);
-    const IrqHandlerRegistry::ThreadedDispatchResult wrongThreadedResult =
-        registry->dispatchThreaded(6);
+    IrqHandlerRegistry::ThreadedDispatchResult wrongThreadedResult = {
+        true, true};
+    const bool wrongThreadedAdmitted =
+        registry->dispatchThreaded(6, wrongThreadedResult);
     const bool hardRemoved = registry->unregisterHandler(6, &hard) ==
                              IrqHandlerRegistry::UnregisterResult::Completed;
     const bool threadedAfterHard =
@@ -350,7 +354,7 @@ bool deliveryModeSeparation()
 
     bool passed = true;
     passed &= check(
-        threadedRegistered && hardMixRejected && threadedResult.admitted &&
+        threadedRegistered && hardMixRejected && threadedAdmitted &&
             threadedResult.handled && threadedResult.allowRearm,
         "a threaded line accepted hard delivery or did not dispatch", Test);
     passed &= check(
@@ -359,8 +363,7 @@ bool deliveryModeSeparation()
             !probe->signalThreadedHandled && probeRemoved,
         "a threaded line dispatched in hard or hosted-signal context", Test);
     passed &= check(
-        !atomicResult.admitted && !atomicResult.handled &&
-            !atomicResult.allowRearm,
+        !atomicAdmitted && !atomicResult.handled && !atomicResult.allowRearm,
         "a threaded line dispatched with interrupts disabled", Test);
     passed &= check(
         threaded.calls == 1 && threaded.wrongContext == 0,
@@ -368,7 +371,7 @@ bool deliveryModeSeparation()
     passed &= check(
         threadedRemoved && hardAfterThreaded && hardAfterThreadedRemoved &&
             hardRegistered && threadedMixRejected &&
-            !wrongThreadedResult.admitted && !wrongThreadedResult.handled &&
+            !wrongThreadedAdmitted && !wrongThreadedResult.handled &&
             !wrongThreadedResult.allowRearm && hardRemoved &&
             threadedAfterHard && threadedAfterHardRemoved,
         "a hard line accepted threaded delivery or could not retire", Test);
@@ -411,22 +414,24 @@ bool threadedQuiescedRearm()
 
     const size_t quiescedGeneration = state.beginDispatch(Line);
     state.beginThreadedDispatch(Line);
-    const IrqHandlerRegistry::ThreadedDispatchResult quiescedResult =
-        registry.dispatchThreaded(Line);
+    IrqHandlerRegistry::ThreadedDispatchResult quiescedResult = {};
+    const bool quiescedAdmitted =
+        registry.dispatchThreaded(Line, quiescedResult);
     const bool quiescedCompleted = state.completeThreadedDispatch(
         Line, quiescedGeneration,
-        quiescedResult.admitted && quiescedResult.allowRearm);
+        quiescedAdmitted && quiescedResult.allowRearm);
     const bool quiescedRearmed =
         state.enabled(Line) && !state.threadedPending(Line);
 
     quiesced.disposition = IrqDisposition::NotHandled;
     const size_t unhandledGeneration = state.beginDispatch(Line);
     state.beginThreadedDispatch(Line);
-    const IrqHandlerRegistry::ThreadedDispatchResult unhandledResult =
-        registry.dispatchThreaded(Line);
+    IrqHandlerRegistry::ThreadedDispatchResult unhandledResult = {};
+    const bool unhandledAdmitted =
+        registry.dispatchThreaded(Line, unhandledResult);
     const bool unhandledCompleted = state.completeThreadedDispatch(
         Line, unhandledGeneration,
-        unhandledResult.admitted && unhandledResult.allowRearm);
+        unhandledAdmitted && unhandledResult.allowRearm);
     const bool unhandledQuarantined =
         !state.enabled(Line) && state.threadedPending(Line);
 
@@ -444,14 +449,14 @@ bool threadedQuiescedRearm()
         quiescedRegistered && notHandledRegistered,
         "the shared threaded handlers did not register", Test);
     passed &= check(
-        quiescedResult.admitted && !quiescedResult.handled &&
+        quiescedAdmitted && !quiescedResult.handled &&
             quiescedResult.allowRearm && quiescedCompleted && quiescedRearmed,
         "a quiesced shared callback did not permit line rearm", Test);
     passed &= check(
         state.handlerCount(Line) == 0 && !state.threadedPending(Line),
         "the shared line did not retire after cleanup", Test);
     passed &= check(
-        unhandledResult.admitted && !unhandledResult.handled &&
+        unhandledAdmitted && !unhandledResult.handled &&
             !unhandledResult.allowRearm && unhandledCompleted &&
             unhandledQuarantined,
         "all-not-handled callbacks reported a rearmable batch", Test);

@@ -295,6 +295,11 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    if ! python3 scripts/check-exported-aggregate-abi.py --self-test; then
+        echo "The exported aggregate ABI detector failed its self-test."
+        failed=1
+    fi
+
     if ! python3 scripts/list-hosted-wait-markers.py --self-test; then
         echo "The hosted regression marker detector failed its self-test."
         failed=1
@@ -399,6 +404,15 @@ check_wait_api_boundaries()
             src/system/include/pedigree/kernel/utilities
     ); then
         echo "An explicitly instantiated exported template exposes a compiler-dependent Result aggregate:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if ! matches=$(
+        python3 scripts/check-exported-aggregate-abi.py \
+            src/system/include/pedigree/kernel
+    ); then
+        echo "An exported kernel method returns a compiler-dependent nested aggregate:"
         echo "$matches"
         failed=1
     fi

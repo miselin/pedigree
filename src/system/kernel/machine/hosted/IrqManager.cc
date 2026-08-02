@@ -557,9 +557,10 @@ void HostedIrqManager::dispatchThreadedLine(
     {
         return;
     }
-    const IrqHandlerRegistry::ThreadedDispatchResult result =
-        manager->m_Handlers.dispatchThreaded(irq);
-    if (!result.admitted || !result.allowRearm)
+    IrqHandlerRegistry::ThreadedDispatchResult result = {};
+    const bool admitted =
+        manager->m_Handlers.dispatchThreaded(irq, result);
+    if (!admitted || !result.allowRearm)
     {
         __atomic_add_fetch(
             &manager->m_UnhandledInterrupts[irq], static_cast<size_t>(1),

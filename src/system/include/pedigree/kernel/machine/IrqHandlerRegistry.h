@@ -34,7 +34,6 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
   public:
     struct ThreadedDispatchResult
     {
-        bool admitted;
         bool handled;
         bool allowRearm;
     };
@@ -113,11 +112,15 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     /**
      * Dispatches threaded handlers without exposing interrupted state.
      *
+     * Returns true when at least one callback was admitted and writes the
+     * detached callback outcome to `result`.
+     *
      * A Quiesced callback permits line rearm but remains distinct from a
      * callback which actually handled the occurrence.
      */
-    ThreadedDispatchResult
-    dispatchThreaded(uint8_t irq, IrqHandler *onlyHandler = nullptr);
+    bool dispatchThreaded(
+        uint8_t irq, ThreadedDispatchResult &result,
+        IrqHandler *onlyHandler = nullptr);
 
     size_t handlerCount(uint8_t irq);
 

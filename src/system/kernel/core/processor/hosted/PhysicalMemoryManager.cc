@@ -352,10 +352,13 @@ void HostedPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
     NOTICE("physical memory ranges:");
     for (size_t i = 0; i < m_PhysicalRanges.size(); i++)
     {
-        NOTICE(
-            " " << Hex << m_PhysicalRanges.getRange(i).address << " - "
-                << (m_PhysicalRanges.getRange(i).address +
-                    m_PhysicalRanges.getRange(i).length));
+        RangeList<uint64_t>::Range range(0, 0);
+        if (m_PhysicalRanges.getRange(i, range))
+        {
+            NOTICE(
+                " " << Hex << range.address << " - "
+                    << (range.address + range.length));
+        }
     }
 #endif
 

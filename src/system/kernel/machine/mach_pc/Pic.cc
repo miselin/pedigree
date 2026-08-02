@@ -637,8 +637,8 @@ void Pic::dispatchThreadedLine(void *context, uint8_t irq, size_t cookie)
         dispatchGeneration = pic->m_ThreadedDispatchGenerations[irq];
     }
 
-    const IrqHandlerRegistry::ThreadedDispatchResult result =
-        pic->m_Handlers.dispatchThreaded(irq);
+    IrqHandlerRegistry::ThreadedDispatchResult result = {};
+    const bool admitted = pic->m_Handlers.dispatchThreaded(irq, result);
 
     {
         LockGuard<Spinlock> guard(pic->m_Lock);
@@ -649,14 +649,14 @@ void Pic::dispatchThreadedLine(void *context, uint8_t irq, size_t cookie)
         }
 
         const bool wasEnabled = pic->m_IrqState.enabled(irq);
-        if (!result.admitted || !result.allowRearm)
+        if (!admitted || !result.allowRearm)
         {
             __atomic_add_fetch(
                 &pic->m_UnhandledIrqCount[irq], static_cast<size_t>(1),
                 __ATOMIC_RELAXED);
         }
         pic->m_IrqState.completeThreadedDispatch(
-            irq, dispatchGeneration, result.admitted && result.allowRearm);
+            irq, dispatchGeneration, admitted && result.allowRearm);
         if (wasEnabled != pic->m_IrqState.enabled(irq))
         {
             pic->applyMaskLocked();

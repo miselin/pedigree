@@ -23,6 +23,15 @@
 
 #include "pedigree/kernel/utilities/RangeList.h"
 
+template <typename T, bool Reversed = false>
+static typename RangeList<T, Reversed>::Range
+rangeAt(const RangeList<T, Reversed> &list, size_t index)
+{
+    typename RangeList<T, Reversed>::Range range(0, 0);
+    EXPECT_TRUE(list.getRange(index, range));
+    return range;
+}
+
 TEST(PedigreeRangeList, Forward)
 {
     RangeList<int64_t> list;
@@ -193,14 +202,18 @@ TEST(PedigreeRangeList, Sweep)
     list.free(128, 64, false);
 
     EXPECT_EQ(list.size(), 3U);
-    EXPECT_EQ(list.getRange(0), RangeList<int64_t>::Range(0, 64));
-    EXPECT_EQ(list.getRange(1), RangeList<int64_t>::Range(64, 64));
-    EXPECT_EQ(list.getRange(2), RangeList<int64_t>::Range(128, 64));
+    EXPECT_EQ(rangeAt(list, 0), RangeList<int64_t>::Range(0, 64));
+    EXPECT_EQ(rangeAt(list, 1), RangeList<int64_t>::Range(64, 64));
+    EXPECT_EQ(rangeAt(list, 2), RangeList<int64_t>::Range(128, 64));
+
+    RangeList<int64_t>::Range missing(1, 1);
+    EXPECT_FALSE(list.getRange(3, missing));
+    EXPECT_EQ(missing, RangeList<int64_t>::Range(0, 0));
 
     list.sweep();
 
     EXPECT_EQ(list.size(), 1U);
-    EXPECT_EQ(list.getRange(0), RangeList<int64_t>::Range(0, 192));
+    EXPECT_EQ(rangeAt(list, 0), RangeList<int64_t>::Range(0, 192));
 }
 
 TEST(PedigreeRangeList, Copy)
@@ -214,13 +227,13 @@ TEST(PedigreeRangeList, Copy)
     list2 = list;
 
     EXPECT_EQ(list2.size(), 3U);
-    EXPECT_EQ(list2.getRange(0), RangeList<int64_t>::Range(0, 64));
-    EXPECT_EQ(list2.getRange(1), RangeList<int64_t>::Range(64, 64));
-    EXPECT_EQ(list2.getRange(2), RangeList<int64_t>::Range(128, 64));
+    EXPECT_EQ(rangeAt(list2, 0), RangeList<int64_t>::Range(0, 64));
+    EXPECT_EQ(rangeAt(list2, 1), RangeList<int64_t>::Range(64, 64));
+    EXPECT_EQ(rangeAt(list2, 2), RangeList<int64_t>::Range(128, 64));
 
     RangeList<int64_t> list3(list);
     EXPECT_EQ(list3.size(), 3U);
-    EXPECT_EQ(list3.getRange(0), RangeList<int64_t>::Range(0, 64));
-    EXPECT_EQ(list3.getRange(1), RangeList<int64_t>::Range(64, 64));
-    EXPECT_EQ(list3.getRange(2), RangeList<int64_t>::Range(128, 64));
+    EXPECT_EQ(rangeAt(list3, 0), RangeList<int64_t>::Range(0, 64));
+    EXPECT_EQ(rangeAt(list3, 1), RangeList<int64_t>::Range(64, 64));
+    EXPECT_EQ(rangeAt(list3, 2), RangeList<int64_t>::Range(128, 64));
 }

@@ -591,22 +591,37 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
     {
         NOTICE("free memory ranges (below 1MB):");
         for (size_t i = 0; i < m_RangeBelow1MB.size(); i++)
-            NOTICE(
-                " " << Hex << m_RangeBelow1MB.getRange(i).address << " - "
-                    << (m_RangeBelow1MB.getRange(i).address +
-                        m_RangeBelow1MB.getRange(i).length));
+        {
+            RangeList<uint32_t>::Range range(0, 0);
+            if (m_RangeBelow1MB.getRange(i, range))
+            {
+                NOTICE(
+                    " " << Hex << range.address << " - "
+                        << (range.address + range.length));
+            }
+        }
         NOTICE("free memory ranges (below 16MB):");
         for (size_t i = 0; i < m_RangeBelow16MB.size(); i++)
-            NOTICE(
-                " " << Hex << m_RangeBelow16MB.getRange(i).address << " - "
-                    << (m_RangeBelow16MB.getRange(i).address +
-                        m_RangeBelow16MB.getRange(i).length));
+        {
+            RangeList<uint32_t>::Range range(0, 0);
+            if (m_RangeBelow16MB.getRange(i, range))
+            {
+                NOTICE(
+                    " " << Hex << range.address << " - "
+                        << (range.address + range.length));
+            }
+        }
         NOTICE("ACPI ranges:");
         for (size_t i = 0; i < m_AcpiRanges.size(); i++)
-            NOTICE(
-                " " << Hex << m_AcpiRanges.getRange(i).address << " - "
-                    << (m_AcpiRanges.getRange(i).address +
-                        m_AcpiRanges.getRange(i).length));
+        {
+            RangeList<uint64_t>::Range range(0, 0);
+            if (m_AcpiRanges.getRange(i, range))
+            {
+                NOTICE(
+                    " " << Hex << range.address << " - "
+                        << (range.address + range.length));
+            }
+        }
     }
 
     // Initialise the free physical ranges
@@ -640,10 +655,13 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t &Info)
         NOTICE("physical memory ranges:");
         for (size_t i = 0; i < m_PhysicalRanges.size(); i++)
         {
-            NOTICE(
-                " " << Hex << m_PhysicalRanges.getRange(i).address << " - "
-                    << (m_PhysicalRanges.getRange(i).address +
-                        m_PhysicalRanges.getRange(i).length));
+            RangeList<uint64_t>::Range range(0, 0);
+            if (m_PhysicalRanges.getRange(i, range))
+            {
+                NOTICE(
+                    " " << Hex << range.address << " - "
+                        << (range.address + range.length));
+            }
         }
     }
 
@@ -802,10 +820,15 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
         // Print the ranges
         NOTICE("ACPI ranges (x64 added):");
         for (size_t i = 0; i < m_AcpiRanges.size(); i++)
-            NOTICE(
-                " " << Hex << m_AcpiRanges.getRange(i).address << " - "
-                    << (m_AcpiRanges.getRange(i).address +
-                        m_AcpiRanges.getRange(i).length));
+        {
+            RangeList<uint64_t>::Range range(0, 0);
+            if (m_AcpiRanges.getRange(i, range))
+            {
+                NOTICE(
+                    " " << Hex << range.address << " - "
+                        << (range.address + range.length));
+            }
+        }
     }
 
     // Initialise the free physical ranges
@@ -847,10 +870,13 @@ void X86CommonPhysicalMemoryManager::initialise64(const BootstrapStruct_t &Info)
         NOTICE("physical memory ranges, 64-bit added:");
         for (size_t i = 0; i < m_PhysicalRanges.size(); i++)
         {
-            NOTICE(
-                " " << Hex << m_PhysicalRanges.getRange(i).address << " - "
-                    << (m_PhysicalRanges.getRange(i).address +
-                        m_PhysicalRanges.getRange(i).length));
+            RangeList<uint64_t>::Range range(0, 0);
+            if (m_PhysicalRanges.getRange(i, range))
+            {
+                NOTICE(
+                    " " << Hex << range.address << " - "
+                        << (range.address + range.length));
+            }
         }
     }
 }

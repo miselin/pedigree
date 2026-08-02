@@ -792,19 +792,20 @@ bool IrqHandlerRegistry::dispatchHard(
     return admitted;
 }
 
-IrqHandlerRegistry::ThreadedDispatchResult
-IrqHandlerRegistry::dispatchThreaded(uint8_t irq, IrqHandler *onlyHandler)
+bool IrqHandlerRegistry::dispatchThreaded(
+    uint8_t irq, ThreadedDispatchResult &result, IrqHandler *onlyHandler)
 {
-    ThreadedDispatchResult result = {false, false, false};
+    result = {false, false};
+    bool admitted = false;
     Thread *dispatchThread = Processor::information().getCurrentThread();
     if (!dispatchThread || !Processor::getInterrupts())
     {
-        return result;
+        return false;
     }
 #if HOSTED
     if (dispatchThread->getHostedSignalDepth())
     {
-        return result;
+        return false;
     }
 #endif
 
@@ -886,7 +887,7 @@ IrqHandlerRegistry::dispatchThreaded(uint8_t irq, IrqHandler *onlyHandler)
                 thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
             }
             FATAL_NOLOCK("IRQ callback hazard table exhausted.");
-            return result;
+            return admitted;
         }
 
         if (__atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) !=
@@ -901,7 +902,7 @@ IrqHandlerRegistry::dispatchThreaded(uint8_t irq, IrqHandler *onlyHandler)
             continue;
         }
 
-        result.admitted = true;
+        admitted = true;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
         HandlerPinHook hook =
@@ -930,7 +931,7 @@ IrqHandlerRegistry::dispatchThreaded(uint8_t irq, IrqHandler *onlyHandler)
         }
     }
 
-    return result;
+    return admitted;
 }
 
 size_t IrqHandlerRegistry::handlerCount(uint8_t irq)

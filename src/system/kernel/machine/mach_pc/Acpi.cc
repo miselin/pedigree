@@ -71,7 +71,12 @@ void Acpi::initialise()
     }
 
     // Allocate the ACPI memory as a MemoryRegion
-    RangeList<uint64_t>::Range AcpiRange = AcpiRanges.getRange(0);
+    RangeList<uint64_t>::Range AcpiRange(0, 0);
+    if (!AcpiRanges.getRange(0, AcpiRange))
+    {
+        ERROR("Acpi: ACPI memory range disappeared");
+        return;
+    }
     physical_uintptr_t address =
         AcpiRange.address & (~(PhysicalMemoryManager::getPageSize() - 1));
     size_t sAddress = AcpiRange.length + (AcpiRange.address - address);

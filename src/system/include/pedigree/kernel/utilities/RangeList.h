@@ -102,8 +102,8 @@ class EXPORTED_PUBLIC RangeList
     {
         return m_List.count();
     }
-    /** Get a range at a specific index */
-    Range getRange(size_t index) const;
+    /** Get a range at a specific index. */
+    bool getRange(size_t index, Range &range) const;
 
     /** Sweep the RangeList and re-merge items. */
     void sweep();
@@ -344,13 +344,14 @@ bool RangeList<T, Reversed>::allocateSpecific(T address, T length)
 }
 
 template <typename T, bool Reversed>
-typename RangeList<T, Reversed>::Range
-RangeList<T, Reversed>::getRange(size_t index) const
+bool RangeList<T, Reversed>::getRange(size_t index, Range &range) const
 {
-    if (index >= m_List.size())
-        return Range(0, 0);
+    range = Range(0, 0);
+    if (index >= m_List.count())
+        return false;
 
-    return Range(*m_List[index]);
+    range = Range(*m_List[index]);
+    return true;
 }
 
 template <typename T, bool Reversed>
