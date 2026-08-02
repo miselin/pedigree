@@ -92,8 +92,8 @@ class UsbHubDevice : public UsbDevice, public UsbHub
     bool setPortFeature(size_t port, PortFeatureSelectors feature);
     bool clearPortFeature(size_t port, PortFeatureSelectors feature);
 
-    /// Top 32 bits hold change status
-    uint32_t getPortStatus(size_t port);
+    /// Top 16 bits of status hold the port-change flags.
+    bool getPortStatus(size_t port, uint32_t &status);
 
     struct HubDescriptor
     {

@@ -22,8 +22,11 @@
 #include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/time/Time.h"
-#include "pedigree/kernel/utilities/PointerGuard.h"
-#include "pedigree/kernel/utilities/new"
+
+namespace
+{
+constexpr size_t PortResetPollLimit = 100;
+}
 
 UsbHubDevice::UsbHubDevice(UsbDevice *dev) : UsbDevice(dev), UsbHub()
 {
@@ -56,7 +59,12 @@ void UsbHubDevice::initialiseDriver()
     for (size_t i = 0; i < m_nPorts; i++)
     {
         // Grab this port's status
-        uint32_t portStatus = getPortStatus(i);
+        uint32_t portStatus = 0;
+        if (!getPortStatus(i, portStatus))
+        {
+            WARNING("USB: HUB: couldn't read port " << Dec << i << Hex);
+            continue;
+        }
 
         // Is power on?
         if (!(portStatus & (1 << 8)))
@@ -66,13 +74,20 @@ void UsbHubDevice::initialiseDriver()
                 << Dec << i << Hex << " [status = " << portStatus << "]...");
 
             // Power it on
-            setPortFeature(i, PortPower);
+            if (!setPortFeature(i, PortPower))
+            {
+                WARNING(
+                    "USB: HUB: couldn't power port " << Dec << i << Hex);
+                continue;
+            }
 
             // Delay while the power goes on
-            Time::delay(50 * Time::Multiplier::Millisecond);
+            if (!Time::delay(50 * Time::Multiplier::Millisecond))
+                continue;
 
             // Done.
-            portStatus = getPortStatus(i);
+            if (!getPortStatus(i, portStatus))
+                continue;
 
             // If port power never went on, skip this port
             if (!(portStatus & (1 << 8)))
@@ -91,7 +106,8 @@ void UsbHubDevice::initialiseDriver()
         if (portReset(i))
         {
             // Got a device - what type?
-            portStatus = getPortStatus(i);
+            if (!getPortStatus(i, portStatus))
+                continue;
             if (portStatus & (1 << 10))
             {
                 // High-speed
@@ -127,22 +143,44 @@ void UsbHubDevice::initialiseDriver()
 
 bool UsbHubDevice::portReset(uint8_t nPort, bool bErrorResponse)
 {
+    (void) bErrorResponse;
+    if (nPort >= m_nPorts)
+        return false;
+
     // Reset the port
-    setPortFeature(nPort, PortReset);
+    if (!setPortFeature(nPort, PortReset))
+        return false;
 
     // Delay while the reset completes
-    Time::delay(50 * Time::Multiplier::Millisecond);
+    if (!Time::delay(50 * Time::Multiplier::Millisecond))
+        return false;
 
     // Done with reset
-    clearPortFeature(nPort, PortReset);
+    if (!clearPortFeature(nPort, PortReset))
+        return false;
 
     // Wait for completion
-    while ((getPortStatus(nPort) & (1 << 4)))
-        ;
+    uint32_t portStatus = 0;
+    size_t poll = 0;
+    for (; poll < PortResetPollLimit; ++poll)
+    {
+        if (!getPortStatus(nPort, portStatus))
+            return false;
+        if (!(portStatus & (1 << 4)))
+            break;
+        if (!Time::delay(Time::Multiplier::Millisecond))
+            return false;
+    }
+    if (poll == PortResetPollLimit)
+    {
+        ERROR(
+            "USB: HUB: reset on port " << Dec << static_cast<size_t>(nPort)
+                                        << Hex << " timed out");
+        return false;
+    }
 
     // Port has been powered on and now reset, check to see if it's enabled and
     // a device is connected
-    uint32_t portStatus = getPortStatus(nPort);
     return ((portStatus & 0x3) == 0x3);
 }
 
@@ -160,15 +198,13 @@ bool UsbHubDevice::clearPortFeature(size_t port, PortFeatureSelectors feature)
         0);
 }
 
-uint32_t UsbHubDevice::getPortStatus(size_t port)
+bool UsbHubDevice::getPortStatus(size_t port, uint32_t &status)
 {
-    uint32_t *portStatus = new uint32_t(0);
-    PointerGuard<uint32_t> guard(portStatus);
-    controlRequest(
+    status = 0;
+    return controlRequest(
         UsbRequestDirection::In | HubPortRequest, UsbRequest::GetStatus, 0,
-        (port + 1) & 0xFF, 4, reinterpret_cast<uintptr_t>(portStatus));
-
-    return *portStatus;
+        (port + 1) & 0xFF, sizeof(status),
+        reinterpret_cast<uintptr_t>(&status));
 }
 
 void UsbHubDevice::addTransferToTransaction(

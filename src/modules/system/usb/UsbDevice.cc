@@ -433,7 +433,7 @@ bool UsbDevice::controlRequest(
     if (!pParentHub)
     {
         ERROR("USB: Orphaned UsbDevice!");
-        return -1;
+        return false;
     }
 
     UsbEndpoint endpointInfo(m_nAddress, m_nPort, 0, m_Speed, 64);
@@ -443,7 +443,7 @@ bool UsbDevice::controlRequest(
     {
         ERROR("UsbDevice: couldn't get a valid transaction to work with from "
               "the parent hub");
-        return -1;
+        return false;
     }
 
     // Setup Transfer - handles the SETUP phase of the transfer
