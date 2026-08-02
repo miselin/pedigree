@@ -33,7 +33,23 @@ InterruptTimeAccounting::~InterruptTimeAccounting()
         return;
     }
 
-    m_pThread->transitionTime(
-        KernelTimeTransition::handler(),
-        KernelTimeTransition::resumed(m_bFromUserspace));
+    // A userspace-origin interrupt still has an ordinary kernel return tail.
+    // Its final architecture boundary owns the Kernel -> User transition so
+    // callbacks and subsystem work are charged to the kernel.
+    if (!m_bFromUserspace)
+    {
+        m_pThread->transitionTime(
+            KernelTimeTransition::handler(),
+            KernelTimeTransition::resumed(false));
+    }
+}
+
+void InterruptTimeAccounting::finishUserReturn(Thread *thread)
+{
+    if (
+        thread && thread->currentTimeAccountingMode() == CpuTimeMode::Kernel)
+    {
+        thread->transitionTimeAtInterruptReturn(
+            CpuTimeMode::Kernel, CpuTimeMode::User);
+    }
 }

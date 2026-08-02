@@ -23,6 +23,9 @@ class InterruptTimeAccounting
     explicit InterruptTimeAccounting(bool fromUserspace);
     ~InterruptTimeAccounting();
 
+    /** Charges the completed return tail and begins the next user slice. */
+    static void finishUserReturn(Thread *thread);
+
   private:
     Thread *m_pThread;
     bool m_bFromUserspace;

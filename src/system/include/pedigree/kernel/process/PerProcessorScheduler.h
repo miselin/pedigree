@@ -95,6 +95,12 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
     /** Reschedules once from ordinary thread context during lifecycle work. */
     void serviceIrqWorkDoorbell();
 
+    /**
+     * Delivers pending Events and terminal work immediately before a user
+     * return, after the raw interrupt frame has released its C++ scopes.
+     */
+    void serviceUserReturnWork(InterruptState &state);
+
     void setIdle(Thread *pThread);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -111,13 +117,21 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
     friend class WaitQueue;
 
     /** Picks another runnable thread and switches to it. */
-    void schedule(Thread::Status nextStatus = Thread::Ready);
+    void schedule(
+        Thread::Status nextStatus = Thread::Ready,
+        bool dispatchEvents = true);
 
     /** Blocks the current thread after WaitQueue has published its wait record. */
     void blockCurrent();
 
     /** Publishes a completed wait directly to this scheduler's ready queue. */
     void publishReadyFromWait(Thread *pThread);
+
+    /** Consumes terminal state at an IRQ-enabled ordinary thread boundary. */
+    void serviceTerminalStateAtThreadBoundary();
+
+    /** Runs a raw-frame exception through its subsystem in ordinary context. */
+    void serviceDeferredSubsystemException(InterruptState &state);
 
     /** Copy-constructor
      *  \note Not implemented - singleton class. */

@@ -505,6 +505,13 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
 
 void PosixSubsystem::exit(int code)
 {
+    if (!Processor::getInterrupts() || Processor::inDeviceHardIrq())
+    {
+        FATAL_NOLOCK(
+            "PosixSubsystem::exit requires an IRQ-enabled thread "
+            "boundary.");
+    }
+
     Thread *pThread = Processor::information().getCurrentThread();
 
     Process *pProcess = pThread->getParent();
@@ -542,7 +549,7 @@ void PosixSubsystem::exit(int code)
     {
         // OK, we have other events running. They'll have to die first before we
         // can do anything.
-        pThread->setUnwindState(Thread::Exit);
+        pThread->deferProcessExit(code);
 
         Processor::information().getScheduler().eventHandlerReturned();
     }
@@ -558,7 +565,14 @@ void PosixSubsystem::exit(int code)
             << Dec << pProcess->getId() << ".");
     }
 
-    Processor::setInterrupts(false);
+    // quiesceTermination() may block while peers leave their stacks. Its
+    // completion is the final handoff into shared process cleanup.
+    if (!Processor::getInterrupts() || Processor::inDeviceHardIrq())
+    {
+        FATAL_NOLOCK(
+            "POSIX process teardown escaped its IRQ-enabled thread "
+            "boundary.");
+    }
 
     // We're the lowest in the stack, so we can proceed with the exit function.
 
@@ -802,13 +816,20 @@ void PosixSubsystem::threadException(
             }
             if (result == LinuxAmd64Signal::Failed)
             {
-                posix_exit(128 + SIGSEGV);
+                // The raw exception frame still owns interrupt accounting and
+                // handler cleanup. Preserve the fatal status and let the
+                // return-to-user tail enter process teardown after it unwinds.
+                pThread->deferProcessExit(128 + SIGSEGV);
+                return;
             }
         }
     }
 #endif
 
-    sendSignal(pThread, signal);
+    // A raw exception frame cannot dispatch a handler or terminal callback.
+    // Its return-to-user tail consumes the queued signal after accounting and
+    // handler cleanup have completed.
+    sendSignal(pThread, signal, pState == nullptr);
 }
 
 void PosixSubsystem::sendSignal(Thread *pThread, int signal, bool yield)

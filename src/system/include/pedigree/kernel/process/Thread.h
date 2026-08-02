@@ -218,6 +218,15 @@ class EXPORTED_PUBLIC Thread
     /** Accounts one CPU-mode transition from a single monotonic sample. */
     void transitionTime(CpuTimeMode from, CpuTimeMode to);
 
+    /**
+     * Accounts the final interrupt return transition while the architecture
+     * already has IRQ delivery physically masked.
+     */
+    void transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to);
+
+    /** Current accounting owner; never used to classify interrupt origin. */
+    CpuTimeMode currentTimeAccountingMode() const;
+
     void setParent(Process *p)
     {
         m_pParent = p;
@@ -328,6 +337,23 @@ class EXPORTED_PUBLIC Thread
     UnwindType getUnwindState();
     /** Sets the above unwind state. */
     void setUnwindState(UnwindType ut);
+
+    /** Defers process exit, including its status, to a safe thread boundary. */
+    void deferProcessExit(int code);
+
+    /** Claims the status attached to a deferred process exit. */
+    int takeDeferredProcessExitCode();
+
+    /**
+     * Publishes a synchronous userspace exception without taking locks or
+     * allocating from its raw interrupt frame.
+     */
+    bool deferSubsystemException(
+        size_t type, uintptr_t faultAddress, uintptr_t errorCode);
+
+    /** Claims a synchronous exception at an IRQ-enabled return boundary. */
+    bool takeDeferredSubsystemException(
+        size_t &type, uintptr_t &faultAddress, uintptr_t &errorCode);
 
     /** True while stack-owned lifetime state must be retired before teardown. */
     bool isTerminationDeferred() const
@@ -607,19 +633,18 @@ class EXPORTED_PUBLIC Thread
     }
 
 #if HOSTED
-    void enterHostedSignalHandler()
-    {
-        ++m_HostedSignalDepth;
-    }
+    /** Records a host signal frame on the current physical state stack. */
+    size_t enterHostedSignalHandler();
 
-    void leaveHostedSignalHandler()
-    {
-        --m_HostedSignalDepth;
-    }
+    /** Retires a host signal frame from its captured physical state stack. */
+    void leaveHostedSignalHandler(size_t stateLevel);
 
     size_t getHostedSignalDepth() const
     {
-        return m_HostedSignalDepth;
+        const size_t level = __atomic_load_n(
+            &m_nStateLevel, __ATOMIC_ACQUIRE);
+        return __atomic_load_n(
+            &m_StateLevels[level].m_HostedSignalDepth, __ATOMIC_ACQUIRE);
     }
 #endif
 
@@ -741,6 +766,11 @@ class EXPORTED_PUBLIC Thread
         /** Event dispatch at this level was initiated by a WaitQueue wake. */
         bool m_bDispatchingWaitEvent;
 
+#if HOSTED
+        /** Host signal frames physically suspended on this state's stack. */
+        size_t m_HostedSignalDepth;
+#endif
+
         /** Persistent wait record for this event nesting level. */
         WaitQueue::Waiter m_Waiter;
     };
@@ -756,6 +786,10 @@ class EXPORTED_PUBLIC Thread
 
     /** Per-thread baselines avoid cross-CPU corruption within one Process. */
     ThreadTimeAccounting m_TimeAccounting;
+
+    /** Mode owning time since the most recent accounting baseline. */
+    size_t m_CurrentTimeAccountingMode =
+        static_cast<size_t>(CpuTimeMode::Kernel);
 
     /** The stack that we allocated from the VMM. This may or may not also be
         the kernel stack - depends on whether we are a user or kernel mode
@@ -846,6 +880,15 @@ class EXPORTED_PUBLIC Thread
 
     UnwindType m_UnwindState = Continue;
 
+    /** Status preserved while Exit crosses nested/event/IRQ boundaries. */
+    int m_DeferredProcessExitCode = 0;
+
+    /** Empty, publishing, or pending state for the preallocated exception. */
+    size_t m_DeferredSubsystemExceptionState = 0;
+    size_t m_DeferredSubsystemExceptionType = 0;
+    uintptr_t m_DeferredSubsystemExceptionFaultAddress = 0;
+    uintptr_t m_DeferredSubsystemExceptionErrorCode = 0;
+
     /** Whether or not userspace has overridden its TLS base. */
     bool m_bTlsBaseOverride = false;
 
@@ -890,10 +933,6 @@ class EXPORTED_PUBLIC Thread
     Spinlock m_DeferredScopeRegressionLock;
 #endif
 
-#if HOSTED
-    /** Number of live host signal frames owned by this Pedigree thread. */
-    size_t m_HostedSignalDepth = 0;
-#endif
 };
 
 #endif

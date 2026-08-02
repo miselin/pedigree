@@ -121,6 +121,8 @@ class HostedInterruptState
     uint64_t state;
     /** Signal number */
     uint64_t which;
+    /** Execution mode sampled before signal dispatch can reschedule. */
+    uint64_t fromUserspace;
     /** siginfo_t structure */
     uint64_t extra;
     /**
@@ -313,7 +315,7 @@ size_t HostedInterruptState::getRegisterSize(size_t index) const
 
 bool HostedInterruptState::kernelMode() const
 {
-    return true;
+    return !fromUserspace;
 }
 size_t HostedInterruptState::getInterruptNumber() const
 {

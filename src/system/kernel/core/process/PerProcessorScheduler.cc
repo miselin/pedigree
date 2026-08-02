@@ -343,7 +343,8 @@ void PerProcessorScheduler::initialise(Thread *pThread)
     startTimeAccountingWorker(pThread->getParent());
 }
 
-void PerProcessorScheduler::schedule(Thread::Status nextStatus)
+void PerProcessorScheduler::schedule(
+    Thread::Status nextStatus, bool dispatchEvents)
 {
     if (!Processor::guardDeviceHardIrqOperation(
             DeviceHardIrqOperation::Schedule))
@@ -482,7 +483,7 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus)
                 SchedulerRestoringInterrupts);
 #endif
         Processor::setInterrupts(bWasInterrupts);
-        if (!waitOwnsEventDispatch)
+        if (dispatchEvents && !waitOwnsEventDispatch)
         {
             checkEventState(0);
         }
@@ -502,7 +503,7 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus)
 
             // Return to previous interrupt state.
             Processor::setInterrupts(bWasInterrupts);
-            if (!waitOwnsEventDispatch)
+            if (dispatchEvents && !waitOwnsEventDispatch)
             {
                 // We don't have a user-mode stack available here, so pass zero
                 // and don't execute user-mode event handlers.
@@ -632,7 +633,7 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
                     NOTICE_NOLOCK(
                         "User stack for event in checkEventState is the kernel's!");
                     pThread->sendEvent(pEvent);
-                    pThread->popState();
+                    pThread->popState(!HOSTED);
                     Processor::setInterrupts(bWasInterrupts);
                     return;
                 }
@@ -685,6 +686,10 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
 
     if (flags & VirtualAddressSpace::KernelMode)
     {
+        // Setup must be atomic, but the callback is ordinary thread work. In
+        // particular, a return-to-user interrupt tail enters here only after
+        // raw handler/accounting scopes have unwound and with IRQs enabled.
+        Processor::setInterrupts(bWasInterrupts);
 #if HOSTED
         // Hosted state levels use distinct signal/scheduler stacks. Run the
         // handler on the selected level so an interrupt cannot save a
@@ -698,8 +703,9 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
         fn(addr);
 #endif
 
+        Processor::setInterrupts(false);
         eventDelivery.reset();
-        pThread->popState();
+        pThread->popState(!HOSTED);
         Processor::setInterrupts(bWasInterrupts);
         return;
     }
@@ -1133,27 +1139,18 @@ void PerProcessorScheduler::publishReadyFromWait(Thread *pThread)
 
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState &state)
 {
+    (void) delta;
+    (void) state;
     // Hard IRQ publication only changes an atomic work predicate. Consume the
     // reschedule request at the scheduler interrupt, where a context switch is
     // already required and no arbitrary device IRQ frame is suspended.
     m_IrqWorkDoorbell.compareAndSwap(1, 0);
-    schedule();
+    // A scheduler tick may switch stacks, but it remains a hard interrupt
+    // until this callback returns. Kernel Events can unwind into arbitrary
+    // subsystem teardown, so leave their delivery to an ordinary syscall or
+    // WaitQueue boundary.
+    schedule(Thread::Ready, false);
 
-    // Check if the thread should exit.
-    Thread *pThread = Processor::information().getCurrentThread();
-    const Thread::UnwindType unwindState = pThread->getUnwindState();
-    if (unwindState == Thread::TerminateThread)
-    {
-        // A kernel-mode timer can interrupt code while it owns arbitrary
-        // locks. Defer to a WaitQueue/syscall boundary in that case.
-        if (!state.kernelMode())
-        {
-            killCurrentThread();
-        }
-        return;
-    }
-    if (unwindState == Thread::Exit)
-        pThread->getParent()->getSubsystem()->exit(0);
 }
 
 void PerProcessorScheduler::threadStatusChanged(Thread *pThread)
@@ -1217,6 +1214,92 @@ void PerProcessorScheduler::serviceIrqWorkDoorbell()
     if (m_IrqWorkDoorbell.compareAndSwap(1, 0))
     {
         schedule();
+    }
+}
+
+void PerProcessorScheduler::serviceUserReturnWork(InterruptState &state)
+{
+    if (!Processor::getInterrupts() || Processor::inDeviceHardIrq())
+    {
+        FATAL_NOLOCK(
+            "Return-to-user work requires an IRQ-enabled thread "
+            "boundary.");
+    }
+
+    Thread *current = Processor::information().getCurrentThread();
+    if (
+        current &&
+        current->currentTimeAccountingMode() != CpuTimeMode::Kernel)
+    {
+        FATAL_NOLOCK(
+            "Return-to-user work escaped Kernel accounting mode");
+    }
+
+    // Terminal requests win over later work. A synchronous exception can
+    // publish a signal Event or terminal state, and an Event callback can do
+    // the same, so consume each transition before returning to userspace.
+    serviceTerminalStateAtThreadBoundary();
+    serviceDeferredSubsystemException(state);
+    serviceTerminalStateAtThreadBoundary();
+    checkEventState(state.getStackPointer());
+    serviceTerminalStateAtThreadBoundary();
+}
+
+void PerProcessorScheduler::serviceDeferredSubsystemException(
+    InterruptState &state)
+{
+    Thread *thread = Processor::information().getCurrentThread();
+    if (!thread)
+    {
+        return;
+    }
+
+    size_t rawType = 0;
+    uintptr_t faultAddress = 0;
+    uintptr_t errorCode = 0;
+    if (!thread->takeDeferredSubsystemException(
+            rawType, faultAddress, errorCode))
+    {
+        return;
+    }
+
+    Process *process = thread->getParent();
+    Subsystem *subsystem = process ? process->getSubsystem() : nullptr;
+    if (!subsystem || rawType > static_cast<size_t>(Subsystem::Other))
+    {
+        FATAL(
+            "Deferred userspace exception has no valid owning subsystem");
+    }
+
+    subsystem->threadException(
+        thread, static_cast<Subsystem::ExceptionType>(rawType), &state,
+        faultAddress, errorCode);
+}
+
+void PerProcessorScheduler::serviceTerminalStateAtThreadBoundary()
+{
+    Thread *thread = Processor::information().getCurrentThread();
+    if (!thread || thread->isTerminationDeferred())
+    {
+        return;
+    }
+
+    const Thread::UnwindType unwindState = thread->getUnwindState();
+    if (unwindState == Thread::TerminateThread)
+    {
+        killCurrentThread();
+    }
+    if (unwindState == Thread::Exit)
+    {
+        Process *process = thread->getParent();
+        Subsystem *subsystem = process ? process->getSubsystem() : nullptr;
+        if (!subsystem)
+        {
+            FATAL(
+                "Return-to-user process exit has no owning subsystem.");
+        }
+        subsystem->exit(thread->takeDeferredProcessExitCode());
+        FATAL("Subsystem::exit returned to a user-return boundary.");
     }
 }
 

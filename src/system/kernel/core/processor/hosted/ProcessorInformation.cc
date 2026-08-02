@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/processor/hosted/ProcessorInformation.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
@@ -31,6 +32,10 @@ using namespace __pedigree_hosted;
 
 #include <errno.h>
 #include <signal.h>
+
+#ifndef SS_AUTODISARM
+#define SS_AUTODISARM (1U << 31)
+#endif
 
 extern void *safe_stack_top;
 
@@ -91,19 +96,37 @@ PerProcessorScheduler &HostedProcessorInformation::getScheduler()
  * Use a dedicated scratch stack so changing one thread's signal stack cannot
  * overwrite a saved frame belonging to the thread being switched in.
  */
-static bool trickSigaltstack(stack_t *p)
+static int trickSigaltstack(stack_t *p)
 {
-    int r = callOnStack(
+    return callOnStack(
         reinterpret_cast<uintptr_t>(&safe_stack_top),
         reinterpret_cast<uintptr_t>(sigaltstack),
         reinterpret_cast<uintptr_t>(p));
-    if (r < 0)
+}
+
+static void installHostedSignalStack(stack_t &stack)
+{
+    int result = sigaltstack(&stack, nullptr);
+    if (result < 0 && errno == EPERM)
     {
-        WARNING("sigaltstack failed to set new stack");
-        return false;
+        result = trickSigaltstack(&stack);
     }
 
-    return true;
+    if (result >= 0)
+    {
+        return;
+    }
+
+    if (errno == EINVAL && !(stack.ss_flags & SS_DISABLE))
+    {
+        panic(
+            "Hosted requires Linux SS_AUTODISARM support for safe "
+            "scheduler preemption");
+    }
+
+    FATAL(
+        "Hosted failed to install a scheduler signal stack: errno="
+        << Dec << errno);
 }
 
 void HostedProcessorInformation::setKernelStack(uintptr_t stack)
@@ -112,28 +135,33 @@ void HostedProcessorInformation::setKernelStack(uintptr_t stack)
     {
         void *new_sp = reinterpret_cast<void *>(stack - KERNEL_STACK_SIZE);
         stack_t s;
-        sigaltstack(0, &s);
-        if (s.ss_sp != new_sp)
+        if (sigaltstack(nullptr, &s) < 0)
+        {
+            FATAL("Hosted failed to inspect the scheduler signal stack");
+        }
+        if (
+            s.ss_sp != new_sp || s.ss_size != KERNEL_STACK_SIZE ||
+            (s.ss_flags & (SS_DISABLE | SS_AUTODISARM)) != SS_AUTODISARM)
         {
             ByteSet(&s, 0, sizeof(s));
             s.ss_sp = new_sp;
             s.ss_size = KERNEL_STACK_SIZE;
-            int r = sigaltstack(&s, 0);
-            if (r < 0 && errno == EPERM)
-            {
-                trickSigaltstack(&s);
-            }
+            s.ss_flags = SS_AUTODISARM;
+            installHostedSignalStack(s);
         }
     }
-    else if (!stack)
+    else
     {
         stack_t s;
-        sigaltstack(0, &s);
-        s.ss_flags |= SS_DISABLE;
-        int r = sigaltstack(&s, 0);
-        if (r < 0 && errno == EPERM)
+        if (sigaltstack(nullptr, &s) < 0)
         {
-            trickSigaltstack(&s);
+            FATAL("Hosted failed to inspect the scheduler signal stack");
+        }
+        if (!(s.ss_flags & SS_DISABLE))
+        {
+            ByteSet(&s, 0, sizeof(s));
+            s.ss_flags = SS_DISABLE;
+            installHostedSignalStack(s);
         }
     }
 

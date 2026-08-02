@@ -35,6 +35,7 @@
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/InterruptTimeAccounting.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #endif
 
 static const char *g_ExceptionNames[] = {
@@ -173,39 +174,37 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
             Subsystem *pSubsystem = pProcess->getSubsystem();
             if (pSubsystem && !interruptState.kernelMode())
             {
+                size_t exceptionType = static_cast<size_t>(Subsystem::Other);
                 if (UNLIKELY(nIntNumber == 0))
                 {
-                    pSubsystem->threadException(
-                        pThread, Subsystem::DivideByZero, &interruptState, 0,
-                        interruptState.getErrorCode());
-                    return;
+                    exceptionType =
+                        static_cast<size_t>(Subsystem::DivideByZero);
                 }
                 else if (UNLIKELY(nIntNumber == 6))
                 {
-                    pSubsystem->threadException(
-                        pThread, Subsystem::InvalidOpcode, &interruptState, 0,
-                        interruptState.getErrorCode());
-                    return;
+                    exceptionType =
+                        static_cast<size_t>(Subsystem::InvalidOpcode);
                 }
                 else if (UNLIKELY(nIntNumber == 13))
                 {
-                    pSubsystem->threadException(
-                        pThread, Subsystem::GeneralProtectionFault,
-                        &interruptState, 0, interruptState.getErrorCode());
-                    return;
+                    exceptionType = static_cast<size_t>(
+                        Subsystem::GeneralProtectionFault);
                 }
                 else if (UNLIKELY(nIntNumber == 16))
                 {
-                    pSubsystem->threadException(
-                        pThread, Subsystem::FpuError, &interruptState, 0,
-                        interruptState.getErrorCode());
-                    return;
+                    exceptionType =
+                        static_cast<size_t>(Subsystem::FpuError);
                 }
                 else if (UNLIKELY(nIntNumber == 19))
                 {
-                    pSubsystem->threadException(
-                        pThread, Subsystem::SpecialFpuError, &interruptState, 0,
-                        interruptState.getErrorCode());
+                    exceptionType =
+                        static_cast<size_t>(Subsystem::SpecialFpuError);
+                }
+
+                if (exceptionType != static_cast<size_t>(Subsystem::Other))
+                {
+                    pThread->deferSubsystemException(
+                        exceptionType, 0, interruptState.getErrorCode());
                     return;
                 }
             }
@@ -288,6 +287,41 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
         panic(e);
 #endif
     }
+}
+
+void X64InterruptManager::returnFromInterrupt(
+    InterruptState &interruptState)
+{
+    const size_t vector = interruptState.getInterruptNumber();
+    if (interruptState.kernelMode())
+    {
+        return;
+    }
+
+    Thread *thread = Processor::information().getCurrentThread();
+    if (!thread)
+    {
+        return;
+    }
+
+    if (vector == 2 || vector == 8 || vector == 18)
+    {
+        // NMI blocking remains active until IRET, and #DF uses an IST stack.
+        // #MC likewise is not a boundary on which arbitrary thread work can
+        // safely suspend the architectural exception return.
+        Processor::setInterrupts(false);
+        InterruptTimeAccounting::finishUserReturn(thread);
+        return;
+    }
+
+    // interrupt() has returned, so InterruptTimeAccounting and every raw
+    // handler scope are complete. This tail is an ordinary, interruptible
+    // thread boundary; a terminal transition may consume this stack.
+    Processor::setInterrupts(true);
+    Processor::information().getScheduler().serviceUserReturnWork(
+        interruptState);
+    Processor::setInterrupts(false);
+    InterruptTimeAccounting::finishUserReturn(thread);
 }
 
 //

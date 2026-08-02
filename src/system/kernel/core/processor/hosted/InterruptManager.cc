@@ -32,6 +32,8 @@
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/InterruptTimeAccounting.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #endif
 
@@ -61,11 +63,12 @@ namespace
 struct HostedSignalFrameCleanup
 {
     explicit HostedSignalFrameCleanup(Thread *signalThread)
-        : thread(signalThread), cleanup()
+        : thread(signalThread), stateLevel(0), cleanup()
     {
     }
 
     Thread *thread;
+    size_t stateLevel;
     AtomicStateCleanupRecord cleanup;
 };
 
@@ -75,9 +78,44 @@ void abandonHostedSignalFrame(void *context)
         reinterpret_cast<HostedSignalFrameCleanup *>(context);
     if (frame->thread)
     {
-        frame->thread->leaveHostedSignalHandler();
+        frame->thread->leaveHostedSignalHandler(frame->stateLevel);
     }
     Processor::leaveHostedSignalFrame();
+}
+
+struct HostedUserReturnContext
+{
+    InterruptState *state;
+};
+
+void serviceHostedUserReturnWork(uintptr_t rawContext)
+{
+    HostedUserReturnContext *context =
+        reinterpret_cast<HostedUserReturnContext *>(rawContext);
+    Processor::information().getScheduler().serviceUserReturnWork(
+        *context->state);
+}
+
+void runHostedUserReturnTail(Thread *thread, InterruptState &state)
+{
+    Processor::setInterrupts(false);
+    if (!thread->pushState())
+    {
+        FATAL_NOLOCK(
+            "Hosted user-return work exhausted Thread state stacks");
+    }
+
+    HostedUserReturnContext context = {&state};
+    Processor::setInterrupts(true);
+    callOnStack(
+        reinterpret_cast<uintptr_t>(thread->getKernelStack()),
+        reinterpret_cast<uintptr_t>(&serviceHostedUserReturnWork),
+        reinterpret_cast<uintptr_t>(&context));
+
+    const bool returnInterrupts = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    thread->popState(false);
+    Processor::setInterrupts(returnInterrupts);
 }
 }  // namespace
 #endif
@@ -178,6 +216,35 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
         panic("shutdown failed");
     }
 
+#if THREADS
+    Thread *pThread = Processor::information().getCurrentThread();
+    Process *pProcess = pThread ? pThread->getParent() : nullptr;
+    Subsystem *pSubsystem = pProcess ? pProcess->getSubsystem() : nullptr;
+    if (pSubsystem && !interruptState.kernelMode())
+    {
+        if (UNLIKELY(nIntNumber == SIGILL))
+        {
+            siginfo_t *info = reinterpret_cast<siginfo_t *>(
+                interruptState.getRegister(1));
+            pThread->deferSubsystemException(
+                static_cast<size_t>(Subsystem::InvalidOpcode),
+                interruptState.getInstructionPointer(),
+                info ? static_cast<uintptr_t>(info->si_code) : 0);
+            return;
+        }
+        if (UNLIKELY(nIntNumber == SIGFPE))
+        {
+            siginfo_t *info = reinterpret_cast<siginfo_t *>(
+                interruptState.getRegister(1));
+            pThread->deferSubsystemException(
+                static_cast<size_t>(Subsystem::FpuError),
+                interruptState.getInstructionPointer(),
+                info ? static_cast<uintptr_t>(info->si_code) : 0);
+            return;
+        }
+    }
+#endif
+
 #if HAS_ADDRESS_SANITIZER
     // If we're running with sanitizers, just raise the signal to them.
     siginfo_t *info = reinterpret_cast<siginfo_t *>(interruptState.getRegister(1));
@@ -210,25 +277,6 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
 
 // Were we running in the kernel, or user space?
 // User space processes have a subsystem, kernel ones do not.
-#if THREADS
-    Thread *pThread = Processor::information().getCurrentThread();
-    Process *pProcess = pThread->getParent();
-    Subsystem *pSubsystem = pProcess->getSubsystem();
-    if (pSubsystem)
-    {
-        if (UNLIKELY(nIntNumber == SIGILL))
-        {
-            pSubsystem->threadException(pThread, Subsystem::InvalidOpcode);
-            return;
-        }
-        else if (UNLIKELY(nIntNumber == SIGFPE))
-        {
-            pSubsystem->threadException(pThread, Subsystem::FpuError);
-            return;
-        }
-    }
-#endif
-
     // unhandled interrupt, check for an exception
     if (LIKELY(nIntNumber != SIGTRAP))
     {
@@ -257,12 +305,14 @@ extern "C" void hostedSignalTrampoline(
     int which, siginfo_t *info, void *ptr);
 
 extern "C" void hostedSignalHandler(
-    int which, siginfo_t *info, void *ptr)
+    int which, siginfo_t *info, void *ptr, bool fromUserspace)
 {
-    HostedInterruptManager::instance().signalShim(which, info, ptr);
+    HostedInterruptManager::instance().signalShim(
+        which, info, ptr, fromUserspace);
 }
 
-void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
+void HostedInterruptManager::signalShim(
+    int which, void *siginfo, void *meta, bool fromUserspace)
 {
     if (
         (which == SIGUSR1 || which == SIGUSR2) &&
@@ -279,7 +329,7 @@ void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
     HostedSignalFrameCleanup frameCleanup(pSignalThread);
     if (pSignalThread)
     {
-        pSignalThread->enterHostedSignalHandler();
+        frameCleanup.stateLevel = pSignalThread->enterHostedSignalHandler();
         pSignalThread->armAtomicStateCleanup(
             frameCleanup.cleanup, abandonHostedSignalFrame, &frameCleanup);
     }
@@ -297,22 +347,38 @@ void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
 
     InterruptState state;
     state.which = which;
+    state.fromUserspace = fromUserspace ? 1 : 0;
     state.extra = reinterpret_cast<uint64_t>(info);
     state.state = reinterpret_cast<uint64_t>(info->si_value.sival_ptr);
     state.meta = reinterpret_cast<uint64_t>(meta);
+    ucontext_t *interruptedContext = reinterpret_cast<ucontext_t *>(meta);
+    state.setInstructionPointer(
+        interruptedContext->uc_mcontext.gregs[REG_RIP]);
+    state.setStackPointer(interruptedContext->uc_mcontext.gregs[REG_RSP]);
+    state.setBasePointer(interruptedContext->uc_mcontext.gregs[REG_RBP]);
+#if THREADS
+    {
+        // Match native interrupt accounting. User-origin frames remain in
+        // Kernel accounting mode until the return tail has completed.
+        InterruptTimeAccounting accounting(fromUserspace);
+        interrupt(state);
+    }
+#else
     interrupt(state);
+#endif
 
 #if THREADS
-    if (pSignalThread)
+    if (
+        fromUserspace && pSignalThread &&
+        Processor::information().getCurrentThread() == pSignalThread)
     {
-        pSignalThread->disarmAtomicStateCleanup(frameCleanup.cleanup);
-        pSignalThread->leaveHostedSignalHandler();
+        runHostedUserReturnTail(pSignalThread, state);
     }
 #endif
 
-    // Update return signal mask.
-    ucontext_t *ctx = reinterpret_cast<ucontext_t *>(meta);
-    sigprocmask(0, 0, &ctx->uc_sigmask);
+    // sigreturn restores this mask atomically with the interrupted context.
+    ucontext_t *ctx = interruptedContext;
+    sigprocmask(0, nullptr, &ctx->uc_sigmask);
     if (Processor::getInterrupts())
     {
         sigdelset(&ctx->uc_sigmask, SIGUSR1);
@@ -324,7 +390,21 @@ void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
         sigaddset(&ctx->uc_sigmask, SIGUSR2);
     }
 
+#if THREADS
+    Processor::maskInterruptsForSignalReturn();
+    if (pSignalThread)
+    {
+        pSignalThread->disarmAtomicStateCleanup(frameCleanup.cleanup);
+        pSignalThread->leaveHostedSignalHandler(frameCleanup.stateLevel);
+    }
     Processor::leaveHostedSignalFrame();
+    if (fromUserspace && pSignalThread)
+    {
+        InterruptTimeAccounting::finishUserReturn(pSignalThread);
+    }
+#else
+    Processor::leaveHostedSignalFrame();
+#endif
 }
 
 struct sigaction HostedInterruptManager::getOriginalSigaction(int which) const
@@ -344,16 +424,15 @@ void HostedInterruptManager::initialiseProcessor()
         ByteSet(&act, 0, sizeof(act));
         act.sa_sigaction = hostedSignalTrampoline;
         sigemptyset(&act.sa_mask);
+        // A synchronous exception may publish deferred return work, but a
+        // timer tick must not suspend that raw publication half-complete.
+        sigaddset(&act.sa_mask, SIGUSR1);
+        sigaddset(&act.sa_mask, SIGUSR2);
         act.sa_flags = SA_SIGINFO | SA_ONSTACK;
-        if (i == SIGUSR1 || i == SIGUSR2)
+        if (i != SIGUSR1 && i != SIGUSR2)
         {
-            // IRQ handlers can context-switch while their signal frame remains
-            // live, so neither IRQ may nest on the same alternate stack.
-            sigaddset(&act.sa_mask, SIGUSR1);
-            sigaddset(&act.sa_mask, SIGUSR2);
-        }
-        else
-        {
+            // Keep the synchronous signal itself re-entrant. Timer IRQs remain
+            // masked until raw fault publication reaches the return tail.
             act.sa_flags |= SA_NODEFER;
         }
 

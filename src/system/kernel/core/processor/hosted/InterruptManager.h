@@ -66,7 +66,8 @@ class HostedInterruptManager : public ::InterruptManager
     static void quiesceProcessor();
 
     /** Signal handling shim for InterruptState protected access. */
-    void signalShim(int which, void *siginfo, void *meta);
+    void signalShim(
+        int which, void *siginfo, void *meta, bool fromUserspace);
 
     /** Get the original sigaction for an interrupt handler. */
     struct __pedigree_hosted::sigaction getOriginalSigaction(int which) const;

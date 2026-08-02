@@ -65,6 +65,9 @@ class X64InterruptManager : public ::InterruptManager
      *the interrupt */
     static void interrupt(InterruptState &interruptState) USED;
 
+    /** Runs ordinary work only after interrupt() has released raw scopes. */
+    static void returnFromInterrupt(InterruptState &interruptState) USED;
+
     /** Sets up an interrupt gate
      *\param[in] interruptNumber the interrupt number
      *\param[in] interruptHandler address of the assembler interrupt handler

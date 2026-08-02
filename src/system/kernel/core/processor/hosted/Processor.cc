@@ -379,10 +379,14 @@ void ProcessorBase::setInterrupts(bool bEnable)
     {
         sigemptyset(&set);
 #if THREADS
-        if (inHostedSignalFrame())
+        Thread *current = Processor::information().getCurrentThread();
+        const bool signalFrameOnCurrentStack =
+            current ? current->getHostedSignalDepth()
+                    : inHostedSignalFrame();
+        if (signalFrameOnCurrentStack)
         {
-            // The POSIX signal frame belongs to the hosted processor, not the
-            // Pedigree thread selected while that frame is suspended.
+            // SS_AUTODISARM lets another Thread or state stack take an IRQ
+            // while this physical stack retains its suspended signal frame.
             sigaddset(&set, SIGUSR1);
             sigaddset(&set, SIGUSR2);
         }
@@ -425,6 +429,18 @@ void ProcessorBase::setInterrupts(bool bEnable)
 bool ProcessorBase::getInterrupts()
 {
     return m_bInterrupts;
+}
+
+void ProcessorBase::maskInterruptsForSignalReturn()
+{
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGUSR1);
+    sigaddset(&set, SIGUSR2);
+    if (sigprocmask(SIG_BLOCK, &set, nullptr) != 0)
+    {
+        FATAL_NOLOCK("Hosted signal return failed to mask IRQ signals");
+    }
 }
 
 uintptr_t ProcessorBase::hostedExecutionThreadId()

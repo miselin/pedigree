@@ -27,7 +27,9 @@ const char *HostedInterruptStateRegisterName[3] = {
     "meta",
 };
 
-HostedInterruptState::HostedInterruptState() : state(0), which(0)
+HostedInterruptState::HostedInterruptState()
+    : state(0), which(0), fromUserspace(0), extra(0), meta(0),
+      m_basePointer(0), m_instructionPointer(0), m_stackPointer(0)
 {
 }
 

@@ -20,6 +20,7 @@
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "VirtualAddressSpace.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -69,11 +70,17 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     uintptr_t ucontext_loc = state.getRegister(2);
     ucontext_t *ctx = reinterpret_cast<ucontext_t *>(ucontext_loc);
 
+    state.setInstructionPointer(ctx->uc_mcontext.gregs[REG_RIP]);
+    state.setStackPointer(ctx->uc_mcontext.gregs[REG_RSP]);
+    state.setBasePointer(ctx->uc_mcontext.gregs[REG_RBP]);
+
     bool isWrite = code == SEGV_ACCERR;
+    uintptr_t errorCode = code;
 #ifdef REG_ERR
     // SIGSEGV's si_code only distinguishes missing pages from protection
     // faults. The processor error code retains the read/write distinction.
     isWrite = (ctx->uc_mcontext.gregs[REG_ERR] & 0x2) != 0;
+    errorCode = ctx->uc_mcontext.gregs[REG_ERR];
 #endif
 
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
@@ -157,6 +164,19 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
         }
     }
 
+    Thread *pThread = Processor::information().getCurrentThread();
+    if (pThread && !state.kernelMode())
+    {
+        Process *process = pThread->getParent();
+        if (process && process->getSubsystem())
+        {
+            pThread->deferSubsystemException(
+                static_cast<size_t>(Subsystem::PageFault), unaligned_page,
+                errorCode);
+            return;
+        }
+    }
+
 #if HAS_ADDRESS_SANITIZER
     // Escalate to the original signal handler - this is a real error, and in
     // asan we get asan-based analysis in the asan segv handler.
@@ -181,12 +201,6 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
 
     return;
 #endif
-
-    // Extra information comes from the ucontext_t structure passed to the
-    // signal handler (SIGSEGV).
-    state.setInstructionPointer(ctx->uc_mcontext.gregs[REG_RIP]);
-    state.setStackPointer(ctx->uc_mcontext.gregs[REG_RSP]);
-    state.setBasePointer(ctx->uc_mcontext.gregs[REG_RBP]);
 
     //  Get PFE location and error code
     static LargeStaticString sError;
@@ -231,12 +245,10 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     {
         //  Unrecoverable PFE in a process - Kill the process and yield
         // Processor::information().getCurrentThread()->getParent()->kill();
-        Thread *pThread = Processor::information().getCurrentThread();
+        pThread = Processor::information().getCurrentThread();
         Process *pProcess = pThread->getParent();
         Subsystem *pSubsystem = pProcess->getSubsystem();
-        if (pSubsystem)
-            pSubsystem->threadException(pThread, Subsystem::PageFault);
-        else
+        if (!pSubsystem || state.kernelMode())
         {
             pProcess->kill();
 

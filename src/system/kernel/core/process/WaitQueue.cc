@@ -46,7 +46,7 @@ void finishTerminalWait(
         {
             FATAL("Process exit reached a WaitQueue without a subsystem.");
         }
-        subsystem->exit(0);
+        subsystem->exit(thread->takeDeferredProcessExitCode());
         FATAL("Subsystem::exit returned to a terminal WaitQueue.");
     }
 

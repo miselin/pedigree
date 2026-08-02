@@ -276,6 +276,11 @@ class EXPORTED_PUBLIC ProcessorBase
     static bool getInterrupts();
 
 #if HOSTED
+    /**
+     * Physically masks hosted IRQ signals without changing the logical IF
+     * state which sigreturn is about to restore.
+     */
+    static void maskInterruptsForSignalReturn();
     /** Returns the Linux thread ID which executes this hosted processor. */
     static uintptr_t hostedExecutionThreadId();
     /** True only on the host thread which executes this processor. */

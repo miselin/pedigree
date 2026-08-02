@@ -140,6 +140,17 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
 
     Thread *pThread = Processor::information().getCurrentThread();
 
+    if (pThread && !state.kernelMode())
+    {
+        Process *process = pThread->getParent();
+        if (process && process->getSubsystem())
+        {
+            pThread->deferSubsystemException(
+                static_cast<size_t>(Subsystem::PageFault), cr2, code);
+            return;
+        }
+    }
+
     //  Get PFE location and error code
     static LargeStaticString sError;
     sError.clear();
@@ -214,10 +225,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
         // Processor::information().getCurrentThread()->getParent()->kill();
         Process *pProcess = pThread->getParent();
         Subsystem *pSubsystem = pProcess->getSubsystem();
-        if (pSubsystem && !state.kernelMode())
-            pSubsystem->threadException(
-                pThread, Subsystem::PageFault, &state, cr2, code);
-        else
+        if (!pSubsystem || state.kernelMode())
         {
             pProcess->kill();
         }

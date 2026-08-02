@@ -17,6 +17,8 @@
 
 ; X64InterruptManager::interrupt(InterruptState &interruptState)
 extern _ZN19X64InterruptManager9interruptER17X64InterruptState
+; X64InterruptManager::returnFromInterrupt(InterruptState &interruptState)
+extern _ZN19X64InterruptManager19returnFromInterruptER17X64InterruptState
 
 ; Export the array of interrupt handler addresses
 global interrupt_handler_array:function hidden
@@ -60,6 +62,11 @@ interrupt_handler:
 
   ; Call the C++ Code
   call _ZN19X64InterruptManager9interruptER17X64InterruptState
+
+  ; Raw handler/accounting scopes have now unwound. Before restoring a user
+  ; frame, run pending Event and terminal work at an IRQ-enabled C++ boundary.
+  mov rdi, rsp
+  call _ZN19X64InterruptManager19returnFromInterruptER17X64InterruptState
 
   ; Restore the registers
   pop r15

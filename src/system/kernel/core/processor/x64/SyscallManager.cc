@@ -196,7 +196,7 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
             NOTICE("Unwind state exit, in interrupt handler");
             pThread->getParent()
                 ->getSubsystem()
-                ->exit(0);
+                ->exit(pThread->takeDeferredProcessExitCode());
         }
     }
 

@@ -80,6 +80,7 @@ hostedSignalTrampoline:
     pop rdx
     pop rsi
     pop rdi
+    xor ecx, ecx
     jmp hostedSignalHandler WRT ..plt
 
 .signal_from_user:
@@ -88,6 +89,7 @@ hostedSignalTrampoline:
     mov rdi, [rsp + 32]
     mov rsi, [rsp + 24]
     mov rdx, [rsp + 16]
+    mov ecx, 1
     call hostedSignalHandler WRT ..plt
 
     mov eax, LINUX_SYS_ARCH_PRCTL

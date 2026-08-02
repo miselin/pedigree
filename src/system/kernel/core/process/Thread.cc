@@ -170,6 +170,21 @@ Thread::Thread(
         }
     }
 
+#if HOSTED
+    if (requestedStack || semiUser)
+    {
+        // A hosted user IRQ reaches its return tail with allocation forbidden.
+        // Preallocate every nested physical stack before the Thread is visible
+        // to the scheduler, including the tail's own event-delivery level.
+        for (size_t level = 1; level < MAX_NESTED_EVENTS; ++level)
+        {
+            allocateStackAtLevel(level);
+            m_StateLevels[level].m_InhibitMask =
+                m_StateLevels[0].m_InhibitMask;
+        }
+    }
+#endif
+
     m_Id = m_pParent->addThread(this);
 
     // Firstly, grab our lock so that the scheduler cannot preemptively load
@@ -230,6 +245,14 @@ Thread::Thread(Process *pParent, SyscallState &state, bool delayedStart)
 
     // Initialise state level zero
     allocateStackAtLevel(0);
+#if HOSTED
+    for (size_t level = 1; level < MAX_NESTED_EVENTS; ++level)
+    {
+        allocateStackAtLevel(level);
+        m_StateLevels[level].m_InhibitMask =
+            m_StateLevels[0].m_InhibitMask;
+    }
+#endif
 
     Thread *pCurrent = Processor::information().getCurrentThread();
     if (pCurrent)
@@ -278,6 +301,9 @@ void Thread::recordTime(CpuTimeMode mode)
 {
     const CpuTimeSample sample;
     m_TimeAccounting.record(mode, sample.timestamp, sample.processor);
+    __atomic_store_n(
+        &m_CurrentTimeAccountingMode, static_cast<size_t>(mode),
+        __ATOMIC_RELEASE);
 }
 
 void Thread::trackTime(CpuTimeMode mode)
@@ -299,10 +325,39 @@ void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to)
             from, sample.timestamp, sample.processor);
     m_TimeAccounting.record(
         to, sample.timestamp, sample.processor);
+    __atomic_store_n(
+        &m_CurrentTimeAccountingMode, static_cast<size_t>(to),
+        __ATOMIC_RELEASE);
     if (elapsed)
     {
         m_pParent->publishTimeAccounting(from, elapsed);
     }
+}
+
+void Thread::transitionTimeAtInterruptReturn(
+    CpuTimeMode from, CpuTimeMode to)
+{
+    // The architecture return boundary owns the physical IRQ mask. Going
+    // through CpuTimeSample here could momentarily undo that mask on hosted,
+    // where the logical state intentionally describes the pending sigreturn.
+    const size_t processor = Processor::id();
+    const Time::Timestamp timestamp = Time::getTicks();
+    const Time::Timestamp elapsed =
+        m_TimeAccounting.elapsed(from, timestamp, processor);
+    m_TimeAccounting.record(to, timestamp, processor);
+    __atomic_store_n(
+        &m_CurrentTimeAccountingMode, static_cast<size_t>(to),
+        __ATOMIC_RELEASE);
+    if (elapsed)
+    {
+        m_pParent->publishTimeAccounting(from, elapsed);
+    }
+}
+
+CpuTimeMode Thread::currentTimeAccountingMode() const
+{
+    return static_cast<CpuTimeMode>(__atomic_load_n(
+        &m_CurrentTimeAccountingMode, __ATOMIC_ACQUIRE));
 }
 
 Thread::~Thread()
@@ -609,6 +664,16 @@ SchedulerState *Thread::pushState()
         return nullptr;
     }
     const size_t nextLevel = previousLevel + 1;
+
+#if HOSTED
+    if (
+        m_StateLevels[0].m_pKernelStack &&
+        !m_StateLevels[nextLevel].m_pKernelStack)
+    {
+        FATAL_NOLOCK(
+            "Hosted user Thread reached an unallocated return state stack");
+    }
+#endif
 
     if (
         __atomic_load_n(
@@ -2248,6 +2313,9 @@ Thread::StateLevel::StateLevel()
     : m_State(), m_pKernelStack(0), m_pUserStack(0), m_pAuxillaryStack(0),
       m_InhibitMask(), m_SignalMask(0), m_Errno(0),
       m_InterruptionReason(NotInterrupted), m_bDispatchingWaitEvent(false)
+#if HOSTED
+      , m_HostedSignalDepth(0)
+#endif
 {
     m_State = new SchedulerState;
     ByteSet(m_State, 0, sizeof(SchedulerState));
@@ -2265,6 +2333,9 @@ Thread::StateLevel::StateLevel(const Thread::StateLevel &s)
       m_SignalMask(s.m_SignalMask), m_Errno(s.m_Errno),
       m_InterruptionReason(s.m_InterruptionReason),
       m_bDispatchingWaitEvent(false)
+#if HOSTED
+      , m_HostedSignalDepth(0)
+#endif
 {
     m_State = new SchedulerState(*(s.m_State));
     m_InhibitMask =
@@ -2280,6 +2351,9 @@ Thread::StateLevel &Thread::StateLevel::operator=(const Thread::StateLevel &s)
     m_Errno = s.m_Errno;
     m_InterruptionReason = s.m_InterruptionReason;
     m_bDispatchingWaitEvent = false;
+#if HOSTED
+    m_HostedSignalDepth = 0;
+#endif
     m_pKernelStack = s.m_pKernelStack;
     return *this;
 }
@@ -2699,6 +2773,37 @@ void Thread::armAtomicStateCleanup(
     armStateCleanup(record, cleanup, context);
 }
 
+#if HOSTED
+size_t Thread::enterHostedSignalHandler()
+{
+    const size_t level = __atomic_load_n(
+        &m_nStateLevel, __ATOMIC_ACQUIRE);
+    __atomic_add_fetch(
+        &m_StateLevels[level].m_HostedSignalDepth, 1, __ATOMIC_ACQ_REL);
+    return level;
+}
+
+void Thread::leaveHostedSignalHandler(size_t stateLevel)
+{
+    if (UNLIKELY(stateLevel >= MAX_NESTED_EVENTS))
+    {
+        FATAL_NOLOCK("Hosted signal frame recorded an invalid state level");
+        return;
+    }
+
+    const size_t previous = __atomic_fetch_sub(
+        &m_StateLevels[stateLevel].m_HostedSignalDepth, 1,
+        __ATOMIC_ACQ_REL);
+    if (UNLIKELY(!previous))
+    {
+        __atomic_store_n(
+            &m_StateLevels[stateLevel].m_HostedSignalDepth, 0,
+            __ATOMIC_RELEASE);
+        FATAL_NOLOCK("Hosted Thread signal-frame depth underflowed");
+    }
+}
+#endif
+
 void Thread::disarmAtomicStateCleanup(AtomicStateCleanupRecord &record)
 {
     if (Processor::information().getCurrentThread() != this)
@@ -2728,6 +2833,15 @@ void Thread::cleanStateLevel(size_t level)
         FATAL(
             "Thread state stack freed with an armed cleanup record.");
     }
+
+#if HOSTED
+    if (__atomic_load_n(
+            &m_StateLevels[level].m_HostedSignalDepth,
+            __ATOMIC_ACQUIRE))
+    {
+        FATAL("Thread state stack freed with a live hosted signal frame.");
+    }
+#endif
 
     if (m_StateLevels[level].m_Waiter.loadQueue())
     {
@@ -2793,6 +2907,56 @@ void Thread::setUnwindState(UnwindType ut)
 Thread::UnwindType Thread::getUnwindState()
 {
     return __atomic_load_n(&m_UnwindState, __ATOMIC_ACQUIRE);
+}
+
+void Thread::deferProcessExit(int code)
+{
+    __atomic_store_n(&m_DeferredProcessExitCode, code, __ATOMIC_RELEASE);
+    setUnwindState(Exit);
+}
+
+int Thread::takeDeferredProcessExitCode()
+{
+    return __atomic_exchange_n(
+        &m_DeferredProcessExitCode, 0, __ATOMIC_ACQ_REL);
+}
+
+bool Thread::deferSubsystemException(
+    size_t type, uintptr_t faultAddress, uintptr_t errorCode)
+{
+    size_t expected = 0;
+    if (!__atomic_compare_exchange_n(
+            &m_DeferredSubsystemExceptionState, &expected, 1, false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    {
+        FATAL_NOLOCK(
+            "Nested subsystem exception reached an occupied deferred slot");
+        return false;
+    }
+
+    m_DeferredSubsystemExceptionType = type;
+    m_DeferredSubsystemExceptionFaultAddress = faultAddress;
+    m_DeferredSubsystemExceptionErrorCode = errorCode;
+    __atomic_store_n(
+        &m_DeferredSubsystemExceptionState, 2, __ATOMIC_RELEASE);
+    return true;
+}
+
+bool Thread::takeDeferredSubsystemException(
+    size_t &type, uintptr_t &faultAddress, uintptr_t &errorCode)
+{
+    if (__atomic_load_n(
+            &m_DeferredSubsystemExceptionState, __ATOMIC_ACQUIRE) != 2)
+    {
+        return false;
+    }
+
+    type = m_DeferredSubsystemExceptionType;
+    faultAddress = m_DeferredSubsystemExceptionFaultAddress;
+    errorCode = m_DeferredSubsystemExceptionErrorCode;
+    __atomic_store_n(
+        &m_DeferredSubsystemExceptionState, 0, __ATOMIC_RELEASE);
+    return true;
 }
 
 bool Thread::interruptWaitUnlocked(
