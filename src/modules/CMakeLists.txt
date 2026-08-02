@@ -767,6 +767,8 @@ add_custom_command(
     ${CMAKE_TOOLCHAIN_FILE}
     ${CMAKE_SOURCE_DIR}/compilers/pedigree-musl.patch
     ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/clone-${PEDIGREE_MUSLARCH}.musl-s
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/clone-hosted-amd64.musl-s
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/fb.h
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/glue-musl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/klog.h

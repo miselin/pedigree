@@ -1,0 +1,38 @@
+.text
+.global __clone
+.type   __clone,@function
+.hidden pedigree_translate_syscall
+.hidden pedigree_musl_thread_exit
+__clone:
+    # Hosted syscall return restores six callee-saved registers before its
+    # final ret, so the clone child needs a complete bridge return frame.
+    and $-16,%rsi
+    sub $64,%rsi
+    movq $0,0(%rsi)
+    movq $0,8(%rsi)
+    movq $0,16(%rsi)
+    mov %rdi,24(%rsi)
+    movq $0,32(%rsi)
+    movq $0,40(%rsi)
+    lea 1f(%rip),%r11
+    mov %r11,48(%rsi)
+    mov %rcx,56(%rsi)
+
+    # pedigree_translate_syscall(SYS_clone, flags, child_stack, ptid, ctid,
+    #                            tls, 0)
+    xchg %rsi,%rdx
+    mov %r8,%rcx
+    mov 8(%rsp),%r8
+    mov $56,%rdi
+    pushq $0
+    call pedigree_translate_syscall
+    add $8,%rsp
+    ret
+
+1:
+    xor %ebp,%ebp
+    pop %rdi
+    call *%r12
+    mov %rax,%rdi
+    call pedigree_musl_thread_exit
+    ud2

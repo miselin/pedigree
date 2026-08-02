@@ -208,6 +208,12 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
                 FATAL("POSIX process-group exit was not dispatched.");
             }
             return 0;
+        case POSIX_PTHREAD_RETURN:
+            if (!SyscallManager::instance().requestThreadExit())
+            {
+                FATAL("POSIX pthread exit was not dispatched.");
+            }
+            return 0;
         case POSIX_TCGETATTR:
             return posix_tcgetattr(p1, reinterpret_cast<struct termios *>(p2));
         case POSIX_TCSETATTR:

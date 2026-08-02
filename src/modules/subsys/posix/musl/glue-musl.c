@@ -37,7 +37,10 @@
 long pedigree_translate_syscall(long which, long a1, long a2, long a3, long a4,
                                 long a5, long a6)
 {
-    long pedigree_translation = posix_translate_syscall(which);
+    // Linux SYS_exit retires only the calling thread. Translating it to the
+    // legacy Pedigree exit syscall would lose that distinction.
+    long pedigree_translation = which == SYS_exit ? POSIX_PTHREAD_RETURN
+                                                  : posix_translate_syscall(which);
     if (pedigree_translation == -1)
     {
         STUBBED(which);
@@ -56,6 +59,13 @@ long pedigree_translate_syscall(long which, long a1, long a2, long a3, long a4,
             return r;
         }
     }
+}
+
+__attribute__((noreturn, visibility("hidden")))
+void pedigree_musl_thread_exit(long status)
+{
+    syscall1(POSIX_PTHREAD_RETURN, status);
+    __builtin_trap();
 }
 
 // Normally implemented in assembly - brought in here to avoid having to
