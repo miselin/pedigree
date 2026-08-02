@@ -53,6 +53,7 @@ bool runHostedSplitIrqRegressions();
 bool runHostedThreadedIrqRegressions();
 bool runHostedUsbCallbackDeliveryRegressions();
 bool runHostedUsbHcdPortChangeRegressions();
+bool runHostedUsbTransferLifecycleRegressions();
 EXPORTED_PUBLIC bool runHostedUsbSyncOwnershipRegression();
 
 namespace
@@ -1925,6 +1926,7 @@ bool runHostedWaitRegressions()
         runHostedRequestQueueRegressions() &&
         runHostedUsbCallbackDeliveryRegressions() &&
         runHostedUsbHcdPortChangeRegressions() &&
+        runHostedUsbTransferLifecycleRegressions() &&
         runHostedMutexRegressions() &&
         runHostedInterruptManagerRegressions() &&
         runHostedHardIrqGuardRegressions() &&
