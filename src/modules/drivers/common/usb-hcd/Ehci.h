@@ -22,6 +22,7 @@
 
 #include "CallbackDelivery.h"
 #include "PortChangeRequest.h"
+#include "TransferCompletion.h"
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/Spinlock.h"
@@ -142,10 +143,22 @@ class Ehci : public UsbHub,
 
         struct MetaData
         {
+            MetaData()
+                : pCallback(nullptr), pParam(0), periodicGeneration(0),
+                  bPeriodic(false), bBuildFailed(false), pFirstQTD(nullptr),
+                  pLastQTD(nullptr), nTotalBytes(0), pPrev(nullptr),
+                  pNext(nullptr), bIgnore(false), completion()
+            {
+            }
+
+            /** Periodic registrations have no one-shot completion obligation.
+             */
             void (*pCallback)(uintptr_t, ssize_t);
             uintptr_t pParam;
+            size_t periodicGeneration;
 
             bool bPeriodic;
+            bool bBuildFailed;
             qTD *pFirstQTD;
             qTD *pLastQTD;
             size_t nTotalBytes;
@@ -155,10 +168,8 @@ class Ehci : public UsbHub,
 
             bool bIgnore;  /// Ignore this QH when iterating over the list -
                            /// don't look at any of its qTDs
-            Atomic<size_t> completionState;
-            size_t completionGeneration;
-            ssize_t completionResult;
-        } * pMetaData;
+            UsbHcd::TransferCompletion completion;
+        } *pMetaData;
     } PACKED ALIGN(32);
 
     virtual void getName(String &str)
@@ -248,6 +259,17 @@ class Ehci : public UsbHub,
     void modifyPortControl(
         size_t portRegister, uint32_t clearMask, uint32_t setMask);
 
+    uintptr_t createTransactionAdmitted(UsbEndpoint endpointInfo);
+    void addTransferToTransactionAdmitted(
+        uintptr_t pTransaction, bool bToggle, UsbPid pid, uintptr_t pBuffer,
+        size_t nBytes);
+    void releaseQtdChainLocked(QH *qh);
+    void reclaimQhLocked(size_t transaction);
+    void captureCompletionLocked(
+        size_t transaction, QH *qh,
+        const UsbHcd::TransferCompletion::Claim &claim,
+        List<UsbHcd::CallbackDeliveryQueue::Record *> &completions);
+
     static void finishDeferredCompletion(void *context);
 
     IoBase *m_pBase;
@@ -292,6 +314,10 @@ class Ehci : public UsbHub,
     Atomic<bool> m_DequeueStopping;
     OwnedThread m_DequeueThread;
 
+    /** Rejects new transaction construction before the DMA halt boundary. */
+    OperationBarrier m_SubmissionOperations;
+    /** Remains open while teardown callbacks synchronously cancel peers. */
+    OperationBarrier m_CancelOperations;
     /** Closes and drains interrupt callbacks before controller teardown. */
     OperationBarrier m_CallbackOperations;
     irq_id_t m_IrqId;

@@ -61,6 +61,7 @@ static void probeEhci(Device *pDev)
     if (!success)
     {
         NOTICE("USB: EHCI failed to initialise");
+        delete pEhci;
         return;
     }
 
