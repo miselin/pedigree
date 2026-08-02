@@ -24,6 +24,7 @@
 
 #include "CallbackDelivery.h"
 #include "PortChangeRequest.h"
+#include "TransferCompletion.h"
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/Spinlock.h"
@@ -124,8 +125,9 @@ class Uhci : public UsbHub,
 
         struct MetaData
         {
-            void (*pCallback)(uintptr_t, ssize_t);
-            uintptr_t pParam;
+            Uhci *pOwner;
+            void (*pPeriodicCallback)(uintptr_t, ssize_t);
+            uintptr_t pPeriodicParam;
 
             UsbEndpoint endpointInfo;
 
@@ -142,8 +144,7 @@ class Uhci : public UsbHub,
 
             bool bIgnore;  /// Ignore this QH when iterating over the list -
                            /// don't look at any of its TDs
-            Atomic<size_t> completionState;
-            size_t completionGeneration;
+            UsbHcd::TransferCompletion completion;
 
             size_t id;
         } * pMetaData;
@@ -188,10 +189,19 @@ class Uhci : public UsbHub,
     void cancelRequest(const Request &request) override;
 
   private:
-    /// Stops the UHCI controller
+    /** Runs after callback delivery and hands the QH to the reclaim worker. */
+    static void enqueueCompletedTransfer(void *context);
+
+    /** Requires IRQ then queue-list ownership and an established DMA halt. */
+    void detachQueueHeadLocked(QH *pQH);
+
+    /** Reclaims a detached or never-published QH while m_Mutex is held. */
+    void reclaimQueueHeadLocked(QH *pQH);
+
+    /// Stops the controller or panics before DMA ownership can be transferred.
     void stop();
 
-    /// Starts the UHCI controller
+    /// Starts the controller or panics instead of leaving work silently stuck.
     void start();
 
     /// Updates the lower USBLEGSUP control word without clobbering its upper
@@ -228,6 +238,12 @@ class Uhci : public UsbHub,
     };
 
     IoBase *m_pBase;
+    /** Rejects submissions which race transfer teardown. */
+    OperationBarrier m_SubmissionOperations;
+    /** Drains cancellation callers before their callback state is reclaimed. */
+    OperationBarrier m_CancelOperations;
+    /** Retained from accepted publication through worker reclamation. */
+    OperationBarrier m_TransferOperations;
     OperationBarrier m_CallbackOperations;
     irq_id_t m_IrqId;
     bool m_TimerRegistered;

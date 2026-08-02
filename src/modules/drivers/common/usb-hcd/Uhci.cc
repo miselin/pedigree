@@ -23,6 +23,7 @@
 #include "modules/system/usb/Usb.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
@@ -61,20 +62,16 @@ static int threadStub(void *p)
     return 0;
 }
 
-namespace
-{
-void releaseUhciDequeue(void *context)
-{
-    reinterpret_cast<Semaphore *>(context)->release();
-}
-}  // namespace
-
 Uhci::Uhci(Device *pDev)
     : UsbHub(pDev), RequestQueue(MakeConstantString("UHCI")), m_pBase(0),
+      m_SubmissionOperations(), m_CancelOperations(), m_TransferOperations(),
       m_CallbackOperations(), m_IrqId(0), m_TimerRegistered(false),
       m_InterruptsClosing(false), m_nPorts(0), m_PortChangesClosing(false),
-      m_PortChangeLock(), m_IrqProcessingLock(), m_CompletionDeliveries(),
-      m_AsyncQueueListChangeLock(), m_UhciMR("Uhci-MR"),
+      m_PortChangeLock(), m_Mutex(), m_IrqProcessingLock(),
+      m_CompletionDeliveries(), m_AsyncQueueListChangeLock(),
+      m_pFrameList(nullptr), m_pFrameListPhys(0), m_pTDList(nullptr),
+      m_pTDListPhys(0), m_pAsyncQH(nullptr), m_pPeriodicQH(nullptr),
+      m_pQHList(nullptr), m_pQHListPhys(0), m_UhciMR("Uhci-MR"),
       m_pCurrentAsyncQueueTail(0), m_pCurrentAsyncQueueHead(0),
       m_AsyncSchedule(), m_DequeueList(), m_DequeueCount(0),
       m_DequeueOperations(), m_pDequeueThread(nullptr), m_nPortCheckTicks(0)
@@ -124,7 +121,15 @@ Uhci::Uhci(Device *pDev)
     pDummyQH->bElemInvalid = 1;
 
     pDummyQH->pMetaData = new QH::MetaData;
-    pDummyQH->pMetaData->completionGeneration = 0;
+    pDummyQH->pMetaData->pOwner = this;
+    pDummyQH->pMetaData->pPeriodicCallback = nullptr;
+    pDummyQH->pMetaData->pPeriodicParam = 0;
+    pDummyQH->pMetaData->bPeriodic = false;
+    pDummyQH->pMetaData->pFirstTD = nullptr;
+    pDummyQH->pMetaData->pLastTD = nullptr;
+    pDummyQH->pMetaData->nTotalBytes = 0;
+    pDummyQH->pMetaData->bIgnore = true;
+    pDummyQH->pMetaData->id = 0;
     pDummyQH->pMetaData->pPrev = pDummyQH->pMetaData->pNext = pDummyQH;
 
     m_pCurrentAsyncQueueTail = m_pCurrentAsyncQueueHead = pDummyQH;
@@ -151,8 +156,12 @@ Uhci::Uhci(Device *pDev)
 
     // Reset the host controller
     m_pBase->write16(m_pBase->read16(UHCI_CMD) | UHCI_CMD_HCRES, UHCI_CMD);
-    while (m_pBase->read16(UHCI_CMD) & UHCI_CMD_HCRES)
-        Time::delay(5 * Time::Multiplier::Millisecond);
+    constexpr size_t ResetPollLimit = 100;
+    size_t resetPolls = ResetPollLimit;
+    while (resetPolls-- && (m_pBase->read16(UHCI_CMD) & UHCI_CMD_HCRES))
+        Time::delay(1 * Time::Multiplier::Millisecond);
+    if (m_pBase->read16(UHCI_CMD) & UHCI_CMD_HCRES)
+        panic("UHCI controller reset did not complete within 100 ms");
 
     // Write frame list pointer
     m_pBase->write32(m_pFrameListPhys, UHCI_FRLP);
@@ -172,8 +181,7 @@ Uhci::Uhci(Device *pDev)
         static_cast<IrqHandler *>(this), this, IrqPolicy::pciIntxThreaded());
     if (!m_IrqId)
     {
-        FATAL("UHCI could not register its PCI IRQ handler");
-        return;
+        panic("UHCI could not register its PCI IRQ handler");
     }
     Machine::instance().getIrqManager()->control(
         getInterruptNumber(), IrqManager::MitigationThreshold,
@@ -184,8 +192,7 @@ Uhci::Uhci(Device *pDev)
 #if THREADS
     if (getLifecycleState() != RequestQueue::LifecycleState::Accepting)
     {
-        FATAL("UHCI request queue did not enter the accepting state");
-        return;
+        panic("UHCI request queue did not enter the accepting state");
     }
 #endif
 
@@ -194,8 +201,7 @@ Uhci::Uhci(Device *pDev)
     m_pBase->write16(0xC1 | 0x10, UHCI_CMD);
     Time::delay(10 * Time::Multiplier::Millisecond);
     m_pBase->write16(0xC1, UHCI_CMD);
-    while (m_pBase->read16(UHCI_STS) & UHCI_STS_HALT)
-        Time::delay(10 * Time::Multiplier::Millisecond);
+    start();
 
 #ifdef USB_VERBOSE_DEBUG
     DEBUG_LOG("USB: UHCI: Reset complete");
@@ -219,18 +225,14 @@ Uhci::Uhci(Device *pDev)
 
     if (!UsbHcd::validUhciRootPortCount(m_nPorts))
     {
-        FATAL("UHCI detected an unsupported root-port count");
-        return;
+        panic("UHCI detected an unsupported root-port count");
     }
 
     for (size_t i = 0; i < m_nPorts; ++i)
     {
         if (!m_PortChanges[i].configure(*this, 0, i))
         {
-            FATAL(
-                "UHCI could not configure its root-port publication token "
-                << Dec << i << Hex);
-            return;
+            panic("UHCI could not configure a root-port publication token");
         }
     }
 
@@ -282,8 +284,82 @@ Uhci::Uhci(Device *pDev)
 #endif
 }
 
+void Uhci::enqueueCompletedTransfer(void *context)
+{
+    QH *pQH = reinterpret_cast<QH *>(context);
+    assert(pQH && pQH->pMetaData && pQH->pMetaData->pOwner);
+    Uhci *pOwner = pQH->pMetaData->pOwner;
+    {
+        LockGuard<Mutex> queueGuard(pOwner->m_AsyncQueueListChangeLock);
+        pOwner->m_DequeueList.pushBack(pQH);
+    }
+    pOwner->m_DequeueCount.release();
+}
+
+void Uhci::detachQueueHeadLocked(QH *pQH)
+{
+    assert(pQH && pQH->pMetaData);
+
+    for (List<QH *>::Iterator it = m_AsyncSchedule.begin();
+         it != m_AsyncSchedule.end();)
+    {
+        if (*it == pQH)
+        {
+            m_AsyncSchedule.erase(it);
+            break;
+        }
+        ++it;
+    }
+
+    QH *pPrev = pQH->pMetaData->pPrev;
+    QH *pNext = pQH->pMetaData->pNext;
+    if (pPrev && pNext)
+    {
+        pPrev->pMetaData->pNext = pNext;
+        pNext->pMetaData->pPrev = pPrev;
+        pPrev->pNext = pQH->pNext;
+        pPrev->bNextQH = 1;
+        pPrev->bNextInvalid = 0;
+        if (pQH == m_pCurrentAsyncQueueTail)
+            m_pCurrentAsyncQueueTail = pPrev;
+    }
+
+    pQH->pMetaData->pPrev = nullptr;
+    pQH->pMetaData->pNext = nullptr;
+    pQH->pMetaData->bIgnore = true;
+}
+
+void Uhci::reclaimQueueHeadLocked(QH *pQH)
+{
+    assert(pQH && pQH->pMetaData);
+
+    while (pQH->pMetaData->completedTdList.count())
+    {
+        TD *pTD = pQH->pMetaData->completedTdList.popFront();
+        const size_t id = pTD->id;
+        ByteSet(pTD, 0, sizeof(TD));
+        m_TDBitmap.clear(id);
+    }
+
+    while (pQH->pMetaData->tdList.count())
+    {
+        TD *pTD = pQH->pMetaData->tdList.popFront();
+        const size_t id = pTD->id;
+        ByteSet(pTD, 0, sizeof(TD));
+        m_TDBitmap.clear(id);
+    }
+
+    const size_t id = pQH->pMetaData->id;
+    delete pQH->pMetaData;
+    ByteSet(pQH, 0, sizeof(QH));
+    m_QHBitmap.clear(id);
+}
+
 Uhci::~Uhci()
 {
+    List<UsbHcd::CallbackDeliveryQueue::Record *> teardownCompletions;
+    List<QH *> periodicRetirements;
+
     // The timer is the only port-change producer, and unregistration drains
     // any callback already admitted by the timer registry.
     Timer *timer = Machine::instance().getTimer();
@@ -291,7 +367,7 @@ Uhci::~Uhci()
     {
         if (!timer || !timer->unregisterHandler(this))
         {
-            FATAL(
+            panic(
                 "UHCI teardown could not synchronously unregister its timer "
                 "callback");
         }
@@ -308,9 +384,15 @@ Uhci::~Uhci()
     }
     RequestQueue::destroy();
 
-    // Port enumeration has drained. Transfer IRQs can now be closed without
-    // stranding synchronous USB I/O owned by the RequestQueue worker.
+    // Port enumeration has drained. No new transaction may now cross the DMA
+    // publication boundary, but accepted transfers retain ownership until the
+    // dequeue worker has reclaimed their descriptors. Submission callers stay
+    // admitted until after this boundary so an in-flight caller either linked
+    // before close or observes the closed transfer admission and rolls back.
+    m_TransferOperations.close();
+
     {
+        LockGuard<Mutex> transactionGuard(m_Mutex);
         LockGuard<Mutex> irqGuard(m_IrqProcessingLock);
         m_InterruptsClosing = true;
         if (m_pBase)
@@ -322,20 +404,84 @@ Uhci::~Uhci()
         // Close admission while the IRQ serialization lock keeps a level
         // interrupt from repeatedly entering the just-closed callback path.
         m_CallbackOperations.close();
+
+        if (m_pBase)
+        {
+            // Fatal controller errors bypass USBINTR. USBPIRQDEN above keeps
+            // them off the shared line while the callback admission is
+            // closed and the synchronous DMA halt completes.
+            stop();
+            const uint16_t pending = m_pBase->read16(UHCI_STS) & 0x1f;
+            if (pending)
+            {
+                m_pBase->write16(pending, UHCI_STS);
+                (void) m_pBase->read16(UHCI_STS);
+            }
+        }
+
+        if (m_pQHList)
+        {
+            LockGuard<Mutex> queueGuard(m_AsyncQueueListChangeLock);
+            while (m_AsyncSchedule.count())
+            {
+                QH *pQH = m_AsyncSchedule.popFront();
+                assert(pQH && pQH->pMetaData);
+
+                if (pQH->pMetaData->bPeriodic)
+                {
+                    const bool dequeueAdmitted =
+                        m_DequeueOperations.tryEnter();
+                    assert(dequeueAdmitted);
+                    if (dequeueAdmitted)
+                        periodicRetirements.pushBack(pQH);
+                }
+                else
+                {
+                    UsbHcd::TransferCompletion::Claim claim;
+                    const bool claimed =
+                        pQH->pMetaData->completion.claimForTeardown(
+                            -TransactionError, claim);
+                    assert(claimed);
+                    if (claimed)
+                    {
+                        const bool dequeueAdmitted =
+                            m_DequeueOperations.tryEnter();
+                        assert(dequeueAdmitted);
+                        if (dequeueAdmitted)
+                        {
+                            teardownCompletions.pushBack(
+                                m_CompletionDeliveries.create(
+                                    {pQH->pMetaData->id, claim.generation},
+                                    claim.callback, claim.parameter,
+                                    claim.result, enqueueCompletedTransfer,
+                                    pQH));
+                        }
+                    }
+                }
+
+                detachQueueHeadLocked(pQH);
+            }
+        }
+
+        if (teardownCompletions.count())
+            m_CompletionDeliveries.publish(teardownCompletions);
+
+        if (m_pBase)
+        {
+            m_pBase->write32(0, UHCI_FRLP);
+            (void) m_pBase->read32(UHCI_FRLP);
+        }
     }
 
-    if (m_pBase)
+    m_SubmissionOperations.close();
+    m_SubmissionOperations.wait();
+
+    // These callbacks can release synchronous USB waits owned by a callback
+    // which entered before callback admission closed.
+    while (teardownCompletions.count())
     {
-        // Fatal controller errors bypass USBINTR. USBPIRQDEN above keeps them
-        // off the shared line while the still-registered closed callback
-        // consumes stale dispatches during this synchronous DMA halt.
-        stop();
-        const uint16_t pending = m_pBase->read16(UHCI_STS) & 0x1f;
-        if (pending)
-        {
-            m_pBase->write16(pending, UHCI_STS);
-            (void) m_pBase->read16(UHCI_STS);
-        }
+        auto *completion = teardownCompletions.popFront();
+        m_CompletionDeliveries.deliver(completion);
     }
 
     if (m_IrqId)
@@ -343,7 +489,7 @@ Uhci::~Uhci()
         if (!Machine::instance().getIrqManager()->unregisterHandler(
                 m_IrqId, static_cast<IrqHandler *>(this)))
         {
-            FATAL(
+            panic(
                 "UHCI teardown could not synchronously unregister its IRQ "
                 "callback");
         }
@@ -351,19 +497,90 @@ Uhci::~Uhci()
     }
     m_CallbackOperations.wait();
 
-    if (m_pBase)
+    // Teardown and already-admitted IRQ callbacks were allowed to
+    // synchronously cancel or drain peer records from the fully-published
+    // batch above.
+    m_CancelOperations.close();
+    m_CancelOperations.wait();
+
+    // No producer remains. This is normally already empty, but draining makes
+    // the teardown invariant explicit if a peer callback stole a batch record.
+    (void) m_CompletionDeliveries.drainAll();
+
+    // Existing periodic samples are covered by m_CallbackOperations. Retire
+    // their QHs only after those samples have returned; the periodic API has
+    // no terminal-callback contract and its current consumers ignore errors.
+    size_t periodicCount = 0;
     {
-        m_pBase->write32(0, UHCI_FRLP);
-        (void) m_pBase->read32(UHCI_FRLP);
+        LockGuard<Mutex> queueGuard(m_AsyncQueueListChangeLock);
+        while (periodicRetirements.count())
+        {
+            m_DequeueList.pushBack(periodicRetirements.popFront());
+            ++periodicCount;
+        }
+    }
+    while (periodicCount)
+    {
+        --periodicCount;
+        m_DequeueCount.release();
     }
 
     m_DequeueOperations.close();
     m_DequeueCount.release();
     m_DequeueOperations.wait();
+    m_TransferOperations.wait();
     if (m_pDequeueThread)
     {
-        m_pDequeueThread->joinForCompletion();
+        if (!m_pDequeueThread->joinForCompletion())
+            panic("UHCI teardown could not join its dequeue worker");
         m_pDequeueThread = nullptr;
+    }
+
+    assert(m_CompletionDeliveries.empty());
+    assert(m_SubmissionOperations.isClosedAndDrained());
+    assert(m_CancelOperations.isClosedAndDrained());
+    assert(m_CallbackOperations.isClosedAndDrained());
+    assert(m_DequeueOperations.isClosedAndDrained());
+    assert(m_TransferOperations.isClosedAndDrained());
+    {
+        LockGuard<Mutex> queueGuard(m_AsyncQueueListChangeLock);
+        assert(!m_AsyncSchedule.count());
+        assert(!m_DequeueList.count());
+    }
+
+    if (m_pQHList)
+    {
+        LockGuard<Mutex> transactionGuard(m_Mutex);
+        constexpr size_t QhListCount = QH_REGION_SIZE / sizeof(QH);
+        constexpr size_t TdListCount = TD_REGION_SIZE / sizeof(TD);
+
+        // Transactions built but never accepted were never DMA-owned and do
+        // not carry a retained transfer admission.
+        for (size_t i = 1; i < QhListCount; ++i)
+        {
+            if (!m_QHBitmap.test(i))
+                continue;
+            QH *pQH = &m_pQHList[i];
+            assert(pQH->pMetaData);
+            assert(
+                pQH->pMetaData->completion.state() ==
+                UsbHcd::TransferCompletion::State::Idle);
+            reclaimQueueHeadLocked(pQH);
+        }
+
+        for (size_t i = 1; i < QhListCount; ++i)
+            assert(!m_QHBitmap.test(i));
+        for (size_t i = 0; i < TdListCount; ++i)
+            assert(!m_TDBitmap.test(i));
+
+        QH *pDummyQH = &m_pQHList[0];
+        assert(m_QHBitmap.test(0));
+        delete pDummyQH->pMetaData;
+        ByteSet(pDummyQH, 0, sizeof(QH));
+        m_QHBitmap.clear(0);
+        assert(!m_QHBitmap.test(0));
+        m_pCurrentAsyncQueueHead = nullptr;
+        m_pCurrentAsyncQueueTail = nullptr;
     }
 }
 
@@ -390,45 +607,10 @@ void Uhci::doDequeue()
 
         {
             LockGuard<Mutex> transactionGuard(m_Mutex);
-
-            // Remove all TDs
-            if (pQH->pMetaData->completedTdList.count())
-            {
-                for (List<TD *>::Iterator it =
-                         pQH->pMetaData->completedTdList.begin();
-                     it != pQH->pMetaData->completedTdList.end(); it++)
-                {
-                    size_t idx = (*it)->id;
-                    ByteSet(*it, 0, sizeof(TD));
-
-                    m_TDBitmap.clear(idx);
-                }
-            }
-
-            // Will only be valid if we hit an error - some TDs may not have
-            // been run, so they'll not be in the completed list.
-            if (pQH->pMetaData->tdList.count())
-            {
-                for (List<TD *>::Iterator it = pQH->pMetaData->tdList.begin();
-                     it != pQH->pMetaData->tdList.end(); it++)
-                {
-                    size_t idx = (*it)->id;
-                    ByteSet(*it, 0, sizeof(TD));
-
-                    m_TDBitmap.clear(idx);
-                }
-            }
-
-            // This QH is done
-            size_t id = pQH->pMetaData->id;
-
-            // Completely invalidate the QH
-            delete pQH->pMetaData;
-            ByteSet(pQH, 0, sizeof(QH));
-
-            m_QHBitmap.clear(id);
+            reclaimQueueHeadLocked(pQH);
         }
         m_DequeueOperations.leave();
+        m_TransferOperations.leave();
 
 #ifdef USB_VERBOSE_DEBUG
         DEBUG_LOG("Dequeue complete.");
@@ -592,84 +774,65 @@ IrqDisposition Uhci::irq(irq_id_t number)
                         // when it gives no error
                     if (bEndOfTransfer)
                     {
-                        bool notifyDequeue = false;
                         const ssize_t completionResult =
                             nResult < 0 ? nResult :
                                           pQH->pMetaData->nTotalBytes;
-                        const bool ownsCompletion =
-                            bPeriodic ||
-                            pQH->pMetaData->completionState.compareAndSwap(
-                                1, 2);
 
-                        if (!bPeriodic && ownsCompletion)
+                        if (!bPeriodic)
                         {
-                                LockGuard<Mutex> queueGuard(
-                                    m_AsyncQueueListChangeLock);
-
-                            // Stop the controller while we dequeue
-                            stop();
-
-                            // Update the hardware and software linked lists
+                            const bool captured =
+                                pQH->pMetaData->completion.captureNatural(
+                                    completionResult);
+                            assert(captured);
+                            if (captured)
                             {
-                                QH *pPrev = pQH->pMetaData->pPrev;
-                                QH *pNext = pQH->pMetaData->pNext;
+                                // The completion lock excludes cancellation
+                                // while this establishes the DMA boundary.
+                                stop();
 
-                                // Main non-hardware linked list update
-                                pPrev->pMetaData->pNext = pNext;
-                                pNext->pMetaData->pPrev = pPrev;
+                                UsbHcd::TransferCompletion::Claim claim;
+                                const bool claimed =
+                                    pQH->pMetaData->completion.claimCaptured(
+                                        claim);
+                                const bool dequeueAdmitted =
+                                    m_DequeueOperations.tryEnter();
+                                assert(claimed && dequeueAdmitted);
+                                if (claimed && dequeueAdmitted)
+                                {
+                                    {
+                                        LockGuard<Mutex> queueGuard(
+                                            m_AsyncQueueListChangeLock);
+                                        detachQueueHeadLocked(pQH);
+                                    }
 
-                                // Hardware linked list update
-                                pPrev->pNext = pQH->pNext;
-                                pPrev->bNextQH = 1;
-                                pPrev->bNextInvalid = 0;
+                                    completions.pushBack(
+                                        m_CompletionDeliveries.create(
+                                            {pQH->pMetaData->id,
+                                             claim.generation},
+                                            claim.callback, claim.parameter,
+                                            claim.result,
+                                            enqueueCompletedTransfer, pQH));
+                                }
 
-                                // Update the tail pointer if we need to
-                                if (pQH == m_pCurrentAsyncQueueTail)
-                                    m_pCurrentAsyncQueueTail = pPrev;
+                                start();
                             }
-
-                            const bool dequeueAdmitted =
-                                m_DequeueOperations.tryEnter();
-                            if (dequeueAdmitted)
-                            {
-                                m_DequeueList.pushBack(pQH);
-                                notifyDequeue = true;
-                            }
-
-                                // The queue head is detached before the
-                                // controller is resumed, but reclamation must
-                                // not begin until its completion callback has
-                                // returned.
-                            pQH->pMetaData->bIgnore = true;
-
-                            // Resume the controller, dequeue done.
-                            start();
                         }
-                        else if (bPeriodic)
+                        else
                         {
-                            // Invert data toggle
                             pTD->bDataToggle = !pTD->bDataToggle;
-
-                                // Clear the total bytes field so it won't grow
-                                // with each completed transfer
                             pQH->pMetaData->nTotalBytes = 0;
-                        }
 
-                            if (ownsCompletion &&
-                                (pQH->pMetaData->pCallback || notifyDequeue))
-                        {
+                            if (pQH->pMetaData->pPeriodicCallback)
+                            {
                                 completions.pushBack(
                                     m_CompletionDeliveries.create(
                                         {pQH->pMetaData->id,
-                                         pQH->pMetaData
-                                             ->completionGeneration},
-                                        pQH->pMetaData->pCallback,
-                                        pQH->pMetaData->pParam,
-                                        completionResult,
-                                        notifyDequeue ? releaseUhciDequeue :
-                                                        nullptr,
-                                        notifyDequeue ? &m_DequeueCount :
-                                                        nullptr));
+                                         m_CompletionDeliveries
+                                             .nextGeneration()},
+                                        pQH->pMetaData->pPeriodicCallback,
+                                        pQH->pMetaData->pPeriodicParam,
+                                        completionResult));
+                            }
                         }
                     }
 
@@ -739,18 +902,38 @@ void Uhci::addTransferToTransaction(
     uintptr_t pTransaction, bool bToggle, UsbPid pid, uintptr_t pBuffer,
     size_t nBytes)
 {
-    // Atomic operation: find clear bit, set it
+    OperationBarrier::Lease submission;
+    if (!m_SubmissionOperations.tryAcquire(submission))
+        return;
+
+    LockGuard<Mutex> transactionGuard(m_Mutex);
     size_t nIndex = 0;
+    constexpr size_t QhListCount = QH_REGION_SIZE / sizeof(QH);
+    if ((pTransaction == static_cast<uintptr_t>(-1)) ||
+        (pTransaction >= QhListCount) || !m_pQHList ||
+        !m_QHBitmap.test(pTransaction) ||
+        !m_pQHList[pTransaction].pMetaData)
     {
-        LockGuard<Mutex> guard(m_Mutex);
-        nIndex = m_TDBitmap.getFirstClear();
-        if (nIndex >= (TD_REGION_SIZE / sizeof(TD)))
-        {
-            ERROR("USB: UHCI: TD space full");
-            return;
-        }
-        m_TDBitmap.set(nIndex);
+        ERROR("USB: UHCI: invalid transaction for transfer");
+        return;
     }
+    QH *pQH = &m_pQHList[pTransaction];
+    if (
+        pQH->pMetaData->pPrev || pQH->pMetaData->pNext ||
+        (!pQH->pMetaData->bPeriodic &&
+         pQH->pMetaData->completion.state() !=
+             UsbHcd::TransferCompletion::State::Idle))
+    {
+        ERROR("USB: UHCI: cannot extend an accepted transaction");
+        return;
+    }
+    nIndex = m_TDBitmap.getFirstClear();
+    if (nIndex >= (TD_REGION_SIZE / sizeof(TD)))
+    {
+        ERROR("USB: UHCI: TD space full");
+        return;
+    }
+    m_TDBitmap.set(nIndex);
 
     // Grab the TD
     TD *pTD = &m_pTDList[nIndex];
@@ -758,9 +941,6 @@ void Uhci::addTransferToTransaction(
     pTD->bNextInvalid =
         1;  // Assume next is invalid, will be zeroed if another TD is linked
     pTD->id = nIndex;
-
-    // Grab the QH
-    QH *pQH = &m_pQHList[pTransaction];
 
     // Active, and only allow one retry
     pTD->nStatus = 0x80;
@@ -828,18 +1008,21 @@ void Uhci::addTransferToTransaction(
 
 uintptr_t Uhci::createTransaction(UsbEndpoint endpointInfo)
 {
-    // Atomic operation: find clear bit, set it
+    OperationBarrier::Lease submission;
+    if (!m_SubmissionOperations.tryAcquire(submission))
+        return static_cast<uintptr_t>(-1);
+
+    LockGuard<Mutex> transactionGuard(m_Mutex);
     size_t nIndex = 0;
+    if (!m_pQHList)
+        return static_cast<uintptr_t>(-1);
+    nIndex = m_QHBitmap.getFirstClear();
+    if (nIndex >= (QH_REGION_SIZE / sizeof(QH)))
     {
-        LockGuard<Mutex> guard(m_Mutex);
-        nIndex = m_QHBitmap.getFirstClear();
-        if (nIndex >= (QH_REGION_SIZE / sizeof(QH)))
-        {
-            ERROR("USB: UHCI: QH space full");
-            return static_cast<uintptr_t>(-1);
-        }
-        m_QHBitmap.set(nIndex);
+        ERROR("USB: UHCI: QH space full");
+        return static_cast<uintptr_t>(-1);
     }
+    m_QHBitmap.set(nIndex);
 
     // Grab the QH
     QH *pQH = &m_pQHList[nIndex];
@@ -848,16 +1031,15 @@ uintptr_t Uhci::createTransaction(UsbEndpoint endpointInfo)
     // Only need to configure metadata, everything else is set during linkage
     // and TD creation
     pQH->pMetaData = new QH::MetaData;
+    pQH->pMetaData->pOwner = this;
+    pQH->pMetaData->pPeriodicCallback = nullptr;
+    pQH->pMetaData->pPeriodicParam = 0;
     pQH->pMetaData->endpointInfo = endpointInfo;
     pQH->pMetaData->bPeriodic = false;
     pQH->pMetaData->pFirstTD = pQH->pMetaData->pLastTD = 0;
     pQH->pMetaData->nTotalBytes = 0;
     pQH->pMetaData->pPrev = pQH->pMetaData->pNext = 0;
     pQH->pMetaData->bIgnore = false;
-    pQH->pMetaData->pCallback = nullptr;
-    pQH->pMetaData->pParam = 0;
-    pQH->pMetaData->completionState = 0;
-    pQH->pMetaData->completionGeneration = 0;
     pQH->pMetaData->id = nIndex;
 
     return nIndex;
@@ -867,87 +1049,108 @@ bool Uhci::doAsync(
     uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
     uintptr_t pParam)
 {
+    OperationBarrier::Lease submission;
+    if (!m_SubmissionOperations.tryAcquire(submission))
+        return false;
+
+    LockGuard<Mutex> transactionGuard(m_Mutex);
+    constexpr size_t QhListCount = QH_REGION_SIZE / sizeof(QH);
+    if ((pTransaction == static_cast<uintptr_t>(-1)) ||
+        (pTransaction >= QhListCount) ||
+        !m_QHBitmap.test(pTransaction))
     {
-        LockGuard<Mutex> guard(m_Mutex);
-        if ((pTransaction == static_cast<uintptr_t>(-1)) ||
-            !m_QHBitmap.test(pTransaction))
-        {
-            ERROR(
-                "UHCI: doAsync: didn't get a valid transaction id ["
-                << pTransaction << "].");
-            return false;
-        }
-
-        QH *pRejectedQH = &m_pQHList[pTransaction];
-        if (!pRejectedQH->pMetaData || !pRejectedQH->pMetaData->pLastTD)
-        {
-            ERROR(
-                "UHCI: doAsync: transaction has no transfers [" << pTransaction
-                                                                << "].");
-            delete pRejectedQH->pMetaData;
-            ByteSet(pRejectedQH, 0, sizeof(QH));
-            m_QHBitmap.clear(pTransaction);
-            return false;
-        }
-
-        pRejectedQH->pMetaData->pCallback = pCallback;
-        pRejectedQH->pMetaData->pParam = pParam;
-        pRejectedQH->pMetaData->completionGeneration =
-            m_CompletionDeliveries.nextGeneration();
-        pRejectedQH->pMetaData->completionState = 1;
-        pRejectedQH->pMetaData->pLastTD->bIoc = 1;
+        ERROR(
+            "UHCI: doAsync: didn't get a valid transaction id ["
+            << pTransaction << "].");
+        return false;
     }
 
-    // Stop a running controller. We're modifying the hardware list and we don't
-    // want it to be touched while we're changing it. Hardware doesn't care
-    // about our "change spinlock".
-    stop();
-
     QH *pQH = &m_pQHList[pTransaction];
-
-    // Do we need to configure the asynchronous schedule?
-    if (m_pCurrentAsyncQueueTail)
+    if (!pQH->pMetaData)
     {
-        // Current QH needs to point to the schedule's head
-        size_t queueHeadIndex =
+        ByteSet(pQH, 0, sizeof(QH));
+        m_QHBitmap.clear(pTransaction);
+        return false;
+    }
+    if (!pQH->pMetaData->pLastTD)
+    {
+        ERROR(
+            "UHCI: doAsync: transaction has no transfers [" << pTransaction
+                                                            << "].");
+        reclaimQueueHeadLocked(pQH);
+        return false;
+    }
+    if (
+        pQH->pMetaData->pPrev || pQH->pMetaData->pNext ||
+        (!pQH->pMetaData->bPeriodic &&
+         pQH->pMetaData->completion.state() !=
+             UsbHcd::TransferCompletion::State::Idle))
+    {
+        ERROR(
+            "UHCI: doAsync: transaction is already owned [" << pTransaction
+                                                             << "].");
+        return false;
+    }
+
+    if (!m_TransferOperations.tryEnter())
+    {
+        reclaimQueueHeadLocked(pQH);
+        return false;
+    }
+
+    LockGuard<Mutex> irqGuard(m_IrqProcessingLock);
+    if (m_InterruptsClosing || !m_pCurrentAsyncQueueTail)
+    {
+        if (!m_pCurrentAsyncQueueTail)
+            ERROR("UHCI: Queue tail is null!");
+        reclaimQueueHeadLocked(pQH);
+        m_TransferOperations.leave();
+        return false;
+    }
+
+    // m_IrqProcessingLock is the controller-wide DMA publication lock.
+    stop();
+    {
+        LockGuard<Mutex> queueGuard(m_AsyncQueueListChangeLock);
+
+        const size_t queueHeadIndex =
             (reinterpret_cast<uintptr_t>(m_pCurrentAsyncQueueHead) -
              reinterpret_cast<uintptr_t>(m_pQHList)) /
             sizeof(QH);
-        pQH->pNext = (m_pQHListPhys + (queueHeadIndex * sizeof(QH))) >> 4;
+        pQH->pNext =
+            (m_pQHListPhys + (queueHeadIndex * sizeof(QH))) >> 4;
         pQH->bNextInvalid = 0;
         pQH->bNextQH = 1;
-
-        LockGuard<Mutex> queueGuard(m_AsyncQueueListChangeLock);
-
         pQH->pMetaData->bIgnore = true;
-        m_AsyncSchedule.pushBack(pQH);
 
         QH *pOldTail = m_pCurrentAsyncQueueTail;
-
-        // Update the tail pointer
         m_pCurrentAsyncQueueTail = pQH;
-
-        // The current tail needs to point to this QH
-        pOldTail->pNext = (m_pQHListPhys + (pTransaction * sizeof(QH))) >> 4;
+        pOldTail->pNext =
+            (m_pQHListPhys + (pTransaction * sizeof(QH))) >> 4;
         pOldTail->bNextInvalid = 0;
         pOldTail->bNextQH = 1;
-
-        // Finally, fix the linked list
         pOldTail->pMetaData->pNext = pQH;
 
-        // Enter the information for correct dequeue
         pQH->pMetaData->pNext = m_pCurrentAsyncQueueHead;
         pQH->pMetaData->pPrev = pOldTail;
         m_pCurrentAsyncQueueHead->pMetaData->pPrev = pQH;
+        m_AsyncSchedule.pushBack(pQH);
 
-        // Ready for IRQs
+        pQH->pMetaData->pLastTD->bIoc = 1;
+        if (pQH->pMetaData->bPeriodic)
+        {
+            pQH->pMetaData->pPeriodicCallback = pCallback;
+            pQH->pMetaData->pPeriodicParam = pParam;
+        }
+        else
+        {
+            pQH->pMetaData->completion.arm(
+                pCallback, pParam, m_CompletionDeliveries.nextGeneration());
+        }
+
+        // Active is published only after both linked-list representations and
+        // the callback obligation are complete.
         pQH->pMetaData->bIgnore = false;
-    }
-    else
-    {
-        ERROR("UHCI: Queue tail is null!");
-        start();
-        return false;
     }
 
     start();
@@ -958,118 +1161,107 @@ void Uhci::cancelAsyncAndDrain(
     uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
     uintptr_t pParam)
 {
-    QH *pQH = nullptr;
-    bool ownsCancellation = false;
+    OperationBarrier::Lease cancellation;
+    if (!m_CancelOperations.tryAcquire(cancellation))
+        return;
+
+    List<UsbHcd::CallbackDeliveryQueue::Record *> completions;
     bool drainDelivery = false;
     UsbHcd::CallbackDeliveryQueue::Key deliveryKey = {0, 0};
-    uint16_t interruptMask = 0;
 
     {
-        LockGuard<Mutex> guard(m_Mutex);
+        LockGuard<Mutex> transactionGuard(m_Mutex);
+        constexpr size_t QhListCount = QH_REGION_SIZE / sizeof(QH);
         if ((pTransaction != static_cast<uintptr_t>(-1)) &&
+            (pTransaction < QhListCount) &&
             m_QHBitmap.test(pTransaction))
         {
-            pQH = &m_pQHList[pTransaction];
-            if (pQH->pMetaData && pQH->pMetaData->pParam == pParam)
+            QH *pQH = &m_pQHList[pTransaction];
+            if (pQH->pMetaData && !pQH->pMetaData->bPeriodic)
             {
-                const bool callbackMatches =
-                    pQH->pMetaData->pCallback == pCallback;
-                ownsCancellation =
-                    callbackMatches &&
-                    pQH->pMetaData->completionState.compareAndSwap(1, 3);
+                LockGuard<Mutex> irqGuard(m_IrqProcessingLock);
+                UsbHcd::TransferCompletion::Claim claim;
+                const auto disposition =
+                    pQH->pMetaData->completion.claimCancellation(
+                        pCallback, pParam, -TransactionError, claim);
+
                 if (
-                    !ownsCancellation && callbackMatches &&
-                    static_cast<size_t>(
-                        pQH->pMetaData->completionState) == 2)
+                    disposition == UsbHcd::TransferCompletion::
+                                       CancellationDisposition::Claimed)
                 {
-                    deliveryKey = {
-                        pTransaction,
-                        pQH->pMetaData->completionGeneration};
+                    const uint16_t interruptMask =
+                        m_pBase->read16(UHCI_INTR);
+                    m_pBase->write16(0, UHCI_INTR);
+                    (void) m_pBase->read16(UHCI_INTR);
+                    stop();
+
+                    const bool dequeueAdmitted =
+                        m_DequeueOperations.tryEnter();
+                    assert(dequeueAdmitted);
+                    if (dequeueAdmitted)
+                    {
+                        {
+                            LockGuard<Mutex> queueGuard(
+                                m_AsyncQueueListChangeLock);
+                            detachQueueHeadLocked(pQH);
+                        }
+
+                        completions.pushBack(
+                            m_CompletionDeliveries.create(
+                                {pQH->pMetaData->id, claim.generation},
+                                claim.callback, claim.parameter, claim.result,
+                                enqueueCompletedTransfer, pQH));
+                        m_CompletionDeliveries.publish(completions);
+                    }
+
+                    if (!m_InterruptsClosing)
+                    {
+                        start();
+                        m_pBase->write16(interruptMask, UHCI_INTR);
+                    }
+                    else
+                    {
+                        m_pBase->write16(0, UHCI_INTR);
+                    }
+                    (void) m_pBase->read16(UHCI_INTR);
+                }
+                else if (
+                    disposition ==
+                    UsbHcd::TransferCompletion::CancellationDisposition::
+                        DrainPublished)
+                {
+                    deliveryKey = {pTransaction, claim.generation};
                     drainDelivery = true;
                 }
             }
         }
-
-        if (ownsCancellation)
-        {
-            // Halting UHCI is the synchronous DMA ownership boundary. The IRQ
-            // lock then drains any handler which entered before interrupts
-            // were masked.
-            interruptMask = m_pBase->read16(UHCI_INTR);
-            m_pBase->write16(0, UHCI_INTR);
-            stop();
-
-            LockGuard<Mutex> irqGuard(m_IrqProcessingLock);
-            LockGuard<Mutex> queueGuard(m_AsyncQueueListChangeLock);
-
-            for (List<QH *>::Iterator it = m_AsyncSchedule.begin();
-                 it != m_AsyncSchedule.end();)
-            {
-                if (*it == pQH)
-                {
-                    m_AsyncSchedule.erase(it);
-                    break;
-                }
-                ++it;
-            }
-
-            QH *pPrev = pQH->pMetaData->pPrev;
-            QH *pNext = pQH->pMetaData->pNext;
-            if (pPrev && pNext)
-            {
-                pPrev->pMetaData->pNext = pNext;
-                pNext->pMetaData->pPrev = pPrev;
-                pPrev->pNext = pQH->pNext;
-                pPrev->bNextQH = 1;
-                pPrev->bNextInvalid = 0;
-                if (pQH == m_pCurrentAsyncQueueTail)
-                    m_pCurrentAsyncQueueTail = pPrev;
-            }
-            pQH->pMetaData->bIgnore = true;
-            pQH->pMetaData->pCallback = nullptr;
-
-            if (!m_InterruptsClosing)
-            {
-                start();
-                m_pBase->write16(interruptMask, UHCI_INTR);
-            }
-            else
-            {
-                m_pBase->write16(0, UHCI_INTR);
-            }
-            (void) m_pBase->read16(UHCI_INTR);
-        }
     }
 
-    if (!ownsCancellation)
+    while (completions.count())
     {
-        {
-            LockGuard<Mutex> irqGuard(m_IrqProcessingLock);
-        }
-        if (drainDelivery)
-            (void) m_CompletionDeliveries.drain(deliveryKey);
-        return;
+        auto *completion = completions.popFront();
+        m_CompletionDeliveries.deliver(completion);
     }
 
-    if (pCallback)
-    pCallback(pParam, -TransactionError);
-
-    if (m_DequeueOperations.tryEnter())
-    {
-        {
-            LockGuard<Mutex> queueGuard(m_AsyncQueueListChangeLock);
-            m_DequeueList.pushBack(pQH);
-        }
-        m_DequeueCount.release();
-    }
+    if (drainDelivery)
+        (void) m_CompletionDeliveries.drain(deliveryKey);
 }
 
 void Uhci::addInterruptInHandler(
     UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
     void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam)
 {
+    OperationBarrier::Lease submission;
+    if (!m_SubmissionOperations.tryAcquire(submission))
+        return;
+
     // Create a new transaction
     uintptr_t nTransaction = createTransaction(endpointInfo);
+    if (nTransaction == static_cast<uintptr_t>(-1))
+    {
+        ERROR("USB: UHCI: Couldn't create interrupt transaction!");
+        return;
+    }
 
     // Get the QH and set the periodic flag
     QH *pQH = &m_pQHList[nTransaction];
@@ -1080,6 +1272,9 @@ void Uhci::addInterruptInHandler(
     if (!pQH->pMetaData->pLastTD)
     {
         ERROR("USB: UHCI: Couldn't add transfer to transaction!");
+        LockGuard<Mutex> transactionGuard(m_Mutex);
+        if (m_QHBitmap.test(nTransaction) && pQH->pMetaData)
+            reclaimQueueHeadLocked(pQH);
         return;
     }
 
@@ -1089,7 +1284,12 @@ void Uhci::addInterruptInHandler(
 
     // Let doAsync do the rest
     if (!doAsync(nTransaction, pCallback, pParam))
+    {
         ERROR("USB: UHCI: Couldn't submit interrupt transaction!");
+        LockGuard<Mutex> transactionGuard(m_Mutex);
+        if (m_QHBitmap.test(nTransaction) && pQH->pMetaData)
+            reclaimQueueHeadLocked(pQH);
+    }
 }
 
 void Uhci::modifyPortControl(
@@ -1117,8 +1317,21 @@ bool Uhci::portReset(uint8_t nPort, bool bErrorResponse)
     {
         // Before port reset, disable the port
         modifyPortControl(portRegister, UHCI_PORTSC_ENABLE, 0);
-        while (m_pBase->read16(portRegister) & UHCI_PORTSC_ENABLE)
-            Time::delay(10 * Time::Multiplier::Millisecond);
+        constexpr size_t PortDisablePollLimit = 100;
+        size_t disablePolls = PortDisablePollLimit;
+        while (
+            disablePolls-- &&
+            (m_pBase->read16(portRegister) & UHCI_PORTSC_ENABLE))
+        {
+            Time::delay(1 * Time::Multiplier::Millisecond);
+        }
+        if (m_pBase->read16(portRegister) & UHCI_PORTSC_ENABLE)
+        {
+            ERROR(
+                "USB: UHCI: Port " << Dec << nPort << Hex
+                                    << " did not disable within 100 ms");
+            return false;
+        }
     }
 
     // Perform a reset of the port
@@ -1351,7 +1564,7 @@ void Uhci::stop()
     while (polls-- && !(m_pBase->read16(UHCI_STS) & UHCI_STS_HALT))
         Time::delay(1 * Time::Multiplier::Millisecond);
     if (!(m_pBase->read16(UHCI_STS) & UHCI_STS_HALT))
-        FATAL("UHCI controller did not halt within 100 ms");
+        panic("UHCI controller did not halt within 100 ms");
 }
 
 void Uhci::start()
@@ -1362,7 +1575,7 @@ void Uhci::start()
     while (polls-- && (m_pBase->read16(UHCI_STS) & UHCI_STS_HALT))
         Time::delay(1 * Time::Multiplier::Millisecond);
     if (m_pBase->read16(UHCI_STS) & UHCI_STS_HALT)
-        FATAL("UHCI controller did not start within 100 ms");
+        panic("UHCI controller did not start within 100 ms");
 }
 
 void Uhci::setLegacySupportControl(uint16_t control)
