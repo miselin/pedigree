@@ -23,6 +23,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
@@ -70,18 +71,13 @@ void Ohci::finishDeferredCompletion(void *context)
         LockGuard<ControllerLock> guard(controller->m_Mutex);
         ED *ed = cleanup->ed;
         if (
-            ed->pMetaData && ed->pMetaData->completionGeneration ==
-                                 cleanup->generation)
+            ed->pMetaData &&
+            ed->pMetaData->completion.generation() == cleanup->generation)
         {
-            const size_t id = ed->pMetaData->id & 0xFFF;
-            const Lists type = ed->pMetaData->edType;
-            delete ed->pMetaData;
-            ByteSet(ed, 0, sizeof(ED));
-            if (type == ControlList)
-                controller->m_ControlEDBitmap.clear(id);
-            else if (type == BulkList)
-                controller->m_BulkEDBitmap.clear(id);
+            controller->retireEDStorage(ed);
         }
+        else
+            FATAL("OHCI completion cleanup lost its transaction generation");
     }
     delete cleanup;
 }
@@ -89,14 +85,21 @@ void Ohci::finishDeferredCompletion(void *context)
 Ohci::Ohci(Device *pDev)
     : UsbHub(pDev), RequestQueue(MakeConstantString("OHCI")), m_pBase(0),
       m_nPorts(0), m_Initialised(false), m_Mutex(), m_PortResetMutex(),
-      m_IrqProcessingLock(), m_CompletionDeliveries(), m_RootHubLock(),
+      m_pHcca(nullptr), m_pHccaPhys(0), m_IrqProcessingLock(),
+      m_CompletionDeliveries(), m_RootHubLock(),
       m_RootHubStatusChangeDesired(false), m_PortResetActive(false),
       m_TeardownPhase(0), m_ScheduleChangeLock(), m_PeriodicListChangeLock(),
-      m_ControlListChangeLock(), m_BulkListChangeLock(), m_PeriodicEDBitmap(),
-      m_ControlEDBitmap(), m_BulkEDBitmap(), m_pBulkQueueHead(0),
-      m_pControlQueueHead(0), m_pBulkQueueTail(0), m_pControlQueueTail(0),
-      m_pPeriodicQueueTail(0), m_DequeueListLock(), m_DequeueList(),
-      m_DequeueCount(0), m_OhciMR("Ohci-MR"), m_CallbackOperations(), m_IrqId(0)
+      m_ControlListChangeLock(), m_BulkListChangeLock(),
+      m_pPeriodicEDList(nullptr), m_pPeriodicEDListPhys(0),
+      m_PeriodicEDBitmap(), m_pControlEDList(nullptr),
+      m_pControlEDListPhys(0), m_ControlEDBitmap(), m_pBulkEDList(nullptr),
+      m_pBulkEDListPhys(0), m_BulkEDBitmap(), m_pTDList(nullptr),
+      m_pTDListPhys(0), m_TDBitmap(), m_pBulkQueueHead(nullptr),
+      m_pControlQueueHead(nullptr), m_pBulkQueueTail(nullptr),
+      m_pControlQueueTail(nullptr), m_pPeriodicQueueTail(nullptr),
+      m_DequeueListLock(), m_DequeueList(), m_DequeueCount(0),
+      m_OhciMR("Ohci-MR"), m_CallbackOperations(), m_SubmissionOperations(),
+      m_CancellationOperations(), m_AcceptedOperations(), m_IrqId(0)
 {
     setSpecificType(String("OHCI"));
 
@@ -142,8 +145,17 @@ Ohci::Ohci(Device *pDev)
     ByteSet(pPeriodicED, 0, sizeof(ED));
     pPeriodicED->bSkip = true;
     pPeriodicED->pMetaData = new ED::MetaData;
+    pPeriodicED->pMetaData->pCallback = nullptr;
+    pPeriodicED->pMetaData->pParam = 0;
+    pPeriodicED->pMetaData->bPeriodic = true;
+    pPeriodicED->pMetaData->pFirstTD = nullptr;
+    pPeriodicED->pMetaData->pLastTD = nullptr;
+    pPeriodicED->pMetaData->nTotalBytes = 0;
+    pPeriodicED->pMetaData->bIgnore = true;
+    pPeriodicED->pMetaData->bLinked = false;
+    pPeriodicED->pMetaData->edType = PeriodicList;
+    pPeriodicED->pMetaData->acceptedOperation = false;
     pPeriodicED->pMetaData->id = 0x2000;
-    pPeriodicED->pMetaData->completionGeneration = 0;
     pPeriodicED->pMetaData->pPrev = pPeriodicED->pMetaData->pNext = pPeriodicED;
 
     // Set all HCCA interrupt ED entries to our periodic ED
@@ -186,9 +198,15 @@ Ohci::Ohci(Device *pDev)
         uint32_t status = m_pBase->read32(OhciCommandStatus);
         m_pBase->write32(
             status | OhciCommandRequestOwnership, OhciCommandStatus);
+        constexpr size_t OwnershipPollLimit = 1000;
+        size_t ownershipPolls = OwnershipPollLimit;
         while ((control = m_pBase->read32(OhciControl)) &
                OhciControlInterruptRoute)
+        {
+            if (!ownershipPolls--)
+                panic("OHCI firmware ownership handoff timed out after 1 s");
             Time::delay(1 * Time::Multiplier::Millisecond);
+        }
     }
     else
     {
@@ -212,8 +230,14 @@ Ohci::Ohci(Device *pDev)
 
     // Perform a full hardware reset.
     m_pBase->write32(OhciCommandHcReset, OhciCommandStatus);
+    constexpr size_t ResetPollLimit = 20;
+    size_t resetPolls = ResetPollLimit;
     while (m_pBase->read32(OhciCommandStatus) & OhciCommandHcReset)
+    {
+        if (!resetPolls--)
+            panic("OHCI controller reset timed out after 100 ms");
         Time::delay(5 * Time::Multiplier::Millisecond);
+    }
 
     // We now have 2 ms to complete all operations before we start the
     // controller. 5.1.1.4, OHCI spec.
@@ -398,16 +422,113 @@ Ohci::~Ohci()
     }
     RequestQueue::destroy();
 
+    // No new descriptor builder can race the terminal scan. Calls which were
+    // already admitted finish while the controller and transfer IRQ are live.
+    m_SubmissionOperations.closeAndWait();
+    m_AcceptedOperations.close();
+
+    List<UsbHcd::CallbackDeliveryQueue::Record *> completions;
+    uint32_t resetControl = 0;
+
+    if (m_pBase && m_pHcca)
+    {
+        LockGuard<ControllerLock> controllerGuard(m_Mutex);
+
+        // MIE closes new hardware publications. Confirming USBSUSPEND
+        // establishes ownership of every ED and TD before reclamation.
+        const uint32_t control = m_pBase->read32(OhciControl);
+        resetControl =
+            control & ~(OhciControlStateFunctionalMask | 0x3C);
+        m_pBase->write32(OhciInterruptMIE, OhciInterruptDisable);
+        transitionControllerState(
+            resetControl | OhciControlStateSuspended,
+            "OHCI teardown suspend timed out after 100 ms");
+
+        {
+            LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
+            m_TeardownPhase = 2;
+            m_CallbackOperations.close();
+
+            // A captured completion normally waits for SOF. The controller is
+            // now suspended, so teardown itself owns that reclamation boundary.
+            while (true)
+            {
+                ED *pED = nullptr;
+                {
+                    LockGuard<Spinlock> dequeueGuard(m_DequeueListLock);
+                    if (m_DequeueList.count())
+                        pED = m_DequeueList.popFront();
+                }
+                if (!pED)
+                    break;
+                terminalizeEDForTeardown(pED, completions);
+            }
+
+            constexpr size_t EdCount = 0x1000 / sizeof(ED);
+            for (size_t i = 0; i < EdCount; ++i)
+            {
+                if (m_ControlEDBitmap.test(i))
+                    terminalizeEDForTeardown(&m_pControlEDList[i], completions);
+                if (m_BulkEDBitmap.test(i))
+                    terminalizeEDForTeardown(&m_pBulkEDList[i], completions);
+            }
+
+            // Periodic callbacks are recurring events, not a one-shot terminal
+            // contract. Stop the subscription and reclaim it without inventing
+            // a final callback. Records already captured by an IRQ own snapshots
+            // and are drained by m_CallbackOperations below.
+            ED *pPeriodicDummy = m_pPeriodicEDList;
+            {
+                LockGuard<Spinlock> periodicGuard(m_PeriodicListChangeLock);
+                if (pPeriodicDummy)
+                {
+                    pPeriodicDummy->pNext = 0;
+                    if (pPeriodicDummy->pMetaData)
+                    {
+                        pPeriodicDummy->pMetaData->pPrev = pPeriodicDummy;
+                        pPeriodicDummy->pMetaData->pNext = pPeriodicDummy;
+                    }
+                    m_pPeriodicQueueTail = pPeriodicDummy;
+                }
+            }
+            for (size_t i = 1; i < EdCount; ++i)
+            {
+                if (!m_PeriodicEDBitmap.test(i))
+                    continue;
+
+                ED *pED = &m_pPeriodicEDList[i];
+                removeFromFullSchedule(pED);
+                pED->bSkip = true;
+                if (pED->pMetaData)
+                {
+                    pED->pMetaData->bIgnore = true;
+                    pED->pMetaData->bLinked = false;
+                    pED->pMetaData->pPrev = nullptr;
+                    pED->pMetaData->pNext = nullptr;
+                }
+                pED->pNext = 0;
+                retireEDStorage(pED);
+            }
+
+            if (completions.count())
+                m_CompletionDeliveries.publish(completions);
+
+            m_pBase->write32(OhciInterruptAll, OhciInterruptDisable);
+            (void) m_pBase->read32(OhciInterruptEnable);
+            m_pBase->write32(
+                OhciInterruptOwnershipChange | 0x7F, OhciInterruptStatus);
+            (void) m_pBase->read32(OhciInterruptStatus);
+
+            m_pBase->write32(0, OhciHcca);
+            m_pBase->write32(0, OhciControlHeadED);
+            m_pBase->write32(0, OhciBulkHeadED);
+            (void) m_pBase->read32(OhciHcca);
+        }
+    }
+    else
     {
         LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
         m_TeardownPhase = 2;
-        if (m_pBase)
-        {
-            m_pBase->write32(OhciInterruptAll, OhciInterruptDisable);
-            (void) m_pBase->read32(OhciInterruptEnable);
-        }
-        // Close admission while the IRQ lock prevents a level source from
-        // repeatedly entering a just-closed callback path.
         m_CallbackOperations.close();
     }
 
@@ -424,26 +545,49 @@ Ohci::~Ohci()
         m_IrqId = 0;
     }
 #endif
-    m_CallbackOperations.wait();
 
-    if (m_pBase)
+    while (completions.count())
     {
-        // USB suspend takes effect at a frame boundary. Once two frames have
-        // elapsed, the controller no longer owns the HCCA/ED/TD memory that
-        // the MemoryRegion destructor will release.
-        uint32_t control = m_pBase->read32(OhciControl);
-        control &= ~(OhciControlStateFunctionalMask | 0x3C);
-        m_pBase->write32(control | OhciControlStateSuspended, OhciControl);
-        (void) m_pBase->read32(OhciControl);
-        Time::delay(2 * Time::Multiplier::Millisecond);
+        auto *completion = completions.popFront();
+        m_CompletionDeliveries.deliver(completion);
+    }
 
-        m_pBase->write32(0, OhciHcca);
-        m_pBase->write32(0, OhciControlHeadED);
-        m_pBase->write32(0, OhciBulkHeadED);
-        (void) m_pBase->read32(OhciHcca);
+    m_CallbackOperations.wait();
+    m_AcceptedOperations.wait();
+    m_CancellationOperations.closeAndWait();
 
+    if (m_pPeriodicEDList && m_PeriodicEDBitmap.test(0))
+    {
+        LockGuard<ControllerLock> controllerGuard(m_Mutex);
+        retireEDStorage(m_pPeriodicEDList);
+        m_pPeriodicQueueTail = nullptr;
+    }
+
+    assert(m_CompletionDeliveries.empty());
+    assert(!m_DequeueList.count());
+    assert(!m_FullSchedule.count());
+    assert(!m_pControlQueueHead && !m_pControlQueueTail);
+    assert(!m_pBulkQueueHead && !m_pBulkQueueTail);
+    assert(!m_pPeriodicQueueTail);
+    constexpr size_t FinalEdCount = 0x1000 / sizeof(ED);
+    for (size_t i = 0; i < FinalEdCount; ++i)
+    {
+        assert(!m_ControlEDBitmap.test(i));
+        assert(!m_BulkEDBitmap.test(i));
+        assert(!m_PeriodicEDBitmap.test(i));
+    }
+    constexpr size_t FinalTdCount = 0x1000 / sizeof(TD);
+    for (size_t i = 0; i < FinalTdCount; ++i)
+        assert(!m_TDBitmap.test(i));
+    assert(m_SubmissionOperations.isClosedAndDrained());
+    assert(m_CallbackOperations.isClosedAndDrained());
+    assert(m_AcceptedOperations.isClosedAndDrained());
+    assert(m_CancellationOperations.isClosedAndDrained());
+
+    if (m_pBase && m_pHcca)
+    {
         // Leave the host controller in USBRESET, with every schedule disabled.
-        m_pBase->write32(control, OhciControl);
+        m_pBase->write32(resetControl, OhciControl);
         (void) m_pBase->read32(OhciControl);
         m_pHcca = nullptr;
     }
@@ -455,6 +599,29 @@ void Ohci::setRootHubStatusChangeSource(bool enabled)
         OhciInterruptRhStsChange,
         enabled ? OhciInterruptEnable : OhciInterruptDisable);
     (void) m_pBase->read32(OhciInterruptEnable);
+}
+
+void Ohci::transitionControllerState(
+    uint32_t control, const char *timeoutMessage)
+{
+    const uint32_t expected = control & OhciControlStateFunctionalMask;
+    m_pBase->write32(control, OhciControl);
+    (void) m_pBase->read32(OhciControl);
+
+    constexpr size_t TransitionPollLimit = 100;
+    size_t polls = TransitionPollLimit;
+    while (
+        polls-- &&
+        ((m_pBase->read32(OhciControl) & OhciControlStateFunctionalMask) !=
+         expected))
+    {
+        Time::delay(1 * Time::Multiplier::Millisecond);
+    }
+
+    if (
+        (m_pBase->read32(OhciControl) & OhciControlStateFunctionalMask) !=
+        expected)
+        panic(timeoutMessage);
 }
 
 void Ohci::removeED(ED *pED)
@@ -471,26 +638,51 @@ void Ohci::removeED(ED *pED)
         << " from the schedule to prepare for reclamation");
 #endif
 
-    // Make sure the ED is skipped by the host controller until it is properly
-    // dequeued.
+    const Lists type = pED->pMetaData->edType;
+    detachED(pED);
+
+    // This list remains stopped until SOF establishes the reclamation boundary.
+    stop(type);
+
+    {
+        LockGuard<Spinlock> guard(m_DequeueListLock);
+        m_DequeueList.pushBack(pED);
+    }
+
+    // Clear any pending SOF interrupt and then enable the SOF IRQ.
+    m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptStatus);
+    m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptEnable);
+}
+
+void Ohci::detachED(ED *pED)
+{
+    if (!pED || !pED->pMetaData)
+        return;
+
     pED->bSkip = true;
     pED->pMetaData->bIgnore = true;
+
+    if (!pED->pMetaData->bLinked)
+        return;
 
     ED *pPrev = pED->pMetaData->pPrev;
     ED *pNext = pED->pMetaData->pNext;
 
     ED **pQueueHead = 0;
     ED **pQueueTail = 0;
+    Spinlock *pListLock = nullptr;
 
     if (pED->pMetaData->edType == ControlList)
     {
         pQueueHead = &m_pControlQueueHead;
         pQueueTail = &m_pControlQueueTail;
+        pListLock = &m_ControlListChangeLock;
     }
     else if (pED->pMetaData->edType == BulkList)
     {
         pQueueHead = &m_pBulkQueueHead;
         pQueueTail = &m_pBulkQueueTail;
+        pListLock = &m_BulkListChangeLock;
     }
     else
     {
@@ -498,6 +690,7 @@ void Ohci::removeED(ED *pED)
         return;
     }
 
+    LockGuard<Spinlock> listGuard(*pListLock);
     bool bControl = pED->pMetaData->edType == ControlList;
 
     // Unlink from the hardware linked list.
@@ -533,19 +726,130 @@ void Ohci::removeED(ED *pED)
     if (pNext)
         pNext->pMetaData->pPrev = pPrev;
 
-    // Disable list processing for this ED
-    stop(pED->pMetaData->edType);
+    pED->pMetaData->pPrev = nullptr;
+    pED->pMetaData->pNext = nullptr;
+    pED->pMetaData->bLinked = false;
+    pED->pNext = 0;
+}
 
-    // Prepare the ED for reclamation in the next USB frame.
+void Ohci::removeFromFullSchedule(ED *pED)
+{
+    LockGuard<Spinlock> scheduleGuard(m_ScheduleChangeLock);
+    for (List<ED *>::Iterator it = m_FullSchedule.begin();
+         it != m_FullSchedule.end();)
     {
-        LockGuard<Spinlock> guard(m_DequeueListLock);
-        m_DequeueList.pushBack(pED);
+        if (*it == pED)
+        {
+            m_FullSchedule.erase(it);
+            return;
+        }
+        ++it;
+    }
+}
+
+void Ohci::removeFromDequeueList(ED *pED)
+{
+    LockGuard<Spinlock> dequeueGuard(m_DequeueListLock);
+    for (List<ED *>::Iterator it = m_DequeueList.begin();
+         it != m_DequeueList.end();)
+    {
+        if (*it == pED)
+        {
+            m_DequeueList.erase(it);
+            return;
+        }
+        ++it;
+    }
+}
+
+void Ohci::reclaimTransferDescriptors(ED *pED)
+{
+    if (!pED || !pED->pMetaData)
+        return;
+
+    for (List<TD *>::Iterator it = pED->pMetaData->completedTdList.begin();
+         it != pED->pMetaData->completedTdList.end(); ++it)
+    {
+        const size_t tdId = (*it)->id;
+        ByteSet(*it, 0, sizeof(TD));
+        m_TDBitmap.clear(tdId);
+    }
+    pED->pMetaData->completedTdList.clear();
+
+    for (List<TD *>::Iterator it = pED->pMetaData->tdList.begin();
+         it != pED->pMetaData->tdList.end(); ++it)
+    {
+        const size_t tdId = (*it)->id;
+        ByteSet(*it, 0, sizeof(TD));
+        m_TDBitmap.clear(tdId);
+    }
+    pED->pMetaData->tdList.clear();
+    pED->pMetaData->pFirstTD = nullptr;
+    pED->pMetaData->pLastTD = nullptr;
+}
+
+void Ohci::retireEDStorage(ED *pED)
+{
+    if (!pED || !pED->pMetaData)
+        return;
+
+    reclaimTransferDescriptors(pED);
+    ED::MetaData *metadata = pED->pMetaData;
+    const size_t id = metadata->id & 0xFFF;
+    const Lists type = metadata->edType;
+    const bool acceptedOperation = metadata->acceptedOperation;
+    delete metadata;
+    ByteSet(pED, 0, sizeof(ED));
+
+    if (type == ControlList)
+        m_ControlEDBitmap.clear(id);
+    else if (type == BulkList)
+        m_BulkEDBitmap.clear(id);
+    else if (type == PeriodicList)
+        m_PeriodicEDBitmap.clear(id);
+
+    if (acceptedOperation)
+        m_AcceptedOperations.leave();
+}
+
+UsbHcd::CallbackDeliveryQueue::Record *Ohci::prepareCompletion(
+    ED *pED, const UsbHcd::TransferCompletion::Claim &claim)
+{
+    assert(pED && pED->pMetaData);
+    assert(!pED->pMetaData->bPeriodic);
+    assert(claim.generation == pED->pMetaData->completion.generation());
+
+    reclaimTransferDescriptors(pED);
+    auto *cleanup = new OhciCompletionCleanup{this, pED, claim.generation};
+    return m_CompletionDeliveries.create(
+        {pED->pMetaData->id, claim.generation}, claim.callback,
+        claim.parameter, claim.result, finishDeferredCompletion, cleanup);
+}
+
+void Ohci::terminalizeEDForTeardown(
+    ED *pED, List<UsbHcd::CallbackDeliveryQueue::Record *> &completions)
+{
+    if (!pED || !pED->pMetaData || pED->pMetaData->bPeriodic)
+        return;
+
+    removeFromFullSchedule(pED);
+    detachED(pED);
+    removeFromDequeueList(pED);
+
+    if (
+        pED->pMetaData->completion.state() ==
+        UsbHcd::TransferCompletion::State::Idle)
+    {
+        retireEDStorage(pED);
+        return;
     }
 
-    // Clear any pending SOF interrupt and then enable the SOF IRQ.
-    // The IRQ handler will pick up a SOF status and clean up the ED.
-    m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptStatus);
-    m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptEnable);
+    UsbHcd::TransferCompletion::Claim claim;
+    if (pED->pMetaData->completion.claimForTeardown(
+            -TransactionError, claim))
+    {
+        completions.pushBack(prepareCompletion(pED, claim));
+    }
 }
 
 #if X86_COMMON
@@ -664,68 +968,38 @@ void Ohci::interrupt(size_t number, InterruptState &state)
         m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptDisable);
 
         // Process the reclaim list.
-            constexpr size_t EdListCount = 3 * (0x1000 / sizeof(ED));
-            size_t reclaimBudget = EdListCount;
-            while (reclaimBudget)
+        constexpr size_t EdListCount = 3 * (0x1000 / sizeof(ED));
+        size_t reclaimBudget = EdListCount;
+        while (reclaimBudget)
         {
-                ED *pED = nullptr;
-                {
-                    LockGuard<Spinlock> guard(m_DequeueListLock);
-                    if (m_DequeueList.count())
-                        pED = m_DequeueList.popFront();
-                    else
-                break;
-                }
+            ED *pED = nullptr;
+            {
+                LockGuard<Spinlock> guard(m_DequeueListLock);
+                if (m_DequeueList.count())
+                    pED = m_DequeueList.popFront();
+                else
+                    break;
+            }
 
-                --reclaimBudget;
+            --reclaimBudget;
             if (pED)
             {
-                    const size_t transaction = pED->pMetaData->id;
-                    const size_t generation =
-                        pED->pMetaData->completionGeneration;
-                    const Lists type = pED->pMetaData->edType;
-                void (*completion)(uintptr_t, ssize_t) =
-                    pED->pMetaData->pCallback;
-                const uintptr_t completionParam = pED->pMetaData->pParam;
-                const ssize_t completionResult =
-                    pED->pMetaData->completionResult;
-
-                for (List<TD *>::Iterator it =
-                         pED->pMetaData->completedTdList.begin();
-                     it != pED->pMetaData->completedTdList.end(); ++it)
-                {
-                    const size_t tdId = (*it)->id;
-                    ByteSet(*it, 0, sizeof(TD));
-                    m_TDBitmap.clear(tdId);
-                }
-                for (List<TD *>::Iterator it =
-                         pED->pMetaData->tdList.begin();
-                     it != pED->pMetaData->tdList.end(); ++it)
-                {
-                    const size_t tdId = (*it)->id;
-                    ByteSet(*it, 0, sizeof(TD));
-                    m_TDBitmap.clear(tdId);
-                }
+                const Lists type = pED->pMetaData->edType;
+                UsbHcd::TransferCompletion::Claim claim;
+                const bool ownsPublication =
+                    pED->pMetaData->completion.claimCaptured(claim);
 
 #ifdef USB_VERBOSE_DEBUG
-                    DEBUG_LOG(
-                        "OHCI: freeing ED #" << pED->pMetaData->id << ".");
+                DEBUG_LOG(
+                    "OHCI: freeing ED #" << pED->pMetaData->id << ".");
 #endif
 
 #if X86_COMMON
-                    auto *cleanup = new OhciCompletionCleanup{
-                        this, pED, generation};
-                    completions.pushBack(m_CompletionDeliveries.create(
-                        {transaction, generation}, completion, completionParam,
-                        completionResult, finishDeferredCompletion, cleanup));
+                if (ownsPublication)
+                    completions.pushBack(prepareCompletion(pED, claim));
 #else
-                    const size_t id = transaction & 0xFFF;
-                delete pED->pMetaData;
-                ByteSet(pED, 0, sizeof(ED));
-                    if (type == ControlList)
-                        m_ControlEDBitmap.clear(id);
-                    else if (type == BulkList)
-                        m_BulkEDBitmap.clear(id);
+                if (ownsPublication)
+                    reclaimTransferDescriptors(pED);
 #endif
 
                 // Safe to restore this list to the running state.
@@ -733,18 +1007,22 @@ void Ohci::interrupt(size_t number, InterruptState &state)
                 start(type);
 
 #if !X86_COMMON
-                    if (completion)
-                        completion(completionParam, completionResult);
-#endif
-                }
-            }
-
-            {
-                LockGuard<Spinlock> guard(m_DequeueListLock);
-                if (m_DequeueList.count())
+                if (ownsPublication)
                 {
-                    sofDrained = false;
-                    ERROR_NOLOCK("OHCI: exceeded the SOF reclaim scan budget");
+                    if (claim.callback)
+                        claim.callback(claim.parameter, claim.result);
+                    retireEDStorage(pED);
+                }
+#endif
+            }
+        }
+
+        {
+            LockGuard<Spinlock> guard(m_DequeueListLock);
+            if (m_DequeueList.count())
+            {
+                sofDrained = false;
+                ERROR_NOLOCK("OHCI: exceeded the SOF reclaim scan budget");
             }
         }
     }
@@ -936,13 +1214,11 @@ void Ohci::interrupt(size_t number, InterruptState &state)
                     const ssize_t completionResult =
                             nResult < 0 ? nResult : pED->pMetaData->nTotalBytes;
                     const bool ownsCompletion =
-                        bPeriodic ||
-                            pED->pMetaData->completionState.compareAndSwap(
-                                1, 2);
+                        bPeriodic || pED->pMetaData->completion.captureNatural(
+                                         completionResult);
 
                     if (!bPeriodic && ownsCompletion)
                     {
-                        pED->pMetaData->completionResult = completionResult;
                         removeED(pED);
                         continue;
                     }
@@ -962,8 +1238,7 @@ void Ohci::interrupt(size_t number, InterruptState &state)
                             completions.pushBack(
                                 m_CompletionDeliveries.create(
                                     {pED->pMetaData->id,
-                                     pED->pMetaData
-                                         ->completionGeneration},
+                                     m_CompletionDeliveries.nextGeneration()},
                                     pED->pMetaData->pCallback,
                                     pED->pMetaData->pParam,
                                     completionResult));
@@ -1066,18 +1341,54 @@ void Ohci::addTransferToTransaction(
     uintptr_t pTransaction, bool bToggle, UsbPid pid, uintptr_t pBuffer,
     size_t nBytes)
 {
-    // Atomic operation: find clear bit, set it
-    size_t nIndex = 0;
+    OperationBarrier::Lease submission;
+    if (!m_SubmissionOperations.tryAcquire(submission))
+        return;
+
+    LockGuard<ControllerLock> controllerGuard(m_Mutex);
+    LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
+
+    constexpr size_t EdCount = 0x1000 / sizeof(ED);
+    const size_t transactionType = (pTransaction & 0x3000) >> 12;
+    const uintptr_t edOffset = pTransaction & 0xFFF;
+    ED *pED = nullptr;
+    bool valid = edOffset < EdCount;
+    if (valid && transactionType == 0)
     {
-        LockGuard<ControllerLock> guard(m_Mutex);
-        nIndex = m_TDBitmap.getFirstClear();
-        if (nIndex >= (0x1000 / sizeof(TD)))
-        {
-            ERROR("USB: OHCI: TD space full");
-            return;
-        }
-        m_TDBitmap.set(nIndex);
+        valid = m_ControlEDBitmap.test(edOffset);
+        pED = valid ? &m_pControlEDList[edOffset] : nullptr;
     }
+    else if (valid && transactionType == 1)
+    {
+        valid = m_BulkEDBitmap.test(edOffset);
+        pED = valid ? &m_pBulkEDList[edOffset] : nullptr;
+    }
+    else if (valid && transactionType == 2)
+    {
+        valid = m_PeriodicEDBitmap.test(edOffset);
+        pED = valid ? &m_pPeriodicEDList[edOffset] : nullptr;
+    }
+    else
+        valid = false;
+
+    if (
+        pTransaction == static_cast<uintptr_t>(-1) || !valid || !pED ||
+        !pED->pMetaData ||
+        pED->pMetaData->acceptedOperation ||
+        pED->pMetaData->completion.state() !=
+            UsbHcd::TransferCompletion::State::Idle)
+    {
+        ERROR("USB: OHCI: transaction " << pTransaction << " is invalid.");
+        return;
+    }
+
+    size_t nIndex = m_TDBitmap.getFirstClear();
+    if (nIndex >= (0x1000 / sizeof(TD)))
+    {
+        ERROR("USB: OHCI: TD space full");
+        return;
+    }
+    m_TDBitmap.set(nIndex);
 
     // Grab the TD pointer we're going to set up now
     TD *pTD = &m_pTDList[nIndex];
@@ -1105,6 +1416,7 @@ void Ohci::addTransferToTransaction(
 
     // Active
     pTD->nStatus = 0xf;
+    (void) bToggle;
 
     // Buffer for transfer
     if (nBytes)
@@ -1124,6 +1436,7 @@ void Ohci::addTransferToTransaction(
             ERROR(
                 "OHCI: addTransferToTransaction: Buffer (page "
                 << Dec << pBuffer << Hex << ") isn't mapped!");
+            ByteSet(pTD, 0, sizeof(TD));
             m_TDBitmap.clear(nIndex);
             return;
         }
@@ -1133,34 +1446,6 @@ void Ohci::addTransferToTransaction(
 
     // This is the last TD so far
     pTD->bLast = true;
-
-    // pTransaction will be 0x0xxx for CONTROL, 0x1xxx for BULK, 0x2xxx for
-    // PERIODIC.
-    size_t transactionType = (pTransaction & 0x3000) >> 12;
-    uintptr_t edOffset = pTransaction & 0xFFF;
-
-    ED *pED = 0;
-    switch (transactionType)
-    {
-        case 0:
-            pED = &m_pControlEDList[edOffset];
-            break;
-        case 1:
-            pED = &m_pBulkEDList[edOffset];
-            break;
-        case 2:
-            pED = &m_pPeriodicEDList[edOffset];
-            break;
-        default:
-            break;
-    }
-
-    if (!pED)
-    {
-        /// \todo Clean up!
-        ERROR("USB: OHCI: transaction " << pTransaction << " is invalid.");
-        return;
-    }
 
     // Add our TD to the ED's queue.
     if (pED->pMetaData->pLastTD)
@@ -1181,37 +1466,36 @@ void Ohci::addTransferToTransaction(
 
 uintptr_t Ohci::createTransaction(UsbEndpoint endpointInfo)
 {
+    OperationBarrier::Lease submission;
+    if (!m_SubmissionOperations.tryAcquire(submission))
+        return static_cast<uintptr_t>(-1);
+
     // Determine what kind of transaction this is.
     bool bIsBulk = endpointInfo.nEndpoint > 0;
 
-    // Atomic operation: find clear bit, set it
-    ED *pED = 0;
-    size_t nIndex = 0;
+    LockGuard<ControllerLock> controllerGuard(m_Mutex);
+    LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
+
+    ED *pED = nullptr;
+    size_t nIndex = bIsBulk ? m_BulkEDBitmap.getFirstClear() :
+                              m_ControlEDBitmap.getFirstClear();
+
+    if (nIndex >= (0x1000 / sizeof(ED)))
     {
-        LockGuard<ControllerLock> guard(m_Mutex);
+        ERROR("USB: OHCI: ED space full");
+        return static_cast<uintptr_t>(-1);
+    }
 
-        if (bIsBulk)
-            nIndex = m_BulkEDBitmap.getFirstClear();
-        else
-            nIndex = m_ControlEDBitmap.getFirstClear();
-
-        if (nIndex >= (0x1000 / sizeof(ED)))
-        {
-            ERROR("USB: OHCI: ED space full");
-            return static_cast<uintptr_t>(-1);
-        }
-
-        if (bIsBulk)
-        {
-            m_BulkEDBitmap.set(nIndex);
-            pED = &m_pBulkEDList[nIndex];
-            nIndex += 0x1000;
-        }
-        else
-        {
-            m_ControlEDBitmap.set(nIndex);
-            pED = &m_pControlEDList[nIndex];
-        }
+    if (bIsBulk)
+    {
+        m_BulkEDBitmap.set(nIndex);
+        pED = &m_pBulkEDList[nIndex];
+        nIndex += 0x1000;
+    }
+    else
+    {
+        m_ControlEDBitmap.set(nIndex);
+        pED = &m_pControlEDList[nIndex];
     }
 
     ByteSet(pED, 0, sizeof(ED));
@@ -1240,9 +1524,7 @@ uintptr_t Ohci::createTransaction(UsbEndpoint endpointInfo)
     pED->pMetaData->bLinked = false;
     pED->pMetaData->pCallback = nullptr;
     pED->pMetaData->pParam = 0;
-    pED->pMetaData->completionState = 0;
-    pED->pMetaData->completionGeneration = 0;
-    pED->pMetaData->completionResult = -TransactionError;
+    pED->pMetaData->acceptedOperation = false;
 
     // Complete
     return nIndex;
@@ -1252,76 +1534,79 @@ bool Ohci::doAsync(
     uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
     uintptr_t pParam)
 {
+    OperationBarrier::Lease submission;
+    if (!m_SubmissionOperations.tryAcquire(submission))
+        return false;
+
+    LockGuard<ControllerLock> controllerGuard(m_Mutex);
+    LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
+
     // pTransaction will be 0x0xxx for CONTROL, 0x1xxx for BULK, 0x2xxx for
     // PERIODIC.
-    size_t transactionType = (pTransaction & 0x3000) >> 12;
-    uintptr_t edOffset = pTransaction & 0xFFF;
+    const size_t transactionType = (pTransaction & 0x3000) >> 12;
+    const uintptr_t edOffset = pTransaction & 0xFFF;
+    constexpr size_t EdCount = 0x1000 / sizeof(ED);
 
-    Spinlock *pLock = 0;
-
-    ED *pED = 0;
+    Spinlock *pLock = nullptr;
+    ED *pED = nullptr;
+    bool valid = edOffset < EdCount;
+    if (valid && transactionType == 0)
     {
-        LockGuard<ControllerLock> guard(m_Mutex);
+        valid = m_ControlEDBitmap.test(edOffset);
+        pED = valid ? &m_pControlEDList[edOffset] : nullptr;
+        pLock = &m_ControlListChangeLock;
+    }
+    else if (valid && transactionType == 1)
+    {
+        valid = m_BulkEDBitmap.test(edOffset);
+        pED = valid ? &m_pBulkEDList[edOffset] : nullptr;
+        pLock = &m_BulkListChangeLock;
+    }
+    else
+        valid = false;
 
-        bool bValid = false;
-        if (transactionType == 0)
-            bValid = m_ControlEDBitmap.test(edOffset);
-        else if (transactionType == 1)
-            bValid = m_BulkEDBitmap.test(edOffset);
-
-        if ((pTransaction == static_cast<uintptr_t>(-1)) || !bValid)
-        {
-            ERROR(
-                "OHCI: doAsync: didn't get a valid transaction id ["
-                << pTransaction << ", " << edOffset << "].");
-            return false;
-        }
-
-        if (transactionType == 0)
-        {
-            pED = &m_pControlEDList[edOffset];
-            pLock = &m_ControlListChangeLock;
-        }
-        else if (transactionType == 1)
-        {
-            pED = &m_pBulkEDList[edOffset];
-            pLock = &m_BulkListChangeLock;
-        }
-        else
-        {
-            ERROR(
-                "OHCI: doAsync: only control and bulk transactions supported");
-            return false;
-        }
-
-        if (!pED->pMetaData || !pED->pMetaData->pLastTD)
-        {
-            ERROR(
-                "OHCI: doAsync: transaction has no transfers [" << pTransaction
-                                                                << "].");
-            delete pED->pMetaData;
-            ByteSet(pED, 0, sizeof(ED));
-            if (transactionType == 0)
-                m_ControlEDBitmap.clear(edOffset);
-            else
-                m_BulkEDBitmap.clear(edOffset);
-            return false;
-        }
-
-    pED->pMetaData->pCallback = pCallback;
-    pED->pMetaData->pParam = pParam;
-        pED->pMetaData->completionGeneration =
-            m_CompletionDeliveries.nextGeneration();
-    pED->pMetaData->completionState = 1;
-    pED->pMetaData->completionResult = -TransactionError;
+    if (pTransaction == static_cast<uintptr_t>(-1) || !valid)
+    {
+        ERROR(
+            "OHCI: doAsync: didn't get a valid transaction id ["
+            << pTransaction << ", " << edOffset << "].");
+        return false;
     }
 
-    bool bControl = !pED->pMetaData->endpointInfo.nEndpoint;
+    if (!pED->pMetaData)
+    {
+        ERROR("OHCI: doAsync: transaction metadata is missing");
+        return false;
+    }
 
-    // Stop the controller as we are modifying the queue.
-    // stop(pED->pMetaData->edType);
+    if (
+        pED->pMetaData->completion.state() !=
+        UsbHcd::TransferCompletion::State::Idle)
+    {
+        ERROR("OHCI: doAsync: transaction is already accepted");
+        return false;
+    }
 
-    // Lock while we modify the linked lists.
+    if (!pED->pMetaData->pLastTD)
+    {
+        ERROR(
+            "OHCI: doAsync: transaction has no transfers [" << pTransaction
+                                                            << "].");
+        retireEDStorage(pED);
+        return false;
+    }
+
+    if (!m_AcceptedOperations.tryEnter())
+    {
+        retireEDStorage(pED);
+        return false;
+    }
+    pED->pMetaData->acceptedOperation = true;
+
+    const bool bControl = transactionType == 0;
+
+    // Link the ED while it is still skipped. IRQ completion, cancellation and
+    // teardown are all excluded by m_IrqProcessingLock until the final unskip.
     pLock->acquire();
 
     // Always at the end of the ED queue. Zero means "no next ED" to OHCI.
@@ -1350,7 +1635,7 @@ bool Ohci::doAsync(
     }
 
     // Grab the queue head.
-    ED *pQueueHead = 0;
+    ED *pQueueHead = nullptr;
     physical_uintptr_t queueHeadPhys = 0;
     if (bControl)
     {
@@ -1389,7 +1674,7 @@ bool Ohci::doAsync(
     }
 
     // Grab the current tail of the list and update it to point to us.
-    ED *pTail = 0;
+    ED *pTail = nullptr;
     if (bControl)
     {
         pTail = m_pControlQueueTail;
@@ -1409,21 +1694,24 @@ bool Ohci::doAsync(
     }
 
     // Fix up the software linked list.
-    pED->pMetaData->pNext = 0;
+    pED->pMetaData->pNext = nullptr;
     pED->pMetaData->pPrev = pTail;
-    pQueueHead->pMetaData->pPrev = 0;
-
-    // Enable handling of this ED now.
-    pED->bSkip = pED->pMetaData->bIgnore = false;
+    pQueueHead->pMetaData->pPrev = nullptr;
     pED->pMetaData->bLinked = true;
 
-    // Can now unlock.
     pLock->release();
 
-    // Add to the housekeeping schedule before we link in proper.
-    m_ScheduleChangeLock.acquire();
-    m_FullSchedule.pushBack(pED);
-    m_ScheduleChangeLock.release();
+    {
+        LockGuard<Spinlock> scheduleGuard(m_ScheduleChangeLock);
+        m_FullSchedule.pushBack(pED);
+    }
+
+    // Arming immediately before unskip makes the callback obligation and the
+    // hardware publication one indivisible commit to every competing path.
+    pED->pMetaData->completion.arm(
+        pCallback, pParam, m_CompletionDeliveries.nextGeneration());
+    FENCE();
+    pED->bSkip = pED->pMetaData->bIgnore = false;
 
     // Restart the controller if it was stopped for some reason.
     start(pED->pMetaData->edType);
@@ -1442,138 +1730,136 @@ void Ohci::cancelAsyncAndDrain(
     uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
     uintptr_t pParam)
 {
-    bool deliverCompletion = false;
+    OperationBarrier::Lease cancellation;
+    if (!m_CancellationOperations.tryAcquire(cancellation) || !m_pBase)
+        return;
+
     bool drainDelivery = false;
-    ssize_t completionResult = -TransactionError;
     UsbHcd::CallbackDeliveryQueue::Key deliveryKey = {0, 0};
+    List<UsbHcd::CallbackDeliveryQueue::Record *> completions;
     ED *pED = nullptr;
 
     {
-        LockGuard<ControllerLock> guard(m_Mutex);
+        LockGuard<ControllerLock> controllerGuard(m_Mutex);
 
-        // USBSUSPEND takes effect at a frame boundary. Waiting two frames
-        // establishes the DMA ownership boundary before any TD is reclaimed.
-        const uint32_t savedControl = m_pBase->read32(OhciControl);
+        // Confirm USBSUSPEND before treating the controller's EDs and TDs as
+        // software-owned.
+        uint32_t savedControl = m_pBase->read32(OhciControl);
         m_pBase->write32(OhciInterruptMIE, OhciInterruptDisable);
-        m_pBase->write32(
+        transitionControllerState(
             (savedControl & ~OhciControlStateFunctionalMask) |
                 OhciControlStateSuspended,
-            OhciControl);
-        Time::delay(2 * Time::Multiplier::Millisecond);
+            "OHCI cancellation suspend timed out after 100 ms");
+
+        bool restoreController = false;
 
         {
             LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
 
             const size_t transactionType = (pTransaction & 0x3000) >> 12;
             const uintptr_t edOffset = pTransaction & 0xFFF;
-            bool valid = false;
-            if (transactionType == 0)
+            constexpr size_t EdCount = 0x1000 / sizeof(ED);
+            bool valid = edOffset < EdCount;
+            if (valid && transactionType == 0)
             {
                 valid = m_ControlEDBitmap.test(edOffset);
                 pED = valid ? &m_pControlEDList[edOffset] : nullptr;
             }
-            else if (transactionType == 1)
+            else if (valid && transactionType == 1)
             {
                 valid = m_BulkEDBitmap.test(edOffset);
                 pED = valid ? &m_pBulkEDList[edOffset] : nullptr;
             }
-
-            if (pED && pED->pMetaData && pED->pMetaData->pParam == pParam)
-            {
-                const bool callbackMatches =
-                    pED->pMetaData->pCallback == pCallback;
-                const bool cancellationWon =
-                    callbackMatches &&
-                    pED->pMetaData->completionState.compareAndSwap(1, 3);
-                const bool naturalCompletionPending =
-                    !cancellationWon &&
-                    static_cast<size_t>(pED->pMetaData->completionState) == 2;
-                if (cancellationWon)
-                {
-                    deliverCompletion = true;
-                    pED->pMetaData->pCallback = nullptr;
-                    pED->pMetaData->completionResult = completionResult;
-                }
-                else if (naturalCompletionPending && callbackMatches)
-                {
-                    deliveryKey = {
-                        pTransaction,
-                        pED->pMetaData->completionGeneration};
-                    drainDelivery =
-                        m_CompletionDeliveries.contains(deliveryKey);
-                    if (!drainDelivery && callbackMatches)
-                    {
-                        deliverCompletion = true;
-                        completionResult =
-                            pED->pMetaData->completionResult;
-                        pED->pMetaData->pCallback = nullptr;
-                    }
-                }
-            }
-
-            if (deliverCompletion && !pED->pMetaData->bIgnore)
-            {
-                {
-                    LockGuard<Spinlock> scheduleGuard(m_ScheduleChangeLock);
-                    for (List<ED *>::Iterator it = m_FullSchedule.begin();
-                         it != m_FullSchedule.end();)
-                    {
-                        if (*it == pED)
-                        {
-                            m_FullSchedule.erase(it);
-                            break;
-                        }
-                        ++it;
-                    }
-                }
-
-                removeED(pED);
-            }
-
-            if (m_TeardownPhase < 2)
-            {
-                m_pBase->write32(savedControl, OhciControl);
-                m_pBase->write32(OhciInterruptMIE, OhciInterruptEnable);
-            }
             else
+                valid = false;
+
+            Lists completedList = ControlList;
+            if (valid && pED && pED->pMetaData)
+            {
+                UsbHcd::TransferCompletion::Claim claim;
+                const auto disposition =
+                    pED->pMetaData->completion.claimCancellation(
+                        pCallback, pParam, -TransactionError, claim);
+                if (
+                    disposition == UsbHcd::TransferCompletion::
+                                       CancellationDisposition::Claimed)
+                {
+                    completedList = pED->pMetaData->edType;
+                    removeFromFullSchedule(pED);
+                    detachED(pED);
+                    removeFromDequeueList(pED);
+                    completions.pushBack(prepareCompletion(pED, claim));
+                    m_CompletionDeliveries.publish(completions);
+                }
+                else if (
+                    disposition == UsbHcd::TransferCompletion::
+                                       CancellationDisposition::DrainPublished)
+                {
+                    deliveryKey = {pTransaction, claim.generation};
+                    drainDelivery = true;
+                }
+
+                // A natural completion may have stopped its list while waiting
+                // for SOF. Cancellation supplied that DMA boundary itself.
+                if (completions.count())
+                    savedControl |= static_cast<uint32_t>(completedList);
+            }
+
+            restoreController = m_TeardownPhase < 2;
+            if (!restoreController)
             {
                 m_pBase->write32(OhciInterruptAll, OhciInterruptDisable);
+                (void) m_pBase->read32(OhciInterruptEnable);
             }
+        }
+
+        if (restoreController)
+        {
+            // This may restore USBOPERATIONAL or USBRESUME. The state poll is
+            // outside IRQ serialization so a slow controller cannot hold up
+            // an interrupt path.
+            transitionControllerState(
+                savedControl,
+                "OHCI cancellation restore timed out after 100 ms");
+
+            LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
+            m_pBase->write32(OhciInterruptMIE, OhciInterruptEnable);
             (void) m_pBase->read32(OhciInterruptEnable);
         }
     }
 
-    if (deliverCompletion && pCallback)
-        pCallback(pParam, completionResult);
-#if X86_COMMON
-    else if (drainDelivery)
+    while (completions.count())
+    {
+        auto *completion = completions.popFront();
+        m_CompletionDeliveries.deliver(completion);
+    }
+    if (drainDelivery)
         (void) m_CompletionDeliveries.drain(deliveryKey);
-#endif
 }
 
 void Ohci::addInterruptInHandler(
     UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
     void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam)
 {
-    // Atomic operation: find clear bit, set it
-    ED *pED = 0;
-    size_t nIndex = 0;
+    OperationBarrier::Lease submission;
+    if (!m_SubmissionOperations.tryAcquire(submission))
+        return;
+
+    LockGuard<ControllerLock> controllerGuard(m_Mutex);
+    LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
+
+    size_t nIndex = m_PeriodicEDBitmap.getFirstClear();
+    if (nIndex >= (0x1000 / sizeof(ED)))
     {
-        LockGuard<ControllerLock> guard(m_Mutex);
-
-        nIndex = m_PeriodicEDBitmap.getFirstClear();
-        if (nIndex >= (0x1000 / sizeof(ED)))
-        {
-            ERROR("USB: OHCI: ED space full");
-            return;
-        }
-
-        m_PeriodicEDBitmap.set(nIndex);
-        pED = &m_pPeriodicEDList[nIndex];
-
-        // Periodic identifier
-        nIndex += 0x2000;
+        ERROR("USB: OHCI: ED space full");
+        return;
     }
+
+    m_PeriodicEDBitmap.set(nIndex);
+    ED *pED = &m_pPeriodicEDList[nIndex];
+
+    // Periodic identifier
+    nIndex += 0x2000;
 
     ByteSet(pED, 0, sizeof(ED));
 
@@ -1604,15 +1890,26 @@ void Ohci::addInterruptInHandler(
     // Set up the callback and pointer.
     pED->pMetaData->pCallback = pCallback;
     pED->pMetaData->pParam = pParam;
-    pED->pMetaData->completionGeneration =
-        m_CompletionDeliveries.nextGeneration();
-    pED->pMetaData->completionState = 1;
-    pED->pMetaData->completionResult = -TransactionError;
+    pED->pMetaData->acceptedOperation = false;
+
+    // Periodic transfer construction remains incomplete in this driver: the
+    // supplied buffer and length are not yet represented by a TD. Teardown
+    // still owns and drains the subscription which this legacy path publishes.
+    (void) pBuffer;
+    (void) nBytes;
+
+    if (!m_AcceptedOperations.tryEnter())
+    {
+        retireEDStorage(pED);
+        return;
+    }
+    pED->pMetaData->acceptedOperation = true;
 
     // Add to the housekeeping schedule before we link in proper.
-    m_ScheduleChangeLock.acquire();
-    m_FullSchedule.pushBack(pED);
-    m_ScheduleChangeLock.release();
+    {
+        LockGuard<Spinlock> scheduleGuard(m_ScheduleChangeLock);
+        m_FullSchedule.pushBack(pED);
+    }
 
     // Lock before linking.
     LockGuard<Spinlock> guard(m_PeriodicListChangeLock);

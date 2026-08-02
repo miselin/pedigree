@@ -22,6 +22,7 @@
 
 #include "CallbackDelivery.h"
 #include "PortChangeRequest.h"
+#include "TransferCompletion.h"
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/Atomic.h"
@@ -152,6 +153,7 @@ class Ohci : public UsbHub,
 
         struct MetaData
         {
+            /** Used only by the recurring periodic path. */
             void (*pCallback)(uintptr_t, ssize_t);
             uintptr_t pParam;
 
@@ -173,9 +175,8 @@ class Ohci : public UsbHub,
             bool bLinked;
 
             Lists edType;
-            Atomic<size_t> completionState;
-            size_t completionGeneration;
-            ssize_t completionResult;
+            UsbHcd::TransferCompletion completion;
+            bool acceptedOperation;
 
             size_t id;
         } * pMetaData;
@@ -241,8 +242,36 @@ class Ohci : public UsbHub,
      */
     void setRootHubStatusChangeSource(bool enabled);
 
-    /// Prepares an ED to be reclaimed.
+    /** Writes HcControl and waits for the requested functional state. */
+    void transitionControllerState(
+        uint32_t control, const char *timeoutMessage);
+
+    /// Detaches an ED and queues it for reclamation at the next frame.
     void removeED(ED *pED);
+
+    /** Detaches a control or bulk ED without arming SOF or restarting a list. */
+    void detachED(ED *pED);
+
+    /** Removes an ED from the software completion schedule if present. */
+    void removeFromFullSchedule(ED *pED);
+
+    /** Removes an ED from the next-frame reclaim list if present. */
+    void removeFromDequeueList(ED *pED);
+
+    /** Releases every TD owned by an ED after the DMA ownership boundary. */
+    void reclaimTransferDescriptors(ED *pED);
+
+    /** Releases ED metadata and its accepted-operation lease. */
+    void retireEDStorage(ED *pED);
+
+    /** Builds the sole delivery record for a claimed one-shot transfer. */
+    UsbHcd::CallbackDeliveryQueue::Record *prepareCompletion(
+        ED *pED, const UsbHcd::TransferCompletion::Claim &claim);
+
+    /** Claims and materializes one ED while the suspended controller is owned. */
+    void terminalizeEDForTeardown(
+        ED *pED,
+        List<UsbHcd::CallbackDeliveryQueue::Record *> &completions);
 
     static void finishDeferredCompletion(void *context);
 
@@ -444,6 +473,15 @@ class Ohci : public UsbHub,
 
     /** Closes and drains interrupt callbacks before controller teardown. */
     OperationBarrier m_CallbackOperations;
+
+    /** Short-lived create/build/submit operations closed before ED scanning. */
+    OperationBarrier m_SubmissionOperations;
+
+    /** Cancellation calls remain admitted until terminal callbacks drain. */
+    OperationBarrier m_CancellationOperations;
+
+    /** One lease per accepted one-shot or periodic subscription. */
+    OperationBarrier m_AcceptedOperations;
     irq_id_t m_IrqId;
 
     Ohci(const Ohci &);
