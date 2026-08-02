@@ -21,7 +21,6 @@
 
 #include <errno.h>
 #include <stdio.h>
-#include <unistd.h>
 
 #include <atomic>
 #include <chrono>
@@ -75,6 +74,8 @@ static void closeSocket(int fd)
 
 int main(int argc, char **argv)
 {
+    setvbuf(stdout, nullptr, _IOLBF, 0);
+
     StreamingStderrLogger logger;
     Log::instance().installCallback(&logger, true);
 
@@ -86,12 +87,6 @@ int main(int argc, char **argv)
         g_pUnixFilesystem, g_pUnixFilesystem->getVolumeLabel());
 
     printf("=> Datagram tests...\n");
-
-    // do any cleanup we need to do
-    unlink("s1");
-    unlink("s2");
-    unlink("s3");
-    unlink("s4");
 
     int s1 = posix_socket(AF_UNIX, SOCK_DGRAM, 0);
     if (s1 == -1)

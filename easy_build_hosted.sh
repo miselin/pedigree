@@ -3,10 +3,17 @@
 # Build the native utilities and the hosted Pedigree kernel.
 
 set -e
+set -o pipefail
 
 old=$(pwd)
 script_dir=$(cd -P -- "$(dirname -- "$0")" && pwd -P)
 cd "$script_dir"
+
+unixsockets_timeout=${PEDIGREE_HOSTED_UNIXSOCKETS_TIMEOUT_SECONDS:-60}
+if [[ ! "$unixsockets_timeout" =~ ^[1-9][0-9]*$ ]]; then
+    echo "PEDIGREE_HOSTED_UNIXSOCKETS_TIMEOUT_SECONDS must be a positive integer." >&2
+    exit 2
+fi
 
 hosted_parallel_args=(--parallel)
 if [ -n "${PEDIGREE_VERIFY_JOBS:-}" ]; then
@@ -70,6 +77,9 @@ if [ "${PEDIGREE_HOSTED_CONTAINER:-0}" != "1" ] &&
     if [ -n "${PEDIGREE_VERIFY_JOBS:-}" ]; then
         docker_run_args+=(--env "PEDIGREE_VERIFY_JOBS=$PEDIGREE_VERIFY_JOBS")
     fi
+    docker_run_args+=(
+        --env "PEDIGREE_HOSTED_UNIXSOCKETS_TIMEOUT_SECONDS=$unixsockets_timeout"
+    )
 
     if [ "$reuse_image" = "1" ]; then
         image_id=$(
@@ -193,6 +203,24 @@ run_hosted_smoke()
         --expected-heap "$heap"
 }
 
+run_unixsockets_test()
+{
+    local command=(
+        python3 "$script_dir/scripts/run-with-deadline.py"
+        --seconds "$unixsockets_timeout"
+        --label "hosted Unix-socket integration test"
+        -- "$host_build_dir/src/buildutil/unixsockets"
+    )
+
+    if [ -n "${PEDIGREE_VERIFY_LOG_DIR:-}" ]; then
+        mkdir -p "$PEDIGREE_VERIFY_LOG_DIR"
+        "${command[@]}" 2>&1 |
+            tee "$PEDIGREE_VERIFY_LOG_DIR/unixsockets.log"
+    else
+        "${command[@]}"
+    fi
+}
+
 echo
 echo "Configuring and building native utilities and tests."
 cmake -S "$script_dir" -B "$host_build_dir" \
@@ -200,6 +228,7 @@ cmake -S "$script_dir" -B "$host_build_dir" \
 cmake --build "$host_build_dir" "${hosted_parallel_args[@]}" \
     --target testsuite headerify ext2img keymap memorytracer unixsockets
 ctest --test-dir "$host_build_dir" --output-on-failure --no-tests=error
+run_unixsockets_test
 
 first_heap=1
 for heap in system slam; do
