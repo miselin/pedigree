@@ -232,6 +232,7 @@ set(TESTSUITE_SRCS
     testsuite/test-ExtensibleBitmap.cc
     testsuite/test-Time.cc
     testsuite/test-Atomic.cc
+    testsuite/test-IntrusiveMpscQueue.cc
     testsuite/test-SymbolTable.cc
     testsuite/test-RadixTree.cc
     testsuite/test-HashTable.cc
