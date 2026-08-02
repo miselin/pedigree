@@ -7,23 +7,95 @@
 
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/time/Time.h"
 
 static_assert(
     __atomic_always_lock_free(sizeof(size_t), nullptr),
     "IRQ doorbell words must be lock-free");
+static_assert(
+    __atomic_always_lock_free(sizeof(uintptr_t), nullptr),
+    "IRQ diagnostic identities must be lock-free");
+static_assert(
+    __atomic_always_lock_free(sizeof(Thread::DebugState), nullptr),
+    "IRQ worker debug state must be lock-free");
+
+namespace
+{
+size_t elapsedSince(size_t now, size_t then)
+{
+    return then && now >= then ? now - then : 0;
+}
+
+void updateMaximum(size_t &maximum, size_t value)
+{
+    if (value > __atomic_load_n(&maximum, __ATOMIC_RELAXED))
+    {
+        // Each physical line has exactly one worker updating its maxima.
+        __atomic_store_n(&maximum, value, __ATOMIC_RELEASE);
+    }
+}
+
+IrqWorkerDebugState workerDebugState(Thread::DebugState state)
+{
+    switch (state)
+    {
+        case Thread::None:
+            return IrqWorkerDebugState::None;
+        case Thread::SemWait:
+            return IrqWorkerDebugState::SemaphoreWait;
+        case Thread::CondWait:
+            return IrqWorkerDebugState::ConditionWait;
+        case Thread::Joining:
+            return IrqWorkerDebugState::Joining;
+        case Thread::FutexWait:
+            return IrqWorkerDebugState::FutexWait;
+        case Thread::EventWait:
+            return IrqWorkerDebugState::EventWait;
+        case Thread::ProcessWait:
+            return IrqWorkerDebugState::ProcessWait;
+        case Thread::CallbackDrain:
+            return IrqWorkerDebugState::CallbackDrain;
+    }
+    return IrqWorkerDebugState::Unavailable;
+}
+
+IrqWorkerWaitReason workerWaitReason(WaitQueue::WakeReason reason)
+{
+    switch (reason)
+    {
+        case WaitQueue::WakeReason::Waiting:
+            return IrqWorkerWaitReason::Waiting;
+        case WaitQueue::WakeReason::Signalled:
+            return IrqWorkerWaitReason::Signalled;
+        case WaitQueue::WakeReason::Event:
+            return IrqWorkerWaitReason::Event;
+        case WaitQueue::WakeReason::Unwinding:
+            return IrqWorkerWaitReason::Unwinding;
+        case WaitQueue::WakeReason::Terminating:
+            return IrqWorkerWaitReason::Terminating;
+        case WaitQueue::WakeReason::Spurious:
+            return IrqWorkerWaitReason::Spurious;
+    }
+    return IrqWorkerWaitReason::Unavailable;
+}
+}  // namespace
 
 ThreadedIrqDispatcher::Line::Line()
     : m_Owner(nullptr), m_Callback(nullptr), m_CallbackContext(nullptr),
       m_Thread(nullptr), m_Scheduler(nullptr), m_Line(0), m_PendingCookie(0),
       m_ActiveCookie(0), m_CallbackActive(0),
       m_PublicationState(PublicationClosed), m_Started(0),
-      m_CompletedBatches(0), m_CompletedCookie(0)
+      m_CompletedBatches(0), m_CompletedCookie(0), m_PendingSinceTimestamp(0),
+      m_ActiveCallbackStartedTimestamp(0), m_LastWakeLatency(0),
+      m_MaximumWakeLatency(0), m_LastCallbackRuntime(0),
+      m_MaximumCallbackRuntime(0)
 {
 }
 
@@ -55,15 +127,30 @@ bool ThreadedIrqDispatcher::Line::start()
         return false;
     }
 
-    __atomic_store_n(&m_PendingCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_PendingCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(&m_ActiveCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
-    __atomic_store_n(&m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(
         &m_PublicationState, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(
         &m_CompletedBatches, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(
         &m_CompletedCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_PendingSinceTimestamp, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_ActiveCallbackStartedTimestamp, static_cast<size_t>(0),
+        __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_LastWakeLatency, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_MaximumWakeLatency, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_LastCallbackRuntime, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_MaximumCallbackRuntime, static_cast<size_t>(0), __ATOMIC_RELEASE);
 
     m_Scheduler = &Processor::information().getScheduler();
     Thread *thread = new Thread(
@@ -102,8 +189,7 @@ void ThreadedIrqDispatcher::Line::beginStop()
     }
     // One atomic word closes admission and counts publishers already inside
     // publishFromInterrupt(). The worker does not exit until that count drains.
-    __atomic_fetch_or(
-        &m_PublicationState, PublicationClosed, __ATOMIC_ACQ_REL);
+    __atomic_fetch_or(&m_PublicationState, PublicationClosed, __ATOMIC_ACQ_REL);
     m_Scheduler->ringIrqWorkDoorbell();
 }
 
@@ -123,9 +209,11 @@ bool ThreadedIrqDispatcher::Line::join()
     __atomic_store_n(
         &m_Thread, static_cast<Thread *>(nullptr), __ATOMIC_RELEASE);
     __atomic_store_n(&m_Started, static_cast<size_t>(0), __ATOMIC_RELEASE);
-    __atomic_store_n(&m_PendingCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_PendingCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(&m_ActiveCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
-    __atomic_store_n(&m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
     return true;
 }
 
@@ -148,10 +236,17 @@ bool ThreadedIrqDispatcher::Line::publishFromInterrupt(size_t cookie)
     // Controller dispatch serialises the one hard producer for each physical
     // line. The worker is the only consumer and can only exchange the value
     // to zero, so this store cannot overwrite a newer producer publication.
-    const size_t pending =
-        __atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE);
+    const size_t pending = __atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE);
     if (!pending || generationReached(cookie, pending))
     {
+        if (!pending)
+        {
+            // Diagnostic only: a claim racing this sample can
+            // conservatively retain the preceding batch's start time.
+            __atomic_store_n(
+                &m_PendingSinceTimestamp, static_cast<size_t>(Time::getTicks()),
+                __ATOMIC_RELEASE);
+        }
         __atomic_store_n(&m_PendingCookie, cookie, __ATOMIC_RELEASE);
     }
 
@@ -212,6 +307,73 @@ bool ThreadedIrqDispatcher::Line::publicationClosed() const
             PublicationClosed) != 0;
 }
 
+void ThreadedIrqDispatcher::Line::snapshotDiagnostics(
+    IrqLineDiagnosticSnapshot &snapshot) const
+{
+    snapshot.workerDiagnosticAvailable = false;
+    snapshot.workerDebugState = IrqWorkerDebugState::Unavailable;
+    snapshot.workerDebugAddress = 0;
+    snapshot.workerWaitActive = false;
+    snapshot.workerWaitQueue = 0;
+    snapshot.workerWaitChannelOwner = 0;
+    snapshot.workerWaitChannelValue = 0;
+    snapshot.workerWaitReason = IrqWorkerWaitReason::Unavailable;
+    snapshot.workerWaitStateLevel = 0;
+    snapshot.workerWaitQueued = false;
+    snapshot.observationTimestamp = static_cast<size_t>(Time::getTicks());
+    snapshot.pendingSinceTimestamp =
+        __atomic_load_n(&m_PendingSinceTimestamp, __ATOMIC_ACQUIRE);
+    snapshot.activeCallbackStartedTimestamp =
+        __atomic_load_n(&m_ActiveCallbackStartedTimestamp, __ATOMIC_ACQUIRE);
+    snapshot.lastWakeLatency =
+        __atomic_load_n(&m_LastWakeLatency, __ATOMIC_ACQUIRE);
+    snapshot.maximumWakeLatency =
+        __atomic_load_n(&m_MaximumWakeLatency, __ATOMIC_ACQUIRE);
+    snapshot.lastCallbackRuntime =
+        __atomic_load_n(&m_LastCallbackRuntime, __ATOMIC_ACQUIRE);
+    snapshot.maximumCallbackRuntime =
+        __atomic_load_n(&m_MaximumCallbackRuntime, __ATOMIC_ACQUIRE);
+
+    // Shutdown closes this shared admission word before joining the worker.
+    // A diagnostic reader admitted here therefore pins m_Thread until its
+    // detached copy is complete without taking a lock which the debugger may
+    // have interrupted another CPU while holding.
+    const size_t admission = __atomic_fetch_add(
+        &m_PublicationState, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+    if (admission & PublicationClosed)
+    {
+        __atomic_fetch_sub(
+            &m_PublicationState, static_cast<size_t>(1), __ATOMIC_RELEASE);
+        return;
+    }
+
+    Thread *thread = __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE);
+    if (thread)
+    {
+        snapshot.workerDiagnosticAvailable = true;
+        uintptr_t debugAddress = 0;
+        snapshot.workerDebugState =
+            workerDebugState(thread->getDebugState(debugAddress));
+        snapshot.workerDebugAddress = debugAddress;
+
+        Thread::WaitDebugInfo wait = {};
+        if (thread->getWaitDebugInfo(wait))
+        {
+            snapshot.workerWaitActive = true;
+            snapshot.workerWaitQueue = reinterpret_cast<uintptr_t>(wait.queue);
+            snapshot.workerWaitChannelOwner =
+                reinterpret_cast<uintptr_t>(wait.channelOwner);
+            snapshot.workerWaitChannelValue = wait.channelValue;
+            snapshot.workerWaitReason = workerWaitReason(wait.reason);
+            snapshot.workerWaitStateLevel = wait.stateLevel;
+            snapshot.workerWaitQueued = wait.queued;
+        }
+    }
+
+    __atomic_fetch_sub(
+        &m_PublicationState, static_cast<size_t>(1), __ATOMIC_RELEASE);
+}
+
 int ThreadedIrqDispatcher::Line::workerEntry(void *context)
 {
     return reinterpret_cast<Line *>(context)->run();
@@ -222,8 +384,7 @@ bool ThreadedIrqDispatcher::Line::workerReady(void *context)
     Line *line = reinterpret_cast<Line *>(context);
     return __atomic_load_n(&line->m_PendingCookie, __ATOMIC_ACQUIRE) ||
            __atomic_load_n(&line->m_CallbackActive, __ATOMIC_ACQUIRE) ||
-           (__atomic_load_n(
-                &line->m_PublicationState, __ATOMIC_ACQUIRE) &
+           (__atomic_load_n(&line->m_PublicationState, __ATOMIC_ACQUIRE) &
             PublicationClosed);
 }
 
@@ -239,17 +400,32 @@ int ThreadedIrqDispatcher::Line::run()
         // can park this worker after it clears the only pending predicate.
         __atomic_store_n(
             &m_CallbackActive, static_cast<size_t>(1), __ATOMIC_RELEASE);
+        const size_t pendingSince =
+            __atomic_load_n(&m_PendingSinceTimestamp, __ATOMIC_ACQUIRE);
         const size_t cookie = __atomic_exchange_n(
             &m_PendingCookie, static_cast<size_t>(0), __ATOMIC_ACQ_REL);
         if (cookie)
         {
+            const size_t started = static_cast<size_t>(Time::getTicks());
+            const size_t wakeLatency = elapsedSince(started, pendingSince);
+            __atomic_store_n(&m_LastWakeLatency, wakeLatency, __ATOMIC_RELEASE);
+            updateMaximum(m_MaximumWakeLatency, wakeLatency);
+            __atomic_store_n(
+                &m_ActiveCallbackStartedTimestamp, started, __ATOMIC_RELEASE);
             __atomic_store_n(&m_ActiveCookie, cookie, __ATOMIC_RELEASE);
             m_Callback(m_CallbackContext, m_Line, cookie);
+            const size_t completed = static_cast<size_t>(Time::getTicks());
+            const size_t runtime = elapsedSince(completed, started);
+            __atomic_store_n(&m_LastCallbackRuntime, runtime, __ATOMIC_RELEASE);
+            updateMaximum(m_MaximumCallbackRuntime, runtime);
             __atomic_add_fetch(
                 &m_CompletedBatches, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
             __atomic_store_n(&m_CompletedCookie, cookie, __ATOMIC_RELEASE);
             __atomic_store_n(
                 &m_ActiveCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
+            __atomic_store_n(
+                &m_ActiveCallbackStartedTimestamp, static_cast<size_t>(0),
+                __ATOMIC_RELEASE);
             __atomic_store_n(
                 &m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
             // A continuously asserted source must not turn its threaded
@@ -261,8 +437,8 @@ int ThreadedIrqDispatcher::Line::run()
 
         __atomic_store_n(
             &m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
-        const size_t publicationState = __atomic_load_n(
-            &m_PublicationState, __ATOMIC_ACQUIRE);
+        const size_t publicationState =
+            __atomic_load_n(&m_PublicationState, __ATOMIC_ACQUIRE);
         if (publicationState & PublicationClosed)
         {
             if (publicationState & PublicationCountMask)
@@ -447,4 +623,13 @@ bool ThreadedIrqDispatcher::callbackActive(uint8_t line) const
 bool ThreadedIrqDispatcher::publicationClosed(uint8_t line) const
 {
     return line < m_LineCount && m_Lines[line].publicationClosed();
+}
+
+void ThreadedIrqDispatcher::snapshotDiagnostics(
+    uint8_t line, IrqLineDiagnosticSnapshot &snapshot) const
+{
+    if (line < m_LineCount)
+    {
+        m_Lines[line].snapshotDiagnostics(snapshot);
+    }
 }

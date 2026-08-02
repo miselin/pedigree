@@ -147,7 +147,7 @@ bool IrqsCommand::execute(
             continue;
         }
 
-        HugeStaticString line;
+        IrqDiagnosticString line;
         IrqDiagnosticRenderer::render(m_Snapshots[i], line);
         screen->writeCli(line, DebuggerIO::LightGrey, DebuggerIO::Black);
         rendered = true;

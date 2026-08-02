@@ -73,8 +73,56 @@ const char *lineReleaseName(IrqLineRelease release)
     return "unknown";
 }
 
+const char *workerDebugStateName(IrqWorkerDebugState state)
+{
+    switch (state)
+    {
+        case IrqWorkerDebugState::Unavailable:
+            return "unavailable";
+        case IrqWorkerDebugState::None:
+            return "none";
+        case IrqWorkerDebugState::SemaphoreWait:
+            return "sem-wait";
+        case IrqWorkerDebugState::ConditionWait:
+            return "cond-wait";
+        case IrqWorkerDebugState::Joining:
+            return "joining";
+        case IrqWorkerDebugState::FutexWait:
+            return "futex-wait";
+        case IrqWorkerDebugState::EventWait:
+            return "event-wait";
+        case IrqWorkerDebugState::ProcessWait:
+            return "process-wait";
+        case IrqWorkerDebugState::CallbackDrain:
+            return "callback-drain";
+    }
+    return "unknown";
+}
+
+const char *workerWaitReasonName(IrqWorkerWaitReason reason)
+{
+    switch (reason)
+    {
+        case IrqWorkerWaitReason::Unavailable:
+            return "unavailable";
+        case IrqWorkerWaitReason::Waiting:
+            return "waiting";
+        case IrqWorkerWaitReason::Signalled:
+            return "signalled";
+        case IrqWorkerWaitReason::Event:
+            return "event";
+        case IrqWorkerWaitReason::Unwinding:
+            return "unwinding";
+        case IrqWorkerWaitReason::Terminating:
+            return "terminating";
+        case IrqWorkerWaitReason::Spurious:
+            return "spurious";
+    }
+    return "unknown";
+}
+
 void appendMaskReason(
-    HugeStaticString &line, bool &first, uint16_t reasons, uint16_t reason,
+    IrqDiagnosticString &line, bool &first, uint16_t reasons, uint16_t reason,
     const char *name)
 {
     if (!(reasons & reason))
@@ -90,7 +138,7 @@ void appendMaskReason(
     first = false;
 }
 
-void appendMaskReasons(HugeStaticString &line, uint16_t reasons)
+void appendMaskReasons(IrqDiagnosticString &line, uint16_t reasons)
 {
     if (reasons == IrqMaskNone)
     {
@@ -125,11 +173,11 @@ void appendMaskReasons(HugeStaticString &line, uint16_t reasons)
 }
 
 void appendHardDispatchState(
-    HugeStaticString &line, const IrqLineDiagnosticSnapshot &snapshot)
+    IrqDiagnosticString &line, const IrqLineDiagnosticSnapshot &snapshot)
 {
-    line += " hard-count=";
+    line += " hard[pins=";
     line.append(snapshot.activeHardDispatchCount);
-    line += " hard-gen=";
+    line += " gen=";
     if (!snapshot.activeHardDispatchCount)
     {
         line += "none";
@@ -144,45 +192,134 @@ void appendHardDispatchState(
     {
         line += "ambiguous";
     }
+    line += ']';
+}
+
+void appendAge(
+    IrqDiagnosticString &line, bool present, size_t observed, size_t started)
+{
+    if (!present || !started || observed < started)
+    {
+        line += "none";
+    }
+    else
+    {
+        line.append(observed - started);
+    }
 }
 
 void appendWorkerState(
-    HugeStaticString &line, const IrqLineDiagnosticSnapshot &snapshot)
+    IrqDiagnosticString &line, const IrqLineDiagnosticSnapshot &snapshot)
 {
     line += "\n  worker=0x";
     line.append(snapshot.workerIdentity, 16);
-    line += " cookies[published=";
+    line += " handler=";
+    if (!snapshot.activeThreadedDispatchCount)
+    {
+        line += "none";
+    }
+    else if (
+        snapshot.activeThreadedDispatchCount == 1 &&
+        snapshot.activeThreadedHandlerIdentity)
+    {
+        line += "0x";
+        line.append(snapshot.activeThreadedHandlerIdentity, 16);
+    }
+    else
+    {
+        line += "ambiguous";
+    }
+    line += " pins=";
+    line.append(snapshot.activeThreadedDispatchCount);
+    line += " cookie[pub=";
     line.append(snapshot.publicationCookie);
     line += " pending=";
     line.append(snapshot.pendingCookie);
     line += " active=";
     line.append(snapshot.activeCookie);
-    line += " completed=";
+    line += " done=";
     line.append(snapshot.completedCookie);
     line += "] batches=";
     line.append(snapshot.completedBatches);
-    line += " failures[worker-publish=";
+    line += " fail[publish=";
     line.append(snapshot.publicationFailures);
-    line += " diag-publish=";
+    line += " diag=";
     line.append(snapshot.diagnosticPublicationFailures);
-    line += "] state[ack-pending=";
+    line += "] state[ack=";
     line += yesNo(snapshot.acknowledgementPending);
-    line += " threaded-pending=";
+    line += " threaded=";
     line += yesNo(snapshot.threadedPending);
-    line += " worker-initialised=";
+    line += " init=";
     line += yesNo(snapshot.dispatcherInitialised);
-    line += " worker-active=";
+    line += " active=";
     line += yesNo(snapshot.dispatcherActive);
-    line += " worker-closed=";
+    line += " closed=";
     line += yesNo(snapshot.dispatcherClosed);
-    line += " hard-stage-active=";
+    line += " hard=";
     line += yesNo(snapshot.hardStageActive);
+    line += "]\n";
+}
+
+void appendTimingState(
+    IrqDiagnosticString &line, const IrqLineDiagnosticSnapshot &snapshot)
+{
+    line += "  ns[pending=";
+    appendAge(
+        line, snapshot.pendingCookie != 0, snapshot.observationTimestamp,
+        snapshot.pendingSinceTimestamp);
+    line += " active=";
+    appendAge(
+        line, snapshot.activeCookie != 0, snapshot.observationTimestamp,
+        snapshot.activeCallbackStartedTimestamp);
+    line += " wake=";
+    line.append(snapshot.lastWakeLatency);
+    line += '/';
+    line.append(snapshot.maximumWakeLatency);
+    line += " runtime=";
+    line.append(snapshot.lastCallbackRuntime);
+    line += '/';
+    line.append(snapshot.maximumCallbackRuntime);
+    line += "]\n";
+}
+
+void appendWorkerDebugState(
+    IrqDiagnosticString &line, const IrqLineDiagnosticSnapshot &snapshot)
+{
+    line += "  debug[";
+    if (!snapshot.workerDiagnosticAvailable)
+    {
+        line += "unavailable]\n";
+        return;
+    }
+
+    line += "state=";
+    line += workerDebugStateName(snapshot.workerDebugState);
+    line += " addr=0x";
+    line.append(snapshot.workerDebugAddress, 16);
+    if (!snapshot.workerWaitActive)
+    {
+        line += " wait=none]\n";
+        return;
+    }
+
+    line += " waitq=0x";
+    line.append(snapshot.workerWaitQueue, 16);
+    line += " channel=0x";
+    line.append(snapshot.workerWaitChannelOwner, 16);
+    line += ":0x";
+    line.append(snapshot.workerWaitChannelValue, 16);
+    line += " reason=";
+    line += workerWaitReasonName(snapshot.workerWaitReason);
+    line += " level=";
+    line.append(snapshot.workerWaitStateLevel);
+    line += " queued=";
+    line += yesNo(snapshot.workerWaitQueued);
     line += "]\n";
 }
 }  // namespace
 
 void IrqDiagnosticRenderer::render(
-    const IrqLineDiagnosticSnapshot &snapshot, HugeStaticString &line)
+    const IrqLineDiagnosticSnapshot &snapshot, IrqDiagnosticString &line)
 {
     line.clear();
     line += "irq ";
@@ -195,9 +332,9 @@ void IrqDiagnosticRenderer::render(
     }
     else
     {
-        line += " snapshot=";
+        line += " snap=";
         line.append(snapshot.snapshotGeneration);
-        line += " configured=";
+        line += " cfg=";
         line += yesNo(snapshot.configured);
         line += " handlers=";
         line.append(snapshot.handlerCount);
@@ -212,25 +349,27 @@ void IrqDiagnosticRenderer::render(
         line += " release=";
         line +=
             snapshot.configured ? lineReleaseName(snapshot.lineRelease) : "n/a";
-        line += " requested=";
-        line += snapshot.requestedEnabled ? "enabled" : "disabled";
+        line += " req=";
+        line += snapshot.requestedEnabled ? "on" : "off";
         line += " masked=";
         line += yesNo(snapshot.effectiveMasked);
         line += " mask=";
         appendMaskReasons(line, snapshot.maskReasons);
     }
 
-    line += " dispatch-gen=";
+    line += " gen=";
     line.append(snapshot.dispatchGeneration);
-    line += " ack-gen=";
+    line += " acked=";
     line.append(snapshot.acknowledgedGeneration);
-    line += " counts[total=";
+    line += " count[irq=";
     line.append(snapshot.interruptCount);
-    line += " spurious=";
+    line += " spur=";
     line.append(snapshot.spuriousCount);
     line += " unhandled=";
     line.append(snapshot.unhandledCount);
     line += ']';
     appendHardDispatchState(line, snapshot);
     appendWorkerState(line, snapshot);
+    appendTimingState(line, snapshot);
+    appendWorkerDebugState(line, snapshot);
 }

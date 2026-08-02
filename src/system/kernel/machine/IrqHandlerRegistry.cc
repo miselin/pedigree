@@ -1114,6 +1114,42 @@ size_t IrqHandlerRegistry::hardDispatchState(
     return count;
 }
 
+size_t IrqHandlerRegistry::threadedDispatchState(
+    uint8_t irq, uintptr_t &exactHandlerIdentity) const
+{
+    size_t count = 0;
+    exactHandlerIdentity = 0;
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        const ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        HandlerSlot *slot = __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        const size_t publication =
+            __atomic_load_n(&dispatch.admittedPublication, __ATOMIC_RELAXED);
+        IrqHandlerBase *handler =
+            slot ? __atomic_load_n(&slot->handler, __ATOMIC_ACQUIRE) : nullptr;
+        if (slot && handler && irqOf(publication) == irq &&
+            deliveryOf(publication) == Delivery::Threaded &&
+            __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) == token &&
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) ==
+                generation &&
+            __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST) == slot)
+        {
+            ++count;
+            exactHandlerIdentity =
+                count == 1 ? reinterpret_cast<uintptr_t>(handler) : 0;
+        }
+    }
+    return count;
+}
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 void IrqHandlerRegistry::setHandlerPinHook(HandlerPinHook hook)
 {

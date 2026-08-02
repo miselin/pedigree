@@ -342,6 +342,31 @@ class HostedThreadedHandler : public IrqHandler
     Atomic<size_t> failures;
 };
 
+class HostedStalledIrqHandler : public IrqHandler
+{
+  public:
+    HostedStalledIrqHandler()
+        : entered(0), releaseCallback(0), calls(0), failures(0)
+    {
+    }
+
+    IrqDisposition irq(irq_id_t) override
+    {
+        calls += 1;
+        entered.release();
+        if (!releaseCallback.acquireForCompletion())
+        {
+            failures += 1;
+        }
+        return IrqDisposition::Handled;
+    }
+
+    Semaphore entered;
+    Semaphore releaseCallback;
+    Atomic<size_t> calls;
+    Atomic<size_t> failures;
+};
+
 class HostedHardDiagnosticHandler : public HardIrqHandler
 {
   public:
@@ -729,6 +754,106 @@ bool hostedThreadedSignalDelivery()
     if (passed)
     {
         NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-hosted-signal");
+    }
+    return passed;
+}
+
+bool hostedThreadedStallDiagnostics()
+{
+    constexpr const char *StallTest = "irq-threaded-stall-diagnostics";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedStalledIrqHandler handler;
+    const irq_id_t id = manager->registerIsaIrqHandler(
+        2, &handler, IrqPolicy::syntheticThreaded());
+
+    IrqLineDiagnosticSnapshot registeredLines[3] = {};
+    const bool registeredSnapshot =
+        manager->snapshotIrqLines(registeredLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot registered = registeredLines[2];
+
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    const bool raised = id && raise(SIGURG) == 0;
+    IrqLineDiagnosticSnapshot publishedLines[3] = {};
+    const bool publishedSnapshot =
+        manager->snapshotIrqLines(publishedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot published = publishedLines[2];
+    Processor::setInterrupts(interruptsWereEnabled);
+
+    const bool entered =
+        raised && handler.entered.acquireForCompletion(1, 2, 0);
+    IrqLineDiagnosticSnapshot active = {};
+    bool activeObserved = false;
+    const Time::Timestamp deadline =
+        Time::getTicks() + 2 * Time::Multiplier::Second;
+    while (entered && Time::getTicks() < deadline)
+    {
+        IrqLineDiagnosticSnapshot lines[3] = {};
+        if (manager->snapshotIrqLines(lines, 3) == 3)
+        {
+            const IrqLineDiagnosticSnapshot &line = lines[2];
+            if (line.activeThreadedDispatchCount == 1 &&
+                line.activeThreadedHandlerIdentity ==
+                    reinterpret_cast<uintptr_t>(&handler) &&
+                line.workerDiagnosticAvailable && line.workerWaitActive &&
+                line.workerWaitQueued &&
+                line.workerDebugState == IrqWorkerDebugState::SemaphoreWait &&
+                line.workerWaitReason == IrqWorkerWaitReason::Waiting &&
+                line.workerWaitChannelOwner ==
+                    reinterpret_cast<uintptr_t>(&handler.releaseCallback))
+            {
+                active = line;
+                activeObserved = true;
+                break;
+            }
+        }
+        Processor::pause();
+    }
+
+    handler.releaseCallback.release();
+    IrqLineDiagnosticSnapshot completed = {};
+    const bool completionObserved =
+        published.publicationCookie &&
+        waitForHostedCookieCompletion(
+            manager, published.publicationCookie, completed);
+    const bool removed = id && manager->unregisterHandler(id, &handler);
+
+    bool passed = true;
+    passed &= check(
+        id && registeredSnapshot && registered.configured &&
+            registered.delivery == IrqDelivery::Threaded,
+        "the stalled threaded handler was not registered", StallTest);
+    passed &= check(
+        raised && publishedSnapshot && published.publicationCookie &&
+            published.pendingCookie == published.publicationCookie &&
+            published.pendingSinceTimestamp != 0,
+        "the stalled occurrence did not publish timing state", StallTest);
+    passed &= check(
+        entered && activeObserved &&
+            active.activeCookie == published.publicationCookie &&
+            active.activeCallbackStartedTimestamp != 0 &&
+            active.observationTimestamp >=
+                active.activeCallbackStartedTimestamp &&
+            active.maximumWakeLatency >= active.lastWakeLatency &&
+            active.workerWaitQueue != 0,
+        "the blocked callback was not attributable to its handler and wait",
+        StallTest);
+    passed &= check(
+        completionObserved &&
+            completed.completedBatches == registered.completedBatches + 1 &&
+            completed.maximumCallbackRuntime >= completed.lastCallbackRuntime &&
+            !completed.activeThreadedDispatchCount &&
+            !completed.activeThreadedHandlerIdentity &&
+            !completed.activeCallbackStartedTimestamp &&
+            !completed.workerWaitActive,
+        "callback completion did not publish runtime and clear stall state",
+        StallTest);
+    passed &= check(
+        handler.calls == 1 && handler.failures == 0 && removed,
+        "the stalled handler did not resume and unregister cleanly", StallTest);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-stall-diagnostics");
     }
     return passed;
 }
@@ -1385,6 +1510,7 @@ bool runHostedThreadedIrqRegressions()
     bool passed = irqDiagnosticSnapshotPublication();
     passed &= threadedDispatcherCoalescing();
     passed &= hostedThreadedSignalDelivery();
+    passed &= hostedThreadedStallDiagnostics();
     passed &= hostedHardStageDiagnostics();
     passed &= hostedDeferredRetiringDiagnostics();
     passed &= hostedDiagnosticPolicyLifecycle();

@@ -365,14 +365,39 @@ class EXPORTED_PUBLIC Thread
     /** Returns the thread's debug state. */
     DebugState getDebugState(uintptr_t &address)
     {
-        address = m_DebugStateAddress;
-        return m_DebugState;
+        for (size_t attempt = 0; attempt < 2; ++attempt)
+        {
+            const size_t generation = __atomic_load_n(
+                &m_DebugStateGeneration, __ATOMIC_ACQUIRE);
+            if (generation & 1)
+            {
+                continue;
+            }
+
+            const DebugState state =
+                __atomic_load_n(&m_DebugState, __ATOMIC_RELAXED);
+            const uintptr_t observedAddress = __atomic_load_n(
+                &m_DebugStateAddress, __ATOMIC_RELAXED);
+            if (generation == __atomic_load_n(
+                                  &m_DebugStateGeneration, __ATOMIC_ACQUIRE))
+            {
+                address = observedAddress;
+                return state;
+            }
+        }
+
+        address = 0;
+        return None;
     }
     /** Sets the thread's debug state. */
     void setDebugState(DebugState state, uintptr_t address)
     {
-        m_DebugState = state;
-        m_DebugStateAddress = address;
+        __atomic_add_fetch(
+            &m_DebugStateGeneration, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+        __atomic_store_n(&m_DebugStateAddress, address, __ATOMIC_RELAXED);
+        __atomic_store_n(&m_DebugState, state, __ATOMIC_RELAXED);
+        __atomic_add_fetch(
+            &m_DebugStateGeneration, static_cast<size_t>(1), __ATOMIC_RELEASE);
     }
 
     struct WaitDebugInfo
@@ -787,6 +812,9 @@ class EXPORTED_PUBLIC Thread
 
     /** Address to supplement the DebugState information */
     uintptr_t m_DebugStateAddress = 0;
+
+    /** Even while the single-writer detached debug state is stable. */
+    size_t m_DebugStateGeneration = 0;
 
     class PerProcessorScheduler *m_pScheduler = nullptr;
 

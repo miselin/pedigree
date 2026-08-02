@@ -450,6 +450,10 @@ Pic::snapshotIrqLines(IrqLineDiagnosticSnapshot *out, size_t capacity) const
             static_cast<uint8_t>(irq),
             out[irq].activeHardDispatchGeneration);
         out[irq].hardStageActive = out[irq].activeHardDispatchCount != 0;
+        out[irq].activeThreadedDispatchCount =
+            m_Handlers.threadedDispatchState(
+                static_cast<uint8_t>(irq),
+                out[irq].activeThreadedHandlerIdentity);
         out[irq].activeCookie =
             m_ThreadedDispatcher.activeCookie(static_cast<uint8_t>(irq));
         out[irq].completedCookie =
@@ -473,6 +477,8 @@ Pic::snapshotIrqLines(IrqLineDiagnosticSnapshot *out, size_t capacity) const
             m_ThreadedDispatcher.callbackActive(static_cast<uint8_t>(irq));
         out[irq].dispatcherClosed =
             m_ThreadedDispatcher.publicationClosed(static_cast<uint8_t>(irq));
+        m_ThreadedDispatcher.snapshotDiagnostics(
+            static_cast<uint8_t>(irq), out[irq]);
     }
     return count;
 }

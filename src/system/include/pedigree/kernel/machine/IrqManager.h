@@ -212,6 +212,32 @@ enum IrqMaskReason : uint16_t
     IrqMaskShuttingDown = 1U << 5,
 };
 
+/** Detached higher-level state for a threaded IRQ worker. */
+enum class IrqWorkerDebugState : uint8_t
+{
+    Unavailable,
+    None,
+    SemaphoreWait,
+    ConditionWait,
+    Joining,
+    FutexWait,
+    EventWait,
+    ProcessWait,
+    CallbackDrain,
+};
+
+/** Detached wake state for a threaded IRQ worker's active WaitQueue record. */
+enum class IrqWorkerWaitReason : uint8_t
+{
+    Unavailable,
+    Waiting,
+    Signalled,
+    Event,
+    Unwinding,
+    Terminating,
+    Spurious,
+};
+
 /**
  * Detached debugger-facing state for one physical interrupt line.
  *
@@ -224,21 +250,36 @@ enum IrqMaskReason : uint16_t
 struct IrqLineDiagnosticSnapshot
 {
     size_t snapshotGeneration;
+    size_t observationTimestamp;
     size_t dispatchGeneration;
     size_t acknowledgedGeneration;
     size_t activeHardDispatchCount;
     size_t activeHardDispatchGeneration;
+    size_t activeThreadedDispatchCount;
     size_t publicationCookie;
     size_t pendingCookie;
     size_t activeCookie;
     size_t completedCookie;
     size_t completedBatches;
+    /** Independent best-effort samples; stopped-world snapshots are coherent. */
+    size_t pendingSinceTimestamp;
+    size_t activeCallbackStartedTimestamp;
+    size_t lastWakeLatency;
+    size_t maximumWakeLatency;
+    size_t lastCallbackRuntime;
+    size_t maximumCallbackRuntime;
     size_t interruptCount;
     size_t spuriousCount;
     size_t unhandledCount;
     size_t publicationFailures;
     size_t diagnosticPublicationFailures;
     uintptr_t workerIdentity;
+    uintptr_t activeThreadedHandlerIdentity;
+    uintptr_t workerDebugAddress;
+    uintptr_t workerWaitQueue;
+    uintptr_t workerWaitChannelOwner;
+    uintptr_t workerWaitChannelValue;
+    size_t workerWaitStateLevel;
     size_t handlerCount;
     uint16_t maskReasons;
     uint8_t line;
@@ -246,6 +287,8 @@ struct IrqLineDiagnosticSnapshot
     IrqTrigger trigger;
     IrqControllerAck controllerAck;
     IrqLineRelease lineRelease;
+    IrqWorkerDebugState workerDebugState;
+    IrqWorkerWaitReason workerWaitReason;
     bool configured;
     bool effectiveMasked;
     bool requestedEnabled;
@@ -255,6 +298,9 @@ struct IrqLineDiagnosticSnapshot
     bool dispatcherActive;
     bool dispatcherClosed;
     bool hardStageActive;
+    bool workerDiagnosticAvailable;
+    bool workerWaitActive;
+    bool workerWaitQueued;
 };
 
 /** This class handles IRQ (un)registration */

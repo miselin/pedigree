@@ -276,8 +276,8 @@ WaitQueue::WakeReason WaitQueue::wait(
     waiter.notificationNext = nullptr;
     waiter.previous = m_pLastWaiter;
     waiter.next = nullptr;
-    thread->m_DebugState = static_cast<Thread::DebugState>(debugState);
-    thread->m_DebugStateAddress = debugAddress;
+    thread->setDebugState(
+        static_cast<Thread::DebugState>(debugState), debugAddress);
 
     if (m_pLastWaiter)
     {
@@ -330,8 +330,7 @@ WaitQueue::WakeReason WaitQueue::wait(
     waiter.onAbandon = nullptr;
     waiter.abandonContext = nullptr;
     waiter.scheduler = nullptr;
-    thread->m_DebugState = Thread::None;
-    thread->m_DebugStateAddress = 0;
+    thread->setDebugState(Thread::None, 0);
     thread->m_Lock.release();
     removeWaiterLocked(&waiter);
     m_Lock.release();

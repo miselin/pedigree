@@ -464,6 +464,10 @@ size_t HostedIrqManager::snapshotIrqLines(
         out[irq].activeHardDispatchCount = m_Handlers.hardDispatchState(
             static_cast<uint8_t>(irq), out[irq].activeHardDispatchGeneration);
         out[irq].hardStageActive = out[irq].activeHardDispatchCount != 0;
+        out[irq].activeThreadedDispatchCount =
+            m_Handlers.threadedDispatchState(
+                static_cast<uint8_t>(irq),
+                out[irq].activeThreadedHandlerIdentity);
         out[irq].publicationCookie =
             __atomic_load_n(&m_ThreadedCookies[irq], __ATOMIC_ACQUIRE);
         out[irq].pendingCookie =
@@ -489,6 +493,8 @@ size_t HostedIrqManager::snapshotIrqLines(
             m_ThreadedDispatcher.callbackActive(static_cast<uint8_t>(irq));
         out[irq].dispatcherClosed =
             m_ThreadedDispatcher.publicationClosed(static_cast<uint8_t>(irq));
+        m_ThreadedDispatcher.snapshotDiagnostics(
+            static_cast<uint8_t>(irq), out[irq]);
     }
     return count;
 }

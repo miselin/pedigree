@@ -146,6 +146,17 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
      */
     size_t hardDispatchState(uint8_t irq, size_t &exactGeneration) const;
 
+    /**
+     * Lock-free debugger query for committed threaded callbacks on one line.
+     *
+     * The committed pin includes the bounded setup and cleanup immediately
+     * around the virtual call. Returns the active count and writes the exact
+     * handler identity only when one pin is active. Multiple callbacks make the
+     * identity ambiguous and write zero.
+     */
+    size_t
+    threadedDispatchState(uint8_t irq, uintptr_t &exactHandlerIdentity) const;
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     enum class HandlerHazardStage
     {

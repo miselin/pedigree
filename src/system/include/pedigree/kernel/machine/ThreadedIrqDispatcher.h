@@ -15,6 +15,7 @@
 
 class Thread;
 class PerProcessorScheduler;
+struct IrqLineDiagnosticSnapshot;
 
 /**
  * Owns one coalescing worker for each physical IRQ line.
@@ -66,6 +67,13 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
     bool callbackActive(uint8_t line) const;
     bool publicationClosed(uint8_t line) const;
 
+    /**
+     * Copies lock-free timing and detached worker state for the debugger.
+     * Live fields are sampled independently; stopped-world use is authoritative.
+     */
+    void snapshotDiagnostics(
+        uint8_t line, IrqLineDiagnosticSnapshot &snapshot) const;
+
   private:
     class Line
     {
@@ -89,12 +97,12 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
         uintptr_t workerIdentity() const;
         bool callbackActive() const;
         bool publicationClosed() const;
+        void snapshotDiagnostics(IrqLineDiagnosticSnapshot &snapshot) const;
 
       private:
         static constexpr size_t PublicationClosed =
             static_cast<size_t>(1) << ((sizeof(size_t) * 8) - 1);
-        static constexpr size_t PublicationCountMask =
-            ~PublicationClosed;
+        static constexpr size_t PublicationCountMask = ~PublicationClosed;
 
         static int workerEntry(void *context);
         static bool workerReady(void *context);
@@ -110,10 +118,16 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
         size_t m_PendingCookie;
         size_t m_ActiveCookie;
         size_t m_CallbackActive;
-        size_t m_PublicationState;
+        mutable size_t m_PublicationState;
         size_t m_Started;
         size_t m_CompletedBatches;
         size_t m_CompletedCookie;
+        size_t m_PendingSinceTimestamp;
+        size_t m_ActiveCallbackStartedTimestamp;
+        size_t m_LastWakeLatency;
+        size_t m_MaximumWakeLatency;
+        size_t m_LastCallbackRuntime;
+        size_t m_MaximumCallbackRuntime;
 
         Line(const Line &) = delete;
         Line &operator=(const Line &) = delete;
