@@ -20,24 +20,57 @@
 #include "DiskImage.h"
 #include "modules/Module.h"
 
+namespace
+{
+DiskImage *g_DiskImage = nullptr;
+
+Device *removeDiskImage(Device *device)
+{
+    if (device != g_DiskImage)
+    {
+        return device;
+    }
+
+    g_DiskImage = nullptr;
+    return nullptr;
+}
+}  // namespace
+
 bool entry()
 {
-    DiskImage *pDiskImage = new DiskImage();
-    if (!pDiskImage->initialise())
+    if (g_DiskImage)
     {
-        delete pDiskImage;
+        return true;
+    }
+
+    g_DiskImage = new DiskImage();
+    if (!g_DiskImage->initialise())
+    {
+        delete g_DiskImage;
+        g_DiskImage = nullptr;
 
         // Don't mess up the rest of the startup - we may still be able to
         // run without a disk.
         return true;
     }
 
-    Device::addToRoot(pDiskImage);
+    Device::addToRoot(g_DiskImage);
     return true;
 }
 
 void exit()
 {
+    if (!g_DiskImage)
+    {
+        return;
+    }
+
+    Device::foreach(removeDiskImage);
+    if (g_DiskImage)
+    {
+        delete g_DiskImage;
+        g_DiskImage = nullptr;
+    }
 }
 
 MODULE_INFO("diskimage", &entry, &exit);
