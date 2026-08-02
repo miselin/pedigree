@@ -77,7 +77,7 @@ void Ohci::finishDeferredCompletion(void *context)
             controller->retireEDStorage(ed);
         }
         else
-            FATAL("OHCI completion cleanup lost its transaction generation");
+            panic("OHCI completion cleanup lost its transaction generation");
     }
     delete cleanup;
 }
@@ -538,7 +538,7 @@ Ohci::~Ohci()
         if (!Machine::instance().getIrqManager()->unregisterHandler(
                 m_IrqId, static_cast<IrqHandler *>(this)))
         {
-            FATAL(
+            panic(
                 "OHCI teardown could not synchronously unregister its IRQ "
                 "callback");
         }
