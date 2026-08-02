@@ -1141,6 +1141,15 @@ size_t SlamAllocator::recovery(size_t maxSlabs)
 
 uintptr_t SlamAllocator::allocate(size_t nBytes)
 {
+    EMIT_IF(!PEDIGREE_BENCHMARK)
+    {
+        if (!Processor::guardDeviceHardIrqOperation(
+                DeviceHardIrqOperation::HeapAllocate))
+        {
+            return 0;
+        }
+    }
+
     EMIT_IF(HOSTED_SYSTEM_MALLOC)
     {
         FATAL_NOLOCK("SlamAllocator::allocate() called when HOSTED_SYSTEM_MALLOC == 1");
@@ -1285,6 +1294,18 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     return ret;
 }
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+uintptr_t SlamAllocator::guardedAllocateForTest(size_t nBytes)
+{
+    return instance().allocate(nBytes);
+}
+
+void SlamAllocator::guardedFreeForTest(uintptr_t mem)
+{
+    instance().free(mem);
+}
+#endif
+
 size_t SlamAllocator::allocSize(uintptr_t mem)
 {
     if (!mem)
@@ -1340,6 +1361,15 @@ SlamAllocator &SlamAllocator::instance()
 
 void SlamAllocator::free(uintptr_t mem)
 {
+    EMIT_IF(!PEDIGREE_BENCHMARK)
+    {
+        if (!Processor::guardDeviceHardIrqOperation(
+                DeviceHardIrqOperation::HeapFree))
+        {
+            return;
+        }
+    }
+
 #if DEBUGGING_SLAB_ALLOCATOR
     NOTICE_NOLOCK("SlabAllocator::free");
 #endif

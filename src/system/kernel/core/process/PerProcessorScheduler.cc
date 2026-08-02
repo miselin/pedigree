@@ -264,6 +264,12 @@ void PerProcessorScheduler::initialise(Thread *pThread)
 
 void PerProcessorScheduler::schedule(Thread::Status nextStatus)
 {
+    if (!Processor::guardDeviceHardIrqOperation(
+            DeviceHardIrqOperation::Schedule))
+    {
+        return;
+    }
+
     bool bWasInterrupts = Processor::getInterrupts();
     Processor::setInterrupts(false);
 

@@ -49,6 +49,17 @@ enum FaultType
 };
 }
 
+/** Operations which are never valid inside a device hard-IRQ callback. */
+enum class DeviceHardIrqOperation
+{
+    Schedule,
+    SemaphoreAcquire,
+    SemaphoreRelease,
+    WaitQueueAccess,
+    HeapAllocate,
+    HeapFree,
+};
+
 /// Defines for debug status flags.
 #define DEBUG_BREAKPOINT_0 0x01  /// Breakpoint 0 was triggered.
 #define DEBUG_BREAKPOINT_1 0x02  /// Breakpoint 1 was triggered.
@@ -266,9 +277,32 @@ class EXPORTED_PUBLIC ProcessorBase
 
     /** True only while an explicit device hard-IRQ callback is running. */
     static bool inDeviceHardIrq();
+
+    /**
+     * Enforces the device hard-IRQ execution boundary.
+     *
+     * Returns true outside device hard-IRQ callbacks. A violation is fatal in
+     * production; hosted smoke tests may install a hook which converts the
+     * violation into a false return so the rejecting call site can be tested.
+     */
+    static bool guardDeviceHardIrqOperation(
+        DeviceHardIrqOperation operation);
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     /** Returns the raw tracker depth for hosted boundary regressions. */
     static size_t deviceHardIrqDepthForTest();
+
+    using DeviceHardIrqOperationHook =
+        bool (*)(DeviceHardIrqOperation operation);
+
+    /**
+     * Installs a hosted-only, nonblocking hook which may safely deny a
+     * forbidden operation instead of entering the production fatal path.
+     */
+    static void setDeviceHardIrqOperationHookForTest(
+        DeviceHardIrqOperationHook hook);
+
+    /** Number of violations safely denied by the hosted test hook. */
+    static size_t deviceHardIrqOperationDenialsForTest();
 
     enum class HostedContextSwitchStage
     {

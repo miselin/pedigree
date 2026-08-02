@@ -60,10 +60,17 @@ void finishTerminalWait(
 }  // namespace
 
 WaitQueue::Guard::Guard(WaitQueue &queue)
-    : m_Queue(&queue), m_OwnsLock(true), m_pFirstReady(nullptr),
+    : m_Queue(&queue), m_OwnsLock(false), m_pFirstReady(nullptr),
       m_pLastReady(nullptr)
 {
+    if (!Processor::guardDeviceHardIrqOperation(
+            DeviceHardIrqOperation::WaitQueueAccess))
+    {
+        return;
+    }
+
     m_Queue->m_Lock.acquire();
+    m_OwnsLock = true;
 }
 
 WaitQueue::Guard::Guard(Guard &&other)
@@ -122,6 +129,10 @@ WaitQueue::WakeReason WaitQueue::Guard::wait(
     AbandonCallback onAbandon, void *abandonContext)
 {
     assert(m_Queue);
+    if (!m_OwnsLock)
+    {
+        return WakeReason::Spurious;
+    }
     assert(m_OwnsLock);
     return m_Queue->wait(
         *this, nullptr, channel, debugState, debugAddress, onAbandon,
@@ -132,6 +143,10 @@ WaitQueue::WakeReason WaitQueue::Guard::waitForCompletion(
     const Channel &channel, size_t debugState, uintptr_t debugAddress)
 {
     assert(m_Queue);
+    if (!m_OwnsLock)
+    {
+        return WakeReason::Spurious;
+    }
     assert(m_OwnsLock);
     return m_Queue->wait(
         *this, nullptr, channel, debugState, debugAddress, nullptr,
@@ -143,6 +158,10 @@ WaitQueue::WakeReason WaitQueue::Guard::waitAndUnlock(
     uintptr_t debugAddress, AbandonCallback onAbandon, void *abandonContext)
 {
     assert(m_Queue);
+    if (!m_OwnsLock)
+    {
+        return WakeReason::Spurious;
+    }
     assert(m_OwnsLock);
     return m_Queue->wait(
         *this, &mutex, channel, debugState, debugAddress, onAbandon,
@@ -154,6 +173,10 @@ WaitQueue::WakeReason WaitQueue::Guard::waitAndUnlockForCompletion(
     uintptr_t debugAddress)
 {
     assert(m_Queue);
+    if (!m_OwnsLock)
+    {
+        return WakeReason::Spurious;
+    }
     assert(m_OwnsLock);
     return m_Queue->wait(
         *this, &mutex, channel, debugState, debugAddress, nullptr,
@@ -164,6 +187,10 @@ bool WaitQueue::Guard::wakeOne(
     WakeReason reason, const Channel &channel)
 {
     assert(m_Queue);
+    if (!m_OwnsLock)
+    {
+        return false;
+    }
     assert(m_OwnsLock);
     assert(reason != WakeReason::Waiting);
     return m_Queue->wakeOneLocked(*this, reason, channel);
@@ -173,6 +200,10 @@ size_t WaitQueue::Guard::wakeAll(
     WakeReason reason, const Channel &channel)
 {
     assert(m_Queue);
+    if (!m_OwnsLock)
+    {
+        return 0;
+    }
     assert(m_OwnsLock);
     assert(reason != WakeReason::Waiting);
     return m_Queue->wakeAllLocked(*this, reason, channel);
@@ -519,6 +550,10 @@ void WaitQueue::cancel(Waiter *waiter, WakeReason reason)
     bool makeReady = false;
     {
         Guard guard(*this);
+        if (!guard.m_OwnsLock)
+        {
+            return;
+        }
         thread->m_Lock.acquire();
         if (waiter->loadQueue() != this)
         {
@@ -573,6 +608,10 @@ void WaitQueue::cancel(Waiter *waiter, WakeReason reason)
 size_t WaitQueue::waiterCount()
 {
     Guard guard(*this);
+    if (!guard.m_OwnsLock)
+    {
+        return 0;
+    }
     return m_WaiterCount;
 }
 

@@ -269,6 +269,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     pedigree_module(hosted-smoke "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/cache-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/hard-irq-guard-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/input-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/interrupt-manager-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/lifetime-lease-regressions.cc

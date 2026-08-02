@@ -231,6 +231,12 @@ size_t SlamAllocator::recovery(size_t maxSlabs)
 
 uintptr_t SlamAllocator::allocate(size_t nBytes)
 {
+    if (!Processor::guardDeviceHardIrqOperation(
+            DeviceHardIrqOperation::HeapAllocate))
+    {
+        return 0;
+    }
+
     if (!m_bInitialised)
     {
         initialise();
@@ -299,6 +305,18 @@ uintptr_t SlamAllocator::allocate(size_t nBytes)
     return result;
 }
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+uintptr_t SlamAllocator::guardedAllocateForTest(size_t nBytes)
+{
+    return instance().allocate(nBytes);
+}
+
+void SlamAllocator::guardedFreeForTest(uintptr_t mem)
+{
+    instance().free(mem);
+}
+#endif
+
 size_t SlamAllocator::allocSize(uintptr_t mem)
 {
     if (!m_bInitialised)
@@ -329,6 +347,12 @@ SlamAllocator &SlamAllocator::instance()
 
 void SlamAllocator::free(uintptr_t mem)
 {
+    if (!Processor::guardDeviceHardIrqOperation(
+            DeviceHardIrqOperation::HeapFree))
+    {
+        return;
+    }
+
     assert(m_bInitialised);
 
     if (!mem)

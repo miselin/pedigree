@@ -163,6 +163,15 @@ Semaphore::SemaphoreResult
 Semaphore::acquireWithResult(
     size_t n, size_t timeoutSecs, size_t timeoutUsecs, bool deferTerminal)
 {
+    EMIT_IF(!PEDIGREE_BENCHMARK)
+    {
+        if (!Processor::guardDeviceHardIrqOperation(
+                DeviceHardIrqOperation::SemaphoreAcquire))
+        {
+            return SemaphoreResult::withError(Interrupted);
+        }
+    }
+
     size_t state = loadState(&magic);
     assert(state == SemaphoreMagic || isMutexState(state));
     if (isMutexState(state))
@@ -587,6 +596,15 @@ size_t Semaphore::drainAvailable()
 
 void Semaphore::release(size_t n)
 {
+    EMIT_IF(!PEDIGREE_BENCHMARK)
+    {
+        if (!Processor::guardDeviceHardIrqOperation(
+                DeviceHardIrqOperation::SemaphoreRelease))
+        {
+            return;
+        }
+    }
+
     size_t state = loadState(&magic);
     assert(state == SemaphoreMagic || isMutexState(state));
 

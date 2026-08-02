@@ -241,6 +241,12 @@ class SlamAllocator
     uintptr_t allocate(size_t nBytes);
     void free(uintptr_t mem);
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    /** Hosted seam which still enters the production allocation paths. */
+    static EXPORTED_PUBLIC uintptr_t guardedAllocateForTest(size_t nBytes);
+    static EXPORTED_PUBLIC void guardedFreeForTest(uintptr_t mem);
+#endif
+
     size_t recovery(size_t maxSlabs = 1);
 
     bool isPointerValid(uintptr_t mem)

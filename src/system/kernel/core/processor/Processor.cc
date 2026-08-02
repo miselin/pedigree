@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
@@ -30,6 +31,35 @@ ProcessorInformation ProcessorBase::m_SafeBspProcessorInformation(0);
 
 size_t ProcessorBase::m_nProcessors = 1;
 
+namespace
+{
+const char *deviceHardIrqOperationName(DeviceHardIrqOperation operation)
+{
+    switch (operation)
+    {
+        case DeviceHardIrqOperation::Schedule:
+            return "schedule";
+        case DeviceHardIrqOperation::SemaphoreAcquire:
+            return "semaphore acquire";
+        case DeviceHardIrqOperation::SemaphoreRelease:
+            return "semaphore release";
+        case DeviceHardIrqOperation::WaitQueueAccess:
+            return "wait-queue access";
+        case DeviceHardIrqOperation::HeapAllocate:
+            return "heap allocation";
+        case DeviceHardIrqOperation::HeapFree:
+            return "heap free";
+    }
+    return "unknown operation";
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+ProcessorBase::DeviceHardIrqOperationHook g_DeviceHardIrqOperationHook =
+    nullptr;
+size_t g_DeviceHardIrqOperationDenials = 0;
+#endif
+}  // namespace
+
 size_t ProcessorBase::isInitialised()
 {
     return m_Initialised;
@@ -40,10 +70,49 @@ bool ProcessorBase::inDeviceHardIrq()
     return information().m_DeviceHardIrqDepth != 0;
 }
 
+bool ProcessorBase::guardDeviceHardIrqOperation(
+    DeviceHardIrqOperation operation)
+{
+    if (!inDeviceHardIrq())
+    {
+        return true;
+    }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    DeviceHardIrqOperationHook hook = __atomic_load_n(
+        &g_DeviceHardIrqOperationHook, __ATOMIC_ACQUIRE);
+    if (hook && hook(operation))
+    {
+        __atomic_add_fetch(
+            &g_DeviceHardIrqOperationDenials, static_cast<size_t>(1),
+            __ATOMIC_RELAXED);
+        return false;
+    }
+#endif
+
+    FATAL_NOLOCK(
+        "Device hard-IRQ callback attempted forbidden "
+        << deviceHardIrqOperationName(operation) << ".");
+    return false;
+}
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 size_t ProcessorBase::deviceHardIrqDepthForTest()
 {
     return information().m_DeviceHardIrqDepth;
+}
+
+void ProcessorBase::setDeviceHardIrqOperationHookForTest(
+    DeviceHardIrqOperationHook hook)
+{
+    __atomic_store_n(
+        &g_DeviceHardIrqOperationHook, hook, __ATOMIC_RELEASE);
+}
+
+size_t ProcessorBase::deviceHardIrqOperationDenialsForTest()
+{
+    return __atomic_load_n(
+        &g_DeviceHardIrqOperationDenials, __ATOMIC_RELAXED);
 }
 #endif
 

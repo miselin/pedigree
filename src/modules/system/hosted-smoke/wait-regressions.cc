@@ -28,6 +28,7 @@ bool runHostedRequestQueueRegressions();
 bool runHostedSchedulerRegressions();
 bool runHostedCacheRegressions();
 bool runHostedCdiIrqRegressions();
+bool runHostedHardIrqGuardRegressions();
 bool runHostedInputRegressions();
 bool runHostedInterruptManagerRegressions();
 EXPORTED_PUBLIC bool runHostedFatSectorRegressions();
@@ -1924,6 +1925,7 @@ bool runHostedWaitRegressions()
         runHostedUsbHcdPortChangeRegressions() &&
         runHostedMutexRegressions() &&
         runHostedInterruptManagerRegressions() &&
+        runHostedHardIrqGuardRegressions() &&
         runHostedIrqRegressions() &&
         runHostedSplitIrqRegressions() &&
         runHostedThreadedIrqRegressions() &&
