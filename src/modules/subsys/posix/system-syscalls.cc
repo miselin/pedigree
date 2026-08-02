@@ -607,7 +607,7 @@ int posix_waitpid(const int pid, int *status, int options)
     WaitQueue::WakeReason previousWake = WaitQueue::WakeReason::Signalled;
     while (true)
     {
-        Process *pReapedProcess = 0;
+        Process::ReaperClaim reaper;
         int resultPid = -1;
         int resultStatus = 0;
         bool hasResult = false;
@@ -646,7 +646,7 @@ int posix_waitpid(const int pid, int *status, int options)
                 {
                     resultStatus = pProcess->getExitStatus();
                     pProcess->reap();
-                    pReapedProcess = pProcess;
+                    reaper = pProcess->tryClaimReaper();
                     hasResult = true;
                     SC_NOTICE(
                         "waitpid: " << Dec << resultPid << " reaped ["
@@ -718,13 +718,13 @@ int posix_waitpid(const int pid, int *status, int options)
                 *status = resultStatus;
             }
 
-            if (pReapedProcess)
+            // The claim's termination deferral keeps this stack—and its sole
+            // destruction ownership—alive after the parent guard is dropped.
+            if (reaper)
             {
-                // Destruction is deferred, and termination was not made
-                // observable until the exiting thread was already off-stack.
-                ZombieQueue::instance().addObject(
-                    new ZombieProcess(pReapedProcess));
+                reaper.publish();
             }
+
             return resultPid;
         }
     }

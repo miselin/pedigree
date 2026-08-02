@@ -541,7 +541,7 @@ struct OrphanExitContext
         : process(nullptr), preparingCalls(0), publishedCalls(0),
           workerEntered(0), workerEnteredBeforeOwnerExit(0), reapableCalls(0),
           destructorCalls(0), cleanupCalls(0), hookFailures(0),
-          ownerInPublication(0)
+          ownerInPublication(0), duplicateClaimsRejected(0)
     {
     }
 
@@ -555,6 +555,7 @@ struct OrphanExitContext
     Atomic<size_t> cleanupCalls;
     Atomic<size_t> hookFailures;
     Atomic<size_t> ownerInPublication;
+    Atomic<size_t> duplicateClaimsRejected;
 };
 
 OrphanExitContext *g_OrphanExitContext = nullptr;
@@ -610,6 +611,16 @@ void orphanPublicationHook(
     {
         context->preparingCalls += 1;
         context->ownerInPublication = 1;
+        Process::ReaperClaim duplicate = process->tryClaimReaper();
+        if (duplicate)
+        {
+            context->hookFailures += 1;
+            duplicate.publish();
+        }
+        else
+        {
+            context->duplicateClaimsRejected += 1;
+        }
         return;
     }
 
@@ -720,7 +731,8 @@ bool orphanPublicationInterleaving(Process *kernelProcess)
         "the ZombieQueue worker did not enter before owner stack retirement");
     passed &= check(
         context->reapableCalls == 1 && context->destructorCalls == 1 &&
-            context->cleanupCalls == 1,
+            context->cleanupCalls == 1 &&
+            context->duplicateClaimsRejected == 1,
         "orphan destruction was not exactly once and post-reapable");
     passed &= check(
         context->hookFailures == 0,

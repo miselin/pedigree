@@ -71,6 +71,60 @@ Process::ThreadLease::ThreadLease()
 {
 }
 
+Process::ReaperClaim::ReaperClaim()
+    : m_pProcess(nullptr), m_TerminationDeferral(false)
+{
+}
+
+Process::ReaperClaim::ReaperClaim(Process *process)
+    : m_pProcess(process), m_TerminationDeferral(process != nullptr)
+{
+}
+
+Process::ReaperClaim::ReaperClaim(ReaperClaim &&other)
+    : m_pProcess(other.m_pProcess),
+      m_TerminationDeferral(pedigree_std::move(other.m_TerminationDeferral))
+{
+    other.m_pProcess = nullptr;
+}
+
+Process::ReaperClaim::~ReaperClaim()
+{
+    if (m_pProcess)
+    {
+        FATAL("Process reaper ownership left scope without publication");
+    }
+}
+
+Process::ReaperClaim &Process::ReaperClaim::operator=(ReaperClaim &&other)
+{
+    if (this != &other)
+    {
+        if (m_pProcess)
+        {
+            FATAL("Process reaper ownership overwritten before publication");
+        }
+        m_pProcess = other.m_pProcess;
+        m_TerminationDeferral =
+            pedigree_std::move(other.m_TerminationDeferral);
+        other.m_pProcess = nullptr;
+    }
+    return *this;
+}
+
+void Process::ReaperClaim::publish()
+{
+    if (!m_pProcess)
+    {
+        FATAL("Invalid Process reaper publication");
+    }
+
+    Process *process = m_pProcess;
+    m_pProcess = nullptr;
+    process->publishReaperClaim();
+    m_TerminationDeferral = TerminationDeferral(false);
+}
+
 Process::ThreadLease::ThreadLease(Process *process, Thread *thread)
     : m_pProcess(process), m_pThread(thread),
       m_TerminationDeferral(process && thread)
@@ -142,7 +196,8 @@ Process::Process(DeferredPublication)
       m_pTerminatingThread(0), m_nTerminationParticipants(0),
       m_bTerminationRendezvousStarted(false),
       m_bTerminationCleanupStarted(false), m_bTerminationSealed(false),
-      m_bTerminationReapable(false), m_Lock(false), m_Metadata(),
+      m_bTerminationReapable(false), m_ReaperState(ReaperUnclaimed),
+      m_Lock(false), m_Metadata(),
       m_DeferredTimeAccounting(), m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false), m_pRootFile(0),
       m_bSharedAddressSpace(false)
@@ -193,7 +248,8 @@ Process::Process(
       m_nTerminationParticipants(0),
       m_bTerminationRendezvousStarted(false),
       m_bTerminationCleanupStarted(false), m_bTerminationSealed(false),
-      m_bTerminationReapable(false), m_Lock(false),
+      m_bTerminationReapable(false), m_ReaperState(ReaperUnclaimed),
+      m_Lock(false),
       m_Metadata(), m_DeferredTimeAccounting(),
       m_TimeAccountingReports(), m_bTimeAccountingReportsEnabled(false),
       m_pRootFile(pParent->m_pRootFile),
@@ -1096,25 +1152,29 @@ void Process::finishTermination()
         NOTICE(
             "Process::kill() - process is an orphan, adding to ZombieQueue.");
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-        OrphanPublicationHook publicationHook = __atomic_load_n(
-            &m_OrphanPublicationHook, __ATOMIC_ACQUIRE);
-        if (publicationHook)
+        ReaperClaim reaper = tryClaimReaper();
+        if (reaper)
         {
-            publicationHook(
-                this, OrphanPublicationPhase::Preparing,
-                Processor::getInterrupts(), m_Lock.acquired());
-        }
-#endif
-        ZombieQueue::instance().addObject(new ZombieProcess(this));
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-        if (publicationHook)
-        {
-            publicationHook(
-                this, OrphanPublicationPhase::Published,
-                Processor::getInterrupts(), m_Lock.acquired());
-        }
+            OrphanPublicationHook publicationHook = __atomic_load_n(
+                &m_OrphanPublicationHook, __ATOMIC_ACQUIRE);
+            if (publicationHook)
+            {
+                publicationHook(
+                    this, OrphanPublicationPhase::Preparing,
+                    Processor::getInterrupts(), m_Lock.acquired());
+            }
 #endif
+            reaper.publish();
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+            if (publicationHook)
+            {
+                publicationHook(
+                    this, OrphanPublicationPhase::Published,
+                    Processor::getInterrupts(), m_Lock.acquired());
+            }
+#endif
+        }
     }
 
     m_Lock.acquire();
@@ -1143,6 +1203,30 @@ void Process::finishTermination()
     Processor::information().getScheduler().killCurrentThread(&m_Lock);
 
     FATAL("Should never get here");
+}
+
+Process::ReaperClaim Process::tryClaimReaper()
+{
+    size_t expected = ReaperUnclaimed;
+    if (!__atomic_compare_exchange_n(
+            &m_ReaperState, &expected, ReaperClaimed, false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    {
+        return ReaperClaim();
+    }
+    return ReaperClaim(this);
+}
+
+void Process::publishReaperClaim()
+{
+    size_t expected = ReaperClaimed;
+    if (!__atomic_compare_exchange_n(
+            &m_ReaperState, &expected, ReaperPublished, false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    {
+        FATAL("Process reaper ownership published more than once");
+    }
+    ZombieQueue::instance().addObject(new ZombieProcess(this));
 }
 
 void Process::kill()

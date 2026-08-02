@@ -44,6 +44,7 @@ class User;
 class Group;
 class DynamicLinker;
 class ZombieProcess;
+class ZombieQueue;
 class Scheduler;
 
 /**
@@ -56,8 +57,40 @@ class EXPORTED_PUBLIC Process
     friend class Scheduler;
     friend class Thread;
     friend class ZombieProcess;
+    friend class ZombieQueue;
 
   public:
+    /**
+     * Move-only ownership of the one destruction publication permitted for a
+     * Process. A successful claim must be published before leaving scope.
+     */
+    class EXPORTED_PUBLIC ReaperClaim
+    {
+      public:
+        ReaperClaim();
+        ReaperClaim(ReaperClaim &&other);
+        ~ReaperClaim();
+
+        ReaperClaim &operator=(ReaperClaim &&other);
+
+        explicit operator bool() const
+        {
+            return m_pProcess != nullptr;
+        }
+
+        void publish();
+
+      private:
+        friend class Process;
+        explicit ReaperClaim(Process *process);
+
+        ReaperClaim(const ReaperClaim &) = delete;
+        ReaperClaim &operator=(const ReaperClaim &) = delete;
+
+        Process *m_pProcess;
+        TerminationDeferral m_TerminationDeferral;
+    };
+
     /**
      * Pins one Thread together with its owning Process.
      *
@@ -218,6 +251,9 @@ class EXPORTED_PUBLIC Process
 
     /** Completes an elected teardown and retires the current thread. */
     void finishTermination() NORETURN;
+
+    /** Claims the sole deferred-destruction publication for this Process. */
+    ReaperClaim tryClaimReaper();
 
     /** Performs the complete election, quiesce, and teardown sequence. */
     void kill() NORETURN;
@@ -702,6 +738,16 @@ class EXPORTED_PUBLIC Process
     /** Whether the scheduler has completed the terminating thread switch. */
     bool m_bTerminationReapable;
 
+    enum ReaperState
+    {
+        ReaperUnclaimed,
+        ReaperClaimed,
+        ReaperPublished,
+    };
+
+    /** One-shot ownership of deferred Process destruction. */
+    size_t m_ReaperState;
+
     /** Concurrency lock for complex Process data structures. */
     Spinlock m_Lock;
 
@@ -714,6 +760,9 @@ class EXPORTED_PUBLIC Process
 
     /** Publishes termination after the final participant is reapable. */
     void publishTermination();
+
+    /** Publishes a previously claimed deferred destruction exactly once. */
+    void publishReaperClaim();
 
     /** Pins this Process and its retained Thread objects for Thread::join. */
     bool beginThreadJoin();
