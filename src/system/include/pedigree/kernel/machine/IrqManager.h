@@ -198,6 +198,7 @@ enum class IrqDelivery : uint8_t
     None,
     Hard,
     Threaded,
+    Mixed,
 };
 
 /** Independent reasons an interrupt line is not currently live. */

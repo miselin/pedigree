@@ -118,6 +118,29 @@ class HostedLineLifecycleGuard
     size_t &m_Busy;
     bool m_Owned;
 };
+
+IrqDelivery deliveryForLineMode(IrqHandlerRegistry::LineMode mode)
+{
+    switch (mode)
+    {
+        case IrqHandlerRegistry::LineMode::Threaded:
+            return IrqDelivery::Threaded;
+        case IrqHandlerRegistry::LineMode::HardOnly:
+            return IrqDelivery::Hard;
+        case IrqHandlerRegistry::LineMode::Mixed:
+            return IrqDelivery::Mixed;
+        case IrqHandlerRegistry::LineMode::Empty:
+            return IrqDelivery::None;
+    }
+
+    return IrqDelivery::None;
+}
+
+bool hasThreadedDelivery(IrqDelivery delivery)
+{
+    return delivery == IrqDelivery::Threaded ||
+           delivery == IrqDelivery::Mixed;
+}
 }  // namespace
 
 HostedIrqManager HostedIrqManager::m_Instance;
@@ -169,7 +192,8 @@ irq_id_t HostedIrqManager::registerIsaIrqHandler(
             return 0;
         }
         __atomic_store_n(
-            &m_LineDeliveries[irq], static_cast<size_t>(IrqDelivery::Threaded),
+            &m_LineDeliveries[irq],
+            static_cast<size_t>(deliveryForLineMode(m_Handlers.lineMode(irq))),
             __ATOMIC_RELEASE);
     }
 
@@ -215,7 +239,8 @@ irq_id_t HostedIrqManager::registerHardIsaIrqHandler(
             return 0;
         }
         __atomic_store_n(
-            &m_LineDeliveries[irq], static_cast<size_t>(IrqDelivery::Hard),
+            &m_LineDeliveries[irq],
+            static_cast<size_t>(deliveryForLineMode(m_Handlers.lineMode(irq))),
             __ATOMIC_RELEASE);
     }
 
@@ -266,7 +291,8 @@ irq_id_t HostedIrqManager::registerPciIrqHandler(
             return 0;
         }
         __atomic_store_n(
-            &m_LineDeliveries[irq], static_cast<size_t>(IrqDelivery::Threaded),
+            &m_LineDeliveries[irq],
+            static_cast<size_t>(deliveryForLineMode(m_Handlers.lineMode(irq))),
             __ATOMIC_RELEASE);
     }
 
@@ -315,7 +341,8 @@ irq_id_t HostedIrqManager::registerHardPciIrqHandler(
             return 0;
         }
         __atomic_store_n(
-            &m_LineDeliveries[irq], static_cast<size_t>(IrqDelivery::Hard),
+            &m_LineDeliveries[irq],
+            static_cast<size_t>(deliveryForLineMode(m_Handlers.lineMode(irq))),
             __ATOMIC_RELEASE);
     }
 
@@ -335,6 +362,8 @@ bool HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
     TerminationDeferral lifecycleTermination(
         lifecycleTerminationCanBeDeferred());
     IrqHandlerRegistry::UnregisterResult result;
+    IrqHandlerRegistry::LineMode removedDelivery =
+        IrqHandlerRegistry::LineMode::Empty;
     {
         HostedLineLifecycleGuard lifecycle(m_LineLifecycleBusy[irq], irq);
         if (!lifecycle.owned())
@@ -345,7 +374,7 @@ bool HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
             return false;
         }
 
-        result = m_Handlers.unregisterHandler(irq, handler);
+        result = m_Handlers.unregisterHandler(irq, handler, removedDelivery);
         const bool removed =
             result == IrqHandlerRegistry::UnregisterResult::Completed ||
             result == IrqHandlerRegistry::UnregisterResult::Deferred;
@@ -357,19 +386,35 @@ bool HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
             hook(irq, LineOwnershipStage::BeforeFinalStateCheck, 0);
         }
 #endif
-        if (removed && !m_Handlers.handlerCount(irq))
+        if (removed)
         {
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-            if (hook)
+            const IrqHandlerRegistry::LineMode remainingMode =
+                m_Handlers.lineMode(irq);
+            const bool threadedLifetimeEnded =
+                removedDelivery == IrqHandlerRegistry::LineMode::Threaded &&
+                remainingMode != IrqHandlerRegistry::LineMode::Threaded &&
+                remainingMode != IrqHandlerRegistry::LineMode::Mixed;
+            const bool lineEmpty =
+                remainingMode == IrqHandlerRegistry::LineMode::Empty;
+            if (threadedLifetimeEnded || lineEmpty)
             {
-                hook(irq, LineOwnershipStage::BeforeFinalCookieAdvance, 0);
-            }
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+                if (hook)
+                {
+                    hook(
+                        irq, LineOwnershipStage::BeforeFinalCookieAdvance, 0);
+                }
 #endif
-            const size_t boundary = advanceThreadedCookie(irq);
-            m_Handlers.invalidateThreadedLine(irq, boundary);
+                const size_t boundary = advanceThreadedCookie(irq);
+                m_Handlers.invalidateThreadedLine(irq, boundary);
+                __atomic_store_n(
+                    &m_MixedHardOutcomeCookies[irq], static_cast<size_t>(0),
+                    __ATOMIC_RELEASE);
+            }
             __atomic_store_n(
                 &m_LineDeliveries[irq],
-                static_cast<size_t>(IrqDelivery::None), __ATOMIC_RELEASE);
+                static_cast<size_t>(deliveryForLineMode(remainingMode)),
+                __ATOMIC_RELEASE);
         }
     }
     // Atomic removal can briefly publish Draining before restoring Enabled
@@ -452,6 +497,9 @@ bool HostedIrqManager::shutdownThreaded()
             const size_t boundary = advanceThreadedCookie(line);
             m_Handlers.invalidateThreadedLine(line, boundary);
             __atomic_store_n(
+                &m_MixedHardOutcomeCookies[line], static_cast<size_t>(0),
+                __ATOMIC_RELEASE);
+            __atomic_store_n(
                 &m_LineDeliveries[irq],
                 static_cast<size_t>(IrqDelivery::None), __ATOMIC_RELEASE);
             break;
@@ -464,7 +512,8 @@ HostedIrqManager::HostedIrqManager()
     : m_Handlers(), m_ThreadedDispatcher(
                         MakeConstantString("hosted IRQ bottom half"),
                         NumHostedIrqs, dispatchThreadedLine, this),
-      m_ThreadedCookies(), m_LineDeliveries(),
+      m_ThreadedCookies(), m_MixedHardOutcomeCookies(),
+      m_MixedHardHandled(), m_LineDeliveries(),
       m_ThreadedPublicationFailures(), m_RemovalRejections(),
       m_DispatchGenerations(), m_UnhandledInterrupts(), m_Diagnostics(),
       m_LineLifecycleBusy(), m_ShuttingDown(0)
@@ -492,6 +541,9 @@ size_t HostedIrqManager::advanceThreadedCookie(uint8_t irq)
             &m_ThreadedCookies[irq], static_cast<size_t>(1),
             __ATOMIC_ACQ_REL);
     }
+    __atomic_store_n(
+        &m_MixedHardOutcomeCookies[irq], static_cast<size_t>(0),
+        __ATOMIC_RELEASE);
     return cookie;
 }
 
@@ -542,10 +594,7 @@ void HostedIrqManager::publishDiagnosticLine(uint8_t irq)
         }
         else
         {
-            line.delivery =
-                configuration.mode == IrqHandlerRegistry::LineMode::Threaded ?
-                    IrqDelivery::Threaded :
-                    IrqDelivery::Hard;
+            line.delivery = deliveryForLineMode(configuration.mode);
             if (configuration.policyConfigured)
             {
                 line.trigger = configuration.trigger;
@@ -664,8 +713,31 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
         return;
     }
 
-    const IrqHandlerRegistry::AdmissionCutoff admissionCutoff =
-        m_Handlers.captureAdmissionCutoff(irq);
+    const IrqDelivery delivery = static_cast<IrqDelivery>(__atomic_load_n(
+        &m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
+    IrqHandlerRegistry::AdmissionCutoff admissionCutoff = {};
+    IrqHandlerRegistry::MixedAdmissionCutoffs mixedAdmissionCutoffs = {};
+    bool cutoffCaptured = false;
+    if (delivery == IrqDelivery::Mixed)
+    {
+        cutoffCaptured = m_Handlers.captureMixedAdmissionCutoffs(
+            irq, mixedAdmissionCutoffs);
+    }
+    else
+    {
+        cutoffCaptured =
+            m_Handlers.captureAdmissionCutoff(irq, admissionCutoff);
+    }
+    if (!cutoffCaptured)
+    {
+        __atomic_add_fetch(
+            delivery == IrqDelivery::Threaded ||
+                    delivery == IrqDelivery::Mixed ?
+                &m_ThreadedPublicationFailures[irq] :
+                &m_UnhandledInterrupts[irq],
+            static_cast<size_t>(1), __ATOMIC_RELAXED);
+        return;
+    }
 
     size_t dispatchGeneration = __atomic_add_fetch(
         &m_DispatchGenerations[irq], static_cast<size_t>(1), __ATOMIC_ACQ_REL);
@@ -676,8 +748,6 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
             __ATOMIC_ACQ_REL);
     }
 
-    const IrqDelivery delivery = static_cast<IrqDelivery>(__atomic_load_n(
-        &m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
     if (delivery == IrqDelivery::Threaded)
     {
         const size_t cookie = advanceThreadedCookie(irq);
@@ -685,6 +755,70 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
         if (!m_ThreadedDispatcher.publishFromInterrupt(irq, cookie))
         {
             m_Handlers.cancelThreadedDispatch(irq, cookie);
+            __atomic_add_fetch(
+                &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
+        }
+        return;
+    }
+
+    if (delivery == IrqDelivery::Mixed)
+    {
+        const size_t cookie = advanceThreadedCookie(irq);
+        m_Handlers.publishThreadedDispatch(
+            irq, cookie, mixedAdmissionCutoffs.threaded);
+
+        // The occurrence leases now pin exact registry membership. A hard
+        // callback must be free to remove itself through this manager.
+        lifecycle.release();
+
+        bool handled = false;
+        const bool admitted = m_Handlers.dispatchHard(
+            irq, state, handled, nullptr, dispatchGeneration,
+            mixedAdmissionCutoffs.hard);
+
+        HostedLineLifecycleGuard tail(m_LineLifecycleBusy[irq], irq, false);
+        const IrqDelivery currentDelivery =
+            static_cast<IrqDelivery>(__atomic_load_n(
+                &m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
+        if (!tail.owned() ||
+            __atomic_load_n(&m_ShuttingDown, __ATOMIC_ACQUIRE))
+        {
+            m_Handlers.cancelThreadedDispatch(irq, cookie);
+            __atomic_add_fetch(
+                &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
+            return;
+        }
+
+        const bool cookieCurrent =
+            cookie == __atomic_load_n(
+                          &m_ThreadedCookies[irq], __ATOMIC_ACQUIRE);
+        if (!hasThreadedDelivery(currentDelivery) || !cookieCurrent)
+        {
+            // A newer occurrence owns the current cookie, while ending the
+            // old threaded lifetime requires its source to be quiesced. A
+            // replacement handler belongs to the next occurrence, so neither
+            // transition is a publication failure for this old action.
+            m_Handlers.cancelThreadedDispatch(irq, cookie);
+            return;
+        }
+
+        const bool hardStageQuiesced =
+            currentDelivery == IrqDelivery::Threaded;
+        __atomic_store_n(
+            &m_MixedHardHandled[irq],
+            static_cast<size_t>(
+                (admitted && handled) || hardStageQuiesced),
+            __ATOMIC_RELAXED);
+        __atomic_store_n(
+            &m_MixedHardOutcomeCookies[irq], cookie, __ATOMIC_RELEASE);
+        if (!m_ThreadedDispatcher.publishFromInterrupt(irq, cookie))
+        {
+            m_Handlers.cancelThreadedDispatch(irq, cookie);
+            __atomic_store_n(
+                &m_MixedHardOutcomeCookies[irq], static_cast<size_t>(0),
+                __ATOMIC_RELEASE);
             __atomic_add_fetch(
                 &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
                 __ATOMIC_RELAXED);
@@ -729,28 +863,69 @@ void HostedIrqManager::dispatchThreadedLine(
         hook(irq, LineOwnershipStage::BeforeThreadedCookieValidation, cookie);
     }
 #endif
+    const IrqDelivery delivery = static_cast<IrqDelivery>(__atomic_load_n(
+        &manager->m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
     if (cookie !=
             __atomic_load_n(
                 &manager->m_ThreadedCookies[irq], __ATOMIC_ACQUIRE) ||
-        static_cast<IrqDelivery>(__atomic_load_n(
-            &manager->m_LineDeliveries[irq], __ATOMIC_ACQUIRE)) !=
-            IrqDelivery::Threaded)
+        !hasThreadedDelivery(delivery))
     {
         return;
     }
+    const bool mixedOccurrence =
+        cookie == __atomic_load_n(
+                      &manager->m_MixedHardOutcomeCookies[irq],
+                      __ATOMIC_ACQUIRE);
     IrqHandlerRegistry::ThreadedDispatchResult result = {};
     const bool admitted = manager->m_Handlers.dispatchThreaded(
         irq, cookie, result);
+    const IrqDelivery completedDelivery =
+        static_cast<IrqDelivery>(__atomic_load_n(
+            &manager->m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
     if (cookie !=
             __atomic_load_n(
                 &manager->m_ThreadedCookies[irq], __ATOMIC_ACQUIRE) ||
-        static_cast<IrqDelivery>(__atomic_load_n(
-            &manager->m_LineDeliveries[irq], __ATOMIC_ACQUIRE)) !=
-            IrqDelivery::Threaded)
+        !hasThreadedDelivery(completedDelivery))
     {
         return;
     }
-    if (!admitted || !result.allowRearm)
+
+    bool accepted = admitted && result.allowRearm;
+    if (mixedOccurrence)
+    {
+        if (cookie != __atomic_load_n(
+                          &manager->m_MixedHardOutcomeCookies[irq],
+                          __ATOMIC_ACQUIRE))
+        {
+            return;
+        }
+        accepted |= __atomic_load_n(
+                        &manager->m_MixedHardHandled[irq],
+                        __ATOMIC_RELAXED) != 0;
+        const IrqDelivery currentDelivery =
+            static_cast<IrqDelivery>(__atomic_load_n(
+                &manager->m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
+        if (cookie !=
+                __atomic_load_n(
+                    &manager->m_ThreadedCookies[irq], __ATOMIC_ACQUIRE) ||
+            !hasThreadedDelivery(currentDelivery) ||
+            cookie != __atomic_load_n(
+                          &manager->m_MixedHardOutcomeCookies[irq],
+                          __ATOMIC_ACQUIRE))
+        {
+            return;
+        }
+
+        size_t exactCookie = cookie;
+        if (!__atomic_compare_exchange_n(
+                &manager->m_MixedHardOutcomeCookies[irq], &exactCookie,
+                static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
+                __ATOMIC_ACQUIRE))
+        {
+            return;
+        }
+    }
+    if (!accepted)
     {
         __atomic_add_fetch(
             &manager->m_UnhandledInterrupts[irq], static_cast<size_t>(1),

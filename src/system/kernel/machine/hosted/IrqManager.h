@@ -182,6 +182,10 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     /** Stable one-worker-per-signal threaded IRQ dispatcher. */
     ThreadedIrqDispatcher m_ThreadedDispatcher;
     size_t m_ThreadedCookies[3];
+    /** The cookie publishes its adjacent hard outcome without a blocking
+     *  lock. */
+    size_t m_MixedHardOutcomeCookies[3];
+    size_t m_MixedHardHandled[3];
     size_t m_LineDeliveries[3];
     size_t m_ThreadedPublicationFailures[3];
     size_t m_RemovalRejections[3];

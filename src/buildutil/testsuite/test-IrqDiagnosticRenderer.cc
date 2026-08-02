@@ -36,6 +36,7 @@ TEST(IrqDiagnosticRenderer, RendersDetachedThreadedState)
     snapshot.spuriousCount = 3;
     snapshot.unhandledCount = 2;
     snapshot.publicationFailures = 2;
+    snapshot.removalRejections = 5;
     snapshot.diagnosticPublicationFailures = 4;
     snapshot.workerIdentity = 0xfeed;
     snapshot.activeThreadedHandlerIdentity = 0xcafe;
@@ -78,7 +79,7 @@ TEST(IrqDiagnosticRenderer, RendersDetachedThreadedState)
         "hard[pins=1 gen=31]\n"
         "  worker=0xfeed handler=0xcafe pins=1 "
         "cookie[pub=33 pending=33 active=32 "
-        "done=31] batches=7 fail[publish=2 diag=4] "
+        "done=31] batches=7 fail[publish=2 remove=5 diag=4] "
         "state[ack=yes threaded=yes init=yes active=yes closed=no hard=yes]\n"
         "  ns[pending=300 active=100 wake=23/45 "
         "runtime=67/89]\n"
@@ -95,6 +96,26 @@ TEST(IrqDiagnosticRenderer, DistinguishesSnapshotMiss)
     IrqDiagnosticRenderer::render(snapshot, line);
 
     EXPECT_STREQ("irq 14 SNAPSHOT MISS\n", static_cast<const char *>(line));
+}
+
+TEST(IrqDiagnosticRenderer, RendersMixedDelivery)
+{
+    IrqLineDiagnosticSnapshot snapshot = {};
+    snapshot.snapshotGeneration = 1;
+    snapshot.line = 10;
+    snapshot.handlerCount = 2;
+    snapshot.delivery = IrqDelivery::Mixed;
+    snapshot.trigger = IrqTrigger::Level;
+    snapshot.controllerAck = IrqControllerAck::AfterHardStage;
+    snapshot.lineRelease = IrqLineRelease::AfterThreadedCompletion;
+    snapshot.configured = true;
+
+    IrqDiagnosticString line;
+    IrqDiagnosticRenderer::render(snapshot, line);
+
+    EXPECT_TRUE(line.contains(
+        "cfg=yes handlers=2 delivery=mixed trigger=level "
+        "ack=after-hard release=after-threaded"));
 }
 
 TEST(IrqDiagnosticRenderer, RendersEveryMaskReasonAndUnknownBits)

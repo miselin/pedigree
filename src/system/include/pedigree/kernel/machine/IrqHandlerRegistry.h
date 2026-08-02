@@ -46,6 +46,12 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         size_t readerToken;
     };
 
+    struct MixedAdmissionCutoffs
+    {
+        AdmissionCutoff hard;
+        AdmissionCutoff threaded;
+    };
+
     enum class UnregisterResult
     {
         Completed,
@@ -59,6 +65,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         Empty,
         Threaded,
         HardOnly,
+        Mixed,
     };
 
     /** One coherent, detached view of a physical line's admitted handlers. */
@@ -112,6 +119,15 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     UnregisterResult unregisterHandler(uint8_t irq, IrqHandlerBase *handler);
 
     /**
+     * Also reports the exact delivery of the slot whose admission was closed.
+     *
+     * `removedDelivery` is Empty when no matching slot was found and is never
+     * Mixed: each registry slot retains one private delivery bit.
+     */
+    UnregisterResult unregisterHandler(
+        uint8_t irq, IrqHandlerBase *handler, LineMode &removedDelivery);
+
+    /**
      * Dispatches all enabled handlers for an IRQ.
      *
      * Returns true if at least one callback was admitted. `handled` aggregates
@@ -140,8 +156,21 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         uint8_t irq, size_t dispatchGeneration,
         AdmissionCutoff admissionCutoff);
 
-    /** Captures one occurrence cutoff before controller delivery is sampled. */
-    AdmissionCutoff captureAdmissionCutoff(uint8_t irq);
+    /**
+     * Captures one occurrence cutoff before controller delivery is sampled.
+     * A false return leaves `cutoff` empty and transfers no lease.
+     */
+    bool captureAdmissionCutoff(uint8_t irq, AdmissionCutoff &cutoff);
+
+    /**
+     * Captures independent hard and threaded leases for one occurrence.
+     *
+     * Each cutoff must be consumed by its dispatch operation or released
+     * separately. Both leases have the same occurrence and admission epochs.
+     * A false return leaves both cutoffs empty and transfers no leases.
+     */
+    bool captureMixedAdmissionCutoffs(
+        uint8_t irq, MixedAdmissionCutoffs &cutoffs);
 
     /** Releases a cutoff which was not consumed by a dispatch operation. */
     void releaseAdmissionCutoff(AdmissionCutoff admissionCutoff);
@@ -284,6 +313,13 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     static constexpr size_t PolicyTriggerShift = 1;
     static constexpr size_t PolicyControllerAckShift = 3;
     static constexpr size_t PolicyLineReleaseShift = 5;
+    static constexpr size_t PolicyTriggerMask = 3U << PolicyTriggerShift;
+    static constexpr size_t PolicyControllerAckMask =
+        3U << PolicyControllerAckShift;
+    static constexpr size_t PolicyLineReleaseMask =
+        1U << PolicyLineReleaseShift;
+    static constexpr size_t PolicyMixedCompatibilityMask =
+        PolicyTriggerMask | PolicyControllerAckMask;
     static constexpr size_t LineSnapshotAttempts = 2;
 
     struct HandlerSlot;
@@ -357,6 +393,22 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         AtomicStateCleanupRecord cleanup;
     };
 
+    struct AdmissionCutoffCleanup
+    {
+        AdmissionCutoffCleanup(
+            IrqHandlerRegistry *owner, AdmissionCutoff admissionCutoff)
+            : registry(owner), cutoff(admissionCutoff), thread(nullptr),
+              ownsCutoff(false), cleanup()
+        {
+        }
+
+        IrqHandlerRegistry *registry;
+        AdmissionCutoff cutoff;
+        Thread *thread;
+        bool ownsCutoff;
+        AtomicStateCleanupRecord cleanup;
+    };
+
     struct ThreadedActionMutationCleanup
     {
         explicit ThreadedActionMutationCleanup(IrqHandlerRegistry *owner)
@@ -402,10 +454,20 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     static bool generationReached(size_t current, size_t target);
     static size_t encodePolicy(const IrqPolicy *policy);
     static void decodePolicy(size_t policy, LineConfiguration &configuration);
+    static bool mixedPoliciesCompatible(size_t first, size_t second);
+    static size_t effectiveMixedPolicy(size_t hard, size_t threaded);
+    static LineMode lineModeForDelivery(Delivery delivery);
 
-    /** All handlers on one physical line must use one delivery mode. */
     bool registerHandler(
         uint8_t irq, IrqHandlerBase *handler, Delivery delivery, size_t policy);
+
+    bool acquireOccurrenceReaderLeases(
+        uint8_t irq, size_t readerBank, size_t count);
+    void releaseOccurrenceReaderLeases(
+        uint8_t irq, size_t readerBank, size_t count);
+    void beginAdmissionCutoffCleanup(AdmissionCutoffCleanup &cleanup);
+    void finishAdmissionCutoffCleanup(AdmissionCutoffCleanup &cleanup);
+    static void abandonAdmissionCutoff(void *context);
 
     void beginMutation();
     void finishMutation();

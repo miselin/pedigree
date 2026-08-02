@@ -134,11 +134,13 @@ class Pic : public IrqManager, private InterruptHandler
     size_t m_ThreadedCookies[PicIrqState::LineCount];
     /** PIC dispatch generation associated with each queued cookie. */
     size_t m_ThreadedDispatchGenerations[PicIrqState::LineCount];
+    /** Hard-stage outcome folded into the matching mixed worker batch. */
+    bool m_ThreadedHadHardStage[PicIrqState::LineCount];
+    bool m_ThreadedHardAdmitted[PicIrqState::LineCount];
+    bool m_ThreadedHardHandled[PicIrqState::LineCount];
     /** Atomic diagnostics for work rejected after dispatcher closure. */
     size_t m_ThreadedPublicationFailures[PicIrqState::LineCount];
     size_t m_RemovalRejections[PicIrqState::LineCount];
-    /** Delivery is stable while a line has registered handlers. */
-    IrqDelivery m_LineDeliveries[PicIrqState::LineCount];
     /** Per-line immutable diagnostic publications. */
     IrqDiagnosticSnapshotStore<PicIrqState::LineCount> m_Diagnostics;
     /** Unregister operations which have not completed line accounting. */

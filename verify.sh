@@ -688,7 +688,7 @@ check_wait_api_boundaries()
 
     if ! rg -q 'm_IrqState\.beginDispatch\(irq\)' "$pic_source" ||
         ! rg -q 'm_IrqState\.completeDispatch\(' "$pic_source" ||
-        ! rg -q 'const bool firstHandler = m_HandlerCounts\[irq\] == 0' \
+        ! rg -q 'const bool firstHandler = handlerCount\(irq\) == 0' \
             "$pic_state"; then
         echo "PIC acknowledgement ordering lost its dispatch generation."
         failed=1
@@ -708,7 +708,7 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
-        '(?s)unregisterHandler\(uint8_t irq, IrqHandlerBase \*handler\).*?setDebugState\(.*?Thread::CallbackDrain.*?while \(hasActiveDispatch\(\*slot, drainingPublication\)\).*?Scheduler::instance\(\)\.yield\(\).*?setDebugState\(previousDebugState, previousDebugAddress\)' \
+        '(?s)unregisterHandler\([^)]*LineMode &removedDelivery\).*?TerminationDeferral terminationDeferral.*?setDebugState\(.*?Thread::CallbackDrain.*?while \(hasActiveDispatch\(\*slot, closedPublication\)\).*?Scheduler::instance\(\)\.yield\(\).*?setDebugState\(previousDebugState, previousDebugAddress\)' \
         "$irq_registry_source"; then
         echo "The IRQ callback drain lost its ordinary-context cooperative wait."
         failed=1
@@ -868,7 +868,7 @@ check_wait_api_boundaries()
         ! rg -q 'Quiesced' "$irq_handler_header" ||
         ! rg -q 'struct ThreadedDispatchResult' "$irq_registry_header" ||
         ! rg -q 'bool allowRearm' "$irq_registry_header" ||
-        ! rg -q 'admitted && result\.allowRearm' \
+        ! rg -q 'aggregateAdmitted && aggregateAllowRearm' \
             src/system/kernel/machine/mach_pc/Pic.cc ||
         ! rg -q 'irq-threaded-quiesced-rearm' \
             src/modules/system/hosted-smoke/irq-regressions.cc; then
@@ -1049,19 +1049,72 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q 'enum class Delivery' "$irq_registry_header" ||
-        ! rg -q 'registerThreadedHandler\(uint8_t irq, IrqHandler \*handler\)' \
+        ! rg -q -U \
+            'registerThreadedHandler\([^;]*const IrqPolicy &policy\)' \
             "$irq_registry_header" ||
-        ! rg -q 'registerHardHandler\(uint8_t irq, HardIrqHandler \*handler\)' \
+        ! rg -q -U \
+            'registerHardHandler\([^;]*const IrqPolicy &policy\)' \
+            "$irq_registry_header" ||
+        ! rg -q -U \
+            '(?s)enum class LineMode.*?Threaded.*?HardOnly.*?Mixed' \
             "$irq_registry_header" ||
         ! rg -q 'dispatchHard\(' "$irq_registry_header" ||
         ! rg -q 'dispatchThreaded\(' "$irq_registry_header" ||
-        ! rg -q 'deliveryOf\(publication\) != delivery' \
+        ! rg -q -U \
+            '(?s)registerHandler\(.*?existingDelivery == delivery && existingPolicy != policy.*?existingDelivery != delivery.*?!mixedPoliciesCompatible\(existingPolicy, policy\)' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)mixedPoliciesCompatible\(size_t first, size_t second\).*?PolicyValid.*?PolicyMixedCompatibilityMask.*?PolicyMixedCompatibilityMask' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)effectiveMixedPolicy\(.*?PolicyLineReleaseMask.*?effective \|= PolicyLineReleaseMask' \
             "$irq_registry_source" ||
         ! rg -q 'deliveryOf\(publication\) != Delivery::HardOnly' \
             "$irq_registry_source" ||
         ! rg -q 'deliveryOf\(publication\) != Delivery::Threaded' \
             "$irq_registry_source"; then
-        echo "The IRQ registry lost typed delivery or mixed-line rejection."
+        echo "The IRQ registry lost typed delivery or mixed-policy compatibility."
+        failed=1
+    fi
+
+    if ! rg -q \
+            'bool captureAdmissionCutoff\(uint8_t irq, AdmissionCutoff &cutoff\)' \
+            "$irq_registry_header" ||
+        ! rg -q -U \
+            'bool captureMixedAdmissionCutoffs\([^;]*MixedAdmissionCutoffs &cutoffs\)' \
+            "$irq_registry_header" ||
+        ! rg -q -U \
+            '(?s)bool IrqHandlerRegistry::captureMixedAdmissionCutoffs\(.*?cutoffs = \{\}.*?acquireOccurrenceReaderLeases\(irq, readerBank, 2\).*?const AdmissionCutoff cutoff.*?cutoffs = \{cutoff, cutoff\}.*?return true' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)captureMixedAdmissionCutoffs\(.*?releaseOccurrenceReaderLeases\(irq, readerBank, 2\)' \
+            "$irq_registry_source" ||
+        ! rg -q 'irq-mixed-delivery-occurrence' "$irq_regressions"; then
+        echo "Mixed IRQ delivery lost its paired occurrence admission leases."
+        failed=1
+    fi
+
+    if ! rg -q 'struct AdmissionCutoffCleanup' "$irq_registry_header" ||
+        ! rg -q -U \
+            '(?s)beginAdmissionCutoffCleanup\(.*?ownsCutoff = cleanup\.cutoff\.readerToken != 0.*?armAtomicStateCleanup\(.*?abandonAdmissionCutoff' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)finishAdmissionCutoffCleanup\(.*?if \(cleanup\.ownsCutoff\).*?cleanup\.ownsCutoff = false.*?releaseAdmissionCutoff\(cleanup\.cutoff\).*?disarmAtomicStateCleanup' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)abandonAdmissionCutoff\(void \*context\).*?!cleanup->ownsCutoff.*?cleanup->ownsCutoff = false.*?releaseAdmissionCutoff\(cleanup->cutoff\).*?cleanup->registry = nullptr' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)dispatchHard\(.*?AdmissionCutoff admissionCutoff\).*?AdmissionCutoffCleanup cutoffCleanup.*?beginAdmissionCutoffCleanup\(cutoffCleanup\)' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)publishThreadedDispatch\(.*?AdmissionCutoff admissionCutoff\).*?AdmissionCutoffCleanup cutoffCleanup.*?beginAdmissionCutoffCleanup\(cutoffCleanup\)' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)dispatchThreaded\(.*?captureAdmissionCutoff\(irq, workerCutoff\).*?AdmissionCutoffCleanup cutoffCleanup.*?beginAdmissionCutoffCleanup\(cutoffCleanup\)' \
+            "$irq_registry_source" ||
+        ! rg -q 'irq-occurrence-lease-abandon-cleanup' "$irq_regressions"; then
+        echo "IRQ occurrence leases lost exact-once normal or abandonment cleanup."
         failed=1
     fi
 
@@ -1108,7 +1161,7 @@ check_wait_api_boundaries()
             src/system/kernel/core/processor/hosted/InterruptManager.cc \
             src/system/kernel/core/processor/x64/InterruptManager.cc ||
         ! rg -q -U \
-            '(?s)Line::publishFromInterrupt\(size_t cookie\).*?__atomic_fetch_add\(.*?m_PublicationState.*?PublicationClosed.*?__atomic_store_n\(&m_PendingCookie, cookie.*?ringIrqWorkDoorbell\(\).*?__atomic_fetch_sub\(.*?m_PublicationState' \
+            '(?s)Line::publishFromInterrupt\(size_t cookie\).*?__atomic_fetch_add\(.*?m_PublicationState.*?PublicationClosed.*?pending = __atomic_load_n\(&m_PendingCookie.*?while \(!pending \|\| generationReached\(cookie, pending\)\).*?__atomic_compare_exchange_n\(.*?&m_PendingCookie, &pending, cookie.*?__ATOMIC_RELEASE.*?__ATOMIC_ACQUIRE.*?ringIrqWorkDoorbell\(\).*?__atomic_fetch_sub\(.*?m_PublicationState' \
             "$threaded_irq_source" ||
         ! rg -q -U \
             '(?s)Line::beginStop\(\).*?__atomic_fetch_or\(.*?m_PublicationState, PublicationClosed' \
@@ -1121,7 +1174,10 @@ check_wait_api_boundaries()
     threaded_publish_body=$(sed -n \
         '/Line::publishFromInterrupt(size_t cookie)/,/Line::hasPending() const/p' \
         "$threaded_irq_source")
-    matches=$(printf '%s\n' "$threaded_publish_body" | \
+    local threaded_publish_boundary_body
+    threaded_publish_boundary_body=$(printf '%s\n' "$threaded_publish_body" | \
+        sed '/^[[:space:]]*while (!pending || generationReached(cookie, pending))$/d')
+    matches=$(printf '%s\n' "$threaded_publish_boundary_body" | \
         rg -n \
             'LockGuard|Spinlock|Semaphore|WaitQueue|RequestQueue|new[[:space:]]|delete[[:space:]]|FATAL|ERROR|WARNING|NOTICE|while[[:space:]]*\(|for[[:space:]]*\(' || true)
     if [[ -n "$matches" ]]; then
@@ -1167,7 +1223,7 @@ check_wait_api_boundaries()
             src/system/kernel/machine/hosted/IrqManager.{cc,h} ||
         ! rg -q 'snapshotLineConfiguration' "$irq_registry_source" ||
         ! rg -q -U \
-            '(?s)deliveryOf\(publication\) != delivery.*?slot\.policy.*?!= policy' \
+            '(?s)snapshotLineConfiguration\(.*?observedThreaded.*?observedHard.*?mixedPoliciesCompatible\(hardPolicy, threadedPolicy\).*?LineMode::Mixed.*?effectiveMixedPolicy\(hardPolicy, threadedPolicy\)' \
             "$irq_registry_source" ||
         ! rg -q \
             'current\.mutationGeneration == configuration\.mutationGeneration' \
@@ -1207,12 +1263,18 @@ check_wait_api_boundaries()
     local pc_source=src/system/kernel/machine/mach_pc/Pc.cc
     if ! rg -q 'ThreadedIrqDispatcher m_ThreadedDispatcher' "$pic_header" ||
         ! rg -q -U \
-            '(?s)registerIsaIrqHandler\([^)]*IrqHandler \*handler, const IrqPolicy &policy.*?registerThreadedHandler\(irq, handler\).*?handlerRegistered\(irq, policy\)' \
+            '(?s)registerIsaIrqHandler\([^)]*IrqHandler \*handler, const IrqPolicy &policy.*?registerThreadedHandler\(irq, handler, policy\).*?handlerRegistered\(irq, policy, IrqDelivery::Threaded\)' \
             "$pic_source" ||
         ! rg -q -U \
-            '(?s)registerPciIrqHandler\(.*?const IrqPolicy &policy.*?registerThreadedHandler\(irq, handler\).*?handlerRegistered\(irq, policy\)' \
+            '(?s)registerHardIsaIrqHandler\([^)]*HardIrqHandler \*handler, const IrqPolicy &policy.*?registerHardHandler\(irq, handler, policy\).*?handlerRegistered\(irq, policy, IrqDelivery::Hard\)' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)registerPciIrqHandler\(.*?const IrqPolicy &policy.*?registerThreadedHandler\(irq, handler, policy\).*?handlerRegistered\(irq, policy, IrqDelivery::Threaded\)' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)registerHardPciIrqHandler\(.*?const IrqPolicy &policy.*?registerHardHandler\(irq, handler, policy\).*?handlerRegistered\(irq, policy, IrqDelivery::Hard\)' \
             "$pic_source"; then
-        echo "The PIC normal registration path escaped manager-owned threaded delivery."
+        echo "The PIC registration path escaped typed hard or threaded delivery."
         failed=1
     fi
 
@@ -1223,32 +1285,43 @@ check_wait_api_boundaries()
         '(?s)registerIsaIrqHandler\(.*?m_UnregisterReservations\[irq\].*?registerThreadedHandler' \
         "$pic_source" ||
         ! rg -q -U \
-            '(?s)unregisterHandler\(.*?\+\+m_UnregisterReservations\[irq\].*?m_Handlers\.unregisterHandler\(.*?--m_UnregisterReservations\[irq\].*?UnregisterResult::Completed.*?handlerUnregistered\(irq\).*?advanceThreadedCookieLocked\(irq\)' \
+            '(?s)unregisterHandler\(.*?\+\+m_UnregisterReservations\[irq\].*?m_Handlers\.unregisterHandler\(irq, handler, removedDelivery\).*?--m_UnregisterReservations\[irq\].*?removedDelivery == IrqHandlerRegistry::LineMode::Threaded.*?handlerUnregistered\(irq, delivery\).*?previousDelivery == IrqDelivery::Mixed.*?currentDelivery == IrqDelivery::Hard.*?advanceThreadedCookieLocked\(irq\).*?invalidateThreadedLine\(irq, boundary\)' \
             "$pic_source"; then
         echo "PIC registration can cross final-unregister accounting or invalidate failed removals."
         failed=1
     fi
 
+    local pic_hard_irq_body
+    pic_hard_irq_body=$(sed -n \
+        '/^void Pic::interrupt(/,/^void Pic::dispatchThreadedLine/p' \
+        "$pic_source")
+    local pic_threaded_worker_body
+    pic_threaded_worker_body=$(sed -n \
+        '/^void Pic::dispatchThreadedLine/,/^void Pic::eoiLocked/p' \
+        "$pic_source")
     if ! rg -q -U \
-        '(?s)Pic::interrupt\(.*?beginThreadedDispatch\(irq\).*?lineRelease == IrqLineRelease::AfterThreadedCompletion.*?applyMaskLocked\(\).*?publishFromInterrupt\(.*?threadedCookie\).*?controllerAck == IrqControllerAck::AfterHardStage.*?eoiLocked\(irq\)' \
-        "$pic_source" ||
+            '(?s)bool cutoffCaptured = false.*?delivery == IrqDelivery::Mixed.*?cutoffCaptured = m_Handlers\.captureMixedAdmissionCutoffs\(.*?hardAdmissionCutoff.*?threadedAdmissionCutoff.*?else if \(hasThreadedStage\).*?cutoffCaptured = m_Handlers\.captureAdmissionCutoff\(.*?threadedAdmissionCutoff.*?else.*?cutoffCaptured = m_Handlers\.captureAdmissionCutoff\(.*?hardAdmissionCutoff.*?if \(!cutoffCaptured\).*?controllerAck != IrqControllerAck::None.*?eoiLocked\(irq\).*?hasThreadedStage \? &m_ThreadedPublicationFailures\[irq\].*?&m_UnhandledIrqCount\[irq\].*?publishDiagnosticLineLocked.*?return;.*?if \(hasThreadedStage\)' \
+            <<<"$pic_hard_irq_body" ||
         ! rg -q -U \
-            '(?s)if \(!threadedPublished\).*?__atomic_add_fetch\(.*?m_ThreadedPublicationFailures' \
-            "$pic_source" ||
+            '(?s)beginThreadedDispatch\(irq\).*?lineRelease == IrqLineRelease::AfterThreadedCompletion.*?applyMaskLocked\(\).*?controllerAck == IrqControllerAck::BeforeHardStage.*?eoiLocked\(irq\)' \
+            <<<"$pic_hard_irq_body" ||
         ! rg -q -U \
-            '(?s)dispatchThreadedLine\(.*?dispatchThreaded\(irq, result\).*?completeThreadedDispatch\([^;]*admitted && result\.allowRearm\)' \
-            "$pic_source"; then
-        echo "The PIC threaded path lost mask, EOI, publication, or rearm ordering."
+            '(?s)publishThreadedDispatch\([^;]*threadedAdmissionCutoff\).*?if \(!hasHardStage &&.*?!m_ThreadedDispatcher\.publishFromInterrupt\(.*?dispatchHard\([^;]*hardAdmissionCutoff\).*?if \(hasThreadedStage\).*?threadedLifetimeCurrent.*?!m_ThreadedDispatcher\.publishFromInterrupt\(' \
+            <<<"$pic_hard_irq_body" ||
+        ! rg -q -U \
+            '(?s)dispatchThreaded\(irq, cookie, result\).*?aggregateAdmitted.*?m_ThreadedHardAdmitted\[irq\] \|\| admitted.*?aggregateAllowRearm.*?m_ThreadedHardHandled\[irq\] \|\| result\.allowRearm.*?completeThreadedDispatch\(.*?aggregateAdmitted && aggregateAllowRearm' \
+            <<<"$pic_threaded_worker_body" ||
+        ! rg -q -U \
+            '(?s)publishFromInterrupt\(.*?cancelThreadedDispatch\(.*?m_ThreadedPublicationFailures' \
+            <<<"$pic_hard_irq_body"; then
+        echo "The PIC mixed path lost cutoff, mask, EOI, hard-stage, publication, or worker ordering."
         failed=1
     fi
 
-    local pic_threaded_tail
-    pic_threaded_tail=$(sed -n \
-        '/^    if (threaded)$/,/^    bool bHandled/p' "$pic_source")
-    matches=$(printf '%s\n' "$pic_threaded_tail" | \
+    matches=$(printf '%s\n' "$pic_hard_irq_body" | \
         rg -n '(ERROR|WARNING|NOTICE|FATAL)(_NOLOCK)?\(' || true)
     if [[ -n "$matches" ]]; then
-        echo "The PIC threaded publication tail logs from hard IRQ context:"
+        echo "The PIC interrupt path logs from hard IRQ context:"
         echo "$matches"
         failed=1
     fi
@@ -1257,14 +1330,25 @@ check_wait_api_boundaries()
         ! rg -q 'bool m_RequestedEnabled\[LineCount\]' "$pic_state" ||
         ! rg -q 'IrqControllerAck m_ControllerAck\[LineCount\]' \
             "$pic_state" ||
-        ! rg -q 'IrqLineRelease m_LineRelease\[LineCount\]' "$pic_state" ||
+        ! rg -q 'size_t m_HardHandlerCounts\[LineCount\]' "$pic_state" ||
+        ! rg -q 'size_t m_ThreadedHandlerCounts\[LineCount\]' "$pic_state" ||
+        ! rg -q -U \
+            '(?s)IrqDelivery delivery\(size_t irq\) const.*?hard && threaded.*?IrqDelivery::Mixed' \
+            "$pic_state" ||
+        ! rg -q -U \
+            '(?s)IrqLineRelease lineRelease\(size_t irq\) const.*?TriggerMode::Level.*?m_ThreadedHandlerCounts\[irq\].*?IrqLineRelease::AfterThreadedCompletion' \
+            "$pic_state" ||
+        ! rg -q -U \
+            '(?s)canRegister\(.*?IrqDelivery delivery\).*?m_TriggerModes\[irq\] == requested.*?m_ControllerAck\[irq\] == policy\.controllerAck\(\)' \
+            "$pic_state" ||
         ! rg -q 'm_TriggerModes\[irq\] = TriggerMode::Unconfigured' \
             "$pic_state" ||
         ! rg -q 'm_DispatchGenerations\[irq\] != dispatchGeneration' \
             "$pic_state" ||
         ! rg -q 'pic-threaded-trigger-policy' "$threaded_irq_regressions" ||
+        ! rg -q 'irq-mixed-delivery-occurrence' "$irq_regressions" ||
         ! rg -q 'irq-policy-orthogonality' "$irq_regressions"; then
-        echo "PIC mask reasons, stale-generation protection, or trigger tests are incomplete."
+        echo "PIC mixed counts, mask reasons, stale-generation protection, or trigger tests are incomplete."
         failed=1
     fi
 
@@ -1500,7 +1584,10 @@ check_wait_api_boundaries()
             '(?s)queueHostedSchedulerTickForTest\(\).*?hostedExecutionThreadId\(\).*?SYS_tgkill.*?executionThreadId.*?SIGUSR2' \
             "$hosted_processor_source" ||
         ! rg -q -U \
-            '(?s)signalShim\(.*?which == SIGUSR1.*?which == SIGUSR2.*?!Processor::onHostedExecutionThread\(\).*?FATAL_NOLOCK' \
+            '(?s)isHostedIrqSignal\(int which\).*?which == SIGUSR1 \|\| which == SIGUSR2' \
+            "$hosted_interrupt_manager_source" ||
+        ! rg -q -U \
+            '(?s)signalShim\(.*?isHostedIrqSignal\(which\) && !Processor::onHostedExecutionThread\(\).*?FATAL_NOLOCK' \
             "$hosted_interrupt_manager_source" ||
         ! rg -q -U \
             '(?s)observeSchedulerTimerHardContext\(.*?!Processor::onHostedExecutionThread\(\)' \

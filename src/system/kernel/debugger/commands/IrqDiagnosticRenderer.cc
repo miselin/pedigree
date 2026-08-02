@@ -29,6 +29,8 @@ const char *deliveryName(IrqDelivery delivery)
             return "hard";
         case IrqDelivery::Threaded:
             return "threaded";
+        case IrqDelivery::Mixed:
+            return "mixed";
     }
     return "unknown";
 }

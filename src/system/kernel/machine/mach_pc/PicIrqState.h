@@ -38,8 +38,8 @@ class PicIrqState
         {
             m_TriggerModes[i] = TriggerMode::Unconfigured;
             m_ControllerAck[i] = IrqControllerAck::AfterHardStage;
-            m_LineRelease[i] = IrqLineRelease::AfterHardStage;
-            m_HandlerCounts[i] = 0;
+            m_HardHandlerCounts[i] = 0;
+            m_ThreadedHandlerCounts[i] = 0;
             m_DispatchGenerations[i] = 0;
             m_AcknowledgedGenerations[i] = 0;
             m_AcknowledgementPending[i] = false;
@@ -48,9 +48,19 @@ class PicIrqState
         }
     }
 
-    bool canRegister(size_t irq, const IrqPolicy &policy) const
+    bool canRegister(
+        size_t irq, const IrqPolicy &policy, IrqDelivery delivery) const
     {
-        if (irq >= LineCount)
+        if (irq >= LineCount ||
+            (delivery != IrqDelivery::Hard &&
+             delivery != IrqDelivery::Threaded))
+        {
+            return false;
+        }
+
+        if ((delivery == IrqDelivery::Hard && !policy.validForHard()) ||
+            (delivery == IrqDelivery::Threaded &&
+             !policy.validForThreaded()))
         {
             return false;
         }
@@ -60,23 +70,34 @@ class PicIrqState
                                                    TriggerMode::Level;
         return m_TriggerModes[irq] == TriggerMode::Unconfigured ||
                (m_TriggerModes[irq] == requested &&
-                m_ControllerAck[irq] == policy.controllerAck() &&
-                m_LineRelease[irq] == policy.lineRelease());
+                m_ControllerAck[irq] == policy.controllerAck());
     }
 
-    void handlerRegistered(size_t irq, const IrqPolicy &policy)
+    bool canRegister(size_t irq, const IrqPolicy &policy) const
     {
-        assert(canRegister(irq, policy));
-        const bool firstHandler = m_HandlerCounts[irq] == 0;
+        return canRegister(irq, policy, legacyDelivery(policy));
+    }
+
+    void handlerRegistered(
+        size_t irq, const IrqPolicy &policy, IrqDelivery delivery)
+    {
+        assert(canRegister(irq, policy, delivery));
+        const bool firstHandler = handlerCount(irq) == 0;
         if (m_TriggerModes[irq] == TriggerMode::Unconfigured)
         {
             m_TriggerModes[irq] =
                 policy.trigger() == IrqTrigger::Edge ? TriggerMode::Edge :
                                                        TriggerMode::Level;
             m_ControllerAck[irq] = policy.controllerAck();
-            m_LineRelease[irq] = policy.lineRelease();
         }
-        ++m_HandlerCounts[irq];
+        if (delivery == IrqDelivery::Hard)
+        {
+            ++m_HardHandlerCounts[irq];
+        }
+        else
+        {
+            ++m_ThreadedHandlerCounts[irq];
+        }
         if (firstHandler)
         {
             m_AcknowledgementPending[irq] = false;
@@ -87,12 +108,34 @@ class PicIrqState
         }
     }
 
-    void handlerUnregistered(size_t irq)
+    void handlerRegistered(size_t irq, const IrqPolicy &policy)
+    {
+        handlerRegistered(irq, policy, legacyDelivery(policy));
+    }
+
+    void handlerUnregistered(size_t irq, IrqDelivery delivery)
     {
         assert(irq < LineCount);
-        assert(m_HandlerCounts[irq]);
-        --m_HandlerCounts[irq];
-        if (!m_HandlerCounts[irq])
+        assert(
+            delivery == IrqDelivery::Hard ||
+            delivery == IrqDelivery::Threaded);
+        if (delivery == IrqDelivery::Hard)
+        {
+            assert(m_HardHandlerCounts[irq]);
+            --m_HardHandlerCounts[irq];
+        }
+        else
+        {
+            assert(m_ThreadedHandlerCounts[irq]);
+            --m_ThreadedHandlerCounts[irq];
+            if (!m_ThreadedHandlerCounts[irq] && m_ThreadedPending[irq])
+            {
+                m_ThreadedPending[irq] = false;
+                rebuildMask();
+            }
+        }
+
+        if (!handlerCount(irq))
         {
             m_AcknowledgementPending[irq] = false;
             m_ThreadedPending[irq] = false;
@@ -100,9 +143,17 @@ class PicIrqState
             m_RequestedEnabled[irq] = false;
             m_TriggerModes[irq] = TriggerMode::Unconfigured;
             m_ControllerAck[irq] = IrqControllerAck::AfterHardStage;
-            m_LineRelease[irq] = IrqLineRelease::AfterHardStage;
             rebuildMask();
         }
+    }
+
+    void handlerUnregistered(size_t irq)
+    {
+        assert(irq < LineCount);
+        assert(!m_HardHandlerCounts[irq] || !m_ThreadedHandlerCounts[irq]);
+        handlerUnregistered(
+            irq, m_ThreadedHandlerCounts[irq] ? IrqDelivery::Threaded :
+                                               IrqDelivery::Hard);
     }
 
     size_t beginDispatch(size_t irq)
@@ -125,7 +176,7 @@ class PicIrqState
         size_t irq, size_t dispatchGeneration, bool needsAcknowledgement)
     {
         assert(irq < LineCount);
-        if (!needsAcknowledgement || !m_HandlerCounts[irq] ||
+        if (!needsAcknowledgement || !handlerCount(irq) ||
             generationReached(
                 m_AcknowledgedGenerations[irq], dispatchGeneration))
         {
@@ -139,7 +190,7 @@ class PicIrqState
     bool acknowledge(size_t irq)
     {
         assert(irq < LineCount);
-        if (!m_HandlerCounts[irq])
+        if (!handlerCount(irq))
         {
             return false;
         }
@@ -157,7 +208,7 @@ class PicIrqState
     void beginThreadedDispatch(size_t irq)
     {
         assert(irq < LineCount);
-        if (m_LineRelease[irq] == IrqLineRelease::AfterThreadedCompletion)
+        if (lineRelease(irq) == IrqLineRelease::AfterThreadedCompletion)
         {
             m_ThreadedPending[irq] = true;
             rebuildMask();
@@ -177,8 +228,8 @@ class PicIrqState
             return false;
         }
 
-        if (m_LineRelease[irq] == IrqLineRelease::AfterThreadedCompletion &&
-            (allowRearm || !m_HandlerCounts[irq]))
+        if (lineRelease(irq) == IrqLineRelease::AfterThreadedCompletion &&
+            (allowRearm || !handlerCount(irq)))
         {
             m_ThreadedPending[irq] = false;
             rebuildMask();
@@ -201,7 +252,39 @@ class PicIrqState
     size_t handlerCount(size_t irq) const
     {
         assert(irq < LineCount);
-        return m_HandlerCounts[irq];
+        return m_HardHandlerCounts[irq] + m_ThreadedHandlerCounts[irq];
+    }
+
+    size_t hardHandlerCount(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_HardHandlerCounts[irq];
+    }
+
+    size_t threadedHandlerCount(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_ThreadedHandlerCounts[irq];
+    }
+
+    IrqDelivery delivery(size_t irq) const
+    {
+        assert(irq < LineCount);
+        const bool hard = m_HardHandlerCounts[irq] != 0;
+        const bool threaded = m_ThreadedHandlerCounts[irq] != 0;
+        if (hard && threaded)
+        {
+            return IrqDelivery::Mixed;
+        }
+        if (hard)
+        {
+            return IrqDelivery::Hard;
+        }
+        if (threaded)
+        {
+            return IrqDelivery::Threaded;
+        }
+        return IrqDelivery::None;
     }
 
     bool edgeTriggered(size_t irq) const
@@ -226,7 +309,10 @@ class PicIrqState
     IrqLineRelease lineRelease(size_t irq) const
     {
         assert(irq < LineCount);
-        return m_LineRelease[irq];
+        return m_TriggerModes[irq] == TriggerMode::Level &&
+                       m_ThreadedHandlerCounts[irq] ?
+                   IrqLineRelease::AfterThreadedCompletion :
+                   IrqLineRelease::AfterHardStage;
     }
 
     bool enabled(size_t irq) const
@@ -292,6 +378,18 @@ class PicIrqState
     }
 
   private:
+    static IrqDelivery legacyDelivery(const IrqPolicy &policy)
+    {
+        if (policy.lineRelease() ==
+                IrqLineRelease::AfterThreadedCompletion ||
+            (policy.trigger() == IrqTrigger::Edge &&
+             policy.controllerAck() == IrqControllerAck::AfterHardStage))
+        {
+            return IrqDelivery::Threaded;
+        }
+        return IrqDelivery::Hard;
+    }
+
     static uint16_t bit(size_t irq)
     {
         return static_cast<uint16_t>(static_cast<uint16_t>(1U) << irq);
@@ -327,8 +425,8 @@ class PicIrqState
     uint16_t m_Mask;
     TriggerMode m_TriggerModes[LineCount];
     IrqControllerAck m_ControllerAck[LineCount];
-    IrqLineRelease m_LineRelease[LineCount];
-    size_t m_HandlerCounts[LineCount];
+    size_t m_HardHandlerCounts[LineCount];
+    size_t m_ThreadedHandlerCounts[LineCount];
     size_t m_DispatchGenerations[LineCount];
     size_t m_AcknowledgedGenerations[LineCount];
     bool m_AcknowledgementPending[LineCount];

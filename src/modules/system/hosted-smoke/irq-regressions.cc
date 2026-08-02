@@ -73,6 +73,22 @@ class HardRegistryHandler : public HardIrqHandler
     }
 };
 
+class CountingHardRegistryHandler : public HardIrqHandler
+{
+  public:
+    CountingHardRegistryHandler() : calls(0)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override
+    {
+        ++calls;
+        return true;
+    }
+
+    size_t calls;
+};
+
 class DispositionHandler : public IrqHandler
 {
   public:
@@ -161,6 +177,103 @@ struct AbandonedActionMutationContext
 };
 
 AbandonedActionMutationContext *g_AbandonedActionMutation = nullptr;
+
+enum class AbandonedCutoffPath
+{
+    MixedHard,
+    ThreadedPublication,
+    ThreadedWorker,
+};
+
+struct AbandonedCutoffContext
+{
+    AbandonedCutoffContext(
+        AbandonedCutoffPath dispatchPath, uint8_t irqLine, size_t generation)
+        : threaded(IrqDisposition::Handled), worker(nullptr), path(dispatchPath),
+          line(irqLine), dispatchGeneration(generation), mixedCutoffs(),
+          admissionCutoff(), cutoffCaptured(0), hookCalls(0), returned(0)
+    {
+    }
+
+    IrqHandlerRegistry registry;
+    HardRegistryHandler hard;
+    DispositionHandler threaded;
+    Thread *worker;
+    AbandonedCutoffPath path;
+    uint8_t line;
+    size_t dispatchGeneration;
+    IrqHandlerRegistry::MixedAdmissionCutoffs mixedCutoffs;
+    IrqHandlerRegistry::AdmissionCutoff admissionCutoff;
+    Atomic<size_t> cutoffCaptured;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> returned;
+};
+
+AbandonedCutoffContext *g_AbandonedCutoff = nullptr;
+
+void abandonCutoffDispatch(
+    IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage stage)
+{
+    AbandonedCutoffContext *context = g_AbandonedCutoff;
+    IrqHandlerBase *expectedHandler =
+        context && context->path == AbandonedCutoffPath::MixedHard ?
+            static_cast<IrqHandlerBase *>(&context->hard) :
+            context ? static_cast<IrqHandlerBase *>(&context->threaded) :
+                      nullptr;
+    if (!context || handler != expectedHandler ||
+        stage != IrqHandlerRegistry::HandlerHazardStage::BeforeClaim ||
+        Processor::information().getCurrentThread() != context->worker ||
+        !context->hookCalls.compareAndSwap(0, 1))
+    {
+        return;
+    }
+
+    HostedIrqManager::abandonCurrentThreadForTest();
+}
+
+int abandonCutoffWorker(void *parameter)
+{
+    AbandonedCutoffContext *context =
+        reinterpret_cast<AbandonedCutoffContext *>(parameter);
+    if (context->path == AbandonedCutoffPath::MixedHard)
+    {
+        if (!context->registry.captureMixedAdmissionCutoffs(
+                context->line, context->mixedCutoffs))
+        {
+            return 1;
+        }
+        context->cutoffCaptured = 1;
+        alignas(InterruptState) uint8_t stateStorage[sizeof(InterruptState)] =
+            {};
+        InterruptState &state =
+            *reinterpret_cast<InterruptState *>(stateStorage);
+        bool handled = false;
+        context->registry.dispatchHard(
+            context->line, state, handled, &context->hard,
+            context->dispatchGeneration, context->mixedCutoffs.hard);
+    }
+    else if (context->path == AbandonedCutoffPath::ThreadedPublication)
+    {
+        if (!context->registry.captureAdmissionCutoff(
+                context->line, context->admissionCutoff))
+        {
+            return 1;
+        }
+        context->cutoffCaptured = 1;
+        context->registry.publishThreadedDispatch(
+            context->line, context->dispatchGeneration,
+            context->admissionCutoff);
+    }
+    else
+    {
+        IrqHandlerRegistry::ThreadedDispatchResult result = {};
+        context->registry.dispatchThreaded(
+            context->line, context->dispatchGeneration, result,
+            &context->threaded);
+    }
+    context->returned += 1;
+    return 1;
+}
 
 struct ClaimedCancellationContext
 {
@@ -259,8 +372,11 @@ void dispatchAfterRetirementBoundary(
     }
 
     ++context->calls;
-    const IrqHandlerRegistry::AdmissionCutoff cutoff =
-        context->registry->captureAdmissionCutoff(context->line);
+    IrqHandlerRegistry::AdmissionCutoff cutoff = {};
+    if (!context->registry->captureAdmissionCutoff(context->line, cutoff))
+    {
+        return;
+    }
     alignas(InterruptState) uint8_t stateStorage[sizeof(InterruptState)] = {};
     InterruptState &state = *reinterpret_cast<InterruptState *>(stateStorage);
     context->admitted = context->registry->dispatchHard(
@@ -700,6 +816,185 @@ bool deliveryModeSeparation()
     return passed;
 }
 
+bool mixedDeliveryOccurrenceBinding()
+{
+    constexpr const char *Test = "irq-mixed-delivery-occurrence";
+    constexpr uint8_t Line = 23;
+    constexpr size_t Generation = 0x5301;
+
+    IrqHandlerRegistry registry;
+    CountingHardRegistryHandler originalHard;
+    CountingHardRegistryHandler lateHard;
+    ThreadedRegistryHandler originalThreaded;
+    ThreadedRegistryHandler lateThreaded;
+    const bool hardRegistered = registry.registerHardHandler(
+        Line, &originalHard, IrqPolicy::syntheticHard());
+    const bool threadedRegistered = registry.registerThreadedHandler(
+        Line, &originalThreaded, IrqPolicy::syntheticThreaded());
+
+    IrqHandlerRegistry::LineConfiguration mixed = {};
+    const bool mixedSnapshot = registry.snapshotLineConfiguration(Line, mixed);
+    IrqHandlerRegistry::MixedAdmissionCutoffs cutoffs = {};
+    const bool cutoffsCaptured =
+        registry.captureMixedAdmissionCutoffs(Line, cutoffs);
+    const bool identicalCutoff =
+        cutoffs.hard.epoch == cutoffs.threaded.epoch &&
+        cutoffs.hard.occurrenceEpoch == cutoffs.threaded.occurrenceEpoch &&
+        cutoffs.hard.readerToken == cutoffs.threaded.readerToken;
+
+    const bool lateHardRegistered = registry.registerHardHandler(
+        Line, &lateHard, IrqPolicy::syntheticHard());
+    const bool lateThreadedRegistered = registry.registerThreadedHandler(
+        Line, &lateThreaded, IrqPolicy::syntheticThreaded());
+    const bool threadedPublished = registry.publishThreadedDispatch(
+        Line, Generation, cutoffs.threaded);
+    alignas(InterruptState) uint8_t stateStorage[sizeof(InterruptState)] = {};
+    InterruptState &state = *reinterpret_cast<InterruptState *>(stateStorage);
+    bool hardHandled = false;
+    const bool hardAdmitted = registry.dispatchHard(
+        Line, state, hardHandled, nullptr, Generation, cutoffs.hard);
+    IrqHandlerRegistry::ThreadedDispatchResult threadedResult = {};
+    const bool threadedAdmitted =
+        registry.dispatchThreaded(Line, Generation, threadedResult);
+
+    IrqHandlerRegistry::LineMode removedDelivery =
+        IrqHandlerRegistry::LineMode::Empty;
+    const bool originalHardRemoved =
+        registry.unregisterHandler(Line, &originalHard, removedDelivery) ==
+            IrqHandlerRegistry::UnregisterResult::Completed &&
+        removedDelivery == IrqHandlerRegistry::LineMode::HardOnly;
+    const bool stillMixed =
+        registry.lineMode(Line) == IrqHandlerRegistry::LineMode::Mixed;
+    const bool lateHardRemoved =
+        registry.unregisterHandler(Line, &lateHard, removedDelivery) ==
+            IrqHandlerRegistry::UnregisterResult::Completed &&
+        removedDelivery == IrqHandlerRegistry::LineMode::HardOnly;
+    IrqHandlerRegistry::LineConfiguration threadedOnly = {};
+    const bool threadedOnlySnapshot =
+        registry.snapshotLineConfiguration(Line, threadedOnly);
+    const bool originalThreadedRemoved =
+        registry.unregisterHandler(
+            Line, &originalThreaded, removedDelivery) ==
+            IrqHandlerRegistry::UnregisterResult::Completed &&
+        removedDelivery == IrqHandlerRegistry::LineMode::Threaded;
+    const bool lateThreadedRemoved =
+        registry.unregisterHandler(Line, &lateThreaded, removedDelivery) ==
+            IrqHandlerRegistry::UnregisterResult::Completed &&
+        removedDelivery == IrqHandlerRegistry::LineMode::Threaded;
+
+    constexpr uint8_t IncompatibleLine = 24;
+    ThreadedRegistryHandler edgeThreaded;
+    CountingHardRegistryHandler edgeHard;
+    const bool edgeThreadedRegistered = registry.registerThreadedHandler(
+        IncompatibleLine, &edgeThreaded, IrqPolicy::edgeThreaded());
+    const bool incompatibleEdgeRejected = !registry.registerHardHandler(
+        IncompatibleLine, &edgeHard, IrqPolicy::edgeHard());
+    const bool compatibleEdgeRegistered = registry.registerHardHandler(
+        IncompatibleLine, &edgeHard, IrqPolicy::edgeThreaded());
+    const bool edgeHardRemoved =
+        registry.unregisterHandler(IncompatibleLine, &edgeHard) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    const bool edgeThreadedRemoved =
+        registry.unregisterHandler(IncompatibleLine, &edgeThreaded) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    constexpr uint8_t LevelLine = 26;
+    CountingHardRegistryHandler levelHard;
+    ThreadedRegistryHandler levelThreaded;
+    const bool levelHardRegistered = registry.registerHardHandler(
+        LevelLine, &levelHard, IrqPolicy::levelHard());
+    const bool levelThreadedRegistered = registry.registerThreadedHandler(
+        LevelLine, &levelThreaded, IrqPolicy::levelThreaded());
+    IrqHandlerRegistry::LineConfiguration mixedLevel = {};
+    const bool mixedLevelSnapshot =
+        registry.snapshotLineConfiguration(LevelLine, mixedLevel);
+    const bool levelThreadedRemoved =
+        registry.unregisterHandler(LevelLine, &levelThreaded) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    IrqHandlerRegistry::LineConfiguration hardLevel = {};
+    const bool hardLevelSnapshot =
+        registry.snapshotLineConfiguration(LevelLine, hardLevel);
+    const bool levelHardRemoved =
+        registry.unregisterHandler(LevelLine, &levelHard) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    constexpr uint8_t LeaseLine = 25;
+    CountingHardRegistryHandler leased;
+    const bool leasedRegistered = registry.registerHardHandler(
+        LeaseLine, &leased, IrqPolicy::syntheticHard());
+    IrqHandlerRegistry::MixedAdmissionCutoffs held = {};
+    const bool heldCaptured =
+        registry.captureMixedAdmissionCutoffs(LeaseLine, held);
+    const bool leasedRemoved =
+        registry.unregisterHandler(LeaseLine, &leased) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    const size_t tombstonesBeforeRelease =
+        registry.tombstoneCountForTest(LeaseLine);
+    registry.releaseAdmissionCutoff(held.hard);
+    const size_t tombstonesAfterFirstRelease =
+        registry.tombstoneCountForTest(LeaseLine);
+    registry.releaseAdmissionCutoff(held.threaded);
+    const size_t tombstonesAfterFinalRelease =
+        registry.tombstoneCountForTest(LeaseLine);
+
+    bool passed = true;
+    passed &= check(
+        hardRegistered && threadedRegistered && mixedSnapshot &&
+            mixed.handlerCount == 2 &&
+            mixed.mode == IrqHandlerRegistry::LineMode::Mixed &&
+            mixed.policyConfigured && mixed.trigger == IrqTrigger::Synthetic &&
+            mixed.controllerAck == IrqControllerAck::None &&
+            mixed.lineRelease == IrqLineRelease::AfterHardStage,
+        "compatible hard and threaded handlers did not form one line", Test);
+    passed &= check(
+        cutoffsCaptured && identicalCutoff && lateHardRegistered &&
+            lateThreadedRegistered &&
+            threadedPublished && hardAdmitted && hardHandled &&
+            threadedAdmitted && threadedResult.handled &&
+            threadedResult.allowRearm && originalHard.calls == 1 &&
+            lateHard.calls == 0 && originalThreaded.calls == 1 &&
+            lateThreaded.calls == 0,
+        "the two mixed stages did not share one occurrence cutoff", Test);
+    passed &= check(
+        originalHardRemoved && stillMixed && lateHardRemoved &&
+            threadedOnlySnapshot && threadedOnly.handlerCount == 2 &&
+            threadedOnly.mode == IrqHandlerRegistry::LineMode::Threaded &&
+            originalThreadedRemoved && lateThreadedRemoved &&
+            registry.lineMode(Line) == IrqHandlerRegistry::LineMode::Empty,
+        "mixed-line removal lost per-delivery state transitions", Test);
+    passed &= check(
+        edgeThreadedRegistered && incompatibleEdgeRejected &&
+            compatibleEdgeRegistered &&
+            registry.lineMode(IncompatibleLine) ==
+                IrqHandlerRegistry::LineMode::Empty &&
+            edgeHardRemoved && edgeThreadedRemoved,
+        "mixed registration ignored controller acknowledgement ordering",
+        Test);
+    passed &= check(
+        levelHardRegistered && levelThreadedRegistered && mixedLevelSnapshot &&
+            mixedLevel.mode == IrqHandlerRegistry::LineMode::Mixed &&
+            mixedLevel.trigger == IrqTrigger::Level &&
+            mixedLevel.controllerAck == IrqControllerAck::AfterHardStage &&
+            mixedLevel.lineRelease ==
+                IrqLineRelease::AfterThreadedCompletion &&
+            levelThreadedRemoved && hardLevelSnapshot &&
+            hardLevel.mode == IrqHandlerRegistry::LineMode::HardOnly &&
+            hardLevel.lineRelease == IrqLineRelease::AfterHardStage &&
+            levelHardRemoved,
+        "level-mixed policy did not promote and demote line release", Test);
+    passed &= check(
+        leasedRegistered && heldCaptured && leasedRemoved &&
+            tombstonesBeforeRelease == 1 &&
+            tombstonesAfterFirstRelease == 1 &&
+            tombstonesAfterFinalRelease == 0,
+        "one mixed cutoff lease reclaimed an occurrence still in use", Test);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-mixed-delivery-occurrence");
+    }
+    return passed;
+}
+
 bool threadedOccurrenceLifetimeBinding()
 {
     constexpr const char *Test = "irq-threaded-occurrence-lifetime";
@@ -811,8 +1106,9 @@ bool occurrenceGraceTombstones()
         HardRegistryHandler handler;
         HardRegistryHandler replacement;
         const bool registered = registry.registerHardHandler(Line, &handler);
-        const IrqHandlerRegistry::AdmissionCutoff cutoff =
-            registry.captureAdmissionCutoff(Line);
+        IrqHandlerRegistry::AdmissionCutoff cutoff = {};
+        const bool cutoffCaptured =
+            registry.captureAdmissionCutoff(Line, cutoff);
         const bool removed =
             registry.unregisterHandler(Line, &handler) ==
             IrqHandlerRegistry::UnregisterResult::Completed;
@@ -827,7 +1123,7 @@ bool occurrenceGraceTombstones()
         const bool replacementRemoved =
             registry.unregisterHandler(Line, &replacement) ==
             IrqHandlerRegistry::UnregisterResult::Completed;
-        hardPassed = registered && removed && admitted && handled &&
+        hardPassed = registered && cutoffCaptured && removed && admitted && handled &&
                      replacementRegistered && replacementRemoved;
     }
 
@@ -839,8 +1135,9 @@ bool occurrenceGraceTombstones()
         DispositionHandler replacement(IrqDisposition::Handled);
         const bool registered =
             registry.registerThreadedHandler(Line, &handler);
-        const IrqHandlerRegistry::AdmissionCutoff cutoff =
-            registry.captureAdmissionCutoff(Line);
+        IrqHandlerRegistry::AdmissionCutoff cutoff = {};
+        const bool cutoffCaptured =
+            registry.captureAdmissionCutoff(Line, cutoff);
         const bool removed =
             registry.unregisterHandler(Line, &handler) ==
             IrqHandlerRegistry::UnregisterResult::Completed;
@@ -854,7 +1151,7 @@ bool occurrenceGraceTombstones()
         const bool replacementRemoved =
             registry.unregisterHandler(Line, &replacement) ==
             IrqHandlerRegistry::UnregisterResult::Completed;
-        threadedPassed = registered && removed && published && admitted &&
+        threadedPassed = registered && cutoffCaptured && removed && published && admitted &&
                           !result.handled && result.allowRearm &&
                           !handler.calls && replacementRegistered &&
                           replacementRemoved;
@@ -868,8 +1165,9 @@ bool occurrenceGraceTombstones()
         HardRegistryHandler handler;
         const bool registered =
             registry.registerHardHandler(TombstoneLine, &handler);
-        const IrqHandlerRegistry::AdmissionCutoff cutoff =
-            registry.captureAdmissionCutoff(HeldLine);
+        IrqHandlerRegistry::AdmissionCutoff cutoff = {};
+        const bool cutoffCaptured =
+            registry.captureAdmissionCutoff(HeldLine, cutoff);
         const bool removed =
             registry.unregisterHandler(TombstoneLine, &handler) ==
             IrqHandlerRegistry::UnregisterResult::Completed;
@@ -878,7 +1176,8 @@ bool occurrenceGraceTombstones()
         registry.releaseAdmissionCutoff(cutoff);
         const bool reclaimed =
             registry.tombstoneCountForTest(TombstoneLine) == 0;
-        collidingGracePassed = registered && removed && retained && reclaimed;
+        collidingGracePassed =
+            registered && cutoffCaptured && removed && retained && reclaimed;
     }
 
     bool passed = check(
@@ -890,6 +1189,148 @@ bool occurrenceGraceTombstones()
     if (passed)
     {
         NOTICE("HOSTED-WAIT-TEST: PASS irq-occurrence-grace-tombstone");
+    }
+    return passed;
+}
+
+bool abandonedOccurrenceLeaseCleanup()
+{
+    constexpr const char *Test = "irq-occurrence-lease-abandon-cleanup";
+
+    bool mixedHardPassed = false;
+    {
+        constexpr uint8_t Line = 27;
+        AbandonedCutoffContext context(
+            AbandonedCutoffPath::MixedHard, Line, 0x5210);
+        const bool hardRegistered = context.registry.registerHardHandler(
+            Line, &context.hard, IrqPolicy::syntheticHard());
+        const bool threadedRegistered =
+            context.registry.registerThreadedHandler(
+                Line, &context.threaded, IrqPolicy::syntheticThreaded());
+        context.worker = new Thread(
+            Scheduler::instance().getKernelProcess(), abandonCutoffWorker,
+            &context, nullptr, false, true, true);
+        context.worker->setName("hosted abandoned mixed IRQ cutoff");
+
+        g_AbandonedCutoff = &context;
+        context.registry.setHandlerHazardHook(abandonCutoffDispatch);
+        const bool started = context.worker->start();
+        const bool joined = started && context.worker->joinForCompletion();
+        context.registry.setHandlerHazardHook(nullptr);
+        g_AbandonedCutoff = nullptr;
+
+        const bool hardRemoved =
+            context.registry.unregisterHandler(Line, &context.hard) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+        const size_t tombstonesWithSibling =
+            context.registry.tombstoneCountForTest(Line);
+        if (context.cutoffCaptured)
+        {
+            context.registry.releaseAdmissionCutoff(
+                context.mixedCutoffs.threaded);
+        }
+        const size_t tombstonesAfterSibling =
+            context.registry.tombstoneCountForTest(Line);
+        const bool threadedRemoved =
+            context.registry.unregisterHandler(Line, &context.threaded) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+
+        mixedHardPassed =
+            hardRegistered && threadedRegistered && started && joined &&
+            context.cutoffCaptured == 1 && context.hookCalls == 1 &&
+            !context.returned && hardRemoved && tombstonesWithSibling == 1 &&
+            tombstonesAfterSibling == 0 && threadedRemoved;
+    }
+
+    bool publicationPassed = false;
+    {
+        constexpr uint8_t Line = 28;
+        AbandonedCutoffContext context(
+            AbandonedCutoffPath::ThreadedPublication, Line, 0x5211);
+        const bool registered = context.registry.registerThreadedHandler(
+            Line, &context.threaded);
+        context.worker = new Thread(
+            Scheduler::instance().getKernelProcess(), abandonCutoffWorker,
+            &context, nullptr, false, true, true);
+        context.worker->setName("hosted abandoned IRQ publication cutoff");
+
+        g_AbandonedCutoff = &context;
+        context.registry.setHandlerHazardHook(abandonCutoffDispatch);
+        const bool started = context.worker->start();
+        const bool joined = started && context.worker->joinForCompletion();
+        context.registry.setHandlerHazardHook(nullptr);
+        g_AbandonedCutoff = nullptr;
+
+        const bool removed =
+            context.registry.unregisterHandler(Line, &context.threaded) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+        publicationPassed =
+            registered && started && joined && context.cutoffCaptured == 1 &&
+            context.hookCalls == 1 && !context.returned && removed &&
+            context.registry.tombstoneCountForTest(Line) == 0;
+    }
+
+    bool threadedWorkerPassed = false;
+    {
+        constexpr uint8_t Line = 29;
+        constexpr uint8_t ProbeLine = Line + 16;
+        constexpr size_t Generation = 0x5212;
+        AbandonedCutoffContext context(
+            AbandonedCutoffPath::ThreadedWorker, Line, Generation);
+        const bool registered = context.registry.registerThreadedHandler(
+            Line, &context.threaded);
+        const bool published = context.registry.publishThreadedDispatch(
+            Line, Generation);
+        context.worker = new Thread(
+            Scheduler::instance().getKernelProcess(), abandonCutoffWorker,
+            &context, nullptr, false, true, true);
+        context.worker->setName("hosted abandoned IRQ worker cutoff");
+
+        g_AbandonedCutoff = &context;
+        context.registry.setHandlerHazardHook(abandonCutoffDispatch);
+        const bool started = context.worker->start();
+        const bool joined = started && context.worker->joinForCompletion();
+        context.registry.setHandlerHazardHook(nullptr);
+        g_AbandonedCutoff = nullptr;
+
+        HardRegistryHandler probe;
+        const bool probeRegistered =
+            context.registry.registerHardHandler(ProbeLine, &probe);
+        const bool probeRemoved =
+            context.registry.unregisterHandler(ProbeLine, &probe) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+        const bool probeReclaimed =
+            context.registry.tombstoneCountForTest(ProbeLine) == 0;
+        context.registry.invalidateThreadedLine(Line, Generation);
+        const bool removed =
+            context.registry.unregisterHandler(Line, &context.threaded) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+        threadedWorkerPassed =
+            registered && published && started && joined &&
+            context.hookCalls == 1 && !context.returned &&
+            !context.threaded.calls && probeRegistered && probeRemoved &&
+            probeReclaimed && removed;
+    }
+
+    bool passed = check(
+        mixedHardPassed,
+        "an abandoned mixed hard dispatch did not release exactly its own "
+        "cutoff lease",
+        Test);
+    passed &= check(
+        publicationPassed,
+        "an abandoned threaded publication stranded its explicit cutoff "
+        "lease",
+        Test);
+    passed &= check(
+        threadedWorkerPassed,
+        "an abandoned threaded worker stranded its internal cutoff lease",
+        Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-occurrence-lease-abandon-cleanup");
     }
     return passed;
 }
@@ -938,11 +1379,14 @@ bool actionMutationPinsSlotLifetime()
         registry.registerThreadedHandler(OriginalLine, &original);
     const bool originalPublished =
         registry.publishThreadedDispatch(OriginalLine, Generation);
+    IrqHandlerRegistry::AdmissionCutoff heldCutoff = {};
+    const bool heldCutoffCaptured =
+        registry.captureAdmissionCutoff(0, heldCutoff);
     ActionReuseContext context = {
         &registry,
         &original,
         &replacement,
-        registry.captureAdmissionCutoff(0),
+        heldCutoff,
         OriginalLine,
         ReplacementLine,
         Generation,
@@ -981,7 +1425,8 @@ bool actionMutationPinsSlotLifetime()
     }
 
     const bool passed = check(
-        originalRegistered && originalPublished && context.calls == 1 &&
+        originalRegistered && originalPublished && heldCutoffCaptured &&
+            context.calls == 1 &&
             context.originalRemoved && context.cutoffReleased &&
             context.replacementRegistered && context.replacementPublished &&
             replacementAdmitted && result.handled && result.allowRearm &&
@@ -1591,6 +2036,41 @@ bool picLineStateLifecycle()
         "registration after final removal retained the previous policy",
         Test);
     state.handlerUnregistered(12);
+
+    constexpr size_t MixedLine = 10;
+    const bool mixedHardAccepted = state.canRegister(
+        MixedLine, IrqPolicy::levelHard(), IrqDelivery::Hard);
+    state.handlerRegistered(
+        MixedLine, IrqPolicy::levelHard(), IrqDelivery::Hard);
+    const bool mixedThreadedAccepted = state.canRegister(
+        MixedLine, IrqPolicy::levelThreaded(), IrqDelivery::Threaded);
+    state.handlerRegistered(
+        MixedLine, IrqPolicy::levelThreaded(), IrqDelivery::Threaded);
+    const size_t mixedGeneration = state.beginDispatch(MixedLine);
+    state.beginThreadedDispatch(MixedLine);
+    passed &= check(
+        mixedHardAccepted && mixedThreadedAccepted &&
+            state.delivery(MixedLine) == IrqDelivery::Mixed &&
+            state.hardHandlerCount(MixedLine) == 1 &&
+            state.threadedHandlerCount(MixedLine) == 1 &&
+            state.lineRelease(MixedLine) ==
+                IrqLineRelease::AfterThreadedCompletion &&
+            !state.enabled(MixedLine) && state.threadedPending(MixedLine),
+        "a mixed level line did not defer release to its worker", Test);
+    state.handlerUnregistered(MixedLine, IrqDelivery::Threaded);
+    passed &= check(
+            state.delivery(MixedLine) == IrqDelivery::Hard &&
+            state.lineRelease(MixedLine) == IrqLineRelease::AfterHardStage &&
+            state.enabled(MixedLine) && !state.threadedPending(MixedLine) &&
+            state.completeThreadedDispatch(
+                MixedLine, mixedGeneration, true),
+        "removing the final threaded peer did not release mixed masking",
+        Test);
+    state.handlerUnregistered(MixedLine, IrqDelivery::Hard);
+    passed &= check(
+        state.delivery(MixedLine) == IrqDelivery::None &&
+            !state.enabled(MixedLine),
+        "the mixed line did not retire after its hard peer", Test);
 
     if (passed)
     {
@@ -3053,8 +3533,10 @@ bool runHostedIrqRegressions()
 {
     bool passed = deviceHardIrqContextTracking();
     passed &= deliveryModeSeparation();
+    passed &= mixedDeliveryOccurrenceBinding();
     passed &= threadedOccurrenceLifetimeBinding();
     passed &= occurrenceGraceTombstones();
+    passed &= abandonedOccurrenceLeaseCleanup();
     passed &= retirementBoundaryExcludesNewOccurrences();
     passed &= actionMutationPinsSlotLifetime();
     passed &= quiescedPublicationClosesWorkerExit();

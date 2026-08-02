@@ -345,6 +345,35 @@ void IrqHandlerRegistry::decodePolicy(
         static_cast<IrqLineRelease>((policy >> PolicyLineReleaseShift) & 1);
 }
 
+bool IrqHandlerRegistry::mixedPoliciesCompatible(size_t first, size_t second)
+{
+    if (!(first & PolicyValid) || !(second & PolicyValid))
+    {
+        return false;
+    }
+
+    return (first & PolicyMixedCompatibilityMask) ==
+           (second & PolicyMixedCompatibilityMask);
+}
+
+size_t IrqHandlerRegistry::effectiveMixedPolicy(
+    size_t hard, size_t threaded)
+{
+    size_t effective = hard;
+    if (threaded & PolicyLineReleaseMask)
+    {
+        effective |= PolicyLineReleaseMask;
+    }
+    return effective;
+}
+
+IrqHandlerRegistry::LineMode IrqHandlerRegistry::lineModeForDelivery(
+    Delivery delivery)
+{
+    return delivery == Delivery::Threaded ? LineMode::Threaded :
+                                            LineMode::HardOnly;
+}
+
 void IrqHandlerRegistry::beginMutation()
 {
     // A global epoch keeps the registry compact. Unrelated line churn can only
@@ -1190,10 +1219,12 @@ bool IrqHandlerRegistry::registerHandler(
         {
             continue;
         }
-        // A physical line has one dispatch context. Keeping its delivery mode
-        // in the publication makes this check part of dispatch revalidation.
-        if (deliveryOf(publication) != delivery ||
-            __atomic_load_n(&slot.policy, __ATOMIC_ACQUIRE) != policy)
+        const Delivery existingDelivery = deliveryOf(publication);
+        const size_t existingPolicy =
+            __atomic_load_n(&slot.policy, __ATOMIC_ACQUIRE);
+        if ((existingDelivery == delivery && existingPolicy != policy) ||
+            (existingDelivery != delivery &&
+             !mixedPoliciesCompatible(existingPolicy, policy)))
         {
             return false;
         }
@@ -1297,6 +1328,14 @@ bool IrqHandlerRegistry::registerHardHandler(
 IrqHandlerRegistry::UnregisterResult
 IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandlerBase *handler)
 {
+    LineMode ignoredDelivery = LineMode::Empty;
+    return unregisterHandler(irq, handler, ignoredDelivery);
+}
+
+IrqHandlerRegistry::UnregisterResult IrqHandlerRegistry::unregisterHandler(
+    uint8_t irq, IrqHandlerBase *handler, LineMode &removedDelivery)
+{
+    removedDelivery = LineMode::Empty;
     if (!handler)
     {
         return UnregisterResult::NotFound;
@@ -1330,6 +1369,8 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandlerBase *handler)
             {
                 continue;
             }
+
+            removedDelivery = lineModeForDelivery(deliveryOf(publication));
 
             bool currentTargetDispatch = false;
             if (findCurrentDispatch(
@@ -1417,6 +1458,8 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandlerBase *handler)
         return UnregisterResult::NotFound;
     }
 
+    removedDelivery = lineModeForDelivery(deliveryOf(publication));
+
     const bool selfUnregister =
         findCurrentDispatch(owner, slot, publication, callbackContext);
     if (selfUnregister)
@@ -1486,14 +1529,21 @@ bool IrqHandlerRegistry::dispatchHard(
     uint8_t irq, InterruptState &state, bool &handled,
     HardIrqHandler *onlyHandler, size_t dispatchGeneration)
 {
+    AdmissionCutoff admissionCutoff = {};
+    if (!captureAdmissionCutoff(irq, admissionCutoff))
+    {
+        handled = false;
+        return false;
+    }
     return dispatchHard(
         irq, state, handled, onlyHandler, dispatchGeneration,
-        captureAdmissionCutoff(irq));
+        admissionCutoff);
 }
 
-IrqHandlerRegistry::AdmissionCutoff
-IrqHandlerRegistry::captureAdmissionCutoff(uint8_t irq)
+bool IrqHandlerRegistry::captureAdmissionCutoff(
+    uint8_t irq, AdmissionCutoff &cutoff)
 {
+    cutoff = {};
     const size_t graceBucket = irq % GraceBucketCount;
     while (true)
     {
@@ -1501,24 +1551,116 @@ IrqHandlerRegistry::captureAdmissionCutoff(uint8_t irq)
             __atomic_load_n(
                 &m_OccurrenceEpochs[graceBucket], __ATOMIC_SEQ_CST);
         const size_t readerBank = occurrenceEpoch & 1;
-        __atomic_add_fetch(
-            &m_OccurrenceReaders[graceBucket][readerBank],
-            static_cast<size_t>(1),
-            __ATOMIC_SEQ_CST);
+        if (!acquireOccurrenceReaderLeases(irq, readerBank, 1))
+        {
+            return false;
+        }
         if (__atomic_load_n(
                 &m_OccurrenceEpochs[graceBucket], __ATOMIC_SEQ_CST) ==
             occurrenceEpoch)
         {
             const size_t admissionEpoch =
                 __atomic_load_n(&m_AdmissionEpoch, __ATOMIC_ACQUIRE);
-            return {
+            cutoff = {
                 admissionEpoch, occurrenceEpoch,
                 (static_cast<size_t>(irq) * 2) + readerBank + 1};
+            return true;
         }
-        __atomic_sub_fetch(
-            &m_OccurrenceReaders[graceBucket][readerBank],
-            static_cast<size_t>(1),
-            __ATOMIC_SEQ_CST);
+        releaseOccurrenceReaderLeases(irq, readerBank, 1);
+    }
+}
+
+bool IrqHandlerRegistry::captureMixedAdmissionCutoffs(
+    uint8_t irq, MixedAdmissionCutoffs &cutoffs)
+{
+    cutoffs = {};
+    const size_t graceBucket = irq % GraceBucketCount;
+    while (true)
+    {
+        const size_t occurrenceEpoch = __atomic_load_n(
+            &m_OccurrenceEpochs[graceBucket], __ATOMIC_SEQ_CST);
+        const size_t readerBank = occurrenceEpoch & 1;
+        if (!acquireOccurrenceReaderLeases(irq, readerBank, 2))
+        {
+            return false;
+        }
+        if (__atomic_load_n(
+                &m_OccurrenceEpochs[graceBucket], __ATOMIC_SEQ_CST) ==
+            occurrenceEpoch)
+        {
+            const size_t admissionEpoch =
+                __atomic_load_n(&m_AdmissionEpoch, __ATOMIC_ACQUIRE);
+            const AdmissionCutoff cutoff = {
+                admissionEpoch, occurrenceEpoch,
+                (static_cast<size_t>(irq) * 2) + readerBank + 1};
+            cutoffs = {cutoff, cutoff};
+            return true;
+        }
+        releaseOccurrenceReaderLeases(irq, readerBank, 2);
+    }
+}
+
+bool IrqHandlerRegistry::acquireOccurrenceReaderLeases(
+    uint8_t irq, size_t readerBank, size_t count)
+{
+    if (readerBank > 1 || !count)
+    {
+        FATAL_NOLOCK("Invalid IRQ occurrence reader acquisition.");
+        return false;
+    }
+
+    const size_t graceBucket = irq % GraceBucketCount;
+    size_t current = __atomic_load_n(
+        &m_OccurrenceReaders[graceBucket][readerBank], __ATOMIC_SEQ_CST);
+    while (true)
+    {
+        if (current > ~static_cast<size_t>(0) - count)
+        {
+            FATAL_NOLOCK("IRQ occurrence reader count overflowed.");
+            return false;
+        }
+        const size_t desired = current + count;
+        if (__atomic_compare_exchange_n(
+                &m_OccurrenceReaders[graceBucket][readerBank], &current,
+                desired, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+        {
+            return true;
+        }
+    }
+}
+
+void IrqHandlerRegistry::releaseOccurrenceReaderLeases(
+    uint8_t irq, size_t readerBank, size_t count)
+{
+    if (readerBank > 1 || !count)
+    {
+        FATAL_NOLOCK("Invalid IRQ occurrence reader release.");
+        return;
+    }
+
+    const size_t graceBucket = irq % GraceBucketCount;
+    size_t current = __atomic_load_n(
+        &m_OccurrenceReaders[graceBucket][readerBank], __ATOMIC_SEQ_CST);
+    size_t remaining = 0;
+    while (true)
+    {
+        if (current < count)
+        {
+            FATAL_NOLOCK("IRQ occurrence reader count underflowed.");
+            return;
+        }
+        remaining = current - count;
+        if (__atomic_compare_exchange_n(
+                &m_OccurrenceReaders[graceBucket][readerBank], &current,
+                remaining, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+        {
+            break;
+        }
+    }
+
+    if (!remaining)
+    {
+        tryReclaimTombstones(irq);
     }
 }
 
@@ -1531,16 +1673,66 @@ void IrqHandlerRegistry::releaseAdmissionCutoff(
     }
 
     const size_t token = admissionCutoff.readerToken - 1;
+    if (token >= IrqCount * 2)
+    {
+        FATAL_NOLOCK("Invalid IRQ occurrence reader token.");
+        return;
+    }
     const uint8_t irq = static_cast<uint8_t>(token / 2);
     const size_t readerBank = token & 1;
-    const size_t graceBucket = irq % GraceBucketCount;
-    const size_t remaining = __atomic_sub_fetch(
-        &m_OccurrenceReaders[graceBucket][readerBank], static_cast<size_t>(1),
-        __ATOMIC_SEQ_CST);
-    if (!remaining)
+    releaseOccurrenceReaderLeases(irq, readerBank, 1);
+}
+
+void IrqHandlerRegistry::beginAdmissionCutoffCleanup(
+    AdmissionCutoffCleanup &cleanup)
+{
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    cleanup.thread = Processor::information().getCurrentThread();
+    cleanup.ownsCutoff = cleanup.cutoff.readerToken != 0;
+    if (cleanup.thread && cleanup.ownsCutoff)
     {
-        tryReclaimTombstones(irq);
+        // This remains below each per-slot hazard cleanup. Stack abandonment
+        // therefore unpublishes hazards before the final lease can reclaim a
+        // tombstone.
+        cleanup.thread->armAtomicStateCleanup(
+            cleanup.cleanup, abandonAdmissionCutoff, &cleanup);
     }
+    Processor::setInterrupts(interruptsWereEnabled);
+}
+
+void IrqHandlerRegistry::finishAdmissionCutoffCleanup(
+    AdmissionCutoffCleanup &cleanup)
+{
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    if (cleanup.ownsCutoff)
+    {
+        // Transfer ownership before release so an unwind from the release
+        // path cannot consume the same lease through this cleanup record.
+        cleanup.ownsCutoff = false;
+        releaseAdmissionCutoff(cleanup.cutoff);
+    }
+    if (cleanup.thread && cleanup.cleanup.armed)
+    {
+        cleanup.thread->disarmAtomicStateCleanup(cleanup.cleanup);
+    }
+    cleanup.registry = nullptr;
+    Processor::setInterrupts(interruptsWereEnabled);
+}
+
+void IrqHandlerRegistry::abandonAdmissionCutoff(void *context)
+{
+    AdmissionCutoffCleanup *cleanup =
+        reinterpret_cast<AdmissionCutoffCleanup *>(context);
+    if (!cleanup || !cleanup->registry || !cleanup->ownsCutoff)
+    {
+        return;
+    }
+
+    cleanup->ownsCutoff = false;
+    cleanup->registry->releaseAdmissionCutoff(cleanup->cutoff);
+    cleanup->registry = nullptr;
 }
 
 bool IrqHandlerRegistry::dispatchHard(
@@ -1548,6 +1740,8 @@ bool IrqHandlerRegistry::dispatchHard(
     HardIrqHandler *onlyHandler, size_t dispatchGeneration,
     AdmissionCutoff admissionCutoff)
 {
+    AdmissionCutoffCleanup cutoffCleanup(this, admissionCutoff);
+    beginAdmissionCutoffCleanup(cutoffCleanup);
     bool admitted = false;
     handled = false;
     const size_t cutoffEpoch = admissionCutoff.epoch;
@@ -1556,7 +1750,7 @@ bool IrqHandlerRegistry::dispatchHard(
         (admissionCutoff.occurrenceEpoch & 1) + 1;
     if (admissionCutoff.readerToken != expectedReaderToken)
     {
-        releaseAdmissionCutoff(admissionCutoff);
+        finishAdmissionCutoffCleanup(cutoffCleanup);
         return false;
     }
 
@@ -1640,7 +1834,7 @@ bool IrqHandlerRegistry::dispatchHard(
             {
                 thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
             }
-            releaseAdmissionCutoff(admissionCutoff);
+            finishAdmissionCutoffCleanup(cutoffCleanup);
             FATAL_NOLOCK("IRQ callback hazard table exhausted.");
             return admitted;
         }
@@ -1723,31 +1917,38 @@ bool IrqHandlerRegistry::dispatchHard(
         restoreDispatchInterruptState(dispatchCleanup);
     }
 
-    releaseAdmissionCutoff(admissionCutoff);
+    finishAdmissionCutoffCleanup(cutoffCleanup);
     return admitted;
 }
 
 bool IrqHandlerRegistry::publishThreadedDispatch(
     uint8_t irq, size_t dispatchGeneration)
 {
+    AdmissionCutoff admissionCutoff = {};
+    if (!captureAdmissionCutoff(irq, admissionCutoff))
+    {
+        return false;
+    }
     return publishThreadedDispatch(
-        irq, dispatchGeneration, captureAdmissionCutoff(irq));
+        irq, dispatchGeneration, admissionCutoff);
 }
 
 bool IrqHandlerRegistry::publishThreadedDispatch(
     uint8_t irq, size_t dispatchGeneration, AdmissionCutoff admissionCutoff)
 {
+    AdmissionCutoffCleanup cutoffCleanup(this, admissionCutoff);
+    beginAdmissionCutoffCleanup(cutoffCleanup);
     const size_t expectedReaderToken =
         (static_cast<size_t>(irq) * 2) +
         (admissionCutoff.occurrenceEpoch & 1) + 1;
     if (admissionCutoff.readerToken != expectedReaderToken)
     {
-        releaseAdmissionCutoff(admissionCutoff);
+        finishAdmissionCutoffCleanup(cutoffCleanup);
         return false;
     }
     if (!threadedGenerationValid(irq, dispatchGeneration))
     {
-        releaseAdmissionCutoff(admissionCutoff);
+        finishAdmissionCutoffCleanup(cutoffCleanup);
         return false;
     }
 
@@ -1826,6 +2027,15 @@ bool IrqHandlerRegistry::publishThreadedDispatch(
                 dispatchCleanup.cleanup, abandonDispatch, &dispatchCleanup);
         }
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        HandlerHazardHook hazardHook =
+            __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
+        if (hazardHook)
+        {
+            hazardHook(handler, HandlerHazardStage::BeforeClaim);
+        }
+#endif
+
         if (!publishDispatch(
                 slot, owner, &dispatchCleanup, publication,
                 dispatchGeneration, false))
@@ -1834,7 +2044,7 @@ bool IrqHandlerRegistry::publishThreadedDispatch(
             {
                 thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
             }
-            releaseAdmissionCutoff(admissionCutoff);
+            finishAdmissionCutoffCleanup(cutoffCleanup);
             FATAL_NOLOCK("IRQ callback hazard table exhausted.");
             return admitted;
         }
@@ -1938,7 +2148,7 @@ bool IrqHandlerRegistry::publishThreadedDispatch(
         }
     }
 
-    releaseAdmissionCutoff(admissionCutoff);
+    finishAdmissionCutoffCleanup(cutoffCleanup);
     return admitted;
 }
 
@@ -1964,7 +2174,20 @@ bool IrqHandlerRegistry::dispatchThreaded(
     }
 #endif
 
-    const AdmissionCutoff workerCutoff = captureAdmissionCutoff(irq);
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    AdmissionCutoff workerCutoff = {};
+    const bool cutoffCaptured = captureAdmissionCutoff(irq, workerCutoff);
+    AdmissionCutoffCleanup cutoffCleanup(this, workerCutoff);
+    if (cutoffCaptured)
+    {
+        beginAdmissionCutoffCleanup(cutoffCleanup);
+    }
+    Processor::setInterrupts(interruptsWereEnabled);
+    if (!cutoffCaptured)
+    {
+        return false;
+    }
 
     struct Candidate
     {
@@ -2114,7 +2337,7 @@ bool IrqHandlerRegistry::dispatchThreaded(
                 {
                     thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
                 }
-                releaseAdmissionCutoff(workerCutoff);
+                finishAdmissionCutoffCleanup(cutoffCleanup);
                 FATAL_NOLOCK("IRQ callback hazard table exhausted.");
                 return admitted;
             }
@@ -2202,6 +2425,7 @@ bool IrqHandlerRegistry::dispatchThreaded(
 
             if (!acquireFinalizationGate(slot, true))
             {
+                finishAdmissionCutoffCleanup(cutoffCleanup);
                 FATAL("IRQ action finalization gate could not be acquired.");
                 return admitted;
             }
@@ -2319,7 +2543,7 @@ bool IrqHandlerRegistry::dispatchThreaded(
         }
     }
 
-    releaseAdmissionCutoff(workerCutoff);
+    finishAdmissionCutoffCleanup(cutoffCleanup);
     return admitted;
 }
 
@@ -2342,6 +2566,8 @@ size_t IrqHandlerRegistry::handlerCount(uint8_t irq)
 
 IrqHandlerRegistry::LineMode IrqHandlerRegistry::lineMode(uint8_t irq)
 {
+    bool threaded = false;
+    bool hard = false;
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
         const size_t publication =
@@ -2353,11 +2579,22 @@ IrqHandlerRegistry::LineMode IrqHandlerRegistry::lineMode(uint8_t irq)
             continue;
         }
 
-        return deliveryOf(publication) == Delivery::Threaded ?
-                   LineMode::Threaded :
-                   LineMode::HardOnly;
+        if (deliveryOf(publication) == Delivery::Threaded)
+        {
+            threaded = true;
+        }
+        else
+        {
+            hard = true;
+        }
+        if (threaded && hard)
+        {
+            return LineMode::Mixed;
+        }
     }
-    return LineMode::Empty;
+    return threaded ? LineMode::Threaded :
+           hard     ? LineMode::HardOnly :
+                      LineMode::Empty;
 }
 
 bool IrqHandlerRegistry::snapshotLineConfiguration(
@@ -2377,7 +2614,10 @@ bool IrqHandlerRegistry::snapshotLineConfiguration(
         }
 
         LineConfiguration observed;
-        size_t observedPolicy = 0;
+        size_t threadedPolicy = 0;
+        size_t hardPolicy = 0;
+        bool observedThreaded = false;
+        bool observedHard = false;
         bool consistent = true;
         for (size_t i = 0; i < MaxHandlerSlots; ++i)
         {
@@ -2399,19 +2639,45 @@ bool IrqHandlerRegistry::snapshotLineConfiguration(
                 break;
             }
 
-            const LineMode mode =
-                deliveryOf(publication) == Delivery::Threaded ?
-                    LineMode::Threaded :
-                    LineMode::HardOnly;
-            if (observed.handlerCount &&
-                (observed.mode != mode || observedPolicy != policy))
+            if (deliveryOf(publication) == Delivery::Threaded)
             {
-                consistent = false;
-                break;
+                if (observedThreaded && threadedPolicy != policy)
+                {
+                    consistent = false;
+                    break;
+                }
+                observedThreaded = true;
+                threadedPolicy = policy;
             }
-            observed.mode = mode;
-            observedPolicy = policy;
+            else
+            {
+                if (observedHard && hardPolicy != policy)
+                {
+                    consistent = false;
+                    break;
+                }
+                observedHard = true;
+                hardPolicy = policy;
+            }
             ++observed.handlerCount;
+        }
+
+        size_t observedPolicy = 0;
+        if (consistent && observedThreaded && observedHard)
+        {
+            consistent = mixedPoliciesCompatible(hardPolicy, threadedPolicy);
+            observed.mode = LineMode::Mixed;
+            observedPolicy = effectiveMixedPolicy(hardPolicy, threadedPolicy);
+        }
+        else if (consistent && observedThreaded)
+        {
+            observed.mode = LineMode::Threaded;
+            observedPolicy = threadedPolicy;
+        }
+        else if (consistent && observedHard)
+        {
+            observed.mode = LineMode::HardOnly;
+            observedPolicy = hardPolicy;
         }
 
         // Writer count must be sampled first: a writer which finishes between

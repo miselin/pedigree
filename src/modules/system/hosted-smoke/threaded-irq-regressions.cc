@@ -525,6 +525,148 @@ class HostedThreadedHandler : public IrqHandler
     Atomic<size_t> failures;
 };
 
+class HostedMixedThreadedHandler : public IrqHandler
+{
+  public:
+    HostedMixedThreadedHandler()
+        : entered(0), publisher(nullptr), hardReturned(0), calls(0),
+          callbacksBeforeHardReturn(0), failures(0)
+    {
+    }
+
+    IrqDisposition irq(irq_id_t) override
+    {
+        calls += 1;
+        if (!hardReturned)
+        {
+            callbacksBeforeHardReturn += 1;
+        }
+        Thread *current = Processor::information().getCurrentThread();
+        if (!current || current == publisher || !Processor::getInterrupts() ||
+            current->getHostedSignalDepth())
+        {
+            failures += 1;
+        }
+        entered.release();
+        return IrqDisposition::NotHandled;
+    }
+
+    Semaphore entered;
+    Thread *publisher;
+    Atomic<size_t> hardReturned;
+    Atomic<size_t> calls;
+    Atomic<size_t> callbacksBeforeHardReturn;
+    Atomic<size_t> failures;
+};
+
+class HostedMixedHardHandler : public HardIrqHandler
+{
+  public:
+    explicit HostedMixedHardHandler(
+        HostedMixedThreadedHandler *bottomHalf, bool disposition = true)
+        : threaded(bottomHalf), handled(disposition), calls(0),
+          callbacksDuringHard(0), failures(0)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override
+    {
+        const size_t call = calls += 1;
+        if (!Processor::inDeviceHardIrq())
+        {
+            failures += 1;
+        }
+        if (call == 1 && threaded && threaded->calls)
+        {
+            callbacksDuringHard += 1;
+        }
+        return handled;
+    }
+
+    HostedMixedThreadedHandler *threaded;
+    bool handled;
+    Atomic<size_t> calls;
+    Atomic<size_t> callbacksDuringHard;
+    Atomic<size_t> failures;
+};
+
+class HostedMixedThreadedRemovalHandler : public HardIrqHandler
+{
+  public:
+    HostedMixedThreadedRemovalHandler(
+        IrqManager *irqManager, IrqHandlerBase *threadedHandler)
+        : manager(irqManager), target(threadedHandler), targetId(0), calls(0),
+          removed(0), failures(0)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override
+    {
+        calls += 1;
+        if (!Processor::inDeviceHardIrq())
+        {
+            failures += 1;
+        }
+        if (manager && targetId &&
+            manager->unregisterHandler(targetId, target))
+        {
+            removed = 1;
+        }
+        return false;
+    }
+
+    IrqManager *manager;
+    IrqHandlerBase *target;
+    irq_id_t targetId;
+    Atomic<size_t> calls;
+    Atomic<size_t> removed;
+    Atomic<size_t> failures;
+};
+
+class HostedMixedThreadedReplacementHandler : public HardIrqHandler
+{
+  public:
+    HostedMixedThreadedReplacementHandler(
+        IrqManager *irqManager, IrqHandlerBase *oldThreadedHandler,
+        IrqHandler *newThreadedHandler)
+        : manager(irqManager), oldThreaded(oldThreadedHandler),
+          replacement(newThreadedHandler), oldId(0), replacementId(0),
+          calls(0), removed(0), registered(0), failures(0)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override
+    {
+        calls += 1;
+        if (!Processor::inDeviceHardIrq())
+        {
+            failures += 1;
+        }
+        if (manager && oldId &&
+            manager->unregisterHandler(oldId, oldThreaded))
+        {
+            removed = 1;
+            replacementId = manager->registerIsaIrqHandler(
+                2, replacement, IrqPolicy::syntheticThreaded());
+            if (replacementId)
+            {
+                registered = 1;
+            }
+        }
+        return false;
+    }
+
+    IrqManager *manager;
+    IrqHandlerBase *oldThreaded;
+    IrqHandler *replacement;
+    irq_id_t oldId;
+    irq_id_t replacementId;
+    Atomic<size_t> calls;
+    Atomic<size_t> removed;
+    Atomic<size_t> registered;
+    Atomic<size_t> failures;
+};
+
 class HostedStalledIrqHandler : public IrqHandler
 {
   public:
@@ -935,6 +1077,485 @@ bool hostedThreadedSignalDelivery()
     if (passed)
     {
         NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-hosted-signal");
+    }
+    return passed;
+}
+
+bool hostedMixedSignalDelivery()
+{
+    constexpr const char *MixedTest = "irq-mixed-hosted-signal";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedMixedThreadedHandler threaded;
+    HostedMixedHardHandler hard(&threaded);
+    threaded.publisher = Processor::information().getCurrentThread();
+
+    HostedLineOwnershipHookContext hooks;
+    g_HostedLineOwnershipHookContext = &hooks;
+    HostedIrqManager::setLineOwnershipHook(observeHostedLineOwnership);
+    hooks.holdWorker = 1;
+
+    const irq_id_t threadedId = manager->registerIsaIrqHandler(
+        2, &threaded, IrqPolicy::syntheticThreaded());
+    const irq_id_t hardId = manager->registerHardIsaIrqHandler(
+        2, &hard, IrqPolicy::syntheticHard());
+    IrqLineDiagnosticSnapshot registeredLines[3] = {};
+    const bool registeredSnapshotted =
+        manager->snapshotIrqLines(registeredLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot registered = registeredLines[2];
+
+    const bool raised = threadedId && hardId && Processor::getInterrupts() &&
+                        raise(SIGURG) == 0;
+    const size_t mixedHardCalls = hard.calls;
+    IrqLineDiagnosticSnapshot publishedLines[3] = {};
+    const bool publishedSnapshotted =
+        manager->snapshotIrqLines(publishedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot published = publishedLines[2];
+    threaded.hardReturned = 1;
+    const bool deferredUntilHardReturn = threaded.calls == 0;
+    const bool doorbellPending =
+        PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest();
+    const bool workerHeld =
+        raised && hooks.workerEntered.acquireForCompletion(1, 2, 0);
+    const bool hardRemovedBeforeWorker =
+        workerHeld && hardId && manager->unregisterHandler(hardId, &hard);
+    const bool transitionedBeforeWorker = threaded.calls == 0;
+    IrqLineDiagnosticSnapshot threadedOnlyLines[3] = {};
+    const bool threadedOnlySnapshotted =
+        manager->snapshotIrqLines(threadedOnlyLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot threadedOnly = threadedOnlyLines[2];
+    hooks.releaseWorker.release();
+
+    const Time::Timestamp deadline =
+        Time::getTicks() + 2 * Time::Multiplier::Second;
+    while (!threaded.calls && Time::getTicks() < deadline)
+    {
+        Processor::pause();
+    }
+    const bool workerObserved =
+        threaded.calls == 1 && threaded.entered.acquireForCompletion(1, 2, 0);
+    IrqLineDiagnosticSnapshot completed = {};
+    const bool workerCompleted = published.publicationCookie &&
+                                 waitForHostedCookieCompletion(
+                                     manager, published.publicationCookie,
+                                     completed);
+
+    HostedIrqManager::setLineOwnershipHook(nullptr);
+    g_HostedLineOwnershipHookContext = nullptr;
+
+    const bool hardCleanup =
+        hardRemovedBeforeWorker ||
+        (hardId && manager->unregisterHandler(hardId, &hard));
+    const bool threadedRemoved =
+        manager->unregisterHandler(threadedId, &threaded);
+
+    IrqLineDiagnosticSnapshot removedLines[3] = {};
+    const bool removedSnapshotted =
+        manager->snapshotIrqLines(removedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot removed = removedLines[2];
+
+    bool passed = true;
+    passed &= check(
+        threadedId && hardId && threadedId == hardId,
+        "mixed handlers were not admitted to one synthetic line", MixedTest);
+    passed &= check(
+        registeredSnapshotted && registered.configured &&
+            registered.handlerCount == 2 &&
+            registered.delivery == IrqDelivery::Mixed &&
+            registered.trigger == IrqTrigger::Synthetic &&
+            registered.controllerAck == IrqControllerAck::None &&
+            registered.lineRelease == IrqLineRelease::AfterHardStage,
+        "mixed registration did not publish one coherent line policy",
+        MixedTest);
+    passed &= check(
+        raised && mixedHardCalls == 1,
+        "the mixed hard callback did not run exactly once", MixedTest);
+    passed &= check(
+        hard.failures == 0,
+        "the mixed hard callback did not observe hard IRQ context",
+        MixedTest);
+    passed &= check(
+        hard.callbacksDuringHard == 0,
+        "the threaded callback overlapped its mixed hard callback",
+        MixedTest);
+    passed &= check(
+        publishedSnapshotted && published.publicationCookie != 0 &&
+            (published.pendingCookie == published.publicationCookie ||
+             published.activeCookie == published.publicationCookie),
+        "the mixed hard stage did not publish an exact deferred cookie",
+        MixedTest);
+    passed &= check(
+        deferredUntilHardReturn && doorbellPending &&
+            threaded.callbacksBeforeHardReturn == 0,
+        "the mixed bottom half entered before its hard stage returned",
+        MixedTest);
+    passed &= check(
+        workerObserved && workerCompleted && threaded.failures == 0 &&
+            completed.completedCookie == published.publicationCookie &&
+            completed.unhandledCount == registered.unhandledCount,
+        "hard-stage handling was not aggregated with the threaded outcome",
+        MixedTest);
+    passed &= check(
+        workerHeld && hardRemovedBeforeWorker && transitionedBeforeWorker &&
+            threadedOnlySnapshotted &&
+            threadedOnly.configured && threadedOnly.handlerCount == 1 &&
+            threadedOnly.delivery == IrqDelivery::Threaded &&
+            threadedOnly.publicationCookie == published.publicationCookie,
+        "a hard-peer removal lost the pending mixed occurrence identity",
+        MixedTest);
+    passed &= check(
+        hardCleanup && threadedRemoved && removedSnapshotted &&
+            !removed.configured &&
+            removed.handlerCount == 0 &&
+            removed.delivery == IrqDelivery::None &&
+            (removed.maskReasons & IrqMaskNoHandler),
+        "mixed line teardown did not publish an empty diagnostic", MixedTest);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-mixed-hosted-signal");
+    }
+    return passed;
+}
+
+bool hostedMixedThreadedPeerRemoval()
+{
+    constexpr const char *RemovalTest = "irq-mixed-threaded-peer-removal";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedMixedThreadedHandler threaded;
+    HostedMixedThreadedRemovalHandler hard(manager, &threaded);
+
+    const irq_id_t threadedId = manager->registerIsaIrqHandler(
+        2, &threaded, IrqPolicy::syntheticThreaded());
+    hard.targetId = threadedId;
+    const irq_id_t hardId = manager->registerHardIsaIrqHandler(
+        2, &hard, IrqPolicy::syntheticHard());
+    IrqLineDiagnosticSnapshot beforeLines[3] = {};
+    const bool beforeSnapshotted =
+        manager->snapshotIrqLines(beforeLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot before = beforeLines[2];
+
+    const bool raised = threadedId && hardId && Processor::getInterrupts() &&
+                        raise(SIGURG) == 0;
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
+    IrqLineDiagnosticSnapshot afterLines[3] = {};
+    const bool afterSnapshotted =
+        manager->snapshotIrqLines(afterLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot after = afterLines[2];
+    const bool hardRemoved =
+        hardId && manager->unregisterHandler(hardId, &hard);
+    const bool threadedCleanup =
+        hard.removed ||
+        (threadedId && manager->unregisterHandler(threadedId, &threaded));
+
+    IrqLineDiagnosticSnapshot removedLines[3] = {};
+    const bool removedSnapshotted =
+        manager->snapshotIrqLines(removedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot removed = removedLines[2];
+
+    bool passed = true;
+    passed &= check(
+        beforeSnapshotted && before.configured && before.handlerCount == 2 &&
+            before.delivery == IrqDelivery::Mixed,
+        "the threaded-removal test did not begin with a mixed line",
+        RemovalTest);
+    passed &= check(
+        raised && hard.calls == 1 && hard.removed == 1 &&
+            hard.failures == 0 && threaded.calls == 0,
+        "the hard callback did not synchronously remove its threaded peer",
+        RemovalTest);
+    passed &= check(
+        afterSnapshotted && after.configured && after.handlerCount == 1 &&
+            after.delivery == IrqDelivery::Hard &&
+            after.unhandledCount == before.unhandledCount &&
+            after.publicationFailures == before.publicationFailures,
+        "quiescing the final threaded source changed outcome accounting",
+        RemovalTest);
+    passed &= check(
+        hardRemoved && threadedCleanup && removedSnapshotted &&
+            !removed.configured &&
+            removed.handlerCount == 0 &&
+            removed.delivery == IrqDelivery::None,
+        "the surviving hard peer did not tear down cleanly", RemovalTest);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-mixed-threaded-peer-removal");
+    }
+    return passed;
+}
+
+bool hostedMixedThreadedReplacementBeforeTail()
+{
+    constexpr const char *ReplacementTest =
+        "irq-mixed-threaded-replacement-before-tail";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedMixedThreadedHandler oldThreaded;
+    HostedMixedThreadedHandler replacement;
+    HostedMixedThreadedReplacementHandler hard(
+        manager, &oldThreaded, &replacement);
+
+    const irq_id_t oldThreadedId = manager->registerIsaIrqHandler(
+        2, &oldThreaded, IrqPolicy::syntheticThreaded());
+    hard.oldId = oldThreadedId;
+    const irq_id_t hardId = manager->registerHardIsaIrqHandler(
+        2, &hard, IrqPolicy::syntheticHard());
+    IrqLineDiagnosticSnapshot beforeLines[3] = {};
+    const bool beforeSnapshotted =
+        manager->snapshotIrqLines(beforeLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot before = beforeLines[2];
+
+    const bool raised = oldThreadedId && hardId && Processor::getInterrupts() &&
+                        raise(SIGURG) == 0;
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
+    IrqLineDiagnosticSnapshot afterLines[3] = {};
+    const bool afterSnapshotted =
+        manager->snapshotIrqLines(afterLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot after = afterLines[2];
+
+    const bool oldThreadedCleanup =
+        hard.removed ||
+        (oldThreadedId &&
+         manager->unregisterHandler(oldThreadedId, &oldThreaded));
+    const bool replacementRemoved =
+        hard.replacementId &&
+        manager->unregisterHandler(hard.replacementId, &replacement);
+    const bool hardRemoved =
+        hardId && manager->unregisterHandler(hardId, &hard);
+    IrqLineDiagnosticSnapshot removedLines[3] = {};
+    const bool removedSnapshotted =
+        manager->snapshotIrqLines(removedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot removed = removedLines[2];
+
+    bool passed = true;
+    passed &= check(
+        beforeSnapshotted && before.configured && before.handlerCount == 2 &&
+            before.delivery == IrqDelivery::Mixed,
+        "the replacement test did not begin with a mixed line",
+        ReplacementTest);
+    passed &= check(
+        raised && hard.calls == 1 && hard.removed == 1 &&
+            hard.registered == 1 && hard.replacementId &&
+            hard.replacementId == hardId && hard.failures == 0,
+        "the hard callback did not replace its threaded peer",
+        ReplacementTest);
+    passed &= check(
+        oldThreaded.calls == 0 && replacement.calls == 0,
+        "a replacement handler inherited the old occurrence",
+        ReplacementTest);
+    passed &= check(
+        afterSnapshotted && after.configured && after.handlerCount == 2 &&
+            after.delivery == IrqDelivery::Mixed &&
+            after.unhandledCount == before.unhandledCount &&
+            after.publicationFailures == before.publicationFailures,
+        "threaded lifetime replacement changed old-occurrence accounting",
+        ReplacementTest);
+    passed &= check(
+        oldThreadedCleanup && replacementRemoved && hardRemoved &&
+            removedSnapshotted && !removed.configured &&
+            removed.handlerCount == 0 &&
+            removed.delivery == IrqDelivery::None,
+        "the replacement line did not tear down cleanly", ReplacementTest);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-mixed-threaded-replacement-before-tail");
+    }
+    return passed;
+}
+
+bool hostedMixedFinalThreadedRemovalBeforeWorker()
+{
+    constexpr const char *RemovalTest =
+        "irq-mixed-final-threaded-removal-before-worker";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedMixedThreadedHandler threaded;
+    HostedMixedHardHandler hard(&threaded, false);
+
+    HostedLineOwnershipHookContext hooks;
+    g_HostedLineOwnershipHookContext = &hooks;
+    HostedIrqManager::setLineOwnershipHook(observeHostedLineOwnership);
+    hooks.holdWorker = 1;
+
+    const irq_id_t threadedId = manager->registerIsaIrqHandler(
+        2, &threaded, IrqPolicy::syntheticThreaded());
+    const irq_id_t hardId = manager->registerHardIsaIrqHandler(
+        2, &hard, IrqPolicy::syntheticHard());
+    IrqLineDiagnosticSnapshot beforeLines[3] = {};
+    const bool beforeSnapshotted =
+        manager->snapshotIrqLines(beforeLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot before = beforeLines[2];
+
+    const bool raised = threadedId && hardId && Processor::getInterrupts() &&
+                        raise(SIGURG) == 0;
+    const bool workerHeld =
+        raised && hooks.workerEntered.acquireForCompletion(1, 2, 0);
+    IrqLineDiagnosticSnapshot publishedLines[3] = {};
+    const bool publishedSnapshotted =
+        manager->snapshotIrqLines(publishedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot published = publishedLines[2];
+    const bool threadedRemoved =
+        workerHeld && manager->unregisterHandler(threadedId, &threaded);
+    IrqLineDiagnosticSnapshot hardOnlyLines[3] = {};
+    const bool hardOnlySnapshotted =
+        manager->snapshotIrqLines(hardOnlyLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot hardOnly = hardOnlyLines[2];
+    hooks.releaseWorker.release();
+
+    IrqLineDiagnosticSnapshot completed = {};
+    const bool workerCompleted = published.publicationCookie &&
+                                 waitForHostedCookieCompletion(
+                                     manager, published.publicationCookie,
+                                     completed);
+    HostedIrqManager::setLineOwnershipHook(nullptr);
+    g_HostedLineOwnershipHookContext = nullptr;
+
+    const bool threadedCleanup =
+        threadedRemoved ||
+        (threadedId && manager->unregisterHandler(threadedId, &threaded));
+    const bool hardRemoved =
+        hardId && manager->unregisterHandler(hardId, &hard);
+    IrqLineDiagnosticSnapshot removedLines[3] = {};
+    const bool removedSnapshotted =
+        manager->snapshotIrqLines(removedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot removed = removedLines[2];
+
+    bool passed = true;
+    passed &= check(
+        beforeSnapshotted && before.configured && before.handlerCount == 2 &&
+            before.delivery == IrqDelivery::Mixed,
+        "the stale-worker test did not begin with a mixed line", RemovalTest);
+    passed &= check(
+        raised && hard.calls == 1 && hard.failures == 0 && workerHeld &&
+            publishedSnapshotted && published.publicationCookie != 0 &&
+            (published.pendingCookie == published.publicationCookie ||
+             published.activeCookie == published.publicationCookie),
+        "the mixed occurrence was not held after hard-tail publication",
+        RemovalTest);
+    passed &= check(
+        threadedRemoved && hardOnlySnapshotted && hardOnly.configured &&
+            hardOnly.handlerCount == 1 &&
+            hardOnly.delivery == IrqDelivery::Hard &&
+            hardOnly.publicationCookie != published.publicationCookie,
+        "final threaded removal did not invalidate the held worker cookie",
+        RemovalTest);
+    passed &= check(
+        workerCompleted && threaded.calls == 0 &&
+            completed.unhandledCount == before.unhandledCount &&
+            completed.publicationFailures == before.publicationFailures &&
+            hooks.hookFailures == 0,
+        "a stale worker changed callback or outcome accounting", RemovalTest);
+    passed &= check(
+        threadedCleanup && hardRemoved && removedSnapshotted &&
+            !removed.configured && removed.handlerCount == 0 &&
+            removed.delivery == IrqDelivery::None,
+        "the stale-worker line did not tear down cleanly", RemovalTest);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-mixed-final-threaded-removal-before-worker");
+    }
+    return passed;
+}
+
+bool hostedThreadedOccurrenceDoesNotBecomeMixed()
+{
+    constexpr const char *TransitionTest =
+        "irq-threaded-occurrence-does-not-become-mixed";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedMixedThreadedHandler threaded;
+    HostedMixedHardHandler hard(&threaded);
+    threaded.publisher = Processor::information().getCurrentThread();
+
+    HostedLineOwnershipHookContext hooks;
+    g_HostedLineOwnershipHookContext = &hooks;
+    HostedIrqManager::setLineOwnershipHook(observeHostedLineOwnership);
+    hooks.holdWorker = 1;
+
+    const irq_id_t threadedId = manager->registerIsaIrqHandler(
+        2, &threaded, IrqPolicy::syntheticThreaded());
+    IrqLineDiagnosticSnapshot beforeLines[3] = {};
+    const bool beforeSnapshotted =
+        manager->snapshotIrqLines(beforeLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot before = beforeLines[2];
+
+    const bool raised = threadedId && Processor::getInterrupts() &&
+                        raise(SIGURG) == 0;
+    const bool workerHeld =
+        raised && hooks.workerEntered.acquireForCompletion(1, 2, 0);
+    IrqLineDiagnosticSnapshot publishedLines[3] = {};
+    const bool publishedSnapshotted =
+        manager->snapshotIrqLines(publishedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot published = publishedLines[2];
+    const irq_id_t hardId = workerHeld ? manager->registerHardIsaIrqHandler(
+                                            2, &hard,
+                                            IrqPolicy::syntheticHard()) :
+                                        0;
+    IrqLineDiagnosticSnapshot mixedLines[3] = {};
+    const bool mixedSnapshotted =
+        manager->snapshotIrqLines(mixedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot mixed = mixedLines[2];
+    threaded.hardReturned = 1;
+    hooks.releaseWorker.release();
+
+    const Time::Timestamp deadline =
+        Time::getTicks() + 2 * Time::Multiplier::Second;
+    while (!threaded.calls && Time::getTicks() < deadline)
+    {
+        Processor::pause();
+    }
+    const bool workerObserved =
+        threaded.calls == 1 && threaded.entered.acquireForCompletion(1, 2, 0);
+    IrqLineDiagnosticSnapshot completed = {};
+    const bool workerCompleted = published.publicationCookie &&
+                                 waitForHostedCookieCompletion(
+                                     manager, published.publicationCookie,
+                                     completed);
+    HostedIrqManager::setLineOwnershipHook(nullptr);
+    g_HostedLineOwnershipHookContext = nullptr;
+
+    const bool hardRemoved =
+        hardId && manager->unregisterHandler(hardId, &hard);
+    const bool threadedRemoved =
+        threadedId && manager->unregisterHandler(threadedId, &threaded);
+    IrqLineDiagnosticSnapshot removedLines[3] = {};
+    const bool removedSnapshotted =
+        manager->snapshotIrqLines(removedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot removed = removedLines[2];
+
+    bool passed = true;
+    passed &= check(
+        beforeSnapshotted && before.configured && before.handlerCount == 1 &&
+            before.delivery == IrqDelivery::Threaded,
+        "the occurrence did not begin as purely threaded", TransitionTest);
+    passed &= check(
+        raised && workerHeld && publishedSnapshotted &&
+            published.publicationCookie != 0,
+        "the pure threaded occurrence was not held before validation",
+        TransitionTest);
+    passed &= check(
+        hardId && mixedSnapshotted && mixed.configured &&
+            mixed.handlerCount == 2 && mixed.delivery == IrqDelivery::Mixed &&
+            mixed.publicationCookie == published.publicationCookie &&
+            hard.calls == 0,
+        "adding a hard peer did not preserve the old occurrence identity",
+        TransitionTest);
+    passed &= check(
+        workerObserved && workerCompleted && threaded.failures == 0 &&
+            completed.unhandledCount == before.unhandledCount + 1 &&
+            completed.publicationFailures == before.publicationFailures &&
+            hooks.hookFailures == 0 && hard.calls == 0,
+        "the old threaded occurrence inherited a nonexistent hard outcome",
+        TransitionTest);
+    passed &= check(
+        hardRemoved && threadedRemoved && removedSnapshotted &&
+            !removed.configured && removed.handlerCount == 0 &&
+            removed.delivery == IrqDelivery::None,
+        "the transitioned line did not tear down cleanly", TransitionTest);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-threaded-occurrence-does-not-become-mixed");
     }
     return passed;
 }
@@ -1702,6 +2323,11 @@ bool runHostedThreadedIrqRegressions()
     passed &= threadedDispatcherCoalescing();
     passed &= threadedDispatcherPreservesDeliveredHighWater();
     passed &= hostedThreadedSignalDelivery();
+    passed &= hostedMixedSignalDelivery();
+    passed &= hostedMixedThreadedPeerRemoval();
+    passed &= hostedMixedThreadedReplacementBeforeTail();
+    passed &= hostedMixedFinalThreadedRemovalBeforeWorker();
+    passed &= hostedThreadedOccurrenceDoesNotBecomeMixed();
     passed &= hostedThreadedStallDiagnostics();
     passed &= hostedHardStageDiagnostics();
     passed &= hostedDeferredRetiringDiagnostics();
