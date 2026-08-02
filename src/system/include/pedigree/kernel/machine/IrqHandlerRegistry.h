@@ -166,7 +166,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     void withMutationLockForTest(MutationLockHook hook);
     void withMutationEpochForTest(MutationLockHook hook);
     size_t activeDispatchCountForTest(IrqHandlerBase *handler);
-    size_t claimedDispatchCountForTest();
+    size_t claimedDispatchCountForOwnerForTest(void *owner);
     bool containsHandlerForTest(uint8_t irq, IrqHandlerBase *handler);
 #endif
 

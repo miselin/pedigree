@@ -1145,12 +1145,31 @@ size_t IrqHandlerRegistry::activeDispatchCountForTest(IrqHandlerBase *handler)
     return count;
 }
 
-size_t IrqHandlerRegistry::claimedDispatchCountForTest()
+size_t IrqHandlerRegistry::claimedDispatchCountForOwnerForTest(void *owner)
 {
+    if (!owner)
+    {
+        return 0;
+    }
+
     size_t count = 0;
     for (size_t i = 0; i < MaxActiveDispatches; ++i)
     {
-        if (__atomic_load_n(&m_ActiveDispatches[i].token, __ATOMIC_ACQUIRE))
+        ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        void *dispatchOwner =
+            __atomic_load_n(&dispatch.owner, __ATOMIC_RELAXED);
+        if (dispatchOwner == owner &&
+            __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) == token &&
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) ==
+                generation)
         {
             ++count;
         }

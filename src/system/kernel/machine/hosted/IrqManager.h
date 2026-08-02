@@ -126,8 +126,9 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     static EXPORTED_PUBLIC size_t
     activeDispatchCountForTest(IrqHandlerBase *handler);
 
-    /** Counts claimed hazards, including claims not yet committed to a slot. */
-    static EXPORTED_PUBLIC size_t claimedDispatchCountForTest();
+    /** Counts claimed hazards owned by one deterministic test dispatcher. */
+    static EXPORTED_PUBLIC size_t
+    claimedDispatchCountForOwnerForTest(void *owner);
 
     /** Reports whether any nonempty line slot still publishes a handler. */
     static EXPORTED_PUBLIC bool

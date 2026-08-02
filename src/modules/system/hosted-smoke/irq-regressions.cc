@@ -1287,7 +1287,9 @@ bool staleGenerationRevalidation()
         HostedIrqManager::activeDispatchCountForTest(&context.original);
     const size_t activeReplacement =
         HostedIrqManager::activeDispatchCountForTest(&context.replacement);
-    const size_t claimed = HostedIrqManager::claimedDispatchCountForTest();
+    const size_t claimed =
+        HostedIrqManager::claimedDispatchCountForOwnerForTest(
+            Processor::information().getCurrentThread());
 
     bool passed = true;
     passed &= check(
@@ -1448,24 +1450,20 @@ bool abandonedDispatchStage(
 
     const size_t active =
         HostedIrqManager::activeDispatchCountForTest(&context->handler);
-    const size_t claimed = HostedIrqManager::claimedDispatchCountForTest();
+    // IRQ 1 is shared with the scheduler timer, whose suspended dispatch is
+    // unrelated to whether this worker abandoned one of its own claims.
+    const size_t claimed =
+        HostedIrqManager::claimedDispatchCountForOwnerForTest(context->worker);
     const bool depthRestored = !context->depthFailures &&
                                !Processor::inDeviceHardIrq() &&
                                Processor::deviceHardIrqDepthForTest() == 0;
-    IrqLineDiagnosticSnapshot irqLines[3] = {};
-    const bool diagnosticReleased =
-        manager->snapshotIrqLines(irqLines, 3) == 3 &&
-        !irqLines[1].hardStageActive &&
-        irqLines[1].activeHardDispatchCount == 0 &&
-        irqLines[1].activeHardDispatchGeneration == 0;
     const bool cleaned =
         id && manager->unregisterHandler(id, &context->handler);
 
     const bool passed = id && started && joined && !context->returned &&
                         context->hazardCalls == expectedHazardCalls &&
                         context->entered == expectedCallbackCalls && !active &&
-                        !claimed && cleaned && depthRestored &&
-                        diagnosticReleased;
+                        !claimed && cleaned && depthRestored;
     return passed;
 }
 
@@ -1586,7 +1584,8 @@ bool abandonedNestedDispatchDepthCleanup()
         HostedIrqManager::activeDispatchCountForTest(&context.outer);
     const size_t innerActive =
         HostedIrqManager::activeDispatchCountForTest(&context.inner);
-    const size_t claimed = HostedIrqManager::claimedDispatchCountForTest();
+    const size_t claimed =
+        HostedIrqManager::claimedDispatchCountForOwnerForTest(context.worker);
     const bool outerCleaned =
         outerId && manager->unregisterHandler(outerId, &context.outer);
     const bool innerCleaned =

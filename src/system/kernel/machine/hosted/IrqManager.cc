@@ -627,9 +627,9 @@ size_t HostedIrqManager::activeDispatchCountForTest(IrqHandlerBase *handler)
     return m_Instance.m_Handlers.activeDispatchCountForTest(handler);
 }
 
-size_t HostedIrqManager::claimedDispatchCountForTest()
+size_t HostedIrqManager::claimedDispatchCountForOwnerForTest(void *owner)
 {
-    return m_Instance.m_Handlers.claimedDispatchCountForTest();
+    return m_Instance.m_Handlers.claimedDispatchCountForOwnerForTest(owner);
 }
 
 bool HostedIrqManager::containsHandlerForTest(
