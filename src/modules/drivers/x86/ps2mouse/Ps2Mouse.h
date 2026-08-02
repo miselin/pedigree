@@ -83,8 +83,8 @@ class Ps2Mouse : public Device
         MouseAck = 0xFA
     };
 
-    static int readerThreadTrampoline(void *) NORETURN;
-    void readerThread() NORETURN;
+    static int readerThreadTrampoline(void *);
+    void readerThread();
 
     void updateSubscribers(const void *buffer, size_t len);
 

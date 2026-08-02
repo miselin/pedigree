@@ -45,15 +45,16 @@ bool Ps2Mouse::initialise(Ps2Controller *pController)
 
     /// \todo handle errors, resend requests, etc
 
+    // Command responses use the controller's split-IRQ buffer once its worker
+    // is active, so IRQ12 must be enabled before waiting for either ACK.
+    m_pController->setIrqEnable(true, true);
+
     // Set up the mouse.
     uint8_t result = 0;
     m_pController->writeSecondPort(SetDefaults);
     m_pController->readSecondPort(result);
     m_pController->writeSecondPort(MouseStream);
     m_pController->readSecondPort(result);
-
-    // Finally, enable IRQs for the mouse
-    m_pController->setIrqEnable(true, true);
 
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
@@ -87,6 +88,7 @@ int Ps2Mouse::readerThreadTrampoline(void *param)
 {
     Ps2Mouse *instance = reinterpret_cast<Ps2Mouse *>(param);
     instance->readerThread();
+    return 0;
 }
 
 void Ps2Mouse::readerThread()
@@ -96,6 +98,12 @@ void Ps2Mouse::readerThread()
         uint8_t byte;
         if (!m_pController->readSecondPort(byte))
         {
+            Thread *thread = Processor::information().getCurrentThread();
+            if (m_pController->readsStopping() ||
+                (thread && thread->getUnwindState() != Thread::Continue))
+            {
+                return;
+            }
             continue;
         }
 

@@ -43,6 +43,7 @@ bool runHostedPipeRegressions();
 bool runHostedPrimitiveRegressions(Thread *thread);
 bool runHostedRingBufferRegressions();
 bool runHostedProcessExitRegressions();
+bool runHostedPs2ControllerRegressions();
 bool runHostedPs2MouseRegressions();
 bool runHostedSignalInterruptionRegressions(Thread *thread);
 bool runHostedSyscallRegressions();
@@ -1910,7 +1911,8 @@ bool runHostedWaitRegressions()
     NOTICE("HOSTED-WAIT-TEST: BEGIN");
 
     const bool passed =
-        wakeBeforeBlock() && semaphoreReleaseBeforeBlock() &&
+        runHostedPs2ControllerRegressions() && wakeBeforeBlock() &&
+        semaphoreReleaseBeforeBlock() &&
         terminalCancelCallbackOrdering() &&
         conditionVariableSignalBeforeBlock() &&
         runHostedRingBufferRegressions() &&

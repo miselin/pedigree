@@ -53,6 +53,7 @@ class X86Keyboard : public Keyboard
     virtual void setLedState(char state);
 
     void startReaderThread();
+    void stopReaderThread();
 
   private:
     static int readerThreadTrampoline(void *);

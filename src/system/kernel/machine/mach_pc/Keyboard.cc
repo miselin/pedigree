@@ -51,7 +51,7 @@ X86Keyboard::X86Keyboard(Ps2Controller *controller)
 
 X86Keyboard::~X86Keyboard()
 {
-    m_ReaderThread.stop();
+    stopReaderThread();
 }
 
 void X86Keyboard::initialise()
@@ -190,6 +190,11 @@ void X86Keyboard::startReaderThread()
 
     // Now that we're listening - enable IRQs from the keyboard
     m_pPs2Controller->setIrqEnable(true, false);
+}
+
+void X86Keyboard::stopReaderThread()
+{
+    m_ReaderThread.stop();
 }
 
 int X86Keyboard::readerThreadTrampoline(void *param)

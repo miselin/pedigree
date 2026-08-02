@@ -1243,6 +1243,99 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local ps2_source=src/system/kernel/machine/mach_pc/Ps2Controller.cc
+    local ps2_header=src/system/kernel/machine/mach_pc/Ps2Controller.h
+    local ps2_regressions=src/modules/system/hosted-smoke/ps2-controller-regressions.cc
+    local ps2_mouse_source=src/modules/drivers/x86/ps2mouse/Ps2Mouse.cc
+    local ps2_hard ps2_config ps2_gate_tries
+    ps2_hard=$(sed -n \
+        '/Ps2Controller::hardIrq(/,/^bool Ps2Controller::captureOneLocked/p' \
+        "$ps2_source")
+    ps2_config=$(sed -n \
+        '/bool Ps2Controller::configureIrqEnable(/,/^uint8_t Ps2Controller::readByte/p' \
+        "$ps2_source")
+    ps2_gate_tries=$(printf '%s\n' "$ps2_hard" | awk '
+        index($0, "m_IoGate.tryAcquire()") { ++count }
+        END { print count + 0 }
+    ')
+    if ! rg -q \
+            'class Ps2Controller : public Controller, private SplitIrqHandler' \
+            "$ps2_header" ||
+        ! rg -q \
+            '__atomic_always_lock_free\(sizeof\(size_t\), nullptr\)' \
+            src/system/include/pedigree/kernel/machine/Ps2CaptureState.h ||
+        [[ "$ps2_gate_tries" != 1 ]] ||
+        ! rg -q -U \
+            '(?s)Ps2Controller::hardIrq\(.*?if \(!m_IoGate\.tryAcquire\(\)\).*?work = RecoveryWork;.*?return HardIrqDisposition::Deferred;.*?m_pBase->read8\(4\).*?canPushFromInterrupt\(\).*?work = RecoveryWork;.*?return HardIrqDisposition::Deferred;.*?m_pBase->read8\(0\).*?status & SecondPortData.*?pushFromInterrupt\(.*?work = CapturedWork;.*?return HardIrqDisposition::Deferred;' \
+            <<<"$ps2_hard"; then
+        echo "The PS/2 hard stage lost one-shot admission, capacity preflight, or status-based routing."
+        failed=1
+    fi
+
+    matches=$(rg -n \
+        'm_(First|Second)PortBuffer|Scheduler::|yield\(|FATAL|ERROR|WARNING|NOTICE|TRACE|waitFor|while[[:space:]]*\(|for[[:space:]]*\(|new[[:space:]]|delete[[:space:]]|LockGuard|acquireIoForThread|\.read\(|\.write\(' \
+        <<<"$ps2_hard" || true)
+    if [[ -n "$matches" ]]; then
+        echo "The PS/2 hard stage contains a blocking or unbounded operation:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if rg -q 'sendCommandWithResponseLocked|0x20' <<<"$ps2_config" ||
+        ! rg -q -U \
+            '(?s)m_ConfigByte \|= flagAdd;.*?m_ConfigByte &= flagRemove;.*?sendCommandLocked\(0x60, m_ConfigByte\)' \
+            <<<"$ps2_config" ||
+        ! rg -q -U \
+            '(?s)sendCommandWithResponse\(0xAA\).*?sendCommand\(0x60, m_ConfigByte\).*?sendCommand\(0xAE\).*?sendCommand\(0xA8\)' \
+            "$ps2_source"; then
+        echo "PS/2 IRQ configuration stopped using its cached 8042 config byte."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+            '(?s)Ps2Controller::readByte\(\).*?m_DebugState\.value\(\).*?return readByteNonBlock\(\);.*?acquireIoForThread\(\)' \
+            "$ps2_source" ||
+        ! rg -q -U \
+            '(?s)Ps2Controller::readFirstPort\(.*?m_DebugState\.value\(\).*?readByteNonBlock\(\).*?return byte != 0;' \
+            "$ps2_source" ||
+        ! rg -q -U \
+            '(?s)Ps2Controller::readSecondPort\(.*?m_DebugState\.value\(\).*?readByteNonBlock\(\).*?return byte != 0;' \
+            "$ps2_source"; then
+        echo "PS/2 debugger input can block or invent a successful zero byte."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+            '(?s)Ps2Controller::uninitialise\(\).*?shutdownSplitIrq\(\).*?m_ReadMode = StoppingReadMode;.*?m_FirstPortBuffer\.disableWrites\(\).*?m_SecondPortBuffer\.disableWrites\(\)' \
+            "$ps2_source" ||
+        ! rg -q -U \
+            '(?s)Ps2Controller::readFirstPort\(.*?m_DebugState\.value\(\).*?readMode == StoppingReadMode.*?readMode == PollingReadMode.*?m_FirstPortBuffer\.read' \
+            "$ps2_source" ||
+        ! rg -q -U \
+            '(?s)Ps2Mouse::initialise\(.*?setIrqEnable\(true, true\).*?writeSecondPort\(SetDefaults\).*?readSecondPort\(result\).*?writeSecondPort\(MouseStream\).*?readSecondPort\(result\).*?m_ReaderThread\.adopt' \
+            "$ps2_mouse_source" ||
+        ! rg -q -U \
+            '(?s)Ps2Mouse::readerThread\(\).*?!m_pController->readSecondPort\(byte\).*?m_pController->readsStopping\(\).*?getUnwindState\(\) != Thread::Continue.*?return;' \
+            "$ps2_mouse_source" ||
+        rg -q 'readerThread(Trampoline)?\([^;]*\)[[:space:]]*NORETURN' \
+            src/modules/drivers/x86/ps2mouse/Ps2Mouse.h ||
+        ! rg -q -U \
+            '(?s)Pc::initialise3\(\).*?Rtc::instance\(\)\.initialise3\(\).*?m_Ps2Controller->initialise3\(\).*?m_Keyboard->startReaderThread\(\)' \
+            "$pc_source" ||
+        ! rg -q -U \
+            '(?s)Pc::deinitialise\(\).*?Rtc::instance\(\)\.uninitialise\(\).*?m_Ps2Controller->uninitialise\(\).*?m_Keyboard->stopReaderThread\(\).*?Pit::instance\(\)\.uninitialise\(\).*?Pic::instance\(\)\.shutdownThreaded\(\)' \
+            "$pc_source"; then
+        echo "PS/2 buffered-reader startup or teardown ordering regressed."
+        failed=1
+    fi
+
+    if ! rg -q 'ps2-one-shot-hard-admission' "$ps2_regressions" ||
+        ! rg -q 'ps2-capture-queue-fidelity' "$ps2_regressions" ||
+        ! rg -q 'canPushFromInterrupt\(\)' "$ps2_regressions"; then
+        echo "Hosted PS/2 admission and capture-queue coverage is incomplete."
+        failed=1
+    fi
+
     if ! rg -q 'class IrqEventCounter' "$irq_event_counter" ||
         ! rg -q 'recordFromInterrupt\(size_t occurrences = 1\)' \
             "$irq_event_counter" ||

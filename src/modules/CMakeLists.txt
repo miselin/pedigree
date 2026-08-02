@@ -280,6 +280,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pipe-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/primitive-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/process-exit-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ps2-controller-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ps2mouse-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/requestqueue-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/scheduler-regressions.cc

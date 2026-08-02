@@ -162,6 +162,8 @@ void Pc::deinitialise()
     }
 
     Rtc::instance().uninitialise();
+    m_Ps2Controller->uninitialise();
+    m_Keyboard->stopReaderThread();
     Pit::instance().uninitialise();
     if (!Pic::instance().shutdownThreaded())
     {
@@ -190,6 +192,10 @@ void Pc::initialise3()
     if (!Rtc::instance().initialise3())
     {
         panic("Pc: RTC bottom-half initialisation failed");
+    }
+    if (!m_Ps2Controller->initialise3())
+    {
+        panic("Pc: PS/2 bottom-half initialisation failed");
     }
     m_Keyboard->startReaderThread();
 }
