@@ -25,6 +25,11 @@ CALL = re.compile(
     r")\s*\("
 )
 TIME_TRACKER = re.compile(r"\bTimeTracker\b")
+DISPATCHER_HEADER = (
+    "src/system/include/pedigree/kernel/machine/ThreadedIrqDispatcher.h"
+)
+INLINE_DISPATCHER_NAME = re.compile(r"\bNormalStaticString\s+m_Name\s*;")
+DYNAMIC_DISPATCHER_NAME = re.compile(r"\bString\s+m_Name\s*;")
 SOURCE_SUFFIXES = frozenset((".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"))
 
 
@@ -297,6 +302,22 @@ def audit_sources(
                     )
                 )
 
+    dispatcher_header = sources.get(DISPATCHER_HEADER)
+    if dispatcher_header is not None:
+        dynamic_name = DYNAMIC_DISPATCHER_NAME.search(dispatcher_header)
+        inline_name = INLINE_DISPATCHER_NAME.search(dispatcher_header)
+        if dynamic_name or not inline_name:
+            match = dynamic_name or re.search(r"\bm_Name\b", dispatcher_header)
+            diagnostics.append(
+                Diagnostic(
+                    DISPATCHER_HEADER,
+                    dispatcher_header.count("\n", 0, match.start()) + 1
+                    if match
+                    else 0,
+                    "threaded IRQ dispatcher name must use inline storage",
+                )
+            )
+
     for key, count in sorted((observed - expected).items()):
         allowed_count = expected[key]
         extra_lines = locations.get(key, [0])[allowed_count:]
@@ -468,7 +489,21 @@ def self_test() -> int:
         "TimeTracker is forbidden in processor interrupt entry",
     )
 
-    print("hard IRQ boundary checker self-test passed (5 cases)")
+    constructor_heap = dict(clean_sources)
+    constructor_heap[DISPATCHER_HEADER] = """
+        class ThreadedIrqDispatcher {
+          private:
+            String m_Name;
+        };
+    """
+    require_failure(
+        "dispatcher constructor heap entry",
+        constructor_heap,
+        expected,
+        "threaded IRQ dispatcher name must use inline storage",
+    )
+
+    print("hard IRQ boundary checker self-test passed (6 cases)")
     return 0
 
 
