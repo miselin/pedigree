@@ -87,6 +87,8 @@ class HostedProcessorInformation
     PerProcessorScheduler *m_Scheduler;
     /** Kernel stack. */
     uintptr_t m_KernelStack;
+    /** Linux thread which owns hosted processor execution and IRQ delivery. */
+    uintptr_t m_HostedExecutionThreadId;
     /** Device hard-IRQ callbacks currently active on this processor. */
     size_t m_DeviceHardIrqDepth;
     /** POSIX signal frames live across hosted context switches. */

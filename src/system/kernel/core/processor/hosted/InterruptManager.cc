@@ -264,6 +264,14 @@ extern "C" void hostedSignalHandler(
 
 void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
 {
+    if (
+        (which == SIGUSR1 || which == SIGUSR2) &&
+        !Processor::onHostedExecutionThread())
+    {
+        FATAL_NOLOCK("Hosted IRQ delivered on a non-processor host thread");
+        return;
+    }
+
     Processor::enterHostedSignalFrame();
 
 #if THREADS

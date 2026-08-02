@@ -309,6 +309,7 @@ void observeSchedulerTimerHardContext(uint64_t delta, InterruptState &state)
     const uint64_t interval = 100 * Time::Multiplier::Millisecond;
     if (delta < interval || (delta % interval) || !current ||
         !current->getHostedSignalDepth() ||
+        !Processor::onHostedExecutionThread() ||
         Processor::inDeviceHardIrq() ||
         Processor::deviceHardIrqDepthForTest() != 0 ||
         state.getInterruptNumber() != SIGUSR2 ||

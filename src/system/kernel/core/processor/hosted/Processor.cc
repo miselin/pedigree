@@ -24,7 +24,6 @@
 #include "VirtualAddressSpace.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -46,6 +45,7 @@ ProcessorBase::HostedContextSwitchHook g_HostedContextSwitchHook = nullptr;
 
 #include <setjmp.h>
 #include <signal.h>
+#include <sys/syscall.h>
 #include <ucontext.h>
 #include <unistd.h>
 
@@ -83,6 +83,15 @@ void ProcessorBase::initialisationDone()
 
 void ProcessorBase::initialise1(const BootstrapStruct_t &Info)
 {
+    const long executionThreadId = ::syscall(SYS_gettid);
+    if (executionThreadId <= 0)
+    {
+        panic("Hosted: failed to capture the processor execution thread");
+    }
+    __atomic_store_n(
+        &information().m_HostedExecutionThreadId,
+        static_cast<uintptr_t>(executionThreadId), __ATOMIC_RELEASE);
+
     if (hostedCaptureKernelFs() != 0)
     {
         panic("Hosted: failed to capture the host FS base");
@@ -418,6 +427,20 @@ bool ProcessorBase::getInterrupts()
     return m_bInterrupts;
 }
 
+uintptr_t ProcessorBase::hostedExecutionThreadId()
+{
+    return __atomic_load_n(
+        &information().m_HostedExecutionThreadId, __ATOMIC_ACQUIRE);
+}
+
+bool ProcessorBase::onHostedExecutionThread()
+{
+    const long currentThreadId = ::syscall(SYS_gettid);
+    return currentThreadId > 0 &&
+           static_cast<uintptr_t>(currentThreadId) ==
+               hostedExecutionThreadId();
+}
+
 void ProcessorBase::enterHostedSignalFrame()
 {
     __atomic_add_fetch(
@@ -472,15 +495,15 @@ void ProcessorBase::notifyHostedContextSwitchStage(
 
 bool ProcessorBase::queueHostedSchedulerTickForTest()
 {
-    SchedulerTimer *timer = Machine::instance().getSchedulerTimer();
-    if (!timer)
+    const uintptr_t executionThreadId = hostedExecutionThreadId();
+    if (!executionThreadId)
     {
         return false;
     }
 
-    union sigval value = {};
-    value.sival_ptr = timer;
-    return sigqueue(getpid(), SIGUSR2, value) == 0;
+    return ::syscall(
+               SYS_tgkill, ::getpid(), static_cast<long>(executionThreadId),
+               SIGUSR2) == 0;
 }
 #endif
 

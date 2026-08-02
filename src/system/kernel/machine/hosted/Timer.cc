@@ -256,9 +256,16 @@ bool HostedTimer::initialise1()
 
     struct sigevent sv;
     ByteSet(&sv, 0, sizeof(sv));
-    sv.sigev_notify = SIGEV_SIGNAL;
+    const uintptr_t executionThreadId = Processor::hostedExecutionThreadId();
+    if (!executionThreadId)
+    {
+        return false;
+    }
+    sv.sigev_notify = SIGEV_THREAD_ID;
     sv.sigev_signo = SIGUSR1;
     sv.sigev_value.sival_ptr = this;
+    sv._sigev_un._tid =
+        static_cast<decltype(sv._sigev_un._tid)>(executionThreadId);
     int r = timer_create(CLOCK_MONOTONIC, &sv, &m_Timer);
     if (r != 0)
     {

@@ -276,6 +276,10 @@ class EXPORTED_PUBLIC ProcessorBase
     static bool getInterrupts();
 
 #if HOSTED
+    /** Returns the Linux thread ID which executes this hosted processor. */
+    static uintptr_t hostedExecutionThreadId();
+    /** True only on the host thread which executes this processor. */
+    static bool onHostedExecutionThread();
     /** Records a live hosted signal frame on this processor. */
     static void enterHostedSignalFrame();
     /** Retires a hosted signal frame on this processor. */

@@ -1479,12 +1479,36 @@ check_wait_api_boundaries()
     local hosted_scheduler_timer_source=src/system/kernel/machine/hosted/SchedulerTimer.cc
     local hosted_scheduler_timer_header=src/system/kernel/machine/hosted/SchedulerTimer.h
     local hosted_processor_source=src/system/kernel/core/processor/hosted/Processor.cc
+    local hosted_interrupt_manager_source=src/system/kernel/core/processor/hosted/InterruptManager.cc
     local timer_regressions=src/modules/system/hosted-smoke/timer-regressions.cc
     local scheduler_regressions=src/modules/system/hosted-smoke/scheduler-regressions.cc
     local hosted_timer_hard
     hosted_timer_hard=$(sed -n \
         '/HostedTimer::hardIrq(/,/^void HostedTimer::threadedIrq/p' \
         "$hosted_timer_source")
+
+    if ! rg -q -U \
+            '(?s)ProcessorBase::initialise1\(.*?SYS_gettid.*?m_HostedExecutionThreadId.*?HostedInterruptManager::initialiseProcessor\(\)' \
+            "$hosted_processor_source" ||
+        ! rg -q -U \
+            '(?s)HostedTimer::initialise1\(\).*?hostedExecutionThreadId\(\).*?SIGEV_THREAD_ID.*?_sigev_un\._tid.*?executionThreadId.*?timer_create\(' \
+            "$hosted_timer_source" ||
+        ! rg -q -U \
+            '(?s)HostedSchedulerTimer::initialise\(\).*?hostedExecutionThreadId\(\).*?SIGEV_THREAD_ID.*?_sigev_un\._tid.*?executionThreadId.*?timer_create\(' \
+            "$hosted_scheduler_timer_source" ||
+        ! rg -q -U \
+            '(?s)queueHostedSchedulerTickForTest\(\).*?hostedExecutionThreadId\(\).*?SYS_tgkill.*?executionThreadId.*?SIGUSR2' \
+            "$hosted_processor_source" ||
+        ! rg -q -U \
+            '(?s)signalShim\(.*?which == SIGUSR1.*?which == SIGUSR2.*?!Processor::onHostedExecutionThread\(\).*?FATAL_NOLOCK' \
+            "$hosted_interrupt_manager_source" ||
+        ! rg -q -U \
+            '(?s)observeSchedulerTimerHardContext\(.*?!Processor::onHostedExecutionThread\(\)' \
+            "$scheduler_regressions"; then
+        echo "Hosted IRQ sources escaped their captured processor thread."
+        failed=1
+    fi
+
     if ! rg -q \
             'class HostedTimer : public Timer, private SplitIrqHandler' \
             "$hosted_timer_header" ||
