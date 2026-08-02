@@ -30,15 +30,12 @@
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/process/Mutex.h"
-#include "pedigree/kernel/processor/InterruptHandler.h"
-#include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
@@ -104,10 +101,9 @@ Ohci::Ohci(Device *pDev)
     setSpecificType(String("OHCI"));
 
 #if !X86_COMMON
-    // InterruptManager cannot synchronously unregister a raw handler. Refuse
-    // publication until that platform can provide the same lifetime barrier
-    // as IrqManager.
-    ERROR("OHCI requires synchronous IRQ unregistration on this platform");
+    // Completion and root-port processing require ordinary thread context.
+    // No maintained non-x86 machine provides a supported OHCI IRQ path.
+    ERROR("OHCI requires threaded PCI IRQ delivery");
     return;
 #endif
 
@@ -303,10 +299,7 @@ Ohci::Ohci(Device *pDev)
     Machine::instance().getIrqManager()->control(
         getInterruptNumber(), IrqManager::MitigationThreshold,
         (1500000 / 64));  // 12KB/ms (12Mbps) in bytes, divided by 64 bytes
-                          // maximum per transfer/IRQ-#else
-#else
-    InterruptManager::instance().registerInterruptHandler(
-        pDev->getInterruptNumber(), this);
+                          // maximum per transfer/IRQ
 #endif
 
     // Get the number of ports and delay for power-up for this root hub.
@@ -854,70 +847,47 @@ void Ohci::terminalizeEDForTeardown(
 
 #if X86_COMMON
 IrqDisposition Ohci::irq(irq_id_t number)
-#else
-void Ohci::interrupt(size_t number, InterruptState &state)
-#endif
 {
     (void) number;
-#if !X86_COMMON
-    (void) state;
-#endif
 
     OperationBarrier::Lease callback;
     if (!m_CallbackOperations.tryAcquire(callback))
     {
-        return
-#if X86_COMMON
-            IrqDisposition::Quiesced
-#endif
-            ;
+        return IrqDisposition::Quiesced;
     }
-#if X86_COMMON
+
     List<UsbHcd::CallbackDeliveryQueue::Record *> completions;
     {
-#endif
         LockGuard<IrqProcessingLock> transactionGuard(m_IrqProcessingLock);
 
         if (m_TeardownPhase == 2)
         {
-            return
-#if X86_COMMON
-                IrqDisposition::Quiesced
-#endif
-            ;
-    }
+            return IrqDisposition::Quiesced;
+        }
 
-    if (!m_pHcca)
-    {
-        // Assume not for us - no HCCA yet!
-        return
-#if X86_COMMON
-                IrqDisposition::NotHandled
-#endif
-            ;
-    }
+        if (!m_pHcca)
+        {
+            // Assume not for us - no HCCA yet!
+            return IrqDisposition::NotHandled;
+        }
 
         uint32_t nStatus = m_pBase->read32(OhciInterruptStatus) &
-                       m_pBase->read32(OhciInterruptEnable);
+                           m_pBase->read32(OhciInterruptEnable);
         const uint32_t observedDoneHead = m_pHcca->pDoneHead;
         if (observedDoneHead)
-    {
+        {
             nStatus |= OhciInterruptWbDoneHead;
-    }
+        }
 
-    // Not for us?
-    if (!nStatus)
-    {
-        DEBUG_LOG("USB: OHCI: irq is not for us");
-        return
-#if X86_COMMON
-                IrqDisposition::NotHandled
-#endif
-            ;
-    }
+        // Not for us?
+        if (!nStatus)
+        {
+            DEBUG_LOG("USB: OHCI: irq is not for us");
+            return IrqDisposition::NotHandled;
+        }
 
-    // However, make sure we do not get interrupted during handling.
-    m_pBase->write32(OhciInterruptMIE, OhciInterruptDisable);
+        // However, make sure we do not get interrupted during handling.
+        m_pBase->write32(OhciInterruptMIE, OhciInterruptDisable);
         (void) m_pBase->read32(OhciInterruptEnable);
 
         // HCCA DoneHead belongs to software until WDH is acknowledged. Re-read
@@ -936,331 +906,307 @@ void Ohci::interrupt(size_t number, InterruptState &state)
             }
         }
 
-    // Clear the MIE bit from the interrupt status. We don't care for it.
-    nStatus &= ~OhciInterruptMIE;
+        // Clear the MIE bit from the interrupt status. We don't care for it.
+        nStatus &= ~OhciInterruptMIE;
         bool sofDrained = true;
         bool doneHeadDrained = true;
 
 #ifdef USB_VERBOSE_DEBUG
-    DEBUG_LOG("OHCI: IRQ " << nStatus);
+        DEBUG_LOG("OHCI: IRQ " << nStatus);
 #endif
 
-    if (nStatus & OhciInterruptUnrecoverableError)
-    {
-        /// \todo Handle.
-
-        // Don't enable interrupts again, controller is not in a safe state.
-        ERROR("OHCI: controller is hung!");
-        return
-#if X86_COMMON
-                IrqDisposition::Handled
-#endif
-            ;
-    }
-
-    if (nStatus & OhciInterruptStartOfFrame)
-    {
-#ifdef USB_VERBOSE_DEBUG
-        DEBUG_LOG("OHCI: SOF, preparing to reclaim EDs...");
-#endif
-
-        // Firstly disable the SOF interrupt now that we've gotten it.
-        m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptDisable);
-
-        // Process the reclaim list.
-        constexpr size_t EdListCount = 3 * (0x1000 / sizeof(ED));
-        size_t reclaimBudget = EdListCount;
-        while (reclaimBudget)
+        if (nStatus & OhciInterruptUnrecoverableError)
         {
-            ED *pED = nullptr;
+            /// \todo Handle.
+
+            // Don't enable interrupts again, controller is not in a safe state.
+            ERROR("OHCI: controller is hung!");
+            return IrqDisposition::Handled;
+        }
+
+        if (nStatus & OhciInterruptStartOfFrame)
+        {
+#ifdef USB_VERBOSE_DEBUG
+            DEBUG_LOG("OHCI: SOF, preparing to reclaim EDs...");
+#endif
+
+            // Firstly disable the SOF interrupt now that we've gotten it.
+            m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptDisable);
+
+            // Process the reclaim list.
+            constexpr size_t EdListCount = 3 * (0x1000 / sizeof(ED));
+            size_t reclaimBudget = EdListCount;
+            while (reclaimBudget)
+            {
+                ED *pED = nullptr;
+                {
+                    LockGuard<Spinlock> guard(m_DequeueListLock);
+                    if (m_DequeueList.count())
+                        pED = m_DequeueList.popFront();
+                    else
+                        break;
+                }
+
+                --reclaimBudget;
+                if (pED)
+                {
+                    const Lists type = pED->pMetaData->edType;
+                    UsbHcd::TransferCompletion::Claim claim;
+                    const bool ownsPublication =
+                        pED->pMetaData->completion.claimCaptured(claim);
+
+#ifdef USB_VERBOSE_DEBUG
+                    DEBUG_LOG(
+                        "OHCI: freeing ED #" << pED->pMetaData->id << ".");
+#endif
+
+                    if (ownsPublication)
+                        completions.pushBack(prepareCompletion(pED, claim));
+
+                    // Safe to restore this list to the running state.
+                    /// \note List processing won't start until the NEXT SOF.
+                    start(type);
+                }
+            }
+
             {
                 LockGuard<Spinlock> guard(m_DequeueListLock);
                 if (m_DequeueList.count())
-                    pED = m_DequeueList.popFront();
-                else
-                    break;
-            }
-
-            --reclaimBudget;
-            if (pED)
-            {
-                const Lists type = pED->pMetaData->edType;
-                UsbHcd::TransferCompletion::Claim claim;
-                const bool ownsPublication =
-                    pED->pMetaData->completion.claimCaptured(claim);
-
-#ifdef USB_VERBOSE_DEBUG
-                DEBUG_LOG(
-                    "OHCI: freeing ED #" << pED->pMetaData->id << ".");
-#endif
-
-#if X86_COMMON
-                if (ownsPublication)
-                    completions.pushBack(prepareCompletion(pED, claim));
-#else
-                if (ownsPublication)
-                    reclaimTransferDescriptors(pED);
-#endif
-
-                // Safe to restore this list to the running state.
-                /// \note List processing won't start until the NEXT SOF.
-                start(type);
-
-#if !X86_COMMON
-                if (ownsPublication)
                 {
-                    if (claim.callback)
-                        claim.callback(claim.parameter, claim.result);
-                    retireEDStorage(pED);
+                    sofDrained = false;
+                    ERROR_NOLOCK("OHCI: exceeded the SOF reclaim scan budget");
                 }
-#endif
             }
         }
 
-        {
-            LockGuard<Spinlock> guard(m_DequeueListLock);
-            if (m_DequeueList.count())
-            {
-                sofDrained = false;
-                ERROR_NOLOCK("OHCI: exceeded the SOF reclaim scan budget");
-            }
-        }
-    }
-
-    // Check for newly connected / disconnected devices. A threadless build
-    // leaves RHSC masked because enumeration can block and allocate.
+        // Check for newly connected / disconnected devices. A threadless build
+        // leaves RHSC masked because enumeration can block and allocate.
 #if THREADS
-    if (nStatus & OhciInterruptRhStsChange)
-    {
-        LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
-
-        // Clear and flush the aggregate before scanning. A change after its
-        // port has been scanned will relatch RHSC and cannot be erased by a
-        // trailing aggregate acknowledgement.
-        m_pBase->write32(OhciInterruptRhStsChange, OhciInterruptStatus);
-        (void) m_pBase->read32(OhciInterruptStatus);
-
-        if (m_pBase->read32(OhciRhStatus) & OhciRhHubStsOverCurrentCh)
+        if (nStatus & OhciInterruptRhStsChange)
         {
-            m_pBase->write32(OhciRhHubStsOverCurrentCh, OhciRhStatus);
-            (void) m_pBase->read32(OhciRhStatus);
-        }
+            LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
 
-        for (size_t i = 0; i < m_nPorts; i++)
-        {
-            const size_t portRegister = OhciRhPortStatus + (i * 4);
-            const uint32_t portStatus = m_pBase->read32(portRegister);
-            uint32_t acknowledgeMask =
-                portStatus &
-                (OhciRhPortStsEnableCh | OhciRhPortStsSuspendCh |
-                 OhciRhPortStsOverCurrentCh);
+            // Clear and flush the aggregate before scanning. A change after its
+            // port has been scanned will relatch RHSC and cannot be erased by a
+            // trailing aggregate acknowledgement.
+            m_pBase->write32(OhciInterruptRhStsChange, OhciInterruptStatus);
+            (void) m_pBase->read32(OhciInterruptStatus);
 
-            // A reset worker masks RHSC before issuing reset and owns PRSC
+            if (m_pBase->read32(OhciRhStatus) & OhciRhHubStsOverCurrentCh)
+            {
+                m_pBase->write32(OhciRhHubStsOverCurrentCh, OhciRhStatus);
+                (void) m_pBase->read32(OhciRhStatus);
+            }
+
+            for (size_t i = 0; i < m_nPorts; i++)
+            {
+                const size_t portRegister = OhciRhPortStatus + (i * 4);
+                const uint32_t portStatus = m_pBase->read32(portRegister);
+                uint32_t acknowledgeMask =
+                    portStatus &
+                    (OhciRhPortStsEnableCh | OhciRhPortStsSuspendCh |
+                     OhciRhPortStsOverCurrentCh);
+
+                // A reset worker masks RHSC before issuing reset and owns PRSC
                 // until it has sampled and cleared completion. A stale PRSC
                 // with no owner can be retired here instead of causing an IRQ
                 // storm.
-            if ((portStatus & OhciRhPortStsResCh) && !m_PortResetActive)
-            {
-                acknowledgeMask |= OhciRhPortStsResCh;
-            }
-
-            if (portStatus & OhciRhPortStsConnStsCh)
-            {
-                const bool deferred = deferConnectionChangeIfSuppressed(i);
-                bool acknowledge = deferred;
-                size_t generation = 0;
-                if (!deferred)
+                if ((portStatus & OhciRhPortStsResCh) && !m_PortResetActive)
                 {
-                    const auto observation = m_PortChanges[i].observe();
+                    acknowledgeMask |= OhciRhPortStsResCh;
+                }
+
+                if (portStatus & OhciRhPortStsConnStsCh)
+                {
+                    const bool deferred = deferConnectionChangeIfSuppressed(i);
+                    bool acknowledge = deferred;
+                    size_t generation = 0;
+                    if (!deferred)
+                    {
+                        const auto observation = m_PortChanges[i].observe();
                         acknowledge = UsbHcd::PortChangeRequest::canAcknowledge(
                             observation.result);
-                    assert(acknowledge);
+                        assert(acknowledge);
+                        if (acknowledge)
+                        {
+                            generation = observation.generation;
+                            m_DeferredPortChanges.defer(i, generation);
+                        }
+                    }
+
                     if (acknowledge)
                     {
-                        generation = observation.generation;
-                        m_DeferredPortChanges.defer(i, generation);
+                        acknowledgeMask |= OhciRhPortStsConnStsCh;
                     }
-                }
-
-                if (acknowledge)
-                {
-                    acknowledgeMask |= OhciRhPortStsConnStsCh;
-                }
-                else
-                {
-                    // A configured preallocated token has no fallible
-                    // admission path while the queue is accepting. Preserve
+                    else
+                    {
+                        // A configured preallocated token has no fallible
+                        // admission path while the queue is accepting. Preserve
                         // CSC for diagnosis, but mask RHSC to avoid a
                         // level-triggered IRQ livelock if that invariant is
                         // ever violated.
-                    m_RootHubStatusChangeDesired = false;
-                    setRootHubStatusChangeSource(false);
+                        m_RootHubStatusChangeDesired = false;
+                        setRootHubStatusChangeSource(false);
+                    }
                 }
-            }
 
-            if (acknowledgeMask)
-            {
+                if (acknowledgeMask)
+                {
                     // OHCI root-port command bits alias the readable status
                     // bits; writing only upper change bits avoids replaying
                     // commands.
-                m_pBase->write32(acknowledgeMask, portRegister);
-                (void) m_pBase->read32(portRegister);
-            }
+                    m_pBase->write32(acknowledgeMask, portRegister);
+                    (void) m_pBase->read32(portRegister);
+                }
 
-            const size_t generation = m_DeferredPortChanges.release(i);
-            if (generation)
-            {
-                m_PortChanges[i].acknowledge(generation);
+                const size_t generation = m_DeferredPortChanges.release(i);
+                if (generation)
+                {
+                    m_PortChanges[i].acknowledge(generation);
+                }
             }
         }
-    }
 #endif
 
-    // A list of EDs that persist in the schedule. Used to repopulate the
-    // schedule list.
-    List<ED *> persistList;
+        // A list of EDs that persist in the schedule. Used to repopulate the
+        // schedule list.
+        List<ED *> persistList;
 
-    if (nStatus & OhciInterruptWbDoneHead)
-    {
+        if (nStatus & OhciInterruptWbDoneHead)
+        {
             constexpr size_t EdListCount = 3 * (0x1000 / sizeof(ED));
             constexpr size_t TdListCount = 0x1000 / sizeof(TD);
             size_t scheduleBudget = EdListCount;
-        ED *pED = 0;
+            ED *pED = 0;
             while (scheduleBudget)
-        {
+            {
                 --scheduleBudget;
-            {
-                LockGuard<Spinlock> guard(m_ScheduleChangeLock);
-                if (m_FullSchedule.count())
-                    pED = m_FullSchedule.popFront();
-                else
-                    break;
-            }
+                {
+                    LockGuard<Spinlock> guard(m_ScheduleChangeLock);
+                    if (m_FullSchedule.count())
+                        pED = m_FullSchedule.popFront();
+                    else
+                        break;
+                }
 
-            // Assume not yet linked properly
-            if (pED->pMetaData->bIgnore)
-            {
-                persistList.pushBack(pED);
-                continue;
-            }
+                // Assume not yet linked properly
+                if (pED->pMetaData->bIgnore)
+                {
+                    persistList.pushBack(pED);
+                    continue;
+                }
 
-            bool bPeriodic = pED->pMetaData->bPeriodic;
+                bool bPeriodic = pED->pMetaData->bPeriodic;
 
-            // Iterate the TD list
-            TD *pTD = 0;
+                // Iterate the TD list
+                TD *pTD = 0;
                 size_t tdBudget = TdListCount;
                 while (pED->pMetaData->tdList.count() && tdBudget)
-            {
+                {
                     --tdBudget;
-                pTD = pED->pMetaData->tdList.popFront();
+                    pTD = pED->pMetaData->tdList.popFront();
 
                     // TD not yet handled - return to the list and go to the
                     // next ED.
-                if (pTD->nStatus == 0xF)
-                {
-                    pED->pMetaData->tdList.pushFront(pTD);
-                    break;
-                }
+                    if (pTD->nStatus == 0xF)
+                    {
+                        pED->pMetaData->tdList.pushFront(pTD);
+                        break;
+                    }
 
-                ssize_t nResult;
-                if (pTD->nStatus)
-                {
+                    ssize_t nResult;
+                    if (pTD->nStatus)
+                    {
 #ifdef USB_VERBOSE_DEBUG
-                    if (!bPeriodic)
+                        if (!bPeriodic)
                             ERROR_NOLOCK(
                                 "TD Error " << Dec << pTD->nStatus << Hex);
 #endif
-                    nResult = -pTD->getError();
-                }
-                else
-                {
-                    if (pTD->pBufferStart)
-                    {
-                        // Only a part of the buffer has been transfered
-                        size_t nBytesLeft =
-                            pTD->pBufferEnd - pTD->pBufferStart + 1;
-                        nResult = pTD->nBufferSize - nBytesLeft;
+                        nResult = -pTD->getError();
                     }
                     else
-                        nResult = pTD->nBufferSize;
-                    pED->pMetaData->nTotalBytes += nResult;
-                }
+                    {
+                        if (pTD->pBufferStart)
+                        {
+                            // Only a part of the buffer has been transfered
+                            size_t nBytesLeft =
+                                pTD->pBufferEnd - pTD->pBufferStart + 1;
+                            nResult = pTD->nBufferSize - nBytesLeft;
+                        }
+                        else
+                            nResult = pTD->nBufferSize;
+                        pED->pMetaData->nTotalBytes += nResult;
+                    }
 #ifdef USB_VERBOSE_DEBUG
-                DEBUG_LOG_NOLOCK(
-                    "TD #" << Dec << pTD->id << Hex << " [from ED #" << Dec
-                           << pED->pMetaData->id << Hex << "] DONE: " << Dec
-                           << pED->nAddress << ":" << pED->nEndpoint << " "
-                           << (pTD->nPid == 1 ?
-                                   "OUT" :
-                                   (pTD->nPid == 2 ?
-                                        "IN" :
-                                        (pTD->nPid == 0 ? "SETUP" : "")))
-                           << " " << nResult << Hex);
+                    DEBUG_LOG_NOLOCK(
+                        "TD #" << Dec << pTD->id << Hex << " [from ED #" << Dec
+                               << pED->pMetaData->id << Hex << "] DONE: " << Dec
+                               << pED->nAddress << ":" << pED->nEndpoint << " "
+                               << (pTD->nPid == 1 ?
+                                       "OUT" :
+                                       (pTD->nPid == 2 ?
+                                            "IN" :
+                                            (pTD->nPid == 0 ? "SETUP" : "")))
+                               << " " << nResult << Hex);
 #endif
 
-                /// \note It might be nice to document this.
-                bool bEndOfTransfer =
-                    (!bPeriodic &&
-                     ((nResult < 0) || (pTD == pED->pMetaData->pLastTD))) ||
-                    (bPeriodic && (nResult >= 0));
+                    /// \note It might be nice to document this.
+                    bool bEndOfTransfer =
+                        (!bPeriodic &&
+                         ((nResult < 0) || (pTD == pED->pMetaData->pLastTD))) ||
+                        (bPeriodic && (nResult >= 0));
 
-                if (!bPeriodic)
-                    pED->pMetaData->completedTdList.pushBack(pTD);
+                    if (!bPeriodic)
+                        pED->pMetaData->completedTdList.pushBack(pTD);
 
                     // Last TD or error condition, if async, otherwise only when
                     // it gives no error
-                if (bEndOfTransfer)
-                {
-                    const ssize_t completionResult =
+                    if (bEndOfTransfer)
+                    {
+                        const ssize_t completionResult =
                             nResult < 0 ? nResult : pED->pMetaData->nTotalBytes;
-                    const bool ownsCompletion =
-                        bPeriodic || pED->pMetaData->completion.captureNatural(
-                                         completionResult);
+                        const bool ownsCompletion =
+                            bPeriodic ||
+                            pED->pMetaData->completion.captureNatural(
+                                completionResult);
 
-                    if (!bPeriodic && ownsCompletion)
-                    {
-                        removeED(pED);
-                        continue;
+                        if (!bPeriodic && ownsCompletion)
+                        {
+                            removeED(pED);
+                            continue;
+                        }
+                        else if (bPeriodic)
+                        {
+                            // Invert data toggle
+                            pTD->bDataToggle = !pTD->bDataToggle;
+
+                            // Clear the total bytes field so it won't grow with
+                            // each completed transfer
+                            pED->pMetaData->nTotalBytes = 0;
+                        }
+
+                        if (bPeriodic && pED->pMetaData->pCallback)
+                        {
+                            completions.pushBack(m_CompletionDeliveries.create(
+                                {pED->pMetaData->id,
+                                 m_CompletionDeliveries.nextGeneration()},
+                                pED->pMetaData->pCallback,
+                                pED->pMetaData->pParam, completionResult));
+                        }
                     }
-                    else if (bPeriodic)
+
+                    // Interrupt TDs need to be always active
+                    if (bPeriodic)
                     {
-                        // Invert data toggle
-                        pTD->bDataToggle = !pTD->bDataToggle;
-
-                        // Clear the total bytes field so it won't grow with
-                        // each completed transfer
-                        pED->pMetaData->nTotalBytes = 0;
-                    }
-
-                    if (bPeriodic && pED->pMetaData->pCallback)
-                    {
-#if X86_COMMON
-                            completions.pushBack(
-                                m_CompletionDeliveries.create(
-                                    {pED->pMetaData->id,
-                                     m_CompletionDeliveries.nextGeneration()},
-                                    pED->pMetaData->pCallback,
-                                    pED->pMetaData->pParam,
-                                    completionResult));
-#else
-                        pED->pMetaData->pCallback(
-                            pED->pMetaData->pParam, completionResult);
-#endif
-                    }
-                }
-
-                // Interrupt TDs need to be always active
-                if (bPeriodic)
-                {
-                    pTD->nStatus = 0xf;
+                        pTD->nStatus = 0xf;
                         pTD->pBufferStart =
                             pTD->pBufferEnd - pTD->nBufferSize + 1;
-                    pED->pHeadTD = PHYS_TD(pTD->id) >> 4;
+                        pED->pHeadTD = PHYS_TD(pTD->id) >> 4;
 
-                    pED->pMetaData->tdList.pushBack(pTD);
-                    break;  // Only one TD in a periodic transfer.
+                        pED->pMetaData->tdList.pushBack(pTD);
+                        break;  // Only one TD in a periodic transfer.
+                    }
                 }
-            }
 
                 if (!tdBudget && pED->pMetaData->tdList.count())
                 {
@@ -1272,9 +1218,9 @@ void Ohci::interrupt(size_t number, InterruptState &state)
 
                 // If this ED is not queued for deletion, make sure we can use
                 // it in the next IRQ.
-            if (!pED->pMetaData->bIgnore)
-                persistList.pushBack(pED);
-    }
+                if (!pED->pMetaData->bIgnore)
+                    persistList.pushBack(pED);
+            }
 
             {
                 LockGuard<Spinlock> guard(m_ScheduleChangeLock);
@@ -1288,19 +1234,19 @@ void Ohci::interrupt(size_t number, InterruptState &state)
 
         // Restore EDs into the schedule if they were removed and need to
         // persist.
-    if (persistList.count())
-    {
-        LockGuard<Spinlock> guard(m_ScheduleChangeLock);
-        for (List<ED *>::Iterator it = persistList.begin();
-             it != persistList.end();)
+        if (persistList.count())
         {
-            m_FullSchedule.pushBack(*it);
-            it = persistList.erase(it);
+            LockGuard<Spinlock> guard(m_ScheduleChangeLock);
+            for (List<ED *>::Iterator it = persistList.begin();
+                 it != persistList.end();)
+            {
+                m_FullSchedule.pushBack(*it);
+                it = persistList.erase(it);
+            }
         }
-    }
 
-    // RHSC was acknowledged before its scan so a later port edge cannot be
-    // erased here.
+        // RHSC was acknowledged before its scan so a later port edge cannot be
+        // erased here.
         uint32_t acknowledgeStatus = nStatus & ~OhciInterruptRhStsChange;
         if (!sofDrained)
         {
@@ -1311,18 +1257,17 @@ void Ohci::interrupt(size_t number, InterruptState &state)
         {
             acknowledgeStatus &= ~OhciInterruptWbDoneHead;
         }
-    if (acknowledgeStatus)
-    {
-        m_pBase->write32(acknowledgeStatus, OhciInterruptStatus);
-        (void) m_pBase->read32(OhciInterruptStatus);
-    }
+        if (acknowledgeStatus)
+        {
+            m_pBase->write32(acknowledgeStatus, OhciInterruptStatus);
+            (void) m_pBase->read32(OhciInterruptStatus);
+        }
 
-    if (m_TeardownPhase < 2)
-    {
-        m_pBase->write32(OhciInterruptMIE, OhciInterruptEnable);
-    }
+        if (m_TeardownPhase < 2)
+        {
+            m_pBase->write32(OhciInterruptMIE, OhciInterruptEnable);
+        }
 
-#if X86_COMMON
         if (completions.count())
             m_CompletionDeliveries.publish(completions);
     }
@@ -1334,8 +1279,8 @@ void Ohci::interrupt(size_t number, InterruptState &state)
     }
 
     return IrqDisposition::Handled;
-#endif
 }
+#endif
 
 void Ohci::addTransferToTransaction(
     uintptr_t pTransaction, bool bToggle, UsbPid pid, uintptr_t pBuffer,

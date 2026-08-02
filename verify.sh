@@ -872,6 +872,25 @@ check_wait_api_boundaries()
     local usb_callback_regressions=src/modules/system/hosted-smoke/usb-callback-delivery-regressions.cc
     local usb_lifecycle_regressions=src/modules/system/hosted-smoke/usb-transfer-lifecycle-regressions.cc
     local usb_port_regressions=src/modules/system/hosted-smoke/usb-hcd-port-change-regressions.cc
+    if rg -q 'InterruptHandler|registerInterruptHandler' \
+            "$ohci_header" "$ohci_source" ||
+        ! rg -q -U \
+            '(?s)#if !X86_COMMON.*?ERROR\("OHCI requires threaded PCI IRQ delivery"\);.*?return;.*?#endif.*?PhysicalMemoryManager::instance\(\)\.allocateRegion' \
+            "$ohci_source"; then
+        echo "OHCI regained an unsupported raw interrupt fallback."
+        failed=1
+    fi
+
+    matches=$(rg -n \
+        '\bregisterInterruptHandler[[:space:]]*\(' \
+        src/modules --glob '*.{cc,h}' \
+        --glob '!src/modules/system/hosted-smoke/**' || true)
+    if [[ -n "$matches" ]]; then
+        echo "A production module bypassed the threaded IRQ manager:"
+        echo "$matches"
+        failed=1
+    fi
+
     if rg -q 'registerHard(Isa|Pci)IrqHandler|HardIrqHandler' \
             "$ehci_header" "$ehci_source" "$ohci_header" "$ohci_source" \
             "$uhci_header" "$uhci_source" ||

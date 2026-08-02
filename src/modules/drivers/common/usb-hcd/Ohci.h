@@ -33,9 +33,7 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/List.h"
@@ -50,8 +48,6 @@ class IoBase;
 class Ohci : public UsbHub,
 #if X86_COMMON
              public IrqHandler,
-#else
-             public InterruptHandler,
 #endif
              public RequestQueue
 {
@@ -210,8 +206,6 @@ class Ohci : public UsbHub,
 /// IRQ handler
 #if X86_COMMON
     IrqDisposition irq(irq_id_t number) override;
-#else
-    virtual void interrupt(size_t number, InterruptState &state);
 #endif
 
     virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
