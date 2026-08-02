@@ -18,6 +18,7 @@
 class HardIrqHandler;
 class IrqHandler;
 class IrqHandlerBase;
+class Thread;
 
 /**
  * Allocation-free IRQ callback registry with synchronous removal.
@@ -36,6 +37,13 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     {
         bool handled;
         bool allowRearm;
+    };
+
+    struct AdmissionCutoff
+    {
+        size_t epoch;
+        size_t occurrenceEpoch;
+        size_t readerToken;
     };
 
     enum class UnregisterResult
@@ -96,6 +104,10 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
      * until that callback returns. Atomic contexts reject a removal which
      * would otherwise have to wait. A synchronous caller must not retain a
      * resource which the active handler needs to finish.
+     *
+     * The device source must be masked or quiesced before this call. Removal
+     * closes and drains registry admission; it cannot stop hardware from
+     * raising a new occurrence.
      */
     UnregisterResult unregisterHandler(uint8_t irq, IrqHandlerBase *handler);
 
@@ -108,9 +120,41 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     bool dispatchHard(
         uint8_t irq, InterruptState &state, bool &handled,
         HardIrqHandler *onlyHandler = nullptr, size_t dispatchGeneration = 0);
+    bool dispatchHard(
+        uint8_t irq, InterruptState &state, bool &handled,
+        HardIrqHandler *onlyHandler, size_t dispatchGeneration,
+        AdmissionCutoff admissionCutoff);
 
     /**
-     * Dispatches threaded handlers without exposing interrupted state.
+     * Records the exact threaded-handler publications admitted for one
+     * physical occurrence.
+     *
+     * The nonzero generation is supplied again by the line worker. Repeated
+     * occurrences may coalesce to the newest generation, but a handler which
+     * was registered after this call is never admitted retroactively.
+     * A controller serializes publication, rollback, and invalidation for each
+     * physical line; worker consumption remains concurrent.
+     */
+    bool publishThreadedDispatch(uint8_t irq, size_t dispatchGeneration);
+    bool publishThreadedDispatch(
+        uint8_t irq, size_t dispatchGeneration,
+        AdmissionCutoff admissionCutoff);
+
+    /** Captures one occurrence cutoff before controller delivery is sampled. */
+    AdmissionCutoff captureAdmissionCutoff(uint8_t irq);
+
+    /** Releases a cutoff which was not consumed by a dispatch operation. */
+    void releaseAdmissionCutoff(AdmissionCutoff admissionCutoff);
+
+    /** Invalidates queued threaded work from an ended controller lifetime. */
+    void invalidateThreadedLine(uint8_t irq, size_t throughGeneration);
+
+    /** Rolls back one action generation whose worker publication failed. */
+    void cancelThreadedDispatch(uint8_t irq, size_t dispatchGeneration);
+
+    /**
+     * Dispatches handlers admitted by publishThreadedDispatch() without
+     * exposing interrupted state.
      *
      * Returns true when at least one callback was admitted and writes the
      * detached callback outcome to `result`.
@@ -119,7 +163,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
      * callback which actually handled the occurrence.
      */
     bool dispatchThreaded(
-        uint8_t irq, ThreadedDispatchResult &result,
+        uint8_t irq, size_t dispatchGeneration,
+        ThreadedDispatchResult &result,
         IrqHandler *onlyHandler = nullptr);
 
     size_t handlerCount(uint8_t irq);
@@ -164,6 +209,10 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         Claimed,
         Committed,
         Released,
+        RetirementBoundaryPublished,
+        BeforeClaimFinalization,
+        FinalizationContended,
+        BeforeActionMutationPin,
     };
 
     using HandlerPinHook = void (*)(IrqHandlerBase *);
@@ -181,6 +230,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     size_t activeDispatchCountForTest(IrqHandlerBase *handler);
     size_t claimedDispatchCountForOwnerForTest(void *owner);
     bool containsHandlerForTest(uint8_t irq, IrqHandlerBase *handler);
+    size_t tombstoneCountForTest(uint8_t irq) const;
 #endif
 
   private:
@@ -192,6 +242,9 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
 
     static constexpr size_t MaxHandlerSlots = 64;
     static constexpr size_t MaxActiveDispatches = 64;
+    static constexpr size_t IrqCount = 256;
+    // Bucket collisions delay tombstone reuse but cannot admit a stale slot.
+    static constexpr size_t GraceBucketCount = 16;
     static constexpr uint8_t InvalidIrq = 0xFF;
 
     enum class SlotMode : size_t
@@ -199,8 +252,10 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         Empty = 0,
         Enabled,
         Draining,
-        Deferred,
+        Cancelling,
+        Closed,
         Retiring,
+        Tombstone,
     };
 
     static constexpr size_t ModeBits = 3;
@@ -212,6 +267,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     static constexpr size_t IrqShift = DeliveryShift + DeliveryBits;
     static constexpr size_t IrqMask = 0xFF << IrqShift;
     static constexpr size_t GenerationShift = IrqShift + 8;
+    static constexpr size_t MaximumPublicationGeneration =
+        ~static_cast<size_t>(0) >> GenerationShift;
 
     static constexpr size_t PolicyValid = 1U << 0;
     static constexpr size_t PolicyTriggerShift = 1;
@@ -225,7 +282,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     {
         ActiveDispatch()
             : token(nullptr), generation(0), owner(nullptr),
-              admittedPublication(0), controllerGeneration(0), slot(nullptr)
+              admittedPublication(0), controllerGeneration(0), slot(nullptr),
+              callback(0)
         {
         }
 
@@ -235,26 +293,43 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         size_t admittedPublication;
         size_t controllerGeneration;
         HandlerSlot *slot;
+        size_t callback;
     };
 
     struct HandlerSlot
     {
-        HandlerSlot() : handler(nullptr), publication(0), policy(0)
+        HandlerSlot()
+            : handler(nullptr), publication(0), policy(0),
+              admissionEpoch(0), pendingThreadedGeneration(0),
+              previousThreadedGeneration(0), claimedThreadedGeneration(0),
+              quiescedThreadedGeneration(0),
+              rolledBackThreadedGeneration(0), retirementEpoch(0),
+              finalizationGate(0)
         {
         }
 
         IrqHandlerBase *handler;
         size_t publication;
         size_t policy;
+        size_t admissionEpoch;
+        size_t pendingThreadedGeneration;
+        size_t previousThreadedGeneration;
+        size_t claimedThreadedGeneration;
+        size_t quiescedThreadedGeneration;
+        size_t rolledBackThreadedGeneration;
+        size_t retirementEpoch;
+        size_t finalizationGate;
     };
 
     struct DispatchCleanup
     {
         DispatchCleanup(
             IrqHandlerRegistry *registry, HandlerSlot *handlerSlot,
-            void *dispatchOwner, size_t admittedPublication)
+            void *dispatchOwner, size_t admittedPublication,
+            bool isCallback = true)
             : registry(registry), slot(handlerSlot), owner(dispatchOwner),
-              publication(admittedPublication), previousDeviceHardIrqDepth(0),
+              publication(admittedPublication), callback(isCallback),
+              previousDeviceHardIrqDepth(0),
               restoreDeviceHardIrqDepth(false), previousInterruptState(false),
               restoreInterruptState(false), cleanup()
         {
@@ -264,6 +339,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         HandlerSlot *slot;
         void *owner;
         size_t publication;
+        bool callback;
         size_t previousDeviceHardIrqDepth;
         bool restoreDeviceHardIrqDepth;
         bool previousInterruptState;
@@ -277,6 +353,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     static uint8_t irqOf(size_t publication);
     static SlotMode modeOf(size_t publication);
     static Delivery deliveryOf(size_t publication);
+    static bool generationReached(size_t current, size_t target);
     static size_t encodePolicy(const IrqPolicy *policy);
     static void decodePolicy(size_t policy, LineConfiguration &configuration);
 
@@ -290,23 +367,49 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     bool retireSlot(
         HandlerSlot &slot, size_t expectedPublication,
         IrqHandlerBase *expectedHandler);
+    bool retireSlotOrObserveClosed(
+        HandlerSlot &slot, size_t expectedPublication,
+        IrqHandlerBase *expectedHandler);
+    bool closeSlotAdmission(
+        HandlerSlot &slot, size_t expectedPublication,
+        size_t &closedPublication);
+    void tryReclaimTombstones(uint8_t irq);
+    bool occurrencePrecedesRetirement(
+        const HandlerSlot &slot, AdmissionCutoff admissionCutoff) const;
     ActiveDispatch *publishDispatch(
         HandlerSlot &slot, void *owner, void *token, size_t admittedPublication,
-        size_t controllerGeneration);
+        size_t controllerGeneration, bool callback = true);
     bool unpublishDispatch(
         void *token, HandlerSlot &slot, size_t admittedPublication,
         bool required);
     static void abandonDispatch(void *context);
     static void restoreDispatchInterruptState(DispatchCleanup &dispatch);
+    static bool canWaitForActionFinalization();
+    bool acquireFinalizationGate(HandlerSlot &slot, bool canWait);
+    static void releaseFinalizationGate(HandlerSlot &slot);
+    bool pinActionMutation(
+        HandlerSlot &slot, size_t publication, DispatchCleanup &cleanup,
+        Thread *thread);
+    void unpinActionMutation(
+        HandlerSlot &slot, size_t publication, DispatchCleanup &cleanup,
+        Thread *thread);
     bool hasActiveDispatch(HandlerSlot &slot, size_t admittedPublication) const;
     bool findCurrentDispatch(
         void *owner, HandlerSlot *target, size_t targetPublication,
         bool &callbackContext) const;
     static void *currentDispatchOwner();
+    bool threadedGenerationValid(uint8_t irq, size_t generation) const;
+    void publishSlotQuiesced(
+        HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration);
 
     HandlerSlot m_Handlers[MaxHandlerSlots];
     ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
+    size_t m_ThreadedInvalidationGenerations[IrqCount];
+    size_t m_OccurrenceEpochs[GraceBucketCount];
+    size_t m_OccurrenceReaders[GraceBucketCount][2];
+    size_t m_OccurrenceBoundaryLocks[GraceBucketCount];
     Spinlock m_HandlerLock;
+    size_t m_AdmissionEpoch;
     size_t m_MutationGeneration;
     size_t m_MutationWriters;
 

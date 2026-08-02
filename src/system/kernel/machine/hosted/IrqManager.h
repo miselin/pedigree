@@ -174,6 +174,7 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     static void dispatchThreadedLine(void *context, uint8_t irq, size_t cookie);
     void publishDiagnosticLine(uint8_t irq);
     bool lifecycleTerminationCanBeDeferred() const;
+    size_t advanceThreadedCookie(uint8_t irq);
 
     /** IRQ handlers and their callback lifetime state. */
     IrqHandlerRegistry m_Handlers;
@@ -181,12 +182,16 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     /** Stable one-worker-per-signal threaded IRQ dispatcher. */
     ThreadedIrqDispatcher m_ThreadedDispatcher;
     size_t m_ThreadedCookies[3];
+    size_t m_LineDeliveries[3];
     size_t m_ThreadedPublicationFailures[3];
+    size_t m_RemovalRejections[3];
     size_t m_DispatchGenerations[3];
     size_t m_UnhandledInterrupts[3];
     IrqDiagnosticSnapshotStore<3> m_Diagnostics;
     /** Serialises registry mutations with per-line cookie ownership changes. */
     size_t m_LineLifecycleBusy[3];
+    /** Terminal gate: once closed, this manager never admits new handlers. */
+    size_t m_ShuttingDown;
 
     /** The HostedIrqManager instance */
     static HostedIrqManager m_Instance;

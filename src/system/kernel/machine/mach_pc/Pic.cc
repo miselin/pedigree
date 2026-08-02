@@ -245,7 +245,8 @@ bool Pic::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
             m_IrqState.handlerUnregistered(irq);
             if (!m_IrqState.handlerCount(irq))
             {
-                advanceThreadedCookieLocked(irq);
+                const size_t boundary = advanceThreadedCookieLocked(irq);
+                m_Handlers.invalidateThreadedLine(irq, boundary);
                 m_LineDeliveries[irq] = IrqDelivery::None;
             }
             applyMaskLocked();
@@ -255,9 +256,9 @@ bool Pic::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
 
     if (result == IrqHandlerRegistry::UnregisterResult::Rejected)
     {
-        ERROR(
-            "PIC: rejected an IRQ removal which could not synchronously "
-            "drain");
+        __atomic_add_fetch(
+            &m_RemovalRejections[irq], static_cast<size_t>(1),
+            __ATOMIC_RELAXED);
     }
     return result == IrqHandlerRegistry::UnregisterResult::Completed;
 }
@@ -314,6 +315,11 @@ bool Pic::initialiseThreaded()
 
 bool Pic::shutdownThreaded()
 {
+    if (m_ThreadedDispatcher.isCurrentWorker())
+    {
+        return false;
+    }
+
     {
         LockGuard<Spinlock> guard(m_Lock);
         m_ShuttingDown = true;
@@ -321,7 +327,10 @@ bool Pic::shutdownThreaded()
         m_IrqState.setEnabled(2, false);
         for (size_t irq = 0; irq < PicIrqState::LineCount; ++irq)
         {
-            advanceThreadedCookieLocked(static_cast<uint8_t>(irq));
+            const uint8_t line = static_cast<uint8_t>(irq);
+            const size_t boundary = advanceThreadedCookieLocked(line);
+            m_Handlers.invalidateThreadedLine(line, boundary);
+            m_LineDeliveries[irq] = IrqDelivery::None;
         }
         applyMaskLocked();
         publishAllDiagnosticLinesLocked();
@@ -335,10 +344,11 @@ Pic::Pic()
           MakeConstantString("PIC IRQ bottom half"), PicIrqState::LineCount,
           dispatchThreadedLine, this),
       m_ThreadedCookies(), m_ThreadedDispatchGenerations(),
-      m_ThreadedPublicationFailures(), m_LineDeliveries(), m_Diagnostics(),
-      m_UnregisterReservations(), m_ShuttingDown(false), m_IrqCount(),
-      m_SpuriousIrqCount(), m_UnhandledIrqCount(), m_MitigatedIrqs(),
-      m_MitigationThreshold(), m_Lock(false)
+      m_ThreadedPublicationFailures(), m_RemovalRejections(),
+      m_LineDeliveries(), m_Diagnostics(), m_UnregisterReservations(),
+      m_ShuttingDown(false), m_IrqCount(), m_SpuriousIrqCount(),
+      m_UnhandledIrqCount(), m_MitigatedIrqs(), m_MitigationThreshold(),
+      m_Lock(false)
 {
     publishAllDiagnosticLinesLocked();
 }
@@ -378,6 +388,8 @@ void Pic::publishDiagnosticLineLocked(uint8_t irq)
         __atomic_load_n(&m_UnhandledIrqCount[irq], __ATOMIC_RELAXED);
     line.publicationFailures =
         __atomic_load_n(&m_ThreadedPublicationFailures[irq], __ATOMIC_RELAXED);
+    line.removalRejections =
+        __atomic_load_n(&m_RemovalRejections[irq], __ATOMIC_RELAXED);
 
     if (!line.configured)
     {
@@ -468,6 +480,8 @@ Pic::snapshotIrqLines(IrqLineDiagnosticSnapshot *out, size_t capacity) const
             __atomic_load_n(&m_UnhandledIrqCount[irq], __ATOMIC_RELAXED);
         out[irq].publicationFailures = __atomic_load_n(
             &m_ThreadedPublicationFailures[irq], __ATOMIC_RELAXED);
+        out[irq].removalRejections =
+            __atomic_load_n(&m_RemovalRejections[irq], __ATOMIC_RELAXED);
         out[irq].diagnosticPublicationFailures =
             m_Diagnostics.missedPublications(irq);
         out[irq].workerIdentity =
@@ -530,6 +544,7 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
     size_t dispatchGeneration = 0;
     size_t threadedCookie = 0;
     bool threadedPublished = false;
+    IrqHandlerRegistry::AdmissionCutoff admissionCutoff = {};
     {
         LockGuard<Spinlock> guard(m_Lock);
         __atomic_add_fetch(
@@ -557,8 +572,9 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
         }
 
         dispatchGeneration = m_IrqState.beginDispatch(irq);
-        threaded =
-            m_Handlers.lineMode(irq) == IrqHandlerRegistry::LineMode::Threaded;
+        admissionCutoff =
+            m_Handlers.captureAdmissionCutoff(static_cast<uint8_t>(irq));
+        threaded = m_LineDeliveries[irq] == IrqDelivery::Threaded;
         if (threaded)
         {
             // A one-shot threaded policy masks before EOI. Immediate-release
@@ -574,8 +590,17 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
             }
             threadedCookie = advanceThreadedCookieLocked(irq);
             m_ThreadedDispatchGenerations[irq] = dispatchGeneration;
+            m_Handlers.publishThreadedDispatch(
+                irq, threadedCookie, admissionCutoff);
             threadedPublished = m_ThreadedDispatcher.publishFromInterrupt(
                 irq, threadedCookie);
+            if (!threadedPublished)
+            {
+                m_Handlers.cancelThreadedDispatch(irq, threadedCookie);
+                __atomic_add_fetch(
+                    &m_ThreadedPublicationFailures[irq],
+                    static_cast<size_t>(1), __ATOMIC_RELAXED);
+            }
             if (controllerAck == IrqControllerAck::AfterHardStage)
             {
                 eoiLocked(irq);
@@ -590,18 +615,12 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
 
     if (threaded)
     {
-        if (!threadedPublished)
-        {
-            __atomic_add_fetch(
-                &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
-                __ATOMIC_RELAXED);
-        }
         return;
     }
 
     bool bHandled = false;
     const bool admitted = m_Handlers.dispatchHard(
-        irq, state, bHandled, nullptr, dispatchGeneration);
+        irq, state, bHandled, nullptr, dispatchGeneration, admissionCutoff);
 
     {
         LockGuard<Spinlock> guard(m_Lock);
@@ -635,8 +654,7 @@ void Pic::dispatchThreadedLine(void *context, uint8_t irq, size_t cookie)
         LockGuard<Spinlock> guard(pic->m_Lock);
         if (irq >= PicIrqState::LineCount ||
             cookie != pic->m_ThreadedCookies[irq] ||
-            pic->m_Handlers.lineMode(irq) !=
-                IrqHandlerRegistry::LineMode::Threaded)
+            pic->m_LineDeliveries[irq] != IrqDelivery::Threaded)
         {
             return;
         }
@@ -644,7 +662,8 @@ void Pic::dispatchThreadedLine(void *context, uint8_t irq, size_t cookie)
     }
 
     IrqHandlerRegistry::ThreadedDispatchResult result = {};
-    const bool admitted = pic->m_Handlers.dispatchThreaded(irq, result);
+    const bool admitted =
+        pic->m_Handlers.dispatchThreaded(irq, cookie, result);
 
     {
         LockGuard<Spinlock> guard(pic->m_Lock);

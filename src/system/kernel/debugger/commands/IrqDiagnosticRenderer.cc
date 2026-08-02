@@ -243,6 +243,8 @@ void appendWorkerState(
     line.append(snapshot.completedBatches);
     line += " fail[publish=";
     line.append(snapshot.publicationFailures);
+    line += " remove=";
+    line.append(snapshot.removalRejections);
     line += " diag=";
     line.append(snapshot.diagnosticPublicationFailures);
     line += "] state[ack=";

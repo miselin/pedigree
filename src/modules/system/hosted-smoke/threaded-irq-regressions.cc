@@ -341,6 +341,104 @@ bool threadedDispatcherCoalescing()
     return passed;
 }
 
+struct DispatcherHighWaterContext
+{
+    DispatcherHighWaterContext()
+        : dispatcher(nullptr), newerCompleted(0), calls(0), hookCalls(0),
+          failures(0), newerPublished(false), newerObserved(false), cookies()
+    {
+    }
+
+    ThreadedIrqDispatcher *dispatcher;
+    Semaphore newerCompleted;
+    Atomic<size_t> calls;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> failures;
+    bool newerPublished;
+    bool newerObserved;
+    size_t cookies[2];
+};
+
+DispatcherHighWaterContext *g_DispatcherHighWaterContext = nullptr;
+
+void completeDispatcherHighWaterBatch(
+    void *opaque, uint8_t line, size_t cookie)
+{
+    DispatcherHighWaterContext *context =
+        reinterpret_cast<DispatcherHighWaterContext *>(opaque);
+    const size_t call = (context->calls += 1) - 1;
+    if (line != 0 || call >= 2)
+    {
+        context->failures += 1;
+        return;
+    }
+    context->cookies[call] = cookie;
+    if (cookie == 4)
+    {
+        context->newerCompleted.release();
+    }
+}
+
+void deliverNewerBeforeOlderPublication(
+    ThreadedIrqDispatcher *dispatcher, uint8_t line, size_t cookie,
+    size_t pending)
+{
+    DispatcherHighWaterContext *context = g_DispatcherHighWaterContext;
+    dispatcher->setPublicationObservedHookForTest(nullptr);
+    if (!context || dispatcher != context->dispatcher || line != 0 ||
+        cookie != 2 || pending != 0)
+    {
+        if (context)
+        {
+            context->failures += 1;
+        }
+        return;
+    }
+
+    context->hookCalls += 1;
+    context->newerPublished = dispatcher->publishFromInterrupt(line, 4);
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
+    context->newerObserved =
+        context->newerPublished &&
+        context->newerCompleted.acquireForCompletion(1, 2, 0);
+}
+
+bool threadedDispatcherPreservesDeliveredHighWater()
+{
+    constexpr const char *Test = "irq-threaded-dispatcher-high-water";
+    DispatcherHighWaterContext context;
+    ThreadedIrqDispatcher dispatcher(
+        MakeConstantString("hosted IRQ high-water regression"), 1,
+        completeDispatcherHighWaterBatch, &context);
+    context.dispatcher = &dispatcher;
+    const bool initialised = dispatcher.initialise();
+
+    g_DispatcherHighWaterContext = &context;
+    dispatcher.setPublicationObservedHookForTest(
+        deliverNewerBeforeOlderPublication);
+    const bool olderPublished =
+        initialised && dispatcher.publishFromInterrupt(0, 2);
+    dispatcher.setPublicationObservedHookForTest(nullptr);
+    g_DispatcherHighWaterContext = nullptr;
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
+    const bool stopped = dispatcher.shutdown();
+
+    const bool passed = check(
+        initialised && olderPublished && context.newerPublished &&
+            context.newerObserved && context.hookCalls == 1 &&
+            context.calls == 1 && context.cookies[0] == 4 &&
+            context.failures == 0 && stopped &&
+            dispatcher.completedBatches(0) == 1 &&
+            dispatcher.completedCookie(0) == 4 &&
+            dispatcher.pendingCookie(0) == 0,
+        "an older producer regressed an already-delivered cookie", Test);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-dispatcher-high-water");
+    }
+    return passed;
+}
+
 bool hostedSyntheticIrqMasking()
 {
     constexpr const char *MaskTest = "hosted-synthetic-irq-masking";
@@ -1363,6 +1461,17 @@ bool hostedNewWorkLifetimeIsolation()
     const bool cookieAdvanceHeld =
         started && hooks.cookieAdvanceEntered.acquireForCompletion(1, 2, 0);
 
+    // A signal which arrives while final removal owns the controller lifetime
+    // must be rejected at the hard boundary. It must not resume after the line
+    // is reopened and accidentally manufacture work for the replacement.
+    const bool contendedSignalRaised =
+        cookieAdvanceHeld && Processor::getInterrupts() &&
+        raise(SIGURG) == 0;
+    IrqLineDiagnosticSnapshot contendedLines[3] = {};
+    const bool contendedSnapshotted =
+        manager->snapshotIrqLines(contendedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot contended = contendedLines[2];
+
     // This is the inverse ownership window: without serialisation, a new
     // handler can publish work after the old removal decided the line was empty
     // but before it advances the cookie, allowing the old removal to invalidate
@@ -1429,6 +1538,14 @@ bool hostedNewWorkLifetimeIsolation()
         cookieAdvanceHeld && admissionRejected && !racedReplacementId &&
             hooks.rejectedAdmissions == 1 && hooks.hookFailures == 0,
         "a replacement entered after the old lifetime chose its final cookie",
+        LifetimeTest);
+    passed &= check(
+        contendedSignalRaised && contendedSnapshotted &&
+            contended.dispatchGeneration == registered.dispatchGeneration &&
+            contended.publicationCookie == registered.publicationCookie &&
+            contended.unhandledCount == registered.unhandledCount + 1 &&
+            oldHandler.calls == 0,
+        "a signal crossed the final-removal controller lifetime",
         LifetimeTest);
     passed &= check(
         joined && unregisterContext.removed && closedSnapshotted &&
@@ -1571,6 +1688,7 @@ bool runHostedThreadedIrqRegressions()
     bool passed = irqDiagnosticSnapshotPublication();
     passed &= hostedSyntheticIrqMasking();
     passed &= threadedDispatcherCoalescing();
+    passed &= threadedDispatcherPreservesDeliveredHighWater();
     passed &= hostedThreadedSignalDelivery();
     passed &= hostedThreadedStallDiagnostics();
     passed &= hostedHardStageDiagnostics();

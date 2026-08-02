@@ -428,6 +428,24 @@ int ThreadedIrqDispatcher::Line::run()
             &m_PendingCookie, static_cast<size_t>(0), __ATOMIC_ACQ_REL);
         if (cookie)
         {
+            const size_t completedCookie = __atomic_load_n(
+                &m_CompletedCookie, __ATOMIC_ACQUIRE);
+            if (
+                completedCookie &&
+                !generationReached(cookie, completedCookie))
+            {
+                // An older producer can resume after a newer cookie was
+                // claimed and cleared, then win the resulting zero-valued
+                // CAS. The sole worker completes the newer callback before
+                // revisiting pending work, so its delivered high-water closes
+                // that ABA without suppressing equal-cookie work bits.
+                __atomic_store_n(
+                    &m_CallbackActive, static_cast<size_t>(0),
+                    __ATOMIC_RELEASE);
+                Scheduler::instance().yield();
+                continue;
+            }
+
             const size_t started = static_cast<size_t>(Time::getTicks());
             const size_t wakeLatency = elapsedSince(started, pendingSince);
             __atomic_store_n(&m_LastWakeLatency, wakeLatency, __ATOMIC_RELEASE);

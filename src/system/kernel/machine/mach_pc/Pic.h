@@ -136,6 +136,7 @@ class Pic : public IrqManager, private InterruptHandler
     size_t m_ThreadedDispatchGenerations[PicIrqState::LineCount];
     /** Atomic diagnostics for work rejected after dispatcher closure. */
     size_t m_ThreadedPublicationFailures[PicIrqState::LineCount];
+    size_t m_RemovalRejections[PicIrqState::LineCount];
     /** Delivery is stable while a line has registered handlers. */
     IrqDelivery m_LineDeliveries[PicIrqState::LineCount];
     /** Per-line immutable diagnostic publications. */

@@ -272,6 +272,7 @@ struct IrqLineDiagnosticSnapshot
     size_t spuriousCount;
     size_t unhandledCount;
     size_t publicationFailures;
+    size_t removalRejections;
     size_t diagnosticPublicationFailures;
     uintptr_t workerIdentity;
     uintptr_t activeThreadedHandlerIdentity;

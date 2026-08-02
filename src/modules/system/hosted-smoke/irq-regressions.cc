@@ -91,6 +91,212 @@ class DispositionHandler : public IrqHandler
     size_t calls;
 };
 
+class SelfCancellingThreadedHandler : public IrqHandler
+{
+  public:
+    SelfCancellingThreadedHandler(IrqHandlerRegistry &registry, uint8_t line)
+        : m_Registry(registry), m_Line(line), calls(0), deferred(false)
+    {
+    }
+
+    IrqDisposition irq(irq_id_t) override
+    {
+        ++calls;
+        deferred = m_Registry.unregisterHandler(m_Line, this) ==
+                   IrqHandlerRegistry::UnregisterResult::Deferred;
+        return IrqDisposition::NotHandled;
+    }
+
+    IrqHandlerRegistry &m_Registry;
+    uint8_t m_Line;
+    size_t calls;
+    bool deferred;
+};
+
+struct PostCallbackCancellationContext
+{
+    IrqHandlerRegistry *registry;
+    IrqHandlerBase *handler;
+    uint8_t line;
+    size_t releases;
+    IrqHandlerRegistry::UnregisterResult result;
+};
+
+PostCallbackCancellationContext *g_PostCallbackCancellation = nullptr;
+
+void cancelThreadedHandlerAfterUnpublish(
+    IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage stage)
+{
+    PostCallbackCancellationContext *context = g_PostCallbackCancellation;
+    if (!context || handler != context->handler ||
+        stage != IrqHandlerRegistry::HandlerHazardStage::Released ||
+        context->releases)
+    {
+        return;
+    }
+
+    ++context->releases;
+    context->result =
+        context->registry->unregisterHandler(context->line, context->handler);
+}
+
+struct RetirementBoundaryContext
+{
+    IrqHandlerRegistry *registry;
+    IrqHandlerBase *handler;
+    uint8_t line;
+    size_t calls;
+    bool admitted;
+    bool handled;
+};
+
+RetirementBoundaryContext *g_RetirementBoundary = nullptr;
+
+void dispatchAfterRetirementBoundary(
+    IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage stage)
+{
+    RetirementBoundaryContext *context = g_RetirementBoundary;
+    if (!context || handler != context->handler || context->calls ||
+        stage != IrqHandlerRegistry::HandlerHazardStage::
+                     RetirementBoundaryPublished)
+    {
+        return;
+    }
+
+    ++context->calls;
+    const IrqHandlerRegistry::AdmissionCutoff cutoff =
+        context->registry->captureAdmissionCutoff(context->line);
+    alignas(InterruptState) uint8_t stateStorage[sizeof(InterruptState)] = {};
+    InterruptState &state = *reinterpret_cast<InterruptState *>(stateStorage);
+    context->admitted = context->registry->dispatchHard(
+        context->line, state, context->handled, nullptr, 0x5203, cutoff);
+}
+
+struct ActionReuseContext
+{
+    IrqHandlerRegistry *registry;
+    IrqHandlerBase *original;
+    IrqHandler *replacement;
+    IrqHandlerRegistry::AdmissionCutoff heldCutoff;
+    uint8_t originalLine;
+    uint8_t replacementLine;
+    size_t generation;
+    size_t calls;
+    bool originalRemoved;
+    bool cutoffReleased;
+    bool replacementRegistered;
+    bool replacementPublished;
+};
+
+ActionReuseContext *g_ActionReuse = nullptr;
+
+void reuseSlotBeforeActionMutationPin(
+    IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage stage)
+{
+    ActionReuseContext *context = g_ActionReuse;
+    if (!context || handler != context->original || context->calls ||
+        stage !=
+            IrqHandlerRegistry::HandlerHazardStage::BeforeActionMutationPin)
+    {
+        return;
+    }
+
+    ++context->calls;
+    context->originalRemoved =
+        context->registry->unregisterHandler(
+            context->originalLine, context->original) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    context->registry->invalidateThreadedLine(
+        context->originalLine, context->generation);
+    context->registry->releaseAdmissionCutoff(context->heldCutoff);
+    context->cutoffReleased = true;
+    context->replacementRegistered = context->registry->registerThreadedHandler(
+        context->replacementLine, context->replacement);
+    context->replacementPublished =
+        context->replacementRegistered &&
+        context->registry->publishThreadedDispatch(
+            context->replacementLine, context->generation);
+}
+
+struct ClaimFinalizationContext
+{
+    ClaimFinalizationContext(
+        IrqHandlerRegistry &registry, IrqHandlerBase &handler, uint8_t line)
+        : registry(registry), handler(handler), line(line), remover(nullptr),
+          finalizationEntered(0), removerContended(0), finalizationCalls(0),
+          contentionCalls(0), failures(0), removerHadThread(0),
+          removerHadInterrupts(0), removerWasHardIrq(0),
+          removerSignalDepth(0),
+          removalResult(IrqHandlerRegistry::UnregisterResult::NotFound)
+    {
+    }
+
+    IrqHandlerRegistry &registry;
+    IrqHandlerBase &handler;
+    uint8_t line;
+    Thread *remover;
+    Semaphore finalizationEntered;
+    Semaphore removerContended;
+    Atomic<size_t> finalizationCalls;
+    Atomic<size_t> contentionCalls;
+    Atomic<size_t> failures;
+    Atomic<size_t> removerHadThread;
+    Atomic<size_t> removerHadInterrupts;
+    Atomic<size_t> removerWasHardIrq;
+    Atomic<size_t> removerSignalDepth;
+    IrqHandlerRegistry::UnregisterResult removalResult;
+};
+
+ClaimFinalizationContext *g_ClaimFinalization = nullptr;
+
+void coordinateClaimFinalization(
+    IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage stage)
+{
+    ClaimFinalizationContext *context = g_ClaimFinalization;
+    if (!context || handler != &context->handler)
+    {
+        return;
+    }
+
+    if (stage ==
+            IrqHandlerRegistry::HandlerHazardStage::BeforeClaimFinalization &&
+        context->finalizationCalls.compareAndSwap(0, 1))
+    {
+        context->finalizationEntered.release();
+        if (!context->removerContended.acquireForCompletion(1, 2, 0))
+        {
+            context->failures += 1;
+        }
+    }
+    else if (
+        stage ==
+            IrqHandlerRegistry::HandlerHazardStage::FinalizationContended &&
+        context->contentionCalls.compareAndSwap(0, 1))
+    {
+        context->removerContended.release();
+    }
+}
+
+int removeDuringClaimFinalization(void *parameter)
+{
+    ClaimFinalizationContext *context =
+        reinterpret_cast<ClaimFinalizationContext *>(parameter);
+    if (!context->finalizationEntered.acquireForCompletion(1, 2, 0))
+    {
+        context->failures += 1;
+        return 1;
+    }
+    Thread *current = Processor::information().getCurrentThread();
+    context->removerHadThread = current ? 1 : 0;
+    context->removerHadInterrupts = Processor::getInterrupts() ? 1 : 0;
+    context->removerWasHardIrq = Processor::inDeviceHardIrq() ? 1 : 0;
+    context->removerSignalDepth =
+        current ? current->getHostedSignalDepth() : 0;
+    context->removalResult =
+        context->registry.unregisterHandler(context->line, &context->handler);
+    return 0;
+}
+
 class NestedDeviceHardIrqProbe : public HardIrqHandler
 {
   public:
@@ -208,8 +414,9 @@ bool deviceHardIrqContextTracking()
     const bool postHardMarked = Processor::inDeviceHardIrq();
 
     IrqHandlerRegistry::ThreadedDispatchResult threadedResult = {};
+    threadedRegistry.publishThreadedDispatch(8, 1);
     const bool threadedAdmitted =
-        threadedRegistry.dispatchThreaded(8, threadedResult);
+        threadedRegistry.dispatchThreaded(8, 1, threadedResult);
     const bool threadedHandled = threadedResult.handled;
 
     const bool outerRemoved =
@@ -282,7 +489,7 @@ class DeliveryContextProbe : public HardIrqHandler
         }
 
         IrqHandlerRegistry::ThreadedDispatchResult threadedResult = {};
-        if (m_Registry.dispatchThreaded(5, threadedResult))
+        if (m_Registry.dispatchThreaded(5, 1, threadedResult))
         {
             signalThreadedAdmitted += 1;
         }
@@ -311,6 +518,8 @@ bool deliveryModeSeparation()
     const bool threadedRegistered =
         registry->registerThreadedHandler(5, &threaded);
     const bool hardMixRejected = !registry->registerHardHandler(5, &hard);
+    const bool occurrencePublished =
+        registry->publishThreadedDispatch(5, 1);
 
     DeliveryContextProbe *probe = new DeliveryContextProbe(*registry);
     IrqManager *manager = Machine::instance().getIrqManager();
@@ -324,12 +533,12 @@ bool deliveryModeSeparation()
     Processor::setInterrupts(false);
     IrqHandlerRegistry::ThreadedDispatchResult atomicResult = {true, true};
     const bool atomicAdmitted =
-        registry->dispatchThreaded(5, atomicResult);
+        registry->dispatchThreaded(5, 1, atomicResult);
     Processor::setInterrupts(interruptsWereEnabled);
 
     IrqHandlerRegistry::ThreadedDispatchResult threadedResult = {};
     const bool threadedAdmitted =
-        registry->dispatchThreaded(5, threadedResult);
+        registry->dispatchThreaded(5, 1, threadedResult);
     const bool threadedRemoved =
         registry->unregisterHandler(5, &threaded) ==
         IrqHandlerRegistry::UnregisterResult::Completed;
@@ -344,7 +553,7 @@ bool deliveryModeSeparation()
     IrqHandlerRegistry::ThreadedDispatchResult wrongThreadedResult = {
         true, true};
     const bool wrongThreadedAdmitted =
-        registry->dispatchThreaded(6, wrongThreadedResult);
+        registry->dispatchThreaded(6, 1, wrongThreadedResult);
     const bool hardRemoved = registry->unregisterHandler(6, &hard) ==
                              IrqHandlerRegistry::UnregisterResult::Completed;
     const bool threadedAfterHard =
@@ -355,7 +564,8 @@ bool deliveryModeSeparation()
 
     bool passed = true;
     passed &= check(
-        threadedRegistered && hardMixRejected && threadedAdmitted &&
+        threadedRegistered && hardMixRejected && occurrencePublished &&
+            threadedAdmitted &&
             threadedResult.handled && threadedResult.allowRearm,
         "a threaded line accepted hard delivery or did not dispatch", Test);
     passed &= check(
@@ -395,6 +605,535 @@ bool deliveryModeSeparation()
     return passed;
 }
 
+bool threadedOccurrenceLifetimeBinding()
+{
+    constexpr const char *Test = "irq-threaded-occurrence-lifetime";
+    constexpr uint8_t Line = 9;
+    constexpr size_t FirstGeneration = 0x5101;
+    constexpr size_t SecondGeneration = 0x5102;
+    constexpr size_t CancelledGeneration = 0x5103;
+    constexpr size_t ReplacementGeneration = 0x5104;
+
+    IrqHandlerRegistry registry;
+    DispositionHandler original(IrqDisposition::Handled);
+    DispositionHandler late(IrqDisposition::Handled);
+    DispositionHandler replacement(IrqDisposition::Handled);
+
+    const bool originalRegistered =
+        registry.registerThreadedHandler(Line, &original);
+    const bool firstPublished =
+        registry.publishThreadedDispatch(Line, FirstGeneration);
+    const bool lateRegistered = registry.registerThreadedHandler(Line, &late);
+    IrqHandlerRegistry::ThreadedDispatchResult firstResult = {};
+    const bool firstAdmitted =
+        registry.dispatchThreaded(Line, FirstGeneration, firstResult);
+    const size_t firstOriginalCalls = original.calls;
+    const size_t firstLateCalls = late.calls;
+
+    const bool secondPublished =
+        registry.publishThreadedDispatch(Line, SecondGeneration);
+    IrqHandlerRegistry::ThreadedDispatchResult secondResult = {};
+    const bool secondAdmitted =
+        registry.dispatchThreaded(Line, SecondGeneration, secondResult);
+    const size_t secondOriginalCalls = original.calls;
+    const size_t secondLateCalls = late.calls;
+
+    const bool cancelledPublished =
+        registry.publishThreadedDispatch(Line, CancelledGeneration);
+    late.disposition = IrqDisposition::NotHandled;
+    const bool originalRemoved =
+        registry.unregisterHandler(Line, &original) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    const bool replacementRegistered =
+        registry.registerThreadedHandler(Line, &replacement);
+    IrqHandlerRegistry::ThreadedDispatchResult cancelledResult = {};
+    const bool cancelledAdmitted = registry.dispatchThreaded(
+        Line, CancelledGeneration, cancelledResult);
+    const size_t cancelledOriginalCalls = original.calls;
+    const size_t cancelledLateCalls = late.calls;
+    const size_t cancelledReplacementCalls = replacement.calls;
+
+    const bool replacementPublished =
+        registry.publishThreadedDispatch(Line, ReplacementGeneration);
+    IrqHandlerRegistry::ThreadedDispatchResult replacementResult = {};
+    const bool replacementAdmitted = registry.dispatchThreaded(
+        Line, ReplacementGeneration, replacementResult);
+
+    const bool lateRemoved =
+        registry.unregisterHandler(Line, &late) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    const bool replacementRemoved =
+        registry.unregisterHandler(Line, &replacement) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    bool passed = true;
+    passed &= check(
+        originalRegistered && firstPublished && lateRegistered &&
+            firstAdmitted && firstResult.handled && firstResult.allowRearm &&
+            firstOriginalCalls == 1 && firstLateCalls == 0,
+        "a handler registered after publication received the old occurrence",
+        Test);
+    passed &= check(
+        secondPublished && secondAdmitted && secondResult.handled &&
+            secondResult.allowRearm && secondOriginalCalls == 2 &&
+            secondLateCalls == 1,
+        "the next occurrence did not admit both current handler lifetimes",
+        Test);
+    passed &= check(
+        cancelledPublished && originalRemoved && replacementRegistered &&
+            cancelledAdmitted && !cancelledResult.handled &&
+            cancelledResult.allowRearm && cancelledOriginalCalls == 2 &&
+            cancelledLateCalls == 2 && cancelledReplacementCalls == 0,
+        "removal did not quiesce its queued occurrence or slot reuse inherited "
+        "stale work",
+        Test);
+    passed &= check(
+        replacementPublished && replacementAdmitted &&
+            replacementResult.handled && replacementResult.allowRearm &&
+            late.calls == 3 && replacement.calls == 1,
+        "the replacement was not admitted by its first new occurrence", Test);
+    passed &= check(
+        lateRemoved && replacementRemoved,
+        "the occurrence-lifetime handlers did not unregister", Test);
+
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-late-registration");
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-cancelled-generation");
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-slot-reuse-generation");
+    }
+    return passed;
+}
+
+bool occurrenceGraceTombstones()
+{
+    constexpr const char *Test = "irq-occurrence-grace-tombstone";
+
+    bool hardPassed = false;
+    {
+        constexpr uint8_t Line = 12;
+        IrqHandlerRegistry registry;
+        HardRegistryHandler handler;
+        HardRegistryHandler replacement;
+        const bool registered = registry.registerHardHandler(Line, &handler);
+        const IrqHandlerRegistry::AdmissionCutoff cutoff =
+            registry.captureAdmissionCutoff(Line);
+        const bool removed =
+            registry.unregisterHandler(Line, &handler) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+        alignas(InterruptState) uint8_t stateStorage[sizeof(InterruptState)] = {};
+        InterruptState &state =
+            *reinterpret_cast<InterruptState *>(stateStorage);
+        bool handled = false;
+        const bool admitted = registry.dispatchHard(
+            Line, state, handled, nullptr, 0x5201, cutoff);
+        const bool replacementRegistered =
+            registry.registerHardHandler(Line, &replacement);
+        const bool replacementRemoved =
+            registry.unregisterHandler(Line, &replacement) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+        hardPassed = registered && removed && admitted && handled &&
+                     replacementRegistered && replacementRemoved;
+    }
+
+    bool threadedPassed = false;
+    {
+        constexpr uint8_t Line = 13;
+        IrqHandlerRegistry registry;
+        DispositionHandler handler(IrqDisposition::Handled);
+        DispositionHandler replacement(IrqDisposition::Handled);
+        const bool registered =
+            registry.registerThreadedHandler(Line, &handler);
+        const IrqHandlerRegistry::AdmissionCutoff cutoff =
+            registry.captureAdmissionCutoff(Line);
+        const bool removed =
+            registry.unregisterHandler(Line, &handler) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+        const bool published =
+            registry.publishThreadedDispatch(Line, 0x5202, cutoff);
+        IrqHandlerRegistry::ThreadedDispatchResult result = {};
+        const bool admitted =
+            registry.dispatchThreaded(Line, 0x5202, result);
+        const bool replacementRegistered =
+            registry.registerThreadedHandler(Line, &replacement);
+        const bool replacementRemoved =
+            registry.unregisterHandler(Line, &replacement) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+        threadedPassed = registered && removed && published && admitted &&
+                          !result.handled && result.allowRearm &&
+                          !handler.calls && replacementRegistered &&
+                          replacementRemoved;
+    }
+
+    bool collidingGracePassed = false;
+    {
+        constexpr uint8_t HeldLine = 0;
+        constexpr uint8_t TombstoneLine = 16;
+        IrqHandlerRegistry registry;
+        HardRegistryHandler handler;
+        const bool registered =
+            registry.registerHardHandler(TombstoneLine, &handler);
+        const IrqHandlerRegistry::AdmissionCutoff cutoff =
+            registry.captureAdmissionCutoff(HeldLine);
+        const bool removed =
+            registry.unregisterHandler(TombstoneLine, &handler) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+        const bool retained =
+            registry.tombstoneCountForTest(TombstoneLine) == 1;
+        registry.releaseAdmissionCutoff(cutoff);
+        const bool reclaimed =
+            registry.tombstoneCountForTest(TombstoneLine) == 0;
+        collidingGracePassed = registered && removed && retained && reclaimed;
+    }
+
+    bool passed = check(
+        hardPassed && threadedPassed,
+        "a pre-close occurrence lost its retired handler membership", Test);
+    passed &= check(
+        collidingGracePassed,
+        "a colliding grace reader stranded another line's tombstone", Test);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-occurrence-grace-tombstone");
+    }
+    return passed;
+}
+
+bool retirementBoundaryExcludesNewOccurrences()
+{
+    constexpr const char *Test = "irq-retirement-boundary";
+    constexpr uint8_t Line = 15;
+
+    IrqHandlerRegistry registry;
+    HardRegistryHandler handler;
+    RetirementBoundaryContext context = {
+        &registry, &handler, Line, 0, false, false};
+    const bool registered = registry.registerHardHandler(Line, &handler);
+    g_RetirementBoundary = &context;
+    registry.setHandlerHazardHook(dispatchAfterRetirementBoundary);
+    const bool removed =
+        registry.unregisterHandler(Line, &handler) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    registry.setHandlerHazardHook(nullptr);
+    g_RetirementBoundary = nullptr;
+
+    const bool passed = check(
+        registered && removed && context.calls == 1 && !context.admitted &&
+            !context.handled,
+        "an occurrence captured after retirement inherited old membership",
+        Test);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-retirement-boundary");
+    }
+    return passed;
+}
+
+bool actionMutationPinsSlotLifetime()
+{
+    constexpr const char *Test = "irq-action-mutation-slot-lifetime";
+    constexpr uint8_t OriginalLine = 16;
+    constexpr uint8_t ReplacementLine = 17;
+    constexpr size_t Generation = 0x5204;
+
+    IrqHandlerRegistry registry;
+    DispositionHandler original(IrqDisposition::Handled);
+    DispositionHandler replacement(IrqDisposition::Handled);
+    const bool originalRegistered =
+        registry.registerThreadedHandler(OriginalLine, &original);
+    const bool originalPublished =
+        registry.publishThreadedDispatch(OriginalLine, Generation);
+    ActionReuseContext context = {
+        &registry,
+        &original,
+        &replacement,
+        registry.captureAdmissionCutoff(0),
+        OriginalLine,
+        ReplacementLine,
+        Generation,
+        0,
+        false,
+        false,
+        false,
+        false};
+
+    g_ActionReuse = &context;
+    registry.setHandlerHazardHook(reuseSlotBeforeActionMutationPin);
+    registry.cancelThreadedDispatch(OriginalLine, Generation);
+    registry.setHandlerHazardHook(nullptr);
+    g_ActionReuse = nullptr;
+    if (!context.cutoffReleased)
+    {
+        registry.releaseAdmissionCutoff(context.heldCutoff);
+    }
+
+    IrqHandlerRegistry::ThreadedDispatchResult result = {};
+    const bool replacementAdmitted = context.replacementPublished &&
+                                     registry.dispatchThreaded(
+                                         ReplacementLine, Generation, result);
+    const bool replacementRemoved =
+        context.replacementRegistered &&
+        registry.unregisterHandler(ReplacementLine, &replacement) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+    bool originalClean =
+        !registry.containsHandlerForTest(OriginalLine, &original);
+    if (!originalClean)
+    {
+        originalClean =
+            registry.unregisterHandler(OriginalLine, &original) ==
+            IrqHandlerRegistry::UnregisterResult::Completed;
+        registry.invalidateThreadedLine(OriginalLine, Generation);
+    }
+
+    const bool passed = check(
+        originalRegistered && originalPublished && context.calls == 1 &&
+            context.originalRemoved && context.cutoffReleased &&
+            context.replacementRegistered && context.replacementPublished &&
+            replacementAdmitted && result.handled && result.allowRearm &&
+            replacement.calls == 1 && replacementRemoved && originalClean,
+        "a stale cancellation mutated a reused slot lifetime", Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS irq-action-mutation-slot-lifetime");
+    }
+    return passed;
+}
+
+bool claimFinalizationArbitratesRemoval()
+{
+    constexpr const char *Test = "irq-claim-finalization-removal";
+    constexpr uint8_t Line = 18;
+    constexpr size_t Generation = 0x5205;
+
+    IrqHandlerRegistry registry;
+    DispositionHandler handler(IrqDisposition::NotHandled);
+    ClaimFinalizationContext context(registry, handler, Line);
+    context.remover = new Thread(
+        Scheduler::instance().getKernelProcess(),
+        removeDuringClaimFinalization, &context, nullptr, false, true, true);
+    context.remover->setName("hosted IRQ claim-finalization remover");
+
+    const bool registered = registry.registerThreadedHandler(Line, &handler);
+    const bool published =
+        registry.publishThreadedDispatch(Line, Generation);
+    g_ClaimFinalization = &context;
+    registry.setHandlerHazardHook(coordinateClaimFinalization);
+    const bool removerStarted = context.remover->start();
+    IrqHandlerRegistry::ThreadedDispatchResult result = {};
+    const bool admitted = registered && published && removerStarted &&
+                          registry.dispatchThreaded(Line, Generation, result);
+    const bool removerJoined =
+        removerStarted && context.remover->joinForCompletion();
+    registry.setHandlerHazardHook(nullptr);
+    g_ClaimFinalization = nullptr;
+
+    bool cleaned = !registry.containsHandlerForTest(Line, &handler);
+    if (!cleaned)
+    {
+        cleaned = registry.unregisterHandler(Line, &handler) ==
+                  IrqHandlerRegistry::UnregisterResult::Completed;
+    }
+
+    bool passed = check(
+        registered && published && removerStarted && admitted &&
+            !result.handled && !result.allowRearm && handler.calls == 1,
+        "the controlled callback produced an unexpected result", Test);
+    passed &= check(
+        removerJoined && context.finalizationCalls == 1 &&
+            context.contentionCalls == 1 && context.failures == 0,
+        "the remover did not contend at the claim-finalization boundary", Test);
+    passed &= check(
+        context.removerHadThread && context.removerHadInterrupts &&
+            !context.removerWasHardIrq && !context.removerSignalDepth,
+        "the remover did not run in a wait-capable thread context", Test);
+    passed &= check(
+        context.removalResult ==
+            IrqHandlerRegistry::UnregisterResult::Completed,
+        "the post-finalization unregister returned the wrong result", Test);
+    passed &= check(
+        cleaned, "the post-finalization handler remained published", Test);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-claim-finalization-removal");
+    }
+    return passed;
+}
+
+bool threadedPostCallbackCancellation()
+{
+    constexpr const char *Test = "irq-threaded-post-callback-cancellation";
+    constexpr uint8_t Line = 14;
+    constexpr size_t Generation = 0x5301;
+
+    IrqHandlerRegistry registry;
+    DispositionHandler handler(IrqDisposition::NotHandled);
+    PostCallbackCancellationContext context = {
+        &registry, &handler, Line, 0,
+        IrqHandlerRegistry::UnregisterResult::NotFound};
+    const bool registered = registry.registerThreadedHandler(Line, &handler);
+    const bool published =
+        registry.publishThreadedDispatch(Line, Generation);
+    g_PostCallbackCancellation = &context;
+    registry.setHandlerHazardHook(cancelThreadedHandlerAfterUnpublish);
+    IrqHandlerRegistry::ThreadedDispatchResult result = {};
+    const bool admitted =
+        registry.dispatchThreaded(Line, Generation, result);
+    registry.setHandlerHazardHook(nullptr);
+    g_PostCallbackCancellation = nullptr;
+
+    const bool passed = check(
+        registered && published && admitted && !result.handled &&
+            result.allowRearm && handler.calls == 1 && context.releases == 1 &&
+            context.result ==
+                IrqHandlerRegistry::UnregisterResult::Completed &&
+            !registry.handlerCount(Line),
+        "teardown after hazard release lost the claimed action", Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-threaded-post-callback-cancellation");
+    }
+    return passed;
+}
+
+bool threadedActionGenerationBoundaries()
+{
+    constexpr const char *Test = "irq-threaded-action-generations";
+    constexpr uint8_t Line = 10;
+
+    IrqHandlerRegistry registry;
+    DispositionHandler handler(IrqDisposition::Handled);
+    const bool registered = registry.registerThreadedHandler(Line, &handler);
+    const bool firstPublished = registry.publishThreadedDispatch(Line, 0x6101);
+    const bool newerPublished = registry.publishThreadedDispatch(Line, 0x6102);
+    registry.cancelThreadedDispatch(Line, 0x6101);
+    IrqHandlerRegistry::ThreadedDispatchResult newerResult = {};
+    const bool newerAdmitted =
+        registry.dispatchThreaded(Line, 0x6102, newerResult);
+
+    const bool rejectedPublished =
+        registry.publishThreadedDispatch(Line, 0x6103);
+    registry.cancelThreadedDispatch(Line, 0x6103);
+    IrqHandlerRegistry::ThreadedDispatchResult rejectedResult = {true, true};
+    const bool rejectedAdmitted =
+        registry.dispatchThreaded(Line, 0x6103, rejectedResult);
+    const size_t callsAfterRollback = handler.calls;
+    const bool removed =
+        registry.unregisterHandler(Line, &handler) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    DispositionHandler preserved(IrqDisposition::Handled);
+    const bool preservedRegistered =
+        registry.registerThreadedHandler(Line, &preserved);
+    const bool preservedPublished =
+        registry.publishThreadedDispatch(Line, 0x6110);
+    const bool failedNewerPublished =
+        registry.publishThreadedDispatch(Line, 0x6111);
+    registry.cancelThreadedDispatch(Line, 0x6111);
+    IrqHandlerRegistry::ThreadedDispatchResult preservedResult = {};
+    const bool preservedAdmitted =
+        registry.dispatchThreaded(Line, 0x6110, preservedResult);
+    const bool preservedRemoved =
+        registry.unregisterHandler(Line, &preserved) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    DispositionHandler stale(IrqDisposition::Handled);
+    const bool staleRegistered =
+        registry.registerThreadedHandler(Line, &stale);
+    const bool stalePublished = registry.publishThreadedDispatch(Line, 0x6201);
+    registry.invalidateThreadedLine(Line, 0x6201);
+    const bool staleRemoved =
+        registry.unregisterHandler(Line, &stale) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    DispositionHandler replacement(IrqDisposition::NotHandled);
+    const bool replacementRegistered =
+        registry.registerThreadedHandler(Line, &replacement);
+    const bool replacementPublished =
+        registry.publishThreadedDispatch(Line, 0x6202);
+    IrqHandlerRegistry::ThreadedDispatchResult replacementResult = {};
+    const bool replacementAdmitted =
+        registry.dispatchThreaded(Line, 0x6202, replacementResult);
+    const bool replacementRemoved =
+        registry.unregisterHandler(Line, &replacement) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    IrqHandlerRegistry wrappingRegistry;
+    DispositionHandler wrapping(IrqDisposition::Handled);
+    const bool wrappingRegistered =
+        wrappingRegistry.registerThreadedHandler(Line, &wrapping);
+    const size_t lastGeneration = ~static_cast<size_t>(0);
+    const bool lastPublished =
+        wrappingRegistry.publishThreadedDispatch(Line, lastGeneration);
+    const bool wrappedPublished =
+        wrappingRegistry.publishThreadedDispatch(Line, 1);
+    IrqHandlerRegistry::ThreadedDispatchResult wrappedResult = {};
+    const bool wrappedAdmitted =
+        wrappingRegistry.dispatchThreaded(Line, 1, wrappedResult);
+    const bool wrappingRemoved =
+        wrappingRegistry.unregisterHandler(Line, &wrapping) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    constexpr uint8_t CancellingLine = 11;
+    IrqHandlerRegistry cancellingRegistry;
+    SelfCancellingThreadedHandler cancelling(
+        cancellingRegistry, CancellingLine);
+    const bool cancellingRegistered =
+        cancellingRegistry.registerThreadedHandler(
+            CancellingLine, &cancelling);
+    const bool cancellingPublished =
+        cancellingRegistry.publishThreadedDispatch(CancellingLine, 0x6301);
+    IrqHandlerRegistry::ThreadedDispatchResult cancellingResult = {};
+    const bool cancellingAdmitted = cancellingRegistry.dispatchThreaded(
+        CancellingLine, 0x6301, cancellingResult);
+
+    bool passed = true;
+    passed &= check(
+        registered && firstPublished && newerPublished && newerAdmitted &&
+            newerResult.handled && newerResult.allowRearm && handler.calls == 1,
+        "coalescing or an older rollback cleared the newer action", Test);
+    passed &= check(
+        rejectedPublished && !rejectedAdmitted && !rejectedResult.handled &&
+            !rejectedResult.allowRearm && callsAfterRollback == 1 && removed,
+        "an exactly rolled-back action reached its handler", Test);
+    passed &= check(
+        preservedRegistered && preservedPublished && failedNewerPublished &&
+            preservedAdmitted && preservedResult.handled &&
+            preservedResult.allowRearm && preserved.calls == 1 &&
+            preservedRemoved,
+        "rolling back a newer action discarded an accepted older action",
+        Test);
+    passed &= check(
+        staleRegistered && stalePublished && staleRemoved &&
+            replacementRegistered && replacementPublished &&
+            replacementAdmitted && !replacementResult.handled &&
+            !replacementResult.allowRearm && replacement.calls == 1 &&
+            replacementRemoved,
+        "an invalidated lifetime poisoned replacement rearm", Test);
+    passed &= check(
+        wrappingRegistered && lastPublished && wrappedPublished &&
+            wrappedAdmitted && wrappedResult.handled &&
+            wrappedResult.allowRearm && wrapping.calls == 1 && wrappingRemoved,
+        "generation wrap did not retain the newest coalesced action", Test);
+    passed &= check(
+        cancellingRegistered && cancellingPublished && cancellingAdmitted &&
+            !cancellingResult.handled && cancellingResult.allowRearm &&
+            cancelling.calls == 1 && cancelling.deferred &&
+            !cancellingRegistry.handlerCount(CancellingLine),
+        "a claimed action lost teardown's quiesced rearm result", Test);
+
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-exact-rollback");
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-rollback-restores-prior");
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-lifetime-floor");
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-generation-wrap");
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-claimed-cancellation");
+    }
+    return passed;
+}
+
 bool threadedQuiescedRearm()
 {
     constexpr const char *Test = "irq-threaded-quiesced-rearm";
@@ -415,9 +1154,10 @@ bool threadedQuiescedRearm()
 
     const size_t quiescedGeneration = state.beginDispatch(Line);
     state.beginThreadedDispatch(Line);
+    registry.publishThreadedDispatch(Line, quiescedGeneration);
     IrqHandlerRegistry::ThreadedDispatchResult quiescedResult = {};
     const bool quiescedAdmitted =
-        registry.dispatchThreaded(Line, quiescedResult);
+        registry.dispatchThreaded(Line, quiescedGeneration, quiescedResult);
     const bool quiescedCompleted = state.completeThreadedDispatch(
         Line, quiescedGeneration,
         quiescedAdmitted && quiescedResult.allowRearm);
@@ -427,9 +1167,10 @@ bool threadedQuiescedRearm()
     quiesced.disposition = IrqDisposition::NotHandled;
     const size_t unhandledGeneration = state.beginDispatch(Line);
     state.beginThreadedDispatch(Line);
+    registry.publishThreadedDispatch(Line, unhandledGeneration);
     IrqHandlerRegistry::ThreadedDispatchResult unhandledResult = {};
     const bool unhandledAdmitted =
-        registry.dispatchThreaded(Line, unhandledResult);
+        registry.dispatchThreaded(Line, unhandledGeneration, unhandledResult);
     const bool unhandledCompleted = state.completeThreadedDispatch(
         Line, unhandledGeneration,
         unhandledAdmitted && unhandledResult.allowRearm);
@@ -1282,6 +2023,8 @@ bool staleGenerationRevalidation()
         failureCleanup &=
             manager->unregisterHandler(context.originalId, &context.original);
     }
+    const bool replacementCleaned =
+        !HostedIrqManager::containsHandlerForTest(1, &context.replacement);
 
     const size_t activeOriginal =
         HostedIrqManager::activeDispatchCountForTest(&context.original);
@@ -1295,12 +2038,12 @@ bool staleGenerationRevalidation()
     passed &= check(
         signalQueued && context.prePinCalls == 1 &&
             context.originalRemoved == 1 &&
-            context.replacementRegistered == 1 && context.committedCalls == 1 &&
-            context.replacementRemoved == 1,
-        "a stale dispatch blocked removal of the replacement generation", Test);
+            context.replacementRegistered == 1 && !context.committedCalls &&
+            !context.replacementRemoved,
+        "a pre-retirement reader pinned the replacement generation", Test);
     passed &= check(
-        !replacementStillPublished && !activeOriginal && !activeReplacement &&
-            !claimed && failureCleanup,
+        replacementStillPublished && replacementCleaned && !activeOriginal &&
+            !activeReplacement && !claimed && failureCleanup,
         "stale generation cleanup left a publication or callback hazard", Test);
     if (passed)
     {
@@ -2022,6 +2765,13 @@ bool runHostedIrqRegressions()
 {
     bool passed = deviceHardIrqContextTracking();
     passed &= deliveryModeSeparation();
+    passed &= threadedOccurrenceLifetimeBinding();
+    passed &= occurrenceGraceTombstones();
+    passed &= retirementBoundaryExcludesNewOccurrences();
+    passed &= actionMutationPinsSlotLifetime();
+    passed &= claimFinalizationArbitratesRemoval();
+    passed &= threadedPostCallbackCancellation();
+    passed &= threadedActionGenerationBoundaries();
     passed &= threadedQuiescedRearm();
     passed &= irqPolicyOrthogonality();
     passed &= picLineStateLifecycle();
