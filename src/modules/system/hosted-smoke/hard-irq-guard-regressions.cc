@@ -60,9 +60,10 @@ class HardIrqGuardProbe : public HardIrqHandler
   public:
     HardIrqGuardProbe(Semaphore &semaphore, WaitQueue &waitQueue)
         : m_Semaphore(semaphore), m_WaitQueue(waitQueue), calls(0), depth(0),
-          marked(false), scheduleReturned(false), semaphoreDenied(false),
-          semaphoreReleaseDenied(false), waitDenied(false), wakeDenied(false),
-          heapAllocateDenied(false), heapFreeDenied(false)
+          marked(false), interruptsDisabled(false), scheduleReturned(false),
+          semaphoreDenied(false), semaphoreReleaseDenied(false),
+          waitDenied(false), wakeDenied(false), heapAllocateDenied(false),
+          heapFreeDenied(false)
     {
     }
 
@@ -71,6 +72,7 @@ class HardIrqGuardProbe : public HardIrqHandler
         ++calls;
         depth = Processor::deviceHardIrqDepthForTest();
         marked = Processor::inDeviceHardIrq();
+        interruptsDisabled = !Processor::getInterrupts();
 
         Scheduler::instance().yield();
         scheduleReturned = true;
@@ -99,6 +101,7 @@ class HardIrqGuardProbe : public HardIrqHandler
     size_t calls;
     size_t depth;
     bool marked;
+    bool interruptsDisabled;
     bool scheduleReturned;
     bool semaphoreDenied;
     bool semaphoreReleaseDenied;
@@ -128,8 +131,11 @@ bool runHostedHardIrqGuardRegressions()
         DeviceHardIrqOperation::Schedule);
 
     bool handled = false;
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
     const bool admitted =
         id && HostedIrqManager::dispatchHandlerForTest(2, &handler, handled);
+    Processor::setInterrupts(interruptsWereEnabled);
 
     Processor::setDeviceHardIrqOperationHookForTest(nullptr);
     __atomic_store_n(
@@ -160,7 +166,8 @@ bool runHostedHardIrqGuardRegressions()
     const bool passed =
         id && ordinaryAllowed && admitted && handled && removed &&
         handlerAbsent && handler.calls == 1 && handler.marked &&
-        handler.depth == 1 && handler.scheduleReturned &&
+        handler.depth == 1 && handler.interruptsDisabled &&
+        handler.scheduleReturned &&
         handler.semaphoreDenied && handler.semaphoreReleaseDenied &&
         handler.waitDenied && handler.wakeDenied && handler.heapAllocateDenied &&
         handler.heapFreeDenied &&
