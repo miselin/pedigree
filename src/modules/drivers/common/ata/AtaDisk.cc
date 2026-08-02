@@ -44,6 +44,9 @@ namespace
 constexpr Time::Timestamp AtapiCommandTimeout =
     30 * Time::Multiplier::Second;
 constexpr size_t AtapiMaximumStatusPolls = 30000000;
+constexpr Time::Timestamp AtaDmaCompletionTimeout =
+    30 * Time::Multiplier::Second;
+constexpr size_t AtaDmaCompletionPollLimit = 30000000;
 
 bool waitForAtapiStatus(
     IoBase *commandRegs, IoBase *controlRegs,
@@ -1133,9 +1136,20 @@ uint64_t AtaDisk::doRead(uint64_t location)
             }
         }
 
+        const Time::Timestamp completionStarted = Time::getTicks();
+        size_t completionPolls = 0;
+
         // Acquire the 'outstanding IRQ' mutex, or use other means if no IRQ.
         while (true)
         {
+            if (++completionPolls >= AtaDmaCompletionPollLimit ||
+                (Time::getTicks() - completionStarted) >=
+                    AtaDmaCompletionTimeout)
+            {
+                ERROR("ATA: DMA read exceeded its completion deadline");
+                return 0;
+            }
+
             if (getInterruptNumber() != 0xFF)
             {
                 if (!irqCompletion->acquireForCompletion(1, 10))
@@ -1180,6 +1194,7 @@ uint64_t AtaDisk::doRead(uint64_t location)
             {
                 break;
             }
+            Processor::pause();
         }
 
         if (!bDmaSetup)
@@ -1367,9 +1382,20 @@ uint64_t AtaDisk::doWrite(uint64_t location)
             }
         }
 
+        const Time::Timestamp completionStarted = Time::getTicks();
+        size_t completionPolls = 0;
+
         // Wait for completion.
         while (true)
         {
+            if (++completionPolls >= AtaDmaCompletionPollLimit ||
+                (Time::getTicks() - completionStarted) >=
+                    AtaDmaCompletionTimeout)
+            {
+                ERROR("ATA: DMA write exceeded its completion deadline");
+                return 0;
+            }
+
             if (getInterruptNumber() != 0xFF)
             {
                 // 10 second timeout.
@@ -1411,6 +1437,7 @@ uint64_t AtaDisk::doWrite(uint64_t location)
             }
             else
                 break;
+            Processor::pause();
         }
 
         if (!bDmaSetup)
