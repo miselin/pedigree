@@ -89,13 +89,11 @@ bool waitForThreadState(Thread *thread, Thread::DebugState state)
     return false;
 }
 
-bool hasCallbackDrainWait(Thread *thread, IrqHandlerBase *handler)
+bool hasCallbackDrainState(Thread *thread, IrqHandlerBase *handler)
 {
     Thread::WaitDebugInfo wait = {};
     uintptr_t address = 0;
-    return thread && thread->getWaitDebugInfo(wait) && wait.queue &&
-           wait.channelOwner && wait.queued &&
-           wait.reason == WaitQueue::WakeReason::Waiting &&
+    return thread && !thread->getWaitDebugInfo(wait) &&
            thread->getDebugState(address) == Thread::CallbackDrain &&
            address == reinterpret_cast<uintptr_t>(handler);
 }
@@ -109,9 +107,12 @@ class HostedSplitIrq final : public SplitIrqHandler
           bottomInsideSignal(0), observedWork(0), observedEvents(0),
           observedEventTime(0), bottomEntered(0), releaseBottom(0),
           bottomCompleted(0), quiesceCalls(0), rearmCalls(0), rearmedWork(0),
-          hardShutdownAttempts(0), hardShutdownSucceeded(0), m_Started(false),
+          hardShutdownAttempts(0), hardShutdownSucceeded(0),
+          bottomShutdownAttempts(0), bottomShutdownSucceeded(0),
+          m_Started(false),
           m_NextWork(1), m_NextEvents(1), m_HoldNext(0),
-          m_ShutdownFromHard(0), m_EventPhase(0)
+          m_ShutdownFromHard(0), m_ShutdownFromBottom(0),
+          m_FailQuiesceCall(0), m_EventPhase(0)
     {
     }
 
@@ -156,6 +157,17 @@ class HostedSplitIrq final : public SplitIrqHandler
         return stopped;
     }
 
+    bool registerAdditional(uint8_t irq)
+    {
+        IrqManager &manager = *Machine::instance().getIrqManager();
+        return registerIsaSplitIrq(manager, irq, true) != 0;
+    }
+
+    void setRegistrationPublishedHook(RegistrationPublishedHook hook)
+    {
+        setRegistrationPublishedHookForTest(hook);
+    }
+
     void setNextWork(size_t work)
     {
         m_NextWork = work;
@@ -176,14 +188,19 @@ class HostedSplitIrq final : public SplitIrqHandler
         m_ShutdownFromHard = 1;
     }
 
+    void shutdownFromNextBottom()
+    {
+        m_ShutdownFromBottom = 1;
+    }
+
+    void failQuiesceCall(size_t call)
+    {
+        m_FailQuiesceCall = call;
+    }
+
     ::HardIrqHandler *hardHandler()
     {
         return hardHandlerForTest();
-    }
-
-    WaitQueue *workerWaitQueue()
-    {
-        return workerWaitQueueForTest();
     }
 
     size_t publicationFailures() const
@@ -221,6 +238,8 @@ class HostedSplitIrq final : public SplitIrqHandler
     Atomic<size_t> rearmedWork;
     Atomic<size_t> hardShutdownAttempts;
     Atomic<size_t> hardShutdownSucceeded;
+    Atomic<size_t> bottomShutdownAttempts;
+    Atomic<size_t> bottomShutdownSucceeded;
 
   protected:
     HardIrqDisposition
@@ -273,6 +292,15 @@ class HostedSplitIrq final : public SplitIrqHandler
             bottomInsideSignal += 1;
         }
 
+        if (m_ShutdownFromBottom.compareAndSwap(1, 0))
+        {
+            bottomShutdownAttempts += 1;
+            if (shutdownSplitIrq())
+            {
+                bottomShutdownSucceeded += 1;
+            }
+        }
+
         if (m_HoldNext.compareAndSwap(1, 0))
         {
             bottomEntered.release();
@@ -285,6 +313,10 @@ class HostedSplitIrq final : public SplitIrqHandler
     bool quiesceIrqSources() override
     {
         quiesceCalls += 1;
+        if (m_FailQuiesceCall.compareAndSwap(quiesceCalls.value(), 0))
+        {
+            return false;
+        }
         return true;
     }
 
@@ -300,6 +332,8 @@ class HostedSplitIrq final : public SplitIrqHandler
     Atomic<size_t> m_NextEvents;
     Atomic<size_t> m_HoldNext;
     Atomic<size_t> m_ShutdownFromHard;
+    Atomic<size_t> m_ShutdownFromBottom;
+    Atomic<size_t> m_FailQuiesceCall;
     size_t m_EventPhase;
     IrqEventCounter m_ExactEvents;
 };
@@ -314,40 +348,60 @@ bool waitForCompletedBatches(HostedSplitIrq &handler, size_t batches)
     return handler.completedBatches() >= batches;
 }
 
-struct WakeBeforeBlockContext
+struct LifecycleSerializationContext
 {
-    explicit WakeBeforeBlockContext(HostedSplitIrq *handler)
-        : handler(handler), fired(0), failures(0)
+    explicit LifecycleSerializationContext(HostedSplitIrq *handler)
+        : handler(handler), shutdown(nullptr), hookCalls(0), shutdownReturned(0),
+          shutdownSucceeded(0), ordinaryContext(0), failures(0)
     {
     }
 
     HostedSplitIrq *handler;
-    Atomic<size_t> fired;
+    Thread *shutdown;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> shutdownReturned;
+    Atomic<size_t> shutdownSucceeded;
+    Atomic<size_t> ordinaryContext;
     Atomic<size_t> failures;
 };
 
-WakeBeforeBlockContext *g_WakeBeforeBlock = nullptr;
+LifecycleSerializationContext *g_LifecycleSerialization = nullptr;
 
-void publishBeforeWorkerBlocks(
-    WaitQueue *queue, Thread *, const WaitQueue::Channel &, size_t)
+int attemptConcurrentSplitShutdown(void *parameter)
 {
-    WakeBeforeBlockContext *context = g_WakeBeforeBlock;
-    if (!context || queue != context->handler->workerWaitQueue() ||
-        !context->fired.compareAndSwap(0, 1))
+    LifecycleSerializationContext *context =
+        reinterpret_cast<LifecycleSerializationContext *>(parameter);
+    Thread *current = Processor::information().getCurrentThread();
+    context->ordinaryContext =
+        current && Processor::getInterrupts() &&
+                !current->getHostedSignalDepth()
+            ? 1
+            : 0;
+    const bool stopped = context->handler->stop();
+    context->shutdownSucceeded = stopped ? 1 : 0;
+    context->shutdownReturned = 1;
+    return 0;
+}
+
+void registrationPublishedBeforeBookkeeping(SplitIrqHandler *handler)
+{
+    LifecycleSerializationContext *context = g_LifecycleSerialization;
+    if (!context || handler != context->handler ||
+        !context->hookCalls.compareAndSwap(0, 1))
     {
         return;
     }
 
-    context->handler->setNextWork(2);
-    if (raise(SIGUSR1) != 0)
+    if (!context->shutdown->start() ||
+        !context->shutdown->joinForCompletion())
     {
         context->failures += 1;
     }
 }
 
-bool wakeBeforeBlockRegression()
+bool lifecycleSerializationRegression()
 {
-    constexpr const char *Test = "split-irq-wake-before-block";
+    constexpr const char *Test = "split-irq-lifecycle-serialization";
     HostedSplitIrq handler;
     bool passed = check(handler.start(), "the handler could not start", Test);
     if (!passed)
@@ -355,67 +409,43 @@ bool wakeBeforeBlockRegression()
         return false;
     }
 
-    handler.holdNextBottom();
+    LifecycleSerializationContext context(&handler);
+    context.shutdown = new Thread(
+        Scheduler::instance().getKernelProcess(),
+        attemptConcurrentSplitShutdown, &context, nullptr, false, true, true);
+    context.shutdown->setName("hosted split IRQ lifecycle contender");
+
+    g_LifecycleSerialization = &context;
+    handler.setRegistrationPublishedHook(
+        registrationPublishedBeforeBookkeeping);
+    const bool registered = handler.registerAdditional(2);
+    handler.setRegistrationPublishedHook(nullptr);
+    g_LifecycleSerialization = nullptr;
+
     handler.setNextWork(1);
-    const bool firstRaised = raise(SIGUSR1) == 0;
-    const bool firstEntered = waitForSemaphore(handler.bottomEntered);
-
-    WakeBeforeBlockContext context(&handler);
-    g_WakeBeforeBlock = &context;
-    WaitQueue::setBeforeBlockHook(publishBeforeWorkerBlocks);
-    handler.releaseBottom.release();
-    const bool firstCompleted = waitForSemaphore(handler.bottomCompleted);
-    const bool secondCompleted = waitForSemaphore(handler.bottomCompleted);
-    WaitQueue::setBeforeBlockHook(nullptr);
-    g_WakeBeforeBlock = nullptr;
-
-    const bool batchesCompleted = waitForCompletedBatches(handler, 2);
+    const bool raised = registered && raise(SIGURG) == 0;
+    const bool bottomCompleted =
+        raised && waitForSemaphore(handler.bottomCompleted);
     const bool stopped = handler.stop();
+
     passed &= check(
-        firstRaised && firstEntered && firstCompleted && secondCompleted &&
-            batchesCompleted,
-        "the controlled worker handoff did not complete", Test);
+        registered && context.hookCalls == 1 && context.failures == 0 &&
+            context.shutdownReturned == 1 &&
+            context.shutdownSucceeded == 0 && context.ordinaryContext == 1,
+        "shutdown crossed an in-flight registration lifecycle operation",
+        Test);
     passed &= check(
-        context.fired == 1 && context.failures == 0,
-        "the pre-block publication hook did not run exactly once", Test);
+        bottomCompleted && handler.hardCalls == 1 &&
+            handler.bottomCalls == 1,
+        "the serialized registration did not remain live", Test);
     passed &= check(
-        handler.hardCalls == 2 && handler.bottomCalls == 2 &&
-            handler.observedWork == 3,
-        "work published before block was lost or duplicated", Test);
-    if (handler.hardCalls.value() != 2 || handler.bottomCalls.value() != 2 ||
-        handler.observedWork.value() != 3)
-    {
-        ERROR(
-            "HOSTED-WAIT-TEST: INFO "
-            << Test << ": hard=" << handler.hardCalls.value()
-            << ", bottom=" << handler.bottomCalls.value()
-            << ", work=" << handler.observedWork.value());
-    }
-    passed &= check(
-        handler.hardOutsideSignal == 0 && handler.bottomInsideSignal == 0,
-        "hard and threaded callbacks crossed execution contexts", Test);
-    passed &= check(
-        handler.rearmCalls == 2 && handler.rearmedWork == 3 &&
-            handler.quiesceCalls == 2,
-        "worker rearm or shutdown quiescence ran out of order", Test);
-    passed &= check(
-        stopped && handler.pendingWork() == 0 && handler.deferredIrqs() == 2 &&
-            handler.completedBatches() == 2 &&
-            handler.publicationFailures() == 0,
-        "the threaded handler did not stop cleanly", Test);
-    if (!stopped || handler.pendingWork() != 0 || handler.deferredIrqs() != 2 ||
-        handler.completedBatches() != 2 || handler.publicationFailures() != 0)
-    {
-        ERROR(
-            "HOSTED-WAIT-TEST: INFO "
-            << Test << ": stopped=" << stopped << ", pending="
-            << handler.pendingWork() << ", deferred=" << handler.deferredIrqs()
-            << ", batches=" << handler.completedBatches()
-            << ", failures=" << handler.publicationFailures());
-    }
+        stopped && handler.publicationFailures() == 0,
+        "the final lifecycle owner could not drain both registrations", Test);
     if (passed)
     {
-        NOTICE("HOSTED-WAIT-TEST: PASS split-irq-wake-before-block");
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "split-irq-lifecycle-serialization");
     }
     return passed;
 }
@@ -513,7 +543,7 @@ bool unregisterDrainRegression()
         Scheduler::instance().getKernelProcess(), shutdownSplitHandler,
         &context, nullptr, false, true);
     shutdown->setName("hosted split IRQ shutdown");
-    const bool draining = waitForThreadState(shutdown, Thread::CallbackDrain);
+    const bool draining = waitForThreadState(shutdown, Thread::Joining);
     const size_t callsBeforeClosedSignal = handler.hardCalls;
     const bool closedSignalRaised = raise(SIGUSR1) == 0;
     const size_t callsAfterClosedSignal = handler.hardCalls;
@@ -651,20 +681,104 @@ bool hardShutdownRejectionRegression()
     return passed;
 }
 
+bool workerShutdownRejectionRegression()
+{
+    constexpr const char *Test = "split-irq-worker-shutdown-rejected";
+    HostedSplitIrq handler;
+    bool passed = check(handler.start(), "the handler could not start", Test);
+    if (!passed)
+    {
+        return false;
+    }
+
+    handler.shutdownFromNextBottom();
+    handler.setNextWork(1);
+    const bool raised = raise(SIGUSR1) == 0;
+    const bool bottomCompleted = waitForSemaphore(handler.bottomCompleted);
+    const bool batchCompleted = waitForCompletedBatches(handler, 1);
+    const bool registrationAccepted = handler.registerAdditional(2);
+    const size_t quiesceCallsBeforeStop = handler.quiesceCalls;
+    const bool stopped = handler.stop();
+
+    passed &= check(
+        raised && handler.bottomShutdownAttempts == 1 &&
+            handler.bottomShutdownSucceeded == 0 &&
+            registrationAccepted && quiesceCallsBeforeStop == 0,
+        "worker-context shutdown mutated the handler lifecycle", Test);
+    passed &= check(
+        bottomCompleted && batchCompleted && handler.hardCalls == 1 &&
+            handler.bottomCalls == 1,
+        "worker-context rejection did not preserve accepted work", Test);
+    passed &= check(
+        stopped && handler.rearmCalls == 1 && handler.rearmedWork == 1 &&
+            handler.quiesceCalls == 2 && handler.publicationFailures() == 0,
+        "external shutdown could not retire the live worker", Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "split-irq-worker-shutdown-rejected");
+    }
+    return passed;
+}
+
+bool shutdownRetryRegression()
+{
+    constexpr const char *Test = "split-irq-shutdown-retry";
+
+    HostedSplitIrq earlyFailure;
+    bool passed = check(
+        earlyFailure.start(), "the early-failure handler could not start",
+        Test);
+    earlyFailure.failQuiesceCall(1);
+    const bool earlyFirstStop = earlyFailure.stop();
+    const bool earlyRegistration = earlyFailure.registerAdditional(2);
+    const bool earlyRetry = earlyFailure.stop();
+    passed &= check(
+        !earlyFirstStop && !earlyRegistration && earlyRetry &&
+            earlyFailure.quiesceCalls == 3,
+        "retry after initial quiesce failure reopened or stranded lifecycle state",
+        Test);
+
+    HostedSplitIrq lateFailure;
+    passed &= check(
+        lateFailure.start(), "the late-failure handler could not start", Test);
+    lateFailure.failQuiesceCall(2);
+    const bool lateFirstStop = lateFailure.stop();
+    const bool lateRegistration = lateFailure.registerAdditional(2);
+    const bool lateRetry = lateFailure.stop();
+    passed &= check(
+        !lateFirstStop && !lateRegistration && lateRetry &&
+            lateFailure.quiesceCalls == 4,
+        "retry after worker drain reopened or stranded lifecycle state", Test);
+
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS split-irq-shutdown-retry");
+    }
+    return passed;
+}
+
 struct HardCallbackDrainContext
 {
     explicit HardCallbackDrainContext(HostedSplitIrq *handler)
-        : handler(handler), shutdown(nullptr), phase(0), hookCalls(0),
-          hookObservedDrain(0), shutdownFinished(0), shutdownResult(0),
-          failures(0)
+        : handler(handler), dispatcher(nullptr), shutdown(nullptr),
+          dispatchEntered(0), releaseDispatch(0), phase(0), hookCalls(0),
+          hookObservedDrain(0), dispatchAdmitted(0), dispatchHandled(0),
+          shutdownFinished(0), shutdownResult(0), failures(0)
     {
     }
 
     HostedSplitIrq *handler;
+    Thread *dispatcher;
     Thread *shutdown;
+    Semaphore dispatchEntered;
+    Semaphore releaseDispatch;
     Atomic<size_t> phase;
     Atomic<size_t> hookCalls;
     Atomic<size_t> hookObservedDrain;
+    Atomic<size_t> dispatchAdmitted;
+    Atomic<size_t> dispatchHandled;
     Atomic<size_t> shutdownFinished;
     Atomic<size_t> shutdownResult;
     Atomic<size_t> failures;
@@ -672,9 +786,8 @@ struct HardCallbackDrainContext
 
 HardCallbackDrainContext *g_HardCallbackDrain = nullptr;
 
-void holdPinnedHardCallback(IrqHandlerBase *handler)
+void holdPinnedTestDispatch(IrqHandlerBase *handler)
 {
-    constexpr size_t YieldLimit = 10000;
     HardCallbackDrainContext *context = g_HardCallbackDrain;
     if (!context || handler != context->handler->hardHandler() ||
         !context->phase.compareAndSwap(0, 1))
@@ -683,29 +796,24 @@ void holdPinnedHardCallback(IrqHandlerBase *handler)
     }
 
     context->hookCalls += 1;
-    for (size_t attempt = 0; attempt < YieldLimit; ++attempt)
-    {
-        if (context->phase == static_cast<size_t>(2) &&
-            hasCallbackDrainWait(
-                context->shutdown, context->handler->hardHandler()))
-        {
-            break;
-        }
-        Scheduler::instance().yield();
-    }
-
-    if (context->phase == static_cast<size_t>(2) &&
-        !context->shutdownFinished &&
-        hasCallbackDrainWait(
-            context->shutdown, context->handler->hardHandler()))
-    {
-        context->hookObservedDrain += 1;
-    }
-    else
+    context->dispatchEntered.release();
+    if (!context->releaseDispatch.acquireForCompletion())
     {
         context->failures += 1;
     }
     context->phase = 3;
+}
+
+int dispatchPinnedSplitHandler(void *parameter)
+{
+    HardCallbackDrainContext *context =
+        reinterpret_cast<HardCallbackDrainContext *>(parameter);
+    bool handled = false;
+    const bool admitted = HostedIrqManager::dispatchHandlerForTest(
+        2, context->handler->hardHandler(), handled);
+    context->dispatchAdmitted = admitted ? 1 : 0;
+    context->dispatchHandled = handled ? 1 : 0;
+    return admitted && handled ? 0 : 1;
 }
 
 int shutdownPinnedHardCallback(void *parameter)
@@ -738,7 +846,7 @@ bool hardCallbackDrainRegression()
 {
     constexpr const char *Test = "split-irq-hard-callback-drain";
     HostedSplitIrq handler;
-    bool passed = check(handler.start(1), "the handler could not start", Test);
+    bool passed = check(handler.start(2), "the handler could not start", Test);
     if (!passed)
     {
         return false;
@@ -747,16 +855,47 @@ bool hardCallbackDrainRegression()
     HardCallbackDrainContext context(&handler);
     context.shutdown = new Thread(
         Scheduler::instance().getKernelProcess(), shutdownPinnedHardCallback,
-        &context, nullptr, false, true);
+        &context, nullptr, false, true, true);
     context.shutdown->setName("hosted pinned split IRQ shutdown");
+    context.dispatcher = new Thread(
+        Scheduler::instance().getKernelProcess(), dispatchPinnedSplitHandler,
+        &context, nullptr, false, true, true);
+    context.dispatcher->setName("hosted pinned split IRQ dispatch");
 
     g_HardCallbackDrain = &context;
-    HostedIrqManager::setHandlerPinHook(holdPinnedHardCallback);
+    HostedIrqManager::setHandlerPinHook(holdPinnedTestDispatch);
     handler.setNextWork(1);
-    const bool raised = raise(SIGUSR2) == 0;
+    const bool dispatcherStarted = context.dispatcher->start();
+    const bool dispatchEntered =
+        dispatcherStarted && context.dispatchEntered.acquireForCompletion();
+    const bool shutdownStarted = dispatchEntered && context.shutdown->start();
+
+    bool drainObserved = false;
+    const Time::Timestamp drainDeadline = Time::getTicks() + WaitTimeout;
+    while (shutdownStarted && Time::getTicks() < drainDeadline)
+    {
+        if (context.phase == static_cast<size_t>(2) &&
+            !context.shutdownFinished &&
+            hasCallbackDrainState(
+                context.shutdown, context.handler->hardHandler()))
+        {
+            drainObserved = true;
+            context.hookObservedDrain += 1;
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+    if (!drainObserved)
+    {
+        context.failures += 1;
+    }
+    context.releaseDispatch.release();
+    const bool dispatcherJoined =
+        dispatcherStarted && context.dispatcher->joinForCompletion();
+    const bool shutdownJoined =
+        shutdownStarted && context.shutdown->joinForCompletion();
     HostedIrqManager::setHandlerPinHook(nullptr);
     g_HardCallbackDrain = nullptr;
-    const bool shutdownJoined = context.shutdown->join();
 
     const size_t quiesceCalls = handler.quiesceCalls;
     const size_t rearmCalls = handler.rearmCalls;
@@ -769,9 +908,12 @@ bool hardCallbackDrainRegression()
     const bool cleanup = context.shutdownResult || handler.stop();
 
     passed &= check(
-        raised && shutdownJoined && context.hookCalls == 1 &&
+        dispatcherJoined && shutdownJoined && context.hookCalls == 1 &&
             context.hookObservedDrain == 1 && context.failures == 0,
         "shutdown did not wait for the admitted hard callback", Test);
+    passed &= check(
+        context.dispatchAdmitted == 1 && context.dispatchHandled == 1,
+        "the controlled hard dispatch did not reach the split handler", Test);
     passed &= check(
         context.shutdownFinished == 1 && context.shutdownResult == 1 &&
             context.phase == 4,
@@ -796,11 +938,13 @@ bool hardCallbackDrainRegression()
 bool runHostedSplitIrqRegressions()
 {
     bool passed = irqEventCounterArithmeticRegression();
-    passed &= wakeBeforeBlockRegression();
+    passed &= lifecycleSerializationRegression();
     passed &= coalescingRegression();
     passed &= unregisterDrainRegression();
     passed &= atomicShutdownRejectionRegression();
     passed &= hardShutdownRejectionRegression();
+    passed &= workerShutdownRejectionRegression();
+    passed &= shutdownRetryRegression();
     passed &= hardCallbackDrainRegression();
     return passed;
 }

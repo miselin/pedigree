@@ -71,8 +71,7 @@ bool ThreadedIrqDispatcher::Line::start()
     m_Thread = new Thread(
         Scheduler::instance().getKernelProcess(), workerEntry, this, nullptr,
         false, true, true);
-    m_Thread->setName("threaded IRQ line");
-    m_Thread->setPriority(0);
+    m_Thread->setName(m_Owner->m_Name);
     if (!m_Thread->setSchedulerReadyPredicate(workerReady, this))
     {
         FATAL("A threaded IRQ worker could not install its ready predicate.");
@@ -211,6 +210,10 @@ int ThreadedIrqDispatcher::Line::run()
 #endif
             __atomic_store_n(
                 &m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
+            // A continuously asserted source must not turn its threaded
+            // bottom half into an unbounded softirq loop. One completed batch
+            // is the scheduling budget before ordinary peers get a chance.
+            Scheduler::instance().yield();
             continue;
         }
 
@@ -261,8 +264,9 @@ size_t ThreadedIrqDispatcher::Line::completedCookieForTest() const
 #endif
 
 ThreadedIrqDispatcher::ThreadedIrqDispatcher(
-    size_t lineCount, DispatchCallback callback, void *callbackContext)
-    : m_Lines(), m_LineCount(lineCount), m_Callback(callback),
+    const String &name, size_t lineCount, DispatchCallback callback,
+    void *callbackContext)
+    : m_Lines(), m_Name(name), m_LineCount(lineCount), m_Callback(callback),
       m_CallbackContext(callbackContext), m_Initialised(false)
 {
     if (m_LineCount > MaxLines)

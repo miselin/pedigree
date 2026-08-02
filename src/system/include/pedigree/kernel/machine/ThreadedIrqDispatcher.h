@@ -10,6 +10,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
 
 class Thread;
 class PerProcessorScheduler;
@@ -30,7 +31,8 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
     using DispatchCallback = void (*)(void *, uint8_t, size_t);
 
     ThreadedIrqDispatcher(
-        size_t lineCount, DispatchCallback callback, void *callbackContext);
+        const String &name, size_t lineCount, DispatchCallback callback,
+        void *callbackContext);
     ~ThreadedIrqDispatcher();
 
     /** Starts every stable per-line worker after scheduler initialisation. */
@@ -112,6 +114,7 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
     };
 
     Line m_Lines[MaxLines];
+    String m_Name;
     size_t m_LineCount;
     DispatchCallback m_Callback;
     void *m_CallbackContext;

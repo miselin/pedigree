@@ -11,7 +11,6 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
-#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -25,7 +24,9 @@ class IrqHandlerBase;
  * Dispatch never takes the registry's writer lock. It pins an atomically
  * published slot and revalidates that publication before entering the
  * callback. Removal first closes admission and then drains callbacks which
- * committed their pins before that transition.
+ * committed their pins before that transition. Callback release only clears
+ * atomic hazard state; a synchronous unregistering thread owns any cooperative
+ * scheduling needed while it rechecks the drain predicate.
  */
 class EXPORTED_PUBLIC IrqHandlerRegistry
 {
@@ -88,6 +89,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         BeforeClaim,
         Claimed,
         Committed,
+        Released,
     };
 
     using HandlerPinHook = void (*)(IrqHandlerBase *);
@@ -207,7 +209,6 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
 
     HandlerSlot m_Handlers[MaxHandlerSlots];
     ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
-    WaitQueue m_DispatchWaiters;
     Spinlock m_HandlerLock;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

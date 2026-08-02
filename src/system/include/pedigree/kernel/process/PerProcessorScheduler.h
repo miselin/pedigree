@@ -85,7 +85,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
     /** Atomic hard-IRQ publication; does not touch a lock or ready queue. */
     void ringIrqWorkDoorbell();
 
-    /** Reschedules once after the outer interrupt dispatcher drops its pins. */
+    /** Reschedules once from ordinary thread context during lifecycle work. */
     void serviceIrqWorkDoorbell();
 
     void setIdle(Thread *pThread);

@@ -16,6 +16,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/time/Time.h"
 #include "system/kernel/machine/mach_pc/PicIrqState.h"
 
 #include <signal.h>
@@ -97,7 +98,9 @@ bool threadedDispatcherCoalescing()
 {
     DispatcherContext context;
     context.publisher = Processor::information().getCurrentThread();
-    ThreadedIrqDispatcher dispatcher(2, dispatchBatch, &context);
+    ThreadedIrqDispatcher dispatcher(
+        MakeConstantString("hosted threaded IRQ regression"), 2,
+        dispatchBatch, &context);
     context.dispatcher = &dispatcher;
     const bool initialised = dispatcher.initialise();
 
@@ -172,13 +175,18 @@ class HostedThreadedHandler : public IrqHandler
 {
   public:
     HostedThreadedHandler()
-        : entered(0), publisher(nullptr), calls(0), failures(0)
+        : entered(0), publisher(nullptr), hardReturned(0), calls(0),
+          callbacksBeforeHardReturn(0), failures(0)
     {
     }
 
     IrqDisposition irq(irq_id_t) override
     {
         calls += 1;
+        if (!hardReturned)
+        {
+            callbacksBeforeHardReturn += 1;
+        }
         Thread *current = Processor::information().getCurrentThread();
         if (!current || current == publisher || !Processor::getInterrupts() ||
             current->getHostedSignalDepth())
@@ -191,7 +199,9 @@ class HostedThreadedHandler : public IrqHandler
 
     Semaphore entered;
     Thread *publisher;
+    Atomic<size_t> hardReturned;
     Atomic<size_t> calls;
+    Atomic<size_t> callbacksBeforeHardReturn;
     Atomic<size_t> failures;
 };
 
@@ -203,15 +213,33 @@ bool hostedThreadedSignalDelivery()
     handler.publisher = Processor::information().getCurrentThread();
 
     const irq_id_t id = manager->registerIsaIrqHandler(2, &handler);
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
     const bool raised = id && raise(SIGURG) == 0;
-    const bool observed =
-        raised && handler.entered.acquireForCompletion(1, 2, 0);
+    handler.hardReturned = 1;
+    const bool deferredUntilHardReturn = handler.calls == 0;
+    const bool doorbellPending =
+        PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest();
+    Processor::setInterrupts(interruptsWereEnabled);
+    const Time::Timestamp deadline =
+        Time::getTicks() + 2 * Time::Multiplier::Second;
+    while (!handler.calls && Time::getTicks() < deadline)
+    {
+        // Only the natural scheduler tick may move this CPU to the worker.
+        Processor::pause();
+    }
+    const bool observed = raised && handler.calls == 1 &&
+                          handler.entered.acquireForCompletion(1, 2, 0);
     const bool removed = id && manager->unregisterHandler(id, &handler);
 
     bool passed = true;
     passed &= check(
         id != 0, "the threaded handler was not registered", SignalTest);
     passed &= check(raised, "the hosted IRQ signal was not raised", SignalTest);
+    passed &= check(
+        deferredUntilHardReturn && doorbellPending &&
+            handler.callbacksBeforeHardReturn == 0,
+        "the bottom half ran before the hard IRQ frame returned", SignalTest);
     passed &= check(
         observed && handler.calls == 1 && handler.failures == 0,
         "the handler did not run once in an enabled ordinary thread",

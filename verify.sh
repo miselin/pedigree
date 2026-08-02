@@ -571,28 +571,38 @@ check_wait_api_boundaries()
     fi
 
     local irq_registry_source=src/system/kernel/machine/IrqHandlerRegistry.cc
-    matches=$(rg -n \
-        'Scheduler::instance\(\)\.yield\(\)' \
-        "$irq_registry_source" || true)
+    local irq_unpublish_body
+    irq_unpublish_body=$(sed -n \
+        '/IrqHandlerRegistry::unpublishDispatch(/,/^}/p' \
+        "$irq_registry_source")
+    matches=$(printf '%s\n' "$irq_unpublish_body" | \
+        rg -n 'WaitQueue|Scheduler::|schedule\(|wake(All|One)?\(' || true)
     if [[ -n "$matches" ]]; then
-        echo "The IRQ callback drain reverted to scheduler yielding:"
+        echo "Hard IRQ callback release entered a wait or scheduler path:"
         echo "$matches"
         failed=1
     fi
 
     if ! rg -q -U \
-        'm_DispatchWaiters\.acquire\(\)[^;]*;[[:space:]]*if[[:space:]]*\([^)]*!hasActiveDispatch[^)]*\)[^{]*\{[[:space:]]*break;[^}]*\}[[:space:]]*const WaitQueue::WakeReason[^=]*=[[:space:]]*guard\.waitForCompletion\(' \
+        '(?s)unregisterHandler\(uint8_t irq, IrqHandlerBase \*handler\).*?setDebugState\(.*?Thread::CallbackDrain.*?while \(hasActiveDispatch\(\*slot, drainingPublication\)\).*?Scheduler::instance\(\)\.yield\(\).*?setDebugState\(previousDebugState, previousDebugAddress\)' \
         "$irq_registry_source"; then
-        echo "The IRQ callback drain escaped its predicate-coupled wait."
+        echo "The IRQ callback drain lost its ordinary-context cooperative wait."
         failed=1
     fi
 
-    if ! rg -q \
-        'modeOf\(finalPublication\) == SlotMode::Draining' \
-        "$irq_registry_source" ||
-        ! rg -q 'guard\.wakeAll\(' "$irq_registry_source" ||
-        ! rg -q 'WaitQueue::Channel\(&slot\)' "$irq_registry_source"; then
-        echo "The IRQ callback drain escaped its predicate-coupled wake."
+    local irq_regressions=src/modules/system/hosted-smoke/irq-regressions.cc
+    if ! rg -q 'dispatchPinnedHandler' "$irq_regressions" ||
+        ! rg -q 'dispatchHandlerForTest\(' "$irq_regressions"; then
+        echo "IRQ callback-drain coverage no longer uses ordinary test dispatch."
+        failed=1
+    fi
+    local irq_pin_hook_body
+    irq_pin_hook_body=$(sed -n '/void handlerPinHook(/,/^}/p' "$irq_regressions")
+    matches=$(printf '%s\n' "$irq_pin_hook_body" | \
+        rg -n 'Scheduler::|schedule\(|raise\(' || true)
+    if [[ -n "$matches" ]]; then
+        echo "The IRQ drain harness schedules from its handler-pin hook:"
+        echo "$matches"
         failed=1
     fi
 
@@ -679,6 +689,7 @@ check_wait_api_boundaries()
     local hosted_machine_source=src/system/kernel/machine/hosted/Machine.cc
     local threaded_irq_regressions=src/modules/system/hosted-smoke/threaded-irq-regressions.cc
     local thread_header=src/system/include/pedigree/kernel/process/Thread.h
+    local thread_source=src/system/kernel/core/process/Thread.cc
     local scheduler_header=src/system/include/pedigree/kernel/process/PerProcessorScheduler.h
     local scheduler_source=src/system/kernel/core/process/PerProcessorScheduler.cc
     local round_robin_source=src/system/kernel/core/process/RoundRobin.cc
@@ -691,10 +702,22 @@ check_wait_api_boundaries()
             '(?s)ThreadedIrqDispatcher::shutdown\(\).*?isCurrentWorker\(\)' \
             "$threaded_irq_source" ||
         ! rg -q 'isEligible\(pThread\)' "$round_robin_source" ||
+        ! rg -q -U \
+            '(?s)void Thread::shutdown\(\).*?setStatus\(Thread::AwaitingJoin\)' \
+            "$thread_source" ||
+        ! rg -q -U \
+            '(?s)g_HostedSchedulerPredicateReady = false.*?Thread::AwaitingJoin.*?threadStatusChanged\(pThread\).*?!pThread->m_bReadyQueued' \
+            "$round_robin_source" ||
         ! rg -q 'ringIrqWorkDoorbell' "$scheduler_header" ||
         ! rg -q -U \
             '(?s)ringIrqWorkDoorbell\(\).*?m_IrqWorkDoorbell = 1' \
             "$scheduler_source" ||
+        ! rg -q -U \
+            '(?s)PerProcessorScheduler::timer\([^)]*\).*?m_IrqWorkDoorbell\.compareAndSwap\(1, 0\).*?schedule\(\)' \
+            "$scheduler_source" ||
+        rg -q 'serviceIrqWorkDoorbell\(' \
+            src/system/kernel/core/processor/hosted/InterruptManager.cc \
+            src/system/kernel/core/processor/x64/InterruptManager.cc ||
         ! rg -q -U \
             '(?s)Line::publishFromInterrupt\(size_t cookie\).*?__atomic_fetch_add\(.*?m_PublicationState.*?PublicationClosed.*?__atomic_store_n\(&m_PendingCookie, cookie.*?ringIrqWorkDoorbell\(\).*?__atomic_fetch_sub\(.*?m_PublicationState' \
             "$threaded_irq_source" ||
@@ -833,8 +856,10 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
-        'class EXPORTED_PUBLIC SplitIrqHandler[[:space:]]*:[[:space:]]*private HardIrqHandler,[[:space:]]*private RequestQueue' \
+        'class EXPORTED_PUBLIC SplitIrqHandler[[:space:]]*:[[:space:]]*private HardIrqHandler' \
         "$split_irq_header" ||
+        ! rg -q 'ThreadedIrqDispatcher m_Dispatcher' \
+            "$split_irq_header" ||
         ! rg -q -U \
             'virtual HardIrqDisposition[[:space:]]+hardIrq\(' \
             "$split_irq_header" ||
@@ -851,6 +876,15 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    matches=$(rg -n \
+        'RequestQueue|InterruptRequest|enqueueFromInterrupt|republishWhileReleasing|m_RequestQueueWaiters|m_WorkRequest' \
+        "$split_irq_header" "$split_irq_source" || true)
+    if [[ -n "$matches" ]]; then
+        echo "The split IRQ adapter still reaches the RequestQueue hard wake path:"
+        echo "$matches"
+        failed=1
+    fi
+
     matches=$(rg -n -U \
         'threadedIrq\([^)]*InterruptState' \
         "$split_irq_header" "$split_irq_source" || true)
@@ -861,51 +895,112 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
-        '(?s)tryPublishWork\(\).*republishWhileReleasing\(m_WorkRequest, 0\).*enqueueFromInterrupt\(m_WorkRequest, 0\)' \
-        "$split_irq_source"; then
-        echo "The split IRQ adapter lost its release-seam publication order."
-        failed=1
-    fi
-
-    if ! rg -q -U \
-        '(?s)publishWork\(size_t work\).*?__atomic_or_fetch\(&m_PendingWork, work, __ATOMIC_ACQ_REL\).*?tryPublishWork\(\)' \
+        '(?s)publishWork\(size_t work\).*?__atomic_or_fetch\(&m_PendingWork, work, __ATOMIC_ACQ_REL\).*?m_Dispatcher\.publishFromInterrupt\(0, 1\)' \
         "$split_irq_source"; then
         echo "The split IRQ adapter published before recording pending work."
         failed=1
     fi
 
+    if ! rg -q 'm_LifecycleBusy' "$split_irq_header" ||
+        ! rg -q 'm_AcceptingRegistrations' "$split_irq_header" ||
+        ! rg -q -U \
+            '(?s)registerIsaSplitIrq\([^)]*\).*?SplitLifecycleGuard lifecycle\(m_LifecycleBusy\).*?!m_AcceptingRegistrations.*?registerHardIsaIrqHandler.*?m_RegistrationCount\+\+' \
+            "$split_irq_source" ||
+        ! rg -q -U \
+            '(?s)shutdownSplitIrq\(\).*?SplitLifecycleGuard lifecycle\(m_LifecycleBusy\).*?m_AcceptingRegistrations = 0.*?m_Quiescing = true' \
+            "$split_irq_source"; then
+        echo "Split IRQ registration and shutdown lost lifecycle serialization."
+        failed=1
+    fi
+
     if ! rg -q -U \
-        '(?s)shutdownSplitIrq\(\).*?Thread \*current.*?if \(!current \|\| !Processor::getInterrupts\(\)\).*?getHostedSignalDepth\(\).*?m_pThread == current.*?m_Quiescing = true.*?quiesceIrqSources\(\).*?unregisterHandler\(registration\.id, this\)' \
+        '(?s)shutdownSplitIrq\(\).*?getHostedSignalDepth\(\).*?TerminationDeferral lifecycleTermination;.*?SplitLifecycleGuard lifecycle\(m_LifecycleBusy\)' \
+        "$split_irq_source"; then
+        echo "Split IRQ teardown can unwind while retaining lifecycle ownership."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)initialiseSplitIrq\(\).*?TerminationDeferral lifecycleTermination;.*?SplitLifecycleGuard lifecycle\(m_LifecycleBusy\)' \
+        "$split_irq_source" ||
+        ! rg -q -U \
+            '(?s)registerIsaSplitIrq\([^)]*\).*?TerminationDeferral lifecycleTermination;.*?SplitLifecycleGuard lifecycle\(m_LifecycleBusy\)' \
+            "$split_irq_source" ||
+        ! rg -q -U \
+            '(?s)registerPciSplitIrq\([^)]*\).*?TerminationDeferral lifecycleTermination;.*?SplitLifecycleGuard lifecycle\(m_LifecycleBusy\)' \
+            "$split_irq_source"; then
+        echo "A split IRQ lifecycle operation can unwind while retaining ownership."
+        failed=1
+    fi
+
+    local split_publish_body
+    split_publish_body=$(sed -n \
+        '/SplitIrqHandler::publishWork(size_t work)/,/^#if HOSTED/p' \
+        "$split_irq_source")
+    matches=$(printf '%s\n' "$split_publish_body" | \
+        rg -n \
+            'LockGuard|Spinlock|Semaphore|WaitQueue|RequestQueue|new[[:space:]]|delete[[:space:]]|FATAL|ERROR|WARNING|NOTICE|while[[:space:]]*\(|for[[:space:]]*\(' || true)
+    if [[ -n "$matches" ]]; then
+        echo "Split IRQ hard publication contains a blocking or unbounded operation:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)shutdownSplitIrq\(\).*?Thread \*current.*?if \(!current \|\| !Processor::getInterrupts\(\)\).*?getHostedSignalDepth\(\).*?m_Dispatcher\.isCurrentWorker\(\).*?m_Quiescing = true.*?quiesceIrqSources\(\).*?unregisterHandler\(registration\.id, this\)' \
         "$split_irq_source"; then
         echo "Split IRQ shutdown can mutate state from an atomic callback context."
         failed=1
     fi
 
     if ! rg -q -U \
-        '(?s)shutdownSplitIrq\(\).*?m_Quiescing = true.*?quiesceIrqSources\(\).*?unregisterHandler\(registration\.id, this\).*?drain\(\).*?quiesceIrqSources\(\).*?m_Stopping = 1.*?RequestQueue::destroy\(\)' \
+        '(?s)shutdownSplitIrq\(\).*?m_Quiescing = true.*?quiesceIrqSources\(\).*?unregisterHandler\(registration\.id, this\).*?m_Stopping = 1.*?m_Dispatcher\.shutdown\(\).*?quiesceIrqSources\(\).*?m_PendingWork.*?m_Started = false' \
         "$split_irq_source"; then
         echo "The split IRQ adapter lost its quiesce, callback-drain, or stop order."
         failed=1
     fi
 
     if ! rg -q -U \
-        '(?s)executeRequest\(.*?threadedIrq\(work\).*?LockGuard<Spinlock> guard\(m_StateLock\).*?if \(!m_Quiescing\).*?rearmIrqSources\(work\).*?m_CompletedBatches' \
+        '(?s)dispatchThreaded\(\).*?__atomic_exchange_n\(.*?m_PendingWork.*?threadedIrq\(work\).*?LockGuard<Spinlock> guard\(m_StateLock\).*?if \(!m_Quiescing\).*?rearmIrqSources\(work\).*?m_CompletedBatches' \
         "$split_irq_source"; then
         echo "A split IRQ bottom half can rearm outside the shutdown gate."
         failed=1
     fi
 
     local split_irq_regressions=src/modules/system/hosted-smoke/split-irq-regressions.cc
-    if ! rg -q 'setHandlerPinHook\(holdPinnedHardCallback\)' \
+    if ! rg -q 'setHandlerPinHook\(holdPinnedTestDispatch\)' \
         "$split_irq_regressions" ||
-        ! rg -q 'hasCallbackDrainWait\(' "$split_irq_regressions" ||
+        ! rg -q 'hasCallbackDrainState\(' "$split_irq_regressions" ||
+        ! rg -q 'registrationPublishedBeforeBookkeeping' \
+            "$split_irq_regressions" ||
+        ! rg -q 'split-irq-lifecycle-serialization' \
+            "$split_irq_regressions" ||
         ! rg -q 'split-irq-hard-callback-drain' \
             "$split_irq_regressions" ||
         ! rg -q 'split-irq-atomic-shutdown-rejected' \
             "$split_irq_regressions" ||
         ! rg -q 'split-irq-hard-shutdown-rejected' \
+            "$split_irq_regressions" ||
+        ! rg -q 'split-irq-worker-shutdown-rejected' \
+            "$split_irq_regressions" ||
+        ! rg -q 'split-irq-shutdown-retry' \
             "$split_irq_regressions"; then
         echo "Hosted split IRQ lifecycle race coverage is incomplete."
+        failed=1
+    fi
+
+    local split_pin_hook_body
+    split_pin_hook_body=$(sed -n \
+        '/void holdPinnedTestDispatch(/,/^}/p' \
+        "$split_irq_regressions")
+    matches=$(printf '%s\n' "$split_pin_hook_body" | \
+        rg -n 'Scheduler::|schedule\(|raise\(' || true)
+    if [[ -n "$matches" ]] ||
+        ! rg -q 'dispatchPinnedSplitHandler' "$split_irq_regressions"; then
+        echo "The split IRQ drain harness schedules from hard signal context."
+        if [[ -n "$matches" ]]; then
+            echo "$matches"
+        fi
         failed=1
     fi
 

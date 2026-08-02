@@ -440,6 +440,11 @@ assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-handler-waitqueue-drain"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-lifetime"
 assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-atomic-drain"
+assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS irq-event-counter-bounded-arithmetic"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-delivery-mode-separation"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-writer-lock-self-unregister"
@@ -447,11 +452,14 @@ assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-stale-generation-reuse"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-abandoned-dispatch-cleanup"
-assert_marker \
-    "$populated_log" "HOSTED-WAIT-TEST: PASS split-irq-wake-before-block"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS split-irq-coalescing"
 assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS split-irq-lifecycle-serialization"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-threaded-dispatcher-coalescing"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS irq-threaded-hosted-signal"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pic-threaded-trigger-policy"
 assert_marker \
@@ -463,11 +471,14 @@ assert_marker \
     "$populated_log" \
     "HOSTED-WAIT-TEST: PASS split-irq-hard-shutdown-rejected"
 assert_marker \
+    "$populated_log" \
+    "HOSTED-WAIT-TEST: PASS split-irq-worker-shutdown-rejected"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS split-irq-shutdown-retry"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS split-irq-hard-callback-drain"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pic-line-state-mask-lifecycle"
-assert_marker \
-    "$populated_log" "HOSTED-WAIT-TEST: PASS irq-handler-waitqueue-drain"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-wait-ready-publication"
 assert_marker \

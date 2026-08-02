@@ -20,7 +20,6 @@
 #include "InterruptManager.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -159,14 +158,6 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
     if (LIKELY(pHandler != 0))
     {
         pHandler->interrupt(nIntNumber, interruptState);
-#if THREADS
-        // Exception handlers can return while kernel locks are held. Only
-        // service deferred IRQ work at an external-interrupt boundary.
-        if (nIntNumber >= 32)
-        {
-            Processor::information().getScheduler().serviceIrqWorkDoorbell();
-        }
-#endif
         return;
     }
 

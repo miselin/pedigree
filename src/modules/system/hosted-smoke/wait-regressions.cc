@@ -59,15 +59,18 @@ Atomic<size_t> g_ImmediateHookFailures(0);
 WaitQueue *g_ImmediateQueue = nullptr;
 WaitQueue::Channel g_ImmediateChannel;
 Thread *g_ImmediateWaiter = nullptr;
+Thread *g_ImmediateExpectedWaiter = nullptr;
 
 struct SemaphoreHookContext
 {
-    explicit SemaphoreHookContext(Semaphore *semaphore)
-        : semaphore(semaphore), waiter(nullptr), hookCalls(0), hookFailures(0)
+    SemaphoreHookContext(Semaphore *semaphore, Thread *expectedWaiter)
+        : semaphore(semaphore), expectedWaiter(expectedWaiter), waiter(nullptr),
+          hookCalls(0), hookFailures(0)
     {
     }
 
     Semaphore *semaphore;
+    Thread *expectedWaiter;
     Thread *waiter;
     Atomic<size_t> hookCalls;
     Atomic<size_t> hookFailures;
@@ -105,14 +108,16 @@ TerminalCancelOrderContext *g_TerminalCancelOrderContext = nullptr;
 
 struct ConditionVariableHookContext
 {
-    ConditionVariableHookContext(ConditionVariable *condition, Mutex *mutex)
-        : condition(condition), mutex(mutex), waiter(nullptr), hookCalls(0),
-          hookFailures(0), acquiredMutex(0)
+    ConditionVariableHookContext(
+        ConditionVariable *condition, Mutex *mutex, Thread *expectedWaiter)
+        : condition(condition), mutex(mutex), expectedWaiter(expectedWaiter),
+          waiter(nullptr), hookCalls(0), hookFailures(0), acquiredMutex(0)
     {
     }
 
     ConditionVariable *condition;
     Mutex *mutex;
+    Thread *expectedWaiter;
     Thread *waiter;
     Atomic<size_t> hookCalls;
     Atomic<size_t> hookFailures;
@@ -386,6 +391,10 @@ void immediateWakeHook(
     WaitQueue *queue, Thread *thread, const WaitQueue::Channel &channel,
     size_t debugState)
 {
+    if (thread != g_ImmediateExpectedWaiter)
+    {
+        return;
+    }
     g_ImmediateHookCalls += 1;
     g_ImmediateWaiter = thread;
     if (
@@ -424,6 +433,11 @@ void semaphoreReleaseHook(
 {
     SemaphoreHookContext *context = g_SemaphoreContext;
     if (!context)
+    {
+        return;
+    }
+
+    if (thread != context->expectedWaiter)
     {
         return;
     }
@@ -516,6 +530,11 @@ void conditionVariableSignalHook(
 {
     ConditionVariableHookContext *context = g_ConditionVariableContext;
     if (!context)
+    {
+        return;
+    }
+
+    if (thread != context->expectedWaiter)
     {
         return;
     }
@@ -956,6 +975,8 @@ bool wakeBeforeBlock()
 
     g_ImmediateQueue = &queue;
     g_ImmediateChannel = channel;
+    g_ImmediateExpectedWaiter =
+        Processor::information().getCurrentThread();
     WaitQueue::setBeforeBlockHook(immediateWakeHook);
 
     auto guard = queue.acquire();
@@ -965,6 +986,7 @@ bool wakeBeforeBlock()
 
     WaitQueue::setBeforeBlockHook(nullptr);
     g_ImmediateQueue = nullptr;
+    g_ImmediateExpectedWaiter = nullptr;
 
     bool passed = true;
     passed &= check(
@@ -995,7 +1017,8 @@ bool wakeBeforeBlock()
 bool semaphoreReleaseBeforeBlock()
 {
     Semaphore semaphore(0);
-    SemaphoreHookContext context(&semaphore);
+    SemaphoreHookContext context(
+        &semaphore, Processor::information().getCurrentThread());
     g_SemaphoreContext = &context;
     WaitQueue::setBeforeBlockHook(semaphoreReleaseHook);
 
@@ -1068,7 +1091,8 @@ bool conditionVariableSignalBeforeBlock()
 {
     Mutex mutex;
     ConditionVariable condition;
-    ConditionVariableHookContext context(&condition, &mutex);
+    ConditionVariableHookContext context(
+        &condition, &mutex, Processor::information().getCurrentThread());
 
     const bool initiallyAcquired = mutex.acquire();
     g_ConditionVariableContext = &context;

@@ -32,6 +32,7 @@ class HostedInterruptState
 {
     friend class HostedProcessorState;
     friend class HostedInterruptManager;
+    friend class HostedIrqManager;
     friend class PageFaultHandler;
 
   public:

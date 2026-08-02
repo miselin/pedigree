@@ -191,7 +191,9 @@ bool HostedIrqManager::shutdownThreaded()
 
 HostedIrqManager::HostedIrqManager()
     : m_Handlers(),
-      m_ThreadedDispatcher(NumHostedIrqs, dispatchThreadedLine, this),
+      m_ThreadedDispatcher(
+          MakeConstantString("hosted IRQ bottom half"), NumHostedIrqs,
+          dispatchThreadedLine, this),
       m_ThreadedCookies(), m_ThreadedPublicationFailures()
 {
 }
@@ -268,6 +270,13 @@ bool HostedIrqManager::dispatchHandlerForTest(
     uint8_t irq, HardIrqHandler *handler, InterruptState &state, bool &handled)
 {
     return m_Instance.m_Handlers.dispatchHard(irq, state, handled, handler);
+}
+
+bool HostedIrqManager::dispatchHandlerForTest(
+    uint8_t irq, HardIrqHandler *handler, bool &handled)
+{
+    InterruptState state;
+    return dispatchHandlerForTest(irq, handler, state, handled);
 }
 
 void HostedIrqManager::withRegistryMutationLockForTest(MutationLockHook hook)

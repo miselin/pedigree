@@ -9,6 +9,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -16,9 +17,15 @@
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/assert.h"
 
+static_assert(
+    __atomic_always_lock_free(sizeof(size_t), nullptr),
+    "IRQ callback hazard words must be lock-free");
+static_assert(
+    __atomic_always_lock_free(sizeof(void *), nullptr),
+    "IRQ callback hazard pointers must be lock-free");
+
 IrqHandlerRegistry::IrqHandlerRegistry()
-    : m_Handlers(), m_ActiveDispatches(), m_DispatchWaiters(),
-      m_HandlerLock(false)
+    : m_Handlers(), m_ActiveDispatches(), m_HandlerLock(false)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
       m_HandlerPinHook(nullptr), m_HandlerPrePinHook(nullptr),
@@ -185,49 +192,40 @@ bool IrqHandlerRegistry::unpublishDispatch(
         return false;
     }
 
-    if (!committed || hasActiveDispatch(slot, admittedPublication))
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    IrqHandlerBase *releasedHandler = nullptr;
+    HandlerHazardHook releaseHook = nullptr;
+    if (committed)
     {
-        return true;
-    }
-
-    const size_t publication =
-        __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
-    if (generationOf(publication) != generationOf(admittedPublication))
-    {
-        return true;
-    }
-
-    const SlotMode mode = modeOf(publication);
-    if (mode != SlotMode::Draining && mode != SlotMode::Deferred)
-    {
-        return true;
-    }
-
-    const size_t drainGeneration = generationOf(publication);
-    auto guard = m_DispatchWaiters.acquire();
-    const size_t finalPublication =
-        __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
-    if (generationOf(finalPublication) != drainGeneration ||
-        hasActiveDispatch(slot, finalPublication))
-    {
-        return true;
-    }
-
-    if (modeOf(finalPublication) == SlotMode::Deferred)
-    {
-        IrqHandlerBase *handler =
+        releasedHandler =
             __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
-        if (handler)
+        releaseHook =
+            __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
+    }
+#endif
+
+    if (committed && !hasActiveDispatch(slot, admittedPublication))
+    {
+        const size_t publication =
+            __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+        if (generationOf(publication) == generationOf(admittedPublication) &&
+            modeOf(publication) == SlotMode::Deferred)
         {
-            retireSlot(slot, finalPublication, handler);
+            IrqHandlerBase *handler =
+                __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
+            if (handler)
+            {
+                retireSlot(slot, publication, handler);
+            }
         }
     }
 
-    if (modeOf(finalPublication) == SlotMode::Draining)
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    if (releaseHook)
     {
-        guard.wakeAll(
-            WaitQueue::WakeReason::Signalled, WaitQueue::Channel(&slot));
+        releaseHook(releasedHandler, HandlerHazardStage::Released);
     }
+#endif
     return true;
 }
 
@@ -563,19 +561,18 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandlerBase *handler)
     }
     m_HandlerLock.release();
 
-    while (true)
+    uintptr_t previousDebugAddress = 0;
+    const Thread::DebugState previousDebugState =
+        current->getDebugState(previousDebugAddress);
+    current->setDebugState(
+        Thread::CallbackDrain, reinterpret_cast<uintptr_t>(handler));
+    while (hasActiveDispatch(*slot, drainingPublication))
     {
-        auto guard = m_DispatchWaiters.acquire();
-        if (!hasActiveDispatch(*slot, drainingPublication))
-        {
-            break;
-        }
-
-        const WaitQueue::WakeReason reason = guard.waitForCompletion(
-            WaitQueue::Channel(slot), Thread::CallbackDrain,
-            reinterpret_cast<uintptr_t>(handler));
-        (void) reason;
+        // Callback release can run in hard IRQ context. It only clears its
+        // atomic hazard; this ordinary teardown thread owns all scheduling.
+        Scheduler::instance().yield();
     }
+    current->setDebugState(previousDebugState, previousDebugAddress);
 
     m_HandlerLock.acquire();
     const bool retired = retireSlot(*slot, drainingPublication, handler);

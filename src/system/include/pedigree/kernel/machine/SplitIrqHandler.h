@@ -12,10 +12,10 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/RequestQueue.h"
 
 class Device;
 class IrqManager;
@@ -36,8 +36,7 @@ class String;
  * unmask it; the base calls rearmIrqSources() only while rearm is serialised
  * against shutdown.
  */
-class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler,
-                                        private RequestQueue
+class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler
 {
   public:
     enum class HardIrqDisposition : size_t
@@ -94,8 +93,10 @@ class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler,
     virtual void rearmIrqSources(size_t work) = 0;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using RegistrationPublishedHook = void (*)(SplitIrqHandler *);
+
     HardIrqHandler *hardHandlerForTest();
-    WaitQueue *workerWaitQueueForTest();
+    void setRegistrationPublishedHookForTest(RegistrationPublishedHook hook);
     size_t publicationFailuresForTest() const;
     size_t pendingWorkForTest() const;
     size_t deferredIrqsForTest() const;
@@ -112,18 +113,17 @@ class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler,
     };
 
     bool irq(irq_id_t number, InterruptState &state) final;
-    uint64_t executeRequest(
-        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-        uint64_t p6, uint64_t p7, uint64_t p8) final;
+    static void dispatchThreaded(
+        void *context, uint8_t line, size_t cookie);
+    void dispatchThreaded();
 
     void publishWork(size_t work);
-    InterruptEnqueueResult tryPublishWork();
-    static void workReleased(void *context);
-    void workReleased();
 
     Registration m_Registrations[MaxRegistrations];
     size_t m_RegistrationCount;
-    InterruptRequest m_WorkRequest;
+    Atomic<size_t> m_LifecycleBusy;
+    Atomic<size_t> m_AcceptingRegistrations;
+    ThreadedIrqDispatcher m_Dispatcher;
     Spinlock m_StateLock;
     bool m_Quiescing;
     Atomic<size_t> m_Stopping;
@@ -132,6 +132,9 @@ class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler,
     Atomic<size_t> m_CompletedBatches;
     size_t m_PendingWork;
     bool m_Started;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    RegistrationPublishedHook m_RegistrationPublishedHook;
+#endif
 
     SplitIrqHandler(const SplitIrqHandler &) = delete;
     SplitIrqHandler &operator=(const SplitIrqHandler &) = delete;

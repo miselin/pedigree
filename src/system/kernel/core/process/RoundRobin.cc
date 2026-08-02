@@ -276,6 +276,12 @@ bool RoundRobin::runHostedIntrusiveQueueRegressions(Thread *pThread)
         predicateQueue.threadStatusChanged(pThread);
         passed &= !predicateQueue.getNext(nullptr) &&
                   pThread->m_bReadyQueued;
+        pThread->m_Status = Thread::AwaitingJoin;
+        predicateQueue.threadStatusChanged(pThread);
+        passed &= !pThread->m_bReadyQueued &&
+                  !pThread->m_pReadyPrevious && !pThread->m_pReadyNext;
+        pThread->m_Status = Thread::Ready;
+        predicateQueue.threadStatusChanged(pThread);
         g_HostedSchedulerPredicateReady = true;
         passed &= predicateQueue.getNext(nullptr) == pThread &&
                   !pThread->m_bReadyQueued;

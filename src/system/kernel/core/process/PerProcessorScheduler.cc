@@ -1039,6 +1039,10 @@ void PerProcessorScheduler::publishReadyFromWait(Thread *pThread)
 
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState &state)
 {
+    // Hard IRQ publication only changes an atomic work predicate. Consume the
+    // reschedule request at the scheduler interrupt, where a context switch is
+    // already required and no arbitrary device IRQ frame is suspended.
+    m_IrqWorkDoorbell.compareAndSwap(1, 0);
     schedule();
 
     // Check if the thread should exit.
@@ -1108,7 +1112,7 @@ void PerProcessorScheduler::serviceIrqWorkDoorbell()
     }
 
     // One bounded claim is enough: a racing ring remains set for the next
-    // interrupt exit, while the predicate-backed worker stays scheduler-
+    // scheduler tick, while the predicate-backed worker stays scheduler-
     // visible in the meantime.
     if (m_IrqWorkDoorbell.compareAndSwap(1, 0))
     {

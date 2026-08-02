@@ -10,23 +10,60 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqManager.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/String.h"
 
+namespace
+{
+class SplitLifecycleGuard
+{
+  public:
+    explicit SplitLifecycleGuard(Atomic<size_t> &busy)
+        : m_Busy(busy), m_Owned(m_Busy.compareAndSwap(0, 1))
+    {
+    }
+
+    ~SplitLifecycleGuard()
+    {
+        if (m_Owned)
+        {
+            m_Busy = 0;
+        }
+    }
+
+    bool owned() const
+    {
+        return m_Owned;
+    }
+
+  private:
+    Atomic<size_t> &m_Busy;
+    bool m_Owned;
+};
+}  // namespace
+
 SplitIrqHandler::SplitIrqHandler(const String &name)
-    : HardIrqHandler(), RequestQueue(name), m_Registrations(),
-      m_RegistrationCount(0), m_WorkRequest(&workReleased, this),
-      m_StateLock(false), m_Quiescing(true), m_Stopping(1),
-      m_PublicationFailures(0), m_DeferredIrqs(0), m_CompletedBatches(0),
-      m_PendingWork(0), m_Started(false)
+    : HardIrqHandler(), m_Registrations(), m_RegistrationCount(0),
+      m_LifecycleBusy(0), m_AcceptingRegistrations(0),
+      m_Dispatcher(name, 1, dispatchThreaded, this), m_StateLock(false),
+      m_Quiescing(true), m_Stopping(1), m_PublicationFailures(0),
+      m_DeferredIrqs(0), m_CompletedBatches(0), m_PendingWork(0),
+      m_Started(false)
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+      ,
+      m_RegistrationPublishedHook(nullptr)
+#endif
 {
 }
 
 SplitIrqHandler::~SplitIrqHandler()
 {
-    if (m_Started || m_RegistrationCount || !m_WorkRequest.isAvailable())
+    if (m_Started || m_RegistrationCount || m_LifecycleBusy ||
+        m_AcceptingRegistrations || m_Dispatcher.isInitialised() ||
+        __atomic_load_n(&m_PendingWork, __ATOMIC_ACQUIRE))
     {
         FATAL(
             "A split IRQ handler reached its base destructor while "
@@ -38,6 +75,12 @@ SplitIrqHandler::~SplitIrqHandler()
 bool SplitIrqHandler::initialiseSplitIrq()
 {
 #if THREADS
+    TerminationDeferral lifecycleTermination;
+    SplitLifecycleGuard lifecycle(m_LifecycleBusy);
+    if (!lifecycle.owned())
+    {
+        return false;
+    }
     if (m_Started || m_RegistrationCount)
     {
         return false;
@@ -47,18 +90,19 @@ bool SplitIrqHandler::initialiseSplitIrq()
     m_PublicationFailures = 0;
     m_DeferredIrqs = 0;
     m_CompletedBatches = 0;
+    m_Stopping = 1;
+    if (!m_Dispatcher.initialise())
+    {
+        return false;
+    }
     {
         LockGuard<Spinlock> guard(m_StateLock);
         m_Quiescing = false;
     }
     m_Stopping = 0;
-    RequestQueue::initialise();
-    m_Started = getLifecycleState() == LifecycleState::Accepting;
-    if (!m_Started)
-    {
-        m_Stopping = 1;
-    }
-    return m_Started;
+    m_Started = true;
+    m_AcceptingRegistrations = 1;
+    return true;
 #else
     return false;
 #endif
@@ -67,7 +111,10 @@ bool SplitIrqHandler::initialiseSplitIrq()
 irq_id_t SplitIrqHandler::registerIsaSplitIrq(
     IrqManager &manager, uint8_t irq, bool edge)
 {
-    if (!m_Started || m_Stopping || m_RegistrationCount >= MaxRegistrations)
+    TerminationDeferral lifecycleTermination;
+    SplitLifecycleGuard lifecycle(m_LifecycleBusy);
+    if (!lifecycle.owned() || !m_AcceptingRegistrations || !m_Started ||
+        m_Stopping || m_RegistrationCount >= MaxRegistrations)
     {
         return 0;
     }
@@ -78,6 +125,13 @@ irq_id_t SplitIrqHandler::registerIsaSplitIrq(
         return 0;
     }
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    if (m_RegistrationPublishedHook)
+    {
+        m_RegistrationPublishedHook(this);
+    }
+#endif
+
     Registration &registration = m_Registrations[m_RegistrationCount++];
     registration.manager = &manager;
     registration.id = id;
@@ -87,7 +141,10 @@ irq_id_t SplitIrqHandler::registerIsaSplitIrq(
 irq_id_t
 SplitIrqHandler::registerPciSplitIrq(IrqManager &manager, Device &device)
 {
-    if (!m_Started || m_Stopping || m_RegistrationCount >= MaxRegistrations)
+    TerminationDeferral lifecycleTermination;
+    SplitLifecycleGuard lifecycle(m_LifecycleBusy);
+    if (!lifecycle.owned() || !m_AcceptingRegistrations || !m_Started ||
+        m_Stopping || m_RegistrationCount >= MaxRegistrations)
     {
         return 0;
     }
@@ -98,6 +155,13 @@ SplitIrqHandler::registerPciSplitIrq(IrqManager &manager, Device &device)
         return 0;
     }
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    if (m_RegistrationPublishedHook)
+    {
+        m_RegistrationPublishedHook(this);
+    }
+#endif
+
     Registration &registration = m_Registrations[m_RegistrationCount++];
     registration.manager = &manager;
     registration.id = id;
@@ -106,11 +170,6 @@ SplitIrqHandler::registerPciSplitIrq(IrqManager &manager, Device &device)
 
 bool SplitIrqHandler::shutdownSplitIrq()
 {
-    if (!m_Started)
-    {
-        return m_RegistrationCount == 0 && m_WorkRequest.isAvailable();
-    }
-
 #if THREADS
     Thread *current = Processor::information().getCurrentThread();
     if (!current || !Processor::getInterrupts())
@@ -124,13 +183,31 @@ bool SplitIrqHandler::shutdownSplitIrq()
     }
 #endif
 
+    // Derived quiesce operations and callback drains may reach interruptible
+    // waits. Keep teardown alive until the lifecycle token has been released;
+    // declaration order makes the guard unwind before termination is enabled.
+    TerminationDeferral lifecycleTermination;
+    SplitLifecycleGuard lifecycle(m_LifecycleBusy);
+    if (!lifecycle.owned())
     {
-        auto guard = m_RequestQueueWaiters.acquire();
-        if (m_pThread == current)
-        {
-            return false;
-        }
+        return false;
     }
+
+    if (!m_Started)
+    {
+        return m_RegistrationCount == 0 && !m_AcceptingRegistrations &&
+               !m_Dispatcher.isInitialised() &&
+               !__atomic_load_n(&m_PendingWork, __ATOMIC_ACQUIRE);
+    }
+
+    if (m_Dispatcher.isCurrentWorker())
+    {
+        return false;
+    }
+
+    // Once teardown has won lifecycle ownership, failed retries may continue
+    // but no later registration can reopen a source on the draining worker.
+    m_AcceptingRegistrations = 0;
 #endif
 
     // A bottom half which wins m_StateLock first may rearm, but hardware
@@ -145,8 +222,8 @@ bool SplitIrqHandler::shutdownSplitIrq()
         return false;
     }
 
-    // Keep queue admission open until unregister has drained hard callbacks
-    // admitted before device quiescence became visible.
+    // Keep dispatcher admission open until unregister has drained hard
+    // callbacks admitted before device quiescence became visible.
     while (m_RegistrationCount)
     {
         Registration &registration = m_Registrations[m_RegistrationCount - 1];
@@ -163,7 +240,8 @@ bool SplitIrqHandler::shutdownSplitIrq()
         --m_RegistrationCount;
     }
 
-    if (!drain())
+    m_Stopping = 1;
+    if (!m_Dispatcher.shutdown())
     {
         return false;
     }
@@ -176,16 +254,13 @@ bool SplitIrqHandler::shutdownSplitIrq()
         return false;
     }
 
-    m_Stopping = 1;
-    RequestQueue::destroy();
-    if (getLifecycleState() != LifecycleState::Stopped)
+    if (__atomic_load_n(&m_PendingWork, __ATOMIC_ACQUIRE))
     {
         return false;
     }
 
-    __atomic_store_n(&m_PendingWork, static_cast<size_t>(0), __ATOMIC_RELEASE);
     m_Started = false;
-    return m_WorkRequest.isAvailable();
+    return true;
 }
 
 bool SplitIrqHandler::irq(irq_id_t number, InterruptState &state)
@@ -203,9 +278,13 @@ bool SplitIrqHandler::irq(irq_id_t number, InterruptState &state)
     return true;
 }
 
-uint64_t SplitIrqHandler::executeRequest(
-    uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
-    uint64_t)
+void SplitIrqHandler::dispatchThreaded(
+    void *context, uint8_t, size_t)
+{
+    reinterpret_cast<SplitIrqHandler *>(context)->dispatchThreaded();
+}
+
+void SplitIrqHandler::dispatchThreaded()
 {
     const size_t work = __atomic_exchange_n(
         &m_PendingWork, static_cast<size_t>(0), __ATOMIC_ACQ_REL);
@@ -221,7 +300,6 @@ uint64_t SplitIrqHandler::executeRequest(
         }
         m_CompletedBatches += 1;
     }
-    return 0;
 }
 
 void SplitIrqHandler::publishWork(size_t work)
@@ -233,40 +311,7 @@ void SplitIrqHandler::publishWork(size_t work)
 
     __atomic_or_fetch(&m_PendingWork, work, __ATOMIC_ACQ_REL);
     m_DeferredIrqs += 1;
-    const InterruptEnqueueResult result = tryPublishWork();
-    if (result != InterruptEnqueueResult::Accepted &&
-        result != InterruptEnqueueResult::TokenBusy && !m_Stopping)
-    {
-        m_PublicationFailures += 1;
-    }
-}
-
-RequestQueue::InterruptEnqueueResult SplitIrqHandler::tryPublishWork()
-{
-    InterruptEnqueueResult result = republishWhileReleasing(m_WorkRequest, 0);
-    if (result == InterruptEnqueueResult::TokenBusy)
-    {
-        result = enqueueFromInterrupt(m_WorkRequest, 0);
-    }
-    return result;
-}
-
-void SplitIrqHandler::workReleased(void *context)
-{
-    reinterpret_cast<SplitIrqHandler *>(context)->workReleased();
-}
-
-void SplitIrqHandler::workReleased()
-{
-    if (m_Stopping || !__atomic_load_n(&m_PendingWork, __ATOMIC_ACQUIRE))
-    {
-        return;
-    }
-
-    const InterruptEnqueueResult result =
-        republishWhileReleasing(m_WorkRequest, 0);
-    if (result != InterruptEnqueueResult::Accepted &&
-        result != InterruptEnqueueResult::TokenBusy && !m_Stopping)
+    if (!m_Dispatcher.publishFromInterrupt(0, 1) && !m_Stopping)
     {
         m_PublicationFailures += 1;
     }
@@ -278,9 +323,10 @@ HardIrqHandler *SplitIrqHandler::hardHandlerForTest()
     return this;
 }
 
-WaitQueue *SplitIrqHandler::workerWaitQueueForTest()
+void SplitIrqHandler::setRegistrationPublishedHookForTest(
+    RegistrationPublishedHook hook)
 {
-    return &m_RequestQueueWaiters;
+    m_RegistrationPublishedHook = hook;
 }
 
 size_t SplitIrqHandler::publicationFailuresForTest() const

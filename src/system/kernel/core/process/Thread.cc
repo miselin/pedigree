@@ -418,8 +418,10 @@ void Thread::shutdown()
     }
 
     // This is only an exit-announced scheduler state. Join completion is
-    // deliberately delayed until markReapable().
-    m_Status = AwaitingJoin;
+    // deliberately delayed until markReapable(). Predicate-backed workers
+    // can still be published on the ready queue while idle, so the status
+    // transition must also withdraw that scheduler publication.
+    setStatus(Thread::AwaitingJoin);
 }
 
 void Thread::forceToStartupProcessor()

@@ -1119,20 +1119,29 @@ class LifetimeHandler : public HardIrqHandler
 struct HandlerLifetimeContext
 {
     explicit HandlerLifetimeContext(IrqManager *manager)
-        : manager(manager), handler(*this), id(0), remover(nullptr), phase(0),
-          hookCalls(0), hookObservedDrain(0), handlerCalls(0),
-          callbacksAfterReturn(0), unregisterReturned(0),
-          unregisterSucceeded(0), failures(0)
+        : manager(manager), handler(*this), id(0), dispatcher(nullptr),
+          remover(nullptr), dispatchEntered(0), releaseDispatch(0), phase(0),
+          hookCalls(0), hookObservedDrain(0), releaseHookCalls(0),
+          releaseObservedAtomicDrain(0), dispatchAdmitted(0),
+          dispatchHandled(0), handlerCalls(0), callbacksAfterReturn(0),
+          unregisterReturned(0), unregisterSucceeded(0), failures(0)
     {
     }
 
     IrqManager *manager;
     LifetimeHandler handler;
     irq_id_t id;
+    Thread *dispatcher;
     Thread *remover;
+    Semaphore dispatchEntered;
+    Semaphore releaseDispatch;
     Atomic<size_t> phase;
     Atomic<size_t> hookCalls;
     Atomic<size_t> hookObservedDrain;
+    Atomic<size_t> releaseHookCalls;
+    Atomic<size_t> releaseObservedAtomicDrain;
+    Atomic<size_t> dispatchAdmitted;
+    Atomic<size_t> dispatchHandled;
     Atomic<size_t> handlerCalls;
     Atomic<size_t> callbacksAfterReturn;
     Atomic<size_t> unregisterReturned;
@@ -1184,44 +1193,55 @@ void handlerPinHook(IrqHandlerBase *handler)
     }
 
     context->hookCalls += 1;
-    // Hosted IRQ signals remain masked while this signal frame is live, so a
-    // tick-based deadline cannot advance here. Bound scheduler handoffs
-    // directly while the remover publishes its callback-drain state.
-    for (size_t attempt = 0; attempt < 10000; ++attempt)
+    context->dispatchEntered.release();
+    if (!context->releaseDispatch.acquireForCompletion())
     {
-        Thread::WaitDebugInfo wait = {};
-        uintptr_t debugAddress = 0;
-        if (context->phase == static_cast<size_t>(2) &&
-            context->remover->getWaitDebugInfo(wait) && wait.queue &&
-            wait.channelOwner && wait.queued &&
-            wait.reason == WaitQueue::WakeReason::Waiting &&
-            context->remover->getDebugState(debugAddress) ==
-                Thread::CallbackDrain &&
-            debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
-        {
-            break;
-        }
-        Scheduler::instance().yield();
+        context->failures += 1;
+    }
+    context->phase = 3;
+}
+
+void handlerReleaseHook(
+    IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage hazardStage)
+{
+    HandlerLifetimeContext *context = g_HandlerLifetimeContext;
+    if (!context || handler != &context->handler ||
+        hazardStage != IrqHandlerRegistry::HandlerHazardStage::Released ||
+        !context->releaseHookCalls.compareAndSwap(0, 1))
+    {
+        return;
     }
 
+    Thread *current = Processor::information().getCurrentThread();
     Thread::WaitDebugInfo wait = {};
     uintptr_t debugAddress = 0;
-    if (context->phase == static_cast<size_t>(2) &&
+    if (current && current == context->dispatcher &&
+        !current->getHostedSignalDepth() && Processor::getInterrupts() &&
+        context->phase == static_cast<size_t>(3) &&
         !context->unregisterReturned &&
-        context->remover->getWaitDebugInfo(wait) && wait.queue &&
-        wait.channelOwner && wait.queued &&
-        wait.reason == WaitQueue::WakeReason::Waiting &&
+        !context->remover->getWaitDebugInfo(wait) &&
         context->remover->getDebugState(debugAddress) ==
             Thread::CallbackDrain &&
         debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
     {
-        context->hookObservedDrain += 1;
+        context->releaseObservedAtomicDrain += 1;
     }
     else
     {
         context->failures += 1;
     }
-    context->phase = 3;
+}
+
+int dispatchPinnedHandler(void *parameter)
+{
+    HandlerLifetimeContext *context =
+        reinterpret_cast<HandlerLifetimeContext *>(parameter);
+    bool handled = false;
+    const bool admitted = HostedIrqManager::dispatchHandlerForTest(
+        2, &context->handler, handled);
+    context->dispatchAdmitted = admitted ? 1 : 0;
+    context->dispatchHandled = handled ? 1 : 0;
+    return admitted && handled ? 0 : 1;
 }
 
 int unregisterPinnedHandler(void *parameter)
@@ -1260,22 +1280,61 @@ bool handlerLifetimeBarrier()
     // Learn the manager-owned identifier before enabling the pin hook. The
     // identifier is assigned after hard registration returns, while an
     // IRQ is free to arrive as soon as the slot becomes visible.
-    context.id = manager->registerHardIsaIrqHandler(0, &context.handler);
+    context.id = manager->registerHardIsaIrqHandler(2, &context.handler);
     const bool identifierSeeded =
         context.id && manager->unregisterHandler(context.id, &context.handler);
 
     context.remover = new Thread(
         Scheduler::instance().getKernelProcess(), unregisterPinnedHandler,
-        &context, nullptr, false, true);
+        &context, nullptr, false, true, true);
     context.remover->setName("hosted IRQ-handler remover");
+    context.dispatcher = new Thread(
+        Scheduler::instance().getKernelProcess(), dispatchPinnedHandler,
+        &context, nullptr, false, true, true);
+    context.dispatcher->setName("hosted IRQ-handler dispatcher");
 
     g_HandlerLifetimeContext = &context;
     HostedIrqManager::setHandlerPinHook(handlerPinHook);
+    HostedIrqManager::setHandlerHazardHook(handlerReleaseHook);
     const irq_id_t activeId =
-        manager->registerHardIsaIrqHandler(0, &context.handler);
+        manager->registerHardIsaIrqHandler(2, &context.handler);
     const bool registered =
         identifierSeeded && activeId && activeId == context.id;
-    const bool joined = context.remover->join();
+    const bool dispatcherStarted = registered && context.dispatcher->start();
+    const bool dispatchEntered =
+        dispatcherStarted && context.dispatchEntered.acquireForCompletion();
+    const bool removerStarted = dispatchEntered && context.remover->start();
+
+    bool drainObserved = false;
+    const Time::Timestamp drainDeadline =
+        Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+    while (removerStarted && Time::getTicks() < drainDeadline)
+    {
+        Thread::WaitDebugInfo wait = {};
+        uintptr_t debugAddress = 0;
+        if (context.phase == static_cast<size_t>(2) &&
+            !context.unregisterReturned &&
+            !context.remover->getWaitDebugInfo(wait) &&
+            context.remover->getDebugState(debugAddress) ==
+                Thread::CallbackDrain &&
+            debugAddress == reinterpret_cast<uintptr_t>(&context.handler))
+        {
+            drainObserved = true;
+            context.hookObservedDrain += 1;
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+    if (!drainObserved)
+    {
+        context.failures += 1;
+    }
+    context.releaseDispatch.release();
+    const bool dispatcherJoined =
+        dispatcherStarted && context.dispatcher->joinForCompletion();
+    const bool removerJoined =
+        removerStarted && context.remover->joinForCompletion();
+    HostedIrqManager::setHandlerHazardHook(nullptr);
     HostedIrqManager::setHandlerPinHook(nullptr);
     g_HandlerLifetimeContext = nullptr;
 
@@ -1295,25 +1354,17 @@ bool handlerLifetimeBarrier()
 
     SelfRemovingHandler selfRemoving(manager, context.id);
     const irq_id_t selfId =
-        manager->registerHardIsaIrqHandler(0, &selfRemoving);
-    const Time::Timestamp selfDeadline =
-        Time::getTicks() + (250 * Time::Multiplier::Millisecond);
-    while (!selfRemoving.calls && Time::getTicks() < selfDeadline)
-    {
-        Scheduler::instance().yield();
-    }
+        manager->registerHardIsaIrqHandler(2, &selfRemoving);
+    bool selfHandled = false;
+    const bool selfAdmitted = selfId &&
+                              HostedIrqManager::dispatchHandlerForTest(
+                                  2, &selfRemoving, selfHandled);
     const size_t selfCallsAfterRetirement = selfRemoving.calls;
-    const Time::Timestamp selfQuietDeadline =
-        Time::getTicks() + (10 * Time::Multiplier::Millisecond);
-    while (Time::getTicks() < selfQuietDeadline)
-    {
-        Scheduler::instance().yield();
-    }
 
     // A callback cannot wait for its own pin. The rejected synchronous
     // contract still closes admission and retires the slot on return.
     const irq_id_t selfReregisteredId =
-        manager->registerHardIsaIrqHandler(0, &selfRemoving);
+        manager->registerHardIsaIrqHandler(2, &selfRemoving);
     const bool selfReregistered = selfReregisteredId != 0;
     bool selfCleanup = false;
     if (selfReregistered)
@@ -1332,11 +1383,18 @@ bool handlerLifetimeBarrier()
     passed &= check(
         registered, "the test handler could not be registered consistently");
     passed &= check(
-        joined && context.failures == 0,
+        dispatcherJoined && removerJoined && context.failures == 0,
         "the concurrent unregister worker did not complete cleanly");
     passed &= check(
         context.hookCalls == 1 && context.hookObservedDrain == 1,
         "unregister returned instead of waiting for the pinned callback");
+    passed &= check(
+        context.releaseHookCalls == 1 &&
+            context.releaseObservedAtomicDrain == 1,
+        "hard callback release entered a wait-queue or scheduler wake path");
+    passed &= check(
+        context.dispatchAdmitted == 1 && context.dispatchHandled == 1,
+        "the controlled registry dispatch did not reach the handler");
     passed &= check(
         context.unregisterSucceeded == 1 && context.unregisterReturned == 1,
         "the pinned handler did not unregister successfully");
@@ -1349,7 +1407,8 @@ bool handlerLifetimeBarrier()
             context.callbacksAfterReturn == 0,
         "a callback began after unregisterHandler returned");
     passed &= check(
-        selfId != 0 && selfRemoving.rejectionSeen == 1 &&
+        selfId != 0 && selfAdmitted && selfHandled &&
+            selfRemoving.rejectionSeen == 1 &&
             selfCallsAfterRetirement == 1 &&
             selfRemoving.calls == selfCallsAfterRetirement,
         "self-unregister was not deferred and retired after callback return");
@@ -1359,7 +1418,7 @@ bool handlerLifetimeBarrier()
 
     if (passed)
     {
-        NOTICE("HOSTED-WAIT-TEST: PASS irq-handler-waitqueue-drain");
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-handler-atomic-drain");
         NOTICE("HOSTED-WAIT-TEST: PASS irq-handler-lifetime");
     }
     return passed;

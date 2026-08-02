@@ -301,7 +301,9 @@ bool Pic::shutdownThreaded()
 
 Pic::Pic()
     : m_SlavePort("PIC #2"), m_MasterPort("PIC #1"), m_Handlers(), m_IrqState(),
-      m_ThreadedDispatcher(PicIrqState::LineCount, dispatchThreadedLine, this),
+      m_ThreadedDispatcher(
+          MakeConstantString("PIC IRQ bottom half"), PicIrqState::LineCount,
+          dispatchThreadedLine, this),
       m_ThreadedCookies(), m_ThreadedDispatchGenerations(),
       m_ThreadedPublicationFailures(), m_UnregisterReservations(),
       m_ShuttingDown(false), m_Lock(false)
