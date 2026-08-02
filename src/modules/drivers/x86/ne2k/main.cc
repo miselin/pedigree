@@ -43,6 +43,14 @@ static void probeDevice(Device *pDev)
 
     g_Cards.pushBack(pNe2k);
     bFound = true;
+
+    // Device(pDev) transfers the live I/O mappings into this object. Keep the
+    // inert, source-masked device owned by the module if IRQ admission failed;
+    // deleting it here would leave the original tree node without mappings.
+    if (!pNe2k->isValid())
+    {
+        ERROR("NE2K: device initialisation failed; device left disabled");
+    }
 }
 
 static bool entry()

@@ -32,15 +32,46 @@
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/MemoryPool.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 // #define NE2K_NO_THREADS
 
+namespace
+{
+constexpr uint8_t CommandPage0Stop = E8390_NODMA | E8390_PAGE0 | E8390_STOP;
+constexpr uint8_t CommandPage0Start = E8390_NODMA | E8390_PAGE0 | E8390_START;
+constexpr uint8_t CommandPage1Stop = E8390_NODMA | E8390_PAGE1 | E8390_STOP;
+constexpr uint8_t CommandPage1Start = E8390_NODMA | E8390_PAGE1 | E8390_START;
+constexpr uint8_t CommandRemoteRead = E8390_RREAD | E8390_PAGE0 | E8390_START;
+constexpr uint8_t CommandRemoteWrite = E8390_RWRITE | E8390_PAGE0 | E8390_START;
+constexpr uint8_t CommandTransmit =
+    E8390_NODMA | E8390_TRANS | E8390_PAGE0 | E8390_START;
+
+constexpr uint8_t InterruptReceive = 0x01;
+constexpr uint8_t InterruptTransmit = 0x02;
+constexpr uint8_t InterruptReceiveError = 0x04;
+constexpr uint8_t InterruptTransmitError = 0x08;
+constexpr uint8_t InterruptOverflow = 0x10;
+constexpr uint8_t InterruptCounters = 0x20;
+constexpr uint8_t InterruptRemoteDmaComplete = 0x40;
+constexpr uint8_t InterruptReset = 0x80;
+constexpr uint8_t EnabledInterrupts = InterruptReceive | InterruptReceiveError |
+                                      InterruptTransmitError |
+                                      InterruptOverflow | InterruptCounters;
+
+constexpr size_t RemoteDmaPollLimit = 1000000;
+constexpr size_t ResetPollLimit = 100000;
+constexpr size_t MinimumPacketLength = 14;
+constexpr size_t MaximumPacketLength = 1600;
+}  // namespace
+
 Ne2k::Ne2k(Network *pDev)
     : Network(pDev), m_pBase(0), m_NextPacket(0), m_PacketQueueSize(0),
-      m_PacketQueue(), m_PacketQueueLock(), m_IrqId(0), m_ReceiveThread()
+      m_PacketQueue(), m_PacketQueueLock(), m_DmaLock(), m_IrqId(0),
+      m_Stopping(false), m_NetworkRegistered(false), m_ReceiveThread()
 {
     setSpecificType(String("ne2k-card"));
 
@@ -131,23 +162,42 @@ Ne2k::Ne2k(Network *pDev)
 
     // install the IRQ
     NOTICE("NE2K: IRQ is " << getInterruptNumber());
-    m_IrqId = Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-        getInterruptNumber(), static_cast<HardIrqHandler *>(this),
-        IrqPolicy::levelHard());
+    m_IrqId = Machine::instance().getIrqManager()->registerPciIrqHandler(
+        static_cast<IrqHandler *>(this), this, IrqPolicy::pciIntxThreaded());
+    if (!m_IrqId)
+    {
+        ERROR("NE2K: could not register its PCI interrupt");
+        m_pBase->write8(CommandPage0Stop, NE_CMD);
+        m_pBase->write8(0x00, NE_IMR);
+        m_Stopping = true;
+        m_ReceiveThread.stop();
+        return;
+    }
 
     // clear interrupts and enable the ones we want
     m_pBase->write8(0xff, NE_ISR);
-    m_pBase->write8(0x3D, NE_IMR);  // No IRQ for "packet transmitted"
+    m_pBase->write8(
+        EnabledInterrupts, NE_IMR);  // No IRQ for successful transmission.
 
     // start the card working properly
-    m_pBase->write8(0x22, NE_CMD);
+    m_pBase->write8(CommandPage0Start, NE_CMD);
 
     NetworkStack::instance().registerDevice(this);
+    m_NetworkRegistered = true;
 }
 
 Ne2k::~Ne2k()
 {
-    m_pBase->write8(0x00, NE_IMR);
+    {
+        LockGuard<Mutex> dmaGuard(m_DmaLock);
+        m_Stopping = true;
+        // NE_IMR aliases a multicast register outside page zero. Normalise the
+        // page while callback and transmit register access is excluded.
+        m_pBase->write8(CommandPage0Stop, NE_CMD);
+        m_pBase->write8(0x00, NE_IMR);
+        m_pBase->write8(0x00, NE_RBCR0);
+        m_pBase->write8(0x00, NE_RBCR1);
+    }
     if (m_IrqId &&
         !Machine::instance().getIrqManager()->unregisterHandler(m_IrqId, this))
     {
@@ -156,7 +206,11 @@ Ne2k::~Ne2k()
     m_IrqId = 0;
 
     m_ReceiveThread.stop();
-    NetworkStack::instance().deRegisterDevice(this);
+    if (m_NetworkRegistered)
+    {
+        NetworkStack::instance().deRegisterDevice(this);
+        m_NetworkRegistered = false;
+    }
 
     LockGuard<Spinlock> guard(m_PacketQueueLock);
     while (m_PacketQueue.count())
@@ -175,22 +229,49 @@ Ne2k::~Ne2k()
 
 bool Ne2k::send(size_t nBytes, uintptr_t buffer)
 {
-    if (nBytes > 0xffff)
+    if (!nBytes || nBytes > MaximumPacketLength)
     {
-        ERROR("NE2K: Attempt to send a packet with size > 64 KB");
+        ERROR("NE2K: invalid transmit packet length " << Dec << nBytes << Hex);
+        return false;
+    }
+
+    LockGuard<Mutex> dmaGuard(m_DmaLock);
+    if (m_Stopping || !m_IrqId)
+    {
+        return false;
+    }
+
+    const size_t transmitLength = nBytes < 64 ? 64 : nBytes;
+    const size_t dmaLength = (transmitLength + 1) & ~static_cast<size_t>(1);
+
+    // A second upload must not overwrite the single transmit page while the
+    // 8390 is still sending from it.
+    bool transmitterIdle = false;
+    for (size_t transmitPoll = 0; transmitPoll < RemoteDmaPollLimit;
+         ++transmitPoll)
+    {
+        if (!(m_pBase->read8(NE_CMD) & E8390_TRANS))
+        {
+            transmitterIdle = true;
+            break;
+        }
+        Processor::pause();
+    }
+    if (!transmitterIdle)
+    {
+        ERROR("NE2K: transmitter did not become idle");
+        resetController();
         return false;
     }
 
     // length & address for the write
+    m_pBase->write8(CommandPage0Start, NE_CMD);
+    m_pBase->write8(InterruptRemoteDmaComplete, NE_ISR);
     m_pBase->write8(0, NE_RSAR0);
     m_pBase->write8(PAGE_TX, NE_RSAR1);
-
-    m_pBase->write8(
-        (nBytes > 64) ? nBytes & 0xff : 64,
-        NE_RBCR0);  // always send at least 64 bytes
-    m_pBase->write8(nBytes >> 8, NE_RBCR1);
-
-    m_pBase->write8(0x12, NE_CMD);  // write, start
+    m_pBase->write8(dmaLength & 0xff, NE_RBCR0);
+    m_pBase->write8(dmaLength >> 8, NE_RBCR1);
+    m_pBase->write8(CommandRemoteWrite, NE_CMD);
 
     uint16_t *data = reinterpret_cast<uint16_t *>(buffer);
     size_t i;
@@ -200,85 +281,265 @@ bool Ne2k::send(size_t nBytes, uintptr_t buffer)
     // handle odd byte
     if (nBytes & 1)
     {
-        if (nBytes < 64)
-        {
-            m_pBase->write8(data[i / 2] & 0xff, NE_DATA);
-            i += 2;
-        }
-        else
-        {
-            m_pBase->write8(data[i / 2] & 0xff, NE_DATA);
-            i++;
-        }
+        const uint8_t *bytes = reinterpret_cast<const uint8_t *>(buffer);
+        m_pBase->write16(bytes[i], NE_DATA);
+        i += 2;
     }
 
-    // pad the packet to 64 bytes
-    for (; i < 64; i += 2)
+    // Pad short and odd-sized transfers without reading beyond the caller's
+    // packet. The transmitter byte count still excludes the DMA alignment.
+    for (; i < dmaLength; i += 2)
         m_pBase->write16(0, NE_DATA);
 
     // let it complete
-    while (!(m_pBase->read8(NE_ISR) & 0x40))
-        ;
-    m_pBase->write8(0x40, NE_ISR);
+    if (!waitForRemoteDma())
+    {
+        ERROR("NE2K: remote DMA write timed out");
+        resetController();
+        return false;
+    }
+    m_pBase->write8(InterruptRemoteDmaComplete, NE_ISR);
 
     // execute the transmission
-    m_pBase->write8((nBytes > 64) ? nBytes & 0xff : 64, NE_TBCR0);
-    m_pBase->write8(nBytes >> 8, NE_TBCR1);
+    m_pBase->write8(transmitLength & 0xff, NE_TBCR0);
+    m_pBase->write8(transmitLength >> 8, NE_TBCR1);
 
     m_pBase->write8(PAGE_TX, NE_TPSR);
 
-    m_pBase->write8(0x26, NE_CMD);
+    // PTX is not enabled in IMR, so retire a previous completion before TXP
+    // starts a new lifetime. Overflow recovery can then distinguish whether
+    // this transmission completed while the receiver was being stopped.
+    m_pBase->write8(InterruptTransmit | InterruptTransmitError, NE_ISR);
+    m_pBase->write8(CommandTransmit, NE_CMD);
 
     // success!
     return true;
 }
 
-void Ne2k::recv()
+bool Ne2k::waitForRemoteDma()
 {
-    // Grab the current buffer in the ring
-    m_pBase->write8(0x61, NE_CMD);
-    uint8_t current = m_pBase->read8(NE_CURR);
-    m_pBase->write8(0x21, NE_CMD);
-
-    // Read packets until the current packet
-    while (m_NextPacket != current)
+    for (size_t i = 0; i < RemoteDmaPollLimit; ++i)
     {
+        if (m_pBase->read8(NE_ISR) & InterruptRemoteDmaComplete)
+        {
+            return true;
+        }
+        Processor::pause();
+    }
+    return false;
+}
+
+bool Ne2k::resetController()
+{
+    m_pBase->write8(CommandPage0Stop, NE_CMD);
+    m_pBase->write8(0x00, NE_IMR);
+
+    const uint8_t resetLatch = m_pBase->read8(NE_RESET);
+    m_pBase->write8(resetLatch, NE_RESET);
+
+    bool resetComplete = false;
+    for (size_t i = 0; i < ResetPollLimit; ++i)
+    {
+        if (m_pBase->read8(NE_ISR) & InterruptReset)
+        {
+            resetComplete = true;
+            break;
+        }
+        Processor::pause();
+    }
+    if (!resetComplete)
+    {
+        ERROR("NE2K: controller reset timed out");
+        m_pBase->write8(CommandPage0Stop, NE_CMD);
+        m_pBase->write8(0x00, NE_IMR);
+        return false;
+    }
+
+    // Re-establish all page-window and ring state. A DMA timeout leaves the
+    // remote count/address registers untrustworthy, so merely clearing RDC is
+    // not sufficient before the next transfer.
+    m_pBase->write8(CommandPage0Stop, NE_CMD);
+    m_pBase->write8(0x09, NE_DCR);
+    m_pBase->write8(0x00, NE_RBCR0);
+    m_pBase->write8(0x00, NE_RBCR1);
+    m_pBase->write8(0x20, NE_RCR);
+    m_pBase->write8(E8390_TXOFF, NE_TCR);
+    m_pBase->write8(PAGE_TX, NE_TPSR);
+    m_pBase->write8(PAGE_RX, NE_PSTART);
+    m_pBase->write8(PAGE_RX, NE_BNDRY);
+    m_pBase->write8(PAGE_STOP, NE_PSTOP);
+    m_pBase->write8(0xff, NE_ISR);
+    m_pBase->write8(0x00, NE_IMR);
+
+    m_pBase->write8(CommandPage1Stop, NE_CMD);
+    for (size_t i = 0; i < 6; ++i)
+    {
+        m_pBase->write8(m_StationInfo.mac[i], NE_PAR + i);
+    }
+    m_pBase->write8(PAGE_RX + 1, NE_CURR);
+    for (size_t i = 0; i < MAR_SIZE; ++i)
+    {
+        m_pBase->write8(0xff, NE_MAR + i);
+    }
+
+    m_NextPacket = PAGE_RX + 1;
+    m_pBase->write8(CommandPage0Stop, NE_CMD);
+    m_pBase->write8(0x14, NE_RCR);
+    m_pBase->write8(E8390_TXCONFIG, NE_TCR);
+    m_pBase->write8(0xff, NE_ISR);
+    m_pBase->write8(EnabledInterrupts, NE_IMR);
+    m_pBase->write8(CommandPage0Start, NE_CMD);
+    return true;
+}
+
+bool Ne2k::recoverReceiveOverflow(uint8_t irqStatus)
+{
+    const bool wasTransmitting = (m_pBase->read8(NE_CMD) & E8390_TRANS) != 0;
+
+    // National Semiconductor's overrun sequence requires the receiver to be
+    // stopped for at least one full frame time before its remote count is
+    // cleared. The reset-complete bit is explicitly not reliable here.
+    m_pBase->write8(CommandPage0Stop, NE_CMD);
+    if (!Time::delay(10 * Time::Multiplier::Millisecond))
+    {
+        return resetController();
+    }
+    m_pBase->write8(0x00, NE_RBCR0);
+    m_pBase->write8(0x00, NE_RBCR1);
+
+    const uint8_t completion = (irqStatus | m_pBase->read8(NE_ISR)) &
+                               (InterruptTransmit | InterruptTransmitError);
+    const bool resend = wasTransmitting && !completion;
+
+    // Clear captured non-overrun causes before draining. A new receive during
+    // the drain then leaves RX set for the next bounded pass.
+    m_pBase->write8(irqStatus & ~InterruptOverflow, NE_ISR);
+    m_pBase->write8(completion, NE_ISR);
+    m_pBase->write8(E8390_TXOFF, NE_TCR);
+    m_pBase->write8(CommandPage0Start, NE_CMD);
+
+    if (!recv())
+    {
+        return resetController();
+    }
+
+    m_pBase->write8(InterruptOverflow, NE_ISR);
+    m_pBase->write8(E8390_TXCONFIG, NE_TCR);
+    if (resend)
+    {
+        m_pBase->write8(CommandTransmit, NE_CMD);
+    }
+    return true;
+}
+
+void Ne2k::advanceReceiveBoundary(uint8_t nextPacket)
+{
+    m_NextPacket = nextPacket;
+    m_pBase->write8(
+        (m_NextPacket == PAGE_RX) ? (PAGE_STOP - 1) : (m_NextPacket - 1),
+        NE_BNDRY);
+}
+
+bool Ne2k::recv()
+{
+    constexpr size_t RingPageCount = PAGE_STOP - PAGE_RX;
+
+    for (size_t packets = 0; packets < RingPageCount; ++packets)
+    {
+        // Refresh CURR for every packet. A packet arriving after the IRQ was
+        // acknowledged must either be drained here or raise the source again.
+        m_pBase->write8(CommandPage1Start, NE_CMD);
+        const uint8_t current = m_pBase->read8(NE_CURR);
+        m_pBase->write8(CommandPage0Start, NE_CMD);
+        if (current < PAGE_RX || current >= PAGE_STOP)
+        {
+            ERROR("NE2K: receive ring reported an invalid current page");
+            return false;
+        }
+        if (m_NextPacket == current)
+        {
+            return true;
+        }
+
         // Want status and length
+        m_pBase->write8(InterruptRemoteDmaComplete, NE_ISR);
         m_pBase->write8(0, NE_RSAR0);
         m_pBase->write8(m_NextPacket, NE_RSAR1);
         m_pBase->write8(4, NE_RBCR0);
         m_pBase->write8(0, NE_RBCR1);
-        m_pBase->write8(0x0a, NE_CMD);  // Read, Start
+        m_pBase->write8(CommandRemoteRead, NE_CMD);
 
         // Grab the information we want
-        uint16_t status = m_pBase->read16(NE_DATA);
-        uint16_t length = m_pBase->read16(NE_DATA);
-
-        if (!length)
+        const uint16_t status = m_pBase->read16(NE_DATA);
+        const uint16_t rawLength = m_pBase->read16(NE_DATA);
+        if (!waitForRemoteDma())
         {
-            ERROR("NE2K: length of packet is invalid!");
+            ERROR("NE2K: receive header DMA timed out");
+            return false;
+        }
+        m_pBase->write8(InterruptRemoteDmaComplete, NE_ISR);
+
+        const uint8_t nextPacket = status >> 8;
+        const bool nextInRing = nextPacket >= PAGE_RX && nextPacket < PAGE_STOP;
+        const bool validLength =
+            rawLength >= 4 + MinimumPacketLength &&
+            (static_cast<size_t>(rawLength) - 4) <= MaximumPacketLength;
+        bool validNext = false;
+        if (nextInRing && validLength)
+        {
+            // The 8390 header count excludes the four-byte ring header. Some
+            // clones round the next page one page higher, which is the only
+            // tolerated discrepancy.
+            size_t expected =
+                m_NextPacket + 1 + (static_cast<size_t>(rawLength) >> 8);
+            while (expected >= PAGE_STOP)
+            {
+                expected -= RingPageCount;
+            }
+            size_t roundedExpected = expected + 1;
+            if (roundedExpected >= PAGE_STOP)
+            {
+                roundedExpected = PAGE_RX;
+            }
+            validNext = nextPacket == expected || nextPacket == roundedExpected;
+        }
+        const bool receiveOk = (status & InterruptReceive) != 0;
+        if (!validNext || !validLength || !receiveOk)
+        {
+            WARNING(
+                "NE2K: dropping corrupt receive-ring entry (status="
+                << Hex << status << ", length=" << Dec << rawLength << Hex
+                << ")");
+            // A valid next pointer preserves later packets. A corrupt pointer
+            // cannot be retried safely, so drop the visible ring contents.
+            advanceReceiveBoundary(
+                (validNext && validLength) ? nextPacket : current);
             continue;
         }
 
-        // Remove the status and length bytes
-        length -= 3;
+        // The 8390 byte count includes the four-byte Ethernet CRC.
+        const uint16_t length = rawLength - 4;
+        // Remote byte count decrements by two in word mode. Round the hardware
+        // transfer up while keeping the packet handed to the stack exact.
+        const uint16_t dmaLength = (length + 1) & ~static_cast<uint16_t>(1);
 
         // packet buffer
         uint8_t *tmp = reinterpret_cast<uint8_t *>(
-            NetworkStack::instance().getMemPool().allocate());
+            NetworkStack::instance().getMemPool().allocateNow());
+        if (!tmp)
+        {
+            advanceReceiveBoundary(nextPacket);
+            continue;
+        }
         uint16_t *packBuffer = reinterpret_cast<uint16_t *>(tmp);
         ByteSet(tmp, 0, length);
 
-        // check status, new read for the rest of the packet
-        while (!(m_pBase->read8(NE_ISR) & 0x40))
-            ;
-        m_pBase->write8(0x40, NE_ISR);
-
+        m_pBase->write8(InterruptRemoteDmaComplete, NE_ISR);
         m_pBase->write8(4, NE_RSAR0);
         m_pBase->write8(m_NextPacket, NE_RSAR1);
-        m_pBase->write8((length) & 0xff, NE_RBCR0);
-        m_pBase->write8((length) >> 8, NE_RBCR1);
-        m_pBase->write8(0x0a, NE_CMD);
+        m_pBase->write8(dmaLength & 0xff, NE_RBCR0);
+        m_pBase->write8(dmaLength >> 8, NE_RBCR1);
+        m_pBase->write8(CommandRemoteRead, NE_CMD);
 
         // read the packet
         int i, words = length / 2, oddbytes = length % 2;
@@ -292,16 +553,17 @@ void Ne2k::recv()
                     0xFF;  // odd packet length handler
         }
 
-        // check status once again
-        while (!(m_pBase->read8(NE_ISR) & 0x40))
-            ;  // no interrupts at all, this wastes time...
-        m_pBase->write8(0x40, NE_ISR);
+        if (!waitForRemoteDma())
+        {
+            ERROR("NE2K: receive payload DMA timed out");
+            NetworkStack::instance().getMemPool().free(
+                reinterpret_cast<uintptr_t>(tmp));
+            advanceReceiveBoundary(nextPacket);
+            return false;
+        }
+        m_pBase->write8(InterruptRemoteDmaComplete, NE_ISR);
 
-        // set the next packet, inform the card of the new boundary
-        m_NextPacket = status >> 8;
-        m_pBase->write8(
-            (m_NextPacket == PAGE_RX) ? (PAGE_STOP - 1) : (m_NextPacket - 1),
-            NE_BNDRY);
+        advanceReceiveBoundary(nextPacket);
 
         // push onto the queue
         packet *p = new packet;
@@ -325,6 +587,9 @@ void Ne2k::recv()
 
 #endif
     }
+
+    WARNING("NE2K: receive ring drain exceeded its page budget");
+    return false;
 }
 
 int Ne2k::trampoline(void *p)
@@ -352,8 +617,15 @@ void Ne2k::receiveThread()
 
         if (!p)
             continue;
-        else if (!p->ptr || !p->len)
+        if (!p->ptr || !p->len)
+        {
+            if (p->ptr)
+            {
+                NetworkStack::instance().getMemPool().free(p->ptr);
+            }
+            delete p;
             continue;
+        }
 
         // pass to the network stack
         NetworkStack::instance().receive(p->len, p->ptr, this, 0);
@@ -405,43 +677,58 @@ const StationInfo &Ne2k::getStationInfo()
     return m_StationInfo;
 }
 
-bool Ne2k::irq(irq_id_t number, InterruptState &state)
+IrqDisposition Ne2k::irq(irq_id_t number)
 {
-    // Grab the interrupt status
-    uint8_t irqStatus = m_pBase->read8(NE_ISR);
+    constexpr size_t PassLimit = 8;
+    bool handled = false;
+    (void) number;
 
-    // Handle packet received - recv will handle all interim packets as well
-    // as the one which triggered the IRQ
-    if (irqStatus & 0x05)
+    LockGuard<Mutex> dmaGuard(m_DmaLock);
+    if (m_Stopping)
     {
-        m_pBase->write8(0x3D, NE_IMR);  // RECV
-        recv();
-        m_pBase->write8(0x3D, NE_IMR);  // Enable recv interrupts again
+        return IrqDisposition::NotHandled;
     }
-
-    // Handle packet transmitted
-    if (irqStatus & 0x0A)
+    for (size_t pass = 0; pass < PassLimit; ++pass)
     {
-        // Failure?
-        if (irqStatus & 0x8)
+        const uint8_t irqStatus = m_pBase->read8(NE_ISR) & EnabledInterrupts;
+        if (!irqStatus)
+        {
+            break;
+        }
+        handled = true;
+
+        if (irqStatus & InterruptOverflow)
+        {
+            WARNING("NE2K: Receive buffer overflow");
+            if (!recoverReceiveOverflow(irqStatus))
+            {
+                ERROR("NE2K: receive overflow recovery failed");
+            }
+            continue;
+        }
+
+        // Acknowledge the captured bits before draining. If another packet
+        // arrives during the drain it sets RX again and the next pass owns it.
+        m_pBase->write8(irqStatus, NE_ISR);
+
+        if (irqStatus & (InterruptReceive | InterruptReceiveError))
+        {
+            if (!recv())
+            {
+                resetController();
+            }
+        }
+        if (irqStatus & InterruptTransmitError)
+        {
             WARNING("NE2K: Packet transmit failed!");
+        }
+        if (irqStatus & InterruptCounters)
+        {
+            WARNING("NE2K: Counter overflow");
+        }
     }
 
-    // Overflows
-    /// \todo Handle properly
-    if (irqStatus & 0x10)
-    {
-        WARNING("NE2K: Receive buffer overflow");
-    }
-    if (irqStatus & 0x20)
-    {
-        WARNING("NE2K: Counter overflow");
-    }
-
-    // Ack all status items
-    m_pBase->write8(irqStatus, NE_ISR);
-
-    return true;
+    return handled ? IrqDisposition::Handled : IrqDisposition::NotHandled;
 }
 
 bool Ne2k::isConnected()

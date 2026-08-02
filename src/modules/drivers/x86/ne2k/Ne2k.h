@@ -25,9 +25,9 @@
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -39,7 +39,7 @@ class IoBase;
 #define NE2K_DEVICE_ID 0x8029
 
 /** Device driver for the NE2K class of network device */
-class Ne2k : public Network, public HardIrqHandler
+class Ne2k : public Network, public IrqHandler
 {
   public:
     Ne2k(Network *pDev);
@@ -57,14 +57,22 @@ class Ne2k : public Network, public HardIrqHandler
     virtual const StationInfo &getStationInfo();
 
     // IRQ handler callback.
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    virtual IrqDisposition irq(irq_id_t number);
 
     IoBase *m_pBase;
 
     bool isConnected();
+    bool isValid() const
+    {
+        return m_IrqId != 0 && m_NetworkRegistered;
+    }
 
   private:
-    void recv();
+    bool recv();
+    bool waitForRemoteDma();
+    bool resetController();
+    bool recoverReceiveOverflow(uint8_t irqStatus);
+    void advanceReceiveBoundary(uint8_t nextPacket);
 
     static int trampoline(void *p) NORETURN;
 
@@ -81,8 +89,11 @@ class Ne2k : public Network, public HardIrqHandler
     List<packet *> m_PacketQueue;
 
     Spinlock m_PacketQueueLock;
+    Mutex m_DmaLock;
 
     irq_id_t m_IrqId;
+    bool m_Stopping;
+    bool m_NetworkRegistered;
     OwnedThread m_ReceiveThread;
 
     Ne2k(const Ne2k &);
