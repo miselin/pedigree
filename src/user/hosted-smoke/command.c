@@ -14,6 +14,7 @@
 #include <sys/klog.h>
 #include <sys/reboot.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 struct loopback_server
@@ -35,7 +36,101 @@ enum
 {
     loopback_phase_yields = 4096,
     loopback_blocking_window_yields = 32,
+    compute_probe_sleep_us = 500000,
+    compute_probe_fallback_ns = 2000000000ULL,
+    compute_probe_latest_wake_ns = 1500000000ULL,
 };
+
+struct compute_preemption_probe
+{
+    int stop;
+    int fallback;
+    uint64_t counters[2];
+};
+
+struct compute_preemption_worker
+{
+    struct compute_preemption_probe *probe;
+    int index;
+};
+
+static uint64_t monotonic_nanoseconds(void)
+{
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+    {
+        return 0;
+    }
+    return ((uint64_t) now.tv_sec * 1000000000ULL) + now.tv_nsec;
+}
+
+static void *run_compute_preemption_worker(void *parameter)
+{
+    struct compute_preemption_worker *worker = parameter;
+    struct compute_preemption_probe *probe = worker->probe;
+    const uint64_t started = monotonic_nanoseconds();
+    const uint64_t deadline = started + compute_probe_fallback_ns;
+
+    while (!__atomic_load_n(&probe->stop, __ATOMIC_ACQUIRE))
+    {
+        const uint64_t count = __atomic_add_fetch(
+            &probe->counters[worker->index], 1, __ATOMIC_RELAXED);
+        if ((count & 0x3fff) == 0)
+        {
+            const uint64_t now = monotonic_nanoseconds();
+            if (!now || now >= deadline)
+            {
+                __atomic_store_n(&probe->fallback, 1, __ATOMIC_RELEASE);
+                sched_yield();
+            }
+        }
+    }
+
+    return 0;
+}
+
+static int run_compute_preemption_test(void)
+{
+    struct compute_preemption_probe probe;
+    memset(&probe, 0, sizeof(probe));
+    struct compute_preemption_worker workers[2] = {
+        {&probe, 0},
+        {&probe, 1},
+    };
+    pthread_t threads[2];
+
+    if (pthread_create(
+            &threads[0], 0, run_compute_preemption_worker, &workers[0]))
+    {
+        return 1;
+    }
+    if (pthread_create(
+            &threads[1], 0, run_compute_preemption_worker, &workers[1]))
+    {
+        __atomic_store_n(&probe.stop, 1, __ATOMIC_RELEASE);
+        pthread_join(threads[0], 0);
+        return 2;
+    }
+
+    const uint64_t started = monotonic_nanoseconds();
+    const int sleep_result = usleep(compute_probe_sleep_us);
+    const uint64_t elapsed = monotonic_nanoseconds() - started;
+    __atomic_store_n(&probe.stop, 1, __ATOMIC_RELEASE);
+
+    const int first_join = pthread_join(threads[0], 0);
+    const int second_join = pthread_join(threads[1], 0);
+    if (
+        sleep_result || first_join || second_join ||
+        __atomic_load_n(&probe.fallback, __ATOMIC_ACQUIRE) ||
+        !__atomic_load_n(&probe.counters[0], __ATOMIC_ACQUIRE) ||
+        !__atomic_load_n(&probe.counters[1], __ATOMIC_ACQUIRE) ||
+        elapsed > compute_probe_latest_wake_ns)
+    {
+        return 3;
+    }
+
+    return 0;
+}
 
 static int wait_for_phase(struct loopback_server *server, int phase)
 {
@@ -219,6 +314,21 @@ int main(int argc, char **argv)
     klog(LOG_INFO, "HOSTED-SMOKE: simple userspace command ran");
     if (!strcmp(stage, "command"))
     {
+        const int preemption_result = run_compute_preemption_test();
+        if (preemption_result)
+        {
+            klog(
+                LOG_ERR,
+                "HOSTED-SMOKE: FAIL userspace-compute-preemption: %d",
+                preemption_result);
+        }
+        else
+        {
+            klog(
+                LOG_INFO,
+                "HOSTED-SMOKE: PASS userspace-compute-preemption");
+        }
+
         const int loopback_result = run_loopback_test();
         if (loopback_result)
         {
