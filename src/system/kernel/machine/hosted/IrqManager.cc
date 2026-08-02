@@ -23,6 +23,8 @@
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -34,6 +36,10 @@ namespace __pedigree_hosted
 using namespace __pedigree_hosted;
 
 #include <signal.h>
+
+static_assert(
+    __atomic_always_lock_free(sizeof(size_t), nullptr),
+    "hosted IRQ line-lifetime ownership must remain lock-free");
 
 namespace
 {
@@ -59,7 +65,51 @@ bool irqForSignal(size_t signal, uint8_t &irq)
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 HostedIrqManager::DiagnosticPublicationHook diagnosticPublicationHook = nullptr;
+HostedIrqManager::LineOwnershipHook lineOwnershipHook = nullptr;
 #endif
+
+class HostedLineLifecycleGuard
+{
+  public:
+    HostedLineLifecycleGuard(size_t &busy, uint8_t irq)
+        : m_Busy(busy), m_Owned(false)
+    {
+        size_t expected = 0;
+        m_Owned = __atomic_compare_exchange_n(
+            &m_Busy, &expected, static_cast<size_t>(1), false, __ATOMIC_ACQUIRE,
+            __ATOMIC_RELAXED);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        if (!m_Owned)
+        {
+            HostedIrqManager::LineOwnershipHook hook =
+                __atomic_load_n(&lineOwnershipHook, __ATOMIC_ACQUIRE);
+            if (hook)
+            {
+                hook(
+                    irq,
+                    HostedIrqManager::LineOwnershipStage::AdmissionRejected, 0);
+            }
+        }
+#endif
+    }
+
+    ~HostedLineLifecycleGuard()
+    {
+        if (m_Owned)
+        {
+            __atomic_store_n(&m_Busy, static_cast<size_t>(0), __ATOMIC_RELEASE);
+        }
+    }
+
+    bool owned() const
+    {
+        return m_Owned;
+    }
+
+  private:
+    size_t &m_Busy;
+    bool m_Owned;
+};
 }  // namespace
 
 HostedIrqManager HostedIrqManager::m_Instance;
@@ -82,8 +132,20 @@ irq_id_t HostedIrqManager::registerIsaIrqHandler(
             !policy.validForThreaded()))
         return 0;
 
-    if (!m_Handlers.registerThreadedHandler(irq, handler, policy))
-        return 0;
+    TerminationDeferral lifecycleTermination(
+        lifecycleTerminationCanBeDeferred());
+    {
+        HostedLineLifecycleGuard lifecycle(m_LineLifecycleBusy[irq], irq);
+        if (!lifecycle.owned())
+        {
+            return 0;
+        }
+
+        if (!m_Handlers.registerThreadedHandler(irq, handler, policy))
+        {
+            return 0;
+        }
+    }
 
     publishDiagnosticLine(irq);
 
@@ -98,8 +160,20 @@ irq_id_t HostedIrqManager::registerHardIsaIrqHandler(
             !policy.validForHard()))
         return 0;
 
-    if (!m_Handlers.registerHardHandler(irq, handler, policy))
-        return 0;
+    TerminationDeferral lifecycleTermination(
+        lifecycleTerminationCanBeDeferred());
+    {
+        HostedLineLifecycleGuard lifecycle(m_LineLifecycleBusy[irq], irq);
+        if (!lifecycle.owned())
+        {
+            return 0;
+        }
+
+        if (!m_Handlers.registerHardHandler(irq, handler, policy))
+        {
+            return 0;
+        }
+    }
 
     publishDiagnosticLine(irq);
 
@@ -119,8 +193,20 @@ irq_id_t HostedIrqManager::registerPciIrqHandler(
             policy.trigger() != IrqTrigger::Level))
         return 0;
 
-    if (!m_Handlers.registerThreadedHandler(irq, handler, policy))
-        return 0;
+    TerminationDeferral lifecycleTermination(
+        lifecycleTerminationCanBeDeferred());
+    {
+        HostedLineLifecycleGuard lifecycle(m_LineLifecycleBusy[irq], irq);
+        if (!lifecycle.owned())
+        {
+            return 0;
+        }
+
+        if (!m_Handlers.registerThreadedHandler(irq, handler, policy))
+        {
+            return 0;
+        }
+    }
 
     publishDiagnosticLine(irq);
 
@@ -138,8 +224,20 @@ irq_id_t HostedIrqManager::registerHardPciIrqHandler(
             !policy.validForHard() || policy.trigger() != IrqTrigger::Level))
         return 0;
 
-    if (!m_Handlers.registerHardHandler(irq, handler, policy))
-        return 0;
+    TerminationDeferral lifecycleTermination(
+        lifecycleTerminationCanBeDeferred());
+    {
+        HostedLineLifecycleGuard lifecycle(m_LineLifecycleBusy[irq], irq);
+        if (!lifecycle.owned())
+        {
+            return 0;
+        }
+
+        if (!m_Handlers.registerHardHandler(irq, handler, policy))
+        {
+            return 0;
+        }
+    }
 
     publishDiagnosticLine(irq);
 
@@ -154,14 +252,40 @@ bool HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
         return false;
     }
 
-    const IrqHandlerRegistry::UnregisterResult result =
-        m_Handlers.unregisterHandler(irq, handler);
-    if ((result == IrqHandlerRegistry::UnregisterResult::Completed ||
-         result == IrqHandlerRegistry::UnregisterResult::Deferred) &&
-        !m_Handlers.handlerCount(irq))
+    TerminationDeferral lifecycleTermination(
+        lifecycleTerminationCanBeDeferred());
+    IrqHandlerRegistry::UnregisterResult result;
     {
-        __atomic_add_fetch(
-            &m_ThreadedCookies[irq], static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+        HostedLineLifecycleGuard lifecycle(m_LineLifecycleBusy[irq], irq);
+        if (!lifecycle.owned())
+        {
+            return false;
+        }
+
+        result = m_Handlers.unregisterHandler(irq, handler);
+        const bool removed =
+            result == IrqHandlerRegistry::UnregisterResult::Completed ||
+            result == IrqHandlerRegistry::UnregisterResult::Deferred;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        LineOwnershipHook hook =
+            __atomic_load_n(&lineOwnershipHook, __ATOMIC_ACQUIRE);
+        if (removed && hook)
+        {
+            hook(irq, LineOwnershipStage::BeforeFinalStateCheck, 0);
+        }
+#endif
+        if (removed && !m_Handlers.handlerCount(irq))
+        {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+            if (hook)
+            {
+                hook(irq, LineOwnershipStage::BeforeFinalCookieAdvance, 0);
+            }
+#endif
+            __atomic_add_fetch(
+                &m_ThreadedCookies[irq], static_cast<size_t>(1),
+                __ATOMIC_ACQ_REL);
+        }
     }
     // Atomic removal can briefly publish Draining before restoring Enabled
     // when a callback is active. Refresh rejected mutations as well so an
@@ -219,12 +343,19 @@ HostedIrqManager::HostedIrqManager()
                         MakeConstantString("hosted IRQ bottom half"),
                         NumHostedIrqs, dispatchThreadedLine, this),
       m_ThreadedCookies(), m_ThreadedPublicationFailures(),
-      m_DispatchGenerations(), m_Diagnostics()
+      m_DispatchGenerations(), m_Diagnostics(), m_LineLifecycleBusy()
 {
     for (size_t irq = 0; irq < NumHostedIrqs; ++irq)
     {
         publishDiagnosticLine(static_cast<uint8_t>(irq));
     }
+}
+
+bool HostedIrqManager::lifecycleTerminationCanBeDeferred() const
+{
+    Thread *current = Processor::information().getCurrentThread();
+    return current && Processor::getInterrupts() &&
+           !current->getHostedSignalDepth() && !Processor::inDeviceHardIrq();
 }
 
 void HostedIrqManager::publishDiagnosticLine(uint8_t irq)
@@ -409,6 +540,14 @@ void HostedIrqManager::dispatchThreadedLine(
     void *context, uint8_t irq, size_t cookie)
 {
     HostedIrqManager *manager = reinterpret_cast<HostedIrqManager *>(context);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    LineOwnershipHook hook =
+        __atomic_load_n(&lineOwnershipHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(irq, LineOwnershipStage::BeforeThreadedCookieValidation, cookie);
+    }
+#endif
     if (cookie !=
         __atomic_load_n(&manager->m_ThreadedCookies[irq], __ATOMIC_ACQUIRE))
     {
@@ -438,6 +577,11 @@ void HostedIrqManager::setDiagnosticPublicationHook(
     DiagnosticPublicationHook hook)
 {
     __atomic_store_n(&diagnosticPublicationHook, hook, __ATOMIC_RELEASE);
+}
+
+void HostedIrqManager::setLineOwnershipHook(LineOwnershipHook hook)
+{
+    __atomic_store_n(&lineOwnershipHook, hook, __ATOMIC_RELEASE);
 }
 
 bool HostedIrqManager::dispatchHandlerForTest(

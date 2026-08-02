@@ -494,6 +494,143 @@ void registerWhileMutationEpochHeld()
     }
 }
 
+class HostedLifetimeHandler : public IrqHandler
+{
+  public:
+    HostedLifetimeHandler() : entered(0), calls(0)
+    {
+    }
+
+    IrqDisposition irq(irq_id_t) override
+    {
+        calls += 1;
+        entered.release();
+        return IrqDisposition::Handled;
+    }
+
+    Semaphore entered;
+    Atomic<size_t> calls;
+};
+
+struct HostedLineOwnershipHookContext
+{
+    HostedLineOwnershipHookContext()
+        : stateCheckEntered(0), releaseStateCheck(0), cookieAdvanceEntered(0),
+          releaseCookieAdvance(0), workerEntered(0), releaseWorker(0),
+          admissionRejected(0), holdStateCheck(0), holdCookieAdvance(0),
+          holdWorker(0), rejectedAdmissions(0), hookFailures(0)
+    {
+    }
+
+    Semaphore stateCheckEntered;
+    Semaphore releaseStateCheck;
+    Semaphore cookieAdvanceEntered;
+    Semaphore releaseCookieAdvance;
+    Semaphore workerEntered;
+    Semaphore releaseWorker;
+    Semaphore admissionRejected;
+    Atomic<size_t> holdStateCheck;
+    Atomic<size_t> holdCookieAdvance;
+    Atomic<size_t> holdWorker;
+    Atomic<size_t> rejectedAdmissions;
+    Atomic<size_t> hookFailures;
+};
+
+HostedLineOwnershipHookContext *g_HostedLineOwnershipHookContext = nullptr;
+
+void observeHostedLineOwnership(
+    uint8_t irq, HostedIrqManager::LineOwnershipStage stage, size_t)
+{
+    HostedLineOwnershipHookContext *context = g_HostedLineOwnershipHookContext;
+    if (!context || irq != 2)
+    {
+        return;
+    }
+
+    switch (stage)
+    {
+        case HostedIrqManager::LineOwnershipStage::BeforeFinalStateCheck:
+            if (context->holdStateCheck.compareAndSwap(1, 2))
+            {
+                context->stateCheckEntered.release();
+                if (!context->releaseStateCheck.acquireForCompletion())
+                {
+                    context->hookFailures += 1;
+                }
+            }
+            break;
+        case HostedIrqManager::LineOwnershipStage::BeforeFinalCookieAdvance:
+            if (context->holdCookieAdvance.compareAndSwap(1, 2))
+            {
+                context->cookieAdvanceEntered.release();
+                if (!context->releaseCookieAdvance.acquireForCompletion())
+                {
+                    context->hookFailures += 1;
+                }
+            }
+            break;
+        case HostedIrqManager::LineOwnershipStage::AdmissionRejected:
+            context->rejectedAdmissions += 1;
+            context->admissionRejected.release();
+            break;
+        case HostedIrqManager::LineOwnershipStage::
+            BeforeThreadedCookieValidation:
+            if (context->holdWorker.compareAndSwap(1, 2))
+            {
+                context->workerEntered.release();
+                if (!context->releaseWorker.acquireForCompletion())
+                {
+                    context->hookFailures += 1;
+                }
+            }
+            break;
+    }
+}
+
+struct HostedLineUnregisterContext
+{
+    HostedLineUnregisterContext(
+        IrqManager *irqManager, irq_id_t irqId, IrqHandlerBase *irqHandler)
+        : manager(irqManager), id(irqId), handler(irqHandler), removed(0)
+    {
+    }
+
+    IrqManager *manager;
+    irq_id_t id;
+    IrqHandlerBase *handler;
+    Atomic<size_t> removed;
+};
+
+int unregisterHostedLineLifetime(void *parameter)
+{
+    HostedLineUnregisterContext *context =
+        reinterpret_cast<HostedLineUnregisterContext *>(parameter);
+    if (context->manager->unregisterHandler(context->id, context->handler))
+    {
+        context->removed = 1;
+    }
+    return 0;
+}
+
+bool waitForHostedCookieCompletion(
+    IrqManager *manager, size_t cookie, IrqLineDiagnosticSnapshot &completed)
+{
+    const Time::Timestamp deadline =
+        Time::getTicks() + 2 * Time::Multiplier::Second;
+    while (Time::getTicks() < deadline)
+    {
+        IrqLineDiagnosticSnapshot lines[3] = {};
+        if (manager->snapshotIrqLines(lines, 3) == 3 &&
+            lines[2].completedCookie == cookie && !lines[2].dispatcherActive)
+        {
+            completed = lines[2];
+            return true;
+        }
+        Processor::pause();
+    }
+    return false;
+}
+
 bool hostedThreadedSignalDelivery()
 {
     constexpr const char *SignalTest = "irq-threaded-hosted-signal";
@@ -888,6 +1025,265 @@ bool hostedDiagnosticMissedRegistrySnapshot()
     return passed;
 }
 
+bool hostedOldWorkLifetimeIsolation()
+{
+    constexpr const char *LifetimeTest =
+        "irq-hosted-old-work-lifetime-isolation";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedLifetimeHandler oldHandler;
+    HostedLifetimeHandler replacement;
+    const irq_id_t oldId = manager->registerIsaIrqHandler(
+        2, &oldHandler, IrqPolicy::syntheticThreaded());
+
+    HostedLineOwnershipHookContext hooks;
+    g_HostedLineOwnershipHookContext = &hooks;
+    HostedIrqManager::setLineOwnershipHook(observeHostedLineOwnership);
+
+    hooks.holdWorker = 1;
+    const bool raised = oldId && raise(SIGURG) == 0;
+    const bool workerHeld =
+        raised && hooks.workerEntered.acquireForCompletion(1, 2, 0);
+    IrqLineDiagnosticSnapshot activeLines[3] = {};
+    const bool activeSnapshotted =
+        manager->snapshotIrqLines(activeLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot active = activeLines[2];
+    const size_t oldCookie = active.activeCookie;
+
+    HostedLineUnregisterContext unregisterContext(manager, oldId, &oldHandler);
+    Thread *unregisterer = nullptr;
+    bool started = false;
+    if (workerHeld)
+    {
+        hooks.holdStateCheck = 1;
+        unregisterer = new Thread(
+            Scheduler::instance().getKernelProcess(),
+            unregisterHostedLineLifetime, &unregisterContext, nullptr, false,
+            true, true);
+        unregisterer->setName("hosted old IRQ-lifetime unregister");
+        started = unregisterer->start();
+    }
+    const bool stateCheckHeld =
+        started && hooks.stateCheckEntered.acquireForCompletion(1, 2, 0);
+
+    // Without manager-level lifetime ownership, this registration can publish
+    // a new handler before the old removal checks whether the line is empty.
+    // The old queued cookie would then be accepted by the replacement.
+    const irq_id_t racedReplacementId =
+        stateCheckHeld ? manager->registerIsaIrqHandler(
+                             2, &replacement, IrqPolicy::syntheticThreaded()) :
+                         0;
+    const bool admissionRejected =
+        !racedReplacementId && stateCheckHeld &&
+        hooks.admissionRejected.acquireForCompletion(1, 2, 0);
+
+    hooks.releaseStateCheck.release();
+    const bool joined = started && unregisterer->joinForCompletion();
+    const irq_id_t replacementId =
+        racedReplacementId ?
+            racedReplacementId :
+            (joined ? manager->registerIsaIrqHandler(
+                          2, &replacement, IrqPolicy::syntheticThreaded()) :
+                      0);
+
+    IrqLineDiagnosticSnapshot replacementLines[3] = {};
+    const bool replacementSnapshotted =
+        manager->snapshotIrqLines(replacementLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot replacementLine = replacementLines[2];
+
+    hooks.releaseWorker.release();
+    IrqLineDiagnosticSnapshot completed = {};
+    const bool oldBatchCompleted =
+        oldCookie &&
+        waitForHostedCookieCompletion(manager, oldCookie, completed);
+
+    HostedIrqManager::setLineOwnershipHook(nullptr);
+    g_HostedLineOwnershipHookContext = nullptr;
+
+    const bool replacementRemoved =
+        replacementId &&
+        manager->unregisterHandler(replacementId, &replacement);
+    const bool oldRemoved =
+        unregisterContext.removed ||
+        (oldId && manager->unregisterHandler(oldId, &oldHandler));
+
+    bool passed = true;
+    passed &= check(
+        oldId && raised && workerHeld && activeSnapshotted &&
+            active.configured && active.handlerCount == 1 &&
+            active.delivery == IrqDelivery::Threaded && oldCookie &&
+            active.publicationCookie == oldCookie && active.dispatcherActive,
+        "the old lifetime's worker batch was not held before validation",
+        LifetimeTest);
+    passed &= check(
+        stateCheckHeld && admissionRejected && !racedReplacementId &&
+            hooks.rejectedAdmissions == 1 && hooks.hookFailures == 0,
+        "a replacement entered before final line state was established",
+        LifetimeTest);
+    passed &= check(
+        joined && unregisterContext.removed && replacementId &&
+            replacementSnapshotted && replacementLine.configured &&
+            replacementLine.handlerCount == 1 &&
+            replacementLine.delivery == IrqDelivery::Threaded &&
+            replacementLine.activeCookie == oldCookie &&
+            replacementLine.publicationCookie != oldCookie,
+        "the replacement did not receive a distinct diagnostic lifetime",
+        LifetimeTest);
+    passed &= check(
+        oldBatchCompleted && completed.completedCookie == oldCookie &&
+            completed.publicationCookie == replacementLine.publicationCookie &&
+            replacement.calls == 0 && oldHandler.calls == 0,
+        "queued work from the retired lifetime reached a replacement handler",
+        LifetimeTest);
+    passed &= check(
+        replacementRemoved && oldRemoved,
+        "the old-work lifetime handlers did not clean up", LifetimeTest);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-hosted-old-work-lifetime-isolation");
+    }
+    return passed;
+}
+
+bool hostedNewWorkLifetimeIsolation()
+{
+    constexpr const char *LifetimeTest =
+        "irq-hosted-new-work-lifetime-isolation";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedLifetimeHandler oldHandler;
+    HostedLifetimeHandler replacement;
+    const irq_id_t oldId = manager->registerIsaIrqHandler(
+        2, &oldHandler, IrqPolicy::syntheticThreaded());
+    IrqLineDiagnosticSnapshot registeredLines[3] = {};
+    const bool registeredSnapshotted =
+        manager->snapshotIrqLines(registeredLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot registered = registeredLines[2];
+
+    HostedLineOwnershipHookContext hooks;
+    g_HostedLineOwnershipHookContext = &hooks;
+    HostedIrqManager::setLineOwnershipHook(observeHostedLineOwnership);
+    hooks.holdCookieAdvance = 1;
+
+    HostedLineUnregisterContext unregisterContext(manager, oldId, &oldHandler);
+    Thread *unregisterer = new Thread(
+        Scheduler::instance().getKernelProcess(), unregisterHostedLineLifetime,
+        &unregisterContext, nullptr, false, true, true);
+    unregisterer->setName("hosted new IRQ-lifetime unregister");
+    const bool started = oldId && unregisterer->start();
+    const bool cookieAdvanceHeld =
+        started && hooks.cookieAdvanceEntered.acquireForCompletion(1, 2, 0);
+
+    // This is the inverse ownership window: without serialisation, a new
+    // handler can publish work after the old removal decided the line was empty
+    // but before it advances the cookie, allowing the old removal to invalidate
+    // work which belongs to the replacement.
+    const irq_id_t racedReplacementId =
+        cookieAdvanceHeld ?
+            manager->registerIsaIrqHandler(
+                2, &replacement, IrqPolicy::syntheticThreaded()) :
+            0;
+    const bool admissionRejected =
+        !racedReplacementId && cookieAdvanceHeld &&
+        hooks.admissionRejected.acquireForCompletion(1, 2, 0);
+
+    hooks.releaseCookieAdvance.release();
+    const bool joined = started && unregisterer->joinForCompletion();
+    IrqLineDiagnosticSnapshot closedLines[3] = {};
+    const bool closedSnapshotted =
+        manager->snapshotIrqLines(closedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot closed = closedLines[2];
+
+    const irq_id_t replacementId =
+        racedReplacementId ?
+            racedReplacementId :
+            (joined ? manager->registerIsaIrqHandler(
+                          2, &replacement, IrqPolicy::syntheticThreaded()) :
+                      0);
+    IrqLineDiagnosticSnapshot reopenedLines[3] = {};
+    const bool reopenedSnapshotted =
+        manager->snapshotIrqLines(reopenedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot reopened = reopenedLines[2];
+
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    const bool raised = replacementId && raise(SIGURG) == 0;
+    IrqLineDiagnosticSnapshot publishedLines[3] = {};
+    const bool publishedSnapshotted =
+        manager->snapshotIrqLines(publishedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot published = publishedLines[2];
+    Processor::setInterrupts(interruptsWereEnabled);
+
+    const bool replacementEntered =
+        raised && replacement.entered.acquireForCompletion(1, 2, 0);
+    IrqLineDiagnosticSnapshot completed = {};
+    const bool replacementCompleted =
+        published.publicationCookie &&
+        waitForHostedCookieCompletion(
+            manager, published.publicationCookie, completed);
+
+    HostedIrqManager::setLineOwnershipHook(nullptr);
+    g_HostedLineOwnershipHookContext = nullptr;
+
+    const bool replacementRemoved =
+        replacementId &&
+        manager->unregisterHandler(replacementId, &replacement);
+    const bool oldRemoved =
+        unregisterContext.removed ||
+        (oldId && manager->unregisterHandler(oldId, &oldHandler));
+
+    bool passed = true;
+    passed &= check(
+        oldId && registeredSnapshotted && registered.configured &&
+            registered.handlerCount == 1 &&
+            registered.delivery == IrqDelivery::Threaded,
+        "the new-work test did not establish its original lifetime",
+        LifetimeTest);
+    passed &= check(
+        cookieAdvanceHeld && admissionRejected && !racedReplacementId &&
+            hooks.rejectedAdmissions == 1 && hooks.hookFailures == 0,
+        "a replacement entered after the old lifetime chose its final cookie",
+        LifetimeTest);
+    passed &= check(
+        joined && unregisterContext.removed && closedSnapshotted &&
+            !closed.configured && closed.handlerCount == 0 &&
+            closed.delivery == IrqDelivery::None &&
+            closed.publicationCookie != registered.publicationCookie &&
+            closed.snapshotGeneration > registered.snapshotGeneration,
+        "final removal did not publish one closed lifetime boundary",
+        LifetimeTest);
+    passed &= check(
+        replacementId && reopenedSnapshotted && reopened.configured &&
+            reopened.handlerCount == 1 &&
+            reopened.delivery == IrqDelivery::Threaded &&
+            reopened.publicationCookie == closed.publicationCookie &&
+            reopened.snapshotGeneration > closed.snapshotGeneration,
+        "the replacement did not open beyond the closed lifetime boundary",
+        LifetimeTest);
+    passed &= check(
+        raised && publishedSnapshotted && published.configured &&
+            published.snapshotGeneration == reopened.snapshotGeneration &&
+            published.publicationCookie != reopened.publicationCookie &&
+            published.pendingCookie == published.publicationCookie,
+        "new work was not published in the replacement lifetime", LifetimeTest);
+    passed &= check(
+        replacementEntered && replacementCompleted && replacement.calls == 1 &&
+            completed.completedCookie == published.publicationCookie &&
+            completed.publicationCookie == published.publicationCookie,
+        "the old unregister invalidated work from the replacement lifetime",
+        LifetimeTest);
+    passed &= check(
+        replacementRemoved && oldRemoved,
+        "the new-work lifetime handlers did not clean up", LifetimeTest);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-hosted-new-work-lifetime-isolation");
+    }
+    return passed;
+}
+
 bool picThreadedTriggerPolicy()
 {
     constexpr const char *PolicyTest = "pic-threaded-trigger-policy";
@@ -993,6 +1389,8 @@ bool runHostedThreadedIrqRegressions()
     passed &= hostedDeferredRetiringDiagnostics();
     passed &= hostedDiagnosticPolicyLifecycle();
     passed &= hostedDiagnosticMissedRegistrySnapshot();
+    passed &= hostedOldWorkLifetimeIsolation();
+    passed &= hostedNewWorkLifetimeIsolation();
     passed &= picThreadedTriggerPolicy();
     return passed;
 }

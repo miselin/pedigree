@@ -85,6 +85,15 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     using MutationLockHook = IrqHandlerRegistry::MutationLockHook;
     using DiagnosticPublicationHook = void (*)(uint8_t, size_t);
 
+    enum class LineOwnershipStage
+    {
+        BeforeFinalStateCheck,
+        BeforeFinalCookieAdvance,
+        AdmissionRejected,
+        BeforeThreadedCookieValidation,
+    };
+    using LineOwnershipHook = void (*)(uint8_t, LineOwnershipStage, size_t);
+
     /** Installs a deterministic observer after a handler has been pinned. */
     static EXPORTED_PUBLIC void setHandlerPinHook(HandlerPinHook hook);
 
@@ -131,6 +140,9 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
      */
     static EXPORTED_PUBLIC void
     setDiagnosticPublicationHook(DiagnosticPublicationHook hook);
+
+    /** Observes deterministic line-lifetime ownership windows. */
+    static EXPORTED_PUBLIC void setLineOwnershipHook(LineOwnershipHook hook);
 #endif
 
   private:
@@ -154,6 +166,7 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
 
     static void dispatchThreadedLine(void *context, uint8_t irq, size_t cookie);
     void publishDiagnosticLine(uint8_t irq);
+    bool lifecycleTerminationCanBeDeferred() const;
 
     /** IRQ handlers and their callback lifetime state. */
     IrqHandlerRegistry m_Handlers;
@@ -164,6 +177,8 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     size_t m_ThreadedPublicationFailures[3];
     size_t m_DispatchGenerations[3];
     IrqDiagnosticSnapshotStore<3> m_Diagnostics;
+    /** Serialises registry mutations with per-line cookie ownership changes. */
+    size_t m_LineLifecycleBusy[3];
 
     /** The HostedIrqManager instance */
     static HostedIrqManager m_Instance;
