@@ -35,6 +35,7 @@
 #include "pedigree/kernel/debugger/commands/DumpCommand.h"
 #include "pedigree/kernel/debugger/commands/HelpCommand.h"
 #include "pedigree/kernel/debugger/commands/IoCommand.h"
+#include "pedigree/kernel/debugger/commands/IrqsCommand.h"
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
 #include "pedigree/kernel/debugger/commands/LogViewer.h"
 #include "pedigree/kernel/debugger/commands/LookupCommand.h"
@@ -83,17 +84,27 @@ static int getCommandMatchingPrefix(
 /// command (everything after the first space).
 static bool matchesCommand(char *pStr, DebuggerCommand *pCommand)
 {
-    if (!StringCompareN(
-            pCommand->getString(), pStr, StringLength(pCommand->getString())))
-    {
-        size_t n = StringLength(pCommand->getString());
-        MemoryCopy(pStr, pStr + n + 1, StringLength(pStr) - n);
-        return true;
-    }
-    else
+    const size_t commandLength = StringLength(pCommand->getString());
+    if (StringCompareN(pCommand->getString(), pStr, commandLength))
     {
         return false;
     }
+
+    const size_t inputLength = StringLength(pStr);
+    if (inputLength > commandLength && pStr[commandLength] != ' ' &&
+        pStr[commandLength] != '\t')
+    {
+        return false;
+    }
+    if (inputLength == commandLength)
+    {
+        // Existing commands use the command name to select no-argument
+        // behaviour, so preserve it while rejecting run-together prefixes.
+        return true;
+    }
+
+    MemoryCopy(pStr, pStr + commandLength + 1, inputLength - commandLength);
+    return true;
 }
 
 Debugger::Debugger() : m_pTempState(0), m_nIoType(DEBUGGER)
@@ -223,6 +234,7 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
     static PanicCommand panic;
     static CpuInfoCommand cpuInfo;
     static IoCommand io;
+    static IrqsCommand irqs;
     static DevicesCommand devices;
     static SyscallTracerCommand syscallTracer;
     static LookupCommand lookup;
@@ -236,11 +248,6 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
     threads.setPointers(&pThread, &state);
 #endif
 
-#if THREADS
-    size_t nCommands = 21;
-#else
-    size_t nCommands = 20;
-#endif
     DebuggerCommand *pCommands[] = {
         &syscallTracer,
         &disassembler,
@@ -259,13 +266,15 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
         &threads,
 #endif
         &io,
+        &irqs,
         &g_AllocationCommand,
         &g_SlamCommand,
         &lookup,
         &help,
         &g_LocksCommand,
-        &mapping
+        &mapping,
     };
+    const size_t nCommands = sizeof(pCommands) / sizeof(pCommands[0]);
 
     // Are we going to jump directly into the tracer? In which case bypass
     // device detection.

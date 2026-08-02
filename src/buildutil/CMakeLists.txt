@@ -172,6 +172,7 @@ add_library(debugger
     ${CMAKE_SOURCE_DIR}/src/system/kernel/debugger/Scrollable.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/debugger/DebuggerCommand.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/debugger/DebuggerIO.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/debugger/commands/IrqDiagnosticRenderer.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/debugger/commands/LocksCommand.cc)
 target_compile_definitions(debugger PRIVATE -DTESTSUITE)
 
@@ -219,6 +220,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Result.cc
     testsuite/test-RangeList.cc
     testsuite/test-RtcAlarmQueue.cc
+    testsuite/test-IrqDiagnosticRenderer.cc
     testsuite/test-LocksCommand.cc
     testsuite/test-ThreadWaitDiagnostic.cc
     testsuite/test-List.cc

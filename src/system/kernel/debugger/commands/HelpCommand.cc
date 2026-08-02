@@ -47,6 +47,7 @@ bool HelpCommand::execute(
     output += "help             - Display this text.\n";
     output +=
         "io               - List allocated IO ports and memory regions.\n";
+    output += "irqs [line]      - Show detached interrupt-line state.\n";
     output += "log              - View the kernel log.\n";
     output +=
         "lookup           - Lookup the symbol corresponding to an address.\n";

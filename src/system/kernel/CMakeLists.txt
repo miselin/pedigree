@@ -311,6 +311,8 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/DumpCommand.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/HelpCommand.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/IoCommand.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/IrqDiagnosticRenderer.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/IrqsCommand.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/LocksCommand.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/LogViewer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/commands/LookupCommand.cc
