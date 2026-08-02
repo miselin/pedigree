@@ -174,6 +174,14 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    if ! python3 scripts/check-time-accounting-boundaries.py --self-test; then
+        echo "The time-accounting boundary checker failed its self-test."
+        failed=1
+    elif ! python3 scripts/check-time-accounting-boundaries.py; then
+        echo "Production code escaped the reviewed time-accounting boundary."
+        failed=1
+    fi
+
     matches=$(rg -n -U \
         'schedule\(\s*Thread::Sleeping' src \
         --glob '*.{cc,h}' |
