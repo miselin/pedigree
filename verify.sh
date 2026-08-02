@@ -182,6 +182,27 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local x64_mp_source=src/system/kernel/core/processor/x86_common/Multiprocessor.cc
+    local x64_trampoline_source=src/system/kernel/core/processor/x64/asm/trampoline.s
+    if ! rg -q -U \
+            'MemoryCopy\([[:space:]]*reinterpret_cast<void \*>\(0x7200\),[[:space:]]*&trampolinegdtr,[[:space:]]*0x10\);' \
+            "$x64_mp_source" ||
+        ! rg -q -U \
+            'MemoryCopy\([[:space:]]*reinterpret_cast<void \*>\(0x7210\),[[:space:]]*&trampolinegdt,[[:space:]]*0xF0\);' \
+            "$x64_mp_source" ||
+        rg -q -U \
+            'MemoryCopy\([[:space:]]*reinterpret_cast<void \*>\(0x72(00|10)\),[[:space:]]*&trampoline(gdtr64|gdt64)' \
+            "$x64_mp_source" ||
+        ! rg -q -U \
+            '(?s)\[bits 16\].*?mp_trampoline16:.*?mov si,[[:space:]]*0x7200.*?lgdt \[ds:si\].*?\[bits 32\]' \
+            "$x64_trampoline_source" ||
+        ! rg -q -U \
+            '(?s)\[bits 32\].*?mp_trampoline32:.*?lgdt \[trampolinegdtr64[[:space:]]*-[[:space:]]*0xFFFFFFFF7FF00000\].*?\[bits 64\]' \
+            "$x64_trampoline_source"; then
+        echo "The x64 AP trampoline lost its transition-GDT handoff."
+        failed=1
+    fi
+
     matches=$(rg -n -U \
         'schedule\(\s*Thread::Sleeping' src \
         --glob '*.{cc,h}' |

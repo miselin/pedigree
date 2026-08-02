@@ -135,8 +135,10 @@ size_t Multiprocessor::initialise1()
     MemoryCopy(
         reinterpret_cast<void *>(0x7100),
         reinterpret_cast<void *>(&mp_trampoline32), 0x100);
-    MemoryCopy(reinterpret_cast<void *>(0x7200), &trampolinegdtr64, 0x10);
-    MemoryCopy(reinterpret_cast<void *>(0x7210), &trampolinegdt64, 0xF0);
+    // The first far jump enters 32-bit protected mode; the trampoline loads
+    // the 64-bit GDT itself only after enabling long mode.
+    MemoryCopy(reinterpret_cast<void *>(0x7200), &trampolinegdtr, 0x10);
+    MemoryCopy(reinterpret_cast<void *>(0x7210), &trampolinegdt, 0xF0);
 
     volatile uintptr_t *trampolineStack;
     volatile uintptr_t *trampolineKernelEntry;
