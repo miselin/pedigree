@@ -252,6 +252,17 @@ uintptr_t posix_brk(uintptr_t theBreak)
     return reinterpret_cast<uintptr_t>(currentBreak);
 }
 
+SyscallState posix_copy_clone_state(const SyscallState &state)
+{
+    SyscallState clonedState = state;
+#if HOSTED
+    // The hosted bridge's errno destination is stack-local to the parent's
+    // translator frame and cannot survive in the child return state.
+    clonedState.error_ptr = 0;
+#endif
+    return clonedState;
+}
+
 long posix_clone(
     SyscallState &state, unsigned long flags, void *child_stack, int *ptid,
     int *ctid, unsigned long newtls)
@@ -263,7 +274,7 @@ long posix_clone(
     Processor::setInterrupts(false);
 
     // Must clone state as we make modifications for the new thread here.
-    SyscallState clonedState = state;
+    SyscallState clonedState = posix_copy_clone_state(state);
 
     // Basic warnings to start with.
     if (flags & CLONE_CHILD_CLEARTID)

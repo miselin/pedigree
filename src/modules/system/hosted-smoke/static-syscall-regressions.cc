@@ -10,6 +10,7 @@
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/subsys/posix/poll-syscalls.h"
+#include "modules/subsys/posix/system-syscalls.h"
 #include "modules/subsys/pedigree-c/pedigreecSyscallNumbers.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #undef PEDIGREE_INIT_SIGRET
@@ -616,6 +617,28 @@ bool zeroResultWinsSignal(Thread *thread)
     return true;
 }
 
+bool cloneStateDropsParentErrnoDestination()
+{
+    long error = 0;
+    SyscallState parent = {};
+    parent.error_ptr = reinterpret_cast<uintptr_t>(&error);
+    parent.result = 37;
+
+    const SyscallState child = posix_copy_clone_state(parent);
+    const bool passed = !child.error_ptr && child.result == parent.result &&
+                        parent.error_ptr == reinterpret_cast<uintptr_t>(&error);
+    if (!passed)
+    {
+        ERROR(
+            "HOSTED-SYSCALL-TEST: FAIL clone-errno-lifetime: "
+            "the child retained its parent's stack-local errno destination");
+        return false;
+    }
+
+    NOTICE("HOSTED-SYSCALL-TEST: PASS clone-errno-lifetime");
+    return true;
+}
+
 bool entry()
 {
     Thread *thread =
@@ -634,7 +657,8 @@ bool entry()
         !descriptorCloseGeneration(kernelProcess) ||
         !pollCloseReuseCleanup(kernelProcess) ||
         !posixTeardownContention(kernelProcess) ||
-        !zeroResultWinsSignal(thread))
+        !zeroResultWinsSignal(thread) ||
+        !cloneStateDropsParentErrnoDestination())
     {
         return false;
     }

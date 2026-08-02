@@ -35,6 +35,7 @@ struct timespec;
 
 uintptr_t posix_brk(uintptr_t theBreak);
 long posix_sbrk(int delta);
+SyscallState posix_copy_clone_state(const SyscallState &state);
 long posix_clone(
     SyscallState &state, unsigned long flags, void *child_stack, int *ptid,
     int *ctid, unsigned long newtls);

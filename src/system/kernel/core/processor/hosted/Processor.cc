@@ -196,11 +196,53 @@ void ProcessorBase::switchState(
 #endif
 }
 
+static void syscallStateWrapper(
+    uintptr_t state, uintptr_t lock, uintptr_t sourceState);
+
 void ProcessorBase::switchState(
     bool bInterrupts, SchedulerState &a, SyscallState &b,
     volatile uintptr_t *pLock)
 {
-    FATAL("switchState with a SyscallState is not implemented for the HOSTED cpu");
+    Thread *target = Processor::information().getCurrentThread();
+    size_t stackSize = 0;
+    void *stackBase = target ? target->getKernelStackBase(&stackSize) : nullptr;
+    const uintptr_t stackBegin = reinterpret_cast<uintptr_t>(stackBase);
+    const uintptr_t stateAddress = reinterpret_cast<uintptr_t>(&b);
+    if (
+        !stackBegin || stackSize < sizeof(SyscallState) ||
+        stateAddress < stackBegin ||
+        stateAddress - stackBegin != stackSize - sizeof(SyscallState))
+    {
+        FATAL("Hosted syscall state is not on the target kernel stack");
+    }
+
+    ucontext_t newContext;
+    getcontext(&newContext);
+    newContext.uc_stack.ss_sp = stackBase;
+    // The copied state is consumed later by syscall_tail and must not become
+    // part of makecontext's stack frame.
+    newContext.uc_stack.ss_size = stateAddress - stackBegin;
+    newContext.uc_link = nullptr;
+    makecontext(
+        &newContext, reinterpret_cast<void (*)()>(syscallStateWrapper), 3,
+        stateAddress, reinterpret_cast<uintptr_t>(pLock),
+        reinterpret_cast<uintptr_t>(&a));
+
+#if HAS_SANITIZERS
+    void *fakeStackSave = nullptr;
+    __sanitizer_start_switch_fiber(
+        &fakeStackSave, newContext.uc_stack.ss_sp,
+        newContext.uc_stack.ss_size);
+#endif
+    swapcontext(reinterpret_cast<ucontext_t *>(a.state), &newContext);
+#if HAS_SANITIZERS
+    __sanitizer_finish_switch_fiber(fakeStackSave, nullptr, nullptr);
+#endif
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    notifyHostedContextSwitchStage(
+        HostedContextSwitchStage::SwitchStateReturnedMasked);
+#endif
+    Processor::setInterrupts(bInterrupts);
 }
 
 #if HAS_SANITIZERS
@@ -219,6 +261,28 @@ static void finishInitialFiberSwitch(uintptr_t sourceState)
     }
 }
 #endif
+
+static void syscallStateWrapper(
+    uintptr_t state, uintptr_t lock, uintptr_t sourceState)
+{
+#if HAS_SANITIZERS
+    finishInitialFiberSwitch(sourceState);
+#else
+    (void) sourceState;
+#endif
+
+    volatile uintptr_t *sourceLock =
+        reinterpret_cast<volatile uintptr_t *>(lock);
+    if (sourceLock)
+    {
+        *sourceLock = 1;
+    }
+    // A syscall return enters userspace with IRQs enabled even if clone's
+    // kernel-side publication temporarily masked them.
+    Processor::setInterrupts(true);
+    Processor::restoreState(
+        *reinterpret_cast<SyscallState *>(state), nullptr);
+}
 
 static void threadWrapper(
     uintptr_t func, volatile uintptr_t *pLock, uintptr_t bInterrupts,
