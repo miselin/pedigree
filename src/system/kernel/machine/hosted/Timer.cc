@@ -57,6 +57,23 @@ HostedTimer HostedTimer::m_Instance;
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 HostedTimer::AlarmSendAdmissionHook HostedTimer::m_AlarmSendAdmissionHook =
     nullptr;
+
+bool HostedTimer::setSignalIntervalForTest(uint64_t nanoseconds)
+{
+    if (!m_Instance.m_bInitialized || !nanoseconds)
+    {
+        return false;
+    }
+
+    struct itimerspec interval;
+    ByteSet(&interval, 0, sizeof(interval));
+    interval.it_interval.tv_sec =
+        nanoseconds / Time::Multiplier::Second;
+    interval.it_interval.tv_nsec =
+        nanoseconds % Time::Multiplier::Second;
+    interval.it_value = interval.it_interval;
+    return timer_settime(m_Instance.m_Timer, 0, &interval, nullptr) == 0;
+}
 #endif
 
 HostedTimer::~HostedTimer()

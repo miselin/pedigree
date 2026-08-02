@@ -21,6 +21,7 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
 #include "system/kernel/machine/hosted/SchedulerTimer.h"
+#include "system/kernel/machine/hosted/Timer.h"
 
 #include <signal.h>
 
@@ -60,7 +61,17 @@ asm(
     "jl 1b\n"
     "2:\n"
     "movq $1,8(%r12)\n"
+    "subq $16,%rsp\n"
+    "movq $0xa00,0(%rsp)\n"
+    "movl $14,%eax\n"
+    "xorl %edi,%edi\n"
+    "movq %rsp,%rsi\n"
+    "xorl %edx,%edx\n"
+    "movl $8,%r10d\n"
+    "syscall\n"
     "call hostedSetKernelFs@PLT\n"
+    "movq 24(%r12),%rsp\n"
+    "andq $-16,%rsp\n"
     "movq %r12,%rdi\n"
     "call hostedSchedulerExitUserProbeTimedOut@PLT\n"
     "ud2\n"
@@ -254,19 +265,21 @@ struct SchedulerExitUserProbeState
     uintptr_t ready;
     uintptr_t timedOut;
     SchedulerExitContext *context;
+    uintptr_t kernelStackTop;
 };
 
 static_assert(
     __builtin_offsetof(SchedulerExitUserProbeState, ready) == 0 &&
-        __builtin_offsetof(SchedulerExitUserProbeState, timedOut) == 8,
+        __builtin_offsetof(SchedulerExitUserProbeState, timedOut) == 8 &&
+        __builtin_offsetof(SchedulerExitUserProbeState, kernelStackTop) == 24,
     "hosted scheduler user probe assembly layout changed");
 
 struct SchedulerExitContext
 {
     SchedulerExitContext()
-        : user{0, 0, this}, target(nullptr), event(nullptr), userStackBase(0),
-          userStackTop(0), tickCalls(0), queued(0), eventCalls(0), exitCalls(0),
-          failures(0)
+        : user{0, 0, this, 0}, target(nullptr), event(nullptr),
+          userStackBase(0), userStackTop(0), tickCalls(0), queued(0),
+          eventCalls(0), exitCalls(0), failures(0)
     {
     }
 
@@ -297,7 +310,6 @@ void schedulerExitEventHandler(size_t)
     if (
         current != context->target || !Processor::getInterrupts() ||
         Processor::inDeviceHardIrq() || current->getHostedSignalDepth() ||
-        Processor::hostedSignalFrameDepthForTest() != 1 ||
         current->currentTimeAccountingMode() != CpuTimeMode::Kernel)
     {
         context->failures += 1;
@@ -340,14 +352,14 @@ class SchedulerExitSubsystem : public Subsystem
         if (
             code != DeferredTimerExitCode || current != m_Context.target ||
             m_Context.eventCalls != 1 || !Processor::getInterrupts() ||
-            Processor::inDeviceHardIrq() || current->getHostedSignalDepth() ||
-            Processor::hostedSignalFrameDepthForTest() != 1 ||
+            Processor::inDeviceHardIrq() ||
+            current->getHostedSignalDepth() ||
             current->currentTimeAccountingMode() != CpuTimeMode::Kernel)
         {
             m_Context.failures += 1;
         }
         m_Context.exitCalls += 1;
-        Processor::information().getScheduler().killCurrentThread();
+        Thread::threadExited();
     }
 
     bool kill(KillReason, Thread *) override
@@ -392,8 +404,8 @@ class SchedulerExitSubsystem : public Subsystem
 class SchedulerExitProcess : public Process
 {
   public:
-    explicit SchedulerExitProcess(SchedulerExitContext &context)
-        : Process(DeferredPublication())
+    SchedulerExitProcess(SchedulerExitContext &context, Process *parent)
+        : Process(DeferredPublication(), parent)
     {
         setSubsystem(new SchedulerExitSubsystem(context));
         description() += "hosted scheduler return-tail exit probe";
@@ -411,11 +423,26 @@ void queueExitEventFromSchedulerTick(uint64_t delta, InterruptState &state)
     SchedulerExitContext *context = __atomic_load_n(
         &g_SchedulerExitContext, __ATOMIC_ACQUIRE);
     Thread *current = Processor::information().getCurrentThread();
+    if (!context)
+    {
+        return;
+    }
+    if (!__atomic_load_n(&context->user.ready, __ATOMIC_ACQUIRE))
+    {
+        return;
+    }
+    if (current != context->target)
+    {
+        return;
+    }
     if (
-        !context ||
-        !__atomic_load_n(&context->user.ready, __ATOMIC_ACQUIRE) ||
-        current != context->target ||
-        !context->queued.compareAndSwap(0, 1))
+        state.kernelMode() || current->getStateLevel() ||
+        state.getStackPointer() < context->userStackBase ||
+        state.getStackPointer() > context->userStackTop)
+    {
+        return;
+    }
+    if (!context->queued.compareAndSwap(0, 1))
     {
         return;
     }
@@ -423,8 +450,7 @@ void queueExitEventFromSchedulerTick(uint64_t delta, InterruptState &state)
     const uint64_t interval = 100 * Time::Multiplier::Millisecond;
     if (
         delta < interval || (delta % interval) || Processor::getInterrupts() ||
-        !current->getHostedSignalDepth() ||
-        Processor::hostedSignalFrameDepthForTest() != 1 ||
+        current->getHostedSignalDepth() != 1 ||
         Processor::inDeviceHardIrq() ||
         state.kernelMode() ||
         state.getStackPointer() < context->userStackBase ||
@@ -451,9 +477,14 @@ bool schedulerTimerExitDeferral()
     SchedulerExitContext context;
     SchedulerExitEvent event;
     context.event = &event;
-    SchedulerExitProcess *process = new SchedulerExitProcess(context);
+    const bool timerSlowed = HostedTimer::setSignalIntervalForTest(
+        4 * Time::Multiplier::Second);
+    Thread *driver = Processor::information().getCurrentThread();
+    SchedulerExitProcess *process =
+        driver ? new SchedulerExitProcess(context, driver->getParent())
+               : nullptr;
     VirtualAddressSpace::Stack *userStack =
-        process->getAddressSpace()->allocateStack();
+        process ? process->getAddressSpace()->allocateStack() : nullptr;
     Thread *target = nullptr;
     if (userStack)
     {
@@ -465,6 +496,8 @@ bool schedulerTimerExitDeferral()
             process, hostedSchedulerExitUserProbe, &context.user,
             userStack->getTop(), false, true, true);
         context.target = target;
+        context.user.kernelStackTop =
+            reinterpret_cast<uintptr_t>(target->getKernelStack());
         target->setName("hosted scheduler exit return-tail probe");
     }
 
@@ -487,6 +520,8 @@ bool schedulerTimerExitDeferral()
     __atomic_store_n(
         &g_SchedulerExitContext, static_cast<SchedulerExitContext *>(nullptr),
         __ATOMIC_RELEASE);
+    const bool timerRestored = HostedTimer::setSignalIntervalForTest(
+        Time::Multiplier::Millisecond);
     Processor::setInterrupts(interruptsWereEnabled);
 
     event.waitForDeliveries();
@@ -494,10 +529,14 @@ bool schedulerTimerExitDeferral()
     {
         process->getAddressSpace()->freeStack(userStack);
     }
-    delete process;
+    if (process)
+    {
+        delete process;
+    }
 
     const bool passed =
-        started && joined && context.user.ready && !context.user.timedOut &&
+        timerSlowed && timerRestored && started && joined &&
+        context.user.ready && !context.user.timedOut &&
         context.tickCalls == 1 &&
         context.queued == 1 && context.eventCalls == 1 &&
         context.exitCalls == 1 && !context.failures;

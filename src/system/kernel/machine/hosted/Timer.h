@@ -110,6 +110,8 @@ class HostedTimer : public Timer, private SplitIrqHandler
     setAlarmSendAdmissionHookForTest(AlarmSendAdmissionHook hook);
     /** Reports whether the alarm queue is locked by the current handoff. */
     static EXPORTED_PUBLIC bool alarmLockHeldForTest();
+    /** Changes the periodic host signal interval for a bounded regression. */
+    static EXPORTED_PUBLIC bool setSignalIntervalForTest(uint64_t nanoseconds);
 #endif
 
   protected:
