@@ -79,21 +79,15 @@ IsaAtaController::IsaAtaController(Controller *pDev, int nController)
     m_pControlRegs->write8(0, 6);  // Negate SRST
     Time::delay(5 * Time::Multiplier::Millisecond);
 
-    // Poll until BSY is clear. Until BSY is clear, no other bits in the
-    // alternate status register are considered valid.
-    uint8_t status = 0;
-    while (1)  // ((status&0xC0) != 0) && ((status&0x9) == 0) )
+    // Use the shared bounded wait after reset. A controller which keeps BSY
+    // asserted must leave this channel offline instead of hanging discovery.
+    const AtaStatus status = ataWait(m_pCommandRegs, m_pControlRegs);
+    if (status.reg.err || status.reg.bsy)
     {
-        status = m_pControlRegs->read8(6);
-        if (status & 0x80)
-            continue;
-        else if (status & 0x1)
-        {
-            NOTICE("Error during ATA software reset, status = " << status);
-            return;
-        }
-        else
-            break;
+        NOTICE(
+            "Error during ATA software reset, status = "
+            << status.__reg_contents);
+        return;
     }
 
     // Create two disks - master and slave.

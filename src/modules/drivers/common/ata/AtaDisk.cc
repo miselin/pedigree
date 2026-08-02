@@ -940,9 +940,15 @@ uint64_t AtaDisk::doRead(uint64_t location)
     {
         ScopedBusMasterTransaction dmaTransaction(m_BusMaster);
 
-        // Wait for status to be ready - spin until READY bit is set.
-        while (!(commandRegs->read8(7) & 0x40))
-            ;
+        // ataWait applies both a wall-clock and poll-count deadline. A device
+        // which never becomes ready must fail this request rather than strand
+        // the RequestQueue worker forever.
+        status = ataWait(commandRegs, controlRegs);
+        if (status.reg.err || !status.reg.drdy)
+        {
+            ERROR("ATA: drive did not become ready for read");
+            return 0;
+        }
 
         // Send out sector count.
         uint8_t nSectorsToRead =
@@ -1185,9 +1191,14 @@ uint64_t AtaDisk::doWrite(uint64_t location)
     {
         ScopedBusMasterTransaction dmaTransaction(m_BusMaster);
 
-        // Wait for status to be ready - spin until READY bit is set.
-        while (!(commandRegs->read8(7) & 0x40))
-            ;
+        // Keep write admission on the same bounded readiness contract as
+        // reads. This used to be an unbounded boot/storage stall.
+        status = ataWait(commandRegs, controlRegs);
+        if (status.reg.err || !status.reg.drdy)
+        {
+            ERROR("ATA: drive did not become ready for write");
+            return 0;
+        }
 
         // Send out sector count.
         uint8_t nSectorsToWrite =
