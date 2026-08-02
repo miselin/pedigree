@@ -825,7 +825,7 @@ check_wait_api_boundaries()
         ! rg -q 'Quiesced' "$irq_handler_header" ||
         ! rg -q 'struct ThreadedDispatchResult' "$irq_registry_header" ||
         ! rg -q 'bool allowRearm' "$irq_registry_header" ||
-        ! rg -q 'result\.admitted && result\.allowRearm' \
+        ! rg -q 'admitted && result\.allowRearm' \
             src/system/kernel/machine/mach_pc/Pic.cc ||
         ! rg -q 'irq-threaded-quiesced-rearm' \
             src/modules/system/hosted-smoke/irq-regressions.cc; then
@@ -928,7 +928,7 @@ check_wait_api_boundaries()
             "$ehci_header" "$ehci_source" "$ohci_header" "$ohci_source" \
             "$uhci_header" "$uhci_source" "$usb_hub_header" \
             "$usb_hub_source" ||
-        rg -q 'completion(State|Generation|Result)' \
+        rg -q '\bm_Completion(State|Generation|Result)\b' \
             "$ehci_header" "$ehci_source" "$ohci_header" "$ohci_source" \
             "$uhci_header" "$uhci_source" ||
         rg -q 'FATAL' \
@@ -940,7 +940,7 @@ check_wait_api_boundaries()
         ! rg -q 'IrqDisposition::Quiesced' "$ehci_source" ||
         ! rg -q 'IrqDisposition::Quiesced' "$ohci_source" ||
         ! rg -q 'IrqDisposition::Quiesced' "$uhci_source" ||
-        ! rg -q 'constexpr size_t HaltPollLimit' "$ehci_source" ||
+        ! rg -q 'waitForMmioState' "$ehci_source" ||
         ! rg -q 'constexpr size_t EdListCount' "$ohci_source" ||
         ! rg -q 'constexpr size_t TransitionPollLimit' "$uhci_source" ||
         ! rg -q 'setLegacySupportControl\(0x8F00\)' "$uhci_source" ||
@@ -1193,7 +1193,7 @@ check_wait_api_boundaries()
             '(?s)if \(!threadedPublished\).*?__atomic_add_fetch\(.*?m_ThreadedPublicationFailures' \
             "$pic_source" ||
         ! rg -q -U \
-            '(?s)dispatchThreadedLine\(.*?dispatchThreaded\(irq\).*?completeThreadedDispatch\([^;]*result\.admitted && result\.allowRearm\)' \
+            '(?s)dispatchThreadedLine\(.*?dispatchThreaded\(irq, result\).*?completeThreadedDispatch\([^;]*admitted && result\.allowRearm\)' \
             "$pic_source"; then
         echo "The PIC threaded path lost mask, EOI, publication, or rearm ordering."
         failed=1
