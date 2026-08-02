@@ -7,18 +7,65 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
 #include "system/kernel/machine/hosted/SchedulerTimer.h"
 
 #include <signal.h>
+
+extern "C" int hostedSchedulerExitUserProbe(void *parameter);
+extern "C" void hostedSchedulerExitUserProbeTimedOut(void *parameter);
+
+#if HOSTED && BITS_64
+asm(
+    ".text\n"
+    ".globl hostedSchedulerExitUserProbe\n"
+    ".type hostedSchedulerExitUserProbe,@function\n"
+    "hostedSchedulerExitUserProbe:\n"
+    "movq %rdi,%r12\n"
+    "movq $1,0(%r12)\n"
+    "subq $16,%rsp\n"
+    "movl $228,%eax\n"
+    "movl $1,%edi\n"
+    "movq %rsp,%rsi\n"
+    "syscall\n"
+    "testq %rax,%rax\n"
+    "js 2f\n"
+    "movq 0(%rsp),%r13\n"
+    "addq $3,%r13\n"
+    "movq $100000,%r14\n"
+    "1:\n"
+    "pause\n"
+    "decq %r14\n"
+    "jnz 1b\n"
+    "movq $100000,%r14\n"
+    "movl $228,%eax\n"
+    "movl $1,%edi\n"
+    "movq %rsp,%rsi\n"
+    "syscall\n"
+    "testq %rax,%rax\n"
+    "js 2f\n"
+    "cmpq %r13,0(%rsp)\n"
+    "jl 1b\n"
+    "2:\n"
+    "movq $1,8(%r12)\n"
+    "call hostedSetKernelFs@PLT\n"
+    "movq %r12,%rdi\n"
+    "call hostedSchedulerExitUserProbeTimedOut@PLT\n"
+    "ud2\n"
+    ".size hostedSchedulerExitUserProbe,.-hostedSchedulerExitUserProbe\n");
+#endif
 
 namespace
 {
@@ -198,18 +245,334 @@ struct SchedulerTimerContext
 
 SchedulerTimerContext *g_SchedulerTimerContext = nullptr;
 
-struct HostedSignalSwitchContext
+constexpr int DeferredTimerExitCode = 73;
+
+struct SchedulerExitContext;
+
+struct SchedulerExitUserProbeState
 {
-    HostedSignalSwitchContext()
-        : armed(0), waiting(0), ran(0), failures(0)
+    uintptr_t ready;
+    uintptr_t timedOut;
+    SchedulerExitContext *context;
+};
+
+static_assert(
+    __builtin_offsetof(SchedulerExitUserProbeState, ready) == 0 &&
+        __builtin_offsetof(SchedulerExitUserProbeState, timedOut) == 8,
+    "hosted scheduler user probe assembly layout changed");
+
+struct SchedulerExitContext
+{
+    SchedulerExitContext()
+        : user{0, 0, this}, target(nullptr), event(nullptr), userStackBase(0),
+          userStackTop(0), tickCalls(0), queued(0), eventCalls(0), exitCalls(0),
+          failures(0)
     {
     }
 
+    SchedulerExitUserProbeState user;
+    Thread *target;
+    Event *event;
+    uintptr_t userStackBase;
+    uintptr_t userStackTop;
+    Atomic<size_t> tickCalls;
+    Atomic<size_t> queued;
+    Atomic<size_t> eventCalls;
+    Atomic<size_t> exitCalls;
+    Atomic<size_t> failures;
+};
+
+SchedulerExitContext *g_SchedulerExitContext = nullptr;
+
+void schedulerExitEventHandler(size_t)
+{
+    SchedulerExitContext *context = __atomic_load_n(
+        &g_SchedulerExitContext, __ATOMIC_ACQUIRE);
+    if (!context)
+    {
+        return;
+    }
+
+    Thread *current = Processor::information().getCurrentThread();
+    if (
+        current != context->target || !Processor::getInterrupts() ||
+        Processor::inDeviceHardIrq() || current->getHostedSignalDepth() ||
+        Processor::hostedSignalFrameDepthForTest() != 1 ||
+        current->currentTimeAccountingMode() != CpuTimeMode::Kernel)
+    {
+        context->failures += 1;
+    }
+    context->eventCalls += 1;
+    current->deferProcessExit(DeferredTimerExitCode);
+}
+
+class SchedulerExitEvent : public Event
+{
+  public:
+    SchedulerExitEvent()
+        : Event(
+              reinterpret_cast<uintptr_t>(&schedulerExitEventHandler), false)
+    {
+    }
+
+    size_t serialize(uint8_t *) override
+    {
+        return 0;
+    }
+
+    size_t getNumber() override
+    {
+        return 0x45584954;
+    }
+};
+
+class SchedulerExitSubsystem : public Subsystem
+{
+  public:
+    explicit SchedulerExitSubsystem(SchedulerExitContext &context)
+        : Subsystem(None), m_Context(context)
+    {
+    }
+
+    void exit(int code) override
+    {
+        Thread *current = Processor::information().getCurrentThread();
+        if (
+            code != DeferredTimerExitCode || current != m_Context.target ||
+            m_Context.eventCalls != 1 || !Processor::getInterrupts() ||
+            Processor::inDeviceHardIrq() || current->getHostedSignalDepth() ||
+            Processor::hostedSignalFrameDepthForTest() != 1 ||
+            current->currentTimeAccountingMode() != CpuTimeMode::Kernel)
+        {
+            m_Context.failures += 1;
+        }
+        m_Context.exitCalls += 1;
+        Processor::information().getScheduler().killCurrentThread();
+    }
+
+    bool kill(KillReason, Thread *) override
+    {
+        return false;
+    }
+
+    bool invoke(const char *, Vector<String> &, Vector<String> &) override
+    {
+        return false;
+    }
+
+    bool invoke(
+        const char *, Vector<String> &, Vector<String> &,
+        SyscallState &) override
+    {
+        return false;
+    }
+
+    bool invoke(
+        File *, const String &, Vector<String> &, Vector<String> &) override
+    {
+        return false;
+    }
+
+    bool invoke(
+        File *, const String &, Vector<String> &, Vector<String> &,
+        SyscallState &) override
+    {
+        return false;
+    }
+
+    File *findFile(const String &, File *) override
+    {
+        return nullptr;
+    }
+
+  private:
+    SchedulerExitContext &m_Context;
+};
+
+class SchedulerExitProcess : public Process
+{
+  public:
+    explicit SchedulerExitProcess(SchedulerExitContext &context)
+        : Process(DeferredPublication())
+    {
+        setSubsystem(new SchedulerExitSubsystem(context));
+        description() += "hosted scheduler return-tail exit probe";
+        publish();
+    }
+
+    ~SchedulerExitProcess() override
+    {
+        prepareForDestruction();
+    }
+};
+
+void queueExitEventFromSchedulerTick(uint64_t delta, InterruptState &state)
+{
+    SchedulerExitContext *context = __atomic_load_n(
+        &g_SchedulerExitContext, __ATOMIC_ACQUIRE);
+    Thread *current = Processor::information().getCurrentThread();
+    if (
+        !context ||
+        !__atomic_load_n(&context->user.ready, __ATOMIC_ACQUIRE) ||
+        current != context->target ||
+        !context->queued.compareAndSwap(0, 1))
+    {
+        return;
+    }
+
+    const uint64_t interval = 100 * Time::Multiplier::Millisecond;
+    if (
+        delta < interval || (delta % interval) || Processor::getInterrupts() ||
+        !current->getHostedSignalDepth() ||
+        Processor::hostedSignalFrameDepthForTest() != 1 ||
+        Processor::inDeviceHardIrq() ||
+        state.kernelMode() ||
+        state.getStackPointer() < context->userStackBase ||
+        state.getStackPointer() > context->userStackTop ||
+        current->currentTimeAccountingMode() != CpuTimeMode::Kernel ||
+        state.getInterruptNumber() != SIGUSR2 ||
+        state.getInterruptSource() != HostedSchedulerTimer::sourceForTest())
+    {
+        context->failures += 1;
+    }
+
+    // Test-only injection at the exact historical window: the old timer path
+    // dispatched this preallocated Event before returning from the hard IRQ.
+    if (!current->sendEvent(context->event))
+    {
+        context->failures += 1;
+    }
+    context->tickCalls += 1;
+}
+
+bool schedulerTimerExitDeferral()
+{
+    constexpr const char *Test = "scheduler-timer-exit-return-tail";
+    SchedulerExitContext context;
+    SchedulerExitEvent event;
+    context.event = &event;
+    SchedulerExitProcess *process = new SchedulerExitProcess(context);
+    VirtualAddressSpace::Stack *userStack =
+        process->getAddressSpace()->allocateStack();
+    Thread *target = nullptr;
+    if (userStack)
+    {
+        context.userStackBase =
+            reinterpret_cast<uintptr_t>(userStack->getBase());
+        context.userStackTop =
+            reinterpret_cast<uintptr_t>(userStack->getTop());
+        target = new Thread(
+            process, hostedSchedulerExitUserProbe, &context.user,
+            userStack->getTop(), false, true, true);
+        context.target = target;
+        target->setName("hosted scheduler exit return-tail probe");
+    }
+
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    __atomic_store_n(&g_SchedulerExitContext, &context, __ATOMIC_RELEASE);
+    HostedSchedulerTimer::setHardContextHookForTest(
+        queueExitEventFromSchedulerTick);
+    Processor::setInterrupts(interruptsWereEnabled);
+
+    const bool started = target && target->start();
+    const bool joined = started && target->joinForCompletion();
+    if (target && !started)
+    {
+        delete target;
+    }
+
+    Processor::setInterrupts(false);
+    HostedSchedulerTimer::setHardContextHookForTest(nullptr);
+    __atomic_store_n(
+        &g_SchedulerExitContext, static_cast<SchedulerExitContext *>(nullptr),
+        __ATOMIC_RELEASE);
+    Processor::setInterrupts(interruptsWereEnabled);
+
+    event.waitForDeliveries();
+    if (userStack)
+    {
+        process->getAddressSpace()->freeStack(userStack);
+    }
+    delete process;
+
+    const bool passed =
+        started && joined && context.user.ready && !context.user.timedOut &&
+        context.tickCalls == 1 &&
+        context.queued == 1 && context.eventCalls == 1 &&
+        context.exitCalls == 1 && !context.failures;
+    if (!passed)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: FAIL " << Test
+                                       << ": process exit ran before the "
+                                          "IRQ return-to-user tail");
+    }
+    else
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "scheduler-timer-exit-return-tail");
+    }
+    return passed;
+}
+
+struct HostedSignalSwitchContext
+{
+    explicit HostedSignalSwitchContext(Thread *driver)
+        : driver(driver), target(nullptr), armed(0), waiting(0), computing(0),
+          driverTicks(0), targetTicks(0), ran(0), failures(0)
+    {
+    }
+
+    Thread *driver;
+    Thread *target;
     Atomic<size_t> armed;
     Atomic<size_t> waiting;
+    Atomic<size_t> computing;
+    Atomic<size_t> driverTicks;
+    Atomic<size_t> targetTicks;
     Atomic<size_t> ran;
     Atomic<size_t> failures;
 };
+
+HostedSignalSwitchContext *g_HostedSignalSwitchContext = nullptr;
+
+void observeHostedAutodisarmTick(uint64_t delta, InterruptState &state)
+{
+    HostedSignalSwitchContext *context = __atomic_load_n(
+        &g_HostedSignalSwitchContext, __ATOMIC_ACQUIRE);
+    if (!context || !context->armed)
+    {
+        return;
+    }
+
+    Thread *current = Processor::information().getCurrentThread();
+    if (current == context->driver)
+    {
+        context->driverTicks += 1;
+        return;
+    }
+    if (
+        current != context->target || !context->computing ||
+        !context->targetTicks.compareAndSwap(0, 1))
+    {
+        return;
+    }
+
+    const uint64_t interval = 100 * Time::Multiplier::Millisecond;
+    if (
+        delta < interval || (delta % interval) || !state.kernelMode() ||
+        !current->getHostedSignalDepth() ||
+        Processor::hostedSignalFrameDepthForTest() < 2 ||
+        Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
+        current->currentTimeAccountingMode() != CpuTimeMode::Kernel ||
+        state.getInterruptNumber() != SIGUSR2 ||
+        state.getInterruptSource() != HostedSchedulerTimer::sourceForTest())
+    {
+        context->failures += 1;
+    }
+}
 
 int hostedSignalSwitchTarget(void *parameter)
 {
@@ -229,12 +592,27 @@ int hostedSignalSwitchTarget(void *parameter)
     Thread *current = Processor::information().getCurrentThread();
     if (
         !current || current->getHostedSignalDepth() ||
-        Processor::hostedSignalFrameDepthForTest() != 1 ||
+        !Processor::hostedSignalFrameDepthForTest() ||
         !Processor::getInterrupts() ||
-        !__pedigree_hosted::sigismember(&mask, SIGUSR1) ||
-        !__pedigree_hosted::sigismember(&mask, SIGUSR2))
+        __pedigree_hosted::sigismember(&mask, SIGUSR1) ||
+        __pedigree_hosted::sigismember(&mask, SIGUSR2))
     {
         context->failures += 1;
+    }
+
+    context->computing = 1;
+    __pedigree_hosted::timespec startedAt = {};
+    __pedigree_hosted::timespec now = {};
+    __pedigree_hosted::clock_gettime(CLOCK_MONOTONIC, &startedAt);
+    while (!context->targetTicks)
+    {
+        Processor::pause();
+        __pedigree_hosted::clock_gettime(CLOCK_MONOTONIC, &now);
+        if (now.tv_sec - startedAt.tv_sec >= 3)
+        {
+            context->failures += 1;
+            break;
+        }
     }
     context->ran = 1;
     return 0;
@@ -242,12 +620,14 @@ int hostedSignalSwitchTarget(void *parameter)
 
 bool hostedSignalMaskSpansContextSwitch()
 {
-    constexpr const char *Test = "hosted-signal-mask-context-switch";
-    HostedSignalSwitchContext context;
+    constexpr const char *Test = "hosted-signal-autodisarm-preemption";
+    HostedSignalSwitchContext context(
+        Processor::information().getCurrentThread());
     Thread *target = new Thread(
         Scheduler::instance().getKernelProcess(), hostedSignalSwitchTarget,
         &context, nullptr, false, true, true);
     target->setName("hosted signal-mask context-switch probe");
+    context.target = target;
     const bool started = target->start();
 
     constexpr size_t Attempts = 10000;
@@ -257,13 +637,28 @@ bool hostedSignalMaskSpansContextSwitch()
         Scheduler::instance().yield();
     }
 
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    __atomic_store_n(
+        &g_HostedSignalSwitchContext, &context, __ATOMIC_RELEASE);
+    HostedSchedulerTimer::setHardContextHookForTest(
+        observeHostedAutodisarmTick);
     context.armed = 1;
+    Processor::setInterrupts(interruptsWereEnabled);
     const Time::Timestamp deadline =
         Time::getTicks() + (3 * Time::Multiplier::Second);
     while (!context.ran && Time::getTicks() < deadline)
     {
         Processor::pause();
     }
+
+    Processor::setInterrupts(false);
+    HostedSchedulerTimer::setHardContextHookForTest(nullptr);
+    __atomic_store_n(
+        &g_HostedSignalSwitchContext,
+        static_cast<HostedSignalSwitchContext *>(nullptr),
+        __ATOMIC_RELEASE);
+    Processor::setInterrupts(interruptsWereEnabled);
 
     // A failed preemption must not leave the probe stack live while its
     // context record goes out of scope.
@@ -280,18 +675,22 @@ bool hostedSignalMaskSpansContextSwitch()
     }
 
     const bool passed =
-        started && context.waiting && context.ran && joined &&
-        !context.failures;
+        started && context.waiting && context.computing &&
+        context.driverTicks && context.targetTicks == 1 && context.ran &&
+        joined && !context.failures;
     if (!passed)
     {
         ERROR(
             "HOSTED-WAIT-TEST: FAIL " << Test
-                                       << ": a switched-in thread unmasked "
-                                          "a live hosted IRQ signal frame");
+                                       << ": a switched-in compute thread "
+                                          "did not receive its next real "
+                                          "scheduler tick");
     }
     else
     {
-        NOTICE("HOSTED-WAIT-TEST: PASS hosted-signal-mask-context-switch");
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "hosted-signal-autodisarm-preemption");
     }
     return passed;
 }
@@ -465,11 +864,23 @@ bool check(bool condition, const char *detail)
 }
 }  // namespace
 
+extern "C" void hostedSchedulerExitUserProbeTimedOut(void *parameter)
+{
+    SchedulerExitUserProbeState *state =
+        reinterpret_cast<SchedulerExitUserProbeState *>(parameter);
+    if (state && state->context)
+    {
+        state->context->failures += 1;
+    }
+    Thread::threadExited();
+}
+
 bool runHostedSchedulerRegressions()
 {
     if (
         !hostedSignalMaskSpansContextSwitch() ||
-        !schedulerTimerHardContext() || !deferredTimeAccountingWorker())
+        !schedulerTimerHardContext() || !schedulerTimerExitDeferral() ||
+        !deferredTimeAccountingWorker())
     {
         return false;
     }

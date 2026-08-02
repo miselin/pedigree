@@ -18,6 +18,7 @@ MEMBER_NAMES = (
     "recordTime",
     "trackTime",
     "transitionTime",
+    "transitionTimeAtInterruptReturn",
     "publishDeferredTimeAccounting",
 )
 UNQUALIFIED_NAMES = ("reportTimesUpdated", "enableTimeAccountingReports")
@@ -113,7 +114,13 @@ EXPECTED_MEMBER_CALLS = Counter(
             "m_pThread",
             "transitionTime",
             "KernelTimeTransition::handler(),"
-            "KernelTimeTransition::resumed(m_bFromUserspace)",
+            "KernelTimeTransition::resumed(false)",
+        ),
+        call(
+            "src/system/kernel/core/process/InterruptTimeAccounting.cc",
+            "thread",
+            "transitionTimeAtInterruptReturn",
+            "CpuTimeMode::Kernel,CpuTimeMode::User",
         ),
         call(
             "src/system/kernel/core/process/TimeTracker.cc",
@@ -247,6 +254,11 @@ EXPECTED_SCOPES = Counter(
             "!interruptState.kernelMode()",
         ),
         scope(
+            "src/system/kernel/core/processor/hosted/InterruptManager.cc",
+            "InterruptTimeAccounting",
+            "fromUserspace",
+        ),
+        scope(
             "src/system/kernel/core/processor/x64/SyscallManager.cc",
             "TimeTracker",
             "0,true",
@@ -326,7 +338,7 @@ RAW_BODY_SPECS = (
         "src/system/kernel/core/process/Thread.cc",
         "Thread::recordTime",
         r"\bvoid\s+Thread::recordTime\s*\(",
-        frozenset(("record",)),
+        frozenset(("record", "__atomic_store_n")),
     ),
     RawBodySpec(
         "src/system/kernel/core/process/Thread.cc",
@@ -338,7 +350,30 @@ RAW_BODY_SPECS = (
         "src/system/kernel/core/process/Thread.cc",
         "Thread::transitionTime",
         r"\bvoid\s+Thread::transitionTime\s*\(",
-        frozenset(("elapsed", "record", "publishTimeAccounting")),
+        frozenset(
+            ("elapsed", "record", "__atomic_store_n", "publishTimeAccounting")
+        ),
+    ),
+    RawBodySpec(
+        "src/system/kernel/core/process/Thread.cc",
+        "Thread::transitionTimeAtInterruptReturn",
+        r"\bvoid\s+Thread::transitionTimeAtInterruptReturn\s*\(",
+        frozenset(
+            (
+                "id",
+                "getTicks",
+                "elapsed",
+                "record",
+                "__atomic_store_n",
+                "publishTimeAccounting",
+            )
+        ),
+    ),
+    RawBodySpec(
+        "src/system/kernel/core/process/Thread.cc",
+        "Thread::currentTimeAccountingMode",
+        r"\bCpuTimeMode\s+Thread::currentTimeAccountingMode\s*\(",
+        frozenset(("__atomic_load_n",)),
     ),
     RawBodySpec(
         "src/system/kernel/core/process/InterruptTimeAccounting.cc",
@@ -362,6 +397,14 @@ RAW_BODY_SPECS = (
         "InterruptTimeAccounting destructor",
         r"\bInterruptTimeAccounting::~InterruptTimeAccounting\s*\(",
         frozenset(("transitionTime", "handler", "resumed")),
+    ),
+    RawBodySpec(
+        "src/system/kernel/core/process/InterruptTimeAccounting.cc",
+        "InterruptTimeAccounting::finishUserReturn",
+        r"\bvoid\s+InterruptTimeAccounting::finishUserReturn\s*\(",
+        frozenset(
+            ("currentTimeAccountingMode", "transitionTimeAtInterruptReturn")
+        ),
     ),
     RawBodySpec(
         "src/system/kernel/core/process/TimeTracker.cc",
@@ -880,6 +923,59 @@ def audit_lifecycle_and_wiring(
             (
                 "m_VirtualIntervalTimer.consumeCpuTime(userTotal)",
                 "m_ProfileIntervalTimer.consumeCpuTime(total)",
+            ),
+        ),
+        (
+            "src/system/kernel/core/process/Thread.cc",
+            "Thread accounting-mode entry publication",
+            r"\bvoid\s+Thread::recordTime\s*\(",
+            (
+                "m_TimeAccounting.record(mode,sample.timestamp,sample.processor)",
+                "__atomic_store_n(&m_CurrentTimeAccountingMode,"
+                "static_cast<size_t>(mode),__ATOMIC_RELEASE)",
+            ),
+        ),
+        (
+            "src/system/kernel/core/process/Thread.cc",
+            "Thread accounting-mode transition publication",
+            r"\bvoid\s+Thread::transitionTime\s*\(",
+            (
+                "m_TimeAccounting.elapsed(from,sample.timestamp,sample.processor)",
+                "m_TimeAccounting.record(to,sample.timestamp,sample.processor)",
+                "__atomic_store_n(&m_CurrentTimeAccountingMode,"
+                "static_cast<size_t>(to),__ATOMIC_RELEASE)",
+            ),
+        ),
+        (
+            "src/system/kernel/core/process/Thread.cc",
+            "interrupt-return accounting transition",
+            r"\bvoid\s+Thread::transitionTimeAtInterruptReturn\s*\(",
+            (
+                "Processor::id()",
+                "Time::getTicks()",
+                "m_TimeAccounting.elapsed(from,timestamp,processor)",
+                "m_TimeAccounting.record(to,timestamp,processor)",
+                "__atomic_store_n(&m_CurrentTimeAccountingMode,"
+                "static_cast<size_t>(to),__ATOMIC_RELEASE)",
+            ),
+        ),
+        (
+            "src/system/kernel/core/process/Thread.cc",
+            "current accounting-mode acquisition",
+            r"\bCpuTimeMode\s+Thread::currentTimeAccountingMode\s*\(",
+            (
+                "__atomic_load_n(&m_CurrentTimeAccountingMode,"
+                "__ATOMIC_ACQUIRE)",
+            ),
+        ),
+        (
+            "src/system/kernel/core/process/InterruptTimeAccounting.cc",
+            "interrupt user-return completion",
+            r"\bvoid\s+InterruptTimeAccounting::finishUserReturn\s*\(",
+            (
+                "thread->currentTimeAccountingMode()==CpuTimeMode::Kernel",
+                "thread->transitionTimeAtInterruptReturn("
+                "CpuTimeMode::Kernel,CpuTimeMode::User)",
             ),
         ),
     )
