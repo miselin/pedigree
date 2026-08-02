@@ -406,9 +406,9 @@ check_wait_api_boundaries()
         "$request_queue_source")
     if ! rg -q 'm_WorkerProgressGeneration' "$request_queue_header" ||
         ! rg -q -U \
-            '(?s)RequestQueueOverrunChecker::sample\(.*?m_pRequestQueue\[priority\].*?m_WorkerProgressGeneration.*?m_HasBacklogBaseline.*?OverrunStatus::Stalled.*?OverrunStatus::Overloaded' \
+            '(?s)RequestQueueOverrunChecker::sample\(.*?m_nTotalRequests\.value\(\).*?m_nActiveRequests\.value\(\).*?currentSize = total - active.*?m_WorkerProgressGeneration.*?m_HasBacklogBaseline.*?OverrunStatus::Stalled.*?OverrunStatus::Overloaded' \
             "$request_queue_source" ||
-        rg -q 'm_nTotalRequests' <<<"$request_queue_sample" ||
+        rg -q 'm_pRequestQueue\[' <<<"$request_queue_sample" ||
         ! rg -q -U \
             '(?s)RequestQueueOverrunChecker::timer\(.*?OverrunStatus::Stalled.*?OverrunStatus::Overloaded' \
             "$request_queue_source" ||
@@ -771,7 +771,14 @@ check_wait_api_boundaries()
             "$irq_handler_header" ||
         ! rg -q -U \
             'virtual bool irq\(irq_id_t number, InterruptState &state\)' \
-            "$irq_handler_header"; then
+            "$irq_handler_header" ||
+        ! rg -q 'Quiesced' "$irq_handler_header" ||
+        ! rg -q 'struct ThreadedDispatchResult' "$irq_registry_header" ||
+        ! rg -q 'bool allowRearm' "$irq_registry_header" ||
+        ! rg -q 'result\.admitted && result\.allowRearm' \
+            src/system/kernel/machine/mach_pc/Pic.cc ||
+        ! rg -q 'irq-threaded-quiesced-rearm' \
+            src/modules/system/hosted-smoke/irq-regressions.cc; then
         echo "The IRQ API lost its explicit thread and hard-context types."
         failed=1
     fi
@@ -789,6 +796,91 @@ check_wait_api_boundaries()
         ! rg -q 'IrqDisposition::Handled' \
             "$isa_ata_source" "$pci_ata_source"; then
         echo "ATA completion escaped its ordinary threaded IRQ boundary."
+        failed=1
+    fi
+
+    local ne2k_header=src/modules/drivers/x86/ne2k/Ne2k.h
+    local ne2k_source=src/modules/drivers/x86/ne2k/Ne2k.cc
+    if ! rg -q 'class Ne2k : public Network, public IrqHandler' \
+            "$ne2k_header" ||
+        rg -q 'registerHard(Isa|Pci)IrqHandler|HardIrqHandler' \
+            "$ne2k_header" "$ne2k_source" ||
+        ! rg -q 'IrqPolicy::pciIntxThreaded\(\)' "$ne2k_source" ||
+        ! rg -q 'constexpr size_t PassLimit' "$ne2k_source" ||
+        ! rg -q 'constexpr size_t RingPageCount' "$ne2k_source" ||
+        ! rg -q 'bool Ne2k::waitForRemoteDma\(\)' "$ne2k_source" ||
+        ! rg -q 'bool Ne2k::recoverReceiveOverflow' "$ne2k_source" ||
+        ! rg -q 'CommandPage1Start' "$ne2k_source" ||
+        ! rg -q -U \
+            '(?s)m_pBase->write8\(irqStatus, NE_ISR\);.*?if \(irqStatus & \(InterruptReceive \| InterruptReceiveError\)\).*?recv\(\)' \
+            "$ne2k_source"; then
+        echo "NE2K escaped its bounded threaded IRQ and ring-drain boundary."
+        failed=1
+    fi
+
+    local threecom_header=src/modules/drivers/common/3c90x/3Com90x.h
+    local threecom_source=src/modules/drivers/common/3c90x/3Com90x.cc
+    if ! rg -q 'class Nic3C90x : public Network, public IrqHandler' \
+            "$threecom_header" ||
+        rg -q 'HardIrqHandler|m_PendingPackets|m_ReceiveThread' \
+            "$threecom_header" "$threecom_source" ||
+        ! rg -q 'IrqPolicy::pciIntxThreaded\(\)' "$threecom_source" ||
+        ! rg -q 'constexpr size_t PassLimit' "$threecom_source" ||
+        ! rg -q 'constexpr size_t ResetCommandPollLimit' "$threecom_source" ||
+        ! rg -q 'volatile uint32_t UpPktStatus' "$threecom_header" ||
+        ! rg -q 'm_RxConsumerIndex' \
+            "$threecom_header" "$threecom_source" ||
+        ! rg -q 'FENCE\(\)' "$threecom_source"; then
+        echo "3C90x escaped its bounded threaded IRQ and DMA ownership boundary."
+        failed=1
+    fi
+
+    local ehci_header=src/modules/drivers/common/usb-hcd/Ehci.h
+    local ehci_source=src/modules/drivers/common/usb-hcd/Ehci.cc
+    local ohci_header=src/modules/drivers/common/usb-hcd/Ohci.h
+    local ohci_source=src/modules/drivers/common/usb-hcd/Ohci.cc
+    local uhci_header=src/modules/drivers/common/usb-hcd/Uhci.h
+    local uhci_source=src/modules/drivers/common/usb-hcd/Uhci.cc
+    local usb_callback_delivery=src/modules/drivers/common/usb-hcd/CallbackDelivery.h
+    local usb_hub_header=src/modules/system/usb/UsbHub.h
+    local usb_hub_source=src/modules/system/usb/UsbHub.cc
+    local usb_hub_device=src/modules/drivers/common/usb-hub/UsbHubDevice.cc
+    local usb_callback_regressions=src/modules/system/hosted-smoke/usb-callback-delivery-regressions.cc
+    local usb_port_regressions=src/modules/system/hosted-smoke/usb-hcd-port-change-regressions.cc
+    if rg -q 'registerHard(Isa|Pci)IrqHandler|HardIrqHandler' \
+            "$ehci_header" "$ehci_source" "$ohci_header" "$ohci_source" \
+            "$uhci_header" "$uhci_source" ||
+        rg -q 'm_IgnoredPorts|m_CompletionDeliveryLock' \
+            "$ehci_header" "$ehci_source" "$ohci_header" "$ohci_source" \
+            "$uhci_header" "$uhci_source" "$usb_hub_header" \
+            "$usb_hub_source" ||
+        ! rg -q 'IrqPolicy::pciIntxThreaded\(\)' "$ehci_source" ||
+        ! rg -q 'IrqPolicy::pciIntxThreaded\(\)' "$ohci_source" ||
+        ! rg -q 'IrqPolicy::pciIntxThreaded\(\)' "$uhci_source" ||
+        ! rg -q 'IrqDisposition::Quiesced' "$ehci_source" ||
+        ! rg -q 'IrqDisposition::Quiesced' "$ohci_source" ||
+        ! rg -q 'IrqDisposition::Quiesced' "$uhci_source" ||
+        ! rg -q 'constexpr size_t HaltPollLimit' "$ehci_source" ||
+        ! rg -q 'constexpr size_t EdListCount' "$ohci_source" ||
+        ! rg -q 'constexpr size_t TransitionPollLimit' "$uhci_source" ||
+        ! rg -q 'setLegacySupportControl\(0x8F00\)' "$uhci_source" ||
+        ! rg -q 'class CallbackDeliveryQueue' "$usb_callback_delivery" ||
+        ! rg -q 'bool drain\(const Key &key\)' "$usb_callback_delivery" ||
+        ! rg -q 'm_CompletionDeliveries\.publish' \
+            "$ehci_source" "$ohci_source" "$uhci_source" ||
+        ! rg -q 'deferConnectionChangeIfSuppressed' \
+            "$ehci_source" "$ohci_source" "$uhci_source" ||
+        ! rg -q 'replaySuppressedConnectionChange' \
+            "$ehci_source" "$ohci_source" "$uhci_source" ||
+        ! rg -q 'attachToUpstreamHub\(m_pHub\)' "$usb_hub_device" ||
+        ! rg -q 'UsbHub \*m_RootHub' "$usb_hub_header" ||
+        ! rg -q 'usb-callback-pending-steal' "$usb_callback_regressions" ||
+        ! rg -q 'usb-callback-running-drain' "$usb_callback_regressions" ||
+        ! rg -q 'usb-hcd-port-change-suppression-state' \
+            "$usb_port_regressions" ||
+        ! rg -q 'nested hubs did not retain their root-controller association' \
+            "$usb_port_regressions"; then
+        echo "USB HCD interrupt work escaped its threaded and bounded teardown boundary."
         failed=1
     fi
 
@@ -994,7 +1086,7 @@ check_wait_api_boundaries()
             '(?s)if \(!threadedPublished\).*?__atomic_add_fetch\(.*?m_ThreadedPublicationFailures' \
             "$pic_source" ||
         ! rg -q -U \
-            '(?s)dispatchThreadedLine\(.*?dispatchThreaded\(irq, handled\).*?completeThreadedDispatch\([^;]*admitted && handled\)' \
+            '(?s)dispatchThreadedLine\(.*?dispatchThreaded\(irq\).*?completeThreadedDispatch\([^;]*result\.admitted && result\.allowRearm\)' \
             "$pic_source"; then
         echo "The PIC threaded path lost mask, EOI, publication, or rearm ordering."
         failed=1
@@ -1043,8 +1135,13 @@ check_wait_api_boundaries()
         --glob '!src/modules/system/hosted-smoke/**' | sort || true)
     local expected_threaded_irq_registration_users
     expected_threaded_irq_registration_users=$(printf '%s\n' \
+        src/modules/drivers/common/3c90x/3Com90x.cc \
         src/modules/drivers/common/ata/IsaAtaController.cc \
-        src/modules/drivers/common/ata/PciAtaController.cc)
+        src/modules/drivers/common/ata/PciAtaController.cc \
+        src/modules/drivers/common/usb-hcd/Ehci.cc \
+        src/modules/drivers/common/usb-hcd/Ohci.cc \
+        src/modules/drivers/common/usb-hcd/Uhci.cc \
+        src/modules/drivers/x86/ne2k/Ne2k.cc)
     if [[ "$threaded_irq_registration_users" != \
         "$expected_threaded_irq_registration_users" ]]; then
         echo "Threaded IRQ registration escaped its audited production users:"
