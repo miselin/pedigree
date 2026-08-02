@@ -448,7 +448,7 @@ void LocalApic::interrupt(size_t nInterruptNumber, InterruptState &state)
         // schedules).
         ack();
 
-        SchedulerTimerHandler *handler = m_Handlers.lookup(Processor::id());
+        SchedulerTimerHandler *handler = m_Handlers.load(Processor::id());
         // TODO: Delta is wrong.
         if (LIKELY(handler != 0))
         {

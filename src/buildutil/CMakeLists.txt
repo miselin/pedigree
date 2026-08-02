@@ -232,6 +232,7 @@ set(TESTSUITE_SRCS
     testsuite/test-ExtensibleBitmap.cc
     testsuite/test-Time.cc
     testsuite/test-Atomic.cc
+    testsuite/test-LocalApicTimerHandlerSlots.cc
     testsuite/test-IntrusiveMpscQueue.cc
     testsuite/test-VmwareSvgaState.cc
     testsuite/test-SymbolTable.cc

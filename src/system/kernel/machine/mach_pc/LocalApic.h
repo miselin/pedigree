@@ -22,6 +22,7 @@
 
 #if APIC
 
+#include "LocalApicTimerHandlerSlots.h"
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
@@ -31,8 +32,6 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/Tree.h"
-#include "pedigree/kernel/utilities/new"
 
 class SchedulerTimerHandler;
 
@@ -142,14 +141,12 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
     //
     virtual bool registerHandler(SchedulerTimerHandler *handler)
     {
-        // insert() won't insert if the key is already present.
-        m_Handlers.insert(Processor::id(), handler);
-        return false;
+        return m_Handlers.registerHandler(Processor::id(), handler);
     }
 
     virtual void removeHandler(SchedulerTimerHandler *handler)
     {
-        m_Handlers.remove(Processor::id());
+        m_Handlers.removeHandler(Processor::id(), handler);
     }
 
     void ack();
@@ -186,8 +183,8 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
     /** The local APIC memory-mapped I/O space */
     MemoryMappedIo m_IoSpace;
 
-    /** Timer handlers, tracked per processor. */
-    Tree<ProcessorId, SchedulerTimerHandler *> m_Handlers;
+    /** Atomically published timer handlers, tracked per processor. */
+    LocalApicTimerHandlerSlots m_Handlers;
 
     /** System bus frequency, for setting up the initial timer counter. */
     size_t m_BusFrequency;
