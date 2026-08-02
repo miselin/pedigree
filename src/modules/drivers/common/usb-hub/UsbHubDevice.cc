@@ -27,6 +27,7 @@
 
 UsbHubDevice::UsbHubDevice(UsbDevice *dev) : UsbDevice(dev), UsbHub()
 {
+    attachToUpstreamHub(m_pHub);
 }
 
 UsbHubDevice::~UsbHubDevice()

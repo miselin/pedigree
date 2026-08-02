@@ -29,10 +29,11 @@
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -41,7 +42,6 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
-#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -82,10 +82,10 @@ static int threadStub(void *p);
     } while (0)
 
 Ehci::Ehci(Device *pDev)
-    : UsbHub(pDev), RequestQueue(MakeConstantString("EHCI")),
-      m_pBase(nullptr), m_nOpRegsOffset(0), m_nPorts(0),
-      m_IrqProcessingLock(), m_CompletionDeliveryLock(),
-      m_pCurrentQueueTail(0), m_pCurrentQueueHead(0), m_EhciMR("Ehci-MR"),
+    : UsbHub(pDev), RequestQueue(MakeConstantString("EHCI")), m_pBase(nullptr),
+      m_nOpRegsOffset(0), m_nPorts(0), m_IrqProcessingLock(),
+      m_CompletionDeliveries(), m_pCurrentQueueTail(0),
+      m_pCurrentQueueHead(0), m_EhciMR("Ehci-MR"),
       m_DequeueCount(0), m_DequeueStopping(false), m_DequeueThread(),
       m_CallbackOperations(), m_IrqId(0),
       m_InterruptHandlerRegistered(false), m_InterruptClosure(0)
@@ -300,9 +300,8 @@ bool Ehci::initialiseController()
 
 // Install the IRQ handler
 #if X86_COMMON
-    m_IrqId =
-        Machine::instance().getIrqManager()->registerHardPciIrqHandler(
-            this, this, IrqPolicy::pciIntxHard());
+    m_IrqId = Machine::instance().getIrqManager()->registerPciIrqHandler(
+        static_cast<IrqHandler *>(this), this, IrqPolicy::pciIntxThreaded());
     m_InterruptHandlerRegistered = m_IrqId != 0;
 #else
     // InterruptManager pointer removal cannot drain a dispatch that already
@@ -329,9 +328,6 @@ bool Ehci::initialiseController()
 
     // Zero the top 64 bits for addresses of EHCI data structures
     m_pBase->write32(0, m_nOpRegsOffset + EHCI_CTRLDSEG);
-
-    // Enable non-port interrupts. PORTCH remains masked until the final scan.
-    m_pBase->write32(0x3b, m_nOpRegsOffset + EHCI_INTR);
 
     // Write the base address of the periodic frame list - all T-bits are set to
     // one
@@ -396,6 +392,11 @@ bool Ehci::initialiseController()
         reinterpret_cast<void *>(this)));
     m_DequeueThread->setName("EHCI dequeue");
 
+    // The schedules, queue metadata, and completion worker are now live.
+    // PORTCH remains masked until the initial root-port scan below.
+    m_pBase->write32(0x3b, m_nOpRegsOffset + EHCI_INTR);
+    (void) m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+
     // Take over the ports
     m_pBase->write32(1, m_nOpRegsOffset + EHCI_CFGFLAG);
 
@@ -434,8 +435,7 @@ bool Ehci::initialiseController()
               EHCI_PORTSC_PPOW))
         {
             modifyPortControl(
-                m_nOpRegsOffset + EHCI_PORTSC + i * 4, 0,
-                EHCI_PORTSC_PPOW);
+                m_nOpRegsOffset + EHCI_PORTSC + i * 4, 0, EHCI_PORTSC_PPOW);
             Time::delay(20 * Time::Multiplier::Millisecond);
 #ifdef USB_VERBOSE_DEBUG
             DEBUG_LOG(
@@ -447,16 +447,14 @@ bool Ehci::initialiseController()
 
         // Check for an existing reset on the port and request termination
         modifyPortControl(
-            m_nOpRegsOffset + EHCI_PORTSC + (i * 4), EHCI_PORTSC_PRES,
-            0);
+            m_nOpRegsOffset + EHCI_PORTSC + (i * 4), EHCI_PORTSC_PRES, 0);
         while (m_pBase->read32(m_nOpRegsOffset + EHCI_PORTSC + (i * 4)) &
                EHCI_PORTSC_PRES)
             Time::delay(5 * Time::Multiplier::Millisecond);
 
         constexpr uint32_t ChangeMask =
             EHCI_PORTSC_CSCH | EHCI_PORTSC_ENCH | EHCI_PORTSC_OCCH;
-        const size_t portRegister =
-            m_nOpRegsOffset + EHCI_PORTSC + i * 4;
+        const size_t portRegister = m_nOpRegsOffset + EHCI_PORTSC + i * 4;
         const uint32_t portStatus = m_pBase->read32(portRegister);
         const uint32_t acknowledgeMask = portStatus & ChangeMask;
         if (acknowledgeMask)
@@ -486,15 +484,14 @@ Ehci::~Ehci()
     // Quiesce only the port producer first. Transfer completion IRQs and the
     // dequeue worker must remain live while an active port request drains.
     {
-        LockGuard<Spinlock> transactionGuard(m_IrqProcessingLock);
+        LockGuard<IrqProcessingLock> transactionGuard(m_IrqProcessingLock);
         m_InterruptClosure = 1;
         if (m_pBase && m_nOpRegsOffset)
         {
             const uint32_t interrupts =
                 m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
             m_pBase->write32(
-                interrupts & ~EHCI_STS_PORTCH,
-                m_nOpRegsOffset + EHCI_INTR);
+                interrupts & ~EHCI_STS_PORTCH, m_nOpRegsOffset + EHCI_INTR);
             (void) m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
         }
     }
@@ -506,21 +503,58 @@ Ehci::~Ehci()
     }
     RequestQueue::destroy();
 
-    m_CallbackOperations.close();
     {
-        LockGuard<Spinlock> transactionGuard(m_IrqProcessingLock);
+        LockGuard<IrqProcessingLock> transactionGuard(m_IrqProcessingLock);
         m_InterruptClosure = 2;
         if (m_pBase && m_nOpRegsOffset)
         {
             m_pBase->write32(0, m_nOpRegsOffset + EHCI_INTR);
             (void) m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+            const uint32_t pending =
+                m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & 0x3f;
+            if (pending)
+            {
+                m_pBase->write32(pending, m_nOpRegsOffset + EHCI_STS);
+                (void) m_pBase->read32(m_nOpRegsOffset + EHCI_STS);
+            }
         }
+        m_CallbackOperations.close();
+    }
+
+    if (m_pBase && m_nOpRegsOffset)
+    {
+        const uint32_t command = m_pBase->read32(m_nOpRegsOffset + EHCI_CMD);
+        m_pBase->write32(command & ~EHCI_CMD_RUN, m_nOpRegsOffset + EHCI_CMD);
+        (void) m_pBase->read32(m_nOpRegsOffset + EHCI_CMD);
+
+        constexpr size_t HaltPollLimit = 100;
+        size_t haltPolls = HaltPollLimit;
+        while (haltPolls-- &&
+               !(m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & EHCI_STS_HALTED))
+        {
+            Time::delay(1 * Time::Multiplier::Millisecond);
+        }
+        if (!(m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & EHCI_STS_HALTED))
+        {
+            FATAL("EHCI teardown could not establish the DMA halt boundary");
+        }
+
+        const uint32_t pending =
+            m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & 0x3f;
+        if (pending)
+        {
+            m_pBase->write32(pending, m_nOpRegsOffset + EHCI_STS);
+            (void) m_pBase->read32(m_nOpRegsOffset + EHCI_STS);
+        }
+        m_pBase->write32(0, m_nOpRegsOffset + EHCI_ASYNCLP);
+        m_pBase->write32(0, m_nOpRegsOffset + EHCI_PERIODICLP);
+        (void) m_pBase->read32(m_nOpRegsOffset + EHCI_PERIODICLP);
     }
 #if X86_COMMON
     if (m_InterruptHandlerRegistered)
     {
         if (!Machine::instance().getIrqManager()->unregisterHandler(
-                m_IrqId, this))
+                m_IrqId, static_cast<IrqHandler *>(this)))
         {
             FATAL(
                 "EHCI teardown could not synchronously unregister its IRQ "
@@ -545,13 +579,36 @@ static int threadStub(void *p)
 
 namespace
 {
-struct EhciDeferredCompletion
+struct EhciCompletionCleanup
 {
-    void (*callback)(uintptr_t, ssize_t);
-    uintptr_t parameter;
-    ssize_t result;
+    Ehci *controller;
+    size_t transaction;
+    size_t generation;
 };
 }  // namespace
+
+void Ehci::finishDeferredCompletion(void *context)
+{
+    auto *cleanup = reinterpret_cast<EhciCompletionCleanup *>(context);
+    Ehci *controller = cleanup->controller;
+    {
+        LockGuard<Mutex> guard(controller->m_Mutex);
+        const size_t transaction = cleanup->transaction;
+        if (controller->m_QHBitmap.test(transaction))
+        {
+            QH *qh = &controller->m_pQHList[transaction];
+            if (
+                qh->pMetaData && qh->pMetaData->completionGeneration ==
+                                     cleanup->generation)
+            {
+                delete qh->pMetaData;
+                ByteSet(qh, 0, sizeof(QH));
+                controller->m_QHBitmap.clear(transaction);
+            }
+        }
+    }
+    delete cleanup;
+}
 
 void Ehci::doDequeue()
 {
@@ -563,8 +620,7 @@ void Ehci::doDequeue()
         if (m_DequeueStopping)
             return;
 
-        List<EhciDeferredCompletion> completions;
-        bool ownsDelivery = false;
+        List<UsbHcd::CallbackDeliveryQueue::Record *> completions;
         {
             // Absolutely cannot have queue insertions during a dequeue.
             LockGuard<Mutex> guard(m_Mutex);
@@ -598,14 +654,15 @@ void Ehci::doDequeue()
                     continue;
                 }
 
-                if (pQH->pMetaData->pCallback)
-                {
-                    EhciDeferredCompletion completion = {
-                        pQH->pMetaData->pCallback, pQH->pMetaData->pParam,
-                        pQH->pMetaData->completionResult};
-                    completions.pushBack(completion);
-                    pQH->pMetaData->pCallback = nullptr;
-                }
+                const size_t generation =
+                    pQH->pMetaData->completionGeneration;
+                auto *cleanup = new EhciCompletionCleanup{
+                    this, i, generation};
+                completions.pushBack(m_CompletionDeliveries.create(
+                    {i, generation}, pQH->pMetaData->pCallback,
+                    pQH->pMetaData->pParam,
+                    pQH->pMetaData->completionResult,
+                    finishDeferredCompletion, cleanup));
 
                 // Remove all qTDs
                 size_t nQTDIndex = INDEX_FROM_QTD(pQH->pMetaData->pFirstQTD);
@@ -616,8 +673,7 @@ void Ehci::doDequeue()
                     qTD *pqTD = &m_pqTDList[nQTDIndex];
                     bool shouldBreak = pqTD->bNextInvalid;
                     if (!shouldBreak)
-                        nQTDIndex =
-                            ((pqTD->pNext << 5) & 0xFFF) / sizeof(qTD);
+                        nQTDIndex = ((pqTD->pNext << 5) & 0xFFF) / sizeof(qTD);
 
                     ByteSet(pqTD, 0, sizeof(qTD));
 
@@ -625,64 +681,64 @@ void Ehci::doDequeue()
                         break;
                 }
 
-                // Completely invalidate the QH
-                delete pQH->pMetaData;
-                ByteSet(pQH, 0, sizeof(QH));
-
 #ifdef USB_VERBOSE_DEBUG
                 DEBUG_LOG("Dequeue for QH #" << Dec << i << Hex << ".");
 #endif
-
-                // This QH is done
-                m_QHBitmap.clear(i);
             }
 
             if (completions.count())
-            {
-                // Claim delivery before publishing the cleared transaction
-                // slots. A racing cancellation which observes a cleared slot
-                // must then wait behind the callback, never overtake it.
-                m_CompletionDeliveryLock.acquire();
-                ownsDelivery = true;
-            }
+                m_CompletionDeliveries.publish(completions);
         }
 
         while (completions.count())
         {
-            EhciDeferredCompletion completion = completions.popFront();
-            completion.callback(completion.parameter, completion.result);
+            auto *completion = completions.popFront();
+            m_CompletionDeliveries.deliver(completion);
         }
-        if (ownsDelivery)
-            m_CompletionDeliveryLock.release();
     }
 }
 
 #if X86_COMMON
-bool Ehci::irq(irq_id_t number, InterruptState &state)
+IrqDisposition Ehci::irq(irq_id_t number)
 #else
 void Ehci::interrupt(size_t number, InterruptState &state)
 #endif
 {
+    (void) number;
+#if !X86_COMMON
+    (void) state;
+#endif
+
     OperationBarrier::Lease callback;
     if (!m_CallbackOperations.tryAcquire(callback))
     {
         return
 #if X86_COMMON
-            false
+            IrqDisposition::Quiesced
 #endif
             ;
     }
-    LockGuard<Spinlock> transactionGuard(m_IrqProcessingLock);
+#if X86_COMMON
+    List<UsbHcd::CallbackDeliveryQueue::Record *> completions;
+    {
+#endif
+        LockGuard<IrqProcessingLock> transactionGuard(m_IrqProcessingLock);
+
+        if (m_InterruptClosure == 2)
+        {
+            return
+#if X86_COMMON
+                IrqDisposition::Quiesced
+#endif
+            ;
+    }
 
     /*
     uint32_t pciStatus = PciBus::instance().readConfigSpace(this, 1) >> 16;
     if(!(pciStatus & 8))
     {
-        NOTICE_NOLOCK("EHCI: IRQ fired, but not for us [" << pciStatus << "]");
-        return
-#if X86_COMMON
-        false
-#endif
+            NOTICE_NOLOCK("EHCI: IRQ fired, but not for us [" << pciStatus <<
+    "]"); return #if X86_COMMON false #endif
         ;
     }
     */
@@ -695,13 +751,14 @@ void Ehci::interrupt(size_t number, InterruptState &state)
         WARNING_NOLOCK("EHCI: unwanted IRQ?");
         return
 #if X86_COMMON
-            false  // Shared IRQ: this IRQ is for another device
+                IrqDisposition::NotHandled  // Shared IRQ: another device
 #endif
             ;
     }
 
-    // Clear and flush the aggregate before scanning. A later edge will relatch
-    // PORTCH instead of being erased after its port was already scanned.
+        // Clear and flush the aggregate before scanning. A later edge will
+        // relatch PORTCH instead of being erased after its port was already
+        // scanned.
 #if THREADS
     if (nStatus & EHCI_STS_PORTCH)
     {
@@ -715,6 +772,7 @@ void Ehci::interrupt(size_t number, InterruptState &state)
     if (immediateStatus)
     {
         m_pBase->write32(immediateStatus, m_nOpRegsOffset + EHCI_STS);
+            (void) m_pBase->read32(m_nOpRegsOffset + EHCI_STS);
     }
 
     if (nStatus & 0x16)
@@ -735,13 +793,12 @@ void Ehci::interrupt(size_t number, InterruptState &state)
             const size_t portRegister =
                 m_nOpRegsOffset + EHCI_PORTSC + i * 4;
             const uint32_t portStatus = m_pBase->read32(portRegister);
-            const bool ignored = m_IgnoredPorts.test(i);
             uint32_t acknowledgeMask =
                 portStatus & (EHCI_PORTSC_ENCH | EHCI_PORTSC_OCCH);
 
             if (portStatus & EHCI_PORTSC_CSCH)
             {
-                if (ignored)
+                if (deferConnectionChangeIfSuppressed(i))
                 {
                     acknowledgeMask |= EHCI_PORTSC_CSCH;
                 }
@@ -755,17 +812,17 @@ void Ehci::interrupt(size_t number, InterruptState &state)
                     if (!accepted)
                     {
                         // Queue acceptance is established before PORTCH is
-                        // enabled and is retained until after PORTCH drains.
-                        // Preserve CSC and fail closed if that invariant ever
-                        // regresses in a non-asserting build.
+                            // enabled and is retained until after PORTCH
+                            // drains. Preserve CSC and fail closed if that
+                            // invariant ever regresses in a non-asserting
+                            // build.
                         m_InterruptClosure = 1;
                         const uint32_t interrupts =
                             m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
                         m_pBase->write32(
                             interrupts & ~EHCI_STS_PORTCH,
                             m_nOpRegsOffset + EHCI_INTR);
-                        (void) m_pBase->read32(
-                            m_nOpRegsOffset + EHCI_INTR);
+                            (void) m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
                         continue;
                     }
 
@@ -797,8 +854,8 @@ void Ehci::interrupt(size_t number, InterruptState &state)
 #endif
 
     // Because there's no IOC for *every* transfer, we need to handle errors
-    // that occur before the last transfer. These will create an error status
-    // only.
+        // that occur before the last transfer. These will create an error
+        // status only.
     if (nStatus & (EHCI_STS_INT | EHCI_STS_ERR))
     {
         for (size_t i = 1; i < 128; i++)
@@ -807,11 +864,12 @@ void Ehci::interrupt(size_t number, InterruptState &state)
                 continue;
 
             QH *pQH = &m_pQHList[i];
-            if (!pQH->pMetaData)  // This QH isn't actually ready to be handled
-                                  // yet.
+                if (!pQH->pMetaData)  // This QH isn't actually ready to be
+                                      // handled yet.
                 continue;
             if (!(pQH->pMetaData->pPrev &&
-                  pQH->pMetaData->pNext))  // This QH isn't actually linked yet
+                      pQH->pMetaData
+                          ->pNext))  // This QH isn't actually linked yet
                 continue;
             if (pQH->pMetaData->bIgnore)
                 continue;
@@ -821,8 +879,19 @@ void Ehci::interrupt(size_t number, InterruptState &state)
             bool bPeriodic = pQH->pMetaData->bPeriodic;
 
             size_t nQTDIndex = INDEX_FROM_QTD(pQH->pMetaData->pFirstQTD);
-            while (true)
+                constexpr size_t QtdCount = 0x1000 / sizeof(qTD);
+                size_t qtdBudget = QtdCount;
+                while (qtdBudget)
             {
+                    --qtdBudget;
+                    if (nQTDIndex >= QtdCount)
+                    {
+                        ERROR_NOLOCK(
+                            "EHCI: QH #" << Dec << i << Hex
+                                         << " has an out-of-range qTD pointer");
+                        break;
+                    }
+
                 qTD *pqTD = &m_pqTDList[nQTDIndex];
 
                 if (pqTD->nStatus != 0x80)
@@ -839,8 +908,8 @@ void Ehci::interrupt(size_t number, InterruptState &state)
                                            << " [overlay status="
                                            << pQH->overlay.nStatus << "]");
                         ERROR_NOLOCK(
-                            "qTD Error Counter: " << pqTD->nErr
-                                                  << " [overlay counter="
+                                "qTD Error Counter: "
+                                << pqTD->nErr << " [overlay counter="
                                                   << pQH->overlay.nErr << "]");
                         ERROR_NOLOCK(
                             "QH NAK counter: " << pqTD->res1
@@ -857,9 +926,10 @@ void Ehci::interrupt(size_t number, InterruptState &state)
                     }
 #ifdef USB_VERBOSE_DEBUG
                     DEBUG_LOG_NOLOCK(
-                        "qTD #" << Dec << nQTDIndex << Hex << " [from QH #"
-                                << Dec << i << Hex << "] DONE: " << Dec
-                                << pQH->nAddress << ":" << pQH->nEndpoint << " "
+                            "qTD #"
+                            << Dec << nQTDIndex << Hex << " [from QH #" << Dec
+                            << i << Hex << "] DONE: " << Dec << pQH->nAddress
+                            << ":" << pQH->nEndpoint << " "
                                 << (pqTD->nPid == 0 ?
                                         "OUT" :
                                         (pqTD->nPid == 1 ?
@@ -881,15 +951,16 @@ void Ehci::interrupt(size_t number, InterruptState &state)
 
                         if (!bPeriodic && ownsCompletion)
                         {
-                            // Ensure the list doesn't change as we modify it
+                                // Ensure the list doesn't change as we modify
+                                // it
                             m_QueueListChangeLock
                                 .acquire();  // Atomic operation
 
                             // Was the reclaim head bit set?
                             if (pQH->hrcl)
                                 pQH->pMetaData->pNext->hrcl =
-                                    1;  // Make sure there's always a reclaim
-                                        // head
+                                        1;  // Make sure there's always a
+                                            // reclaim head
 
                             // This queue head is done, dequeue.
                             QH *pPrev = pQH->pMetaData->pPrev;
@@ -908,13 +979,14 @@ void Ehci::interrupt(size_t number, InterruptState &state)
                                 m_pCurrentQueueTail = pPrev;
                             }
 
-                            // Interrupt on Async Advance Doorbell - will run
-                            // the dequeue thread to clear bits in the QH and
-                            // qTD bitmaps
+                                // Interrupt on Async Advance Doorbell - will
+                                // run the dequeue thread to clear bits in the
+                                // QH and qTD bitmaps
                             size_t cmdReg =
                                 m_pBase->read32(m_nOpRegsOffset + EHCI_CMD);
                             m_pBase->write32(
-                                cmdReg | (1 << 6), m_nOpRegsOffset + EHCI_CMD);
+                                    cmdReg | (1 << 6),
+                                    m_nOpRegsOffset + EHCI_CMD);
 
                             // Now ready for dequeue.
                             pQH->pMetaData->bIgnore = true;
@@ -926,8 +998,19 @@ void Ehci::interrupt(size_t number, InterruptState &state)
 
                         if (bPeriodic && pQH->pMetaData->pCallback)
                         {
+#if X86_COMMON
+                                completions.pushBack(
+                                    m_CompletionDeliveries.create(
+                                        {i,
+                                         pQH->pMetaData
+                                             ->completionGeneration},
+                                        pQH->pMetaData->pCallback,
+                                        pQH->pMetaData->pParam,
+                                        completionResult));
+#else
                             pQH->pMetaData->pCallback(
                                 pQH->pMetaData->pParam, completionResult);
+#endif
                         }
                     }
                     // Interrupt qTDs need constant refresh
@@ -936,13 +1019,15 @@ void Ehci::interrupt(size_t number, InterruptState &state)
                         pqTD->nStatus = 0x80;
                         pqTD->nBytes = pqTD->nBufferSize;
                         pqTD->nPage = 0;
-                        // pqTD->nOffset = pQH->pMetaData->nBufferOffset%0x1000;
+                            // pqTD->nOffset =
+                            // pQH->pMetaData->nBufferOffset%0x1000;
                         pqTD->nErr = 0;
                         // pqTD->pPage0 = m_pTransferPagesPhys>>12;
-                        // pqTD->pPage1 = (m_pTransferPagesPhys + 0x1000)>>12;
-                        // pqTD->pPage2 = (m_pTransferPagesPhys + 0x2000)>>12;
-                        // pqTD->pPage3 = (m_pTransferPagesPhys + 0x3000)>>12;
-                        // pqTD->pPage4 = (m_pTransferPagesPhys + 0x4000)>>12;
+                            // pqTD->pPage1 = (m_pTransferPagesPhys +
+                            // 0x1000)>>12; pqTD->pPage2 = (m_pTransferPagesPhys
+                            // + 0x2000)>>12; pqTD->pPage3 =
+                            // (m_pTransferPagesPhys + 0x3000)>>12; pqTD->pPage4
+                            // = (m_pTransferPagesPhys + 0x4000)>>12;
                         MemoryCopy(&pQH->overlay, pqTD, sizeof(qTD));
                     }
                 }
@@ -965,11 +1050,20 @@ void Ehci::interrupt(size_t number, InterruptState &state)
                 else if (pqTD->pNext == 0)
                 {
                     ERROR_NOLOCK(
-                        "EHCI: QH #" << Dec << i << Hex
+                            "EHCI: QH #"
+                            << Dec << i << Hex
                                      << "'s qTD list is invalid - null pNext "
                                         "pointer (and T bit not set)!");
                     break;
                 }
+
+                    if (!qtdBudget)
+                    {
+                        ERROR_NOLOCK(
+                            "EHCI: QH #" << Dec << i << Hex
+                                         << " exceeded the qTD scan budget");
+                        break;
+                    }
             }
         }
     }
@@ -980,7 +1074,16 @@ void Ehci::interrupt(size_t number, InterruptState &state)
     }
 
 #if X86_COMMON
-    return true;
+        if (completions.count())
+            m_CompletionDeliveries.publish(completions);
+    }
+
+    while (completions.count())
+    {
+        auto *completion = completions.popFront();
+        m_CompletionDeliveries.deliver(completion);
+    }
+    return IrqDisposition::Handled;
 #endif
 }
 
@@ -1044,7 +1147,8 @@ void Ehci::addTransferToTransaction(
 
         if (nBufferPageOffset + nBytes >= 0x5000)
         {
-            ERROR("EHCI: addTransferToTransaction: Too many bytes for a single "
+            ERROR(
+                "EHCI: addTransferToTransaction: Too many bytes for a single "
                   "transaction!");
             return;
         }
@@ -1141,6 +1245,7 @@ uintptr_t Ehci::createTransaction(UsbEndpoint endpointInfo)
     pMetaData->pCallback = nullptr;
     pMetaData->pParam = 0;
     pMetaData->completionState = 0;
+    pMetaData->completionGeneration = 0;
     pMetaData->completionResult = -TransactionError;
 
     pQH->pMetaData = pMetaData;
@@ -1158,8 +1263,8 @@ bool Ehci::doAsync(
         !m_QHBitmap.test(nTransaction))
     {
         ERROR(
-            "EHCI: doAsync: didn't get a valid transaction id ["
-            << nTransaction << "].");
+            "EHCI: doAsync: didn't get a valid transaction id [" << nTransaction
+                                                                 << "].");
         return false;
     }
 
@@ -1167,8 +1272,8 @@ bool Ehci::doAsync(
     if (!pQH->pMetaData || !pQH->pMetaData->pLastQTD)
     {
         ERROR(
-            "EHCI: doAsync: transaction has no transfers ["
-            << nTransaction << "].");
+            "EHCI: doAsync: transaction has no transfers [" << nTransaction
+                                                            << "].");
         delete pQH->pMetaData;
         ByteSet(pQH, 0, sizeof(QH));
         m_QHBitmap.clear(nTransaction);
@@ -1177,6 +1282,8 @@ bool Ehci::doAsync(
 
     pQH->pMetaData->pCallback = pCallback;
     pQH->pMetaData->pParam = pParam;
+    pQH->pMetaData->completionGeneration =
+        m_CompletionDeliveries.nextGeneration();
     pQH->pMetaData->completionState = 1;
     pQH->pMetaData->pLastQTD->bIoc = 1;
 
@@ -1246,7 +1353,9 @@ void Ehci::cancelAsyncAndDrain(
     uintptr_t pParam)
 {
     bool deliverCompletion = false;
+    bool drainDelivery = false;
     ssize_t completionResult = -TransactionError;
+    UsbHcd::CallbackDeliveryQueue::Key deliveryKey = {0, 0};
 
     {
         LockGuard<Mutex> guard(m_Mutex);
@@ -1258,14 +1367,13 @@ void Ehci::cancelAsyncAndDrain(
         m_pBase->write32(0, m_nOpRegsOffset + EHCI_INTR);
         m_pBase->write32(
             savedCommand & ~EHCI_CMD_RUN, m_nOpRegsOffset + EHCI_CMD);
-        while (!(m_pBase->read32(m_nOpRegsOffset + EHCI_STS) &
-                 EHCI_STS_HALTED))
+        while (!(m_pBase->read32(m_nOpRegsOffset + EHCI_STS) & EHCI_STS_HALTED))
         {
             Time::delay(5 * Time::Multiplier::Millisecond);
         }
 
         {
-            LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+            LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
 
             if ((nTransaction != static_cast<uintptr_t>(-1)) &&
                 m_QHBitmap.test(nTransaction))
@@ -1276,15 +1384,23 @@ void Ehci::cancelAsyncAndDrain(
                     metadata->pParam == pParam)
                 {
                     const bool cancellationWon =
-                        metadata->completionState.compareAndSwap(1, 2);
+                        metadata->completionState.compareAndSwap(1, 3);
                     const bool naturalCompletionPending =
                         !cancellationWon &&
                         static_cast<size_t>(metadata->completionState) == 2;
-                    deliverCompletion =
-                        cancellationWon || naturalCompletionPending;
-                    completionResult = cancellationWon ?
-                                           -TransactionError :
-                                           metadata->completionResult;
+                    if (cancellationWon)
+                    {
+                        deliverCompletion = true;
+                    }
+                    else if (naturalCompletionPending)
+                    {
+                        deliveryKey = {
+                            nTransaction, metadata->completionGeneration};
+                        drainDelivery =
+                            m_CompletionDeliveries.contains(deliveryKey);
+                        deliverCompletion = !drainDelivery;
+                        completionResult = metadata->completionResult;
+                    }
 
                     if (deliverCompletion)
                     {
@@ -1320,8 +1436,7 @@ void Ehci::cancelAsyncAndDrain(
                                 const bool last = pQtd->bNextInvalid;
                                 if (!last)
                                 {
-                                    qtdIndex =
-                                        ((pQtd->pNext << 5) & 0xFFF) /
+                                    qtdIndex = ((pQtd->pNext << 5) & 0xFFF) /
                                         sizeof(qTD);
                                 }
                                 ByteSet(pQtd, 0, sizeof(qTD));
@@ -1348,7 +1463,7 @@ void Ehci::cancelAsyncAndDrain(
             }
         }
         {
-            LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+            LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
             uint32_t restoredInterrupts = savedInterrupts;
             const size_t closure = m_InterruptClosure;
             if (closure >= 2)
@@ -1359,20 +1474,15 @@ void Ehci::cancelAsyncAndDrain(
             {
                 restoredInterrupts &= ~EHCI_STS_PORTCH;
             }
-            m_pBase->write32(
-                restoredInterrupts, m_nOpRegsOffset + EHCI_INTR);
+            m_pBase->write32(restoredInterrupts, m_nOpRegsOffset + EHCI_INTR);
             (void) m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
         }
     }
 
-    if (deliverCompletion)
+    if (deliverCompletion && pCallback)
         pCallback(pParam, completionResult);
-    else
-    {
-        // A dequeue worker can win after removing the transaction from the
-        // bitmap but before invoking its captured callback.
-        LockGuard<Spinlock> deliveryGuard(m_CompletionDeliveryLock);
-    }
+    else if (drainDelivery)
+        (void) m_CompletionDeliveries.drain(deliveryKey);
 }
 
 void Ehci::addInterruptInHandler(
@@ -1428,15 +1538,57 @@ void Ehci::addInterruptInHandler(
     // Add the QH to the frame list
     {
         LockGuard<Mutex> guard(m_Mutex);
+        pQH->pMetaData->pCallback = pCallback;
+        pQH->pMetaData->pParam = pParam;
+        pQH->pMetaData->completionGeneration =
+            m_CompletionDeliveries.nextGeneration();
+        pQH->pMetaData->completionState = 1;
         m_pFrameList[nFrameIndex] =
             (m_pQHListPhys + nTransaction * sizeof(QH)) | 2;
     }
 }
 
+void Ehci::replaySuppressedConnectionChange(size_t port)
+{
+#if THREADS
+    if (port >= m_nPorts)
+    {
+        ERROR("EHCI: invalid suppressed root-port replay " << Dec << port);
+        return;
+    }
+
+    LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
+    // Teardown stops publication before its active enumeration worker returns.
+    if (m_InterruptClosure)
+    {
+        return;
+    }
+    const auto observation = m_PortChanges[port].observe();
+    const bool accepted =
+        UsbHcd::PortChangeRequest::canAcknowledge(observation.result);
+    if (accepted)
+    {
+        m_PortChanges[port].acknowledge(observation.generation);
+        return;
+    }
+
+    m_InterruptClosure = 1;
+    const uint32_t interrupts =
+        m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+    m_pBase->write32(
+        interrupts & ~EHCI_STS_PORTCH, m_nOpRegsOffset + EHCI_INTR);
+    (void) m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+    ERROR("EHCI: live suppressed root-port replay could not be published");
+    assert(false);
+#else
+    (void) port;
+#endif
+}
+
 void Ehci::modifyPortControl(
     size_t portRegister, uint32_t clearMask, uint32_t setMask)
 {
-    LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+    LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
     uint32_t control = portControlValue(m_pBase->read32(portRegister));
     control &= ~clearMask;
     control |= portControlValue(setMask);
@@ -1446,8 +1598,7 @@ void Ehci::modifyPortControl(
 
 bool Ehci::portReset(uint8_t nPort, bool bErrorResponse)
 {
-    const size_t portRegister =
-        m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4);
+    const size_t portRegister = m_nOpRegsOffset + EHCI_PORTSC + (nPort * 4);
     int retry;
     for (retry = 0; retry < 3; retry++)
     {
@@ -1541,7 +1692,6 @@ void Ehci::cancelRequest(const Request &request)
 {
     if (request.p1 < m_nPorts)
     {
-        m_PortChanges[request.p1].cancel(
-            static_cast<size_t>(request.p8));
+        m_PortChanges[request.p1].cancel(static_cast<size_t>(request.p8));
     }
 }

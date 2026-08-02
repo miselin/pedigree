@@ -22,6 +22,8 @@
 #ifndef UHCI_H
 #define UHCI_H
 
+#include "CallbackDelivery.h"
+#include "PortChangeRequest.h"
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/Spinlock.h"
@@ -40,7 +42,6 @@
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
-#include "PortChangeRequest.h"
 
 class Device;
 class IoBase;
@@ -48,7 +49,7 @@ class Thread;
 
 /** Device driver for the Uhci class */
 class Uhci : public UsbHub,
-             public HardIrqHandler,
+             public IrqHandler,
              public RequestQueue,
              public TimerHandler
 {
@@ -142,6 +143,7 @@ class Uhci : public UsbHub,
             bool bIgnore;  /// Ignore this QH when iterating over the list -
                            /// don't look at any of its TDs
             Atomic<size_t> completionState;
+            size_t completionGeneration;
 
             size_t id;
         } * pMetaData;
@@ -165,7 +167,7 @@ class Uhci : public UsbHub,
         void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
 
     /// IRQ handler
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    IrqDisposition irq(irq_id_t number) override;
 
     void doDequeue();
 
@@ -178,6 +180,7 @@ class Uhci : public UsbHub,
     virtual void cancelAsyncAndDrain(
         uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
         uintptr_t pParam);
+    void replaySuppressedConnectionChange(size_t port) override;
 
     virtual uint64_t executeRequest(
         uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
@@ -190,6 +193,10 @@ class Uhci : public UsbHub,
 
     /// Starts the UHCI controller
     void start();
+
+    /// Updates the lower USBLEGSUP control word without clobbering its upper
+    /// word.
+    void setLegacySupportControl(uint16_t control);
 
     /// Serialises control RMWs with scanning without echoing W1C status bits.
     void modifyPortControl(
@@ -228,13 +235,16 @@ class Uhci : public UsbHub,
 
     uint8_t m_nPorts;
     UsbHcd::PortChangeRequest m_PortChanges[UsbHcd::UhciRootPortCount];
+    Atomic<bool> m_PortChangesClosing;
     Spinlock m_PortChangeLock;
 
     Mutex m_Mutex;
 
     /** Serialises transaction completion with synchronous cancellation. */
-    Spinlock m_IrqProcessingLock;
-    Spinlock m_AsyncQueueListChangeLock;
+    Mutex m_IrqProcessingLock;
+    /** Per-generation callback publication and cancellation drain boundary. */
+    UsbHcd::CallbackDeliveryQueue m_CompletionDeliveries;
+    Mutex m_AsyncQueueListChangeLock;
 
     uint32_t *m_pFrameList;
     uintptr_t m_pFrameListPhys;

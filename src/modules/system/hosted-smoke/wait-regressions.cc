@@ -51,6 +51,7 @@ bool runHostedSyscallRegressions();
 bool runHostedTimerRegressions(Thread *thread);
 bool runHostedSplitIrqRegressions();
 bool runHostedThreadedIrqRegressions();
+bool runHostedUsbCallbackDeliveryRegressions();
 bool runHostedUsbHcdPortChangeRegressions();
 EXPORTED_PUBLIC bool runHostedUsbSyncOwnershipRegression();
 
@@ -1922,6 +1923,7 @@ bool runHostedWaitRegressions()
             ->runHostedNewThreadWorkerRegressions() &&
         runHostedSchedulerRegressions() &&
         runHostedRequestQueueRegressions() &&
+        runHostedUsbCallbackDeliveryRegressions() &&
         runHostedUsbHcdPortChangeRegressions() &&
         runHostedMutexRegressions() &&
         runHostedInterruptManagerRegressions() &&

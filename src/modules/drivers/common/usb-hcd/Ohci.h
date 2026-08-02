@@ -20,6 +20,8 @@
 #ifndef OHCI_H
 #define OHCI_H
 
+#include "CallbackDelivery.h"
+#include "PortChangeRequest.h"
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/Atomic.h"
@@ -39,7 +41,6 @@
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
-#include "PortChangeRequest.h"
 
 class Device;
 class IoBase;
@@ -47,7 +48,7 @@ class IoBase;
 /** Device driver for the Ohci class */
 class Ohci : public UsbHub,
 #if X86_COMMON
-             public HardIrqHandler,
+             public IrqHandler,
 #else
              public InterruptHandler,
 #endif
@@ -60,6 +61,12 @@ class Ohci : public UsbHub,
     // Non-threaded kernels still need IRQ-safe exclusion, but Mutex has no
     // implementation in that configuration.
     using ControllerLock = Spinlock;
+#endif
+
+#if X86_COMMON
+    using IrqProcessingLock = Mutex;
+#else
+    using IrqProcessingLock = Spinlock;
 #endif
 
     /// Enumeration of lists that can be stopped or started.
@@ -167,6 +174,7 @@ class Ohci : public UsbHub,
 
             Lists edType;
             Atomic<size_t> completionState;
+            size_t completionGeneration;
             ssize_t completionResult;
 
             size_t id;
@@ -178,7 +186,7 @@ class Ohci : public UsbHub,
         uint32_t pInterruptEDList[32];
         uint16_t nFrameNumber;
         uint16_t res0;
-        uint32_t pDoneHead;
+        volatile uint32_t pDoneHead;
     } PACKED;
 
     virtual void getName(String &str)
@@ -200,7 +208,7 @@ class Ohci : public UsbHub,
 
 /// IRQ handler
 #if X86_COMMON
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    IrqDisposition irq(irq_id_t number) override;
 #else
     virtual void interrupt(size_t number, InterruptState &state);
 #endif
@@ -211,6 +219,7 @@ class Ohci : public UsbHub,
     virtual void cancelAsyncAndDrain(
         uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
         uintptr_t pParam);
+    void replaySuppressedConnectionChange(size_t port) override;
 
     virtual uint64_t executeRequest(
         uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
@@ -234,6 +243,8 @@ class Ohci : public UsbHub,
 
     /// Prepares an ED to be reclaimed.
     void removeED(ED *pED);
+
+    static void finishDeferredCompletion(void *context);
 
     /// Converts a software ED pointer to a physical address.
     inline physical_uintptr_t vtp_ed(ED *pED)
@@ -367,7 +378,10 @@ class Ohci : public UsbHub,
     uintptr_t m_pHccaPhys;
 
     /// Lock for modifying the schedule list itself (m_FullSchedule)
-    Spinlock m_IrqProcessingLock;
+    IrqProcessingLock m_IrqProcessingLock;
+
+    /** Per-generation callback publication and cancellation drain boundary. */
+    UsbHcd::CallbackDeliveryQueue m_CompletionDeliveries;
 
     /// Serializes root-hub register access between reset and IRQ paths.
     Spinlock m_RootHubLock;

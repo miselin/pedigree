@@ -52,18 +52,51 @@
     (((reinterpret_cast<uintptr_t>((ptr)) & 0xFFF) / sizeof(TD)))
 #define PHYS_TD(idx) (m_pTDListPhys + ((idx) * sizeof(TD)))
 
+namespace
+{
+struct OhciCompletionCleanup
+{
+    Ohci *controller;
+    Ohci::ED *ed;
+    size_t generation;
+};
+}  // namespace
+
+void Ohci::finishDeferredCompletion(void *context)
+{
+    auto *cleanup = reinterpret_cast<OhciCompletionCleanup *>(context);
+    Ohci *controller = cleanup->controller;
+    {
+        LockGuard<ControllerLock> guard(controller->m_Mutex);
+        ED *ed = cleanup->ed;
+        if (
+            ed->pMetaData && ed->pMetaData->completionGeneration ==
+                                 cleanup->generation)
+        {
+            const size_t id = ed->pMetaData->id & 0xFFF;
+            const Lists type = ed->pMetaData->edType;
+            delete ed->pMetaData;
+            ByteSet(ed, 0, sizeof(ED));
+            if (type == ControlList)
+                controller->m_ControlEDBitmap.clear(id);
+            else if (type == BulkList)
+                controller->m_BulkEDBitmap.clear(id);
+        }
+    }
+    delete cleanup;
+}
+
 Ohci::Ohci(Device *pDev)
     : UsbHub(pDev), RequestQueue(MakeConstantString("OHCI")), m_pBase(0),
       m_nPorts(0), m_Initialised(false), m_Mutex(), m_PortResetMutex(),
-      m_IrqProcessingLock(), m_RootHubLock(),
+      m_IrqProcessingLock(), m_CompletionDeliveries(), m_RootHubLock(),
       m_RootHubStatusChangeDesired(false), m_PortResetActive(false),
-      m_TeardownPhase(0), m_ScheduleChangeLock(),
-      m_PeriodicListChangeLock(), m_ControlListChangeLock(),
-      m_BulkListChangeLock(), m_PeriodicEDBitmap(), m_ControlEDBitmap(),
-      m_BulkEDBitmap(), m_pBulkQueueHead(0), m_pControlQueueHead(0),
-      m_pBulkQueueTail(0), m_pControlQueueTail(0), m_pPeriodicQueueTail(0),
-      m_DequeueListLock(), m_DequeueList(), m_DequeueCount(0),
-      m_OhciMR("Ohci-MR"), m_CallbackOperations(), m_IrqId(0)
+      m_TeardownPhase(0), m_ScheduleChangeLock(), m_PeriodicListChangeLock(),
+      m_ControlListChangeLock(), m_BulkListChangeLock(), m_PeriodicEDBitmap(),
+      m_ControlEDBitmap(), m_BulkEDBitmap(), m_pBulkQueueHead(0),
+      m_pControlQueueHead(0), m_pBulkQueueTail(0), m_pControlQueueTail(0),
+      m_pPeriodicQueueTail(0), m_DequeueListLock(), m_DequeueList(),
+      m_DequeueCount(0), m_OhciMR("Ohci-MR"), m_CallbackOperations(), m_IrqId(0)
 {
     setSpecificType(String("OHCI"));
 
@@ -110,6 +143,7 @@ Ohci::Ohci(Device *pDev)
     pPeriodicED->bSkip = true;
     pPeriodicED->pMetaData = new ED::MetaData;
     pPeriodicED->pMetaData->id = 0x2000;
+    pPeriodicED->pMetaData->completionGeneration = 0;
     pPeriodicED->pMetaData->pPrev = pPeriodicED->pMetaData->pNext = pPeriodicED;
 
     // Set all HCCA interrupt ED entries to our periodic ED
@@ -195,8 +229,7 @@ Ohci::Ohci(Device *pDev)
     // IRQ callback and preallocated port publications are ready.
     m_pBase->write32(OhciInterruptAll, OhciInterruptDisable);
     (void) m_pBase->read32(OhciInterruptEnable);
-    m_pBase->write32(
-        OhciInterruptOwnershipChange | 0x7F, OhciInterruptStatus);
+    m_pBase->write32(OhciInterruptOwnershipChange | 0x7F, OhciInterruptStatus);
     (void) m_pBase->read32(OhciInterruptStatus);
 
     // Prepare the control register
@@ -236,9 +269,8 @@ Ohci::Ohci(Device *pDev)
 
 // Install the IRQ handler
 #if X86_COMMON
-    m_IrqId =
-        Machine::instance().getIrqManager()->registerHardPciIrqHandler(
-            this, this, IrqPolicy::pciIntxHard());
+    m_IrqId = Machine::instance().getIrqManager()->registerPciIrqHandler(
+        static_cast<IrqHandler *>(this), this, IrqPolicy::pciIntxThreaded());
     if (!m_IrqId)
     {
         ERROR("OHCI: could not register the PCI interrupt callback");
@@ -352,7 +384,7 @@ Ohci::~Ohci()
     // must remain live while an active enumeration request drains.
     if (m_pBase)
     {
-        LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+        LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
         LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
         m_TeardownPhase = 1;
         m_RootHubStatusChangeDesired = false;
@@ -367,7 +399,7 @@ Ohci::~Ohci()
     RequestQueue::destroy();
 
     {
-        LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+        LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
         m_TeardownPhase = 2;
         if (m_pBase)
         {
@@ -383,7 +415,7 @@ Ohci::~Ohci()
     if (m_IrqId)
     {
         if (!Machine::instance().getIrqManager()->unregisterHandler(
-                m_IrqId, this))
+                m_IrqId, static_cast<IrqHandler *>(this)))
         {
             FATAL(
                 "OHCI teardown could not synchronously unregister its IRQ "
@@ -401,8 +433,7 @@ Ohci::~Ohci()
         // the MemoryRegion destructor will release.
         uint32_t control = m_pBase->read32(OhciControl);
         control &= ~(OhciControlStateFunctionalMask | 0x3C);
-        m_pBase->write32(
-            control | OhciControlStateSuspended, OhciControl);
+        m_pBase->write32(control | OhciControlStateSuspended, OhciControl);
         (void) m_pBase->read32(OhciControl);
         Time::delay(2 * Time::Multiplier::Millisecond);
 
@@ -473,7 +504,8 @@ void Ohci::removeED(ED *pED)
     if (pED == *pQueueHead)
     {
 #ifdef USB_VERBOSE_DEBUG
-        DEBUG_LOG("OHCI: ED was a queue head, adjusting controller state "
+        DEBUG_LOG(
+            "OHCI: ED was a queue head, adjusting controller state "
                   "accordingly");
 #endif
 
@@ -517,47 +549,56 @@ void Ohci::removeED(ED *pED)
 }
 
 #if X86_COMMON
-bool Ohci::irq(irq_id_t number, InterruptState &state)
+IrqDisposition Ohci::irq(irq_id_t number)
 #else
 void Ohci::interrupt(size_t number, InterruptState &state)
 #endif
 {
+    (void) number;
+#if !X86_COMMON
+    (void) state;
+#endif
+
     OperationBarrier::Lease callback;
     if (!m_CallbackOperations.tryAcquire(callback))
     {
         return
 #if X86_COMMON
-            false
+            IrqDisposition::Quiesced
 #endif
             ;
     }
-    LockGuard<Spinlock> transactionGuard(m_IrqProcessingLock);
+#if X86_COMMON
+    List<UsbHcd::CallbackDeliveryQueue::Record *> completions;
+    {
+#endif
+        LockGuard<IrqProcessingLock> transactionGuard(m_IrqProcessingLock);
+
+        if (m_TeardownPhase == 2)
+        {
+            return
+#if X86_COMMON
+                IrqDisposition::Quiesced
+#endif
+            ;
+    }
 
     if (!m_pHcca)
     {
         // Assume not for us - no HCCA yet!
         return
 #if X86_COMMON
-            false
+                IrqDisposition::NotHandled
 #endif
             ;
     }
 
-    uint32_t nStatus = 0;
-
-    // Find out if this came from either a done ED or a useful status.
-    if (m_pHcca->pDoneHead)
-    {
-        // We must process this interrupt.
-        nStatus = OhciInterruptWbDoneHead;
-        if (m_pHcca->pDoneHead & 0x1)  // ... ???
-            nStatus |= m_pBase->read32(OhciInterruptStatus) &
+        uint32_t nStatus = m_pBase->read32(OhciInterruptStatus) &
                        m_pBase->read32(OhciInterruptEnable);
-    }
-    else
+        const uint32_t observedDoneHead = m_pHcca->pDoneHead;
+        if (observedDoneHead)
     {
-        nStatus = m_pBase->read32(OhciInterruptStatus) &
-                  m_pBase->read32(OhciInterruptEnable);
+            nStatus |= OhciInterruptWbDoneHead;
     }
 
     // Not for us?
@@ -566,16 +607,35 @@ void Ohci::interrupt(size_t number, InterruptState &state)
         DEBUG_LOG("USB: OHCI: irq is not for us");
         return
 #if X86_COMMON
-            false
+                IrqDisposition::NotHandled
 #endif
             ;
     }
 
     // However, make sure we do not get interrupted during handling.
     m_pBase->write32(OhciInterruptMIE, OhciInterruptDisable);
+        (void) m_pBase->read32(OhciInterruptEnable);
+
+        // HCCA DoneHead belongs to software until WDH is acknowledged. Re-read
+        // it after closing MIE, then save and clear it before processing so the
+        // controller has an empty slot when WDH is retired below.
+        const uint32_t doneHead = m_pHcca->pDoneHead;
+        if (doneHead)
+        {
+            m_pHcca->pDoneHead = 0;
+            FENCE();
+            nStatus |= OhciInterruptWbDoneHead;
+            if (doneHead & 0x1)
+            {
+                nStatus |= m_pBase->read32(OhciInterruptStatus) &
+                           m_pBase->read32(OhciInterruptEnable);
+            }
+        }
 
     // Clear the MIE bit from the interrupt status. We don't care for it.
     nStatus &= ~OhciInterruptMIE;
+        bool sofDrained = true;
+        bool doneHeadDrained = true;
 
 #ifdef USB_VERBOSE_DEBUG
     DEBUG_LOG("OHCI: IRQ " << nStatus);
@@ -589,15 +649,13 @@ void Ohci::interrupt(size_t number, InterruptState &state)
         ERROR("OHCI: controller is hung!");
         return
 #if X86_COMMON
-            true
+                IrqDisposition::Handled
 #endif
             ;
     }
 
     if (nStatus & OhciInterruptStartOfFrame)
     {
-        LockGuard<Spinlock> guard(m_DequeueListLock);
-
 #ifdef USB_VERBOSE_DEBUG
         DEBUG_LOG("OHCI: SOF, preparing to reclaim EDs...");
 #endif
@@ -606,17 +664,26 @@ void Ohci::interrupt(size_t number, InterruptState &state)
         m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptDisable);
 
         // Process the reclaim list.
-        ED *pED = 0;
-        while (1)
+            constexpr size_t EdListCount = 3 * (0x1000 / sizeof(ED));
+            size_t reclaimBudget = EdListCount;
+            while (reclaimBudget)
         {
-            if (!m_DequeueList.count())
+                ED *pED = nullptr;
+                {
+                    LockGuard<Spinlock> guard(m_DequeueListLock);
+                    if (m_DequeueList.count())
+                        pED = m_DequeueList.popFront();
+                    else
                 break;
+                }
 
-            pED = m_DequeueList.popFront();
+                --reclaimBudget;
             if (pED)
             {
-                size_t id = pED->pMetaData->id & 0xFFF;
-                Lists type = pED->pMetaData->edType;
+                    const size_t transaction = pED->pMetaData->id;
+                    const size_t generation =
+                        pED->pMetaData->completionGeneration;
+                    const Lists type = pED->pMetaData->edType;
                 void (*completion)(uintptr_t, ssize_t) =
                     pED->pMetaData->pCallback;
                 const uintptr_t completionParam = pED->pMetaData->pParam;
@@ -641,37 +708,43 @@ void Ohci::interrupt(size_t number, InterruptState &state)
                 }
 
 #ifdef USB_VERBOSE_DEBUG
-                DEBUG_LOG("OHCI: freeing ED #" << pED->pMetaData->id << ".");
+                    DEBUG_LOG(
+                        "OHCI: freeing ED #" << pED->pMetaData->id << ".");
 #endif
 
-                // Destroy the ED and free it's memory space.
+#if X86_COMMON
+                    auto *cleanup = new OhciCompletionCleanup{
+                        this, pED, generation};
+                    completions.pushBack(m_CompletionDeliveries.create(
+                        {transaction, generation}, completion, completionParam,
+                        completionResult, finishDeferredCompletion, cleanup));
+#else
+                    const size_t id = transaction & 0xFFF;
                 delete pED->pMetaData;
                 ByteSet(pED, 0, sizeof(ED));
-
-                switch (type)
-                {
-                    case ControlList:
+                    if (type == ControlList)
                         m_ControlEDBitmap.clear(id);
-                        break;
-                    case BulkList:
+                    else if (type == BulkList)
                         m_BulkEDBitmap.clear(id);
-                        break;
-                    case PeriodicList:
-                        WARNING("periodic: not actually clearing bit");
-                        // m_PeriodicEDBitmap.clear(edId);
-                        break;
-                    case IsochronousList:
-                        DEBUG_LOG("USB: OHCI: dequeue on an isochronous ED, "
-                                  "but we don't support them yet.");
-                        break;
-                }
-
-                if (completion)
-                    completion(completionParam, completionResult);
+#endif
 
                 // Safe to restore this list to the running state.
                 /// \note List processing won't start until the NEXT SOF.
                 start(type);
+
+#if !X86_COMMON
+                    if (completion)
+                        completion(completionParam, completionResult);
+#endif
+                }
+            }
+
+            {
+                LockGuard<Spinlock> guard(m_DequeueListLock);
+                if (m_DequeueList.count())
+                {
+                    sofDrained = false;
+                    ERROR_NOLOCK("OHCI: exceeded the SOF reclaim scan budget");
             }
         }
     }
@@ -705,8 +778,9 @@ void Ohci::interrupt(size_t number, InterruptState &state)
                  OhciRhPortStsOverCurrentCh);
 
             // A reset worker masks RHSC before issuing reset and owns PRSC
-            // until it has sampled and cleared completion. A stale PRSC with
-            // no owner can be retired here instead of causing an IRQ storm.
+                // until it has sampled and cleared completion. A stale PRSC
+                // with no owner can be retired here instead of causing an IRQ
+                // storm.
             if ((portStatus & OhciRhPortStsResCh) && !m_PortResetActive)
             {
                 acknowledgeMask |= OhciRhPortStsResCh;
@@ -714,14 +788,13 @@ void Ohci::interrupt(size_t number, InterruptState &state)
 
             if (portStatus & OhciRhPortStsConnStsCh)
             {
-                const bool ignored = m_IgnoredPorts.test(i);
-                bool acknowledge = ignored;
+                const bool deferred = deferConnectionChangeIfSuppressed(i);
+                bool acknowledge = deferred;
                 size_t generation = 0;
-                if (!ignored)
+                if (!deferred)
                 {
                     const auto observation = m_PortChanges[i].observe();
-                    acknowledge =
-                        UsbHcd::PortChangeRequest::canAcknowledge(
+                        acknowledge = UsbHcd::PortChangeRequest::canAcknowledge(
                             observation.result);
                     assert(acknowledge);
                     if (acknowledge)
@@ -739,8 +812,9 @@ void Ohci::interrupt(size_t number, InterruptState &state)
                 {
                     // A configured preallocated token has no fallible
                     // admission path while the queue is accepting. Preserve
-                    // CSC for diagnosis, but mask RHSC to avoid a hard-IRQ
-                    // livelock if that invariant is ever violated.
+                        // CSC for diagnosis, but mask RHSC to avoid a
+                        // level-triggered IRQ livelock if that invariant is
+                        // ever violated.
                     m_RootHubStatusChangeDesired = false;
                     setRootHubStatusChangeSource(false);
                 }
@@ -748,8 +822,9 @@ void Ohci::interrupt(size_t number, InterruptState &state)
 
             if (acknowledgeMask)
             {
-                // OHCI root-port command bits alias the readable status bits;
-                // writing only upper change bits avoids replaying commands.
+                    // OHCI root-port command bits alias the readable status
+                    // bits; writing only upper change bits avoids replaying
+                    // commands.
                 m_pBase->write32(acknowledgeMask, portRegister);
                 (void) m_pBase->read32(portRegister);
             }
@@ -769,9 +844,13 @@ void Ohci::interrupt(size_t number, InterruptState &state)
 
     if (nStatus & OhciInterruptWbDoneHead)
     {
+            constexpr size_t EdListCount = 3 * (0x1000 / sizeof(ED));
+            constexpr size_t TdListCount = 0x1000 / sizeof(TD);
+            size_t scheduleBudget = EdListCount;
         ED *pED = 0;
-        do
+            while (scheduleBudget)
         {
+                --scheduleBudget;
             {
                 LockGuard<Spinlock> guard(m_ScheduleChangeLock);
                 if (m_FullSchedule.count())
@@ -791,12 +870,14 @@ void Ohci::interrupt(size_t number, InterruptState &state)
 
             // Iterate the TD list
             TD *pTD = 0;
-            while (pED->pMetaData->tdList.count())
+                size_t tdBudget = TdListCount;
+                while (pED->pMetaData->tdList.count() && tdBudget)
             {
+                    --tdBudget;
                 pTD = pED->pMetaData->tdList.popFront();
 
-                // TD not yet handled - return to the list and go to the next
-                // ED.
+                    // TD not yet handled - return to the list and go to the
+                    // next ED.
                 if (pTD->nStatus == 0xF)
                 {
                     pED->pMetaData->tdList.pushFront(pTD);
@@ -808,7 +889,8 @@ void Ohci::interrupt(size_t number, InterruptState &state)
                 {
 #ifdef USB_VERBOSE_DEBUG
                     if (!bPeriodic)
-                        ERROR_NOLOCK("TD Error " << Dec << pTD->nStatus << Hex);
+                            ERROR_NOLOCK(
+                                "TD Error " << Dec << pTD->nStatus << Hex);
 #endif
                     nResult = -pTD->getError();
                 }
@@ -847,16 +929,16 @@ void Ohci::interrupt(size_t number, InterruptState &state)
                 if (!bPeriodic)
                     pED->pMetaData->completedTdList.pushBack(pTD);
 
-                // Last TD or error condition, if async, otherwise only when it
-                // gives no error
+                    // Last TD or error condition, if async, otherwise only when
+                    // it gives no error
                 if (bEndOfTransfer)
                 {
                     const ssize_t completionResult =
-                        nResult < 0 ? nResult :
-                                      pED->pMetaData->nTotalBytes;
+                            nResult < 0 ? nResult : pED->pMetaData->nTotalBytes;
                     const bool ownsCompletion =
                         bPeriodic ||
-                        pED->pMetaData->completionState.compareAndSwap(1, 2);
+                            pED->pMetaData->completionState.compareAndSwap(
+                                1, 2);
 
                     if (!bPeriodic && ownsCompletion)
                     {
@@ -876,8 +958,19 @@ void Ohci::interrupt(size_t number, InterruptState &state)
 
                     if (bPeriodic && pED->pMetaData->pCallback)
                     {
+#if X86_COMMON
+                            completions.pushBack(
+                                m_CompletionDeliveries.create(
+                                    {pED->pMetaData->id,
+                                     pED->pMetaData
+                                         ->completionGeneration},
+                                    pED->pMetaData->pCallback,
+                                    pED->pMetaData->pParam,
+                                    completionResult));
+#else
                         pED->pMetaData->pCallback(
                             pED->pMetaData->pParam, completionResult);
+#endif
                     }
                 }
 
@@ -885,7 +978,8 @@ void Ohci::interrupt(size_t number, InterruptState &state)
                 if (bPeriodic)
                 {
                     pTD->nStatus = 0xf;
-                    pTD->pBufferStart = pTD->pBufferEnd - pTD->nBufferSize + 1;
+                        pTD->pBufferStart =
+                            pTD->pBufferEnd - pTD->nBufferSize + 1;
                     pED->pHeadTD = PHYS_TD(pTD->id) >> 4;
 
                     pED->pMetaData->tdList.pushBack(pTD);
@@ -893,14 +987,32 @@ void Ohci::interrupt(size_t number, InterruptState &state)
                 }
             }
 
-            // If this ED is not queued for deletion, make sure we can use it
-            // in the next IRQ.
+                if (!tdBudget && pED->pMetaData->tdList.count())
+                {
+                    doneHeadDrained = false;
+                    ERROR_NOLOCK(
+                        "OHCI: ED #" << Dec << pED->pMetaData->id << Hex
+                                     << " exceeded the TD scan budget");
+                }
+
+                // If this ED is not queued for deletion, make sure we can use
+                // it in the next IRQ.
             if (!pED->pMetaData->bIgnore)
                 persistList.pushBack(pED);
-        } while (pED);
     }
 
-    // Restore EDs into the schedule if they were removed and need to persist.
+            {
+                LockGuard<Spinlock> guard(m_ScheduleChangeLock);
+                if (m_FullSchedule.count())
+                {
+                    doneHeadDrained = false;
+                    ERROR_NOLOCK("OHCI: exceeded the done-head ED scan budget");
+                }
+            }
+        }
+
+        // Restore EDs into the schedule if they were removed and need to
+        // persist.
     if (persistList.count())
     {
         LockGuard<Spinlock> guard(m_ScheduleChangeLock);
@@ -914,8 +1026,16 @@ void Ohci::interrupt(size_t number, InterruptState &state)
 
     // RHSC was acknowledged before its scan so a later port edge cannot be
     // erased here.
-    const uint32_t acknowledgeStatus =
-        nStatus & ~OhciInterruptRhStsChange;
+        uint32_t acknowledgeStatus = nStatus & ~OhciInterruptRhStsChange;
+        if (!sofDrained)
+        {
+            acknowledgeStatus &= ~OhciInterruptStartOfFrame;
+            m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptEnable);
+        }
+        if (!doneHeadDrained)
+        {
+            acknowledgeStatus &= ~OhciInterruptWbDoneHead;
+        }
     if (acknowledgeStatus)
     {
         m_pBase->write32(acknowledgeStatus, OhciInterruptStatus);
@@ -928,7 +1048,17 @@ void Ohci::interrupt(size_t number, InterruptState &state)
     }
 
 #if X86_COMMON
-    return true;
+        if (completions.count())
+            m_CompletionDeliveries.publish(completions);
+    }
+
+    while (completions.count())
+    {
+        auto *completion = completions.popFront();
+        m_CompletionDeliveries.deliver(completion);
+    }
+
+    return IrqDisposition::Handled;
 #endif
 }
 
@@ -1111,6 +1241,7 @@ uintptr_t Ohci::createTransaction(UsbEndpoint endpointInfo)
     pED->pMetaData->pCallback = nullptr;
     pED->pMetaData->pParam = 0;
     pED->pMetaData->completionState = 0;
+    pED->pMetaData->completionGeneration = 0;
     pED->pMetaData->completionResult = -TransactionError;
 
     // Complete
@@ -1166,8 +1297,8 @@ bool Ohci::doAsync(
         if (!pED->pMetaData || !pED->pMetaData->pLastTD)
         {
             ERROR(
-                "OHCI: doAsync: transaction has no transfers ["
-                << pTransaction << "].");
+                "OHCI: doAsync: transaction has no transfers [" << pTransaction
+                                                                << "].");
             delete pED->pMetaData;
             ByteSet(pED, 0, sizeof(ED));
             if (transactionType == 0)
@@ -1176,13 +1307,14 @@ bool Ohci::doAsync(
                 m_BulkEDBitmap.clear(edOffset);
             return false;
         }
-    }
 
-    // Set up all the metadata we can at the moment.
     pED->pMetaData->pCallback = pCallback;
     pED->pMetaData->pParam = pParam;
+        pED->pMetaData->completionGeneration =
+            m_CompletionDeliveries.nextGeneration();
     pED->pMetaData->completionState = 1;
     pED->pMetaData->completionResult = -TransactionError;
+    }
 
     bool bControl = !pED->pMetaData->endpointInfo.nEndpoint;
 
@@ -1311,7 +1443,9 @@ void Ohci::cancelAsyncAndDrain(
     uintptr_t pParam)
 {
     bool deliverCompletion = false;
+    bool drainDelivery = false;
     ssize_t completionResult = -TransactionError;
+    UsbHcd::CallbackDeliveryQueue::Key deliveryKey = {0, 0};
     ED *pED = nullptr;
 
     {
@@ -1328,7 +1462,7 @@ void Ohci::cancelAsyncAndDrain(
         Time::delay(2 * Time::Multiplier::Millisecond);
 
         {
-            LockGuard<Spinlock> irqGuard(m_IrqProcessingLock);
+            LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
 
             const size_t transactionType = (pTransaction & 0x3000) >> 12;
             const uintptr_t edOffset = pTransaction & 0xFFF;
@@ -1344,28 +1478,36 @@ void Ohci::cancelAsyncAndDrain(
                 pED = valid ? &m_pBulkEDList[edOffset] : nullptr;
             }
 
-            if (pED && pED->pMetaData &&
-                pED->pMetaData->pCallback == pCallback &&
-                pED->pMetaData->pParam == pParam)
+            if (pED && pED->pMetaData && pED->pMetaData->pParam == pParam)
             {
+                const bool callbackMatches =
+                    pED->pMetaData->pCallback == pCallback;
                 const bool cancellationWon =
-                    pED->pMetaData->completionState.compareAndSwap(1, 2);
+                    callbackMatches &&
+                    pED->pMetaData->completionState.compareAndSwap(1, 3);
                 const bool naturalCompletionPending =
                     !cancellationWon &&
-                    static_cast<size_t>(
-                        pED->pMetaData->completionState) == 2;
-                deliverCompletion =
-                    cancellationWon || naturalCompletionPending;
-                completionResult = cancellationWon ?
-                                       -TransactionError :
-                                       pED->pMetaData->completionResult;
-
-                if (deliverCompletion)
-                    pED->pMetaData->pCallback = nullptr;
-
+                    static_cast<size_t>(pED->pMetaData->completionState) == 2;
                 if (cancellationWon)
                 {
+                    deliverCompletion = true;
+                    pED->pMetaData->pCallback = nullptr;
                     pED->pMetaData->completionResult = completionResult;
+                }
+                else if (naturalCompletionPending && callbackMatches)
+                {
+                    deliveryKey = {
+                        pTransaction,
+                        pED->pMetaData->completionGeneration};
+                    drainDelivery =
+                        m_CompletionDeliveries.contains(deliveryKey);
+                    if (!drainDelivery && callbackMatches)
+                    {
+                        deliverCompletion = true;
+                        completionResult =
+                            pED->pMetaData->completionResult;
+                        pED->pMetaData->pCallback = nullptr;
+                    }
                 }
             }
 
@@ -1401,8 +1543,12 @@ void Ohci::cancelAsyncAndDrain(
         }
     }
 
-    if (deliverCompletion)
+    if (deliverCompletion && pCallback)
         pCallback(pParam, completionResult);
+#if X86_COMMON
+    else if (drainDelivery)
+        (void) m_CompletionDeliveries.drain(deliveryKey);
+#endif
 }
 
 void Ohci::addInterruptInHandler(
@@ -1458,6 +1604,8 @@ void Ohci::addInterruptInHandler(
     // Set up the callback and pointer.
     pED->pMetaData->pCallback = pCallback;
     pED->pMetaData->pParam = pParam;
+    pED->pMetaData->completionGeneration =
+        m_CompletionDeliveries.nextGeneration();
     pED->pMetaData->completionState = 1;
     pED->pMetaData->completionResult = -TransactionError;
 
@@ -1480,6 +1628,43 @@ void Ohci::addInterruptInHandler(
 
     // Start processing of the list if it isn't already active.
     start(pED->pMetaData->edType);
+}
+
+void Ohci::replaySuppressedConnectionChange(size_t port)
+{
+#if THREADS
+    if (port >= m_nPorts)
+    {
+        ERROR("OHCI: invalid suppressed root-port replay " << Dec << port);
+        return;
+    }
+
+    LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
+    // Teardown stops publication before its active enumeration worker returns.
+    if (m_TeardownPhase)
+    {
+        return;
+    }
+    const auto observation = m_PortChanges[port].observe();
+    const bool accepted =
+        UsbHcd::PortChangeRequest::canAcknowledge(observation.result);
+    if (accepted)
+    {
+        m_PortChanges[port].acknowledge(observation.generation);
+        return;
+    }
+
+    m_TeardownPhase = 1;
+    {
+        LockGuard<Spinlock> rootHubGuard(m_RootHubLock);
+        m_RootHubStatusChangeDesired = false;
+        setRootHubStatusChangeSource(false);
+    }
+    ERROR("OHCI: live suppressed root-port replay could not be published");
+    assert(false);
+#else
+    (void) port;
+#endif
 }
 
 bool Ohci::portReset(uint8_t nPort, bool bErrorResponse)
@@ -1541,8 +1726,7 @@ bool Ohci::portReset(uint8_t nPort, bool bErrorResponse)
         }
 
         // SetPortEnable is also a command bit; do not echo the status image.
-        if (
-            resetComplete &&
+        if (resetComplete &&
             !(m_pBase->read32(portRegister) & OhciRhPortStsEnable))
         {
             m_pBase->write32(OhciRhPortStsEnable, portRegister);
@@ -1613,8 +1797,7 @@ void Ohci::cancelRequest(const Request &request)
 {
     if (request.p1 < m_nPorts)
     {
-        m_PortChanges[request.p1].cancel(
-            static_cast<size_t>(request.p8));
+        m_PortChanges[request.p1].cancel(static_cast<size_t>(request.p8));
     }
 }
 

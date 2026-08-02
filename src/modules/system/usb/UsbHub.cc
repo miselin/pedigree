@@ -22,13 +22,14 @@
 #include "modules/system/usb/UsbDevice.h"
 #include "modules/system/usb/UsbPnP.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #endif
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/new"
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -36,16 +37,71 @@ namespace
 {
 Atomic<size_t> g_HostedSyncParamDestructions(0);
 void (*g_HostedSyncTimeoutHook)() = nullptr;
+UsbHub::ConnectionChangePendingHook g_ConnectionChangePendingHook = nullptr;
+UsbHub::ConnectionChangeReplayWaitHook g_ConnectionChangeReplayWaitHook =
+    nullptr;
 }
 #endif
 
-UsbHub::UsbHub()
+UsbHub::ConnectionChangeSuppression::ConnectionChangeSuppression()
+    : m_Hub(nullptr), m_Port(0)
+{
+}
+
+UsbHub::ConnectionChangeSuppression::ConnectionChangeSuppression(
+    UsbHub *hub, size_t port)
+    : m_Hub(hub), m_Port(port)
+{
+}
+
+UsbHub::ConnectionChangeSuppression::ConnectionChangeSuppression(
+    ConnectionChangeSuppression &&other)
+    : m_Hub(other.m_Hub), m_Port(other.m_Port)
+{
+    other.m_Hub = nullptr;
+    other.m_Port = 0;
+}
+
+UsbHub::ConnectionChangeSuppression::~ConnectionChangeSuppression()
+{
+    reset();
+}
+
+UsbHub::ConnectionChangeSuppression &
+UsbHub::ConnectionChangeSuppression::operator=(
+    ConnectionChangeSuppression &&other)
+{
+    if (this != &other)
+    {
+        reset();
+        m_Hub = other.m_Hub;
+        m_Port = other.m_Port;
+        other.m_Hub = nullptr;
+        other.m_Port = 0;
+    }
+    return *this;
+}
+
+void UsbHub::ConnectionChangeSuppression::reset()
+{
+    if (m_Hub)
+    {
+        UsbHub *hub = m_Hub;
+        const size_t port = m_Port;
+        m_Hub = nullptr;
+        m_Port = 0;
+        hub->releaseConnectionChangeSuppression(port);
+    }
+}
+
+UsbHub::UsbHub() : m_RootHub(nullptr), m_IsRootHub(false)
 {
     m_UsedAddresses.set(0);
 }
 
-UsbHub::UsbHub(Device *p) : Device(p)
+UsbHub::UsbHub(Device *p) : Device(p), m_RootHub(this), m_IsRootHub(true)
 {
+    m_UsedAddresses.set(0);
 }
 
 UsbHub::~UsbHub()
@@ -57,19 +113,194 @@ Device::Type UsbHub::getType()
     return UsbController;
 }
 
+void UsbHub::attachToUpstreamHub(UsbHub *upstream)
+{
+    if (m_IsRootHub || !upstream || !upstream->m_RootHub)
+    {
+        ERROR("USB: downstream hub has no root-controller association");
+        m_RootHub = nullptr;
+        return;
+    }
+
+    m_RootHub = upstream->m_RootHub;
+}
+
+bool UsbHub::suppressConnectionChanges(
+    size_t port, ConnectionChangeSuppression &suppression)
+{
+    if (port >= ConnectionChangePortCount)
+    {
+        suppression = ConnectionChangeSuppression();
+        ERROR(
+            "USB: root-port connection-change suppression was requested for "
+            "invalid port "
+            << Dec << port << Hex);
+        return false;
+    }
+
+    Atomic<size_t> &state = m_ConnectionChangeStates[port];
+    while (true)
+    {
+        const size_t observed = state;
+        const size_t count = observed & ConnectionChangeCountMask;
+        if (!count && (observed & ConnectionChangePending))
+        {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+            if (g_ConnectionChangeReplayWaitHook)
+            {
+                g_ConnectionChangeReplayWaitHook(this, port);
+            }
+#endif
+            Scheduler::instance().yield();
+            continue;
+        }
+        if (count == ConnectionChangeCountMask)
+        {
+            suppression = ConnectionChangeSuppression();
+            ERROR(
+                "USB: root-port connection-change suppression count "
+                "overflowed on port "
+                << Dec << port << Hex);
+            return false;
+        }
+
+        if (state.compareAndSwap(observed, observed + 1))
+        {
+            suppression = ConnectionChangeSuppression(this, port);
+            return true;
+        }
+    }
+}
+
+bool UsbHub::deferConnectionChangeIfSuppressed(size_t port)
+{
+    if (port >= ConnectionChangePortCount)
+    {
+        return false;
+    }
+
+    Atomic<size_t> &state = m_ConnectionChangeStates[port];
+    while (true)
+    {
+        const size_t observed = state;
+        if (!(observed & ConnectionChangeCountMask))
+        {
+            return false;
+        }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        if (g_ConnectionChangePendingHook)
+        {
+            g_ConnectionChangePendingHook(this, port, observed);
+        }
+#endif
+
+        // Even an already-pending observation performs the CAS. A final
+        // release which wins this boundary changes the state to zero, making
+        // us retry and process the new hardware event normally instead of
+        // acknowledging it behind an already-issued replay.
+        if (state.compareAndSwap(observed, observed | ConnectionChangePending))
+        {
+            return true;
+        }
+    }
+}
+
+void UsbHub::releaseConnectionChangeSuppression(size_t port)
+{
+    if (port >= ConnectionChangePortCount)
+    {
+        ERROR(
+            "USB: invalid root-port connection-change suppression release");
+        return;
+    }
+
+    Atomic<size_t> &state = m_ConnectionChangeStates[port];
+    bool replay = false;
+    while (true)
+    {
+        const size_t observed = state;
+        const size_t count = observed & ConnectionChangeCountMask;
+        if (!count)
+        {
+            ERROR(
+                "USB: unbalanced root-port connection-change suppression "
+                "release on port "
+                << Dec << port << Hex);
+            return;
+        }
+
+        const bool finalRelease = count == 1;
+        // Pending with a zero count is a transient replay-in-progress state.
+        // A new enumeration scope cannot overtake publication of the change
+        // retained by the scope which is ending here.
+        const size_t replacement =
+            finalRelease ?
+                ((observed & ConnectionChangePending) ?
+                     ConnectionChangePending :
+                     0) :
+                observed - 1;
+        if (state.compareAndSwap(observed, replacement))
+        {
+            replay = finalRelease && (observed & ConnectionChangePending);
+            break;
+        }
+    }
+
+    if (replay)
+    {
+        replaySuppressedConnectionChange(port);
+        const bool published = state.compareAndSwap(ConnectionChangePending, 0);
+        assert(published);
+        (void) published;
+    }
+}
+
+void UsbHub::replaySuppressedConnectionChange(size_t port)
+{
+    ERROR(
+        "USB: root-port change replay has no controller implementation for "
+        "port "
+        << Dec << port << Hex);
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void UsbHub::setConnectionChangePendingHookForTest(
+    ConnectionChangePendingHook hook)
+{
+    g_ConnectionChangePendingHook = hook;
+}
+
+void UsbHub::setConnectionChangeReplayWaitHookForTest(
+    ConnectionChangeReplayWaitHook hook)
+{
+    g_ConnectionChangeReplayWaitHook = hook;
+}
+#endif
+
 bool UsbHub::deviceConnected(uint8_t nPort, UsbSpeed speed)
 {
     NOTICE("USB: Adding device on port " << Dec << nPort << Hex);
 
-    // Find the root hub
-    UsbHub *pRootHub = this;
-    while (pRootHub->getParent()->getType() == Device::UsbController)
-        pRootHub = static_cast<UsbHub *>(pRootHub->getParent());
+    UsbHub *pRootHub = m_RootHub;
+    if (!pRootHub)
+    {
+        ERROR("USB: cannot enumerate a hub without a root controller");
+        return false;
+    }
 
     size_t nRetry = 0;
     uint8_t lastAddress = 0, nAddress = 0;
 
-    pRootHub->ignoreConnectionChanges(nPort);
+    // Only an HCD invocation names a root port. A downstream hub's local port
+    // number must never suppress an unrelated port on the root controller.
+    ConnectionChangeSuppression changeSuppression;
+    if (
+        m_IsRootHub &&
+        !suppressConnectionChanges(nPort, changeSuppression))
+    {
+        return false;
+    }
 
     // Try twice with two different addresses
     UsbDevice *pDevice = 0;
@@ -114,11 +345,10 @@ bool UsbHub::deviceConnected(uint8_t nPort, UsbSpeed speed)
 
             // Reset the port that this device is attached to.
             NOTICE("USB: Performing a port reset on port " << nPort);
-            if ((!pRootHub->portReset(nPort, true)) && (nRetry < 1))
+            if ((!portReset(nPort, true)) && (nRetry < 1))
             {
                 // Give up completely
                 NOTICE("USB: Port reset failed (port " << nPort << ")");
-                pRootHub->ignoreConnectionChanges(nPort, false);
                 pRootHub->m_UsedAddresses.clear(nAddress);
                 return false;
             }
@@ -135,7 +365,7 @@ bool UsbHub::deviceConnected(uint8_t nPort, UsbSpeed speed)
         nRetry++;
     }
 
-    pRootHub->ignoreConnectionChanges(nPort, false);
+    changeSuppression.reset();
 
     if (nRetry == 2)
     {
@@ -223,13 +453,14 @@ void UsbHub::deviceDisconnected(uint8_t nPort)
     if (!nAddress)
         return;
 
-    // Find the root hub
-    UsbHub *pRootHub = this;
-    while (pRootHub->getParent()->getType() == Device::UsbController)
-        pRootHub = static_cast<UsbHub *>(pRootHub->getParent());
-
-    // This address is now free
-    pRootHub->m_UsedAddresses.clear(nAddress);
+    if (m_RootHub)
+    {
+        m_RootHub->m_UsedAddresses.clear(nAddress);
+    }
+    else
+    {
+        ERROR("USB: cannot release an address without a root controller");
+    }
 }
 
 void UsbHub::syncCallback(uintptr_t pParam, ssize_t nResult)

@@ -6,6 +6,7 @@
  */
 
 #include "modules/drivers/common/usb-hcd/PortChangeRequest.h"
+#include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -23,6 +24,446 @@ bool check(bool condition, const char *detail)
 
     ERROR("HOSTED-WAIT-TEST: FAIL usb-hcd-port-change-publication: " << detail);
     return false;
+}
+
+class HostedConnectionChangeHub final : public UsbHub
+{
+  public:
+    using Suppression = UsbHub::ConnectionChangeSuppression;
+
+    HostedConnectionChangeHub()
+        : UsbHub(), replayTotal(0), publicationClosing(false),
+          closedReplayNoops(0), replayHoldPort(16), replayEntered(0),
+          allowReplay(0)
+    {
+        for (size_t i = 0; i < 16; ++i)
+        {
+            replays[i] = 0;
+        }
+    }
+
+    explicit HostedConnectionChangeHub(Device *device)
+        : UsbHub(device), replayTotal(0), publicationClosing(false),
+          closedReplayNoops(0), replayHoldPort(16), replayEntered(0),
+          allowReplay(0)
+    {
+        for (size_t i = 0; i < 16; ++i)
+        {
+            replays[i] = 0;
+        }
+    }
+
+    void attach(UsbHub *upstream)
+    {
+        attachToUpstreamHub(upstream);
+    }
+
+    UsbHub *root() const
+    {
+        return rootHub();
+    }
+
+    bool suppress(size_t port, Suppression &suppression)
+    {
+        return suppressConnectionChanges(port, suppression);
+    }
+
+    bool defer(size_t port)
+    {
+        return deferConnectionChangeIfSuppressed(port);
+    }
+
+    void resetReplays()
+    {
+        replayTotal = 0;
+        publicationClosing = false;
+        closedReplayNoops = 0;
+        for (size_t i = 0; i < 16; ++i)
+        {
+            replays[i] = 0;
+        }
+    }
+
+    void addTransferToTransaction(
+        uintptr_t, bool, UsbPid, uintptr_t, size_t) override
+    {
+    }
+
+    uintptr_t createTransaction(UsbEndpoint) override
+    {
+        return 0;
+    }
+
+    bool doAsync(
+        uintptr_t, void (*)(uintptr_t, ssize_t), uintptr_t) override
+    {
+        return false;
+    }
+
+    void cancelAsyncAndDrain(
+        uintptr_t, void (*)(uintptr_t, ssize_t), uintptr_t) override
+    {
+    }
+
+    void addInterruptInHandler(
+        UsbEndpoint, uintptr_t, uint16_t, void (*)(uintptr_t, ssize_t),
+        uintptr_t) override
+    {
+    }
+
+    bool portReset(uint8_t, bool) override
+    {
+        return true;
+    }
+
+    Atomic<size_t> replayTotal;
+    Atomic<size_t> replays[16];
+    Atomic<bool> publicationClosing;
+    Atomic<size_t> closedReplayNoops;
+    Atomic<size_t> replayHoldPort;
+    Semaphore replayEntered;
+    Semaphore allowReplay;
+
+  protected:
+    void replaySuppressedConnectionChange(size_t port) override
+    {
+        if (publicationClosing)
+        {
+            closedReplayNoops += 1;
+            return;
+        }
+        if (replayHoldPort == port)
+        {
+            replayEntered.release();
+            const bool released = allowReplay.acquireForCompletion();
+            (void) released;
+            replayHoldPort = 16;
+        }
+        replayTotal += 1;
+        if (port < 16)
+        {
+            replays[port] += 1;
+        }
+    }
+};
+
+struct ReplayOrderingContext
+{
+    ReplayOrderingContext(
+        HostedConnectionChangeHub *hub, size_t port,
+        HostedConnectionChangeHub::Suppression *endingSuppression)
+        : hub(hub), port(port), endingSuppression(endingSuppression),
+          acquireWaitEntered(0), releaseFinished(false),
+          acquisitionFinished(false), acquisitionSucceeded(false)
+    {
+    }
+
+    HostedConnectionChangeHub *hub;
+    size_t port;
+    HostedConnectionChangeHub::Suppression *endingSuppression;
+    Semaphore acquireWaitEntered;
+    Atomic<bool> releaseFinished;
+    Atomic<bool> acquisitionFinished;
+    Atomic<bool> acquisitionSucceeded;
+};
+
+ReplayOrderingContext *g_ReplayOrderingContext = nullptr;
+
+void connectionChangeReplayWait(UsbHub *hub, size_t port)
+{
+    ReplayOrderingContext *context = g_ReplayOrderingContext;
+    if (context && context->hub == hub && context->port == port)
+    {
+        context->acquireWaitEntered.release();
+    }
+}
+
+int releaseSuppressionForReplay(void *parameter)
+{
+    auto *context = reinterpret_cast<ReplayOrderingContext *>(parameter);
+    context->endingSuppression->reset();
+    context->releaseFinished = true;
+    return 0;
+}
+
+int acquireSuppressionBehindReplay(void *parameter)
+{
+    auto *context = reinterpret_cast<ReplayOrderingContext *>(parameter);
+    HostedConnectionChangeHub::Suppression suppression;
+    context->acquisitionSucceeded =
+        context->hub->suppress(context->port, suppression);
+    context->acquisitionFinished = true;
+    return 0;
+}
+
+struct SuppressionHolderContext
+{
+    SuppressionHolderContext(HostedConnectionChangeHub *hub, size_t port)
+        : hub(hub), port(port), entered(0), release(0), acquired(false)
+    {
+    }
+
+    HostedConnectionChangeHub *hub;
+    size_t port;
+    Semaphore entered;
+    Semaphore release;
+    Atomic<bool> acquired;
+};
+
+int holdConnectionChangeSuppression(void *parameter)
+{
+    auto *context = reinterpret_cast<SuppressionHolderContext *>(parameter);
+    HostedConnectionChangeHub::Suppression suppression;
+    context->acquired = context->hub->suppress(context->port, suppression);
+    context->entered.release();
+    if (context->acquired)
+    {
+        const bool released = context->release.acquireForCompletion();
+        (void) released;
+    }
+    return 0;
+}
+
+bool suppressAndReturnEarly(HostedConnectionChangeHub &hub, size_t port)
+{
+    HostedConnectionChangeHub::Suppression suppression;
+    if (!hub.suppress(port, suppression))
+    {
+        return false;
+    }
+    return hub.defer(port);
+}
+
+struct SuppressionBoundaryContext
+{
+    SuppressionBoundaryContext(HostedConnectionChangeHub *hub, size_t port)
+        : hub(hub), port(port), hookEntered(0), allowCompareExchange(0),
+          hookCalls(0), deferred(true)
+    {
+    }
+
+    HostedConnectionChangeHub *hub;
+    size_t port;
+    Semaphore hookEntered;
+    Semaphore allowCompareExchange;
+    Atomic<size_t> hookCalls;
+    Atomic<bool> deferred;
+};
+
+SuppressionBoundaryContext *g_SuppressionBoundaryContext = nullptr;
+
+void holdBeforeConnectionChangePendingCas(
+    UsbHub *hub, size_t port, size_t observedState)
+{
+    SuppressionBoundaryContext *context = g_SuppressionBoundaryContext;
+    if (!context || context->hub != hub || context->port != port)
+    {
+        return;
+    }
+
+    context->hookCalls += 1;
+    (void) observedState;
+    context->hookEntered.release();
+    const bool released =
+        context->allowCompareExchange.acquireForCompletion();
+    (void) released;
+}
+
+int raceSuppressionFinalRelease(void *parameter)
+{
+    auto *context = reinterpret_cast<SuppressionBoundaryContext *>(parameter);
+    context->deferred = context->hub->defer(context->port);
+    return 0;
+}
+
+bool runConnectionChangeSuppressionRegressions()
+{
+    Device controllerDevice;
+    HostedConnectionChangeHub hub(&controllerDevice);
+    bool passed = true;
+
+    HostedConnectionChangeHub downstream;
+    HostedConnectionChangeHub nested;
+    downstream.attach(&hub);
+    nested.attach(&downstream);
+    passed &= check(
+        hub.root() == &hub && downstream.root() == &hub &&
+            nested.root() == &hub,
+        "nested hubs did not retain their root-controller association");
+
+    HostedConnectionChangeHub::Suppression outer;
+    HostedConnectionChangeHub::Suppression inner;
+    passed &= check(
+        hub.suppress(0, outer) && hub.suppress(0, inner) && hub.defer(0) &&
+            hub.defer(0) && hub.defer(0),
+        "nested root-port suppression did not coalesce observations");
+    inner.reset();
+    passed &= check(
+        hub.replayTotal == 0,
+        "an inner root-port suppression release replayed too early");
+    outer.reset();
+    passed &= check(
+        hub.replayTotal == 1 && hub.replays[0] == 1,
+        "nested root-port suppression did not replay exactly once");
+
+    hub.resetReplays();
+    HostedConnectionChangeHub::Suppression firstPort;
+    HostedConnectionChangeHub::Suppression secondPort;
+    passed &= check(
+        hub.suppress(1, firstPort) && hub.suppress(2, secondPort) &&
+            hub.defer(1) && hub.defer(2),
+        "independent root-port suppression could not retain observations");
+    firstPort.reset();
+    passed &= check(
+        hub.replays[1] == 1 && hub.replays[2] == 0,
+        "releasing one root port replayed another port");
+    secondPort.reset();
+    passed &= check(
+        hub.replayTotal == 2 && hub.replays[2] == 1,
+        "independent root-port observations did not replay independently");
+
+    hub.resetReplays();
+    passed &= check(
+        suppressAndReturnEarly(hub, 3) && hub.replayTotal == 1 &&
+            hub.replays[3] == 1,
+        "early return leaked a root-port suppression lease");
+    HostedConnectionChangeHub::Suppression reacquired;
+    passed &= check(
+        hub.suppress(3, reacquired),
+        "an early-return lease left its root port permanently suppressed");
+    reacquired.reset();
+
+    hub.resetReplays();
+    HostedConnectionChangeHub::Suppression threadOverlap;
+    passed &= check(
+        hub.suppress(4, threadOverlap),
+        "same-port overlap could not acquire its first suppression");
+    SuppressionHolderContext holderContext(&hub, 4);
+    Thread *holder = new Thread(
+        Scheduler::instance().getKernelProcess(),
+        holdConnectionChangeSuppression, &holderContext, nullptr, false, true);
+    holder->setName("hosted USB suppression holder");
+    const bool holderEntered = holderContext.entered.acquireForCompletion();
+    passed &= check(
+        holderEntered && holderContext.acquired && hub.defer(4),
+        "two-thread same-port suppression did not overlap");
+    threadOverlap.reset();
+    passed &= check(
+        hub.replayTotal == 0,
+        "same-port overlap replayed before the second thread released");
+    holderContext.release.release();
+    passed &= check(
+        holder->join() && hub.replayTotal == 1 && hub.replays[4] == 1,
+        "same-port overlap did not replay at the outermost release");
+
+    hub.resetReplays();
+    HostedConnectionChangeHub::Suppression boundarySuppression;
+    const bool boundaryAcquired = hub.suppress(5, boundarySuppression);
+    SuppressionBoundaryContext boundaryContext(&hub, 5);
+    bool boundaryEntered = false;
+    bool releaseWonWithoutReplay = false;
+    bool boundaryJoined = false;
+    if (boundaryAcquired)
+    {
+        g_SuppressionBoundaryContext = &boundaryContext;
+        UsbHub::setConnectionChangePendingHookForTest(
+            holdBeforeConnectionChangePendingCas);
+        Thread *boundaryReader = new Thread(
+            Scheduler::instance().getKernelProcess(),
+            raceSuppressionFinalRelease, &boundaryContext, nullptr, false,
+            true);
+        boundaryReader->setName("hosted USB suppression boundary reader");
+        boundaryEntered =
+            boundaryContext.hookEntered.acquireForCompletion();
+        boundarySuppression.reset();
+        releaseWonWithoutReplay = hub.replayTotal == 0;
+        boundaryContext.allowCompareExchange.release();
+        boundaryJoined = boundaryReader->join();
+        UsbHub::setConnectionChangePendingHookForTest(nullptr);
+        g_SuppressionBoundaryContext = nullptr;
+    }
+    passed &= check(
+        boundaryAcquired && boundaryEntered && releaseWonWithoutReplay &&
+            boundaryJoined && boundaryContext.hookCalls == 1 &&
+            !boundaryContext.deferred && hub.replayTotal == 0,
+        "a reader behind final release acknowledged an unreplayed change");
+
+    hub.resetReplays();
+    HostedConnectionChangeHub::Suppression replaySuppression;
+    const bool replayAcquired = hub.suppress(6, replaySuppression);
+    const bool replayDeferred = replayAcquired && hub.defer(6);
+    hub.replayHoldPort = 6;
+    ReplayOrderingContext replayContext(&hub, 6, &replaySuppression);
+    bool replayStarted = false;
+    bool acquisitionWaited = false;
+    bool replayNotOvertaken = false;
+    bool releaseJoined = false;
+    bool acquisitionJoined = false;
+    if (replayAcquired && replayDeferred)
+    {
+        Thread *releaser = new Thread(
+            Scheduler::instance().getKernelProcess(),
+            releaseSuppressionForReplay, &replayContext, nullptr, false, true);
+        releaser->setName("hosted USB suppression replay publisher");
+        replayStarted = hub.replayEntered.acquireForCompletion();
+
+        g_ReplayOrderingContext = &replayContext;
+        UsbHub::setConnectionChangeReplayWaitHookForTest(
+            connectionChangeReplayWait);
+        Thread *acquirer = new Thread(
+            Scheduler::instance().getKernelProcess(),
+            acquireSuppressionBehindReplay, &replayContext, nullptr, false,
+            true);
+        acquirer->setName("hosted USB suppression replay waiter");
+        acquisitionWaited =
+            replayContext.acquireWaitEntered.acquireForCompletion();
+        replayNotOvertaken = !replayContext.releaseFinished &&
+                             !replayContext.acquisitionFinished &&
+                             hub.replayTotal == 0;
+        hub.allowReplay.release();
+        releaseJoined = releaser->joinForCompletion();
+        acquisitionJoined = acquirer->joinForCompletion();
+        UsbHub::setConnectionChangeReplayWaitHookForTest(nullptr);
+        g_ReplayOrderingContext = nullptr;
+    }
+    passed &= check(
+        replayAcquired && replayDeferred && replayStarted &&
+            acquisitionWaited && replayNotOvertaken && releaseJoined &&
+            acquisitionJoined && replayContext.releaseFinished &&
+            replayContext.acquisitionFinished &&
+            replayContext.acquisitionSucceeded && hub.replayTotal == 1 &&
+            hub.replays[6] == 1,
+        "a new same-port suppression overtook retained-change replay");
+
+    hub.resetReplays();
+    HostedConnectionChangeHub::Suppression closingSuppression;
+    const bool closingAcquired = hub.suppress(7, closingSuppression);
+    const bool closingDeferred = closingAcquired && hub.defer(7);
+    hub.publicationClosing = true;
+    closingSuppression.reset();
+    HostedConnectionChangeHub::Suppression afterClosedReplay;
+    const bool reacquiredAfterClose = hub.suppress(7, afterClosedReplay);
+    afterClosedReplay.reset();
+    passed &= check(
+        closingAcquired && closingDeferred && reacquiredAfterClose &&
+            hub.replayTotal == 0 && hub.replays[7] == 0 &&
+            hub.closedReplayNoops == 1,
+        "suppression release after publication closure did not no-op and "
+        "clear replay state");
+    hub.publicationClosing = false;
+
+    HostedConnectionChangeHub::Suppression invalid;
+    passed &= check(
+        !hub.suppress(16, invalid) && !invalid && !hub.defer(16),
+        "out-of-range root port entered suppression state");
+
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "usb-hcd-port-change-suppression-state");
+    }
+    return passed;
 }
 
 class HostedUsbPortQueue final : public RequestQueue
@@ -227,7 +668,7 @@ bool runHostedUsbHcdPortChangeRegressions()
     using Publication = UsbHcd::PortChangeRequest;
     using Result = Publication::Result;
 
-    bool passed = true;
+    bool passed = runConnectionChangeSuppressionRegressions();
     passed &= check(
         UsbHcd::EhciRootPortCount == 15 &&
             UsbHcd::OhciRootPortCount == 15 &&

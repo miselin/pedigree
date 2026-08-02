@@ -31,6 +31,44 @@
 class EXPORTED_PUBLIC UsbHub : public Device
 {
   public:
+    /**
+     * Suppresses root-port connection-change handling for one lexical scope.
+     *
+     * A suppressed hardware observation is remembered by UsbHub and replayed
+     * once when the outermost lease is released. The lease is move-only so an
+     * early return cannot leave a root port permanently suppressed.
+     */
+    class EXPORTED_PUBLIC ConnectionChangeSuppression
+    {
+      public:
+        ConnectionChangeSuppression();
+        ConnectionChangeSuppression(ConnectionChangeSuppression &&other);
+        ~ConnectionChangeSuppression();
+
+        ConnectionChangeSuppression &
+        operator=(ConnectionChangeSuppression &&other);
+
+        explicit operator bool() const
+        {
+            return m_Hub != nullptr;
+        }
+
+        void reset();
+
+      private:
+        friend class UsbHub;
+
+        ConnectionChangeSuppression(UsbHub *hub, size_t port);
+
+        ConnectionChangeSuppression(
+            const ConnectionChangeSuppression &) = delete;
+        ConnectionChangeSuppression &operator=(
+            const ConnectionChangeSuppression &) = delete;
+
+        UsbHub *m_Hub;
+        size_t m_Port;
+    };
+
     UsbHub();
     UsbHub(Device *p);
 
@@ -90,6 +128,15 @@ class EXPORTED_PUBLIC UsbHub : public Device
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     /** Exercises callback ownership at the synchronous timeout boundary. */
     static bool runHostedSyncOwnershipRegression();
+
+    using ConnectionChangePendingHook =
+        void (*)(UsbHub *hub, size_t port, size_t observedState);
+    using ConnectionChangeReplayWaitHook =
+        void (*)(UsbHub *hub, size_t port);
+    static void setConnectionChangePendingHookForTest(
+        ConnectionChangePendingHook hook);
+    static void setConnectionChangeReplayWaitHookForTest(
+        ConnectionChangeReplayWaitHook hook);
 #endif
 
     /// Gets a UsbDevice from a given vendor:product pair
@@ -104,17 +151,6 @@ class EXPORTED_PUBLIC UsbHub : public Device
     ///                       Error responses are allowed to use significantly
     ///                       longer delays in their reset logic.
     virtual bool portReset(uint8_t nPort, bool bErrorResponse = false) = 0;
-
-    /// Tells the hub to IGNORE a specific port's connect state changes for
-    /// a short while.
-    /// \param bIgnore pass true to stop ignoring a port.
-    void ignoreConnectionChanges(uint8_t nPort, bool bIgnore = true)
-    {
-        if (bIgnore)
-            m_IgnoredPorts.set(nPort);
-        else
-            m_IgnoredPorts.clear(nPort);
-    }
 
   private:
     /// Structure used synchronous transactions
@@ -135,13 +171,50 @@ class EXPORTED_PUBLIC UsbHub : public Device
     /// Callback used by synchronous transactions
     static void syncCallback(uintptr_t pParam, ssize_t ret);
 
+    void releaseConnectionChangeSuppression(size_t port);
+
     /// Bitmap of used addresses under this hub
     /// \note valid only for root hubs
     ExtensibleBitmap m_UsedAddresses;
 
+    static constexpr size_t ConnectionChangePortCount = 16;
+    static constexpr size_t ConnectionChangePending =
+        static_cast<size_t>(1)
+        << ((sizeof(size_t) * 8) - static_cast<size_t>(1));
+    static constexpr size_t ConnectionChangeCountMask =
+        ~ConnectionChangePending;
+
+    /** One atomic publication state per USB 2 root-port slot. */
+    Atomic<size_t> m_ConnectionChangeStates[ConnectionChangePortCount];
+
+    /** Shared address-allocation owner for this hub hierarchy. */
+    UsbHub *m_RootHub;
+
+    /** Device-taking construction identifies an HCD rather than a USB hub. */
+    bool m_IsRootHub;
+
   protected:
-    /// Bitmap of ports to ignore connection changes on
-    ExtensibleBitmap m_IgnoredPorts;
+    /** Associates a downstream hub with its already-initialised parent hub. */
+    void attachToUpstreamHub(UsbHub *upstream);
+
+    /** Returns the HCD which owns address allocation for this hierarchy. */
+    UsbHub *rootHub() const
+    {
+        return m_RootHub;
+    }
+
+    /** Begins one nested root-port suppression scope. */
+    MUST_USE_RESULT bool suppressConnectionChanges(
+        size_t port, ConnectionChangeSuppression &suppression);
+
+    /**
+     * Atomically records an observation only if its suppression scope is
+     * still active. False means the caller must process the observation now.
+     */
+    MUST_USE_RESULT bool deferConnectionChangeIfSuppressed(size_t port);
+
+    /** Re-publishes one coalesced observation in ordinary thread context. */
+    virtual void replaySuppressedConnectionChange(size_t port);
 };
 
 #endif

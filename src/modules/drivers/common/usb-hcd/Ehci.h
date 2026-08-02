@@ -20,6 +20,8 @@
 #ifndef EHCI_H
 #define EHCI_H
 
+#include "CallbackDelivery.h"
+#include "PortChangeRequest.h"
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/Spinlock.h"
@@ -37,7 +39,6 @@
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
-#include "PortChangeRequest.h"
 
 class Device;
 class IoBase;
@@ -45,12 +46,19 @@ class IoBase;
 /** Device driver for the Ehci class */
 class Ehci : public UsbHub,
 #if X86_COMMON
-             public HardIrqHandler,
+             public IrqHandler,
 #else
              public InterruptHandler,
 #endif
              public RequestQueue
 {
+  private:
+#if X86_COMMON
+    using IrqProcessingLock = Mutex;
+#else
+    using IrqProcessingLock = Spinlock;
+#endif
+
   public:
     Ehci(Device *pDev);
     virtual ~Ehci();
@@ -148,6 +156,7 @@ class Ehci : public UsbHub,
             bool bIgnore;  /// Ignore this QH when iterating over the list -
                            /// don't look at any of its qTDs
             Atomic<size_t> completionState;
+            size_t completionGeneration;
             ssize_t completionResult;
         } * pMetaData;
     } PACKED ALIGN(32);
@@ -171,7 +180,7 @@ class Ehci : public UsbHub,
 
 /// IRQ handler
 #if X86_COMMON
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    IrqDisposition irq(irq_id_t number) override;
 #else
     virtual void interrupt(size_t number, InterruptState &state);
 #endif
@@ -184,6 +193,7 @@ class Ehci : public UsbHub,
     virtual void cancelAsyncAndDrain(
         uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
         uintptr_t pParam);
+    void replaySuppressedConnectionChange(size_t port) override;
 
     virtual uint64_t executeRequest(
         uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
@@ -238,6 +248,8 @@ class Ehci : public UsbHub,
     void modifyPortControl(
         size_t portRegister, uint32_t clearMask, uint32_t setMask);
 
+    static void finishDeferredCompletion(void *context);
+
     IoBase *m_pBase;
 
     uint8_t m_nOpRegsOffset;
@@ -248,9 +260,9 @@ class Ehci : public UsbHub,
     Mutex m_Mutex;
 
     /** Serialises transaction completion with synchronous cancellation. */
-    Spinlock m_IrqProcessingLock;
-    /** Drains callbacks deferred from the IRQ to the dequeue worker. */
-    Spinlock m_CompletionDeliveryLock;
+    IrqProcessingLock m_IrqProcessingLock;
+    /** Per-generation callback publication and cancellation drain boundary. */
+    UsbHcd::CallbackDeliveryQueue m_CompletionDeliveries;
     Spinlock m_QueueListChangeLock;
 
     QH *m_pQHList;
