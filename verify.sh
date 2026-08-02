@@ -166,6 +166,14 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    if ! python3 scripts/check-hard-irq-boundaries.py --self-test; then
+        echo "The hard-IRQ boundary checker failed its self-test."
+        failed=1
+    elif ! python3 scripts/check-hard-irq-boundaries.py; then
+        echo "Production code escaped the reviewed hard-IRQ boundary."
+        failed=1
+    fi
+
     matches=$(rg -n -U \
         'schedule\(\s*Thread::Sleeping' src \
         --glob '*.{cc,h}' |
@@ -1216,6 +1224,7 @@ check_wait_api_boundaries()
         src/modules/drivers/common/ata/IsaAtaController.cc \
         src/modules/drivers/common/ata/PciAtaController.cc \
         src/modules/drivers/common/cdi/CdiIrq.cc \
+        src/modules/drivers/common/rtl8139/Rtl8139.cc \
         src/modules/drivers/common/usb-hcd/Ehci.cc \
         src/modules/drivers/common/usb-hcd/Ohci.cc \
         src/modules/drivers/common/usb-hcd/Uhci.cc \
