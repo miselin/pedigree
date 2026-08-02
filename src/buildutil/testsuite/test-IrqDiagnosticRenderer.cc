@@ -24,6 +24,9 @@ TEST(IrqDiagnosticRenderer, RendersDetachedThreadedState)
     snapshot.activeCookie = 32;
     snapshot.completedCookie = 31;
     snapshot.completedBatches = 7;
+    snapshot.interruptCount = 101;
+    snapshot.spuriousCount = 3;
+    snapshot.unhandledCount = 2;
     snapshot.publicationFailures = 2;
     snapshot.diagnosticPublicationFailures = 4;
     snapshot.workerIdentity = 0xfeed;
@@ -52,6 +55,7 @@ TEST(IrqDiagnosticRenderer, RendersDetachedThreadedState)
         "trigger=level ack=after-hard release=after-threaded "
         "requested=enabled masked=yes "
         "mask=awaiting-ack,awaiting-threaded dispatch-gen=31 ack-gen=30 "
+        "counts[total=101 spurious=3 unhandled=2] "
         "hard-count=1 hard-gen=31\n"
         "  worker=0xfeed cookies[published=33 pending=33 active=32 "
         "completed=31] batches=7 failures[worker-publish=2 diag-publish=4] "

@@ -146,6 +146,10 @@ class Pic : public IrqManager, private InterruptHandler
     bool m_ShuttingDown;
     /** IRQ counts for given handlers */
     size_t m_IrqCount[16];
+    /** Architecturally spurious or disabled in-flight occurrences. */
+    size_t m_SpuriousIrqCount[16];
+    /** Occurrences for which no callback accepted ownership. */
+    size_t m_UnhandledIrqCount[16];
     /** Mitigated IRQs */
     bool m_MitigatedIrqs[16];
     /** Mitigation thresholds */

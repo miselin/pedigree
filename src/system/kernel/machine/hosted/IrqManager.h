@@ -176,6 +176,7 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     size_t m_ThreadedCookies[3];
     size_t m_ThreadedPublicationFailures[3];
     size_t m_DispatchGenerations[3];
+    size_t m_UnhandledInterrupts[3];
     IrqDiagnosticSnapshotStore<3> m_Diagnostics;
     /** Serialises registry mutations with per-line cookie ownership changes. */
     size_t m_LineLifecycleBusy[3];

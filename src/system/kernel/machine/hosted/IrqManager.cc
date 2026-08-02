@@ -343,7 +343,8 @@ HostedIrqManager::HostedIrqManager()
                         MakeConstantString("hosted IRQ bottom half"),
                         NumHostedIrqs, dispatchThreadedLine, this),
       m_ThreadedCookies(), m_ThreadedPublicationFailures(),
-      m_DispatchGenerations(), m_Diagnostics(), m_LineLifecycleBusy()
+      m_DispatchGenerations(), m_UnhandledInterrupts(), m_Diagnostics(),
+      m_LineLifecycleBusy()
 {
     for (size_t irq = 0; irq < NumHostedIrqs; ++irq)
     {
@@ -473,6 +474,10 @@ size_t HostedIrqManager::snapshotIrqLines(
             m_ThreadedDispatcher.completedCookie(static_cast<uint8_t>(irq));
         out[irq].completedBatches =
             m_ThreadedDispatcher.completedBatches(static_cast<uint8_t>(irq));
+        out[irq].interruptCount = __atomic_load_n(
+            &m_DispatchGenerations[irq], __ATOMIC_RELAXED);
+        out[irq].unhandledCount = __atomic_load_n(
+            &m_UnhandledInterrupts[irq], __ATOMIC_RELAXED);
         out[irq].publicationFailures = __atomic_load_n(
             &m_ThreadedPublicationFailures[irq], __ATOMIC_RELAXED);
         out[irq].diagnosticPublicationFailures =
@@ -493,9 +498,6 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
     uint8_t irq = 0;
     if (!irqForSignal(interruptNumber, irq))
     {
-        NOTICE(
-            "HostedIrqManager: unmapped signal #" << interruptNumber
-                                                  << " occurred");
         return;
     }
 
@@ -530,9 +532,11 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
     bool handled = false;
     const bool admitted = m_Handlers.dispatchHard(
         irq, state, handled, nullptr, dispatchGeneration);
-    if (!admitted)
+    if (!admitted || !handled)
     {
-        NOTICE("HostedIrqManager: unhandled irq #" << irq << " occurred");
+        __atomic_add_fetch(
+            &m_UnhandledInterrupts[irq], static_cast<size_t>(1),
+            __ATOMIC_RELAXED);
     }
 }
 
@@ -553,7 +557,14 @@ void HostedIrqManager::dispatchThreadedLine(
     {
         return;
     }
-    (void) manager->m_Handlers.dispatchThreaded(irq);
+    const IrqHandlerRegistry::ThreadedDispatchResult result =
+        manager->m_Handlers.dispatchThreaded(irq);
+    if (!result.admitted || !result.allowRearm)
+    {
+        __atomic_add_fetch(
+            &manager->m_UnhandledInterrupts[irq], static_cast<size_t>(1),
+            __ATOMIC_RELAXED);
+    }
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

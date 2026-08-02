@@ -233,6 +233,9 @@ struct IrqLineDiagnosticSnapshot
     size_t activeCookie;
     size_t completedCookie;
     size_t completedBatches;
+    size_t interruptCount;
+    size_t spuriousCount;
+    size_t unhandledCount;
     size_t publicationFailures;
     size_t diagnosticPublicationFailures;
     uintptr_t workerIdentity;

@@ -224,6 +224,13 @@ void IrqDiagnosticRenderer::render(
     line.append(snapshot.dispatchGeneration);
     line += " ack-gen=";
     line.append(snapshot.acknowledgedGeneration);
+    line += " counts[total=";
+    line.append(snapshot.interruptCount);
+    line += " spurious=";
+    line.append(snapshot.spuriousCount);
+    line += " unhandled=";
+    line.append(snapshot.unhandledCount);
+    line += ']';
     appendHardDispatchState(line, snapshot);
     appendWorkerState(line, snapshot);
 }

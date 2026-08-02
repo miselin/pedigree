@@ -291,7 +291,12 @@ bool Pic::initialise()
 
     for (size_t i = 0; i < 16; i++)
     {
-        m_IrqCount[i] = 0;
+        __atomic_store_n(
+            &m_IrqCount[i], static_cast<size_t>(0), __ATOMIC_RELAXED);
+        __atomic_store_n(
+            &m_SpuriousIrqCount[i], static_cast<size_t>(0), __ATOMIC_RELAXED);
+        __atomic_store_n(
+            &m_UnhandledIrqCount[i], static_cast<size_t>(0), __ATOMIC_RELAXED);
         m_MitigatedIrqs[i] = false;
         m_MitigationThreshold[i] = DEFAULT_IRQ_MITIGATE_THRESHOLD;
     }
@@ -332,7 +337,8 @@ Pic::Pic()
       m_ThreadedCookies(), m_ThreadedDispatchGenerations(),
       m_ThreadedPublicationFailures(), m_LineDeliveries(), m_Diagnostics(),
       m_UnregisterReservations(), m_ShuttingDown(false), m_IrqCount(),
-      m_MitigatedIrqs(), m_MitigationThreshold(), m_Lock(false)
+      m_SpuriousIrqCount(), m_UnhandledIrqCount(), m_MitigatedIrqs(),
+      m_MitigationThreshold(), m_Lock(false)
 {
     publishAllDiagnosticLinesLocked();
 }
@@ -364,6 +370,12 @@ void Pic::publishDiagnosticLineLocked(uint8_t irq)
     line.dispatchGeneration = m_IrqState.dispatchGeneration(irq);
     line.acknowledgedGeneration = m_IrqState.acknowledgedGeneration(irq);
     line.publicationCookie = m_ThreadedCookies[irq];
+    line.interruptCount =
+        __atomic_load_n(&m_IrqCount[irq], __ATOMIC_RELAXED);
+    line.spuriousCount =
+        __atomic_load_n(&m_SpuriousIrqCount[irq], __ATOMIC_RELAXED);
+    line.unhandledCount =
+        __atomic_load_n(&m_UnhandledIrqCount[irq], __ATOMIC_RELAXED);
     line.publicationFailures =
         __atomic_load_n(&m_ThreadedPublicationFailures[irq], __ATOMIC_RELAXED);
 
@@ -444,6 +456,12 @@ Pic::snapshotIrqLines(IrqLineDiagnosticSnapshot *out, size_t capacity) const
             m_ThreadedDispatcher.completedCookie(static_cast<uint8_t>(irq));
         out[irq].completedBatches =
             m_ThreadedDispatcher.completedBatches(static_cast<uint8_t>(irq));
+        out[irq].interruptCount =
+            __atomic_load_n(&m_IrqCount[irq], __ATOMIC_RELAXED);
+        out[irq].spuriousCount =
+            __atomic_load_n(&m_SpuriousIrqCount[irq], __ATOMIC_RELAXED);
+        out[irq].unhandledCount =
+            __atomic_load_n(&m_UnhandledIrqCount[irq], __ATOMIC_RELAXED);
         out[irq].publicationFailures = __atomic_load_n(
             &m_ThreadedPublicationFailures[irq], __ATOMIC_RELAXED);
         out[irq].diagnosticPublicationFailures =
@@ -508,7 +526,8 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
     bool threadedPublished = false;
     {
         LockGuard<Spinlock> guard(m_Lock);
-        ++m_IrqCount[irq];
+        __atomic_add_fetch(
+            &m_IrqCount[irq], static_cast<size_t>(1), __ATOMIC_RELAXED);
         controllerAck = m_IrqState.controllerAck(irq);
         lineRelease = m_IrqState.lineRelease(irq);
 
@@ -524,7 +543,10 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
                 // the master still accepted the cascade interrupt.
                 m_MasterPort.write8(0x62, 0);
             }
-            ERROR("PIC: spurious IRQ" << Dec << irq << Hex);
+            __atomic_add_fetch(
+                &m_SpuriousIrqCount[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
+            publishDiagnosticLineLocked(static_cast<uint8_t>(irq));
             return;
         }
 
@@ -580,6 +602,12 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
         const bool wasEnabled = m_IrqState.enabled(irq);
         m_IrqState.completeDispatch(
             irq, dispatchGeneration, admitted && !bHandled);
+        if (!admitted || !bHandled)
+        {
+            __atomic_add_fetch(
+                &m_UnhandledIrqCount[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
+        }
         if (wasEnabled != m_IrqState.enabled(irq))
         {
             applyMaskLocked();
@@ -591,9 +619,6 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
         }
         publishDiagnosticLineLocked(static_cast<uint8_t>(irq));
     }
-
-    if (!admitted)
-        NOTICE("PIC: unhandled irq #" << irq << " occurred");
 }
 
 void Pic::dispatchThreadedLine(void *context, uint8_t irq, size_t cookie)
@@ -624,6 +649,12 @@ void Pic::dispatchThreadedLine(void *context, uint8_t irq, size_t cookie)
         }
 
         const bool wasEnabled = pic->m_IrqState.enabled(irq);
+        if (!result.admitted || !result.allowRearm)
+        {
+            __atomic_add_fetch(
+                &pic->m_UnhandledIrqCount[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
+        }
         pic->m_IrqState.completeThreadedDispatch(
             irq, dispatchGeneration, result.admitted && result.allowRearm);
         if (wasEnabled != pic->m_IrqState.enabled(irq))
@@ -631,11 +662,6 @@ void Pic::dispatchThreadedLine(void *context, uint8_t irq, size_t cookie)
             pic->applyMaskLocked();
         }
         pic->publishDiagnosticLineLocked(irq);
-    }
-
-    if (!result.admitted)
-    {
-        NOTICE("PIC: unhandled threaded irq #" << irq << " occurred");
     }
 }
 
