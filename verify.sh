@@ -203,6 +203,15 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local spinlock_source=src/system/kernel/Spinlock.cc
+    if ! rg -q -U \
+            '(?s)const ProcessorId processorId = Processor::id\(\);.*?while \(m_Atom\.compareAndSwap\(true, false\) == false\).*?if \([[:space:]]*m_bOwned && \(m_pOwner == pThread\) &&[[:space:]]*\(m_OwnedProcessor == processorId\) && recurse\)' \
+            "$spinlock_source" ||
+        ! rg -q 'm_OwnedProcessor = processorId;' "$spinlock_source"; then
+        echo "Recursive spinlock ownership lost its processor identity."
+        failed=1
+    fi
+
     matches=$(rg -n -U \
         'schedule\(\s*Thread::Sleeping' src \
         --glob '*.{cc,h}' |

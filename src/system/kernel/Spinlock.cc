@@ -61,6 +61,8 @@ bool Spinlock::acquire(bool recurse, bool safe)
     if (bInterrupts)
         Processor::setInterrupts(false);
 
+    const ProcessorId processorId = Processor::id();
+
     if (m_Magic != 0xdeadbaba)
     {
         uintptr_t myra =
@@ -77,7 +79,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
     if (!m_bAvoidTracking)
     {
         g_LocksCommand.clearFatal();
-        if (!g_LocksCommand.lockAttempted(this, Processor::id(), bInterrupts))
+        if (!g_LocksCommand.lockAttempted(this, processorId, bInterrupts))
         {
             uintptr_t myra =
                 reinterpret_cast<uintptr_t>(__builtin_return_address(0));
@@ -92,7 +94,11 @@ bool Spinlock::acquire(bool recurse, bool safe)
     while (m_Atom.compareAndSwap(true, false) == false)
     {
         // Couldn't take the lock - can we re-enter the critical section?
-        if (m_bOwned && (m_pOwner == pThread) && recurse)
+        // Until scheduler startup, every CPU has a null current thread.
+        // Processor identity therefore remains part of recursive ownership.
+        if (
+            m_bOwned && (m_pOwner == pThread) &&
+            (m_OwnedProcessor == processorId) && recurse)
         {
             // Yes.
             ++m_Level;
@@ -125,7 +131,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
             {
                 // If the other locker is in fact this CPU, we're trying to
                 // re-enter and that won't work at all.
-                if (Processor::id() != m_OwnedProcessor)
+                if (processorId != m_OwnedProcessor)
                 {
                     // OK, the other CPU could still release the lock.
                     continue;
@@ -171,7 +177,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
     if (!m_bAvoidTracking)
     {
         g_LocksCommand.clearFatal();
-        if (!g_LocksCommand.lockAcquired(this, Processor::id(), bInterrupts))
+        if (!g_LocksCommand.lockAcquired(this, processorId, bInterrupts))
         {
             uintptr_t myra =
                 reinterpret_cast<uintptr_t>(__builtin_return_address(0));
@@ -195,7 +201,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
         // A recursive acquisition occurs with interrupts already disabled by
         // the outer level. Preserve that outer level's restoration state.
         m_bInterrupts = bInterrupts;
-        m_OwnedProcessor = Processor::id();
+        m_OwnedProcessor = processorId;
     }
 
     return true;
