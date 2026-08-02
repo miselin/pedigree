@@ -140,8 +140,8 @@ void ProcessorBase::restoreState(SchedulerState &state, volatile uintptr_t *pLoc
         *pLock = 1;
 
 #if HAS_SANITIZERS
-    ucontext_t *ctx = reinterpret_cast<ucontext_t *>(state.state);
-    __sanitizer_start_switch_fiber(nullptr, ctx->uc_stack.ss_sp, ctx->uc_stack.ss_size);
+    __sanitizer_start_switch_fiber(
+        nullptr, reinterpret_cast<void *>(state.stackBase), state.stackSize);
 #endif
 
     setcontext(reinterpret_cast<ucontext_t *>(state.state));
@@ -162,10 +162,8 @@ void ProcessorBase::switchState(
     if (pLock)
         *pLock = 1;
 #if HAS_SANITIZERS
-    //NOTICE("sp [switchState] A: " << a_ctx->uc_stack.ss_sp << " B: " << b_ctx->uc_stack.ss_sp);
-    //NOTICE("  -> " << a_ctx << " / " << b_ctx);
-    //assert(adjust_pointer(b_ctx->uc_stack.ss_sp, b_ctx->uc_stack.ss_size) != nullptr);
-    __sanitizer_start_switch_fiber(&fake_stack_save, b_ctx->uc_stack.ss_sp, b_ctx->uc_stack.ss_size);
+    __sanitizer_start_switch_fiber(
+        &fake_stack_save, reinterpret_cast<void *>(b.stackBase), b.stackSize);
 #endif
     swapcontext(a_ctx, b_ctx);
 #if HAS_SANITIZERS
@@ -184,12 +182,32 @@ void ProcessorBase::switchState(
     FATAL("switchState with a SyscallState is not implemented for the HOSTED cpu");
 }
 
+#if HAS_SANITIZERS
+static void finishInitialFiberSwitch(uintptr_t sourceState)
+{
+    const void *sourceStack = nullptr;
+    size_t sourceStackSize = 0;
+    __sanitizer_finish_switch_fiber(
+        nullptr, &sourceStack, &sourceStackSize);
+
+    SchedulerState *source = reinterpret_cast<SchedulerState *>(sourceState);
+    if (source)
+    {
+        source->stackBase = reinterpret_cast<uintptr_t>(sourceStack);
+        source->stackSize = sourceStackSize;
+    }
+}
+#endif
+
 static void threadWrapper(
     uintptr_t func, volatile uintptr_t *pLock, uintptr_t bInterrupts,
-    uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4)
+    uintptr_t sourceState, uintptr_t p1, uintptr_t p2, uintptr_t p3,
+    uintptr_t p4)
 {
 #if HAS_SANITIZERS
-    __sanitizer_finish_switch_fiber(nullptr, nullptr, nullptr);
+    finishInitialFiberSwitch(sourceState);
+#else
+    (void) sourceState;
 #endif
 
     if (pLock)
@@ -208,11 +226,13 @@ static void threadWrapper(
 
 static void userThreadWrapper(
     uintptr_t func, volatile uintptr_t *pLock, uintptr_t bInterrupts,
-    uintptr_t stack, uintptr_t p1, uintptr_t p2, uintptr_t p3,
-    uintptr_t p4)
+    uintptr_t sourceState, uintptr_t stack, uintptr_t p1, uintptr_t p2,
+    uintptr_t p3, uintptr_t p4)
 {
 #if HAS_SANITIZERS
-    __sanitizer_finish_switch_fiber(nullptr, nullptr, nullptr);
+    finishInitialFiberSwitch(sourceState);
+#else
+    (void) sourceState;
 #endif
 
     if (pLock)
@@ -250,9 +270,10 @@ void ProcessorBase::saveAndJumpKernel(
     new_context.uc_stack.ss_size = KERNEL_STACK_SIZE;
     new_context.uc_link = NULL;
     makecontext(
-        &new_context, reinterpret_cast<void (*)()>(threadWrapper), 7,
+        &new_context, reinterpret_cast<void (*)()>(threadWrapper), 8,
         address, reinterpret_cast<uintptr_t>(pLock),
-        static_cast<uintptr_t>(bInterrupts), p1, p2, p3, p4);
+        static_cast<uintptr_t>(bInterrupts), reinterpret_cast<uintptr_t>(&s),
+        p1, p2, p3, p4);
 
 #if HAS_SANITIZERS
     void *fake_stack_save = nullptr;
@@ -280,9 +301,10 @@ void ProcessorBase::saveAndJumpUser(
     new_context.uc_stack.ss_size = KERNEL_STACK_SIZE;
     new_context.uc_link = NULL;
     makecontext(
-        &new_context, reinterpret_cast<void (*)()>(userThreadWrapper), 8,
+        &new_context, reinterpret_cast<void (*)()>(userThreadWrapper), 9,
         address, reinterpret_cast<uintptr_t>(pLock),
-        static_cast<uintptr_t>(bInterrupts), stack, p1, p2, p3, p4);
+        static_cast<uintptr_t>(bInterrupts), reinterpret_cast<uintptr_t>(&s),
+        stack, p1, p2, p3, p4);
 
 #if HAS_SANITIZERS
     void *fake_stack_save = nullptr;

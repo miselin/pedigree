@@ -16,6 +16,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/time/Time.h"
 #include "system/kernel/machine/hosted/IrqManager.h"
 #include "system/kernel/machine/mach_pc/PicIrqState.h"
@@ -627,7 +628,7 @@ struct IrqReadyPublicationContext
 {
     IrqReadyPublicationContext()
         : gate(0), waiter(nullptr), armed(0), entered(0), completed(0),
-          handlerCalls(0), genericPublications(0)
+          handlerCalls(0), handlerCompleted(0), genericPublications(0)
     {
     }
 
@@ -637,6 +638,7 @@ struct IrqReadyPublicationContext
     Atomic<size_t> entered;
     Atomic<size_t> completed;
     Atomic<size_t> handlerCalls;
+    Atomic<size_t> handlerCompleted;
     Atomic<size_t> genericPublications;
 };
 
@@ -654,7 +656,7 @@ int waitForIrqReadyPublication(void *parameter)
     return 0;
 }
 
-class IrqReadyPublicationHandler : public HardIrqHandler
+class IrqReadyPublicationHandler : public IrqHandler
 {
   public:
     explicit IrqReadyPublicationHandler(IrqReadyPublicationContext &context)
@@ -662,15 +664,16 @@ class IrqReadyPublicationHandler : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override
+    IrqDisposition irq(irq_id_t) override
     {
         if (!m_Context.armed || !m_Context.handlerCalls.compareAndSwap(0, 1))
         {
-            return true;
+            return IrqDisposition::Handled;
         }
 
         m_Context.gate.release();
-        return true;
+        m_Context.handlerCompleted = 1;
+        return IrqDisposition::Handled;
     }
 
   private:
@@ -713,19 +716,40 @@ bool irqReadyPublication()
         Scheduler::instance().yield();
     }
 
+    size_t waiterStackSize = 0;
+    void *waiterStackBase =
+        context.waiter->getKernelStackBase(&waiterStackSize);
+    const SchedulerState &waiterState = context.waiter->state();
+    const bool schedulerStackPublished =
+        waiterStackBase && waiterStackSize &&
+        waiterState.stackBase ==
+            reinterpret_cast<uintptr_t>(waiterStackBase) &&
+        waiterState.stackSize == waiterStackSize;
+
     const irq_id_t id =
-        waiterBlocked ? manager->registerHardIsaIrqHandler(
-                            1, &handler, IrqPolicy::syntheticHard()) :
+        waiterBlocked ? manager->registerIsaIrqHandler(
+                            2, &handler, IrqPolicy::syntheticThreaded()) :
                         0;
     g_IrqReadyPublicationContext = &context;
     Scheduler::setGenericThreadStatusHook(observeGenericThreadStatus);
     context.armed = 1;
-    const bool signalQueued = id && raise(SIGUSR2) == 0;
+    const bool signalQueued = id && raise(SIGURG) == 0;
+    bool handlerFinished = false;
+    for (size_t attempt = 0; signalQueued && attempt < Attempts; ++attempt)
+    {
+        if (context.handlerCompleted == 1)
+        {
+            handlerFinished = true;
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+    handlerFinished = context.handlerCompleted == 1;
     context.armed = 0;
     Scheduler::setGenericThreadStatusHook(nullptr);
     g_IrqReadyPublicationContext = nullptr;
 
-    if (!context.handlerCalls)
+    if (!handlerFinished)
     {
         context.gate.release();
     }
@@ -734,10 +758,13 @@ bool irqReadyPublication()
 
     bool passed = true;
     passed &= check(
+        schedulerStackPublished,
+        "the waiter scheduler state lost its hosted stack bounds", Test);
+    passed &= check(
         waiterBlocked, "the waiter did not publish its semaphore wait", Test);
     passed &= check(id != 0, "the IRQ handler could not be registered", Test);
     passed &= check(
-        signalQueued && context.handlerCalls == 1,
+        signalQueued && handlerFinished && context.handlerCalls == 1,
         "the hosted IRQ did not dispatch exactly once", Test);
     passed &= check(
         context.genericPublications == 0,
@@ -748,6 +775,7 @@ bool irqReadyPublication()
     passed &= check(cleaned, "the IRQ handler could not be removed", Test);
     if (passed)
     {
+        NOTICE("HOSTED-WAIT-TEST: PASS hosted-scheduler-stack-bounds");
         NOTICE("HOSTED-WAIT-TEST: PASS irq-wait-ready-publication");
     }
     return passed;

@@ -751,6 +751,16 @@ void Thread::allocateStackAtLevel(size_t stateLevel)
     if (m_StateLevels[stateLevel].m_pKernelStack == 0)
         m_StateLevels[stateLevel].m_pKernelStack =
             VirtualAddressSpace::getKernelAddressSpace().allocateStack();
+#if HOSTED
+    VirtualAddressSpace::Stack *stack =
+        m_StateLevels[stateLevel].m_pKernelStack;
+    if (stack)
+    {
+        SchedulerState *state = m_StateLevels[stateLevel].m_State;
+        state->stackBase = reinterpret_cast<uintptr_t>(stack->getBase());
+        state->stackSize = stack->getSize();
+    }
+#endif
 }
 
 void *Thread::getKernelStack()
@@ -771,9 +781,16 @@ void *Thread::getKernelStackBase(size_t *size) const
 {
     if (m_nStateLevel >= MAX_NESTED_EVENTS)
         FATAL("m_nStateLevel > MAX_NESTED_EVENTS: " << m_nStateLevel << "...");
-    if (m_StateLevels[m_nStateLevel].m_pKernelStack != 0)
+    VirtualAddressSpace::Stack *stack =
+        m_StateLevels[m_nStateLevel].m_pKernelStack;
+#if HOSTED
+    if (!stack)
     {
-        auto stack = m_StateLevels[m_nStateLevel].m_pKernelStack;
+        stack = m_StateLevels[m_nStateLevel].m_pAuxillaryStack;
+    }
+#endif
+    if (stack)
+    {
         *size = stack->getSize();
         return stack->getBase();
     }

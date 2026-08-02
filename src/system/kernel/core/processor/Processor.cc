@@ -18,11 +18,14 @@
  */
 
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
 #include "system/kernel/core/processor/DeviceHardIrqContext.h"
+
+#if HOSTED
+#include <unistd.h>
+#endif
 
 size_t ProcessorBase::m_Initialised = 0;
 
@@ -33,24 +36,57 @@ size_t ProcessorBase::m_nProcessors = 1;
 
 namespace
 {
-const char *deviceHardIrqOperationName(DeviceHardIrqOperation operation)
+#if HOSTED
+const char *deviceHardIrqViolationMessage(DeviceHardIrqOperation operation)
 {
     switch (operation)
     {
         case DeviceHardIrqOperation::Schedule:
-            return "schedule";
+            return "Device hard-IRQ callback attempted to schedule.";
         case DeviceHardIrqOperation::SemaphoreAcquire:
-            return "semaphore acquire";
+            return "Device hard-IRQ callback attempted semaphore acquire.";
         case DeviceHardIrqOperation::SemaphoreRelease:
-            return "semaphore release";
+            return "Device hard-IRQ callback attempted semaphore release.";
         case DeviceHardIrqOperation::WaitQueueAccess:
-            return "wait-queue access";
+            return "Device hard-IRQ callback attempted wait-queue access.";
         case DeviceHardIrqOperation::HeapAllocate:
-            return "heap allocation";
+            return "Device hard-IRQ callback attempted heap allocation.";
         case DeviceHardIrqOperation::HeapFree:
-            return "heap free";
+            return "Device hard-IRQ callback attempted heap free.";
     }
-    return "unknown operation";
+    return "Device hard-IRQ callback attempted a forbidden operation.";
+}
+#endif
+
+// Preserve the operation (plus one) for postmortem inspection before the
+// allocation-free terminal path stops the processor.
+volatile size_t g_DeviceHardIrqTerminalViolation = 0;
+
+void terminateDeviceHardIrqViolation(DeviceHardIrqOperation operation)
+    NORETURN;
+void terminateDeviceHardIrqViolation(DeviceHardIrqOperation operation)
+{
+    __atomic_store_n(
+        &g_DeviceHardIrqTerminalViolation,
+        static_cast<size_t>(operation) + 1, __ATOMIC_RELAXED);
+
+#if HOSTED
+    const char *message = deviceHardIrqViolationMessage(operation);
+    size_t length = 0;
+    while (message[length])
+    {
+        ++length;
+    }
+    (void) write(STDERR_FILENO, message, length);
+    (void) write(STDERR_FILENO, "\n", 1);
+    _exit(1);
+#else
+    Processor::setInterrupts(false);
+    while (true)
+    {
+        Processor::halt();
+    }
+#endif
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -90,10 +126,8 @@ bool ProcessorBase::guardDeviceHardIrqOperation(
     }
 #endif
 
-    FATAL_NOLOCK(
-        "Device hard-IRQ callback attempted forbidden "
-        << deviceHardIrqOperationName(operation) << ".");
-    return false;
+    // Logging, allocation, and debugger entry can all take guarded paths.
+    terminateDeviceHardIrqViolation(operation);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

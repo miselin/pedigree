@@ -171,7 +171,7 @@ bool runHostedHardIrqGuardRegressions()
 
     if (passed)
     {
-        NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+        NOTICE("HOSTED-WAIT-TEST: PASS hard-irq-operation-deny-guard");
     }
     else
     {
