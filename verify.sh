@@ -466,6 +466,18 @@ check_wait_api_boundaries()
     fi
 
     local cdi_irq_source=src/modules/drivers/common/cdi/CdiIrq.cc
+    if rg -q 'HardIrqHandler|registerHard(Isa|Pci)IrqHandler' \
+            "$cdi_irq_source" ||
+        ! rg -q 'class CdiIrqHandler : public IrqHandler' \
+            "$cdi_irq_source" ||
+        ! rg -q 'IrqPolicy::levelThreaded\(\)' "$cdi_irq_source" ||
+        ! rg -q 'IrqDisposition::Handled' "$cdi_irq_source" ||
+        ! rg -q 'LockGuard<Mutex> lock\(irqSlotLock\)' \
+            "$cdi_irq_source"; then
+        echo "CDI callbacks escaped their ordinary threaded IRQ boundary."
+        failed=1
+    fi
+
     matches=$(rg -n \
         'if[[:space:]]*\([[:space:]]*irq[[:space:]]*>[[:space:]]*IRQ_COUNT' \
         "$cdi_irq_source" || true)
@@ -1138,6 +1150,7 @@ check_wait_api_boundaries()
         src/modules/drivers/common/3c90x/3Com90x.cc \
         src/modules/drivers/common/ata/IsaAtaController.cc \
         src/modules/drivers/common/ata/PciAtaController.cc \
+        src/modules/drivers/common/cdi/CdiIrq.cc \
         src/modules/drivers/common/usb-hcd/Ehci.cc \
         src/modules/drivers/common/usb-hcd/Ohci.cc \
         src/modules/drivers/common/usb-hcd/Uhci.cc \
