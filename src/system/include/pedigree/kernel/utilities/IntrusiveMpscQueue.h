@@ -166,7 +166,7 @@ class IntrusiveMpscQueue
     Node *const m_Stub;
 };
 
-#if defined(TESTSUITE)
+#if defined(TESTSUITE) || (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS)
 /** Constructs otherwise unreachable producer publication states in tests. */
 template <typename Node, Node *Node::*NextMember>
 class IntrusiveMpscQueueTestAccess

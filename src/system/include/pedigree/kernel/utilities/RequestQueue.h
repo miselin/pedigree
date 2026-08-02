@@ -26,6 +26,7 @@
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/IntrusiveMpscQueue.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
 #if THREADS
@@ -34,6 +35,7 @@
 
 class Thread;
 class Timer;
+class PerProcessorScheduler;
 
 #define REQUEST_QUEUE_NUM_PRIORITIES 4
 
@@ -57,9 +59,39 @@ class EXPORTED_PUBLIC RequestQueue
         Overloaded,
     };
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#if THREADS && HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     /** Takes one watchdog snapshot without reporting it as fatal. */
     OverrunStatus sampleOverrunForTest();
+
+    using HostedSmokeHook = void (*)(void *);
+
+    void
+    setAfterInterruptAdmissionHookForTest(HostedSmokeHook hook, void *context)
+    {
+        m_AfterInterruptAdmissionHook = hook;
+        m_AfterInterruptAdmissionContext = context;
+    }
+
+    void setAfterIntakeExchangeHookForTest(HostedSmokeHook hook, void *context)
+    {
+        m_AfterIntakeExchangeHook = hook;
+        m_AfterIntakeExchangeContext = context;
+    }
+
+    size_t workerTransientRetriesForTest()
+    {
+        return m_WorkerTransientRetries.value();
+    }
+
+    size_t guardedTransientRetriesForTest()
+    {
+        return m_GuardedTransientRetries.value();
+    }
+
+    size_t publisherDrainRetriesForTest()
+    {
+        return m_PublisherDrainRetries.value();
+    }
 #endif
 
 #if THREADS
@@ -89,6 +121,19 @@ class EXPORTED_PUBLIC RequestQueue
 #endif
 
   protected:
+    class Request;
+
+    struct IntakeNode
+    {
+        explicit IntakeNode(Request *request = nullptr)
+            : next(nullptr), owner(request)
+        {
+        }
+
+        IntakeNode *next;
+        Request *owner;
+    };
+
     /** Request structure shared by allocated and preallocated publications. */
     class Request
     {
@@ -104,7 +149,7 @@ class EXPORTED_PUBLIC RequestQueue
 #if THREADS
               m_Completion(), m_References(asynchronous ? 1 : 2),
 #endif
-              m_Next(nullptr), m_Priority(requestPriority),
+              m_Next(nullptr), m_Intake(this), m_Priority(requestPriority),
               m_Asynchronous(asynchronous), m_Rejected(false),
               m_Completed(false), m_pInterruptOwner(interruptOwner)
         {
@@ -124,6 +169,7 @@ class EXPORTED_PUBLIC RequestQueue
         Atomic<size_t> m_References;
 #endif
         Request *m_Next;
+        IntakeNode m_Intake;
         size_t m_Priority;
         bool m_Asynchronous;
         bool m_Rejected;
@@ -132,6 +178,21 @@ class EXPORTED_PUBLIC RequestQueue
 
         Request(const Request &);
         void operator=(const Request &);
+    };
+
+    class IntakeLane
+    {
+      public:
+        IntakeLane() : m_Stub(), m_Queue(m_Stub)
+        {
+        }
+
+        IntakeNode m_Stub;
+        IntrusiveMpscQueue<IntakeNode, &IntakeNode::next> m_Queue;
+
+      private:
+        IntakeLane(const IntakeLane &) = delete;
+        IntakeLane &operator=(const IntakeLane &) = delete;
     };
 
   public:
@@ -158,8 +219,7 @@ class EXPORTED_PUBLIC RequestQueue
         using ReleaseCallback = void (*)(void *);
 
         InterruptRequest();
-        InterruptRequest(
-            ReleaseCallback releaseCallback, void *releaseContext);
+        InterruptRequest(ReleaseCallback releaseCallback, void *releaseContext);
         ~InterruptRequest();
 
         bool isAvailable() const;
@@ -221,7 +281,13 @@ class EXPORTED_PUBLIC RequestQueue
     /** Initialises the queue, spawning the worker thread. */
     virtual void initialise();
 
-    /** Destroys the queue, killing the worker thread (safely) */
+    /**
+     * Destroys the queue and joins its worker.
+     *
+     * Every external IRQ, timer, and thread producer must already be quiesced.
+     * Closing admission drains callers which already entered the publication
+     * gate; it cannot extend this object's lifetime around future callers.
+     */
     virtual void destroy();
 
     /**
@@ -258,11 +324,14 @@ class EXPORTED_PUBLIC RequestQueue
      * Publishes preallocated work from an IRQ or timer callback.
      *
      * This path performs no allocation, deallocation, logging, or blocking.
-     * It does not call compareRequests(): token identity is the interrupt-side
-     * coalescing mechanism. Preallocated work bypasses the allocation-backed
-     * asynchronous backlog limit. The same token cannot be republished until
-     * execution or cancellation has returned it to Idle. TokenBusy is returned
-     * only for work whose queue admission can no longer fail.
+     * It does not participate in compareRequests(): token identity is the
+     * interrupt-side coalescing mechanism, and allocation-backed requests are
+     * always a distinct duplicate domain. Preallocated work bypasses the
+     * allocation-backed asynchronous backlog limit. The same token cannot be
+     * republished until execution or cancellation has returned it to Idle.
+     * TokenBusy is returned only for work whose queue admission can no longer
+     * fail. The queue and token owner must outlive this call; destroy()
+     * requires the interrupt or timer source to be quiesced first.
      */
     MUST_USE_RESULT InterruptEnqueueResult enqueueFromInterrupt(
         InterruptRequest &request, size_t priority, uint64_t p1 = 0,
@@ -314,8 +383,9 @@ class EXPORTED_PUBLIC RequestQueue
 
     /**
      * Defaults to never comparing as equal. Used to determine duplicates
-     * for synchronous and asynchronous requests. This runs under the queue's
-     * non-sleeping guard and therefore must not block.
+     * among allocation-backed synchronous and asynchronous requests. IRQ and
+     * timer tokens use token identity instead and are never passed here. This
+     * runs under the queue's non-sleeping guard and therefore must not block.
      */
     virtual bool compareRequests(const Request &a, const Request &b)
     {
@@ -341,8 +411,21 @@ class EXPORTED_PUBLIC RequestQueue
     /** Thread worker function */
     int work();
 
-    /** Get the next Request, or NULL if no available requests. */
-    Request *getNextRequest();
+    enum class NextRequestResult
+    {
+        Item,
+        Empty,
+        Retry,
+    };
+
+    /** Get the next request without bypassing a transient higher priority. */
+    NextRequestResult getNextRequest(Request *&request);
+
+    /** Move one priority's accepted intake into its guarded ready list. */
+    bool drainIntakeLocked(size_t priority);
+
+    /** Publish an accepted request through its priority's MPSC intake. */
+    void publishRequest(Request *request);
 
     /** Find an equivalent queued or executing request. */
     Request *findDuplicate(const Request &request);
@@ -375,7 +458,18 @@ class EXPORTED_PUBLIC RequestQueue
     /** Start/stop helpers called with m_LifecycleMutex held. */
     void startWorker();
     bool stopWorker();
+
+    static bool workerReady(void *context);
+    void closeInterruptAdmission();
+    void waitForInterruptPublishers();
 #endif
+
+    static constexpr size_t PublicationClosed = static_cast<size_t>(1)
+                                                << ((sizeof(size_t) * 8) - 1);
+    static constexpr size_t PublicationCountMask = ~PublicationClosed;
+
+    /** Lock-free intake shared by ordinary and hard-interrupt producers. */
+    IntakeLane m_IntakeLanes[REQUEST_QUEUE_NUM_PRIORITIES];
 
     /** The request queue */
     Request *m_pRequestQueue[REQUEST_QUEUE_NUM_PRIORITIES];
@@ -384,8 +478,8 @@ class EXPORTED_PUBLIC RequestQueue
     /** The request currently being executed by the worker. */
     Request *m_pActiveRequest;
 
-    /** Worker lifecycle, protected by m_RequestQueueWaiters. */
-    LifecycleState m_State;
+    /** Worker lifecycle, atomically visible to the ready predicate. */
+    Atomic<size_t> m_State;
 
 #if THREADS
     /** Serialises initialise/halt/resume/destroy, including worker joins. */
@@ -396,22 +490,45 @@ class EXPORTED_PUBLIC RequestQueue
 
     Thread *m_pThread;
 
+    /** Scheduler which owns the predicate-backed worker and its IRQ doorbell.
+     */
+    Atomic<PerProcessorScheduler *> m_pWorkerScheduler;
+
     /** The worker has entered work() and installed its lifetime deferral. */
-    bool m_bWorkerReady;
+    Atomic<size_t> m_bWorkerReady;
+
+    /** Keeps a preempted worker eligible inside queue critical sections. */
+    Atomic<size_t> m_bWorkerActive;
 
     /** Changes whenever the worker claims another queued request. */
     size_t m_WorkerProgressGeneration;
 
     RequestQueueOverrunChecker m_OverrunChecker;
     Timer *m_pOverrunTimer;
+
+    /** High bit closes hard publication; low bits count entering publishers. */
+    Atomic<size_t> m_PublicationState;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    HostedSmokeHook m_AfterInterruptAdmissionHook;
+    void *m_AfterInterruptAdmissionContext;
+    HostedSmokeHook m_AfterIntakeExchangeHook;
+    void *m_AfterIntakeExchangeContext;
+    Atomic<size_t> m_WorkerTransientRetries;
+    Atomic<size_t> m_GuardedTransientRetries;
+    Atomic<size_t> m_PublisherDrainRetries;
+#endif
 #endif
 
     /** Allocation admission limit and total active async request count. */
     size_t m_nMaxAsyncRequests;
-    size_t m_nAsyncRequests;
+    Atomic<size_t> m_nAsyncRequests;
 
     /** Number of queued or executing requests. */
-    size_t m_nTotalRequests;
+    Atomic<size_t> m_nTotalRequests;
+
+    /** One while the single worker is executing or releasing a request. */
+    Atomic<size_t> m_nActiveRequests;
 
     NormalStaticString m_Name;
 };

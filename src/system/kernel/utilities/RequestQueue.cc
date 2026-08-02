@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -32,6 +33,13 @@
 #include "pedigree/kernel/utilities/new"
 
 class Process;
+
+static_assert(
+    __atomic_always_lock_free(sizeof(size_t), nullptr),
+    "RequestQueue hard-publication words must be lock-free");
+static_assert(
+    __atomic_always_lock_free(sizeof(PerProcessorScheduler *), nullptr),
+    "RequestQueue hard-publication pointers must be lock-free");
 
 RequestQueue::InterruptRequest::InterruptRequest()
     : InterruptRequest(nullptr, nullptr)
@@ -60,14 +68,23 @@ bool RequestQueue::InterruptRequest::isAvailable() const
 }
 
 RequestQueue::RequestQueue(const String &name)
-    : m_pActiveRequest(nullptr), m_State(LifecycleState::Stopped),
+    : m_IntakeLanes(), m_pActiveRequest(nullptr),
+      m_State(static_cast<size_t>(LifecycleState::Stopped)),
 #if THREADS
       m_LifecycleMutex(), m_RequestQueueWaiters(), m_pThread(nullptr),
-      m_bWorkerReady(false), m_WorkerProgressGeneration(0),
-      m_pOverrunTimer(nullptr),
+      m_pWorkerScheduler(nullptr), m_bWorkerReady(0), m_bWorkerActive(0),
+      m_WorkerProgressGeneration(0), m_pOverrunTimer(nullptr),
+      m_PublicationState(PublicationClosed),
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+      m_AfterInterruptAdmissionHook(nullptr),
+      m_AfterInterruptAdmissionContext(nullptr),
+      m_AfterIntakeExchangeHook(nullptr), m_AfterIntakeExchangeContext(nullptr),
+      m_WorkerTransientRetries(0), m_GuardedTransientRetries(0),
+      m_PublisherDrainRetries(0),
+#endif
 #endif
       m_nMaxAsyncRequests(256), m_nAsyncRequests(0), m_nTotalRequests(0),
-      m_Name(name.cstr(), name.length())
+      m_nActiveRequests(0), m_Name(name.cstr(), name.length())
 {
     for (size_t i = 0; i < REQUEST_QUEUE_NUM_PRIORITIES; ++i)
     {
@@ -86,8 +103,10 @@ RequestQueue::~RequestQueue()
     bool active = false;
     {
         auto guard = m_RequestQueueWaiters.acquire();
-        active = m_State != LifecycleState::Stopped || m_pThread ||
-                 m_pOverrunTimer || m_nTotalRequests;
+        active = static_cast<LifecycleState>(m_State.value()) !=
+                     LifecycleState::Stopped ||
+                 m_pThread || m_pOverrunTimer || m_nTotalRequests.value() ||
+                 m_PublicationState.value() != PublicationClosed;
     }
     if (active)
     {
@@ -110,15 +129,17 @@ void RequestQueue::startWorker()
 {
     {
         auto guard = m_RequestQueueWaiters.acquire();
-        if (m_State == LifecycleState::Accepting)
+        if (static_cast<LifecycleState>(m_State.value()) ==
+            LifecycleState::Accepting)
         {
-            assert(m_pThread && m_bWorkerReady);
+            assert(m_pThread && m_bWorkerReady.value());
+            assert(!(m_PublicationState.value() & PublicationClosed));
             return;
         }
 
-        if (
-            m_State == LifecycleState::Stopping || m_pThread ||
-            m_bWorkerReady)
+        if (static_cast<LifecycleState>(m_State.value()) ==
+                LifecycleState::Stopping ||
+            m_pThread || m_bWorkerReady.value())
         {
             ERROR(
                 "RequestQueue '" << m_Name << "' cannot start while stopping");
@@ -129,18 +150,26 @@ void RequestQueue::startWorker()
     Process *process = Scheduler::instance().getKernelProcess();
     Thread *worker = new Thread(
         process, &trampoline, reinterpret_cast<void *>(this), nullptr, false,
-        false, true);
+        true, true);
     worker->setName("RequestQueue worker");
+    if (!worker->setSchedulerReadyPredicate(workerReady, this))
+    {
+        FATAL(
+            "RequestQueue '" << m_Name
+                             << "' could not install its ready predicate");
+    }
 
     {
         auto guard = m_RequestQueueWaiters.acquire();
-        assert(m_State == LifecycleState::Stopped);
+        assert(
+            static_cast<LifecycleState>(m_State.value()) ==
+            LifecycleState::Stopped);
         assert(!m_pThread);
-        assert(!m_bWorkerReady);
+        assert(!m_bWorkerReady.value());
+        assert(m_PublicationState.value() & PublicationClosed);
         m_OverrunChecker.resetBaselineLocked();
-        m_State = LifecycleState::Accepting;
         m_pThread = worker;
-        guard.wakeAll();
+        m_pWorkerScheduler = &Processor::information().getScheduler();
     }
 
     // The delayed worker cannot observe partially published queue state.
@@ -155,12 +184,12 @@ void RequestQueue::startWorker()
     while (true)
     {
         auto guard = m_RequestQueueWaiters.acquire();
-        if (m_bWorkerReady)
+        if (m_bWorkerReady.value())
         {
             break;
         }
-        if (
-            m_State != LifecycleState::Accepting ||
+        if (static_cast<LifecycleState>(m_State.value()) !=
+                LifecycleState::Stopped ||
             m_pThread != worker)
         {
             FATAL(
@@ -172,33 +201,90 @@ void RequestQueue::startWorker()
             reinterpret_cast<uintptr_t>(this));
         (void) reason;
     }
+
+    while (true)
+    {
+        bool opened = false;
+        {
+            auto guard = m_RequestQueueWaiters.acquire();
+            assert(m_pThread == worker && m_bWorkerReady.value());
+            assert(
+                static_cast<LifecycleState>(m_State.value()) ==
+                LifecycleState::Stopped);
+
+            // A rejected hard producer briefly contributes to the closed
+            // gate's low-bit count. Reopen only the exact closed-and-drained
+            // state so its eventual decrement can never underflow a new
+            // publication lifetime.
+            opened = m_PublicationState.compareAndSwap(PublicationClosed, 0);
+            if (opened)
+            {
+                // This is the final acceptance point. The worker, scheduler,
+                // and lock-free readiness predicate are already published.
+                m_State = static_cast<size_t>(LifecycleState::Accepting);
+            }
+        }
+
+        if (opened)
+        {
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+
+    m_pWorkerScheduler.value()->ringIrqWorkDoorbell();
 }
 
 bool RequestQueue::stopWorker()
 {
     Thread *worker = nullptr;
+    bool hadWorker = false;
     {
         auto guard = m_RequestQueueWaiters.acquire();
         worker = m_pThread;
         if (!worker)
         {
-            m_State = LifecycleState::Stopped;
-            m_bWorkerReady = false;
-            return true;
+            closeInterruptAdmission();
+            m_State = static_cast<size_t>(LifecycleState::Stopped);
+            m_bWorkerReady = 0;
+            m_bWorkerActive = 0;
+            m_pWorkerScheduler = nullptr;
         }
-
-        if (worker == Processor::information().getCurrentThread())
+        else if (worker == Processor::information().getCurrentThread())
         {
             ERROR("RequestQueue '" << m_Name << "' worker cannot halt itself");
             return false;
         }
-
-        if (m_State == LifecycleState::Accepting)
+        else
         {
-            m_State = LifecycleState::Stopping;
-            guard.wakeAll();
+            hadWorker = true;
+            if (static_cast<LifecycleState>(m_State.value()) ==
+                LifecycleState::Accepting)
+            {
+                // Close before publishing Stopping, so every producer that can
+                // still observe Accepting is either rejected or counted below.
+                closeInterruptAdmission();
+                m_State = static_cast<size_t>(LifecycleState::Stopping);
+            }
         }
     }
+
+    if (!hadWorker)
+    {
+        // Even a closed queue admits rejected publishers into the low-bit
+        // lifetime count long enough to observe the closed bit. Do not let a
+        // never-started or already-stopped queue outrun one of those callers.
+        waitForInterruptPublishers();
+        return true;
+    }
+
+    PerProcessorScheduler *scheduler = m_pWorkerScheduler.value();
+    if (scheduler)
+    {
+        scheduler->ringIrqWorkDoorbell();
+    }
+
+    waitForInterruptPublishers();
 
     if (!worker->joinForCompletion())
     {
@@ -209,10 +295,37 @@ bool RequestQueue::stopWorker()
     {
         auto guard = m_RequestQueueWaiters.acquire();
         m_pThread = nullptr;
-        m_State = LifecycleState::Stopped;
-        m_bWorkerReady = false;
+        m_pWorkerScheduler = nullptr;
+        m_State = static_cast<size_t>(LifecycleState::Stopped);
+        m_bWorkerReady = 0;
+        m_bWorkerActive = 0;
     }
     return true;
+}
+
+bool RequestQueue::workerReady(void *context)
+{
+    RequestQueue *queue = reinterpret_cast<RequestQueue *>(context);
+    return !queue->m_bWorkerReady.value() || queue->m_bWorkerActive.value() ||
+           queue->m_nTotalRequests.value() ||
+           static_cast<LifecycleState>(queue->m_State.value()) !=
+               LifecycleState::Accepting;
+}
+
+void RequestQueue::closeInterruptAdmission()
+{
+    m_PublicationState |= PublicationClosed;
+}
+
+void RequestQueue::waitForInterruptPublishers()
+{
+    while (m_PublicationState.value() & PublicationCountMask)
+    {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        m_PublisherDrainRetries += 1;
+#endif
+        Scheduler::instance().yield();
+    }
 }
 #endif
 
@@ -244,6 +357,14 @@ void RequestQueue::destroy()
         for (size_t priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES;
              ++priority)
         {
+            if (!drainIntakeLocked(priority))
+            {
+                FATAL(
+                    "RequestQueue '" << m_Name
+                                     << "' retained an incomplete MPSC "
+                                        "publication after producer drain");
+            }
+
             Request *request = m_pRequestQueue[priority];
             m_pRequestQueue[priority] = nullptr;
             m_pRequestQueueTail[priority] = nullptr;
@@ -258,6 +379,7 @@ void RequestQueue::destroy()
         }
         m_nTotalRequests = 0;
         m_nAsyncRequests = 0;
+        m_nActiveRequests = 0;
     }
 
     while (cancelled)
@@ -301,54 +423,64 @@ uint64_t RequestQueue::addRequest(
     Request *request = nullptr;
     bool rejected = false;
     bool executeInline = false;
+    while (true)
     {
-        auto guard = m_RequestQueueWaiters.acquire();
-        if (m_State != LifecycleState::Accepting)
+        bool retry = false;
         {
-            rejected = true;
-        }
-        else if (m_pThread == Processor::information().getCurrentThread())
-        {
-            // A worker cannot wait for itself. Execute nested synchronous work
-            // inline after dropping the queue guard.
-            executeInline = true;
-        }
-        else
-        {
-            if (action != NewRequest)
+            auto guard = m_RequestQueueWaiters.acquire();
+            if (static_cast<LifecycleState>(m_State.value()) !=
+                LifecycleState::Accepting)
             {
-                request = findDuplicate(*candidate);
+                rejected = true;
             }
-
-            if (request)
+            else if (m_pThread == Processor::information().getCurrentThread())
             {
-                if (action == ReturnImmediately)
-                {
-                    rejected = true;
-                }
-                else
-                {
-                    retainRequest(request);
-                }
+                // A worker cannot wait for itself. Execute nested synchronous
+                // work inline after dropping the queue guard.
+                executeInline = true;
+            }
+            else if (action != NewRequest && !drainIntakeLocked(priority))
+            {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+                m_GuardedTransientRetries += 1;
+#endif
+                // An allocation-backed predecessor can be hidden behind an
+                // unfinished token link, so do not deduplicate around it.
+                retry = true;
             }
             else
             {
-                size_t requestPriority = candidate->m_Priority;
-                if (m_pRequestQueueTail[requestPriority])
+                if (action != NewRequest)
                 {
-                    m_pRequestQueueTail[requestPriority]->m_Next = candidate;
+                    request = findDuplicate(*candidate);
+                }
+
+                if (request)
+                {
+                    if (action == ReturnImmediately)
+                    {
+                        rejected = true;
+                    }
+                    else
+                    {
+                        retainRequest(request);
+                    }
                 }
                 else
                 {
-                    m_pRequestQueue[requestPriority] = candidate;
+                    m_nTotalRequests += 1;
+                    publishRequest(candidate);
+                    request = candidate;
+                    candidate = nullptr;
                 }
-                m_pRequestQueueTail[requestPriority] = candidate;
-                ++m_nTotalRequests;
-                guard.wakeOne();
-                request = candidate;
-                candidate = nullptr;
             }
         }
+
+        if (!retry)
+        {
+            break;
+        }
+        Scheduler::instance().yield();
     }
 
     if (executeInline)
@@ -398,8 +530,7 @@ RequestQueue::InterruptEnqueueResult RequestQueue::enqueueFromInterrupt(
         p8);
 }
 
-RequestQueue::InterruptEnqueueResult
-RequestQueue::republishWhileReleasing(
+RequestQueue::InterruptEnqueueResult RequestQueue::republishWhileReleasing(
     InterruptRequest &token, size_t priority, uint64_t p1, uint64_t p2,
     uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7,
     uint64_t p8)
@@ -420,18 +551,32 @@ RequestQueue::InterruptEnqueueResult RequestQueue::publishInterruptRequest(
     }
 
 #if THREADS
-    auto guard = m_RequestQueueWaiters.acquire();
-    if (m_State != LifecycleState::Accepting)
+    const size_t admission = (m_PublicationState += 1);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    if (m_AfterInterruptAdmissionHook)
     {
-        return InterruptEnqueueResult::QueueStopped;
+        m_AfterInterruptAdmissionHook(m_AfterInterruptAdmissionContext);
     }
 #endif
+    if (admission & PublicationClosed)
+    {
+        m_PublicationState -= 1;
+        return InterruptEnqueueResult::QueueStopped;
+    }
 
+    if (!token.m_State.compareAndSwap(
+            availableState, InterruptRequest::Claimed))
+    {
+        m_PublicationState -= 1;
+        return InterruptEnqueueResult::TokenBusy;
+    }
+#else
     if (!token.m_State.compareAndSwap(
             availableState, InterruptRequest::Claimed))
     {
         return InterruptEnqueueResult::TokenBusy;
     }
+#endif
 
     Request *request = &token.m_Request;
     request->p1 = p1;
@@ -447,6 +592,7 @@ RequestQueue::InterruptEnqueueResult RequestQueue::publishInterruptRequest(
     request->m_References = 1;
 #endif
     request->m_Next = nullptr;
+    request->m_Intake.next = nullptr;
     request->m_Priority = priority;
     request->m_Asynchronous = true;
     request->m_Rejected = false;
@@ -459,18 +605,11 @@ RequestQueue::InterruptEnqueueResult RequestQueue::publishInterruptRequest(
     return InterruptEnqueueResult::Accepted;
 #else
     token.m_State = InterruptRequest::Published;
-    if (m_pRequestQueueTail[priority])
-    {
-        m_pRequestQueueTail[priority]->m_Next = request;
-    }
-    else
-    {
-        m_pRequestQueue[priority] = request;
-    }
-    m_pRequestQueueTail[priority] = request;
-    ++m_nAsyncRequests;
-    ++m_nTotalRequests;
-    guard.wakeOne();
+    // Readiness must be visible before the node can become consumable.
+    m_nAsyncRequests += 1;
+    m_nTotalRequests += 1;
+    publishRequest(request);
+    m_PublicationState -= 1;
     return InterruptEnqueueResult::Accepted;
 #endif
 }
@@ -508,36 +647,45 @@ uint64_t RequestQueue::addAsyncRequestInternal(
 
     bool rejected = false;
     bool overloaded = false;
+    while (true)
     {
-        auto guard = m_RequestQueueWaiters.acquire();
-        if (m_State != LifecycleState::Accepting)
+        bool retry = false;
         {
-            rejected = true;
-        }
-        else if (findDuplicate(*request))
-        {
-            rejected = true;
-        }
-        else if (m_nAsyncRequests >= m_nMaxAsyncRequests)
-        {
-            rejected = true;
-            overloaded = true;
-        }
-        else
-        {
-            if (m_pRequestQueueTail[priority])
+            auto guard = m_RequestQueueWaiters.acquire();
+            if (static_cast<LifecycleState>(m_State.value()) !=
+                LifecycleState::Accepting)
             {
-                m_pRequestQueueTail[priority]->m_Next = request;
+                rejected = true;
+            }
+            else if (!drainIntakeLocked(priority))
+            {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+                m_GuardedTransientRetries += 1;
+#endif
+                retry = true;
+            }
+            else if (findDuplicate(*request))
+            {
+                rejected = true;
+            }
+            else if (m_nAsyncRequests.value() >= m_nMaxAsyncRequests)
+            {
+                rejected = true;
+                overloaded = true;
             }
             else
             {
-                m_pRequestQueue[priority] = request;
+                m_nAsyncRequests += 1;
+                m_nTotalRequests += 1;
+                publishRequest(request);
             }
-            m_pRequestQueueTail[priority] = request;
-            ++m_nAsyncRequests;
-            ++m_nTotalRequests;
-            guard.wakeOne();
         }
+
+        if (!retry)
+        {
+            break;
+        }
+        Scheduler::instance().yield();
     }
 
     if (overloaded)
@@ -590,10 +738,7 @@ void RequestQueue::resume()
 
 RequestQueue::LifecycleState RequestQueue::getLifecycleState()
 {
-#if THREADS
-    auto guard = m_RequestQueueWaiters.acquire();
-#endif
-    return m_State;
+    return static_cast<LifecycleState>(m_State.value());
 }
 
 bool RequestQueue::drain()
@@ -604,11 +749,12 @@ bool RequestQueue::drain()
     while (true)
     {
         auto guard = m_RequestQueueWaiters.acquire();
-        if (!m_nTotalRequests)
+        if (!m_nTotalRequests.value())
         {
             return true;
         }
-        if (m_State != LifecycleState::Accepting)
+        if (static_cast<LifecycleState>(m_State.value()) !=
+            LifecycleState::Accepting)
         {
             ERROR(
                 "RequestQueue '" << m_Name
@@ -637,32 +783,116 @@ int RequestQueue::trampoline(void *p)
     return queue->work();
 }
 
-RequestQueue::Request *RequestQueue::getNextRequest()
+void RequestQueue::publishRequest(Request *request)
 {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using TestAccess =
+        IntrusiveMpscQueueTestAccess<IntakeNode, &IntakeNode::next>;
+    IntakeLane &lane = m_IntakeLanes[request->m_Priority];
+    const TestAccess::Publication publication =
+        TestAccess::beginPush(lane.m_Queue, request->m_Intake);
+    if (m_AfterIntakeExchangeHook)
+    {
+        m_AfterIntakeExchangeHook(m_AfterIntakeExchangeContext);
+    }
+    TestAccess::finishPush(lane.m_Queue, publication);
+#else
+    m_IntakeLanes[request->m_Priority].m_Queue.push(request->m_Intake);
+#endif
+
+#if THREADS
+    PerProcessorScheduler *scheduler = m_pWorkerScheduler.value();
+    if (scheduler)
+    {
+        scheduler->ringIrqWorkDoorbell();
+    }
+#endif
+}
+
+bool RequestQueue::drainIntakeLocked(size_t priority)
+{
+    assert(priority < REQUEST_QUEUE_NUM_PRIORITIES);
+    using PopResult =
+        IntrusiveMpscQueue<IntakeNode, &IntakeNode::next>::PopResult;
+
+    while (true)
+    {
+        IntakeNode *node = nullptr;
+        const PopResult result = m_IntakeLanes[priority].m_Queue.pop(node);
+        if (result == PopResult::Empty)
+        {
+            return true;
+        }
+        if (result == PopResult::Transient)
+        {
+            return false;
+        }
+
+        assert(node && node->owner);
+        Request *request = node->owner;
+        assert(request->m_Priority == priority);
+        assert(!request->m_Next);
+        if (m_pRequestQueueTail[priority])
+        {
+            m_pRequestQueueTail[priority]->m_Next = request;
+        }
+        else
+        {
+            m_pRequestQueue[priority] = request;
+        }
+        m_pRequestQueueTail[priority] = request;
+    }
+}
+
+RequestQueue::NextRequestResult RequestQueue::getNextRequest(Request *&out)
+{
+    out = nullptr;
+    using PopResult =
+        IntrusiveMpscQueue<IntakeNode, &IntakeNode::next>::PopResult;
+
     for (size_t priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES;
          ++priority)
     {
         Request *request = m_pRequestQueue[priority];
-        if (!request)
+        if (request)
         {
-            continue;
+            m_pRequestQueue[priority] = request->m_Next;
+            if (!m_pRequestQueue[priority])
+            {
+                m_pRequestQueueTail[priority] = nullptr;
+            }
+            request->m_Next = nullptr;
+            out = request;
+            return NextRequestResult::Item;
         }
 
-        m_pRequestQueue[priority] = request->m_Next;
-        if (!m_pRequestQueue[priority])
+        IntakeNode *node = nullptr;
+        const PopResult result = m_IntakeLanes[priority].m_Queue.pop(node);
+        if (result == PopResult::Transient)
         {
-            m_pRequestQueueTail[priority] = nullptr;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+            m_WorkerTransientRetries += 1;
+#endif
+            // An unlinked request at this priority must not be overtaken by
+            // work from a lower-priority lane.
+            return NextRequestResult::Retry;
         }
-        request->m_Next = nullptr;
-        return request;
+        if (result == PopResult::Item)
+        {
+            assert(node && node->owner);
+            request = node->owner;
+            assert(request->m_Priority == priority);
+            out = request;
+            return NextRequestResult::Item;
+        }
     }
 
-    return nullptr;
+    return NextRequestResult::Empty;
 }
 
 RequestQueue::Request *RequestQueue::findDuplicate(const Request &request)
 {
-    if (m_pActiveRequest &&
+    if (m_pActiveRequest && !m_pActiveRequest->m_pInterruptOwner &&
         m_pActiveRequest->m_Priority == request.m_Priority &&
         compareRequests(*m_pActiveRequest, request))
     {
@@ -672,7 +902,7 @@ RequestQueue::Request *RequestQueue::findDuplicate(const Request &request)
     Request *queued = m_pRequestQueue[request.m_Priority];
     while (queued)
     {
-        if (compareRequests(*queued, request))
+        if (!queued->m_pInterruptOwner && compareRequests(*queued, request))
         {
             return queued;
         }
@@ -711,9 +941,7 @@ void RequestQueue::releaseInterruptRequest(Request *request)
     InterruptRequest *owner = request->m_pInterruptOwner;
     assert(owner);
     assert(&owner->m_Request == request);
-    assert(
-        static_cast<size_t>(owner->m_State) ==
-        InterruptRequest::Published);
+    assert(static_cast<size_t>(owner->m_State) == InterruptRequest::Published);
     owner->m_ReleaseDepth += 1;
     owner->m_State = InterruptRequest::Releasing;
     if (owner->m_ReleaseCallback)
@@ -811,45 +1039,66 @@ int RequestQueue::work()
     TerminationDeferral workerLifetime;
     {
         auto guard = m_RequestQueueWaiters.acquire();
-        if (
-            m_pThread != Processor::information().getCurrentThread() ||
-            m_State != LifecycleState::Accepting || m_bWorkerReady)
+        if (m_pThread != Processor::information().getCurrentThread() ||
+            static_cast<LifecycleState>(m_State.value()) !=
+                LifecycleState::Stopped ||
+            m_bWorkerReady.value())
         {
             FATAL(
                 "RequestQueue '" << m_Name
                                  << "' worker entered with invalid state");
         }
-        m_bWorkerReady = true;
+        m_bWorkerReady = 1;
         guard.wakeAll(
-            WaitQueue::WakeReason::Signalled,
-            WaitQueue::Channel(this, 2));
+            WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this, 2));
     }
 
     while (true)
     {
         Request *request = nullptr;
+        NextRequestResult next = NextRequestResult::Empty;
+        m_bWorkerActive = 1;
         {
             auto guard = m_RequestQueueWaiters.acquire();
-            if (m_State != LifecycleState::Accepting)
+            const LifecycleState state =
+                static_cast<LifecycleState>(m_State.value());
+            if (state == LifecycleState::Stopping)
             {
-                m_State = LifecycleState::Stopped;
-                m_bWorkerReady = false;
+                m_bWorkerReady = 0;
+                m_bWorkerActive = 0;
                 return 0;
             }
-
-            request = getNextRequest();
-            if (!request)
+            if (state == LifecycleState::Stopped)
             {
-                WaitQueue::WakeReason reason = guard.waitForCompletion(
-                    WaitQueue::Channel(), Thread::CondWait,
-                    reinterpret_cast<uintptr_t>(this));
-                (void) reason;
-                continue;
+                // startWorker() has not yet reached its final acceptance
+                // point. Stay eligible long enough to publish readiness.
+                m_bWorkerActive = 0;
             }
+            else
+            {
+                next = getNextRequest(request);
+                if (next == NextRequestResult::Item)
+                {
+                    assert(request);
+                    assert(!m_pActiveRequest);
+                    m_pActiveRequest = request;
+                    m_nActiveRequests = 1;
+                    ++m_WorkerProgressGeneration;
+                }
+                else
+                {
+                    m_bWorkerActive = 0;
+                }
+            }
+        }
 
-            assert(!m_pActiveRequest);
-            m_pActiveRequest = request;
-            ++m_WorkerProgressGeneration;
+        if (next != NextRequestResult::Item)
+        {
+            // Empty workers remain published but scheduler-ineligible. Retry
+            // leaves them eligible because the producer accounted before its
+            // unfinished MPSC link became visible.
+            Scheduler::instance().yield();
+            continue;
         }
 
         assert(request);
@@ -863,11 +1112,11 @@ int RequestQueue::work()
             auto guard = m_RequestQueueWaiters.acquire();
             assert(m_pActiveRequest == request);
             m_pActiveRequest = nullptr;
-            assert(m_nTotalRequests);
+            assert(m_nTotalRequests.value());
             if (request->m_Asynchronous)
             {
-                assert(m_nAsyncRequests);
-                --m_nAsyncRequests;
+                assert(m_nAsyncRequests.value());
+                m_nAsyncRequests -= 1;
             }
         }
 
@@ -879,15 +1128,19 @@ int RequestQueue::work()
 
         {
             auto guard = m_RequestQueueWaiters.acquire();
-            assert(m_nTotalRequests);
-            --m_nTotalRequests;
-            if (!m_nTotalRequests)
+            assert(m_nTotalRequests.value());
+            const size_t remaining = (m_nTotalRequests -= 1);
+            m_nActiveRequests = 0;
+            if (!remaining)
             {
                 guard.wakeAll(
                     WaitQueue::WakeReason::Signalled,
                     WaitQueue::Channel(this, 1));
             }
         }
+
+        m_bWorkerActive = 0;
+        Scheduler::instance().yield();
     }
 #else
     return 0;
@@ -902,26 +1155,20 @@ void RequestQueue::RequestQueueOverrunChecker::resetBaselineLocked()
     m_HasBacklogBaseline = false;
 }
 
-RequestQueue::OverrunStatus
-RequestQueue::RequestQueueOverrunChecker::sample(
+RequestQueue::OverrunStatus RequestQueue::RequestQueueOverrunChecker::sample(
     size_t &lastSize, size_t &currentSize)
 {
     auto guard = queue->m_RequestQueueWaiters.acquire();
     lastSize = m_LastQueueSize;
-    currentSize = 0;
-    for (size_t priority = 0; priority < REQUEST_QUEUE_NUM_PRIORITIES;
-         ++priority)
-    {
-        for (Request *request = queue->m_pRequestQueue[priority]; request;
-             request = request->m_Next)
-        {
-            ++currentSize;
-        }
-    }
+    const size_t total = queue->m_nTotalRequests.value();
+    const size_t active = queue->m_nActiveRequests.value();
+    assert(total >= active);
+    currentSize = total - active;
 
     const size_t progress = queue->m_WorkerProgressGeneration;
-    if (
-        queue->m_State != LifecycleState::Accepting || !currentSize)
+    if (static_cast<LifecycleState>(queue->m_State.value()) !=
+            LifecycleState::Accepting ||
+        !currentSize)
     {
         resetBaselineLocked();
         return OverrunStatus::Clear;
@@ -930,8 +1177,7 @@ RequestQueue::RequestQueueOverrunChecker::sample(
     OverrunStatus status = OverrunStatus::Armed;
     if (m_HasBacklogBaseline)
     {
-        if (
-            progress == m_LastProgressGeneration &&
+        if (progress == m_LastProgressGeneration &&
             currentSize >= m_LastQueueSize)
         {
             status = OverrunStatus::Stalled;
@@ -973,9 +1219,9 @@ void RequestQueue::RequestQueueOverrunChecker::timer(uint64_t delta)
     else if (status == OverrunStatus::Overloaded)
     {
         WARNING(
-            "RequestQueue '"
-            << queue->m_Name << "' backlog grew from " << lastSize << " to "
-            << currentSize << " despite worker progress.");
+            "RequestQueue '" << queue->m_Name << "' backlog grew from "
+                             << lastSize << " to " << currentSize
+                             << " despite worker progress.");
     }
 }
 #endif
