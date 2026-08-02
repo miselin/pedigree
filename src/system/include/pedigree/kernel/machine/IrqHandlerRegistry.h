@@ -213,6 +213,9 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         BeforeClaimFinalization,
         FinalizationContended,
         BeforeActionMutationPin,
+        CancellationMarkerPublished,
+        CancellationClaimCleared,
+        QuiescedObserved,
     };
 
     using HandlerPinHook = void (*)(IrqHandlerBase *);
@@ -231,6 +234,13 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     size_t claimedDispatchCountForOwnerForTest(void *owner);
     bool containsHandlerForTest(uint8_t irq, IrqHandlerBase *handler);
     size_t tombstoneCountForTest(uint8_t irq) const;
+    size_t threadedActionMutationWriterCountForTest() const;
+    bool setThreadedActionLanesForTest(
+        IrqHandlerBase *handler, size_t pendingGeneration,
+        size_t previousGeneration, size_t claimedGeneration,
+        size_t quiescedGeneration, size_t rolledBackGeneration);
+    bool consumeThreadedQuiescedForTest(
+        IrqHandlerBase *handler, size_t generation);
 #endif
 
   private:
@@ -347,6 +357,42 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         AtomicStateCleanupRecord cleanup;
     };
 
+    struct ThreadedActionMutationCleanup
+    {
+        explicit ThreadedActionMutationCleanup(IrqHandlerRegistry *owner)
+            : registry(owner), thread(nullptr), cleanup()
+        {
+        }
+
+        IrqHandlerRegistry *registry;
+        Thread *thread;
+        AtomicStateCleanupRecord cleanup;
+    };
+
+    struct ThreadedCancellationCleanup
+    {
+        ThreadedCancellationCleanup(
+            IrqHandlerRegistry *owner, HandlerSlot *handlerSlot,
+            uint8_t irqLine, size_t generation, size_t previousGeneration)
+            : registry(owner), slot(handlerSlot), thread(nullptr), irq(irqLine),
+              dispatchGeneration(generation),
+              previousThreadedGeneration(previousGeneration),
+              previousInterruptState(false), restoreInterruptState(false),
+              cleanup()
+        {
+        }
+
+        IrqHandlerRegistry *registry;
+        HandlerSlot *slot;
+        Thread *thread;
+        uint8_t irq;
+        size_t dispatchGeneration;
+        size_t previousThreadedGeneration;
+        bool previousInterruptState;
+        bool restoreInterruptState;
+        AtomicStateCleanupRecord cleanup;
+    };
+
     static size_t makePublication(
         size_t generation, uint8_t irq, SlotMode mode, Delivery delivery);
     static size_t generationOf(size_t publication);
@@ -363,6 +409,12 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
 
     void beginMutation();
     void finishMutation();
+    void beginThreadedActionMutation(ThreadedActionMutationCleanup &cleanup);
+    void finishThreadedActionMutation(ThreadedActionMutationCleanup &cleanup);
+    void completeThreadedActionMutation();
+    static void abandonThreadedActionMutation(void *context);
+    void applyThreadedCancellation(ThreadedCancellationCleanup &cleanup);
+    static void abandonThreadedCancellation(void *context);
 
     bool retireSlot(
         HandlerSlot &slot, size_t expectedPublication,
@@ -401,10 +453,14 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     bool threadedGenerationValid(uint8_t irq, size_t generation) const;
     void publishSlotQuiesced(
         HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration);
+    void publishSlotQuiescedValue(
+        HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration);
 
     HandlerSlot m_Handlers[MaxHandlerSlots];
     ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
     size_t m_ThreadedInvalidationGenerations[IrqCount];
+    size_t m_ThreadedActionMutationGeneration;
+    size_t m_ThreadedActionMutationWriters;
     size_t m_OccurrenceEpochs[GraceBucketCount];
     size_t m_OccurrenceReaders[GraceBucketCount][2];
     size_t m_OccurrenceBoundaryLocks[GraceBucketCount];

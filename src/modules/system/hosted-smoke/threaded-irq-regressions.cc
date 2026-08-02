@@ -257,6 +257,9 @@ bool threadedDispatcherCoalescing()
 
     const bool interruptsWereEnabled = Processor::getInterrupts();
     Processor::setInterrupts(false);
+    const bool atomicShutdownRejected =
+        !dispatcher.shutdown() && !dispatcher.publicationClosed(0) &&
+        !dispatcher.publicationClosed(1);
     const bool firstPublished =
         initialised && dispatcher.publishFromInterrupt(1, 1);
     const bool firstDoorbell =
@@ -292,9 +295,18 @@ bool threadedDispatcherCoalescing()
     const bool secondObserved =
         laterPublished && context.secondEntered.acquireForCompletion(1, 2, 0);
     const bool stopped = dispatcher.shutdown();
+    Processor::setInterrupts(false);
+    const bool dormantAtomicShutdownRejected = !dispatcher.canShutdown();
+    Processor::setInterrupts(interruptsWereEnabled);
 
     bool passed = true;
     passed &= check(initialised, "the dispatcher did not initialise");
+    passed &= check(
+        atomicShutdownRejected,
+        "an atomic shutdown attempt closed worker publication", Test);
+    passed &= check(
+        dormantAtomicShutdownRejected,
+        "an uninitialised dispatcher accepted atomic manager teardown", Test);
     passed &= check(firstPublished, "wake-before-block publication failed");
     passed &= check(
         firstDoorbell && laterDoorbell,

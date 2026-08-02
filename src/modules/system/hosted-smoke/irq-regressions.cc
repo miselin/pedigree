@@ -122,6 +122,101 @@ struct PostCallbackCancellationContext
     IrqHandlerRegistry::UnregisterResult result;
 };
 
+struct QuiescedHandoffContext
+{
+    IrqHandlerRegistry *registry;
+    IrqHandlerBase *handler;
+    uint8_t line;
+    Atomic<size_t> calls;
+    IrqHandlerRegistry::UnregisterResult removalResult;
+};
+
+QuiescedHandoffContext *g_QuiescedHandoff = nullptr;
+
+void removeAfterQuiescedObservation(
+    IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage stage)
+{
+    QuiescedHandoffContext *context = g_QuiescedHandoff;
+    if (!context || handler != context->handler ||
+        stage != IrqHandlerRegistry::HandlerHazardStage::QuiescedObserved ||
+        !context->calls.compareAndSwap(0, 1))
+    {
+        return;
+    }
+
+    context->removalResult =
+        context->registry->unregisterHandler(context->line, context->handler);
+}
+
+struct AbandonedActionMutationContext
+{
+    IrqHandlerRegistry *registry;
+    IrqHandlerBase *handler;
+    Thread *worker;
+    uint8_t line;
+    size_t generation;
+    IrqHandlerRegistry::HandlerHazardStage abandonStage;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> returned;
+};
+
+AbandonedActionMutationContext *g_AbandonedActionMutation = nullptr;
+
+struct ClaimedCancellationContext
+{
+    IrqHandlerRegistry *registry;
+    IrqHandlerBase *handler;
+    size_t cancelledGeneration;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> consumedCancelledQuiesce;
+};
+
+ClaimedCancellationContext *g_ClaimedCancellation = nullptr;
+
+void consumeCancelledQuiesceAfterClaimClear(
+    IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage stage)
+{
+    ClaimedCancellationContext *context = g_ClaimedCancellation;
+    if (!context || handler != context->handler ||
+        stage !=
+            IrqHandlerRegistry::HandlerHazardStage::CancellationClaimCleared ||
+        !context->hookCalls.compareAndSwap(0, 1))
+    {
+        return;
+    }
+
+    if (context->registry->consumeThreadedQuiescedForTest(
+            context->handler, context->cancelledGeneration))
+    {
+        context->consumedCancelledQuiesce += 1;
+    }
+}
+
+void abandonActionMutation(
+    IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage stage)
+{
+    AbandonedActionMutationContext *context = g_AbandonedActionMutation;
+    if (!context || handler != context->handler ||
+        stage != context->abandonStage ||
+        Processor::information().getCurrentThread() != context->worker ||
+        !context->hookCalls.compareAndSwap(0, 1))
+    {
+        return;
+    }
+
+    HostedIrqManager::abandonCurrentThreadForTest();
+}
+
+int abandonActionMutationThread(void *parameter)
+{
+    AbandonedActionMutationContext *context =
+        reinterpret_cast<AbandonedActionMutationContext *>(parameter);
+    context->registry->cancelThreadedDispatch(
+        context->line, context->generation);
+    context->returned += 1;
+    return 1;
+}
+
 PostCallbackCancellationContext *g_PostCallbackCancellation = nullptr;
 
 void cancelThreadedHandlerAfterUnpublish(
@@ -896,6 +991,199 @@ bool actionMutationPinsSlotLifetime()
     {
         NOTICE(
             "HOSTED-WAIT-TEST: PASS irq-action-mutation-slot-lifetime");
+    }
+    return passed;
+}
+
+bool quiescedPublicationClosesWorkerExit()
+{
+    constexpr const char *Test = "irq-quiesced-terminal-handoff";
+    constexpr uint8_t Line = 19;
+    constexpr size_t Generation = 0x5206;
+
+    IrqHandlerRegistry registry;
+    DispositionHandler handler(IrqDisposition::Handled);
+    QuiescedHandoffContext context = {
+        &registry, &handler, Line, 0,
+        IrqHandlerRegistry::UnregisterResult::NotFound};
+    const bool registered = registry.registerThreadedHandler(Line, &handler);
+    const bool published =
+        registry.publishThreadedDispatch(Line, Generation);
+
+    g_QuiescedHandoff = &context;
+    registry.setHandlerHazardHook(removeAfterQuiescedObservation);
+    IrqHandlerRegistry::ThreadedDispatchResult result = {};
+    const bool admitted =
+        registered && published &&
+        registry.dispatchThreaded(Line, Generation, result);
+    registry.setHandlerHazardHook(nullptr);
+    g_QuiescedHandoff = nullptr;
+
+    const bool passed = check(
+        registered && published && context.calls == 1 &&
+            context.removalResult ==
+                IrqHandlerRegistry::UnregisterResult::Completed &&
+            admitted && !result.handled && result.allowRearm &&
+            handler.calls == 0 &&
+            !registry.containsHandlerForTest(Line, &handler) &&
+            registry.tombstoneCountForTest(Line) == 0,
+        "a terminal worker missed a concurrent quiesced publication", Test);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-quiesced-terminal-handoff");
+    }
+    return passed;
+}
+
+bool abandonedActionMutationReleasesWriter()
+{
+    constexpr const char *Test = "irq-action-mutation-abandon-cleanup";
+    constexpr uint8_t Line = 20;
+    constexpr size_t Generation = 0x5207;
+
+    IrqHandlerRegistry registry;
+    DispositionHandler handler(IrqDisposition::Handled);
+    const bool registered = registry.registerThreadedHandler(Line, &handler);
+    const bool published =
+        registry.publishThreadedDispatch(Line, Generation);
+    AbandonedActionMutationContext context = {
+        &registry, &handler, nullptr, Line, Generation,
+        IrqHandlerRegistry::HandlerHazardStage::BeforeActionMutationPin, 0, 0};
+    context.worker = new Thread(
+        Scheduler::instance().getKernelProcess(), abandonActionMutationThread,
+        &context, nullptr, false, true, true);
+    context.worker->setName("hosted abandoned IRQ action mutation");
+
+    g_AbandonedActionMutation = &context;
+    registry.setHandlerHazardHook(abandonActionMutation);
+    const bool started = context.worker->start();
+    const bool joined = started && context.worker->joinForCompletion();
+    registry.setHandlerHazardHook(nullptr);
+    g_AbandonedActionMutation = nullptr;
+
+    IrqHandlerRegistry::ThreadedDispatchResult result = {};
+    const bool admitted =
+        joined && !registry.threadedActionMutationWriterCountForTest() &&
+        registry.dispatchThreaded(Line, Generation, result);
+    const bool removed =
+        registry.unregisterHandler(Line, &handler) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    const bool passed = check(
+        registered && published && started && joined &&
+            context.hookCalls == 1 && !context.returned && admitted &&
+            result.handled && result.allowRearm && handler.calls == 1 &&
+            removed && !registry.threadedActionMutationWriterCountForTest(),
+        "an abandoned action mutation stranded the worker handshake", Test);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-action-mutation-abandon-cleanup");
+    }
+    return passed;
+}
+
+bool abandonedCancellationCompletesRollback()
+{
+    constexpr const char *Test = "irq-cancellation-abandon-rollback";
+    constexpr uint8_t Line = 21;
+    constexpr size_t PreviousGeneration = 0x5208;
+    constexpr size_t CancelledGeneration = 0x5209;
+
+    IrqHandlerRegistry registry;
+    DispositionHandler handler(IrqDisposition::Handled);
+    const bool registered = registry.registerThreadedHandler(Line, &handler);
+    const bool previousPublished =
+        registry.publishThreadedDispatch(Line, PreviousGeneration);
+    const bool cancelledPublished =
+        registry.publishThreadedDispatch(Line, CancelledGeneration);
+    AbandonedActionMutationContext context = {
+        &registry, &handler, nullptr, Line, CancelledGeneration,
+        IrqHandlerRegistry::HandlerHazardStage::CancellationMarkerPublished,
+        0, 0};
+    context.worker = new Thread(
+        Scheduler::instance().getKernelProcess(), abandonActionMutationThread,
+        &context, nullptr, false, true, true);
+    context.worker->setName("hosted abandoned IRQ cancellation");
+
+    g_AbandonedActionMutation = &context;
+    registry.setHandlerHazardHook(abandonActionMutation);
+    const bool started = context.worker->start();
+    const bool joined = started && context.worker->joinForCompletion();
+    registry.setHandlerHazardHook(nullptr);
+    g_AbandonedActionMutation = nullptr;
+
+    IrqHandlerRegistry::ThreadedDispatchResult previousResult = {};
+    const bool previousAdmitted =
+        joined && !registry.threadedActionMutationWriterCountForTest() &&
+        registry.dispatchThreaded(
+            Line, PreviousGeneration, previousResult);
+    IrqHandlerRegistry::ThreadedDispatchResult cancelledResult = {};
+    const bool cancelledAdmitted = registry.dispatchThreaded(
+        Line, CancelledGeneration, cancelledResult);
+    const bool removed =
+        registry.unregisterHandler(Line, &handler) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    const bool passed = check(
+        registered && previousPublished && cancelledPublished && started &&
+            joined && context.hookCalls == 1 && !context.returned &&
+            previousAdmitted && previousResult.handled &&
+            previousResult.allowRearm && handler.calls == 1 &&
+            !cancelledAdmitted && removed &&
+            !registry.threadedActionMutationWriterCountForTest(),
+        "an abandoned cancellation did not restore its prior action", Test);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-cancellation-abandon-rollback");
+    }
+    return passed;
+}
+
+bool claimedCancellationPreservesPriorQuiesce()
+{
+    constexpr const char *Test = "irq-cancellation-claimed-quiesce";
+    constexpr uint8_t Line = 22;
+    constexpr size_t PreviousGeneration = 0x520A;
+    constexpr size_t CancelledGeneration = 0x520B;
+
+    IrqHandlerRegistry registry;
+    DispositionHandler handler(IrqDisposition::Handled);
+    const bool registered = registry.registerThreadedHandler(Line, &handler);
+    const bool previousPublished =
+        registry.publishThreadedDispatch(Line, PreviousGeneration);
+    const bool cancelledPublished =
+        registry.publishThreadedDispatch(Line, CancelledGeneration);
+    const bool seeded = registry.setThreadedActionLanesForTest(
+        &handler, 0, PreviousGeneration, CancelledGeneration,
+        CancelledGeneration, 0);
+    ClaimedCancellationContext context = {
+        &registry, &handler, CancelledGeneration, 0, 0};
+    g_ClaimedCancellation = &context;
+    registry.setHandlerHazardHook(consumeCancelledQuiesceAfterClaimClear);
+    registry.cancelThreadedDispatch(Line, CancelledGeneration);
+    registry.setHandlerHazardHook(nullptr);
+    g_ClaimedCancellation = nullptr;
+
+    IrqHandlerRegistry::ThreadedDispatchResult previousResult = {};
+    const bool previousAdmitted = registry.dispatchThreaded(
+        Line, PreviousGeneration, previousResult);
+    IrqHandlerRegistry::ThreadedDispatchResult cancelledResult = {};
+    const bool cancelledAdmitted = registry.dispatchThreaded(
+        Line, CancelledGeneration, cancelledResult);
+    const bool removed =
+        registry.unregisterHandler(Line, &handler) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    const bool passed = check(
+        registered && previousPublished && cancelledPublished && seeded &&
+            context.hookCalls == 1 &&
+            !context.consumedCancelledQuiesce && previousAdmitted &&
+            !previousResult.handled && previousResult.allowRearm &&
+            !cancelledAdmitted && handler.calls == 0 && removed,
+        "claim cancellation exposed the rejected quiesce watermark", Test);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-cancellation-claimed-quiesce");
     }
     return passed;
 }
@@ -2769,6 +3057,10 @@ bool runHostedIrqRegressions()
     passed &= occurrenceGraceTombstones();
     passed &= retirementBoundaryExcludesNewOccurrences();
     passed &= actionMutationPinsSlotLifetime();
+    passed &= quiescedPublicationClosesWorkerExit();
+    passed &= abandonedActionMutationReleasesWriter();
+    passed &= abandonedCancellationCompletesRollback();
+    passed &= claimedCancellationPreservesPriorQuiesce();
     passed &= claimFinalizationArbitratesRemoval();
     passed &= threadedPostCallbackCancellation();
     passed &= threadedActionGenerationBoundaries();

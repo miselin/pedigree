@@ -583,7 +583,7 @@ bool ThreadedIrqDispatcher::shutdown()
     {
         return true;
     }
-    if (isCurrentWorker())
+    if (!canShutdown())
     {
         return false;
     }
@@ -609,6 +609,17 @@ bool ThreadedIrqDispatcher::shutdown()
 #else
     return true;
 #endif
+}
+
+bool ThreadedIrqDispatcher::canShutdown() const
+{
+    Thread *current = Processor::information().getCurrentThread();
+    bool safe = current && Processor::getInterrupts() &&
+                !Processor::inDeviceHardIrq() && !isCurrentWorker();
+#if HOSTED
+    safe = safe && !current->getHostedSignalDepth();
+#endif
+    return safe;
 }
 
 bool ThreadedIrqDispatcher::isInitialised() const

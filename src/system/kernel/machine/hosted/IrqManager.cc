@@ -421,7 +421,7 @@ bool HostedIrqManager::initialiseThreaded()
 
 bool HostedIrqManager::shutdownThreaded()
 {
-    if (m_ThreadedDispatcher.isCurrentWorker() ||
+    if (!m_ThreadedDispatcher.canShutdown() ||
         !lifecycleTerminationCanBeDeferred())
     {
         return false;

@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -315,11 +316,12 @@ bool Pic::initialiseThreaded()
 
 bool Pic::shutdownThreaded()
 {
-    if (m_ThreadedDispatcher.isCurrentWorker())
+    if (!m_ThreadedDispatcher.canShutdown())
     {
         return false;
     }
 
+    TerminationDeferral shutdownTermination;
     {
         LockGuard<Spinlock> guard(m_Lock);
         m_ShuttingDown = true;

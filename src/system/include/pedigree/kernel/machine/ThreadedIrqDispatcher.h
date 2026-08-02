@@ -43,6 +43,9 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
     /** Rejects new publications and joins every worker. */
     bool shutdown();
 
+    /** Whether the current context can synchronously join worker threads. */
+    bool canShutdown() const;
+
     bool isInitialised() const;
 
     /** True when called by one of this dispatcher's callback workers. */

@@ -27,7 +27,9 @@ static_assert(
 
 IrqHandlerRegistry::IrqHandlerRegistry()
     : m_Handlers(), m_ActiveDispatches(),
-      m_ThreadedInvalidationGenerations(), m_OccurrenceEpochs(),
+      m_ThreadedInvalidationGenerations(),
+      m_ThreadedActionMutationGeneration(0),
+      m_ThreadedActionMutationWriters(0), m_OccurrenceEpochs(),
       m_OccurrenceReaders(), m_OccurrenceBoundaryLocks(),
       m_HandlerLock(false), m_AdmissionEpoch(0), m_MutationGeneration(0),
       m_MutationWriters(0)
@@ -89,8 +91,16 @@ bool IrqHandlerRegistry::threadedGenerationValid(
 void IrqHandlerRegistry::publishSlotQuiesced(
     HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration)
 {
-    if (!dispatchGeneration || !threadedGenerationValid(irq, dispatchGeneration))
+    if (!dispatchGeneration)
     {
+        return;
+    }
+
+    ThreadedActionMutationCleanup actionMutation(this);
+    beginThreadedActionMutation(actionMutation);
+    if (!threadedGenerationValid(irq, dispatchGeneration))
+    {
+        finishThreadedActionMutation(actionMutation);
         return;
     }
 
@@ -103,8 +113,22 @@ void IrqHandlerRegistry::publishSlotQuiesced(
         if (!dispatchGeneration ||
             !threadedGenerationValid(irq, dispatchGeneration))
         {
+            finishThreadedActionMutation(actionMutation);
             return;
         }
+    }
+
+    publishSlotQuiescedValue(slot, irq, dispatchGeneration);
+    finishThreadedActionMutation(actionMutation);
+}
+
+void IrqHandlerRegistry::publishSlotQuiescedValue(
+    HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration)
+{
+    if (!dispatchGeneration ||
+        !threadedGenerationValid(irq, dispatchGeneration))
+    {
+        return;
     }
 
     size_t current = __atomic_load_n(
@@ -134,8 +158,7 @@ void IrqHandlerRegistry::publishSlotQuiesced(
                 }
                 __atomic_compare_exchange_n(
                     &slot.quiescedThreadedGeneration, &stale, replacement,
-                    false, __ATOMIC_ACQ_REL,
-                    __ATOMIC_ACQUIRE);
+                    false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
             }
             return;
         }
@@ -150,6 +173,8 @@ void IrqHandlerRegistry::invalidateThreadedLine(
         return;
     }
 
+    ThreadedActionMutationCleanup actionMutation(this);
+    beginThreadedActionMutation(actionMutation);
     size_t invalidThrough = __atomic_load_n(
         &m_ThreadedInvalidationGenerations[irq], __ATOMIC_ACQUIRE);
     while (!invalidThrough || generationReached(throughGeneration, invalidThrough))
@@ -217,6 +242,7 @@ void IrqHandlerRegistry::invalidateThreadedLine(
         }
         unpinActionMutation(slot, publication, cleanup, thread);
     }
+    finishThreadedActionMutation(actionMutation);
     tryReclaimTombstones(irq);
 }
 
@@ -228,6 +254,8 @@ void IrqHandlerRegistry::cancelThreadedDispatch(
         return;
     }
 
+    ThreadedActionMutationCleanup actionMutation(this);
+    beginThreadedActionMutation(actionMutation);
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
         HandlerSlot &slot = m_Handlers[i];
@@ -238,7 +266,6 @@ void IrqHandlerRegistry::cancelThreadedDispatch(
         {
             continue;
         }
-
 
         void *owner = currentDispatchOwner();
         Thread *thread = Processor::information().getCurrentThread();
@@ -258,32 +285,31 @@ void IrqHandlerRegistry::cancelThreadedDispatch(
             continue;
         }
 
-        __atomic_store_n(
-            &slot.rolledBackThreadedGeneration, dispatchGeneration,
-            __ATOMIC_RELEASE);
         const size_t previous = __atomic_load_n(
             &slot.previousThreadedGeneration, __ATOMIC_ACQUIRE);
-
-        size_t pending = dispatchGeneration;
-        __atomic_compare_exchange_n(
-            &slot.pendingThreadedGeneration, &pending, previous, false,
-            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-
-        size_t claimed = dispatchGeneration;
-        if (__atomic_compare_exchange_n(
-                &slot.claimedThreadedGeneration, &claimed,
-                static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
-                __ATOMIC_ACQUIRE))
+        ThreadedCancellationCleanup cancellation(
+            this, &slot, irq, dispatchGeneration, previous);
+        cancellation.thread = thread;
+        cancellation.previousInterruptState = Processor::getInterrupts();
+        Processor::setInterrupts(false);
+        cancellation.restoreInterruptState = true;
+        if (thread)
         {
-            publishSlotQuiesced(slot, irq, previous);
+            thread->armAtomicStateCleanup(
+                cancellation.cleanup, abandonThreadedCancellation,
+                &cancellation);
         }
-
-        size_t quiesced = dispatchGeneration;
-        __atomic_compare_exchange_n(
-            &slot.quiescedThreadedGeneration, &quiesced, previous, false,
-            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+        applyThreadedCancellation(cancellation);
+        if (thread)
+        {
+            thread->disarmAtomicStateCleanup(cancellation.cleanup);
+        }
+        cancellation.registry = nullptr;
+        cancellation.restoreInterruptState = false;
+        Processor::setInterrupts(cancellation.previousInterruptState);
         unpinActionMutation(slot, publication, cleanup, thread);
     }
+    finishThreadedActionMutation(actionMutation);
     tryReclaimTombstones(irq);
 }
 
@@ -335,6 +361,143 @@ void IrqHandlerRegistry::finishMutation()
         &m_MutationGeneration, static_cast<size_t>(1), __ATOMIC_SEQ_CST);
     __atomic_sub_fetch(
         &m_MutationWriters, static_cast<size_t>(1), __ATOMIC_SEQ_CST);
+}
+
+void IrqHandlerRegistry::beginThreadedActionMutation(
+    ThreadedActionMutationCleanup &cleanup)
+{
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    cleanup.thread = Processor::information().getCurrentThread();
+    if (cleanup.thread)
+    {
+        cleanup.thread->armAtomicStateCleanup(
+            cleanup.cleanup, abandonThreadedActionMutation, &cleanup);
+    }
+    __atomic_add_fetch(
+        &m_ThreadedActionMutationWriters, static_cast<size_t>(1),
+        __ATOMIC_SEQ_CST);
+    Processor::setInterrupts(interruptsWereEnabled);
+}
+
+void IrqHandlerRegistry::finishThreadedActionMutation(
+    ThreadedActionMutationCleanup &cleanup)
+{
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    completeThreadedActionMutation();
+    if (cleanup.thread)
+    {
+        cleanup.thread->disarmAtomicStateCleanup(cleanup.cleanup);
+    }
+    cleanup.registry = nullptr;
+    Processor::setInterrupts(interruptsWereEnabled);
+}
+
+void IrqHandlerRegistry::completeThreadedActionMutation()
+{
+    __atomic_add_fetch(
+        &m_ThreadedActionMutationGeneration, static_cast<size_t>(1),
+        __ATOMIC_SEQ_CST);
+    const size_t previous = __atomic_fetch_sub(
+        &m_ThreadedActionMutationWriters, static_cast<size_t>(1),
+        __ATOMIC_SEQ_CST);
+    if (!previous)
+    {
+        __atomic_store_n(
+            &m_ThreadedActionMutationWriters, static_cast<size_t>(0),
+            __ATOMIC_SEQ_CST);
+        FATAL_NOLOCK("IRQ action-mutation writer count underflowed.");
+    }
+}
+
+void IrqHandlerRegistry::abandonThreadedActionMutation(void *context)
+{
+    ThreadedActionMutationCleanup *cleanup =
+        reinterpret_cast<ThreadedActionMutationCleanup *>(context);
+    if (!cleanup || !cleanup->registry)
+    {
+        return;
+    }
+
+    cleanup->registry->completeThreadedActionMutation();
+    cleanup->registry = nullptr;
+}
+
+void IrqHandlerRegistry::applyThreadedCancellation(
+    ThreadedCancellationCleanup &cleanup)
+{
+    HandlerSlot &slot = *cleanup.slot;
+    __atomic_store_n(
+        &slot.rolledBackThreadedGeneration, cleanup.dispatchGeneration,
+        __ATOMIC_RELEASE);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    HandlerHazardHook mutationHook =
+        __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
+    if (mutationHook)
+    {
+        mutationHook(
+            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE),
+            HandlerHazardStage::CancellationMarkerPublished);
+    }
+#endif
+
+    size_t pending = cleanup.dispatchGeneration;
+    __atomic_compare_exchange_n(
+        &slot.pendingThreadedGeneration, &pending,
+        cleanup.previousThreadedGeneration, false, __ATOMIC_ACQ_REL,
+        __ATOMIC_ACQUIRE);
+
+    size_t quiesced = cleanup.dispatchGeneration;
+    __atomic_compare_exchange_n(
+        &slot.quiescedThreadedGeneration, &quiesced,
+        cleanup.previousThreadedGeneration, false, __ATOMIC_ACQ_REL,
+        __ATOMIC_ACQUIRE);
+
+    const size_t claimed = __atomic_load_n(
+        &slot.claimedThreadedGeneration, __ATOMIC_ACQUIRE);
+    if (claimed == cleanup.dispatchGeneration)
+    {
+        publishSlotQuiescedValue(
+            slot, cleanup.irq, cleanup.previousThreadedGeneration);
+        size_t exactClaim = cleanup.dispatchGeneration;
+        if (__atomic_compare_exchange_n(
+            &slot.claimedThreadedGeneration, &exactClaim,
+            static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
+            __ATOMIC_ACQUIRE))
+        {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+            mutationHook =
+                __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
+            if (mutationHook)
+            {
+                mutationHook(
+                    __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE),
+                    HandlerHazardStage::CancellationClaimCleared);
+            }
+#endif
+        }
+    }
+}
+
+void IrqHandlerRegistry::abandonThreadedCancellation(void *context)
+{
+    ThreadedCancellationCleanup *cleanup =
+        reinterpret_cast<ThreadedCancellationCleanup *>(context);
+    if (!cleanup || !cleanup->registry)
+    {
+        return;
+    }
+
+    Processor::setInterrupts(false);
+    cleanup->registry->applyThreadedCancellation(*cleanup);
+    cleanup->registry = nullptr;
+    if (cleanup->restoreInterruptState)
+    {
+        const bool previousInterruptState = cleanup->previousInterruptState;
+        cleanup->restoreInterruptState = false;
+        Processor::setInterrupts(previousInterruptState);
+    }
 }
 
 bool IrqHandlerRegistry::canWaitForActionFinalization()
@@ -1811,6 +1974,21 @@ bool IrqHandlerRegistry::dispatchThreaded(
     };
     while (true)
     {
+        if (__atomic_load_n(
+                &m_ThreadedActionMutationWriters, __ATOMIC_SEQ_CST))
+        {
+            Scheduler::instance().yield();
+            continue;
+        }
+        const size_t actionMutationGeneration = __atomic_load_n(
+            &m_ThreadedActionMutationGeneration, __ATOMIC_SEQ_CST);
+        if (__atomic_load_n(
+                &m_ThreadedActionMutationWriters, __ATOMIC_SEQ_CST))
+        {
+            Scheduler::instance().yield();
+            continue;
+        }
+
         Candidate candidates[MaxHandlerSlots];
         size_t candidateCount = 0;
 
@@ -1847,6 +2025,17 @@ bool IrqHandlerRegistry::dispatchThreaded(
                 admitted = true;
                 result.allowRearm = true;
             }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+            HandlerHazardHook quiescedHook =
+                __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
+            if (quiescedHook)
+            {
+                quiescedHook(
+                    __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE),
+                    HandlerHazardStage::QuiescedObserved);
+            }
+#endif
 
             if (modeOf(publication) != SlotMode::Enabled)
             {
@@ -2108,6 +2297,16 @@ bool IrqHandlerRegistry::dispatchThreaded(
                 admissionResolving = true;
                 continue;
             }
+        }
+
+        const size_t finalActionMutationWriters = __atomic_load_n(
+            &m_ThreadedActionMutationWriters, __ATOMIC_SEQ_CST);
+        const size_t finalActionMutationGeneration = __atomic_load_n(
+            &m_ThreadedActionMutationGeneration, __ATOMIC_SEQ_CST);
+        if (finalActionMutationWriters ||
+            finalActionMutationGeneration != actionMutationGeneration)
+        {
+            continue;
         }
 
         if (!admissionResolving && !candidateCount)
@@ -2446,5 +2645,64 @@ size_t IrqHandlerRegistry::tombstoneCountForTest(uint8_t irq) const
         }
     }
     return count;
+}
+
+size_t IrqHandlerRegistry::threadedActionMutationWriterCountForTest() const
+{
+    return __atomic_load_n(
+        &m_ThreadedActionMutationWriters, __ATOMIC_SEQ_CST);
+}
+
+bool IrqHandlerRegistry::setThreadedActionLanesForTest(
+    IrqHandlerBase *handler, size_t pendingGeneration,
+    size_t previousGeneration, size_t claimedGeneration,
+    size_t quiescedGeneration, size_t rolledBackGeneration)
+{
+    for (size_t i = 0; i < MaxHandlerSlots; ++i)
+    {
+        HandlerSlot &slot = m_Handlers[i];
+        if (__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler)
+        {
+            continue;
+        }
+
+        __atomic_store_n(
+            &slot.pendingThreadedGeneration, pendingGeneration,
+            __ATOMIC_RELEASE);
+        __atomic_store_n(
+            &slot.previousThreadedGeneration, previousGeneration,
+            __ATOMIC_RELEASE);
+        __atomic_store_n(
+            &slot.claimedThreadedGeneration, claimedGeneration,
+            __ATOMIC_RELEASE);
+        __atomic_store_n(
+            &slot.quiescedThreadedGeneration, quiescedGeneration,
+            __ATOMIC_RELEASE);
+        __atomic_store_n(
+            &slot.rolledBackThreadedGeneration, rolledBackGeneration,
+            __ATOMIC_RELEASE);
+        return true;
+    }
+    return false;
+}
+
+bool IrqHandlerRegistry::consumeThreadedQuiescedForTest(
+    IrqHandlerBase *handler, size_t generation)
+{
+    for (size_t i = 0; i < MaxHandlerSlots; ++i)
+    {
+        HandlerSlot &slot = m_Handlers[i];
+        if (__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler)
+        {
+            continue;
+        }
+
+        size_t exact = generation;
+        return __atomic_compare_exchange_n(
+            &slot.quiescedThreadedGeneration, &exact,
+            static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
+            __ATOMIC_ACQUIRE);
+    }
+    return false;
 }
 #endif
