@@ -22,6 +22,8 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "system/kernel/core/processor/DeviceHardIrqContext.h"
 
 using namespace __pedigree_hosted;
 
@@ -172,6 +174,8 @@ bool HostedSchedulerTimer::irq(irq_id_t number, InterruptState &state)
     const uint64_t expirations =
         static_cast<uint64_t>(signalInfo->si_overrun) + 1;
     const uint64_t delta = expirations * (ONE_SECOND / HZ);
+
+    SuspendDeviceHardIrqContext schedulerTimerContext;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     HardContextHook hook =

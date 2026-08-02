@@ -29,6 +29,8 @@
 class VirtualAddressSpace;
 class PerProcessorScheduler;
 class Thread;
+class DeviceHardIrqContext;
+class SuspendDeviceHardIrqContext;
 
 /** @addtogroup kernelprocessorx86common
  * @{ */
@@ -83,6 +85,9 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation
     void setIds(ProcessorId processorId, uint8_t apicId = 0);
 
   private:
+    friend class DeviceHardIrqContext;
+    friend class SuspendDeviceHardIrqContext;
+
     /** Default constructor
      *\note NOT implemented */
     X86CommonProcessorInformation();
@@ -110,6 +115,8 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation
     PerProcessorScheduler *m_Scheduler;
     /** The processor's TLS segment */
     uint16_t m_TlsSelector;
+    /** Device hard-IRQ callbacks currently active on this processor. */
+    size_t m_DeviceHardIrqDepth;
 };
 
 /** @} */

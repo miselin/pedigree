@@ -263,7 +263,13 @@ class EXPORTED_PUBLIC ProcessorBase
     /** Get the IRQ state
      *\return true, if interrupt requests are enabled, false otherwise */
     static bool getInterrupts();
+
+    /** True only while an explicit device hard-IRQ callback is running. */
+    static bool inDeviceHardIrq();
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    /** Returns the raw tracker depth for hosted boundary regressions. */
+    static size_t deviceHardIrqDepthForTest();
+
     enum class HostedContextSwitchStage
     {
         SwitchStateReturnedMasked,

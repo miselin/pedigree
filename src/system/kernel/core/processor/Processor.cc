@@ -18,8 +18,10 @@
  */
 
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
+#include "system/kernel/core/processor/DeviceHardIrqContext.h"
 
 size_t ProcessorBase::m_Initialised = 0;
 
@@ -31,6 +33,45 @@ size_t ProcessorBase::m_nProcessors = 1;
 size_t ProcessorBase::isInitialised()
 {
     return m_Initialised;
+}
+
+bool ProcessorBase::inDeviceHardIrq()
+{
+    return information().m_DeviceHardIrqDepth != 0;
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+size_t ProcessorBase::deviceHardIrqDepthForTest()
+{
+    return information().m_DeviceHardIrqDepth;
+}
+#endif
+
+DeviceHardIrqContext::DeviceHardIrqContext()
+    : m_Information(Processor::information())
+{
+    ++m_Information.m_DeviceHardIrqDepth;
+}
+
+DeviceHardIrqContext::~DeviceHardIrqContext()
+{
+    assert(&Processor::information() == &m_Information);
+    assert(m_Information.m_DeviceHardIrqDepth);
+    --m_Information.m_DeviceHardIrqDepth;
+}
+
+SuspendDeviceHardIrqContext::SuspendDeviceHardIrqContext()
+    : m_Information(Processor::information())
+{
+    assert(m_Information.m_DeviceHardIrqDepth == 1);
+    m_Information.m_DeviceHardIrqDepth = 0;
+}
+
+SuspendDeviceHardIrqContext::~SuspendDeviceHardIrqContext()
+{
+    assert(&Processor::information() == &m_Information);
+    assert(m_Information.m_DeviceHardIrqDepth == 0);
+    m_Information.m_DeviceHardIrqDepth = 1;
 }
 
 EnsureInterrupts::EnsureInterrupts(bool desired)

@@ -23,7 +23,9 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
+#include "system/kernel/core/processor/DeviceHardIrqContext.h"
 
 /** One hundred hertz frequency. */
 #ifdef BOCHS
@@ -112,7 +114,10 @@ bool Pit::irq(irq_id_t number, InterruptState &state)
 {
     // TODO: Delta is wrong
     if (LIKELY(m_Handler != 0))
+    {
+        SuspendDeviceHardIrqContext schedulerTimerContext;
         m_Handler->timer(0, state);
+    }
 
     // Processor::information().getScheduler().checkEventState(state.getStackPointer());
 

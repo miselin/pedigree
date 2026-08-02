@@ -634,6 +634,55 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local processor_header=src/system/include/pedigree/kernel/processor/Processor.h
+    local processor_source=src/system/kernel/core/processor/Processor.cc
+    local hard_irq_context_header=src/system/kernel/core/processor/DeviceHardIrqContext.h
+    if ! rg -q 'static bool inDeviceHardIrq\(\)' "$processor_header" ||
+        ! rg -q \
+            'return information\(\)\.m_DeviceHardIrqDepth != 0' \
+            "$processor_source" ||
+        ! rg -q \
+            'static size_t deviceHardIrqDepthForTest\(\)' \
+            "$processor_header" ||
+        ! rg -q 'class DeviceHardIrqContext' "$hard_irq_context_header" ||
+        ! rg -q \
+            'class SuspendDeviceHardIrqContext' "$hard_irq_context_header" ||
+        ! rg -q -U \
+            '(?s)DeviceHardIrqContext::DeviceHardIrqContext\(\).*?\+\+m_Information\.m_DeviceHardIrqDepth.*?DeviceHardIrqContext::~DeviceHardIrqContext\(\).*?--m_Information\.m_DeviceHardIrqDepth' \
+            "$processor_source" ||
+        ! rg -q -U \
+            '(?s)SuspendDeviceHardIrqContext::SuspendDeviceHardIrqContext\(\).*?m_DeviceHardIrqDepth == 1.*?m_DeviceHardIrqDepth = 0.*?SuspendDeviceHardIrqContext::~SuspendDeviceHardIrqContext\(\).*?m_DeviceHardIrqDepth == 0.*?m_DeviceHardIrqDepth = 1' \
+            "$processor_source"; then
+        echo "The per-processor device hard-IRQ context boundary regressed."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+        '(?s)DeviceHardIrqContext deviceHardIrqContext;.*?static_cast<HardIrqHandler \*>\(handler\)->irq\(irq, state\);.*?unpublishDispatch' \
+        "$irq_registry_source"; then
+        echo "Hard IRQ callbacks escaped their per-callback context scope."
+        failed=1
+    fi
+
+    local hard_irq_suspend_users
+    hard_irq_suspend_users=$(rg -l \
+        'SuspendDeviceHardIrqContext schedulerTimerContext' \
+        src/system/kernel/machine --glob '*.cc' | sort || true)
+    local expected_hard_irq_suspend_users
+    expected_hard_irq_suspend_users=$(printf '%s\n' \
+        src/system/kernel/machine/hosted/SchedulerTimer.cc \
+        src/system/kernel/machine/mach_pc/Pit.cc)
+    if [[ "$hard_irq_suspend_users" != "$expected_hard_irq_suspend_users" ]] ||
+        ! rg -q -U \
+            '(?s)SuspendDeviceHardIrqContext schedulerTimerContext;.*?m_Handler->timer\(0, state\)' \
+            src/system/kernel/machine/mach_pc/Pit.cc ||
+        ! rg -q -U \
+            '(?s)SuspendDeviceHardIrqContext schedulerTimerContext;.*?hook\(delta, state\).*?m_Handler->timer\(delta, state\)' \
+            src/system/kernel/machine/hosted/SchedulerTimer.cc; then
+        echo "The scheduler-timer device hard-IRQ exception escaped its two audited call sites."
+        failed=1
+    fi
+
     local irq_regressions=src/modules/system/hosted-smoke/irq-regressions.cc
     if ! rg -q 'dispatchPinnedHandler' "$irq_regressions" ||
         ! rg -q 'dispatchHandlerForTest\(' "$irq_regressions"; then

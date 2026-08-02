@@ -120,7 +120,7 @@ X86CommonProcessorInformation::X86CommonProcessorInformation(
     : m_ProcessorId(processorId), m_TssSelector(0), m_Tss(0),
       m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
       m_LocalApicId(apicId), m_pCurrentThread(0), m_Scheduler(nullptr),
-      m_TlsSelector(0)
+      m_TlsSelector(0), m_DeviceHardIrqDepth(0)
 {
 }
 /** The destructor does nothing */

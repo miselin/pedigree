@@ -67,6 +67,8 @@ void observeSchedulerTimerHardContext(uint64_t delta, InterruptState &state)
     const uint64_t interval = 100 * Time::Multiplier::Millisecond;
     if (delta < interval || (delta % interval) || !current ||
         !current->getHostedSignalDepth() ||
+        Processor::inDeviceHardIrq() ||
+        Processor::deviceHardIrqDepthForTest() != 0 ||
         state.getInterruptNumber() != SIGUSR2 ||
         state.getInterruptSource() != HostedSchedulerTimer::sourceForTest())
     {
@@ -107,8 +109,8 @@ bool schedulerTimerHardContext()
     {
         ERROR(
             "HOSTED-WAIT-TEST: FAIL " << Test
-                                      << ": the scheduler timer escaped its "
-                                         "hard signal context");
+                                      << ": the scheduler callback did not "
+                                         "suspend only its device-hard marker");
     }
     else
     {

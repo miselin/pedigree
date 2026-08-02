@@ -16,6 +16,7 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "system/kernel/core/processor/DeviceHardIrqContext.h"
 
 static_assert(
     __atomic_always_lock_free(sizeof(size_t), nullptr),
@@ -670,7 +671,10 @@ bool IrqHandlerRegistry::dispatchHard(
         }
 #endif
 
-        handled |= static_cast<HardIrqHandler *>(handler)->irq(irq, state);
+        {
+            DeviceHardIrqContext deviceHardIrqContext;
+            handled |= static_cast<HardIrqHandler *>(handler)->irq(irq, state);
+        }
         unpublishDispatch(&dispatchCleanup, slot, publication, true);
         if (thread)
         {

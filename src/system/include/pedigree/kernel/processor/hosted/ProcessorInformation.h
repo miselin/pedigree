@@ -30,6 +30,8 @@
 class Thread;
 class VirtualAddressSpace;
 class PerProcessorScheduler;
+class DeviceHardIrqContext;
+class SuspendDeviceHardIrqContext;
 
 /** @addtogroup kernelprocessorhosted
  * @{ */
@@ -62,6 +64,9 @@ class HostedProcessorInformation
     virtual ~HostedProcessorInformation();
 
   private:
+    friend class DeviceHardIrqContext;
+    friend class SuspendDeviceHardIrqContext;
+
     /** Default constructor
      *\note NOT implemented */
     HostedProcessorInformation();
@@ -82,6 +87,8 @@ class HostedProcessorInformation
     PerProcessorScheduler *m_Scheduler;
     /** Kernel stack. */
     uintptr_t m_KernelStack;
+    /** Device hard-IRQ callbacks currently active on this processor. */
+    size_t m_DeviceHardIrqDepth;
 };
 
 /** @} */

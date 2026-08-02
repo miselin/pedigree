@@ -69,6 +69,140 @@ class HardRegistryHandler : public HardIrqHandler
     }
 };
 
+class NestedDeviceHardIrqProbe : public HardIrqHandler
+{
+  public:
+    NestedDeviceHardIrqProbe() : depth(0), marked(false), calls(0)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override
+    {
+        depth = Processor::deviceHardIrqDepthForTest();
+        marked = Processor::inDeviceHardIrq();
+        ++calls;
+        return true;
+    }
+
+    size_t depth;
+    bool marked;
+    size_t calls;
+};
+
+class OuterDeviceHardIrqProbe : public HardIrqHandler
+{
+  public:
+    explicit OuterDeviceHardIrqProbe(HardIrqHandler *nested)
+        : m_Nested(nested), entryDepth(0), restoredDepth(0), marked(false),
+          nestedAdmitted(false), nestedHandled(false), calls(0)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override
+    {
+        entryDepth = Processor::deviceHardIrqDepthForTest();
+        marked = Processor::inDeviceHardIrq();
+        nestedAdmitted = HostedIrqManager::dispatchHandlerForTest(
+            1, m_Nested, nestedHandled);
+        restoredDepth = Processor::deviceHardIrqDepthForTest();
+        ++calls;
+        return true;
+    }
+
+    HardIrqHandler *m_Nested;
+    size_t entryDepth;
+    size_t restoredDepth;
+    bool marked;
+    bool nestedAdmitted;
+    bool nestedHandled;
+    size_t calls;
+};
+
+class ThreadedDeviceHardIrqProbe : public IrqHandler
+{
+  public:
+    ThreadedDeviceHardIrqProbe() : depth(~static_cast<size_t>(0)), marked(true)
+    {
+    }
+
+    IrqDisposition irq(irq_id_t) override
+    {
+        depth = Processor::deviceHardIrqDepthForTest();
+        marked = Processor::inDeviceHardIrq();
+        return IrqDisposition::Handled;
+    }
+
+    size_t depth;
+    bool marked;
+};
+
+bool deviceHardIrqContextTracking()
+{
+    constexpr const char *Test = "device-hard-irq-context";
+    NestedDeviceHardIrqProbe nested;
+    OuterDeviceHardIrqProbe outer(&nested);
+    IrqHandlerRegistry threadedRegistry;
+    ThreadedDeviceHardIrqProbe threaded;
+
+    bool passed = check(
+        !Processor::inDeviceHardIrq() &&
+            Processor::deviceHardIrqDepthForTest() == 0,
+        "the test began with stale device hard-IRQ state", Test);
+    IrqManager *manager = Machine::instance().getIrqManager();
+    const irq_id_t outerId = manager->registerHardIsaIrqHandler(
+        1, &outer, IrqPolicy::syntheticHard());
+    const irq_id_t nestedId = manager->registerHardIsaIrqHandler(
+        1, &nested, IrqPolicy::syntheticHard());
+    const bool threadedRegistered =
+        threadedRegistry.registerThreadedHandler(8, &threaded);
+
+    bool outerHandled = false;
+    const bool outerAdmitted = HostedIrqManager::dispatchHandlerForTest(
+        1, &outer, outerHandled);
+    const size_t postHardDepth = Processor::deviceHardIrqDepthForTest();
+    const bool postHardMarked = Processor::inDeviceHardIrq();
+
+    bool threadedHandled = false;
+    const bool threadedAdmitted =
+        threadedRegistry.dispatchThreaded(8, threadedHandled);
+
+    const bool outerRemoved =
+        outerId && manager->unregisterHandler(outerId, &outer);
+    const bool nestedRemoved =
+        nestedId && manager->unregisterHandler(nestedId, &nested);
+    const bool threadedRemoved =
+        threadedRegistry.unregisterHandler(8, &threaded) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    passed &= check(
+        outerId && nestedId && threadedRegistered,
+        "the context probes could not all be registered", Test);
+    passed &= check(
+        outerAdmitted && outerHandled && outer.calls == 1 &&
+            outer.entryDepth == 1 && outer.marked,
+        "an outer hard callback did not observe depth one", Test);
+    passed &= check(
+        outer.nestedAdmitted && outer.nestedHandled && nested.calls == 1 &&
+            nested.depth == 2 && nested.marked && outer.restoredDepth == 1,
+        "nested hard dispatch did not restore its caller's depth", Test);
+    passed &= check(
+        postHardDepth == 0 && !postHardMarked,
+        "hard dispatch leaked its device marker after return", Test);
+    passed &= check(
+        threadedAdmitted && threadedHandled && threaded.depth == 0 &&
+            !threaded.marked,
+        "threaded dispatch inherited device hard-IRQ state", Test);
+    passed &= check(
+        outerRemoved && nestedRemoved && threadedRemoved,
+        "the context probes did not unregister cleanly", Test);
+
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS device-hard-irq-context");
+    }
+    return passed;
+}
+
 class DeliveryContextProbe : public HardIrqHandler
 {
   public:
@@ -1508,7 +1642,8 @@ bool handlerLifetimeBarrier()
 
 bool runHostedIrqRegressions()
 {
-    bool passed = deliveryModeSeparation();
+    bool passed = deviceHardIrqContextTracking();
+    passed &= deliveryModeSeparation();
     passed &= irqPolicyOrthogonality();
     passed &= picLineStateLifecycle();
     passed &= irqReadyPublication();
