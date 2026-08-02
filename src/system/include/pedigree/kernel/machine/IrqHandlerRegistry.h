@@ -158,11 +158,13 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     using HandlerPinHook = void (*)(IrqHandlerBase *);
     using HandlerPrePinHook = void (*)(IrqHandlerBase *);
     using HandlerHazardHook = void (*)(IrqHandlerBase *, HandlerHazardStage);
+    using DispatchAbandonHook = void (*)(void *, bool);
     using MutationLockHook = void (*)();
 
     void setHandlerPinHook(HandlerPinHook hook);
     void setHandlerPrePinHook(HandlerPrePinHook hook);
     void setHandlerHazardHook(HandlerHazardHook hook);
+    void setDispatchAbandonHook(DispatchAbandonHook hook);
     void withMutationLockForTest(MutationLockHook hook);
     void withMutationEpochForTest(MutationLockHook hook);
     size_t activeDispatchCountForTest(IrqHandlerBase *handler);
@@ -242,7 +244,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
             void *dispatchOwner, size_t admittedPublication)
             : registry(registry), slot(handlerSlot), owner(dispatchOwner),
               publication(admittedPublication), previousDeviceHardIrqDepth(0),
-              restoreDeviceHardIrqDepth(false), cleanup()
+              restoreDeviceHardIrqDepth(false), previousInterruptState(false),
+              restoreInterruptState(false), cleanup()
         {
         }
 
@@ -252,6 +255,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         size_t publication;
         size_t previousDeviceHardIrqDepth;
         bool restoreDeviceHardIrqDepth;
+        bool previousInterruptState;
+        bool restoreInterruptState;
         AtomicStateCleanupRecord cleanup;
     };
 
@@ -281,6 +286,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         void *token, HandlerSlot &slot, size_t admittedPublication,
         bool required);
     static void abandonDispatch(void *context);
+    static void restoreDispatchInterruptState(DispatchCleanup &dispatch);
     bool hasActiveDispatch(HandlerSlot &slot, size_t admittedPublication) const;
     bool findCurrentDispatch(
         void *owner, HandlerSlot *target, size_t targetPublication,
@@ -297,6 +303,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     HandlerPinHook m_HandlerPinHook;
     HandlerPrePinHook m_HandlerPrePinHook;
     HandlerHazardHook m_HandlerHazardHook;
+    DispatchAbandonHook m_DispatchAbandonHook;
 #endif
 };
 

@@ -31,7 +31,7 @@ IrqHandlerRegistry::IrqHandlerRegistry()
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
       m_HandlerPinHook(nullptr), m_HandlerPrePinHook(nullptr),
-      m_HandlerHazardHook(nullptr)
+      m_HandlerHazardHook(nullptr), m_DispatchAbandonHook(nullptr)
 #endif
 {
 }
@@ -293,6 +293,7 @@ bool IrqHandlerRegistry::unpublishDispatch(
 void IrqHandlerRegistry::abandonDispatch(void *context)
 {
     DispatchCleanup *dispatch = reinterpret_cast<DispatchCleanup *>(context);
+    const bool callbackBoundaryEntered = dispatch->restoreInterruptState;
     if (dispatch->restoreDeviceHardIrqDepth)
     {
         DeviceHardIrqContext::restoreDepth(
@@ -301,6 +302,29 @@ void IrqHandlerRegistry::abandonDispatch(void *context)
     }
     dispatch->registry->unpublishDispatch(
         dispatch, *dispatch->slot, dispatch->publication, false);
+    restoreDispatchInterruptState(*dispatch);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    DispatchAbandonHook hook = __atomic_load_n(
+        &dispatch->registry->m_DispatchAbandonHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(dispatch->owner, callbackBoundaryEntered);
+    }
+#endif
+}
+
+void IrqHandlerRegistry::restoreDispatchInterruptState(
+    DispatchCleanup &dispatch)
+{
+    if (!dispatch.restoreInterruptState)
+    {
+        return;
+    }
+
+    const bool previousInterruptState = dispatch.previousInterruptState;
+    dispatch.restoreInterruptState = false;
+    Processor::setInterrupts(previousInterruptState);
 }
 
 bool IrqHandlerRegistry::hasActiveDispatch(
@@ -777,6 +801,13 @@ bool IrqHandlerRegistry::dispatchHard(
 #endif
 
         {
+            // Test dispatch can enter here from ordinary thread context. Keep
+            // the lifetime hooks schedulable, but give the callback the same
+            // interrupt boundary as a controller-delivered hard IRQ.
+            dispatchCleanup.previousInterruptState =
+                Processor::getInterrupts();
+            dispatchCleanup.restoreInterruptState = true;
+            Processor::setInterrupts(false);
             DeviceHardIrqContext deviceHardIrqContext(
                 dispatchCleanup.previousDeviceHardIrqDepth,
                 dispatchCleanup.restoreDeviceHardIrqDepth);
@@ -787,6 +818,7 @@ bool IrqHandlerRegistry::dispatchHard(
         {
             thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
         }
+        restoreDispatchInterruptState(dispatchCleanup);
     }
 
     return admitted;
@@ -1096,6 +1128,11 @@ void IrqHandlerRegistry::setHandlerPrePinHook(HandlerPrePinHook hook)
 void IrqHandlerRegistry::setHandlerHazardHook(HandlerHazardHook hook)
 {
     __atomic_store_n(&m_HandlerHazardHook, hook, __ATOMIC_RELEASE);
+}
+
+void IrqHandlerRegistry::setDispatchAbandonHook(DispatchAbandonHook hook)
+{
+    __atomic_store_n(&m_DispatchAbandonHook, hook, __ATOMIC_RELEASE);
 }
 
 void IrqHandlerRegistry::withMutationLockForTest(MutationLockHook hook)

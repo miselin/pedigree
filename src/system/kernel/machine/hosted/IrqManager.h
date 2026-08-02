@@ -82,6 +82,7 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     using HandlerPrePinHook = IrqHandlerRegistry::HandlerPrePinHook;
     using HandlerHazardHook = IrqHandlerRegistry::HandlerHazardHook;
     using HandlerHazardStage = IrqHandlerRegistry::HandlerHazardStage;
+    using DispatchAbandonHook = IrqHandlerRegistry::DispatchAbandonHook;
     using MutationLockHook = IrqHandlerRegistry::MutationLockHook;
     using DiagnosticPublicationHook = void (*)(uint8_t, size_t);
 
@@ -102,6 +103,11 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
 
     /** Installs an observer around active-hazard publication. */
     static EXPORTED_PUBLIC void setHandlerHazardHook(HandlerHazardHook hook);
+
+    /** Observes cleanup after a synthetic dispatch abandons its stack.
+     *  The boolean reports whether callback masking had begun. */
+    static EXPORTED_PUBLIC void
+    setDispatchAbandonHook(DispatchAbandonHook hook);
 
     /** Dispatches one handler through the production registry path. */
     static EXPORTED_PUBLIC bool dispatchHandlerForTest(

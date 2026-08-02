@@ -377,7 +377,9 @@ class QueuedTickHandler : public HardIrqHandler
         if (phase && phase < 4)
         {
             m_Context.tickCalls += 1;
-            if (phase != 3 || !Processor::getInterrupts())
+            if (phase != 3 || Processor::getInterrupts() ||
+                !Processor::inDeviceHardIrq() ||
+                Processor::deviceHardIrqDepthForTest() != 1)
             {
                 m_Context.failures += 1;
             }

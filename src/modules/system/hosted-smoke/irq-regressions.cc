@@ -1339,7 +1339,7 @@ struct AbandonedDispatchContext
 {
     explicit AbandonedDispatchContext(AbandonedDispatchStage stage)
         : handler(*this), worker(nullptr), stage(stage), hazardCalls(0),
-          entered(0), returned(0), depthFailures(0)
+          cleanupCalls(0), entered(0), returned(0), stateFailures(0)
     {
     }
 
@@ -1347,9 +1347,10 @@ struct AbandonedDispatchContext
     Thread *worker;
     AbandonedDispatchStage stage;
     Atomic<size_t> hazardCalls;
+    Atomic<size_t> cleanupCalls;
     Atomic<size_t> entered;
     Atomic<size_t> returned;
-    Atomic<size_t> depthFailures;
+    Atomic<size_t> stateFailures;
 };
 
 bool AbandoningIrqHandler::irq(irq_id_t, InterruptState &)
@@ -1361,10 +1362,10 @@ bool AbandoningIrqHandler::irq(irq_id_t, InterruptState &)
     }
 
     m_Context.entered += 1;
-    if (!Processor::inDeviceHardIrq() ||
+    if (Processor::getInterrupts() || !Processor::inDeviceHardIrq() ||
         Processor::deviceHardIrqDepthForTest() != 1)
     {
-        m_Context.depthFailures += 1;
+        m_Context.stateFailures += 1;
     }
     HostedIrqManager::abandonCurrentThreadForTest();
     return true;
@@ -1400,12 +1401,31 @@ void abandonIrqHazard(
     }
 
     context->hazardCalls += 1;
-    if (Processor::inDeviceHardIrq() ||
+    if (!Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
         Processor::deviceHardIrqDepthForTest() != 0)
     {
-        context->depthFailures += 1;
+        context->stateFailures += 1;
     }
     HostedIrqManager::abandonCurrentThreadForTest();
+}
+
+void abandonIrqCleanup(void *owner, bool callbackBoundaryEntered)
+{
+    AbandonedDispatchContext *context = g_AbandonedDispatchContext;
+    if (!context || owner != context->worker)
+    {
+        return;
+    }
+
+    context->cleanupCalls += 1;
+    const bool expectedRestore =
+        context->stage == AbandonedDispatchStage::Callback;
+    if (callbackBoundaryEntered != expectedRestore ||
+        !Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
+        Processor::deviceHardIrqDepthForTest() != 0)
+    {
+        context->stateFailures += 1;
+    }
 }
 
 bool abandonedDispatchStage(
@@ -1427,9 +1447,10 @@ bool abandonedDispatchStage(
                                                        &callbackContext;
     context->stage = stage;
     context->hazardCalls = 0;
+    context->cleanupCalls = 0;
     context->entered = 0;
     context->returned = 0;
-    context->depthFailures = 0;
+    context->stateFailures = 0;
     const irq_id_t id = manager->registerHardIsaIrqHandler(
         1, &context->handler, IrqPolicy::syntheticHard());
 
@@ -1439,6 +1460,7 @@ bool abandonedDispatchStage(
     context->worker->setName("hosted abandoned IRQ publication");
 
     g_AbandonedDispatchContext = context;
+    HostedIrqManager::setDispatchAbandonHook(abandonIrqCleanup);
     if (stage != AbandonedDispatchStage::Callback)
     {
         HostedIrqManager::setHandlerHazardHook(abandonIrqHazard);
@@ -1446,6 +1468,7 @@ bool abandonedDispatchStage(
     const bool started = id && context->worker->start();
     const bool joined = started && context->worker->joinForCompletion();
     HostedIrqManager::setHandlerHazardHook(nullptr);
+    HostedIrqManager::setDispatchAbandonHook(nullptr);
     g_AbandonedDispatchContext = nullptr;
 
     const size_t active =
@@ -1454,16 +1477,19 @@ bool abandonedDispatchStage(
     // unrelated to whether this worker abandoned one of its own claims.
     const size_t claimed =
         HostedIrqManager::claimedDispatchCountForOwnerForTest(context->worker);
-    const bool depthRestored = !context->depthFailures &&
+    const bool stateRestored = !context->stateFailures &&
                                !Processor::inDeviceHardIrq() &&
-                               Processor::deviceHardIrqDepthForTest() == 0;
+                               Processor::deviceHardIrqDepthForTest() == 0 &&
+                               !Processor::hostedSignalFrameDepthForTest() &&
+                               Processor::getInterrupts();
     const bool cleaned =
         id && manager->unregisterHandler(id, &context->handler);
 
     const bool passed = id && started && joined && !context->returned &&
                         context->hazardCalls == expectedHazardCalls &&
+                        context->cleanupCalls == 1 &&
                         context->entered == expectedCallbackCalls && !active &&
-                        !claimed && cleaned && depthRestored;
+                        !claimed && cleaned && stateRestored;
     return passed;
 }
 
@@ -1522,7 +1548,7 @@ bool NestedAbandoningInner::irq(irq_id_t, InterruptState &)
     }
 
     m_Context.innerEntered += 1;
-    if (!Processor::inDeviceHardIrq() ||
+    if (Processor::getInterrupts() || !Processor::inDeviceHardIrq() ||
         Processor::deviceHardIrqDepthForTest() != 2)
     {
         m_Context.failures += 1;
@@ -1539,7 +1565,7 @@ bool NestedAbandoningOuter::irq(irq_id_t, InterruptState &)
     }
 
     m_Context.outerEntered += 1;
-    if (!Processor::inDeviceHardIrq() ||
+    if (Processor::getInterrupts() || !Processor::inDeviceHardIrq() ||
         Processor::deviceHardIrqDepthForTest() != 1)
     {
         m_Context.failures += 1;
@@ -1595,7 +1621,9 @@ bool abandonedNestedDispatchDepthCleanup()
            context.innerEntered == 1 && !context.returned &&
            !context.failures && !outerActive && !innerActive && !claimed &&
            outerCleaned && innerCleaned && !Processor::inDeviceHardIrq() &&
-           Processor::deviceHardIrqDepthForTest() == 0;
+           Processor::deviceHardIrqDepthForTest() == 0 &&
+           !Processor::hostedSignalFrameDepthForTest() &&
+           Processor::getInterrupts();
 }
 
 bool abandonedDispatchCleanup()
@@ -1612,7 +1640,9 @@ bool abandonedDispatchCleanup()
     bool passed = true;
     passed &= check(
         beforeClaim && claimed && committed && nested,
-        "stack abandonment leaked a callback hazard or hard-IRQ depth", Test);
+        "stack abandonment leaked interrupt state, a callback hazard, or "
+        "hard-IRQ depth",
+        Test);
     if (passed)
     {
         NOTICE(
@@ -1646,8 +1676,10 @@ struct HandlerLifetimeContext
           remover(nullptr), dispatchEntered(0), releaseDispatch(0), phase(0),
           hookCalls(0), hookObservedDrain(0), releaseHookCalls(0),
           releaseObservedAtomicDrain(0), dispatchAdmitted(0),
-          dispatchHandled(0), handlerCalls(0), callbacksAfterReturn(0),
-          unregisterReturned(0), unregisterSucceeded(0), failures(0)
+          dispatchHandled(0), pinIrqEnabled(0), callbackIrqDisabled(0),
+          releaseIrqDisabled(0), returnIrqRestored(0), handlerCalls(0),
+          callbacksAfterReturn(0), unregisterReturned(0),
+          unregisterSucceeded(0), failures(0)
     {
     }
 
@@ -1665,6 +1697,10 @@ struct HandlerLifetimeContext
     Atomic<size_t> releaseObservedAtomicDrain;
     Atomic<size_t> dispatchAdmitted;
     Atomic<size_t> dispatchHandled;
+    Atomic<size_t> pinIrqEnabled;
+    Atomic<size_t> callbackIrqDisabled;
+    Atomic<size_t> releaseIrqDisabled;
+    Atomic<size_t> returnIrqRestored;
     Atomic<size_t> handlerCalls;
     Atomic<size_t> callbacksAfterReturn;
     Atomic<size_t> unregisterReturned;
@@ -1675,6 +1711,14 @@ struct HandlerLifetimeContext
 bool LifetimeHandler::irq(irq_id_t, InterruptState &)
 {
     m_Context.handlerCalls += 1;
+    if (!Processor::getInterrupts())
+    {
+        m_Context.callbackIrqDisabled += 1;
+    }
+    else
+    {
+        m_Context.failures += 1;
+    }
     if (m_Context.unregisterReturned)
     {
         m_Context.callbacksAfterReturn += 1;
@@ -1716,6 +1760,14 @@ void handlerPinHook(IrqHandlerBase *handler)
     }
 
     context->hookCalls += 1;
+    if (Processor::getInterrupts())
+    {
+        context->pinIrqEnabled += 1;
+    }
+    else
+    {
+        context->failures += 1;
+    }
     context->dispatchEntered.release();
     if (!context->releaseDispatch.acquireForCompletion())
     {
@@ -1739,7 +1791,7 @@ void handlerReleaseHook(
     Thread::WaitDebugInfo wait = {};
     uintptr_t debugAddress = 0;
     if (current && current == context->dispatcher &&
-        !current->getHostedSignalDepth() && Processor::getInterrupts() &&
+        !current->getHostedSignalDepth() && !Processor::getInterrupts() &&
         context->phase == static_cast<size_t>(3) &&
         !context->unregisterReturned &&
         !context->remover->getWaitDebugInfo(wait) &&
@@ -1748,6 +1800,7 @@ void handlerReleaseHook(
         debugAddress == reinterpret_cast<uintptr_t>(&context->handler))
     {
         context->releaseObservedAtomicDrain += 1;
+        context->releaseIrqDisabled += 1;
     }
     else
     {
@@ -1764,6 +1817,14 @@ int dispatchPinnedHandler(void *parameter)
         2, &context->handler, handled);
     context->dispatchAdmitted = admitted ? 1 : 0;
     context->dispatchHandled = handled ? 1 : 0;
+    if (Processor::getInterrupts())
+    {
+        context->returnIrqRestored += 1;
+    }
+    else
+    {
+        context->failures += 1;
+    }
     return admitted && handled ? 0 : 1;
 }
 
@@ -1922,6 +1983,11 @@ bool handlerLifetimeBarrier()
     passed &= check(
         context.dispatchAdmitted == 1 && context.dispatchHandled == 1,
         "the controlled registry dispatch did not reach the handler");
+    passed &= check(
+        context.pinIrqEnabled == 1 && context.callbackIrqDisabled == 1 &&
+            context.releaseIrqDisabled == 1 &&
+            context.returnIrqRestored == 1,
+        "hard callback masking escaped its callback boundary");
     passed &= check(
         context.unregisterSucceeded == 1 && context.unregisterReturned == 1,
         "the pinned handler did not unregister successfully");

@@ -574,6 +574,11 @@ void HostedIrqManager::setHandlerPinHook(HandlerPinHook hook)
     m_Instance.m_Handlers.setHandlerPinHook(hook);
 }
 
+void HostedIrqManager::setDispatchAbandonHook(DispatchAbandonHook hook)
+{
+    m_Instance.m_Handlers.setDispatchAbandonHook(hook);
+}
+
 void HostedIrqManager::setHandlerPrePinHook(HandlerPrePinHook hook)
 {
     m_Instance.m_Handlers.setHandlerPrePinHook(hook);

@@ -747,6 +747,19 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    if ! rg -q -U \
+        '(?s)HandlerPinHook hook.*?hook\(handler\);.*?previousInterruptState[[:space:]]*=[[:space:]]*Processor::getInterrupts\(\);.*?restoreInterruptState[[:space:]]*=[[:space:]]*true;.*?Processor::setInterrupts\(false\);.*?DeviceHardIrqContext deviceHardIrqContext.*?static_cast<HardIrqHandler \*>\(handler\)->irq\(irq, state\);.*?unpublishDispatch\(&dispatchCleanup, slot, publication, true\);.*?thread->disarmAtomicStateCleanup\(dispatchCleanup\.cleanup\);.*?restoreDispatchInterruptState\(dispatchCleanup\);' \
+        "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)abandonDispatch\(void \*context\).*?DeviceHardIrqContext::restoreDepth\([^;]*previousDeviceHardIrqDepth\);.*?unpublishDispatch\([^;]*false\);.*?restoreDispatchInterruptState\(\*dispatch\);' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)restoreDispatchInterruptState\([^)]*DispatchCleanup &dispatch\).*?restoreInterruptState[[:space:]]*=[[:space:]]*false;.*?Processor::setInterrupts\(previousInterruptState\);' \
+            "$irq_registry_source"; then
+        echo "Hard IRQ callback masking escaped its pin, return, or abandonment boundary."
+        failed=1
+    fi
+
     if ! rg -q 'size_t controllerGeneration' \
             src/system/include/pedigree/kernel/machine/IrqHandlerRegistry.h ||
         ! rg -q 'hardDispatchState' "$irq_registry_source" ||
