@@ -220,6 +220,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Result.cc
     testsuite/test-RangeList.cc
     testsuite/test-RtcAlarmQueue.cc
+    testsuite/test-RtcTimeAccounting.cc
     testsuite/test-IrqDiagnosticRenderer.cc
     testsuite/test-LocksCommand.cc
     testsuite/test-ThreadWaitDiagnostic.cc

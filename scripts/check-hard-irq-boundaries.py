@@ -30,6 +30,11 @@ DISPATCHER_HEADER = (
 )
 INLINE_DISPATCHER_NAME = re.compile(r"\bNormalStaticString\s+m_Name\s*;")
 DYNAMIC_DISPATCHER_NAME = re.compile(r"\bString\s+m_Name\s*;")
+RTC_SOURCE = "src/system/kernel/machine/mach_pc/Rtc.cc"
+RTC_THREADED_REGISTRATION = re.compile(
+    r"\bregisterIsaIrqHandler\s*\(\s*8\s*,\s*this\s*,\s*"
+    r"IrqPolicy::levelThreaded\s*\(\s*\)\s*\)"
+)
 SOURCE_SUFFIXES = frozenset((".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"))
 
 
@@ -98,11 +103,6 @@ ALLOWED_REGISTRATIONS = Counter(
             "src/system/kernel/machine/mach_pc/Ps2Controller.cc",
             "registerIsaSplitIrq",
             "irqManager,12,IrqPolicy::edgeHard()",
-        ),
-        allowed(
-            "src/system/kernel/machine/mach_pc/Rtc.cc",
-            "registerIsaSplitIrq",
-            "irqManager,8,IrqPolicy::levelHard()",
         ),
     )
 )
@@ -318,6 +318,18 @@ def audit_sources(
                 )
             )
 
+    rtc_source = sources.get(RTC_SOURCE)
+    if rtc_source is not None:
+        masked_rtc = mask_cpp(rtc_source)
+        if not RTC_THREADED_REGISTRATION.search(masked_rtc):
+            diagnostics.append(
+                Diagnostic(
+                    RTC_SOURCE,
+                    0,
+                    "RTC IRQ8 must use ordinary level-threaded delivery",
+                )
+            )
+
     for key, count in sorted((observed - expected).items()):
         allowed_count = expected[key]
         extra_lines = locations.get(key, [0])[allowed_count:]
@@ -434,6 +446,12 @@ def self_test() -> int:
         """,
         "src/system/kernel/core/processor/x64/InterruptManager.cc":
             "void interrupt() {}\n",
+        RTC_SOURCE: """
+            void Rtc::start() {
+                irqManager.registerIsaIrqHandler(
+                    8, this, IrqPolicy::levelThreaded());
+            }
+        """,
     }
     require_clean("allowed calls and non-call syntax", clean_sources, expected)
 
@@ -462,6 +480,15 @@ def self_test() -> int:
         missing,
         expected,
         "missing allowlisted hard/split IRQ registration",
+    )
+
+    wrong_rtc_policy = dict(clean_sources)
+    wrong_rtc_policy[RTC_SOURCE] = "void Rtc::start() {}"
+    require_failure(
+        "RTC threaded policy",
+        wrong_rtc_policy,
+        expected,
+        "RTC IRQ8 must use ordinary level-threaded delivery",
     )
 
     raw = dict(clean_sources)
@@ -503,7 +530,7 @@ def self_test() -> int:
         "threaded IRQ dispatcher name must use inline storage",
     )
 
-    print("hard IRQ boundary checker self-test passed (6 cases)")
+    print("hard IRQ boundary checker self-test passed (7 cases)")
     return 0
 
 

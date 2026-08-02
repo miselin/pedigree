@@ -1713,26 +1713,33 @@ check_wait_api_boundaries()
     local rtc_header=src/system/kernel/machine/mach_pc/Rtc.h
     local irq_event_counter=src/system/include/pedigree/kernel/machine/IrqEventCounter.h
     local pc_source=src/system/kernel/machine/mach_pc/Pc.cc
-    local rtc_hard
-    rtc_hard=$(sed -n '/Rtc::hardIrq(/,/^void Rtc::threadedIrq/p' "$rtc_source")
-    if ! rg -q 'class Rtc : public Timer, private SplitIrqHandler' \
+    if ! rg -q 'class Rtc : public Timer, private IrqHandler' \
             "$rtc_header" ||
         ! rg -q -U \
-            '(?s)Rtc::hardIrq\(.*?acknowledgeInterruptFromHardIrq\(\).*?recordFromInterrupt\(\).*?work = RtcPeriodicWork.*?HardIrqDisposition::Deferred' \
+            '(?s)Rtc::initialise3\(\).*?registerIsaIrqHandler\(8, this, IrqPolicy::levelThreaded\(\)\).*?setPeriodicInterruptEnabled\(true\)' \
             "$rtc_source" ||
         ! rg -q -U \
-            '(?s)Rtc::acknowledgeInterruptFromHardIrq\(\).*?assert\(!Processor::getInterrupts\(\)\).*?LockGuard<Spinlock> guard\(m_CmosLock\).*?return readLocked\(0x0C\)' \
-            "$rtc_source" ||
-        rg -q \
-            'sendEvent|m_AlarmQueue|m_HandlerRegistry\.dispatch|while[[:space:]]*\(|compareAndSwap' \
-            <<<"$rtc_hard" ||
-        ! rg -q -U \
-            '(?s)Rtc::threadedIrq\(.*?m_PendingTicks\.takeAll\(\).*?processPeriodicTick\(delta\)' \
+            '(?s)Rtc::irq\(.*?CmosTransactionGuard guard\(m_CmosLock\).*?status = readLocked\(0x0C\).*?RtcInterruptRequested.*?RtcPeriodicFlag.*?processElapsedTime\(getTickCountNano\(\)\).*?IrqDisposition::Handled' \
             "$rtc_source" ||
         ! rg -q -U \
-            '(?s)Rtc::quiesceIrqSources\(\).*?setPeriodicInterruptEnabled\(false\)' \
+            '(?s)Rtc::CmosTransactionGuard::waitableContext\(\).*?getCurrentThread\(\).*?Processor::getInterrupts\(\).*?!Processor::inDeviceHardIrq\(\).*?Rtc::CmosTransactionGuard::CmosTransactionGuard\(.*?if \(Processor::inDeviceHardIrq\(\)\).*?panic\(.*?m_Waitable \? m_Lock.acquireForCompletion\(\) :.*?m_Lock.tryAcquire\(\).*?panic\(' \
+            "$rtc_source" ||
+        ! rg -q -U \
+            '(?s)Rtc::processElapsedTime\(.*?RtcTimeAccounting::consumeElapsed\(.*?RtcTimeAccounting::advanceCivilTime\(.*?m_AlarmQueue\.claimDue\(.*?m_HandlerRegistry\.dispatch\(delta\)' \
+            "$rtc_source" ||
+        ! rg -q -U \
+            '(?s)Rtc::uninitialise\(\).*?setPeriodicInterruptEnabled\(false\).*?unregisterHandler\(m_IrqId, this\).*?m_IrqId = 0.*?synchronise\(true\).*?m_HandlerRegistry\.reset\(\)' \
             "$rtc_source"; then
-        echo "RTC work escaped its acknowledge/count top half and threaded bottom half."
+        echo "RTC work escaped its ordinary level-threaded worker boundary."
+        failed=1
+    fi
+
+    matches=$(rg -n \
+        'SplitIrqHandler|registerIsaSplitIrq|hardIrq|m_PendingTicks|LockGuard<Spinlock> guard\(m_CmosLock\)' \
+        "$rtc_source" "$rtc_header" || true)
+    if [[ -n "$matches" ]]; then
+        echo "RTC regained a hard/split IRQ or spin-serialised CMOS path:"
+        echo "$matches"
         failed=1
     fi
 

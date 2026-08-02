@@ -24,11 +24,12 @@
 #include "TscClock.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/machine/IrqEventCounter.h"
-#include "pedigree/kernel/machine/SplitIrqHandler.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/machine/TimerHandlerRegistry.h"
 #include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -40,7 +41,7 @@ class TimerHandler;
  * @{ */
 
 /** Class for the Real-time clock / CMOS implementing the Timer interface */
-class Rtc : public Timer, private SplitIrqHandler
+class Rtc : public Timer, private IrqHandler
 {
   public:
     inline static Rtc &instance()
@@ -76,7 +77,7 @@ class Rtc : public Timer, private SplitIrqHandler
 
     /** Anchors the calling application processor to global monotonic time. */
     void initialiseProcessorClock() INITIALISATION_ONLY;
-    /** Starts the RTC bottom half and enables periodic IRQ delivery. */
+    /** Registers the RTC worker and enables periodic IRQ delivery. */
     bool initialise3();
     /** Synchronise the time/date with the hardware */
     virtual void synchronise(bool tohw = false);
@@ -108,17 +109,10 @@ class Rtc : public Timer, private SplitIrqHandler
      *\note NOT implemented */
     Rtc &operator=(const Rtc &);
 
-    HardIrqDisposition
-    hardIrq(irq_id_t number, InterruptState &state, size_t &work) override;
-    void threadedIrq(size_t work) override;
-    bool quiesceIrqSources() override;
-    void rearmIrqSources(size_t work) override;
+    IrqDisposition irq(irq_id_t number) override;
 
-    /** Applies one periodic event in ordinary thread context. */
-    void processPeriodicTick(uint64_t delta);
-
-    /** Reads register C once to acknowledge IRQ8 from hard IRQ context. */
-    uint8_t acknowledgeInterruptFromHardIrq();
+    /** Applies every elapsed interval observed by the IRQ8 worker. */
+    void processElapsedTime(uint64_t observed);
 
     /** Atomically changes the RTC periodic-interrupt source and clears C. */
     void setPeriodicInterruptEnabled(bool enabled);
@@ -155,6 +149,28 @@ class Rtc : public Timer, private SplitIrqHandler
     /** Drains a sendEvent handoff owned by another processor. */
     void drainRemoteAlarmDispatch(class Event *pEvent, void *owner);
 
+    /**
+     * Sleeps in ordinary runtime context, but never crosses an atomic bootstrap
+     * boundary while contended.
+     */
+    class CmosTransactionGuard
+    {
+      public:
+        explicit CmosTransactionGuard(Mutex &lock);
+        ~CmosTransactionGuard();
+
+      private:
+        static bool waitableContext();
+
+        bool m_Waitable;
+        TerminationDeferral m_TerminationDeferral;
+        Mutex &m_Lock;
+        bool m_Owned;
+
+        CmosTransactionGuard(const CmosTransactionGuard &) = delete;
+        CmosTransactionGuard &operator=(const CmosTransactionGuard &) = delete;
+    };
+
     /** The CMOS/Real-time Clock I/O port range */
     IoPort m_IoPort;
 
@@ -163,15 +179,6 @@ class Rtc : public Timer, private SplitIrqHandler
 
     /** Index into the periodicIrqInfo table */
     size_t m_PeriodicIrqInfoIndex;
-
-    /** Selects the alternating fractional-nanosecond periodic delta. */
-    size_t m_PeriodicPhase;
-
-    /** Hard-stage phase used to advance the authoritative alarm clock. */
-    Atomic<size_t> m_CapturePhase;
-
-    /** Delivered periodic IRQ callbacks preserved across worker coalescing. */
-    IrqEventCounter m_PendingTicks;
 
     /** BCD mode? (otherwise in binary mode) */
     bool m_bBCD;
@@ -191,10 +198,10 @@ class Rtc : public Timer, private SplitIrqHandler
     /** The current nanosecond */
     uint64_t m_Nanosecond;
 
-    /** Current captured time used when callers create or remove alarms. */
+    /** Latest elapsed-time cursor published by the IRQ8 worker. */
     Atomic<uint64_t> m_TickCount;
 
-    /** Bottom-half cursor used to deliver due alarms in event order. */
+    /** Worker cursor used to aggregate delayed periodic delivery. */
     uint64_t m_ProcessedTickCount;
 
     /** Holds information about the RTC periodic irq */
@@ -225,7 +232,7 @@ class Rtc : public Timer, private SplitIrqHandler
     Spinlock m_Lock;
 
     /** Serialises the CMOS index/data register pair across processors. */
-    Spinlock m_CmosLock;
+    Mutex m_CmosLock;
 
     /** Exact RTC-calibrated conversion from TSC cycles to nanoseconds. */
     PcTscClock::Calibration m_TscCalibration;
