@@ -14,14 +14,19 @@
 class DeviceHardIrqContext
 {
   public:
-    DeviceHardIrqContext();
+    DeviceHardIrqContext(size_t &previousDepth, bool &restorationArmed);
     ~DeviceHardIrqContext();
+
+    /** Restores a depth captured before a callback began. */
+    static void restoreDepth(size_t previousDepth);
 
   private:
     DeviceHardIrqContext(const DeviceHardIrqContext &);
     DeviceHardIrqContext &operator=(const DeviceHardIrqContext &);
 
     ProcessorInformation &m_Information;
+    bool &m_RestorationArmed;
+    size_t m_PreviousDepth;
 };
 
 /**

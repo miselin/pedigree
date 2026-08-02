@@ -169,7 +169,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
             IrqHandlerRegistry *registry, HandlerSlot *handlerSlot,
             void *dispatchOwner, size_t admittedPublication)
             : registry(registry), slot(handlerSlot), owner(dispatchOwner),
-              publication(admittedPublication), cleanup()
+              publication(admittedPublication), previousDeviceHardIrqDepth(0),
+              restoreDeviceHardIrqDepth(false), cleanup()
         {
         }
 
@@ -177,6 +178,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         HandlerSlot *slot;
         void *owner;
         size_t publication;
+        size_t previousDeviceHardIrqDepth;
+        bool restoreDeviceHardIrqDepth;
         AtomicStateCleanupRecord cleanup;
     };
 

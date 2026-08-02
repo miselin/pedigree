@@ -47,17 +47,29 @@ size_t ProcessorBase::deviceHardIrqDepthForTest()
 }
 #endif
 
-DeviceHardIrqContext::DeviceHardIrqContext()
-    : m_Information(Processor::information())
+DeviceHardIrqContext::DeviceHardIrqContext(
+    size_t &previousDepth, bool &restorationArmed)
+    : m_Information(Processor::information()),
+      m_RestorationArmed(restorationArmed),
+      m_PreviousDepth(m_Information.m_DeviceHardIrqDepth)
 {
+    assert(!m_RestorationArmed);
+    previousDepth = m_PreviousDepth;
+    m_RestorationArmed = true;
     ++m_Information.m_DeviceHardIrqDepth;
 }
 
 DeviceHardIrqContext::~DeviceHardIrqContext()
 {
     assert(&Processor::information() == &m_Information);
-    assert(m_Information.m_DeviceHardIrqDepth);
-    --m_Information.m_DeviceHardIrqDepth;
+    assert(m_RestorationArmed);
+    restoreDepth(m_PreviousDepth);
+    m_RestorationArmed = false;
+}
+
+void DeviceHardIrqContext::restoreDepth(size_t previousDepth)
+{
+    Processor::information().m_DeviceHardIrqDepth = previousDepth;
 }
 
 SuspendDeviceHardIrqContext::SuspendDeviceHardIrqContext()

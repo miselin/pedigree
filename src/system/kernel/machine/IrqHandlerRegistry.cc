@@ -233,6 +233,12 @@ bool IrqHandlerRegistry::unpublishDispatch(
 void IrqHandlerRegistry::abandonDispatch(void *context)
 {
     DispatchCleanup *dispatch = reinterpret_cast<DispatchCleanup *>(context);
+    if (dispatch->restoreDeviceHardIrqDepth)
+    {
+        DeviceHardIrqContext::restoreDepth(
+            dispatch->previousDeviceHardIrqDepth);
+        dispatch->restoreDeviceHardIrqDepth = false;
+    }
     dispatch->registry->unpublishDispatch(
         dispatch, *dispatch->slot, dispatch->publication, false);
 }
@@ -672,7 +678,9 @@ bool IrqHandlerRegistry::dispatchHard(
 #endif
 
         {
-            DeviceHardIrqContext deviceHardIrqContext;
+            DeviceHardIrqContext deviceHardIrqContext(
+                dispatchCleanup.previousDeviceHardIrqDepth,
+                dispatchCleanup.restoreDeviceHardIrqDepth);
             handled |= static_cast<HardIrqHandler *>(handler)->irq(irq, state);
         }
         unpublishDispatch(&dispatchCleanup, slot, publication, true);

@@ -648,7 +648,7 @@ check_wait_api_boundaries()
         ! rg -q \
             'class SuspendDeviceHardIrqContext' "$hard_irq_context_header" ||
         ! rg -q -U \
-            '(?s)DeviceHardIrqContext::DeviceHardIrqContext\(\).*?\+\+m_Information\.m_DeviceHardIrqDepth.*?DeviceHardIrqContext::~DeviceHardIrqContext\(\).*?--m_Information\.m_DeviceHardIrqDepth' \
+            '(?s)DeviceHardIrqContext::DeviceHardIrqContext\([^)]*previousDepth[^)]*restorationArmed\).*?previousDepth = m_PreviousDepth.*?m_RestorationArmed = true.*?\+\+m_Information\.m_DeviceHardIrqDepth.*?DeviceHardIrqContext::~DeviceHardIrqContext\(\).*?restoreDepth\(m_PreviousDepth\).*?m_RestorationArmed = false' \
             "$processor_source" ||
         ! rg -q -U \
             '(?s)SuspendDeviceHardIrqContext::SuspendDeviceHardIrqContext\(\).*?m_DeviceHardIrqDepth == 1.*?m_DeviceHardIrqDepth = 0.*?SuspendDeviceHardIrqContext::~SuspendDeviceHardIrqContext\(\).*?m_DeviceHardIrqDepth == 0.*?m_DeviceHardIrqDepth = 1' \
@@ -658,9 +658,21 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
-        '(?s)DeviceHardIrqContext deviceHardIrqContext;.*?static_cast<HardIrqHandler \*>\(handler\)->irq\(irq, state\);.*?unpublishDispatch' \
+        '(?s)DeviceHardIrqContext deviceHardIrqContext\([^;]*previousDeviceHardIrqDepth[^;]*restoreDeviceHardIrqDepth[^;]*\);.*?static_cast<HardIrqHandler \*>\(handler\)->irq\(irq, state\);.*?unpublishDispatch' \
+        "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)abandonDispatch\(void \*context\).*?restoreDeviceHardIrqDepth.*?DeviceHardIrqContext::restoreDepth\([^;]*previousDeviceHardIrqDepth\);.*?restoreDeviceHardIrqDepth = false;.*?unpublishDispatch' \
         "$irq_registry_source"; then
-        echo "Hard IRQ callbacks escaped their per-callback context scope."
+        echo "Hard IRQ callbacks escaped their return-or-abandon depth scope."
+        failed=1
+    fi
+
+    if ! rg -q 'abandonedNestedDispatchDepthCleanup' \
+        src/modules/system/hosted-smoke/irq-regressions.cc ||
+        ! rg -q \
+            'Processor::deviceHardIrqDepthForTest\(\) == 0' \
+            src/modules/system/hosted-smoke/irq-regressions.cc; then
+        echo "Hosted IRQ abandonment lost exact depth restoration coverage."
         failed=1
     fi
 

@@ -1175,7 +1175,7 @@ struct AbandonedDispatchContext
 {
     explicit AbandonedDispatchContext(AbandonedDispatchStage stage)
         : handler(*this), worker(nullptr), stage(stage), hazardCalls(0),
-          entered(0), returned(0)
+          entered(0), returned(0), depthFailures(0)
     {
     }
 
@@ -1185,6 +1185,7 @@ struct AbandonedDispatchContext
     Atomic<size_t> hazardCalls;
     Atomic<size_t> entered;
     Atomic<size_t> returned;
+    Atomic<size_t> depthFailures;
 };
 
 bool AbandoningIrqHandler::irq(irq_id_t, InterruptState &)
@@ -1196,6 +1197,11 @@ bool AbandoningIrqHandler::irq(irq_id_t, InterruptState &)
     }
 
     m_Context.entered += 1;
+    if (!Processor::inDeviceHardIrq() ||
+        Processor::deviceHardIrqDepthForTest() != 1)
+    {
+        m_Context.depthFailures += 1;
+    }
     HostedIrqManager::abandonCurrentThreadForTest();
     return true;
 }
@@ -1230,6 +1236,11 @@ void abandonIrqHazard(
     }
 
     context->hazardCalls += 1;
+    if (Processor::inDeviceHardIrq() ||
+        Processor::deviceHardIrqDepthForTest() != 0)
+    {
+        context->depthFailures += 1;
+    }
     HostedIrqManager::abandonCurrentThreadForTest();
 }
 
@@ -1254,9 +1265,9 @@ bool abandonedDispatchStage(
     context->hazardCalls = 0;
     context->entered = 0;
     context->returned = 0;
-    const irq_id_t id =
-        manager->registerHardIsaIrqHandler(
-            1, &context->handler, IrqPolicy::syntheticHard());
+    context->depthFailures = 0;
+    const irq_id_t id = manager->registerHardIsaIrqHandler(
+        1, &context->handler, IrqPolicy::syntheticHard());
 
     context->worker = new Thread(
         Scheduler::instance().getKernelProcess(), abandonIrqDispatch, context,
@@ -1276,14 +1287,147 @@ bool abandonedDispatchStage(
     const size_t active =
         HostedIrqManager::activeDispatchCountForTest(&context->handler);
     const size_t claimed = HostedIrqManager::claimedDispatchCountForTest();
+    const bool depthRestored = !context->depthFailures &&
+                               !Processor::inDeviceHardIrq() &&
+                               Processor::deviceHardIrqDepthForTest() == 0;
     const bool cleaned =
         id && manager->unregisterHandler(id, &context->handler);
 
     const bool passed = id && started && joined && !context->returned &&
                         context->hazardCalls == expectedHazardCalls &&
                         context->entered == expectedCallbackCalls && !active &&
-                        !claimed && cleaned;
+                        !claimed && cleaned && depthRestored;
     return passed;
+}
+
+struct NestedAbandonedDepthContext;
+
+class NestedAbandoningInner : public HardIrqHandler
+{
+  public:
+    explicit NestedAbandoningInner(NestedAbandonedDepthContext &context)
+        : m_Context(context)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override;
+
+  private:
+    NestedAbandonedDepthContext &m_Context;
+};
+
+class NestedAbandoningOuter : public HardIrqHandler
+{
+  public:
+    explicit NestedAbandoningOuter(NestedAbandonedDepthContext &context)
+        : m_Context(context)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override;
+
+  private:
+    NestedAbandonedDepthContext &m_Context;
+};
+
+struct NestedAbandonedDepthContext
+{
+    NestedAbandonedDepthContext()
+        : inner(*this), outer(*this), worker(nullptr), outerEntered(0),
+          innerEntered(0), returned(0), failures(0)
+    {
+    }
+
+    NestedAbandoningInner inner;
+    NestedAbandoningOuter outer;
+    Thread *worker;
+    Atomic<size_t> outerEntered;
+    Atomic<size_t> innerEntered;
+    Atomic<size_t> returned;
+    Atomic<size_t> failures;
+};
+
+bool NestedAbandoningInner::irq(irq_id_t, InterruptState &)
+{
+    if (Processor::information().getCurrentThread() != m_Context.worker)
+    {
+        return true;
+    }
+
+    m_Context.innerEntered += 1;
+    if (!Processor::inDeviceHardIrq() ||
+        Processor::deviceHardIrqDepthForTest() != 2)
+    {
+        m_Context.failures += 1;
+    }
+    HostedIrqManager::abandonCurrentThreadForTest();
+    return true;
+}
+
+bool NestedAbandoningOuter::irq(irq_id_t, InterruptState &)
+{
+    if (Processor::information().getCurrentThread() != m_Context.worker)
+    {
+        return true;
+    }
+
+    m_Context.outerEntered += 1;
+    if (!Processor::inDeviceHardIrq() ||
+        Processor::deviceHardIrqDepthForTest() != 1)
+    {
+        m_Context.failures += 1;
+    }
+
+    bool handled = false;
+    HostedIrqManager::dispatchHandlerForTest(1, &m_Context.inner, handled);
+    m_Context.returned += 1;
+    return true;
+}
+
+int abandonNestedIrqDispatch(void *parameter)
+{
+    NestedAbandonedDepthContext *context =
+        reinterpret_cast<NestedAbandonedDepthContext *>(parameter);
+    raise(SIGUSR2);
+    context->returned += 1;
+    return 1;
+}
+
+bool abandonedNestedDispatchDepthCleanup()
+{
+    IrqManager *manager = Machine::instance().getIrqManager();
+    static NestedAbandonedDepthContext context;
+    context.outerEntered = 0;
+    context.innerEntered = 0;
+    context.returned = 0;
+    context.failures = 0;
+
+    const irq_id_t outerId = manager->registerHardIsaIrqHandler(
+        1, &context.outer, IrqPolicy::syntheticHard());
+    const irq_id_t innerId = manager->registerHardIsaIrqHandler(
+        1, &context.inner, IrqPolicy::syntheticHard());
+    context.worker = new Thread(
+        Scheduler::instance().getKernelProcess(), abandonNestedIrqDispatch,
+        &context, nullptr, false, true, true);
+    context.worker->setName("hosted nested abandoned IRQ callback");
+
+    const bool started = outerId && innerId && context.worker->start();
+    const bool joined = started && context.worker->joinForCompletion();
+    const size_t outerActive =
+        HostedIrqManager::activeDispatchCountForTest(&context.outer);
+    const size_t innerActive =
+        HostedIrqManager::activeDispatchCountForTest(&context.inner);
+    const size_t claimed = HostedIrqManager::claimedDispatchCountForTest();
+    const bool outerCleaned =
+        outerId && manager->unregisterHandler(outerId, &context.outer);
+    const bool innerCleaned =
+        innerId && manager->unregisterHandler(innerId, &context.inner);
+
+    return started && joined && context.outerEntered == 1 &&
+           context.innerEntered == 1 && !context.returned &&
+           !context.failures && !outerActive && !innerActive && !claimed &&
+           outerCleaned && innerCleaned && !Processor::inDeviceHardIrq() &&
+           Processor::deviceHardIrqDepthForTest() == 0;
 }
 
 bool abandonedDispatchCleanup()
@@ -1295,12 +1439,12 @@ bool abandonedDispatchCleanup()
         abandonedDispatchStage(AbandonedDispatchStage::Claimed, 1, 0);
     const bool committed =
         abandonedDispatchStage(AbandonedDispatchStage::Callback, 0, 1);
+    const bool nested = abandonedNestedDispatchDepthCleanup();
 
     bool passed = true;
     passed &= check(
-        beforeClaim && claimed && committed,
-        "stack abandonment leaked an unclaimed, partial, or committed hazard",
-        Test);
+        beforeClaim && claimed && committed && nested,
+        "stack abandonment leaked a callback hazard or hard-IRQ depth", Test);
     if (passed)
     {
         NOTICE(
