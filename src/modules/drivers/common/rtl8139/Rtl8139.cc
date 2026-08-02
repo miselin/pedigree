@@ -47,7 +47,6 @@ constexpr size_t ResetPollLimit = 100;
 constexpr size_t HaltPollLimit = 100;
 constexpr size_t StartPollLimit = 100;
 constexpr size_t InterruptPassLimit = 8;
-constexpr size_t ReceivePacketBudget = 1024;
 
 size_t pagesFor(size_t bytes)
 {
@@ -333,13 +332,14 @@ void Rtl8139::copyFromReceiveRing(
         MemoryCopy(output + first, m_pRxBuffVirt, length - first);
 }
 
-bool Rtl8139::drainReceive(List<Packet *> &packets)
+bool Rtl8139::drainReceive(
+    size_t &descriptorCount, size_t &packetCount, size_t &stagingBytes)
 {
-    for (size_t packetIndex = 0; packetIndex < ReceivePacketBudget;
-         ++packetIndex)
+    while (descriptorCount < ReceivePacketBudget)
     {
         if (m_pBase->read8(RTL_CMD) & RTL_CMD_BUFE)
             return true;
+        ++descriptorCount;
 
         FENCE();
         uint16_t header[2] = {0, 0};
@@ -364,12 +364,19 @@ bool Rtl8139::drainReceive(List<Packet *> &packets)
         if (validStatus)
         {
             const size_t packetLength = rawLength - RTL_ETHERNET_CRC_SIZE;
-            Packet *packet = new Packet;
-            packet->buffer = new uint8_t[packetLength];
-            packet->length = packetLength;
+            if (packetLength > (RTL_RX_RING_SIZE - stagingBytes))
+            {
+                ERROR("RTL8139: receive batch exceeded its staging buffer");
+                resetController();
+                return false;
+            }
+
+            Packet &packet = m_ReceiveBatch[packetCount++];
+            packet.buffer = m_ReceiveStaging + stagingBytes;
+            packet.length = packetLength;
             copyFromReceiveRing(
-                packet->buffer, m_RxCurr + sizeof(header), packetLength);
-            packets.pushBack(packet);
+                packet.buffer, m_RxCurr + sizeof(header), packetLength);
+            stagingBytes += packetLength;
             gotPacket();
         }
         else
@@ -432,7 +439,9 @@ IrqDisposition Rtl8139::irq(irq_id_t number)
 {
     (void) number;
     bool handled = false;
-    List<Packet *> packets;
+    size_t descriptorCount = 0;
+    size_t packetCount = 0;
+    size_t stagingBytes = 0;
 
     {
         LockGuard<Mutex> deviceGuard(m_DeviceLock);
@@ -466,21 +475,20 @@ IrqDisposition Rtl8139::irq(irq_id_t number)
 
             if (receivePending || (irqStatus & ReceiveInterrupts))
             {
-                if (!drainReceive(packets))
+                if (!drainReceive(
+                        descriptorCount, packetCount, stagingBytes))
                     break;
             }
         }
         (void) m_pBase->read16(RTL_ISR);
     }
 
-    while (packets.count())
+    for (size_t i = 0; i < packetCount; ++i)
     {
-        Packet *packet = packets.popFront();
+        const Packet &packet = m_ReceiveBatch[i];
         NetworkStack::instance().receive(
-            packet->length, reinterpret_cast<uintptr_t>(packet->buffer), this,
+            packet.length, reinterpret_cast<uintptr_t>(packet.buffer), this,
             0);
-        delete[] packet->buffer;
-        delete packet;
     }
 
     return handled ? IrqDisposition::Handled : IrqDisposition::NotHandled;

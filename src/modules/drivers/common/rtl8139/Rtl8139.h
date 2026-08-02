@@ -28,7 +28,6 @@
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/List.h"
 
 #define RTL8139_VENDOR_ID 0x10ec
 #define RTL8139_DEVICE_ID 0x8139
@@ -62,6 +61,8 @@ class Rtl8139 : public Network, public IrqHandler
     }
 
   private:
+    static constexpr size_t ReceivePacketBudget = 1024;
+
     struct Packet
     {
         uint8_t *buffer;
@@ -74,8 +75,9 @@ class Rtl8139 : public Network, public IrqHandler
     /** Stops DMA and verifies both engines relinquished their buffers. */
     void haltController();
 
-    /** Drains complete receive-ring entries into driver-owned packets. */
-    bool drainReceive(List<Packet *> &packets);
+    /** Drains complete receive-ring entries into the device-owned batch. */
+    bool drainReceive(
+        size_t &descriptorCount, size_t &packetCount, size_t &stagingBytes);
 
     /** Copies bytes from the wrapping 64K receive ring. */
     void copyFromReceiveRing(
@@ -95,6 +97,12 @@ class Rtl8139 : public Network, public IrqHandler
 
     MemoryRegion m_RxBuffMR;
     MemoryRegion m_TxBuffMR;
+
+    // The one-worker-per-line IRQ contract serializes use of this batch. It
+    // lets the driver release its device lock before entering the network
+    // stack without allocating while hardware state is locked.
+    Packet m_ReceiveBatch[ReceivePacketBudget];
+    uint8_t m_ReceiveStaging[RTL_RX_RING_SIZE];
 
     irq_id_t m_IrqId;
     bool m_Stopping;
