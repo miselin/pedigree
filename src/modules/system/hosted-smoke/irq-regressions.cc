@@ -24,6 +24,9 @@
 
 namespace
 {
+constexpr size_t OuterSyntheticDispatchGeneration = 0xC001;
+constexpr size_t InnerSyntheticDispatchGeneration = 0xC002;
+
 bool check(
     bool condition, const char *detail,
     const char *test = "irq-handler-lifetime")
@@ -72,7 +75,8 @@ class HardRegistryHandler : public HardIrqHandler
 class NestedDeviceHardIrqProbe : public HardIrqHandler
 {
   public:
-    NestedDeviceHardIrqProbe() : depth(0), marked(false), calls(0)
+    NestedDeviceHardIrqProbe()
+        : depth(0), activeCount(0), activeGeneration(0), marked(false), calls(0)
     {
     }
 
@@ -80,11 +84,20 @@ class NestedDeviceHardIrqProbe : public HardIrqHandler
     {
         depth = Processor::deviceHardIrqDepthForTest();
         marked = Processor::inDeviceHardIrq();
+        IrqLineDiagnosticSnapshot lines[3] = {};
+        if (Machine::instance().getIrqManager()->snapshotIrqLines(lines, 3) ==
+            3)
+        {
+            activeCount = lines[1].activeHardDispatchCount;
+            activeGeneration = lines[1].activeHardDispatchGeneration;
+        }
         ++calls;
         return true;
     }
 
     size_t depth;
+    size_t activeCount;
+    size_t activeGeneration;
     bool marked;
     size_t calls;
 };
@@ -93,8 +106,9 @@ class OuterDeviceHardIrqProbe : public HardIrqHandler
 {
   public:
     explicit OuterDeviceHardIrqProbe(HardIrqHandler *nested)
-        : m_Nested(nested), entryDepth(0), restoredDepth(0), marked(false),
-          nestedAdmitted(false), nestedHandled(false), calls(0)
+        : m_Nested(nested), entryDepth(0), restoredDepth(0), activeCount(0),
+          activeGeneration(0), marked(false), nestedAdmitted(false),
+          nestedHandled(false), calls(0)
     {
     }
 
@@ -102,8 +116,15 @@ class OuterDeviceHardIrqProbe : public HardIrqHandler
     {
         entryDepth = Processor::deviceHardIrqDepthForTest();
         marked = Processor::inDeviceHardIrq();
+        IrqLineDiagnosticSnapshot lines[3] = {};
+        if (Machine::instance().getIrqManager()->snapshotIrqLines(lines, 3) ==
+            3)
+        {
+            activeCount = lines[1].activeHardDispatchCount;
+            activeGeneration = lines[1].activeHardDispatchGeneration;
+        }
         nestedAdmitted = HostedIrqManager::dispatchHandlerForTest(
-            1, m_Nested, nestedHandled);
+            1, m_Nested, nestedHandled, InnerSyntheticDispatchGeneration);
         restoredDepth = Processor::deviceHardIrqDepthForTest();
         ++calls;
         return true;
@@ -112,6 +133,8 @@ class OuterDeviceHardIrqProbe : public HardIrqHandler
     HardIrqHandler *m_Nested;
     size_t entryDepth;
     size_t restoredDepth;
+    size_t activeCount;
+    size_t activeGeneration;
     bool marked;
     bool nestedAdmitted;
     bool nestedHandled;
@@ -156,9 +179,12 @@ bool deviceHardIrqContextTracking()
     const bool threadedRegistered =
         threadedRegistry.registerThreadedHandler(8, &threaded);
 
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
     bool outerHandled = false;
     const bool outerAdmitted = HostedIrqManager::dispatchHandlerForTest(
-        1, &outer, outerHandled);
+        1, &outer, outerHandled, OuterSyntheticDispatchGeneration);
+    Processor::setInterrupts(interruptsWereEnabled);
     const size_t postHardDepth = Processor::deviceHardIrqDepthForTest();
     const bool postHardMarked = Processor::inDeviceHardIrq();
 
@@ -179,12 +205,17 @@ bool deviceHardIrqContextTracking()
         "the context probes could not all be registered", Test);
     passed &= check(
         outerAdmitted && outerHandled && outer.calls == 1 &&
-            outer.entryDepth == 1 && outer.marked,
+            outer.entryDepth == 1 && outer.marked && outer.activeCount == 1 &&
+            outer.activeGeneration == OuterSyntheticDispatchGeneration,
         "an outer hard callback did not observe depth one", Test);
     passed &= check(
         outer.nestedAdmitted && outer.nestedHandled && nested.calls == 1 &&
             nested.depth == 2 && nested.marked && outer.restoredDepth == 1,
         "nested hard dispatch did not restore its caller's depth", Test);
+    passed &= check(
+        nested.activeCount == 2 && nested.activeGeneration == 0,
+        "same-line nested hard dispatch did not report an ambiguous generation",
+        Test);
     passed &= check(
         postHardDepth == 0 && !postHardMarked,
         "hard dispatch leaked its device marker after return", Test);
@@ -220,7 +251,7 @@ class DeliveryContextProbe : public HardIrqHandler
         }
 
         bool handled = true;
-        if (m_Registry.dispatchHard(5, state, handled))
+        if (m_Registry.dispatchHard(5, state, handled, nullptr, 1))
         {
             hardAdmitted += 1;
         }
@@ -1290,13 +1321,20 @@ bool abandonedDispatchStage(
     const bool depthRestored = !context->depthFailures &&
                                !Processor::inDeviceHardIrq() &&
                                Processor::deviceHardIrqDepthForTest() == 0;
+    IrqLineDiagnosticSnapshot irqLines[3] = {};
+    const bool diagnosticReleased =
+        manager->snapshotIrqLines(irqLines, 3) == 3 &&
+        !irqLines[1].hardStageActive &&
+        irqLines[1].activeHardDispatchCount == 0 &&
+        irqLines[1].activeHardDispatchGeneration == 0;
     const bool cleaned =
         id && manager->unregisterHandler(id, &context->handler);
 
     const bool passed = id && started && joined && !context->returned &&
                         context->hazardCalls == expectedHazardCalls &&
                         context->entered == expectedCallbackCalls && !active &&
-                        !claimed && cleaned && depthRestored;
+                        !claimed && cleaned && depthRestored &&
+                        diagnosticReleased;
     return passed;
 }
 

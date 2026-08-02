@@ -667,6 +667,17 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    if ! rg -q 'size_t controllerGeneration' \
+            src/system/include/pedigree/kernel/machine/IrqHandlerRegistry.h ||
+        ! rg -q 'hardDispatchState' "$irq_registry_source" ||
+        ! rg -q 'nested\.activeCount == 2' \
+            src/modules/system/hosted-smoke/irq-regressions.cc ||
+        ! rg -q 'irq-hosted-deferred-retiring-diagnostics' \
+            src/modules/system/hosted-smoke/threaded-irq-regressions.cc; then
+        echo "Hard IRQ diagnostics lost exact-or-ambiguous hazard generations."
+        failed=1
+    fi
+
     if ! rg -q 'abandonedNestedDispatchDepthCleanup' \
         src/modules/system/hosted-smoke/irq-regressions.cc ||
         ! rg -q \
@@ -864,14 +875,14 @@ check_wait_api_boundaries()
     if ! rg -q -U \
         '(?s)Line::run\(\).*?TerminationDeferral workerLifetime.*?__atomic_store_n\(.*?m_CallbackActive.*?__atomic_exchange_n\(.*?m_Callback\(.*?m_CompletedCookie.*?m_CallbackActive.*?Scheduler::instance\(\)\.yield\(\)' \
             "$threaded_irq_source" ||
-        ! rg -q 'completedCookieForTest' "$threaded_irq_header"; then
+        ! rg -q 'completedCookie' "$threaded_irq_header"; then
         echo "Threaded IRQ workers lost owned lifetime or completion generations."
         failed=1
     fi
 
     if rg -q 'SIGWINCH' "$hosted_irq_source" ||
         ! rg -q -U \
-            '(?s)dispatchThreadedLine\(.*?cookie != __atomic_load_n\(.*?m_ThreadedCookies.*?dispatchThreaded\(' \
+            '(?s)dispatchThreadedLine\(.*?cookie\s*!=\s*__atomic_load_n\(.*?m_ThreadedCookies.*?dispatchThreaded\(' \
             "$hosted_irq_source" ||
         ! rg -q -U \
             '(?s)shutdownThreaded\(\).*?HostedSchedulerTimer::instance\(\)\.uninitialise\(\)' \
@@ -891,6 +902,44 @@ check_wait_api_boundaries()
         ! rg -q 'irq-threaded-hosted-signal' \
             "$threaded_irq_regressions"; then
         echo "Threaded IRQ callback snapshots or deterministic coalescing coverage are missing."
+        failed=1
+    fi
+
+    if rg -q 'm_LinePolicies' \
+            src/system/kernel/machine/hosted/IrqManager.{cc,h} ||
+        ! rg -q 'snapshotLineConfiguration' "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)deliveryOf\(publication\) != delivery.*?slot\.policy.*?!= policy' \
+            "$irq_registry_source" ||
+        ! rg -q \
+            'current\.mutationGeneration == configuration\.mutationGeneration' \
+            "$hosted_irq_source" ||
+        ! rg -q 'recordMissedPublication' \
+            src/system/include/pedigree/kernel/machine/IrqDiagnosticSnapshotStore.h \
+            "$hosted_irq_source" ||
+        ! rg -q 'irq-hosted-diagnostic-policy-lifecycle' \
+            "$threaded_irq_regressions" ||
+        ! rg -q 'irq-hosted-diagnostic-missed-registry-snapshot' \
+            "$threaded_irq_regressions"; then
+        echo "Hosted IRQ diagnostics lost registry-owned policy or stale-publication repair."
+        failed=1
+    fi
+
+    local hosted_diagnostic_publish_body
+    hosted_diagnostic_publish_body=$(sed -n \
+        '/HostedIrqManager::publishDiagnosticLine(uint8_t irq)/,/^}/p' \
+        "$hosted_irq_source")
+    local registry_line_snapshot_body
+    registry_line_snapshot_body=$(sed -n \
+        '/IrqHandlerRegistry::snapshotLineConfiguration(/,/^}/p' \
+        "$irq_registry_source")
+    matches=$(printf '%s\n%s\n' \
+        "$hosted_diagnostic_publish_body" "$registry_line_snapshot_body" | \
+        rg -n \
+            'LockGuard|Spinlock|m_HandlerLock|Semaphore|WaitQueue|RequestQueue|Scheduler::|schedule\(|new[[:space:]]|delete[[:space:]]|while[[:space:]]*\(' || true)
+    if [[ -n "$matches" ]]; then
+        echo "Hosted IRQ diagnostic publication crossed its bounded hard-path boundary:"
+        echo "$matches"
         failed=1
     fi
 

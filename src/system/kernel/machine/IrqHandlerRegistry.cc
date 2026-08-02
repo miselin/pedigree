@@ -26,7 +26,8 @@ static_assert(
     "IRQ callback hazard pointers must be lock-free");
 
 IrqHandlerRegistry::IrqHandlerRegistry()
-    : m_Handlers(), m_ActiveDispatches(), m_HandlerLock(false)
+    : m_Handlers(), m_ActiveDispatches(), m_HandlerLock(false),
+      m_MutationGeneration(0), m_MutationWriters(0)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
       m_HandlerPinHook(nullptr), m_HandlerPrePinHook(nullptr),
@@ -64,10 +65,61 @@ IrqHandlerRegistry::Delivery IrqHandlerRegistry::deliveryOf(size_t publication)
     return static_cast<Delivery>((publication & DeliveryMask) >> DeliveryShift);
 }
 
+size_t IrqHandlerRegistry::encodePolicy(const IrqPolicy *policy)
+{
+    if (!policy)
+    {
+        return 0;
+    }
+
+    return PolicyValid |
+           (static_cast<size_t>(policy->trigger()) << PolicyTriggerShift) |
+           (static_cast<size_t>(policy->controllerAck())
+            << PolicyControllerAckShift) |
+           (static_cast<size_t>(policy->lineRelease())
+            << PolicyLineReleaseShift);
+}
+
+void IrqHandlerRegistry::decodePolicy(
+    size_t policy, LineConfiguration &configuration)
+{
+    configuration.policyConfigured = policy & PolicyValid;
+    if (!configuration.policyConfigured)
+    {
+        return;
+    }
+
+    configuration.trigger =
+        static_cast<IrqTrigger>((policy >> PolicyTriggerShift) & 3);
+    configuration.controllerAck =
+        static_cast<IrqControllerAck>((policy >> PolicyControllerAckShift) & 3);
+    configuration.lineRelease =
+        static_cast<IrqLineRelease>((policy >> PolicyLineReleaseShift) & 1);
+}
+
+void IrqHandlerRegistry::beginMutation()
+{
+    // A global epoch keeps the registry compact. Unrelated line churn can only
+    // make a diagnostic attempt conservatively fail.
+    __atomic_add_fetch(
+        &m_MutationWriters, static_cast<size_t>(1), __ATOMIC_SEQ_CST);
+}
+
+void IrqHandlerRegistry::finishMutation()
+{
+    // Publish the new epoch before dropping the final writer. Snapshot readers
+    // sample the writer count before the epoch at their closing boundary.
+    __atomic_add_fetch(
+        &m_MutationGeneration, static_cast<size_t>(1), __ATOMIC_SEQ_CST);
+    __atomic_sub_fetch(
+        &m_MutationWriters, static_cast<size_t>(1), __ATOMIC_SEQ_CST);
+}
+
 bool IrqHandlerRegistry::retireSlot(
     HandlerSlot &slot, size_t expectedPublication,
     IrqHandlerBase *expectedHandler)
 {
+    beginMutation();
     const size_t retiringPublication = makePublication(
         generationOf(expectedPublication), irqOf(expectedPublication),
         SlotMode::Retiring, deliveryOf(expectedPublication));
@@ -75,22 +127,26 @@ bool IrqHandlerRegistry::retireSlot(
             &slot.publication, &expectedPublication, retiringPublication, false,
             __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
     {
+        finishMutation();
         return false;
     }
 
     assert(__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) == expectedHandler);
     __atomic_store_n(&slot.handler, nullptr, __ATOMIC_RELEASE);
+    __atomic_store_n(&slot.policy, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(
         &slot.publication,
         makePublication(
             generationOf(retiringPublication), InvalidIrq, SlotMode::Empty,
             Delivery::Threaded),
         __ATOMIC_SEQ_CST);
+    finishMutation();
     return true;
 }
 
 IrqHandlerRegistry::ActiveDispatch *IrqHandlerRegistry::publishDispatch(
-    HandlerSlot &slot, void *owner, void *token, size_t admittedPublication)
+    HandlerSlot &slot, void *owner, void *token, size_t admittedPublication,
+    size_t controllerGeneration)
 {
     assert(owner);
     assert(token);
@@ -107,6 +163,9 @@ IrqHandlerRegistry::ActiveDispatch *IrqHandlerRegistry::publishDispatch(
             __atomic_store_n(&dispatch.owner, owner, __ATOMIC_RELAXED);
             __atomic_store_n(
                 &dispatch.admittedPublication, admittedPublication,
+                __ATOMIC_RELAXED);
+            __atomic_store_n(
+                &dispatch.controllerGeneration, controllerGeneration,
                 __ATOMIC_RELAXED);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -178,6 +237,9 @@ bool IrqHandlerRegistry::unpublishDispatch(
         __atomic_store_n(
             &dispatch.admittedPublication, static_cast<size_t>(0),
             __ATOMIC_RELAXED);
+        __atomic_store_n(
+            &dispatch.controllerGeneration, static_cast<size_t>(0),
+            __ATOMIC_RELAXED);
         __atomic_store_n(&dispatch.owner, nullptr, __ATOMIC_RELAXED);
         __atomic_store_n(&dispatch.token, nullptr, __ATOMIC_RELEASE);
         found = true;
@@ -198,10 +260,8 @@ bool IrqHandlerRegistry::unpublishDispatch(
     HandlerHazardHook releaseHook = nullptr;
     if (committed)
     {
-        releasedHandler =
-            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
-        releaseHook =
-            __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
+        releasedHandler = __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE);
+        releaseHook = __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
     }
 #endif
 
@@ -322,7 +382,7 @@ void *IrqHandlerRegistry::currentDispatchOwner()
 }
 
 bool IrqHandlerRegistry::registerHandler(
-    uint8_t irq, IrqHandlerBase *handler, Delivery delivery)
+    uint8_t irq, IrqHandlerBase *handler, Delivery delivery, size_t policy)
 {
     if (!handler ||
         (delivery != Delivery::Threaded && delivery != Delivery::HardOnly))
@@ -343,7 +403,8 @@ bool IrqHandlerRegistry::registerHandler(
 
         // A physical line has one dispatch context. Keeping its delivery mode
         // in the publication makes this check part of dispatch revalidation.
-        if (deliveryOf(publication) != delivery)
+        if (deliveryOf(publication) != delivery ||
+            __atomic_load_n(&slot.policy, __ATOMIC_ACQUIRE) != policy)
         {
             return false;
         }
@@ -352,13 +413,16 @@ bool IrqHandlerRegistry::registerHandler(
         {
             if (modeOf(publication) == SlotMode::Deferred)
             {
+                beginMutation();
                 size_t expectedPublication = publication;
                 const size_t enabledPublication = makePublication(
                     generationOf(publication), irq, SlotMode::Enabled,
                     delivery);
-                return __atomic_compare_exchange_n(
+                const bool enabled = __atomic_compare_exchange_n(
                     &slot.publication, &expectedPublication, enabledPublication,
                     false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+                finishMutation();
+                return enabled;
             }
             return false;
         }
@@ -372,12 +436,16 @@ bool IrqHandlerRegistry::registerHandler(
         if (modeOf(publication) == SlotMode::Empty &&
             !__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE))
         {
+            beginMutation();
             const size_t generation = generationOf(publication) + 1;
             __atomic_store_n(&slot.handler, handler, __ATOMIC_RELEASE);
+            // Policy remains immutable until Retiring closes this publication.
+            __atomic_store_n(&slot.policy, policy, __ATOMIC_RELEASE);
             __atomic_store_n(
                 &slot.publication,
                 makePublication(generation, irq, SlotMode::Enabled, delivery),
                 __ATOMIC_SEQ_CST);
+            finishMutation();
             return true;
         }
     }
@@ -388,13 +456,29 @@ bool IrqHandlerRegistry::registerHandler(
 bool IrqHandlerRegistry::registerThreadedHandler(
     uint8_t irq, IrqHandler *handler)
 {
-    return registerHandler(irq, handler, Delivery::Threaded);
+    return registerHandler(irq, handler, Delivery::Threaded, 0);
+}
+
+bool IrqHandlerRegistry::registerThreadedHandler(
+    uint8_t irq, IrqHandler *handler, const IrqPolicy &policy)
+{
+    return policy.validForThreaded() &&
+           registerHandler(
+               irq, handler, Delivery::Threaded, encodePolicy(&policy));
 }
 
 bool IrqHandlerRegistry::registerHardHandler(
     uint8_t irq, HardIrqHandler *handler)
 {
-    return registerHandler(irq, handler, Delivery::HardOnly);
+    return registerHandler(irq, handler, Delivery::HardOnly, 0);
+}
+
+bool IrqHandlerRegistry::registerHardHandler(
+    uint8_t irq, HardIrqHandler *handler, const IrqPolicy &policy)
+{
+    return policy.validForHard() &&
+           registerHandler(
+               irq, handler, Delivery::HardOnly, encodePolicy(&policy));
 }
 
 IrqHandlerRegistry::UnregisterResult
@@ -440,10 +524,12 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandlerBase *handler)
                 const size_t deferredPublication = makePublication(
                     generationOf(publication), irq, SlotMode::Deferred,
                     deliveryOf(publication));
-                if (__atomic_compare_exchange_n(
-                        &candidate.publication, &publication,
-                        deferredPublication, false, __ATOMIC_SEQ_CST,
-                        __ATOMIC_SEQ_CST))
+                beginMutation();
+                const bool deferred = __atomic_compare_exchange_n(
+                    &candidate.publication, &publication, deferredPublication,
+                    false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+                finishMutation();
+                if (deferred)
                 {
                     return UnregisterResult::Deferred;
                 }
@@ -453,9 +539,12 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandlerBase *handler)
             const size_t drainingPublication = makePublication(
                 generationOf(publication), irq, SlotMode::Draining,
                 deliveryOf(publication));
-            if (!__atomic_compare_exchange_n(
-                    &candidate.publication, &publication, drainingPublication,
-                    false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+            beginMutation();
+            const bool draining = __atomic_compare_exchange_n(
+                &candidate.publication, &publication, drainingPublication,
+                false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+            finishMutation();
+            if (!draining)
             {
                 return UnregisterResult::Rejected;
             }
@@ -463,12 +552,14 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandlerBase *handler)
             if (hasActiveDispatch(candidate, drainingPublication))
             {
                 size_t expectedPublication = drainingPublication;
+                beginMutation();
                 __atomic_compare_exchange_n(
                     &candidate.publication, &expectedPublication,
                     makePublication(
                         generationOf(drainingPublication), irq,
                         SlotMode::Enabled, deliveryOf(drainingPublication)),
                     false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+                finishMutation();
                 return UnregisterResult::Rejected;
             }
 
@@ -520,12 +611,14 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandlerBase *handler)
         }
 
         size_t expectedPublication = publication;
+        beginMutation();
         const bool deferred = __atomic_compare_exchange_n(
             &slot->publication, &expectedPublication,
             makePublication(
                 generationOf(publication), irq, SlotMode::Deferred,
                 deliveryOf(publication)),
             false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+        finishMutation();
         m_HandlerLock.release();
         return deferred ? UnregisterResult::Deferred :
                           UnregisterResult::Rejected;
@@ -541,9 +634,12 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandlerBase *handler)
     const size_t drainingPublication = makePublication(
         generationOf(publication), irq, SlotMode::Draining,
         deliveryOf(publication));
-    if (!__atomic_compare_exchange_n(
-            &slot->publication, &expectedPublication, drainingPublication,
-            false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+    beginMutation();
+    const bool draining = __atomic_compare_exchange_n(
+        &slot->publication, &expectedPublication, drainingPublication, false,
+        __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    finishMutation();
+    if (!draining)
     {
         m_HandlerLock.release();
         return UnregisterResult::Rejected;
@@ -552,9 +648,11 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandlerBase *handler)
     if (callbackContext && hasActiveDispatch(*slot, drainingPublication))
     {
         expectedPublication = drainingPublication;
+        beginMutation();
         __atomic_compare_exchange_n(
             &slot->publication, &expectedPublication, publication, false,
             __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+        finishMutation();
         m_HandlerLock.release();
         return UnregisterResult::Rejected;
     }
@@ -589,7 +687,7 @@ IrqHandlerRegistry::unregisterHandler(uint8_t irq, IrqHandlerBase *handler)
 
 bool IrqHandlerRegistry::dispatchHard(
     uint8_t irq, InterruptState &state, bool &handled,
-    HardIrqHandler *onlyHandler)
+    HardIrqHandler *onlyHandler, size_t dispatchGeneration)
 {
     bool admitted = false;
     handled = false;
@@ -644,7 +742,8 @@ bool IrqHandlerRegistry::dispatchHard(
         }
 #endif
 
-        if (!publishDispatch(slot, owner, &dispatchCleanup, publication))
+        if (!publishDispatch(
+                slot, owner, &dispatchCleanup, publication, dispatchGeneration))
         {
             if (thread)
             {
@@ -781,7 +880,7 @@ bool IrqHandlerRegistry::dispatchThreaded(
         }
 #endif
 
-        if (!publishDispatch(slot, owner, &dispatchCleanup, publication))
+        if (!publishDispatch(slot, owner, &dispatchCleanup, publication, 0))
         {
             if (thread)
             {
@@ -861,6 +960,119 @@ IrqHandlerRegistry::LineMode IrqHandlerRegistry::lineMode(uint8_t irq)
     return LineMode::Empty;
 }
 
+bool IrqHandlerRegistry::snapshotLineConfiguration(
+    uint8_t irq, LineConfiguration &configuration) const
+{
+    for (size_t attempt = 0; attempt < LineSnapshotAttempts; ++attempt)
+    {
+        if (__atomic_load_n(&m_MutationWriters, __ATOMIC_SEQ_CST))
+        {
+            continue;
+        }
+        const size_t generation =
+            __atomic_load_n(&m_MutationGeneration, __ATOMIC_SEQ_CST);
+        if (__atomic_load_n(&m_MutationWriters, __ATOMIC_SEQ_CST))
+        {
+            continue;
+        }
+
+        LineConfiguration observed;
+        size_t observedPolicy = 0;
+        bool consistent = true;
+        for (size_t i = 0; i < MaxHandlerSlots; ++i)
+        {
+            const HandlerSlot &slot = m_Handlers[i];
+            const size_t publication =
+                __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+            if (modeOf(publication) != SlotMode::Enabled ||
+                irqOf(publication) != irq)
+            {
+                continue;
+            }
+
+            const size_t policy =
+                __atomic_load_n(&slot.policy, __ATOMIC_ACQUIRE);
+            if (__atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) !=
+                publication)
+            {
+                consistent = false;
+                break;
+            }
+
+            const LineMode mode =
+                deliveryOf(publication) == Delivery::Threaded ?
+                    LineMode::Threaded :
+                    LineMode::HardOnly;
+            if (observed.handlerCount &&
+                (observed.mode != mode || observedPolicy != policy))
+            {
+                consistent = false;
+                break;
+            }
+            observed.mode = mode;
+            observedPolicy = policy;
+            ++observed.handlerCount;
+        }
+
+        // Writer count must be sampled first: a writer which finishes between
+        // these loads changes the following generation and forces a retry.
+        const size_t finalWriters =
+            __atomic_load_n(&m_MutationWriters, __ATOMIC_SEQ_CST);
+        const size_t finalGeneration =
+            __atomic_load_n(&m_MutationGeneration, __ATOMIC_SEQ_CST);
+        if (finalWriters || generation != finalGeneration)
+        {
+            continue;
+        }
+        if (!consistent)
+        {
+            return false;
+        }
+
+        observed.mutationGeneration = finalGeneration;
+        decodePolicy(observedPolicy, observed);
+        configuration = observed;
+        return true;
+    }
+
+    return false;
+}
+
+size_t IrqHandlerRegistry::hardDispatchState(
+    uint8_t irq, size_t &exactGeneration) const
+{
+    size_t count = 0;
+    exactGeneration = 0;
+    for (size_t i = 0; i < MaxActiveDispatches; ++i)
+    {
+        const ActiveDispatch &dispatch = m_ActiveDispatches[i];
+        void *token = __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE);
+        if (!token)
+        {
+            continue;
+        }
+
+        const size_t generation =
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE);
+        HandlerSlot *slot = __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST);
+        const size_t publication =
+            __atomic_load_n(&dispatch.admittedPublication, __ATOMIC_RELAXED);
+        const size_t controllerGeneration =
+            __atomic_load_n(&dispatch.controllerGeneration, __ATOMIC_RELAXED);
+        if (slot && irqOf(publication) == irq &&
+            deliveryOf(publication) == Delivery::HardOnly &&
+            __atomic_load_n(&dispatch.token, __ATOMIC_ACQUIRE) == token &&
+            __atomic_load_n(&dispatch.generation, __ATOMIC_ACQUIRE) ==
+                generation &&
+            __atomic_load_n(&dispatch.slot, __ATOMIC_SEQ_CST) == slot)
+        {
+            ++count;
+            exactGeneration = count == 1 ? controllerGeneration : 0;
+        }
+    }
+    return count;
+}
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 void IrqHandlerRegistry::setHandlerPinHook(HandlerPinHook hook)
 {
@@ -885,6 +1097,16 @@ void IrqHandlerRegistry::withMutationLockForTest(MutationLockHook hook)
         hook();
     }
     m_HandlerLock.release();
+}
+
+void IrqHandlerRegistry::withMutationEpochForTest(MutationLockHook hook)
+{
+    beginMutation();
+    if (hook)
+    {
+        hook();
+    }
+    finishMutation();
 }
 
 size_t IrqHandlerRegistry::activeDispatchCountForTest(IrqHandlerBase *handler)

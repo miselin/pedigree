@@ -23,6 +23,7 @@
 #include "PicIrqState.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/IrqDiagnosticSnapshotStore.h"
 #include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
@@ -65,6 +66,8 @@ class Pic : public IrqManager, private InterruptHandler
         HardIrqHandler *handler, Device *pDevice,
         const IrqPolicy &policy);
     virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler);
+    virtual size_t
+    snapshotIrqLines(IrqLineDiagnosticSnapshot *out, size_t capacity) const;
 
     /** Initialises the PIC hardware and registers the interrupts with the
      *  InterruptManager.
@@ -104,6 +107,8 @@ class Pic : public IrqManager, private InterruptHandler
 
     static void dispatchThreadedLine(void *context, uint8_t irq, size_t cookie);
     size_t advanceThreadedCookieLocked(uint8_t irq);
+    void publishDiagnosticLineLocked(uint8_t irq);
+    void publishAllDiagnosticLinesLocked();
 
     void eoiLocked(uint8_t irq);
     void applyMaskLocked();
@@ -131,6 +136,10 @@ class Pic : public IrqManager, private InterruptHandler
     size_t m_ThreadedDispatchGenerations[PicIrqState::LineCount];
     /** Atomic diagnostics for work rejected after dispatcher closure. */
     size_t m_ThreadedPublicationFailures[PicIrqState::LineCount];
+    /** Delivery is stable while a line has registered handlers. */
+    IrqDelivery m_LineDeliveries[PicIrqState::LineCount];
+    /** Per-line immutable diagnostic publications. */
+    IrqDiagnosticSnapshotStore<PicIrqState::LineCount> m_Diagnostics;
     /** Unregister operations which have not completed line accounting. */
     size_t m_UnregisterReservations[PicIrqState::LineCount];
     /** Closes registration and re-enable paths before worker shutdown. */

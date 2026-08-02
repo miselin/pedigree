@@ -21,6 +21,7 @@
 #define KERNEL_MACHINE_HOSTED_IRQMANAGER_H
 
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/IrqDiagnosticSnapshotStore.h"
 #include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
@@ -45,14 +46,15 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     virtual irq_id_t registerIsaIrqHandler(
         uint8_t irq, IrqHandler *handler, const IrqPolicy &policy);
     virtual irq_id_t registerPciIrqHandler(
-        IrqHandler *handler, class Device *pDevice,
-        const IrqPolicy &policy);
+        IrqHandler *handler, class Device *pDevice, const IrqPolicy &policy);
     virtual irq_id_t registerHardIsaIrqHandler(
         uint8_t irq, HardIrqHandler *handler, const IrqPolicy &policy);
     virtual irq_id_t registerHardPciIrqHandler(
         HardIrqHandler *handler, class Device *pDevice,
         const IrqPolicy &policy);
     virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler);
+    virtual size_t
+    snapshotIrqLines(IrqLineDiagnosticSnapshot *out, size_t capacity) const;
 
     /** Initialises the PIC hardware and registers the interrupts with the
      *  InterruptManager.
@@ -81,6 +83,7 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     using HandlerHazardHook = IrqHandlerRegistry::HandlerHazardHook;
     using HandlerHazardStage = IrqHandlerRegistry::HandlerHazardStage;
     using MutationLockHook = IrqHandlerRegistry::MutationLockHook;
+    using DiagnosticPublicationHook = void (*)(uint8_t, size_t);
 
     /** Installs a deterministic observer after a handler has been pinned. */
     static EXPORTED_PUBLIC void setHandlerPinHook(HandlerPinHook hook);
@@ -94,15 +97,21 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     /** Dispatches one handler through the production registry path. */
     static EXPORTED_PUBLIC bool dispatchHandlerForTest(
         uint8_t irq, HardIrqHandler *handler, InterruptState &state,
-        bool &handled);
+        bool &handled, size_t dispatchGeneration = 1);
 
-    /** Dispatches through the production registry with synthetic hosted state. */
+    /** Dispatches through the production registry with synthetic hosted state.
+     */
     static EXPORTED_PUBLIC bool dispatchHandlerForTest(
-        uint8_t irq, HardIrqHandler *handler, bool &handled);
+        uint8_t irq, HardIrqHandler *handler, bool &handled,
+        size_t dispatchGeneration = 1);
 
     /** Runs a deterministic test seam while the writer lock is held. */
     static EXPORTED_PUBLIC void
     withRegistryMutationLockForTest(MutationLockHook hook);
+
+    /** Runs a deterministic test seam while the mutation epoch is active. */
+    static EXPORTED_PUBLIC void
+    withRegistryMutationEpochForTest(MutationLockHook hook);
 
     /** Counts active hazards for deterministic abandoned-stack tests. */
     static EXPORTED_PUBLIC size_t
@@ -117,6 +126,11 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
 
     /** Abandons the current test Thread through the kernel scheduler. */
     static EXPORTED_PUBLIC void abandonCurrentThreadForTest();
+
+    /** Pauses a deterministic diagnostic publication after its registry read.
+     */
+    static EXPORTED_PUBLIC void
+    setDiagnosticPublicationHook(DiagnosticPublicationHook hook);
 #endif
 
   private:
@@ -139,6 +153,7 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
 
     static void dispatchThreadedLine(void *context, uint8_t irq, size_t cookie);
+    void publishDiagnosticLine(uint8_t irq);
 
     /** IRQ handlers and their callback lifetime state. */
     IrqHandlerRegistry m_Handlers;
@@ -147,6 +162,8 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     ThreadedIrqDispatcher m_ThreadedDispatcher;
     size_t m_ThreadedCookies[3];
     size_t m_ThreadedPublicationFailures[3];
+    size_t m_DispatchGenerations[3];
+    IrqDiagnosticSnapshotStore<3> m_Diagnostics;
 
     /** The HostedIrqManager instance */
     static HostedIrqManager m_Instance;

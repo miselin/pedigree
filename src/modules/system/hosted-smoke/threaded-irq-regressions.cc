@@ -7,16 +7,19 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/IrqDiagnosticSnapshotStore.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/time/Time.h"
+#include "system/kernel/machine/hosted/IrqManager.h"
 #include "system/kernel/machine/mach_pc/PicIrqState.h"
 
 #include <signal.h>
@@ -24,6 +27,13 @@
 namespace
 {
 constexpr const char *Test = "irq-threaded-dispatcher-coalescing";
+
+static_assert(
+    __is_trivial(IrqLineDiagnosticSnapshot),
+    "IRQ debugger snapshots must remain plain data");
+static_assert(
+    __is_standard_layout(IrqLineDiagnosticSnapshot),
+    "IRQ debugger snapshots must remain detached plain data");
 
 bool check(bool condition, const char *detail, const char *test = Test)
 {
@@ -34,6 +44,121 @@ bool check(bool condition, const char *detail, const char *test = Test)
 
     ERROR("HOSTED-WAIT-TEST: FAIL " << test << ": " << detail);
     return false;
+}
+
+bool irqDiagnosticSnapshotPublication()
+{
+    constexpr const char *SnapshotTest = "irq-diagnostic-snapshot-publication";
+    IrqDiagnosticSnapshotStore<1> store;
+    IrqLineDiagnosticSnapshot initial = {};
+    bool passed = check(
+        store.snapshot(0, initial) && initial.snapshotGeneration == 1,
+        "the initial immutable bank was not readable", SnapshotTest);
+
+    size_t heldBank = 0;
+    const bool readerHeld = store.claimPublishedBankForTest(0, heldBank);
+    passed &= check(
+        readerHeld, "the published bank could not be held by a reader",
+        SnapshotTest);
+
+    size_t bank = 0;
+    IrqLineDiagnosticSnapshot *next = store.beginPublication(0, bank);
+    passed &=
+        check(next != nullptr, "a private bank was unavailable", SnapshotTest);
+    if (!next)
+    {
+        if (readerHeld)
+        {
+            store.releasePublishedBankForTest(0, heldBank);
+        }
+        return false;
+    }
+
+    *next = {};
+    next->line = 0;
+    next->configured = true;
+    next->handlerCount = 3;
+    next->delivery = IrqDelivery::Threaded;
+    next->trigger = IrqTrigger::Level;
+    next->controllerAck = IrqControllerAck::AfterHardStage;
+    next->lineRelease = IrqLineRelease::AfterThreadedCompletion;
+    next->effectiveMasked = true;
+    next->maskReasons = IrqMaskAwaitingThreadedCompletion;
+    next->dispatchGeneration = 0x1234;
+    next->publicationCookie = 0x5678;
+
+    IrqLineDiagnosticSnapshot whilePublishing = {};
+    passed &= check(
+        store.snapshot(0, whilePublishing) &&
+            whilePublishing.snapshotGeneration == initial.snapshotGeneration &&
+            !whilePublishing.configured,
+        "an incomplete private bank escaped to a reader", SnapshotTest);
+
+    size_t nestedBank = 0;
+    passed &= check(
+        !store.beginPublication(0, nestedBank) &&
+            store.missedPublications(0) == 1,
+        "a nested writer waited or entered the active publication",
+        SnapshotTest);
+
+    store.finishPublication(0, bank);
+    IrqLineDiagnosticSnapshot published = {};
+    passed &= check(
+        store.snapshot(0, published) && published.snapshotGeneration == 2 &&
+            published.configured && published.handlerCount == 3 &&
+            published.delivery == IrqDelivery::Threaded &&
+            published.trigger == IrqTrigger::Level &&
+            published.lineRelease == IrqLineRelease::AfterThreadedCompletion &&
+            published.effectiveMasked &&
+            published.maskReasons == IrqMaskAwaitingThreadedCompletion &&
+            published.dispatchGeneration == 0x1234 &&
+            published.publicationCookie == 0x5678,
+        "the committed bank was internally inconsistent", SnapshotTest);
+
+    size_t rotatedBank = 0;
+    IrqLineDiagnosticSnapshot *rotated = store.beginPublication(0, rotatedBank);
+    passed &= check(
+        rotated && rotatedBank != bank && rotatedBank != heldBank,
+        "the writer did not rotate to the third immutable bank", SnapshotTest);
+    if (rotated)
+    {
+        *rotated = published;
+        rotated->handlerCount = 4;
+        store.finishPublication(0, rotatedBank);
+    }
+
+    size_t contendedBank = 0;
+    IrqLineDiagnosticSnapshot *contended =
+        store.beginPublication(0, contendedBank);
+    passed &= check(
+        contended && contendedBank != heldBank,
+        "a held reader bank blocked or was reused by the writer", SnapshotTest);
+    if (contended)
+    {
+        *contended = published;
+        contended->handlerCount = 5;
+        store.finishPublication(0, contendedBank);
+    }
+
+    IrqLineDiagnosticSnapshot rotatedSnapshot = {};
+    passed &= check(
+        store.snapshot(0, rotatedSnapshot) &&
+            rotatedSnapshot.snapshotGeneration == 4 &&
+            rotatedSnapshot.handlerCount == 5,
+        "held-reader contention lost the newest complete publication",
+        SnapshotTest);
+    if (readerHeld)
+    {
+        store.releasePublishedBankForTest(0, heldBank);
+    }
+
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-diagnostic-snapshot-publication");
+    }
+    return passed;
 }
 
 struct DispatcherContext
@@ -99,8 +224,8 @@ bool threadedDispatcherCoalescing()
     DispatcherContext context;
     context.publisher = Processor::information().getCurrentThread();
     ThreadedIrqDispatcher dispatcher(
-        MakeConstantString("hosted threaded IRQ regression"), 2,
-        dispatchBatch, &context);
+        MakeConstantString("hosted threaded IRQ regression"), 2, dispatchBatch,
+        &context);
     context.dispatcher = &dispatcher;
     const bool initialised = dispatcher.initialise();
 
@@ -115,6 +240,10 @@ bool threadedDispatcherCoalescing()
 
     const bool firstObserved =
         firstPublished && context.firstEntered.acquireForCompletion(1, 2, 0);
+    const bool firstActive =
+        dispatcher.callbackActive(1) && dispatcher.activeCookie(1) == 1 &&
+        dispatcher.pendingCookie(1) == 0 &&
+        dispatcher.completedCookie(1) == 0 && dispatcher.workerIdentity(1) != 0;
     bool laterPublished = false;
     bool laterDoorbell = false;
     if (firstObserved)
@@ -141,6 +270,9 @@ bool threadedDispatcherCoalescing()
         firstDoorbell && laterDoorbell,
         "hard publication did not leave an atomic IRQ-work doorbell", Test);
     passed &= check(firstObserved, "the first worker batch did not enter");
+    passed &= check(
+        firstActive,
+        "active worker diagnostics lost the claimed callback window", Test);
     passed &= check(laterPublished, "a coalesced publication was rejected");
     passed &= check(secondObserved, "the coalesced worker batch did not enter");
     passed &= check(stopped, "the dispatcher did not drain and join");
@@ -158,9 +290,14 @@ bool threadedDispatcherCoalescing()
         context.workers[0] && context.workers[0] == context.workers[1],
         "one physical line did not retain one stable worker");
     passed &= check(
-        dispatcher.completedBatchesForTest(1) == 2 &&
-            dispatcher.completedCookieForTest(1) == 4,
+        dispatcher.completedBatches(1) == 2 &&
+            dispatcher.completedCookie(1) == 4 &&
+            !dispatcher.callbackActive(1) && dispatcher.publicationClosed(1),
         "completion generation did not follow callback return");
+    passed &= check(
+        !dispatcher.publicationClosed(2) && !dispatcher.callbackActive(2) &&
+            dispatcher.workerIdentity(2) == 0,
+        "an invalid diagnostic line reported live dispatcher state");
 
     if (passed)
     {
@@ -205,6 +342,158 @@ class HostedThreadedHandler : public IrqHandler
     Atomic<size_t> failures;
 };
 
+class HostedHardDiagnosticHandler : public HardIrqHandler
+{
+  public:
+    explicit HostedHardDiagnosticHandler(IrqManager *irqManager)
+        : manager(irqManager), observed(false), activeGeneration(0)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override
+    {
+        IrqLineDiagnosticSnapshot lines[3] = {};
+        if (manager && manager->snapshotIrqLines(lines, 3) == 3)
+        {
+            const IrqLineDiagnosticSnapshot &line = lines[2];
+            observed =
+                line.configured && line.delivery == IrqDelivery::Hard &&
+                line.hardStageActive && line.activeHardDispatchCount == 1 &&
+                line.activeHardDispatchGeneration != 0 &&
+                line.activeHardDispatchGeneration == line.dispatchGeneration;
+            activeGeneration = line.activeHardDispatchGeneration;
+        }
+        return true;
+    }
+
+    IrqManager *manager;
+    bool observed;
+    size_t activeGeneration;
+};
+
+class HostedDeferredDiagnosticHandler : public HardIrqHandler
+{
+  public:
+    explicit HostedDeferredDiagnosticHandler(IrqManager *irqManager)
+        : manager(irqManager), id(0), removalReturned(true), observed(false),
+          activeGeneration(0)
+    {
+    }
+
+    bool irq(irq_id_t, InterruptState &) override
+    {
+        removalReturned = manager && manager->unregisterHandler(id, this);
+        IrqLineDiagnosticSnapshot lines[3] = {};
+        if (manager && manager->snapshotIrqLines(lines, 3) == 3)
+        {
+            const IrqLineDiagnosticSnapshot &line = lines[2];
+            observed =
+                !line.configured && line.handlerCount == 0 &&
+                line.delivery == IrqDelivery::None && line.hardStageActive &&
+                line.activeHardDispatchCount == 1 &&
+                line.activeHardDispatchGeneration != 0 &&
+                line.activeHardDispatchGeneration == line.dispatchGeneration;
+            activeGeneration = line.activeHardDispatchGeneration;
+        }
+        return true;
+    }
+
+    IrqManager *manager;
+    irq_id_t id;
+    bool removalReturned;
+    bool observed;
+    size_t activeGeneration;
+};
+
+class HostedPolicyDiagnosticHandler : public HardIrqHandler
+{
+  public:
+    bool irq(irq_id_t, InterruptState &) override
+    {
+        return true;
+    }
+};
+
+struct StaleDiagnosticPublicationContext
+{
+    explicit StaleDiagnosticPublicationContext(IrqManager *irqManager)
+        : manager(irqManager), oldId(0), snapshotCaptured(0),
+          resumePublisher(0), armed(0), hookCalls(0), oldRemoved(0),
+          capturedGeneration(0)
+    {
+    }
+
+    IrqManager *manager;
+    HostedPolicyDiagnosticHandler oldHandler;
+    irq_id_t oldId;
+    Semaphore snapshotCaptured;
+    Semaphore resumePublisher;
+    Atomic<size_t> armed;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> oldRemoved;
+    size_t capturedGeneration;
+};
+
+StaleDiagnosticPublicationContext *g_StaleDiagnosticPublicationContext =
+    nullptr;
+
+void holdStaleDiagnosticPublication(uint8_t irq, size_t mutationGeneration)
+{
+    StaleDiagnosticPublicationContext *context =
+        g_StaleDiagnosticPublicationContext;
+    if (!context || irq != 2)
+    {
+        return;
+    }
+
+    context->hookCalls += 1;
+    if (context->armed.compareAndSwap(1, 2))
+    {
+        context->capturedGeneration = mutationGeneration;
+        context->snapshotCaptured.release();
+        if (!context->resumePublisher.acquireForCompletion())
+        {
+            context->armed = 3;
+        }
+    }
+}
+
+int unregisterBeforeStaleDiagnosticPublication(void *parameter)
+{
+    StaleDiagnosticPublicationContext *context =
+        reinterpret_cast<StaleDiagnosticPublicationContext *>(parameter);
+    if (context->manager->unregisterHandler(
+            context->oldId, &context->oldHandler))
+    {
+        context->oldRemoved = 1;
+    }
+    return 0;
+}
+
+struct HeldMutationDiagnosticContext
+{
+    explicit HeldMutationDiagnosticContext(IrqManager *irqManager)
+        : manager(irqManager), id(0)
+    {
+    }
+
+    IrqManager *manager;
+    HostedPolicyDiagnosticHandler handler;
+    irq_id_t id;
+};
+
+HeldMutationDiagnosticContext *g_HeldMutationDiagnosticContext = nullptr;
+
+void registerWhileMutationEpochHeld()
+{
+    HeldMutationDiagnosticContext *context = g_HeldMutationDiagnosticContext;
+    if (context)
+    {
+        context->id = context->manager->registerHardIsaIrqHandler(
+            2, &context->handler, IrqPolicy::edgeHard());
+    }
+}
+
 bool hostedThreadedSignalDelivery()
 {
     constexpr const char *SignalTest = "irq-threaded-hosted-signal";
@@ -214,9 +503,16 @@ bool hostedThreadedSignalDelivery()
 
     const irq_id_t id = manager->registerIsaIrqHandler(
         2, &handler, IrqPolicy::syntheticThreaded());
+    IrqLineDiagnosticSnapshot registeredLines[3] = {};
+    const size_t registeredCount =
+        manager->snapshotIrqLines(registeredLines, 3);
+    const IrqLineDiagnosticSnapshot registered = registeredLines[2];
     const bool interruptsWereEnabled = Processor::getInterrupts();
     Processor::setInterrupts(false);
     const bool raised = id && raise(SIGURG) == 0;
+    IrqLineDiagnosticSnapshot publishedLines[3] = {};
+    const size_t publishedCount = manager->snapshotIrqLines(publishedLines, 3);
+    const IrqLineDiagnosticSnapshot published = publishedLines[2];
     handler.hardReturned = 1;
     const bool deferredUntilHardReturn = handler.calls == 0;
     const bool doorbellPending =
@@ -231,12 +527,46 @@ bool hostedThreadedSignalDelivery()
     }
     const bool observed = raised && handler.calls == 1 &&
                           handler.entered.acquireForCompletion(1, 2, 0);
+    IrqLineDiagnosticSnapshot completed = {};
+    const Time::Timestamp completionDeadline =
+        Time::getTicks() + 2 * Time::Multiplier::Second;
+    while (Time::getTicks() < completionDeadline)
+    {
+        IrqLineDiagnosticSnapshot lines[3] = {};
+        if (manager->snapshotIrqLines(lines, 3) == 3 &&
+            lines[2].completedCookie == published.publicationCookie &&
+            !lines[2].dispatcherActive)
+        {
+            completed = lines[2];
+            break;
+        }
+        Processor::pause();
+    }
     const bool removed = id && manager->unregisterHandler(id, &handler);
+    IrqLineDiagnosticSnapshot removedLines[3] = {};
+    const size_t removedCount = manager->snapshotIrqLines(removedLines, 3);
+    const IrqLineDiagnosticSnapshot removedSnapshot = removedLines[2];
 
     bool passed = true;
+    passed &=
+        check(id != 0, "the threaded handler was not registered", SignalTest);
     passed &= check(
-        id != 0, "the threaded handler was not registered", SignalTest);
+        registeredCount == 3 && registered.configured &&
+            registered.handlerCount == 1 &&
+            registered.delivery == IrqDelivery::Threaded &&
+            registered.trigger == IrqTrigger::Synthetic &&
+            registered.controllerAck == IrqControllerAck::None &&
+            registered.lineRelease == IrqLineRelease::AfterHardStage &&
+            !registered.effectiveMasked && registered.dispatcherInitialised &&
+            registered.workerIdentity != 0,
+        "registration did not publish its typed line policy", SignalTest);
     passed &= check(raised, "the hosted IRQ signal was not raised", SignalTest);
+    passed &= check(
+        publishedCount == 3 && published.dispatchGeneration != 0 &&
+            published.publicationCookie != 0 &&
+            published.pendingCookie == published.publicationCookie &&
+            !published.dispatcherActive,
+        "hard publication was not visible before worker service", SignalTest);
     passed &= check(
         deferredUntilHardReturn && doorbellPending &&
             handler.callbacksBeforeHardReturn == 0,
@@ -245,10 +575,315 @@ bool hostedThreadedSignalDelivery()
         observed && handler.calls == 1 && handler.failures == 0,
         "the handler did not run once in an enabled ordinary thread",
         SignalTest);
-    passed &= check(removed, "the threaded handler was not removed", SignalTest);
+    passed &= check(
+        completed.completedCookie == published.publicationCookie &&
+            completed.completedBatches != 0 && !completed.dispatcherActive,
+        "worker completion was not visible in the detached snapshot",
+        SignalTest);
+    passed &=
+        check(removed, "the threaded handler was not removed", SignalTest);
+    passed &= check(
+        removedCount == 3 && !removedSnapshot.configured &&
+            removedSnapshot.handlerCount == 0 &&
+            removedSnapshot.delivery == IrqDelivery::None &&
+            removedSnapshot.effectiveMasked &&
+            (removedSnapshot.maskReasons & IrqMaskNoHandler),
+        "final unregister did not publish an empty masked line", SignalTest);
     if (passed)
     {
         NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-hosted-signal");
+    }
+    return passed;
+}
+
+bool hostedHardStageDiagnostics()
+{
+    constexpr const char *HardTest = "irq-hosted-hard-stage-diagnostics";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedHardDiagnosticHandler handler(manager);
+    const irq_id_t id = manager->registerHardIsaIrqHandler(
+        2, &handler, IrqPolicy::syntheticHard());
+
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    const bool raised = id && raise(SIGURG) == 0;
+    IrqLineDiagnosticSnapshot afterLines[3] = {};
+    const size_t afterCount = manager->snapshotIrqLines(afterLines, 3);
+    Processor::setInterrupts(interruptsWereEnabled);
+    const IrqLineDiagnosticSnapshot after = afterLines[2];
+    const bool removed = id && manager->unregisterHandler(id, &handler);
+
+    bool passed = true;
+    passed &= check(id != 0, "the hard handler was not registered", HardTest);
+    passed &= check(raised, "the hosted hard IRQ was not raised", HardTest);
+    passed &= check(
+        handler.observed && handler.activeGeneration != 0,
+        "the callback could not observe its active hard-stage generation",
+        HardTest);
+    passed &= check(
+        afterCount == 3 && !after.hardStageActive &&
+            after.activeHardDispatchCount == 0 &&
+            after.activeHardDispatchGeneration == 0 &&
+            after.dispatchGeneration == handler.activeGeneration,
+        "hard-stage diagnostics did not clear immediately after return",
+        HardTest);
+    passed &= check(removed, "the hard handler was not removed", HardTest);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-hosted-hard-stage-diagnostics");
+    }
+    return passed;
+}
+
+bool hostedDeferredRetiringDiagnostics()
+{
+    constexpr const char *RetiringTest =
+        "irq-hosted-deferred-retiring-diagnostics";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedDeferredDiagnosticHandler handler(manager);
+    handler.id = manager->registerHardIsaIrqHandler(
+        2, &handler, IrqPolicy::syntheticHard());
+
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    const bool raised = handler.id && raise(SIGURG) == 0;
+    IrqLineDiagnosticSnapshot afterLines[3] = {};
+    const size_t afterCount = manager->snapshotIrqLines(afterLines, 3);
+    Processor::setInterrupts(interruptsWereEnabled);
+    const IrqLineDiagnosticSnapshot after = afterLines[2];
+
+    // Deferred self-removal closes future admission before the current hazard
+    // retires. Keep that transient state visible instead of inventing a live
+    // configured handler for the callback already on the stack.
+    const irq_id_t reusedId = manager->registerHardIsaIrqHandler(
+        2, &handler, IrqPolicy::syntheticHard());
+    const bool cleaned =
+        reusedId && manager->unregisterHandler(reusedId, &handler);
+
+    bool passed = true;
+    passed &= check(
+        handler.id != 0 && raised, "the self-removing hard handler did not run",
+        RetiringTest);
+    passed &= check(
+        !handler.removalReturned && handler.observed &&
+            handler.activeGeneration != 0,
+        "deferred self-removal hid its retiring hard hazard", RetiringTest);
+    passed &= check(
+        afterCount == 3 && !after.configured &&
+            after.delivery == IrqDelivery::None && !after.hardStageActive &&
+            after.activeHardDispatchCount == 0 &&
+            after.activeHardDispatchGeneration == 0,
+        "the retired hard hazard remained visible after callback return",
+        RetiringTest);
+    passed &= check(
+        reusedId != 0 && cleaned, "the deferred slot did not retire for reuse",
+        RetiringTest);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-hosted-deferred-retiring-diagnostics");
+    }
+    return passed;
+}
+
+bool hostedDiagnosticPolicyLifecycle()
+{
+    constexpr const char *PolicyTest = "irq-hosted-diagnostic-policy-lifecycle";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    HostedPolicyDiagnosticHandler first;
+    HostedPolicyDiagnosticHandler survivor;
+    HostedPolicyDiagnosticHandler incompatible;
+
+    const irq_id_t firstId = manager->registerHardIsaIrqHandler(
+        2, &first, IrqPolicy::syntheticHard());
+    const irq_id_t survivorId = manager->registerHardIsaIrqHandler(
+        2, &survivor, IrqPolicy::syntheticHard());
+    const irq_id_t incompatibleId = manager->registerHardIsaIrqHandler(
+        2, &incompatible, IrqPolicy::edgeHard());
+    const bool firstRemoved =
+        firstId && manager->unregisterHandler(firstId, &first);
+
+    IrqLineDiagnosticSnapshot survivorLines[3] = {};
+    const bool survivorSnapshotted =
+        manager->snapshotIrqLines(survivorLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot survivorLine = survivorLines[2];
+    const bool survivorRemoved =
+        survivorId && manager->unregisterHandler(survivorId, &survivor);
+    const bool incompatibleRemoved =
+        incompatibleId &&
+        manager->unregisterHandler(incompatibleId, &incompatible);
+
+    StaleDiagnosticPublicationContext context(manager);
+    context.oldId = manager->registerHardIsaIrqHandler(
+        2, &context.oldHandler, IrqPolicy::syntheticHard());
+    Thread *unregisterer = new Thread(
+        Scheduler::instance().getKernelProcess(),
+        unregisterBeforeStaleDiagnosticPublication, &context, nullptr, false,
+        true, true);
+    unregisterer->setName("hosted stale IRQ-diagnostic publisher");
+
+    g_StaleDiagnosticPublicationContext = &context;
+    HostedIrqManager::setDiagnosticPublicationHook(
+        holdStaleDiagnosticPublication);
+    context.armed = 1;
+    const bool started = context.oldId && unregisterer->start();
+    const bool staleSnapshotHeld =
+        started && context.snapshotCaptured.acquireForCompletion(1, 2, 0);
+
+    HostedPolicyDiagnosticHandler replacement;
+    const irq_id_t replacementId =
+        staleSnapshotHeld ? manager->registerHardIsaIrqHandler(
+                                2, &replacement, IrqPolicy::edgeHard()) :
+                            0;
+    IrqLineDiagnosticSnapshot beforeResumeLines[3] = {};
+    const bool beforeResumeSnapshotted =
+        manager->snapshotIrqLines(beforeResumeLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot beforeResume = beforeResumeLines[2];
+
+    context.resumePublisher.release();
+    const bool joined = started && unregisterer->joinForCompletion();
+    HostedIrqManager::setDiagnosticPublicationHook(nullptr);
+    g_StaleDiagnosticPublicationContext = nullptr;
+
+    IrqLineDiagnosticSnapshot afterResumeLines[3] = {};
+    const bool afterResumeSnapshotted =
+        manager->snapshotIrqLines(afterResumeLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot afterResume = afterResumeLines[2];
+    const bool replacementRemoved =
+        replacementId &&
+        manager->unregisterHandler(replacementId, &replacement);
+    const bool oldCleanup =
+        context.oldRemoved ||
+        (context.oldId &&
+         manager->unregisterHandler(context.oldId, &context.oldHandler));
+
+    bool passed = true;
+    passed &= check(
+        firstId && survivorId && !incompatibleId,
+        "an occupied line accepted a different policy", PolicyTest);
+    passed &= check(
+        firstRemoved && survivorSnapshotted && survivorLine.configured &&
+            survivorLine.handlerCount == 1 &&
+            survivorLine.delivery == IrqDelivery::Hard &&
+            survivorLine.trigger == IrqTrigger::Synthetic &&
+            survivorLine.controllerAck == IrqControllerAck::None &&
+            survivorLine.lineRelease == IrqLineRelease::AfterHardStage,
+        "removing one handler discarded the surviving handler policy",
+        PolicyTest);
+    passed &= check(
+        survivorRemoved && !incompatibleRemoved,
+        "the policy compatibility setup did not clean up", PolicyTest);
+    passed &= check(
+        started && staleSnapshotHeld && replacementId &&
+            context.capturedGeneration != 0,
+        "the final-unregister publisher was not held after its empty snapshot",
+        PolicyTest);
+    passed &= check(
+        beforeResumeSnapshotted && beforeResume.configured &&
+            beforeResume.handlerCount == 1 &&
+            beforeResume.trigger == IrqTrigger::Edge,
+        "the replacement policy was not published during the interleaving",
+        PolicyTest);
+    passed &= check(
+        joined && context.oldRemoved && context.hookCalls >= 3 &&
+            afterResumeSnapshotted && afterResume.configured &&
+            afterResume.handlerCount == 1 &&
+            afterResume.delivery == IrqDelivery::Hard &&
+            afterResume.trigger == IrqTrigger::Edge &&
+            afterResume.controllerAck == IrqControllerAck::BeforeHardStage &&
+            afterResume.lineRelease == IrqLineRelease::AfterHardStage,
+        "a stale final-unregister publication overwrote the replacement line",
+        PolicyTest);
+    passed &= check(
+        replacementRemoved && oldCleanup,
+        "the lifecycle race handlers did not clean up", PolicyTest);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-hosted-diagnostic-policy-lifecycle");
+    }
+    return passed;
+}
+
+bool hostedDiagnosticMissedRegistrySnapshot()
+{
+    constexpr const char *MissedTest =
+        "irq-hosted-diagnostic-missed-registry-snapshot";
+    IrqManager *manager = Machine::instance().getIrqManager();
+    IrqLineDiagnosticSnapshot beforeLines[3] = {};
+    const bool beforeSnapshotted =
+        manager->snapshotIrqLines(beforeLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot before = beforeLines[2];
+
+    HeldMutationDiagnosticContext context(manager);
+    g_HeldMutationDiagnosticContext = &context;
+    HostedIrqManager::withRegistryMutationEpochForTest(
+        registerWhileMutationEpochHeld);
+    g_HeldMutationDiagnosticContext = nullptr;
+
+    IrqLineDiagnosticSnapshot missedLines[3] = {};
+    const bool missedSnapshotted =
+        manager->snapshotIrqLines(missedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot missed = missedLines[2];
+
+    HostedPolicyDiagnosticHandler second;
+    const irq_id_t secondId = context.id ?
+                                  manager->registerHardIsaIrqHandler(
+                                      2, &second, IrqPolicy::edgeHard()) :
+                                  0;
+    IrqLineDiagnosticSnapshot repairedLines[3] = {};
+    const bool repairedSnapshotted =
+        manager->snapshotIrqLines(repairedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot repaired = repairedLines[2];
+
+    const bool secondRemoved =
+        secondId && manager->unregisterHandler(secondId, &second);
+    IrqLineDiagnosticSnapshot consumedLines[3] = {};
+    const bool consumedSnapshotted =
+        manager->snapshotIrqLines(consumedLines, 3) == 3;
+    const IrqLineDiagnosticSnapshot consumed = consumedLines[2];
+    const bool firstRemoved =
+        context.id && manager->unregisterHandler(context.id, &context.handler);
+
+    bool passed = true;
+    passed &= check(
+        beforeSnapshotted && !before.configured && before.handlerCount == 0,
+        "the missed-publication test did not begin with an empty line",
+        MissedTest);
+    passed &= check(
+        context.id && missedSnapshotted &&
+            missed.snapshotGeneration == before.snapshotGeneration &&
+            !missed.configured && missed.handlerCount == 0,
+        "an incoherent registry read replaced the older complete bank",
+        MissedTest);
+    passed &= check(
+        missed.diagnosticPublicationFailures >
+            before.diagnosticPublicationFailures,
+        "bounded registry snapshot failures were not recorded", MissedTest);
+    passed &= check(
+        secondId && repairedSnapshotted && repaired.configured &&
+            repaired.handlerCount == 2 &&
+            repaired.delivery == IrqDelivery::Hard &&
+            repaired.trigger == IrqTrigger::Edge &&
+            repaired.snapshotGeneration > missed.snapshotGeneration,
+        "a later lifecycle publication did not repair the stale bank",
+        MissedTest);
+    passed &= check(
+        secondRemoved && consumedSnapshotted && consumed.configured &&
+            consumed.handlerCount == 1 &&
+            consumed.snapshotGeneration == repaired.snapshotGeneration + 1,
+        "the repaired publication did not consume the retained dirty state",
+        MissedTest);
+    passed &= check(
+        firstRemoved, "the missed-publication handlers did not clean up",
+        MissedTest);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-hosted-diagnostic-missed-registry-snapshot");
     }
     return passed;
 }
@@ -351,8 +986,13 @@ bool picThreadedTriggerPolicy()
 
 bool runHostedThreadedIrqRegressions()
 {
-    bool passed = threadedDispatcherCoalescing();
+    bool passed = irqDiagnosticSnapshotPublication();
+    passed &= threadedDispatcherCoalescing();
     passed &= hostedThreadedSignalDelivery();
+    passed &= hostedHardStageDiagnostics();
+    passed &= hostedDeferredRetiringDiagnostics();
+    passed &= hostedDiagnosticPolicyLifecycle();
+    passed &= hostedDiagnosticMissedRegistrySnapshot();
     passed &= picThreadedTriggerPolicy();
     return passed;
 }

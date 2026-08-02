@@ -56,6 +56,10 @@ bool irqForSignal(size_t signal, uint8_t &irq)
     }
     return false;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+HostedIrqManager::DiagnosticPublicationHook diagnosticPublicationHook = nullptr;
+#endif
 }  // namespace
 
 HostedIrqManager HostedIrqManager::m_Instance;
@@ -78,8 +82,10 @@ irq_id_t HostedIrqManager::registerIsaIrqHandler(
             !policy.validForThreaded()))
         return 0;
 
-    if (!m_Handlers.registerThreadedHandler(irq, handler))
+    if (!m_Handlers.registerThreadedHandler(irq, handler, policy))
         return 0;
+
+    publishDiagnosticLine(irq);
 
     return irqToSignal[irq];
 }
@@ -92,14 +98,15 @@ irq_id_t HostedIrqManager::registerHardIsaIrqHandler(
             !policy.validForHard()))
         return 0;
 
-    if (!m_Handlers.registerHardHandler(irq, handler))
+    if (!m_Handlers.registerHardHandler(irq, handler, policy))
         return 0;
+
+    publishDiagnosticLine(irq);
 
     return irqToSignal[irq];
 }
 
-irq_id_t
-HostedIrqManager::registerPciIrqHandler(
+irq_id_t HostedIrqManager::registerPciIrqHandler(
     IrqHandler *handler, Device *pDevice, const IrqPolicy &policy)
 {
     if (UNLIKELY(!pDevice))
@@ -112,8 +119,10 @@ HostedIrqManager::registerPciIrqHandler(
             policy.trigger() != IrqTrigger::Level))
         return 0;
 
-    if (!m_Handlers.registerThreadedHandler(irq, handler))
+    if (!m_Handlers.registerThreadedHandler(irq, handler, policy))
         return 0;
+
+    publishDiagnosticLine(irq);
 
     return irqToSignal[irq];
 }
@@ -126,12 +135,13 @@ irq_id_t HostedIrqManager::registerHardPciIrqHandler(
     irq_id_t irq = pDevice->getInterruptNumber();
     if (UNLIKELY(
             irq >= NumHostedIrqs || !handler || !irqToSignal[irq] ||
-            !policy.validForHard() ||
-            policy.trigger() != IrqTrigger::Level))
+            !policy.validForHard() || policy.trigger() != IrqTrigger::Level))
         return 0;
 
-    if (!m_Handlers.registerHardHandler(irq, handler))
+    if (!m_Handlers.registerHardHandler(irq, handler, policy))
         return 0;
+
+    publishDiagnosticLine(irq);
 
     return irqToSignal[irq];
 }
@@ -151,8 +161,14 @@ bool HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
         !m_Handlers.handlerCount(irq))
     {
         __atomic_add_fetch(
-            &m_ThreadedCookies[irq], static_cast<size_t>(1),
-            __ATOMIC_ACQ_REL);
+            &m_ThreadedCookies[irq], static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+    }
+    // Atomic removal can briefly publish Draining before restoring Enabled
+    // when a callback is active. Refresh rejected mutations as well so an
+    // observer cannot retain that transient closed state.
+    if (result != IrqHandlerRegistry::UnregisterResult::NotFound)
+    {
+        publishDiagnosticLine(irq);
     }
     if (result == IrqHandlerRegistry::UnregisterResult::Rejected)
     {
@@ -199,12 +215,146 @@ bool HostedIrqManager::shutdownThreaded()
 }
 
 HostedIrqManager::HostedIrqManager()
-    : m_Handlers(),
-      m_ThreadedDispatcher(
-          MakeConstantString("hosted IRQ bottom half"), NumHostedIrqs,
-          dispatchThreadedLine, this),
-      m_ThreadedCookies(), m_ThreadedPublicationFailures()
+    : m_Handlers(), m_ThreadedDispatcher(
+                        MakeConstantString("hosted IRQ bottom half"),
+                        NumHostedIrqs, dispatchThreadedLine, this),
+      m_ThreadedCookies(), m_ThreadedPublicationFailures(),
+      m_DispatchGenerations(), m_Diagnostics()
 {
+    for (size_t irq = 0; irq < NumHostedIrqs; ++irq)
+    {
+        publishDiagnosticLine(static_cast<uint8_t>(irq));
+    }
+}
+
+void HostedIrqManager::publishDiagnosticLine(uint8_t irq)
+{
+    if (irq >= NumHostedIrqs)
+    {
+        return;
+    }
+
+    // One bounded retry repairs either a nested diagnostic refresh or a line
+    // mutation which overtook a publisher after its registry snapshot.
+    for (size_t attempt = 0; attempt < 2; ++attempt)
+    {
+        IrqHandlerRegistry::LineConfiguration configuration;
+        if (!m_Handlers.snapshotLineConfiguration(irq, configuration))
+        {
+            m_Diagnostics.recordMissedPublication(irq);
+            continue;
+        }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        DiagnosticPublicationHook hook =
+            __atomic_load_n(&diagnosticPublicationHook, __ATOMIC_ACQUIRE);
+        if (hook)
+        {
+            hook(irq, configuration.mutationGeneration);
+        }
+#endif
+
+        size_t targetBank = 0;
+        IrqLineDiagnosticSnapshot *target =
+            m_Diagnostics.beginPublication(irq, targetBank);
+        if (!target)
+        {
+            return;
+        }
+
+        IrqLineDiagnosticSnapshot line = {};
+        line.line = irq;
+        line.handlerCount = configuration.handlerCount;
+        line.configured = line.handlerCount != 0;
+        line.effectiveMasked = !line.configured;
+        line.requestedEnabled = line.configured;
+        if (!line.configured)
+        {
+            line.maskReasons = IrqMaskNoHandler;
+        }
+        else
+        {
+            line.delivery =
+                configuration.mode == IrqHandlerRegistry::LineMode::Threaded ?
+                    IrqDelivery::Threaded :
+                    IrqDelivery::Hard;
+            if (configuration.policyConfigured)
+            {
+                line.trigger = configuration.trigger;
+                line.controllerAck = configuration.controllerAck;
+                line.lineRelease = configuration.lineRelease;
+            }
+        }
+
+        *target = line;
+        m_Diagnostics.finishPublication(irq, targetBank);
+
+        IrqHandlerRegistry::LineConfiguration current;
+        const bool registryStable =
+            m_Handlers.snapshotLineConfiguration(irq, current) &&
+            current.mutationGeneration == configuration.mutationGeneration;
+        if (!registryStable)
+        {
+            m_Diagnostics.recordMissedPublication(irq);
+            continue;
+        }
+        if (!m_Diagnostics.consumeDirty(irq))
+        {
+            break;
+        }
+    }
+}
+
+size_t HostedIrqManager::snapshotIrqLines(
+    IrqLineDiagnosticSnapshot *out, size_t capacity) const
+{
+    if (!out || !capacity)
+    {
+        return 0;
+    }
+
+    const size_t count = capacity < NumHostedIrqs ? capacity : NumHostedIrqs;
+    for (size_t irq = 0; irq < count; ++irq)
+    {
+        if (!m_Diagnostics.snapshot(irq, out[irq]))
+        {
+            out[irq] = {};
+            out[irq].line = static_cast<uint8_t>(irq);
+        }
+    }
+
+    const bool dispatcherInitialised = m_ThreadedDispatcher.isInitialised();
+    for (size_t irq = 0; irq < count; ++irq)
+    {
+        out[irq].dispatchGeneration =
+            __atomic_load_n(&m_DispatchGenerations[irq], __ATOMIC_ACQUIRE);
+        out[irq].acknowledgedGeneration = out[irq].dispatchGeneration;
+        out[irq].activeHardDispatchCount = m_Handlers.hardDispatchState(
+            static_cast<uint8_t>(irq), out[irq].activeHardDispatchGeneration);
+        out[irq].hardStageActive = out[irq].activeHardDispatchCount != 0;
+        out[irq].publicationCookie =
+            __atomic_load_n(&m_ThreadedCookies[irq], __ATOMIC_ACQUIRE);
+        out[irq].pendingCookie =
+            m_ThreadedDispatcher.pendingCookie(static_cast<uint8_t>(irq));
+        out[irq].activeCookie =
+            m_ThreadedDispatcher.activeCookie(static_cast<uint8_t>(irq));
+        out[irq].completedCookie =
+            m_ThreadedDispatcher.completedCookie(static_cast<uint8_t>(irq));
+        out[irq].completedBatches =
+            m_ThreadedDispatcher.completedBatches(static_cast<uint8_t>(irq));
+        out[irq].publicationFailures = __atomic_load_n(
+            &m_ThreadedPublicationFailures[irq], __ATOMIC_RELAXED);
+        out[irq].diagnosticPublicationFailures =
+            m_Diagnostics.missedPublications(irq);
+        out[irq].workerIdentity =
+            m_ThreadedDispatcher.workerIdentity(static_cast<uint8_t>(irq));
+        out[irq].dispatcherInitialised = dispatcherInitialised;
+        out[irq].dispatcherActive =
+            m_ThreadedDispatcher.callbackActive(static_cast<uint8_t>(irq));
+        out[irq].dispatcherClosed =
+            m_ThreadedDispatcher.publicationClosed(static_cast<uint8_t>(irq));
+    }
+    return count;
 }
 
 void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
@@ -218,11 +368,19 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
         return;
     }
 
+    size_t dispatchGeneration = __atomic_add_fetch(
+        &m_DispatchGenerations[irq], static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+    if (!dispatchGeneration)
+    {
+        dispatchGeneration = __atomic_add_fetch(
+            &m_DispatchGenerations[irq], static_cast<size_t>(1),
+            __ATOMIC_ACQ_REL);
+    }
+
     if (m_Handlers.lineMode(irq) == IrqHandlerRegistry::LineMode::Threaded)
     {
         size_t cookie = __atomic_add_fetch(
-            &m_ThreadedCookies[irq], static_cast<size_t>(1),
-            __ATOMIC_ACQ_REL);
+            &m_ThreadedCookies[irq], static_cast<size_t>(1), __ATOMIC_ACQ_REL);
         if (!cookie)
         {
             cookie = __atomic_add_fetch(
@@ -239,7 +397,9 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
     }
 
     bool handled = false;
-    if (!m_Handlers.dispatchHard(irq, state, handled))
+    const bool admitted = m_Handlers.dispatchHard(
+        irq, state, handled, nullptr, dispatchGeneration);
+    if (!admitted)
     {
         NOTICE("HostedIrqManager: unhandled irq #" << irq << " occurred");
     }
@@ -248,10 +408,9 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
 void HostedIrqManager::dispatchThreadedLine(
     void *context, uint8_t irq, size_t cookie)
 {
-    HostedIrqManager *manager =
-        reinterpret_cast<HostedIrqManager *>(context);
-    if (cookie != __atomic_load_n(
-                      &manager->m_ThreadedCookies[irq], __ATOMIC_ACQUIRE))
+    HostedIrqManager *manager = reinterpret_cast<HostedIrqManager *>(context);
+    if (cookie !=
+        __atomic_load_n(&manager->m_ThreadedCookies[irq], __ATOMIC_ACQUIRE))
     {
         return;
     }
@@ -275,22 +434,37 @@ void HostedIrqManager::setHandlerHazardHook(HandlerHazardHook hook)
     m_Instance.m_Handlers.setHandlerHazardHook(hook);
 }
 
-bool HostedIrqManager::dispatchHandlerForTest(
-    uint8_t irq, HardIrqHandler *handler, InterruptState &state, bool &handled)
+void HostedIrqManager::setDiagnosticPublicationHook(
+    DiagnosticPublicationHook hook)
 {
-    return m_Instance.m_Handlers.dispatchHard(irq, state, handled, handler);
+    __atomic_store_n(&diagnosticPublicationHook, hook, __ATOMIC_RELEASE);
 }
 
 bool HostedIrqManager::dispatchHandlerForTest(
-    uint8_t irq, HardIrqHandler *handler, bool &handled)
+    uint8_t irq, HardIrqHandler *handler, InterruptState &state, bool &handled,
+    size_t dispatchGeneration)
+{
+    return m_Instance.m_Handlers.dispatchHard(
+        irq, state, handled, handler, dispatchGeneration);
+}
+
+bool HostedIrqManager::dispatchHandlerForTest(
+    uint8_t irq, HardIrqHandler *handler, bool &handled,
+    size_t dispatchGeneration)
 {
     InterruptState state;
-    return dispatchHandlerForTest(irq, handler, state, handled);
+    return dispatchHandlerForTest(
+        irq, handler, state, handled, dispatchGeneration);
 }
 
 void HostedIrqManager::withRegistryMutationLockForTest(MutationLockHook hook)
 {
     m_Instance.m_Handlers.withMutationLockForTest(hook);
+}
+
+void HostedIrqManager::withRegistryMutationEpochForTest(MutationLockHook hook)
+{
+    m_Instance.m_Handlers.withMutationEpochForTest(hook);
 }
 
 size_t HostedIrqManager::activeDispatchCountForTest(IrqHandlerBase *handler)

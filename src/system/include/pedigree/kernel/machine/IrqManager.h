@@ -192,6 +192,68 @@ class IrqPolicy
     IrqLineRelease m_LineRelease;
 };
 
+/** Delivery context currently configured for a physical interrupt line. */
+enum class IrqDelivery : uint8_t
+{
+    None,
+    Hard,
+    Threaded,
+};
+
+/** Independent reasons an interrupt line is not currently live. */
+enum IrqMaskReason : uint16_t
+{
+    IrqMaskNone = 0,
+    IrqMaskNoHandler = 1U << 0,
+    IrqMaskAdministrativelyDisabled = 1U << 1,
+    IrqMaskAwaitingAcknowledgement = 1U << 2,
+    IrqMaskAwaitingThreadedCompletion = 1U << 3,
+    IrqMaskMitigated = 1U << 4,
+    IrqMaskShuttingDown = 1U << 5,
+};
+
+/**
+ * Detached debugger-facing state for one physical interrupt line.
+ *
+ * This is deliberately a plain data object: consumers must not retain or
+ * dereference any live kernel object while the debugger has other CPUs
+ * stopped. The snapshot is best-effort while the machine is running, but a
+ * controller must always leave its last complete publication readable if it
+ * is interrupted partway through publishing a newer one.
+ */
+struct IrqLineDiagnosticSnapshot
+{
+    size_t snapshotGeneration;
+    size_t dispatchGeneration;
+    size_t acknowledgedGeneration;
+    size_t activeHardDispatchCount;
+    size_t activeHardDispatchGeneration;
+    size_t publicationCookie;
+    size_t pendingCookie;
+    size_t activeCookie;
+    size_t completedCookie;
+    size_t completedBatches;
+    size_t publicationFailures;
+    size_t diagnosticPublicationFailures;
+    uintptr_t workerIdentity;
+    size_t handlerCount;
+    uint16_t maskReasons;
+    uint8_t line;
+    IrqDelivery delivery;
+    IrqTrigger trigger;
+    IrqControllerAck controllerAck;
+    IrqLineRelease lineRelease;
+    bool configured;
+    bool effectiveMasked;
+    bool requestedEnabled;
+    bool acknowledgementPending;
+    bool threadedPending;
+    bool dispatcherInitialised;
+    bool dispatcherActive;
+    bool dispatcherClosed;
+    bool hardStageActive;
+};
+
 /** This class handles IRQ (un)registration */
 class IrqManager
 {
@@ -237,6 +299,13 @@ class IrqManager
     virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler) = 0;
 
     virtual void enable(uint8_t irq, bool enable) = 0;
+
+    /**
+     * Copies up to `capacity` detached line diagnostics without taking an IRQ
+     * manager or handler-registry lock. Unsupported managers return zero.
+     */
+    virtual size_t
+    snapshotIrqLines(IrqLineDiagnosticSnapshot *out, size_t capacity) const;
 
     /** Called every millisecond, typically handles IRQ mitigation. */
     virtual void tick();

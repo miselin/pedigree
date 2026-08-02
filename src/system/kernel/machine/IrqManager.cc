@@ -22,6 +22,11 @@
 IrqManager::IrqManager() = default;
 IrqManager::~IrqManager() = default;
 
+size_t IrqManager::snapshotIrqLines(IrqLineDiagnosticSnapshot *, size_t) const
+{
+    return 0;
+}
+
 void IrqManager::tick()
 {
 }

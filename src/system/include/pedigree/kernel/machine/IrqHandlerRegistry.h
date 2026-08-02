@@ -10,6 +10,7 @@
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -46,13 +47,41 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         HardOnly,
     };
 
+    /** One coherent, detached view of a physical line's admitted handlers. */
+    struct LineConfiguration
+    {
+        LineConfiguration()
+            : mutationGeneration(0), handlerCount(0), mode(LineMode::Empty),
+              policyConfigured(false), trigger(IrqTrigger::Edge),
+              controllerAck(IrqControllerAck::None),
+              lineRelease(IrqLineRelease::AfterHardStage)
+        {
+        }
+
+        size_t mutationGeneration;
+        size_t handlerCount;
+        LineMode mode;
+        bool policyConfigured;
+        IrqTrigger trigger;
+        IrqControllerAck controllerAck;
+        IrqLineRelease lineRelease;
+    };
+
     IrqHandlerRegistry();
 
     /** Publishes an ordinary thread-context handler. */
     bool registerThreadedHandler(uint8_t irq, IrqHandler *handler);
 
+    /** Publishes a typed thread-context handler and line policy. */
+    bool registerThreadedHandler(
+        uint8_t irq, IrqHandler *handler, const IrqPolicy &policy);
+
     /** Publishes an explicit hard-IRQ handler. */
     bool registerHardHandler(uint8_t irq, HardIrqHandler *handler);
+
+    /** Publishes a typed hard-IRQ handler and line policy. */
+    bool registerHardHandler(
+        uint8_t irq, HardIrqHandler *handler, const IrqPolicy &policy);
 
     /**
      * Stops future callbacks and drains callbacks already in progress.
@@ -72,7 +101,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
      */
     bool dispatchHard(
         uint8_t irq, InterruptState &state, bool &handled,
-        HardIrqHandler *onlyHandler = nullptr);
+        HardIrqHandler *onlyHandler = nullptr, size_t dispatchGeneration = 0);
 
     /** Dispatches threaded handlers without exposing interrupted state. */
     bool dispatchThreaded(
@@ -82,6 +111,25 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
 
     /** Returns the delivery type of an enabled physical line. */
     LineMode lineMode(uint8_t irq);
+
+    /**
+     * Takes a bounded lock-free snapshot of one line's admitted configuration.
+     *
+     * A false return means a concurrent mutation outlived both bounded
+     * attempts; callers may leave observational state stale and try again
+     * later.
+     */
+    bool snapshotLineConfiguration(
+        uint8_t irq, LineConfiguration &configuration) const;
+
+    /**
+     * Lock-free debugger query for committed hard callbacks on one line.
+     *
+     * Returns the active count and writes the exact controller generation only
+     * when one callback is active. Multiple callbacks make the generation
+     * ambiguous and write zero.
+     */
+    size_t hardDispatchState(uint8_t irq, size_t &exactGeneration) const;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     enum class HandlerHazardStage
@@ -101,6 +149,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     void setHandlerPrePinHook(HandlerPrePinHook hook);
     void setHandlerHazardHook(HandlerHazardHook hook);
     void withMutationLockForTest(MutationLockHook hook);
+    void withMutationEpochForTest(MutationLockHook hook);
     size_t activeDispatchCountForTest(IrqHandlerBase *handler);
     size_t claimedDispatchCountForTest();
     bool containsHandlerForTest(uint8_t irq, IrqHandlerBase *handler);
@@ -136,13 +185,19 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     static constexpr size_t IrqMask = 0xFF << IrqShift;
     static constexpr size_t GenerationShift = IrqShift + 8;
 
+    static constexpr size_t PolicyValid = 1U << 0;
+    static constexpr size_t PolicyTriggerShift = 1;
+    static constexpr size_t PolicyControllerAckShift = 3;
+    static constexpr size_t PolicyLineReleaseShift = 5;
+    static constexpr size_t LineSnapshotAttempts = 2;
+
     struct HandlerSlot;
 
     struct ActiveDispatch
     {
         ActiveDispatch()
             : token(nullptr), generation(0), owner(nullptr),
-              admittedPublication(0), slot(nullptr)
+              admittedPublication(0), controllerGeneration(0), slot(nullptr)
         {
         }
 
@@ -150,17 +205,19 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         size_t generation;
         void *owner;
         size_t admittedPublication;
+        size_t controllerGeneration;
         HandlerSlot *slot;
     };
 
     struct HandlerSlot
     {
-        HandlerSlot() : handler(nullptr), publication(0)
+        HandlerSlot() : handler(nullptr), publication(0), policy(0)
         {
         }
 
         IrqHandlerBase *handler;
         size_t publication;
+        size_t policy;
     };
 
     struct DispatchCleanup
@@ -189,17 +246,22 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     static uint8_t irqOf(size_t publication);
     static SlotMode modeOf(size_t publication);
     static Delivery deliveryOf(size_t publication);
+    static size_t encodePolicy(const IrqPolicy *policy);
+    static void decodePolicy(size_t policy, LineConfiguration &configuration);
 
     /** All handlers on one physical line must use one delivery mode. */
-    bool
-    registerHandler(uint8_t irq, IrqHandlerBase *handler, Delivery delivery);
+    bool registerHandler(
+        uint8_t irq, IrqHandlerBase *handler, Delivery delivery, size_t policy);
+
+    void beginMutation();
+    void finishMutation();
 
     bool retireSlot(
         HandlerSlot &slot, size_t expectedPublication,
         IrqHandlerBase *expectedHandler);
     ActiveDispatch *publishDispatch(
-        HandlerSlot &slot, void *owner, void *token,
-        size_t admittedPublication);
+        HandlerSlot &slot, void *owner, void *token, size_t admittedPublication,
+        size_t controllerGeneration);
     bool unpublishDispatch(
         void *token, HandlerSlot &slot, size_t admittedPublication,
         bool required);
@@ -213,6 +275,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     HandlerSlot m_Handlers[MaxHandlerSlots];
     ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
     Spinlock m_HandlerLock;
+    size_t m_MutationGeneration;
+    size_t m_MutationWriters;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     HandlerPinHook m_HandlerPinHook;

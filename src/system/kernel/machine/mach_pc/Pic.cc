@@ -96,7 +96,9 @@ Pic::registerIsaIrqHandler(
         advanceThreadedCookieLocked(irq);
     }
     m_IrqState.handlerRegistered(irq, policy);
+    m_LineDeliveries[irq] = IrqDelivery::Threaded;
     applyMaskLocked();
+    publishDiagnosticLineLocked(irq);
 
     return irq + BASE_INTERRUPT_VECTOR;
 }
@@ -130,7 +132,9 @@ Pic::registerHardIsaIrqHandler(
         advanceThreadedCookieLocked(irq);
     }
     m_IrqState.handlerRegistered(irq, policy);
+    m_LineDeliveries[irq] = IrqDelivery::Hard;
     applyMaskLocked();
+    publishDiagnosticLineLocked(irq);
 
     return irq + BASE_INTERRUPT_VECTOR;
 }
@@ -167,7 +171,9 @@ irq_id_t Pic::registerPciIrqHandler(
         advanceThreadedCookieLocked(irq);
     }
     m_IrqState.handlerRegistered(irq, policy);
+    m_LineDeliveries[irq] = IrqDelivery::Threaded;
     applyMaskLocked();
+    publishDiagnosticLineLocked(irq);
 
     return irq + BASE_INTERRUPT_VECTOR;
 }
@@ -204,7 +210,9 @@ Pic::registerHardPciIrqHandler(
         advanceThreadedCookieLocked(irq);
     }
     m_IrqState.handlerRegistered(irq, policy);
+    m_LineDeliveries[irq] = IrqDelivery::Hard;
     applyMaskLocked();
+    publishDiagnosticLineLocked(irq);
 
     return irq + BASE_INTERRUPT_VECTOR;
 }
@@ -238,8 +246,10 @@ bool Pic::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
             if (!m_IrqState.handlerCount(irq))
             {
                 advanceThreadedCookieLocked(irq);
+                m_LineDeliveries[irq] = IrqDelivery::None;
             }
             applyMaskLocked();
+            publishDiagnosticLineLocked(irq);
         }
     }
 
@@ -309,6 +319,7 @@ bool Pic::shutdownThreaded()
             advanceThreadedCookieLocked(static_cast<uint8_t>(irq));
         }
         applyMaskLocked();
+        publishAllDiagnosticLinesLocked();
     }
     return m_ThreadedDispatcher.shutdown();
 }
@@ -319,9 +330,133 @@ Pic::Pic()
           MakeConstantString("PIC IRQ bottom half"), PicIrqState::LineCount,
           dispatchThreadedLine, this),
       m_ThreadedCookies(), m_ThreadedDispatchGenerations(),
-      m_ThreadedPublicationFailures(), m_UnregisterReservations(),
-      m_ShuttingDown(false), m_Lock(false)
+      m_ThreadedPublicationFailures(), m_LineDeliveries(), m_Diagnostics(),
+      m_UnregisterReservations(), m_ShuttingDown(false), m_IrqCount(),
+      m_MitigatedIrqs(), m_MitigationThreshold(), m_Lock(false)
 {
+    publishAllDiagnosticLinesLocked();
+}
+
+void Pic::publishDiagnosticLineLocked(uint8_t irq)
+{
+    if (irq >= PicIrqState::LineCount)
+    {
+        return;
+    }
+
+    size_t targetBank = 0;
+    IrqLineDiagnosticSnapshot *target =
+        m_Diagnostics.beginPublication(irq, targetBank);
+    if (!target)
+    {
+        return;
+    }
+
+    IrqLineDiagnosticSnapshot line = {};
+    line.line = irq;
+    line.handlerCount = m_IrqState.handlerCount(irq);
+    line.configured = line.handlerCount != 0;
+    line.delivery = m_LineDeliveries[irq];
+    line.effectiveMasked = !m_IrqState.enabled(irq);
+    line.requestedEnabled = m_IrqState.requestedEnabled(irq);
+    line.acknowledgementPending = m_IrqState.acknowledgementPending(irq);
+    line.threadedPending = m_IrqState.threadedPending(irq);
+    line.dispatchGeneration = m_IrqState.dispatchGeneration(irq);
+    line.acknowledgedGeneration = m_IrqState.acknowledgedGeneration(irq);
+    line.publicationCookie = m_ThreadedCookies[irq];
+    line.publicationFailures =
+        __atomic_load_n(&m_ThreadedPublicationFailures[irq], __ATOMIC_RELAXED);
+
+    if (!line.configured)
+    {
+        line.maskReasons |= IrqMaskNoHandler;
+    }
+    else
+    {
+        line.trigger = m_IrqState.trigger(irq);
+        line.controllerAck = m_IrqState.controllerAck(irq);
+        line.lineRelease = m_IrqState.lineRelease(irq);
+    }
+    if (!line.requestedEnabled)
+    {
+        line.maskReasons |= IrqMaskAdministrativelyDisabled;
+    }
+    if (line.acknowledgementPending)
+    {
+        line.maskReasons |= IrqMaskAwaitingAcknowledgement;
+    }
+    if (line.threadedPending)
+    {
+        line.maskReasons |= IrqMaskAwaitingThreadedCompletion;
+    }
+    if (m_MitigatedIrqs[irq])
+    {
+        line.maskReasons |= IrqMaskMitigated;
+    }
+    if (m_ShuttingDown)
+    {
+        line.maskReasons |= IrqMaskShuttingDown;
+    }
+
+    *target = line;
+    m_Diagnostics.finishPublication(irq, targetBank);
+}
+
+void Pic::publishAllDiagnosticLinesLocked()
+{
+    for (size_t irq = 0; irq < PicIrqState::LineCount; ++irq)
+    {
+        publishDiagnosticLineLocked(static_cast<uint8_t>(irq));
+    }
+}
+
+size_t
+Pic::snapshotIrqLines(IrqLineDiagnosticSnapshot *out, size_t capacity) const
+{
+    if (!out || !capacity)
+    {
+        return 0;
+    }
+
+    const size_t count =
+        capacity < PicIrqState::LineCount ? capacity : PicIrqState::LineCount;
+    for (size_t irq = 0; irq < count; ++irq)
+    {
+        if (!m_Diagnostics.snapshot(irq, out[irq]))
+        {
+            out[irq] = {};
+            out[irq].line = static_cast<uint8_t>(irq);
+        }
+    }
+
+    const bool dispatcherInitialised = m_ThreadedDispatcher.isInitialised();
+    for (size_t irq = 0; irq < count; ++irq)
+    {
+        out[irq].pendingCookie =
+            m_ThreadedDispatcher.pendingCookie(static_cast<uint8_t>(irq));
+        out[irq].activeHardDispatchCount = m_Handlers.hardDispatchState(
+            static_cast<uint8_t>(irq),
+            out[irq].activeHardDispatchGeneration);
+        out[irq].hardStageActive = out[irq].activeHardDispatchCount != 0;
+        out[irq].activeCookie =
+            m_ThreadedDispatcher.activeCookie(static_cast<uint8_t>(irq));
+        out[irq].completedCookie =
+            m_ThreadedDispatcher.completedCookie(static_cast<uint8_t>(irq));
+        out[irq].completedBatches =
+            m_ThreadedDispatcher.completedBatches(static_cast<uint8_t>(irq));
+        out[irq].publicationFailures = __atomic_load_n(
+            &m_ThreadedPublicationFailures[irq], __ATOMIC_RELAXED);
+        out[irq].diagnosticPublicationFailures =
+            m_Diagnostics.missedPublications(irq);
+        out[irq].workerIdentity =
+            m_ThreadedDispatcher.workerIdentity(static_cast<uint8_t>(irq));
+        out[irq].dispatcherInitialised = dispatcherInitialised;
+        out[irq].dispatcherActive =
+            m_ThreadedDispatcher.callbackActive(static_cast<uint8_t>(irq));
+        out[irq].dispatcherClosed =
+            m_ThreadedDispatcher.publicationClosed(static_cast<uint8_t>(irq));
+    }
+    return count;
 }
 
 size_t Pic::advanceThreadedCookieLocked(uint8_t irq)
@@ -422,6 +557,7 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
         {
             eoiLocked(irq);
         }
+        publishDiagnosticLineLocked(static_cast<uint8_t>(irq));
     }
 
     if (threaded)
@@ -436,7 +572,8 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
     }
 
     bool bHandled = false;
-    const bool admitted = m_Handlers.dispatchHard(irq, state, bHandled);
+    const bool admitted = m_Handlers.dispatchHard(
+        irq, state, bHandled, nullptr, dispatchGeneration);
 
     {
         LockGuard<Spinlock> guard(m_Lock);
@@ -452,6 +589,7 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
         {
             eoiLocked(irq);
         }
+        publishDiagnosticLineLocked(static_cast<uint8_t>(irq));
     }
 
     if (!admitted)
@@ -492,6 +630,7 @@ void Pic::dispatchThreadedLine(void *context, uint8_t irq, size_t cookie)
         {
             pic->applyMaskLocked();
         }
+        pic->publishDiagnosticLineLocked(irq);
     }
 
     if (!admitted)
@@ -540,6 +679,7 @@ void Pic::enable(uint8_t irq, bool enable)
         return;
     }
     setEnabledLocked(irq, enable);
+    publishDiagnosticLineLocked(irq);
 }
 void Pic::enableAll(bool enable)
 {
@@ -547,4 +687,5 @@ void Pic::enableAll(bool enable)
     m_IrqState.setAllEnabled(enable);
     m_MasterPort.write8(m_IrqState.masterMask(), 1);
     m_SlavePort.write8(m_IrqState.slaveMask(), 1);
+    publishAllDiagnosticLinesLocked();
 }

@@ -21,17 +21,16 @@ static_assert(
 ThreadedIrqDispatcher::Line::Line()
     : m_Owner(nullptr), m_Callback(nullptr), m_CallbackContext(nullptr),
       m_Thread(nullptr), m_Scheduler(nullptr), m_Line(0), m_PendingCookie(0),
-      m_CallbackActive(0), m_PublicationState(PublicationClosed), m_Started(0)
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-      ,
+      m_ActiveCookie(0), m_CallbackActive(0),
+      m_PublicationState(PublicationClosed), m_Started(0),
       m_CompletedBatches(0), m_CompletedCookie(0)
-#endif
 {
 }
 
 ThreadedIrqDispatcher::Line::~Line()
 {
-    if (__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE) || m_Thread)
+    if (__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE))
     {
         FATAL("A threaded IRQ worker was destroyed while active.");
     }
@@ -50,36 +49,36 @@ void ThreadedIrqDispatcher::Line::configure(
 bool ThreadedIrqDispatcher::Line::start()
 {
 #if THREADS
-    if (__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE) || m_Thread ||
-        !m_Owner || !m_Callback)
+    if (__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE) || !m_Owner || !m_Callback)
     {
         return false;
     }
 
     __atomic_store_n(&m_PendingCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(&m_ActiveCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(&m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(
         &m_PublicationState, static_cast<size_t>(0), __ATOMIC_RELEASE);
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     __atomic_store_n(
         &m_CompletedBatches, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(
         &m_CompletedCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
-#endif
 
     m_Scheduler = &Processor::information().getScheduler();
-    m_Thread = new Thread(
+    Thread *thread = new Thread(
         Scheduler::instance().getKernelProcess(), workerEntry, this, nullptr,
         false, true, true);
-    m_Thread->setName(m_Owner->m_Name);
-    if (!m_Thread->setSchedulerReadyPredicate(workerReady, this))
+    __atomic_store_n(&m_Thread, thread, __ATOMIC_RELEASE);
+    thread->setName(m_Owner->m_Name);
+    if (!thread->setSchedulerReadyPredicate(workerReady, this))
     {
         FATAL("A threaded IRQ worker could not install its ready predicate.");
         return false;
     }
 
     __atomic_store_n(&m_Started, static_cast<size_t>(1), __ATOMIC_RELEASE);
-    if (!m_Thread->start())
+    if (!thread->start())
     {
         // This can only fail if a freshly-created delayed Thread has already
         // entered an impossible lifecycle state. Continuing would strand a
@@ -110,17 +109,20 @@ bool ThreadedIrqDispatcher::Line::join()
 {
     if (!__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE))
     {
-        return m_Thread == nullptr;
+        return __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE) == nullptr;
     }
 
-    if (!m_Thread || !m_Thread->joinForCompletion())
+    Thread *thread = __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE);
+    if (!thread || !thread->joinForCompletion())
     {
         return false;
     }
 
-    m_Thread = nullptr;
+    __atomic_store_n(
+        &m_Thread, static_cast<Thread *>(nullptr), __ATOMIC_RELEASE);
     __atomic_store_n(&m_Started, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(&m_PendingCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    __atomic_store_n(&m_ActiveCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(&m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
     return true;
 }
@@ -163,12 +165,49 @@ bool ThreadedIrqDispatcher::Line::publishFromInterrupt(size_t cookie)
 
 bool ThreadedIrqDispatcher::Line::hasPending() const
 {
-    return __atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE) != 0;
+    return pendingCookie() != 0;
 }
 
 bool ThreadedIrqDispatcher::Line::isWorker(const Thread *thread) const
 {
-    return thread && thread == m_Thread;
+    return thread && thread == __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE);
+}
+
+size_t ThreadedIrqDispatcher::Line::pendingCookie() const
+{
+    return __atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE);
+}
+
+size_t ThreadedIrqDispatcher::Line::activeCookie() const
+{
+    return __atomic_load_n(&m_ActiveCookie, __ATOMIC_ACQUIRE);
+}
+
+size_t ThreadedIrqDispatcher::Line::completedBatches() const
+{
+    return __atomic_load_n(&m_CompletedBatches, __ATOMIC_ACQUIRE);
+}
+
+size_t ThreadedIrqDispatcher::Line::completedCookie() const
+{
+    return __atomic_load_n(&m_CompletedCookie, __ATOMIC_ACQUIRE);
+}
+
+uintptr_t ThreadedIrqDispatcher::Line::workerIdentity() const
+{
+    return reinterpret_cast<uintptr_t>(
+        __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE));
+}
+
+bool ThreadedIrqDispatcher::Line::callbackActive() const
+{
+    return __atomic_load_n(&m_CallbackActive, __ATOMIC_ACQUIRE) != 0;
+}
+
+bool ThreadedIrqDispatcher::Line::publicationClosed() const
+{
+    return (__atomic_load_n(&m_PublicationState, __ATOMIC_ACQUIRE) &
+            PublicationClosed) != 0;
 }
 
 int ThreadedIrqDispatcher::Line::workerEntry(void *context)
@@ -202,12 +241,13 @@ int ThreadedIrqDispatcher::Line::run()
             &m_PendingCookie, static_cast<size_t>(0), __ATOMIC_ACQ_REL);
         if (cookie)
         {
+            __atomic_store_n(&m_ActiveCookie, cookie, __ATOMIC_RELEASE);
             m_Callback(m_CallbackContext, m_Line, cookie);
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
             __atomic_add_fetch(
                 &m_CompletedBatches, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
             __atomic_store_n(&m_CompletedCookie, cookie, __ATOMIC_RELEASE);
-#endif
+            __atomic_store_n(
+                &m_ActiveCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
             __atomic_store_n(
                 &m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
             // A continuously asserted source must not turn its threaded
@@ -250,18 +290,6 @@ bool ThreadedIrqDispatcher::Line::generationReached(
 {
     return static_cast<intptr_t>(current - target) >= 0;
 }
-
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-size_t ThreadedIrqDispatcher::Line::completedBatchesForTest() const
-{
-    return __atomic_load_n(&m_CompletedBatches, __ATOMIC_ACQUIRE);
-}
-
-size_t ThreadedIrqDispatcher::Line::completedCookieForTest() const
-{
-    return __atomic_load_n(&m_CompletedCookie, __ATOMIC_ACQUIRE);
-}
-#endif
 
 ThreadedIrqDispatcher::ThreadedIrqDispatcher(
     const String &name, size_t lineCount, DispatchCallback callback,
@@ -384,14 +412,37 @@ bool ThreadedIrqDispatcher::hasPending(uint8_t line) const
     return isInitialised() && line < m_LineCount && m_Lines[line].hasPending();
 }
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-size_t ThreadedIrqDispatcher::completedBatchesForTest(uint8_t line) const
+size_t ThreadedIrqDispatcher::pendingCookie(uint8_t line) const
 {
-    return line < m_LineCount ? m_Lines[line].completedBatchesForTest() : 0;
+    return line < m_LineCount ? m_Lines[line].pendingCookie() : 0;
 }
 
-size_t ThreadedIrqDispatcher::completedCookieForTest(uint8_t line) const
+size_t ThreadedIrqDispatcher::activeCookie(uint8_t line) const
 {
-    return line < m_LineCount ? m_Lines[line].completedCookieForTest() : 0;
+    return line < m_LineCount ? m_Lines[line].activeCookie() : 0;
 }
-#endif
+
+size_t ThreadedIrqDispatcher::completedBatches(uint8_t line) const
+{
+    return line < m_LineCount ? m_Lines[line].completedBatches() : 0;
+}
+
+size_t ThreadedIrqDispatcher::completedCookie(uint8_t line) const
+{
+    return line < m_LineCount ? m_Lines[line].completedCookie() : 0;
+}
+
+uintptr_t ThreadedIrqDispatcher::workerIdentity(uint8_t line) const
+{
+    return line < m_LineCount ? m_Lines[line].workerIdentity() : 0;
+}
+
+bool ThreadedIrqDispatcher::callbackActive(uint8_t line) const
+{
+    return line < m_LineCount && m_Lines[line].callbackActive();
+}
+
+bool ThreadedIrqDispatcher::publicationClosed(uint8_t line) const
+{
+    return line < m_LineCount && m_Lines[line].publicationClosed();
+}

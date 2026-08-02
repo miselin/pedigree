@@ -108,7 +108,12 @@ class PicIrqState
     size_t beginDispatch(size_t irq)
     {
         assert(irq < LineCount);
-        return ++m_DispatchGenerations[irq];
+        size_t generation = ++m_DispatchGenerations[irq];
+        if (!generation)
+        {
+            generation = ++m_DispatchGenerations[irq];
+        }
+        return generation;
     }
 
     /**
@@ -205,6 +210,13 @@ class PicIrqState
         return m_TriggerModes[irq] == TriggerMode::Edge;
     }
 
+    IrqTrigger trigger(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_TriggerModes[irq] == TriggerMode::Edge ? IrqTrigger::Edge :
+                                                          IrqTrigger::Level;
+    }
+
     IrqControllerAck controllerAck(size_t irq) const
     {
         assert(irq < LineCount);
@@ -221,6 +233,24 @@ class PicIrqState
     {
         assert(irq < LineCount);
         return (m_Mask & bit(irq)) == 0;
+    }
+
+    bool requestedEnabled(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_RequestedEnabled[irq];
+    }
+
+    size_t dispatchGeneration(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_DispatchGenerations[irq];
+    }
+
+    size_t acknowledgedGeneration(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_AcknowledgedGenerations[irq];
     }
 
     void setEnabled(size_t irq, bool enabled)

@@ -56,10 +56,14 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
     /** Whether an occurrence arrived after the worker claimed its batch. */
     bool hasPending(uint8_t line) const;
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    size_t completedBatchesForTest(uint8_t line) const;
-    size_t completedCookieForTest(uint8_t line) const;
-#endif
+    /** Lock-free diagnostic state; invalid lines return zero/false. */
+    size_t pendingCookie(uint8_t line) const;
+    size_t activeCookie(uint8_t line) const;
+    size_t completedBatches(uint8_t line) const;
+    size_t completedCookie(uint8_t line) const;
+    uintptr_t workerIdentity(uint8_t line) const;
+    bool callbackActive(uint8_t line) const;
+    bool publicationClosed(uint8_t line) const;
 
   private:
     class Line
@@ -77,11 +81,13 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
         bool publishFromInterrupt(size_t cookie);
         bool hasPending() const;
         bool isWorker(const Thread *thread) const;
-
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-        size_t completedBatchesForTest() const;
-        size_t completedCookieForTest() const;
-#endif
+        size_t pendingCookie() const;
+        size_t activeCookie() const;
+        size_t completedBatches() const;
+        size_t completedCookie() const;
+        uintptr_t workerIdentity() const;
+        bool callbackActive() const;
+        bool publicationClosed() const;
 
       private:
         static constexpr size_t PublicationClosed =
@@ -101,13 +107,12 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
         PerProcessorScheduler *m_Scheduler;
         uint8_t m_Line;
         size_t m_PendingCookie;
+        size_t m_ActiveCookie;
         size_t m_CallbackActive;
         size_t m_PublicationState;
         size_t m_Started;
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
         size_t m_CompletedBatches;
         size_t m_CompletedCookie;
-#endif
 
         Line(const Line &) = delete;
         Line &operator=(const Line &) = delete;
