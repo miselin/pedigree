@@ -20,72 +20,86 @@
 #ifndef RTL8139_H
 #define RTL8139_H
 
+#include "Rtl8139Constants.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/Network.h"
-#include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/IoBase.h"
-#include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
 
 #define RTL8139_VENDOR_ID 0x10ec
 #define RTL8139_DEVICE_ID 0x8139
 
 /** Device driver for the RTL8139 class of network device */
-class Rtl8139 : public Network, public HardIrqHandler
+class Rtl8139 : public Network, public IrqHandler
 {
   public:
     Rtl8139(Network *pDev);
-    ~Rtl8139();
+    ~Rtl8139() override;
 
-    virtual void getName(String &str)
+    void getName(String &str) override
     {
-        str = "rtl8139";
+        str.assign("rtl8139", 8);
     }
 
-    virtual bool send(size_t nBytes, uintptr_t buffer);
+    bool send(size_t nBytes, uintptr_t buffer) override;
 
-    virtual bool setStationInfo(StationInfo info);
+    bool setStationInfo(const StationInfo &info) override;
 
-    virtual StationInfo getStationInfo();
+    const StationInfo &getStationInfo() override;
 
-    virtual bool isConnected();
+    bool isConnected() override;
 
     // IRQ handler callback.
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    IrqDisposition irq(irq_id_t number) override;
 
-    IoBase *m_pBase;
+    bool isInitialised() const
+    {
+        return m_Initialised;
+    }
 
   private:
-    void recv();
-
-    void reset();
-
-    struct packet
+    struct Packet
     {
-        uintptr_t ptr;
-        size_t len;
+        uint8_t *buffer;
+        size_t length;
     };
 
-    StationInfo m_StationInfo;
+    /** Resets and configures the controller with its interrupt source masked. */
+    void resetController();
+
+    /** Stops DMA and verifies both engines relinquished their buffers. */
+    void haltController();
+
+    /** Drains complete receive-ring entries into driver-owned packets. */
+    bool drainReceive(List<Packet *> &packets);
+
+    /** Copies bytes from the wrapping 64K receive ring. */
+    void copyFromReceiveRing(
+        void *destination, size_t offset, size_t length) const;
+
+    IoBase *m_pBase;
 
     uint32_t m_RxCurr;
     uint8_t m_TxCurr;
 
-    Spinlock m_RxLock;
-    Spinlock m_TxLock;
+    Mutex m_DeviceLock;
 
     uint8_t *m_pRxBuffVirt;
-    uint8_t *m_pTxBuffVirt;
-
-    uintptr_t m_pRxBuffPhys;
-    uintptr_t m_pTxBuffPhys;
+    physical_uintptr_t m_pRxBuffPhys;
+    uint8_t *m_pTxBuffers[RTL_TX_DESCRIPTOR_COUNT];
+    physical_uintptr_t m_TxBufferPhysical[RTL_TX_DESCRIPTOR_COUNT];
 
     MemoryRegion m_RxBuffMR;
     MemoryRegion m_TxBuffMR;
+
+    irq_id_t m_IrqId;
+    bool m_Stopping;
+    bool m_NetworkRegistered;
+    bool m_Initialised;
 
     Rtl8139(const Rtl8139 &);
     void operator=(const Rtl8139 &);

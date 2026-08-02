@@ -28,7 +28,8 @@ enum Rtl8139Constants
     RTL_TXADDR0 = 0x20,  // Tx Address register
     RTL_RXBUFF = 0x30,   // Rx Buffer address register
     RTL_CMD = 0x37,      // Command register
-    RTL_RXCURR = 0x38,   // Rx Buffer current offset register
+    RTL_CAPR = 0x38,     // Current address of packet read
+    RTL_CBR = 0x3A,      // Current receive-buffer write address
     RTL_IMR = 0x3C,      // Intrerrupt Mask register
     RTL_ISR = 0x3E,      // Intrerrupt Status register
     RTL_TXCFG = 0x40,    // Tx Config register
@@ -42,7 +43,12 @@ enum Rtl8139Constants
     RTL_CMD_RES = 0x10,   // Reset command
     RTL_CMD_RXEN = 0x08,  // Rx Enable command
     RTL_CMD_TXEN = 0x04,  // Tx Enable command
+    RTL_CMD_BUFE = 0x01,  // Receive buffer empty
 
+    RTL_ISR_SYSERR = 0x8000,  // PCI system error
+    RTL_ISR_RXFOVW = 0x40,    // Rx FIFO overflow
+    RTL_ISR_LINKCHG = 0x20,   // Link change / packet underrun
+    RTL_ISR_RXOVW = 0x10,     // Rx ring overflow
     RTL_ISR_TXERR = 0x08,  // Tx Error irq status bit
     RTL_ISR_TXOK = 0x04,   // Tx OK irq status bit
     RTL_ISR_RXERR = 0x02,  // Rx Error irq status bit
@@ -72,9 +78,13 @@ enum Rtl8139Constants
     RTL_RXSTS_FAE = 0x02,    // Frame Alignment error
     RTL_RXSTS_RXOK = 0x01,   // Rx OK
 
+    RTL_TXSTS_OWN = 0x2000,
+    RTL_TXSTS_EARLY_THRESHOLD = 0x003F0000,
+
     RTL_TXCFG_MDMA_1K = 0x600,  // 1K DMA Burst
     RTL_TXCFG_MDMA_2K = 0x700,  // 2K DMA Burst
     RTL_TXCFG_RR_48 = 0x20,     // 48 (16 + 2 * 16) Tx Retry count
+    RTL_TXCFG_IFG96 = 0x03000000,
 
     RTL_CFG9346_LOCK = 0x00,    // Lock BMCR registers
     RTL_CFG9346_UNLOCK = 0xC0,  // Unlock BMCR registers
@@ -86,10 +96,21 @@ enum Rtl8139Constants
     RTL_BMCR_ANE = 0x1000,    // Auto Negotiation Enable bit
     RTL_BMCR_DUPLEX = 0x100,  // Speed(100Mbps/10Mbps) bit
 
-    RTL_BUFF_SIZE = 0x10000,  // The size of the Rx and Tx buffers
+    RTL_RX_RING_SIZE = 0x10000,
+    RTL_RX_RING_HEADROOM = 16,
+    RTL_CAPR_BIAS = 16,
+    RTL_RX_ALLOCATION_SIZE = RTL_RX_RING_SIZE + RTL_RX_RING_HEADROOM,
 
-    RTL_PACK_MAX = 0xFFFF,  // The maximal size of a packet
-    RTL_PACK_MIN = 0x16,    // The minimal size of a packet
+    RTL_TX_DESCRIPTOR_COUNT = 4,
+    RTL_TX_BUFFER_SIZE = 2048,
+    RTL_TX_ALLOCATION_SIZE =
+        RTL_TX_DESCRIPTOR_COUNT * RTL_TX_BUFFER_SIZE,
+
+    // Ethernet frame sizes exclude the CRC generated/removed by the device.
+    RTL_ETHERNET_HEADER_SIZE = 14,
+    RTL_ETHERNET_FRAME_MIN = 60,
+    RTL_ETHERNET_FRAME_MAX = 1518,
+    RTL_ETHERNET_CRC_SIZE = 4,
 };
 
 #endif
