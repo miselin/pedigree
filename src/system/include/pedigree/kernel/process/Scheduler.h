@@ -180,6 +180,7 @@ class EXPORTED_PUBLIC Scheduler
 
   private:
     friend class Process;
+    friend class PerProcessorScheduler;
 
     Scheduler();
     NOT_COPYABLE_OR_ASSIGNABLE(Scheduler);
@@ -189,6 +190,12 @@ class EXPORTED_PUBLIC Scheduler
 
     /** Releases a lease through Scheduler's Process friendship. */
     void releaseProcessLease(Process *process);
+
+    /**
+     * Drains every currently enumerated Process's timer-accounting batch.
+     * The caller is an ordinary per-processor accounting worker.
+     */
+    void drainDeferredTimeAccounting();
 
     /** The Scheduler instance. */
     static Scheduler m_Instance;

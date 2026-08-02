@@ -34,7 +34,7 @@
 #if THREADS
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/process/TimeTracker.h"
+#include "pedigree/kernel/process/InterruptTimeAccounting.h"
 #endif
 
 static const char *g_ExceptionNames[] = {
@@ -137,7 +137,7 @@ size_t X64InterruptManager::getDebugInterruptNumber()
 
 void X64InterruptManager::interrupt(InterruptState &interruptState)
 {
-    TimeTracker tracker(0, !interruptState.kernelMode());
+    InterruptTimeAccounting accounting(!interruptState.kernelMode());
     size_t nIntNumber = interruptState.getInterruptNumber();
 
 #if DEBUGGER

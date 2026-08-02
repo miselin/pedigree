@@ -86,6 +86,36 @@ void observeStateTransition(
 }  // namespace
 #endif
 
+namespace
+{
+class CpuTimeSample
+{
+  public:
+    CpuTimeSample()
+        : timestamp(0), processor(0), m_InterruptsWereEnabled(
+              Processor::getInterrupts())
+    {
+        Processor::setInterrupts(false);
+
+        // Keep interrupts masked until the paired baseline/publication update
+        // is complete, so migration cannot invalidate this CPU-clock sample.
+        processor = Processor::id();
+        timestamp = Time::getTicks();
+    }
+
+    ~CpuTimeSample()
+    {
+        Processor::setInterrupts(m_InterruptsWereEnabled);
+    }
+
+    Time::Timestamp timestamp;
+    size_t processor;
+
+  private:
+    bool m_InterruptsWereEnabled;
+};
+}  // namespace
+
 Thread::Thread(
     Process *pParent, ThreadStartFunc pStartFunction, void *pParam,
     void *pStack, bool semiUser, bool bDontPickCore, bool delayedStart)
@@ -242,6 +272,37 @@ Thread::Thread(Process *pParent, SyscallState &state, bool delayedStart)
 
     // Now we are ready to go into the scheduler.
     ProcessorThreadAllocator::instance().addThread(this, state);
+}
+
+void Thread::recordTime(CpuTimeMode mode)
+{
+    const CpuTimeSample sample;
+    m_TimeAccounting.record(mode, sample.timestamp, sample.processor);
+}
+
+void Thread::trackTime(CpuTimeMode mode)
+{
+    const CpuTimeSample sample;
+    const Time::Timestamp elapsed =
+        m_TimeAccounting.elapsed(mode, sample.timestamp, sample.processor);
+    if (elapsed)
+    {
+        m_pParent->publishTimeAccounting(mode, elapsed);
+    }
+}
+
+void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to)
+{
+    const CpuTimeSample sample;
+    const Time::Timestamp elapsed =
+        m_TimeAccounting.elapsed(
+            from, sample.timestamp, sample.processor);
+    m_TimeAccounting.record(
+        to, sample.timestamp, sample.processor);
+    if (elapsed)
+    {
+        m_pParent->publishTimeAccounting(from, elapsed);
+    }
 }
 
 Thread::~Thread()

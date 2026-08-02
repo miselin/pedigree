@@ -173,6 +173,35 @@ void Scheduler::releaseProcessLease(Process *process)
     process->endExternalLease();
 }
 
+void Scheduler::drainDeferredTimeAccounting()
+{
+    // Reserve outside m_SchedulerLock. A worker generation is snapshotted
+    // before this call, so a Process added after the count can only publish a
+    // later generation and will be covered by the next pass.
+    Vector<Process *> processes(getNumProcesses());
+
+    m_SchedulerLock.acquire(
+        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+    for (List<Process *>::Iterator it = m_Processes.begin();
+         it != m_Processes.end() && processes.count() < processes.size(); ++it)
+    {
+        Process *process = *it;
+        if (process->beginExternalLease())
+        {
+            processes.pushBack(process);
+        }
+    }
+    m_SchedulerLock.release();
+
+    for (Vector<Process *>::Iterator it = processes.begin();
+         it != processes.end(); ++it)
+    {
+        Process *process = *it;
+        process->drainDeferredTimeAccounting();
+        process->endExternalLease();
+    }
+}
+
 void Scheduler::addProcess(Process *pProcess)
 {
     m_SchedulerLock.acquire(

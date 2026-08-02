@@ -109,10 +109,13 @@ class IntervalTimer : public TimerHandler
         Time::Timestamp *prevInterval = nullptr,
         Time::Timestamp *prevValue = nullptr);
 
+    /** Disarms without delivering an expiry during process teardown. */
+    void disarm();
+
     void getIntervalAndValue(Time::Timestamp &interval, Time::Timestamp &value);
 
-    /// Adjust the current value directly.
-    void adjustValue(int64_t adjustment);
+    /** Advances a CPU timer to a monotonic absolute process-time snapshot. */
+    void consumeCpuTime(Time::Timestamp absoluteTotal);
 
     Time::Timestamp getInterval() const;
     Time::Timestamp getValue() const;
@@ -120,12 +123,15 @@ class IntervalTimer : public TimerHandler
   private:
     virtual void timer(uint64_t delta);
 
+    Time::Timestamp absoluteCpuTotal() const;
+    bool advanceCpuTimeLocked(Time::Timestamp absoluteTotal);
     void signal();
 
     PosixProcess *m_Process;
     Mode m_Mode;
     Time::Timestamp m_Value;
     Time::Timestamp m_Interval;
+    Time::Timestamp m_LastCpuTotal;
     Spinlock m_Lock;
     bool m_Armed;
     Timer *m_pTimer;
@@ -217,7 +223,8 @@ class EXPORTED_PUBLIC PosixProcess : public Process
     void unregisterProcess();
 
     virtual void
-    reportTimesUpdated(Time::Timestamp user, Time::Timestamp system);
+    reportTimesUpdated(
+        Time::Timestamp userTotal, Time::Timestamp total);
     virtual void processTerminated();
 
     PosixProcess(const PosixProcess &);

@@ -114,10 +114,12 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
         switch (action.kind)
         {
             case TerminateCurrentThread:
+                tracker.finish();
                 Processor::information()
                     .getScheduler()
                     .killCurrentThread();
             case ExitCurrentProcess:
+                tracker.finish();
                 Processor::information()
                     .getCurrentThread()
                     ->getParent()
@@ -125,6 +127,7 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
                     ->exit(static_cast<int>(action.value));
                 return;
             case ReturnFromEvent:
+                tracker.finish();
                 Processor::information()
                     .getScheduler()
                     .eventHandlerReturned();
@@ -147,17 +150,28 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
                     InterruptState::construct(action.state, true);
                 returnState->setStackPointer(userStack);
                 returnState->setFlags(userFlags);
+                tracker.finish();
                 Processor::setInterrupts(false);
+                Processor::information()
+                    .getCurrentThread()
+                    ->transitionTime(
+                        CpuTimeMode::Kernel, CpuTimeMode::User);
                 Processor::contextSwitch(returnState);
             }
             case JumpToUserspace:
-                Processor::information()
-                    .getCurrentThread()
-                    ->abandonAllStates();
+            {
+                tracker.finish();
+                Thread *current =
+                    Processor::information().getCurrentThread();
+                current->abandonAllStates();
+                current->transitionTime(
+                    CpuTimeMode::Kernel, CpuTimeMode::User);
                 Processor::jumpUser(
                     nullptr, action.state.getInstructionPointer(),
                     action.state.getStackPointer());
+            }
             case RebootSystem:
+                tracker.finish();
                 Processor::information()
                     .getCurrentThread()
                     ->abandonAllStates();
@@ -173,10 +187,12 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
             pThread->getUnwindState();
         if (unwindState == Thread::TerminateThread)
         {
+            tracker.finish();
             Processor::information().getScheduler().killCurrentThread();
         }
         if (unwindState == Thread::Exit)
         {
+            tracker.finish();
             NOTICE("Unwind state exit, in interrupt handler");
             pThread->getParent()
                 ->getSubsystem()

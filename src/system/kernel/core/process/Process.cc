@@ -143,8 +143,9 @@ Process::Process(DeferredPublication)
       m_bTerminationRendezvousStarted(false),
       m_bTerminationCleanupStarted(false), m_bTerminationSealed(false),
       m_bTerminationReapable(false), m_Lock(false), m_Metadata(),
-      m_LastKernelEntry(0),
-      m_LastUserspaceEntry(0), m_pRootFile(0), m_bSharedAddressSpace(false)
+      m_DeferredTimeAccounting(), m_TimeAccountingReports(),
+      m_bTimeAccountingReportsEnabled(false), m_pRootFile(0),
+      m_bSharedAddressSpace(false)
 {
     resetCounts();
     m_Metadata.startTime = Time::getTimeNanoseconds();
@@ -193,10 +194,20 @@ Process::Process(
       m_bTerminationRendezvousStarted(false),
       m_bTerminationCleanupStarted(false), m_bTerminationSealed(false),
       m_bTerminationReapable(false), m_Lock(false),
-      m_Metadata(pParent->m_Metadata), m_LastKernelEntry(0),
-      m_LastUserspaceEntry(0), m_pRootFile(pParent->m_pRootFile),
+      m_Metadata(), m_DeferredTimeAccounting(),
+      m_TimeAccountingReports(), m_bTimeAccountingReportsEnabled(false),
+      m_pRootFile(pParent->m_pRootFile),
       m_bSharedAddressSpace(!bCopyOnWrite)
 {
+    // Resource counters describe the inherited address space, but forked CPU
+    // time and process age start at zero for the child. Individual atomic
+    // loads avoid racing a whole-struct copy with the running parent.
+    m_Metadata.heapUsage = pParent->getHeapUsage();
+    m_Metadata.virtualPages = pParent->getVirtualPageCount();
+    m_Metadata.physicalPages = pParent->getPhysicalPageCount();
+    m_Metadata.sharedPages = pParent->getSharedPageCount();
+    m_Metadata.startTime = Time::getTimeNanoseconds();
+
     m_pAddressSpace = pParent->m_pAddressSpace->clone(bCopyOnWrite);
     str = pParent->str;
 
@@ -209,6 +220,83 @@ Process::Process(
     {
         str += "<F>";  // F for forked.
     }
+}
+
+void Process::enableTimeAccountingReports()
+{
+    __atomic_store_n(
+        &m_bTimeAccountingReportsEnabled, true, __ATOMIC_RELEASE);
+}
+
+void Process::publishTimeAccounting(
+    CpuTimeMode mode, Time::Timestamp elapsed)
+{
+    const bool userspace = mode == CpuTimeMode::User;
+    Time::Timestamp *total = userspace ? &m_Metadata.userTime
+                                      : &m_Metadata.kernelTime;
+    __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
+
+    const Time::Timestamp user = userspace ? elapsed : 0;
+    const Time::Timestamp system = userspace ? 0 : elapsed;
+    publishTimeAccountingBatch(user, system);
+}
+
+void Process::publishTimeAccountingBatch(
+    Time::Timestamp user, Time::Timestamp system)
+{
+    if (!__atomic_load_n(
+            &m_bTimeAccountingReportsEnabled, __ATOMIC_ACQUIRE))
+    {
+        return;
+    }
+
+    const Time::Timestamp elapsed = user ? user : system;
+    if (m_DeferredTimeAccounting.publish(elapsed))
+    {
+        Processor::information()
+            .getScheduler()
+            .publishDeferredTimeAccounting();
+    }
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void Process::publishTimeAccountingForHostedTest(
+    Time::Timestamp user, Time::Timestamp system)
+{
+    __atomic_fetch_add(&m_Metadata.userTime, user, __ATOMIC_RELAXED);
+    __atomic_fetch_add(
+        &m_Metadata.kernelTime, system, __ATOMIC_RELAXED);
+    publishTimeAccountingBatch(user, system);
+}
+
+void Process::closeTimeAccountingForHostedTest()
+{
+    closeDeferredTimeAccounting();
+}
+#endif
+
+void Process::drainDeferredTimeAccounting()
+{
+    OperationBarrier::Lease report;
+    if (!m_TimeAccountingReports.tryAcquire(report))
+    {
+        m_DeferredTimeAccounting.take();
+        return;
+    }
+
+    if (m_DeferredTimeAccounting.take())
+    {
+        const Time::Timestamp user = getUserTime();
+        reportTimesUpdated(user, user + getKernelTime());
+    }
+}
+
+void Process::closeDeferredTimeAccounting()
+{
+    __atomic_store_n(
+        &m_bTimeAccountingReportsEnabled, false, __ATOMIC_RELEASE);
+    m_TimeAccountingReports.closeAndWait();
+    m_DeferredTimeAccounting.take();
 }
 
 void Process::publish()
@@ -319,6 +407,11 @@ void Process::makeOrphanBeforePublicationForHostedTest()
 
 void Process::prepareForDestruction()
 {
+    // A dying process does not receive a fresh virtual/profile timer signal.
+    // Close worker admission, let an already-running report leave scope, and
+    // discard time published by peers while their termination was in flight.
+    closeDeferredTimeAccounting();
+
     Process *expectedInit = this;
     __atomic_compare_exchange_n(
         &m_pInitProcess, &expectedInit, static_cast<Process *>(0), false,
@@ -749,11 +842,16 @@ void Process::reap()
 
 void Process::markTerminating()
 {
+    closeDeferredTimeAccounting();
     transitionToTerminating();
 }
 
 bool Process::beginTermination()
 {
+    // Do not hold m_Lock while an admitted accounting report drains: POSIX
+    // signal publication may itself need to inspect this Process's threads.
+    closeDeferredTimeAccounting();
+
     m_Lock.acquire();
     Thread *pCurrentThread =
         Processor::information().getCurrentThread();

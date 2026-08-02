@@ -21,6 +21,7 @@
 #define _PROCESS_TIME_TRACKER_H
 
 class Process;
+class Thread;
 
 /**
  * Tracks time spent and assigns it to the given process, in an RAII way.
@@ -34,8 +35,12 @@ class TimeTracker
     TimeTracker(Process *pProcess, bool fromUserspace);
     virtual ~TimeTracker();
 
+    /** Completes accounting before a no-return architectural transition. */
+    void finish();
+
   private:
     Process *m_pProcess;
+    Thread *m_pThread;
     bool m_bFromUserspace;
 };
 

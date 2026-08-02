@@ -232,6 +232,8 @@ set(TESTSUITE_SRCS
     testsuite/test-ExtensibleBitmap.cc
     testsuite/test-Time.cc
     testsuite/test-Atomic.cc
+    testsuite/test-DeferredTimeAccounting.cc
+    testsuite/test-IntervalTimerState.cc
     testsuite/test-LocalApicTimerHandlerSlots.cc
     testsuite/test-PcSchedulerTimerSelection.cc
     testsuite/test-IntrusiveMpscQueue.cc

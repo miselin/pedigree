@@ -25,6 +25,7 @@
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/process/DeferredScope.h"
 #include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/DeferredTimeAccounting.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -205,6 +206,15 @@ class EXPORTED_PUBLIC Thread
     {
         return m_pParent;
     }
+
+    /** Records this Thread's monotonic entry baseline for one CPU-time mode. */
+    void recordTime(CpuTimeMode mode);
+
+    /** Publishes elapsed time from this Thread into its Process aggregate. */
+    void trackTime(CpuTimeMode mode);
+
+    /** Accounts one CPU-mode transition from a single monotonic sample. */
+    void transitionTime(CpuTimeMode from, CpuTimeMode to);
 
     void setParent(Process *p)
     {
@@ -741,6 +751,9 @@ class EXPORTED_PUBLIC Thread
 
     /** Our parent process. */
     Process *m_pParent = nullptr;
+
+    /** Per-thread baselines avoid cross-CPU corruption within one Process. */
+    ThreadTimeAccounting m_TimeAccounting;
 
     /** The stack that we allocated from the VMM. This may or may not also be
         the kernel stack - depends on whether we are a user or kernel mode

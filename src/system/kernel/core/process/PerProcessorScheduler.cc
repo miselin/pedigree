@@ -32,6 +32,7 @@
 #include "pedigree/kernel/process/RoundRobin.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -51,12 +52,15 @@ PerProcessorScheduler::PerProcessorScheduler()
       m_NewThreadDataCondition(), m_NewThreadData(),
       m_DelayedNewThreadData(), m_NewThreadAdmissionOpen(false),
       m_StopNewThreadWorker(false), m_NewThreadWorker(),
+      m_TimeAccountingState(), m_StopTimeAccountingWorker(0),
+      m_TimeAccountingWorker(),
       m_IrqWorkDoorbell(0), m_pIdleThread(0)
 {
 }
 
 PerProcessorScheduler::~PerProcessorScheduler()
 {
+    stopTimeAccountingWorker();
     stopNewThreadWorker();
 
     SchedulerTimer *pTimer = Machine::instance().getSchedulerTimer();
@@ -65,6 +69,81 @@ PerProcessorScheduler::~PerProcessorScheduler()
         panic("No scheduler timer present.");
     }
     Machine::instance().getSchedulerTimer()->removeHandler(this);
+}
+
+void PerProcessorScheduler::startTimeAccountingWorker(Process *pParent)
+{
+    if (m_TimeAccountingWorker)
+    {
+        FATAL("Per-processor time accounting worker started twice.");
+    }
+
+    m_StopTimeAccountingWorker = 0;
+    Thread *worker = new Thread(
+        pParent, timeAccountingWorkerEntry, this, nullptr, false, true, true);
+    worker->setName("deferred process time accounting");
+    if (!worker->setSchedulerReadyPredicate(
+            timeAccountingWorkerReady, this))
+    {
+        FATAL(
+            "Time accounting worker could not install its ready predicate.");
+    }
+    m_TimeAccountingWorker.adopt(worker);
+    if (!worker->start())
+    {
+        FATAL("Time accounting worker could not be started.");
+    }
+}
+
+void PerProcessorScheduler::stopTimeAccountingWorker()
+{
+    if (!m_TimeAccountingWorker)
+    {
+        return;
+    }
+
+    m_StopTimeAccountingWorker = 1;
+    ringIrqWorkDoorbell();
+    serviceIrqWorkDoorbell();
+    m_TimeAccountingWorker.join();
+}
+
+int PerProcessorScheduler::timeAccountingWorkerEntry(void *instance)
+{
+    return reinterpret_cast<PerProcessorScheduler *>(instance)
+        ->runTimeAccountingWorker();
+}
+
+bool PerProcessorScheduler::timeAccountingWorkerReady(void *instance)
+{
+    PerProcessorScheduler *scheduler =
+        reinterpret_cast<PerProcessorScheduler *>(instance);
+    return scheduler->m_TimeAccountingState.ready(
+        scheduler->m_StopTimeAccountingWorker.value() != 0);
+}
+
+int PerProcessorScheduler::runTimeAccountingWorker()
+{
+    TerminationDeferral workerLifetime;
+    while (true)
+    {
+        const size_t target = m_TimeAccountingState.beginBatch();
+        Scheduler::instance().drainDeferredTimeAccounting();
+        m_TimeAccountingState.finishBatch(target);
+
+        if (
+            m_StopTimeAccountingWorker.value() &&
+            m_TimeAccountingState.caughtUp())
+        {
+            break;
+        }
+
+        // A newly published generation keeps the predicate true. Otherwise
+        // give ordinary peers a scheduling turn until another IRQ rings us.
+        Scheduler::instance().yield();
+    }
+
+    return 0;
 }
 
 struct newThreadData
@@ -246,6 +325,7 @@ void PerProcessorScheduler::initialise(Thread *pThread)
     pThread->setStatus(Thread::Running);
     pThread->setCpuId(Processor::id());
     Processor::information().setCurrentThread(pThread);
+    pThread->recordTime(CpuTimeMode::Kernel);
 
     m_pSchedulingAlgorithm->addThread(pThread);
     Processor::information().setKernelStack(
@@ -260,6 +340,7 @@ void PerProcessorScheduler::initialise(Thread *pThread)
     Machine::instance().getSchedulerTimer()->registerHandler(this);
 
     startNewThreadWorker(pThread->getParent());
+    startTimeAccountingWorker(pThread->getParent());
 }
 
 void PerProcessorScheduler::schedule(Thread::Status nextStatus)
@@ -364,8 +445,8 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus)
     Processor::setTlsBase(pNextThread->getTlsBase());
 
     // Update times.
-    pCurrentThread->getParent()->trackTime(false);
-    pNextThread->getParent()->recordTime(false);
+    pCurrentThread->trackTime(CpuTimeMode::Kernel);
+    pNextThread->recordTime(CpuTimeMode::Kernel);
 
     pNextThread->getLock().release();
 
@@ -626,8 +707,7 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
     {
         // User delivery consumes only the serialized representation.
         eventDelivery.reset();
-        pThread->getParent()->trackTime(false);
-        pThread->getParent()->recordTime(true);
+        pThread->transitionTime(CpuTimeMode::Kernel, CpuTimeMode::User);
         EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
         {
             Processor::saveAndJumpUser(
@@ -650,6 +730,7 @@ void PerProcessorScheduler::eventHandlerReturned()
 
     Thread *pThread = Processor::information().getCurrentThread();
     pThread->abandonCurrentState(false);
+    pThread->transitionTime(CpuTimeMode::Kernel, CpuTimeMode::User);
 
     Processor::restoreState(pThread->state());
     // Not reached.
@@ -740,6 +821,10 @@ void PerProcessorScheduler::addThread(
         }
     }
 
+    pCurrentThread->trackTime(CpuTimeMode::Kernel);
+    pThread->recordTime(
+        bUsermode ? CpuTimeMode::User : CpuTimeMode::Kernel);
+
     EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
     {
         pCurrentThread->getLock().unwind();
@@ -776,7 +861,6 @@ void PerProcessorScheduler::addThread(
         pCurrentThread->getLock().unwind();
         if (bUsermode)
         {
-            pCurrentThread->getParent()->recordTime(true);
             Processor::jumpUser(
                 &pCurrentThread->getLock().m_Atom.m_Atom,
                 reinterpret_cast<uintptr_t>(pStartFunction),
@@ -785,7 +869,6 @@ void PerProcessorScheduler::addThread(
         }
         else
         {
-            pCurrentThread->getParent()->recordTime(false);
             Processor::jumpKernel(
                 &pCurrentThread->getLock().m_Atom.m_Atom,
                 reinterpret_cast<uintptr_t>(pStartFunction),
@@ -883,8 +966,10 @@ void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
     // Grab a reference to the stack in the form of a full SyscallState.
     SyscallState &newState = *reinterpret_cast<SyscallState *>(kStack);
 
-    pCurrentThread->getParent()->trackTime(false);
-    pThread->getParent()->recordTime(false);
+    pCurrentThread->trackTime(CpuTimeMode::Kernel);
+    // restoreState(SyscallState) returns directly to the forked userspace
+    // frame, so establish its user baseline before the no-return handoff.
+    pThread->recordTime(CpuTimeMode::User);
 
     EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
     {
@@ -964,6 +1049,9 @@ void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
         reinterpret_cast<uintptr_t>(kernelStack));
     Processor::switchAddressSpace(*pNextThread->getParent()->getAddressSpace());
     Processor::setTlsBase(pNextThread->getTlsBase());
+
+    pThread->trackTime(CpuTimeMode::Kernel);
+    pNextThread->recordTime(CpuTimeMode::Kernel);
 
     pNextThread->getLock().exit();
 
@@ -1107,6 +1195,12 @@ void PerProcessorScheduler::threadStatusChanged(Thread *pThread)
 void PerProcessorScheduler::ringIrqWorkDoorbell()
 {
     m_IrqWorkDoorbell = 1;
+}
+
+void PerProcessorScheduler::publishDeferredTimeAccounting()
+{
+    m_TimeAccountingState.publish();
+    ringIrqWorkDoorbell();
 }
 
 void PerProcessorScheduler::serviceIrqWorkDoorbell()

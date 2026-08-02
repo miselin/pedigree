@@ -24,35 +24,53 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
 TimeTracker::TimeTracker(Process *pProcess, bool fromUserspace)
-    : m_pProcess(pProcess), m_bFromUserspace(fromUserspace)
+    : m_pProcess(pProcess), m_pThread(nullptr),
+      m_bFromUserspace(fromUserspace)
 {
-    if (m_pProcess == 0)
+    // Accounting baselines belong to the exact interrupted Thread. A Process
+    // can execute on multiple CPUs and cannot provide one shared baseline.
+    m_pThread = Processor::information().getCurrentThread();
+    if (!m_pThread)
     {
         // We can get called early, so ensure we don't make any
         // assumptions about what's present.
-        Thread *pThread = Processor::information().getCurrentThread();
-        if (!pThread)
-            return;
-        m_pProcess = pThread->getParent();
-        if (!m_pProcess)
-            return;
+        m_pProcess = nullptr;
+        return;
     }
 
-    // Track time already spent wherever we were previously.
-    m_pProcess->trackTime(m_bFromUserspace);
+    Process *threadProcess = m_pThread->getParent();
+    if (!threadProcess || (m_pProcess && m_pProcess != threadProcess))
+    {
+        m_pProcess = nullptr;
+        m_pThread = nullptr;
+        return;
+    }
+    m_pProcess = threadProcess;
 
-    // Record current time for the next tracking.
-    m_pProcess->recordTime(!m_bFromUserspace);
+    // Track time already spent wherever we were previously.
+    m_pThread->transitionTime(
+        KernelTimeTransition::interrupted(m_bFromUserspace),
+        KernelTimeTransition::handler());
 }
 
 TimeTracker::~TimeTracker()
 {
-    if (!m_pProcess)
+    finish();
+}
+
+void TimeTracker::finish()
+{
+    Thread *thread = m_pThread;
+    if (!m_pProcess || !thread)
         return;
 
-    // Track time spent in the RAII section.
-    m_pProcess->trackTime(!m_bFromUserspace);
+    // Make completion idempotent before touching state so a no-return caller
+    // can explicitly finish without the destructor double-charging later.
+    m_pProcess = nullptr;
+    m_pThread = nullptr;
 
-    // Record current time for future tracking.
-    m_pProcess->recordTime(m_bFromUserspace);
+    // Track time spent in the RAII section.
+    thread->transitionTime(
+        KernelTimeTransition::handler(),
+        KernelTimeTransition::resumed(m_bFromUserspace));
 }

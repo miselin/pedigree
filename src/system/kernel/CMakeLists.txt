@@ -243,6 +243,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/InfoBlock.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/initialiseMultitasking.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Ipc.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/InterruptTimeAccounting.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/LockManager.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/MemoryPressureKiller.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/MemoryPressureManager.cc

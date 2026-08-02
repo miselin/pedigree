@@ -23,6 +23,8 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/DeferredTimeAccounting.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/WaitQueue.h"
@@ -391,104 +393,79 @@ class EXPORTED_PUBLIC Process
         Process *, OrphanPublicationPhase, bool interruptsEnabled,
         bool processLockHeld);
     static void setOrphanPublicationHook(OrphanPublicationHook hook);
+
+    /** Publishes one deterministic worker batch without sampling a clock. */
+    void publishTimeAccountingForHostedTest(
+        Time::Timestamp user, Time::Timestamp system);
+
+    /** Closes worker admission exactly as process teardown does. */
+    void closeTimeAccountingForHostedTest();
 #endif
 
     void trackHeap(ssize_t nBytes)
     {
-        m_Metadata.heapUsage += nBytes;
+        __atomic_fetch_add(
+            &m_Metadata.heapUsage, nBytes, __ATOMIC_RELAXED);
     }
 
     void trackPages(ssize_t nVirtual, ssize_t nPhysical, ssize_t nShared)
     {
-        m_Metadata.virtualPages += nVirtual;
-        m_Metadata.physicalPages += nPhysical;
-        m_Metadata.sharedPages += nShared;
+        __atomic_fetch_add(
+            &m_Metadata.virtualPages, nVirtual, __ATOMIC_RELAXED);
+        __atomic_fetch_add(
+            &m_Metadata.physicalPages, nPhysical, __ATOMIC_RELAXED);
+        __atomic_fetch_add(
+            &m_Metadata.sharedPages, nShared, __ATOMIC_RELAXED);
     }
 
     void resetCounts()
     {
-        m_Metadata.virtualPages = 0;
-        m_Metadata.physicalPages = 0;
-        m_Metadata.sharedPages = 0;
-        m_Metadata.startTime = Time::getTimeNanoseconds();
-    }
-
-    /**
-     * Record the current time in the relevant field for this process.
-     *
-     * Use to set the point in time from which the next difference will be
-     * taken.
-     */
-    void recordTime(bool bUserspace)
-    {
-        Time::Timestamp now = Time::getTimeNanoseconds();
-        if (bUserspace)
-        {
-            m_LastUserspaceEntry = now;
-        }
-        else
-        {
-            m_LastKernelEntry = now;
-        }
-    }
-
-    /**
-     * Counts the time spent since the last recordTime(), and then updates the
-     * relevant time field to the current time.
-     *
-     * Use when scheduling.
-     */
-    void trackTime(bool bUserspace)
-    {
-        Time::Timestamp now = Time::getTimeNanoseconds();
-        if (bUserspace)
-        {
-            Time::Timestamp diff = now - m_LastUserspaceEntry;
-            m_LastUserspaceEntry = now;
-            m_Metadata.userTime += diff;
-
-            reportTimesUpdated(diff, 0);
-        }
-        else
-        {
-            Time::Timestamp diff = now - m_LastKernelEntry;
-            m_LastKernelEntry = now;
-            m_Metadata.kernelTime += diff;
-
-            reportTimesUpdated(0, diff);
-        }
+        __atomic_store_n(
+            &m_Metadata.virtualPages, static_cast<ssize_t>(0),
+            __ATOMIC_RELEASE);
+        __atomic_store_n(
+            &m_Metadata.physicalPages, static_cast<ssize_t>(0),
+            __ATOMIC_RELEASE);
+        __atomic_store_n(
+            &m_Metadata.sharedPages, static_cast<ssize_t>(0),
+            __ATOMIC_RELEASE);
+        __atomic_store_n(
+            &m_Metadata.startTime, Time::getTimeNanoseconds(),
+            __ATOMIC_RELEASE);
     }
 
     /** Gets timestamps. */
     Time::Timestamp getUserTime() const
     {
-        return m_Metadata.userTime;
+        return __atomic_load_n(&m_Metadata.userTime, __ATOMIC_ACQUIRE);
     }
     Time::Timestamp getKernelTime() const
     {
-        return m_Metadata.kernelTime;
+        return __atomic_load_n(&m_Metadata.kernelTime, __ATOMIC_ACQUIRE);
     }
     Time::Timestamp getStartTime() const
     {
-        return m_Metadata.startTime;
+        return __atomic_load_n(&m_Metadata.startTime, __ATOMIC_ACQUIRE);
     }
 
     /** Get process usage. */
     ssize_t getHeapUsage() const
     {
-        return m_Metadata.heapUsage;
+        return __atomic_load_n(&m_Metadata.heapUsage, __ATOMIC_ACQUIRE);
     }
     ssize_t getVirtualPageCount() const
     {
-        return m_Metadata.virtualPages;
+        return __atomic_load_n(
+            &m_Metadata.virtualPages, __ATOMIC_ACQUIRE);
     }
     ssize_t getPhysicalPageCount() const
     {
-        return m_Metadata.physicalPages;
+        return __atomic_load_n(
+            &m_Metadata.physicalPages, __ATOMIC_ACQUIRE);
     }
     ssize_t getSharedPageCount() const
     {
-        return m_Metadata.sharedPages;
+        return __atomic_load_n(&m_Metadata.sharedPages, __ATOMIC_ACQUIRE);
     }
 
     /** Set this process' root. */
@@ -553,15 +530,34 @@ class EXPORTED_PUBLIC Process
      */
     void prepareForDestruction();
 
+    /** Enables deferred timer reporting for a derived process type. */
+    void enableTimeAccountingReports();
+
   private:
     Process(const Process &);
     Process &operator=(const Process &);
 
-    /** Called when process times are updated. */
+    /**
+     * Called by the accounting worker with absolute userspace and total time.
+     * This is never invoked by trackTime() or while scheduler locks are held.
+     */
     virtual void
-    reportTimesUpdated(Time::Timestamp user, Time::Timestamp system)
+    reportTimesUpdated(Time::Timestamp userTotal, Time::Timestamp total)
     {
     }
+
+    /** Drains one coalesced batch from an ordinary accounting worker. */
+    void drainDeferredTimeAccounting();
+
+    /** Stops timer-report admission and discards any unpublished residue. */
+    void closeDeferredTimeAccounting();
+
+    /** Adds one Thread's elapsed monotonic time to Process-wide totals. */
+    void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed);
+
+    /** Common fixed-cost accumulator publication after aggregate accounting. */
+    void publishTimeAccountingBatch(
+        Time::Timestamp user, Time::Timestamp system);
 
     /** Called when the process is terminated to allow for subclass cleanup. */
     virtual void processTerminated()
@@ -744,8 +740,8 @@ class EXPORTED_PUBLIC Process
     struct ProcessMetadata
     {
         ProcessMetadata()
-            : virtualPages(0), physicalPages(0), sharedPages(0), userTime(0),
-              kernelTime(0), startTime(0)
+            : heapUsage(0), virtualPages(0), physicalPages(0), sharedPages(0),
+              userTime(0), kernelTime(0), startTime(0)
         {
         }
 
@@ -768,11 +764,14 @@ class EXPORTED_PUBLIC Process
         Time::Timestamp startTime;
     } m_Metadata;
 
-    /** Last time we entered the kernel. */
-    Time::Timestamp m_LastKernelEntry;
+    /** Lock-free IRQ/scheduler publication consumed by an ordinary worker. */
+    DeferredTimeAccounting m_DeferredTimeAccounting;
 
-    /** Last time we entered userspace. */
-    Time::Timestamp m_LastUserspaceEntry;
+    /** Prevents time-report callbacks from crossing process teardown. */
+    OperationBarrier m_TimeAccountingReports;
+
+    /** Stock kernel processes do not need timer-report worker publications. */
+    bool m_bTimeAccountingReportsEnabled;
 
     /** Root directory for this process. NULL == system-wide default. */
     File *m_pRootFile;

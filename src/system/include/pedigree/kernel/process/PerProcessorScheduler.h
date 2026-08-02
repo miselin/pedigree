@@ -24,6 +24,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/DeferredTimeAccounting.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -85,6 +86,12 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
     /** Atomic hard-IRQ publication; does not touch a lock or ready queue. */
     void ringIrqWorkDoorbell();
 
+    /**
+     * Publishes deferred process timer accounting from IRQ/scheduler context.
+     * The accounting worker is made runnable through the shared IRQ doorbell.
+     */
+    void publishDeferredTimeAccounting();
+
     /** Reschedules once from ordinary thread context during lifecycle work. */
     void serviceIrqWorkDoorbell();
 
@@ -132,6 +139,12 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
     void startNewThreadWorker(Process *pParent);
     void stopNewThreadWorker();
 
+    void startTimeAccountingWorker(Process *pParent);
+    void stopTimeAccountingWorker();
+    static int timeAccountingWorkerEntry(void *instance);
+    static bool timeAccountingWorkerReady(void *instance);
+    int runTimeAccountingWorker();
+
     /** The current SchedulingAlgorithm */
     SchedulingAlgorithm *m_pSchedulingAlgorithm;
 
@@ -143,6 +156,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
     bool m_NewThreadAdmissionOpen;
     bool m_StopNewThreadWorker;
     OwnedThread m_NewThreadWorker;
+    DeferredTimeAccountingWorkerState m_TimeAccountingState;
+    Atomic<size_t> m_StopTimeAccountingWorker;
+    OwnedThread m_TimeAccountingWorker;
     Atomic<size_t> m_IrqWorkDoorbell;
 
     static int processorAddThread(void *instance);

@@ -2124,7 +2124,11 @@ bool PosixSubsystem::invoke(
     // pedigree_init_pthreads();
 
     Processor::setInterrupts(true);
-    pProcess->recordTime(true);
+    Thread *currentThread = Processor::information().getCurrentThread();
+    if (currentThread && currentThread->getParent() == pProcess)
+    {
+        currentThread->recordTime(CpuTimeMode::User);
+    }
 
     if (!state)
     {

@@ -2013,8 +2013,10 @@ int posix_getitimer(int which, struct itimerval *curr_value)
 {
     SC_NOTICE("posix_getitimer(" << which << ", " << curr_value << ")");
 
-    PosixProcess *pProcess = static_cast<PosixProcess *>(
-        Processor::information().getCurrentThread()->getParent());
+    Thread *currentThread =
+        Processor::information().getCurrentThread();
+    PosixProcess *pProcess =
+        static_cast<PosixProcess *>(currentThread->getParent());
 
     /// \todo check address for safety
 
@@ -2044,6 +2046,10 @@ int posix_getitimer(int which, struct itimerval *curr_value)
         return -1;
     }
 
+    if (which != ITIMER_REAL)
+    {
+        currentThread->trackTime(CpuTimeMode::Kernel);
+    }
     itimer->getIntervalAndValue(interval, value);
 
     curr_value->it_interval.tv_sec = interval / Time::Multiplier::Second;
@@ -2079,8 +2085,10 @@ int posix_setitimer(
 
     /// \todo check addresses for safety
 
-    PosixProcess *pProcess = static_cast<PosixProcess *>(
-        Processor::information().getCurrentThread()->getParent());
+    Thread *currentThread =
+        Processor::information().getCurrentThread();
+    PosixProcess *pProcess =
+        static_cast<PosixProcess *>(currentThread->getParent());
 
     Time::Timestamp interval = 0;
     Time::Timestamp value = 0;
@@ -2116,6 +2124,10 @@ int posix_setitimer(
         return -1;
     }
 
+    if (which != ITIMER_REAL)
+    {
+        currentThread->trackTime(CpuTimeMode::Kernel);
+    }
     itimer->setIntervalAndValue(interval, value, &prevInterval, &prevValue);
 
     if (old_value)

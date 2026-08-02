@@ -18,6 +18,7 @@
  */
 
 #include "PosixProcess.h"
+#include "IntervalTimerState.h"
 #include "ProcFs.h"
 
 #include "modules/system/vfs/VFS.h"
@@ -65,6 +66,7 @@ PosixProcess::PosixProcess()
       m_Euid(0), m_Egid(0), m_Suid(0), m_Sgid(0), m_SupplementalIds(),
       m_bRegistered(false)
 {
+    enableTimeAccountingReports();
 }
 
 /** Copy constructor. */
@@ -78,6 +80,8 @@ PosixProcess::PosixProcess(Process *pParent, bool bCopyOnWrite)
       m_Euid(0), m_Egid(0), m_Suid(0), m_Sgid(0), m_SupplementalIds(),
       m_bRegistered(false)
 {
+    enableTimeAccountingReports();
+
     if (pParent->getType() == Posix)
     {
         PosixProcess *pPosixParent = static_cast<PosixProcess *>(pParent);
@@ -358,10 +362,10 @@ IntervalTimer &PosixProcess::getProfileIntervalTimer()
 }
 
 void PosixProcess::reportTimesUpdated(
-    Time::Timestamp user, Time::Timestamp system)
+    Time::Timestamp userTotal, Time::Timestamp total)
 {
-    m_VirtualIntervalTimer.adjustValue(-user);
-    m_ProfileIntervalTimer.adjustValue(-(user + system));
+    m_VirtualIntervalTimer.consumeCpuTime(userTotal);
+    m_ProfileIntervalTimer.consumeCpuTime(total);
 }
 
 void PosixProcess::processTerminated()
@@ -373,14 +377,14 @@ void PosixProcess::processTerminated()
     {
         subsystem->cancelAlarm();
     }
-    m_RealIntervalTimer.setIntervalAndValue(0, 0);
-    m_VirtualIntervalTimer.setIntervalAndValue(0, 0);
-    m_ProfileIntervalTimer.setIntervalAndValue(0, 0);
+    m_RealIntervalTimer.disarm();
+    m_VirtualIntervalTimer.disarm();
+    m_ProfileIntervalTimer.disarm();
 }
 
 IntervalTimer::IntervalTimer(PosixProcess *pProcess, Mode mode)
     : m_Process(pProcess), m_Mode(mode), m_Value(0), m_Interval(0),
-      m_Lock(false), m_Armed(false), m_pTimer(nullptr)
+      m_LastCpuTotal(0), m_Lock(false), m_Armed(false), m_pTimer(nullptr)
 {
     if (m_Mode == Hardware)
     {
@@ -393,6 +397,10 @@ IntervalTimer::IntervalTimer(PosixProcess *pProcess, Mode mode)
         {
             ERROR("IntervalTimer could not register its hardware callback");
         }
+    }
+    else
+    {
+        m_LastCpuTotal = absoluteCpuTotal();
     }
 }
 
@@ -411,88 +419,159 @@ IntervalTimer::~IntervalTimer()
 void IntervalTimer::setInterval(
     Time::Timestamp interval, Time::Timestamp *prevInterval)
 {
-    LockGuard<Spinlock> guard(m_Lock);
-
-    if (prevInterval)
+    bool needsSignal = false;
     {
-        *prevInterval = m_Interval;
+        LockGuard<Spinlock> guard(m_Lock);
+        if (m_Mode != Hardware)
+        {
+            needsSignal = advanceCpuTimeLocked(absoluteCpuTotal());
+        }
+
+        if (prevInterval)
+        {
+            *prevInterval = m_Interval;
+        }
+        m_Interval = interval;
     }
-    m_Interval = interval;
+    if (needsSignal)
+    {
+        signal();
+    }
 }
 
 void IntervalTimer::setTimerValue(
     Time::Timestamp value, Time::Timestamp *prevValue)
 {
-    LockGuard<Spinlock> guard(m_Lock);
-
-    if (prevValue)
+    bool needsSignal = false;
     {
-        *prevValue = m_Value;
+        LockGuard<Spinlock> guard(m_Lock);
+        if (m_Mode != Hardware)
+        {
+            needsSignal = advanceCpuTimeLocked(absoluteCpuTotal());
+        }
+
+        if (prevValue)
+        {
+            *prevValue = m_Value;
+        }
+        m_Value = value;
+        m_Armed = m_Value > 0;
     }
-    m_Value = value;
-    m_Armed = m_Value > 0;
+    if (needsSignal)
+    {
+        signal();
+    }
 }
 
 void IntervalTimer::setIntervalAndValue(
     Time::Timestamp interval, Time::Timestamp value,
     Time::Timestamp *prevInterval, Time::Timestamp *prevValue)
 {
+    bool needsSignal = false;
+    {
+        LockGuard<Spinlock> guard(m_Lock);
+        if (m_Mode != Hardware)
+        {
+            needsSignal = advanceCpuTimeLocked(absoluteCpuTotal());
+        }
+
+        if (prevInterval)
+        {
+            *prevInterval = m_Interval;
+        }
+
+        if (prevValue)
+        {
+            *prevValue = m_Value;
+        }
+
+        m_Interval = interval;
+        m_Value = value;
+        m_Armed = m_Value > 0;
+    }
+    if (needsSignal)
+    {
+        signal();
+    }
+}
+
+void IntervalTimer::disarm()
+{
     LockGuard<Spinlock> guard(m_Lock);
-
-    if (prevInterval)
+    if (m_Mode != Hardware)
     {
-        *prevInterval = m_Interval;
+        const Time::Timestamp current = absoluteCpuTotal();
+        if (current > m_LastCpuTotal)
+        {
+            m_LastCpuTotal = current;
+        }
     }
-
-    if (prevValue)
-    {
-        *prevValue = m_Value;
-    }
-
-    m_Interval = interval;
-    m_Value = value;
-    m_Armed = m_Value > 0;
+    m_Value = 0;
+    m_Interval = 0;
+    m_Armed = false;
 }
 
 void IntervalTimer::getIntervalAndValue(
     Time::Timestamp &interval, Time::Timestamp &value)
 {
-    LockGuard<Spinlock> guard(m_Lock);
-
-    interval = m_Interval;
-    value = m_Value;
-}
-
-void IntervalTimer::adjustValue(int64_t adjustment)
-{
     bool needsSignal = false;
     {
         LockGuard<Spinlock> guard(m_Lock);
-
-        // Fixup in case of potential underflow
-        if ((adjustment < 0) &&
-            (static_cast<uint64_t>(adjustment * -1) > m_Value))
+        if (m_Mode != Hardware)
         {
-            m_Value = 0;
-        }
-        else
-        {
-            m_Value += adjustment;
+            needsSignal = advanceCpuTimeLocked(absoluteCpuTotal());
         }
 
-        if (m_Armed && !m_Value)
-        {
-            m_Value = m_Interval;
-            m_Armed = m_Value > 0;
+        interval = m_Interval;
+        value = m_Value;
+    }
+    if (needsSignal)
+    {
+        signal();
+    }
+}
 
-            needsSignal = true;
-        }
+void IntervalTimer::consumeCpuTime(Time::Timestamp absoluteTotal)
+{
+    if (m_Mode == Hardware)
+    {
+        return;
+    }
+
+    bool needsSignal = false;
+    {
+        LockGuard<Spinlock> guard(m_Lock);
+        needsSignal = advanceCpuTimeLocked(absoluteTotal);
     }
 
     if (needsSignal)
     {
         signal();
     }
+}
+
+Time::Timestamp IntervalTimer::absoluteCpuTotal() const
+{
+    if (m_Mode == Virtual)
+    {
+        return m_Process->getUserTime();
+    }
+    if (m_Mode == Profile)
+    {
+        return m_Process->getUserTime() + m_Process->getKernelTime();
+    }
+    return 0;
+}
+
+bool IntervalTimer::advanceCpuTimeLocked(Time::Timestamp absoluteTotal)
+{
+    const PosixIntervalTimerState::AbsoluteConsumption result =
+        PosixIntervalTimerState::consumeAbsolute(
+            m_Value, m_Interval, m_Armed, m_LastCpuTotal, absoluteTotal);
+    m_Value = result.timer.value;
+    m_Armed = result.timer.armed;
+    m_LastCpuTotal = result.baseline;
+    return result.timer.expired;
 }
 
 Time::Timestamp IntervalTimer::getInterval() const
@@ -522,17 +601,12 @@ void IntervalTimer::timer(uint64_t delta)
             return;
         }
 
-        if (m_Value < delta)
-        {
-            m_Value = m_Interval;
-            m_Armed = m_Value > 0;
-
-            needsSignal = true;
-        }
-        else
-        {
-            m_Value -= delta;
-        }
+        const PosixIntervalTimerState::Consumption result =
+            PosixIntervalTimerState::consume(
+                m_Value, m_Interval, m_Armed, delta);
+        m_Value = result.value;
+        m_Armed = result.armed;
+        needsSignal = result.expired;
     }
 
     if (needsSignal)
