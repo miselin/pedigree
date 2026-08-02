@@ -26,24 +26,28 @@ class HardIrqHandler;
 class IrqHandler;
 class IrqHandlerBase;
 
-irq_id_t Apic::registerIsaIrqHandler(uint8_t, IrqHandler *handler, bool bEdge)
+irq_id_t Apic::registerIsaIrqHandler(
+    uint8_t, IrqHandler *handler, const IrqPolicy &policy)
 {
     // TODO
     return 0;
 }
-irq_id_t Apic::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
+irq_id_t Apic::registerPciIrqHandler(
+    IrqHandler *handler, Device *pDevice, const IrqPolicy &policy)
 {
     // TODO
     return 0;
 }
 irq_id_t
-Apic::registerHardIsaIrqHandler(uint8_t, HardIrqHandler *handler, bool bEdge)
+Apic::registerHardIsaIrqHandler(
+    uint8_t, HardIrqHandler *handler, const IrqPolicy &policy)
 {
     // TODO
     return 0;
 }
 irq_id_t
-Apic::registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice)
+Apic::registerHardPciIrqHandler(
+    HardIrqHandler *handler, Device *pDevice, const IrqPolicy &policy)
 {
     // TODO
     return 0;

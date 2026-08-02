@@ -129,7 +129,8 @@ EXPORTED_PUBLIC void cdi_register_irq(
     driver_irq_device[irq] = device;
 
     Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-        irq, static_cast<HardIrqHandler *>(&cdi_irq_handler));
+        irq, static_cast<HardIrqHandler *>(&cdi_irq_handler),
+        IrqPolicy::levelHard());
 }
 
 /**

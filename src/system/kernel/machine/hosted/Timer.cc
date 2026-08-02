@@ -286,7 +286,8 @@ bool HostedTimer::initialise3()
     }
 
     IrqManager &irqManager = *Machine::instance().getIrqManager();
-    m_IrqId = registerIsaSplitIrq(irqManager, 0, true);
+    m_IrqId =
+        registerIsaSplitIrq(irqManager, 0, IrqPolicy::syntheticHard());
     if (!m_IrqId)
     {
         if (!shutdownSplitIrq())

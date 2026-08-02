@@ -77,7 +77,8 @@ Rtl8139::Rtl8139(Network *pDev)
 
     // install the IRQ and register the NIC in the stack
     Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-        getInterruptNumber(), static_cast<HardIrqHandler *>(this));
+        getInterruptNumber(), static_cast<HardIrqHandler *>(this),
+        IrqPolicy::levelHard());
     NetworkStack::instance().registerDevice(this);
 }
 

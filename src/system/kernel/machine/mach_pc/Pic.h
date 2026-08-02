@@ -55,14 +55,15 @@ class Pic : public IrqManager, private InterruptHandler
     //
     // IrqManager interface
     //
-    virtual irq_id_t
-    registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge = false);
-    virtual irq_id_t
-    registerPciIrqHandler(IrqHandler *handler, Device *pDevice);
+    virtual irq_id_t registerIsaIrqHandler(
+        uint8_t irq, IrqHandler *handler, const IrqPolicy &policy);
+    virtual irq_id_t registerPciIrqHandler(
+        IrqHandler *handler, Device *pDevice, const IrqPolicy &policy);
     virtual irq_id_t registerHardIsaIrqHandler(
-        uint8_t irq, HardIrqHandler *handler, bool bEdge = false);
-    virtual irq_id_t
-    registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice);
+        uint8_t irq, HardIrqHandler *handler, const IrqPolicy &policy);
+    virtual irq_id_t registerHardPciIrqHandler(
+        HardIrqHandler *handler, Device *pDevice,
+        const IrqPolicy &policy);
     virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler);
 
     /** Initialises the PIC hardware and registers the interrupts with the

@@ -300,7 +300,8 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
     {
         irq_id_t irqId =
             Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-            getInterruptNumber(), static_cast<HardIrqHandler *>(this));
+            getInterruptNumber(), static_cast<HardIrqHandler *>(this),
+            IrqPolicy::levelHard());
         if (irqId)
         {
             m_IrqIds[m_IrqCount++] = irqId;
@@ -313,7 +314,8 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
     {
         irq_id_t irqId =
             Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-            primaryIrq, static_cast<HardIrqHandler *>(this));
+            primaryIrq, static_cast<HardIrqHandler *>(this),
+            IrqPolicy::levelHard());
         if (irqId)
         {
             m_IrqIds[m_IrqCount++] = irqId;
@@ -323,7 +325,8 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
     {
         irq_id_t irqId =
             Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-            secondaryIrq, static_cast<HardIrqHandler *>(this));
+            secondaryIrq, static_cast<HardIrqHandler *>(this),
+            IrqPolicy::levelHard());
         if (irqId)
         {
             m_IrqIds[m_IrqCount++] = irqId;

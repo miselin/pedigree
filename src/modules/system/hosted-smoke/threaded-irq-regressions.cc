@@ -212,7 +212,8 @@ bool hostedThreadedSignalDelivery()
     HostedThreadedHandler handler;
     handler.publisher = Processor::information().getCurrentThread();
 
-    const irq_id_t id = manager->registerIsaIrqHandler(2, &handler);
+    const irq_id_t id = manager->registerIsaIrqHandler(
+        2, &handler, IrqPolicy::syntheticThreaded());
     const bool interruptsWereEnabled = Processor::getInterrupts();
     Processor::setInterrupts(false);
     const bool raised = id && raise(SIGURG) == 0;
@@ -257,7 +258,7 @@ bool picThreadedTriggerPolicy()
     constexpr const char *PolicyTest = "pic-threaded-trigger-policy";
     PicIrqState level;
     level.setAllEnabled(false);
-    level.handlerRegistered(10, false);
+    level.handlerRegistered(10, IrqPolicy::levelThreaded());
 
     const size_t handledGeneration = level.beginDispatch(10);
     level.beginThreadedDispatch(10);
@@ -282,7 +283,7 @@ bool picThreadedTriggerPolicy()
             !level.threadedPending(10),
         "final unregister or stale completion reopened the line", PolicyTest);
 
-    level.handlerRegistered(10, false);
+    level.handlerRegistered(10, IrqPolicy::levelThreaded());
     const size_t administrativelyDisabled = level.beginDispatch(10);
     level.beginThreadedDispatch(10);
     level.setEnabled(10, false);
@@ -320,7 +321,7 @@ bool picThreadedTriggerPolicy()
 
     PicIrqState edge;
     edge.setAllEnabled(false);
-    edge.handlerRegistered(5, true);
+    edge.handlerRegistered(5, IrqPolicy::edgeThreaded());
     const uint16_t enabledEdgeMask = edge.mask();
     const size_t edgeGeneration = edge.beginDispatch(5);
     edge.beginThreadedDispatch(5);

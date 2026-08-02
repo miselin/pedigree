@@ -590,10 +590,19 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q \
-        'edgeTriggered = m_IrqState\.edgeTriggered\(irq\)' "$pic_source" ||
-        ! rg -q 'if \(edgeTriggered\)' "$pic_source" ||
-        ! rg -q 'if \(!edgeTriggered\)' "$pic_source"; then
-        echo "PIC dispatch no longer uses one trigger-mode snapshot."
+        'controllerAck = m_IrqState\.controllerAck\(irq\)' "$pic_source" ||
+        ! rg -q \
+            'lineRelease = m_IrqState\.lineRelease\(irq\)' "$pic_source" ||
+        ! rg -q \
+            'controllerAck == IrqControllerAck::BeforeHardStage' \
+            "$pic_source" ||
+        ! rg -q \
+            'controllerAck == IrqControllerAck::AfterHardStage' \
+            "$pic_source" ||
+        ! rg -q \
+            'lineRelease == IrqLineRelease::AfterThreadedCompletion' \
+            "$pic_source"; then
+        echo "PIC dispatch no longer uses one typed policy snapshot."
         failed=1
     fi
 
@@ -675,6 +684,7 @@ check_wait_api_boundaries()
     fi
 
     local irq_handler_header=src/system/include/pedigree/kernel/machine/IrqHandler.h
+    local irq_manager_header=src/system/include/pedigree/kernel/machine/IrqManager.h
     local irq_registry_header=src/system/include/pedigree/kernel/machine/IrqHandlerRegistry.h
     local split_irq_header=src/system/include/pedigree/kernel/machine/SplitIrqHandler.h
     local split_irq_source=src/system/kernel/machine/SplitIrqHandler.cc
@@ -691,6 +701,20 @@ check_wait_api_boundaries()
             'virtual bool irq\(irq_id_t number, InterruptState &state\)' \
             "$irq_handler_header"; then
         echo "The IRQ API lost its explicit thread and hard-context types."
+        failed=1
+    fi
+
+    if ! rg -q 'enum class IrqTrigger' "$irq_manager_header" ||
+        ! rg -q 'enum class IrqControllerAck' "$irq_manager_header" ||
+        ! rg -q 'enum class IrqLineRelease' "$irq_manager_header" ||
+        ! rg -q 'class IrqPolicy' "$irq_manager_header" ||
+        ! rg -q 'static constexpr IrqPolicy pciIntxThreaded' \
+            "$irq_manager_header" ||
+        ! rg -q 'static constexpr IrqPolicy syntheticHard' \
+            "$irq_manager_header" ||
+        rg -q 'bool bEdge|legacy(Hard|Threaded)' "$irq_manager_header" ||
+        ! python3 scripts/check-irq-policy-registrations.py; then
+        echo "IRQ registration escaped the explicit named-policy API."
         failed=1
     fi
 
@@ -815,10 +839,10 @@ check_wait_api_boundaries()
     local pc_source=src/system/kernel/machine/mach_pc/Pc.cc
     if ! rg -q 'ThreadedIrqDispatcher m_ThreadedDispatcher' "$pic_header" ||
         ! rg -q -U \
-            '(?s)registerIsaIrqHandler\([^)]*IrqHandler \*handler.*?registerThreadedHandler\(irq, handler\).*?handlerRegistered\(irq, bEdge\)' \
+            '(?s)registerIsaIrqHandler\([^)]*IrqHandler \*handler, const IrqPolicy &policy.*?registerThreadedHandler\(irq, handler\).*?handlerRegistered\(irq, policy\)' \
             "$pic_source" ||
         ! rg -q -U \
-            '(?s)registerPciIrqHandler\(IrqHandler \*handler.*?registerThreadedHandler\(irq, handler\).*?handlerRegistered\(irq, false\)' \
+            '(?s)registerPciIrqHandler\(.*?const IrqPolicy &policy.*?registerThreadedHandler\(irq, handler\).*?handlerRegistered\(irq, policy\)' \
             "$pic_source"; then
         echo "The PIC normal registration path escaped manager-owned threaded delivery."
         failed=1
@@ -838,7 +862,7 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
-        '(?s)Pic::interrupt\(.*?beginThreadedDispatch\(irq\).*?applyMaskLocked\(\).*?publishFromInterrupt\(.*?threadedCookie\).*?eoiLocked\(irq\)' \
+        '(?s)Pic::interrupt\(.*?beginThreadedDispatch\(irq\).*?lineRelease == IrqLineRelease::AfterThreadedCompletion.*?applyMaskLocked\(\).*?publishFromInterrupt\(.*?threadedCookie\).*?controllerAck == IrqControllerAck::AfterHardStage.*?eoiLocked\(irq\)' \
         "$pic_source" ||
         ! rg -q -U \
             '(?s)if \(!threadedPublished\).*?__atomic_add_fetch\(.*?m_ThreadedPublicationFailures' \
@@ -863,9 +887,15 @@ check_wait_api_boundaries()
 
     if ! rg -q 'bool m_ThreadedPending\[LineCount\]' "$pic_state" ||
         ! rg -q 'bool m_RequestedEnabled\[LineCount\]' "$pic_state" ||
+        ! rg -q 'IrqControllerAck m_ControllerAck\[LineCount\]' \
+            "$pic_state" ||
+        ! rg -q 'IrqLineRelease m_LineRelease\[LineCount\]' "$pic_state" ||
+        ! rg -q 'm_TriggerModes\[irq\] = TriggerMode::Unconfigured' \
+            "$pic_state" ||
         ! rg -q 'm_DispatchGenerations\[irq\] != dispatchGeneration' \
             "$pic_state" ||
-        ! rg -q 'pic-threaded-trigger-policy' "$threaded_irq_regressions"; then
+        ! rg -q 'pic-threaded-trigger-policy' "$threaded_irq_regressions" ||
+        ! rg -q 'irq-policy-orthogonality' "$irq_regressions"; then
         echo "PIC mask reasons, stale-generation protection, or trigger tests are incomplete."
         failed=1
     fi
@@ -1110,7 +1140,7 @@ check_wait_api_boundaries()
             'class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler' \
             "$hosted_scheduler_timer_header" ||
         ! rg -q -U \
-            '(?s)HostedSchedulerTimer::initialise\(\).*?timer_create\(CLOCK_MONOTONIC.*?registerHardIsaIrqHandler\(1, this\).*?timer_settime\(' \
+            '(?s)HostedSchedulerTimer::initialise\(\).*?timer_create\(CLOCK_MONOTONIC.*?registerHardIsaIrqHandler\(.*?1, this, IrqPolicy::syntheticHard\(\)\).*?timer_settime\(' \
             "$hosted_scheduler_timer_source" ||
         ! rg -q -U \
             '(?s)HostedSchedulerTimer::uninitialise\(\).*?timer_settime\(.*?unregisterHandler\(m_IrqId, this\).*?timer_delete\(' \

@@ -409,7 +409,8 @@ bool Rtc::initialise3()
     }
 
     IrqManager &irqManager = *Machine::instance().getIrqManager();
-    m_IrqId = registerIsaSplitIrq(irqManager, 8);
+    m_IrqId =
+        registerIsaSplitIrq(irqManager, 8, IrqPolicy::levelHard());
     if (!m_IrqId)
     {
         if (!shutdownSplitIrq())

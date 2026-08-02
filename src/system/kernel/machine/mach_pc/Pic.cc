@@ -66,18 +66,21 @@ bool Pic::control(uint8_t irq, ControlCode code, size_t argument)
 }
 
 irq_id_t
-Pic::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge)
+Pic::registerIsaIrqHandler(
+    uint8_t irq, IrqHandler *handler, const IrqPolicy &policy)
 {
     if (UNLIKELY(
             irq >= PicIrqState::LineCount || !handler ||
-            !m_ThreadedDispatcher.isInitialised()))
+            !m_ThreadedDispatcher.isInitialised() ||
+            !policy.validForThreaded() ||
+            policy.trigger() == IrqTrigger::Synthetic))
         return 0;
 
     LockGuard<Spinlock> guard(m_Lock);
     if (m_ShuttingDown || m_UnregisterReservations[irq] ||
         !m_ThreadedDispatcher.isInitialised())
         return 0;
-    if (!m_IrqState.canRegister(irq, bEdge))
+    if (!m_IrqState.canRegister(irq, policy))
     {
         ERROR(
             "PIC: IRQ " << Dec << irq
@@ -92,22 +95,26 @@ Pic::registerIsaIrqHandler(uint8_t irq, IrqHandler *handler, bool bEdge)
     {
         advanceThreadedCookieLocked(irq);
     }
-    m_IrqState.handlerRegistered(irq, bEdge);
+    m_IrqState.handlerRegistered(irq, policy);
     applyMaskLocked();
 
     return irq + BASE_INTERRUPT_VECTOR;
 }
 
 irq_id_t
-Pic::registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler *handler, bool bEdge)
+Pic::registerHardIsaIrqHandler(
+    uint8_t irq, HardIrqHandler *handler, const IrqPolicy &policy)
 {
-    if (UNLIKELY(irq >= PicIrqState::LineCount || !handler))
+    if (UNLIKELY(
+            irq >= PicIrqState::LineCount || !handler ||
+            !policy.validForHard() ||
+            policy.trigger() == IrqTrigger::Synthetic))
         return 0;
 
     LockGuard<Spinlock> guard(m_Lock);
     if (m_ShuttingDown || m_UnregisterReservations[irq])
         return 0;
-    if (!m_IrqState.canRegister(irq, bEdge))
+    if (!m_IrqState.canRegister(irq, policy))
     {
         ERROR(
             "PIC: IRQ " << Dec << irq
@@ -122,26 +129,29 @@ Pic::registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler *handler, bool bEdge)
     {
         advanceThreadedCookieLocked(irq);
     }
-    m_IrqState.handlerRegistered(irq, bEdge);
+    m_IrqState.handlerRegistered(irq, policy);
     applyMaskLocked();
 
     return irq + BASE_INTERRUPT_VECTOR;
 }
-irq_id_t Pic::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
+irq_id_t Pic::registerPciIrqHandler(
+    IrqHandler *handler, Device *pDevice, const IrqPolicy &policy)
 {
     if (UNLIKELY(!pDevice))
         return 0;
     irq_id_t irq = pDevice->getInterruptNumber();
     if (UNLIKELY(
             irq >= PicIrqState::LineCount || !handler ||
-            !m_ThreadedDispatcher.isInitialised()))
+            !m_ThreadedDispatcher.isInitialised() ||
+            !policy.validForThreaded() ||
+            policy.trigger() != IrqTrigger::Level))
         return 0;
 
     LockGuard<Spinlock> guard(m_Lock);
     if (m_ShuttingDown || m_UnregisterReservations[irq] ||
         !m_ThreadedDispatcher.isInitialised())
         return 0;
-    if (!m_IrqState.canRegister(irq, false))
+    if (!m_IrqState.canRegister(irq, policy))
     {
         ERROR(
             "PIC: PCI IRQ " << Dec << irq
@@ -156,25 +166,29 @@ irq_id_t Pic::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
     {
         advanceThreadedCookieLocked(irq);
     }
-    m_IrqState.handlerRegistered(irq, false);
+    m_IrqState.handlerRegistered(irq, policy);
     applyMaskLocked();
 
     return irq + BASE_INTERRUPT_VECTOR;
 }
 
 irq_id_t
-Pic::registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice)
+Pic::registerHardPciIrqHandler(
+    HardIrqHandler *handler, Device *pDevice, const IrqPolicy &policy)
 {
     if (UNLIKELY(!pDevice))
         return 0;
     irq_id_t irq = pDevice->getInterruptNumber();
-    if (UNLIKELY(irq >= PicIrqState::LineCount || !handler))
+    if (UNLIKELY(
+            irq >= PicIrqState::LineCount || !handler ||
+            !policy.validForHard() ||
+            policy.trigger() != IrqTrigger::Level))
         return 0;
 
     LockGuard<Spinlock> guard(m_Lock);
     if (m_ShuttingDown || m_UnregisterReservations[irq])
         return 0;
-    if (!m_IrqState.canRegister(irq, false))
+    if (!m_IrqState.canRegister(irq, policy))
     {
         ERROR(
             "PIC: PCI IRQ " << Dec << irq
@@ -189,7 +203,7 @@ Pic::registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice)
     {
         advanceThreadedCookieLocked(irq);
     }
-    m_IrqState.handlerRegistered(irq, false);
+    m_IrqState.handlerRegistered(irq, policy);
     applyMaskLocked();
 
     return irq + BASE_INTERRUPT_VECTOR;
@@ -351,7 +365,8 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
         return;
     }
 
-    bool edgeTriggered = false;
+    IrqControllerAck controllerAck = IrqControllerAck::None;
+    IrqLineRelease lineRelease = IrqLineRelease::AfterHardStage;
     bool threaded = false;
     size_t dispatchGeneration = 0;
     size_t threadedCookie = 0;
@@ -359,7 +374,8 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
     {
         LockGuard<Spinlock> guard(m_Lock);
         ++m_IrqCount[irq];
-        edgeTriggered = m_IrqState.edgeTriggered(irq);
+        controllerAck = m_IrqState.controllerAck(irq);
+        lineRelease = m_IrqState.lineRelease(irq);
 
         // IRQ7 and IRQ15 are the architectural spurious-vector cases. A
         // disabled line can also have a vector already in flight, so retain
@@ -382,20 +398,27 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
             m_Handlers.lineMode(irq) == IrqHandlerRegistry::LineMode::Threaded;
         if (threaded)
         {
-            // Level lines must be masked before EOI. Edge lines remain open
-            // so hardware edges are not collapsed while the worker runs.
+            // A one-shot threaded policy masks before EOI. Immediate-release
+            // policies remain open while the worker runs.
             m_IrqState.beginThreadedDispatch(irq);
-            if (!edgeTriggered)
+            if (lineRelease == IrqLineRelease::AfterThreadedCompletion)
             {
                 applyMaskLocked();
+            }
+            if (controllerAck == IrqControllerAck::BeforeHardStage)
+            {
+                eoiLocked(irq);
             }
             threadedCookie = advanceThreadedCookieLocked(irq);
             m_ThreadedDispatchGenerations[irq] = dispatchGeneration;
             threadedPublished = m_ThreadedDispatcher.publishFromInterrupt(
                 irq, threadedCookie);
-            eoiLocked(irq);
+            if (controllerAck == IrqControllerAck::AfterHardStage)
+            {
+                eoiLocked(irq);
+            }
         }
-        else if (edgeTriggered)
+        else if (controllerAck == IrqControllerAck::BeforeHardStage)
         {
             eoiLocked(irq);
         }
@@ -425,7 +448,7 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
             applyMaskLocked();
         }
 
-        if (!edgeTriggered)
+        if (controllerAck == IrqControllerAck::AfterHardStage)
         {
             eoiLocked(irq);
         }

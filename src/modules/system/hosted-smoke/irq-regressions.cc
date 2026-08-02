@@ -128,7 +128,8 @@ bool deliveryModeSeparation()
 
     DeliveryContextProbe *probe = new DeliveryContextProbe(*registry);
     IrqManager *manager = Machine::instance().getIrqManager();
-    const irq_id_t probeId = manager->registerHardIsaIrqHandler(1, probe);
+    const irq_id_t probeId = manager->registerHardIsaIrqHandler(
+        1, probe, IrqPolicy::syntheticHard());
     const bool signalQueued = probeId && raise(SIGUSR2) == 0;
     const bool probeRemoved =
         probeId && manager->unregisterHandler(probeId, probe);
@@ -215,17 +216,22 @@ bool picLineStateLifecycle()
             state.slaveMask() == 0xFF && state.enabled(2) && !state.enabled(12),
         "the dual-PIC mask did not represent all sixteen lines", Test);
 
+    const IrqPolicy originalPolicy = IrqPolicy::edgeHard();
+    const IrqPolicy replacementPolicy = IrqPolicy::levelHard();
     passed &= check(
-        state.canRegister(12, true),
+        state.canRegister(12, originalPolicy),
         "an unconfigured slave line rejected its trigger mode", Test);
     state.setEnabled(2, false);
     passed &= check(
         !state.enabled(2), "an idle cascade line could not be masked", Test);
-    state.handlerRegistered(12, true);
+    state.handlerRegistered(12, originalPolicy);
     passed &= check(
         state.handlerCount(12) == 1 && state.enabled(2) && state.enabled(12) &&
             state.slaveMask() == 0xEF && state.edgeTriggered(12),
         "registering IRQ12 did not unmask its slave bit and cascade", Test);
+    passed &= check(
+        !state.canRegister(12, replacementPolicy),
+        "a live shared PIC line accepted an incompatible policy", Test);
 
     state.setEnabled(2, false);
     passed &= check(
@@ -247,7 +253,7 @@ bool picLineStateLifecycle()
         !state.enabled(12) && state.acknowledgementPending(12),
         "a dispatch requiring acknowledgement did not mask its line", Test);
 
-    state.handlerRegistered(12, true);
+    state.handlerRegistered(12, originalPolicy);
     passed &= check(
         state.handlerCount(12) == 2 && !state.enabled(12),
         "a shared registration reopened a pending-ack line", Test);
@@ -259,7 +265,7 @@ bool picLineStateLifecycle()
 
     // Model a new registration completing before the old unregister performs
     // its final line accounting. The live replacement must remain unmasked.
-    state.handlerRegistered(12, true);
+    state.handlerRegistered(12, originalPolicy);
     state.handlerUnregistered(12);
     passed &= check(
         state.handlerCount(12) == 1 && state.enabled(12),
@@ -273,20 +279,78 @@ bool picLineStateLifecycle()
         !state.acknowledge(12) && !state.enabled(12),
         "a stale acknowledgement reopened a handlerless line", Test);
     passed &= check(
-        !state.canRegister(12, false),
-        "a shared PIC line accepted incompatible edge and level modes", Test);
+        state.canRegister(12, replacementPolicy),
+        "final unregister retained stale trigger or completion policy", Test);
 
-    // Exercise the opposite ordering: final removal masks first, then a new
-    // compatible registration must reliably unmask the line again.
-    state.handlerRegistered(12, true);
+    // A later owner may legitimately reuse the physical line with a different
+    // policy once the previous callback lifetime has drained completely.
+    state.handlerRegistered(12, replacementPolicy);
     passed &= check(
-        state.handlerCount(12) == 1 && state.enabled(12),
-        "registration after final removal left the line masked", Test);
+        state.handlerCount(12) == 1 && state.enabled(12) &&
+            !state.edgeTriggered(12) &&
+            state.controllerAck(12) == IrqControllerAck::AfterHardStage &&
+            state.lineRelease(12) == IrqLineRelease::AfterHardStage,
+        "registration after final removal retained the previous policy",
+        Test);
     state.handlerUnregistered(12);
 
     if (passed)
     {
         NOTICE("HOSTED-WAIT-TEST: PASS pic-line-state-mask-lifecycle");
+    }
+    return passed;
+}
+
+bool irqPolicyOrthogonality()
+{
+    constexpr const char *Test = "irq-policy-orthogonality";
+    const IrqPolicy edgeAckAfter(
+        IrqTrigger::Edge, IrqControllerAck::AfterHardStage,
+        IrqLineRelease::AfterHardStage);
+    const IrqPolicy invalidEdgeOneShot(
+        IrqTrigger::Edge, IrqControllerAck::AfterHardStage,
+        IrqLineRelease::AfterThreadedCompletion);
+    const IrqPolicy invalidSyntheticAck(
+        IrqTrigger::Synthetic, IrqControllerAck::AfterHardStage,
+        IrqLineRelease::AfterHardStage);
+    const IrqPolicy invalidHardLevelEarlyAck(
+        IrqTrigger::Level, IrqControllerAck::BeforeHardStage,
+        IrqLineRelease::AfterHardStage);
+    const IrqPolicy levelThreadedEarlyAck(
+        IrqTrigger::Level, IrqControllerAck::BeforeHardStage,
+        IrqLineRelease::AfterThreadedCompletion);
+
+    bool passed = check(
+        edgeAckAfter.validForHard() && edgeAckAfter.validForThreaded(),
+        "edge trigger could not select acknowledgement order independently",
+        Test);
+    passed &= check(
+        IrqPolicy::levelHard().validForHard() &&
+            !IrqPolicy::levelHard().validForThreaded() &&
+            !IrqPolicy::levelThreaded().validForHard() &&
+            IrqPolicy::levelThreaded().validForThreaded(),
+        "level completion policy was accepted by the wrong delivery mode",
+        Test);
+    passed &= check(
+        !invalidEdgeOneShot.validForHard() &&
+            !invalidEdgeOneShot.validForThreaded() &&
+            !invalidSyntheticAck.validForHard() &&
+            !invalidSyntheticAck.validForThreaded() &&
+            !invalidHardLevelEarlyAck.validForHard() &&
+            !invalidHardLevelEarlyAck.validForThreaded() &&
+            !levelThreadedEarlyAck.validForHard() &&
+            levelThreadedEarlyAck.validForThreaded(),
+        "an invalid electrical or controller policy was accepted", Test);
+    passed &= check(
+        IrqPolicy::syntheticHard().validForHard() &&
+            IrqPolicy::syntheticThreaded().validForThreaded() &&
+            IrqPolicy::pciIntxHard() == IrqPolicy::levelHard() &&
+            IrqPolicy::pciIntxThreaded() == IrqPolicy::levelThreaded(),
+        "a named policy factory did not preserve its contract", Test);
+
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-policy-orthogonality");
     }
     return passed;
 }
@@ -382,7 +446,9 @@ bool irqReadyPublication()
     }
 
     const irq_id_t id =
-        waiterBlocked ? manager->registerHardIsaIrqHandler(1, &handler) : 0;
+        waiterBlocked ? manager->registerHardIsaIrqHandler(
+                            1, &handler, IrqPolicy::syntheticHard()) :
+                        0;
     g_IrqReadyPublicationContext = &context;
     Scheduler::setGenericThreadStatusHook(observeGenericThreadStatus);
     context.armed = 1;
@@ -542,7 +608,8 @@ bool writerLockIndependentDispatch()
     constexpr const char *Test = "irq-dispatch-writer-lock-independent";
     IrqManager *manager = Machine::instance().getIrqManager();
     RegistryDispatchContext context(manager);
-    context.id = manager->registerHardIsaIrqHandler(1, &context.handler);
+    context.id = manager->registerHardIsaIrqHandler(
+        1, &context.handler, IrqPolicy::syntheticHard());
 
     g_RegistryDispatchContext = &context;
     context.mutationRequested = 1;
@@ -661,11 +728,13 @@ bool writerLockSelfUnregister()
     IrqManager *manager = Machine::instance().getIrqManager();
     WriterLockedRemovalContext context(manager);
 
-    context.id = manager->registerHardIsaIrqHandler(1, &context.handler);
+    context.id = manager->registerHardIsaIrqHandler(
+        1, &context.handler, IrqPolicy::syntheticHard());
     const bool identifierSeeded =
         context.id && manager->unregisterHandler(context.id, &context.handler);
     const irq_id_t activeId =
-        manager->registerHardIsaIrqHandler(1, &context.handler);
+        manager->registerHardIsaIrqHandler(
+            1, &context.handler, IrqPolicy::syntheticHard());
 
     g_WriterLockedRemovalContext = &context;
     context.armed = 1;
@@ -677,7 +746,8 @@ bool writerLockSelfUnregister()
     const bool retired =
         !HostedIrqManager::containsHandlerForTest(1, &context.handler);
     const irq_id_t reusedId =
-        manager->registerHardIsaIrqHandler(1, &context.handler);
+        manager->registerHardIsaIrqHandler(
+            1, &context.handler, IrqPolicy::syntheticHard());
     const bool reused = reusedId != 0;
     bool cleaned = false;
     if (reused)
@@ -717,7 +787,8 @@ bool deferredScopeLockIndependentDispatch()
     constexpr const char *Test = "irq-dispatch-deferred-scope-lock-independent";
     IrqManager *manager = Machine::instance().getIrqManager();
     RegistryDispatchContext context(manager);
-    context.id = manager->registerHardIsaIrqHandler(1, &context.handler);
+    context.id = manager->registerHardIsaIrqHandler(
+        1, &context.handler, IrqPolicy::syntheticHard());
 
     g_RegistryDispatchContext = &context;
     context.deferredScopeRequested = 1;
@@ -764,7 +835,8 @@ bool prePinUnregisterRevalidation()
     constexpr const char *Test = "irq-pre-pin-unregister-revalidation";
     IrqManager *manager = Machine::instance().getIrqManager();
     RegistryDispatchContext context(manager);
-    context.id = manager->registerHardIsaIrqHandler(1, &context.handler);
+    context.id = manager->registerHardIsaIrqHandler(
+        1, &context.handler, IrqPolicy::syntheticHard());
 
     g_RegistryDispatchContext = &context;
     const size_t callsBeforeDispatch = context.calls;
@@ -774,7 +846,8 @@ bool prePinUnregisterRevalidation()
     g_RegistryDispatchContext = nullptr;
 
     const irq_id_t reusedId =
-        manager->registerHardIsaIrqHandler(1, &context.handler);
+        manager->registerHardIsaIrqHandler(
+            1, &context.handler, IrqPolicy::syntheticHard());
     const bool reused = reusedId != 0;
     const bool cleaned =
         reused && manager->unregisterHandler(reusedId, &context.handler);
@@ -838,7 +911,8 @@ void replaceHandlerBeforeHazardClaim(IrqHandlerBase *handler)
         context->originalRemoved += 1;
     }
     context->replacementId =
-        context->manager->registerHardIsaIrqHandler(1, &context->replacement);
+        context->manager->registerHardIsaIrqHandler(
+            1, &context->replacement, IrqPolicy::syntheticHard());
     if (context->replacementId)
     {
         context->replacementRegistered += 1;
@@ -879,7 +953,8 @@ bool staleGenerationRevalidation()
     context.committedCalls = 0;
     context.replacementRemoved = 0;
     context.originalId =
-        manager->registerHardIsaIrqHandler(1, &context.original);
+        manager->registerHardIsaIrqHandler(
+            1, &context.original, IrqPolicy::syntheticHard());
 
     g_StalePublicationContext = &context;
     HostedIrqManager::setHandlerPrePinHook(replaceHandlerBeforeHazardClaim);
@@ -900,7 +975,8 @@ bool staleGenerationRevalidation()
         if (!failureCleanup)
         {
             const irq_id_t revivedId =
-                manager->registerHardIsaIrqHandler(1, &context.replacement);
+                manager->registerHardIsaIrqHandler(
+                    1, &context.replacement, IrqPolicy::syntheticHard());
             failureCleanup = revivedId && manager->unregisterHandler(
                                               revivedId, &context.replacement);
         }
@@ -1045,7 +1121,8 @@ bool abandonedDispatchStage(
     context->entered = 0;
     context->returned = 0;
     const irq_id_t id =
-        manager->registerHardIsaIrqHandler(1, &context->handler);
+        manager->registerHardIsaIrqHandler(
+            1, &context->handler, IrqPolicy::syntheticHard());
 
     context->worker = new Thread(
         Scheduler::instance().getKernelProcess(), abandonIrqDispatch, context,
@@ -1280,7 +1357,8 @@ bool handlerLifetimeBarrier()
     // Learn the manager-owned identifier before enabling the pin hook. The
     // identifier is assigned after hard registration returns, while an
     // IRQ is free to arrive as soon as the slot becomes visible.
-    context.id = manager->registerHardIsaIrqHandler(2, &context.handler);
+    context.id = manager->registerHardIsaIrqHandler(
+        2, &context.handler, IrqPolicy::syntheticHard());
     const bool identifierSeeded =
         context.id && manager->unregisterHandler(context.id, &context.handler);
 
@@ -1297,7 +1375,8 @@ bool handlerLifetimeBarrier()
     HostedIrqManager::setHandlerPinHook(handlerPinHook);
     HostedIrqManager::setHandlerHazardHook(handlerReleaseHook);
     const irq_id_t activeId =
-        manager->registerHardIsaIrqHandler(2, &context.handler);
+        manager->registerHardIsaIrqHandler(
+            2, &context.handler, IrqPolicy::syntheticHard());
     const bool registered =
         identifierSeeded && activeId && activeId == context.id;
     const bool dispatcherStarted = registered && context.dispatcher->start();
@@ -1354,7 +1433,8 @@ bool handlerLifetimeBarrier()
 
     SelfRemovingHandler selfRemoving(manager, context.id);
     const irq_id_t selfId =
-        manager->registerHardIsaIrqHandler(2, &selfRemoving);
+        manager->registerHardIsaIrqHandler(
+            2, &selfRemoving, IrqPolicy::syntheticHard());
     bool selfHandled = false;
     const bool selfAdmitted = selfId &&
                               HostedIrqManager::dispatchHandlerForTest(
@@ -1364,7 +1444,8 @@ bool handlerLifetimeBarrier()
     // A callback cannot wait for its own pin. The rejected synchronous
     // contract still closes admission and retires the slot on return.
     const irq_id_t selfReregisteredId =
-        manager->registerHardIsaIrqHandler(2, &selfRemoving);
+        manager->registerHardIsaIrqHandler(
+            2, &selfRemoving, IrqPolicy::syntheticHard());
     const bool selfReregistered = selfReregisteredId != 0;
     bool selfCleanup = false;
     if (selfReregistered)
@@ -1428,6 +1509,7 @@ bool handlerLifetimeBarrier()
 bool runHostedIrqRegressions()
 {
     bool passed = deliveryModeSeparation();
+    passed &= irqPolicyOrthogonality();
     passed &= picLineStateLifecycle();
     passed &= irqReadyPublication();
     passed &= writerLockIndependentDispatch();

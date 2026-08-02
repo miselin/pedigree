@@ -109,7 +109,7 @@ bool SplitIrqHandler::initialiseSplitIrq()
 }
 
 irq_id_t SplitIrqHandler::registerIsaSplitIrq(
-    IrqManager &manager, uint8_t irq, bool edge)
+    IrqManager &manager, uint8_t irq, const IrqPolicy &policy)
 {
     TerminationDeferral lifecycleTermination;
     SplitLifecycleGuard lifecycle(m_LifecycleBusy);
@@ -119,7 +119,8 @@ irq_id_t SplitIrqHandler::registerIsaSplitIrq(
         return 0;
     }
 
-    const irq_id_t id = manager.registerHardIsaIrqHandler(irq, this, edge);
+    const irq_id_t id =
+        manager.registerHardIsaIrqHandler(irq, this, policy);
     if (!id)
     {
         return 0;
@@ -139,7 +140,8 @@ irq_id_t SplitIrqHandler::registerIsaSplitIrq(
 }
 
 irq_id_t
-SplitIrqHandler::registerPciSplitIrq(IrqManager &manager, Device &device)
+SplitIrqHandler::registerPciSplitIrq(
+    IrqManager &manager, Device &device, const IrqPolicy &policy)
 {
     TerminationDeferral lifecycleTermination;
     SplitLifecycleGuard lifecycle(m_LifecycleBusy);
@@ -149,7 +151,8 @@ SplitIrqHandler::registerPciSplitIrq(IrqManager &manager, Device &device)
         return 0;
     }
 
-    const irq_id_t id = manager.registerHardPciIrqHandler(this, &device);
+    const irq_id_t id =
+        manager.registerHardPciIrqHandler(this, &device, policy);
     if (!id)
     {
         return 0;

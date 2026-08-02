@@ -83,7 +83,8 @@ bool HostedSchedulerTimer::initialise()
     }
 
     IrqManager &irqManager = *Machine::instance().getIrqManager();
-    m_IrqId = irqManager.registerHardIsaIrqHandler(1, this);
+    m_IrqId = irqManager.registerHardIsaIrqHandler(
+        1, this, IrqPolicy::syntheticHard());
     if (m_IrqId == 0)
     {
         timer_delete(m_Timer);

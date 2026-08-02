@@ -114,7 +114,8 @@ IsaAtaController::IsaAtaController(Controller *pDev, int nController)
     bool slaveInitialised = pSlave->initialise(slaveN);
 
     m_IrqId = Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-        getInterruptNumber(), static_cast<HardIrqHandler *>(this));
+        getInterruptNumber(), static_cast<HardIrqHandler *>(this),
+        IrqPolicy::levelHard());
 
     if (!masterInitialised)
     {

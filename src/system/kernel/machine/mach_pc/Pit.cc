@@ -59,7 +59,8 @@ bool Pit::initialise()
 
     // Allocate the IRQ
     IrqManager &irqManager = *Machine::instance().getIrqManager();
-    m_IrqId = irqManager.registerHardIsaIrqHandler(0, this, true);
+    m_IrqId = irqManager.registerHardIsaIrqHandler(
+        0, this, IrqPolicy::edgeHard());
     if (m_IrqId == 0)
         return false;
 

@@ -70,11 +70,12 @@ bool HostedIrqManager::control(uint8_t irq, ControlCode code, size_t argument)
 }
 
 irq_id_t HostedIrqManager::registerIsaIrqHandler(
-    uint8_t irq, IrqHandler *handler, bool bEdge)
+    uint8_t irq, IrqHandler *handler, const IrqPolicy &policy)
 {
     if (UNLIKELY(
             irq >= NumHostedIrqs || !handler || !irqToSignal[irq] ||
-            !m_ThreadedDispatcher.isInitialised()))
+            !m_ThreadedDispatcher.isInitialised() ||
+            !policy.validForThreaded()))
         return 0;
 
     if (!m_Handlers.registerThreadedHandler(irq, handler))
@@ -84,9 +85,11 @@ irq_id_t HostedIrqManager::registerIsaIrqHandler(
 }
 
 irq_id_t HostedIrqManager::registerHardIsaIrqHandler(
-    uint8_t irq, HardIrqHandler *handler, bool bEdge)
+    uint8_t irq, HardIrqHandler *handler, const IrqPolicy &policy)
 {
-    if (UNLIKELY(irq >= NumHostedIrqs || !handler || !irqToSignal[irq]))
+    if (UNLIKELY(
+            irq >= NumHostedIrqs || !handler || !irqToSignal[irq] ||
+            !policy.validForHard()))
         return 0;
 
     if (!m_Handlers.registerHardHandler(irq, handler))
@@ -96,14 +99,17 @@ irq_id_t HostedIrqManager::registerHardIsaIrqHandler(
 }
 
 irq_id_t
-HostedIrqManager::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
+HostedIrqManager::registerPciIrqHandler(
+    IrqHandler *handler, Device *pDevice, const IrqPolicy &policy)
 {
     if (UNLIKELY(!pDevice))
         return 0;
     irq_id_t irq = pDevice->getInterruptNumber();
     if (UNLIKELY(
             irq >= NumHostedIrqs || !handler || !irqToSignal[irq] ||
-            !m_ThreadedDispatcher.isInitialised()))
+            !m_ThreadedDispatcher.isInitialised() ||
+            !policy.validForThreaded() ||
+            policy.trigger() != IrqTrigger::Level))
         return 0;
 
     if (!m_Handlers.registerThreadedHandler(irq, handler))
@@ -113,12 +119,15 @@ HostedIrqManager::registerPciIrqHandler(IrqHandler *handler, Device *pDevice)
 }
 
 irq_id_t HostedIrqManager::registerHardPciIrqHandler(
-    HardIrqHandler *handler, Device *pDevice)
+    HardIrqHandler *handler, Device *pDevice, const IrqPolicy &policy)
 {
     if (UNLIKELY(!pDevice))
         return 0;
     irq_id_t irq = pDevice->getInterruptNumber();
-    if (UNLIKELY(irq >= NumHostedIrqs || !handler || !irqToSignal[irq]))
+    if (UNLIKELY(
+            irq >= NumHostedIrqs || !handler || !irqToSignal[irq] ||
+            !policy.validForHard() ||
+            policy.trigger() != IrqTrigger::Level))
         return 0;
 
     if (!m_Handlers.registerHardHandler(irq, handler))

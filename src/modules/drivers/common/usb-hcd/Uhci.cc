@@ -160,7 +160,8 @@ Uhci::Uhci(Device *pDev)
     }
 
     m_IrqId =
-        Machine::instance().getIrqManager()->registerHardPciIrqHandler(this, this);
+        Machine::instance().getIrqManager()->registerHardPciIrqHandler(
+            this, this, IrqPolicy::pciIntxHard());
     if (!m_IrqId)
     {
         FATAL("UHCI could not register its PCI IRQ handler");

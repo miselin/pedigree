@@ -8,6 +8,7 @@
 #ifndef PEDIGREE_KERNEL_MACHINE_MACH_PC_PICIRQSTATE_H
 #define PEDIGREE_KERNEL_MACHINE_MACH_PC_PICIRQSTATE_H
 
+#include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/assert.h"
 
@@ -36,6 +37,8 @@ class PicIrqState
         for (size_t i = 0; i < LineCount; ++i)
         {
             m_TriggerModes[i] = TriggerMode::Unconfigured;
+            m_ControllerAck[i] = IrqControllerAck::AfterHardStage;
+            m_LineRelease[i] = IrqLineRelease::AfterHardStage;
             m_HandlerCounts[i] = 0;
             m_DispatchGenerations[i] = 0;
             m_AcknowledgedGenerations[i] = 0;
@@ -45,7 +48,7 @@ class PicIrqState
         }
     }
 
-    bool canRegister(size_t irq, bool edge) const
+    bool canRegister(size_t irq, const IrqPolicy &policy) const
     {
         if (irq >= LineCount)
         {
@@ -53,18 +56,25 @@ class PicIrqState
         }
 
         const TriggerMode requested =
-            edge ? TriggerMode::Edge : TriggerMode::Level;
+            policy.trigger() == IrqTrigger::Edge ? TriggerMode::Edge :
+                                                   TriggerMode::Level;
         return m_TriggerModes[irq] == TriggerMode::Unconfigured ||
-               m_TriggerModes[irq] == requested;
+               (m_TriggerModes[irq] == requested &&
+                m_ControllerAck[irq] == policy.controllerAck() &&
+                m_LineRelease[irq] == policy.lineRelease());
     }
 
-    void handlerRegistered(size_t irq, bool edge)
+    void handlerRegistered(size_t irq, const IrqPolicy &policy)
     {
-        assert(canRegister(irq, edge));
+        assert(canRegister(irq, policy));
         const bool firstHandler = m_HandlerCounts[irq] == 0;
         if (m_TriggerModes[irq] == TriggerMode::Unconfigured)
         {
-            m_TriggerModes[irq] = edge ? TriggerMode::Edge : TriggerMode::Level;
+            m_TriggerModes[irq] =
+                policy.trigger() == IrqTrigger::Edge ? TriggerMode::Edge :
+                                                       TriggerMode::Level;
+            m_ControllerAck[irq] = policy.controllerAck();
+            m_LineRelease[irq] = policy.lineRelease();
         }
         ++m_HandlerCounts[irq];
         if (firstHandler)
@@ -88,6 +98,9 @@ class PicIrqState
             m_ThreadedPending[irq] = false;
             m_AcknowledgedGenerations[irq] = m_DispatchGenerations[irq];
             m_RequestedEnabled[irq] = false;
+            m_TriggerModes[irq] = TriggerMode::Unconfigured;
+            m_ControllerAck[irq] = IrqControllerAck::AfterHardStage;
+            m_LineRelease[irq] = IrqLineRelease::AfterHardStage;
             rebuildMask();
         }
     }
@@ -135,11 +148,11 @@ class PicIrqState
         return true;
     }
 
-    /** Masks a level-triggered line until its bottom half completes. */
+    /** Applies a policy-requested mask until the bottom half completes. */
     void beginThreadedDispatch(size_t irq)
     {
         assert(irq < LineCount);
-        if (!edgeTriggered(irq))
+        if (m_LineRelease[irq] == IrqLineRelease::AfterThreadedCompletion)
         {
             m_ThreadedPending[irq] = true;
             rebuildMask();
@@ -159,7 +172,8 @@ class PicIrqState
             return false;
         }
 
-        if (!edgeTriggered(irq) && (allowRearm || !m_HandlerCounts[irq]))
+        if (m_LineRelease[irq] == IrqLineRelease::AfterThreadedCompletion &&
+            (allowRearm || !m_HandlerCounts[irq]))
         {
             m_ThreadedPending[irq] = false;
             rebuildMask();
@@ -189,6 +203,18 @@ class PicIrqState
     {
         assert(irq < LineCount);
         return m_TriggerModes[irq] == TriggerMode::Edge;
+    }
+
+    IrqControllerAck controllerAck(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_ControllerAck[irq];
+    }
+
+    IrqLineRelease lineRelease(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_LineRelease[irq];
     }
 
     bool enabled(size_t irq) const
@@ -270,6 +296,8 @@ class PicIrqState
 
     uint16_t m_Mask;
     TriggerMode m_TriggerModes[LineCount];
+    IrqControllerAck m_ControllerAck[LineCount];
+    IrqLineRelease m_LineRelease[LineCount];
     size_t m_HandlerCounts[LineCount];
     size_t m_DispatchGenerations[LineCount];
     size_t m_AcknowledgedGenerations[LineCount];

@@ -19,6 +19,7 @@
 
 class Device;
 class IrqManager;
+class IrqPolicy;
 class String;
 
 /**
@@ -54,9 +55,10 @@ class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler
     bool initialiseSplitIrq();
 
     /** Registers this handler after its owned worker is running. */
-    irq_id_t
-    registerIsaSplitIrq(IrqManager &manager, uint8_t irq, bool edge = false);
-    irq_id_t registerPciSplitIrq(IrqManager &manager, Device &device);
+    irq_id_t registerIsaSplitIrq(
+        IrqManager &manager, uint8_t irq, const IrqPolicy &policy);
+    irq_id_t registerPciSplitIrq(
+        IrqManager &manager, Device &device, const IrqPolicy &policy);
 
     /**
      * Quiesces the hardware, closes every hard callback, drains accepted work,

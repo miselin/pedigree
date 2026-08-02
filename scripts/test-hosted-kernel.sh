@@ -447,6 +447,8 @@ assert_marker \
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-delivery-mode-separation"
 assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS irq-policy-orthogonality"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-writer-lock-self-unregister"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS irq-stale-generation-reuse"

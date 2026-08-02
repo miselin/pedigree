@@ -230,7 +230,8 @@ bool runHostedSchedulerRegressions()
     QueuedTickHandler tickHandler(context);
     IrqManager *irqManager = Machine::instance().getIrqManager();
     const irq_id_t tickId =
-        irqManager->registerHardIsaIrqHandler(1, &tickHandler);
+        irqManager->registerHardIsaIrqHandler(
+            1, &tickHandler, IrqPolicy::syntheticHard());
 
     Thread *target = new Thread(
         Scheduler::instance().getKernelProcess(), contextSwitchTarget, &context,

@@ -31,6 +31,167 @@ class IrqHandlerBase;
 /** @addtogroup kernelmachine
  * @{ */
 
+/**
+ * Source-declared trigger semantics used for safe controller behaviour.
+ * Registration does not itself program platform electrical routing such as
+ * the PC ELCR.
+ */
+enum class IrqTrigger : uint8_t
+{
+    Edge,
+    Level,
+    Synthetic,
+};
+
+/** Controller acknowledgement order relative to the bounded hard stage. */
+enum class IrqControllerAck : uint8_t
+{
+    None,
+    BeforeHardStage,
+    AfterHardStage,
+};
+
+/** Point at which a controller-masked line may be made live again. */
+enum class IrqLineRelease : uint8_t
+{
+    AfterHardStage,
+    AfterThreadedCompletion,
+};
+
+/**
+ * Orthogonal interrupt-line delivery policy.
+ *
+ * The hard stage is either a HardIrqHandler callback or publication to an
+ * IrqHandler worker. Device acknowledgement remains the handler's
+ * responsibility: a split hard callback must quiesce its source before it
+ * defers, while a normal level-triggered worker runs with the controller line
+ * masked until it reports completion.
+ */
+class IrqPolicy
+{
+  public:
+    constexpr IrqPolicy(
+        IrqTrigger trigger, IrqControllerAck controllerAck,
+        IrqLineRelease lineRelease)
+        : m_Trigger(trigger), m_ControllerAck(controllerAck),
+          m_LineRelease(lineRelease)
+    {
+    }
+
+    static constexpr IrqPolicy edgeHard()
+    {
+        return IrqPolicy(
+            IrqTrigger::Edge, IrqControllerAck::BeforeHardStage,
+            IrqLineRelease::AfterHardStage);
+    }
+
+    static constexpr IrqPolicy edgeThreaded()
+    {
+        return IrqPolicy(
+            IrqTrigger::Edge, IrqControllerAck::AfterHardStage,
+            IrqLineRelease::AfterHardStage);
+    }
+
+    static constexpr IrqPolicy levelHard()
+    {
+        return IrqPolicy(
+            IrqTrigger::Level, IrqControllerAck::AfterHardStage,
+            IrqLineRelease::AfterHardStage);
+    }
+
+    static constexpr IrqPolicy levelThreaded()
+    {
+        return IrqPolicy(
+            IrqTrigger::Level, IrqControllerAck::AfterHardStage,
+            IrqLineRelease::AfterThreadedCompletion);
+    }
+
+    static constexpr IrqPolicy pciIntxHard()
+    {
+        return levelHard();
+    }
+
+    static constexpr IrqPolicy pciIntxThreaded()
+    {
+        return levelThreaded();
+    }
+
+    static constexpr IrqPolicy syntheticHard()
+    {
+        return IrqPolicy(
+            IrqTrigger::Synthetic, IrqControllerAck::None,
+            IrqLineRelease::AfterHardStage);
+    }
+
+    static constexpr IrqPolicy syntheticThreaded()
+    {
+        return IrqPolicy(
+            IrqTrigger::Synthetic, IrqControllerAck::None,
+            IrqLineRelease::AfterHardStage);
+    }
+
+    constexpr IrqTrigger trigger() const
+    {
+        return m_Trigger;
+    }
+
+    constexpr IrqControllerAck controllerAck() const
+    {
+        return m_ControllerAck;
+    }
+
+    constexpr IrqLineRelease lineRelease() const
+    {
+        return m_LineRelease;
+    }
+
+    constexpr bool validForHard() const
+    {
+        return valid() && m_LineRelease == IrqLineRelease::AfterHardStage &&
+               !(m_Trigger == IrqTrigger::Level &&
+                 m_ControllerAck == IrqControllerAck::BeforeHardStage);
+    }
+
+    constexpr bool validForThreaded() const
+    {
+        return valid() &&
+               ((m_Trigger == IrqTrigger::Level &&
+                 m_LineRelease ==
+                     IrqLineRelease::AfterThreadedCompletion) ||
+                (m_Trigger != IrqTrigger::Level &&
+                 m_LineRelease == IrqLineRelease::AfterHardStage));
+    }
+
+    constexpr bool operator==(const IrqPolicy &other) const
+    {
+        return m_Trigger == other.m_Trigger &&
+               m_ControllerAck == other.m_ControllerAck &&
+               m_LineRelease == other.m_LineRelease;
+    }
+
+    constexpr bool operator!=(const IrqPolicy &other) const
+    {
+        return !(*this == other);
+    }
+
+  private:
+    constexpr bool valid() const
+    {
+        const bool synthetic = m_Trigger == IrqTrigger::Synthetic;
+        if (synthetic != (m_ControllerAck == IrqControllerAck::None))
+        {
+            return false;
+        }
+
+        return m_LineRelease != IrqLineRelease::AfterThreadedCompletion ||
+               m_Trigger == IrqTrigger::Level;
+    }
+
+    IrqTrigger m_Trigger;
+    IrqControllerAck m_ControllerAck;
+    IrqLineRelease m_LineRelease;
+};
+
 /** This class handles IRQ (un)registration */
 class IrqManager
 {
@@ -46,21 +207,22 @@ class IrqManager
     /** Register an ISA irq
      *\param[in] irq the ISA irq number (from 0 to 15)
      *\param[in] handler pointer to the IrqHandler class
-     *\param[in] bEdge whether this IRQ is edge triggered or not
+     *\param[in] policy electrical, acknowledgement, and completion policy
      *\return the irq's identifier */
     virtual irq_id_t registerIsaIrqHandler(
-        uint8_t irq, IrqHandler *handler, bool bEdge = false) = 0;
+        uint8_t irq, IrqHandler *handler, const IrqPolicy &policy) = 0;
     /** Register a PCI irq */
-    virtual irq_id_t
-    registerPciIrqHandler(IrqHandler *handler, Device *pDevice) = 0;
+    virtual irq_id_t registerPciIrqHandler(
+        IrqHandler *handler, Device *pDevice, const IrqPolicy &policy) = 0;
 
     /** Register an ISA handler which must run in hard IRQ context. */
     virtual irq_id_t registerHardIsaIrqHandler(
-        uint8_t irq, HardIrqHandler *handler, bool bEdge = false) = 0;
+        uint8_t irq, HardIrqHandler *handler, const IrqPolicy &policy) = 0;
 
     /** Register a PCI handler which must run in hard IRQ context. */
-    virtual irq_id_t
-    registerHardPciIrqHandler(HardIrqHandler *handler, Device *pDevice) = 0;
+    virtual irq_id_t registerHardPciIrqHandler(
+        HardIrqHandler *handler, Device *pDevice,
+        const IrqPolicy &policy) = 0;
     /**
      * Unregister a previously registered IrqHandler.
      *

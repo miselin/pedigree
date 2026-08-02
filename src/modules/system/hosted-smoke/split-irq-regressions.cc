@@ -133,7 +133,8 @@ class HostedSplitIrq final : public SplitIrqHandler
         m_Started = true;
 
         IrqManager &manager = *Machine::instance().getIrqManager();
-        if (!registerIsaSplitIrq(manager, irq, true))
+        if (!registerIsaSplitIrq(
+                manager, irq, IrqPolicy::syntheticHard()))
         {
             const bool stopped = shutdownSplitIrq();
             m_Started = !stopped;
@@ -160,7 +161,8 @@ class HostedSplitIrq final : public SplitIrqHandler
     bool registerAdditional(uint8_t irq)
     {
         IrqManager &manager = *Machine::instance().getIrqManager();
-        return registerIsaSplitIrq(manager, irq, true) != 0;
+        return registerIsaSplitIrq(
+                   manager, irq, IrqPolicy::syntheticHard()) != 0;
     }
 
     void setRegistrationPublishedHook(RegistrationPublishedHook hook)
