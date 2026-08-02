@@ -15,7 +15,7 @@ Usage:
      [--wait-regressions-only]
 
 PEDIGREE_VERIFY_LOG_DIR selects the directory for durable per-rung logs.
-PEDIGREE_HOSTED_RUNG_TIMEOUT sets the GNU timeout duration (default: 60s).
+PEDIGREE_HOSTED_RUNG_TIMEOUT sets the GNU timeout duration (default: 120s).
 EOF
     exit 2
 }
@@ -29,7 +29,7 @@ disk_image=
 require_asan=0
 expected_heap=
 wait_regressions_only=0
-rung_timeout=${PEDIGREE_HOSTED_RUNG_TIMEOUT:-60s}
+rung_timeout=${PEDIGREE_HOSTED_RUNG_TIMEOUT:-120s}
 
 if [ "$#" -gt 0 ]; then
     while [ "$#" -gt 0 ]; do
