@@ -84,7 +84,9 @@ class Pc : public Machine
 #endif
 
 #if MULTIPROCESSOR
-    virtual void stopAllOtherProcessors();
+    MUST_USE_RESULT bool quiesceAllOtherProcessors() override;
+    MUST_USE_RESULT bool resumeAllOtherProcessors() override;
+    MUST_USE_RESULT bool stopAllOtherProcessors() override;
 #endif
 
   private:

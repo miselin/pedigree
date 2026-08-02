@@ -20,6 +20,7 @@
 #ifndef KERNEL_PROCESSOR_X86_COMMON_MULTIPROCESSOR_H
 #define KERNEL_PROCESSOR_X86_COMMON_MULTIPROCESSOR_H
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -70,7 +71,7 @@ class Multiprocessor
   private:
     static void applicationProcessorStartup() NORETURN;
 
-    static Spinlock m_ProcessorLock1 INITIALISATION_ONLY_DATA;
+    static Atomic<bool> m_ProcessorStarted INITIALISATION_ONLY_DATA;
     static Spinlock m_ProcessorLock2 INITIALISATION_ONLY_DATA;
 };
 

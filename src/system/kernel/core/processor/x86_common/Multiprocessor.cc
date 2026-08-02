@@ -24,6 +24,7 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -32,12 +33,44 @@
 #include <machine/mach_pc/Acpi.h>
 #include <machine/mach_pc/LocalApic.h>
 #include <machine/mach_pc/Pc.h>
+#include <machine/mach_pc/Rtc.h>
 #include <machine/mach_pc/Smp.h>
 
-// Don't track these locks - they are never going to be "correct" (they are for
-// synchronisation, not for protecting a specific resource).
-Spinlock Multiprocessor::m_ProcessorLock1(false, true);
+Atomic<bool> Multiprocessor::m_ProcessorStarted(false);
+// Don't track this lock - it is for startup synchronisation, not for protecting
+// a specific resource.
 Spinlock Multiprocessor::m_ProcessorLock2(true, true);
+
+namespace
+{
+constexpr uint64_t InitToStartupDelayMicroseconds = 10000;
+constexpr uint64_t StartupIpiDelayMicroseconds = 200;
+constexpr uint64_t NanosecondsPerMicrosecond = 1000;
+constexpr uint64_t ApplicationProcessorTimeoutNanoseconds = 1000000000;
+constexpr size_t EarlyBootPollLimit = 10000000;
+constexpr size_t ApplicationProcessorPollLimit = 100000000;
+
+bool earlyBootDelay(uint64_t microseconds)
+{
+    // Time::delay needs the scheduler. Pc::initialise has already calibrated
+    // this TSC-backed clock before Processor::initialise2 reaches us.
+    if (microseconds >
+        (~static_cast<uint64_t>(0) / NanosecondsPerMicrosecond))
+    {
+        return false;
+    }
+    const uint64_t duration = microseconds * NanosecondsPerMicrosecond;
+    const uint64_t start = Rtc::instance().getTickCountNano();
+    for (size_t poll = 0; poll < EarlyBootPollLimit; ++poll)
+    {
+        if ((Rtc::instance().getTickCountNano() - start) >= duration)
+            return true;
+        Processor::pause();
+    }
+    return (Rtc::instance().getTickCountNano() - start) >= duration;
+}
+
+}  // namespace
 
 extern "C" void mp_trampoline16(void);
 extern "C" void mp_trampoline32(void);
@@ -150,27 +183,91 @@ size_t Multiprocessor::initialise1()
                 << Dec << (*Processors)[i]->processorId << ", stack at 0x"
                 << Hex << reinterpret_cast<uintptr_t>(pStack->getTop()));
 
-            /// \todo 10 ms delay between INIT IPI and Startup IPI, and we may
-            /// need to
-            ///       send the Startup IPI twice on some hardware.
+            m_ProcessorStarted = false;
 
-            // Acquire the lock
-            m_ProcessorLock1.acquire(false);
+            // INIT ignores the vector field and requires an asserted and a
+            // deasserted level write. The trampoline is at 0x7000, so the
+            // STARTUP vector is page 7.
+            if (!localApic.interProcessorInterrupt(
+                    (*Processors)[i]->apicId, 0,
+                    LocalApic::deliveryModeInit, true, true))
+            {
+                ERROR(
+                    "Multiprocessor: INIT assert failed for processor #"
+                    << Dec << (*Processors)[i]->processorId << " (APIC "
+                    << (*Processors)[i]->apicId << ")");
+                panic("Multiprocessor: INIT assert did not complete");
+            }
+            if (!localApic.interProcessorInterrupt(
+                    (*Processors)[i]->apicId, 0,
+                    LocalApic::deliveryModeInit, false, true))
+            {
+                ERROR(
+                    "Multiprocessor: INIT deassert failed for processor #"
+                    << Dec << (*Processors)[i]->processorId << " (APIC "
+                    << (*Processors)[i]->apicId << ")");
+                panic("Multiprocessor: INIT deassert did not complete");
+            }
+            if (!earlyBootDelay(InitToStartupDelayMicroseconds))
+                panic("Multiprocessor: early-boot INIT delay timed out");
 
-            localApic.interProcessorInterrupt(
-                (*Processors)[i]->apicId, 0x07, LocalApic::deliveryModeInit,
-                true, true);
-            for (int z = 0; z < 0x10000; z++)
-                ;
+            if (!localApic.interProcessorInterrupt(
+                    (*Processors)[i]->apicId, 0x07,
+                    LocalApic::deliveryModeStartup, true, false))
+            {
+                ERROR(
+                    "Multiprocessor: first STARTUP IPI failed for "
+                    "processor #"
+                    << Dec << (*Processors)[i]->processorId << " (APIC "
+                    << (*Processors)[i]->apicId << ")");
+                panic("Multiprocessor: first STARTUP IPI did not complete");
+            }
+            if (!earlyBootDelay(StartupIpiDelayMicroseconds))
+                panic("Multiprocessor: early-boot STARTUP delay timed out");
 
-            // Send the Startup IPI to the processor
-            localApic.interProcessorInterrupt(
-                (*Processors)[i]->apicId, 0x07, LocalApic::deliveryModeStartup,
-                true, false);
+            if (!m_ProcessorStarted)
+            {
+                if (!localApic.interProcessorInterrupt(
+                        (*Processors)[i]->apicId, 0x07,
+                        LocalApic::deliveryModeStartup, true, false))
+                {
+                    ERROR(
+                        "Multiprocessor: second STARTUP IPI failed for "
+                        "processor #"
+                        << Dec << (*Processors)[i]->processorId << " (APIC "
+                        << (*Processors)[i]->apicId << ")");
+                    panic(
+                        "Multiprocessor: second STARTUP IPI did not complete");
+                }
+                if (!earlyBootDelay(StartupIpiDelayMicroseconds))
+                    panic("Multiprocessor: second STARTUP delay timed out");
+            }
 
-            // Wait until the processor is started and has unlocked the lock
-            m_ProcessorLock1.acquire(false, false);
-            m_ProcessorLock1.release();
+            const uint64_t startupWaitStart =
+                Rtc::instance().getTickCountNano();
+            bool processorStarted = false;
+            for (size_t poll = 0; poll < ApplicationProcessorPollLimit; ++poll)
+            {
+                if (m_ProcessorStarted)
+                {
+                    processorStarted = true;
+                    break;
+                }
+                if ((Rtc::instance().getTickCountNano() - startupWaitStart) >=
+                    ApplicationProcessorTimeoutNanoseconds)
+                    break;
+                Processor::pause();
+            }
+            if (!processorStarted && !m_ProcessorStarted)
+            {
+                ERROR(
+                    "Multiprocessor: processor #"
+                    << Dec << (*Processors)[i]->processorId << " (APIC "
+                    << (*Processors)[i]->apicId
+                    << ") did not acknowledge startup");
+                panic(
+                    "Multiprocessor: application processor startup timed out");
+            }
         }
         else
         {

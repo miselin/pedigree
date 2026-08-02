@@ -54,7 +54,9 @@ class HostedMachine : public Machine
     virtual Timer *getTimer();
     virtual Keyboard *getKeyboard();
     virtual void setKeyboard(Keyboard *kb);
-    virtual void stopAllOtherProcessors();
+    MUST_USE_RESULT bool quiesceAllOtherProcessors() override;
+    MUST_USE_RESULT bool resumeAllOtherProcessors() override;
+    MUST_USE_RESULT bool stopAllOtherProcessors() override;
 
   private:
     /**

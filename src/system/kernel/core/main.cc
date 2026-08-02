@@ -549,7 +549,14 @@ void _cxx_main(BootstrapStruct_t &bsInf)
 
     EMIT_IF(MULTIPROCESSOR)
     {
-        Machine::instance().stopAllOtherProcessors();
+        if (!Machine::instance().stopAllOtherProcessors())
+        {
+            ERROR_NOLOCK(
+                "Shutdown aborted: not all other processors stopped");
+            Processor::setInterrupts(false);
+            while (true)
+                Processor::halt();
+        }
     }
 
     // Clean up all loaded modules (unmounts filesystems and the like).

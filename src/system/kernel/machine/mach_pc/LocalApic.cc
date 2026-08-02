@@ -62,6 +62,7 @@
 #define INITIAL_HZ 100
 
 static constexpr size_t IcrDeliveryPollLimit = 100000;
+static constexpr size_t ProcessorControlPollLimit = 10000000;
 
 bool LocalApic::initialise(uint64_t physicalAddress)
 {
@@ -99,9 +100,9 @@ bool LocalApic::initialise(uint64_t physicalAddress)
             TIMER_VECTOR, this))
         return false;
 
-    // Register the IPI halt vector.
+    // Register the reversible/terminal processor-control IPI vector.
     if (!InterruptManager::instance().registerInterruptHandler(
-            IPI_HALT_VECTOR, this))
+            IPI_PROCESSOR_CONTROL_VECTOR, this))
         return false;
 
     return initialiseProcessor();
@@ -122,9 +123,12 @@ bool LocalApic::initialiseProcessor()
     tmp = m_IoSpace.read32(LAPIC_REG_TASK_PRIORITY);
     m_IoSpace.write32(tmp & 0xFFFFFF00, LAPIC_REG_TASK_PRIORITY);
 
-    // Set the LVT error register
+    // No error-vector handler exists yet, so keep this source masked rather
+    // than routing an interrupt that cannot be acknowledged safely.
     tmp = m_IoSpace.read32(LAPIC_REG_LVT_ERROR);
-    m_IoSpace.write32((tmp & 0xFFFEEF00) | ERROR_VECTOR, LAPIC_REG_LVT_ERROR);
+    m_IoSpace.write32(
+        (tmp & 0xFFFEEF00) | LAPIC_MASKED | ERROR_VECTOR,
+        LAPIC_REG_LVT_ERROR);
 
     if (!m_BusFrequency)
     {
@@ -167,27 +171,226 @@ bool LocalApic::interProcessorInterrupt(
     uint8_t destinationApicId, uint8_t vector, size_t deliveryMode,
     bool bAssert, bool bLevelTriggered)
 {
-    if (!waitForIcrIdle())
+    if (!acquireIcrSubmission())
         return false;
+    if (!waitForIcrIdle())
+    {
+        m_IcrSubmissionActive = false;
+        return false;
+    }
 
     m_IoSpace.write32(destinationApicId << 24, LAPIC_REG_INT_CMD_HIGH);
     m_IoSpace.write32(
         vector | (deliveryMode << 8) | (bAssert ? (1 << 14) : 0) |
             (bLevelTriggered ? (1 << 15) : 0),
         LAPIC_REG_INT_CMD_LOW);
-    return true;
+    const bool delivered = waitForIcrIdle();
+    m_IcrSubmissionActive = false;
+    return delivered;
 }
 
 bool LocalApic::interProcessorInterruptAllExcludingThis(
     uint8_t vector, size_t deliveryMode)
 {
-    if (!waitForIcrIdle())
+    if (!acquireIcrSubmission())
         return false;
+    if (!waitForIcrIdle())
+    {
+        m_IcrSubmissionActive = false;
+        return false;
+    }
 
     m_IoSpace.write32(
         vector | (deliveryMode << 8) | (1 << 14) | (0x3 << 18),
         LAPIC_REG_INT_CMD_LOW);
-    return true;
+    const bool delivered = waitForIcrIdle();
+    m_IcrSubmissionActive = false;
+    return delivered;
+}
+
+LocalApic::ProcessorControlState LocalApic::processorControlState() const
+{
+    return static_cast<ProcessorControlState>(m_ProcessorControlState.value());
+}
+
+bool LocalApic::waitForProcessorCount(size_t expectedProcessors)
+{
+    for (size_t poll = 0; poll < ProcessorControlPollLimit; ++poll)
+    {
+        if (m_ControlledProcessorCount >= expectedProcessors)
+            return true;
+        Processor::pause();
+    }
+    return m_ControlledProcessorCount >= expectedProcessors;
+}
+
+bool LocalApic::waitForTerminalProcessorCount(size_t expectedProcessors)
+{
+    for (size_t poll = 0; poll < ProcessorControlPollLimit; ++poll)
+    {
+        if (m_TerminalProcessorCount >= expectedProcessors)
+            return true;
+        Processor::pause();
+    }
+    return m_TerminalProcessorCount >= expectedProcessors;
+}
+
+bool LocalApic::waitForProcessorDrain()
+{
+    for (size_t poll = 0; poll < ProcessorControlPollLimit; ++poll)
+    {
+        if (!m_ControlledProcessorCount)
+            return true;
+        Processor::pause();
+    }
+    return !m_ControlledProcessorCount;
+}
+
+LocalApic::ProcessorControlResult
+LocalApic::unwindQuiesce(ProcessorControlResult failure)
+{
+    if (!m_ProcessorControlState.compareAndSwap(
+            static_cast<size_t>(ProcessorControlState::Paused),
+            static_cast<size_t>(ProcessorControlState::Unavailable)))
+    {
+        return ProcessorControlResult::InvalidState;
+    }
+
+    // The IPI transaction may have timed out after submission. Keep this
+    // generation unavailable so a late interrupt cannot acknowledge a future
+    // quiesce attempt.
+    return waitForProcessorDrain() ? failure
+                                   : ProcessorControlResult::DrainTimedOut;
+}
+
+LocalApic::ProcessorControlResult
+LocalApic::quiesceAllOtherProcessors(size_t expectedProcessors)
+{
+    if (!expectedProcessors)
+        return ProcessorControlResult::Success;
+    if (processorControlState() != ProcessorControlState::Idle)
+        return ProcessorControlResult::InvalidState;
+    if (!waitForProcessorDrain())
+    {
+        if (!m_ProcessorControlState.compareAndSwap(
+                static_cast<size_t>(ProcessorControlState::Idle),
+                static_cast<size_t>(ProcessorControlState::Unavailable)))
+        {
+            return ProcessorControlResult::InvalidState;
+        }
+        return ProcessorControlResult::DrainTimedOut;
+    }
+    if (!m_ProcessorControlState.compareAndSwap(
+            static_cast<size_t>(ProcessorControlState::Idle),
+            static_cast<size_t>(ProcessorControlState::Paused)))
+    {
+        return ProcessorControlResult::InvalidState;
+    }
+
+    if (!interProcessorInterruptAllExcludingThis(
+            IPI_PROCESSOR_CONTROL_VECTOR, deliveryModeFixed))
+    {
+        return unwindQuiesce(ProcessorControlResult::SubmissionFailed);
+    }
+    if (!waitForProcessorCount(expectedProcessors))
+        return unwindQuiesce(ProcessorControlResult::AcknowledgementTimedOut);
+    if (processorControlState() != ProcessorControlState::Paused)
+        return ProcessorControlResult::InvalidState;
+    return ProcessorControlResult::Success;
+}
+
+LocalApic::ProcessorControlResult LocalApic::resumeAllOtherProcessors()
+{
+    if (!m_ProcessorControlState.compareAndSwap(
+            static_cast<size_t>(ProcessorControlState::Paused),
+            static_cast<size_t>(ProcessorControlState::Unavailable)))
+    {
+        return ProcessorControlResult::InvalidState;
+    }
+    if (!waitForProcessorDrain())
+        return ProcessorControlResult::DrainTimedOut;
+    if (!m_ProcessorControlState.compareAndSwap(
+            static_cast<size_t>(ProcessorControlState::Unavailable),
+            static_cast<size_t>(ProcessorControlState::Idle)))
+    {
+        return ProcessorControlResult::InvalidState;
+    }
+    return ProcessorControlResult::Success;
+}
+
+LocalApic::ProcessorControlResult
+LocalApic::haltAllOtherProcessors(size_t expectedProcessors)
+{
+    if (!expectedProcessors)
+        return ProcessorControlResult::Success;
+
+    bool sendIpi = false;
+    bool stateSelected = false;
+    for (size_t poll = 0; poll < ProcessorControlPollLimit; ++poll)
+    {
+        const ProcessorControlState state = processorControlState();
+        if (state == ProcessorControlState::Terminal)
+        {
+            sendIpi = m_TerminalProcessorCount < expectedProcessors;
+            stateSelected = true;
+            break;
+        }
+        if (state == ProcessorControlState::Idle)
+        {
+            if (m_ControlledProcessorCount)
+            {
+                Processor::pause();
+                continue;
+            }
+            if (!m_ProcessorControlState.compareAndSwap(
+                    static_cast<size_t>(ProcessorControlState::Idle),
+                    static_cast<size_t>(ProcessorControlState::Terminal)))
+            {
+                continue;
+            }
+            sendIpi = true;
+            stateSelected = true;
+            break;
+        }
+        if (state == ProcessorControlState::Unavailable)
+        {
+            if (!m_ProcessorControlState.compareAndSwap(
+                    static_cast<size_t>(ProcessorControlState::Unavailable),
+                    static_cast<size_t>(ProcessorControlState::Terminal)))
+            {
+                continue;
+            }
+            sendIpi = true;
+            stateSelected = true;
+            break;
+        }
+        if (m_ProcessorControlState.compareAndSwap(
+                static_cast<size_t>(ProcessorControlState::Paused),
+                static_cast<size_t>(ProcessorControlState::Terminal)))
+        {
+            sendIpi = m_ControlledProcessorCount < expectedProcessors;
+            stateSelected = true;
+            break;
+        }
+        Processor::pause();
+    }
+    if (!stateSelected)
+        return ProcessorControlResult::DrainTimedOut;
+
+    if (sendIpi)
+    {
+        if (!interProcessorInterruptAllExcludingThis(
+                IPI_PROCESSOR_CONTROL_VECTOR, deliveryModeFixed))
+        {
+            return waitForTerminalProcessorCount(expectedProcessors)
+                       ? ProcessorControlResult::Success
+                       : ProcessorControlResult::SubmissionFailed;
+        }
+    }
+
+    return waitForTerminalProcessorCount(expectedProcessors)
+               ? ProcessorControlResult::Success
+               : ProcessorControlResult::AcknowledgementTimedOut;
 }
 
 bool LocalApic::waitForIcrIdle()
@@ -199,6 +402,17 @@ bool LocalApic::waitForIcrIdle()
         Processor::pause();
     }
     return (m_IoSpace.read32(LAPIC_REG_INT_CMD_LOW) & 0x1000) == 0;
+}
+
+bool LocalApic::acquireIcrSubmission()
+{
+    for (size_t poll = 0; poll < IcrDeliveryPollLimit; ++poll)
+    {
+        if (m_IcrSubmissionActive.compareAndSwap(false, true))
+            return true;
+        Processor::pause();
+    }
+    return m_IcrSubmissionActive.compareAndSwap(false, true);
 }
 
 uint8_t LocalApic::getId()
@@ -243,11 +457,30 @@ void LocalApic::interrupt(size_t nInterruptNumber, InterruptState &state)
         }
     }
 
-    // The halt IPI is used in the debugger to stop all other cores.
-    if (nInterruptNumber == IPI_HALT_VECTOR)
+    // This IPI temporarily pauses processors for the debugger or permanently
+    // halts them for panic and shutdown paths.
+    if (nInterruptNumber == IPI_PROCESSOR_CONTROL_VECTOR)
     {
-        NOTICE("Halting processor #" << Dec << Processor::id());
-        Processor::halt();
+        ack();
+        Processor::setInterrupts(false);
+        m_ControlledProcessorCount += 1;
+        while (true)
+        {
+            const ProcessorControlState controlState = processorControlState();
+            if (controlState == ProcessorControlState::Idle ||
+                controlState == ProcessorControlState::Unavailable)
+            {
+                m_ControlledProcessorCount -= 1;
+                return;
+            }
+            if (controlState == ProcessorControlState::Terminal)
+            {
+                m_TerminalProcessorCount += 1;
+                while (true)
+                    Processor::halt();
+            }
+            Processor::pause();
+        }
     }
 }
 

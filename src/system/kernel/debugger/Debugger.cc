@@ -129,7 +129,12 @@ void Debugger::initialise()
 void Debugger::start(InterruptState &state, LargeStaticString &description)
 {
 #if MULTIPROCESSOR
-    Machine::instance().stopAllOtherProcessors();
+    const bool processorsQuiesced =
+        Machine::instance().quiesceAllOtherProcessors();
+    if (!processorsQuiesced)
+    {
+        ERROR_NOLOCK("Debugger: not all other processors quiesced");
+    }
 #endif
 
     Log::LogEntry entry;
@@ -456,6 +461,13 @@ void Debugger::start(InterruptState &state, LargeStaticString &description)
 #endif
 
     Machine::instance().getKeyboard()->setDebugState(debugState);
+#if MULTIPROCESSOR
+    if (processorsQuiesced &&
+        !Machine::instance().resumeAllOtherProcessors())
+    {
+        ERROR_NOLOCK("Debugger: not all quiesced processors resumed");
+    }
+#endif
 }
 
 void Debugger::interrupt(size_t interruptNumber, InterruptState &state)

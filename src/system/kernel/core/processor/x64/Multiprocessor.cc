@@ -40,8 +40,8 @@ void Multiprocessor::applicationProcessorStartup()
     X64InterruptManager::initialiseProcessor();
 
     // Signal the Bootstrap processor that this processor is started and the BSP
-    // can continue to boot up other processors
-    m_ProcessorLock1.release();
+    // can continue to boot up other processors.
+    m_ProcessorStarted = true;
 
     // Wait until the GDT is initialised and the first 4MB identity mapping
     // removed

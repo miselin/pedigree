@@ -120,10 +120,18 @@ class EXPORTED_PUBLIC Machine
      */
     virtual void setKeyboard(Keyboard *kb) = 0;
 
+    /** Temporarily pauses every other processor for an interactive debugger. */
+    MUST_USE_RESULT virtual bool quiesceAllOtherProcessors();
+
+    /** Resumes processors paused by quiesceAllOtherProcessors(). */
+    MUST_USE_RESULT virtual bool resumeAllOtherProcessors();
+
     /**
-     * Stops all other cores. This is used during debugger initialisation.
+     * Permanently stops all other cores for panic or terminal shutdown.
+     *
+     * \return true if every other processor reached its terminal halt path.
      */
-    virtual void stopAllOtherProcessors();
+    MUST_USE_RESULT virtual bool stopAllOtherProcessors();
 
   protected:
     inline Machine() : m_bInitialised(false)

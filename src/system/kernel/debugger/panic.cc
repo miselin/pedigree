@@ -153,7 +153,10 @@ void panic(const char *msg)
         provider.pDisplay->setScreenMode(0);
 
 #if MULTIPROCESSOR
-    Machine::instance().stopAllOtherProcessors();
+    if (!Machine::instance().stopAllOtherProcessors())
+    {
+        ERROR_NOLOCK("panic: not all other processors stopped");
+    }
 #endif
 
     /*

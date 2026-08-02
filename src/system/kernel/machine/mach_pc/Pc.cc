@@ -36,6 +36,7 @@
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
@@ -48,6 +49,37 @@ class Timer;
 class Vga;
 
 Pc Pc::m_Instance;
+
+#if MULTIPROCESSOR
+namespace
+{
+bool reportProcessorControlResult(
+    LocalApic::ProcessorControlResult result, const char *operation)
+{
+    switch (result)
+    {
+        case LocalApic::ProcessorControlResult::Success:
+            return true;
+        case LocalApic::ProcessorControlResult::InvalidState:
+            ERROR_NOLOCK(
+                "Pc: " << operation << " failed: invalid processor state");
+            break;
+        case LocalApic::ProcessorControlResult::SubmissionFailed:
+            ERROR_NOLOCK("Pc: " << operation << " IPI transaction failed");
+            break;
+        case LocalApic::ProcessorControlResult::AcknowledgementTimedOut:
+            ERROR_NOLOCK(
+                "Pc: " << operation << " acknowledgement timed out");
+            break;
+        case LocalApic::ProcessorControlResult::DrainTimedOut:
+            ERROR_NOLOCK(
+                "Pc: " << operation << " processor-control drain timed out");
+            break;
+    }
+    return false;
+}
+}  // namespace
+#endif
 
 void Pc::initialise()
 {
@@ -323,10 +355,30 @@ void Pc::setKeyboard(Keyboard *kb)
 }
 
 #if MULTIPROCESSOR
-void Pc::stopAllOtherProcessors()
+bool Pc::quiesceAllOtherProcessors()
 {
-    m_LocalApic->interProcessorInterruptAllExcludingThis(
-        IPI_HALT_VECTOR, 0 /* Fixed delivery mode */);
+    const size_t processorCount = Processor::getCount();
+    return reportProcessorControlResult(
+        m_LocalApic->quiesceAllOtherProcessors(
+            processorCount > 1 ? processorCount - 1 : 0),
+        "processor quiesce");
+}
+
+bool Pc::resumeAllOtherProcessors()
+{
+    if (Processor::getCount() <= 1)
+        return true;
+    return reportProcessorControlResult(
+        m_LocalApic->resumeAllOtherProcessors(), "processor resume");
+}
+
+bool Pc::stopAllOtherProcessors()
+{
+    const size_t processorCount = Processor::getCount();
+    return reportProcessorControlResult(
+        m_LocalApic->haltAllOtherProcessors(
+            processorCount > 1 ? processorCount - 1 : 0),
+        "processor halt");
 }
 #endif
 

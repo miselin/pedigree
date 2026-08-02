@@ -22,6 +22,7 @@
 
 #if APIC
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
@@ -35,7 +36,7 @@
 
 class SchedulerTimerHandler;
 
-#define IPI_HALT_VECTOR 0xFB
+#define IPI_PROCESSOR_CONTROL_VECTOR 0xFB
 #define ERROR_VECTOR 0xFC
 #define SPURIOUS_VECTOR 0xFD
 #define TIMER_VECTOR 0xFE
@@ -47,10 +48,22 @@ class SchedulerTimerHandler;
  *\todo Initialise the Local APIC Timer */
 class LocalApic : public SchedulerTimer, private InterruptHandler
 {
+  private:
+    enum class ProcessorControlState : size_t
+    {
+        Idle,
+        Paused,
+        Unavailable,
+        Terminal
+    };
+
   public:
     /** The default constructor */
     inline LocalApic()
-        : m_IoSpace("Local APIC"), m_Handlers(), m_BusFrequency(0)
+        : m_IoSpace("Local APIC"), m_Handlers(), m_BusFrequency(0),
+          m_IcrSubmissionActive(false), m_ProcessorControlState(
+              static_cast<size_t>(ProcessorControlState::Idle)),
+          m_ControlledProcessorCount(0), m_TerminalProcessorCount(0)
     {
     }
     /** The destructor */
@@ -86,18 +99,39 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
      *\param[in] destinationApicId Identifier of the Local APIC of the
      *destination processor \param[in] vector the IPI vector \param[in]
      *deliveryMode the delivery mode \param[in] bAssert Assert? \param[in]
-     *bLevelTriggered Level-triggered? \return true if the IPI was submitted,
-     *false if the command register remained busy */
-    bool interProcessorInterrupt(
+     *bLevelTriggered Level-triggered? \return true if the IPI was submitted
+     *and left the delivery-pending state, false otherwise */
+    MUST_USE_RESULT bool interProcessorInterrupt(
         uint8_t destinationApicId, uint8_t vector, size_t deliveryMode,
         bool bAssert, bool bLevelTriggered);
 
     /** Issue an IPI (= Interprocessor Interrupt) to all logical processors
      * except this one. (i.e. to all other cores). \param[in] vector The IPI
      * vector \param[in] deliveryMode The delivery mode \return true if the IPI
-     * was submitted, false if the command register remained busy */
-    bool interProcessorInterruptAllExcludingThis(
+     * was submitted and left the delivery-pending state, false otherwise */
+    MUST_USE_RESULT bool interProcessorInterruptAllExcludingThis(
         uint8_t vector, size_t deliveryMode);
+
+    enum class ProcessorControlResult
+    {
+        Success,
+        InvalidState,
+        SubmissionFailed,
+        AcknowledgementTimedOut,
+        DrainTimedOut
+    };
+
+    /** Temporarily pause every other processor until resume is requested. */
+    MUST_USE_RESULT ProcessorControlResult
+    quiesceAllOtherProcessors(size_t expectedProcessors);
+
+    /** Resume processors paused by quiesceAllOtherProcessors. */
+    MUST_USE_RESULT ProcessorControlResult resumeAllOtherProcessors();
+
+    /** Halt every other processor and wait for each one to acknowledge that it
+     * has entered the terminal halt path. */
+    MUST_USE_RESULT ProcessorControlResult
+    haltAllOtherProcessors(size_t expectedProcessors);
 
     /** Get the Local APIC Id for this processor
      *\return the Local APIC Id of this processor */
@@ -136,6 +170,13 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
 
     /** Wait for the interrupt-command register to accept another IPI. */
     bool waitForIcrIdle();
+    bool acquireIcrSubmission();
+
+    ProcessorControlState processorControlState() const;
+    bool waitForProcessorCount(size_t expectedProcessors);
+    bool waitForTerminalProcessorCount(size_t expectedProcessors);
+    bool waitForProcessorDrain();
+    ProcessorControlResult unwindQuiesce(ProcessorControlResult failure);
 
     //
     // InterruptHandler interface
@@ -150,6 +191,18 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
 
     /** System bus frequency, for setting up the initial timer counter. */
     size_t m_BusFrequency;
+
+    /** Serialises the two-register ICR submission transaction. */
+    Atomic<bool> m_IcrSubmissionActive;
+
+    /** Shared state observed by CPUs inside the processor-control IPI. */
+    Atomic<size_t> m_ProcessorControlState;
+
+    /** CPUs currently paused or committed to the terminal halt path. */
+    Atomic<size_t> m_ControlledProcessorCount;
+
+    /** CPUs which have reached the permanent interrupt-disabled halt loop. */
+    Atomic<size_t> m_TerminalProcessorCount;
 };
 
 /** @} */
