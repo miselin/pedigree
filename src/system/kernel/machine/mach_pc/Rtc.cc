@@ -70,6 +70,14 @@ constexpr Time::Timestamp RtcUpdateTimeout =
     25 * Time::Multiplier::Millisecond;
 constexpr size_t RtcUpdateMaximumPolls = 1000000;
 constexpr size_t RtcCalibrationMaximumPolls = 100000000;
+
+uint64_t readOrderedTsc()
+{
+    uint32_t edx = 0;
+    uint32_t eax = 0;
+    asm volatile("lfence\nrdtsc" : "=d"(edx), "=a"(eax) : : "memory");
+    return (static_cast<uint64_t>(edx) << 32U) | eax;
+}
 }  // namespace
 
 Rtc::periodicIrqInfo_t Rtc::periodicIrqInfo[12] = {
@@ -286,16 +294,27 @@ uint64_t Rtc::getTickCount()
 }
 uint64_t Rtc::getTickCountNano()
 {
-    uint32_t edx, eax;
-    asm volatile("rdtsc" : "=d"(edx), "=a"(eax)::"memory");
+    // Migration between the TSC sample and the per-CPU anchor would combine
+    // unrelated clock domains. Keep only that bounded snapshot non-preemptible;
+    // conversion and global publication do not depend on the current CPU.
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    uint64_t anchorTsc = m_Tsc0;
+    uint64_t anchorNanoseconds = 0;
+    Processor::information().getTscClockAnchor(
+        anchorTsc, anchorNanoseconds);
+    const uint64_t tsc = readOrderedTsc();
+    Processor::setInterrupts(interruptsWereEnabled);
 
-    uint64_t tsc;
-    tsc = (static_cast<uint64_t>(edx) << 32UL) | eax;
+    uint64_t candidate = PcTscClock::fromAnchor(
+        tsc, anchorTsc, anchorNanoseconds, m_TscCalibration);
+    const uint64_t coarseFloor = m_TickCount.value();
+    if (candidate < coarseFloor)
+    {
+        candidate = coarseFloor;
+    }
 
-    // calculate # ns since startup
-    uint64_t ns = (tsc - m_Tsc0) / m_TscTicksPerNanosecond;
-
-    return ns;
+    return m_MonotonicTicks.publish(candidate);
 }
 bool Rtc::initialise1()
 {
@@ -363,11 +382,7 @@ bool Rtc::initialise2()
         Processor::pause();
     }
 
-    uint64_t tsc0, tsc1;
-
-    uint32_t edx, eax;
-    asm volatile("rdtsc" : "=d"(edx), "=a"(eax)::"memory");
-    tsc0 = (static_cast<uint64_t>(edx) << 32UL) | eax;
+    const uint64_t tsc0 = readOrderedTsc();
 
     size_t periods = 0;
     while (periods < CalibrationPeriods)
@@ -386,8 +401,7 @@ bool Rtc::initialise2()
         Processor::pause();
     }
 
-    asm volatile("rdtsc" : "=d"(edx), "=a"(eax)::"memory");
-    tsc1 = (static_cast<uint64_t>(edx) << 32UL) | eax;
+    const uint64_t tsc1 = readOrderedTsc();
     setPeriodicInterruptEnabled(false);
 
     uint64_t elapsedNanoseconds = 0;
@@ -395,22 +409,44 @@ bool Rtc::initialise2()
     {
         elapsedNanoseconds += periodicIrqInfo[m_PeriodicIrqInfoIndex].ns[i & 1];
     }
-    uint64_t diff = tsc1 - tsc0;
-    m_TscTicksPerNanosecond = diff / elapsedNanoseconds;
-    if (!m_TscTicksPerNanosecond)
+    if (tsc1 <= tsc0 || !elapsedNanoseconds)
     {
-        m_TscTicksPerNanosecond = 1;
+        ERROR("RTC: invalid TSC calibration interval");
+        return false;
     }
-    NOTICE("TSC ticks/ns: " << m_TscTicksPerNanosecond);
+    const uint64_t elapsedCycles = tsc1 - tsc0;
+    m_TscCalibration =
+        PcTscClock::Calibration(elapsedCycles, elapsedNanoseconds);
+    NOTICE(
+        "TSC calibration: " << elapsedCycles << " cycles / "
+                            << elapsedNanoseconds << " ns");
 
     m_TickCount = 0;
     m_ProcessedTickCount = 0;
     m_Tsc0 = tsc1;
+    m_MonotonicTicks.reset();
+    Processor::information().initialiseTscClockAnchor(tsc1, 0);
     m_PeriodicPhase = 0;
     m_CapturePhase = 0;
     m_PendingTicks.reset();
 
     return true;
+}
+
+void Rtc::initialiseProcessorClock()
+{
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    ProcessorInformation &processor = Processor::information();
+    const uint64_t tsc = readOrderedTsc();
+    uint64_t nanoseconds = m_MonotonicTicks.value();
+    const uint64_t coarseFloor = m_TickCount.value();
+    if (nanoseconds < coarseFloor)
+    {
+        nanoseconds = coarseFloor;
+    }
+    processor.initialiseTscClockAnchor(tsc, nanoseconds);
+    Processor::setInterrupts(interruptsWereEnabled);
 }
 
 bool Rtc::initialise3()
@@ -497,7 +533,7 @@ Rtc::Rtc()
       m_Month(0), m_DayOfMonth(0), m_Hour(0), m_Minute(0), m_Second(0),
       m_Nanosecond(0), m_TickCount(0), m_ProcessedTickCount(0),
       m_HandlerRegistry(), m_AlarmQueue(), m_Lock(false), m_CmosLock(false),
-      m_TscTicksPerNanosecond(1), m_Tsc0(0)
+      m_TscCalibration(), m_Tsc0(0), m_MonotonicTicks()
 {
 }
 

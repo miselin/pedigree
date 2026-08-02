@@ -75,6 +75,12 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation
 
     PerProcessorScheduler &getScheduler();
 
+    /** Installs this processor's immutable high-resolution clock anchor. */
+    void initialiseTscClockAnchor(uint64_t tsc, uint64_t nanoseconds);
+
+    /** Reads this processor's clock anchor after its release publication. */
+    bool getTscClockAnchor(uint64_t &tsc, uint64_t &nanoseconds) const;
+
   protected:
     /** Construct a X86CommonProcessor object
      *\param[in] processorId Identifier of the processor */
@@ -117,6 +123,12 @@ class EXPORTED_PUBLIC X86CommonProcessorInformation
     uint16_t m_TlsSelector;
     /** Device hard-IRQ callbacks currently active on this processor. */
     size_t m_DeviceHardIrqDepth;
+    /** This processor's local TSC at its monotonic-clock anchor. */
+    uint64_t m_TscClockAnchor;
+    /** Global monotonic time represented by m_TscClockAnchor. */
+    uint64_t m_TscClockAnchorNanoseconds;
+    /** Release-published after both anchor values have been installed. */
+    bool m_TscClockAnchorInitialised;
 };
 
 /** @} */

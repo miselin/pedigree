@@ -224,6 +224,10 @@ void Pc::initialiseProcessor()
     // Initialise the local APIC
     if (m_LocalApic->initialiseProcessor() == false)
         panic("Pc::initialiseProcessor(): Failed to initialise the local APIC");
+
+    // AP startup calls this before creating its scheduler and enabling
+    // interrupts, so no migratable work can observe an unanchored local TSC.
+    Rtc::instance().initialiseProcessorClock();
 }
 #endif
 

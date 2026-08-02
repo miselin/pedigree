@@ -21,6 +21,7 @@
 #define KERNEL_MACHINE_X86_COMMON_RTC_H
 
 #include "RtcAlarmQueue.h"
+#include "TscClock.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqEventCounter.h"
@@ -72,6 +73,9 @@ class Rtc : public Timer, private SplitIrqHandler
     bool initialise1() INITIALISATION_ONLY;
     /** Calibrates the TSC while the RTC line remains masked. */
     bool initialise2() INITIALISATION_ONLY;
+
+    /** Anchors the calling application processor to global monotonic time. */
+    void initialiseProcessorClock() INITIALISATION_ONLY;
     /** Starts the RTC bottom half and enables periodic IRQ delivery. */
     bool initialise3();
     /** Synchronise the time/date with the hardware */
@@ -223,11 +227,14 @@ class Rtc : public Timer, private SplitIrqHandler
     /** Serialises the CMOS index/data register pair across processors. */
     Spinlock m_CmosLock;
 
-    /** Tracks the number of nanoseconds per TSC tick. */
-    uint64_t m_TscTicksPerNanosecond;
+    /** Exact RTC-calibrated conversion from TSC cycles to nanoseconds. */
+    PcTscClock::Calibration m_TscCalibration;
 
-    /** Initial TSC value. */
+    /** Bootstrap fallback before a per-processor anchor is available. */
     uint64_t m_Tsc0;
+
+    /** Cross-processor monotonic floor, published without a retry loop. */
+    PcTscClock::MonotonicPublication m_MonotonicTicks;
 };
 
 /** @} */
