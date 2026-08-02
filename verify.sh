@@ -506,6 +506,41 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local cdi_cmos_source=src/modules/drivers/common/cdi/CdiCmos.cc
+    local rtc_header=src/system/kernel/machine/mach_pc/Rtc.h
+    local raw_cdi_cmos_pattern='cdi_(inb|outb)[[:space:]]*\([[:space:]]*0[xX]0*7[01]'
+    if ! printf '%s\n' 'cdi_outb(0x70, index);' \
+        'return cdi_inb(0X0071);' | rg -q "$raw_cdi_cmos_pattern"; then
+        echo "The raw CDI CMOS-port detector failed its self-test."
+        failed=1
+    fi
+
+    matches=$(rg -n \
+        "$raw_cdi_cmos_pattern" \
+        src/modules/drivers/common/cdi || true)
+    if [[ -n "$matches" ]]; then
+        echo "CDI bypassed the RTC-owned CMOS selector/data transaction:"
+        echo "$matches"
+        failed=1
+    fi
+
+    if ! rg -q 'return Rtc::readCmos\(index\)' "$cdi_cmos_source" ||
+        ! rg -q 'Rtc::writeCmos\(index, value\)' "$cdi_cmos_source"; then
+        echo "CDI CMOS access escaped the RTC-owned compatibility API."
+        failed=1
+    fi
+
+    if ! rg -q \
+        'static EXPORTED_PUBLIC uint8_t readCmos\(uint8_t index\)' \
+        "$rtc_header" ||
+        ! rg -q \
+            'static EXPORTED_PUBLIC void writeCmos\(uint8_t index, uint8_t value\)' \
+            "$rtc_header" ||
+        ! rg -q 'drivers/common/cdi/CdiCmos\.cc' src/modules/CMakeLists.txt; then
+        echo "The exported or compile-checked RTC CMOS boundary regressed."
+        failed=1
+    fi
+
     local pic_header=src/system/kernel/machine/mach_pc/Pic.h
     local pic_source=src/system/kernel/machine/mach_pc/Pic.cc
     local pic_state=src/system/kernel/machine/mach_pc/PicIrqState.h

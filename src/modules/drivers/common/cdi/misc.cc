@@ -238,15 +238,3 @@ extern "C" EXPORTED_PUBLIC uint64_t cdi_elapsed_ms()
 {
     return Time::getTimeNanoseconds();
 }
-
-extern "C" EXPORTED_PUBLIC uint8_t cdi_cmos_read(uint8_t index)
-{
-    cdi_outb(0x70, index);
-    return cdi_inb(0x71);
-}
-
-extern "C" EXPORTED_PUBLIC void cdi_cmos_write(uint8_t index, uint8_t value)
-{
-    cdi_outb(0x70, index);
-    cdi_outb(0x71, value);
-}

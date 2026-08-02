@@ -79,6 +79,15 @@ class Rtc : public Timer, private SplitIrqHandler
     /** Uninitialises the class */
     void uninitialise();
 
+    /**
+     * Access CMOS through the RTC-owned selector/data transaction.
+     *
+     * These entrypoints exist for PC compatibility layers which need CMOS
+     * bytes but must not access ports 0x70/0x71 independently of the RTC.
+     */
+    static EXPORTED_PUBLIC uint8_t readCmos(uint8_t index);
+    static EXPORTED_PUBLIC void writeCmos(uint8_t index, uint8_t value);
+
   protected:
     /** The default constructor */
     Rtc() INITIALISATION_ONLY;

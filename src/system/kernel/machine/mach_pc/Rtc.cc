@@ -781,6 +781,12 @@ void Rtc::enableRtcUpdates(bool enable)
                        static_cast<uint8_t>(statusB | RtcUpdateInhibit);
     m_IoPort.write8(statusB, 1);
 }
+
+uint8_t Rtc::readCmos(uint8_t index)
+{
+    return m_Instance.read(index);
+}
+
 uint8_t Rtc::read(uint8_t index)
 {
     // Wait until the RTC Update is completed
@@ -803,6 +809,11 @@ void Rtc::write(uint8_t index, uint8_t value)
 
     LockGuard<Spinlock> guard(m_CmosLock);
     writeLocked(index, value);
+}
+
+void Rtc::writeCmos(uint8_t index, uint8_t value)
+{
+    m_Instance.write(index, value);
 }
 
 void Rtc::writeLocked(uint8_t index, uint8_t value)

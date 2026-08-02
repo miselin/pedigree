@@ -177,10 +177,14 @@ function(pedigree_module name opts libs)
     endif ()
 endfunction()
 
-# CDI is not part of the supported module set, but keep its IRQ wait shim
-# compiling so dormant concurrency fixes cannot silently decay.
+# CDI is not part of the supported module set, but keep its independently
+# buildable compatibility shims compiling so concurrency fixes cannot decay.
 add_library(cdi-irq-compile-check OBJECT EXCLUDE_FROM_ALL
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiIrq.cc)
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    target_sources(cdi-irq-compile-check PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiCmos.cc)
+endif ()
 target_compile_options(cdi-irq-compile-check PRIVATE
     ${PEDIGREE_MODULE_CXXFLAGS} -fno-rtti -fno-exceptions
     -fno-asynchronous-unwind-tables)
@@ -539,6 +543,7 @@ if (PEDIGREE_DRIVERDIR STREQUAL "x86")
     #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiDisk.cc
     #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiIrq.cc
     #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiNet.cc
+    #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiCmos.cc
     #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/_list.cc
     #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/cdi.cc
     #     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/compat.cc
