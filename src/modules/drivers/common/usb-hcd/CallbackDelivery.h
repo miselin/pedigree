@@ -173,6 +173,7 @@ class CallbackDeliveryQueue
     void deliver(Record *record)
     {
         bool run = false;
+        bool wait = false;
         {
             LockGuard<Mutex> guard(m_Lock);
             if (record->m_State == Record::State::Pending)
@@ -181,10 +182,16 @@ class CallbackDeliveryQueue
                 record->m_Runner = currentRunner();
                 run = true;
             }
+            else if (record->m_State == Record::State::Running)
+            {
+                wait = record->m_Runner != currentRunner();
+            }
         }
 
         if (run)
             runRecord(record);
+        else if (wait)
+            record->waitForCompletion();
         record->release();
     }
 
@@ -226,6 +233,45 @@ class CallbackDeliveryQueue
 
         record->release();
         return true;
+    }
+
+    /**
+     * Drains every callback after all producers have been quiesced.
+     *
+     * A callback may drain another pending record, so the queue is searched
+     * again after every delivery. A record running on this thread is already
+     * inside the required lifetime boundary and is skipped.
+     */
+    size_t drainAll()
+    {
+        size_t drained = 0;
+        while (true)
+        {
+            Key key = {0, 0};
+            bool found = false;
+            {
+                LockGuard<Mutex> guard(m_Lock);
+                for (List<Record *>::Iterator it = m_Records.begin();
+                     it != m_Records.end(); ++it)
+                {
+                    Record *record = *it;
+                    if (record->m_State == Record::State::Running &&
+                        record->m_Runner == currentRunner())
+                    {
+                        continue;
+                    }
+
+                    key = record->m_Key;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+                return drained;
+            if (drain(key))
+                ++drained;
+        }
     }
 
     bool contains(const Key &key)

@@ -6,6 +6,8 @@
  */
 
 #include "modules/drivers/common/usb-hcd/CallbackDelivery.h"
+#include "modules/drivers/common/usb-hcd/TransferCompletion.h"
+#include "modules/system/usb/Usb.h"
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -165,7 +167,7 @@ struct RunningDrainContext
     RunningDrainContext(DeliveryQueue *queue, const DeliveryQueue::Key &key)
         : queue(queue), key(key), record(nullptr), callbackEntered(0),
           allowCallbackReturn(0), drainEntered(0), callbackCalls(0),
-          drainReturned(0), drainSucceeded(0)
+          deliveryReturned(0), drainReturned(0), drainSucceeded(0)
     {
     }
 
@@ -176,6 +178,7 @@ struct RunningDrainContext
     Semaphore allowCallbackReturn;
     Semaphore drainEntered;
     Atomic<size_t> callbackCalls;
+    Atomic<size_t> deliveryReturned;
     Atomic<size_t> drainReturned;
     Atomic<size_t> drainSucceeded;
 };
@@ -193,6 +196,7 @@ int deliverRunningRecord(void *parameter)
 {
     auto *context = reinterpret_cast<RunningDrainContext *>(parameter);
     context->queue->deliver(context->record);
+    context->deliveryReturned += 1;
     return 0;
 }
 
@@ -241,8 +245,7 @@ bool anotherThreadWaitsForRunningRecord()
     drainer->setName("hosted USB callback drainer");
     const bool drainEntered = context.drainEntered.acquireForCompletion();
     const bool drainBlocked = waitUntilSleeping(drainer);
-    const bool returnedEarly =
-        static_cast<size_t>(context.drainReturned) != 0;
+    const bool returnedEarly = static_cast<size_t>(context.drainReturned) != 0;
 
     context.allowCallbackReturn.release();
     const bool deliveryJoined = delivery->join();
@@ -251,12 +254,55 @@ bool anotherThreadWaitsForRunningRecord()
     const bool passed = check(
         callbackEntered && drainEntered && drainBlocked && !returnedEarly &&
             deliveryJoined && drainerJoined && context.callbackCalls == 1 &&
-            context.drainReturned == 1 && context.drainSucceeded == 1 &&
-            destroyed == 1 && queue.empty(),
+            context.deliveryReturned == 1 && context.drainReturned == 1 &&
+            context.drainSucceeded == 1 && destroyed == 1 && queue.empty(),
         "usb-callback-running-drain",
         "a cross-thread drain did not wait for the running callback");
     if (passed)
         NOTICE("HOSTED-WAIT-TEST: PASS usb-callback-running-drain");
+    return passed;
+}
+
+bool producerWaitsForStolenRunningRecord()
+{
+    DeliveryQueue queue;
+    Atomic<size_t> destroyed(0);
+    const DeliveryQueue::Key key = {0x350, queue.nextGeneration()};
+    RunningDrainContext context(&queue, key);
+    context.record = queue.create(
+        key, blockingCallback, reinterpret_cast<uintptr_t>(&context), 0,
+        nullptr, nullptr, countDestruction, &destroyed);
+    List<DeliveryQueue::Record *> records;
+    records.pushBack(context.record);
+    queue.publish(records);
+
+    Process *kernelProcess = Scheduler::instance().getKernelProcess();
+    Thread *drainer = new Thread(
+        kernelProcess, drainRunningRecord, &context, nullptr, false, true);
+    drainer->setName("hosted USB callback stealer");
+    const bool drainEntered = context.drainEntered.acquireForCompletion();
+    const bool callbackEntered = context.callbackEntered.acquireForCompletion();
+
+    Thread *producer = new Thread(
+        kernelProcess, deliverRunningRecord, &context, nullptr, false, true);
+    producer->setName("hosted USB callback producer");
+    const bool producerBlocked = waitUntilSleeping(producer);
+    const bool returnedEarly =
+        static_cast<size_t>(context.deliveryReturned) != 0;
+
+    context.allowCallbackReturn.release();
+    const bool drainerJoined = drainer->join();
+    const bool producerJoined = producer->join();
+
+    const bool passed = check(
+        drainEntered && callbackEntered && producerBlocked && !returnedEarly &&
+            drainerJoined && producerJoined && context.callbackCalls == 1 &&
+            context.deliveryReturned == 1 && context.drainReturned == 1 &&
+            context.drainSucceeded == 1 && destroyed == 1 && queue.empty(),
+        "usb-callback-producer-drains-steal",
+        "the producer abandoned a callback stolen by another thread");
+    if (passed)
+        NOTICE("HOSTED-WAIT-TEST: PASS usb-callback-producer-drains-steal");
     return passed;
 }
 
@@ -301,10 +347,225 @@ bool generationIsPartOfIdentity()
         NOTICE("HOSTED-WAIT-TEST: PASS usb-callback-generation-identity");
     return passed;
 }
+
+bool allPendingRecordsCanBeDrained()
+{
+    DeliveryQueue queue;
+    Atomic<size_t> destroyed(0);
+    CountContext context;
+    List<DeliveryQueue::Record *> records;
+    for (size_t i = 0; i < 3; ++i)
+    {
+        const DeliveryQueue::Key key = {0x500 + i, queue.nextGeneration()};
+        records.pushBack(queue.create(
+            key, countCallback, reinterpret_cast<uintptr_t>(&context), 0,
+            nullptr, nullptr, countDestruction, &destroyed));
+    }
+    queue.publish(records);
+
+    const size_t drained = queue.drainAll();
+    const bool emptyAfterDrain = queue.empty();
+    while (records.count())
+        queue.deliver(records.popFront());
+
+    const bool passed = check(
+        drained == 3 && emptyAfterDrain && context.calls == 3 &&
+            destroyed == 3 && queue.empty(),
+        "usb-callback-drain-all",
+        "controller teardown could not drain every published callback");
+    if (passed)
+        NOTICE("HOSTED-WAIT-TEST: PASS usb-callback-drain-all");
+    return passed;
+}
+
+bool capturedCompletionHasOnePublisher()
+{
+    UsbHcd::TransferCompletion completion;
+    UsbHcd::TransferCompletion::Claim claim;
+    UsbHcd::TransferCompletion::Claim duplicate;
+    CountContext context;
+    completion.arm(countCallback, reinterpret_cast<uintptr_t>(&context), 41);
+
+    const bool captured = completion.captureNatural(73);
+    const bool claimed = completion.claimCaptured(claim);
+    const bool claimedTwice = completion.claimCaptured(duplicate);
+    const bool teardownClaimed =
+        completion.claimForTeardown(-TransactionError, duplicate);
+
+    const bool passed = check(
+        captured && claimed && !claimedTwice && !teardownClaimed &&
+            claim.callback == countCallback &&
+            claim.parameter == reinterpret_cast<uintptr_t>(&context) &&
+            claim.generation == 41 && claim.result == 73 &&
+            claim.reason == UsbHcd::TransferCompletion::Reason::Natural &&
+            completion.state() ==
+                UsbHcd::TransferCompletion::State::PublicationClaimed,
+        "usb-completion-captured-exactly-once",
+        "a captured hardware result had more than one callback publisher");
+    if (passed)
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "usb-completion-captured-exactly-once");
+    return passed;
+}
+
+bool cancellationOwnsCompletion()
+{
+    UsbHcd::TransferCompletion completion;
+    UsbHcd::TransferCompletion::Claim claim;
+    CountContext context;
+    completion.arm(countCallback, reinterpret_cast<uintptr_t>(&context), 42);
+
+    const auto cancellation = completion.claimCancellation(
+        countCallback, reinterpret_cast<uintptr_t>(&context), -TransactionError,
+        claim);
+    const bool capturedAfterCancel = completion.captureNatural(12);
+    const bool ordinaryClaimed = completion.claimCaptured(claim);
+    const bool teardownClaimed =
+        completion.claimForTeardown(-TransactionError, claim);
+
+    const bool passed = check(
+        cancellation ==
+                UsbHcd::TransferCompletion::CancellationDisposition::Claimed &&
+            !capturedAfterCancel && !ordinaryClaimed && !teardownClaimed &&
+            claim.callback == countCallback &&
+            claim.parameter == reinterpret_cast<uintptr_t>(&context) &&
+            claim.generation == 42 && claim.result == -TransactionError &&
+            claim.reason == UsbHcd::TransferCompletion::Reason::Cancelled &&
+            completion.state() ==
+                UsbHcd::TransferCompletion::State::PublicationClaimed,
+        "usb-completion-cancellation-ownership",
+        "completion ownership escaped a successful synchronous cancellation");
+    if (passed)
+        NOTICE("HOSTED-WAIT-TEST: PASS usb-completion-cancellation-ownership");
+    return passed;
+}
+
+bool teardownTerminalizesActiveCompletion()
+{
+    UsbHcd::TransferCompletion completion;
+    UsbHcd::TransferCompletion::Claim claim;
+    UsbHcd::TransferCompletion::Claim duplicate;
+    CountContext context;
+    completion.arm(countCallback, reinterpret_cast<uintptr_t>(&context), 43);
+
+    const bool teardownClaimed =
+        completion.claimForTeardown(-TransactionError, claim);
+    const bool capturedAfterTeardown = completion.captureNatural(99);
+    const auto cancellationAfterTeardown = completion.claimCancellation(
+        countCallback, reinterpret_cast<uintptr_t>(&context), -TransactionError,
+        duplicate);
+    const bool claimedTwice =
+        completion.claimForTeardown(-TransactionError, duplicate);
+
+    const bool passed = check(
+        teardownClaimed && !capturedAfterTeardown &&
+            cancellationAfterTeardown ==
+                UsbHcd::TransferCompletion::CancellationDisposition::
+                    DrainPublished &&
+            !claimedTwice && claim.generation == 43 &&
+            claim.result == -TransactionError &&
+            claim.reason == UsbHcd::TransferCompletion::Reason::Teardown,
+        "usb-completion-active-teardown",
+        "teardown did not terminalize an accepted hardware obligation once");
+    if (passed)
+        NOTICE("HOSTED-WAIT-TEST: PASS usb-completion-active-teardown");
+    return passed;
+}
+
+bool teardownPreservesCapturedResult()
+{
+    UsbHcd::TransferCompletion completion;
+    UsbHcd::TransferCompletion::Claim claim;
+    UsbHcd::TransferCompletion::Claim duplicate;
+    CountContext context;
+    completion.arm(countCallback, reinterpret_cast<uintptr_t>(&context), 44);
+
+    const bool captured = completion.captureNatural(1234);
+    const bool teardownClaimed =
+        completion.claimForTeardown(-TransactionError, claim);
+    const bool ordinaryClaimed = completion.claimCaptured(duplicate);
+
+    const bool passed = check(
+        captured && teardownClaimed && !ordinaryClaimed &&
+            claim.generation == 44 && claim.result == 1234 &&
+            claim.reason == UsbHcd::TransferCompletion::Reason::Natural,
+        "usb-completion-captured-teardown",
+        "teardown discarded or duplicated a captured hardware result");
+    if (passed)
+        NOTICE("HOSTED-WAIT-TEST: PASS usb-completion-captured-teardown");
+    return passed;
+}
+
+bool cancellationPreservesCapturedResult()
+{
+    UsbHcd::TransferCompletion completion;
+    UsbHcd::TransferCompletion::Claim claim;
+    CountContext context;
+    completion.arm(countCallback, reinterpret_cast<uintptr_t>(&context), 45);
+
+    const bool captured = completion.captureNatural(5678);
+    const auto cancellation = completion.claimCancellation(
+        countCallback, reinterpret_cast<uintptr_t>(&context), -TransactionError,
+        claim);
+
+    const bool passed = check(
+        captured &&
+            cancellation ==
+                UsbHcd::TransferCompletion::CancellationDisposition::Claimed &&
+            claim.generation == 45 && claim.result == 5678 &&
+            claim.reason == UsbHcd::TransferCompletion::Reason::Natural,
+        "usb-completion-cancel-preserves-natural",
+        "cancellation replaced a hardware result which won the claim race");
+    if (passed)
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "usb-completion-cancel-preserves-natural");
+    return passed;
+}
+
+bool cancellationRequiresExactIdentity()
+{
+    UsbHcd::TransferCompletion completion;
+    UsbHcd::TransferCompletion::Claim claim;
+    CountContext context;
+    completion.arm(countCallback, reinterpret_cast<uintptr_t>(&context), 46);
+
+    const auto wrongCallback = completion.claimCancellation(
+        nullptr, reinterpret_cast<uintptr_t>(&context), -TransactionError,
+        claim);
+    const auto wrongParameter = completion.claimCancellation(
+        countCallback, 0, -TransactionError, claim);
+    const auto exact = completion.claimCancellation(
+        countCallback, reinterpret_cast<uintptr_t>(&context), -TransactionError,
+        claim);
+
+    const bool passed = check(
+        wrongCallback ==
+                UsbHcd::TransferCompletion::CancellationDisposition::NoMatch &&
+            wrongParameter ==
+                UsbHcd::TransferCompletion::CancellationDisposition::NoMatch &&
+            exact ==
+                UsbHcd::TransferCompletion::CancellationDisposition::Claimed &&
+            claim.generation == 46,
+        "usb-completion-cancel-identity",
+        "a stale callback identity claimed a reused transfer slot");
+    if (passed)
+        NOTICE("HOSTED-WAIT-TEST: PASS usb-completion-cancel-identity");
+    return passed;
+}
 }  // namespace
 
 bool runHostedUsbCallbackDeliveryRegressions()
 {
     return pendingRecordCanBeStolen() && runningRecordCanDrainItself() &&
-           anotherThreadWaitsForRunningRecord() && generationIsPartOfIdentity();
+           anotherThreadWaitsForRunningRecord() &&
+           producerWaitsForStolenRunningRecord() &&
+           generationIsPartOfIdentity() && allPendingRecordsCanBeDrained() &&
+           capturedCompletionHasOnePublisher() &&
+           cancellationOwnsCompletion() &&
+           teardownTerminalizesActiveCompletion() &&
+           teardownPreservesCapturedResult() &&
+           cancellationPreservesCapturedResult() &&
+           cancellationRequiresExactIdentity();
 }
