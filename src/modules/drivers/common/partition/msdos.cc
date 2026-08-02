@@ -299,14 +299,20 @@ static int gNextPartition = 0;
 static void
 msdosRegPartition(MsdosPartitionInfo *pPartitions, int i, Disk *pDisk)
 {
+    int partitionNumber = 0;
 #if THREADS
-    LockGuard<Spinlock> guard(g_Lock);
+    {
+        LockGuard<Spinlock> guard(g_Lock);
+        partitionNumber = gNextPartition++;
+    }
+#else
+    partitionNumber = gNextPartition++;
 #endif
 
     // Look up the partition string.
     const char *pStr = g_pPartitionTypes[pPartitions[i].type];
     NormalStaticString sstr("(");
-    sstr += gNextPartition++;
+    sstr += partitionNumber;
     sstr += ") ";
     sstr += pStr;
     String str(sstr);
