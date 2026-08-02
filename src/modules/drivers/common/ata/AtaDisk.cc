@@ -41,6 +41,54 @@
 
 namespace
 {
+constexpr Time::Timestamp AtapiCommandTimeout =
+    30 * Time::Multiplier::Second;
+constexpr size_t AtapiMaximumStatusPolls = 30000000;
+
+bool waitForAtapiStatus(
+    IoBase *commandRegs, IoBase *controlRegs,
+    Time::Timestamp commandStarted, size_t &commandPolls, AtaStatus &status)
+{
+    // One PACKET command gets one budget. Restarting ataWait's timeout at each
+    // data phase lets a device keep the caller here forever while still making
+    // occasional progress.
+    if (commandPolls >= AtapiMaximumStatusPolls ||
+        (Time::getTicks() - commandStarted) >= AtapiCommandTimeout)
+    {
+        WARNING("ATAPI: PACKET command exceeded its completion deadline");
+        return false;
+    }
+
+    for (size_t i = 0; i < 4; ++i)
+    {
+        controlRegs->read8(2);
+    }
+
+    status.__reg_contents = commandRegs->read8(7);
+    while (status.reg.bsy ||
+           (!status.reg.drq && !status.reg.drdy && !status.reg.err))
+    {
+        if (!status.__reg_contents)
+        {
+            return true;
+        }
+        if (++commandPolls >= AtapiMaximumStatusPolls ||
+            (Time::getTicks() - commandStarted) >= AtapiCommandTimeout)
+        {
+            WARNING(
+                "ATAPI: PACKET command timed out waiting for device status, "
+                "status="
+                << status.__reg_contents);
+            return false;
+        }
+
+        Processor::pause();
+        status.__reg_contents = commandRegs->read8(7);
+    }
+
+    return true;
+}
+
 class ScopedBusMasterTransaction
 {
   public:
@@ -698,12 +746,22 @@ bool AtaDisk::sendCommand(
     commandRegs->write8(nRespBytes & 0xFF, 4);  // Byte count limit
     commandRegs->write8(((nRespBytes >> 8) & 0xFF), 5);
 
+    // Packet commands such as optical-media reads may legitimately need time
+    // for the medium to become ready, but every status transition and data
+    // phase below shares this 30-second command budget.
+    const Time::Timestamp commandStarted = Time::getTicks();
+    size_t commandPolls = 0;
+
     // Transmit the PACKET command, wait for the device to be ready for the
     // command.
     commandRegs->write8(0xA0, 7);
 
     // Wait for sensible status before writing command packet.
-    status = ataWait(commandRegs, controlRegs);
+    if (!waitForAtapiStatus(
+            commandRegs, controlRegs, commandStarted, commandPolls, status))
+    {
+        return false;
+    }
 
     // Error?
     if (status.reg.err)
@@ -749,7 +807,12 @@ bool AtaDisk::sendCommand(
     // completion instead of waiting for an IRQ.
     if (!nRespBytes)
     {
-        status = ataWait(commandRegs, controlRegs);
+        if (!waitForAtapiStatus(
+                commandRegs, controlRegs, commandStarted, commandPolls,
+                status))
+        {
+            return false;
+        }
         return !status.reg.err;
     }
 
@@ -757,8 +820,15 @@ bool AtaDisk::sendCommand(
     {
         while (true)
         {
-            status = ataWait(commandRegs, controlRegs);
-            if (status.reg.err)
+            if (commandPolls >= AtapiMaximumStatusPolls ||
+                (Time::getTicks() - commandStarted) >= AtapiCommandTimeout)
+            {
+                WARNING("ATAPI: DMA command timed out");
+                return false;
+            }
+
+            status.__reg_contents = commandRegs->read8(7);
+            if (!status.reg.bsy && status.reg.err)
             {
                 WARNING("ATAPI: read failed during DMA data transfer");
                 return false;
@@ -775,9 +845,17 @@ bool AtaDisk::sendCommand(
                 else
                     break;
             }
+
+            ++commandPolls;
+            Processor::pause();
         }
 
-        status = ataWait(commandRegs, controlRegs);
+        if (!waitForAtapiStatus(
+                commandRegs, controlRegs, commandStarted, commandPolls,
+                status))
+        {
+            return false;
+        }
         if (status.reg.err)
         {
             WARNING("ATAPI sendCommand failed after sending command packet");
@@ -791,9 +869,21 @@ bool AtaDisk::sendCommand(
     // ATAPI PIO may split a response into multiple DRQ phases. This commonly
     // happens for CD reads, where each phase is limited to one native sector.
     size_t transferred = 0;
+    size_t pioPhases = 0;
+    const size_t maximumPioPhases = nRespBytes / sizeof(uint16_t);
     while (true)
     {
-        status = ataWait(commandRegs, controlRegs);
+        if ((Time::getTicks() - commandStarted) >= AtapiCommandTimeout)
+        {
+            WARNING("ATAPI: PIO command timed out");
+            return false;
+        }
+        if (!waitForAtapiStatus(
+                commandRegs, controlRegs, commandStarted, commandPolls,
+                status))
+        {
+            return false;
+        }
         if (status.reg.err)
         {
             WARNING("ATAPI PIO command failed during a data phase");
@@ -803,6 +893,11 @@ bool AtaDisk::sendCommand(
         if (!status.reg.drq)
         {
             return true;
+        }
+        if (++pioPhases > maximumPioPhases)
+        {
+            ERROR("ATAPI PIO command exceeded its possible data-phase count");
+            return false;
         }
 
         size_t realSz = commandRegs->read8(4) | (commandRegs->read8(5) << 8);
@@ -817,8 +912,7 @@ bool AtaDisk::sendCommand(
             return false;
         }
 
-        const size_t remaining =
-            transferred < nRespBytes ? nRespBytes - transferred : 0;
+        const size_t remaining = nRespBytes - transferred;
         const size_t transferSz = realSz < remaining ? realSz : remaining;
         uint16_t *dest =
             reinterpret_cast<uint16_t *>(pRespBuffer + transferred);
@@ -830,13 +924,23 @@ bool AtaDisk::sendCommand(
                 dest[i] = commandRegs->read16(0);
         }
 
-        // Finish the device's phase even if its response exceeds our buffer.
-        for (size_t i = transferSz; i < realSz; i += 2)
+        // A malformed device must not make us touch past the caller's buffer,
+        // but abandoning a partially consumed phase leaves DRQ asserted and
+        // poisons the next command on the channel. Drain this one bounded
+        // 16-bit phase, then report the protocol violation.
+        for (size_t i = transferSz; i < realSz; i += sizeof(uint16_t))
         {
             if (bWrite)
                 commandRegs->write16(0xFFFF, 0);
             else
                 commandRegs->read16(0);
+        }
+        if (realSz > remaining)
+        {
+            ERROR(
+                "ATAPI PIO data phase exceeds the response buffer: phase="
+                << Dec << realSz << ", remaining=" << remaining << Hex);
+            return false;
         }
         transferred += transferSz;
     }
