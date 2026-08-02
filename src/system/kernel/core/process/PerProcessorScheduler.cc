@@ -68,7 +68,10 @@ PerProcessorScheduler::~PerProcessorScheduler()
     {
         panic("No scheduler timer present.");
     }
-    Machine::instance().getSchedulerTimer()->removeHandler(this);
+    if (!pTimer->removeHandler(this))
+    {
+        FATAL("Per-processor scheduler lost timer-handler ownership.");
+    }
 }
 
 void PerProcessorScheduler::startTimeAccountingWorker(Process *pParent)
@@ -337,7 +340,10 @@ void PerProcessorScheduler::initialise(Thread *pThread)
     {
         panic("No scheduler timer present.");
     }
-    Machine::instance().getSchedulerTimer()->registerHandler(this);
+    if (!pTimer->registerHandler(this))
+    {
+        FATAL("Per-processor scheduler timer handler is already owned.");
+    }
 
     startNewThreadWorker(pThread->getParent());
     startTimeAccountingWorker(pThread->getParent());

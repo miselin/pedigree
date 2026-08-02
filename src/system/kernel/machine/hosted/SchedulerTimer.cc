@@ -46,6 +46,11 @@ uintptr_t HostedSchedulerTimer::sourceForTest()
 {
     return reinterpret_cast<uintptr_t>(&m_Instance);
 }
+
+SchedulerTimerHandler *HostedSchedulerTimer::publishedHandlerForTest()
+{
+    return m_Instance.m_Handler.load();
+}
 #endif
 
 HostedSchedulerTimer::~HostedSchedulerTimer()
@@ -55,19 +60,12 @@ HostedSchedulerTimer::~HostedSchedulerTimer()
 
 bool HostedSchedulerTimer::registerHandler(SchedulerTimerHandler *handler)
 {
-    if (UNLIKELY(handler == 0 && m_Handler != 0))
-        return false;
-
-    m_Handler = handler;
-    return true;
+    return m_Handler.publish(handler);
 }
 
-void HostedSchedulerTimer::removeHandler(SchedulerTimerHandler *handler)
+bool HostedSchedulerTimer::removeHandler(SchedulerTimerHandler *handler)
 {
-    if (m_Handler == handler)
-    {
-        m_Handler = nullptr;
-    }
+    return m_Handler.unpublish(handler);
 }
 
 bool HostedSchedulerTimer::initialise()
@@ -151,11 +149,13 @@ void HostedSchedulerTimer::uninitialise()
         m_IrqId = 0;
     }
     timer_delete(m_Timer);
-    m_Handler = nullptr;
+
+    // Source teardown does not confer ownership of the scheduler callback.
+    // Its exact owner remains responsible for unpublishing it.
 }
 
 HostedSchedulerTimer::HostedSchedulerTimer()
-    : m_IrqId(0), m_Handler(0), m_bInitialized(false)
+    : m_IrqId(0), m_Handler(), m_bInitialized(false)
 {
 }
 
@@ -193,8 +193,9 @@ bool HostedSchedulerTimer::irq(irq_id_t number, InterruptState &state)
     }
 #endif
 
-    if (LIKELY(m_Handler != 0))
-        m_Handler->timer(delta, state);
+    SchedulerTimerHandler *handler = m_Handler.load();
+    if (LIKELY(handler != 0))
+        handler->timer(delta, state);
 
     return true;
 }

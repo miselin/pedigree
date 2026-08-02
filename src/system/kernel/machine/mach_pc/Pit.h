@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/machine/SchedulerTimerHandlerSlot.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state_forward.h"
@@ -46,7 +47,7 @@ class Pit : public SchedulerTimer, private HardIrqHandler
     // SchedulerTimer interface
     //
     virtual bool registerHandler(SchedulerTimerHandler *handler);
-    virtual void removeHandler(SchedulerTimerHandler *handler);
+    virtual bool removeHandler(SchedulerTimerHandler *handler);
 
     /** Initialises the class
      *\return true, if successful, false otherwise */
@@ -79,8 +80,8 @@ class Pit : public SchedulerTimer, private HardIrqHandler
     IoPort m_IoPort;
     /** The PIT IRQ Id */
     irq_id_t m_IrqId;
-    /** The scheduler */
-    SchedulerTimerHandler *m_Handler;
+    /** The atomically published scheduler callback owner. */
+    SchedulerTimerHandlerSlot m_Handler;
 
     /** The Pit class instance */
     static Pit m_Instance;

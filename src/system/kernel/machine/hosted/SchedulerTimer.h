@@ -23,6 +23,7 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/machine/SchedulerTimerHandlerSlot.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state.h"
 
@@ -49,7 +50,7 @@ class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler
     //
     virtual bool registerHandler(SchedulerTimerHandler *handler);
 
-    virtual void removeHandler(SchedulerTimerHandler *handler);
+    virtual bool removeHandler(SchedulerTimerHandler *handler);
 
     /** Initialises the class
      *\return true, if successful, false otherwise */
@@ -65,6 +66,8 @@ class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler
     setHardContextHookForTest(HardContextHook hook);
     /** Returns the opaque source carried by the real scheduler signal. */
     static EXPORTED_PUBLIC uintptr_t sourceForTest();
+    /** Returns the atomically published callback owner for lifecycle tests. */
+    static EXPORTED_PUBLIC SchedulerTimerHandler *publishedHandlerForTest();
 #endif
 
   protected:
@@ -89,8 +92,8 @@ class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler
     irq_id_t m_IrqId;
     __pedigree_hosted::timer_t m_Timer;
 
-    /** The scheduler */
-    SchedulerTimerHandler *m_Handler;
+    /** The atomically published scheduler callback owner. */
+    SchedulerTimerHandlerSlot m_Handler;
 
     bool m_bInitialized;
 

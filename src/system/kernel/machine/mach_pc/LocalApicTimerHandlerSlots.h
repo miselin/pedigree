@@ -8,13 +8,8 @@
 #ifndef KERNEL_MACHINE_MACH_PC_LOCALAPICTIMERHANDLERSLOTS_H
 #define KERNEL_MACHINE_MACH_PC_LOCALAPICTIMERHANDLERSLOTS_H
 
+#include "pedigree/kernel/machine/SchedulerTimerHandlerSlot.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
-
-class SchedulerTimerHandler;
-
-static_assert(
-    __atomic_always_lock_free(sizeof(SchedulerTimerHandler *), nullptr),
-    "Local APIC timer-handler slots must be lock-free");
 
 /** Fixed handler publication slots for the 8-bit xAPIC processor envelope. */
 class LocalApicTimerHandlerSlots
@@ -32,10 +27,7 @@ class LocalApicTimerHandlerSlots
         if (processor >= Capacity || !handler)
             return false;
 
-        SchedulerTimerHandler *expected = nullptr;
-        return __atomic_compare_exchange_n(
-            &m_Handlers[processor], &expected, handler, false, __ATOMIC_RELEASE,
-            __ATOMIC_RELAXED);
+        return m_Handlers[processor].publish(handler);
     }
 
     /**
@@ -47,11 +39,7 @@ class LocalApicTimerHandlerSlots
         if (processor >= Capacity || !handler)
             return false;
 
-        SchedulerTimerHandler *expected = handler;
-        return __atomic_compare_exchange_n(
-            &m_Handlers[processor], &expected,
-            static_cast<SchedulerTimerHandler *>(nullptr), false,
-            __ATOMIC_RELEASE, __ATOMIC_RELAXED);
+        return m_Handlers[processor].unpublish(handler);
     }
 
     /** Perform the timer interrupt path's single bounded handler load. */
@@ -59,7 +47,7 @@ class LocalApicTimerHandlerSlots
     {
         if (processor >= Capacity)
             return nullptr;
-        return __atomic_load_n(&m_Handlers[processor], __ATOMIC_ACQUIRE);
+        return m_Handlers[processor].load();
     }
 
   private:
@@ -73,7 +61,7 @@ class LocalApicTimerHandlerSlots
      * same-CPU ownership of registration, timer dispatch, and removal for the
      * handler lifetime guarantee.
      */
-    SchedulerTimerHandler *m_Handlers[Capacity];
+    SchedulerTimerHandlerSlot m_Handlers[Capacity];
 };
 
 #endif

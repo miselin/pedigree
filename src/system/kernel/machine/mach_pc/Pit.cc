@@ -38,19 +38,12 @@ Pit Pit::m_Instance;
 
 bool Pit::registerHandler(SchedulerTimerHandler *handler)
 {
-    if (UNLIKELY(handler == 0 && m_Handler != 0))
-        return false;
-
-    m_Handler = handler;
-    return true;
+    return m_Handler.publish(handler);
 }
 
-void Pit::removeHandler(SchedulerTimerHandler *handler)
+bool Pit::removeHandler(SchedulerTimerHandler *handler)
 {
-    if (m_Handler == handler)
-    {
-        m_Handler = nullptr;
-    }
+    return m_Handler.unpublish(handler);
 }
 
 bool Pit::initialise()
@@ -104,19 +97,23 @@ void Pit::uninitialise()
 
     // Free the PIT I/O range
     m_IoPort.free();
+
+    // Source teardown does not confer ownership of the scheduler callback.
+    // Its exact owner remains responsible for unpublishing it.
 }
 
-Pit::Pit() : m_IoPort("PIT"), m_IrqId(0), m_Handler(0)
+Pit::Pit() : m_IoPort("PIT"), m_IrqId(0), m_Handler()
 {
 }
 
 bool Pit::irq(irq_id_t number, InterruptState &state)
 {
     // TODO: Delta is wrong
-    if (LIKELY(m_Handler != 0))
+    SchedulerTimerHandler *handler = m_Handler.load();
+    if (LIKELY(handler != 0))
     {
         SuspendDeviceHardIrqContext schedulerTimerContext;
-        m_Handler->timer(0, state);
+        handler->timer(0, state);
     }
 
     // Processor::information().getScheduler().checkEventState(state.getStackPointer());

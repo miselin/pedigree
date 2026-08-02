@@ -29,8 +29,10 @@ class SchedulerTimerHandler;
 class SchedulerTimer
 {
   public:
+    /** Publish the sole hard scheduler-tick owner for this processor. */
     virtual bool registerHandler(SchedulerTimerHandler *handler) = 0;
-    virtual void removeHandler(SchedulerTimerHandler *handler) = 0;
+    /** Unpublish only the exact current owner. */
+    virtual bool removeHandler(SchedulerTimerHandler *handler) = 0;
 
   protected:
     /** The default constructor */

@@ -11,9 +11,10 @@
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Event.h"
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -802,6 +803,63 @@ bool schedulerTimerHardContext()
     return passed;
 }
 
+class ConflictingSchedulerTimerHandler : public SchedulerTimerHandler
+{
+  public:
+    ConflictingSchedulerTimerHandler() : calls(0)
+    {
+    }
+
+    void timer(uint64_t, InterruptState &) override
+    {
+        calls += 1;
+    }
+
+    Atomic<size_t> calls;
+};
+
+bool schedulerTimerSingleOwner()
+{
+    constexpr const char *Test = "hosted-scheduler-timer-single-owner";
+    SchedulerTimer *timer = Machine::instance().getSchedulerTimer();
+    SchedulerTimerHandler *owner =
+        HostedSchedulerTimer::publishedHandlerForTest();
+    ConflictingSchedulerTimerHandler conflicting;
+
+    const bool ownerPublished = owner != nullptr;
+    const bool nullRegistrationRejected =
+        timer && !timer->registerHandler(nullptr);
+    const bool duplicateRejected =
+        timer && !timer->registerHandler(owner);
+    const bool conflictRejected =
+        timer && !timer->registerHandler(&conflicting);
+    const bool nullRemovalRejected =
+        timer && !timer->removeHandler(nullptr);
+    const bool wrongOwnerRejected =
+        timer && !timer->removeHandler(&conflicting);
+    const bool ownerPreserved =
+        HostedSchedulerTimer::publishedHandlerForTest() == owner;
+
+    const bool passed =
+        timer && ownerPublished && nullRegistrationRejected &&
+        duplicateRejected && conflictRejected && nullRemovalRejected &&
+        wrongOwnerRejected && ownerPreserved && !conflicting.calls;
+    if (!passed)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: FAIL " << Test
+                                       << ": handler ownership was replaced "
+                                          "or removed by a non-owner");
+    }
+    else
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "hosted-scheduler-timer-single-owner");
+    }
+    return passed;
+}
+
 class QueuedTickHandler : public HardIrqHandler
 {
   public:
@@ -918,7 +976,8 @@ bool runHostedSchedulerRegressions()
 {
     if (
         !hostedSignalMaskSpansContextSwitch() ||
-        !schedulerTimerHardContext() || !schedulerTimerExitDeferral() ||
+        !schedulerTimerSingleOwner() || !schedulerTimerHardContext() ||
+        !schedulerTimerExitDeferral() ||
         !deferredTimeAccountingWorker())
     {
         return false;

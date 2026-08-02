@@ -790,10 +790,10 @@ check_wait_api_boundaries()
         src/system/kernel/machine/mach_pc/Pit.cc)
     if [[ "$hard_irq_suspend_users" != "$expected_hard_irq_suspend_users" ]] ||
         ! rg -q -U \
-            '(?s)SuspendDeviceHardIrqContext schedulerTimerContext;.*?m_Handler->timer\(0, state\)' \
+            '(?s)m_Handler\.load\(\).*?SuspendDeviceHardIrqContext schedulerTimerContext;.*?handler->timer\(0, state\)' \
             src/system/kernel/machine/mach_pc/Pit.cc ||
         ! rg -q -U \
-            '(?s)SuspendDeviceHardIrqContext schedulerTimerContext;.*?hook\(delta, state\).*?m_Handler->timer\(delta, state\)' \
+            '(?s)SuspendDeviceHardIrqContext schedulerTimerContext;.*?hook\(delta, state\).*?m_Handler\.load\(\).*?handler->timer\(delta, state\)' \
             src/system/kernel/machine/hosted/SchedulerTimer.cc; then
         echo "The scheduler-timer device hard-IRQ exception escaped its two audited call sites."
         failed=1
@@ -1545,7 +1545,14 @@ check_wait_api_boundaries()
     local timer_registry_header=src/system/include/pedigree/kernel/machine/TimerHandlerRegistry.h
     local timer_handler_header=src/system/include/pedigree/kernel/machine/TimerHandler.h
     local scheduler_timer_handler_header=src/system/include/pedigree/kernel/machine/SchedulerTimerHandler.h
+    local scheduler_timer_slot_header=src/system/include/pedigree/kernel/machine/SchedulerTimerHandlerSlot.h
     local scheduler_timer_header=src/system/include/pedigree/kernel/machine/SchedulerTimer.h
+    local scheduler_timer_slot_test=src/buildutil/testsuite/test-SchedulerTimerHandlerSlot.cc
+    local pit_source=src/system/kernel/machine/mach_pc/Pit.cc
+    local pit_header=src/system/kernel/machine/mach_pc/Pit.h
+    local local_apic_slots=src/system/kernel/machine/mach_pc/LocalApicTimerHandlerSlots.h
+    local hosted_scheduler_timer_header=src/system/kernel/machine/hosted/SchedulerTimer.h
+    local per_processor_scheduler_source=src/system/kernel/core/process/PerProcessorScheduler.cc
     if ! rg -q 'virtual void timer\(uint64_t delta\) = 0' \
             "$timer_handler_header" ||
         rg -q 'InterruptState' "$timer_handler_header" ||
@@ -1553,15 +1560,49 @@ check_wait_api_boundaries()
             "$scheduler_timer_handler_header" ||
         ! rg -q 'registerHandler\(SchedulerTimerHandler \*handler\)' \
             "$scheduler_timer_header" ||
+        ! rg -q 'bool removeHandler\(SchedulerTimerHandler \*handler\)' \
+            "$scheduler_timer_header" ||
         ! rg -q 'handler->timer\(delta\)' "$timer_registry_source"; then
         echo "Ordinary and hard scheduler timer callback contexts were conflated."
+        failed=1
+    fi
+
+    if ! rg -q 'class SchedulerTimerHandlerSlot' \
+            "$scheduler_timer_slot_header" ||
+        ! rg -q -U \
+            '(?s)bool publish\(SchedulerTimerHandler \*handler\).*?expected = nullptr.*?__atomic_compare_exchange_n\(.*?__ATOMIC_RELEASE' \
+            "$scheduler_timer_slot_header" ||
+        ! rg -q -U \
+            '(?s)bool unpublish\(SchedulerTimerHandler \*handler\).*?expected = handler.*?__atomic_compare_exchange_n\(.*?__ATOMIC_ACQ_REL' \
+            "$scheduler_timer_slot_header" ||
+        ! rg -q -U \
+            '(?s)SchedulerTimerHandler \*load\(\) const.*?__atomic_load_n\(.*?__ATOMIC_ACQUIRE' \
+            "$scheduler_timer_slot_header" ||
+        ! rg -q 'SchedulerTimerHandlerSlot m_Handler' "$pit_header" ||
+        ! rg -q -U \
+            '(?s)Pit::registerHandler.*?m_Handler\.publish\(handler\).*?Pit::removeHandler.*?m_Handler\.unpublish\(handler\).*?Pit::irq.*?m_Handler\.load\(\).*?handler->timer\(0, state\)' \
+            "$pit_source" ||
+        ! rg -q 'SchedulerTimerHandlerSlot m_Handlers\[Capacity\]' \
+            "$local_apic_slots" ||
+        ! rg -q 'RejectsDuplicateAndConflictingPublication' \
+            "$scheduler_timer_slot_test" ||
+        ! rg -q 'UnpublishesOnlyTheExactOwner' \
+            "$scheduler_timer_slot_test" ||
+        ! rg -q -U \
+            '(?s)PerProcessorScheduler::~PerProcessorScheduler\(\).*?if \(!pTimer->removeHandler\(this\)\).*?FATAL' \
+            "$per_processor_scheduler_source" ||
+        ! rg -q -U \
+            '(?s)PerProcessorScheduler::initialise\(Thread \*pThread\).*?if \(!pTimer->registerHandler\(this\)\).*?FATAL' \
+            "$per_processor_scheduler_source" ||
+        rg -q 'SchedulerTimerHandler \*m_Handler' \
+            "$pit_header" "$hosted_scheduler_timer_header"; then
+        echo "Scheduler timer callbacks lost atomic single-owner publication."
         failed=1
     fi
 
     local hosted_timer_source=src/system/kernel/machine/hosted/Timer.cc
     local hosted_timer_header=src/system/kernel/machine/hosted/Timer.h
     local hosted_scheduler_timer_source=src/system/kernel/machine/hosted/SchedulerTimer.cc
-    local hosted_scheduler_timer_header=src/system/kernel/machine/hosted/SchedulerTimer.h
     local hosted_processor_source=src/system/kernel/core/processor/hosted/Processor.cc
     local hosted_interrupt_manager_source=src/system/kernel/core/processor/hosted/InterruptManager.cc
     local timer_regressions=src/modules/system/hosted-smoke/timer-regressions.cc
@@ -1631,6 +1672,11 @@ check_wait_api_boundaries()
     if ! rg -q \
             'class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler' \
             "$hosted_scheduler_timer_header" ||
+        ! rg -q \
+            'EXPORTED_PUBLIC SchedulerTimerHandler \*publishedHandlerForTest' \
+            "$hosted_scheduler_timer_header" ||
+        ! rg -q 'HostedSchedulerTimer::publishedHandlerForTest' \
+            "$hosted_scheduler_timer_source" ||
         ! rg -q -U \
             '(?s)HostedSchedulerTimer::initialise\(\).*?timer_create\(CLOCK_MONOTONIC.*?registerHardIsaIrqHandler\(.*?1, this, IrqPolicy::syntheticHard\(\)\).*?timer_settime\(' \
             "$hosted_scheduler_timer_source" ||
@@ -1638,8 +1684,12 @@ check_wait_api_boundaries()
             '(?s)HostedSchedulerTimer::uninitialise\(\).*?timer_settime\(.*?unregisterHandler\(m_IrqId, this\).*?timer_delete\(' \
             "$hosted_scheduler_timer_source" ||
         ! rg -q -U \
-            '(?s)HostedSchedulerTimer::irq\(.*?getInterruptNumber\(\) != SIGUSR2.*?si_signo != SIGUSR2.*?si_code != SI_TIMER.*?si_overrun.*?m_Handler->timer\(delta, state\)' \
+            '(?s)HostedSchedulerTimer::registerHandler.*?m_Handler\.publish\(handler\).*?HostedSchedulerTimer::removeHandler.*?m_Handler\.unpublish\(handler\).*?HostedSchedulerTimer::irq\(.*?getInterruptNumber\(\) != SIGUSR2.*?si_signo != SIGUSR2.*?si_code != SI_TIMER.*?si_overrun.*?m_Handler\.load\(\).*?handler->timer\(delta, state\)' \
             "$hosted_scheduler_timer_source" ||
+        ! rg -q 'hosted-scheduler-timer-single-owner' \
+            "$scheduler_regressions" ||
+        ! rg -q 'HostedSchedulerTimer::publishedHandlerForTest' \
+            "$scheduler_regressions" ||
         ! rg -q 'hosted-scheduler-timer-hard-context' \
             "$scheduler_regressions" ||
         ! rg -q 'hosted-timer-thread-context' "$timer_regressions" ||

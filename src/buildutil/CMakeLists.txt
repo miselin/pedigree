@@ -234,6 +234,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Atomic.cc
     testsuite/test-DeferredTimeAccounting.cc
     testsuite/test-IntervalTimerState.cc
+    testsuite/test-SchedulerTimerHandlerSlot.cc
     testsuite/test-LocalApicTimerHandlerSlots.cc
     testsuite/test-PcSchedulerTimerSelection.cc
     testsuite/test-TscClock.cc
