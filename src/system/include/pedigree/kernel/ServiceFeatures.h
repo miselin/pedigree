@@ -43,7 +43,10 @@ class EXPORTED_PUBLIC ServiceFeatures
         touch = 2,
 
         /** Probe: what's happening? OTI */
-        probe = 4
+        probe = 4,
+
+        /** Withdraw: remove state previously registered with touch. */
+        withdraw = 8
     };
 
     ServiceFeatures();

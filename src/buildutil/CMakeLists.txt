@@ -233,6 +233,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Time.cc
     testsuite/test-Atomic.cc
     testsuite/test-IntrusiveMpscQueue.cc
+    testsuite/test-VmwareSvgaState.cc
     testsuite/test-SymbolTable.cc
     testsuite/test-RadixTree.cc
     testsuite/test-HashTable.cc

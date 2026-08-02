@@ -134,10 +134,17 @@ void panic(const char *msg)
 
     Processor::setInterrupts(false);
 
+#if MULTIPROCESSOR
+    if (!Machine::instance().stopAllOtherProcessors())
+    {
+        ERROR_NOLOCK("panic: not all other processors stopped");
+    }
+#endif
+
     // Drop out of whatever graphics mode we were in
-    GraphicsService::GraphicsProvider provider;
-    ByteSet(&provider, 0, sizeof(provider));
-    provider.bTextModes = true;
+    GraphicsService::GraphicsParameters params;
+    ByteSet(&params, 0, sizeof(params));
+    params.wantTextMode = false;
 
     ServiceFeatures *pFeatures =
         ServiceManager::instance().enumerateOperations(graphicsService);
@@ -146,18 +153,14 @@ void panic(const char *msg)
     if (pFeatures && pFeatures->provides(ServiceFeatures::probe))
         if (pService)
             bSuccess = pService->serve(
-                ServiceFeatures::probe, reinterpret_cast<void *>(&provider),
-                sizeof(provider));
+                ServiceFeatures::probe, reinterpret_cast<void *>(&params),
+                sizeof(params));
 
-    if (bSuccess && !provider.bTextModes)
-        provider.pDisplay->setScreenMode(0);
-
-#if MULTIPROCESSOR
-    if (!Machine::instance().stopAllOtherProcessors())
+    if (bSuccess && params.providerFound && !params.providerResult.bTextModes &&
+        params.providerResult.pDisplay)
     {
-        ERROR_NOLOCK("panic: not all other processors stopped");
+        params.providerResult.pDisplay->setScreenMode(0);
     }
-#endif
 
     /*
      * I/O implementations.

@@ -445,6 +445,7 @@ void _cxx_main(BootstrapStruct_t &bsInf)
         GraphicsService *pService = new GraphicsService;
         ServiceFeatures *pFeatures = new ServiceFeatures;
         pFeatures->add(ServiceFeatures::touch);
+        pFeatures->add(ServiceFeatures::withdraw);
         pFeatures->add(ServiceFeatures::probe);
         ServiceManager::instance().addService(
             String("graphics"), pService, pFeatures);

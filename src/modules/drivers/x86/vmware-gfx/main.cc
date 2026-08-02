@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008-2014, Pedigree Developers
+ * Copyright (c) 2008-2026, Pedigree Developers
  *
  * Please see the CONTRIB file in the root of the source tree for a full
  * list of contributors.
@@ -17,7 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "VmwareSvgaState.h"
 #include "modules/Module.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"
@@ -29,173 +31,99 @@
 #include "pedigree/kernel/machine/Framebuffer.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Vga.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/MemoryMappedIo.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
-#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
+#include "pedigree/kernel/utilities/utility.h"
 #include "svga_reg.h"
 #include "vm_device_version.h"
 
-#define DEBUG_VMWARE_GFX 0
-
-static struct mode
+namespace
+{
+struct Mode
 {
     size_t id;
     size_t width;
     size_t height;
-    Graphics::PixelFormat fmt;
-} g_VbeIndexedModes[] = {
-    {0x117, 1024, 768,
-     Graphics::Bits16_Rgb555},        // Format is used only for byte count
-    {0, 80, 25, Graphics::Bits8_Idx}  /// Mode zero = "disable"
+    Graphics::PixelFormat format;
 };
 
-#define SUPPORTED_MODES_SIZE \
-    (sizeof(g_VbeIndexedModes) / sizeof(g_VbeIndexedModes[0]))
+Mode g_Modes[] = {
+    {0x117, 1024, 768, Graphics::Bits16_Rgb555},
+    {0, 80, 25, Graphics::Bits8_Idx},
+};
 
-// Can refer to
-// http://sourceware.org/ml/ecos-devel/2006-10/msg00008/README.xfree86 for
-// information about programming this device, as well as the Haiku driver.
+constexpr size_t ModeCount = sizeof(g_Modes) / sizeof(g_Modes[0]);
+constexpr size_t LargestCommandWords = 7;
+constexpr size_t MinimumFifoBytes = 10 * 1024;
+}  // namespace
 
 class VmwareGraphics : public Display
 {
-    friend class VmwareFramebuffer;
-
   public:
-    VmwareGraphics(Device *pDev)
-        : Display(pDev), m_pIo(0), m_Framebuffer(0), m_CommandRegion(0),
-          m_pFramebufferRawAddress(0)
+    explicit VmwareGraphics(Device *pDev)
+        : Display(pDev), m_pIo(nullptr), m_Framebuffer(nullptr),
+          m_CommandRegion(nullptr), m_pFramebuffer(nullptr),
+          m_pProvider(nullptr), m_DeviceLock(), m_Capabilities(0),
+          m_MaxWidth(0), m_MaxHeight(0), m_FramebufferSize(0),
+          m_CommandRegionSize(0), m_FifoHeaderBytes(0),
+          m_HardwareAccepted(false), m_Online(false), m_FifoRunning(false),
+          m_Stopping(false), m_ProviderRegistered(false),
+          m_ShutdownComplete(false)
     {
-        m_pIo = m_Addresses[0]->m_Io;
-
-        // Support ID2, as we are expecting an SVGA2 functional device
-        writeRegister(SVGA_REG_ID, SVGA_MAKE_ID(2));
-        if (readRegister(SVGA_REG_ID) != SVGA_MAKE_ID(2))
-        {
-            WARNING("vmware-gfx not a compatible SVGA device");
-            return;
-        }
-
-        // Read the framebuffer base (should match BAR1)
-        uintptr_t fbBase = readRegister(SVGA_REG_FB_START);
-        size_t fbSize = readRegister(SVGA_REG_VRAM_SIZE);
-
-        // Read the command FIFO (should match BAR2)
-        uintptr_t cmdBase = readRegister(SVGA_REG_MEM_START);
-        size_t cmdSize = readRegister(SVGA_REG_MEM_SIZE);
-
-        // Find the capabilities of the device
-        size_t caps = readRegister(SVGA_REG_CAPABILITIES);
-
-        // Read maximum resolution
-        size_t maxWidth = readRegister(SVGA_REG_MAX_WIDTH);
-        size_t maxHeight = readRegister(SVGA_REG_MAX_HEIGHT);
-
-        // Tell VMware what OS we are - "Other"
-        writeRegister(SVGA_REG_GUEST_ID, 0x500A);
-
-        // Debug notification
-        NOTICE(
-            "vmware-gfx found, caps=" << Hex << caps
-                                      << ", maximum resolution is " << Dec
-                                      << maxWidth << "x" << maxHeight << Hex);
-        NOTICE(
-            "vmware-gfx        framebuffer at "
-            << Hex << fbBase << " - " << (fbBase + fbSize)
-            << ", command FIFO at " << cmdBase);
-
-        if (m_Addresses[1]->m_Address == fbBase)
-        {
-            m_Framebuffer = static_cast<MemoryMappedIo *>(m_Addresses[1]->m_Io);
-            m_CommandRegion =
-                static_cast<MemoryMappedIo *>(m_Addresses[2]->m_Io);
-            m_Addresses[2]->map();
-
-            m_pFramebufferRawAddress = m_Addresses[1];
-        }
-        else
-        {
-            m_Framebuffer = static_cast<MemoryMappedIo *>(m_Addresses[2]->m_Io);
-            m_CommandRegion =
-                static_cast<MemoryMappedIo *>(m_Addresses[1]->m_Io);
-            m_Addresses[1]->map();
-
-            m_pFramebufferRawAddress = m_Addresses[2];
-        }
-
-        // Disable the command FIFO in case it was already enabled
-        writeRegister(SVGA_REG_CONFIG_DONE, 0);
-
-        // Don't yet enable the SVGA.
-        writeRegister(SVGA_REG_ENABLE, 0);
-
-        // Initialise the FIFO
-        volatile uint32_t *fifo = reinterpret_cast<volatile uint32_t *>(
-            m_CommandRegion->virtualAddress());
-
-        if (caps & SVGA_CAP_EXTENDED_FIFO)
-        {
-            size_t numFifoRegs = readRegister(SVGA_REG_MEM_REGS);
-            size_t fifoExtendedBase = numFifoRegs * 4;
-
-            fifo[SVGA_FIFO_MIN] =
-                fifoExtendedBase;  // Start right after this information block
-            fifo[SVGA_FIFO_MAX] =
-                cmdSize & ~0x3;  // Permit the full FIFO to be used
-            fifo[SVGA_FIFO_NEXT_CMD] = fifo[SVGA_FIFO_STOP] =
-                fifo[SVGA_FIFO_MIN];  // Empty FIFO
-
-            NOTICE(
-                "vmware-gfx using extended fifo, caps="
-                << fifo[SVGA_FIFO_CAPABILITIES]
-                << ", flags=" << fifo[SVGA_FIFO_FLAGS]);
-        }
-        else
-        {
-            fifo[SVGA_FIFO_MIN] =
-                16;  // Start right after this information block
-            fifo[SVGA_FIFO_MAX] =
-                cmdSize & ~0x3;  // Permit the full FIFO to be used
-            fifo[SVGA_FIFO_NEXT_CMD] = fifo[SVGA_FIFO_STOP] = 16;  // Empty FIFO
-        }
-
-        m_pFramebuffer = new VmwareFramebuffer(
-            reinterpret_cast<uintptr_t>(m_Framebuffer->virtualAddress()), this);
-
-        GraphicsService::GraphicsProvider *pProvider =
-            new GraphicsService::GraphicsProvider;
-        pProvider->pDisplay = this;
-        pProvider->pFramebuffer = m_pFramebuffer;
-        pProvider->maxWidth = maxWidth;
-        pProvider->maxHeight = maxHeight;
-        pProvider->maxTextWidth = 0;
-        pProvider->maxTextHeight = 0;
-        pProvider->maxDepth = 32;
-        pProvider->bHardwareAccel = true;
-        pProvider->bTextModes = false;
-
-        // Register with the graphics service
-        ServiceFeatures *pFeatures =
-            ServiceManager::instance().enumerateOperations(String("graphics"));
-        Service *pService =
-            ServiceManager::instance().getService(String("graphics"));
-        bool bSuccess = false;
-        if (pFeatures && pFeatures->provides(ServiceFeatures::touch))
-            if (pService)
-                bSuccess = pService->serve(
-                    ServiceFeatures::touch, reinterpret_cast<void *>(pProvider),
-                    sizeof(*pProvider));
-
-        if (!bSuccess)
-        {
-            delete pProvider;
-        }
     }
 
     virtual ~VmwareGraphics();
+
+    void shutdown();
+
+    bool initialise()
+    {
+        {
+            LockGuard<Mutex> guard(m_DeviceLock);
+            if (!initialiseHardwareLocked())
+            {
+                disableHardwareLocked();
+                return false;
+            }
+
+            m_pFramebuffer = new VmwareFramebuffer(0, this);
+            m_pProvider = new GraphicsService::GraphicsProvider;
+            if (!m_pFramebuffer || !m_pProvider)
+            {
+                markOfflineLocked("could not allocate provider state");
+                return false;
+            }
+
+            m_pProvider->pDisplay = this;
+            m_pProvider->pFramebuffer = m_pFramebuffer;
+            m_pProvider->maxWidth = m_MaxWidth;
+            m_pProvider->maxHeight = m_MaxHeight;
+            m_pProvider->maxTextWidth = 0;
+            m_pProvider->maxTextHeight = 0;
+            m_pProvider->maxDepth = 32;
+            m_pProvider->bHardwareAccel = m_Capabilities & SVGA_CAP_RECT_COPY;
+            m_pProvider->bTextModes = false;
+            m_Online = true;
+        }
+
+        if (!registerProvider())
+        {
+            LockGuard<Mutex> guard(m_DeviceLock);
+            markOfflineLocked("could not register with the graphics service");
+            return false;
+        }
+
+        return true;
+    }
 
     virtual void getName(String &str)
     {
@@ -207,361 +135,800 @@ class VmwareGraphics : public Display
         str.assign("vmware guest tools, graphics card", 34);
     }
 
-    /** Returns the current screen mode.
-        \return True if operation succeeded, false otherwise. */
     virtual bool getCurrentScreenMode(Display::ScreenMode &sm)
     {
-        sm.width = readRegister(SVGA_REG_WIDTH);
-        sm.height = readRegister(SVGA_REG_HEIGHT);
-        sm.pf.nBpp = readRegister(SVGA_REG_BITS_PER_PIXEL);
+        if (!Processor::getInterrupts())
+            return false;
+        LockGuard<Mutex> guard(m_DeviceLock);
+        if (!availableLocked())
+            return false;
 
-        size_t redMask = readRegister(SVGA_REG_RED_MASK);
-        size_t greenMask = readRegister(SVGA_REG_GREEN_MASK);
-        size_t blueMask = readRegister(SVGA_REG_BLUE_MASK);
+        sm.width = readRegisterLocked(SVGA_REG_WIDTH);
+        sm.height = readRegisterLocked(SVGA_REG_HEIGHT);
+        sm.pf.nBpp = readRegisterLocked(SVGA_REG_BITS_PER_PIXEL);
 
-        /// \todo Not necessarily always correct for boundary cases
-        switch (sm.pf.nBpp)
-        {
-            case 24:
-                if (redMask > blueMask)
-                    sm.pf2 = Graphics::Bits24_Rgb;
-                else
-                    sm.pf2 = Graphics::Bits24_Bgr;
-                break;
-            case 16:
-                if ((redMask == greenMask) && (greenMask == blueMask))
-                {
-                    if (blueMask == 0xF)
-                        sm.pf2 = Graphics::Bits16_Argb;
-                    else
-                        sm.pf2 = Graphics::Bits16_Rgb555;
-                }
-                else
-                    sm.pf2 = Graphics::Bits16_Rgb565;
-                break;
-            default:
-                sm.pf2 = Graphics::Bits32_Argb;
-                break;
-        }
-
-        sm.bytesPerPixel = sm.pf.nBpp / 8;
-        sm.bytesPerLine = readRegister(SVGA_REG_BYTES_PER_LINE);
-
+        const uint32_t redMask = readRegisterLocked(SVGA_REG_RED_MASK);
+        const uint32_t greenMask = readRegisterLocked(SVGA_REG_GREEN_MASK);
+        const uint32_t blueMask = readRegisterLocked(SVGA_REG_BLUE_MASK);
+        sm.pf2 = pixelFormat(sm.pf.nBpp, redMask, greenMask, blueMask);
+        sm.bytesPerPixel = (sm.pf.nBpp + 7) / 8;
+        sm.bytesPerLine = readRegisterLocked(SVGA_REG_BYTES_PER_LINE);
         return true;
     }
 
-    /** Fills the given List with all of the available screen modes.
-        \return True if operation succeeded, false otherwise. */
     virtual bool getScreenModes(List<Display::ScreenMode *> &sms)
     {
-        for (size_t i = 0; i < SUPPORTED_MODES_SIZE; i++)
+        if (!Processor::getInterrupts())
+            return false;
+        LockGuard<Mutex> guard(m_DeviceLock);
+        if (!availableLocked())
+            return false;
+
+        for (size_t i = 0; i < ModeCount; ++i)
         {
             Display::ScreenMode *pMode = new Display::ScreenMode;
-            pMode->id = g_VbeIndexedModes[i].id;
-            pMode->width = g_VbeIndexedModes[i].width;
-            pMode->height = g_VbeIndexedModes[i].height;
-            pMode->pf2 = g_VbeIndexedModes[i].fmt;
-
+            pMode->id = g_Modes[i].id;
+            pMode->width = g_Modes[i].width;
+            pMode->height = g_Modes[i].height;
+            pMode->pf2 = g_Modes[i].format;
             sms.pushBack(pMode);
         }
 
-        // Add 'disable SVGA' mode.
-        Display::ScreenMode *pMode = new Display::ScreenMode;
-        pMode->id = 0;
-
-        sms.pushBack(pMode);
-
         return true;
     }
 
-    /** Sets the current screen mode.
-        \return True if operation succeeded, false otherwise. */
     virtual bool setScreenMode(Display::ScreenMode sm)
     {
-        if (sm.id == 0)
+        if (!Processor::getInterrupts())
+            return false;
+        LockGuard<Mutex> guard(m_DeviceLock);
+        if (!availableLocked())
+            return false;
+
+        if (!sm.id)
         {
-            // Disable SVGA instead of setting a mode
-            writeRegister(SVGA_REG_ENABLE, 0);
+            disableDisplayLocked();
+            return true;
         }
-        else
-        {
-            setMode(sm.width, sm.height, Graphics::bitsPerPixel(sm.pf2));
-            Machine::instance().getVga(0)->setMode(
-                sm.id);  // Remember this new mode
-        }
+
+        if (!setModeLocked(sm.width, sm.height, Graphics::bitsPerPixel(sm.pf2)))
+            return false;
+
+        Vga *pVga = Machine::instance().getVga(0);
+        if (pVga)
+            pVga->setMode(sm.id);
         return true;
     }
 
     virtual bool setScreenMode(size_t modeId)
     {
+        // panic() disables interrupts before asking the active display to
+        // return to mode zero. Never wait on a mutex in that path.
+        if (!modeId && !Processor::getInterrupts())
+        {
+            if (!m_DeviceLock.tryAcquire())
+                return false;
+            const bool available = availableLocked();
+            if (available)
+                disableDisplayLocked();
+            m_DeviceLock.release();
+            return available;
+        }
+
+        if (!modeId)
+        {
+            LockGuard<Mutex> guard(m_DeviceLock);
+            if (!availableLocked())
+                return false;
+            disableDisplayLocked();
+            return true;
+        }
+
         return Display::setScreenMode(modeId);
     }
 
-    virtual bool setScreenMode(size_t nWidth, size_t nHeight, size_t nBpp)
+    virtual bool setScreenMode(size_t width, size_t height, size_t bpp)
     {
-        // Read maximum resolution
-        size_t maxWidth = readRegister(SVGA_REG_MAX_WIDTH);
-        size_t maxHeight = readRegister(SVGA_REG_MAX_HEIGHT);
+        if (!Processor::getInterrupts())
+            return false;
+        LockGuard<Mutex> guard(m_DeviceLock);
+        if (!availableLocked())
+            return false;
 
-        // Check the passed resolution is within these boundaries: if not,
-        // modify it. Applications that use framebuffers from us should use
-        // their width/height methods in order to handle any potential
-        // screen resolution.
-        if (nWidth > maxWidth)
-            nWidth = maxWidth;
-        if (nHeight > maxHeight)
-            nHeight = maxHeight;
-
-        setMode(nWidth, nHeight, nBpp);
-        return true;
+        if (width > m_MaxWidth)
+            width = m_MaxWidth;
+        if (height > m_MaxHeight)
+            height = m_MaxHeight;
+        return setModeLocked(width, height, bpp);
     }
 
-    void setMode(size_t w, size_t h, size_t bpp)
+    bool redraw(size_t x, size_t y, size_t width, size_t height)
     {
-        // Enable the SVGA if not already enabled.
-        writeRegister(SVGA_REG_ENABLE, 1);
+        if (!Processor::getInterrupts())
+            return false;
+        LockGuard<Mutex> guard(m_DeviceLock);
+        if (!availableLocked() || !m_FifoRunning || !m_pFramebuffer)
+            return false;
 
-        // Set mode
-        writeRegister(SVGA_REG_WIDTH, w);
-        writeRegister(SVGA_REG_HEIGHT, h);
-        writeRegister(SVGA_REG_BITS_PER_PIXEL, bpp);
+        const size_t screenWidth = m_pFramebuffer->getWidth();
+        const size_t screenHeight = m_pFramebuffer->getHeight();
+        if ((x >= screenWidth) || (y >= screenHeight))
+            return true;
+        if (width > (screenWidth - x))
+            width = screenWidth - x;
+        if (height > (screenHeight - y))
+            height = screenHeight - y;
+        if (!width || !height)
+            return true;
 
-        size_t fbOffset = readRegister(SVGA_REG_FB_OFFSET);
-        size_t width = readRegister(SVGA_REG_WIDTH);
-        size_t height = readRegister(SVGA_REG_HEIGHT);
-        size_t depth = readRegister(SVGA_REG_DEPTH);
-        uintptr_t fbBase = readRegister(SVGA_REG_FB_START);
+        const uint32_t command[] = {
+            SVGA_CMD_UPDATE, static_cast<uint32_t>(x), static_cast<uint32_t>(y),
+            static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+        return submitFifoLocked(command, sizeof(command) / sizeof(command[0]));
+    }
 
-        size_t redMask = readRegister(SVGA_REG_RED_MASK);
-        size_t greenMask = readRegister(SVGA_REG_GREEN_MASK);
-        size_t blueMask = readRegister(SVGA_REG_BLUE_MASK);
+    bool copy(
+        size_t sourceX, size_t sourceY, size_t destinationX,
+        size_t destinationY, size_t width, size_t height, bool softwareFallback)
+    {
+        if (!Processor::getInterrupts())
+            return false;
+        LockGuard<Mutex> guard(m_DeviceLock);
+        if (!availableLocked() || !m_pFramebuffer ||
+            !m_pFramebuffer->getActive())
+            return false;
 
-        size_t bytesPerLine = readRegister(SVGA_REG_BYTES_PER_LINE);
-        size_t bytesPerPixel = bytesPerLine / w;
+        const size_t screenWidth = m_pFramebuffer->getWidth();
+        const size_t screenHeight = m_pFramebuffer->getHeight();
+        if ((sourceX >= screenWidth) || (destinationX >= screenWidth) ||
+            (sourceY >= screenHeight) || (destinationY >= screenHeight))
+            return false;
 
-        m_pFramebuffer->setWidth(w);
-        m_pFramebuffer->setHeight(h);
-        m_pFramebuffer->setBytesPerPixel(bytesPerPixel);
-        m_pFramebuffer->setBytesPerLine(bytesPerLine);
+        if (width > (screenWidth - sourceX))
+            width = screenWidth - sourceX;
+        if (width > (screenWidth - destinationX))
+            width = screenWidth - destinationX;
+        if (height > (screenHeight - sourceY))
+            height = screenHeight - sourceY;
+        if (height > (screenHeight - destinationY))
+            height = screenHeight - destinationY;
+        if (!width || !height)
+            return true;
 
-        Graphics::PixelFormat pf;
-        switch (bpp)
+        if (m_FifoRunning && (m_Capabilities & SVGA_CAP_RECT_COPY))
         {
-            case 24:
-                if (redMask > blueMask)
-                    pf = Graphics::Bits24_Rgb;
-                else
-                    pf = Graphics::Bits24_Bgr;
-                break;
-            case 16:
-                if ((redMask == greenMask) && (greenMask == blueMask))
-                {
-                    if (blueMask == 0xF)
-                        pf = Graphics::Bits16_Argb;
-                    else
-                        pf = Graphics::Bits16_Rgb555;
-                }
-                else
-                    pf = Graphics::Bits16_Rgb565;
-                break;
-            default:
-                pf = Graphics::Bits32_Argb;
-                break;
+            const uint32_t command[] = {
+                SVGA_CMD_RECT_COPY,
+                static_cast<uint32_t>(sourceX),
+                static_cast<uint32_t>(sourceY),
+                static_cast<uint32_t>(destinationX),
+                static_cast<uint32_t>(destinationY),
+                static_cast<uint32_t>(width),
+                static_cast<uint32_t>(height)};
+            if (submitFifoLocked(command, sizeof(command) / sizeof(command[0])))
+                return true;
+            if (!availableLocked())
+                return false;
         }
-        m_pFramebuffer->setFormat(pf);
-        m_pFramebuffer->setXPos(0);
-        m_pFramebuffer->setYPos(0);
-        m_pFramebuffer->setParent(0);
 
-        /// \todo If we switch to any mode after the first one has been set,
-        ///       the old region needs to be deallocated.
-        m_pFramebufferRawAddress->map(height * bytesPerLine, true, true);
-        m_pFramebuffer->setFramebuffer(
-            reinterpret_cast<uintptr_t>(m_Framebuffer->virtualAddress()));
-
-        // Blank the framebuffer, new mode
-        m_pFramebuffer->rect(0, 0, w, h, 0);
-
-        // Start running the FIFO
-        writeRegister(SVGA_REG_CONFIG_DONE, 1);
-
-        NOTICE(
-            "vmware-gfx entered mode "
-            << Dec << width << "x" << height << "x" << depth << Hex
-            << ", mode framebuffer is " << (fbBase + fbOffset));
-    }
-
-    void redraw(size_t x, size_t y, size_t w, size_t h)
-    {
-        // Disable the command FIFO while we link the command
-        writeRegister(SVGA_REG_CONFIG_DONE, 0);
-
-        if (w > m_pFramebuffer->getWidth())
-            w = m_pFramebuffer->getWidth();
-        if (h > m_pFramebuffer->getHeight())
-            h = m_pFramebuffer->getHeight();
-
-        writeFifo(SVGA_CMD_UPDATE);
-        writeFifo(x);
-        writeFifo(y);
-        writeFifo(w);
-        writeFifo(h);
-
-        // Start running the FIFO
-        writeRegister(SVGA_REG_CONFIG_DONE, 1);
-    }
-
-    void copy(size_t x1, size_t y1, size_t x2, size_t y2, size_t w, size_t h)
-    {
-        // Disable the command FIFO while we link the command
-        writeRegister(SVGA_REG_CONFIG_DONE, 0);
-
-        writeFifo(SVGA_CMD_RECT_COPY);  // RECT COPY
-        writeFifo(x1);                  // Source X
-        writeFifo(y1);                  // Source Y
-        writeFifo(x2);                  // Dest X
-        writeFifo(y2);                  // Dest Y
-        writeFifo(w);                   // Width
-        writeFifo(h);                   // Height
-
-        // Start running the FIFO
-        writeRegister(SVGA_REG_CONFIG_DONE, 1);
+        if (!softwareFallback)
+            return false;
+        m_pFramebuffer->softwareCopy(
+            sourceX, sourceY, destinationX, destinationY, width, height);
+        return true;
     }
 
     class VmwareFramebuffer : public Framebuffer
     {
       public:
-        VmwareFramebuffer() : Framebuffer()
+        VmwareFramebuffer(uintptr_t framebuffer, VmwareGraphics *pDisplay)
+            : Framebuffer(), m_CallbackOperations(), m_pDisplay(pDisplay)
         {
+            setFramebuffer(framebuffer);
         }
 
-        VmwareFramebuffer(uintptr_t fb, VmwareGraphics *pDisplay)
-            : Framebuffer(), m_pDisplay(pDisplay)
+        virtual ~VmwareFramebuffer() = default;
+
+        void closeCallbacks()
         {
-            setFramebuffer(fb);
+            m_CallbackOperations.close();
         }
 
-        virtual ~VmwareFramebuffer();
+        void detach()
+        {
+            m_CallbackOperations.wait();
+            m_pDisplay = nullptr;
+            setActive(false);
+            setFramebuffer(0);
+        }
 
         virtual void hwRedraw(
-            size_t x = ~0UL, size_t y = ~0UL, size_t w = ~0UL, size_t h = ~0UL)
+            size_t x = ~0UL, size_t y = ~0UL, size_t width = ~0UL,
+            size_t height = ~0UL)
         {
+            if (!Processor::getInterrupts())
+                return;
+            OperationBarrier::Lease callback;
+            if (!m_CallbackOperations.tryAcquire(callback))
+                return;
+            if (!m_pDisplay)
+                return;
             if (x == ~0UL)
                 x = 0;
             if (y == ~0UL)
                 y = 0;
-            if (w == ~0UL)
-                w = getWidth();
-            if (h == ~0UL)
-                h = getHeight();
-            m_pDisplay->redraw(x, y, w, h);
+            m_pDisplay->redraw(x, y, width, height);
         }
 
-        virtual inline void copy(
-            size_t srcx, size_t srcy, size_t destx, size_t desty, size_t w,
-            size_t h, bool bLowestCall = true)
+        virtual void copy(
+            size_t sourceX, size_t sourceY, size_t destinationX,
+            size_t destinationY, size_t width, size_t height,
+            bool bLowestCall = true)
         {
-            /// \todo Caps to determine whether to fall back to software
-            if (1)
-                m_pDisplay->copy(srcx, srcy, destx, desty, w, h);
-            // else
-            //    swCopy(srcx, srcy, destx, desty, w, h);
+            if (!Processor::getInterrupts())
+                return;
+            OperationBarrier::Lease callback;
+            if (!m_CallbackOperations.tryAcquire(callback))
+                return;
+            if (m_pDisplay)
+                m_pDisplay->copy(
+                    sourceX, sourceY, destinationX, destinationY, width, height,
+                    bLowestCall);
+        }
+
+        void softwareCopy(
+            size_t sourceX, size_t sourceY, size_t destinationX,
+            size_t destinationY, size_t width, size_t height)
+        {
+            swCopy(sourceX, sourceY, destinationX, destinationY, width, height);
         }
 
       private:
+        OperationBarrier m_CallbackOperations;
         VmwareGraphics *m_pDisplay;
     };
 
   private:
-    IoBase *m_pIo;
-
-    /// \todo Lock these
-
-    size_t readRegister(size_t offset)
+    bool availableLocked() const
     {
-        m_pIo->write32(offset, SVGA_INDEX_PORT);
+        return m_Online && !m_Stopping;
+    }
+
+    static Graphics::PixelFormat pixelFormat(
+        size_t bpp, uint32_t redMask, uint32_t greenMask, uint32_t blueMask)
+    {
+        switch (bpp)
+        {
+            case 24:
+                return redMask > blueMask ? Graphics::Bits24_Rgb :
+                                            Graphics::Bits24_Bgr;
+            case 16:
+                if ((redMask == greenMask) && (greenMask == blueMask))
+                {
+                    return blueMask == 0xF ? Graphics::Bits16_Argb :
+                                             Graphics::Bits16_Rgb555;
+                }
+                return Graphics::Bits16_Rgb565;
+            default:
+                return Graphics::Bits32_Argb;
+        }
+    }
+
+    bool initialiseHardwareLocked()
+    {
+        if (m_Addresses.count() < 3)
+        {
+            WARNING("vmware-gfx has an incomplete PCI BAR set");
+            return false;
+        }
+
+        if (!m_Addresses[0])
+        {
+            WARNING("vmware-gfx has no register I/O BAR");
+            return false;
+        }
+
+        m_pIo = m_Addresses[0]->m_Io;
+        if (!m_pIo || !(*m_pIo))
+        {
+            WARNING("vmware-gfx has no usable register I/O BAR");
+            return false;
+        }
+
+        writeRegisterLocked(SVGA_REG_ID, SVGA_MAKE_ID(2));
+        if (readRegisterLocked(SVGA_REG_ID) != SVGA_MAKE_ID(2))
+        {
+            WARNING("vmware-gfx is not a compatible SVGA2 device");
+            return false;
+        }
+        m_HardwareAccepted = true;
+
+        const uintptr_t fbBase = readRegisterLocked(SVGA_REG_FB_START);
+        const size_t vramSize = readRegisterLocked(SVGA_REG_VRAM_SIZE);
+        const size_t framebufferSize = readRegisterLocked(SVGA_REG_FB_SIZE);
+        const uintptr_t commandBase = readRegisterLocked(SVGA_REG_MEM_START);
+        const size_t commandSize = readRegisterLocked(SVGA_REG_MEM_SIZE);
+        m_Capabilities = readRegisterLocked(SVGA_REG_CAPABILITIES);
+        m_MaxWidth = readRegisterLocked(SVGA_REG_MAX_WIDTH);
+        m_MaxHeight = readRegisterLocked(SVGA_REG_MAX_HEIGHT);
+
+        Device::Address *pFramebufferAddress = nullptr;
+        Device::Address *pCommandAddress = nullptr;
+        for (size_t i = 1; i < m_Addresses.count(); ++i)
+        {
+            Device::Address *pAddress = m_Addresses[i];
+            if (!pAddress || pAddress->m_IsIoSpace)
+                continue;
+            if (pAddress->m_Address == fbBase)
+                pFramebufferAddress = pAddress;
+            if (pAddress->m_Address == commandBase)
+                pCommandAddress = pAddress;
+        }
+
+        if (!pFramebufferAddress || !pCommandAddress ||
+            (pFramebufferAddress == pCommandAddress) ||
+            !pFramebufferAddress->m_Io || !pCommandAddress->m_Io ||
+            !m_MaxWidth || !m_MaxHeight || !commandSize ||
+            (commandSize > pCommandAddress->m_Size) ||
+            (commandSize > static_cast<size_t>(~static_cast<uint32_t>(0))))
+        {
+            WARNING("vmware-gfx reported an invalid framebuffer/FIFO layout");
+            return false;
+        }
+
+        m_Framebuffer =
+            static_cast<MemoryMappedIo *>(pFramebufferAddress->m_Io);
+        m_CommandRegion = static_cast<MemoryMappedIo *>(pCommandAddress->m_Io);
+        m_FramebufferSize = pFramebufferAddress->m_Size;
+        if (framebufferSize && (framebufferSize < m_FramebufferSize))
+            m_FramebufferSize = framebufferSize;
+        m_CommandRegionSize = commandSize;
+        if (!m_FramebufferSize)
+        {
+            WARNING("vmware-gfx reported an empty framebuffer aperture");
+            return false;
+        }
+
+        // Address::map() is one-shot, so map the complete usable aperture now
+        // rather than assuming a later, larger mode can grow the mapping.
+        pFramebufferAddress->map(m_FramebufferSize, true, true);
+        if (!m_Framebuffer->virtualAddress() ||
+            (m_Framebuffer->size() < m_FramebufferSize))
+        {
+            WARNING("vmware-gfx could not map its framebuffer aperture");
+            return false;
+        }
+
+        pCommandAddress->map(m_CommandRegionSize);
+        if (!m_CommandRegion->virtualAddress() ||
+            (m_CommandRegion->size() < m_CommandRegionSize))
+        {
+            WARNING("vmware-gfx could not map its FIFO aperture");
+            return false;
+        }
+
+        uint32_t fifoMin = 4 * sizeof(uint32_t);
+        const uint32_t fifoMax =
+            static_cast<uint32_t>(commandSize) & ~static_cast<uint32_t>(3);
+        if (m_Capabilities & SVGA_CAP_EXTENDED_FIFO)
+        {
+            const size_t fifoRegisters = readRegisterLocked(SVGA_REG_MEM_REGS);
+            if ((fifoRegisters < SVGA_FIFO_NUM_REGS) ||
+                (fifoRegisters >
+                 (static_cast<size_t>(~static_cast<uint32_t>(0)) /
+                  sizeof(uint32_t))))
+            {
+                WARNING("vmware-gfx reported an invalid extended FIFO header");
+                return false;
+            }
+            fifoMin = static_cast<uint32_t>(fifoRegisters * sizeof(uint32_t));
+        }
+
+        if ((fifoMax <= fifoMin) || ((fifoMax - fifoMin) < MinimumFifoBytes))
+        {
+            WARNING("vmware-gfx FIFO is too small for supported commands");
+            return false;
+        }
+        m_FifoHeaderBytes = fifoMin;
+
+        disableDisplayLocked();
+        volatile uint32_t *fifo = fifoLocked();
+        fifo[SVGA_FIFO_MIN] = fifoMin;
+        fifo[SVGA_FIFO_MAX] = fifoMax;
+        fifo[SVGA_FIFO_NEXT_CMD] = fifoMin;
+        fifo[SVGA_FIFO_STOP] = fifoMin;
+        asm volatile("" : : : "memory");
+
+        writeRegisterLocked(SVGA_REG_GUEST_ID, 0x500A);
+        NOTICE(
+            "vmware-gfx found, caps="
+            << Hex << m_Capabilities << ", maximum resolution is " << Dec
+            << m_MaxWidth << "x" << m_MaxHeight << Hex);
+        NOTICE(
+            "vmware-gfx framebuffer at "
+            << Hex << fbBase << " - " << (fbBase + vramSize)
+            << ", command FIFO at " << commandBase);
+        if (m_Capabilities & SVGA_CAP_EXTENDED_FIFO)
+        {
+            NOTICE(
+                "vmware-gfx using extended fifo, caps="
+                << fifo[SVGA_FIFO_CAPABILITIES]
+                << ", flags=" << fifo[SVGA_FIFO_FLAGS]);
+        }
+
+        return true;
+    }
+
+    bool registerProvider()
+    {
+        ServiceFeatures *pFeatures =
+            ServiceManager::instance().enumerateOperations(String("graphics"));
+        Service *pService =
+            ServiceManager::instance().getService(String("graphics"));
+        if (!pFeatures || !pService ||
+            !pFeatures->provides(ServiceFeatures::touch) ||
+            !pService->serve(
+                ServiceFeatures::touch, static_cast<void *>(m_pProvider),
+                sizeof(*m_pProvider)))
+            return false;
+
+        LockGuard<Mutex> guard(m_DeviceLock);
+        m_ProviderRegistered = true;
+        return true;
+    }
+
+    void unregisterProvider()
+    {
+        GraphicsService::GraphicsProvider *pProvider = nullptr;
+        {
+            LockGuard<Mutex> guard(m_DeviceLock);
+            if (!m_ProviderRegistered)
+                return;
+            pProvider = m_pProvider;
+        }
+
+        ServiceFeatures *pFeatures =
+            ServiceManager::instance().enumerateOperations(String("graphics"));
+        Service *pService =
+            ServiceManager::instance().getService(String("graphics"));
+        if (!pFeatures || !pService ||
+            !pFeatures->provides(ServiceFeatures::withdraw) ||
+            !pService->serve(
+                ServiceFeatures::withdraw, static_cast<void *>(pProvider),
+                sizeof(*pProvider)))
+        {
+            panic("vmware-gfx could not withdraw its graphics provider");
+        }
+
+        LockGuard<Mutex> guard(m_DeviceLock);
+        m_ProviderRegistered = false;
+    }
+
+    bool setModeLocked(size_t width, size_t height, size_t bpp)
+    {
+        if (!availableLocked() || !width || !height || !bpp ||
+            (width > m_MaxWidth) || (height > m_MaxHeight) || (bpp > 32))
+            return false;
+
+        if (m_FifoRunning && !syncFifoLocked())
+        {
+            markOfflineLocked("timed out draining FIFO before a mode change");
+            return false;
+        }
+
+        writeRegisterLocked(SVGA_REG_CONFIG_DONE, 0);
+        m_FifoRunning = false;
+        writeRegisterLocked(SVGA_REG_ENABLE, 1);
+        writeRegisterLocked(SVGA_REG_WIDTH, static_cast<uint32_t>(width));
+        writeRegisterLocked(SVGA_REG_HEIGHT, static_cast<uint32_t>(height));
+        writeRegisterLocked(
+            SVGA_REG_BITS_PER_PIXEL, static_cast<uint32_t>(bpp));
+
+        const size_t actualWidth = readRegisterLocked(SVGA_REG_WIDTH);
+        const size_t actualHeight = readRegisterLocked(SVGA_REG_HEIGHT);
+        const size_t actualDepth = readRegisterLocked(SVGA_REG_DEPTH);
+        const size_t fbOffset = readRegisterLocked(SVGA_REG_FB_OFFSET);
+        const uintptr_t fbBase = readRegisterLocked(SVGA_REG_FB_START);
+        const uint32_t redMask = readRegisterLocked(SVGA_REG_RED_MASK);
+        const uint32_t greenMask = readRegisterLocked(SVGA_REG_GREEN_MASK);
+        const uint32_t blueMask = readRegisterLocked(SVGA_REG_BLUE_MASK);
+        const size_t bytesPerLine = readRegisterLocked(SVGA_REG_BYTES_PER_LINE);
+
+        if (!actualWidth || !actualHeight || !bytesPerLine ||
+            (actualWidth > m_MaxWidth) || (actualHeight > m_MaxHeight) ||
+            (actualWidth >
+             ((~static_cast<size_t>(0) - 7) / static_cast<size_t>(bpp))) ||
+            (bytesPerLine < ((actualWidth * bpp + 7) / 8)) ||
+            (actualHeight > (~static_cast<size_t>(0) / bytesPerLine)))
+        {
+            markOfflineLocked("device returned an invalid mode layout");
+            return false;
+        }
+
+        const size_t framebufferBytes = actualHeight * bytesPerLine;
+        if ((fbOffset > m_FramebufferSize) ||
+            (framebufferBytes > (m_FramebufferSize - fbOffset)))
+        {
+            markOfflineLocked("mode exceeds the framebuffer aperture");
+            return false;
+        }
+
+        const size_t requiredMapping = fbOffset + framebufferBytes;
+        if (!m_Framebuffer->virtualAddress() ||
+            (m_Framebuffer->size() < requiredMapping))
+        {
+            markOfflineLocked("could not map the complete framebuffer mode");
+            return false;
+        }
+
+        m_pFramebuffer->setWidth(actualWidth);
+        m_pFramebuffer->setHeight(actualHeight);
+        m_pFramebuffer->setBytesPerPixel((bpp + 7) / 8);
+        m_pFramebuffer->setBytesPerLine(bytesPerLine);
+        m_pFramebuffer->setFormat(
+            pixelFormat(bpp, redMask, greenMask, blueMask));
+        m_pFramebuffer->setXPos(0);
+        m_pFramebuffer->setYPos(0);
+        m_pFramebuffer->setParent(nullptr);
+        m_pFramebuffer->setFramebuffer(
+            reinterpret_cast<uintptr_t>(m_Framebuffer->virtualAddress()) +
+            fbOffset);
+        m_pFramebuffer->setActive(true);
+        m_pFramebuffer->rect(0, 0, actualWidth, actualHeight, 0);
+
+        asm volatile("" : : : "memory");
+        writeRegisterLocked(SVGA_REG_CONFIG_DONE, 1);
+        m_FifoRunning = true;
+        NOTICE(
+            "vmware-gfx entered mode "
+            << Dec << actualWidth << "x" << actualHeight << "x" << actualDepth
+            << Hex << ", mode framebuffer is " << (fbBase + fbOffset));
+        return true;
+    }
+
+    bool submitFifoLocked(const uint32_t *pCommand, size_t words)
+    {
+        if (!availableLocked() || !m_FifoRunning || !pCommand ||
+            (words > LargestCommandWords))
+            return false;
+
+        VmwareSvgaState::FifoLayout layout;
+        if (!prepareFifoLocked(words, layout))
+            return false;
+
+        volatile uint32_t *fifo = fifoLocked();
+        uint32_t next = layout.next;
+        for (size_t i = 0; i < words; ++i)
+        {
+            fifo[next / sizeof(uint32_t)] = pCommand[i];
+            next += sizeof(uint32_t);
+            if (next == layout.max)
+                next = layout.min;
+        }
+
+        // Publish NEXT_CMD only after every word of the command is visible.
+        asm volatile("" : : : "memory");
+        fifo[SVGA_FIFO_NEXT_CMD] = next;
+        asm volatile("" : : : "memory");
+        return true;
+    }
+
+    bool prepareFifoLocked(size_t words, VmwareSvgaState::FifoLayout &layout)
+    {
+        layout = readFifoLayoutLocked();
+        if (!VmwareSvgaState::valid(
+                layout, m_FifoHeaderBytes, m_CommandRegionSize))
+        {
+            markOfflineLocked("device returned an invalid FIFO cursor");
+            return false;
+        }
+        if (VmwareSvgaState::canFit(layout, words))
+            return true;
+
+        if (!syncFifoLocked())
+        {
+            markOfflineLocked("timed out waiting for FIFO space");
+            return false;
+        }
+
+        layout = readFifoLayoutLocked();
+        if (!VmwareSvgaState::valid(
+                layout, m_FifoHeaderBytes, m_CommandRegionSize) ||
+            !VmwareSvgaState::canFit(layout, words))
+        {
+            markOfflineLocked("FIFO remained full after a completed sync");
+            return false;
+        }
+        return true;
+    }
+
+    bool syncFifoLocked()
+    {
+        writeRegisterLocked(SVGA_REG_SYNC, 1);
+        VmwareSvgaState::PollBudget budget(Time::getTicks());
+        while (readRegisterLocked(SVGA_REG_BUSY))
+        {
+            if (!budget.keepPolling(Time::getTicks()))
+                return false;
+            Processor::pause();
+        }
+        return true;
+    }
+
+    VmwareSvgaState::FifoLayout readFifoLayoutLocked() const
+    {
+        volatile uint32_t *fifo = fifoLocked();
+        return {
+            fifo[SVGA_FIFO_MIN], fifo[SVGA_FIFO_MAX], fifo[SVGA_FIFO_NEXT_CMD],
+            fifo[SVGA_FIFO_STOP]};
+    }
+
+    volatile uint32_t *fifoLocked() const
+    {
+        return reinterpret_cast<volatile uint32_t *>(
+            m_CommandRegion->virtualAddress());
+    }
+
+    uint32_t readRegisterLocked(size_t offset) const
+    {
+        m_pIo->write32(static_cast<uint32_t>(offset), SVGA_INDEX_PORT);
         return m_pIo->read32(SVGA_VALUE_PORT);
     }
 
-    void writeRegister(size_t offset, uint32_t value)
+    void writeRegisterLocked(size_t offset, uint32_t value) const
     {
-        m_pIo->write32(offset, SVGA_INDEX_PORT);
+        m_pIo->write32(static_cast<uint32_t>(offset), SVGA_INDEX_PORT);
         m_pIo->write32(value, SVGA_VALUE_PORT);
     }
 
-    void writeFifo(uint32_t value)
+    void disableDisplayLocked()
     {
-        volatile uint32_t *fifo = reinterpret_cast<volatile uint32_t *>(
-            m_CommandRegion->virtualAddress());
-
-        // Check for sync conditions
-        if (((fifo[SVGA_FIFO_NEXT_CMD] + 4) == fifo[SVGA_FIFO_STOP]) ||
-            (fifo[SVGA_FIFO_NEXT_CMD] == (fifo[SVGA_FIFO_MAX] - 4)))
-        {
-#if DEBUG_VMWARE_GFX
-            DEBUG_LOG("vmware-gfx synchronising full fifo");
-#endif
-            syncFifo();
-        }
-
-#if DEBUG_VMWARE_GFX
-        DEBUG_LOG(
-            "vmware-gfx fifo write at " << fifo[SVGA_FIFO_NEXT_CMD]
-                                        << " val=" << value);
-        DEBUG_LOG(
-            "vmware-gfx min is at " << fifo[SVGA_FIFO_MIN]
-                                    << " and current position is "
-                                    << fifo[SVGA_FIFO_STOP]);
-#endif
-
-        // Load the new item into the FIFO
-        fifo[fifo[SVGA_FIFO_NEXT_CMD] / 4] = value;
-        if (fifo[SVGA_FIFO_NEXT_CMD] == (fifo[SVGA_FIFO_MAX] - 4))
-            fifo[SVGA_FIFO_NEXT_CMD] = fifo[SVGA_FIFO_MIN];
-        else
-            fifo[SVGA_FIFO_NEXT_CMD] += 4;
-
-        asm volatile("" : : : "memory");
+        if (!m_HardwareAccepted)
+            return;
+        writeRegisterLocked(SVGA_REG_CONFIG_DONE, 0);
+        writeRegisterLocked(SVGA_REG_ENABLE, 0);
+        m_FifoRunning = false;
+        if (m_pFramebuffer)
+            m_pFramebuffer->setActive(false);
     }
 
-    void syncFifo()
+    void disableHardwareLocked()
     {
-        writeRegister(SVGA_REG_SYNC, 1);
-        while (readRegister(SVGA_REG_BUSY))
-            ;
+        disableDisplayLocked();
+        m_Online = false;
     }
 
+    void markOfflineLocked(const char *reason)
+    {
+        WARNING("vmware-gfx offline: " << reason);
+        disableHardwareLocked();
+    }
+
+    IoBase *m_pIo;
     MemoryMappedIo *m_Framebuffer;
     MemoryMappedIo *m_CommandRegion;
-
     VmwareFramebuffer *m_pFramebuffer;
-
-    Device::Address *m_pFramebufferRawAddress;
+    GraphicsService::GraphicsProvider *m_pProvider;
+    Mutex m_DeviceLock;
+    uint32_t m_Capabilities;
+    size_t m_MaxWidth;
+    size_t m_MaxHeight;
+    size_t m_FramebufferSize;
+    size_t m_CommandRegionSize;
+    size_t m_FifoHeaderBytes;
+    bool m_HardwareAccepted;
+    bool m_Online;
+    bool m_FifoRunning;
+    bool m_Stopping;
+    bool m_ProviderRegistered;
+    bool m_ShutdownComplete;
 };
 
-static bool bFound = false;
-
-static void callback(Device *pDevice)
+VmwareGraphics::~VmwareGraphics()
 {
-    /// \todo track these so they can be cleaned up properly
-    new VmwareGraphics(pDevice);
-    bFound = true;
+    shutdown();
+}
+
+void VmwareGraphics::shutdown()
+{
+    VmwareFramebuffer *pFramebuffer = nullptr;
+    {
+        LockGuard<Mutex> guard(m_DeviceLock);
+        if (m_ShutdownComplete)
+            return;
+        if (m_Stopping)
+            panic("vmware-gfx encountered concurrent teardown");
+        m_Stopping = true;
+        pFramebuffer = m_pFramebuffer;
+    }
+
+    // Reject new callbacks before the provider disappears from discovery.
+    // Operations admitted before the close are drained before state is freed.
+    if (pFramebuffer)
+        pFramebuffer->closeCallbacks();
+    unregisterProvider();
+    if (pFramebuffer)
+        pFramebuffer->detach();
+
+    GraphicsService::GraphicsProvider *pProvider = nullptr;
+    {
+        LockGuard<Mutex> guard(m_DeviceLock);
+        if (m_FifoRunning && !syncFifoLocked())
+            WARNING("vmware-gfx timed out draining FIFO during teardown");
+        disableHardwareLocked();
+        pFramebuffer = m_pFramebuffer;
+        pProvider = m_pProvider;
+        m_pFramebuffer = nullptr;
+        m_pProvider = nullptr;
+        m_ShutdownComplete = true;
+    }
+
+    delete pFramebuffer;
+    delete pProvider;
+}
+
+static bool g_Found = false;
+static List<VmwareGraphics *> g_Displays;
+
+static void probeDevice(Device *pDevice)
+{
+    Device *pParent = pDevice->getParent();
+    if (!pParent)
+        panic("vmware-gfx found a detached PCI device");
+    if (pDevice->getNumChildren())
+    {
+        ERROR("vmware-gfx cannot bind a non-leaf PCI device");
+        return;
+    }
+
+    VmwareGraphics *pGraphics = new VmwareGraphics(pDevice);
+    if (!pGraphics)
+    {
+        ERROR("vmware-gfx could not allocate device state");
+        return;
+    }
+    pGraphics->setParent(pParent);
+    pParent->replaceChild(pDevice, pGraphics);
+    // Device(Device *) recreated every BAR and invalidated the source mappings.
+    // The leaf check makes deleting the now-inert source safe.
+    delete pDevice;
+
+    g_Displays.pushBack(pGraphics);
+    g_Found = true;
+    if (!pGraphics->initialise())
+        ERROR("vmware-gfx device initialisation failed; device left offline");
 }
 
 static bool entry()
 {
-    // Don't care about non-SVGA2 devices, just use VBE for them.
+    g_Found = false;
     Device::searchByVendorIdAndDeviceId(
-        PCI_VENDOR_ID_VMWARE, PCI_DEVICE_ID_VMWARE_SVGA2, callback);
-
-    return bFound;
+        PCI_VENDOR_ID_VMWARE, PCI_DEVICE_ID_VMWARE_SVGA2, probeDevice);
+    return g_Found;
 }
 
 static void exit()
 {
+    auto restoreDisplay = [](Device *pDevice, Device *pTarget,
+                             bool *pRestored) -> Device * {
+        if (pDevice != pTarget)
+            return pDevice;
+        *pRestored = true;
+        return new Device(pTarget);
+    };
+    auto callback = pedigree_std::make_callable(restoreDisplay);
+    while (g_Displays.count())
+    {
+        VmwareGraphics *pDisplay = g_Displays.popFront();
+        // Device(Device *) destroys the source I/O objects while recreating
+        // the BARs, so no driver callback may still be admitted at that point.
+        pDisplay->shutdown();
+        bool restored = false;
+        Device::foreach (callback, nullptr, pDisplay, &restored);
+        if (!restored)
+            delete pDisplay;
+    }
+    g_Found = false;
 }
 
 MODULE_INFO("vmware-gfx", &entry, &exit, "pci", "config");
-
-VmwareGraphics::~VmwareGraphics() = default;
-VmwareGraphics::VmwareFramebuffer::~VmwareFramebuffer() = default;

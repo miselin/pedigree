@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
@@ -32,7 +33,9 @@ class Framebuffer;
 class GraphicsService : public Service
 {
   public:
-    GraphicsService() : m_Providers(), m_pCurrentProvider(0)
+    GraphicsService()
+        : m_Providers(), m_pCurrentProvider(0), m_pCurrentTextProvider(0),
+          m_ProviderLock()
     {
     }
     virtual ~GraphicsService()
@@ -90,6 +93,8 @@ class GraphicsService : public Service
 
     GraphicsProvider *m_pCurrentProvider;
     GraphicsProvider *m_pCurrentTextProvider;
+
+    Mutex m_ProviderLock;
 };
 
 #endif

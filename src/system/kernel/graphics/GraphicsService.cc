@@ -20,6 +20,8 @@
 #include "pedigree/kernel/graphics/GraphicsService.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Display.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -31,34 +33,96 @@ bool GraphicsService::serve(
     if (!pData)
         return false;
 
-    // Touch = provide a new display device
-    GraphicsProvider *pProvider = reinterpret_cast<GraphicsProvider *>(pData);
+    bool mutating = false;
     if (type & ServiceFeatures::touch)
     {
-        /// \todo Sanity check
-        m_Providers.pushBack(pProvider);
+        if (dataLen < sizeof(GraphicsProvider))
+            return false;
+        mutating = true;
+    }
+    else if (type & ServiceFeatures::withdraw)
+    {
+        if (dataLen < sizeof(GraphicsProvider))
+            return false;
+        mutating = true;
+    }
+    else if (type & ServiceFeatures::probe)
+    {
+        if (dataLen < sizeof(GraphicsParameters))
+            return false;
+    }
+    else
+    {
+        return false;
+    }
+
+    const bool interruptsEnabled = Processor::getInterrupts();
+    if (mutating && !interruptsEnabled)
+        return false;
+
+    TerminationDeferral terminationDeferral(interruptsEnabled);
+    const bool lockAcquired = interruptsEnabled ? m_ProviderLock.acquire() :
+                                                  m_ProviderLock.tryAcquire();
+    if (!lockAcquired)
+        return false;
+
+    bool success = false;
+    if (type & ServiceFeatures::touch)
+    {
+        GraphicsProvider *pProvider =
+            reinterpret_cast<GraphicsProvider *>(pData);
+        bool alreadyRegistered = false;
+        for (List<GraphicsProvider *>::Iterator it = m_Providers.begin();
+             it != m_Providers.end(); ++it)
+        {
+            if (*it == pProvider)
+            {
+                alreadyRegistered = true;
+                break;
+            }
+        }
+
+        if (!alreadyRegistered)
+            m_Providers.pushBack(pProvider);
 
         ProviderPair bestProvider = determineBestProvider();
         m_pCurrentProvider = bestProvider.bestBase;
         m_pCurrentTextProvider = bestProvider.bestText;
+        success = true;
+    }
+    else if (type & ServiceFeatures::withdraw)
+    {
+        GraphicsProvider *pProvider =
+            reinterpret_cast<GraphicsProvider *>(pData);
+        for (List<GraphicsProvider *>::Iterator it = m_Providers.begin();
+             it != m_Providers.end(); ++it)
+        {
+            if (*it != pProvider)
+                continue;
 
-        return true;
+            m_Providers.erase(it);
+            ProviderPair bestProvider = determineBestProvider();
+            m_pCurrentProvider = bestProvider.bestBase;
+            m_pCurrentTextProvider = bestProvider.bestText;
+            success = true;
+            break;
+        }
     }
     else if (type & ServiceFeatures::probe)
     {
         GraphicsParameters *params =
             reinterpret_cast<GraphicsParameters *>(pData);
+        params->providerFound = false;
 
         if (params->wantTextMode)
         {
             if (m_pCurrentTextProvider)
             {
                 MemoryCopy(
-                    &params->providerResult, m_pCurrentProvider,
+                    &params->providerResult, m_pCurrentTextProvider,
                     sizeof(GraphicsProvider));
                 params->providerFound = true;
-
-                return true;
+                success = true;
             }
         }
         else if (m_pCurrentProvider)
@@ -67,13 +131,12 @@ bool GraphicsService::serve(
                 &params->providerResult, m_pCurrentProvider,
                 sizeof(GraphicsProvider));
             params->providerFound = true;
-
-            return true;
+            success = true;
         }
     }
 
-    // Invalid command
-    return false;
+    m_ProviderLock.release();
+    return success;
 }
 
 GraphicsService::ProviderPair GraphicsService::determineBestProvider()

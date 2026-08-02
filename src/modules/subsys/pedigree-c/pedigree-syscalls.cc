@@ -303,7 +303,9 @@ int pedigree_gfx_get_provider(void *p)
     if (!p)
         return -1;
 
-    GraphicsService::GraphicsProvider gfxProvider;
+    GraphicsService::GraphicsParameters params;
+    ByteSet(&params, 0, sizeof(params));
+    params.wantTextMode = false;
 
     // Grab the current graphics provider for the system, use it to display the
     // splash screen to the user.
@@ -312,23 +314,18 @@ int pedigree_gfx_get_provider(void *p)
         ServiceManager::instance().enumerateOperations(String("graphics"));
     Service *pService =
         ServiceManager::instance().getService(String("graphics"));
-    if (pFeatures->provides(ServiceFeatures::probe))
+    if (pFeatures && pService && pFeatures->provides(ServiceFeatures::probe))
     {
-        if (pService)
-        {
-            if (!pService->serve(
-                    ServiceFeatures::probe,
-                    reinterpret_cast<void *>(&gfxProvider),
-                    sizeof(gfxProvider)))
-                return -1;
-        }
-        else
+        if (!pService->serve(
+                ServiceFeatures::probe, reinterpret_cast<void *>(&params),
+                sizeof(params)) ||
+            !params.providerFound)
             return -1;
     }
     else
         return -1;
 
-    MemoryCopy(p, &gfxProvider, sizeof(gfxProvider));
+    MemoryCopy(p, &params.providerResult, sizeof(params.providerResult));
 
     return 0;
 }
