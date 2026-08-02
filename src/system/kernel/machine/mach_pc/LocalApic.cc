@@ -61,6 +61,8 @@
 /** 100 hz, as per the PIT which would do scheduling on non-MP builds. */
 #define INITIAL_HZ 100
 
+static constexpr size_t IcrDeliveryPollLimit = 100000;
+
 bool LocalApic::initialise(uint64_t physicalAddress)
 {
     // Detect local APIC presence
@@ -161,29 +163,42 @@ bool LocalApic::initialiseProcessor()
     return true;
 }
 
-void LocalApic::interProcessorInterrupt(
+bool LocalApic::interProcessorInterrupt(
     uint8_t destinationApicId, uint8_t vector, size_t deliveryMode,
     bool bAssert, bool bLevelTriggered)
 {
-    while ((m_IoSpace.read32(LAPIC_REG_INT_CMD_LOW) & 0x1000) != 0)
-        ;
+    if (!waitForIcrIdle())
+        return false;
 
     m_IoSpace.write32(destinationApicId << 24, LAPIC_REG_INT_CMD_HIGH);
     m_IoSpace.write32(
         vector | (deliveryMode << 8) | (bAssert ? (1 << 14) : 0) |
             (bLevelTriggered ? (1 << 15) : 0),
         LAPIC_REG_INT_CMD_LOW);
+    return true;
 }
 
-void LocalApic::interProcessorInterruptAllExcludingThis(
+bool LocalApic::interProcessorInterruptAllExcludingThis(
     uint8_t vector, size_t deliveryMode)
 {
-    while ((m_IoSpace.read32(LAPIC_REG_INT_CMD_LOW) & 0x1000) != 0)
-        ;
+    if (!waitForIcrIdle())
+        return false;
 
     m_IoSpace.write32(
         vector | (deliveryMode << 8) | (1 << 14) | (0x3 << 18),
         LAPIC_REG_INT_CMD_LOW);
+    return true;
+}
+
+bool LocalApic::waitForIcrIdle()
+{
+    for (size_t poll = 0; poll < IcrDeliveryPollLimit; ++poll)
+    {
+        if ((m_IoSpace.read32(LAPIC_REG_INT_CMD_LOW) & 0x1000) == 0)
+            return true;
+        Processor::pause();
+    }
+    return (m_IoSpace.read32(LAPIC_REG_INT_CMD_LOW) & 0x1000) == 0;
 }
 
 uint8_t LocalApic::getId()

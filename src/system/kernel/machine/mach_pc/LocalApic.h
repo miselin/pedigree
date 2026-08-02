@@ -86,15 +86,17 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
      *\param[in] destinationApicId Identifier of the Local APIC of the
      *destination processor \param[in] vector the IPI vector \param[in]
      *deliveryMode the delivery mode \param[in] bAssert Assert? \param[in]
-     *bLevelTriggered Level-triggered? */
-    void interProcessorInterrupt(
+     *bLevelTriggered Level-triggered? \return true if the IPI was submitted,
+     *false if the command register remained busy */
+    bool interProcessorInterrupt(
         uint8_t destinationApicId, uint8_t vector, size_t deliveryMode,
         bool bAssert, bool bLevelTriggered);
 
     /** Issue an IPI (= Interprocessor Interrupt) to all logical processors
      * except this one. (i.e. to all other cores). \param[in] vector The IPI
-     * vector \param[in] deliveryMode The delivery mode */
-    void interProcessorInterruptAllExcludingThis(
+     * vector \param[in] deliveryMode The delivery mode \return true if the IPI
+     * was submitted, false if the command register remained busy */
+    bool interProcessorInterruptAllExcludingThis(
         uint8_t vector, size_t deliveryMode);
 
     /** Get the Local APIC Id for this processor
@@ -131,6 +133,9 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
      *\return true, if the local APIC is enabled and at physicalAddress, false
      *otherwise */
     bool check(uint64_t physicalAddress) INITIALISATION_ONLY;
+
+    /** Wait for the interrupt-command register to accept another IPI. */
+    bool waitForIcrIdle();
 
     //
     // InterruptHandler interface

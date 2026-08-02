@@ -59,16 +59,16 @@ class Ps2Controller : public Controller, private SplitIrqHandler
     /** Quiesces both ports and drains the split IRQ worker. */
     void uninitialise();
 
-    /// Send a command to the PS/2 controller that has no response or data.
+    /// Send a command with no response or data. A timed-out command is dropped.
     void sendCommand(uint8_t command);
     void sendCommand(uint8_t command, uint8_t data);
-    /// Send a command to the PS/2 controller and report its response.
+    /// Send a command and report its response, or zero if the operation fails.
     uint8_t sendCommandWithResponse(uint8_t command);
     uint8_t sendCommandWithResponse(uint8_t command, uint8_t data);
 
-    /// Send a byte to the first port of the PS/2 controller.
+    /// Send a byte to the first port, dropping it if the controller times out.
     void writeFirstPort(uint8_t byte);
-    /// Send a byte to the second port of the PS/2 controller.
+    /// Send a byte to the second port, dropping it on timeout.
     EXPORTED_PUBLIC void writeSecondPort(uint8_t byte);
 
     /// Reports whether this PS/2 controller has two ports.
@@ -108,6 +108,7 @@ class Ps2Controller : public Controller, private SplitIrqHandler
     static constexpr size_t BufferedReadMode = 1;
     static constexpr size_t StoppingReadMode = 2;
     static constexpr uint8_t OutputBufferFull = 1;
+    static constexpr uint8_t InputBufferFull = 1 << 1;
     static constexpr uint8_t SecondPortData = 1 << 5;
 
     HardIrqDisposition
@@ -119,17 +120,18 @@ class Ps2Controller : public Controller, private SplitIrqHandler
     bool acquireIoForThread();
     void releaseIo();
 
-    void sendCommandLocked(uint8_t command);
-    void sendCommandLocked(uint8_t command, uint8_t data);
-    uint8_t sendCommandWithResponseLocked(uint8_t command);
-    uint8_t sendCommandWithResponseLocked(uint8_t command, uint8_t data);
-    void writeFirstPortLocked(uint8_t byte);
+    bool sendCommandLocked(uint8_t command);
+    bool sendCommandLocked(uint8_t command, uint8_t data);
+    bool sendCommandWithResponseLocked(uint8_t command, uint8_t &response);
+    bool sendCommandWithResponseLocked(
+        uint8_t command, uint8_t data, uint8_t &response);
+    bool writeFirstPortLocked(uint8_t byte);
     bool configureIrqEnable(bool firstEnabled, bool secondEnabled);
     bool captureOneLocked();
     void drainCapturedBytes();
 
-    void waitForReadingLocked();
-    void waitForWritingLocked();
+    bool waitForReadingLocked();
+    bool waitForWritingLocked();
 
     IoBase *m_pBase;
     bool m_bHasSecondPort;

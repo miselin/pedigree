@@ -32,6 +32,8 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/assert.h"
 
+static constexpr size_t Ps2IoPollLimit = 1000000;
+
 Ps2Controller::Ps2Controller(Controller *pDev)
     : Controller(pDev),
       SplitIrqHandler(MakeConstantString("PS/2 controller bottom half")),
@@ -216,38 +218,46 @@ void Ps2Controller::releaseIo()
     m_IoGate.release();
 }
 
-void Ps2Controller::sendCommandLocked(uint8_t command)
+bool Ps2Controller::sendCommandLocked(uint8_t command)
 {
-    waitForWritingLocked();
+    if (!waitForWritingLocked())
+        return false;
     m_pBase->write8(command, 4);
+    return true;
 }
 
-void Ps2Controller::sendCommandLocked(uint8_t command, uint8_t data)
+bool Ps2Controller::sendCommandLocked(uint8_t command, uint8_t data)
 {
-    sendCommandLocked(command);
-    waitForWritingLocked();
+    if (!sendCommandLocked(command) || !waitForWritingLocked())
+        return false;
     m_pBase->write8(data, 0);
+    return true;
 }
 
-uint8_t Ps2Controller::sendCommandWithResponseLocked(uint8_t command)
+bool Ps2Controller::sendCommandWithResponseLocked(
+    uint8_t command, uint8_t &response)
 {
-    sendCommandLocked(command);
-    waitForReadingLocked();
-    return m_pBase->read8(0);
+    if (!sendCommandLocked(command) || !waitForReadingLocked())
+        return false;
+    response = m_pBase->read8(0);
+    return true;
 }
 
-uint8_t
-Ps2Controller::sendCommandWithResponseLocked(uint8_t command, uint8_t data)
+bool Ps2Controller::sendCommandWithResponseLocked(
+    uint8_t command, uint8_t data, uint8_t &response)
 {
-    sendCommandLocked(command, data);
-    waitForReadingLocked();
-    return m_pBase->read8(0);
+    if (!sendCommandLocked(command, data) || !waitForReadingLocked())
+        return false;
+    response = m_pBase->read8(0);
+    return true;
 }
 
-void Ps2Controller::writeFirstPortLocked(uint8_t byte)
+bool Ps2Controller::writeFirstPortLocked(uint8_t byte)
 {
-    waitForWritingLocked();
+    if (!waitForWritingLocked())
+        return false;
     m_pBase->write8(byte, 0);
+    return true;
 }
 
 void Ps2Controller::sendCommand(uint8_t command)
@@ -256,7 +266,7 @@ void Ps2Controller::sendCommand(uint8_t command)
     {
         return;
     }
-    sendCommandLocked(command);
+    (void) sendCommandLocked(command);
     releaseIo();
 }
 
@@ -266,7 +276,7 @@ void Ps2Controller::sendCommand(uint8_t command, uint8_t data)
     {
         return;
     }
-    sendCommandLocked(command, data);
+    (void) sendCommandLocked(command, data);
     releaseIo();
 }
 
@@ -276,7 +286,8 @@ uint8_t Ps2Controller::sendCommandWithResponse(uint8_t command)
     {
         return 0;
     }
-    const uint8_t response = sendCommandWithResponseLocked(command);
+    uint8_t response = 0;
+    (void) sendCommandWithResponseLocked(command, response);
     releaseIo();
     return response;
 }
@@ -287,7 +298,8 @@ uint8_t Ps2Controller::sendCommandWithResponse(uint8_t command, uint8_t data)
     {
         return 0;
     }
-    const uint8_t response = sendCommandWithResponseLocked(command, data);
+    uint8_t response = 0;
+    (void) sendCommandWithResponseLocked(command, data, response);
     releaseIo();
     return response;
 }
@@ -298,7 +310,7 @@ void Ps2Controller::writeFirstPort(uint8_t byte)
     {
         return;
     }
-    writeFirstPortLocked(byte);
+    (void) writeFirstPortLocked(byte);
     releaseIo();
 }
 
@@ -308,7 +320,7 @@ void Ps2Controller::writeSecondPort(uint8_t byte)
     {
         return;
     }
-    sendCommandLocked(0xD4, byte);
+    (void) sendCommandLocked(0xD4, byte);
     releaseIo();
 }
 
@@ -368,7 +380,11 @@ bool Ps2Controller::configureIrqEnable(bool firstEnabled, bool secondEnabled)
     m_ConfigByte |= flagAdd;
     m_ConfigByte &= flagRemove;
     NOTICE("New config byte: " << Hex << m_ConfigByte);
-    sendCommandLocked(0x60, m_ConfigByte);
+    if (!sendCommandLocked(0x60, m_ConfigByte))
+    {
+        releaseIo();
+        return false;
+    }
     NOTICE("completed!");
 
     // re-enable now that we're done here
@@ -393,7 +409,11 @@ uint8_t Ps2Controller::readByte()
     {
         return 0;
     }
-    waitForReadingLocked();
+    if (!waitForReadingLocked())
+    {
+        releaseIo();
+        return 0;
+    }
     const uint8_t result = m_pBase->read8();
     releaseIo();
     return result;
@@ -618,16 +638,32 @@ void Ps2Controller::rearmIrqSources(size_t work)
     // The edge-triggered 8042 source was quiesced by reading port 0x60.
 }
 
-void Ps2Controller::waitForReadingLocked()
+bool Ps2Controller::waitForReadingLocked()
 {
-    // wait for controller's output buffer to empty
-    while ((m_pBase->read8(4) & 1) == 0)
-        ;
+    // Wait for the controller's output buffer to fill.
+    for (size_t poll = 0; poll < Ps2IoPollLimit; ++poll)
+    {
+        if (m_pBase->read8(4) & OutputBufferFull)
+            return true;
+        Processor::pause();
+    }
+    if (m_pBase->read8(4) & OutputBufferFull)
+        return true;
+    ERROR("PS/2 controller output buffer did not fill before timeout");
+    return false;
 }
 
-void Ps2Controller::waitForWritingLocked()
+bool Ps2Controller::waitForWritingLocked()
 {
-    // wait for controller's input buffer to fill
-    while (m_pBase->read8(4) & 2)
-        ;
+    // Wait for the controller's input buffer to empty.
+    for (size_t poll = 0; poll < Ps2IoPollLimit; ++poll)
+    {
+        if (!(m_pBase->read8(4) & InputBufferFull))
+            return true;
+        Processor::pause();
+    }
+    if (!(m_pBase->read8(4) & InputBufferFull))
+        return true;
+    ERROR("PS/2 controller input buffer did not empty before timeout");
+    return false;
 }

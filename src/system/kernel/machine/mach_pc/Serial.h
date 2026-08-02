@@ -51,6 +51,7 @@ class X86Serial : public Serial
     virtual void write(char c);
 
   private:
+    bool waitForStatus(uint8_t mask);
     bool isConnected();
     IoPort m_Port;
 };
