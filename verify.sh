@@ -158,6 +158,14 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    if ! python3 scripts/check-bounded-hardware-polls.py --self-test; then
+        echo "The bounded hardware-poll detector failed its self-test."
+        failed=1
+    elif ! python3 scripts/check-bounded-hardware-polls.py; then
+        echo "Hardware-facing code can poll forever without a visible deadline."
+        failed=1
+    fi
+
     matches=$(rg -n -U \
         'schedule\(\s*Thread::Sleeping' src \
         --glob '*.{cc,h}' |
@@ -839,6 +847,9 @@ check_wait_api_boundaries()
         ! rg -q 'IrqPolicy::pciIntxThreaded\(\)' "$threecom_source" ||
         ! rg -q 'constexpr size_t PassLimit' "$threecom_source" ||
         ! rg -q 'constexpr size_t ResetCommandPollLimit' "$threecom_source" ||
+        ! rg -q 'constexpr size_t EepromPollLimit' "$threecom_source" ||
+        ! rg -q 'bool Nic3C90x::waitForEepromReady\(\)' \
+            "$threecom_source" ||
         ! rg -q 'volatile uint32_t UpPktStatus' "$threecom_header" ||
         ! rg -q 'm_RxConsumerIndex' \
             "$threecom_header" "$threecom_source" ||
@@ -854,10 +865,12 @@ check_wait_api_boundaries()
     local uhci_header=src/modules/drivers/common/usb-hcd/Uhci.h
     local uhci_source=src/modules/drivers/common/usb-hcd/Uhci.cc
     local usb_callback_delivery=src/modules/drivers/common/usb-hcd/CallbackDelivery.h
+    local usb_transfer_completion=src/modules/drivers/common/usb-hcd/TransferCompletion.h
     local usb_hub_header=src/modules/system/usb/UsbHub.h
     local usb_hub_source=src/modules/system/usb/UsbHub.cc
     local usb_hub_device=src/modules/drivers/common/usb-hub/UsbHubDevice.cc
     local usb_callback_regressions=src/modules/system/hosted-smoke/usb-callback-delivery-regressions.cc
+    local usb_lifecycle_regressions=src/modules/system/hosted-smoke/usb-transfer-lifecycle-regressions.cc
     local usb_port_regressions=src/modules/system/hosted-smoke/usb-hcd-port-change-regressions.cc
     if rg -q 'registerHard(Isa|Pci)IrqHandler|HardIrqHandler' \
             "$ehci_header" "$ehci_source" "$ohci_header" "$ohci_source" \
@@ -866,6 +879,12 @@ check_wait_api_boundaries()
             "$ehci_header" "$ehci_source" "$ohci_header" "$ohci_source" \
             "$uhci_header" "$uhci_source" "$usb_hub_header" \
             "$usb_hub_source" ||
+        rg -q 'completion(State|Generation|Result)' \
+            "$ehci_header" "$ehci_source" "$ohci_header" "$ohci_source" \
+            "$uhci_header" "$uhci_source" ||
+        rg -q 'FATAL' \
+            "$ehci_header" "$ehci_source" "$ohci_header" "$ohci_source" \
+            "$uhci_header" "$uhci_source" ||
         ! rg -q 'IrqPolicy::pciIntxThreaded\(\)' "$ehci_source" ||
         ! rg -q 'IrqPolicy::pciIntxThreaded\(\)' "$ohci_source" ||
         ! rg -q 'IrqPolicy::pciIntxThreaded\(\)' "$uhci_source" ||
@@ -878,6 +897,8 @@ check_wait_api_boundaries()
         ! rg -q 'setLegacySupportControl\(0x8F00\)' "$uhci_source" ||
         ! rg -q 'class CallbackDeliveryQueue' "$usb_callback_delivery" ||
         ! rg -q 'bool drain\(const Key &key\)' "$usb_callback_delivery" ||
+        ! rg -q 'size_t drainAll\(\)' "$usb_callback_delivery" ||
+        ! rg -q 'class TransferCompletion' "$usb_transfer_completion" ||
         ! rg -q 'm_CompletionDeliveries\.publish' \
             "$ehci_source" "$ohci_source" "$uhci_source" ||
         ! rg -q 'deferConnectionChangeIfSuppressed' \
@@ -888,6 +909,12 @@ check_wait_api_boundaries()
         ! rg -q 'UsbHub \*m_RootHub' "$usb_hub_header" ||
         ! rg -q 'usb-callback-pending-steal' "$usb_callback_regressions" ||
         ! rg -q 'usb-callback-running-drain' "$usb_callback_regressions" ||
+        ! rg -q 'usb-transfer-atomic-publication' \
+            "$usb_lifecycle_regressions" ||
+        ! rg -q 'usb-transfer-teardown-results' \
+            "$usb_lifecycle_regressions" ||
+        ! rg -q 'usb-transfer-teardown-nested-cancel' \
+            "$usb_lifecycle_regressions" ||
         ! rg -q 'usb-hcd-port-change-suppression-state' \
             "$usb_port_regressions" ||
         ! rg -q 'nested hubs did not retain their root-controller association' \
@@ -895,6 +922,25 @@ check_wait_api_boundaries()
         echo "USB HCD interrupt work escaped its threaded and bounded teardown boundary."
         failed=1
     fi
+
+    local usb_hcd_pair
+    for usb_hcd_pair in \
+        "$ehci_header:$ehci_source" \
+        "$ohci_header:$ohci_source" \
+        "$uhci_header:$uhci_source"
+    do
+        local usb_hcd_header=${usb_hcd_pair%%:*}
+        local usb_hcd_source=${usb_hcd_pair#*:}
+        if ! rg -q 'TransferCompletion completion' "$usb_hcd_header" ||
+            ! rg -q 'OperationBarrier m_SubmissionOperations' \
+                "$usb_hcd_header" ||
+            ! rg -q 'claimForTeardown' "$usb_hcd_source" ||
+            ! rg -q 'm_CompletionDeliveries\.publish' "$usb_hcd_source"
+        then
+            echo "USB HCD lost typed transfer ownership: $usb_hcd_source"
+            failed=1
+        fi
+    done
 
     if ! rg -q 'enum class IrqTrigger' "$irq_manager_header" ||
         ! rg -q 'enum class IrqControllerAck' "$irq_manager_header" ||
