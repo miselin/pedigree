@@ -553,8 +553,7 @@ void HostedIrqManager::dispatchThreadedLine(
     {
         return;
     }
-    bool handled = false;
-    manager->m_Handlers.dispatchThreaded(irq, handled);
+    (void) manager->m_Handlers.dispatchThreaded(irq);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

@@ -32,6 +32,13 @@ enum class IrqDisposition
 {
     NotHandled,
     Handled,
+    /**
+     * Teardown synchronously gated this device's contribution to the physical
+     * line before publishing callback-admission closure. A stale threaded
+     * dispatch may therefore rearm that line without claiming that this
+     * callback observed the occurrence.
+     */
+    Quiesced,
 };
 
 /** Common identity for handlers stored by an IRQ registry. */

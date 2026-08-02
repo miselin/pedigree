@@ -792,20 +792,19 @@ bool IrqHandlerRegistry::dispatchHard(
     return admitted;
 }
 
-bool IrqHandlerRegistry::dispatchThreaded(
-    uint8_t irq, bool &handled, IrqHandler *onlyHandler)
+IrqHandlerRegistry::ThreadedDispatchResult
+IrqHandlerRegistry::dispatchThreaded(uint8_t irq, IrqHandler *onlyHandler)
 {
-    bool admitted = false;
-    handled = false;
+    ThreadedDispatchResult result = {false, false, false};
     Thread *dispatchThread = Processor::information().getCurrentThread();
     if (!dispatchThread || !Processor::getInterrupts())
     {
-        return false;
+        return result;
     }
 #if HOSTED
     if (dispatchThread->getHostedSignalDepth())
     {
-        return false;
+        return result;
     }
 #endif
 
@@ -887,7 +886,7 @@ bool IrqHandlerRegistry::dispatchThreaded(
                 thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
             }
             FATAL_NOLOCK("IRQ callback hazard table exhausted.");
-            return admitted;
+            return result;
         }
 
         if (__atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST) !=
@@ -902,7 +901,7 @@ bool IrqHandlerRegistry::dispatchThreaded(
             continue;
         }
 
-        admitted = true;
+        result.admitted = true;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
         HandlerPinHook hook =
@@ -913,8 +912,17 @@ bool IrqHandlerRegistry::dispatchThreaded(
         }
 #endif
 
-        handled |= static_cast<IrqHandler *>(handler)->irq(irq) ==
-                   IrqDisposition::Handled;
+        const IrqDisposition disposition =
+            static_cast<IrqHandler *>(handler)->irq(irq);
+        if (disposition == IrqDisposition::Handled)
+        {
+            result.handled = true;
+            result.allowRearm = true;
+        }
+        else if (disposition == IrqDisposition::Quiesced)
+        {
+            result.allowRearm = true;
+        }
         unpublishDispatch(&dispatchCleanup, slot, publication, true);
         if (thread)
         {
@@ -922,7 +930,7 @@ bool IrqHandlerRegistry::dispatchThreaded(
         }
     }
 
-    return admitted;
+    return result;
 }
 
 size_t IrqHandlerRegistry::handlerCount(uint8_t irq)

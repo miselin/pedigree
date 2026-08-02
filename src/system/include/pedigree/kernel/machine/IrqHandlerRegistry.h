@@ -32,6 +32,13 @@ class IrqHandlerBase;
 class EXPORTED_PUBLIC IrqHandlerRegistry
 {
   public:
+    struct ThreadedDispatchResult
+    {
+        bool admitted;
+        bool handled;
+        bool allowRearm;
+    };
+
     enum class UnregisterResult
     {
         Completed,
@@ -103,9 +110,14 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         uint8_t irq, InterruptState &state, bool &handled,
         HardIrqHandler *onlyHandler = nullptr, size_t dispatchGeneration = 0);
 
-    /** Dispatches threaded handlers without exposing interrupted state. */
-    bool dispatchThreaded(
-        uint8_t irq, bool &handled, IrqHandler *onlyHandler = nullptr);
+    /**
+     * Dispatches threaded handlers without exposing interrupted state.
+     *
+     * A Quiesced callback permits line rearm but remains distinct from a
+     * callback which actually handled the occurrence.
+     */
+    ThreadedDispatchResult
+    dispatchThreaded(uint8_t irq, IrqHandler *onlyHandler = nullptr);
 
     size_t handlerCount(uint8_t irq);
 
