@@ -276,7 +276,8 @@ class EXPORTED_PUBLIC UsbDevice
     /// Performs an USB control request
     bool controlRequest(
         uint8_t nRequestType, uint8_t nRequest, uint16_t nValue,
-        uint16_t nIndex, uint16_t nLength = 0, uintptr_t pBuffer = 0);
+        uint16_t nIndex, uint16_t nLength = 0, uintptr_t pBuffer = 0,
+        uint32_t timeout = 5000);
 
     /// Gets device's current status
     uint16_t getStatus();

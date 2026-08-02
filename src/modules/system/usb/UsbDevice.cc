@@ -423,7 +423,7 @@ void UsbDevice::addInterruptInHandler(
 
 bool UsbDevice::controlRequest(
     uint8_t nRequestType, uint8_t nRequest, uint16_t nValue, uint16_t nIndex,
-    uint16_t nLength, uintptr_t pBuffer)
+    uint16_t nLength, uintptr_t pBuffer, uint32_t timeout)
 {
     // Setup structure - holds request details
     Setup *pSetup = new Setup(nRequestType, nRequest, nValue, nIndex, nLength);
@@ -497,7 +497,7 @@ bool UsbDevice::controlRequest(
         nRequestType & UsbRequestDirection::In ? UsbPidOut : UsbPidIn, 0, 0);
 
     // Wait for the transaction to complete
-    ssize_t nResult = pParentHub->doSync(nTransaction);
+    ssize_t nResult = pParentHub->doSync(nTransaction, timeout);
 
     // Return false if we had an error, true otherwise
     if (nResult < 0)

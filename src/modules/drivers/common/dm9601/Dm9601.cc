@@ -26,29 +26,56 @@
 #include "pedigree/kernel/network/IpAddress.h"
 #include "pedigree/kernel/network/MacAddress.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/MemoryPool.h"
+#include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+namespace
+{
+constexpr size_t MaxPacketBytes = 1518;
+constexpr size_t RxUsbOverhead = 8;
+constexpr uint32_t ControlTransferTimeoutMs = 250;
+constexpr uint32_t BulkTransferTimeoutMs = 1000;
+constexpr Time::Timestamp ResetTimeout = 20 * Time::Multiplier::Millisecond;
+constexpr Time::Timestamp SharedOperationTimeout =
+    20 * Time::Multiplier::Millisecond;
+constexpr Time::Timestamp LinkWaitTimeout = Time::Multiplier::Second;
+constexpr Time::Timestamp LinkPollInterval = 50 * Time::Multiplier::Millisecond;
+constexpr Time::Timestamp TxReadyTimeout = 100 * Time::Multiplier::Millisecond;
+constexpr Time::Timestamp RegisterPollInterval = Time::Multiplier::Millisecond;
+constexpr Time::Timestamp SharedPollInterval = Time::Multiplier::Millisecond;
+constexpr size_t ResetPollLimit = 16;
+constexpr size_t SharedPollLimit = 16;
+constexpr size_t LinkPollLimit = 16;
+constexpr size_t TxReadyPollLimit = 16;
+constexpr size_t TxPaddingLimit = 3;
+
+constexpr uint8_t NetworkStatusLinkUp = 1 << 6;
+constexpr uint8_t NetworkStatusTxBusy = 1 << 4;
+constexpr uint8_t PhyControlBusy = 1;
+constexpr uint8_t RxStatusErrorMask = 0xBF;
+}  // namespace
+
 Dm9601::Dm9601(UsbDevice *pDev)
     : UsbDevice(pDev), ::Network(), m_pInEndpoint(0), m_pOutEndpoint(0),
-      m_TxLock(), m_IncomingPackets(false), m_RxPacketQueue(),
-      m_RxPacketQueueLock(), m_TxPacket(0), m_Running(false),
-      m_Registered(false), m_PacketWorker(), m_ReceiveWorker()
+      m_TxLock(), m_SharedRegisterLock(), m_IncomingPackets(false),
+      m_RxQueueHead(nullptr), m_RxQueueTail(nullptr), m_RxPacketQueueLock(),
+      m_TxPacket(0), m_Running(false), m_Registered(false), m_Operations(),
+      m_PacketWorker(), m_ReceiveWorker()
 {
 }
 
 Dm9601::~Dm9601()
 {
+    // Closing admission first makes deregistration a publication change rather
+    // than the only protection against a late network-stack caller.
+    m_Operations.close();
     m_Running = false;
-
-    // Stop the USB producer before the packet consumer and queue storage.
-    m_ReceiveWorker.stop();
-    m_IncomingPackets.release();
-    m_PacketWorker.stop();
 
     if (m_Registered)
     {
@@ -56,18 +83,29 @@ Dm9601::~Dm9601()
         m_Registered = false;
     }
 
-    LockGuard<Spinlock> guard(m_RxPacketQueueLock);
-    while (m_RxPacketQueue.count())
+    // doSync cancellation drains its USB callback before the RX thread joins.
+    // The packet worker is then unable to race queue retirement below.
+    m_ReceiveWorker.stop();
+    m_IncomingPackets.release();
+    m_PacketWorker.stop();
+    m_Operations.wait();
+
+    Packet *packets = nullptr;
     {
-        Packet *packet = m_RxPacketQueue.popFront();
-        if (packet)
+        LockGuard<Spinlock> guard(m_RxPacketQueueLock);
+        packets = m_RxQueueHead;
+        m_RxQueueHead = nullptr;
+        m_RxQueueTail = nullptr;
+    }
+    while (packets)
+    {
+        Packet *packet = packets;
+        packets = packet->next;
+        if (packet->buffer)
         {
-            if (packet->buffer)
-            {
-                NetworkStack::instance().getMemPool().free(packet->buffer);
-            }
-            delete packet;
+            NetworkStack::instance().getMemPool().free(packet->buffer);
         }
+        delete packet;
     }
 }
 
@@ -99,10 +137,20 @@ void Dm9601::initialiseDriver()
         return;
     }
 
-    uint16_t *pMac = new uint16_t[3];
+    uint8_t mac[6] ALIGN(16) = {};
     for (size_t i = 0; i < 3; ++i)
-        pMac[i] = readEeprom(i);
-    m_StationInfo.mac.setMac(pMac, false);
+    {
+        uint16_t word = 0;
+        if (!readEeprom(i, word))
+        {
+            ERROR("dm9601: could not read its MAC address from EEPROM");
+            return;
+        }
+        mac[i * 2] = static_cast<uint8_t>(word);
+        mac[i * 2 + 1] = static_cast<uint8_t>(word >> 8);
+        m_StationInfo.mac.setMac(mac[i * 2], i * 2);
+        m_StationInfo.mac.setMac(mac[i * 2 + 1], i * 2 + 1);
+    }
 
     NOTICE(
         "DM9601: MAC " << m_StationInfo.mac[0] << ":"
@@ -112,52 +160,33 @@ void Dm9601::initialiseDriver()
                        << m_StationInfo.mac[4] << ":"
                        << m_StationInfo.mac[5]);
 
-    // Reset the chip
-    writeRegister(NetworkControl, 1);
-    Time::delay(100 * Time::Multiplier::Millisecond);
-
-    // Select internal MII
-    writeRegister(NetworkControl, 0);
-
-    // Enable output on GPIO
-    writeRegister(GeneralPurposeCtl, 0x1);
-
-    // Disable GPIO0 - POWER_DOWN
-    writeRegister(GeneralPurpose, 0);
-
-    // Enter into the default state - half-duplex, internal PHY
-    writeRegister(NetworkControl, 0);
-
-    // Jam the RX line when there's less than 3K in the SRAM space
-    writeRegister(BackPressThreshold, 0x37);
-
-    // Flow control: 3K high water overflow, 8K low water overflow
-    writeRegister(FlowControl, 0x38);
-
-    // Set up flow control for RX and TX
-    writeRegister(RxFlowControl, 1 | (1 << 3) | (1 << 5));
-
-    // Enable proper interrupt handling regardless of NAK state
-    writeRegister(UsbControl, 0);
-
-    // Write the physical address of this station to the card so it can filter
-    // incoming packets.
-    writeRegister(PhysicalAddress, reinterpret_cast<uintptr_t>(pMac), 6);
-
-    // Configure RX control - accept runts, all multicast packets, and turn on
-    // the receiver
-    writeRegister(RxControl, 5 | (1 << 3));
-
-    // Wait for the link to become active
-    /// \todo Timeout
-    uint8_t *p = new uint8_t;
-    *p = 0;
-    while (!*p)
+    if (!resetDevice())
     {
-        readRegister(NetworkStatus, reinterpret_cast<uintptr_t>(p), 1);
-        Time::delay(100 * Time::Multiplier::Millisecond);
+        ERROR("dm9601: device reset did not complete");
+        return;
     }
-    delete p;
+
+    // Publish no software-visible device until every setup transfer succeeded.
+    if (!writeRegister(NetworkControl, 0) ||
+        !writeRegister(GeneralPurposeCtl, 0x1) ||
+        !writeRegister(GeneralPurpose, 0) ||
+        !writeRegister(BackPressThreshold, 0x37) ||
+        !writeRegister(FlowControl, 0x38) ||
+        !writeRegister(RxFlowControl, 1 | (1 << 3) | (1 << 5)) ||
+        !writeRegister(UsbControl, 0) ||
+        !writeRegister(
+            PhysicalAddress, reinterpret_cast<uintptr_t>(mac), sizeof(mac)) ||
+        !writeRegister(RxControl, 5 | (1 << 3)))
+    {
+        ERROR("dm9601: device setup transfer failed");
+        return;
+    }
+
+    if (!waitForLink())
+    {
+        ERROR("dm9601: could not read initial link status");
+        return;
+    }
 
     m_Running = true;
     Thread *pThread = new Thread(
@@ -193,34 +222,46 @@ int Dm9601::trampoline(void *p)
 
 void Dm9601::receiveThread()
 {
-    while (m_Running)
+    while (true)
     {
         if (!m_IncomingPackets.acquire())
         {
+            if (!m_Running)
+                return;
             continue;
         }
-        if (!m_Running)
-        {
-            return;
-        }
 
+        TerminationDeferral packetLifetime;
         Packet *pPacket = nullptr;
         {
             LockGuard<Spinlock> guard(m_RxPacketQueueLock);
-            pPacket = m_RxPacketQueue.popFront();
+            pPacket = m_RxQueueHead;
+            if (pPacket)
+            {
+                m_RxQueueHead = pPacket->next;
+                if (!m_RxQueueHead)
+                    m_RxQueueTail = nullptr;
+            }
         }
         if (!pPacket)
         {
+            if (!m_Running)
+                return;
             continue;
         }
 
-        NetworkStack::instance().receive(
-            pPacket->len, pPacket->buffer + pPacket->offset, this, 0);
+        if (m_Running)
+        {
+            NetworkStack::instance().receive(
+                pPacket->len, pPacket->buffer + pPacket->offset, this, 0);
+        }
 
         uintptr_t buffer = pPacket->buffer;
         delete pPacket;
 
         NetworkStack::instance().getMemPool().free(buffer);
+        if (!m_Running)
+            return;
     }
 }
 
@@ -234,77 +275,128 @@ void Dm9601::receiveLoop()
 
 bool Dm9601::send(size_t nBytes, uintptr_t buffer)
 {
-    // Don't let anything else get in our way here
-    LockGuard<Mutex> guard(m_TxLock);
-
-    uint8_t *p = new uint8_t;
-    readRegister(NetworkStatus, reinterpret_cast<uintptr_t>(p), 1);
-    while (*p & (1 << 4))
+    TerminationDeferral operationLifetime;
+    OperationBarrier::Lease operation;
+    if (!m_Operations.tryAcquire(operation) || !m_Running || !buffer ||
+        !nBytes || nBytes > MaxPacketBytes || !m_pOutEndpoint ||
+        !m_pOutEndpoint->nMaxPacketSize)
     {
-        Time::delay(100 * Time::Multiplier::Millisecond);
-        readRegister(NetworkStatus, reinterpret_cast<uintptr_t>(p), 1);
+        return false;
     }
 
-    // Avoid runt packets
-    size_t padBytes = 0;
-    if (nBytes < 64)
+    size_t payloadBytes = nBytes < 64 ? 64 : nBytes;
+    size_t txSize = payloadBytes + 2;
+    for (size_t padding = 0;
+         padding < TxPaddingLimit &&
+         ((txSize & 1) || !(txSize % m_pOutEndpoint->nMaxPacketSize));
+         ++padding)
     {
-        padBytes = nBytes % 64;
-        ByteSet(reinterpret_cast<void *>(buffer + nBytes), 0, padBytes);
-
-        nBytes = 64;
+        ++payloadBytes;
+        ++txSize;
     }
+    if ((txSize & 1) || !(txSize % m_pOutEndpoint->nMaxPacketSize))
+        return false;
 
-    size_t txSize = nBytes + 2;
-
-    if (!(txSize % 64))
-        txSize++;
-
-    // Transmit endpoint
-    uint16_t *pBuffer = new uint16_t[(txSize / sizeof(uint16_t)) + 1];
-    *pBuffer = HOST_TO_LITTLE16(static_cast<uint16_t>(nBytes));
+    const size_t txWords = (txSize + sizeof(uint16_t) - 1) / sizeof(uint16_t);
+    uint16_t *pBuffer = new uint16_t[txWords];
+    PointerGuard<uint16_t> bufferGuard(pBuffer, true);
+    ByteSet(pBuffer, 0, txWords * sizeof(uint16_t));
+    *pBuffer = HOST_TO_LITTLE16(static_cast<uint16_t>(payloadBytes));
     MemoryCopy(&pBuffer[1], reinterpret_cast<void *>(buffer), nBytes);
 
-    ssize_t ret =
-        syncOut(m_pOutEndpoint, reinterpret_cast<uintptr_t>(pBuffer), txSize);
-    delete[] pBuffer;
+    // The mutex begins after all caller-independent allocation and formatting.
+    LockGuard<Mutex> guard(m_TxLock);
+    if (!m_Running || !waitForTxReady())
+        return false;
+
+    const ssize_t ret = syncOut(
+        m_pOutEndpoint, reinterpret_cast<uintptr_t>(pBuffer), txSize,
+        BulkTransferTimeoutMs);
+    if (ret != static_cast<ssize_t>(txSize))
+    {
+        WARNING(
+            "dm9601: transmit transfer failed or was short (" << ret << "/"
+                                                              << txSize << ")");
+        return false;
+    }
 
     // Grab the TX status register so we can find errors
-    readRegister(TxStatus1 + m_TxPacket, reinterpret_cast<uintptr_t>(p), 1);
-
+    uint8_t txStatus ALIGN(16) = 0;
+    uint8_t networkStatus ALIGN(16) = 0;
+    const uint8_t txStatusRegister =
+        static_cast<uint8_t>(TxStatus1 + m_TxPacket);
     m_TxPacket = (m_TxPacket + 1) % 2;
+    if (!readRegister(
+            txStatusRegister, reinterpret_cast<uintptr_t>(&txStatus), 1))
+    {
+        WARNING("dm9601: could not read transmit status");
+        return false;
+    }
 
     // Read and clear the network status (which will contain the "packet
     // complete" indicator)
-    readRegister(NetworkStatus, reinterpret_cast<uintptr_t>(p), 1);
+    if (!readRegister(
+            NetworkStatus, reinterpret_cast<uintptr_t>(&networkStatus), 1))
+    {
+        WARNING("dm9601: could not clear network status after transmit");
+        return false;
+    }
 
-    delete p;
-    return ret >= 0;
+    return true;
 }
-
-#define MAX_MTU 1518
 
 void Dm9601::doReceive()
 {
+    TerminationDeferral receiveLifetime;
     uintptr_t buff = NetworkStack::instance().getMemPool().allocate();
-    ssize_t ret = syncIn(m_pInEndpoint, buff, MAX_MTU, 0);  // Never time out.
+    if (!buff)
+        return;
+
+    const ssize_t ret = syncIn(
+        m_pInEndpoint, buff, MaxPacketBytes + RxUsbOverhead,
+        BulkTransferTimeoutMs);
 
     if (ret < 0)
     {
         if (m_Running)
         {
-            WARNING("dm9601: rx failure due to USB error: " << ret);
+            DEBUG_LOG("dm9601: receive transfer did not complete: " << ret);
         }
         NetworkStack::instance().getMemPool().free(buff);
         return;
     }
 
+    if (!m_Running)
+    {
+        NetworkStack::instance().getMemPool().free(buff);
+        return;
+    }
+
+    if (ret < 7)
+    {
+        WARNING("dm9601: receive transfer was too short: " << ret);
+        NetworkStack::instance().getMemPool().free(buff);
+        badPacket();
+        return;
+    }
+
     uint8_t *pBuffer = reinterpret_cast<uint8_t *>(buff);
     uint8_t rxstatus = pBuffer[0];
-    uint16_t len =
-        LITTLE_TO_HOST16(*reinterpret_cast<uint16_t *>(buff + 1)) - 4;
+    const uint16_t wireLength =
+        static_cast<uint16_t>(pBuffer[1]) |
+        static_cast<uint16_t>(pBuffer[2] << 8);
+    if (wireLength < 4 || wireLength > static_cast<size_t>(ret - 3))
+    {
+        WARNING(
+            "dm9601: invalid receive length " << wireLength << " in " << ret
+                                              << " byte transfer");
+        NetworkStack::instance().getMemPool().free(buff);
+        badPacket();
+        return;
+    }
+    const size_t len = wireLength - 4;
 
-    if (rxstatus & 0x3F)
+    if ((rxstatus & RxStatusErrorMask) || !len || len > MaxPacketBytes)
     {
         WARNING("dm9601: rx failure: " << rxstatus << ", length was " << len);
         NetworkStack::instance().getMemPool().free(buff);
@@ -316,12 +408,31 @@ void Dm9601::doReceive()
     pPacket->buffer = buff;
     pPacket->len = len;
     pPacket->offset = 3;
+    pPacket->next = nullptr;
 
-    m_RxPacketQueueLock.acquire();
-    m_RxPacketQueue.pushBack(pPacket);
-    m_RxPacketQueueLock.release();
+    bool queued = false;
+    {
+        LockGuard<Spinlock> guard(m_RxPacketQueueLock);
+        if (m_Running)
+        {
+            if (m_RxQueueTail)
+                m_RxQueueTail->next = pPacket;
+            else
+                m_RxQueueHead = pPacket;
+            m_RxQueueTail = pPacket;
+            queued = true;
+        }
+    }
 
-    m_IncomingPackets.release();
+    if (queued)
+    {
+        m_IncomingPackets.release();
+    }
+    else
+    {
+        delete pPacket;
+        NetworkStack::instance().getMemPool().free(buff);
+    }
 }
 
 bool Dm9601::setStationInfo(const StationInfo &info)
@@ -363,112 +474,219 @@ const StationInfo &Dm9601::getStationInfo()
     return m_StationInfo;
 }
 
-ssize_t Dm9601::readRegister(uint8_t reg, uintptr_t buffer, size_t nBytes)
+bool Dm9601::readRegister(uint8_t reg, uintptr_t buffer, size_t nBytes)
 {
     if (!buffer || (nBytes > 0xFF))
-        return -1;
+        return false;
     return controlRequest(
         UsbRequestType::Vendor | UsbRequestDirection::In, ReadRegister, 0, reg,
-        nBytes, buffer);
+        nBytes, buffer, ControlTransferTimeoutMs);
 }
 
-ssize_t Dm9601::writeRegister(uint8_t reg, uintptr_t buffer, size_t nBytes)
+bool Dm9601::writeRegister(uint8_t reg, uintptr_t buffer, size_t nBytes)
 {
     if (!buffer || (nBytes > 0xFF))
-        return -1;
+        return false;
     return controlRequest(
         UsbRequestType::Vendor | UsbRequestDirection::Out, WriteRegister, 0,
-        reg, nBytes, buffer);
+        reg, nBytes, buffer, ControlTransferTimeoutMs);
 }
 
-ssize_t Dm9601::writeRegister(uint8_t reg, uint8_t data)
+bool Dm9601::writeRegister(uint8_t reg, uint8_t data)
 {
     return controlRequest(
         UsbRequestType::Vendor | UsbRequestDirection::Out, WriteRegister1, data,
-        reg);
+        reg, 0, 0, ControlTransferTimeoutMs);
 }
 
-ssize_t Dm9601::readMemory(uint16_t offset, uintptr_t buffer, size_t nBytes)
+bool Dm9601::readMemory(uint16_t offset, uintptr_t buffer, size_t nBytes)
 {
     if (!buffer || (nBytes > 0xFF))
-        return -1;
+        return false;
     return controlRequest(
         UsbRequestType::Vendor | UsbRequestDirection::In, ReadMemory, 0, offset,
-        nBytes, buffer);
+        nBytes, buffer, ControlTransferTimeoutMs);
 }
 
-ssize_t Dm9601::writeMemory(uint16_t offset, uintptr_t buffer, size_t nBytes)
+bool Dm9601::writeMemory(uint16_t offset, uintptr_t buffer, size_t nBytes)
 {
     if (!buffer || (nBytes > 0xFF))
-        return -1;
+        return false;
     return controlRequest(
         UsbRequestType::Vendor | UsbRequestDirection::Out, WriteMemory, 0,
-        offset, nBytes, buffer);
+        offset, nBytes, buffer, ControlTransferTimeoutMs);
 }
 
-ssize_t Dm9601::writeMemory(uint16_t offset, uint8_t data)
+bool Dm9601::writeMemory(uint16_t offset, uint8_t data)
 {
     return controlRequest(
         UsbRequestType::Vendor | UsbRequestDirection::Out, WriteMemory1, data,
-        offset);
+        offset, 0, 0, ControlTransferTimeoutMs);
 }
 
-uint16_t Dm9601::readEeprom(uint8_t offset)
+bool Dm9601::readEeprom(uint8_t offset, uint16_t &value)
 {
-    /// \todo Locking
-    uint16_t *ret = new uint16_t;
-    writeRegister(PhyAddress, offset);
-    writeRegister(PhyControl, 0x4);  // Read from EEPROM
-    Time::delay(100 * Time::Multiplier::Millisecond);
-    writeRegister(PhyControl, 0);  // Stop the transfer
-    readRegister(PhyLowByte, reinterpret_cast<uintptr_t>(ret), 2);
-
-    uint16_t retVal = *ret;
-    delete ret;
-
-    return retVal;
+    return readSharedWord(false, offset, value);
 }
 
-void Dm9601::writeEeprom(uint8_t offset, uint16_t data)
+bool Dm9601::writeEeprom(uint8_t offset, uint16_t data)
 {
-    /// \todo Locking
-    uint16_t *input = new uint16_t;
-    *input = data;
-    writeRegister(PhyAddress, offset);
-    writeRegister(PhyLowByte, reinterpret_cast<uintptr_t>(input), 2);
-    writeRegister(PhyControl, 0x12);  // Write to EEPROM
-    Time::delay(100 * Time::Multiplier::Millisecond);
-    writeRegister(PhyControl, 0);
-
-    delete input;
+    return writeSharedWord(false, offset, data);
 }
 
-uint16_t Dm9601::readMii(uint8_t offset)
+bool Dm9601::readMii(uint8_t offset, uint16_t &value)
 {
-    /// \todo Locking
-    uint16_t *ret = new uint16_t;
-    writeRegister(PhyAddress, offset | 0x40);  // External MII starts at 0x40
-    writeRegister(PhyControl, 0xc);            // Read from PHY
-    Time::delay(100 * Time::Multiplier::Millisecond);
-    writeRegister(PhyControl, 0);  // Stop the transfer
-    readRegister(PhyLowByte, reinterpret_cast<uintptr_t>(ret), 2);
-
-    uint16_t retVal = *ret;
-    delete ret;
-
-    return retVal;
+    return readSharedWord(true, offset, value);
 }
 
-void Dm9601::writeMii(uint8_t offset, uint16_t data)
+bool Dm9601::writeMii(uint8_t offset, uint16_t data)
 {
-    /// \todo Locking
-    uint16_t *input = new uint16_t;
-    *input = data;
-    writeRegister(PhyAddress, offset | 0x40);
-    writeRegister(PhyLowByte, reinterpret_cast<uintptr_t>(input), 2);
-    writeRegister(PhyControl, 0xa);  // Transfer to PHY
-    Time::delay(100 * Time::Multiplier::Millisecond);
-    writeRegister(PhyControl, 0);
+    return writeSharedWord(true, offset, data);
+}
 
-    delete input;
+bool Dm9601::readSharedWord(bool phy, uint8_t offset, uint16_t &value)
+{
+    LockGuard<Mutex> guard(m_SharedRegisterLock);
+    uint16_t rawValue ALIGN(16) = 0;
+    const uint8_t address = phy ? static_cast<uint8_t>(offset | 0x40) : offset;
+    const uint8_t command = phy ? 0x0C : 0x04;
+
+    if (!writeRegister(PhyAddress, address) ||
+        !writeRegister(PhyControl, command) || !waitForSharedOperation())
+    {
+        (void) writeRegister(PhyControl, 0);
+        return false;
+    }
+
+    if (!writeRegister(PhyControl, 0) ||
+        !readRegister(
+            PhyLowByte, reinterpret_cast<uintptr_t>(&rawValue),
+            sizeof(rawValue)))
+    {
+        return false;
+    }
+
+    value = LITTLE_TO_HOST16(rawValue);
+    return true;
+}
+
+bool Dm9601::writeSharedWord(bool phy, uint8_t offset, uint16_t value)
+{
+    LockGuard<Mutex> guard(m_SharedRegisterLock);
+    uint16_t rawValue ALIGN(16) = HOST_TO_LITTLE16(value);
+    const uint8_t address = phy ? static_cast<uint8_t>(offset | 0x40) : offset;
+    const uint8_t command = phy ? 0x1A : 0x12;
+
+    if (!writeRegister(
+            PhyLowByte, reinterpret_cast<uintptr_t>(&rawValue),
+            sizeof(rawValue)) ||
+        !writeRegister(PhyAddress, address) ||
+        !writeRegister(PhyControl, command) || !waitForSharedOperation())
+    {
+        (void) writeRegister(PhyControl, 0);
+        return false;
+    }
+
+    return writeRegister(PhyControl, 0);
+}
+
+bool Dm9601::waitForSharedOperation()
+{
+    const Time::Timestamp deadline = Time::getTicks() + SharedOperationTimeout;
+    for (size_t poll = 0; poll < SharedPollLimit; ++poll)
+    {
+        uint8_t control ALIGN(16) = 0;
+        if (!readRegister(
+                PhyControl, reinterpret_cast<uintptr_t>(&control),
+                sizeof(control)))
+        {
+            return false;
+        }
+        if (!(control & PhyControlBusy))
+            return true;
+        if (Time::getTicks() >= deadline || poll + 1 == SharedPollLimit ||
+            !Time::delay(SharedPollInterval))
+            break;
+    }
+
+    WARNING("dm9601: EEPROM/PHY operation timed out");
+    return false;
+}
+
+bool Dm9601::resetDevice()
+{
+    if (!writeRegister(NetworkControl, 1) ||
+        !Time::delay(20 * Time::Multiplier::Microsecond))
+    {
+        return false;
+    }
+
+    const Time::Timestamp deadline = Time::getTicks() + ResetTimeout;
+    for (size_t poll = 0; poll < ResetPollLimit; ++poll)
+    {
+        uint8_t control ALIGN(16) = 0;
+        if (!readRegister(
+                NetworkControl, reinterpret_cast<uintptr_t>(&control),
+                sizeof(control)))
+        {
+            return false;
+        }
+        if (!(control & 1))
+            return true;
+        if (Time::getTicks() >= deadline || poll + 1 == ResetPollLimit ||
+            !Time::delay(RegisterPollInterval))
+            break;
+    }
+
+    return false;
+}
+
+bool Dm9601::waitForLink()
+{
+    const Time::Timestamp deadline = Time::getTicks() + LinkWaitTimeout;
+    for (size_t poll = 0; poll < LinkPollLimit; ++poll)
+    {
+        uint8_t status ALIGN(16) = 0;
+        if (!readRegister(
+                NetworkStatus, reinterpret_cast<uintptr_t>(&status),
+                sizeof(status)))
+        {
+            return false;
+        }
+        if (status & NetworkStatusLinkUp)
+            return true;
+        if (Time::getTicks() >= deadline || poll + 1 == LinkPollLimit)
+            break;
+        if (!Time::delay(LinkPollInterval))
+            return false;
+    }
+
+    NOTICE("dm9601: link is down; continuing without blocking USB discovery");
+    return true;
+}
+
+bool Dm9601::waitForTxReady()
+{
+    const Time::Timestamp deadline = Time::getTicks() + TxReadyTimeout;
+    for (size_t poll = 0; poll < TxReadyPollLimit; ++poll)
+    {
+        if (!m_Running)
+            return false;
+
+        uint8_t status ALIGN(16) = 0;
+        if (!readRegister(
+                NetworkStatus, reinterpret_cast<uintptr_t>(&status),
+                sizeof(status)))
+        {
+            return false;
+        }
+        if (!(status & NetworkStatusTxBusy))
+            return true;
+        if (Time::getTicks() >= deadline || poll + 1 == TxReadyPollLimit ||
+            !Time::delay(RegisterPollInterval))
+            break;
+    }
+
+    WARNING("dm9601: transmitter remained busy");
+    return false;
 }

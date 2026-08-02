@@ -26,10 +26,10 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
 
@@ -127,35 +127,42 @@ class Dm9601 : public UsbDevice, public Network
         uint8_t gpRegister;
     } PACKED;
 
-    /// Reads data from a register into a buffer
-    ssize_t readRegister(uint8_t reg, uintptr_t buffer, size_t nBytes);
+    /// Reads data from a register into a buffer.
+    bool readRegister(uint8_t reg, uintptr_t buffer, size_t nBytes);
 
-    /// Writes data from a buffer to a register
-    ssize_t writeRegister(uint8_t reg, uintptr_t buffer, size_t nBytes);
+    /// Writes data from a buffer to a register.
+    bool writeRegister(uint8_t reg, uintptr_t buffer, size_t nBytes);
 
-    /// Writes a single 8-bit value to a register
-    ssize_t writeRegister(uint8_t reg, uint8_t data);
+    /// Writes a single 8-bit value to a register.
+    bool writeRegister(uint8_t reg, uint8_t data);
 
-    /// Reads data from device memory into a buffer
-    ssize_t readMemory(uint16_t offset, uintptr_t buffer, size_t nBytes);
+    /// Reads data from device memory into a buffer.
+    bool readMemory(uint16_t offset, uintptr_t buffer, size_t nBytes);
 
-    /// Writes data from a buffer into device memory
-    ssize_t writeMemory(uint16_t offset, uintptr_t buffer, size_t nBytes);
+    /// Writes data from a buffer into device memory.
+    bool writeMemory(uint16_t offset, uintptr_t buffer, size_t nBytes);
 
-    /// Writes a single 8-bit value into device memory
-    ssize_t writeMemory(uint16_t offset, uint8_t data);
+    /// Writes a single 8-bit value into device memory.
+    bool writeMemory(uint16_t offset, uint8_t data);
 
-    /// Reads a 16-bit value from the device EEPROM
-    uint16_t readEeprom(uint8_t offset);
+    /// Reads a 16-bit value from the device EEPROM.
+    bool readEeprom(uint8_t offset, uint16_t &value);
 
-    /// Writes a 16-bit value to the device EEPROM
-    void writeEeprom(uint8_t offset, uint16_t data);
+    /// Writes a 16-bit value to the device EEPROM.
+    bool writeEeprom(uint8_t offset, uint16_t data);
 
-    /// Reads a 16-bit value from the external MII
-    uint16_t readMii(uint8_t offset);
+    /// Reads a 16-bit value from the external MII.
+    bool readMii(uint8_t offset, uint16_t &value);
 
-    /// Writes a 16-bit value to the external MII
-    void writeMii(uint8_t offset, uint16_t data);
+    /// Writes a 16-bit value to the external MII.
+    bool writeMii(uint8_t offset, uint16_t data);
+
+    bool readSharedWord(bool phy, uint8_t offset, uint16_t &value);
+    bool writeSharedWord(bool phy, uint8_t offset, uint16_t value);
+    bool waitForSharedOperation();
+    bool resetDevice();
+    bool waitForLink();
+    bool waitForTxReady();
 
     /** Bulk IN endpoint */
     Endpoint *m_pInEndpoint;
@@ -166,6 +173,9 @@ class Dm9601 : public UsbDevice, public Network
     /** Mutex to only allow one TX in progress at a time. */
     Mutex m_TxLock;
 
+    /** Serialises the multi-request EEPROM and PHY register protocol. */
+    Mutex m_SharedRegisterLock;
+
     /** Number of packets in the queue */
     Semaphore m_IncomingPackets;
 
@@ -175,8 +185,10 @@ class Dm9601 : public UsbDevice, public Network
         uintptr_t buffer;
         size_t len;
         uint32_t offset;
+        Packet *next;
     };
-    List<Packet *> m_RxPacketQueue;
+    Packet *m_RxQueueHead;
+    Packet *m_RxQueueTail;
     Spinlock m_RxPacketQueueLock;
 
     /** Internal state: which TX packet are we on at the moment */
@@ -184,6 +196,7 @@ class Dm9601 : public UsbDevice, public Network
 
     Atomic<bool> m_Running;
     bool m_Registered;
+    OperationBarrier m_Operations;
     OwnedThread m_PacketWorker;
     OwnedThread m_ReceiveWorker;
 
