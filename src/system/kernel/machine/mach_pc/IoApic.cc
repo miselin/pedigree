@@ -17,6 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#if APIC
+
 #include "IoApic.h"
 
 IoApic::IoApic() : m_IoSpace("I/O APIC")
@@ -26,3 +28,5 @@ IoApic::IoApic() : m_IoSpace("I/O APIC")
 IoApic::~IoApic()
 {
 }
+
+#endif

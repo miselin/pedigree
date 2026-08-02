@@ -22,6 +22,7 @@
 
 #include "Keyboard.h"
 #include "LocalApic.h"
+#include "PcSchedulerTimerSelection.h"
 #include "Ps2Controller.h"
 #include "Serial.h"
 #include "Vga.h"
@@ -74,6 +75,12 @@ class Pc : public Machine
     virtual Keyboard *getKeyboard();
     virtual void setKeyboard(Keyboard *kb);
 
+    /** Whether the bootstrap processor has a usable local APIC timer. */
+    inline bool localApicAvailable() const
+    {
+        return m_SchedulerTimerSelection.usesLocalApic();
+    }
+
 #if APIC
     /** Get the Local APIC class instance
      *\return reference to the Local APIC class instance */
@@ -112,6 +119,8 @@ class Pc : public Machine
 #if APIC
     LocalApic *m_LocalApic;
 #endif
+
+    PcSchedulerTimerSelection m_SchedulerTimerSelection;
 
     static Pc m_Instance;
 

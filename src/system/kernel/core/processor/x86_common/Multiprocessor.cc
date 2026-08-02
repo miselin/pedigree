@@ -17,6 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#if MULTIPROCESSOR
+
 #include "Multiprocessor.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
@@ -81,6 +83,14 @@ extern "C" void *trampolinegdtr64;
 
 size_t Multiprocessor::initialise1()
 {
+    if (!Pc::instance().localApicAvailable())
+    {
+        NOTICE(
+            "Multiprocessor: local APIC unavailable; keeping the bootstrap "
+            "processor only");
+        return 1;
+    }
+
     // Did we find a processor list?
     bool bMPInfoFound = false;
     // List of information about each usable processor
@@ -290,3 +300,5 @@ void Multiprocessor::initialise2()
 {
     m_ProcessorLock2.release();
 }
+
+#endif

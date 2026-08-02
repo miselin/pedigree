@@ -213,49 +213,49 @@ ProcessorId ProcessorBase::id()
     if (m_Initialised < 2)
         return 0;
 
-    EMIT_IF(MULTIPROCESSOR)
-    {
-        Pc &pc = Pc::instance();
-        uint8_t apicId = pc.getLocalApic().getId();
+#if MULTIPROCESSOR
+    Pc &pc = Pc::instance();
+    if (!pc.localApicAvailable())
+        return 0;
 
-        for (size_t i = 0; i < m_ProcessorInformation.count(); i++)
-            if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
-                return m_ProcessorInformation[i]->m_ProcessorId;
-    }
+    uint8_t apicId = pc.getLocalApic().getId();
+
+    for (size_t i = 0; i < m_ProcessorInformation.count(); i++)
+        if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
+            return m_ProcessorInformation[i]->m_ProcessorId;
+#endif
 
     return 0;
 }
 
 ProcessorInformation &ProcessorBase::information()
 {
-    EMIT_IF(!MULTIPROCESSOR)
-    {
-        return m_SafeBspProcessorInformation;
-    }
-
+#if MULTIPROCESSOR
     if (m_Initialised < 2)
         return m_SafeBspProcessorInformation;
 
     Pc &pc = Pc::instance();
+    if (!pc.localApicAvailable())
+        return m_SafeBspProcessorInformation;
+
     uint8_t apicId = pc.getLocalApic().getId();
 
     for (size_t i = 0; i < m_ProcessorInformation.count(); i++)
         if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
             return *m_ProcessorInformation[i];
+#endif
 
     return m_SafeBspProcessorInformation;
 }
 
 size_t ProcessorBase::getCount()
 {
-    EMIT_IF(!MULTIPROCESSOR)
-    {
-        return 1;
-    }
-    else
-    {
-        return m_ProcessorInformation.count();
-    }
+#if MULTIPROCESSOR
+    const size_t count = m_ProcessorInformation.count();
+    return count ? count : 1;
+#else
+    return 1;
+#endif
 }
 
 void ProcessorBase::breakpoint()

@@ -104,6 +104,8 @@ void Pc::initialise()
     smp.initialise();
 #endif
 
+    bool localApicInitialised = false;
+
 // Check for a local APIC
 #if APIC
 
@@ -127,10 +129,14 @@ void Pc::initialise()
     if (bLocalApicValid == true && localApicAddress &&
         m_LocalApic->initialise(localApicAddress))
     {
+        localApicInitialised = true;
         NOTICE("Local APIC initialised");
     }
 
 #endif
+
+    m_SchedulerTimerSelection.recordLocalApicInitialisation(
+        localApicInitialised);
 
 // Check for an I/O APIC
 #if APIC
@@ -169,10 +175,13 @@ void Pc::initialise()
     if (rtc.initialise2() == false)
         panic("Pc: Rtc initialisation phase 2 failed");
 
-    // Initialise the PIT
-    Pit &pit = Pit::instance();
-    if (pit.initialise() == false)
-        panic("Pc: Pit initialisation failed");
+    if (m_SchedulerTimerSelection.usesPit())
+    {
+        NOTICE("Using PIT scheduler timer fallback");
+        Pit &pit = Pit::instance();
+        if (pit.initialise() == false)
+            panic("Pc: Pit initialisation failed");
+    }
 
     // Set up PS/2
     m_Ps2Controller->initialise();
@@ -196,7 +205,10 @@ void Pc::deinitialise()
     Rtc::instance().uninitialise();
     m_Ps2Controller->uninitialise();
     m_Keyboard->stopReaderThread();
-    Pit::instance().uninitialise();
+    if (m_SchedulerTimerSelection.usesPit())
+    {
+        Pit::instance().uninitialise();
+    }
     if (!Pic::instance().shutdownThreaded())
     {
         FATAL("Pc: threaded IRQ workers did not stop");
@@ -327,11 +339,13 @@ IrqManager *Pc::getIrqManager()
 
 SchedulerTimer *Pc::getSchedulerTimer()
 {
-#if MULTIPROCESSOR
-    return m_LocalApic;
-#else
-    return &Pit::instance();
+#if APIC
+    if (m_SchedulerTimerSelection.usesLocalApic())
+    {
+        return m_LocalApic;
+    }
 #endif
+    return &Pit::instance();
 }
 
 Timer *Pc::getTimer()
@@ -390,7 +404,8 @@ Pc::Pc()
 #if APIC
       m_LocalApic(nullptr),
 #endif
-      m_Keyboard(nullptr), m_IsaBus(nullptr), m_AtaMaster(nullptr),
+      m_SchedulerTimerSelection(), m_Keyboard(nullptr), m_IsaBus(nullptr),
+      m_AtaMaster(nullptr),
       m_AtaSlave(nullptr), m_Ps2Controller(nullptr), m_Watchdog(nullptr)
 {
     for (size_t i = 0; i < 4; ++i)
