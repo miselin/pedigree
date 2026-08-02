@@ -20,22 +20,20 @@
 #ifndef NIC_3C90X_H
 #define NIC_3C90X_H
 
-#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/machine/types.h"
-#include "pedigree/kernel/process/OwnedThread.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
 
 class IoBase;
 
 /** Device driver for the Nic3C90x class of network device */
-class Nic3C90x : public Network, public HardIrqHandler
+class Nic3C90x : public Network, public IrqHandler
 {
   public:
     Nic3C90x(Network *pDev);
@@ -58,12 +56,12 @@ class Nic3C90x : public Network, public HardIrqHandler
     }
 
     // IRQ handler callback.
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    virtual IrqDisposition irq(irq_id_t number);
 
     IoBase *m_pBase;
 
   private:
-    int issueCommand(int cmd, int param);
+    bool issueCommand(int cmd, int param);
 
     int setWindow(int window);
 
@@ -72,11 +70,9 @@ class Nic3C90x : public Network, public HardIrqHandler
     int writeEepromWord(int address, uint16_t value);
     int writeEeprom(int address, uint16_t value);
 
-    static int trampoline(void *p);
-
-    void receiveThread();
-
-    void reset();
+    bool reset();
+    bool quiesce();
+    bool stopDeviceLocked();
 
     /** Local NIC information */
     uint8_t m_isBrev;
@@ -110,7 +106,7 @@ class Nic3C90x : public Network, public HardIrqHandler
     struct RXD
     {
         uint32_t UpNextPtr;
-        uint32_t UpPktStatus;
+        volatile uint32_t UpPktStatus;
         uint32_t DataAddr;
         uint32_t DataLength;
     } __attribute__((aligned(8)));
@@ -121,13 +117,16 @@ class Nic3C90x : public Network, public HardIrqHandler
     Nic3C90x(const Nic3C90x &);
     void operator=(const Nic3C90x &);
 
-    Semaphore m_RxMutex;
     Semaphore m_TxMutex;
 
-    List<void *> m_PendingPackets;
-    Spinlock m_PendingPacketsLock;
+    Mutex m_DeviceLock;
+    Mutex m_SendLock;
+
+    size_t m_RxConsumerIndex;
     irq_id_t m_IrqId;
-    OwnedThread m_ReceiveThread;
+    bool m_Active;
+    bool m_Stopping;
+    bool m_TxSuccessful;
     bool m_Initialised;
 };
 

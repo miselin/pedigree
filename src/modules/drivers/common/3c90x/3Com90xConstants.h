@@ -197,8 +197,8 @@ enum Commands
 #define INT_CMDINPROGRESS (1 << 12)
 #define INT_WINDOWNUMBER (7 << 13)
 
-#define ENABLED_INTS                                                     \
-    (INT_UPCOMPLETE | INT_UPDATESTATS | INT_HOSTERROR | INT_DNCOMPLETE | \
-     INT_TXCOMPLETE | INT_INTERRUPTLATCH)
+#define ENABLED_INTS                                                    \
+    (INT_UPCOMPLETE | INT_HOSTERROR | INT_DNCOMPLETE | INT_TXCOMPLETE | \
+     INT_INTERRUPTLATCH)
 
 #endif

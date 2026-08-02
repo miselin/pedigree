@@ -65,27 +65,60 @@
 #include "3Com90xConstants.h"
 #include "modules/system/network-stack/NetworkStack.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/network/IpAddress.h"
 #include "pedigree/kernel/network/MacAddress.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-#include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-int Nic3C90x::issueCommand(int cmd, int param)
+namespace
 {
-    uint32_t val;
+constexpr size_t CommandPollLimit = 100;
+constexpr size_t ResetCommandPollLimit = 5000;
+constexpr size_t DownloadPollLimit = 100;
+constexpr uint32_t UpPacketComplete = 1U << 15U;
+constexpr uint32_t UpPacketError = 1U << 14U;
+constexpr uint32_t UpPacketLengthMask = 0x1FFF;
+}  // namespace
+
+bool Nic3C90x::issueCommand(int cmd, int param)
+{
+    const size_t pollLimit =
+        (cmd == cmdGlobalReset || cmd == cmdRxReset) ? ResetCommandPollLimit
+                                                     : CommandPollLimit;
+    const auto waitUntilIdle = [this, pollLimit]() {
+        for (size_t poll = 0; poll < pollLimit; ++poll)
+        {
+            if (!(m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS))
+                return true;
+
+            if (!Time::delay(Time::Multiplier::Millisecond))
+                break;
+        }
+        return false;
+    };
+
+    // A timed-out predecessor may still own the command register. Never
+    // overwrite it while trying to recover or quiesce the controller.
+    if (!waitUntilIdle())
+    {
+        ERROR(
+            "3C90x: command register remained busy before command " << Hex
+                                                                     << cmd);
+        return false;
+    }
 
     /** Build the cmd. **/
-    val = cmd;
+    uint32_t val = cmd;
     val <<= 11;
     val |= param;
 
@@ -93,10 +126,11 @@ int Nic3C90x::issueCommand(int cmd, int param)
     m_pBase->write16(val, regCommandIntStatus_w);
 
     /** Wait for the cmd to complete, if necessary **/
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
-        ;
+    if (waitUntilIdle())
+        return true;
 
-    return 0;
+    ERROR("3C90x: command " << Hex << cmd << " timed out");
+    return false;
 }
 
 int Nic3C90x::setWindow(int window)
@@ -106,7 +140,8 @@ int Nic3C90x::setWindow(int window)
         return 0;
 
     /** Issue the window command **/
-    issueCommand(cmdSelectRegisterWindow, window);
+    if (!issueCommand(cmdSelectRegisterWindow, window))
+        return -1;
     m_CurrentWindow = window;
 
     return 0;
@@ -201,115 +236,220 @@ int Nic3C90x::writeEeprom(int address, uint16_t value)
     return 0;
 }
 
-void Nic3C90x::reset()
+bool Nic3C90x::reset()
 {
 #ifdef CFG_3C90X_PRESERVE_XCVR
     int cfg;
 
     /** Read the current InternalConfig value **/
-    setWindow(winTxRxOptions3);
+    if (setWindow(winTxRxOptions3) < 0)
+        return false;
     cfg = m_pBase->read32(regInternalConfig_3_l);
 #endif
 
     /** Send the reset command to the card **/
     NOTICE("3C90x: Issuing RESET");
-    issueCommand(cmdGlobalReset, 0);
+    if (!issueCommand(cmdGlobalReset, 0))
+        return false;
 
-    /** Wait for reset command to complete **/
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
-        ;
+    // Global reset selects window zero independently of the software cache.
+    m_CurrentWindow = 0;
 
     /** Global reset command resets station mask, non-B revision cards
      * require explicit reset of values
      */
-    setWindow(winAddressing2);
+    if (setWindow(winAddressing2) < 0)
+        return false;
     m_pBase->write16(0, regStationAddress_2_3w + 0);
     m_pBase->write16(0, regStationAddress_2_3w + 2);
     m_pBase->write16(0, regStationAddress_2_3w + 4);
 
 #ifdef CFG_3C90X_PRESERVE_XCVR
     /** Reset the original InternalConfig value from before reset **/
-    setWindow(winTxRxOptions3);
+    if (setWindow(winTxRxOptions3) < 0)
+        return false;
     m_pBase->write32(cfg, regInternalConfig_3_l);
 
     /** Enable DC converter for 10-Base-T **/
     if ((cfg & 0x0300) == 0x0300)
-        issueCommand(cmdEnableDcConverter, 0);
+        if (!issueCommand(cmdEnableDcConverter, 0))
+            return false;
 #endif
 
     /** Issue transmit reset, wait for command completion **/
-    issueCommand(cmdTxReset, 0);
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
-        ;
+    if (!issueCommand(cmdTxReset, 0))
+        return false;
 
     if (!m_isBrev)
         m_pBase->write8(0x01, regTxFreeThresh_b);
-    issueCommand(cmdTxEnable, 0);
+    if (!issueCommand(cmdTxEnable, 0))
+        return false;
 
     /** Reset of the receiver on B-revision cards re-negotiates the link
      * Takes several seconds
      */
     if (m_isBrev)
-        issueCommand(cmdRxReset, 0x04);
+    {
+        if (!issueCommand(cmdRxReset, 0x04))
+            return false;
+    }
     else
-        issueCommand(cmdRxReset, 0x00);
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
-        ;
+    {
+        if (!issueCommand(cmdRxReset, 0x00))
+            return false;
+    }
 
-    issueCommand(cmdRxEnable, 0);
+    if (!issueCommand(cmdRxEnable, 0))
+        return false;
 
-    /** Set indication and interrupt flags, ack any IRQs **/
-    issueCommand(cmdSetInterruptEnable, ENABLED_INTS);
-    issueCommand(cmdSetIndicationEnable, ENABLED_INTS);  // 0x0014);
-    issueCommand(cmdAcknowledgeInterrupt, 0xff);         // 0x661);
+    /** Configure indications but leave the physical source gated. **/
+    if (!issueCommand(cmdSetInterruptEnable, 0) ||
+        !issueCommand(cmdSetIndicationEnable, ENABLED_INTS) ||
+        !issueCommand(cmdAcknowledgeInterrupt, 0xff))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool Nic3C90x::quiesce()
+{
+    if (!issueCommand(cmdSetInterruptEnable, 0) ||
+        !issueCommand(cmdSetIndicationEnable, 0))
+    {
+        return false;
+    }
+
+    // Stop both bus-master engines before their descriptor regions can leave
+    // this object's lifetime.
+    if (!issueCommand(cmdRxDisable, 0) || !issueCommand(cmdTxDisable, 0) ||
+        !issueCommand(cmdStallCtl, 0) || !issueCommand(cmdStallCtl, 2))
+    {
+        return false;
+    }
+
+    m_pBase->write32(0, regUpListPtr_l);
+    m_pBase->write32(0, regDnListPtr_l);
+    return true;
+}
+
+bool Nic3C90x::stopDeviceLocked()
+{
+    if (m_Stopping)
+        return true;
+
+    // Publish callback closure only after this device can no longer assert the
+    // shared line or access its descriptor and packet storage.
+    if (!quiesce())
+        return false;
+
+    m_Active = false;
+    m_Stopping = true;
+    m_TxSuccessful = false;
+    m_TxMutex.release();
+    return true;
 }
 
 bool Nic3C90x::send(size_t nBytes, uintptr_t buffer)
 {
-    /** Stall the download engine **/
-    issueCommand(cmdStallCtl, 2);
-
-    /** Make sure the card is not waiting on us **/
-    m_pBase->read16(regCommandIntStatus_w);
-    m_pBase->read16(regCommandIntStatus_w);
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
-        ;
-
-    physical_uintptr_t destPtr = m_pTxBuffPhys;
-    size_t dud = 0;
-    if (Processor::information().getVirtualAddressSpace().isMapped(
-            reinterpret_cast<void *>(buffer)))
+    if (!nBytes || nBytes > UpPacketLengthMask)
     {
-        Processor::information().getVirtualAddressSpace().getMapping(
-            reinterpret_cast<void *>(buffer), destPtr, dud);
-        destPtr += buffer & 0xFFF;
+        ERROR("3C90x: invalid transmit packet length " << Dec << nBytes << Hex);
+        return false;
     }
-    else
-        MemoryCopy(m_pTxBuffVirt, reinterpret_cast<void *>(buffer), nBytes);
 
-    /** Setup the DPD (download descriptor) **/
-    m_TransmitDPD->DnNextPtr = 0;
+    LockGuard<Mutex> sendGuard(m_SendLock);
 
-    /** Set notification for transmission complete (bit 15) **/
-    m_TransmitDPD->FrameStartHeader = nBytes | 0x8000;
-    // m_TransmitDPD->HdrAddr = m_pTxBuffPhys;
-    // m_TransmitDPD->HdrLength = Ethernet::instance().ethHeaderSize();
-    m_TransmitDPD->DataAddr = static_cast<uint32_t>(
-        destPtr);  // m_pTxBuffPhys; // + m_TransmitDPD->HdrLength;
-    m_TransmitDPD->DataLength =
-        (nBytes /* - m_TransmitDPD->HdrLength */) + (1U << 31U);
+    {
+        LockGuard<Mutex> deviceGuard(m_DeviceLock);
+        if (!m_Active || m_Stopping)
+            return false;
 
-    /** Send the packet **/
-    m_pBase->write32(m_pDPD, regDnListPtr_l);
+        /** Stall the download engine **/
+        if (!issueCommand(cmdStallCtl, 2))
+        {
+            if (!stopDeviceLocked())
+                FATAL("3C90x could not halt DMA after a command timeout.");
+            return false;
+        }
 
-    /** End Stall and Wait for upload to complete. **/
-    issueCommand(cmdStallCtl, 3);
-    while (m_pBase->read32(regDnListPtr_l) != 0)
-        ;
+        // A completion belongs only to the descriptor published below.
+        // Serialised senders should leave no credit, but drain defensively so a
+        // late error status can never release a future caller's buffer.
+        const size_t discardedCompletions = m_TxMutex.drainAvailable();
+        (void) discardedCompletions;
+        m_TxSuccessful = false;
+
+        physical_uintptr_t destPtr = m_pTxBuffPhys;
+        size_t dud = 0;
+        if (Processor::information().getVirtualAddressSpace().isMapped(
+                reinterpret_cast<void *>(buffer)))
+        {
+            Processor::information().getVirtualAddressSpace().getMapping(
+                reinterpret_cast<void *>(buffer), destPtr, dud);
+            destPtr += buffer & 0xFFF;
+        }
+        else
+            MemoryCopy(m_pTxBuffVirt, reinterpret_cast<void *>(buffer), nBytes);
+
+        /** Setup the DPD (download descriptor) **/
+        m_TransmitDPD->DnNextPtr = 0;
+
+        /** Set notification for transmission complete (bit 15) **/
+        m_TransmitDPD->FrameStartHeader = nBytes | 0x8000;
+        // m_TransmitDPD->HdrAddr = m_pTxBuffPhys;
+        // m_TransmitDPD->HdrLength = Ethernet::instance().ethHeaderSize();
+        m_TransmitDPD->DataAddr = static_cast<uint32_t>(
+            destPtr);  // m_pTxBuffPhys; // + m_TransmitDPD->HdrLength;
+        m_TransmitDPD->DataLength =
+            (nBytes /* - m_TransmitDPD->HdrLength */) + (1U << 31U);
+
+        /** Send the packet **/
+        FENCE();
+        m_pBase->write32(m_pDPD, regDnListPtr_l);
+
+        /** End Stall and Wait for upload to complete. **/
+        if (!issueCommand(cmdStallCtl, 3))
+        {
+            if (!stopDeviceLocked())
+                FATAL("3C90x could not halt DMA after a command timeout.");
+            return false;
+        }
+
+        bool downloadComplete = false;
+        for (size_t poll = 0; poll < DownloadPollLimit; ++poll)
+        {
+            if (!m_pBase->read32(regDnListPtr_l))
+            {
+                downloadComplete = true;
+                break;
+            }
+
+            if (!Time::delay(Time::Multiplier::Millisecond))
+                break;
+        }
+        if (!downloadComplete)
+        {
+            ERROR("3C90x: packet download timed out");
+            if (!stopDeviceLocked())
+                FATAL("3C90x could not halt DMA after a download timeout.");
+            return false;
+        }
+    }
 
     // The card may still DMA from the caller's buffer after an interruptible
     // wake. Do not return until the IRQ has transferred completion ownership.
-    return m_TxMutex.acquireForCompletion();
+    if (!m_TxMutex.acquireForCompletion(1, 1, 0))
+    {
+        LockGuard<Mutex> deviceGuard(m_DeviceLock);
+        if (m_Active && !m_Stopping && !stopDeviceLocked())
+            FATAL("3C90x could not halt DMA after a transmit timeout.");
+        return false;
+    }
+
+    LockGuard<Mutex> deviceGuard(m_DeviceLock);
+    return m_Active && !m_Stopping && m_TxSuccessful;
 }
 
 Nic3C90x::Nic3C90x(Network *pDev)
@@ -317,9 +457,9 @@ Nic3C90x::Nic3C90x(Network *pDev)
       m_pRxBuffVirt(0), m_pTxBuffVirt(0), m_pRxBuffPhys(0), m_pTxBuffPhys(0),
       m_RxBuffMR("3c90x-rxbuffer"), m_TxBuffMR("3c90x-txbuffer"), m_pDPD(0),
       m_DPDMR("3c90x-dpd"), m_pUPD(0), m_UPDMR("3c90x-upd"), m_TransmitDPD(0),
-      m_ReceiveUPD(0), m_RxMutex(0), m_TxMutex(0), m_PendingPackets(),
-      m_PendingPacketsLock(), m_IrqId(0), m_ReceiveThread(),
-      m_Initialised(false)
+      m_ReceiveUPD(0), m_TxMutex(0), m_DeviceLock(), m_SendLock(),
+      m_RxConsumerIndex(0), m_IrqId(0), m_Active(false), m_Stopping(false),
+      m_TxSuccessful(false), m_Initialised(false)
 {
     setSpecificType(String("3c90x-card"));
 
@@ -388,7 +528,11 @@ Nic3C90x::Nic3C90x(Network *pDev)
 
     m_CurrentWindow = 255;
 
-    reset();
+    if (!reset())
+    {
+        ERROR("3C90x: controller reset timed out");
+        return;
+    }
 
     switch (readEeprom(0x03))
     {
@@ -432,7 +576,7 @@ Nic3C90x::Nic3C90x(Network *pDev)
          ** LanWorks register
          **/
         else
-            writeEeprom(0x16, XCVR_MAGIC + ((CFG_3C90X_XCVR) &0x000F));
+            writeEeprom(0x16, XCVR_MAGIC + ((CFG_3C90X_XCVR) & 0x000F));
 #endif
     }
     else
@@ -450,7 +594,8 @@ Nic3C90x::Nic3C90x(Network *pDev)
                       << ":" << m_StationInfo.mac[5] << ".");
 
     /* Test if the link is good, if so continue */
-    setWindow(winDiagnostics4);
+    if (setWindow(winDiagnostics4) < 0)
+        return;
     mstat = m_pBase->read16(regMediaStatus_4_w);
     if ((mstat & (1 << 11)) == 0)
     {
@@ -459,7 +604,8 @@ Nic3C90x::Nic3C90x(Network *pDev)
     }
 
     /** Program the MAC address into the station address registers */
-    setWindow(winAddressing2);
+    if (setWindow(winAddressing2) < 0)
+        return;
     m_pBase->write16(
         HOST_TO_BIG16(eeprom[HWADDR_OFFSET + 0]), regStationAddress_2_3w);
     m_pBase->write16(
@@ -476,7 +622,8 @@ Nic3C90x::Nic3C90x(Network *pDev)
      * Uses Media Option command on B revision, Reset Option on non-B
      * revision cards -- same register address
      */
-    setWindow(winTxRxOptions3);
+    if (setWindow(winTxRxOptions3) < 0)
+        return;
     mopt = m_pBase->read16(regResetMediaOptions_3_w);
 
     /** mask out VCO bit that is defined as 10 base FL bit on B-rev cards **/
@@ -545,70 +692,102 @@ Nic3C90x::Nic3C90x(Network *pDev)
         if (linktype == 0x0009)
         {
             if (m_isBrev)
-                WARNING("3C90x: MII External MAC mode only supported on "
-                        "B-revision cards! Falling back to MII mode.");
+                WARNING(
+                    "3C90x: MII External MAC mode only supported on "
+                    "B-revision cards! Falling back to MII mode.");
             linktype = 0x0006;
         }
     }
 
     /** Enable DC converter for 10-BASE-T **/
-    if (linktype == 0x0003)
-        issueCommand(cmdEnableDcConverter, 0);
+    if (linktype == 0x0003 && !issueCommand(cmdEnableDcConverter, 0))
+        return;
 
     /** Set the link to the type we just determined **/
-    setWindow(winTxRxOptions3);
+    if (setWindow(winTxRxOptions3) < 0)
+        return;
     cfg = m_pBase->read32(regInternalConfig_3_l);
     cfg &= ~(0xF << 20);
     cfg |= (linktype << 20);
     m_pBase->write32(cfg, regInternalConfig_3_l);
 
     /** Now that we've set the xcvr type, reset TX and RX, re-enable **/
-    issueCommand(cmdTxReset, 0);
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
-        ;
+    if (!issueCommand(cmdTxReset, 0))
+        return;
 
     if (!m_isBrev)
         m_pBase->write8(0x01, regTxFreeThresh_b);
-    issueCommand(cmdTxEnable, 0);
+    if (!issueCommand(cmdTxEnable, 0))
+        return;
 
     /** reset of the receiver on B-revision cards re-negotiates the link
      * takes several seconds
      */
     if (m_isBrev)
-        issueCommand(cmdRxReset, 0x04);
+    {
+        if (!issueCommand(cmdRxReset, 0x04))
+            return;
+    }
     else
-        issueCommand(cmdRxReset, 0x00);
-    while (m_pBase->read16(regCommandIntStatus_w) & INT_CMDINPROGRESS)
-        ;
+    {
+        if (!issueCommand(cmdRxReset, 0x00))
+            return;
+    }
 
     /** Set the RX filter = receive only individual packets & multicast &
      * broadcast **/
-    issueCommand(cmdSetRxFilter, 0x01 + 0x02 + 0x04);
-    issueCommand(cmdRxEnable, 0);
+    if (!issueCommand(cmdSetRxFilter, 0x01 + 0x02 + 0x04) ||
+        !issueCommand(cmdRxEnable, 0))
+    {
+        return;
+    }
 
-    /** Set indication and interrupt flags, ack any IRQs **/
-    issueCommand(cmdSetInterruptEnable, ENABLED_INTS);
-    issueCommand(cmdSetIndicationEnable, ENABLED_INTS);  // 0x0014);
-    issueCommand(cmdAcknowledgeInterrupt, 0xff);         // 0x661);
+    /** Configure indications but leave the physical source gated. **/
+    if (!issueCommand(cmdSetInterruptEnable, 0) ||
+        !issueCommand(cmdSetIndicationEnable, ENABLED_INTS) ||
+        !issueCommand(cmdAcknowledgeInterrupt, 0xff))
+    {
+        return;
+    }
 
     // Set the location for the UPD
+    FENCE();
     m_pBase->write32(m_pUPD, regUpListPtr_l);
 
-// register the packet queue handler
-#if THREADS
-    Thread *pThread = new Thread(
-        Processor::information().getCurrentThread()->getParent(), &trampoline,
-        reinterpret_cast<void *>(this));
-    pThread->setName("3C90x receive worker");
-    m_ReceiveThread.adopt(pThread);
-#endif
-
     // install the IRQ
-    m_IrqId = Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-        getInterruptNumber(), static_cast<HardIrqHandler *>(this),
-        IrqPolicy::levelHard());
+    m_IrqId = Machine::instance().getIrqManager()->registerPciIrqHandler(
+        static_cast<IrqHandler *>(this), this, IrqPolicy::pciIntxThreaded());
+    if (!m_IrqId)
+    {
+        ERROR("3C90x: could not register its PCI interrupt");
+        if (!quiesce())
+            FATAL("3C90x could not halt DMA after IRQ registration failed.");
+        m_Stopping = true;
+        return;
+    }
+
     NetworkStack::instance().registerDevice(this);
-    m_Initialised = true;
+    bool enabled = false;
+    {
+        LockGuard<Mutex> deviceGuard(m_DeviceLock);
+        m_Active = true;
+        enabled = issueCommand(cmdSetInterruptEnable, ENABLED_INTS);
+        if (enabled)
+            m_Initialised = true;
+        else if (!stopDeviceLocked())
+            FATAL("3C90x could not halt DMA after interrupt enable failed.");
+    }
+
+    if (!enabled)
+    {
+        if (!Machine::instance().getIrqManager()->unregisterHandler(
+                m_IrqId, this))
+        {
+            FATAL("3C90x could not unregister a failed IRQ callback.");
+        }
+        m_IrqId = 0;
+        NetworkStack::instance().deRegisterDevice(this);
+    }
 }
 
 Nic3C90x::~Nic3C90x()
@@ -618,168 +797,215 @@ Nic3C90x::~Nic3C90x()
         return;
     }
 
-    issueCommand(cmdSetInterruptEnable, 0);
-    if (
-        m_IrqId &&
-        !Machine::instance().getIrqManager()->unregisterHandler(
-            m_IrqId, this))
+    {
+        LockGuard<Mutex> deviceGuard(m_DeviceLock);
+        if (!stopDeviceLocked())
+            FATAL("3C90x teardown could not establish a DMA halt boundary.");
+    }
+    if (m_IrqId &&
+        !Machine::instance().getIrqManager()->unregisterHandler(m_IrqId, this))
     {
         FATAL("3C90x teardown could not unregister its IRQ callback.");
     }
     m_IrqId = 0;
 
-    m_ReceiveThread.stop();
     NetworkStack::instance().deRegisterDevice(this);
+    {
+        LockGuard<Mutex> sendGuard(m_SendLock);
+    }
     m_Initialised = false;
 }
 
-int Nic3C90x::trampoline(void *p)
+IrqDisposition Nic3C90x::irq(irq_id_t number)
 {
-    Nic3C90x *pNic = reinterpret_cast<Nic3C90x *>(p);
-    pNic->receiveThread();
-    return 0;
-}
-
-void Nic3C90x::receiveThread()
-{
-    while (true)
+    struct ReceivedPacket
     {
-        if (!m_RxMutex.acquire())
-        {
-            return;
-        }
+        uint8_t *data;
+        size_t length;
+    };
 
-        // When we come here, the UpListPtr register will hold the *next* UPD...
-        // What we want is the one that it used! That's ok, it's not difficult
-        // to find that out...
-        // However, if the next is zero, the IRQ notified us of the *last* UPD
-        // in the list. That needs to be handled properly too.
-        uintptr_t currUpdPhys = 0;
-        {
-            LockGuard<Spinlock> guard(m_PendingPacketsLock);
-            currUpdPhys =
-                reinterpret_cast<uintptr_t>(m_PendingPackets.popFront());
-        }
-        uintptr_t myNum;
-        if (currUpdPhys != 0)
-        {
-            uintptr_t myOffset = (currUpdPhys - m_pUPD);
-            myNum = (myOffset / sizeof(RXD)) - 1;
-        }
-        else
-            myNum = NUM_UPDS - 1;
-        RXD *usedUpd = &m_ReceiveUPD[myNum];
+    constexpr size_t PassLimit = 16;
+    ReceivedPacket receivedPackets[NUM_UPDS] = {};
+    size_t receivedPacketCount = 0;
+    bool handled = false;
+    (void) number;
 
-        if (usedUpd->UpPktStatus & (1 << 14))
-        {
-            // an error occurred
-            ERROR(
-                "3C90x: error, UpPktStatus = " << usedUpd->UpPktStatus << ".");
-            return;
-        }
-
-        size_t packLen = usedUpd->UpPktStatus & 0x1FFF;
-
-        NetworkStack::instance().receive(
-            packLen,
-            reinterpret_cast<uintptr_t>(m_pRxBuffVirt + (myNum * 1536)), this,
-            0);
-
-        // reset the UPD's status so it can be used again
-        usedUpd->UpPktStatus = 0;
-
-        // Reset the location for the UPD, if we're stalling
-        if (currUpdPhys == 0)
-            m_pBase->write32(m_pUPD, regUpListPtr_l);
-    }
-}
-
-bool Nic3C90x::irq(irq_id_t number, InterruptState &state)
-{
-    // disable interrupts
-    issueCommand(cmdSetInterruptEnable, 0);
-
-    while (1)
     {
+        LockGuard<Mutex> deviceGuard(m_DeviceLock);
+        if (m_Stopping)
+            return IrqDisposition::Quiesced;
+        if (!m_Active)
+            return IrqDisposition::NotHandled;
+
         uint16_t status = m_pBase->read16(regCommandIntStatus_w);
-
-        // check that one of the enabled IRQs is triggered
         if ((status & ENABLED_INTS) == 0)
-            break;
+            return IrqDisposition::NotHandled;
 
-        // acknowledge the interrupts
-        issueCommand(cmdAcknowledgeInterrupt, (status & ENABLED_INTS));
-
-        // handle...
-        if (status & INT_UPCOMPLETE)
+        // Indications continue to latch while the source is gated. A cause
+        // which arrives after its acknowledgement is therefore owned by a
+        // later pass.
+        if (!issueCommand(cmdSetInterruptEnable, 0))
         {
-            void *currPhys =
-                reinterpret_cast<void *>(m_pBase->read32(regUpListPtr_l));
-            {
-                LockGuard<Spinlock> guard(m_PendingPacketsLock);
-                m_PendingPackets.pushBack(currPhys);
-            }
-            m_RxMutex.release();
+            if (!stopDeviceLocked())
+                FATAL("3C90x could not quiesce after IRQ gating failed.");
+            return IrqDisposition::Handled;
         }
 
-        if (status & INT_TXCOMPLETE)
+        for (size_t pass = 0; pass < PassLimit; ++pass)
         {
-            m_TxMutex.release();
+            status = m_pBase->read16(regCommandIntStatus_w);
 
-            uint8_t txStatus = m_pBase->read8(regTxStatus_b);
+            // check that one of the enabled IRQs is triggered
+            if ((status & ENABLED_INTS) == 0)
+                break;
+            handled = true;
 
-            // ack it
-            m_pBase->write8(0, regTxStatus_b);
+            // Acknowledge the captured cause before inspecting descriptors so
+            // a completion which arrives during the scan remains latched for
+            // the next bounded pass.
+            if (!issueCommand(
+                    cmdAcknowledgeInterrupt, (status & ENABLED_INTS)))
+            {
+                if (!stopDeviceLocked())
+                    FATAL("3C90x could not quiesce after IRQ ACK failed.");
+                break;
+            }
 
-            if ((txStatus & 0xbf) == 0x80)
-                continue;
+            bool receiveBatch = false;
+            if (status & INT_UPCOMPLETE)
+            {
+                receiveBatch = true;
+                bool wrapped = false;
+                for (size_t scanned = 0; scanned < NUM_UPDS; ++scanned)
+                {
+                    RXD &usedUpd = m_ReceiveUPD[m_RxConsumerIndex];
+                    const uint32_t packetStatus = usedUpd.UpPktStatus;
+                    if (!(packetStatus & UpPacketComplete))
+                        break;
+                    FENCE();
 
-            if (txStatus & 0x02)
-            {
-                ERROR("3C90x: TX Reclaim Error");
-                reset();
+                    const size_t packetLength =
+                        packetStatus & UpPacketLengthMask;
+                    if (packetStatus & UpPacketError)
+                    {
+                        ERROR(
+                            "3C90x: receive error, UpPktStatus = "
+                            << packetStatus << ".");
+                    }
+                    else if (!packetLength || packetLength > 1536)
+                    {
+                        ERROR(
+                            "3C90x: invalid received packet length "
+                            << packetLength);
+                    }
+                    else
+                    {
+                        uint8_t *packet = new uint8_t[packetLength];
+                        MemoryCopy(
+                            packet,
+                            m_pRxBuffVirt + (m_RxConsumerIndex * 1536),
+                            packetLength);
+                        receivedPackets[receivedPacketCount++] =
+                            {packet, packetLength};
+                    }
+
+                    usedUpd.UpPktStatus = 0;
+                    ++m_RxConsumerIndex;
+                    if (m_RxConsumerIndex == NUM_UPDS)
+                    {
+                        m_RxConsumerIndex = 0;
+                        wrapped = true;
+                        break;
+                    }
+                }
+
+                if (wrapped)
+                {
+                    const bool uploadStalled =
+                        issueCommand(cmdStallCtl, 0);
+                    if (uploadStalled)
+                    {
+                        FENCE();
+                        m_pBase->write32(m_pUPD, regUpListPtr_l);
+                    }
+                    if (!uploadStalled || !issueCommand(cmdStallCtl, 1))
+                    {
+                        if (!stopDeviceLocked())
+                        {
+                            FATAL(
+                                "3C90x could not halt DMA after receive-list "
+                                "restart failed.");
+                        }
+                    }
+                }
             }
-            else if (txStatus & 0x04)
+
+            if (status & INT_HOSTERROR)
             {
-                ERROR("3C90x: TX Status Overflow");
-                for (int i = 0; i < 32; i++)
-                    m_pBase->write8(0, regTxStatus_b);
-                issueCommand(cmdTxEnable, 0);
+                ERROR("3C90x: host error IRQ");
+                if (!stopDeviceLocked())
+                    FATAL("3C90x could not halt DMA after a host error.");
             }
-            else if (txStatus & 0x08)
+            else if (status & INT_TXCOMPLETE)
             {
-                ERROR("3C90x: TX Max Collisions");
-                issueCommand(cmdTxEnable, 0);
+                const uint8_t txStatus = m_pBase->read8(regTxStatus_b);
+
+                // TxComplete advances through the status FIFO rather than the
+                // command-register acknowledgement path.
+                m_pBase->write8(0, regTxStatus_b);
+                m_TxSuccessful = (txStatus & 0xbf) == 0x80;
+
+                if (!m_TxSuccessful)
+                {
+                    if (txStatus & 0x02)
+                        ERROR("3C90x: TX Reclaim Error");
+                    else if (txStatus & 0x04)
+                        ERROR("3C90x: TX Status Overflow");
+                    else if (txStatus & 0x08)
+                        ERROR("3C90x: TX Max Collisions");
+                    else if (txStatus & 0x10)
+                        ERROR("3C90x: TX Underrun");
+                    else if (txStatus & 0x20)
+                        ERROR("3C90x: TX Jabber");
+                    else
+                        ERROR(
+                            "3C90x: Internal Error - Incomplete "
+                            "Transmission");
+
+                    if (!stopDeviceLocked())
+                    {
+                        FATAL(
+                            "3C90x could not halt DMA after a transmit "
+                            "error.");
+                    }
+                }
+                else
+                {
+                    m_TxMutex.release();
+                }
             }
-            else if (txStatus & 0x10)
-            {
-                ERROR("3C90x: TX Underrun");
-                reset();
-            }
-            else if (txStatus & 0x20)
-            {
-                ERROR("3C90x: TX Jabber");
-                reset();
-            }
-            else if ((txStatus & 0x80) != 0x80)
-            {
-                ERROR("3C90x: Internal Error - Incomplete Transmission");
-                reset();
-            }
+
+            if (m_Stopping || receiveBatch)
+                break;
         }
 
-        if (status & INT_HOSTERROR)
+        // Re-enable this device source only after every captured cause has
+        // either transferred ownership or forced the device offline.
+        if (m_Active && !m_Stopping &&
+            !issueCommand(cmdSetInterruptEnable, ENABLED_INTS))
         {
-            NOTICE("Host error IRQ");
-            reset();
+            if (!stopDeviceLocked())
+                FATAL("3C90x could not quiesce after IRQ rearm failed.");
         }
-
-        if (status & INT_UPDATESTATS)
-            NOTICE("UpdateStats IRQ");
     }
 
-    // Re-enable interrupts
-    issueCommand(cmdSetInterruptEnable, ENABLED_INTS);
+    for (size_t i = 0; i < receivedPacketCount; ++i)
+    {
+        NetworkStack::instance().receive(
+            receivedPackets[i].length,
+            reinterpret_cast<uintptr_t>(receivedPackets[i].data), this, 0);
+        delete[] receivedPackets[i].data;
+    }
 
     /*
     XL_SEL_WIN(7);
@@ -788,7 +1014,7 @@ bool Nic3C90x::irq(irq_id_t number, InterruptState &state)
         xl_start(ifp);
     */
 
-    return true;
+    return handled ? IrqDisposition::Handled : IrqDisposition::NotHandled;
 }
 
 bool Nic3C90x::setStationInfo(const StationInfo &info)
