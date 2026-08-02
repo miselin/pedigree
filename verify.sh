@@ -776,6 +776,22 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local ata_controller_header=src/modules/drivers/common/ata/AtaController.h
+    local isa_ata_source=src/modules/drivers/common/ata/IsaAtaController.cc
+    local pci_ata_source=src/modules/drivers/common/ata/PciAtaController.cc
+    if ! rg -q \
+            'class AtaController : public ScsiController, public IrqHandler' \
+            "$ata_controller_header" ||
+        rg -q 'registerHard(Isa|Pci)IrqHandler|HardIrqHandler' \
+            "$ata_controller_header" "$isa_ata_source" "$pci_ata_source" ||
+        ! rg -q 'IrqPolicy::edgeThreaded\(\)' "$isa_ata_source" ||
+        ! rg -q 'IrqPolicy::pciIntxThreaded\(\)' "$pci_ata_source" ||
+        ! rg -q 'IrqDisposition::Handled' \
+            "$isa_ata_source" "$pci_ata_source"; then
+        echo "ATA completion escaped its ordinary threaded IRQ boundary."
+        failed=1
+    fi
+
     if ! rg -q 'enum class IrqTrigger' "$irq_manager_header" ||
         ! rg -q 'enum class IrqControllerAck' "$irq_manager_header" ||
         ! rg -q 'enum class IrqLineRelease' "$irq_manager_header" ||
@@ -1020,13 +1036,19 @@ check_wait_api_boundaries()
         failed=1
     fi
 
-    matches=$(rg -n \
+    local threaded_irq_registration_users
+    threaded_irq_registration_users=$(rg -l \
         '(->|\.)register(Isa|Pci)IrqHandler\(' \
         src --glob '*.{cc,h}' \
-        --glob '!src/modules/system/hosted-smoke/**' || true)
-    if [[ -n "$matches" ]]; then
-        echo "A legacy hard callback entered the not-yet-enabled threaded registration API:"
-        echo "$matches"
+        --glob '!src/modules/system/hosted-smoke/**' | sort || true)
+    local expected_threaded_irq_registration_users
+    expected_threaded_irq_registration_users=$(printf '%s\n' \
+        src/modules/drivers/common/ata/IsaAtaController.cc \
+        src/modules/drivers/common/ata/PciAtaController.cc)
+    if [[ "$threaded_irq_registration_users" != \
+        "$expected_threaded_irq_registration_users" ]]; then
+        echo "Threaded IRQ registration escaped its audited production users:"
+        echo "$threaded_irq_registration_users"
         failed=1
     fi
 

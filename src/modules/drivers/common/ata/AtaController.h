@@ -24,7 +24,6 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/types.h"
-#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -34,7 +33,7 @@ class Controller;
 class IoBase;
 
 /** Base class for an ATA controller. */
-class AtaController : public ScsiController, public HardIrqHandler
+class AtaController : public ScsiController, public IrqHandler
 {
   public:
     AtaController(Controller *pDev, int nController = 0)
@@ -55,10 +54,10 @@ class AtaController : public ScsiController, public HardIrqHandler
         const RequestQueue::Request &a, const RequestQueue::Request &b);
 
     // IRQ handler callback.
-    virtual bool irq(irq_id_t number, InterruptState &state)
+    virtual IrqDisposition irq(irq_id_t number)
     {
         NOTICE("AtaController: irq" << Dec << number << Hex << " ignored");
-        return false;
+        return IrqDisposition::NotHandled;
     }
 
     IoBase *m_pCommandRegs;

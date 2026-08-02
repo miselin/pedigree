@@ -30,7 +30,6 @@
 #include "pedigree/kernel/utilities/new"
 
 class Controller;
-class HardIrqHandler;
 
 IsaAtaController::IsaAtaController(Controller *pDev, int nController)
     : AtaController(pDev, nController), m_IrqId(0)
@@ -113,9 +112,9 @@ IsaAtaController::IsaAtaController(Controller *pDev, int nController)
     bool masterInitialised = pMaster->initialise(masterN);
     bool slaveInitialised = pSlave->initialise(slaveN);
 
-    m_IrqId = Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-        getInterruptNumber(), static_cast<HardIrqHandler *>(this),
-        IrqPolicy::levelHard());
+    m_IrqId = Machine::instance().getIrqManager()->registerIsaIrqHandler(
+        getInterruptNumber(), static_cast<IrqHandler *>(this),
+        IrqPolicy::edgeThreaded());
 
     if (!masterInitialised)
     {
@@ -139,7 +138,7 @@ IsaAtaController::~IsaAtaController()
     if (
         m_IrqId &&
         !Machine::instance().getIrqManager()->unregisterHandler(
-            m_IrqId, static_cast<HardIrqHandler *>(this)))
+            m_IrqId, static_cast<IrqHandler *>(this)))
     {
         FATAL("ISA ATA controller could not drain its IRQ handler");
     }
@@ -177,7 +176,7 @@ uint64_t IsaAtaController::executeRequest(
         return 0;
 }
 
-bool IsaAtaController::irq(irq_id_t number, InterruptState &state)
+IrqDisposition IsaAtaController::irq(irq_id_t number)
 {
     for (unsigned int i = 0; i < getNumChildren(); i++)
     {
@@ -185,5 +184,5 @@ bool IsaAtaController::irq(irq_id_t number, InterruptState &state)
         pDisk->irqReceived();
     }
 
-    return true;
+    return IrqDisposition::Handled;
 }

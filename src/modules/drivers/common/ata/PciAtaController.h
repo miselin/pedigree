@@ -22,7 +22,6 @@
 
 #include "AtaController.h"
 #include "pedigree/kernel/machine/types.h"
-#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -59,7 +58,7 @@ class PciAtaController : public AtaController
         uint64_t p6, uint64_t p7, uint64_t p8);
 
     // IRQ handler callback.
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    virtual IrqDisposition irq(irq_id_t number);
 
     IoBase *m_pCommandRegs;
     IoBase *m_pControlRegs;

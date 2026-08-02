@@ -37,8 +37,6 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-class HardIrqHandler;
-
 PciAtaController::PciAtaController(Controller *pDev, int nController)
     : AtaController(pDev, nController), m_pCommandRegs(nullptr),
       m_pControlRegs(nullptr), m_PciControllerType(UnknownController),
@@ -299,9 +297,9 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
     if (getInterruptNumber() != 0xFF)
     {
         irq_id_t irqId =
-            Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-            getInterruptNumber(), static_cast<HardIrqHandler *>(this),
-            IrqPolicy::levelHard());
+            Machine::instance().getIrqManager()->registerPciIrqHandler(
+                static_cast<IrqHandler *>(this), this,
+                IrqPolicy::pciIntxThreaded());
         if (irqId)
         {
             m_IrqIds[m_IrqCount++] = irqId;
@@ -313,9 +311,9 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
     if (primaryIrq != getInterruptNumber())
     {
         irq_id_t irqId =
-            Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-            primaryIrq, static_cast<HardIrqHandler *>(this),
-            IrqPolicy::levelHard());
+            Machine::instance().getIrqManager()->registerIsaIrqHandler(
+                primaryIrq, static_cast<IrqHandler *>(this),
+                IrqPolicy::edgeThreaded());
         if (irqId)
         {
             m_IrqIds[m_IrqCount++] = irqId;
@@ -324,9 +322,9 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
     if (secondaryIrq != getInterruptNumber())
     {
         irq_id_t irqId =
-            Machine::instance().getIrqManager()->registerHardIsaIrqHandler(
-            secondaryIrq, static_cast<HardIrqHandler *>(this),
-            IrqPolicy::levelHard());
+            Machine::instance().getIrqManager()->registerIsaIrqHandler(
+                secondaryIrq, static_cast<IrqHandler *>(this),
+                IrqPolicy::edgeThreaded());
         if (irqId)
         {
             m_IrqIds[m_IrqCount++] = irqId;
@@ -366,7 +364,7 @@ PciAtaController::~PciAtaController()
     {
         if (
             !irqManager->unregisterHandler(
-                m_IrqIds[i], static_cast<HardIrqHandler *>(this)))
+                m_IrqIds[i], static_cast<IrqHandler *>(this)))
         {
             FATAL("PCI ATA controller could not drain an IRQ handler");
         }
@@ -426,7 +424,7 @@ uint64_t PciAtaController::executeRequest(
         return 0;
 }
 
-bool PciAtaController::irq(irq_id_t number, InterruptState &state)
+IrqDisposition PciAtaController::irq(irq_id_t number)
 {
     for (unsigned int i = 0; i < getNumChildren(); i++)
     {
@@ -442,5 +440,5 @@ bool PciAtaController::irq(irq_id_t number, InterruptState &state)
         }
         pDisk->irqReceived();
     }
-    return true;
+    return IrqDisposition::Handled;
 }
