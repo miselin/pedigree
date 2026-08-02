@@ -49,6 +49,18 @@ ProcessorBase::HostedContextSwitchHook g_HostedContextSwitchHook = nullptr;
 #include <ucontext.h>
 #include <unistd.h>
 
+namespace
+{
+void addHostedIrqSignals(sigset_t &set)
+{
+    sigaddset(&set, SIGUSR1);
+    sigaddset(&set, SIGUSR2);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    sigaddset(&set, SIGURG);
+#endif
+}
+}  // namespace
+
 bool ProcessorBase::m_bInterrupts;
 
 #if HAS_SANITIZERS
@@ -387,8 +399,7 @@ void ProcessorBase::setInterrupts(bool bEnable)
         {
             // SS_AUTODISARM lets another Thread or state stack take an IRQ
             // while this physical stack retains its suspended signal frame.
-            sigaddset(&set, SIGUSR1);
-            sigaddset(&set, SIGUSR2);
+            addHostedIrqSignals(set);
         }
 #endif
     }
@@ -396,11 +407,9 @@ void ProcessorBase::setInterrupts(bool bEnable)
     {
         sigemptyset(&set);
 
-        // Only SIGUSR1 and SIGUSR2 are true "interrupts". The rest are all
-        // more like exceptions, which we are okay with triggering even if
-        // bEnable is false.
-        sigaddset(&set, SIGUSR1);
-        sigaddset(&set, SIGUSR2);
+        // Timer signals and the smoke-only synthetic device signal are true
+        // interrupts. Exceptions remain deliverable while IRQs are disabled.
+        addHostedIrqSignals(set);
     }
 
     // We must mark interrupts enabled before we unmask signals, as any pending
@@ -435,8 +444,7 @@ void ProcessorBase::maskInterruptsForSignalReturn()
 {
     sigset_t set;
     sigemptyset(&set);
-    sigaddset(&set, SIGUSR1);
-    sigaddset(&set, SIGUSR2);
+    addHostedIrqSignals(set);
     if (sigprocmask(SIG_BLOCK, &set, nullptr) != 0)
     {
         FATAL_NOLOCK("Hosted signal return failed to mask IRQ signals");

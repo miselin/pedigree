@@ -50,10 +50,18 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
 
     /**
      * Marks a line and rings its owning scheduler in one bounded operation.
-     * Controller dispatch must serialise non-idempotent cookie producers for
-     * each line. A constant cookie is safe for multi-producer work-bit users.
+     * Concurrent or nested producers are coalesced by cookie generation. A
+     * constant cookie is safe for multi-producer work-bit users.
      */
     bool publishFromInterrupt(uint8_t line, size_t cookie);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    using PublicationObservedHook = void (*)(
+        ThreadedIrqDispatcher *, uint8_t, size_t, size_t);
+
+    /** Pauses a publication after its initial pending-cookie observation. */
+    void setPublicationObservedHookForTest(PublicationObservedHook hook);
+#endif
 
     /** Whether an occurrence arrived after the worker claimed its batch. */
     bool hasPending(uint8_t line) const;
@@ -141,6 +149,9 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
     DispatchCallback m_Callback;
     void *m_CallbackContext;
     size_t m_Initialised;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    PublicationObservedHook m_PublicationObservedHook;
+#endif
 
     ThreadedIrqDispatcher(const ThreadedIrqDispatcher &) = delete;
     ThreadedIrqDispatcher &operator=(const ThreadedIrqDispatcher &) = delete;

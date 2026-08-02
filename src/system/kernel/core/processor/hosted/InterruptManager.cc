@@ -51,6 +51,38 @@ namespace __pedigree_interrupt_manager_cc
 #include <string.h>
 }
 
+namespace
+{
+bool isHostedIrqSignal(int which)
+{
+    bool irqSignal = which == SIGUSR1 || which == SIGUSR2;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    irqSignal |= which == SIGURG;
+#endif
+    return irqSignal;
+}
+
+void setHostedIrqSignals(sigset_t &set, bool blocked)
+{
+    if (blocked)
+    {
+        sigaddset(&set, SIGUSR1);
+        sigaddset(&set, SIGUSR2);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        sigaddset(&set, SIGURG);
+#endif
+    }
+    else
+    {
+        sigdelset(&set, SIGUSR1);
+        sigdelset(&set, SIGUSR2);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        sigdelset(&set, SIGURG);
+#endif
+    }
+}
+}  // namespace
+
 HostedInterruptManager HostedInterruptManager::m_Instance;
 
 struct sigaction HostedInterruptManager::m_OriginalActions[MAX_SIGNAL];
@@ -314,9 +346,7 @@ extern "C" void hostedSignalHandler(
 void HostedInterruptManager::signalShim(
     int which, void *siginfo, void *meta, bool fromUserspace)
 {
-    if (
-        (which == SIGUSR1 || which == SIGUSR2) &&
-        !Processor::onHostedExecutionThread())
+    if (isHostedIrqSignal(which) && !Processor::onHostedExecutionThread())
     {
         FATAL_NOLOCK("Hosted IRQ delivered on a non-processor host thread");
         return;
@@ -342,7 +372,7 @@ void HostedInterruptManager::signalShim(
 
     if (!Processor::getInterrupts())
     {
-        if (which == SIGUSR1 || which == SIGUSR2)
+        if (isHostedIrqSignal(which))
         {
             FATAL_NOLOCK("interrupts disabled but interrupts are firing");
         }
@@ -384,16 +414,7 @@ void HostedInterruptManager::signalShim(
     // sigreturn restores this mask atomically with the interrupted context.
     ucontext_t *ctx = interruptedContext;
     sigprocmask(0, nullptr, &ctx->uc_sigmask);
-    if (Processor::getInterrupts())
-    {
-        sigdelset(&ctx->uc_sigmask, SIGUSR1);
-        sigdelset(&ctx->uc_sigmask, SIGUSR2);
-    }
-    else
-    {
-        sigaddset(&ctx->uc_sigmask, SIGUSR1);
-        sigaddset(&ctx->uc_sigmask, SIGUSR2);
-    }
+    setHostedIrqSignals(ctx->uc_sigmask, !Processor::getInterrupts());
 
 #if THREADS
     Processor::maskInterruptsForSignalReturn();
@@ -429,15 +450,14 @@ void HostedInterruptManager::initialiseProcessor()
         ByteSet(&act, 0, sizeof(act));
         act.sa_sigaction = hostedSignalTrampoline;
         sigemptyset(&act.sa_mask);
-        // A synchronous exception may publish deferred return work, but a
-        // timer tick must not suspend that raw publication half-complete.
-        sigaddset(&act.sa_mask, SIGUSR1);
-        sigaddset(&act.sa_mask, SIGUSR2);
+        // A synchronous exception may publish deferred return work, but an
+        // IRQ must not suspend that raw publication half-complete.
+        setHostedIrqSignals(act.sa_mask, true);
         act.sa_flags = SA_SIGINFO | SA_ONSTACK;
-        if (i != SIGUSR1 && i != SIGUSR2)
+        if (!isHostedIrqSignal(i))
         {
-            // Keep the synchronous signal itself re-entrant. Timer IRQs remain
-            // masked until raw fault publication reaches the return tail.
+            // Keep synchronous signals re-entrant. IRQ signals remain masked
+            // until raw fault publication reaches the return tail.
             act.sa_flags |= SA_NODEFER;
         }
 
@@ -458,8 +478,7 @@ void HostedInterruptManager::quiesceProcessor()
 
     sigset_t irqSignals;
     sigemptyset(&irqSignals);
-    sigaddset(&irqSignals, SIGUSR1);
-    sigaddset(&irqSignals, SIGUSR2);
+    setHostedIrqSignals(irqSignals, true);
     sigprocmask(SIG_BLOCK, &irqSignals, nullptr);
 
     // The timers have already been deleted, so no new IRQ signals can be

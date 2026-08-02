@@ -166,6 +166,7 @@ struct DispatcherContext
     DispatcherContext()
         : firstEntered(0), releaseFirst(0), secondEntered(0),
           publisher(nullptr), dispatcher(nullptr), calls(0), failures(0),
+          publicationHooks(0), nestedPublished(false),
           selfShutdownRejected(false), lines(), cookies(), workers()
     {
     }
@@ -177,11 +178,36 @@ struct DispatcherContext
     ThreadedIrqDispatcher *dispatcher;
     Atomic<size_t> calls;
     Atomic<size_t> failures;
+    Atomic<size_t> publicationHooks;
+    bool nestedPublished;
     bool selfShutdownRejected;
     uint8_t lines[2];
     size_t cookies[2];
     Thread *workers[2];
 };
+
+DispatcherContext *g_NestedPublicationContext = nullptr;
+
+void publishNewerFromNestedHook(
+    ThreadedIrqDispatcher *dispatcher, uint8_t line, size_t cookie,
+    size_t pending)
+{
+    DispatcherContext *context = g_NestedPublicationContext;
+    dispatcher->setPublicationObservedHookForTest(nullptr);
+    if (!context || dispatcher != context->dispatcher || line != 1 ||
+        cookie != 2 || pending != 0)
+    {
+        if (context)
+        {
+            context->failures += 1;
+        }
+        return;
+    }
+
+    context->publicationHooks += 1;
+    context->nestedPublished = dispatcher->publishFromInterrupt(line, 3) &&
+                               dispatcher->publishFromInterrupt(line, 4);
+}
 
 void dispatchBatch(void *opaque, uint8_t line, size_t cookie)
 {
@@ -249,9 +275,13 @@ bool threadedDispatcherCoalescing()
     if (firstObserved)
     {
         Processor::setInterrupts(false);
+        g_NestedPublicationContext = &context;
+        dispatcher.setPublicationObservedHookForTest(
+            publishNewerFromNestedHook);
         laterPublished = dispatcher.publishFromInterrupt(1, 2) &&
-                         dispatcher.publishFromInterrupt(1, 3) &&
-                         dispatcher.publishFromInterrupt(1, 4);
+                         context.nestedPublished;
+        dispatcher.setPublicationObservedHookForTest(nullptr);
+        g_NestedPublicationContext = nullptr;
         laterDoorbell =
             PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest();
         Processor::setInterrupts(interruptsWereEnabled);
@@ -274,6 +304,9 @@ bool threadedDispatcherCoalescing()
         firstActive,
         "active worker diagnostics lost the claimed callback window", Test);
     passed &= check(laterPublished, "a coalesced publication was rejected");
+    passed &= check(
+        context.publicationHooks == 1,
+        "the nested producer interleave did not run exactly once", Test);
     passed &= check(secondObserved, "the coalesced worker batch did not enter");
     passed &= check(stopped, "the dispatcher did not drain and join");
     passed &= check(
@@ -304,6 +337,46 @@ bool threadedDispatcherCoalescing()
         NOTICE(
             "HOSTED-WAIT-TEST: PASS "
             "irq-threaded-dispatcher-coalescing");
+    }
+    return passed;
+}
+
+bool hostedSyntheticIrqMasking()
+{
+    constexpr const char *MaskTest = "hosted-synthetic-irq-masking";
+    struct sigaction action = {};
+    const bool actionRead = sigaction(SIGURG, nullptr, &action) == 0;
+    const bool actionMasksIrqs =
+        actionRead && !(action.sa_flags & SA_NODEFER) &&
+        sigismember(&action.sa_mask, SIGUSR1) == 1 &&
+        sigismember(&action.sa_mask, SIGUSR2) == 1 &&
+        sigismember(&action.sa_mask, SIGURG) == 1;
+
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    sigset_t disabledMask;
+    const bool disabledMaskRead =
+        sigprocmask(0, nullptr, &disabledMask) == 0;
+    const bool disabledMasksIrqs =
+        disabledMaskRead && sigismember(&disabledMask, SIGUSR1) == 1 &&
+        sigismember(&disabledMask, SIGUSR2) == 1 &&
+        sigismember(&disabledMask, SIGURG) == 1;
+
+    Processor::setInterrupts(true);
+    sigset_t enabledMask;
+    const bool enabledMaskRead = sigprocmask(0, nullptr, &enabledMask) == 0;
+    const bool enabledUnmasksIrqs =
+        enabledMaskRead && sigismember(&enabledMask, SIGUSR1) == 0 &&
+        sigismember(&enabledMask, SIGUSR2) == 0 &&
+        sigismember(&enabledMask, SIGURG) == 0;
+    Processor::setInterrupts(interruptsWereEnabled);
+
+    const bool passed = check(
+        actionMasksIrqs && disabledMasksIrqs && enabledUnmasksIrqs,
+        "SIGURG did not follow hosted IRQ action and mask semantics", MaskTest);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS hosted-synthetic-irq-masking");
     }
     return passed;
 }
@@ -669,9 +742,8 @@ bool hostedThreadedSignalDelivery()
     const size_t registeredCount =
         manager->snapshotIrqLines(registeredLines, 3);
     const IrqLineDiagnosticSnapshot registered = registeredLines[2];
-    const bool interruptsWereEnabled = Processor::getInterrupts();
-    Processor::setInterrupts(false);
-    const bool raised = id && raise(SIGURG) == 0;
+    const bool irqEnabled = Processor::getInterrupts();
+    const bool raised = id && irqEnabled && raise(SIGURG) == 0;
     IrqLineDiagnosticSnapshot publishedLines[3] = {};
     const size_t publishedCount = manager->snapshotIrqLines(publishedLines, 3);
     const IrqLineDiagnosticSnapshot published = publishedLines[2];
@@ -679,7 +751,6 @@ bool hostedThreadedSignalDelivery()
     const bool deferredUntilHardReturn = handler.calls == 0;
     const bool doorbellPending =
         PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest();
-    Processor::setInterrupts(interruptsWereEnabled);
     const Time::Timestamp deadline =
         Time::getTicks() + 2 * Time::Multiplier::Second;
     while (!handler.calls && Time::getTicks() < deadline)
@@ -771,15 +842,12 @@ bool hostedThreadedStallDiagnostics()
         manager->snapshotIrqLines(registeredLines, 3) == 3;
     const IrqLineDiagnosticSnapshot registered = registeredLines[2];
 
-    const bool interruptsWereEnabled = Processor::getInterrupts();
-    Processor::setInterrupts(false);
-    const bool raised = id && raise(SIGURG) == 0;
+    const bool irqEnabled = Processor::getInterrupts();
+    const bool raised = id && irqEnabled && raise(SIGURG) == 0;
     IrqLineDiagnosticSnapshot publishedLines[3] = {};
     const bool publishedSnapshot =
         manager->snapshotIrqLines(publishedLines, 3) == 3;
     const IrqLineDiagnosticSnapshot published = publishedLines[2];
-    Processor::setInterrupts(interruptsWereEnabled);
-
     const bool entered =
         raised && handler.entered.acquireForCompletion(1, 2, 0);
     IrqLineDiagnosticSnapshot active = {};
@@ -866,12 +934,10 @@ bool hostedHardStageDiagnostics()
     const irq_id_t id = manager->registerHardIsaIrqHandler(
         2, &handler, IrqPolicy::syntheticHard());
 
-    const bool interruptsWereEnabled = Processor::getInterrupts();
-    Processor::setInterrupts(false);
-    const bool raised = id && raise(SIGURG) == 0;
+    const bool irqEnabled = Processor::getInterrupts();
+    const bool raised = id && irqEnabled && raise(SIGURG) == 0;
     IrqLineDiagnosticSnapshot afterLines[3] = {};
     const size_t afterCount = manager->snapshotIrqLines(afterLines, 3);
-    Processor::setInterrupts(interruptsWereEnabled);
     const IrqLineDiagnosticSnapshot after = afterLines[2];
     const bool removed = id && manager->unregisterHandler(id, &handler);
 
@@ -906,12 +972,10 @@ bool hostedDeferredRetiringDiagnostics()
     handler.id = manager->registerHardIsaIrqHandler(
         2, &handler, IrqPolicy::syntheticHard());
 
-    const bool interruptsWereEnabled = Processor::getInterrupts();
-    Processor::setInterrupts(false);
-    const bool raised = handler.id && raise(SIGURG) == 0;
+    const bool irqEnabled = Processor::getInterrupts();
+    const bool raised = handler.id && irqEnabled && raise(SIGURG) == 0;
     IrqLineDiagnosticSnapshot afterLines[3] = {};
     const size_t afterCount = manager->snapshotIrqLines(afterLines, 3);
-    Processor::setInterrupts(interruptsWereEnabled);
     const IrqLineDiagnosticSnapshot after = afterLines[2];
 
     // Deferred self-removal closes future admission before the current hazard
@@ -1330,15 +1394,12 @@ bool hostedNewWorkLifetimeIsolation()
         manager->snapshotIrqLines(reopenedLines, 3) == 3;
     const IrqLineDiagnosticSnapshot reopened = reopenedLines[2];
 
-    const bool interruptsWereEnabled = Processor::getInterrupts();
-    Processor::setInterrupts(false);
-    const bool raised = replacementId && raise(SIGURG) == 0;
+    const bool irqEnabled = Processor::getInterrupts();
+    const bool raised = replacementId && irqEnabled && raise(SIGURG) == 0;
     IrqLineDiagnosticSnapshot publishedLines[3] = {};
     const bool publishedSnapshotted =
         manager->snapshotIrqLines(publishedLines, 3) == 3;
     const IrqLineDiagnosticSnapshot published = publishedLines[2];
-    Processor::setInterrupts(interruptsWereEnabled);
-
     const bool replacementEntered =
         raised && replacement.entered.acquireForCompletion(1, 2, 0);
     IrqLineDiagnosticSnapshot completed = {};
@@ -1508,6 +1569,7 @@ bool picThreadedTriggerPolicy()
 bool runHostedThreadedIrqRegressions()
 {
     bool passed = irqDiagnosticSnapshotPublication();
+    passed &= hostedSyntheticIrqMasking();
     passed &= threadedDispatcherCoalescing();
     passed &= hostedThreadedSignalDelivery();
     passed &= hostedThreadedStallDiagnostics();

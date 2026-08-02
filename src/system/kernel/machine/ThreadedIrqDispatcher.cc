@@ -233,21 +233,43 @@ bool ThreadedIrqDispatcher::Line::publishFromInterrupt(size_t cookie)
         return false;
     }
 
-    // Controller dispatch serialises the one hard producer for each physical
-    // line. The worker is the only consumer and can only exchange the value
-    // to zero, so this store cannot overwrite a newer producer publication.
-    const size_t pending = __atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE);
-    if (!pending || generationReached(cookie, pending))
+    size_t pending = __atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    bool firstAttempt = true;
+#endif
+    while (!pending || generationReached(cookie, pending))
     {
         if (!pending)
         {
-            // Diagnostic only: a claim racing this sample can
-            // conservatively retain the preceding batch's start time.
+            // Publish the diagnostic timestamp before the release sequence
+            // which makes this batch visible to the worker.
             __atomic_store_n(
                 &m_PendingSinceTimestamp, static_cast<size_t>(Time::getTicks()),
                 __ATOMIC_RELEASE);
         }
-        __atomic_store_n(&m_PendingCookie, cookie, __ATOMIC_RELEASE);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        if (firstAttempt)
+        {
+            PublicationObservedHook hook = __atomic_load_n(
+                &m_Owner->m_PublicationObservedHook, __ATOMIC_ACQUIRE);
+            if (hook)
+            {
+                hook(m_Owner, m_Line, cookie, pending);
+            }
+        }
+        firstAttempt = false;
+#endif
+
+        // A signal can nest another producer after the load above. Only
+        // replace the exact value observed, so an older outer publication
+        // cannot overwrite the newer nested cookie.
+        if (__atomic_compare_exchange_n(
+                &m_PendingCookie, &pending, cookie, false, __ATOMIC_RELEASE,
+                __ATOMIC_ACQUIRE))
+        {
+            break;
+        }
     }
 
     // The worker is pinned to this scheduler. Remote delivery can still
@@ -474,12 +496,24 @@ ThreadedIrqDispatcher::ThreadedIrqDispatcher(
     void *callbackContext)
     : m_Lines(), m_Name(name), m_LineCount(lineCount), m_Callback(callback),
       m_CallbackContext(callbackContext), m_Initialised(false)
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+      ,
+      m_PublicationObservedHook(nullptr)
+#endif
 {
     if (m_LineCount > MaxLines)
     {
         m_LineCount = MaxLines;
     }
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void ThreadedIrqDispatcher::setPublicationObservedHookForTest(
+    PublicationObservedHook hook)
+{
+    __atomic_store_n(&m_PublicationObservedHook, hook, __ATOMIC_RELEASE);
+}
+#endif
 
 ThreadedIrqDispatcher::~ThreadedIrqDispatcher()
 {
