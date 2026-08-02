@@ -88,6 +88,16 @@ void observeStateTransition(
 
 namespace
 {
+#if HOSTED
+// The raw userspace return path needs one stack for its ordinary tail and a
+// second for the first kernel Event it may dispatch. Deeper Events are already
+// ordinary thread work and retain the existing lazy allocation behaviour.
+constexpr size_t HostedPreallocatedUserStateLevel = 2;
+static_assert(
+    MAX_NESTED_EVENTS > HostedPreallocatedUserStateLevel,
+    "Hosted return-tail state levels exceed the Thread nesting limit");
+#endif
+
 class CpuTimeSample
 {
   public:
@@ -174,9 +184,11 @@ Thread::Thread(
     if (requestedStack || semiUser)
     {
         // A hosted user IRQ reaches its return tail with allocation forbidden.
-        // Preallocate every nested physical stack before the Thread is visible
-        // to the scheduler, including the tail's own event-delivery level.
-        for (size_t level = 1; level < MAX_NESTED_EVENTS; ++level)
+        // Guarantee the tail and its first Event stack before the Thread is
+        // visible to the scheduler without reserving every possible nesting.
+        for (
+            size_t level = 1;
+            level <= HostedPreallocatedUserStateLevel; ++level)
         {
             allocateStackAtLevel(level);
             m_StateLevels[level].m_InhibitMask =
@@ -246,7 +258,9 @@ Thread::Thread(Process *pParent, SyscallState &state, bool delayedStart)
     // Initialise state level zero
     allocateStackAtLevel(0);
 #if HOSTED
-    for (size_t level = 1; level < MAX_NESTED_EVENTS; ++level)
+    for (
+        size_t level = 1;
+        level <= HostedPreallocatedUserStateLevel; ++level)
     {
         allocateStackAtLevel(level);
         m_StateLevels[level].m_InhibitMask =
@@ -668,6 +682,7 @@ SchedulerState *Thread::pushState()
 #if HOSTED
     if (
         m_StateLevels[0].m_pKernelStack &&
+        nextLevel <= HostedPreallocatedUserStateLevel &&
         !m_StateLevels[nextLevel].m_pKernelStack)
     {
         FATAL_NOLOCK(
