@@ -718,6 +718,8 @@ SchedulerState *Thread::pushState()
 #endif
 
     SchedulerState *previousState = m_StateLevels[previousLevel].m_State;
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
     {
         LockGuard<Spinlock> guard(m_Lock);
         if (m_nStateLevel != previousLevel)
@@ -734,13 +736,22 @@ SchedulerState *Thread::pushState()
         __atomic_store_n(&m_nStateLevel, nextLevel, __ATOMIC_RELEASE);
     }
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    observeStateTransition(
+        StatePushAfterPublish, this, previousLevel, nextLevel);
+#endif
+
     setKernelStack();
+    Processor::setInterrupts(interruptsWereEnabled);
 
     return previousState;
 }
 
 void Thread::popState(bool clean)
 {
+    const bool interruptsWereEnabled = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+
     const size_t origStateLevel =
         __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
 
@@ -748,6 +759,7 @@ void Thread::popState(bool clean)
     {
         ERROR("Thread: Potential error: popStack() called with state level 0!");
         ERROR("Thread: (ignore this if longjmp has been called)");
+        Processor::setInterrupts(interruptsWereEnabled);
         return;
     }
 
@@ -769,17 +781,19 @@ void Thread::popState(bool clean)
         __atomic_store_n(&m_nStateLevel, nextLevel, __ATOMIC_RELEASE);
     }
 
-    setKernelStack();
-
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     observeStateTransition(
         StatePopAfterPublish, this, origStateLevel, nextLevel);
 #endif
 
+    setKernelStack();
+
     if (clean)
     {
         cleanStateLevel(origStateLevel);
     }
+
+    Processor::setInterrupts(interruptsWereEnabled);
 }
 
 void Thread::abandonCurrentState(bool clean)
@@ -1288,6 +1302,8 @@ void hostedStatePublicationHook(
     if (
         thread != context->thread ||
         thread->getStateLevel() != expectedVisibleLevel ||
+        (window != Thread::StatePushBeforePublish &&
+         Processor::getInterrupts()) ||
         !thread->sendEvent(context->event))
     {
         context->failures += 1;
@@ -1398,9 +1414,6 @@ bool Thread::runHostedStatePublicationRegression()
     HostedPrequeuedEvent event;
     HostedStatePublicationContext context(this, &event);
     const size_t initialStateLevel = getStateLevel();
-    const bool interruptsWereEnabled = Processor::getInterrupts();
-    Processor::setInterrupts(false);
-
     __atomic_store_n(
         &g_StatePublicationContext, &context, __ATOMIC_RELEASE);
     setStateTransitionHook(hostedStatePublicationHook);
@@ -1420,14 +1433,13 @@ bool Thread::runHostedStatePublicationRegression()
         __ATOMIC_RELEASE);
 
     const bool publishedSafely =
-        pushed && getStateLevel() == initialStateLevel && context.calls == 2 &&
-        context.failures == 0 && event.pendingCount() == 2 &&
+        pushed && getStateLevel() == initialStateLevel && context.calls == 3 &&
+        context.failures == 0 && event.pendingCount() == 3 &&
         hasEvent(&event);
     cullEvent(&event);
     const bool deliveriesCulled =
         event.pendingCount() == 0 && !hasEvent(&event);
 
-    Processor::setInterrupts(interruptsWereEnabled);
     return publishedSafely && deliveriesCulled;
 }
 
@@ -1446,6 +1458,7 @@ bool Thread::runHostedStateCleanupRegression()
     AtomicStateCleanupRecord secondRecord;
     DeferredScopeRecord normalRecord;
     DeferredScopeRecord baseRecord;
+    DeferredScopeRecord terminationRecord;
     AtomicStateCleanupRecord levelRecord;
 
     armStateCleanup(
@@ -1455,6 +1468,8 @@ bool Thread::runHostedStateCleanupRegression()
         firstRecord, hostedStateCleanupCallback, &firstItem);
     armAtomicStateCleanup(
         secondRecord, hostedStateCleanupCallback, &secondItem);
+    const bool cleanupDoesNotDeferTermination =
+        !isTerminationDeferred();
     retireDeferredScopesAfter(checkpoint);
 
     const bool checkpointPassed =
@@ -1484,8 +1499,15 @@ bool Thread::runHostedStateCleanupRegression()
         baseRecord.armed && !levelRecord.armed;
     disarmStateCleanup(baseRecord);
 
-    return checkpointPassed && normalPassed && levelPassed &&
-           order.count == 3;
+    registerDeferredScope(terminationRecord, true, false);
+    const bool explicitTerminationDefers = isTerminationDeferred();
+    unregisterDeferredScope(terminationRecord);
+    const bool explicitTerminationRetired =
+        !isTerminationDeferred() && !terminationRecord.armed;
+
+    return cleanupDoesNotDeferTermination && checkpointPassed && normalPassed &&
+           levelPassed && explicitTerminationDefers &&
+           explicitTerminationRetired && order.count == 3;
 }
 
 void Thread::withDeferredScopeLockForTest(DeferredScopeLockHook hook)

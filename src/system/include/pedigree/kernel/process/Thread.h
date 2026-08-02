@@ -355,26 +355,11 @@ class EXPORTED_PUBLIC Thread
     bool takeDeferredSubsystemException(
         size_t &type, uintptr_t &faultAddress, uintptr_t &errorCode);
 
-    /** True while stack-owned lifetime state must be retired before teardown. */
+    /** True while an explicit terminal-teardown deferral is active. */
     bool isTerminationDeferred() const
     {
-        if (
-            __atomic_load_n(
-                &m_TerminationDeferralDepth, __ATOMIC_ACQUIRE) != 0)
-        {
-            return true;
-        }
-
-        for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level)
-        {
-            if (
-                __atomic_load_n(
-                    &m_pDeferredScopes[level], __ATOMIC_ACQUIRE))
-            {
-                return true;
-            }
-        }
-        return false;
+        return __atomic_load_n(
+                   &m_TerminationDeferralDepth, __ATOMIC_ACQUIRE) != 0;
     }
 
     /** Returns the thread's debug state. */
@@ -430,6 +415,7 @@ class EXPORTED_PUBLIC Thread
     enum StateTransitionWindow
     {
         StatePushBeforePublish,
+        StatePushAfterPublish,
         StatePopAfterPublish,
     };
     using StateTransitionHook = void (*)(

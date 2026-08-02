@@ -111,6 +111,7 @@ void HostedSyscallManager::syscall(SyscallState &syscallState)
                     "Processor-state restoration requested on hosted.");
                 return;
             case JumpToUserspace:
+                Processor::setInterrupts(false);
                 Processor::information()
                     .getCurrentThread()
                     ->abandonAllStates();
@@ -118,9 +119,11 @@ void HostedSyscallManager::syscall(SyscallState &syscallState)
                     nullptr, action.state.getInstructionPointer(),
                     action.state.getStackPointer());
             case RebootSystem:
+                Processor::setInterrupts(false);
                 Processor::information()
                     .getCurrentThread()
                     ->abandonAllStates();
+                Processor::setInterrupts(true);
                 system_reboot();
                 return;
             case NoPostSyscallAction:

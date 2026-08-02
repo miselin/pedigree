@@ -330,6 +330,11 @@ void HostedInterruptManager::signalShim(
     if (pSignalThread)
     {
         frameCleanup.stateLevel = pSignalThread->enterHostedSignalHandler();
+        if (fromUserspace && frameCleanup.stateLevel)
+        {
+            FATAL_NOLOCK(
+                "Hosted userspace resumed with nested kernel state");
+        }
         pSignalThread->armAtomicStateCleanup(
             frameCleanup.cleanup, abandonHostedSignalFrame, &frameCleanup);
     }

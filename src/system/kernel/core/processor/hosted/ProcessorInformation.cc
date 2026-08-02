@@ -19,7 +19,6 @@
 
 #include "pedigree/kernel/processor/hosted/ProcessorInformation.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
@@ -38,6 +37,32 @@ using namespace __pedigree_hosted;
 #endif
 
 extern void *safe_stack_top;
+
+namespace
+{
+enum class HostedSignalStackMode : size_t
+{
+    Unprobed,
+    Autodisarm,
+    ExplicitHandoff,
+};
+
+size_t g_HostedSignalStackMode =
+    static_cast<size_t>(HostedSignalStackMode::Unprobed);
+
+HostedSignalStackMode hostedSignalStackMode()
+{
+    return static_cast<HostedSignalStackMode>(__atomic_load_n(
+        &g_HostedSignalStackMode, __ATOMIC_ACQUIRE));
+}
+
+int desiredHostedSignalStackFlags()
+{
+    return hostedSignalStackMode() == HostedSignalStackMode::ExplicitHandoff
+               ? 0
+               : SS_AUTODISARM;
+}
+}  // namespace
 
 HostedProcessorInformation::HostedProcessorInformation(
     ProcessorId processorId, uint8_t apicId)
@@ -112,16 +137,46 @@ static void installHostedSignalStack(stack_t &stack)
         result = trickSigaltstack(&stack);
     }
 
-    if (result >= 0)
+    if (
+        result < 0 && errno == EINVAL &&
+        (stack.ss_flags & SS_AUTODISARM) &&
+        hostedSignalStackMode() == HostedSignalStackMode::Unprobed)
     {
-        return;
+        // Docker Desktop's amd64 execution layer can reject AUTODISARM even
+        // when its Linux VM kernel supports it. Pedigree already installs the
+        // selected Thread/state stack at every context handoff, including via
+        // the scratch stack when the suspended stack is still active. That is
+        // the explicit equivalent needed to keep nested frames disjoint.
+        stack.ss_flags &= ~SS_AUTODISARM;
+        result = sigaltstack(&stack, nullptr);
+        if (result < 0 && errno == EPERM)
+        {
+            result = trickSigaltstack(&stack);
+        }
+        if (result >= 0)
+        {
+            __atomic_store_n(
+                &g_HostedSignalStackMode,
+                static_cast<size_t>(
+                    HostedSignalStackMode::ExplicitHandoff),
+                __ATOMIC_RELEASE);
+            WARNING(
+                "Hosted signal stacks are using explicit scheduler "
+                "handoff because SS_AUTODISARM is unavailable");
+            return;
+        }
     }
 
-    if (errno == EINVAL && !(stack.ss_flags & SS_DISABLE))
+    if (result >= 0)
     {
-        panic(
-            "Hosted requires Linux SS_AUTODISARM support for safe "
-            "scheduler preemption");
+        if (stack.ss_flags & SS_AUTODISARM)
+        {
+            __atomic_store_n(
+                &g_HostedSignalStackMode,
+                static_cast<size_t>(HostedSignalStackMode::Autodisarm),
+                __ATOMIC_RELEASE);
+        }
+        return;
     }
 
     FATAL(
@@ -131,9 +186,20 @@ static void installHostedSignalStack(stack_t &stack)
 
 void HostedProcessorInformation::setKernelStack(uintptr_t stack)
 {
+    sigset_t blockedSignals;
+    sigset_t previousSignals;
+    sigfillset(&blockedSignals);
+    if (sigprocmask(SIG_SETMASK, &blockedSignals, &previousSignals) < 0)
+    {
+        FATAL("Hosted failed to mask signals for a scheduler stack handoff");
+    }
+
+    // Keep every catchable asynchronous handler off the shared scratch stack,
+    // and do not expose the new registered stack before its metadata agrees.
     if (stack)
     {
         void *new_sp = reinterpret_cast<void *>(stack - KERNEL_STACK_SIZE);
+        const int desiredFlags = desiredHostedSignalStackFlags();
         stack_t s;
         if (sigaltstack(nullptr, &s) < 0)
         {
@@ -141,12 +207,14 @@ void HostedProcessorInformation::setKernelStack(uintptr_t stack)
         }
         if (
             s.ss_sp != new_sp || s.ss_size != KERNEL_STACK_SIZE ||
-            (s.ss_flags & (SS_DISABLE | SS_AUTODISARM)) != SS_AUTODISARM)
+            (s.ss_flags & SS_DISABLE) ||
+            (s.ss_flags & SS_AUTODISARM) !=
+                (desiredFlags & SS_AUTODISARM))
         {
             ByteSet(&s, 0, sizeof(s));
             s.ss_sp = new_sp;
             s.ss_size = KERNEL_STACK_SIZE;
-            s.ss_flags = SS_AUTODISARM;
+            s.ss_flags = desiredFlags;
             installHostedSignalStack(s);
         }
     }
@@ -166,6 +234,13 @@ void HostedProcessorInformation::setKernelStack(uintptr_t stack)
     }
 
     m_KernelStack = stack;
+
+    const int handoffErrno = errno;
+    if (sigprocmask(SIG_SETMASK, &previousSignals, nullptr) < 0)
+    {
+        FATAL("Hosted failed to restore signals after a scheduler stack handoff");
+    }
+    errno = handoffErrno;
 }
 
 uintptr_t HostedProcessorInformation::getKernelStack() const

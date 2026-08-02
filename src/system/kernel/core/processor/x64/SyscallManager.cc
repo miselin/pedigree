@@ -161,6 +161,7 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
             case JumpToUserspace:
             {
                 tracker.finish();
+                Processor::setInterrupts(false);
                 Thread *current =
                     Processor::information().getCurrentThread();
                 current->abandonAllStates();
@@ -172,9 +173,11 @@ void X64SyscallManager::syscall(SyscallState &syscallState)
             }
             case RebootSystem:
                 tracker.finish();
+                Processor::setInterrupts(false);
                 Processor::information()
                     .getCurrentThread()
                     ->abandonAllStates();
+                Processor::setInterrupts(true);
                 system_reboot();
                 return;
             case NoPostSyscallAction:
