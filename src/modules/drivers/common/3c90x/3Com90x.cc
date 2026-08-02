@@ -937,7 +937,8 @@ IrqDisposition Nic3C90x::irq(irq_id_t number)
                             "3C90x: receive error, UpPktStatus = "
                             << packetStatus << ".");
                     }
-                    else if (!packetLength || packetLength > 1536)
+                    else if (!packetLength ||
+                             packetLength > ReceiveSlotSize)
                     {
                         ERROR(
                             "3C90x: invalid received packet length "
@@ -945,10 +946,13 @@ IrqDisposition Nic3C90x::irq(irq_id_t number)
                     }
                     else
                     {
-                        uint8_t *packet = new uint8_t[packetLength];
+                        uint8_t *packet =
+                            m_ReceiveStaging +
+                            (receivedPacketCount * ReceiveSlotSize);
                         MemoryCopy(
                             packet,
-                            m_pRxBuffVirt + (m_RxConsumerIndex * 1536),
+                            m_pRxBuffVirt +
+                                (m_RxConsumerIndex * ReceiveSlotSize),
                             packetLength);
                         receivedPackets[receivedPacketCount++] =
                             {packet, packetLength};
@@ -1049,7 +1053,6 @@ IrqDisposition Nic3C90x::irq(irq_id_t number)
         NetworkStack::instance().receive(
             receivedPackets[i].length,
             reinterpret_cast<uintptr_t>(receivedPackets[i].data), this, 0);
-        delete[] receivedPackets[i].data;
     }
 
     /*

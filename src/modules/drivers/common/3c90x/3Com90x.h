@@ -20,6 +20,7 @@
 #ifndef NIC_3C90X_H
 #define NIC_3C90X_H
 
+#include "3Com90xConstants.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/machine/types.h"
@@ -61,6 +62,8 @@ class Nic3C90x : public Network, public IrqHandler
     IoBase *m_pBase;
 
   private:
+    static constexpr size_t ReceiveSlotSize = 1536;
+
     bool issueCommand(int cmd, int param);
 
     int setWindow(int window);
@@ -114,6 +117,11 @@ class Nic3C90x : public Network, public IrqHandler
 
     TXD *m_TransmitDPD;
     RXD *m_ReceiveUPD;
+
+    // The threaded IRQ worker is serialized for this line, so one device-owned
+    // batch can carry packets across the device-lock boundary without invoking
+    // the allocator while that lock is held.
+    uint8_t m_ReceiveStaging[NUM_UPDS * ReceiveSlotSize];
 
     Nic3C90x(const Nic3C90x &);
     void operator=(const Nic3C90x &);
