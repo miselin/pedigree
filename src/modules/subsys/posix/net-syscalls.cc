@@ -88,13 +88,23 @@ static void releaseTrackedUnixSocket(File *file)
 
 static Thread *beginInterruptibleSocketCall()
 {
+#if defined(PEDIGREE_EXTERNAL_SOURCE)
+    // The standalone syscall harness has no Pedigree Thread or event source.
+    return nullptr;
+#else
     Thread *thread = Processor::information().getCurrentThread();
     thread->clearInterruption();
     return thread;
+#endif
 }
 
 bool finishInterruptibleSocketCall(Thread *thread, ssize_t result)
 {
+#if defined(PEDIGREE_EXTERNAL_SOURCE)
+    (void) thread;
+    (void) result;
+    return true;
+#else
     const bool interrupted =
         thread->getInterruptionReason() == Thread::InterruptedBySignal;
     thread->clearInterruption();
@@ -106,6 +116,7 @@ bool finishInterruptibleSocketCall(Thread *thread, ssize_t result)
     }
 
     return true;
+#endif
 }
 
 /// Pass is_create = true to indicate that the operation is permitted to

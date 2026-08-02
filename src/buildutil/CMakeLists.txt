@@ -402,6 +402,7 @@ add_executable(unixsockets
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/net-syscalls.cc
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/poll-syscalls.cc
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/util.cc)
+target_compile_definitions(unixsockets PRIVATE PEDIGREE_EXTERNAL_SOURCE=1)
 target_link_libraries(unixsockets PRIVATE
     lwip posix vfs utility kernel Threads::Threads)
 endif ()
