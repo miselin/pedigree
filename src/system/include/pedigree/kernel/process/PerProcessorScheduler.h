@@ -76,6 +76,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
         \note This calls Thread::~Thread itself! */
     void killCurrentThread(Spinlock *pLock = 0) NORETURN;
 
+    /** Selects the registered idle owner when the current Thread exits. */
+    void requestCurrentThreadExitToIdle();
+
     /** SchedulerTimerHandler callback. */
     void timer(uint64_t delta, InterruptState &state);
 
@@ -129,6 +132,8 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
 
     /** Consumes terminal state at an IRQ-enabled ordinary thread boundary. */
     void serviceTerminalStateAtThreadBoundary();
+
+    void killCurrentThreadImpl(Spinlock *pLock, bool transferToIdle) NORETURN;
 
     /** Runs a raw-frame exception through its subsystem in ordinary context. */
     void serviceDeferredSubsystemException(InterruptState &state);

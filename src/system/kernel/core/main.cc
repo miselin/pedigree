@@ -528,6 +528,12 @@ void _cxx_main(BootstrapStruct_t &bsInf)
 
     EMIT_IF(THREADS)
     {
+        // Shutdown joins need this Thread to enter an ordinary WaitQueue and
+        // be republished when a worker exits. An idle Thread is only a fallback
+        // and never commits Sleeping, so retire that role before the first
+        // join rather than leaving its wake behind unrelated ready workers.
+        Processor::information().getScheduler().setIdle(nullptr);
+
         // A module can request shutdown from its entry point. The loader still
         // has bookkeeping and initrd cleanup to finish after that request, so
         // module teardown must not race it.
@@ -536,14 +542,9 @@ void _cxx_main(BootstrapStruct_t &bsInf)
         NOTICE("HOSTED-WAIT-TEST: PASS module-loader-shutdown-join");
 #endif
 
-        // The zombie worker must be joined while this thread can still act as
-        // the scheduler's idle thread. Its destructor is too late: global
-        // teardown runs after interrupts and the scheduler are unavailable.
+        // The zombie worker must be joined before global teardown disables
+        // interrupts and destroys the scheduler.
         ZombieQueue::instance().destroy();
-
-        // Shut down is beginning - we no longer have a valid idle thread as
-        // this is where we will manage the remainder of the shutdown from.
-        Processor::information().getScheduler().setIdle(nullptr);
     }
 
     NOTICE("Resetting...");
@@ -612,6 +613,9 @@ void system_reset()
 void system_reboot()
 {
     WARNING("System shutting down...");
+    Process *currentProcess =
+        Processor::information().getCurrentThread()->getParent();
+    Process *kernelProcess = Scheduler::instance().getKernelProcess();
     const size_t shutdownProcessCount = Scheduler::instance().getNumProcesses();
     for (size_t i = shutdownProcessCount; i > 0; --i)
     {
@@ -621,8 +625,9 @@ void system_reboot()
             continue;
         }
         Subsystem *subsystem = process->getSubsystem();
-        if (process.get() ==
-            Processor::information().getCurrentThread()->getParent())
+        if (
+            process.get() == currentProcess ||
+            process.get() == kernelProcess)
         {
             continue;
         }
@@ -637,12 +642,12 @@ void system_reboot()
         }
         else
         {
-            Scheduler::instance().removeProcess(process.get());
+            FATAL(
+                "Shutdown found a non-kernel Process without a teardown "
+                "Subsystem");
         }
     }
 
-    Process *currentProcess =
-        Processor::information().getCurrentThread()->getParent();
     while (true)
     {
         Scheduler::ProcessLease processToReap;
@@ -650,8 +655,10 @@ void system_reboot()
         for (size_t i = 0; i < processCount; ++i)
         {
             Scheduler::ProcessLease candidate;
-            if (Scheduler::instance().acquireProcess(candidate, i) &&
-                candidate.get() != currentProcess)
+            if (
+                Scheduler::instance().acquireProcess(candidate, i) &&
+                candidate.get() != currentProcess &&
+                candidate.get() != kernelProcess)
             {
                 processToReap = pedigree_std::move(candidate);
                 break;
@@ -670,18 +677,34 @@ void system_reboot()
         }
 
         Process *processIdentity = processToReap.get();
-        ZombieQueue::instance().addObject(new ZombieProcess(processIdentity));
+        Process::ReaperClaim reaper = processToReap->tryClaimReaper();
+        if (reaper)
+        {
+            reaper.publish();
+        }
         processToReap.reset();
         Scheduler::instance().waitUntilProcessRemoved(processIdentity);
     }
 
-    system_reset();
-#if HOSTED
-    while (true)
+    Subsystem *currentSubsystem = currentProcess->getSubsystem();
+    if (!currentSubsystem)
     {
-        Scheduler::instance().yield();
+        FATAL("System reboot requires a userspace shutdown coordinator");
     }
-#endif
+
+    // The reaper owns the Process before its final Thread leaves the stack.
+    // Keeping the kernel Process registered preserves the final parent/adopter
+    // topology until off-stack completion is published.
+    Process::ReaperClaim shutdownReaper = currentProcess->tryClaimReaper();
+    if (!shutdownReaper)
+    {
+        FATAL("Shutdown coordinator Process already has a reaper");
+    }
+    shutdownReaper.publish();
+    system_reset();
+    Processor::information().getScheduler().requestCurrentThreadExitToIdle();
+    currentSubsystem->exit(0);
+    FATAL("Shutdown coordinator returned from process exit");
 }
 
 const char *SlamRecovery::getMemoryPressureDescription()

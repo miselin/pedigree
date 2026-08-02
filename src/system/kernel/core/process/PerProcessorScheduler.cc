@@ -1003,6 +1003,28 @@ void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
 void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
 {
     Thread *pThread = Processor::information().getCurrentThread();
+    const bool transferToIdle = pThread && pThread->m_ExitToIdle;
+    if (pThread)
+    {
+        pThread->m_ExitToIdle = false;
+    }
+    killCurrentThreadImpl(pLock, transferToIdle);
+}
+
+void PerProcessorScheduler::requestCurrentThreadExitToIdle()
+{
+    Thread *pThread = Processor::information().getCurrentThread();
+    if (!pThread || !m_pIdleThread || pThread == m_pIdleThread)
+    {
+        panic("Current thread has no distinct idle shutdown owner!");
+    }
+    pThread->m_ExitToIdle = true;
+}
+
+void PerProcessorScheduler::killCurrentThreadImpl(
+    Spinlock *pLock, bool transferToIdle)
+{
+    Thread *pThread = Processor::information().getCurrentThread();
 
     // No C++ destructors run after this call. Retire stack-owned lifetime
     // records while their abandoned stack is still mapped.
@@ -1033,7 +1055,14 @@ void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
 
     // Get another thread ready to schedule.
     // This will also get the lock for the returned thread.
-    Thread *pNextThread = m_pSchedulingAlgorithm->getNext(pThread);
+    Thread *pNextThread =
+        transferToIdle ? m_pIdleThread
+                       : m_pSchedulingAlgorithm->getNext(pThread);
+
+    if (transferToIdle && (!pNextThread || pNextThread == pThread))
+    {
+        panic("Current thread has no distinct idle shutdown owner!");
+    }
 
     if (pNextThread == 0 && m_pIdleThread == 0)
     {
@@ -1053,7 +1082,11 @@ void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
     void *kernelStack = pNextThread->getKernelStack();
     Processor::information().setKernelStack(
         reinterpret_cast<uintptr_t>(kernelStack));
-    Processor::switchAddressSpace(*pNextThread->getParent()->getAddressSpace());
+    EMIT_IF(!HOSTED)
+    {
+        Processor::switchAddressSpace(
+            *pNextThread->getParent()->getAddressSpace());
+    }
     Processor::setTlsBase(pNextThread->getTlsBase());
 
     pThread->trackTime(CpuTimeMode::Kernel);
@@ -1069,6 +1102,20 @@ void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
 
 void PerProcessorScheduler::deleteThread(Thread *pThread)
 {
+#if HOSTED
+    // A hosted user Thread is still ASan's active fiber until the assembly
+    // handoff has moved onto safe_stack. Unmapping its address space earlier
+    // makes ASan—and potentially host signal machinery—observe a live stack
+    // disappearing underneath the no-return transition.
+    Thread *replacement = Processor::information().getCurrentThread();
+    if (!replacement || replacement == pThread)
+    {
+        FATAL("Hosted Thread deletion has no replacement address space");
+    }
+    Processor::switchAddressSpace(
+        *replacement->getParent()->getAddressSpace());
+#endif
+
     Process *pProcess = pThread->getParent();
     // This runs on a temporary handoff stack before the replacement Thread
     // has retired any WaitQueue record it resumed from. Blocking here would

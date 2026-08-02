@@ -857,6 +857,9 @@ class EXPORTED_PUBLIC Thread
     /** Our current status. Sleeping is reserved for an active WaitQueue. */
     volatile Status m_Status = Ready;
 
+    /** One-shot terminal handoff used by the orderly shutdown coordinator. */
+    bool m_ExitToIdle = false;
+
     /** Our exit code. */
     int m_ExitCode = 0;
 

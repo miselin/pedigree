@@ -38,7 +38,6 @@ class ZombieObject
 class ZombieProcess : public ZombieObject
 {
   public:
-    ZombieProcess(Process *pProcess);
     virtual ~ZombieProcess();
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -52,6 +51,9 @@ class ZombieProcess : public ZombieObject
 #endif
 
   private:
+    friend class Process;
+    explicit ZombieProcess(Process *pProcess);
+
     Process *m_pProcess;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
