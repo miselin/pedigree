@@ -124,12 +124,14 @@ class Rtc : public Timer, private SplitIrqHandler
     void setIndexLocked(uint8_t index);
     /** Wait until the Update of the RTC entries in the CMOS is complete,
      * if we want to access one of those entries
-     *\param[in] index the index we want to access afterwards */
-    void waitForUpdateCompletion(uint8_t index);
+     *\param[in] index the index we want to access afterwards
+     *\return true if the update completed before the hardware deadline */
+    bool waitForUpdateCompletion(uint8_t index);
     /** Dis/Enable the RTC updates
      *\param[in] index the index we want to access / have accessed
      *\param[in] enable Do we want to enable or disable? */
     void enableRtcUpdates(bool enable);
+    bool read(uint8_t index, uint8_t &value);
     uint8_t readLocked(uint8_t index);
     void writeLocked(uint8_t index, uint8_t value);
     /** Read the value in the CMOS at a specific index
@@ -138,8 +140,13 @@ class Rtc : public Timer, private SplitIrqHandler
     uint8_t read(uint8_t index);
     /** Write the value to the CMOS at a specific index
      *\param[in] index the index
-     *\param[in] value the value */
-    void write(uint8_t index, uint8_t value);
+     *\param[in] value the value
+     *\return true if the write was performed */
+    bool write(uint8_t index, uint8_t value);
+
+    /** Transfer a complete clock snapshot without partially publishing it. */
+    bool readHardwareClock();
+    bool writeHardwareClock();
 
     /** Drains a sendEvent handoff owned by another processor. */
     void drainRemoteAlarmDispatch(class Event *pEvent, void *owner);

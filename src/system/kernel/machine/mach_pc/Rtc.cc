@@ -63,6 +63,13 @@ constexpr uint8_t RtcUpdateInhibit = 1U << 7;
 constexpr uint8_t RtcInterruptRequested = 1U << 7;
 constexpr uint8_t RtcPeriodicFlag = 1U << 6;
 constexpr size_t RtcPeriodicWork = 1;
+// MC146818A UIP can remain asserted for up to 2.228 ms. This margin also
+// accommodates compatible devices, emulators, and the uncalibrated TSC used
+// during initialise1().
+constexpr Time::Timestamp RtcUpdateTimeout =
+    25 * Time::Multiplier::Millisecond;
+constexpr size_t RtcUpdateMaximumPolls = 1000000;
+constexpr size_t RtcCalibrationMaximumPolls = 100000000;
 }  // namespace
 
 Rtc::periodicIrqInfo_t Rtc::periodicIrqInfo[12] = {
@@ -305,26 +312,17 @@ bool Rtc::initialise1()
     m_HandlerRegistry.reset();
 
     // Are the RTC values in the CMOS encoded in BCD (or binary)?
-    m_bBCD = (read(0x0B) & 0x04) != 0x04;
-
-    // Read the time and date
-    if (m_bBCD == true)
+    uint8_t statusB = 0;
+    if (!read(0x0B, statusB))
     {
-        m_Second = BCD_TO_BIN8(read(0x00));
-        m_Minute = BCD_TO_BIN8(read(0x02));
-        m_Hour = BCD_TO_BIN8(read(0x04));
-        m_DayOfMonth = BCD_TO_BIN8(read(0x07));
-        m_Month = BCD_TO_BIN8(read(0x08));
-        m_Year = BCD_TO_BIN8(read(0x32)) * 100 + BCD_TO_BIN8(read(0x09));
+        return false;
     }
-    else
+    m_bBCD = (statusB & 0x04) != 0x04;
+
+    if (!readHardwareClock())
     {
-        m_Second = read(0x00);
-        m_Minute = read(0x02);
-        m_Hour = read(0x04);
-        m_DayOfMonth = read(0x07);
-        m_Month = read(0x08);
-        m_Year = read(0x32) * 100 + read(0x09);
+        ERROR("RTC: timed out reading the initial hardware clock");
+        return false;
     }
 
     // Find the initial rtc rate
@@ -353,8 +351,15 @@ bool Rtc::initialise2()
     // register C remains pollable and clears each periodic occurrence.
     constexpr size_t CalibrationPeriods = 50;
     setPeriodicInterruptEnabled(true);
+    size_t calibrationPolls = 0;
     while (!(read(0x0C) & RtcPeriodicFlag))
     {
+        if (++calibrationPolls >= RtcCalibrationMaximumPolls)
+        {
+            setPeriodicInterruptEnabled(false);
+            ERROR("RTC: timed out waiting for TSC calibration to start");
+            return false;
+        }
         Processor::pause();
     }
 
@@ -370,6 +375,13 @@ bool Rtc::initialise2()
         if (read(0x0C) & RtcPeriodicFlag)
         {
             ++periods;
+        }
+        if (++calibrationPolls >= RtcCalibrationMaximumPolls)
+        {
+            setPeriodicInterruptEnabled(false);
+            ERROR(
+                "RTC: timed out collecting periodic TSC calibration samples");
+            return false;
         }
         Processor::pause();
     }
@@ -427,55 +439,20 @@ bool Rtc::initialise3()
 void Rtc::synchronise(bool tohw)
 {
     enableRtcUpdates(false);
-
-    if (tohw)
-    {
-        // Write the time and date back
-        if (m_bBCD == true)
-        {
-            write(0x00, BIN_TO_BCD8(m_Second));
-            write(0x02, BIN_TO_BCD8(m_Minute));
-            write(0x04, BIN_TO_BCD8(m_Hour));
-            write(0x07, BIN_TO_BCD8(m_DayOfMonth));
-            write(0x08, BIN_TO_BCD8(m_Month));
-            write(0x09, BIN_TO_BCD8(m_Year % 100));
-            write(0x32, BIN_TO_BCD8(m_Year / 100));
-        }
-        else
-        {
-            write(0x00, m_Second);
-            write(0x02, m_Minute);
-            write(0x04, m_Hour);
-            write(0x07, m_DayOfMonth);
-            write(0x08, m_Month);
-            write(0x09, m_Year % 100);
-            write(0x32, m_Year / 100);
-        }
-    }
-    else
-    {
-        // Read the time and date
-        if (m_bBCD == true)
-        {
-            m_Second = BCD_TO_BIN8(read(0x00));
-            m_Minute = BCD_TO_BIN8(read(0x02));
-            m_Hour = BCD_TO_BIN8(read(0x04));
-            m_DayOfMonth = BCD_TO_BIN8(read(0x07));
-            m_Month = BCD_TO_BIN8(read(0x08));
-            m_Year = BCD_TO_BIN8(read(0x32)) * 100 + BCD_TO_BIN8(read(0x09));
-        }
-        else
-        {
-            m_Second = read(0x00);
-            m_Minute = read(0x02);
-            m_Hour = read(0x04);
-            m_DayOfMonth = read(0x07);
-            m_Month = read(0x08);
-            m_Year = read(0x32) * 100 + read(0x09);
-        }
-    }
-
+    const bool success = tohw ? writeHardwareClock() : readHardwareClock();
     enableRtcUpdates(true);
+
+    if (!success)
+    {
+        if (tohw)
+        {
+            ERROR("RTC: timed out writing the hardware clock");
+        }
+        else
+        {
+            ERROR("RTC: timed out reading the hardware clock");
+        }
+    }
 }
 void Rtc::uninitialise()
 {
@@ -749,24 +726,37 @@ uint8_t Rtc::acknowledgeInterruptFromHardIrq()
     return readLocked(0x0C);
 }
 
-void Rtc::waitForUpdateCompletion(uint8_t index)
+bool Rtc::waitForUpdateCompletion(uint8_t index)
 {
-    if (index <= 9 || index == 50)
+    if (index > 9 && index != 0x32)
     {
-        while (true)
+        return true;
+    }
+
+    const Time::Timestamp started = Time::getTicks();
+    size_t polls = 0;
+    while (true)
+    {
+        bool updating = false;
         {
-            bool updating = false;
-            {
-                LockGuard<Spinlock> guard(m_CmosLock);
-                setIndexLocked(0x0A);
-                updating = (m_IoPort.read8(1) & 0x80) != 0;
-            }
-            if (!updating)
-            {
-                break;
-            }
-            Processor::pause();
+            LockGuard<Spinlock> guard(m_CmosLock);
+            setIndexLocked(0x0A);
+            updating = (m_IoPort.read8(1) & 0x80) != 0;
         }
+        if (!updating)
+        {
+            return true;
+        }
+        if (++polls >= RtcUpdateMaximumPolls ||
+            (Time::getTicks() - started) >= RtcUpdateTimeout)
+        {
+            ERROR(
+                "RTC: timed out waiting for update completion before CMOS "
+                "index "
+                << index);
+            return false;
+        }
+        Processor::pause();
     }
 }
 void Rtc::enableRtcUpdates(bool enable)
@@ -790,11 +780,20 @@ uint8_t Rtc::readCmos(uint8_t index)
 
 uint8_t Rtc::read(uint8_t index)
 {
-    // Wait until the RTC Update is completed
-    waitForUpdateCompletion(index);
+    uint8_t value = 0xFF;
+    (void) read(index, value);
+    return value;
+}
 
+bool Rtc::read(uint8_t index, uint8_t &value)
+{
+    if (!waitForUpdateCompletion(index))
+    {
+        return false;
+    }
     LockGuard<Spinlock> guard(m_CmosLock);
-    return readLocked(index);
+    value = readLocked(index);
+    return true;
 }
 
 uint8_t Rtc::readLocked(uint8_t index)
@@ -803,18 +802,79 @@ uint8_t Rtc::readLocked(uint8_t index)
     return m_IoPort.read8(1);
 }
 
-void Rtc::write(uint8_t index, uint8_t value)
+bool Rtc::write(uint8_t index, uint8_t value)
 {
-    // Wait until the RTC Update is completed
-    waitForUpdateCompletion(index);
+    if (!waitForUpdateCompletion(index))
+    {
+        return false;
+    }
 
     LockGuard<Spinlock> guard(m_CmosLock);
     writeLocked(index, value);
+    return true;
 }
 
 void Rtc::writeCmos(uint8_t index, uint8_t value)
 {
-    m_Instance.write(index, value);
+    (void) m_Instance.write(index, value);
+}
+
+bool Rtc::readHardwareClock()
+{
+    uint8_t second = 0;
+    uint8_t minute = 0;
+    uint8_t hour = 0;
+    uint8_t dayOfMonth = 0;
+    uint8_t month = 0;
+    uint8_t year = 0;
+    uint8_t century = 0;
+    if (!read(0x00, second) || !read(0x02, minute) ||
+        !read(0x04, hour) || !read(0x07, dayOfMonth) ||
+        !read(0x08, month) || !read(0x09, year) ||
+        !read(0x32, century))
+    {
+        return false;
+    }
+
+    if (m_bBCD)
+    {
+        second = BCD_TO_BIN8(second);
+        minute = BCD_TO_BIN8(minute);
+        hour = BCD_TO_BIN8(hour);
+        dayOfMonth = BCD_TO_BIN8(dayOfMonth);
+        month = BCD_TO_BIN8(month);
+        year = BCD_TO_BIN8(year);
+        century = BCD_TO_BIN8(century);
+    }
+
+    m_Second = second;
+    m_Minute = minute;
+    m_Hour = hour;
+    m_DayOfMonth = dayOfMonth;
+    m_Month = month;
+    m_Year = (century * 100) + year;
+    return true;
+}
+
+bool Rtc::writeHardwareClock()
+{
+    const uint8_t second =
+        m_bBCD ? BIN_TO_BCD8(m_Second) : m_Second;
+    const uint8_t minute =
+        m_bBCD ? BIN_TO_BCD8(m_Minute) : m_Minute;
+    const uint8_t hour = m_bBCD ? BIN_TO_BCD8(m_Hour) : m_Hour;
+    const uint8_t dayOfMonth =
+        m_bBCD ? BIN_TO_BCD8(m_DayOfMonth) : m_DayOfMonth;
+    const uint8_t month = m_bBCD ? BIN_TO_BCD8(m_Month) : m_Month;
+    const uint8_t year =
+        m_bBCD ? BIN_TO_BCD8(m_Year % 100) : m_Year % 100;
+    const uint8_t century =
+        m_bBCD ? BIN_TO_BCD8(m_Year / 100) : m_Year / 100;
+
+    return write(0x00, second) && write(0x02, minute) &&
+           write(0x04, hour) && write(0x07, dayOfMonth) &&
+           write(0x08, month) && write(0x09, year) &&
+           write(0x32, century);
 }
 
 void Rtc::writeLocked(uint8_t index, uint8_t value)
