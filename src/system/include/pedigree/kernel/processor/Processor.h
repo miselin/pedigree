@@ -275,6 +275,19 @@ class EXPORTED_PUBLIC ProcessorBase
      *\return true, if interrupt requests are enabled, false otherwise */
     static bool getInterrupts();
 
+#if HOSTED
+    /** Records a live hosted signal frame on this processor. */
+    static void enterHostedSignalFrame();
+    /** Retires a hosted signal frame on this processor. */
+    static void leaveHostedSignalFrame();
+    /** True while any hosted signal frame is live on this processor. */
+    static bool inHostedSignalFrame();
+#if PEDIGREE_HOSTED_SMOKE_TESTS
+    /** Returns the raw hosted signal-frame depth for regressions. */
+    static size_t hostedSignalFrameDepthForTest();
+#endif
+#endif
+
     /** True only while an explicit device hard-IRQ callback is running. */
     static bool inDeviceHardIrq();
 

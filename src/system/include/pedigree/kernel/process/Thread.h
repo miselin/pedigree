@@ -44,6 +44,7 @@ class TerminationDeferral;
 class TimeoutGuard;
 class IrqHandlerRegistry;
 class TimerHandlerRegistry;
+class HostedInterruptManager;
 class RoundRobin;
 
 /** Thread TLS area size */
@@ -71,6 +72,7 @@ class EXPORTED_PUBLIC Thread
     friend class TimeoutGuard;
     friend class IrqHandlerRegistry;
     friend class TimerHandlerRegistry;
+    friend class HostedInterruptManager;
     friend class RoundRobin;
 
   public:

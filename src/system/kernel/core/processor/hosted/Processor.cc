@@ -370,11 +370,10 @@ void ProcessorBase::setInterrupts(bool bEnable)
     {
         sigemptyset(&set);
 #if THREADS
-        Thread *pThread = Processor::information().getCurrentThread();
-        if (pThread && pThread->getHostedSignalDepth())
+        if (inHostedSignalFrame())
         {
-            // A context switch can suspend a host signal frame. Keep IRQs
-            // physically masked until that Pedigree thread unwinds the frame.
+            // The POSIX signal frame belongs to the hosted processor, not the
+            // Pedigree thread selected while that frame is suspended.
             sigaddset(&set, SIGUSR1);
             sigaddset(&set, SIGUSR2);
         }
@@ -418,6 +417,39 @@ bool ProcessorBase::getInterrupts()
 {
     return m_bInterrupts;
 }
+
+void ProcessorBase::enterHostedSignalFrame()
+{
+    __atomic_add_fetch(
+        &information().m_HostedSignalFrameDepth, 1, __ATOMIC_ACQ_REL);
+}
+
+void ProcessorBase::leaveHostedSignalFrame()
+{
+    const size_t previous = __atomic_fetch_sub(
+        &information().m_HostedSignalFrameDepth, 1, __ATOMIC_ACQ_REL);
+    if (UNLIKELY(!previous))
+    {
+        __atomic_store_n(
+            &information().m_HostedSignalFrameDepth, 0, __ATOMIC_RELEASE);
+        FATAL_NOLOCK("Hosted signal-frame depth underflowed");
+    }
+}
+
+bool ProcessorBase::inHostedSignalFrame()
+{
+    return __atomic_load_n(
+               &information().m_HostedSignalFrameDepth,
+               __ATOMIC_ACQUIRE) != 0;
+}
+
+#if PEDIGREE_HOSTED_SMOKE_TESTS
+size_t ProcessorBase::hostedSignalFrameDepthForTest()
+{
+    return __atomic_load_n(
+        &information().m_HostedSignalFrameDepth, __ATOMIC_ACQUIRE);
+}
+#endif
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 void ProcessorBase::setHostedContextSwitchHook(

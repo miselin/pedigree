@@ -89,6 +89,8 @@ class HostedProcessorInformation
     uintptr_t m_KernelStack;
     /** Device hard-IRQ callbacks currently active on this processor. */
     size_t m_DeviceHardIrqDepth;
+    /** POSIX signal frames live across hosted context switches. */
+    size_t m_HostedSignalFrameDepth;
 };
 
 /** @} */

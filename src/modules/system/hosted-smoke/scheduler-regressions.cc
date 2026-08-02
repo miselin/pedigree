@@ -198,6 +198,104 @@ struct SchedulerTimerContext
 
 SchedulerTimerContext *g_SchedulerTimerContext = nullptr;
 
+struct HostedSignalSwitchContext
+{
+    HostedSignalSwitchContext()
+        : armed(0), waiting(0), ran(0), failures(0)
+    {
+    }
+
+    Atomic<size_t> armed;
+    Atomic<size_t> waiting;
+    Atomic<size_t> ran;
+    Atomic<size_t> failures;
+};
+
+int hostedSignalSwitchTarget(void *parameter)
+{
+    HostedSignalSwitchContext *context =
+        reinterpret_cast<HostedSignalSwitchContext *>(parameter);
+    context->waiting = 1;
+    while (!context->armed)
+    {
+        Scheduler::instance().yield();
+    }
+
+    // This continuation is selected by the real scheduler signal while its
+    // frame remains live on another Pedigree stack.
+    Processor::setInterrupts(true);
+    __pedigree_hosted::sigset_t mask;
+    __pedigree_hosted::sigprocmask(0, nullptr, &mask);
+    Thread *current = Processor::information().getCurrentThread();
+    if (
+        !current || current->getHostedSignalDepth() ||
+        Processor::hostedSignalFrameDepthForTest() != 1 ||
+        !Processor::getInterrupts() ||
+        !__pedigree_hosted::sigismember(&mask, SIGUSR1) ||
+        !__pedigree_hosted::sigismember(&mask, SIGUSR2))
+    {
+        context->failures += 1;
+    }
+    context->ran = 1;
+    return 0;
+}
+
+bool hostedSignalMaskSpansContextSwitch()
+{
+    constexpr const char *Test = "hosted-signal-mask-context-switch";
+    HostedSignalSwitchContext context;
+    Thread *target = new Thread(
+        Scheduler::instance().getKernelProcess(), hostedSignalSwitchTarget,
+        &context, nullptr, false, true, true);
+    target->setName("hosted signal-mask context-switch probe");
+    const bool started = target->start();
+
+    constexpr size_t Attempts = 10000;
+    for (size_t attempt = 0;
+         started && !context.waiting && attempt < Attempts; ++attempt)
+    {
+        Scheduler::instance().yield();
+    }
+
+    context.armed = 1;
+    const Time::Timestamp deadline =
+        Time::getTicks() + (3 * Time::Multiplier::Second);
+    while (!context.ran && Time::getTicks() < deadline)
+    {
+        Processor::pause();
+    }
+
+    // A failed preemption must not leave the probe stack live while its
+    // context record goes out of scope.
+    for (size_t attempt = 0;
+         started && !context.ran && attempt < Attempts; ++attempt)
+    {
+        Scheduler::instance().yield();
+    }
+
+    const bool joined = context.ran && target->joinForCompletion();
+    if (!started)
+    {
+        delete target;
+    }
+
+    const bool passed =
+        started && context.waiting && context.ran && joined &&
+        !context.failures;
+    if (!passed)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: FAIL " << Test
+                                       << ": a switched-in thread unmasked "
+                                          "a live hosted IRQ signal frame");
+    }
+    else
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS hosted-signal-mask-context-switch");
+    }
+    return passed;
+}
+
 void observeSchedulerTimerHardContext(uint64_t delta, InterruptState &state)
 {
     SchedulerTimerContext *context = __atomic_load_n(
@@ -366,7 +464,9 @@ bool check(bool condition, const char *detail)
 
 bool runHostedSchedulerRegressions()
 {
-    if (!schedulerTimerHardContext() || !deferredTimeAccountingWorker())
+    if (
+        !hostedSignalMaskSpansContextSwitch() ||
+        !schedulerTimerHardContext() || !deferredTimeAccountingWorker())
     {
         return false;
     }

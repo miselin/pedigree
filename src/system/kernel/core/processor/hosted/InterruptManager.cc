@@ -29,7 +29,9 @@
 
 #if THREADS
 #include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #endif
 
@@ -52,6 +54,33 @@ HostedInterruptManager HostedInterruptManager::m_Instance;
 struct sigaction HostedInterruptManager::m_OriginalActions[MAX_SIGNAL];
 bool HostedInterruptManager::m_ActionInstalled[MAX_SIGNAL] = {};
 bool HostedInterruptManager::m_bQuiesced = false;
+
+#if THREADS
+namespace
+{
+struct HostedSignalFrameCleanup
+{
+    explicit HostedSignalFrameCleanup(Thread *signalThread)
+        : thread(signalThread), cleanup()
+    {
+    }
+
+    Thread *thread;
+    AtomicStateCleanupRecord cleanup;
+};
+
+void abandonHostedSignalFrame(void *context)
+{
+    HostedSignalFrameCleanup *frame =
+        reinterpret_cast<HostedSignalFrameCleanup *>(context);
+    if (frame->thread)
+    {
+        frame->thread->leaveHostedSignalHandler();
+    }
+    Processor::leaveHostedSignalFrame();
+}
+}  // namespace
+#endif
 
 InterruptManager &InterruptManager::instance()
 {
@@ -235,11 +264,16 @@ extern "C" void hostedSignalHandler(
 
 void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
 {
+    Processor::enterHostedSignalFrame();
+
 #if THREADS
     Thread *pSignalThread = Processor::information().getCurrentThread();
+    HostedSignalFrameCleanup frameCleanup(pSignalThread);
     if (pSignalThread)
     {
         pSignalThread->enterHostedSignalHandler();
+        pSignalThread->armAtomicStateCleanup(
+            frameCleanup.cleanup, abandonHostedSignalFrame, &frameCleanup);
     }
 #endif
 
@@ -263,6 +297,7 @@ void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
 #if THREADS
     if (pSignalThread)
     {
+        pSignalThread->disarmAtomicStateCleanup(frameCleanup.cleanup);
         pSignalThread->leaveHostedSignalHandler();
     }
 #endif
@@ -280,6 +315,8 @@ void HostedInterruptManager::signalShim(int which, void *siginfo, void *meta)
         sigaddset(&ctx->uc_sigmask, SIGUSR1);
         sigaddset(&ctx->uc_sigmask, SIGUSR2);
     }
+
+    Processor::leaveHostedSignalFrame();
 }
 
 struct sigaction HostedInterruptManager::getOriginalSigaction(int which) const

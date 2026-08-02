@@ -39,7 +39,8 @@ HostedProcessorInformation::HostedProcessorInformation(
     : m_ProcessorId(processorId),
       m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
       m_pCurrentThread(0), m_Scheduler(0),
-      m_KernelStack(0), m_DeviceHardIrqDepth(0)
+      m_KernelStack(0), m_DeviceHardIrqDepth(0),
+      m_HostedSignalFrameDepth(0)
 {
 }
 
