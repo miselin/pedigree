@@ -1111,7 +1111,10 @@ check_wait_api_boundaries()
     if ! rg -q 'class Rtc : public Timer, private SplitIrqHandler' \
             "$rtc_header" ||
         ! rg -q -U \
-            '(?s)Rtc::hardIrq\(.*?read\(0x0C\).*?recordFromInterrupt\(\).*?work = RtcPeriodicWork.*?HardIrqDisposition::Deferred' \
+            '(?s)Rtc::hardIrq\(.*?acknowledgeInterruptFromHardIrq\(\).*?recordFromInterrupt\(\).*?work = RtcPeriodicWork.*?HardIrqDisposition::Deferred' \
+            "$rtc_source" ||
+        ! rg -q -U \
+            '(?s)Rtc::acknowledgeInterruptFromHardIrq\(\).*?assert\(!Processor::getInterrupts\(\)\).*?LockGuard<Spinlock> guard\(m_CmosLock\).*?return readLocked\(0x0C\)' \
             "$rtc_source" ||
         rg -q \
             'sendEvent|m_AlarmQueue|m_HandlerRegistry\.dispatch|while[[:space:]]*\(|compareAndSwap' \

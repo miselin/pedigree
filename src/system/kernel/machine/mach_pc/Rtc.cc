@@ -532,9 +532,7 @@ Rtc::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
     (void) number;
     (void) state;
 
-    // Register C is the device acknowledgement and must be sampled before
-    // any work leaves hard IRQ context.
-    const uint8_t status = read(0x0C);
+    const uint8_t status = acknowledgeInterruptFromHardIrq();
     if (!(status & RtcInterruptRequested))
     {
         return HardIrqDisposition::Handled;
@@ -738,6 +736,18 @@ void Rtc::setIndexLocked(uint8_t index)
     uint8_t idx = m_IoPort.read8(0);
     m_IoPort.write8((idx & 0x80) | (index & 0x7F), 0);
 }
+
+uint8_t Rtc::acknowledgeInterruptFromHardIrq()
+{
+    assert(!Processor::getInterrupts());
+
+    // Register C is the device acknowledgement. Unlike an ordinary CMOS
+    // read, this path must perform exactly one index/data transaction and
+    // cannot wait for an update cycle to complete.
+    LockGuard<Spinlock> guard(m_CmosLock);
+    return readLocked(0x0C);
+}
+
 void Rtc::waitForUpdateCompletion(uint8_t index)
 {
     if (index <= 9 || index == 50)

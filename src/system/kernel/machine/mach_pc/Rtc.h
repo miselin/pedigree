@@ -104,6 +104,9 @@ class Rtc : public Timer, private SplitIrqHandler
     /** Applies one periodic event in ordinary thread context. */
     void processPeriodicTick(uint64_t delta);
 
+    /** Reads register C once to acknowledge IRQ8 from hard IRQ context. */
+    uint8_t acknowledgeInterruptFromHardIrq();
+
     /** Atomically changes the RTC periodic-interrupt source and clears C. */
     void setPeriodicInterruptEnabled(bool enabled);
 
