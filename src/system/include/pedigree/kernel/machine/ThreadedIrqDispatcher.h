@@ -10,6 +10,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
 
 class Thread;
@@ -119,7 +120,9 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
     };
 
     Line m_Lines[MaxLines];
-    String m_Name;
+    /** Inline so global interrupt-controller constructors cannot enter the
+     * heap. */
+    NormalStaticString m_Name;
     size_t m_LineCount;
     DispatchCallback m_Callback;
     void *m_CallbackContext;

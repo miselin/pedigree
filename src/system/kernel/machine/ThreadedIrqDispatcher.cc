@@ -70,7 +70,9 @@ bool ThreadedIrqDispatcher::Line::start()
         Scheduler::instance().getKernelProcess(), workerEntry, this, nullptr,
         false, true, true);
     __atomic_store_n(&m_Thread, thread, __ATOMIC_RELEASE);
-    thread->setName(m_Owner->m_Name);
+    const String workerName(
+        static_cast<const char *>(m_Owner->m_Name), m_Owner->m_Name.length());
+    thread->setName(workerName);
     if (!thread->setSchedulerReadyPredicate(workerReady, this))
     {
         FATAL("A threaded IRQ worker could not install its ready predicate.");
