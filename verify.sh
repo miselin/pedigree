@@ -1902,9 +1902,12 @@ check_wait_api_boundaries()
 
     local ps2_source=src/system/kernel/machine/mach_pc/Ps2Controller.cc
     local ps2_header=src/system/kernel/machine/mach_pc/Ps2Controller.h
+    local ps2_state=src/system/include/pedigree/kernel/machine/Ps2CaptureState.h
+    local ps2_keyboard_source=src/system/kernel/machine/mach_pc/Keyboard.cc
     local ps2_regressions=src/modules/system/hosted-smoke/ps2-controller-regressions.cc
     local ps2_mouse_source=src/modules/drivers/x86/ps2mouse/Ps2Mouse.cc
-    local ps2_hard ps2_config ps2_gate_tries
+    local ps2_hard ps2_config ps2_gate_tries ps2_debug
+    local ps2_keyboard_set ps2_keyboard_get ps2_poll_set ps2_poll_get
     ps2_hard=$(sed -n \
         '/Ps2Controller::hardIrq(/,/^bool Ps2Controller::captureOneLocked/p' \
         "$ps2_source")
@@ -1915,6 +1918,19 @@ check_wait_api_boundaries()
         index($0, "m_IoGate.tryAcquire()") { ++count }
         END { print count + 0 }
     ')
+    ps2_debug=$(sed -n \
+        '/^void Ps2Controller::setDebugState(bool debugState)$/,/^}/p' \
+        "$ps2_source")
+    ps2_keyboard_set=$(sed -n \
+        '/^void X86Keyboard::setDebugState(bool enableDebugState)$/,/^}/p' \
+        "$ps2_keyboard_source")
+    ps2_keyboard_get=$(sed -n \
+        '/^bool X86Keyboard::getDebugState()$/,/^}/p' \
+        "$ps2_keyboard_source")
+    ps2_poll_set=$(sed -n \
+        '/^    void set(bool active)$/,/^    }$/p' "$ps2_state")
+    ps2_poll_get=$(sed -n \
+        '/^    bool active() const$/,/^    }$/p' "$ps2_state")
     if ! rg -q \
             'class Ps2Controller : public Controller, private SplitIrqHandler' \
             "$ps2_header" ||
@@ -1950,15 +1966,34 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
-            '(?s)Ps2Controller::readByte\(\).*?m_DebugState\.value\(\).*?return readByteNonBlock\(\);.*?acquireIoForThread\(\)' \
+            '(?s)Ps2Controller::readByte\(\).*?m_DebugState\.active\(\).*?return readByteNonBlock\(\);.*?acquireIoForThread\(\)' \
             "$ps2_source" ||
         ! rg -q -U \
-            '(?s)Ps2Controller::readFirstPort\(.*?m_DebugState\.value\(\).*?readByteNonBlock\(\).*?return byte != 0;' \
+            '(?s)Ps2Controller::readFirstPort\(.*?m_DebugState\.active\(\).*?readByteNonBlock\(\).*?return byte != 0;' \
             "$ps2_source" ||
         ! rg -q -U \
-            '(?s)Ps2Controller::readSecondPort\(.*?m_DebugState\.value\(\).*?readByteNonBlock\(\).*?return byte != 0;' \
+            '(?s)Ps2Controller::readSecondPort\(.*?m_DebugState\.active\(\).*?readByteNonBlock\(\).*?return byte != 0;' \
             "$ps2_source"; then
         echo "PS/2 debugger input can block or invent a successful zero byte."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+            '^void Ps2Controller::setDebugState\(bool debugState\)\n\{\n    m_DebugState\.set\(debugState\);\n\}$' \
+            <<<"$ps2_debug" ||
+        ! rg -q -U \
+            '^void X86Keyboard::setDebugState\(bool enableDebugState\)\n\{\n    m_pPs2Controller->setDebugState\(enableDebugState\);\n\}$' \
+            <<<"$ps2_keyboard_set" ||
+        ! rg -q -U \
+            '^bool X86Keyboard::getDebugState\(\)\n\{\n    return m_pPs2Controller->getDebugState\(\);\n\}$' \
+            <<<"$ps2_keyboard_get" ||
+        ! rg -q -U \
+            '(?s)^    void set\(bool active\)\n    \{\n        __atomic_store_n\(.*?__ATOMIC_RELEASE\);\n    \}$' \
+            <<<"$ps2_poll_set" ||
+        ! rg -q -U \
+            '(?s)^    bool active\(\) const\n    \{\n        return __atomic_load_n\(&m_Active, __ATOMIC_ACQUIRE\) != 0;\n    \}$' \
+            <<<"$ps2_poll_get"; then
+        echo "PS/2 debugger state escaped its trap-safe atomic boundary."
         failed=1
     fi
 
@@ -1966,7 +2001,7 @@ check_wait_api_boundaries()
             '(?s)Ps2Controller::uninitialise\(\).*?shutdownSplitIrq\(\).*?m_ReadMode = StoppingReadMode;.*?m_FirstPortBuffer\.disableWrites\(\).*?m_SecondPortBuffer\.disableWrites\(\)' \
             "$ps2_source" ||
         ! rg -q -U \
-            '(?s)Ps2Controller::readFirstPort\(.*?m_DebugState\.value\(\).*?readMode == StoppingReadMode.*?readMode == PollingReadMode.*?m_FirstPortBuffer\.read' \
+            '(?s)Ps2Controller::readFirstPort\(.*?m_DebugState\.active\(\).*?readMode == StoppingReadMode.*?readMode == PollingReadMode.*?m_FirstPortBuffer\.read' \
             "$ps2_source" ||
         ! rg -q -U \
             '(?s)Ps2Mouse::initialise\(.*?setIrqEnable\(true, true\).*?writeSecondPort\(SetDefaults\).*?readSecondPort\(result\).*?writeSecondPort\(MouseStream\).*?readSecondPort\(result\).*?m_ReaderThread\.adopt' \
@@ -1987,6 +2022,7 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q 'ps2-one-shot-hard-admission' "$ps2_regressions" ||
+        ! rg -q 'ps2-debug-state-lock-independent' "$ps2_regressions" ||
         ! rg -q 'ps2-capture-queue-fidelity' "$ps2_regressions" ||
         ! rg -q 'hasCapacity\(\)' "$ps2_regressions"; then
         echo "Hosted PS/2 admission and capture-queue coverage is incomplete."

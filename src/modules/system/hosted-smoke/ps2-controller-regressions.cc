@@ -44,6 +44,32 @@ bool oneShotAdmission()
     return passed;
 }
 
+bool debuggerTransitionLockIndependent()
+{
+    constexpr const char *Test = "ps2-debug-state-lock-independent";
+    Ps2IoAdmissionGate gate;
+    Ps2DebuggerPollingState debugState;
+
+    bool passed = check(
+        gate.tryAcquire() && gate.owned() && !debugState.active(), Test,
+        "the test could not freeze an ordinary 8042 transaction");
+    debugState.set(true);
+    passed &= check(
+        debugState.active() && gate.owned() && !gate.tryAcquire(), Test,
+        "debugger entry waited on or changed 8042 admission");
+    debugState.set(false);
+    passed &= check(
+        !debugState.active() && gate.owned(), Test,
+        "debugger exit waited on or changed 8042 admission");
+    gate.release();
+
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS ps2-debug-state-lock-independent");
+    }
+    return passed;
+}
+
 bool captureQueueFidelity()
 {
     constexpr const char *Test = "ps2-capture-queue-fidelity";
@@ -94,5 +120,6 @@ bool captureQueueFidelity()
 
 bool runHostedPs2ControllerRegressions()
 {
-    return oneShotAdmission() && captureQueueFidelity();
+    return oneShotAdmission() && debuggerTransitionLockIndependent() &&
+           captureQueueFidelity();
 }

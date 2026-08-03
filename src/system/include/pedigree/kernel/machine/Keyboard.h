@@ -65,19 +65,14 @@ class Keyboard
     virtual void initialise() = 0;
 
     /**
-     * Sets the state of the device. When debugging, it is unwise to rely on
-     * interrupt- driven I/O, however in normal use polling is extremely slow
-     * and CPU-intensive.
+     * Selects polling input while the kernel debugger owns the processor.
      *
-     * The debugger therefore will set the device to "debug state" by calling
-     * this function with the argument "true". In "debug state", any buffered
-     * input will be discarded, the device's interrupt masked, and the device
-     * will rely on polling only. This will be the default state.
-     *
-     * When the device is set to "normal state" by calling this function with
-     * the argument "false", interrupts may be used, along with buffered input,
-     * and it is recommended that during blocking I/O a Semaphore is used to
-     * signal incoming interrupts, so that the blocked thread may go to sleep.
+     * A debugger trap can interrupt code which owns arbitrary device or IRQ
+     * controller locks. Both this setter and getDebugState() must therefore
+     * access this mode without taking locks, waiting, allocating, logging,
+     * changing interrupt masks, or starting a device protocol. The debugger
+     * trap itself prevents ordinary interrupt delivery while this mode is
+     * active.
      */
     virtual void setDebugState(bool enableDebugState) = 0;
     virtual bool getDebugState() = 0;

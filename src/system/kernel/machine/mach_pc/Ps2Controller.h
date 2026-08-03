@@ -92,13 +92,13 @@ class Ps2Controller : public Controller, private SplitIrqHandler
         return m_ReadMode.value() == StoppingReadMode;
     }
 
-    /// Sets the debug state (blocks IRQs to allow polling).
+    /// Selects trap-safe polling without changing controller IRQ state.
     void setDebugState(bool debugState);
 
     /// Gets the debug state.
     bool getDebugState() const
     {
-        return m_DebugState.value() != 0;
+        return m_DebugState.active();
     }
 
   private:
@@ -145,13 +145,9 @@ class Ps2Controller : public Controller, private SplitIrqHandler
     irq_id_t m_FirstIrqId;
     irq_id_t m_SecondIrqId;
 
-    Atomic<size_t> m_DebugState;
+    Ps2DebuggerPollingState m_DebugState;
 
     uint8_t m_ConfigByte;
-
-    // used to know which IRQs to enable when leaving debug state
-    bool m_bDebugStateFirstIrqEnabled;
-    bool m_bDebugStateSecondIrqEnabled;
 
     Ps2IoAdmissionGate m_IoGate;
     Ps2CaptureQueue m_CapturedBytes;

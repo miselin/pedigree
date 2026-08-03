@@ -12,7 +12,38 @@
 
 static_assert(
     __atomic_always_lock_free(sizeof(size_t), nullptr),
-    "PS/2 hard-stage queue and admission words must be lock-free");
+    "PS/2 hard-stage and debugger-state words must be lock-free");
+
+/**
+ * Trap-safe polling-mode selection for the kernel debugger.
+ *
+ * Entering the debugger can interrupt code which owns the 8042 or IRQ
+ * controller locks. This latch therefore only publishes the input mode; it
+ * never participates in either controller protocol.
+ */
+class Ps2DebuggerPollingState
+{
+  public:
+    Ps2DebuggerPollingState() : m_Active(0)
+    {
+    }
+
+    void set(bool active)
+    {
+        __atomic_store_n(
+            &m_Active, active ? static_cast<size_t>(1) :
+                               static_cast<size_t>(0),
+            __ATOMIC_RELEASE);
+    }
+
+    bool active() const
+    {
+        return __atomic_load_n(&m_Active, __ATOMIC_ACQUIRE) != 0;
+    }
+
+  private:
+    size_t m_Active;
+};
 
 /** One byte captured from the 8042 output register. */
 struct Ps2CapturedByte

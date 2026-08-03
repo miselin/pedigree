@@ -39,8 +39,7 @@ Ps2Controller::Ps2Controller(Controller *pDev)
       SplitIrqHandler(MakeConstantString("PS/2 controller bottom half")),
       m_pBase(nullptr), m_bHasSecondPort(false), m_FirstPortBuffer(16384),
       m_SecondPortBuffer(16384), m_FirstIrqEnabled(0), m_SecondIrqEnabled(0),
-      m_FirstIrqId(0), m_SecondIrqId(0), m_DebugState(0), m_ConfigByte(0),
-      m_bDebugStateFirstIrqEnabled(false), m_bDebugStateSecondIrqEnabled(false),
+      m_FirstIrqId(0), m_SecondIrqId(0), m_DebugState(), m_ConfigByte(0),
       m_IoGate(), m_CapturedBytes(), m_ReadMode(PollingReadMode),
       m_RejectedThreadIo(0), m_HardGateContentions(0), m_CaptureDeferrals(0),
       m_CaptureDrops(0), m_FirstPortDrops(0), m_SecondPortDrops(0),
@@ -53,8 +52,7 @@ Ps2Controller::Ps2Controller()
       SplitIrqHandler(MakeConstantString("PS/2 controller bottom half")),
       m_pBase(nullptr), m_bHasSecondPort(false), m_FirstPortBuffer(16384),
       m_SecondPortBuffer(16384), m_FirstIrqEnabled(0), m_SecondIrqEnabled(0),
-      m_FirstIrqId(0), m_SecondIrqId(0), m_DebugState(0), m_ConfigByte(0),
-      m_bDebugStateFirstIrqEnabled(false), m_bDebugStateSecondIrqEnabled(false),
+      m_FirstIrqId(0), m_SecondIrqId(0), m_DebugState(), m_ConfigByte(0),
       m_IoGate(), m_CapturedBytes(), m_ReadMode(PollingReadMode),
       m_RejectedThreadIo(0), m_HardGateContentions(0), m_CaptureDeferrals(0),
       m_CaptureDrops(0), m_FirstPortDrops(0), m_SecondPortDrops(0),
@@ -331,10 +329,8 @@ bool Ps2Controller::hasSecondPort() const
 
 void Ps2Controller::setIrqEnable(bool firstEnabled, bool secondEnabled)
 {
-    if (m_DebugState.value())
+    if (m_DebugState.active())
     {
-        m_bDebugStateFirstIrqEnabled = firstEnabled;
-        m_bDebugStateSecondIrqEnabled = secondEnabled;
         return;
     }
 
@@ -398,7 +394,7 @@ bool Ps2Controller::configureIrqEnable(bool firstEnabled, bool secondEnabled)
 
 uint8_t Ps2Controller::readByte()
 {
-    if (m_DebugState.value())
+    if (m_DebugState.active())
     {
         // KDB may have interrupted the current gate owner and may still carry
         // the hard-IRQ marker. A single probe is safe; waiting is not.
@@ -437,7 +433,7 @@ uint8_t Ps2Controller::readByteNonBlock()
 
 bool Ps2Controller::readFirstPort(uint8_t &byte, bool block)
 {
-    if (m_DebugState.value())
+    if (m_DebugState.active())
     {
         byte = readByteNonBlock();
         return byte != 0;
@@ -460,7 +456,7 @@ bool Ps2Controller::readFirstPort(uint8_t &byte, bool block)
 
 bool Ps2Controller::readSecondPort(uint8_t &byte, bool block)
 {
-    if (m_DebugState.value())
+    if (m_DebugState.active())
     {
         byte = readByteNonBlock();
         return byte != 0;
@@ -483,40 +479,14 @@ bool Ps2Controller::readSecondPort(uint8_t &byte, bool block)
 
 void Ps2Controller::setDebugState(bool debugState)
 {
-    if (debugState == (m_DebugState.value() != 0))
-    {
-        return;
-    }
-
-    // The debugger can interrupt a thread which owns m_IoGate. It must never
-    // wait for that frozen owner or alter the owner's in-flight 8042 protocol.
-    // Only the PIC masks and software polling mode change here.
-    IrqManager &irqManager = *Machine::instance().getIrqManager();
-    if (debugState)
-    {
-        m_bDebugStateFirstIrqEnabled = m_FirstIrqEnabled.value() != 0;
-        m_bDebugStateSecondIrqEnabled = m_SecondIrqEnabled.value() != 0;
-        m_DebugState = 1;
-        m_FirstIrqEnabled = 0;
-        m_SecondIrqEnabled = 0;
-        irqManager.enable(1, false);
-        irqManager.enable(12, false);
-    }
-    else
-    {
-        m_FirstIrqEnabled = m_bDebugStateFirstIrqEnabled ? 1 : 0;
-        m_SecondIrqEnabled = m_bDebugStateSecondIrqEnabled ? 1 : 0;
-        m_DebugState = 0;
-        irqManager.enable(1, m_bDebugStateFirstIrqEnabled);
-        irqManager.enable(12, m_bDebugStateSecondIrqEnabled);
-    }
+    m_DebugState.set(debugState);
 }
 
 SplitIrqHandler::HardIrqDisposition
 Ps2Controller::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
 {
     (void) state;
-    if (m_DebugState.value())
+    if (m_DebugState.active())
     {
         return HardIrqDisposition::Handled;
     }
