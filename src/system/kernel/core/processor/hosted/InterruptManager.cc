@@ -95,19 +95,38 @@ namespace
 struct HostedSignalFrameCleanup
 {
     explicit HostedSignalFrameCleanup(Thread *signalThread)
-        : thread(signalThread), stateLevel(0), cleanup()
+        : thread(signalThread), stateLevel(0), previousInterruptState(false),
+          restoreInterruptState(false), cleanup()
     {
     }
 
     Thread *thread;
     size_t stateLevel;
+    bool previousInterruptState;
+    bool restoreInterruptState;
     AtomicStateCleanupRecord cleanup;
 };
+
+void restoreHostedSignalInterruptState(HostedSignalFrameCleanup &frame)
+{
+    if (!frame.restoreInterruptState)
+    {
+        return;
+    }
+
+    const bool previousInterruptState = frame.previousInterruptState;
+    frame.restoreInterruptState = false;
+    Processor::setInterrupts(previousInterruptState);
+}
 
 void abandonHostedSignalFrame(void *context)
 {
     HostedSignalFrameCleanup *frame =
         reinterpret_cast<HostedSignalFrameCleanup *>(context);
+    // Keep the host IRQ signals physically masked until the interrupted
+    // logical IF state has been restored. The resumed context owns the final
+    // signal mask after this abandoned stack is retired.
+    restoreHostedSignalInterruptState(*frame);
     if (frame->thread)
     {
         frame->thread->leaveHostedSignalHandler(frame->stateLevel);
@@ -346,7 +365,8 @@ extern "C" void hostedSignalHandler(
 void HostedInterruptManager::signalShim(
     int which, void *siginfo, void *meta, bool fromUserspace)
 {
-    if (isHostedIrqSignal(which) && !Processor::onHostedExecutionThread())
+    const bool hostedIrq = isHostedIrqSignal(which);
+    if (hostedIrq && !Processor::onHostedExecutionThread())
     {
         FATAL_NOLOCK("Hosted IRQ delivered on a non-processor host thread");
         return;
@@ -370,12 +390,25 @@ void HostedInterruptManager::signalShim(
     }
 #endif
 
-    if (!Processor::getInterrupts())
+    const bool previousInterruptState = Processor::getInterrupts();
+    if (!previousInterruptState)
     {
-        if (isHostedIrqSignal(which))
+        if (hostedIrq)
         {
             FATAL_NOLOCK("interrupts disabled but interrupts are firing");
         }
+    }
+
+    if (hostedIrq)
+    {
+#if THREADS
+        // Hosted signals already mask IRQ delivery physically. Publish the
+        // matching logical IF boundary as well, and make its restoration
+        // survive a scheduler callback which abandons this signal stack.
+        frameCleanup.previousInterruptState = previousInterruptState;
+        frameCleanup.restoreInterruptState = true;
+#endif
+        Processor::setInterrupts(false);
     }
 
     siginfo_t *info = reinterpret_cast<siginfo_t *>(siginfo);
@@ -400,6 +433,18 @@ void HostedInterruptManager::signalShim(
     }
 #else
     interrupt(state);
+#endif
+
+    // Raw IRQ dispatch is complete. Restore logical IF while hosted-signal
+    // depth still keeps IRQ signals physically masked, then let the ordinary
+    // return-to-user tail run at its IRQ-enabled thread boundary.
+#if THREADS
+    restoreHostedSignalInterruptState(frameCleanup);
+#else
+    if (hostedIrq)
+    {
+        Processor::setInterrupts(previousInterruptState);
+    }
 #endif
 
 #if THREADS

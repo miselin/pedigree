@@ -3004,7 +3004,8 @@ void observeAbandonedSignalFrameCleanup(void *parameter)
     *probe->cleanupCalls += 1;
     if (Processor::information().getCurrentThread() != probe->thread ||
         probe->thread->getHostedSignalDepth() ||
-        Processor::hostedSignalFrameDepthForTest() != probe->baselineDepth)
+        Processor::hostedSignalFrameDepthForTest() != probe->baselineDepth ||
+        !Processor::getInterrupts())
     {
         *probe->stateFailures += 1;
     }
@@ -3113,7 +3114,7 @@ void abandonIrqHazard(
     }
 
     context->hazardCalls += 1;
-    if (!Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
+    if (Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
         Processor::deviceHardIrqDepthForTest() != 0)
     {
         context->stateFailures += 1;
@@ -3133,7 +3134,7 @@ void abandonIrqCleanup(void *owner, bool callbackBoundaryEntered)
     const bool expectedRestore =
         context->stage == AbandonedDispatchStage::Callback;
     if (callbackBoundaryEntered != expectedRestore ||
-        !Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
+        Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
         Processor::deviceHardIrqDepthForTest() != 0)
     {
         context->stateFailures += 1;

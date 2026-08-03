@@ -562,7 +562,7 @@ struct HostedSignalSwitchContext
 {
     explicit HostedSignalSwitchContext(Thread *driver)
         : driver(driver), target(nullptr), armed(0), waiting(0), computing(0),
-          driverTicks(0), targetTicks(0), ran(0), failures(0)
+          driverTicks(0), targetTicks(0), ran(0), failures(0), failureMask(0)
     {
     }
 
@@ -575,6 +575,7 @@ struct HostedSignalSwitchContext
     Atomic<size_t> targetTicks;
     Atomic<size_t> ran;
     Atomic<size_t> failures;
+    Atomic<size_t> failureMask;
 };
 
 HostedSignalSwitchContext *g_HostedSignalSwitchContext = nullptr;
@@ -602,15 +603,24 @@ void observeHostedAutodisarmTick(uint64_t delta, InterruptState &state)
     }
 
     const uint64_t interval = 100 * Time::Multiplier::Millisecond;
-    if (
-        delta < interval || (delta % interval) || !state.kernelMode() ||
-        !current->getHostedSignalDepth() ||
-        Processor::hostedSignalFrameDepthForTest() < 2 ||
-        Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
-        current->currentTimeAccountingMode() != CpuTimeMode::Kernel ||
-        state.getInterruptNumber() != SIGUSR2 ||
-        state.getInterruptSource() != HostedSchedulerTimer::sourceForTest())
+    size_t failureMask = 0;
+    failureMask |= delta < interval ? 1 : 0;
+    failureMask |= (delta % interval) ? 2 : 0;
+    failureMask |= !state.kernelMode() ? 4 : 0;
+    failureMask |= !current->getHostedSignalDepth() ? 8 : 0;
+    failureMask |= Processor::hostedSignalFrameDepthForTest() < 2 ? 16 : 0;
+    failureMask |= Processor::getInterrupts() ? 32 : 0;
+    failureMask |= Processor::inDeviceHardIrq() ? 64 : 0;
+    failureMask |=
+        current->currentTimeAccountingMode() != CpuTimeMode::Kernel ? 128 : 0;
+    failureMask |= state.getInterruptNumber() != SIGUSR2 ? 256 : 0;
+    failureMask |=
+        state.getInterruptSource() != HostedSchedulerTimer::sourceForTest() ?
+            512 :
+            0;
+    if (failureMask)
     {
+        context->failureMask |= failureMask;
         context->failures += 1;
     }
 }
@@ -631,13 +641,18 @@ int hostedSignalSwitchTarget(void *parameter)
     __pedigree_hosted::sigset_t mask;
     __pedigree_hosted::sigprocmask(0, nullptr, &mask);
     Thread *current = Processor::information().getCurrentThread();
-    if (
-        !current || current->getHostedSignalDepth() ||
-        !Processor::hostedSignalFrameDepthForTest() ||
-        !Processor::getInterrupts() ||
-        __pedigree_hosted::sigismember(&mask, SIGUSR1) ||
-        __pedigree_hosted::sigismember(&mask, SIGUSR2))
+    size_t failureMask = 0;
+    failureMask |= !current ? 1024 : 0;
+    failureMask |= current && current->getHostedSignalDepth() ? 2048 : 0;
+    failureMask |= !Processor::hostedSignalFrameDepthForTest() ? 4096 : 0;
+    failureMask |= !Processor::getInterrupts() ? 8192 : 0;
+    failureMask |=
+        __pedigree_hosted::sigismember(&mask, SIGUSR1) ? 16384 : 0;
+    failureMask |=
+        __pedigree_hosted::sigismember(&mask, SIGUSR2) ? 32768 : 0;
+    if (failureMask)
     {
+        context->failureMask |= failureMask;
         context->failures += 1;
     }
 
@@ -651,6 +666,7 @@ int hostedSignalSwitchTarget(void *parameter)
         __pedigree_hosted::clock_gettime(CLOCK_MONOTONIC, &now);
         if (now.tv_sec - startedAt.tv_sec >= 3)
         {
+            context->failureMask |= 65536;
             context->failures += 1;
             break;
         }
@@ -723,9 +739,19 @@ bool hostedSignalMaskSpansContextSwitch()
     {
         ERROR(
             "HOSTED-WAIT-TEST: FAIL " << Test
-                                       << ": a switched-in compute thread "
-                                          "did not receive its next real "
-                                          "scheduler tick");
+                                       << ": s=" << started << " w="
+                                       << static_cast<size_t>(context.waiting)
+                                       << " c="
+                                       << static_cast<size_t>(context.computing)
+                                       << " d="
+                                       << static_cast<size_t>(context.driverTicks)
+                                       << " t="
+                                       << static_cast<size_t>(context.targetTicks)
+                                       << " r="
+                                       << static_cast<size_t>(context.ran)
+                                       << " j=" << joined << " f="
+                                       << static_cast<size_t>(context.failures)
+                                       << " m=" << context.failureMask.value());
     }
     else
     {
@@ -909,20 +935,21 @@ void closeSchedulerRouteAdmissionForTest(size_t *shutdownGate)
 bool schedulerRouteShutdownAdmissionBoundary()
 {
     constexpr const char *Test = "hosted-scheduler-route-shutdown-boundary";
-    HostedIrqManager &manager = HostedIrqManager::instance();
+    IrqManager *manager = Machine::instance().getIrqManager();
     SchedulerIrqHandler *handler =
         HostedIrqManager::schedulerIrqHandlerForTest(1);
     SchedulerRouteShutdownContext context;
 
     const bool interruptsWereEnabled = Processor::getInterrupts();
     Processor::setInterrupts(false);
-    const bool removed = handler && manager.unregisterSchedulerIrqHandler(
-                                        SIGUSR2, handler);
+    const bool removed =
+        manager && handler &&
+        manager->unregisterSchedulerIrqHandler(SIGUSR2, handler);
     g_SchedulerRouteShutdownContext = &context;
     HostedIrqManager::setSchedulerRoutePublicationHookForTest(
         closeSchedulerRouteAdmissionForTest);
     const irq_id_t rejected =
-        removed ? manager.registerSchedulerIrqHandler(
+        removed ? manager->registerSchedulerIrqHandler(
                       1, handler, IrqPolicy::syntheticHard()) :
                   0;
     HostedIrqManager::setSchedulerRoutePublicationHookForTest(nullptr);
@@ -939,7 +966,7 @@ bool schedulerRouteShutdownAdmissionBoundary()
             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
     }
     const irq_id_t restored =
-        removed && gateRestored ? manager.registerSchedulerIrqHandler(
+        removed && gateRestored ? manager->registerSchedulerIrqHandler(
                                      1, handler,
                                      IrqPolicy::syntheticHard()) :
                                  0;
