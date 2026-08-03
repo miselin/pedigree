@@ -225,6 +225,11 @@ class HostedSplitIrq final : public SplitIrqHandler
         return completedBatchesForTest();
     }
 
+    void rejectNextPublication()
+    {
+        rejectNextPublicationForTest();
+    }
+
     Atomic<size_t> hardCalls;
     Atomic<size_t> hardOutsideSignal;
     Atomic<size_t> bottomCalls;
@@ -244,12 +249,12 @@ class HostedSplitIrq final : public SplitIrqHandler
     Atomic<size_t> bottomShutdownSucceeded;
 
   protected:
-    HardIrqDisposition
+    HardStageDisposition
     hardIrq(irq_id_t, InterruptState &state, size_t &work) override
     {
         if (state.getInterruptSource())
         {
-            return HardIrqDisposition::NotHandled;
+            return HardStageDisposition::NotHandled;
         }
 
         hardCalls += 1;
@@ -273,7 +278,7 @@ class HostedSplitIrq final : public SplitIrqHandler
         }
 
         work = m_NextWork;
-        return HardIrqDisposition::Deferred;
+        return HardStageDisposition::Deferred;
     }
 
     void threadedIrq(size_t work) override
@@ -338,6 +343,22 @@ class HostedSplitIrq final : public SplitIrqHandler
     Atomic<size_t> m_FailQuiesceCall;
     size_t m_EventPhase;
     IrqEventCounter m_ExactEvents;
+};
+
+class HandledHardPeer final : public HardIrqHandler
+{
+  public:
+    HandledHardPeer() : calls(0)
+    {
+    }
+
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override
+    {
+        calls += 1;
+        return HardIrqDisposition::Handled;
+    }
+
+    Atomic<size_t> calls;
 };
 
 bool waitForCompletedBatches(HostedSplitIrq &handler, size_t batches)
@@ -499,6 +520,148 @@ bool coalescingRegression()
     if (passed)
     {
         NOTICE("HOSTED-WAIT-TEST: PASS split-irq-coalescing");
+    }
+    return passed;
+}
+
+bool publicationFailureVetoRegression()
+{
+    constexpr const char *Test = "split-irq-publication-failure-veto";
+    HostedSplitIrq handler;
+    HandledHardPeer peer;
+    IrqManager *manager = Machine::instance().getIrqManager();
+    bool passed = check(
+        handler.start(2), "the split handler could not start", Test);
+    if (!passed)
+    {
+        return false;
+    }
+
+    const irq_id_t peerId = manager->registerHardIsaIrqHandler(
+        2, &peer, IrqPolicy::syntheticHard());
+    IrqLineDiagnosticSnapshot beforeLines[3] = {};
+    const bool beforeSnapshot =
+        manager->snapshotIrqLines(beforeLines, 3) == 3;
+
+    handler.setNextWork(1);
+    handler.setNextEventCount(1);
+    handler.rejectNextPublication();
+    const bool firstRaised = peerId && raise(SIGURG) == 0;
+    IrqLineDiagnosticSnapshot failedLines[3] = {};
+    const bool failedSnapshot =
+        manager->snapshotIrqLines(failedLines, 3) == 3;
+    const bool workStranded =
+        handler.bottomCalls == 0 && handler.pendingWork() == 1;
+
+    const bool secondRaised = firstRaised && raise(SIGURG) == 0;
+    IrqLineDiagnosticSnapshot blockedLines[3] = {};
+    const bool blockedSnapshot =
+        manager->snapshotIrqLines(blockedLines, 3) == 3;
+    const bool stayedMasked =
+        secondRaised && blockedSnapshot && handler.hardCalls == 1 &&
+        peer.calls == 1 && handler.bottomCalls == 0 &&
+        handler.pendingWork() == 1 &&
+        blockedLines[2].dispatchGeneration ==
+            failedLines[2].dispatchGeneration &&
+        blockedLines[2].effectiveMasked &&
+        blockedLines[2].acknowledgementPending;
+    const size_t hardCallsWhileBlocked = handler.hardCalls;
+    const size_t peerCallsWhileBlocked = peer.calls;
+    const size_t publicationFailuresWhileBlocked =
+        handler.publicationFailures();
+    const bool stopped = handler.stop();
+    IrqLineDiagnosticSnapshot reopenedLines[3] = {};
+    const bool reopenedSnapshot =
+        manager->snapshotIrqLines(reopenedLines, 3) == 3;
+    const bool recoveryRaised = stopped && raise(SIGURG) == 0;
+    IrqLineDiagnosticSnapshot recoveredLines[3] = {};
+    const bool recoveredSnapshot =
+        manager->snapshotIrqLines(recoveredLines, 3) == 3;
+    const bool peerRecovered =
+        reopenedSnapshot && reopenedLines[2].configured &&
+        reopenedLines[2].handlerCount == 1 &&
+        reopenedLines[2].delivery == IrqDelivery::Hard &&
+        !reopenedLines[2].effectiveMasked &&
+        !reopenedLines[2].acknowledgementPending && recoveryRaised &&
+        recoveredSnapshot && peer.calls == 2 &&
+        recoveredLines[2].dispatchGeneration >
+            blockedLines[2].dispatchGeneration;
+    const bool peerRemoved =
+        peerId && manager->unregisterHandler(peerId, &peer);
+
+    passed &= check(
+        peerId && beforeSnapshot && firstRaised && failedSnapshot &&
+            failedLines[2].publicationFailures ==
+                beforeLines[2].publicationFailures + 1 &&
+            failedLines[2].unhandledCount == beforeLines[2].unhandledCount,
+        "the split handoff failure was not distinguished from an unclaimed IRQ",
+        Test);
+    passed &= check(
+        workStranded && publicationFailuresWhileBlocked == 1 &&
+            hardCallsWhileBlocked == 1 && peerCallsWhileBlocked == 1,
+        "the rejected publication lost work or skipped a shared callback",
+        Test);
+    passed &= check(
+        stayedMasked,
+        "a later synthetic signal bypassed the fail-closed line state", Test);
+    passed &= check(
+        stopped && handler.bottomCalls == 1 &&
+            handler.observedWork == 1 && handler.observedEvents == 1 &&
+            handler.pendingWork() == 0 && handler.completedBatches() == 1 &&
+            handler.deferredIrqs() == 1 && handler.rearmCalls == 0,
+        "teardown did not drain retained work exactly once while masked",
+        Test);
+    passed &= check(
+        peerRecovered,
+        "removing the failed source did not reopen its healthy shared peer",
+        Test);
+    passed &= check(
+        peerRemoved, "the surviving shared peer did not retire cleanly",
+        Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "split-irq-publication-failure-veto");
+    }
+    return passed;
+}
+
+bool publicationFailureShutdownDrainRegression()
+{
+    constexpr const char *Test =
+        "split-irq-publication-failure-shutdown-drain";
+    HostedSplitIrq handler;
+    bool passed = check(
+        handler.start(2), "the split handler could not start", Test);
+    if (!passed)
+    {
+        return false;
+    }
+
+    handler.setNextWork(4);
+    handler.setNextEventCount(3);
+    handler.rejectNextPublication();
+    const bool raised = raise(SIGURG) == 0;
+    const bool orphaned =
+        raised && handler.bottomCalls == 0 && handler.pendingWork() == 4 &&
+        handler.publicationFailures() == 1;
+    const bool stopped = handler.stop();
+
+    passed &= check(
+        orphaned,
+        "the rejected doorbell did not retain one orphaned work batch", Test);
+    passed &= check(
+        stopped && handler.bottomCalls == 1 && handler.observedWork == 4 &&
+            handler.observedEvents == 3 && handler.pendingWork() == 0 &&
+            handler.completedBatches() == 1 && handler.rearmCalls == 0,
+        "shutdown did not synchronously drain rejected work after quiescence",
+        Test);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "split-irq-publication-failure-shutdown-drain");
     }
     return passed;
 }
@@ -810,12 +973,13 @@ int dispatchPinnedSplitHandler(void *parameter)
 {
     HardCallbackDrainContext *context =
         reinterpret_cast<HardCallbackDrainContext *>(parameter);
-    bool handled = false;
+    HardIrqDisposition handled = HardIrqDisposition::NotHandled;
     const bool admitted = HostedIrqManager::dispatchHandlerForTest(
         2, context->handler->hardHandler(), handled);
     context->dispatchAdmitted = admitted ? 1 : 0;
-    context->dispatchHandled = handled ? 1 : 0;
-    return admitted && handled ? 0 : 1;
+    context->dispatchHandled =
+        handled == HardIrqDisposition::Handled ? 1 : 0;
+    return admitted && handled == HardIrqDisposition::Handled ? 0 : 1;
 }
 
 int shutdownPinnedHardCallback(void *parameter)
@@ -942,6 +1106,8 @@ bool runHostedSplitIrqRegressions()
     bool passed = irqEventCounterArithmeticRegression();
     passed &= lifecycleSerializationRegression();
     passed &= coalescingRegression();
+    passed &= publicationFailureVetoRegression();
+    passed &= publicationFailureShutdownDrainRegression();
     passed &= unregisterDrainRegression();
     passed &= atomicShutdownRejectionRegression();
     passed &= hardShutdownRejectionRegression();

@@ -111,7 +111,7 @@ class Ps2Controller : public Controller, private SplitIrqHandler
     static constexpr uint8_t InputBufferFull = 1 << 1;
     static constexpr uint8_t SecondPortData = 1 << 5;
 
-    HardIrqDisposition
+    HardStageDisposition
     hardIrq(irq_id_t number, InterruptState &state, size_t &work) override;
     void threadedIrq(size_t work) override;
     bool quiesceIrqSources() override;

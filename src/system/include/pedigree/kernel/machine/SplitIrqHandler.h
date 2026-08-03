@@ -40,7 +40,7 @@ class String;
 class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler
 {
   public:
-    enum class HardIrqDisposition : size_t
+    enum class HardStageDisposition : size_t
     {
         NotHandled,
         Handled,
@@ -71,12 +71,14 @@ class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler
     bool shutdownSplitIrq();
 
     /** Runs in hard IRQ context and must be bounded and nonblocking. */
-    virtual HardIrqDisposition
+    virtual HardStageDisposition
     hardIrq(irq_id_t number, InterruptState &state, size_t &work) = 0;
 
     /**
-     * Runs on the owned worker and may use ordinary thread-context APIs.
-     * This drains work but must not re-enable an interrupt source.
+     * Runs in ordinary thread context and may use blocking APIs. The owned
+     * worker normally calls it; teardown may call it synchronously after the
+     * worker is joined to drain a rejected publication. It must not re-enable
+     * an interrupt source.
      */
     virtual void threadedIrq(size_t work) = 0;
 
@@ -103,6 +105,7 @@ class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler
     size_t pendingWorkForTest() const;
     size_t deferredIrqsForTest() const;
     size_t completedBatchesForTest() const;
+    void rejectNextPublicationForTest();
 #endif
 
   private:
@@ -114,12 +117,12 @@ class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler
         irq_id_t id = 0;
     };
 
-    bool irq(irq_id_t number, InterruptState &state) final;
+    ::HardIrqDisposition irq(irq_id_t number, InterruptState &state) final;
     static void dispatchThreaded(
         void *context, uint8_t line, size_t cookie);
     void dispatchThreaded();
 
-    void publishWork(size_t work);
+    bool publishWork(size_t work);
 
     Registration m_Registrations[MaxRegistrations];
     size_t m_RegistrationCount;

@@ -27,7 +27,7 @@ static_assert(
 
 IrqHandlerRegistry::IrqHandlerRegistry()
     : m_Handlers(), m_ActiveDispatches(),
-      m_ThreadedInvalidationGenerations(),
+      m_HardHandoffEpochs(), m_ThreadedInvalidationGenerations(),
       m_ThreadedActionMutationGeneration(0),
       m_ThreadedActionMutationWriters(0), m_OccurrenceEpochs(),
       m_OccurrenceReaders(), m_OccurrenceBoundaryLocks(),
@@ -768,6 +768,15 @@ bool IrqHandlerRegistry::retireSlot(
             }
         }
     }
+    const size_t hardHandoffState = __atomic_exchange_n(
+        &slot.hardHandoffState, static_cast<size_t>(0), __ATOMIC_ACQ_REL);
+    if (hardHandoffState & 1U)
+    {
+        __atomic_add_fetch(
+            &m_HardHandoffEpochs[irq % GraceBucketCount],
+            static_cast<size_t>(1),
+            __ATOMIC_ACQ_REL);
+    }
     __atomic_store_n(&slot.handler, nullptr, __ATOMIC_RELEASE);
     __atomic_store_n(&slot.policy, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(
@@ -1172,6 +1181,10 @@ bool IrqHandlerRegistry::registerHandler(
             __atomic_store_n(
                 &slot.retirementEpoch, static_cast<size_t>(0),
                 __ATOMIC_RELEASE);
+            __atomic_store_n(
+                &slot.hardHandoffState,
+                delivery == Delivery::HardOnly ? generation << 1 : 0,
+                __ATOMIC_RELEASE);
             __atomic_store_n(&slot.handler, handler, __ATOMIC_RELEASE);
             // Policy remains immutable until Retiring closes this publication.
             __atomic_store_n(&slot.policy, policy, __ATOMIC_RELEASE);
@@ -1268,7 +1281,6 @@ IrqHandlerRegistry::UnregisterResult IrqHandlerRegistry::unregisterHandler(
             }
 
             removedDelivery = lineModeForDelivery(deliveryOf(publication));
-
             bool currentTargetDispatch = false;
             if (findCurrentDispatch(
                     owner, &candidate, publication, currentTargetDispatch))
@@ -1356,7 +1368,6 @@ IrqHandlerRegistry::UnregisterResult IrqHandlerRegistry::unregisterHandler(
     }
 
     removedDelivery = lineModeForDelivery(deliveryOf(publication));
-
     const bool selfUnregister =
         findCurrentDispatch(owner, slot, publication, callbackContext);
     if (selfUnregister)
@@ -1423,17 +1434,17 @@ IrqHandlerRegistry::UnregisterResult IrqHandlerRegistry::unregisterHandler(
 }
 
 bool IrqHandlerRegistry::dispatchHard(
-    uint8_t irq, InterruptState &state, bool &handled,
+    uint8_t irq, InterruptState &state, HardIrqDisposition &disposition,
     HardIrqHandler *onlyHandler, size_t dispatchGeneration)
 {
     AdmissionCutoff admissionCutoff = {};
     if (!captureAdmissionCutoff(irq, admissionCutoff))
     {
-        handled = false;
+        disposition = HardIrqDisposition::NotHandled;
         return false;
     }
     return dispatchHard(
-        irq, state, handled, onlyHandler, dispatchGeneration,
+        irq, state, disposition, onlyHandler, dispatchGeneration,
         admissionCutoff);
 }
 
@@ -1654,14 +1665,14 @@ void IrqHandlerRegistry::abandonAdmissionCutoff(void *context)
 }
 
 bool IrqHandlerRegistry::dispatchHard(
-    uint8_t irq, InterruptState &state, bool &handled,
+    uint8_t irq, InterruptState &state, HardIrqDisposition &disposition,
     HardIrqHandler *onlyHandler, size_t dispatchGeneration,
     AdmissionCutoff admissionCutoff)
 {
     AdmissionCutoffCleanup cutoffCleanup(this, admissionCutoff);
     beginAdmissionCutoffCleanup(cutoffCleanup);
     bool admitted = false;
-    handled = false;
+    disposition = HardIrqDisposition::NotHandled;
     const size_t cutoffEpoch = admissionCutoff.epoch;
     const size_t expectedReaderToken =
         (static_cast<size_t>(irq) * 2) +
@@ -1698,7 +1709,10 @@ bool IrqHandlerRegistry::dispatchHard(
             if (occurrencePrecedesRetirement(slot, admissionCutoff))
             {
                 admitted = true;
-                handled = true;
+                if (disposition == HardIrqDisposition::NotHandled)
+                {
+                    disposition = HardIrqDisposition::Handled;
+                }
             }
             continue;
         }
@@ -1825,7 +1839,27 @@ bool IrqHandlerRegistry::dispatchHard(
             DeviceHardIrqContext deviceHardIrqContext(
                 dispatchCleanup.previousDeviceHardIrqDepth,
                 dispatchCleanup.restoreDeviceHardIrqDepth);
-            handled |= static_cast<HardIrqHandler *>(handler)->irq(irq, state);
+            const HardIrqDisposition callbackDisposition =
+                static_cast<HardIrqHandler *>(handler)->irq(irq, state);
+            if (callbackDisposition == HardIrqDisposition::KeepMasked)
+            {
+                size_t expected = generationOf(publication) << 1;
+                if (__atomic_compare_exchange_n(
+                    &slot.hardHandoffState, &expected, expected | 1U, false,
+                    __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                {
+                    __atomic_add_fetch(
+                        &m_HardHandoffEpochs[irq % GraceBucketCount],
+                        static_cast<size_t>(1),
+                        __ATOMIC_ACQ_REL);
+                }
+            }
+            if (callbackDisposition == HardIrqDisposition::KeepMasked ||
+                (callbackDisposition == HardIrqDisposition::Handled &&
+                 disposition == HardIrqDisposition::NotHandled))
+            {
+                disposition = callbackDisposition;
+            }
         }
         unpublishDispatch(&dispatchCleanup, slot, publication, true);
         if (thread)
@@ -1836,7 +1870,65 @@ bool IrqHandlerRegistry::dispatchHard(
     }
 
     finishAdmissionCutoffCleanup(cutoffCleanup);
+    if (disposition == HardIrqDisposition::KeepMasked &&
+        !hardLineQuarantined(irq))
+    {
+        disposition = HardIrqDisposition::Handled;
+    }
     return admitted;
+}
+
+bool IrqHandlerRegistry::hardLineQuarantined(uint8_t irq) const
+{
+    const size_t epochBucket = irq % GraceBucketCount;
+    for (size_t attempt = 0; attempt < 2; ++attempt)
+    {
+        const size_t startEpoch = __atomic_load_n(
+            &m_HardHandoffEpochs[epochBucket], __ATOMIC_ACQUIRE);
+        for (size_t i = 0; i < MaxHandlerSlots; ++i)
+        {
+            const HandlerSlot &slot = m_Handlers[i];
+            const size_t publication =
+                __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+            const SlotMode mode = modeOf(publication);
+            if ((mode != SlotMode::Enabled && mode != SlotMode::Draining) ||
+                irqOf(publication) != irq ||
+                deliveryOf(publication) != Delivery::HardOnly)
+            {
+                continue;
+            }
+
+            const size_t generation = generationOf(publication);
+            if (__atomic_load_n(&slot.hardHandoffState, __ATOMIC_ACQUIRE) !=
+                ((generation << 1) | 1U))
+            {
+                continue;
+            }
+
+            const size_t currentPublication =
+                __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
+            const SlotMode currentMode = modeOf(currentPublication);
+            if ((currentMode == SlotMode::Enabled ||
+                 currentMode == SlotMode::Draining) &&
+                irqOf(currentPublication) == irq &&
+                deliveryOf(currentPublication) == Delivery::HardOnly &&
+                generationOf(currentPublication) == generation)
+            {
+                return true;
+            }
+        }
+
+        if (startEpoch == __atomic_load_n(
+                              &m_HardHandoffEpochs[epochBucket],
+                              __ATOMIC_ACQUIRE))
+        {
+            return false;
+        }
+    }
+
+    // Repeated mutation means there was no stable false snapshot. Keeping the
+    // physical line masked is the only safe bounded answer.
+    return true;
 }
 
 bool IrqHandlerRegistry::publishThreadedDispatch(

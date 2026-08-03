@@ -453,10 +453,30 @@ bool HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
                 removedDelivery == IrqHandlerRegistry::LineMode::Threaded &&
                 remainingMode != IrqHandlerRegistry::LineMode::Threaded &&
                 remainingMode != IrqHandlerRegistry::LineMode::Mixed;
+            const bool hardLifetimeEnded =
+                removedDelivery == IrqHandlerRegistry::LineMode::HardOnly &&
+                remainingMode != IrqHandlerRegistry::LineMode::HardOnly &&
+                remainingMode != IrqHandlerRegistry::LineMode::Mixed;
             const bool lineEmpty =
                 remainingMode == IrqHandlerRegistry::LineMode::Empty;
+            if (hardLifetimeEnded)
+            {
+                __atomic_add_fetch(
+                    &m_HardStageGenerations[irq], static_cast<size_t>(1),
+                    __ATOMIC_ACQ_REL);
+            }
+            if (removedDelivery ==
+                    IrqHandlerRegistry::LineMode::HardOnly &&
+                !m_Handlers.hardLineQuarantined(irq))
+            {
+                __atomic_store_n(
+                    &m_MixedHardDispositions[irq],
+                    static_cast<size_t>(HardIrqDisposition::Handled),
+                    __ATOMIC_RELEASE);
+            }
             if (threadedLifetimeEnded || lineEmpty)
             {
+                resetQuarantine(m_ThreadedPublicationQuarantines[irq]);
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
                 if (hook)
                 {
@@ -555,6 +575,10 @@ bool HostedIrqManager::shutdownThreaded()
 
             const size_t boundary = advanceThreadedCookie(line);
             m_Handlers.invalidateThreadedLine(line, boundary);
+            __atomic_add_fetch(
+                &m_HardStageGenerations[line], static_cast<size_t>(1),
+                __ATOMIC_ACQ_REL);
+            resetQuarantine(m_ThreadedPublicationQuarantines[line]);
             __atomic_store_n(
                 &m_MixedHardOutcomeCookies[line], static_cast<size_t>(0),
                 __ATOMIC_RELEASE);
@@ -572,7 +596,8 @@ HostedIrqManager::HostedIrqManager()
                         MakeConstantString("hosted IRQ bottom half"),
                         NumHostedIrqs, dispatchThreadedLine, this),
       m_ThreadedCookies(), m_MixedHardOutcomeCookies(),
-      m_MixedHardHandled(), m_LineDeliveries(),
+      m_MixedHardDispositions(), m_HardStageGenerations(),
+      m_ThreadedPublicationQuarantines(), m_LineDeliveries(),
       m_ThreadedPublicationFailures(), m_RemovalRejections(),
       m_DispatchGenerations(), m_UnhandledInterrupts(), m_Diagnostics(),
       m_LineLifecycleBusy(), m_ShuttingDown(0)
@@ -603,7 +628,46 @@ size_t HostedIrqManager::advanceThreadedCookie(uint8_t irq)
     __atomic_store_n(
         &m_MixedHardOutcomeCookies[irq], static_cast<size_t>(0),
         __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_MixedHardDispositions[irq],
+        static_cast<size_t>(HardIrqDisposition::NotHandled),
+        __ATOMIC_RELAXED);
     return cookie;
+}
+
+bool HostedIrqManager::quarantineBlocked(const size_t &state)
+{
+    return (__atomic_load_n(&state, __ATOMIC_ACQUIRE) & 1U) != 0;
+}
+
+bool HostedIrqManager::latchQuarantine(
+    size_t &state, size_t capturedState)
+{
+    const size_t generationMask = ~static_cast<size_t>(1);
+    size_t current = __atomic_load_n(&state, __ATOMIC_ACQUIRE);
+    if ((current & generationMask) != (capturedState & generationMask))
+    {
+        return false;
+    }
+    if (!(current & 1U))
+    {
+        __atomic_compare_exchange_n(
+            &state, &current, current | 1U, false, __ATOMIC_ACQ_REL,
+            __ATOMIC_ACQUIRE);
+    }
+    return (current & generationMask) ==
+           (capturedState & generationMask);
+}
+
+void HostedIrqManager::resetQuarantine(size_t &state)
+{
+    const size_t current = __atomic_load_n(&state, __ATOMIC_ACQUIRE);
+    size_t next = (current & ~static_cast<size_t>(1)) + 2;
+    if (!next)
+    {
+        next = 2;
+    }
+    __atomic_exchange_n(&state, next, __ATOMIC_ACQ_REL);
 }
 
 void HostedIrqManager::publishDiagnosticLine(uint8_t irq)
@@ -741,6 +805,24 @@ size_t HostedIrqManager::snapshotIrqLines(
             &m_UnhandledInterrupts[irq], __ATOMIC_RELAXED);
         out[irq].publicationFailures = __atomic_load_n(
             &m_ThreadedPublicationFailures[irq], __ATOMIC_RELAXED);
+        const bool hardQuarantined =
+            m_Handlers.hardLineQuarantined(static_cast<uint8_t>(irq));
+        const bool threadedQuarantined =
+            quarantineBlocked(m_ThreadedPublicationQuarantines[irq]);
+        if (hardQuarantined || threadedQuarantined)
+        {
+            out[irq].effectiveMasked = true;
+        }
+        if (hardQuarantined)
+        {
+            out[irq].acknowledgementPending = true;
+            out[irq].maskReasons |= IrqMaskAwaitingAcknowledgement;
+        }
+        if (threadedQuarantined)
+        {
+            out[irq].threadedPending = true;
+            out[irq].maskReasons |= IrqMaskAwaitingThreadedCompletion;
+        }
         out[irq].removalRejections = __atomic_load_n(
             &m_RemovalRejections[irq], __ATOMIC_RELAXED);
         out[irq].diagnosticPublicationFailures =
@@ -834,6 +916,15 @@ bool HostedIrqManager::dispatchDeviceLine(
 
     const IrqDelivery delivery = static_cast<IrqDelivery>(__atomic_load_n(
         &m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
+    const size_t hardStageGeneration = __atomic_load_n(
+        &m_HardStageGenerations[irq], __ATOMIC_ACQUIRE);
+    const size_t threadedQuarantineState = __atomic_load_n(
+        &m_ThreadedPublicationQuarantines[irq], __ATOMIC_ACQUIRE);
+    if (m_Handlers.hardLineQuarantined(irq) ||
+        (threadedQuarantineState & 1U))
+    {
+        return true;
+    }
     if (delivery == IrqDelivery::None && schedulerRoutePresent)
     {
         // Lifecycle ownership makes this the admission boundary: a generic
@@ -856,6 +947,13 @@ bool HostedIrqManager::dispatchDeviceLine(
     }
     if (!cutoffCaptured)
     {
+        if (delivery == IrqDelivery::Threaded ||
+            delivery == IrqDelivery::Mixed)
+        {
+            latchQuarantine(
+                m_ThreadedPublicationQuarantines[irq],
+                threadedQuarantineState);
+        }
         __atomic_add_fetch(
             delivery == IrqDelivery::Threaded ||
                     delivery == IrqDelivery::Mixed ?
@@ -880,6 +978,9 @@ bool HostedIrqManager::dispatchDeviceLine(
         if (!m_Handlers.publishThreadedDispatch(
                 irq, cookie, admissionCutoff))
         {
+            latchQuarantine(
+                m_ThreadedPublicationQuarantines[irq],
+                threadedQuarantineState);
             __atomic_add_fetch(
                 &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
                 __ATOMIC_RELAXED);
@@ -888,6 +989,9 @@ bool HostedIrqManager::dispatchDeviceLine(
         if (!m_ThreadedDispatcher.publishFromInterrupt(irq, cookie))
         {
             m_Handlers.invalidateThreadedGenerationFromInterrupt(irq, cookie);
+            latchQuarantine(
+                m_ThreadedPublicationQuarantines[irq],
+                threadedQuarantineState);
             __atomic_add_fetch(
                 &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
                 __ATOMIC_RELAXED);
@@ -900,15 +1004,31 @@ bool HostedIrqManager::dispatchDeviceLine(
         const size_t cookie = advanceThreadedCookie(irq);
         const bool threadedPublished = m_Handlers.publishThreadedDispatch(
             irq, cookie, mixedAdmissionCutoffs.threaded);
+        if (!threadedPublished)
+        {
+            latchQuarantine(
+                m_ThreadedPublicationQuarantines[irq],
+                threadedQuarantineState);
+            __atomic_add_fetch(
+                &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
+        }
 
         // The occurrence leases now pin exact registry membership. A hard
         // callback must be free to remove itself through this manager.
         lifecycle.release();
 
-        bool handled = false;
+        HardIrqDisposition hardDisposition =
+            HardIrqDisposition::NotHandled;
         const bool admitted = m_Handlers.dispatchHard(
-            irq, state, handled, nullptr, dispatchGeneration,
+            irq, state, hardDisposition, nullptr, dispatchGeneration,
             mixedAdmissionCutoffs.hard);
+        if (hardDisposition == HardIrqDisposition::KeepMasked)
+        {
+            __atomic_add_fetch(
+                &m_ThreadedPublicationFailures[irq],
+                static_cast<size_t>(1), __ATOMIC_RELAXED);
+        }
 
         HostedLineLifecycleGuard tail(m_LineLifecycleBusy[irq], irq, false);
         const IrqDelivery currentDelivery =
@@ -916,9 +1036,17 @@ bool HostedIrqManager::dispatchDeviceLine(
                 &m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
         if (!tail.owned())
         {
-            __atomic_add_fetch(
-                &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
-                __ATOMIC_RELAXED);
+            if (threadedPublished)
+            {
+                if (latchQuarantine(
+                        m_ThreadedPublicationQuarantines[irq],
+                        threadedQuarantineState))
+                {
+                    __atomic_add_fetch(
+                        &m_ThreadedPublicationFailures[irq],
+                        static_cast<size_t>(1), __ATOMIC_RELAXED);
+                }
+            }
             return true;
         }
 
@@ -948,18 +1076,31 @@ bool HostedIrqManager::dispatchDeviceLine(
 
         if (!threadedPublished)
         {
-            __atomic_add_fetch(
-                &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
-                __ATOMIC_RELAXED);
             return true;
         }
 
+        const size_t currentHardStageGeneration = __atomic_load_n(
+            &m_HardStageGenerations[irq], __ATOMIC_ACQUIRE);
+        const bool hardLineQuarantined =
+            m_Handlers.hardLineQuarantined(irq);
         const bool hardStageQuiesced =
-            currentDelivery == IrqDelivery::Threaded;
+            currentDelivery == IrqDelivery::Threaded ||
+            currentHardStageGeneration != hardStageGeneration ||
+            (hardDisposition == HardIrqDisposition::KeepMasked &&
+             !hardLineQuarantined);
+        HardIrqDisposition effectiveHardDisposition =
+            HardIrqDisposition::NotHandled;
+        if (hardStageQuiesced)
+        {
+            effectiveHardDisposition = HardIrqDisposition::Handled;
+        }
+        else if (admitted)
+        {
+            effectiveHardDisposition = hardDisposition;
+        }
         __atomic_store_n(
-            &m_MixedHardHandled[irq],
-            static_cast<size_t>(
-                (admitted && handled) || hardStageQuiesced),
+            &m_MixedHardDispositions[irq],
+            static_cast<size_t>(effectiveHardDisposition),
             __ATOMIC_RELAXED);
         __atomic_store_n(
             &m_MixedHardOutcomeCookies[irq], cookie, __ATOMIC_RELEASE);
@@ -969,6 +1110,9 @@ bool HostedIrqManager::dispatchDeviceLine(
             __atomic_store_n(
                 &m_MixedHardOutcomeCookies[irq], static_cast<size_t>(0),
                 __ATOMIC_RELEASE);
+            latchQuarantine(
+                m_ThreadedPublicationQuarantines[irq],
+                threadedQuarantineState);
             __atomic_add_fetch(
                 &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
                 __ATOMIC_RELAXED);
@@ -990,10 +1134,36 @@ bool HostedIrqManager::dispatchDeviceLine(
         return true;
     }
 
-    bool handled = false;
+    HardIrqDisposition hardDisposition = HardIrqDisposition::NotHandled;
     const bool admitted = m_Handlers.dispatchHard(
-        irq, state, handled, nullptr, dispatchGeneration, admissionCutoff);
-    if (!admitted || !handled)
+        irq, state, hardDisposition, nullptr, dispatchGeneration,
+        admissionCutoff);
+    const size_t currentHardStageGeneration = __atomic_load_n(
+        &m_HardStageGenerations[irq], __ATOMIC_ACQUIRE);
+    const IrqDelivery currentDelivery =
+        static_cast<IrqDelivery>(__atomic_load_n(
+            &m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
+    const bool hardStageCurrent =
+        currentHardStageGeneration == hardStageGeneration &&
+        (currentDelivery == IrqDelivery::Hard ||
+         currentDelivery == IrqDelivery::Mixed);
+    const bool hardLineQuarantined =
+        m_Handlers.hardLineQuarantined(irq);
+    const HardIrqDisposition effectiveHardDisposition =
+        !hardStageCurrent ||
+                (hardDisposition == HardIrqDisposition::KeepMasked &&
+                 !hardLineQuarantined) ?
+            HardIrqDisposition::Handled :
+            hardDisposition;
+    if (effectiveHardDisposition == HardIrqDisposition::KeepMasked)
+    {
+        __atomic_add_fetch(
+            &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
+            __ATOMIC_RELAXED);
+    }
+    else if (hardStageCurrent &&
+             (!admitted ||
+              effectiveHardDisposition == HardIrqDisposition::NotHandled))
     {
         __atomic_add_fetch(
             &m_UnhandledInterrupts[irq], static_cast<size_t>(1),
@@ -1041,7 +1211,14 @@ void HostedIrqManager::dispatchThreadedLine(
         return;
     }
 
-    bool accepted = admitted && result.allowRearm;
+    const bool hardHandoffQuarantined =
+        manager->m_Handlers.hardLineQuarantined(irq);
+    const bool threadedPublicationQuarantined = quarantineBlocked(
+        manager->m_ThreadedPublicationQuarantines[irq]);
+    bool accepted = admitted && result.allowRearm &&
+                    !hardHandoffQuarantined &&
+                    !threadedPublicationQuarantined;
+    bool hardHandoffFailed = hardHandoffQuarantined;
     if (mixedOccurrence)
     {
         if (cookie != __atomic_load_n(
@@ -1050,9 +1227,18 @@ void HostedIrqManager::dispatchThreadedLine(
         {
             return;
         }
-        accepted |= __atomic_load_n(
-                        &manager->m_MixedHardHandled[irq],
-                        __ATOMIC_RELAXED) != 0;
+        const HardIrqDisposition storedHardDisposition =
+            static_cast<HardIrqDisposition>(__atomic_load_n(
+                &manager->m_MixedHardDispositions[irq], __ATOMIC_RELAXED));
+        const HardIrqDisposition hardDisposition =
+            storedHardDisposition == HardIrqDisposition::KeepMasked &&
+                    !hardHandoffQuarantined ?
+                HardIrqDisposition::Handled :
+                storedHardDisposition;
+        hardHandoffFailed = hardHandoffQuarantined;
+        accepted =
+            (accepted || hardDisposition == HardIrqDisposition::Handled) &&
+            !hardHandoffFailed && !threadedPublicationQuarantined;
         const IrqDelivery currentDelivery =
             static_cast<IrqDelivery>(__atomic_load_n(
                 &manager->m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
@@ -1076,7 +1262,7 @@ void HostedIrqManager::dispatchThreadedLine(
             return;
         }
     }
-    if (!accepted)
+    if (!accepted && !hardHandoffFailed && !threadedPublicationQuarantined)
     {
         __atomic_add_fetch(
             &manager->m_UnhandledInterrupts[irq], static_cast<size_t>(1),
@@ -1132,20 +1318,21 @@ SchedulerIrqHandler *HostedIrqManager::schedulerIrqHandlerForTest(uint8_t irq)
 }
 
 bool HostedIrqManager::dispatchHandlerForTest(
-    uint8_t irq, HardIrqHandler *handler, InterruptState &state, bool &handled,
-    size_t dispatchGeneration)
+    uint8_t irq, HardIrqHandler *handler, InterruptState &state,
+    HardIrqDisposition &disposition, size_t dispatchGeneration)
 {
     return m_Instance.m_Handlers.dispatchHard(
-        irq, state, handled, handler, dispatchGeneration);
+        irq, state, disposition, handler, dispatchGeneration);
 }
 
 bool HostedIrqManager::dispatchHandlerForTest(
-    uint8_t irq, HardIrqHandler *handler, bool &handled,
+    uint8_t irq, HardIrqHandler *handler,
+    HardIrqDisposition &disposition,
     size_t dispatchGeneration)
 {
     InterruptState state;
     return dispatchHandlerForTest(
-        irq, handler, state, handled, dispatchGeneration);
+        irq, handler, state, disposition, dispatchGeneration);
 }
 
 void HostedIrqManager::withRegistryMutationLockForTest(MutationLockHook hook)

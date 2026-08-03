@@ -118,12 +118,13 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     /** Dispatches one handler through the production registry path. */
     static EXPORTED_PUBLIC bool dispatchHandlerForTest(
         uint8_t irq, HardIrqHandler *handler, InterruptState &state,
-        bool &handled, size_t dispatchGeneration = 1);
+        HardIrqDisposition &disposition, size_t dispatchGeneration = 1);
 
     /** Dispatches through the production registry with synthetic hosted state.
      */
     static EXPORTED_PUBLIC bool dispatchHandlerForTest(
-        uint8_t irq, HardIrqHandler *handler, bool &handled,
+        uint8_t irq, HardIrqHandler *handler,
+        HardIrqDisposition &disposition,
         size_t dispatchGeneration = 1);
 
     /** Runs a deterministic test seam while the writer lock is held. */
@@ -192,6 +193,9 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     void publishDiagnosticLine(uint8_t irq);
     bool lifecycleTerminationCanBeDeferred() const;
     size_t advanceThreadedCookie(uint8_t irq);
+    static bool quarantineBlocked(const size_t &state);
+    static bool latchQuarantine(size_t &state, size_t capturedState);
+    static void resetQuarantine(size_t &state);
 
     /** IRQ handlers and their callback lifetime state. */
     IrqHandlerRegistry m_Handlers;
@@ -204,7 +208,11 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     /** The cookie publishes its adjacent hard outcome without a blocking
      *  lock. */
     size_t m_MixedHardOutcomeCookies[3];
-    size_t m_MixedHardHandled[3];
+    size_t m_MixedHardDispositions[3];
+    /** Invalidates old hard results after the complete hard stage retires. */
+    size_t m_HardStageGenerations[3];
+    /** Generation-tagged masks survive stale threaded-publication tails. */
+    size_t m_ThreadedPublicationQuarantines[3];
     size_t m_LineDeliveries[3];
     size_t m_ThreadedPublicationFailures[3];
     size_t m_RemovalRejections[3];

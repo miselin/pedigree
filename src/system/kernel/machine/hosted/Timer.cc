@@ -411,7 +411,7 @@ HostedTimer::HostedTimer()
 {
 }
 
-SplitIrqHandler::HardIrqDisposition
+SplitIrqHandler::HardStageDisposition
 HostedTimer::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
 {
     const siginfo_t *signalInfo =
@@ -421,24 +421,24 @@ HostedTimer::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
         signalInfo->si_signo != SIGUSR1 || signalInfo->si_code != SI_TIMER ||
         signalInfo->si_value.sival_ptr != this)
     {
-        return HardIrqDisposition::NotHandled;
+        return HardStageDisposition::NotHandled;
     }
 
     if (signalInfo->si_overrun < 0)
     {
         FATAL_NOLOCK("HostedTimer received invalid POSIX timer metadata");
-        return HardIrqDisposition::Handled;
+        return HardStageDisposition::Handled;
     }
 
     const size_t expirations = static_cast<size_t>(signalInfo->si_overrun) + 1;
     if (!m_PendingExpirations.recordFromInterrupt(expirations))
     {
         FATAL_NOLOCK("HostedTimer expiration counter saturated");
-        return HardIrqDisposition::Handled;
+        return HardStageDisposition::Handled;
     }
 
     work = 1;
-    return HardIrqDisposition::Deferred;
+    return HardStageDisposition::Deferred;
 }
 
 void HostedTimer::threadedIrq(size_t work)

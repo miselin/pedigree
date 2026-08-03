@@ -1001,7 +1001,7 @@ class QueuedTickHandler : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override
     {
         const size_t phase = m_Context.phase;
         if (phase && phase < 4)
@@ -1015,7 +1015,7 @@ class QueuedTickHandler : public HardIrqHandler
             }
             m_Context.phase = 4;
         }
-        return true;
+        return HardIrqDisposition::Handled;
     }
 
   private:

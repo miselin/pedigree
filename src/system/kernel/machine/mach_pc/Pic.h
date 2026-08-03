@@ -24,6 +24,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqDiagnosticSnapshotStore.h"
+#include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
@@ -116,6 +117,13 @@ class Pic : public IrqManager, private InterruptHandler
     void publishDiagnosticLineLocked(uint8_t irq);
     void publishAllDiagnosticLinesLocked();
 
+    enum FailClosedReason : uint8_t
+    {
+        HardHandoffQuarantine = 1U << 0,
+        ThreadedPublicationQuarantine = 1U << 1,
+        UnhandledQuarantine = 1U << 2,
+    };
+
     void eoiLocked(uint8_t irq);
     void applyMaskLocked();
     void setEnabledLocked(uint8_t irq, bool enable);
@@ -142,10 +150,16 @@ class Pic : public IrqManager, private InterruptHandler
     size_t m_ThreadedCookies[PicIrqState::LineCount];
     /** PIC dispatch generation associated with each queued cookie. */
     size_t m_ThreadedDispatchGenerations[PicIrqState::LineCount];
+    /** Invalidates an old hard result after its final callback lifetime ends. */
+    size_t m_HardStageGenerations[PicIrqState::LineCount];
     /** Hard-stage outcome folded into the matching mixed worker batch. */
     bool m_ThreadedHadHardStage[PicIrqState::LineCount];
     bool m_ThreadedHardAdmitted[PicIrqState::LineCount];
-    bool m_ThreadedHardHandled[PicIrqState::LineCount];
+    HardIrqDisposition m_ThreadedHardDisposition[PicIrqState::LineCount];
+    bool m_ThreadedHardVetoRecovery[PicIrqState::LineCount];
+    size_t m_ThreadedHardVetoRecoveryGenerations[PicIrqState::LineCount];
+    /** Reasons which must remain masked until their owning lifetime ends. */
+    uint8_t m_FailClosedReasons[PicIrqState::LineCount];
     /** Atomic diagnostics for work rejected after dispatcher closure. */
     size_t m_ThreadedPublicationFailures[PicIrqState::LineCount];
     size_t m_RemovalRejections[PicIrqState::LineCount];

@@ -128,7 +128,7 @@ class HostedTimer : public Timer, private SplitIrqHandler
      *\note NOT implemented */
     HostedTimer &operator=(const HostedTimer &);
 
-    HardIrqDisposition
+    HardStageDisposition
     hardIrq(irq_id_t number, InterruptState &state, size_t &work) override;
     void threadedIrq(size_t work) override;
     bool quiesceIrqSources() override;

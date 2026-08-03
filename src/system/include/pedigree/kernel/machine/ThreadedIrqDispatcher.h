@@ -75,6 +75,9 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
     /** Publishes through a selected synthetic per-CPU slot. */
     bool publishFromSlotForTest(uint8_t line, size_t slot, size_t cookie);
 
+    /** Rejects exactly the next otherwise-valid hard publication. */
+    void rejectNextPublicationForTest();
+
     /** Runs after a diagnostic scan has joined shutdown admission. */
     void setPendingScanAdmittedHookForTest(PendingScanAdmittedHook hook);
 #endif
@@ -174,6 +177,7 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
     PendingScanAdmittedHook m_PendingScanAdmittedHook;
     size_t m_PendingSlotCountForTest;
     size_t m_PublicationSlotForTest;
+    size_t m_RejectNextPublicationForTest;
 #endif
 
     ThreadedIrqDispatcher(const ThreadedIrqDispatcher &) = delete;

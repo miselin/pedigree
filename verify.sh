@@ -874,16 +874,46 @@ check_wait_api_boundaries()
             'class EXPORTED_PUBLIC HardIrqHandler[[:space:]]*:[[:space:]]*public IrqHandlerBase' \
             "$irq_handler_header" ||
         ! rg -q -U \
+            '(?s)enum class HardIrqDisposition.*?NotHandled.*?Handled.*?KeepMasked' \
+            "$irq_handler_header" ||
+        ! rg -q -U \
+            'virtual HardIrqDisposition[[:space:]]+irq\(irq_id_t number, InterruptState &state\)' \
+            "$irq_handler_header" ||
+        rg -q -U \
             'virtual bool irq\(irq_id_t number, InterruptState &state\)' \
             "$irq_handler_header" ||
         ! rg -q 'Quiesced' "$irq_handler_header" ||
         ! rg -q 'struct ThreadedDispatchResult' "$irq_registry_header" ||
         ! rg -q 'bool allowRearm' "$irq_registry_header" ||
+        ! rg -q -U \
+            '(?s)callbackDisposition == HardIrqDisposition::KeepMasked.*?callbackDisposition == HardIrqDisposition::Handled.*?disposition == HardIrqDisposition::NotHandled.*?disposition = callbackDisposition' \
+            "$irq_registry_source" ||
         ! rg -q 'aggregateAdmitted && aggregateAllowRearm' \
             src/system/kernel/machine/mach_pc/Pic.cc ||
+        ! rg -q 'irq-hard-keep-masked-dominance' \
+            src/modules/system/hosted-smoke/irq-regressions.cc ||
         ! rg -q 'irq-threaded-quiesced-rearm' \
             src/modules/system/hosted-smoke/irq-regressions.cc; then
         echo "The IRQ API lost its explicit thread and hard-context types."
+        failed=1
+    fi
+
+    if ! rg -q 'bool hardLineQuarantined\(uint8_t irq\) const' \
+            "$irq_registry_header" ||
+        ! rg -q 'size_t hardHandoffState' "$irq_registry_header" ||
+        ! rg -q 'm_HardHandoffEpochs\[GraceBucketCount\]' \
+            "$irq_registry_header" ||
+        ! rg -q -U \
+            '(?s)callbackDisposition == HardIrqDisposition::KeepMasked.*?__atomic_compare_exchange_n.*?hardHandoffState.*?m_HardHandoffEpochs\[irq % GraceBucketCount\]' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)hardLineQuarantined\(uint8_t irq\) const.*?attempt < 2.*?SlotMode::Draining.*?generation << 1.*?Repeated mutation.*?return true;' \
+            "$irq_registry_source" ||
+        ! rg -q 'irq-hard-per-source-quarantine' \
+            src/modules/system/hosted-smoke/irq-regressions.cc ||
+        ! rg -q 'irq-mixed-same-pointer-hard-lifetime-veto' \
+            src/modules/system/hosted-smoke/threaded-irq-regressions.cc; then
+        echo "Hard IRQ quarantine lost exact slot-lifetime ownership."
         failed=1
     fi
 
@@ -1409,8 +1439,23 @@ check_wait_api_boundaries()
             '(?s)publishThreadedDispatch\([^;]*threadedAdmissionCutoff\).*?if \(!hasHardStage &&.*?!m_ThreadedDispatcher\.publishFromInterrupt\(.*?dispatchHard\([^;]*hardAdmissionCutoff\).*?if \(hasThreadedStage\).*?threadedLifetimeCurrent.*?!m_ThreadedDispatcher\.publishFromInterrupt\(' \
             <<<"$pic_hard_irq_body" ||
         ! rg -q -U \
-            '(?s)dispatchThreaded\(irq, cookie, result\).*?aggregateAdmitted.*?m_ThreadedHardAdmitted\[irq\] \|\| admitted.*?aggregateAllowRearm.*?m_ThreadedHardHandled\[irq\] \|\| result\.allowRearm.*?completeThreadedDispatch\(.*?aggregateAdmitted && aggregateAllowRearm' \
+            '(?s)dispatchThreaded\(irq, cookie, result\).*?aggregateAdmitted.*?m_ThreadedHardAdmitted\[irq\] \|\| admitted.*?hardDisposition.*?m_ThreadedHardDisposition\[irq\].*?aggregateAllowRearm.*?hardDisposition == HardIrqDisposition::Handled.*?result\.allowRearm.*?hardDisposition != HardIrqDisposition::KeepMasked.*?completeThreadedDispatch\(.*?aggregateAdmitted && aggregateAllowRearm' \
             <<<"$pic_threaded_worker_body" ||
+        ! rg -q -U \
+            '(?s)needsAcknowledgement.*?HardIrqDisposition::KeepMasked.*?completeDispatch\([^;]*needsAcknowledgement\).*?applyMaskLocked\(\).*?controllerAck == IrqControllerAck::AfterHardStage.*?eoiLocked\(irq\)' \
+            <<<"$pic_hard_irq_body" ||
+        ! rg -q -U \
+            '(?s)hardHandoffFailed =.*?effectiveHardDisposition == HardIrqDisposition::KeepMasked.*?if \(hasThreadedStage &&.*?hardHandoffFailed.*?threadedLifetimeCurrent && !threadedPublished.*?m_FailClosedReasons\[irq\] \|= HardHandoffQuarantine.*?completeDispatch\(irq, dispatchGeneration, true\).*?applyMaskLocked\(\).*?controllerAck == IrqControllerAck::AfterHardStage.*?eoiLocked\(irq\)' \
+            <<<"$pic_hard_irq_body" ||
+        ! rg -q -U \
+            '(?s)hardHandoffQuarantined =.*?hardLineQuarantined\(irq\).*?storedHardDisposition.*?storedHardDisposition == HardIrqDisposition::KeepMasked.*?!hardHandoffQuarantined.*?HardIrqDisposition::Handled.*?hardHandoffFailed = hardHandoffQuarantined.*?accepted =.*?hardDisposition == HardIrqDisposition::Handled.*?!hardHandoffFailed.*?!threadedPublicationQuarantined.*?if \(!accepted && !hardHandoffFailed && !threadedPublicationQuarantined\)' \
+            "$hosted_irq_source" ||
+        ! rg -q -U \
+            '(?s)if \(effectiveHardDisposition == HardIrqDisposition::KeepMasked\).*?m_ThreadedPublicationFailures\[irq\].*?else if.*?hardStageLifetimeCurrent.*?!admitted.*?effectiveHardDisposition == HardIrqDisposition::NotHandled.*?m_UnhandledIrqCount\[irq\]' \
+            <<<"$pic_hard_irq_body" ||
+        ! rg -q -U \
+            '(?s)if \(effectiveHardDisposition == HardIrqDisposition::KeepMasked\).*?m_ThreadedPublicationFailures\[irq\].*?else if \(hardStageCurrent.*?!admitted.*?effectiveHardDisposition == HardIrqDisposition::NotHandled.*?m_UnhandledInterrupts\[irq\]' \
+            "$hosted_irq_source" ||
         ! rg -q -U \
             '(?s)publishFromInterrupt\(.*?invalidateThreadedGenerationFromInterrupt\(.*?m_ThreadedPublicationFailures' \
             <<<"$pic_hard_irq_body"; then
@@ -1529,7 +1574,10 @@ check_wait_api_boundaries()
         ! rg -q 'ThreadedIrqDispatcher m_Dispatcher' \
             "$split_irq_header" ||
         ! rg -q -U \
-            'virtual HardIrqDisposition[[:space:]]+hardIrq\(' \
+            'virtual HardStageDisposition[[:space:]]+hardIrq\(' \
+            "$split_irq_header" ||
+        ! rg -q -U \
+            '::HardIrqDisposition irq\(irq_id_t number, InterruptState &state\) final' \
             "$split_irq_header" ||
         ! rg -q \
             'virtual void threadedIrq\(size_t work\)' \
@@ -1566,6 +1614,16 @@ check_wait_api_boundaries()
         '(?s)publishWork\(size_t work\).*?__atomic_or_fetch\(&m_PendingWork, work, __ATOMIC_ACQ_REL\).*?m_Dispatcher\.publishFromInterrupt\(0, 1\)' \
         "$split_irq_source"; then
         echo "The split IRQ adapter published before recording pending work."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+            '(?s)SplitIrqHandler::irq\(.*?HardStageDisposition::Deferred.*?publishWork\(work \? work : 1\) \? HardIrqDisposition::Handled.*?HardIrqDisposition::KeepMasked' \
+            "$split_irq_source" ||
+        ! rg -q -U \
+            '(?s)bool SplitIrqHandler::publishWork\(size_t work\).*?__atomic_or_fetch\(&m_PendingWork.*?m_Stopping \|\| !m_Dispatcher\.publishFromInterrupt\(0, 1\).*?m_PublicationFailures.*?return false;.*?return true;' \
+            "$split_irq_source"; then
+        echo "The split IRQ adapter lost its fail-closed publication result."
         failed=1
     fi
 
@@ -1622,7 +1680,7 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
-        '(?s)shutdownSplitIrq\(\).*?m_Quiescing = true.*?quiesceIrqSources\(\).*?unregisterHandler\(registration\.id, this\).*?m_Stopping = 1.*?m_Dispatcher\.shutdown\(\).*?quiesceIrqSources\(\).*?m_PendingWork.*?m_Started = false' \
+        '(?s)shutdownSplitIrq\(\).*?m_Quiescing = true.*?quiesceIrqSources\(\).*?unregisterHandler\(registration\.id, this\).*?m_Stopping = 1.*?m_Dispatcher\.shutdown\(\).*?__atomic_load_n\(&m_PendingWork.*?dispatchThreaded\(\).*?quiesceIrqSources\(\).*?__atomic_load_n\(&m_PendingWork.*?m_Started = false' \
         "$split_irq_source"; then
         echo "The split IRQ adapter lost its quiesce, callback-drain, or stop order."
         failed=1
@@ -1642,6 +1700,10 @@ check_wait_api_boundaries()
         ! rg -q 'registrationPublishedBeforeBookkeeping' \
             "$split_irq_regressions" ||
         ! rg -q 'split-irq-lifecycle-serialization' \
+            "$split_irq_regressions" ||
+        ! rg -q 'split-irq-publication-failure-veto' \
+            "$split_irq_regressions" ||
+        ! rg -q 'split-irq-publication-failure-shutdown-drain' \
             "$split_irq_regressions" ||
         ! rg -q 'split-irq-hard-callback-drain' \
             "$split_irq_regressions" ||
@@ -1780,7 +1842,7 @@ check_wait_api_boundaries()
             'class HostedTimer : public Timer, private SplitIrqHandler' \
             "$hosted_timer_header" ||
         ! rg -q -U \
-            '(?s)HostedTimer::hardIrq\(.*?getInterruptNumber\(\) != SIGUSR1.*?si_signo != SIGUSR1.*?si_code != SI_TIMER.*?si_overrun.*?recordFromInterrupt\(expirations\).*?work = 1.*?HardIrqDisposition::Deferred' \
+            '(?s)HostedTimer::hardIrq\(.*?getInterruptNumber\(\) != SIGUSR1.*?si_signo != SIGUSR1.*?si_code != SI_TIMER.*?si_overrun.*?recordFromInterrupt\(expirations\).*?work = 1.*?HardStageDisposition::Deferred' \
             "$hosted_timer_source" ||
         rg -q \
             'sendEvent|m_Alarm|synchronise|getIrqManager|m_HandlerRegistry|while[[:space:]]*\(|compareAndSwap' \
@@ -1939,7 +2001,7 @@ check_wait_api_boundaries()
             src/system/include/pedigree/kernel/machine/Ps2CaptureState.h ||
         [[ "$ps2_gate_tries" != 1 ]] ||
         ! rg -q -U \
-            '(?s)Ps2Controller::hardIrq\(.*?if \(!m_IoGate\.tryAcquire\(\)\).*?work = RecoveryWork;.*?return HardIrqDisposition::Deferred;.*?m_pBase->read8\(4\).*?hasCapacity\(\).*?work = RecoveryWork;.*?return HardIrqDisposition::Deferred;.*?m_pBase->read8\(0\).*?status & SecondPortData.*?tryPush\(.*?work = CapturedWork;.*?return HardIrqDisposition::Deferred;' \
+            '(?s)Ps2Controller::hardIrq\(.*?if \(!m_IoGate\.tryAcquire\(\)\).*?work = RecoveryWork;.*?return HardStageDisposition::Deferred;.*?m_pBase->read8\(4\).*?hasCapacity\(\).*?work = RecoveryWork;.*?return HardStageDisposition::Deferred;.*?m_pBase->read8\(0\).*?status & SecondPortData.*?tryPush\(.*?work = CapturedWork;.*?return HardStageDisposition::Deferred;' \
             <<<"$ps2_hard"; then
         echo "The PS/2 hard stage lost one-shot admission, capacity preflight, or status-based routing."
         failed=1

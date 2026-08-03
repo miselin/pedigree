@@ -41,6 +41,21 @@ enum class IrqDisposition
     Quiesced,
 };
 
+/** Result of a bounded hard-IRQ callback. */
+enum class HardIrqDisposition
+{
+    NotHandled = 0,
+    Handled,
+    /**
+     * The source was recognised, but completion could not be handed off
+     * safely. The controller must still perform its required acknowledgement,
+     * while leaving the physical line masked after this occurrence.
+     *
+     * This disposition dominates a peer's Handled result on a shared line.
+     */
+    KeepMasked,
+};
+
 /** Common identity for handlers stored by an IRQ registry. */
 class EXPORTED_PUBLIC IrqHandlerBase
 {
@@ -85,7 +100,8 @@ class EXPORTED_PUBLIC HardIrqHandler : public IrqHandlerBase
     HardIrqHandler();
 
     /** Handles an IRQ synchronously in hard interrupt context. */
-    virtual bool irq(irq_id_t number, InterruptState &state) = 0;
+    virtual HardIrqDisposition
+    irq(irq_id_t number, InterruptState &state) = 0;
 
   protected:
     /** Virtual destructor */

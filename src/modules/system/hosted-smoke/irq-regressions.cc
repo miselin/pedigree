@@ -72,9 +72,9 @@ class ThreadedRegistryHandler : public IrqHandler
 class HardRegistryHandler : public HardIrqHandler
 {
   public:
-    bool irq(irq_id_t, InterruptState &) override
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override
     {
-        return true;
+        return HardIrqDisposition::Handled;
     }
 };
 
@@ -85,12 +85,30 @@ class CountingHardRegistryHandler : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override
     {
         ++calls;
-        return true;
+        return HardIrqDisposition::Handled;
     }
 
+    size_t calls;
+};
+
+class DispositionHardRegistryHandler : public HardIrqHandler
+{
+  public:
+    explicit DispositionHardRegistryHandler(HardIrqDisposition result)
+        : result(result), calls(0)
+    {
+    }
+
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override
+    {
+        ++calls;
+        return result;
+    }
+
+    HardIrqDisposition result;
     size_t calls;
 };
 
@@ -252,7 +270,7 @@ int abandonCutoffWorker(void *parameter)
             {};
         InterruptState &state =
             *reinterpret_cast<InterruptState *>(stateStorage);
-        bool handled = false;
+        HardIrqDisposition handled = HardIrqDisposition::NotHandled;
         context->registry.dispatchHard(
             context->line, state, handled, &context->hard,
             context->dispatchGeneration, context->mixedCutoffs.hard);
@@ -330,7 +348,7 @@ struct RetirementBoundaryContext
     uint8_t line;
     size_t calls;
     bool admitted;
-    bool handled;
+    HardIrqDisposition handled;
 };
 
 RetirementBoundaryContext *g_RetirementBoundary = nullptr;
@@ -491,7 +509,7 @@ class NestedDeviceHardIrqProbe : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override
     {
         depth = Processor::deviceHardIrqDepthForTest();
         marked = Processor::inDeviceHardIrq();
@@ -504,7 +522,7 @@ class NestedDeviceHardIrqProbe : public HardIrqHandler
                 lines[HardContextTestIrq].activeHardDispatchGeneration;
         }
         ++calls;
-        return true;
+        return HardIrqDisposition::Handled;
     }
 
     size_t depth;
@@ -520,11 +538,11 @@ class OuterDeviceHardIrqProbe : public HardIrqHandler
     explicit OuterDeviceHardIrqProbe(HardIrqHandler *nested)
         : m_Nested(nested), entryDepth(0), restoredDepth(0), activeCount(0),
           activeGeneration(0), marked(false), nestedAdmitted(false),
-          nestedHandled(false), calls(0)
+          nestedHandled(HardIrqDisposition::NotHandled), calls(0)
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override
     {
         entryDepth = Processor::deviceHardIrqDepthForTest();
         marked = Processor::inDeviceHardIrq();
@@ -541,7 +559,7 @@ class OuterDeviceHardIrqProbe : public HardIrqHandler
             InnerSyntheticDispatchGeneration);
         restoredDepth = Processor::deviceHardIrqDepthForTest();
         ++calls;
-        return true;
+        return HardIrqDisposition::Handled;
     }
 
     HardIrqHandler *m_Nested;
@@ -551,7 +569,7 @@ class OuterDeviceHardIrqProbe : public HardIrqHandler
     size_t activeGeneration;
     bool marked;
     bool nestedAdmitted;
-    bool nestedHandled;
+    HardIrqDisposition nestedHandled;
     size_t calls;
 };
 
@@ -595,7 +613,7 @@ bool deviceHardIrqContextTracking()
 
     const bool interruptsWereEnabled = Processor::getInterrupts();
     Processor::setInterrupts(false);
-    bool outerHandled = false;
+    HardIrqDisposition outerHandled = HardIrqDisposition::NotHandled;
     const bool outerAdmitted = HostedIrqManager::dispatchHandlerForTest(
         HardContextTestIrq, &outer, outerHandled,
         OuterSyntheticDispatchGeneration);
@@ -621,12 +639,15 @@ bool deviceHardIrqContextTracking()
         outerId && nestedId && threadedRegistered,
         "the context probes could not all be registered", Test);
     passed &= check(
-        outerAdmitted && outerHandled && outer.calls == 1 &&
+        outerAdmitted && outerHandled == HardIrqDisposition::Handled &&
+            outer.calls == 1 &&
             outer.entryDepth == 1 && outer.marked && outer.activeCount == 1 &&
             outer.activeGeneration == OuterSyntheticDispatchGeneration,
         "an outer hard callback did not observe depth one", Test);
     passed &= check(
-        outer.nestedAdmitted && outer.nestedHandled && nested.calls == 1 &&
+        outer.nestedAdmitted &&
+            outer.nestedHandled == HardIrqDisposition::Handled &&
+            nested.calls == 1 &&
             nested.depth == 2 && nested.marked && outer.restoredDepth == 1,
         "nested hard dispatch did not restore its caller's depth", Test);
     passed &= check(
@@ -661,19 +682,19 @@ class DeliveryContextProbe : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &state) override
+    HardIrqDisposition irq(irq_id_t, InterruptState &state) override
     {
         if (!calls.compareAndSwap(0, 1))
         {
-            return true;
+            return HardIrqDisposition::Handled;
         }
 
-        bool handled = true;
+        HardIrqDisposition handled = HardIrqDisposition::NotHandled;
         if (m_Registry.dispatchHard(5, state, handled, nullptr, 1))
         {
             hardAdmitted += 1;
         }
-        if (handled)
+        if (handled == HardIrqDisposition::Handled)
         {
             hardHandled += 1;
         }
@@ -687,7 +708,7 @@ class DeliveryContextProbe : public HardIrqHandler
         {
             signalThreadedHandled += 1;
         }
-        return true;
+        return HardIrqDisposition::Handled;
     }
 
     IrqHandlerRegistry &m_Registry;
@@ -829,7 +850,7 @@ bool mixedDeliveryOccurrenceBinding()
         Line, Generation, cutoffs.threaded);
     alignas(InterruptState) uint8_t stateStorage[sizeof(InterruptState)] = {};
     InterruptState &state = *reinterpret_cast<InterruptState *>(stateStorage);
-    bool hardHandled = false;
+    HardIrqDisposition hardHandled = HardIrqDisposition::NotHandled;
     const bool hardAdmitted = registry.dispatchHard(
         Line, state, hardHandled, nullptr, Generation, cutoffs.hard);
     IrqHandlerRegistry::ThreadedDispatchResult threadedResult = {};
@@ -928,7 +949,8 @@ bool mixedDeliveryOccurrenceBinding()
     passed &= check(
         cutoffsCaptured && identicalCutoff && lateHardRegistered &&
             lateThreadedRegistered &&
-            threadedPublished && hardAdmitted && hardHandled &&
+            threadedPublished && hardAdmitted &&
+            hardHandled == HardIrqDisposition::Handled &&
             threadedAdmitted && threadedResult.handled &&
             threadedResult.allowRearm && originalHard.calls == 1 &&
             lateHard.calls == 0 && originalThreaded.calls == 1 &&
@@ -1140,7 +1162,7 @@ bool waitFreeOccurrenceCapturePreservesBoundary()
             {};
         InterruptState &state =
             *reinterpret_cast<InterruptState *>(stateStorage);
-        bool handled = false;
+        HardIrqDisposition handled = HardIrqDisposition::NotHandled;
         const bool admitted = captured && registry.dispatchHard(
                                               Line, state, handled, nullptr,
                                               0x5200 + i, cutoff);
@@ -1157,7 +1179,9 @@ bool waitFreeOccurrenceCapturePreservesBoundary()
             registered && captured && context.hookCalls == 1 &&
                 context.observedStage == stages[i] && context.removed &&
                 retained && admitted == !retirementPrecededSample &&
-                handled == !retirementPrecededSample && handler.calls == 0 &&
+                (handled == HardIrqDisposition::Handled) ==
+                    !retirementPrecededSample &&
+                handler.calls == 0 &&
                 reclaimed && replacementRegistered && replacementRemoved,
             "a dual-bank retirement stage violated occurrence membership or "
             "slot lifetime",
@@ -1236,7 +1260,7 @@ bool occurrenceGraceTombstones()
         alignas(InterruptState) uint8_t stateStorage[sizeof(InterruptState)] = {};
         InterruptState &state =
             *reinterpret_cast<InterruptState *>(stateStorage);
-        bool handled = false;
+        HardIrqDisposition handled = HardIrqDisposition::NotHandled;
         const bool admitted = registry.dispatchHard(
             Line, state, handled, nullptr, 0x5201, cutoff);
         const bool replacementRegistered =
@@ -1244,7 +1268,8 @@ bool occurrenceGraceTombstones()
         const bool replacementRemoved =
             registry.unregisterHandler(Line, &replacement) ==
             IrqHandlerRegistry::UnregisterResult::Completed;
-        hardPassed = registered && cutoffCaptured && removed && admitted && handled &&
+        hardPassed = registered && cutoffCaptured && removed && admitted &&
+                     handled == HardIrqDisposition::Handled &&
                      replacementRegistered && replacementRemoved;
     }
 
@@ -1464,7 +1489,8 @@ bool retirementBoundaryExcludesNewOccurrences()
     IrqHandlerRegistry registry;
     HardRegistryHandler handler;
     RetirementBoundaryContext context = {
-        &registry, &handler, Line, 0, false, false};
+        &registry, &handler, Line, 0, false,
+        HardIrqDisposition::NotHandled};
     const bool registered = registry.registerHardHandler(Line, &handler);
     g_RetirementBoundary = &context;
     registry.setHandlerHazardHook(dispatchAfterRetirementBoundary);
@@ -1476,7 +1502,7 @@ bool retirementBoundaryExcludesNewOccurrences()
 
     const bool passed = check(
         registered && removed && context.calls == 1 && !context.admitted &&
-            !context.handled,
+            context.handled == HardIrqDisposition::NotHandled,
         "an occurrence captured after retirement inherited old membership",
         Test);
     if (passed)
@@ -2160,6 +2186,121 @@ bool threadedActionGenerationBoundaries()
     return passed;
 }
 
+bool hardDispositionOrderPreservesVeto(bool keepMaskedFirst)
+{
+    constexpr const char *Test = "irq-hard-keep-masked-dominance";
+    constexpr uint8_t Line = 26;
+    constexpr size_t Generation = 0x6401;
+    IrqHandlerRegistry registry;
+    DispositionHardRegistryHandler handled(HardIrqDisposition::Handled);
+    DispositionHardRegistryHandler keepMasked(
+        HardIrqDisposition::KeepMasked);
+    HardIrqHandler *first = keepMaskedFirst ?
+                                static_cast<HardIrqHandler *>(&keepMasked) :
+                                static_cast<HardIrqHandler *>(&handled);
+    HardIrqHandler *second = keepMaskedFirst ?
+                                 static_cast<HardIrqHandler *>(&handled) :
+                                 static_cast<HardIrqHandler *>(&keepMasked);
+
+    const bool firstRegistered = registry.registerHardHandler(
+        Line, first, IrqPolicy::syntheticHard());
+    const bool secondRegistered = registry.registerHardHandler(
+        Line, second, IrqPolicy::syntheticHard());
+    alignas(InterruptState) uint8_t stateStorage[sizeof(InterruptState)] = {};
+    InterruptState &state = *reinterpret_cast<InterruptState *>(stateStorage);
+    HardIrqDisposition disposition = HardIrqDisposition::NotHandled;
+    const bool admitted = registry.dispatchHard(
+        Line, state, disposition, nullptr, Generation);
+    const bool quarantined = registry.hardLineQuarantined(Line);
+    const bool firstRemoved =
+        registry.unregisterHandler(Line, first) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    const bool quarantinedAfterFirst =
+        registry.hardLineQuarantined(Line);
+    const bool secondRemoved =
+        registry.unregisterHandler(Line, second) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    const bool cleared = !registry.hardLineQuarantined(Line);
+
+    return check(
+        firstRegistered && secondRegistered && admitted &&
+            disposition == HardIrqDisposition::KeepMasked &&
+            quarantined && handled.calls == 1 && keepMasked.calls == 1 &&
+            firstRemoved &&
+            quarantinedAfterFirst == !keepMaskedFirst && secondRemoved &&
+            cleared,
+        keepMaskedFirst ?
+            "a later handled peer overrode an earlier keep-masked veto" :
+            "a later keep-masked peer did not override a handled result",
+        Test);
+}
+
+bool hardDispositionKeepMaskedDominates()
+{
+    constexpr const char *Test = "irq-hard-keep-masked-dominance";
+    constexpr uint8_t Line = 9;
+    bool passed = hardDispositionOrderPreservesVeto(true);
+    passed &= hardDispositionOrderPreservesVeto(false);
+
+    constexpr uint8_t SharedLine = 27;
+    IrqHandlerRegistry sharedRegistry;
+    DispositionHardRegistryHandler firstVeto(
+        HardIrqDisposition::KeepMasked);
+    DispositionHardRegistryHandler secondVeto(
+        HardIrqDisposition::KeepMasked);
+    const bool firstVetoRegistered = sharedRegistry.registerHardHandler(
+        SharedLine, &firstVeto, IrqPolicy::syntheticHard());
+    const bool secondVetoRegistered = sharedRegistry.registerHardHandler(
+        SharedLine, &secondVeto, IrqPolicy::syntheticHard());
+    alignas(InterruptState) uint8_t stateStorage[sizeof(InterruptState)] = {};
+    InterruptState &interruptState =
+        *reinterpret_cast<InterruptState *>(stateStorage);
+    HardIrqDisposition sharedDisposition = HardIrqDisposition::NotHandled;
+    const bool sharedAdmitted = sharedRegistry.dispatchHard(
+        SharedLine, interruptState, sharedDisposition, nullptr, 0x6402);
+    const bool bothQuarantined =
+        sharedRegistry.hardLineQuarantined(SharedLine);
+    const bool firstVetoRemoved =
+        sharedRegistry.unregisterHandler(SharedLine, &firstVeto) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    const bool secondStillQuarantined =
+        sharedRegistry.hardLineQuarantined(SharedLine);
+    const bool secondVetoRemoved =
+        sharedRegistry.unregisterHandler(SharedLine, &secondVeto) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    const bool sharedCleared =
+        !sharedRegistry.hardLineQuarantined(SharedLine);
+    passed &= check(
+        firstVetoRegistered && secondVetoRegistered && sharedAdmitted &&
+            sharedDisposition == HardIrqDisposition::KeepMasked &&
+            bothQuarantined && firstVetoRemoved && secondStillQuarantined &&
+            secondVetoRemoved && sharedCleared,
+        "removing one veto owner cleared a different shared source", Test);
+
+    PicIrqState state;
+    state.setAllEnabled(false);
+    state.handlerRegistered(Line, IrqPolicy::levelHard());
+    state.handlerRegistered(Line, IrqPolicy::levelHard());
+    state.setEnabled(Line, true);
+    const size_t generation = state.beginDispatch(Line);
+    const HardIrqDisposition disposition = HardIrqDisposition::KeepMasked;
+    state.completeDispatch(
+        Line, generation, disposition != HardIrqDisposition::Handled);
+    passed &= check(
+        !state.enabled(Line) && state.acknowledgementPending(Line),
+        "a keep-masked aggregate did not quarantine the physical line",
+        Test);
+    state.handlerUnregistered(Line);
+    state.handlerUnregistered(Line);
+
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-hard-keep-masked-dominance");
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-hard-per-source-quarantine");
+    }
+    return passed;
+}
+
 bool threadedQuiescedRearm()
 {
     constexpr const char *Test = "irq-threaded-quiesced-rearm";
@@ -2636,7 +2777,7 @@ class RegistryDispatchHandler : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override;
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override;
 
   private:
     RegistryDispatchContext &m_Context;
@@ -2668,7 +2809,8 @@ struct RegistryDispatchContext
     InterruptState *state;
 };
 
-bool RegistryDispatchHandler::irq(irq_id_t, InterruptState &state)
+HardIrqDisposition RegistryDispatchHandler::irq(
+    irq_id_t, InterruptState &state)
 {
     m_Context.calls += 1;
     if (m_Context.mutationRequested.compareAndSwap(1, 2))
@@ -2686,7 +2828,7 @@ bool RegistryDispatchHandler::irq(irq_id_t, InterruptState &state)
             ->withDeferredScopeLockForTest(dispatchWhileDeferredScopeLocked);
         m_Context.state = nullptr;
     }
-    return true;
+    return HardIrqDisposition::Handled;
 }
 
 void dispatchWhileWriterLocked()
@@ -2703,13 +2845,13 @@ void dispatchWhileWriterLocked()
         return;
     }
 
-    bool handled = false;
+    HardIrqDisposition handled = HardIrqDisposition::NotHandled;
     if (HostedIrqManager::dispatchHandlerForTest(
             1, &context->handler, *context->state, handled))
     {
         context->admitted += 1;
     }
-    if (handled)
+    if (handled == HardIrqDisposition::Handled)
     {
         context->handled += 1;
     }
@@ -2729,13 +2871,13 @@ void dispatchWhileDeferredScopeLocked()
         return;
     }
 
-    bool handled = false;
+    HardIrqDisposition handled = HardIrqDisposition::NotHandled;
     if (HostedIrqManager::dispatchHandlerForTest(
             1, &context->handler, *context->state, handled))
     {
         context->deferredScopeAdmitted += 1;
     }
-    if (handled)
+    if (handled == HardIrqDisposition::Handled)
     {
         context->deferredScopeHandled += 1;
     }
@@ -2786,7 +2928,7 @@ class WriterLockedSelfRemovingHandler : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &state) override;
+    HardIrqDisposition irq(irq_id_t, InterruptState &state) override;
 
   private:
     WriterLockedRemovalContext &m_Context;
@@ -2814,11 +2956,12 @@ struct WriterLockedRemovalContext
     Atomic<size_t> nestedHandled;
 };
 
-bool WriterLockedSelfRemovingHandler::irq(irq_id_t, InterruptState &state)
+HardIrqDisposition WriterLockedSelfRemovingHandler::irq(
+    irq_id_t, InterruptState &state)
 {
     if (!m_Context.armed)
     {
-        return true;
+        return HardIrqDisposition::Handled;
     }
 
     if (m_Context.phase.compareAndSwap(0, 1))
@@ -2837,7 +2980,7 @@ bool WriterLockedSelfRemovingHandler::irq(irq_id_t, InterruptState &state)
             m_Context.removalRejected += 1;
         }
     }
-    return true;
+    return HardIrqDisposition::Handled;
 }
 
 void dispatchWriterLockedSelfRemoval()
@@ -2848,13 +2991,13 @@ void dispatchWriterLockedSelfRemoval()
         return;
     }
 
-    bool handled = false;
+    HardIrqDisposition handled = HardIrqDisposition::NotHandled;
     if (HostedIrqManager::dispatchHandlerForTest(
             1, &context->handler, *context->state, handled))
     {
         context->nestedAdmitted += 1;
     }
-    if (handled)
+    if (handled == HardIrqDisposition::Handled)
     {
         context->nestedHandled += 1;
     }
@@ -3211,7 +3354,7 @@ class AbandoningIrqHandler : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override;
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override;
 
   private:
     AbandonedDispatchContext &m_Context;
@@ -3237,12 +3380,12 @@ struct AbandonedDispatchContext
     Atomic<size_t> stateFailures;
 };
 
-bool AbandoningIrqHandler::irq(irq_id_t, InterruptState &)
+HardIrqDisposition AbandoningIrqHandler::irq(irq_id_t, InterruptState &)
 {
     if (m_Context.stage != AbandonedDispatchStage::Callback ||
         Processor::information().getCurrentThread() != m_Context.worker)
     {
-        return true;
+        return HardIrqDisposition::Handled;
     }
 
     m_Context.entered += 1;
@@ -3252,7 +3395,7 @@ bool AbandoningIrqHandler::irq(irq_id_t, InterruptState &)
         m_Context.stateFailures += 1;
     }
     HostedIrqManager::abandonCurrentThreadForTest();
-    return true;
+    return HardIrqDisposition::Handled;
 }
 
 int abandonIrqDispatch(void *parameter)
@@ -3397,7 +3540,7 @@ class NestedAbandoningInner : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override;
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override;
 
   private:
     NestedAbandonedDepthContext &m_Context;
@@ -3411,7 +3554,7 @@ class NestedAbandoningOuter : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override;
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override;
 
   private:
     NestedAbandonedDepthContext &m_Context;
@@ -3435,11 +3578,12 @@ struct NestedAbandonedDepthContext
     Atomic<size_t> failures;
 };
 
-bool NestedAbandoningInner::irq(irq_id_t, InterruptState &)
+HardIrqDisposition NestedAbandoningInner::irq(
+    irq_id_t, InterruptState &)
 {
     if (Processor::information().getCurrentThread() != m_Context.worker)
     {
-        return true;
+        return HardIrqDisposition::Handled;
     }
 
     m_Context.innerEntered += 1;
@@ -3449,14 +3593,15 @@ bool NestedAbandoningInner::irq(irq_id_t, InterruptState &)
         m_Context.failures += 1;
     }
     HostedIrqManager::abandonCurrentThreadForTest();
-    return true;
+    return HardIrqDisposition::Handled;
 }
 
-bool NestedAbandoningOuter::irq(irq_id_t, InterruptState &)
+HardIrqDisposition NestedAbandoningOuter::irq(
+    irq_id_t, InterruptState &)
 {
     if (Processor::information().getCurrentThread() != m_Context.worker)
     {
-        return true;
+        return HardIrqDisposition::Handled;
     }
 
     m_Context.outerEntered += 1;
@@ -3466,11 +3611,11 @@ bool NestedAbandoningOuter::irq(irq_id_t, InterruptState &)
         m_Context.failures += 1;
     }
 
-    bool handled = false;
+    HardIrqDisposition handled = HardIrqDisposition::NotHandled;
     HostedIrqManager::dispatchHandlerForTest(
         HardContextTestIrq, &m_Context.inner, handled);
     m_Context.returned += 1;
-    return true;
+    return HardIrqDisposition::Handled;
 }
 
 int abandonNestedIrqDispatch(void *parameter)
@@ -3569,7 +3714,7 @@ class LifetimeHandler : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override;
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override;
 
   private:
     HandlerLifetimeContext &m_Context;
@@ -3614,7 +3759,7 @@ struct HandlerLifetimeContext
     Atomic<size_t> failures;
 };
 
-bool LifetimeHandler::irq(irq_id_t, InterruptState &)
+HardIrqDisposition LifetimeHandler::irq(irq_id_t, InterruptState &)
 {
     m_Context.handlerCalls += 1;
     if (!Processor::getInterrupts())
@@ -3629,7 +3774,7 @@ bool LifetimeHandler::irq(irq_id_t, InterruptState &)
     {
         m_Context.callbacksAfterReturn += 1;
     }
-    return true;
+    return HardIrqDisposition::Handled;
 }
 
 class SelfRemovingHandler : public HardIrqHandler
@@ -3640,14 +3785,14 @@ class SelfRemovingHandler : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override
     {
         calls += 1;
         if (!m_Manager->unregisterHandler(m_Id, this))
         {
             rejectionSeen += 1;
         }
-        return true;
+        return HardIrqDisposition::Handled;
     }
 
     IrqManager *m_Manager;
@@ -3718,11 +3863,12 @@ int dispatchPinnedHandler(void *parameter)
 {
     HandlerLifetimeContext *context =
         reinterpret_cast<HandlerLifetimeContext *>(parameter);
-    bool handled = false;
+    HardIrqDisposition handled = HardIrqDisposition::NotHandled;
     const bool admitted = HostedIrqManager::dispatchHandlerForTest(
         2, &context->handler, handled);
     context->dispatchAdmitted = admitted ? 1 : 0;
-    context->dispatchHandled = handled ? 1 : 0;
+    context->dispatchHandled =
+        handled == HardIrqDisposition::Handled ? 1 : 0;
     if (Processor::getInterrupts())
     {
         context->returnIrqRestored += 1;
@@ -3731,7 +3877,7 @@ int dispatchPinnedHandler(void *parameter)
     {
         context->failures += 1;
     }
-    return admitted && handled ? 0 : 1;
+    return admitted && handled == HardIrqDisposition::Handled ? 0 : 1;
 }
 
 int unregisterPinnedHandler(void *parameter)
@@ -3848,7 +3994,7 @@ bool handlerLifetimeBarrier()
     const irq_id_t selfId =
         manager->registerHardIsaIrqHandler(
             2, &selfRemoving, IrqPolicy::syntheticHard());
-    bool selfHandled = false;
+    HardIrqDisposition selfHandled = HardIrqDisposition::NotHandled;
     const bool selfAdmitted = selfId &&
                               HostedIrqManager::dispatchHandlerForTest(
                                   2, &selfRemoving, selfHandled);
@@ -3906,7 +4052,8 @@ bool handlerLifetimeBarrier()
             context.callbacksAfterReturn == 0,
         "a callback began after unregisterHandler returned");
     passed &= check(
-        selfId != 0 && selfAdmitted && selfHandled &&
+        selfId != 0 && selfAdmitted &&
+            selfHandled == HardIrqDisposition::Handled &&
             selfRemoving.rejectionSeen == 1 &&
             selfCallsAfterRetirement == 1 &&
             selfRemoving.calls == selfCallsAfterRetirement,
@@ -3941,6 +4088,7 @@ bool runHostedIrqRegressions()
     passed &= threadedPostCallbackCancellation();
     passed &= threadedHardPublicationIsRetryFree();
     passed &= threadedActionGenerationBoundaries();
+    passed &= hardDispositionKeepMaskedDominates();
     passed &= threadedQuiescedRearm();
     passed &= irqPolicyOrthogonality();
     passed &= picLineStateLifecycle();

@@ -67,7 +67,7 @@ class HardIrqGuardProbe : public HardIrqHandler
     {
     }
 
-    bool irq(irq_id_t, InterruptState &) override
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override
     {
         ++calls;
         depth = Processor::deviceHardIrqDepthForTest();
@@ -93,7 +93,7 @@ class HardIrqGuardProbe : public HardIrqHandler
         heapAllocateDenied = SlamAllocator::guardedAllocateForTest(64) == 0;
         SlamAllocator::guardedFreeForTest(0);
         heapFreeDenied = true;
-        return true;
+        return HardIrqDisposition::Handled;
     }
 
     Semaphore &m_Semaphore;
@@ -130,11 +130,12 @@ bool runHostedHardIrqGuardRegressions()
     const bool ordinaryAllowed = Processor::guardDeviceHardIrqOperation(
         DeviceHardIrqOperation::Schedule);
 
-    bool handled = false;
+    HardIrqDisposition disposition = HardIrqDisposition::NotHandled;
     const bool interruptsWereEnabled = Processor::getInterrupts();
     Processor::setInterrupts(false);
     const bool admitted =
-        id && HostedIrqManager::dispatchHandlerForTest(2, &handler, handled);
+        id && HostedIrqManager::dispatchHandlerForTest(
+                  2, &handler, disposition);
     Processor::setInterrupts(interruptsWereEnabled);
 
     Processor::setDeviceHardIrqOperationHookForTest(nullptr);
@@ -164,7 +165,8 @@ bool runHostedHardIrqGuardRegressions()
     }
 
     const bool passed =
-        id && ordinaryAllowed && admitted && handled && removed &&
+        id && ordinaryAllowed && admitted &&
+        disposition == HardIrqDisposition::Handled && removed &&
         handlerAbsent && handler.calls == 1 && handler.marked &&
         handler.depth == 1 && handler.interruptsDisabled &&
         handler.scheduleReturned &&

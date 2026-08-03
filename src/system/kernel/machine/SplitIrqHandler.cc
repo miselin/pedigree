@@ -249,6 +249,14 @@ bool SplitIrqHandler::shutdownSplitIrq()
         return false;
     }
 
+    // A failed hard publication records work before its doorbell is rejected.
+    // Once hardware is quiesced and every hard callback is drained, no new
+    // producer can race this ordinary-context orphan drain.
+    if (__atomic_load_n(&m_PendingWork, __ATOMIC_ACQUIRE))
+    {
+        dispatchThreaded();
+    }
+
     // An admitted hard callback may have run after the first quiesce while
     // unregister waited for its callback pin. Reassert the device boundary
     // after all work published by those callbacks has drained.
@@ -266,19 +274,21 @@ bool SplitIrqHandler::shutdownSplitIrq()
     return true;
 }
 
-bool SplitIrqHandler::irq(irq_id_t number, InterruptState &state)
+HardIrqDisposition
+SplitIrqHandler::irq(irq_id_t number, InterruptState &state)
 {
     size_t work = 0;
-    const HardIrqDisposition disposition = hardIrq(number, state, work);
-    if (disposition == HardIrqDisposition::NotHandled)
+    const HardStageDisposition disposition = hardIrq(number, state, work);
+    if (disposition == HardStageDisposition::NotHandled)
     {
-        return false;
+        return HardIrqDisposition::NotHandled;
     }
-    if (disposition == HardIrqDisposition::Deferred)
+    if (disposition == HardStageDisposition::Deferred)
     {
-        publishWork(work ? work : 1);
+        return publishWork(work ? work : 1) ? HardIrqDisposition::Handled :
+                                             HardIrqDisposition::KeepMasked;
     }
-    return true;
+    return HardIrqDisposition::Handled;
 }
 
 void SplitIrqHandler::dispatchThreaded(
@@ -305,19 +315,16 @@ void SplitIrqHandler::dispatchThreaded()
     }
 }
 
-void SplitIrqHandler::publishWork(size_t work)
+bool SplitIrqHandler::publishWork(size_t work)
 {
-    if (m_Stopping)
-    {
-        return;
-    }
-
     __atomic_or_fetch(&m_PendingWork, work, __ATOMIC_ACQ_REL);
     m_DeferredIrqs += 1;
-    if (!m_Dispatcher.publishFromInterrupt(0, 1) && !m_Stopping)
+    if (m_Stopping || !m_Dispatcher.publishFromInterrupt(0, 1))
     {
         m_PublicationFailures += 1;
+        return false;
     }
+    return true;
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -350,5 +357,10 @@ size_t SplitIrqHandler::deferredIrqsForTest() const
 size_t SplitIrqHandler::completedBatchesForTest() const
 {
     return m_CompletedBatches;
+}
+
+void SplitIrqHandler::rejectNextPublicationForTest()
+{
+    m_Dispatcher.rejectNextPublicationForTest();
 }
 #endif

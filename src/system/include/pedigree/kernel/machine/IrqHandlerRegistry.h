@@ -19,6 +19,7 @@ class HardIrqHandler;
 class IrqHandler;
 class IrqHandlerBase;
 class Thread;
+enum class HardIrqDisposition;
 
 /**
  * Allocation-free IRQ callback registry with synchronous removal.
@@ -130,16 +131,22 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     /**
      * Dispatches all enabled handlers for an IRQ.
      *
-     * Returns true if at least one callback was admitted. `handled` aggregates
-     * the callback return values.
+     * Returns true if at least one callback was admitted. `disposition`
+     * aggregates callback results, with KeepMasked dominating Handled and
+     * Handled dominating NotHandled.
      */
     bool dispatchHard(
-        uint8_t irq, InterruptState &state, bool &handled,
+        uint8_t irq, InterruptState &state,
+        HardIrqDisposition &disposition,
         HardIrqHandler *onlyHandler = nullptr, size_t dispatchGeneration = 0);
     bool dispatchHard(
-        uint8_t irq, InterruptState &state, bool &handled,
+        uint8_t irq, InterruptState &state,
+        HardIrqDisposition &disposition,
         HardIrqHandler *onlyHandler, size_t dispatchGeneration,
         AdmissionCutoff admissionCutoff);
+
+    /** Reports a sticky KeepMasked result from any live hard source. */
+    bool hardLineQuarantined(uint8_t irq) const;
 
     /**
      * Records the exact threaded-handler publications admitted for one
@@ -380,7 +387,7 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
             : handler(nullptr), publication(0), policy(0),
               admissionEpoch(0), pendingThreadedGeneration(0),
               claimedThreadedGeneration(0), quiescedThreadedGenerations(),
-              retirementEpoch(0), finalizationGate(0)
+              retirementEpoch(0), hardHandoffState(0), finalizationGate(0)
         {
         }
 
@@ -392,6 +399,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         size_t claimedThreadedGeneration;
         size_t quiescedThreadedGenerations[QuiescedLaneCount];
         size_t retirementEpoch;
+        /** Generation in the high bits; KeepMasked is sticky in bit zero. */
+        size_t hardHandoffState;
         size_t finalizationGate;
     };
 
@@ -528,6 +537,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
 
     HandlerSlot m_Handlers[MaxHandlerSlots];
     ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];
+    /** Makes the bounded per-line hard-veto scan coherent across mutations. */
+    size_t m_HardHandoffEpochs[GraceBucketCount];
     size_t m_ThreadedInvalidationGenerations[IrqCount];
     size_t m_ThreadedActionMutationGeneration;
     size_t m_ThreadedActionMutationWriters;

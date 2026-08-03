@@ -601,7 +601,8 @@ ThreadedIrqDispatcher::ThreadedIrqDispatcher(
       ,
       m_PublicationObservedHook(nullptr), m_PendingScanAdmittedHook(nullptr),
       m_PendingSlotCountForTest(0),
-      m_PublicationSlotForTest(static_cast<size_t>(-1))
+      m_PublicationSlotForTest(static_cast<size_t>(-1)),
+      m_RejectNextPublicationForTest(0)
 #endif
 {
     if (m_LineCount > MaxLines)
@@ -650,6 +651,13 @@ bool ThreadedIrqDispatcher::publishFromSlotForTest(
     return published;
 }
 
+void ThreadedIrqDispatcher::rejectNextPublicationForTest()
+{
+    __atomic_store_n(
+        &m_RejectNextPublicationForTest, static_cast<size_t>(1),
+        __ATOMIC_RELEASE);
+}
+
 void ThreadedIrqDispatcher::setPendingScanAdmittedHookForTest(
     PendingScanAdmittedHook hook)
 {
@@ -673,6 +681,12 @@ bool ThreadedIrqDispatcher::initialise()
     {
         return false;
     }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    __atomic_store_n(
+        &m_RejectNextPublicationForTest, static_cast<size_t>(0),
+        __ATOMIC_RELEASE);
+#endif
 
     for (size_t i = 0; i < m_LineCount; ++i)
     {
@@ -768,8 +782,19 @@ bool ThreadedIrqDispatcher::isCurrentWorker() const
 
 bool ThreadedIrqDispatcher::publishFromInterrupt(uint8_t line, size_t cookie)
 {
-    return isInitialised() && line < m_LineCount &&
-           m_Lines[line].publishFromInterrupt(cookie);
+    if (!isInitialised() || line >= m_LineCount || !cookie)
+    {
+        return false;
+    }
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    if (__atomic_exchange_n(
+            &m_RejectNextPublicationForTest, static_cast<size_t>(0),
+            __ATOMIC_ACQ_REL))
+    {
+        return false;
+    }
+#endif
+    return m_Lines[line].publishFromInterrupt(cookie);
 }
 
 bool ThreadedIrqDispatcher::hasPending(uint8_t line) const

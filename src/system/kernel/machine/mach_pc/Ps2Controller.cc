@@ -482,13 +482,13 @@ void Ps2Controller::setDebugState(bool debugState)
     m_DebugState.set(debugState);
 }
 
-SplitIrqHandler::HardIrqDisposition
+SplitIrqHandler::HardStageDisposition
 Ps2Controller::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
 {
     (void) state;
     if (m_DebugState.active())
     {
-        return HardIrqDisposition::Handled;
+        return HardStageDisposition::Handled;
     }
 
     // Never wait behind controller configuration in hard context. The worker
@@ -497,7 +497,7 @@ Ps2Controller::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
     {
         m_HardGateContentions += 1;
         work = RecoveryWork;
-        return HardIrqDisposition::Deferred;
+        return HardStageDisposition::Deferred;
     }
 
     const uint8_t status = m_pBase->read8(4);
@@ -505,7 +505,7 @@ Ps2Controller::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
     {
         releaseIo();
         m_EmptyIrqs += 1;
-        return HardIrqDisposition::Handled;
+        return HardStageDisposition::Handled;
     }
 
     if (!m_CapturedBytes.hasCapacity())
@@ -515,7 +515,7 @@ Ps2Controller::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
         releaseIo();
         m_CaptureDeferrals += 1;
         work = RecoveryWork;
-        return HardIrqDisposition::Deferred;
+        return HardStageDisposition::Deferred;
     }
 
     const uint8_t received = m_pBase->read8(0);
@@ -531,7 +531,7 @@ Ps2Controller::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
     releaseIo();
 
     work = CapturedWork;
-    return HardIrqDisposition::Deferred;
+    return HardStageDisposition::Deferred;
 }
 
 bool Ps2Controller::captureOneLocked()
