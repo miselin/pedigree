@@ -345,6 +345,7 @@ if [ "$wait_regressions_only" = "0" ]; then
         "HOSTED-SYSCALL-TEST: PASS poll-close-reuse-cleanup" \
         "HOSTED-SYSCALL-TEST: PASS posix-teardown-contention" \
         "HOSTED-SYSCALL-TEST: PASS socket-zero-result-signal" \
+        "HOSTED-SYSCALL-TEST: PASS clone-errno-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS real-event-boundaries"
     do
         assert_marker_once "$empty_log" "$checkpoint"
