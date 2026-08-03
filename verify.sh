@@ -1767,7 +1767,7 @@ check_wait_api_boundaries()
             '(?s)isHostedIrqSignal\(int which\).*?which == SIGUSR1 \|\| which == SIGUSR2' \
             "$hosted_interrupt_manager_source" ||
         ! rg -q -U \
-            '(?s)signalShim\(.*?isHostedIrqSignal\(which\) && !Processor::onHostedExecutionThread\(\).*?FATAL_NOLOCK' \
+            '(?s)signalShim\(.*?const bool hostedIrq = isHostedIrqSignal\(which\);.*?hostedIrq && !Processor::onHostedExecutionThread\(\).*?FATAL_NOLOCK' \
             "$hosted_interrupt_manager_source" ||
         ! rg -q -U \
             '(?s)observeSchedulerTimerHardContext\(.*?!Processor::onHostedExecutionThread\(\)' \

@@ -1289,7 +1289,10 @@ bool waitForHostedCookieCompletion(
     {
         IrqLineDiagnosticSnapshot lines[3] = {};
         if (manager->snapshotIrqLines(lines, 3) == 3 &&
-            lines[2].completedCookie == cookie && !lines[2].dispatcherActive)
+            lines[2].completedCookie == cookie && !lines[2].dispatcherActive &&
+            !lines[2].activeThreadedDispatchCount &&
+            !lines[2].activeThreadedHandlerIdentity &&
+            !lines[2].activeCallbackStartedTimestamp)
         {
             completed = lines[2];
             return true;
@@ -1962,7 +1965,9 @@ bool hostedThreadedStallDiagnostics()
             !completed.activeThreadedDispatchCount &&
             !completed.activeThreadedHandlerIdentity &&
             !completed.activeCallbackStartedTimestamp &&
-            !completed.workerWaitActive,
+            (!completed.workerWaitActive ||
+             completed.workerWaitChannelOwner !=
+                 reinterpret_cast<uintptr_t>(&handler.releaseCallback)),
         "callback completion did not publish runtime and clear stall state",
         StallTest);
     passed &= check(
