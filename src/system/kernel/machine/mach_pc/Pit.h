@@ -21,7 +21,7 @@
 #define KERNEL_MACHINE_X86_COMMON_PIT_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/SchedulerIrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandlerSlot.h"
 #include "pedigree/kernel/machine/types.h"
@@ -34,7 +34,7 @@ class SchedulerTimerHandler;
  * @{ */
 
 /** The programmable interval timer implements the SchedulerTimer interface */
-class Pit : public SchedulerTimer, private HardIrqHandler
+class Pit : public SchedulerTimer, private SchedulerIrqHandler
 {
   public:
     /** Get the Pit class instance */
@@ -72,9 +72,9 @@ class Pit : public SchedulerTimer, private HardIrqHandler
     Pit &operator=(const Pit &);
 
     //
-    // HardIrqHandler interface
+    // SchedulerIrqHandler interface
     //
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    virtual void schedulerIrq(irq_id_t number, InterruptState &state);
 
     /** The PIT I/O port range */
     IoPort m_IoPort;

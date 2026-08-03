@@ -21,7 +21,7 @@
 #define KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
 
 #include "pedigree/kernel/machine/IrqManager.h"
-#include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/SchedulerIrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandlerSlot.h"
 #include "pedigree/kernel/processor/IoPort.h"
@@ -36,7 +36,7 @@ namespace __pedigree_hosted
 /** @addtogroup kernelmachinehosted
  * @{ */
 
-class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler
+class HostedSchedulerTimer : public SchedulerTimer, private SchedulerIrqHandler
 {
   public:
     /** Get the HostedSchedulerTimer class instance */
@@ -68,6 +68,8 @@ class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler
     static EXPORTED_PUBLIC uintptr_t sourceForTest();
     /** Returns the atomically published callback owner for lifecycle tests. */
     static EXPORTED_PUBLIC SchedulerTimerHandler *publishedHandlerForTest();
+    /** Confirms that ticks bypass the generic hard-handler registry. */
+    static EXPORTED_PUBLIC bool directRoutePublishedForTest();
 #endif
 
   protected:
@@ -85,9 +87,9 @@ class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler
     HostedSchedulerTimer &operator=(const HostedSchedulerTimer &);
 
     //
-    // HardIrqHandler interface
+    // SchedulerIrqHandler interface
     //
-    virtual bool irq(irq_id_t number, InterruptState &state);
+    virtual void schedulerIrq(irq_id_t number, InterruptState &state);
 
     irq_id_t m_IrqId;
     __pedigree_hosted::timer_t m_Timer;

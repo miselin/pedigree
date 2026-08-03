@@ -38,6 +38,7 @@ class Device;
 class HardIrqHandler;
 class IrqHandler;
 class IrqHandlerBase;
+class SchedulerIrqHandler;
 
 /** @addtogroup kernelmachinex86common
  * @{ */
@@ -65,6 +66,11 @@ class Pic : public IrqManager, private InterruptHandler
     virtual irq_id_t registerHardPciIrqHandler(
         HardIrqHandler *handler, Device *pDevice,
         const IrqPolicy &policy);
+    virtual irq_id_t registerSchedulerIrqHandler(
+        uint8_t irq, SchedulerIrqHandler *handler,
+        const IrqPolicy &policy);
+    virtual bool unregisterSchedulerIrqHandler(
+        irq_id_t Id, SchedulerIrqHandler *handler);
     virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler);
     virtual size_t
     snapshotIrqLines(IrqLineDiagnosticSnapshot *out, size_t capacity) const;
@@ -126,6 +132,8 @@ class Pic : public IrqManager, private InterruptHandler
 
     /** IRQ handlers and their callback lifetime state. */
     IrqHandlerRegistry m_Handlers;
+    /** Dedicated IRQ0 callback which may abandon its interrupt frame. */
+    SchedulerIrqHandler *m_SchedulerIrqHandler;
     /** Trigger mode, registration ownership and the complete 16-bit mask. */
     PicIrqState m_IrqState;
     /** Stable one-worker-per-physical-line bottom-half dispatcher. */

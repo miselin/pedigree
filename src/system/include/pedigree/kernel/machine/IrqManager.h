@@ -27,6 +27,7 @@ class Device;
 class HardIrqHandler;
 class IrqHandler;
 class IrqHandlerBase;
+class SchedulerIrqHandler;
 
 /** @addtogroup kernelmachine
  * @{ */
@@ -336,6 +337,25 @@ class IrqManager
     virtual irq_id_t registerHardPciIrqHandler(
         HardIrqHandler *handler, Device *pDevice,
         const IrqPolicy &policy) = 0;
+
+    /**
+     * Install the platform's dedicated scheduler-timer interrupt source.
+     *
+     * Unlike a generic hard handler, this callback is the terminal action for
+     * an occurrence and is allowed to abandon its interrupt frame. Platforms
+     * which do not provide a direct scheduler route reject the request.
+     */
+    virtual irq_id_t registerSchedulerIrqHandler(
+        uint8_t irq, SchedulerIrqHandler *handler, const IrqPolicy &policy);
+
+    /**
+     * Stop admitting future callbacks for the exact scheduler source.
+     * The source must be quiesced first unless removal synchronously masks its
+     * controller line. Its handler has static machine lifetime because an
+     * already-admitted callback may not return.
+     */
+    virtual bool unregisterSchedulerIrqHandler(
+        irq_id_t Id, SchedulerIrqHandler *handler);
     /**
      * Unregister a previously registered IrqHandler.
      *

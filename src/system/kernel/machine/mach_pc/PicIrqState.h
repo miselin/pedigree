@@ -45,13 +45,14 @@ class PicIrqState
             m_AcknowledgementPending[i] = false;
             m_ThreadedPending[i] = false;
             m_RequestedEnabled[i] = true;
+            m_SchedulerOwned[i] = false;
         }
     }
 
     bool canRegister(
         size_t irq, const IrqPolicy &policy, IrqDelivery delivery) const
     {
-        if (irq >= LineCount ||
+        if (irq >= LineCount || m_SchedulerOwned[irq] ||
             (delivery != IrqDelivery::Hard &&
              delivery != IrqDelivery::Threaded))
         {
@@ -76,6 +77,32 @@ class PicIrqState
     bool canRegister(size_t irq, const IrqPolicy &policy) const
     {
         return canRegister(irq, policy, legacyDelivery(policy));
+    }
+
+    bool canRegisterScheduler(size_t irq, const IrqPolicy &policy) const
+    {
+        return irq == 0 && !m_SchedulerOwned[irq] && !handlerCount(irq) &&
+               policy == IrqPolicy::edgeHard();
+    }
+
+    void schedulerRegistered(size_t irq, const IrqPolicy &policy)
+    {
+        assert(canRegisterScheduler(irq, policy));
+        handlerRegistered(irq, policy, IrqDelivery::Hard);
+        m_SchedulerOwned[irq] = true;
+    }
+
+    void schedulerUnregistered(size_t irq)
+    {
+        assert(irq < LineCount && m_SchedulerOwned[irq]);
+        m_SchedulerOwned[irq] = false;
+        handlerUnregistered(irq, IrqDelivery::Hard);
+    }
+
+    bool schedulerRegistered(size_t irq) const
+    {
+        assert(irq < LineCount);
+        return m_SchedulerOwned[irq];
     }
 
     void handlerRegistered(
@@ -432,6 +459,7 @@ class PicIrqState
     bool m_AcknowledgementPending[LineCount];
     bool m_ThreadedPending[LineCount];
     bool m_RequestedEnabled[LineCount];
+    bool m_SchedulerOwned[LineCount];
 };
 
 #endif

@@ -22,6 +22,18 @@
 IrqManager::IrqManager() = default;
 IrqManager::~IrqManager() = default;
 
+irq_id_t IrqManager::registerSchedulerIrqHandler(
+    uint8_t, SchedulerIrqHandler *, const IrqPolicy &)
+{
+    return 0;
+}
+
+bool IrqManager::unregisterSchedulerIrqHandler(
+    irq_id_t, SchedulerIrqHandler *)
+{
+    return false;
+}
+
 size_t IrqManager::snapshotIrqLines(IrqLineDiagnosticSnapshot *, size_t) const
 {
     return 0;

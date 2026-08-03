@@ -18,12 +18,12 @@
  */
 
 #include "SchedulerTimer.h"
+#include "IrqManager.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "system/kernel/core/processor/DeviceHardIrqContext.h"
 
 using namespace __pedigree_hosted;
 
@@ -50,6 +50,11 @@ uintptr_t HostedSchedulerTimer::sourceForTest()
 SchedulerTimerHandler *HostedSchedulerTimer::publishedHandlerForTest()
 {
     return m_Instance.m_Handler.load();
+}
+
+bool HostedSchedulerTimer::directRoutePublishedForTest()
+{
+    return HostedIrqManager::schedulerIrqHandlerForTest(1) == &m_Instance;
 }
 #endif
 
@@ -90,7 +95,7 @@ bool HostedSchedulerTimer::initialise()
     }
 
     IrqManager &irqManager = *Machine::instance().getIrqManager();
-    m_IrqId = irqManager.registerHardIsaIrqHandler(
+    m_IrqId = irqManager.registerSchedulerIrqHandler(
         1, this, IrqPolicy::syntheticHard());
     if (m_IrqId == 0)
     {
@@ -98,7 +103,7 @@ bool HostedSchedulerTimer::initialise()
         return false;
     }
 
-    // Publish the hard handler before arming the signal source so the first
+    // Publish the direct route before arming the signal source so the first
     // scheduler tick cannot arrive on an unregistered line.
     struct itimerspec interval;
     ByteSet(&interval, 0, sizeof(interval));
@@ -107,7 +112,7 @@ bool HostedSchedulerTimer::initialise()
     r = timer_settime(m_Timer, 0, &interval, 0);
     if (r != 0)
     {
-        if (!irqManager.unregisterHandler(m_IrqId, this))
+        if (!irqManager.unregisterSchedulerIrqHandler(m_IrqId, this))
         {
             FATAL(
                 "HostedSchedulerTimer could not roll back its IRQ "
@@ -140,11 +145,11 @@ void HostedSchedulerTimer::uninitialise()
     if (m_IrqId != 0)
     {
         IrqManager &irqManager = *Machine::instance().getIrqManager();
-        if (!irqManager.unregisterHandler(m_IrqId, this))
+        if (!irqManager.unregisterSchedulerIrqHandler(m_IrqId, this))
         {
             FATAL(
-                "HostedSchedulerTimer teardown could not synchronously "
-                "unregister its IRQ callback");
+                "HostedSchedulerTimer teardown could not remove its direct "
+                "IRQ route");
         }
         m_IrqId = 0;
     }
@@ -159,7 +164,8 @@ HostedSchedulerTimer::HostedSchedulerTimer()
 {
 }
 
-bool HostedSchedulerTimer::irq(irq_id_t number, InterruptState &state)
+void HostedSchedulerTimer::schedulerIrq(
+    irq_id_t number, InterruptState &state)
 {
     const siginfo_t *signalInfo =
         reinterpret_cast<const siginfo_t *>(state.getRegister(1));
@@ -168,21 +174,19 @@ bool HostedSchedulerTimer::irq(irq_id_t number, InterruptState &state)
         signalInfo->si_signo != SIGUSR2 || signalInfo->si_code != SI_TIMER ||
         signalInfo->si_value.sival_ptr != this)
     {
-        return false;
+        return;
     }
 
     if (signalInfo->si_overrun < 0)
     {
         FATAL_NOLOCK(
             "HostedSchedulerTimer received invalid POSIX timer metadata");
-        return true;
+        return;
     }
 
     const uint64_t expirations =
         static_cast<uint64_t>(signalInfo->si_overrun) + 1;
     const uint64_t delta = expirations * (ONE_SECOND / HZ);
-
-    SuspendDeviceHardIrqContext schedulerTimerContext;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     HardContextHook hook =
@@ -196,6 +200,4 @@ bool HostedSchedulerTimer::irq(irq_id_t number, InterruptState &state)
     SchedulerTimerHandler *handler = m_Handler.load();
     if (LIKELY(handler != 0))
         handler->timer(delta, state);
-
-    return true;
 }

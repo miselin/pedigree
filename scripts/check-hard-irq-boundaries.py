@@ -16,6 +16,7 @@ from typing import Iterable, Mapping
 REGISTRATION_NAMES = (
     "registerHardIsaIrqHandler",
     "registerHardPciIrqHandler",
+    "registerSchedulerIrqHandler",
     "registerIsaSplitIrq",
     "registerPciSplitIrq",
 )
@@ -35,6 +36,13 @@ RTC_THREADED_REGISTRATION = re.compile(
     r"\bregisterIsaIrqHandler\s*\(\s*8\s*,\s*this\s*,\s*"
     r"IrqPolicy::levelThreaded\s*\(\s*\)\s*\)"
 )
+SCHEDULER_IRQ_SOURCE_HEADERS = frozenset(
+    (
+        "src/system/kernel/machine/hosted/SchedulerTimer.h",
+        "src/system/kernel/machine/mach_pc/Pit.h",
+    )
+)
+GENERIC_HARD_HANDLER = re.compile(r"\bHardIrqHandler\b")
 SOURCE_SUFFIXES = frozenset((".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"))
 
 
@@ -81,7 +89,7 @@ ALLOWED_REGISTRATIONS = Counter(
         ),
         allowed(
             "src/system/kernel/machine/hosted/SchedulerTimer.cc",
-            "registerHardIsaIrqHandler",
+            "registerSchedulerIrqHandler",
             "1,this,IrqPolicy::syntheticHard()",
         ),
         allowed(
@@ -91,7 +99,7 @@ ALLOWED_REGISTRATIONS = Counter(
         ),
         allowed(
             "src/system/kernel/machine/mach_pc/Pit.cc",
-            "registerHardIsaIrqHandler",
+            "registerSchedulerIrqHandler",
             "0,this,IrqPolicy::edgeHard()",
         ),
         allowed(
@@ -302,6 +310,17 @@ def audit_sources(
                     )
                 )
 
+        if path in SCHEDULER_IRQ_SOURCE_HEADERS:
+            generic_hard = GENERIC_HARD_HANDLER.search(mask_cpp(source))
+            if generic_hard:
+                diagnostics.append(
+                    Diagnostic(
+                        path,
+                        source.count("\n", 0, generic_hard.start()) + 1,
+                        "scheduler IRQ source uses generic HardIrqHandler",
+                    )
+                )
+
     dispatcher_header = sources.get(DISPATCHER_HEADER)
     if dispatcher_header is not None:
         dynamic_name = DYNAMIC_DISPATCHER_NAME.search(dispatcher_header)
@@ -408,7 +427,14 @@ def self_test() -> int:
         "registerHardPciIrqHandler",
         "this,&device,policy",
     )
-    expected = Counter((allowed_hard, allowed_split, allowed_qualified))
+    allowed_scheduler = allowed(
+        "src/scheduler.cc",
+        "registerSchedulerIrqHandler",
+        "1,this,IrqPolicy::syntheticHard()",
+    )
+    expected = Counter(
+        (allowed_hard, allowed_split, allowed_qualified, allowed_scheduler)
+    )
     clean_sources = {
         "src/allowed.cc": """
             void Device::start()
@@ -436,6 +462,12 @@ def self_test() -> int:
         "src/qualified.cc": """
             void Derived::install() {
                 Base::registerHardPciIrqHandler(this, &device, policy);
+            }
+        """,
+        "src/scheduler.cc": """
+            void SchedulerTimer::start() {
+                manager.registerSchedulerIrqHandler(
+                    1, this, IrqPolicy::syntheticHard());
             }
         """,
         "src/modules/system/hosted-smoke/ignored.cc": """
@@ -504,6 +536,17 @@ def self_test() -> int:
         "production module uses raw registerInterruptHandler",
     )
 
+    scheduler_hard = dict(clean_sources)
+    scheduler_hard[
+        "src/system/kernel/machine/hosted/SchedulerTimer.h"
+    ] = "class Timer : private HardIrqHandler {};"
+    require_failure(
+        "generic scheduler hard handler",
+        scheduler_hard,
+        expected,
+        "scheduler IRQ source uses generic HardIrqHandler",
+    )
+
     tracker = dict(clean_sources)
     tracker["src/system/kernel/core/processor/x64/InterruptManager.cc"] = """
         #include "pedigree/kernel/process/TimeTracker.h"
@@ -530,7 +573,7 @@ def self_test() -> int:
         "threaded IRQ dispatcher name must use inline storage",
     )
 
-    print("hard IRQ boundary checker self-test passed (7 cases)")
+    print("hard IRQ boundary checker self-test passed (8 cases)")
     return 0
 
 

@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/SchedulerIrqHandler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/utilities/Iterator.h"
@@ -213,6 +214,43 @@ Pic::registerHardPciIrqHandler(
 
     return irq + BASE_INTERRUPT_VECTOR;
 }
+
+irq_id_t Pic::registerSchedulerIrqHandler(
+    uint8_t irq, SchedulerIrqHandler *handler, const IrqPolicy &policy)
+{
+    if (irq >= PicIrqState::LineCount || !handler)
+        return 0;
+
+    LockGuard<Spinlock> guard(m_Lock);
+    if (m_ShuttingDown || m_UnregisterReservations[irq] ||
+        !m_IrqState.canRegisterScheduler(irq, policy))
+        return 0;
+
+    m_SchedulerIrqHandler = handler;
+    m_IrqState.schedulerRegistered(irq, policy);
+    applyMaskLocked();
+    publishDiagnosticLineLocked(irq);
+    return irq + BASE_INTERRUPT_VECTOR;
+}
+
+bool Pic::unregisterSchedulerIrqHandler(
+    irq_id_t Id, SchedulerIrqHandler *handler)
+{
+    if (Id != BASE_INTERRUPT_VECTOR || !handler)
+        return false;
+
+    LockGuard<Spinlock> guard(m_Lock);
+    if (m_SchedulerIrqHandler != handler ||
+        !m_IrqState.schedulerRegistered(0))
+        return false;
+
+    m_SchedulerIrqHandler = nullptr;
+    m_IrqState.schedulerUnregistered(0);
+    applyMaskLocked();
+    publishDiagnosticLineLocked(0);
+    return true;
+}
+
 bool Pic::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
 {
     if (Id < BASE_INTERRUPT_VECTOR ||
@@ -356,7 +394,8 @@ bool Pic::shutdownThreaded()
 }
 
 Pic::Pic()
-    : m_SlavePort("PIC #2"), m_MasterPort("PIC #1"), m_Handlers(), m_IrqState(),
+    : m_SlavePort("PIC #2"), m_MasterPort("PIC #1"), m_Handlers(),
+      m_SchedulerIrqHandler(nullptr), m_IrqState(),
       m_ThreadedDispatcher(
           MakeConstantString("PIC IRQ bottom half"), PicIrqState::LineCount,
           dispatchThreadedLine, this),
@@ -555,6 +594,44 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
     if (irq >= PicIrqState::LineCount)
     {
         return;
+    }
+
+    if (irq == 0)
+    {
+        SchedulerIrqHandler *schedulerHandler = nullptr;
+        {
+            LockGuard<Spinlock> guard(m_Lock);
+            schedulerHandler = m_SchedulerIrqHandler;
+            if (schedulerHandler)
+            {
+                __atomic_add_fetch(
+                    &m_IrqCount[irq], static_cast<size_t>(1),
+                    __ATOMIC_RELAXED);
+                if (!m_IrqState.enabled(irq) && spuriousLocked(irq))
+                {
+                    __atomic_add_fetch(
+                        &m_SpuriousIrqCount[irq], static_cast<size_t>(1),
+                        __ATOMIC_RELAXED);
+                    publishDiagnosticLineLocked(static_cast<uint8_t>(irq));
+                    return;
+                }
+
+                const size_t generation = m_IrqState.beginDispatch(irq);
+
+                // timer() can switch away permanently, so complete controller
+                // and software acknowledgement before entering the scheduler.
+                eoiLocked(static_cast<uint8_t>(irq));
+                m_IrqState.acknowledge(irq);
+                m_IrqState.completeDispatch(irq, generation, false);
+                publishDiagnosticLineLocked(static_cast<uint8_t>(irq));
+            }
+        }
+
+        if (schedulerHandler)
+        {
+            schedulerHandler->schedulerIrq(static_cast<irq_id_t>(irq), state);
+            return;
+        }
     }
 
     IrqControllerAck controllerAck = IrqControllerAck::None;

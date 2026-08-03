@@ -22,6 +22,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
+#include "pedigree/kernel/machine/SchedulerIrqHandler.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
@@ -67,6 +68,8 @@ bool irqForSignal(size_t signal, uint8_t &irq)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 HostedIrqManager::DiagnosticPublicationHook diagnosticPublicationHook = nullptr;
 HostedIrqManager::LineOwnershipHook lineOwnershipHook = nullptr;
+HostedIrqManager::SchedulerRoutePublicationHook
+    schedulerRoutePublicationHook = nullptr;
 #endif
 
 class HostedLineLifecycleGuard
@@ -351,6 +354,62 @@ irq_id_t HostedIrqManager::registerHardPciIrqHandler(
     return irqToSignal[irq];
 }
 
+irq_id_t HostedIrqManager::registerSchedulerIrqHandler(
+    uint8_t irq, SchedulerIrqHandler *handler, const IrqPolicy &policy)
+{
+    if (irq != 1 || !handler || policy != IrqPolicy::syntheticHard() ||
+        !irqToSignal[irq] ||
+        __atomic_load_n(&m_ShuttingDown, __ATOMIC_ACQUIRE))
+        return 0;
+
+    SchedulerIrqHandler *expected = nullptr;
+    if (!__atomic_compare_exchange_n(
+            &m_SchedulerIrqHandlers[irq], &expected, handler, false,
+            __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+        return 0;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    SchedulerRoutePublicationHook hook = __atomic_load_n(
+        &schedulerRoutePublicationHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(&m_ShuttingDown);
+    }
+#endif
+
+    if (__atomic_load_n(&m_ShuttingDown, __ATOMIC_ACQUIRE))
+    {
+        SchedulerIrqHandler *published = handler;
+        __atomic_compare_exchange_n(
+            &m_SchedulerIrqHandlers[irq], &published,
+            static_cast<SchedulerIrqHandler *>(nullptr), false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+        publishDiagnosticLine(irq);
+        return 0;
+    }
+
+    publishDiagnosticLine(irq);
+    return irqToSignal[irq];
+}
+
+bool HostedIrqManager::unregisterSchedulerIrqHandler(
+    irq_id_t Id, SchedulerIrqHandler *handler)
+{
+    uint8_t irq = 0;
+    if (!handler || !irqForSignal(Id, irq) || irq != 1)
+        return false;
+
+    SchedulerIrqHandler *expected = handler;
+    if (!__atomic_compare_exchange_n(
+            &m_SchedulerIrqHandlers[irq], &expected,
+            static_cast<SchedulerIrqHandler *>(nullptr), false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        return false;
+
+    publishDiagnosticLine(irq);
+    return true;
+}
+
 bool HostedIrqManager::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
 {
     uint8_t irq = 0;
@@ -509,7 +568,7 @@ bool HostedIrqManager::shutdownThreaded()
 }
 
 HostedIrqManager::HostedIrqManager()
-    : m_Handlers(), m_ThreadedDispatcher(
+    : m_Handlers(), m_SchedulerIrqHandlers(), m_ThreadedDispatcher(
                         MakeConstantString("hosted IRQ bottom half"),
                         NumHostedIrqs, dispatchThreadedLine, this),
       m_ThreadedCookies(), m_MixedHardOutcomeCookies(),
@@ -584,7 +643,11 @@ void HostedIrqManager::publishDiagnosticLine(uint8_t irq)
 
         IrqLineDiagnosticSnapshot line = {};
         line.line = irq;
-        line.handlerCount = configuration.handlerCount;
+        const bool schedulerLine =
+            __atomic_load_n(
+                &m_SchedulerIrqHandlers[irq], __ATOMIC_ACQUIRE) != nullptr;
+        line.handlerCount = configuration.handlerCount +
+                            (schedulerLine ? static_cast<size_t>(1) : 0);
         line.configured = line.handlerCount != 0;
         line.effectiveMasked = !line.configured;
         line.requestedEnabled = line.configured;
@@ -592,15 +655,24 @@ void HostedIrqManager::publishDiagnosticLine(uint8_t irq)
         {
             line.maskReasons = IrqMaskNoHandler;
         }
-        else
+        else if (configuration.handlerCount)
         {
             line.delivery = deliveryForLineMode(configuration.mode);
+            if (schedulerLine && line.delivery == IrqDelivery::Threaded)
+                line.delivery = IrqDelivery::Mixed;
             if (configuration.policyConfigured)
             {
                 line.trigger = configuration.trigger;
                 line.controllerAck = configuration.controllerAck;
                 line.lineRelease = configuration.lineRelease;
             }
+        }
+        else
+        {
+            line.delivery = IrqDelivery::Hard;
+            line.trigger = IrqTrigger::Synthetic;
+            line.controllerAck = IrqControllerAck::None;
+            line.lineRelease = IrqLineRelease::AfterHardStage;
         }
 
         *target = line;
@@ -702,6 +774,53 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
         return;
     }
 
+    SchedulerIrqHandler *schedulerHandler = __atomic_load_n(
+        &m_SchedulerIrqHandlers[irq], __ATOMIC_ACQUIRE);
+    const bool deviceOccurrenceAccounted =
+        dispatchDeviceLine(irq, state, schedulerHandler != nullptr);
+
+    if (schedulerHandler)
+    {
+        if (__atomic_load_n(&m_ShuttingDown, __ATOMIC_ACQUIRE))
+        {
+            __atomic_add_fetch(
+                &m_UnhandledInterrupts[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
+            return;
+        }
+
+        if (!deviceOccurrenceAccounted)
+        {
+            // The scheduler route used to be a generic hard handler, so retain
+            // its occurrence accounting without entering the device registry.
+            size_t dispatchGeneration = __atomic_add_fetch(
+                &m_DispatchGenerations[irq], static_cast<size_t>(1),
+                __ATOMIC_ACQ_REL);
+            if (!dispatchGeneration)
+            {
+                __atomic_add_fetch(
+                    &m_DispatchGenerations[irq], static_cast<size_t>(1),
+                    __ATOMIC_ACQ_REL);
+            }
+        }
+
+        // A scheduler tick may abandon this signal frame. It is deliberately
+        // the terminal controller action for this occurrence.
+        schedulerHandler->schedulerIrq(irq, state);
+    }
+}
+
+bool HostedIrqManager::dispatchDeviceLine(
+    uint8_t irq, InterruptState &state, bool schedulerRoutePresent)
+{
+    if (__atomic_load_n(&m_ShuttingDown, __ATOMIC_ACQUIRE))
+    {
+        __atomic_add_fetch(
+            &m_UnhandledInterrupts[irq], static_cast<size_t>(1),
+            __ATOMIC_RELAXED);
+        return false;
+    }
+
     HostedLineLifecycleGuard lifecycle(
         m_LineLifecycleBusy[irq], irq, false);
     if (!lifecycle.owned() ||
@@ -710,11 +829,18 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
         __atomic_add_fetch(
             &m_UnhandledInterrupts[irq], static_cast<size_t>(1),
             __ATOMIC_RELAXED);
-        return;
+        return false;
     }
 
     const IrqDelivery delivery = static_cast<IrqDelivery>(__atomic_load_n(
         &m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
+    if (delivery == IrqDelivery::None && schedulerRoutePresent)
+    {
+        // Lifecycle ownership makes this the admission boundary: a generic
+        // route published after this point begins with the next signal.
+        return false;
+    }
+
     IrqHandlerRegistry::AdmissionCutoff admissionCutoff = {};
     IrqHandlerRegistry::MixedAdmissionCutoffs mixedAdmissionCutoffs = {};
     bool cutoffCaptured = false;
@@ -736,7 +862,7 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
                 &m_ThreadedPublicationFailures[irq] :
                 &m_UnhandledInterrupts[irq],
             static_cast<size_t>(1), __ATOMIC_RELAXED);
-        return;
+        return false;
     }
 
     size_t dispatchGeneration = __atomic_add_fetch(
@@ -759,7 +885,7 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
                 &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
                 __ATOMIC_RELAXED);
         }
-        return;
+        return true;
     }
 
     if (delivery == IrqDelivery::Mixed)
@@ -788,7 +914,7 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
             __atomic_add_fetch(
                 &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
                 __ATOMIC_RELAXED);
-            return;
+            return true;
         }
 
         const bool cookieCurrent =
@@ -801,7 +927,7 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
             // replacement handler belongs to the next occurrence, so neither
             // transition is a publication failure for this old action.
             m_Handlers.cancelThreadedDispatch(irq, cookie);
-            return;
+            return true;
         }
 
         const bool hardStageQuiesced =
@@ -823,7 +949,7 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
                 &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
                 __ATOMIC_RELAXED);
         }
-        return;
+        return true;
     }
 
     // The registry cutoff and grace record now own hard-handler membership.
@@ -837,7 +963,7 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
         __atomic_add_fetch(
             &m_UnhandledInterrupts[irq], static_cast<size_t>(1),
             __ATOMIC_RELAXED);
-        return;
+        return true;
     }
 
     bool handled = false;
@@ -849,6 +975,7 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
             &m_UnhandledInterrupts[irq], static_cast<size_t>(1),
             __ATOMIC_RELAXED);
     }
+    return true;
 }
 
 void HostedIrqManager::dispatchThreadedLine(
@@ -963,6 +1090,21 @@ void HostedIrqManager::setDiagnosticPublicationHook(
 void HostedIrqManager::setLineOwnershipHook(LineOwnershipHook hook)
 {
     __atomic_store_n(&lineOwnershipHook, hook, __ATOMIC_RELEASE);
+}
+
+void HostedIrqManager::setSchedulerRoutePublicationHookForTest(
+    SchedulerRoutePublicationHook hook)
+{
+    __atomic_store_n(
+        &schedulerRoutePublicationHook, hook, __ATOMIC_RELEASE);
+}
+
+SchedulerIrqHandler *HostedIrqManager::schedulerIrqHandlerForTest(uint8_t irq)
+{
+    if (irq >= NumHostedIrqs)
+        return nullptr;
+    return __atomic_load_n(
+        &m_Instance.m_SchedulerIrqHandlers[irq], __ATOMIC_ACQUIRE);
 }
 
 bool HostedIrqManager::dispatchHandlerForTest(

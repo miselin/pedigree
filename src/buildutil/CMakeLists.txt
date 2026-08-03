@@ -238,6 +238,7 @@ set(TESTSUITE_SRCS
     testsuite/test-SchedulerTimerHandlerSlot.cc
     testsuite/test-LocalApicTimerHandlerSlots.cc
     testsuite/test-PcSchedulerTimerSelection.cc
+    testsuite/test-PicIrqState.cc
     testsuite/test-TscClock.cc
     testsuite/test-IntrusiveMpscQueue.cc
     testsuite/test-VmwareSvgaState.cc

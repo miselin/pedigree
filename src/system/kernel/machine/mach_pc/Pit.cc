@@ -25,7 +25,6 @@
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
-#include "system/kernel/core/processor/DeviceHardIrqContext.h"
 
 /** One hundred hertz frequency. */
 #ifdef BOCHS
@@ -54,7 +53,7 @@ bool Pit::initialise()
 
     // Allocate the IRQ
     IrqManager &irqManager = *Machine::instance().getIrqManager();
-    m_IrqId = irqManager.registerHardIsaIrqHandler(
+    m_IrqId = irqManager.registerSchedulerIrqHandler(
         0, this, IrqPolicy::edgeHard());
     if (m_IrqId == 0)
         return false;
@@ -86,11 +85,9 @@ void Pit::uninitialise()
     if (m_IrqId != 0)
     {
         IrqManager &irqManager = *Machine::instance().getIrqManager();
-        if (!irqManager.unregisterHandler(m_IrqId, this))
+        if (!irqManager.unregisterSchedulerIrqHandler(m_IrqId, this))
         {
-            FATAL(
-                "PIT teardown could not synchronously unregister its IRQ "
-                "callback");
+            FATAL("PIT teardown could not remove its direct IRQ route");
         }
         m_IrqId = 0;
     }
@@ -106,17 +103,14 @@ Pit::Pit() : m_IoPort("PIT"), m_IrqId(0), m_Handler()
 {
 }
 
-bool Pit::irq(irq_id_t number, InterruptState &state)
+void Pit::schedulerIrq(irq_id_t number, InterruptState &state)
 {
     // TODO: Delta is wrong
     SchedulerTimerHandler *handler = m_Handler.load();
     if (LIKELY(handler != 0))
     {
-        SuspendDeviceHardIrqContext schedulerTimerContext;
         handler->timer(0, state);
     }
 
     // Processor::information().getScheduler().checkEventState(state.getStackPointer());
-
-    return true;
 }

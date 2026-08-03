@@ -52,6 +52,11 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     virtual irq_id_t registerHardPciIrqHandler(
         HardIrqHandler *handler, class Device *pDevice,
         const IrqPolicy &policy);
+    virtual irq_id_t registerSchedulerIrqHandler(
+        uint8_t irq, SchedulerIrqHandler *handler,
+        const IrqPolicy &policy);
+    virtual bool unregisterSchedulerIrqHandler(
+        irq_id_t Id, SchedulerIrqHandler *handler);
     virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler);
     virtual size_t
     snapshotIrqLines(IrqLineDiagnosticSnapshot *out, size_t capacity) const;
@@ -85,6 +90,7 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     using DispatchAbandonHook = IrqHandlerRegistry::DispatchAbandonHook;
     using MutationLockHook = IrqHandlerRegistry::MutationLockHook;
     using DiagnosticPublicationHook = void (*)(uint8_t, size_t);
+    using SchedulerRoutePublicationHook = void (*)(size_t *);
 
     enum class LineOwnershipStage
     {
@@ -150,6 +156,15 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
 
     /** Observes deterministic line-lifetime ownership windows. */
     static EXPORTED_PUBLIC void setLineOwnershipHook(LineOwnershipHook hook);
+
+    /** Runs after a scheduler route publishes but before shutdown is rechecked.
+     */
+    static EXPORTED_PUBLIC void setSchedulerRoutePublicationHookForTest(
+        SchedulerRoutePublicationHook hook);
+
+    /** Returns the direct scheduler source published for one signal line. */
+    static EXPORTED_PUBLIC SchedulerIrqHandler *
+    schedulerIrqHandlerForTest(uint8_t irq);
 #endif
 
   private:
@@ -170,6 +185,8 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
     // InterruptHandler interface
     //
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
+    bool dispatchDeviceLine(
+        uint8_t irq, InterruptState &state, bool schedulerRoutePresent);
 
     static void dispatchThreadedLine(void *context, uint8_t irq, size_t cookie);
     void publishDiagnosticLine(uint8_t irq);
@@ -178,6 +195,8 @@ class HostedIrqManager : public IrqManager, private InterruptHandler
 
     /** IRQ handlers and their callback lifetime state. */
     IrqHandlerRegistry m_Handlers;
+    /** Scheduler sources bypass the generic hard-handler registry. */
+    SchedulerIrqHandler *m_SchedulerIrqHandlers[3];
 
     /** Stable one-worker-per-signal threaded IRQ dispatcher. */
     ThreadedIrqDispatcher m_ThreadedDispatcher;
