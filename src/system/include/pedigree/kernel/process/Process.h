@@ -181,6 +181,8 @@ class EXPORTED_PUBLIC Process
     /** Adds a thread to this process.
      *  \return The thread ID to be assigned to the new Thread. */
     size_t addThread(Thread *pThread);
+    /** Runs subsystem cleanup while the exiting thread and address space live. */
+    void threadExiting(Thread *pThread);
     /** Removes a thread from this process. */
     void removeThread(Thread *pThread);
 

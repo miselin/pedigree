@@ -759,6 +759,14 @@ size_t Process::addThread(Thread *pThread)
     return m_NextTid += 1;
 }
 
+void Process::threadExiting(Thread *pThread)
+{
+    if (m_pSubsystem)
+    {
+        m_pSubsystem->threadExiting(pThread);
+    }
+}
+
 void Process::removeThread(Thread *pThread)
 {
     RecursingLockGuard<Spinlock> guard(m_Lock);

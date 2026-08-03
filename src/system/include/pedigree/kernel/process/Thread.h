@@ -209,6 +209,16 @@ class EXPORTED_PUBLIC Thread
         return m_pParent;
     }
 
+    /** Replaces the userspace address cleared when this thread exits. */
+    void setClearChildTid(uintptr_t address);
+
+    /** Claims and resets the clear-child-TID registration exactly once. */
+    uintptr_t takeClearChildTid()
+    {
+        return __atomic_exchange_n(
+            &m_ClearChildTid, static_cast<uintptr_t>(0), __ATOMIC_ACQ_REL);
+    }
+
     /** Records this Thread's monotonic entry baseline for one CPU-time mode. */
     void recordTime(CpuTimeMode mode);
 
@@ -911,6 +921,9 @@ class EXPORTED_PUBLIC Thread
 
     /** Whether shutdown() has completed its one-way transition. */
     bool m_bShutdown = false;
+
+    /** Userspace TID word cleared by the subsystem during exit publication. */
+    uintptr_t m_ClearChildTid = 0;
 
     /** The add worker may publish a delayed thread after this request. */
     bool m_bStartRequested = false;

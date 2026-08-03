@@ -537,6 +537,13 @@ void Thread::shutdown()
         event->completeDelivery(this);
     }
 
+    // Subsystem teardown must happen while the Process and address space are
+    // still live, and before a joiner can observe this exit.
+    if (m_pParent)
+    {
+        m_pParent->threadExiting(this);
+    }
+
     // Make a joiner runnable before the scheduler chooses our replacement.
     // This matters during shutdown after the idle thread has been retired.
     // join() still checks m_bReapable and cannot delete us until the scheduler
@@ -552,6 +559,19 @@ void Thread::shutdown()
     // can still be published on the ready queue while idle, so the status
     // transition must also withdraw that scheduler publication.
     setStatus(Thread::AwaitingJoin);
+}
+
+void Thread::setClearChildTid(uintptr_t address)
+{
+    LockGuard<Spinlock> guard(m_Lock);
+    if (m_bShutdown)
+    {
+        // A delayed clone selected for termination before registration never
+        // reaches userspace, so do not publish a pointer after its one-shot
+        // subsystem exit hook has begun.
+        return;
+    }
+    __atomic_store_n(&m_ClearChildTid, address, __ATOMIC_RELEASE);
 }
 
 void Thread::forceToStartupProcessor()

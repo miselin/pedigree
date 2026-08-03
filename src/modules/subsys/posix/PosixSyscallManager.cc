@@ -571,6 +571,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
                 static_cast<int>(p3));
         case POSIX_GETTID:
             return posix_gettid();
+        case POSIX_SET_TID_ADDRESS:
+            return posix_set_tid_address(reinterpret_cast<int *>(p1));
         case POSIX_BRK:
             return posix_brk(p1);
 

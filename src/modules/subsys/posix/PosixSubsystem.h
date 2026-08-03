@@ -628,6 +628,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
     }
 
   private:
+    virtual void threadExiting(Thread *pThread);
     virtual void threadRemoved(Thread *pThread);
 
     /** Load an ELF's PT_LOAD sections into the address space. */

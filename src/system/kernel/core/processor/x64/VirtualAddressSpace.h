@@ -113,6 +113,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace
         size_t flags);
     virtual void getMapping(
         void *virtualAddress, physical_uintptr_t &physAddress, size_t &flags);
+    virtual bool tryWriteUser32(uintptr_t address, uint32_t value);
     virtual void setFlags(void *virtualAddress, size_t newFlags);
     virtual void unmap(void *virtualAddress);
     virtual Stack *allocateStack();

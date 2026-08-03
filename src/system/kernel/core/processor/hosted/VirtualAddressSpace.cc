@@ -285,6 +285,63 @@ void HostedVirtualAddressSpace::getMapping(
     panic("HostedVirtualAddressSpace::getMapping - function misused");
 }
 
+bool HostedVirtualAddressSpace::tryWriteUser32(
+    uintptr_t address, uint32_t value)
+{
+    if (
+        !address || (address % alignof(uint32_t)) ||
+        address < getUserStart() || address >= getKernelStart() ||
+        address > getKernelStart() - sizeof(value))
+    {
+        return false;
+    }
+
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    const uintptr_t pageAddress = address & ~(pageSize - 1);
+    const size_t pageOffset = address - pageAddress;
+    if (pageOffset > pageSize - sizeof(value))
+    {
+        return false;
+    }
+
+    LockGuard<Spinlock> guard(m_Lock);
+    for (size_t i = 0; i < m_KnownMapsSize; ++i)
+    {
+        const mapping_t &mapping = m_pKnownMaps[i];
+        if (
+            !mapping.active ||
+            mapping.vaddr != reinterpret_cast<void *>(pageAddress))
+        {
+            continue;
+        }
+
+        if (
+            !(mapping.flags & Write) || (mapping.flags & KernelMode) ||
+            (mapping.flags & CopyOnWrite) || (mapping.flags & Swapped))
+        {
+            return false;
+        }
+
+        void *alias = mmap(
+            nullptr, pageSize, PROT_READ | PROT_WRITE, MAP_SHARED,
+            HostedPhysicalMemoryManager::instance().getBackingFile(),
+            mapping.paddr);
+        if (alias == MAP_FAILED)
+        {
+            return false;
+        }
+
+        __atomic_store_n(
+            reinterpret_cast<uint32_t *>(
+                reinterpret_cast<uintptr_t>(alias) + pageOffset),
+            value, __ATOMIC_RELEASE);
+        munmap(alias, pageSize);
+        return true;
+    }
+
+    return false;
+}
+
 void HostedVirtualAddressSpace::setFlags(void *virtualAddress, size_t newFlags)
 {
     LockGuard<Spinlock> guard(m_Lock);

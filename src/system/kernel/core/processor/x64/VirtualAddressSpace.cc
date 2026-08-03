@@ -391,6 +391,47 @@ void X64VirtualAddressSpace::getMapping(
     flags = fromFlags(PAGE_GET_FLAGS(pageTableEntry), true);
 }
 
+bool X64VirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value)
+{
+    if (
+        !address || (address % alignof(uint32_t)) ||
+        address < getUserStart() || address >= getKernelStart() ||
+        address > getKernelStart() - sizeof(value))
+    {
+        return false;
+    }
+
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    const size_t pageOffset = address & (pageSize - 1);
+    if (pageOffset > pageSize - sizeof(value))
+    {
+        return false;
+    }
+
+    LockGuard<Spinlock> guard(m_Lock);
+    uint64_t *pageTableEntry = nullptr;
+    if (!getPageTableEntry(reinterpret_cast<void *>(address), pageTableEntry))
+    {
+        return false;
+    }
+
+    const uint64_t pageFlags = *pageTableEntry;
+    if (
+        !(pageFlags & PAGE_PRESENT) || !(pageFlags & PAGE_USER) ||
+        !(pageFlags & PAGE_WRITE) || (pageFlags & PAGE_COPY_ON_WRITE) ||
+        (pageFlags & PAGE_SWAPPED))
+    {
+        return false;
+    }
+
+    const physical_uintptr_t target =
+        PAGE_GET_PHYSICAL_ADDRESS(pageTableEntry) + pageOffset;
+    __atomic_store_n(
+        reinterpret_cast<uint32_t *>(physicalAddress(target)), value,
+        __ATOMIC_RELEASE);
+    return true;
+}
+
 void X64VirtualAddressSpace::setFlags(void *virtualAddress, size_t newFlags)
 {
     LockGuard<Spinlock> guard(m_Lock);

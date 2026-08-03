@@ -124,6 +124,18 @@ class VirtualAddressSpace
     virtual void getMapping(
         void *virtualAddress, physical_uintptr_t &physicalAddress,
         size_t &flags) = 0;
+
+    /**
+     * Stores one 32-bit value through a resident userspace mapping without
+     * switching into this address space. Implementations reject mappings that
+     * could fault or change backing storage while the write is in progress.
+     */
+    virtual bool tryWriteUser32(uintptr_t address, uint32_t value)
+    {
+        (void) address;
+        (void) value;
+        return false;
+    }
     /** Set the flags of the page at a specific virtual address.
      *\note The page must have been mapped with VirtualAddressSpace::map() and
      *the page must still be mapped or marked as swapped out. \param[in]

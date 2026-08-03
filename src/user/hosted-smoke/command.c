@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <sys/klog.h>
 #include <sys/reboot.h>
+#include <sys/syscall.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -45,6 +46,9 @@ struct compute_preemption_probe
 {
     int stop;
     int fallback;
+    uintptr_t parent_self;
+    uintptr_t child_self[2];
+    int child_syscall_ok[2];
     uint64_t counters[2];
 };
 
@@ -52,6 +56,14 @@ struct compute_preemption_worker
 {
     struct compute_preemption_probe *probe;
     int index;
+};
+
+struct detached_exit_probe
+{
+    int tid_word;
+    int ready;
+    int go;
+    int failure;
 };
 
 static uint64_t monotonic_nanoseconds(void)
@@ -68,7 +80,13 @@ static void *run_compute_preemption_worker(void *parameter)
 {
     struct compute_preemption_worker *worker = parameter;
     struct compute_preemption_probe *probe = worker->probe;
+    __atomic_store_n(
+        &probe->child_self[worker->index], (uintptr_t) pthread_self(),
+        __ATOMIC_RELEASE);
     const uint64_t started = monotonic_nanoseconds();
+    __atomic_store_n(
+        &probe->child_syscall_ok[worker->index], started != 0,
+        __ATOMIC_RELEASE);
     const uint64_t deadline = started + compute_probe_fallback_ns;
 
     while (!__atomic_load_n(&probe->stop, __ATOMIC_ACQUIRE))
@@ -93,6 +111,7 @@ static int run_compute_preemption_test(void)
 {
     struct compute_preemption_probe probe;
     memset(&probe, 0, sizeof(probe));
+    probe.parent_self = (uintptr_t) pthread_self();
     struct compute_preemption_worker workers[2] = {
         {&probe, 0},
         {&probe, 1},
@@ -111,22 +130,130 @@ static int run_compute_preemption_test(void)
         pthread_join(threads[0], 0);
         return 2;
     }
+    klog(LOG_INFO, "HOSTED-SMOKE: PASS pthread-clone-state-switch");
 
     const uint64_t started = monotonic_nanoseconds();
     const int sleep_result = usleep(compute_probe_sleep_us);
     const uint64_t elapsed = monotonic_nanoseconds() - started;
     __atomic_store_n(&probe.stop, 1, __ATOMIC_RELEASE);
 
+    const uintptr_t first_self = __atomic_load_n(
+        &probe.child_self[0], __ATOMIC_ACQUIRE);
+    const uintptr_t second_self = __atomic_load_n(
+        &probe.child_self[1], __ATOMIC_ACQUIRE);
+    const int child_contract =
+        first_self && second_self && first_self != second_self &&
+        first_self != probe.parent_self && second_self != probe.parent_self &&
+        __atomic_load_n(&probe.child_syscall_ok[0], __ATOMIC_ACQUIRE) &&
+        __atomic_load_n(&probe.child_syscall_ok[1], __ATOMIC_ACQUIRE) &&
+        __atomic_load_n(&probe.counters[0], __ATOMIC_ACQUIRE) &&
+        __atomic_load_n(&probe.counters[1], __ATOMIC_ACQUIRE);
+    if (child_contract)
+    {
+        klog(
+            LOG_INFO,
+            "HOSTED-SMOKE: PASS pthread-child-tls-args-syscall");
+    }
+
     const int first_join = pthread_join(threads[0], 0);
     const int second_join = pthread_join(threads[1], 0);
+    if (!first_join && !second_join)
+    {
+        klog(LOG_INFO, "HOSTED-SMOKE: PASS pthread-clear-tid-join");
+    }
     if (
-        sleep_result || first_join || second_join ||
+        sleep_result || first_join || second_join || !child_contract ||
         __atomic_load_n(&probe.fallback, __ATOMIC_ACQUIRE) ||
-        !__atomic_load_n(&probe.counters[0], __ATOMIC_ACQUIRE) ||
-        !__atomic_load_n(&probe.counters[1], __ATOMIC_ACQUIRE) ||
         elapsed > compute_probe_latest_wake_ns)
     {
         return 3;
+    }
+
+    return 0;
+}
+
+static void *run_detached_exit_worker(void *parameter)
+{
+    struct detached_exit_probe *probe = parameter;
+    const long tid = syscall(SYS_set_tid_address, &probe->tid_word);
+    if (tid <= 0)
+    {
+        __atomic_store_n(&probe->failure, 1, __ATOMIC_RELEASE);
+        __atomic_store_n(&probe->ready, 1, __ATOMIC_RELEASE);
+        return 0;
+    }
+
+    __atomic_store_n(&probe->tid_word, (int) tid, __ATOMIC_RELEASE);
+    __atomic_store_n(&probe->ready, 1, __ATOMIC_RELEASE);
+    while (!__atomic_load_n(&probe->go, __ATOMIC_ACQUIRE))
+    {
+        sched_yield();
+    }
+
+    syscall(SYS_exit, 0);
+    __atomic_store_n(&probe->failure, 2, __ATOMIC_RELEASE);
+    return 0;
+}
+
+static int run_detached_clear_tid_test(void)
+{
+    struct detached_exit_probe probe;
+    memset(&probe, 0, sizeof(probe));
+
+    pthread_attr_t attributes;
+    if (pthread_attr_init(&attributes))
+    {
+        return 1;
+    }
+    if (pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED))
+    {
+        pthread_attr_destroy(&attributes);
+        return 2;
+    }
+
+    pthread_t thread;
+    const int create_result = pthread_create(
+        &thread, &attributes, run_detached_exit_worker, &probe);
+    pthread_attr_destroy(&attributes);
+    if (create_result)
+    {
+        return 3;
+    }
+
+    for (int i = 0; i < 100000; ++i)
+    {
+        if (__atomic_load_n(&probe.ready, __ATOMIC_ACQUIRE))
+        {
+            break;
+        }
+        sched_yield();
+    }
+    if (
+        !__atomic_load_n(&probe.ready, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&probe.failure, __ATOMIC_ACQUIRE))
+    {
+        return 4;
+    }
+
+    __atomic_store_n(&probe.go, 1, __ATOMIC_RELEASE);
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        const int observed =
+            __atomic_load_n(&probe.tid_word, __ATOMIC_ACQUIRE);
+        if (!observed)
+        {
+            break;
+        }
+
+        const struct timespec timeout = {1, 0};
+        syscall(SYS_futex, &probe.tid_word, 0, observed, &timeout);
+    }
+
+    if (
+        __atomic_load_n(&probe.tid_word, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&probe.failure, __ATOMIC_ACQUIRE))
+    {
+        return 5;
     }
 
     return 0;
@@ -327,6 +454,21 @@ int main(int argc, char **argv)
             klog(
                 LOG_INFO,
                 "HOSTED-SMOKE: PASS userspace-compute-preemption");
+        }
+
+        const int detached_result = run_detached_clear_tid_test();
+        if (detached_result)
+        {
+            klog(
+                LOG_ERR,
+                "HOSTED-SMOKE: FAIL pthread-clear-tid-detached: %d",
+                detached_result);
+        }
+        else
+        {
+            klog(
+                LOG_INFO,
+                "HOSTED-SMOKE: PASS pthread-clear-tid-detached");
         }
 
         const int loopback_result = run_loopback_test();

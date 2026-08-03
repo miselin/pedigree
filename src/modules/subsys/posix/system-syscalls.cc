@@ -277,10 +277,6 @@ long posix_clone(
     SyscallState clonedState = posix_copy_clone_state(state);
 
     // Basic warnings to start with.
-    if (flags & CLONE_CHILD_CLEARTID)
-    {
-        SC_NOTICE(" -> CLONE_CHILD_CLEARTID is not yet supported!");
-    }
     if (flags & CLONE_PARENT)
     {
         SC_NOTICE(" -> CLONE_PARENT is not yet supported!");
@@ -290,6 +286,18 @@ long posix_clone(
         // Halts parent until child ruins execve() or exit(), just like vfork.
         // We should support this properly.
         SC_NOTICE(" -> CLONE_VFORK is not yet supported!");
+    }
+    if ((flags & CLONE_CHILD_CLEARTID) && !(flags & CLONE_VM))
+    {
+        // Exit teardown deliberately uses a no-fault target write. A copied
+        // address space normally leaves this word copy-on-write, so accepting
+        // the registration would wake once without clearing it and strand the
+        // waiter on its next futex wait.
+        SC_NOTICE(
+            " -> CLONE_CHILD_CLEARTID without CLONE_VM requires a "
+            "copy-on-write-capable exit write");
+        SYSCALL_ERROR(Unimplemented);
+        return -1;
     }
 
 #if 0
@@ -345,6 +353,10 @@ long posix_clone(
         pThread->setName("posix clone() thread");
         pThread->setTlsBase(newtls);
         pThread->detach();
+        if (flags & CLONE_CHILD_CLEARTID)
+        {
+            pThread->setClearChildTid(reinterpret_cast<uintptr_t>(ctid));
+        }
 
         // Update the child ID before letting the child run
         if (flags & CLONE_CHILD_SETTID)

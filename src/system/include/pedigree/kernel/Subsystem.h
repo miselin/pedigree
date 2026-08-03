@@ -174,6 +174,11 @@ class EXPORTED_PUBLIC Subsystem
     virtual File *findFile(const String &path, File *workingDir) = 0;
 
   protected:
+    /** Notifies the subsystem immediately before a thread announces exit. */
+    virtual void threadExiting(Thread *pThread)
+    {
+    }
+
     /** Notifies the subsystem that the given thread has been removed. */
     virtual void threadRemoved(Thread *pThread)
     {

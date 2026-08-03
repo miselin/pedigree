@@ -81,6 +81,28 @@ static WaitQueue::Channel futexChannel(const FutexKey &key)
         reinterpret_cast<const void *>(key.addressSpace), key.address);
 }
 
+int posix_futex_wake(Process *process, int *uaddr, int count)
+{
+    if (!process || !uaddr || count <= 0)
+    {
+        return 0;
+    }
+
+    const FutexKey key(process, uaddr);
+    auto guard = g_FutexWaiters.acquire();
+    int woken = 0;
+    for (int i = 0; i < count; ++i)
+    {
+        if (!guard.wakeOne(
+                WaitQueue::WakeReason::Signalled, futexChannel(key)))
+        {
+            break;
+        }
+        ++woken;
+    }
+    return woken;
+}
+
 int posix_futex(
     int *uaddr, int futex_op, int val, const struct timespec *timeout)
 {
@@ -98,13 +120,6 @@ int posix_futex(
         "futex(" << Hex << uaddr << ", " << futex_op << ", " << val << ", "
                  << timeout << ")");
 
-    if (!(futex_op & FUTEX_PRIVATE))
-    {
-        PT_NOTICE(" -> public futexes are not yet supported");
-        SYSCALL_ERROR(Unimplemented);
-        return -1;
-    }
-
     if (futex_op & FUTEX_CLOCK_REALTIME)
     {
         PT_NOTICE(" -> realtime futex waits are not yet supported");
@@ -112,6 +127,8 @@ int posix_futex(
         return -1;
     }
 
+    // Both forms are scoped to this address space. Cross-process shared-memory
+    // futexes require a backing-object key and remain unsupported.
     futex_op &= ~FUTEX_PRIVATE;
 
     if (reinterpret_cast<uintptr_t>(uaddr) % alignof(int))
@@ -238,17 +255,7 @@ int posix_futex(
                 break;
             }
 
-            auto guard = g_FutexWaiters.acquire();
-            int woken = 0;
-            for (int i = 0; i < val; ++i)
-            {
-                if (!guard.wakeOne(
-                        WaitQueue::WakeReason::Signalled, futexChannel(key)))
-                {
-                    break;
-                }
-                ++woken;
-            }
+            const int woken = posix_futex_wake(pProcess, uaddr, val);
             PT_NOTICE(" -> woke " << Dec << woken << " threads.");
             r = woken;
             break;
@@ -459,4 +466,11 @@ pid_t posix_gettid()
     // Go caches this value before creating another thread, so it must not
     // change when the process transitions from one thread to several.
     return Processor::information().getCurrentThread()->getId();
+}
+
+pid_t posix_set_tid_address(int *tidptr)
+{
+    Thread *thread = Processor::information().getCurrentThread();
+    thread->setClearChildTid(reinterpret_cast<uintptr_t>(tidptr));
+    return thread->getId();
 }

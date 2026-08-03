@@ -609,6 +609,14 @@ command_log="$log_dir/05-userspace-command.log"
 reject_marker "$command_log" "HOSTED-SMOKE: init launched"
 assert_marker "$command_log" "HOSTED-SMOKE: simple userspace command ran"
 assert_marker \
+    "$command_log" "HOSTED-SMOKE: PASS pthread-clone-state-switch"
+assert_marker \
+    "$command_log" "HOSTED-SMOKE: PASS pthread-child-tls-args-syscall"
+assert_marker_once \
+    "$command_log" "HOSTED-SMOKE: PASS pthread-clear-tid-join"
+assert_marker_once \
+    "$command_log" "HOSTED-SMOKE: PASS pthread-clear-tid-detached"
+assert_marker \
     "$command_log" "HOSTED-SMOKE: PASS userspace-compute-preemption"
 assert_marker \
     "$command_log" "HOSTED-SMOKE: PASS posix-lwip-loopback-roundtrip"

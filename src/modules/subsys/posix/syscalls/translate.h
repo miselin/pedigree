@@ -219,10 +219,7 @@ inline long posix_translate_syscall(long which)
 #endif
         // ...
         TRANSLATION_ENTRY(SYS_getdents64, POSIX_GETDENTS64)
-        // Clear-child-TID teardown is not implemented yet, but musl requires
-        // the current TID as this syscall's successful return value.
-        case SYS_set_tid_address:
-            return POSIX_GETTID;
+        TRANSLATION_ENTRY(SYS_set_tid_address, POSIX_SET_TID_ADDRESS)
         // ...
         TRANSLATION_ENTRY(SYS_clock_gettime, POSIX_CLOCK_GETTIME)
         // ...

@@ -57,6 +57,7 @@
 #include "pedigree/kernel/linker/Elf.h"
 
 #include "file-syscalls.h"
+#include "pthread-syscalls.h"
 #include "system-syscalls.h"
 
 #include <signal.h>
@@ -1285,6 +1286,42 @@ void PosixSubsystem::addFileDescriptor(size_t fd, FileDescriptor *pFd)
     retiring.reset();
 }
 
+void PosixSubsystem::threadExiting(Thread *pThread)
+{
+    if (!pThread)
+    {
+        return;
+    }
+
+    const uintptr_t address = pThread->takeClearChildTid();
+    if (!address)
+    {
+        return;
+    }
+
+    Process *process = pThread->getParent();
+    if (!process)
+    {
+        return;
+    }
+
+    VirtualAddressSpace *addressSpace = process->getAddressSpace();
+    const bool cleared =
+        addressSpace && addressSpace->tryWriteUser32(address, 0);
+    if (!cleared)
+    {
+        PS_NOTICE(
+            "clear-child-TID skipped a non-resident, read-only, kernel, or "
+            "copy-on-write target at "
+            << Hex << address << " for tid " << Dec << pThread->getId());
+    }
+
+    // The registration is already consumed. Wake even if the restricted
+    // no-fault store could not reach the word, so no waiter is stranded in the
+    // kernel after an invalid registration or concurrent unmap.
+    posix_futex_wake(process, reinterpret_cast<int *>(address), 1);
+}
+
 void PosixSubsystem::threadRemoved(Thread *pThread)
 {
     Event *alarmEvent = nullptr;
@@ -1851,6 +1888,9 @@ bool PosixSubsystem::invoke(
     pProcess->setLinker(pLinker);
 
     // Wipe out old address space.
+    // Earlier failures preserve the registration. From this irreversible
+    // point onward its target belongs to the discarded image.
+    pThread->setClearChildTid(0);
     MemoryMapManager::instance().unmapAll();
 
     // We now need to clean up the process' address space.
