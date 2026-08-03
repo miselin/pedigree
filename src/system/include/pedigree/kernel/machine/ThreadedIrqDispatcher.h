@@ -54,16 +54,29 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
     /**
      * Marks a line and rings its owning scheduler in one bounded operation.
      * Concurrent or nested producers are coalesced by cookie generation. A
-     * constant cookie is safe for multi-producer work-bit users.
+     * constant cookie is safe for multi-producer work-bit users. Callers must
+     * enter through a hard/atomic source which serialises same-CPU execution;
+     * a nested publication can only occur after the outer cookie is stored.
      */
     bool publishFromInterrupt(uint8_t line, size_t cookie);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     using PublicationObservedHook = void (*)(
         ThreadedIrqDispatcher *, uint8_t, size_t, size_t);
+    using PendingScanAdmittedHook = void (*)(
+        ThreadedIrqDispatcher *, uint8_t);
 
-    /** Pauses a publication after its initial pending-cookie observation. */
+    /** Runs after the test publisher has atomically stored its cookie. */
     void setPublicationObservedHookForTest(PublicationObservedHook hook);
+
+    /** Overrides the per-CPU slot count before workers are started. */
+    bool setPendingSlotCountForTest(size_t slotCount);
+
+    /** Publishes through a selected synthetic per-CPU slot. */
+    bool publishFromSlotForTest(uint8_t line, size_t slot, size_t cookie);
+
+    /** Runs after a diagnostic scan has joined shutdown admission. */
+    void setPendingScanAdmittedHookForTest(PendingScanAdmittedHook hook);
 #endif
 
     /** Whether an occurrence arrived after the worker claimed its batch. */
@@ -118,6 +131,9 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
         static int workerEntry(void *context);
         static bool workerReady(void *context);
         int run();
+        bool hasPendingForWorker() const;
+        size_t pendingCookieForWorker() const;
+        size_t takePendingCookie();
         static bool generationReached(size_t current, size_t target);
 
         ThreadedIrqDispatcher *m_Owner;
@@ -126,7 +142,8 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
         Thread *m_Thread;
         PerProcessorScheduler *m_Scheduler;
         uint8_t m_Line;
-        size_t m_PendingCookie;
+        size_t *m_PendingCookies;
+        size_t m_PendingCookieCount;
         size_t m_ActiveCookie;
         size_t m_CallbackActive;
         mutable size_t m_PublicationState;
@@ -154,6 +171,9 @@ class EXPORTED_PUBLIC ThreadedIrqDispatcher
     size_t m_Initialised;
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     PublicationObservedHook m_PublicationObservedHook;
+    PendingScanAdmittedHook m_PendingScanAdmittedHook;
+    size_t m_PendingSlotCountForTest;
+    size_t m_PublicationSlotForTest;
 #endif
 
     ThreadedIrqDispatcher(const ThreadedIrqDispatcher &) = delete;

@@ -391,7 +391,7 @@ void completeDispatcherHighWaterBatch(
     }
 }
 
-void deliverNewerBeforeOlderPublication(
+void publishNewerAfterOlderStored(
     ThreadedIrqDispatcher *dispatcher, uint8_t line, size_t cookie,
     size_t pending)
 {
@@ -427,7 +427,7 @@ bool threadedDispatcherPreservesDeliveredHighWater()
 
     g_DispatcherHighWaterContext = &context;
     dispatcher.setPublicationObservedHookForTest(
-        deliverNewerBeforeOlderPublication);
+        publishNewerAfterOlderStored);
     const bool olderPublished =
         initialised && dispatcher.publishFromInterrupt(0, 2);
     dispatcher.setPublicationObservedHookForTest(nullptr);
@@ -447,6 +447,324 @@ bool threadedDispatcherPreservesDeliveredHighWater()
     if (passed)
     {
         NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-dispatcher-high-water");
+    }
+    return passed;
+}
+
+struct DispatcherMultiSlotContext
+{
+    DispatcherMultiSlotContext()
+        : firstEntered(0), releaseFirst(0), laterEntered(0), calls(0),
+          failures(0), cookies()
+    {
+    }
+
+    Semaphore firstEntered;
+    Semaphore releaseFirst;
+    Semaphore laterEntered;
+    Atomic<size_t> calls;
+    Atomic<size_t> failures;
+    size_t cookies[3];
+};
+
+void captureDispatcherMultiSlotBatch(
+    void *opaque, uint8_t line, size_t cookie)
+{
+    DispatcherMultiSlotContext *context =
+        reinterpret_cast<DispatcherMultiSlotContext *>(opaque);
+    const size_t call = (context->calls += 1) - 1;
+    if (line != 0 || call >= 3)
+    {
+        context->failures += 1;
+        return;
+    }
+
+    context->cookies[call] = cookie;
+    if (!call)
+    {
+        context->firstEntered.release();
+        if (!context->releaseFirst.acquireForCompletion())
+        {
+            context->failures += 1;
+        }
+    }
+    else
+    {
+        context->laterEntered.release();
+    }
+}
+
+bool waitForDispatcherCompletion(
+    ThreadedIrqDispatcher &dispatcher, size_t batches, size_t cookie)
+{
+    const Time::Timestamp deadline =
+        Time::getTicks() + 2 * Time::Multiplier::Second;
+    while (Time::getTicks() < deadline)
+    {
+        if (dispatcher.completedBatches(0) == batches &&
+            dispatcher.completedCookie(0) == cookie &&
+            !dispatcher.callbackActive(0))
+        {
+            return true;
+        }
+        Scheduler::instance().yield();
+    }
+    return false;
+}
+
+bool threadedDispatcherMultiSlotOrdering()
+{
+    constexpr const char *SlotTest =
+        "irq-threaded-dispatcher-multi-slot";
+    constexpr size_t MaximumCookie = static_cast<size_t>(-1);
+    constexpr size_t InitialCookie = MaximumCookie - 10;
+    constexpr size_t NearWrapCookie = MaximumCookie - 1;
+    constexpr size_t WrappedCookie = 2;
+    constexpr size_t StaleCookie = MaximumCookie - 4;
+
+    DispatcherMultiSlotContext context;
+    ThreadedIrqDispatcher dispatcher(
+        MakeConstantString("hosted IRQ multi-slot regression"), 1,
+        captureDispatcherMultiSlotBatch, &context);
+    const bool slotsConfigured = dispatcher.setPendingSlotCountForTest(4);
+    const bool initialised = slotsConfigured && dispatcher.initialise();
+    const bool lateReconfigurationRejected =
+        initialised && !dispatcher.setPendingSlotCountForTest(2);
+
+    const bool firstPublished =
+        initialised &&
+        dispatcher.publishFromSlotForTest(0, 0, InitialCookie);
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
+    const bool firstEntered =
+        firstPublished && context.firstEntered.acquireForCompletion(1, 2, 0);
+
+    bool accumulated = false;
+    bool invalidSlotRejected = false;
+    size_t pending = 0;
+    if (firstEntered)
+    {
+        accumulated =
+            dispatcher.publishFromSlotForTest(0, 0, NearWrapCookie) &&
+            dispatcher.publishFromSlotForTest(0, 1, WrappedCookie) &&
+            dispatcher.publishFromSlotForTest(0, 2, StaleCookie) &&
+            dispatcher.publishFromSlotForTest(0, 3, WrappedCookie);
+        invalidSlotRejected =
+            !dispatcher.publishFromSlotForTest(0, 4, WrappedCookie + 1);
+        pending = dispatcher.pendingCookie(0);
+    }
+
+    context.releaseFirst.release();
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
+    const bool wrappedEntered =
+        accumulated && context.laterEntered.acquireForCompletion(1, 2, 0);
+    const bool wrappedCompleted =
+        wrappedEntered && waitForDispatcherCompletion(
+                              dispatcher, 2, WrappedCookie);
+
+    const bool constantPublished =
+        wrappedCompleted &&
+        dispatcher.publishFromSlotForTest(0, 2, WrappedCookie);
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
+    const bool constantEntered =
+        constantPublished && context.laterEntered.acquireForCompletion(1, 2, 0);
+    const bool constantCompleted =
+        constantEntered && waitForDispatcherCompletion(
+                               dispatcher, 3, WrappedCookie);
+
+    const bool stalePublished =
+        constantCompleted &&
+        dispatcher.publishFromSlotForTest(0, 3, StaleCookie);
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
+    bool staleDrained = false;
+    const Time::Timestamp staleDeadline =
+        Time::getTicks() + 2 * Time::Multiplier::Second;
+    while (stalePublished && Time::getTicks() < staleDeadline)
+    {
+        if (!dispatcher.hasPending(0) && !dispatcher.callbackActive(0))
+        {
+            staleDrained = true;
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+
+    const bool stopped = dispatcher.shutdown();
+    const bool passed = check(
+        slotsConfigured && initialised && lateReconfigurationRejected &&
+            firstPublished && firstEntered && accumulated &&
+            invalidSlotRejected && pending == WrappedCookie &&
+            wrappedEntered && wrappedCompleted && constantPublished &&
+            constantEntered && constantCompleted && stalePublished &&
+            staleDrained && context.calls == 3 && context.failures == 0 &&
+            context.cookies[0] == InitialCookie &&
+            context.cookies[1] == WrappedCookie &&
+            context.cookies[2] == WrappedCookie &&
+            dispatcher.completedBatches(0) == 3 &&
+            dispatcher.completedCookie(0) == WrappedCookie && stopped,
+        "multi-slot ordering lost wrap, stale, or equal-cookie semantics",
+        SlotTest);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-threaded-dispatcher-multi-slot");
+    }
+    return passed;
+}
+
+struct DispatcherDiagnosticShutdownContext
+{
+    DispatcherDiagnosticShutdownContext()
+        : dispatcher(nullptr), scanAdmitted(0), releaseScan(0), hookCalls(0),
+          hookFailures(0), readerComplete(0), shutdownStarted(0),
+          shutdownComplete(0), callbackCalls(0), observedCookie(0),
+          shutdownResult(false)
+    {
+    }
+
+    ThreadedIrqDispatcher *dispatcher;
+    Semaphore scanAdmitted;
+    Semaphore releaseScan;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> hookFailures;
+    Atomic<size_t> readerComplete;
+    Atomic<size_t> shutdownStarted;
+    Atomic<size_t> shutdownComplete;
+    Atomic<size_t> callbackCalls;
+    size_t observedCookie;
+    bool shutdownResult;
+};
+
+DispatcherDiagnosticShutdownContext *g_DiagnosticShutdownContext = nullptr;
+
+void holdDispatcherDiagnosticScan(
+    ThreadedIrqDispatcher *dispatcher, uint8_t line)
+{
+    DispatcherDiagnosticShutdownContext *context =
+        g_DiagnosticShutdownContext;
+    if (!context || context->dispatcher != dispatcher || line != 0)
+    {
+        if (context)
+        {
+            context->hookFailures += 1;
+        }
+        return;
+    }
+
+    dispatcher->setPendingScanAdmittedHookForTest(nullptr);
+    context->hookCalls += 1;
+    context->scanAdmitted.release();
+    if (!context->releaseScan.acquireForCompletion())
+    {
+        context->hookFailures += 1;
+    }
+}
+
+void unexpectedDispatcherDiagnosticCallback(void *opaque, uint8_t, size_t)
+{
+    DispatcherDiagnosticShutdownContext *context =
+        reinterpret_cast<DispatcherDiagnosticShutdownContext *>(opaque);
+    context->callbackCalls += 1;
+}
+
+int scanDispatcherPendingCookie(void *opaque)
+{
+    DispatcherDiagnosticShutdownContext *context =
+        reinterpret_cast<DispatcherDiagnosticShutdownContext *>(opaque);
+    context->observedCookie = context->dispatcher->pendingCookie(0);
+    context->readerComplete = 1;
+    return 0;
+}
+
+int shutdownDispatcherDuringDiagnostic(void *opaque)
+{
+    DispatcherDiagnosticShutdownContext *context =
+        reinterpret_cast<DispatcherDiagnosticShutdownContext *>(opaque);
+    context->shutdownStarted = 1;
+    context->shutdownResult = context->dispatcher->shutdown();
+    context->shutdownComplete = 1;
+    return 0;
+}
+
+bool threadedDispatcherDiagnosticShutdownLifetime()
+{
+    constexpr const char *LifetimeTest =
+        "irq-threaded-dispatcher-diagnostic-shutdown-race";
+    DispatcherDiagnosticShutdownContext context;
+    ThreadedIrqDispatcher testedDispatcher(
+        MakeConstantString("hosted IRQ diagnostic lifetime regression"), 1,
+        unexpectedDispatcherDiagnosticCallback, &context);
+    context.dispatcher = &testedDispatcher;
+
+    const bool slotsConfigured =
+        testedDispatcher.setPendingSlotCountForTest(4);
+    const bool initialised = slotsConfigured && testedDispatcher.initialise();
+    g_DiagnosticShutdownContext = &context;
+    testedDispatcher.setPendingScanAdmittedHookForTest(
+        holdDispatcherDiagnosticScan);
+
+    Thread *reader = new Thread(
+        Scheduler::instance().getKernelProcess(), scanDispatcherPendingCookie,
+        &context, nullptr, false, true, true);
+    reader->setName("hosted IRQ diagnostic reader");
+    const bool readerStarted = initialised && reader->start();
+    const bool scanHeld =
+        readerStarted && context.scanAdmitted.acquireForCompletion(1, 2, 0);
+
+    Thread *shutdownThread = new Thread(
+        Scheduler::instance().getKernelProcess(),
+        shutdownDispatcherDuringDiagnostic, &context, nullptr, false, true,
+        true);
+    shutdownThread->setName("hosted IRQ diagnostic shutdown");
+    const bool shutdownThreadStarted = scanHeld && shutdownThread->start();
+
+    bool closedWhileHeld = false;
+    const Time::Timestamp closeDeadline =
+        Time::getTicks() + 2 * Time::Multiplier::Second;
+    while (shutdownThreadStarted && Time::getTicks() < closeDeadline)
+    {
+        if (testedDispatcher.publicationClosed(0))
+        {
+            closedWhileHeld = true;
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+    const bool shutdownWaitedForScan =
+        closedWhileHeld && context.shutdownStarted &&
+        !context.shutdownComplete && !context.readerComplete;
+
+    if (readerStarted)
+    {
+        context.releaseScan.release();
+    }
+    const bool readerJoined = readerStarted && reader->joinForCompletion();
+    const bool shutdownJoined =
+        shutdownThreadStarted && shutdownThread->joinForCompletion();
+    testedDispatcher.setPendingScanAdmittedHookForTest(nullptr);
+    g_DiagnosticShutdownContext = nullptr;
+
+    bool cleanup = context.shutdownResult;
+    if (initialised && !context.shutdownResult)
+    {
+        cleanup = testedDispatcher.shutdown();
+    }
+
+    const bool passed = check(
+        slotsConfigured && initialised && readerStarted && scanHeld &&
+            shutdownThreadStarted && closedWhileHeld && shutdownWaitedForScan &&
+            readerJoined && shutdownJoined && context.readerComplete == 1 &&
+            context.shutdownComplete == 1 && context.shutdownResult && cleanup &&
+            context.hookCalls == 1 && context.hookFailures == 0 &&
+            context.callbackCalls == 0 && context.observedCookie == 0 &&
+            testedDispatcher.pendingCookie(0) == 0,
+        "shutdown released pending slots while diagnostics still scanned them",
+        LifetimeTest);
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-threaded-dispatcher-diagnostic-shutdown-race");
     }
     return passed;
 }
@@ -2322,6 +2640,8 @@ bool runHostedThreadedIrqRegressions()
     passed &= hostedSyntheticIrqMasking();
     passed &= threadedDispatcherCoalescing();
     passed &= threadedDispatcherPreservesDeliveredHighWater();
+    passed &= threadedDispatcherMultiSlotOrdering();
+    passed &= threadedDispatcherDiagnosticShutdownLifetime();
     passed &= hostedThreadedSignalDelivery();
     passed &= hostedMixedSignalDelivery();
     passed &= hostedMixedThreadedPeerRemoval();

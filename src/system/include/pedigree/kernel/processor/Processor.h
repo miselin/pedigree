@@ -386,6 +386,14 @@ class EXPORTED_PUBLIC ProcessorBase
      */
     static ProcessorId id();
 
+    /**
+     * Get this processor's dense topology index for per-CPU storage.
+     * Once processor discovery is complete, successful results are strictly
+     * less than getCount(). An unmatched hardware identity returns getCount()
+     * so callers cannot alias another processor's slot.
+     */
+    static size_t index();
+
     /** Get the ProcessorInformation structure of this processor
      *\return the ProcessorInformation structure of this processor */
     static ProcessorInformation &information();

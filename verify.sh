@@ -725,6 +725,7 @@ check_wait_api_boundaries()
 
     local processor_header=src/system/include/pedigree/kernel/processor/Processor.h
     local processor_source=src/system/kernel/core/processor/Processor.cc
+    local x86_processor_source=src/system/kernel/core/processor/x86_common/Processor.cc
     local hard_irq_context_header=src/system/kernel/core/processor/DeviceHardIrqContext.h
     if ! rg -q 'static bool inDeviceHardIrq\(\)' "$processor_header" ||
         ! rg -q \
@@ -743,6 +744,16 @@ check_wait_api_boundaries()
             '(?s)SuspendDeviceHardIrqContext::SuspendDeviceHardIrqContext\(\).*?m_DeviceHardIrqDepth == 1.*?m_DeviceHardIrqDepth = 0.*?SuspendDeviceHardIrqContext::~SuspendDeviceHardIrqContext\(\).*?m_DeviceHardIrqDepth == 0.*?m_DeviceHardIrqDepth = 1' \
             "$processor_source"; then
         echo "The per-processor device hard-IRQ context boundary regressed."
+        failed=1
+    fi
+
+    if ! rg -q 'static size_t index\(\)' "$processor_header" ||
+        ! rg -q -U \
+            '(?s)size_t ProcessorBase::index\(\).*?m_ProcessorInformation\[i\]->m_LocalApicId == apicId.*?return i;.*?return m_ProcessorInformation\.count\(\);' \
+            "$x86_processor_source" ||
+        ! rg -q 'size_t processor = Processor::index\(\)' \
+            src/system/kernel/machine/ThreadedIrqDispatcher.cc; then
+        echo "Per-CPU IRQ publication lost its dense topology index or mismatch sentinel."
         failed=1
     fi
 
@@ -793,18 +804,9 @@ check_wait_api_boundaries()
     hard_irq_suspend_users=$(rg -l \
         'SuspendDeviceHardIrqContext schedulerTimerContext' \
         src/system/kernel/machine --glob '*.cc' | sort || true)
-    local expected_hard_irq_suspend_users
-    expected_hard_irq_suspend_users=$(printf '%s\n' \
-        src/system/kernel/machine/hosted/SchedulerTimer.cc \
-        src/system/kernel/machine/mach_pc/Pit.cc)
-    if [[ "$hard_irq_suspend_users" != "$expected_hard_irq_suspend_users" ]] ||
-        ! rg -q -U \
-            '(?s)m_Handler\.load\(\).*?SuspendDeviceHardIrqContext schedulerTimerContext;.*?handler->timer\(0, state\)' \
-            src/system/kernel/machine/mach_pc/Pit.cc ||
-        ! rg -q -U \
-            '(?s)SuspendDeviceHardIrqContext schedulerTimerContext;.*?hook\(delta, state\).*?m_Handler\.load\(\).*?handler->timer\(delta, state\)' \
-            src/system/kernel/machine/hosted/SchedulerTimer.cc; then
-        echo "The scheduler-timer device hard-IRQ exception escaped its two audited call sites."
+    if [[ -n "$hard_irq_suspend_users" ]]; then
+        echo "A scheduler source re-entered the generic device hard-IRQ contract:"
+        echo "$hard_irq_suspend_users"
         failed=1
     fi
 
@@ -1093,13 +1095,29 @@ check_wait_api_boundaries()
             'bool captureMixedAdmissionCutoffs\([^;]*MixedAdmissionCutoffs &cutoffs\)' \
             "$irq_registry_header" ||
         ! rg -q -U \
-            '(?s)bool IrqHandlerRegistry::captureMixedAdmissionCutoffs\(.*?cutoffs = \{\}.*?acquireOccurrenceReaderLeases\(irq, readerBank, 2\).*?const AdmissionCutoff cutoff.*?cutoffs = \{cutoff, cutoff\}.*?return true' \
+            '(?s)bool IrqHandlerRegistry::captureAdmissionCutoff\(.*?cutoff = \{\}.*?acquireOccurrenceReaderLeases\(irq, 0, 1\).*?acquireOccurrenceReaderLeases\(irq, 1, 1\).*?m_OccurrenceEpochs.*?releaseOccurrenceReaderLeases\(irq, readerBank \^ 1, 1\).*?return true' \
             "$irq_registry_source" ||
         ! rg -q -U \
-            '(?s)captureMixedAdmissionCutoffs\(.*?releaseOccurrenceReaderLeases\(irq, readerBank, 2\)' \
+            '(?s)bool IrqHandlerRegistry::captureMixedAdmissionCutoffs\(.*?cutoffs = \{\}.*?acquireOccurrenceReaderLeases\(irq, 0, 2\).*?acquireOccurrenceReaderLeases\(irq, 1, 2\).*?m_OccurrenceEpochs.*?releaseOccurrenceReaderLeases\(irq, readerBank \^ 1, 2\).*?const AdmissionCutoff cutoff.*?cutoffs = \{cutoff, cutoff\}.*?return true' \
             "$irq_registry_source" ||
-        ! rg -q 'irq-mixed-delivery-occurrence' "$irq_regressions"; then
-        echo "Mixed IRQ delivery lost its paired occurrence admission leases."
+        ! rg -q -U \
+            '(?s)acquireOccurrenceReaderLeases\(.*?__atomic_fetch_add.*?releaseOccurrenceReaderLeases\(.*?__atomic_fetch_sub' \
+            "$irq_registry_source" ||
+        ! rg -q 'irq-mixed-delivery-occurrence' "$irq_regressions" ||
+        ! rg -q 'irq-occurrence-wait-free-boundary' "$irq_regressions"; then
+        echo "IRQ occurrence capture lost its wait-free dual-bank admission leases."
+        failed=1
+    fi
+
+    local occurrence_capture_bodies
+    occurrence_capture_bodies=$(sed -n \
+        '/IrqHandlerRegistry::captureAdmissionCutoff(/,/IrqHandlerRegistry::acquireOccurrenceReaderLeases(/p' \
+        "$irq_registry_source")
+    matches=$(printf '%s\n' "$occurrence_capture_bodies" | \
+        rg -n 'while[[:space:]]*\(|for[[:space:]]*\(|__atomic_compare_exchange' || true)
+    if [[ -n "$matches" ]]; then
+        echo "IRQ occurrence capture contains an unbounded retry path:"
+        echo "$matches"
         failed=1
     fi
 
@@ -1170,7 +1188,7 @@ check_wait_api_boundaries()
             src/system/kernel/core/processor/hosted/InterruptManager.cc \
             src/system/kernel/core/processor/x64/InterruptManager.cc ||
         ! rg -q -U \
-            '(?s)Line::publishFromInterrupt\(size_t cookie\).*?__atomic_fetch_add\(.*?m_PublicationState.*?PublicationClosed.*?pending = __atomic_load_n\(&m_PendingCookie.*?while \(!pending \|\| generationReached\(cookie, pending\)\).*?__atomic_compare_exchange_n\(.*?&m_PendingCookie, &pending, cookie.*?__ATOMIC_RELEASE.*?__ATOMIC_ACQUIRE.*?ringIrqWorkDoorbell\(\).*?__atomic_fetch_sub\(.*?m_PublicationState' \
+            '(?s)Line::publishFromInterrupt\(size_t cookie\).*?__atomic_fetch_add\(.*?m_PublicationState.*?PublicationClosed.*?Processor::index\(\).*?__atomic_exchange_n\(.*?&m_PendingCookies\[processor\], cookie.*?ringIrqWorkDoorbell\(\).*?__atomic_fetch_sub\(.*?m_PublicationState' \
             "$threaded_irq_source" ||
         ! rg -q -U \
             '(?s)Line::beginStop\(\).*?__atomic_fetch_or\(.*?m_PublicationState, PublicationClosed' \
@@ -1183,10 +1201,7 @@ check_wait_api_boundaries()
     threaded_publish_body=$(sed -n \
         '/Line::publishFromInterrupt(size_t cookie)/,/Line::hasPending() const/p' \
         "$threaded_irq_source")
-    local threaded_publish_boundary_body
-    threaded_publish_boundary_body=$(printf '%s\n' "$threaded_publish_body" | \
-        sed '/^[[:space:]]*while (!pending || generationReached(cookie, pending))$/d')
-    matches=$(printf '%s\n' "$threaded_publish_boundary_body" | \
+    matches=$(printf '%s\n' "$threaded_publish_body" | \
         rg -n \
             'LockGuard|Spinlock|Semaphore|WaitQueue|RequestQueue|new[[:space:]]|delete[[:space:]]|FATAL|ERROR|WARNING|NOTICE|while[[:space:]]*\(|for[[:space:]]*\(' || true)
     if [[ -n "$matches" ]]; then
@@ -1196,7 +1211,10 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
-        '(?s)Line::run\(\).*?TerminationDeferral workerLifetime.*?__atomic_store_n\(.*?m_CallbackActive.*?__atomic_exchange_n\(.*?m_Callback\(.*?m_CompletedCookie.*?m_CallbackActive.*?Scheduler::instance\(\)\.yield\(\)' \
+        '(?s)Line::run\(\).*?TerminationDeferral workerLifetime.*?__atomic_store_n\(.*?m_CallbackActive.*?takePendingCookie\(\).*?m_Callback\(.*?m_CompletedCookie.*?m_CallbackActive.*?Scheduler::instance\(\)\.yield\(\)' \
+            "$threaded_irq_source" ||
+        ! rg -q -U \
+            '(?s)Line::takePendingCookie\(\).*?for \(size_t i = 0; i < m_PendingCookieCount; \+\+i\).*?__atomic_exchange_n\(.*?&m_PendingCookies\[i\]' \
             "$threaded_irq_source" ||
         ! rg -q 'completedCookie' "$threaded_irq_header"; then
         echo "Threaded IRQ workers lost owned lifetime or completion generations."
@@ -1217,6 +1235,12 @@ check_wait_api_boundaries()
     if ! rg -q 'Candidate candidates\[MaxHandlerSlots\]' \
         "$irq_registry_source" ||
         ! rg -q 'irq-threaded-dispatcher-coalescing' \
+            "$threaded_irq_regressions" ||
+        ! rg -q 'irq-threaded-dispatcher-high-water' \
+            "$threaded_irq_regressions" ||
+        ! rg -q 'irq-threaded-dispatcher-multi-slot' \
+            "$threaded_irq_regressions" ||
+        ! rg -q 'irq-threaded-dispatcher-diagnostic-shutdown-race' \
             "$threaded_irq_regressions" ||
         ! rg -q 'currentIrqWorkDoorbellPendingForTest' \
             "$threaded_irq_regressions" ||
@@ -1269,6 +1293,7 @@ check_wait_api_boundaries()
     local pic_source=src/system/kernel/machine/mach_pc/Pic.cc
     local pic_header=src/system/kernel/machine/mach_pc/Pic.h
     local pic_state=src/system/kernel/machine/mach_pc/PicIrqState.h
+    local pic_state_test=src/buildutil/testsuite/test-PicIrqState.cc
     local pc_source=src/system/kernel/machine/mach_pc/Pc.cc
     if ! rg -q 'ThreadedIrqDispatcher m_ThreadedDispatcher' "$pic_header" ||
         ! rg -q -U \
@@ -1284,6 +1309,23 @@ check_wait_api_boundaries()
             '(?s)registerHardPciIrqHandler\(.*?const IrqPolicy &policy.*?registerHardHandler\(irq, handler, policy\).*?handlerRegistered\(irq, policy, IrqDelivery::Hard\)' \
             "$pic_source"; then
         echo "The PIC registration path escaped typed hard or threaded delivery."
+        failed=1
+    fi
+
+    if ! rg -q 'SchedulerIrqHandler \*m_SchedulerIrqHandler' "$pic_header" ||
+        ! rg -q 'bool m_SchedulerOwned\[LineCount\]' "$pic_state" ||
+        ! rg -q -U \
+            '(?s)canRegister\(.*?m_SchedulerOwned\[irq\].*?canRegisterScheduler\(.*?irq == 0.*?!handlerCount\(irq\).*?IrqPolicy::edgeHard' \
+            "$pic_state" ||
+        ! rg -q -U \
+            '(?s)Pic::registerSchedulerIrqHandler\(.*?m_UnregisterReservations\[irq\].*?canRegisterScheduler.*?m_SchedulerIrqHandler = handler.*?schedulerRegistered' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)if \(irq == 0\).*?schedulerHandler = m_SchedulerIrqHandler.*?beginDispatch\(irq\).*?eoiLocked.*?acknowledge\(irq\).*?completeDispatch\(irq, generation, false\).*?schedulerHandler->schedulerIrq' \
+            "$pic_source" ||
+        ! rg -q 'SchedulerRouteExcludesGenericRegistration' "$pic_state_test" ||
+        ! rg -q 'GenericRegistrationExcludesSchedulerRoute' "$pic_state_test"; then
+        echo "The PIC scheduler route lost exclusive IRQ0 ownership or terminal acknowledgement ordering."
         failed=1
     fi
 
@@ -1386,7 +1428,8 @@ check_wait_api_boundaries()
         src/modules/drivers/common/usb-hcd/Ehci.cc \
         src/modules/drivers/common/usb-hcd/Ohci.cc \
         src/modules/drivers/common/usb-hcd/Uhci.cc \
-        src/modules/drivers/x86/ne2k/Ne2k.cc)
+        src/modules/drivers/x86/ne2k/Ne2k.cc \
+        src/system/kernel/machine/mach_pc/Rtc.cc)
     if [[ "$threaded_irq_registration_users" != \
         "$expected_threaded_irq_registration_users" ]]; then
         echo "Threaded IRQ registration escaped its audited production users:"
@@ -1554,6 +1597,7 @@ check_wait_api_boundaries()
     local timer_registry_header=src/system/include/pedigree/kernel/machine/TimerHandlerRegistry.h
     local timer_handler_header=src/system/include/pedigree/kernel/machine/TimerHandler.h
     local scheduler_timer_handler_header=src/system/include/pedigree/kernel/machine/SchedulerTimerHandler.h
+    local scheduler_irq_handler_header=src/system/include/pedigree/kernel/machine/SchedulerIrqHandler.h
     local scheduler_timer_slot_header=src/system/include/pedigree/kernel/machine/SchedulerTimerHandlerSlot.h
     local scheduler_timer_header=src/system/include/pedigree/kernel/machine/SchedulerTimer.h
     local scheduler_timer_slot_test=src/buildutil/testsuite/test-SchedulerTimerHandlerSlot.cc
@@ -1589,7 +1633,7 @@ check_wait_api_boundaries()
             "$scheduler_timer_slot_header" ||
         ! rg -q 'SchedulerTimerHandlerSlot m_Handler' "$pit_header" ||
         ! rg -q -U \
-            '(?s)Pit::registerHandler.*?m_Handler\.publish\(handler\).*?Pit::removeHandler.*?m_Handler\.unpublish\(handler\).*?Pit::irq.*?m_Handler\.load\(\).*?handler->timer\(0, state\)' \
+            '(?s)Pit::registerHandler.*?m_Handler\.publish\(handler\).*?Pit::removeHandler.*?m_Handler\.unpublish\(handler\).*?Pit::schedulerIrq.*?m_Handler\.load\(\).*?handler->timer\(0, state\)' \
             "$pit_source" ||
         ! rg -q 'SchedulerTimerHandlerSlot m_Handlers\[Capacity\]' \
             "$local_apic_slots" ||
@@ -1678,23 +1722,41 @@ check_wait_api_boundaries()
         failed=1
     fi
 
-    if ! rg -q \
-            'class HostedSchedulerTimer : public SchedulerTimer, private HardIrqHandler' \
+    if ! rg -q 'class EXPORTED_PUBLIC SchedulerIrqHandler' \
+            "$scheduler_irq_handler_header" ||
+        ! rg -q 'terminal action for' "$scheduler_irq_handler_header" ||
+        ! rg -q \
+            'class HostedSchedulerTimer : public SchedulerTimer, private SchedulerIrqHandler' \
             "$hosted_scheduler_timer_header" ||
+        ! rg -q \
+            'class Pit : public SchedulerTimer, private SchedulerIrqHandler' \
+            "$pit_header" ||
         ! rg -q \
             'EXPORTED_PUBLIC SchedulerTimerHandler \*publishedHandlerForTest' \
             "$hosted_scheduler_timer_header" ||
         ! rg -q 'HostedSchedulerTimer::publishedHandlerForTest' \
             "$hosted_scheduler_timer_source" ||
         ! rg -q -U \
-            '(?s)HostedSchedulerTimer::initialise\(\).*?timer_create\(CLOCK_MONOTONIC.*?registerHardIsaIrqHandler\(.*?1, this, IrqPolicy::syntheticHard\(\)\).*?timer_settime\(' \
+            '(?s)HostedSchedulerTimer::initialise\(\).*?timer_create\(CLOCK_MONOTONIC.*?registerSchedulerIrqHandler\(.*?1, this, IrqPolicy::syntheticHard\(\)\).*?timer_settime\(' \
             "$hosted_scheduler_timer_source" ||
         ! rg -q -U \
-            '(?s)HostedSchedulerTimer::uninitialise\(\).*?timer_settime\(.*?unregisterHandler\(m_IrqId, this\).*?timer_delete\(' \
+            '(?s)HostedSchedulerTimer::uninitialise\(\).*?timer_settime\(.*?unregisterSchedulerIrqHandler\(m_IrqId, this\).*?timer_delete\(' \
             "$hosted_scheduler_timer_source" ||
         ! rg -q -U \
-            '(?s)HostedSchedulerTimer::registerHandler.*?m_Handler\.publish\(handler\).*?HostedSchedulerTimer::removeHandler.*?m_Handler\.unpublish\(handler\).*?HostedSchedulerTimer::irq\(.*?getInterruptNumber\(\) != SIGUSR2.*?si_signo != SIGUSR2.*?si_code != SI_TIMER.*?si_overrun.*?m_Handler\.load\(\).*?handler->timer\(delta, state\)' \
+            '(?s)HostedSchedulerTimer::registerHandler.*?m_Handler\.publish\(handler\).*?HostedSchedulerTimer::removeHandler.*?m_Handler\.unpublish\(handler\).*?HostedSchedulerTimer::schedulerIrq\(.*?getInterruptNumber\(\) != SIGUSR2.*?si_signo != SIGUSR2.*?si_code != SI_TIMER.*?si_overrun.*?m_Handler\.load\(\).*?handler->timer\(delta, state\)' \
             "$hosted_scheduler_timer_source" ||
+        ! rg -q -U \
+            '(?s)HostedIrqManager::interrupt\(.*?dispatchDeviceLine\(irq, state, schedulerHandler != nullptr\).*?schedulerHandler->schedulerIrq\(irq, state\)' \
+            "$hosted_irq_source" ||
+        ! rg -q -U \
+            '(?s)HostedIrqManager::dispatchDeviceLine\(.*?HostedLineLifecycleGuard lifecycle.*?m_LineDeliveries\[irq\].*?delivery == IrqDelivery::None && schedulerRoutePresent.*?return false' \
+            "$hosted_irq_source" ||
+        ! rg -q -U \
+            '(?s)HostedIrqManager::registerSchedulerIrqHandler\(.*?__atomic_compare_exchange_n\(.*?m_SchedulerIrqHandlers\[irq\].*?__atomic_load_n\(&m_ShuttingDown.*?SchedulerIrqHandler \*published = handler;.*?__atomic_compare_exchange_n\(.*?m_SchedulerIrqHandlers\[irq\].*?published.*?nullptr.*?return 0' \
+            "$hosted_irq_source" ||
+        ! rg -q 'directRoutePublishedForTest' "$scheduler_regressions" ||
+        ! rg -q 'hosted-scheduler-route-shutdown-boundary' \
+            "$scheduler_regressions" ||
         ! rg -q 'hosted-scheduler-timer-single-owner' \
             "$scheduler_regressions" ||
         ! rg -q 'HostedSchedulerTimer::publishedHandlerForTest' \

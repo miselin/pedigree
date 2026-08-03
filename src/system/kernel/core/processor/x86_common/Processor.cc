@@ -228,6 +228,31 @@ ProcessorId ProcessorBase::id()
     return 0;
 }
 
+size_t ProcessorBase::index()
+{
+    if (m_Initialised < 2)
+        return 0;
+
+#if MULTIPROCESSOR
+    Pc &pc = Pc::instance();
+    if (!pc.localApicAvailable())
+        return 0;
+
+    const uint8_t apicId = pc.getLocalApic().getId();
+    for (size_t i = 0; i < m_ProcessorInformation.count(); ++i)
+    {
+        if (m_ProcessorInformation[i]->m_LocalApicId == apicId)
+            return i;
+    }
+
+    // Never alias an unrecognised hardware identity onto the BSP slot. IRQ
+    // publication treats this sentinel as a topology failure and rejects it.
+    return m_ProcessorInformation.count();
+#else
+    return 0;
+#endif
+}
+
 ProcessorInformation &ProcessorBase::information()
 {
 #if MULTIPROCESSOR

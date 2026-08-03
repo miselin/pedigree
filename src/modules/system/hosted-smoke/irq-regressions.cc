@@ -11,6 +11,7 @@
 #include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -27,6 +28,10 @@ namespace
 {
 constexpr size_t OuterSyntheticDispatchGeneration = 0xC001;
 constexpr size_t InnerSyntheticDispatchGeneration = 0xC002;
+// IRQ 1 is the live scheduler timer and can retain a dispatch while another
+// Thread runs. Use the signal-backed line reserved for hosted regressions.
+constexpr uint8_t HardContextTestIrq = 2;
+constexpr int HardContextTestSignal = SIGURG;
 
 bool check(
     bool condition, const char *detail,
@@ -524,8 +529,9 @@ class NestedDeviceHardIrqProbe : public HardIrqHandler
         if (Machine::instance().getIrqManager()->snapshotIrqLines(lines, 3) ==
             3)
         {
-            activeCount = lines[1].activeHardDispatchCount;
-            activeGeneration = lines[1].activeHardDispatchGeneration;
+            activeCount = lines[HardContextTestIrq].activeHardDispatchCount;
+            activeGeneration =
+                lines[HardContextTestIrq].activeHardDispatchGeneration;
         }
         ++calls;
         return true;
@@ -556,11 +562,13 @@ class OuterDeviceHardIrqProbe : public HardIrqHandler
         if (Machine::instance().getIrqManager()->snapshotIrqLines(lines, 3) ==
             3)
         {
-            activeCount = lines[1].activeHardDispatchCount;
-            activeGeneration = lines[1].activeHardDispatchGeneration;
+            activeCount = lines[HardContextTestIrq].activeHardDispatchCount;
+            activeGeneration =
+                lines[HardContextTestIrq].activeHardDispatchGeneration;
         }
         nestedAdmitted = HostedIrqManager::dispatchHandlerForTest(
-            1, m_Nested, nestedHandled, InnerSyntheticDispatchGeneration);
+            HardContextTestIrq, m_Nested, nestedHandled,
+            InnerSyntheticDispatchGeneration);
         restoredDepth = Processor::deviceHardIrqDepthForTest();
         ++calls;
         return true;
@@ -609,9 +617,9 @@ bool deviceHardIrqContextTracking()
         "the test began with stale device hard-IRQ state", Test);
     IrqManager *manager = Machine::instance().getIrqManager();
     const irq_id_t outerId = manager->registerHardIsaIrqHandler(
-        1, &outer, IrqPolicy::syntheticHard());
+        HardContextTestIrq, &outer, IrqPolicy::syntheticHard());
     const irq_id_t nestedId = manager->registerHardIsaIrqHandler(
-        1, &nested, IrqPolicy::syntheticHard());
+        HardContextTestIrq, &nested, IrqPolicy::syntheticHard());
     const bool threadedRegistered =
         threadedRegistry.registerThreadedHandler(8, &threaded);
 
@@ -619,7 +627,8 @@ bool deviceHardIrqContextTracking()
     Processor::setInterrupts(false);
     bool outerHandled = false;
     const bool outerAdmitted = HostedIrqManager::dispatchHandlerForTest(
-        1, &outer, outerHandled, OuterSyntheticDispatchGeneration);
+        HardContextTestIrq, &outer, outerHandled,
+        OuterSyntheticDispatchGeneration);
     Processor::setInterrupts(interruptsWereEnabled);
     const size_t postHardDepth = Processor::deviceHardIrqDepthForTest();
     const bool postHardMarked = Processor::inDeviceHardIrq();
@@ -1091,6 +1100,148 @@ bool threadedOccurrenceLifetimeBinding()
         NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-late-registration");
         NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-cancelled-generation");
         NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-slot-reuse-generation");
+    }
+    return passed;
+}
+
+struct OccurrenceCaptureRetirementContext
+{
+    IrqHandlerRegistry *registry;
+    CountingHardRegistryHandler *handler;
+    uint8_t line;
+    IrqHandlerRegistry::OccurrenceCaptureStage targetStage;
+    IrqHandlerRegistry::OccurrenceCaptureStage observedStage;
+    size_t hookCalls;
+    size_t sampledEpoch;
+    bool removed;
+};
+
+OccurrenceCaptureRetirementContext *g_OccurrenceCaptureRetirement = nullptr;
+
+void retireAtOccurrenceCaptureStage(
+    IrqHandlerRegistry *registry, uint8_t line,
+    IrqHandlerRegistry::OccurrenceCaptureStage stage, size_t occurrenceEpoch)
+{
+    OccurrenceCaptureRetirementContext *context =
+        g_OccurrenceCaptureRetirement;
+    if (!context || context->registry != registry || context->line != line ||
+        context->targetStage != stage)
+    {
+        return;
+    }
+
+    registry->setOccurrenceCaptureHookForTest(nullptr);
+    ++context->hookCalls;
+    context->observedStage = stage;
+    context->sampledEpoch = occurrenceEpoch;
+    context->removed =
+        registry->unregisterHandler(line, context->handler) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+}
+
+bool waitFreeOccurrenceCapturePreservesBoundary()
+{
+    constexpr const char *Test = "irq-occurrence-wait-free-boundary";
+    constexpr uint8_t Line = 14;
+    using Stage = IrqHandlerRegistry::OccurrenceCaptureStage;
+    const Stage stages[] = {
+        Stage::BankZeroClaimed, Stage::BankOneClaimed, Stage::EpochSampled,
+        Stage::UnusedBankReleased};
+
+    bool passed = true;
+    for (size_t i = 0; i < sizeof(stages) / sizeof(stages[0]); ++i)
+    {
+        IrqHandlerRegistry registry;
+        CountingHardRegistryHandler handler;
+        CountingHardRegistryHandler replacement;
+        OccurrenceCaptureRetirementContext context = {
+            &registry, &handler, Line, stages[i], stages[i], 0, 0, false};
+        const bool registered = registry.registerHardHandler(Line, &handler);
+        g_OccurrenceCaptureRetirement = &context;
+        registry.setOccurrenceCaptureHookForTest(
+            retireAtOccurrenceCaptureStage);
+        IrqHandlerRegistry::AdmissionCutoff cutoff = {};
+        const bool captured = registry.captureAdmissionCutoff(Line, cutoff);
+        registry.setOccurrenceCaptureHookForTest(nullptr);
+        g_OccurrenceCaptureRetirement = nullptr;
+
+        const bool retained = registry.tombstoneCountForTest(Line) == 1;
+        alignas(InterruptState) uint8_t stateStorage[sizeof(InterruptState)] =
+            {};
+        InterruptState &state =
+            *reinterpret_cast<InterruptState *>(stateStorage);
+        bool handled = false;
+        const bool admitted = captured && registry.dispatchHard(
+                                              Line, state, handled, nullptr,
+                                              0x5200 + i, cutoff);
+        const bool reclaimed = registry.tombstoneCountForTest(Line) == 0;
+        const bool replacementRegistered =
+            registry.registerHardHandler(Line, &replacement);
+        const bool replacementRemoved =
+            replacementRegistered &&
+            registry.unregisterHandler(Line, &replacement) ==
+                IrqHandlerRegistry::UnregisterResult::Completed;
+        const bool retirementPrecededSample = i < 2;
+
+        passed &= check(
+            registered && captured && context.hookCalls == 1 &&
+                context.observedStage == stages[i] && context.removed &&
+                retained && admitted == !retirementPrecededSample &&
+                handled == !retirementPrecededSample && handler.calls == 0 &&
+                reclaimed && replacementRegistered && replacementRemoved,
+            "a dual-bank retirement stage violated occurrence membership or "
+            "slot lifetime",
+            Test);
+    }
+
+    {
+        constexpr uint8_t MixedLine = 13;
+        IrqHandlerRegistry registry;
+        CountingHardRegistryHandler handler;
+        CountingHardRegistryHandler replacement;
+        OccurrenceCaptureRetirementContext context = {
+            &registry, &handler, MixedLine, Stage::EpochSampled,
+            Stage::EpochSampled, 0, 0, false};
+        const bool registered =
+            registry.registerHardHandler(MixedLine, &handler);
+        g_OccurrenceCaptureRetirement = &context;
+        registry.setOccurrenceCaptureHookForTest(
+            retireAtOccurrenceCaptureStage);
+        IrqHandlerRegistry::MixedAdmissionCutoffs cutoffs = {};
+        const bool captured =
+            registry.captureMixedAdmissionCutoffs(MixedLine, cutoffs);
+        registry.setOccurrenceCaptureHookForTest(nullptr);
+        g_OccurrenceCaptureRetirement = nullptr;
+
+        const bool retained = registry.tombstoneCountForTest(MixedLine) == 1;
+        registry.releaseAdmissionCutoff(cutoffs.hard);
+        const bool retainedAfterFirstRelease =
+            registry.tombstoneCountForTest(MixedLine) == 1;
+        registry.releaseAdmissionCutoff(cutoffs.threaded);
+        const bool reclaimed =
+            registry.tombstoneCountForTest(MixedLine) == 0;
+        const bool replacementRegistered =
+            registry.registerHardHandler(MixedLine, &replacement);
+        const bool replacementRemoved =
+            replacementRegistered &&
+            registry.unregisterHandler(MixedLine, &replacement) ==
+                IrqHandlerRegistry::UnregisterResult::Completed;
+
+        passed &= check(
+            registered && captured && context.hookCalls == 1 &&
+                context.removed && retained && retainedAfterFirstRelease &&
+                reclaimed && replacementRegistered && replacementRemoved &&
+                handler.calls == 0,
+            "mixed occurrence capture did not retain both selected-bank "
+            "leases independently",
+            Test);
+    }
+
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-occurrence-wait-free-boundary");
     }
     return passed;
 }
@@ -2822,6 +2973,43 @@ bool staleGenerationRevalidation()
     return passed;
 }
 
+class AbandonmentProbeThread : public Thread
+{
+  public:
+    using Thread::Thread;
+    using Thread::armAtomicStateCleanup;
+    using Thread::disarmAtomicStateCleanup;
+};
+
+struct AbandonedSignalFrameProbe
+{
+    AbandonedSignalFrameProbe(
+        Thread *owner, Atomic<size_t> &calls, Atomic<size_t> &failures)
+        : thread(owner), cleanupCalls(&calls), stateFailures(&failures),
+          baselineDepth(Processor::hostedSignalFrameDepthForTest()), cleanup()
+    {
+    }
+
+    Thread *thread;
+    Atomic<size_t> *cleanupCalls;
+    Atomic<size_t> *stateFailures;
+    size_t baselineDepth;
+    AtomicStateCleanupRecord cleanup;
+};
+
+void observeAbandonedSignalFrameCleanup(void *parameter)
+{
+    AbandonedSignalFrameProbe *probe =
+        reinterpret_cast<AbandonedSignalFrameProbe *>(parameter);
+    *probe->cleanupCalls += 1;
+    if (Processor::information().getCurrentThread() != probe->thread ||
+        probe->thread->getHostedSignalDepth() ||
+        Processor::hostedSignalFrameDepthForTest() != probe->baselineDepth)
+    {
+        *probe->stateFailures += 1;
+    }
+}
+
 struct AbandonedDispatchContext;
 AbandonedDispatchContext *g_AbandonedDispatchContext = nullptr;
 
@@ -2850,15 +3038,17 @@ struct AbandonedDispatchContext
 {
     explicit AbandonedDispatchContext(AbandonedDispatchStage stage)
         : handler(*this), worker(nullptr), stage(stage), hazardCalls(0),
-          cleanupCalls(0), entered(0), returned(0), stateFailures(0)
+          cleanupCalls(0), signalCleanupCalls(0), entered(0), returned(0),
+          stateFailures(0)
     {
     }
 
     AbandoningIrqHandler handler;
-    Thread *worker;
+    AbandonmentProbeThread *worker;
     AbandonedDispatchStage stage;
     Atomic<size_t> hazardCalls;
     Atomic<size_t> cleanupCalls;
+    Atomic<size_t> signalCleanupCalls;
     Atomic<size_t> entered;
     Atomic<size_t> returned;
     Atomic<size_t> stateFailures;
@@ -2886,7 +3076,18 @@ int abandonIrqDispatch(void *parameter)
 {
     AbandonedDispatchContext *context =
         reinterpret_cast<AbandonedDispatchContext *>(parameter);
-    raise(SIGUSR2);
+    AbandonedSignalFrameProbe signalProbe(
+        context->worker, context->signalCleanupCalls, context->stateFailures);
+    // This older cleanup runs after the signal-frame cleanup when the signal
+    // abandons the worker stack, so it can verify the worker's exact baseline.
+    context->worker->armAtomicStateCleanup(
+        signalProbe.cleanup, observeAbandonedSignalFrameCleanup, &signalProbe);
+    const int raised = raise(HardContextTestSignal);
+    context->worker->disarmAtomicStateCleanup(signalProbe.cleanup);
+    if (raised)
+    {
+        context->stateFailures += 1;
+    }
     context->returned += 1;
     return 1;
 }
@@ -2959,13 +3160,14 @@ bool abandonedDispatchStage(
     context->stage = stage;
     context->hazardCalls = 0;
     context->cleanupCalls = 0;
+    context->signalCleanupCalls = 0;
     context->entered = 0;
     context->returned = 0;
     context->stateFailures = 0;
     const irq_id_t id = manager->registerHardIsaIrqHandler(
-        1, &context->handler, IrqPolicy::syntheticHard());
+        HardContextTestIrq, &context->handler, IrqPolicy::syntheticHard());
 
-    context->worker = new Thread(
+    context->worker = new AbandonmentProbeThread(
         Scheduler::instance().getKernelProcess(), abandonIrqDispatch, context,
         nullptr, false, true, true);
     context->worker->setName("hosted abandoned IRQ publication");
@@ -2984,14 +3186,11 @@ bool abandonedDispatchStage(
 
     const size_t active =
         HostedIrqManager::activeDispatchCountForTest(&context->handler);
-    // IRQ 1 is shared with the scheduler timer, whose suspended dispatch is
-    // unrelated to whether this worker abandoned one of its own claims.
     const size_t claimed =
         HostedIrqManager::claimedDispatchCountForOwnerForTest(context->worker);
     const bool stateRestored = !context->stateFailures &&
                                !Processor::inDeviceHardIrq() &&
                                Processor::deviceHardIrqDepthForTest() == 0 &&
-                               !Processor::hostedSignalFrameDepthForTest() &&
                                Processor::getInterrupts();
     const bool cleaned =
         id && manager->unregisterHandler(id, &context->handler);
@@ -2999,6 +3198,7 @@ bool abandonedDispatchStage(
     const bool passed = id && started && joined && !context->returned &&
                         context->hazardCalls == expectedHazardCalls &&
                         context->cleanupCalls == 1 &&
+                        context->signalCleanupCalls == 1 &&
                         context->entered == expectedCallbackCalls && !active &&
                         !claimed && cleaned && stateRestored;
     return passed;
@@ -3038,15 +3238,16 @@ struct NestedAbandonedDepthContext
 {
     NestedAbandonedDepthContext()
         : inner(*this), outer(*this), worker(nullptr), outerEntered(0),
-          innerEntered(0), returned(0), failures(0)
+          innerEntered(0), signalCleanupCalls(0), returned(0), failures(0)
     {
     }
 
     NestedAbandoningInner inner;
     NestedAbandoningOuter outer;
-    Thread *worker;
+    AbandonmentProbeThread *worker;
     Atomic<size_t> outerEntered;
     Atomic<size_t> innerEntered;
+    Atomic<size_t> signalCleanupCalls;
     Atomic<size_t> returned;
     Atomic<size_t> failures;
 };
@@ -3083,7 +3284,8 @@ bool NestedAbandoningOuter::irq(irq_id_t, InterruptState &)
     }
 
     bool handled = false;
-    HostedIrqManager::dispatchHandlerForTest(1, &m_Context.inner, handled);
+    HostedIrqManager::dispatchHandlerForTest(
+        HardContextTestIrq, &m_Context.inner, handled);
     m_Context.returned += 1;
     return true;
 }
@@ -3092,7 +3294,16 @@ int abandonNestedIrqDispatch(void *parameter)
 {
     NestedAbandonedDepthContext *context =
         reinterpret_cast<NestedAbandonedDepthContext *>(parameter);
-    raise(SIGUSR2);
+    AbandonedSignalFrameProbe signalProbe(
+        context->worker, context->signalCleanupCalls, context->failures);
+    context->worker->armAtomicStateCleanup(
+        signalProbe.cleanup, observeAbandonedSignalFrameCleanup, &signalProbe);
+    const int raised = raise(HardContextTestSignal);
+    context->worker->disarmAtomicStateCleanup(signalProbe.cleanup);
+    if (raised)
+    {
+        context->failures += 1;
+    }
     context->returned += 1;
     return 1;
 }
@@ -3103,14 +3314,15 @@ bool abandonedNestedDispatchDepthCleanup()
     static NestedAbandonedDepthContext context;
     context.outerEntered = 0;
     context.innerEntered = 0;
+    context.signalCleanupCalls = 0;
     context.returned = 0;
     context.failures = 0;
 
     const irq_id_t outerId = manager->registerHardIsaIrqHandler(
-        1, &context.outer, IrqPolicy::syntheticHard());
+        HardContextTestIrq, &context.outer, IrqPolicy::syntheticHard());
     const irq_id_t innerId = manager->registerHardIsaIrqHandler(
-        1, &context.inner, IrqPolicy::syntheticHard());
-    context.worker = new Thread(
+        HardContextTestIrq, &context.inner, IrqPolicy::syntheticHard());
+    context.worker = new AbandonmentProbeThread(
         Scheduler::instance().getKernelProcess(), abandonNestedIrqDispatch,
         &context, nullptr, false, true, true);
     context.worker->setName("hosted nested abandoned IRQ callback");
@@ -3129,11 +3341,11 @@ bool abandonedNestedDispatchDepthCleanup()
         innerId && manager->unregisterHandler(innerId, &context.inner);
 
     return started && joined && context.outerEntered == 1 &&
-           context.innerEntered == 1 && !context.returned &&
-           !context.failures && !outerActive && !innerActive && !claimed &&
-           outerCleaned && innerCleaned && !Processor::inDeviceHardIrq() &&
+           context.innerEntered == 1 && context.signalCleanupCalls == 1 &&
+           !context.returned && !context.failures && !outerActive &&
+           !innerActive && !claimed && outerCleaned && innerCleaned &&
+           !Processor::inDeviceHardIrq() &&
            Processor::deviceHardIrqDepthForTest() == 0 &&
-           !Processor::hostedSignalFrameDepthForTest() &&
            Processor::getInterrupts();
 }
 
@@ -3535,6 +3747,7 @@ bool runHostedIrqRegressions()
     passed &= deliveryModeSeparation();
     passed &= mixedDeliveryOccurrenceBinding();
     passed &= threadedOccurrenceLifetimeBinding();
+    passed &= waitFreeOccurrenceCapturePreservesBoundary();
     passed &= occurrenceGraceTombstones();
     passed &= abandonedOccurrenceLeaseCleanup();
     passed &= retirementBoundaryExcludesNewOccurrences();

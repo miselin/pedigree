@@ -89,8 +89,9 @@ IrqWorkerWaitReason workerWaitReason(WaitQueue::WakeReason reason)
 
 ThreadedIrqDispatcher::Line::Line()
     : m_Owner(nullptr), m_Callback(nullptr), m_CallbackContext(nullptr),
-      m_Thread(nullptr), m_Scheduler(nullptr), m_Line(0), m_PendingCookie(0),
-      m_ActiveCookie(0), m_CallbackActive(0),
+      m_Thread(nullptr), m_Scheduler(nullptr), m_Line(0),
+      m_PendingCookies(nullptr), m_PendingCookieCount(0), m_ActiveCookie(0),
+      m_CallbackActive(0),
       m_PublicationState(PublicationClosed), m_Started(0),
       m_CompletedBatches(0), m_CompletedCookie(0), m_PendingSinceTimestamp(0),
       m_ActiveCallbackStartedTimestamp(0), m_LastWakeLatency(0),
@@ -102,7 +103,7 @@ ThreadedIrqDispatcher::Line::Line()
 ThreadedIrqDispatcher::Line::~Line()
 {
     if (__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE) ||
-        __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE))
+        __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE) || m_PendingCookies)
     {
         FATAL("A threaded IRQ worker was destroyed while active.");
     }
@@ -122,13 +123,33 @@ bool ThreadedIrqDispatcher::Line::start()
 {
 #if THREADS
     if (__atomic_load_n(&m_Started, __ATOMIC_ACQUIRE) ||
-        __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE) || !m_Owner || !m_Callback)
+        __atomic_load_n(&m_Thread, __ATOMIC_ACQUIRE) || m_PendingCookies ||
+        !m_Owner || !m_Callback)
     {
         return false;
     }
 
-    __atomic_store_n(
-        &m_PendingCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    size_t pendingCookieCount = Processor::getCount();
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    const size_t testPendingCookieCount = __atomic_load_n(
+        &m_Owner->m_PendingSlotCountForTest, __ATOMIC_ACQUIRE);
+    if (testPendingCookieCount)
+    {
+        pendingCookieCount = testPendingCookieCount;
+    }
+#endif
+    if (!pendingCookieCount)
+    {
+        return false;
+    }
+    size_t *pendingCookies = new size_t[pendingCookieCount];
+    for (size_t i = 0; i < pendingCookieCount; ++i)
+    {
+        __atomic_store_n(
+            &pendingCookies[i], static_cast<size_t>(0), __ATOMIC_RELAXED);
+    }
+    m_PendingCookies = pendingCookies;
+    m_PendingCookieCount = pendingCookieCount;
     __atomic_store_n(&m_ActiveCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(
         &m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
@@ -209,8 +230,9 @@ bool ThreadedIrqDispatcher::Line::join()
     __atomic_store_n(
         &m_Thread, static_cast<Thread *>(nullptr), __ATOMIC_RELEASE);
     __atomic_store_n(&m_Started, static_cast<size_t>(0), __ATOMIC_RELEASE);
-    __atomic_store_n(
-        &m_PendingCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
+    delete[] m_PendingCookies;
+    m_PendingCookies = nullptr;
+    m_PendingCookieCount = 0;
     __atomic_store_n(&m_ActiveCookie, static_cast<size_t>(0), __ATOMIC_RELEASE);
     __atomic_store_n(
         &m_CallbackActive, static_cast<size_t>(0), __ATOMIC_RELEASE);
@@ -233,44 +255,46 @@ bool ThreadedIrqDispatcher::Line::publishFromInterrupt(size_t cookie)
         return false;
     }
 
-    size_t pending = __atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE);
+    size_t processor = Processor::index();
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    bool firstAttempt = true;
-#endif
-    while (!pending || generationReached(cookie, pending))
+    const size_t processorSlot = __atomic_load_n(
+        &m_Owner->m_PublicationSlotForTest, __ATOMIC_ACQUIRE);
+    if (processorSlot != static_cast<size_t>(-1))
     {
-        if (!pending)
-        {
-            // Publish the diagnostic timestamp before the release sequence
-            // which makes this batch visible to the worker.
-            __atomic_store_n(
-                &m_PendingSinceTimestamp, static_cast<size_t>(Time::getTicks()),
-                __ATOMIC_RELEASE);
-        }
+        processor = processorSlot;
+    }
+#endif
+    if (!m_PendingCookies || processor >= m_PendingCookieCount)
+    {
+        __atomic_fetch_sub(
+            &m_PublicationState, static_cast<size_t>(1), __ATOMIC_RELEASE);
+        // Processor topology is fixed before dispatcher initialisation. A
+        // failure here is therefore a lifecycle/configuration rejection, not
+        // a contention fallback which can lose an admitted edge.
+        return false;
+    }
+
+    // Maskable hard interrupts cannot run concurrently on one processor.
+    // Per-processor slots make publication one wait-free exchange. A nested
+    // publication happens after this store and may replace it with a later
+    // generation; the outer publisher never writes again when it resumes.
+    const size_t pending = __atomic_exchange_n(
+        &m_PendingCookies[processor], cookie, __ATOMIC_ACQ_REL);
+    if (!pending)
+    {
+        __atomic_store_n(
+            &m_PendingSinceTimestamp, static_cast<size_t>(Time::getTicks()),
+            __ATOMIC_RELEASE);
+    }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-        if (firstAttempt)
-        {
-            PublicationObservedHook hook = __atomic_load_n(
-                &m_Owner->m_PublicationObservedHook, __ATOMIC_ACQUIRE);
-            if (hook)
-            {
-                hook(m_Owner, m_Line, cookie, pending);
-            }
-        }
-        firstAttempt = false;
-#endif
-
-        // A signal can nest another producer after the load above. Only
-        // replace the exact value observed, so an older outer publication
-        // cannot overwrite the newer nested cookie.
-        if (__atomic_compare_exchange_n(
-                &m_PendingCookie, &pending, cookie, false, __ATOMIC_RELEASE,
-                __ATOMIC_ACQUIRE))
-        {
-            break;
-        }
+    PublicationObservedHook hook = __atomic_load_n(
+        &m_Owner->m_PublicationObservedHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(m_Owner, m_Line, cookie, pending);
     }
+#endif
 
     // The worker is pinned to this scheduler. Remote delivery can still
     // require a reschedule IPI for immediate service, but it must never ring
@@ -294,7 +318,46 @@ bool ThreadedIrqDispatcher::Line::isWorker(const Thread *thread) const
 
 size_t ThreadedIrqDispatcher::Line::pendingCookie() const
 {
-    return __atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE);
+    // External diagnostics can race orderly dispatcher shutdown. Share the
+    // publisher admission word so join cannot release the slot array while a
+    // detached scan is in progress.
+    const size_t admission = __atomic_fetch_add(
+        &m_PublicationState, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+    if (admission & PublicationClosed)
+    {
+        __atomic_fetch_sub(
+            &m_PublicationState, static_cast<size_t>(1), __ATOMIC_RELEASE);
+        return 0;
+    }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    PendingScanAdmittedHook hook = __atomic_load_n(
+        &m_Owner->m_PendingScanAdmittedHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(m_Owner, m_Line);
+    }
+#endif
+
+    const size_t pending = pendingCookieForWorker();
+    __atomic_fetch_sub(
+        &m_PublicationState, static_cast<size_t>(1), __ATOMIC_RELEASE);
+    return pending;
+}
+
+size_t ThreadedIrqDispatcher::Line::pendingCookieForWorker() const
+{
+    size_t newest = 0;
+    for (size_t i = 0; i < m_PendingCookieCount; ++i)
+    {
+        const size_t candidate =
+            __atomic_load_n(&m_PendingCookies[i], __ATOMIC_ACQUIRE);
+        if (candidate && (!newest || generationReached(candidate, newest)))
+        {
+            newest = candidate;
+        }
+    }
+    return newest;
 }
 
 size_t ThreadedIrqDispatcher::Line::activeCookie() const
@@ -404,7 +467,7 @@ int ThreadedIrqDispatcher::Line::workerEntry(void *context)
 bool ThreadedIrqDispatcher::Line::workerReady(void *context)
 {
     Line *line = reinterpret_cast<Line *>(context);
-    return __atomic_load_n(&line->m_PendingCookie, __ATOMIC_ACQUIRE) ||
+    return line->hasPendingForWorker() ||
            __atomic_load_n(&line->m_CallbackActive, __ATOMIC_ACQUIRE) ||
            (__atomic_load_n(&line->m_PublicationState, __ATOMIC_ACQUIRE) &
             PublicationClosed);
@@ -424,8 +487,7 @@ int ThreadedIrqDispatcher::Line::run()
             &m_CallbackActive, static_cast<size_t>(1), __ATOMIC_RELEASE);
         const size_t pendingSince =
             __atomic_load_n(&m_PendingSinceTimestamp, __ATOMIC_ACQUIRE);
-        const size_t cookie = __atomic_exchange_n(
-            &m_PendingCookie, static_cast<size_t>(0), __ATOMIC_ACQ_REL);
+        const size_t cookie = takePendingCookie();
         if (cookie)
         {
             const size_t completedCookie = __atomic_load_n(
@@ -434,11 +496,10 @@ int ThreadedIrqDispatcher::Line::run()
                 completedCookie &&
                 !generationReached(cookie, completedCookie))
             {
-                // An older producer can resume after a newer cookie was
-                // claimed and cleared, then win the resulting zero-valued
-                // CAS. The sole worker completes the newer callback before
-                // revisiting pending work, so its delivered high-water closes
-                // that ABA without suppressing equal-cookie work bits.
+                // A cross-CPU scan can claim an older slot after another
+                // batch has already completed. The delivered high-water
+                // suppresses that stale generation without suppressing
+                // equal-cookie work-bit publications.
                 __atomic_store_n(
                     &m_CallbackActive, static_cast<size_t>(0),
                     __ATOMIC_RELEASE);
@@ -490,7 +551,7 @@ int ThreadedIrqDispatcher::Line::run()
             // An admitted publisher stores its cookie before dropping the
             // final count. Recheck after observing zero so close cannot race
             // the worker past an already-accepted occurrence.
-            if (!__atomic_load_n(&m_PendingCookie, __ATOMIC_ACQUIRE))
+            if (!hasPendingForWorker())
             {
                 break;
             }
@@ -503,9 +564,31 @@ int ThreadedIrqDispatcher::Line::run()
     return 0;
 }
 
+bool ThreadedIrqDispatcher::Line::hasPendingForWorker() const
+{
+    return pendingCookieForWorker() != 0;
+}
+
+size_t ThreadedIrqDispatcher::Line::takePendingCookie()
+{
+    size_t newest = 0;
+    for (size_t i = 0; i < m_PendingCookieCount; ++i)
+    {
+        const size_t candidate = __atomic_exchange_n(
+            &m_PendingCookies[i], static_cast<size_t>(0), __ATOMIC_ACQ_REL);
+        if (candidate && (!newest || generationReached(candidate, newest)))
+        {
+            newest = candidate;
+        }
+    }
+    return newest;
+}
+
 bool ThreadedIrqDispatcher::Line::generationReached(
     size_t current, size_t target)
 {
+    // Cookies advance monotonically and no live publication can span half of
+    // the size_t range, so signed modular distance preserves wrap ordering.
     return static_cast<intptr_t>(current - target) >= 0;
 }
 
@@ -516,7 +599,9 @@ ThreadedIrqDispatcher::ThreadedIrqDispatcher(
       m_CallbackContext(callbackContext), m_Initialised(false)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
-      m_PublicationObservedHook(nullptr)
+      m_PublicationObservedHook(nullptr), m_PendingScanAdmittedHook(nullptr),
+      m_PendingSlotCountForTest(0),
+      m_PublicationSlotForTest(static_cast<size_t>(-1))
 #endif
 {
     if (m_LineCount > MaxLines)
@@ -530,6 +615,45 @@ void ThreadedIrqDispatcher::setPublicationObservedHookForTest(
     PublicationObservedHook hook)
 {
     __atomic_store_n(&m_PublicationObservedHook, hook, __ATOMIC_RELEASE);
+}
+
+bool ThreadedIrqDispatcher::setPendingSlotCountForTest(size_t slotCount)
+{
+    if (isInitialised() || !slotCount)
+    {
+        return false;
+    }
+
+    __atomic_store_n(
+        &m_PendingSlotCountForTest, slotCount, __ATOMIC_RELEASE);
+    return true;
+}
+
+bool ThreadedIrqDispatcher::publishFromSlotForTest(
+    uint8_t line, size_t slot, size_t cookie)
+{
+    if (!isInitialised() || line >= m_LineCount)
+    {
+        return false;
+    }
+
+    size_t expected = static_cast<size_t>(-1);
+    if (!__atomic_compare_exchange_n(
+            &m_PublicationSlotForTest, &expected, slot, false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    {
+        return false;
+    }
+    const bool published = m_Lines[line].publishFromInterrupt(cookie);
+    __atomic_store_n(
+        &m_PublicationSlotForTest, static_cast<size_t>(-1), __ATOMIC_RELEASE);
+    return published;
+}
+
+void ThreadedIrqDispatcher::setPendingScanAdmittedHookForTest(
+    PendingScanAdmittedHook hook)
+{
+    __atomic_store_n(&m_PendingScanAdmittedHook, hook, __ATOMIC_RELEASE);
 }
 #endif
 

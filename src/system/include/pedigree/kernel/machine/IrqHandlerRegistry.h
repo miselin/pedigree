@@ -247,16 +247,27 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         QuiescedObserved,
     };
 
+    enum class OccurrenceCaptureStage
+    {
+        BankZeroClaimed,
+        BankOneClaimed,
+        EpochSampled,
+        UnusedBankReleased,
+    };
+
     using HandlerPinHook = void (*)(IrqHandlerBase *);
     using HandlerPrePinHook = void (*)(IrqHandlerBase *);
     using HandlerHazardHook = void (*)(IrqHandlerBase *, HandlerHazardStage);
     using DispatchAbandonHook = void (*)(void *, bool);
     using MutationLockHook = void (*)();
+    using OccurrenceCaptureHook = void (*)(
+        IrqHandlerRegistry *, uint8_t, OccurrenceCaptureStage, size_t);
 
     void setHandlerPinHook(HandlerPinHook hook);
     void setHandlerPrePinHook(HandlerPrePinHook hook);
     void setHandlerHazardHook(HandlerHazardHook hook);
     void setDispatchAbandonHook(DispatchAbandonHook hook);
+    void setOccurrenceCaptureHookForTest(OccurrenceCaptureHook hook);
     void withMutationLockForTest(MutationLockHook hook);
     void withMutationEpochForTest(MutationLockHook hook);
     size_t activeDispatchCountForTest(IrqHandlerBase *handler);
@@ -532,10 +543,13 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     size_t m_MutationWriters;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    void observeOccurrenceCaptureForTest(
+        uint8_t irq, OccurrenceCaptureStage stage, size_t occurrenceEpoch);
     HandlerPinHook m_HandlerPinHook;
     HandlerPrePinHook m_HandlerPrePinHook;
     HandlerHazardHook m_HandlerHazardHook;
     DispatchAbandonHook m_DispatchAbandonHook;
+    OccurrenceCaptureHook m_OccurrenceCaptureHook;
 #endif
 };
 

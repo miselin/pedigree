@@ -610,6 +610,11 @@ ProcessorId ProcessorBase::id()
     return 0;
 }
 
+size_t ProcessorBase::index()
+{
+    return 0;
+}
+
 ProcessorInformation &ProcessorBase::information()
 {
     return m_SafeBspProcessorInformation;

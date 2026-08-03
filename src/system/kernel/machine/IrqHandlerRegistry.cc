@@ -36,7 +36,8 @@ IrqHandlerRegistry::IrqHandlerRegistry()
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
       m_HandlerPinHook(nullptr), m_HandlerPrePinHook(nullptr),
-      m_HandlerHazardHook(nullptr), m_DispatchAbandonHook(nullptr)
+      m_HandlerHazardHook(nullptr), m_DispatchAbandonHook(nullptr),
+      m_OccurrenceCaptureHook(nullptr)
 #endif
 {
 }
@@ -1545,29 +1546,47 @@ bool IrqHandlerRegistry::captureAdmissionCutoff(
 {
     cutoff = {};
     const size_t graceBucket = irq % GraceBucketCount;
-    while (true)
+    if (!acquireOccurrenceReaderLeases(irq, 0, 1))
     {
-        const size_t occurrenceEpoch =
-            __atomic_load_n(
-                &m_OccurrenceEpochs[graceBucket], __ATOMIC_SEQ_CST);
-        const size_t readerBank = occurrenceEpoch & 1;
-        if (!acquireOccurrenceReaderLeases(irq, readerBank, 1))
-        {
-            return false;
-        }
-        if (__atomic_load_n(
-                &m_OccurrenceEpochs[graceBucket], __ATOMIC_SEQ_CST) ==
-            occurrenceEpoch)
-        {
-            const size_t admissionEpoch =
-                __atomic_load_n(&m_AdmissionEpoch, __ATOMIC_ACQUIRE);
-            cutoff = {
-                admissionEpoch, occurrenceEpoch,
-                (static_cast<size_t>(irq) * 2) + readerBank + 1};
-            return true;
-        }
-        releaseOccurrenceReaderLeases(irq, readerBank, 1);
+        return false;
     }
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    observeOccurrenceCaptureForTest(
+        irq, OccurrenceCaptureStage::BankZeroClaimed, 0);
+#endif
+    if (!acquireOccurrenceReaderLeases(irq, 1, 1))
+    {
+        releaseOccurrenceReaderLeases(irq, 0, 1);
+        return false;
+    }
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    observeOccurrenceCaptureForTest(
+        irq, OccurrenceCaptureStage::BankOneClaimed, 0);
+#endif
+
+    // Claiming both banks before sampling makes the cutoff wait-free. If a
+    // retirement publishes first, this load observes its new epoch. If this
+    // load observes the old epoch, one of the already-visible leases keeps
+    // that retired publication's tombstone alive. The unused bank can then be
+    // released without retrying around the boundary.
+    const size_t occurrenceEpoch = __atomic_load_n(
+        &m_OccurrenceEpochs[graceBucket], __ATOMIC_SEQ_CST);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    observeOccurrenceCaptureForTest(
+        irq, OccurrenceCaptureStage::EpochSampled, occurrenceEpoch);
+#endif
+    const size_t readerBank = occurrenceEpoch & 1;
+    releaseOccurrenceReaderLeases(irq, readerBank ^ 1, 1);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    observeOccurrenceCaptureForTest(
+        irq, OccurrenceCaptureStage::UnusedBankReleased, occurrenceEpoch);
+#endif
+    const size_t admissionEpoch =
+        __atomic_load_n(&m_AdmissionEpoch, __ATOMIC_ACQUIRE);
+    cutoff = {
+        admissionEpoch, occurrenceEpoch,
+        (static_cast<size_t>(irq) * 2) + readerBank + 1};
+    return true;
 }
 
 bool IrqHandlerRegistry::captureMixedAdmissionCutoffs(
@@ -1575,29 +1594,43 @@ bool IrqHandlerRegistry::captureMixedAdmissionCutoffs(
 {
     cutoffs = {};
     const size_t graceBucket = irq % GraceBucketCount;
-    while (true)
+    if (!acquireOccurrenceReaderLeases(irq, 0, 2))
     {
-        const size_t occurrenceEpoch = __atomic_load_n(
-            &m_OccurrenceEpochs[graceBucket], __ATOMIC_SEQ_CST);
-        const size_t readerBank = occurrenceEpoch & 1;
-        if (!acquireOccurrenceReaderLeases(irq, readerBank, 2))
-        {
-            return false;
-        }
-        if (__atomic_load_n(
-                &m_OccurrenceEpochs[graceBucket], __ATOMIC_SEQ_CST) ==
-            occurrenceEpoch)
-        {
-            const size_t admissionEpoch =
-                __atomic_load_n(&m_AdmissionEpoch, __ATOMIC_ACQUIRE);
-            const AdmissionCutoff cutoff = {
-                admissionEpoch, occurrenceEpoch,
-                (static_cast<size_t>(irq) * 2) + readerBank + 1};
-            cutoffs = {cutoff, cutoff};
-            return true;
-        }
-        releaseOccurrenceReaderLeases(irq, readerBank, 2);
+        return false;
     }
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    observeOccurrenceCaptureForTest(
+        irq, OccurrenceCaptureStage::BankZeroClaimed, 0);
+#endif
+    if (!acquireOccurrenceReaderLeases(irq, 1, 2))
+    {
+        releaseOccurrenceReaderLeases(irq, 0, 2);
+        return false;
+    }
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    observeOccurrenceCaptureForTest(
+        irq, OccurrenceCaptureStage::BankOneClaimed, 0);
+#endif
+
+    const size_t occurrenceEpoch = __atomic_load_n(
+        &m_OccurrenceEpochs[graceBucket], __ATOMIC_SEQ_CST);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    observeOccurrenceCaptureForTest(
+        irq, OccurrenceCaptureStage::EpochSampled, occurrenceEpoch);
+#endif
+    const size_t readerBank = occurrenceEpoch & 1;
+    releaseOccurrenceReaderLeases(irq, readerBank ^ 1, 2);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    observeOccurrenceCaptureForTest(
+        irq, OccurrenceCaptureStage::UnusedBankReleased, occurrenceEpoch);
+#endif
+    const size_t admissionEpoch =
+        __atomic_load_n(&m_AdmissionEpoch, __ATOMIC_ACQUIRE);
+    const AdmissionCutoff cutoff = {
+        admissionEpoch, occurrenceEpoch,
+        (static_cast<size_t>(irq) * 2) + readerBank + 1};
+    cutoffs = {cutoff, cutoff};
+    return true;
 }
 
 bool IrqHandlerRegistry::acquireOccurrenceReaderLeases(
@@ -1610,23 +1643,18 @@ bool IrqHandlerRegistry::acquireOccurrenceReaderLeases(
     }
 
     const size_t graceBucket = irq % GraceBucketCount;
-    size_t current = __atomic_load_n(
-        &m_OccurrenceReaders[graceBucket][readerBank], __ATOMIC_SEQ_CST);
-    while (true)
+    const size_t previous = __atomic_fetch_add(
+        &m_OccurrenceReaders[graceBucket][readerBank], count,
+        __ATOMIC_SEQ_CST);
+    if (previous > ~static_cast<size_t>(0) - count)
     {
-        if (current > ~static_cast<size_t>(0) - count)
-        {
-            FATAL_NOLOCK("IRQ occurrence reader count overflowed.");
-            return false;
-        }
-        const size_t desired = current + count;
-        if (__atomic_compare_exchange_n(
-                &m_OccurrenceReaders[graceBucket][readerBank], &current,
-                desired, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
-        {
-            return true;
-        }
+        __atomic_fetch_sub(
+            &m_OccurrenceReaders[graceBucket][readerBank], count,
+            __ATOMIC_SEQ_CST);
+        FATAL_NOLOCK("IRQ occurrence reader count overflowed.");
+        return false;
     }
+    return true;
 }
 
 void IrqHandlerRegistry::releaseOccurrenceReaderLeases(
@@ -1639,25 +1667,19 @@ void IrqHandlerRegistry::releaseOccurrenceReaderLeases(
     }
 
     const size_t graceBucket = irq % GraceBucketCount;
-    size_t current = __atomic_load_n(
-        &m_OccurrenceReaders[graceBucket][readerBank], __ATOMIC_SEQ_CST);
-    size_t remaining = 0;
-    while (true)
+    const size_t previous = __atomic_fetch_sub(
+        &m_OccurrenceReaders[graceBucket][readerBank], count,
+        __ATOMIC_SEQ_CST);
+    if (previous < count)
     {
-        if (current < count)
-        {
-            FATAL_NOLOCK("IRQ occurrence reader count underflowed.");
-            return;
-        }
-        remaining = current - count;
-        if (__atomic_compare_exchange_n(
-                &m_OccurrenceReaders[graceBucket][readerBank], &current,
-                remaining, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
-        {
-            break;
-        }
+        __atomic_fetch_add(
+            &m_OccurrenceReaders[graceBucket][readerBank], count,
+            __ATOMIC_SEQ_CST);
+        FATAL_NOLOCK("IRQ occurrence reader count underflowed.");
+        return;
     }
 
+    const size_t remaining = previous - count;
     if (!remaining)
     {
         tryReclaimTombstones(irq);
@@ -2795,6 +2817,23 @@ void IrqHandlerRegistry::setHandlerHazardHook(HandlerHazardHook hook)
 void IrqHandlerRegistry::setDispatchAbandonHook(DispatchAbandonHook hook)
 {
     __atomic_store_n(&m_DispatchAbandonHook, hook, __ATOMIC_RELEASE);
+}
+
+void IrqHandlerRegistry::setOccurrenceCaptureHookForTest(
+    OccurrenceCaptureHook hook)
+{
+    __atomic_store_n(&m_OccurrenceCaptureHook, hook, __ATOMIC_RELEASE);
+}
+
+void IrqHandlerRegistry::observeOccurrenceCaptureForTest(
+    uint8_t irq, OccurrenceCaptureStage stage, size_t occurrenceEpoch)
+{
+    OccurrenceCaptureHook hook = __atomic_load_n(
+        &m_OccurrenceCaptureHook, __ATOMIC_ACQUIRE);
+    if (hook)
+    {
+        hook(this, irq, stage, occurrenceEpoch);
+    }
 }
 
 void IrqHandlerRegistry::withMutationLockForTest(MutationLockHook hook)
