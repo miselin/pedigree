@@ -1145,6 +1145,55 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    local threaded_action_publish_bodies
+    threaded_action_publish_bodies=$(sed -n \
+        -e '/IrqHandlerRegistry::publishSlotQuiescedValue(/,/IrqHandlerRegistry::invalidateThreadedLine(/p' \
+        -e '/bool IrqHandlerRegistry::publishThreadedDispatch(/,/bool IrqHandlerRegistry::dispatchThreaded(/p' \
+        "$irq_registry_source")
+    local hard_threaded_invalidation_body
+    hard_threaded_invalidation_body=$(sed -n \
+        '/IrqHandlerRegistry::invalidateThreadedGenerationFromInterrupt(/,/IrqHandlerRegistry::invalidateThreadedLine(/p' \
+        "$irq_registry_source")
+    if ! rg -q 'quiescedThreadedGenerations\[QuiescedLaneCount\]' \
+            "$irq_registry_header" ||
+        ! rg -q -U \
+            '(?s)publishSlotQuiescedValue\(.*?published.*?generationReached\(published, dispatchGeneration\).*?return;.*?__atomic_exchange_n\([[:space:]]*publicationLane, dispatchGeneration' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)BeforePendingExchange.*?pending.*?generationReached\(pending, dispatchGeneration\).*?__atomic_exchange_n\([[:space:]]*&slot\.pendingThreadedGeneration, dispatchGeneration' \
+            "$irq_registry_source" ||
+        ! rg -q -U \
+            '(?s)invalidateThreadedGenerationFromInterrupt\(.*?invalidThrough.*?generationReached\(invalidThrough, throughGeneration\).*?return;.*?__atomic_exchange_n\([[:space:]]*&m_ThreadedInvalidationGenerations\[irq\], throughGeneration' \
+            "$irq_registry_source" ||
+        ! rg -q 'irq-threaded-hard-publication-contention' \
+            "$irq_regressions" ||
+        ! rg -q 'irq-threaded-hard-invalidation' "$irq_regressions" ||
+        ! rg -q 'irq-threaded-no-resurrection' \
+            "$irq_regressions"; then
+        echo "Threaded IRQ action publication lost its retry-free exchange lanes."
+        failed=1
+    fi
+    matches=$(printf '%s\n' "$threaded_action_publish_bodies" | \
+        rg -n 'while[[:space:]]*\(' || true)
+    if [[ -n "$matches" ]]; then
+        echo "Threaded IRQ hard action publication contains an unbounded retry:"
+        echo "$matches"
+        failed=1
+    fi
+    matches=$(printf '%s\n' "$hard_threaded_invalidation_body" | \
+        rg -n '(while|for)[[:space:]]*\(' || true)
+    if [[ -n "$matches" ]]; then
+        echo "Threaded IRQ hard invalidation contains an unbounded scan:"
+        echo "$matches"
+        failed=1
+    fi
+    if rg -q \
+            'cancelThreadedDispatch|previousThreadedGeneration|rolledBackThreadedGeneration' \
+            "$irq_registry_header" "$irq_registry_source"; then
+        echo "Threaded IRQ publication regained rollback history or cancellation."
+        failed=1
+    fi
+
     if ! rg -q -U \
         '(?s)dispatchThreaded\([^)]*\).*?if \(!dispatchThread \|\| !Processor::getInterrupts\(\)\).*?getHostedSignalDepth\(\)' \
         "$irq_registry_source"; then
@@ -1351,7 +1400,7 @@ check_wait_api_boundaries()
         '/^void Pic::dispatchThreadedLine/,/^void Pic::eoiLocked/p' \
         "$pic_source")
     if ! rg -q -U \
-            '(?s)bool cutoffCaptured = false.*?delivery == IrqDelivery::Mixed.*?cutoffCaptured = m_Handlers\.captureMixedAdmissionCutoffs\(.*?hardAdmissionCutoff.*?threadedAdmissionCutoff.*?else if \(hasThreadedStage\).*?cutoffCaptured = m_Handlers\.captureAdmissionCutoff\(.*?threadedAdmissionCutoff.*?else.*?cutoffCaptured = m_Handlers\.captureAdmissionCutoff\(.*?hardAdmissionCutoff.*?if \(!cutoffCaptured\).*?controllerAck != IrqControllerAck::None.*?eoiLocked\(irq\).*?hasThreadedStage \? &m_ThreadedPublicationFailures\[irq\].*?&m_UnhandledIrqCount\[irq\].*?publishDiagnosticLineLocked.*?return;.*?if \(hasThreadedStage\)' \
+            '(?s)bool cutoffCaptured = false.*?delivery == IrqDelivery::Mixed.*?cutoffCaptured = m_Handlers\.captureMixedAdmissionCutoffs\(.*?hardAdmissionCutoff.*?threadedAdmissionCutoff.*?else if \(hasThreadedStage\).*?cutoffCaptured = m_Handlers\.captureAdmissionCutoff\(.*?threadedAdmissionCutoff.*?else.*?cutoffCaptured = m_Handlers\.captureAdmissionCutoff\(.*?hardAdmissionCutoff.*?if \(!cutoffCaptured\).*?completeDispatch\(irq, dispatchGeneration, true\).*?applyMaskLocked\(\).*?controllerAck != IrqControllerAck::None.*?eoiLocked\(irq\).*?hasThreadedStage \? &m_ThreadedPublicationFailures\[irq\].*?&m_UnhandledIrqCount\[irq\].*?publishDiagnosticLineLocked.*?return;.*?if \(hasThreadedStage\)' \
             <<<"$pic_hard_irq_body" ||
         ! rg -q -U \
             '(?s)beginThreadedDispatch\(irq\).*?lineRelease == IrqLineRelease::AfterThreadedCompletion.*?applyMaskLocked\(\).*?controllerAck == IrqControllerAck::BeforeHardStage.*?eoiLocked\(irq\)' \
@@ -1363,9 +1412,46 @@ check_wait_api_boundaries()
             '(?s)dispatchThreaded\(irq, cookie, result\).*?aggregateAdmitted.*?m_ThreadedHardAdmitted\[irq\] \|\| admitted.*?aggregateAllowRearm.*?m_ThreadedHardHandled\[irq\] \|\| result\.allowRearm.*?completeThreadedDispatch\(.*?aggregateAdmitted && aggregateAllowRearm' \
             <<<"$pic_threaded_worker_body" ||
         ! rg -q -U \
-            '(?s)publishFromInterrupt\(.*?cancelThreadedDispatch\(.*?m_ThreadedPublicationFailures' \
+            '(?s)publishFromInterrupt\(.*?invalidateThreadedGenerationFromInterrupt\(.*?m_ThreadedPublicationFailures' \
             <<<"$pic_hard_irq_body"; then
         echo "The PIC mixed path lost cutoff, mask, EOI, hard-stage, publication, or worker ordering."
+        failed=1
+    fi
+
+    if rg -q 'cancelThreadedDispatch' "$pic_source" "$hosted_irq_source"; then
+        echo "An IRQ controller regained post-publication rollback."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+            '(?s)threadedPublished = m_Handlers\.publishThreadedDispatch\(.*?if \(!threadedPublished\).*?m_ThreadedPublicationFailures' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)if \(!m_Handlers\.publishThreadedDispatch\(.*?m_ThreadedPublicationFailures.*?return true' \
+            "$hosted_irq_source" ||
+        ! rg -q -U \
+            '(?s)const bool threadedPublished = m_Handlers\.publishThreadedDispatch\(.*?if \(!threadedPublished\).*?m_ThreadedPublicationFailures' \
+            "$hosted_irq_source"; then
+        echo "An IRQ controller ignored a failed threaded-action publication."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+            '(?s)!hasHardStage && threadedPublished.*?!m_ThreadedDispatcher\.publishFromInterrupt\(.*?invalidateThreadedGenerationFromInterrupt\(.*?threadedPublished = false.*?if \(!hasHardStage && !threadedPublished\).*?completeDispatch\(irq, dispatchGeneration, true\)' \
+            <<<"$pic_hard_irq_body" ||
+        ! rg -q -U \
+            '(?s)threadedLifetimeCurrent.*?m_ThreadedDispatcher\.publishFromInterrupt\(.*?invalidateThreadedGenerationFromInterrupt\(.*?threadedPublished = false.*?if \(!threadedPublished\).*?completeDispatch\([[:space:]]*irq, dispatchGeneration, true\)' \
+            <<<"$pic_hard_irq_body" ||
+        ! rg -q -U \
+            '(?s)if \(!tail\.owned\(\)\).*?m_ThreadedPublicationFailures.*?return true;.*?const bool cookieCurrent' \
+            "$hosted_irq_source" ||
+        ! rg -q -U \
+            '(?s)publishFromInterrupt\(irq, cookie\).*?invalidateThreadedGenerationFromInterrupt\(irq, cookie\).*?m_ThreadedPublicationFailures' \
+            "$hosted_irq_source" ||
+        ! rg -q 'pic-admission-failure-fail-closed' "$irq_regressions" ||
+        ! rg -q 'pic-threaded-publication-failure-fail-closed' \
+            "$irq_regressions"; then
+        echo "A failed PIC threaded publication can leave its source live."
         failed=1
     fi
 

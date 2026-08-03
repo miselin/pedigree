@@ -89,8 +89,38 @@ bool IrqHandlerRegistry::threadedGenerationValid(
     return !invalidThrough || !generationReached(invalidThrough, generation);
 }
 
+size_t *IrqHandlerRegistry::quiescedLane(
+    HandlerSlot &slot, QuiescedLane lane)
+{
+    const size_t index = static_cast<size_t>(lane);
+    assert(index < QuiescedLaneCount);
+    return &slot.quiescedThreadedGenerations[index];
+}
+
+const size_t *IrqHandlerRegistry::quiescedLane(
+    const HandlerSlot &slot, QuiescedLane lane)
+{
+    const size_t index = static_cast<size_t>(lane);
+    assert(index < QuiescedLaneCount);
+    return &slot.quiescedThreadedGenerations[index];
+}
+
+bool IrqHandlerRegistry::hasQuiescedGeneration(const HandlerSlot &slot)
+{
+    for (size_t i = 0; i < QuiescedLaneCount; ++i)
+    {
+        if (__atomic_load_n(
+                &slot.quiescedThreadedGenerations[i], __ATOMIC_ACQUIRE))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void IrqHandlerRegistry::publishSlotQuiesced(
-    HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration)
+    HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration,
+    QuiescedLane lane)
 {
     if (!dispatchGeneration)
     {
@@ -105,26 +135,13 @@ void IrqHandlerRegistry::publishSlotQuiesced(
         return;
     }
 
-    const size_t rolledBack = __atomic_load_n(
-        &slot.rolledBackThreadedGeneration, __ATOMIC_ACQUIRE);
-    if (rolledBack == dispatchGeneration)
-    {
-        dispatchGeneration = __atomic_load_n(
-            &slot.previousThreadedGeneration, __ATOMIC_ACQUIRE);
-        if (!dispatchGeneration ||
-            !threadedGenerationValid(irq, dispatchGeneration))
-        {
-            finishThreadedActionMutation(actionMutation);
-            return;
-        }
-    }
-
-    publishSlotQuiescedValue(slot, irq, dispatchGeneration);
+    publishSlotQuiescedValue(slot, irq, dispatchGeneration, lane);
     finishThreadedActionMutation(actionMutation);
 }
 
 void IrqHandlerRegistry::publishSlotQuiescedValue(
-    HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration)
+    HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration,
+    QuiescedLane lane)
 {
     if (!dispatchGeneration ||
         !threadedGenerationValid(irq, dispatchGeneration))
@@ -132,38 +149,65 @@ void IrqHandlerRegistry::publishSlotQuiescedValue(
         return;
     }
 
-    size_t current = __atomic_load_n(
-        &slot.quiescedThreadedGeneration, __ATOMIC_ACQUIRE);
-    while (!current || generationReached(dispatchGeneration, current))
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    HandlerHazardHook mutationHook =
+        __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
+    if (mutationHook)
     {
-        if (__atomic_compare_exchange_n(
-                &slot.quiescedThreadedGeneration, &current,
-                dispatchGeneration, false, __ATOMIC_RELEASE,
-                __ATOMIC_ACQUIRE))
-        {
-            const size_t finalRollback = __atomic_load_n(
-                &slot.rolledBackThreadedGeneration, __ATOMIC_ACQUIRE);
-            if (!threadedGenerationValid(irq, dispatchGeneration) ||
-                finalRollback == dispatchGeneration)
-            {
-                size_t stale = dispatchGeneration;
-                size_t replacement = 0;
-                if (finalRollback == dispatchGeneration)
-                {
-                    replacement = __atomic_load_n(
-                        &slot.previousThreadedGeneration, __ATOMIC_ACQUIRE);
-                    if (!threadedGenerationValid(irq, replacement))
-                    {
-                        replacement = 0;
-                    }
-                }
-                __atomic_compare_exchange_n(
-                    &slot.quiescedThreadedGeneration, &stale, replacement,
-                    false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-            }
-            return;
-        }
+        mutationHook(
+            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE),
+            HandlerHazardStage::BeforeQuiescedExchange);
     }
+#endif
+
+    size_t *publicationLane = quiescedLane(slot, lane);
+    const size_t published =
+        __atomic_load_n(publicationLane, __ATOMIC_ACQUIRE);
+    if (published && generationReached(published, dispatchGeneration))
+    {
+        return;
+    }
+
+    __atomic_exchange_n(
+        publicationLane, dispatchGeneration, __ATOMIC_ACQ_REL);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    mutationHook = __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
+    if (mutationHook)
+    {
+        mutationHook(
+            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE),
+            HandlerHazardStage::QuiescedExchanged);
+    }
+#endif
+
+    if (!threadedGenerationValid(irq, dispatchGeneration))
+    {
+        size_t stale = dispatchGeneration;
+        __atomic_compare_exchange_n(
+            publicationLane, &stale, static_cast<size_t>(0), false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+    }
+}
+
+void IrqHandlerRegistry::invalidateThreadedGenerationFromInterrupt(
+    uint8_t irq, size_t throughGeneration)
+{
+    if (!throughGeneration)
+    {
+        return;
+    }
+
+    const size_t invalidThrough = __atomic_load_n(
+        &m_ThreadedInvalidationGenerations[irq], __ATOMIC_ACQUIRE);
+    if (invalidThrough && generationReached(invalidThrough, throughGeneration))
+    {
+        return;
+    }
+
+    __atomic_exchange_n(
+        &m_ThreadedInvalidationGenerations[irq], throughGeneration,
+        __ATOMIC_ACQ_REL);
 }
 
 void IrqHandlerRegistry::invalidateThreadedLine(
@@ -224,10 +268,12 @@ void IrqHandlerRegistry::invalidateThreadedLine(
 
         size_t *actions[] = {
             &slot.pendingThreadedGeneration,
-            &slot.previousThreadedGeneration,
             &slot.claimedThreadedGeneration,
-            &slot.quiescedThreadedGeneration};
-        for (size_t action = 0; action < 4; ++action)
+            quiescedLane(slot, QuiescedLane::Controller),
+            quiescedLane(slot, QuiescedLane::Callback),
+            quiescedLane(slot, QuiescedLane::Retirement)};
+        for (size_t action = 0;
+             action < sizeof(actions) / sizeof(actions[0]); ++action)
         {
             size_t generation = __atomic_load_n(actions[action], __ATOMIC_ACQUIRE);
             while (generation &&
@@ -241,73 +287,6 @@ void IrqHandlerRegistry::invalidateThreadedLine(
                 }
             }
         }
-        unpinActionMutation(slot, publication, cleanup, thread);
-    }
-    finishThreadedActionMutation(actionMutation);
-    tryReclaimTombstones(irq);
-}
-
-void IrqHandlerRegistry::cancelThreadedDispatch(
-    uint8_t irq, size_t dispatchGeneration)
-{
-    if (!dispatchGeneration)
-    {
-        return;
-    }
-
-    ThreadedActionMutationCleanup actionMutation(this);
-    beginThreadedActionMutation(actionMutation);
-    for (size_t i = 0; i < MaxHandlerSlots; ++i)
-    {
-        HandlerSlot &slot = m_Handlers[i];
-        const size_t publication =
-            __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
-        if (irqOf(publication) != irq ||
-            deliveryOf(publication) != Delivery::Threaded)
-        {
-            continue;
-        }
-
-        void *owner = currentDispatchOwner();
-        Thread *thread = Processor::information().getCurrentThread();
-        DispatchCleanup cleanup(this, &slot, owner, publication, false);
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-        HandlerHazardHook mutationHook =
-            __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
-        if (mutationHook)
-        {
-            mutationHook(
-                __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE),
-                HandlerHazardStage::BeforeActionMutationPin);
-        }
-#endif
-        if (!pinActionMutation(slot, publication, cleanup, thread))
-        {
-            continue;
-        }
-
-        const size_t previous = __atomic_load_n(
-            &slot.previousThreadedGeneration, __ATOMIC_ACQUIRE);
-        ThreadedCancellationCleanup cancellation(
-            this, &slot, irq, dispatchGeneration, previous);
-        cancellation.thread = thread;
-        cancellation.previousInterruptState = Processor::getInterrupts();
-        Processor::setInterrupts(false);
-        cancellation.restoreInterruptState = true;
-        if (thread)
-        {
-            thread->armAtomicStateCleanup(
-                cancellation.cleanup, abandonThreadedCancellation,
-                &cancellation);
-        }
-        applyThreadedCancellation(cancellation);
-        if (thread)
-        {
-            thread->disarmAtomicStateCleanup(cancellation.cleanup);
-        }
-        cancellation.registry = nullptr;
-        cancellation.restoreInterruptState = false;
-        Processor::setInterrupts(cancellation.previousInterruptState);
         unpinActionMutation(slot, publication, cleanup, thread);
     }
     finishThreadedActionMutation(actionMutation);
@@ -452,82 +431,6 @@ void IrqHandlerRegistry::abandonThreadedActionMutation(void *context)
 
     cleanup->registry->completeThreadedActionMutation();
     cleanup->registry = nullptr;
-}
-
-void IrqHandlerRegistry::applyThreadedCancellation(
-    ThreadedCancellationCleanup &cleanup)
-{
-    HandlerSlot &slot = *cleanup.slot;
-    __atomic_store_n(
-        &slot.rolledBackThreadedGeneration, cleanup.dispatchGeneration,
-        __ATOMIC_RELEASE);
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    HandlerHazardHook mutationHook =
-        __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
-    if (mutationHook)
-    {
-        mutationHook(
-            __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE),
-            HandlerHazardStage::CancellationMarkerPublished);
-    }
-#endif
-
-    size_t pending = cleanup.dispatchGeneration;
-    __atomic_compare_exchange_n(
-        &slot.pendingThreadedGeneration, &pending,
-        cleanup.previousThreadedGeneration, false, __ATOMIC_ACQ_REL,
-        __ATOMIC_ACQUIRE);
-
-    size_t quiesced = cleanup.dispatchGeneration;
-    __atomic_compare_exchange_n(
-        &slot.quiescedThreadedGeneration, &quiesced,
-        cleanup.previousThreadedGeneration, false, __ATOMIC_ACQ_REL,
-        __ATOMIC_ACQUIRE);
-
-    const size_t claimed = __atomic_load_n(
-        &slot.claimedThreadedGeneration, __ATOMIC_ACQUIRE);
-    if (claimed == cleanup.dispatchGeneration)
-    {
-        publishSlotQuiescedValue(
-            slot, cleanup.irq, cleanup.previousThreadedGeneration);
-        size_t exactClaim = cleanup.dispatchGeneration;
-        if (__atomic_compare_exchange_n(
-            &slot.claimedThreadedGeneration, &exactClaim,
-            static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
-            __ATOMIC_ACQUIRE))
-        {
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-            mutationHook =
-                __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
-            if (mutationHook)
-            {
-                mutationHook(
-                    __atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE),
-                    HandlerHazardStage::CancellationClaimCleared);
-            }
-#endif
-        }
-    }
-}
-
-void IrqHandlerRegistry::abandonThreadedCancellation(void *context)
-{
-    ThreadedCancellationCleanup *cleanup =
-        reinterpret_cast<ThreadedCancellationCleanup *>(context);
-    if (!cleanup || !cleanup->registry)
-    {
-        return;
-    }
-
-    Processor::setInterrupts(false);
-    cleanup->registry->applyThreadedCancellation(*cleanup);
-    cleanup->registry = nullptr;
-    if (cleanup->restoreInterruptState)
-    {
-        const bool previousInterruptState = cleanup->previousInterruptState;
-        cleanup->restoreInterruptState = false;
-        Processor::setInterrupts(previousInterruptState);
-    }
 }
 
 bool IrqHandlerRegistry::canWaitForActionFinalization()
@@ -765,8 +668,7 @@ void IrqHandlerRegistry::tryReclaimTombstones(uint8_t irq)
                 &slot.pendingThreadedGeneration, __ATOMIC_ACQUIRE) ||
             __atomic_load_n(
                 &slot.claimedThreadedGeneration, __ATOMIC_ACQUIRE) ||
-            __atomic_load_n(
-                &slot.quiescedThreadedGeneration, __ATOMIC_ACQUIRE))
+            hasQuiescedGeneration(slot))
         {
             continue;
         }
@@ -796,12 +698,6 @@ void IrqHandlerRegistry::tryReclaimTombstones(uint8_t irq)
         // No pre-retirement reader remains. Readers which announce after the
         // zero sample validate a post-retirement epoch and never need this
         // history, so metadata can be cleared before Empty becomes reusable.
-        __atomic_store_n(
-            &slot.previousThreadedGeneration, static_cast<size_t>(0),
-            __ATOMIC_RELEASE);
-        __atomic_store_n(
-            &slot.rolledBackThreadedGeneration, static_cast<size_t>(0),
-            __ATOMIC_RELEASE);
         __atomic_store_n(
             &slot.admissionEpoch, static_cast<size_t>(0), __ATOMIC_RELEASE);
         __atomic_store_n(
@@ -860,10 +756,12 @@ bool IrqHandlerRegistry::retireSlot(
             {
                 // Quiesced is visible before the actionable lane disappears.
                 // The worker therefore observes one side of this transition.
-                publishSlotQuiesced(slot, irq, generation);
+                publishSlotQuiesced(
+                    slot, irq, generation, QuiescedLane::Retirement);
                 if (__atomic_compare_exchange_n(
-                        actions[action], &generation, static_cast<size_t>(0),
-                        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                        actions[action], &generation,
+                        static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
+                        __ATOMIC_ACQUIRE))
                 {
                     break;
                 }
@@ -1046,7 +944,8 @@ bool IrqHandlerRegistry::unpublishDispatch(
         deliveryOf(admittedPublication) == Delivery::Threaded)
     {
         publishSlotQuiesced(
-            slot, irqOf(admittedPublication), controllerGeneration);
+            slot, irqOf(admittedPublication), controllerGeneration,
+            QuiescedLane::Callback);
         size_t claimed = controllerGeneration;
         __atomic_compare_exchange_n(
             &slot.claimedThreadedGeneration, &claimed,
@@ -1262,17 +1161,14 @@ bool IrqHandlerRegistry::registerHandler(
                 &slot.pendingThreadedGeneration, static_cast<size_t>(0),
                 __ATOMIC_RELEASE);
             __atomic_store_n(
-                &slot.previousThreadedGeneration, static_cast<size_t>(0),
-                __ATOMIC_RELEASE);
-            __atomic_store_n(
                 &slot.claimedThreadedGeneration, static_cast<size_t>(0),
                 __ATOMIC_RELEASE);
-            __atomic_store_n(
-                &slot.quiescedThreadedGeneration, static_cast<size_t>(0),
-                __ATOMIC_RELEASE);
-            __atomic_store_n(
-                &slot.rolledBackThreadedGeneration, static_cast<size_t>(0),
-                __ATOMIC_RELEASE);
+            for (size_t lane = 0; lane < QuiescedLaneCount; ++lane)
+            {
+                __atomic_store_n(
+                    &slot.quiescedThreadedGenerations[lane],
+                    static_cast<size_t>(0), __ATOMIC_RELEASE);
+            }
             __atomic_store_n(
                 &slot.retirementEpoch, static_cast<size_t>(0),
                 __ATOMIC_RELEASE);
@@ -2012,7 +1908,9 @@ bool IrqHandlerRegistry::publishThreadedDispatch(
         {
             if (occurrencePrecedesRetirement(slot, admissionCutoff))
             {
-                publishSlotQuiesced(slot, irq, dispatchGeneration);
+                publishSlotQuiesced(
+                    slot, irq, dispatchGeneration,
+                    QuiescedLane::Controller);
                 admitted = true;
             }
             continue;
@@ -2105,35 +2003,55 @@ bool IrqHandlerRegistry::publishThreadedDispatch(
 
             if (currentMode != SlotMode::Enabled)
             {
-                publishSlotQuiesced(slot, irq, dispatchGeneration);
+                publishSlotQuiesced(
+                    slot, irq, dispatchGeneration,
+                    QuiescedLane::Controller);
             }
 
-            size_t pending = __atomic_load_n(
-                &slot.pendingThreadedGeneration, __ATOMIC_ACQUIRE);
-            while (currentMode == SlotMode::Enabled &&
-                   (!pending ||
-                    generationReached(dispatchGeneration, pending)))
+            if (currentMode == SlotMode::Enabled)
             {
-                __atomic_store_n(
-                    &slot.previousThreadedGeneration, pending,
-                    __ATOMIC_RELEASE);
-                __atomic_store_n(
-                    &slot.rolledBackThreadedGeneration,
-                    static_cast<size_t>(0), __ATOMIC_RELEASE);
-                if (__atomic_compare_exchange_n(
-                        &slot.pendingThreadedGeneration, &pending,
-                        dispatchGeneration, false, __ATOMIC_RELEASE,
-                        __ATOMIC_ACQUIRE))
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+                HandlerHazardHook publicationHook =
+                    __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
+                if (publicationHook)
                 {
-                    if (!threadedGenerationValid(irq, dispatchGeneration))
-                    {
-                        size_t stale = dispatchGeneration;
-                        __atomic_compare_exchange_n(
-                            &slot.pendingThreadedGeneration, &stale,
-                            static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
-                            __ATOMIC_ACQUIRE);
-                    }
-                    break;
+                    publicationHook(
+                        handler, HandlerHazardStage::BeforePendingExchange);
+                }
+#endif
+
+                const size_t pending = __atomic_load_n(
+                    &slot.pendingThreadedGeneration, __ATOMIC_ACQUIRE);
+                if (!pending ||
+                    !generationReached(pending, dispatchGeneration))
+                {
+                    // The controller is the only producer for this line. A
+                    // single exchange cannot lose a concurrent worker claim:
+                    // the worker's exact CAS either consumed the old
+                    // generation first or observes this newer one and leaves
+                    // it for the matching cookie.
+                    __atomic_exchange_n(
+                        &slot.pendingThreadedGeneration, dispatchGeneration,
+                        __ATOMIC_ACQ_REL);
+                }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+                publicationHook =
+                    __atomic_load_n(&m_HandlerHazardHook, __ATOMIC_ACQUIRE);
+                if (publicationHook)
+                {
+                    publicationHook(
+                        handler, HandlerHazardStage::PendingExchanged);
+                }
+#endif
+
+                if (!threadedGenerationValid(irq, dispatchGeneration))
+                {
+                    size_t stale = dispatchGeneration;
+                    __atomic_compare_exchange_n(
+                        &slot.pendingThreadedGeneration, &stale,
+                        static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
+                        __ATOMIC_ACQUIRE);
                 }
             }
 
@@ -2148,17 +2066,21 @@ bool IrqHandlerRegistry::publishThreadedDispatch(
                 __atomic_load_n(&slot.admissionEpoch, __ATOMIC_ACQUIRE) !=
                     admissionEpoch)
             {
-                publishSlotQuiesced(slot, irq, dispatchGeneration);
+                publishSlotQuiesced(
+                    slot, irq, dispatchGeneration,
+                    QuiescedLane::Controller);
             }
         }
         else
         {
             // This publication belonged to the occurrence cutoff. If removal
             // closed it before token publication, preserve that membership as
-            // a quiesced cancellation for the worker.
+            // a quiesced retirement marker for the worker.
             if (occurrencePrecedesRetirement(slot, admissionCutoff))
             {
-                publishSlotQuiesced(slot, irq, dispatchGeneration);
+                publishSlotQuiesced(
+                    slot, irq, dispatchGeneration,
+                    QuiescedLane::Controller);
             }
         }
         admitted = true;
@@ -2251,24 +2173,28 @@ bool IrqHandlerRegistry::dispatchThreaded(
                 continue;
             }
 
-            size_t quiesced = __atomic_load_n(
-                &slot.quiescedThreadedGeneration, __ATOMIC_ACQUIRE);
-            if (quiesced && !threadedGenerationValid(irq, quiesced))
+            for (size_t lane = 0; lane < QuiescedLaneCount; ++lane)
             {
-                __atomic_compare_exchange_n(
-                    &slot.quiescedThreadedGeneration, &quiesced,
-                    static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
-                    __ATOMIC_ACQUIRE);
-                quiesced = 0;
-            }
-            if (quiesced && generationReached(dispatchGeneration, quiesced) &&
-                __atomic_compare_exchange_n(
-                    &slot.quiescedThreadedGeneration, &quiesced,
-                    static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
-                    __ATOMIC_ACQUIRE))
-            {
-                admitted = true;
-                result.allowRearm = true;
+                size_t *publicationLane =
+                    &slot.quiescedThreadedGenerations[lane];
+                size_t quiesced =
+                    __atomic_load_n(publicationLane, __ATOMIC_ACQUIRE);
+                if (quiesced && !threadedGenerationValid(irq, quiesced))
+                {
+                    __atomic_compare_exchange_n(
+                        publicationLane, &quiesced, static_cast<size_t>(0),
+                        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+                    continue;
+                }
+                if (quiesced &&
+                    generationReached(dispatchGeneration, quiesced) &&
+                    __atomic_compare_exchange_n(
+                        publicationLane, &quiesced, static_cast<size_t>(0),
+                        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                {
+                    admitted = true;
+                    result.allowRearm = true;
+                }
             }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -2488,7 +2414,8 @@ bool IrqHandlerRegistry::dispatchThreaded(
             }
             else
             {
-                publishSlotQuiesced(slot, irq, claimedGeneration);
+                publishSlotQuiesced(
+                    slot, irq, claimedGeneration, QuiescedLane::Callback);
                 size_t exactClaim = claimedGeneration;
                 __atomic_compare_exchange_n(
                     &slot.claimedThreadedGeneration, &exactClaim,
@@ -2537,9 +2464,9 @@ bool IrqHandlerRegistry::dispatchThreaded(
                 mode == SlotMode::Closed || mode == SlotMode::Retiring)
             {
                 // Draining may restore Enabled; committed removal reaches
-                // Empty only after publishing cancellation and clearing the
+                // Empty only after publishing quiescence and clearing the
                 // token. Do not claim here or retirement could publish a stale
-                // cancellation after this worker's final watermark scan.
+                // marker after this worker's final watermark scan.
                 admissionResolving = true;
                 continue;
             }
@@ -2960,8 +2887,7 @@ size_t IrqHandlerRegistry::threadedActionMutationWriterCountForTest() const
 
 bool IrqHandlerRegistry::setThreadedActionLanesForTest(
     IrqHandlerBase *handler, size_t pendingGeneration,
-    size_t previousGeneration, size_t claimedGeneration,
-    size_t quiescedGeneration, size_t rolledBackGeneration)
+    size_t claimedGeneration, size_t quiescedGeneration)
 {
     for (size_t i = 0; i < MaxHandlerSlots; ++i)
     {
@@ -2975,16 +2901,16 @@ bool IrqHandlerRegistry::setThreadedActionLanesForTest(
             &slot.pendingThreadedGeneration, pendingGeneration,
             __ATOMIC_RELEASE);
         __atomic_store_n(
-            &slot.previousThreadedGeneration, previousGeneration,
-            __ATOMIC_RELEASE);
-        __atomic_store_n(
             &slot.claimedThreadedGeneration, claimedGeneration,
             __ATOMIC_RELEASE);
+        for (size_t lane = 0; lane < QuiescedLaneCount; ++lane)
+        {
+            __atomic_store_n(
+                &slot.quiescedThreadedGenerations[lane],
+                static_cast<size_t>(0), __ATOMIC_RELEASE);
+        }
         __atomic_store_n(
-            &slot.quiescedThreadedGeneration, quiescedGeneration,
-            __ATOMIC_RELEASE);
-        __atomic_store_n(
-            &slot.rolledBackThreadedGeneration, rolledBackGeneration,
+            quiescedLane(slot, QuiescedLane::Controller), quiescedGeneration,
             __ATOMIC_RELEASE);
         return true;
     }
@@ -3002,11 +2928,36 @@ bool IrqHandlerRegistry::consumeThreadedQuiescedForTest(
             continue;
         }
 
-        size_t exact = generation;
-        return __atomic_compare_exchange_n(
-            &slot.quiescedThreadedGeneration, &exact,
-            static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
-            __ATOMIC_ACQUIRE);
+        for (size_t lane = 0; lane < QuiescedLaneCount; ++lane)
+        {
+            size_t exact = generation;
+            if (__atomic_compare_exchange_n(
+                    &slot.quiescedThreadedGenerations[lane], &exact,
+                    static_cast<size_t>(0), false, __ATOMIC_ACQ_REL,
+                    __ATOMIC_ACQUIRE))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+bool IrqHandlerRegistry::publishControllerQuiescedForTest(
+    IrqHandlerBase *handler, uint8_t irq, size_t generation)
+{
+    for (size_t i = 0; i < MaxHandlerSlots; ++i)
+    {
+        HandlerSlot &slot = m_Handlers[i];
+        if (__atomic_load_n(&slot.handler, __ATOMIC_ACQUIRE) != handler)
+        {
+            continue;
+        }
+
+        publishSlotQuiesced(
+            slot, irq, generation, QuiescedLane::Controller);
+        return true;
     }
     return false;
 }

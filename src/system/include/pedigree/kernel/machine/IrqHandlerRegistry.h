@@ -148,8 +148,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
      * The nonzero generation is supplied again by the line worker. Repeated
      * occurrences may coalesce to the newest generation, but a handler which
      * was registered after this call is never admitted retroactively.
-     * A controller serializes publication, rollback, and invalidation for each
-     * physical line; worker consumption remains concurrent.
+     * A controller serializes publication and invalidation for each physical
+     * line; worker consumption remains concurrent.
      */
     bool publishThreadedDispatch(uint8_t irq, size_t dispatchGeneration);
     bool publishThreadedDispatch(
@@ -178,8 +178,15 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     /** Invalidates queued threaded work from an ended controller lifetime. */
     void invalidateThreadedLine(uint8_t irq, size_t throughGeneration);
 
-    /** Rolls back one action generation whose worker publication failed. */
-    void cancelThreadedDispatch(uint8_t irq, size_t dispatchGeneration);
+    /**
+     * Invalidates a generation in bounded hard-IRQ context.
+     *
+     * The controller serialises this with publication for the physical line.
+     * Token and tombstone cleanup is deferred to workers or full line
+     * invalidation.
+     */
+    void invalidateThreadedGenerationFromInterrupt(
+        uint8_t irq, size_t throughGeneration);
 
     /**
      * Dispatches handlers admitted by publishThreadedDispatch() without
@@ -242,9 +249,11 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         BeforeClaimFinalization,
         FinalizationContended,
         BeforeActionMutationPin,
-        CancellationMarkerPublished,
-        CancellationClaimCleared,
         QuiescedObserved,
+        BeforePendingExchange,
+        PendingExchanged,
+        BeforeQuiescedExchange,
+        QuiescedExchanged,
     };
 
     enum class OccurrenceCaptureStage
@@ -277,10 +286,11 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     size_t threadedActionMutationWriterCountForTest() const;
     bool setThreadedActionLanesForTest(
         IrqHandlerBase *handler, size_t pendingGeneration,
-        size_t previousGeneration, size_t claimedGeneration,
-        size_t quiescedGeneration, size_t rolledBackGeneration);
+        size_t claimedGeneration, size_t quiescedGeneration);
     bool consumeThreadedQuiescedForTest(
         IrqHandlerBase *handler, size_t generation);
+    bool publishControllerQuiescedForTest(
+        IrqHandlerBase *handler, uint8_t irq, size_t generation);
 #endif
 
   private:
@@ -307,6 +317,17 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         Retiring,
         Tombstone,
     };
+
+    enum class QuiescedLane : size_t
+    {
+        Controller,
+        Callback,
+        Retirement,
+        Count,
+    };
+
+    static constexpr size_t QuiescedLaneCount =
+        static_cast<size_t>(QuiescedLane::Count);
 
     static constexpr size_t ModeBits = 3;
     static constexpr size_t ModeMask = (1 << ModeBits) - 1;
@@ -358,10 +379,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         HandlerSlot()
             : handler(nullptr), publication(0), policy(0),
               admissionEpoch(0), pendingThreadedGeneration(0),
-              previousThreadedGeneration(0), claimedThreadedGeneration(0),
-              quiescedThreadedGeneration(0),
-              rolledBackThreadedGeneration(0), retirementEpoch(0),
-              finalizationGate(0)
+              claimedThreadedGeneration(0), quiescedThreadedGenerations(),
+              retirementEpoch(0), finalizationGate(0)
         {
         }
 
@@ -370,10 +389,8 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         size_t policy;
         size_t admissionEpoch;
         size_t pendingThreadedGeneration;
-        size_t previousThreadedGeneration;
         size_t claimedThreadedGeneration;
-        size_t quiescedThreadedGeneration;
-        size_t rolledBackThreadedGeneration;
+        size_t quiescedThreadedGenerations[QuiescedLaneCount];
         size_t retirementEpoch;
         size_t finalizationGate;
     };
@@ -432,30 +449,6 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
         AtomicStateCleanupRecord cleanup;
     };
 
-    struct ThreadedCancellationCleanup
-    {
-        ThreadedCancellationCleanup(
-            IrqHandlerRegistry *owner, HandlerSlot *handlerSlot,
-            uint8_t irqLine, size_t generation, size_t previousGeneration)
-            : registry(owner), slot(handlerSlot), thread(nullptr), irq(irqLine),
-              dispatchGeneration(generation),
-              previousThreadedGeneration(previousGeneration),
-              previousInterruptState(false), restoreInterruptState(false),
-              cleanup()
-        {
-        }
-
-        IrqHandlerRegistry *registry;
-        HandlerSlot *slot;
-        Thread *thread;
-        uint8_t irq;
-        size_t dispatchGeneration;
-        size_t previousThreadedGeneration;
-        bool previousInterruptState;
-        bool restoreInterruptState;
-        AtomicStateCleanupRecord cleanup;
-    };
-
     static size_t makePublication(
         size_t generation, uint8_t irq, SlotMode mode, Delivery delivery);
     static size_t generationOf(size_t publication);
@@ -486,8 +479,6 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     void finishThreadedActionMutation(ThreadedActionMutationCleanup &cleanup);
     void completeThreadedActionMutation();
     static void abandonThreadedActionMutation(void *context);
-    void applyThreadedCancellation(ThreadedCancellationCleanup &cleanup);
-    static void abandonThreadedCancellation(void *context);
 
     bool retireSlot(
         HandlerSlot &slot, size_t expectedPublication,
@@ -525,9 +516,15 @@ class EXPORTED_PUBLIC IrqHandlerRegistry
     static void *currentDispatchOwner();
     bool threadedGenerationValid(uint8_t irq, size_t generation) const;
     void publishSlotQuiesced(
-        HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration);
+        HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration,
+        QuiescedLane lane);
     void publishSlotQuiescedValue(
-        HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration);
+        HandlerSlot &slot, uint8_t irq, size_t dispatchGeneration,
+        QuiescedLane lane);
+    static size_t *quiescedLane(HandlerSlot &slot, QuiescedLane lane);
+    static const size_t *quiescedLane(
+        const HandlerSlot &slot, QuiescedLane lane);
+    static bool hasQuiescedGeneration(const HandlerSlot &slot);
 
     HandlerSlot m_Handlers[MaxHandlerSlots];
     ActiveDispatch m_ActiveDispatches[MaxActiveDispatches];

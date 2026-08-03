@@ -280,36 +280,6 @@ int abandonCutoffWorker(void *parameter)
     return 1;
 }
 
-struct ClaimedCancellationContext
-{
-    IrqHandlerRegistry *registry;
-    IrqHandlerBase *handler;
-    size_t cancelledGeneration;
-    Atomic<size_t> hookCalls;
-    Atomic<size_t> consumedCancelledQuiesce;
-};
-
-ClaimedCancellationContext *g_ClaimedCancellation = nullptr;
-
-void consumeCancelledQuiesceAfterClaimClear(
-    IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage stage)
-{
-    ClaimedCancellationContext *context = g_ClaimedCancellation;
-    if (!context || handler != context->handler ||
-        stage !=
-            IrqHandlerRegistry::HandlerHazardStage::CancellationClaimCleared ||
-        !context->hookCalls.compareAndSwap(0, 1))
-    {
-        return;
-    }
-
-    if (context->registry->consumeThreadedQuiescedForTest(
-            context->handler, context->cancelledGeneration))
-    {
-        context->consumedCancelledQuiesce += 1;
-    }
-}
-
 void abandonActionMutation(
     IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage stage)
 {
@@ -329,7 +299,7 @@ int abandonActionMutationThread(void *parameter)
 {
     AbandonedActionMutationContext *context =
         reinterpret_cast<AbandonedActionMutationContext *>(parameter);
-    context->registry->cancelThreadedDispatch(
+    context->registry->invalidateThreadedLine(
         context->line, context->generation);
     context->returned += 1;
     return 1;
@@ -1549,7 +1519,7 @@ bool actionMutationPinsSlotLifetime()
 
     g_ActionReuse = &context;
     registry.setHandlerHazardHook(reuseSlotBeforeActionMutationPin);
-    registry.cancelThreadedDispatch(OriginalLine, Generation);
+    registry.invalidateThreadedLine(OriginalLine, Generation);
     registry.setHandlerHazardHook(nullptr);
     g_ActionReuse = nullptr;
     if (!context.cutoffReleased)
@@ -1667,119 +1637,13 @@ bool abandonedActionMutationReleasesWriter()
 
     const bool passed = check(
         registered && published && started && joined &&
-            context.hookCalls == 1 && !context.returned && admitted &&
-            result.handled && result.allowRearm && handler.calls == 1 &&
+            context.hookCalls == 1 && !context.returned && !admitted &&
+            !result.handled && !result.allowRearm && handler.calls == 0 &&
             removed && !registry.threadedActionMutationWriterCountForTest(),
         "an abandoned action mutation stranded the worker handshake", Test);
     if (passed)
     {
         NOTICE("HOSTED-WAIT-TEST: PASS irq-action-mutation-abandon-cleanup");
-    }
-    return passed;
-}
-
-bool abandonedCancellationCompletesRollback()
-{
-    constexpr const char *Test = "irq-cancellation-abandon-rollback";
-    constexpr uint8_t Line = 21;
-    constexpr size_t PreviousGeneration = 0x5208;
-    constexpr size_t CancelledGeneration = 0x5209;
-
-    IrqHandlerRegistry registry;
-    DispositionHandler handler(IrqDisposition::Handled);
-    const bool registered = registry.registerThreadedHandler(Line, &handler);
-    const bool previousPublished =
-        registry.publishThreadedDispatch(Line, PreviousGeneration);
-    const bool cancelledPublished =
-        registry.publishThreadedDispatch(Line, CancelledGeneration);
-    AbandonedActionMutationContext context = {
-        &registry, &handler, nullptr, Line, CancelledGeneration,
-        IrqHandlerRegistry::HandlerHazardStage::CancellationMarkerPublished,
-        0, 0};
-    context.worker = new Thread(
-        Scheduler::instance().getKernelProcess(), abandonActionMutationThread,
-        &context, nullptr, false, true, true);
-    context.worker->setName("hosted abandoned IRQ cancellation");
-
-    g_AbandonedActionMutation = &context;
-    registry.setHandlerHazardHook(abandonActionMutation);
-    const bool started = context.worker->start();
-    const bool joined = started && context.worker->joinForCompletion();
-    registry.setHandlerHazardHook(nullptr);
-    g_AbandonedActionMutation = nullptr;
-
-    IrqHandlerRegistry::ThreadedDispatchResult previousResult = {};
-    const bool previousAdmitted =
-        joined && !registry.threadedActionMutationWriterCountForTest() &&
-        registry.dispatchThreaded(
-            Line, PreviousGeneration, previousResult);
-    IrqHandlerRegistry::ThreadedDispatchResult cancelledResult = {};
-    const bool cancelledAdmitted = registry.dispatchThreaded(
-        Line, CancelledGeneration, cancelledResult);
-    const bool removed =
-        registry.unregisterHandler(Line, &handler) ==
-        IrqHandlerRegistry::UnregisterResult::Completed;
-
-    const bool passed = check(
-        registered && previousPublished && cancelledPublished && started &&
-            joined && context.hookCalls == 1 && !context.returned &&
-            previousAdmitted && previousResult.handled &&
-            previousResult.allowRearm && handler.calls == 1 &&
-            !cancelledAdmitted && removed &&
-            !registry.threadedActionMutationWriterCountForTest(),
-        "an abandoned cancellation did not restore its prior action", Test);
-    if (passed)
-    {
-        NOTICE("HOSTED-WAIT-TEST: PASS irq-cancellation-abandon-rollback");
-    }
-    return passed;
-}
-
-bool claimedCancellationPreservesPriorQuiesce()
-{
-    constexpr const char *Test = "irq-cancellation-claimed-quiesce";
-    constexpr uint8_t Line = 22;
-    constexpr size_t PreviousGeneration = 0x520A;
-    constexpr size_t CancelledGeneration = 0x520B;
-
-    IrqHandlerRegistry registry;
-    DispositionHandler handler(IrqDisposition::Handled);
-    const bool registered = registry.registerThreadedHandler(Line, &handler);
-    const bool previousPublished =
-        registry.publishThreadedDispatch(Line, PreviousGeneration);
-    const bool cancelledPublished =
-        registry.publishThreadedDispatch(Line, CancelledGeneration);
-    const bool seeded = registry.setThreadedActionLanesForTest(
-        &handler, 0, PreviousGeneration, CancelledGeneration,
-        CancelledGeneration, 0);
-    ClaimedCancellationContext context = {
-        &registry, &handler, CancelledGeneration, 0, 0};
-    g_ClaimedCancellation = &context;
-    registry.setHandlerHazardHook(consumeCancelledQuiesceAfterClaimClear);
-    registry.cancelThreadedDispatch(Line, CancelledGeneration);
-    registry.setHandlerHazardHook(nullptr);
-    g_ClaimedCancellation = nullptr;
-
-    IrqHandlerRegistry::ThreadedDispatchResult previousResult = {};
-    const bool previousAdmitted = registry.dispatchThreaded(
-        Line, PreviousGeneration, previousResult);
-    IrqHandlerRegistry::ThreadedDispatchResult cancelledResult = {};
-    const bool cancelledAdmitted = registry.dispatchThreaded(
-        Line, CancelledGeneration, cancelledResult);
-    const bool removed =
-        registry.unregisterHandler(Line, &handler) ==
-        IrqHandlerRegistry::UnregisterResult::Completed;
-
-    const bool passed = check(
-        registered && previousPublished && cancelledPublished && seeded &&
-            context.hookCalls == 1 &&
-            !context.consumedCancelledQuiesce && previousAdmitted &&
-            !previousResult.handled && previousResult.allowRearm &&
-            !cancelledAdmitted && handler.calls == 0 && removed,
-        "claim cancellation exposed the rejected quiesce watermark", Test);
-    if (passed)
-    {
-        NOTICE("HOSTED-WAIT-TEST: PASS irq-cancellation-claimed-quiesce");
     }
     return passed;
 }
@@ -1882,6 +1746,263 @@ bool threadedPostCallbackCancellation()
     return passed;
 }
 
+struct HardPublicationContentionContext
+{
+    IrqHandlerRegistry *registry;
+    IrqHandlerBase *handler;
+    uint8_t line;
+    size_t previousGeneration;
+    IrqHandlerRegistry::HandlerHazardStage targetStage;
+    size_t hookCalls;
+    bool previousConsumed;
+    IrqHandlerRegistry::ThreadedDispatchResult previousResult;
+};
+
+HardPublicationContentionContext *g_HardPublicationContention = nullptr;
+
+void forceHardPublicationContention(
+    IrqHandlerBase *handler, IrqHandlerRegistry::HandlerHazardStage stage)
+{
+    HardPublicationContentionContext *context = g_HardPublicationContention;
+    if (!context || context->handler != handler ||
+        context->targetStage != stage || context->hookCalls)
+    {
+        return;
+    }
+
+    ++context->hookCalls;
+    context->registry->setHandlerHazardHook(nullptr);
+    if (stage ==
+        IrqHandlerRegistry::HandlerHazardStage::BeforePendingExchange)
+    {
+        context->previousConsumed = context->registry->dispatchThreaded(
+            context->line, context->previousGeneration,
+            context->previousResult,
+            static_cast<IrqHandler *>(context->handler));
+    }
+    else
+    {
+        context->previousConsumed =
+            context->registry->consumeThreadedQuiescedForTest(
+                context->handler, context->previousGeneration);
+    }
+}
+
+bool pendingPublicationContentionIsMonotonic()
+{
+    constexpr const char *Test = "irq-threaded-hard-publication-contention";
+    constexpr uint8_t PendingLine = 24;
+    constexpr size_t PreviousGeneration = 0x6001;
+    constexpr size_t ReplacementGeneration = 0x6002;
+
+    IrqHandlerRegistry pendingRegistry;
+    DispositionHandler pendingHandler(IrqDisposition::Handled);
+    const bool pendingRegistered =
+        pendingRegistry.registerThreadedHandler(PendingLine, &pendingHandler);
+    const bool previousPublished = pendingRegistry.publishThreadedDispatch(
+        PendingLine, PreviousGeneration);
+    HardPublicationContentionContext pendingContext = {
+        &pendingRegistry,
+        &pendingHandler,
+        PendingLine,
+        PreviousGeneration,
+        IrqHandlerRegistry::HandlerHazardStage::BeforePendingExchange,
+        0,
+        false,
+        {false, false}};
+    g_HardPublicationContention = &pendingContext;
+    pendingRegistry.setHandlerHazardHook(forceHardPublicationContention);
+    const bool replacementPublished = pendingRegistry.publishThreadedDispatch(
+        PendingLine, ReplacementGeneration);
+    pendingRegistry.setHandlerHazardHook(nullptr);
+    g_HardPublicationContention = nullptr;
+    pendingRegistry.invalidateThreadedGenerationFromInterrupt(
+        PendingLine, ReplacementGeneration);
+    IrqHandlerRegistry::ThreadedDispatchResult cancelledResult = {};
+    const bool cancelledAdmitted = pendingRegistry.dispatchThreaded(
+        PendingLine, ReplacementGeneration, cancelledResult);
+    const bool pendingRemoved =
+        pendingRegistry.unregisterHandler(PendingLine, &pendingHandler) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    return check(
+        pendingRegistered && previousPublished && replacementPublished &&
+            pendingContext.hookCalls == 1 && pendingContext.previousConsumed &&
+            pendingContext.previousResult.handled &&
+            pendingContext.previousResult.allowRearm &&
+            !cancelledAdmitted && !cancelledResult.handled &&
+            !cancelledResult.allowRearm && pendingHandler.calls == 1 &&
+            pendingRemoved,
+        "a worker win at the pending exchange restored consumed work", Test);
+}
+
+bool quiescedPublicationContentionIsMonotonic()
+{
+    constexpr const char *Test = "irq-threaded-hard-publication-contention";
+    constexpr uint8_t QuiescedLine = 25;
+    constexpr size_t PreviousGeneration = 0x6001;
+    constexpr size_t ReplacementGeneration = 0x6002;
+
+    IrqHandlerRegistry quiescedRegistry;
+    DispositionHandler quiescedHandler(IrqDisposition::Handled);
+    const bool quiescedRegistered = quiescedRegistry.registerThreadedHandler(
+        QuiescedLine, &quiescedHandler);
+    const bool quiescedSeeded = quiescedRegistry.setThreadedActionLanesForTest(
+        &quiescedHandler, 0, 0, PreviousGeneration);
+    HardPublicationContentionContext quiescedContext = {
+        &quiescedRegistry,
+        &quiescedHandler,
+        QuiescedLine,
+        PreviousGeneration,
+        IrqHandlerRegistry::HandlerHazardStage::BeforeQuiescedExchange,
+        0,
+        false,
+        {false, false}};
+    g_HardPublicationContention = &quiescedContext;
+    quiescedRegistry.setHandlerHazardHook(forceHardPublicationContention);
+    const bool quiescedPublished =
+        quiescedRegistry.publishControllerQuiescedForTest(
+            &quiescedHandler, QuiescedLine, ReplacementGeneration);
+    quiescedRegistry.setHandlerHazardHook(nullptr);
+    g_HardPublicationContention = nullptr;
+    IrqHandlerRegistry::ThreadedDispatchResult quiescedResult = {};
+    const bool quiescedAdmitted = quiescedRegistry.dispatchThreaded(
+        QuiescedLine, ReplacementGeneration, quiescedResult);
+    const bool quiescedRemoved =
+        quiescedRegistry.unregisterHandler(QuiescedLine, &quiescedHandler) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    return check(
+        quiescedRegistered && quiescedSeeded && quiescedPublished &&
+            quiescedContext.hookCalls == 1 &&
+            quiescedContext.previousConsumed && quiescedAdmitted &&
+            !quiescedResult.handled && quiescedResult.allowRearm &&
+            quiescedHandler.calls == 0 && quiescedRemoved,
+        "a worker win at the quiesced exchange lost the new rearm action",
+        Test);
+}
+
+bool outOfOrderPublicationDoesNotRegress()
+{
+    constexpr const char *Test = "irq-threaded-hard-publication-contention";
+    constexpr uint8_t PendingLine = 24;
+    constexpr size_t ReplacementGeneration = 0x6002;
+    constexpr size_t NewerGeneration = 0x6003;
+
+    IrqHandlerRegistry orderedRegistry;
+    DispositionHandler orderedHandler(IrqDisposition::Handled);
+    const bool orderedRegistered = orderedRegistry.registerThreadedHandler(
+        PendingLine, &orderedHandler);
+    const bool newerPublished = orderedRegistry.publishThreadedDispatch(
+        PendingLine, NewerGeneration);
+    const bool olderPublished = orderedRegistry.publishThreadedDispatch(
+        PendingLine, ReplacementGeneration);
+    IrqHandlerRegistry::ThreadedDispatchResult olderResult = {};
+    const bool olderAdmitted = orderedRegistry.dispatchThreaded(
+        PendingLine, ReplacementGeneration, olderResult);
+    IrqHandlerRegistry::ThreadedDispatchResult newerResult = {};
+    const bool newerAdmitted = orderedRegistry.dispatchThreaded(
+        PendingLine, NewerGeneration, newerResult);
+    const bool orderedRemoved =
+        orderedRegistry.unregisterHandler(PendingLine, &orderedHandler) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    return check(
+        orderedRegistered && newerPublished && olderPublished &&
+            !olderAdmitted && !olderResult.handled &&
+            !olderResult.allowRearm && newerAdmitted && newerResult.handled &&
+            newerResult.allowRearm && orderedHandler.calls == 1 &&
+            orderedRemoved,
+        "an out-of-order controller publication regressed pending work", Test);
+}
+
+bool hardInvalidationPreservesFutureWork()
+{
+    constexpr const char *Test = "irq-threaded-hard-publication-contention";
+    constexpr uint8_t QuiescedLine = 25;
+    constexpr size_t ReplacementGeneration = 0x6002;
+    constexpr size_t NewerGeneration = 0x6003;
+
+    IrqHandlerRegistry invalidationRegistry;
+    DispositionHandler invalidationHandler(IrqDisposition::Handled);
+    const bool invalidationRegistered =
+        invalidationRegistry.registerThreadedHandler(
+            QuiescedLine, &invalidationHandler);
+    const bool invalidationSeeded =
+        invalidationRegistry.setThreadedActionLanesForTest(
+            &invalidationHandler, ReplacementGeneration, 0,
+            ReplacementGeneration);
+    invalidationRegistry.invalidateThreadedGenerationFromInterrupt(
+        QuiescedLine, ReplacementGeneration);
+    IrqHandlerRegistry::ThreadedDispatchResult invalidatedResult = {};
+    const bool invalidatedAdmitted = invalidationRegistry.dispatchThreaded(
+        QuiescedLine, ReplacementGeneration, invalidatedResult);
+    const bool futurePublished = invalidationRegistry.publishThreadedDispatch(
+        QuiescedLine, NewerGeneration);
+    IrqHandlerRegistry::ThreadedDispatchResult futureResult = {};
+    const bool futureAdmitted = invalidationRegistry.dispatchThreaded(
+        QuiescedLine, NewerGeneration, futureResult);
+    const bool invalidationRemoved =
+        invalidationRegistry.unregisterHandler(
+            QuiescedLine, &invalidationHandler) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+
+    return check(
+        invalidationRegistered && invalidationSeeded &&
+            !invalidatedAdmitted && !invalidatedResult.handled &&
+            !invalidatedResult.allowRearm && futurePublished &&
+            futureAdmitted && futureResult.handled &&
+            futureResult.allowRearm && invalidationHandler.calls == 1 &&
+            invalidationRemoved,
+        "hard invalidation rejected a future controller generation", Test);
+}
+
+bool fullInvalidationScrubsRetiredWork()
+{
+    constexpr const char *Test = "irq-threaded-hard-publication-contention";
+    constexpr uint8_t QuiescedLine = 25;
+    constexpr size_t ReplacementGeneration = 0x6002;
+
+    IrqHandlerRegistry scrubRegistry;
+    DispositionHandler scrubHandler(IrqDisposition::Handled);
+    const bool scrubRegistered =
+        scrubRegistry.registerThreadedHandler(QuiescedLine, &scrubHandler);
+    const bool scrubSeeded = scrubRegistry.setThreadedActionLanesForTest(
+        &scrubHandler, 0, 0, ReplacementGeneration);
+    const bool scrubRemoved =
+        scrubRegistry.unregisterHandler(QuiescedLine, &scrubHandler) ==
+        IrqHandlerRegistry::UnregisterResult::Completed;
+    const size_t tombstonesBeforeScrub =
+        scrubRegistry.tombstoneCountForTest(QuiescedLine);
+    scrubRegistry.invalidateThreadedLine(
+        QuiescedLine, ReplacementGeneration);
+    const size_t tombstonesAfterScrub =
+        scrubRegistry.tombstoneCountForTest(QuiescedLine);
+
+    return check(
+        scrubRegistered && scrubSeeded && scrubRemoved &&
+            tombstonesBeforeScrub == 1 && !tombstonesAfterScrub,
+        "full invalidation did not scrub a deferred quiesced tombstone", Test);
+}
+
+bool threadedHardPublicationIsRetryFree()
+{
+    bool passed = true;
+    passed &= pendingPublicationContentionIsMonotonic();
+    passed &= quiescedPublicationContentionIsMonotonic();
+    passed &= outOfOrderPublicationDoesNotRegress();
+    passed &= hardInvalidationPreservesFutureWork();
+    passed &= fullInvalidationScrubsRetiredWork();
+
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-threaded-hard-publication-contention");
+    }
+    return passed;
+}
+
 bool threadedActionGenerationBoundaries()
 {
     constexpr const char *Test = "irq-threaded-action-generations";
@@ -1892,35 +2013,38 @@ bool threadedActionGenerationBoundaries()
     const bool registered = registry.registerThreadedHandler(Line, &handler);
     const bool firstPublished = registry.publishThreadedDispatch(Line, 0x6101);
     const bool newerPublished = registry.publishThreadedDispatch(Line, 0x6102);
-    registry.cancelThreadedDispatch(Line, 0x6101);
+    registry.invalidateThreadedGenerationFromInterrupt(Line, 0x6101);
     IrqHandlerRegistry::ThreadedDispatchResult newerResult = {};
     const bool newerAdmitted =
         registry.dispatchThreaded(Line, 0x6102, newerResult);
 
     const bool rejectedPublished =
         registry.publishThreadedDispatch(Line, 0x6103);
-    registry.cancelThreadedDispatch(Line, 0x6103);
+    registry.invalidateThreadedGenerationFromInterrupt(Line, 0x6103);
     IrqHandlerRegistry::ThreadedDispatchResult rejectedResult = {true, true};
     const bool rejectedAdmitted =
         registry.dispatchThreaded(Line, 0x6103, rejectedResult);
-    const size_t callsAfterRollback = handler.calls;
+    const size_t callsAfterInvalidation = handler.calls;
     const bool removed =
         registry.unregisterHandler(Line, &handler) ==
         IrqHandlerRegistry::UnregisterResult::Completed;
 
-    DispositionHandler preserved(IrqDisposition::Handled);
-    const bool preservedRegistered =
-        registry.registerThreadedHandler(Line, &preserved);
-    const bool preservedPublished =
+    DispositionHandler invalidated(IrqDisposition::Handled);
+    const bool invalidatedRegistered =
+        registry.registerThreadedHandler(Line, &invalidated);
+    const bool invalidatedOlderPublished =
         registry.publishThreadedDispatch(Line, 0x6110);
-    const bool failedNewerPublished =
+    const bool invalidatedNewerPublished =
         registry.publishThreadedDispatch(Line, 0x6111);
-    registry.cancelThreadedDispatch(Line, 0x6111);
-    IrqHandlerRegistry::ThreadedDispatchResult preservedResult = {};
-    const bool preservedAdmitted =
-        registry.dispatchThreaded(Line, 0x6110, preservedResult);
-    const bool preservedRemoved =
-        registry.unregisterHandler(Line, &preserved) ==
+    registry.invalidateThreadedGenerationFromInterrupt(Line, 0x6111);
+    IrqHandlerRegistry::ThreadedDispatchResult invalidatedOlderResult = {};
+    const bool invalidatedOlderAdmitted =
+        registry.dispatchThreaded(Line, 0x6110, invalidatedOlderResult);
+    IrqHandlerRegistry::ThreadedDispatchResult invalidatedNewerResult = {};
+    const bool invalidatedNewerAdmitted =
+        registry.dispatchThreaded(Line, 0x6111, invalidatedNewerResult);
+    const bool invalidatedRemoved =
+        registry.unregisterHandler(Line, &invalidated) ==
         IrqHandlerRegistry::UnregisterResult::Completed;
 
     DispositionHandler stale(IrqDisposition::Handled);
@@ -1950,11 +2074,22 @@ bool threadedActionGenerationBoundaries()
     const size_t lastGeneration = ~static_cast<size_t>(0);
     const bool lastPublished =
         wrappingRegistry.publishThreadedDispatch(Line, lastGeneration);
+    wrappingRegistry.invalidateThreadedGenerationFromInterrupt(
+        Line, lastGeneration);
+    IrqHandlerRegistry::ThreadedDispatchResult lastResult = {};
+    const bool lastAdmitted = wrappingRegistry.dispatchThreaded(
+        Line, lastGeneration, lastResult);
     const bool wrappedPublished =
         wrappingRegistry.publishThreadedDispatch(Line, 1);
+    wrappingRegistry.invalidateThreadedGenerationFromInterrupt(Line, 1);
     IrqHandlerRegistry::ThreadedDispatchResult wrappedResult = {};
     const bool wrappedAdmitted =
         wrappingRegistry.dispatchThreaded(Line, 1, wrappedResult);
+    const bool postWrapPublished =
+        wrappingRegistry.publishThreadedDispatch(Line, 2);
+    IrqHandlerRegistry::ThreadedDispatchResult postWrapResult = {};
+    const bool postWrapAdmitted =
+        wrappingRegistry.dispatchThreaded(Line, 2, postWrapResult);
     const bool wrappingRemoved =
         wrappingRegistry.unregisterHandler(Line, &wrapping) ==
         IrqHandlerRegistry::UnregisterResult::Completed;
@@ -1976,18 +2111,21 @@ bool threadedActionGenerationBoundaries()
     passed &= check(
         registered && firstPublished && newerPublished && newerAdmitted &&
             newerResult.handled && newerResult.allowRearm && handler.calls == 1,
-        "coalescing or an older rollback cleared the newer action", Test);
+        "an older invalidation cleared the newer action", Test);
     passed &= check(
         rejectedPublished && !rejectedAdmitted && !rejectedResult.handled &&
-            !rejectedResult.allowRearm && callsAfterRollback == 1 && removed,
-        "an exactly rolled-back action reached its handler", Test);
+            !rejectedResult.allowRearm && callsAfterInvalidation == 1 &&
+            removed,
+        "a hard-invalidated action reached its handler", Test);
     passed &= check(
-        preservedRegistered && preservedPublished && failedNewerPublished &&
-            preservedAdmitted && preservedResult.handled &&
-            preservedResult.allowRearm && preserved.calls == 1 &&
-            preservedRemoved,
-        "rolling back a newer action discarded an accepted older action",
-        Test);
+        invalidatedRegistered && invalidatedOlderPublished &&
+            invalidatedNewerPublished && !invalidatedOlderAdmitted &&
+            !invalidatedOlderResult.handled &&
+            !invalidatedOlderResult.allowRearm && !invalidatedNewerAdmitted &&
+            !invalidatedNewerResult.handled &&
+            !invalidatedNewerResult.allowRearm && invalidated.calls == 0 &&
+            invalidatedRemoved,
+        "high-water invalidation resurrected a coalesced generation", Test);
     passed &= check(
         staleRegistered && stalePublished && staleRemoved &&
             replacementRegistered && replacementPublished &&
@@ -1996,10 +2134,14 @@ bool threadedActionGenerationBoundaries()
             replacementRemoved,
         "an invalidated lifetime poisoned replacement rearm", Test);
     passed &= check(
-        wrappingRegistered && lastPublished && wrappedPublished &&
-            wrappedAdmitted && wrappedResult.handled &&
-            wrappedResult.allowRearm && wrapping.calls == 1 && wrappingRemoved,
-        "generation wrap did not retain the newest coalesced action", Test);
+        wrappingRegistered && lastPublished && !lastAdmitted &&
+            !lastResult.handled && !lastResult.allowRearm && wrappedPublished &&
+            !wrappedAdmitted && !wrappedResult.handled &&
+            !wrappedResult.allowRearm && postWrapPublished &&
+            postWrapAdmitted && postWrapResult.handled &&
+            postWrapResult.allowRearm && wrapping.calls == 1 &&
+            wrappingRemoved,
+        "hard invalidation did not advance monotonically across wrap", Test);
     passed &= check(
         cancellingRegistered && cancellingPublished && cancellingAdmitted &&
             !cancellingResult.handled && cancellingResult.allowRearm &&
@@ -2009,11 +2151,11 @@ bool threadedActionGenerationBoundaries()
 
     if (passed)
     {
-        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-exact-rollback");
-        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-rollback-restores-prior");
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-hard-invalidation");
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-no-resurrection");
         NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-lifetime-floor");
         NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-generation-wrap");
-        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-claimed-cancellation");
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-claimed-retirement");
     }
     return passed;
 }
@@ -2223,9 +2365,49 @@ bool picLineStateLifecycle()
             !state.enabled(MixedLine),
         "the mixed line did not retire after its hard peer", Test);
 
+    constexpr size_t AdmissionFailureLine = 9;
+    state.handlerRegistered(
+        AdmissionFailureLine, IrqPolicy::edgeThreaded(),
+        IrqDelivery::Threaded);
+    const size_t admissionFailureGeneration =
+        state.beginDispatch(AdmissionFailureLine);
+    state.completeDispatch(
+        AdmissionFailureLine, admissionFailureGeneration, true);
+    passed &= check(
+        !state.enabled(AdmissionFailureLine) &&
+            state.acknowledgementPending(AdmissionFailureLine),
+        "a post-admission-cutoff failure left its edge source enabled", Test);
+    state.handlerUnregistered(AdmissionFailureLine, IrqDelivery::Threaded);
+
+    constexpr size_t PublicationFailureLine = 11;
+    state.handlerRegistered(
+        PublicationFailureLine, IrqPolicy::edgeThreaded(), IrqDelivery::Hard);
+    state.handlerRegistered(
+        PublicationFailureLine, IrqPolicy::edgeThreaded(),
+        IrqDelivery::Threaded);
+    const size_t publicationFailureGeneration =
+        state.beginDispatch(PublicationFailureLine);
+    state.beginThreadedDispatch(PublicationFailureLine);
+    const bool publicationFailureInitiallyOpen =
+        state.enabled(PublicationFailureLine) &&
+        !state.threadedPending(PublicationFailureLine);
+    state.completeDispatch(
+        PublicationFailureLine, publicationFailureGeneration, true);
+    passed &= check(
+        publicationFailureInitiallyOpen &&
+            !state.enabled(PublicationFailureLine) &&
+            state.acknowledgementPending(PublicationFailureLine),
+        "a failed mixed edge doorbell left its source enabled", Test);
+    state.handlerUnregistered(PublicationFailureLine, IrqDelivery::Threaded);
+    state.handlerUnregistered(PublicationFailureLine, IrqDelivery::Hard);
+
     if (passed)
     {
         NOTICE("HOSTED-WAIT-TEST: PASS pic-line-state-mask-lifecycle");
+        NOTICE("HOSTED-WAIT-TEST: PASS pic-admission-failure-fail-closed");
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "pic-threaded-publication-failure-fail-closed");
     }
     return passed;
 }
@@ -3755,10 +3937,9 @@ bool runHostedIrqRegressions()
     passed &= actionMutationPinsSlotLifetime();
     passed &= quiescedPublicationClosesWorkerExit();
     passed &= abandonedActionMutationReleasesWriter();
-    passed &= abandonedCancellationCompletesRollback();
-    passed &= claimedCancellationPreservesPriorQuiesce();
     passed &= claimFinalizationArbitratesRemoval();
     passed &= threadedPostCallbackCancellation();
+    passed &= threadedHardPublicationIsRetryFree();
     passed &= threadedActionGenerationBoundaries();
     passed &= threadedQuiescedRearm();
     passed &= irqPolicyOrthogonality();

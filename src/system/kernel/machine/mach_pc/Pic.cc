@@ -641,6 +641,7 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
     bool hasThreadedStage = false;
     size_t dispatchGeneration = 0;
     size_t threadedCookie = 0;
+    bool threadedPublished = false;
     IrqHandlerRegistry::AdmissionCutoff hardAdmissionCutoff = {};
     {
         LockGuard<Spinlock> guard(m_Lock);
@@ -699,6 +700,12 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
 
         if (!cutoffCaptured)
         {
+            const bool wasEnabled = m_IrqState.enabled(irq);
+            m_IrqState.completeDispatch(irq, dispatchGeneration, true);
+            if (wasEnabled != m_IrqState.enabled(irq))
+            {
+                applyMaskLocked();
+            }
             if (controllerAck != IrqControllerAck::None)
             {
                 eoiLocked(irq);
@@ -729,17 +736,28 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
             m_ThreadedHadHardStage[irq] = hasHardStage;
             m_ThreadedHardAdmitted[irq] = false;
             m_ThreadedHardHandled[irq] = false;
-            m_Handlers.publishThreadedDispatch(
+            threadedPublished = m_Handlers.publishThreadedDispatch(
                 irq, threadedCookie, threadedAdmissionCutoff);
+            if (!threadedPublished)
+            {
+                m_ThreadedHadHardStage[irq] = false;
+                m_ThreadedHardAdmitted[irq] = false;
+                m_ThreadedHardHandled[irq] = false;
+                __atomic_add_fetch(
+                    &m_ThreadedPublicationFailures[irq],
+                    static_cast<size_t>(1), __ATOMIC_RELAXED);
+            }
 
             // A mixed line's worker must not overlap the hard callbacks which
             // share its physical occurrence. Its doorbell is rung only after
             // the hard stage below has completed.
-            if (!hasHardStage &&
+            if (!hasHardStage && threadedPublished &&
                 !m_ThreadedDispatcher.publishFromInterrupt(
                     irq, threadedCookie))
             {
-                m_Handlers.cancelThreadedDispatch(irq, threadedCookie);
+                m_Handlers.invalidateThreadedGenerationFromInterrupt(
+                    irq, threadedCookie);
+                threadedPublished = false;
                 m_ThreadedHadHardStage[irq] = false;
                 m_ThreadedHardAdmitted[irq] = false;
                 m_ThreadedHardHandled[irq] = false;
@@ -751,6 +769,15 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
                 controllerAck == IrqControllerAck::AfterHardStage)
             {
                 eoiLocked(irq);
+            }
+            if (!hasHardStage && !threadedPublished)
+            {
+                const bool wasEnabled = m_IrqState.enabled(irq);
+                m_IrqState.completeDispatch(irq, dispatchGeneration, true);
+                if (wasEnabled != m_IrqState.enabled(irq))
+                {
+                    applyMaskLocked();
+                }
             }
         }
         else if (controllerAck == IrqControllerAck::BeforeHardStage)
@@ -787,6 +814,21 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
                  currentDelivery == IrqDelivery::Mixed);
             if (threadedLifetimeCurrent)
             {
+                if (!threadedPublished)
+                {
+                    m_ThreadedHadHardStage[irq] = false;
+                    m_ThreadedHardAdmitted[irq] = false;
+                    m_ThreadedHardHandled[irq] = false;
+                    const bool wasEnabled = m_IrqState.enabled(irq);
+                    m_IrqState.completeDispatch(
+                        irq, dispatchGeneration, true);
+                    if (wasEnabled != m_IrqState.enabled(irq))
+                    {
+                        applyMaskLocked();
+                    }
+                    publishDiagnosticLineLocked(static_cast<uint8_t>(irq));
+                    return;
+                }
                 const bool hardStageQuiesced =
                     currentDelivery == IrqDelivery::Threaded;
                 m_ThreadedHardAdmitted[irq] =
@@ -796,13 +838,25 @@ void Pic::interrupt(size_t interruptNumber, InterruptState &state)
                 if (!m_ThreadedDispatcher.publishFromInterrupt(
                         irq, threadedCookie))
                 {
-                    m_Handlers.cancelThreadedDispatch(irq, threadedCookie);
+                    m_Handlers.invalidateThreadedGenerationFromInterrupt(
+                        irq, threadedCookie);
+                    threadedPublished = false;
                     m_ThreadedHadHardStage[irq] = false;
                     m_ThreadedHardAdmitted[irq] = false;
                     m_ThreadedHardHandled[irq] = false;
                     __atomic_add_fetch(
                         &m_ThreadedPublicationFailures[irq],
                         static_cast<size_t>(1), __ATOMIC_RELAXED);
+                }
+                if (!threadedPublished)
+                {
+                    const bool wasEnabled = m_IrqState.enabled(irq);
+                    m_IrqState.completeDispatch(
+                        irq, dispatchGeneration, true);
+                    if (wasEnabled != m_IrqState.enabled(irq))
+                    {
+                        applyMaskLocked();
+                    }
                 }
             }
             else if (

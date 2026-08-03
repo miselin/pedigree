@@ -877,10 +877,17 @@ bool HostedIrqManager::dispatchDeviceLine(
     if (delivery == IrqDelivery::Threaded)
     {
         const size_t cookie = advanceThreadedCookie(irq);
-        m_Handlers.publishThreadedDispatch(irq, cookie, admissionCutoff);
+        if (!m_Handlers.publishThreadedDispatch(
+                irq, cookie, admissionCutoff))
+        {
+            __atomic_add_fetch(
+                &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
+            return true;
+        }
         if (!m_ThreadedDispatcher.publishFromInterrupt(irq, cookie))
         {
-            m_Handlers.cancelThreadedDispatch(irq, cookie);
+            m_Handlers.invalidateThreadedGenerationFromInterrupt(irq, cookie);
             __atomic_add_fetch(
                 &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
                 __ATOMIC_RELAXED);
@@ -891,7 +898,7 @@ bool HostedIrqManager::dispatchDeviceLine(
     if (delivery == IrqDelivery::Mixed)
     {
         const size_t cookie = advanceThreadedCookie(irq);
-        m_Handlers.publishThreadedDispatch(
+        const bool threadedPublished = m_Handlers.publishThreadedDispatch(
             irq, cookie, mixedAdmissionCutoffs.threaded);
 
         // The occurrence leases now pin exact registry membership. A hard
@@ -907,10 +914,8 @@ bool HostedIrqManager::dispatchDeviceLine(
         const IrqDelivery currentDelivery =
             static_cast<IrqDelivery>(__atomic_load_n(
                 &m_LineDeliveries[irq], __ATOMIC_ACQUIRE));
-        if (!tail.owned() ||
-            __atomic_load_n(&m_ShuttingDown, __ATOMIC_ACQUIRE))
+        if (!tail.owned())
         {
-            m_Handlers.cancelThreadedDispatch(irq, cookie);
             __atomic_add_fetch(
                 &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
                 __ATOMIC_RELAXED);
@@ -920,13 +925,32 @@ bool HostedIrqManager::dispatchDeviceLine(
         const bool cookieCurrent =
             cookie == __atomic_load_n(
                           &m_ThreadedCookies[irq], __ATOMIC_ACQUIRE);
+        if (__atomic_load_n(&m_ShuttingDown, __ATOMIC_ACQUIRE))
+        {
+            if (threadedPublished && cookieCurrent)
+            {
+                m_Handlers.invalidateThreadedGenerationFromInterrupt(
+                    irq, cookie);
+            }
+            __atomic_add_fetch(
+                &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
+            return true;
+        }
         if (!hasThreadedDelivery(currentDelivery) || !cookieCurrent)
         {
             // A newer occurrence owns the current cookie, while ending the
             // old threaded lifetime requires its source to be quiesced. A
             // replacement handler belongs to the next occurrence, so neither
             // transition is a publication failure for this old action.
-            m_Handlers.cancelThreadedDispatch(irq, cookie);
+            return true;
+        }
+
+        if (!threadedPublished)
+        {
+            __atomic_add_fetch(
+                &m_ThreadedPublicationFailures[irq], static_cast<size_t>(1),
+                __ATOMIC_RELAXED);
             return true;
         }
 
@@ -941,7 +965,7 @@ bool HostedIrqManager::dispatchDeviceLine(
             &m_MixedHardOutcomeCookies[irq], cookie, __ATOMIC_RELEASE);
         if (!m_ThreadedDispatcher.publishFromInterrupt(irq, cookie))
         {
-            m_Handlers.cancelThreadedDispatch(irq, cookie);
+            m_Handlers.invalidateThreadedGenerationFromInterrupt(irq, cookie);
             __atomic_store_n(
                 &m_MixedHardOutcomeCookies[irq], static_cast<size_t>(0),
                 __ATOMIC_RELEASE);
