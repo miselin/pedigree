@@ -174,6 +174,15 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    if ! python3 scripts/check-preallocated-publication-boundaries.py \
+            --self-test; then
+        echo "The preallocated-publication boundary checker failed its self-test."
+        failed=1
+    elif ! python3 scripts/check-preallocated-publication-boundaries.py; then
+        echo "Preallocated RequestQueue publication escaped its reviewed call sites."
+        failed=1
+    fi
+
     if ! python3 scripts/check-time-accounting-boundaries.py --self-test; then
         echo "The time-accounting boundary checker failed its self-test."
         failed=1
@@ -1407,7 +1416,7 @@ check_wait_api_boundaries()
     fi
 
     matches=$(rg -n \
-        'RequestQueue|InterruptRequest|enqueueFromInterrupt|republishWhileReleasing|m_RequestQueueWaiters|m_WorkRequest' \
+        'RequestQueue|PreallocatedRequest|publishPreallocated|republishPreallocatedWhileReleasing|m_RequestQueueWaiters|m_WorkRequest' \
         "$split_irq_header" "$split_irq_source" || true)
     if [[ -n "$matches" ]]; then
         echo "The split IRQ adapter still reaches the RequestQueue hard wake path:"
@@ -1766,7 +1775,7 @@ check_wait_api_boundaries()
             src/system/include/pedigree/kernel/machine/Ps2CaptureState.h ||
         [[ "$ps2_gate_tries" != 1 ]] ||
         ! rg -q -U \
-            '(?s)Ps2Controller::hardIrq\(.*?if \(!m_IoGate\.tryAcquire\(\)\).*?work = RecoveryWork;.*?return HardIrqDisposition::Deferred;.*?m_pBase->read8\(4\).*?canPushFromInterrupt\(\).*?work = RecoveryWork;.*?return HardIrqDisposition::Deferred;.*?m_pBase->read8\(0\).*?status & SecondPortData.*?pushFromInterrupt\(.*?work = CapturedWork;.*?return HardIrqDisposition::Deferred;' \
+            '(?s)Ps2Controller::hardIrq\(.*?if \(!m_IoGate\.tryAcquire\(\)\).*?work = RecoveryWork;.*?return HardIrqDisposition::Deferred;.*?m_pBase->read8\(4\).*?hasCapacity\(\).*?work = RecoveryWork;.*?return HardIrqDisposition::Deferred;.*?m_pBase->read8\(0\).*?status & SecondPortData.*?tryPush\(.*?work = CapturedWork;.*?return HardIrqDisposition::Deferred;' \
             <<<"$ps2_hard"; then
         echo "The PS/2 hard stage lost one-shot admission, capacity preflight, or status-based routing."
         failed=1
@@ -1831,7 +1840,7 @@ check_wait_api_boundaries()
 
     if ! rg -q 'ps2-one-shot-hard-admission' "$ps2_regressions" ||
         ! rg -q 'ps2-capture-queue-fidelity' "$ps2_regressions" ||
-        ! rg -q 'canPushFromInterrupt\(\)' "$ps2_regressions"; then
+        ! rg -q 'hasCapacity\(\)' "$ps2_regressions"; then
         echo "Hosted PS/2 admission and capture-queue coverage is incomplete."
         failed=1
     fi

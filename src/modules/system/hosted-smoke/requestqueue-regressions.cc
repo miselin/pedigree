@@ -68,7 +68,7 @@ class HostedRequestQueue : public RequestQueue
         SelfSubmitInner,
         HoldWorker,
         CancelQueued,
-        InterruptHold,
+        PreallocatedHold,
         Record,
         RecordHold,
     };
@@ -132,7 +132,7 @@ class HostedRequestQueue : public RequestQueue
             case SelfSubmit:
                 return addRequest(0, SelfSubmitInner, p2, p3);
             case HoldWorker:
-            case InterruptHold:
+            case PreallocatedHold:
                 holdStarted.release();
                 return releaseHold.acquire() ? p2 : 0;
             case Record:
@@ -482,31 +482,32 @@ void pauseFirstPublication(void *parameter)
     }
 }
 
-struct InterruptPublicationContext
+struct PreallocatedPublicationContext
 {
-    InterruptPublicationContext(
-        HostedRequestQueue *queue, RequestQueue::InterruptRequest *request,
+    PreallocatedPublicationContext(
+        HostedRequestQueue *queue, RequestQueue::PreallocatedRequest *request,
         size_t priority, uint64_t operation, uint64_t value)
         : queue(queue), request(request), priority(priority),
           operation(operation), value(value),
-          result(RequestQueue::InterruptEnqueueResult::QueueStopped),
+          result(RequestQueue::PreallocatedPublishResult::QueueStopped),
           finished(0)
     {
     }
 
     HostedRequestQueue *queue;
-    RequestQueue::InterruptRequest *request;
+    RequestQueue::PreallocatedRequest *request;
     size_t priority;
     uint64_t operation;
     uint64_t value;
-    RequestQueue::InterruptEnqueueResult result;
+    RequestQueue::PreallocatedPublishResult result;
     Atomic<size_t> finished;
 };
 
-int publishInterruptRequest(void *parameter)
+int publishPreallocatedRequest(void *parameter)
 {
-    auto *context = reinterpret_cast<InterruptPublicationContext *>(parameter);
-    context->result = context->queue->enqueueFromInterrupt(
+    auto *context =
+        reinterpret_cast<PreallocatedPublicationContext *>(parameter);
+    context->result = context->queue->publishPreallocated(
         *context->request, context->priority, context->operation,
         context->value);
     context->finished += 1;
@@ -540,9 +541,9 @@ int publishAsyncRequest(void *parameter)
     return 0;
 }
 
-struct InterruptReleaseContext
+struct PreallocatedReleaseContext
 {
-    InterruptReleaseContext(
+    PreallocatedReleaseContext(
         HostedRequestQueue *queue, bool requeueOnce, bool holdFirst = false)
         : queue(queue), request(nullptr), requeueOnce(requeueOnce),
           holdFirst(holdFirst), callbacks(0), requeues(0), failures(0),
@@ -551,7 +552,7 @@ struct InterruptReleaseContext
     }
 
     HostedRequestQueue *queue;
-    RequestQueue::InterruptRequest *request;
+    RequestQueue::PreallocatedRequest *request;
     bool requeueOnce;
     bool holdFirst;
     Atomic<size_t> callbacks;
@@ -561,9 +562,9 @@ struct InterruptReleaseContext
     Semaphore releaseCallback;
 };
 
-void interruptRequestReleased(void *parameter)
+void preallocatedRequestReleased(void *parameter)
 {
-    auto *context = reinterpret_cast<InterruptReleaseContext *>(parameter);
+    auto *context = reinterpret_cast<PreallocatedReleaseContext *>(parameter);
     const size_t callback = (context->callbacks += 1);
     if (!context->request || context->request->isAvailable())
     {
@@ -583,9 +584,9 @@ void interruptRequestReleased(void *parameter)
     if (context->request && context->requeueOnce &&
         context->requeues.compareAndSwap(0, 1))
     {
-        if (context->queue->republishWhileReleasing(
+        if (context->queue->republishPreallocatedWhileReleasing(
                 *context->request, 0, HostedRequestQueue::Sum, 20, 22) !=
-            RequestQueue::InterruptEnqueueResult::Accepted)
+            RequestQueue::PreallocatedPublishResult::Accepted)
         {
             context->failures += 1;
         }
@@ -594,10 +595,10 @@ void interruptRequestReleased(void *parameter)
 
 bool predicateDoorbellRegression()
 {
-    using Result = RequestQueue::InterruptEnqueueResult;
+    using Result = RequestQueue::PreallocatedPublishResult;
 
     HostedRequestQueue queue;
-    RequestQueue::InterruptRequest request;
+    RequestQueue::PreallocatedRequest request;
     queue.initialise();
 
     // Consume initialise()'s readiness notification so the publication below
@@ -607,9 +608,9 @@ bool predicateDoorbellRegression()
     const bool interrupts = Processor::getInterrupts();
     Processor::setInterrupts(false);
     const Result accepted =
-        queue.enqueueFromInterrupt(request, 0, HostedRequestQueue::Sum, 20, 22);
+        queue.publishPreallocated(request, 0, HostedRequestQueue::Sum, 20, 22);
     const Result busy =
-        queue.enqueueFromInterrupt(request, 0, HostedRequestQueue::Sum, 19, 23);
+        queue.publishPreallocated(request, 0, HostedRequestQueue::Sum, 19, 23);
     const bool doorbellPending =
         PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest();
     const bool deferred = queue.executions == 0;
@@ -636,12 +637,12 @@ bool predicateDoorbellRegression()
     return passed;
 }
 
-bool interruptDuplicateDomainRegression()
+bool preallocatedDuplicateDomainRegression()
 {
-    using Result = RequestQueue::InterruptEnqueueResult;
+    using Result = RequestQueue::PreallocatedPublishResult;
 
     HostedRequestQueue queue;
-    RequestQueue::InterruptRequest interrupt;
+    RequestQueue::PreallocatedRequest preallocated;
     queue.setMatchEqualPayload(true);
     queue.initialise();
 
@@ -651,8 +652,8 @@ bool interruptDuplicateDomainRegression()
 
     const bool interrupts = Processor::getInterrupts();
     Processor::setInterrupts(false);
-    const Result interruptAccepted = queue.enqueueFromInterrupt(
-        interrupt, 1, HostedRequestQueue::Record, 77, 88);
+    const Result preallocatedAccepted = queue.publishPreallocated(
+        preallocated, 1, HostedRequestQueue::Record, 77, 88);
     Processor::setInterrupts(interrupts);
 
     const size_t comparisonsBefore = queue.comparisons;
@@ -667,30 +668,31 @@ bool interruptDuplicateDomainRegression()
                               queue.recorded[1] == 77;
     queue.destroy();
 
-    passed &= interruptAccepted == Result::Accepted && allocatedAccepted &&
+    passed &= preallocatedAccepted == Result::Accepted && allocatedAccepted &&
               comparisonsBefore == 0 && comparisonsAfter == 0 && drained &&
-              executedBoth && interrupt.isAvailable() &&
+              executedBoth && preallocated.isAvailable() &&
               queue.cancellations == 0 && queue.executions == 3;
     passed = check(
         passed,
-        "allocation-backed duplicate comparison entered the interrupt-token "
+        "allocation-backed duplicate comparison entered the preallocated "
+        "token "
         "coalescing domain");
     if (passed)
     {
         NOTICE(
             "HOSTED-WAIT-TEST: PASS "
-            "requestqueue-interrupt-duplicate-domain");
+            "requestqueue-preallocated-duplicate-domain");
     }
     return passed;
 }
 
 bool intakeOrderingRegression()
 {
-    using Result = RequestQueue::InterruptEnqueueResult;
+    using Result = RequestQueue::PreallocatedPublishResult;
 
     HostedRequestQueue queue;
-    RequestQueue::InterruptRequest firstInterrupt;
-    RequestQueue::InterruptRequest secondInterrupt;
+    RequestQueue::PreallocatedRequest firstPreallocated;
+    RequestQueue::PreallocatedRequest secondPreallocated;
     queue.initialise();
 
     bool passed =
@@ -701,14 +703,14 @@ bool intakeOrderingRegression()
 
     const bool interrupts = Processor::getInterrupts();
     Processor::setInterrupts(false);
-    const Result firstAccepted = queue.enqueueFromInterrupt(
-        firstInterrupt, 1, HostedRequestQueue::Record, 11);
+    const Result firstAccepted = queue.publishPreallocated(
+        firstPreallocated, 1, HostedRequestQueue::Record, 11);
     Processor::setInterrupts(interrupts);
 
     passed &= queue.addAsyncRequest(1, HostedRequestQueue::Record, 12) == 1;
     Processor::setInterrupts(false);
-    const Result secondAccepted = queue.enqueueFromInterrupt(
-        secondInterrupt, 1, HostedRequestQueue::Record, 13);
+    const Result secondAccepted = queue.publishPreallocated(
+        secondPreallocated, 1, HostedRequestQueue::Record, 13);
     Processor::setInterrupts(interrupts);
 
     passed &= queue.addAsyncRequest(2, HostedRequestQueue::Record, 20) == 1;
@@ -730,7 +732,8 @@ bool intakeOrderingRegression()
     passed &= firstAccepted == Result::Accepted &&
               secondAccepted == Result::Accepted && drained && orderMatches &&
               queue.recordFailures == 0 && queue.executions == 8 &&
-              firstInterrupt.isAvailable() && secondInterrupt.isAvailable();
+              firstPreallocated.isAvailable() &&
+              secondPreallocated.isAvailable();
     queue.destroy();
 
     passed = check(
@@ -745,11 +748,11 @@ bool intakeOrderingRegression()
 
 bool haltRetentionRegression()
 {
-    using Result = RequestQueue::InterruptEnqueueResult;
+    using Result = RequestQueue::PreallocatedPublishResult;
 
     HostedRequestQueue queue;
-    RequestQueue::InterruptRequest retained;
-    RequestQueue::InterruptRequest rejected;
+    RequestQueue::PreallocatedRequest retained;
+    RequestQueue::PreallocatedRequest rejected;
     queue.initialise();
 
     bool passed =
@@ -760,7 +763,7 @@ bool haltRetentionRegression()
     const bool interrupts = Processor::getInterrupts();
     Processor::setInterrupts(false);
     const Result retainedResult =
-        queue.enqueueFromInterrupt(retained, 1, HostedRequestQueue::Record, 41);
+        queue.publishPreallocated(retained, 1, HostedRequestQueue::Record, 41);
     Processor::setInterrupts(interrupts);
 
     RequestQueueHaltContext haltContext(&queue);
@@ -785,7 +788,7 @@ bool haltRetentionRegression()
     if (stopping)
     {
         Processor::setInterrupts(false);
-        rejectedResult = queue.enqueueFromInterrupt(
+        rejectedResult = queue.publishPreallocated(
             rejected, 1, HostedRequestQueue::Record, 42);
         Processor::setInterrupts(interrupts);
     }
@@ -823,17 +826,18 @@ bool haltRetentionRegression()
 
 bool rejectedPublisherDestroyWaitRegression()
 {
-    using Result = RequestQueue::InterruptEnqueueResult;
+    using Result = RequestQueue::PreallocatedPublishResult;
 
     HostedRequestQueue queue;
-    RequestQueue::InterruptRequest request;
+    RequestQueue::PreallocatedRequest request;
     PublicationPauseContext pause;
-    queue.setAfterInterruptAdmissionHookForTest(pauseFirstPublication, &pause);
+    queue.setAfterPreallocatedAdmissionHookForTest(
+        pauseFirstPublication, &pause);
 
-    InterruptPublicationContext publication(
+    PreallocatedPublicationContext publication(
         &queue, &request, 1, HostedRequestQueue::Record, 16);
     Thread *publisher = new Thread(
-        Scheduler::instance().getKernelProcess(), publishInterruptRequest,
+        Scheduler::instance().getKernelProcess(), publishPreallocatedRequest,
         &publication, nullptr, false, true);
     publisher->setName("hosted RequestQueue rejected publication pause");
     const bool paused = pause.entered.acquire();
@@ -862,7 +866,7 @@ bool rejectedPublisherDestroyWaitRegression()
     pause.release.release();
     const bool publisherJoined = publisher->join();
     const bool destroyerJoined = destroyer->join();
-    queue.setAfterInterruptAdmissionHookForTest(nullptr, nullptr);
+    queue.setAfterPreallocatedAdmissionHookForTest(nullptr, nullptr);
 
     const bool passed = check(
         paused && destroyWaited && publisherJoined && destroyerJoined &&
@@ -882,20 +886,21 @@ bool rejectedPublisherDestroyWaitRegression()
     return passed;
 }
 
-bool interruptAdmissionCloseWaitRegression()
+bool preallocatedAdmissionCloseWaitRegression()
 {
-    using Result = RequestQueue::InterruptEnqueueResult;
+    using Result = RequestQueue::PreallocatedPublishResult;
 
     HostedRequestQueue queue;
-    RequestQueue::InterruptRequest request;
+    RequestQueue::PreallocatedRequest request;
     PublicationPauseContext pause;
     queue.initialise();
-    queue.setAfterInterruptAdmissionHookForTest(pauseFirstPublication, &pause);
+    queue.setAfterPreallocatedAdmissionHookForTest(
+        pauseFirstPublication, &pause);
 
-    InterruptPublicationContext publication(
+    PreallocatedPublicationContext publication(
         &queue, &request, 1, HostedRequestQueue::Record, 17);
     Thread *publisher = new Thread(
-        Scheduler::instance().getKernelProcess(), publishInterruptRequest,
+        Scheduler::instance().getKernelProcess(), publishPreallocatedRequest,
         &publication, nullptr, false, true);
     publisher->setName("hosted RequestQueue admitted publication pause");
     const bool paused = pause.entered.acquire();
@@ -924,7 +929,7 @@ bool interruptAdmissionCloseWaitRegression()
     pause.release.release();
     const bool publisherJoined = publisher->join();
     const bool destroyerJoined = destroyer->join();
-    queue.setAfterInterruptAdmissionHookForTest(nullptr, nullptr);
+    queue.setAfterPreallocatedAdmissionHookForTest(nullptr, nullptr);
 
     const bool passed = check(
         paused && destroyWaited && publisherJoined && destroyerJoined &&
@@ -933,23 +938,23 @@ bool interruptAdmissionCloseWaitRegression()
             destroyContext.finished == 1 && request.isAvailable() &&
             pause.calls == 1 && pause.failures == 0 && queue.executions == 0 &&
             queue.cancellations == 1 && queue.recordedCount == 0,
-        "destroy outran an admitted interrupt publisher paused before its "
+        "destroy outran an admitted preallocated publisher paused before its "
         "closed-gate observation");
     if (passed)
     {
         NOTICE(
             "HOSTED-WAIT-TEST: PASS "
-            "requestqueue-interrupt-admission-close-wait");
+            "requestqueue-preallocated-admission-close-wait");
     }
     return passed;
 }
 
 bool intakeTransientPublicationRegression()
 {
-    using Result = RequestQueue::InterruptEnqueueResult;
+    using Result = RequestQueue::PreallocatedPublishResult;
 
     HostedRequestQueue queue;
-    RequestQueue::InterruptRequest interrupt;
+    RequestQueue::PreallocatedRequest preallocated;
     PublicationPauseContext pause;
     queue.initialise();
 
@@ -959,12 +964,12 @@ bool intakeTransientPublicationRegression()
     passed &= queue.addAsyncRequest(3, HostedRequestQueue::Record, 30) == 1;
     queue.setAfterIntakeExchangeHookForTest(pauseFirstPublication, &pause);
 
-    InterruptPublicationContext first(
-        &queue, &interrupt, 1, HostedRequestQueue::RecordHold, 10);
-    Thread *interruptPublisher = new Thread(
-        Scheduler::instance().getKernelProcess(), publishInterruptRequest,
+    PreallocatedPublicationContext first(
+        &queue, &preallocated, 1, HostedRequestQueue::RecordHold, 10);
+    Thread *preallocatedPublisher = new Thread(
+        Scheduler::instance().getKernelProcess(), publishPreallocatedRequest,
         &first, nullptr, false, true);
-    interruptPublisher->setName(
+    preallocatedPublisher->setName(
         "hosted RequestQueue incomplete MPSC publisher");
     const bool paused = pause.entered.acquire();
 
@@ -991,7 +996,7 @@ bool intakeTransientPublicationRegression()
     const bool noOvertake =
         queue.recordedCount == 0 && !first.finished && !second.finished;
     pause.release.release();
-    const bool interruptJoined = interruptPublisher->join();
+    const bool preallocatedJoined = preallocatedPublisher->join();
     const bool firstHeld = queue.holdStarted.acquire();
     const bool ordinaryJoined = ordinaryPublisher->join();
     queue.setAfterIntakeExchangeHookForTest(nullptr, nullptr);
@@ -1012,11 +1017,11 @@ bool intakeTransientPublicationRegression()
     }
     queue.destroy();
 
-    passed &= paused && bothRetried && noOvertake && interruptJoined &&
+    passed &= paused && bothRetried && noOvertake && preallocatedJoined &&
               ordinaryJoined && first.result == Result::Accepted &&
               first.finished == 1 && second.result == 1 &&
               second.finished == 1 && firstStillLeads && drained &&
-              orderMatches && interrupt.isAvailable() && pause.calls == 2 &&
+              orderMatches && preallocated.isAvailable() && pause.calls == 2 &&
               pause.failures == 0 && queue.executions == 4 &&
               queue.cancellations == 0 && queue.recordFailures == 0;
     passed = check(
@@ -1032,27 +1037,27 @@ bool intakeTransientPublicationRegression()
     return passed;
 }
 
-bool interruptRequestRegressions()
+bool preallocatedRequestRegressions()
 {
-    using Result = RequestQueue::InterruptEnqueueResult;
+    using Result = RequestQueue::PreallocatedPublishResult;
 
     bool passed = true;
     {
         HostedRequestQueue queue;
-        InterruptReleaseContext releaseContext(&queue, false, true);
-        RequestQueue::InterruptRequest released(
-            interruptRequestReleased, &releaseContext);
+        PreallocatedReleaseContext releaseContext(&queue, false, true);
+        RequestQueue::PreallocatedRequest released(
+            preallocatedRequestReleased, &releaseContext);
         releaseContext.request = &released;
         queue.setMaxAsyncRequests(0);
         queue.initialise();
 
         passed &= check(
-            queue.republishWhileReleasing(
+            queue.republishPreallocatedWhileReleasing(
                 released, 0, HostedRequestQueue::Sum) == Result::TokenBusy &&
                 released.isAvailable(),
             "an idle token accepted release-only republication");
         passed &= check(
-            queue.enqueueFromInterrupt(
+            queue.publishPreallocated(
                 released, 0, HostedRequestQueue::Sum, 19, 23) ==
                 Result::Accepted,
             "release-callback request was not admitted");
@@ -1064,7 +1069,7 @@ bool interruptRequestRegressions()
         Thread *drainer = new Thread(
             Scheduler::instance().getKernelProcess(), drainRequestQueue,
             &drainContext, nullptr, false, true);
-        drainer->setName("hosted interrupt release drain regression");
+        drainer->setName("hosted preallocated release drain regression");
         const bool drainWaitPublished =
             waitUntilQueued(drainer, Thread::CallbackDrain);
         passed &= check(
@@ -1072,7 +1077,7 @@ bool interruptRequestRegressions()
             "drain observed a transient empty queue during release");
 
         passed &= check(
-            queue.republishWhileReleasing(
+            queue.republishPreallocatedWhileReleasing(
                 released, 0, HostedRequestQueue::Sum, 20, 22) ==
                     Result::Accepted &&
                 !released.isAvailable(),
@@ -1088,15 +1093,15 @@ bool interruptRequestRegressions()
 
     {
         HostedRequestQueue queue;
-        InterruptReleaseContext releaseContext(&queue, true);
-        RequestQueue::InterruptRequest released(
-            interruptRequestReleased, &releaseContext);
+        PreallocatedReleaseContext releaseContext(&queue, true);
+        RequestQueue::PreallocatedRequest released(
+            preallocatedRequestReleased, &releaseContext);
         releaseContext.request = &released;
         queue.setMaxAsyncRequests(0);
         queue.initialise();
 
         passed &= check(
-            queue.enqueueFromInterrupt(
+            queue.publishPreallocated(
                 released, 0, HostedRequestQueue::Sum, 19, 23) ==
                     Result::Accepted &&
                 queue.drain() && released.isAvailable() &&
@@ -1108,29 +1113,29 @@ bool interruptRequestRegressions()
 
     {
         HostedRequestQueue queue;
-        RequestQueue::InterruptRequest request;
-        RequestQueue::InterruptRequest capacity;
+        RequestQueue::PreallocatedRequest request;
+        RequestQueue::PreallocatedRequest capacity;
 
         passed &= check(
-            queue.enqueueFromInterrupt(
+            queue.publishPreallocated(
                 request, 0, HostedRequestQueue::Sum, 20, 22) ==
                     Result::QueueStopped &&
                 request.isAvailable(),
-            "a stopped queue claimed an interrupt token");
+            "a stopped queue claimed a preallocated token");
         passed &= check(
-            queue.enqueueFromInterrupt(
+            queue.publishPreallocated(
                 request, REQUEST_QUEUE_NUM_PRIORITIES,
                 HostedRequestQueue::Sum) == Result::InvalidPriority &&
                 request.isAvailable(),
-            "an invalid interrupt priority claimed its token");
+            "an invalid preallocated priority claimed its token");
 
         queue.initialise();
         const bool interrupts = Processor::getInterrupts();
         const size_t comparisonsBefore = queue.comparisons;
         Processor::setInterrupts(false);
-        const Result accepted = queue.enqueueFromInterrupt(
+        const Result accepted = queue.publishPreallocated(
             request, 0, HostedRequestQueue::Sum, 20, 22);
-        const Result busy = queue.enqueueFromInterrupt(
+        const Result busy = queue.publishPreallocated(
             request, 0, HostedRequestQueue::Sum, 19, 23);
         const bool deferred = queue.executions == 0;
         Processor::setInterrupts(interrupts);
@@ -1144,23 +1149,23 @@ bool interruptRequestRegressions()
             "detection");
         passed &= check(
             queue.drain() && request.isAvailable() && queue.executions == 1,
-            "executed interrupt work did not release its token");
+            "executed preallocated work did not release its token");
 
         passed &= check(
-            queue.enqueueFromInterrupt(
-                request, 0, HostedRequestQueue::InterruptHold, 42) ==
+            queue.publishPreallocated(
+                request, 0, HostedRequestQueue::PreallocatedHold, 42) ==
                     Result::Accepted &&
                 queue.holdStarted.acquire(),
-            "interrupt hold request was not admitted");
+            "preallocated hold request was not admitted");
         passed &= check(
-            queue.enqueueFromInterrupt(
-                request, 0, HostedRequestQueue::InterruptHold, 42) ==
+            queue.publishPreallocated(
+                request, 0, HostedRequestQueue::PreallocatedHold, 42) ==
                 Result::TokenBusy,
-            "a published interrupt token was admitted twice");
+            "a published preallocated token was admitted twice");
         queue.setMaxAsyncRequests(1);
         const size_t cancellationsBeforeCapacity = queue.cancellations;
         passed &= check(
-            queue.enqueueFromInterrupt(
+            queue.publishPreallocated(
                 capacity, 0, HostedRequestQueue::Sum, 1, 2) ==
                     Result::Accepted &&
                 !capacity.isAvailable() &&
@@ -1172,24 +1177,24 @@ bool interruptRequestRegressions()
         passed &= check(
             queue.drain() && request.isAvailable() && capacity.isAvailable() &&
                 queue.executions == 3,
-            "over-capacity interrupt work did not drain exactly once");
+            "over-capacity preallocated work did not drain exactly once");
 
         passed &= check(
-            queue.enqueueFromInterrupt(
+            queue.publishPreallocated(
                 capacity, 0, HostedRequestQueue::Sum, 19, 23) ==
                 Result::Accepted,
-            "a drained interrupt token was not admitted again");
+            "a drained preallocated token was not admitted again");
         passed &= check(
             queue.drain() && capacity.isAvailable() && queue.executions == 4,
-            "a drained interrupt token could not be reused");
+            "a drained preallocated token could not be reused");
         queue.destroy();
     }
 
     {
         HostedRequestQueue queue;
-        InterruptReleaseContext releaseContext(&queue, false);
-        RequestQueue::InterruptRequest cancelled(
-            interruptRequestReleased, &releaseContext);
+        PreallocatedReleaseContext releaseContext(&queue, false);
+        RequestQueue::PreallocatedRequest cancelled(
+            preallocatedRequestReleased, &releaseContext);
         releaseContext.request = &cancelled;
         queue.initialise();
         passed &= check(
@@ -1197,16 +1202,16 @@ bool interruptRequestRegressions()
                 queue.holdStarted.acquire(),
             "teardown setup did not hold the worker");
         passed &= check(
-            queue.enqueueFromInterrupt(
+            queue.publishPreallocated(
                 cancelled, 0, HostedRequestQueue::CancelQueued) ==
                 Result::Accepted,
-            "teardown setup did not queue the interrupt token");
+            "teardown setup did not queue the preallocated token");
 
         RequestQueueDestroyContext destroyContext(&queue);
         Thread *destroyer = new Thread(
             Scheduler::instance().getKernelProcess(), destroyRequestQueue,
             &destroyContext, nullptr, false, true);
-        destroyer->setName("hosted interrupt request destroy regression");
+        destroyer->setName("hosted preallocated request destroy regression");
         while (queue.getLifecycleState() !=
                RequestQueue::LifecycleState::Stopping)
         {
@@ -1219,17 +1224,17 @@ bool interruptRequestRegressions()
                 cancelled.isAvailable() && queue.cancellations == 1 &&
                 queue.queuedCancellations == 1 &&
                 releaseContext.callbacks == 1 && releaseContext.failures == 0,
-            "destroy did not cancel and release queued interrupt work");
+            "destroy did not cancel and release queued preallocated work");
         passed &= check(
-            queue.enqueueFromInterrupt(cancelled, 0, HostedRequestQueue::Sum) ==
+            queue.publishPreallocated(cancelled, 0, HostedRequestQueue::Sum) ==
                     Result::QueueStopped &&
                 cancelled.isAvailable(),
-            "a stopped queue retained a reused interrupt token");
+            "a stopped queue retained a reused preallocated token");
     }
 
     if (passed)
     {
-        NOTICE("HOSTED-WAIT-TEST: PASS requestqueue-interrupt-token");
+        NOTICE("HOSTED-WAIT-TEST: PASS requestqueue-preallocated-token");
     }
     return passed;
 }
@@ -1246,7 +1251,7 @@ bool runHostedRequestQueueRegressions()
     }
     NOTICE("HOSTED-WAIT-TEST: PASS scheduler-intrusive-ready-queue");
 
-    if (!interruptRequestRegressions())
+    if (!preallocatedRequestRegressions())
     {
         return false;
     }
@@ -1256,7 +1261,7 @@ bool runHostedRequestQueueRegressions()
         return false;
     }
 
-    if (!interruptDuplicateDomainRegression())
+    if (!preallocatedDuplicateDomainRegression())
     {
         return false;
     }
@@ -1276,7 +1281,7 @@ bool runHostedRequestQueueRegressions()
         return false;
     }
 
-    if (!interruptAdmissionCloseWaitRegression())
+    if (!preallocatedAdmissionCloseWaitRegression())
     {
         return false;
     }

@@ -313,14 +313,14 @@ void NetworkStack::receive(
     for (size_t i = 0; i < ReceiveRequestCapacity; ++i)
     {
         const size_t request = (firstRequest + i) % ReceiveRequestCapacity;
-        const InterruptEnqueueResult result = enqueueFromInterrupt(
+        const PreallocatedPublishResult result = publishPreallocated(
             m_ReceiveRequests[request], 0, reinterpret_cast<uint64_t>(p),
             reinterpret_cast<uintptr_t>(pCard), generation);
-        if (result == InterruptEnqueueResult::Accepted)
+        if (result == PreallocatedPublishResult::Accepted)
         {
             return;
         }
-        if (result != InterruptEnqueueResult::TokenBusy)
+        if (result != PreallocatedPublishResult::TokenBusy)
         {
             break;
         }

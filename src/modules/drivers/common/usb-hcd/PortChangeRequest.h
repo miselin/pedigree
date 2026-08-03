@@ -273,9 +273,9 @@ class PortChangeRequest
         }
     }
 
-    static Result translate(RequestQueue::InterruptEnqueueResult result)
+    static Result translate(RequestQueue::PreallocatedPublishResult result)
     {
-        using QueueResult = RequestQueue::InterruptEnqueueResult;
+        using QueueResult = RequestQueue::PreallocatedPublishResult;
         switch (result)
         {
             case QueueResult::Accepted:
@@ -324,21 +324,20 @@ class PortChangeRequest
 
     Result publishGeneration(size_t generation, bool tryIdle)
     {
-        auto result = m_Queue->republishWhileReleasing(
+        auto result = m_Queue->republishPreallocatedWhileReleasing(
             m_Request, m_Priority, m_Parameters[0], m_Parameters[1],
-            m_Parameters[2], m_Parameters[3], m_Parameters[4],
-            m_Parameters[5], m_Parameters[6], generation);
-        if (
-            tryIdle &&
-            result == RequestQueue::InterruptEnqueueResult::TokenBusy)
+            m_Parameters[2], m_Parameters[3], m_Parameters[4], m_Parameters[5],
+            m_Parameters[6], generation);
+        if (tryIdle &&
+            result == RequestQueue::PreallocatedPublishResult::TokenBusy)
         {
-            result = m_Queue->enqueueFromInterrupt(
+            result = m_Queue->publishPreallocated(
                 m_Request, m_Priority, m_Parameters[0], m_Parameters[1],
                 m_Parameters[2], m_Parameters[3], m_Parameters[4],
                 m_Parameters[5], m_Parameters[6], generation);
         }
 
-        if (result == RequestQueue::InterruptEnqueueResult::TokenBusy)
+        if (result == RequestQueue::PreallocatedPublishResult::TokenBusy)
         {
             return Result::Coalesced;
         }
@@ -375,7 +374,7 @@ class PortChangeRequest
         advance(m_Consumed, generation);
     }
 
-    RequestQueue::InterruptRequest m_Request;
+    RequestQueue::PreallocatedRequest m_Request;
     RequestQueue *m_Queue;
     size_t m_Priority;
     uint64_t m_Parameters[7];

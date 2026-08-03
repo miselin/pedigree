@@ -188,11 +188,12 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue
     /** Next non-zero registration generation. */
     size_t m_NextDeviceGeneration;
 
-    // Keep interrupt publication state after the pre-existing fields so their
-    // offsets remain stable for inline accessors compiled into driver modules.
-    InterruptRequest m_ReceiveRequests[ReceiveRequestCapacity];
+    // Keep preallocated publication state after the pre-existing fields so
+    // their offsets remain stable for inline accessors compiled into driver
+    // modules.
+    PreallocatedRequest m_ReceiveRequests[ReceiveRequestCapacity];
 
-    /** Starting token for the next bounded interrupt-side scan. */
+    /** Starting token for the next bounded preallocated-publication scan. */
     Atomic<size_t> m_NextReceiveRequest;
 };
 

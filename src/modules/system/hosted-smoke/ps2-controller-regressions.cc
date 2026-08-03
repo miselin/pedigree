@@ -51,9 +51,8 @@ bool captureQueueFidelity()
     bool passed = true;
 
     passed &= check(
-        queue.pushFromInterrupt(Ps2CapturedByte(0x1E, false)) &&
-            queue.pushFromInterrupt(Ps2CapturedByte(0xA5, true)) &&
-            queue.pending() == 2,
+        queue.tryPush(Ps2CapturedByte(0x1E, false)) &&
+            queue.tryPush(Ps2CapturedByte(0xA5, true)) && queue.pending() == 2,
         Test, "captured keyboard and auxiliary bytes were not retained");
 
     Ps2CapturedByte record;
@@ -65,12 +64,11 @@ bool captureQueueFidelity()
 
     for (size_t i = 0; i < Ps2CaptureQueue::Capacity; ++i)
     {
-        passed &= queue.pushFromInterrupt(
+        passed &= queue.tryPush(
             Ps2CapturedByte(static_cast<uint8_t>(i), (i & 1) != 0));
     }
     passed &= check(
-        !queue.canPushFromInterrupt() &&
-            !queue.pushFromInterrupt(Ps2CapturedByte(0xFF, false)) &&
+        !queue.hasCapacity() && !queue.tryPush(Ps2CapturedByte(0xFF, false)) &&
             queue.pending() == Ps2CaptureQueue::Capacity,
         Test, "a full hard-stage queue overwrote an unread byte");
 
@@ -81,9 +79,9 @@ bool captureQueueFidelity()
                   record.secondPort == ((i & 1) != 0);
     }
     passed &= check(
-        !queue.pending() && queue.canPushFromInterrupt() &&
-            queue.pushFromInterrupt(Ps2CapturedByte(0x42, false)) &&
-            queue.pop(record) && record.value == 0x42 && !record.secondPort,
+        !queue.pending() && queue.hasCapacity() &&
+            queue.tryPush(Ps2CapturedByte(0x42, false)) && queue.pop(record) &&
+            record.value == 0x42 && !record.secondPort,
         Test, "the bounded queue did not recover after wraparound");
 
     if (passed)

@@ -49,7 +49,7 @@ class PerProcessorScheduler;
 class EXPORTED_PUBLIC RequestQueue
 {
   public:
-    class InterruptRequest;
+    class PreallocatedRequest;
 
     enum class OverrunStatus
     {
@@ -65,11 +65,11 @@ class EXPORTED_PUBLIC RequestQueue
 
     using HostedSmokeHook = void (*)(void *);
 
-    void
-    setAfterInterruptAdmissionHookForTest(HostedSmokeHook hook, void *context)
+    void setAfterPreallocatedAdmissionHookForTest(
+        HostedSmokeHook hook, void *context)
     {
-        m_AfterInterruptAdmissionHook = hook;
-        m_AfterInterruptAdmissionContext = context;
+        m_AfterPreallocatedAdmissionHook = hook;
+        m_AfterPreallocatedAdmissionContext = context;
     }
 
     void setAfterIntakeExchangeHookForTest(HostedSmokeHook hook, void *context)
@@ -142,7 +142,8 @@ class EXPORTED_PUBLIC RequestQueue
             size_t requestPriority, bool asynchronous, uint64_t requestP1,
             uint64_t requestP2, uint64_t requestP3, uint64_t requestP4,
             uint64_t requestP5, uint64_t requestP6, uint64_t requestP7,
-            uint64_t requestP8, InterruptRequest *interruptOwner = nullptr)
+            uint64_t requestP8,
+            PreallocatedRequest *preallocatedOwner = nullptr)
             : p1(requestP1), p2(requestP2), p3(requestP3), p4(requestP4),
               p5(requestP5), p6(requestP6), p7(requestP7), p8(requestP8),
               m_ReturnValue(0),
@@ -151,14 +152,14 @@ class EXPORTED_PUBLIC RequestQueue
 #endif
               m_Next(nullptr), m_Intake(this), m_Priority(requestPriority),
               m_Asynchronous(asynchronous), m_Rejected(false),
-              m_Completed(false), m_pInterruptOwner(interruptOwner)
+              m_Completed(false), m_pPreallocatedOwner(preallocatedOwner)
         {
         }
 
         uint64_t p1, p2, p3, p4, p5, p6, p7, p8;
 
       private:
-        friend class InterruptRequest;
+        friend class PreallocatedRequest;
         friend class RequestQueue;
 
         ~Request() = default;
@@ -174,7 +175,7 @@ class EXPORTED_PUBLIC RequestQueue
         bool m_Asynchronous;
         bool m_Rejected;
         bool m_Completed;
-        InterruptRequest *m_pInterruptOwner;
+        PreallocatedRequest *m_pPreallocatedOwner;
 
         Request(const Request &);
         void operator=(const Request &);
@@ -197,36 +198,37 @@ class EXPORTED_PUBLIC RequestQueue
 
   public:
     /**
-     * Single preallocated publication slot for IRQ and timer callbacks.
+     * Single preallocated publication slot for allocation-free producers.
      *
-     * Use one token per logical interrupt source. Republishing the same token
-     * coalesces work until the queued request has executed or been cancelled.
+     * Use one token per logical source. Republishing the same token coalesces
+     * work until the queued request has executed or been cancelled.
      *
      * The owner must keep this object alive until isAvailable() is true. A
-     * successful enqueue transfers payload ownership to the queue; every
+     * successful publication transfers payload ownership to the queue; every
      * rejection leaves ownership with the caller. An optional release
      * callback runs after execution or cancellation, outside the request-list
      * and waiter guard. The token remains unavailable until it returns; it may
      * republish allocation-free dependent work through
-     * republishWhileReleasing().
+     * republishPreallocatedWhileReleasing().
      * The callback can run on the queue worker, a teardown thread, or inline
      * when threading is disabled. It must be bounded and nonblocking, and must
      * not enter queue lifecycle operations or destroy the queue or token.
      */
-    class EXPORTED_PUBLIC InterruptRequest
+    class EXPORTED_PUBLIC PreallocatedRequest
     {
       public:
         using ReleaseCallback = void (*)(void *);
 
-        InterruptRequest();
-        InterruptRequest(ReleaseCallback releaseCallback, void *releaseContext);
-        ~InterruptRequest();
+        PreallocatedRequest();
+        PreallocatedRequest(
+            ReleaseCallback releaseCallback, void *releaseContext);
+        ~PreallocatedRequest();
 
         bool isAvailable() const;
 
       private:
         friend class RequestQueue;
-        NOT_COPYABLE_OR_ASSIGNABLE(InterruptRequest);
+        NOT_COPYABLE_OR_ASSIGNABLE(PreallocatedRequest);
 
         enum State
         {
@@ -243,7 +245,7 @@ class EXPORTED_PUBLIC RequestQueue
         void *m_ReleaseContext;
     };
 
-    enum class InterruptEnqueueResult
+    enum class PreallocatedPublishResult
     {
         Accepted,
         // Another accepted publication, or a claim that cannot roll back,
@@ -251,7 +253,7 @@ class EXPORTED_PUBLIC RequestQueue
         TokenBusy,
         QueueStopped,
         // Retained for source and module ABI compatibility. Preallocated
-        // interrupt publications do not consume allocation admission.
+        // publications do not consume allocation admission.
         QueueFull,
         InvalidPriority,
     };
@@ -321,20 +323,23 @@ class EXPORTED_PUBLIC RequestQueue
         uint64_t p8 = 0);
 
     /**
-     * Publishes preallocated work from an IRQ or timer callback.
+     * Publishes allocation-free work using a preallocated token.
      *
      * This path performs no allocation, deallocation, logging, or blocking.
-     * It does not participate in compareRequests(): token identity is the
-     * interrupt-side coalescing mechanism, and allocation-backed requests are
-     * always a distinct duplicate domain. Preallocated work bypasses the
-     * allocation-backed asynchronous backlog limit. The same token cannot be
-     * republished until execution or cancellation has returned it to Idle.
-     * TokenBusy is returned only for work whose queue admission can no longer
-     * fail. The queue and token owner must outlive this call; destroy()
-     * requires the interrupt or timer source to be quiesced first.
+     * It does not participate in compareRequests(): token identity provides
+     * coalescing, and allocation-backed requests are always a distinct
+     * duplicate domain. Preallocated work bypasses the allocation-backed
+     * asynchronous backlog limit. The same token cannot be republished until
+     * execution or cancellation has returned it to Idle. TokenBusy is
+     * returned only for work whose queue admission can no longer fail. The
+     * queue and token owner must outlive this call; destroy() requires every
+     * producer to be quiesced first.
+     *
+     * Raw hardware handlers must defer through the typed IRQ dispatcher, not
+     * call RequestQueue publication directly.
      */
-    MUST_USE_RESULT InterruptEnqueueResult enqueueFromInterrupt(
-        InterruptRequest &request, size_t priority, uint64_t p1 = 0,
+    MUST_USE_RESULT PreallocatedPublishResult publishPreallocated(
+        PreallocatedRequest &request, size_t priority, uint64_t p1 = 0,
         uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0, uint64_t p5 = 0,
         uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
 
@@ -342,11 +347,12 @@ class EXPORTED_PUBLIC RequestQueue
      * Republishes a token while its release callback is retiring it.
      *
      * This is accepted only from the Releasing state. Besides callback-driven
-     * work, an owner may use it to close the final callback-versus-hardware
-     * producer race before falling back to enqueueFromInterrupt().
+     * work, an owner may use it to close the final callback-versus-producer
+     * race before falling back to publishPreallocated().
      */
-    MUST_USE_RESULT InterruptEnqueueResult republishWhileReleasing(
-        InterruptRequest &request, size_t priority, uint64_t p1 = 0,
+    MUST_USE_RESULT PreallocatedPublishResult
+    republishPreallocatedWhileReleasing(
+        PreallocatedRequest &request, size_t priority, uint64_t p1 = 0,
         uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0, uint64_t p5 = 0,
         uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
 
@@ -383,9 +389,10 @@ class EXPORTED_PUBLIC RequestQueue
 
     /**
      * Defaults to never comparing as equal. Used to determine duplicates
-     * among allocation-backed synchronous and asynchronous requests. IRQ and
-     * timer tokens use token identity instead and are never passed here. This
-     * runs under the queue's non-sleeping guard and therefore must not block.
+     * among allocation-backed synchronous and asynchronous requests.
+     * Preallocated tokens use identity instead and are never passed here.
+     * This runs under the queue's non-sleeping guard and therefore must not
+     * block.
      */
     virtual bool compareRequests(const Request &a, const Request &b)
     {
@@ -397,9 +404,9 @@ class EXPORTED_PUBLIC RequestQueue
      *
      * This runs without the queue guard for rejected candidates (including
      * stopped queues, duplicates and capacity limits) and queued requests
-     * cancelled by destroy(). Implementations used by interrupt-side queues
-     * must not sleep. Derived destructors must call destroy() while their
-     * override and member state are still alive.
+     * cancelled by destroy(). Implementations used by allocation-free
+     * producers must not sleep. Derived destructors must call destroy() while
+     * their override and member state are still alive.
      */
     virtual void cancelRequest(const Request &request)
     {
@@ -441,13 +448,13 @@ class EXPORTED_PUBLIC RequestQueue
         size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
         uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8);
 
-    InterruptEnqueueResult publishInterruptRequest(
-        InterruptRequest &request, InterruptRequest::State availableState,
+    PreallocatedPublishResult publishPreallocatedRequest(
+        PreallocatedRequest &request, PreallocatedRequest::State availableState,
         size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
         uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8);
 
     /** Returns an executed or cancelled preallocated request to its owner. */
-    static void releaseInterruptRequest(Request *request);
+    static void releasePreallocatedRequest(Request *request);
 
 #if THREADS
     /** Reference management for requests shared by worker and callers. */
@@ -460,15 +467,15 @@ class EXPORTED_PUBLIC RequestQueue
     bool stopWorker();
 
     static bool workerReady(void *context);
-    void closeInterruptAdmission();
-    void waitForInterruptPublishers();
+    void closePreallocatedAdmission();
+    void waitForPreallocatedPublishers();
 #endif
 
     static constexpr size_t PublicationClosed = static_cast<size_t>(1)
                                                 << ((sizeof(size_t) * 8) - 1);
     static constexpr size_t PublicationCountMask = ~PublicationClosed;
 
-    /** Lock-free intake shared by ordinary and hard-interrupt producers. */
+    /** Lock-free intake shared by allocated and preallocated producers. */
     IntakeLane m_IntakeLanes[REQUEST_QUEUE_NUM_PRIORITIES];
 
     /** The request queue */
@@ -506,12 +513,12 @@ class EXPORTED_PUBLIC RequestQueue
     RequestQueueOverrunChecker m_OverrunChecker;
     Timer *m_pOverrunTimer;
 
-    /** High bit closes hard publication; low bits count entering publishers. */
+    /** High bit closes preallocated publication; low bits count publishers. */
     Atomic<size_t> m_PublicationState;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    HostedSmokeHook m_AfterInterruptAdmissionHook;
-    void *m_AfterInterruptAdmissionContext;
+    HostedSmokeHook m_AfterPreallocatedAdmissionHook;
+    void *m_AfterPreallocatedAdmissionContext;
     HostedSmokeHook m_AfterIntakeExchangeHook;
     void *m_AfterIntakeExchangeContext;
     Atomic<size_t> m_WorkerTransientRetries;

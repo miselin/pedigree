@@ -538,7 +538,7 @@ Ps2Controller::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
         return HardIrqDisposition::Handled;
     }
 
-    if (!m_CapturedBytes.canPushFromInterrupt())
+    if (!m_CapturedBytes.hasCapacity())
     {
         // Leave port 0x60 untouched. The worker first drains the fixed queue,
         // then polls this still-latched byte under ordinary thread admission.
@@ -554,8 +554,7 @@ Ps2Controller::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
     {
         m_RouteMismatches += 1;
     }
-    if (!m_CapturedBytes.pushFromInterrupt(
-            Ps2CapturedByte(received, secondPort)))
+    if (!m_CapturedBytes.tryPush(Ps2CapturedByte(received, secondPort)))
     {
         m_CaptureDrops += 1;
     }
@@ -573,7 +572,7 @@ bool Ps2Controller::captureOneLocked()
         return false;
     }
 
-    if (!m_CapturedBytes.canPushFromInterrupt())
+    if (!m_CapturedBytes.hasCapacity())
     {
         m_CaptureDeferrals += 1;
         return false;
@@ -581,7 +580,7 @@ bool Ps2Controller::captureOneLocked()
 
     const Ps2CapturedByte record(
         m_pBase->read8(0), (status & SecondPortData) != 0);
-    if (!m_CapturedBytes.pushFromInterrupt(record))
+    if (!m_CapturedBytes.tryPush(record))
     {
         m_CaptureDrops += 1;
     }

@@ -36,17 +36,17 @@ class Process;
 
 static_assert(
     __atomic_always_lock_free(sizeof(size_t), nullptr),
-    "RequestQueue hard-publication words must be lock-free");
+    "RequestQueue preallocated-publication words must be lock-free");
 static_assert(
     __atomic_always_lock_free(sizeof(PerProcessorScheduler *), nullptr),
-    "RequestQueue hard-publication pointers must be lock-free");
+    "RequestQueue preallocated-publication pointers must be lock-free");
 
-RequestQueue::InterruptRequest::InterruptRequest()
-    : InterruptRequest(nullptr, nullptr)
+RequestQueue::PreallocatedRequest::PreallocatedRequest()
+    : PreallocatedRequest(nullptr, nullptr)
 {
 }
 
-RequestQueue::InterruptRequest::InterruptRequest(
+RequestQueue::PreallocatedRequest::PreallocatedRequest(
     ReleaseCallback releaseCallback, void *releaseContext)
     : m_Request(0, true, 0, 0, 0, 0, 0, 0, 0, 0, this), m_State(Idle),
       m_ReleaseDepth(0), m_ReleaseCallback(releaseCallback),
@@ -54,15 +54,15 @@ RequestQueue::InterruptRequest::InterruptRequest(
 {
 }
 
-RequestQueue::InterruptRequest::~InterruptRequest()
+RequestQueue::PreallocatedRequest::~PreallocatedRequest()
 {
     if (!isAvailable())
     {
-        FATAL("Destroying a published RequestQueue interrupt token.");
+        FATAL("Destroying a published RequestQueue preallocated token.");
     }
 }
 
-bool RequestQueue::InterruptRequest::isAvailable() const
+bool RequestQueue::PreallocatedRequest::isAvailable() const
 {
     return static_cast<size_t>(m_State) == Idle && !m_ReleaseDepth;
 }
@@ -76,8 +76,8 @@ RequestQueue::RequestQueue(const String &name)
       m_WorkerProgressGeneration(0), m_pOverrunTimer(nullptr),
       m_PublicationState(PublicationClosed),
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-      m_AfterInterruptAdmissionHook(nullptr),
-      m_AfterInterruptAdmissionContext(nullptr),
+      m_AfterPreallocatedAdmissionHook(nullptr),
+      m_AfterPreallocatedAdmissionContext(nullptr),
       m_AfterIntakeExchangeHook(nullptr), m_AfterIntakeExchangeContext(nullptr),
       m_WorkerTransientRetries(0), m_GuardedTransientRetries(0),
       m_PublisherDrainRetries(0),
@@ -244,7 +244,7 @@ bool RequestQueue::stopWorker()
         worker = m_pThread;
         if (!worker)
         {
-            closeInterruptAdmission();
+            closePreallocatedAdmission();
             m_State = static_cast<size_t>(LifecycleState::Stopped);
             m_bWorkerReady = 0;
             m_bWorkerActive = 0;
@@ -263,7 +263,7 @@ bool RequestQueue::stopWorker()
             {
                 // Close before publishing Stopping, so every producer that can
                 // still observe Accepting is either rejected or counted below.
-                closeInterruptAdmission();
+                closePreallocatedAdmission();
                 m_State = static_cast<size_t>(LifecycleState::Stopping);
             }
         }
@@ -274,7 +274,7 @@ bool RequestQueue::stopWorker()
         // Even a closed queue admits rejected publishers into the low-bit
         // lifetime count long enough to observe the closed bit. Do not let a
         // never-started or already-stopped queue outrun one of those callers.
-        waitForInterruptPublishers();
+        waitForPreallocatedPublishers();
         return true;
     }
 
@@ -284,7 +284,7 @@ bool RequestQueue::stopWorker()
         scheduler->ringIrqWorkDoorbell();
     }
 
-    waitForInterruptPublishers();
+    waitForPreallocatedPublishers();
 
     if (!worker->joinForCompletion())
     {
@@ -312,12 +312,12 @@ bool RequestQueue::workerReady(void *context)
                LifecycleState::Accepting;
 }
 
-void RequestQueue::closeInterruptAdmission()
+void RequestQueue::closePreallocatedAdmission()
 {
     m_PublicationState |= PublicationClosed;
 }
 
-void RequestQueue::waitForInterruptPublishers()
+void RequestQueue::waitForPreallocatedPublishers()
 {
     while (m_PublicationState.value() & PublicationCountMask)
     {
@@ -520,61 +520,63 @@ uint64_t RequestQueue::addAsyncRequest(
     return addAsyncRequestInternal(priority, p1, p2, p3, p4, p5, p6, p7, p8);
 }
 
-RequestQueue::InterruptEnqueueResult RequestQueue::enqueueFromInterrupt(
-    InterruptRequest &token, size_t priority, uint64_t p1, uint64_t p2,
+RequestQueue::PreallocatedPublishResult RequestQueue::publishPreallocated(
+    PreallocatedRequest &token, size_t priority, uint64_t p1, uint64_t p2,
     uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7,
     uint64_t p8)
 {
-    return publishInterruptRequest(
-        token, InterruptRequest::Idle, priority, p1, p2, p3, p4, p5, p6, p7,
+    return publishPreallocatedRequest(
+        token, PreallocatedRequest::Idle, priority, p1, p2, p3, p4, p5, p6, p7,
         p8);
 }
 
-RequestQueue::InterruptEnqueueResult RequestQueue::republishWhileReleasing(
-    InterruptRequest &token, size_t priority, uint64_t p1, uint64_t p2,
+RequestQueue::PreallocatedPublishResult
+RequestQueue::republishPreallocatedWhileReleasing(
+    PreallocatedRequest &token, size_t priority, uint64_t p1, uint64_t p2,
     uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7,
     uint64_t p8)
 {
-    return publishInterruptRequest(
-        token, InterruptRequest::Releasing, priority, p1, p2, p3, p4, p5, p6,
+    return publishPreallocatedRequest(
+        token, PreallocatedRequest::Releasing, priority, p1, p2, p3, p4, p5, p6,
         p7, p8);
 }
 
-RequestQueue::InterruptEnqueueResult RequestQueue::publishInterruptRequest(
-    InterruptRequest &token, InterruptRequest::State availableState,
+RequestQueue::PreallocatedPublishResult
+RequestQueue::publishPreallocatedRequest(
+    PreallocatedRequest &token, PreallocatedRequest::State availableState,
     size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
     uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
 {
     if (priority >= REQUEST_QUEUE_NUM_PRIORITIES)
     {
-        return InterruptEnqueueResult::InvalidPriority;
+        return PreallocatedPublishResult::InvalidPriority;
     }
 
 #if THREADS
     const size_t admission = (m_PublicationState += 1);
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    if (m_AfterInterruptAdmissionHook)
+    if (m_AfterPreallocatedAdmissionHook)
     {
-        m_AfterInterruptAdmissionHook(m_AfterInterruptAdmissionContext);
+        m_AfterPreallocatedAdmissionHook(m_AfterPreallocatedAdmissionContext);
     }
 #endif
     if (admission & PublicationClosed)
     {
         m_PublicationState -= 1;
-        return InterruptEnqueueResult::QueueStopped;
+        return PreallocatedPublishResult::QueueStopped;
     }
 
     if (!token.m_State.compareAndSwap(
-            availableState, InterruptRequest::Claimed))
+            availableState, PreallocatedRequest::Claimed))
     {
         m_PublicationState -= 1;
-        return InterruptEnqueueResult::TokenBusy;
+        return PreallocatedPublishResult::TokenBusy;
     }
 #else
     if (!token.m_State.compareAndSwap(
-            availableState, InterruptRequest::Claimed))
+            availableState, PreallocatedRequest::Claimed))
     {
-        return InterruptEnqueueResult::TokenBusy;
+        return PreallocatedPublishResult::TokenBusy;
     }
 #endif
 
@@ -599,18 +601,18 @@ RequestQueue::InterruptEnqueueResult RequestQueue::publishInterruptRequest(
     request->m_Completed = false;
 
 #if !THREADS
-    token.m_State = InterruptRequest::Published;
+    token.m_State = PreallocatedRequest::Published;
     executeRequest(p1, p2, p3, p4, p5, p6, p7, p8);
-    releaseInterruptRequest(request);
-    return InterruptEnqueueResult::Accepted;
+    releasePreallocatedRequest(request);
+    return PreallocatedPublishResult::Accepted;
 #else
-    token.m_State = InterruptRequest::Published;
+    token.m_State = PreallocatedRequest::Published;
     // Readiness must be visible before the node can become consumable.
     m_nAsyncRequests += 1;
     m_nTotalRequests += 1;
     publishRequest(request);
     m_PublicationState -= 1;
-    return InterruptEnqueueResult::Accepted;
+    return PreallocatedPublishResult::Accepted;
 #endif
 }
 
@@ -892,7 +894,7 @@ RequestQueue::NextRequestResult RequestQueue::getNextRequest(Request *&out)
 
 RequestQueue::Request *RequestQueue::findDuplicate(const Request &request)
 {
-    if (m_pActiveRequest && !m_pActiveRequest->m_pInterruptOwner &&
+    if (m_pActiveRequest && !m_pActiveRequest->m_pPreallocatedOwner &&
         m_pActiveRequest->m_Priority == request.m_Priority &&
         compareRequests(*m_pActiveRequest, request))
     {
@@ -902,7 +904,7 @@ RequestQueue::Request *RequestQueue::findDuplicate(const Request &request)
     Request *queued = m_pRequestQueue[request.m_Priority];
     while (queued)
     {
-        if (!queued->m_pInterruptOwner && compareRequests(*queued, request))
+        if (!queued->m_pPreallocatedOwner && compareRequests(*queued, request))
         {
             return queued;
         }
@@ -935,15 +937,16 @@ void RequestQueue::discardRequest(Request *request)
     delete request;
 }
 
-void RequestQueue::releaseInterruptRequest(Request *request)
+void RequestQueue::releasePreallocatedRequest(Request *request)
 {
     assert(request);
-    InterruptRequest *owner = request->m_pInterruptOwner;
+    PreallocatedRequest *owner = request->m_pPreallocatedOwner;
     assert(owner);
     assert(&owner->m_Request == request);
-    assert(static_cast<size_t>(owner->m_State) == InterruptRequest::Published);
+    assert(
+        static_cast<size_t>(owner->m_State) == PreallocatedRequest::Published);
     owner->m_ReleaseDepth += 1;
-    owner->m_State = InterruptRequest::Releasing;
+    owner->m_State = PreallocatedRequest::Releasing;
     if (owner->m_ReleaseCallback)
     {
         owner->m_ReleaseCallback(owner->m_ReleaseContext);
@@ -952,18 +955,18 @@ void RequestQueue::releaseInterruptRequest(Request *request)
     while (true)
     {
         const size_t state = owner->m_State;
-        if (state == InterruptRequest::Releasing)
+        if (state == PreallocatedRequest::Releasing)
         {
             if (owner->m_State.compareAndSwap(
-                    InterruptRequest::Releasing, InterruptRequest::Idle))
+                    PreallocatedRequest::Releasing, PreallocatedRequest::Idle))
             {
                 break;
             }
             continue;
         }
-        if (state == InterruptRequest::Claimed)
+        if (state == PreallocatedRequest::Claimed)
         {
-            // A hardware producer won the final Releasing handoff. It only
+            // A concurrent producer won the final Releasing handoff. It only
             // needs the queue's non-sleeping guard to finish publication.
             Processor::pause();
             continue;
@@ -972,8 +975,8 @@ void RequestQueue::releaseInterruptRequest(Request *request)
         // Published is an asynchronous republication. Idle is a nested inline
         // republication when threading is disabled.
         assert(
-            state == InterruptRequest::Published ||
-            state == InterruptRequest::Idle);
+            state == PreallocatedRequest::Published ||
+            state == PreallocatedRequest::Idle);
         break;
     }
     owner->m_ReleaseDepth -= 1;
@@ -987,9 +990,9 @@ void RequestQueue::retainRequest(Request *request)
 
 void RequestQueue::releaseRequest(Request *request)
 {
-    if (request->m_pInterruptOwner)
+    if (request->m_pPreallocatedOwner)
     {
-        releaseInterruptRequest(request);
+        releasePreallocatedRequest(request);
         return;
     }
 
@@ -1121,7 +1124,7 @@ int RequestQueue::work()
         }
 
         // Drop the queue's ownership after removing the request from every
-        // location discoverable by duplicate detection. An interrupt-token
+        // location discoverable by duplicate detection. A preallocated-token
         // release callback may republish dependent work, so it runs before
         // the final drain predicate is observed.
         releaseRequest(request);

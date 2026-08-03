@@ -43,7 +43,7 @@ class Ps2CaptureQueue
     {
     }
 
-    bool pushFromInterrupt(const Ps2CapturedByte &record)
+    bool tryPush(const Ps2CapturedByte &record)
     {
         const size_t write =
             __atomic_load_n(&m_WriteSequence, __ATOMIC_RELAXED);
@@ -59,7 +59,7 @@ class Ps2CaptureQueue
     }
 
     /** Safe preflight while the caller still owns the single-producer gate. */
-    bool canPushFromInterrupt() const
+    bool hasCapacity() const
     {
         const size_t write =
             __atomic_load_n(&m_WriteSequence, __ATOMIC_RELAXED);
