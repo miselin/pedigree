@@ -1,5 +1,11 @@
 # Pedigree
 
+> [!NOTE]
+> This is the active development repository. The restoration is receiving
+> substantial AI-assisted maintenance to resolve long-standing bugs and
+> stabilize the system. For the pre-AI historical snapshot, see
+> [`miselin/pedigree-legacy`](https://github.com/miselin/pedigree-legacy).
+
 Pedigree is a research operating system with its own kernel, modules,
 filesystems, POSIX layer, userspace, and build tools. This fork is restoring the
 last development baseline around a focused, testable x86-64 scope while
