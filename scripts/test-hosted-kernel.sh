@@ -12,10 +12,14 @@ Usage:
      --dynamic-config-module PATH --dynamic-smoke-module PATH \\
      --config PATH --disk-image PATH \\
      [--require-asan] [--expected-heap slam|system] \\
-     [--wait-regressions-only]
+     [--wait-regressions-only] [--static-syscall-regressions-only]
+
+  $0 --static-kernel PATH --config PATH \\
+     [--require-asan] [--expected-heap slam|system] \\
+     --static-syscall-regressions-only
 
 PEDIGREE_VERIFY_LOG_DIR selects the directory for durable per-rung logs.
-PEDIGREE_HOSTED_RUNG_TIMEOUT sets the GNU timeout duration (default: 120s).
+PEDIGREE_HOSTED_RUNG_TIMEOUT sets the rung deadline in seconds (default: 120).
 EOF
     exit 2
 }
@@ -29,7 +33,8 @@ disk_image=
 require_asan=0
 expected_heap=
 wait_regressions_only=0
-rung_timeout=${PEDIGREE_HOSTED_RUNG_TIMEOUT:-120s}
+static_syscall_regressions_only=0
+rung_timeout=${PEDIGREE_HOSTED_RUNG_TIMEOUT:-120}
 
 if [ "$#" -gt 0 ]; then
     while [ "$#" -gt 0 ]; do
@@ -77,6 +82,10 @@ if [ "$#" -gt 0 ]; then
                 wait_regressions_only=1
                 shift
                 ;;
+            --static-syscall-regressions-only)
+                static_syscall_regressions_only=1
+                shift
+                ;;
             *)
                 usage
                 ;;
@@ -86,26 +95,39 @@ else
     usage
 fi
 
-[ -n "$static_kernel" ] && [ -n "$dynamic_kernel" ] &&
-    [ -n "$dynamic_config_module" ] &&
-    [ -n "$dynamic_smoke_module" ] && [ -n "$configdb" ] &&
-    [ -n "$disk_image" ] || usage
+if [ "$wait_regressions_only" = "1" ] &&
+    [ "$static_syscall_regressions_only" = "1" ]; then
+    echo "Choose either --wait-regressions-only or --static-syscall-regressions-only." >&2
+    exit 2
+fi
+if [[ ! "$rung_timeout" =~ ^[1-9][0-9]*$ ]]; then
+    echo "PEDIGREE_HOSTED_RUNG_TIMEOUT must be a positive integer number of seconds." >&2
+    exit 2
+fi
+
+[ -n "$static_kernel" ] && [ -n "$configdb" ] || usage
+if [ "$static_syscall_regressions_only" = "0" ]; then
+    [ -n "$dynamic_kernel" ] && [ -n "$dynamic_config_module" ] &&
+        [ -n "$dynamic_smoke_module" ] && [ -n "$disk_image" ] || usage
+fi
 case "$expected_heap" in
     ""|slam|system) ;;
     *) usage ;;
 esac
 static_kernel=$(realpath "$static_kernel")
-dynamic_kernel=$(realpath "$dynamic_kernel")
-dynamic_config_module=$(realpath "$dynamic_config_module")
-dynamic_smoke_module=$(realpath "$dynamic_smoke_module")
-dynamic_module_dir=$(dirname "$dynamic_smoke_module")
-dynamic_users_module=$(realpath "$dynamic_module_dir/users.o")
-dynamic_vfs_module=$(realpath "$dynamic_module_dir/vfs.o")
-dynamic_fat_module=$(realpath "$dynamic_module_dir/fat.o")
-dynamic_rawfs_module=$(realpath "$dynamic_module_dir/rawfs.o")
-dynamic_usb_module=$(realpath "$dynamic_module_dir/usb.o")
 configdb=$(realpath "$configdb")
-disk_image=$(realpath "$disk_image")
+if [ "$static_syscall_regressions_only" = "0" ]; then
+    dynamic_kernel=$(realpath "$dynamic_kernel")
+    dynamic_config_module=$(realpath "$dynamic_config_module")
+    dynamic_smoke_module=$(realpath "$dynamic_smoke_module")
+    dynamic_module_dir=$(dirname "$dynamic_smoke_module")
+    dynamic_users_module=$(realpath "$dynamic_module_dir/users.o")
+    dynamic_vfs_module=$(realpath "$dynamic_module_dir/vfs.o")
+    dynamic_fat_module=$(realpath "$dynamic_module_dir/fat.o")
+    dynamic_rawfs_module=$(realpath "$dynamic_module_dir/rawfs.o")
+    dynamic_usb_module=$(realpath "$dynamic_module_dir/usb.o")
+    disk_image=$(realpath "$disk_image")
+fi
 
 scratch_dir=$(mktemp -d)
 trap 'rm -rf "$scratch_dir"' EXIT
@@ -129,12 +151,8 @@ if ! mkdir "$log_dir/.claimed"; then
     exit 2
 fi
 
-if command -v timeout >/dev/null 2>&1; then
-    timeout_command=timeout
-elif command -v gtimeout >/dev/null 2>&1; then
-    timeout_command=gtimeout
-else
-    echo "GNU timeout (or gtimeout) is required." >&2
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 is required to enforce hosted rung deadlines." >&2
     exit 1
 fi
 
@@ -281,10 +299,18 @@ run_kernel()
     if ! (
         cd "$rung_dir"
         env ASAN_OPTIONS="$asan_options" \
-            "$timeout_command" --signal=KILL "$rung_timeout" \
+            python3 "$script_dir/scripts/run-with-deadline.py" \
+                --seconds "$rung_timeout" --label "hosted smoke rung $name" -- \
                 "${args[@]}" >"$log" 2>&1
     ); then
         cat "$log"
+        local last_syscall_phase
+        last_syscall_phase=$(grep -aE \
+            'HOSTED-SYSCALL-TEST: (BEGIN|PHASE|PASS|FAIL)' "$log" |
+            tail -n 1 || true)
+        if [ -n "$last_syscall_phase" ]; then
+            echo "Last hosted syscall checkpoint: $last_syscall_phase" >&2
+        fi
         echo "Hosted smoke rung failed to complete: $name" >&2
         return 1
     fi
@@ -314,24 +340,28 @@ if [ "$require_asan" = "1" ]; then
         exit 1
     fi
     assert_asan_kernel "$static_kernel" "$scratch_dir/static-kernel.dynamic"
-    assert_asan_kernel "$dynamic_kernel" "$scratch_dir/dynamic-kernel.dynamic"
-    assert_asan_module \
-        "$dynamic_config_module" "$scratch_dir/config-module.symbols"
-    assert_asan_module \
-        "$dynamic_users_module" "$scratch_dir/users-module.symbols"
-    assert_asan_module \
-        "$dynamic_vfs_module" "$scratch_dir/vfs-module.symbols"
-    assert_asan_module \
-        "$dynamic_fat_module" "$scratch_dir/fat-module.symbols"
-    assert_asan_module \
-        "$dynamic_rawfs_module" "$scratch_dir/rawfs-module.symbols"
-    assert_asan_module \
-        "$dynamic_usb_module" "$scratch_dir/usb-module.symbols"
-    assert_asan_module \
-        "$dynamic_smoke_module" "$scratch_dir/smoke-module.symbols"
+    if [ "$static_syscall_regressions_only" = "0" ]; then
+        assert_asan_kernel \
+            "$dynamic_kernel" "$scratch_dir/dynamic-kernel.dynamic"
+        assert_asan_module \
+            "$dynamic_config_module" "$scratch_dir/config-module.symbols"
+        assert_asan_module \
+            "$dynamic_users_module" "$scratch_dir/users-module.symbols"
+        assert_asan_module \
+            "$dynamic_vfs_module" "$scratch_dir/vfs-module.symbols"
+        assert_asan_module \
+            "$dynamic_fat_module" "$scratch_dir/fat-module.symbols"
+        assert_asan_module \
+            "$dynamic_rawfs_module" "$scratch_dir/rawfs-module.symbols"
+        assert_asan_module \
+            "$dynamic_usb_module" "$scratch_dir/usb-module.symbols"
+        assert_asan_module \
+            "$dynamic_smoke_module" "$scratch_dir/smoke-module.symbols"
+    fi
 fi
 
-if [ "$wait_regressions_only" = "0" ]; then
+if [ "$wait_regressions_only" = "0" ] ||
+    [ "$static_syscall_regressions_only" = "1" ]; then
     run_kernel 01-empty-initrd "$static_kernel" "$scratch_dir/empty-initrd.tar"
     empty_log="$log_dir/01-empty-initrd.log"
     assert_marker \
@@ -351,6 +381,12 @@ if [ "$wait_regressions_only" = "0" ]; then
         assert_marker_once "$empty_log" "$checkpoint"
     done
     assert_lifecycle "$empty_log"
+fi
+
+if [ "$static_syscall_regressions_only" = "1" ]; then
+    echo "Hosted static syscall regressions passed."
+    echo "Logs: $log_dir"
+    exit
 fi
 
 mkdir "$scratch_dir/populated-initrd"

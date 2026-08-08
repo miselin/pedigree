@@ -41,6 +41,37 @@ native_build_dir="$build_root/native"
 asan_build_dir="$build_root/asan"
 verify_lock_root="$script_dir/build-verify"
 verify_lock_dir="$verify_lock_root/.verify.lock"
+provenance_tool="$script_dir/scripts/verify-provenance.py"
+provenance_baseline="$run_log_dir/source-provenance-baseline.txt"
+provenance_current="$run_log_dir/source-provenance-current.txt"
+provenance_ready=false
+provenance_exclude_args=()
+provenance_watcher_pid=
+provenance_watcher_stage=
+provenance_poll_seconds=${PEDIGREE_VERIFY_PROVENANCE_POLL_SECONDS:-1}
+
+if [[ ! "$provenance_poll_seconds" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]] ||
+    ! awk -v value="$provenance_poll_seconds" 'BEGIN { exit !(value > 0) }'; then
+    echo "PEDIGREE_VERIFY_PROVENANCE_POLL_SECONDS must be a positive number." >&2
+    exit 2
+fi
+
+for provenance_generated_path in "$build_root" "$log_root"; do
+    case "$provenance_generated_path" in
+        "$script_dir"/*)
+            provenance_exclude_args+=(
+                --exclude-relative
+                "${provenance_generated_path#"$script_dir"/}"
+            )
+            ;;
+    esac
+done
+
+if ! python3 "$provenance_tool" --root "$script_dir" --validate-exclusions \
+        "${provenance_exclude_args[@]}"; then
+    echo "Verification build/log roots would hide non-generated source inputs." >&2
+    exit 2
+fi
 
 mkdir -p "$log_root" "$verify_lock_root"
 if ! mkdir "$verify_lock_dir"; then
@@ -71,6 +102,16 @@ finish()
     local finished_at elapsed result
 
     trap - EXIT
+    if [[ -n "$provenance_watcher_pid" ]] &&
+        ! stop_source_stability_watch; then
+        exit_status=1
+        current_stage=source-stability-watch
+    fi
+    if [[ "$provenance_ready" == true ]] &&
+        ! check_source_stability "exit"; then
+        exit_status=1
+        current_stage=source-stability-exit
+    fi
     finished_at=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
     elapsed=$((SECONDS - started_seconds))
     if (( exit_status == 0 )); then
@@ -113,14 +154,75 @@ mkdir "$run_log_dir/hosted"
     echo "run=$run_id"
     echo "started=$started_at"
     echo "repository=$script_dir"
-    echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
     echo "uname=$(uname -a)"
     echo "cmake=$(cmake --version | sed -n '1p')"
     echo "ctest=$(ctest --version | sed -n '1p')"
-    echo
-    echo "working tree:"
-    git status --short 2>/dev/null || true
+    echo "source provenance poll seconds=$provenance_poll_seconds"
 } >"$metadata_file"
+
+capture_source_provenance()
+{
+    local destination=$1
+    python3 "$provenance_tool" --root "$script_dir" --output "$destination" \
+        "${provenance_exclude_args[@]}"
+}
+
+check_source_stability()
+{
+    local boundary=$1
+    local boundary_log="$run_log_dir/provenance-$boundary.log"
+
+    if ! capture_source_provenance "$provenance_current" >"$boundary_log" 2>&1; then
+        echo "Could not capture source provenance at $boundary. See $boundary_log" >&2
+        return 1
+    fi
+    if ! python3 "$provenance_tool" --compare \
+        "$provenance_baseline" "$provenance_current" >>"$boundary_log" 2>&1; then
+        echo "Source inputs changed during verification at $boundary. See $boundary_log" >&2
+        return 1
+    fi
+    return 0
+}
+
+start_source_stability_watch()
+{
+    local stage=$1
+    local watcher_log="$run_log_dir/provenance-$stage-watch.log"
+
+    python3 "$provenance_tool" --watch --root "$script_dir" \
+        --baseline "$provenance_baseline" --interval "$provenance_poll_seconds" \
+        "${provenance_exclude_args[@]}" >"$watcher_log" 2>&1 &
+    provenance_watcher_pid=$!
+    provenance_watcher_stage=$stage
+}
+
+stop_source_stability_watch()
+{
+    if [[ -z "$provenance_watcher_pid" ]]; then
+        return 0
+    fi
+
+    local watcher_pid=$provenance_watcher_pid
+    local watcher_stage=$provenance_watcher_stage
+    local watcher_status=0
+    provenance_watcher_pid=
+    provenance_watcher_stage=
+
+    if kill -0 "$watcher_pid" 2>/dev/null; then
+        kill -TERM "$watcher_pid" 2>/dev/null || true
+    fi
+    if wait "$watcher_pid"; then
+        watcher_status=0
+    else
+        watcher_status=$?
+    fi
+    if (( watcher_status != 0 && watcher_status != 143 )); then
+        echo "Source provenance watcher failed during $watcher_stage. See " \
+            "$run_log_dir/provenance-$watcher_stage-watch.log" >&2
+        return 1
+    fi
+    return 0
+}
 
 run_stage()
 {
@@ -134,11 +236,31 @@ run_stage()
 
     echo
     echo "==> $stage"
-    if "$@" 2>&1 | tee "$log_file"; then
+    if [[ "$provenance_ready" == true ]] &&
+        ! check_source_stability "$stage-before"; then
+        stage_status=1
+        result=FAIL
+    elif [[ "$provenance_ready" == true ]] &&
+        ! start_source_stability_watch "$stage"; then
+        stage_status=1
+        result=FAIL
+    elif "$@" 2>&1 | tee "$log_file"; then
         stage_status=0
         result=PASS
     else
         stage_status=$?
+        result=FAIL
+    fi
+
+    if [[ "$provenance_watcher_stage" == "$stage" ]] &&
+        ! stop_source_stability_watch; then
+        stage_status=1
+        result=FAIL
+    fi
+
+    if (( stage_status == 0 )) && [[ "$provenance_ready" == true ]] &&
+        ! check_source_stability "$stage-after"; then
+        stage_status=1
         result=FAIL
     fi
 
@@ -270,6 +392,13 @@ check_wait_api_boundaries()
         failed=1
     fi
 
+    if ! rg -q -U \
+        '(?s)WaitQueue::WakeReason WaitQueue::wait\(.*?mutex && !mutex->isOwnedByCurrentThread\(\).*?FATAL\(' \
+        src/system/kernel/core/process/WaitQueue.cc; then
+        echo "WaitQueue can release a caller mutex it does not own."
+        failed=1
+    fi
+
     local generic_thread_publications
     generic_thread_publications=$(rg -c \
         'Scheduler::instance\(\)\.threadStatusChanged\(this\)' \
@@ -341,6 +470,20 @@ check_wait_api_boundaries()
 
     if ! python3 scripts/list-hosted-wait-markers.py --self-test; then
         echo "The hosted regression marker detector failed its self-test."
+        failed=1
+    fi
+
+    local hosted_kernel_test=./scripts/test-hosted-kernel.sh
+    local static_syscall_regressions=src/modules/system/hosted-smoke/static-syscall-regressions.cc
+    if ! rg -q -- '--static-syscall-regressions-only' "$hosted_kernel_test" ||
+        ! rg -q -U \
+            '(?s)static_syscall_regressions_only.*?run_kernel 01-empty-initrd.*?if \[ "\$static_syscall_regressions_only" = "1" \].*?Hosted static syscall regressions passed' \
+            "$hosted_kernel_test" ||
+        ! rg -q 'HOSTED-SYSCALL-TEST: BEGIN' "$static_syscall_regressions" ||
+        ! rg -q \
+            'HOSTED-SYSCALL-TEST: PHASE poll-close-reuse-cleanup' \
+            "$static_syscall_regressions"; then
+        echo "The isolated static-syscall checkpoint mode or its failure markers regressed."
         failed=1
     fi
 
@@ -482,6 +625,24 @@ check_wait_api_boundaries()
         '/RequestQueueOverrunChecker::sample(/,/^void RequestQueue::RequestQueueOverrunChecker::timer/p' \
         "$request_queue_source")
     if ! rg -q 'm_WorkerProgressGeneration' "$request_queue_header" ||
+        ! rg -q 'Destroyed' "$request_queue_header" ||
+        ! rg -q 'MUST_USE_RESULT bool halt\(\)' "$request_queue_header" ||
+        ! rg -q 'MUST_USE_RESULT bool resume\(\)' "$request_queue_header" ||
+        ! rg -q -U \
+            '(?s)worker == Processor::information\(\)\.getCurrentThread\(\).*?return false.*?bool RequestQueue::halt\(\).*?return stopWorker\(\)' \
+            "$request_queue_source" ||
+        ! rg -q -U \
+            '(?s)void RequestQueue::destroy\(\).*?if \(!stopWorker\(\)\).*?FATAL\(' \
+            "$request_queue_source" ||
+        ! rg -q -U \
+            '(?s)void RequestQueue::destroy\(\).*?closePreallocatedAdmission\(\).*?m_State = static_cast<size_t>\(LifecycleState::Destroyed\)' \
+            "$request_queue_source" ||
+        ! rg -q -U \
+            '(?s)bool RequestQueue::startWorker\(\).*?state == LifecycleState::Destroyed.*?return false.*?bool RequestQueue::resume\(\).*?if \(!startWorker\(\)\).*?return false' \
+            "$request_queue_source" ||
+        ! rg -q -U \
+            '(?s)RequestQueueCallbackScope\(\).*?setInterrupts\(false\).*?restore\(\).*?disarmAtomicStateCleanup\(m_Cleanup\).*?setInterrupts\(interruptsWereEnabled\)' \
+            "$request_queue_source" ||
         ! rg -q -U \
             '(?s)RequestQueueOverrunChecker::sample\(.*?m_nTotalRequests\.value\(\).*?m_nActiveRequests\.value\(\).*?currentSize = total - active.*?m_WorkerProgressGeneration.*?m_HasBacklogBaseline.*?OverrunStatus::Stalled.*?OverrunStatus::Overloaded' \
             "$request_queue_source" ||
@@ -490,8 +651,21 @@ check_wait_api_boundaries()
             '(?s)RequestQueueOverrunChecker::timer\(.*?OverrunStatus::Stalled.*?OverrunStatus::Overloaded' \
             "$request_queue_source" ||
         ! rg -q 'requestqueue-watchdog-progress' \
+            "$request_queue_regressions" ||
+        ! rg -q 'worker self-halt did not reject without stopping the queue' \
+            "$request_queue_regressions" ||
+        ! rg -q 'CancelLifecycleProbe' "$request_queue_regressions" ||
+        ! rg -q 'destroy cancellation did not reject recursive lifecycle entry' \
+            "$request_queue_regressions" ||
+        ! rg -q -U \
+            '(?s)void RequestQueue::destroy\(\).*?m_LifecycleMutex\.isOwnedByCurrentThread\(\).*?FATAL\(.*?LockGuard<Mutex> lifecycleGuard\(m_LifecycleMutex\).*?cancelRequest\(' \
+            "$request_queue_source" ||
+        ! rg -q -U \
+            '(?s)bool RequestQueue::halt\(\).*?m_LifecycleMutex\.isOwnedByCurrentThread\(\).*?return false.*?bool RequestQueue::resume\(\).*?m_LifecycleMutex\.isOwnedByCurrentThread\(\).*?return false' \
+            "$request_queue_source" ||
+        ! rg -q 'destroyed queue reopened publication' \
             "$request_queue_regressions"; then
-        echo "RequestQueue watchdog snapshots again confuse admission with stalled progress."
+        echo "RequestQueue lifecycle or watchdog invariants regressed."
         failed=1
     fi
 
@@ -648,21 +822,26 @@ check_wait_api_boundaries()
         ! rg -q 'm_DispatchGenerations' "$pic_state" ||
         ! rg -q 'm_AcknowledgedGenerations' "$pic_state" ||
         ! rg -q 'PicIrqState m_IrqState' "$pic_header" ||
-        ! rg -q 'm_MasterPort\.write8\(m_IrqState\.masterMask\(\), 1\)' \
+        ! rg -q -U \
+            '(?s)effectiveMaskLocked\(\) const.*?effectivePicMask\(m_IrqState\.mask\(\), m_ControllerTemporaryMask\)' \
             "$pic_source" ||
-        ! rg -q 'm_SlavePort\.write8\(m_IrqState\.slaveMask\(\), 1\)' \
+        ! rg -q -U \
+            '(?s)applyMaskLocked\(\).*?emitPicMaskWrites\(mask,.*?PicControllerWriteTarget::MasterMask.*?m_MasterPort\.write8\(value, 1\).*?m_SlavePort\.write8\(value, 1\)' \
             "$pic_source"; then
         echo "The dual PIC lost its authoritative sixteen-line mask."
         failed=1
     fi
 
     if ! rg -q -U \
-        '(?s)registerHardIsaIrqHandler.*?LockGuard<Spinlock> guard\(m_Lock\);.*?canRegister\(.*?registerHardHandler\(.*?handlerRegistered\(.*?applyMaskLocked\(' \
+        '(?s)registerHardIsaIrqHandler.*?StateGuard guard\(\*this\);.*?canRegister\(.*?registerHardHandler\(.*?handlerRegistered\(.*?applyMaskLocked\(' \
         "$pic_source" ||
         ! rg -q -U \
-            '(?s)unregisterHandler.*?m_Handlers\.unregisterHandler\(.*?LockGuard<Spinlock> guard\(m_Lock\);.*?handlerUnregistered\(' \
+            '(?s)finishHandlerUnregisterLocked\(.*?handlerUnregistered\(irq, delivery\).*?finishLineTransitionLocked\(irq\)' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)unregisterHandler\(.*?StateGuard guard\(\*this\).*?beginLineTransitionLocked\(irq\).*?m_Handlers\.unregisterHandler\(irq, handler, removedDelivery\).*?finishHandlerUnregisterLocked\(irq, result, removedDelivery\)' \
             "$pic_source"; then
-        echo "PIC registration accounting escaped its line-state lock."
+        echo "PIC registration accounting escaped controller-state ownership."
         failed=1
     fi
 
@@ -744,6 +923,69 @@ check_wait_api_boundaries()
             '(?s)SuspendDeviceHardIrqContext::SuspendDeviceHardIrqContext\(\).*?m_DeviceHardIrqDepth == 1.*?m_DeviceHardIrqDepth = 0.*?SuspendDeviceHardIrqContext::~SuspendDeviceHardIrqContext\(\).*?m_DeviceHardIrqDepth == 0.*?m_DeviceHardIrqDepth = 1' \
             "$processor_source"; then
         echo "The per-processor device hard-IRQ context boundary regressed."
+        failed=1
+    fi
+
+    local execution_context_header=src/system/include/pedigree/kernel/process/ExecutionContext.h
+    local execution_context_source=src/system/kernel/core/process/ExecutionContext.cc
+    local per_processor_scheduler_source=src/system/kernel/core/process/PerProcessorScheduler.cc
+    local thread_header=src/system/include/pedigree/kernel/process/Thread.h
+    local thread_source=src/system/kernel/core/process/Thread.cc
+    local hosted_interrupt_source=src/system/kernel/core/processor/hosted/InterruptManager.cc
+    local x64_interrupt_source=src/system/kernel/core/processor/x64/InterruptManager.cc
+    local pit_source=src/system/kernel/machine/mach_pc/Pit.cc
+    local local_apic_source=src/system/kernel/machine/mach_pc/LocalApic.cc
+    local hosted_scheduler_timer_source=src/system/kernel/machine/hosted/SchedulerTimer.cc
+    local scheduler_timer_source=src/system/kernel/machine/SchedulerTimer.cc
+    if ! rg -q -U \
+            '(?s)enum class ExecutionContext.*?WaitableThread.*?AtomicThread.*?HardDeviceIrq.*?SchedulerIrq.*?HostedSyntheticIrq.*?DebuggerTrap' \
+            "$execution_context_header" ||
+        ! rg -q -U \
+            '(?s)struct StateLevel.*?ExecutionContextState m_ExecutionContext;' \
+            "$thread_header" ||
+        ! rg -q -U \
+            '(?s)ExecutionContext Thread::executionContext\(\) const.*?m_StateLevels\[level\]\.m_ExecutionContext\.current\(\)' \
+            "$thread_source" ||
+        ! rg -q -U \
+            '(?s)void Thread::cleanStateLevel\(size_t level\).*?m_StateLevels\[level\]\.m_ExecutionContext\.reset\(\)' \
+            "$thread_source" ||
+        ! rg -q -U \
+            '(?s)ExecutionContext ProcessorBase::executionContext\(\).*?Thread \*current = information\(\)\.getCurrentThread\(\);.*?if \(!current\).*?return ExecutionContext::AtomicThread;.*?const ExecutionContext explicitContext = current->executionContext\(\);.*?explicitContext != ExecutionContext::WaitableThread.*?return explicitContext;.*?return getInterrupts\(\) \? ExecutionContext::WaitableThread :[[:space:]]*ExecutionContext::AtomicThread;' \
+            "$processor_source" ||
+        ! rg -q -U \
+            '(?s)ExecutionContextGuard::~ExecutionContextGuard\(\).*?setInterrupts\(false\).*?restore\(\).*?disarmAtomicStateCleanup\(m_Cleanup\).*?setInterrupts\(interruptsWereEnabled\)' \
+            "$execution_context_source" ||
+        ! rg -q -U \
+            '(?s)DeviceHardIrqContext::DeviceHardIrqContext\([^)]*\).*?m_ExecutionContext\(ExecutionContext::HardDeviceIrq\)' \
+            "$processor_source" ||
+        ! rg -q \
+            'ExecutionContextGuard debuggerContext\(ExecutionContext::DebuggerTrap\)' \
+            "$hosted_interrupt_source" ||
+        ! rg -q \
+            'ExecutionContextGuard debuggerContext\(ExecutionContext::DebuggerTrap\)' \
+            "$x64_interrupt_source" ||
+        ! rg -q -U \
+            'ExecutionContextGuard signalContext\([[:space:]]*which == SIGTRAP \? ExecutionContext::DebuggerTrap :[[:space:]]*ExecutionContext::HostedSyntheticIrq\)' \
+            "$hosted_interrupt_source" ||
+        ! rg -q -U \
+            '(?s)ExecutionContextGuard signalContext\(.*?restoreHostedSignalInterruptState\(frameCleanup\);.*?^[[:space:]]*\}.*?runHostedUserReturnTail\(pSignalThread, state\)' \
+            "$hosted_interrupt_source" ||
+        ! rg -q -U \
+            '(?s)void PerProcessorScheduler::serviceUserReturnWork\(.*?Processor::executionContext\(\) != ExecutionContext::WaitableThread.*?Return-to-user work requires an IRQ-enabled thread' \
+            "$per_processor_scheduler_source" ||
+        ! rg -q \
+            'ExecutionContextGuard schedulerContext\(ExecutionContext::SchedulerIrq\)' \
+            "$pit_source" ||
+        ! rg -q -U \
+            'ExecutionContextGuard schedulerContext\([[:space:]]*ExecutionContext::SchedulerIrq\)' \
+            "$local_apic_source" ||
+        ! rg -q \
+            'ExecutionContextGuard schedulerContext\(ExecutionContext::SchedulerIrq\)' \
+            "$hosted_scheduler_timer_source" ||
+        ! rg -q -U \
+            '(?s)bool SchedulerTimer::canRemoveHandlerInCurrentContext\(\).*?Processor::executionContext\(\) != ExecutionContext::WaitableThread' \
+            "$scheduler_timer_source"; then
+        echo "The execution-context taxonomy or its hard/scheduler/debugger scopes regressed."
         failed=1
     fi
 
@@ -1267,12 +1509,44 @@ check_wait_api_boundaries()
             src/system/kernel/core/processor/hosted/InterruptManager.cc \
             src/system/kernel/core/processor/x64/InterruptManager.cc ||
         ! rg -q -U \
-            '(?s)Line::publishFromInterrupt\(size_t cookie\).*?__atomic_fetch_add\(.*?m_PublicationState.*?PublicationClosed.*?Processor::index\(\).*?__atomic_exchange_n\(.*?&m_PendingCookies\[processor\], cookie.*?ringIrqWorkDoorbell\(\).*?__atomic_fetch_sub\(.*?m_PublicationState' \
+            '(?s)Line::publishFromInterrupt\(size_t cookie\).*?Processor::index\(\).*?__atomic_fetch_add\(.*?m_PublicationState.*?PublicationClosed.*?__atomic_exchange_n\(.*?&m_PendingCookies\[processor\], cookie.*?ringIrqWorkDoorbell\(\).*?__atomic_fetch_sub\(.*?m_PublicationState' \
             "$threaded_irq_source" ||
         ! rg -q -U \
             '(?s)Line::beginStop\(\).*?__atomic_fetch_or\(.*?m_PublicationState, PublicationClosed' \
             "$threaded_irq_source"; then
         echo "Threaded IRQ publication lost its atomic scheduler doorbell."
+        failed=1
+    fi
+
+    # A remote producer must either issue an explicit directed prompt after
+    # staging the cookie and BSP doorbell, or be rejected before it can leave
+    # an admitted occurrence stranded on another CPU's next tick.
+    if ! rg -q \
+            'using RemoteWakeCallback = bool \(\*\)\(void \*, uint8_t, size_t\);' \
+            "$threaded_irq_header" ||
+        ! rg -q 'friend class Pic' "$threaded_irq_header" ||
+        ! rg -q 'MUST_USE_RESULT bool setRemoteWakeCallback' \
+            "$threaded_irq_header" ||
+        ! rg -q 'setRemoteWakeCallbackForTest' "$threaded_irq_header" ||
+        [[ $(rg -l 'setRemoteWakeCallback\(' src/system/kernel \
+                src/system/include | wc -l | tr -d ' ') -ne 3 ]] ||
+        ! rg -q 'm_ShutdownClaimed' "$threaded_irq_header" ||
+        ! rg -q -U \
+            '(?s)Line::publishFromInterrupt\(size_t cookie\).*?remoteProducer.*?!m_Owner->m_RemoteWakeCallback.*?return false.*?__atomic_fetch_add\(.*?m_PublicationState.*?__atomic_exchange_n\(.*?m_PendingCookies\[processor\].*?m_Scheduler->ringIrqWorkDoorbell\(\).*?remoteProducer && !pending.*?m_RemoteWakeCallback\(.*?FATAL_NOLOCK\(' \
+            "$threaded_irq_source" ||
+        ! rg -q -U \
+            '(?s)ThreadedIrqDispatcher::shutdown\(\).*?m_ShutdownClaimed.*?return !__atomic_load_n\(&m_Initialised.*?if \(joined\).*?m_Initialised.*?else.*?m_ShutdownClaimed.*?return joined' \
+            "$threaded_irq_source" ||
+        ! rg -q -U \
+            '(?s)ThreadedIrqDispatcher::canShutdown\(\) const.*?Processor::executionContext\(\) ==[[:space:]]*ExecutionContext::WaitableThread' \
+            "$threaded_irq_source" ||
+        ! rg -q 'irq-threaded-dispatcher-remote-wake' \
+            "$threaded_irq_regressions" ||
+        ! rg -q 'irq-threaded-dispatcher-local-only' \
+            "$threaded_irq_regressions" ||
+        ! rg -q 'remotePublicationRejectionsForTest' \
+            "$threaded_irq_regressions"; then
+        echo "Threaded IRQ remote prompt, local-only rejection, or shutdown claim regressed."
         failed=1
     fi
 
@@ -1282,10 +1556,22 @@ check_wait_api_boundaries()
         "$threaded_irq_source")
     matches=$(printf '%s\n' "$threaded_publish_body" | \
         rg -n \
-            'LockGuard|Spinlock|Semaphore|WaitQueue|RequestQueue|new[[:space:]]|delete[[:space:]]|FATAL|ERROR|WARNING|NOTICE|while[[:space:]]*\(|for[[:space:]]*\(' || true)
+            'LockGuard|Spinlock|Semaphore|WaitQueue|RequestQueue|new[[:space:]]|delete[[:space:]]|FATAL[[:space:]]*\(|ERROR|WARNING|NOTICE|while[[:space:]]*\(|for[[:space:]]*\(' || true)
     if [[ -n "$matches" ]]; then
         echo "Threaded IRQ hard publication contains a blocking or unbounded operation:"
         echo "$matches"
+        failed=1
+    fi
+
+    local remote_prompt_fatals remote_prompt_fatal_count
+    remote_prompt_fatals=$(rg -n 'FATAL_NOLOCK\(' "$threaded_irq_source" || true)
+    remote_prompt_fatal_count=$(rg -c 'FATAL_NOLOCK\(' "$threaded_irq_source" || true)
+    if [[ "$remote_prompt_fatal_count" != "1" ]] ||
+        ! rg -q -U \
+            '(?s)m_Scheduler->ringIrqWorkDoorbell\(\).*?m_RemoteWakeCallback\(.*?FATAL_NOLOCK\(' \
+            <<<"$threaded_publish_body"; then
+        echo "A threaded IRQ hard-path fatal is not the post-publication remote-prompt terminal failure."
+        echo "$remote_prompt_fatals"
         failed=1
     fi
 
@@ -1373,6 +1659,9 @@ check_wait_api_boundaries()
     local pic_header=src/system/kernel/machine/mach_pc/Pic.h
     local pic_state=src/system/kernel/machine/mach_pc/PicIrqState.h
     local pic_state_test=src/buildutil/testsuite/test-PicIrqState.cc
+    local local_apic_source=src/system/kernel/machine/mach_pc/LocalApic.cc
+    local local_apic_policy=src/system/kernel/machine/mach_pc/LocalApicLint0Policy.h
+    local local_apic_policy_test=src/buildutil/testsuite/test-LocalApicLint0Policy.cc
     local pc_source=src/system/kernel/machine/mach_pc/Pc.cc
     if ! rg -q 'ThreadedIrqDispatcher m_ThreadedDispatcher' "$pic_header" ||
         ! rg -q -U \
@@ -1415,7 +1704,10 @@ check_wait_api_boundaries()
         '(?s)registerIsaIrqHandler\(.*?m_UnregisterReservations\[irq\].*?registerThreadedHandler' \
         "$pic_source" ||
         ! rg -q -U \
-            '(?s)unregisterHandler\(.*?\+\+m_UnregisterReservations\[irq\].*?m_Handlers\.unregisterHandler\(irq, handler, removedDelivery\).*?--m_UnregisterReservations\[irq\].*?removedDelivery == IrqHandlerRegistry::LineMode::Threaded.*?handlerUnregistered\(irq, delivery\).*?previousDelivery == IrqDelivery::Mixed.*?currentDelivery == IrqDelivery::Hard.*?advanceThreadedCookieLocked\(irq\).*?invalidateThreadedLine\(irq, boundary\)' \
+            '(?s)finishHandlerUnregisterLocked\(.*?--m_UnregisterReservations\[irq\].*?removedDelivery == IrqHandlerRegistry::LineMode::Threaded.*?handlerUnregistered\(irq, delivery\).*?previousDelivery == IrqDelivery::Mixed.*?currentDelivery == IrqDelivery::Hard.*?advanceThreadedCookieLocked\(irq\).*?invalidateThreadedLine\(irq, boundary\)' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)atomicContext.*?StateGuard guard\(\*this\).*?\+\+m_UnregisterReservations\[irq\].*?beginLineTransitionLocked\(irq\).*?m_Handlers\.unregisterHandler\(irq, handler, removedDelivery\).*?finishHandlerUnregisterLocked\(irq, result, removedDelivery\)' \
             "$pic_source"; then
         echo "PIC registration can cross final-unregister accounting or invalidate failed removals."
         failed=1
@@ -1425,27 +1717,211 @@ check_wait_api_boundaries()
     pic_hard_irq_body=$(sed -n \
         '/^void Pic::interrupt(/,/^void Pic::dispatchThreadedLine/p' \
         "$pic_source")
+    local pic_threaded_admission_body
+    pic_threaded_admission_body=$(sed -n \
+        '/^void Pic::admitThreadedOccurrenceLocked(/,/^void Pic::interrupt/p' \
+        "$pic_source")
     local pic_threaded_worker_body
     pic_threaded_worker_body=$(sed -n \
         '/^void Pic::dispatchThreadedLine/,/^void Pic::eoiLocked/p' \
         "$pic_source")
+    matches=$(printf '%s\n%s\n' \
+        "$pic_threaded_admission_body" "$pic_hard_irq_body" | \
+        rg -n 'LockGuard<|m_Lock[.(]|StateGuard guard' || true)
+    if [[ -n "$matches" ]]; then
+        echo "The PIC hard path regained blocking controller ownership:"
+        echo "$matches"
+        failed=1
+    fi
+
     if ! rg -q -U \
-            '(?s)bool cutoffCaptured = false.*?delivery == IrqDelivery::Mixed.*?cutoffCaptured = m_Handlers\.captureMixedAdmissionCutoffs\(.*?hardAdmissionCutoff.*?threadedAdmissionCutoff.*?else if \(hasThreadedStage\).*?cutoffCaptured = m_Handlers\.captureAdmissionCutoff\(.*?threadedAdmissionCutoff.*?else.*?cutoffCaptured = m_Handlers\.captureAdmissionCutoff\(.*?hardAdmissionCutoff.*?if \(!cutoffCaptured\).*?completeDispatch\(irq, dispatchGeneration, true\).*?applyMaskLocked\(\).*?controllerAck != IrqControllerAck::None.*?eoiLocked\(irq\).*?hasThreadedStage \? &m_ThreadedPublicationFailures\[irq\].*?&m_UnhandledIrqCount\[irq\].*?publishDiagnosticLineLocked.*?return;.*?if \(hasThreadedStage\)' \
+        '(?s)class Pic::StateGuard.*?canWait.*?Processor::executionContext\(\) == ExecutionContext::WaitableThread.*?if \(!canWait\).*?m_ControllerStateGate\.tryClaim\(\).*?return;.*?m_ControllerThreadMutex\.acquire\(\).*?m_ControllerStateGate\.tryClaim\(\).*?~StateGuard\(\).*?releaseControllerState\(\).*?m_ControllerThreadMutex\.release\(\)' \
+        "$pic_source" ||
+        ! rg -q -U \
+            '(?s)const bool atomicContext =[[:space:]]*Processor::executionContext\(\) != ExecutionContext::WaitableThread' \
+            "$pic_source" ||
+        ! rg -q 'Mutex m_ControllerThreadMutex' "$pic_header" ||
+        printf '%s\n' "$pic_hard_irq_body" | \
+            rg -q 'm_ControllerThreadMutex'; then
+        echo "The PIC lost sleeping thread ownership around its wait-free hard gate."
+        failed=1
+    fi
+
+    if ! rg -q 'class PicControllerStateGate' "$pic_state" ||
+        ! rg -q 'static constexpr size_t TransitionLifetime' "$pic_state" ||
+        ! rg -q -U \
+            '(?s)queueEntry\(size_t irq, size_t lifetime\).*?queueTagged\(.*?m_EntryCounts\[irq\].*?m_StaleEntryCounts\[irq\].*?lifetime.*?publishPending\(irq == 0\).*?tryClaim\(\)' \
+            "$pic_state" ||
+        ! rg -q -U \
+            '(?s)queueTail\(.*?tailOwesEoi|queueTail\(.*?owesEoi.*?m_TailEoiCounts\[irq\].*?m_TailNoEoiCounts\[irq\]' \
+            "$pic_state" ||
+        ! rg -q -U \
+            '(?s)takePending\(PendingActions &actions\).*?Owner \| Pending.*?takeTagged\(.*?m_TailNoEoiCounts.*?takeTagged\(.*?m_TailEoiCounts' \
+            "$pic_state" ||
+        ! rg -q -U \
+            '(?s)releaseIfIdle\(\).*?expected = Owner.*?Clean' "$pic_state" ||
+        ! rg -q -U \
+            '(?s)handControllerStateToWorker\(\).*?requestContinuation\(\).*?publishFromInterrupt\(ControllerWorkLine, 1\).*?relinquishOwnerForContinuation\(\)' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)releaseControllerStateFromInterrupt\(\).*?urgentPending\(\).*?handControllerStateToWorker\(\)' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)drainOnePendingControllerBatchLocked\(\).*?resolvePicContentionLine\(.*?temporaryPicMaskForDeferredWork\(.*?applyMaskLocked\(\).*?emitPicContentionWrites\(.*?currentActions.*?emitPicContentionWrites\(.*?staleActions' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)resolvePicContentionLine\(.*?realEntries && !hasTailAction && delivery == IrqDelivery::Threaded.*?result\.threadedOccurrences = realEntries.*?return result' \
+            "$pic_state" ||
+        ! rg -q -U \
+            '(?s)drainOnePendingControllerBatchLocked\(\).*?result\.threadedOccurrences.*?admitThreadedOccurrenceLocked\(.*?realEntries\[irq\] -= result\.threadedOccurrences.*?emitPicContentionWrites\(.*?realEntries.*?currentActions' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)delivery == IrqDelivery::Threaded.*?admitThreadedOccurrenceLocked\(.*?return' \
             <<<"$pic_hard_irq_body" ||
+        ! rg -q -U \
+            '(?s)finishLineTransitionLocked\(.*?m_ControllerStateGate\.finishLineTransition\(irq\).*?m_IrqState\.finishLineTransition\(irq\).*?m_DeferredLineTransitions \|= lineMask.*?applyMaskLocked\(\)' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)finishDeferredLineTransitionsLocked\(\).*?canPublish.*?m_ControllerStateGate\.finishLineTransition\(irq\).*?m_DeferredLineTransitions \|=' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)releaseControllerState\(\).*?restorablePicTemporaryMask\(.*?clearControllerTemporaryMaskLocked\(restorable\).*?!deliveryProcessor && m_DeferredLineTransitions.*?handControllerStateToWorker\(\)' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)clearControllerTemporaryMaskLocked\(uint16_t restoreMask\).*?m_ControllerTemporaryMask & restoreMask.*?m_ControllerTemporaryMask &=.*?applyMaskLocked\(\)' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)applyMaskLocked\(\).*?preserveUnsafePicUnmasks\(.*?m_AppliedControllerMask = mask' \
+            "$pic_source" ||
+        ! rg -q 'PicHardTailQueue m_HardTailQueue' "$pic_header" ||
+        ! rg -q -U \
+            '(?s)class PicHardTailQueue.*?publish\(uint8_t irq, const PicHardTailRecord &record\).*?Empty.*?Claimed.*?m_Records\[irq\] = record.*?Ready.*?take\(uint8_t irq, PicHardTailRecord &record\).*?Ready.*?Claimed.*?record = m_Records\[irq\].*?complete\(uint8_t irq\).*?Claimed.*?Empty' \
+            "$pic_state" ||
+        ! rg -q -U \
+            '(?s)finishHardDispatchFromInterrupt\(.*?tryAcquireClean\(\).*?finishHardDispatchLocked\(record\).*?m_HardTailQueue\.publish\(record\.irq, record\).*?queueTailRecord\(record\.irq\).*?queueTail\(.*?record\.controllerLifetime' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)drainOnePendingControllerBatchLocked\(\).*?m_HardTailQueue\.consume\([[:space:]]*static_cast<uint8_t>\(irq\),[[:space:]]*\[this, irq\]\(const PicHardTailRecord &tail\).*?finishHardDispatchLocked\(tail\);[[:space:]]*\}\);' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)finishHardDispatchLocked\(const PicHardTailRecord &record\).*?current\.controllerLifetime = m_ControllerStateGate\.currentLifetime\(irq\).*?const PicHardTailPlan plan = resolvePicHardTail\(record, current\).*?PicHardTailTerminalSequence terminal\(.*?terminal\.applyTemporaryMask\(.*?m_ControllerTemporaryMask \|=.*?applyMaskLocked\(\).*?m_ThreadedDispatcher\.publishFromInterrupt\([^;]*threadedCookie\).*?terminal\.acknowledge\(.*?eoiLocked\(irq\)' \
+            "$pic_source" ||
+        rg -q 'Spinlock m_Lock' "$pic_header" ||
+        ! rg -q 'PendingPublicationDefeatsIdleReleaseCas' "$pic_state_test" ||
+        ! rg -q 'OldTailCannotQualifyAgainstReplacement' "$pic_state_test" ||
+        ! rg -q 'RetransitionCancelsDeferredPublication' "$pic_state_test" ||
+        ! rg -q 'RemoteTransitionStaysStaleUntilSafeRelease' \
+            "$pic_state_test" ||
+        ! rg -q 'ConcurrentLifetimeChangesLoseNoPublications' \
+            "$pic_state_test" ||
+        ! rg -q 'ReplacementLifetimeWaitsForDeliveryProcessorRelease' \
+            "$pic_state_test" ||
+        ! rg -q 'StableLifetimeCanRestoreWhileRemoteOwnerIsHeld' \
+            "$pic_state_test" ||
+        ! rg -q 'SchedulerDropRestoresBeforeContinuationHandoff' \
+            "$pic_state_test" ||
+        ! rg -q 'DeferredWorkUsesOnlyPhysicalOverride' "$pic_state_test" ||
+        ! rg -q 'SpuriousSlaveMasksBeforeCascadeEoiAndRestore' \
+            "$pic_state_test" ||
+        ! rg -q 'StaleWorkDoesNotMutateReplacementState' \
+            "$pic_state_test" ||
+        ! rg -q 'FinalHardSelfRemovalRetainsThreadedTerminalRecord' \
+            "$pic_state_test" ||
+        ! rg -q 'LifetimeMutationDoesNotDemoteHardOutcome' \
+            "$pic_state_test" ||
+        ! rg -q 'MixedPeerMutationRetainsBothStageOutcomes' \
+            "$pic_state_test" ||
+        ! rg -q 'FailedMutationStillRetainsTerminalRecord' \
+            "$pic_state_test" ||
+        ! rg -q 'ReadyPublicationCannotBeStrandedByOlderPendingDrain' \
+            "$pic_state_test" ||
+        ! rg -q 'ConcurrentHandoffsPublishCompleteRecords' \
+            "$pic_state_test" ||
+        ! rg -q 'TailWorkPreservesEoiObligations' "$pic_state_test" ||
+        ! rg -q 'CurrentRtcThreadedEntrySurvivesControllerOwner' \
+            "$pic_state_test"; then
+        echo "The PIC lost its lifetime-qualified controller handoff, BSP restore, or exact EOI contract."
+        failed=1
+    fi
+
+    if ! rg -q 'irq == CascadeIrq' "$pic_state" ||
+        ! rg -q 'CascadeInputIsReservedFromHandlers' "$pic_state_test" ||
+        ! rg -q 'static constexpr size_t MaxLines = 17' \
+            src/system/include/pedigree/kernel/machine/ThreadedIrqDispatcher.h ||
+        ! rg -q -U \
+            '(?s)initialiseThreaded\(\).*?readMachineSpecificRegister\(.*?LocalApicLint0Policy::ApicBaseMsr.*?isBootstrapProcessor\(apicBase\).*?m_DeliveryProcessor = Processor::index\(\).*?m_ThreadedDispatcher\.initialise\(\)' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)initialiseProcessor\(\).*?readMachineSpecificRegister\(.*?ApicBaseMsr.*?configuredValue\(tmp, apicBase\).*?LAPIC_REG_LVT_LINT0.*?matchesRole\(lint0Readback, apicBase\).*?Masked' \
+            "$local_apic_source" ||
+        ! rg -q 'BootstrapValue = ExtInt' "$local_apic_policy" ||
+        ! rg -q 'ApplicationProcessorValue = Masked | 0xFF' \
+            "$local_apic_policy" ||
+        ! rg -q 'ExactlyOneProcessorRoutesLegacyPic' \
+            "$local_apic_policy_test" ||
+        ! rg -q 'ReadbackMustMatchTheProcessorRole' \
+            "$local_apic_policy_test" ||
+        ! rg -q -U \
+            '(?s)Pic::initialise\(\).*?m_MasterPort\.write8\(0xFF, 1\).*?m_SlavePort\.write8\(0xFF, 1\).*?registerInterruptHandler\(.*?enableAll\(false\)' \
+            "$pic_source"; then
+        echo "Legacy PIC delivery is not coupled to one verified BSP LINT0 route."
+        failed=1
+    fi
+
+    local local_apic_icr_policy=src/system/kernel/machine/mach_pc/LocalApicIcrTransaction.h
+    local local_apic_icr_test=src/buildutil/testsuite/test-LocalApicIcrTransaction.cc
+    if ! rg -q 'uint8_t m_DeliveryApicId' "$pic_header" ||
+        ! rg -q -U \
+            '(?s)Pic::initialiseThreaded\(\).*?m_DeliveryProcessor = Processor::index\(\).*?m_DeliveryApicId = Pc::instance\(\)\.getLocalApic\(\)\.getId\(\).*?setRemoteWakeCallback\(.*?promptThreadedWorker' \
+            "$pic_source" ||
+        ! rg -q -U \
+            '(?s)bool Pic::promptThreadedWorker\(.*?workerProcessor != pic->m_DeliveryProcessor.*?interProcessorInterrupt\(.*?m_DeliveryApicId, IPI_RESCHEDULE_VECTOR.*?deliveryModeFixed' \
+            "$pic_source" ||
+        ! rg -q 'IPI_RESCHEDULE_VECTOR 0xFA' \
+            src/system/kernel/machine/mach_pc/LocalApic.h ||
+        ! rg -q -U \
+            '(?s)registerInterruptHandler\(.*?IPI_RESCHEDULE_VECTOR, this\)' \
+            "$local_apic_source" ||
+        ! rg -q -U \
+            '(?s)nInterruptNumber == TIMER_VECTOR.*?nInterruptNumber == IPI_RESCHEDULE_VECTOR.*?ack\(\).*?DispatchGuard dispatch.*?m_Handlers\.beginDispatch\(getId\(\), dispatch\).*?dispatch\.handler\(\)->timer\(0, state\)' \
+            "$local_apic_source" ||
+        rg -q 'm_IcrSubmissionActive|acquireIcrSubmission' \
+            "$local_apic_source" src/system/kernel/machine/mach_pc/LocalApic.h ||
+        ! rg -q -U \
+            '(?s)bool LocalApic::submitIcr\(uint32_t high, uint32_t low\).*?LocalApicIcrTransaction transaction\(Processor::getInterrupts\(\)\).*?Processor::setInterrupts\(false\).*?waitForIcrIdle\(\).*?m_IoSpace\.write32\(high, LAPIC_REG_INT_CMD_HIGH\).*?m_IoSpace\.write32\(low, LAPIC_REG_INT_CMD_LOW\).*?waitForIcrIdle\(\).*?Processor::setInterrupts\(transaction\.restoreInterrupts\(\)\)' \
+            "$local_apic_source" ||
+        ! rg -q 'allowsMaskableHardIrqPreemption\(\) const' \
+            "$local_apic_icr_policy" ||
+        ! rg -q 'MasksTheOldOwnerPreemptionWindow' "$local_apic_icr_test" ||
+        ! rg -q 'controllerPromptAttempts' \
+            src/system/include/pedigree/kernel/machine/IrqManager.h ||
+        ! rg -q -U \
+            '(?s)Pic::promptThreadedWorker\(.*?m_ControllerPromptAttempts.*?m_ControllerPromptDestination.*?interProcessorInterrupt\(.*?m_ControllerPromptFailures.*?m_ControllerPromptState' \
+            "$pic_source"; then
+        echo "PIC remote BSP prompting, local ICR exclusion, diagnostics, or LAPIC reschedule service regressed."
+        failed=1
+    fi
+
+    if ! rg -q -U \
+            '(?s)delivery == IrqDelivery::Threaded.*?admitThreadedOccurrenceLocked\(.*?return;.*?bool cutoffCaptured = false.*?delivery == IrqDelivery::Mixed.*?cutoffCaptured = m_Handlers\.captureMixedAdmissionCutoffs\(.*?hardAdmissionCutoff.*?threadedAdmissionCutoff.*?else.*?cutoffCaptured = m_Handlers\.captureAdmissionCutoff\(.*?hardAdmissionCutoff.*?if \(!cutoffCaptured\).*?completeDispatch\(irq, dispatchGeneration, true\).*?applyMaskLocked\(\).*?controllerAck != IrqControllerAck::None.*?eoiLocked\(irq\).*?hasThreadedStage \? &m_ThreadedPublicationFailures\[irq\].*?&m_UnhandledIrqCount\[irq\].*?publishDiagnosticLineLocked.*?return;.*?if \(hasThreadedStage\)' \
+            <<<"$pic_hard_irq_body" ||
+        ! rg -q -U \
+            '(?s)admitThreadedOccurrenceLocked\(.*?beginDispatch\(irq\).*?captureAdmissionCutoff\(irq, admissionCutoff\).*?beginThreadedDispatch\(irq\).*?lineRelease == IrqLineRelease::AfterThreadedCompletion.*?applyMaskLocked\(\).*?publishThreadedDispatch\(.*?admissionCutoff\).*?publishFromInterrupt\(irq, threadedCookie\).*?invalidateThreadedGenerationFromInterrupt\(.*?completeDispatch\(irq, dispatchGeneration, true\).*?controllerAck == IrqControllerAck::AfterHardStage.*?eoiLocked\(irq\)' \
+            <<<"$pic_threaded_admission_body" ||
         ! rg -q -U \
             '(?s)beginThreadedDispatch\(irq\).*?lineRelease == IrqLineRelease::AfterThreadedCompletion.*?applyMaskLocked\(\).*?controllerAck == IrqControllerAck::BeforeHardStage.*?eoiLocked\(irq\)' \
             <<<"$pic_hard_irq_body" ||
         ! rg -q -U \
-            '(?s)publishThreadedDispatch\([^;]*threadedAdmissionCutoff\).*?if \(!hasHardStage &&.*?!m_ThreadedDispatcher\.publishFromInterrupt\(.*?dispatchHard\([^;]*hardAdmissionCutoff\).*?if \(hasThreadedStage\).*?threadedLifetimeCurrent.*?!m_ThreadedDispatcher\.publishFromInterrupt\(' \
+            '(?s)publishThreadedDispatch\([^;]*threadedAdmissionCutoff\).*?dispatchHard\([^;]*hardAdmissionCutoff\).*?tail\.threadedPublished = threadedPublished;.*?finishHardDispatchFromInterrupt\(tail\);.*?if \(hasThreadedStage\).*?threadedLifetimeCurrent.*?resolvePicHardTailDoorbell\([[:space:]]*true, m_ThreadedDispatcher\.publishFromInterrupt\(' \
             <<<"$pic_hard_irq_body" ||
         ! rg -q -U \
             '(?s)dispatchThreaded\(irq, cookie, result\).*?aggregateAdmitted.*?m_ThreadedHardAdmitted\[irq\] \|\| admitted.*?hardDisposition.*?m_ThreadedHardDisposition\[irq\].*?aggregateAllowRearm.*?hardDisposition == HardIrqDisposition::Handled.*?result\.allowRearm.*?hardDisposition != HardIrqDisposition::KeepMasked.*?completeThreadedDispatch\(.*?aggregateAdmitted && aggregateAllowRearm' \
             <<<"$pic_threaded_worker_body" ||
         ! rg -q -U \
-            '(?s)needsAcknowledgement.*?HardIrqDisposition::KeepMasked.*?completeDispatch\([^;]*needsAcknowledgement\).*?applyMaskLocked\(\).*?controllerAck == IrqControllerAck::AfterHardStage.*?eoiLocked\(irq\)' \
+            '(?s)PicHardTailTerminalSequence terminal\([^;]*controllerAck\);.*?needsAcknowledgement.*?HardIrqDisposition::KeepMasked.*?completeDispatch\([^;]*needsAcknowledgement\).*?applyMaskLocked\(\).*?terminal\.acknowledge\(.*?eoiLocked\(irq\)' \
             <<<"$pic_hard_irq_body" ||
         ! rg -q -U \
-            '(?s)hardHandoffFailed =.*?effectiveHardDisposition == HardIrqDisposition::KeepMasked.*?if \(hasThreadedStage &&.*?hardHandoffFailed.*?threadedLifetimeCurrent && !threadedPublished.*?m_FailClosedReasons\[irq\] \|= HardHandoffQuarantine.*?completeDispatch\(irq, dispatchGeneration, true\).*?applyMaskLocked\(\).*?controllerAck == IrqControllerAck::AfterHardStage.*?eoiLocked\(irq\)' \
+            '(?s)hardHandoffFailed =.*?effectiveHardDisposition == HardIrqDisposition::KeepMasked.*?if \(hasThreadedStage &&.*?hardHandoffFailed.*?threadedLifetimeCurrent && !threadedPublished.*?m_FailClosedReasons\[irq\] \|= HardHandoffQuarantine.*?completeDispatch\(irq, dispatchGeneration, true\).*?applyMaskLocked\(\).*?terminal\.acknowledge\(.*?eoiLocked\(irq\)' \
             <<<"$pic_hard_irq_body" ||
         ! rg -q -U \
             '(?s)hardHandoffQuarantined =.*?hardLineQuarantined\(irq\).*?storedHardDisposition.*?storedHardDisposition == HardIrqDisposition::KeepMasked.*?!hardHandoffQuarantined.*?HardIrqDisposition::Handled.*?hardHandoffFailed = hardHandoffQuarantined.*?accepted =.*?hardDisposition == HardIrqDisposition::Handled.*?!hardHandoffFailed.*?!threadedPublicationQuarantined.*?if \(!accepted && !hardHandoffFailed && !threadedPublicationQuarantined\)' \
@@ -1482,10 +1958,10 @@ check_wait_api_boundaries()
     fi
 
     if ! rg -q -U \
-            '(?s)!hasHardStage && threadedPublished.*?!m_ThreadedDispatcher\.publishFromInterrupt\(.*?invalidateThreadedGenerationFromInterrupt\(.*?threadedPublished = false.*?if \(!hasHardStage && !threadedPublished\).*?completeDispatch\(irq, dispatchGeneration, true\)' \
-            <<<"$pic_hard_irq_body" ||
+            '(?s)published &&.*?!m_ThreadedDispatcher\.publishFromInterrupt\(irq, threadedCookie\).*?invalidateThreadedGenerationFromInterrupt\(.*?published = false.*?if \(!published\).*?completeDispatch\(irq, dispatchGeneration, true\)' \
+            <<<"$pic_threaded_admission_body" ||
         ! rg -q -U \
-            '(?s)threadedLifetimeCurrent.*?m_ThreadedDispatcher\.publishFromInterrupt\(.*?invalidateThreadedGenerationFromInterrupt\(.*?threadedPublished = false.*?if \(!threadedPublished\).*?completeDispatch\([[:space:]]*irq, dispatchGeneration, true\)' \
+            '(?s)threadedLifetimeCurrent.*?resolvePicHardTailDoorbell\([[:space:]]*true, m_ThreadedDispatcher\.publishFromInterrupt\([^;]*threadedCookie\)\).*?if \(doorbell\.invalidateStagedDispatch\).*?invalidateThreadedGenerationFromInterrupt\([[:space:]]*irq, threadedCookie\).*?m_ThreadedPublicationFailures\[irq\].*?threadedPublished = doorbell\.published.*?if \(doorbell\.completeDispatch\).*?completeDispatch\(irq, dispatchGeneration, true\)' \
             <<<"$pic_hard_irq_body" ||
         ! rg -q -U \
             '(?s)if \(!tail\.owned\(\)\).*?m_ThreadedPublicationFailures.*?return true;.*?const bool cookieCurrent' \
@@ -1500,8 +1976,9 @@ check_wait_api_boundaries()
         failed=1
     fi
 
-    matches=$(printf '%s\n' "$pic_hard_irq_body" | \
-        rg -n '(ERROR|WARNING|NOTICE|FATAL)(_NOLOCK)?\(' || true)
+    matches=$(printf '%s\n%s\n' \
+        "$pic_threaded_admission_body" "$pic_hard_irq_body" | \
+        rg -n '(ERROR|WARNING|NOTICE|FATAL)\(' || true)
     if [[ -n "$matches" ]]; then
         echo "The PIC interrupt path logs from hard IRQ context:"
         echo "$matches"
@@ -1747,7 +2224,9 @@ check_wait_api_boundaries()
     local scheduler_timer_handler_header=src/system/include/pedigree/kernel/machine/SchedulerTimerHandler.h
     local scheduler_irq_handler_header=src/system/include/pedigree/kernel/machine/SchedulerIrqHandler.h
     local scheduler_timer_slot_header=src/system/include/pedigree/kernel/machine/SchedulerTimerHandlerSlot.h
+    local scheduler_timer_cleanup_header=src/system/include/pedigree/kernel/machine/SchedulerTimerDispatchCleanup.h
     local scheduler_timer_header=src/system/include/pedigree/kernel/machine/SchedulerTimer.h
+    local scheduler_timer_source=src/system/kernel/machine/SchedulerTimer.cc
     local scheduler_timer_slot_test=src/buildutil/testsuite/test-SchedulerTimerHandlerSlot.cc
     local pit_source=src/system/kernel/machine/mach_pc/Pit.cc
     local pit_header=src/system/kernel/machine/mach_pc/Pit.h
@@ -1771,17 +2250,26 @@ check_wait_api_boundaries()
     if ! rg -q 'class SchedulerTimerHandlerSlot' \
             "$scheduler_timer_slot_header" ||
         ! rg -q -U \
-            '(?s)bool publish\(SchedulerTimerHandler \*handler\).*?expected = nullptr.*?__atomic_compare_exchange_n\(.*?__ATOMIC_RELEASE' \
+            '(?s)bool publish\(size_t owner, SchedulerTimerHandler \*handler\).*?owner == NoOwner.*?expected = Empty.*?Publishing.*?m_Owner.*?m_Handler.*?Published' \
             "$scheduler_timer_slot_header" ||
         ! rg -q -U \
-            '(?s)bool unpublish\(SchedulerTimerHandler \*handler\).*?expected = handler.*?__atomic_compare_exchange_n\(.*?__ATOMIC_ACQ_REL' \
+            '(?s)bool unpublish\(size_t owner, SchedulerTimerHandler \*handler\).*?m_Owner.*?owner.*?m_Handler.*?handler.*?expected = Published.*?Removing.*?m_Handler.*?nullptr.*?m_Owner.*?NoOwner.*?Empty' \
             "$scheduler_timer_slot_header" ||
         ! rg -q -U \
-            '(?s)SchedulerTimerHandler \*load\(\) const.*?__atomic_load_n\(.*?__ATOMIC_ACQUIRE' \
+            '(?s)bool beginDispatch\(size_t owner, DispatchGuard &guard\).*?observed.*?ModeMask.*?Published.*?DispatchIncrement.*?__atomic_compare_exchange_n\(.*?m_State.*?m_Handler.*?guard\.m_Handler = handler.*?guard\.m_Slot = this' \
             "$scheduler_timer_slot_header" ||
+        ! rg -q -U \
+            '(?s)~DispatchGuard\(\).*?release\(\).*?void release\(\).*?m_Slot = nullptr.*?m_Handler = nullptr.*?slot->completeDispatch\(\).*?completeDispatch\(\).*?__atomic_fetch_sub\(.*?m_State, DispatchIncrement' \
+            "$scheduler_timer_slot_header" ||
+        ! rg -q -U \
+            '(?s)class EXPORTED_PUBLIC SchedulerTimerDispatchCleanup.*?DispatchGuard &m_Dispatch.*?AtomicStateCleanupRecord m_Cleanup.*?bool m_Active' \
+            "$scheduler_timer_cleanup_header" ||
+        ! rg -q -U \
+            '(?s)SchedulerTimerDispatchCleanup::SchedulerTimerDispatchCleanup\(.*?getCurrentThread\(\).*?armAtomicStateCleanup\(m_Cleanup, abandon, this\).*?SchedulerTimerDispatchCleanup::~SchedulerTimerDispatchCleanup\(\).*?disarmAtomicStateCleanup\(m_Cleanup\).*?SchedulerTimerDispatchCleanup::abandon\(.*?cleanup->release\(\).*?SchedulerTimerDispatchCleanup::release\(\).*?m_Active = false.*?m_Dispatch\.release\(\)' \
+            "$scheduler_timer_source" ||
         ! rg -q 'SchedulerTimerHandlerSlot m_Handler' "$pit_header" ||
         ! rg -q -U \
-            '(?s)Pit::registerHandler.*?m_Handler\.publish\(handler\).*?Pit::removeHandler.*?m_Handler\.unpublish\(handler\).*?Pit::schedulerIrq.*?m_Handler\.load\(\).*?handler->timer\(0, state\)' \
+            '(?s)Pit::registerHandler.*?m_Handler\.publish\(0, handler\).*?Pit::removeHandler.*?canRemoveHandlerInCurrentContext\(\).*?m_Handler\.unpublish\(0, handler\).*?Pit::schedulerIrq.*?DispatchGuard dispatch.*?m_Handler\.beginDispatch\(0, dispatch\).*?SchedulerTimerDispatchCleanup dispatchCleanup\(dispatch\).*?dispatch\.handler\(\)->timer\(0, state\)' \
             "$pit_source" ||
         ! rg -q 'SchedulerTimerHandlerSlot m_Handlers\[Capacity\]' \
             "$local_apic_slots" ||
@@ -1789,15 +2277,48 @@ check_wait_api_boundaries()
             "$scheduler_timer_slot_test" ||
         ! rg -q 'UnpublishesOnlyTheExactOwner' \
             "$scheduler_timer_slot_test" ||
+        ! rg -q 'RejectsRemoteRemovalAfterOwnerAdmission' \
+            "$scheduler_timer_slot_test" ||
+        ! rg -q 'SuspendedDispatchesRemainPreemptible' \
+            "$scheduler_timer_slot_test" ||
+        ! rg -q 'ExplicitReleaseIsIdempotent' \
+            "$scheduler_timer_slot_test" ||
+        ! rg -q 'RetainsRawApicKeyAcrossLogicalIdTransition' \
+            src/buildutil/testsuite/test-LocalApicTimerHandlerSlots.cc ||
+        ! rg -q -U \
+            '(?s)registerHandler\(SchedulerTimerHandler \*handler\).*?m_Handlers\.registerHandler\(getId\(\), handler\).*?removeHandler\(SchedulerTimerHandler \*handler\).*?canRemoveHandlerInCurrentContext\(\).*?m_Handlers\.removeHandler\(getId\(\), handler\)' \
+            src/system/kernel/machine/mach_pc/LocalApic.h ||
+        ! rg -q -U \
+            '(?s)LocalApic::interrupt.*?DispatchGuard dispatch.*?m_Handlers\.beginDispatch\(getId\(\), dispatch\).*?SchedulerTimerDispatchCleanup dispatchCleanup\(dispatch\).*?dispatch\.handler\(\)->timer' \
+            "$local_apic_source" ||
         ! rg -q -U \
             '(?s)PerProcessorScheduler::~PerProcessorScheduler\(\).*?if \(!pTimer->removeHandler\(this\)\).*?FATAL' \
             "$per_processor_scheduler_source" ||
         ! rg -q -U \
             '(?s)PerProcessorScheduler::initialise\(Thread \*pThread\).*?if \(!pTimer->registerHandler\(this\)\).*?FATAL' \
             "$per_processor_scheduler_source" ||
+        ! rg -q -U \
+            '(?s)killCurrentThreadImpl\(.*?retireDeferredScopes\(true\)' \
+            "$per_processor_scheduler_source" ||
+        ! rg -q 'hosted-scheduler-timer-abandoned-admission-cleanup' \
+            src/modules/system/hosted-smoke/scheduler-regressions.cc ||
         rg -q 'SchedulerTimerHandler \*m_Handler' \
             "$pit_header" "$hosted_scheduler_timer_header"; then
-        echo "Scheduler timer callbacks lost atomic single-owner publication."
+        echo "Scheduler timer callbacks lost counted admission or owner-qualified publication."
+        failed=1
+    fi
+
+    if ! rg -q 'static bool canRemoveHandlerInCurrentContext\(\)' \
+            "$scheduler_timer_header" ||
+        ! rg -q -U \
+            '(?s)SchedulerTimer::canRemoveHandlerInCurrentContext\(\).*?getCurrentThread\(\).*?Processor::executionContext\(\) != ExecutionContext::WaitableThread.*?getHostedSignalDepth' \
+            src/system/kernel/machine/SchedulerTimer.cc ||
+        ! rg -q -U \
+            '(?s)HostedSchedulerTimer::removeHandler.*?canRemoveHandlerInCurrentContext\(\).*?m_Handler\.unpublish\(Processor::id\(\), handler\)' \
+            src/system/kernel/machine/hosted/SchedulerTimer.cc ||
+        ! rg -q 'hosted-scheduler-timer-self-removal-rejected' \
+            src/modules/system/hosted-smoke/scheduler-regressions.cc; then
+        echo "Scheduler timer removal can escape its same-CPU ordinary-context drain boundary."
         failed=1
     fi
 
@@ -1832,7 +2353,7 @@ check_wait_api_boundaries()
             '(?s)signalShim\(.*?const bool hostedIrq = isHostedIrqSignal\(which\);.*?hostedIrq && !Processor::onHostedExecutionThread\(\).*?FATAL_NOLOCK' \
             "$hosted_interrupt_manager_source" ||
         ! rg -q -U \
-            '(?s)observeSchedulerTimerHardContext\(.*?!Processor::onHostedExecutionThread\(\)' \
+            '(?s)observeSchedulerTimerHardContext\(.*?!Processor::onHostedExecutionThread\(\).*?Processor::executionContext\(\) != ExecutionContext::SchedulerIrq' \
             "$scheduler_regressions"; then
         echo "Hosted IRQ sources escaped their captured processor thread."
         failed=1
@@ -1891,7 +2412,7 @@ check_wait_api_boundaries()
             '(?s)HostedSchedulerTimer::uninitialise\(\).*?timer_settime\(.*?unregisterSchedulerIrqHandler\(m_IrqId, this\).*?timer_delete\(' \
             "$hosted_scheduler_timer_source" ||
         ! rg -q -U \
-            '(?s)HostedSchedulerTimer::registerHandler.*?m_Handler\.publish\(handler\).*?HostedSchedulerTimer::removeHandler.*?m_Handler\.unpublish\(handler\).*?HostedSchedulerTimer::schedulerIrq\(.*?getInterruptNumber\(\) != SIGUSR2.*?si_signo != SIGUSR2.*?si_code != SI_TIMER.*?si_overrun.*?m_Handler\.load\(\).*?handler->timer\(delta, state\)' \
+            '(?s)HostedSchedulerTimer::registerHandler.*?m_Handler\.publish\(Processor::id\(\), handler\).*?HostedSchedulerTimer::removeHandler.*?canRemoveHandlerInCurrentContext\(\).*?m_Handler\.unpublish\(Processor::id\(\), handler\).*?HostedSchedulerTimer::schedulerIrq\(.*?getInterruptNumber\(\) != SIGUSR2.*?si_signo != SIGUSR2.*?si_code != SI_TIMER.*?si_overrun.*?DispatchGuard dispatch.*?m_Handler\.beginDispatch\(Processor::id\(\), dispatch\).*?SchedulerTimerDispatchCleanup dispatchCleanup\(dispatch\).*?dispatch\.handler\(\)->timer\(delta, state\)' \
             "$hosted_scheduler_timer_source" ||
         ! rg -q -U \
             '(?s)HostedIrqManager::interrupt\(.*?dispatchDeviceLine\(irq, state, schedulerHandler != nullptr\).*?schedulerHandler->schedulerIrq\(irq, state\)' \
@@ -2237,6 +2758,27 @@ cmake_options=(-DPEDIGREE_WARNINGS=ON)
 
 run_stage submodules \
     git submodule update --init --recursive
+
+if ! capture_source_provenance "$provenance_baseline"; then
+    current_stage=source-provenance-baseline
+    echo "Could not capture source provenance after submodule preparation." >&2
+    exit 1
+fi
+provenance_ready=true
+echo "Source provenance is sampled every $provenance_poll_seconds second(s) during stages and checked at stage boundaries; it is not immutable-source proof."
+{
+    echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+    echo "source provenance baseline=$provenance_baseline"
+    echo "source provenance exclusions=${provenance_exclude_args[*]:-none}"
+    echo "source provenance limitation=sampled stage watcher and boundary snapshots detect persisted or sampled source changes; a change-and-revert wholly between samples is not immutable-source proof"
+    cat "$provenance_baseline"
+    echo
+    echo "working tree at provenance baseline:"
+    git status --short 2>/dev/null || true
+} >>"$metadata_file"
+
+run_stage provenance-self-test \
+    python3 "$provenance_tool" --self-test
 run_stage wait-api-boundaries \
     check_wait_api_boundaries
 run_stage native-configure \
