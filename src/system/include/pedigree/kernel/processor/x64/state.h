@@ -30,7 +30,7 @@
  * @{ */
 
 /** x64 Interrupt State */
-class X64InterruptState
+class EXPORTED_PUBLIC X64InterruptState
 {
     friend class X64ProcessorState;
     friend class X64InterruptManager;

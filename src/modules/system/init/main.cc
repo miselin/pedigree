@@ -150,6 +150,7 @@ static int init_stage2(void *param)
         Processor::information().getCurrentThread()->getParent();
     Process::setInit(pProcess);
 
+    NOTICE("Invoking userspace program at " << init_path);
     if (!pProcess->getSubsystem()->invoke(file, init_path, argv, env))
     {
         error("failed to load userspace program");
