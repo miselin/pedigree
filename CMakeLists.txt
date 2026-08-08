@@ -87,9 +87,17 @@ set(PEDIGREE_GO_CANARY "" CACHE FILEPATH "Prebuilt pedigree/amd64 Go canary to i
 # All nasm on x86-based systems
 enable_language(ASM_NASM ASM)
 
-# Fix up nasm command line to not include a default like -f elf (so we can
-# control the bitness of the nasm output)
-set(CMAKE_ASM_NASM_COMPILE_OBJECT "<CMAKE_ASM_NASM_COMPILER> -felf64 -o <OBJECT> <SOURCE>")
+# Fix up nasm's output format explicitly. Hosted Darwin is a Mach-O process;
+# all freestanding and Linux-hosted targets continue to use ELF objects.
+if (NOT PEDIGREE_NASM_FORMAT)
+    set(PEDIGREE_NASM_FORMAT elf64)
+endif ()
+set(PEDIGREE_NASM_FLAGS "")
+if (PEDIGREE_NASM_GLOBAL_PREFIX)
+    set(PEDIGREE_NASM_FLAGS "--gprefix ${PEDIGREE_NASM_GLOBAL_PREFIX}")
+endif ()
+set(CMAKE_ASM_NASM_COMPILE_OBJECT
+    "<CMAKE_ASM_NASM_COMPILER> -f${PEDIGREE_NASM_FORMAT} ${PEDIGREE_NASM_FLAGS} -o <OBJECT> <SOURCE>")
 
 cmake_host_system_information(RESULT PEDIGREE_BUILD_HOSTNAME QUERY FQDN)
 

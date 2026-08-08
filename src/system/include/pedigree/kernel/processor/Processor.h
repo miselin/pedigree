@@ -350,8 +350,6 @@ class EXPORTED_PUBLIC ProcessorBase
     static void notifyHostedContextSwitchStage(
         HostedContextSwitchStage stage);
 
-    /** Queues a scheduler IRQ while hosted interrupts are masked. */
-    static bool queueHostedSchedulerTickForTest();
 #endif
     /** Enable/Disable single-stepping
      *\param[in] bEnable true to enable single-stepping, false otherwise

@@ -27,6 +27,11 @@
 #include "pedigree/kernel/utilities/MemoryTracing.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#if PEDIGREE_HOSTED_DARWIN
+#include <mach-o/getsect.h>
+#include <mach-o/ldsyms.h>
+#endif
+
 /// If the debug allocator is enabled, this switches it into underflow detection
 /// mode.
 #define DEBUG_ALLOCATOR_CHECK_UNDERFLOWS 1
@@ -47,16 +52,36 @@
 extern "C" void *__dso_handle;
 #endif
 
+#if !PEDIGREE_HOSTED_DARWIN
 // Defined in the linker.
 extern uintptr_t start_kernel_ctors;
 extern uintptr_t end_kernel_ctors;
 extern uintptr_t start_kernel_dtors;
 extern uintptr_t end_kernel_dtors;
+#endif
+
+#if PEDIGREE_HOSTED_DARWIN
+static void runKernelConstructorSection(const char *section)
+{
+    unsigned long size = 0;
+    uint8_t *contents = getsectiondata(
+        &_mh_execute_header, "__DATA", section, &size);
+    auto functions = reinterpret_cast<void (**)()>(contents);
+    const size_t count = size / sizeof(*functions);
+    for (size_t i = 0; i < count; ++i)
+    {
+        functions[i]();
+    }
+}
+#endif
 
 /// Calls the constructors for all global objects.
 /// Call this before using any global objects.
 void initialiseConstructors()
 {
+#if PEDIGREE_HOSTED_DARWIN
+    runKernelConstructorSection("__pedigree_init");
+#else
     // Constructor list is defined in the linker script.
     // The .ctors section is just an array of function pointers.
     // iterate through, calling each in turn.
@@ -67,10 +92,14 @@ void initialiseConstructors()
         fp();
         iterator++;
     }
+#endif
 }
 
 void runKernelDestructors()
 {
+#if PEDIGREE_HOSTED_DARWIN
+    runKernelConstructorSection("__pedigree_term");
+#else
     uintptr_t *iterator = &start_kernel_dtors;
     while (iterator < &end_kernel_dtors)
     {
@@ -78,6 +107,7 @@ void runKernelDestructors()
         fp();
         iterator++;
     }
+#endif
 }
 
 /// Memory tracing defaults to being enabled if enabled in CMake

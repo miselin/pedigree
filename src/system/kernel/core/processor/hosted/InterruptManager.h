@@ -25,11 +25,7 @@
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/processor/state_forward.h"
-
-namespace __pedigree_hosted
-{
 #include <signal.h>
-}  // namespace __pedigree_hosted
 
 /** @addtogroup kernelprocessorhosted
  * @{ */
@@ -70,7 +66,7 @@ class HostedInterruptManager : public ::InterruptManager
         int which, void *siginfo, void *meta, bool fromUserspace);
 
     /** Get the original sigaction for an interrupt handler. */
-    struct __pedigree_hosted::sigaction getOriginalSigaction(int which) const;
+    struct sigaction getOriginalSigaction(int which) const;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     using MutationLockHook = void (*)();
@@ -119,7 +115,7 @@ class HostedInterruptManager : public ::InterruptManager
 #endif
 
     /** Original sigaction structs after we install our custom handlers. */
-    static struct __pedigree_hosted::sigaction m_OriginalActions[MAX_SIGNAL];
+    static struct sigaction m_OriginalActions[MAX_SIGNAL];
     static bool m_ActionInstalled[MAX_SIGNAL];
 
     static bool m_bQuiesced;

@@ -20,6 +20,7 @@
 #ifndef KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
 #define KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
 
+#include "TickSource.h"
 #include "pedigree/kernel/machine/IrqEventCounter.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
@@ -28,12 +29,6 @@
 #include "pedigree/kernel/machine/TimerHandlerRegistry.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/utilities/List.h"
-
-namespace __pedigree_hosted
-{
-#include <signal.h>
-#include <time.h>
-}  // namespace __pedigree_hosted
 
 /** @addtogroup kernelmachinehosted
  * @{ */
@@ -154,8 +149,8 @@ class HostedTimer : public Timer, private SplitIrqHandler
     /** The current nanosecond */
     uint64_t m_Nanosecond;
 
-    /** Tick source. */
-    __pedigree_hosted::timer_t m_Timer;
+    /** Periodic signal source. */
+    HostedTickSource m_TickSource;
 
     /** Registered handler. */
     irq_id_t m_IrqId;

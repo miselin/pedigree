@@ -5,7 +5,9 @@
  * purpose with or without fee is hereby granted.
  */
 
+#if !PEDIGREE_HOSTED_CORE_SMOKE
 #include "modules/system/usb/UsbPnP.h"
+#endif
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
@@ -25,6 +27,15 @@
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
 
 bool runHostedRequestQueueRegressions();
+bool runHostedLifetimeLeaseRegressions();
+bool runHostedMutexRegressions();
+bool runHostedPageFaultRegressions();
+bool runHostedPrimitiveRegressions(Thread *thread);
+bool runHostedRingBufferRegressions();
+bool runHostedProcessExitRegressions();
+bool runHostedSignalInterruptionRegressions(Thread *thread);
+bool runHostedTimerRegressions(Thread *thread);
+#if !PEDIGREE_HOSTED_CORE_SMOKE
 bool runHostedSchedulerRegressions();
 bool runHostedCacheRegressions();
 bool runHostedCdiIrqRegressions();
@@ -33,24 +44,17 @@ bool runHostedInterruptManagerRegressions();
 EXPORTED_PUBLIC bool runHostedFatSectorRegressions();
 EXPORTED_PUBLIC bool runHostedRawFsContractRegressions();
 EXPORTED_PUBLIC bool runHostedUnixDatagramRegressions();
-bool runHostedLifetimeLeaseRegressions();
 bool runHostedLogRegressions();
-bool runHostedMutexRegressions();
 bool runHostedNetworkFilterRegressions();
-bool runHostedPageFaultRegressions();
 bool runHostedPipeRegressions();
-bool runHostedPrimitiveRegressions(Thread *thread);
-bool runHostedRingBufferRegressions();
-bool runHostedProcessExitRegressions();
 bool runHostedPs2ControllerRegressions();
 bool runHostedPs2MouseRegressions();
-bool runHostedSignalInterruptionRegressions(Thread *thread);
 bool runHostedSyscallRegressions();
-bool runHostedTimerRegressions(Thread *thread);
 bool runHostedUsbCallbackDeliveryRegressions();
 bool runHostedUsbHcdPortChangeRegressions();
 bool runHostedUsbTransferLifecycleRegressions();
 EXPORTED_PUBLIC bool runHostedUsbSyncOwnershipRegression();
+#endif
 
 namespace
 {
@@ -2155,7 +2159,7 @@ bool runHostedWaitRegressions()
     NOTICE("HOSTED-WAIT-TEST: BEGIN");
 
     const bool passed =
-        runHostedPs2ControllerRegressions() && wakeBeforeBlock() &&
+        wakeBeforeBlock() &&
         semaphoreReleaseBeforeBlock() &&
         terminalCancelCallbackOrdering() &&
         terminalCancelBeforeBlock() &&
@@ -2165,8 +2169,11 @@ bool runHostedWaitRegressions()
         Scheduler::instance()
             .getBootstrapProcessorScheduler()
             ->runHostedNewThreadWorkerRegressions() &&
+#if !PEDIGREE_HOSTED_CORE_SMOKE
         runHostedSchedulerRegressions() &&
+#endif
         runHostedRequestQueueRegressions() &&
+#if !PEDIGREE_HOSTED_CORE_SMOKE
         runHostedUsbCallbackDeliveryRegressions() &&
         runHostedUsbHcdPortChangeRegressions() &&
         runHostedUsbTransferLifecycleRegressions() &&
@@ -2179,10 +2186,15 @@ bool runHostedWaitRegressions()
         runHostedFatSectorRegressions() &&
         runHostedRawFsContractRegressions() &&
         runHostedUnixDatagramRegressions() &&
+#endif
         runHostedLifetimeLeaseRegressions() &&
+#if !PEDIGREE_HOSTED_CORE_SMOKE
         runHostedLogRegressions() &&
+#endif
         runHostedProcessExitRegressions() &&
+#if !PEDIGREE_HOSTED_CORE_SMOKE
         runHostedPs2MouseRegressions() &&
+#endif
         conditionVariableContendedReacquire(
             g_ImmediateWaiter, ContendedConditionContext::Signal) &&
         conditionVariableContendedReacquire(
@@ -2191,14 +2203,18 @@ bool runHostedWaitRegressions()
         conditionVariableCompletionBarrier() &&
         unlikelyLockAdmission() &&
         runHostedPageFaultRegressions() &&
+#if !PEDIGREE_HOSTED_CORE_SMOKE
         runHostedPipeRegressions() &&
         runHostedUsbSyncOwnershipRegression() &&
         UsbPnP::runHostedRegistrationRegression() &&
         Ipc::runHostedIpcInterruptionRegression() &&
+#endif
         runHostedTimerRegressions(g_ImmediateWaiter) &&
         runHostedPrimitiveRegressions(g_ImmediateWaiter) &&
         runHostedSignalInterruptionRegressions(g_ImmediateWaiter) &&
+#if !PEDIGREE_HOSTED_CORE_SMOKE
         runHostedSyscallRegressions() &&
+#endif
         ordinaryBlockAndWake() &&
         processSuspendResume() &&
         immediateExitJoinLifecycle() && joinPublicationAndDetachExclusion() &&

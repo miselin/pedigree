@@ -14,14 +14,19 @@ preserving the project as useful systems-software history.
 The active source targets are:
 
 - x86-64 PC, built with the Pedigree cross-toolchain;
-- native host support and unit tests, built directly on macOS or Linux.
+- native host support and unit tests, built directly on macOS or Linux;
+- a focused x86-64 hosted-kernel lifecycle on Apple silicon macOS, run through
+  Rosetta without a virtual machine or container.
 
-Only the native test path is canonical today. The x86-64 Linux hosted sources
-remain available for focused experiments, but their container-backed runtime
-matrix is no longer part of the maintained public entrypoints. The x86-64 PC
-kernel, ISO, full userspace, and QEMU boot path remain active restoration work;
-they are not implied by a green native build. ARM, MIPS, and PowerPC material
-is historical, not supported.
+The native test path is canonical on every supported host. On macOS,
+verification also builds an x86-64 Mach-O hosted kernel, loads a focused
+Pedigree ELF module, runs the core wait/timer/lifetime/page-fault suite, and
+checks clean shutdown. The x86-64 Linux hosted sources remain available for
+focused experiments, but their old container-backed runtime matrix is not part
+of the maintained public entrypoints. The x86-64 PC kernel, ISO, full
+userspace, and QEMU boot path remain active restoration work; they are not
+implied by a green host build. ARM, MIPS, and PowerPC material is historical,
+not supported.
 
 See [RESTORATION.md](RESTORATION.md) for the exact support boundary, build
 commands, verification contract, and known gaps.
@@ -35,10 +40,13 @@ Run the complete maintained verification set from the repository root:
 ```
 
 The host needs Git, CMake/CTest, and a C/C++ compiler with AddressSanitizer.
-Docker is not used. Apple silicon macOS and Linux are both valid hosts.
+Docker is not used. Apple silicon macOS and Linux are both valid hosts. The
+macOS hosted-kernel lane additionally needs Rosetta, NASM, and the existing
+`compilers/dir` x86-64 Pedigree cross-toolchain.
 
 It builds the native support surface and runs its tests normally and under
-AddressSanitizer. Logs are kept under:
+AddressSanitizer. On macOS it also runs the focused hosted-kernel lifecycle.
+Logs are kept under:
 
 ```text
 build-verify/logs/<UTC timestamp>/
@@ -53,15 +61,17 @@ claim an x86-64 PC boot, hardware support, or complete userspace coverage.
 ./easy_build_hosted.sh
 ```
 
-The historical name is preserved as a public entrypoint. It now builds the
-native kernel-support and selected module-support libraries, the test suite,
-and the image/debug utilities, then repeats the test build with AddressSanitizer.
-It does not build or run the legacy x86-64 Linux hosted kernel.
+The historical name is preserved as a public entrypoint. On macOS and Linux it
+builds the native kernel-support and selected module-support libraries, the
+test suite, and the image/debug utilities, then repeats the test build with
+AddressSanitizer. On macOS it also builds and runs the focused x86-64 hosted
+kernel lifecycle through Rosetta. It does not build or run the legacy x86-64
+Linux hosted kernel.
 
 The retained Linux hosted processor, machine, module-smoke, and Docker files are
-non-canonical. They can inform future work, but a green native run makes no
-claim about that runtime, dynamic ELF modules, hosted userspace, or its old
-six-rung lifecycle ladder.
+non-canonical. They can inform future work, but a green run makes no claim
+about that runtime, hosted userspace, full service modules, or its old six-rung
+lifecycle ladder.
 
 ## Repository map
 

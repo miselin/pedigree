@@ -2,6 +2,20 @@
 # into the hosted kernel.
 set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
 set(CMAKE_CXX_COMPILER ${PEDIGREE_C_COMPILER})
+if (NOT PEDIGREE_MODULE_OBJCOPY)
+    set(PEDIGREE_MODULE_OBJCOPY ${CMAKE_OBJCOPY})
+endif ()
+if (NOT PEDIGREE_MODULE_STRIP)
+    set(PEDIGREE_MODULE_STRIP ${CMAKE_STRIP})
+endif ()
+if (PEDIGREE_HOSTED_DARWIN)
+    # CMake selected the Darwin platform for the Mach-O kernel. Its executable
+    # creation flags are invalid GNU ld inputs for Pedigree ELF modules.
+    set(CMAKE_EXECUTABLE_CREATE_C_FLAGS "")
+    set(CMAKE_EXECUTABLE_CREATE_CXX_FLAGS "")
+    set(CMAKE_C_LINK_FLAGS "")
+    set(CMAKE_CXX_LINK_FLAGS "")
+endif ()
 
 # Preserve original linker flags
 set(PRESERVED_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS})
@@ -134,6 +148,10 @@ function(pedigree_module name opts libs)
         add_executable(${name} ${ARGN})
         set_target_properties(${name} PROPERTIES OUTPUT_NAME "${name}.o")
     endif ()
+    if (PEDIGREE_HOSTED_DARWIN)
+        # The target is x86-64 Pedigree ELF, not a Darwin universal binary.
+        set_target_properties(${name} PROPERTIES OSX_ARCHITECTURES "")
+    endif ()
     target_compile_options(${name} PRIVATE
         ${opts}
         $<$<COMPILE_LANGUAGE:C>:${PEDIGREE_MODULE_CFLAGS}>
@@ -141,7 +159,14 @@ function(pedigree_module name opts libs)
 
     if (PEDIGREE_STATIC_DRIVERS)
         target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS})
-    else()
+    elseif (PEDIGREE_HOSTED_DARWIN)
+        # The Mach-O kernel cannot be an ELF link input. Modules deliberately
+        # retain unresolved kernel references for the hosted ELF loader to
+        # resolve through dlsym at runtime.
+        target_sources(${name} PRIVATE $<TARGET_OBJECTS:module>)
+        target_link_libraries(
+            ${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} ${libs})
+    else ()
         target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} ${libs} module kernel_shared)
     endif ()
 
@@ -166,9 +191,9 @@ function(pedigree_module name opts libs)
 
     # split debug info into a .debug file so it's accessible but not present in the module binary itself
     add_custom_command(TARGET ${name} POST_BUILD
-        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:${name}> ${CMAKE_CURRENT_BINARY_DIR}/${name}.debug
-        COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:${name}>
-        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink="${CMAKE_CURRENT_BINARY_DIR}/${name}.debug" $<TARGET_FILE:${name}>)
+        COMMAND ${PEDIGREE_MODULE_OBJCOPY} --only-keep-debug $<TARGET_FILE:${name}> ${CMAKE_CURRENT_BINARY_DIR}/${name}.debug
+        COMMAND ${PEDIGREE_MODULE_STRIP} -g $<TARGET_FILE:${name}>
+        COMMAND ${PEDIGREE_MODULE_OBJCOPY} --add-gnu-debuglink="${CMAKE_CURRENT_BINARY_DIR}/${name}.debug" $<TARGET_FILE:${name}>)
 
     if (PEDIGREE_STATIC_DRIVERS)
         set_target_properties(${name} PROPERTIES LINK_DEPENDS ${PEDIGREE_MODULE_STATICLINKSCRIPT})
@@ -181,6 +206,10 @@ endfunction()
 # buildable compatibility shims compiling so concurrency fixes cannot decay.
 add_library(cdi-irq-compile-check OBJECT EXCLUDE_FROM_ALL
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiIrq.cc)
+if (PEDIGREE_HOSTED_DARWIN)
+    set_target_properties(
+        cdi-irq-compile-check PROPERTIES OSX_ARCHITECTURES "")
+endif ()
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     target_sources(cdi-irq-compile-check PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/CdiCmos.cc)
@@ -190,8 +219,14 @@ target_compile_options(cdi-irq-compile-check PRIVATE
     -fno-asynchronous-unwind-tables)
 
 if (NOT PEDIGREE_STATIC_DRIVERS)
-    add_library(module STATIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/Module.cc)
+    if (PEDIGREE_HOSTED_DARWIN)
+        add_library(module OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/Module.cc)
+    else ()
+        add_library(module STATIC ${CMAKE_CURRENT_SOURCE_DIR}/Module.cc)
+    endif ()
+    if (PEDIGREE_HOSTED_DARWIN)
+        set_target_properties(module PROPERTIES OSX_ARCHITECTURES "")
+    endif ()
 endif ()
 
 if (PEDIGREE_STATIC_DRIVERS)
@@ -266,6 +301,21 @@ pedigree_module(gfx-deps "" ""
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+    if (PEDIGREE_HOSTED_DARWIN)
+        pedigree_module(hosted-core-smoke "" ""
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/core-main.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/lifetime-lease-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/mutex-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pagefault-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/primitive-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/process-exit-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/requestqueue-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/signal-interruption-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/timer-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/wait-regressions.cc)
+        target_compile_definitions(
+            hosted-core-smoke PRIVATE PEDIGREE_HOSTED_CORE_SMOKE=1)
+    else ()
     pedigree_module(hosted-smoke "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/cache-regressions.cc
@@ -295,6 +345,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/Filter.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/UnixFilesystem.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/hosted-unix-regressions.cc)
+    endif ()
 endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
@@ -460,7 +511,8 @@ pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/VFS.cc)
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
-    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS AND
+    NOT PEDIGREE_HOSTED_DARWIN)
     add_dependencies(hosted-smoke config users vfs fat rawfs usb)
 endif ()
 

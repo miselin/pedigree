@@ -18,6 +18,7 @@
  */
 
 #include "InterruptManager.h"
+#include "HostedPlatform.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/utilities/StaticString.h"
@@ -25,6 +26,7 @@
 #include "pedigree/kernel/debugger/Debugger.h"
 #endif
 #include "pedigree/kernel/processor/state.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 #if THREADS
@@ -40,6 +42,7 @@
 namespace __pedigree_hosted
 {
 #include <errno.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <time.h>
@@ -363,6 +366,16 @@ extern "C" void hostedSignalHandler(
         which, info, ptr, fromUserspace);
 }
 
+#if defined(__APPLE__)
+extern "C" void hostedSignalTrampoline(
+    int which, siginfo_t *info, void *ptr)
+{
+    // This host target has no emulated userspace/TLS transition. Signals
+    // therefore always interrupt the kernel-side hosted context.
+    hostedSignalHandler(which, info, ptr, false);
+}
+#endif
+
 void HostedInterruptManager::signalShim(
     int which, void *siginfo, void *meta, bool fromUserspace)
 {
@@ -427,9 +440,11 @@ void HostedInterruptManager::signalShim(
         state.state = reinterpret_cast<uint64_t>(info->si_value.sival_ptr);
         state.meta = reinterpret_cast<uint64_t>(meta);
         state.setInstructionPointer(
-            interruptedContext->uc_mcontext.gregs[REG_RIP]);
-        state.setStackPointer(interruptedContext->uc_mcontext.gregs[REG_RSP]);
-        state.setBasePointer(interruptedContext->uc_mcontext.gregs[REG_RBP]);
+            HostedPlatform::instructionPointer(interruptedContext));
+        state.setStackPointer(
+            HostedPlatform::stackPointer(interruptedContext));
+        state.setBasePointer(
+            HostedPlatform::basePointer(interruptedContext));
 #if THREADS
         {
             // Match native interrupt accounting. User-origin frames remain in
@@ -465,7 +480,7 @@ void HostedInterruptManager::signalShim(
 
     // sigreturn restores this mask atomically with the interrupted context.
     ucontext_t *ctx = interruptedContext;
-    sigprocmask(0, nullptr, &ctx->uc_sigmask);
+    pthread_sigmask(0, nullptr, &ctx->uc_sigmask);
     setHostedIrqSignals(ctx->uc_sigmask, !Processor::getInterrupts());
 
 #if THREADS
@@ -505,7 +520,10 @@ void HostedInterruptManager::initialiseProcessor()
         // A synchronous exception may publish deferred return work, but an
         // IRQ must not suspend that raw publication half-complete.
         setHostedIrqSignals(act.sa_mask, true);
-        act.sa_flags = SA_SIGINFO | SA_ONSTACK;
+        act.sa_flags = SA_SIGINFO;
+#if !defined(PEDIGREE_HOSTED_DARWIN) || !PEDIGREE_HOSTED_DARWIN
+        act.sa_flags |= SA_ONSTACK;
+#endif
         if (!isHostedIrqSignal(i))
         {
             // Keep synchronous signals re-entrant. IRQ signals remain masked
@@ -531,13 +549,45 @@ void HostedInterruptManager::quiesceProcessor()
     sigset_t irqSignals;
     sigemptyset(&irqSignals);
     setHostedIrqSignals(irqSignals, true);
-    sigprocmask(SIG_BLOCK, &irqSignals, nullptr);
+    pthread_sigmask(SIG_BLOCK, &irqSignals, nullptr);
 
     // The timers have already been deleted, so no new IRQ signals can be
     // queued. Drain signals that were pending while interrupts were masked.
-    struct timespec noWait = {0, 0};
-    while (sigtimedwait(&irqSignals, nullptr, &noWait) >= 0)
+    while (true)
     {
+        sigset_t pending;
+        if (sigpending(&pending) != 0)
+        {
+            break;
+        }
+        const int irqSignalCandidates[] = {
+            SIGUSR1, SIGUSR2
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+            , SIGURG
+#endif
+        };
+        int pendingIrq = 0;
+        for (size_t i = 0;
+             i < sizeof(irqSignalCandidates) / sizeof(irqSignalCandidates[0]);
+             ++i)
+        {
+            const int signal = irqSignalCandidates[i];
+            if (sigismember(&pending, signal) == 1)
+            {
+                pendingIrq = signal;
+                break;
+            }
+        }
+        if (!pendingIrq)
+        {
+            break;
+        }
+
+        int consumed = 0;
+        if (sigwait(&irqSignals, &consumed) != 0)
+        {
+            break;
+        }
     }
 
     for (size_t i = 1; i < MAX_SIGNAL; ++i)

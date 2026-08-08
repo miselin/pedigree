@@ -18,6 +18,7 @@
  */
 
 #include "Timer.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Serial.h"
@@ -35,8 +36,6 @@
 
 // Millisecond interval (tick every ms)
 #define INTERVAL 1000000
-
-using namespace __pedigree_hosted;
 
 // Set by PhysicalMemoryManager.
 extern size_t g_FreePages;
@@ -65,14 +64,7 @@ bool HostedTimer::setSignalIntervalForTest(uint64_t nanoseconds)
         return false;
     }
 
-    struct itimerspec interval;
-    ByteSet(&interval, 0, sizeof(interval));
-    interval.it_interval.tv_sec =
-        nanoseconds / Time::Multiplier::Second;
-    interval.it_interval.tv_nsec =
-        nanoseconds % Time::Multiplier::Second;
-    interval.it_value = interval.it_interval;
-    return timer_settime(m_Instance.m_Timer, 0, &interval, nullptr) == 0;
+    return m_Instance.m_TickSource.arm(nanoseconds);
 }
 #endif
 
@@ -271,22 +263,8 @@ bool HostedTimer::initialise1()
 
     m_HandlerRegistry.reset();
 
-    struct sigevent sv;
-    ByteSet(&sv, 0, sizeof(sv));
-    const uintptr_t executionThreadId = Processor::hostedExecutionThreadId();
-    if (!executionThreadId)
+    if (!m_TickSource.prepare(SIGUSR1, this))
     {
-        return false;
-    }
-    sv.sigev_notify = SIGEV_THREAD_ID;
-    sv.sigev_signo = SIGUSR1;
-    sv.sigev_value.sival_ptr = this;
-    sv._sigev_un._tid =
-        static_cast<decltype(sv._sigev_un._tid)>(executionThreadId);
-    int r = timer_create(CLOCK_MONOTONIC, &sv, &m_Timer);
-    if (r != 0)
-    {
-        /// \todo error message or something
         return false;
     }
 
@@ -304,7 +282,7 @@ bool HostedTimer::initialise3()
     m_PendingExpirations.reset();
     if (!initialiseSplitIrq())
     {
-        timer_delete(m_Timer);
+        m_TickSource.destroy();
         m_bPrepared = false;
         return false;
     }
@@ -320,24 +298,19 @@ bool HostedTimer::initialise3()
                 "HostedTimer could not stop its unregistered bottom-half "
                 "worker");
         }
-        timer_delete(m_Timer);
+        m_TickSource.destroy();
         m_bPrepared = false;
         return false;
     }
 
-    struct itimerspec interval;
-    ByteSet(&interval, 0, sizeof(interval));
-    interval.it_interval.tv_nsec = INTERVAL;
-    interval.it_value.tv_nsec = INTERVAL;
-    const int r = timer_settime(m_Timer, 0, &interval, 0);
-    if (r != 0)
+    if (!m_TickSource.arm(INTERVAL))
     {
         if (!shutdownSplitIrq())
         {
             FATAL("HostedTimer could not stop after timer arming failed");
         }
         m_IrqId = 0;
-        timer_delete(m_Timer);
+        m_TickSource.destroy();
         m_bPrepared = false;
         return false;
     }
@@ -384,7 +357,7 @@ void HostedTimer::uninitialise()
         m_bInitialized = false;
     }
 
-    timer_delete(m_Timer);
+    m_TickSource.destroy();
     m_bPrepared = false;
 
     synchronise();
@@ -405,7 +378,7 @@ void HostedTimer::uninitialise()
 HostedTimer::HostedTimer()
     : SplitIrqHandler(MakeConstantString("Hosted timer bottom half")),
       m_Year(0), m_Month(0), m_DayOfMonth(0), m_DayOfWeek(0), m_Hour(0),
-      m_Minute(0), m_Second(0), m_Nanosecond(0), m_Timer(), m_IrqId(0),
+      m_Minute(0), m_Second(0), m_Nanosecond(0), m_TickSource(), m_IrqId(0),
       m_PendingExpirations(), m_HandlerRegistry(), m_Alarms(),
       m_AlarmLock(false)
 {
@@ -416,21 +389,28 @@ HostedTimer::hardIrq(irq_id_t number, InterruptState &state, size_t &work)
 {
     const siginfo_t *signalInfo =
         reinterpret_cast<const siginfo_t *>(state.getRegister(1));
-    if (
-        number != 0 || state.getInterruptNumber() != SIGUSR1 || !signalInfo ||
-        signalInfo->si_signo != SIGUSR1 || signalInfo->si_code != SI_TIMER ||
-        signalInfo->si_value.sival_ptr != this)
+    if (number != 0 || state.getInterruptNumber() != SIGUSR1)
     {
         return HardStageDisposition::NotHandled;
     }
 
-    if (signalInfo->si_overrun < 0)
+    size_t expirations = 0;
+    const HostedTickSource::TakeResult result =
+        m_TickSource.takeExpirations(signalInfo, expirations);
+    if (result == HostedTickSource::TakeResult::NotSource)
     {
-        FATAL_NOLOCK("HostedTimer received invalid POSIX timer metadata");
+        return HardStageDisposition::NotHandled;
+    }
+    if (result == HostedTickSource::TakeResult::Invalid)
+    {
+        FATAL_NOLOCK("HostedTimer received invalid tick-source metadata");
+        return HardStageDisposition::Handled;
+    }
+    if (!expirations)
+    {
         return HardStageDisposition::Handled;
     }
 
-    const size_t expirations = static_cast<size_t>(signalInfo->si_overrun) + 1;
     if (!m_PendingExpirations.recordFromInterrupt(expirations))
     {
         FATAL_NOLOCK("HostedTimer expiration counter saturated");
@@ -466,9 +446,7 @@ void HostedTimer::threadedIrq(size_t work)
 
 bool HostedTimer::quiesceIrqSources()
 {
-    struct itimerspec disarmed;
-    ByteSet(&disarmed, 0, sizeof(disarmed));
-    return timer_settime(m_Timer, 0, &disarmed, nullptr) == 0;
+    return m_TickSource.disarm();
 }
 
 void HostedTimer::rearmIrqSources(size_t work)

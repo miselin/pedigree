@@ -44,10 +44,13 @@ ProcessorBase::HostedContextSwitchHook g_HostedContextSwitchHook = nullptr;
 #endif
 
 #include <setjmp.h>
+#include <pthread.h>
 #include <signal.h>
-#include <sys/syscall.h>
 #include <ucontext.h>
 #include <unistd.h>
+#if defined(__APPLE__) && defined(__aarch64__)
+#include <libkern/OSCacheControl.h>
+#endif
 
 namespace
 {
@@ -83,10 +86,41 @@ typedef void (*jump_func_t)(uintptr_t, uintptr_t, uintptr_t, uintptr_t);
 
 extern "C"
 {
+#if defined(__APPLE__)
+uintptr_t hosted_kernel_fs_base = 0;
+uintptr_t hosted_user_fs_base = 0;
+
+long hostedCaptureKernelFs()
+{
+    return 0;
+}
+#else
 extern uintptr_t hosted_kernel_fs_base;
 extern uintptr_t hosted_user_fs_base;
 long hostedCaptureKernelFs();
+#endif
 }
+
+namespace
+{
+uintptr_t currentHostedExecutionThread()
+{
+    static_assert(
+        sizeof(pthread_t) <= sizeof(uintptr_t),
+        "pthread_t does not fit in the hosted execution-thread identity");
+    const pthread_t thread = pthread_self();
+    uintptr_t identity = 0;
+    __builtin_memcpy(&identity, &thread, sizeof(thread));
+    return identity;
+}
+
+pthread_t hostedExecutionThread(uintptr_t identity)
+{
+    pthread_t thread = {};
+    __builtin_memcpy(&thread, &identity, sizeof(thread));
+    return thread;
+}
+}  // namespace
 
 void ProcessorBase::initialisationDone()
 {
@@ -95,14 +129,14 @@ void ProcessorBase::initialisationDone()
 
 void ProcessorBase::initialise1(const BootstrapStruct_t &Info)
 {
-    const long executionThreadId = ::syscall(SYS_gettid);
-    if (executionThreadId <= 0)
+    const uintptr_t executionThreadId = currentHostedExecutionThread();
+    if (!executionThreadId)
     {
         panic("Hosted: failed to capture the processor execution thread");
     }
     __atomic_store_n(
         &information().m_HostedExecutionThreadId,
-        static_cast<uintptr_t>(executionThreadId), __ATOMIC_RELEASE);
+        executionThreadId, __ATOMIC_RELEASE);
 
     if (hostedCaptureKernelFs() != 0)
     {
@@ -169,6 +203,32 @@ void ProcessorBase::restoreState(SchedulerState &state, volatile uintptr_t *pLoc
     FATAL("Hosted: setcontext failed in Processor::restoreState");
     // Does not return.
 }
+
+#if defined(__APPLE__)
+void ProcessorBase::restoreState(
+    SyscallState &state, volatile uintptr_t *pLock)
+{
+    (void) state;
+    (void) pLock;
+    FATAL("Hosted Darwin does not emulate userspace syscall return");
+    __builtin_unreachable();
+}
+
+void ProcessorBase::jumpUser(
+    volatile uintptr_t *pLock, uintptr_t address, uintptr_t stack,
+    uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4)
+{
+    (void) pLock;
+    (void) address;
+    (void) stack;
+    (void) p1;
+    (void) p2;
+    (void) p3;
+    (void) p4;
+    FATAL("Hosted Darwin does not emulate userspace entry");
+    __builtin_unreachable();
+}
+#endif
 
 #if SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
 void ProcessorBase::switchState(
@@ -484,7 +544,7 @@ void ProcessorBase::setInterrupts(bool bEnable)
         m_bInterrupts = true;
     }
 
-    int r = sigprocmask(SIG_SETMASK, &set, 0);
+    int r = pthread_sigmask(SIG_SETMASK, &set, 0);
     if (r != 0)
     {
         ERROR("ProcessorBase::setInterrupts failed to set new mask");
@@ -509,7 +569,7 @@ void ProcessorBase::maskInterruptsForSignalReturn()
     sigset_t set;
     sigemptyset(&set);
     addHostedIrqSignals(set);
-    if (sigprocmask(SIG_BLOCK, &set, nullptr) != 0)
+    if (pthread_sigmask(SIG_BLOCK, &set, nullptr) != 0)
     {
         FATAL_NOLOCK("Hosted signal return failed to mask IRQ signals");
     }
@@ -523,10 +583,9 @@ uintptr_t ProcessorBase::hostedExecutionThreadId()
 
 bool ProcessorBase::onHostedExecutionThread()
 {
-    const long currentThreadId = ::syscall(SYS_gettid);
-    return currentThreadId > 0 &&
-           static_cast<uintptr_t>(currentThreadId) ==
-               hostedExecutionThreadId();
+    const uintptr_t executionThreadId = hostedExecutionThreadId();
+    return executionThreadId &&
+           currentHostedExecutionThread() == executionThreadId;
 }
 
 void ProcessorBase::enterHostedSignalFrame()
@@ -581,18 +640,6 @@ void ProcessorBase::notifyHostedContextSwitchStage(
     }
 }
 
-bool ProcessorBase::queueHostedSchedulerTickForTest()
-{
-    const uintptr_t executionThreadId = hostedExecutionThreadId();
-    if (!executionThreadId)
-    {
-        return false;
-    }
-
-    return ::syscall(
-               SYS_tgkill, ::getpid(), static_cast<long>(executionThreadId),
-               SIGUSR2) == 0;
-}
 #endif
 
 void ProcessorBase::setSingleStep(bool bEnable, InterruptState &state)
@@ -636,9 +683,9 @@ void ProcessorBase::_breakpoint()
     sigemptyset(&set);
     sigemptyset(&oset);
     sigaddset(&set, SIGTRAP);
-    sigprocmask(SIG_UNBLOCK, &set, &oset);
+    pthread_sigmask(SIG_UNBLOCK, &set, &oset);
     raise(SIGTRAP);
-    sigprocmask(SIG_SETMASK, &oset, 0);
+    pthread_sigmask(SIG_SETMASK, &oset, 0);
 }
 
 void ProcessorBase::_reset()
@@ -667,7 +714,11 @@ void ProcessorBase::halt()
 
 void ProcessorBase::pause()
 {
+#if defined(__APPLE__) && defined(__aarch64__)
+    asm volatile("yield");
+#else
     asm volatile("pause");
+#endif
 }
 
 void ProcessorBase::reset()
@@ -682,23 +733,45 @@ void ProcessorBase::haltUntilInterrupt()
 
 void ProcessorBase::invalidateICache(uintptr_t nAddr)
 {
+#if defined(__APPLE__) && defined(__aarch64__)
+    sys_icache_invalidate(reinterpret_cast<void *>(nAddr), 1);
+#else
     __asm__ __volatile__ ("clflush (%0)" :: "a" (nAddr));
+#endif
 }
 
 void ProcessorBase::invalidateDCache(uintptr_t nAddr)
 {
+#if defined(__APPLE__) && defined(__aarch64__)
+    sys_dcache_flush(reinterpret_cast<void *>(nAddr), 1);
+#else
     __asm__ __volatile__ ("clflush (%0)" :: "a" (nAddr));
+#endif
 }
 
 void ProcessorBase::flushDCache(uintptr_t nAddr)
 {
+#if defined(__APPLE__) && defined(__aarch64__)
+    sys_dcache_flush(reinterpret_cast<void *>(nAddr), 1);
+#else
     __asm__ __volatile__ ("clflush (%0)" :: "a" (nAddr));
+#endif
 }
 
 void ProcessorBase::flushDCacheAndInvalidateICache(uintptr_t startAddr, uintptr_t endAddr)
 {
+#if defined(__APPLE__) && defined(__aarch64__)
+    if (endAddr > startAddr)
+    {
+        void *start = reinterpret_cast<void *>(startAddr);
+        const size_t size = endAddr - startAddr;
+        sys_dcache_flush(start, size);
+        sys_icache_invalidate(start, size);
+    }
+#else
     for (size_t i = 0; i < endAddr; ++i)
     {
         __asm__ __volatile__ ("clflush (%0)" :: "a" (startAddr + i));
     }
+#endif
 }

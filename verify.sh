@@ -38,7 +38,7 @@ started_seconds=$SECONDS
 current_stage=setup
 
 {
-    echo "Pedigree native verification"
+    echo "Pedigree verification"
     echo "run: $run_id"
     echo "started: $started_at"
     echo "repository: $script_dir"
@@ -103,6 +103,6 @@ run_stage()
     return "$status"
 }
 
-run_stage native-build-and-test \
+run_stage host-build-and-test \
     env PEDIGREE_NATIVE_BUILD_ROOT="$build_root/native" \
         "$script_dir/easy_build_hosted.sh"

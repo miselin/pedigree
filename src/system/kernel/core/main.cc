@@ -328,11 +328,11 @@ void _cxx_main(BootstrapStruct_t &bsInf)
 
     machine.initialise();
 
-    EMIT_IF(DEBUGGER)
-    {
-        TRACE("Debugger init");
-        Debugger::instance().initialise();
-    }
+#if DEBUGGER && \
+    (!defined(PEDIGREE_HOSTED_DARWIN) || !PEDIGREE_HOSTED_DARWIN)
+    TRACE("Debugger init");
+    Debugger::instance().initialise();
+#endif
 
     TRACE("Machine init2");
 

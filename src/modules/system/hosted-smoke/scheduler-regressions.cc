@@ -27,7 +27,9 @@
 #include "system/kernel/machine/hosted/Timer.h"
 
 #include <signal.h>
+#include <time.h>
 
+#if !PEDIGREE_HOSTED_CORE_SMOKE
 extern "C" int hostedSchedulerExitUserProbe(void *parameter);
 extern "C" void hostedSchedulerExitUserProbeTimedOut(void *parameter);
 
@@ -79,6 +81,7 @@ asm(
     "call hostedSchedulerExitUserProbeTimedOut@PLT\n"
     "ud2\n"
     ".size hostedSchedulerExitUserProbe,.-hostedSchedulerExitUserProbe\n");
+#endif
 #endif
 
 namespace
@@ -261,6 +264,7 @@ SchedulerTimerContext *g_SchedulerTimerContext = nullptr;
 
 constexpr int DeferredTimerExitCode = 73;
 
+#if !PEDIGREE_HOSTED_CORE_SMOKE
 struct SchedulerExitContext;
 
 struct SchedulerExitUserProbeState
@@ -519,9 +523,9 @@ bool schedulerTimerExitDeferral()
 
     const bool started = target && target->start();
     bool reapable = false;
-    __pedigree_hosted::timespec startedAt = {};
-    __pedigree_hosted::timespec now = {};
-    __pedigree_hosted::clock_gettime(CLOCK_MONOTONIC, &startedAt);
+    timespec startedAt = {};
+    timespec now = {};
+    clock_gettime(CLOCK_MONOTONIC, &startedAt);
     while (started && !reapable)
     {
         reapable = target->isReapableForHostedTest();
@@ -530,7 +534,7 @@ bool schedulerTimerExitDeferral()
             break;
         }
         Scheduler::instance().yield();
-        __pedigree_hosted::clock_gettime(CLOCK_MONOTONIC, &now);
+        clock_gettime(CLOCK_MONOTONIC, &now);
         if (now.tv_sec - startedAt.tv_sec >= 6)
         {
             break;
@@ -601,6 +605,7 @@ bool schedulerTimerExitDeferral()
     }
     return passed;
 }
+#endif
 
 struct HostedSignalSwitchContext
 {
@@ -686,8 +691,8 @@ int hostedSignalSwitchTarget(void *parameter)
     // This continuation is selected by the real scheduler signal while its
     // frame remains live on another Pedigree stack.
     Processor::setInterrupts(true);
-    __pedigree_hosted::sigset_t mask;
-    __pedigree_hosted::sigprocmask(0, nullptr, &mask);
+    sigset_t mask;
+    sigprocmask(0, nullptr, &mask);
     Thread *current = Processor::information().getCurrentThread();
     size_t failureMask = 0;
     failureMask |= !current ? 1024 : 0;
@@ -695,9 +700,9 @@ int hostedSignalSwitchTarget(void *parameter)
     failureMask |= !Processor::hostedSignalFrameDepthForTest() ? 4096 : 0;
     failureMask |= !Processor::getInterrupts() ? 8192 : 0;
     failureMask |=
-        __pedigree_hosted::sigismember(&mask, SIGUSR1) ? 16384 : 0;
+        sigismember(&mask, SIGUSR1) ? 16384 : 0;
     failureMask |=
-        __pedigree_hosted::sigismember(&mask, SIGUSR2) ? 32768 : 0;
+        sigismember(&mask, SIGUSR2) ? 32768 : 0;
     failureMask |=
         Processor::executionContext() != ExecutionContext::WaitableThread ?
             131072 :
@@ -709,13 +714,13 @@ int hostedSignalSwitchTarget(void *parameter)
     }
 
     context->computing = 1;
-    __pedigree_hosted::timespec startedAt = {};
-    __pedigree_hosted::timespec now = {};
-    __pedigree_hosted::clock_gettime(CLOCK_MONOTONIC, &startedAt);
+    timespec startedAt = {};
+    timespec now = {};
+    clock_gettime(CLOCK_MONOTONIC, &startedAt);
     while (!context->targetTicks)
     {
         Processor::pause();
-        __pedigree_hosted::clock_gettime(CLOCK_MONOTONIC, &now);
+        clock_gettime(CLOCK_MONOTONIC, &now);
         if (now.tv_sec - startedAt.tv_sec >= 3)
         {
             context->failureMask |= 65536;
@@ -1187,7 +1192,7 @@ void contextSwitchHook(ProcessorBase::HostedContextSwitchStage stage)
             }
             context->switchReturns += 1;
             if (Processor::getInterrupts() ||
-                !Processor::queueHostedSchedulerTickForTest())
+                !HostedSchedulerTimer::queueTickForTest())
             {
                 context->failures += 1;
             }
@@ -1240,6 +1245,7 @@ bool check(bool condition, const char *detail)
 }
 }  // namespace
 
+#if !PEDIGREE_HOSTED_CORE_SMOKE
 extern "C" void hostedSchedulerExitUserProbeTimedOut(void *parameter)
 {
     SchedulerExitUserProbeState *state =
@@ -1250,6 +1256,7 @@ extern "C" void hostedSchedulerExitUserProbeTimedOut(void *parameter)
     }
     Thread::threadExited();
 }
+#endif
 
 bool runHostedSchedulerRegressions()
 {
@@ -1264,10 +1271,14 @@ bool runHostedSchedulerRegressions()
         return false;
     }
 
+#if !PEDIGREE_HOSTED_CORE_SMOKE
+    // This probe intentionally enters Linux userspace and exercises the
+    // syscall-return tail. Darwin hosted execution is kernel-only.
     if (!schedulerTimerExitDeferral())
     {
         return false;
     }
+#endif
 
     if (!deferredTimeAccountingWorker())
     {

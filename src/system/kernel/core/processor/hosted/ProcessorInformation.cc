@@ -30,6 +30,7 @@ namespace __pedigree_hosted
 using namespace __pedigree_hosted;
 
 #include <errno.h>
+#include <pthread.h>
 #include <signal.h>
 
 #ifndef SS_AUTODISARM
@@ -186,10 +187,15 @@ static void installHostedSignalStack(stack_t &stack)
 
 void HostedProcessorInformation::setKernelStack(uintptr_t stack)
 {
+#if defined(PEDIGREE_HOSTED_DARWIN) && PEDIGREE_HOSTED_DARWIN
+    m_KernelStack = stack;
+    return;
+#endif
+
     sigset_t blockedSignals;
     sigset_t previousSignals;
     sigfillset(&blockedSignals);
-    if (sigprocmask(SIG_SETMASK, &blockedSignals, &previousSignals) < 0)
+    if (pthread_sigmask(SIG_SETMASK, &blockedSignals, &previousSignals) != 0)
     {
         FATAL("Hosted failed to mask signals for a scheduler stack handoff");
     }
@@ -236,7 +242,7 @@ void HostedProcessorInformation::setKernelStack(uintptr_t stack)
     m_KernelStack = stack;
 
     const int handoffErrno = errno;
-    if (sigprocmask(SIG_SETMASK, &previousSignals, nullptr) < 0)
+    if (pthread_sigmask(SIG_SETMASK, &previousSignals, nullptr) != 0)
     {
         FATAL("Hosted failed to restore signals after a scheduler stack handoff");
     }

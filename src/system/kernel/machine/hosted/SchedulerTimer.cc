@@ -26,8 +26,6 @@
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-using namespace __pedigree_hosted;
-
 /** 10 hertz frequency. */
 #define ONE_SECOND 1000000000
 #define HZ 10
@@ -62,6 +60,11 @@ bool HostedSchedulerTimer::directRoutePublishedForTest()
 {
     return HostedIrqManager::schedulerIrqHandlerForTest(1) == &m_Instance;
 }
+
+bool HostedSchedulerTimer::queueTickForTest()
+{
+    return m_Instance.m_TickSource.queueExpirationForTest();
+}
 #endif
 
 HostedSchedulerTimer::~HostedSchedulerTimer()
@@ -82,22 +85,8 @@ bool HostedSchedulerTimer::removeHandler(SchedulerTimerHandler *handler)
 
 bool HostedSchedulerTimer::initialise()
 {
-    struct sigevent sv;
-    ByteSet(&sv, 0, sizeof(sv));
-    const uintptr_t executionThreadId = Processor::hostedExecutionThreadId();
-    if (!executionThreadId)
+    if (!m_TickSource.prepare(SIGUSR2, this))
     {
-        return false;
-    }
-    sv.sigev_notify = SIGEV_THREAD_ID;
-    sv.sigev_signo = SIGUSR2;
-    sv.sigev_value.sival_ptr = this;
-    sv._sigev_un._tid =
-        static_cast<decltype(sv._sigev_un._tid)>(executionThreadId);
-    int r = timer_create(CLOCK_MONOTONIC, &sv, &m_Timer);
-    if (r != 0)
-    {
-        /// \todo error message or something
         return false;
     }
 
@@ -106,18 +95,13 @@ bool HostedSchedulerTimer::initialise()
         1, this, IrqPolicy::syntheticHard());
     if (m_IrqId == 0)
     {
-        timer_delete(m_Timer);
+        m_TickSource.destroy();
         return false;
     }
 
     // Publish the direct route before arming the signal source so the first
     // scheduler tick cannot arrive on an unregistered line.
-    struct itimerspec interval;
-    ByteSet(&interval, 0, sizeof(interval));
-    interval.it_interval.tv_nsec = ONE_SECOND / HZ;
-    interval.it_value.tv_nsec = ONE_SECOND / HZ;
-    r = timer_settime(m_Timer, 0, &interval, 0);
-    if (r != 0)
+    if (!m_TickSource.arm(ONE_SECOND / HZ))
     {
         if (!irqManager.unregisterSchedulerIrqHandler(m_IrqId, this))
         {
@@ -126,7 +110,7 @@ bool HostedSchedulerTimer::initialise()
                 "registration");
         }
         m_IrqId = 0;
-        timer_delete(m_Timer);
+        m_TickSource.destroy();
         return false;
     }
 
@@ -141,9 +125,7 @@ void HostedSchedulerTimer::uninitialise()
     }
     m_bInitialized = false;
 
-    struct itimerspec disarmed;
-    ByteSet(&disarmed, 0, sizeof(disarmed));
-    if (timer_settime(m_Timer, 0, &disarmed, nullptr) != 0)
+    if (!m_TickSource.disarm())
     {
         FATAL("HostedSchedulerTimer could not disarm its signal source");
     }
@@ -160,14 +142,14 @@ void HostedSchedulerTimer::uninitialise()
         }
         m_IrqId = 0;
     }
-    timer_delete(m_Timer);
+    m_TickSource.destroy();
 
     // Source teardown does not confer ownership of the scheduler callback.
     // Its exact owner remains responsible for unpublishing it.
 }
 
 HostedSchedulerTimer::HostedSchedulerTimer()
-    : m_IrqId(0), m_Handler(), m_bInitialized(false)
+    : m_IrqId(0), m_TickSource(), m_Handler(), m_bInitialized(false)
 {
 }
 
@@ -176,24 +158,36 @@ void HostedSchedulerTimer::schedulerIrq(
 {
     const siginfo_t *signalInfo =
         reinterpret_cast<const siginfo_t *>(state.getRegister(1));
-    if (
-        number != 1 || state.getInterruptNumber() != SIGUSR2 || !signalInfo ||
-        signalInfo->si_signo != SIGUSR2 || signalInfo->si_code != SI_TIMER ||
-        signalInfo->si_value.sival_ptr != this)
+    if (number != 1 || state.getInterruptNumber() != SIGUSR2)
     {
         return;
     }
 
-    if (signalInfo->si_overrun < 0)
+    size_t expirations = 0;
+    const HostedTickSource::TakeResult result =
+        m_TickSource.takeExpirations(signalInfo, expirations);
+    if (result == HostedTickSource::TakeResult::NotSource)
+    {
+        return;
+    }
+    if (result == HostedTickSource::TakeResult::Invalid)
     {
         FATAL_NOLOCK(
-            "HostedSchedulerTimer received invalid POSIX timer metadata");
+            "HostedSchedulerTimer received invalid tick-source metadata");
+        return;
+    }
+    if (!expirations)
+    {
         return;
     }
 
-    const uint64_t expirations =
-        static_cast<uint64_t>(signalInfo->si_overrun) + 1;
-    const uint64_t delta = expirations * (ONE_SECOND / HZ);
+    constexpr uint64_t Interval = ONE_SECOND / HZ;
+    if (expirations > (~static_cast<uint64_t>(0) / Interval))
+    {
+        FATAL_NOLOCK("HostedSchedulerTimer elapsed-time batch overflowed");
+        return;
+    }
+    const uint64_t delta = static_cast<uint64_t>(expirations) * Interval;
 
     SchedulerTimerHandlerSlot::DispatchGuard dispatch;
     if (LIKELY(m_Handler.beginDispatch(Processor::id(), dispatch)))

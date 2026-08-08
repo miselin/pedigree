@@ -8,8 +8,12 @@ set(GENERIC_KERNEL_CFLAGS "")
 set(GENERIC_KERNEL_CXXFLAGS
     "-fno-exceptions" "-fno-rtti" "-fno-asynchronous-unwind-tables"
     "-fno-use-cxa-atexit")
-set(GENERIC_KERNEL_LINKFLAGS
-    "-Wl,--discard-all" "-static-libgcc")
+if (PEDIGREE_HOSTED_DARWIN)
+    set(GENERIC_KERNEL_LINKFLAGS "")
+else ()
+    set(GENERIC_KERNEL_LINKFLAGS
+        "-Wl,--discard-all" "-static-libgcc")
+endif ()
 set(GENERIC_KERNEL_LINKFLAGS_NOLINKSCRIPT ${GENERIC_KERNEL_LINKFLAGS})
 if (PEDIGREE_LINKERSCRIPT)
     set(ARCH_KERNEL_LINKSCRIPT "-Wl,-T${PEDIGREE_LINKERSCRIPT}")
@@ -28,7 +32,15 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     set(ARCH_KERNEL_FLAGS "-m64" "-mno-red-zone" "-march=k8" "-mno-sse" "-mno-mmx")
     set(ARCH_KERNEL_LINKFLAGS "-m64")
 elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
-    set(ARCH_KERNEL_FLAGS "-m64" "-mno-red-zone" "-march=k8" "-Wno-unused-command-line-argument")
+    if (PEDIGREE_HOSTED_DARWIN)
+        set(ARCH_KERNEL_FLAGS
+            "-m64" "-mno-red-zone" "-march=x86-64"
+            "-Wno-unused-command-line-argument")
+    else ()
+        set(ARCH_KERNEL_FLAGS
+            "-m64" "-mno-red-zone" "-march=k8"
+            "-Wno-unused-command-line-argument")
+    endif ()
     set(ARCH_KERNEL_LINKFLAGS "-m64" "-Wno-unused-command-line-argument")
     if (PEDIGREE_HOSTED_ASAN)
         list(APPEND ARCH_KERNEL_FLAGS "-fsanitize=address")
@@ -105,6 +117,16 @@ if (PEDIGREE_ARCHDIR STREQUAL "x64")
 elseif (PEDIGREE_ARCHDIR STREQUAL "hosted")
     set(PROCESSOR_UNSHARED_SRCS "")
 
+    if (PEDIGREE_HOSTED_DARWIN)
+        set(HOSTED_PROCESSOR_ASM_SRCS
+            ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Processor-darwin-x64.s
+            ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Scheduler-darwin-x64.s)
+    else ()
+        set(HOSTED_PROCESSOR_ASM_SRCS
+            ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Processor.s
+            ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Scheduler.s)
+    endif ()
+
     set(PROCESSOR_SRCS
         # NOTE: these are ordered to properly order the invocation of static destructors!
         # Sorting by name or other sort keys will break shutdown.
@@ -124,12 +146,10 @@ elseif (PEDIGREE_ARCHDIR STREQUAL "hosted")
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/Disassembler.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/x86_common/PhysicalMemoryManager.cc
         # /core/processor/hosted/asm/
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Processor.s
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Scheduler.s)
+        ${HOSTED_PROCESSOR_ASM_SRCS})
 
     set_source_files_properties(
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Processor.s
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/processor/hosted/asm/Scheduler.s
+        ${HOSTED_PROCESSOR_ASM_SRCS}
         PROPERTIES LANGUAGE ASM_NASM)
 else ()
     set(PROCESSOR_SRCS "")
@@ -175,6 +195,7 @@ elseif (PEDIGREE_MACHDIR STREQUAL "hosted")
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Keyboard.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/SchedulerTimer.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Serial.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/TickSource.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Timer.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Trace.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/Vga.cc
@@ -446,11 +467,29 @@ target_compile_definitions(udis86 PRIVATE -D__UD_STANDALONE__)
 add_library(hash STATIC ${HASH_SRCS})
 target_compile_options(hash PRIVATE -w)
 
-# We link whole-archive for the kernel sources
 add_executable(kernel ${KERNEL_SRCS})
-target_link_libraries(kernel PRIVATE 
-    ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKSCRIPT} -Wl,--whole-archive
-    hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 machine processor slam log -Wl,--no-whole-archive)
+set(KERNEL_ARCHIVE_TARGETS
+    hash $<$<BOOL:${WITH_X86EMU}>:x86emu> udis86 machine processor slam log)
+if (PEDIGREE_HOSTED_DARWIN)
+    target_link_libraries(kernel PRIVATE
+        ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS}
+        ${ARCH_KERNEL_LINKFLAGS} ${KERNEL_ARCHIVE_TARGETS})
+    # Darwin ld has no --whole-archive toggle. Force each kernel archive in so
+    # constructor-only and registration-only translation units are retained.
+    target_link_options(kernel PRIVATE
+        "-Wl,-force_load,$<TARGET_FILE:hash>"
+        "-Wl,-force_load,$<TARGET_FILE:udis86>"
+        "-Wl,-force_load,$<TARGET_FILE:machine>"
+        "-Wl,-force_load,$<TARGET_FILE:processor>"
+        "-Wl,-force_load,$<TARGET_FILE:slam>"
+        "-Wl,-force_load,$<TARGET_FILE:log>")
+else ()
+    # GNU ld needs every object from the kernel support archives.
+    target_link_libraries(kernel PRIVATE
+        ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS}
+        ${ARCH_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKSCRIPT}
+        -Wl,--whole-archive ${KERNEL_ARCHIVE_TARGETS} -Wl,--no-whole-archive)
+endif ()
 if (PEDIGREE_STATIC_DRIVERS)
     target_link_libraries(kernel PRIVATE ${PEDIGREE_KERNEL_MODULE_TARGETS})
     target_sources(kernel PRIVATE $<TARGET_OBJECTS:staticmodules>)
@@ -459,20 +498,35 @@ if (PEDIGREE_LINKERSCRIPT)
     set_target_properties(kernel PROPERTIES LINK_DEPENDS ${PEDIGREE_LINKERSCRIPT})
 endif ()
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
-    target_link_libraries(kernel PRIVATE -no-pie ${LIBRT} ${CMAKE_DL_LIBS})
-    if (PEDIGREE_HOSTED_DYNAMIC_MODULES)
+    if (PEDIGREE_HOSTED_DARWIN)
+        # ELF modules live at 0x70000000 and use signed PC32 relocations. Keep
+        # the non-PIE Mach-O image below 2 GiB and export its kernel symbols.
+        target_link_options(kernel PRIVATE
+            -Wl,-no_pie,-pagezero_size,0x1000,-image_base,0x100000
+            -Wl,-no_fixup_chains
+            -Wl,-rename_section,__DATA,__mod_init_func,__DATA,__pedigree_init
+            -Wl,-rename_section,__DATA,__mod_term_func,__DATA,__pedigree_term
+            -Wl,-export_dynamic)
+    else ()
+        target_link_libraries(kernel PRIVATE -no-pie ${LIBRT} ${CMAKE_DL_LIBS})
+    endif ()
+    if (PEDIGREE_HOSTED_DYNAMIC_MODULES AND NOT PEDIGREE_HOSTED_DARWIN)
         # Hosted modules resolve the kernel's runtime symbols through dlsym.
         target_link_libraries(kernel PRIVATE -rdynamic)
     endif ()
 endif ()
 # link libgcc last so everything before it in the command line can reference its symbols
-target_link_libraries(kernel PRIVATE gcc)
+if (NOT PEDIGREE_HOSTED_DARWIN)
+    target_link_libraries(kernel PRIVATE gcc)
+endif ()
 
 # split debug info into a .debug file so it's accessible but not present in the module binary itself
-add_custom_command(TARGET kernel POST_BUILD
-    COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:kernel> ${CMAKE_CURRENT_BINARY_DIR}/kernel.debug
-    COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:kernel>
-    COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink="${CMAKE_CURRENT_BINARY_DIR}/kernel.debug" $<TARGET_FILE:kernel>)
+if (NOT PEDIGREE_HOSTED_DARWIN)
+    add_custom_command(TARGET kernel POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:kernel> ${CMAKE_CURRENT_BINARY_DIR}/kernel.debug
+        COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:kernel>
+        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink="${CMAKE_CURRENT_BINARY_DIR}/kernel.debug" $<TARGET_FILE:kernel>)
+endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     # Embed 64-bit kernel in a 32-bit ELF container to allow unpatched GRUBs to

@@ -113,8 +113,10 @@ bool KernelElf::initialise(const BootstrapStruct_t &pBootstrap)
     {
         WARNING("No ELF object available to extract symbol table from.");
 
-        // If we are running with static drivers we are OK to call this initialized.
-        return STATIC_DRIVERS == 1;
+        // Hosted dynamic modules can resolve exported kernel symbols from the
+        // process linker. Darwin kernels are Mach-O, so there is intentionally
+        // no ELF image from which to import a second symbol table.
+        return (STATIC_DRIVERS == 1) || (HOSTED == 1);
     }
 
     EMIT_IF(X86_COMMON)

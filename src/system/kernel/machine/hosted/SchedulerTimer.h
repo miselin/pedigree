@@ -20,18 +20,13 @@
 #ifndef KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
 #define KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
 
+#include "TickSource.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/SchedulerIrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandlerSlot.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state.h"
-
-namespace __pedigree_hosted
-{
-#include <signal.h>
-#include <time.h>
-}  // namespace __pedigree_hosted
 
 /** @addtogroup kernelmachinehosted
  * @{ */
@@ -72,6 +67,8 @@ class HostedSchedulerTimer : public SchedulerTimer, private SchedulerIrqHandler
     static EXPORTED_PUBLIC size_t activeDispatchesForTest();
     /** Confirms that ticks bypass the generic hard-handler registry. */
     static EXPORTED_PUBLIC bool directRoutePublishedForTest();
+    /** Queues a source-owned tick while hosted interrupts are masked. */
+    static EXPORTED_PUBLIC bool queueTickForTest();
 #endif
 
   protected:
@@ -94,7 +91,7 @@ class HostedSchedulerTimer : public SchedulerTimer, private SchedulerIrqHandler
     virtual void schedulerIrq(irq_id_t number, InterruptState &state);
 
     irq_id_t m_IrqId;
-    __pedigree_hosted::timer_t m_Timer;
+    HostedTickSource m_TickSource;
 
     /** The atomically published scheduler callback owner. */
     SchedulerTimerHandlerSlot m_Handler;

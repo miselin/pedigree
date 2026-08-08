@@ -27,7 +27,9 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifndef PEDIGREE_HOSTED_DARWIN
 #include <elf.h>
+#endif
 
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/compiler.h"
@@ -57,15 +59,21 @@ extern "C" int main(int argc, char *argv[])
     int diskimage = -1;
     void *initrd_mapping = MAP_FAILED;
     void *configdb_mapping = MAP_FAILED;
+#ifndef PEDIGREE_HOSTED_DARWIN
     void *kernel_mapping = MAP_FAILED;
+#endif
     void *diskimage_mapping = MAP_FAILED;
     uintptr_t *module_region = (uintptr_t *) MAP_FAILED;
     size_t initrd_length = 0;
     size_t configdb_length = 0;
+#ifndef PEDIGREE_HOSTED_DARWIN
     size_t kernel_length = 0;
+#endif
     size_t diskimage_length = 0;
+#ifndef PEDIGREE_HOSTED_DARWIN
     Elf64_Ehdr *ehdr = 0;
     Elf64_Shdr *shdrs = 0;
+#endif
     BootstrapStruct_t bs = {};
 
     if (argc < 3 || argc > 5)
@@ -114,13 +122,15 @@ extern "C" int main(int argc, char *argv[])
         goto fail;
     }
 
-    // Open ourselves to find section headers.
+#ifndef PEDIGREE_HOSTED_DARWIN
+    // ELF hosts expose the kernel's section table through Multiboot metadata.
     kernel = open(argv[0], O_RDONLY);
     if (kernel < 0)
     {
         fprintf(stderr, "Can't open kernel: %s\n", strerror(errno));
         goto fail;
     }
+#endif
 
     // Load initrd and configuration database.
     r = fstat(initrd, &st);
@@ -154,6 +164,7 @@ extern "C" int main(int argc, char *argv[])
     }
     fprintf(stderr, "configuration database is at %p (%d bytes)\n", configdb_mapping, configdb_length);
 
+#ifndef PEDIGREE_HOSTED_DARWIN
     r = fstat(kernel, &st);
     if (r != 0)
     {
@@ -169,6 +180,7 @@ extern "C" int main(int argc, char *argv[])
         goto fail;
     }
     fprintf(stderr, "kernel is at %p\n", kernel_mapping);
+#endif
 
     // Make the module locations available to the kernel.
     module_region = (uintptr_t *) mmap(
@@ -230,6 +242,7 @@ extern "C" int main(int argc, char *argv[])
             reinterpret_cast<uintptr_t>(diskimage_mapping) + diskimage_length;
     }
 
+#ifndef PEDIGREE_HOSTED_DARWIN
     // Load ELF header to add ELF information.
     ehdr = reinterpret_cast<Elf64_Ehdr *>(kernel_mapping);
     bs.shndx = ehdr->e_shstrndx;
@@ -247,16 +260,24 @@ extern "C" int main(int argc, char *argv[])
         shdrs[i].sh_addr =
             shdrs[i].sh_offset + reinterpret_cast<uintptr_t>(kernel_mapping);
     }
+#endif
 
     fprintf(stderr, "Running main(), with mappings:\n");
+#ifndef PEDIGREE_HOSTED_DARWIN
     fprintf(stderr, " kernel: %p -> %p\n", kernel_mapping, add_ptr(kernel_mapping, kernel_length));
+#else
+    fprintf(stderr, " kernel: Mach-O process symbols\n");
+#endif
     fprintf(stderr, " diskimage: %p -> %p\n", diskimage_mapping, add_ptr(diskimage_mapping, diskimage_length));
     fprintf(stderr, " modules: %p -> %p\n", module_region, add_ptr(module_region, 0x1000));
     fprintf(stderr, " configdb: %p -> %p\n", configdb_mapping, add_ptr(configdb_mapping, configdb_length));
     fprintf(stderr, " initrd: %p -> %p\n", initrd_mapping, add_ptr(initrd_mapping, initrd_length));
 
     // Kernel uses flags to know what it can and can't use.
-    bs.flags |= MULTIBOOT_FLAG_MODS | MULTIBOOT_FLAG_ELF;
+    bs.flags |= MULTIBOOT_FLAG_MODS;
+#ifndef PEDIGREE_HOSTED_DARWIN
+    bs.flags |= MULTIBOOT_FLAG_ELF;
+#endif
     _main(bs);
 
     fprintf(stderr, "main() returned, cleaning up...\n");
@@ -269,14 +290,17 @@ cleanup:
         munmap(module_region, 0x1000);
     if (diskimage_mapping != MAP_FAILED)
         munmap(diskimage_mapping, diskimage_length);
+#ifndef PEDIGREE_HOSTED_DARWIN
     if (kernel_mapping != MAP_FAILED)
         munmap(kernel_mapping, kernel_length);
+#endif
     if (configdb_mapping != MAP_FAILED)
         munmap(configdb_mapping, configdb_length);
     if (initrd_mapping != MAP_FAILED)
         munmap(initrd_mapping, initrd_length);
     close(diskimage);
-    close(kernel);
+    if (kernel >= 0)
+        close(kernel);
     close(configdb);
     close(initrd);
     return s;

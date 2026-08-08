@@ -141,16 +141,22 @@ class StaticDriverModule
 
 #else
 
-#define MODULE_NAME(x) const char *g_pModuleName SECTION(".modinfo") USED = x
-#define MODULE_ENTRY(x) ModuleEntry g_pModuleEntry SECTION(".modinfo") USED = x
-#define MODULE_EXIT(x) ModuleExit g_pModuleExit SECTION(".modinfo") USED = x
+#define MODULE_NAME(x)                                                   \
+    const char *g_pModuleName EXPORTED_PUBLIC SECTION(".modinfo") USED = x
+#define MODULE_ENTRY(x)                                                  \
+    ModuleEntry g_pModuleEntry EXPORTED_PUBLIC SECTION(".modinfo") USED = x
+#define MODULE_EXIT(x)                                                   \
+    ModuleExit g_pModuleExit EXPORTED_PUBLIC SECTION(".modinfo") USED = x
 #define MODULE_DEPENDS(...) \
-    const char *g_pDepends[] SECTION(".modinfo") USED = {__VA_ARGS__, 0}
+    const char *g_pDepends[] EXPORTED_PUBLIC SECTION(".modinfo") USED = { \
+        __VA_ARGS__, 0}
 #define MODULE_DEPENDS2(...) \
-    const char *g_pDepends[] SECTION(".modinfo") USED = {__VA_ARGS__}
+    const char *g_pDepends[] EXPORTED_PUBLIC SECTION(".modinfo") USED = { \
+        __VA_ARGS__}
 
 #define MODULE_OPTIONAL_DEPENDS(...) \
-    const char *g_pOptionalDepends[] SECTION(".modinfo") USED = {__VA_ARGS__, 0}
+    const char *g_pOptionalDepends[] EXPORTED_PUBLIC SECTION(".modinfo") USED = { \
+        __VA_ARGS__, 0}
 
 #define MODULE_INFO2(name, entry, exit, ...) \
     MODULE_NAME(name);                       \

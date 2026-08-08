@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "HostedPlatform.h"
 #include "VirtualAddressSpace.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
@@ -70,9 +71,9 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
     uintptr_t ucontext_loc = state.getRegister(2);
     ucontext_t *ctx = reinterpret_cast<ucontext_t *>(ucontext_loc);
 
-    state.setInstructionPointer(ctx->uc_mcontext.gregs[REG_RIP]);
-    state.setStackPointer(ctx->uc_mcontext.gregs[REG_RSP]);
-    state.setBasePointer(ctx->uc_mcontext.gregs[REG_RBP]);
+    state.setInstructionPointer(HostedPlatform::instructionPointer(ctx));
+    state.setStackPointer(HostedPlatform::stackPointer(ctx));
+    state.setBasePointer(HostedPlatform::basePointer(ctx));
 
     bool isWrite = code == SEGV_ACCERR;
     uintptr_t errorCode = code;

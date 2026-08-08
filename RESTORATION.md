@@ -27,6 +27,7 @@ tree are reference material, not an assertion that their target still builds.
 | --- | --- | --- |
 | Native test support libraries and unit tests | Maintained and automated | Built and tested on the development host by `./verify.sh`. |
 | Native AddressSanitizer lane | Maintained and automated | The test support libraries and unit tests are built with ASan and must pass without sanitizer findings. |
+| x86-64 Darwin hosted core | Maintained on Apple silicon macOS | Builds a Mach-O kernel and focused Pedigree ELF module, executes the core wait/timer/lifetime/page-fault suite through Rosetta, and requires clean unload and return to the host. |
 | x86-64 Linux hosted kernel | Experimental, non-canonical | The source remains available, but its Docker-backed build and smoke ladder are not required by the maintained entrypoints. |
 | x86-64 PC kernel and userspace | Active restoration target | The CMake target and x86-64 source remain in scope, but the current verification contract does not prove a fresh toolchain bootstrap, ISO, userspace image, or QEMU boot. |
 | ARM, MIPS, and PowerPC | Historical | Build and boot support was removed from the active fork. Any remaining source or documentation is museum material. |
@@ -48,13 +49,18 @@ From the repository root, run:
 ./verify.sh
 ```
 
-One invocation runs `native-build-and-test`: build the native kernel-support
-and selected module-support libraries, test suite, and host utilities, run
-CTest, then repeat the test build and run with AddressSanitizer.
+One invocation runs `host-build-and-test`: build the native kernel-support and
+selected module-support libraries, test suite, and host utilities, run CTest,
+then repeat the test build and run with AddressSanitizer. On macOS the same
+stage also builds an x86-64 hosted kernel and focused dynamic module, executes
+them through Rosetta, and requires the bounded core regression suite and clean
+shutdown markers.
 
 Git, CMake/CTest, and a native C/C++ compiler with AddressSanitizer are the
 canonical prerequisites. Docker is not used, and verification does not update
-submodules or invoke the legacy host package installer.
+submodules or invoke the legacy host package installer. The macOS hosted lane
+also requires Rosetta, NASM, and the checked-out `compilers/dir` x86-64
+Pedigree cross-toolchain.
 
 Each run writes durable output below:
 
@@ -98,6 +104,8 @@ successfully and every required stage in that invocation passes. In particular:
 - all configured native tests passed;
 - the separately instrumented ASan build and tests passed without a sanitizer
   report;
+- on macOS, the x86-64 hosted core module completed its bounded regression set
+  and the kernel unloaded it and returned to its host `main`;
 - the logs for those results were saved under the same timestamped run directory.
 
 Green is deliberately narrow. It does **not** currently prove:
@@ -106,7 +114,8 @@ Green is deliberately narrow. It does **not** currently prove:
 - creation or boot of the x86-64 PC ISO and disk image;
 - an x86-64 PC boot to login in QEMU or on physical hardware;
 - an x86-64 Linux hosted-kernel build or lifecycle run;
-- the native-kernel/Pedigree-module compiler boundary used by that legacy lane;
+- hosted userspace, the complete service/module set, or the retired six-rung
+  Linux hosted smoke ladder;
 - broad userspace, POSIX, network, graphics, USB, or device-driver behavior;
 - exhaustive filesystem correctness or recovery behavior;
 - support for ARM, MIPS, or PowerPC.
@@ -122,10 +131,19 @@ For a direct native build and test run:
 ./easy_build_hosted.sh
 ```
 
-The historical script name is preserved, but the command is now Docker-free and
-runs directly on macOS or Linux. It builds `testsuite`, `headerify`, `ext2img`,
-`keymap`, and `memorytracer`, runs CTest, and repeats the test build under ASan.
-It does not bootstrap the Pedigree cross-toolchain or produce a hosted kernel.
+The historical script name is preserved, but the command is now Docker-free
+and runs directly on macOS or Linux. It builds `testsuite`, `headerify`,
+`ext2img`, `keymap`, and `memorytracer`, runs CTest, and repeats the test build
+under ASan. On macOS it also uses the existing Pedigree cross-toolchain to
+build a focused ELF smoke module, links the hosted kernel as a low-address
+x86-64 Mach-O executable, and runs both through Rosetta.
+
+The Darwin lifecycle intentionally avoids the historical root filesystem,
+full module set, services, musl, and userspace. Its module covers the core
+wait, request-queue, lifetime, process-exit, page-fault, timer, primitive, and
+signal-interruption regressions. Async scheduler-signal context switching is
+not yet part of this bounded lane; the retained Linux scheduler suite depends
+on host behavior that does not have Darwin parity yet.
 
 `./easy_build_hosted.sh` is useful for development, but `./verify.sh` is the
 release of record because it saves a timestamped result and metadata.
@@ -158,6 +176,9 @@ focused experiments, not as fork-wide green.
   lane.
 - Hosted execution is a development model, not proof of freestanding machine
   behavior.
+- The focused Darwin hosted lane does not exercise async scheduler-signal
+  context switching. That remains a parity gap between Darwin and the retained
+  Linux hosted runtime.
 - Hosted AddressSanitizer instrumentation is experimental. Its fiber,
   signal-stack, and context-switch boundaries are not fully annotated, so it is
   outside the canonical native validation; the native ASan lane remains required.
