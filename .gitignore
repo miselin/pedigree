@@ -10,6 +10,7 @@
 *.vcproj*
 *.po~
 .autogen.cache
+.cache/
 .DS_Store
 .easy_os
 .tags
@@ -23,7 +24,11 @@ build-hosted-modules/
 build-hosted-modules-linux/
 build-hosted-smoke/
 build-hosted-smoke-linux/
+build-*-check-linux/
+build-*-asan-linux/
+build-*-asan-modules-linux/
 build-verify/
+/Testing/
 build_cache
 compilers*
 compilers/dir
