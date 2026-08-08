@@ -505,7 +505,8 @@ class NestedDeviceHardIrqProbe : public HardIrqHandler
 {
   public:
     NestedDeviceHardIrqProbe()
-        : depth(0), activeCount(0), activeGeneration(0), marked(false), calls(0)
+        : depth(0), activeCount(0), activeGeneration(0), marked(false),
+          context(ExecutionContext::WaitableThread), calls(0)
     {
     }
 
@@ -513,6 +514,7 @@ class NestedDeviceHardIrqProbe : public HardIrqHandler
     {
         depth = Processor::deviceHardIrqDepthForTest();
         marked = Processor::inDeviceHardIrq();
+        context = Processor::executionContext();
         IrqLineDiagnosticSnapshot lines[3] = {};
         if (Machine::instance().getIrqManager()->snapshotIrqLines(lines, 3) ==
             3)
@@ -529,6 +531,7 @@ class NestedDeviceHardIrqProbe : public HardIrqHandler
     size_t activeCount;
     size_t activeGeneration;
     bool marked;
+    ExecutionContext context;
     size_t calls;
 };
 
@@ -537,7 +540,8 @@ class OuterDeviceHardIrqProbe : public HardIrqHandler
   public:
     explicit OuterDeviceHardIrqProbe(HardIrqHandler *nested)
         : m_Nested(nested), entryDepth(0), restoredDepth(0), activeCount(0),
-          activeGeneration(0), marked(false), nestedAdmitted(false),
+          activeGeneration(0), marked(false),
+          context(ExecutionContext::WaitableThread), nestedAdmitted(false),
           nestedHandled(HardIrqDisposition::NotHandled), calls(0)
     {
     }
@@ -546,6 +550,7 @@ class OuterDeviceHardIrqProbe : public HardIrqHandler
     {
         entryDepth = Processor::deviceHardIrqDepthForTest();
         marked = Processor::inDeviceHardIrq();
+        context = Processor::executionContext();
         IrqLineDiagnosticSnapshot lines[3] = {};
         if (Machine::instance().getIrqManager()->snapshotIrqLines(lines, 3) ==
             3)
@@ -568,6 +573,7 @@ class OuterDeviceHardIrqProbe : public HardIrqHandler
     size_t activeCount;
     size_t activeGeneration;
     bool marked;
+    ExecutionContext context;
     bool nestedAdmitted;
     HardIrqDisposition nestedHandled;
     size_t calls;
@@ -576,7 +582,9 @@ class OuterDeviceHardIrqProbe : public HardIrqHandler
 class ThreadedDeviceHardIrqProbe : public IrqHandler
 {
   public:
-    ThreadedDeviceHardIrqProbe() : depth(~static_cast<size_t>(0)), marked(true)
+    ThreadedDeviceHardIrqProbe()
+        : depth(~static_cast<size_t>(0)), marked(true),
+          context(ExecutionContext::AtomicThread)
     {
     }
 
@@ -584,11 +592,13 @@ class ThreadedDeviceHardIrqProbe : public IrqHandler
     {
         depth = Processor::deviceHardIrqDepthForTest();
         marked = Processor::inDeviceHardIrq();
+        context = Processor::executionContext();
         return IrqDisposition::Handled;
     }
 
     size_t depth;
     bool marked;
+    ExecutionContext context;
 };
 
 bool deviceHardIrqContextTracking()
@@ -642,13 +652,16 @@ bool deviceHardIrqContextTracking()
         outerAdmitted && outerHandled == HardIrqDisposition::Handled &&
             outer.calls == 1 &&
             outer.entryDepth == 1 && outer.marked && outer.activeCount == 1 &&
-            outer.activeGeneration == OuterSyntheticDispatchGeneration,
+            outer.activeGeneration == OuterSyntheticDispatchGeneration &&
+            outer.context == ExecutionContext::HardDeviceIrq,
         "an outer hard callback did not observe depth one", Test);
     passed &= check(
         outer.nestedAdmitted &&
             outer.nestedHandled == HardIrqDisposition::Handled &&
             nested.calls == 1 &&
-            nested.depth == 2 && nested.marked && outer.restoredDepth == 1,
+            nested.depth == 2 && nested.marked &&
+            nested.context == ExecutionContext::HardDeviceIrq &&
+            outer.restoredDepth == 1,
         "nested hard dispatch did not restore its caller's depth", Test);
     passed &= check(
         nested.activeCount == 2 && nested.activeGeneration == 0,
@@ -659,7 +672,8 @@ bool deviceHardIrqContextTracking()
         "hard dispatch leaked its device marker after return", Test);
     passed &= check(
         threadedAdmitted && threadedHandled && threadedResult.allowRearm &&
-            threaded.depth == 0 && !threaded.marked,
+            threaded.depth == 0 && !threaded.marked &&
+            threaded.context == ExecutionContext::WaitableThread,
         "threaded dispatch inherited device hard-IRQ state", Test);
     passed &= check(
         outerRemoved && nestedRemoved && threadedRemoved,

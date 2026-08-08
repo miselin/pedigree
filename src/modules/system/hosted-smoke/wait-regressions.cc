@@ -65,6 +65,54 @@ WaitQueue::Channel g_ImmediateChannel;
 Thread *g_ImmediateWaiter = nullptr;
 Thread *g_ImmediateExpectedWaiter = nullptr;
 
+struct TerminalCancelBeforeBlockContext
+{
+    TerminalCancelBeforeBlockContext(Thread *waiter)
+        : queue(), firstChannel(&queue, 0x5445524d),
+          secondChannel(&queue, 0x52455553), waiter(waiter), phase(0),
+          hookCalls(0), hookFailures(0), cancellations(0), wakeups(0)
+    {
+    }
+
+    WaitQueue queue;
+    WaitQueue::Channel firstChannel;
+    WaitQueue::Channel secondChannel;
+    Thread *waiter;
+    Atomic<size_t> phase;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> hookFailures;
+    Atomic<size_t> cancellations;
+    Atomic<size_t> wakeups;
+};
+
+TerminalCancelBeforeBlockContext *g_TerminalCancelBeforeBlockContext =
+    nullptr;
+
+struct NestedTerminalShutdownContext
+{
+    NestedTerminalShutdownContext()
+        : queue(), channel(&queue, 0x4e455354), waiter(nullptr), entered(0),
+          hookCalls(0), hookFailures(0), pushed(0), shutdowns(0), popped(0),
+          finished(0), terminalResult(0), waiterUnlinked(0)
+    {
+    }
+
+    WaitQueue queue;
+    WaitQueue::Channel channel;
+    Thread *waiter;
+    Atomic<size_t> entered;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> hookFailures;
+    Atomic<size_t> pushed;
+    Atomic<size_t> shutdowns;
+    Atomic<size_t> popped;
+    Atomic<size_t> finished;
+    Atomic<size_t> terminalResult;
+    Atomic<size_t> waiterUnlinked;
+};
+
+NestedTerminalShutdownContext *g_NestedTerminalShutdownContext = nullptr;
+
 struct SemaphoreHookContext
 {
     SemaphoreHookContext(Semaphore *semaphore, Thread *expectedWaiter)
@@ -429,6 +477,100 @@ void immediateWakeHook(
     {
         g_ImmediateHookFailures += 1;
     }
+}
+
+void terminalCancelBeforeBlockHook(
+    WaitQueue *queue, Thread *thread, const WaitQueue::Channel &channel,
+    size_t debugState)
+{
+    TerminalCancelBeforeBlockContext *context =
+        g_TerminalCancelBeforeBlockContext;
+    if (!context || thread != context->waiter)
+    {
+        return;
+    }
+
+    context->hookCalls += 1;
+    Thread::WaitDebugInfo wait = {};
+    if (
+        queue != &context->queue || debugState != Thread::EventWait ||
+        !thread->getWaitDebugInfo(wait) || wait.queue != queue ||
+        !wait.queued || wait.reason != WaitQueue::WakeReason::Waiting)
+    {
+        context->hookFailures += 1;
+        return;
+    }
+
+    if (context->phase == 0)
+    {
+        if (!(channel == context->firstChannel) ||
+            !WaitQueue::cancelThreadWaitForTest(thread))
+        {
+            context->hookFailures += 1;
+            return;
+        }
+
+        context->cancellations += 1;
+        context->phase = 1;
+
+        // The pre-block cancellation must have detached the waiter already;
+        // schedule(Sleeping) consumes only the one-shot terminal handoff.
+        if (context->queue.waiterCount() || thread->getWaitDebugInfo(wait))
+        {
+            context->hookFailures += 1;
+        }
+        return;
+    }
+
+    if (
+        context->phase != 1 || !(channel == context->secondChannel) ||
+        !context->queue.wakeOne(WaitQueue::WakeReason::Signalled, channel))
+    {
+        context->hookFailures += 1;
+        return;
+    }
+
+    context->wakeups += 1;
+    context->phase = 2;
+}
+
+void nestedTerminalShutdownBeforeBlockHook(
+    WaitQueue *queue, Thread *thread, const WaitQueue::Channel &channel,
+    size_t debugState)
+{
+    NestedTerminalShutdownContext *context = g_NestedTerminalShutdownContext;
+    if (!context || thread != context->waiter)
+    {
+        return;
+    }
+
+    context->hookCalls += 1;
+    Thread::WaitDebugInfo wait = {};
+    if (
+        context->hookCalls != 1 || queue != &context->queue ||
+        !(channel == context->channel) || debugState != Thread::EventWait ||
+        !thread->getWaitDebugInfo(wait) || wait.queue != queue ||
+        !wait.queued || wait.reason != WaitQueue::WakeReason::Waiting)
+    {
+        context->hookFailures += 1;
+        return;
+    }
+
+    SchedulerState *outerState = thread->pushState();
+    if (!outerState)
+    {
+        context->hookFailures += 1;
+        return;
+    }
+    context->pushed += 1;
+
+    // shutdown() is the real all-state-level cancellation path. It returns
+    // here, so the outer wait must consume the handoff recorded at its own
+    // lower state level after this nested state unwinds.
+    thread->shutdown();
+    context->shutdowns += 1;
+    thread->popState(false);
+    context->popped += 1;
 }
 
 void semaphoreReleaseHook(
@@ -1087,6 +1229,109 @@ bool terminalCancelCallbackOrdering()
         NOTICE(
             "HOSTED-WAIT-TEST: PASS "
             "terminal-cancel-callback-order");
+    }
+    return passed;
+}
+
+bool terminalCancelBeforeBlock()
+{
+    Thread *waiter = Processor::information().getCurrentThread();
+    TerminalCancelBeforeBlockContext context(waiter);
+    g_TerminalCancelBeforeBlockContext = &context;
+    WaitQueue::setBeforeBlockHook(terminalCancelBeforeBlockHook);
+
+    auto firstGuard = context.queue.acquire();
+    const WaitQueue::WakeReason cancelled = firstGuard.wait(
+        context.firstChannel, Thread::EventWait,
+        reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
+
+    // A fresh enrolment proves the one-shot marker cannot suppress a later,
+    // unrelated sleep on the same persistent Waiter record.
+    auto secondGuard = context.queue.acquire();
+    const WaitQueue::WakeReason signalled = secondGuard.wait(
+        context.secondChannel, Thread::EventWait,
+        reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
+
+    WaitQueue::setBeforeBlockHook(nullptr);
+    g_TerminalCancelBeforeBlockContext = nullptr;
+
+    bool passed = true;
+    passed &= check(
+        cancelled == WaitQueue::WakeReason::Terminating,
+        "terminal-cancel-before-block",
+        "pre-block terminal cancellation did not return its terminal reason");
+    passed &= check(
+        signalled == WaitQueue::WakeReason::Signalled,
+        "terminal-cancel-before-block",
+        "a stale terminal handoff aborted a fresh wait");
+    passed &= check(
+        context.phase == 2 && context.hookCalls == 2 &&
+            context.hookFailures == 0 && context.cancellations == 1 &&
+            context.wakeups == 1,
+        "terminal-cancel-before-block",
+        "the deterministic pre-block interleaving did not complete");
+    passed &= check(
+        context.queue.waiterCount() == 0 &&
+            waiter->getStatus() == Thread::Running,
+        "terminal-cancel-before-block",
+        "terminal cancellation left a linked waiter or stale Sleeping state");
+
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS terminal-cancel-before-block");
+    }
+    return passed;
+}
+
+int nestedTerminalShutdownWait(void *parameter)
+{
+    NestedTerminalShutdownContext *context =
+        reinterpret_cast<NestedTerminalShutdownContext *>(parameter);
+    context->waiter = Processor::information().getCurrentThread();
+    context->entered += 1;
+
+    auto guard = context->queue.acquire();
+    const WaitQueue::WakeReason reason = guard.wait(
+        context->channel, Thread::EventWait,
+        reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
+    context->terminalResult = reason == WaitQueue::WakeReason::Terminating;
+
+    Thread::WaitDebugInfo wait = {};
+    context->waiterUnlinked = !context->waiter->getWaitDebugInfo(wait);
+    context->finished += 1;
+    return context->terminalResult ? 0 : 1;
+}
+
+bool nestedTerminalShutdownBeforeBlock()
+{
+    NestedTerminalShutdownContext context;
+    g_NestedTerminalShutdownContext = &context;
+    WaitQueue::setBeforeBlockHook(nestedTerminalShutdownBeforeBlockHook);
+
+    Thread *waiter = new Thread(
+        Scheduler::instance().getKernelProcess(), nestedTerminalShutdownWait,
+        &context, nullptr, false, true);
+    waiter->setName("hosted nested terminal pre-block waiter");
+
+    const bool joined = waiter->joinForCompletion();
+    WaitQueue::setBeforeBlockHook(nullptr);
+    g_NestedTerminalShutdownContext = nullptr;
+
+    const bool passed = check(
+        context.entered == 1 && context.hookCalls == 1 &&
+            context.hookFailures == 0 && context.pushed == 1 &&
+            context.shutdowns == 1 && context.popped == 1 &&
+            context.finished == 1 && context.terminalResult == 1 &&
+            context.waiterUnlinked == 1 && context.queue.waiterCount() == 0 &&
+            joined,
+        "nested-terminal-cancel-before-block",
+        "shutdown cancelled a lower-state waiter without returning it from "
+        "blockCurrent cleanly");
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "nested-terminal-cancel-before-block");
     }
     return passed;
 }
@@ -1917,6 +2162,8 @@ bool runHostedWaitRegressions()
         runHostedPs2ControllerRegressions() && wakeBeforeBlock() &&
         semaphoreReleaseBeforeBlock() &&
         terminalCancelCallbackOrdering() &&
+        terminalCancelBeforeBlock() &&
+        nestedTerminalShutdownBeforeBlock() &&
         conditionVariableSignalBeforeBlock() &&
         runHostedRingBufferRegressions() &&
         Scheduler::instance()

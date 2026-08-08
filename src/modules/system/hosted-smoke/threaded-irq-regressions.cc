@@ -512,6 +512,39 @@ bool waitForDispatcherCompletion(
     return false;
 }
 
+struct DispatcherMultiSlotPromptContext
+{
+    DispatcherMultiSlotPromptContext() : dispatcher(nullptr), prompts(0), failures(0)
+    {
+    }
+
+    ThreadedIrqDispatcher *dispatcher;
+    Atomic<size_t> prompts;
+    Atomic<size_t> failures;
+};
+
+bool promptDispatcherMultiSlotWorker(void *opaque, uint8_t line, size_t)
+{
+    DispatcherMultiSlotPromptContext *context =
+        reinterpret_cast<DispatcherMultiSlotPromptContext *>(opaque);
+    if (!context || !context->dispatcher || line != 0 ||
+        !context->dispatcher->pendingCookie(0) ||
+        !PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest())
+    {
+        if (context)
+        {
+            context->failures += 1;
+        }
+        return false;
+    }
+
+    context->prompts += 1;
+    // This is the hosted analogue of a directed scheduler IPI: it consumes
+    // the already-staged target doorbell instead of accepting a no-op prompt.
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
+    return true;
+}
+
 bool threadedDispatcherMultiSlotOrdering()
 {
     constexpr const char *SlotTest =
@@ -523,11 +556,16 @@ bool threadedDispatcherMultiSlotOrdering()
     constexpr size_t StaleCookie = MaximumCookie - 4;
 
     DispatcherMultiSlotContext context;
+    DispatcherMultiSlotPromptContext prompt;
     ThreadedIrqDispatcher dispatcher(
         MakeConstantString("hosted IRQ multi-slot regression"), 1,
         captureDispatcherMultiSlotBatch, &context);
+    prompt.dispatcher = &dispatcher;
     const bool slotsConfigured = dispatcher.setPendingSlotCountForTest(4);
-    const bool initialised = slotsConfigured && dispatcher.initialise();
+    const bool callbackConfigured =
+        slotsConfigured && dispatcher.setRemoteWakeCallbackForTest(
+                               promptDispatcherMultiSlotWorker, &prompt);
+    const bool initialised = callbackConfigured && dispatcher.initialise();
     const bool lateReconfigurationRejected =
         initialised && !dispatcher.setPendingSlotCountForTest(2);
 
@@ -590,7 +628,8 @@ bool threadedDispatcherMultiSlotOrdering()
 
     const bool stopped = dispatcher.shutdown();
     const bool passed = check(
-        slotsConfigured && initialised && lateReconfigurationRejected &&
+        slotsConfigured && callbackConfigured && initialised &&
+            lateReconfigurationRejected &&
             firstPublished && firstEntered && accumulated &&
             invalidSlotRejected && pending == WrappedCookie &&
             wrappedEntered && wrappedCompleted && constantPublished &&
@@ -600,14 +639,188 @@ bool threadedDispatcherMultiSlotOrdering()
             context.cookies[1] == WrappedCookie &&
             context.cookies[2] == WrappedCookie &&
             dispatcher.completedBatches(0) == 3 &&
-            dispatcher.completedCookie(0) == WrappedCookie && stopped,
+            dispatcher.completedCookie(0) == WrappedCookie && stopped &&
+            prompt.prompts == 5 && prompt.failures == 0 &&
+            dispatcher.remotePublicationRejectionsForTest() == 0,
         "multi-slot ordering lost wrap, stale, or equal-cookie semantics",
         SlotTest);
+    if (!passed)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: multi-slot admission init=" << initialised
+            << " first=" << firstEntered << " accumulated=" << accumulated
+            << " pending=" << pending << " prompts="
+            << static_cast<size_t>(prompt.prompts) << " prompt-failures="
+            << static_cast<size_t>(prompt.failures));
+        ERROR(
+            "HOSTED-WAIT-TEST: multi-slot drain wrapped=" << wrappedCompleted
+            << " constant=" << constantCompleted << " stale=" << staleDrained
+            << " callbacks=" << static_cast<size_t>(context.calls)
+            << " callback-failures=" << static_cast<size_t>(context.failures)
+            << " complete=" << dispatcher.completedBatches(0));
+    }
     if (passed)
     {
         NOTICE(
             "HOSTED-WAIT-TEST: PASS "
             "irq-threaded-dispatcher-multi-slot");
+    }
+    return passed;
+}
+
+struct DispatcherRemoteWakeContext
+{
+    DispatcherRemoteWakeContext()
+        : dispatcher(nullptr), callbackEntered(0), batchEntered(0), calls(0),
+          failures(0), workerProcessor(static_cast<size_t>(-1)),
+          promptLine(static_cast<uint8_t>(-1)), cookie(0)
+    {
+    }
+
+    ThreadedIrqDispatcher *dispatcher;
+    Semaphore callbackEntered;
+    Semaphore batchEntered;
+    Atomic<size_t> calls;
+    Atomic<size_t> failures;
+    size_t workerProcessor;
+    uint8_t promptLine;
+    size_t cookie;
+};
+
+bool promptDispatcherRemoteWorker(
+    void *opaque, uint8_t line, size_t workerProcessor)
+{
+    DispatcherRemoteWakeContext *context =
+        reinterpret_cast<DispatcherRemoteWakeContext *>(opaque);
+    if (!context || !context->dispatcher || line != 0 ||
+        context->dispatcher->pendingCookie(0) != context->cookie ||
+        !PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest())
+    {
+        if (context)
+        {
+            context->failures += 1;
+        }
+        return false;
+    }
+
+    context->workerProcessor = workerProcessor;
+    context->promptLine = line;
+    context->calls += 1;
+    context->callbackEntered.release();
+
+    // This is the hosted model of the directed LAPIC reschedule IPI. The
+    // publisher does not service the target doorbell after it returns: the
+    // prompt itself must expose the staged worker predicate.
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
+    return true;
+}
+
+void observeDispatcherRemoteWakeBatch(void *opaque, uint8_t line, size_t cookie)
+{
+    DispatcherRemoteWakeContext *context =
+        reinterpret_cast<DispatcherRemoteWakeContext *>(opaque);
+    if (!context || line != 0 || cookie != context->cookie ||
+        !context->calls)
+    {
+        if (context)
+        {
+            context->failures += 1;
+        }
+        return;
+    }
+    context->batchEntered.release();
+}
+
+bool threadedDispatcherRemoteWakePrompt()
+{
+    constexpr const char *RemoteTest = "irq-threaded-dispatcher-remote-wake";
+    constexpr size_t Cookie = 71;
+    DispatcherRemoteWakeContext context;
+    context.cookie = Cookie;
+    ThreadedIrqDispatcher dispatcher(
+        MakeConstantString("hosted IRQ remote prompt model"), 1,
+        observeDispatcherRemoteWakeBatch, &context);
+    context.dispatcher = &dispatcher;
+
+    const bool slotsConfigured = dispatcher.setPendingSlotCountForTest(2);
+    const bool callbackConfigured =
+        slotsConfigured && dispatcher.setRemoteWakeCallbackForTest(
+                               promptDispatcherRemoteWorker, &context);
+    const bool initialised = callbackConfigured && dispatcher.initialise();
+    const bool lateCallbackRejected =
+        initialised &&
+        !dispatcher.setRemoteWakeCallbackForTest(nullptr, nullptr);
+    const bool remotePublished =
+        initialised && dispatcher.publishFromSlotForTest(0, 1, Cookie);
+
+    // No direct service call follows remotePublished. The callback above is
+    // the deterministic model of the dedicated directed reschedule IPI.
+    const bool callbackObserved =
+        remotePublished && context.callbackEntered.acquireForCompletion(1, 2, 0);
+    const bool batchObserved =
+        callbackObserved && context.batchEntered.acquireForCompletion(1, 2, 0);
+    const bool completed = batchObserved && waitForDispatcherCompletion(
+                                                dispatcher, 1, Cookie);
+    const bool stopped = dispatcher.shutdown();
+
+    const bool passed = check(
+        slotsConfigured && callbackConfigured && initialised &&
+            lateCallbackRejected && remotePublished && callbackObserved &&
+            batchObserved && completed && stopped && context.calls == 1 &&
+            context.failures == 0 &&
+            context.workerProcessor != static_cast<size_t>(-1) &&
+            context.promptLine == 0 &&
+            dispatcher.remotePublicationRejectionsForTest() == 0,
+        "a remote producer did not prompt an already-staged worker batch",
+        RemoteTest);
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS irq-threaded-dispatcher-remote-wake");
+    }
+    return passed;
+}
+
+bool threadedDispatcherLocalOnlyRejectsRemotePublication()
+{
+    constexpr const char *LocalOnlyTest =
+        "irq-threaded-dispatcher-local-only";
+    ThreadedIrqDispatcher dispatcher(
+        MakeConstantString("hosted IRQ local-only model"), 1,
+        observeDispatcherRemoteWakeBatch, nullptr);
+    const bool slotsConfigured = dispatcher.setPendingSlotCountForTest(2);
+    const bool initialised = slotsConfigured && dispatcher.initialise();
+    // Worker startup can legitimately make the scheduler runnable. Clear
+    // that unrelated local work before proving that the rejected remote
+    // publication itself neither stages a cookie nor rings the doorbell.
+    PerProcessorScheduler::serviceCurrentIrqWorkDoorbellForTest();
+    const bool remoteRejected =
+        initialised && !dispatcher.publishFromSlotForTest(0, 1, 19);
+    const bool noStagedCookie = dispatcher.pendingCookie(0) == 0;
+    const bool noDoorbell =
+        !PerProcessorScheduler::currentIrqWorkDoorbellPendingForTest();
+    const bool stopped = dispatcher.shutdown();
+
+    const bool passed = check(
+        slotsConfigured && initialised && remoteRejected && noStagedCookie &&
+            noDoorbell && dispatcher.remotePublicationRejectionsForTest() == 1 &&
+            stopped,
+        "a local-only dispatcher staged remote work without a prompt path",
+        LocalOnlyTest);
+    if (!passed)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: irq-threaded-dispatcher-local-only state "
+            << "slots=" << slotsConfigured << " initialised=" << initialised
+            << " rejected=" << remoteRejected
+            << " pending=" << noStagedCookie << " doorbell=" << noDoorbell
+            << " rejections=" << dispatcher.remotePublicationRejectionsForTest()
+            << " stopped=" << stopped);
+    }
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "irq-threaded-dispatcher-local-only");
     }
     return passed;
 }
@@ -733,6 +946,10 @@ bool threadedDispatcherDiagnosticShutdownLifetime()
     const bool shutdownWaitedForScan =
         closedWhileHeld && context.shutdownStarted &&
         !context.shutdownComplete && !context.readerComplete;
+    // The first shutdown owns every worker join. A concurrent normal-context
+    // caller must reject rather than racing the same line teardown.
+    const bool competingShutdownRejected =
+        shutdownWaitedForScan && !testedDispatcher.shutdown();
 
     if (readerStarted)
     {
@@ -753,6 +970,7 @@ bool threadedDispatcherDiagnosticShutdownLifetime()
     const bool passed = check(
         slotsConfigured && initialised && readerStarted && scanHeld &&
             shutdownThreadStarted && closedWhileHeld && shutdownWaitedForScan &&
+            competingShutdownRejected &&
             readerJoined && shutdownJoined && context.readerComplete == 1 &&
             context.shutdownComplete == 1 && context.shutdownResult && cleanup &&
             context.hookCalls == 1 && context.hookFailures == 0 &&
@@ -3057,6 +3275,8 @@ bool runHostedThreadedIrqRegressions()
     passed &= threadedDispatcherCoalescing();
     passed &= threadedDispatcherPreservesDeliveredHighWater();
     passed &= threadedDispatcherMultiSlotOrdering();
+    passed &= threadedDispatcherRemoteWakePrompt();
+    passed &= threadedDispatcherLocalOnlyRejectsRemotePublication();
     passed &= threadedDispatcherDiagnosticShutdownLifetime();
     passed &= hostedThreadedSignalDelivery();
     passed &= hostedMixedSignalDelivery();

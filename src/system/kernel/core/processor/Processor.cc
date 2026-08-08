@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
@@ -106,6 +107,24 @@ bool ProcessorBase::inDeviceHardIrq()
     return information().m_DeviceHardIrqDepth != 0;
 }
 
+ExecutionContext ProcessorBase::executionContext()
+{
+    Thread *current = information().getCurrentThread();
+    if (!current)
+    {
+        return ExecutionContext::AtomicThread;
+    }
+
+    const ExecutionContext explicitContext = current->executionContext();
+    if (explicitContext != ExecutionContext::WaitableThread)
+    {
+        return explicitContext;
+    }
+
+    return getInterrupts() ? ExecutionContext::WaitableThread :
+                             ExecutionContext::AtomicThread;
+}
+
 bool ProcessorBase::guardDeviceHardIrqOperation(
     DeviceHardIrqOperation operation)
 {
@@ -154,7 +173,8 @@ DeviceHardIrqContext::DeviceHardIrqContext(
     size_t &previousDepth, bool &restorationArmed)
     : m_Information(Processor::information()),
       m_RestorationArmed(restorationArmed),
-      m_PreviousDepth(m_Information.m_DeviceHardIrqDepth)
+      m_PreviousDepth(m_Information.m_DeviceHardIrqDepth),
+      m_ExecutionContext(ExecutionContext::HardDeviceIrq)
 {
     assert(!m_RestorationArmed);
     previousDepth = m_PreviousDepth;

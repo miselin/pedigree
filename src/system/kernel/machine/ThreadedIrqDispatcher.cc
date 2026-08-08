@@ -89,7 +89,8 @@ IrqWorkerWaitReason workerWaitReason(WaitQueue::WakeReason reason)
 
 ThreadedIrqDispatcher::Line::Line()
     : m_Owner(nullptr), m_Callback(nullptr), m_CallbackContext(nullptr),
-      m_Thread(nullptr), m_Scheduler(nullptr), m_Line(0),
+      m_Thread(nullptr), m_Scheduler(nullptr), m_WorkerProcessor(0),
+      m_Line(0),
       m_PendingCookies(nullptr), m_PendingCookieCount(0), m_ActiveCookie(0),
       m_CallbackActive(0),
       m_PublicationState(PublicationClosed), m_Started(0),
@@ -174,6 +175,11 @@ bool ThreadedIrqDispatcher::Line::start()
         &m_MaximumCallbackRuntime, static_cast<size_t>(0), __ATOMIC_RELEASE);
 
     m_Scheduler = &Processor::information().getScheduler();
+    // The worker cannot migrate between scheduler instances. Capture the
+    // topology index once so a remote hard producer can request an immediate
+    // reschedule of this exact scheduler rather than waiting for its next
+    // periodic timer interrupt.
+    m_WorkerProcessor = Processor::index();
     Thread *thread = new Thread(
         Scheduler::instance().getKernelProcess(), workerEntry, this, nullptr,
         false, true, true);
@@ -246,15 +252,6 @@ bool ThreadedIrqDispatcher::Line::publishFromInterrupt(size_t cookie)
         return false;
     }
 
-    const size_t admission = __atomic_fetch_add(
-        &m_PublicationState, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
-    if (admission & PublicationClosed)
-    {
-        __atomic_fetch_sub(
-            &m_PublicationState, static_cast<size_t>(1), __ATOMIC_RELEASE);
-        return false;
-    }
-
     size_t processor = Processor::index();
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     const size_t processorSlot = __atomic_load_n(
@@ -264,6 +261,30 @@ bool ThreadedIrqDispatcher::Line::publishFromInterrupt(size_t cookie)
         processor = processorSlot;
     }
 #endif
+
+    const bool remoteProducer = processor != m_WorkerProcessor;
+    if (remoteProducer && !m_Owner->m_RemoteWakeCallback)
+    {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        __atomic_add_fetch(
+            &m_Owner->m_RemotePublicationRejectionsForTest,
+            static_cast<size_t>(1), __ATOMIC_RELAXED);
+#endif
+        // A local-only dispatcher cannot safely leave remote work dependent
+        // on a future unrelated timer tick. Reject before publication so the
+        // caller's fail-closed policy retains the terminal IRQ obligations.
+        return false;
+    }
+
+    const size_t admission = __atomic_fetch_add(
+        &m_PublicationState, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+    if (admission & PublicationClosed)
+    {
+        __atomic_fetch_sub(
+            &m_PublicationState, static_cast<size_t>(1), __ATOMIC_RELEASE);
+        return false;
+    }
+
     if (!m_PendingCookies || processor >= m_PendingCookieCount)
     {
         __atomic_fetch_sub(
@@ -296,10 +317,23 @@ bool ThreadedIrqDispatcher::Line::publishFromInterrupt(size_t cookie)
     }
 #endif
 
-    // The worker is pinned to this scheduler. Remote delivery can still
-    // require a reschedule IPI for immediate service, but it must never ring
-    // an unrelated CPU's doorbell.
+    // The worker is pinned to this scheduler. Stage its local doorbell before
+    // issuing a directed prompt so a fast IPI observes an already-ready
+    // predicate. A 0-to-pending transition is the sole prompt obligation;
+    // later occurrences coalesce into the batch the first prompt exposed.
     m_Scheduler->ringIrqWorkDoorbell();
+    if (remoteProducer && !pending)
+    {
+        if (!m_Owner->m_RemoteWakeCallback(
+                m_Owner->m_RemoteWakeCallbackContext, m_Line,
+                m_WorkerProcessor))
+        {
+            // The occurrence is already accepted and visible. Rolling it
+            // back would strand the owning controller's acknowledgement or
+            // mask state, so a failed directed wake is terminally explicit.
+            FATAL_NOLOCK("Threaded IRQ remote worker prompt failed after publication.");
+        }
+    }
 
     __atomic_fetch_sub(
         &m_PublicationState, static_cast<size_t>(1), __ATOMIC_RELEASE);
@@ -596,19 +630,41 @@ ThreadedIrqDispatcher::ThreadedIrqDispatcher(
     const String &name, size_t lineCount, DispatchCallback callback,
     void *callbackContext)
     : m_Lines(), m_Name(name), m_LineCount(lineCount), m_Callback(callback),
-      m_CallbackContext(callbackContext), m_Initialised(false)
+      m_CallbackContext(callbackContext), m_ConfigurationLock(false),
+      m_RemoteWakeCallback(nullptr),
+      m_RemoteWakeCallbackContext(nullptr), m_ConfigurationClosed(0),
+      m_Initialised(false), m_ShutdownClaimed(0)
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
       ,
       m_PublicationObservedHook(nullptr), m_PendingScanAdmittedHook(nullptr),
       m_PendingSlotCountForTest(0),
       m_PublicationSlotForTest(static_cast<size_t>(-1)),
-      m_RejectNextPublicationForTest(0)
+      m_RejectNextPublicationForTest(0),
+      m_RemotePublicationRejectionsForTest(0)
 #endif
 {
     if (m_LineCount > MaxLines)
     {
         m_LineCount = MaxLines;
     }
+}
+
+bool ThreadedIrqDispatcher::setRemoteWakeCallback(
+    RemoteWakeCallback callback, void *callbackContext)
+{
+    m_ConfigurationLock.acquire();
+    if (__atomic_load_n(&m_ConfigurationClosed, __ATOMIC_ACQUIRE))
+    {
+        m_ConfigurationLock.release();
+        return false;
+    }
+
+    // This pair is immutable once any worker begins, so hard publication can
+    // read it without another lock or an allocation-dependent indirection.
+    m_RemoteWakeCallback = callback;
+    m_RemoteWakeCallbackContext = callbackContext;
+    m_ConfigurationLock.release();
+    return true;
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -663,6 +719,7 @@ void ThreadedIrqDispatcher::setPendingScanAdmittedHookForTest(
 {
     __atomic_store_n(&m_PendingScanAdmittedHook, hook, __ATOMIC_RELEASE);
 }
+
 #endif
 
 ThreadedIrqDispatcher::~ThreadedIrqDispatcher()
@@ -682,11 +739,28 @@ bool ThreadedIrqDispatcher::initialise()
         return false;
     }
 
+    m_ConfigurationLock.acquire();
+    size_t configurationExpected = 0;
+    if (!__atomic_compare_exchange_n(
+            &m_ConfigurationClosed, &configurationExpected,
+            static_cast<size_t>(1), false, __ATOMIC_ACQ_REL,
+            __ATOMIC_ACQUIRE))
+    {
+        m_ConfigurationLock.release();
+        return false;
+    }
+    m_ConfigurationLock.release();
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     __atomic_store_n(
         &m_RejectNextPublicationForTest, static_cast<size_t>(0),
         __ATOMIC_RELEASE);
+    __atomic_store_n(
+        &m_RemotePublicationRejectionsForTest, static_cast<size_t>(0),
+        __ATOMIC_RELEASE);
 #endif
+    __atomic_store_n(
+        &m_ShutdownClaimed, static_cast<size_t>(0), __ATOMIC_RELEASE);
 
     for (size_t i = 0; i < m_LineCount; ++i)
     {
@@ -703,6 +777,9 @@ bool ThreadedIrqDispatcher::initialise()
             {
                 m_Lines[j].join();
             }
+            __atomic_store_n(
+                &m_ConfigurationClosed, static_cast<size_t>(0),
+                __ATOMIC_RELEASE);
             return false;
         }
     }
@@ -725,6 +802,15 @@ bool ThreadedIrqDispatcher::shutdown()
     {
         return false;
     }
+    size_t expected = 0;
+    if (!__atomic_compare_exchange_n(
+            &m_ShutdownClaimed, &expected, static_cast<size_t>(1), false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+    {
+        // A successful claimant owns every join and slot release. A racing
+        // caller must not join the same workers or free the same arrays.
+        return !__atomic_load_n(&m_Initialised, __ATOMIC_ACQUIRE);
+    }
 
     for (size_t i = 0; i < m_LineCount; ++i)
     {
@@ -742,6 +828,16 @@ bool ThreadedIrqDispatcher::shutdown()
     {
         __atomic_store_n(
             &m_Initialised, static_cast<size_t>(0), __ATOMIC_RELEASE);
+        __atomic_store_n(
+            &m_ConfigurationClosed, static_cast<size_t>(0),
+            __ATOMIC_RELEASE);
+    }
+    else
+    {
+        // Successfully joined lines are already inert. Let a later ordinary
+        // thread retry only the workers which did not complete this drain.
+        __atomic_store_n(
+            &m_ShutdownClaimed, static_cast<size_t>(0), __ATOMIC_RELEASE);
     }
     return joined;
 #else
@@ -752,8 +848,10 @@ bool ThreadedIrqDispatcher::shutdown()
 bool ThreadedIrqDispatcher::canShutdown() const
 {
     Thread *current = Processor::information().getCurrentThread();
-    bool safe = current && Processor::getInterrupts() &&
-                !Processor::inDeviceHardIrq() && !isCurrentWorker();
+    bool safe = current &&
+                Processor::executionContext() ==
+                    ExecutionContext::WaitableThread &&
+                !isCurrentWorker();
 #if HOSTED
     safe = safe && !current->getHostedSignalDepth();
 #endif

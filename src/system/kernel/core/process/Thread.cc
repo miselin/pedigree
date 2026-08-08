@@ -688,6 +688,13 @@ SchedulerState &Thread::state()
     return *(m_StateLevels[m_nStateLevel].m_State);
 }
 
+ExecutionContext Thread::executionContext() const
+{
+    const size_t level = __atomic_load_n(
+        &m_nStateLevel, __ATOMIC_ACQUIRE);
+    return m_StateLevels[level].m_ExecutionContext.current();
+}
+
 SchedulerState *Thread::pushState()
 {
     const size_t previousLevel =
@@ -731,6 +738,10 @@ SchedulerState *Thread::pushState()
 #endif
     m_StateLevels[nextLevel].m_InterruptionReason = NotInterrupted;
     m_StateLevels[nextLevel].m_bDispatchingWaitEvent = false;
+    m_StateLevels[nextLevel].m_ExecutionContext =
+        m_StateLevels[previousLevel].m_ExecutionContext;
+    m_StateLevels[nextLevel].m_pRequestQueueCallback =
+        m_StateLevels[previousLevel].m_pRequestQueueCallback;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     observeStateTransition(
@@ -2369,7 +2380,10 @@ bool Thread::detach()
 Thread::StateLevel::StateLevel()
     : m_State(), m_pKernelStack(0), m_pUserStack(0), m_pAuxillaryStack(0),
       m_InhibitMask(), m_SignalMask(0), m_Errno(0),
-      m_InterruptionReason(NotInterrupted), m_bDispatchingWaitEvent(false)
+      m_InterruptionReason(NotInterrupted), m_bDispatchingWaitEvent(false),
+      m_ExecutionContext(ExecutionContext::WaitableThread),
+      m_pRequestQueueCallback(nullptr),
+      m_bTerminalWaitCancelledBeforeBlock(false)
 #if HOSTED
       , m_HostedSignalDepth(0)
 #endif
@@ -2389,7 +2403,10 @@ Thread::StateLevel::StateLevel(const Thread::StateLevel &s)
       m_pAuxillaryStack(s.m_pAuxillaryStack), m_InhibitMask(),
       m_SignalMask(s.m_SignalMask), m_Errno(s.m_Errno),
       m_InterruptionReason(s.m_InterruptionReason),
-      m_bDispatchingWaitEvent(false)
+      m_bDispatchingWaitEvent(false),
+      m_ExecutionContext(s.m_ExecutionContext),
+      m_pRequestQueueCallback(nullptr),
+      m_bTerminalWaitCancelledBeforeBlock(false)
 #if HOSTED
       , m_HostedSignalDepth(0)
 #endif
@@ -2408,6 +2425,9 @@ Thread::StateLevel &Thread::StateLevel::operator=(const Thread::StateLevel &s)
     m_Errno = s.m_Errno;
     m_InterruptionReason = s.m_InterruptionReason;
     m_bDispatchingWaitEvent = false;
+    m_ExecutionContext = s.m_ExecutionContext;
+    m_pRequestQueueCallback = nullptr;
+    m_bTerminalWaitCancelledBeforeBlock = false;
 #if HOSTED
     m_HostedSignalDepth = 0;
 #endif
@@ -2928,6 +2948,9 @@ void Thread::cleanStateLevel(size_t level)
     }
 
     m_StateLevels[level].m_InhibitMask.reset();
+    m_StateLevels[level].m_ExecutionContext.reset();
+    m_StateLevels[level].m_pRequestQueueCallback = nullptr;
+    m_StateLevels[level].m_bTerminalWaitCancelledBeforeBlock = false;
 }
 
 void Thread::setUnwindState(UnwindType ut)
@@ -3051,6 +3074,39 @@ bool Thread::activeWaitPendingUnlocked() const
     const WaitQueue::Waiter &waiter = m_StateLevels[m_nStateLevel].m_Waiter;
     return waiter.loadQueue() &&
            waiter.loadReason() == WaitQueue::WakeReason::Waiting;
+}
+
+void Thread::markTerminalWaitCancelledBeforeBlockUnlocked(size_t level)
+{
+    assert(level < MAX_NESTED_EVENTS);
+    StateLevel &state = m_StateLevels[level];
+    assert(!state.m_Waiter.loadQueue());
+    assert(
+        state.m_Waiter.loadReason() ==
+        WaitQueue::WakeReason::Terminating);
+    state.m_bTerminalWaitCancelledBeforeBlock = true;
+}
+
+bool Thread::consumeTerminalWaitCancelledBeforeBlockUnlocked()
+{
+    StateLevel &state = m_StateLevels[m_nStateLevel];
+    if (!state.m_bTerminalWaitCancelledBeforeBlock)
+    {
+        return false;
+    }
+
+    // A new enrolment always clears the marker. Treat any other mismatch as
+    // stale rather than allowing it to suppress an unrelated sleep.
+    state.m_bTerminalWaitCancelledBeforeBlock = false;
+    return !state.m_Waiter.loadQueue() &&
+           state.m_Waiter.loadReason() ==
+               WaitQueue::WakeReason::Terminating;
+}
+
+void Thread::clearTerminalWaitCancelledBeforeBlockUnlocked(size_t level)
+{
+    assert(level < MAX_NESTED_EVENTS);
+    m_StateLevels[level].m_bTerminalWaitCancelledBeforeBlock = false;
 }
 
 bool Thread::markReapable()

@@ -35,6 +35,7 @@
 
 class SchedulerTimerHandler;
 
+#define IPI_RESCHEDULE_VECTOR 0xFA
 #define IPI_PROCESSOR_CONTROL_VECTOR 0xFB
 #define ERROR_VECTOR 0xFC
 #define SPURIOUS_VECTOR 0xFD
@@ -60,7 +61,7 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
     /** The default constructor */
     inline LocalApic()
         : m_IoSpace("Local APIC"), m_Handlers(), m_BusFrequency(0),
-          m_IcrSubmissionActive(false), m_ProcessorControlState(
+          m_ProcessorControlState(
               static_cast<size_t>(ProcessorControlState::Idle)),
           m_ControlledProcessorCount(0), m_TerminalProcessorCount(0)
     {
@@ -74,12 +75,12 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
      *\param[in] physicalAddress the physical address of the Local APIC (taken
      *from the SMP/ACPI tables) \return true, if the Local APIC class and this
      *processor's Local APIC have been initialised successfully, false otherwise
-     *\todo Needs information about BSPs LINTs */
+     */
     bool initialise(uint64_t physicalAddress) INITIALISATION_ONLY;
     /** Initialise the local APIC on the current processor
      *\return true, if this processor's Local APIC has been initialised
-     *successfully \todo Needs information about the LINTs of this processor's
-     *local APIC */
+     *successfully. LINT0 is configured for the virtual-wire PIC role; LINT1 is
+     *left to future firmware NMI-routing support. */
     bool initialiseProcessor() INITIALISATION_ONLY;
 
     /** Local APIC delivery modes */
@@ -141,12 +142,16 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
     //
     virtual bool registerHandler(SchedulerTimerHandler *handler)
     {
-        return m_Handlers.registerHandler(Processor::id(), handler);
+        // Logical Processor::id() is assigned after early BSP timer setup and
+        // can change during topology construction. The LAPIC's raw physical
+        // identifier is already stable on both sides of that transition.
+        return m_Handlers.registerHandler(getId(), handler);
     }
 
     virtual bool removeHandler(SchedulerTimerHandler *handler)
     {
-        return m_Handlers.removeHandler(Processor::id(), handler);
+        return canRemoveHandlerInCurrentContext() &&
+               m_Handlers.removeHandler(getId(), handler);
     }
 
     void ack();
@@ -165,9 +170,9 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
      *otherwise */
     bool check(uint64_t physicalAddress) INITIALISATION_ONLY;
 
-    /** Wait for the interrupt-command register to accept another IPI. */
+    /** Wait for the local interrupt-command register to become idle. */
     bool waitForIcrIdle();
-    bool acquireIcrSubmission();
+    bool submitIcr(uint32_t high, uint32_t low);
 
     ProcessorControlState processorControlState() const;
     bool waitForProcessorCount(size_t expectedProcessors);
@@ -188,9 +193,6 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
 
     /** System bus frequency, for setting up the initial timer counter. */
     size_t m_BusFrequency;
-
-    /** Serialises the two-register ICR submission transaction. */
-    Atomic<bool> m_IcrSubmissionActive;
 
     /** Shared state observed by CPUs inside the processor-control IPI. */
     Atomic<size_t> m_ProcessorControlState;

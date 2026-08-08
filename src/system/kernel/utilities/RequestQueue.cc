@@ -41,6 +41,173 @@ static_assert(
     __atomic_always_lock_free(sizeof(PerProcessorScheduler *), nullptr),
     "RequestQueue preallocated-publication pointers must be lock-free");
 
+/**
+ * Marks a derived RequestQueue callback on the current Thread state stack.
+ *
+ * The cleanup record is needed because a terminal path can abandon a callback
+ * stack without executing this scope's destructor. Nested event states inherit
+ * the head pointer, so they cannot re-enter the same queue around an outer
+ * callback either.
+ */
+#if defined(PEDIGREE_BUILDUTILS)
+class RequestQueueCallbackScope
+{
+  public:
+    RequestQueueCallbackScope(
+        RequestQueue *, RequestQueue::PreallocatedRequest * = nullptr)
+    {
+    }
+
+    static bool contains(const RequestQueue *)
+    {
+        return false;
+    }
+
+    static bool allowsReleaseHandoff(
+        const RequestQueue *, const RequestQueue::PreallocatedRequest *)
+    {
+        return false;
+    }
+};
+#else
+class RequestQueueCallbackScope
+{
+  public:
+    RequestQueueCallbackScope(
+        RequestQueue *queue,
+        RequestQueue::PreallocatedRequest *releasingToken = nullptr)
+        : m_Queue(queue), m_ReleasingToken(releasingToken), m_Thread(nullptr),
+          m_StateLevel(0), m_Previous(nullptr), m_Cleanup(), m_Active(false)
+    {
+        m_Thread = Processor::information().getCurrentThread();
+        if (!m_Thread)
+        {
+            return;
+        }
+
+        const bool interruptsWereEnabled = Processor::getInterrupts();
+        Processor::setInterrupts(false);
+        m_StateLevel = __atomic_load_n(
+            &m_Thread->m_nStateLevel, __ATOMIC_ACQUIRE);
+        m_Previous =
+            m_Thread->m_StateLevels[m_StateLevel].m_pRequestQueueCallback;
+
+        // Publish cleanup before this callback becomes visible to nested work.
+        m_Thread->armAtomicStateCleanup(m_Cleanup, abandon, this);
+        m_Active = true;
+        m_Thread->m_StateLevels[m_StateLevel].m_pRequestQueueCallback = this;
+        Processor::setInterrupts(interruptsWereEnabled);
+    }
+
+    ~RequestQueueCallbackScope()
+    {
+        if (!m_Active)
+        {
+            return;
+        }
+
+        const bool interruptsWereEnabled = Processor::getInterrupts();
+        Processor::setInterrupts(false);
+        restore();
+        m_Thread->disarmAtomicStateCleanup(m_Cleanup);
+        Processor::setInterrupts(interruptsWereEnabled);
+    }
+
+    static bool contains(const RequestQueue *queue)
+    {
+        Thread *thread = Processor::information().getCurrentThread();
+        if (!thread || !queue)
+        {
+            return false;
+        }
+
+        RequestQueueCallbackScope *scope =
+            thread->m_StateLevels[thread->m_nStateLevel]
+                .m_pRequestQueueCallback;
+        while (scope)
+        {
+            if (scope->m_Queue == queue)
+            {
+                return true;
+            }
+            scope = scope->m_Previous;
+        }
+        return false;
+    }
+
+    static bool allowsReleaseHandoff(
+        const RequestQueue *queue,
+        const RequestQueue::PreallocatedRequest *token)
+    {
+        Thread *thread = Processor::information().getCurrentThread();
+        if (!thread || !queue || !token)
+        {
+            return false;
+        }
+
+        RequestQueueCallbackScope *scope =
+            thread->m_StateLevels[thread->m_nStateLevel]
+                .m_pRequestQueueCallback;
+        while (scope)
+        {
+            if (
+                scope->m_Queue == queue &&
+                scope->m_ReleasingToken == token)
+            {
+                return true;
+            }
+            scope = scope->m_Previous;
+        }
+        return false;
+    }
+
+  private:
+    RequestQueueCallbackScope(const RequestQueueCallbackScope &) = delete;
+    RequestQueueCallbackScope &operator=(const RequestQueueCallbackScope &) =
+        delete;
+
+    static void abandon(void *context)
+    {
+        RequestQueueCallbackScope *scope =
+            reinterpret_cast<RequestQueueCallbackScope *>(context);
+        if (scope)
+        {
+            scope->restore();
+        }
+    }
+
+    void restore()
+    {
+        if (!m_Active)
+        {
+            return;
+        }
+        if (m_StateLevel >= MAX_NESTED_EVENTS ||
+            m_Thread->m_StateLevels[m_StateLevel].m_pRequestQueueCallback !=
+                this)
+        {
+            FATAL_NOLOCK("RequestQueue callback scope stack was corrupted.");
+            return;
+        }
+
+        const bool interruptsWereEnabled = Processor::getInterrupts();
+        Processor::setInterrupts(false);
+        m_Thread->m_StateLevels[m_StateLevel].m_pRequestQueueCallback =
+            m_Previous;
+        m_Active = false;
+        Processor::setInterrupts(interruptsWereEnabled);
+    }
+
+    RequestQueue *m_Queue;
+    RequestQueue::PreallocatedRequest *m_ReleasingToken;
+    Thread *m_Thread;
+    size_t m_StateLevel;
+    RequestQueueCallbackScope *m_Previous;
+    AtomicStateCleanupRecord m_Cleanup;
+    bool m_Active;
+};
+#endif
+
 RequestQueue::PreallocatedRequest::PreallocatedRequest()
     : PreallocatedRequest(nullptr, nullptr)
 {
@@ -103,8 +270,10 @@ RequestQueue::~RequestQueue()
     bool active = false;
     {
         auto guard = m_RequestQueueWaiters.acquire();
-        active = static_cast<LifecycleState>(m_State.value()) !=
-                     LifecycleState::Stopped ||
+        const LifecycleState state =
+            static_cast<LifecycleState>(m_State.value());
+        active = (state != LifecycleState::Stopped &&
+                  state != LifecycleState::Destroyed) ||
                  m_pThread || m_pOverrunTimer || m_nTotalRequests.value() ||
                  m_PublicationState.value() != PublicationClosed;
     }
@@ -121,29 +290,36 @@ RequestQueue::~RequestQueue()
 
 void RequestQueue::initialise()
 {
-    resume();
+    if (!resume())
+    {
+        FATAL("Initialising a permanently destroyed RequestQueue");
+    }
 }
 
 #if THREADS
-void RequestQueue::startWorker()
+bool RequestQueue::startWorker()
 {
     {
         auto guard = m_RequestQueueWaiters.acquire();
-        if (static_cast<LifecycleState>(m_State.value()) ==
-            LifecycleState::Accepting)
+        const LifecycleState state =
+            static_cast<LifecycleState>(m_State.value());
+        if (state == LifecycleState::Accepting)
         {
             assert(m_pThread && m_bWorkerReady.value());
             assert(!(m_PublicationState.value() & PublicationClosed));
-            return;
+            return true;
         }
 
-        if (static_cast<LifecycleState>(m_State.value()) ==
-                LifecycleState::Stopping ||
+        if (state == LifecycleState::Destroyed)
+        {
+            return false;
+        }
+        if (state == LifecycleState::Stopping ||
             m_pThread || m_bWorkerReady.value())
         {
             ERROR(
                 "RequestQueue '" << m_Name << "' cannot start while stopping");
-            return;
+            return false;
         }
     }
 
@@ -233,6 +409,7 @@ void RequestQueue::startWorker()
     }
 
     m_pWorkerScheduler.value()->ringIrqWorkDoorbell();
+    return true;
 }
 
 bool RequestQueue::stopWorker()
@@ -245,7 +422,11 @@ bool RequestQueue::stopWorker()
         if (!worker)
         {
             closePreallocatedAdmission();
-            m_State = static_cast<size_t>(LifecycleState::Stopped);
+            if (static_cast<LifecycleState>(m_State.value()) !=
+                LifecycleState::Destroyed)
+            {
+                m_State = static_cast<size_t>(LifecycleState::Stopped);
+            }
             m_bWorkerReady = 0;
             m_bWorkerActive = 0;
             m_pWorkerScheduler = nullptr;
@@ -332,11 +513,26 @@ void RequestQueue::waitForPreallocatedPublishers()
 void RequestQueue::destroy()
 {
 #if THREADS
+    if (callbackActiveOnCurrentThread())
+    {
+        FATAL(
+            "RequestQueue '" << m_Name
+                             << "' destroy re-entered a queue callback");
+    }
+    if (m_LifecycleMutex.isOwnedByCurrentThread())
+    {
+        FATAL(
+            "RequestQueue '" << m_Name
+                              << "' destroy re-entered a lifecycle callback");
+    }
     TerminationDeferral terminationDeferral;
     LockGuard<Mutex> lifecycleGuard(m_LifecycleMutex);
     if (!stopWorker())
     {
-        return;
+        FATAL(
+            "RequestQueue '" << m_Name
+                              << "' could not satisfy destroy's worker "
+                                 "drain contract");
     }
 
     if (m_pOverrunTimer)
@@ -386,10 +582,16 @@ void RequestQueue::destroy()
     {
         Request *next = cancelled->m_Next;
         cancelled->m_Next = nullptr;
-        cancelRequest(*cancelled);
+        invokeCancelRequest(*cancelled);
         completeRequest(cancelled, 0, true);
         releaseRequest(cancelled);
         cancelled = next;
+    }
+
+    {
+        auto guard = m_RequestQueueWaiters.acquire();
+        closePreallocatedAdmission();
+        m_State = static_cast<size_t>(LifecycleState::Destroyed);
     }
 #endif
 }
@@ -408,6 +610,13 @@ uint64_t RequestQueue::addRequest(
     uint64_t p8)
 {
 #if THREADS
+    if (
+        callbackActiveOnCurrentThread() ||
+        m_LifecycleMutex.isOwnedByCurrentThread())
+    {
+        return 0;
+    }
+
     Request *candidate =
         new Request(priority, false, p1, p2, p3, p4, p5, p6, p7, p8);
 
@@ -552,6 +761,19 @@ RequestQueue::publishPreallocatedRequest(
         return PreallocatedPublishResult::InvalidPriority;
     }
 
+    if (
+        callbackActiveOnCurrentThread() &&
+        (availableState != PreallocatedRequest::Releasing ||
+         !RequestQueueCallbackScope::allowsReleaseHandoff(this, &token)))
+    {
+        return PreallocatedPublishResult::QueueStopped;
+    }
+
+    // The sole callback exception is its own Releasing token: this path only
+    // hands that token back through the lock-free intake, performs no
+    // allocation or lifecycle transition, and the closed admission gate below
+    // still rejects it during shutdown.
+
 #if THREADS
     const size_t admission = (m_PublicationState += 1);
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -635,6 +857,13 @@ uint64_t RequestQueue::addAsyncRequestInternal(
     delete request;
     return 1;
 #else
+    if (
+        callbackActiveOnCurrentThread() ||
+        m_LifecycleMutex.isOwnedByCurrentThread())
+    {
+        return 0;
+    }
+
     Request *request =
         new Request(priority, true, p1, p2, p3, p4, p5, p6, p7, p8);
 
@@ -711,21 +940,38 @@ uint64_t RequestQueue::addAsyncRequestInternal(
 #endif
 }
 
-void RequestQueue::halt()
+bool RequestQueue::halt()
 {
 #if THREADS
+    if (
+        callbackActiveOnCurrentThread() ||
+        m_LifecycleMutex.isOwnedByCurrentThread())
+    {
+        return false;
+    }
     TerminationDeferral terminationDeferral;
     LockGuard<Mutex> lifecycleGuard(m_LifecycleMutex);
-    stopWorker();
+    return stopWorker();
+#else
+    return true;
 #endif
 }
 
-void RequestQueue::resume()
+bool RequestQueue::resume()
 {
 #if THREADS
+    if (
+        callbackActiveOnCurrentThread() ||
+        m_LifecycleMutex.isOwnedByCurrentThread())
+    {
+        return false;
+    }
     TerminationDeferral terminationDeferral;
     LockGuard<Mutex> lifecycleGuard(m_LifecycleMutex);
-    startWorker();
+    if (!startWorker())
+    {
+        return false;
+    }
 
     if (!m_pOverrunTimer)
     {
@@ -735,6 +981,9 @@ void RequestQueue::resume()
             m_pOverrunTimer = timer;
         }
     }
+    return true;
+#else
+    return true;
 #endif
 }
 
@@ -743,9 +992,18 @@ RequestQueue::LifecycleState RequestQueue::getLifecycleState()
     return static_cast<LifecycleState>(m_State.value());
 }
 
+bool RequestQueue::callbackActiveOnCurrentThread() const
+{
+    return RequestQueueCallbackScope::contains(this);
+}
+
 bool RequestQueue::drain()
 {
 #if THREADS
+    if (callbackActiveOnCurrentThread())
+    {
+        return false;
+    }
     TerminationDeferral terminationDeferral;
     Thread *current = Processor::information().getCurrentThread();
     while (true)
@@ -933,8 +1191,14 @@ void RequestQueue::completeRequest(
 
 void RequestQueue::discardRequest(Request *request)
 {
-    cancelRequest(*request);
+    invokeCancelRequest(*request);
     delete request;
+}
+
+void RequestQueue::invokeCancelRequest(const Request &request)
+{
+    RequestQueueCallbackScope callback(this);
+    cancelRequest(request);
 }
 
 void RequestQueue::releasePreallocatedRequest(Request *request)
@@ -949,6 +1213,7 @@ void RequestQueue::releasePreallocatedRequest(Request *request)
     owner->m_State = PreallocatedRequest::Releasing;
     if (owner->m_ReleaseCallback)
     {
+        RequestQueueCallbackScope callback(this, owner);
         owner->m_ReleaseCallback(owner->m_ReleaseContext);
     }
 

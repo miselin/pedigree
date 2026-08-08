@@ -27,27 +27,39 @@ class LocalApicTimerHandlerSlots
         if (processor >= Capacity || !handler)
             return false;
 
-        return m_Handlers[processor].publish(handler);
+        return m_Handlers[processor].publish(processor, handler);
     }
 
     /**
      * Unpublish only the exact handler currently owned by this processor.
-     * This is not a synchronous lifetime drain for cross-CPU removal.
+     * A different processor is rejected before it can close this slot.
      */
     bool removeHandler(ProcessorId processor, SchedulerTimerHandler *handler)
     {
         if (processor >= Capacity || !handler)
             return false;
 
-        return m_Handlers[processor].unpublish(handler);
+        return m_Handlers[processor].unpublish(processor, handler);
     }
 
-    /** Perform the timer interrupt path's single bounded handler load. */
-    SchedulerTimerHandler *load(ProcessorId processor) const
+    /**
+     * Admit one callback on this physical APIC processor and bind its lifetime
+     * to the caller's guard. No raw handler pointer escapes the slot.
+     */
+    bool beginDispatch(
+        ProcessorId processor, SchedulerTimerHandlerSlot::DispatchGuard &guard)
     {
         if (processor >= Capacity)
-            return nullptr;
-        return m_Handlers[processor].load();
+            return false;
+        return m_Handlers[processor].beginDispatch(processor, guard);
+    }
+
+    /** Test/diagnostic predicate which never permits callback dispatch. */
+    bool isPublished(
+        ProcessorId processor, SchedulerTimerHandler *handler) const
+    {
+        return processor < Capacity &&
+               m_Handlers[processor].isPublished(processor, handler);
     }
 
   private:
@@ -55,12 +67,6 @@ class LocalApicTimerHandlerSlots
     LocalApicTimerHandlerSlots &
     operator=(const LocalApicTimerHandlerSlots &) = delete;
 
-    /**
-     * Removal only unpublishes the pointer; it does not drain a callback which
-     * another CPU has already loaded. LocalApic relies on the scheduler's
-     * same-CPU ownership of registration, timer dispatch, and removal for the
-     * handler lifetime guarantee.
-     */
     SchedulerTimerHandlerSlot m_Handlers[Capacity];
 };
 

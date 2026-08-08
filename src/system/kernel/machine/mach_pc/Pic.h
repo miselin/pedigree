@@ -21,7 +21,6 @@
 #define KERNEL_MACHINE_X86_COMMON_PIC_H
 
 #include "PicIrqState.h"
-#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqDiagnosticSnapshotStore.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
@@ -29,6 +28,7 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
 #include "pedigree/kernel/machine/types.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state_forward.h"
@@ -94,6 +94,9 @@ class Pic : public IrqManager, private InterruptHandler
     virtual bool control(uint8_t irq, ControlCode code, size_t argument);
 
   private:
+    class StateGuard;
+    class HardStateGuard;
+
     /** The default constructor */
     Pic() INITIALISATION_ONLY;
     /** The destructor */
@@ -113,6 +116,27 @@ class Pic : public IrqManager, private InterruptHandler
     virtual void interrupt(size_t interruptNumber, InterruptState &state);
 
     static void dispatchThreadedLine(void *context, uint8_t irq, size_t cookie);
+#if APIC
+    static bool promptThreadedWorker(
+        void *context, uint8_t line, size_t workerProcessor);
+#endif
+    static constexpr uint8_t ControllerWorkLine = PicIrqState::LineCount;
+    bool drainOnePendingControllerBatchLocked();
+    void drainPendingControllerActionsLocked();
+    void releaseControllerState();
+    void releaseControllerStateFromInterrupt();
+    bool handControllerStateToWorker();
+    void finishDeferredLineTransitionsLocked();
+    void clearControllerTemporaryMaskLocked(uint16_t restoreMask = 0xFFFF);
+    uint16_t effectiveMaskLocked() const;
+    void beginLineTransitionLocked(uint8_t irq);
+    void finishLineTransitionLocked(uint8_t irq);
+    void finishHandlerUnregisterLocked(
+        uint8_t irq, IrqHandlerRegistry::UnregisterResult result,
+        IrqHandlerRegistry::LineMode removedDelivery);
+    void admitThreadedOccurrenceLocked(uint8_t irq);
+    void finishHardDispatchLocked(const PicHardTailRecord &record);
+    void finishHardDispatchFromInterrupt(const PicHardTailRecord &record);
     size_t advanceThreadedCookieLocked(uint8_t irq);
     void publishDiagnosticLineLocked(uint8_t irq);
     void publishAllDiagnosticLinesLocked();
@@ -122,6 +146,7 @@ class Pic : public IrqManager, private InterruptHandler
         HardHandoffQuarantine = 1U << 0,
         ThreadedPublicationQuarantine = 1U << 1,
         UnhandledQuarantine = 1U << 2,
+        ControllerContentionQuarantine = 1U << 3,
     };
 
     void eoiLocked(uint8_t irq);
@@ -144,7 +169,13 @@ class Pic : public IrqManager, private InterruptHandler
     SchedulerIrqHandler *m_SchedulerIrqHandler;
     /** Trigger mode, registration ownership and the complete 16-bit mask. */
     PicIrqState m_IrqState;
-    /** Stable one-worker-per-physical-line bottom-half dispatcher. */
+    /** Non-blocking hard-entry ownership and terminal-action handoff. */
+    PicControllerStateGate m_ControllerStateGate;
+    /** Complete hard results which could not immediately reclaim ownership. */
+    PicHardTailQueue m_HardTailQueue;
+    /** Sleeps competing threads so a preempted gate owner can run again. */
+    Mutex m_ControllerThreadMutex;
+    /** Stable per-line workers plus one controller-continuation worker. */
     ThreadedIrqDispatcher m_ThreadedDispatcher;
     /** Invalidates queued work when a physical line changes ownership. */
     size_t m_ThreadedCookies[PicIrqState::LineCount];
@@ -163,6 +194,23 @@ class Pic : public IrqManager, private InterruptHandler
     /** Atomic diagnostics for work rejected after dispatcher closure. */
     size_t m_ThreadedPublicationFailures[PicIrqState::LineCount];
     size_t m_RemovalRejections[PicIrqState::LineCount];
+    /** Hard entries/tails which could not immediately own controller state. */
+    size_t m_ControllerContentions[PicIrqState::LineCount];
+    /** Lock-free controller-worker prompt state for stopped-world diagnosis. */
+    size_t m_ControllerPromptAttempts;
+    size_t m_ControllerPromptFailures;
+    size_t m_ControllerPromptDestination;
+    size_t m_ControllerPromptState;
+    /** Physical-only masks retained until the BSP can release atomically. */
+    uint16_t m_ControllerTemporaryMask;
+    /** Last mask written to hardware, including physical-only overrides. */
+    uint16_t m_AppliedControllerMask;
+    /** Lifetimes published by the BSP immediately before physical unmask. */
+    uint16_t m_DeferredLineTransitions;
+    /** Stable BSP index rebound after processor topology initialisation. */
+    size_t m_DeliveryProcessor;
+    /** Physical LAPIC destination captured with the BSP worker scheduler. */
+    uint8_t m_DeliveryApicId;
     /** Per-line immutable diagnostic publications. */
     IrqDiagnosticSnapshotStore<PicIrqState::LineCount> m_Diagnostics;
     /** Unregister operations which have not completed line accounting. */
@@ -179,9 +227,6 @@ class Pic : public IrqManager, private InterruptHandler
     bool m_MitigatedIrqs[16];
     /** Mitigation thresholds */
     size_t m_MitigationThreshold[16];
-    /** Main lock for all modifications */
-    Spinlock m_Lock;
-
     /** The Pic instance */
     static Pic m_Instance;
 };

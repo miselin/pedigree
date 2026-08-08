@@ -24,6 +24,7 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"  // exported
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/process/ExecutionContext.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
 template <class T> class Vector;
@@ -299,6 +300,12 @@ class EXPORTED_PUBLIC ProcessorBase
 
     /** True only while an explicit device hard-IRQ callback is running. */
     static bool inDeviceHardIrq();
+
+    /**
+     * Classifies the current execution boundary without relying on a
+     * per-processor IRQ marker that could survive a Thread context switch.
+     */
+    static ExecutionContext executionContext();
 
     /**
      * Enforces the device hard-IRQ execution boundary.

@@ -148,7 +148,10 @@ void X64InterruptManager::interrupt(InterruptState &interruptState)
 
         // Call the kernel debugger's handler, if any
         if (pHandler != 0)
+        {
+            ExecutionContextGuard debuggerContext(ExecutionContext::DebuggerTrap);
             pHandler->interrupt(nIntNumber, interruptState);
+        }
     }
 #endif
 

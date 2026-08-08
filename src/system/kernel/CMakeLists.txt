@@ -238,6 +238,7 @@ set(KERNEL_SRCS
     # /core/process/
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Completion.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/ConditionVariable.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/ExecutionContext.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Event.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/RelayEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/InfoBlock.cc

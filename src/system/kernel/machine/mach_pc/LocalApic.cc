@@ -20,7 +20,10 @@
 #if APIC
 
 #include "LocalApic.h"
+#include "LocalApicIcrTransaction.h"
+#include "LocalApicLint0Policy.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/SchedulerTimerDispatchCleanup.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -105,6 +108,13 @@ bool LocalApic::initialise(uint64_t physicalAddress)
             IPI_PROCESSOR_CONTROL_VECTOR, this))
         return false;
 
+    // This vector is a directed scheduler prompt for work published by a
+    // remote hard producer. It shares the timer's owner-qualified scheduler
+    // callback but is never routed through the legacy PIC path.
+    if (!InterruptManager::instance().registerInterruptHandler(
+            IPI_RESCHEDULE_VECTOR, this))
+        return false;
+
     return initialiseProcessor();
 }
 
@@ -118,6 +128,27 @@ bool LocalApic::initialiseProcessor()
     uint32_t tmp = m_IoSpace.read32(LAPIC_REG_SPURIOUS_INT);
     m_IoSpace.write32(
         (tmp & 0xFFFFFE00) | 0x100 | SPURIOUS_VECTOR, LAPIC_REG_SPURIOUS_INT);
+
+    const uint64_t apicBase = Processor::readMachineSpecificRegister(
+        LocalApicLint0Policy::ApicBaseMsr);
+    tmp = m_IoSpace.read32(LAPIC_REG_LVT_LINT0);
+    const uint32_t lint0 =
+        LocalApicLint0Policy::configuredValue(tmp, apicBase);
+    m_IoSpace.write32(lint0, LAPIC_REG_LVT_LINT0);
+    const uint32_t lint0Readback = m_IoSpace.read32(LAPIC_REG_LVT_LINT0);
+    if (!LocalApicLint0Policy::matchesRole(lint0Readback, apicBase))
+    {
+        m_IoSpace.write32(
+            lint0Readback | LocalApicLint0Policy::Masked,
+            LAPIC_REG_LVT_LINT0);
+        const uint32_t maskedReadback =
+            m_IoSpace.read32(LAPIC_REG_LVT_LINT0);
+        if (!(maskedReadback & LocalApicLint0Policy::Masked))
+        {
+            FATAL("Local APIC: failed to mask an invalid LINT0 route");
+        }
+        FATAL("Local APIC: LINT0 virtual-wire routing did not latch");
+    }
 
     // Set the task priority to 0
     tmp = m_IoSpace.read32(LAPIC_REG_TASK_PRIORITY);
@@ -162,8 +193,6 @@ bool LocalApic::initialiseProcessor()
     // Initialise the divisor register. (Divide by 16)
     m_IoSpace.write32(0x3, LAPIC_REG_DIVIDE_CONFIG);
 
-    // TODO
-
     return true;
 }
 
@@ -171,41 +200,17 @@ bool LocalApic::interProcessorInterrupt(
     uint8_t destinationApicId, uint8_t vector, size_t deliveryMode,
     bool bAssert, bool bLevelTriggered)
 {
-    if (!acquireIcrSubmission())
-        return false;
-    if (!waitForIcrIdle())
-    {
-        m_IcrSubmissionActive = false;
-        return false;
-    }
-
-    m_IoSpace.write32(destinationApicId << 24, LAPIC_REG_INT_CMD_HIGH);
-    m_IoSpace.write32(
+    return submitIcr(
+        destinationApicId << 24,
         vector | (deliveryMode << 8) | (bAssert ? (1 << 14) : 0) |
-            (bLevelTriggered ? (1 << 15) : 0),
-        LAPIC_REG_INT_CMD_LOW);
-    const bool delivered = waitForIcrIdle();
-    m_IcrSubmissionActive = false;
-    return delivered;
+            (bLevelTriggered ? (1 << 15) : 0));
 }
 
 bool LocalApic::interProcessorInterruptAllExcludingThis(
     uint8_t vector, size_t deliveryMode)
 {
-    if (!acquireIcrSubmission())
-        return false;
-    if (!waitForIcrIdle())
-    {
-        m_IcrSubmissionActive = false;
-        return false;
-    }
-
-    m_IoSpace.write32(
-        vector | (deliveryMode << 8) | (1 << 14) | (0x3 << 18),
-        LAPIC_REG_INT_CMD_LOW);
-    const bool delivered = waitForIcrIdle();
-    m_IcrSubmissionActive = false;
-    return delivered;
+    return submitIcr(
+        0, vector | (deliveryMode << 8) | (1 << 14) | (0x3 << 18));
 }
 
 LocalApic::ProcessorControlState LocalApic::processorControlState() const
@@ -404,15 +409,21 @@ bool LocalApic::waitForIcrIdle()
     return (m_IoSpace.read32(LAPIC_REG_INT_CMD_LOW) & 0x1000) == 0;
 }
 
-bool LocalApic::acquireIcrSubmission()
+bool LocalApic::submitIcr(uint32_t high, uint32_t low)
 {
-    for (size_t poll = 0; poll < IcrDeliveryPollLimit; ++poll)
+    const LocalApicIcrTransaction transaction(Processor::getInterrupts());
+    Processor::setInterrupts(false);
+
+    bool submitted = waitForIcrIdle();
+    if (submitted)
     {
-        if (m_IcrSubmissionActive.compareAndSwap(false, true))
-            return true;
-        Processor::pause();
+        m_IoSpace.write32(high, LAPIC_REG_INT_CMD_HIGH);
+        m_IoSpace.write32(low, LAPIC_REG_INT_CMD_LOW);
+        submitted = waitForIcrIdle();
     }
-    return m_IcrSubmissionActive.compareAndSwap(false, true);
+
+    Processor::setInterrupts(transaction.restoreInterrupts());
+    return submitted;
 }
 
 uint8_t LocalApic::getId()
@@ -442,19 +453,27 @@ bool LocalApic::check(uint64_t physicalAddress)
 
 void LocalApic::interrupt(size_t nInterruptNumber, InterruptState &state)
 {
-    if (nInterruptNumber == TIMER_VECTOR)
+    if (nInterruptNumber == TIMER_VECTOR ||
+        nInterruptNumber == IPI_RESCHEDULE_VECTOR)
     {
-        // Ack early, timer() may not return for quite some time (if it
-        // schedules).
+        // Ack early. timer() may schedule away and an IPI must never retain
+        // its hard frame while the remote producer waits for progress.
         ack();
 
-        SchedulerTimerHandler *handler = m_Handlers.load(Processor::id());
-        // TODO: Delta is wrong.
-        if (LIKELY(handler != 0))
+        // Load only after acknowledging the delivered vector. The slot is
+        // qualified by the receiving physical processor's scheduler owner,
+        // so an IPI can neither borrow another CPU's timer callback nor carry
+        // an interrupted register frame into a bottom-half callback.
+        SchedulerTimerHandlerSlot::DispatchGuard dispatch;
+        if (LIKELY(m_Handlers.beginDispatch(getId(), dispatch)))
         {
-            // NOTICE("Timer " << Processor::id());
-            handler->timer(0, state);
+            SchedulerTimerDispatchCleanup dispatchCleanup(dispatch);
+            // TODO: Delta is wrong.
+            ExecutionContextGuard schedulerContext(
+                ExecutionContext::SchedulerIrq);
+            dispatch.handler()->timer(0, state);
         }
+        return;
     }
 
     // This IPI temporarily pauses processors for the debugger or permanently

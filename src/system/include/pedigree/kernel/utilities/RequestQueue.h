@@ -207,9 +207,11 @@ class EXPORTED_PUBLIC RequestQueue
      * successful publication transfers payload ownership to the queue; every
      * rejection leaves ownership with the caller. An optional release
      * callback runs after execution or cancellation, outside the request-list
-     * and waiter guard. The token remains unavailable until it returns; it may
-     * republish allocation-free dependent work through
-     * republishPreallocatedWhileReleasing().
+     * and waiter guard. The token remains unavailable until it returns. Its
+     * release callback is a callback boundary: lifecycle and ordinary
+     * publication calls on this queue are rejected before they can block or
+     * allocate. The explicit Releasing-token handoff below remains the one
+     * allocation-free way to preserve an already-observed follow-up.
      * The callback can run on the queue worker, a teardown thread, or inline
      * when threading is disabled. It must be bounded and nonblocking, and must
      * not enter queue lifecycle operations or destroy the queue or token.
@@ -278,6 +280,7 @@ class EXPORTED_PUBLIC RequestQueue
         Stopped,
         Accepting,
         Stopping,
+        Destroyed,
     };
 
     /** Initialises the queue, spawning the worker thread. */
@@ -289,6 +292,7 @@ class EXPORTED_PUBLIC RequestQueue
      * Every external IRQ, timer, and thread producer must already be quiesced.
      * Closing admission drains callers which already entered the publication
      * gate; it cannot extend this object's lifetime around future callers.
+     * The queue worker itself must not call this synchronous drain operation.
      */
     virtual void destroy();
 
@@ -298,6 +302,9 @@ class EXPORTED_PUBLIC RequestQueue
      *
      * \param priority The priority to attach to this request. Lower number is
      * higher priority.
+     * During a destroy-time cancelRequest() callback, nested allocation-backed
+     * publication is rejected before allocation or another cancellation
+     * callback; the caller retains any proposed payload.
      */
     MUST_USE_RESULT uint64_t addRequest(
         size_t priority, uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,
@@ -316,6 +323,9 @@ class EXPORTED_PUBLIC RequestQueue
      *
      * \return One if the request was accepted, zero if it was rejected or
      * deduplicated.
+     * During a destroy-time cancelRequest() callback, nested allocation-backed
+     * publication is rejected before allocation or another cancellation
+     * callback; the caller retains any proposed payload.
      */
     uint64_t addAsyncRequest(
         size_t priority, uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,
@@ -346,9 +356,9 @@ class EXPORTED_PUBLIC RequestQueue
     /**
      * Republishes a token while its release callback is retiring it.
      *
-     * This is accepted only from the Releasing state. Besides callback-driven
-     * work, an owner may use it to close the final callback-versus-producer
-     * race before falling back to publishPreallocated().
+     * This is accepted only from the Releasing state. A release callback may
+     * use this narrowly scoped allocation-free handoff to preserve an
+     * already-observed follow-up; other same-queue publication is rejected.
      */
     MUST_USE_RESULT PreallocatedPublishResult
     republishPreallocatedWhileReleasing(
@@ -358,13 +368,16 @@ class EXPORTED_PUBLIC RequestQueue
 
     /**
      * Stop and join the worker, retaining queued requests for resume().
+     * A worker self-call returns false without changing the queue. A failed
+     * external join returns false with admission closed and the lifecycle in
+     * Stopping; a later halt() or destroy() must retry the drain.
      */
-    void halt();
+    MUST_USE_RESULT bool halt();
 
     /**
      * Resume RequestQueue operations.
      */
-    void resume();
+    MUST_USE_RESULT bool resume();
 
     /** Returns the current worker lifecycle state. */
     LifecycleState getLifecycleState();
@@ -406,7 +419,9 @@ class EXPORTED_PUBLIC RequestQueue
      * stopped queues, duplicates and capacity limits) and queued requests
      * cancelled by destroy(). Implementations used by allocation-free
      * producers must not sleep. Derived destructors must call destroy() while
-     * their override and member state are still alive.
+     * their override and member state are still alive. During destroy(), the
+     * lifecycle is serialized: halt() and resume() on this queue return false,
+     * while recursive destroy() is a fatal contract violation.
      */
     virtual void cancelRequest(const Request &request)
     {
@@ -454,16 +469,22 @@ class EXPORTED_PUBLIC RequestQueue
         uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8);
 
     /** Returns an executed or cancelled preallocated request to its owner. */
-    static void releasePreallocatedRequest(Request *request);
+    void releasePreallocatedRequest(Request *request);
+
+    /** Calls a derived cancellation hook inside a cleanup-safe boundary. */
+    void invokeCancelRequest(const Request &request);
+
+    /** True when the current Thread is inside this queue's callback. */
+    bool callbackActiveOnCurrentThread() const;
 
 #if THREADS
     /** Reference management for requests shared by worker and callers. */
     static void retainRequest(Request *request);
-    static void releaseRequest(Request *request);
-    static uint64_t waitForRequest(Request *request);
+    void releaseRequest(Request *request);
+    uint64_t waitForRequest(Request *request);
 
     /** Start/stop helpers called with m_LifecycleMutex held. */
-    void startWorker();
+    bool startWorker();
     bool stopWorker();
 
     static bool workerReady(void *context);

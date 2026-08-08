@@ -12,7 +12,7 @@ namespace
 constexpr uint16_t KnownMaskReasons =
     IrqMaskNoHandler | IrqMaskAdministrativelyDisabled |
     IrqMaskAwaitingAcknowledgement | IrqMaskAwaitingThreadedCompletion |
-    IrqMaskMitigated | IrqMaskShuttingDown;
+    IrqMaskMitigated | IrqMaskShuttingDown | IrqMaskControllerContention;
 
 const char *yesNo(bool value)
 {
@@ -123,6 +123,20 @@ const char *workerWaitReasonName(IrqWorkerWaitReason reason)
     return "unknown";
 }
 
+const char *controllerPromptStateName(IrqControllerPromptState state)
+{
+    switch (state)
+    {
+        case IrqControllerPromptState::NotRequired:
+            return "none";
+        case IrqControllerPromptState::Submitted:
+            return "submitted";
+        case IrqControllerPromptState::Failed:
+            return "failed";
+    }
+    return "unknown";
+}
+
 void appendMaskReason(
     IrqDiagnosticString &line, bool &first, uint16_t reasons, uint16_t reason,
     const char *name)
@@ -161,6 +175,9 @@ void appendMaskReasons(IrqDiagnosticString &line, uint16_t reasons)
     appendMaskReason(line, first, reasons, IrqMaskMitigated, "mitigated");
     appendMaskReason(
         line, first, reasons, IrqMaskShuttingDown, "shutting-down");
+    appendMaskReason(
+        line, first, reasons, IrqMaskControllerContention,
+        "controller-contention");
 
     const uint16_t unknown = reasons & ~KnownMaskReasons;
     if (unknown)
@@ -247,8 +264,18 @@ void appendWorkerState(
     line.append(snapshot.publicationFailures);
     line += " remove=";
     line.append(snapshot.removalRejections);
+    line += " controller=";
+    line.append(snapshot.controllerContentions);
     line += " diag=";
     line.append(snapshot.diagnosticPublicationFailures);
+    line += "] prompt[controller attempts=";
+    line.append(snapshot.controllerPromptAttempts);
+    line += " failures=";
+    line.append(snapshot.controllerPromptFailures);
+    line += " dest=0x";
+    line.append(snapshot.controllerPromptDestination, 16);
+    line += " state=";
+    line += controllerPromptStateName(snapshot.controllerPromptState);
     line += "] state[ack=";
     line += yesNo(snapshot.acknowledgementPending);
     line += " threaded=";

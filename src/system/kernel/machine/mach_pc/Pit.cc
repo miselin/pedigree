@@ -22,6 +22,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/SchedulerTimerDispatchCleanup.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
@@ -37,12 +38,13 @@ Pit Pit::m_Instance;
 
 bool Pit::registerHandler(SchedulerTimerHandler *handler)
 {
-    return m_Handler.publish(handler);
+    return m_Handler.publish(0, handler);
 }
 
 bool Pit::removeHandler(SchedulerTimerHandler *handler)
 {
-    return m_Handler.unpublish(handler);
+    return canRemoveHandlerInCurrentContext() &&
+           m_Handler.unpublish(0, handler);
 }
 
 bool Pit::initialise()
@@ -106,10 +108,12 @@ Pit::Pit() : m_IoPort("PIT"), m_IrqId(0), m_Handler()
 void Pit::schedulerIrq(irq_id_t number, InterruptState &state)
 {
     // TODO: Delta is wrong
-    SchedulerTimerHandler *handler = m_Handler.load();
-    if (LIKELY(handler != 0))
+    SchedulerTimerHandlerSlot::DispatchGuard dispatch;
+    if (LIKELY(m_Handler.beginDispatch(0, dispatch)))
     {
-        handler->timer(0, state);
+        SchedulerTimerDispatchCleanup dispatchCleanup(dispatch);
+        ExecutionContextGuard schedulerContext(ExecutionContext::SchedulerIrq);
+        dispatch.handler()->timer(0, state);
     }
 
     // Processor::information().getScheduler().checkEventState(state.getStackPointer());

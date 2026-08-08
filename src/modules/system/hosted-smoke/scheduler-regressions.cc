@@ -12,6 +12,7 @@
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
+#include "pedigree/kernel/machine/SchedulerTimerDispatchCleanup.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Event.h"
@@ -280,8 +281,9 @@ struct SchedulerExitContext
 {
     SchedulerExitContext()
         : user{0, 0, this, 0}, target(nullptr), event(nullptr),
-          userStackBase(0), userStackTop(0), tickCalls(0), queued(0),
-          eventCalls(0), exitCalls(0), failures(0)
+          userStackBase(0), userStackTop(0), hookCalls(0), targetHookCalls(0),
+          userHookCalls(0), tickCalls(0), queued(0), eventCalls(0),
+          exitCalls(0), failures(0)
     {
     }
 
@@ -290,6 +292,9 @@ struct SchedulerExitContext
     Event *event;
     uintptr_t userStackBase;
     uintptr_t userStackTop;
+    Atomic<size_t> hookCalls;
+    Atomic<size_t> targetHookCalls;
+    Atomic<size_t> userHookCalls;
     Atomic<size_t> tickCalls;
     Atomic<size_t> queued;
     Atomic<size_t> eventCalls;
@@ -307,7 +312,6 @@ void schedulerExitEventHandler(size_t)
     {
         return;
     }
-
     Thread *current = Processor::information().getCurrentThread();
     if (
         current != context->target || !Processor::getInterrupts() ||
@@ -429,6 +433,7 @@ void queueExitEventFromSchedulerTick(uint64_t delta, InterruptState &state)
     {
         return;
     }
+    context->hookCalls += 1;
     if (!__atomic_load_n(&context->user.ready, __ATOMIC_ACQUIRE))
     {
         return;
@@ -437,6 +442,7 @@ void queueExitEventFromSchedulerTick(uint64_t delta, InterruptState &state)
     {
         return;
     }
+    context->targetHookCalls += 1;
     if (
         state.kernelMode() || current->getStateLevel() ||
         state.getStackPointer() < context->userStackBase ||
@@ -444,6 +450,7 @@ void queueExitEventFromSchedulerTick(uint64_t delta, InterruptState &state)
     {
         return;
     }
+    context->userHookCalls += 1;
     if (!context->queued.compareAndSwap(0, 1))
     {
         return;
@@ -511,7 +518,44 @@ bool schedulerTimerExitDeferral()
     Processor::setInterrupts(interruptsWereEnabled);
 
     const bool started = target && target->start();
-    const bool joined = started && target->joinForCompletion();
+    bool reapable = false;
+    __pedigree_hosted::timespec startedAt = {};
+    __pedigree_hosted::timespec now = {};
+    __pedigree_hosted::clock_gettime(CLOCK_MONOTONIC, &startedAt);
+    while (started && !reapable)
+    {
+        reapable = target->isReapableForHostedTest();
+        if (reapable)
+        {
+            break;
+        }
+        Scheduler::instance().yield();
+        __pedigree_hosted::clock_gettime(CLOCK_MONOTONIC, &now);
+        if (now.tv_sec - startedAt.tv_sec >= 6)
+        {
+            break;
+        }
+    }
+    if (started && !reapable)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: DETAIL "
+            << Test << ": ready=" << context.user.ready
+            << " timed-out=" << context.user.timedOut
+            << " hooks=" << context.hookCalls.value()
+            << " target-hooks=" << context.targetHookCalls.value()
+            << " user-hooks=" << context.userHookCalls.value()
+            << " queued=" << context.queued.value()
+            << " event-calls=" << context.eventCalls.value()
+            << " exit-calls=" << context.exitCalls.value()
+            << " target-status=" << static_cast<size_t>(target->getStatus())
+            << " target-level=" << target->getStateLevel()
+            << " target-signal-depth=" << target->getHostedSignalDepth()
+            << " timer-admissions="
+            << HostedSchedulerTimer::activeDispatchesForTest());
+        FATAL("Hosted scheduler exit probe made no bounded progress");
+    }
+    const bool joined = reapable && target->joinForCompletion();
     if (target && !started)
     {
         delete target;
@@ -618,6 +662,10 @@ void observeHostedAutodisarmTick(uint64_t delta, InterruptState &state)
         state.getInterruptSource() != HostedSchedulerTimer::sourceForTest() ?
             512 :
             0;
+    failureMask |=
+        Processor::executionContext() != ExecutionContext::SchedulerIrq ?
+            1024 :
+            0;
     if (failureMask)
     {
         context->failureMask |= failureMask;
@@ -650,6 +698,10 @@ int hostedSignalSwitchTarget(void *parameter)
         __pedigree_hosted::sigismember(&mask, SIGUSR1) ? 16384 : 0;
     failureMask |=
         __pedigree_hosted::sigismember(&mask, SIGUSR2) ? 32768 : 0;
+    failureMask |=
+        Processor::executionContext() != ExecutionContext::WaitableThread ?
+            131072 :
+            0;
     if (failureMask)
     {
         context->failureMask |= failureMask;
@@ -776,6 +828,7 @@ void observeSchedulerTimerHardContext(uint64_t delta, InterruptState &state)
     if (delta < interval || (delta % interval) || !current ||
         !current->getHostedSignalDepth() ||
         !Processor::onHostedExecutionThread() ||
+        Processor::executionContext() != ExecutionContext::SchedulerIrq ||
         Processor::inDeviceHardIrq() ||
         Processor::deviceHardIrqDepthForTest() != 0 ||
         state.getInterruptNumber() != SIGUSR2 ||
@@ -860,6 +913,108 @@ class ConflictingSchedulerTimerHandler : public SchedulerTimerHandler
     Atomic<size_t> calls;
 };
 
+class SelfRemovingSchedulerTimerHandler : public SchedulerTimerHandler
+{
+  public:
+    explicit SelfRemovingSchedulerTimerHandler(SchedulerTimer *timer)
+        : m_Timer(timer), calls(0), removalSucceeded(0),
+          continuedAfterRemoval(0), wrongContext(0)
+    {
+    }
+
+    void timer(uint64_t, InterruptState &) override
+    {
+        if (Processor::executionContext() != ExecutionContext::SchedulerIrq)
+        {
+            wrongContext += 1;
+        }
+        calls += 1;
+        if (m_Timer && m_Timer->removeHandler(this))
+        {
+            removalSucceeded = 1;
+        }
+        // A true removal must be impossible here: this statement is still in
+        // the callback whose lifetime removeHandler promises to drain.
+        continuedAfterRemoval = 1;
+    }
+
+    SchedulerTimer *m_Timer;
+    Atomic<size_t> calls;
+    Atomic<size_t> removalSucceeded;
+    Atomic<size_t> continuedAfterRemoval;
+    Atomic<size_t> wrongContext;
+};
+
+bool schedulerTimerAbandonedAdmissionCleanup()
+{
+    constexpr const char *Test =
+        "hosted-scheduler-timer-abandoned-admission-cleanup";
+    Thread *current = Processor::information().getCurrentThread();
+    ConflictingSchedulerTimerHandler handler;
+    SchedulerTimerHandlerSlot slot;
+    const size_t owner = Processor::id();
+    const size_t initialLevel = current ? current->getStateLevel() : 0;
+    const bool published = current && slot.publish(owner, &handler);
+    SchedulerState *previous = published ? current->pushState() : nullptr;
+    const bool pushed = previous && current->getStateLevel() == initialLevel + 1;
+
+    bool admitted = false;
+    bool counted = false;
+    bool abandoned = false;
+    if (pushed)
+    {
+        SchedulerTimerHandlerSlot::DispatchGuard dispatch;
+        admitted = slot.beginDispatch(owner, dispatch);
+        if (admitted)
+        {
+            // Models the old leak: the scheduler frame owns an admission, but
+            // its Thread state is discarded without C++ stack unwinding.
+            {
+                SchedulerTimerDispatchCleanup cleanup(dispatch);
+                counted = slot.activeDispatches() == 1;
+                current->abandonCurrentState(false);
+                abandoned = current->getStateLevel() == initialLevel &&
+                            slot.activeDispatches() == 0;
+            }
+            // Both cleanup and the raw guard destruct after the modelled
+            // abandonment; idempotent release must prevent an underflow.
+        }
+        else
+        {
+            current->popState(false);
+        }
+    }
+
+    const bool removed = abandoned && slot.unpublish(owner, &handler);
+    const bool republished = removed && slot.publish(owner, &handler);
+    bool readmitted = false;
+    if (republished)
+    {
+        SchedulerTimerHandlerSlot::DispatchGuard dispatch;
+        readmitted = slot.beginDispatch(owner, dispatch);
+        dispatch.release();
+    }
+    const bool drained = slot.activeDispatches() == 0;
+    const bool finallyRemoved =
+        republished && drained && slot.unpublish(owner, &handler);
+
+    const bool passed =
+        published && pushed && admitted && counted && abandoned && removed &&
+        republished && readmitted && drained && finallyRemoved;
+    if (!passed)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: FAIL " << Test
+                                       << ": an abandoned scheduler frame "
+                                          "stranded its callback admission");
+    }
+    else
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+    }
+    return passed;
+}
+
 bool schedulerTimerSingleOwner()
 {
     constexpr const char *Test = "hosted-scheduler-timer-single-owner";
@@ -898,6 +1053,67 @@ bool schedulerTimerSingleOwner()
         NOTICE(
             "HOSTED-WAIT-TEST: PASS "
             "hosted-scheduler-timer-single-owner");
+    }
+    return passed;
+}
+
+bool schedulerTimerSelfRemovalRejected()
+{
+    constexpr const char *Test =
+        "hosted-scheduler-timer-self-removal-rejected";
+    SchedulerTimer *timer = Machine::instance().getSchedulerTimer();
+    SchedulerTimerHandler *owner =
+        HostedSchedulerTimer::publishedHandlerForTest();
+    SelfRemovingSchedulerTimerHandler probe(timer);
+
+    const bool ownerRemoved = timer && owner && timer->removeHandler(owner);
+    const bool probeRegistered = ownerRemoved && timer->registerHandler(&probe);
+    const Time::Timestamp deadline =
+        Time::getTicks() + (2 * Time::Multiplier::Second);
+    while (probeRegistered && !probe.calls && Time::getTicks() < deadline)
+    {
+        Processor::pause();
+    }
+
+    const bool probeRemoved =
+        probeRegistered && timer->removeHandler(&probe);
+    const bool ownerRestored =
+        ownerRemoved && (probeRemoved || probe.removalSucceeded) &&
+        timer->registerHandler(owner);
+    const bool passed =
+        ownerRemoved && probeRegistered && probe.calls.value() >= 1 &&
+        !probe.removalSucceeded && probe.continuedAfterRemoval == 1 &&
+        !probe.wrongContext && probeRemoved && ownerRestored &&
+        HostedSchedulerTimer::publishedHandlerForTest() == owner;
+    if (!passed)
+    {
+        ERROR(
+            "HOSTED-WAIT-TEST: FAIL " << Test
+                                       << ": owner-removed=" << ownerRemoved
+                                       << " registered=" << probeRegistered
+                                       << " calls=" << probe.calls.value());
+        ERROR(
+            "HOSTED-WAIT-TEST: DETAIL " << Test
+                                         << ": callback-remove="
+                                         << probe.removalSucceeded.value()
+                                         << " continued="
+                                         << probe.continuedAfterRemoval.value()
+                                         << " wrong-context="
+                                         << probe.wrongContext.value()
+                                         << " probe-removed=" << probeRemoved);
+        ERROR(
+            "HOSTED-WAIT-TEST: DETAIL " << Test
+                                         << ": owner-restored="
+                                         << ownerRestored << " published-owner="
+                                         << (HostedSchedulerTimer::
+                                                     publishedHandlerForTest() ==
+                                                 owner));
+    }
+    else
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "hosted-scheduler-timer-self-removal-rejected");
     }
     return passed;
 }
@@ -1110,10 +1326,20 @@ bool runHostedSchedulerRegressions()
     if (
         !hostedSignalMaskSpansContextSwitch() ||
         !schedulerTimerSingleOwner() ||
+        !schedulerTimerAbandonedAdmissionCleanup() ||
+        !schedulerTimerSelfRemovalRejected() ||
         !schedulerRouteShutdownAdmissionBoundary() ||
-        !schedulerTimerHardContext() ||
-        !schedulerTimerExitDeferral() ||
-        !deferredTimeAccountingWorker())
+        !schedulerTimerHardContext())
+    {
+        return false;
+    }
+
+    if (!schedulerTimerExitDeferral())
+    {
+        return false;
+    }
+
+    if (!deferredTimeAccountingWorker())
     {
         return false;
     }

@@ -37,6 +37,10 @@ TEST(IrqDiagnosticRenderer, RendersDetachedThreadedState)
     snapshot.unhandledCount = 2;
     snapshot.publicationFailures = 2;
     snapshot.removalRejections = 5;
+    snapshot.controllerContentions = 6;
+    snapshot.controllerPromptAttempts = 8;
+    snapshot.controllerPromptFailures = 1;
+    snapshot.controllerPromptDestination = 0x2a;
     snapshot.diagnosticPublicationFailures = 4;
     snapshot.workerIdentity = 0xfeed;
     snapshot.activeThreadedHandlerIdentity = 0xcafe;
@@ -55,6 +59,7 @@ TEST(IrqDiagnosticRenderer, RendersDetachedThreadedState)
     snapshot.lineRelease = IrqLineRelease::AfterThreadedCompletion;
     snapshot.workerDebugState = IrqWorkerDebugState::SemaphoreWait;
     snapshot.workerWaitReason = IrqWorkerWaitReason::Waiting;
+    snapshot.controllerPromptState = IrqControllerPromptState::Failed;
     snapshot.configured = true;
     snapshot.effectiveMasked = true;
     snapshot.requestedEnabled = true;
@@ -79,7 +84,8 @@ TEST(IrqDiagnosticRenderer, RendersDetachedThreadedState)
         "hard[pins=1 gen=31]\n"
         "  worker=0xfeed handler=0xcafe pins=1 "
         "cookie[pub=33 pending=33 active=32 "
-        "done=31] batches=7 fail[publish=2 remove=5 diag=4] "
+        "done=31] batches=7 fail[publish=2 remove=5 controller=6 diag=4] "
+        "prompt[controller attempts=8 failures=1 dest=0x2a state=failed] "
         "state[ack=yes threaded=yes init=yes active=yes closed=no hard=yes]\n"
         "  ns[pending=300 active=100 wake=23/45 "
         "runtime=67/89]\n"
@@ -126,14 +132,15 @@ TEST(IrqDiagnosticRenderer, RendersEveryMaskReasonAndUnknownBits)
     snapshot.maskReasons = IrqMaskNoHandler | IrqMaskAdministrativelyDisabled |
                            IrqMaskAwaitingAcknowledgement |
                            IrqMaskAwaitingThreadedCompletion |
-                           IrqMaskMitigated | IrqMaskShuttingDown | 0x8000;
+                           IrqMaskMitigated | IrqMaskShuttingDown |
+                           IrqMaskControllerContention | 0x8000;
 
     IrqDiagnosticString line;
     IrqDiagnosticRenderer::render(snapshot, line);
 
     EXPECT_TRUE(line.contains(
         "mask=no-handler,admin-disabled,awaiting-ack,awaiting-threaded,"
-        "mitigated,shutting-down,unknown:0x8000"));
+        "mitigated,shutting-down,controller-contention,unknown:0x8000"));
     EXPECT_TRUE(line.contains(
         "cfg=no handlers=0 delivery=none trigger=n/a ack=n/a "
         "release=n/a"));
@@ -161,6 +168,10 @@ TEST(IrqDiagnosticRenderer, RetainsTheCompleteLineAtMaximumValues)
     snapshot.lastCallbackRuntime = ~static_cast<size_t>(0);
     snapshot.maximumCallbackRuntime = ~static_cast<size_t>(0);
     snapshot.publicationFailures = ~static_cast<size_t>(0);
+    snapshot.controllerContentions = ~static_cast<size_t>(0);
+    snapshot.controllerPromptAttempts = ~static_cast<size_t>(0);
+    snapshot.controllerPromptFailures = ~static_cast<size_t>(0);
+    snapshot.controllerPromptDestination = ~static_cast<size_t>(0);
     snapshot.diagnosticPublicationFailures = ~static_cast<size_t>(0);
     snapshot.workerIdentity = ~static_cast<uintptr_t>(0);
     snapshot.activeThreadedHandlerIdentity = ~static_cast<uintptr_t>(0);
@@ -178,6 +189,7 @@ TEST(IrqDiagnosticRenderer, RetainsTheCompleteLineAtMaximumValues)
     snapshot.lineRelease = IrqLineRelease::AfterThreadedCompletion;
     snapshot.workerDebugState = IrqWorkerDebugState::CallbackDrain;
     snapshot.workerWaitReason = IrqWorkerWaitReason::Spurious;
+    snapshot.controllerPromptState = IrqControllerPromptState::Submitted;
     snapshot.configured = true;
     snapshot.effectiveMasked = true;
     snapshot.requestedEnabled = true;
@@ -201,6 +213,8 @@ TEST(IrqDiagnosticRenderer, RetainsTheCompleteLineAtMaximumValues)
     EXPECT_TRUE(line.contains(static_cast<const char *>(worker)));
     EXPECT_TRUE(line.contains("hard[pins="));
     EXPECT_TRUE(line.contains("gen=ambiguous]"));
+    EXPECT_TRUE(line.contains("prompt[controller attempts="));
+    EXPECT_TRUE(line.contains("state=submitted]"));
     EXPECT_TRUE(line.contains("hard=yes]\n"));
     EXPECT_TRUE(line.contains("state=callback-drain"));
     EXPECT_TRUE(line.contains("reason=spurious"));

@@ -29,6 +29,7 @@
 namespace
 {
 constexpr size_t HostedAttempts = 10000;
+constexpr int PollCloseReuseTimeoutMilliseconds = 5000;
 
 class DescriptorRetirementProbe : public FileDescriptor
 {
@@ -363,7 +364,10 @@ int pollAcrossCloseReuse(void *parameter)
     PollCloseReuseContext *context =
         reinterpret_cast<PollCloseReuseContext *>(parameter);
     context->entered += 1;
-    context->result = posix_poll_safe(&context->descriptor, 1, -1);
+    // A missed wakeup must report a bounded regression failure. The old
+    // infinite poll made the outer harness timeout the only evidence.
+    context->result = posix_poll_safe(
+        &context->descriptor, 1, PollCloseReuseTimeoutMilliseconds);
     context->returned += 1;
     return context->result == 1 ? 0 : 1;
 }
@@ -407,6 +411,9 @@ bool pollCloseReuseCleanup(Process *kernelProcess)
         process, pollAcrossCloseReuse, &context, nullptr, false, true, true);
     worker->setName("hosted poll close-reuse worker");
     const bool started = worker->start();
+    NOTICE(
+        "HOSTED-SYSCALL-TEST: PHASE poll-close-reuse-cleanup "
+        "worker-started");
     bool blockedOnA = false;
     for (size_t attempt = 0; attempt < HostedAttempts && started; ++attempt)
     {
@@ -424,6 +431,10 @@ bool pollCloseReuseCleanup(Process *kernelProcess)
     }
 
     bool passed = started && blockedOnA && aRegistrations == 1;
+    NOTICE(
+        "HOSTED-SYSCALL-TEST: PHASE poll-close-reuse-cleanup "
+        "waiter-published-a blocked="
+        << blockedOnA << " registrations=" << aRegistrations.value());
     DescriptorLease closingA;
     const bool acquiredA = subsystem->acquireFileDescriptor(
         DescriptorNumber, closingA);
@@ -433,6 +444,9 @@ bool pollCloseReuseCleanup(Process *kernelProcess)
     subsystem->addFileDescriptor(DescriptorNumber, bDescriptor);
     passed = passed && closedA && aDescriptorDestructions == 0 &&
              aNetworkDestructions == 0;
+    NOTICE(
+        "HOSTED-SYSCALL-TEST: PHASE poll-close-reuse-cleanup "
+        "closed-a-published-b");
 
     if (aRegistrations)
     {
@@ -444,8 +458,16 @@ bool pollCloseReuseCleanup(Process *kernelProcess)
         // to finish rather than leaving the hosted smoke run blocked.
         bNetwork->makeReadable();
     }
+    NOTICE(
+        "HOSTED-SYSCALL-TEST: PHASE poll-close-reuse-cleanup "
+        "release-published");
 
-    const bool joined = started && worker->join();
+    const bool joined = started && worker->joinForCompletion();
+    NOTICE(
+        "HOSTED-SYSCALL-TEST: PHASE poll-close-reuse-cleanup "
+        "worker-returned joined="
+        << joined << " returned=" << context.returned.value()
+        << " result=" << context.result.value());
     passed = passed && joined && context.returned == 1 &&
              context.result == 1 &&
              (context.descriptor.revents & POLLIN) && aUnpolls == 1 &&
@@ -641,6 +663,7 @@ bool cloneStateDropsParentErrnoDestination()
 
 bool entry()
 {
+    NOTICE("HOSTED-SYSCALL-TEST: BEGIN real-event-boundaries");
     Thread *thread =
         Processor::information().getCurrentThread();
     if (!thread || thread->getStateLevel())
@@ -652,13 +675,43 @@ bool entry()
     }
 
     Process *kernelProcess = Scheduler::instance().getKernelProcess();
-    if (
-        !kernelProcess || !descriptorClosePinning(kernelProcess) ||
-        !descriptorCloseGeneration(kernelProcess) ||
-        !pollCloseReuseCleanup(kernelProcess) ||
-        !posixTeardownContention(kernelProcess) ||
-        !zeroResultWinsSignal(thread) ||
-        !cloneStateDropsParentErrnoDestination())
+    if (!kernelProcess)
+    {
+        return false;
+    }
+
+    NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-close-pinning");
+    if (!descriptorClosePinning(kernelProcess))
+    {
+        return false;
+    }
+
+    NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-close-generation");
+    if (!descriptorCloseGeneration(kernelProcess))
+    {
+        return false;
+    }
+
+    NOTICE("HOSTED-SYSCALL-TEST: BEGIN poll-close-reuse-cleanup");
+    if (!pollCloseReuseCleanup(kernelProcess))
+    {
+        return false;
+    }
+
+    NOTICE("HOSTED-SYSCALL-TEST: BEGIN posix-teardown-contention");
+    if (!posixTeardownContention(kernelProcess))
+    {
+        return false;
+    }
+
+    NOTICE("HOSTED-SYSCALL-TEST: BEGIN socket-zero-result-signal");
+    if (!zeroResultWinsSignal(thread))
+    {
+        return false;
+    }
+
+    NOTICE("HOSTED-SYSCALL-TEST: BEGIN clone-errno-lifetime");
+    if (!cloneStateDropsParentErrnoDestination())
     {
         return false;
     }

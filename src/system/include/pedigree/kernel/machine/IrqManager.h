@@ -212,6 +212,7 @@ enum IrqMaskReason : uint16_t
     IrqMaskAwaitingThreadedCompletion = 1U << 3,
     IrqMaskMitigated = 1U << 4,
     IrqMaskShuttingDown = 1U << 5,
+    IrqMaskControllerContention = 1U << 6,
 };
 
 /** Detached higher-level state for a threaded IRQ worker. */
@@ -238,6 +239,14 @@ enum class IrqWorkerWaitReason : uint8_t
     Unwinding,
     Terminating,
     Spurious,
+};
+
+/** Last terminal state of the PIC controller-worker reschedule prompt. */
+enum class IrqControllerPromptState : uint8_t
+{
+    NotRequired,
+    Submitted,
+    Failed,
 };
 
 /**
@@ -275,6 +284,10 @@ struct IrqLineDiagnosticSnapshot
     size_t unhandledCount;
     size_t publicationFailures;
     size_t removalRejections;
+    size_t controllerContentions;
+    size_t controllerPromptAttempts;
+    size_t controllerPromptFailures;
+    size_t controllerPromptDestination;
     size_t diagnosticPublicationFailures;
     uintptr_t workerIdentity;
     uintptr_t activeThreadedHandlerIdentity;
@@ -292,6 +305,7 @@ struct IrqLineDiagnosticSnapshot
     IrqLineRelease lineRelease;
     IrqWorkerDebugState workerDebugState;
     IrqWorkerWaitReason workerWaitReason;
+    IrqControllerPromptState controllerPromptState;
     bool configured;
     bool effectiveMasked;
     bool requestedEnabled;

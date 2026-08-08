@@ -24,6 +24,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/process/DeferredScope.h"
+#include "pedigree/kernel/process/ExecutionContext.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/DeferredTimeAccounting.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"
@@ -46,6 +47,8 @@ class IrqHandlerRegistry;
 class TimerHandlerRegistry;
 class HostedInterruptManager;
 class RoundRobin;
+class RequestQueueCallbackScope;
+class SchedulerTimerDispatchCleanup;
 
 /** Thread TLS area size */
 #define THREAD_TLS_SIZE 0x1000
@@ -74,6 +77,9 @@ class EXPORTED_PUBLIC Thread
     friend class TimerHandlerRegistry;
     friend class HostedInterruptManager;
     friend class RoundRobin;
+    friend class ExecutionContextGuard;
+    friend class RequestQueueCallbackScope;
+    friend class SchedulerTimerDispatchCleanup;
 
   public:
     /** The state that a thread can possibly have. */
@@ -634,6 +640,9 @@ class EXPORTED_PUBLIC Thread
     /** Gets whether event delivery is currently deferred. */
     bool eventsDeferred();
 
+    /** Returns this Thread's explicit logical execution context. */
+    ExecutionContext executionContext() const;
+
     /** Gets the per-processor scheduler for this Thread. */
     class PerProcessorScheduler *getScheduler() const;
 
@@ -747,6 +756,15 @@ class EXPORTED_PUBLIC Thread
     bool hasActiveWaitUnlocked() const;
     bool activeWaitPendingUnlocked() const;
 
+    /**
+     * A terminal cancel can unlink a published waiter before its owner has
+     * entered the scheduler sleep transition. These helpers carry that handoff
+     * under m_Lock without leaving a stale waiter visible to future sleeps.
+     */
+    void markTerminalWaitCancelledBeforeBlockUnlocked(size_t level);
+    bool consumeTerminalWaitCancelledBeforeBlockUnlocked();
+    void clearTerminalWaitCancelledBeforeBlockUnlocked(size_t level);
+
     /** A level of thread state */
     struct StateLevel
     {
@@ -786,6 +804,19 @@ class EXPORTED_PUBLIC Thread
 
         /** Event dispatch at this level was initiated by a WaitQueue wake. */
         bool m_bDispatchingWaitEvent;
+
+        /** Logical context scopes belong to the Thread state they interrupted. */
+        ExecutionContextState m_ExecutionContext;
+
+        /** Active RequestQueue callback scopes inherited by nested events. */
+        RequestQueueCallbackScope *m_pRequestQueueCallback;
+
+        /**
+         * A terminal cancel unlinked this level's waiter while its owner was
+         * still running toward the scheduler sleep transition. Protected by
+         * Thread::m_Lock.
+         */
+        bool m_bTerminalWaitCancelledBeforeBlock;
 
 #if HOSTED
         /** Host signal frames physically suspended on this state's stack. */

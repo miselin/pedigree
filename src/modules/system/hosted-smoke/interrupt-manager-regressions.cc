@@ -9,6 +9,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "system/kernel/core/processor/hosted/InterruptManager.h"
 
 #include <signal.h>
@@ -34,7 +35,10 @@ class CountingHandler : public InterruptHandler
 {
   public:
     explicit CountingHandler(size_t identity)
-        : m_Identity(identity), calls(0), observedIdentity(0), observedSignal(0)
+        : m_Identity(identity), calls(0), observedIdentity(0),
+          observedSignal(0), observedContext(
+                                 static_cast<size_t>(
+                                     ExecutionContext::AtomicThread))
     {
     }
 
@@ -42,6 +46,7 @@ class CountingHandler : public InterruptHandler
     {
         observedIdentity = m_Identity;
         observedSignal = interruptNumber;
+        observedContext = static_cast<size_t>(Processor::executionContext());
         calls += 1;
     }
 
@@ -49,6 +54,7 @@ class CountingHandler : public InterruptHandler
     Atomic<size_t> calls;
     Atomic<size_t> observedIdentity;
     Atomic<size_t> observedSignal;
+    Atomic<size_t> observedContext;
 };
 
 Atomic<size_t> g_MutationHookCalls(0);
@@ -99,6 +105,8 @@ bool runHostedInterruptManagerRegressions()
     const bool secondRemoved =
         secondInstalled &&
         manager.registerInterruptHandler(TestSignal, nullptr);
+    const bool restoredToWaitable =
+        Processor::executionContext() == ExecutionContext::WaitableThread;
 
     bool passed = true;
     passed &= check(
@@ -113,6 +121,13 @@ bool runHostedInterruptManagerRegressions()
             first.observedSignal == TestSignal && second.calls == 1 &&
             second.observedIdentity == 2 && second.observedSignal == TestSignal,
         "dispatch observed a stale or invalid handler publication");
+    passed &= check(
+        first.observedContext ==
+                static_cast<size_t>(ExecutionContext::HostedSyntheticIrq) &&
+            second.observedContext ==
+                static_cast<size_t>(ExecutionContext::HostedSyntheticIrq) &&
+            restoredToWaitable,
+        "hosted signal context leaked or was not classified");
 
     if (passed)
     {

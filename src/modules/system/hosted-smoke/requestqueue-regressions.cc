@@ -66,8 +66,10 @@ class HostedRequestQueue : public RequestQueue
         Sum = 1,
         SelfSubmit,
         SelfSubmitInner,
+        SelfHalt,
         HoldWorker,
         CancelQueued,
+        CancelLifecycleProbe,
         PreallocatedHold,
         Record,
         RecordHold,
@@ -76,8 +78,11 @@ class HostedRequestQueue : public RequestQueue
     HostedRequestQueue()
         : RequestQueue(MakeConstantString("Hosted wait regression")),
           executions(0), cancellations(0), queuedCancellations(0),
-          comparisons(0), recordedCount(0), recordFailures(0), holdStarted(0),
-          releaseHold(0), matchEqualPayload(false)
+          comparisons(0), recordedCount(0), recordFailures(0),
+          selfHaltRejections(0), cancelHaltRejections(0),
+          cancelResumeRejections(0), cancelPublicationRejections(0),
+          cancelPreallocatedRejections(0),
+          holdStarted(0), releaseHold(0), matchEqualPayload(false)
     {
     }
 
@@ -92,6 +97,12 @@ class HostedRequestQueue : public RequestQueue
     Atomic<size_t> comparisons;
     Atomic<size_t> recordedCount;
     Atomic<size_t> recordFailures;
+    Atomic<size_t> selfHaltRejections;
+    Atomic<size_t> cancelHaltRejections;
+    Atomic<size_t> cancelResumeRejections;
+    Atomic<size_t> cancelPublicationRejections;
+    Atomic<size_t> cancelPreallocatedRejections;
+    PreallocatedRequest cancelPreallocated;
     uint64_t recorded[16] = {};
     Semaphore holdStarted;
     Semaphore releaseHold;
@@ -131,6 +142,13 @@ class HostedRequestQueue : public RequestQueue
                 return p2 + p3;
             case SelfSubmit:
                 return addRequest(0, SelfSubmitInner, p2, p3);
+            case SelfHalt:
+                if (!halt())
+                {
+                    selfHaltRejections += 1;
+                    return p2;
+                }
+                return 0;
             case HoldWorker:
             case PreallocatedHold:
                 holdStarted.release();
@@ -164,9 +182,36 @@ class HostedRequestQueue : public RequestQueue
     void cancelRequest(const Request &request) override
     {
         cancellations += 1;
-        if (request.p1 == CancelQueued)
+        if (request.p1 == CancelQueued || request.p1 == CancelLifecycleProbe)
         {
             queuedCancellations += 1;
+        }
+        if (request.p1 == CancelLifecycleProbe)
+        {
+            if (!halt())
+            {
+                cancelHaltRejections += 1;
+            }
+            if (!resume())
+            {
+                cancelResumeRejections += 1;
+            }
+            if (addRequest(0, CancelLifecycleProbe) == 0)
+            {
+                cancelPublicationRejections += 1;
+            }
+            if (addAsyncRequest(0, CancelLifecycleProbe) == 0)
+            {
+                cancelPublicationRejections += 1;
+            }
+            if (
+                publishPreallocated(
+                    cancelPreallocated, 0, CancelLifecycleProbe) ==
+                    PreallocatedPublishResult::QueueStopped &&
+                cancelPreallocated.isAvailable())
+            {
+                cancelPreallocatedRejections += 1;
+            }
         }
     }
 
@@ -363,7 +408,7 @@ struct RequestQueueDrainContext
 
     HostedRequestQueue *queue;
     Atomic<size_t> finished;
-    bool result;
+    Atomic<size_t> result;
 };
 
 struct QueuedRequestContext
@@ -413,7 +458,8 @@ int submitQueuedRequest(void *parameter)
         reinterpret_cast<QueuedRequestContext *>(parameter);
     context->waiter = Processor::information().getCurrentThread();
     context->result =
-        context->queue->addRequest(0, HostedRequestQueue::CancelQueued);
+        context->queue->addRequest(
+            0, HostedRequestQueue::CancelLifecycleProbe);
     context->finished += 1;
     return 0;
 }
@@ -439,18 +485,19 @@ int drainRequestQueue(void *parameter)
 struct RequestQueueHaltContext
 {
     explicit RequestQueueHaltContext(HostedRequestQueue *queue)
-        : queue(queue), finished(0)
+        : queue(queue), finished(0), result(false)
     {
     }
 
     HostedRequestQueue *queue;
     Atomic<size_t> finished;
+    Atomic<size_t> result;
 };
 
 int haltRequestQueue(void *parameter)
 {
     auto *context = reinterpret_cast<RequestQueueHaltContext *>(parameter);
-    context->queue->halt();
+    context->result = context->queue->halt() ? 1 : 0;
     context->finished += 1;
     return 0;
 }
@@ -544,10 +591,13 @@ int publishAsyncRequest(void *parameter)
 struct PreallocatedReleaseContext
 {
     PreallocatedReleaseContext(
-        HostedRequestQueue *queue, bool requeueOnce, bool holdFirst = false)
+        HostedRequestQueue *queue, bool requeueOnce, bool holdFirst = false,
+        bool probeOrdinaryPublication = false)
         : queue(queue), request(nullptr), requeueOnce(requeueOnce),
-          holdFirst(holdFirst), callbacks(0), requeues(0), failures(0),
-          callbackEntered(0), releaseCallback(0)
+          holdFirst(holdFirst), probeOrdinaryPublication(
+                                    probeOrdinaryPublication),
+          callbacks(0), requeues(0), ordinaryPublicationRejections(0),
+          failures(0), callbackEntered(0), releaseCallback(0)
     {
     }
 
@@ -555,8 +605,10 @@ struct PreallocatedReleaseContext
     RequestQueue::PreallocatedRequest *request;
     bool requeueOnce;
     bool holdFirst;
+    bool probeOrdinaryPublication;
     Atomic<size_t> callbacks;
     Atomic<size_t> requeues;
+    Atomic<size_t> ordinaryPublicationRejections;
     Atomic<size_t> failures;
     Semaphore callbackEntered;
     Semaphore releaseCallback;
@@ -581,6 +633,23 @@ void preallocatedRequestReleased(void *parameter)
         }
     }
 
+    if (context->probeOrdinaryPublication)
+    {
+        RequestQueue::PreallocatedRequest ordinary;
+        if (
+            context->queue->publishPreallocated(
+                ordinary, 0, HostedRequestQueue::Sum, 20, 22) ==
+                RequestQueue::PreallocatedPublishResult::QueueStopped &&
+            ordinary.isAvailable())
+        {
+            context->ordinaryPublicationRejections += 1;
+        }
+        else
+        {
+            context->failures += 1;
+        }
+    }
+
     if (context->request && context->requeueOnce &&
         context->requeues.compareAndSwap(0, 1))
     {
@@ -590,6 +659,64 @@ void preallocatedRequestReleased(void *parameter)
         {
             context->failures += 1;
         }
+    }
+}
+
+struct ReleaseDestroyReentryContext
+{
+    explicit ReleaseDestroyReentryContext(HostedRequestQueue *queue)
+        : queue(queue), callbacks(0), failures(0), haltRejections(0),
+          resumeRejections(0), allocationRejections(0),
+          preallocatedRejections(0), entered(0), release(0)
+    {
+    }
+
+    HostedRequestQueue *queue;
+    RequestQueue::PreallocatedRequest ordinary;
+    Atomic<size_t> callbacks;
+    Atomic<size_t> failures;
+    Atomic<size_t> haltRejections;
+    Atomic<size_t> resumeRejections;
+    Atomic<size_t> allocationRejections;
+    Atomic<size_t> preallocatedRejections;
+    Semaphore entered;
+    Semaphore release;
+};
+
+void releaseDuringDestroy(void *parameter)
+{
+    auto *context = reinterpret_cast<ReleaseDestroyReentryContext *>(parameter);
+    context->callbacks += 1;
+    context->entered.release();
+    if (!context->release.acquireForCompletion())
+    {
+        context->failures += 1;
+        return;
+    }
+
+    if (!context->queue->halt())
+    {
+        context->haltRejections += 1;
+    }
+    if (!context->queue->resume())
+    {
+        context->resumeRejections += 1;
+    }
+    if (
+        context->queue->addRequest(0, HostedRequestQueue::Sum, 20, 22) ==
+            0 &&
+        context->queue->addAsyncRequest(
+            0, HostedRequestQueue::Sum, 20, 22) == 0)
+    {
+        context->allocationRejections += 1;
+    }
+    if (
+        context->queue->publishPreallocated(
+            context->ordinary, 0, HostedRequestQueue::Sum, 20, 22) ==
+            RequestQueue::PreallocatedPublishResult::QueueStopped &&
+        context->ordinary.isAvailable())
+    {
+        context->preallocatedRejections += 1;
     }
 }
 
@@ -795,28 +922,53 @@ bool haltRetentionRegression()
     const bool retainedBeforeRelease =
         queue.recordedCount == 0 && !retained.isAvailable();
     queue.releaseHold.release();
-    const bool halted =
-        halter->join() && haltContext.finished == 1 &&
+    const bool halterJoined = halter->joinForCompletion();
+    const bool haltFinished = haltContext.finished == 1;
+    const bool haltSucceeded = haltContext.result == 1;
+    const bool stopped =
         queue.getLifecycleState() == RequestQueue::LifecycleState::Stopped;
     const bool retainedWhileStopped =
         queue.recordedCount == 0 && !retained.isAvailable();
 
-    queue.resume();
-    const bool drained = queue.drain();
+    const bool resumed = queue.resume();
+    const bool drained = resumed && queue.drain();
     const bool resumedInOrder = queue.recordedCount == 2 &&
                                 queue.recorded[0] == 40 &&
                                 queue.recorded[1] == 41;
     queue.destroy();
 
-    passed &= retainedResult == Result::Accepted && stopping &&
-              rejectedResult == Result::QueueStopped &&
-              rejected.isAvailable() && retainedBeforeRelease && halted &&
-              retainedWhileStopped && drained && resumedInOrder &&
-              retained.isAvailable() && queue.recordFailures == 0 &&
-              queue.executions == 3;
-    passed = check(
-        passed,
-        "halt did not close IRQ admission while retaining accepted work");
+    passed &= check(
+        retainedResult == Result::Accepted,
+        "halt retention setup did not admit preallocated work");
+    passed &= check(
+        stopping, "halt did not publish the Stopping lifecycle state");
+    passed &= check(
+        rejectedResult == Result::QueueStopped && rejected.isAvailable(),
+        "halt did not close preallocated admission");
+    passed &= check(
+        retainedBeforeRelease,
+        "accepted work ran or was released before the active worker exited");
+    passed &= check(
+        halterJoined, "halt regression thread could not be joined");
+    passed &= check(
+        haltFinished, "halt regression thread did not return exactly once");
+    passed &= check(
+        haltSucceeded, "halt rejected its non-worker caller");
+    passed &= check(stopped, "successful halt did not publish Stopped");
+    passed &= check(
+        retainedWhileStopped,
+        "halt executed or released accepted work instead of retaining it");
+    passed &= check(resumed, "halted queue rejected resume");
+    passed &= check(drained, "resumed queue did not drain retained work");
+    passed &= check(
+        resumedInOrder,
+        "resumed queue did not execute retained work in publication order");
+    passed &= check(
+        retained.isAvailable(),
+        "resumed preallocated work did not release its token");
+    passed &= check(
+        queue.recordFailures == 0 && queue.executions == 3,
+        "halt retention executed an unexpected request set");
     if (passed)
     {
         NOTICE("HOSTED-WAIT-TEST: PASS requestqueue-halt-retention");
@@ -1093,7 +1245,7 @@ bool preallocatedRequestRegressions()
 
     {
         HostedRequestQueue queue;
-        PreallocatedReleaseContext releaseContext(&queue, true);
+        PreallocatedReleaseContext releaseContext(&queue, true, false, true);
         RequestQueue::PreallocatedRequest released(
             preallocatedRequestReleased, &releaseContext);
         releaseContext.request = &released;
@@ -1106,8 +1258,10 @@ bool preallocatedRequestRegressions()
                     Result::Accepted &&
                 queue.drain() && released.isAvailable() &&
                 releaseContext.callbacks == 2 && releaseContext.requeues == 1 &&
+                releaseContext.ordinaryPublicationRejections == 2 &&
                 releaseContext.failures == 0 && queue.executions == 2,
-            "release callback could not safely republish at capacity");
+            "release callback did not reject ordinary publication while "
+            "preserving the explicit Releasing-token handoff");
         queue.destroy();
     }
 
@@ -1238,6 +1392,65 @@ bool preallocatedRequestRegressions()
     }
     return passed;
 }
+
+bool releaseCallbackDestroyReentryRegression()
+{
+    using Result = RequestQueue::PreallocatedPublishResult;
+
+    HostedRequestQueue queue;
+    ReleaseDestroyReentryContext releaseContext(&queue);
+    RequestQueue::PreallocatedRequest released(
+        releaseDuringDestroy, &releaseContext);
+    queue.initialise();
+
+    const bool accepted =
+        queue.publishPreallocated(
+            released, 0, HostedRequestQueue::Sum, 20, 22) == Result::Accepted;
+    const bool callbackEntered = accepted && releaseContext.entered.acquire();
+
+    RequestQueueDestroyContext destroyContext(&queue);
+    Thread *destroyer = new Thread(
+        Scheduler::instance().getKernelProcess(), destroyRequestQueue,
+        &destroyContext, nullptr, false, true);
+    destroyer->setName("hosted RequestQueue release callback destroy regression");
+
+    bool stopping = false;
+    for (size_t attempt = 0; attempt < WaitAttempts; ++attempt)
+    {
+        stopping =
+            queue.getLifecycleState() == RequestQueue::LifecycleState::Stopping;
+        if (stopping)
+        {
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+
+    const bool destroyWaitedForRelease = stopping && !destroyContext.finished;
+    releaseContext.release.release();
+    const bool destroyerJoined = destroyer->joinForCompletion();
+
+    const bool passed = check(
+        callbackEntered && destroyWaitedForRelease && destroyerJoined &&
+            destroyContext.finished == 1 && releaseContext.callbacks == 1 &&
+            releaseContext.failures == 0 &&
+            releaseContext.haltRejections == 1 &&
+            releaseContext.resumeRejections == 1 &&
+            releaseContext.allocationRejections == 1 &&
+            releaseContext.preallocatedRejections == 1 && released.isAvailable() &&
+            releaseContext.ordinary.isAvailable() && queue.executions == 1 &&
+            queue.cancellations == 0 &&
+            queue.getLifecycleState() == RequestQueue::LifecycleState::Destroyed,
+        "a worker release callback re-entered queue lifecycle or publication "
+        "while destroy waited for it");
+    if (passed)
+    {
+        NOTICE(
+            "HOSTED-WAIT-TEST: PASS "
+            "requestqueue-release-callback-destroy-reentry");
+    }
+    return passed;
+}
 }  // namespace
 
 bool runHostedRequestQueueRegressions()
@@ -1252,6 +1465,11 @@ bool runHostedRequestQueueRegressions()
     NOTICE("HOSTED-WAIT-TEST: PASS scheduler-intrusive-ready-queue");
 
     if (!preallocatedRequestRegressions())
+    {
+        return false;
+    }
+
+    if (!releaseCallbackDestroyReentryRegression())
     {
         return false;
     }
@@ -1337,8 +1555,8 @@ bool runHostedRequestQueueRegressions()
             idleWorker && ownedWorkerQueue.addRequest(
                               0, HostedRequestQueue::Sum, 20, 22) == 42;
 
-        ownedWorkerQueue.halt();
-        ownedWorkerQueue.resume();
+        const bool halted = ownedWorkerQueue.halt();
+        const bool resumed = ownedWorkerQueue.resume();
         Thread *activeWorker = ownedWorkerQueue.workerThread();
         const bool held = ownedWorkerQueue.addAsyncRequest(
                               0, HostedRequestQueue::HoldWorker, 42) == 1 &&
@@ -1355,7 +1573,7 @@ bool runHostedRequestQueueRegressions()
         ownedWorkerQueue.destroy();
 
         if (!check(
-                idleTerminalSafe && activeTerminalSafe,
+                idleTerminalSafe && halted && resumed && activeTerminalSafe,
                 "queue-owned worker termination orphaned work"))
         {
             return false;
@@ -1384,7 +1602,7 @@ bool runHostedRequestQueueRegressions()
             REQUEST_QUEUE_NUM_PRIORITIES, HostedRequestQueue::Sum, 1, 2) == 0,
         "an invalid priority was accepted");
 
-    queue.halt();
+    passed &= check(queue.halt(), "halt rejected its non-worker caller");
     passed &= check(
         queue.getLifecycleState() == RequestQueue::LifecycleState::Stopped,
         "halt did not join the worker");
@@ -1392,13 +1610,20 @@ bool runHostedRequestQueueRegressions()
         queue.addRequest(0, HostedRequestQueue::Sum, 3, 4) == 0,
         "a halted queue accepted work");
 
-    queue.resume();
+    passed &= check(queue.resume(), "resume rejected a halted queue");
     passed &= check(
         queue.addRequest(0, HostedRequestQueue::Sum, 20, 22) == 42,
         "the resumed worker did not complete synchronous work");
     passed &= check(
         queue.addRequest(0, HostedRequestQueue::SelfSubmit, 19, 23) == 42,
         "worker self-submission did not execute inline");
+    passed &= check(
+        queue.addRequest(0, HostedRequestQueue::SelfHalt, 77) == 77 &&
+            queue.selfHaltRejections == 1 &&
+            queue.getLifecycleState() ==
+                RequestQueue::LifecycleState::Accepting &&
+            queue.addRequest(0, HostedRequestQueue::Sum, 20, 22) == 42,
+        "worker self-halt did not reject without stopping the queue");
 
     passed &= completionBarrierInterruption(queue, false);
     passed &= completionBarrierInterruption(queue, true);
@@ -1470,16 +1695,44 @@ bool runHostedRequestQueueRegressions()
     passed &= check(
         queuedContext.finished == 1 && queuedContext.result == 0,
         "destroy did not wake and reject the queued synchronous caller");
+    passed &= check(
+        queue.cancelHaltRejections == 1 &&
+            queue.cancelResumeRejections == 1 &&
+            queue.cancelPublicationRejections == 2 &&
+            queue.cancelPreallocatedRejections == 1 &&
+            queue.cancelPreallocated.isAvailable(),
+        "destroy cancellation did not reject recursive lifecycle entry");
 
     queue.destroy();
     passed &= check(
-        queue.getLifecycleState() == RequestQueue::LifecycleState::Stopped,
+        queue.getLifecycleState() == RequestQueue::LifecycleState::Destroyed,
         "destroy was not idempotent");
+    RequestQueue::PreallocatedRequest postDestroy;
+    const bool resumeRejected = !queue.resume();
+    const bool interrupts = Processor::getInterrupts();
+    Processor::setInterrupts(false);
+    const RequestQueue::PreallocatedPublishResult postDestroyResult =
+        queue.publishPreallocated(
+            postDestroy, 0, HostedRequestQueue::Sum, 20, 22);
+    Processor::setInterrupts(interrupts);
     passed &= check(
-        queue.executions == 8,
+        resumeRejected &&
+            queue.getLifecycleState() ==
+                RequestQueue::LifecycleState::Destroyed &&
+            queue.addRequest(0, HostedRequestQueue::Sum, 20, 22) == 0 &&
+            postDestroyResult ==
+                RequestQueue::PreallocatedPublishResult::QueueStopped &&
+            postDestroy.isAvailable(),
+        "destroyed queue reopened publication");
+    queue.destroy();
+    passed &= check(
+        queue.getLifecycleState() == RequestQueue::LifecycleState::Destroyed,
+        "repeated destroy changed the terminal lifecycle state");
+    passed &= check(
+        queue.executions == 10,
         "the worker executed an unexpected number of requests");
     passed &= check(
-        queue.cancellations == 4,
+        queue.cancellations == 5,
         "rejected requests did not release their payloads");
     passed &= check(
         queue.queuedCancellations == 1,

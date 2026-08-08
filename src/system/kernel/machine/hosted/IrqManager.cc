@@ -888,6 +888,7 @@ void HostedIrqManager::interrupt(size_t interruptNumber, InterruptState &state)
 
         // A scheduler tick may abandon this signal frame. It is deliberately
         // the terminal controller action for this occurrence.
+        ExecutionContextGuard schedulerContext(ExecutionContext::SchedulerIrq);
         schedulerHandler->schedulerIrq(irq, state);
     }
 }

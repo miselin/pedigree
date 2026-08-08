@@ -68,6 +68,8 @@ class HostedSchedulerTimer : public SchedulerTimer, private SchedulerIrqHandler
     static EXPORTED_PUBLIC uintptr_t sourceForTest();
     /** Returns the atomically published callback owner for lifecycle tests. */
     static EXPORTED_PUBLIC SchedulerTimerHandler *publishedHandlerForTest();
+    /** Returns the number of admitted scheduler frames for diagnostics. */
+    static EXPORTED_PUBLIC size_t activeDispatchesForTest();
     /** Confirms that ticks bypass the generic hard-handler registry. */
     static EXPORTED_PUBLIC bool directRoutePublishedForTest();
 #endif

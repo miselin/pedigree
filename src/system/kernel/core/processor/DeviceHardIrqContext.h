@@ -9,6 +9,7 @@
 #define PEDIGREE_KERNEL_CORE_PROCESSOR_DEVICEHARDIRQCONTEXT_H
 
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/process/ExecutionContext.h"
 
 /** Marks the dynamic extent of one explicit device hard-IRQ callback. */
 class DeviceHardIrqContext
@@ -27,6 +28,7 @@ class DeviceHardIrqContext
     ProcessorInformation &m_Information;
     bool &m_RestorationArmed;
     size_t m_PreviousDepth;
+    ExecutionContextGuard m_ExecutionContext;
 };
 
 /**

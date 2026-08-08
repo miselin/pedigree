@@ -50,14 +50,31 @@ bool isMutexState(size_t state)
 
 size_t currentMutexOwner()
 {
+#if defined(PEDIGREE_BUILDUTILS)
+    alignas(2) static thread_local char ownerIdentity;
+    uintptr_t owner = reinterpret_cast<uintptr_t>(&ownerIdentity);
+#else
     Thread *thread = Processor::information().getCurrentThread();
     uintptr_t owner = thread
                           ? reinterpret_cast<uintptr_t>(thread)
                           : reinterpret_cast<uintptr_t>(
                                 &Processor::information());
+#endif
     assert((owner & MutexStateTag) == 0);
     return owner | MutexStateTag;
 }
+
+#if defined(PEDIGREE_BUILDUTILS)
+class SemaphoreInterruptGuard
+{
+  public:
+    explicit SemaphoreInterruptGuard(bool)
+    {
+    }
+};
+#else
+using SemaphoreInterruptGuard = EnsureInterrupts;
+#endif
 
 void destroyTimeoutEvent(Thread *thread, Event *event)
 {
@@ -523,7 +540,7 @@ bool Semaphore::tryAcquire(size_t n)
 
     if (mutex)
     {
-        EnsureInterrupts interrupts(false);
+        SemaphoreInterruptGuard interrupts(false);
         ssize_t value = m_Counter;
 
         if ((value - static_cast<ssize_t>(n)) < 0)
@@ -617,7 +634,7 @@ void Semaphore::release(size_t n)
         }
 
         {
-            EnsureInterrupts interrupts(false);
+            SemaphoreInterruptGuard interrupts(false);
             const size_t owner = currentMutexOwner();
             if (!__sync_bool_compare_and_swap(&magic, owner, MutexUnlocked))
             {

@@ -228,6 +228,13 @@ WaitQueue::WakeReason WaitQueue::wait(
     uintptr_t debugAddress, AbandonCallback onAbandon, void *abandonContext,
     bool deferTerminal)
 {
+    if (mutex && !mutex->isOwnedByCurrentThread())
+    {
+        FATAL(
+            "WaitQueue::waitAndUnlock requires current-thread mutex "
+            "ownership");
+    }
+
     Thread *thread = Processor::information().getCurrentThread();
     assert(thread);
     const bool terminalDeferred =
@@ -241,6 +248,7 @@ WaitQueue::WakeReason WaitQueue::wait(
     {
         FATAL("Thread attempted to enter two wait queues at once.");
     }
+    thread->clearTerminalWaitCancelledBeforeBlockUnlocked(stateLevel);
     const Thread::UnwindType unwindState = thread->getUnwindState();
     if (
         unwindState != Thread::Continue && terminalDeferred &&
@@ -319,6 +327,7 @@ WaitQueue::WakeReason WaitQueue::wait(
     void *terminalAbandonContext = nullptr;
     m_Lock.acquire();
     thread->m_Lock.acquire();
+    thread->clearTerminalWaitCancelledBeforeBlockUnlocked(stateLevel);
     if (waiter.loadQueue() == this)
     {
         // Unpublish before the persistent record can be reused.
@@ -567,6 +576,15 @@ void WaitQueue::cancel(Waiter *waiter, WakeReason reason)
         if (reason == WakeReason::Terminating)
         {
             waiter->storeQueue(nullptr);
+            if (!makeReady && thread->m_Status == Thread::Running)
+            {
+                // blockCurrent() has not committed Sleeping yet. Keep no
+                // linked waiter, but leave an exact one-shot handoff on the
+                // waiter's state level. A nested event may have interrupted
+                // that level between publication and blockCurrent().
+                thread->markTerminalWaitCancelledBeforeBlockUnlocked(
+                    waiter->stateLevel);
+            }
             onAbandon = waiter->onAbandon;
             abandonContext = waiter->abandonContext;
             waiter->onAbandon = nullptr;

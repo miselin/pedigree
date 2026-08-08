@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/SchedulerTimerDispatchCleanup.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 
@@ -49,7 +50,12 @@ uintptr_t HostedSchedulerTimer::sourceForTest()
 
 SchedulerTimerHandler *HostedSchedulerTimer::publishedHandlerForTest()
 {
-    return m_Instance.m_Handler.load();
+    return m_Instance.m_Handler.publishedHandlerForTest(Processor::id());
+}
+
+size_t HostedSchedulerTimer::activeDispatchesForTest()
+{
+    return m_Instance.m_Handler.activeDispatches();
 }
 
 bool HostedSchedulerTimer::directRoutePublishedForTest()
@@ -65,12 +71,13 @@ HostedSchedulerTimer::~HostedSchedulerTimer()
 
 bool HostedSchedulerTimer::registerHandler(SchedulerTimerHandler *handler)
 {
-    return m_Handler.publish(handler);
+    return m_Handler.publish(Processor::id(), handler);
 }
 
 bool HostedSchedulerTimer::removeHandler(SchedulerTimerHandler *handler)
 {
-    return m_Handler.unpublish(handler);
+    return canRemoveHandlerInCurrentContext() &&
+           m_Handler.unpublish(Processor::id(), handler);
 }
 
 bool HostedSchedulerTimer::initialise()
@@ -188,16 +195,21 @@ void HostedSchedulerTimer::schedulerIrq(
         static_cast<uint64_t>(signalInfo->si_overrun) + 1;
     const uint64_t delta = expirations * (ONE_SECOND / HZ);
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    HardContextHook hook =
-        __atomic_load_n(&m_HardContextHook, __ATOMIC_ACQUIRE);
-    if (hook)
+    SchedulerTimerHandlerSlot::DispatchGuard dispatch;
+    if (LIKELY(m_Handler.beginDispatch(Processor::id(), dispatch)))
     {
-        hook(delta, state);
-    }
+        SchedulerTimerDispatchCleanup dispatchCleanup(dispatch);
+        ExecutionContextGuard schedulerContext(ExecutionContext::SchedulerIrq);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        // Test only admitted callbacks. Keeping this hook outside the slot
+        // previously let a dropped scheduler tick look like real progress.
+        HardContextHook hook =
+            __atomic_load_n(&m_HardContextHook, __ATOMIC_ACQUIRE);
+        if (hook)
+        {
+            hook(delta, state);
+        }
 #endif
-
-    SchedulerTimerHandler *handler = m_Handler.load();
-    if (LIKELY(handler != 0))
-        handler->timer(delta, state);
+        dispatch.handler()->timer(delta, state);
+    }
 }

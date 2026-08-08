@@ -244,6 +244,7 @@ void HostedInterruptManager::interrupt(InterruptState &interruptState)
         // Call the kernel debugger's handler, if any
         if (pHandler != 0)
         {
+            ExecutionContextGuard debuggerContext(ExecutionContext::DebuggerTrap);
             pHandler->interrupt(nIntNumber, interruptState);
         }
     }
@@ -390,62 +391,68 @@ void HostedInterruptManager::signalShim(
     }
 #endif
 
-    const bool previousInterruptState = Processor::getInterrupts();
-    if (!previousInterruptState)
+    InterruptState state;
+    ucontext_t *interruptedContext = reinterpret_cast<ucontext_t *>(meta);
     {
+        ExecutionContextGuard signalContext(
+            which == SIGTRAP ? ExecutionContext::DebuggerTrap :
+                               ExecutionContext::HostedSyntheticIrq);
+
+        const bool previousInterruptState = Processor::getInterrupts();
+        if (!previousInterruptState)
+        {
+            if (hostedIrq)
+            {
+                FATAL_NOLOCK("interrupts disabled but interrupts are firing");
+            }
+        }
+
         if (hostedIrq)
         {
-            FATAL_NOLOCK("interrupts disabled but interrupts are firing");
+#if THREADS
+            // Hosted signals already mask IRQ delivery physically. Publish the
+            // matching logical IF boundary as well, and make its restoration
+            // survive a scheduler callback which abandons this signal stack.
+            frameCleanup.previousInterruptState = previousInterruptState;
+            frameCleanup.restoreInterruptState = true;
+#endif
+            Processor::setInterrupts(false);
         }
-    }
 
-    if (hostedIrq)
-    {
+        siginfo_t *info = reinterpret_cast<siginfo_t *>(siginfo);
+
+        state.which = which;
+        state.fromUserspace = fromUserspace ? 1 : 0;
+        state.extra = reinterpret_cast<uint64_t>(info);
+        state.state = reinterpret_cast<uint64_t>(info->si_value.sival_ptr);
+        state.meta = reinterpret_cast<uint64_t>(meta);
+        state.setInstructionPointer(
+            interruptedContext->uc_mcontext.gregs[REG_RIP]);
+        state.setStackPointer(interruptedContext->uc_mcontext.gregs[REG_RSP]);
+        state.setBasePointer(interruptedContext->uc_mcontext.gregs[REG_RBP]);
 #if THREADS
-        // Hosted signals already mask IRQ delivery physically. Publish the
-        // matching logical IF boundary as well, and make its restoration
-        // survive a scheduler callback which abandons this signal stack.
-        frameCleanup.previousInterruptState = previousInterruptState;
-        frameCleanup.restoreInterruptState = true;
-#endif
-        Processor::setInterrupts(false);
-    }
-
-    siginfo_t *info = reinterpret_cast<siginfo_t *>(siginfo);
-
-    InterruptState state;
-    state.which = which;
-    state.fromUserspace = fromUserspace ? 1 : 0;
-    state.extra = reinterpret_cast<uint64_t>(info);
-    state.state = reinterpret_cast<uint64_t>(info->si_value.sival_ptr);
-    state.meta = reinterpret_cast<uint64_t>(meta);
-    ucontext_t *interruptedContext = reinterpret_cast<ucontext_t *>(meta);
-    state.setInstructionPointer(
-        interruptedContext->uc_mcontext.gregs[REG_RIP]);
-    state.setStackPointer(interruptedContext->uc_mcontext.gregs[REG_RSP]);
-    state.setBasePointer(interruptedContext->uc_mcontext.gregs[REG_RBP]);
-#if THREADS
-    {
-        // Match native interrupt accounting. User-origin frames remain in
-        // Kernel accounting mode until the return tail has completed.
-        InterruptTimeAccounting accounting(fromUserspace);
+        {
+            // Match native interrupt accounting. User-origin frames remain in
+            // Kernel accounting mode until the return tail has completed.
+            InterruptTimeAccounting accounting(fromUserspace);
+            interrupt(state);
+        }
+#else
         interrupt(state);
-    }
-#else
-    interrupt(state);
 #endif
 
-    // Raw IRQ dispatch is complete. Restore logical IF while hosted-signal
-    // depth still keeps IRQ signals physically masked, then let the ordinary
-    // return-to-user tail run at its IRQ-enabled thread boundary.
+        // Raw IRQ dispatch is complete. Restore logical IF while hosted-signal
+        // depth still keeps IRQ signals physically masked, then let the ordinary
+        // return-to-user tail run at its IRQ-enabled thread boundary.
 #if THREADS
-    restoreHostedSignalInterruptState(frameCleanup);
+        restoreHostedSignalInterruptState(frameCleanup);
 #else
-    if (hostedIrq)
-    {
-        Processor::setInterrupts(previousInterruptState);
-    }
+        if (hostedIrq)
+        {
+            Processor::setInterrupts(previousInterruptState);
+        }
 #endif
+    }
 
 #if THREADS
     if (

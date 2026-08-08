@@ -21,6 +21,7 @@ unset(CMAKE_REQUIRED_FLAGS)
 # TODO: should detect a few of these things
 add_definitions(
     -DUTILITY_LINUX=1 -DTARGET_IS_LITTLE_ENDIAN=1
+    -DPEDIGREE_BUILDUTILS=1
     -DPEDIGREE_BENCHMARK=1 -DSTANDALONE_MUTEXES=1 -DSTANDALONE_CACHE=1
     -DSTANDALONE_MEMPOOL=1 -DDEVICE_IGNORE_ADDRESSES=1 -DBITS_64=1 -DLITTLE_ENDIAN=1
     -DVFS_NOMMU=1 -DVFS_STANDALONE=1 -DEXT2_STANDALONE=1)
@@ -234,9 +235,12 @@ set(TESTSUITE_SRCS
     testsuite/test-Time.cc
     testsuite/test-Atomic.cc
     testsuite/test-DeferredTimeAccounting.cc
+    testsuite/test-ExecutionContextState.cc
     testsuite/test-IntervalTimerState.cc
     testsuite/test-SchedulerTimerHandlerSlot.cc
     testsuite/test-LocalApicTimerHandlerSlots.cc
+    testsuite/test-LocalApicIcrTransaction.cc
+    testsuite/test-LocalApicLint0Policy.cc
     testsuite/test-PcSchedulerTimerSelection.cc
     testsuite/test-PicIrqState.cc
     testsuite/test-TscClock.cc

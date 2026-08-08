@@ -375,7 +375,17 @@ void PerProcessorScheduler::schedule(
     {
         if (!pCurrentThread->hasActiveWaitUnlocked())
         {
-            FATAL("Scheduler refused a sleep without an active WaitQueue.");
+            if (!pCurrentThread->consumeTerminalWaitCancelledBeforeBlockUnlocked())
+            {
+                FATAL("Scheduler refused a sleep without an active WaitQueue.");
+            }
+
+            // A terminal cancellation can unlink an already-published waiter
+            // before this thread has committed its Sleeping transition. The
+            // one-shot handoff above is the only valid unlinked sleep.
+            pCurrentThread->getLock().release();
+            Processor::setInterrupts(bWasInterrupts);
+            return;
         }
 
         // The wait record is published before blockCurrent(). A wake in that
@@ -1272,7 +1282,9 @@ void PerProcessorScheduler::serviceIrqWorkDoorbell()
 
 void PerProcessorScheduler::serviceUserReturnWork(InterruptState &state)
 {
-    if (!Processor::getInterrupts() || Processor::inDeviceHardIrq())
+    if (
+        !Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
+        Processor::executionContext() != ExecutionContext::WaitableThread)
     {
         FATAL_NOLOCK(
             "Return-to-user work requires an IRQ-enabled thread "
