@@ -31,6 +31,7 @@
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/process/Completion.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
@@ -44,10 +45,21 @@
 
 static Tree<struct netconn *, Completion *> g_Netconns;
 static Spinlock g_NetconnsLock;
+static OperationBarrier *g_pClientWork = nullptr;
 
 static Atomic<bool> g_Running(false);
 static Thread *g_pServerThread = nullptr;
-static List<Thread *> g_ClientThreads;
+
+struct ClientContext
+{
+    ClientContext(struct netconn *connection, OperationBarrier::Lease work)
+        : connection(connection), work(pedigree_std::move(work))
+    {
+    }
+
+    struct netconn *connection;
+    OperationBarrier::Lease work;
+};
 
 static void
 netconnCallback(struct netconn *conn, enum netconn_evt evt, u16_t len)
@@ -68,11 +80,15 @@ static int clientThread(void *p)
     if (!p)
         return 0;
 
+    ClientContext *context = reinterpret_cast<ClientContext *>(p);
+    struct netconn *connection = context->connection;
+    OperationBarrier::Lease work = pedigree_std::move(context->work);
+    delete context;
+
     // Connection teardown, callback deregistration, and netconn deletion are
     // one lifetime unit. A terminal request may interrupt its waits, but must
     // return through this function's cleanup.
     TerminationDeferral clientLifetime;
-    struct netconn *connection = reinterpret_cast<struct netconn *>(p);
     connection->callback = netconnCallback;
     netconn_set_recvtimeout(connection, 500);
 
@@ -441,42 +457,6 @@ static int clientThread(void *p)
     return completed ? 0 : -1;
 }
 
-static void reapClientThreads(bool terminate)
-{
-    while (true)
-    {
-        Thread *client = nullptr;
-        for (List<Thread *>::Iterator it = g_ClientThreads.begin();
-             it != g_ClientThreads.end(); ++it)
-        {
-            if (
-                terminate ||
-                (*it)->getStatus() == Thread::AwaitingJoin)
-            {
-                client = *it;
-                g_ClientThreads.erase(it);
-                break;
-            }
-        }
-
-        if (!client)
-        {
-            return;
-        }
-
-        if (
-            terminate &&
-            client->getStatus() != Thread::AwaitingJoin)
-        {
-            client->setUnwindState(Thread::TerminateThread);
-        }
-        if (!client->joinForCompletion())
-        {
-            FATAL("Status Server could not retire an owned client thread.");
-        }
-    }
-}
-
 static int mainThread(void *)
 {
     struct netconn *server = netconn_new(NETCONN_TCP);
@@ -494,16 +474,24 @@ static int mainThread(void *)
 
     while (g_Running)
     {
-        reapClientThreads(false);
-
         struct netconn *connection;
         if (netconn_accept(server, &connection) == ERR_OK)
         {
+            OperationBarrier::Lease work;
+            if (!g_pClientWork->tryAcquire(work))
+            {
+                netconn_close(connection);
+                netconn_delete(connection);
+                continue;
+            }
+
+            ClientContext *context = new ClientContext(
+                connection, pedigree_std::move(work));
             Thread *pThread = new Thread(
                 Processor::information().getCurrentThread()->getParent(),
-                clientThread, connection);
+                clientThread, context);
             pThread->setName("Status Server client thread");
-            g_ClientThreads.pushBack(pThread);
+            pThread->detach();
         }
     }
 
@@ -515,6 +503,7 @@ static int mainThread(void *)
 
 static bool init()
 {
+    g_pClientWork = new OperationBarrier;
     g_Running = true;
     g_pServerThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), mainThread,
@@ -534,7 +523,9 @@ static void destroy()
         }
         g_pServerThread = nullptr;
     }
-    reapClientThreads(true);
+    g_pClientWork->closeAndWait();
+    delete g_pClientWork;
+    g_pClientWork = nullptr;
 }
 
 MODULE_INFO("Status Server", &init, &destroy, "config", "lwip", "network-stack");
