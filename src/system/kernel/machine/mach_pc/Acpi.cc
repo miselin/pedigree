@@ -21,6 +21,7 @@
 
 #include "Acpi.h"
 #include "../../core/processor/x86_common/PhysicalMemoryManager.h"
+#include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
@@ -28,6 +29,26 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 Acpi Acpi::m_Instance;
+
+namespace
+{
+bool rangeContains(
+    uint64_t rangeAddress, uint64_t rangeLength, uint64_t address,
+    uint64_t length)
+{
+    const uint64_t rangeEnd = rangeAddress + rangeLength;
+    const uint64_t end = address + length;
+    return rangeEnd >= rangeAddress && end >= address &&
+           address >= rangeAddress && end <= rangeEnd;
+}
+
+bool mappedRangeContains(
+    const MemoryRegion &region, uint64_t address, uint64_t length)
+{
+    return rangeContains(
+        region.physicalAddress(), region.size(), address, length);
+}
+}  // namespace
 
 void Acpi::initialise()
 {
@@ -59,24 +80,59 @@ void Acpi::initialise()
         X86CommonPhysicalMemoryManager::instance();
     const RangeList<uint64_t> &AcpiRanges =
         physicalMemoryManager.getAcpiRanges();
-    if (AcpiRanges.size() == 0)
+    RangeList<uint64_t>::Range AcpiRange(0, 0);
+    bool foundAcpiRange = false;
+    for (size_t i = 0; i < AcpiRanges.size(); ++i)
     {
-        ERROR("Acpi: No ACPI memory range");
-        return;
+        RangeList<uint64_t>::Range candidate(0, 0);
+        if (AcpiRanges.getRange(i, candidate) &&
+            rangeContains(
+                candidate.address, candidate.length,
+                m_pRsdtPointer->rsdtAddress,
+                sizeof(SystemDescriptionTableHeader)))
+        {
+            AcpiRange = candidate;
+            foundAcpiRange = true;
+            break;
+        }
     }
-    if (AcpiRanges.size() > 1)
+
+    // This Multiboot path can present SeaBIOS's ACPI tables as reserved
+    // memory. Locate the firmware range containing the RSDT instead of
+    // requiring a particular E820 type.
+    if (!foundAcpiRange && g_pBootstrapInfo)
     {
-        ERROR("Acpi: More than one ACPI memory range");
+        void *memoryMap = g_pBootstrapInfo->getMemoryMap();
+        while (memoryMap)
+        {
+            const uint64_t address =
+                g_pBootstrapInfo->getMemoryMapEntryAddress(memoryMap);
+            const uint64_t length =
+                g_pBootstrapInfo->getMemoryMapEntryLength(memoryMap);
+            if (rangeContains(
+                    address, length, m_pRsdtPointer->rsdtAddress,
+                    sizeof(SystemDescriptionTableHeader)))
+            {
+                AcpiRange.address = address;
+                AcpiRange.length = length;
+                foundAcpiRange = true;
+                NOTICE(
+                    " ACPI tables are in firmware memory-map type "
+                    << Hex
+                    << g_pBootstrapInfo->getMemoryMapEntryType(memoryMap));
+                break;
+            }
+            memoryMap = g_pBootstrapInfo->nextMemoryMapEntry(memoryMap);
+        }
+    }
+
+    if (!foundAcpiRange)
+    {
+        ERROR("Acpi: Could not locate the RSDT in the firmware memory map");
         return;
     }
 
     // Allocate the ACPI memory as a MemoryRegion
-    RangeList<uint64_t>::Range AcpiRange(0, 0);
-    if (!AcpiRanges.getRange(0, AcpiRange))
-    {
-        ERROR("Acpi: ACPI memory range disappeared");
-        return;
-    }
     physical_uintptr_t address =
         AcpiRange.address & (~(PhysicalMemoryManager::getPageSize() - 1));
     size_t sAddress = AcpiRange.length + (AcpiRange.address - address);
@@ -98,7 +154,11 @@ void Acpi::initialise()
     m_pRsdt =
         m_AcpiMemoryRegion.convertPhysicalPointer<SystemDescriptionTableHeader>(
             m_pRsdtPointer->rsdtAddress);
-    if (m_pRsdt->signature != 0x54445352 || checksum(m_pRsdt) != true)
+    if (m_pRsdt->signature != 0x54445352 ||
+        m_pRsdt->length < sizeof(SystemDescriptionTableHeader) ||
+        !mappedRangeContains(
+            m_AcpiMemoryRegion, m_pRsdtPointer->rsdtAddress, m_pRsdt->length) ||
+        checksum(m_pRsdt) != true)
     {
         ERROR("Acpi: RSDT invalid");
         m_pRsdt = 0;
@@ -117,6 +177,22 @@ void Acpi::initialise()
         SystemDescriptionTableHeader *pSystemDescTable =
             m_AcpiMemoryRegion
                 .convertPhysicalPointer<SystemDescriptionTableHeader>(*pTable);
+
+        if (!mappedRangeContains(
+                m_AcpiMemoryRegion, *pTable,
+                sizeof(SystemDescriptionTableHeader)))
+        {
+            ERROR("  ACPI table header is outside the mapped firmware range");
+            continue;
+        }
+
+        if (pSystemDescTable->length < sizeof(SystemDescriptionTableHeader) ||
+            !mappedRangeContains(
+                m_AcpiMemoryRegion, *pTable, pSystemDescTable->length))
+        {
+            ERROR("  ACPI table is outside the mapped firmware range");
+            continue;
+        }
 
         char Signature[5];
         StringCopyN(
