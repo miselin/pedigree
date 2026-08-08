@@ -148,9 +148,48 @@ bool datagramPollCloseWake()
     }
     return passed;
 }
+
+bool streamPollCloseWake()
+{
+    UnixSocket local(
+        String(), nullptr, nullptr, nullptr, UnixSocket::Streaming);
+    UnixSocket peer(
+        String(), nullptr, nullptr, nullptr, UnixSocket::Streaming);
+    const bool connected = local.bind(&peer);
+    peer.acknowledgeBind();
+
+    Semaphore readiness(0, false);
+    local.addWaiter(&readiness, true, false);
+
+    PollWaitContext context(&readiness);
+    Thread *waiter =
+        startPollWaiter(context, "hosted Unix stream close poll");
+    const bool queued = waitUntilQueued(waiter);
+
+    peer.unbind();
+    const bool joined = waiter->join();
+
+    Semaphore lateReadiness(0, false);
+    local.addWaiter(&lateReadiness, true, false);
+
+    const bool passed = check(
+        connected && context.entered == 1 && queued && joined &&
+            context.woke == 1 && local.getState() == UnixSocket::Closed &&
+            local.select(false, 0) && !local.select(true, 0) &&
+            !readiness.tryAcquire() && lateReadiness.tryAcquire() &&
+            !lateReadiness.tryAcquire(),
+        "unix-stream-poll-close",
+        "stream close did not wake poll with persistent EOF readiness");
+    if (passed)
+    {
+        NOTICE("HOSTED-WAIT-TEST: PASS unix-stream-poll-close");
+    }
+    return passed;
+}
 }  // namespace
 
 EXPORTED_PUBLIC bool runHostedUnixDatagramRegressions()
 {
-    return datagramPollSendWake() && datagramPollCloseWake();
+    return datagramPollSendWake() && datagramPollCloseWake() &&
+           streamPollCloseWake();
 }

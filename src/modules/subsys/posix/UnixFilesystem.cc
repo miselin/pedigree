@@ -464,29 +464,54 @@ void UnixSocket::addWaiter(Semaphore *waiter, bool read, bool write)
 
     SharedPointer<UnixSocketConnection> connection;
     bool side = false;
+    bool closed = false;
     {
         LockGuard<Mutex> guard(m_ConnectionLock);
+        closed = getStateLocked() == Closed;
         connection = m_Connection;
-        if (!connection)
-        {
-            m_Stream.monitor(waiter);
-            return;
-        }
         side = m_ConnectionSide;
     }
 
-    UnixSocketConnection::Stream *incoming =
-        side ? &connection->m_SecondStream : &connection->m_FirstStream;
-    UnixSocketConnection::Stream *outgoing =
-        side ? &connection->m_FirstStream : &connection->m_SecondStream;
+    if (closed)
+    {
+        // Closing readiness is persistent. Do not strand a waiter behind
+        // unbind's one-shot monitor notification.
+        waiter->release();
+        return;
+    }
 
-    if (read || (!read && !write))
+    UnixSocketConnection::Stream *incoming = connection ?
+        (side ? &connection->m_SecondStream : &connection->m_FirstStream) :
+        &m_Stream;
+    UnixSocketConnection::Stream *outgoing = connection ?
+        (side ? &connection->m_FirstStream : &connection->m_SecondStream) :
+        &m_Stream;
+    const bool monitorRead = read || (!read && !write);
+    if (monitorRead)
     {
         incoming->monitor(waiter);
     }
-    if (write)
+    if (write && (!monitorRead || outgoing != incoming))
     {
         outgoing->monitor(waiter);
+    }
+
+    {
+        LockGuard<Mutex> guard(m_ConnectionLock);
+        closed = getStateLocked() == Closed;
+    }
+    if (closed)
+    {
+        // Repair close-before-enrollment without nesting buffer operations
+        // under m_ConnectionLock. A concurrent notifier clears these targets.
+        if (monitorRead)
+        {
+            incoming->notifyMonitors();
+        }
+        if (write && (!monitorRead || outgoing != incoming))
+        {
+            outgoing->notifyMonitors();
+        }
     }
 }
 
@@ -522,18 +547,47 @@ void UnixSocket::addWaiter(Thread *thread, Event *event)
     }
 
     SharedPointer<UnixSocketConnection> connection;
+    bool closed = false;
     {
         LockGuard<Mutex> guard(m_ConnectionLock);
+        closed = getStateLocked() == Closed;
         connection = m_Connection;
-        if (!connection)
-        {
-            m_Stream.monitor(thread, event);
-            return;
-        }
     }
 
-    connection->m_FirstStream.monitor(thread, event);
-    connection->m_SecondStream.monitor(thread, event);
+    if (closed)
+    {
+        // Closing readiness is persistent; send without retaining the
+        // connection lock across event delivery.
+#if !defined(PEDIGREE_EXTERNAL_SOURCE)
+        thread->sendEvent(event);
+#endif
+        return;
+    }
+
+    UnixSocketConnection::Stream *first =
+        connection ? &connection->m_FirstStream : &m_Stream;
+    UnixSocketConnection::Stream *second =
+        connection ? &connection->m_SecondStream : &m_Stream;
+    first->monitor(thread, event);
+    if (second != first)
+    {
+        second->monitor(thread, event);
+    }
+
+    {
+        LockGuard<Mutex> guard(m_ConnectionLock);
+        closed = getStateLocked() == Closed;
+    }
+    if (closed)
+    {
+        // Repair close-before-enrollment; notifyMonitors is idempotent with a
+        // concurrent unbind notifier because it consumes registered targets.
+        first->notifyMonitors();
+        if (second != first)
+        {
+            second->notifyMonitors();
+        }
+    }
 }
 
 void UnixSocket::removeWaiter(Event *event)
