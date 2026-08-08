@@ -353,14 +353,11 @@ uintptr_t ScsiDisk::read(uint64_t location)
         return 0;
     }
 
-    NOTICE("leasing scsi disk op");
     OperationBarrier::Lease operation;
     if (!pParent->acquireDiskOperation(operation))
     {
         return 0;
     }
-
-    NOTICE("1");
 
     const size_t fillSize = getCacheFillSize();
     if (!fillSize || !getNativeBlockSize() || (fillSize % 4096) ||
@@ -369,8 +366,6 @@ uintptr_t ScsiDisk::read(uint64_t location)
         ERROR("ScsiDisk::read - invalid cache or native block size.");
         return 0;
     }
-    NOTICE("2");
-
     if (location >= getSize() || getNativeBlockSize() > (getSize() - location))
     {
         ERROR(
@@ -378,8 +373,6 @@ uintptr_t ScsiDisk::read(uint64_t location)
                                                    << getSize() << ")");
         return 0;
     }
-    NOTICE("3");
-
     size_t blockNum = location / getNativeBlockSize();
     if (blockNum >= getBlockCount())
     {
@@ -388,21 +381,17 @@ uintptr_t ScsiDisk::read(uint64_t location)
             << blockNum << " > " << getBlockCount() << ")");
         return 0;
     }
-    NOTICE("4");
-
     const uint64_t alignPoint = getAlignmentPoint(location);
 
     const uint64_t pageLocation = location - ((location - alignPoint) % 4096);
     const size_t pageOffset = location - pageLocation;
 
-    NOTICE("5");
     uintptr_t buffer;
     if ((buffer = m_Cache.lookup(pageLocation)))
     {
         return buffer + pageOffset;
     }
 
-    NOTICE("6");
     // Cache extents follow the most recent alignment point, which may not be
     // aligned to the device's cache block size.
     size_t loc = location - ((location - alignPoint) % fillSize);
@@ -413,7 +402,6 @@ uintptr_t ScsiDisk::read(uint64_t location)
         return 0;
     }
 
-    NOTICE("7");
     uint64_t numRead = pParent->addRequest(
         0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t>(this), loc);
     if (numRead < fillLength)
@@ -431,13 +419,11 @@ uintptr_t ScsiDisk::read(uint64_t location)
             0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t>(this), loc);
     }
 #endif
-    NOTICE("8");
     buffer = m_Cache.lookup(pageLocation);
     if (!buffer)
     {
         return 0;
     }
-    NOTICE("9");
     return buffer + pageOffset;
 }
 
