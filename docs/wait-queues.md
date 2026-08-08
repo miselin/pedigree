@@ -121,12 +121,13 @@ wait queue, channel, owner, and instruction pointer identifies a stable wait
 edge. A changing instruction pointer or request count indicates progress and
 should not be diagnosed as deadlock merely because an operation is long.
 
-## Deterministic hosted regressions
+## Deterministic regressions
 
 Do not try to reproduce a lost wakeup by running a workload until it happens.
-Add a hosted-only hook at the exact publication boundary, force the competing
-operation in that hook, and assert both the scheduler state and the final
-predicate.
+Prefer a native semantic test around the predicate or state machine. When the
+real scheduler is essential, a focused hosted-only hook at the publication
+boundary can force the competing operation and assert both scheduler state and
+the final predicate.
 
 Useful adversarial windows include:
 
@@ -138,36 +139,24 @@ Useful adversarial windows include:
 - terminal request delivered while a completion owner is blocked; and
 - object teardown after work is queued but before the worker consumes it.
 
-Every regression should have a unique `HOSTED-WAIT-TEST: PASS ...` marker.
-The public smoke script requires the markers and rejects ASan reports, page
-faults, relocation failures, wait-test failures, and incomplete shutdown.
-Run the hosted matrix with both the system allocator and `SlamAllocator`;
-allocator choice changes timing and exposes different ownership mistakes.
-
-Native unit tests remain useful for state machines, reference counts, overflow,
-and container invariants. They do not exercise the real scheduler. A hosted
-module regression does, while remaining much faster and more controllable than
-booting a PC platform in QEMU.
+The maintained `./verify.sh` contract runs native tests normally and under
+AddressSanitizer. The retained x86-64 Linux hosted harness is experimental and
+is not a required local gate. A regression that exists only there must be
+reported as hosted-only coverage, not as part of the maintained green claim.
 
 ## Static and build-time gates
 
-`verify.sh` rejects direct scheduler blocking/status changes outside the
-implementation boundary, ambiguous mutex construction, hand-rolled volatile
-locks, and exported result shapes known to vary across the two hosted
-compilers. Add a gate when a bug can be described syntactically, but keep a
-runtime regression as well: most lost wakeups are valid-looking local code
-whose error is the relationship between a predicate, a lock, and a wake.
-
-Compile both hosted modules and the x86-64 targets. The hosted kernel and its
-dynamic modules intentionally exercise the native-kernel/Pedigree-module ABI
-boundary. An x86-64 build catches architecture-specific implementations which
-the hosted machine does not compile.
+Prefer compiler errors, `static_assert`, and focused native tests over scanners
+which require a particular source spelling. The canonical native build does
+not cover the Linux-hosted module ABI or the x86-64 machine implementation;
+run those lanes separately when a change touches either boundary.
 
 ## What still needs QEMU or hardware
 
-The hosted kernel is sufficient for scheduler publication, signal and timeout
-interruption, lock ordering, request lifecycle, callback drains, module
-loading, and most object ownership bugs.
+The retained Linux hosted kernel can still be useful for scheduler
+publication, signal and timeout interruption, lock ordering, request
+lifecycle, callback drains, and module loading. It is an experimental lane,
+not the canonical local verifier.
 
 QEMU or hardware remains necessary for:
 

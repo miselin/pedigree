@@ -845,10 +845,6 @@ bool schedulerTimerHardContext()
     SchedulerTimerContext context;
     const bool directRoute =
         HostedSchedulerTimer::directRoutePublishedForTest();
-    IrqLineDiagnosticSnapshot before[3] = {};
-    IrqManager *irqManager = Machine::instance().getIrqManager();
-    const bool beforeSnapshot =
-        irqManager && irqManager->snapshotIrqLines(before, 3) == 3;
 
     const bool interruptsWereEnabled = Processor::getInterrupts();
     Processor::setInterrupts(false);
@@ -872,16 +868,7 @@ bool schedulerTimerHardContext()
         static_cast<SchedulerTimerContext *>(nullptr), __ATOMIC_RELEASE);
     Processor::setInterrupts(interruptsWereEnabled);
 
-    IrqLineDiagnosticSnapshot after[3] = {};
-    const bool afterSnapshot =
-        irqManager && irqManager->snapshotIrqLines(after, 3) == 3;
-    const bool occurrenceAccounted =
-        beforeSnapshot && afterSnapshot &&
-        after[1].dispatchGeneration != before[1].dispatchGeneration &&
-        after[1].unhandledCount == before[1].unhandledCount;
-    const bool passed =
-        directRoute && occurrenceAccounted && context.calls &&
-        !context.failures;
+    const bool passed = directRoute && context.calls && !context.failures;
     if (!passed)
     {
         ERROR(
@@ -1118,125 +1105,68 @@ bool schedulerTimerSelfRemovalRejected()
     return passed;
 }
 
-struct SchedulerRouteShutdownContext
+class RejectedHostedDeviceHandler : public HardIrqHandler
 {
-    SchedulerRouteShutdownContext()
-        : shutdownGate(nullptr), hookCalls(0), gateClosed(false)
+  public:
+    HardIrqDisposition irq(irq_id_t, InterruptState &) override
     {
+        return HardIrqDisposition::Handled;
     }
-
-    size_t *shutdownGate;
-    size_t hookCalls;
-    bool gateClosed;
 };
 
-SchedulerRouteShutdownContext *g_SchedulerRouteShutdownContext = nullptr;
-
-void closeSchedulerRouteAdmissionForTest(size_t *shutdownGate)
+bool schedulerRouteIsDedicated()
 {
-    SchedulerRouteShutdownContext *context = g_SchedulerRouteShutdownContext;
-    if (!context || !shutdownGate)
-    {
-        return;
-    }
-
-    context->shutdownGate = shutdownGate;
-    ++context->hookCalls;
-    size_t expected = 0;
-    context->gateClosed = __atomic_compare_exchange_n(
-        shutdownGate, &expected, static_cast<size_t>(1), false,
-        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-}
-
-bool schedulerRouteShutdownAdmissionBoundary()
-{
-    constexpr const char *Test = "hosted-scheduler-route-shutdown-boundary";
+    constexpr const char *Test = "hosted-scheduler-route-dedicated";
     IrqManager *manager = Machine::instance().getIrqManager();
     SchedulerIrqHandler *handler =
         HostedIrqManager::schedulerIrqHandlerForTest(1);
-    SchedulerRouteShutdownContext context;
-
-    const bool interruptsWereEnabled = Processor::getInterrupts();
-    Processor::setInterrupts(false);
-    const bool removed =
-        manager && handler &&
-        manager->unregisterSchedulerIrqHandler(SIGUSR2, handler);
-    g_SchedulerRouteShutdownContext = &context;
-    HostedIrqManager::setSchedulerRoutePublicationHookForTest(
-        closeSchedulerRouteAdmissionForTest);
-    const irq_id_t rejected =
-        removed ? manager->registerSchedulerIrqHandler(
-                      1, handler, IrqPolicy::syntheticHard()) :
-                  0;
-    HostedIrqManager::setSchedulerRoutePublicationHookForTest(nullptr);
-    g_SchedulerRouteShutdownContext = nullptr;
-
-    const bool rolledBack =
-        HostedIrqManager::schedulerIrqHandlerForTest(1) == nullptr;
-    bool gateRestored = false;
-    if (context.shutdownGate && context.gateClosed)
-    {
-        size_t expected = 1;
-        gateRestored = __atomic_compare_exchange_n(
-            context.shutdownGate, &expected, static_cast<size_t>(0), false,
-            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-    }
-    const irq_id_t restored =
-        removed && gateRestored ? manager->registerSchedulerIrqHandler(
-                                     1, handler,
-                                     IrqPolicy::syntheticHard()) :
-                                 0;
-    const bool routeRestored =
-        HostedIrqManager::schedulerIrqHandlerForTest(1) == handler;
-    Processor::setInterrupts(interruptsWereEnabled);
-
+    RejectedHostedDeviceHandler deviceHandler;
+    const irq_id_t rejected = manager ? manager->registerHardIsaIrqHandler(
+                                           1, &deviceHandler,
+                                           IrqPolicy::syntheticHard()) :
+                                       0;
     const bool passed =
-        removed && context.hookCalls == 1 && context.gateClosed && !rejected &&
-        rolledBack && gateRestored && restored == SIGUSR2 && routeRestored;
+        manager && handler && !rejected &&
+        HostedIrqManager::schedulerIrqHandlerForTest(1) == handler;
     if (!passed)
     {
         ERROR(
             "HOSTED-WAIT-TEST: FAIL " << Test
-                                       << ": shutdown admitted a newly "
-                                          "published scheduler route");
+                                       << ": hosted admitted a device handler "
+                                          "on its dedicated scheduler line");
     }
     else
     {
         NOTICE(
             "HOSTED-WAIT-TEST: PASS "
-            "hosted-scheduler-route-shutdown-boundary");
+            "hosted-scheduler-route-dedicated");
     }
     return passed;
 }
 
-class QueuedTickHandler : public HardIrqHandler
+void observeQueuedSchedulerTick(uint64_t, InterruptState &)
 {
-  public:
-    explicit QueuedTickHandler(ContextSwitchContext &context)
-        : m_Context(context)
+    ContextSwitchContext *context =
+        __atomic_load_n(&g_ContextSwitchContext, __ATOMIC_ACQUIRE);
+    if (!context ||
+        Processor::information().getCurrentThread() != context->driver)
     {
+        return;
     }
 
-    HardIrqDisposition irq(irq_id_t, InterruptState &) override
+    const size_t phase = context->phase;
+    if (phase && phase < 4)
     {
-        const size_t phase = m_Context.phase;
-        if (phase && phase < 4)
+        context->tickCalls += 1;
+        if (phase != 3 || Processor::getInterrupts() ||
+            Processor::inDeviceHardIrq() ||
+            Processor::executionContext() != ExecutionContext::SchedulerIrq)
         {
-            m_Context.tickCalls += 1;
-            if (phase != 3 || Processor::getInterrupts() ||
-                !Processor::inDeviceHardIrq() ||
-                Processor::deviceHardIrqDepthForTest() != 1)
-            {
-                m_Context.failures += 1;
-            }
-            m_Context.phase = 4;
+            context->failures += 1;
         }
-        return HardIrqDisposition::Handled;
+        context->phase = 4;
     }
-
-  private:
-    ContextSwitchContext &m_Context;
-};
+}
 
 void contextSwitchHook(ProcessorBase::HostedContextSwitchStage stage)
 {
@@ -1328,7 +1258,7 @@ bool runHostedSchedulerRegressions()
         !schedulerTimerSingleOwner() ||
         !schedulerTimerAbandonedAdmissionCleanup() ||
         !schedulerTimerSelfRemovalRejected() ||
-        !schedulerRouteShutdownAdmissionBoundary() ||
+        !schedulerRouteIsDedicated() ||
         !schedulerTimerHardContext())
     {
         return false;
@@ -1346,13 +1276,6 @@ bool runHostedSchedulerRegressions()
 
     Thread *driver = Processor::information().getCurrentThread();
     ContextSwitchContext context(driver);
-    QueuedTickHandler tickHandler(context);
-    IrqManager *irqManager = Machine::instance().getIrqManager();
-    const irq_id_t tickId =
-        irqManager->registerHardIsaIrqHandler(
-            1, &tickHandler, IrqPolicy::syntheticHard());
-    // Hosted test IRQs may share SIGUSR2, but the scheduler source must remain
-    // outside the generic registry and run as the terminal controller action.
     const bool directRoutePreserved =
         HostedSchedulerTimer::directRoutePublishedForTest();
 
@@ -1363,6 +1286,8 @@ bool runHostedSchedulerRegressions()
 
     __atomic_store_n(&g_ContextSwitchContext, &context, __ATOMIC_RELEASE);
     Processor::setHostedContextSwitchHook(contextSwitchHook);
+    HostedSchedulerTimer::setHardContextHookForTest(
+        observeQueuedSchedulerTick);
     const bool started = target->start();
 
     constexpr size_t Attempts = 10000;
@@ -1378,6 +1303,7 @@ bool runHostedSchedulerRegressions()
         Scheduler::instance().yield();
     }
 
+    HostedSchedulerTimer::setHardContextHookForTest(nullptr);
     Processor::setHostedContextSwitchHook(nullptr);
     __atomic_store_n(
         &g_ContextSwitchContext, static_cast<ContextSwitchContext *>(nullptr),
@@ -1385,14 +1311,12 @@ bool runHostedSchedulerRegressions()
 
     const bool targetJoined =
         target->isReapableForHostedTest() && target->joinForCompletion();
-    const bool handlerRemoved =
-        tickId && irqManager->unregisterHandler(tickId, &tickHandler);
     const bool directRouteAfterRemoval =
         HostedSchedulerTimer::directRoutePublishedForTest();
 
     const bool passed = check(
-        tickId && directRoutePreserved && started && completed &&
-            targetJoined && handlerRemoved && directRouteAfterRemoval &&
+        directRoutePreserved && started && completed && targetJoined &&
+            directRouteAfterRemoval &&
             context.switchReturns == 1 && context.bookkeepingCalls == 1 &&
             context.restoreBoundaries == 1 && context.tickCalls == 1 &&
             context.targetCalls == 1 && context.failures == 0,

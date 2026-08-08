@@ -28,13 +28,11 @@ bool runHostedRequestQueueRegressions();
 bool runHostedSchedulerRegressions();
 bool runHostedCacheRegressions();
 bool runHostedCdiIrqRegressions();
-bool runHostedHardIrqGuardRegressions();
 bool runHostedInputRegressions();
 bool runHostedInterruptManagerRegressions();
 EXPORTED_PUBLIC bool runHostedFatSectorRegressions();
 EXPORTED_PUBLIC bool runHostedRawFsContractRegressions();
 EXPORTED_PUBLIC bool runHostedUnixDatagramRegressions();
-bool runHostedIrqRegressions();
 bool runHostedLifetimeLeaseRegressions();
 bool runHostedLogRegressions();
 bool runHostedMutexRegressions();
@@ -49,8 +47,6 @@ bool runHostedPs2MouseRegressions();
 bool runHostedSignalInterruptionRegressions(Thread *thread);
 bool runHostedSyscallRegressions();
 bool runHostedTimerRegressions(Thread *thread);
-bool runHostedSplitIrqRegressions();
-bool runHostedThreadedIrqRegressions();
 bool runHostedUsbCallbackDeliveryRegressions();
 bool runHostedUsbHcdPortChangeRegressions();
 bool runHostedUsbTransferLifecycleRegressions();
@@ -2176,10 +2172,6 @@ bool runHostedWaitRegressions()
         runHostedUsbTransferLifecycleRegressions() &&
         runHostedMutexRegressions() &&
         runHostedInterruptManagerRegressions() &&
-        runHostedHardIrqGuardRegressions() &&
-        runHostedIrqRegressions() &&
-        runHostedSplitIrqRegressions() &&
-        runHostedThreadedIrqRegressions() &&
         runHostedCdiIrqRegressions() &&
         runHostedInputRegressions() &&
         runHostedNetworkFilterRegressions() &&

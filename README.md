@@ -14,12 +14,13 @@ preserving the project as useful systems-software history.
 The active source targets are:
 
 - x86-64 PC, built with the Pedigree cross-toolchain;
-- x86-64 Linux hosted, built as a Linux process for development and smoke
-  testing.
+- native host support and unit tests, built directly on macOS or Linux.
 
-Only the native tests and hosted path are automated today. The x86-64 PC
+Only the native test path is canonical today. The x86-64 Linux hosted sources
+remain available for focused experiments, but their container-backed runtime
+matrix is no longer part of the maintained public entrypoints. The x86-64 PC
 kernel, ISO, full userspace, and QEMU boot path remain active restoration work;
-they are not implied by a green hosted build. ARM, MIPS, and PowerPC material
+they are not implied by a green native build. ARM, MIPS, and PowerPC material
 is historical, not supported.
 
 See [RESTORATION.md](RESTORATION.md) for the exact support boundary, build
@@ -33,12 +34,11 @@ Run the complete maintained verification set from the repository root:
 ./verify.sh
 ```
 
-The host needs Git, CMake/CTest, a C/C++ compiler with AddressSanitizer, and a
-running Docker installation. Docker must be able to run `linux/amd64` images;
-Docker Desktop supplies that emulation on Apple silicon.
+The host needs Git, CMake/CTest, and a C/C++ compiler with AddressSanitizer.
+Docker is not used. Apple silicon macOS and Linux are both valid hosts.
 
-It runs the native test suite normally and under AddressSanitizer, then runs
-the hosted build and smoke ladder. Logs from every lane are kept under:
+It builds the native support surface and runs its tests normally and under
+AddressSanitizer. Logs are kept under:
 
 ```text
 build-verify/logs/<UTC timestamp>/
@@ -47,22 +47,21 @@ build-verify/logs/<UTC timestamp>/
 A passing run means those recorded lanes passed for that checkout. It does not
 claim an x86-64 PC boot, hardware support, or complete userspace coverage.
 
-## Build the hosted kernel
+## Run native hosted validation
 
 ```sh
 ./easy_build_hosted.sh
 ```
 
-The script always selects its x86-64 Linux Docker image so the maintained path
-does not install packages into the host. Non-amd64 hosts need working
-`linux/amd64` container emulation. It bootstraps the required toolchain, builds
-the native utilities and tests, builds the hosted kernel artifacts, and runs
-the six-rung smoke ladder.
+The historical name is preserved as a public entrypoint. It now builds the
+native kernel-support and selected module-support libraries, the test suite,
+and the image/debug utilities, then repeats the test build with AddressSanitizer.
+It does not build or run the legacy x86-64 Linux hosted kernel.
 
-On an already provisioned x86-64 Linux machine,
-`PEDIGREE_HOSTED_NATIVE=1 ./easy_build_hosted.sh` opts into a direct build. That
-mode prints exact incremental rebuild and smoke commands; the container-backed
-mode is rerun through `./easy_build_hosted.sh`.
+The retained Linux hosted processor, machine, module-smoke, and Docker files are
+non-canonical. They can inform future work, but a green native run makes no
+claim about that runtime, dynamic ELF modules, hosted userspace, or its old
+six-rung lifecycle ladder.
 
 ## Repository map
 

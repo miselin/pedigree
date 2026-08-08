@@ -1,3 +1,5 @@
+# Legacy x86-64 Linux hosted target. This is intentionally not selected by the
+# maintained native validation entrypoints.
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_VERSION 1)
 

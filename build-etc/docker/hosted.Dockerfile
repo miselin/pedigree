@@ -1,3 +1,5 @@
+# Legacy x86-64 Linux hosted environment. The maintained public build and
+# verification entrypoints do not use this image.
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive

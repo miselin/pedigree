@@ -4,7 +4,7 @@ This document is the support contract for this fork. It separates code that is
 actively maintained, code that is historically interesting, and behavior that
 has actually been verified.
 
-Status checked: 2026-07-29.
+Status checked: 2026-08-08.
 
 ## Baseline and restoration line
 
@@ -27,7 +27,7 @@ tree are reference material, not an assertion that their target still builds.
 | --- | --- | --- |
 | Native test support libraries and unit tests | Maintained and automated | Built and tested on the development host by `./verify.sh`. |
 | Native AddressSanitizer lane | Maintained and automated | The test support libraries and unit tests are built with ASan and must pass without sanitizer findings. |
-| x86-64 Linux hosted kernel | Maintained and automated | Built for the native Linux ABI and exercised by the hosted smoke ladder. |
+| x86-64 Linux hosted kernel | Experimental, non-canonical | The source remains available, but its Docker-backed build and smoke ladder are not required by the maintained entrypoints. |
 | x86-64 PC kernel and userspace | Active restoration target | The CMake target and x86-64 source remain in scope, but the current verification contract does not prove a fresh toolchain bootstrap, ISO, userspace image, or QEMU boot. |
 | ARM, MIPS, and PowerPC | Historical | Build and boot support was removed from the active fork. Any remaining source or documentation is museum material. |
 | Old SCons, Buildbot, Travis, PUP, CDI, and Freenode workflows | Historical | They describe the upstream project at earlier points in its life and are not current build or support instructions. |
@@ -48,29 +48,13 @@ From the repository root, run:
 ./verify.sh
 ```
 
-One invocation runs these three required lanes:
+One invocation runs `native-build-and-test`: build the native kernel-support
+and selected module-support libraries, test suite, and host utilities, run
+CTest, then repeat the test build and run with AddressSanitizer.
 
-1. `native-tests`: configure and build the native test support libraries and
-   test executable, then run the CTest suite.
-2. `asan-tests`: rebuild the utility libraries and tests with AddressSanitizer,
-   then run the CTest suite.
-3. `hosted-build-and-smoke`: build the x86-64 Linux hosted kernels and their
-   required artifacts, then run the hosted smoke ladder and check each
-   explicit lifecycle marker.
-
-The populated-initrd rung is intentionally small: it loads the configuration
-module and one purpose-built ET_DYN smoke module. It proves the hosted
-initrd-loader path without claiming that the complete historical module set is
-ready for dynamic hosted loading.
-
-The canonical hosted build sets `PEDIGREE_HOSTED_ASAN=OFF`. AddressSanitizer is
-a required part of the native test lane; it is not currently a support claim
-for the hosted kernel's signal- and `ucontext`-based scheduler.
-
-The hosted lane always selects the repository's x86-64 Linux Docker image.
-Docker, `linux/amd64` container support, Git, CMake/CTest, and a host C/C++
-compiler with AddressSanitizer are therefore prerequisites for canonical
-`./verify.sh`; verification does not invoke the legacy host package installer.
+Git, CMake/CTest, and a native C/C++ compiler with AddressSanitizer are the
+canonical prerequisites. Docker is not used, and verification does not update
+submodules or invoke the legacy host package installer.
 
 Each run writes durable output below:
 
@@ -82,7 +66,11 @@ Keep the whole run directory when reporting a failure. A terminal scrollback,
 an existing build directory, or one passing test executable is not equivalent
 to a green verification run.
 
-## Hosted smoke ladder
+## Retained Linux hosted smoke ladder
+
+The Linux hosted sources and their old smoke harness are retained as
+non-canonical development material. The maintained entrypoints do not build or
+run this ladder, and it is not part of the definition of green.
 
 The hosted stage advances through six separately logged checkpoints:
 
@@ -105,22 +93,20 @@ end-to-end boot from standing in for the whole ladder.
 ## What green means
 
 A checkout is green only when one `./verify.sh` invocation finishes
-successfully and every required lane in that invocation passes. In particular:
+successfully and every required stage in that invocation passes. In particular:
 
 - all configured native tests passed;
 - the separately instrumented ASan build and tests passed without a sanitizer
   report;
-- the hosted kernel and required artifacts built successfully;
-- every hosted smoke rung reached its required checkpoint and completed in the
-  expected way;
-- the logs for those results were saved under the same timestamped run
-  directory.
+- the logs for those results were saved under the same timestamped run directory.
 
 Green is deliberately narrow. It does **not** currently prove:
 
 - a clean x86-64 Pedigree GCC/binutils bootstrap on every host;
 - creation or boot of the x86-64 PC ISO and disk image;
 - an x86-64 PC boot to login in QEMU or on physical hardware;
+- an x86-64 Linux hosted-kernel build or lifecycle run;
+- the native-kernel/Pedigree-module compiler boundary used by that legacy lane;
 - broad userspace, POSIX, network, graphics, USB, or device-driver behavior;
 - exhaustive filesystem correctness or recovery behavior;
 - support for ARM, MIPS, or PowerPC.
@@ -128,33 +114,21 @@ Green is deliberately narrow. It does **not** currently prove:
 When one of those gains an automated, reproducible check, add it as a named
 verification lane before expanding the definition of green.
 
-## Hosted development command
+## Native hosted development command
 
-For a complete hosted setup and smoke test:
+For a direct native build and test run:
 
 ```sh
 ./easy_build_hosted.sh
 ```
 
-By default this always selects the repository's x86-64 Linux Docker image.
-Non-amd64 hosts require working `linux/amd64` container emulation. The script
-bootstraps the required cross-toolchain pieces, builds and tests the native
-utilities, builds the hosted kernel, and runs the hosted smoke ladder.
-
-An already provisioned x86-64 Linux host can opt into a direct build:
-
-```sh
-PEDIGREE_HOSTED_NATIVE=1 ./easy_build_hosted.sh
-```
-
-That direct mode does not install host packages and prints exact incremental
-commands using its native build directories. The default container-backed mode
-must be rerun through `./easy_build_hosted.sh`; its Linux artifacts and CMake
-cache are not directly runnable by macOS or another host ABI.
+The historical script name is preserved, but the command is now Docker-free and
+runs directly on macOS or Linux. It builds `testsuite`, `headerify`, `ext2img`,
+`keymap`, and `memorytracer`, runs CTest, and repeats the test build under ASan.
+It does not bootstrap the Pedigree cross-toolchain or produce a hosted kernel.
 
 `./easy_build_hosted.sh` is useful for development, but `./verify.sh` is the
-release of record because it also runs the dedicated ASan lane and saves all
-lane logs together.
+release of record because it saves a timestamped result and metadata.
 
 ## x86-64 PC status
 
@@ -186,8 +160,7 @@ focused experiments, not as fork-wide green.
   behavior.
 - Hosted AddressSanitizer instrumentation is experimental. Its fiber,
   signal-stack, and context-switch boundaries are not fully annotated, so it is
-  excluded from the canonical hosted build; the native ASan lane remains
-  required.
+  outside the canonical native validation; the native ASan lane remains required.
 - Hosted userspace smoke independently launches `init` and one simple command;
   it does not claim `exec`, `fork`, or `clone`. Hosted scheduler-state
   conversion for `fork`/`clone` and the initial-loader handoff needed by
@@ -197,9 +170,9 @@ focused experiments, not as fork-wide green.
   shutdown request, but does not implement Linux's full magic/cmd argument
   semantics.
 - The complete historical module set is not yet a supported dynamic hosted
-  initrd. The canonical populated-initrd rung covers only its purpose-built
-  smoke archive; broader dynamic loading currently reaches unverified
-  sanitizer, context-switch, and lwIP paths.
+  initrd. The retained populated-initrd rung covers only its purpose-built smoke
+  archive; broader dynamic loading currently reaches unverified sanitizer,
+  context-switch, and lwIP paths.
 - Test coverage is strongest around utilities and recently repaired
   correctness paths; large subsystems still have sparse automated coverage.
 - External ext2 validation and several old runtime harnesses are not part of

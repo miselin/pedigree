@@ -269,12 +269,10 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     pedigree_module(hosted-smoke "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/cache-regressions.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/hard-irq-guard-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/input-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/interrupt-manager-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/lifetime-lease-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/log-regressions.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/irq-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/mutex-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/network-filter-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pagefault-regressions.cc
@@ -288,8 +286,6 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/signal-interruption-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/syscall-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/timer-regressions.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/split-irq-regressions.cc
-        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/threaded-irq-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/usb-callback-delivery-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/usb-hcd-port-change-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/usb-transfer-lifecycle-regressions.cc

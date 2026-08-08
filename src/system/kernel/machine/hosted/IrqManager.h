@@ -21,213 +21,73 @@
 #define KERNEL_MACHINE_HOSTED_IRQMANAGER_H
 
 #include "pedigree/kernel/compiler.h"
-#include "pedigree/kernel/machine/IrqDiagnosticSnapshotStore.h"
-#include "pedigree/kernel/machine/IrqHandlerRegistry.h"
 #include "pedigree/kernel/machine/IrqManager.h"
-#include "pedigree/kernel/machine/ThreadedIrqDispatcher.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
 
-/** @addtogroup kernelmachinehosted
- * @{ */
-
+/**
+ * Routes the two synthetic signals used by the hosted machine.
+ *
+ * Hosted is a single-processor kernel validation shim, not an interrupt
+ * controller model. Line 0 belongs exclusively to the hosted wall-clock timer
+ * and line 1 belongs exclusively to the scheduler timer. Device, PCI, shared,
+ * and threaded controller registrations are deliberately unsupported.
+ */
 class HostedIrqManager : public IrqManager, private InterruptHandler
 {
   public:
-    /** Get the HostedIrqManager class instance
-     *\return the HostedIrqManager class instance */
     inline static HostedIrqManager &instance()
     {
         return m_Instance;
     }
 
-    //
-    // IrqManager interface
-    //
-    virtual irq_id_t registerIsaIrqHandler(
-        uint8_t irq, IrqHandler *handler, const IrqPolicy &policy);
-    virtual irq_id_t registerPciIrqHandler(
-        IrqHandler *handler, class Device *pDevice, const IrqPolicy &policy);
-    virtual irq_id_t registerHardIsaIrqHandler(
-        uint8_t irq, HardIrqHandler *handler, const IrqPolicy &policy);
-    virtual irq_id_t registerHardPciIrqHandler(
-        HardIrqHandler *handler, class Device *pDevice,
-        const IrqPolicy &policy);
-    virtual irq_id_t registerSchedulerIrqHandler(
+    irq_id_t registerIsaIrqHandler(
+        uint8_t irq, IrqHandler *handler, const IrqPolicy &policy) override;
+    irq_id_t registerPciIrqHandler(
+        IrqHandler *handler, class Device *device,
+        const IrqPolicy &policy) override;
+    irq_id_t registerHardIsaIrqHandler(
+        uint8_t irq, HardIrqHandler *handler,
+        const IrqPolicy &policy) override;
+    irq_id_t registerHardPciIrqHandler(
+        HardIrqHandler *handler, class Device *device,
+        const IrqPolicy &policy) override;
+    irq_id_t registerSchedulerIrqHandler(
         uint8_t irq, SchedulerIrqHandler *handler,
-        const IrqPolicy &policy);
-    virtual bool unregisterSchedulerIrqHandler(
-        irq_id_t Id, SchedulerIrqHandler *handler);
-    virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler);
-    virtual size_t
-    snapshotIrqLines(IrqLineDiagnosticSnapshot *out, size_t capacity) const;
+        const IrqPolicy &policy) override;
+    bool unregisterSchedulerIrqHandler(
+        irq_id_t id, SchedulerIrqHandler *handler) override;
+    bool unregisterHandler(irq_id_t id, IrqHandlerBase *handler) override;
 
-    /** Initialises the PIC hardware and registers the interrupts with the
-     *  InterruptManager.
-     *\return true, if successfull, false otherwise */
     bool initialise() INITIALISATION_ONLY;
 
-    /** Starts manager-owned bottom-half workers after scheduler startup. */
-    bool initialiseThreaded();
+    bool control(uint8_t irq, ControlCode code, size_t argument) override;
 
-    /** Stops and joins every manager-owned bottom-half worker. */
-    bool shutdownThreaded();
-
-    /** Called every millisecond, typically handles IRQ mitigation. */
-    virtual void tick();
-
-    /** Controls specific elements of a given IRQ */
-    virtual bool control(uint8_t irq, ControlCode code, size_t argument);
-
-    virtual void enable(uint8_t irq, bool enable)
+    void enable(uint8_t irq, bool enable) override
     {
+        // Hosted has no per-line interrupt controller. Processor::setInterrupts
+        // owns the only meaningful signal mask.
     }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    using HandlerPinHook = IrqHandlerRegistry::HandlerPinHook;
-    using HandlerPrePinHook = IrqHandlerRegistry::HandlerPrePinHook;
-    using HandlerHazardHook = IrqHandlerRegistry::HandlerHazardHook;
-    using HandlerHazardStage = IrqHandlerRegistry::HandlerHazardStage;
-    using DispatchAbandonHook = IrqHandlerRegistry::DispatchAbandonHook;
-    using MutationLockHook = IrqHandlerRegistry::MutationLockHook;
-    using DiagnosticPublicationHook = void (*)(uint8_t, size_t);
-    using SchedulerRoutePublicationHook = void (*)(size_t *);
-
-    enum class LineOwnershipStage
-    {
-        BeforeFinalStateCheck,
-        BeforeFinalCookieAdvance,
-        AdmissionRejected,
-        BeforeThreadedCookieValidation,
-    };
-    using LineOwnershipHook = void (*)(uint8_t, LineOwnershipStage, size_t);
-
-    /** Installs a deterministic observer after a handler has been pinned. */
-    static EXPORTED_PUBLIC void setHandlerPinHook(HandlerPinHook hook);
-
-    /** Installs a deterministic observer before a tentative pin commits. */
-    static EXPORTED_PUBLIC void setHandlerPrePinHook(HandlerPrePinHook hook);
-
-    /** Installs an observer around active-hazard publication. */
-    static EXPORTED_PUBLIC void setHandlerHazardHook(HandlerHazardHook hook);
-
-    /** Observes cleanup after a synthetic dispatch abandons its stack.
-     *  The boolean reports whether callback masking had begun. */
-    static EXPORTED_PUBLIC void
-    setDispatchAbandonHook(DispatchAbandonHook hook);
-
-    /** Dispatches one handler through the production registry path. */
-    static EXPORTED_PUBLIC bool dispatchHandlerForTest(
-        uint8_t irq, HardIrqHandler *handler, InterruptState &state,
-        HardIrqDisposition &disposition, size_t dispatchGeneration = 1);
-
-    /** Dispatches through the production registry with synthetic hosted state.
-     */
-    static EXPORTED_PUBLIC bool dispatchHandlerForTest(
-        uint8_t irq, HardIrqHandler *handler,
-        HardIrqDisposition &disposition,
-        size_t dispatchGeneration = 1);
-
-    /** Runs a deterministic test seam while the writer lock is held. */
-    static EXPORTED_PUBLIC void
-    withRegistryMutationLockForTest(MutationLockHook hook);
-
-    /** Runs a deterministic test seam while the mutation epoch is active. */
-    static EXPORTED_PUBLIC void
-    withRegistryMutationEpochForTest(MutationLockHook hook);
-
-    /** Counts active hazards for deterministic abandoned-stack tests. */
-    static EXPORTED_PUBLIC size_t
-    activeDispatchCountForTest(IrqHandlerBase *handler);
-
-    /** Counts claimed hazards owned by one deterministic test dispatcher. */
-    static EXPORTED_PUBLIC size_t
-    claimedDispatchCountForOwnerForTest(void *owner);
-
-    /** Reports whether any nonempty line slot still publishes a handler. */
-    static EXPORTED_PUBLIC bool
-    containsHandlerForTest(uint8_t irq, IrqHandlerBase *handler);
-
-    /** Abandons the current test Thread through the kernel scheduler. */
-    static EXPORTED_PUBLIC void abandonCurrentThreadForTest();
-
-    /** Pauses a deterministic diagnostic publication after its registry read.
-     */
-    static EXPORTED_PUBLIC void
-    setDiagnosticPublicationHook(DiagnosticPublicationHook hook);
-
-    /** Observes deterministic line-lifetime ownership windows. */
-    static EXPORTED_PUBLIC void setLineOwnershipHook(LineOwnershipHook hook);
-
-    /** Runs after a scheduler route publishes but before shutdown is rechecked.
-     */
-    static EXPORTED_PUBLIC void setSchedulerRoutePublicationHookForTest(
-        SchedulerRoutePublicationHook hook);
-
-    /** Returns the direct scheduler source published for one signal line. */
     static EXPORTED_PUBLIC SchedulerIrqHandler *
     schedulerIrqHandlerForTest(uint8_t irq);
 #endif
 
   private:
-    /** The default constructor */
     HostedIrqManager() INITIALISATION_ONLY;
-    /** The destructor */
-    inline virtual ~HostedIrqManager()
+    inline ~HostedIrqManager() override
     {
     }
-    /** The copy-constructor
-     *\note NOT implemented */
-    HostedIrqManager(const HostedIrqManager &);
-    /** The assignment operator
-     *\note NOT implemented */
-    HostedIrqManager &operator=(const HostedIrqManager &);
 
-    //
-    // InterruptHandler interface
-    //
-    virtual void interrupt(size_t interruptNumber, InterruptState &state);
-    bool dispatchDeviceLine(
-        uint8_t irq, InterruptState &state, bool schedulerRoutePresent);
+    HostedIrqManager(const HostedIrqManager &) = delete;
+    HostedIrqManager &operator=(const HostedIrqManager &) = delete;
 
-    static void dispatchThreadedLine(void *context, uint8_t irq, size_t cookie);
-    void publishDiagnosticLine(uint8_t irq);
-    bool lifecycleTerminationCanBeDeferred() const;
-    size_t advanceThreadedCookie(uint8_t irq);
-    static bool quarantineBlocked(const size_t &state);
-    static bool latchQuarantine(size_t &state, size_t capturedState);
-    static void resetQuarantine(size_t &state);
+    void interrupt(size_t interruptNumber, InterruptState &state) override;
 
-    /** IRQ handlers and their callback lifetime state. */
-    IrqHandlerRegistry m_Handlers;
-    /** Scheduler sources bypass the generic hard-handler registry. */
-    SchedulerIrqHandler *m_SchedulerIrqHandlers[3];
+    HardIrqHandler *m_TimerHandler;
+    SchedulerIrqHandler *m_SchedulerHandler;
 
-    /** Stable one-worker-per-signal threaded IRQ dispatcher. */
-    ThreadedIrqDispatcher m_ThreadedDispatcher;
-    size_t m_ThreadedCookies[3];
-    /** The cookie publishes its adjacent hard outcome without a blocking
-     *  lock. */
-    size_t m_MixedHardOutcomeCookies[3];
-    size_t m_MixedHardDispositions[3];
-    /** Invalidates old hard results after the complete hard stage retires. */
-    size_t m_HardStageGenerations[3];
-    /** Generation-tagged masks survive stale threaded-publication tails. */
-    size_t m_ThreadedPublicationQuarantines[3];
-    size_t m_LineDeliveries[3];
-    size_t m_ThreadedPublicationFailures[3];
-    size_t m_RemovalRejections[3];
-    size_t m_DispatchGenerations[3];
-    size_t m_UnhandledInterrupts[3];
-    IrqDiagnosticSnapshotStore<3> m_Diagnostics;
-    /** Serialises registry mutations with per-line cookie ownership changes. */
-    size_t m_LineLifecycleBusy[3];
-    /** Terminal gate: once closed, this manager never admits new handlers. */
-    size_t m_ShuttingDown;
-
-    /** The HostedIrqManager instance */
     static HostedIrqManager m_Instance;
 };
-
-/** @} */
 
 #endif
