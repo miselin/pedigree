@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-'''
+"""
 Copyright (c) 2008-2014, Pedigree Developers
 
 Please see the CONTRIB file in the root of the source tree for a full
@@ -16,17 +16,16 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-'''
+"""
 
 import os
-import sys
-import stat
-import urllib
 import sqlite3
+import stat
+import sys
 import tarfile
 import traceback
-import multiprocessing
-import multiprocessing.pool
+import urllib.error
+import urllib.request
 
 import pup_common
 
@@ -66,21 +65,18 @@ class TarEntry(object):
                     os.unlink(self.name)
                 fn(self.linkname, self.name)
             except OSError:
-                print "Extracting %s failed, target %s does not exist." % (
-                    self.shortname, self.shortlink)
+                print(
+                    "Extracting %s failed, target %s does not exist."
+                    % (self.shortname, self.shortlink)
+                )
                 return
 
             return
 
-        with open(self.name, 'w') as f:
+        with open(self.name, "wb") as f:
             f.write(self.data)
 
         os.chmod(self.name, self.mode)
-
-    def __cmp__(self, other):
-        a = (self.linkname, self.name, self.symlink)
-        b = (other.linkname, other.name, other.symlink)
-        return cmp(a, b)
 
 def do_extract(arg):
     try:
@@ -89,11 +85,14 @@ def do_extract(arg):
                 f.extract()
         else:
             arg.extract()
-    except:
-        print traceback.format_exc()
+    except Exception:
+        print(traceback.format_exc())
         raise
 
 def main(arglist):
+    if not arglist:
+        print("Usage: pup install <package> [config]", file=sys.stderr)
+        return 2
 
     remotePath, localPath, installRoot, desiredArch = pup_common.getConfig(arglist[1:])
 
@@ -108,39 +107,42 @@ def main(arglist):
     if data is None:
         s.close()
         
-        print "The package '%s' [%s] is not available. You may need to run `pup sync' to update the list of available packages." % (arglist[0], desiredArch)
-        exit(1)
+        print(
+            "The package '%s' [%s] is not available. You may need to run "
+            "`pup sync' to update the list of available packages."
+            % (arglist[0], desiredArch)
+        )
+        return 1
     s.close()
     
     # Package name
     packageName = "%s-%s-%s" % (data[1], data[2], desiredArch)
     localFile = "%s/%s.pup" % (localPath, packageName)
     
-    print "Preparing to install %s" % (packageName)
+    print("Preparing to install %s" % (packageName))
     
     if not os.path.exists(localFile):
 
-        print "    -> Downloading..."
+        print("    -> Downloading...")
 
         for server in remotePath:
             remoteUrl = "%s/%s.pup" % (server, packageName)
         
-            print "      + trying %s" % (remoteUrl),
+            print("      + trying %s" % (remoteUrl), end="")
             try:
-                o = urllib.FancyURLopener()
-                o.retrieve(remoteUrl, localFile)
-                print "(OK)"
+                urllib.request.urlretrieve(remoteUrl, localFile)
+                print("(OK)")
                 break
-            except:
-                print "(failed)"
+            except (OSError, urllib.error.URLError):
+                print("(failed)")
                 continue
         
         if not os.path.exists(localFile):
             print ("Error: couldn't download the package from any server. "
                    "Check your internet connection and try again.")
-            exit(1)
-    
-    print "    -> Installing..."
+            return 1
+
+    print("    -> Installing...")
     
     # TODO: track installed packages in a local database
     
@@ -171,19 +173,21 @@ def main(arglist):
             obj = TarEntry(t, f, name, linkname, f.issym())
             filelist.append(obj)
         else:
-            print "(%s is not a sane file type)" % (f.name,)
+            print("(%s is not a sane file type)" % (f.name,))
 
     # Make sure symlinks appear last in the list of files.
     files = [f for f in filelist if not f.linkname]
     links = [f for f in filelist if f.linkname]
 
-    p = multiprocessing.pool.Pool(processes=max(multiprocessing.cpu_count() / 2, 1))
-    p.map(do_extract, files)
+    # TarFile shares one stream; extract sequentially so entry reads cannot
+    # race each other or depend on multiprocessing pickling behaviour.
+    do_extract(files)
 
     # Do links last and unthreaded, as they depend on extracted files.
     do_extract(links)
     
-    print "Package %s [%s] is now installed." % (packageName, desiredArch)
+    print("Package %s [%s] is now installed." % (packageName, desiredArch))
+    return 0
 
-if __name__ == '__main__':
-    main(sys.argv[1:])
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

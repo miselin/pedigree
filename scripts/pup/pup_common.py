@@ -1,4 +1,4 @@
-'''
+"""
 Copyright (c) 2008-2014, Pedigree Developers
 
 Please see the CONTRIB file in the root of the source tree for a full
@@ -15,9 +15,11 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-'''
+"""
 
-import ConfigParser, os
+import configparser
+import os
+
 
 def getConfig(args):
     # Check for a config file
@@ -30,28 +32,23 @@ def getConfig(args):
 
     # Try and read the config file
     if os.path.exists(configFile):
-        cp = ConfigParser.ConfigParser()
+        cp = configparser.ConfigParser()
         cp.read(configFile)
 
         localPath = cp.get("paths", "localdb")
         installRoot = cp.get("paths", "installroot")
         desiredArch = cp.get("settings", "arch")
 
-        remotePath = []
-        for server in cp.items("remotes"):
-            remotePath += [server[1]]
+        remotePath = [server[1] for server in cp.items("remotes")]
     else:
         # Sane defaults!
-        localPath="./local_repo"
-        installRoot="./install_root"
-        remotePath=["http://test.local/pup"]
-    
-    if localPath[-1] == "/":
-        localPath = localPath[0:-1]
-    if installRoot[-1] == "/":
-        installRoot = installRoot[0:-1]
-    if remotePath[-1] == "/":
-        remotePath = remotePath[0:-1]
-    
-    return (remotePath, localPath, installRoot, desiredArch)
+        localPath = "./local_repo"
+        installRoot = "./install_root"
+        remotePath = ["https://pup.pedigree-project.org"]
+        desiredArch = "amd64"
 
+    localPath = localPath.rstrip("/") or "/"
+    installRoot = installRoot.rstrip("/") or "/"
+    remotePath = [server.rstrip("/") for server in remotePath]
+
+    return (remotePath, localPath, installRoot, desiredArch)

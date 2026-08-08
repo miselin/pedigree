@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-'''
+"""
 Copyright (c) 2008-2014, Pedigree Developers
 
 Please see the CONTRIB file in the root of the source tree for a full
@@ -16,52 +16,57 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-'''
+"""
 
-import os, sys, urllib, sqlite3
+import os
+import sqlite3
+import sys
+import urllib.error
+import urllib.request
 
 import pup_common
+
 
 def main(arglist):
 
     remotePath, localPath, ignore, ignore = pup_common.getConfig(arglist)
-    
+
     if localPath[-1] == "/":
         localPath = localPath[0:-1]
 
     if not os.path.exists(localPath):
         os.makedirs(localPath)
-    
+
     localFile = localPath + "/packages_new.pupdb"
 
     # TODO: merge multiple databases (and store the server on which each package can be found?)
     success = False
     for server in remotePath:
-        remoteUrl = "%s/packages.pupdb" % (server)
-    
-        print "    -> syncing with %s" % (remoteUrl),
+        remoteUrl = f"{server}/packages.pupdb"
+
+        print(f"    -> syncing with {remoteUrl}", end="")
         try:
-            o = urllib.FancyURLopener()
-            o.retrieve(remoteUrl, localFile)
+            urllib.request.urlretrieve(remoteUrl, localFile)
             success = True
-            print "(OK)"
+            print("(OK)")
             break
-        except:
-            print "(failed)"
+        except (OSError, urllib.error.URLError):
+            print("(failed)")
             continue
-    
+
     if not success:
-        print "Error: couldn't download package information from any server."
-        exit(1)
-    
+        print("Error: couldn't download package information from any server.")
+        sys.exit(1)
+
     # If the database isn't a valid sqlite database, this will fail
     s = sqlite3.connect(localFile)
     s.execute("select * from packages")
     s.close()
-    
-    os.rename(localFile, localPath + "/packages.pupdb")
-    
-    print "Synchronisation complete."
 
-if __name__ == '__main__':
+    os.replace(localFile, localPath + "/packages.pupdb")
+
+    print("Synchronisation complete.")
+
+
+if __name__ == "__main__":
     main(sys.argv[1:])

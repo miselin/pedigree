@@ -1,38 +1,38 @@
-#!/usr/bin/env python
-'''
-    PUP: Pedigree UPdater
+#!/usr/bin/env python3
+"""
+PUP: Pedigree UPdater
 
-    Copyright (c) 2010 Matthew Iselin
+Copyright (c) 2010 Matthew Iselin
 
-    Permission to use, copy, modify, and distribute this software for any
-    purpose with or without fee is hereby granted, provided that the above
-    copyright notice and this permission notice appear in all copies.
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
 
-    THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-    WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-    MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-    ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-    WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-    ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-    pup: central script for simplicity
-'''
+pup: central script for simplicity
+"""
 
-import os, sys
-from optparse import OptionParser
+import os
+import sys
 
 args = sys.argv
 
 if len(args) < 2:
-    print "Usage: pup <operation> <operation_args>"
-    exit()
+    print("Usage: pup <operation> <operation_args>")
+    sys.exit(2)
 
 potential_ops = ["makepkg", "regpkg", "sync", "install"]
 if not args[1] in potential_ops:
-    print "Operation '" + args[1] + "' not supported."
-    print "Supported operations: " + ', '.join(potential_ops)
-    exit()
+    print("Operation '" + args[1] + "' not supported.")
+    print("Supported operations: " + ", ".join(potential_ops))
+    sys.exit(2)
 
 script_path = os.path.dirname(args[0])
 
@@ -40,5 +40,4 @@ runscript = "pup-" + args[1]
 __import__(runscript)
 mod = sys.modules[runscript]
 
-mod.main(args[2:])
-
+sys.exit(mod.main(args[2:]))
