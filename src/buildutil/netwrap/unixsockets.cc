@@ -83,8 +83,8 @@ int main(int argc, char **argv)
 
     g_pUnixFilesystem = new UnixFilesystem();
 
-    VFS::instance().addAlias(
-        g_pUnixFilesystem, g_pUnixFilesystem->getVolumeLabel());
+    VFS::instance().registerFilesystem(g_pUnixFilesystem, String("unix"));
+    VFS::instance().setRootFilesystem(g_pUnixFilesystem);
 
     printf("=> Datagram tests...\n");
 
@@ -114,7 +114,7 @@ int main(int argc, char **argv)
     struct sockaddr_un sun1;
     socklen_t socklen;
     sun1.sun_family = AF_UNIX;
-    strcpy(sun1.sun_path, "unix»/s1");
+    strcpy(sun1.sun_path, "/s1");
     socklen = strlen(sun1.sun_path) + sizeof(sa_family_t);
 
     int rc = posix_bind(
@@ -170,7 +170,7 @@ int main(int argc, char **argv)
 
     struct sockaddr_un sun2;
     sun2.sun_family = AF_UNIX;
-    strcpy(sun2.sun_path, "unix»/s2");
+    strcpy(sun2.sun_path, "/s2");
     socklen = strlen(sun2.sun_path) + sizeof(sa_family_t);
 
     rc = posix_bind(
@@ -492,7 +492,7 @@ int main(int argc, char **argv)
             oldListener, reinterpret_cast<const sockaddr_storage *>(&sun1),
             socklen) == 0);
     assert(posix_listen(oldListener, 1) == 0);
-    assert(VFS::instance().remove(String("unix»/s1")));
+    assert(VFS::instance().remove(String("/s1")));
 
     int replacement = posix_socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
     assert(replacement >= 0);

@@ -106,15 +106,15 @@ bool g_bAlive = true;
 #ifdef TARGET_LINUX
 #define CLIENT_DEFAULT "./tui"
 #else
-#define CLIENT_DEFAULT "/applications/TUI"
+#define CLIENT_DEFAULT "/usr/bin/TUI"
 #endif
 
-#define TEXTONLY_DEFAULT "/applications/ttyterm"
+#define TEXTONLY_DEFAULT "/usr/bin/ttyterm"
 
 #ifdef TARGET_LINUX
 #define DEJAVU_FONT "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 #else
-#define DEJAVU_FONT "/system/fonts/DejaVuSansMono.ttf"
+#define DEJAVU_FONT "/usr/share/fonts/DejaVuSansMono.ttf"
 #endif
 
 #ifdef TARGET_LINUX
@@ -621,7 +621,7 @@ void queueInputCallback(Input::InputNotification &note)
 
             klog(
                 LOG_INFO, "ALT-%d [%x%x] %c", (uint32_t) c,
-                (uint32_t)(c >> 32ULL), (uint32_t) c, (char) c);
+                (uint32_t) (c >> 32ULL), (uint32_t) c, (char) c);
 
             c &= 0xFFFFFFFFULL;
             Container *focusParent = g_pFocusWindow->getParent();
@@ -1026,7 +1026,7 @@ int main(int argc, char *argv[])
 
     // Create ourselves a lock file so we don't end up getting run twice.
     /// \todo Revisit this when exiting the window manager is possible.
-    int fd = open("runtime»/winman.lck", O_WRONLY | O_EXCL | O_CREAT, 0500);
+    int fd = open("/run/winman.lck", O_WRONLY | O_EXCL | O_CREAT, 0500);
     if (fd < 0)
     {
         fprintf(stderr, "winman: lock file exists, terminating.\n");

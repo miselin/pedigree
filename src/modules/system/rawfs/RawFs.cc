@@ -111,8 +111,7 @@ static bool init()
     g_pRawFs = new RawFs();
     VFS::instance().addMountCallback(&rescanTree);
     rescanTree();
-    String alias("raw");
-    VFS::instance().addAlias(g_pRawFs, alias);
+    VFS::instance().registerFilesystem(g_pRawFs, String("raw"));
 
     return true;
 }

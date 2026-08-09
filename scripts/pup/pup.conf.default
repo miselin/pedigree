@@ -1,6 +1,6 @@
 [paths]
 installroot=/
-localdb=/support/pup/db
+localdb=/var/cache/pup
 
 [settings]
 arch=amd64

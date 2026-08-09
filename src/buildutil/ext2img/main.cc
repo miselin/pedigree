@@ -48,8 +48,7 @@
 #include <openssl/sha.h>
 #endif
 
-#define FS_ALIAS "fs"
-#define TO_FS_PATH(x) String(FS_ALIAS "»") += x.c_str()
+#define TO_FS_PATH(x) String(x.c_str())
 
 static bool ignoreErrors = false;
 static size_t blocksPerRead = 64;
@@ -510,27 +509,28 @@ bool probeAndMount(const char *image, size_t part)
     }
 
     // Make sure we actually have a filesystem here.
-    String alias(FS_ALIAS);
-    if (!VFS::instance().mount(pDisk, alias))
+    String stableName("image");
+    Filesystem *pFs = nullptr;
+    if (!VFS::instance().mount(pDisk, stableName, &pFs))
     {
         std::cerr << "This partition does not appear to be an ext2 filesystem."
                   << std::endl;
         return false;
     }
 
-    return true;
+    return VFS::instance().setRootFilesystem(pFs);
 }
 
 bool unmount()
 {
-    String alias(FS_ALIAS);
-    Filesystem *pFs = VFS::instance().lookupFilesystem(alias);
+    Filesystem *pFs = VFS::instance().getRootFilesystem();
     if (!pFs) {
         std::cerr << "Failed to find the ext2 filesystem to unmount it." << std::endl;
         return false;
     }
 
-    VFS::instance().removeAllAliases(pFs);
+    VFS::instance().setRootFilesystem(nullptr);
+    VFS::instance().unregisterFilesystem(pFs);
 
     return true;
 }

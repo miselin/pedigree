@@ -22,7 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MODULE_FMT "root»/system/modules/%s.o"
+#define MODULE_FMT "/usr/lib/modules/%s.o"
 
 extern void pedigree_module_load(char *file);
 extern int pedigree_module_is_loaded(char *name);

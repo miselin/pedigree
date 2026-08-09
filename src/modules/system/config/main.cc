@@ -200,7 +200,7 @@ static int xOpen(
     sqlite3_vfs *vfs, const char *zName, sqlite3_file *file, int flags,
     int *pOutFlags)
 {
-    if (StringCompare(zName, "root»/.pedigree-root"))
+    if (StringCompare(zName, "/.pedigree-root"))
     {
         // Assume journal file, return failure functions.
         file->pMethods = &theio_fail;
@@ -455,7 +455,7 @@ static bool init()
     }
 
     sqlite3_initialize();
-    int ret = sqlite3_open("root»/.pedigree-root", &g_pSqlite);
+    int ret = sqlite3_open("/.pedigree-root", &g_pSqlite);
     if (ret)
     {
         FATAL("sqlite3 error: " << sqlite3_errmsg(g_pSqlite));

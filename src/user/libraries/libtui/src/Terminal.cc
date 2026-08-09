@@ -160,10 +160,8 @@ bool Terminal::initialise()
             if (!prog)
             {
                 // Fall back to bash
-                klog(
-                    LOG_WARNING,
-                    "$SHELL unset, falling back to /applications/bash");
-                prog = "/applications/bash";
+                klog(LOG_WARNING, "$SHELL unset, falling back to /bin/bash");
+                prog = "/bin/bash";
             }
         }
 

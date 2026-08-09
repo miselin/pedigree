@@ -31,7 +31,7 @@ int test_open(void)
 {
     printf("open():\n");
     printf("\tOpen existing file - ");
-    int fd = open("/applications/shell", O_RDONLY);
+    int fd = open("/usr/bin/bash", O_RDONLY);
     if (fd != -1)
     {
         close(fd);
@@ -44,7 +44,7 @@ int test_open(void)
     }
 
     printf("\tOpen nonexistant file - ");
-    int fd2 = open("/applications/penis", O_RDONLY);
+    int fd2 = open("/usr/bin/does-not-exist", O_RDONLY);
     if (fd2 == -1 && errno == ENOENT)
     {
         close(fd2);
@@ -70,9 +70,9 @@ int test_open(void)
     }
 
     printf("\tRecycle descriptors - ");
-    int fd4 = open("/applications/bash", O_RDWR);
+    int fd4 = open("/usr/bin/bash", O_RDWR);
     close(fd4);
-    int fd5 = open("/applications/bash", O_RDWR);
+    int fd5 = open("/usr/bin/bash", O_RDWR);
     close(fd5);
     if (fd4 == fd5)
     {
@@ -84,7 +84,7 @@ int test_open(void)
         return FAIL;
     }
 
-    int hahaha = open("/applications/bash", O_RDWR);
+    int hahaha = open("/usr/bin/bash", O_RDWR);
     pid_t pid = fork();
 
     if (pid == -1)
@@ -96,7 +96,7 @@ int test_open(void)
     if (pid == 0)
     {
         close(hahaha);
-        int rofl = open("/applications/bash", O_RDWR);
+        int rofl = open("/usr/bin/bash", O_RDWR);
 
         printf("%d/%d\n", hahaha, rofl);
 

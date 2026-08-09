@@ -29,12 +29,11 @@
 int main(int argc, char *argv[])
 {
     setlocale(LC_ALL, "");
-    bindtextdomain("tour", "/system/locale");
+    bindtextdomain("tour", "/usr/share/locale");
     bind_textdomain_codeset("tour", "UTF-8");
     textdomain("tour");
 
-    // Undo any silliness.
-    chdir("root»/");
+    chdir("/");
 
     /// \todo make available in man pages too
     init_dialog(stdin, stdout);
@@ -45,43 +44,24 @@ int main(int argc, char *argv[])
     dialog_msgbox(
         gettext("Welcome to Pedigree!"),
         gettext(
-            "This tour is designed to help you understand how Pedigree "
-            "differs from other UNIX-like systems. It's interactive, so you "
-            "can practice along the way."),
+            "This short tour introduces the filesystem and the kernel "
+            "debugger."),
         0, 0, 1);
 
     dlg_clear();
 
     dialog_prgbox(
-        gettext("Pedigree Tour"),
-        gettext("Let's run the `ls' command for you:"), "ls root»/", 20, 52, 1);
+        gettext("Pedigree Tour"), gettext("Here is the root filesystem:"),
+        "ls /", 20, 52, 1);
 
     dlg_clear();
 
     dialog_msgbox(
         gettext("Pedigree Tour"),
-        gettext("As you can see, the typical /bin, /lib, /var (and so on) are "
-                "not present. Instead, you find /applications, /libraries, "
-                "/system, /config, and so on. This is designed to be intuitive "
-                "but it can cause problems with some software."),
-        0, 0, 1);
-
-    dlg_clear();
-
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext("After the tour completes, you can navigate around the "
-                "filesystem to to get a closer look at what each directory "
-                "contains."),
-        0, 0, 1);
-
-    dlg_clear();
-
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext("Another significant difference in Pedigree is the path "
-                "structure. In Pedigree, paths follow the format "
-                "[mount]»/path/to/file."),
+        gettext(
+            "Pedigree uses a conventional filesystem layout. Programs and "
+            "libraries are under /usr, configuration is under /etc, user "
+            "homes are under /home, and runtime state is under /run."),
         0, 0, 1);
 
     dlg_clear();
@@ -89,85 +69,8 @@ int main(int argc, char *argv[])
     dialog_msgbox(
         gettext("Pedigree Tour"),
         gettext(
-            "We've switched directory to root»/ if you were elsewhere. "
-            "The root mount always exists; Pedigree will not start without it."
-            " Your applications and configuration exist under root»/."),
-        0, 0, 1);
-
-    dlg_clear();
-
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext(
-            "Paths that begin with a '/' will always operate in your "
-            "current mount. Because the current working directory is root»/, "
-            "we can simply run `/applications/ls' to run "
-            "`root»/applications/ls'."),
-        0, 0, 1);
-
-    dlg_clear();
-
-    while (true)
-    {
-        dlg_clr_result();
-        dialog_inputbox(
-            gettext("Pedigree Tour"),
-            gettext(
-                "Before we dig into what other mounts may exist, it's "
-                "important to know how to type these paths. You can type the "
-                "'»' character in Pedigree by using 'RIGHTALT-.' - try it "
-                "now. If you want to finish the tour, just type 'quit'."),
-            0, 0, "", 0);
-
-        if (!strcmp(dialog_vars.input_result, "quit"))
-        {
-            end_dialog();
-            return 0;
-        }
-        else if (!strcmp(dialog_vars.input_result, "»"))
-        {
-            break;
-        }
-    }
-
-    dlg_clear();
-
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext(
-            "Now that you know how to type the paths, here are a "
-            "selection of standard Pedigree mounts."
-            "\n\n"
-            "* dev» provides device access (ala /dev).\n"
-            "* raw» provides access to raw disks and partitions.\n"
-            "* scratch» is an entirely in-memory filesystem.\n"
-            "* runtime» is an in-memory filesystem for runfiles (like /run).\n"
-            "    Files here can only be modified by their owning process.\n"
-            "* unix» provides a location for named UNIX sockets."),
-        0, 0, 1);
-
-    dlg_clear();
-
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext(
-            "Note that there is a significant caveat with respect to the "
-            "$PATH variable with this scheme. If your $PATH does not contain "
-            "absolute paths, you may find that switching working directory to "
-            "a "
-            "different mount point can cause you to be unable to run any "
-            "commands."),
-        0, 0, 1);
-
-    dlg_clear();
-
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext("This image has been configured such that the default PATH "
-                "does this correctly. There may still be weirdness, and if you "
-                "notice "
-                "things are not quite working correctly, you can always run "
-                "`cd root»/` to return to the root mount."),
+            "Device files are available under /dev, process information "
+            "under /proc, and temporary files under /tmp."),
         0, 0, 1);
 
     dlg_clear();
@@ -184,31 +87,34 @@ int main(int argc, char *argv[])
 
     dialog_msgbox(
         gettext("Pedigree Tour"),
-        gettext("In the debugger, you can read the kernel log, view "
-                "backtraces, and do various other inspections to identify what "
-                "went "
-                "wrong or inspect kernel state."),
+        gettext(
+            "In the debugger, you can read the kernel log, view "
+            "backtraces, and do various other inspections to identify what "
+            "went "
+            "wrong or inspect kernel state."),
         0, 0, 1);
 
     dlg_clear();
 
     dialog_msgbox(
         gettext("Pedigree Tour"),
-        gettext("You can use the `help` command to see what is available in "
-                "the debugger. If you run into an issue that triggers the "
-                "debugger, "
-                "please try and add a serial port log if you report it to us. "
-                "Thanks!"),
+        gettext(
+            "You can use the `help` command to see what is available in "
+            "the debugger. If you run into an issue that triggers the "
+            "debugger, "
+            "please try and add a serial port log if you report it to us. "
+            "Thanks!"),
         0, 0, 1);
 
     dlg_clear();
 
     dialog_msgbox(
         gettext("Pedigree Tour"),
-        gettext("The tour is now complete, and you are now better-equipped to "
-                "handle Pedigree! Raise any issues you find at "
-                "https://github.com/miselin/pedigree/issues.\n\n"
-                "Thank you for trying out Pedigree!"),
+        gettext(
+            "The tour is now complete, and you are now better-equipped to "
+            "handle Pedigree! Raise any issues you find at "
+            "https://github.com/miselin/pedigree/issues.\n\n"
+            "Thank you for trying out Pedigree!"),
         0, 0, 1);
 
     end_dialog();

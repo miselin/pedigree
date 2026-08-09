@@ -256,12 +256,13 @@ set(TESTSUITE_SRCS
     testsuite/test-StringView.cc
     testsuite/test-LruCache.cc
     testsuite/test-Log.cc
-    testsuite/test-Cord.cc)
+    testsuite/test-Cord.cc
+    testsuite/test-VFS.cc)
 
 # non-ASAN testsuite
 add_executable(testsuite ${TESTSUITE_SRCS})
 target_link_libraries(testsuite PRIVATE
-    debugger vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
+    debugger ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
     Threads::Threads gtest gtest_main)
 target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
 if (PEDIGREE_COVERAGE)
@@ -273,7 +274,7 @@ endif ()
 if (HAVE_ASAN)
     add_executable(testsuite-asan ${TESTSUITE_SRCS})
     target_link_libraries(testsuite-asan PRIVATE
-        debugger vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
+        debugger ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
         Threads::Threads gtest gtest_main)
     target_compile_definitions(testsuite-asan PRIVATE -DTESTSUITE)
     target_compile_options(testsuite-asan PRIVATE "-fsanitize=address")

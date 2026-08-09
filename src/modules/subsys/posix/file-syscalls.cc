@@ -440,15 +440,34 @@ static struct Remapping
     bool all_abis;       // certain ABIs shouldn't normalise certain paths
     bool on_devfs;       // certain callers care about the result being on devfs
 } g_Remappings[] = {
-    {"/dev", "dev»", nullptr, true, true},
-    {"/proc", "proc»", "proc", true, false},
-    {"/bin", "/applications", nullptr, false, false},
-    {"/usr/bin", "/applications", nullptr, false, false},
-    {"/lib", "/libraries", nullptr, false, false},
-    {"/etc", "/config", nullptr, false, false},
-    {"/tmp", "scratch»", "tmpfs", true, false},
-    {"/run", "posix-runtime»", "tmpfs", true, false},
-    {"/var/run", "posix-runtime»", "tmpfs", true, false},
+    {"/dev", "/dev", "dev", true, true},
+    {"/proc", "/proc", "proc", true, false},
+    {"/tmp", "/tmp", "tmpfs", true, false},
+    {"/run", "/run", "tmpfs", true, false},
+    {"/var/run", "/run", "tmpfs", true, false},
+    // Temporary compatibility for packages built against Pedigree's old
+    // non-FHS root. PUP extracts through these syscalls, so old package members
+    // are installed into the canonical namespace while packages are rebuilt.
+    {"/.profile", "/root/.profile", nullptr, true, false},
+    {"/.bashrc", "/root/.bashrc", nullptr, true, false},
+    {"/support/pup/db", "/var/cache/pup", nullptr, true, false},
+    {"/support/pup", "/etc/pup", nullptr, true, false},
+    {"/system/initscripts", "/etc/init.d", nullptr, true, false},
+    {"/system/modules", "/usr/lib/modules", nullptr, true, false},
+    {"/system/include", "/usr/include", nullptr, true, false},
+    {"/system/locale", "/usr/share/locale", nullptr, true, false},
+    {"/system/keymaps", "/usr/share/keymaps", nullptr, true, false},
+    {"/system/fonts", "/usr/share/fonts", nullptr, true, false},
+    {"/applications", "/usr/bin", nullptr, true, false},
+    {"/libraries", "/usr/lib", nullptr, true, false},
+    {"/initscripts", "/etc/init.d", nullptr, true, false},
+    {"/config", "/etc", nullptr, true, false},
+    {"/support", "/usr/lib/pedigree", nullptr, true, false},
+    {"/include", "/usr/include", nullptr, true, false},
+    {"/users", "/home", nullptr, true, false},
+    {"/fonts", "/usr/share/fonts", nullptr, true, false},
+    {"/docs", "/usr/share/doc", nullptr, true, false},
+    {"/doc", "/usr/share/doc", nullptr, true, false},
     {nullptr, nullptr, nullptr, false, false},
 };
 
@@ -458,15 +477,13 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
         static_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    // Linux-compatible programs still run on Pedigree's virtual filesystem.
-    // The ABI changes syscall layouts and results, not the kernel's internal
-    // directory names (for example, /lib is backed by /libraries).
+    // Compatibility mappings apply consistently while old PUP packages are
+    // still in circulation.
     bool fixFilesystemPaths = true;
 
-    // Rebase /dev onto the devfs. /dev/tty is special.
-    // Note: in all these we may need to accept the raw directory but nothing
-    // more (e.g. /libfoo should not become /libraries, but /lib DOES become
-    // /libraries because it has no further characters)
+    // /dev/tty is special because it can refer to the controlling terminal.
+    // Each compatibility rule must match a complete path component, so a
+    // legacy name never rewrites a merely similar modern path.
     if (!StringCompare(name, "/dev/tty"))
     {
         // Get controlling console, unless we have none.
@@ -477,17 +494,6 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         }
 
         nameToOpen.assign(name);
-        return true;
-    }
-    else if (!StringCompareN(name, "/@/", StringLength("/@/")))
-    {
-        // Absolute UNIX paths for POSIX stupidity.
-        // /@/path/to/foo = /path/to/foo
-        // /@/root»/applications = root»/applications
-        const char *newName = name + StringLength("/@/");
-        if (*newName == '/')
-            ++newName;
-        nameToOpen.assign(newName);
         return true;
     }
     else
@@ -968,10 +974,8 @@ int posix_realpath(const char *path, char *buf, size_t bufsize)
         return -1;
     }
 
-    String actualPath("/@/");
-    String fullPath;
-    f->getFullPath(fullPath, true);
-    actualPath += fullPath;
+    String actualPath;
+    f->getFullPath(actualPath);
     if (actualPath.length() > (bufsize - 1))
     {
         SYSCALL_ERROR(NameTooLong);
@@ -1015,11 +1019,8 @@ int posix_getcwd(char *buf, size_t maxlen)
 
     File *curr = GET_CWD();
 
-    // Absolute path syntax.
-    String str("/@/");
-    String fullPath;
-    curr->getFullPath(fullPath, true);
-    str += fullPath;
+    String str;
+    curr->getFullPath(str);
 
     size_t maxLength = str.length();
     if (maxLength > maxlen)
@@ -2350,40 +2351,33 @@ pedigree_get_mount(char *mount_buf, char *info_buf, size_t n)
 
     NOTICE("pedigree_get_mount(" << Dec << n << Hex << ")");
 
-    typedef List<String *> StringList;
-    typedef Tree<Filesystem *, List<String *> *> VFSMountTree;
-    VFSMountTree &mounts = VFS::instance().getMounts();
+    VFS::MountTable &mounts = VFS::instance().getMounts();
 
     size_t i = 0;
-    for (VFSMountTree::Iterator it = mounts.begin(); it != mounts.end(); it++)
+    for (VFS::MountTable::Iterator it = mounts.begin(); it != mounts.end();
+         it++, i++)
     {
         Filesystem *pFs = it.key();
-        StringList *pList = it.value();
         Disk *pDisk = pFs->getDisk();
 
-        for (StringList::Iterator it2 = pList->begin(); it2 != pList->end();
-             it2++, i++)
+        if (i == n)
         {
-            String mount = **it2;
-
-            if (i == n)
+            String info, s;
+            if (pDisk)
             {
-                String info, s;
-                if (pDisk)
-                {
-                    pDisk->getName(s);
-                    pDisk->getParent()->getName(info);
-                    info += " // ";
-                    info += s;
-                }
-                else
-                    info.assign("no disk", 8);
-
-                StringCopy(mount_buf, static_cast<const char *>(mount));
-                StringCopy(info_buf, static_cast<const char *>(info));
-
-                return 0;
+                pDisk->getName(s);
+                pDisk->getParent()->getName(info);
+                info += " // ";
+                info += s;
             }
+            else
+                info.assign("no disk", 8);
+
+            StringCopy(
+                mount_buf, static_cast<const char *>(it.value()->path));
+            StringCopy(info_buf, static_cast<const char *>(info));
+
+            return 0;
         }
     }
 
@@ -4052,7 +4046,8 @@ int posix_mount(
     {
         F_NOTICE(" -> adding another procfs mount");
 
-        Filesystem *pFs = VFS::instance().lookupFilesystem(String("proc"));
+        Filesystem *pFs =
+            VFS::instance().getFilesystemAt(String("/media/proc"));
         if (!pFs)
         {
             SYSCALL_ERROR(DeviceDoesNotExist);
@@ -4076,6 +4071,7 @@ int posix_mount(
 
         RamFs *pRamFs = new RamFs;
         pRamFs->initialise(0);
+        VFS::instance().registerFilesystem(pRamFs, String("tmpfs"));
 
         targetDir->setReparsePoint(Directory::fromFile(pRamFs->getRoot()));
         return 0;
@@ -4111,7 +4107,7 @@ void generate_mtab(String &result)
     }
 
     // Add root filesystem.
-    Filesystem *pRootFs = VFS::instance().lookupFilesystem(String("root"));
+    Filesystem *pRootFs = VFS::instance().getRootFilesystem();
     if (pRootFs)
     {
         /// \todo fix disk path to use rawfs

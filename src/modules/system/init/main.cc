@@ -57,7 +57,7 @@ static int init_stage2(void *param)
     EMIT_IF(HOSTED)
     {
         if (!HOSTED_SMOKE_TESTS ||
-            !VFS::instance().find(String("root»/.pedigree-root")))
+            !VFS::instance().find(String("/.pedigree-root")))
         {
             extern void system_reset();
             NOTICE("Hosted build has no smoke-test root; shutting down.");
@@ -90,8 +90,8 @@ static int init_stage2(void *param)
 #endif
     init_path.assign(
         directHostedSmokeCommand
-            ? "root»/applications/hosted-smoke-command"
-            : "root»/applications/init");
+            ? "/usr/bin/hosted-smoke-command"
+            : "/usr/bin/init");
     NOTICE("Searching for userspace program at " << init_path);
     file = VFS::instance().find(init_path);
     if (!file && !directHostedSmokeCommand)
@@ -99,7 +99,7 @@ static int init_stage2(void *param)
         WARNING(
             "Did not find " << init_path
                             << ", trying for a Linux userspace...");
-        init_path.assign("root»/sbin/init");
+        init_path.assign("/sbin/init");
         tryingLinux = true;
 
         NOTICE("Searching for Linux init at " << init_path);
@@ -111,7 +111,7 @@ static int init_stage2(void *param)
         error(
             directHostedSmokeCommand
                 ? "failed to find hosted smoke command"
-                : "failed to find init program (tried root»/applications/init and root»/sbin/init)");
+                : "failed to find init program (tried /usr/bin/init and /sbin/init)");
         return 1;
     }
 
@@ -174,17 +174,17 @@ static bool init()
     pProcess->setSavedGroupId(0);
 
     pProcess->description() = "init";
-    pProcess->setCwd(VFS::instance().find(String("root»/")));
+    pProcess->setCwd(VFS::instance().find(String("/")));
     pProcess->setCtty(0);
 
     PosixSubsystem *pSubsystem = new PosixSubsystem;
     pProcess->setSubsystem(pSubsystem);
 
     // add an empty stdout, stdin
-    File *pNull = VFS::instance().find(String("dev»/null"));
+    File *pNull = VFS::instance().find(String("/dev/null"));
     if (!pNull)
     {
-        error("dev»/null does not exist");
+        error("/dev/null does not exist");
         return false;
     }
 

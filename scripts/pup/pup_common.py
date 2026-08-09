@@ -24,7 +24,7 @@ import os
 def getConfig(args):
     # Check for a config file
     # TODO: proper option parsing.
-    configFile = "/support/pup/pup.conf"
+    configFile = "/etc/pup/pup.conf"
     if len(args) > 0:
         configFile = args[0]
     

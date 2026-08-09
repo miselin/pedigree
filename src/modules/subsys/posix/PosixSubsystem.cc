@@ -1628,9 +1628,8 @@ File *PosixSubsystem::findFile(const String &path, File *workingDir)
 
     bool mountAwareAbi = getAbi() != PosixSubsystem::LinuxAbi;
 
-    // for non-mount-aware ABIs, we need to fall back if the path is absolute
-    // this means we can be on dev»/ and still run things like /bin/ls because
-    // the lookup for dev»/bin/ls fails and falls back to root»/bin/ls
+    // Non-mount-aware ABIs resolve absolute paths from the root filesystem,
+    // independent of the current working directory.
     if (mountAwareAbi || (path[0] != '/'))
     {
         // no fall back for mount-aware ABIs (e.g. Pedigree's ABI)
@@ -1645,7 +1644,7 @@ File *PosixSubsystem::findFile(const String &path, File *workingDir)
         // fall back to root filesystem
         if (!m_pRootFs)
         {
-            m_pRootFs = VFS::instance().lookupFilesystem(String("root"));
+            m_pRootFs = VFS::instance().getRootFilesystem();
         }
 
         if (m_pRootFs)
@@ -1936,6 +1935,14 @@ bool PosixSubsystem::invoke(
     pProcess->setLinker(pLinker);
     if (pLinker->checkInterpreter(originalFile, interpreter))
     {
+        // Existing binaries and PUP packages may still name the interpreter
+        // using Pedigree's pre-FHS layout.
+        String normalisedInterpreter;
+        if (normalisePath(normalisedInterpreter, interpreter.cstr()))
+        {
+            interpreter = normalisedInterpreter;
+        }
+
         // Ensure we can actually find the interpreter.
         interpreterFile = findFileWithAbiFallbacks(interpreter);
         interpreterFile = traverseForInvoke(interpreterFile);

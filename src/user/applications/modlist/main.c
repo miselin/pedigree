@@ -28,7 +28,7 @@
 
 // We explicitly define the location of the modules directory to make
 // cross-system work easier - keeps consistency across all Pedigree systems.
-#define MODULE_DIR "root»/system/modules"
+#define MODULE_DIR "/usr/lib/modules"
 
 extern int pedigree_module_is_loaded(char *name);
 

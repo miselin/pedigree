@@ -82,7 +82,7 @@ set(PEDIGREE_COVERAGE FALSE CACHE BOOL "Build utilities with coverage instrument
 # Build artifact controls.
 set(PEDIGREE_LIVECD FALSE CACHE BOOL "Build a live CD version of the ISO image, which includes a hard disk image and relevant customizations.")
 set(PEDIGREE_IMAGESDIR "${CMAKE_SOURCE_DIR}/images/local" CACHE PATH "Directory containing the directory tree to build disk images from.")
-set(PEDIGREE_GO_CANARY "" CACHE FILEPATH "Prebuilt pedigree/amd64 Go canary to install as /applications/go-canary.")
+set(PEDIGREE_GO_CANARY "" CACHE FILEPATH "Prebuilt pedigree/amd64 Go canary to install as /usr/bin/go-canary.")
 
 # All nasm on x86-based systems
 enable_language(ASM_NASM ASM)

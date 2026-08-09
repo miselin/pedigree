@@ -23,7 +23,6 @@
 #include "Filesystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/LruCache.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -33,35 +32,29 @@
 class Disk;
 class File;
 class StringView;
-class HashedStringView;
 
 /** Set to zero to disable the builtin VFS LRU caches. */
 #define VFS_WITH_LRU_CACHES 0
 
-/** This class implements a virtual file system.
- *
- * The pedigree VFS is structured in a similar way to windows' - every
- * filesystem is identified by a unique name and accessed thus:
- *
- * myfs:/mydir/myfile
- *
- * No UNIX-style mounting of filesystems inside filesystems is possible.
- * A filesystem may be referred to by multiple names - a reference count is
- * maintained by the filesystem - when no aliases point to it, it is unmounted
- * totally.
- *
- * The 'root' filesystem - that is the FS with system data on, is visible by the
- * alias 'root', thus; 'root:/System/Boot/kernel' could be used to access the
- * kernel image.
- */
+/** This class implements a single-root virtual filesystem namespace. */
 class EXPORTED_PUBLIC VFS
 {
   public:
     /** Callback type, called when a disk is mounted or unmounted. */
     typedef void (*MountCallback)();
 
-    /** Type of the alias lookup table. */
-    typedef HashTable<String, Filesystem *, HashedStringView> AliasTable;
+    struct MountInfo
+    {
+        MountInfo(const String &stableName, const String &path)
+            : stableName(stableName), path(path)
+        {
+        }
+
+        String stableName;
+        String path;
+    };
+
+    typedef Tree<Filesystem *, MountInfo *> MountTable;
 
     /** Constructor */
     VFS();
@@ -71,49 +64,36 @@ class EXPORTED_PUBLIC VFS
     /** Returns the singleton VFS instance. */
     static VFS &instance();
 
-    /** Mounts a Disk device as the alias "alias".
-        If alias is zero-length, the Filesystem is asked for its preferred name
-        (usually a volume name of some sort), and returned in "alias" */
-    bool mount(Disk *pDisk, String &alias, Filesystem **pMountedFs = nullptr);
+    /** Probe and register a filesystem backed by a disk. */
+    bool mount(
+        Disk *pDisk, String &stableName, Filesystem **pMountedFs = nullptr);
 
-    /** Adds an alias to an existing filesystem.
-     *\param pFs The filesystem to add an alias for.
-     *\param pAlias The alias to add. */
-    void addAlias(Filesystem *pFs, const String &alias);
-    void addAlias(const String &oldAlias, const String &newAlias);
+    /** Register a filesystem for mounting under /media/<stable-name>. */
+    String registerFilesystem(
+        Filesystem *pFs, const String &preferredStableName);
 
-    /** Gets a unique alias for a filesystem. */
-    String getUniqueAlias(const String &alias);
+    /** Remove a registered filesystem and optionally destroy it. */
+    void unregisterFilesystem(Filesystem *pFs, bool canDelete=true);
 
-    /** Does a given alias exist? */
-    bool aliasExists(const String &alias);
+    /** Select the filesystem that supplies the root namespace. */
+    bool setRootFilesystem(Filesystem *pFs);
 
-    /** Obtains a list of all filesystem aliases */
-    inline AliasTable &getAliases()
+    Filesystem *getRootFilesystem() const
     {
-        return m_Aliases;
+        return m_pRootFilesystem;
     }
 
+    /** Obtain the canonical mount path for a filesystem. */
+    bool getMountPath(Filesystem *pFs, String &path) const;
+
+    /** Find the filesystem mounted at an exact absolute path. */
+    Filesystem *getFilesystemAt(const String &path) const;
+
     /** Obtains a list of all mounted filesystems */
-    inline Tree<Filesystem *, List<String *> *> &getMounts()
+    inline MountTable &getMounts()
     {
         return m_Mounts;
     }
-
-    /** Removes an alias from a filesystem. If no aliases remain for that
-     *filesystem, the filesystem is destroyed. \param pAlias The alias to
-     *remove. */
-    void removeAlias(const String &alias);
-
-    /** Removes all aliases from a filesystem - the filesystem is destroyed.
-     *\param pFs The filesystem to destroy. */
-    void removeAllAliases(Filesystem *pFs, bool canDelete=true);
-
-    /** Looks up the Filesystem from a given alias.
-     *\param pAlias The alias to search for.
-     *\return The filesystem aliased by pAlias or 0 if none found. */
-    Filesystem *lookupFilesystem(const String &alias);
-    Filesystem *lookupFilesystem(const HashedStringView &alias);
 
     /** Attempts to obtain a File for a specific path. */
     File *find(const String &path, File *pStartNode = 0);
@@ -148,12 +128,6 @@ class EXPORTED_PUBLIC VFS
     static bool
     checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute);
 
-    /** Separator between mount point and filesystem path. */
-    static constexpr const char *mountSeparator()
-    {
-        return "»";
-    }
-
     /** \brief Track a File object that exists.
      * It is necessary to keep track of File objects, or at least those that
      * are stored in Directory caches and Filesystem objects, such that they
@@ -173,7 +147,10 @@ class EXPORTED_PUBLIC VFS
     bool untrackFile(File *pFile, bool destroy=true);
 
   private:
-    ssize_t findColon(const String &path);
+    File *resolveStartNode(const String &path, File *pStartNode);
+    String getUniqueStableName(const String &preferredName) const;
+    bool attachFilesystem(Filesystem *pFs, const String &path);
+    void attachRegisteredFilesystems();
 
     /** The static instance object. */
     static VFS m_Instance;
@@ -181,13 +158,12 @@ class EXPORTED_PUBLIC VFS
     /** A static File object representing an invalid file */
     static File *m_EmptyFile;
 
-    AliasTable m_Aliases;
-    Tree<Filesystem *, List<String *> *> m_Mounts;
+    Filesystem *m_pRootFilesystem;
+    MountTable m_Mounts;
 
     List<Filesystem::ProbeCallback *> m_ProbeCallbacks;
     List<MountCallback *> m_MountCallbacks;
 
-    LruCache<String, Filesystem *> m_AliasCache;
     LruCache<String, File *> m_FindCache;
 
     Tree<File *, size_t> m_TrackedFiles;

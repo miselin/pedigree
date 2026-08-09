@@ -26,13 +26,20 @@
 #include "pedigree/kernel/utilities/String.h"
 
 static const char *g_FilesToPreload[] = {
-    "root»/applications/init",        "root»/applications/ttyterm",
-    "root»/applications/winman",      "root»/applications/tui",
-    "root»/applications/TUI",         "root»/applications/login",
-    "root»/libraries/libload.so",     "root»/libraries/libc.so",
-    "root»/libraries/libm.so",        "root»/libraries/libstdc++.so",
-    "root»/libraries/libpedigree.so", "root»/libraries/libpedigree-c.so",
-    "root»/libraries/libpthread.so",  0};
+    "/usr/bin/init",
+    "/usr/bin/ttyterm",
+    "/usr/bin/winman",
+    "/usr/bin/tui",
+    "/usr/bin/TUI",
+    "/usr/bin/login",
+    "/usr/lib/libload.so",
+    "/usr/lib/libc.so",
+    "/usr/lib/libm.so",
+    "/usr/lib/libstdc++.so",
+    "/usr/lib/libpedigree.so",
+    "/usr/lib/libpedigree-c.so",
+    "/usr/lib/libpthread.so",
+    0};
 
 static Semaphore g_Preloads(0);
 

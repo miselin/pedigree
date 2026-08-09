@@ -37,7 +37,7 @@
  *
  * The main set of operations that become simpler when using the native API
  * rather than the POSIX API include, but are not limited to, the following:
- * - Better support for native Pedigree paths (foo»/bar)
+ * - Direct access to Pedigree's single-root filesystem namespace
  * - More flexible memory mapping provisions
  *
  * \section module_nativeapi_basics Basics

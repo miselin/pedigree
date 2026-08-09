@@ -30,8 +30,8 @@
 #include <vector>
 
 #ifdef __PEDIGREE__
-#define LOCALE_DIR "/system/locale"
-#define KEYMAP_DIR "/system/keymaps"
+#define LOCALE_DIR "/usr/share/locale"
+#define KEYMAP_DIR "/usr/share/keymaps"
 
 extern "C" int pedigree_load_keymap(char *buffer, size_t len);
 #else
@@ -219,7 +219,7 @@ int main(int argc, char *argv[])
     end_dialog();
 
 #ifdef __PEDIGREE__
-    execl("/applications/login", "/applications/login", 0);
+    execl("/usr/bin/login", "/usr/bin/login", 0);
 #else
     return 0;
 #endif

@@ -58,30 +58,33 @@ static bool init()
 
     g_pRunFilesystem = new RamFs;
     g_pRunFilesystem->initialise(0);
-    VFS::instance().addAlias(g_pRunFilesystem, String("posix-runtime"));
-
-    VFS::instance().addAlias(
-        g_pUnixFilesystem, g_pUnixFilesystem->getVolumeLabel());
-    VFS::instance().addAlias(g_pDevFs, g_pDevFs->getVolumeLabel());
-    VFS::instance().addAlias(g_pProcFs, g_pProcFs->getVolumeLabel());
+    VFS::instance().registerFilesystem(
+        g_pRunFilesystem, String("posix-runtime"));
+    VFS::instance().registerFilesystem(g_pUnixFilesystem, String("unix"));
+    VFS::instance().registerFilesystem(g_pDevFs, String("dev"));
+    VFS::instance().registerFilesystem(g_pProcFs, String("proc"));
 
     Filesystem *scratchfs =
-        VFS::instance().lookupFilesystem(StringView("scratch"));
+        VFS::instance().getFilesystemAt(String("/media/scratch"));
 
-    // Set up default reparse points. normalisePath in file-syscalls.cc is not
-    // sufficient in many cases, as it requires matching the _entire_ path to
-    // actually work. Reparse points work a lot better and they let us override
-    // the directory layout that already exists on disk. If the directory
-    // doesn't exist on disk, we won't add a reparse point for it here.
+    // Keep the socket namespace separate from ordinary runtime files while
+    // exposing it at a conventional path.
+    VFS::instance().createDirectory(
+        String("/media/posix-runtime/sockets"), 0755);
+
+    // Expose the system filesystems at their conventional FHS locations. Their
+    // primary mount records remain visible under /media.
     struct reparse
     {
         String path;
         File *target;
     } reparses[] = {
-        // {String("root»/dev"), g_pDevFs->getRoot()},
-        {String("root»/var/run"), g_pRunFilesystem->getRoot()},
-        {String("root»/proc"), g_pProcFs->getRoot()},
-        {String("root»/tmp"), scratchfs ? scratchfs->getRoot() : 0},
+        {String("/dev"), g_pDevFs->getRoot()},
+        {String("/run"), g_pRunFilesystem->getRoot()},
+        {String("/run/sockets"), g_pUnixFilesystem->getRoot()},
+        {String("/var/run"), g_pRunFilesystem->getRoot()},
+        {String("/proc"), g_pProcFs->getRoot()},
+        {String("/tmp"), scratchfs ? scratchfs->getRoot() : 0},
     };
 
     for (auto &p : reparses)
@@ -109,10 +112,21 @@ static void destroy()
         FATAL("POSIX syscall handlers could not be retired safely.");
     }
 
-    VFS::instance().removeAllAliases(g_pProcFs, false);
-    VFS::instance().removeAllAliases(g_pDevFs, false);
-    VFS::instance().removeAllAliases(g_pUnixFilesystem, false);
-    VFS::instance().removeAllAliases(g_pRunFilesystem, false);
+    const char *reparsePaths[] = {
+        "/run/sockets", "/var/run", "/run", "/proc", "/dev"};
+    for (const char *path : reparsePaths)
+    {
+        File *point = VFS::instance().find(String(path));
+        if (point && point->isDirectory())
+        {
+            Directory::fromFile(point)->setReparsePoint(nullptr);
+        }
+    }
+
+    VFS::instance().unregisterFilesystem(g_pProcFs, false);
+    VFS::instance().unregisterFilesystem(g_pDevFs, false);
+    VFS::instance().unregisterFilesystem(g_pUnixFilesystem, false);
+    VFS::instance().unregisterFilesystem(g_pRunFilesystem, false);
 
     delete g_pRunFilesystem;
     delete g_pUnixFilesystem;

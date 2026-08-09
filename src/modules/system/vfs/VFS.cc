@@ -18,6 +18,7 @@
  */
 
 #include "VFS.h"
+#include "Directory.h"
 #include "File.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/syscallError.h"
@@ -44,21 +45,14 @@ class Disk;
 
 VFS VFS::m_Instance;
 
-static void splitPathOnColon(
-    size_t colonPosition, const StringView &path, StringView &left,
-    StringView &right)
-{
-    size_t afterColon = path.nextCharacter(colonPosition);
-    right = path.substring(afterColon, path.length());
-    left = path.substring(0, colonPosition);
-}
-
 VFS &VFS::instance()
 {
     return m_Instance;
 }
 
-VFS::VFS() : m_Aliases(), m_ProbeCallbacks(), m_MountCallbacks()
+VFS::VFS()
+    : m_pRootFilesystem(nullptr), m_Mounts(), m_ProbeCallbacks(),
+      m_MountCallbacks()
 {
 }
 
@@ -70,22 +64,15 @@ VFS::~VFS()
         delete *it;
     }
 
-    // Unmount aliases.
+    // Unmount each registered filesystem exactly once.
     for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it)
     {
-        auto fs = it.key();
-        auto aliases = it.value();
-        for (auto it2 = aliases->begin(); it2 != aliases->end(); ++it2)
-        {
-            delete *it2;
-        }
-
-        delete aliases;
-        delete fs;
+        delete it.value();
+        delete it.key();
     }
 }
 
-bool VFS::mount(Disk *pDisk, String &alias, Filesystem **pMountedFs)
+bool VFS::mount(Disk *pDisk, String &stableName, Filesystem **pMountedFs)
 {
     for (List<Filesystem::ProbeCallback *>::Iterator it =
              m_ProbeCallbacks.begin();
@@ -95,17 +82,11 @@ bool VFS::mount(Disk *pDisk, String &alias, Filesystem **pMountedFs)
         Filesystem *pFs = cb(pDisk);
         if (pFs)
         {
-            if (alias.length() == 0)
+            if (stableName.length() == 0)
             {
-                alias = pFs->getVolumeLabel();
+                stableName = pFs->getVolumeLabel();
             }
-            alias = getUniqueAlias(alias);
-            addAlias(pFs, alias);
-
-            if (m_Mounts.lookup(pFs) == 0)
-                m_Mounts.insert(pFs, new List<String *>);
-
-            m_Mounts.lookup(pFs)->pushBack(new String(alias));
+            stableName = registerFilesystem(pFs, stableName);
 
             for (List<MountCallback *>::Iterator it2 = m_MountCallbacks.begin();
                  it2 != m_MountCallbacks.end(); it2++)
@@ -119,7 +100,7 @@ bool VFS::mount(Disk *pDisk, String &alias, Filesystem **pMountedFs)
                 *pMountedFs = pFs;
             }
 
-            NOTICE("mounted '" << alias << "'");
+            NOTICE("mounted filesystem '" << stableName << "'");
 
             return true;
         }
@@ -127,101 +108,57 @@ bool VFS::mount(Disk *pDisk, String &alias, Filesystem **pMountedFs)
     return false;
 }
 
-void VFS::addAlias(Filesystem *pFs, const String &alias)
+String VFS::registerFilesystem(
+    Filesystem *pFs, const String &preferredStableName)
+{
+    if (!pFs)
+    {
+        return String();
+    }
+
+    MountInfo *existing = m_Mounts.lookup(pFs);
+    if (existing)
+    {
+        return existing->stableName;
+    }
+
+    String stableName = getUniqueStableName(preferredStableName);
+    NormalStaticString path;
+    path += "/media/";
+    path += stableName;
+    MountInfo *info = new MountInfo(stableName, String(path));
+    m_Mounts.insert(pFs, info);
+
+    if (m_pRootFilesystem)
+    {
+        attachFilesystem(pFs, info->path);
+    }
+
+    return stableName;
+}
+
+void VFS::unregisterFilesystem(Filesystem *pFs, bool canDelete)
 {
     if (!pFs)
         return;
 
-    pFs->m_nAliases++;
-    m_Aliases.insert(alias, pFs);
-
-    if (m_Mounts.lookup(pFs) == 0)
-        m_Mounts.insert(pFs, new List<String *>);
-
-    m_Mounts.lookup(pFs)->pushBack(new String(alias));
-}
-
-void VFS::addAlias(const String &oldAlias, const String &newAlias)
-{
-    AliasTable::LookupResult result = m_Aliases.lookup(oldAlias);
-    if (result.hasValue())
+    MountInfo *info = m_Mounts.lookup(pFs);
+    if (info && m_pRootFilesystem && pFs != m_pRootFilesystem)
     {
-        Filesystem *pFs = result.value();
-
-        m_Aliases.insert(newAlias, pFs);
-
-        if (m_Mounts.lookup(pFs) == 0)
-            m_Mounts.insert(pFs, new List<String *>);
-
-        m_Mounts.lookup(pFs)->pushBack(new String(newAlias));
-    }
-}
-
-String VFS::getUniqueAlias(const String &alias)
-{
-    if (!aliasExists(alias))
-    {
-        return alias;
-    }
-
-    // <alias>-n is how we keep them unique
-    // negative numbers already have a dash
-    int32_t index = -1;
-    while (true)
-    {
-        NormalStaticString tmpAlias;
-        tmpAlias += static_cast<const char *>(alias);
-        tmpAlias.append(index);
-
-        String s(tmpAlias, tmpAlias.length());
-        if (!aliasExists(s))
+        File *point = find(info->path);
+        if (point && point->isDirectory())
         {
-            return s;
+            Directory::fromFile(point)->setReparsePoint(nullptr);
         }
-        index--;
     }
-}
 
-bool VFS::aliasExists(const String &alias)
-{
-    return m_Aliases.contains(alias);
-}
-
-void VFS::removeAlias(const String &alias)
-{
-    /// \todo Remove from m_Mounts
-    m_Aliases.remove(alias);
-}
-
-void VFS::removeAllAliases(Filesystem *pFs, bool canDelete)
-{
-    if (!pFs)
-        return;
-
-    for (AliasTable::Iterator it = m_Aliases.begin(); it != m_Aliases.end();)
+    if (pFs == m_pRootFilesystem)
     {
-        if (pFs == (*it))
-        {
-            it = m_Aliases.erase(it);
-        }
-        else
-            ++it;
+        m_pRootFilesystem = nullptr;
     }
 
-    /// \todo Locking.
-    if (m_Mounts.lookup(pFs) != 0)
-    {
-        List<String *> *pList = m_Mounts.lookup(pFs);
-        for (List<String *>::Iterator it = pList->begin(); it != pList->end();
-             it++)
-        {
-            delete *it;
-        }
-
-        delete pList;
-
-        m_Mounts.remove(pFs);
-    }
+    delete info;
+    m_Mounts.remove(pFs);
 
     if (canDelete)
     {
@@ -229,26 +166,41 @@ void VFS::removeAllAliases(Filesystem *pFs, bool canDelete)
     }
 }
 
-Filesystem *VFS::lookupFilesystem(const String &alias)
+bool VFS::setRootFilesystem(Filesystem *pFs)
 {
-    Filesystem *fs;
-#if VFS_WITH_LRU_CACHES
-    if (!m_AliasCache.get(alias, fs))
+    if (pFs && !m_Mounts.lookup(pFs))
     {
-#endif
-        fs = lookupFilesystem(alias.view());
-#if VFS_WITH_LRU_CACHES
+        registerFilesystem(pFs, pFs->getVolumeLabel());
     }
 
-    m_AliasCache.store(alias, fs);
-#endif
-    return fs;
+    m_pRootFilesystem = pFs;
+    attachRegisteredFilesystems();
+    return !pFs || m_pRootFilesystem == pFs;
 }
 
-Filesystem *VFS::lookupFilesystem(const HashedStringView &alias)
+bool VFS::getMountPath(Filesystem *pFs, String &path) const
 {
-    AliasTable::LookupResult result = m_Aliases.lookup(alias);
-    return result.hasValue() ? result.value() : nullptr;
+    MountInfo *info = m_Mounts.lookup(pFs);
+    if (!info)
+    {
+        return false;
+    }
+
+    path = info->path;
+    return true;
+}
+
+Filesystem *VFS::getFilesystemAt(const String &path) const
+{
+    for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it)
+    {
+        if (it.value()->path == path)
+        {
+            return it.key();
+        }
+    }
+
+    return nullptr;
 }
 
 File *VFS::find(const String &path, File *pStartNode)
@@ -257,49 +209,10 @@ File *VFS::find(const String &path, File *pStartNode)
 
     File *pResult = 0;
 
-    StringView pathView = path.view();
-
-    // Search for a colon.
-    ssize_t colon = findColon(path);
-    if (colon < 0)
+    pStartNode = resolveStartNode(path, pStartNode);
+    if (pStartNode)
     {
-        // Pass directly through to the filesystem, if one specified.
-        if (pStartNode)
-        {
-            pResult = pStartNode->getFilesystem()->find(pathView, pStartNode);
-        }
-    }
-    else
-    {
-        // Can only cache lookups with the colon as they are not ambiguous
-#if VFS_WITH_LRU_CACHES
-        if (m_FindCache.get(path, pResult))
-        {
-            m_FindCache.store(path, pResult);
-        }
-        else
-        {
-#endif
-
-        StringView left, right;
-        splitPathOnColon(colon, pathView, left, right);
-
-        // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(left);
-        if (pFs)
-        {
-            pResult = pFs->find(right);
-#if VFS_WITH_LRU_CACHES
-            if (pResult)
-            {
-                m_FindCache.store(path, pResult);
-            }
-#endif
-        }
-
-#if VFS_WITH_LRU_CACHES
-        }
-#endif
+        pResult = pStartNode->getFilesystem()->find(path.view(), pStartNode);
     }
 
     // NOTICE("find: " << path << " -> " << pResult);
@@ -322,140 +235,42 @@ void VFS::addMountCallback(MountCallback callback)
 
 bool VFS::createFile(const String &path, uint32_t mask, File *pStartNode)
 {
-    // Search for a colon.
-    ssize_t colon = findColon(path);
-    if (colon < 0)
-    {
-        // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode)
-            return false;
-        else
-            return pStartNode->getFilesystem()->createFile(
-                path, mask, pStartNode);
-    }
-    else
-    {
-        StringView left, right;
-        splitPathOnColon(colon, path, left, right);
-
-        // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(left);
-        if (!pFs)
-            return false;
-        return pFs->createFile(right, mask, 0);
-    }
+    pStartNode = resolveStartNode(path, pStartNode);
+    return pStartNode &&
+           pStartNode->getFilesystem()->createFile(path, mask, pStartNode);
 }
 
 bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
 {
-    // Search for a colon.
-    ssize_t colon = findColon(path);
-    if (colon < 0)
+    pStartNode = resolveStartNode(path, pStartNode);
+    if (!pStartNode)
     {
-        // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode)
-        {
-            NOTICE("no start node found");
-            return false;
-        }
-        else
-        {
-            return pStartNode->getFilesystem()->createDirectory(
-                path, mask, pStartNode);
-        }
+        NOTICE("no start node found");
+        return false;
     }
-    else
-    {
-        StringView left, right;
-        splitPathOnColon(colon, path, left, right);
 
-        // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(left);
-        if (!pFs)
-        {
-            NOTICE("no filesystem found for fs " << left);
-            return false;
-        }
-        return pFs->createDirectory(right, mask, 0);
-    }
+    return pStartNode->getFilesystem()->createDirectory(path, mask, pStartNode);
 }
 
 bool VFS::createSymlink(
     const String &path, const String &value, File *pStartNode)
 {
-    // Search for a colon.
-    ssize_t colon = findColon(path);
-    if (colon < 0)
-    {
-        // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode)
-            return false;
-        else
-            return pStartNode->getFilesystem()->createSymlink(
-                path, value, pStartNode);
-    }
-    else
-    {
-        StringView left, right;
-        splitPathOnColon(colon, path, left, right);
-
-        // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(left);
-        if (!pFs)
-            return false;
-        return pFs->createSymlink(right, value, 0);
-    }
+    pStartNode = resolveStartNode(path, pStartNode);
+    return pStartNode && pStartNode->getFilesystem()->createSymlink(
+                             path, value, pStartNode);
 }
 
 bool VFS::createLink(const String &path, File *target, File *pStartNode)
 {
-    // Search for a colon.
-    ssize_t colon = findColon(path);
-    if (colon < 0)
-    {
-        // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode)
-            return false;
-        else
-            return pStartNode->getFilesystem()->createLink(
-                path, target, pStartNode);
-    }
-    else
-    {
-        StringView left, right;
-        splitPathOnColon(colon, path, left, right);
-
-        // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(left);
-        if (!pFs)
-            return false;
-        return pFs->createLink(right, target, 0);
-    }
+    pStartNode = resolveStartNode(path, pStartNode);
+    return pStartNode &&
+           pStartNode->getFilesystem()->createLink(path, target, pStartNode);
 }
 
 bool VFS::remove(const String &path, File *pStartNode)
 {
-    // Search for a colon.
-    ssize_t colon = findColon(path);
-    if (colon < 0)
-    {
-        // Pass directly through to the filesystem, if one specified.
-        if (!pStartNode)
-            return false;
-        else
-            return pStartNode->getFilesystem()->remove(path, pStartNode);
-    }
-    else
-    {
-        StringView left, right;
-        splitPathOnColon(colon, path, left, right);
-
-        // Attempt to find a filesystem alias.
-        Filesystem *pFs = lookupFilesystem(left);
-        if (!pFs)
-            return false;
-        return pFs->remove(right, 0);
-    }
+    pStartNode = resolveStartNode(path, pStartNode);
+    return pStartNode && pStartNode->getFilesystem()->remove(path, pStartNode);
 }
 
 bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
@@ -567,34 +382,117 @@ bool VFS::untrackFile(File *pFile, bool destroy)
     return false;
 }
 
-ssize_t VFS::findColon(const String &path)
+String VFS::getUniqueStableName(const String &preferredName) const
 {
-    // Search for a colon.
-    bool bColon = false;
-    size_t i;
-    ssize_t result = 0;
-    size_t len = path.length();
-    for (i = 0; i < len; i++, result++)
+    NormalStaticString safeName;
+    for (size_t i = 0; i < preferredName.length(); ++i)
     {
-        char c = path[i];
+        char c = preferredName[i];
+        bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                       (c >= '0' && c <= '9') || c == '.' || c == '_' ||
+                       c == '-';
+        safeName.append(allowed ? c : '-');
+    }
 
-        // Look for the UTF-8 '»'; 0xC2 0xBB.
-        if (c == '\xc2')
+    String base(safeName, safeName.length());
+    if (!base.length() || base == "." || base == "..")
+    {
+        base.assign("filesystem");
+    }
+
+    size_t suffix = 1;
+    while (true)
+    {
+        NormalStaticString candidateBuffer;
+        candidateBuffer += base;
+        if (suffix > 1)
         {
-            if (path[i + 1] == '\xbb')
+            candidateBuffer += "-";
+            candidateBuffer.append(suffix);
+        }
+        String candidate(candidateBuffer, candidateBuffer.length());
+
+        bool exists = false;
+        for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end();
+             ++it)
+        {
+            if (it.value()->stableName == candidate)
             {
-                bColon = true;
+                exists = true;
                 break;
             }
         }
-        else if (c == '/')
+
+        if (!exists)
         {
-            // The separator must come before any slashes in the path.
-            break;
+            return candidate;
         }
+
+        ++suffix;
+    }
+}
+
+File *VFS::resolveStartNode(const String &path, File *pStartNode)
+{
+    if (!path.length() || path[0] != '/')
+    {
+        return pStartNode;
     }
 
-    return bColon ? result : -1;
+    return m_pRootFilesystem ? m_pRootFilesystem->getRoot() : nullptr;
+}
+
+bool VFS::attachFilesystem(Filesystem *pFs, const String &path)
+{
+    if (!m_pRootFilesystem || !pFs || pFs == m_pRootFilesystem)
+    {
+        return pFs == m_pRootFilesystem;
+    }
+
+    if (!find(String("/media")))
+    {
+        createDirectory(String("/media"), 0755);
+    }
+    if (!find(path))
+    {
+        createDirectory(path, 0755);
+    }
+
+    File *point = find(path);
+    if (!point || !point->isDirectory())
+    {
+        ERROR("VFS: cannot attach filesystem at " << path);
+        return false;
+    }
+
+    Directory::fromFile(point)->setReparsePoint(
+        Directory::fromFile(pFs->getRoot()));
+    NOTICE("VFS: attached filesystem at " << path);
+    return true;
+}
+
+void VFS::attachRegisteredFilesystems()
+{
+    if (!m_pRootFilesystem)
+    {
+        return;
+    }
+
+    for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it)
+    {
+        MountInfo *info = it.value();
+        if (it.key() == m_pRootFilesystem)
+        {
+            info->path.assign("/");
+            continue;
+        }
+
+        NormalStaticString path;
+        path += "/media/";
+        path += info->stableName;
+        info->path.assign(path, path.length());
+        attachFilesystem(it.key(), info->path);
+    }
 }
 
 #ifndef VFS_STANDALONE

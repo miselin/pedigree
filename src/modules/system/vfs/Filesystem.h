@@ -151,9 +151,6 @@ class EXPORTED_PUBLIC Filesystem
         \param[out] filename The child file's name. */
     File *findParent(StringView path, File *pStartNode, String &filename);
 
-    /** Accessed by VFS */
-    size_t m_nAliases;
-
     /** Copy constructor.
         \note NOT implemented. */
     Filesystem(const Filesystem &);

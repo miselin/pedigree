@@ -44,7 +44,7 @@ void test_fs()
 
     printf("Testing filesystem...\n");
 
-    int urandom_fd = open("dev»/urandom", O_RDONLY);
+    int urandom_fd = open("/dev/urandom", O_RDONLY);
 
     // fsck test directory - deleting a directory like we do below will result
     // in us possibly missing "bad directory count" errors.

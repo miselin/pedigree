@@ -1,3 +1,3 @@
-#!/applications/bash
+#!/bin/bash
 
-/applications/ttyterm
+/usr/bin/ttyterm

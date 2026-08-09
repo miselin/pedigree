@@ -19,6 +19,7 @@
 
 #include "File.h"
 #include "Filesystem.h"
+#include "VFS.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -805,7 +806,7 @@ void File::getFilesystemLabel(HugeStaticString &s)
     s = m_pFilesystem->getVolumeLabel();
 }
 
-void File::getFullPath(String &result, bool bWithLabel)
+void File::getFullPath(String &result, bool bWithMount)
 {
     HugeStaticString str;
     HugeStaticString tmp;
@@ -832,14 +833,21 @@ void File::getFullPath(String &result, bool bWithLabel)
     str = "/";
     str += tmp;
 
-    if (bWithLabel && m_pFilesystem)
+    if (bWithMount && m_pFilesystem)
     {
-        tmp = str;
-        getFilesystemLabel(str);
-        str += "»";
-        str += tmp;
+        String mountPath;
+        if (VFS::instance().getMountPath(m_pFilesystem, mountPath) &&
+            mountPath != "/")
+        {
+            tmp = str;
+            str = mountPath;
+            if (tmp != "/")
+            {
+                str += tmp;
+            }
+        }
     }
-    else if (bWithLabel && !m_pFilesystem)
+    else if (bWithMount && !m_pFilesystem)
     {
         ERROR("File::getFullPath called without a filesystem!");
     }
@@ -847,10 +855,10 @@ void File::getFullPath(String &result, bool bWithLabel)
     result.assign(str, str.length());
 }
 
-String File::getFullPath(bool bWithLabel)
+String File::getFullPath(bool bWithMount)
 {
     String path;
-    getFullPath(path, bWithLabel);
+    getFullPath(path, bWithMount);
     return path;
 }
 

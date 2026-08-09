@@ -67,7 +67,7 @@ void sigint(int sig)
 int main(int argc, char **argv)
 {
     setlocale(LC_ALL, "");
-    bindtextdomain("login", "/system/locale");
+    bindtextdomain("login", "/usr/share/locale");
     bind_textdomain_codeset("login", "UTF-8");
     textdomain("login");
 
@@ -75,13 +75,12 @@ int main(int argc, char **argv)
     // For the installer, just run Python
     printf("Loading installer, please wait...\n");
 
-    static const char *app_argv[] = {"root»/applications/python",
-                                     "root»/code/installer/install.py", 0};
-    static const char *app_env[] = {"TERM=xterm", "PATH=/applications",
-                                    "PYTHONHOME=/", 0};
+    static const char *app_argv[] = {
+        "/usr/bin/python", "/code/installer/install.py", 0};
+    static const char *app_env[] = {
+        "TERM=xterm", "PATH=/usr/bin:/usr/sbin", "PYTHONHOME=/", 0};
     execve(
-        "root»/applications/python", (char *const *) app_argv,
-        (char *const *) app_env);
+        "/usr/bin/python", (char *const *) app_argv, (char *const *) app_env);
 
     printf("FATAL: Couldn't load Python!\n");
 

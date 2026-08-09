@@ -173,7 +173,7 @@ void UserManager::initialise()
     addGroup(0, String("root"));
     addUser(
         0, String("root"), String("root"), String("root"), String("/"),
-        String("/applications/bash"), String(""));
+        String("/bin/bash"), String(""));
 #else
     initialiseGroups();
     initialiseUsers();

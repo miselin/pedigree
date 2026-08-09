@@ -250,7 +250,7 @@ extern "C" int main(int argc, const char *argv[])
     char *ld_preload = getenv("LD_PRELOAD");
     char *ld_debug = getenv("LD_DEBUG");
 
-    g_lSearchPaths.push_back(std::string("root»/libraries"));
+    g_lSearchPaths.push_back(std::string("/usr/lib"));
     g_lSearchPaths.push_back(std::string("."));
 
     // Prepare for libload hooks.
@@ -444,8 +444,7 @@ std::string findObject(std::string name, bool envpath)
         std::string fixed_path;
 
         // Don't do fixup for an absolute path.
-        if ((name[0] == '.') || (name[0] == '/') ||
-            (name.find("»") != std::string::npos))
+        if ((name[0] == '.') || (name[0] == '/'))
             fixed_path = name;
         else
         {

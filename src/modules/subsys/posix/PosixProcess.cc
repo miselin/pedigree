@@ -317,7 +317,8 @@ void PosixProcess::setRobustList(const RobustListData &data)
 
 void PosixProcess::registerProcess()
 {
-    Filesystem *pFs = VFS::instance().lookupFilesystem(String("proc"));
+    Filesystem *pFs =
+        VFS::instance().getFilesystemAt(String("/media/proc"));
     if (!pFs)
     {
         return;
@@ -335,7 +336,8 @@ void PosixProcess::unregisterProcess()
         return;
     }
 
-    Filesystem *pFs = VFS::instance().lookupFilesystem(String("proc"));
+    Filesystem *pFs =
+        VFS::instance().getFilesystemAt(String("/media/proc"));
     if (!pFs)
     {
         return;

@@ -45,9 +45,9 @@ pid_t g_RunningPid = -1;
 int g_MasterPty;
 
 #if defined(LIVECD)
-#define FIRST_PROGRAM "/applications/live"
+#define FIRST_PROGRAM "/usr/bin/live"
 #else
-#define FIRST_PROGRAM "/applications/login"
+#define FIRST_PROGRAM "/usr/bin/login"
 #endif
 
 #define ALT_KEY (1ULL << 60)
@@ -211,7 +211,7 @@ int main(int argc, char **argv)
     klog(LOG_INFO, "ttyterm: starting up...");
 
     // Create ourselves a lock file so we don't end up getting run twice.
-    int fd = open("runtime»/ttyterm.lck", O_WRONLY | O_EXCL | O_CREAT);
+    int fd = open("/run/ttyterm.lck", O_WRONLY | O_EXCL | O_CREAT);
     if (fd < 0)
     {
         fprintf(stderr, "ttyterm: lock file exists, terminating.\n");

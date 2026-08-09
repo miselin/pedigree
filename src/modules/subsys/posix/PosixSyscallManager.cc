@@ -106,6 +106,15 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
     uint64_t syscallNumber = state.getSyscallNumber();
     const bool linuxAbi = state.getSyscallService() == linuxCompat;
 
+#ifdef SYS_umount2
+    if (linuxAbi && syscallNumber == SYS_umount2)
+    {
+        // Pedigree has no Linux mount namespace to detach from. Treating an
+        // absent Linux mount as already detached keeps legacy init usable.
+        return 0;
+    }
+#endif
+
     uintptr_t base = 0;
     if (linuxAbi)
     {
@@ -740,6 +749,12 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
                 reinterpret_cast<const char *>(p2),
                 reinterpret_cast<const char *>(p3), p4,
                 reinterpret_cast<const void *>(p5));
+        case POSIX_UMOUNT2:
+            // Pedigree does not expose Linux mount namespaces. The legacy
+            // init path uses this to detach mounts which are not present in
+            // the Pedigree namespace, so treating it as already detached
+            // lets the rest of userspace continue booting.
+            return 0;
         case POSIX_SETTIMEOFDAY:
             return posix_settimeofday(
                 reinterpret_cast<const struct timeval *>(p1),

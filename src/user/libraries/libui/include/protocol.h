@@ -34,8 +34,8 @@
 #define WINMAN_SOCKET_PATH "sockets/winman.sock"
 #define CLIENT_SOCKET_BASE "sockets/winman-client-%s.sock"
 #else
-#define WINMAN_SOCKET_PATH "unix»/winman.sock"
-#define CLIENT_SOCKET_BASE "unix»/winman-client-%s.sock"
+#define WINMAN_SOCKET_PATH "/run/sockets/winman.sock"
+#define CLIENT_SOCKET_BASE "/run/sockets/winman-client-%s.sock"
 #endif
 
 namespace LibUiProtocol

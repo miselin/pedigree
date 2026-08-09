@@ -198,7 +198,7 @@ bool DynamicLinker::loadProgram(
         }
 
         String filename;
-        filename += "root»/libraries/";
+        filename += "/usr/lib/";
         filename += *it;
         File *pDependencyFile = VFS::instance().find(filename);
         if (!pDependencyFile)
@@ -316,7 +316,7 @@ bool DynamicLinker::loadObject(File *pFile, bool bDryRun)
         }
 
         String filename;
-        filename += "root»/libraries/";
+        filename += "/usr/lib/";
         filename += *it;
         File *_pFile = VFS::instance().find(filename);
         if (!_pFile)
@@ -446,8 +446,7 @@ uintptr_t DynamicLinker::resolve(String name)
 
 DLTrapHandler::DLTrapHandler()
 {
-    const bool registered =
-        PageFaultHandler::instance().registerHandler(this);
+    const bool registered = PageFaultHandler::instance().registerHandler(this);
     assert(registered);
 }
 

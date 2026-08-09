@@ -57,9 +57,9 @@ static Device *probeDisk(Device *diskDevice)
     }
 
     Disk *pDisk = static_cast<Disk *>(diskDevice);
-    String alias;  // Null - gets assigned by the filesystem.
+    String stableName;
     Filesystem *pFs = nullptr;
-    if (VFS::instance().mount(pDisk, alias, &pFs))
+    if (VFS::instance().mount(pDisk, stableName, &pFs))
     {
         // For mount message
         bool didMountAsRoot = false;
@@ -67,23 +67,21 @@ static Device *probeDisk(Device *diskDevice)
         // Search for the root specifier, if we haven't already mounted root
         if (!bRootMounted)
         {
-            NormalStaticString s;
-            s += alias;
-            s += "»/.pedigree-root";
-
-            File *f =
-                VFS::instance().find(String(static_cast<const char *>(s)));
+            File *f = pFs->find(String("/.pedigree-root"));
             if (f && !bRootMounted)
             {
-                NOTICE("Mounted " << alias << " successfully as root.");
-                VFS::instance().addAlias(alias, String("root"));
+                NOTICE(
+                    "Mounted " << stableName << " successfully as root.");
+                VFS::instance().setRootFilesystem(pFs);
                 bRootMounted = didMountAsRoot = true;
             }
         }
 
         if (!didMountAsRoot)
         {
-            NOTICE("Mounted " << alias << ".");
+            NOTICE(
+                "Mounted " << stableName << " at /media/" << stableName
+                           << ".");
         }
 
         g_MountedFilesystems.pushBack(pFs);
@@ -97,7 +95,7 @@ static bool init()
     // Mount scratch filesystem (ie, pure ram filesystem, for POSIX /tmp etc)
     RamFs *pRamFs = new RamFs;
     pRamFs->initialise(0);
-    VFS::instance().addAlias(pRamFs, String("scratch"));
+    VFS::instance().registerFilesystem(pRamFs, String("scratch"));
 
     // Mount runtime filesystem.
     // The runtime filesystem assigns a Process ownership to each file, only
@@ -106,14 +104,14 @@ static bool init()
     RamFs *pRuntimeFs = new RamFs;
     pRuntimeFs->initialise(0);
     pRuntimeFs->setProcessOwnership(true);
-    VFS::instance().addAlias(pRuntimeFs, String("runtime"));
+    VFS::instance().registerFilesystem(pRuntimeFs, String("runtime"));
 
     // Mount all available filesystems.
     Device::foreach (probeDisk);
 
-    if (VFS::instance().find(String("raw»/")) == 0)
+    if (VFS::instance().getFilesystemAt(String("/media/raw")) == 0)
     {
-        error("raw» does not exist - cannot continue startup.");
+        error("/media/raw does not exist - cannot continue startup.");
         return false;
     }
 
@@ -121,18 +119,18 @@ static bool init()
     /// \todo Use the configuration manager to determine if we're running a live
     /// CD or
     ///       not, to avoid the potential for conflicts here.
-    if (VFS::instance().find(String("root»/livedisk.img")))
+    if (VFS::instance().find(String("/livedisk.img")))
     {
         NOTICE("trying to find live disk");
         FileDisk *pRamDisk =
-            new FileDisk(String("root»/livedisk.img"), FileDisk::RamOnly);
+            new FileDisk(String("/livedisk.img"), FileDisk::RamOnly);
         if (pRamDisk && pRamDisk->initialise())
         {
             NOTICE("have a live disk");
             Device::addToRoot(pRamDisk);
 
             // Mount it in the VFS
-            VFS::instance().removeAlias(String("root"));
+            VFS::instance().setRootFilesystem(nullptr);
             bRootMounted = false;
             NOTICE("probing ram disk for partitions");
             Device::foreach (probeDisk, pRamDisk);
@@ -142,9 +140,9 @@ static bool init()
     }
 
     // Is there a root disk mounted?
-    if (VFS::instance().find(String("root»/.pedigree-root")) == 0)
+    if (VFS::instance().find(String("/.pedigree-root")) == 0)
     {
-        error("No root disk on this system (no root»/.pedigree-root found).");
+        error("No root disk on this system (no /.pedigree-root found).");
         if (!HOSTED)  // hosted builds don't mount disks
         {
             return false;
@@ -172,7 +170,7 @@ static void destroy()
         NOTICE(
             "Unmounting " << pFs->getVolumeLabel() << " [" << Hex << pFs
                           << "]...");
-        VFS::instance().removeAllAliases(pFs);
+        VFS::instance().unregisterFilesystem(pFs);
         NOTICE("unmount done");
     }
 

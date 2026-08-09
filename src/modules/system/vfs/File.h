@@ -146,11 +146,11 @@ class EXPORTED_PUBLIC File
     void getName(String &s) const;
     // File names cannot be changed.
 
-    /** Obtains the full path of the File. */
-    virtual void getFullPath(String &result, bool bWithLabel = true);
+    /** Obtains the full path of the File in the root namespace. */
+    virtual void getFullPath(String &result, bool bWithMount = true);
 
     /** Obtains the full path of the File and returns it. */
-    virtual String getFullPath(bool bWithLabel = true);
+    virtual String getFullPath(bool bWithMount = true);
 
     /** Delete all data from the file. */
     virtual void truncate();

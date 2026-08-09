@@ -25,8 +25,7 @@
 class Group;
 class User;
 
-/** The user manager - this allows lookups of users and groups, and also
-    parses the initial file "root:/config/users". */
+/** The user manager provides lookups of users and groups. */
 class EXPORTED_PUBLIC UserManager
 {
   public:
@@ -36,7 +35,7 @@ class EXPORTED_PUBLIC UserManager
         return m_Instance;
     }
 
-    /** Reads in the file "root:/config/users". */
+    /** Loads the initial users and groups. */
     void initialise();
 
     /** Look up a user by ID. */

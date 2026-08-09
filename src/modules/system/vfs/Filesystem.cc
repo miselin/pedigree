@@ -32,7 +32,7 @@
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-Filesystem::Filesystem() : m_bReadOnly(false), m_pDisk(0), m_nAliases(0)
+Filesystem::Filesystem() : m_bReadOnly(false), m_pDisk(0)
 {
 }
 

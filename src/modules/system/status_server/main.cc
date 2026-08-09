@@ -312,43 +312,35 @@ static int clientThread(void *p)
 
         responseContent += "<h3>VFS</h3>";
         responseContent +=
-            "<table border='1'><tr><th>VFS Alias</th><th>Disk</th></tr>";
+            "<table border='1'><tr><th>Mount Point</th><th>Disk</th></tr>";
 
-        typedef List<String *> StringList;
-        typedef Tree<Filesystem *, List<String *> *> VFSMountTree;
+        VFS::MountTable &mounts = VFS::instance().getMounts();
 
-        VFSMountTree &mounts = VFS::instance().getMounts();
-
-        for (VFSMountTree::Iterator it = mounts.begin(); it != mounts.end();
+        for (VFS::MountTable::Iterator it = mounts.begin(); it != mounts.end();
              it++)
         {
             Filesystem *pFs = it.key();
-            StringList *pList = it.value();
             Disk *pDisk = pFs->getDisk();
 
-            for (StringList::Iterator j = pList->begin(); j != pList->end();
-                 j++)
+            String mount = it.value()->path;
+            String diskInfo, temp;
+
+            if (pDisk)
             {
-                String mount = **j;
-                String diskInfo, temp;
+                pDisk->getName(temp);
+                pDisk->getParent()->getName(diskInfo);
 
-                if (pDisk)
-                {
-                    pDisk->getName(temp);
-                    pDisk->getParent()->getName(diskInfo);
-
-                    diskInfo += " -- ";
-                    diskInfo += temp;
-                }
-                else
-                    diskInfo.assign("(no disk)", 10);
-
-                responseContent += "<tr><td>";
-                responseContent += mount;
-                responseContent += "</td><td>";
-                responseContent += diskInfo;
-                responseContent += "</td></tr>";
+                diskInfo += " -- ";
+                diskInfo += temp;
             }
+            else
+                diskInfo.assign("(no disk)", 10);
+
+            responseContent += "<tr><td>";
+            responseContent += mount;
+            responseContent += "</td><td>";
+            responseContent += diskInfo;
+            responseContent += "</td></tr>";
         }
 
         responseContent += "</table>";

@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
 {
     // Create ourselves a lock file so we don't end up getting run twice.
     /// \todo Revisit this when exiting the window manager is possible.
-    int fd = open("runtime»/gfxcon.lck", O_WRONLY | O_EXCL | O_CREAT, 0500);
+    int fd = open("/run/gfxcon.lck", O_WRONLY | O_EXCL | O_CREAT, 0500);
     if (fd < 0)
     {
         fprintf(stderr, "gfxcon: lock file exists, terminating.\n");

@@ -27,6 +27,40 @@ import subprocess
 import tempfile
 
 
+# Historical packages and the old build sysroot use Pedigree's original
+# directory names. New images use a conventional usr-merged FHS layout.
+LEGACY_TARGET_PREFIXES = (
+    ("/.profile", "/root/.profile"),
+    ("/.bashrc", "/root/.bashrc"),
+    ("/support/pup/db", "/var/cache/pup"),
+    ("/support/pup", "/etc/pup"),
+    ("/system/initscripts", "/etc/init.d"),
+    ("/system/modules", "/usr/lib/modules"),
+    ("/system/include", "/usr/include"),
+    ("/system/locale", "/usr/share/locale"),
+    ("/system/keymaps", "/usr/share/keymaps"),
+    ("/system/fonts", "/usr/share/fonts"),
+    ("/applications", "/usr/bin"),
+    ("/libraries", "/usr/lib"),
+    ("/initscripts", "/etc/init.d"),
+    ("/config", "/etc"),
+    ("/support", "/usr/lib/pedigree"),
+    ("/include", "/usr/include"),
+    ("/users", "/home"),
+    ("/fonts", "/usr/share/fonts"),
+    ("/docs", "/usr/share/doc"),
+    ("/doc", "/usr/share/doc"),
+)
+
+
+def translate_target_path(path):
+    for legacy, fhs in LEGACY_TARGET_PREFIXES:
+        if path == legacy or path.startswith(legacy + "/"):
+            return fhs + path[len(legacy) :]
+
+    return path
+
+
 def silent_makedirs(p):
     """Variant of makedirs that doesn't error if the full path exists."""
     if not os.path.exists(p):
@@ -66,6 +100,7 @@ def build_user_map(dbfile):
 
 def add_copy(copylist, source, target, override=False):
     """Adds a copy to the given copy list, handling duplicates correctly"""
+    target = translate_target_path(target)
     entry = copylist.get(source)
     if entry and not override:
         entry.add(target)
@@ -125,7 +160,7 @@ def add_file_to_cmdlist(cmdlist, source, target):
 
 
 def safe_mkdirs_cmdlist(cmdlist, d, safe_dirs):
-    if d == "/":
+    if not d or d == "/":
         return  # already exists
 
     if d not in safe_dirs:
@@ -167,59 +202,83 @@ def build_file_list(all_sources):
 
         if dirname.endswith("src/user"):
             if basename.startswith("lib") and basename.endswith(".so"):
-                prefix = "/libraries"
+                prefix = "/usr/lib"
             else:
-                prefix = "/applications"
+                prefix = "/usr/bin"
         elif dirname.endswith("src/modules"):
             if basename.startswith("lib") and basename.endswith(".so"):
-                prefix = "/libraries"
+                prefix = "/usr/lib"
             else:
-                prefix = "/system/modules"
+                prefix = "/usr/lib/modules"
 
         add_copy(copies, source, os.path.join(prefix, basename))
 
     add_copy_tree(
         copies,
         baseimagesdir,
-        replacements=(("/config/term", "/support/ncurses/share"),),
+        replacements=(
+            ("/config/term", "/usr/lib/pedigree/ncurses/share"),
+            ("/.profile", "/root/.profile"),
+            ("/.bashrc", "/root/.bashrc"),
+        ),
     )
-    add_copy_tree(copies, os.path.join(musldir, "lib"), "/libraries")
-    add_copy_tree(copies, os.path.join(musldir, "include"), "/system/include")
+    add_copy_tree(copies, os.path.join(musldir, "lib"), "/usr/lib")
+    add_copy_tree(copies, os.path.join(musldir, "include"), "/usr/include")
 
     # Add translations.
     for lang in ("en_US", "de_DE"):
         add_copy_tree(
             copies,
             os.path.join(binarydir, "src/po/" + lang),
-            "/system/locale/" + lang + ".UTF-8/LC_MESSAGES",
+            "/usr/share/locale/" + lang + ".UTF-8/LC_MESSAGES",
             extensions=("gmo",),
         )
 
     # Add keymaps.
-    add_copy_tree(copies, os.path.join(binarydir, "keymaps"), "/system/keymaps")
+    add_copy_tree(copies, os.path.join(binarydir, "keymaps"), "/usr/share/keymaps")
 
     # Build command list.
     cmdlist = []
     safe_dirs = set()
-    for dirpath, dirs, files in os.walk(imagesdir):
-        target_dirpath = dirpath.replace(imagesdir, "")
-        if not target_dirpath:
-            target_dirpath = "/"
+    for fhs_dir in (
+        "/dev",
+        "/etc",
+        "/home",
+        "/media",
+        "/proc",
+        "/root",
+        "/run",
+        "/tmp",
+        "/usr/bin",
+        "/usr/include",
+        "/usr/lib",
+        "/usr/sbin",
+        "/usr/share",
+        "/var/cache",
+        "/var/run",
+    ):
+        safe_mkdirs_cmdlist(cmdlist, fhs_dir, safe_dirs)
 
-        safe_dirs.add(target_dirpath)
+    for dirpath, dirs, files in os.walk(imagesdir):
+        legacy_dirpath = dirpath.replace(imagesdir, "")
+        if not legacy_dirpath:
+            legacy_dirpath = "/"
+        target_dirpath = translate_target_path(legacy_dirpath)
+
+        safe_mkdirs_cmdlist(cmdlist, target_dirpath, safe_dirs)
 
         changedDefaults = False
-        if target_dirpath.startswith("/users/"):
+        if target_dirpath.startswith("/home/"):
             user = target_dirpath.split("/")[2]
             if user in users:
                 cmdlist.append("defaultowner %d %d" % users[user])
                 changedDefaults = True
 
         for d in dirs:
-            target = os.path.join(target_dirpath, d)
-            cmdlist.append("mkdir %s" % (target,))
+            target = translate_target_path(os.path.join(legacy_dirpath, d))
+            safe_mkdirs_cmdlist(cmdlist, target, safe_dirs)
 
-            if target_dirpath == "/users":
+            if target_dirpath == "/home":
                 if d in users:
                     cmdlist.append(
                         "chown %s %d %d" % (target, users[d][0], users[d][1])
@@ -241,6 +300,8 @@ def build_file_list(all_sources):
                 link_target = os.readlink(source)
                 if link_target.startswith(dirpath):
                     link_target = link_target.replace(dirpath, "").lstrip("/")
+                elif link_target.startswith("/"):
+                    link_target = translate_target_path(link_target)
 
                 cmdlist.append("symlink %s %s" % (target, link_target))
             elif os.path.isfile(source):
@@ -264,7 +325,10 @@ def build_file_list(all_sources):
                 )
 
     # Add some more useful layout features (e.g. to make /bin/sh work).
-    cmdlist.append("symlink /applications/sh /applications/bash")
+    cmdlist.append("symlink /usr/bin/sh /usr/bin/bash")
+    cmdlist.append("symlink /bin /usr/bin")
+    cmdlist.append("symlink /lib /usr/lib")
+    cmdlist.append("symlink /sbin /usr/sbin")
 
     # Sort the command lists so we do everything in batches (e.g. mkdir, chmod)
     def count_components(path):

@@ -101,12 +101,10 @@ static void runScripts()
 {
     struct dirent **namelist;
 
-    int count = scandir("/system/initscripts", &namelist, 0, alphasort);
+    int count = scandir("/etc/init.d", &namelist, 0, alphasort);
     if (count < 0)
     {
-        klog(
-            LOG_CRIT, "could not scan /system/initscripts: %s",
-            strerror(errno));
+        klog(LOG_CRIT, "could not scan /etc/init.d: %s", strerror(errno));
     }
     else
     {
@@ -114,9 +112,7 @@ static void runScripts()
         for (int i = 0; i < count; ++i)
         {
             char script[PATH_MAX];
-            snprintf(
-                script, PATH_MAX, "/system/initscripts/%s",
-                namelist[i]->d_name);
+            snprintf(script, PATH_MAX, "/etc/init.d/%s", namelist[i]->d_name);
 
             if (!strcmp(namelist[i]->d_name, ".") ||
                 !strcmp(namelist[i]->d_name, ".."))

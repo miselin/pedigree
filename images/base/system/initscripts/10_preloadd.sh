@@ -1,4 +1,4 @@
-#!/applications/bash
+#!/bin/bash
 
 # Run preloadd
 # preloadd

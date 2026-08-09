@@ -48,7 +48,7 @@ Pedigree, this is in images/install/disk/install-files.
                                     <file to install as> <compulsory>
 
 For instance, the line for bash would be:
-./scripts/maintain_installer.py add /applications/bash /applications/bash yes
+./scripts/maintain_installer.py add /usr/bin/bash /usr/bin/bash yes
 
 Pass "-" as the destination to specify "Same as source" (to avoide duplication
 as seen above).
@@ -63,7 +63,7 @@ the list, or else it will be installed twice by the installer.
 ./scripts/maintain_installer.py remove <relative path to file>
 
 So to remove bash from the installer:
-./scripts/maintain_installer.py remove /applications/bash
+./scripts/maintain_installer.py remove /usr/bin/bash
 
 Removing an empty file does not require any special changes, as the script
 will automatically find empty files and handle their unique syntax properly.
@@ -74,7 +74,7 @@ You may specify a regular expression to remove multiple files.
 ./scripts/maintain_installer.py list <optional path>
 
 So to list the applications directory:
-./scripts/maintain_installer.py list /applications/
+./scripts/maintain_installer.py list /usr/bin/
 
 The list operation will recursively list files as they would appear on the
 destination disk when installed. The path may be a regular expression, such as:
@@ -82,14 +82,14 @@ destination disk when installed. The path may be a regular expression, such as:
 ./scripts/maintain_installer.py list "/[acu]+.*?"
 
 Which will display:
-/applications/bash
-/applications/ls
+/usr/bin/bash
+/usr/bin/ls
 ......
-/config/greeting
+/etc/greeting
 ......
-/config/lynx/lynx.cfg
+/etc/lynx/lynx.cfg
 ......
-/users/james/.bashrc
+/home/james/.bashrc
 
 ----------------------------------------------------
 
@@ -292,4 +292,3 @@ if(len(sys.argv) <= 1):
     print "No parameters passed!"
 else:
     main(len(sys.argv), sys.argv)
-
