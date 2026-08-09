@@ -2101,12 +2101,14 @@ void *posix_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
         // Grab the file to map in
         File *fileToMap = f->file;
 
-        // Check general file permissions, open file mode aside.
-        // Note: PROT_WRITE is OK for private mappings, as the backing file
-        // doesn't get updated for those maps.
+        // Check file permissions required to read the backing object and to
+        // update it for shared writable mappings. PROT_EXEC describes the
+        // resulting memory mapping, not the inode's execute bit: Linux
+        // routinely maps 0644 shared libraries with executable segments.
+        // The execute bit is checked when launching a file in invoke().
         if (!VFS::checkAccess(
                 fileToMap, prot & PROT_READ,
-                (prot & PROT_WRITE) && (flags & MAP_SHARED), prot & PROT_EXEC))
+                (prot & PROT_WRITE) && (flags & MAP_SHARED), false))
         {
             F_NOTICE(
                 "  -> mmap on " << fileToMap->getFullPath()
