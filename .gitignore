@@ -51,3 +51,4 @@ tmp
 coverage/
 .pup-version
 venv
+recovery/
