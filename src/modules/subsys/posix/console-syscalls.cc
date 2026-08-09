@@ -501,6 +501,10 @@ static void setConsoleGroup(Process *pProcess, size_t groupId)
         PosixTerminalEvent *pOldEvent =
             static_cast<PosixTerminalEvent *>(pConsole->getEvent());
         pConsole->setEvent(0);
+        // A console trigger may already have admitted or queued a delivery.
+        // Drain it after detaching the raw console pointer, before releasing
+        // the event storage.
+        pOldEvent->waitForDeliveries();
         delete pOldEvent;
     }
 
