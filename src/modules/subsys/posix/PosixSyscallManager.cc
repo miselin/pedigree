@@ -336,7 +336,11 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_getgid();
         case POSIX_SIGACTION:
 #if BITS_64
-            if (state.getSyscallService() == linuxCompat)
+            // The musl bridge translates Linux syscall numbers but invokes
+            // the POSIX service. Its rt_sigaction fourth argument carries
+            // the Linux mask size and identifies the compact Linux layout.
+            if (state.getSyscallService() == linuxCompat ||
+                p4 == sizeof(uint64_t))
             {
                 if (p4 != sizeof(uint64_t))
                 {
@@ -364,7 +368,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_sigprocmask(
                 static_cast<int>(p1), reinterpret_cast<const void *>(p2),
                 reinterpret_cast<void *>(p3), p4,
-                state.getSyscallService() == linuxCompat);
+                state.getSyscallService() == linuxCompat ||
+                    p4 == sizeof(uint64_t));
         case POSIX_ALARM:
             return posix_alarm(p1);
         case POSIX_SLEEP:
