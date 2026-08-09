@@ -47,6 +47,7 @@ class UnixSocket;
 class LockedFile;
 class PosixSubsystem;
 class ProcessGroup;
+class String;
 
 /**
  * A move-only lifetime pin for one published descriptor generation.
@@ -253,6 +254,17 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
      *       not able to crash the kernel.
      */
     static bool checkAddress(uintptr_t addr, size_t extent, size_t flags);
+
+    enum UserStringResult
+    {
+        UserStringSuccess,
+        UserStringBadAddress,
+        UserStringTooLong
+    };
+
+    /** Copy a NUL-terminated user string without reading past a mapped range. */
+    static UserStringResult copyUserString(
+        const char *userString, String &copy, size_t maxLength);
 
     /** A thread needs to be killed! */
     virtual bool kill(KillReason killReason, Thread *pThread);

@@ -106,6 +106,23 @@ static PosixProcess *getPosixProcess()
     return pProcess;
 }
 
+static bool copyUserString(const char *userString, String &copy)
+{
+    PosixSubsystem::UserStringResult result =
+        PosixSubsystem::copyUserString(userString, copy, PATH_MAX);
+    if (result == PosixSubsystem::UserStringBadAddress)
+    {
+        SYSCALL_ERROR(BadAddress);
+        return false;
+    }
+    if (result == PosixSubsystem::UserStringTooLong)
+    {
+        SYSCALL_ERROR(NameTooLong);
+        return false;
+    }
+    return true;
+}
+
 File *findFileWithAbiFallbacks(const String &name, File *cwd)
 {
     Process *pProcess =
@@ -910,20 +927,23 @@ int posix_realpath(const char *path, char *buf, size_t bufsize)
 {
     F_NOTICE("realpath");
 
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(path), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-          PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(buf), bufsize,
-              PosixSubsystem::SafeWrite)))
+    String pathCopy;
+    if (!copyUserString(path, pathCopy))
     {
         F_NOTICE("realpath -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(buf), bufsize,
+            PosixSubsystem::SafeWrite))
+    {
+        F_NOTICE("realpath -> invalid address");
+        SYSCALL_ERROR(BadAddress);
         return -1;
     }
 
     String realPath;
-    normalisePath(realPath, path);
+    normalisePath(realPath, pathCopy.cstr());
     F_NOTICE("  -> traversing " << realPath);
     File *f = findFileWithAbiFallbacks(realPath, GET_CWD());
     if (!f)
@@ -1723,19 +1743,17 @@ int posix_chdir(const char *path)
 {
     F_NOTICE("chdir");
 
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(path), PATH_MAX,
-            PosixSubsystem::SafeRead))
+    String pathCopy;
+    if (!copyUserString(path, pathCopy))
     {
         F_NOTICE("chdir -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    F_NOTICE("chdir(" << path << ")");
+    F_NOTICE("chdir(" << pathCopy << ")");
 
     String realPath;
-    normalisePath(realPath, path);
+    normalisePath(realPath, pathCopy.cstr());
 
     File *dir = findFileWithAbiFallbacks(realPath, GET_CWD());
     if (!dir)
@@ -2478,22 +2496,25 @@ int posix_fstatvfs(int fd, struct statvfs *buf)
 
 int posix_statvfs(const char *path, struct statvfs *buf)
 {
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(path), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-          PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(buf), sizeof(struct statvfs),
-              PosixSubsystem::SafeWrite)))
+    String pathCopy;
+    if (!copyUserString(path, pathCopy))
     {
         F_NOTICE("statvfs -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(buf), sizeof(struct statvfs),
+            PosixSubsystem::SafeWrite))
+    {
+        F_NOTICE("statvfs -> invalid address");
+        SYSCALL_ERROR(BadAddress);
         return -1;
     }
 
-    F_NOTICE("statvfs(" << path << ")");
+    F_NOTICE("statvfs(" << pathCopy << ")");
 
     String realPath;
-    normalisePath(realPath, path);
+    normalisePath(realPath, pathCopy.cstr());
 
     File *file = findFileWithAbiFallbacks(realPath, GET_CWD());
     if (!file)
@@ -2512,22 +2533,25 @@ int posix_statvfs(const char *path, struct statvfs *buf)
 
 int posix_utime(const char *path, const struct utimbuf *times)
 {
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(path), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-          ((!times) || PosixSubsystem::checkAddress(
-                           reinterpret_cast<uintptr_t>(times),
-                           sizeof(struct utimbuf), PosixSubsystem::SafeRead))))
+    String pathCopy;
+    if (!copyUserString(path, pathCopy))
     {
         F_NOTICE("utimes -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    if (times && !PosixSubsystem::checkAddress(
+                     reinterpret_cast<uintptr_t>(times), sizeof(struct utimbuf),
+                     PosixSubsystem::SafeRead))
+    {
+        F_NOTICE("utimes -> invalid address");
+        SYSCALL_ERROR(BadAddress);
         return -1;
     }
 
-    F_NOTICE("utime(" << path << ")");
+    F_NOTICE("utime(" << pathCopy << ")");
 
     String realPath;
-    normalisePath(realPath, path);
+    normalisePath(realPath, pathCopy.cstr());
 
     File *file = findFileWithAbiFallbacks(realPath, GET_CWD());
     if (!file)
@@ -2572,19 +2596,17 @@ int posix_utimes(const char *path, const struct timeval *times)
 
 int posix_chroot(const char *path)
 {
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(path), PATH_MAX,
-            PosixSubsystem::SafeRead))
+    String pathCopy;
+    if (!copyUserString(path, pathCopy))
     {
         F_NOTICE("chroot -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    F_NOTICE("chroot(" << path << ")");
+    F_NOTICE("chroot(" << pathCopy << ")");
 
     String realPath;
-    normalisePath(realPath, path);
+    normalisePath(realPath, pathCopy.cstr());
 
     File *file = findFileWithAbiFallbacks(realPath, GET_CWD());
     if (!file)
@@ -2671,17 +2693,15 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
         return -1;
     }
 
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
-            PosixSubsystem::SafeRead))
+    String pathnameCopy;
+    if (!copyUserString(pathname, pathnameCopy))
     {
         F_NOTICE("open -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
     F_NOTICE(
-        "openat(" << dirfd << ", " << pathname << ", " << flags << ", " << Oct
+        "openat(" << dirfd << ", " << pathnameCopy << ", " << flags << ", " << Oct
                   << mode << ")");
 
     // Lookup this process.
@@ -2705,7 +2725,7 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
     }
 
     // verify the filename - don't try to open a dud file
-    if (pathname[0] == 0)
+    if (pathnameCopy[0] == 0)
     {
         F_NOTICE("  -> File does not exist (null path).");
         SYSCALL_ERROR(DoesNotExist);
@@ -2725,7 +2745,7 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
     bool onDevFs = false;
     bool openingCtty = false;
     String nameToOpen;
-    normalisePath(nameToOpen, pathname, &onDevFs);
+    normalisePath(nameToOpen, pathnameCopy.cstr(), &onDevFs);
     if (nameToOpen.compare("/dev/tty"))
     {
         openingCtty = true;
@@ -2948,19 +2968,18 @@ int posix_mkdirat(int dirfd, const char *pathname, mode_t mode)
         return -1;
     }
 
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
-            PosixSubsystem::SafeRead))
+    String pathnameCopy;
+    if (!copyUserString(pathname, pathnameCopy))
     {
         F_NOTICE("mkdirat -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    F_NOTICE("mkdirat(" << dirfd << ", " << pathname << ", " << mode << ")");
+    F_NOTICE(
+        "mkdirat(" << dirfd << ", " << pathnameCopy << ", " << mode << ")");
 
     String realPath;
-    normalisePath(realPath, pathname);
+    normalisePath(realPath, pathnameCopy.cstr());
 
     PosixProcess *pPosixProcess = getPosixProcess();
     if (pPosixProcess)
@@ -2984,12 +3003,13 @@ int posix_fchownat(
         return -1;
     }
 
+    String pathnameCopy;
     if (!pathname)
     {
         if (flags & AT_EMPTY_PATH)
         {
             // no pathname provided but it's an empty path chownat
-            pathname = "";
+            pathnameCopy.assign("");
         }
         else
         {
@@ -2998,17 +3018,14 @@ int posix_fchownat(
             return -1;
         }
     }
-    else if (!PosixSubsystem::checkAddress(
-                 reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
-                 PosixSubsystem::SafeRead))
+    else if (!copyUserString(pathname, pathnameCopy))
     {
         F_NOTICE("chown -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
     F_NOTICE(
-        "fchownat(" << dirfd << ", " << pathname << ", " << owner << ", "
+        "fchownat(" << dirfd << ", " << pathnameCopy << ", " << owner << ", "
                     << group << ", " << flags << ")");
 
     File *file = 0;
@@ -3020,7 +3037,7 @@ int posix_fchownat(
 
     bool onDevFs = false;
     String realPath;
-    normalisePath(realPath, pathname, &onDevFs);
+    normalisePath(realPath, pathnameCopy.cstr(), &onDevFs);
 
     if (onDevFs)
     {
@@ -3040,7 +3057,7 @@ int posix_fchownat(
     }
 
     // AT_EMPTY_PATH only takes effect if the pathname is actually empty
-    if ((flags & AT_EMPTY_PATH) && ((pathname == 0) || (*pathname == 0)))
+    if ((flags & AT_EMPTY_PATH) && pathnameCopy.length() == 0)
     {
         if (!pSubsystem->acquireFileDescriptor(dirfd, targetDescriptor))
         {
@@ -3095,23 +3112,26 @@ int posix_futimesat(
         return -1;
     }
 
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-          ((!times) ||
-           PosixSubsystem::checkAddress(
-               reinterpret_cast<uintptr_t>(times), sizeof(struct timeval) * 2,
-               PosixSubsystem::SafeRead))))
+    String pathnameCopy;
+    if (!copyUserString(pathname, pathnameCopy))
     {
         F_NOTICE("utimes -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    if (times && !PosixSubsystem::checkAddress(
+                     reinterpret_cast<uintptr_t>(times), sizeof(struct timeval) * 2,
+                     PosixSubsystem::SafeRead))
+    {
+        F_NOTICE("utimes -> invalid address");
+        SYSCALL_ERROR(BadAddress);
         return -1;
     }
 
-    F_NOTICE("futimesat(" << dirfd << ", " << pathname << ", " << times << ")");
+    F_NOTICE(
+        "futimesat(" << dirfd << ", " << pathnameCopy << ", " << times << ")");
 
     String realPath;
-    normalisePath(realPath, pathname);
+    normalisePath(realPath, pathnameCopy.cstr());
 
     File *file = findFileWithAbiFallbacks(realPath, cwd);
     if (!file)
@@ -3166,19 +3186,18 @@ int posix_unlinkat(int dirfd, const char *pathname, int flags)
         return -1;
     }
 
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
-            PosixSubsystem::SafeRead))
+    String pathnameCopy;
+    if (!copyUserString(pathname, pathnameCopy))
     {
         F_NOTICE("unlink -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    F_NOTICE("unlinkat(" << dirfd << ", " << pathname << ", " << flags << ")");
+    F_NOTICE(
+        "unlinkat(" << dirfd << ", " << pathnameCopy << ", " << flags << ")");
 
     String realPath;
-    normalisePath(realPath, pathname);
+    normalisePath(realPath, pathnameCopy.cstr());
 
     LockGuard<Mutex> unixNamespaceGuard(UnixFilesystem::namespaceLock());
     File *pFile = findFileWithAbiFallbacks(realPath, cwd);
@@ -3224,26 +3243,23 @@ int posix_renameat(
         return -1;
     }
 
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(oldpath), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-          PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(newpath), PATH_MAX,
-              PosixSubsystem::SafeRead)))
+    String oldpathCopy;
+    String newpathCopy;
+    if (!copyUserString(oldpath, oldpathCopy) ||
+        !copyUserString(newpath, newpathCopy))
     {
         F_NOTICE("rename -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
     F_NOTICE(
-        "renameat(" << olddirfd << ", " << oldpath << ", " << newdirfd << ", "
-                    << newpath << ")");
+        "renameat(" << olddirfd << ", " << oldpathCopy << ", " << newdirfd
+                    << ", " << newpathCopy << ")");
 
     String realSource;
     String realDestination;
-    normalisePath(realSource, oldpath);
-    normalisePath(realDestination, newpath);
+    normalisePath(realSource, oldpathCopy.cstr());
+    normalisePath(realDestination, newpathCopy.cstr());
 
     File *src = findFileWithAbiFallbacks(realSource, oldcwd);
     File *dest = findFileWithAbiFallbacks(realDestination, newcwd);
@@ -3325,21 +3341,18 @@ int posix_linkat(
         return -1;
     }
 
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(oldpath), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-          PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(newpath), PATH_MAX,
-              PosixSubsystem::SafeRead)))
+    String oldpathCopy;
+    String newpathCopy;
+    if (!copyUserString(oldpath, oldpathCopy) ||
+        !copyUserString(newpath, newpathCopy))
     {
         F_NOTICE("link -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
     F_NOTICE(
-        "linkat(" << olddirfd << ", " << oldpath << ", " << newdirfd << ", "
-                  << newpath << ", " << flags << ")");
+        "linkat(" << olddirfd << ", " << oldpathCopy << ", " << newdirfd << ", "
+                  << newpathCopy << ", " << flags << ")");
 
     // Lookup this process.
     Process *pProcess =
@@ -3355,12 +3368,12 @@ int posix_linkat(
     // Try and find the target.
     String realTarget;
     String realLink;
-    normalisePath(realTarget, oldpath);
-    normalisePath(realLink, newpath);
+    normalisePath(realTarget, oldpathCopy.cstr());
+    normalisePath(realLink, newpathCopy.cstr());
 
     File *pTarget = 0;
     DescriptorLease targetDescriptor;
-    if ((flags & AT_EMPTY_PATH) && ((oldpath == 0) || (*oldpath == 0)))
+    if ((flags & AT_EMPTY_PATH) && oldpathCopy.length() == 0)
     {
         if (!pSubsystem->acquireFileDescriptor(
                 olddirfd, targetDescriptor))
@@ -3412,27 +3425,27 @@ int posix_symlinkat(const char *oldpath, int newdirfd, const char *newpath)
         return -1;
     }
 
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(oldpath), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-          PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(newpath), PATH_MAX,
-              PosixSubsystem::SafeRead)))
+    String oldpathCopy;
+    String newpathCopy;
+    if (!copyUserString(oldpath, oldpathCopy) ||
+        !copyUserString(newpath, newpathCopy))
     {
         F_NOTICE("symlink -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
     F_NOTICE(
-        "symlinkat(" << oldpath << ", " << newdirfd << ", " << newpath << ")");
+        "symlinkat(" << oldpathCopy << ", " << newdirfd << ", " << newpathCopy
+                      << ")");
 
     bool worked =
-        VFS::instance().createSymlink(String(newpath), String(oldpath), cwd);
+        VFS::instance().createSymlink(newpathCopy, oldpathCopy, cwd);
     if (worked)
         return 0;
     else
-        ERROR("Symlink failed for `" << newpath << "' -> `" << oldpath << "'");
+        ERROR(
+            "Symlink failed for `" << newpathCopy << "' -> `" << oldpathCopy
+                                    << "'");
     return -1;
 }
 
@@ -3447,24 +3460,27 @@ int posix_readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz)
         return -1;
     }
 
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-          PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(buf), bufsiz,
-              PosixSubsystem::SafeWrite)))
+    String pathnameCopy;
+    if (!copyUserString(pathname, pathnameCopy))
     {
         F_NOTICE("readlink -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(buf), bufsiz,
+            PosixSubsystem::SafeWrite))
+    {
+        F_NOTICE("readlink -> invalid address");
+        SYSCALL_ERROR(BadAddress);
         return -1;
     }
 
     F_NOTICE(
-        "readlinkat(" << dirfd << ", " << pathname << ", " << buf << ", "
+        "readlinkat(" << dirfd << ", " << pathnameCopy << ", " << buf << ", "
                       << bufsiz << ")");
 
     String realPath;
-    normalisePath(realPath, pathname);
+    normalisePath(realPath, pathnameCopy.cstr());
 
     File *f = findFileWithAbiFallbacks(realPath, cwd);
     if (!f)
@@ -3501,12 +3517,13 @@ int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
         return -1;
     }
 
+    String pathnameCopy;
     if (!pathname)
     {
         if (flags & AT_EMPTY_PATH)
         {
             // no pathname provided but it's an empty path chmodat
-            pathname = "";
+            pathnameCopy.assign("");
         }
         else
         {
@@ -3515,17 +3532,14 @@ int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
             return -1;
         }
     }
-    else if (!PosixSubsystem::checkAddress(
-                 reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
-                 PosixSubsystem::SafeRead))
+    else if (!copyUserString(pathname, pathnameCopy))
     {
         F_NOTICE("chmod -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
     F_NOTICE(
-        "fchmodat(" << dirfd << ", " << pathname << ", " << Oct << mode << Hex
+        "fchmodat(" << dirfd << ", " << pathnameCopy << ", " << Oct << mode << Hex
                     << ", " << flags << ")");
 
     if (mode == static_cast<mode_t>(-1))
@@ -3537,7 +3551,7 @@ int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
 
     bool onDevFs = false;
     String realPath;
-    normalisePath(realPath, pathname, &onDevFs);
+    normalisePath(realPath, pathnameCopy.cstr(), &onDevFs);
 
     if (onDevFs)
     {
@@ -3559,7 +3573,7 @@ int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
     // AT_EMPTY_PATH only takes effect if the pathname is actually empty
     File *file = 0;
     DescriptorLease targetDescriptor;
-    if ((flags & AT_EMPTY_PATH) && ((pathname == 0) || (*pathname == 0)))
+    if ((flags & AT_EMPTY_PATH) && pathnameCopy.length() == 0)
     {
         if (!pSubsystem->acquireFileDescriptor(dirfd, targetDescriptor))
         {
@@ -3613,27 +3627,19 @@ int posix_faccessat(int dirfd, const char *pathname, int mode, int flags)
         return -1;
     }
 
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
-            PosixSubsystem::SafeRead))
+    String pathnameCopy;
+    if (!copyUserString(pathname, pathnameCopy))
     {
         F_NOTICE("access -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
     F_NOTICE(
-        "faccessat(" << dirfd << ", " << pathname << ", " << mode << ", "
+        "faccessat(" << dirfd << ", " << pathnameCopy << ", " << mode << ", "
                      << flags << ")");
 
-    if (!pathname)
-    {
-        SYSCALL_ERROR(DoesNotExist);
-        return -1;
-    }
-
     String realPath;
-    normalisePath(realPath, pathname);
+    normalisePath(realPath, pathnameCopy.cstr());
 
     // Grab the file
     File *file = findFileWithAbiFallbacks(realPath, cwd);
@@ -3680,30 +3686,31 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
         return -1;
     }
 
-    /// \todo also check pathname
-    if (!((!pathname) || (PosixSubsystem::checkAddress(
-                              reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
-                              PosixSubsystem::SafeRead) &&
-                          PosixSubsystem::checkAddress(
-                              reinterpret_cast<uintptr_t>(buf),
-                              sizeof(struct stat), PosixSubsystem::SafeWrite))))
+    if (!buf || !PosixSubsystem::checkAddress(
+                    reinterpret_cast<uintptr_t>(buf), sizeof(struct stat),
+                    PosixSubsystem::SafeWrite))
     {
         F_NOTICE("fstat -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
+        SYSCALL_ERROR(BadAddress);
         return -1;
+    }
+
+    String pathnameCopy;
+    if (pathname)
+    {
+        if (!copyUserString(pathname, pathnameCopy))
+        {
+            F_NOTICE("fstat -> invalid address");
+            return -1;
+        }
     }
 
     F_NOTICE(
-        "fstatat(" << dirfd << ", " << (pathname ? pathname : "(n/a)") << ", "
+        "fstatat(" << dirfd << ", "
+                   << (pathname ? pathnameCopy.cstr() : "(n/a)") << ", "
                    << buf << ", " << flags << ")");
 
     F_NOTICE("  -> cwd=" << cwd->getFullPath());
-
-    if (!buf)
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
 
     // Lookup this process.
     Process *pProcess =
@@ -3719,7 +3726,7 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
     // AT_EMPTY_PATH only takes effect if the pathname is actually empty
     File *file = 0;
     DescriptorLease targetDescriptor;
-    if ((flags & AT_EMPTY_PATH) && ((pathname == 0) || (*pathname == 0)))
+    if ((flags & AT_EMPTY_PATH) && pathnameCopy.length() == 0)
     {
         if (!pSubsystem->acquireFileDescriptor(dirfd, targetDescriptor))
         {
@@ -3733,7 +3740,7 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
     else
     {
         String realPath;
-        normalisePath(realPath, pathname);
+        normalisePath(realPath, pathnameCopy.cstr());
 
         F_NOTICE(
             " -> finding file with real path " << realPath << " in "
@@ -3798,18 +3805,16 @@ ssize_t posix_fgetxattr(int fd, const char *name, void *value, size_t size)
 int posix_mknod(const char *pathname, mode_t mode, dev_t dev)
 {
     F_NOTICE("mknod");
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(pathname), PATH_MAX,
-            PosixSubsystem::SafeRead))
+    String pathnameCopy;
+    if (!copyUserString(pathname, pathnameCopy))
     {
         F_NOTICE(" -> invalid address for pathname");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    F_NOTICE("mknod(" << pathname << ", " << mode << ", " << dev << ")");
+    F_NOTICE("mknod(" << pathnameCopy << ", " << mode << ", " << dev << ")");
 
-    File *targetFile = findFileWithAbiFallbacks(String(pathname), GET_CWD());
+    File *targetFile = findFileWithAbiFallbacks(pathnameCopy, GET_CWD());
     if (targetFile)
     {
         F_NOTICE(" -> already exists");
@@ -3818,8 +3823,8 @@ int posix_mknod(const char *pathname, mode_t mode, dev_t dev)
     }
 
     // Open parent directory if we can.
-    const char *parentDirectory = DirectoryName(pathname);
-    const char *baseName = BaseName(pathname);
+    const char *parentDirectory = DirectoryName(pathnameCopy.cstr());
+    const char *baseName = BaseName(pathnameCopy.cstr());
     if (!baseName)
     {
         F_NOTICE(" -> no filename provided");
@@ -3851,7 +3856,7 @@ int posix_mknod(const char *pathname, mode_t mode, dev_t dev)
     }
     else
     {
-        NOTICE("NO parent directory was found for path " << pathname);
+        NOTICE("NO parent directory was found for path " << pathnameCopy);
     }
 
     if (!parentFile->isDirectory())
@@ -3956,18 +3961,16 @@ int posix_statfs(const char *path, struct statfs *buf)
 {
     F_NOTICE("statfs");
 
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(path), PATH_MAX,
-            PosixSubsystem::SafeRead))
+    String pathCopy;
+    if (!copyUserString(path, pathCopy))
     {
         F_NOTICE(" -> invalid address for path");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    F_NOTICE("statfs(" << path << ")");
+    F_NOTICE("statfs(" << pathCopy << ")");
     String normalisedPath;
-    normalisePath(normalisedPath, path);
+    normalisePath(normalisedPath, pathCopy.cstr());
     F_NOTICE(" -> actually performing statfs on " << normalisedPath);
     File *file = findFileWithAbiFallbacks(normalisedPath, GET_CWD());
 
@@ -4005,24 +4008,15 @@ int posix_mount(
 {
     F_NOTICE("mount");
 
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(src), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-          PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(tgt), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-          PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(fs), PATH_MAX,
-              PosixSubsystem::SafeRead)))
+    String source;
+    String target;
+    String fstype;
+    if (!copyUserString(src, source) || !copyUserString(tgt, target) ||
+        !copyUserString(fs, fstype))
     {
         F_NOTICE(" -> invalid address");
-        SYSCALL_ERROR(BadAddress);
         return -1;
     }
-
-    String source(src);
-    String target(tgt);
-    String fstype(fs);
 
     F_NOTICE(
         "mount(" << source << ", " << target << ", " << fstype << ", " << Hex
@@ -4030,7 +4024,7 @@ int posix_mount(
 
     // Is the target a valid directory?
     String targetNormalised;
-    normalisePath(targetNormalised, tgt);
+    normalisePath(targetNormalised, target.cstr());
     File *targetFile = findFileWithAbiFallbacks(targetNormalised, nullptr);
     if (!targetFile)
     {

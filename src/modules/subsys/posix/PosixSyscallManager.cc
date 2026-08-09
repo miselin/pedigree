@@ -184,6 +184,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_WAITPID:
             return posix_waitpid(p1, reinterpret_cast<int *>(p2), p3);
         case POSIX_EXIT:
+            NOTICE(
+                "POSIX exit request: pid="
+                << Processor::information().getCurrentThread()->getParent()->getId()
+                << " code=" << p1);
             // If not Linux mode, we exit the entire process. If Linux, just
             // the current thread (as glibc uses exit_group for "all process").
             if (state.getSyscallService() == linuxCompat)
@@ -201,6 +205,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             }
             return 0;
         case POSIX_EXIT_GROUP:
+            NOTICE(
+                "POSIX exit-group request: pid="
+                << Processor::information().getCurrentThread()->getParent()->getId()
+                << " code=" << p1);
             if (
                 !SyscallManager::instance().requestProcessExit(
                     static_cast<int>(p1)))
@@ -209,6 +217,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             }
             return 0;
         case POSIX_PTHREAD_RETURN:
+            NOTICE(
+                "POSIX thread-return request: pid="
+                << Processor::information().getCurrentThread()->getParent()->getId()
+                << " code=" << p1);
             if (!SyscallManager::instance().requestThreadExit())
             {
                 FATAL("POSIX pthread exit was not dispatched.");

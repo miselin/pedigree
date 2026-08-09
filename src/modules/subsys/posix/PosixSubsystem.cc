@@ -42,6 +42,7 @@
 
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/lib.h"
+#include "pedigree/kernel/utilities/String.h"
 
 #include "FileDescriptor.h"
 #include "PosixProcess.h"
@@ -502,6 +503,78 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags)
     PS_NOTICE("  -> mapped and available.");
 #endif
     return true;
+}
+
+PosixSubsystem::UserStringResult PosixSubsystem::copyUserString(
+    const char *userString, String &copy, size_t maxLength)
+{
+    copy.clear();
+
+    if (!userString)
+    {
+        return UserStringBadAddress;
+    }
+
+    if (!maxLength)
+    {
+        return UserStringTooLong;
+    }
+
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    const size_t chunkSize = 256;
+    uintptr_t current = reinterpret_cast<uintptr_t>(userString);
+    size_t copied = 0;
+
+    while (copied < maxLength)
+    {
+        size_t length = maxLength - copied;
+        if (length > chunkSize)
+        {
+            length = chunkSize;
+        }
+
+        const size_t pageOffset = current % pageSize;
+        const size_t pageRemaining = pageSize - pageOffset;
+        if (length > pageRemaining)
+        {
+            length = pageRemaining;
+        }
+
+        if (!checkAddress(current, length, SafeRead))
+        {
+            return UserStringBadAddress;
+        }
+
+        char buffer[chunkSize];
+        MemoryCopy(buffer, reinterpret_cast<const void *>(current), length);
+
+        size_t partLength = 0;
+        while (partLength < length && buffer[partLength])
+        {
+            ++partLength;
+        }
+
+        if (partLength != length)
+        {
+            copy += String(buffer, partLength, true);
+            return UserStringSuccess;
+        }
+
+        copy += String(buffer, length, true);
+        copied += length;
+        if (copied == maxLength)
+        {
+            return UserStringTooLong;
+        }
+
+        if (current > (~static_cast<uintptr_t>(0) - length))
+        {
+            return UserStringBadAddress;
+        }
+        current += length;
+    }
+
+    return UserStringTooLong;
 }
 
 void PosixSubsystem::exit(int code)

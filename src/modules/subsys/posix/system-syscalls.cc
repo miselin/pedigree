@@ -118,6 +118,23 @@ static PosixProcess *getPosixProcess()
     return static_cast<PosixProcess *>(pStockProcess);
 }
 
+static bool copyUserString(const char *userString, String &copy)
+{
+    PosixSubsystem::UserStringResult result =
+        PosixSubsystem::copyUserString(userString, copy, PATH_MAX);
+    if (result == PosixSubsystem::UserStringBadAddress)
+    {
+        SYSCALL_ERROR(BadAddress);
+        return false;
+    }
+    if (result == PosixSubsystem::UserStringTooLong)
+    {
+        SYSCALL_ERROR(NameTooLong);
+        return false;
+    }
+    return true;
+}
+
 ssize_t posix_getrandom(void *buffer, size_t length, unsigned int flags)
 {
     if (flags & ~(LINUX_GRND_NONBLOCK | LINUX_GRND_RANDOM))
@@ -506,16 +523,14 @@ int posix_execve(
     const char *name, const char **argv, const char **env, SyscallState &state)
 {
     /// \todo Check argv/env??
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(name), PATH_MAX,
-            PosixSubsystem::SafeRead))
+    String nameCopy;
+    if (!copyUserString(name, nameCopy))
     {
         SC_NOTICE("execve -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
-    SC_NOTICE("execve(\"" << name << "\")");
+    SC_NOTICE("execve(\"" << nameCopy << "\")");
 
     // Bad arguments?
     if (argv == 0 || env == 0)
@@ -547,7 +562,7 @@ int posix_execve(
 
     // Normalise path to ensure we have the correct path to invoke.
     String invokePath;
-    normalisePath(invokePath, name);
+    normalisePath(invokePath, nameCopy.cstr());
 
     if (!pSubsystem->invoke(invokePath.cstr(), listArgv, listEnv, state))
     {
@@ -1000,22 +1015,25 @@ int posix_getpwent(passwd *pw, int n, char *str)
 int posix_getpwnam(passwd *pw, const char *name, char *str)
 {
     /// \todo Again, str is not very nice here.
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(pw), sizeof(passwd),
-              PosixSubsystem::SafeWrite) &&
-          PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(name), PATH_MAX,
-              PosixSubsystem::SafeRead)))
+    String nameCopy;
+    if (!copyUserString(name, nameCopy))
     {
         SC_NOTICE("getpwname -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(pw), sizeof(passwd),
+            PosixSubsystem::SafeWrite))
+    {
+        SC_NOTICE("getpwname -> invalid address");
+        SYSCALL_ERROR(BadAddress);
         return -1;
     }
 
-    SC_NOTICE("getpwname(" << name << ")");
+    SC_NOTICE("getpwname(" << nameCopy << ")");
 
     // Grab the given user.
-    User *pUser = UserManager::instance().getUser(String(name));
+    User *pUser = UserManager::instance().getUser(nameCopy);
     if (!pUser)
         return -1;
 
@@ -1045,21 +1063,24 @@ int posix_getpwnam(passwd *pw, const char *name, char *str)
 
 int posix_getgrnam(const char *name, struct group *out)
 {
-    if (!(PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(name), PATH_MAX,
-              PosixSubsystem::SafeRead) &&
-          PosixSubsystem::checkAddress(
-              reinterpret_cast<uintptr_t>(out), sizeof(struct group),
-              PosixSubsystem::SafeWrite)))
+    String nameCopy;
+    if (!copyUserString(name, nameCopy))
     {
         SC_NOTICE("getgrnam -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+    }
+    if (!PosixSubsystem::checkAddress(
+            reinterpret_cast<uintptr_t>(out), sizeof(struct group),
+            PosixSubsystem::SafeWrite))
+    {
+        SC_NOTICE("getgrnam -> invalid address");
+        SYSCALL_ERROR(BadAddress);
         return -1;
     }
 
-    SC_NOTICE("getgrnam(" << name << ")");
+    SC_NOTICE("getgrnam(" << nameCopy << ")");
 
-    Group *pGroup = UserManager::instance().getGroup(String(name));
+    Group *pGroup = UserManager::instance().getGroup(nameCopy);
     if (!pGroup)
     {
         // No error needs to be set if not found.
@@ -1162,12 +1183,10 @@ int posix_setegid(gid_t egid)
 
 EXPORTED_PUBLIC int pedigree_login(int uid, const char *password)
 {
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(password), PATH_MAX,
-            PosixSubsystem::SafeRead))
+    String passwordCopy;
+    if (!copyUserString(password, passwordCopy))
     {
         SC_NOTICE("pedigree_login -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
@@ -1176,7 +1195,7 @@ EXPORTED_PUBLIC int pedigree_login(int uid, const char *password)
     if (!pUser)
         return -1;
 
-    if (pUser->login(String(password)))
+    if (pUser->login(passwordCopy))
         return 0;
     else
         return -1;
@@ -1563,12 +1582,10 @@ int posix_linux_syslog(int type, char *buf, int len)
 
 int posix_syslog(const char *msg, int prio)
 {
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(msg), PATH_MAX,
-            PosixSubsystem::SafeRead))
+    String msgCopy;
+    if (!copyUserString(msg, msgCopy))
     {
         SC_NOTICE("klog -> invalid address");
-        SYSCALL_ERROR(InvalidArgument);
         return -1;
     }
 
@@ -1577,18 +1594,18 @@ int posix_syslog(const char *msg, int prio)
     if (id <= 1)
     {
         if (prio <= LOG_CRIT)
-            FATAL("[" << Dec << id << Hex << "]\tklog: " << msg);
+            FATAL("[" << Dec << id << Hex << "]\tklog: " << msgCopy);
     }
 
     if (prio <= LOG_ERR)
-        ERROR("[" << Dec << id << Hex << "]\tklog: " << msg);
+        ERROR("[" << Dec << id << Hex << "]\tklog: " << msgCopy);
     else if (prio == LOG_WARNING)
-        WARNING("[" << Dec << id << Hex << "]\tklog: " << msg);
+        WARNING("[" << Dec << id << Hex << "]\tklog: " << msgCopy);
     else if (prio == LOG_NOTICE || prio == LOG_INFO)
-        NOTICE("[" << Dec << id << Hex << "]\tklog: " << msg);
+        NOTICE("[" << Dec << id << Hex << "]\tklog: " << msgCopy);
 #if DEBUGGER
     else
-        NOTICE("[" << Dec << id << Hex << "]\tklog: " << msg);
+        NOTICE("[" << Dec << id << Hex << "]\tklog: " << msgCopy);
 #endif
     return 0;
 }

@@ -52,17 +52,23 @@ static pid_t start(const char *proc)
     pid_t f = fork();
     if (f == -1)
     {
-        klog(LOG_ALERT, "init: fork failed %s", strerror(errno));
-        exit(errno);
+        int fork_errno = errno;
+        klog(
+            LOG_ALERT, "init: fork failed for %s: errno=%d (%s)", proc,
+            fork_errno, strerror(fork_errno));
+        exit(fork_errno);
     }
     if (f == 0)
     {
         klog(LOG_INFO, "init: starting %s...", proc);
         execl(proc, proc, 0);
-        klog(LOG_INFO, "init: loading %s failed: %s", proc, strerror(errno));
-        exit(errno);
+        int exec_errno = errno;
+        klog(
+            LOG_ALERT, "init: loading %s failed: errno=%d (%s)", proc,
+            exec_errno, strerror(exec_errno));
+        exit(exec_errno);
     }
-    klog(LOG_INFO, "init: %s running with pid %d", proc, f);
+    klog(LOG_INFO, "init: fork succeeded for %s: child=%d", proc, f);
 
     // Avoid calling basename() on the given parameter, as basename is
     // non-const.
