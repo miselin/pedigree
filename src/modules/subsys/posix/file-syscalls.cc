@@ -458,7 +458,10 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
         static_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    bool fixFilesystemPaths = pSubsystem->getAbi() != PosixSubsystem::LinuxAbi;
+    // Linux-compatible programs still run on Pedigree's virtual filesystem.
+    // The ABI changes syscall layouts and results, not the kernel's internal
+    // directory names (for example, /lib is backed by /libraries).
+    bool fixFilesystemPaths = true;
 
     // Rebase /dev onto the devfs. /dev/tty is special.
     // Note: in all these we may need to accept the raw directory but nothing

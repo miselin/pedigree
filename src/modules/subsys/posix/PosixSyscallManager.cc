@@ -104,9 +104,10 @@ uintptr_t PosixSyscallManager::call(
 uintptr_t PosixSyscallManager::syscall(SyscallState &state)
 {
     uint64_t syscallNumber = state.getSyscallNumber();
+    const bool linuxAbi = state.getSyscallService() == linuxCompat;
 
     uintptr_t base = 0;
-    if (state.getSyscallService() == linuxCompat)
+    if (linuxAbi)
     {
         // Switch ABI now that we've seen a Linux syscall come in.
         Process *pProcess =
@@ -190,7 +191,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
                 << " code=" << p1);
             // If not Linux mode, we exit the entire process. If Linux, just
             // the current thread (as glibc uses exit_group for "all process").
-            if (state.getSyscallService() == linuxCompat)
+            if (linuxAbi)
             {
                 if (!SyscallManager::instance().requestThreadExit())
                 {
@@ -336,11 +337,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_getgid();
         case POSIX_SIGACTION:
 #if BITS_64
-            // The musl bridge translates Linux syscall numbers but invokes
-            // the POSIX service. Its rt_sigaction fourth argument carries
-            // the Linux mask size and identifies the compact Linux layout.
-            if (state.getSyscallService() == linuxCompat ||
-                p4 == sizeof(uint64_t))
+            if (linuxAbi)
             {
                 if (p4 != sizeof(uint64_t))
                 {
@@ -368,8 +365,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
             return posix_sigprocmask(
                 static_cast<int>(p1), reinterpret_cast<const void *>(p2),
                 reinterpret_cast<void *>(p3), p4,
-                state.getSyscallService() == linuxCompat ||
-                    p4 == sizeof(uint64_t));
+                linuxAbi);
         case POSIX_ALARM:
             return posix_alarm(p1);
         case POSIX_SLEEP:
@@ -440,7 +436,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         // POSIX-specific Pedigree system calls
         case PEDIGREE_SIGRET:
 #if X64
-            if (state.getSyscallService() == linuxCompat)
+            if (linuxAbi)
             {
                 LinuxAmd64Signal::sigreturn(state);
                 return 0;

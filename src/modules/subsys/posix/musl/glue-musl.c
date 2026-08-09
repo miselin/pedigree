@@ -24,6 +24,7 @@
 #include <stdarg.h>
 
 // From the Pedigree source tree (syscall stubs). References musl errno.
+#include <pedigree/kernel/processor/Syscalls.h>
 #include <posix-syscall.h>
 #include <posixSyscallNumbers.h>
 #include <translate.h>
@@ -39,9 +40,7 @@ long pedigree_translate_syscall(long which, long a1, long a2, long a3, long a4,
 {
     // Linux SYS_exit retires only the calling thread. Translating it to the
     // legacy Pedigree exit syscall would lose that distinction.
-    long pedigree_translation = which == SYS_exit ? POSIX_PTHREAD_RETURN
-                                                  : posix_translate_syscall(which);
-    if (pedigree_translation == -1)
+    if (posix_translate_syscall(which) == -1)
     {
         STUBBED(which);
         return -ENOSYS;
@@ -49,15 +48,17 @@ long pedigree_translate_syscall(long which, long a1, long a2, long a3, long a4,
     else
     {
         long err = 0;
-        long r = syscall6_err(pedigree_translation, a1, a2, a3, a4, a5, a6, &err);
+        long r = syscall6_for_service_err(
+            linuxCompat, which, a1, a2, a3, a4, a5, a6, &err);
+#if HOSTED
         if (err)
         {
             return -err;
         }
-        else
-        {
-            return r;
-        }
+#endif
+        // Keep the original Linux number so the kernel performs the
+        // translation while retaining the Linux ABI identity.
+        return r;
     }
 }
 

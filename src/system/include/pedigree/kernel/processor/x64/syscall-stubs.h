@@ -70,6 +70,26 @@ static long syscall6_err(
     return ret;
 }
 
+static long syscall6_for_service_err(
+    long service, long function, long p1, long p2, long p3, long p4,
+    long p5, long p6, long *err)
+{
+    long eax = ((service & 0xFFFF) << 16) | (function & 0xFFFF);
+    long ret;
+    register long p4_r __asm__("r10") = p4;
+    register long p5_r __asm__("r8") = p5;
+    register long p6_r __asm__("r9") = p6;
+
+    *err = 0;
+    __asm__ __volatile__("syscall"
+                         : "=a"(ret)
+                         : "0"(eax), "D"(p1), "S"(p2), "d"(p3),
+                           "r"(p4_r), "r"(p5_r), "r"(p6_r)
+                         : "rcx", "r11", "memory");
+
+    return ret;
+}
+
 static long syscall0(long function)
 {
     return syscall6(function, 0, 0, 0, 0, 0, 0);
