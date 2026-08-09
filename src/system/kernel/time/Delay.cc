@@ -133,6 +133,9 @@ void removeAlarm(void *handle)
     // after our cull.
     pEvent->owner()->cullEvent(pEvent);
 
+    // A timer dispatch may already have admitted this event while the alarm
+    // was being removed. Close admission and drain that lease before delete.
+    pEvent->waitForDeliveries();
     delete pEvent;
 }
 

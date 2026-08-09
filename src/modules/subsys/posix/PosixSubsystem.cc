@@ -2134,6 +2134,12 @@ bool PosixSubsystem::invoke(
     // We can now build the auxiliary vector to pass to the dynamic linker.
     VirtualAddressSpace::Stack *stack =
         Processor::information().getVirtualAddressSpace().allocateStack();
+    if (!stack || !stack->getTop())
+    {
+        ERROR("PosixSubsystem::invoke: failed to allocate initial user stack");
+        SYSCALL_ERROR(OutOfMemory);
+        return false;
+    }
     uintptr_t *loaderStack = reinterpret_cast<uintptr_t *>(stack->getTop());
 
     // Top of stack = zero to mark end

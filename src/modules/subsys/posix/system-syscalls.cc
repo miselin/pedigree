@@ -304,19 +304,6 @@ long posix_clone(
         // We should support this properly.
         SC_NOTICE(" -> CLONE_VFORK is not yet supported!");
     }
-    if ((flags & CLONE_CHILD_CLEARTID) && !(flags & CLONE_VM))
-    {
-        // Exit teardown deliberately uses a no-fault target write. A copied
-        // address space normally leaves this word copy-on-write, so accepting
-        // the registration would wake once without clearing it and strand the
-        // waiter on its next futex wait.
-        SC_NOTICE(
-            " -> CLONE_CHILD_CLEARTID without CLONE_VM requires a "
-            "copy-on-write-capable exit write");
-        SYSCALL_ERROR(Unimplemented);
-        return -1;
-    }
-
 #if 0
     if (flags & CLONE_VM) SC_NOTICE("\t\t-> CLONE_VM");
     if (flags & CLONE_FS) SC_NOTICE("\t\t-> CLONE_FS");
@@ -496,6 +483,12 @@ long posix_clone(
     Thread *pThread = new Thread(pProcess, clonedState, true);
     pThread->setName("posix clone() forked thread");
     pThread->detach();
+    if (flags & CLONE_CHILD_CLEARTID)
+    {
+        // The child has its own address space, so its exit hook can perform
+        // the Linux clear-child-TID write without shared-VM semantics.
+        pThread->setClearChildTid(reinterpret_cast<uintptr_t>(ctid));
+    }
 
     // Finish publishing the child-side POSIX state before it can execute.
     pedigree_copy_posix_thread(

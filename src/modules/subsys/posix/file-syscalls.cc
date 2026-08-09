@@ -471,6 +471,8 @@ static struct Remapping
     {nullptr, nullptr, nullptr, false, false},
 };
 
+static RamFs *g_pSelinuxFs = nullptr;
+
 bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 {
     Process *pProcess =
@@ -4020,6 +4022,77 @@ int posix_mount(
     F_NOTICE(
         "mount(" << source << ", " << target << ", " << fstype << ", " << Hex
                  << flags << ", " << data << ")");
+
+    if (fstype.compare("selinuxfs"))
+    {
+        // This legacy libselinux probes the filesystem before deciding that
+        // SELinux is disabled. Expose the minimal disabled state it expects.
+        F_NOTICE(" -> exposing disabled selinuxfs");
+
+        String targetNormalised;
+        normalisePath(targetNormalised, target.cstr());
+        File *targetFile = findFileWithAbiFallbacks(targetNormalised, nullptr);
+        if (!targetFile)
+        {
+            const char *parents[] = {"/sys", "/sys/fs", nullptr};
+            for (const char **parent = parents; *parent; ++parent)
+            {
+                if (!VFS::instance().find(String(*parent)))
+                {
+                    VFS::instance().createDirectory(String(*parent), 0755);
+                }
+            }
+
+            if (!VFS::instance().find(targetNormalised))
+            {
+                VFS::instance().createDirectory(targetNormalised, 0755);
+            }
+            targetFile = findFileWithAbiFallbacks(targetNormalised, nullptr);
+        }
+
+        if (!targetFile || !targetFile->isDirectory())
+        {
+            SYSCALL_ERROR(DoesNotExist);
+            return -1;
+        }
+
+        if (!g_pSelinuxFs)
+        {
+            g_pSelinuxFs = new RamFs;
+            g_pSelinuxFs->initialise(0);
+            VFS::instance().registerFilesystem(
+                g_pSelinuxFs, String("selinuxfs"));
+            struct SelinuxFile
+            {
+                const char *name;
+                uint32_t mode;
+                const char *contents;
+            } files[] = {
+                {"enforce", 0444, "0\n"},
+                {"policyvers", 0444, "0\n"},
+                {"disable", 0666, ""},
+            };
+            for (const SelinuxFile &file : files)
+            {
+                g_pSelinuxFs->Filesystem::createFile(
+                    String(file.name), file.mode, g_pSelinuxFs->getRoot());
+                File *virtualFile = Directory::fromFile(
+                                        g_pSelinuxFs->getRoot())
+                                        ->lookup(HashedStringView(
+                                            String(file.name)));
+                if (virtualFile && file.contents[0])
+                {
+                    virtualFile->write(
+                        0, StringLength(file.contents),
+                        reinterpret_cast<uintptr_t>(file.contents));
+                }
+            }
+        }
+
+        Directory::fromFile(targetFile)->setReparsePoint(
+            Directory::fromFile(g_pSelinuxFs->getRoot()));
+        return 0;
+    }
 
     // Is the target a valid directory?
     String targetNormalised;

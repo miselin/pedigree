@@ -73,6 +73,7 @@ TimeoutGuard::~TimeoutGuard()
         // Exact-event culling retains caller ownership even when the event is
         // deletable, so cancellation has one unambiguous delete site.
         Processor::information().getCurrentThread()->cullEvent(m_pEvent);
+        m_pEvent->waitForDeliveries();
         delete m_pEvent;
         m_pEvent = 0;
     }

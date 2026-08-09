@@ -626,9 +626,11 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_ARCH_PRCTL:
             return posix_arch_prctl(p1, p2);
         case POSIX_CLONE:
+        {
             return posix_clone(
                 state, p1, reinterpret_cast<void *>(p2),
                 reinterpret_cast<int *>(p3), reinterpret_cast<int *>(p4), p5);
+        }
         case POSIX_PAUSE:
             return posix_pause();
         case POSIX_GETDENTS64:
@@ -744,11 +746,13 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_GETGROUPS:
             return posix_getgroups(p1, reinterpret_cast<gid_t *>(p2));
         case POSIX_MOUNT:
+        {
             return posix_mount(
                 reinterpret_cast<const char *>(p1),
                 reinterpret_cast<const char *>(p2),
                 reinterpret_cast<const char *>(p3), p4,
                 reinterpret_cast<const void *>(p5));
+        }
         case POSIX_UMOUNT2:
             // Pedigree does not expose Linux mount namespaces. The legacy
             // init path uses this to detach mounts which are not present in
@@ -788,6 +792,19 @@ uintptr_t PosixSyscallManager::syscall(SyscallState &state)
         case POSIX_PRCTL:
             return posix_prctl(p1, p2, p3, p4, p5);
         case POSIX_REBOOT:
+            if (linuxAbi)
+            {
+                // Linux also uses reboot(2) to configure Ctrl-Alt-Del. The
+                // compatibility layer has no separate kernel policy to set,
+                // but must not turn that request into a real reboot.
+                static const uintptr_t LINUX_REBOOT_CMD_CAD_OFF = 0x00000000;
+                static const uintptr_t LINUX_REBOOT_CMD_CAD_ON = 0x89ABCDEF;
+                if (p3 == LINUX_REBOOT_CMD_CAD_OFF ||
+                    p3 == LINUX_REBOOT_CMD_CAD_ON)
+                {
+                    return 0;
+                }
+            }
             return pedigree_reboot();
         case POSIX_GETRANDOM:
             return posix_getrandom(

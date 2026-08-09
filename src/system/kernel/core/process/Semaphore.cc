@@ -87,6 +87,10 @@ void destroyTimeoutEvent(Thread *thread, Event *event)
     // that was already queued while another wake reason won the wait.
     Machine::instance().getTimer()->removeAlarm(event);
     thread->cullEvent(event);
+    // A timer dispatch may have crossed the removal boundary while its
+    // Thread::sendEvent admission was still in flight. Close admission and
+    // drain that lease before releasing the timeout event storage.
+    event->waitForDeliveries();
     delete event;
 }
 
