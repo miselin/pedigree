@@ -209,10 +209,10 @@ class Log {
   /**
    * Closes a callback registration and drains committed invocations.
    *
-   * Returns true once no invocation can still use the callback. A callback
-   * cannot drain its own stack frame, so self-removal closes the
-   * registration, defers final retirement until callback return, and
-   * returns false.
+   * Returns true once no invocation can still use the callback. A live target
+   * cannot be drained from callback context, so admission is closed and false
+   * retains the registration for a later external retry. An idle target may be
+   * removed immediately from any context.
    */
   EXPORTED_PUBLIC bool removeCallback(LogCallback* pCallback);
 
@@ -324,13 +324,12 @@ class Log {
     size_t inFlight;
     size_t removers;
     bool enabled;
-    bool deferredRemoval;
   };
 
   struct CallbackPin {
     CallbackSlot* slot;
     LogCallback* callback;
-    Thread* owner;
+    void* owner;
     CallbackPin* next;
   };
 
@@ -356,8 +355,8 @@ class Log {
   void dispatchCallbacks(CallbackPin pins[LOG_CALLBACK_COUNT], size_t count, const LogCord& message,
                          bool locked);
   void dispatchCallback(CallbackSlot* slot, const LogCord& message, bool locked);
-  Thread* currentCallbackThread();
-  bool currentThreadOwnsPin(CallbackSlot* slot);
+  void* currentCallbackOwner();
+  bool isCallbackContext(void* owner);
   void clearCallback(CallbackSlot* slot);
 
   /** Static buffer of log messages. */

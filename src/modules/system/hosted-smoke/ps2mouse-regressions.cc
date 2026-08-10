@@ -8,6 +8,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/time/Time.h"
 
@@ -102,7 +103,9 @@ int unregisterPinnedCallback(void* parameter) {
   }
 
   context->phase = 2;
-  context->registration.reset();
+  if (!context->registration.reset()) {
+    context->failures += 1;
+  }
   context->unregisterReturned += 1;
   context->phase = 4;
   return 0;
@@ -181,8 +184,157 @@ bool callbackLifetimeBarrier() {
   }
   return passed;
 }
+
+struct ReciprocalRemovalContext {
+  ReciprocalRemovalContext()
+      : registry(nullptr),
+        first(),
+        second(),
+        beginReset(0),
+        firstParticipant(0),
+        callbacksEntered(0),
+        firstCalls(0),
+        secondCalls(0),
+        resetRejections(0),
+        resetsFinished(0),
+        invocationsFinished(0),
+        failures(0) {}
+
+  Ps2MouseCallbackRegistry* registry;
+  Ps2MouseCallbackRegistry::Registration first;
+  Ps2MouseCallbackRegistry::Registration second;
+  Semaphore beginReset;
+  Atomic<size_t> firstParticipant;
+  Atomic<size_t> callbacksEntered;
+  Atomic<size_t> firstCalls;
+  Atomic<size_t> secondCalls;
+  Atomic<size_t> resetRejections;
+  Atomic<size_t> resetsFinished;
+  Atomic<size_t> invocationsFinished;
+  Atomic<size_t> failures;
+};
+
+bool waitForValue(Atomic<size_t>& value, size_t expected) {
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (value != expected && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+  return value == expected;
+}
+
+void firstReciprocalCallback(void* parameter, const void*, size_t) {
+  ReciprocalRemovalContext* context = reinterpret_cast<ReciprocalRemovalContext*>(parameter);
+  context->firstCalls += 1;
+  if (!context->firstParticipant.compareAndSwap(0, 1)) {
+    return;
+  }
+
+  context->callbacksEntered += 1;
+  if (!context->beginReset.acquireForCompletion()) {
+    context->failures += 1;
+    return;
+  }
+  if (!context->second.reset() && context->second) {
+    context->resetRejections += 1;
+  } else {
+    context->failures += 1;
+  }
+  context->resetsFinished += 1;
+  if (!waitForValue(context->resetsFinished, 2)) {
+    context->failures += 1;
+  }
+}
+
+void secondReciprocalCallback(void* parameter, const void*, size_t) {
+  ReciprocalRemovalContext* context = reinterpret_cast<ReciprocalRemovalContext*>(parameter);
+  context->secondCalls += 1;
+  context->callbacksEntered += 1;
+  if (!context->beginReset.acquireForCompletion()) {
+    context->failures += 1;
+    return;
+  }
+  if (!context->first.reset() && context->first) {
+    context->resetRejections += 1;
+  } else {
+    context->failures += 1;
+  }
+  context->resetsFinished += 1;
+  if (!waitForValue(context->resetsFinished, 2)) {
+    context->failures += 1;
+  }
+}
+
+int dispatchReciprocalCallbacks(void* parameter) {
+  ReciprocalRemovalContext* context = reinterpret_cast<ReciprocalRemovalContext*>(parameter);
+  const uint8_t byte = 0x5A;
+  context->registry->dispatch(&byte, 1);
+  context->invocationsFinished += 1;
+  return 0;
+}
+
+bool reciprocalRemovalIsRetryable() {
+  Ps2MouseCallbackRegistry registry;
+  ReciprocalRemovalContext context;
+  context.registry = &registry;
+
+  const bool firstRegistered = registry.subscribe(firstReciprocalCallback, &context, context.first);
+  const bool secondRegistered =
+      registry.subscribe(secondReciprocalCallback, &context, context.second);
+
+  Process* process = Scheduler::instance().getKernelProcess();
+  Thread* firstInvoker = nullptr;
+  Thread* secondInvoker = nullptr;
+  bool firstEntered = false;
+  bool bothEntered = false;
+  if (firstRegistered && secondRegistered) {
+    firstInvoker = new Thread(process, dispatchReciprocalCallbacks, &context, nullptr, false, true);
+    firstInvoker->setName("hosted PS/2 reciprocal callback A");
+    firstEntered = waitForValue(context.callbacksEntered, 1);
+
+    if (firstEntered) {
+      secondInvoker =
+          new Thread(process, dispatchReciprocalCallbacks, &context, nullptr, false, true);
+      secondInvoker->setName("hosted PS/2 reciprocal callback B");
+      bothEntered = waitForValue(context.callbacksEntered, 2);
+    }
+  }
+
+  context.beginReset.release(2);
+  const bool firstJoined = !firstInvoker || firstInvoker->joinForCompletion();
+  const bool secondJoined = !secondInvoker || secondInvoker->joinForCompletion();
+  const bool tokensPreserved = context.first && context.second;
+
+  const size_t firstCalls = context.firstCalls;
+  const size_t secondCalls = context.secondCalls;
+  const uint8_t byte = 0xA5;
+  registry.dispatch(&byte, 1);
+  const bool admissionClosed =
+      context.firstCalls == firstCalls && context.secondCalls == secondCalls;
+
+  const bool firstRetired = context.first && context.first.reset();
+  const bool secondRetired = context.second && context.second.reset();
+  const bool firstReused = registry.subscribe(firstReciprocalCallback, &context, context.first);
+  const bool secondReused = registry.subscribe(secondReciprocalCallback, &context, context.second);
+  const bool firstReuseRetired = context.first.reset();
+  const bool secondReuseRetired = context.second.reset();
+
+  const bool passed = check(
+      firstRegistered && secondRegistered && firstEntered && bothEntered && firstJoined &&
+          secondJoined && tokensPreserved && admissionClosed && firstRetired && secondRetired &&
+          firstReused && secondReused && firstReuseRetired && secondReuseRetired &&
+          !context.first && !context.second && context.firstCalls == static_cast<size_t>(2) &&
+          context.secondCalls == static_cast<size_t>(1) &&
+          context.resetRejections == static_cast<size_t>(2) &&
+          context.resetsFinished == static_cast<size_t>(2) &&
+          context.invocationsFinished == static_cast<size_t>(2) && !context.failures,
+      "reciprocal callbacks did not preserve retryable registration ownership");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS ps2mouse-reciprocal-removal");
+  }
+  return passed;
+}
 }  // namespace
 
 bool runHostedPs2MouseRegressions() {
-  return callbackLifetimeBarrier();
+  return callbackLifetimeBarrier() && reciprocalRemovalIsRetryable();
 }

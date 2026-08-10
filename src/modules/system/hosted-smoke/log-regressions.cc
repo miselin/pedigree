@@ -8,6 +8,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/lib.h"
@@ -134,17 +135,17 @@ int removePinnedCallback(void* parameter) {
 
 class SelfRemovingLogger : public Log::LogCallback {
  public:
-  SelfRemovingLogger() : calls(0), deferred(0) {}
+  SelfRemovingLogger() : calls(0), retryRequired(0) {}
 
   void callback(const LogCord&, bool) override {
     calls += 1;
     if (!Log::instance().removeCallback(this)) {
-      deferred += 1;
+      retryRequired += 1;
     }
   }
 
   Atomic<size_t> calls;
-  Atomic<size_t> deferred;
+  Atomic<size_t> retryRequired;
 };
 
 bool callbackLifetime() {
@@ -186,8 +187,8 @@ bool callbackLifetime() {
                   "both external removers did not join the same callback drain");
   passed &= check(context.callbackCalls == 1 && context.callbackAfterRemoval == 0,
                   "a callback ran after synchronous removal returned");
-  passed &= check(selfInstalled && selfRemoving.calls == 1 && selfRemoving.deferred == 1,
-                  "self-removal did not close admission without deadlocking");
+  passed &= check(selfInstalled && selfRemoving.calls == 1 && selfRemoving.retryRequired == 1,
+                  "self-removal did not close admission and require an external retry");
 
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS log-callback-lifetime");
@@ -231,6 +232,161 @@ bool contains(const String& message, const char* needle, size_t length) {
     }
   }
   return false;
+}
+
+struct ReciprocalBacklogContext;
+
+class ReciprocalBacklogLogger : public Log::LogCallback {
+ public:
+  ReciprocalBacklogLogger(ReciprocalBacklogContext& context, bool first)
+      : m_Context(context), m_First(first) {}
+
+  void callback(const LogCord& cord, bool) override;
+
+ private:
+  ReciprocalBacklogContext& m_Context;
+  bool m_First;
+};
+
+struct ReciprocalBacklogWorker {
+  ReciprocalBacklogContext* context;
+  bool first;
+};
+
+struct ReciprocalBacklogContext {
+  ReciprocalBacklogContext()
+      : first(*this, true),
+        second(*this, false),
+        beginRemoval(0),
+        firstParticipated(0),
+        secondParticipated(0),
+        callbacksEntered(0),
+        backlogCallbacks(0),
+        removalRejections(0),
+        removalsFinished(0),
+        installsSucceeded(0),
+        installersFinished(0),
+        failures(0),
+        firstInstaller(nullptr),
+        secondInstaller(nullptr) {
+    firstWorker = {this, true};
+    secondWorker = {this, false};
+  }
+
+  ReciprocalBacklogLogger first;
+  ReciprocalBacklogLogger second;
+  Semaphore beginRemoval;
+  Atomic<size_t> firstParticipated;
+  Atomic<size_t> secondParticipated;
+  Atomic<size_t> callbacksEntered;
+  Atomic<size_t> backlogCallbacks;
+  Atomic<size_t> removalRejections;
+  Atomic<size_t> removalsFinished;
+  Atomic<size_t> installsSucceeded;
+  Atomic<size_t> installersFinished;
+  Atomic<size_t> failures;
+  Thread* firstInstaller;
+  Thread* secondInstaller;
+  ReciprocalBacklogWorker firstWorker;
+  ReciprocalBacklogWorker secondWorker;
+};
+
+void ReciprocalBacklogLogger::callback(const LogCord& cord, bool) {
+  Atomic<size_t>& participated =
+      m_First ? m_Context.firstParticipated : m_Context.secondParticipated;
+  if (!participated.compareAndSwap(0, 1)) {
+    return;
+  }
+
+  const String message = cord.toString();
+  if (contains(message, "(backlog) ", 10)) {
+    m_Context.backlogCallbacks += 1;
+  } else {
+    m_Context.failures += 1;
+  }
+
+  m_Context.callbacksEntered += 1;
+  if (!m_Context.beginRemoval.acquireForCompletion()) {
+    m_Context.failures += 1;
+    return;
+  }
+
+  Log::LogCallback* peer = m_First ? static_cast<Log::LogCallback*>(&m_Context.second)
+                                   : static_cast<Log::LogCallback*>(&m_Context.first);
+  if (!Log::instance().removeCallback(peer)) {
+    m_Context.removalRejections += 1;
+  } else {
+    m_Context.failures += 1;
+  }
+
+  m_Context.removalsFinished += 1;
+  for (size_t attempt = 0;
+       attempt < Attempts && m_Context.removalsFinished != static_cast<size_t>(2); ++attempt) {
+    Scheduler::instance().yield();
+  }
+  if (m_Context.removalsFinished != static_cast<size_t>(2)) {
+    m_Context.failures += 1;
+  }
+}
+
+int installReciprocalBacklogCallback(void* parameter) {
+  ReciprocalBacklogWorker* worker = reinterpret_cast<ReciprocalBacklogWorker*>(parameter);
+  Log::LogCallback* callback = worker->first
+                                   ? static_cast<Log::LogCallback*>(&worker->context->first)
+                                   : static_cast<Log::LogCallback*>(&worker->context->second);
+  if (Log::instance().installCallback(callback, false)) {
+    worker->context->installsSucceeded += 1;
+  } else {
+    worker->context->failures += 1;
+  }
+  worker->context->installersFinished += 1;
+  return 0;
+}
+
+bool reciprocalBacklogRemoval() {
+  NOTICE("hosted-log-reciprocal-backlog-seed");
+
+  ReciprocalBacklogContext context;
+  Process* process = Scheduler::instance().getKernelProcess();
+  context.firstInstaller = new Thread(process, installReciprocalBacklogCallback,
+                                      &context.firstWorker, nullptr, false, true);
+  context.secondInstaller = new Thread(process, installReciprocalBacklogCallback,
+                                       &context.secondWorker, nullptr, false, true);
+  context.firstInstaller->setName("hosted log reciprocal backlog A");
+  context.secondInstaller->setName("hosted log reciprocal backlog B");
+
+  for (size_t attempt = 0; attempt < Attempts && context.callbacksEntered != static_cast<size_t>(2);
+       ++attempt) {
+    Scheduler::instance().yield();
+  }
+  const bool bothEntered = context.callbacksEntered == static_cast<size_t>(2);
+  context.beginRemoval.release(2);
+
+  const bool firstJoined = context.firstInstaller->joinForCompletion();
+  const bool secondJoined = context.secondInstaller->joinForCompletion();
+  const bool firstOwnershipPreserved = !Log::instance().installCallback(&context.first, true);
+  const bool secondOwnershipPreserved = !Log::instance().installCallback(&context.second, true);
+  const bool firstRetired = Log::instance().removeCallback(&context.first);
+  const bool secondRetired = Log::instance().removeCallback(&context.second);
+  const bool firstReused = Log::instance().installCallback(&context.first, true);
+  const bool firstReuseRetired = Log::instance().removeCallback(&context.first);
+  const bool secondReused = Log::instance().installCallback(&context.second, true);
+  const bool secondReuseRetired = Log::instance().removeCallback(&context.second);
+
+  const bool passed =
+      check(bothEntered && firstJoined && secondJoined && firstOwnershipPreserved &&
+                secondOwnershipPreserved && firstRetired && secondRetired && firstReused &&
+                firstReuseRetired && secondReused && secondReuseRetired &&
+                context.backlogCallbacks == static_cast<size_t>(2) &&
+                context.removalRejections == static_cast<size_t>(2) &&
+                context.removalsFinished == static_cast<size_t>(2) &&
+                context.installsSucceeded == static_cast<size_t>(2) &&
+                context.installersFinished == static_cast<size_t>(2) && !context.failures,
+            "reciprocal backlog callbacks did not retain peer removal ownership");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS log-reciprocal-backlog-removal");
+  }
+  return passed;
 }
 
 void SnapshotLogger::callback(const LogCord& cord, bool) {
@@ -301,5 +457,5 @@ bool entrySnapshotIsolation() {
 }  // namespace
 
 bool runHostedLogRegressions() {
-  return callbackLifetime() && entrySnapshotIsolation();
+  return callbackLifetime() && reciprocalBacklogRemoval() && entrySnapshotIsolation();
 }

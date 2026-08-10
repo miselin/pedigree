@@ -17,12 +17,39 @@ Ps2MouseCallbackRegistry::CallbackSlot::CallbackSlot()
     : handler(nullptr),
       parameter(nullptr),
       registration(nullptr),
+      generation(0),
       inFlight(0),
       enabled(false),
       draining(false),
       deferredRemoval(false),
       dispatches(nullptr),
       drainWaiters() {}
+
+Ps2MouseCallbackRegistry::Registration::Registration()
+    : m_pOwner(nullptr), m_pSlot(nullptr), m_Generation(0), m_Unregister(nullptr) {}
+
+Ps2MouseCallbackRegistry::Registration::~Registration() {
+  if (m_pSlot && !reset()) {
+    FATAL("Live PS/2 mouse callback registration could not be retired.");
+  }
+}
+
+bool Ps2MouseCallbackRegistry::Registration::reset() {
+  if (!m_pSlot) {
+    return true;
+  }
+
+  void* owner = m_pOwner;
+  void* slot = m_pSlot;
+  const size_t generation = m_Generation;
+  UnregisterThunk unregister = m_Unregister;
+  if (!unregister(owner, slot, generation, this)) {
+    return false;
+  }
+
+  releaseFromOwner(owner, slot, generation);
+  return true;
+}
 
 Ps2MouseCallbackRegistry::Ps2MouseCallbackRegistry()
     : m_Callbacks(),
@@ -35,17 +62,28 @@ Ps2MouseCallbackRegistry::Ps2MouseCallbackRegistry()
 }
 
 Ps2MouseCallbackRegistry::~Ps2MouseCallbackRegistry() {
+  m_CallbackLock.acquire();
+  const bool callbackContext = isCallbackContext(currentDispatchOwner());
+  m_CallbackLock.release();
+  if (callbackContext) {
+    FATAL("PS/2 mouse callback registry cannot be destroyed from callback context.");
+  }
+
   for (size_t i = 0; i < MaxCallbacks; ++i) {
     CallbackSlot& slot = m_Callbacks[i];
+    bool registered = false;
     Registration* registration = nullptr;
+    size_t generation = 0;
     {
       m_CallbackLock.acquire();
+      registered = slot.handler != nullptr;
       registration = slot.registration;
+      generation = slot.generation;
       m_CallbackLock.release();
     }
 
-    if (registration) {
-      registration->reset();
+    if (registered && !unregister(&slot, generation, registration)) {
+      FATAL("PS/2 mouse callback registry teardown did not complete.");
     }
   }
 }
@@ -56,17 +94,17 @@ void* Ps2MouseCallbackRegistry::currentDispatchOwner() {
   return thread ? static_cast<void*>(thread) : static_cast<void*>(&information);
 }
 
-void Ps2MouseCallbackRegistry::unregisterThunk(void* owner, void* slot,
+bool Ps2MouseCallbackRegistry::unregisterThunk(void* owner, void* slot, size_t generation,
                                                Registration* registration) {
-  reinterpret_cast<Ps2MouseCallbackRegistry*>(owner)->unregister(
-      reinterpret_cast<CallbackSlot*>(slot), registration);
+  return reinterpret_cast<Ps2MouseCallbackRegistry*>(owner)->unregister(
+      reinterpret_cast<CallbackSlot*>(slot), generation, registration);
 }
 
 void Ps2MouseCallbackRegistry::clearSlot(CallbackSlot& slot) {
   assert(!slot.inFlight);
   assert(!slot.dispatches);
   if (slot.registration) {
-    slot.registration->releaseFromOwner(this, &slot);
+    slot.registration->releaseFromOwner(this, &slot, slot.generation);
   }
   slot.handler = nullptr;
   slot.parameter = nullptr;
@@ -91,13 +129,17 @@ bool Ps2MouseCallbackRegistry::subscribe(Handler handler, void* parameter,
 
     assert(!slot.inFlight);
     assert(!slot.dispatches);
+    ++slot.generation;
+    if (!slot.generation) {
+      ++slot.generation;
+    }
     slot.handler = handler;
     slot.parameter = parameter;
     slot.registration = &registration;
     slot.enabled = true;
     slot.draining = false;
     slot.deferredRemoval = false;
-    registration.adopt(this, &slot, unregisterThunk);
+    registration.adopt(this, &slot, slot.generation, unregisterThunk);
     m_CallbackLock.release();
     return true;
   }
@@ -105,51 +147,87 @@ bool Ps2MouseCallbackRegistry::subscribe(Handler handler, void* parameter,
   return false;
 }
 
-void Ps2MouseCallbackRegistry::unregister(CallbackSlot* slot, Registration* registration) {
+bool Ps2MouseCallbackRegistry::isCallbackContext(void* owner) const {
+  for (size_t i = 0; i < MaxCallbacks; ++i) {
+    for (CallbackDispatch* dispatch = m_Callbacks[i].dispatches; dispatch;
+         dispatch = dispatch->next) {
+      if (dispatch->owner == owner) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool Ps2MouseCallbackRegistry::unregister(CallbackSlot* slot, size_t generation,
+                                          Registration* registration) {
   Thread* current = Processor::information().getCurrentThread();
   const bool canYield = current && Processor::getInterrupts();
   TerminationDeferral terminationDeferral;
   m_CallbackLock.acquire();
-  if (!slot || !slot->handler || (slot->registration && slot->registration != registration)) {
+  if (!slot || slot->generation != generation || !slot->handler) {
     m_CallbackLock.release();
-    return;
+    return true;
+  }
+  if (slot->registration && slot->registration != registration) {
+    m_CallbackLock.release();
+    return false;
   }
 
-  if (slot->registration == registration) {
-    slot->registration = nullptr;
+  slot->enabled = false;
+  if (!slot->inFlight) {
+    clearSlot(*slot);
+    m_CallbackLock.release();
+    return true;
   }
 
   void* owner = currentDispatchOwner();
+  bool ownsTarget = false;
+  bool targetOwnedByPeer = false;
   for (CallbackDispatch* dispatch = slot->dispatches; dispatch; dispatch = dispatch->next) {
     if (dispatch->owner == owner) {
-      slot->enabled = false;
+      ownsTarget = true;
+    } else {
+      targetOwnedByPeer = true;
+    }
+  }
+
+  if (isCallbackContext(owner)) {
+    if (ownsTarget && !targetOwnedByPeer) {
+      // The callback controls its own return path, so it can close admission
+      // and leave final slot retirement to releaseCallback(). Detach the token
+      // before returning so clearSlot() never touches a destroyed Registration.
+      slot->registration = nullptr;
       slot->deferredRemoval = true;
       m_CallbackLock.release();
-      return;
+      return true;
     }
+
+    // A live peer can be waiting for this callback in turn. Keep the token
+    // attached so a caller outside callback context can retry and drain it.
+    m_CallbackLock.release();
+    return false;
   }
 
   if (slot->inFlight && !canYield) {
     m_CallbackLock.release();
-    FATAL("PS/2 mouse callback removal cannot drain in this context.");
+    return false;
   }
 
-  slot->enabled = false;
   slot->draining = true;
-  if (!slot->inFlight) {
-    clearSlot(*slot);
-    m_CallbackLock.release();
-    return;
-  }
   m_CallbackLock.release();
 
   while (true) {
     auto waitGuard = slot->drainWaiters.acquire();
     m_CallbackLock.acquire();
+    if (slot->generation != generation || !slot->handler) {
+      m_CallbackLock.release();
+      return true;
+    }
     if (!slot->inFlight) {
       clearSlot(*slot);
       m_CallbackLock.release();
-      return;
+      return true;
     }
     m_CallbackLock.release();
 

@@ -22,28 +22,20 @@ class Ps2MouseCallbackRegistry {
 
   class Registration {
    private:
-    using UnregisterThunk = void (*)(void*, void*, Registration*);
+    using UnregisterThunk = bool (*)(void*, void*, size_t, Registration*);
 
    public:
-    Registration() : m_pOwner(nullptr), m_pSlot(nullptr), m_Unregister(nullptr) {}
+    Registration();
+    ~Registration();
 
-    ~Registration() {
-      reset();
-    }
-
-    void reset() {
-      if (!m_pSlot) {
-        return;
-      }
-
-      void* owner = m_pOwner;
-      void* slot = m_pSlot;
-      UnregisterThunk unregister = m_Unregister;
-      m_pOwner = nullptr;
-      m_pSlot = nullptr;
-      m_Unregister = nullptr;
-      unregister(owner, slot, this);
-    }
+    /**
+     * Closes admission and retires this callback registration.
+     *
+     * External callers drain admitted callbacks before true is returned. A
+     * callback cannot drain a live peer, so false preserves ownership for a
+     * later retry outside callback context.
+     */
+    bool reset();
 
     explicit operator bool() const {
       return m_pSlot != nullptr;
@@ -55,22 +47,25 @@ class Ps2MouseCallbackRegistry {
     Registration(const Registration&) = delete;
     Registration& operator=(const Registration&) = delete;
 
-    void adopt(void* owner, void* slot, UnregisterThunk unregister) {
+    void adopt(void* owner, void* slot, size_t generation, UnregisterThunk unregister) {
       m_pOwner = owner;
       m_pSlot = slot;
+      m_Generation = generation;
       m_Unregister = unregister;
     }
 
-    void releaseFromOwner(void* owner, void* slot) {
-      if (m_pOwner == owner && m_pSlot == slot) {
+    void releaseFromOwner(void* owner, void* slot, size_t generation) {
+      if (m_pOwner == owner && m_pSlot == slot && m_Generation == generation) {
         m_pOwner = nullptr;
         m_pSlot = nullptr;
+        m_Generation = 0;
         m_Unregister = nullptr;
       }
     }
 
     void* m_pOwner;
     void* m_pSlot;
+    size_t m_Generation;
     UnregisterThunk m_Unregister;
   };
 
@@ -101,6 +96,7 @@ class Ps2MouseCallbackRegistry {
     Handler handler;
     void* parameter;
     Registration* registration;
+    size_t generation;
     size_t inFlight;
     bool enabled;
     bool draining;
@@ -110,10 +106,12 @@ class Ps2MouseCallbackRegistry {
   };
 
   static void* currentDispatchOwner();
-  static void unregisterThunk(void* owner, void* slot, Registration* registration);
+  static bool unregisterThunk(void* owner, void* slot, size_t generation,
+                              Registration* registration);
   void clearSlot(CallbackSlot& slot);
 
-  void unregister(CallbackSlot* slot, Registration* registration);
+  bool unregister(CallbackSlot* slot, size_t generation, Registration* registration);
+  bool isCallbackContext(void* owner) const;
   void releaseCallback(CallbackSlot& slot, CallbackDispatch& dispatch);
 
   CallbackSlot m_Callbacks[MaxCallbacks];

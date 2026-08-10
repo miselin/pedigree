@@ -102,7 +102,6 @@ Log::Log()
     m_OutputCallbacks[i].inFlight = 0;
     m_OutputCallbacks[i].removers = 0;
     m_OutputCallbacks[i].enabled = false;
-    m_OutputCallbacks[i].deferredRemoval = false;
   }
 }
 
@@ -169,7 +168,6 @@ bool Log::installCallback(LogCallback* pCallback, bool bSkipBacklog) {
         slot->inFlight = 0;
         slot->removers = 0;
         slot->enabled = true;
-        slot->deferredRemoval = false;
         ++m_nOutputCallbacks;
         break;
       }
@@ -232,6 +230,12 @@ bool Log::removeCallback(LogCallback* pCallback) {
   }
 
   TerminationDeferral terminationDeferral;
+#if THREADS
+  Thread* current = Processor::information().getCurrentThread();
+  const bool canYield = current && Processor::getInterrupts();
+#else
+  const bool canYield = false;
+#endif
   CallbackSlot* slot = nullptr;
   bool removerRegistered = false;
 
@@ -257,20 +261,8 @@ bool Log::removeCallback(LogCallback* pCallback) {
       }
     }
 
-    // Waiting for a pin owned by this thread would deadlock the callback
-    // stack. Admission is already closed; the final pin retires the slot.
-    if (currentThreadOwnsPin(slot)) {
-      slot->deferredRemoval = true;
-      return false;
-    }
-
-    if (!removerRegistered) {
-      ++slot->removers;
-      removerRegistered = true;
-    }
-
     if (!slot->inFlight) {
-      if (slot->removers) {
+      if (removerRegistered && slot->removers) {
         --slot->removers;
       }
       if (!slot->removers) {
@@ -279,31 +271,44 @@ bool Log::removeCallback(LogCallback* pCallback) {
       return true;
     }
 
+    if (isCallbackContext(currentCallbackOwner())) {
+      // Snapshot dispatch can pin callbacks which have not run yet. Treat any
+      // live target as peer-owned here so false always preserves retry state.
+      return false;
+    }
+
+    if (!canYield) {
+      return false;
+    }
+
+    if (!removerRegistered) {
+      ++slot->removers;
+      removerRegistered = true;
+    }
+
 #if THREADS
     const WaitQueue::WakeReason reason = guard.waitForCompletion(
         WaitQueue::Channel(slot), Thread::CallbackDrain, reinterpret_cast<uintptr_t>(pCallback));
     (void)reason;
 #else
-    // A single-threaded build can only reach this through its own
-    // synchronous callback stack.
-    slot->deferredRemoval = true;
     return false;
 #endif
   }
 }
 
-Thread* Log::currentCallbackThread() {
+void* Log::currentCallbackOwner() {
 #if THREADS
-  return Processor::information().getCurrentThread();
+  ProcessorInformation& information = Processor::information();
+  Thread* thread = information.getCurrentThread();
+  return thread ? static_cast<void*>(thread) : static_cast<void*>(&information);
 #else
   return nullptr;
 #endif
 }
 
-bool Log::currentThreadOwnsPin(CallbackSlot* slot) {
-  Thread* current = currentCallbackThread();
+bool Log::isCallbackContext(void* owner) {
   for (CallbackPin* pin = m_ActiveCallbackPins; pin; pin = pin->next) {
-    if (pin->slot == slot && pin->owner == current) {
+    if (pin->owner == owner) {
       return true;
     }
   }
@@ -315,12 +320,11 @@ void Log::clearCallback(CallbackSlot* slot) {
   slot->inFlight = 0;
   slot->removers = 0;
   slot->enabled = false;
-  slot->deferredRemoval = false;
 }
 
 size_t Log::snapshotCallbacks(CallbackPin pins[LOG_CALLBACK_COUNT]) {
   auto guard = m_CallbackWaiters.acquire();
-  Thread* owner = currentCallbackThread();
+  void* owner = currentCallbackOwner();
   size_t count = 0;
   for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i) {
     CallbackSlot* slot = &m_OutputCallbacks[i];
@@ -347,7 +351,7 @@ bool Log::pinCallback(CallbackSlot* slot, CallbackPin& pin) {
 
   pin.slot = slot;
   pin.callback = slot->callback;
-  pin.owner = currentCallbackThread();
+  pin.owner = currentCallbackOwner();
   pin.next = m_ActiveCallbackPins;
   m_ActiveCallbackPins = &pin;
   ++slot->inFlight;
@@ -378,8 +382,6 @@ void Log::releaseCallback(CallbackPin& pin) {
   if (!slot->enabled && !slot->inFlight) {
     if (slot->removers) {
       guard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(slot));
-    } else if (slot->deferredRemoval) {
-      clearCallback(slot);
     }
   }
 
