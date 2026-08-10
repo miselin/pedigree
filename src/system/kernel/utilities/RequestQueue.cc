@@ -252,8 +252,6 @@ RequestQueue::RequestQueue(const String &name)
 #if PEDIGREE_CONCURRENCY_SMOKE_TESTS
       m_AfterPreallocatedClaimHook(nullptr),
       m_AfterPreallocatedClaimContext(nullptr),
-      m_PreallocatedClaimWaitHook(nullptr),
-      m_PreallocatedClaimWaitContext(nullptr),
 #endif
 #endif
       m_nMaxAsyncRequests(256), m_nAsyncRequests(0), m_nTotalRequests(0),
@@ -1243,17 +1241,10 @@ void RequestQueue::releasePreallocatedRequest(Request *request)
         }
         if (state == PreallocatedRequest::Claimed)
         {
-#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
-            if (m_PreallocatedClaimWaitHook)
-            {
-                m_PreallocatedClaimWaitHook(m_PreallocatedClaimWaitContext);
-            }
-#endif
-            // The claimant can have been preempted on this worker's CPU. Give
-            // it a scheduling opportunity instead of monopolising the only
-            // processor which can finish publication.
-            Scheduler::instance().yield();
-            continue;
+            // The claimant now owns every remaining token transition. Waiting
+            // for it here would make unrelated queue progress depend on the
+            // scheduling latency of a producer on another CPU.
+            break;
         }
 
         // Published is an asynchronous republication. Idle is a nested inline

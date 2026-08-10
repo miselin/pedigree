@@ -104,12 +104,6 @@ class EXPORTED_PUBLIC RequestQueue
         m_AfterPreallocatedClaimContext = context;
     }
 
-    void setPreallocatedClaimWaitHookForTest(
-        ConcurrencySmokeHook hook, void *context)
-    {
-        m_PreallocatedClaimWaitHook = hook;
-        m_PreallocatedClaimWaitContext = context;
-    }
 #endif
 
 #if THREADS
@@ -567,8 +561,6 @@ class EXPORTED_PUBLIC RequestQueue
 #if PEDIGREE_CONCURRENCY_SMOKE_TESTS
     ConcurrencySmokeHook m_AfterPreallocatedClaimHook;
     void *m_AfterPreallocatedClaimContext;
-    ConcurrencySmokeHook m_PreallocatedClaimWaitHook;
-    void *m_PreallocatedClaimWaitContext;
 #endif
 #endif
 

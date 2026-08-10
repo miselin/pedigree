@@ -60,14 +60,13 @@ class HandoffQueue : public RequestQueue
 
 struct ClaimPause
 {
-    ClaimPause() : entered(0), release(0), claimCalls(0), waitCalls(0)
+    ClaimPause() : entered(0), release(0), claimCalls(0)
     {
     }
 
     Semaphore entered;
     Semaphore release;
     Atomic<size_t> claimCalls;
-    Atomic<size_t> waitCalls;
 };
 
 struct PublishContext
@@ -92,15 +91,6 @@ void pauseClaimedPublication(void *context)
         {
             FATAL("QEMU RequestQueue publisher pause was interrupted");
         }
-    }
-}
-
-void releaseClaimedPublication(void *context)
-{
-    ClaimPause *pause = reinterpret_cast<ClaimPause *>(context);
-    if ((pause->waitCalls += 1) == 1)
-    {
-        pause->release.release();
     }
 }
 
@@ -129,16 +119,12 @@ bool entry()
         FATAL("QEMU RequestQueue handoff setup failed");
     }
     queue.setAfterPreallocatedClaimHookForTest(pauseClaimedPublication, &pause);
-    queue.setPreallocatedClaimWaitHookForTest(
-        releaseClaimedPublication, &pause);
 
     PublishContext publication(&queue);
     Thread *publisher = new Thread(
         Scheduler::instance().getKernelProcess(), publishHandoff, &publication,
         nullptr, false, true, true);
     publisher->setName("QEMU RequestQueue handoff publisher");
-    // A correct handoff must select the claimant on the worker's first yield.
-    publisher->setPriority(0);
     if (!publisher->start() || !pause.entered.acquireForCompletion())
     {
         FATAL("QEMU RequestQueue handoff publisher did not claim its token");
@@ -146,21 +132,37 @@ bool entry()
 
     queue.allowReleaseReturn.release();
 
+    if (!queue.addAsyncRequest(0, 3))
+    {
+        FATAL("QEMU RequestQueue handoff progress probe was rejected");
+    }
+
+    bool independentProgress = false;
+    for (size_t attempt = 0; attempt < 4096; ++attempt)
+    {
+        if (queue.executions.value() >= 2)
+        {
+            independentProgress = true;
+            break;
+        }
+        Scheduler::instance().yield();
+    }
+
+    pause.release.release();
+
     const bool drained = queue.drain();
     const bool joined = publisher->joinForCompletion();
     queue.setAfterPreallocatedClaimHookForTest(nullptr, nullptr);
-    queue.setPreallocatedClaimWaitHookForTest(nullptr, nullptr);
     queue.destroy();
 
-    if (!drained || !joined ||
+    if (!independentProgress || !drained || !joined ||
         publication.result !=
             RequestQueue::PreallocatedPublishResult::Accepted ||
-        queue.executions.value() != 2 || queue.releaseCalls.value() != 2 ||
-        pause.waitCalls.value() != 1 || !queue.token.isAvailable())
+        queue.executions.value() != 3 || queue.releaseCalls.value() != 2 ||
+        !queue.token.isAvailable())
     {
         FATAL(
-            "QEMU RequestQueue handoff regression failed after "
-            << pause.waitCalls.value() << " claim-wait iterations");
+            "QEMU RequestQueue handoff blocked independent queue progress");
     }
 
     NOTICE("QEMU-CONCURRENCY-TEST: PASS requestqueue-release-handoff");
