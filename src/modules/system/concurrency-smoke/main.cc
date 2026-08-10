@@ -227,8 +227,8 @@ bool entry() {
 
   pause.release.release();
 
-  const bool drained = queue.drain();
   const bool joined = publisher->joinForCompletion();
+  const bool drained = queue.drain();
   queue.setAfterPreallocatedClaimHookForTest(nullptr, nullptr);
   queue.destroy();
 
