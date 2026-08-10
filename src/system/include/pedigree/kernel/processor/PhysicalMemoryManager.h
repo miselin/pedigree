@@ -62,7 +62,7 @@ class EXPORTED_PUBLIC PhysicalMemoryManager {
   /** All address size constraints */
   static const size_t addressConstraints = below1MB | below16MB | below4GB | below64GB;
 
-  /** Don't track the memory region. */
+  /** Don't expose the memory region in diagnostic region listings. */
   static const size_t anonymous = 1 << 8;
 
   /** Get the PhysicalMemoryManager instance

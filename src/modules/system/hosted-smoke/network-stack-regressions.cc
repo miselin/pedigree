@@ -7,13 +7,17 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/new"
 
-#include "modules/system/network-stack/NetworkStack.h"
 #include "modules/system/lwip/include/lwip/err.h"
+#include "modules/system/lwip/include/lwip/netif.h"
 #include "modules/system/lwip/include/lwip/sys.h"
+#include "modules/system/network-stack/NetworkStack.h"
 #include "system/kernel/core/processor/DeviceHardIrqContext.h"
 
 namespace {
@@ -21,6 +25,10 @@ class HostedNetworkDevice final : public Network {
  public:
   bool send(size_t, uintptr_t) override {
     return true;
+  }
+
+  const StationInfo& getStationInfo() override {
+    return m_StationInfo;
   }
 };
 
@@ -224,6 +232,108 @@ bool check(bool condition, const char* test, const char* detail) {
   return false;
 }
 
+bool isRegistered(NetworkStack& stack, Network* device) {
+  NetworkStack::DeviceLease lease;
+  return stack.acquireDevice(device, lease);
+}
+
+bool waitUntilQueued(Thread* thread, size_t debugState) {
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (Time::getTicks() < deadline) {
+    Thread::WaitDebugInfo info = {};
+    uintptr_t debugAddress = 0;
+    if (thread->getWaitDebugInfo(info) && info.queue && info.queued &&
+        thread->getDebugState(debugAddress) == debugState) {
+      return true;
+    }
+    Scheduler::instance().yield();
+  }
+  return false;
+}
+
+struct DeviceDeregisterContext {
+  DeviceDeregisterContext(NetworkStack* stack, Network* device)
+      : stack(stack), device(device), entered(0), returned(0) {}
+
+  NetworkStack* stack;
+  Network* device;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+};
+
+int deregisterLeasedDevice(void* parameter) {
+  DeviceDeregisterContext* context = reinterpret_cast<DeviceDeregisterContext*>(parameter);
+  context->entered += 1;
+  context->stack->deRegisterDevice(context->device);
+  context->returned += 1;
+  return 0;
+}
+
+bool deviceLeaseDeregisterDrain() {
+  static const char* Test = "device-lease-deregister-drain";
+
+  NetworkStack& stack = NetworkStack::instance();
+  alignas(HostedNetworkDevice) uint8_t deviceStorage[sizeof(HostedNetworkDevice)];
+  HostedNetworkDevice* original = new (deviceStorage) HostedNetworkDevice();
+  stack.registerDevice(original);
+  const size_t originalGeneration = NetworkStack::getHostedRegistrationGeneration(original);
+
+  NetworkStack::DeviceLease held;
+  const bool acquired = stack.acquireDevice(original, held);
+  struct netif* originalInterface = acquired ? held.interface() : nullptr;
+  DeviceDeregisterContext context(&stack, original);
+  Thread* remover = nullptr;
+  bool drainPublished = false;
+  bool lateRejected = false;
+  bool usableWhileDraining = false;
+
+  if (acquired) {
+    remover = new Thread(Scheduler::instance().getKernelProcess(), deregisterLeasedDevice, &context,
+                         nullptr, false, true);
+    remover->setName("hosted network device deregister");
+    drainPublished = waitUntilQueued(remover, Thread::CallbackDrain);
+
+    NetworkStack::DeviceLease late;
+    lateRejected = !stack.acquireDevice(original, late);
+
+    String name;
+    held.device()->getName(name);
+    const StationInfo& info = held.device()->getStationInfo();
+    usableWhileDraining = held.device() == original && held.interface() == originalInterface &&
+                          originalInterface && originalInterface->state == original &&
+                          info.nPackets == 0;
+    held = NetworkStack::DeviceLease();
+  }
+
+  const bool removerJoined = remover && remover->join();
+  const bool unregistered =
+      !isRegistered(stack, original) && !NetworkStack::getHostedRegistrationGeneration(original);
+  if (!remover) {
+    stack.deRegisterDevice(original);
+  }
+  original->~HostedNetworkDevice();
+
+  HostedNetworkDevice* replacement = new (deviceStorage) HostedNetworkDevice();
+  stack.registerDevice(replacement);
+  const size_t replacementGeneration = NetworkStack::getHostedRegistrationGeneration(replacement);
+  NetworkStack::DeviceLease replacementLease;
+  const bool replacementRegistered = stack.acquireDevice(replacement, replacementLease);
+  replacementLease = NetworkStack::DeviceLease();
+  stack.deRegisterDevice(replacement);
+  replacement->~HostedNetworkDevice();
+
+  const bool passed =
+      check(acquired && originalGeneration && context.entered == 1 && drainPublished &&
+                context.returned == 1 && lateRejected && usableWhileDraining && removerJoined &&
+                unregistered && replacementRegistered && replacementGeneration &&
+                replacementGeneration != originalGeneration,
+            Test, "deregistration did not unpublish, drain, and retire one held registration");
+  if (passed) {
+    NOTICE("HOSTED-NETWORK-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
 bool mailboxTryPostRejectsHardIrq() {
   static const char* Test = "mailbox-hard-irq-trypost";
 
@@ -277,7 +387,7 @@ bool interruptReceivePublication() {
   if (workerHeld) {
     stack.deRegisterDevice(&device);
     unregistered =
-        !stack.getInterface(&device) && !NetworkStack::getHostedRegistrationGeneration(&device);
+        !isRegistered(stack, &device) && !NetworkStack::getHostedRegistrationGeneration(&device);
   }
   context.allowDispatch.release();
   const bool drained = stack.drain();
@@ -337,7 +447,7 @@ bool boundedReceiveBurst() {
   if (workerHeld) {
     stack.deRegisterDevice(&device);
     unregistered =
-        !stack.getInterface(&device) && !NetworkStack::getHostedRegistrationGeneration(&device);
+        !isRegistered(stack, &device) && !NetworkStack::getHostedRegistrationGeneration(&device);
   }
 
   // Also releases a worker which arrived after the bounded wait above.
@@ -379,7 +489,7 @@ bool queuedReceiveGenerationAba() {
   stack.registerDevice(original);
   const size_t originalGeneration = NetworkStack::getHostedRegistrationGeneration(original);
   bool passed = true;
-  passed &= check(stack.getInterface(original) && originalGeneration,
+  passed &= check(isRegistered(stack, original) && originalGeneration,
                   "the original device was not registered");
 
   ReceiveAbaContext context(original);
@@ -399,14 +509,14 @@ bool queuedReceiveGenerationAba() {
   if (workerHeld) {
     stack.deRegisterDevice(original);
     unregistered =
-        !stack.getInterface(original) && !NetworkStack::getHostedRegistrationGeneration(original);
+        !isRegistered(stack, original) && !NetworkStack::getHostedRegistrationGeneration(original);
     original->~HostedNetworkDevice();
 
     replacement = new (deviceStorage) HostedNetworkDevice();
     reusedAddress = replacement == original;
     stack.registerDevice(replacement);
     replacementGeneration = NetworkStack::getHostedRegistrationGeneration(replacement);
-    replacementRegistered = stack.getInterface(replacement) && replacementGeneration;
+    replacementRegistered = isRegistered(stack, replacement) && replacementGeneration;
   }
 
   // Also makes a late-arriving worker safe after a timeout above.
@@ -450,6 +560,7 @@ bool queuedReceiveGenerationAba() {
 
 bool runHostedNetworkStackRegressions() {
   bool passed = mailboxTryPostRejectsHardIrq();
+  passed &= deviceLeaseDeregisterDrain();
   passed &= interruptReceivePublication();
   passed &= boundedReceiveBurst();
   passed &= queuedReceiveGenerationAba();

@@ -63,6 +63,7 @@ fi
 
 required_markers=(
     "KERNELELF: Preloaded module hosted-core-smoke"
+    "HOSTED-MEMORY-TEST: PASS anonymous-region-release"
     "HOSTED-WAIT-TEST: PASS all"
     "HOSTED-SMOKE: Darwin core smoke executed"
     "HOSTED-SHUTDOWN: timers and signals quiesced"
@@ -77,6 +78,7 @@ for marker in "${required_markers[@]}"; do
 done
 
 rejected_markers=(
+    "HOSTED-MEMORY-TEST: FAIL"
     "HOSTED-WAIT-TEST: FAIL"
     "KERNELELF: Hit an invalid module"
     "KERNELELF: Module relocation failed"

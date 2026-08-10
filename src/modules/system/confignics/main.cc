@@ -37,14 +37,15 @@ static int configureInterfaces() {
   // connect to the outside world
   IpAddress empty;
   Network* pDefaultCard = 0;
-  for (size_t i = 0; i < NetworkStack::instance().getNumDevices(); i++) {
-    /// \todo Perhaps try and ping a remote host?
-    Network* card = NetworkStack::instance().getDevice(i);
-
-    struct netif* iface = NetworkStack::instance().getInterface(card);
-    if (!iface) {
-      continue;
+  NetworkStack& networkStack = NetworkStack::instance();
+  for (size_t i = 0;; ++i) {
+    NetworkStack::DeviceLease device;
+    if (!networkStack.acquireDevice(i, device)) {
+      break;
     }
+
+    /// \todo Perhaps try and ping a remote host?
+    struct netif* iface = device.interface();
 
     // Do the initial setup we need to get the interface up.
     ip4_addr_t ipaddr;

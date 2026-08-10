@@ -20,6 +20,7 @@
 #include "modules/Module.h"
 
 extern bool runNetworkFilterConcurrencyRegressions();
+extern bool runAnonymousMemoryRegionRegression();
 extern bool runSlamAllocatorConcurrencyRegression();
 extern bool runTlbShootdownConcurrencyRegression();
 
@@ -329,6 +330,9 @@ bool entry() {
   }
   testProducerConsumerTeardown();
 
+  if (!runAnonymousMemoryRegionRegression()) {
+    FATAL("QEMU anonymous MemoryRegion regression failed");
+  }
   if (!runTlbShootdownConcurrencyRegression()) {
     FATAL("QEMU shared-kernel TLB shootdown regression failed");
   }

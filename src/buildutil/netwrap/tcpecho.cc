@@ -238,22 +238,30 @@ static void mainloop(int fd) {
 
   TunWrapper* wrapper = new TunWrapper();
   wrapper->setStationInfo(info);
-  NetworkStack::instance().registerDevice(wrapper);
+  stack->registerDevice(wrapper);
 
-  struct netif* iface = NetworkStack::instance().getInterface(wrapper);
+  {
+    NetworkStack::DeviceLease device;
+    if (!stack->acquireDevice(wrapper, device)) {
+      ERROR("TUNTAP: Registered interface could not be acquired");
+      return;
+    }
 
-  ip4_addr_t ipaddr;
-  ip4_addr_t netmask;
-  ip4_addr_t gateway;
-  ByteSet(&gateway, 0, sizeof(gateway));
+    struct netif* iface = device.interface();
 
-  ipaddr.addr = in.s_addr;
-  netmask.addr = info.subnetMask.getIp();
+    ip4_addr_t ipaddr;
+    ip4_addr_t netmask;
+    ip4_addr_t gateway;
+    ByteSet(&gateway, 0, sizeof(gateway));
 
-  netif_set_addr(iface, &ipaddr, &netmask, &gateway);
-  netif_set_default(iface);
-  netif_set_link_up(iface);
-  netif_set_up(iface);
+    ipaddr.addr = in.s_addr;
+    netmask.addr = info.subnetMask.getIp();
+
+    netif_set_addr(iface, &ipaddr, &netmask, &gateway);
+    netif_set_default(iface);
+    netif_set_link_up(iface);
+    netif_set_up(iface);
+  }
 
   DeviceHashTree::instance().fill(wrapper);
 

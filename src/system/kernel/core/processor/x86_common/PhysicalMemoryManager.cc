@@ -300,13 +300,13 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t
     Region.m_PhysicalAddress = start;
     Region.m_Size = cPages * PhysicalMemoryManager::getPageSize();
     Region.m_bPageBacked = false;
+    Region.setAnonymous(pageConstraints & PhysicalMemoryManager::anonymous);
     //       NOTICE("MR: Allocated " << Hex << vAddress << " (phys " <<
     //       static_cast<uintptr_t>(start) << "), size " << (cPages*4096));
 
-    // Add to the list of memory-regions
-    if (!(pageConstraints & PhysicalMemoryManager::anonymous)) {
-      PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
-    }
+    // Ownership tracking is required for unmapRegion(). Anonymous regions are
+    // filtered from diagnostic listings instead.
+    PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
     return true;
   } else {
     // If we need continuous memory, switch to below16 if not already
@@ -388,11 +388,11 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t
     const size_t addressConstraint = pageConstraints & addressConstraints;
     Region.m_bPageBacked = (pageConstraints & virtualOnly) ||
                            (addressConstraint != below1MB && addressConstraint != below16MB);
+    Region.setAnonymous(pageConstraints & PhysicalMemoryManager::anonymous);
 
-    // Add to the list of memory-regions
-    if (!(pageConstraints & PhysicalMemoryManager::anonymous)) {
-      PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
-    }
+    // Ownership tracking is required for unmapRegion(). Anonymous regions are
+    // filtered from diagnostic listings instead.
+    PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
     return true;
   }
 }

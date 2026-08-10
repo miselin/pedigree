@@ -237,6 +237,7 @@ bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t cP
     Region.m_VirtualAddress = reinterpret_cast<void*>(vAddress);
     Region.m_PhysicalAddress = start;
     Region.m_Size = cPages * PhysicalMemoryManager::getPageSize();
+    Region.setAnonymous(pageConstraints & PhysicalMemoryManager::anonymous);
     //       NOTICE("MR: Allocated " << Hex << vAddress << " (phys " <<
     //       static_cast<uintptr_t>(start) << "), size " << (cPages*4096));
 
@@ -270,6 +271,7 @@ bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t cP
     Region.m_VirtualAddress = reinterpret_cast<void*>(vAddress);
     Region.m_PhysicalAddress = start;
     Region.m_Size = cPages * PhysicalMemoryManager::getPageSize();
+    Region.setAnonymous(pageConstraints & PhysicalMemoryManager::anonymous);
 
     // Add to the list of memory-regions
     PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
@@ -314,6 +316,41 @@ void HostedPhysicalMemoryManager::initialise(const BootstrapStruct_t& Info) {
 }
 
 void HostedPhysicalMemoryManager::initialisationDone() {
+#if PEDIGREE_HOSTED_SMOKE_TESTS
+  const size_t trackedBefore = PhysicalMemoryManager::m_MemoryRegions.count();
+  MemoryRegion first("Hosted anonymous-region regression");
+  if (!allocateRegion(first, 1, PhysicalMemoryManager::anonymous,
+                      VirtualAddressSpace::KernelMode)) {
+    FATAL("HOSTED-MEMORY-TEST: FAIL anonymous-region allocation");
+  }
+
+  void* firstAddress = first.virtualAddress();
+  VirtualAddressSpace& addressSpace = VirtualAddressSpace::getKernelAddressSpace();
+  if (PhysicalMemoryManager::m_MemoryRegions.count() != trackedBefore + 1 ||
+      !addressSpace.isMapped(firstAddress)) {
+    FATAL("HOSTED-MEMORY-TEST: FAIL anonymous-region ownership");
+  }
+
+  first.free();
+  if (PhysicalMemoryManager::m_MemoryRegions.count() != trackedBefore ||
+      addressSpace.isMapped(firstAddress)) {
+    FATAL("HOSTED-MEMORY-TEST: FAIL anonymous-region release");
+  }
+
+  MemoryRegion second("Hosted anonymous-region reuse regression");
+  if (!allocateRegion(second, 1, PhysicalMemoryManager::anonymous,
+                      VirtualAddressSpace::KernelMode) ||
+      second.virtualAddress() != firstAddress) {
+    FATAL("HOSTED-MEMORY-TEST: FAIL anonymous-region reuse");
+  }
+  second.free();
+  if (PhysicalMemoryManager::m_MemoryRegions.count() != trackedBefore ||
+      addressSpace.isMapped(firstAddress)) {
+    FATAL("HOSTED-MEMORY-TEST: FAIL anonymous-region final release");
+  }
+
+  NOTICE("HOSTED-MEMORY-TEST: PASS anonymous-region-release");
+#endif
   NOTICE("PhysicalMemoryManager: kernel initialisation complete");
 }
 

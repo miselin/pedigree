@@ -242,6 +242,7 @@ set(TESTSUITE_SRCS
     testsuite/test-LocalApicIcrTransaction.cc
     testsuite/test-LocalApicTlbShootdown.cc
     testsuite/test-LocalApicLint0Policy.cc
+    testsuite/test-MemoryRegion.cc
     testsuite/test-PcSchedulerTimerSelection.cc
     testsuite/test-PicIrqState.cc
     testsuite/test-TscClock.cc

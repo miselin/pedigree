@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/MemoryPool.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
@@ -40,6 +41,46 @@ struct netif;
  */
 class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
  public:
+  /**
+   * Pins one registered device and its lwIP interface until the lease leaves
+   * scope. Device deregistration removes the registration from discovery and
+   * waits for every admitted lease before returning. Device owners must
+   * deregister before the most-derived destructor begins and keep
+   * reader-visible state stable until deregistration returns.
+   */
+  class EXPORTED_PUBLIC DeviceLease {
+   public:
+    DeviceLease();
+    DeviceLease(DeviceLease&& other);
+    ~DeviceLease();
+
+    DeviceLease& operator=(DeviceLease&& other);
+
+    Network* device() const {
+      return m_Device;
+    }
+
+    struct netif* interface() const {
+      return m_Interface;
+    }
+
+    explicit operator bool() const {
+      return m_Device != nullptr;
+    }
+
+   private:
+    friend class NetworkStack;
+
+    DeviceLease(Network* device, struct netif* interface, OperationBarrier::Lease&& lease);
+
+    DeviceLease(const DeviceLease&) = delete;
+    DeviceLease& operator=(const DeviceLease&) = delete;
+
+    Network* m_Device;
+    struct netif* m_Interface;
+    OperationBarrier::Lease m_Lease;
+  };
+
   NetworkStack();
   virtual ~NetworkStack();
 
@@ -58,11 +99,11 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
   /** Registers a given network device with the stack */
   void registerDevice(Network* pDevice);
 
-  /** Returns the n'th registered network device */
-  Network* getDevice(size_t n);
+  /** Pins the n'th registered network device and interface. */
+  MUST_USE_RESULT bool acquireDevice(size_t n, DeviceLease& lease);
 
-  /** Returns the number of devices registered with the stack */
-  size_t getNumDevices();
+  /** Pins a specific registered network device and interface. */
+  MUST_USE_RESULT bool acquireDevice(Network* pDevice, DeviceLease& lease);
 
   /** Unregisters a given network device from the stack */
   void deRegisterDevice(Network* pDevice);
@@ -119,11 +160,6 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
     Mutex m_Pushed;
   };
 
-  /** Get an interface for a card. */
-  struct netif* getInterface(Network* pCard) const {
-    return m_Interfaces.lookup(pCard);
-  }
-
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   enum class HostedReceiveEvent {
     Queued,
@@ -142,6 +178,8 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
 #endif
 
  private:
+  struct DeviceRegistration;
+
   static NetworkStack* stack;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -186,6 +224,9 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
 
   /** Starting token for the next bounded preallocated-publication scan. */
   Atomic<size_t> m_NextReceiveRequest;
+
+  /** Read-side lifetime state for registered devices and interfaces. */
+  Tree<Network*, DeviceRegistration*> m_Registrations;
 };
 
 #endif

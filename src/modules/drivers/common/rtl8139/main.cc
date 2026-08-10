@@ -28,6 +28,7 @@
 
 #include "Rtl8139.h"
 #include "modules/Module.h"
+#include "modules/system/network-stack/NetworkStack.h"
 
 static bool bFound = false;
 static List<Rtl8139*> g_Cards;
@@ -61,7 +62,8 @@ static void exit() {
   };
   auto callback = pedigree_std::make_callable(removeCard);
   while (g_Cards.count()) {
-    Device* card = g_Cards.popFront();
+    Rtl8139* card = g_Cards.popFront();
+    NetworkStack::instance().deRegisterDevice(card);
     Device::foreach (callback, 0, card);
   }
   bFound = false;

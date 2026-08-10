@@ -72,6 +72,8 @@ class EXPORTED_PUBLIC MemoryRegion {
   bool getNonRamMemory();
   void setForced(bool b);
   bool getForced();
+  void setAnonymous(bool b);
+  bool getAnonymous() const;
 
  private:
   /** The copy-constructor
@@ -92,7 +94,7 @@ class EXPORTED_PUBLIC MemoryRegion {
   /** User-visible name of the memory-region */
   const char* m_pName;
 
-  bool m_bNonRamMemory, m_bForced, m_bPageBacked;
+  bool m_bNonRamMemory, m_bForced, m_bPageBacked, m_bAnonymous;
 };
 
 /** @} */

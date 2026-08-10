@@ -31,6 +31,9 @@ size_t PhysicalMemoryManager::freePageCount() const {
 
 void PhysicalMemoryManager::allocateMemoryRegionList(Vector<MemoryRegionInfo*>& MemoryRegions) {
   for (size_t i = 0; i < m_MemoryRegions.count(); i++) {
+    if (m_MemoryRegions[i]->getAnonymous()) {
+      continue;
+    }
     MemoryRegionInfo* pMemoryRegionInfo = new MemoryRegionInfo(
         m_MemoryRegions[i]->virtualAddress(), m_MemoryRegions[i]->physicalAddress(),
         m_MemoryRegions[i]->size(), m_MemoryRegions[i]->name());

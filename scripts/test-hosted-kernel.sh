@@ -249,6 +249,7 @@ assert_clean_log()
         "KERNELELF: Hit an invalid module" \
         "invoke attempted with multiple threads" \
         "HOSTED-WAIT-TEST: FAIL" \
+        "HOSTED-MEMORY-TEST: FAIL" \
         "HOSTED-SYSCALL-TEST: FAIL" \
         "HOSTED-NETWORK-TEST: FAIL" \
         "HOSTED-SMOKE: FAIL" \
@@ -371,6 +372,9 @@ if [ "$wait_regressions_only" = "0" ] ||
         "$empty_log" "Hosted build has no smoke-test root; shutting down."
     assert_marker_once \
         "$empty_log" \
+        "HOSTED-NETWORK-TEST: PASS device-lease-deregister-drain"
+    assert_marker_once \
+        "$empty_log" \
         "HOSTED-NETWORK-TEST: PASS receive-generation-aba"
     for checkpoint in \
         "HOSTED-SYSCALL-TEST: PASS descriptor-close-pinning" \
@@ -419,6 +423,8 @@ assert_marker "$populated_log" "KERNELELF: Preloaded module fat"
 assert_marker "$populated_log" "KERNELELF: Preloaded module rawfs"
 assert_marker "$populated_log" "KERNELELF: Preloaded module usb"
 assert_marker "$populated_log" "KERNELELF: Preloaded module hosted-smoke"
+assert_marker \
+    "$populated_log" "HOSTED-MEMORY-TEST: PASS anonymous-region-release"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: BEGIN"
 assert_all_wait_markers_once "$populated_log"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS wake-before-block"

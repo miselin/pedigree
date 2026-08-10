@@ -40,6 +40,42 @@ NetworkStack::HostedReceiveHook NetworkStack::m_HostedReceiveHook = nullptr;
 
 static NetworkStack* g_NetworkStack = 0;
 
+struct NetworkStack::DeviceRegistration {
+  DeviceRegistration(Network* registeredDevice, struct netif* registeredInterface)
+      : device(registeredDevice), interface(registeredInterface), readers() {}
+
+  Network* device;
+  struct netif* interface;
+  OperationBarrier readers;
+};
+
+NetworkStack::DeviceLease::DeviceLease() : m_Device(nullptr), m_Interface(nullptr), m_Lease() {}
+
+NetworkStack::DeviceLease::DeviceLease(Network* device, struct netif* interface,
+                                       OperationBarrier::Lease&& lease)
+    : m_Device(device), m_Interface(interface), m_Lease(pedigree_std::move(lease)) {}
+
+NetworkStack::DeviceLease::DeviceLease(DeviceLease&& other)
+    : m_Device(other.m_Device),
+      m_Interface(other.m_Interface),
+      m_Lease(pedigree_std::move(other.m_Lease)) {
+  other.m_Device = nullptr;
+  other.m_Interface = nullptr;
+}
+
+NetworkStack::DeviceLease::~DeviceLease() {}
+
+NetworkStack::DeviceLease& NetworkStack::DeviceLease::operator=(DeviceLease&& other) {
+  if (this != &other) {
+    m_Lease = pedigree_std::move(other.m_Lease);
+    m_Device = other.m_Device;
+    m_Interface = other.m_Interface;
+    other.m_Device = nullptr;
+    other.m_Interface = nullptr;
+  }
+  return *this;
+}
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS && PEDIGREE_HOSTED_NETWORK_REGRESSION
 extern bool runHostedNetworkStackRegressions();
 #endif
@@ -148,7 +184,8 @@ NetworkStack::NetworkStack()
       m_Interfaces(),
       m_NextInterfaceNumber(0),
       m_NextDeviceGeneration(1),
-      m_NextReceiveRequest(0) {
+      m_NextReceiveRequest(0),
+      m_Registrations() {
   if (__atomic_load_n(&stack, __ATOMIC_ACQUIRE)) {
     FATAL("NetworkStack created multiple times.");
   }
@@ -175,14 +212,18 @@ NetworkStack::NetworkStack()
 NetworkStack::~NetworkStack() {
   destroy();
 
-  Vector<struct netif*> interfaces;
+  Vector<DeviceRegistration*> registrations;
 #if THREADS || UTILITY_LINUX
   m_Lock.acquire();
 #endif
-  for (Tree<Network*, struct netif*>::Iterator it = m_Interfaces.begin();
-       it != m_Interfaces.end(); ++it) {
-    interfaces.pushBack(it.value());
+  for (Tree<Network*, DeviceRegistration*>::Iterator it = m_Registrations.begin();
+       it != m_Registrations.end(); ++it) {
+    DeviceRegistration* registration = it.value();
+    __atomic_store_n(&registration->device->m_NetworkStackGeneration, 0, __ATOMIC_RELEASE);
+    registration->readers.close();
+    registrations.pushBack(registration);
   }
+  m_Registrations.clear();
   m_Interfaces.clear();
   m_Children.clear();
   m_pLoopback = nullptr;
@@ -190,11 +231,15 @@ NetworkStack::~NetworkStack() {
   m_Lock.release();
 #endif
 
-  for (Vector<struct netif*>::Iterator it = interfaces.begin(); it != interfaces.end(); ++it) {
-    if (tcpip_callback_wait(removeInterface, *it) != ERR_OK) {
+  for (Vector<DeviceRegistration*>::Iterator it = registrations.begin(); it != registrations.end();
+       ++it) {
+    DeviceRegistration* registration = *it;
+    registration->readers.wait();
+    if (tcpip_callback_wait(removeInterface, registration->interface) != ERR_OK) {
       FATAL("NetworkStack could not retire a network interface");
     }
-    delete *it;
+    delete registration->interface;
+    delete registration;
   }
 
   __atomic_store_n(&stack, static_cast<NetworkStack*>(nullptr), __ATOMIC_RELEASE);
@@ -341,14 +386,6 @@ void NetworkStack::registerDevice(Network* pDevice) {
     FATAL("Too many network interfaces!");
   }
 
-  m_Children.pushBack(pDevice);
-
-  size_t generation = m_NextDeviceGeneration++;
-  if (!generation) {
-    generation = m_NextDeviceGeneration++;
-  }
-  __atomic_store_n(&pDevice->m_NetworkStackGeneration, generation, __ATOMIC_RELEASE);
-
   struct netif* iface = new struct netif;
   ByteSet(iface, 0, sizeof(*iface));
 
@@ -370,12 +407,6 @@ void NetworkStack::registerDevice(Network* pDevice) {
   // half-published device while the tcpip core performs that mutation.
   AddInterfaceContext add = {iface, &ipaddr, &netmask, &gateway, pDevice, nullptr};
   if (tcpip_callback_wait(addInterface, &add) != ERR_OK || !add.result) {
-    for (Vector<Network*>::Iterator it = m_Children.begin(); it != m_Children.end(); ++it) {
-      if (*it == pDevice) {
-        m_Children.erase(it);
-        break;
-      }
-    }
     __atomic_store_n(&pDevice->m_NetworkStackGeneration, 0, __ATOMIC_RELEASE);
     delete iface;
     FATAL("NetworkStack could not register a network interface");
@@ -383,15 +414,51 @@ void NetworkStack::registerDevice(Network* pDevice) {
   }
   iface = add.result;
 
+  DeviceRegistration* registration = new DeviceRegistration(pDevice, iface);
+  m_Children.pushBack(pDevice);
   m_Interfaces.insert(pDevice, iface);
+  m_Registrations.insert(pDevice, registration);
+
+  size_t generation = m_NextDeviceGeneration++;
+  if (!generation) {
+    generation = m_NextDeviceGeneration++;
+  }
+  __atomic_store_n(&pDevice->m_NetworkStackGeneration, generation, __ATOMIC_RELEASE);
 }
 
-Network* NetworkStack::getDevice(size_t n) {
-  return m_Children[n];
+bool NetworkStack::acquireDevice(size_t n, DeviceLease& lease) {
+  lease = DeviceLease();
+#if THREADS || UTILITY_LINUX
+  LockGuard<Mutex> guard(m_Lock);
+#endif
+  if (n >= m_Children.count()) {
+    return false;
+  }
+
+  Network* device = m_Children[n];
+  DeviceRegistration* registration = m_Registrations.lookup(device);
+  OperationBarrier::Lease reader;
+  if (!registration || !registration->readers.tryAcquire(reader)) {
+    return false;
+  }
+
+  lease = DeviceLease(device, registration->interface, pedigree_std::move(reader));
+  return true;
 }
 
-size_t NetworkStack::getNumDevices() {
-  return m_Children.count();
+bool NetworkStack::acquireDevice(Network* pDevice, DeviceLease& lease) {
+  lease = DeviceLease();
+#if THREADS || UTILITY_LINUX
+  LockGuard<Mutex> guard(m_Lock);
+#endif
+  DeviceRegistration* registration = m_Registrations.lookup(pDevice);
+  OperationBarrier::Lease reader;
+  if (!registration || !registration->readers.tryAcquire(reader)) {
+    return false;
+  }
+
+  lease = DeviceLease(pDevice, registration->interface, pedigree_std::move(reader));
+  return true;
 }
 
 void NetworkStack::clearLoopback(Network* pCard) {
@@ -404,33 +471,42 @@ void NetworkStack::clearLoopback(Network* pCard) {
 }
 
 void NetworkStack::deRegisterDevice(Network* pDevice) {
-  struct netif* iface = nullptr;
+  DeviceRegistration* registration = nullptr;
 #if THREADS || UTILITY_LINUX
   m_Lock.acquire();
 #endif
 
   __atomic_store_n(&pDevice->m_NetworkStackGeneration, 0, __ATOMIC_RELEASE);
 
-  int i = 0;
-  for (Vector<Network*>::Iterator it = m_Children.begin(); it != m_Children.end(); it++, i++)
+  registration = m_Registrations.lookup(pDevice);
+  if (!registration) {
+#if THREADS || UTILITY_LINUX
+    m_Lock.release();
+#endif
+    return;
+  }
+
+  for (Vector<Network*>::Iterator it = m_Children.begin(); it != m_Children.end(); ++it) {
     if (*it == pDevice) {
       m_Children.erase(it);
       break;
     }
+  }
 
-  iface = m_Interfaces.lookup(pDevice);
   m_Interfaces.remove(pDevice);
+  m_Registrations.remove(pDevice);
+  registration->readers.close();
 
 #if THREADS || UTILITY_LINUX
   m_Lock.release();
 #endif
 
-  if (iface != nullptr) {
-    if (tcpip_callback_wait(removeInterface, iface) != ERR_OK) {
-      FATAL("NetworkStack could not retire a network interface");
-    }
-    delete iface;
+  registration->readers.wait();
+  if (tcpip_callback_wait(removeInterface, registration->interface) != ERR_OK) {
+    FATAL("NetworkStack could not retire a network interface");
   }
+  delete registration->interface;
+  delete registration;
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

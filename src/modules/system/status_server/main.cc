@@ -200,15 +200,18 @@ static int clientThread(void* p) {
         "Addresses</th><th>Subnet "
         "Mask</th><th>Gateway</th><th>Driver Name</th><th>MAC "
         "address</th><th>Statistics</th></tr>";
-    for (size_t i = 0; i < NetworkStack::instance().getNumDevices(); i++) {
+    NetworkStack& networkStack = NetworkStack::instance();
+    for (size_t i = 0;; ++i) {
+      NetworkStack::DeviceLease device;
+      if (!networkStack.acquireDevice(i, device)) {
+        break;
+      }
+
       /// \todo switch to using netif interface for all this
-      Network* card = NetworkStack::instance().getDevice(i);
+      Network* card = device.device();
       StationInfo info = card->getStationInfo();
 
-      struct netif* iface = NetworkStack::instance().getInterface(card);
-      if (!iface) {
-        continue;
-      }
+      struct netif* iface = device.interface();
 
       // Interface number
       responseContent += "<tr><td>";

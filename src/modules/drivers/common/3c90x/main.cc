@@ -25,6 +25,7 @@
 
 #include "3Com90x.h"
 #include "modules/Module.h"
+#include "modules/system/network-stack/NetworkStack.h"
 
 class Network;
 
@@ -92,7 +93,8 @@ static void exit() {
   };
   auto callback = pedigree_std::make_callable(removeCard);
   while (g_Cards.count()) {
-    Device* card = g_Cards.popFront();
+    Nic3C90x* card = g_Cards.popFront();
+    NetworkStack::instance().deRegisterDevice(card);
     Device::foreach (callback, 0, card);
   }
   bFound = false;

@@ -27,7 +27,8 @@ MemoryRegion::MemoryRegion(const char* pName)
       m_pName(pName),
       m_bNonRamMemory(false),
       m_bForced(false),
-      m_bPageBacked(false) {}
+      m_bPageBacked(false),
+      m_bAnonymous(false) {}
 
 MemoryRegion::~MemoryRegion() {
   PhysicalMemoryManager::instance().unmapRegion(this);
@@ -77,4 +78,12 @@ void MemoryRegion::setForced(bool b) {
 
 bool MemoryRegion::getForced() {
   return m_bForced;
+}
+
+void MemoryRegion::setAnonymous(bool b) {
+  m_bAnonymous = b;
+}
+
+bool MemoryRegion::getAnonymous() const {
+  return m_bAnonymous;
 }
