@@ -24,6 +24,11 @@
 
 #include "pedigree/kernel/processor/types.h"
 
+#else
+
+#include <stddef.h>
+#include <stdint.h>
+
 #endif
 
 struct InfoBlock {
