@@ -27,6 +27,8 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+class TlbInvalidationGuard;
+
 /**
  * Virtual address space layout
  * NOTE: the kernel and all modules must exist in the final 2GB of the address
@@ -245,14 +247,18 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
    *out, false otherwise */
   bool getPageTableEntry(void* virtualAddress, uint64_t*& pageTableEntry) const;
   /**
-   * \brief Possibly cleans up tables for the given address.
+   * Detach empty paging structures for the given address without freeing
+   * their physical storage.
    *
-   * This is used when unmapping pages to opportunistically unmap paging
-   * structures that are no longer necessary.
-   * \param[in] virtualAddress the virtual address
-   * \param[out] pageTableEntry pointer to the page table entry
+   * The caller invalidates the address before releasing the returned pages,
+   * so no processor can retain a paging-structure-cache reference into reused
+   * storage.
    */
-  void maybeFreeTables(void* virtualAddress);
+  size_t detachEmptyTables(void* virtualAddress, physical_uintptr_t* detachedTables);
+  /** Invalidate an address under a lease acquired before its first PTE write.
+   * Private address spaces have no processor-residency mask to narrow the
+   * destination set safely. */
+  void invalidateMapping(void* virtualAddress, TlbInvalidationGuard& invalidation);
   /** Convert the processor independant flags to the processor's
    *representation of the flags \param[in] flags the processor independant
    *flag representation \param[in] bFinal whether this is for the actual page
@@ -282,12 +288,13 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
    * \param[in] locked whether the lock was taken before calling or not.
    */
   bool mapUnlocked(physical_uintptr_t physAddress, void* virtualAddress, size_t flags,
-                   bool locked = false);
+                   TlbInvalidationGuard& invalidation, bool locked = false);
 
   /**
    * Perform an unmap without taking the lock.
    */
-  void unmapUnlocked(void* virtualAddress, bool requireMapped = true);
+  void unmapUnlocked(void* virtualAddress, TlbInvalidationGuard& invalidation,
+                     bool requireMapped = true);
 
   /** Allocates a stack with a given size. */
   Stack* doAllocateStack(size_t sSize);

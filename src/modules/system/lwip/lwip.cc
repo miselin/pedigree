@@ -18,9 +18,11 @@
  */
 
 #include "pedigree/kernel/process/Completion.h"
+#include "pedigree/kernel/Log.h"
 
 #include "modules/Module.h"
 #include "modules/system/lwip/include/lwip/init.h"
+#include "modules/system/lwip/include/lwip/sys.h"
 #include "modules/system/lwip/include/lwip/tcpip.h"
 
 // Switch the module-specific pieces of the module over to hidden visibility
@@ -32,12 +34,26 @@ static void tcpipInitComplete(void*) {
   tcpipInitPending.complete();
 }
 
+static err_t stopTcpip() {
+  err_t result = ERR_INPROGRESS;
+  while (result == ERR_INPROGRESS) {
+    result = tcpip_shutdown();
+    if (result == ERR_INPROGRESS) {
+      sys_msleep(1);
+    }
+  }
+  return result;
+}
+
 static bool entry() {
   // make sure the multi threaded lwIP implementation is ready to go
   /// \todo check if tcpip_init fails somehow
   tcpip_init(tcpipInitComplete, nullptr);
 
   if (!tcpipInitPending.wait()) {
+    if (stopTcpip() != ERR_OK) {
+      FATAL("lwIP could not stop its tcpip worker after interrupted init");
+    }
     return false;
   }
 
@@ -45,7 +61,9 @@ static bool entry() {
 }
 
 static void exit() {
-  /// \todo can we shut down lwip cleanly here?
+  if (stopTcpip() != ERR_OK) {
+    FATAL("lwIP could not stop and join its tcpip worker");
+  }
 }
 
 MODULE_INFO("lwip", &entry, &exit);

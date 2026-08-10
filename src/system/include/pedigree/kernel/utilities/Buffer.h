@@ -61,6 +61,13 @@ class EXPORTED_PUBLIC Buffer {
   size_t write(const T* buffer, size_t count, bool block = true);
 
   /**
+   * Writes the complete input without waiting for lock ownership or space.
+   * Returns false without changing the buffer when the whole input cannot be
+   * accepted immediately. An empty input is a successful no-op.
+   */
+  bool tryWrite(const T* buffer, size_t count);
+
+  /**
    * Read \param count values into \param buffer, optionally blocking
    * if no more values are available to be read yet.
    */
@@ -187,6 +194,12 @@ class EXPORTED_PUBLIC Buffer {
    * Clears all monitors as a side effect.
    */
   void notifyMonitors();
+
+  /** Sends and retires monitor targets while m_Lock is held. */
+  void notifyMonitorsLocked();
+
+  /** Appends up to count values while m_Lock is held. */
+  size_t writeLocked(const T* buffer, size_t count);
 
   /**
    * Create a new segment with the given data.

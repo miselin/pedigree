@@ -42,7 +42,13 @@
 #define MULTIBOOT_FLAG_VBE 0x400
 #endif
 
-extern class BootstrapStruct_t* g_pBootstrapInfo EXPORTED_PUBLIC;
+#if MULTIBOOT
+class BootstrapStruct_t;
+#else
+struct BootstrapStruct_t;
+#endif
+
+extern BootstrapStruct_t* g_pBootstrapInfo EXPORTED_PUBLIC;
 
 #if MULTIBOOT
 

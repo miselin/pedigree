@@ -58,6 +58,9 @@ VFS::~VFS() {
   for (auto it = m_ProbeCallbacks.begin(); it != m_ProbeCallbacks.end(); ++it) {
     delete *it;
   }
+  for (auto it = m_MountCallbacks.begin(); it != m_MountCallbacks.end(); ++it) {
+    delete *it;
+  }
 
   // Unmount each registered filesystem exactly once.
   for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
@@ -193,10 +196,34 @@ void VFS::addProbeCallback(Filesystem::ProbeCallback callback) {
   m_ProbeCallbacks.pushBack(p);
 }
 
+bool VFS::removeProbeCallback(Filesystem::ProbeCallback callback) {
+  for (auto it = m_ProbeCallbacks.begin(); it != m_ProbeCallbacks.end(); ++it) {
+    Filesystem::ProbeCallback* registered = *it;
+    if (*registered == callback) {
+      m_ProbeCallbacks.erase(it);
+      delete registered;
+      return true;
+    }
+  }
+  return false;
+}
+
 void VFS::addMountCallback(MountCallback callback) {
   MountCallback* p = new MountCallback;
   *p = callback;
   m_MountCallbacks.pushBack(p);
+}
+
+bool VFS::removeMountCallback(MountCallback callback) {
+  for (auto it = m_MountCallbacks.begin(); it != m_MountCallbacks.end(); ++it) {
+    MountCallback* registered = *it;
+    if (*registered == callback) {
+      m_MountCallbacks.erase(it);
+      delete registered;
+      return true;
+    }
+  }
+  return false;
 }
 
 bool VFS::createFile(const String& path, uint32_t mask, File* pStartNode) {

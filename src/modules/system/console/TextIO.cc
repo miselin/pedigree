@@ -1808,18 +1808,16 @@ void TextIO::handleInput(InputManager::InputNotification& in) {
   if (!isPrimary())
     return;
 
-  if (!m_OutBuffer.canWrite(false)) {
-    WARNING("TextIO: output buffer is full, dropping keypress!");
-    return;
-  }
-
   if (m_InputMode == Raw) {
     if (in.type != InputManager::MachineKey) {
       return;
     }
 
     uint8_t buf = in.data.rawkey.scancode | (in.data.rawkey.keyUp ? 0x80 : 0);
-    m_OutBuffer.write(reinterpret_cast<char*>(&buf), sizeof(buf));
+    if (!m_OutBuffer.tryWrite(reinterpret_cast<char*>(&buf), sizeof(buf))) {
+      WARNING("TextIO: input buffer is busy, dropping keypress");
+      return;
+    }
 
     dataChanged();
     return;
@@ -1857,19 +1855,26 @@ void TextIO::handleInput(InputManager::InputNotification& in) {
   if (c == '\n')
     c = '\r';  // Enter key (ie, return) - CRtoNL.
 
+  const char* input = nullptr;
+  size_t inputLength = 0;
+  char buf[4] = {};
   if (direction >= 0) {
     switch (direction) {
       case 0:
-        m_OutBuffer.write("\033[D", 3);
+        input = "\033[D";
+        inputLength = 3;
         break;
       case 1:
-        m_OutBuffer.write("\033[C", 3);
+        input = "\033[C";
+        inputLength = 3;
         break;
       case 2:
-        m_OutBuffer.write("\033[A", 3);
+        input = "\033[A";
+        inputLength = 3;
         break;
       case 3:
-        m_OutBuffer.write("\033[B", 3);
+        input = "\033[B";
+        inputLength = 3;
         break;
       default:
         break;
@@ -1877,14 +1882,22 @@ void TextIO::handleInput(InputManager::InputNotification& in) {
   } else if (c & ALT_KEY) {
     // ALT escaped key
     c &= 0x7F;
-    char buf[2] = {'\033', static_cast<char>(c & 0xFF)};
-    m_OutBuffer.write(buf, 2);
+    buf[0] = '\033';
+    buf[1] = static_cast<char>(c & 0xFF);
+    input = buf;
+    inputLength = 2;
   } else if (c) {
-    char buf[4];
-    size_t nbuf = String::Utf32ToUtf8(c & 0xFFFFFFFF, buf);
+    inputLength = String::Utf32ToUtf8(c & 0xFFFFFFFF, buf);
+    input = buf;
+  }
 
-    // UTF8 conversion complete.
-    m_OutBuffer.write(buf, nbuf);
+  if (!inputLength) {
+    return;
+  }
+
+  if (!m_OutBuffer.tryWrite(input, inputLength)) {
+    WARNING("TextIO: input buffer is busy, dropping keypress");
+    return;
   }
 
   dataChanged();

@@ -290,6 +290,10 @@ static bool initIso9660() {
   return true;
 }
 
-static void destroyIso9660() {}
+static void destroyIso9660() {
+  if (!VFS::instance().removeProbeCallback(&Iso9660Filesystem::probe)) {
+    FATAL("ISO9660 probe callback was not registered during unload");
+  }
+}
 
 MODULE_INFO("iso9660", &initIso9660, &destroyIso9660, "vfs");

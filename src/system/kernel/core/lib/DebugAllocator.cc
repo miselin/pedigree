@@ -86,12 +86,8 @@ SlamCache::SlamCache()
     : m_PartialLists(),
       m_ObjectSize(0),
       m_SlabSize(0),
-      m_FirstSlab()
-#if THREADS
-      ,
-      m_RecoveryLock(false)
-#endif
-      ,
+      m_FirstSlab(),
+      m_RecoveryLock(false, true),
       m_EmptyNode() {
 }
 
@@ -100,6 +96,16 @@ SlamCache::~SlamCache() {}
 void SlamCache::initialise(SlamAllocator* parent, size_t objectSize) {
   // no-op for debug allocator
 }
+
+size_t SlamCache::currentList() const {
+  return 0;
+}
+
+#if defined(PEDIGREE_BUILDUTILS)
+void SlamCache::setListForTest(size_t list) {
+  m_TestList = list;
+}
+#endif
 
 SlamCache::Node* SlamCache::pop(SlamCache::alignedNode* head) {
   // no-op for debug allocator
@@ -157,12 +163,11 @@ void SlamCache::trackSlab(uintptr_t slab) {
 SlamAllocator::SlamAllocator()
     : m_bInitialised(false),
       m_bVigilant(false),
-#if THREADS
-      m_SlabRegionLock(false),
-#endif
+      m_SlabRegionLock(false, true),
       m_HeapPageCount(0),
       m_SlabRegionBitmap(),
       m_SlabRegionBitmapEntries(0),
+      m_SlabRegionPages(0),
       m_Base(0) {
 }
 
@@ -195,6 +200,17 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
 void SlamAllocator::freeSlab(uintptr_t address, size_t length) {
   // no-op for debug allocator
 }
+
+void SlamAllocator::markSlabReady(uintptr_t address, size_t length) {
+  // no-op for debug allocator
+}
+
+#if defined(PEDIGREE_BUILDUTILS)
+void SlamAllocator::setSlabTransitionHookForTest(SlabTransitionHookForTest hook, void* context) {
+  m_SlabTransitionHook = hook;
+  m_SlabTransitionHookContext = context;
+}
+#endif
 
 size_t SlamAllocator::recovery(size_t maxSlabs) {
   // no-op for debug allocator

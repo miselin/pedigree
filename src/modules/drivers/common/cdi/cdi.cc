@@ -141,7 +141,15 @@ EXPORTED_PUBLIC void cdi_pedigree_walk_dev_list_destroy(struct cdi_driver *dev)
  */
 static void cdi_destroy(void)
 {
-    // Drivers are already destroyed by the module exit function
+    auto removeNetworkWrappers = [] (Device *device) {
+        if (device->getType() == Device::Network &&
+            device->getSpecificType().compare("CDI NIC")) {
+            return static_cast<Device *>(nullptr);
+        }
+        return device;
+    };
+    auto callback = pedigree_std::make_callable(removeNetworkWrappers);
+    Device::foreach(callback, 0);
 }
 
 /**

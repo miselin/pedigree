@@ -1100,7 +1100,11 @@ static bool initExt2() {
   return true;
 }
 
-static void destroyExt2() {}
+static void destroyExt2() {
+  if (!VFS::instance().removeProbeCallback(&Ext2Filesystem::probe)) {
+    FATAL("Ext2 probe callback was not registered during unload");
+  }
+}
 
 MODULE_INFO("ext2", &initExt2, &destroyExt2, "vfs");
 #endif

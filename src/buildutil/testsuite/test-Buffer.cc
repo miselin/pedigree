@@ -64,6 +64,24 @@ TEST(PedigreeBuffer, TooManyWithoutShort) {
   EXPECT_EQ(buffer.read(buf, 16, false), 8U);
 }
 
+TEST(PedigreeBuffer, TryWriteIsAllOrNothing) {
+  Buffer<char> buffer(2);
+  const char tooLarge[] = {'a', 'b', 'c'};
+  const char fits[] = {'d', 'e'};
+
+  EXPECT_TRUE(buffer.tryWrite(nullptr, 0));
+  EXPECT_FALSE(buffer.tryWrite(tooLarge, sizeof(tooLarge)));
+  EXPECT_EQ(buffer.getDataSize(), 0U);
+  EXPECT_TRUE(buffer.tryWrite(fits, sizeof(fits)));
+  EXPECT_EQ(buffer.getDataSize(), sizeof(fits));
+  EXPECT_FALSE(buffer.tryWrite("f", 1));
+
+  char result[2] = {};
+  EXPECT_EQ(buffer.read(result, sizeof(result), false), sizeof(result));
+  EXPECT_EQ(result[0], 'd');
+  EXPECT_EQ(result[1], 'e');
+}
+
 TEST(PedigreeBuffer, ReadTooMany) {
   Buffer<char> buffer(8);
 

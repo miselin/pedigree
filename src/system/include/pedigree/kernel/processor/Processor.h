@@ -54,6 +54,41 @@ enum class DeviceHardIrqOperation {
   HeapFree,
 };
 
+/** Completion status for a synchronous all-processor TLB invalidation. */
+enum class TlbInvalidationResult {
+  Success,
+  InvalidContext,
+  UnsupportedTopology,
+  SerialisationTimedOut,
+  SubmissionFailed,
+  AcknowledgementTimedOut,
+  DrainTimedOut,
+};
+
+class ProcessorBase;
+
+/**
+ * Admission lease spanning a page-table mutation and its invalidation.
+ *
+ * Acquire this before the first PTE write and keep it alive until the last
+ * synchronous invalidation has completed. Processor retirement closes
+ * admission and drains all such leases before pausing any processor.
+ */
+class TlbInvalidationGuard {
+  friend class ProcessorBase;
+
+ public:
+  TlbInvalidationGuard() : m_Active(false), m_Global(false) {}
+  ~TlbInvalidationGuard();
+
+  TlbInvalidationGuard(const TlbInvalidationGuard&) = delete;
+  TlbInvalidationGuard& operator=(const TlbInvalidationGuard&) = delete;
+
+ private:
+  bool m_Active;
+  bool m_Global;
+};
+
 /// Defines for debug status flags.
 #define DEBUG_BREAKPOINT_0 0x01  /// Breakpoint 0 was triggered.
 #define DEBUG_BREAKPOINT_1 0x02  /// Breakpoint 1 was triggered.
@@ -86,6 +121,7 @@ extern void apMain() NORETURN;
  * return/process data on the processor that is executing this code. */
 class EXPORTED_PUBLIC ProcessorBase {
   friend class Multiprocessor;
+  friend class TlbInvalidationGuard;
   friend class X86GdtManager;
   friend class X64GdtManager;
   friend class Scheduler;
@@ -333,9 +369,43 @@ class EXPORTED_PUBLIC ProcessorBase {
 
   /** Invalidate the TLB entry containing a specific virtual address
    *\param[in] pAddress the specific virtual address
-   *\todo Figure out if we want to flush the TLB of every processor or if
-   *      this should be handled by the upper layers */
+   *\note This affects only the executing processor. */
   static void invalidate(void* pAddress);
+
+  /**
+   * Admit a page-table mutation before its first PTE write.
+   *
+   * The guard may cover more than one address and must remain alive through
+   * every corresponding invalidateAll call. This operation uses bounded
+   * polling and rejects hard-IRQ, scheduler-IRQ, synthetic-IRQ, and debugger
+   * contexts before the mapping can change. The guarded region must not sleep
+   * or wait for work which itself needs new mapping admission.
+   */
+  MUST_USE_RESULT static TlbInvalidationResult beginTlbInvalidation(
+      TlbInvalidationGuard& guard);
+
+  /**
+   * Invalidate one virtual address on every online processor and do not
+   * return until each processor has acknowledged the request.
+   *
+   * The caller must keep the online-processor set, page-table mutation, and
+   * its page-table storage stable until this returns Success. The
+   * implementation is allocation-free and uses bounded polling, so it is
+   * valid in ordinary thread and atomic thread context. Explicit device,
+   * scheduler, synthetic-IRQ, and debugger contexts are rejected: none may
+   * wait for another processor's progress. On any failure, the caller must
+   * not reclaim or reuse the old mapping's backing storage.
+   */
+  /**
+   * Convenience invalidation for callers which have not changed a PTE.
+   * Page-table writers must acquire a guard before their mutation and use the
+   * overload below, so processor retirement cannot overtake publication.
+   */
+  MUST_USE_RESULT static TlbInvalidationResult invalidateAll(void* pAddress);
+
+  /** Invalidate under an admission lease acquired before the PTE mutation. */
+  MUST_USE_RESULT static TlbInvalidationResult invalidateAll(
+      void* pAddress, TlbInvalidationGuard& guard);
 
   /** Invalidate a line in the instruction cache.
    *\param[in] nAddr The address of a memory location to invalidate from the
@@ -387,6 +457,9 @@ class EXPORTED_PUBLIC ProcessorBase {
   static size_t m_Initialised;
 
  private:
+  /** Release an active page-table mutation admission lease. */
+  static void endTlbInvalidation(TlbInvalidationGuard& guard);
+
 #if HOSTED
   /** Implementation of breakpoint(), reset(), haltUntilInterrupt() */
   static void _breakpoint();
@@ -406,6 +479,12 @@ class EXPORTED_PUBLIC ProcessorBase {
 
   static size_t m_nProcessors;
 };
+
+inline TlbInvalidationGuard::~TlbInvalidationGuard() {
+  if (m_Active) {
+    ProcessorBase::endTlbInvalidation(*this);
+  }
+}
 
 /** @} */
 

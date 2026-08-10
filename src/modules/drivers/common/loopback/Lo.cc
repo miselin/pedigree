@@ -58,7 +58,14 @@ Loopback::Loopback(Network* pDev) : Network(pDev) {
   m_StationInfo.nIpv6Addresses = 1;
 }
 
-Loopback::~Loopback() {}
+Loopback::~Loopback() {
+  NetworkStack* stack = NetworkStack::instanceIfAvailable();
+  if (!stack) {
+    return;
+  }
+  stack->clearLoopback(this);
+  stack->deRegisterDevice(this);
+}
 
 bool Loopback::send(size_t nBytes, uintptr_t buffer) {
   if (nBytes > 0xffff) {

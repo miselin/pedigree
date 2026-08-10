@@ -268,6 +268,8 @@ err_t sys_mbox_new(sys_mbox_t *mbox, int size);
  * @param msg message to post (ATTENTION: can be NULL)
  */
 void sys_mbox_post(sys_mbox_t *mbox, void *msg);
+/** Pedigree shutdown extension: append one final message and reject writes. */
+err_t sys_mbox_post_and_close(sys_mbox_t *mbox, void *msg);
 /**
  * @ingroup sys_mbox
  * Try to post a message to an mbox - may fail if full or ISR
@@ -348,6 +350,10 @@ void sys_mbox_set_invalid(sys_mbox_t *mbox);
  * @param stacksize stack size in bytes for the new thread (may be ignored by ports)
  * @param prio priority of the new thread (may be ignored by ports) */
 sys_thread_t sys_thread_new(const char *name, lwip_thread_fn thread, void *arg, int stacksize, int prio);
+/** Pedigree shutdown extension for threads returned by sys_thread_new(). */
+int sys_thread_join(sys_thread_t thread);
+/** Returns non-zero when thread identifies the calling thread. */
+int sys_thread_is_current(sys_thread_t thread);
 
 #endif /* NO_SYS */
 

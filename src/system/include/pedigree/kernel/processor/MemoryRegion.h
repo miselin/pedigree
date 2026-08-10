@@ -92,7 +92,7 @@ class EXPORTED_PUBLIC MemoryRegion {
   /** User-visible name of the memory-region */
   const char* m_pName;
 
-  bool m_bNonRamMemory, m_bForced;
+  bool m_bNonRamMemory, m_bForced, m_bPageBacked;
 };
 
 /** @} */

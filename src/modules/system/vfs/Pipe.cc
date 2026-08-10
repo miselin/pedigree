@@ -82,8 +82,11 @@ int Pipe::select(bool bWriting, int timeout) {
 
 uint64_t Pipe::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
   // Need to read what's left in the pipe then EOF if there's no more readers!
-  if (m_nWriters == 0) {
-    bCanBlock = false;
+  {
+    LockGuard<Mutex> guard(m_Lock);
+    if (m_nWriters == 0) {
+      bCanBlock = false;
+    }
   }
 
   uint8_t* pBuf = reinterpret_cast<uint8_t*>(buffer);
@@ -91,9 +94,12 @@ uint64_t Pipe::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, 
 }
 
 uint64_t Pipe::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
-  if (m_nReaders == 0) {
-    // no more readers, abort the write
-    return 0;
+  {
+    LockGuard<Mutex> guard(m_Lock);
+    if (m_nReaders == 0) {
+      // no more readers, abort the write
+      return 0;
+    }
   }
 
   uint8_t* pBuf = reinterpret_cast<uint8_t*>(buffer);

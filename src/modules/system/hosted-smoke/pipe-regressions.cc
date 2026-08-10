@@ -14,6 +14,20 @@
 #include "modules/system/vfs/Pipe.h"
 
 namespace {
+class EndpointLockedPipe : public Pipe {
+ public:
+  explicit EndpointLockedPipe(const char* name, uintptr_t inode)
+      : Pipe(String(name), 0, 0, 0, inode, nullptr, 0, nullptr, false) {}
+
+  void lockEndpointState() {
+    m_Lock.acquire();
+  }
+
+  void unlockEndpointState() {
+    m_Lock.release();
+  }
+};
+
 struct PipeWaitContext {
   explicit PipeWaitContext(Pipe* pipe) : pipe(pipe), entered(0), returned(0), observedReader(0) {}
 
@@ -22,6 +36,37 @@ struct PipeWaitContext {
   Atomic<size_t> returned;
   Atomic<size_t> observedReader;
 };
+
+struct PipeIoContext {
+  enum Operation {
+    Read,
+    Write,
+  };
+
+  PipeIoContext(Pipe* pipe, Operation operation)
+      : pipe(pipe), operation(operation), entered(0), returned(0), result(1), value('p') {}
+
+  Pipe* pipe;
+  Operation operation;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+  Atomic<size_t> result;
+  char value;
+};
+
+int accessPipeEndpointState(void* parameter) {
+  PipeIoContext* context = reinterpret_cast<PipeIoContext*>(parameter);
+  context->entered += 1;
+  if (context->operation == PipeIoContext::Read) {
+    context->result = context->pipe->readBytewise(
+        0, 1, reinterpret_cast<uintptr_t>(&context->value), false);
+  } else {
+    context->result = context->pipe->writeBytewise(
+        0, 1, reinterpret_cast<uintptr_t>(&context->value), false);
+  }
+  context->returned += 1;
+  return 0;
+}
 
 int waitForPipeReader(void* parameter) {
   PipeWaitContext* context = reinterpret_cast<PipeWaitContext*>(parameter);
@@ -63,6 +108,41 @@ bool waitUntilBlocked(Thread* thread) {
     Scheduler::instance().yield();
   }
   return false;
+}
+
+bool waitUntilEndpointLockBlocked(Thread* thread) {
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (Time::getTicks() < deadline) {
+    uintptr_t address = 0;
+    if (thread->getDebugState(address) == Thread::SemWait) {
+      return true;
+    }
+    if (thread->getStatus() == Thread::AwaitingJoin) {
+      return false;
+    }
+    Scheduler::instance().yield();
+  }
+  return false;
+}
+
+bool runEndpointLockCase(PipeIoContext::Operation operation, const char* name, uintptr_t inode) {
+  EndpointLockedPipe pipe(name, inode);
+  PipeIoContext context(&pipe, operation);
+  pipe.lockEndpointState();
+  Thread* worker = new Thread(Scheduler::instance().getKernelProcess(), accessPipeEndpointState,
+                              &context, nullptr, false, true);
+  worker->setName("hosted pipe endpoint snapshot");
+
+  const bool blocked = waitUntilEndpointLockBlocked(worker) && context.entered == 1 &&
+                       context.returned == 0;
+  pipe.unlockEndpointState();
+  const bool joined = worker->join();
+  return blocked && joined && context.returned == 1 && context.result == 0;
+}
+
+bool endpointCountsUseFileMutex() {
+  return runEndpointLockCase(PipeIoContext::Read, "hosted-locked-reader-fifo", 3) &&
+         runEndpointLockCase(PipeIoContext::Write, "hosted-locked-writer-fifo", 4);
 }
 
 bool staleReaderDoesNotSatisfyOpen() {
@@ -120,7 +200,8 @@ bool oneReaderWakesEveryWriter() {
 }  // namespace
 
 bool runHostedPipeRegressions() {
-  const bool passed = staleReaderDoesNotSatisfyOpen() && oneReaderWakesEveryWriter();
+  const bool passed = staleReaderDoesNotSatisfyOpen() && oneReaderWakesEveryWriter() &&
+                      endpointCountsUseFileMutex();
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS fifo-reader-predicate");
   } else {

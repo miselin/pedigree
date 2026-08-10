@@ -70,6 +70,11 @@ bool ConditionVariable::wait(Mutex& mutex, Time::Timestamp& timeout, Error& erro
     return false;
   }
 
+  if (timeout == 0) {
+    error = TimedOut;
+    return false;
+  }
+
   Thread* me = Processor::information().getCurrentThread();
   me->clearInterruption();
 

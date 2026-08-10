@@ -59,6 +59,8 @@ void SymbolTable::insertMultiple(SymbolTable* pOther, const String& name, Bindin
 }
 
 void SymbolTable::preallocate(size_t numGlobal, size_t numWeak, Elf* localElf, size_t numLocal) {
+  RAII_LOCK;
+
   auto tree = getOrInsertTree(localElf);
   tree->reserve(numLocal);
 
@@ -73,6 +75,8 @@ void SymbolTable::preallocate(size_t numGlobal, size_t numWeak, Elf* localElf, s
 
 void SymbolTable::preallocateAdditional(size_t numGlobal, size_t numWeak, Elf* localElf,
                                         size_t numLocal) {
+  RAII_LOCK;
+
   auto tree = getOrInsertTree(localElf, Global);
   tree->reserve(tree->count() + numGlobal);
 
@@ -86,6 +90,7 @@ void SymbolTable::preallocateAdditional(size_t numGlobal, size_t numWeak, Elf* l
 }
 
 bool SymbolTable::hasPreallocated() const {
+  RAII_LOCK;
   return m_bPreallocated;
 }
 

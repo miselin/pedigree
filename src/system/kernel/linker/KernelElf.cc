@@ -22,6 +22,9 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/linker/SymbolTable.h"
+#if THREADS
+#include "pedigree/kernel/process/Scheduler.h"
+#endif
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -352,8 +355,12 @@ KernelElf::KernelElf()
       m_ModuleAllocator(),
       m_pSectionHeaders(0),
       m_pSymbolTable(0),
-      m_ModuleProgress(0),
       m_ModuleAdjustmentLock(false),
+      m_ModuleShutdown(false),
+      m_ModuleLoading(false),
+      m_UnloadingModule(nullptr),
+      m_ModuleExecutions(0),
+      m_ModuleExecutionPasses(0),
       m_InitModule(nullptr) {}
 
 KernelElf::~KernelElf() {
@@ -368,8 +375,29 @@ KernelElf::~KernelElf() {
   m_pDebugTable = nullptr;
 }
 
+bool KernelElf::beginModuleLoad() {
+  lockModules();
+  const bool admitted = !m_ModuleShutdown && !m_ModuleLoading && !m_UnloadingModule;
+  if (admitted) {
+    m_ModuleLoading = true;
+  }
+  unlockModules();
+  return admitted;
+}
+
+void KernelElf::finishModuleLoad() {
+  lockModules();
+  m_ModuleLoading = false;
+  unlockModules();
+}
+
 Module* KernelElf::loadModule(uint8_t* pModule, size_t len, bool silent) {
   MemoryCount guard(__PRETTY_FUNCTION__);
+
+  if (!beginModuleLoad()) {
+    WARNING("KERNELELF: Rejecting concurrent module load or load during shutdown");
+    return nullptr;
+  }
 
   // The module memory allocator requires dynamic memory - this isn't
   // initialised until after our constructor is called, so check here if we've
@@ -389,12 +417,14 @@ Module* KernelElf::loadModule(uint8_t* pModule, size_t len, bool silent) {
   if (!module->elf->create(pModule, len)) {
     FATAL("Module load failed (1)");
     delete module;
+    finishModuleLoad();
     return 0;
   }
 
   if (!module->elf->loadModule(pModule, len, module->loadBase, module->loadSize, &m_SymbolTable)) {
     FATAL("Module load failed (2)");
     delete module;
+    finishModuleLoad();
     return 0;
   }
 
@@ -421,6 +451,7 @@ Module* KernelElf::loadModule(uint8_t* pModule, size_t len, bool silent) {
   const char** pName = reinterpret_cast<const char**>(module->elf->lookupSymbol("g_pModuleName"));
   if ((!pName) || (!*pName)) {
     ERROR("KERNELELF: Hit an invalid module, ignoring");
+    finishModuleLoad();
     return 0;
   }
   module->name.assign(rebase(module, *pName));
@@ -436,6 +467,9 @@ Module* KernelElf::loadModule(uint8_t* pModule, size_t len, bool silent) {
   }
   module->entry = entryPoint;
   module->exit = exitPoint;
+  bool* unloadable =
+      reinterpret_cast<bool*>(module->elf->lookupSymbol("g_bModuleUnloadable"));
+  module->unloadable = unloadable ? *unloadable : true;
   module->depends = reinterpret_cast<const char**>(module->elf->lookupSymbol("g_pDepends"));
   module->depends_opt =
       reinterpret_cast<const char**>(module->elf->lookupSymbol("g_pOptionalDepends"));
@@ -465,52 +499,110 @@ Module* KernelElf::loadModule(uint8_t* pModule, size_t len, bool silent) {
                   reinterpret_cast<void*>(module->loadBase + module->loadSize));
   }
 
-  if (!StringCompare(module->name.cstr(), "init")) {
+  const bool initModule = !StringCompare(module->name.cstr(), "init");
+  lockModules();
+  if (initModule) {
     m_InitModule = module;
   } else {
-    g_BootProgressCurrent++;
+    module->status = Module::Preloaded;
+    m_Modules.pushBack(module);
+    ++module->progressCredits;
+    ++g_BootProgressCurrent;
+  }
+  unlockModules();
+
+  if (!initModule) {
     if (g_BootProgressUpdate && !silent)
       g_BootProgressUpdate("moduleload");
-
-    module->status = Module::Preloaded;
-
-    m_Modules.pushBack(module);
   }
+  finishModuleLoad();
 
   return module;
 }
 
 void KernelElf::executeModules(bool silent, bool progress) {
-  NOTICE("KERNELELF: executing " << m_Modules.count() << " modules...");
+  lockModules();
+  if (m_ModuleShutdown) {
+    unlockModules();
+    WARNING("KERNELELF: Rejecting module execution after shutdown began");
+    return;
+  }
+  ++m_ModuleExecutionPasses;
+  const size_t moduleCount = m_Modules.count();
+  unlockModules();
+  NOTICE("KERNELELF: executing " << moduleCount << " modules...");
 
-  // keep trying until all modules were invoked
-  bool executedModule = true;
-  while (executedModule) {
-    executedModule = false;
-
-    for (auto module : m_Modules) {
-      if (module->wasAttempted()) {
-        continue;
-      }
-
-      bool dependenciesSatisfied = moduleDependenciesSatisfied(module);
-
-      // Can we load this module yet?
-      if (dependenciesSatisfied) {
-        executeModule(module);
-
-        g_BootProgressCurrent++;
-        if (g_BootProgressUpdate && !silent)
-          g_BootProgressUpdate("moduleexec");
-
-        executedModule = true;
+  while (true) {
+    Module* module = nullptr;
+    bool executing = false;
+    bool updateProgress = false;
+    lockModules();
+    if (m_ModuleShutdown) {
+      unlockModules();
+      break;
+    }
+    if (m_ModuleLoading) {
+      unlockModules();
+#if THREADS
+      Scheduler::instance().yield();
+      continue;
+#else
+      FATAL("KERNELELF: Concurrent module load without scheduler support");
+      break;
+#endif
+    }
+    executing = m_ModuleExecutions != 0;
+    for (auto candidate : m_Modules) {
+      if (candidate->isPending() && moduleDependenciesSatisfiedLocked(candidate)) {
+        // Eligibility and the Preloaded -> Executing transition are one
+        // claim. An unload owner can therefore observe either state, but can
+        // never unmap a module between the dependency check and its launch.
+        candidate->status = Module::Executing;
+        ++m_ModuleExecutions;
+        if (progress) {
+          ++candidate->progressCredits;
+          ++g_BootProgressCurrent;
+          updateProgress = true;
+        }
+        module = candidate;
+        break;
       }
     }
+    unlockModules();
+
+    if (!module) {
+      if (executing) {
+#if THREADS
+        Scheduler::instance().yield();
+        continue;
+#endif
+      }
+      break;
+    }
+
+    if (updateProgress && g_BootProgressUpdate && !silent) {
+      g_BootProgressUpdate("moduleexec");
+    }
+    executeModule(module);
   }
+
+  lockModules();
+  if (!m_ModuleExecutionPasses) {
+    unlockModules();
+    FATAL("KERNELELF: Module execution-pass accounting underflow");
+    return;
+  }
+  --m_ModuleExecutionPasses;
+  unlockModules();
 }
 
 Module* KernelElf::loadModule(struct ModuleInfo* info, bool silent) {
   /// \todo rewrite to the new module dependency logic
+  if (!beginModuleLoad()) {
+    WARNING("KERNELELF: Rejecting concurrent static module load or load during shutdown");
+    return nullptr;
+  }
+
   Module* module = new Module;
 
   module->buffer = 0;
@@ -519,6 +611,7 @@ Module* KernelElf::loadModule(struct ModuleInfo* info, bool silent) {
   module->name.assign(info->name);
   module->entry = info->entry;
   module->exit = info->exit;
+  module->unloadable = info->unloadable;
   module->depends = info->dependencies;
   module->depends_opt = info->opt_dependencies;
   DEBUG_LOG("KERNELELF: Preloaded module " << module->name);
@@ -544,49 +637,197 @@ Module* KernelElf::loadModule(struct ModuleInfo* info, bool silent) {
                   reinterpret_cast<void*>(module->loadBase + module->loadSize));
   }
 
-  if (!StringCompare(module->name.cstr(), "init")) {
+  const bool initModule = !StringCompare(module->name.cstr(), "init");
+  lockModules();
+  if (initModule) {
     m_InitModule = module;
   } else {
-    g_BootProgressCurrent++;
+    module->status = Module::Preloaded;
+    m_Modules.pushBack(module);
+    ++module->progressCredits;
+    ++g_BootProgressCurrent;
+  }
+  unlockModules();
+
+  if (!initModule) {
     if (g_BootProgressUpdate && !silent)
       g_BootProgressUpdate("moduleload");
-
-    module->status = Module::Preloaded;
-
-    m_Modules.pushBack(module);
   }
+  finishModuleLoad();
 
   return module;
 }
 
-void KernelElf::unloadModule(const char* name, bool silent, bool progress) {
-  String findName(name);
-  for (auto it : m_Modules) {
-    if (it->name == findName) {
-      unloadModule(it, silent, progress);
-      return;
+bool KernelElf::moduleRegisteredLocked(Module* module) const {
+  for (auto registered : m_Modules) {
+    if (registered == module) {
+      return true;
     }
   }
-  ERROR("KERNELELF: Module " << name << " not found");
+  return false;
 }
 
-void KernelElf::unloadModule(Module* module, bool silent, bool progress) {
+Module* KernelElf::findModuleByName(const Vector<Module*>& modules, const String& name) {
+  for (auto module : modules) {
+    if (module->name == name) {
+      return module;
+    }
+  }
+  return nullptr;
+}
+
+bool KernelElf::moduleDependsOn(Module* consumer, Module* provider) {
+  const char** dependencyLists[] = {consumer->depends, consumer->depends_opt};
+  for (const char** dependencies : dependencyLists) {
+    if (!dependencies) {
+      continue;
+    }
+
+    const char** rebasedDependencies = rebase(consumer, dependencies);
+    for (size_t i = 0; rebasedDependencies[i]; ++i) {
+      const char* dependency = rebase(consumer, rebasedDependencies[i]);
+      if (!StringCompare(dependency, provider->name.cstr())) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool KernelElf::hasLiveDependent(const Vector<Module*>& modules, Module* provider) {
+  for (auto consumer : modules) {
+    if (consumer == provider || consumer->unloadComplete || consumer->status == Module::Unloaded) {
+      continue;
+    }
+    if (moduleDependsOn(consumer, provider)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+Module* KernelElf::findUnloadCandidate(const Vector<Module*>& modules, bool& waiting) {
+  waiting = false;
+  for (auto module : modules) {
+    if (module->isExecuting() || module->isUnloading()) {
+      waiting = true;
+      return nullptr;
+    }
+  }
+
+  for (auto module : modules) {
+    if (module->unloadComplete || module->status == Module::Unloaded || !module->unloadable) {
+      continue;
+    }
+    if (!hasLiveDependent(modules, module)) {
+      return module;
+    }
+  }
+  return nullptr;
+}
+
+KernelElf::ModuleUnloadClaim KernelElf::claimModuleUnloadLocked(
+    Module* module, bool allowShutdown, bool requireMembership, bool enforceDependencies,
+    bool& wasFailed, bool& runLifecycle) {
+  wasFailed = false;
+  runLifecycle = false;
+
+  if (!module || (requireMembership && !moduleRegisteredLocked(module))) {
+    return UnloadUnknown;
+  }
+  if (module->unloadComplete || module->status == Module::Unloaded) {
+    return UnloadComplete;
+  }
+  if (m_ModuleShutdown && !allowShutdown) {
+    return UnloadShutdown;
+  }
+  if (!module->unloadable) {
+    return UnloadPinned;
+  }
+  if (m_ModuleLoading || m_UnloadingModule) {
+    return UnloadBusy;
+  }
+  if (requireMembership) {
+    for (auto registered : m_Modules) {
+      if (registered->isExecuting()) {
+        return UnloadBusy;
+      }
+    }
+  }
+  if (enforceDependencies && hasLiveDependent(m_Modules, module)) {
+    return UnloadDependedOn;
+  }
+
+  wasFailed = module->isFailed();
+  runLifecycle = module->isActive() || wasFailed;
+  module->status = Module::Unloading;
+  m_UnloadingModule = module;
+  return UnloadClaimed;
+}
+
+void KernelElf::finishClaimedUnload(Module* module, bool wasFailed) {
+  lockModules();
+  if (m_UnloadingModule == module) {
+    module->unloadComplete = true;
+    module->status = wasFailed ? Module::Failed : Module::Unloaded;
+    m_UnloadingModule = nullptr;
+  }
+  unlockModules();
+}
+
+bool KernelElf::completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, bool wasFailed,
+                                      bool runLifecycle, bool silent, bool progress) {
+  switch (claim) {
+    case UnloadComplete:
+      return true;
+    case UnloadBusy:
+      WARNING("KERNELELF: Module unload is busy; retry later");
+      return false;
+    case UnloadPinned:
+      WARNING("KERNELELF: Module " << module->name << " is pinned and cannot be unloaded");
+      return false;
+    case UnloadDependedOn:
+      WARNING("KERNELELF: Module " << module->name << " still has a live dependent");
+      return false;
+    case UnloadShutdown:
+      WARNING("KERNELELF: Module unload rejected after shutdown began");
+      return false;
+    case UnloadUnknown:
+      ERROR("KERNELELF: Module unload target is not registered");
+      return false;
+    case UnloadClaimed:
+      break;
+  }
+
   NOTICE("KERNELELF: Unloading module " << module->name);
 
+  bool progressUpdated = false;
   if (progress) {
-    g_BootProgressCurrent--;
-    if (g_BootProgressUpdate && !silent)
+    lockModules();
+    if (module->progressCredits) {
+      --module->progressCredits;
+      if (g_BootProgressCurrent) {
+        --g_BootProgressCurrent;
+      }
+      progressUpdated = true;
+    }
+    unlockModules();
+    if (progressUpdated && g_BootProgressUpdate && !silent)
       g_BootProgressUpdate("moduleunload");
   }
 
-  if (module->exit)
+  if (runLifecycle && module->exit)
     module->exit();
 
   // Check for a destructors list and execute.
   // Note: static drivers have their ctors/dtors all shared.
   EMIT_IF(!STATIC_DRIVERS) {
-    uintptr_t startDtors = module->elf->lookupSymbol("start_dtors");
-    uintptr_t endDtors = module->elf->lookupSymbol("end_dtors");
+    uintptr_t startDtors = 0;
+    uintptr_t endDtors = 0;
+    if (runLifecycle && module->elf) {
+      startDtors = module->elf->lookupSymbol("start_dtors");
+      endDtors = module->elf->lookupSymbol("end_dtors");
+    }
 
     if (startDtors && endDtors) {
       uintptr_t* iterator = reinterpret_cast<uintptr_t*>(startDtors);
@@ -606,12 +847,23 @@ void KernelElf::unloadModule(Module* module, bool silent, bool progress) {
       }
     }
 
-    m_SymbolTable.eraseByElf(module->elf);
+    if (module->elf) {
+      m_SymbolTable.eraseByElf(module->elf);
+    }
   }
 
+  progressUpdated = false;
   if (progress) {
-    g_BootProgressCurrent--;
-    if (g_BootProgressUpdate && !silent)
+    lockModules();
+    if (module->progressCredits) {
+      --module->progressCredits;
+      if (g_BootProgressCurrent) {
+        --g_BootProgressCurrent;
+      }
+      progressUpdated = true;
+    }
+    unlockModules();
+    if (progressUpdated && g_BootProgressUpdate && !silent)
       g_BootProgressUpdate("moduleunloaded");
   }
 
@@ -643,44 +895,187 @@ void KernelElf::unloadModule(Module* module, bool silent, bool progress) {
   delete module->elf;
   module->elf = nullptr;
 
-  // Failed also means unloaded - it just reports a particular status.
-  // A module unloaded intentionally (i.e. by the user) that was successfully
-  // active and running goes into Unloaded mode on unload.
-  if (!module->isFailed()) {
-    module->status = Module::Unloaded;
+  finishClaimedUnload(module, wasFailed);
+  return true;
+}
+
+bool KernelElf::unloadModule(const char* name, bool silent, bool progress) {
+  String findName(name);
+  Module* module = nullptr;
+  ModuleUnloadClaim claim = UnloadUnknown;
+  bool wasFailed = false;
+  bool runLifecycle = false;
+
+  lockModules();
+  module = findModuleByName(m_Modules, findName);
+  if (module) {
+    claim = claimModuleUnloadLocked(module, false, true, true, wasFailed, runLifecycle);
   }
+  unlockModules();
+
+  if (!module) {
+    ERROR("KERNELELF: Module " << name << " not found");
+    return false;
+  }
+  return completeUnloadAttempt(module, claim, wasFailed, runLifecycle, silent, progress);
+}
+
+bool KernelElf::unloadModule(Module* module, bool silent, bool progress) {
+  bool wasFailed = false;
+  bool runLifecycle = false;
+  lockModules();
+  const ModuleUnloadClaim claim =
+      claimModuleUnloadLocked(module, false, true, true, wasFailed, runLifecycle);
+  unlockModules();
+  return completeUnloadAttempt(module, claim, wasFailed, runLifecycle, silent, progress);
 }
 
 void KernelElf::unloadModules() {
-  if (g_BootProgressUpdate)
+  if (g_BootProgressUpdate) {
     g_BootProgressUpdate("unload");
+  }
 
-  for (auto it : m_Modules) {
-    if (!it->isUnloaded()) {
-      unloadModule(it);
-      delete it;
+  lockModules();
+  m_ModuleShutdown = true;
+  unlockModules();
+
+  while (true) {
+    Module* candidate = nullptr;
+    ModuleUnloadClaim claim = UnloadBusy;
+    bool wasFailed = false;
+    bool runLifecycle = false;
+    bool waiting = false;
+
+    lockModules();
+    if (m_ModuleLoading || m_UnloadingModule || m_ModuleExecutions || m_ModuleExecutionPasses) {
+      waiting = true;
+    } else {
+      if (m_InitModule) {
+        // The init image is held aside until userspace launch, but a
+        // controlled shutdown can begin before that point. Transfer it only
+        // after any admitted load has published its result.
+        m_InitModule->status = Module::Preloaded;
+        m_Modules.pushBack(m_InitModule);
+        m_InitModule = nullptr;
+      }
+      candidate = findUnloadCandidate(m_Modules, waiting);
+      if (candidate) {
+        claim = claimModuleUnloadLocked(candidate, true, true, false, wasFailed, runLifecycle);
+      }
+    }
+    unlockModules();
+
+    if (candidate && claim == UnloadClaimed) {
+      completeUnloadAttempt(candidate, claim, wasFailed, runLifecycle, false, false);
+      continue;
+    }
+    if (waiting || (candidate && claim == UnloadBusy)) {
+#if THREADS
+      Scheduler::instance().yield();
+      continue;
+#else
+      FATAL("KERNELELF: Module shutdown encountered an in-flight module operation");
+      break;
+#endif
+    }
+    break;
+  }
+
+  for (auto module : m_Modules) {
+    if (!module->unloadComplete && module->status != Module::Unloaded) {
+      WARNING("KERNELELF: Leaving module " << module->name
+                                           << " mapped because its shutdown dependencies remain");
     }
   }
 
+  // Module records are tombstones for repeat/concurrent callers until this
+  // terminal shutdown point. The kernel is terminating, so dropping the
+  // pointer list is safer than freeing records another CPU may still name.
+  lockModules();
   m_Modules.clear();
+  unlockModules();
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+size_t KernelElf::planModuleUnloadOrderForTest(Module** modules, size_t count, Module** order,
+                                               size_t capacity) {
+  Vector<Module*> pending;
+  for (size_t i = 0; i < count; ++i) {
+    pending.pushBack(modules[i]);
+  }
+
+  size_t planned = 0;
+  while (true) {
+    bool waiting = false;
+    Module* candidate = findUnloadCandidate(pending, waiting);
+    if (!candidate || waiting) {
+      break;
+    }
+    if (planned < capacity) {
+      order[planned] = candidate;
+    }
+    ++planned;
+    candidate->unloadComplete = true;
+    candidate->status = Module::Unloaded;
+  }
+  return planned;
+}
+
+KernelElf::TestModuleUnloadClaim KernelElf::claimModuleUnloadForTest(Module* module) {
+  bool wasFailed = false;
+  bool runLifecycle = false;
+  KernelElf& kernelElf = instance();
+  kernelElf.lockModules();
+  const ModuleUnloadClaim claim = kernelElf.claimModuleUnloadLocked(
+      module, true, false, false, wasFailed, runLifecycle);
+  kernelElf.unlockModules();
+  return static_cast<TestModuleUnloadClaim>(claim);
+}
+
+KernelElf::TestModuleUnloadClaim KernelElf::claimNamedModuleUnloadForTest(
+    Module** modules, size_t count, const char* name) {
+  Vector<Module*> fixtures;
+  for (size_t i = 0; i < count; ++i) {
+    fixtures.pushBack(modules[i]);
+  }
+
+  KernelElf& kernelElf = instance();
+  bool wasFailed = false;
+  bool runLifecycle = false;
+  kernelElf.lockModules();
+  Module* module = findModuleByName(fixtures, String(name));
+  ModuleUnloadClaim claim = UnloadUnknown;
+  if (module) {
+    claim = kernelElf.claimModuleUnloadLocked(module, true, false, false, wasFailed, runLifecycle);
+  }
+  kernelElf.unlockModules();
+  return static_cast<TestModuleUnloadClaim>(claim);
+}
+
+void KernelElf::completeModuleUnloadForTest(Module* module) {
+  instance().finishClaimedUnload(module, false);
+}
+#endif
 
 bool KernelElf::moduleIsLoaded(char* name) {
   // this should hash the name and make comparisons super fast
   String compName(name);
 
+  bool loaded = false;
+  lockModules();
   for (auto module : m_Modules) {
-    if (module->isLoaded()) {
-      if (module->name == compName) {
-        return true;
-      }
+    if (module->isLoaded() && module->name == compName) {
+      loaded = true;
+      break;
     }
   }
-
-  return false;
+  unlockModules();
+  return loaded;
 }
 
 char* KernelElf::getDependingModule(char* name) {
+  char* result = nullptr;
+  lockModules();
   for (auto module : m_Modules) {
     if (!module->isLoaded()) {
       // can't depend on unloaded modules - might be unmapped
@@ -693,28 +1088,32 @@ char* KernelElf::getDependingModule(char* name) {
     while (rebase(module, module->depends)[i]) {
       const char* rebased = rebase(module, rebase(module, module->depends)[i]);
       if (!StringCompare(rebased, name)) {
-        return const_cast<char*>(static_cast<const char*>(module->name));
+        result = const_cast<char*>(static_cast<const char*>(module->name));
+        break;
       }
 
       ++i;
     }
+    if (result) {
+      break;
+    }
   }
-
-  return 0;
+  unlockModules();
+  return result;
 }
 
-bool KernelElf::moduleDependenciesSatisfied(Module* module) {
+bool KernelElf::moduleDependenciesSatisfiedLocked(Module* module) const {
   int i = 0;
 
   // First pass: optional dependencies.
   if (module->depends_opt) {
     while (rebase(module, module->depends_opt)[i]) {
-      String depname(rebase(module, rebase(module, module->depends_opt)[i]));
+      const char* depname = rebase(module, rebase(module, module->depends_opt)[i]);
 
       bool exists = false;
       bool attempted = false;
       for (auto mod : m_Modules) {
-        if (mod->name == depname) {
+        if (!StringCompare(mod->name.cstr(), depname)) {
           exists = true;
           attempted = mod->wasAttempted();
           break;
@@ -723,15 +1122,8 @@ bool KernelElf::moduleDependenciesSatisfied(Module* module) {
 
       if (exists) {
         if (!attempted) {
-          WARNING("KernelElf: optional dependency '" << depname << "' (wanted by '" << module->name
-                                                     << "') hasn't been tried yet.");
           // optional dependency hasn't yet been tried
           return false;
-        }
-      } else {
-        EMIT_IF(DUMP_DEPENDENCIES) {
-          WARNING("KernelElf: optional dependency '" << depname << "' (wanted by '" << module->name
-                                                     << "') doesn't even exist, skipping.");
         }
       }
 
@@ -746,17 +1138,21 @@ bool KernelElf::moduleDependenciesSatisfied(Module* module) {
   }
 
   while (rebase(module, module->depends)[i]) {
-    String depname(rebase(module, rebase(module, module->depends)[i]));
+    const char* depname = rebase(module, rebase(module, module->depends)[i]);
 
+    bool exists = false;
     for (auto mod : m_Modules) {
-      if (mod->name == depname) {
+      if (!StringCompare(mod->name.cstr(), depname)) {
+        exists = true;
         if (!mod->isActive()) {
-          WARNING("KernelElf: dependency '" << depname << "' (wanted by '" << module->name
-                                            << "') isn't active yet.");
           // module dependency is not yet active
           return false;
         }
+        break;
       }
+    }
+    if (!exists) {
+      return false;
     }
 
     ++i;
@@ -766,13 +1162,13 @@ bool KernelElf::moduleDependenciesSatisfied(Module* module) {
 
 static int executeModuleThread(void* mod) {
   Module* module = reinterpret_cast<Module*>(mod);
-  module->status = Module::Executing;
 
   NOTICE("running module: " << module->name);
 
   if (module->buffer) {
     if (!module->elf->finaliseModule(module->buffer, module->buflen)) {
       FATAL("KERNELELF: Module relocation failed for module " << module->name);
+      KernelElf::instance().updateModuleStatus(module, false, false);
       return false;
     }
 
@@ -835,54 +1231,121 @@ bool KernelElf::executeModule(Module* module) {
   return true;
 }
 
-void KernelElf::updateModuleStatus(Module* module, bool status) {
+void KernelElf::updateModuleStatus(Module* module, bool status, bool runFailureLifecycle) {
   String moduleName(module->name);
   if (status) {
     NOTICE("KERNELELF: Module " << moduleName << " finished executing");
+    lockModules();
     module->status = Module::Active;
+    if (!m_ModuleExecutions) {
+      unlockModules();
+      FATAL("KERNELELF: Module execution accounting underflow");
+      return;
+    }
+    --m_ModuleExecutions;
+    unlockModules();
   } else {
     NOTICE("KERNELELF: Module " << moduleName << " failed, unloading.");
+    bool wasFailed = false;
+    bool runLifecycle = false;
+    ModuleUnloadClaim claim = UnloadBusy;
+    lockModules();
     module->status = Module::Failed;
-    unloadModule(moduleName.cstr(), true, false);
+    claim = claimModuleUnloadLocked(module, true, false, false, wasFailed, runLifecycle);
+    unlockModules();
+    runLifecycle = runLifecycle && runFailureLifecycle;
+    completeUnloadAttempt(module, claim, wasFailed, runLifecycle, true, false);
+    lockModules();
+    if (!m_ModuleExecutions) {
+      unlockModules();
+      FATAL("KERNELELF: Module execution accounting underflow");
+      return;
+    }
+    --m_ModuleExecutions;
+    unlockModules();
   }
-
-  m_ModuleProgress.release();
 }
 
 void KernelElf::waitForModulesToLoad() {
-  for (size_t i = 0; i < m_Modules.count(); ++i) {
-    if (!m_ModuleProgress.acquireForCompletion()) {
-      FATAL("Module-load completion wait failed.");
+  while (true) {
+    lockModules();
+    const bool executing = m_ModuleLoading || m_UnloadingModule || m_ModuleExecutions ||
+                           m_ModuleExecutionPasses;
+    unlockModules();
+    if (!executing) {
+      break;
     }
+#if THREADS
+    Scheduler::instance().yield();
+#else
+    FATAL("Module execution remained active without scheduler support.");
+    return;
+#endif
   }
 
+  lockModules();
+  const size_t moduleCount = m_Modules.count();
+  unlockModules();
+
   NOTICE("SUCCESSFUL MODULES:");
-  for (auto it : m_Modules) {
-    if (it->isActive()) {
-      NOTICE(" - " << it->name);
+  for (size_t i = 0; i < moduleCount; ++i) {
+    Module* module = nullptr;
+    bool active = false;
+    lockModules();
+    if (i < m_Modules.count()) {
+      module = m_Modules[i];
+      active = module->isActive();
+    }
+    unlockModules();
+    if (module && active) {
+      NOTICE(" - " << module->name);
     }
   }
 
   NOTICE("UNSUCCESSFUL MODULES:");
-  for (auto it : m_Modules) {
-    if (it->isFailed()) {
-      NOTICE(" - " << it->name);
+  for (size_t i = 0; i < moduleCount; ++i) {
+    Module* module = nullptr;
+    bool failed = false;
+    lockModules();
+    if (i < m_Modules.count()) {
+      module = m_Modules[i];
+      failed = module->isFailed();
+    }
+    unlockModules();
+    if (module && failed) {
+      NOTICE(" - " << module->name);
     }
   }
 }
 
 void KernelElf::invokeInitModule() {
-  if (m_InitModule == nullptr) {
+  lockModules();
+  Module* mod = m_InitModule;
+  if (mod == nullptr) {
+    unlockModules();
     WARNING("KernelElf: no init module was ever preloaded, cannot invoke init");
     return;
   }
 
-  Module* mod = m_InitModule;
-  m_InitModule = nullptr;
-
-  if (!moduleDependenciesSatisfied(mod)) {
-    FATAL("init module could not be invoked - its dependencies were not satisfied");
+  if (m_ModuleShutdown) {
+    unlockModules();
+    WARNING("KernelElf: refusing to invoke init after shutdown began");
+    return;
   }
+
+  if (!moduleDependenciesSatisfiedLocked(mod)) {
+    unlockModules();
+    FATAL("init module could not be invoked - its dependencies were not satisfied");
+    return;
+  }
+
+  // Init is held aside only during dependency loading. Once it can execute it
+  // must participate in ordinary unload ownership and dependency ordering.
+  m_InitModule = nullptr;
+  m_Modules.pushBack(mod);
+  mod->status = Module::Executing;
+  ++m_ModuleExecutions;
+  unlockModules();
 
   executeModuleThread(reinterpret_cast<void*>(mod));
 }
@@ -903,17 +1366,14 @@ const char* KernelElf::globalLookupSymbol(uintptr_t addr, uintptr_t* startAddr) 
   // OK, that didn't work. Try every module.
   lockModules();
   for (auto it : m_Modules) {
-    if (!(it->isActive() || it->isExecuting())) {
+    if (!(it->isActive() || it->isExecuting()) || !it->elf) {
       continue;
     }
 
-    unlockModules();
-
     if ((ret = it->elf->lookupSymbol(addr, startAddr))) {
+      unlockModules();
       return ret;
     }
-
-    lockModules();
   }
   unlockModules();
   WARNING_NOLOCK("KERNELELF: GlobalLookupSymbol(" << Hex << addr << ") failed.");

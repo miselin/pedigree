@@ -39,6 +39,7 @@ class PciAtaController : public AtaController {
  public:
   PciAtaController(Controller* pDev, int nController = 0);
   virtual ~PciAtaController();
+  virtual void shutdown();
 
   virtual void getName(String& str) {
     TinyStaticString s;

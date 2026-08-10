@@ -145,7 +145,7 @@ class SymbolTable {
 
   Elf* m_pOriginatingElf;
 
-  Mutex m_Lock;
+  mutable Mutex m_Lock;
 
   bool m_bPreallocated;
 };

@@ -203,8 +203,8 @@ void pedigree_module_load(char* _file) {
 }
 
 // Unload a module
-void pedigree_module_unload(char* name) {
-  KernelElf::instance().unloadModule(name, true);
+int pedigree_module_unload(char* name) {
+  return KernelElf::instance().unloadModule(name, true) ? 1 : 0;
 }
 
 // Check if a module is loaded

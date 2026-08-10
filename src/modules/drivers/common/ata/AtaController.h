@@ -45,6 +45,9 @@ class AtaController : public ScsiController, public IrqHandler {
   }
   virtual ~AtaController() {}
 
+  /** Retires disk work and every hardware callback before device transfer. */
+  virtual void shutdown() = 0;
+
   virtual void getName(String& str) = 0;
 
   virtual bool compareRequests(const RequestQueue::Request& a, const RequestQueue::Request& b);
@@ -63,6 +66,14 @@ class AtaController : public ScsiController, public IrqHandler {
   void operator=(const AtaController&);
 
  protected:
+  bool beginShutdown() {
+    if (m_bShutdown) {
+      return false;
+    }
+    m_bShutdown = true;
+    return true;
+  }
+
   int m_nController;
 
   /** Masks fresh device IRQ generation on every child channel. */
@@ -74,6 +85,9 @@ class AtaController : public ScsiController, public IrqHandler {
   virtual size_t getNumUnits() {
     return getNumChildren();
   }
+
+ private:
+  bool m_bShutdown = false;
 };
 
 #endif

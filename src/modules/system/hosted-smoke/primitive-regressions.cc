@@ -15,6 +15,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
@@ -267,6 +268,16 @@ struct ConditionTimeoutContext {
   Atomic<size_t> signals;
 };
 
+Atomic<size_t> g_ZeroTimeoutPublications(0);
+Thread* g_ZeroTimeoutThread = nullptr;
+
+void observeZeroTimeoutPublication(WaitQueue*, Thread* thread, const WaitQueue::Channel&,
+                                   size_t debugState) {
+  if (thread == g_ZeroTimeoutThread && debugState == Thread::CondWait) {
+    g_ZeroTimeoutPublications += 1;
+  }
+}
+
 int delayedConditionSignal(void* parameter) {
   ConditionTimeoutContext* context = reinterpret_cast<ConditionTimeoutContext*>(parameter);
   if (waitUntilQueued(context->waiter, Thread::CondWait)) {
@@ -330,15 +341,25 @@ bool conditionVariableTimeoutAccounting(Thread* thread) {
   Time::Timestamp immediate = 0;
   passed &= check(mutex.acquire(), "condition-variable-timeout",
                   "the immediate wait mutex could not be acquired");
+  const size_t alarmCreatesBeforeImmediate = Time::getHostedAlarmCreateCount();
+  g_ZeroTimeoutPublications = 0;
+  g_ZeroTimeoutThread = thread;
+  WaitQueue::setBeforeBlockHook(observeZeroTimeoutPublication);
   error = ConditionVariable::NoError;
   const bool immediateWait = condition.wait(mutex, immediate, error);
+  WaitQueue::setBeforeBlockHook(nullptr);
+  g_ZeroTimeoutThread = nullptr;
   const bool mutexHeldAfterImmediate = mutex.isOwnedByCurrentThread();
   mutex.release();
 
   passed &= check(!immediateWait && error == ConditionVariable::TimedOut && immediate == 0,
                   "condition-variable-timeout", "zero did not request an immediate timeout");
   passed &= check(mutexHeldAfterImmediate, "condition-variable-timeout",
-                  "the immediate timeout did not reacquire its mutex");
+                  "the immediate timeout released its mutex");
+  passed &= check(g_ZeroTimeoutPublications == 0 &&
+                      Time::getHostedAlarmCreateCount() == alarmCreatesBeforeImmediate,
+                  "condition-variable-timeout",
+                  "the immediate timeout published a waiter or allocated an alarm");
 
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS condition-variable-timeout");
@@ -795,6 +816,25 @@ struct BufferCloseContext {
   Atomic<size_t> result;
 };
 
+struct BufferTryWriteContext {
+  explicit BufferTryWriteContext(Buffer<char>* buffer)
+      : buffer(buffer), entered(0), returned(0), result(1) {}
+
+  Buffer<char>* buffer;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+  Atomic<size_t> result;
+};
+
+int runBufferTryWrite(void* parameter) {
+  BufferTryWriteContext* context = reinterpret_cast<BufferTryWriteContext*>(parameter);
+  const char input[] = {'a', 'b'};
+  context->entered += 1;
+  context->result = context->buffer->tryWrite(input, sizeof(input)) ? 1 : 0;
+  context->returned += 1;
+  return 0;
+}
+
 int runBlockingBufferOperation(void* parameter) {
   BufferCloseContext* context = reinterpret_cast<BufferCloseContext*>(parameter);
   context->entered += 1;
@@ -851,6 +891,31 @@ bool bufferCloseAndDrain() {
 
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS buffer-close-drain");
+  }
+  return passed;
+}
+
+bool bufferTryWriteDoesNotWaitForLock() {
+  Buffer<char> buffer(2);
+  BufferTryWriteContext context(&buffer);
+  buffer.acquireHostedOperationLock();
+  Thread* writer = new Thread(Scheduler::instance().getKernelProcess(), runBufferTryWrite, &context,
+                              nullptr, false, true);
+  writer->setName("hosted Buffer try-write contention");
+
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (!context.returned && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+  const bool returnedWhileLocked = context.entered == 1 && context.returned == 1;
+  buffer.releaseHostedOperationLock();
+  const bool joined = writer->join();
+
+  const bool passed =
+      check(returnedWhileLocked && joined && context.result == 0 && buffer.getDataSize() == 0,
+            "buffer-try-write", "tryWrite waited for the lock or changed the buffer on failure");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS buffer-try-write");
   }
   return passed;
 }
@@ -1081,7 +1146,8 @@ bool runHostedPrimitiveRegressions(Thread* thread) {
          terminalCompletionBarrier() && operationBarrierLifecycle() &&
          conditionVariableTimeoutAccounting(thread) && memoryPoolBlockingAndStride() &&
          memoryPoolCloseAndDrain() && memoryPoolTerminalDrain() &&
-         memoryPressureCallbackBarrier() && bufferCloseAndDrain() && bufferTerminalDrain() &&
+         memoryPressureCallbackBarrier() && bufferCloseAndDrain() &&
+         bufferTryWriteDoesNotWaitForLock() && bufferTerminalDrain() &&
          terminalOperationAdmissionScope() && terminalTimeoutCleanup();
 }
 

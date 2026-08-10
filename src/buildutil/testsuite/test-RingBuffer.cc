@@ -21,8 +21,10 @@
 
 #include "pedigree/kernel/utilities/RingBuffer.h"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -54,6 +56,97 @@ TEST(PedigreeRingBuffer, WriteRead) {
 
   EXPECT_TRUE(buffer.canWrite());
   EXPECT_FALSE(buffer.dataReady());
+}
+
+TEST(PedigreeRingBuffer, TryWriteIsAtomicAndNonblocking) {
+  RingBuffer<char> buffer(1);
+
+  EXPECT_EQ(buffer.tryWrite('a'), RingBuffer<char>::NoError);
+  EXPECT_EQ(buffer.tryWrite('b'), RingBuffer<char>::WouldBlock);
+
+  char value = 0;
+  RingBuffer<char>::Error error = RingBuffer<char>::NoError;
+  EXPECT_TRUE(buffer.read(value, error));
+  EXPECT_EQ(value, 'a');
+
+  buffer.close();
+  EXPECT_EQ(buffer.tryWrite('c'), RingBuffer<char>::Closed);
+}
+
+TEST(PedigreeRingBuffer, PreallocatedStorageWrapsInFifoOrder) {
+  using FixedRing = RingBuffer<char, 3>;
+  FixedRing buffer(3);
+
+  EXPECT_EQ(buffer.tryWrite('a'), FixedRing::NoError);
+  EXPECT_EQ(buffer.tryWrite('b'), FixedRing::NoError);
+  EXPECT_EQ(buffer.tryWrite('c'), FixedRing::NoError);
+
+  Time::Timestamp zero = 0;
+  FixedRing::Error error = FixedRing::NoError;
+  char value = 0;
+  EXPECT_TRUE(buffer.read(value, zero, error));
+  EXPECT_EQ(value, 'a');
+  EXPECT_TRUE(buffer.read(value, zero, error));
+  EXPECT_EQ(value, 'b');
+
+  EXPECT_EQ(buffer.tryWrite('d'), FixedRing::NoError);
+  EXPECT_EQ(buffer.tryWrite('e'), FixedRing::NoError);
+
+  const char expectedValues[] = {'c', 'd', 'e'};
+  for (const char expected : expectedValues) {
+    EXPECT_TRUE(buffer.read(value, zero, error));
+    EXPECT_EQ(value, expected);
+  }
+}
+
+TEST(PedigreeRingBuffer, WriteClosePublishesFinalObject) {
+  using FixedRing = RingBuffer<char, 2>;
+  FixedRing buffer(2);
+
+  EXPECT_EQ(buffer.write('a'), FixedRing::NoError);
+  EXPECT_TRUE(buffer.closeWritesWithFinal('z'));
+  EXPECT_EQ(buffer.tryWrite('b'), FixedRing::Closed);
+  EXPECT_FALSE(buffer.canWrite());
+
+  Time::Timestamp zero = 0;
+  FixedRing::Error error = FixedRing::NoError;
+  char value = 0;
+  EXPECT_TRUE(buffer.read(value, zero, error));
+  EXPECT_EQ(value, 'a');
+  EXPECT_TRUE(buffer.read(value, zero, error));
+  EXPECT_EQ(value, 'z');
+  EXPECT_FALSE(buffer.read(value, zero, error));
+  EXPECT_EQ(error, FixedRing::Closed);
+}
+
+TEST(PedigreeRingBuffer, TryWriteRacesCloseSafely) {
+  for (size_t attempt = 0; attempt < 256; ++attempt) {
+    RingBuffer<char> buffer(1);
+    std::atomic<bool> start(false);
+    RingBuffer<char>::Error writeResult = RingBuffer<char>::NoError;
+
+    std::thread writer([&]() {
+      while (!start.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      writeResult = buffer.tryWrite('a');
+    });
+    std::thread closer([&]() {
+      while (!start.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      buffer.close();
+    });
+
+    start.store(true, std::memory_order_release);
+    writer.join();
+    closer.join();
+
+    EXPECT_TRUE(writeResult == RingBuffer<char>::NoError ||
+                writeResult == RingBuffer<char>::WouldBlock ||
+                writeResult == RingBuffer<char>::Closed);
+    EXPECT_EQ(buffer.tryWrite('b'), RingBuffer<char>::Closed);
+  }
 }
 
 TEST(PedigreeRingBuffer, Overflow) {

@@ -1403,6 +1403,10 @@ static bool initFat() {
   return true;
 }
 
-static void destroyFat() {}
+static void destroyFat() {
+  if (!VFS::instance().removeProbeCallback(&FatFilesystem::probe)) {
+    FATAL("FAT probe callback was not registered during unload");
+  }
+}
 
 MODULE_INFO("fat", &initFat, &destroyFat, "vfs");

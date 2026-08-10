@@ -100,6 +100,12 @@ static bool init() {
   return true;
 }
 
-static void destroy() {}
+static void destroy() {
+  if (!VFS::instance().removeMountCallback(&rescanTree)) {
+    FATAL("rawfs mount callback was not registered during unload");
+  }
+  VFS::instance().unregisterFilesystem(g_pRawFs);
+  g_pRawFs = nullptr;
+}
 
 MODULE_INFO("rawfs", &init, &destroy, "vfs");

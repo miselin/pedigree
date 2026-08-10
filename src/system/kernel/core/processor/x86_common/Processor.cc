@@ -179,6 +179,69 @@ void ProcessorBase::invalidate(void* pAddress) {
   asm volatile("invlpg (%0)" ::"a"(pAddress));
 }
 
+TlbInvalidationResult ProcessorBase::beginTlbInvalidation(TlbInvalidationGuard& guard) {
+  const ExecutionContext context = executionContext();
+  if (guard.m_Active ||
+      (context != ExecutionContext::WaitableThread &&
+       context != ExecutionContext::AtomicThread)) {
+    return TlbInvalidationResult::InvalidContext;
+  }
+
+#if MULTIPROCESSOR && APIC
+  if (m_Initialised == 2 && getCount() > 1) {
+    Pc& pc = Pc::instance();
+    if (!pc.localApicAvailable()) {
+      return TlbInvalidationResult::UnsupportedTopology;
+    }
+
+    bool global = false;
+    const TlbInvalidationResult result = pc.getLocalApic().beginTlbInvalidation(global);
+    if (result != TlbInvalidationResult::Success) {
+      return result;
+    }
+    guard.m_Global = global;
+  }
+#endif
+
+  guard.m_Active = true;
+  return TlbInvalidationResult::Success;
+}
+
+void ProcessorBase::endTlbInvalidation(TlbInvalidationGuard& guard) {
+#if MULTIPROCESSOR && APIC
+  if (guard.m_Global) {
+    Pc::instance().getLocalApic().endTlbInvalidation();
+  }
+#endif
+  guard.m_Global = false;
+  guard.m_Active = false;
+}
+
+TlbInvalidationResult ProcessorBase::invalidateAll(void* pAddress) {
+  TlbInvalidationGuard guard;
+  const TlbInvalidationResult result = beginTlbInvalidation(guard);
+  if (result != TlbInvalidationResult::Success) {
+    return result;
+  }
+  return invalidateAll(pAddress, guard);
+}
+
+TlbInvalidationResult ProcessorBase::invalidateAll(
+    void* pAddress, TlbInvalidationGuard& guard) {
+  if (!guard.m_Active) {
+    return TlbInvalidationResult::InvalidContext;
+  }
+
+#if MULTIPROCESSOR && APIC
+  if (guard.m_Global) {
+    return Pc::instance().getLocalApic().invalidateAllProcessors(pAddress);
+  }
+#endif
+
+  invalidate(pAddress);
+  return TlbInvalidationResult::Success;
+}
+
 void X86CommonProcessor::cpuid(uint32_t inEax, uint32_t inEcx, uint32_t& eax, uint32_t& ebx,
                                uint32_t& ecx, uint32_t& edx) {
   asm volatile("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "a"(inEax), "c"(inEcx));
@@ -263,6 +326,17 @@ void ProcessorBase::halt() {
 }
 
 void ProcessorBase::pause() {
+#if MULTIPROCESSOR && APIC
+  // A processor can spin on an IRQ-disabling lock held by a shootdown
+  // initiator. Cooperating here prevents that lock dependency from delaying
+  // the initiator's bounded acknowledgement barrier indefinitely.
+  if (m_Initialised == 2) {
+    Pc& pc = Pc::instance();
+    if (pc.localApicAvailable()) {
+      pc.getLocalApic().servicePendingTlbShootdown();
+    }
+  }
+#endif
   asm volatile("pause");
 }
 

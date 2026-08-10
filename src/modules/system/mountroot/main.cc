@@ -39,6 +39,7 @@ class File;
 static bool bRootMounted = false;
 
 static List<Filesystem*> g_MountedFilesystems;
+static FileDisk* g_pLiveDisk = nullptr;
 
 static void error(const char* s) {
   extern BootIO bootIO;
@@ -86,6 +87,7 @@ static bool init() {
   RamFs* pRamFs = new RamFs;
   pRamFs->initialise(0);
   VFS::instance().registerFilesystem(pRamFs, String("scratch"));
+  g_MountedFilesystems.pushBack(pRamFs);
 
   // Mount runtime filesystem.
   // The runtime filesystem assigns a Process ownership to each file, only
@@ -95,6 +97,7 @@ static bool init() {
   pRuntimeFs->initialise(0);
   pRuntimeFs->setProcessOwnership(true);
   VFS::instance().registerFilesystem(pRuntimeFs, String("runtime"));
+  g_MountedFilesystems.pushBack(pRuntimeFs);
 
   // Mount all available filesystems.
   Device::foreach (probeDisk);
@@ -114,6 +117,7 @@ static bool init() {
     if (pRamDisk && pRamDisk->initialise()) {
       NOTICE("have a live disk");
       Device::addToRoot(pRamDisk);
+      g_pLiveDisk = pRamDisk;
 
       // Mount it in the VFS
       VFS::instance().setRootFilesystem(nullptr);
@@ -137,27 +141,75 @@ static bool init() {
   return true;
 }
 
+static Device* removeLiveDisk(Device* device) {
+  if (device == g_pLiveDisk) {
+    g_pLiveDisk = nullptr;
+    return nullptr;
+  }
+  return device;
+}
+
+static bool isLiveDiskFilesystem(Filesystem* filesystem) {
+  Device* device = filesystem->getDisk();
+  while (device) {
+    if (device == g_pLiveDisk) {
+      return true;
+    }
+    device = device->getParent();
+  }
+  return false;
+}
+
 static void destroy() {
   NOTICE("Unmounting all filesystems...");
 
-  List<Filesystem*> deletionQueue;
+  List<Filesystem*> liveDiskFilesystems;
+  List<Filesystem*> backingFilesystems;
 
-  for (auto it : g_MountedFilesystems) {
-    deletionQueue.pushBack(it);
+  for (auto filesystem : g_MountedFilesystems) {
+    if (g_pLiveDisk && isLiveDiskFilesystem(filesystem)) {
+      liveDiskFilesystems.pushBack(filesystem);
+    } else {
+      backingFilesystems.pushBack(filesystem);
+    }
   }
 
-  while (deletionQueue.count()) {
-    Filesystem* pFs = deletionQueue.popFront();
-    NOTICE("Unmounting " << pFs->getVolumeLabel() << " [" << Hex << pFs << "]...");
-    VFS::instance().unregisterFilesystem(pFs);
+  // Filesystems on the live disk retain its partitions, while FileDisk
+  // retains a File in the original backing filesystem.
+  while (liveDiskFilesystems.count()) {
+    Filesystem* filesystem = liveDiskFilesystems.popFront();
+    NOTICE(
+        "Unmounting " << filesystem->getVolumeLabel() << " [" << Hex
+                       << filesystem << "]...");
+    VFS::instance().unregisterFilesystem(filesystem);
     NOTICE("unmount done");
   }
+
+  if (g_pLiveDisk) {
+    Device::foreach(removeLiveDisk);
+    if (g_pLiveDisk) {
+      FATAL("mountroot could not retire its live-disk device");
+      return;
+    }
+  }
+
+  while (backingFilesystems.count()) {
+    Filesystem* filesystem = backingFilesystems.popFront();
+    NOTICE(
+        "Unmounting " << filesystem->getVolumeLabel() << " [" << Hex
+                       << filesystem << "]...");
+    VFS::instance().unregisterFilesystem(filesystem);
+    NOTICE("unmount done");
+  }
+
+  g_MountedFilesystems.clear();
+  bRootMounted = false;
 
   NOTICE("Unmounting all filesystems has completed.");
 }
 
-MODULE_INFO("mountroot", &init, &destroy, "vfs", "partition", "rawfs");
+MODULE_INFO("mountroot", &init, &destroy, "vfs", "partition", "rawfs", "ramfs");
 
 // We expect the filesystems metamodule to fail, but by the time it does and
 // we are allowed to continue, all the filesystems are loaded.
-MODULE_OPTIONAL_DEPENDS("filesystems");
+MODULE_OPTIONAL_DEPENDS("filesystems", "fat", "ext2", "iso9660", "lodisk");

@@ -41,9 +41,21 @@ static bool bFallBackISA = false;
 
 static bool allowProbing = false;
 
+static Vector<AtaController*> g_Controllers;
+
+class RestoredAtaController : public Controller {
+ public:
+  explicit RestoredAtaController(Controller* controller) : Controller(controller) {
+    // Device's transfer constructor copies child pointers. The old ATA
+    // controller remains their sole owner until foreach deletes it.
+    m_Children.clear();
+  }
+};
+
 static Device* probeIsaDevice(Controller* pDev) {
   // Create a new AtaController device node.
   IsaAtaController* pController = new IsaAtaController(pDev, nController++);
+  g_Controllers.pushBack(pController);
 
   bFound = true;
 
@@ -73,6 +85,7 @@ static Device* probePiixController(Device* pDev) {
     }
 
     PciAtaController* pController = new PciAtaController(pDevController, nController++);
+    g_Controllers.pushBack(pController);
 
     bFound = true;
 
@@ -206,7 +219,32 @@ static bool entry() {
   return bFound;
 }
 
-static void exit() {}
+static Device* removeAtaController(Device* device) {
+  for (size_t i = 0; i < g_Controllers.count(); ++i) {
+    AtaController* controller = g_Controllers[i];
+    if (controller != device) {
+      continue;
+    }
+
+    // Hardware callbacks and disk caches need the live I/O mappings. Retire
+    // them before the transfer constructor takes ownership of those mappings.
+    controller->shutdown();
+    g_Controllers[i] = nullptr;
+    return new RestoredAtaController(controller);
+  }
+  return device;
+}
+
+static void exit() {
+  Device::foreach(removeAtaController);
+  g_Controllers.clear();
+  nController = 0;
+  bFound = false;
+  bPiixControllerFound = false;
+  piixLevel = -1;
+  bFallBackISA = false;
+  allowProbing = false;
+}
 
 #if X86_COMMON
 MODULE_INFO("ata", &entry, &exit, "scsi", "pci", 0);

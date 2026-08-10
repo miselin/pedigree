@@ -37,6 +37,7 @@ class IsaAtaController : public AtaController /* public Controller, public Reque
  public:
   IsaAtaController(Controller* pDev, int nController = 0);
   virtual ~IsaAtaController();
+  virtual void shutdown();
 
   virtual void getName(String& str) {
     TinyStaticString s;

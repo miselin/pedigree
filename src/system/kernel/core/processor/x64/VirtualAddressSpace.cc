@@ -83,6 +83,24 @@ static void trackPages(ssize_t v, ssize_t p, ssize_t s) {
   }
 }
 
+static void beginMappingInvalidation(TlbInvalidationGuard& invalidation) {
+  switch (Processor::beginTlbInvalidation(invalidation)) {
+    case TlbInvalidationResult::Success:
+      return;
+    case TlbInvalidationResult::InvalidContext:
+      panic("Mapping mutation started from an invalid TLB-shootdown context");
+    case TlbInvalidationResult::UnsupportedTopology:
+      panic("Mapping mutation has no safe all-processor TLB route");
+    case TlbInvalidationResult::SerialisationTimedOut:
+      panic("Mapping mutation admission timed out");
+    case TlbInvalidationResult::SubmissionFailed:
+    case TlbInvalidationResult::AcknowledgementTimedOut:
+    case TlbInvalidationResult::DrainTimedOut:
+      panic("Mapping mutation admission returned an invalid phase result");
+  }
+  panic("Mapping mutation admission returned an unknown result");
+}
+
 VirtualAddressSpace& VirtualAddressSpace::getKernelAddressSpace() {
   return X64VirtualAddressSpace::m_KernelSpace;
 }
@@ -168,9 +186,11 @@ bool X64VirtualAddressSpace::isMapped(void* virtualAddress) {
 
 bool X64VirtualAddressSpace::map(physical_uintptr_t physAddress, void* virtualAddress,
                                  size_t flags) {
+  TlbInvalidationGuard invalidation;
+  beginMappingInvalidation(invalidation);
   LockGuard<Spinlock> guard(m_Lock);
 
-  return mapUnlocked(physAddress, virtualAddress, flags, m_Lock.acquired());
+  return mapUnlocked(physAddress, virtualAddress, flags, invalidation, m_Lock.acquired());
 }
 
 bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtualAddress,
@@ -190,11 +210,13 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtu
   const size_t numHugePages = count / pagesPerTwoMiB;
   const size_t mappedPages = numHugePages * pagesPerTwoMiB;
   {
+    TlbInvalidationGuard invalidation;
+    beginMappingInvalidation(invalidation);
     LockGuard<Spinlock> guard(m_Lock);
 
     // Clean up existing mappings before installing the huge-page entries.
     for (size_t i = 0; i < mappedPages; ++i) {
-      unmapUnlocked(adjust_pointer(virtualAddress, i * smallPageSize), false);
+      unmapUnlocked(adjust_pointer(virtualAddress, i * smallPageSize), invalidation, false);
     }
 
     size_t Flags = toFlags(flags, true);
@@ -221,6 +243,7 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtu
           TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry), pageDirectoryIndex);
 
       *pageDirectoryEntry = physAddress | PAGE_2MB | Flags;
+      invalidateMapping(virtualAddress, invalidation);
 
       virtualAddress = adjust_pointer(virtualAddress, twoMiB);
       physAddress += twoMiB;
@@ -234,15 +257,16 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtu
   return true;
 }
 
-bool X64VirtualAddressSpace::mapUnlocked(physical_uintptr_t physAddress, void* virtualAddress,
-                                         size_t flags, bool locked) {
+bool X64VirtualAddressSpace::mapUnlocked(
+    physical_uintptr_t physAddress, void* virtualAddress, size_t flags,
+    TlbInvalidationGuard& invalidation, bool locked) {
   size_t Flags = toFlags(flags, true);
   size_t pml4Index = PML4_INDEX(virtualAddress);
   uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
 
   // Check if a page directory pointer table was present *before* the
   // conditional allocation.
-  bool pdWasPresent = (*pml4Entry & PAGE_PRESENT) != PAGE_PRESENT;
+  const bool pml4WasPresent = (*pml4Entry & PAGE_PRESENT) == PAGE_PRESENT;
 
   // Is a page directory pointer table present?
   if (conditionalTableEntryAllocation(pml4Entry, flags) == false) {
@@ -279,9 +303,6 @@ bool X64VirtualAddressSpace::mapUnlocked(physical_uintptr_t physAddress, void* v
   // Map the page
   *pageTableEntry = physAddress | Flags;
 
-  // Flush the TLB
-  Processor::invalidate(virtualAddress);
-
   trackPages(1, 0, 0);
 
   // We don't need the lock to propagate the PDPT.
@@ -291,7 +312,7 @@ bool X64VirtualAddressSpace::mapUnlocked(physical_uintptr_t physAddress, void* v
   // If there wasn't a PDPT already present, and the address is in the kernel
   // area of memory, we need to propagate this change across all address
   // spaces.
-  if (!pdWasPresent && Processor::m_Initialised == 2 && virtualAddress >= KERNEL_VIRTUAL_HEAP) {
+  if (!pml4WasPresent && Processor::m_Initialised == 2 && virtualAddress >= KERNEL_SPACE_START) {
     uint64_t thisPml4Entry = *pml4Entry;
     for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); i++) {
       Scheduler::ProcessLease process;
@@ -309,6 +330,11 @@ bool X64VirtualAddressSpace::mapUnlocked(physical_uintptr_t physAddress, void* v
   // If we were locked before, take the lock to enforce that.
   if (locked)
     m_Lock.acquire();
+
+  // A previously non-present entry can be cached, and upper-half entries are
+  // shared by every active address space. Invalidate only after any new PML4
+  // entry has been propagated.
+  invalidateMapping(virtualAddress, invalidation);
 
   return true;
 }
@@ -357,6 +383,8 @@ bool X64VirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value) {
 }
 
 void X64VirtualAddressSpace::setFlags(void* virtualAddress, size_t newFlags) {
+  TlbInvalidationGuard invalidation;
+  beginMappingInvalidation(invalidation);
   LockGuard<Spinlock> guard(m_Lock);
 
   // Get a pointer to the page-table entry (Also checks whether the page is
@@ -370,16 +398,19 @@ void X64VirtualAddressSpace::setFlags(void* virtualAddress, size_t newFlags) {
   PAGE_SET_FLAGS(pageTableEntry, toFlags(newFlags, true));
 
   // Flush TLB - modified the mapping for this address.
-  Processor::invalidate(virtualAddress);
+  invalidateMapping(virtualAddress, invalidation);
 }
 
 void X64VirtualAddressSpace::unmap(void* virtualAddress) {
+  TlbInvalidationGuard invalidation;
+  beginMappingInvalidation(invalidation);
   LockGuard<Spinlock> guard(m_Lock);
 
-  unmapUnlocked(virtualAddress);
+  unmapUnlocked(virtualAddress, invalidation);
 }
 
-void X64VirtualAddressSpace::unmapUnlocked(void* virtualAddress, bool requireMapped) {
+void X64VirtualAddressSpace::unmapUnlocked(
+    void* virtualAddress, TlbInvalidationGuard& invalidation, bool requireMapped) {
   // Get a pointer to the page-table entry (Also checks whether the page is
   // actually present or marked swapped out)
   uint64_t* pageTableEntry = 0;
@@ -396,15 +427,17 @@ void X64VirtualAddressSpace::unmapUnlocked(void* virtualAddress, bool requireMap
   // Unmap the page
   *pageTableEntry = 0;
 
-  // Invalidate the TLB entry
-  Processor::invalidate(virtualAddress);
-
   trackPages(-1, 0, 0);
 
-  // Possibly wipe out paging structures now that we've unmapped the page.
-  // This can clear all the way up to, but not including, the PML4 - can be
-  // extremely useful to conserve memory.
-  maybeFreeTables(virtualAddress);
+  // Detach empty paging structures before the invalidation, but retain their
+  // storage until every processor has discarded both translations and
+  // paging-structure-cache entries for this address.
+  physical_uintptr_t detachedTables[3] = {};
+  const size_t detachedCount = detachEmptyTables(virtualAddress, detachedTables);
+  invalidateMapping(virtualAddress, invalidation);
+  for (size_t i = 0; i < detachedCount; ++i) {
+    PhysicalMemoryManager::instance().freePage(detachedTables[i]);
+  }
 }
 
 VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
@@ -418,108 +451,115 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
     return 0;
   }
 
-  // Lock both address spaces so we can clone safely.
-  LockGuard<Spinlock> cloneGuard(pClone->m_Lock);
-  LockGuard<Spinlock> cloneStacksGuard(pClone->m_StacksLock);
-  m_Lock.acquire();
+  {
+    TlbInvalidationGuard invalidation;
+    beginMappingInvalidation(invalidation);
 
-  // The userspace area is only the bottom half of the address space - the top
-  // 256 PML4 entries are for the kernel, and these should be mapped anyway.
-  for (uint64_t i = 0; i < 256; i++) {
-    uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, i);
-    if ((*pml4Entry & PAGE_PRESENT) != PAGE_PRESENT)
-      continue;
+    // Lock both address spaces so we can clone their mappings safely.
+    LockGuard<Spinlock> cloneGuard(pClone->m_Lock);
+    m_Lock.acquire();
 
-    for (uint64_t j = 0; j < 512; j++) {
-      uint64_t* pdptEntry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), j);
-      if ((*pdptEntry & PAGE_PRESENT) != PAGE_PRESENT)
+    // The userspace area is only the bottom half of the address space - the top
+    // 256 PML4 entries are for the kernel, and these should be mapped anyway.
+    for (uint64_t i = 0; i < 256; i++) {
+      uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, i);
+      if ((*pml4Entry & PAGE_PRESENT) != PAGE_PRESENT)
         continue;
 
-      for (uint64_t k = 0; k < 512; k++) {
-        uint64_t* pdEntry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pdptEntry), k);
-        if ((*pdEntry & PAGE_PRESENT) != PAGE_PRESENT)
+      for (uint64_t j = 0; j < 512; j++) {
+        uint64_t* pdptEntry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), j);
+        if ((*pdptEntry & PAGE_PRESENT) != PAGE_PRESENT)
           continue;
 
-        /// \todo Deal with 2MB pages here.
-        if ((*pdEntry & PAGE_2MB) == PAGE_2MB)
-          continue;
-
-        for (uint64_t l = 0; l < 512; l++) {
-          uint64_t* ptEntry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pdEntry), l);
-          if ((*ptEntry & PAGE_PRESENT) != PAGE_PRESENT)
+        for (uint64_t k = 0; k < 512; k++) {
+          uint64_t* pdEntry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pdptEntry), k);
+          if ((*pdEntry & PAGE_PRESENT) != PAGE_PRESENT)
             continue;
 
-          uint64_t flags = PAGE_GET_FLAGS(ptEntry);
-          physical_uintptr_t physicalAddress = PAGE_GET_PHYSICAL_ADDRESS(ptEntry);
-
-          void* virtualAddress =
-              reinterpret_cast<void*>(((i & 0x100) ? (~0ULL << 48) : 0ULL) | /* Sign-extension. */
-                                      (i << 39) | (j << 30) | (k << 21) | (l << 12));
-
-          if (flags & PAGE_SHARED) {
-            // The physical address is now referenced (shared) in
-            // two address spaces, so make sure we hold another
-            // reference on it. Otherwise, if one of the two
-            // address spaces frees the page, the other may still
-            // refer to the bad page (and eventually double-free).
-            PhysicalMemoryManager::instance().pin(physicalAddress);
-
-            // Handle shared mappings - don't copy the original
-            // page.
-            pClone->mapUnlocked(physicalAddress, virtualAddress, fromFlags(flags, true));
+          /// \todo Deal with 2MB pages here.
+          if ((*pdEntry & PAGE_2MB) == PAGE_2MB)
             continue;
-          }
 
-          // Map the new page in to the new address space for
-          // copy-on-write. This implies read-only (so we #PF for copy
-          // on write).
-          bool bWasCopyOnWrite = (flags & PAGE_COPY_ON_WRITE);
-          if (copyOnWrite && (flags & PAGE_WRITE)) {
-            flags |= PAGE_COPY_ON_WRITE;
-            flags &= ~PAGE_WRITE;
-          }
-          pClone->mapUnlocked(physicalAddress, virtualAddress, fromFlags(flags, true));
+          for (uint64_t l = 0; l < 512; l++) {
+            uint64_t* ptEntry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pdEntry), l);
+            if ((*ptEntry & PAGE_PRESENT) != PAGE_PRESENT)
+              continue;
 
-          // We need to modify the entry in *this* address space as
-          // well to also have the read-only and copy-on-write flag
-          // set, as otherwise writes in the parent process will cause
-          // the child process to see those changes immediately. Note:
-          // changes only needed if we're setting copy-on-write as
-          // otherwise the flags are unchanged in the parent space.
-          if (copyOnWrite) {
-            PAGE_SET_FLAGS(ptEntry, flags);
-            Processor::invalidate(virtualAddress);
-          }
+            uint64_t flags = PAGE_GET_FLAGS(ptEntry);
+            physical_uintptr_t physicalAddress = PAGE_GET_PHYSICAL_ADDRESS(ptEntry);
 
-          // Pin the page twice - once for each side of the clone.
-          // But only pin for the parent if the parent page is not
-          // already copy on write. If we pin the CoW page, it'll be
-          // leaked when both parent and child terminate if the parent
-          // clone()s again.
-          if (!bWasCopyOnWrite)
+            void* virtualAddress =
+                reinterpret_cast<void*>(((i & 0x100) ? (~0ULL << 48) : 0ULL) | /* Sign-extension. */
+                                        (i << 39) | (j << 30) | (k << 21) | (l << 12));
+
+            if (flags & PAGE_SHARED) {
+              // The physical address is now referenced (shared) in
+              // two address spaces, so make sure we hold another
+              // reference on it. Otherwise, if one of the two
+              // address spaces frees the page, the other may still
+              // refer to the bad page (and eventually double-free).
+              PhysicalMemoryManager::instance().pin(physicalAddress);
+
+              // Handle shared mappings - don't copy the original
+              // page.
+              pClone->mapUnlocked(physicalAddress, virtualAddress, fromFlags(flags, true),
+                                  invalidation);
+              continue;
+            }
+
+            // Map the new page in to the new address space for
+            // copy-on-write. This implies read-only (so we #PF for copy
+            // on write).
+            bool bWasCopyOnWrite = (flags & PAGE_COPY_ON_WRITE);
+            if (copyOnWrite && (flags & PAGE_WRITE)) {
+              flags |= PAGE_COPY_ON_WRITE;
+              flags &= ~PAGE_WRITE;
+            }
+            pClone->mapUnlocked(physicalAddress, virtualAddress, fromFlags(flags, true),
+                                invalidation);
+
+            // We need to modify the entry in *this* address space as
+            // well to also have the read-only and copy-on-write flag
+            // set, as otherwise writes in the parent process will cause
+            // the child process to see those changes immediately. Note:
+            // changes only needed if we're setting copy-on-write as
+            // otherwise the flags are unchanged in the parent space.
+            if (copyOnWrite) {
+              PAGE_SET_FLAGS(ptEntry, flags);
+              invalidateMapping(virtualAddress, invalidation);
+            }
+
+            // Pin the page twice - once for each side of the clone.
+            // But only pin for the parent if the parent page is not
+            // already copy on write. If we pin the CoW page, it'll be
+            // leaked when both parent and child terminate if the parent
+            // clone()s again.
+            if (!bWasCopyOnWrite)
+              PhysicalMemoryManager::instance().pin(physicalAddress);
             PhysicalMemoryManager::instance().pin(physicalAddress);
-          PhysicalMemoryManager::instance().pin(physicalAddress);
+          }
         }
       }
     }
+
+    // Before returning the address space, bring across metadata.
+    // Note though that if the parent of the clone (ie, this address space)
+    // is the kernel address space, we mustn't copy metadata or else the
+    // userspace defaults in the constructor get wiped out.
+
+    if (m_Heap < KERNEL_SPACE_START) {
+      pClone->m_Heap = m_Heap;
+      pClone->m_HeapEnd = m_HeapEnd;
+    }
+
+    // No longer need this address space's lock - cloning is mostly done.
+    m_Lock.release();
   }
-
-  // Before returning the address space, bring across metadata.
-  // Note though that if the parent of the clone (ie, this address space)
-  // is the kernel address space, we mustn't copy metadata or else the
-  // userspace defaults in the constructor get wiped out.
-
-  if (m_Heap < KERNEL_SPACE_START) {
-    pClone->m_Heap = m_Heap;
-    pClone->m_HeapEnd = m_HeapEnd;
-  }
-
-  // No longer need this address space's lock - cloning is mostly done.
-  m_Lock.release();
 
   // Now we pick up the stacks lock, so we can copy safely. However, we don't
   // have the VirtualAddressSpace lock, so we can still safely use the heap
   // without worrying about re-entering.
+  LockGuard<Spinlock> cloneStacksGuard(pClone->m_StacksLock);
   m_StacksLock.acquire();
 
   if (m_pStackTop < KERNEL_SPACE_START) {
@@ -536,6 +576,8 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
 }
 
 void X64VirtualAddressSpace::revertToKernelAddressSpace() {
+  TlbInvalidationGuard invalidation;
+  beginMappingInvalidation(invalidation);
   LockGuard<Spinlock> guard(m_Lock);
 
   // The userspace area is only the bottom half of the address space - the top
@@ -549,6 +591,9 @@ void X64VirtualAddressSpace::revertToKernelAddressSpace() {
       uint64_t* pdptEntry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), j);
       if ((*pdptEntry & PAGE_PRESENT) != PAGE_PRESENT)
         continue;
+
+      void* pdptVirtualAddress = reinterpret_cast<void*>(
+          ((i & 0x100) ? (~0ULL << 48) : 0ULL) | (i << 39) | (j << 30));
 
       for (uint64_t k = 0; k < 512; k++) {
         uint64_t* pdEntry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pdptEntry), k);
@@ -586,27 +631,36 @@ void X64VirtualAddressSpace::revertToKernelAddressSpace() {
           /// \todo When swap system comes along, we want to remove
           /// this page
           ///       from swap!
-          if ((flags & (PAGE_SHARED | PAGE_SWAPPED)) == 0) {
-            PhysicalMemoryManager::instance().freePage(physicalAddress);
-          }
+          const bool releasePhysicalPage = (flags & (PAGE_SHARED | PAGE_SWAPPED)) == 0;
 
           // Free the page.
           trackPages(-1, 0, 0);
           *ptEntry = 0;
-          Processor::invalidate(virtualAddress);
+          invalidateMapping(virtualAddress, invalidation);
+          if (releasePhysicalPage) {
+            PhysicalMemoryManager::instance().freePage(physicalAddress);
+          }
         }
 
         // Remove the table.
-        PhysicalMemoryManager::instance().freePage(PAGE_GET_PHYSICAL_ADDRESS(pdEntry));
+        const physical_uintptr_t pageTable = PAGE_GET_PHYSICAL_ADDRESS(pdEntry);
         *pdEntry = 0;
+        invalidateMapping(regionVirtualAddress, invalidation);
+        PhysicalMemoryManager::instance().freePage(pageTable);
       }
 
-      PhysicalMemoryManager::instance().freePage(PAGE_GET_PHYSICAL_ADDRESS(pdptEntry));
+      const physical_uintptr_t pageDirectory = PAGE_GET_PHYSICAL_ADDRESS(pdptEntry);
       *pdptEntry = 0;
+      invalidateMapping(pdptVirtualAddress, invalidation);
+      PhysicalMemoryManager::instance().freePage(pageDirectory);
     }
 
-    PhysicalMemoryManager::instance().freePage(PAGE_GET_PHYSICAL_ADDRESS(pml4Entry));
+    const physical_uintptr_t pageDirectoryPointerTable = PAGE_GET_PHYSICAL_ADDRESS(pml4Entry);
     *pml4Entry = 0;
+    void* pml4VirtualAddress = reinterpret_cast<void*>(((i & 0x100) ? (~0ULL << 48) : 0ULL) |
+                                                       (i << 39));
+    invalidateMapping(pml4VirtualAddress, invalidation);
+    PhysicalMemoryManager::instance().freePage(pageDirectoryPointerTable);
   }
 
   // Reset heap; it's been wiped out by this reversion.
@@ -615,6 +669,12 @@ void X64VirtualAddressSpace::revertToKernelAddressSpace() {
 
 bool X64VirtualAddressSpace::mapPageStructures(physical_uintptr_t physAddress, void* virtualAddress,
                                                size_t flags) {
+  // PageStack capacity is fully populated before AP startup. Keeping these
+  // special no-shootdown mappings bootstrap-only makes that lifetime
+  // invariant executable if a future caller tries to expand it at runtime.
+  if (Processor::m_Initialised == 2) {
+    panic("PageStack paging structures cannot expand after processor startup");
+  }
   LockGuard<Spinlock> guard(m_Lock);
 
   size_t Flags = toFlags(flags);
@@ -655,6 +715,9 @@ bool X64VirtualAddressSpace::mapPageStructures(physical_uintptr_t physAddress, v
 
 bool X64VirtualAddressSpace::mapPageStructuresAbove4GB(physical_uintptr_t physAddress,
                                                        void* virtualAddress, size_t flags) {
+  if (Processor::m_Initialised == 2) {
+    panic("PageStack paging structures cannot expand after processor startup");
+  }
   LockGuard<Spinlock> guard(m_Lock);
 
   size_t Flags = toFlags(flags);
@@ -881,81 +944,93 @@ bool X64VirtualAddressSpace::getPageTableEntry(void* virtualAddress,
   return true;
 }
 
-void X64VirtualAddressSpace::maybeFreeTables(void* virtualAddress) {
-  bool bCanFreePageTable = true;
+void X64VirtualAddressSpace::invalidateMapping(
+    void* virtualAddress, TlbInvalidationGuard& invalidation) {
+  // Upper-half mappings are shared by every address space. Lower-half
+  // mappings can also be active on more than one processor, and no residency
+  // mask currently identifies a narrower destination set. Use the same
+  // address-specific barrier conservatively for both.
+  switch (Processor::invalidateAll(virtualAddress, invalidation)) {
+    case TlbInvalidationResult::Success:
+      return;
+    case TlbInvalidationResult::InvalidContext:
+      panic("Mapping changed from an invalid TLB-shootdown context");
+    case TlbInvalidationResult::UnsupportedTopology:
+      panic("Mapping has no safe all-processor TLB route");
+    case TlbInvalidationResult::SerialisationTimedOut:
+      panic("Cross-processor TLB shootdown serialisation timed out");
+    case TlbInvalidationResult::SubmissionFailed:
+      panic("Cross-processor TLB shootdown IPI submission failed");
+    case TlbInvalidationResult::AcknowledgementTimedOut:
+      panic("Cross-processor TLB shootdown acknowledgement timed out");
+    case TlbInvalidationResult::DrainTimedOut:
+      panic("Cross-processor TLB shootdown service drain timed out");
+  }
+  panic("Cross-processor TLB shootdown returned an unknown result");
+}
 
-  uint64_t* pageDirectoryEntry = 0;
-
-  size_t pml4Index = PML4_INDEX(virtualAddress);
+size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
+                                                 physical_uintptr_t* detachedTables) {
+  const size_t pml4Index = PML4_INDEX(virtualAddress);
   uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
+  if ((*pml4Entry & PAGE_PRESENT) != PAGE_PRESENT) {
+    return 0;
+  }
 
-  // Is a page directory pointer table present?
-  if ((*pml4Entry & PAGE_PRESENT) != PAGE_PRESENT)
-    return;
-
-  size_t pageDirectoryPointerIndex = PAGE_DIRECTORY_POINTER_INDEX(virtualAddress);
+  const size_t pageDirectoryPointerIndex = PAGE_DIRECTORY_POINTER_INDEX(virtualAddress);
   uint64_t* pageDirectoryPointerEntry =
       TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), pageDirectoryPointerIndex);
+  if ((*pageDirectoryPointerEntry & PAGE_PRESENT) != PAGE_PRESENT) {
+    return 0;
+  }
 
-  if ((*pageDirectoryPointerEntry & PAGE_PRESENT) == PAGE_PRESENT) {
-    size_t pageDirectoryIndex = PAGE_DIRECTORY_INDEX(virtualAddress);
-    pageDirectoryEntry =
-        TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry), pageDirectoryIndex);
+  const size_t pageDirectoryIndex = PAGE_DIRECTORY_INDEX(virtualAddress);
+  uint64_t* pageDirectoryEntry =
+      TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry), pageDirectoryIndex);
+  if ((*pageDirectoryEntry & PAGE_PRESENT) != PAGE_PRESENT ||
+      (*pageDirectoryEntry & PAGE_2MB) == PAGE_2MB) {
+    return 0;
+  }
 
-    if ((*pageDirectoryEntry & PAGE_PRESENT) == PAGE_PRESENT) {
-      if ((*pageDirectoryEntry & PAGE_2MB) == PAGE_2MB) {
-        bCanFreePageTable = false;
-      } else {
-        for (size_t i = 0; i < 0x200; ++i) {
-          uint64_t* entry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryEntry), i);
-          if ((*entry & PAGE_PRESENT) == PAGE_PRESENT || (*entry & PAGE_SWAPPED) == PAGE_SWAPPED) {
-            bCanFreePageTable = false;
-            break;
-          }
-        }
-      }
+  for (size_t i = 0; i < 0x200; ++i) {
+    uint64_t* entry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryEntry), i);
+    if ((*entry & PAGE_PRESENT) == PAGE_PRESENT || (*entry & PAGE_SWAPPED) == PAGE_SWAPPED) {
+      return 0;
     }
   }
 
-  if (bCanFreePageTable && pageDirectoryEntry) {
-    PhysicalMemoryManager::instance().freePage(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryEntry));
-    *pageDirectoryEntry = 0;
-  } else if (!bCanFreePageTable) {
-    return;
-  }
+  size_t detachedCount = 0;
+  detachedTables[detachedCount++] = PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryEntry);
+  *pageDirectoryEntry = 0;
 
-  // Now that we've cleaned up the page table, we can scan the parent tables.
-
-  bool bCanFreeDirectory = true;
   for (size_t i = 0; i < 0x200; ++i) {
     uint64_t* entry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry), i);
     if ((*entry & PAGE_PRESENT) == PAGE_PRESENT) {
-      bCanFreeDirectory = false;
-      break;
+      return detachedCount;
     }
   }
 
-  if (bCanFreeDirectory) {
-    PhysicalMemoryManager::instance().freePage(
-        PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry));
-    *pageDirectoryPointerEntry = 0;
-  } else {
-    return;
+  detachedTables[detachedCount++] = PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry);
+  *pageDirectoryPointerEntry = 0;
+
+  // Every process PML4 contains its own copy of the upper-half entry. Retain
+  // the shared PDPT root so clearing one PML4 cannot leave the others pointing
+  // at freed storage.
+  if (reinterpret_cast<uintptr_t>(virtualAddress) >=
+      reinterpret_cast<uintptr_t>(KERNEL_SPACE_START)) {
+    return detachedCount;
   }
 
-  bool bCanFreeDirectoryPointerTable = true;
   for (size_t i = 0; i < 0x200; ++i) {
     uint64_t* entry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pml4Entry), i);
     if ((*entry & PAGE_PRESENT) == PAGE_PRESENT) {
-      bCanFreeDirectoryPointerTable = false;
-      break;
+      return detachedCount;
     }
   }
 
-  if (bCanFreeDirectoryPointerTable) {
-    PhysicalMemoryManager::instance().freePage(PAGE_GET_PHYSICAL_ADDRESS(pml4Entry));
-    *pml4Entry = 0;
-  }
+  detachedTables[detachedCount++] = PAGE_GET_PHYSICAL_ADDRESS(pml4Entry);
+  *pml4Entry = 0;
+  return detachedCount;
 }
 
 uint64_t X64VirtualAddressSpace::toFlags(size_t flags, bool bFinal) const {

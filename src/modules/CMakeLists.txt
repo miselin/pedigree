@@ -358,6 +358,8 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     PEDIGREE_CONCURRENCY_SMOKE_TESTS)
     pedigree_module(concurrency-smoke "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/main.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/slam-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/tlb-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/network-filter-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/network-stack/Filter.cc)
     # Keep the test fixture from exporting the live network module's singleton.

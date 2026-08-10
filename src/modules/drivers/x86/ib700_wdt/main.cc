@@ -58,6 +58,8 @@ class Ib700Watchdog : public Device, public TimerHandler {
 
   virtual bool initialise();
 
+  void shutdown();
+
   virtual void getName(String& str);
 
   virtual void timer(uint64_t delta);
@@ -67,12 +69,15 @@ class Ib700Watchdog : public Device, public TimerHandler {
   Timer* m_pTimer;
 };
 
+static Vector<Ib700Watchdog*> g_Watchdogs;
+
 static bool entry() {
   auto f = [](Device* p) {
     if (p->addresses().count() > 0) {
       if (p->addresses()[0]->m_Name.compare("ib700-base")) {
         Ib700Watchdog* pNewChild = new Ib700Watchdog(p);
         if (pNewChild->initialise()) {
+          g_Watchdogs.pushBack(pNewChild);
           return static_cast<Device*>(pNewChild);
         } else {
           ERROR("IB700 initialisation failed!");
@@ -90,7 +95,24 @@ static bool entry() {
   return true;
 }
 
-static void exit() {}
+static void exit() {
+  auto f = [](Device* device) {
+    for (auto watchdog : g_Watchdogs) {
+      if (device == watchdog) {
+        // Restore a generic device node so a later reload can bind it again.
+        // Drain the timer callback before Device's transfer constructor takes
+        // away the watchdog's I/O mapping.
+        watchdog->shutdown();
+        return new Device(device);
+      }
+    }
+    return device;
+  };
+
+  auto c = pedigree_std::make_callable(f);
+  Device::foreach (c, 0);
+  g_Watchdogs.clear();
+}
 
 MODULE_INFO("ib700_wdt", &entry, &exit);
 
@@ -99,6 +121,10 @@ Ib700Watchdog::Ib700Watchdog(Device* pDev) : Device(pDev), m_pBase(nullptr), m_p
 }
 
 Ib700Watchdog::~Ib700Watchdog() {
+  shutdown();
+}
+
+void Ib700Watchdog::shutdown() {
   if (m_pTimer) {
     if (!m_pTimer->unregisterHandler(this)) {
       FATAL("IB700 watchdog could not drain its timer callback");
@@ -109,6 +135,7 @@ Ib700Watchdog::~Ib700Watchdog() {
   if (m_pBase) {
     // Disable any existing timer.
     m_pBase->write16(0, 2);
+    m_pBase = nullptr;
   }
 }
 

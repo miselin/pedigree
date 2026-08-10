@@ -45,7 +45,11 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
 
   /** For access to the stack without declaring an instance of it */
   static NetworkStack& instance() {
-    return *stack;
+    return *__atomic_load_n(&stack, __ATOMIC_ACQUIRE);
+  }
+
+  static NetworkStack* instanceIfAvailable() {
+    return __atomic_load_n(&stack, __ATOMIC_ACQUIRE);
   }
 
   /** Called when a packet arrives */
@@ -72,6 +76,9 @@ class EXPORTED_PUBLIC NetworkStack : public RequestQueue {
   inline Network* getLoopback() {
     return m_pLoopback;
   }
+
+  /** Clears the loopback identity if it still names this device. */
+  void clearLoopback(Network* pCard);
 
   /** Grabs the memory pool for networking use */
   inline MemoryPool& getMemPool() {

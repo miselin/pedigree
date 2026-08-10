@@ -174,69 +174,16 @@ size_t Buffer<T, allowShortOperation>::write(const T* buffer, size_t count, bool
       }
     }
 
-    // Add the segment.
-    bool copiedData = false;
-    while (totalCount) {
-      size_t numberCopied = 0;
-      if (totalCount >= m_SegmentSize) {
-        // Ignore any existing segments, just create a new one.
-        addSegment(buffer, m_SegmentSize);
-        numberCopied = m_SegmentSize;
-      } else if (!m_Segments.count()) {
-        // Just add this segment.
-        addSegment(buffer, totalCount);
-        numberCopied = totalCount;
-      } else {
-        // Can we modify the most recent segment?
-        Segment* pSegment = m_Segments.popBack();
-        if (pSegment->size == m_SegmentSize) {
-          m_Segments.pushBack(pSegment);
-
-          // Full already, need a new segment.
-          addSegment(buffer, totalCount);
-          numberCopied = totalCount;
-        } else {
-          // There's room in this segment.
-          T* start = &pSegment->data[pSegment->size];
-          size_t availableSpace = m_SegmentSize - pSegment->size;
-          if (availableSpace > totalCount) {
-            availableSpace = totalCount;
-          }
-          pedigree_std::copy(start, buffer, availableSpace);
-
-          // We just added more bytes to this segment.
-          pSegment->size += availableSpace;
-
-          // Done with this segment, so push it back for reading.
-          m_Segments.pushBack(pSegment);
-
-          // Was that enough?
-          if (availableSpace < totalCount) {
-            // No, need one more segment.
-            addSegment(&buffer[availableSpace], totalCount - availableSpace);
-          }
-
-          // Done.
-          numberCopied = totalCount;
-        }
-      }
-
-      countSoFar += numberCopied;
-      m_DataSize += numberCopied;
-      buffer += numberCopied;
-      totalCount -= numberCopied;
-      count -= numberCopied;
-
-      if (!copiedData) {
-        copiedData = numberCopied > 0;
-      }
-    }
+    const size_t numberCopied = writeLocked(buffer, totalCount);
+    countSoFar += numberCopied;
+    buffer += numberCopied;
+    count -= numberCopied;
 
     // Wake up a reader that was waiting for data.
     // We do this here rather than after we finish as we may need to block
     // again (e.g. if we're writing more than the size of the buffer), and
     // a reader is needed to unblock that.
-    if (copiedData) {
+    if (numberCopied) {
       m_ReadCondition.signal();
     }
 
@@ -254,6 +201,27 @@ size_t Buffer<T, allowShortOperation>::write(const T* buffer, size_t count, bool
   }
 
   return countSoFar;
+}
+
+template <class T, bool allowShortOperation>
+bool Buffer<T, allowShortOperation>::tryWrite(const T* buffer, size_t count) {
+  TerminationDeferral terminationDeferral;
+  if (!m_Lock.tryAcquire()) {
+    return false;
+  }
+
+  if (m_bClosing || !m_bCanWrite || count > (m_BufferSize - m_DataSize)) {
+    m_Lock.release();
+    return false;
+  }
+
+  const size_t numberCopied = writeLocked(buffer, count);
+  if (numberCopied) {
+    m_ReadCondition.signal();
+    notifyMonitorsLocked();
+  }
+  m_Lock.release();
+  return numberCopied == count;
 }
 
 template <class T, bool allowShortOperation>
@@ -638,6 +606,13 @@ void Buffer<T, allowShortOperation>::notifyMonitors() {
 
 #if THREADS
   LockGuard<Mutex> guard(m_Lock);
+  notifyMonitorsLocked();
+#endif
+}
+
+template <class T, bool allowShortOperation>
+void Buffer<T, allowShortOperation>::notifyMonitorsLocked() {
+#if THREADS
   for (typename List<MonitorTarget*>::Iterator it = m_MonitorTargets.begin();
        it != m_MonitorTargets.end(); it++) {
     MonitorTarget* pMT = *it;
@@ -651,6 +626,49 @@ void Buffer<T, allowShortOperation>::notifyMonitors() {
   }
   m_MonitorTargets.clear();
 #endif
+}
+
+template <class T, bool allowShortOperation>
+size_t Buffer<T, allowShortOperation>::writeLocked(const T* buffer, size_t count) {
+  size_t countSoFar = 0;
+  while (count) {
+    size_t numberCopied = 0;
+    if (count >= m_SegmentSize) {
+      addSegment(buffer, m_SegmentSize);
+      numberCopied = m_SegmentSize;
+    } else if (!m_Segments.count()) {
+      addSegment(buffer, count);
+      numberCopied = count;
+    } else {
+      Segment* pSegment = m_Segments.popBack();
+      if (pSegment->size == m_SegmentSize) {
+        m_Segments.pushBack(pSegment);
+        addSegment(buffer, count);
+        numberCopied = count;
+      } else {
+        T* start = &pSegment->data[pSegment->size];
+        size_t availableSpace = m_SegmentSize - pSegment->size;
+        if (availableSpace > count) {
+          availableSpace = count;
+        }
+        pedigree_std::copy(start, buffer, availableSpace);
+        pSegment->size += availableSpace;
+        m_Segments.pushBack(pSegment);
+
+        if (availableSpace < count) {
+          addSegment(&buffer[availableSpace], count - availableSpace);
+        }
+        numberCopied = count;
+      }
+    }
+
+    countSoFar += numberCopied;
+    m_DataSize += numberCopied;
+    buffer += numberCopied;
+    count -= numberCopied;
+  }
+
+  return countSoFar;
 }
 
 template <class T, bool allowShortOperation>

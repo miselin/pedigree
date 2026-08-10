@@ -31,6 +31,7 @@
 
 #if UTILITY_LINUX
 #include <errno.h>
+#include <thread>
 #include <time.h>
 
 static Spinlock g_Protection(false);
@@ -42,7 +43,8 @@ int errno;
 struct pedigree_mbox {
   pedigree_mbox() : buffer(64) {}
 
-  RingBuffer<void*> buffer;
+  using Buffer = RingBuffer<void*, 64>;
+  Buffer buffer;
 };
 
 void sys_init() {}
@@ -66,7 +68,10 @@ struct thread_meta {
 
 static int thread_shim(void* arg) {
   struct thread_meta* meta = static_cast<struct thread_meta*>(arg);
-  meta->thread(meta->arg);
+  lwip_thread_fn thread = meta->thread;
+  void* threadArg = meta->arg;
+  delete meta;
+  thread(threadArg);
   return 0;
 }
 
@@ -77,12 +82,34 @@ sys_thread_t sys_thread_new(const char* name, lwip_thread_fn thread, void* arg, 
   meta->thread = thread;
   meta->arg = arg;
   StringCopy(meta->name, name);
-  // The configured lwIP tcpip thread has no stop protocol and runs forever.
-  // Its detached lifetime therefore requires the lwIP module to remain
-  // loaded; dynamic unload first needs producer quiescence and a stop/join
-  // extension in tcpip.c.
-  pocketknife::runConcurrently(thread_shim, meta);
-  return meta;
+  return pocketknife::runConcurrentlyAttached(thread_shim, meta);
+}
+
+int sys_thread_join(sys_thread_t thread) {
+  if (!thread) {
+    return 1;
+  }
+#if UTILITY_LINUX
+  pocketknife::attachTo(thread);
+  return 1;
+#else
+  return pocketknife::attachToForCompletion(thread) ? 1 : 0;
+#endif
+}
+
+int sys_thread_is_current(sys_thread_t thread) {
+  if (!thread) {
+    return 0;
+  }
+#if UTILITY_LINUX
+  std::thread* candidate = reinterpret_cast<std::thread*>(thread);
+  return candidate->get_id() == std::this_thread::get_id() ? 1 : 0;
+#else
+  return reinterpret_cast<Thread*>(thread) ==
+                 Processor::information().getCurrentThread()
+             ? 1
+             : 0;
+#endif
 }
 
 err_t sys_sem_new(sys_sem_t* sem, u8_t count) {
@@ -214,9 +241,16 @@ void sys_mbox_free(sys_mbox_t* mbox) {
 }
 
 void sys_mbox_post(sys_mbox_t* mbox, void* msg) {
-  if ((*mbox)->buffer.write(msg) != RingBuffer<void*>::NoError) {
+  if ((*mbox)->buffer.write(msg) != pedigree_mbox::Buffer::NoError) {
     FATAL("sys_mbox_post failed");
   }
+}
+
+err_t sys_mbox_post_and_close(sys_mbox_t* mbox, void* msg) {
+  if (!mbox || !*mbox) {
+    return ERR_ARG;
+  }
+  return (*mbox)->buffer.closeWritesWithFinal(msg) ? ERR_OK : ERR_CLSD;
 }
 
 u32_t sys_arch_mbox_tryfetch(sys_mbox_t* mbox, void** msg) {
@@ -225,7 +259,7 @@ u32_t sys_arch_mbox_tryfetch(sys_mbox_t* mbox, void** msg) {
   }
 
   void* value = nullptr;
-  RingBuffer<void*>::Error error = RingBuffer<void*>::NoError;
+  pedigree_mbox::Buffer::Error error = pedigree_mbox::Buffer::NoError;
   if (!(*mbox)->buffer.read(value, error)) {
     // TODO: what error?
     ERROR(
@@ -249,7 +283,7 @@ u32_t sys_arch_mbox_fetch(sys_mbox_t* mbox, void** msg, u32_t timeout) {
   }
 
   void* value = nullptr;
-  RingBuffer<void*>::Error error = RingBuffer<void*>::NoError;
+  pedigree_mbox::Buffer::Error error = pedigree_mbox::Buffer::NoError;
   if (!(*mbox)->buffer.read(value, timeoutMs, error)) {
     // TODO: check the specific error
     return SYS_ARCH_TIMEOUT;
@@ -262,16 +296,12 @@ u32_t sys_arch_mbox_fetch(sys_mbox_t* mbox, void** msg, u32_t timeout) {
 }
 
 err_t sys_mbox_trypost(sys_mbox_t* mbox, void* msg) {
-  if (!(*mbox)->buffer.canWrite()) {
+  const pedigree_mbox::Buffer::Error error = (*mbox)->buffer.tryWrite(msg);
+  if (error == pedigree_mbox::Buffer::WouldBlock) {
     return ERR_WOULDBLOCK;
   }
 
-  RingBuffer<void*>::Error err = (*mbox)->buffer.write(msg);
-  if (err != RingBuffer<void*>::NoError) {
-    return ERR_BUF;
-  }
-
-  return ERR_OK;
+  return error == pedigree_mbox::Buffer::NoError ? ERR_OK : ERR_BUF;
 }
 
 int sys_mbox_valid(sys_mbox_t* mbox) {

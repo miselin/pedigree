@@ -41,7 +41,11 @@ void unmapAll();
 #endif
 
 class SlamAllocator;
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+class EXPORTED_PUBLIC SlamCache;
+#else
 class SlamCache;
+#endif
 
 /// Size of each slab in 4096-byte pages
 #define SLAB_SIZE 1
@@ -138,7 +142,11 @@ class SlamCache;
 #endif
 
 /** A cache allocates objects of a constant size. */
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+class EXPORTED_PUBLIC SlamCache {
+#else
 class SlamCache {
+#endif
   // struct Node must be public so that sizeof(SlamCache::Node) is available.
  public:
   /** The structure inside a free object (list node) */
@@ -169,6 +177,11 @@ class SlamCache {
 
   bool isPointerValid(uintptr_t object) const;
 
+#if defined(PEDIGREE_BUILDUTILS)
+  /** Selects a synthetic CPU-local list for deterministic allocator tests. */
+  void setListForTest(size_t list);
+#endif
+
   inline size_t objectSize() const {
     return m_ObjectSize;
   }
@@ -184,7 +197,12 @@ class SlamCache {
   SlamCache(const SlamCache&);
   const SlamCache& operator=(const SlamCache&);
 
-  static constexpr const int NUM_LISTS = MULTIPROCESSOR ? 256 : 1;
+  static constexpr const int NUM_LISTS =
+#if defined(PEDIGREE_BUILDUTILS)
+      4;
+#else
+      MULTIPROCESSOR ? 256 : 1;
+#endif
 
   typedef volatile Node* alignedNode;
   alignedNode m_PartialLists[NUM_LISTS];
@@ -197,6 +215,7 @@ class SlamCache {
   void freeSlab(uintptr_t slab);
 
   Node* initialiseSlab(uintptr_t slab);
+  size_t currentList() const;
 
   size_t m_ObjectSize;
   size_t m_SlabSize;
@@ -209,9 +228,9 @@ class SlamCache {
 
   /**
    * Recovery cannot be done trivially.
-   * Spinlock disables interrupts as part of its operation, so we can
-   * use it to ensure recovery isn't interrupted. Note recovery is a
-   * per-CPU thing.
+   * Spinlock disables interrupts as part of its operation. Allocation and
+   * free-list publication also take this lock, allowing recovery to inspect
+   * every CPU-local list without a dangling-node window.
    */
   Spinlock m_RecoveryLock;
 
@@ -219,6 +238,10 @@ class SlamCache {
   SlamAllocator* m_pParentAllocator;
 
   struct Node m_EmptyNode;
+
+#if defined(PEDIGREE_BUILDUTILS)
+  size_t m_TestList = 0;
+#endif
 };
 
 class SlamAllocator {
@@ -260,6 +283,15 @@ class SlamAllocator {
   uintptr_t getSlab(size_t fullSize);
   void freeSlab(uintptr_t address, size_t length);
 
+#if defined(PEDIGREE_BUILDUTILS)
+  enum class SlabTransitionForTest { Reserved, Mapped, Unmapped };
+  using SlabTransitionHookForTest =
+      void (*)(SlabTransitionForTest transition, uintptr_t address, void* context);
+
+  /** Installs a no-allocation transition hook for deterministic host tests. */
+  void setSlabTransitionHookForTest(SlabTransitionHookForTest hook, void* context);
+#endif
+
  private:
   /** Variant of freeSlab that does not take the lock first. Dangerous if
    * misused. */
@@ -281,6 +313,8 @@ class SlamAllocator {
   }
 
  private:
+  friend class SlamCache;
+
   SlamAllocator(const SlamAllocator&);
   const SlamAllocator& operator=(const SlamAllocator&);
 
@@ -289,7 +323,11 @@ class SlamAllocator {
   /** Wipe out all memory used by the allocator. */
   void wipe();
 
+  /** Requires m_SlabRegionLock and checks that mapping is fully established. */
   bool isAllocatedPage(uintptr_t address) const;
+
+  /** Publishes allocator metadata only after the entire slab is mapped. */
+  void markSlabReady(uintptr_t address, size_t length);
 
   SlamCache m_Caches[32];
 
@@ -325,15 +363,26 @@ class SlamAllocator {
 
   bool m_bVigilant;
 
-  Spinlock m_SlabRegionLock;
+  mutable Spinlock m_SlabRegionLock;
 
   size_t m_HeapPageCount;
 
-  uint64_t* m_SlabRegionBitmap;
+  struct SlabBitmapEntry {
+    uint64_t reserved;
+    uint64_t mapped;
+    uint64_t ready;
+  };
+
+  SlabBitmapEntry* m_SlabRegionBitmap;
   size_t m_SlabRegionBitmapEntries;
   size_t m_SlabRegionPages;
 
   uintptr_t m_Base;
+
+#if defined(PEDIGREE_BUILDUTILS)
+  SlabTransitionHookForTest m_SlabTransitionHook = nullptr;
+  void* m_SlabTransitionHookContext = nullptr;
+#endif
 
   Spinlock m_Lock;
 };

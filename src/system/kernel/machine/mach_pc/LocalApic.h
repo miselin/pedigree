@@ -33,9 +33,11 @@
 #include "pedigree/kernel/processor/types.h"
 
 #include "LocalApicTimerHandlerSlots.h"
+#include "LocalApicTlbShootdown.h"
 
 class SchedulerTimerHandler;
 
+#define IPI_TLB_SHOOTDOWN_VECTOR 0xF9
 #define IPI_RESCHEDULE_VECTOR 0xFA
 #define IPI_PROCESSOR_CONTROL_VECTOR 0xFB
 #define ERROR_VECTOR 0xFC
@@ -50,6 +52,7 @@ class SchedulerTimerHandler;
 class LocalApic : public SchedulerTimer, private InterruptHandler {
  private:
   enum class ProcessorControlState : size_t { Idle, Paused, Unavailable, Terminal };
+  enum class ProcessorControlOwnership { Fresh, Quiesced, Terminal };
 
  public:
   /** The default constructor */
@@ -57,6 +60,9 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
       : m_IoSpace("Local APIC"),
         m_Handlers(),
         m_BusFrequency(0),
+        m_ProcessorControlOwner(),
+        m_TlbMutations(),
+        m_TlbShootdown(),
         m_ProcessorControlState(static_cast<size_t>(ProcessorControlState::Idle)),
         m_ControlledProcessorCount(0),
         m_TerminalProcessorCount(0) {}
@@ -101,6 +107,21 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
    * vector \param[in] deliveryMode The delivery mode \return true if the IPI
    * was submitted and left the delivery-pending state, false otherwise */
   MUST_USE_RESULT bool interProcessorInterruptAllExcludingThis(uint8_t vector, size_t deliveryMode);
+
+  /**
+   * Synchronously invalidate one address on every online processor.
+   * See Processor::invalidateAll for the caller and failure contract.
+   */
+  MUST_USE_RESULT TlbInvalidationResult invalidateAllProcessors(void* address);
+
+  /** Admit a page-table mutation before its first PTE write. */
+  MUST_USE_RESULT TlbInvalidationResult beginTlbInvalidation(bool& global);
+
+  /** Retire a page-table mutation admitted by beginTlbInvalidation. */
+  void endTlbInvalidation();
+
+  /** Service a published shootdown without relying on maskable interrupts. */
+  void servicePendingTlbShootdown();
 
   enum class ProcessorControlResult {
     Success,
@@ -159,6 +180,12 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
   bool submitIcr(uint32_t high, uint32_t low);
 
   ProcessorControlState processorControlState() const;
+  bool acquireProcessorControlOwner(
+      bool acceptRetained, ProcessorControlOwnership& ownership);
+  bool releaseProcessorControlOwner();
+  ProcessorControlResult completeTerminalControl(size_t expectedProcessors);
+  bool acquireTlbShootdownBarrier();
+  bool waitForTlbMutationDrain();
   bool waitForProcessorCount(size_t expectedProcessors);
   bool waitForTerminalProcessorCount(size_t expectedProcessors);
   bool waitForProcessorDrain();
@@ -177,6 +204,13 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
 
   /** System bus frequency, for setting up the initial timer counter. */
   size_t m_BusFrequency;
+
+  /** Owner of the processor-control state and its mutation-gate closure. */
+  LocalApicProcessorControlOwner m_ProcessorControlOwner;
+
+  /** One allocation-free, synchronously acknowledged TLB transaction. */
+  LocalApicTlbMutationGate m_TlbMutations;
+  LocalApicTlbShootdown m_TlbShootdown;
 
   /** Shared state observed by CPUs inside the processor-control IPI. */
   Atomic<size_t> m_ProcessorControlState;

@@ -12,6 +12,9 @@
 #include "pedigree/kernel/utilities/new"
 
 #include "modules/system/network-stack/NetworkStack.h"
+#include "modules/system/lwip/include/lwip/err.h"
+#include "modules/system/lwip/include/lwip/sys.h"
+#include "system/kernel/core/processor/DeviceHardIrqContext.h"
 
 namespace {
 class HostedNetworkDevice final : public Network {
@@ -221,6 +224,36 @@ bool check(bool condition, const char* test, const char* detail) {
   return false;
 }
 
+bool mailboxTryPostRejectsHardIrq() {
+  static const char* Test = "mailbox-hard-irq-trypost";
+
+  sys_mbox_t mailbox = nullptr;
+  if (sys_mbox_new(&mailbox, 1) != ERR_OK) {
+    return check(false, Test, "mailbox creation failed");
+  }
+
+  int payload = 0;
+  err_t result = ERR_OK;
+  size_t previousDepth = 0;
+  bool restorationArmed = false;
+  {
+    DeviceHardIrqContext hardIrq(previousDepth, restorationArmed);
+    result = sys_mbox_trypost(&mailbox, &payload);
+  }
+
+  void* fetched = nullptr;
+  const u32_t fetchResult = sys_arch_mbox_tryfetch(&mailbox, &fetched);
+  sys_mbox_free(&mailbox);
+
+  const bool passed =
+      check(result == ERR_WOULDBLOCK && fetchResult == SYS_MBOX_EMPTY && !fetched, Test,
+            "the ISR call enqueued data or entered a blocking notification path");
+  if (passed) {
+    NOTICE("HOSTED-NETWORK-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
 bool interruptReceivePublication() {
   static const char* Test = "receive-interrupt-publication";
 
@@ -416,7 +449,8 @@ bool queuedReceiveGenerationAba() {
 }  // namespace
 
 bool runHostedNetworkStackRegressions() {
-  bool passed = interruptReceivePublication();
+  bool passed = mailboxTryPostRejectsHardIrq();
+  passed &= interruptReceivePublication();
   passed &= boundedReceiveBurst();
   passed &= queuedReceiveGenerationAba();
   return passed;

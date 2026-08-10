@@ -60,6 +60,9 @@ CdiNet::CdiNet(struct cdi_net_device* device) :
 
 CdiNet::~CdiNet()
 {
+    NetworkStack* stack = NetworkStack::instanceIfAvailable();
+    if (stack)
+        stack->deRegisterDevice(this);
 }
 
 bool CdiNet::send(size_t nBytes, uintptr_t buffer)

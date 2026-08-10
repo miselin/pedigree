@@ -38,3 +38,18 @@ TEST(PedigreeConditionVariable, Timeout) {
   EXPECT_FALSE(result);
   EXPECT_EQ(error, ConditionVariable::TimedOut);
 }
+
+TEST(PedigreeConditionVariable, ZeroTimeoutKeepsMutexHeld) {
+  Mutex mutex;
+  ConditionVariable condition;
+  ASSERT_TRUE(mutex.acquire());
+
+  Time::Timestamp timeout = 0;
+  ConditionVariable::Error error = ConditionVariable::NoError;
+  EXPECT_FALSE(condition.wait(mutex, timeout, error));
+  EXPECT_EQ(error, ConditionVariable::TimedOut);
+  EXPECT_EQ(timeout, 0U);
+  EXPECT_FALSE(mutex.tryAcquire());
+
+  mutex.release();
+}

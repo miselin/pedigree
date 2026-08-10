@@ -142,20 +142,29 @@ void X86CommonPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
         "X86CommonPhysicalMemoryManager::freePageUnlocked called without "
         "an acquired lock");
 
-  // Check for pinned page.
-  PageHashable index(page);
-  MetadataTable::LookupResult result = m_PageMetadata.lookup(index);
-  if (result.hasValue()) {
-    struct page p = result.value();
-    if (p.active) {
-      if (--p.refcount) {
-        // Still references.
-        m_PageMetadata.update(index, p);
+  if (!m_PageMetadataReady) {
+    if (m_BootstrapPinnedPageRefcount && page == m_BootstrapPinnedPage) {
+      if (--m_BootstrapPinnedPageRefcount) {
         return;
-      } else {
-        // No more references, stop tracking page.
-        p.active = false;
-        m_PageMetadata.update(index, p);
+      }
+      m_BootstrapPinnedPage = 0;
+    }
+  } else {
+    // Check for pinned page.
+    PageHashable index(page);
+    MetadataTable::LookupResult result = m_PageMetadata.lookup(index);
+    if (result.hasValue()) {
+      struct page p = result.value();
+      if (p.active) {
+        if (--p.refcount) {
+          // Still references.
+          m_PageMetadata.update(index, p);
+          return;
+        } else {
+          // No more references, stop tracking page.
+          p.active = false;
+          m_PageMetadata.update(index, p);
+        }
       }
     }
   }
@@ -182,6 +191,19 @@ void X86CommonPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
 }
 void X86CommonPhysicalMemoryManager::pin(physical_uintptr_t page) {
   RecursingLockGuard<Spinlock> guard(m_Lock);
+
+  if (!m_PageMetadataReady) {
+    if (m_BootstrapPinnedPageRefcount) {
+      if (m_BootstrapPinnedPage != page) {
+        FATAL_NOLOCK(
+            "PhysicalMemoryManager: multiple pages pinned during metadata bootstrap");
+      }
+    } else {
+      m_BootstrapPinnedPage = page;
+    }
+    ++m_BootstrapPinnedPageRefcount;
+    return;
+  }
 
   PageHashable index(page);
   MetadataTable::LookupResult result = m_PageMetadata.lookup(index);
@@ -277,6 +299,7 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t
     Region.m_VirtualAddress = reinterpret_cast<void*>(vAddress);
     Region.m_PhysicalAddress = start;
     Region.m_Size = cPages * PhysicalMemoryManager::getPageSize();
+    Region.m_bPageBacked = false;
     //       NOTICE("MR: Allocated " << Hex << vAddress << " (phys " <<
     //       static_cast<uintptr_t>(start) << "), size " << (cPages*4096));
 
@@ -335,11 +358,22 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t
       } else {
         // Map the physical memory into the allocated space
         for (size_t i = 0; i < cPages; i++) {
-          physical_uintptr_t page = m_PageStack.allocate(pageConstraints & addressConstraints);
+          physical_uintptr_t page = allocatePage(pageConstraints & addressConstraints);
           if (virtualAddressSpace.map(
                   page,
                   reinterpret_cast<void*>(vAddress + i * PhysicalMemoryManager::getPageSize()),
                   Flags) == false) {
+            freePage(page);
+            for (size_t mapped = 0; mapped < i; ++mapped) {
+              void* mappedAddress = reinterpret_cast<void*>(
+                  vAddress + mapped * PhysicalMemoryManager::getPageSize());
+              physical_uintptr_t mappedPage = 0;
+              size_t mappedFlags = 0;
+              virtualAddressSpace.getMapping(mappedAddress, mappedPage, mappedFlags);
+              virtualAddressSpace.unmap(mappedAddress);
+              freePage(mappedPage);
+            }
+            m_MemoryRegions.free(vAddress, cPages * PhysicalMemoryManager::getPageSize());
             WARNING("AllocateRegion: VirtualAddressSpace::map failed.");
             return false;
           }
@@ -351,6 +385,9 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t
     Region.m_VirtualAddress = reinterpret_cast<void*>(vAddress);
     Region.m_PhysicalAddress = allocatedStart;
     Region.m_Size = cPages * PhysicalMemoryManager::getPageSize();
+    const size_t addressConstraint = pageConstraints & addressConstraints;
+    Region.m_bPageBacked = (pageConstraints & virtualOnly) ||
+                           (addressConstraint != below1MB && addressConstraint != below16MB);
 
     // Add to the list of memory-regions
     if (!(pageConstraints & PhysicalMemoryManager::anonymous)) {
@@ -430,6 +467,22 @@ void X86CommonPhysicalMemoryManager::initialise(const BootstrapStruct_t& Info) {
 
   /// \todo do this in initialise64 too, copying any existing entries.
   m_PageMetadata.reserve(top >> 12);  // number of 4k pages in this zone
+
+  {
+    RecursingLockGuard<Spinlock> guard(m_Lock);
+    if (m_BootstrapPinnedPageRefcount) {
+      PageHashable index(m_BootstrapPinnedPage);
+      struct page p;
+      p.refcount = m_BootstrapPinnedPageRefcount;
+      p.active = true;
+      if (!m_PageMetadata.insert(index, p)) {
+        FATAL_NOLOCK("PhysicalMemoryManager: failed to publish bootstrap page pins");
+      }
+      m_BootstrapPinnedPage = 0;
+      m_BootstrapPinnedPageRefcount = 0;
+    }
+    m_PageMetadataReady = true;
+  }
 
   // Fill the range-lists (usable memory below 1/16MB & ACPI)
   MemoryMap = Info.getMemoryMap();
@@ -739,7 +792,10 @@ X86CommonPhysicalMemoryManager::X86CommonPhysicalMemoryManager()
       m_MemoryRegions(),
       m_Lock(false, true),
       m_RegionLock(false, true),
-      m_PageMetadata() {}
+      m_PageMetadata(),
+      m_PageMetadataReady(false),
+      m_BootstrapPinnedPage(0),
+      m_BootstrapPinnedPageRefcount(0) {}
 X86CommonPhysicalMemoryManager::~X86CommonPhysicalMemoryManager() {}
 
 void X86CommonPhysicalMemoryManager::unmapRegion(MemoryRegion* pRegion) {
@@ -753,7 +809,10 @@ void X86CommonPhysicalMemoryManager::unmapRegion(MemoryRegion* pRegion) {
       physical_uintptr_t phys = pRegion->physicalAddress();
       VirtualAddressSpace& virtualAddressSpace = VirtualAddressSpace::getKernelAddressSpace();
 
-      if (pRegion->getNonRamMemory()) {
+      if (pRegion->m_bPageBacked) {
+        // Non-contiguous and lazy virtual-only regions own individual pages,
+        // not one physical range beginning at m_PhysicalAddress.
+      } else if (pRegion->getNonRamMemory()) {
         if (!pRegion->getForced())
           m_PhysicalRanges.free(phys, pRegion->size());
       } else {
@@ -773,17 +832,16 @@ void X86CommonPhysicalMemoryManager::unmapRegion(MemoryRegion* pRegion) {
         void* vAddr = reinterpret_cast<void*>(start + i * PhysicalMemoryManager::getPageSize());
         if (!virtualAddressSpace.isMapped(vAddr)) {
           // Can happen with virtualOnly mappings.
-          /// \todo copy the pageConstraints to the Region object
           continue;
         }
         physical_uintptr_t pAddr;
         size_t flags;
         virtualAddressSpace.getMapping(vAddr, pAddr, flags);
 
-        if (!pRegion->getNonRamMemory() && pAddr > 0x1000000)
-          m_PageStack.free(pAddr, getPageSize());
-
         virtualAddressSpace.unmap(vAddr);
+        if (!pRegion->getNonRamMemory() && pRegion->m_bPageBacked) {
+          freePage(pAddr);
+        }
       }
       //            NOTICE("MR: Freed " << Hex << start << ", size " <<
       //            (cPages*4096));

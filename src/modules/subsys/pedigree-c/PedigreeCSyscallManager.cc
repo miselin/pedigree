@@ -127,7 +127,10 @@ uintptr_t PedigreeCSyscallManager::syscall(SyscallState& state) {
         return -1;
       }
 
-      pedigree_module_unload(const_cast<char*>(moduleName.cstr()));
+      if (!pedigree_module_unload(const_cast<char*>(moduleName.cstr()))) {
+        SYSCALL_ERROR(DeviceBusy);
+        return -1;
+      }
       return 0;
     }
     case PEDIGREE_MODULE_IS_LOADED:

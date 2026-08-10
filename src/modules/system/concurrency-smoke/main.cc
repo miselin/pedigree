@@ -20,6 +20,8 @@
 #include "modules/Module.h"
 
 extern bool runNetworkFilterConcurrencyRegressions();
+extern bool runSlamAllocatorConcurrencyRegression();
+extern bool runTlbShootdownConcurrencyRegression();
 
 namespace {
 class HandoffQueue : public RequestQueue {
@@ -327,6 +329,13 @@ bool entry() {
   }
   testProducerConsumerTeardown();
 
+  if (!runTlbShootdownConcurrencyRegression()) {
+    FATAL("QEMU shared-kernel TLB shootdown regression failed");
+  }
+  if (!runSlamAllocatorConcurrencyRegression()) {
+    FATAL("QEMU SLAM allocator concurrency regression failed");
+  }
+
   NOTICE("QEMU-CONCURRENCY-TEST: BEGIN requestqueue-release-handoff");
 
   HandoffQueue queue;
@@ -379,6 +388,7 @@ bool entry() {
   }
 
   NOTICE("QEMU-CONCURRENCY-TEST: PASS requestqueue-release-handoff");
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN shutdown-worker-drain-smp");
   return true;
 }
 

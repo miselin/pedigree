@@ -119,6 +119,7 @@ void ProcessorBase::initialise1(const BootstrapStruct_t& Info) {
       X86CommonPhysicalMemoryManager::instance();
   physicalMemoryManager.initialise(Info);
 
+
   // Initialise the I/O Manager
   IoPortManager& ioPortManager = IoPortManager::instance();
   ioPortManager.initialise(0, 0x10000);

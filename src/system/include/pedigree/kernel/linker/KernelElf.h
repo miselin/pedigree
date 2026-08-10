@@ -23,7 +23,6 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/linker/Elf.h"
-#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
@@ -33,7 +32,11 @@
 
 #include "modules/Module.h"
 
+#if MULTIBOOT
 class BootstrapStruct_t;
+#else
+struct BootstrapStruct_t;
+#endif
 class String;
 
 /** @addtogroup kernellinker
@@ -50,6 +53,11 @@ class Module {
         depends_opt(0),
         buffer(0),
         buflen(0),
+        loadBase(0),
+        loadSize(0),
+        unloadable(true),
+        unloadComplete(false),
+        progressCredits(0),
         status(Unknown) {}
 
   ~Module() {
@@ -66,8 +74,11 @@ class Module {
   size_t buflen;
   uintptr_t loadBase;
   size_t loadSize;
+  bool unloadable;
+  bool unloadComplete;
+  size_t progressCredits;
 
-  enum ModuleStatus { Unknown, Preloaded, Executing, Active, Failed, Unloaded } status;
+  enum ModuleStatus { Unknown, Preloaded, Executing, Active, Failed, Unloading, Unloaded } status;
 
   bool isPending() const {
     return status == Preloaded;
@@ -78,7 +89,7 @@ class Module {
   }
 
   bool isUnloaded() const {
-    return status == Unloaded || status == Failed;
+    return status == Unloaded || (status == Failed && unloadComplete);
   }
 
   bool isFailed() const {
@@ -93,8 +104,12 @@ class Module {
     return status == Executing;
   }
 
+  bool isUnloading() const {
+    return status == Unloading;
+  }
+
   bool wasAttempted() const {
-    return status == Executing || isActive() || isFailed() || isUnloaded();
+    return status == Executing || isActive() || isFailed() || isUnloading() || isUnloaded();
   }
 
  protected:
@@ -103,7 +118,7 @@ class Module {
 };
 
 class EXPORTED_PUBLIC KernelElf : public Elf {
-  friend void _cxx_main(class BootstrapStruct_t&);
+  friend void _cxx_main(BootstrapStruct_t&);
 
  public:
   /** Get the class instance
@@ -130,11 +145,33 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   void executeModules(bool silent = false, bool progress = true);
 
   /** Unloads the specified module. */
-  void unloadModule(const char* name, bool silent = false, bool progress = true);
-  void unloadModule(Module* module, bool silent = false, bool progress = true);
+  bool unloadModule(const char* name, bool silent = false, bool progress = true);
+  bool unloadModule(Module* module, bool silent = false, bool progress = true);
 
   /** Unloads all loaded modules. */
   void unloadModules();
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  enum TestModuleUnloadClaim {
+    TestUnloadClaimed,
+    TestUnloadComplete,
+    TestUnloadBusy,
+    TestUnloadPinned,
+    TestUnloadDependedOn,
+    TestUnloadUnknown,
+    TestUnloadShutdown,
+  };
+
+  /** Exercises the production shutdown planner without touching loaded modules. */
+  static size_t planModuleUnloadOrderForTest(Module** modules, size_t count, Module** order,
+                                             size_t capacity);
+
+  /** Exercises the production single-owner unload claim. */
+  static TestModuleUnloadClaim claimModuleUnloadForTest(Module* module);
+  static TestModuleUnloadClaim claimNamedModuleUnloadForTest(Module** modules, size_t count,
+                                                              const char* name);
+  static void completeModuleUnloadForTest(Module* module);
+#endif
 
   /** Returns true if a module with the specified name has been loaded. */
   bool moduleIsLoaded(char* name);
@@ -157,7 +194,7 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   bool hasPendingModules() const;
 
   /** Updates the status of the given module. */
-  void updateModuleStatus(Module* module, bool status);
+  void updateModuleStatus(Module* module, bool status, bool runFailureLifecycle = true);
 
   /** Waits for all modules to complete (whether successfully or not). */
   void waitForModulesToLoad();
@@ -185,8 +222,33 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
    *\note NOT implemented (singleton class) */
   KernelElf& operator=(const KernelElf&);
 
-  bool moduleDependenciesSatisfied(Module* module);
+  /** Requires the module lock. */
+  bool moduleDependenciesSatisfiedLocked(Module* module) const;
   bool executeModule(Module* module);
+
+  enum ModuleUnloadClaim {
+    UnloadClaimed,
+    UnloadComplete,
+    UnloadBusy,
+    UnloadPinned,
+    UnloadDependedOn,
+    UnloadUnknown,
+    UnloadShutdown,
+  };
+
+  bool beginModuleLoad();
+  void finishModuleLoad();
+  bool moduleRegisteredLocked(Module* module) const;
+  static Module* findModuleByName(const Vector<Module*>& modules, const String& name);
+  static bool moduleDependsOn(Module* consumer, Module* provider);
+  static bool hasLiveDependent(const Vector<Module*>& modules, Module* provider);
+  static Module* findUnloadCandidate(const Vector<Module*>& modules, bool& waiting);
+  ModuleUnloadClaim claimModuleUnloadLocked(Module* module, bool allowShutdown,
+                                            bool requireMembership, bool enforceDependencies,
+                                            bool& wasFailed, bool& runLifecycle);
+  bool completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, bool wasFailed,
+                             bool runLifecycle, bool silent, bool progress);
+  void finishClaimedUnload(Module* module, bool wasFailed);
 
   /** Rebase a pointer for the given loaded module. */
   template <class T>
@@ -242,9 +304,12 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   typedef ElfSymbol_t KernelElfSymbol_t;
 #endif
 
-  /** Tracks the module loading process. */
-  Semaphore m_ModuleProgress;
   Spinlock m_ModuleAdjustmentLock;
+  bool m_ModuleShutdown;
+  bool m_ModuleLoading;
+  Module* m_UnloadingModule;
+  size_t m_ModuleExecutions;
+  size_t m_ModuleExecutionPasses;
 
   /** Pending init module. */
   Module* m_InitModule;

@@ -537,6 +537,42 @@ void ProcessorBase::invalidate(void* pAddress) {
   // no-op on hosted
 }
 
+TlbInvalidationResult ProcessorBase::beginTlbInvalidation(TlbInvalidationGuard& guard) {
+  const ExecutionContext context = executionContext();
+  if (guard.m_Active ||
+      (context != ExecutionContext::WaitableThread &&
+       context != ExecutionContext::AtomicThread)) {
+    return TlbInvalidationResult::InvalidContext;
+  }
+
+  guard.m_Active = true;
+  guard.m_Global = false;
+  return TlbInvalidationResult::Success;
+}
+
+void ProcessorBase::endTlbInvalidation(TlbInvalidationGuard& guard) {
+  guard.m_Global = false;
+  guard.m_Active = false;
+}
+
+TlbInvalidationResult ProcessorBase::invalidateAll(void* pAddress) {
+  TlbInvalidationGuard guard;
+  const TlbInvalidationResult result = beginTlbInvalidation(guard);
+  if (result != TlbInvalidationResult::Success) {
+    return result;
+  }
+  return invalidateAll(pAddress, guard);
+}
+
+TlbInvalidationResult ProcessorBase::invalidateAll(
+    void* pAddress, TlbInvalidationGuard& guard) {
+  if (!guard.m_Active) {
+    return TlbInvalidationResult::InvalidContext;
+  }
+  invalidate(pAddress);
+  return TlbInvalidationResult::Success;
+}
+
 ProcessorId ProcessorBase::id() {
   return 0;
 }

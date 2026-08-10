@@ -17,6 +17,7 @@
 #undef PEDIGREE_SIGRET
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
@@ -551,6 +552,103 @@ bool cloneStateDropsParentErrnoDestination() {
   return true;
 }
 
+bool failedPinnedModuleRejectsUnload() {
+  Module module;
+  module.name.assign("hosted-failed-pinned-probe");
+  module.unloadable = false;
+  module.status = Module::Failed;
+
+  if (KernelElf::claimModuleUnloadForTest(&module) != KernelElf::TestUnloadPinned ||
+      module.status != Module::Failed || module.unloadComplete) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL failed-pinned-module: "
+        "failed initialisation did not preserve its pinned module image");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS failed-pinned-module");
+  return true;
+}
+
+bool moduleUnloadOwnershipIsRetryable() {
+  Module module;
+  module.name.assign("hosted-unload-owner-probe");
+  module.status = Module::Active;
+  Module* fixtures[] = {&module};
+
+  const KernelElf::TestModuleUnloadClaim first =
+      KernelElf::claimNamedModuleUnloadForTest(fixtures, 1, "hosted-unload-owner-probe");
+  const KernelElf::TestModuleUnloadClaim concurrent =
+      KernelElf::claimNamedModuleUnloadForTest(fixtures, 1, "hosted-unload-owner-probe");
+  KernelElf::completeModuleUnloadForTest(&module);
+  const KernelElf::TestModuleUnloadClaim repeat =
+      KernelElf::claimNamedModuleUnloadForTest(fixtures, 1, "hosted-unload-owner-probe");
+  const KernelElf::TestModuleUnloadClaim missing =
+      KernelElf::claimNamedModuleUnloadForTest(fixtures, 1, "hosted-unload-missing-probe");
+
+  if (first != KernelElf::TestUnloadClaimed || concurrent != KernelElf::TestUnloadBusy ||
+      repeat != KernelElf::TestUnloadComplete || missing != KernelElf::TestUnloadUnknown ||
+      !module.isUnloaded() || !module.unloadComplete) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL module-unload-ownership: "
+        "the first owner, concurrent retry, or completed tombstone was lost");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS module-unload-ownership");
+  return true;
+}
+
+bool moduleShutdownOrderIsDependencySafe() {
+  const char* nicsOptional[] = {"ne2k", nullptr};
+  const char* ne2kDependencies[] = {"network-stack", nullptr};
+
+  Module networkStack;
+  networkStack.name.assign("network-stack");
+  networkStack.status = Module::Active;
+
+  Module nics;
+  nics.name.assign("nics");
+  nics.depends_opt = nicsOptional;
+  nics.status = Module::Active;
+
+  Module ne2k;
+  ne2k.name.assign("ne2k");
+  ne2k.depends = ne2kDependencies;
+  ne2k.status = Module::Active;
+
+  Module* modules[] = {&networkStack, &nics, &ne2k};
+  Module* order[3] = {};
+  const size_t planned = KernelElf::planModuleUnloadOrderForTest(modules, 3, order, 3);
+  const size_t repeated = KernelElf::planModuleUnloadOrderForTest(modules, 3, order, 3);
+
+  const char* cycleADependencies[] = {"cycle-b", nullptr};
+  const char* cycleBDependencies[] = {"cycle-a", nullptr};
+  Module cycleA;
+  cycleA.name.assign("cycle-a");
+  cycleA.depends = cycleADependencies;
+  cycleA.status = Module::Active;
+  Module cycleB;
+  cycleB.name.assign("cycle-b");
+  cycleB.depends = cycleBDependencies;
+  cycleB.status = Module::Active;
+  Module* cycle[] = {&cycleA, &cycleB};
+  Module* cycleOrder[2] = {};
+  const size_t cyclicPlanned = KernelElf::planModuleUnloadOrderForTest(cycle, 2, cycleOrder, 2);
+
+  if (planned != 3 || order[0] != &nics || order[1] != &ne2k ||
+      order[2] != &networkStack || repeated != 0 || cyclicPlanned != 0 ||
+      cycleA.unloadComplete || cycleB.unloadComplete) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL module-shutdown-order: "
+        "optional/mandatory dependents were not retired first or a cycle was torn down");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS module-shutdown-order");
+  return true;
+}
+
 bool entry() {
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN real-event-boundaries");
   Thread* thread = Processor::information().getCurrentThread();
@@ -596,8 +694,25 @@ bool entry() {
     return false;
   }
 
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN failed-pinned-module");
+  if (!failedPinnedModuleRejectsUnload()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN module-unload-ownership");
+  if (!moduleUnloadOwnershipIsRetryable()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN module-shutdown-order");
+  if (!moduleShutdownOrderIsDependencySafe()) {
+    return false;
+  }
+
   SyscallManager& manager = SyscallManager::instance();
   static char pedigreeCModule[] = "pedigree-c";
+  static char lwipModule[] = "lwip";
+  static char networkStackModule[] = "network-stack";
   const uintptr_t sigretResult = manager.syscall(posix, PEDIGREE_SIGRET);
   const uintptr_t unwindResult = manager.syscall(posix, PEDIGREE_UNWIND_SIGNAL);
   const uintptr_t eventReturnResult = manager.syscall(pedigree_c, PEDIGREE_EVENT_RETURN);
@@ -605,10 +720,25 @@ bool entry() {
                                                      reinterpret_cast<uintptr_t>(pedigreeCModule));
   const uintptr_t stillLoadedResult = manager.syscall(pedigree_c, PEDIGREE_MODULE_IS_LOADED,
                                                       reinterpret_cast<uintptr_t>(pedigreeCModule));
+  const uintptr_t lwipUnloadResult =
+      manager.syscall(pedigree_c, PEDIGREE_MODULE_UNLOAD,
+                      reinterpret_cast<uintptr_t>(lwipModule));
+  const uintptr_t lwipStillLoadedResult =
+      manager.syscall(pedigree_c, PEDIGREE_MODULE_IS_LOADED,
+                      reinterpret_cast<uintptr_t>(lwipModule));
+  const uintptr_t networkStackUnloadResult =
+      manager.syscall(pedigree_c, PEDIGREE_MODULE_UNLOAD,
+                      reinterpret_cast<uintptr_t>(networkStackModule));
+  const uintptr_t networkStackStillLoadedResult =
+      manager.syscall(pedigree_c, PEDIGREE_MODULE_IS_LOADED,
+                      reinterpret_cast<uintptr_t>(networkStackModule));
 
   if (sigretResult != static_cast<uintptr_t>(-1) || unwindResult != static_cast<uintptr_t>(-1) ||
       eventReturnResult != static_cast<uintptr_t>(-1) ||
       selfUnloadResult != static_cast<uintptr_t>(-1) || stillLoadedResult != 1 ||
+      lwipUnloadResult != static_cast<uintptr_t>(-1) || lwipStillLoadedResult != 1 ||
+      networkStackUnloadResult != static_cast<uintptr_t>(-1) ||
+      networkStackStillLoadedResult != 1 ||
       thread->getStateLevel() || thread->getErrno()) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL real-event-boundaries: "

@@ -78,6 +78,42 @@
 static tcpip_init_done_fn tcpip_init_done;
 static void *tcpip_init_done_arg;
 static sys_mbox_t mbox;
+static sys_thread_t tcpip_thread_handle;
+static struct tcpip_msg tcpip_shutdown_msg;
+enum tcpip_lifecycle_state {
+  TCPIP_STATE_RUNNING = 0,
+  TCPIP_STATE_STOPPING = 1,
+  TCPIP_STATE_STOPPED = 2,
+  TCPIP_STATE_FAILED = 3,
+  TCPIP_STATE_INITIALIZING = 4
+};
+static u8_t tcpip_shutdown_state = TCPIP_STATE_STOPPED;
+static u32_t tcpip_active_producers;
+
+static int
+tcpip_producer_enter(void)
+{
+  if (__atomic_load_n(&tcpip_shutdown_state, __ATOMIC_ACQUIRE) !=
+      TCPIP_STATE_RUNNING) {
+    return 0;
+  }
+
+  __atomic_add_fetch(&tcpip_active_producers, 1, __ATOMIC_ACQ_REL);
+  if (__atomic_load_n(&tcpip_shutdown_state, __ATOMIC_ACQUIRE) !=
+      TCPIP_STATE_RUNNING) {
+    __atomic_sub_fetch(&tcpip_active_producers, 1, __ATOMIC_RELEASE);
+    return 0;
+  }
+  return 1;
+}
+
+static void
+tcpip_producer_leave(void)
+{
+  LWIP_ASSERT("tcpip producer admission underflow",
+              __atomic_load_n(&tcpip_active_producers, __ATOMIC_RELAXED) != 0);
+  __atomic_sub_fetch(&tcpip_active_producers, 1, __ATOMIC_RELEASE);
+}
 
 #if LWIP_TCPIP_CORE_LOCKING
 /** The global semaphore to lock the stack. */
@@ -107,6 +143,14 @@ tcpip_thread(void *arg)
 {
   struct tcpip_msg *msg;
   LWIP_UNUSED_ARG(arg);
+
+  while (__atomic_load_n(&tcpip_shutdown_state, __ATOMIC_ACQUIRE) ==
+         TCPIP_STATE_INITIALIZING) {
+    sys_msleep(1);
+  }
+  LWIP_ASSERT("tcpip_thread started outside running state",
+              __atomic_load_n(&tcpip_shutdown_state, __ATOMIC_ACQUIRE) ==
+                  TCPIP_STATE_RUNNING);
 
   if (tcpip_init_done != NULL) {
     tcpip_init_done(tcpip_init_done_arg);
@@ -169,6 +213,10 @@ tcpip_thread(void *arg)
       msg->msg.cb.function(msg->msg.cb.ctx);
       break;
 
+    case TCPIP_MSG_SHUTDOWN:
+      UNLOCK_TCPIP_CORE();
+      return;
+
     default:
       LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_thread: invalid message: %d\n", msg->type));
       LWIP_ASSERT("tcpip_thread: invalid message", 0);
@@ -187,12 +235,16 @@ tcpip_thread(void *arg)
 err_t
 tcpip_inpkt(struct pbuf *p, struct netif *inp, netif_input_fn input_fn)
 {
+  if (!tcpip_producer_enter()) {
+    return ERR_CLSD;
+  }
 #if LWIP_TCPIP_CORE_LOCKING_INPUT
   err_t ret;
   LWIP_DEBUGF(TCPIP_DEBUG, ("tcpip_inpkt: PACKET %p/%p\n", (void *)p, (void *)inp));
   LOCK_TCPIP_CORE();
   ret = input_fn(p, inp);
   UNLOCK_TCPIP_CORE();
+  tcpip_producer_leave();
   return ret;
 #else /* LWIP_TCPIP_CORE_LOCKING_INPUT */
   struct tcpip_msg *msg;
@@ -201,6 +253,7 @@ tcpip_inpkt(struct pbuf *p, struct netif *inp, netif_input_fn input_fn)
 
   msg = (struct tcpip_msg *)memp_malloc(MEMP_TCPIP_MSG_INPKT);
   if (msg == NULL) {
+    tcpip_producer_leave();
     return ERR_MEM;
   }
 
@@ -210,8 +263,10 @@ tcpip_inpkt(struct pbuf *p, struct netif *inp, netif_input_fn input_fn)
   msg->msg.inp.input_fn = input_fn;
   if (sys_mbox_trypost(&mbox, msg) != ERR_OK) {
     memp_free(MEMP_TCPIP_MSG_INPKT, msg);
+    tcpip_producer_leave();
     return ERR_MEM;
   }
+  tcpip_producer_leave();
   return ERR_OK;
 #endif /* LWIP_TCPIP_CORE_LOCKING_INPUT */
 }
@@ -249,8 +304,8 @@ tcpip_input(struct pbuf *p, struct netif *inp)
  * @param block 1 to block until the request is posted, 0 to non-blocking mode
  * @return ERR_OK if the function was called, another err_t if not
  */
-err_t
-tcpip_callback_with_block(tcpip_callback_fn function, void *ctx, u8_t block)
+static err_t
+tcpip_callback_with_block_admitted(tcpip_callback_fn function, void *ctx, u8_t block)
 {
   struct tcpip_msg *msg;
 
@@ -275,6 +330,75 @@ tcpip_callback_with_block(tcpip_callback_fn function, void *ctx, u8_t block)
   return ERR_OK;
 }
 
+err_t
+tcpip_callback_with_block(tcpip_callback_fn function, void *ctx, u8_t block)
+{
+  err_t err;
+
+  if (!tcpip_producer_enter()) {
+    return ERR_CLSD;
+  }
+  err = tcpip_callback_with_block_admitted(function, ctx, block);
+  tcpip_producer_leave();
+  return err;
+}
+
+struct tcpip_callback_wait_context {
+  tcpip_callback_fn function;
+  void *ctx;
+  sys_sem_t completion;
+  u8_t retired;
+};
+
+static void
+tcpip_callback_wait_shim(void *arg)
+{
+  struct tcpip_callback_wait_context *context =
+      (struct tcpip_callback_wait_context *)arg;
+  context->function(context->ctx);
+  sys_sem_signal(&context->completion);
+  /* The caller may release callback text and context after this store. */
+  __atomic_store_n(&context->retired, 1, __ATOMIC_RELEASE);
+}
+
+err_t
+tcpip_callback_wait(tcpip_callback_fn function, void *ctx)
+{
+  struct tcpip_callback_wait_context context;
+  err_t err;
+
+  if (function == NULL) {
+    return ERR_ARG;
+  }
+  if (!tcpip_producer_enter()) {
+    return ERR_CLSD;
+  }
+  if (sys_thread_is_current(
+          __atomic_load_n(&tcpip_thread_handle, __ATOMIC_ACQUIRE))) {
+    function(ctx);
+    tcpip_producer_leave();
+    return ERR_OK;
+  }
+  context.function = function;
+  context.ctx = ctx;
+  context.retired = 0;
+  err = sys_sem_new(&context.completion, 0);
+  if (err != ERR_OK) {
+    tcpip_producer_leave();
+    return err;
+  }
+
+  err = tcpip_callback_with_block_admitted(tcpip_callback_wait_shim, &context, 1);
+  if (err == ERR_OK) {
+    sys_arch_sem_wait(&context.completion, 0);
+    while (!__atomic_load_n(&context.retired, __ATOMIC_ACQUIRE)) {
+    }
+  }
+  sys_sem_free(&context.completion);
+  tcpip_producer_leave();
+  return err;
+}
+
 #if LWIP_TCPIP_TIMEOUT && LWIP_TIMERS
 /**
  * call sys_timeout in tcpip_thread
@@ -289,10 +413,14 @@ tcpip_timeout(u32_t msecs, sys_timeout_handler h, void *arg)
 {
   struct tcpip_msg *msg;
 
+  if (!tcpip_producer_enter()) {
+    return ERR_CLSD;
+  }
   LWIP_ASSERT("Invalid mbox", sys_mbox_valid_val(mbox));
 
   msg = (struct tcpip_msg *)memp_malloc(MEMP_TCPIP_MSG_API);
   if (msg == NULL) {
+    tcpip_producer_leave();
     return ERR_MEM;
   }
 
@@ -301,6 +429,7 @@ tcpip_timeout(u32_t msecs, sys_timeout_handler h, void *arg)
   msg->msg.tmo.h = h;
   msg->msg.tmo.arg = arg;
   sys_mbox_post(&mbox, msg);
+  tcpip_producer_leave();
   return ERR_OK;
 }
 
@@ -316,10 +445,14 @@ tcpip_untimeout(sys_timeout_handler h, void *arg)
 {
   struct tcpip_msg *msg;
 
+  if (!tcpip_producer_enter()) {
+    return ERR_CLSD;
+  }
   LWIP_ASSERT("Invalid mbox", sys_mbox_valid_val(mbox));
 
   msg = (struct tcpip_msg *)memp_malloc(MEMP_TCPIP_MSG_API);
   if (msg == NULL) {
+    tcpip_producer_leave();
     return ERR_MEM;
   }
 
@@ -327,6 +460,7 @@ tcpip_untimeout(sys_timeout_handler h, void *arg)
   msg->msg.tmo.h = h;
   msg->msg.tmo.arg = arg;
   sys_mbox_post(&mbox, msg);
+  tcpip_producer_leave();
   return ERR_OK;
 }
 #endif /* LWIP_TCPIP_TIMEOUT && LWIP_TIMERS */
@@ -347,11 +481,15 @@ tcpip_untimeout(sys_timeout_handler h, void *arg)
 err_t
 tcpip_send_msg_wait_sem(tcpip_callback_fn fn, void *apimsg, sys_sem_t* sem)
 {
+  if (!tcpip_producer_enter()) {
+    return ERR_CLSD;
+  }
 #if LWIP_TCPIP_CORE_LOCKING
   LWIP_UNUSED_ARG(sem);
   LOCK_TCPIP_CORE();
   fn(apimsg);
   UNLOCK_TCPIP_CORE();
+  tcpip_producer_leave();
   return ERR_OK;
 #else /* LWIP_TCPIP_CORE_LOCKING */
   TCPIP_MSG_VAR_DECLARE(msg);
@@ -359,13 +497,20 @@ tcpip_send_msg_wait_sem(tcpip_callback_fn fn, void *apimsg, sys_sem_t* sem)
   LWIP_ASSERT("semaphore not initialized", sys_sem_valid(sem));
   LWIP_ASSERT("Invalid mbox", sys_mbox_valid_val(mbox));
 
-  TCPIP_MSG_VAR_ALLOC(msg);
+#if LWIP_MPU_COMPATIBLE
+  msg = (struct tcpip_msg *)memp_malloc(MEMP_TCPIP_MSG_API);
+  if (msg == NULL) {
+    tcpip_producer_leave();
+    return ERR_MEM;
+  }
+#endif /* LWIP_MPU_COMPATIBLE */
   TCPIP_MSG_VAR_REF(msg).type = TCPIP_MSG_API;
   TCPIP_MSG_VAR_REF(msg).msg.api_msg.function = fn;
   TCPIP_MSG_VAR_REF(msg).msg.api_msg.msg = apimsg;
   sys_mbox_post(&mbox, &TCPIP_MSG_VAR_REF(msg));
   sys_arch_sem_wait(sem, 0);
   TCPIP_MSG_VAR_FREE(msg);
+  tcpip_producer_leave();
   return ERR_OK;
 #endif /* LWIP_TCPIP_CORE_LOCKING */
 }
@@ -383,11 +528,15 @@ tcpip_send_msg_wait_sem(tcpip_callback_fn fn, void *apimsg, sys_sem_t* sem)
 err_t
 tcpip_api_call(tcpip_api_call_fn fn, struct tcpip_api_call_data *call)
 {
+  if (!tcpip_producer_enter()) {
+    return ERR_CLSD;
+  }
 #if LWIP_TCPIP_CORE_LOCKING
   err_t err;
   LOCK_TCPIP_CORE();
   err = fn(call);
   UNLOCK_TCPIP_CORE();
+  tcpip_producer_leave();
   return err;
 #else /* LWIP_TCPIP_CORE_LOCKING */
   TCPIP_MSG_VAR_DECLARE(msg);
@@ -395,13 +544,23 @@ tcpip_api_call(tcpip_api_call_fn fn, struct tcpip_api_call_data *call)
 #if !LWIP_NETCONN_SEM_PER_THREAD
   err_t err = sys_sem_new(&call->sem, 0);
   if (err != ERR_OK) {
+    tcpip_producer_leave();
     return err;
   }
 #endif /* LWIP_NETCONN_SEM_PER_THREAD */
 
   LWIP_ASSERT("Invalid mbox", sys_mbox_valid_val(mbox));
 
-  TCPIP_MSG_VAR_ALLOC(msg);
+#if LWIP_MPU_COMPATIBLE
+  msg = (struct tcpip_msg *)memp_malloc(MEMP_TCPIP_MSG_API);
+  if (msg == NULL) {
+#if !LWIP_NETCONN_SEM_PER_THREAD
+    sys_sem_free(&call->sem);
+#endif /* !LWIP_NETCONN_SEM_PER_THREAD */
+    tcpip_producer_leave();
+    return ERR_MEM;
+  }
+#endif /* LWIP_MPU_COMPATIBLE */
   TCPIP_MSG_VAR_REF(msg).type = TCPIP_MSG_API_CALL;
   TCPIP_MSG_VAR_REF(msg).msg.api_call.arg = call;
   TCPIP_MSG_VAR_REF(msg).msg.api_call.function = fn;
@@ -418,6 +577,7 @@ tcpip_api_call(tcpip_api_call_fn fn, struct tcpip_api_call_data *call)
   sys_sem_free(&call->sem);
 #endif /* LWIP_NETCONN_SEM_PER_THREAD */
 
+  tcpip_producer_leave();
   return call->err;
 #endif /* LWIP_TCPIP_CORE_LOCKING */
 }
@@ -464,8 +624,15 @@ tcpip_callbackmsg_delete(struct tcpip_callback_msg* msg)
 err_t
 tcpip_trycallback(struct tcpip_callback_msg* msg)
 {
+  err_t err;
+
+  if (!tcpip_producer_enter()) {
+    return ERR_CLSD;
+  }
   LWIP_ASSERT("Invalid mbox", sys_mbox_valid_val(mbox));
-  return sys_mbox_trypost(&mbox, msg);
+  err = sys_mbox_trypost(&mbox, msg);
+  tcpip_producer_leave();
+  return err;
 }
 
 /**
@@ -480,6 +647,15 @@ tcpip_trycallback(struct tcpip_callback_msg* msg)
 void
 tcpip_init(tcpip_init_done_fn initfunc, void *arg)
 {
+  u8_t state = TCPIP_STATE_STOPPED;
+  if (!__atomic_compare_exchange_n(
+          &tcpip_shutdown_state, &state, TCPIP_STATE_INITIALIZING, 0,
+          __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+    LWIP_ASSERT("tcpip_init called outside stopped state", 0);
+    return;
+  }
+  LWIP_ASSERT("tcpip_init with active producers",
+              __atomic_load_n(&tcpip_active_producers, __ATOMIC_ACQUIRE) == 0);
   lwip_init();
 
   tcpip_init_done = initfunc;
@@ -493,7 +669,89 @@ tcpip_init(tcpip_init_done_fn initfunc, void *arg)
   }
 #endif /* LWIP_TCPIP_CORE_LOCKING */
 
-  sys_thread_new(TCPIP_THREAD_NAME, tcpip_thread, NULL, TCPIP_THREAD_STACKSIZE, TCPIP_THREAD_PRIO);
+  sys_thread_t thread = sys_thread_new(TCPIP_THREAD_NAME, tcpip_thread, NULL,
+                                       TCPIP_THREAD_STACKSIZE, TCPIP_THREAD_PRIO);
+  LWIP_ASSERT("failed to create tcpip_thread", thread != NULL);
+  __atomic_store_n(&tcpip_thread_handle, thread, __ATOMIC_RELEASE);
+  __atomic_store_n(&tcpip_shutdown_state, TCPIP_STATE_RUNNING, __ATOMIC_RELEASE);
+}
+
+err_t
+tcpip_shutdown(void)
+{
+  u8_t state = __atomic_load_n(&tcpip_shutdown_state, __ATOMIC_ACQUIRE);
+
+  if (state == TCPIP_STATE_STOPPED) {
+    return ERR_OK;
+  }
+  if (state == TCPIP_STATE_FAILED) {
+    return ERR_IF;
+  }
+  if (state == TCPIP_STATE_STOPPING || state == TCPIP_STATE_INITIALIZING) {
+    return ERR_INPROGRESS;
+  }
+
+  if (!tcpip_producer_enter()) {
+    state = __atomic_load_n(&tcpip_shutdown_state, __ATOMIC_ACQUIRE);
+    return state == TCPIP_STATE_STOPPED
+               ? ERR_OK
+               : (state == TCPIP_STATE_FAILED ? ERR_IF : ERR_INPROGRESS);
+  }
+
+  sys_thread_t thread =
+      __atomic_load_n(&tcpip_thread_handle, __ATOMIC_ACQUIRE);
+  const int current = sys_thread_is_current(thread);
+  tcpip_producer_leave();
+  if (current) {
+    return ERR_USE;
+  }
+
+  state = __atomic_load_n(&tcpip_shutdown_state, __ATOMIC_ACQUIRE);
+  if (state != TCPIP_STATE_RUNNING) {
+    return state == TCPIP_STATE_STOPPED
+               ? ERR_OK
+               : (state == TCPIP_STATE_FAILED ? ERR_IF : ERR_INPROGRESS);
+  }
+
+  state = TCPIP_STATE_RUNNING;
+  if (!__atomic_compare_exchange_n(
+          &tcpip_shutdown_state, &state, TCPIP_STATE_STOPPING, 0,
+          __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+    return state == TCPIP_STATE_STOPPED
+               ? ERR_OK
+               : (state == TCPIP_STATE_FAILED ? ERR_IF : ERR_INPROGRESS);
+  }
+
+  while (__atomic_load_n(&tcpip_active_producers, __ATOMIC_ACQUIRE) != 0) {
+    sys_msleep(1);
+  }
+
+  tcpip_shutdown_msg.type = TCPIP_MSG_SHUTDOWN;
+  if (sys_mbox_post_and_close(&mbox, &tcpip_shutdown_msg) != ERR_OK) {
+    __atomic_store_n(&tcpip_shutdown_state, TCPIP_STATE_FAILED, __ATOMIC_RELEASE);
+    return ERR_CLSD;
+  }
+  thread = __atomic_load_n(&tcpip_thread_handle, __ATOMIC_ACQUIRE);
+  if (!sys_thread_join(thread)) {
+    __atomic_store_n(&tcpip_shutdown_state, TCPIP_STATE_FAILED, __ATOMIC_RELEASE);
+    return ERR_IF;
+  }
+  __atomic_store_n(&tcpip_thread_handle, NULL, __ATOMIC_RELEASE);
+
+#if LWIP_TCPIP_CORE_LOCKING
+  if (sys_mutex_valid(&lock_tcpip_core)) {
+    sys_mutex_free(&lock_tcpip_core);
+    sys_mutex_set_invalid(&lock_tcpip_core);
+  }
+#endif /* LWIP_TCPIP_CORE_LOCKING */
+  if (sys_mbox_valid_val(mbox)) {
+    sys_mbox_free(&mbox);
+    sys_mbox_set_invalid_val(mbox);
+  }
+  tcpip_init_done = NULL;
+  tcpip_init_done_arg = NULL;
+  __atomic_store_n(&tcpip_shutdown_state, TCPIP_STATE_STOPPED, __ATOMIC_RELEASE);
+  return ERR_OK;
 }
 
 /**

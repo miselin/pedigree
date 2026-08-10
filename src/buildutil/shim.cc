@@ -105,6 +105,7 @@ static void* heapBase = nullptr;
 static size_t hostPageSize = 0;
 static size_t* hostPageReferences = nullptr;
 static unsigned char* logicalPageMappings = nullptr;
+static pthread_mutex_t pageMappingLock = PTHREAD_MUTEX_INITIALIZER;
 
 static void initialiseHostPages() {
   long pageSize = sysconf(_SC_PAGESIZE);
@@ -123,7 +124,7 @@ static void initialiseHostPages() {
   }
 }
 
-uintptr_t getHeapBase() {
+static uintptr_t getHeapBaseLocked() {
   if (heapBase) {
     return reinterpret_cast<uintptr_t>(heapBase);
   }
@@ -138,13 +139,21 @@ uintptr_t getHeapBase() {
   return reinterpret_cast<uintptr_t>(heapBase);
 }
 
+uintptr_t getHeapBase() {
+  pthread_mutex_lock(&pageMappingLock);
+  const uintptr_t base = getHeapBaseLocked();
+  pthread_mutex_unlock(&pageMappingLock);
+  return base;
+}
+
 uintptr_t getHeapEnd() {
   return getHeapBase() + heapSize;
 }
 
 void getPageAt(void* addr) {
+  pthread_mutex_lock(&pageMappingLock);
   uintptr_t address = reinterpret_cast<uintptr_t>(addr);
-  uintptr_t base = getHeapBase();
+  uintptr_t base = getHeapBaseLocked();
   if ((address % logicalPageSize) != 0 || address < base || address >= (base + heapSize)) {
     fprintf(stderr, "invalid SlamAllocator page address: %p\n", addr);
     abort();
@@ -166,11 +175,13 @@ void getPageAt(void* addr) {
   }
 
   memset(addr, 0, logicalPageSize);
+  pthread_mutex_unlock(&pageMappingLock);
 }
 
 void unmapPage(void* page) {
+  pthread_mutex_lock(&pageMappingLock);
   uintptr_t address = reinterpret_cast<uintptr_t>(page);
-  uintptr_t base = getHeapBase();
+  uintptr_t base = getHeapBaseLocked();
   if ((address % logicalPageSize) != 0 || address < base || address >= (base + heapSize)) {
     fprintf(stderr, "invalid SlamAllocator page address: %p\n", page);
     abort();
@@ -194,9 +205,11 @@ void unmapPage(void* page) {
       abort();
     }
   }
+  pthread_mutex_unlock(&pageMappingLock);
 }
 
 void unmapAll() {
+  pthread_mutex_lock(&pageMappingLock);
   if (heapBase) {
     munmap(heapBase, heapSize);
     heapBase = nullptr;
@@ -207,6 +220,7 @@ void unmapAll() {
   free(logicalPageMappings);
   logicalPageMappings = nullptr;
   hostPageSize = 0;
+  pthread_mutex_unlock(&pageMappingLock);
 }
 }  // namespace SlamSupport
 
@@ -303,6 +317,11 @@ bool ConditionVariable::wait(Mutex& mutex, Error& error, WaitQueue::AbandonCallb
 bool ConditionVariable::wait(Mutex& mutex, Time::Timestamp& timeout, Error& error,
                              WaitQueue::AbandonCallback, void*) {
   error = NoError;
+  if (timeout == 0) {
+    error = TimedOut;
+    return false;
+  }
+
   pthread_cond_t* cond = reinterpret_cast<pthread_cond_t*>(m_Private);
   pthread_mutex_t* m = reinterpret_cast<pthread_mutex_t*>(mutex.getPrivate());
 

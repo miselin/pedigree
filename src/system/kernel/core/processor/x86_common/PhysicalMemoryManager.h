@@ -256,6 +256,15 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager {
 
   /** Page metadata table */
   HashTable<PageHashable, struct page> m_PageMetadata;
+
+  /**
+   * A shared SLAM zero page is pinned while this table is itself being
+   * allocated through SLAM. Keep that one bootstrap reference allocation-free
+   * until the table can own it.
+   */
+  bool m_PageMetadataReady;
+  physical_uintptr_t m_BootstrapPinnedPage;
+  size_t m_BootstrapPinnedPageRefcount;
 };
 
 /** @} */

@@ -249,6 +249,12 @@ static int loadModules(void* inf) {
   // after this point
   Processor::initialisationDone();
 
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+  // The ISO-only smoke image deliberately has no root filesystem. Once every
+  // eligible module has retired, request a controlled shutdown instead of
+  // invoking userspace through the intentionally pending POSIX dependency.
+  g_NeedsShutdown = true;
+#else
   // Now that we've cleaned up and are done loading modules, we can run the
   // init module.
   KernelElf::instance().invokeInitModule();
@@ -256,6 +262,7 @@ static int loadModules(void* inf) {
   if (KernelElf::instance().hasPendingModules()) {
     FATAL("At least one module's dependencies were never met.");
   }
+#endif
 
   // It's now safe to clean up the initrd archive
   if (initrd) {
@@ -510,15 +517,6 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
 
   NOTICE("Resetting...");
 
-  EMIT_IF(MULTIPROCESSOR) {
-    if (!Machine::instance().stopAllOtherProcessors()) {
-      ERROR_NOLOCK("Shutdown aborted: not all other processors stopped");
-      Processor::setInterrupts(false);
-      while (true)
-        Processor::halt();
-    }
-  }
-
   // Clean up all loaded modules (unmounts filesystems and the like).
   KernelElf::instance().unloadModules();
 
@@ -538,12 +536,29 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   // No need for user input anymore.
   InputManager::instance().shutdown();
 
-  // Clean up the Cache subsystem
+  // Module teardown has retired device caches. Drain the cache timer and
+  // workers while the platform timer registry is still available.
   CacheManager::destroyInstance();
 
-  // Stop active platform services while the singleton objects they use are
-  // still alive and their worker/callback drains can still schedule.
+  // Stop active platform services while their worker/callback drains can
+  // still schedule.
   Machine::instance().deinitialise();
+
+  // Teardown above joins module, input, keyboard, and threaded-IRQ workers.
+  // Keep every scheduler CPU available until those drains have completed;
+  // once the remaining work is strictly local, retire the APs permanently.
+  EMIT_IF(MULTIPROCESSOR) {
+    if (!Machine::instance().stopAllOtherProcessors()) {
+      ERROR_NOLOCK("Shutdown aborted: not all other processors stopped");
+      Processor::setInterrupts(false);
+      while (true)
+        Processor::halt();
+    }
+  }
+
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+  NOTICE("QEMU-CONCURRENCY-TEST: PASS shutdown-worker-drain-smp");
+#endif
 
   Processor::setInterrupts(false);
 

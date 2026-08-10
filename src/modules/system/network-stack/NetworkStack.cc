@@ -24,6 +24,8 @@
 
 #include "Filter.h"
 #include "modules/Module.h"
+#include "modules/system/lwip/include/lwip/autoip.h"
+#include "modules/system/lwip/include/lwip/dhcp.h"
 #include "modules/system/lwip/include/lwip/etharp.h"
 #include "modules/system/lwip/include/lwip/ethip6.h"
 #include "modules/system/lwip/include/lwip/netif.h"
@@ -107,6 +109,32 @@ static err_t netifInit(struct netif* netif) {
   return ERR_OK;
 }
 
+static void removeInterface(void* context) {
+  struct netif* iface = reinterpret_cast<struct netif*>(context);
+#if LWIP_DHCP
+  dhcp_stop(iface);
+#endif
+#if LWIP_AUTOIP
+  autoip_stop(iface);
+#endif
+  netif_remove(iface);
+}
+
+struct AddInterfaceContext {
+  struct netif* iface;
+  const ip4_addr_t* ipaddr;
+  const ip4_addr_t* netmask;
+  const ip4_addr_t* gateway;
+  Network* device;
+  struct netif* result;
+};
+
+static void addInterface(void* context) {
+  AddInterfaceContext* add = reinterpret_cast<AddInterfaceContext*>(context);
+  add->result = netif_add(add->iface, add->ipaddr, add->netmask, add->gateway, add->device,
+                          netifInit, tcpip_input);
+}
+
 NetworkStack::NetworkStack()
     : RequestQueue(MakeConstantString("Network Stack")),
       m_pLoopback(0),
@@ -121,11 +149,11 @@ NetworkStack::NetworkStack()
       m_NextInterfaceNumber(0),
       m_NextDeviceGeneration(1),
       m_NextReceiveRequest(0) {
-  if (stack) {
+  if (__atomic_load_n(&stack, __ATOMIC_ACQUIRE)) {
     FATAL("NetworkStack created multiple times.");
   }
 
-  stack = this;
+  __atomic_store_n(&stack, this, __ATOMIC_RELEASE);
 
   // Couple the queue's admission bound to the preallocated publication
   // slots rather than relying on RequestQueue's default remaining 256.
@@ -147,7 +175,29 @@ NetworkStack::NetworkStack()
 NetworkStack::~NetworkStack() {
   destroy();
 
-  stack = 0;
+  Vector<struct netif*> interfaces;
+#if THREADS || UTILITY_LINUX
+  m_Lock.acquire();
+#endif
+  for (Tree<Network*, struct netif*>::Iterator it = m_Interfaces.begin();
+       it != m_Interfaces.end(); ++it) {
+    interfaces.pushBack(it.value());
+  }
+  m_Interfaces.clear();
+  m_Children.clear();
+  m_pLoopback = nullptr;
+#if THREADS || UTILITY_LINUX
+  m_Lock.release();
+#endif
+
+  for (Vector<struct netif*>::Iterator it = interfaces.begin(); it != interfaces.end(); ++it) {
+    if (tcpip_callback_wait(removeInterface, *it) != ERR_OK) {
+      FATAL("NetworkStack could not retire a network interface");
+    }
+    delete *it;
+  }
+
+  __atomic_store_n(&stack, static_cast<NetworkStack*>(nullptr), __ATOMIC_RELEASE);
 }
 
 uint64_t NetworkStack::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
@@ -175,13 +225,17 @@ uint64_t NetworkStack::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uin
       iface ? __atomic_load_n(&card->m_NetworkStackGeneration, __ATOMIC_ACQUIRE) : 0;
 
   if (iface && generation && generation == activeGeneration) {
+    const err_t inputResult = iface->input(p, iface);
+    if (inputResult != ERR_OK) {
+      // lwIP transfers pbuf ownership only when the input function succeeds.
+      pbuf_free(p);
+    }
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     hook = __atomic_load_n(&m_HostedReceiveHook, __ATOMIC_ACQUIRE);
     if (hook) {
       hook(HostedReceiveEvent::Delivered, reinterpret_cast<uintptr_t>(p), card, generation);
     }
 #endif
-    iface->input(p, iface);
   } else {
     // Device removal can overtake work which was already copied into the
     // queue. Resolve the interface under the same lock as deregistration
@@ -311,7 +365,23 @@ void NetworkStack::registerDevice(Network* pDevice) {
   iface->name[1] = 'n';
   iface->num = interfaceNumber;
 
-  iface = netif_add(iface, &ipaddr, &netmask, &gateway, pDevice, netifInit, tcpip_input);
+  // netif_add mutates lwIP's global interface list. Keep the registry lock
+  // across this retired callback so deregistration cannot overtake a
+  // half-published device while the tcpip core performs that mutation.
+  AddInterfaceContext add = {iface, &ipaddr, &netmask, &gateway, pDevice, nullptr};
+  if (tcpip_callback_wait(addInterface, &add) != ERR_OK || !add.result) {
+    for (Vector<Network*>::Iterator it = m_Children.begin(); it != m_Children.end(); ++it) {
+      if (*it == pDevice) {
+        m_Children.erase(it);
+        break;
+      }
+    }
+    __atomic_store_n(&pDevice->m_NetworkStackGeneration, 0, __ATOMIC_RELEASE);
+    delete iface;
+    FATAL("NetworkStack could not register a network interface");
+    return;
+  }
+  iface = add.result;
 
   m_Interfaces.insert(pDevice, iface);
 }
@@ -324,9 +394,19 @@ size_t NetworkStack::getNumDevices() {
   return m_Children.count();
 }
 
-void NetworkStack::deRegisterDevice(Network* pDevice) {
+void NetworkStack::clearLoopback(Network* pCard) {
 #if THREADS || UTILITY_LINUX
   LockGuard<Mutex> guard(m_Lock);
+#endif
+  if (m_pLoopback == pCard) {
+    m_pLoopback = nullptr;
+  }
+}
+
+void NetworkStack::deRegisterDevice(Network* pDevice) {
+  struct netif* iface = nullptr;
+#if THREADS || UTILITY_LINUX
+  m_Lock.acquire();
 #endif
 
   __atomic_store_n(&pDevice->m_NetworkStackGeneration, 0, __ATOMIC_RELEASE);
@@ -338,12 +418,17 @@ void NetworkStack::deRegisterDevice(Network* pDevice) {
       break;
     }
 
-  struct netif* iface = m_Interfaces.lookup(pDevice);
+  iface = m_Interfaces.lookup(pDevice);
   m_Interfaces.remove(pDevice);
 
-  if (iface != nullptr) {
-    netif_remove(iface);
+#if THREADS || UTILITY_LINUX
+  m_Lock.release();
+#endif
 
+  if (iface != nullptr) {
+    if (tcpip_callback_wait(removeInterface, iface) != ERR_OK) {
+      FATAL("NetworkStack could not retire a network interface");
+    }
     delete iface;
   }
 }

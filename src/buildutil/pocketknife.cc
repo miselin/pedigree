@@ -39,6 +39,11 @@ int attachTo(void* handle) {
   return 0;  /// \todo get return value from thread?
 }
 
+bool attachToForCompletion(void* handle) {
+  attachTo(handle);
+  return true;
+}
+
 VirtualAddressSpaceSwitch::VirtualAddressSpaceSwitch() : va(nullptr) {}
 
 VirtualAddressSpaceSwitch::~VirtualAddressSpaceSwitch() {}

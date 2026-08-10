@@ -111,6 +111,14 @@ IsaAtaController::IsaAtaController(Controller* pDev, int nController)
 }
 
 IsaAtaController::~IsaAtaController() {
+  shutdown();
+}
+
+void IsaAtaController::shutdown() {
+  if (!beginShutdown()) {
+    return;
+  }
+
   shutdownDiskCaches();
   RequestQueue::destroy();
   maskDiskInterrupts();

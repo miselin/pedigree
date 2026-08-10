@@ -26,7 +26,8 @@ MemoryRegion::MemoryRegion(const char* pName)
       m_Size(0),
       m_pName(pName),
       m_bNonRamMemory(false),
-      m_bForced(false) {}
+      m_bForced(false),
+      m_bPageBacked(false) {}
 
 MemoryRegion::~MemoryRegion() {
   PhysicalMemoryManager::instance().unmapRegion(this);

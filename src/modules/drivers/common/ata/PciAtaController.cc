@@ -316,6 +316,14 @@ PciAtaController::PciAtaController(Controller* pDev, int nController)
 }
 
 PciAtaController::~PciAtaController() {
+  shutdown();
+}
+
+void PciAtaController::shutdown() {
+  if (!beginShutdown()) {
+    return;
+  }
+
   shutdownDiskCaches();
   RequestQueue::destroy();
   maskDiskInterrupts();

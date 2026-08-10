@@ -92,11 +92,20 @@ typedef void (*tcpip_callback_fn)(void *ctx);
 struct tcpip_callback_msg;
 
 void   tcpip_init(tcpip_init_done_fn tcpip_init_done, void *arg);
+/**
+ * Stop and join tcpip_thread after all users have retired.
+ *
+ * ERR_INPROGRESS means initialization or another shutdown owns the lifecycle;
+ * callers may retry. ERR_USE rejects shutdown from tcpip_thread itself.
+ */
+err_t  tcpip_shutdown(void);
 
 err_t  tcpip_inpkt(struct pbuf *p, struct netif *inp, netif_input_fn input_fn);
 err_t  tcpip_input(struct pbuf *p, struct netif *inp);
 
 err_t  tcpip_callback_with_block(tcpip_callback_fn function, void *ctx, u8_t block);
+/** Runs a callback in tcpip_thread and retires it before returning. */
+err_t  tcpip_callback_wait(tcpip_callback_fn function, void *ctx);
 /**
  * @ingroup lwip_os
  * @see tcpip_callback_with_block

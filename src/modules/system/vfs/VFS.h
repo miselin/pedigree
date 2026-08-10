@@ -110,9 +110,15 @@ class EXPORTED_PUBLIC VFS {
    * mounted. */
   void addProbeCallback(Filesystem::ProbeCallback callback);
 
+  /** Removes a filesystem probe callback before its implementation unloads. */
+  bool removeProbeCallback(Filesystem::ProbeCallback callback);
+
   /** Adds a mount callback - the function is called when a disk is mounted or
       unmounted. */
   void addMountCallback(MountCallback callback);
+
+  /** Removes a mount callback before its implementation unloads. */
+  bool removeMountCallback(MountCallback callback);
 
   /** Checks if the current user can access the given file. */
   static bool checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute);

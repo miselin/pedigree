@@ -56,7 +56,7 @@ enum WaitType { Reading, Writing };
  * desiring integration with a select()-style interface to block until the
  * condition is met.
  */
-template <class T>
+template <class T, size_t preallocatedSize = 0>
 class EXPORTED_PUBLIC RingBuffer {
  private:
   class ActiveOperation {
@@ -89,6 +89,9 @@ class EXPORTED_PUBLIC RingBuffer {
     // RingBuffer is empty and a zero timeout was specified
     Empty,
 
+    // A nonblocking operation could not acquire the lock or found no space
+    WouldBlock,
+
     // ConditionVariable failure modes
     TimedOut,
     Interrupted,
@@ -106,10 +109,17 @@ class EXPORTED_PUBLIC RingBuffer {
         m_WriteCondition(),
         m_ReadCondition(),
         m_Ring(),
+        m_PreallocatedRing(),
+        m_RingRead(0),
+        m_RingWrite(0),
+        m_RingCount(0),
         m_Lock(),
         m_DrainCondition(),
         m_Closing(false),
-        m_ActiveOperations(0) {}
+        m_WriteClosed(false),
+        m_ActiveOperations(0) {
+    assert(!preallocatedSize || ringSize <= preallocatedSize);
+  }
 
   /// Destructor - closes the ring and drains every admitted operation.
   ~RingBuffer() {
@@ -125,6 +135,7 @@ class EXPORTED_PUBLIC RingBuffer {
     m_Lock.acquire();
     if (!m_Closing) {
       m_Closing = true;
+      m_WriteClosed = true;
       m_ReadCondition.broadcast();
       m_WriteCondition.broadcast();
       notifyMonitorsLocked();
@@ -145,13 +156,13 @@ class EXPORTED_PUBLIC RingBuffer {
 
     m_Lock.acquire();
     while (true) {
-      if (m_Closing) {
+      if (m_Closing || m_WriteClosed) {
         m_Lock.release();
         return Closed;
       }
 
       // Wait for room in the buffer if we're full.
-      if (m_Ring.count() >= m_RingSize) {
+      if (ringCountLocked() >= m_RingSize) {
         ConditionVariable::Error error = ConditionVariable::NoError;
         if (!m_WriteCondition.wait(m_Lock, timeout, error)) {
           if (ConditionVariable::mutexAcquired(error)) {
@@ -163,7 +174,7 @@ class EXPORTED_PUBLIC RingBuffer {
         continue;
       }
 
-      m_Ring.pushBack(obj);
+      pushBackLocked(obj);
       break;
     }
 
@@ -180,6 +191,76 @@ class EXPORTED_PUBLIC RingBuffer {
   Error write(const T& obj) {
     Time::Timestamp timeout = Time::Infinity;
     return write(obj, timeout);
+  }
+
+  /**
+   * Closes write admission after appending one final object. Readers can
+   * drain the objects already present, including the final object.
+   */
+  bool closeWritesWithFinal(const T& obj) {
+    ActiveOperation operation(*this);
+    if (!operation) {
+      return false;
+    }
+
+    TerminationDeferral terminationDeferral;
+    m_Lock.acquire();
+    if (m_WriteClosed) {
+      m_Lock.release();
+      return false;
+    }
+
+    m_WriteClosed = true;
+    m_WriteCondition.broadcast();
+    while (!m_Closing && ringCountLocked() >= m_RingSize) {
+      m_WriteCondition.waitForCompletion(m_Lock);
+    }
+
+    if (m_Closing) {
+      m_Lock.release();
+      return false;
+    }
+
+    pushBackLocked(obj);
+    notifyMonitorsLocked();
+    m_ReadCondition.broadcast();
+    m_Lock.release();
+    return true;
+  }
+
+  /**
+   * Atomically writes one object without waiting for lock ownership or space.
+   * A WouldBlock result leaves the ring unchanged.
+   */
+  Error tryWrite(const T& obj) {
+#if THREADS
+    // A failed ISR post is part of lwIP's mailbox contract. Reaching the
+    // normal notification path would enter WaitQueue and scheduler locks.
+    if (Processor::inDeviceHardIrq()) {
+      return WouldBlock;
+    }
+#endif
+
+    TerminationDeferral terminationDeferral;
+    if (!m_Lock.tryAcquire()) {
+      return WouldBlock;
+    }
+
+    if (m_Closing || m_WriteClosed) {
+      m_Lock.release();
+      return Closed;
+    }
+
+    if (ringCountLocked() >= m_RingSize) {
+      m_Lock.release();
+      return WouldBlock;
+    }
+
+    pushBackLocked(obj);
+    notifyMonitorsLocked();
+    m_ReadCondition.signal();
+    m_Lock.release();
+    return NoError;
   }
 
   /// write - write the given number of objects to the ring buffer.
@@ -235,22 +316,22 @@ class EXPORTED_PUBLIC RingBuffer {
     }
 
     if (timeout == 0) {
-      if (!m_Ring.count()) {
+      if (!ringCountLocked()) {
         m_Lock.release();
-        error = Empty;
+        error = m_WriteClosed ? Closed : Empty;
         return false;
       }
     }
 
     while (true) {
-      if (m_Closing) {
+      if (m_Closing || (m_WriteClosed && !ringCountLocked())) {
         m_Lock.release();
         error = Closed;
         return false;
       }
 
       // Wait for room in the buffer if we're full.
-      if (m_Ring.count() == 0) {
+      if (ringCountLocked() == 0) {
         ConditionVariable::Error conditionError = ConditionVariable::NoError;
         if (!m_ReadCondition.wait(m_Lock, timeout, conditionError)) {
           if (ConditionVariable::mutexAcquired(conditionError)) {
@@ -263,7 +344,7 @@ class EXPORTED_PUBLIC RingBuffer {
         continue;
       }
 
-      out = m_Ring.popFront();
+      out = popFrontLocked();
       break;
     }
 
@@ -316,7 +397,7 @@ class EXPORTED_PUBLIC RingBuffer {
     }
 
     LockGuard<Mutex> guard(m_Lock);
-    return m_Ring.count() > 0;
+    return ringCountLocked() > 0;
   }
 
   /// canWrite - is it possible to write to the ring buffer without blocking?
@@ -327,7 +408,7 @@ class EXPORTED_PUBLIC RingBuffer {
     }
 
     LockGuard<Mutex> guard(m_Lock);
-    return !m_Closing && m_Ring.count() < m_RingSize;
+    return !m_Closing && !m_WriteClosed && ringCountLocked() < m_RingSize;
   }
 
   /// waitFor - block until the given condition is true (readable/writeable)
@@ -343,13 +424,13 @@ class EXPORTED_PUBLIC RingBuffer {
     m_Lock.acquire();
     if (wait == RingBufferWait::Writing) {
       while (true) {
-        if (m_Closing) {
+        if (m_Closing || m_WriteClosed) {
           m_Lock.release();
           error = Closed;
           return false;
         }
 
-        if (m_Ring.count() < m_RingSize) {
+        if (ringCountLocked() < m_RingSize) {
           m_Lock.release();
           return true;
         }
@@ -365,13 +446,13 @@ class EXPORTED_PUBLIC RingBuffer {
       }
     } else {
       while (true) {
-        if (m_Closing) {
+        if (m_Closing || (m_WriteClosed && !ringCountLocked())) {
           m_Lock.release();
           error = Closed;
           return false;
         }
 
-        if (m_Ring.count()) {
+        if (ringCountLocked()) {
           m_Lock.release();
           return true;
         }
@@ -432,7 +513,7 @@ class EXPORTED_PUBLIC RingBuffer {
       return false;
     }
 
-    if (m_Closing) {
+    if (m_Closing || (m_WriteClosed && !ringCountLocked())) {
       EMIT_IF(THREADS) {
         pThread->sendEvent(pEvent);
       }
@@ -454,7 +535,7 @@ class EXPORTED_PUBLIC RingBuffer {
     }
 
     LockGuard<Mutex> guard(m_Lock);
-    if (m_Closing) {
+    if (m_Closing || (m_WriteClosed && !ringCountLocked())) {
       EMIT_IF(THREADS) {
         pSemaphore->release();
       }
@@ -526,6 +607,35 @@ class EXPORTED_PUBLIC RingBuffer {
   }
 
  private:
+  size_t ringCountLocked() const {
+    if (preallocatedSize) {
+      return m_RingCount;
+    }
+    return m_Ring.count();
+  }
+
+  void pushBackLocked(const T& obj) {
+    assert(ringCountLocked() < m_RingSize);
+    if (preallocatedSize) {
+      m_PreallocatedRing[m_RingWrite] = obj;
+      m_RingWrite = (m_RingWrite + 1) % m_RingSize;
+      ++m_RingCount;
+    } else {
+      m_Ring.pushBack(obj);
+    }
+  }
+
+  T popFrontLocked() {
+    assert(ringCountLocked());
+    if (preallocatedSize) {
+      T obj = m_PreallocatedRing[m_RingRead];
+      m_RingRead = (m_RingRead + 1) % m_RingSize;
+      --m_RingCount;
+      return obj;
+    }
+    return m_Ring.popFront();
+  }
+
   /// Trigger event for threads waiting on us.
   void notifyMonitors() {
     LockGuard<Mutex> guard(m_Lock);
@@ -599,11 +709,16 @@ class EXPORTED_PUBLIC RingBuffer {
   ConditionVariable m_ReadCondition;
 
   List<T> m_Ring;
+  T m_PreallocatedRing[preallocatedSize ? preallocatedSize : 1];
+  size_t m_RingRead;
+  size_t m_RingWrite;
+  size_t m_RingCount;
 
   Mutex m_Lock;
 
   ConditionVariable m_DrainCondition;
   bool m_Closing;
+  bool m_WriteClosed;
   size_t m_ActiveOperations;
 
   struct MonitorTarget {
