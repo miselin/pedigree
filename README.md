@@ -44,6 +44,16 @@ Docker is not used. Apple silicon macOS and Linux are both valid hosts. The
 macOS hosted-kernel lane additionally needs Rosetta, NASM, and the existing
 `compilers/dir` x86-64 Pedigree cross-toolchain.
 
+To bootstrap the retained x86-64 cross-toolchain from its pinned source and
+patch set, run:
+
+```sh
+python3 scripts/bootstrap_toolchain.py x86_64-pedigree ./pedigree-compiler
+```
+
+The command verifies downloaded archives, preserves the `compilers/dir` layout,
+and leaves the libc/sysroot integration point at `build/musl` by default.
+
 It builds the native support surface and runs its tests normally and under
 AddressSanitizer. On macOS it also runs the focused hosted-kernel lifecycle.
 Logs are kept under:

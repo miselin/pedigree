@@ -11,8 +11,6 @@ echo "This script will automatically install dependencies and compile Pedigree"
 echo "for you."
 echo
 
-compiler_build_options=""
-
 real_os=""
 nosudo=0
 if [ ! -e "$script_dir/.easy_os" ]; then

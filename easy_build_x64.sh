@@ -22,14 +22,17 @@ echo "If none is found, the source code for one will be downloaded, and it will 
 echo "compiled for you."
 
 # Special parameters for some operating systems when building cross-compilers
+compiler_build_args=()
 case $real_os in
     osx)
-        compiler_build_options="$compiler_build_options osx-compat"
+        compiler_build_args+=(--osx-compat)
         ;;
 esac
 
 # Install cross-compilers
-$script_dir/scripts/checkBuildSystemNoInteractive.pl x86_64-pedigree $COMPILER_DIR $compiler_build_options
+python3 "$script_dir/scripts/bootstrap_toolchain.py" \
+    x86_64-pedigree "$COMPILER_DIR" \
+    --source-root "$script_dir" "${compiler_build_args[@]}"
 
 old=$(pwd)
 
@@ -88,7 +91,9 @@ export LIBTOOL=$script_dir/../images/local/applications:$PATH
 # again to build it against the shared libstdc++. Once a working shared
 # libstdc++ exists, the static one built here is no longer relevant.
 # What a mess!
-$script_dir/scripts/checkBuildSystemNoInteractive.pl x86_64-pedigree $COMPILER_DIR $compiler_build_options "libcpp"
+python3 "$script_dir/scripts/bootstrap_toolchain.py" \
+    x86_64-pedigree "$COMPILER_DIR" \
+    --source-root "$script_dir" "${compiler_build_args[@]}" --libcpp
 
 set +e
 

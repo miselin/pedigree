@@ -13,7 +13,7 @@ set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(Pedigree)
 
 if (NOT CMAKE_CXX_COMPILER_VERSION)
-    # TODO: keep this up to date with checkBuildSystemNoInteractive.pl
+    # Keep this aligned with the bootstrap toolchain manifest.
     set(CMAKE_C_COMPILER_VERSION 8.3.0)
     set(CMAKE_CXX_COMPILER_VERSION 8.3.0)
 endif ()

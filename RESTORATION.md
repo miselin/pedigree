@@ -157,7 +157,10 @@ Pedigree userspace, GRUB image, and ISO/disk-image targets.
 There is not yet a verified end-to-end x86-64 PC command in this restoration
 line. `easy_build_x64.sh`, `scripts/qemu`, and the PUP/package instructions are
 retained from the historical workflow and must not be treated as current
-success criteria. The next acceptable PC workflow needs to:
+success criteria. The cross-toolchain bootstrap is now independently available
+through `scripts/bootstrap_toolchain.py`; it preserves the historical compiler
+versions, patches, target triples, and `compilers/dir` layout. The next
+acceptable PC workflow needs to:
 
 1. bootstrap or locate the exact cross-toolchain without modifying the source
    checkout unexpectedly;
