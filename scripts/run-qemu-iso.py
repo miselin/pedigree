@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import re
 import shlex
 import signal
 import subprocess
@@ -20,6 +21,11 @@ COMMON_MARKERS = (
     "trace: initial init done, enabling interrupts",
     "initrd @",
 )
+RTC_PROGRESS_MARKERS = (
+    "Rtc::initialise2",
+    "TSC calibration:",
+)
+RTC_TIME_PROGRESS = "RTC-backed timestamps advanced by one second"
 SCENARIOS = {
     "up": {
         "cpus": 1,
@@ -118,13 +124,25 @@ def build_command(
     ]
 
 
-def evaluate_output(output: str, scenario: str) -> tuple[str | None, list[str]]:
+def evaluate_output(
+    output: str, scenario: str, require_rtc_progress: bool = False
+) -> tuple[str | None, list[str]]:
     for marker in FAILURE_MARKERS:
         if marker in output:
             return marker, []
-    missing = [
-        marker for marker in SCENARIOS[scenario]["markers"] if marker not in output
-    ]
+    markers = SCENARIOS[scenario]["markers"]
+    if require_rtc_progress:
+        markers += RTC_PROGRESS_MARKERS
+    missing = [marker for marker in markers if marker not in output]
+    if require_rtc_progress:
+        timestamp_seconds = [
+            int(match) for match in re.findall(r"\[(\d+)\.\d+\]", output)
+        ]
+        if (
+            not timestamp_seconds
+            or max(timestamp_seconds) - min(timestamp_seconds) < 1
+        ):
+            missing.append(RTC_TIME_PROGRESS)
     return None, missing
 
 
@@ -214,7 +232,9 @@ def run_checkpoint(args: argparse.Namespace) -> int:
         deadline = time.monotonic() + args.seconds
         while time.monotonic() < deadline:
             output = serial_log.read_text(encoding="utf-8", errors="replace")
-            failure_marker, missing = evaluate_output(output, scenario)
+            failure_marker, missing = evaluate_output(
+                output, scenario, args.require_rtc_progress
+            )
             if failure_marker is not None:
                 return fail(
                     process,
@@ -260,7 +280,7 @@ def run_checkpoint(args: argparse.Namespace) -> int:
             time.sleep(0.05)
 
         output = serial_log.read_text(encoding="utf-8", errors="replace")
-        _, missing = evaluate_output(output, scenario)
+        _, missing = evaluate_output(output, scenario, args.require_rtc_progress)
         return fail(
             process,
             result_log,
@@ -297,6 +317,20 @@ def self_test() -> bool:
     assert failure is None and not missing
     failure, missing = evaluate_output("panic: model failure", "up")
     assert failure == "panic:" and not missing
+    rtc_output = (
+        "[100.0]\n"
+        + up_output
+        + "\n"
+        + "\n".join(RTC_PROGRESS_MARKERS)
+        + "\n[101.0]"
+    )
+    failure, missing = evaluate_output(rtc_output, "up", True)
+    assert failure is None and not missing
+    failure, missing = evaluate_output(up_output, "up", True)
+    assert failure is None and missing == [
+        *RTC_PROGRESS_MARKERS,
+        RTC_TIME_PROGRESS,
+    ]
     assert SCENARIOS["smp"]["cpus"] == 4
     assert SCENARIOS["smp"]["machine"] == "pc"
     assert "Processor #3 started." in SCENARIOS["smp"]["markers"]
@@ -316,6 +350,11 @@ def parse_args() -> argparse.Namespace:
         "--qemu", default=os.environ.get("QEMU", "qemu-system-x86_64")
     )
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--require-rtc-progress",
+        action="store_true",
+        help="wait for RTC calibration and one second of IRQ8-driven progress",
+    )
     arguments = sys.argv[1:]
     if "--" in arguments:
         separator = arguments.index("--")

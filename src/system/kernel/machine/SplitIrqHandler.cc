@@ -359,6 +359,11 @@ size_t SplitIrqHandler::completedBatchesForTest() const
     return m_CompletedBatches;
 }
 
+bool SplitIrqHandler::publishWorkForTest(size_t work)
+{
+    return publishWork(work);
+}
+
 void SplitIrqHandler::rejectNextPublicationForTest()
 {
     m_Dispatcher.rejectNextPublicationForTest();

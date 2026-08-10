@@ -63,7 +63,7 @@ Atomic<size_t> g_RaiseSucceeded(0);
 void dispatchWhileMutationLocked()
 {
     g_MutationHookCalls += 1;
-    if (__pedigree_hosted::raise(TestSignal) == 0)
+    if (::raise(TestSignal) == 0)
     {
         // raise() returns only after the synchronous production dispatch path
         // has returned, so reaching here proves it did not wait on m_Lock.

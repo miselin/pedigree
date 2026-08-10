@@ -421,6 +421,21 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/Vector.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utilities/ZombieQueue.cc)
 
+if (PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS)
+    if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" OR PEDIGREE_HOSTED_DARWIN)
+        message(FATAL_ERROR
+            "PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS requires the Linux hosted target")
+    endif ()
+    if (NOT PEDIGREE_HOSTED_SMOKE_TESTS)
+        message(FATAL_ERROR
+            "PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS requires PEDIGREE_HOSTED_SMOKE_TESTS")
+    endif ()
+    list(APPEND KERNEL_SRCS
+        ${CMAKE_CURRENT_SOURCE_DIR}/machine/hosted/IrqClosureRegressions.cc
+        ${CMAKE_SOURCE_DIR}/src/modules/system/hosted-smoke/interrupt-manager-regressions.cc
+        ${CMAKE_SOURCE_DIR}/src/modules/system/hosted-smoke/scheduler-regressions.cc)
+endif ()
+
 # We put Log at the very end of the source list so its constructors run last.
 set(LOG_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/Log.cc)
@@ -520,8 +535,10 @@ if (NOT PEDIGREE_HOSTED_DARWIN)
     target_link_libraries(kernel PRIVATE gcc)
 endif ()
 
-# split debug info into a .debug file so it's accessible but not present in the module binary itself
-if (NOT PEDIGREE_HOSTED_DARWIN)
+# The closure kernel runs directly from a Docker bind mount. Keep that
+# diagnostic artifact intact instead of rewriting it in place with strip.
+# Other Linux kernels split debug info out of their module binary as usual.
+if (NOT PEDIGREE_HOSTED_DARWIN AND NOT PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS)
     add_custom_command(TARGET kernel POST_BUILD
         COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:kernel> ${CMAKE_CURRENT_BINARY_DIR}/kernel.debug
         COMMAND ${CMAKE_STRIP} -g $<TARGET_FILE:kernel>

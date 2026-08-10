@@ -148,6 +148,10 @@ BootstrapStruct_t *g_pBootstrapInfo;
 /** Do we need to shutdown? */
 static Atomic<bool> g_NeedsShutdown(false);
 
+#if HOSTED && PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS
+extern bool runHostedIrqClosureRegressions();
+#endif
+
 /** Handles doing recovery on SLAM if memory pressure is encountered. */
 class SlamRecovery : public MemoryPressureHandler
 {
@@ -483,9 +487,12 @@ void _cxx_main(BootstrapStruct_t &bsInf)
 
     /// \todo Seed random number generator.
 
+    OwnedThread moduleLoadThread;
+#if HOSTED && PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS
+    runHostedIrqClosureRegressions();
+#else
     TRACE("starting module load thread");
 
-    OwnedThread moduleLoadThread;
     EMIT_IF(THREADS)
     {
         Thread *pThread = new Thread(
@@ -498,6 +505,7 @@ void _cxx_main(BootstrapStruct_t &bsInf)
     {
         loadModules(&bsInf);
     }
+#endif
 
     EMIT_IF(DEBUGGER_RUN_AT_START)
     {
@@ -538,7 +546,8 @@ void _cxx_main(BootstrapStruct_t &bsInf)
         // has bookkeeping and initrd cleanup to finish after that request, so
         // module teardown must not race it.
         moduleLoadThread.join();
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS && \
+    !PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS
         NOTICE("HOSTED-WAIT-TEST: PASS module-loader-shutdown-join");
 #endif
 

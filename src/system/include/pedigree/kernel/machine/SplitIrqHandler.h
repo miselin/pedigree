@@ -105,6 +105,7 @@ class EXPORTED_PUBLIC SplitIrqHandler : private HardIrqHandler
     size_t pendingWorkForTest() const;
     size_t deferredIrqsForTest() const;
     size_t completedBatchesForTest() const;
+    bool publishWorkForTest(size_t work);
     void rejectNextPublicationForTest();
 #endif
 

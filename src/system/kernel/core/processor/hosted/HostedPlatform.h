@@ -9,6 +9,7 @@
 #define PEDIGREE_KERNEL_PROCESSOR_HOSTED_PLATFORM_H
 
 #include <cstdint>
+#include <ucontext.h>
 
 namespace HostedPlatform
 {
