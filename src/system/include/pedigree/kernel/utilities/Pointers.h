@@ -24,170 +24,139 @@
 #include "pedigree/kernel/processor/types.h"
 
 template <class T>
-class UniqueCommon
-{
-  public:
-    UniqueCommon() : m_Pointer(nullptr)
-    {
+class UniqueCommon {
+ public:
+  UniqueCommon() : m_Pointer(nullptr) {}
+
+  virtual ~UniqueCommon() {
+    reset();
+  }
+
+  T* operator*() const {
+    return get();
+  }
+
+  operator void*() const {
+    return get();
+  }
+
+  T* get() const {
+    return m_Pointer;
+  }
+
+  void reset() {
+    if (m_Pointer) {
+      destroy();
+      m_Pointer = 0;
     }
+  }
 
-    virtual ~UniqueCommon()
-    {
-        reset();
-    }
+  NOT_COPYABLE_OR_ASSIGNABLE(UniqueCommon<T>);
 
-    T *operator*() const
-    {
-        return get();
-    }
+ protected:
+  UniqueCommon(T* p) : m_Pointer(p) {}
 
-    operator void *() const
-    {
-        return get();
-    }
+  virtual void destroy() {
+    delete m_Pointer;
+  }
 
-    T *get() const
-    {
-        return m_Pointer;
-    }
+  void setPointer(T* p) {
+    m_Pointer = p;
+  }
 
-    void reset()
-    {
-        if (m_Pointer)
-        {
-            destroy();
-            m_Pointer = 0;
-        }
-    }
+  /** Stop tracking the memory but don't free it. */
+  void release() {
+    m_Pointer = nullptr;
+  }
 
-    NOT_COPYABLE_OR_ASSIGNABLE(UniqueCommon<T>);
-
-  protected:
-    UniqueCommon(T *p) : m_Pointer(p)
-    {
-    }
-
-    virtual void destroy()
-    {
-        delete m_Pointer;
-    }
-
-    void setPointer(T *p)
-    {
-        m_Pointer = p;
-    }
-
-    /** Stop tracking the memory but don't free it. */
-    void release()
-    {
-        m_Pointer = nullptr;
-    }
-
-    T *m_Pointer;
+  T* m_Pointer;
 };
 
 /** Provides a wrapper around a single-use pointer. The copy constructor
  * will invalidate the reference in the object being copied from.
  */
 template <class T>
-class UniquePointer : public UniqueCommon<T>
-{
-  public:
-    UniquePointer() = default;
+class UniquePointer : public UniqueCommon<T> {
+ public:
+  UniquePointer() = default;
 
-    virtual ~UniquePointer()
-    {
-        this->reset();
-    }
+  virtual ~UniquePointer() {
+    this->reset();
+  }
 
-    // move constructor
-    UniquePointer(UniquePointer<T> &&p)
-    {
-        move_from(pedigree_std::move(p));
-    }
+  // move constructor
+  UniquePointer(UniquePointer<T>&& p) {
+    move_from(pedigree_std::move(p));
+  }
 
-    // no copy construction permitted
-    NOT_COPYABLE_OR_ASSIGNABLE(UniquePointer<T>);
+  // no copy construction permitted
+  NOT_COPYABLE_OR_ASSIGNABLE(UniquePointer<T>);
 
-    UniquePointer<T> &operator=(UniquePointer<T> &&p)
-    {
-        move_from(pedigree_std::move(p));
-        return *this;
-    }
+  UniquePointer<T>& operator=(UniquePointer<T>&& p) {
+    move_from(pedigree_std::move(p));
+    return *this;
+  }
 
-    template <class... Args>
-    static UniquePointer<T> allocate(Args &&... args)
-    {
-        return UniquePointer<T>(new T(args...));
-    }
+  template <class... Args>
+  static UniquePointer<T> allocate(Args&&... args) {
+    return UniquePointer<T>(new T(args...));
+  }
 
-  private:
-    UniquePointer(T *p) : UniqueCommon<T>(p)
-    {
-    }
+ private:
+  UniquePointer(T* p) : UniqueCommon<T>(p) {}
 
-    void move_from(UniquePointer<T> &&p)
-    {
-        T *ptr = p.get();
-        p.release();
+  void move_from(UniquePointer<T>&& p) {
+    T* ptr = p.get();
+    p.release();
 
-        this->reset();
-        this->setPointer(ptr);
-    }
+    this->reset();
+    this->setPointer(ptr);
+  }
 };
 
 /** Array version of UniquePointer that uses delete[] for deletion. */
 template <class T>
-class UniqueArray : public UniqueCommon<T>
-{
-  public:
-    UniqueArray() = default;
+class UniqueArray : public UniqueCommon<T> {
+ public:
+  UniqueArray() = default;
 
-    virtual ~UniqueArray()
-    {
-        this->reset();
-    }
+  virtual ~UniqueArray() {
+    this->reset();
+  }
 
-    // move constructor
-    UniqueArray(UniqueArray<T> &&p)
-    {
-        move_from(pedigree_std::move(p));
-    }
+  // move constructor
+  UniqueArray(UniqueArray<T>&& p) {
+    move_from(pedigree_std::move(p));
+  }
 
-    // no copy construction permitted
-    NOT_COPYABLE_OR_ASSIGNABLE(UniqueArray<T>);
+  // no copy construction permitted
+  NOT_COPYABLE_OR_ASSIGNABLE(UniqueArray<T>);
 
-    UniqueArray<T> &operator=(UniqueArray<T> &&p)
-    {
-        move_from(pedigree_std::move(p));
-        return *this;
-    }
+  UniqueArray<T>& operator=(UniqueArray<T>&& p) {
+    move_from(pedigree_std::move(p));
+    return *this;
+  }
 
-    static UniqueArray<T> allocate(size_t count)
-    {
-        return UniqueArray<T>(new T[count]);
-    }
+  static UniqueArray<T> allocate(size_t count) {
+    return UniqueArray<T>(new T[count]);
+  }
 
-  protected:
-    virtual void destroy() override
-    {
-        T *ptr = this->get();
-        delete[] ptr;
-    }
+ protected:
+  virtual void destroy() override {
+    T* ptr = this->get();
+    delete[] ptr;
+  }
 
-  private:
-    UniqueArray(T *p) : UniqueCommon<T>(p)
-    {
-    }
+ private:
+  UniqueArray(T* p) : UniqueCommon<T>(p) {}
 
-    void move_from(UniqueArray<T> &&p)
-    {
-        T *ptr = p.get();
-        p.release();
+  void move_from(UniqueArray<T>&& p) {
+    T* ptr = p.get();
+    p.release();
 
-        this->reset();
-        this->setPointer(ptr);
-    }
+    this->reset();
+    this->setPointer(ptr);
+  }
 };
 
 #endif

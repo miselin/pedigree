@@ -19,57 +19,54 @@
 
 #if THREADS
 
-#include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/new"
 
-void initialiseMultitasking()
-{
-    // Create the kernel idle process.
-    Process *pProcess = new Process();
-    pProcess->resetCounts();
-    pProcess->description() += "Kernel Process";
-    pProcess->description() += " - Processor #";
-    pProcess->description() += Processor::id();
+void initialiseMultitasking() {
+  // Create the kernel idle process.
+  Process* pProcess = new Process();
+  pProcess->resetCounts();
+  pProcess->description() += "Kernel Process";
+  pProcess->description() += " - Processor #";
+  pProcess->description() += Processor::id();
 
-    // Create the main kernel thread.
-    Thread *pThread = new Thread(pProcess);
-    pThread->setName("core kernel thread");
-    pThread->detach();
+  // Create the main kernel thread.
+  Thread* pThread = new Thread(pProcess);
+  pThread->setName("core kernel thread");
+  pThread->detach();
 
-    // Initialise the scheduler.
-    Scheduler::instance().initialise(pProcess);
+  // Initialise the scheduler.
+  Scheduler::instance().initialise(pProcess);
 
-    // Initialise the per-process scheduler.
-    Processor::information().getScheduler().initialise(pThread);
+  // Initialise the per-process scheduler.
+  Processor::information().getScheduler().initialise(pThread);
 }
 
-void shutdownMultitasking()
-{
-    /// \todo figure out how to shut down the scheduler then clean up the other
-    /// housekeeping structures (including Process, Thread objects).
+void shutdownMultitasking() {
+  /// \todo figure out how to shut down the scheduler then clean up the other
+  /// housekeeping structures (including Process, Thread objects).
 }
 
-void initialiseMultitaskingPerProcessor()
-{
-    // Create the kernel idle process.
-    Process *pProcess = new Process();
-    pProcess->description() += "Kernel Process";
+void initialiseMultitaskingPerProcessor() {
+  // Create the kernel idle process.
+  Process* pProcess = new Process();
+  pProcess->description() += "Kernel Process";
 
-    pProcess->description() += " - Processor #";
-    pProcess->description() += Processor::id();
+  pProcess->description() += " - Processor #";
+  pProcess->description() += Processor::id();
 
-    // Create the kernel idle thread.
-    Thread *pThread = new Thread(pProcess);
-    pThread->setName("idle thread (ap)");
-    pThread->detach();
-    Processor::information().getScheduler().initialise(pThread);
+  // Create the kernel idle thread.
+  Thread* pThread = new Thread(pProcess);
+  pThread->setName("idle thread (ap)");
+  pThread->detach();
+  Processor::information().getScheduler().initialise(pThread);
 }
 
 #endif

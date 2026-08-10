@@ -18,134 +18,108 @@
  */
 
 #include "Machine.h"
-
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/panic.h"
-
-#include "../../core/processor/hosted/InterruptManager.h"
 #include "pedigree/kernel/machine/Bus.h"
 #include "pedigree/kernel/machine/Controller.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/panic.h"
+
+#include "../../core/processor/hosted/InterruptManager.h"
 
 HostedMachine HostedMachine::m_Instance;
 
-Machine &Machine::instance()
-{
-    return HostedMachine::instance();
+Machine& Machine::instance() {
+  return HostedMachine::instance();
 }
 
-void HostedMachine::initialise()
-{
-    HostedIrqManager::instance().initialise();
-    m_Serial[0].setBase(0);
-    m_Serial[1].setBase(1);
-    m_Vga.initialise();
-    if (!HostedTimer::instance().initialise1())
-    {
-        panic("HostedMachine: timer preparation failed");
-    }
-    if (!HostedSchedulerTimer::instance().initialise())
-    {
-        panic("HostedMachine: scheduler timer initialisation failed");
-    }
-    m_Keyboard = new HostedKeyboard();
-    m_Keyboard->initialise();
-    m_bInitialised = true;
+void HostedMachine::initialise() {
+  HostedIrqManager::instance().initialise();
+  m_Serial[0].setBase(0);
+  m_Serial[1].setBase(1);
+  m_Vga.initialise();
+  if (!HostedTimer::instance().initialise1()) {
+    panic("HostedMachine: timer preparation failed");
+  }
+  if (!HostedSchedulerTimer::instance().initialise()) {
+    panic("HostedMachine: scheduler timer initialisation failed");
+  }
+  m_Keyboard = new HostedKeyboard();
+  m_Keyboard->initialise();
+  m_bInitialised = true;
 }
 
-void HostedMachine::initialiseDeviceTree()
-{
+void HostedMachine::initialiseDeviceTree() {}
+
+void HostedMachine::initialise3() {
+  if (!HostedTimer::instance().initialise3()) {
+    panic("HostedMachine: timer bottom-half initialisation failed");
+  }
 }
 
-void HostedMachine::initialise3()
-{
-    if (!HostedTimer::instance().initialise3())
-    {
-        panic("HostedMachine: timer bottom-half initialisation failed");
-    }
+void HostedMachine::deinitialise() {
+  if (!m_bInitialised) {
+    return;
+  }
+
+  HostedTimer::instance().uninitialise();
+  HostedSchedulerTimer::instance().uninitialise();
+  HostedInterruptManager::quiesceProcessor();
+  Machine::deinitialise();
+
+  NOTICE("HOSTED-SHUTDOWN: timers and signals quiesced");
 }
 
-void HostedMachine::deinitialise()
-{
-    if (!m_bInitialised)
-    {
-        return;
-    }
-
-    HostedTimer::instance().uninitialise();
-    HostedSchedulerTimer::instance().uninitialise();
-    HostedInterruptManager::quiesceProcessor();
-    Machine::deinitialise();
-
-    NOTICE("HOSTED-SHUTDOWN: timers and signals quiesced");
+Serial* HostedMachine::getSerial(size_t n) {
+  return &m_Serial[n];
 }
 
-Serial *HostedMachine::getSerial(size_t n)
-{
-    return &m_Serial[n];
+size_t HostedMachine::getNumSerial() {
+  return 2;
 }
 
-size_t HostedMachine::getNumSerial()
-{
-    return 2;
+Vga* HostedMachine::getVga(size_t n) {
+  return &m_Vga;
 }
 
-Vga *HostedMachine::getVga(size_t n)
-{
-    return &m_Vga;
+size_t HostedMachine::getNumVga() {
+  return 1;
 }
 
-size_t HostedMachine::getNumVga()
-{
-    return 1;
+IrqManager* HostedMachine::getIrqManager() {
+  return &HostedIrqManager::instance();
 }
 
-IrqManager *HostedMachine::getIrqManager()
-{
-    return &HostedIrqManager::instance();
+SchedulerTimer* HostedMachine::getSchedulerTimer() {
+  return &HostedSchedulerTimer::instance();
 }
 
-SchedulerTimer *HostedMachine::getSchedulerTimer()
-{
-    return &HostedSchedulerTimer::instance();
+Timer* HostedMachine::getTimer() {
+  return &HostedTimer::instance();
 }
 
-Timer *HostedMachine::getTimer()
-{
-    return &HostedTimer::instance();
+Keyboard* HostedMachine::getKeyboard() {
+  return m_Keyboard;
 }
 
-Keyboard *HostedMachine::getKeyboard()
-{
-    return m_Keyboard;
+void HostedMachine::setKeyboard(Keyboard* kb) {
+  m_Keyboard = kb;
 }
 
-void HostedMachine::setKeyboard(Keyboard *kb)
-{
-    m_Keyboard = kb;
+bool HostedMachine::quiesceAllOtherProcessors() {
+  return true;
 }
 
-bool HostedMachine::quiesceAllOtherProcessors()
-{
-    return true;
+bool HostedMachine::resumeAllOtherProcessors() {
+  return true;
 }
 
-bool HostedMachine::resumeAllOtherProcessors()
-{
-    return true;
+bool HostedMachine::stopAllOtherProcessors() {
+  return true;
 }
 
-bool HostedMachine::stopAllOtherProcessors()
-{
-    return true;
-}
+HostedMachine::HostedMachine() {}
 
-HostedMachine::HostedMachine()
-{
-}
-
-HostedMachine::~HostedMachine()
-{
-    deinitialise();
+HostedMachine::~HostedMachine() {
+  deinitialise();
 }

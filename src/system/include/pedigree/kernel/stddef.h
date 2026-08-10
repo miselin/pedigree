@@ -30,20 +30,16 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 /*
  * ISO C Standard:  7.17  Common definitions  <stddef.h>
  */
-#if (                                                                          \
-    !defined(_STDDEF_H) && !defined(_STDDEF_H_) && !defined(_ANSI_STDDEF_H) && \
-    !defined(__STDDEF_H__)) ||                                                 \
-    defined(__need_wchar_t) || defined(__need_size_t) ||                       \
-    defined(__need_ptrdiff_t) || defined(__need_NULL) ||                       \
-    defined(__need_wint_t)
+#if (!defined(_STDDEF_H) && !defined(_STDDEF_H_) && !defined(_ANSI_STDDEF_H) &&       \
+     !defined(__STDDEF_H__)) ||                                                       \
+    defined(__need_wchar_t) || defined(__need_size_t) || defined(__need_ptrdiff_t) || \
+    defined(__need_NULL) || defined(__need_wint_t)
 
 /* Any one of these symbols __need_* means that GNU libc
    wants us just to define one data type.  So don't define
    the symbols that indicate this file's entire job has been done.  */
-#if (                                                      \
-    !defined(__need_wchar_t) && !defined(__need_size_t) && \
-    !defined(__need_ptrdiff_t) && !defined(__need_NULL) && \
-    !defined(__need_wint_t))
+#if (!defined(__need_wchar_t) && !defined(__need_size_t) && !defined(__need_ptrdiff_t) && \
+     !defined(__need_NULL) && !defined(__need_wint_t))
 #define _STDDEF_H
 #define _STDDEF_H_
 /* snaroff@next.com says the NeXT needs this.  */
@@ -111,8 +107,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    not defined, and so that defining this macro defines _GCC_SIZE_T.
    If we find that the macros are still defined at this point, we must
    invoke them so that the type is defined as expected.  */
-#if defined(_TYPE_ptrdiff_t) && \
-    (defined(__need_ptrdiff_t) || defined(_STDDEF_H_))
+#if defined(_TYPE_ptrdiff_t) && (defined(__need_ptrdiff_t) || defined(_STDDEF_H_))
 _TYPE_ptrdiff_t;
 #undef _TYPE_ptrdiff_t
 #endif
@@ -405,7 +400,7 @@ typedef __WINT_TYPE__ wint_t;
 #define NULL __null
 #else /* G++ */
 #ifndef __cplusplus
-#define NULL ((void *) 0)
+#define NULL ((void*)0)
 #else /* C++ */
 #define NULL 0
 #endif /* C++ */

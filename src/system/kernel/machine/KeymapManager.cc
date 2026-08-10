@@ -17,10 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/Keyboard.h"
+#include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/keymaps/KeymapEnUs.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -33,366 +33,312 @@
 #endif
 
 #define KEYMAP_INDEX(combinator, modifiers, scancode) \
-    (((combinator & 0xFF) << 11) | ((modifiers & 0xF) << 7) | (scancode & 0x7F))
+  (((combinator & 0xFF) << 11) | ((modifiers & 0xF) << 7) | (scancode & 0x7F))
 #define KEYMAP_MAX_INDEX KEYMAP_INDEX(0xFF, 0xF, 0x7F)
 
 KeymapManager KeymapManager::m_Instance;
 
 KeymapManager::KeymapManager()
-    : m_pSparseTable(0), m_pDataTable(0), m_bLeftCtrl(false),
-      m_bLeftShift(false), m_bLeftAlt(false), m_bRightCtrl(false),
-      m_bRightShift(false), m_bRightAlt(false), m_bCapsLock(false),
-      m_nCombinator(0), m_bHaveLoadedKeymap(false)
-{
-    void *sparseBuffer = ASSUME_ALIGNMENT(sparseBuff, sizeof(void *));
-    void *dataBuffer = ASSUME_ALIGNMENT(dataBuff, sizeof(void *));
+    : m_pSparseTable(0),
+      m_pDataTable(0),
+      m_bLeftCtrl(false),
+      m_bLeftShift(false),
+      m_bLeftAlt(false),
+      m_bRightCtrl(false),
+      m_bRightShift(false),
+      m_bRightAlt(false),
+      m_bCapsLock(false),
+      m_nCombinator(0),
+      m_bHaveLoadedKeymap(false) {
+  void* sparseBuffer = ASSUME_ALIGNMENT(sparseBuff, sizeof(void*));
+  void* dataBuffer = ASSUME_ALIGNMENT(dataBuff, sizeof(void*));
 
-    m_pSparseTable = reinterpret_cast<SparseEntry *>(sparseBuffer);
-    m_pDataTable = reinterpret_cast<KeymapEntry *>(dataBuffer);
+  m_pSparseTable = reinterpret_cast<SparseEntry*>(sparseBuffer);
+  m_pDataTable = reinterpret_cast<KeymapEntry*>(dataBuffer);
 }
 
-KeymapManager::~KeymapManager()
-{
+KeymapManager::~KeymapManager() {}
+
+void KeymapManager::useKeymap(uint8_t* pSparseTable, uint8_t* pDataTable) {
+  void* sparseBuffer = ASSUME_ALIGNMENT(pSparseTable, sizeof(void*));
+  void* dataBuffer = ASSUME_ALIGNMENT(pDataTable, sizeof(void*));
+
+  SparseEntry* oldSparse = m_pSparseTable;
+  KeymapEntry* oldData = m_pDataTable;
+
+  // Set the table pointers
+  m_pSparseTable = reinterpret_cast<SparseEntry*>(sparseBuffer);
+  m_pDataTable = reinterpret_cast<KeymapEntry*>(dataBuffer);
+
+  // Check for a sensible keymap (40 == return key)
+  if (!resolveHidKeycode(40)) {
+    ERROR("KeymapManager: new keymap check failed, restoring old keymap");
+    m_pSparseTable = oldSparse;
+    m_pDataTable = oldData;
+  } else if (m_bHaveLoadedKeymap) {
+    delete[] oldSparse;
+    delete[] oldData;
+  }
+
+  // Make the HID input manager update all its keys
+  HidInputManager::instance().updateKeys();
+
+  // We've now loaded a keymap - all future loads should free the previous
+  // keymap once the new one is loaded.
+  m_bHaveLoadedKeymap = true;
 }
 
-void KeymapManager::useKeymap(uint8_t *pSparseTable, uint8_t *pDataTable)
-{
-    void *sparseBuffer = ASSUME_ALIGNMENT(pSparseTable, sizeof(void *));
-    void *dataBuffer = ASSUME_ALIGNMENT(pDataTable, sizeof(void *));
+bool KeymapManager::useCompiledKeymap(uint32_t* pCompiledKeymap, size_t keymapLength) {
+  // File format:  0    Sparse tree offset
+  //               4    Data tree offset
+  //               ...  Sparse tree & data tree.
 
-    SparseEntry *oldSparse = m_pSparseTable;
-    KeymapEntry *oldData = m_pDataTable;
+  uint32_t sparseTableOffset = pCompiledKeymap[0];
+  uint32_t dataTableOffset = pCompiledKeymap[1];
+  uint32_t sparseTableSize = dataTableOffset - sparseTableOffset;
+  uint32_t dataTableSize = keymapLength - dataTableOffset;
 
-    // Set the table pointers
-    m_pSparseTable = reinterpret_cast<SparseEntry *>(sparseBuffer);
-    m_pDataTable = reinterpret_cast<KeymapEntry *>(dataBuffer);
+  // Preserve the previous keymap in case we need to restore it.
+  SparseEntry* oldSparse = m_pSparseTable;
+  KeymapEntry* oldData = m_pDataTable;
 
-    // Check for a sensible keymap (40 == return key)
-    if (!resolveHidKeycode(40))
-    {
-        ERROR("KeymapManager: new keymap check failed, restoring old keymap");
-        m_pSparseTable = oldSparse;
-        m_pDataTable = oldData;
-    }
-    else if (m_bHaveLoadedKeymap)
-    {
-        delete[] oldSparse;
-        delete[] oldData;
-    }
+  // Set up our new tables.
+  m_pSparseTable = new SparseEntry[sparseTableSize / sizeof(SparseEntry)];
+  m_pDataTable = new KeymapEntry[dataTableSize / sizeof(KeymapEntry)];
 
-    // Make the HID input manager update all its keys
-    HidInputManager::instance().updateKeys();
+  MemoryCopy(m_pSparseTable, adjust_pointer(pCompiledKeymap, sparseTableOffset), sparseTableSize);
+  MemoryCopy(m_pDataTable, adjust_pointer(pCompiledKeymap, dataTableOffset), dataTableSize);
 
-    // We've now loaded a keymap - all future loads should free the previous
-    // keymap once the new one is loaded.
-    m_bHaveLoadedKeymap = true;
+  // Check for sensible keymap.
+  if (!resolveHidKeycode(40)) {
+    ERROR("KeymapManager: new keymap check failed, restoring old keymap");
+    m_pSparseTable = oldSparse;
+    m_pDataTable = oldData;
+
+    return false;
+  } else if (m_bHaveLoadedKeymap) {
+    delete[] oldSparse;
+    delete[] oldData;
+  }
+
+  // Make the HID input manager update all its keys
+  HidInputManager::instance().updateKeys();
+
+  // We've now loaded a keymap - all future loads should free the previous
+  // keymap once the new one is loaded.
+  m_bHaveLoadedKeymap = true;
+
+  return true;
 }
 
-bool KeymapManager::useCompiledKeymap(
-    uint32_t *pCompiledKeymap, size_t keymapLength)
-{
-    // File format:  0    Sparse tree offset
-    //               4    Data tree offset
-    //               ...  Sparse tree & data tree.
-
-    uint32_t sparseTableOffset = pCompiledKeymap[0];
-    uint32_t dataTableOffset = pCompiledKeymap[1];
-    uint32_t sparseTableSize = dataTableOffset - sparseTableOffset;
-    uint32_t dataTableSize = keymapLength - dataTableOffset;
-
-    // Preserve the previous keymap in case we need to restore it.
-    SparseEntry *oldSparse = m_pSparseTable;
-    KeymapEntry *oldData = m_pDataTable;
-
-    // Set up our new tables.
-    m_pSparseTable = new SparseEntry[sparseTableSize / sizeof(SparseEntry)];
-    m_pDataTable = new KeymapEntry[dataTableSize / sizeof(KeymapEntry)];
-
-    MemoryCopy(
-        m_pSparseTable, adjust_pointer(pCompiledKeymap, sparseTableOffset),
-        sparseTableSize);
-    MemoryCopy(
-        m_pDataTable, adjust_pointer(pCompiledKeymap, dataTableOffset),
-        dataTableSize);
-
-    // Check for sensible keymap.
-    if (!resolveHidKeycode(40))
-    {
-        ERROR("KeymapManager: new keymap check failed, restoring old keymap");
-        m_pSparseTable = oldSparse;
-        m_pDataTable = oldData;
-
-        return false;
-    }
-    else if (m_bHaveLoadedKeymap)
-    {
-        delete[] oldSparse;
-        delete[] oldData;
-    }
-
-    // Make the HID input manager update all its keys
-    HidInputManager::instance().updateKeys();
-
-    // We've now loaded a keymap - all future loads should free the previous
-    // keymap once the new one is loaded.
-    m_bHaveLoadedKeymap = true;
-
-    return true;
+bool KeymapManager::handleHidModifier(uint8_t keyCode, bool bDown) {
+  // If the key isn't a modifier, return false right away
+  if (!((keyCode >= HidLeftCtrl && keyCode <= HidRightGui) || keyCode == HidCapsLock))
+    return false;
+  // Handle modifier keys, enabled on keyDown, disabled on keyUp
+  if (keyCode == HidLeftCtrl)
+    m_bLeftCtrl = bDown;
+  if (keyCode == HidRightCtrl)
+    m_bRightCtrl = bDown;
+  if (keyCode == HidLeftShift)
+    m_bLeftShift = bDown;
+  if (keyCode == HidRightShift)
+    m_bRightShift = bDown;
+  if (keyCode == HidLeftAlt)
+    m_bLeftAlt = bDown;
+  if (keyCode == HidRightAlt)
+    m_bRightAlt = bDown;
+  // Handle CapsLock key, changes on keyUp
+  if (keyCode == HidCapsLock && !bDown)
+    m_bCapsLock = !m_bCapsLock;
+  return true;
 }
 
-bool KeymapManager::handleHidModifier(uint8_t keyCode, bool bDown)
-{
-    // If the key isn't a modifier, return false right away
-    if (!((keyCode >= HidLeftCtrl && keyCode <= HidRightGui) ||
-          keyCode == HidCapsLock))
-        return false;
-    // Handle modifier keys, enabled on keyDown, disabled on keyUp
-    if (keyCode == HidLeftCtrl)
-        m_bLeftCtrl = bDown;
-    if (keyCode == HidRightCtrl)
-        m_bRightCtrl = bDown;
-    if (keyCode == HidLeftShift)
-        m_bLeftShift = bDown;
-    if (keyCode == HidRightShift)
-        m_bRightShift = bDown;
-    if (keyCode == HidLeftAlt)
-        m_bLeftAlt = bDown;
-    if (keyCode == HidRightAlt)
-        m_bRightAlt = bDown;
-    // Handle CapsLock key, changes on keyUp
-    if (keyCode == HidCapsLock && !bDown)
-        m_bCapsLock = !m_bCapsLock;
-    return true;
+uint64_t KeymapManager::resolveHidKeycode(uint8_t keyCode) {
+  KM_NOTICE("resolveHidKeycode(" << keyCode << ")");
+
+  // Get the modifiers
+  bool bCtrl = m_bLeftCtrl || m_bRightCtrl;
+  bool bShift = m_bLeftShift || m_bRightShift;
+  bool bAlt = m_bLeftAlt, bAltGr = m_bRightAlt;
+
+  bool bUseUpper = false;  // Use the upper case keymap
+
+  if (m_bCapsLock ^ bShift)
+    bUseUpper = true;
+
+  // Try and grab a keymap entry for the scancode with all modifiers enabled.
+  KeymapEntry* pKeymapEntry = getKeymapEntry(bCtrl, bShift, bAlt, bAltGr, m_nCombinator, keyCode);
+  // Fallback and try without combinator
+  if (!pKeymapEntry || (!pKeymapEntry->value && !pKeymapEntry->flags)) {
+    KM_NOTICE("keymap: falling back: -combinator");
+    pKeymapEntry = getKeymapEntry(bCtrl, bShift, bAlt, bAltGr, 0, keyCode);
+  }
+  // Fallback and try without combinator and Ctrl
+  if (!pKeymapEntry || (!pKeymapEntry->value && !pKeymapEntry->flags)) {
+    KM_NOTICE("keymap: falling back: -combinator, -ctrl");
+    pKeymapEntry = getKeymapEntry(false, bShift, bAlt, bAltGr, 0, keyCode);
+  }
+  // Fallback and try with only Shift
+  if (!pKeymapEntry || (!pKeymapEntry->value && !pKeymapEntry->flags)) {
+    KM_NOTICE("keymap: falling back: -combinator, -ctrl, -alt");
+    pKeymapEntry = getKeymapEntry(false, bShift, false, false, 0, keyCode);
+  }
+  // Fallback and try with no modifier enabled
+  if (!pKeymapEntry || (!pKeymapEntry->value && !pKeymapEntry->flags)) {
+    KM_NOTICE("keymap: falling back: -combinator, -ctrl, -alt, -shift");
+    pKeymapEntry = getKeymapEntry(false, false, false, false, 0, keyCode);
+  }
+  // This key has no entry at all in the keymap
+  if (!pKeymapEntry || (!pKeymapEntry->value && !pKeymapEntry->flags)) {
+    KM_NOTICE("keymap: no fallback possible, key not in keymap");
+    return 0;
+  }
+
+  KM_NOTICE("keymap: successfully got a keymap entry");
+
+  // Does this key set any combinator?
+  uint32_t nCombinator = pKeymapEntry->flags & 0xFF;
+  if (nCombinator) {
+    // If the key sets the same combinator that we're currently using,
+    // the "dead" key becomes live and shows the default key.
+    if (nCombinator == m_nCombinator) {
+      // Unset combinator and fall through to display default glyph
+      m_nCombinator = 0;
+    } else {
+      // Change combinator
+      m_nCombinator = nCombinator;
+      return 0;
+    }
+  } else {
+    // Dead keys should be reset here
+    m_nCombinator = 0;
+  }
+
+  uint64_t key = pKeymapEntry->value;
+
+  if (pKeymapEntry->flags & KeymapEntry::Special)
+    key |= Keyboard::Special;
+  else if (bUseUpper && key >= 'a' && key <= 'z')
+    key -= ('a' - 'A');
+  else if (!bUseUpper && key >= 'A' && key <= 'Z')
+    key += ('a' - 'A');
+
+  if (bCtrl)
+    key |= Keyboard::Ctrl;
+  if (bShift)
+    key |= Keyboard::Shift;
+  if (bAlt)
+    key |= Keyboard::Alt;
+  if (bAltGr)
+    key |= Keyboard::AltGr;
+
+  return key;
 }
 
-uint64_t KeymapManager::resolveHidKeycode(uint8_t keyCode)
-{
-    KM_NOTICE("resolveHidKeycode(" << keyCode << ")");
+KeymapManager::KeymapEntry* KeymapManager::getKeymapEntry(bool bCtrl, bool bShift, bool bAlt,
+                                                          bool bAltGr, uint8_t nCombinator,
+                                                          uint8_t keyCode) {
+  KM_NOTICE("getKeymapEntry(ctrl=" << bCtrl << ", shift=" << bShift << ", alt=" << bAlt
+                                   << ", altgr=" << bAltGr << ", comb=" << nCombinator
+                                   << ", code=" << keyCode << ")");
 
-    // Get the modifiers
-    bool bCtrl = m_bLeftCtrl || m_bRightCtrl;
-    bool bShift = m_bLeftShift || m_bRightShift;
-    bool bAlt = m_bLeftAlt, bAltGr = m_bRightAlt;
+  // Grab the keymap table index for this key
+  size_t modifiers = 0;
+  if (bCtrl)
+    modifiers |= IndexCtrl;
+  if (bShift)
+    modifiers |= IndexShift;
+  if (bAlt)
+    modifiers |= IndexAlt;
+  if (bAltGr)
+    modifiers |= IndexAltGr;
+  size_t nIndex = KEYMAP_INDEX(nCombinator, modifiers, keyCode);
 
-    bool bUseUpper = false;  // Use the upper case keymap
+  KM_NOTICE("idx=" << nIndex << ", mods=" << modifiers << ", code=" << keyCode);
 
-    if (m_bCapsLock ^ bShift)
-        bUseUpper = true;
-
-    // Try and grab a keymap entry for the scancode with all modifiers enabled.
-    KeymapEntry *pKeymapEntry =
-        getKeymapEntry(bCtrl, bShift, bAlt, bAltGr, m_nCombinator, keyCode);
-    // Fallback and try without combinator
-    if (!pKeymapEntry || (!pKeymapEntry->value && !pKeymapEntry->flags))
-    {
-        KM_NOTICE("keymap: falling back: -combinator");
-        pKeymapEntry = getKeymapEntry(bCtrl, bShift, bAlt, bAltGr, 0, keyCode);
-    }
-    // Fallback and try without combinator and Ctrl
-    if (!pKeymapEntry || (!pKeymapEntry->value && !pKeymapEntry->flags))
-    {
-        KM_NOTICE("keymap: falling back: -combinator, -ctrl");
-        pKeymapEntry = getKeymapEntry(false, bShift, bAlt, bAltGr, 0, keyCode);
-    }
-    // Fallback and try with only Shift
-    if (!pKeymapEntry || (!pKeymapEntry->value && !pKeymapEntry->flags))
-    {
-        KM_NOTICE("keymap: falling back: -combinator, -ctrl, -alt");
-        pKeymapEntry = getKeymapEntry(false, bShift, false, false, 0, keyCode);
-    }
-    // Fallback and try with no modifier enabled
-    if (!pKeymapEntry || (!pKeymapEntry->value && !pKeymapEntry->flags))
-    {
-        KM_NOTICE("keymap: falling back: -combinator, -ctrl, -alt, -shift");
-        pKeymapEntry = getKeymapEntry(false, false, false, false, 0, keyCode);
-    }
-    // This key has no entry at all in the keymap
-    if (!pKeymapEntry || (!pKeymapEntry->value && !pKeymapEntry->flags))
-    {
-        KM_NOTICE("keymap: no fallback possible, key not in keymap");
+  // Now walk the sparse tree
+  size_t bisect = (KEYMAP_MAX_INDEX + 1) / 2;
+  size_t size = (KEYMAP_MAX_INDEX + 1) / 2;
+  SparseEntry* pSparse = m_pSparseTable;
+  size_t nDataIndex = 0;
+  while (true) {
+    if (nIndex < bisect) {
+      if (!pSparse->left)
         return 0;
+      if (pSparse->left & SparseEntry::DataFlag) {
+        size_t nOffset = nIndex - (bisect - size);
+        nDataIndex = (pSparse->left & ~SparseEntry::DataFlag) + nOffset * sizeof(KeymapEntry);
+        break;
+      }
+      size /= 2;
+      bisect = bisect - size;
+      pSparse = &m_pSparseTable[pSparse->left / sizeof(SparseEntry)];
+    } else {
+      if (!pSparse->right)
+        return 0;
+      if (pSparse->right & SparseEntry::DataFlag) {
+        size_t nOffset = nIndex - bisect;
+        nDataIndex = (pSparse->right & ~SparseEntry::DataFlag) + nOffset * sizeof(KeymapEntry);
+        break;
+      }
+      size /= 2;
+      bisect = bisect + size;
+      pSparse = &m_pSparseTable[pSparse->right / sizeof(SparseEntry)];
     }
+  }
 
-    KM_NOTICE("keymap: successfully got a keymap entry");
-
-    // Does this key set any combinator?
-    uint32_t nCombinator = pKeymapEntry->flags & 0xFF;
-    if (nCombinator)
-    {
-        // If the key sets the same combinator that we're currently using,
-        // the "dead" key becomes live and shows the default key.
-        if (nCombinator == m_nCombinator)
-        {
-            // Unset combinator and fall through to display default glyph
-            m_nCombinator = 0;
-        }
-        else
-        {
-            // Change combinator
-            m_nCombinator = nCombinator;
-            return 0;
-        }
-    }
-    else
-    {
-        // Dead keys should be reset here
-        m_nCombinator = 0;
-    }
-
-    uint64_t key = pKeymapEntry->value;
-
-    if (pKeymapEntry->flags & KeymapEntry::Special)
-        key |= Keyboard::Special;
-    else if (bUseUpper && key >= 'a' && key <= 'z')
-        key -= ('a' - 'A');
-    else if (!bUseUpper && key >= 'A' && key <= 'Z')
-        key += ('a' - 'A');
-
-    if (bCtrl)
-        key |= Keyboard::Ctrl;
-    if (bShift)
-        key |= Keyboard::Shift;
-    if (bAlt)
-        key |= Keyboard::Alt;
-    if (bAltGr)
-        key |= Keyboard::AltGr;
-
-    return key;
-}
-
-KeymapManager::KeymapEntry *KeymapManager::getKeymapEntry(
-    bool bCtrl, bool bShift, bool bAlt, bool bAltGr, uint8_t nCombinator,
-    uint8_t keyCode)
-{
-    KM_NOTICE(
-        "getKeymapEntry(ctrl=" << bCtrl << ", shift=" << bShift
-                               << ", alt=" << bAlt << ", altgr=" << bAltGr
-                               << ", comb=" << nCombinator
-                               << ", code=" << keyCode << ")");
-
-    // Grab the keymap table index for this key
-    size_t modifiers = 0;
-    if (bCtrl)
-        modifiers |= IndexCtrl;
-    if (bShift)
-        modifiers |= IndexShift;
-    if (bAlt)
-        modifiers |= IndexAlt;
-    if (bAltGr)
-        modifiers |= IndexAltGr;
-    size_t nIndex = KEYMAP_INDEX(nCombinator, modifiers, keyCode);
-
-    KM_NOTICE(
-        "idx=" << nIndex << ", mods=" << modifiers << ", code=" << keyCode);
-
-    // Now walk the sparse tree
-    size_t bisect = (KEYMAP_MAX_INDEX + 1) / 2;
-    size_t size = (KEYMAP_MAX_INDEX + 1) / 2;
-    SparseEntry *pSparse = m_pSparseTable;
-    size_t nDataIndex = 0;
-    while (true)
-    {
-        if (nIndex < bisect)
-        {
-            if (!pSparse->left)
-                return 0;
-            if (pSparse->left & SparseEntry::DataFlag)
-            {
-                size_t nOffset = nIndex - (bisect - size);
-                nDataIndex = (pSparse->left & ~SparseEntry::DataFlag) +
-                             nOffset * sizeof(KeymapEntry);
-                break;
-            }
-            size /= 2;
-            bisect = bisect - size;
-            pSparse = &m_pSparseTable[pSparse->left / sizeof(SparseEntry)];
-        }
-        else
-        {
-            if (!pSparse->right)
-                return 0;
-            if (pSparse->right & SparseEntry::DataFlag)
-            {
-                size_t nOffset = nIndex - bisect;
-                nDataIndex = (pSparse->right & ~SparseEntry::DataFlag) +
-                             nOffset * sizeof(KeymapEntry);
-                break;
-            }
-            size /= 2;
-            bisect = bisect + size;
-            pSparse = &m_pSparseTable[pSparse->right / sizeof(SparseEntry)];
-        }
-    }
-
-    // Return the found keymap entry
-    return &m_pDataTable[nDataIndex / sizeof(KeymapEntry)];
+  // Return the found keymap entry
+  return &m_pDataTable[nDataIndex / sizeof(KeymapEntry)];
 }
 
 // These tables originated from qemu
 // Copyright (c) 2007 OpenMoko, Inc.  (andrew@openedhand.com)
 static const uint8_t pc102ToHidTableNormal[] = {
-    0x00, 0x29, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
-    0x2d, 0x2e, 0x2a, 0x2b, 0x14, 0x1a, 0x08, 0x15, 0x17, 0x1c, 0x18, 0x0c,
-    0x12, 0x13, 0x2f, 0x30, 0x28, 0xe0, 0x04, 0x16, 0x07, 0x09, 0x0a, 0x0b,
-    0x0d, 0x0e, 0x0f, 0x33, 0x34, 0x35, 0xe1, 0x31, 0x1d, 0x1b, 0x06, 0x19,
-    0x05, 0x11, 0x10, 0x36, 0x37, 0x38, 0xe5, 0x55, 0xe2, 0x2c, 0x39, 0x3a,
-    0x3b, 0x3c, 0x3d, 0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43, 0x53, 0x47, 0x5f,
-    0x60, 0x61, 0x56, 0x5c, 0x5d, 0x5e, 0x57, 0x59, 0x5a, 0x5b, 0x62, 0x63,
-    0x00, 0x00, 0x64, 0x44, 0x45, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e,
-    0x00, 0x00, 0x71, 0x72, 0x73, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x85,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0xe3, 0xe7, 0x65};
+    0x00, 0x29, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2d, 0x2e, 0x2a, 0x2b,
+    0x14, 0x1a, 0x08, 0x15, 0x17, 0x1c, 0x18, 0x0c, 0x12, 0x13, 0x2f, 0x30, 0x28, 0xe0, 0x04, 0x16,
+    0x07, 0x09, 0x0a, 0x0b, 0x0d, 0x0e, 0x0f, 0x33, 0x34, 0x35, 0xe1, 0x31, 0x1d, 0x1b, 0x06, 0x19,
+    0x05, 0x11, 0x10, 0x36, 0x37, 0x38, 0xe5, 0x55, 0xe2, 0x2c, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e,
+    0x3f, 0x40, 0x41, 0x42, 0x43, 0x53, 0x47, 0x5f, 0x60, 0x61, 0x56, 0x5c, 0x5d, 0x5e, 0x57, 0x59,
+    0x5a, 0x5b, 0x62, 0x63, 0x00, 0x00, 0x64, 0x44, 0x45, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e,
+    0x00, 0x00, 0x71, 0x72, 0x73, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x85, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xe3, 0xe7, 0x65};
 
 static const uint8_t pc102ToHidTableEscape[] = {
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x58, 0xe4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x54, 0x00, 0x46, 0xe6, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0x4a,
-    0x52, 0x4b, 0x00, 0x50, 0x00, 0x4f, 0x00, 0x4d, 0x51, 0x4e, 0x49, 0x4c,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x58, 0xe4, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x54, 0x00, 0x46, 0xe6, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0x4a, 0x52, 0x4b, 0x00, 0x50, 0x00, 0x4f, 0x00, 0x4d,
+    0x51, 0x4e, 0x49, 0x4c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-uint8_t KeymapManager::convertPc102ScancodeToHidKeycode(
-    uint8_t scancode, EscapeState &escape)
-{
-    // Handle escape scancode 0xE0
-    if (scancode == 0xE0)
-    {
-        escape = EscapeE0;
-        return 0;
-    }
+uint8_t KeymapManager::convertPc102ScancodeToHidKeycode(uint8_t scancode, EscapeState& escape) {
+  // Handle escape scancode 0xE0
+  if (scancode == 0xE0) {
+    escape = EscapeE0;
+    return 0;
+  }
 
-    // Handle escape scancode 0xE1
-    if (scancode == 0xE1)
-    {
-        escape = EscapeE1;
-        return 0;
-    }
+  // Handle escape scancode 0xE1
+  if (scancode == 0xE1) {
+    escape = EscapeE1;
+    return 0;
+  }
 
-    // Treat 0xE1 0x1D as 0xE0 (escape scancode)
-    if (scancode == 0x1D && escape == EscapeE1)
-    {
-        escape = EscapeE0;
-        return 0;
-    }
+  // Treat 0xE1 0x1D as 0xE0 (escape scancode)
+  if (scancode == 0x1D && escape == EscapeE1) {
+    escape = EscapeE0;
+    return 0;
+  }
 
-    if (escape)
-    {
-        escape = EscapeNone;
-        KM_NOTICE(
-            "keymap: using escape table to convert PC102 scancode "
-            << scancode);
-        return pc102ToHidTableEscape[scancode & 0x7F];
-    }
-    else
-    {
-        KM_NOTICE(
-            "keymap: using normal table to convert PC102 scancode "
-            << scancode);
-        return pc102ToHidTableNormal[scancode & 0x7F];
-    }
+  if (escape) {
+    escape = EscapeNone;
+    KM_NOTICE("keymap: using escape table to convert PC102 scancode " << scancode);
+    return pc102ToHidTableEscape[scancode & 0x7F];
+  } else {
+    KM_NOTICE("keymap: using normal table to convert PC102 scancode " << scancode);
+    return pc102ToHidTableNormal[scancode & 0x7F];
+  }
 }

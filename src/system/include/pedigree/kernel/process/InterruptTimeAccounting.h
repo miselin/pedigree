@@ -17,22 +17,20 @@ class Thread;
  * fixed lock-free Thread/Process accounting publication path. Timer mutation
  * and signal delivery belong to the ordinary accounting worker.
  */
-class InterruptTimeAccounting
-{
-  public:
-    explicit InterruptTimeAccounting(bool fromUserspace);
-    ~InterruptTimeAccounting();
+class InterruptTimeAccounting {
+ public:
+  explicit InterruptTimeAccounting(bool fromUserspace);
+  ~InterruptTimeAccounting();
 
-    /** Charges the completed return tail and begins the next user slice. */
-    static void finishUserReturn(Thread *thread);
+  /** Charges the completed return tail and begins the next user slice. */
+  static void finishUserReturn(Thread* thread);
 
-  private:
-    Thread *m_pThread;
-    bool m_bFromUserspace;
+ private:
+  Thread* m_pThread;
+  bool m_bFromUserspace;
 
-    InterruptTimeAccounting(const InterruptTimeAccounting &) = delete;
-    InterruptTimeAccounting &operator=(
-        const InterruptTimeAccounting &) = delete;
+  InterruptTimeAccounting(const InterruptTimeAccounting&) = delete;
+  InterruptTimeAccounting& operator=(const InterruptTimeAccounting&) = delete;
 };
 
 #endif

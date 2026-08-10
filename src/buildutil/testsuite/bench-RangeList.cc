@@ -19,55 +19,48 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/utilities/RangeList.h"
+
 #include <cstdlib>
 #include <ctime>
 
 #include <benchmark/benchmark.h>
 
-#include "pedigree/kernel/utilities/RangeList.h"
-
 #define RANDOM_MAX 0x10000
 
-static const int RandomNumber()
-{
-    static bool seeded = false;
-    if (!seeded)
-    {
-        srand(time(0));
-        seeded = true;
-    }
+static const int RandomNumber() {
+  static bool seeded = false;
+  if (!seeded) {
+    srand(time(0));
+    seeded = true;
+  }
 
-    // Artificially limit the random number range so we get collisions.
-    return rand() % RANDOM_MAX;
+  // Artificially limit the random number range so we get collisions.
+  return rand() % RANDOM_MAX;
 }
 
-static void BM_RangeListAllocate(benchmark::State &state)
-{
-    RangeList<int64_t> list;
-    while (state.KeepRunning())
-    {
-        int64_t addr = 0;
-        if (!list.allocate(1, addr))
-        {
-            state.PauseTiming();
-            list.free(0, 0x100000);
-            state.ResumeTiming();
-        }
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-}
-
-static void BM_RangeListFree(benchmark::State &state)
-{
-    RangeList<int64_t> list;
+static void BM_RangeListAllocate(benchmark::State& state) {
+  RangeList<int64_t> list;
+  while (state.KeepRunning()) {
     int64_t addr = 0;
-    while (state.KeepRunning())
-    {
-        list.free(addr++, 1);
+    if (!list.allocate(1, addr)) {
+      state.PauseTiming();
+      list.free(0, 0x100000);
+      state.ResumeTiming();
     }
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_RangeListFree(benchmark::State& state) {
+  RangeList<int64_t> list;
+  int64_t addr = 0;
+  while (state.KeepRunning()) {
+    list.free(addr++, 1);
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
 BENCHMARK(BM_RangeListAllocate);

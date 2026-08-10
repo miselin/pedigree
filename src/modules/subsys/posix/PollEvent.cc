@@ -18,69 +18,61 @@
  */
 
 #include "modules/subsys/posix/PollEvent.h"
-#include "modules/system/vfs/File.h"
 #include "pedigree/kernel/Log.h"
 
-static void pollEventHandler(uint8_t *pBuffer);
+#include "modules/system/vfs/File.h"
 
-PollEvent::PollEvent()
-    : Event(0, false), m_pSemaphore(0), m_pFd(0), m_nREvent(0), m_pFile(0)
-{
-}
+static void pollEventHandler(uint8_t* pBuffer);
 
-PollEvent::PollEvent(
-    Semaphore *pSemaphore, struct pollfd *fd, int revent, File *pFile)
+PollEvent::PollEvent() : Event(0, false), m_pSemaphore(0), m_pFd(0), m_nREvent(0), m_pFile(0) {}
+
+PollEvent::PollEvent(Semaphore* pSemaphore, struct pollfd* fd, int revent, File* pFile)
     : Event(reinterpret_cast<uintptr_t>(&pollEventHandler), false),
-      m_pSemaphore(pSemaphore), m_pFd(fd), m_nREvent(revent), m_pFile(pFile)
-{
-    assert(pSemaphore);
+      m_pSemaphore(pSemaphore),
+      m_pFd(fd),
+      m_nREvent(revent),
+      m_pFile(pFile) {
+  assert(pSemaphore);
 }
 
-PollEvent::~PollEvent()
-{
+PollEvent::~PollEvent() {}
+
+void PollEvent::fire() {
+  m_pFd->revents |= m_nREvent;
+
+  m_pSemaphore->release();
 }
 
-void PollEvent::fire()
-{
-    m_pFd->revents |= m_nREvent;
+size_t PollEvent::serialize(uint8_t* pBuffer) {
+  void* alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
+  size_t* pBuf = reinterpret_cast<size_t*>(alignedBuffer);
+  pBuf[0] = EventNumbers::PollEvent;
+  pBuf[1] = reinterpret_cast<size_t>(m_pSemaphore);
+  pBuf[2] = reinterpret_cast<size_t>(m_pFd);
+  pBuf[3] = static_cast<size_t>(m_nREvent);
+  pBuf[4] = reinterpret_cast<size_t>(m_pFile);
 
-    m_pSemaphore->release();
+  return 5 * sizeof(size_t);
 }
 
-size_t PollEvent::serialize(uint8_t *pBuffer)
-{
-    void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBuf = reinterpret_cast<size_t *>(alignedBuffer);
-    pBuf[0] = EventNumbers::PollEvent;
-    pBuf[1] = reinterpret_cast<size_t>(m_pSemaphore);
-    pBuf[2] = reinterpret_cast<size_t>(m_pFd);
-    pBuf[3] = static_cast<size_t>(m_nREvent);
-    pBuf[4] = reinterpret_cast<size_t>(m_pFile);
+bool PollEvent::unserialize(uint8_t* pBuffer, PollEvent& event) {
+  void* alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
+  size_t* pBuf = reinterpret_cast<size_t*>(alignedBuffer);
+  if (pBuf[0] != EventNumbers::PollEvent)
+    return false;
 
-    return 5 * sizeof(size_t);
+  event.m_pSemaphore = reinterpret_cast<Semaphore*>(pBuf[1]);
+  event.m_pFd = reinterpret_cast<struct pollfd*>(pBuf[2]);
+  event.m_nREvent = static_cast<int>(pBuf[3]);
+  event.m_pFile = reinterpret_cast<File*>(pBuf[4]);
+
+  return true;
 }
 
-bool PollEvent::unserialize(uint8_t *pBuffer, PollEvent &event)
-{
-    void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBuf = reinterpret_cast<size_t *>(alignedBuffer);
-    if (pBuf[0] != EventNumbers::PollEvent)
-        return false;
-
-    event.m_pSemaphore = reinterpret_cast<Semaphore *>(pBuf[1]);
-    event.m_pFd = reinterpret_cast<struct pollfd *>(pBuf[2]);
-    event.m_nREvent = static_cast<int>(pBuf[3]);
-    event.m_pFile = reinterpret_cast<File *>(pBuf[4]);
-
-    return true;
-}
-
-void pollEventHandler(uint8_t *pBuffer)
-{
-    PollEvent e;
-    if (!PollEvent::unserialize(pBuffer, e))
-    {
-        FATAL("PollEventHandler: unable to unserialize event!");
-    }
-    e.fire();
+void pollEventHandler(uint8_t* pBuffer) {
+  PollEvent e;
+  if (!PollEvent::unserialize(pBuffer, e)) {
+    FATAL("PollEventHandler: unable to unserialize event!");
+  }
+  e.fire();
 }

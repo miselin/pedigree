@@ -17,29 +17,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/utilities/new"
+
 #include "FtdiSerialDevice.h"
 #include "modules/Module.h"
 #include "modules/system/usb/UsbPnP.h"
-#include "pedigree/kernel/utilities/new"
 
 class UsbDevice;
 
 static UsbPnP::Registration g_Registration;
 
-static UsbDevice *ftdiConnected(UsbDevice *pDevice)
-{
-    return new FtdiSerialDevice(pDevice);
+static UsbDevice* ftdiConnected(UsbDevice* pDevice) {
+  return new FtdiSerialDevice(pDevice);
 }
 
-static bool entry()
-{
-    return UsbPnP::instance().registerCallback(
-        0x0403, 0x6001, ftdiConnected, g_Registration);
+static bool entry() {
+  return UsbPnP::instance().registerCallback(0x0403, 0x6001, ftdiConnected, g_Registration);
 }
 
-static void exit()
-{
-    g_Registration.reset();
+static void exit() {
+  g_Registration.reset();
 }
 
 MODULE_INFO("ftdi", &entry, &exit, "usb");

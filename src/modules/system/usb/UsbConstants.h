@@ -22,65 +22,43 @@
 
 #include "pedigree/kernel/processor/types.h"
 
-namespace UsbRequestType
-{
-enum RequestType
-{
-    Standard = 0x00,
-    Class = 0x20,
-    Vendor = 0x40
+namespace UsbRequestType {
+enum RequestType { Standard = 0x00, Class = 0x20, Vendor = 0x40 };
+};
+
+namespace UsbRequestRecipient {
+enum RequestRecipient { Device = 0x00, Interface = 0x01, Endpoint = 0x02, Other = 0x03 };
+};
+
+namespace UsbRequestDirection {
+enum RequestDirection { Out = 0x00, In = 0x80 };
+};
+
+namespace UsbRequest {
+enum Request {
+  GetStatus = 0,
+  ClearFeature = 1,
+  SetFeature = 3,
+  SetAddress = 5,
+  GetDescriptor = 6,
+  SetDescriptor = 7,
+  GetConfiguration = 8,
+  SetConfiguration = 9,
+  GetInterface = 10,
+  SetInterface = 11,
+  SynchFrame = 12,
 };
 };
 
-namespace UsbRequestRecipient
-{
-enum RequestRecipient
-{
-    Device = 0x00,
-    Interface = 0x01,
-    Endpoint = 0x02,
-    Other = 0x03
-};
-};
-
-namespace UsbRequestDirection
-{
-enum RequestDirection
-{
-    Out = 0x00,
-    In = 0x80
-};
-};
-
-namespace UsbRequest
-{
-enum Request
-{
-    GetStatus = 0,
-    ClearFeature = 1,
-    SetFeature = 3,
-    SetAddress = 5,
-    GetDescriptor = 6,
-    SetDescriptor = 7,
-    GetConfiguration = 8,
-    SetConfiguration = 9,
-    GetInterface = 10,
-    SetInterface = 11,
-    SynchFrame = 12,
-};
-};
-
-namespace UsbDescriptor
-{
-enum Descriptor
-{
-    Device = 1,
-    Configuration = 2,
-    String = 3,
-    Interface = 4,
-    Endpoint = 5,
-    DeviceQualifier = 6,
-    OtherSpeedConfiguration = 7,
+namespace UsbDescriptor {
+enum Descriptor {
+  Device = 1,
+  Configuration = 2,
+  String = 3,
+  Interface = 4,
+  Endpoint = 5,
+  DeviceQualifier = 6,
+  OtherSpeedConfiguration = 7,
 };
 };
 

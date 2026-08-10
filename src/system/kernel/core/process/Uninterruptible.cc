@@ -17,18 +17,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
 Uninterruptible::Uninterruptible()
-    : m_pThread(Processor::information().getCurrentThread()), m_Record()
-{
-    m_pThread->registerDeferredScope(m_Record, true, true);
+    : m_pThread(Processor::information().getCurrentThread()), m_Record() {
+  m_pThread->registerDeferredScope(m_Record, true, true);
 }
 
-Uninterruptible::~Uninterruptible()
-{
-    m_pThread->unregisterDeferredScope(m_Record);
+Uninterruptible::~Uninterruptible() {
+  m_pThread->unregisterDeferredScope(m_Record);
 }

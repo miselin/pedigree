@@ -19,93 +19,83 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/utilities/Cord.h"
+#include "pedigree/kernel/utilities/StaticCord.h"
+
 #include <string.h>
 
 #include <benchmark/benchmark.h>
 
-#include "pedigree/kernel/utilities/Cord.h"
-#include "pedigree/kernel/utilities/StaticCord.h"
+static void BM_CordIndexing(benchmark::State& state) {
+  Cord str;
+  str.append("he", 2);
+  str.append("ll", 2);
+  str.append("o ", 2);
+  str.append("wo", 2);
+  str.append("rl", 2);
+  str.append("d!", 2);
 
-static void BM_CordIndexing(benchmark::State &state)
-{
-    Cord str;
-    str.append("he", 2);
-    str.append("ll", 2);
-    str.append("o ", 2);
-    str.append("wo", 2);
-    str.append("rl", 2);
-    str.append("d!", 2);
+  uint64_t i = 0;
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(str[i++ % str.length()]);
+  }
 
-    uint64_t i = 0;
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(str[i++ % str.length()]);
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CordIteration(benchmark::State &state)
-{
-    Cord str;
-    str.append("he", 2);
-    str.append("ll", 2);
-    str.append("o ", 2);
-    str.append("wo", 2);
-    str.append("rl", 2);
-    str.append("d!", 2);
+static void BM_CordIteration(benchmark::State& state) {
+  Cord str;
+  str.append("he", 2);
+  str.append("ll", 2);
+  str.append("o ", 2);
+  str.append("wo", 2);
+  str.append("rl", 2);
+  str.append("d!", 2);
 
-    uint64_t i = 0;
-    while (state.KeepRunning())
-    {
-        for (auto it : str)
-        {
-            benchmark::DoNotOptimize(it);
-        }
+  uint64_t i = 0;
+  while (state.KeepRunning()) {
+    for (auto it : str) {
+      benchmark::DoNotOptimize(it);
     }
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations() * str.length()));
+  state.SetItemsProcessed(int64_t(state.iterations() * str.length()));
 }
 
-static void BM_StaticCordIndexing(benchmark::State &state)
-{
-    StaticCord<8> str;
-    str.append("he", 2);
-    str.append("ll", 2);
-    str.append("o ", 2);
-    str.append("wo", 2);
-    str.append("rl", 2);
-    str.append("d!", 2);
+static void BM_StaticCordIndexing(benchmark::State& state) {
+  StaticCord<8> str;
+  str.append("he", 2);
+  str.append("ll", 2);
+  str.append("o ", 2);
+  str.append("wo", 2);
+  str.append("rl", 2);
+  str.append("d!", 2);
 
-    uint64_t i = 0;
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(str[i++ % str.length()]);
-    }
+  uint64_t i = 0;
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(str[i++ % str.length()]);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_StaticCordIteration(benchmark::State &state)
-{
-    StaticCord<8> str;
-    str.append("he", 2);
-    str.append("ll", 2);
-    str.append("o ", 2);
-    str.append("wo", 2);
-    str.append("rl", 2);
-    str.append("d!", 2);
+static void BM_StaticCordIteration(benchmark::State& state) {
+  StaticCord<8> str;
+  str.append("he", 2);
+  str.append("ll", 2);
+  str.append("o ", 2);
+  str.append("wo", 2);
+  str.append("rl", 2);
+  str.append("d!", 2);
 
-    uint64_t i = 0;
-    while (state.KeepRunning())
-    {
-        for (auto it : str)
-        {
-            benchmark::DoNotOptimize(it);
-        }
+  uint64_t i = 0;
+  while (state.KeepRunning()) {
+    for (auto it : str) {
+      benchmark::DoNotOptimize(it);
     }
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations() * str.length()));
+  state.SetItemsProcessed(int64_t(state.iterations() * str.length()));
 }
 
 BENCHMARK(BM_CordIndexing);

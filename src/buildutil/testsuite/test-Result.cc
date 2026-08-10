@@ -19,22 +19,20 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/utilities/Result.h"
 
-TEST(PedigreeResult, OkState)
-{
-    Result<int, int> r = Result<int, int>::withValue(1024);
-    EXPECT_EQ(r.value(), 1024);
-    EXPECT_FALSE(r.hasError());
-    EXPECT_TRUE(r.hasValue());
+#include <gtest/gtest.h>
+
+TEST(PedigreeResult, OkState) {
+  Result<int, int> r = Result<int, int>::withValue(1024);
+  EXPECT_EQ(r.value(), 1024);
+  EXPECT_FALSE(r.hasError());
+  EXPECT_TRUE(r.hasValue());
 }
 
-TEST(PedigreeResult, ErrorState)
-{
-    Result<int, int> r = Result<int, int>::withError(1024);
-    EXPECT_EQ(r.error(), 1024);
-    EXPECT_TRUE(r.hasError());
-    EXPECT_FALSE(r.hasValue());
+TEST(PedigreeResult, ErrorState) {
+  Result<int, int> r = Result<int, int>::withError(1024);
+  EXPECT_EQ(r.error(), 1024);
+  EXPECT_TRUE(r.hasError());
+  EXPECT_FALSE(r.hasValue());
 }

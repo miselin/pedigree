@@ -30,84 +30,80 @@ class Thread;
 
 /** Provides an interface for filtering network packets as they come in to
  * the system. */
-class EXPORTED_PUBLIC NetworkFilter
-{
-  public:
-    /// Default constructor, boring.
-    NetworkFilter();
+class EXPORTED_PUBLIC NetworkFilter {
+ public:
+  /// Default constructor, boring.
+  NetworkFilter();
 
-    /// Destructor, also boring.
-    virtual ~NetworkFilter();
+  /// Destructor, also boring.
+  virtual ~NetworkFilter();
 
-    /** The design pattern everyone loves to hate! */
-    static NetworkFilter &instance()
-    {
-        return m_Instance;
-    }
+  /** The design pattern everyone loves to hate! */
+  static NetworkFilter& instance() {
+    return m_Instance;
+  }
 
-    /** Passes a Level n packet to filter callbacks.
-     * Level 1 is the lowest level, handling for example Ethernet frames.
-     * Level 2 handles the Level 1 payload. ARP, IP, and other low-level
-     *         protocols are handled here.
-     * Level 3 handles the Level 2 payload. TCP, UDP, ICMP, etc...
-     * Level 4 handles the Level 3 payload. Specific application protocols
-     * such as FTP, DNS.
-     * \todo Callbacks should be able to return a code which requests a
-     *       specific response, such as ICMP Unreachable or something,
-     *       rather than just dropping the packet.
-     * \param level Level of callback to call
-     * \param packet Packet buffer, can be modified by callbacks
-     * \param size Size of the packet. Can NOT be modified by callbacks
-     * \return False if the packet has been rejected, true otherwise.
-     */
-    bool filter(size_t level, uintptr_t packet, size_t sz);
+  /** Passes a Level n packet to filter callbacks.
+   * Level 1 is the lowest level, handling for example Ethernet frames.
+   * Level 2 handles the Level 1 payload. ARP, IP, and other low-level
+   *         protocols are handled here.
+   * Level 3 handles the Level 2 payload. TCP, UDP, ICMP, etc...
+   * Level 4 handles the Level 3 payload. Specific application protocols
+   * such as FTP, DNS.
+   * \todo Callbacks should be able to return a code which requests a
+   *       specific response, such as ICMP Unreachable or something,
+   *       rather than just dropping the packet.
+   * \param level Level of callback to call
+   * \param packet Packet buffer, can be modified by callbacks
+   * \param size Size of the packet. Can NOT be modified by callbacks
+   * \return False if the packet has been rejected, true otherwise.
+   */
+  bool filter(size_t level, uintptr_t packet, size_t sz);
 
-    /** Installs a callback for a specific level.
-     * \return An identifier which can be passed to removeCallback to
-     *         uninstall the callback, or ((size_t) -1) if unable to install.
-     */
-    size_t installCallback(size_t level, bool (*callback)(uintptr_t, size_t));
+  /** Installs a callback for a specific level.
+   * \return An identifier which can be passed to removeCallback to
+   *         uninstall the callback, or ((size_t) -1) if unable to install.
+   */
+  size_t installCallback(size_t level, bool (*callback)(uintptr_t, size_t));
 
-    /** Removes a callback for a specific level. */
-    void removeCallback(size_t level, size_t id);
+  /** Removes a callback for a specific level. */
+  void removeCallback(size_t level, size_t id);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    using CallbackPinHook = void (*)(bool (*)(uintptr_t, size_t), size_t);
-    static void setCallbackPinHook(CallbackPinHook hook);
+  using CallbackPinHook = void (*)(bool (*)(uintptr_t, size_t), size_t);
+  static void setCallbackPinHook(CallbackPinHook hook);
 #endif
 
-  private:
-    struct CallbackItem
-    {
-        size_t id;
-        bool (*callback)(uintptr_t, size_t);
-        size_t inFlight;
-        size_t removers;
-        bool enabled;
-        bool draining;
-        bool deferredRemoval;
-        WaitQueue drainWaiters;
-    };
+ private:
+  struct CallbackItem {
+    size_t id;
+    bool (*callback)(uintptr_t, size_t);
+    size_t inFlight;
+    size_t removers;
+    bool enabled;
+    bool draining;
+    bool deferredRemoval;
+    WaitQueue drainWaiters;
+  };
 
-    struct ActiveInvocation
-    {
-        CallbackItem *item;
-        Thread *thread;
-        ActiveInvocation *next;
-    };
+  struct ActiveInvocation {
+    CallbackItem* item;
+    Thread* thread;
+    ActiveInvocation* next;
+  };
 
-    void drainCallback(size_t level, CallbackItem *item);
-    bool isSelfRemoval(CallbackItem *item, Thread *thread) const;
+  void drainCallback(size_t level, CallbackItem* item);
+  bool isSelfRemoval(CallbackItem* item, Thread* thread) const;
 
-    static NetworkFilter m_Instance;
+  static NetworkFilter m_Instance;
 
-    List<CallbackItem *> m_Callbacks[4];
-    Spinlock m_Lock;
-    size_t m_NextCallbackId;
-    ActiveInvocation *m_pActiveInvocations;
+  List<CallbackItem*> m_Callbacks[4];
+  Spinlock m_Lock;
+  size_t m_NextCallbackId;
+  ActiveInvocation* m_pActiveInvocations;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    static CallbackPinHook m_CallbackPinHook;
+  static CallbackPinHook m_CallbackPinHook;
 #endif
 };
 

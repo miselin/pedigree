@@ -19,56 +19,53 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/linker/SymbolTable.h"
 
-TEST(PedigreeSymbolTable, KernelLookup)
-{
-    SymbolTable symbolTable(nullptr);
+#include <gtest/gtest.h>
 
-    symbolTable.insert(String("lsym"), SymbolTable::Local, nullptr, 0xabcd1);
-    symbolTable.insert(String("gsym"), SymbolTable::Global, nullptr, 0xabcd2);
-    symbolTable.insert(String("wsym"), SymbolTable::Weak, nullptr, 0xabcd3);
+TEST(PedigreeSymbolTable, KernelLookup) {
+  SymbolTable symbolTable(nullptr);
 
-    EXPECT_EQ(symbolTable.lookup(String("lsym"), nullptr), 0xabcd1U);
-    EXPECT_EQ(symbolTable.lookup(String("gsym"), nullptr), 0xabcd2U);
-    EXPECT_EQ(symbolTable.lookup(String("wsym"), nullptr), 0xabcd3U);
+  symbolTable.insert(String("lsym"), SymbolTable::Local, nullptr, 0xabcd1);
+  symbolTable.insert(String("gsym"), SymbolTable::Global, nullptr, 0xabcd2);
+  symbolTable.insert(String("wsym"), SymbolTable::Weak, nullptr, 0xabcd3);
+
+  EXPECT_EQ(symbolTable.lookup(String("lsym"), nullptr), 0xabcd1U);
+  EXPECT_EQ(symbolTable.lookup(String("gsym"), nullptr), 0xabcd2U);
+  EXPECT_EQ(symbolTable.lookup(String("wsym"), nullptr), 0xabcd3U);
 }
 
-TEST(PedigreeSymbolTable, ElfLookup)
-{
-    Elf *elf = reinterpret_cast<Elf *>(1);
+TEST(PedigreeSymbolTable, ElfLookup) {
+  Elf* elf = reinterpret_cast<Elf*>(1);
 
-    SymbolTable symbolTable(elf);
+  SymbolTable symbolTable(elf);
 
-    symbolTable.insert(String("lsym"), SymbolTable::Local, elf, 0xabcd1);
-    symbolTable.insert(String("gsym1"), SymbolTable::Global, nullptr, 0xabcd2);
-    symbolTable.insert(String("gsym2"), SymbolTable::Global, elf, 0xabcd3);
+  symbolTable.insert(String("lsym"), SymbolTable::Local, elf, 0xabcd1);
+  symbolTable.insert(String("gsym1"), SymbolTable::Global, nullptr, 0xabcd2);
+  symbolTable.insert(String("gsym2"), SymbolTable::Global, elf, 0xabcd3);
 
-    EXPECT_EQ(symbolTable.lookup(String("lsym"), nullptr), 0U);
-    EXPECT_EQ(symbolTable.lookup(String("lsym"), elf), 0xabcd1U);
-    EXPECT_EQ(symbolTable.lookup(String("gsym1"), nullptr), 0xabcd2U);
-    EXPECT_EQ(symbolTable.lookup(String("gsym1"), elf), 0xabcd2U);
-    EXPECT_EQ(symbolTable.lookup(String("gsym2"), nullptr), 0xabcd3U);
-    EXPECT_EQ(symbolTable.lookup(String("gsym2"), elf), 0xabcd3U);
+  EXPECT_EQ(symbolTable.lookup(String("lsym"), nullptr), 0U);
+  EXPECT_EQ(symbolTable.lookup(String("lsym"), elf), 0xabcd1U);
+  EXPECT_EQ(symbolTable.lookup(String("gsym1"), nullptr), 0xabcd2U);
+  EXPECT_EQ(symbolTable.lookup(String("gsym1"), elf), 0xabcd2U);
+  EXPECT_EQ(symbolTable.lookup(String("gsym2"), nullptr), 0xabcd3U);
+  EXPECT_EQ(symbolTable.lookup(String("gsym2"), elf), 0xabcd3U);
 }
 
-TEST(PedigreeSymbolTable, EraseByElf)
-{
-    Elf *elf = reinterpret_cast<Elf *>(1);
+TEST(PedigreeSymbolTable, EraseByElf) {
+  Elf* elf = reinterpret_cast<Elf*>(1);
 
-    SymbolTable symbolTable(elf);
+  SymbolTable symbolTable(elf);
 
-    symbolTable.insert(String("lsym"), SymbolTable::Local, elf, 0xabcd1);
-    symbolTable.insert(String("gsym1"), SymbolTable::Global, nullptr, 0xabcd2);
-    symbolTable.insert(String("gsym2"), SymbolTable::Global, elf, 0xabcd3);
-    symbolTable.insert(String("wsym"), SymbolTable::Weak, elf, 0xabcd4);
+  symbolTable.insert(String("lsym"), SymbolTable::Local, elf, 0xabcd1);
+  symbolTable.insert(String("gsym1"), SymbolTable::Global, nullptr, 0xabcd2);
+  symbolTable.insert(String("gsym2"), SymbolTable::Global, elf, 0xabcd3);
+  symbolTable.insert(String("wsym"), SymbolTable::Weak, elf, 0xabcd4);
 
-    symbolTable.eraseByElf(elf);
+  symbolTable.eraseByElf(elf);
 
-    EXPECT_EQ(symbolTable.lookup(String("lsym"), elf), 0U);
-    EXPECT_EQ(symbolTable.lookup(String("gsym1"), nullptr), 0xabcd2U);
-    EXPECT_EQ(symbolTable.lookup(String("gsym2"), nullptr), 0U);
-    EXPECT_EQ(symbolTable.lookup(String("wsym"), elf), 0U);
+  EXPECT_EQ(symbolTable.lookup(String("lsym"), elf), 0U);
+  EXPECT_EQ(symbolTable.lookup(String("gsym1"), nullptr), 0xabcd2U);
+  EXPECT_EQ(symbolTable.lookup(String("gsym2"), nullptr), 0U);
+  EXPECT_EQ(symbolTable.lookup(String("wsym"), elf), 0U);
 }

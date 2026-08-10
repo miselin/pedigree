@@ -25,47 +25,42 @@
 
 extern "C" {
 
-typedef void (*__cxa_atexit_func_type)(void *);
+typedef void (*__cxa_atexit_func_type)(void*);
 
-struct __cxa_atexit_record
-{
-    __cxa_atexit_func_type func;
-    void *arg;
+struct __cxa_atexit_record {
+  __cxa_atexit_func_type func;
+  void* arg;
 };
 
-static List<__cxa_atexit_record> *g_AtExitEntries = 0;
+static List<__cxa_atexit_record>* g_AtExitEntries = 0;
 
 // We provide an implementation of __cxa_atexit for each module, so that we can
 // run the finalizers correctly.
-void __cxa_atexit(void (*f)(void *), void *arg, void *dso_handle);
-void __cxa_atexit(void (*f)(void *), void *arg, void *dso_handle)
-{
-    if (!g_AtExitEntries)
-    {
-        g_AtExitEntries = new List<__cxa_atexit_record>;
-    }
+void __cxa_atexit(void (*f)(void*), void* arg, void* dso_handle);
+void __cxa_atexit(void (*f)(void*), void* arg, void* dso_handle) {
+  if (!g_AtExitEntries) {
+    g_AtExitEntries = new List<__cxa_atexit_record>;
+  }
 
-    __cxa_atexit_record rec;
-    rec.func = f;
-    rec.arg = arg;
+  __cxa_atexit_record rec;
+  rec.func = f;
+  rec.arg = arg;
 
-    g_AtExitEntries->pushBack(rec);
+  g_AtExitEntries->pushBack(rec);
 }
 
 // This is the lowest priority we can assign a destructor. This runs on
 // termination to call all the atexit()s set up by __cxa_atexit above.
 void __perform_module_exit() __attribute__((destructor(101)));
-void __perform_module_exit()
-{
-    if (!g_AtExitEntries)
-        return;
+void __perform_module_exit() {
+  if (!g_AtExitEntries)
+    return;
 
-    for (auto it = g_AtExitEntries->begin(); it != g_AtExitEntries->end(); ++it)
-    {
-        (*it).func((*it).arg);
-    }
+  for (auto it = g_AtExitEntries->begin(); it != g_AtExitEntries->end(); ++it) {
+    (*it).func((*it).arg);
+  }
 
-    delete g_AtExitEntries;
+  delete g_AtExitEntries;
 }
 
 }  // extern "C"

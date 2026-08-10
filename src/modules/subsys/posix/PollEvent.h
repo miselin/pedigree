@@ -26,36 +26,32 @@ class File;
 class Semaphore;
 
 /** Event class for passing to File::monitor. */
-class PollEvent : public Event
-{
-  public:
-    /** The constructor takes a semaphore that it should signal when it fires,
-        and an fd_set with an index to set. */
-    PollEvent();
-    PollEvent(
-        Semaphore *pSemaphore, struct pollfd *fd, int revent, File *pFile);
-    virtual ~PollEvent();
+class PollEvent : public Event {
+ public:
+  /** The constructor takes a semaphore that it should signal when it fires,
+      and an fd_set with an index to set. */
+  PollEvent();
+  PollEvent(Semaphore* pSemaphore, struct pollfd* fd, int revent, File* pFile);
+  virtual ~PollEvent();
 
-    void fire();
+  void fire();
 
-    File *getFile()
-    {
-        return m_pFile;
-    }
+  File* getFile() {
+    return m_pFile;
+  }
 
-    //
-    // Event interface
-    //
-    virtual size_t serialize(uint8_t *pBuffer);
-    static bool unserialize(uint8_t *pBuffer, PollEvent &event);
-    virtual size_t getNumber()
-    {
-        return EventNumbers::PollEvent;
-    }
+  //
+  // Event interface
+  //
+  virtual size_t serialize(uint8_t* pBuffer);
+  static bool unserialize(uint8_t* pBuffer, PollEvent& event);
+  virtual size_t getNumber() {
+    return EventNumbers::PollEvent;
+  }
 
-  private:
-    Semaphore *m_pSemaphore;
-    struct pollfd *m_pFd;
-    int m_nREvent;
-    File *m_pFile;
+ private:
+  Semaphore* m_pSemaphore;
+  struct pollfd* m_pFd;
+  int m_nREvent;
+  File* m_pFile;
 };

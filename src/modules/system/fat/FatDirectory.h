@@ -20,84 +20,76 @@
 #ifndef FAT_DIRECTORY_H
 #define FAT_DIRECTORY_H
 
-#include "fat.h"
-#include "modules/system/vfs/Directory.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 
+#include "fat.h"
+#include "modules/system/vfs/Directory.h"
+
 class File;
 
 /** A File is a file, a directory or a symlink. */
-class FatDirectory : public Directory
-{
-  private:
-    /** Copy constructors are hidden - unused! */
-    FatDirectory(const FatDirectory &file);
-    FatDirectory &operator=(const FatDirectory &);
+class FatDirectory : public Directory {
+ private:
+  /** Copy constructors are hidden - unused! */
+  FatDirectory(const FatDirectory& file);
+  FatDirectory& operator=(const FatDirectory&);
 
-  public:
-    /** Constructor, should be called only by a Filesystem. */
-    FatDirectory(
-        String name, uintptr_t cluster, class FatFilesystem *pFs, File *pParent,
-        FatFileInfo &info, uint32_t dirClus = 0, uint32_t dirOffset = 0);
-    /** Destructor */
-    virtual ~FatDirectory();
+ public:
+  /** Constructor, should be called only by a Filesystem. */
+  FatDirectory(String name, uintptr_t cluster, class FatFilesystem* pFs, File* pParent,
+               FatFileInfo& info, uint32_t dirClus = 0, uint32_t dirOffset = 0);
+  /** Destructor */
+  virtual ~FatDirectory();
 
-    void truncate()
-    {
-    }
+  void truncate() {}
 
-    /** Reads directory contents into File* cache. */
-    virtual void cacheDirectoryContents();
+  /** Reads directory contents into File* cache. */
+  virtual void cacheDirectoryContents();
 
-    /** Adds a directory entry. */
-    virtual bool addEntry(String filename, File *pFile, size_t type);
-    /** Removes a directory entry. */
-    virtual bool removeEntry(File *pFile);
+  /** Adds a directory entry. */
+  virtual bool addEntry(String filename, File* pFile, size_t type);
+  /** Removes a directory entry. */
+  virtual bool removeEntry(File* pFile);
 
-    /** Updates inode attributes. */
-    void fileAttributeChanged();
+  /** Updates inode attributes. */
+  void fileAttributeChanged();
 
-    /** Set the internal cluster (in the case of FAT) */
-    virtual void setInode(uintptr_t inode);
+  /** Set the internal cluster (in the case of FAT) */
+  virtual void setInode(uintptr_t inode);
 
-    uint32_t getDirCluster()
-    {
-        return m_DirClus;
-    }
-    void setDirCluster(uint32_t custom)
-    {
-        m_DirClus = custom;
-    }
-    uint32_t getDirOffset()
-    {
-        return m_DirOffset;
-    }
-    void setDirOffset(uint32_t custom)
-    {
-        m_DirOffset = custom;
-    }
+  uint32_t getDirCluster() {
+    return m_DirClus;
+  }
+  void setDirCluster(uint32_t custom) {
+    m_DirClus = custom;
+  }
+  uint32_t getDirOffset() {
+    return m_DirOffset;
+  }
+  void setDirOffset(uint32_t custom) {
+    m_DirOffset = custom;
+  }
 
-    static const String &symlinkSuffix()
-    {
-        static String s(".__sym");
-        return s;
-    }
+  static const String& symlinkSuffix() {
+    static String s(".__sym");
+    return s;
+  }
 
-  private:
-    uint32_t m_DirClus;
-    uint32_t m_DirOffset;
+ private:
+  uint32_t m_DirClus;
+  uint32_t m_DirOffset;
 
-    FatType m_Type;
-    uintptr_t m_BlockSize;
-    bool m_bRootDir;
+  FatType m_Type;
+  uintptr_t m_BlockSize;
+  bool m_bRootDir;
 
-    /** Lock for add/remove/cache operations, so we don't break horribly. */
-    Mutex m_Lock;
+  /** Lock for add/remove/cache operations, so we don't break horribly. */
+  Mutex m_Lock;
 
-    /** Number of bytes to iterate over for this directory */
-    uint32_t m_DirBlockSize;
+  /** Number of bytes to iterate over for this directory */
+  uint32_t m_DirBlockSize;
 };
 
 #endif

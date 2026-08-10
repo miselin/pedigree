@@ -19,11 +19,8 @@
 
 #include "DynamicLinker.h"
 
-void DynamicLinker::initPlt(Elf *pElf, uintptr_t value)
-{
-}
+void DynamicLinker::initPlt(Elf* pElf, uintptr_t value) {}
 
-uintptr_t DynamicLinker::resolvePltSymbol(uintptr_t libraryId, uintptr_t symIdx)
-{
-    return 0;
+uintptr_t DynamicLinker::resolvePltSymbol(uintptr_t libraryId, uintptr_t symIdx) {
+  return 0;
 }

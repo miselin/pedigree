@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/utilities/TimeoutGuard.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/utilities/TimeoutGuard.h"
 #if THREADS
 #include "pedigree/kernel/process/Thread.h"
 #endif
@@ -30,114 +30,99 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/new"
 
-static void guardEventFired(uint8_t *pBuffer) NORETURN;
+static void guardEventFired(uint8_t* pBuffer) NORETURN;
 
 TimeoutGuard::TimeoutGuard(size_t timeoutSecs)
-    : m_pEvent(0), m_bTimedOut(false),
+    : m_pEvent(0),
+      m_bTimedOut(false),
 #if THREADS
       m_State(),
 #endif
-      m_nLevel(0), m_StateCleanupCheckpoint(0), m_Lock()
-{
+      m_nLevel(0),
+      m_StateCleanupCheckpoint(0),
+      m_Lock() {
 #if THREADS
-    if (timeoutSecs)
-    {
-        Thread *pThread = Processor::information().getCurrentThread();
+  if (timeoutSecs) {
+    Thread* pThread = Processor::information().getCurrentThread();
 
-        m_nLevel = pThread->getStateLevel();
-        m_pEvent = new TimeoutGuardEvent(this, m_nLevel);
+    m_nLevel = pThread->getStateLevel();
+    m_pEvent = new TimeoutGuardEvent(this, m_nLevel);
 
-        Machine::instance().getTimer()->addAlarm(m_pEvent, timeoutSecs);
+    Machine::instance().getTimer()->addAlarm(m_pEvent, timeoutSecs);
 
-        // Generate the SchedulerState to restore to.
-        m_StateCleanupCheckpoint =
-            pThread->stateCleanupCheckpoint();
-        Processor::saveState(m_State);
-    }
+    // Generate the SchedulerState to restore to.
+    m_StateCleanupCheckpoint = pThread->stateCleanupCheckpoint();
+    Processor::saveState(m_State);
+  }
 #else
-    WARNING("TimeoutGuard: TimeoutGuard needs thread support");
+  WARNING("TimeoutGuard: TimeoutGuard needs thread support");
 #endif
 }
 
-TimeoutGuard::~TimeoutGuard()
-{
+TimeoutGuard::~TimeoutGuard() {
 #if THREADS
-    // Stop any interrupts - now we know that we can't be preempted by
-    // our own event handler.
-    LockGuard<Spinlock> guard(m_Lock);
+  // Stop any interrupts - now we know that we can't be preempted by
+  // our own event handler.
+  LockGuard<Spinlock> guard(m_Lock);
 
-    // If the event hasn't fired yet, remove and delete it.
-    if (m_pEvent)
-    {
-        Machine::instance().getTimer()->removeAlarm(m_pEvent);
-        // Exact-event culling retains caller ownership even when the event is
-        // deletable, so cancellation has one unambiguous delete site.
-        Processor::information().getCurrentThread()->cullEvent(m_pEvent);
-        m_pEvent->waitForDeliveries();
-        delete m_pEvent;
-        m_pEvent = 0;
-    }
-#endif
-}
-
-void TimeoutGuard::cancel()
-{
-#if THREADS
-    // Called by TimeoutGuardEvent.
-    m_bTimedOut = true;
-
+  // If the event hasn't fired yet, remove and delete it.
+  if (m_pEvent) {
+    Machine::instance().getTimer()->removeAlarm(m_pEvent);
+    // Exact-event culling retains caller ownership even when the event is
+    // deletable, so cancellation has one unambiguous delete site.
+    Processor::information().getCurrentThread()->cullEvent(m_pEvent);
+    m_pEvent->waitForDeliveries();
+    delete m_pEvent;
     m_pEvent = 0;
-
-    Processor::information()
-        .getCurrentThread()
-        ->retireDeferredScopesAfter(m_StateCleanupCheckpoint);
-    Processor::restoreState(m_State);
+  }
 #endif
 }
 
-static void guardEventFired(uint8_t *pBuffer)
-{
+void TimeoutGuard::cancel() {
 #if THREADS
-    NOTICE("GuardEventFired");
-    TimeoutGuard::TimeoutGuardEvent e;
-    if (!TimeoutGuard::TimeoutGuardEvent::unserialize(pBuffer, e))
-    {
-        FATAL("guardEventFired: Event is not a TimeoutGuardEvent!");
-    }
-    e.m_pTarget->cancel();
-    NOTICE("Cancel finished");
+  // Called by TimeoutGuardEvent.
+  m_bTimedOut = true;
+
+  m_pEvent = 0;
+
+  Processor::information().getCurrentThread()->retireDeferredScopesAfter(m_StateCleanupCheckpoint);
+  Processor::restoreState(m_State);
 #endif
 }
 
-TimeoutGuard::TimeoutGuardEvent::TimeoutGuardEvent(
-    TimeoutGuard *pTarget, size_t specificNestingLevel)
-    : Event(
-          reinterpret_cast<uintptr_t>(&guardEventFired), true /* Deletable */,
-          specificNestingLevel),
-      m_pTarget(pTarget)
-{
+static void guardEventFired(uint8_t* pBuffer) {
+#if THREADS
+  NOTICE("GuardEventFired");
+  TimeoutGuard::TimeoutGuardEvent e;
+  if (!TimeoutGuard::TimeoutGuardEvent::unserialize(pBuffer, e)) {
+    FATAL("guardEventFired: Event is not a TimeoutGuardEvent!");
+  }
+  e.m_pTarget->cancel();
+  NOTICE("Cancel finished");
+#endif
 }
 
-TimeoutGuard::TimeoutGuardEvent::~TimeoutGuardEvent()
-{
+TimeoutGuard::TimeoutGuardEvent::TimeoutGuardEvent(TimeoutGuard* pTarget,
+                                                   size_t specificNestingLevel)
+    : Event(reinterpret_cast<uintptr_t>(&guardEventFired), true /* Deletable */,
+            specificNestingLevel),
+      m_pTarget(pTarget) {}
+
+TimeoutGuard::TimeoutGuardEvent::~TimeoutGuardEvent() {}
+
+size_t TimeoutGuard::TimeoutGuardEvent::serialize(uint8_t* pBuffer) {
+  void* alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
+  size_t* pBufferSize_t = reinterpret_cast<size_t*>(alignedBuffer);
+  pBufferSize_t[0] = EventNumbers::TimeoutGuard;
+  pBufferSize_t[1] = reinterpret_cast<size_t>(m_pTarget);
+  return 2 * sizeof(size_t);
 }
 
-size_t TimeoutGuard::TimeoutGuardEvent::serialize(uint8_t *pBuffer)
-{
-    void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBufferSize_t = reinterpret_cast<size_t *>(alignedBuffer);
-    pBufferSize_t[0] = EventNumbers::TimeoutGuard;
-    pBufferSize_t[1] = reinterpret_cast<size_t>(m_pTarget);
-    return 2 * sizeof(size_t);
-}
-
-bool TimeoutGuard::TimeoutGuardEvent::unserialize(
-    uint8_t *pBuffer, TimeoutGuardEvent &event)
-{
-    void *alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
-    size_t *pBufferSize_t = reinterpret_cast<size_t *>(alignedBuffer);
-    if (pBufferSize_t[0] != EventNumbers::TimeoutGuard)
-        return false;
-    event.m_pTarget = reinterpret_cast<TimeoutGuard *>(pBufferSize_t[1]);
-    return true;
+bool TimeoutGuard::TimeoutGuardEvent::unserialize(uint8_t* pBuffer, TimeoutGuardEvent& event) {
+  void* alignedBuffer = ASSUME_ALIGNMENT(pBuffer, sizeof(size_t));
+  size_t* pBufferSize_t = reinterpret_cast<size_t*>(alignedBuffer);
+  if (pBufferSize_t[0] != EventNumbers::TimeoutGuard)
+    return false;
+  event.m_pTarget = reinterpret_cast<TimeoutGuard*>(pBufferSize_t[1]);
+  return true;
 }

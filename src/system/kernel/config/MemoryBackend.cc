@@ -20,95 +20,74 @@
 #include "pedigree/kernel/config/MemoryBackend.h"
 #include "pedigree/kernel/utilities/new"
 
-MemoryBackend::MemoryBackend(const String &configStore)
-    : ConfigurationBackend(configStore), m_Tables(), m_TypeName("MemoryBackend")
-{
+MemoryBackend::MemoryBackend(const String& configStore)
+    : ConfigurationBackend(configStore), m_Tables(), m_TypeName("MemoryBackend") {}
+
+MemoryBackend::~MemoryBackend() {
+  ConfigurationManager::instance().removeBackend(m_ConfigStore);
 }
 
-MemoryBackend::~MemoryBackend()
-{
-    ConfigurationManager::instance().removeBackend(m_ConfigStore);
+size_t MemoryBackend::createTable(const String& table) {
+  m_Tables.insert(table, new Table());
+  return 0;
 }
 
-size_t MemoryBackend::createTable(const String &table)
-{
-    m_Tables.insert(table, new Table());
-    return 0;
+void MemoryBackend::insert(const String& table, const String& key, const ConfigValue& value) {
+  RadixTree<Table*>::LookupType result = m_Tables.lookup(table);
+  if (!result.hasValue())
+    return;
+
+  ConfigValue* pConfigValue = new ConfigValue(value);
+  result.value()->m_Rows.insert(key, pConfigValue);
 }
 
-void MemoryBackend::insert(
-    const String &table, const String &key, const ConfigValue &value)
-{
-    RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
-    if (!result.hasValue())
-        return;
+ConfigValue& MemoryBackend::select(const String& table, const String& key) {
+  static ConfigValue v;
+  v.type = Invalid;
 
-    ConfigValue *pConfigValue = new ConfigValue(value);
-    result.value()->m_Rows.insert(key, pConfigValue);
+  RadixTree<Table*>::LookupType result = m_Tables.lookup(table);
+  if (!result.hasValue())
+    return v;
+
+  RadixTree<ConfigValue*>::LookupType val = result.value()->m_Rows.lookup(key);
+  if (val.hasValue())
+    return *val.value();
+  else
+    return v;
 }
 
-ConfigValue &MemoryBackend::select(const String &table, const String &key)
-{
-    static ConfigValue v;
-    v.type = Invalid;
+void MemoryBackend::watch(const String& table, const String& key, ConfigurationWatcher watcher) {
+  RadixTree<Table*>::LookupType result = m_Tables.lookup(table);
+  if (!result.hasValue())
+    return;
 
-    RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
-    if (!result.hasValue())
-        return v;
-
-    RadixTree<ConfigValue *>::LookupType val =
-        result.value()->m_Rows.lookup(key);
-    if (val.hasValue())
-        return *val.value();
-    else
-        return v;
-}
-
-void MemoryBackend::watch(
-    const String &table, const String &key, ConfigurationWatcher watcher)
-{
-    RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
-    if (!result.hasValue())
-        return;
-
-    RadixTree<ConfigValue *>::LookupType val =
-        result.value()->m_Rows.lookup(key);
-    if (val.hasValue())
-    {
-        for (int i = 0; i < MAX_WATCHERS; i++)
-        {
-            if (val.value()->watchers[i] == 0)
-            {
-                val.value()->watchers[i] = watcher;
-                break;
-            }
-        }
+  RadixTree<ConfigValue*>::LookupType val = result.value()->m_Rows.lookup(key);
+  if (val.hasValue()) {
+    for (int i = 0; i < MAX_WATCHERS; i++) {
+      if (val.value()->watchers[i] == 0) {
+        val.value()->watchers[i] = watcher;
+        break;
+      }
     }
+  }
 }
 
-void MemoryBackend::unwatch(
-    const String &table, const String &key, ConfigurationWatcher watcher)
-{
-    RadixTree<Table *>::LookupType result = m_Tables.lookup(table);
-    if (!result.hasValue())
-        return;
+void MemoryBackend::unwatch(const String& table, const String& key, ConfigurationWatcher watcher) {
+  RadixTree<Table*>::LookupType result = m_Tables.lookup(table);
+  if (!result.hasValue())
+    return;
 
-    RadixTree<ConfigValue *>::LookupType val =
-        result.value()->m_Rows.lookup(key);
-    if (val.hasValue())
-    {
-        for (int i = 0; i < MAX_WATCHERS; i++)
-        {
-            if (val.value()->watchers[i] == watcher)
-            {
-                val.value()->watchers[i] = 0;
-                break;
-            }
-        }
+  RadixTree<ConfigValue*>::LookupType val = result.value()->m_Rows.lookup(key);
+  if (val.hasValue()) {
+    for (int i = 0; i < MAX_WATCHERS; i++) {
+      if (val.value()->watchers[i] == watcher) {
+        val.value()->watchers[i] = 0;
+        break;
+      }
     }
+  }
 }
 
-const String &MemoryBackend::getTypeName()
-{
-    return m_TypeName;
+const String& MemoryBackend::getTypeName() {
+  return m_TypeName;
 }

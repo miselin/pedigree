@@ -17,45 +17,42 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "3Com90x.h"
-#include "modules/Module.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "3Com90x.h"
+#include "modules/Module.h"
+
 class Network;
 
-struct nic
-{
-    uint16_t vendor, device;
-    const char *type;
-    const char *desc;
+struct nic {
+  uint16_t vendor, device;
+  const char* type;
+  const char* desc;
 };
 
 static struct nic potential_nics[] = {
     /* Original 90x revisions: */
-    {0x10b7, 0x9000, "3c905-tpo", "3Com900-TPO"},  /* 10 Base TPO */
-    {0x10b7, 0x9001, "3c905-t4", "3Com900-Combo"}, /* 10/100 T4 */
-    {0x10b7, 0x9050, "3c905-tpo100",
-     "3Com905-TX"}, /* 100 Base TX / 10/100 TPO */
-    {0x10b7, 0x9051, "3c905-combo",
-     "3Com905-T4"}, /* 100 Base T4 / 10 Base Combo */
+    {0x10b7, 0x9000, "3c905-tpo", "3Com900-TPO"},   /* 10 Base TPO */
+    {0x10b7, 0x9001, "3c905-t4", "3Com900-Combo"},  /* 10/100 T4 */
+    {0x10b7, 0x9050, "3c905-tpo100", "3Com905-TX"}, /* 100 Base TX / 10/100 TPO */
+    {0x10b7, 0x9051, "3c905-combo", "3Com905-T4"},  /* 100 Base T4 / 10 Base Combo */
     /* Newer 90xB revisions: */
     {0x10b7, 0x9004, "3c905b-tpo", "3Com900B-TPO"},     /* 10 Base TPO */
     {0x10b7, 0x9005, "3c905b-combo", "3Com900B-Combo"}, /* 10 Base Combo */
-    {0x10b7, 0x9006, "3c905b-tpb2", "3Com900B-2/T"},  /* 10 Base TP and Base2 */
-    {0x10b7, 0x900a, "3c905b-fl", "3Com900B-FL"},     /* 10 Base FL */
-    {0x10b7, 0x9055, "3c905b-tpo100", "3Com905B-TX"}, /* 10/100 TPO */
-    {0x10b7, 0x9056, "3c905b-t4", "3Com905B-T4"},     /* 10/100 T4 */
-    {0x10b7, 0x9058, "3c905b-9058", "3Com905B-9058"}, /* Cyclone 10/100/BNC */
-    {0x10b7, 0x905a, "3c905b-fx", "3Com905B-FL"}, /* 100 Base FX / 10 Base FX */
+    {0x10b7, 0x9006, "3c905b-tpb2", "3Com900B-2/T"},    /* 10 Base TP and Base2 */
+    {0x10b7, 0x900a, "3c905b-fl", "3Com900B-FL"},       /* 10 Base FL */
+    {0x10b7, 0x9055, "3c905b-tpo100", "3Com905B-TX"},   /* 10/100 TPO */
+    {0x10b7, 0x9056, "3c905b-t4", "3Com905B-T4"},       /* 10/100 T4 */
+    {0x10b7, 0x9058, "3c905b-9058", "3Com905B-9058"},   /* Cyclone 10/100/BNC */
+    {0x10b7, 0x905a, "3c905b-fx", "3Com905B-FL"},       /* 100 Base FX / 10 Base FX */
     /* Newer 90xC revision: */
-    {0x10b7, 0x9200, "3c905c-tpo",
-     "3Com905C-TXM"},                             /* 10/100 TPO {3C905C-TXM} */
-    {0x10b7, 0x9800, "3c980", "3Com980-Cyclone"}, /* Cyclone */
-    {0x10b7, 0x9805, "3c9805", "3Com9805"},       /* Dual Port Server Cyclone */
+    {0x10b7, 0x9200, "3c905c-tpo", "3Com905C-TXM"},   /* 10/100 TPO {3C905C-TXM} */
+    {0x10b7, 0x9800, "3c980", "3Com980-Cyclone"},     /* Cyclone */
+    {0x10b7, 0x9805, "3c9805", "3Com9805"},           /* Dual Port Server Cyclone */
     {0x10b7, 0x7646, "3csoho100-tx", "3CSOHO100-TX"}, /* Hurricane */
     {0x10b7, 0x4500, "3c450", "3Com450 HomePNA Tornado"},
 };
@@ -63,47 +60,42 @@ static struct nic potential_nics[] = {
 #define NUM_POTENTIAL_NICS (sizeof(potential_nics) / sizeof(potential_nics[0]))
 
 static bool bFound = false;
-static List<Nic3C90x *> g_Cards;
+static List<Nic3C90x*> g_Cards;
 
-static void probeDevice(Device *pDev)
-{
-    bFound = true;
+static void probeDevice(Device* pDev) {
+  bFound = true;
 
-    // Create a new node
-    Nic3C90x *pCard = new Nic3C90x(reinterpret_cast<Network *>(pDev));
-    if (!pCard->isInitialised())
-    {
-        delete pCard;
-        return;
-    }
+  // Create a new node
+  Nic3C90x* pCard = new Nic3C90x(reinterpret_cast<Network*>(pDev));
+  if (!pCard->isInitialised()) {
+    delete pCard;
+    return;
+  }
 
-    // Replace pDev with pCard
-    pCard->setParent(pDev->getParent());
-    pDev->getParent()->replaceChild(pDev, pCard);
-    g_Cards.pushBack(pCard);
+  // Replace pDev with pCard
+  pCard->setParent(pDev->getParent());
+  pDev->getParent()->replaceChild(pDev, pCard);
+  g_Cards.pushBack(pCard);
 }
 
-static bool entry()
-{
-    for (unsigned int i = 0; i < NUM_POTENTIAL_NICS; i++)
-        Device::searchByVendorIdAndDeviceId(
-            potential_nics[i].vendor, potential_nics[i].device, probeDevice);
+static bool entry() {
+  for (unsigned int i = 0; i < NUM_POTENTIAL_NICS; i++)
+    Device::searchByVendorIdAndDeviceId(potential_nics[i].vendor, potential_nics[i].device,
+                                        probeDevice);
 
-    return bFound;
+  return bFound;
 }
 
-static void exit()
-{
-    auto removeCard = [](Device *device, Device *target) {
-        return device == target ? nullptr : device;
-    };
-    auto callback = pedigree_std::make_callable(removeCard);
-    while (g_Cards.count())
-    {
-        Device *card = g_Cards.popFront();
-        Device::foreach (callback, 0, card);
-    }
-    bFound = false;
+static void exit() {
+  auto removeCard = [](Device* device, Device* target) {
+    return device == target ? nullptr : device;
+  };
+  auto callback = pedigree_std::make_callable(removeCard);
+  while (g_Cards.count()) {
+    Device* card = g_Cards.popFront();
+    Device::foreach (callback, 0, card);
+  }
+  bFound = false;
 }
 
 MODULE_INFO("3c90x", &entry, &exit, "network-stack");

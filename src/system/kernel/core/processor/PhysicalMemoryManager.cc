@@ -17,42 +17,30 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/new"
 
-PhysicalMemoryManager::PhysicalMemoryManager() : m_MemoryRegions()
-{
+PhysicalMemoryManager::PhysicalMemoryManager() : m_MemoryRegions() {}
+
+PhysicalMemoryManager::~PhysicalMemoryManager() {}
+
+size_t PhysicalMemoryManager::freePageCount() const {
+  return ~0UL;
 }
 
-PhysicalMemoryManager::~PhysicalMemoryManager()
-{
+void PhysicalMemoryManager::allocateMemoryRegionList(Vector<MemoryRegionInfo*>& MemoryRegions) {
+  for (size_t i = 0; i < m_MemoryRegions.count(); i++) {
+    MemoryRegionInfo* pMemoryRegionInfo = new MemoryRegionInfo(
+        m_MemoryRegions[i]->virtualAddress(), m_MemoryRegions[i]->physicalAddress(),
+        m_MemoryRegions[i]->size(), m_MemoryRegions[i]->name());
+    MemoryRegions.pushBack(pMemoryRegionInfo);
+  }
 }
 
-size_t PhysicalMemoryManager::freePageCount() const
-{
-    return ~0UL;
-}
-
-void PhysicalMemoryManager::allocateMemoryRegionList(
-    Vector<MemoryRegionInfo *> &MemoryRegions)
-{
-    for (size_t i = 0; i < m_MemoryRegions.count(); i++)
-    {
-        MemoryRegionInfo *pMemoryRegionInfo = new MemoryRegionInfo(
-            m_MemoryRegions[i]->virtualAddress(),
-            m_MemoryRegions[i]->physicalAddress(), m_MemoryRegions[i]->size(),
-            m_MemoryRegions[i]->name());
-        MemoryRegions.pushBack(pMemoryRegionInfo);
-    }
-}
-
-void PhysicalMemoryManager::freeMemoryRegionList(
-    Vector<MemoryRegionInfo *> &MemoryRegions)
-{
-    while (MemoryRegions.count() != 0)
-    {
-        MemoryRegionInfo *pMemoryRegionInfo = MemoryRegions.popBack();
-        delete pMemoryRegionInfo;
-    }
+void PhysicalMemoryManager::freeMemoryRegionList(Vector<MemoryRegionInfo*>& MemoryRegions) {
+  while (MemoryRegions.count() != 0) {
+    MemoryRegionInfo* pMemoryRegionInfo = MemoryRegions.popBack();
+    delete pMemoryRegionInfo;
+  }
 }

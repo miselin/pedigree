@@ -20,107 +20,92 @@
 #ifndef ENVIRONMENT_H
 #define ENVIRONMENT_H
 
+#include <Widget.h>
 #include <stdint.h>
 #include <stdlib.h>
 
-#include <Widget.h>
-
-struct rgb_t
-{
-    uint8_t b;
-    uint8_t g;
-    uint8_t r;
-    uint8_t a;
+struct rgb_t {
+  uint8_t b;
+  uint8_t g;
+  uint8_t r;
+  uint8_t a;
 } __attribute__((packed));
 
-namespace Keyboard
-{
-enum KeyFlags
-{
-    Special = 1ULL << 63,
-    Ctrl = 1ULL << 62,
-    Shift = 1ULL << 61,
-    Alt = 1ULL << 60,
-    AltGr = 1ULL << 59
+namespace Keyboard {
+enum KeyFlags {
+  Special = 1ULL << 63,
+  Ctrl = 1ULL << 62,
+  Shift = 1ULL << 61,
+  Alt = 1ULL << 60,
+  AltGr = 1ULL << 59
 };
 }
 
-namespace Display
-{
+namespace Display {
 /** Describes the format of a pixel in a buffer. */
-struct PixelFormat
-{
-    uint8_t mRed;     ///< Red mask.
-    uint8_t pRed;     ///< Position of red field.
-    uint8_t mGreen;   ///< Green mask.
-    uint8_t pGreen;   ///< Position of green field.
-    uint8_t mBlue;    ///< Blue mask.
-    uint8_t pBlue;    ///< Position of blue field.
-    uint8_t mAlpha;   ///< Alpha mask.
-    uint8_t pAlpha;   ///< Position of the alpha field.
-    uint8_t nBpp;     ///< Bits per pixel (total).
-    uint32_t nPitch;  ///< Bytes per scanline.
+struct PixelFormat {
+  uint8_t mRed;     ///< Red mask.
+  uint8_t pRed;     ///< Position of red field.
+  uint8_t mGreen;   ///< Green mask.
+  uint8_t pGreen;   ///< Position of green field.
+  uint8_t mBlue;    ///< Blue mask.
+  uint8_t pBlue;    ///< Position of blue field.
+  uint8_t mAlpha;   ///< Alpha mask.
+  uint8_t pAlpha;   ///< Position of the alpha field.
+  uint8_t nBpp;     ///< Bits per pixel (total).
+  uint32_t nPitch;  ///< Bytes per scanline.
 };
 
 /** Describes a screen mode / resolution */
-struct ScreenMode
-{
-    uint32_t id;
-    uint32_t width;
-    uint32_t height;
-    uint32_t refresh;
-    uintptr_t framebuffer;
-    PixelFormat pf;
+struct ScreenMode {
+  uint32_t id;
+  uint32_t width;
+  uint32_t height;
+  uint32_t refresh;
+  uintptr_t framebuffer;
+  PixelFormat pf;
 };
 }  // namespace Display
 
-class DirtyRectangle
-{
-  public:
-    DirtyRectangle();
-    ~DirtyRectangle();
+class DirtyRectangle {
+ public:
+  DirtyRectangle();
+  ~DirtyRectangle();
 
-    void point(size_t x, size_t y);
+  void point(size_t x, size_t y);
 
-    size_t getX()
-    {
-        return m_X;
-    }
-    size_t getY()
-    {
-        return m_Y;
-    }
-    size_t getX2()
-    {
-        return m_X2;
-    }
-    size_t getY2()
-    {
-        return m_Y2;
-    }
-    size_t getWidth()
-    {
-        return m_X2 - m_X + 1;
-    }
-    size_t getHeight()
-    {
-        return m_Y2 - m_Y + 1;
-    }
+  size_t getX() {
+    return m_X;
+  }
+  size_t getY() {
+    return m_Y;
+  }
+  size_t getX2() {
+    return m_X2;
+  }
+  size_t getY2() {
+    return m_Y2;
+  }
+  size_t getWidth() {
+    return m_X2 - m_X + 1;
+  }
+  size_t getHeight() {
+    return m_Y2 - m_Y + 1;
+  }
 
-    void reset()
-    {
-        m_X = 0;
-        m_Y = 0;
-        m_X2 = 0;
-        m_X2 = 0;
-    }
+  void reset() {
+    m_X = 0;
+    m_Y = 0;
+    m_X2 = 0;
+    m_X2 = 0;
+  }
 
-  private:
-    size_t m_X, m_Y, m_X2, m_Y2;
+ private:
+  size_t m_X, m_Y, m_X2, m_Y2;
 };
 
 rgb_t interpolateColour(rgb_t col1, rgb_t col2, uint16_t a);
 
-extern void log(const char *);
+extern void log(const char*);
 
 #endif

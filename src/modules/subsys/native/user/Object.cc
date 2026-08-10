@@ -20,11 +20,8 @@
 #include "pedigree/native/Object.h"
 #include "pedigree/native/native-protocol.h"
 
-Object::Object()
-{
-}
+Object::Object() {}
 
-Object::~Object()
-{
-    unregister_object(this);
+Object::~Object() {
+  unregister_object(this);
 }

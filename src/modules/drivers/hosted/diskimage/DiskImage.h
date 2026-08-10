@@ -25,55 +25,47 @@
 #include "pedigree/kernel/utilities/Cache.h"
 
 /** Loads a disk image as a usable disk device. */
-class DiskImage : public Disk
-{
-  public:
-    DiskImage()
-        : Disk(), m_pBase(0), m_nSize(0), m_Cache(), m_CacheLock(),
-          m_nAlignPoints(0)
-    {
-    }
+class DiskImage : public Disk {
+ public:
+  DiskImage() : Disk(), m_pBase(0), m_nSize(0), m_Cache(), m_CacheLock(), m_nAlignPoints(0) {}
 
-    virtual ~DiskImage();
+  virtual ~DiskImage();
 
-    bool initialise();
+  bool initialise();
 
-    virtual void getName(String &str)
-    {
-        str.assign("Hosted disk image");
-    }
+  virtual void getName(String& str) {
+    str.assign("Hosted disk image");
+  }
 
-    virtual void dump(String &str)
-    {
-        str.assign("Hosted disk image");
-    }
+  virtual void dump(String& str) {
+    str.assign("Hosted disk image");
+  }
 
-    virtual uintptr_t read(uint64_t location);
+  virtual uintptr_t read(uint64_t location);
 
-    virtual size_t getSize() const;
+  virtual size_t getSize() const;
 
-    virtual size_t getBlockSize() const
-    {
-        return 0x10000;
-    }
+  virtual size_t getBlockSize() const {
+    return 0x10000;
+  }
 
-    virtual void align(uint64_t location);
+  virtual void align(uint64_t location);
 
-    virtual bool pin(uint64_t location);
+  virtual bool pin(uint64_t location);
 
-    virtual void unpin(uint64_t location);
+  virtual void unpin(uint64_t location);
 
-  private:
-    uint64_t getAlignmentPoint(uint64_t location) const;
-    uint64_t getPageLocation(uint64_t location) const;
+ private:
+  uint64_t getAlignmentPoint(uint64_t location) const;
+  uint64_t getPageLocation(uint64_t location) const;
 
-    void *m_pBase;
-    size_t m_nSize;
+  void* m_pBase;
+  size_t m_nSize;
 
-    Cache m_Cache;
-    Mutex m_CacheLock;
-    uint64_t m_AlignPoints[8];
-    size_t m_nAlignPoints;
+  Cache m_Cache;
+  Mutex m_CacheLock;
+  uint64_t m_AlignPoints[8];
+  size_t m_nAlignPoints;
 };
 
 #endif

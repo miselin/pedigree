@@ -17,11 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/Module.h"
-#include "modules/subsys/posix/FileDescriptor.h"
-#include "modules/subsys/posix/PosixProcess.h"
-#include "modules/subsys/posix/PosixSubsystem.h"
-#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
@@ -30,6 +25,12 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+
+#include "modules/Module.h"
+#include "modules/subsys/posix/FileDescriptor.h"
+#include "modules/subsys/posix/PosixProcess.h"
+#include "modules/subsys/posix/PosixSubsystem.h"
+#include "modules/system/vfs/VFS.h"
 #if HOSTED
 #include "pedigree/kernel/processor/hosted/smoke.h"
 #endif
@@ -40,179 +41,152 @@
 
 class File;
 
-static Thread *g_pStage2Thread = 0;
+static Thread* g_pStage2Thread = 0;
 
-static void error(const char *s)
-{
-    extern BootIO bootIO;
-    static HugeStaticString str;
-    str += s;
-    str += "\n";
-    bootIO.write(str, BootIO::Red, BootIO::Black);
-    str.clear();
+static void error(const char* s) {
+  extern BootIO bootIO;
+  static HugeStaticString str;
+  str += s;
+  str += "\n";
+  bootIO.write(str, BootIO::Red, BootIO::Black);
+  str.clear();
 }
 
-static int init_stage2(void *param)
-{
-    EMIT_IF(HOSTED)
-    {
-        if (!HOSTED_SMOKE_TESTS ||
-            !VFS::instance().find(String("/.pedigree-root")))
-        {
-            extern void system_reset();
-            NOTICE("Hosted build has no smoke-test root; shutting down.");
-            system_reset();
-            return 0;
-        }
-
-#if HOSTED
-        if (g_HostedSmokeStage == HostedSmokeRoot)
-        {
-            extern void system_reset();
-            NOTICE("HOSTED-SMOKE: root mounted");
-            system_reset();
-            return 0;
-        }
-#endif
+static int init_stage2(void* param) {
+  EMIT_IF(HOSTED) {
+    if (!HOSTED_SMOKE_TESTS || !VFS::instance().find(String("/.pedigree-root"))) {
+      extern void system_reset();
+      NOTICE("Hosted build has no smoke-test root; shutting down.");
+      system_reset();
+      return 0;
     }
 
-    bool tryingLinux = false;
-    bool directHostedSmokeCommand = false;
-
-    File *file = 0;
-
-    String init_path;
 #if HOSTED
-    directHostedSmokeCommand =
-        HOSTED_SMOKE_TESTS &&
-        ((g_HostedSmokeStage == HostedSmokeCommand) ||
-         (g_HostedSmokeStage == HostedSmokeShutdown));
+    if (g_HostedSmokeStage == HostedSmokeRoot) {
+      extern void system_reset();
+      NOTICE("HOSTED-SMOKE: root mounted");
+      system_reset();
+      return 0;
+    }
 #endif
-    init_path.assign(
-        directHostedSmokeCommand
-            ? "/usr/bin/hosted-smoke-command"
-            : "/usr/bin/init");
-    NOTICE("Searching for userspace program at " << init_path);
+  }
+
+  bool tryingLinux = false;
+  bool directHostedSmokeCommand = false;
+
+  File* file = 0;
+
+  String init_path;
+#if HOSTED
+  directHostedSmokeCommand = HOSTED_SMOKE_TESTS && ((g_HostedSmokeStage == HostedSmokeCommand) ||
+                                                    (g_HostedSmokeStage == HostedSmokeShutdown));
+#endif
+  init_path.assign(directHostedSmokeCommand ? "/usr/bin/hosted-smoke-command" : "/usr/bin/init");
+  NOTICE("Searching for userspace program at " << init_path);
+  file = VFS::instance().find(init_path);
+  if (!file && !directHostedSmokeCommand) {
+    WARNING("Did not find " << init_path << ", trying for a Linux userspace...");
+    init_path.assign("/sbin/init");
+    tryingLinux = true;
+
+    NOTICE("Searching for Linux init at " << init_path);
     file = VFS::instance().find(init_path);
-    if (!file && !directHostedSmokeCommand)
-    {
-        WARNING(
-            "Did not find " << init_path
-                            << ", trying for a Linux userspace...");
-        init_path.assign("/sbin/init");
-        tryingLinux = true;
+  }
 
-        NOTICE("Searching for Linux init at " << init_path);
-        file = VFS::instance().find(init_path);
-    }
+  if (!file) {
+    error(directHostedSmokeCommand
+              ? "failed to find hosted smoke command"
+              : "failed to find init program (tried /usr/bin/init and /sbin/init)");
+    return 1;
+  }
 
-    if (!file)
-    {
-        error(
-            directHostedSmokeCommand
-                ? "failed to find hosted smoke command"
-                : "failed to find init program (tried /usr/bin/init and /sbin/init)");
-        return 1;
-    }
+  NOTICE("Found a userspace program at " << init_path);
 
-    NOTICE("Found a userspace program at " << init_path);
-
-    Vector<String> argv, env;
-    argv.pushBack(init_path);
+  Vector<String> argv, env;
+  argv.pushBack(init_path);
 
 #if HOSTED
-    if (!tryingLinux && HOSTED_SMOKE_TESTS)
-    {
-        switch (g_HostedSmokeStage)
-        {
-            case HostedSmokeInit:
-                argv.pushBack(String("init"));
-                break;
-            case HostedSmokeCommand:
-                argv.pushBack(String("command"));
-                break;
-            case HostedSmokeShutdown:
-                argv.pushBack(String("shutdown"));
-                break;
-            default:
-                break;
-        }
+  if (!tryingLinux && HOSTED_SMOKE_TESTS) {
+    switch (g_HostedSmokeStage) {
+      case HostedSmokeInit:
+        argv.pushBack(String("init"));
+        break;
+      case HostedSmokeCommand:
+        argv.pushBack(String("command"));
+        break;
+      case HostedSmokeShutdown:
+        argv.pushBack(String("shutdown"));
+        break;
+      default:
+        break;
     }
+  }
 #endif
 
-    if (tryingLinux)
-    {
-        // Jump to runlevel 5
-        argv.pushBack(String("5"));
-    }
+  if (tryingLinux) {
+    // Jump to runlevel 5
+    argv.pushBack(String("5"));
+  }
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    Process::setInit(pProcess);
+  Process* pProcess = Processor::information().getCurrentThread()->getParent();
+  Process::setInit(pProcess);
 
-    NOTICE("Invoking userspace program at " << init_path);
-    if (!pProcess->getSubsystem()->invoke(file, init_path, argv, env))
-    {
-        error("failed to load userspace program");
-    }
+  NOTICE("Invoking userspace program at " << init_path);
+  if (!pProcess->getSubsystem()->invoke(file, init_path, argv, env)) {
+    error("failed to load userspace program");
+  }
 
-    return 0;
+  return 0;
 }
 
-static bool init()
-{
+static bool init() {
 #if THREADS
-    // Create a new process for the init process.
-    PosixProcess *pProcess = new PosixProcess(
-        Processor::information().getCurrentThread()->getParent());
+  // Create a new process for the init process.
+  PosixProcess* pProcess =
+      new PosixProcess(Processor::information().getCurrentThread()->getParent());
 
-    pProcess->setUserId(0);
-    pProcess->setGroupId(0);
-    pProcess->setEffectiveUserId(0);
-    pProcess->setEffectiveGroupId(0);
-    pProcess->setSavedUserId(0);
-    pProcess->setSavedGroupId(0);
+  pProcess->setUserId(0);
+  pProcess->setGroupId(0);
+  pProcess->setEffectiveUserId(0);
+  pProcess->setEffectiveGroupId(0);
+  pProcess->setSavedUserId(0);
+  pProcess->setSavedGroupId(0);
 
-    pProcess->description() = "init";
-    pProcess->setCwd(VFS::instance().find(String("/")));
-    pProcess->setCtty(0);
+  pProcess->description() = "init";
+  pProcess->setCwd(VFS::instance().find(String("/")));
+  pProcess->setCtty(0);
 
-    PosixSubsystem *pSubsystem = new PosixSubsystem;
-    pProcess->setSubsystem(pSubsystem);
+  PosixSubsystem* pSubsystem = new PosixSubsystem;
+  pProcess->setSubsystem(pSubsystem);
 
-    // add an empty stdout, stdin
-    File *pNull = VFS::instance().find(String("/dev/null"));
-    if (!pNull)
-    {
-        error("/dev/null does not exist");
-        return false;
-    }
+  // add an empty stdout, stdin
+  File* pNull = VFS::instance().find(String("/dev/null"));
+  if (!pNull) {
+    error("/dev/null does not exist");
+    return false;
+  }
 
-    FileDescriptor *stdinDescriptor = new FileDescriptor(pNull, 0, 0, 0, 0);
-    FileDescriptor *stdoutDescriptor = new FileDescriptor(pNull, 0, 1, 0, 0);
+  FileDescriptor* stdinDescriptor = new FileDescriptor(pNull, 0, 0, 0, 0);
+  FileDescriptor* stdoutDescriptor = new FileDescriptor(pNull, 0, 1, 0, 0);
 
-    pSubsystem->addFileDescriptor(0, stdinDescriptor);
-    pSubsystem->addFileDescriptor(1, stdoutDescriptor);
+  pSubsystem->addFileDescriptor(0, stdinDescriptor);
+  pSubsystem->addFileDescriptor(1, stdoutDescriptor);
 
-    g_pStage2Thread =
-        new Thread(pProcess, init_stage2, 0, 0, false, false, true);
-    g_pStage2Thread->setName("init");
-    pProcess->publish();
-    if (!g_pStage2Thread->start())
-    {
-        FATAL("init: delayed initial thread could not be started.");
-    }
+  g_pStage2Thread = new Thread(pProcess, init_stage2, 0, 0, false, false, true);
+  g_pStage2Thread->setName("init");
+  pProcess->publish();
+  if (!g_pStage2Thread->start()) {
+    FATAL("init: delayed initial thread could not be started.");
+  }
 
-    // wait for the other process to start before we move on with startup
-    g_pStage2Thread->join();
+  // wait for the other process to start before we move on with startup
+  g_pStage2Thread->join();
 #endif
 
-    return true;
+  return true;
 }
 
-static void destroy()
-{
-}
+static void destroy() {}
 
 #if X86_COMMON
 #define __MOD_DEPS "vfs", "posix", "linker", "users"

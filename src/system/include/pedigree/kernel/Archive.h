@@ -27,50 +27,48 @@
  * This class provides functions for extracting an archive file as made by UNIX
  * Tar.
  */
-class Archive
-{
-  public:
-    /** Constructor; takes the physical address of a Tar archive. */
-    Archive(uint8_t *pPhys, size_t sSize);
-    /** Destructor; returns the physical memory used during construction to the
-     *  physical memory pool. */
-    ~Archive();
+class Archive {
+ public:
+  /** Constructor; takes the physical address of a Tar archive. */
+  Archive(uint8_t* pPhys, size_t sSize);
+  /** Destructor; returns the physical memory used during construction to the
+   *  physical memory pool. */
+  ~Archive();
 
-    /** Returns the number of files in the archive. */
-    size_t getNumFiles();
+  /** Returns the number of files in the archive. */
+  size_t getNumFiles();
 
-    /** Returns the size of the n'th file in the archive, in bytes.
-     *  \param n The file to retrieve. */
-    size_t getFileSize(size_t n);
+  /** Returns the size of the n'th file in the archive, in bytes.
+   *  \param n The file to retrieve. */
+  size_t getFileSize(size_t n);
 
-    /** Returns the name of the n'th file in the archive, in bytes.
-     *  \param n The file to retrieve. */
-    char *getFileName(size_t n);
+  /** Returns the name of the n'th file in the archive, in bytes.
+   *  \param n The file to retrieve. */
+  char* getFileName(size_t n);
 
-    /** Returns a pointer to the first byte of the n'th file.
-     *  \param n The file to retrieve. */
-    uintptr_t *getFile(size_t n);
+  /** Returns a pointer to the first byte of the n'th file.
+   *  \param n The file to retrieve. */
+  uintptr_t* getFile(size_t n);
 
-  private:
-    struct ArchiveFile
-    {
-        char name[100];  // Filename.
-        char mode[8];    // Permissions.
-        char uid[8];     // User ID.
-        char gid[8];     // Group ID.
-        char size[12];   // Size, in bytes (octal)
-        char mtime[12];  // Modification time.
-        char chksum[8];  // Header checksum.
-        char link;  // Link type: 0 = regular file, 1 = hard link, 2 = symlink.
-        char linkname[100];  // Linked-to file name.
-    };
+ private:
+  struct ArchiveFile {
+    char name[100];      // Filename.
+    char mode[8];        // Permissions.
+    char uid[8];         // User ID.
+    char gid[8];         // Group ID.
+    char size[12];       // Size, in bytes (octal)
+    char mtime[12];      // Modification time.
+    char chksum[8];      // Header checksum.
+    char link;           // Link type: 0 = regular file, 1 = hard link, 2 = symlink.
+    char linkname[100];  // Linked-to file name.
+  };
 
-    ArchiveFile *getFirst();
-    ArchiveFile *getNext(ArchiveFile *pFile);
-    ArchiveFile *get(size_t n);
+  ArchiveFile* getFirst();
+  ArchiveFile* getNext(ArchiveFile* pFile);
+  ArchiveFile* get(size_t n);
 
-    uint8_t *m_pBase;
-    MemoryRegion m_Region;
+  uint8_t* m_pBase;
+  MemoryRegion m_Region;
 };
 
 #endif

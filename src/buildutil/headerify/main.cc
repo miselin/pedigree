@@ -17,99 +17,88 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <iostream>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cstdio>
-
-#include <sys/stat.h>
+#include <iostream>
 #include <unistd.h>
 
-int main(int argc, char *argv[])
-{
-    const char *inFile = nullptr;
-    const char *outFile = nullptr;
-    const char *varName = nullptr;
+#include <sys/stat.h>
 
-    // Load options.
-    int c;
-    while ((c = getopt(argc, argv, "i:o:v:")) != -1)
-    {
-        switch (c)
-        {
-            case 'i':
-                inFile = optarg;
-                break;
-            case 'o':
-                outFile = optarg;
-                break;
-            case 'v':
-                varName = optarg;
-                break;
-            case '?':
-                std::cerr << "Option -" << optopt << " is unknown."
-                          << std::endl;
-                break;
-            default:
-                return 1;
-        }
-    }
+int main(int argc, char* argv[]) {
+  const char* inFile = nullptr;
+  const char* outFile = nullptr;
+  const char* varName = nullptr;
 
-    if (!(inFile && outFile))
-    {
-        std::cerr << "Both an input and output file must be specified." << std::endl;
+  // Load options.
+  int c;
+  while ((c = getopt(argc, argv, "i:o:v:")) != -1) {
+    switch (c) {
+      case 'i':
+        inFile = optarg;
+        break;
+      case 'o':
+        outFile = optarg;
+        break;
+      case 'v':
+        varName = optarg;
+        break;
+      case '?':
+        std::cerr << "Option -" << optopt << " is unknown." << std::endl;
+        break;
+      default:
         return 1;
     }
+  }
 
-    if (!varName)
-    {
-        varName = "autogen";
+  if (!(inFile && outFile)) {
+    std::cerr << "Both an input and output file must be specified." << std::endl;
+    return 1;
+  }
+
+  if (!varName) {
+    varName = "autogen";
+  }
+
+  // build the file
+  FILE* ifp = fopen(inFile, "rb");
+  FILE* ofp = fopen(outFile, "w+");
+
+  fwrite("const char ", 11, 1, ofp);
+  fwrite(varName, strlen(varName), 1, ofp);
+  fwrite("[] = {\n", 7, 1, ofp);
+
+  size_t fileLength = 0;
+
+  while (!feof(ifp)) {
+    unsigned char buffer[10];
+    ssize_t n = fread(buffer, 1, 10, ifp);
+    if (n < 0) {
+      std::cerr << "Read failed: " << strerror(errno) << std::endl;
+      return 1;
+    } else if (n == 0) {
+      break;
     }
 
-    // build the file
-    FILE *ifp = fopen(inFile, "rb");
-    FILE *ofp = fopen(outFile, "w+");
+    fileLength += n;
 
-    fwrite("const char ", 11, 1, ofp);
-    fwrite(varName, strlen(varName), 1, ofp);
-    fwrite("[] = {\n", 7, 1, ofp);
-
-    size_t fileLength = 0;
-
-    while (!feof(ifp))
-    {
-        unsigned char buffer[10];
-        ssize_t n = fread(buffer, 1, 10, ifp);
-        if (n < 0)
-        {
-            std::cerr << "Read failed: " << strerror(errno) << std::endl;
-            return 1;
-        }
-        else if (n == 0)
-        {
-            break;
-        }
-
-        fileLength += n;
-
-        for (ssize_t i = 0; i < n; ++i)
-        {
-            char formatted[16];
-            size_t len = sprintf(formatted, "0x%02x, ", buffer[i]);
-            fwrite(formatted, len, 1, ofp);
-        }
-
-        fwrite("\n", 1, 1, ofp);
+    for (ssize_t i = 0; i < n; ++i) {
+      char formatted[16];
+      size_t len = sprintf(formatted, "0x%02x, ", buffer[i]);
+      fwrite(formatted, len, 1, ofp);
     }
 
-    fwrite("};\n", 3, 1, ofp);
+    fwrite("\n", 1, 1, ofp);
+  }
 
-    char formatted[512];
-    size_t len = sprintf(formatted, "unsigned long %s_length = %zd;\n", varName, fileLength);
-    fwrite(formatted, len, 1, ofp);
+  fwrite("};\n", 3, 1, ofp);
 
-    fclose(ifp);
-    fclose(ofp);
+  char formatted[512];
+  size_t len = sprintf(formatted, "unsigned long %s_length = %zd;\n", varName, fileLength);
+  fwrite(formatted, len, 1, ofp);
 
-    return 0;
+  fclose(ifp);
+  fclose(ofp);
+
+  return 0;
 }

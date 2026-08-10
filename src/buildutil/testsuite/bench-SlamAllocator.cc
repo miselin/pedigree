@@ -19,37 +19,33 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <benchmark/benchmark.h>
+#include "pedigree/kernel/core/SlamAllocator.h"
 
 #include <iostream>
 #include <memory>
 
-#include "pedigree/kernel/core/SlamAllocator.h"
+#include <benchmark/benchmark.h>
 
-static void BM_SlamAllocatorBackForthReference(benchmark::State &state)
-{
-    while (state.KeepRunning())
-    {
-        void *mem = malloc(OBJECT_MINIMUM_SIZE);
-        benchmark::DoNotOptimize(mem);
-        free(mem);
-    }
+static void BM_SlamAllocatorBackForthReference(benchmark::State& state) {
+  while (state.KeepRunning()) {
+    void* mem = malloc(OBJECT_MINIMUM_SIZE);
+    benchmark::DoNotOptimize(mem);
+    free(mem);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetBytesProcessed(int64_t(state.iterations()) * OBJECT_MINIMUM_SIZE);
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetBytesProcessed(int64_t(state.iterations()) * OBJECT_MINIMUM_SIZE);
 }
 
-static void BM_SlamAllocatorBackForth(benchmark::State &state)
-{
-    while (state.KeepRunning())
-    {
-        uintptr_t mem = SlamAllocator::instance().allocate(OBJECT_MINIMUM_SIZE);
-        benchmark::DoNotOptimize(mem);
-        SlamAllocator::instance().free(mem);
-    }
+static void BM_SlamAllocatorBackForth(benchmark::State& state) {
+  while (state.KeepRunning()) {
+    uintptr_t mem = SlamAllocator::instance().allocate(OBJECT_MINIMUM_SIZE);
+    benchmark::DoNotOptimize(mem);
+    SlamAllocator::instance().free(mem);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetBytesProcessed(int64_t(state.iterations()) * OBJECT_MINIMUM_SIZE);
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetBytesProcessed(int64_t(state.iterations()) * OBJECT_MINIMUM_SIZE);
 }
 
 BENCHMARK(BM_SlamAllocatorBackForthReference);

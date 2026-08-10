@@ -37,79 +37,72 @@
 /**
  * Traces page allocations.
  */
-class AllocationCommand : public DebuggerCommand, public Scrollable
-{
-  public:
-    /**
-     * Default constructor - zeroes stuff.
-     */
-    AllocationCommand();
+class AllocationCommand : public DebuggerCommand, public Scrollable {
+ public:
+  /**
+   * Default constructor - zeroes stuff.
+   */
+  AllocationCommand();
 
-    /**
-     * Default destructor - does nothing.
-     */
-    ~AllocationCommand();
+  /**
+   * Default destructor - does nothing.
+   */
+  ~AllocationCommand();
 
-    /**
-     * Return an autocomplete string, given an input string.
-     */
-    void autocomplete(const HugeStaticString &input, HugeStaticString &output);
+  /**
+   * Return an autocomplete string, given an input string.
+   */
+  void autocomplete(const HugeStaticString& input, HugeStaticString& output);
 
-    /**
-     * Execute the command with the given screen.
-     */
-    bool execute(
-        const HugeStaticString &input, HugeStaticString &output,
-        InterruptState &state, DebuggerIO *screen);
+  /**
+   * Execute the command with the given screen.
+   */
+  bool execute(const HugeStaticString& input, HugeStaticString& output, InterruptState& state,
+               DebuggerIO* screen);
 
-    /**
-     * Returns the string representation of this command.
-     */
-    const NormalStaticString getString()
-    {
-        return NormalStaticString("page-allocations");
-    }
+  /**
+   * Returns the string representation of this command.
+   */
+  const NormalStaticString getString() {
+    return NormalStaticString("page-allocations");
+  }
 
-    void allocatePage(physical_uintptr_t page);
-    void freePage(physical_uintptr_t page);
-    void postProcess();
+  void allocatePage(physical_uintptr_t page);
+  void freePage(physical_uintptr_t page);
+  void postProcess();
 
-    bool isMallocing()
-    {
-        return m_bAllocating;
-    }
-    void setMallocing(bool b)
-    {
-        m_bAllocating = b;
-    }
+  bool isMallocing() {
+    return m_bAllocating;
+  }
+  void setMallocing(bool b) {
+    m_bAllocating = b;
+  }
 
-    void checkpoint();
+  void checkpoint();
 
-    //
-    // Scrollable interface
-    //
-    virtual const char *getLine1(
-        size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
-    virtual const char *getLine2(
-        size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
-        DebuggerIO::Colour &bgColour);
-    virtual size_t getLineCount();
+  //
+  // Scrollable interface
+  //
+  virtual const char* getLine1(size_t index, DebuggerIO::Colour& colour,
+                               DebuggerIO::Colour& bgColour);
+  virtual const char* getLine2(size_t index, size_t& colOffset, DebuggerIO::Colour& colour,
+                               DebuggerIO::Colour& bgColour);
+  virtual size_t getLineCount();
 
-  private:
-    struct Allocation
-    {
-        physical_uintptr_t page;
-        uintptr_t ra[NUM_BT_FRAMES];
-        size_t n;
-        size_t pid;
-    };
-    Vector<Allocation *> m_Allocations;
-    Vector<void *> m_Frees;
-    size_t m_nLines;
-    Tree<size_t, Allocation *> m_Tree;
-    Tree<size_t, Allocation *>::Iterator m_It;
-    size_t m_nIdx;
-    bool m_bAllocating;
+ private:
+  struct Allocation {
+    physical_uintptr_t page;
+    uintptr_t ra[NUM_BT_FRAMES];
+    size_t n;
+    size_t pid;
+  };
+  Vector<Allocation*> m_Allocations;
+  Vector<void*> m_Frees;
+  size_t m_nLines;
+  Tree<size_t, Allocation*> m_Tree;
+  Tree<size_t, Allocation*>::Iterator m_It;
+  size_t m_nIdx;
+  bool m_bAllocating;
 };
 
 extern AllocationCommand g_AllocationCommand;

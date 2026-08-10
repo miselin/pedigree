@@ -20,7 +20,7 @@
 #include "pedigree/kernel/utilities/List.h"
 
 // Explicitly instantiate a few known types.
-template class List<void *>;
+template class List<void*>;
 template class List<uint64_t>;
 template class List<uint32_t>;
 template class List<uint16_t>;

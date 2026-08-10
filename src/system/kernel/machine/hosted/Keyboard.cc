@@ -37,95 +37,80 @@
 
 #include "pedigree/kernel/core/SlamAllocator.h"
 
-namespace __pedigree_hosted
-{
-};
+namespace __pedigree_hosted {};
 using namespace __pedigree_hosted;
 
 #include <fcntl.h>
 #include <termios.h>
 #include <unistd.h>
 
-HostedKeyboard::HostedKeyboard() : m_bDebugState(false)
-{
-    // Eat any pending input.
-    blocking(false);
-    char buf[64] = {0};
-    while (read(0, buf, 64) == 64)
-        ;
-    blocking(true);
+HostedKeyboard::HostedKeyboard() : m_bDebugState(false) {
+  // Eat any pending input.
+  blocking(false);
+  char buf[64] = {0};
+  while (read(0, buf, 64) == 64)
+    ;
+  blocking(true);
 }
 
-HostedKeyboard::~HostedKeyboard()
-{
+HostedKeyboard::~HostedKeyboard() {}
+
+void HostedKeyboard::initialise() {
+  // Don't echo characters.
+  struct termios t;
+  tcgetattr(0, &t);
+  t.c_lflag &= ~(ICANON | ECHO);
+  tcsetattr(0, TCSAFLUSH, &t);
 }
 
-void HostedKeyboard::initialise()
-{
-    // Don't echo characters.
-    struct termios t;
-    tcgetattr(0, &t);
-    t.c_lflag &= ~(ICANON | ECHO);
-    tcsetattr(0, TCSAFLUSH, &t);
-}
-
-char HostedKeyboard::getChar()
-{
-    if (!getDebugState())
-        return 0;
-
-    blocking(true);
-
-    char buf[2] = {0};
-    ssize_t n = read(0, buf, 1);
-    if (n != 1)
-        return 0;
-    return buf[0];
-}
-
-char HostedKeyboard::getCharNonBlock()
-{
-    if (!getDebugState())
-        return 0;
-
-    blocking(false);
-
-    char buf[2] = {0};
-    ssize_t n = read(0, buf, 1);
-    if (n != 1)
-        return 0;
-    return buf[0];
-}
-
-void HostedKeyboard::setDebugState(bool enableDebugState)
-{
-    m_bDebugState = enableDebugState;
-}
-
-bool HostedKeyboard::getDebugState()
-{
-    return m_bDebugState;
-}
-
-char HostedKeyboard::getLedState()
-{
+char HostedKeyboard::getChar() {
+  if (!getDebugState())
     return 0;
+
+  blocking(true);
+
+  char buf[2] = {0};
+  ssize_t n = read(0, buf, 1);
+  if (n != 1)
+    return 0;
+  return buf[0];
 }
 
-void HostedKeyboard::setLedState(char state)
-{
+char HostedKeyboard::getCharNonBlock() {
+  if (!getDebugState())
+    return 0;
+
+  blocking(false);
+
+  char buf[2] = {0};
+  ssize_t n = read(0, buf, 1);
+  if (n != 1)
+    return 0;
+  return buf[0];
 }
 
-void HostedKeyboard::blocking(bool enable)
-{
-    int flags = fcntl(0, F_GETFL);
-    if (flags < 0)
-    {
-        return;
-    }
-    if (enable)
-        flags &= ~O_NONBLOCK;
-    else
-        flags |= O_NONBLOCK;
-    fcntl(0, F_SETFL, flags);
+void HostedKeyboard::setDebugState(bool enableDebugState) {
+  m_bDebugState = enableDebugState;
+}
+
+bool HostedKeyboard::getDebugState() {
+  return m_bDebugState;
+}
+
+char HostedKeyboard::getLedState() {
+  return 0;
+}
+
+void HostedKeyboard::setLedState(char state) {}
+
+void HostedKeyboard::blocking(bool enable) {
+  int flags = fcntl(0, F_GETFL);
+  if (flags < 0) {
+    return;
+  }
+  if (enable)
+    flags &= ~O_NONBLOCK;
+  else
+    flags |= O_NONBLOCK;
+  fcntl(0, F_SETFL, flags);
 }

@@ -23,44 +23,41 @@
 #include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 #include <native-base.h>
 
-#include "pedigree/kernel/utilities/Tree.h"
+class NativeSyscallManager : public SyscallHandler {
+ public:
+  bool initialise();
+  bool shutdown();
 
-class NativeSyscallManager : public SyscallHandler
-{
-  public:
-    bool initialise();
-    bool shutdown();
+  /** Calls a syscall. */
+  uintptr_t call(uintptr_t function, uintptr_t p1 = 0, uintptr_t p2 = 0, uintptr_t p3 = 0,
+                 uintptr_t p4 = 0, uintptr_t p5 = 0);
 
-    /** Calls a syscall. */
-    uintptr_t call(
-        uintptr_t function, uintptr_t p1 = 0, uintptr_t p2 = 0,
-        uintptr_t p3 = 0, uintptr_t p4 = 0, uintptr_t p5 = 0);
+  /** Called when a syscall arrives. */
+  virtual uintptr_t syscall(SyscallState& state);
 
-    /** Called when a syscall arrives. */
-    virtual uintptr_t syscall(SyscallState &state);
+  /** The constructor */
+  NativeSyscallManager();
+  /** The destructor */
+  virtual ~NativeSyscallManager();
 
-    /** The constructor */
-    NativeSyscallManager();
-    /** The destructor */
-    virtual ~NativeSyscallManager();
+ private:
+  /** The copy-constructor
+   *\note Not implemented (singleton) */
+  NativeSyscallManager(const NativeSyscallManager&);
+  /** The copy-constructor
+   *\note Not implemented (singleton) */
+  NativeSyscallManager& operator=(const NativeSyscallManager&);
 
-  private:
-    /** The copy-constructor
-     *\note Not implemented (singleton) */
-    NativeSyscallManager(const NativeSyscallManager &);
-    /** The copy-constructor
-     *\note Not implemented (singleton) */
-    NativeSyscallManager &operator=(const NativeSyscallManager &);
+  /** Creates native subsystem objects from global unique IDs. */
+  NativeBase* factory(uint64_t guid);
 
-    /** Creates native subsystem objects from global unique IDs. */
-    NativeBase *factory(uint64_t guid);
-
-    /** Maps userspace object pointers to their respective kernel object. */
-    Tree<void *, NativeBase *> m_NativeObjects;
-    SyscallManager::Registration m_Registration;
+  /** Maps userspace object pointers to their respective kernel object. */
+  Tree<void*, NativeBase*> m_NativeObjects;
+  SyscallManager::Registration m_Registration;
 };
 
 #endif

@@ -19,11 +19,6 @@
 
 #include "pedigree/kernel/debugger/SyscallTracer.h"
 
-SyscallTracer::SyscallTracer(
-    const char *pfileName, const char *pFnName, int line)
-{
-}
+SyscallTracer::SyscallTracer(const char* pfileName, const char* pFnName, int line) {}
 
-SyscallTracer::~SyscallTracer()
-{
-}
+SyscallTracer::~SyscallTracer() {}

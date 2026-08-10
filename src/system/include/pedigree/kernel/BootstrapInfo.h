@@ -42,153 +42,142 @@
 #define MULTIBOOT_FLAG_VBE 0x400
 #endif
 
-extern class BootstrapStruct_t *g_pBootstrapInfo EXPORTED_PUBLIC;
+extern class BootstrapStruct_t* g_pBootstrapInfo EXPORTED_PUBLIC;
 
 #if MULTIBOOT
 
 // Required to specify linkage of the 'main' symbol for the friend declaration.
-extern "C" int main(int argc, char *argv[]);
+extern "C" int main(int argc, char* argv[]);
 
-class EXPORTED_PUBLIC BootstrapStruct_t
-{
+class EXPORTED_PUBLIC BootstrapStruct_t {
 #if HOSTED
-    friend int ::main(int argc, char *argv[]);
+  friend int ::main(int argc, char* argv[]);
 #endif
 
-  public:
-    BootstrapStruct_t();
+ public:
+  BootstrapStruct_t();
 
-    bool isInitrdLoaded() const;
-    uint8_t *getInitrdAddress() const;
-    size_t getInitrdSize() const;
+  bool isInitrdLoaded() const;
+  uint8_t* getInitrdAddress() const;
+  size_t getInitrdSize() const;
 
-    bool isDatabaseLoaded() const;
-    uint8_t *getDatabaseAddress() const;
-    size_t getDatabaseSize() const;
+  bool isDatabaseLoaded() const;
+  uint8_t* getDatabaseAddress() const;
+  size_t getDatabaseSize() const;
 
-    char *getCommandLine() const;
+  char* getCommandLine() const;
 
-    size_t getSectionHeaderCount() const;
-    size_t getSectionHeaderEntrySize() const;
-    size_t getSectionHeaderStringTableIndex() const;
-    uintptr_t getSectionHeaders() const;
+  size_t getSectionHeaderCount() const;
+  size_t getSectionHeaderEntrySize() const;
+  size_t getSectionHeaderStringTableIndex() const;
+  uintptr_t getSectionHeaders() const;
 
-    void *getMemoryMap() const;
-    uint64_t getMemoryMapEntryAddress(void *opaque) const;
-    uint64_t getMemoryMapEntryLength(void *opaque) const;
-    uint32_t getMemoryMapEntryType(void *opaque) const;
-    void *nextMemoryMapEntry(void *opaque) const;
+  void* getMemoryMap() const;
+  uint64_t getMemoryMapEntryAddress(void* opaque) const;
+  uint64_t getMemoryMapEntryLength(void* opaque) const;
+  uint32_t getMemoryMapEntryType(void* opaque) const;
+  void* nextMemoryMapEntry(void* opaque) const;
 
-    size_t getModuleCount() const;
-    void *getModuleBase() const;
+  size_t getModuleCount() const;
+  void* getModuleBase() const;
 
 #if HOSTED
-    typedef uintptr_t bootstrap_uintptr_t;
+  typedef uintptr_t bootstrap_uintptr_t;
 #else
-    typedef uint32_t bootstrap_uintptr_t;
+  typedef uint32_t bootstrap_uintptr_t;
 #endif
 
-    typedef struct
-    {
-        bootstrap_uintptr_t base;
-        bootstrap_uintptr_t end;
-        bootstrap_uintptr_t name_ptr;
-        bootstrap_uintptr_t pad;
-    } PACKED Module;
+  typedef struct {
+    bootstrap_uintptr_t base;
+    bootstrap_uintptr_t end;
+    bootstrap_uintptr_t name_ptr;
+    bootstrap_uintptr_t pad;
+  } PACKED Module;
 
-    const Module *getModuleArray() const
-    {
-        return reinterpret_cast<const Module *>(getModuleBase());
-    }
+  const Module* getModuleArray() const {
+    return reinterpret_cast<const Module*>(getModuleBase());
+  }
 
-  private:
-    // If we are passed via grub, this information will be completely different
-    // to via the bootstrapper.
-    uint32_t flags;
+ private:
+  // If we are passed via grub, this information will be completely different
+  // to via the bootstrapper.
+  uint32_t flags;
 
-    uint32_t mem_lower;
-    uint32_t mem_upper;
+  uint32_t mem_lower;
+  uint32_t mem_upper;
 
-    uint32_t boot_device;
+  uint32_t boot_device;
 
-    uint32_t cmdline;
+  uint32_t cmdline;
 
-    uint32_t mods_count;
-    bootstrap_uintptr_t mods_addr;
+  uint32_t mods_count;
+  bootstrap_uintptr_t mods_addr;
 
-    /* ELF information */
-    uint32_t num;
-    uint32_t size;
-    bootstrap_uintptr_t addr;
-    uint32_t shndx;
+  /* ELF information */
+  uint32_t num;
+  uint32_t size;
+  bootstrap_uintptr_t addr;
+  uint32_t shndx;
 
-    uint32_t mmap_length;
-    uint32_t mmap_addr;
+  uint32_t mmap_length;
+  uint32_t mmap_addr;
 
-    uint32_t drives_length;
-    uint32_t drives_addr;
+  uint32_t drives_length;
+  uint32_t drives_addr;
 
-    uint32_t config_table;
+  uint32_t config_table;
 
-    uint32_t boot_loader_name;
+  uint32_t boot_loader_name;
 
-    uint32_t apm_table;
+  uint32_t apm_table;
 
-    uint32_t vbe_control_info;
-    uint32_t vbe_mode_info;
-    uint32_t vbe_mode;
-    uint32_t vbe_interface_seg;
-    uint32_t vbe_interface_off;
-    uint32_t vbe_interface_len;
+  uint32_t vbe_control_info;
+  uint32_t vbe_mode_info;
+  uint32_t vbe_mode;
+  uint32_t vbe_interface_seg;
+  uint32_t vbe_interface_off;
+  uint32_t vbe_interface_len;
 } PACKED;
 
 #else
 
-struct EXPORTED_PUBLIC BootstrapStruct_t
-{
-    int (*prom)(struct anon *);
-    uint32_t initrd_start;
-    uint32_t initrd_end;
+struct EXPORTED_PUBLIC BootstrapStruct_t {
+  int (*prom)(struct anon*);
+  uint32_t initrd_start;
+  uint32_t initrd_end;
 
-    /* ELF information */
-    uint32_t num;
-    uint32_t size;
-    uint32_t addr;
-    uint32_t shndx;
+  /* ELF information */
+  uint32_t num;
+  uint32_t size;
+  uint32_t addr;
+  uint32_t shndx;
 
-    inline bool isInitrdLoaded() const
-    {
-        return true;
-    }
-    inline uint8_t *getInitrdAddress() const
-    {
-        return reinterpret_cast<uint8_t *>(initrd_start);
-    }
-    inline size_t getInitrdSize() const
-    {
-        return initrd_end - initrd_start;
-    }
+  inline bool isInitrdLoaded() const {
+    return true;
+  }
+  inline uint8_t* getInitrdAddress() const {
+    return reinterpret_cast<uint8_t*>(initrd_start);
+  }
+  inline size_t getInitrdSize() const {
+    return initrd_end - initrd_start;
+  }
 
-    bool isDatabaseLoaded() const
-    {
-        return false;
-    }
+  bool isDatabaseLoaded() const {
+    return false;
+  }
 
-    uint8_t *getDatabaseAddress() const
-    {
-        return nullptr;
-    }
+  uint8_t* getDatabaseAddress() const {
+    return nullptr;
+  }
 
-    size_t getDatabaseSize() const
-    {
-        return 0;
-    }
+  size_t getDatabaseSize() const {
+    return 0;
+  }
 
-    char *getCommandLine() const
-    {
-        static char buf[1] = {0};
-        return buf;
-    }
+  char* getCommandLine() const {
+    static char buf[1] = {0};
+    return buf;
+  }
 };
 
 #endif

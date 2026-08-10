@@ -64,513 +64,484 @@ class CacheManager :
 #if !STANDALONE_CACHE
     public TimerHandler,
 #endif
-    public RequestQueue
-{
-    friend class Cache;
+    public RequestQueue {
+  friend class Cache;
 
-  public:
-    CacheManager();
-    virtual ~CacheManager();
+ public:
+  CacheManager();
+  virtual ~CacheManager();
 
-    static CacheManager &instance()
-    {
-        if (!m_Instance)
-        {
-            m_Instance = new CacheManager;
-        }
-        return *m_Instance;
+  static CacheManager& instance() {
+    if (!m_Instance) {
+      m_Instance = new CacheManager;
     }
+    return *m_Instance;
+  }
 
-    static void destroyInstance()
-    {
-        delete m_Instance;
-        m_Instance = nullptr;
-    }
+  static void destroyInstance() {
+    delete m_Instance;
+    m_Instance = nullptr;
+  }
 
-    void initialise();
+  void initialise();
 
-    void registerCache(Cache *pCache);
-    void unregisterCache(Cache *pCache);
+  void registerCache(Cache* pCache);
+  void unregisterCache(Cache* pCache);
 
-    /**
-     * Trim each cache we know about until 'count' pages have been evicted.
-     */
-    bool trimAll(size_t count = 1);
+  /**
+   * Trim each cache we know about until 'count' pages have been evicted.
+   */
+  bool trimAll(size_t count = 1);
 
-    virtual void timer(uint64_t delta);
+  virtual void timer(uint64_t delta);
 
 #if THREADS
-    void trimThread();
+  void trimThread();
 #endif
 
-  private:
+ private:
 #if THREADS
-    struct CacheRequest
-    {
-        CacheRequest(Cache *requestCache, OperationBarrier::Lease &&requestLease)
-            : cache(requestCache),
-              lease(pedigree_std::move(requestLease))
-        {
-        }
+  struct CacheRequest {
+    CacheRequest(Cache* requestCache, OperationBarrier::Lease&& requestLease)
+        : cache(requestCache), lease(pedigree_std::move(requestLease)) {}
 
-        Cache *cache;
-        OperationBarrier::Lease lease;
-    };
+    Cache* cache;
+    OperationBarrier::Lease lease;
+  };
 
-    /** Pins a registered Cache while a request is being published. */
-    bool acquireCache(
-        Cache *cache, uint64_t &generation,
-        OperationBarrier::Lease &lease);
+  /** Pins a registered Cache while a request is being published. */
+  bool acquireCache(Cache* cache, uint64_t& generation, OperationBarrier::Lease& lease);
 
-    /** Finds and pins the first registered cache after a stable manager ID. */
-    bool acquireNextCache(
-        uint64_t afterId, uint64_t maximumId, Cache *&cache,
-        uint64_t &cacheId, OperationBarrier::Lease &lease);
+  /** Finds and pins the first registered cache after a stable manager ID. */
+  bool acquireNextCache(uint64_t afterId, uint64_t maximumId, Cache*& cache, uint64_t& cacheId,
+                        OperationBarrier::Lease& lease);
 
-    /** Captures the last identity present at the start of a manager scan. */
-    uint64_t cacheGenerationWatermark();
+  /** Captures the last identity present at the start of a manager scan. */
+  uint64_t cacheGenerationWatermark();
 #endif
 
-    /** Publishes a request which owns the target Cache lifetime. */
-    uint64_t addCacheRequest(
-        Cache *cache, bool asynchronous,
-        CacheConstants::CallbackCause cause, uintptr_t key,
-        uintptr_t location = 0, bool transferredPin = false);
+  /** Publishes a request which owns the target Cache lifetime. */
+  uint64_t addCacheRequest(Cache* cache, bool asynchronous, CacheConstants::CallbackCause cause,
+                           uintptr_t key, uintptr_t location = 0, bool transferredPin = false);
 
-    /**
-     * RequestQueue doer - children give us new jobs, and we call out to
-     * them when they hit the front of the queue.
-     */
-    virtual uint64_t executeRequest(
-        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-        uint64_t p6, uint64_t p7, uint64_t p8);
-    virtual void cancelRequest(const Request &request);
+  /**
+   * RequestQueue doer - children give us new jobs, and we call out to
+   * them when they hit the front of the queue.
+   */
+  virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+                                  uint64_t p6, uint64_t p7, uint64_t p8);
+  virtual void cancelRequest(const Request& request);
 
-    /**
-     * Used to ensure we only ever fire a WriteBack for the same page once -
-     * that is, we don't constantly write back the same page over and over
-     * while it's still queued.
-     */
-    virtual bool compareRequests(const Request &a, const Request &b)
-    {
-        // p1 = Cache, p2 = CallbackCause, p3 = key in m_Pages.
-        return (a.p1 == b.p1) && (a.p2 == b.p2) && (a.p3 == b.p3) &&
-               (a.p6 == b.p6);
-    }
+  /**
+   * Used to ensure we only ever fire a WriteBack for the same page once -
+   * that is, we don't constantly write back the same page over and over
+   * while it's still queued.
+   */
+  virtual bool compareRequests(const Request& a, const Request& b) {
+    // p1 = Cache, p2 = CallbackCause, p3 = key in m_Pages.
+    return (a.p1 == b.p1) && (a.p2 == b.p2) && (a.p3 == b.p3) && (a.p6 == b.p6);
+  }
 
-    static CacheManager *m_Instance;
+  static CacheManager* m_Instance;
 
-    List<Cache *> m_Caches;
+  List<Cache*> m_Caches;
 
 #if THREADS
-    /** Serialises cache registration with callback admission. */
-    Mutex m_CachesLock;
+  /** Serialises cache registration with callback admission. */
+  Mutex m_CachesLock;
 
-    /** Monotonic identity used to walk caches without holding m_CachesLock. */
-    uint64_t m_NextCacheId;
+  /** Monotonic identity used to walk caches without holding m_CachesLock. */
+  uint64_t m_NextCacheId;
 
-    Thread *m_pTrimThread;
-    WaitQueue m_TrimWaiters;
-    bool m_bTrimRequested;
-    uint64_t m_TrimDelta;
+  Thread* m_pTrimThread;
+  WaitQueue m_TrimWaiters;
+  bool m_bTrimRequested;
+  uint64_t m_TrimDelta;
 #endif
 
-    /** Protected by m_TrimWaiters when threading is enabled. */
-    bool m_bActive;
+  /** Protected by m_TrimWaiters when threading is enabled. */
+  bool m_bActive;
 
-    Timer *m_pTimer;
+  Timer* m_pTimer;
 };
 
 /** Provides an abstraction of a data cache. */
-class EXPORTED_PUBLIC Cache
-{
-    friend class CacheManager;
+class EXPORTED_PUBLIC Cache {
+  friend class CacheManager;
 
-  private:
-    struct CachePage
-    {
-        /// Key for this page.
-        uintptr_t key;
+ private:
+  struct CachePage {
+    /// Key for this page.
+    uintptr_t key;
 
-        /// The location of this page in memory
-        uintptr_t location;
+    /// The location of this page in memory
+    uintptr_t location;
 
-        /// Reference count to handle release() being called with multiple
-        /// threads having access to the page.
-        size_t refcnt;
+    /// Reference count to handle release() being called with multiple
+    /// threads having access to the page.
+    size_t refcnt;
 
-        enum class EvictionState
-        {
-            None,
-            WriteBack,
-            Retiring,
-        } evictionState;
+    enum class EvictionState {
+      None,
+      WriteBack,
+      Retiring,
+    } evictionState;
 
-        /// Checksum of the page's contents (for dirty detection).
-        uint64_t checksum[2];
+    /// Checksum of the page's contents (for dirty detection).
+    uint64_t checksum[2];
 
-        /// Marker to check that a page's contents are in flux.
-        bool checksumChanging;
+    /// Marker to check that a page's contents are in flux.
+    bool checksumChanging;
 
-        /// Current page status.
-        enum Status
-        {
-            // The page is being edited and should not be considered for any
-            // writeback operation.
-            Editing,
-            // The page has been marked as no longer being edited and should
-            // only have a checksum calculated, but no writeback.
-            EditTransition,
-            // The checksum is in flux.
-            ChecksumChanging,
-            // The checksum was in flux but is now stable. A transition into
-            // this state will trigger a writeback.
-            ChecksumStable
-        } status;
+    /// Current page status.
+    enum Status {
+      // The page is being edited and should not be considered for any
+      // writeback operation.
+      Editing,
+      // The page has been marked as no longer being edited and should
+      // only have a checksum calculated, but no writeback.
+      EditTransition,
+      // The checksum is in flux.
+      ChecksumChanging,
+      // The checksum was in flux but is now stable. A transition into
+      // this state will trigger a writeback.
+      ChecksumStable
+    } status;
 
-        /// Linked list components for LRU.
-        CachePage *pNext;
-        CachePage *pPrev;
+    /// Linked list components for LRU.
+    CachePage* pNext;
+    CachePage* pPrev;
 
-        /// Check the checksum against another.
-        bool checkChecksum(uint64_t other[2]) const;
+    /// Check the checksum against another.
+    bool checkChecksum(uint64_t other[2]) const;
 
-        /// Check for an unset checksum.
-        bool checkZeroChecksum() const;
-    };
+    /// Check for an unset checksum.
+    bool checkZeroChecksum() const;
+  };
 
-  public:
-    /**
-     * Callback type: for functions called by the write-back timer handler.
-     *
-     * The write-back handler checks all pages in the cache at a regular
-     * interval. If it finds a dirty page, it calls the Cache callback,
-     * which should write the modified data back to a backing store, if
-     * any exists.
-     *
-     * Then, the write-back thread will mark the page as not-dirty.
-     */
-    typedef void (*writeback_t)(
-        CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
-        void *meta);
+ public:
+  /**
+   * Callback type: for functions called by the write-back timer handler.
+   *
+   * The write-back handler checks all pages in the cache at a regular
+   * interval. If it finds a dirty page, it calls the Cache callback,
+   * which should write the modified data back to a backing store, if
+   * any exists.
+   *
+   * Then, the write-back thread will mark the page as not-dirty.
+   */
+  typedef void (*writeback_t)(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+                              void* meta);
 
-    Cache(size_t pageConstraints = 0);
-    virtual ~Cache();
+  Cache(size_t pageConstraints = 0);
+  virtual ~Cache();
 
-    /**
-     * Drains manager-owned work and writes back/evicts every page.
-     *
-     * Owners whose callback metadata points at an enclosing object must call
-     * this at the start of that object's teardown, while callback dependencies
-     * are still alive. Calling it again after completion is harmless.
-     */
-    void shutdown();
+  /**
+   * Drains manager-owned work and writes back/evicts every page.
+   *
+   * Owners whose callback metadata points at an enclosing object must call
+   * this at the start of that object's teardown, while callback dependencies
+   * are still alive. Calling it again after completion is harmless.
+   */
+  void shutdown();
 
-    /**
-     * Installs the write-back callback before the Cache is used.
-     *
-     * Callback metadata remains owned by the caller and must outlive the
-     * Cache. Replacing or clearing a callback is deliberately unsupported.
-     */
-    void setCallback(writeback_t newCallback, void *meta);
+  /**
+   * Installs the write-back callback before the Cache is used.
+   *
+   * Callback metadata remains owned by the caller and must outlive the
+   * Cache. Replacing or clearing a callback is deliberately unsupported.
+   */
+  void setCallback(writeback_t newCallback, void* meta);
 
-    /** Looks for \p key , increasing \c refcnt by one if returned. */
-    uintptr_t lookup(uintptr_t key);
+  /** Looks for \p key , increasing \c refcnt by one if returned. */
+  uintptr_t lookup(uintptr_t key);
 
-    /**
-     * Creates a cache entry with the given key.
-     *
-     * The new entry will already be marked as being edited, and so won't be
-     * written back until the inserter calls markNoLongerEditing again.
-     *
-     * The returned address never carries a caller-owned reference: a new
-     * entry has only its publication reference, and an existing entry may
-     * still be Editing. Serialise same-key fills, publish new data, then use
-     * lookup() when the caller needs a lifetime reference.
-     *
-     * \param alreadyExisted can be used to find out if the return value is a
-     *        page that already existed and no mapping was completed.
-     */
-    uintptr_t insert(uintptr_t key, bool *alreadyExisted = nullptr);
+  /**
+   * Creates a cache entry with the given key.
+   *
+   * The new entry will already be marked as being edited, and so won't be
+   * written back until the inserter calls markNoLongerEditing again.
+   *
+   * The returned address never carries a caller-owned reference: a new
+   * entry has only its publication reference, and an existing entry may
+   * still be Editing. Serialise same-key fills, publish new data, then use
+   * lookup() when the caller needs a lifetime reference.
+   *
+   * \param alreadyExisted can be used to find out if the return value is a
+   *        page that already existed and no mapping was completed.
+   */
+  uintptr_t insert(uintptr_t key, bool* alreadyExisted = nullptr);
 
-    /** Creates a bunch of cache entries to fill a specific size. Note that
-     *  this is just a monster allocation of a virtual address - the physical
-     *  pages are NOT CONTIGUOUS.
-     *
-     * The operation is all-or-nothing. A complete, contiguous existing range
-     * is returned unchanged; any partial overlap rejects the insertion before
-     * virtual address space or physical pages are allocated.
-     *
-     * As with the single-page overload, the returned address carries no
-     * caller-owned lifetime reference.
-     *
-     * \param alreadyExisted is true only when the complete contiguous range
-     *        already existed. It is false for a new range or a rejected
-     *        partial overlap.
-     */
-    uintptr_t
-    insert(uintptr_t key, size_t size, bool *alreadyExisted = nullptr);
+  /** Creates a bunch of cache entries to fill a specific size. Note that
+   *  this is just a monster allocation of a virtual address - the physical
+   *  pages are NOT CONTIGUOUS.
+   *
+   * The operation is all-or-nothing. A complete, contiguous existing range
+   * is returned unchanged; any partial overlap rejects the insertion before
+   * virtual address space or physical pages are allocated.
+   *
+   * As with the single-page overload, the returned address carries no
+   * caller-owned lifetime reference.
+   *
+   * \param alreadyExisted is true only when the complete contiguous range
+   *        already existed. It is false for a new range or a rejected
+   *        partial overlap.
+   */
+  uintptr_t insert(uintptr_t key, size_t size, bool* alreadyExisted = nullptr);
 
-    /** Checks if the entire range specified exists in the cache. */
-    bool exists(uintptr_t key, size_t length);
+  /** Checks if the entire range specified exists in the cache. */
+  bool exists(uintptr_t key, size_t length);
 
-    /**
-     * Evicts the given key from the cache, also freeing the memory it holds.
-     *
-     * This will respect the refcount of the given key, so as to make pin()
-     * exhibit more reliable behaviour.
-     */
-    bool evict(uintptr_t key);
+  /**
+   * Evicts the given key from the cache, also freeing the memory it holds.
+   *
+   * This will respect the refcount of the given key, so as to make pin()
+   * exhibit more reliable behaviour.
+   */
+  bool evict(uintptr_t key);
 
-    /**
-     * Discards a failed cache fill before it is published.
-     *
-     * This succeeds only for an Editing page with exactly its insertion-time
-     * reference. It never removes an externally pinned page and does not write
-     * failed data back to the backing store.
-     */
-    MUST_USE_RESULT bool discardEditing(uintptr_t key);
+  /**
+   * Discards a failed cache fill before it is published.
+   *
+   * This succeeds only for an Editing page with exactly its insertion-time
+   * reference. It never removes an externally pinned page and does not write
+   * failed data back to the backing store.
+   */
+  MUST_USE_RESULT bool discardEditing(uintptr_t key);
 
-    /**
-     * Empties the cache.
-     *
-     * Waits for external pins, then discards each page's publication-time
-     * base reference. Concurrent same-key eviction is joined safely.
-     */
-    void empty();
+  /**
+   * Empties the cache.
+   *
+   * Waits for external pins, then discards each page's publication-time
+   * base reference. Concurrent same-key eviction is joined safely.
+   */
+  void empty();
 
-    /** Decreases \p key 's \c refcnt by one. */
-    void release(uintptr_t key);
+  /** Decreases \p key 's \c refcnt by one. */
+  void release(uintptr_t key);
 
-    /**
-     * Increases \p key 's \c refcnt by one.
-     *
-     * This is used for places that, for example, use the physical address of
-     * a cache page and therefore will never set the dirty flag of a virtual
-     * page. This use case will need to provide its own means for writing data
-     * back to the backing store, if that is desirable.
-     *
-     * Pinned pages will not be freed during a compact().
-     *
-     * \return false if key didn't exist, true otherwise
-     */
-    MUST_USE_RESULT bool pin(uintptr_t key);
+  /**
+   * Increases \p key 's \c refcnt by one.
+   *
+   * This is used for places that, for example, use the physical address of
+   * a cache page and therefore will never set the dirty flag of a virtual
+   * page. This use case will need to provide its own means for writing data
+   * back to the backing store, if that is desirable.
+   *
+   * Pinned pages will not be freed during a compact().
+   *
+   * \return false if key didn't exist, true otherwise
+   */
+  MUST_USE_RESULT bool pin(uintptr_t key);
 
-    /**
-     * Attempts to trim the cache.
-     *
-     * A trim is slightly different to a compact in that it is designed to be
-     * called in a non-emergency situation. This could be called, for example,
-     * after a process terminates, to clean up some old cached data while the
-     * system is already doing busywork. Or, it could be called when the system
-     * is idle to clean up a bit.
-     *
-     * This will take the lock, also, unlike compact().
-     */
-    size_t trim(size_t count = 1);
+  /**
+   * Attempts to trim the cache.
+   *
+   * A trim is slightly different to a compact in that it is designed to be
+   * called in a non-emergency situation. This could be called, for example,
+   * after a process terminates, to clean up some old cached data while the
+   * system is already doing busywork. Or, it could be called when the system
+   * is idle to clean up a bit.
+   *
+   * This will take the lock, also, unlike compact().
+   */
+  size_t trim(size_t count = 1);
 
-    /**
-     * Synchronises the given cache key back to a backing store, if a
-     * callback has been assigned to the Cache.
-     */
-    void sync(uintptr_t key, bool async);
+  /**
+   * Synchronises the given cache key back to a backing store, if a
+   * callback has been assigned to the Cache.
+   */
+  void sync(uintptr_t key, bool async);
 
-    /**
-     * Triggers the cache to calculate the checksum of the given location.
-     * This may be useful to avoid a spurious writeback when reading data into
-     * a cache page for the first time.
-     */
-    void triggerChecksum(uintptr_t key);
+  /**
+   * Triggers the cache to calculate the checksum of the given location.
+   * This may be useful to avoid a spurious writeback when reading data into
+   * a cache page for the first time.
+   */
+  void triggerChecksum(uintptr_t key);
 
-    /**
-     * Enters a critical section with respect to this cache. That is, do not
-     * permit write back callbacks to be fired (aside from as a side effect
-     * of eviction) until the section has been left.
-     *
-     * This is especially useful for an 'insert then read into buffer'
-     * operation, which can cause a writeback in the middle of reading (when
-     * nothing has actually changed at all).
-     */
-    void startAtomic()
-    {
-        if (!ensureUsable("startAtomic"))
-        {
-            return;
-        }
-        m_bInCritical = 1;
+  /**
+   * Enters a critical section with respect to this cache. That is, do not
+   * permit write back callbacks to be fired (aside from as a side effect
+   * of eviction) until the section has been left.
+   *
+   * This is especially useful for an 'insert then read into buffer'
+   * operation, which can cause a writeback in the middle of reading (when
+   * nothing has actually changed at all).
+   */
+  void startAtomic() {
+    if (!ensureUsable("startAtomic")) {
+      return;
     }
+    m_bInCritical = 1;
+  }
 
-    /**
-     * Leaves the critical section for this cache.
-     */
-    void endAtomic()
-    {
-        if (!ensureUsable("endAtomic"))
-        {
-            return;
-        }
-        m_bInCritical = 0;
+  /**
+   * Leaves the critical section for this cache.
+   */
+  void endAtomic() {
+    if (!ensureUsable("endAtomic")) {
+      return;
     }
+    m_bInCritical = 0;
+  }
 
-    /**
-     * Mark the given page as being edited.
-     *
-     * A page being edited will never be written back, nor will its checksum
-     * be calculated. Once a page is no longer being edited, it goes into an
-     * intermediate mode that means it'll have its checksum calculated
-     * asynchronously. After that point, normal checksum-based writebacks take
-     * place.
-     */
-    void markEditing(uintptr_t key, size_t length = 0);
+  /**
+   * Mark the given page as being edited.
+   *
+   * A page being edited will never be written back, nor will its checksum
+   * be calculated. Once a page is no longer being edited, it goes into an
+   * intermediate mode that means it'll have its checksum calculated
+   * asynchronously. After that point, normal checksum-based writebacks take
+   * place.
+   */
+  void markEditing(uintptr_t key, size_t length = 0);
 
-    /**
-     * Mark the given page as no longer being edited.
-     */
-    void markNoLongerEditing(uintptr_t key, size_t length = 0);
+  /**
+   * Mark the given page as no longer being edited.
+   */
+  void markNoLongerEditing(uintptr_t key, size_t length = 0);
 
-  private:
-    enum class EvictionMode
-    {
-        Ordinary,
-        DiscardBaseReference,
-        DiscardEditing,
-    };
+ private:
+  enum class EvictionMode {
+    Ordinary,
+    DiscardBaseReference,
+    DiscardEditing,
+  };
 
-    /** mapping doer */
-    bool map(uintptr_t virt) const;
+  /** mapping doer */
+  bool map(uintptr_t virt) const;
 
-    /** Retires one page according to the caller's refcount contract. */
-    bool evict(uintptr_t key, EvictionMode mode);
+  /** Retires one page according to the caller's refcount contract. */
+  bool evict(uintptr_t key, EvictionMode mode);
 
-    /** Waits until an in-progress same-key eviction has published its result. */
-    void waitForPageEviction(uintptr_t key);
+  /** Waits until an in-progress same-key eviction has published its result. */
+  void waitForPageEviction(uintptr_t key);
 
-    /** Rejects use after the terminal shutdown contract has completed. */
-    bool ensureUsable(const char *operation) const;
+  /** Rejects use after the terminal shutdown contract has completed. */
+  bool ensureUsable(const char* operation) const;
 
-    /**
-     * LRU evict do-er.
-     *
-     * \param force force an eviction to be attempted
-     * \return number of cache pages evicted
-     */
-    size_t lruEvict(bool force = false);
+  /**
+   * LRU evict do-er.
+   *
+   * \param force force an eviction to be attempted
+   * \return number of cache pages evicted
+   */
+  size_t lruEvict(bool force = false);
 
-    /**
-     * Link the given CachePage to the LRU list.
-     */
-    void linkPage(CachePage *pPage);
+  /**
+   * Link the given CachePage to the LRU list.
+   */
+  void linkPage(CachePage* pPage);
 
-    /**
-     * Promote the given CachePage within the LRU list.
-     *
-     * This marks the page as the most-recently-used page.
-     */
-    void promotePage(CachePage *pPage);
+  /**
+   * Promote the given CachePage within the LRU list.
+   *
+   * This marks the page as the most-recently-used page.
+   */
+  void promotePage(CachePage* pPage);
 
-    /**
-     * Unlink the given CachePage from the LRU list.
-     */
-    void unlinkPage(CachePage *pPage);
+  /**
+   * Unlink the given CachePage from the LRU list.
+   */
+  void unlinkPage(CachePage* pPage);
 
-    /**
-     * Calculate a checksum for the given CachePage.
-     */
-    void calculateChecksum(CachePage *pPage);
+  /**
+   * Calculate a checksum for the given CachePage.
+   */
+  void calculateChecksum(CachePage* pPage);
 
-    /**
-     * Verify the given CachePage's checksum.
-     */
-    bool verifyChecksum(CachePage *pPage, bool replace = false);
+  /**
+   * Verify the given CachePage's checksum.
+   */
+  bool verifyChecksum(CachePage* pPage, bool replace = false);
 
-    /**
-     * Checksum do-er.
-     */
-    void checksum(const void *data, size_t len, uint64_t out[2]);
+  /**
+   * Checksum do-er.
+   */
+  void checksum(const void* data, size_t len, uint64_t out[2]);
 
-    struct callbackMeta
-    {
-        CacheConstants::CallbackCause cause;
-        writeback_t callback;
-        uintptr_t loc;
-        uintptr_t page;
-        void *meta;
-        UnlikelyLock *cacheLock;
-    };
+  struct callbackMeta {
+    CacheConstants::CallbackCause cause;
+    writeback_t callback;
+    uintptr_t loc;
+    uintptr_t page;
+    void* meta;
+    UnlikelyLock* cacheLock;
+  };
 
-  public:
-    /**
-     * Cache timer handler.
-     *
-     * Will call callbacks as needed to write dirty pages back to the backing
-     * store. If no callback is set for the Cache instance, the timer will
-     * not fire.
-     */
-    virtual void timer(uint64_t delta);
+ public:
+  /**
+   * Cache timer handler.
+   *
+   * Will call callbacks as needed to write dirty pages back to the backing
+   * store. If no callback is set for the Cache instance, the timer will
+   * not fire.
+   */
+  virtual void timer(uint64_t delta);
 
-    /**
-     * RequestQueue doer, called by the CacheManager instance.
-     */
-    virtual uint64_t executeRequest(
-        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-        uint64_t p6, uint64_t p7, uint64_t p8);
+  /**
+   * RequestQueue doer, called by the CacheManager instance.
+   */
+  virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+                                  uint64_t p6, uint64_t p7, uint64_t p8);
 
-  private:
-    /** Key-item pairs. */
-    Tree<uintptr_t, CachePage *> m_Pages;
+ private:
+  /** Key-item pairs. */
+  Tree<uintptr_t, CachePage*> m_Pages;
 
-    /** Bloom filter for lookups into m_Pages. */
-    BloomFilter<uintptr_t> m_PageFilter;
+  /** Bloom filter for lookups into m_Pages. */
+  BloomFilter<uintptr_t> m_PageFilter;
 
-    /**
-     * List of known CachePages, kept up-to-date with m_Pages but in LRU order.
-     */
-    CachePage *m_pLruHead;
-    CachePage *m_pLruTail;
+  /**
+   * List of known CachePages, kept up-to-date with m_Pages but in LRU order.
+   */
+  CachePage* m_pLruHead;
+  CachePage* m_pLruTail;
 
-    /** Static MemoryAllocator to allocate virtual address space for all caches.
-     */
-    static MemoryAllocator m_Allocator;
+  /** Static MemoryAllocator to allocate virtual address space for all caches.
+   */
+  static MemoryAllocator m_Allocator;
 
-    /** Lock for using the allocator. */
-    static Spinlock m_AllocatorLock;
+  /** Lock for using the allocator. */
+  static Spinlock m_AllocatorLock;
 
-    /** Lock for this cache. */
-    Spinlock m_Lock;
+  /** Lock for this cache. */
+  Spinlock m_Lock;
 
 #if THREADS
-    /** Coordinates forced drains with callbacks and outstanding page pins. */
-    WaitQueue m_EvictionWaiters;
+  /** Coordinates forced drains with callbacks and outstanding page pins. */
+  WaitQueue m_EvictionWaiters;
 
-    /** Drains manager callbacks before Cache storage is destroyed. */
-    OperationBarrier m_ManagerOperations;
+  /** Drains manager callbacks before Cache storage is destroyed. */
+  OperationBarrier m_ManagerOperations;
 
-    /** Stable identity assigned while registered with CacheManager. */
-    uint64_t m_ManagerId;
+  /** Stable identity assigned while registered with CacheManager. */
+  uint64_t m_ManagerId;
 #endif
 
-    /** Callback to be called in the write-back timer handler. */
-    writeback_t m_Callback;
+  /** Callback to be called in the write-back timer handler. */
+  writeback_t m_Callback;
 
-    /** Timer interface: number of nanoseconds counted so far in the timer
-     * handler. */
-    uint64_t m_Nanoseconds;
+  /** Timer interface: number of nanoseconds counted so far in the timer
+   * handler. */
+  uint64_t m_Nanoseconds;
 
-    /** Metadata to pass to a callback. */
-    void *m_CallbackMeta;
+  /** Metadata to pass to a callback. */
+  void* m_CallbackMeta;
 
-    /** Are we currently in a critical section? */
-    Atomic<size_t> m_bInCritical;
+  /** Are we currently in a critical section? */
+  Atomic<size_t> m_bInCritical;
 
-    /** 0 while active, 1 while shutting down, 2 after shutdown. */
-    Atomic<size_t> m_ShutdownState;
+  /** 0 while active, 1 while shutting down, 2 after shutdown. */
+  Atomic<size_t> m_ShutdownState;
 
-    /** Constraints we need to apply to each page we allocate. */
-    size_t m_PageConstraints;
+  /** Constraints we need to apply to each page we allocate. */
+  size_t m_PageConstraints;
 
 #ifdef STANDALONE_CACHE
-    /** Determines the range of addresses permitted for use for Cache. */
-    static void discover_range(uintptr_t &start, uintptr_t &end);
+  /** Determines the range of addresses permitted for use for Cache. */
+  static void discover_range(uintptr_t& start, uintptr_t& end);
 #endif
 };
 
@@ -580,15 +551,14 @@ class EXPORTED_PUBLIC Cache
  * Use this when you want to perform a lookup() but have many potential exits
  * that would otherwise need an associated release().
  */
-class EXPORTED_PUBLIC CachePageGuard
-{
-  public:
-    CachePageGuard(Cache &cache, uintptr_t location);
-    virtual ~CachePageGuard();
+class EXPORTED_PUBLIC CachePageGuard {
+ public:
+  CachePageGuard(Cache& cache, uintptr_t location);
+  virtual ~CachePageGuard();
 
-  private:
-    Cache &m_Cache;
-    uintptr_t m_Location;
+ private:
+  Cache& m_Cache;
+  uintptr_t m_Location;
 };
 
 #endif

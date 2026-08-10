@@ -27,20 +27,19 @@
 class PerProcessorScheduler;
 class Thread;
 
-class RoundRobinCoreAllocator : public ThreadToCoreAllocationAlgorithm
-{
-  public:
-    RoundRobinCoreAllocator();
-    virtual ~RoundRobinCoreAllocator();
+class RoundRobinCoreAllocator : public ThreadToCoreAllocationAlgorithm {
+ public:
+  RoundRobinCoreAllocator();
+  virtual ~RoundRobinCoreAllocator();
 
-    virtual bool initialise(List<PerProcessorScheduler *> &procList);
+  virtual bool initialise(List<PerProcessorScheduler*>& procList);
 
-    virtual PerProcessorScheduler *allocateThread(Thread *pThread);
+  virtual PerProcessorScheduler* allocateThread(Thread* pThread);
 
-  private:
-    Tree<PerProcessorScheduler *, PerProcessorScheduler *> m_ProcMap;
+ private:
+  Tree<PerProcessorScheduler*, PerProcessorScheduler*> m_ProcMap;
 
-    PerProcessorScheduler *m_pNext;
+  PerProcessorScheduler* m_pNext;
 };
 
 #endif

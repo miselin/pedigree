@@ -20,70 +20,60 @@
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
-MemoryRegion::MemoryRegion(const char *pName)
-    : m_VirtualAddress(0), m_PhysicalAddress(0), m_Size(0), m_pName(pName),
-      m_bNonRamMemory(false), m_bForced(false)
-{
+MemoryRegion::MemoryRegion(const char* pName)
+    : m_VirtualAddress(0),
+      m_PhysicalAddress(0),
+      m_Size(0),
+      m_pName(pName),
+      m_bNonRamMemory(false),
+      m_bForced(false) {}
+
+MemoryRegion::~MemoryRegion() {
+  PhysicalMemoryManager::instance().unmapRegion(this);
 }
 
-MemoryRegion::~MemoryRegion()
-{
-    PhysicalMemoryManager::instance().unmapRegion(this);
+void MemoryRegion::free() {
+  PhysicalMemoryManager::instance().unmapRegion(this);
 }
 
-void MemoryRegion::free()
-{
-    PhysicalMemoryManager::instance().unmapRegion(this);
+void* MemoryRegion::virtualAddress() const {
+  return m_VirtualAddress;
 }
 
-void *MemoryRegion::virtualAddress() const
-{
-    return m_VirtualAddress;
+physical_uintptr_t MemoryRegion::physicalAddress() const {
+  return m_PhysicalAddress;
 }
 
-physical_uintptr_t MemoryRegion::physicalAddress() const
-{
-    return m_PhysicalAddress;
+size_t MemoryRegion::size() const {
+  return m_Size;
 }
 
-size_t MemoryRegion::size() const
-{
-    return m_Size;
+const char* MemoryRegion::name() const {
+  return m_pName;
 }
 
-const char *MemoryRegion::name() const
-{
-    return m_pName;
+MemoryRegion::operator bool() const {
+  return (m_Size != 0);
 }
 
-MemoryRegion::operator bool() const
-{
-    return (m_Size != 0);
+bool MemoryRegion::physicalBoundsCheck(physical_uintptr_t address) {
+  if (address >= m_PhysicalAddress && address < (m_PhysicalAddress + m_Size))
+    return true;
+  return false;
 }
 
-bool MemoryRegion::physicalBoundsCheck(physical_uintptr_t address)
-{
-    if (address >= m_PhysicalAddress && address < (m_PhysicalAddress + m_Size))
-        return true;
-    return false;
+void MemoryRegion::setNonRamMemory(bool b) {
+  m_bNonRamMemory = b;
 }
 
-void MemoryRegion::setNonRamMemory(bool b)
-{
-    m_bNonRamMemory = b;
+bool MemoryRegion::getNonRamMemory() {
+  return m_bNonRamMemory;
 }
 
-bool MemoryRegion::getNonRamMemory()
-{
-    return m_bNonRamMemory;
+void MemoryRegion::setForced(bool b) {
+  m_bForced = b;
 }
 
-void MemoryRegion::setForced(bool b)
-{
-    m_bForced = b;
-}
-
-bool MemoryRegion::getForced()
-{
-    return m_bForced;
+bool MemoryRegion::getForced() {
+  return m_bForced;
 }

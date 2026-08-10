@@ -19,166 +19,143 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/utilities/StaticString.h"
+
 #include <string.h>
 
 #include <benchmark/benchmark.h>
 
-#include "pedigree/kernel/utilities/StaticString.h"
+static void BM_CxxStaticStringCreation(benchmark::State& state) {
+  while (state.KeepRunning()) {
+    HugeStaticString s;
+  }
 
-static void BM_CxxStaticStringCreation(benchmark::State &state)
-{
-    while (state.KeepRunning())
-    {
-        HugeStaticString s;
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStaticStringCopy(benchmark::State &state)
-{
-    const char *assign = "Hello, world!";
+static void BM_CxxStaticStringCopy(benchmark::State& state) {
+  const char* assign = "Hello, world!";
 
-    while (state.KeepRunning())
-    {
-        HugeStaticString s(assign);
-        benchmark::DoNotOptimize(s);
-    }
+  while (state.KeepRunning()) {
+    HugeStaticString s(assign);
+    benchmark::DoNotOptimize(s);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStaticStringContains(benchmark::State &state)
-{
-    HugeStaticString s("Hello, world!");
+static void BM_CxxStaticStringContains(benchmark::State& state) {
+  HugeStaticString s("Hello, world!");
 
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(s.contains("world"));
-    }
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(s.contains("world"));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStaticStringAppendString(benchmark::State &state)
-{
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        HugeStaticString s("append right here -->", 21);
-        state.ResumeTiming();
+static void BM_CxxStaticStringAppendString(benchmark::State& state) {
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    HugeStaticString s("append right here -->", 21);
+    state.ResumeTiming();
 
-        s.append("hello");
-    }
+    s.append("hello");
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStaticStringAppendStaticString(benchmark::State &state)
-{
-    NormalStaticString append("hello");
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        HugeStaticString s("append right here -->", 21);
-        state.ResumeTiming();
+static void BM_CxxStaticStringAppendStaticString(benchmark::State& state) {
+  NormalStaticString append("hello");
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    HugeStaticString s("append right here -->", 21);
+    state.ResumeTiming();
 
-        s.append(append);
-        benchmark::DoNotOptimize(s);
-    }
+    s.append(append);
+    benchmark::DoNotOptimize(s);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStaticStringAppendInteger(benchmark::State &state)
-{
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        HugeStaticString s("append right here -->");
-        state.ResumeTiming();
+static void BM_CxxStaticStringAppendInteger(benchmark::State& state) {
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    HugeStaticString s("append right here -->");
+    state.ResumeTiming();
 
-        s.append(0xdeadbeef);
-    }
+    s.append(0xdeadbeef);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStaticStringAppendHexInteger(benchmark::State &state)
-{
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        HugeStaticString s("append right here -->");
-        state.ResumeTiming();
+static void BM_CxxStaticStringAppendHexInteger(benchmark::State& state) {
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    HugeStaticString s("append right here -->");
+    state.ResumeTiming();
 
-        s.append(0xdeadbeef, 16);
-    }
+    s.append(0xdeadbeef, 16);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStaticStringAppendPaddedInteger(benchmark::State &state)
-{
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        HugeStaticString s("append right here -->");
-        state.ResumeTiming();
+static void BM_CxxStaticStringAppendPaddedInteger(benchmark::State& state) {
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    HugeStaticString s("append right here -->");
+    state.ResumeTiming();
 
-        s.append(0xdeadbeef, 10, 32, '@');
-    }
+    s.append(0xdeadbeef, 10, 32, '@');
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStaticStringContainsCStr(benchmark::State &state)
-{
-    HugeStaticString s("llama llama llama llama llama llama alpaca! llama "
-                       "llama llama llama llama llama");
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(s.contains("alpaca!"));
-    }
+static void BM_CxxStaticStringContainsCStr(benchmark::State& state) {
+  HugeStaticString s(
+      "llama llama llama llama llama llama alpaca! llama "
+      "llama llama llama llama llama");
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(s.contains("alpaca!"));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStaticStringContainsCStrWorstCase(benchmark::State &state)
-{
-    HugeStaticString s("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab");
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(s.contains("aaaaaab"));
-    }
+static void BM_CxxStaticStringContainsCStrWorstCase(benchmark::State& state) {
+  HugeStaticString s("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab");
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(s.contains("aaaaaab"));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStaticStringContainsStaticString(benchmark::State &state)
-{
-    HugeStaticString s("llama llama llama llama llama llama alpaca! llama "
-                       "llama llama llama llama llama");
-    HugeStaticString other("alpaca!");
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(s.contains(other));
-    }
+static void BM_CxxStaticStringContainsStaticString(benchmark::State& state) {
+  HugeStaticString s(
+      "llama llama llama llama llama llama alpaca! llama "
+      "llama llama llama llama llama");
+  HugeStaticString other("alpaca!");
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(s.contains(other));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void
-BM_CxxStaticStringContainsStaticStringWorstCase(benchmark::State &state)
-{
-    HugeStaticString s("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab");
-    HugeStaticString other("aaaaaab");
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(s.contains(other));
-    }
+static void BM_CxxStaticStringContainsStaticStringWorstCase(benchmark::State& state) {
+  HugeStaticString s("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab");
+  HugeStaticString other("aaaaaab");
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(s.contains(other));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
 BENCHMARK(BM_CxxStaticStringCreation);

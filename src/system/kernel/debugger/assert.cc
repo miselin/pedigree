@@ -21,22 +21,20 @@
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-extern "C" void _assert(bool b, const char *file, int line, const char *func)
-{
-    if (b)
-        return;
+extern "C" void _assert(bool b, const char* file, int line, const char* func) {
+  if (b)
+    return;
 
-    if (Processor::m_Initialised)
-    {
-        ERROR_NOLOCK("Assertion failed in file " << file);
-        ERROR_NOLOCK("In function '" << func << "'");
-        ERROR_NOLOCK("On line " << Dec << line << Hex << ".");
-        Processor::breakpoint();
+  if (Processor::m_Initialised) {
+    ERROR_NOLOCK("Assertion failed in file " << file);
+    ERROR_NOLOCK("In function '" << func << "'");
+    ERROR_NOLOCK("On line " << Dec << line << Hex << ".");
+    Processor::breakpoint();
 
-        ERROR_NOLOCK("You may not resume after a failed assertion.");
-    }
+    ERROR_NOLOCK("You may not resume after a failed assertion.");
+  }
 
-    // Best reason for a return is that the debugger isn't active. Either way,
-    // it's an error condition, panic.
-    panic("assertion failed");
+  // Best reason for a return is that the debugger isn't active. Either way,
+  // it's an error condition, panic.
+  panic("assertion failed");
 }

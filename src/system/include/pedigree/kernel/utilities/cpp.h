@@ -35,168 +35,136 @@
 // Include our custom <new> header which defines all operators as noexcept
 #include "pedigree/kernel/utilities/new"  // IWYU pragma: export
 
-namespace pedigree_std
-{
+namespace pedigree_std {
 template <typename T1, typename T2>
-struct is
-{
-    static const bool value = false;
+struct is {
+  static const bool value = false;
 };
 
 template <typename T1, typename T2>
-struct is_not
-{
-    static const bool value = true;
+struct is_not {
+  static const bool value = true;
 };
 
 template <typename T>
-struct is<T, T>
-{
-    static const bool value = true;
+struct is<T, T> {
+  static const bool value = true;
 };
 
 template <typename T>
-struct is_not<T, T>
-{
-    static const bool value = false;
+struct is_not<T, T> {
+  static const bool value = false;
 };
 
 template <typename T>
-struct is_integral
-{
-    static const bool value = false;
+struct is_integral {
+  static const bool value = false;
 };
 template <>
-struct is_integral<bool>
-{
-    static const bool value = true;
+struct is_integral<bool> {
+  static const bool value = true;
 };
 template <>
-struct is_integral<char>
-{
-    static const bool value = true;
+struct is_integral<char> {
+  static const bool value = true;
 };
 template <>
-struct is_integral<unsigned char>
-{
-    static const bool value = true;
+struct is_integral<unsigned char> {
+  static const bool value = true;
 };
 template <>
-struct is_integral<signed char>
-{
-    static const bool value = true;
+struct is_integral<signed char> {
+  static const bool value = true;
 };
 template <>
-struct is_integral<short>
-{
-    static const bool value = true;
+struct is_integral<short> {
+  static const bool value = true;
 };
 template <>
-struct is_integral<unsigned short>
-{
-    static const bool value = true;
+struct is_integral<unsigned short> {
+  static const bool value = true;
 };
 template <>
-struct is_integral<int>
-{
-    static const bool value = true;
+struct is_integral<int> {
+  static const bool value = true;
 };
 template <>
-struct is_integral<unsigned int>
-{
-    static const bool value = true;
+struct is_integral<unsigned int> {
+  static const bool value = true;
 };
 template <>
-struct is_integral<long>
-{
-    static const bool value = true;
+struct is_integral<long> {
+  static const bool value = true;
 };
 template <>
-struct is_integral<unsigned long>
-{
-    static const bool value = true;
+struct is_integral<unsigned long> {
+  static const bool value = true;
 };
 template <>
-struct is_integral<long long>
-{
-    static const bool value = true;
+struct is_integral<long long> {
+  static const bool value = true;
 };
 template <>
-struct is_integral<unsigned long long>
-{
-    static const bool value = true;
+struct is_integral<unsigned long long> {
+  static const bool value = true;
 };
 
 template <typename T>
-struct is_pointer
-{
-    static const bool value = false;
+struct is_pointer {
+  static const bool value = false;
 };
 template <typename T>
-struct is_pointer<T *>
-{
-    static const bool value = true;
+struct is_pointer<T*> {
+  static const bool value = true;
 };
 
 /** remove_all_extents gets a bare (e.g. T) type from array types (e.g. T[]). */
 template <class T>
-struct remove_all_extents
-{
-    typedef T type;
+struct remove_all_extents {
+  typedef T type;
 };
 
 template <class T>
-struct remove_all_extents<T[]>
-{
-    typedef typename remove_all_extents<T>::type type;
+struct remove_all_extents<T[]> {
+  typedef typename remove_all_extents<T>::type type;
 };
 
 template <class T, size_t N>
-struct remove_all_extents<T[N]>
-{
-    typedef typename remove_all_extents<T>::type type;
+struct remove_all_extents<T[N]> {
+  typedef typename remove_all_extents<T>::type type;
 };
 
 /** Enable if the given expression is true. */
 template <bool, class T = void>
-struct enable_if
-{
-};
+struct enable_if {};
 
 template <class T>
-struct enable_if<true, T>
-{
-    typedef T type;
+struct enable_if<true, T> {
+  typedef T type;
 };
 
 /** Provide a static integral constant. */
 template <class T, T v>
-struct integral_constant
-{
-    static constexpr T value = v;
-    typedef T value_type;
-    typedef integral_constant type;
-    constexpr operator value_type() const noexcept
-    {
-        return value;
-    }
+struct integral_constant {
+  static constexpr T value = v;
+  typedef T value_type;
+  typedef integral_constant type;
+  constexpr operator value_type() const noexcept {
+    return value;
+  }
 };
 
 template <bool b, class TTrue, class TFalse>
-struct conditional
-{
+struct conditional {};
+
+template <class TTrue, class TFalse>
+struct conditional<true, TTrue, TFalse> {
+  typedef TTrue type;
 };
 
 template <class TTrue, class TFalse>
-struct conditional<true, TTrue, TFalse>
-{
-    typedef TTrue type;
-};
-
-template <class TTrue, class TFalse>
-struct conditional<false, TTrue, TFalse>
-{
-    typedef TFalse type;
+struct conditional<false, TTrue, TFalse> {
+  typedef TFalse type;
 };
 
 template <class T, T v>
@@ -208,185 +176,146 @@ typedef integral_constant<bool, false> false_type;
 /** is_scalar checks for scalar types */
 /// \todo this should check a little more than just this
 template <class T>
-struct is_scalar
-    : integral_constant<bool, is_integral<T>::value || is_pointer<T>::value>
-{
-};
+struct is_scalar : integral_constant<bool, is_integral<T>::value || is_pointer<T>::value> {};
 
 /** Identify a type as trivial (e.g. default constructor, scalar type). */
 template <class T>
-struct is_trivial : public integral_constant<bool, __is_trivial(T)>
-{
-};
+struct is_trivial : public integral_constant<bool, __is_trivial(T)> {};
 
 /** Identify a type as trivially copyable (can memcpy it). */
 template <class T>
 struct is_trivially_copyable
-    : public integral_constant<
-          bool, is_scalar<typename remove_all_extents<T>::type>::value>
-{
-};
+    : public integral_constant<bool, is_scalar<typename remove_all_extents<T>::type>::value> {};
 
 template <class T, class U>
-struct is_same : false_type
-{
-};
+struct is_same : false_type {};
 
 template <class T>
-struct is_same<T, T> : true_type
-{
-};
+struct is_same<T, T> : true_type {};
 
 /** Perform a copy in the easiest way possible. */
 template <class T>
-typename enable_if<is_trivially_copyable<T>::value>::type *
-copy(T *dest, const T *src, size_t count)
-{
+typename enable_if<is_trivially_copyable<T>::value>::type* copy(T* dest, const T* src,
+                                                                size_t count) {
 #if UTILITY_LINUX
-    return memmove(dest, src, count * sizeof(T));
+  return memmove(dest, src, count * sizeof(T));
 #else
-    return MemoryCopy(dest, src, count * sizeof(T));
+  return MemoryCopy(dest, src, count * sizeof(T));
 #endif
 }
 
 /** Perform a copy in the easiest way possible. */
 template <class T>
-typename enable_if<!is_trivially_copyable<T>::value>::type *
-copy(T *dest, const T *src, size_t count)
-{
-    const uintptr_t destAddress = reinterpret_cast<uintptr_t>(dest);
-    const uintptr_t srcAddress = reinterpret_cast<uintptr_t>(src);
-    if (overlaps(dest, src, count * sizeof(T)) && (destAddress > srcAddress))
-    {
-        for (ssize_t i = count - 1; i >= 0; --i)
-        {
-            dest[i] = src[i];
-        }
+typename enable_if<!is_trivially_copyable<T>::value>::type* copy(T* dest, const T* src,
+                                                                 size_t count) {
+  const uintptr_t destAddress = reinterpret_cast<uintptr_t>(dest);
+  const uintptr_t srcAddress = reinterpret_cast<uintptr_t>(src);
+  if (overlaps(dest, src, count * sizeof(T)) && (destAddress > srcAddress)) {
+    for (ssize_t i = count - 1; i >= 0; --i) {
+      dest[i] = src[i];
     }
-    else
-    {
-        for (size_t i = 0; i < count; ++i)
-        {
-            dest[i] = src[i];
-        }
+  } else {
+    for (size_t i = 0; i < count; ++i) {
+      dest[i] = src[i];
     }
-    return dest;
+  }
+  return dest;
 }
 
 /** Obtain information about a function. */
 template <class T>
-struct function_traits : public function_traits<decltype(&T::operator())>
-{
-};
+struct function_traits : public function_traits<decltype(&T::operator())> {};
 
 template <class C, class R, class... Args>
-struct function_traits<R (C::*)(Args...) const>
-{
-    typedef R return_type;
-    typedef C class_type;
+struct function_traits<R (C::*)(Args...) const> {
+  typedef R return_type;
+  typedef C class_type;
 };
 
 template <class R, class... Args>
-struct function_traits<R (*)(Args...)>
-{
-    typedef R return_type;
+struct function_traits<R (*)(Args...)> {
+  typedef R return_type;
 };
 
 template <class R, class... Args>
-struct function_traits<R(Args...)>
-{
-    typedef R return_type;
+struct function_traits<R(Args...)> {
+  typedef R return_type;
 };
 
 /** Wraps a callable (e.g. lambda) such that it can be called later. */
 template <class F>
-class Callable
-{
-  public:
-    Callable(const F &x) : func(x)
-    {
-    }
+class Callable {
+ public:
+  Callable(const F& x) : func(x) {}
 
-    template <class... Args>
-    typename function_traits<F>::return_type operator()(Args... args)
-    {
-        return func(args...);
-    }
+  template <class... Args>
+  typename function_traits<F>::return_type operator()(Args... args) {
+    return func(args...);
+  }
 
-  private:
-    const F &func;
+ private:
+  const F& func;
 };
 
 /** Creates a callable. */
 template <class T>
-Callable<T> make_callable(T &f)
-{
-    return Callable<T>(f);
+Callable<T> make_callable(T& f) {
+  return Callable<T>(f);
 }
 
 /** Remove pointer type from the given type. */
 template <class T>
-struct remove_pointer
-{
-    typedef T type;
+struct remove_pointer {
+  typedef T type;
 };
 
 template <class T>
-struct remove_pointer<T *>
-{
-    typedef T type;
+struct remove_pointer<T*> {
+  typedef T type;
 };
 
 /** Remove references from the given type. */
 template <class T>
-struct remove_reference
-{
-    typedef T type;
+struct remove_reference {
+  typedef T type;
 };
 
 template <class T>
-struct remove_reference<T &>
-{
-    typedef T type;
+struct remove_reference<T&> {
+  typedef T type;
 };
 
 template <class T>
-struct remove_reference<T &&>
-{
-    typedef T type;
+struct remove_reference<T&&> {
+  typedef T type;
 };
 
 template <class T>
-T &&forward(typename remove_reference<T>::type &a) noexcept
-{
-    return static_cast<T &&>(a);
+T&& forward(typename remove_reference<T>::type& a) noexcept {
+  return static_cast<T&&>(a);
 }
 
 template <class T>
-T &&forward(typename remove_reference<T>::type &&a) noexcept
-{
-    return static_cast<T &&>(a);
+T&& forward(typename remove_reference<T>::type&& a) noexcept {
+  return static_cast<T&&>(a);
 }
 
 /** Move an object (doesn't trigger copy-construction). */
 template <class T>
-typename remove_reference<T>::type &&move(T &&a)
-{
-    return static_cast<typename remove_reference<T>::type &&>(a);
+typename remove_reference<T>::type&& move(T&& a) {
+  return static_cast<typename remove_reference<T>::type&&>(a);
 }
 
 /** Return the minimum of the two items. */
 template <class T>
-const T &min(const T& a, const T &b)
-{
-    return a <= b ? a : b;
+const T& min(const T& a, const T& b) {
+  return a <= b ? a : b;
 }
 
 /** Return the maximum of the two items. */
 template <class T>
-const T &max(const T& a, const T &b)
-{
-    return a >= b ? a : b;
+const T& max(const T& a, const T& b) {
+  return a >= b ? a : b;
 }
 
 }  // namespace pedigree_std

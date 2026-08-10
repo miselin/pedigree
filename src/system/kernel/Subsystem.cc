@@ -17,23 +17,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Subsystem.h"
 
 Subsystem::~Subsystem() = default;
 
-void Subsystem::acquire()
-{
-    // no-op
+void Subsystem::acquire() {
+  // no-op
 }
 
-void Subsystem::release()
-{
-    // no-op
+void Subsystem::release() {
+  // no-op
 }
 
-void Subsystem::threadException(
-    Thread *, ExceptionType, InterruptState *, uintptr_t, uintptr_t)
-{
-    ERROR("Subsystem::threadException - not overridden");
+void Subsystem::threadException(Thread*, ExceptionType, InterruptState*, uintptr_t, uintptr_t) {
+  ERROR("Subsystem::threadException - not overridden");
 }

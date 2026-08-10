@@ -47,229 +47,210 @@ class Thread;
  * block.
  */
 template <class T, bool allowShortOperation = false>
-class EXPORTED_PUBLIC Buffer
-{
-    friend class UnixSocket;  // to allow for calling notifyMonitors()
+class EXPORTED_PUBLIC Buffer {
+  friend class UnixSocket;  // to allow for calling notifyMonitors()
 
-  public:
-    Buffer(size_t bufferSize);
-    ~Buffer();
+ public:
+  Buffer(size_t bufferSize);
+  ~Buffer();
 
-    /**
-     * Write \param count values from \param buffer, optionally blocking
-     * before writing if there is insufficient space.
-     */
-    size_t write(const T *buffer, size_t count, bool block = true);
+  /**
+   * Write \param count values from \param buffer, optionally blocking
+   * before writing if there is insufficient space.
+   */
+  size_t write(const T* buffer, size_t count, bool block = true);
 
-    /**
-     * Read \param count values into \param buffer, optionally blocking
-     * if no more values are available to be read yet.
-     */
-    size_t read(T *buffer, size_t count, bool block = true);
+  /**
+   * Read \param count values into \param buffer, optionally blocking
+   * if no more values are available to be read yet.
+   */
+  size_t read(T* buffer, size_t count, bool block = true);
 
-    /**
-     * Disable further writes to the buffer.
-     * This will wake up all readers waiting on a writer.
-     */
-    void disableWrites();
+  /**
+   * Disable further writes to the buffer.
+   * This will wake up all readers waiting on a writer.
+   */
+  void disableWrites();
 
-    /**
-     * Disable further reads from the buffer.
-     * This will wake up all writers waiting on reader.
-     */
-    void disableReads();
+  /**
+   * Disable further reads from the buffer.
+   * This will wake up all writers waiting on reader.
+   */
+  void disableReads();
 
-    /**
-     * Enable writes to the buffer.
-     *
-     * \return the previous state of writes.
-     */
-    bool enableWrites();
+  /**
+   * Enable writes to the buffer.
+   *
+   * \return the previous state of writes.
+   */
+  bool enableWrites();
 
-    /**
-     * Enable reads from the buffer.
-     *
-     * \return the previous state of reads.
-     */
-    bool enableReads();
+  /**
+   * Enable reads from the buffer.
+   *
+   * \return the previous state of reads.
+   */
+  bool enableReads();
 
-    /**
-     * Get the number of bytes in the buffer now.
-     */
-    size_t getDataSize();
+  /**
+   * Get the number of bytes in the buffer now.
+   */
+  size_t getDataSize();
 
-    /**
-     * Get the full size of the buffer (potential storage).
-     */
-    size_t getSize();
+  /**
+   * Get the full size of the buffer (potential storage).
+   */
+  size_t getSize();
 
-    /**
-     * Check if the buffer can be written to.
-     * \note This does not guarantee the next write() will succeed.
-     */
-    bool canWrite(bool block);
+  /**
+   * Check if the buffer can be written to.
+   * \note This does not guarantee the next write() will succeed.
+   */
+  bool canWrite(bool block);
 
-    /**
-     * Check if the buffer can be read from.
-     */
-    bool canRead(bool block);
+  /**
+   * Check if the buffer can be read from.
+   */
+  bool canRead(bool block);
 
-    /**
-     * Wipes the buffer.
-     */
-    void wipe();
+  /**
+   * Wipes the buffer.
+   */
+  void wipe();
 
-    /**
-     * Add an event to be sent to the given thread upon a data change.
-     *
-     * \note An event does not guarantee the next operation will succeed.
-     */
-    void monitor(Thread *pThread, Event *pEvent);
+  /**
+   * Add an event to be sent to the given thread upon a data change.
+   *
+   * \note An event does not guarantee the next operation will succeed.
+   */
+  void monitor(Thread* pThread, Event* pEvent);
 
-    /**
-     * Add a Semaphore to be signaled when data changes.
-     */
-    void monitor(Semaphore *pSemaphore);
+  /**
+   * Add a Semaphore to be signaled when data changes.
+   */
+  void monitor(Semaphore* pSemaphore);
 
-    /**
-     * Remove monitoring targets for the given thread.
-     */
-    void cullMonitorTargets(Thread *pThread);
+  /**
+   * Remove monitoring targets for the given thread.
+   */
+  void cullMonitorTargets(Thread* pThread);
 
-    /**
-     * Remove monitoring targets for the given Semaphore.
-     */
-    void cullMonitorTargets(Semaphore *pSemaphore);
+  /**
+   * Remove monitoring targets for the given Semaphore.
+   */
+  void cullMonitorTargets(Semaphore* pSemaphore);
 
-    /**
-     * Remove monitoring targets for the given Event.
-     */
-    void cullMonitorTargets(Event *pEvent);
+  /**
+   * Remove monitoring targets for the given Event.
+   */
+  void cullMonitorTargets(Event* pEvent);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    /** Hosted-only seam for forcing the operation-admission mutex window. */
-    void acquireHostedOperationLock();
-    void releaseHostedOperationLock();
-    size_t getHostedActiveOperationCount();
+  /** Hosted-only seam for forcing the operation-admission mutex window. */
+  void acquireHostedOperationLock();
+  void releaseHostedOperationLock();
+  size_t getHostedActiveOperationCount();
 #endif
 
-  private:
-    WITHOUT_IMPLICIT_CONSTRUCTORS(Buffer);
+ private:
+  WITHOUT_IMPLICIT_CONSTRUCTORS(Buffer);
 
-    class ActiveOperation
-    {
-      public:
-        explicit ActiveOperation(Buffer &buffer)
-            : m_TerminationDeferral(),
-              m_Buffer(buffer.beginOperation() ? &buffer : nullptr)
-        {
-        }
+  class ActiveOperation {
+   public:
+    explicit ActiveOperation(Buffer& buffer)
+        : m_TerminationDeferral(), m_Buffer(buffer.beginOperation() ? &buffer : nullptr) {}
 
-        ~ActiveOperation()
-        {
-            if (m_Buffer)
-            {
-                m_Buffer->endOperation();
-            }
-        }
+    ~ActiveOperation() {
+      if (m_Buffer) {
+        m_Buffer->endOperation();
+      }
+    }
 
-        explicit operator bool() const
-        {
-            return m_Buffer != nullptr;
-        }
+    explicit operator bool() const {
+      return m_Buffer != nullptr;
+    }
 
-      private:
-        ActiveOperation(const ActiveOperation &) = delete;
-        ActiveOperation &operator=(const ActiveOperation &) = delete;
+   private:
+    ActiveOperation(const ActiveOperation&) = delete;
+    ActiveOperation& operator=(const ActiveOperation&) = delete;
 
-        TerminationDeferral m_TerminationDeferral;
-        Buffer *m_Buffer;
-    };
+    TerminationDeferral m_TerminationDeferral;
+    Buffer* m_Buffer;
+  };
 
-    bool beginOperation();
-    void endOperation();
+  bool beginOperation();
+  void endOperation();
 
-    /**
-     * Helper function to send events upon completing an action.
-     *
-     * Clears all monitors as a side effect.
-     */
-    void notifyMonitors();
+  /**
+   * Helper function to send events upon completing an action.
+   *
+   * Clears all monitors as a side effect.
+   */
+  void notifyMonitors();
 
-    /**
-     * Create a new segment with the given data.
-     */
-    void addSegment(const T *buffer, size_t count);
+  /**
+   * Create a new segment with the given data.
+   */
+  void addSegment(const T* buffer, size_t count);
 
-    /**
-     * Controls the size of each segment.
-     */
-    static const size_t m_SegmentSize = 32768;
+  /**
+   * Controls the size of each segment.
+   */
+  static const size_t m_SegmentSize = 32768;
 
-    /**
-     * Holds a segment of data; more data can be written into this segment
-     * until it reaches capacity.
-     */
-    struct Segment
-    {
-        Segment() : data(), reader(0), size(0)
-        {
-        }
+  /**
+   * Holds a segment of data; more data can be written into this segment
+   * until it reaches capacity.
+   */
+  struct Segment {
+    Segment() : data(), reader(0), size(0) {}
 
-        /** Segment data. */
-        T data[m_SegmentSize];
+    /** Segment data. */
+    T data[m_SegmentSize];
 
-        /** Reader offset (the next reader starts here). */
-        size_t reader;
+    /** Reader offset (the next reader starts here). */
+    size_t reader;
 
-        /** Segment size so far. */
-        size_t size;
-    };
+    /** Segment size so far. */
+    size_t size;
+  };
 
-    /**
-     * Contains information about a particular target to send events to.
-     */
-    struct MonitorTarget
-    {
-        MonitorTarget() : pThread(0), pEvent(0), pSemaphore(0),
-                          eventRegistration()
-        {
-        }
+  /**
+   * Contains information about a particular target to send events to.
+   */
+  struct MonitorTarget {
+    MonitorTarget() : pThread(0), pEvent(0), pSemaphore(0), eventRegistration() {}
 
-        MonitorTarget(
-            Thread *thread, Event *event, Event::SendLease registration)
-            : pThread(thread), pEvent(event), pSemaphore(0),
-              eventRegistration(pedigree_std::move(registration))
-        {
-        }
+    MonitorTarget(Thread* thread, Event* event, Event::SendLease registration)
+        : pThread(thread),
+          pEvent(event),
+          pSemaphore(0),
+          eventRegistration(pedigree_std::move(registration)) {}
 
-        MonitorTarget(Semaphore *sem)
-            : pThread(0), pEvent(0), pSemaphore(sem), eventRegistration()
-        {
-        }
+    MonitorTarget(Semaphore* sem) : pThread(0), pEvent(0), pSemaphore(sem), eventRegistration() {}
 
-        Thread *pThread;
-        Event *pEvent;
-        Semaphore *pSemaphore;
-        Event::SendLease eventRegistration;
-    };
+    Thread* pThread;
+    Event* pEvent;
+    Semaphore* pSemaphore;
+    Event::SendLease eventRegistration;
+  };
 
-    size_t m_BufferSize;
-    size_t m_DataSize;
+  size_t m_BufferSize;
+  size_t m_DataSize;
 
-    Mutex m_Lock;
+  Mutex m_Lock;
 
-    ConditionVariable m_WriteCondition;
-    ConditionVariable m_ReadCondition;
-    ConditionVariable m_DrainCondition;
+  ConditionVariable m_WriteCondition;
+  ConditionVariable m_ReadCondition;
+  ConditionVariable m_DrainCondition;
 
-    List<Segment *> m_Segments;
-    List<MonitorTarget *> m_MonitorTargets;
+  List<Segment*> m_Segments;
+  List<MonitorTarget*> m_MonitorTargets;
 
-    bool m_bCanRead;
-    bool m_bCanWrite;
-    bool m_bClosing;
-    size_t m_ActiveOperations;
+  bool m_bCanRead;
+  bool m_bCanWrite;
+  bool m_bClosing;
+  size_t m_ActiveOperations;
 };
 
 // Specializations are in a .cc file.

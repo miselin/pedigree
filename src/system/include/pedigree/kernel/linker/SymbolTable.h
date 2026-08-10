@@ -40,135 +40,114 @@ class Elf;
  *        for this class is insertion and lookup. Deletion
  *        would almost never occur, and so the class is
  *        optimised solely for the first two operations. */
-class SymbolTable
-{
-  public:
-    /** Binding types, to define how symbols interact. */
-    enum Binding
-    {
-        Local,
-        Global,
-        Weak
-    };
+class SymbolTable {
+ public:
+  /** Binding types, to define how symbols interact. */
+  enum Binding { Local, Global, Weak };
 
-    /** Lookup policies - given multiple definitions of a symbol,
-     *  how do we determine the best response? */
-    enum Policy
-    {
-        LocalFirst,  ///< Default policy - searches for local definitions of a
-                     /// symbol first.
-        NotOriginatingElf  ///< Does not search the ELF given as pElf. This is
-                           /// used during lookups for
-                           ///  R_COPY relocations, where one symbol must be
-                           ///  linked to another.
-    };
+  /** Lookup policies - given multiple definitions of a symbol,
+   *  how do we determine the best response? */
+  enum Policy {
+    LocalFirst,        ///< Default policy - searches for local definitions of a
+                       /// symbol first.
+    NotOriginatingElf  ///< Does not search the ELF given as pElf. This is
+                       /// used during lookups for
+                       ///  R_COPY relocations, where one symbol must be
+                       ///  linked to another.
+  };
 
-    /** Class constructor - creates an empty table. */
-    SymbolTable(Elf *pElf);
-    /** Destructor - destroys all information. */
-    ~SymbolTable();
+  /** Class constructor - creates an empty table. */
+  SymbolTable(Elf* pElf);
+  /** Destructor - destroys all information. */
+  ~SymbolTable();
 
-    /** Copy constructor. */
-    SymbolTable(const SymbolTable &symtab);
+  /** Copy constructor. */
+  SymbolTable(const SymbolTable& symtab);
 
-    /** Copies the symbol table */
-    void copyTable(Elf *pNewElf, const SymbolTable &newSymtab);
+  /** Copies the symbol table */
+  void copyTable(Elf* pNewElf, const SymbolTable& newSymtab);
 
-    /** Insert a symbol into the table. */
-    void
-    insert(const String &name, Binding binding, Elf *pParent, uintptr_t value);
+  /** Insert a symbol into the table. */
+  void insert(const String& name, Binding binding, Elf* pParent, uintptr_t value);
 
-    /** Insert a symbol into two SymbolTables, using the memory once. */
-    void insertMultiple(
-        SymbolTable *pOther, const String &name, Binding binding, Elf *pParent,
-        uintptr_t value);
+  /** Insert a symbol into two SymbolTables, using the memory once. */
+  void insertMultiple(SymbolTable* pOther, const String& name, Binding binding, Elf* pParent,
+                      uintptr_t value);
 
-    /**  Preallocate at least the minimum space for the given symbol tables. */
-    void preallocate(
-        size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal);
-    /**
-     * Preallocate additional symbols to the existing count.
-     */
-    void preallocateAdditional(
-        size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal);
+  /**  Preallocate at least the minimum space for the given symbol tables. */
+  void preallocate(size_t numGlobal, size_t numWeak, Elf* localElf, size_t numLocal);
+  /**
+   * Preallocate additional symbols to the existing count.
+   */
+  void preallocateAdditional(size_t numGlobal, size_t numWeak, Elf* localElf, size_t numLocal);
 
-    /** Has a preallocation already taken place on this SymbolTable? */
-    bool hasPreallocated() const;
+  /** Has a preallocation already taken place on this SymbolTable? */
+  bool hasPreallocated() const;
 
-    void eraseByElf(Elf *pParent);
+  void eraseByElf(Elf* pParent);
 
-    /** Looks up a symbol in the table, optionally outputting the
-     *  binding value.
-     *
-     *  If the policy is set as "LocalFirst" (the default), then
-     *  Local and Global definitions from pElf are given
-     *  priority.
-     *
-     *  If the policy is set as "NotOriginatingElf", no symbols
-     *  in pElf will ever be matched, preferring those from other
-     *  ELFs. This is used for R_COPY relocations.
-     *
-     *  \return The value of the found symbol. */
-    uintptr_t EXPORTED_PUBLIC lookup(
-        const HashedStringView &name, Elf *pElf, Policy policy = LocalFirst,
-        Binding *pBinding = 0);
+  /** Looks up a symbol in the table, optionally outputting the
+   *  binding value.
+   *
+   *  If the policy is set as "LocalFirst" (the default), then
+   *  Local and Global definitions from pElf are given
+   *  priority.
+   *
+   *  If the policy is set as "NotOriginatingElf", no symbols
+   *  in pElf will ever be matched, preferring those from other
+   *  ELFs. This is used for R_COPY relocations.
+   *
+   *  \return The value of the found symbol. */
+  uintptr_t EXPORTED_PUBLIC lookup(const HashedStringView& name, Elf* pElf,
+                                   Policy policy = LocalFirst, Binding* pBinding = 0);
 
-  private:
-    /** Copy constructor.
-        \note NOT implemented. */
-    SymbolTable &operator=(const SymbolTable &);
+ private:
+  /** Copy constructor.
+      \note NOT implemented. */
+  SymbolTable& operator=(const SymbolTable&);
 
-    class Symbol
-    {
-      public:
-        Symbol() : m_pParent(0), m_Binding(Global), m_Value(0)
-        {
-        }
-        Symbol(Elf *pP, Binding b, uintptr_t v)
-            : m_pParent(pP), m_Binding(b), m_Value(v)
-        {
-        }
+  class Symbol {
+   public:
+    Symbol() : m_pParent(0), m_Binding(Global), m_Value(0) {}
+    Symbol(Elf* pP, Binding b, uintptr_t v) : m_pParent(pP), m_Binding(b), m_Value(v) {}
 
-        Elf *getParent() const
-        {
-            return m_pParent;
-        }
-        Binding getBinding() const
-        {
-            return m_Binding;
-        }
-        uintptr_t getValue() const
-        {
-            return m_Value;
-        }
+    Elf* getParent() const {
+      return m_pParent;
+    }
+    Binding getBinding() const {
+      return m_Binding;
+    }
+    uintptr_t getValue() const {
+      return m_Value;
+    }
 
-      private:
-        Elf *m_pParent;
-        Binding m_Binding;
-        uintptr_t m_Value;
-    };
+   private:
+    Elf* m_pParent;
+    Binding m_Binding;
+    uintptr_t m_Value;
+  };
 
-    /** Insert doer. */
-    SharedPointer<Symbol> doInsert(
-        const String &name, Binding binding, Elf *pParent, uintptr_t value);
-    /** Insert the given shared symbol. */
-    void insertShared(const String &name, SharedPointer<Symbol> &symbol);
+  /** Insert doer. */
+  SharedPointer<Symbol> doInsert(const String& name, Binding binding, Elf* pParent,
+                                 uintptr_t value);
+  /** Insert the given shared symbol. */
+  void insertShared(const String& name, SharedPointer<Symbol>& symbol);
 
-    typedef HashTable<String, SharedPointer<Symbol>, HashedStringView> symbolTree_t;
-    typedef Tree<Elf *, SharedPointer<symbolTree_t>> parentedSymbolTree_t;
+  typedef HashTable<String, SharedPointer<Symbol>, HashedStringView> symbolTree_t;
+  typedef Tree<Elf*, SharedPointer<symbolTree_t>> parentedSymbolTree_t;
 
-    /** Get or insert a Symbol tree. */
-    symbolTree_t *getOrInsertTree(Elf *, Binding table = Local);
+  /** Get or insert a Symbol tree. */
+  symbolTree_t* getOrInsertTree(Elf*, Binding table = Local);
 
-    parentedSymbolTree_t m_LocalSymbols;
-    parentedSymbolTree_t m_GlobalSymbols;
-    parentedSymbolTree_t m_WeakSymbols;
+  parentedSymbolTree_t m_LocalSymbols;
+  parentedSymbolTree_t m_GlobalSymbols;
+  parentedSymbolTree_t m_WeakSymbols;
 
-    Elf *m_pOriginatingElf;
+  Elf* m_pOriginatingElf;
 
-    Mutex m_Lock;
+  Mutex m_Lock;
 
-    bool m_bPreallocated;
+  bool m_bPreallocated;
 };
 
 #endif

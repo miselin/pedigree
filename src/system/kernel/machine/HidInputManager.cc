@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/HidInputManager.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/KeymapManager.h"
 #include "pedigree/kernel/machine/Machine.h"
@@ -29,139 +29,117 @@
 
 HidInputManager HidInputManager::m_Instance;
 
-HidInputManager::HidInputManager() : m_pTimer(nullptr)
-{
-}
+HidInputManager::HidInputManager() : m_pTimer(nullptr) {}
 
-HidInputManager::~HidInputManager()
-{
-    Timer *timer = nullptr;
-    {
-        LockGuard<Spinlock> guard(m_KeyLock);
-        timer = m_pTimer;
-        m_pTimer = nullptr;
-    }
-    if (timer && !timer->unregisterHandler(this))
-    {
-        FATAL("HidInputManager could not drain its timer callback");
-    }
-}
-
-void HidInputManager::keyDown(uint8_t keyCode)
-{
-    KeymapManager &keymapManager = KeymapManager::instance();
-
-    InputManager::instance().rawKeyUpdate(keyCode, false);
-
-    // Check for modifiers
-    if (keymapManager.handleHidModifier(keyCode, true))
-    {
-        updateKeys();
-        return;
-    }
-
+HidInputManager::~HidInputManager() {
+  Timer* timer = nullptr;
+  {
     LockGuard<Spinlock> guard(m_KeyLock);
-
-    // Is the key already considered "down"?
-    if (!m_KeyStates.lookup(keyCode))
-    {
-        // If there was no key before, register the timer handler
-        if (!m_KeyStates.count())
-        {
-            Timer *timer = Machine::instance().getTimer();
-            if (timer && timer->registerHandler(this))
-            {
-                m_pTimer = timer;
-            }
-            else
-            {
-                ERROR("HidInputManager could not register key repeat");
-            }
-        }
-
-        // Resolve the key
-        uint64_t key = keymapManager.resolveHidKeycode(keyCode);
-
-        // Create a key state structure and fill it
-        KeyState *keyState = new KeyState;
-        keyState->key = key;
-        keyState->nLeftTicks = 600000000;
-
-        // Insert the key state
-        m_KeyStates.insert(keyCode, keyState);
-
-        // First keypress always sent straight away, repeating keystrokes
-        // are transferred as necessary
-        if (key)
-            InputManager::instance().keyPressed(key);
-    }
+    timer = m_pTimer;
+    m_pTimer = nullptr;
+  }
+  if (timer && !timer->unregisterHandler(this)) {
+    FATAL("HidInputManager could not drain its timer callback");
+  }
 }
 
-void HidInputManager::keyUp(uint8_t keyCode)
-{
-    KeymapManager &keymapManager = KeymapManager::instance();
+void HidInputManager::keyDown(uint8_t keyCode) {
+  KeymapManager& keymapManager = KeymapManager::instance();
 
-    InputManager::instance().rawKeyUpdate(keyCode, true);
+  InputManager::instance().rawKeyUpdate(keyCode, false);
 
-    // Check for modifiers
-    if (keymapManager.handleHidModifier(keyCode, false))
-    {
-        updateKeys();
-        return;
+  // Check for modifiers
+  if (keymapManager.handleHidModifier(keyCode, true)) {
+    updateKeys();
+    return;
+  }
+
+  LockGuard<Spinlock> guard(m_KeyLock);
+
+  // Is the key already considered "down"?
+  if (!m_KeyStates.lookup(keyCode)) {
+    // If there was no key before, register the timer handler
+    if (!m_KeyStates.count()) {
+      Timer* timer = Machine::instance().getTimer();
+      if (timer && timer->registerHandler(this)) {
+        m_pTimer = timer;
+      } else {
+        ERROR("HidInputManager could not register key repeat");
+      }
     }
 
-    LockGuard<Spinlock> guard(m_KeyLock);
+    // Resolve the key
+    uint64_t key = keymapManager.resolveHidKeycode(keyCode);
 
-    // Is the key actually pressed?
-    KeyState *keyState = m_KeyStates.lookup(keyCode);
-    if (keyState)
-    {
-        // Remove the key from the key states tree
-        m_KeyStates.remove(keyCode);
-        // Delete the key state structure
-        delete keyState;
-    }
+    // Create a key state structure and fill it
+    KeyState* keyState = new KeyState;
+    keyState->key = key;
+    keyState->nLeftTicks = 600000000;
+
+    // Insert the key state
+    m_KeyStates.insert(keyCode, keyState);
+
+    // First keypress always sent straight away, repeating keystrokes
+    // are transferred as necessary
+    if (key)
+      InputManager::instance().keyPressed(key);
+  }
 }
 
-void HidInputManager::timer(uint64_t delta)
-{
-    LockGuard<Spinlock> guard(m_KeyLock);
+void HidInputManager::keyUp(uint8_t keyCode) {
+  KeymapManager& keymapManager = KeymapManager::instance();
 
-    for (Tree<uint8_t, KeyState *>::Iterator it = m_KeyStates.begin();
-         it != m_KeyStates.end(); ++it)
-    {
-        KeyState *keyState = it.value();
-        if (keyState->nLeftTicks > delta)
-            keyState->nLeftTicks -= delta;
-        else
-        {
-            keyState->nLeftTicks = 40000000;
-            if (keyState->key)
-                InputManager::instance().keyPressed(keyState->key);
-        }
-    }
+  InputManager::instance().rawKeyUpdate(keyCode, true);
 
-    // If we've got no more keys being held down, release the handler
-    if (!m_KeyStates.count() && m_pTimer)
-    {
-        Timer *timer = m_pTimer;
-        m_pTimer = nullptr;
+  // Check for modifiers
+  if (keymapManager.handleHidModifier(keyCode, false)) {
+    updateKeys();
+    return;
+  }
 
-        // Self-removal is intentionally deferred until this callback returns.
-        // A new key can reactivate the same slot after m_KeyLock is released.
-        timer->unregisterHandler(this);
-    }
+  LockGuard<Spinlock> guard(m_KeyLock);
+
+  // Is the key actually pressed?
+  KeyState* keyState = m_KeyStates.lookup(keyCode);
+  if (keyState) {
+    // Remove the key from the key states tree
+    m_KeyStates.remove(keyCode);
+    // Delete the key state structure
+    delete keyState;
+  }
 }
 
-void HidInputManager::updateKeys()
-{
-    LockGuard<Spinlock> guard(m_KeyLock);
+void HidInputManager::timer(uint64_t delta) {
+  LockGuard<Spinlock> guard(m_KeyLock);
 
-    KeymapManager &keymapManager = KeymapManager::instance();
-    for (Tree<uint8_t, KeyState *>::Iterator it = m_KeyStates.begin();
-         it != m_KeyStates.end(); ++it)
-    {
-        KeyState *keyState = it.value();
-        keyState->key = keymapManager.resolveHidKeycode(it.key());
+  for (Tree<uint8_t, KeyState*>::Iterator it = m_KeyStates.begin(); it != m_KeyStates.end(); ++it) {
+    KeyState* keyState = it.value();
+    if (keyState->nLeftTicks > delta)
+      keyState->nLeftTicks -= delta;
+    else {
+      keyState->nLeftTicks = 40000000;
+      if (keyState->key)
+        InputManager::instance().keyPressed(keyState->key);
     }
+  }
+
+  // If we've got no more keys being held down, release the handler
+  if (!m_KeyStates.count() && m_pTimer) {
+    Timer* timer = m_pTimer;
+    m_pTimer = nullptr;
+
+    // Self-removal is intentionally deferred until this callback returns.
+    // A new key can reactivate the same slot after m_KeyLock is released.
+    timer->unregisterHandler(this);
+  }
+}
+
+void HidInputManager::updateKeys() {
+  LockGuard<Spinlock> guard(m_KeyLock);
+
+  KeymapManager& keymapManager = KeymapManager::instance();
+  for (Tree<uint8_t, KeyState*>::Iterator it = m_KeyStates.begin(); it != m_KeyStates.end(); ++it) {
+    KeyState* keyState = it.value();
+    keyState->key = keymapManager.resolveHidKeycode(it.key());
+  }
 }

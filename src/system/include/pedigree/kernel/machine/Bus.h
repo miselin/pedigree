@@ -28,23 +28,22 @@ class String;
 /**
  * A bus is a device which provides a view onto other devices.
  */
-class EXPORTED_PUBLIC Bus : public Device
-{
-  public:
-    Bus(const char *pName);
-    virtual ~Bus();
+class EXPORTED_PUBLIC Bus : public Device {
+ public:
+  Bus(const char* pName);
+  virtual ~Bus();
 
-    virtual Type getType();
+  virtual Type getType();
 
-    virtual void getName(String &str);
+  virtual void getName(String& str);
 
-    virtual void dump(String &str);
+  virtual void dump(String& str);
 
-  private:
-    Bus(const Bus &);
-    void operator=(const Bus &);
+ private:
+  Bus(const Bus&);
+  void operator=(const Bus&);
 
-    const char *m_pName;
+  const char* m_pName;
 };
 
 #endif

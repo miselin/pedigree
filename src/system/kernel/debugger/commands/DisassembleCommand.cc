@@ -24,98 +24,84 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/demangle.h"
 
-DisassembleCommand::DisassembleCommand()
-{
+DisassembleCommand::DisassembleCommand() {}
+
+DisassembleCommand::~DisassembleCommand() {}
+
+void DisassembleCommand::autocomplete(const HugeStaticString& input, HugeStaticString& output) {
+  // TODO: add symbols.
+  output = "<address>";
 }
 
-DisassembleCommand::~DisassembleCommand()
-{
-}
+bool DisassembleCommand::execute(const HugeStaticString& input, HugeStaticString& output,
+                                 InterruptState& state, DebuggerIO* screen) {
+  // This command can take either an address or a symbol name (or nothing).
+  uintptr_t address;
 
-void DisassembleCommand::autocomplete(
-    const HugeStaticString &input, HugeStaticString &output)
-{
-    // TODO: add symbols.
-    output = "<address>";
-}
+  // If we see just "disassemble", no parameters were matched.
+  if (input == "disassemble")
+    address = state.getInstructionPointer();
+  else {
+    // Is it an address?
+    address = input.uintptrValue();
 
-bool DisassembleCommand::execute(
-    const HugeStaticString &input, HugeStaticString &output,
-    InterruptState &state, DebuggerIO *screen)
-{
-    // This command can take either an address or a symbol name (or nothing).
-    uintptr_t address;
+    if (address == 0) {
+      // No, try a symbol name.
+      // TODO.
+      output = "Not a valid address or symbol name: `";
+      output += input;
+      output += "'.\n";
+      return true;
+    }
+  }
 
-    // If we see just "disassemble", no parameters were matched.
-    if (input == "disassemble")
-        address = state.getInstructionPointer();
-    else
-    {
-        // Is it an address?
-        address = input.uintptrValue();
+  // Dissassemble around address.
+  size_t nInstructions = 10;
 
-        if (address == 0)
-        {
-            // No, try a symbol name.
-            // TODO.
-            output = "Not a valid address or symbol name: `";
-            output += input;
-            output += "'.\n";
-            return true;
-        }
+  LargeStaticString text;
+  Disassembler disassembler;
+#if BITS_64
+  disassembler.setMode(64);
+#endif
+  disassembler.setLocation(address);
+
+  for (size_t i = 0; i < nInstructions; i++) {
+    text.clear();
+    uintptr_t location = disassembler.getLocation();
+    disassembler.disassemble(text);
+
+    // What symbol are we in?
+    // TODO grep the memory map for the right ELF to look at.
+    uintptr_t symStart = 0;
+    const char* pSym = KernelElf::instance().globalLookupSymbol(location, &symStart);
+    if (location == symStart) {
+#if BITS_32
+      output.append(location, 16, 8, '0');
+#endif
+#if BITS_64
+      output.append(location, 16, 16, '0');
+#endif
+      output += ": <";
+      LargeStaticString sym;
+      demangle_full(LargeStaticString(pSym), sym);
+      output += sym;
+      output += ">:\n";
     }
 
-    // Dissassemble around address.
-    size_t nInstructions = 10;
-
-    LargeStaticString text;
-    Disassembler disassembler;
-#if BITS_64
-    disassembler.setMode(64);
-#endif
-    disassembler.setLocation(address);
-
-    for (size_t i = 0; i < nInstructions; i++)
-    {
-        text.clear();
-        uintptr_t location = disassembler.getLocation();
-        disassembler.disassemble(text);
-
-        // What symbol are we in?
-        // TODO grep the memory map for the right ELF to look at.
-        uintptr_t symStart = 0;
-        const char *pSym =
-            KernelElf::instance().globalLookupSymbol(location, &symStart);
-        if (location == symStart)
-        {
 #if BITS_32
-            output.append(location, 16, 8, '0');
+    output.append(location, 16, 8, ' ');
 #endif
 #if BITS_64
-            output.append(location, 16, 16, '0');
+    output.append(location, 16, 16, ' ');
 #endif
-            output += ": <";
-            LargeStaticString sym;
-            demangle_full(LargeStaticString(pSym), sym);
-            output += sym;
-            output += ">:\n";
-        }
+    output += ": ";
+    output += text;
+    output += '\n';
+  }
 
-#if BITS_32
-        output.append(location, 16, 8, ' ');
-#endif
-#if BITS_64
-        output.append(location, 16, 16, ' ');
-#endif
-        output += ": ";
-        output += text;
-        output += '\n';
-    }
-
-    return true;
+  return true;
 }
 
-const NormalStaticString DisassembleCommand::getString()
-{
-    return NormalStaticString("disassemble");
+const NormalStaticString DisassembleCommand::getString() {
+  return NormalStaticString("disassemble");
 }

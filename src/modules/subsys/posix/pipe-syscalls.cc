@@ -17,80 +17,66 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/syscallError.h"
 
+#include <FileDescriptor.h>
+#include <PosixSubsystem.h>
+#include <fcntl.h>
+
 #include "file-syscalls.h"
+#include "modules/Module.h"
 #include "modules/system/vfs/Pipe.h"
 #include "modules/system/vfs/VFS.h"
 #include "pipe-syscalls.h"
 
-#include "pedigree/kernel/Subsystem.h"
-#include <FileDescriptor.h>
-#include <PosixSubsystem.h>
-
-#include "modules/Module.h"
-
-#include "pedigree/kernel/process/Process.h"
-#include "pedigree/kernel/processor/Processor.h"
-
-#include <fcntl.h>
-
-int posix_pipe(int filedes[2])
-{
-    return posix_pipe2(filedes, 0);
+int posix_pipe(int filedes[2]) {
+  return posix_pipe2(filedes, 0);
 }
 
-int posix_pipe2(int filedes[2], int flags)
-{
-    if (flags & ~(O_CLOEXEC | O_NONBLOCK))
-    {
-        SYSCALL_ERROR(InvalidArgument);
-        return -1;
-    }
+int posix_pipe2(int filedes[2], int flags) {
+  if (flags & ~(O_CLOEXEC | O_NONBLOCK)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
 
-    if (!PosixSubsystem::checkAddress(
-            reinterpret_cast<uintptr_t>(filedes), sizeof(int) * 2,
-            PosixSubsystem::SafeWrite))
-    {
-        F_NOTICE("pipe -> invalid address");
-        SYSCALL_ERROR(BadAddress);
-        return -1;
-    }
+  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(filedes), sizeof(int) * 2,
+                                    PosixSubsystem::SafeWrite)) {
+    F_NOTICE("pipe -> invalid address");
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
 
-    F_NOTICE("pipe2");
+  F_NOTICE("pipe2");
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    PosixSubsystem *pSubsystem =
-        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
-    if (!pSubsystem)
-    {
-        ERROR("No subsystem for the process!");
-        return -1;
-    }
+  Process* pProcess = Processor::information().getCurrentThread()->getParent();
+  PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
+  if (!pSubsystem) {
+    ERROR("No subsystem for the process!");
+    return -1;
+  }
 
-    size_t readFd = pSubsystem->getFd();
-    size_t writeFd = pSubsystem->getFd();
+  size_t readFd = pSubsystem->getFd();
+  size_t writeFd = pSubsystem->getFd();
 
-    File *p = new Pipe(String(""), 0, 0, 0, 0, 0, 0, 0, true);
+  File* p = new Pipe(String(""), 0, 0, 0, 0, 0, 0, 0, true);
 
-    // Create the file descriptor for both
-    int descriptorFlags = (flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
-    int statusFlags = flags & O_NONBLOCK;
-    FileDescriptor *read =
-        new FileDescriptor(
-            p, 0, readFd, descriptorFlags, O_RDONLY | statusFlags);
-    pSubsystem->addFileDescriptor(readFd, read);
+  // Create the file descriptor for both
+  int descriptorFlags = (flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
+  int statusFlags = flags & O_NONBLOCK;
+  FileDescriptor* read = new FileDescriptor(p, 0, readFd, descriptorFlags, O_RDONLY | statusFlags);
+  pSubsystem->addFileDescriptor(readFd, read);
 
-    FileDescriptor *write =
-        new FileDescriptor(
-            p, 0, writeFd, descriptorFlags, O_WRONLY | statusFlags);
-    pSubsystem->addFileDescriptor(writeFd, write);
+  FileDescriptor* write =
+      new FileDescriptor(p, 0, writeFd, descriptorFlags, O_WRONLY | statusFlags);
+  pSubsystem->addFileDescriptor(writeFd, write);
 
-    filedes[0] = readFd;
-    filedes[1] = writeFd;
+  filedes[0] = readFd;
+  filedes[1] = writeFd;
 
-    F_NOTICE("pipe: returning " << readFd << " and " << writeFd << ".");
+  F_NOTICE("pipe: returning " << readFd << " and " << writeFd << ".");
 
-    return 0;
+  return 0;
 }

@@ -37,45 +37,38 @@ class IrqHandlerBase;
 
 /** The x86/x64 advanced programmable interrupt controller architecture as
  * IrqManager */
-class Apic : public IrqManager
-{
-  public:
-    /** The default constructor */
-    inline Apic()
-    {
-    }
-    /** The destructor */
-    inline virtual ~Apic()
-    {
-    }
+class Apic : public IrqManager {
+ public:
+  /** The default constructor */
+  inline Apic() {}
+  /** The destructor */
+  inline virtual ~Apic() {}
 
-    //
-    // IrqManager interface
-    //
-    virtual irq_id_t registerIsaIrqHandler(
-        uint8_t, IrqHandler *handler, const IrqPolicy &policy);
-    virtual irq_id_t registerPciIrqHandler(
-        IrqHandler *handler, Device *pDevice, const IrqPolicy &policy);
-    virtual irq_id_t registerHardIsaIrqHandler(
-        uint8_t, HardIrqHandler *handler, const IrqPolicy &policy);
-    virtual irq_id_t registerHardPciIrqHandler(
-        HardIrqHandler *handler, Device *pDevice,
-        const IrqPolicy &policy);
-    virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase *handler);
-    virtual void enable(irq_id_t Id, bool bEnable);
+  //
+  // IrqManager interface
+  //
+  virtual irq_id_t registerIsaIrqHandler(uint8_t, IrqHandler* handler, const IrqPolicy& policy);
+  virtual irq_id_t registerPciIrqHandler(IrqHandler* handler, Device* pDevice,
+                                         const IrqPolicy& policy);
+  virtual irq_id_t registerHardIsaIrqHandler(uint8_t, HardIrqHandler* handler,
+                                             const IrqPolicy& policy);
+  virtual irq_id_t registerHardPciIrqHandler(HardIrqHandler* handler, Device* pDevice,
+                                             const IrqPolicy& policy);
+  virtual bool unregisterHandler(irq_id_t Id, IrqHandlerBase* handler);
+  virtual void enable(irq_id_t Id, bool bEnable);
 
-    bool initialise() INITIALISATION_ONLY;
+  bool initialise() INITIALISATION_ONLY;
 
-  private:
-    /** The copy-constructor
-     *\note NOT implemented */
-    Apic(const Apic &);
-    /** The assignment operator
-     *\note NOT implemented */
-    Apic &operator=(const Apic &);
+ private:
+  /** The copy-constructor
+   *\note NOT implemented */
+  Apic(const Apic&);
+  /** The assignment operator
+   *\note NOT implemented */
+  Apic& operator=(const Apic&);
 
-    /** The Apic instance */
-    static Apic m_Instance;
+  /** The Apic instance */
+  static Apic m_Instance;
 };
 
 /** @} */

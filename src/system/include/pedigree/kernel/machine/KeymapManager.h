@@ -28,141 +28,120 @@
 /**
  * Global manager for keymaps
  */
-class EXPORTED_PUBLIC KeymapManager
-{
-  public:
-    /// Default constructor
-    KeymapManager();
+class EXPORTED_PUBLIC KeymapManager {
+ public:
+  /// Default constructor
+  KeymapManager();
 
-    /// Default destructor
-    virtual ~KeymapManager();
+  /// Default destructor
+  virtual ~KeymapManager();
 
-    /// Singleton design
-    static KeymapManager &instance()
-    {
-        return m_Instance;
-    }
+  /// Singleton design
+  static KeymapManager& instance() {
+    return m_Instance;
+  }
 
-    /// Changes the current keymap to the given one
-    void useKeymap(uint8_t *pSparseTable, uint8_t *pDataTable);
+  /// Changes the current keymap to the given one
+  void useKeymap(uint8_t* pSparseTable, uint8_t* pDataTable);
 
-    /// Changes the current keymap to the given (compiled) one
-    bool useCompiledKeymap(uint32_t *pCompiledKeymap, size_t keymapLength);
+  /// Changes the current keymap to the given (compiled) one
+  bool useCompiledKeymap(uint32_t* pCompiledKeymap, size_t keymapLength);
 
-    /// If the given keycode is a modifier, applies it and
-    /// returns true, otherwise it returns false.
-    bool handleHidModifier(uint8_t keyCode, bool bDown);
+  /// If the given keycode is a modifier, applies it and
+  /// returns true, otherwise it returns false.
+  bool handleHidModifier(uint8_t keyCode, bool bDown);
 
-    /// Resolves a HID keycode using the current keymap and
-    /// returns a "real" character in UTF-32 format, plus
-    /// modifier flags in the top 32-bits.
-    uint64_t resolveHidKeycode(uint8_t keyCode);
+  /// Resolves a HID keycode using the current keymap and
+  /// returns a "real" character in UTF-32 format, plus
+  /// modifier flags in the top 32-bits.
+  uint64_t resolveHidKeycode(uint8_t keyCode);
 
-    enum EscapeState
-    {
-        EscapeNone = 0,
-        EscapeE0,
-        EscapeE1,
-    };
+  enum EscapeState {
+    EscapeNone = 0,
+    EscapeE0,
+    EscapeE1,
+  };
 
-    /// Converts a pc102 scancode into a HID keycode
-    uint8_t
-    convertPc102ScancodeToHidKeycode(uint8_t scancode, EscapeState &escape);
+  /// Converts a pc102 scancode into a HID keycode
+  uint8_t convertPc102ScancodeToHidKeycode(uint8_t scancode, EscapeState& escape);
 
-    /// Structure representing an entry in the keymap table
-    struct KeymapEntry
-    {
-        enum Flags
-        {
-            Special = 0x80000000
-        };
-        uint32_t flags;
-        uint32_t value;
-    };
+  /// Structure representing an entry in the keymap table
+  struct KeymapEntry {
+    enum Flags { Special = 0x80000000 };
+    uint32_t flags;
+    uint32_t value;
+  };
 
-    /// Returns the keymap entry corresponding to given keycode and modifiers
-    KeymapEntry *getKeymapEntry(
-        bool bCtrl, bool bShift, bool bAlt, bool bAltGr, uint8_t nCombinator,
-        uint8_t keyCode);
+  /// Returns the keymap entry corresponding to given keycode and modifiers
+  KeymapEntry* getKeymapEntry(bool bCtrl, bool bShift, bool bAlt, bool bAltGr, uint8_t nCombinator,
+                              uint8_t keyCode);
 
-  private:
-    enum IndexModifiers
-    {
-        IndexCtrl = 1,
-        IndexShift = 2,
-        IndexAlt = 4,
-        IndexAltGr = 8
-    };
+ private:
+  enum IndexModifiers { IndexCtrl = 1, IndexShift = 2, IndexAlt = 4, IndexAltGr = 8 };
 
-    /// HID keycodes corresponding to modifiers
-    enum HidModifiers
-    {
-        HidCapsLock = 0x39,
-        HidLeftCtrl = 0xE0,
-        HidLeftShift = 0xE1,
-        HidLeftAlt = 0xE2,
-        HidLeftGui = 0xE3,
-        HidRightCtrl = 0xE4,
-        HidRightShift = 0xE5,
-        HidRightAlt = 0xE6,
-        HidRightGui = 0xE7,
-    };
+  /// HID keycodes corresponding to modifiers
+  enum HidModifiers {
+    HidCapsLock = 0x39,
+    HidLeftCtrl = 0xE0,
+    HidLeftShift = 0xE1,
+    HidLeftAlt = 0xE2,
+    HidLeftGui = 0xE3,
+    HidRightCtrl = 0xE4,
+    HidRightShift = 0xE5,
+    HidRightAlt = 0xE6,
+    HidRightGui = 0xE7,
+  };
 
-    /// Structure representing an entry in the sparse table
-    struct SparseEntry
-    {
-        enum Flags
-        {
-            DataFlag = 0x8000
-        };
-        uint16_t left;
-        uint16_t right;
-    };
+  /// Structure representing an entry in the sparse table
+  struct SparseEntry {
+    enum Flags { DataFlag = 0x8000 };
+    uint16_t left;
+    uint16_t right;
+  };
 
-    /// Static instance
-    static KeymapManager m_Instance;
+  /// Static instance
+  static KeymapManager m_Instance;
 
-    /// The sparse and data tables for the current keymap
-    SparseEntry *m_pSparseTable;
-    KeymapEntry *m_pDataTable;
+  /// The sparse and data tables for the current keymap
+  SparseEntry* m_pSparseTable;
+  KeymapEntry* m_pDataTable;
 
-    /// State of the modifiers, true if down, false if up
-    bool m_bLeftCtrl;
-    bool m_bLeftShift;
-    bool m_bLeftAlt;
-    bool m_bRightCtrl;
-    bool m_bRightShift;
-    bool m_bRightAlt;
+  /// State of the modifiers, true if down, false if up
+  bool m_bLeftCtrl;
+  bool m_bLeftShift;
+  bool m_bLeftAlt;
+  bool m_bRightCtrl;
+  bool m_bRightShift;
+  bool m_bRightAlt;
 
-    /// True if caps lock is on
-    bool m_bCapsLock;
+  /// True if caps lock is on
+  bool m_bCapsLock;
 
-    /// Index of the current active combinator, if any
-    uint8_t m_nCombinator;
+  /// Index of the current active combinator, if any
+  uint8_t m_nCombinator;
 
-    /// Item in the key state list. This stores information needed
-    /// for periodic callbacks and applying modifiers.
-    struct KeyState
-    {
-        /// The resolved key
-        uint64_t key;
+  /// Item in the key state list. This stores information needed
+  /// for periodic callbacks and applying modifiers.
+  struct KeyState {
+    /// The resolved key
+    uint64_t key;
 
-        /// The time left until the next key repeat
-        uint64_t nLeftTicks;
-    };
+    /// The time left until the next key repeat
+    uint64_t nLeftTicks;
+  };
 
-    /// Current key states (for periodic callbacks while a key is down)
-    Tree<uint8_t, KeyState *> m_KeyStates;
+  /// Current key states (for periodic callbacks while a key is down)
+  Tree<uint8_t, KeyState*> m_KeyStates;
 
-    /// Spinlock for work on keys.
-    /// \note Using a Spinlock here because a lot of our work will happen
-    ///       in the middle of an IRQ where it's potentially dangerous to
-    ///       reschedule (which may happen with a Mutex or Semaphore).
-    Spinlock m_KeyLock;
+  /// Spinlock for work on keys.
+  /// \note Using a Spinlock here because a lot of our work will happen
+  ///       in the middle of an IRQ where it's potentially dangerous to
+  ///       reschedule (which may happen with a Mutex or Semaphore).
+  Spinlock m_KeyLock;
 
-    /// Whether or not we've loaded a new keymap.
-    /// Used to figure out if we can safely free the old keymap data.
-    bool m_bHaveLoadedKeymap;
+  /// Whether or not we've loaded a new keymap.
+  /// Used to figure out if we can safely free the old keymap data.
+  bool m_bHaveLoadedKeymap;
 };
 
 #endif

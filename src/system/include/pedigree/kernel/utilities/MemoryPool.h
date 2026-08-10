@@ -39,127 +39,122 @@ class MemoryPool;
  * when memory pressure is seen on the system. Because MemoryPools tend to be
  * full of bursty allocations, it's fairly typical to get a couple pages free.
  */
-class MemoryPoolPressureHandler : public MemoryPressureHandler
-{
-  public:
-    MemoryPoolPressureHandler(MemoryPool *pool);
-    virtual ~MemoryPoolPressureHandler();
+class MemoryPoolPressureHandler : public MemoryPressureHandler {
+ public:
+  MemoryPoolPressureHandler(MemoryPool* pool);
+  virtual ~MemoryPoolPressureHandler();
 
-    virtual const char *getMemoryPressureDescription();
+  virtual const char* getMemoryPressureDescription();
 
-    virtual bool compact();
+  virtual bool compact();
 
-  private:
-    MemoryPool *m_Pool;
+ private:
+  MemoryPool* m_Pool;
 };
 
 /** MemoryPool - a class which encapsulates a pool of memory with constant
  * sized buffers that can be allocated around the kernel. Intended to be
  * used instead of the heap for areas where similar sized buffers are
  * regularly allocated, such as networking code. */
-class EXPORTED_PUBLIC MemoryPool
-{
-  public:
-    MemoryPool();
-    MemoryPool(const char *poolName);
-    virtual ~MemoryPool();
+class EXPORTED_PUBLIC MemoryPool {
+ public:
+  MemoryPool();
+  MemoryPool(const char* poolName);
+  virtual ~MemoryPool();
 
-    /// Initialises the pool, preparing it for use
-    /// @param poolSize Number of pages in the pool.
-    /// @param bufferSize Size of each buffer. Will be rounded to the
-    ///                   next power of two.
-    bool initialise(size_t poolSize, size_t bufferSize = 1024);
+  /// Initialises the pool, preparing it for use
+  /// @param poolSize Number of pages in the pool.
+  /// @param bufferSize Size of each buffer. Will be rounded to the
+  ///                   next power of two.
+  bool initialise(size_t poolSize, size_t bufferSize = 1024);
 
-    /// Call if you aren't certain that the object has been initialised yet
-    inline bool initialised()
-    {
-        return m_bInitialised;
-    }
+  /// Call if you aren't certain that the object has been initialised yet
+  inline bool initialised() {
+    return m_bInitialised;
+  }
 
-    /// Allocates a buffer from the pool. Will block if no buffers are
-    /// available yet.
-    uintptr_t allocate();
+  /// Allocates a buffer from the pool. Will block if no buffers are
+  /// available yet.
+  uintptr_t allocate();
 
-    /// Allocates a buffer from the pool. If no buffers are available, this
-    /// function will return straight away.
-    /// @return Zero if a buffer couldn't be allocated.
-    uintptr_t allocateNow();
+  /// Allocates a buffer from the pool. If no buffers are available, this
+  /// function will return straight away.
+  /// @return Zero if a buffer couldn't be allocated.
+  uintptr_t allocateNow();
 
-    /// Frees an allocated buffer, allowing it to be used elsewhere
-    void free(uintptr_t buffer);
+  /// Frees an allocated buffer, allowing it to be used elsewhere
+  void free(uintptr_t buffer);
 
-    /// Trims the pool, freeing pages that are not otherwise in use.
-    bool trim();
+  /// Trims the pool, freeing pages that are not otherwise in use.
+  bool trim();
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    /** Hosted-only seam for forcing the operation-admission mutex window. */
-    void acquireHostedOperationLock();
-    void releaseHostedOperationLock();
-    void acquireHostedMappingLock();
-    void releaseHostedMappingLock();
-    size_t getHostedActiveOperationCount();
+  /** Hosted-only seam for forcing the operation-admission mutex window. */
+  void acquireHostedOperationLock();
+  void releaseHostedOperationLock();
+  void acquireHostedMappingLock();
+  void releaseHostedMappingLock();
+  size_t getHostedActiveOperationCount();
 #endif
 
-  private:
+ private:
 #if THREADS
-    ConditionVariable m_Condition;
-    ConditionVariable m_DrainCondition;
-    Mutex m_Lock;
-    Mutex m_MappingLock;
+  ConditionVariable m_Condition;
+  ConditionVariable m_DrainCondition;
+  Mutex m_Lock;
+  Mutex m_MappingLock;
 #endif
 
-    class ActiveOperation
-    {
-      public:
-        explicit ActiveOperation(MemoryPool &pool);
-        ~ActiveOperation();
+  class ActiveOperation {
+   public:
+    explicit ActiveOperation(MemoryPool& pool);
+    ~ActiveOperation();
 
-        explicit operator bool() const
-        {
-            return m_Pool != nullptr;
-        }
+    explicit operator bool() const {
+      return m_Pool != nullptr;
+    }
 
-      private:
-        ActiveOperation(const ActiveOperation &) = delete;
-        ActiveOperation &operator=(const ActiveOperation &) = delete;
+   private:
+    ActiveOperation(const ActiveOperation&) = delete;
+    ActiveOperation& operator=(const ActiveOperation&) = delete;
 
-        TerminationDeferral m_TerminationDeferral;
-        MemoryPool *m_Pool;
-    };
+    TerminationDeferral m_TerminationDeferral;
+    MemoryPool* m_Pool;
+  };
 
-    bool beginOperation();
-    void endOperation();
+  bool beginOperation();
+  void endOperation();
 
-    /// Size of each buffer in this pool
-    size_t m_BufferSize;
+  /// Size of each buffer in this pool
+  size_t m_BufferSize;
 
-    /// Number of buffers we have available.
-    size_t m_BufferCount;
+  /// Number of buffers we have available.
+  size_t m_BufferCount;
 
 #ifndef STANDALONE_MEMPOOL
-    /// MemoryRegion describing the actual pool of memory
-    MemoryRegion m_Pool;
+  /// MemoryRegion describing the actual pool of memory
+  MemoryRegion m_Pool;
 #endif
 
-    /// Has this instance been initialised yet?
-    bool m_bInitialised;
+  /// Has this instance been initialised yet?
+  bool m_bInitialised;
 
-    /// Destruction has begun; no new operations may enter.
-    bool m_bClosing;
+  /// Destruction has begun; no new operations may enter.
+  bool m_bClosing;
 
-    /// Operations which entered before destruction began.
-    size_t m_ActiveOperations;
+  /// Operations which entered before destruction began.
+  size_t m_ActiveOperations;
 
-    /// Allocation bitmap
-    ExtensibleBitmap m_AllocBitmap;
+  /// Allocation bitmap
+  ExtensibleBitmap m_AllocBitmap;
 
 #ifndef STANDALONE_MEMPOOL
-    /// Memory pressure handler for this pool.
-    MemoryPoolPressureHandler m_PressureHandler;
+  /// Memory pressure handler for this pool.
+  MemoryPoolPressureHandler m_PressureHandler;
 #endif
 
-    /// Allocation doer
-    uintptr_t allocateDoer(bool canBlock);
+  /// Allocation doer
+  uintptr_t allocateDoer(bool canBlock);
 };
 
 #endif

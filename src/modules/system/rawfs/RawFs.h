@@ -20,88 +20,72 @@
 #ifndef RAWFS_H
 #define RAWFS_H
 
-#include "modules/system/vfs/Filesystem.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
+
+#include "modules/system/vfs/Filesystem.h"
 
 class Disk;
 class File;
 
 /** Provides access to Disks without mounting their contained filesystem
     (raw device access). */
-class RawFs : public Filesystem
-{
-  public:
-    RawFs();
-    virtual ~RawFs();
+class RawFs : public Filesystem {
+ public:
+  RawFs();
+  virtual ~RawFs();
 
-    //
-    // Filesystem interface.
-    //
-    virtual bool initialise(Disk *pDisk)
-    {
-        return false;
-    }
-    static Filesystem *probe(Disk *pDisk)
-    {
-        return 0;
-    }
-    virtual File *getRoot() const;
-    virtual const String &getVolumeLabel() const
-    {
-        static String volumeLabel("RawFs");
-        return volumeLabel;
-    }
-    virtual uint64_t read(
-        File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,
-        bool canBlock)
-    {
-        return 0;
-    }
-    virtual uint64_t write(
-        File *pFile, uint64_t location, uint64_t size, uintptr_t buffer,
-        bool canBlock)
-    {
-        return 0;
-    }
-    virtual void truncate(File *pFile)
-    {
-        return;
-    }
-    virtual void fileAttributeChanged(File *pFile)
-    {
-        return;
-    }
-    virtual void cacheDirectoryContents(File *pFile)
-    {
-        return;
-    }
+  //
+  // Filesystem interface.
+  //
+  virtual bool initialise(Disk* pDisk) {
+    return false;
+  }
+  static Filesystem* probe(Disk* pDisk) {
+    return 0;
+  }
+  virtual File* getRoot() const;
+  virtual const String& getVolumeLabel() const {
+    static String volumeLabel("RawFs");
+    return volumeLabel;
+  }
+  virtual uint64_t read(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
+                        bool canBlock) {
+    return 0;
+  }
+  virtual uint64_t write(File* pFile, uint64_t location, uint64_t size, uintptr_t buffer,
+                         bool canBlock) {
+    return 0;
+  }
+  virtual void truncate(File* pFile) {
+    return;
+  }
+  virtual void fileAttributeChanged(File* pFile) {
+    return;
+  }
+  virtual void cacheDirectoryContents(File* pFile) {
+    return;
+  }
 
-  protected:
-    virtual bool createFile(File *parent, const String &filename, uint32_t mask)
-    {
-        return false;
-    }
-    virtual bool
-    createDirectory(File *parent, const String &filename, uint32_t mask)
-    {
-        return false;
-    }
-    virtual bool
-    createSymlink(File *parent, const String &filename, const String &value)
-    {
-        return false;
-    }
-    virtual bool remove(File *parent, File *file)
-    {
-        return false;
-    }
+ protected:
+  virtual bool createFile(File* parent, const String& filename, uint32_t mask) {
+    return false;
+  }
+  virtual bool createDirectory(File* parent, const String& filename, uint32_t mask) {
+    return false;
+  }
+  virtual bool createSymlink(File* parent, const String& filename, const String& value) {
+    return false;
+  }
+  virtual bool remove(File* parent, File* file) {
+    return false;
+  }
 
-  private:
-    RawFs(const RawFs &);
-    RawFs &operator=(const RawFs &);
+ private:
+  RawFs(const RawFs&);
+  RawFs& operator=(const RawFs&);
 
-    class RawFsDir *m_pRoot;
+  class RawFsDir* m_pRoot;
 };
 
 #endif

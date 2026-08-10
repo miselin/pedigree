@@ -19,15 +19,15 @@
 
 #include "pedigree/kernel/utilities/Tree.h"
 
-template class Tree<void *, void *>;
-template class Tree<int8_t, void *>;
-template class Tree<int16_t, void *>;
-template class Tree<int32_t, void *>;
-template class Tree<int64_t, void *>;
-template class Tree<uint8_t, void *>;
-template class Tree<uint16_t, void *>;
-template class Tree<uint32_t, void *>;
-template class Tree<uint64_t, void *>;
+template class Tree<void*, void*>;
+template class Tree<int8_t, void*>;
+template class Tree<int16_t, void*>;
+template class Tree<int32_t, void*>;
+template class Tree<int64_t, void*>;
+template class Tree<uint8_t, void*>;
+template class Tree<uint16_t, void*>;
+template class Tree<uint32_t, void*>;
+template class Tree<uint64_t, void*>;
 template class Tree<int8_t, int8_t>;
 template class Tree<int16_t, int16_t>;
 template class Tree<int32_t, int32_t>;

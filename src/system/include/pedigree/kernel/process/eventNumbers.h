@@ -24,8 +24,7 @@
 
 /** The globally-defined event numbers for each Event subclass. These must be
    unique so that identification of serialized data is possible. */
-namespace EventNumbers
-{
+namespace EventNumbers {
 const size_t PosixSignalStart = 0;
 // Posix signals in here.
 const size_t PosixSignalEnd = 32;

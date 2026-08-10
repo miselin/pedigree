@@ -26,46 +26,43 @@ class Group;
 class User;
 
 /** The user manager provides lookups of users and groups. */
-class EXPORTED_PUBLIC UserManager
-{
-  public:
-    /** Get the singleton instance. */
-    static UserManager &instance()
-    {
-        return m_Instance;
-    }
+class EXPORTED_PUBLIC UserManager {
+ public:
+  /** Get the singleton instance. */
+  static UserManager& instance() {
+    return m_Instance;
+  }
 
-    /** Loads the initial users and groups. */
-    void initialise();
+  /** Loads the initial users and groups. */
+  void initialise();
 
-    /** Look up a user by ID. */
-    User *getUser(size_t id);
-    /** Look up a user by name. */
-    User *getUser(String name);
+  /** Look up a user by ID. */
+  User* getUser(size_t id);
+  /** Look up a user by name. */
+  User* getUser(String name);
 
-    /** Look up a group by ID. */
-    Group *getGroup(size_t id);
-    /** Look up a group by name. */
-    Group *getGroup(String name);
+  /** Look up a group by ID. */
+  Group* getGroup(size_t id);
+  /** Look up a group by name. */
+  Group* getGroup(String name);
 
-  private:
-    /** Singleton class - default constructor hidden. */
-    UserManager();
-    ~UserManager();
-    UserManager(const UserManager &);
-    UserManager &operator=(const UserManager &);
+ private:
+  /** Singleton class - default constructor hidden. */
+  UserManager();
+  ~UserManager();
+  UserManager(const UserManager&);
+  UserManager& operator=(const UserManager&);
 
-    void initialiseUsers();
-    void initialiseGroups();
-    void addUser(
-        size_t uid, String username, String fullName, String group, String home,
-        String shell, String password);
-    void addGroup(size_t gid, String name);
+  void initialiseUsers();
+  void initialiseGroups();
+  void addUser(size_t uid, String username, String fullName, String group, String home,
+               String shell, String password);
+  void addGroup(size_t gid, String name);
 
-    /** Dictionary of users, indexed by ID. */
-    Tree<size_t, User *> m_Users;
-    /** Dictionary of groups, indexed by ID. */
-    Tree<size_t, Group *> m_Groups;
+  /** Dictionary of users, indexed by ID. */
+  Tree<size_t, User*> m_Users;
+  /** Dictionary of groups, indexed by ID. */
+  Tree<size_t, Group*> m_Groups;
 
-    static UserManager m_Instance;
+  static UserManager m_Instance;
 };

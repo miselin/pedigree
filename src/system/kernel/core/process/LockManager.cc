@@ -17,32 +17,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/process/LockManager.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/LockManager.h"
 #include "pedigree/kernel/utilities/new"
 
 class Semaphore;
 
-LockManager::LockManager() : m_Stack(32)
-{
-    m_Stack.clear();
+LockManager::LockManager() : m_Stack(32) {
+  m_Stack.clear();
 }
 
-LockManager::~LockManager()
-{
+LockManager::~LockManager() {}
+
+void LockManager::acquired(Semaphore& sem) {
+  m_Stack.pushBack(&sem);
 }
 
-void LockManager::acquired(Semaphore &sem)
-{
-    m_Stack.pushBack(&sem);
-}
-
-void LockManager::released(Semaphore &sem)
-{
-    Semaphore *pPopped = m_Stack.popBack();
-    if (pPopped != &sem)
-    {
-        m_Stack.pushBack(pPopped);
-        FATAL("Lock release out of order.");
-    }
+void LockManager::released(Semaphore& sem) {
+  Semaphore* pPopped = m_Stack.popBack();
+  if (pPopped != &sem) {
+    m_Stack.pushBack(pPopped);
+    FATAL("Lock release out of order.");
+  }
 }

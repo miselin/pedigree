@@ -26,41 +26,38 @@
 /** @addtogroup kerneldebugger
  * @{ */
 
-class Scrollable
-{
-  public:
-    Scrollable();
+class Scrollable {
+ public:
+  Scrollable();
 
-    void move(size_t x, size_t y);
-    void resize(size_t width, size_t height);
-    void scroll(ssize_t lines);
-    void scrollTo(size_t absolute);
-    void refresh(DebuggerIO *pScreen);
-    void setScrollKeys(char up, char down);
-    ssize_t getLine();
+  void move(size_t x, size_t y);
+  void resize(size_t width, size_t height);
+  void scroll(ssize_t lines);
+  void scrollTo(size_t absolute);
+  void refresh(DebuggerIO* pScreen);
+  void setScrollKeys(char up, char down);
+  ssize_t getLine();
 
-    void centreOn(size_t line);
+  void centreOn(size_t line);
 
-    size_t height() const;
-    size_t width() const;
+  size_t height() const;
+  size_t width() const;
 
-    virtual const char *getLine1(
-        size_t index, DebuggerIO::Colour &colour,
-        DebuggerIO::Colour &bgColour) = 0;
-    virtual const char *getLine2(
-        size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
-        DebuggerIO::Colour &bgColour) = 0;
-    virtual size_t getLineCount() = 0;
-    virtual ~Scrollable();
+  virtual const char* getLine1(size_t index, DebuggerIO::Colour& colour,
+                               DebuggerIO::Colour& bgColour) = 0;
+  virtual const char* getLine2(size_t index, size_t& colOffset, DebuggerIO::Colour& colour,
+                               DebuggerIO::Colour& bgColour) = 0;
+  virtual size_t getLineCount() = 0;
+  virtual ~Scrollable();
 
-  protected:
-    size_t m_x;
-    size_t m_y;
-    size_t m_width;
-    size_t m_height;
-    ssize_t m_line;
-    char m_ScrollUp;
-    char m_ScrollDown;
+ protected:
+  size_t m_x;
+  size_t m_y;
+  size_t m_width;
+  size_t m_height;
+  ssize_t m_line;
+  char m_ScrollUp;
+  char m_ScrollDown;
 };
 
 /** @} */

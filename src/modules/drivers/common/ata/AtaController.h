@@ -20,7 +20,6 @@
 #ifndef ATA_CONTROLLER_H
 #define ATA_CONTROLLER_H
 
-#include "modules/drivers/common/scsi/ScsiController.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/types.h"
@@ -29,57 +28,52 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
+#include "modules/drivers/common/scsi/ScsiController.h"
+
 class Controller;
 class IoBase;
 
 /** Base class for an ATA controller. */
-class AtaController : public ScsiController, public IrqHandler
-{
-  public:
-    AtaController(Controller *pDev, int nController = 0)
-        : ScsiController(pDev), m_nController(nController)
-    {
-        setSpecificType(String("ata-controller"));
+class AtaController : public ScsiController, public IrqHandler {
+ public:
+  AtaController(Controller* pDev, int nController = 0)
+      : ScsiController(pDev), m_nController(nController) {
+    setSpecificType(String("ata-controller"));
 
-        // Ensure we have no stupid children lying around.
-        m_Children.clear();
-    }
-    virtual ~AtaController()
-    {
-    }
+    // Ensure we have no stupid children lying around.
+    m_Children.clear();
+  }
+  virtual ~AtaController() {}
 
-    virtual void getName(String &str) = 0;
+  virtual void getName(String& str) = 0;
 
-    virtual bool compareRequests(
-        const RequestQueue::Request &a, const RequestQueue::Request &b);
+  virtual bool compareRequests(const RequestQueue::Request& a, const RequestQueue::Request& b);
 
-    // IRQ handler callback.
-    virtual IrqDisposition irq(irq_id_t number)
-    {
-        NOTICE("AtaController: irq" << Dec << number << Hex << " ignored");
-        return IrqDisposition::NotHandled;
-    }
+  // IRQ handler callback.
+  virtual IrqDisposition irq(irq_id_t number) {
+    NOTICE("AtaController: irq" << Dec << number << Hex << " ignored");
+    return IrqDisposition::NotHandled;
+  }
 
-    IoBase *m_pCommandRegs;
-    IoBase *m_pControlRegs;
+  IoBase* m_pCommandRegs;
+  IoBase* m_pControlRegs;
 
-  private:
-    AtaController(const AtaController &);
-    void operator=(const AtaController &);
+ private:
+  AtaController(const AtaController&);
+  void operator=(const AtaController&);
 
-  protected:
-    int m_nController;
+ protected:
+  int m_nController;
 
-    /** Masks fresh device IRQ generation on every child channel. */
-    void maskDiskInterrupts();
+  /** Masks fresh device IRQ generation on every child channel. */
+  void maskDiskInterrupts();
 
-    /** Stops and acknowledges bus-master state after IRQ callbacks drain. */
-    void stopDiskDma();
+  /** Stops and acknowledges bus-master state after IRQ callbacks drain. */
+  void stopDiskDma();
 
-    virtual size_t getNumUnits()
-    {
-        return getNumChildren();
-    }
+  virtual size_t getNumUnits() {
+    return getNumChildren();
+  }
 };
 
 #endif

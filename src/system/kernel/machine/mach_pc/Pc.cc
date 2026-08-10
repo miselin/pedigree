@@ -27,9 +27,6 @@
 #if APIC
 #include "Apic.h"
 #endif
-#include "Pic.h"
-#include "Pit.h"
-#include "Rtc.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Bus.h"
 #include "pedigree/kernel/machine/Controller.h"
@@ -41,6 +38,10 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
 
+#include "Pic.h"
+#include "Pit.h"
+#include "Rtc.h"
+
 class IrqManager;
 class Keyboard;
 class SchedulerTimer;
@@ -51,373 +52,326 @@ class Vga;
 Pc Pc::m_Instance;
 
 #if MULTIPROCESSOR
-namespace
-{
-bool reportProcessorControlResult(
-    LocalApic::ProcessorControlResult result, const char *operation)
-{
-    switch (result)
-    {
-        case LocalApic::ProcessorControlResult::Success:
-            return true;
-        case LocalApic::ProcessorControlResult::InvalidState:
-            ERROR_NOLOCK(
-                "Pc: " << operation << " failed: invalid processor state");
-            break;
-        case LocalApic::ProcessorControlResult::SubmissionFailed:
-            ERROR_NOLOCK("Pc: " << operation << " IPI transaction failed");
-            break;
-        case LocalApic::ProcessorControlResult::AcknowledgementTimedOut:
-            ERROR_NOLOCK(
-                "Pc: " << operation << " acknowledgement timed out");
-            break;
-        case LocalApic::ProcessorControlResult::DrainTimedOut:
-            ERROR_NOLOCK(
-                "Pc: " << operation << " processor-control drain timed out");
-            break;
-    }
-    return false;
+namespace {
+bool reportProcessorControlResult(LocalApic::ProcessorControlResult result, const char* operation) {
+  switch (result) {
+    case LocalApic::ProcessorControlResult::Success:
+      return true;
+    case LocalApic::ProcessorControlResult::InvalidState:
+      ERROR_NOLOCK("Pc: " << operation << " failed: invalid processor state");
+      break;
+    case LocalApic::ProcessorControlResult::SubmissionFailed:
+      ERROR_NOLOCK("Pc: " << operation << " IPI transaction failed");
+      break;
+    case LocalApic::ProcessorControlResult::AcknowledgementTimedOut:
+      ERROR_NOLOCK("Pc: " << operation << " acknowledgement timed out");
+      break;
+    case LocalApic::ProcessorControlResult::DrainTimedOut:
+      ERROR_NOLOCK("Pc: " << operation << " processor-control drain timed out");
+      break;
+  }
+  return false;
 }
 }  // namespace
 #endif
 
-void Pc::initialise()
-{
-    // Initialise Vga
-    if (m_Vga->initialise() == false)
-        panic("Pc: Vga initialisation failed");
+void Pc::initialise() {
+  // Initialise Vga
+  if (m_Vga->initialise() == false)
+    panic("Pc: Vga initialisation failed");
 
-    // Initialise the Real-time Clock / CMOS (without IRQs).
-    Rtc &rtc = Rtc::instance();
-    if (rtc.initialise1() == false)
-        panic("Pc: Rtc initialisation phase 1 failed");
+  // Initialise the Real-time Clock / CMOS (without IRQs).
+  Rtc& rtc = Rtc::instance();
+  if (rtc.initialise1() == false)
+    panic("Pc: Rtc initialisation phase 1 failed");
 
 // Initialise ACPI
 #if ACPI
-    Acpi &acpi = Acpi::instance();
-    acpi.initialise();
+  Acpi& acpi = Acpi::instance();
+  acpi.initialise();
 #endif
 
 // Initialise SMP
 #if SMP
-    Smp &smp = Smp::instance();
-    smp.initialise();
+  Smp& smp = Smp::instance();
+  smp.initialise();
 #endif
 
-    bool localApicInitialised = false;
+  bool localApicInitialised = false;
 
 // Check for a local APIC
 #if APIC
 
-    // Physical address of the local APIC
-    uint64_t localApicAddress = 0;
+  // Physical address of the local APIC
+  uint64_t localApicAddress = 0;
 
-    // Get the Local APIC address & I/O APIC list from either the ACPI or the
-    // SMP tables
-    bool bLocalApicValid = false;
+  // Get the Local APIC address & I/O APIC list from either the ACPI or the
+  // SMP tables
+  bool bLocalApicValid = false;
 #if ACPI
-    if ((bLocalApicValid = acpi.validApicInfo()) == true)
-        localApicAddress = acpi.getLocalApicAddress();
+  if ((bLocalApicValid = acpi.validApicInfo()) == true)
+    localApicAddress = acpi.getLocalApicAddress();
 #endif
 #if SMP
-    if (bLocalApicValid == false && (bLocalApicValid = smp.valid()) == true)
-        localApicAddress = smp.getLocalApicAddress();
+  if (bLocalApicValid == false && (bLocalApicValid = smp.valid()) == true)
+    localApicAddress = smp.getLocalApicAddress();
 #endif
 
-    // Initialise the local APIC, if we have gotten valid data from
-    // the ACPI/SMP structures
-    if (bLocalApicValid == true && localApicAddress &&
-        m_LocalApic->initialise(localApicAddress))
-    {
-        localApicInitialised = true;
-        NOTICE("Local APIC initialised");
-    }
+  // Initialise the local APIC, if we have gotten valid data from
+  // the ACPI/SMP structures
+  if (bLocalApicValid == true && localApicAddress && m_LocalApic->initialise(localApicAddress)) {
+    localApicInitialised = true;
+    NOTICE("Local APIC initialised");
+  }
 
 #endif
 
-    m_SchedulerTimerSelection.recordLocalApicInitialisation(
-        localApicInitialised);
+  m_SchedulerTimerSelection.recordLocalApicInitialisation(localApicInitialised);
 
 // Check for an I/O APIC
 #if APIC
 
-    // TODO: Check for I/O Apic
-    // TODO: Initialise the I/O Apic
-    // TODO: IMCR?
-    // TODO: Mask the PICs?
-    if (false)
-    {
-    }
+  // TODO: Check for I/O Apic
+  // TODO: Initialise the I/O Apic
+  // TODO: IMCR?
+  // TODO: Mask the PICs?
+  if (false) {
+  }
 
-    // Fall back to dual 8259 PICs
-    else
-    {
+  // Fall back to dual 8259 PICs
+  else {
 #endif
 
-        NOTICE("Falling back to dual 8259 PIC Mode");
+    NOTICE("Falling back to dual 8259 PIC Mode");
 
-        // Initialise PIC
-        Pic &pic = Pic::instance();
-        if (pic.initialise() == false)
-            panic("Pc: Pic initialisation failed");
+    // Initialise PIC
+    Pic& pic = Pic::instance();
+    if (pic.initialise() == false)
+      panic("Pc: Pic initialisation failed");
 
 #if APIC
-    }
+  }
 #endif
 
-    // Initialise serial ports.
-    m_pSerial[0]->setBase(0x3F8);
-    m_pSerial[1]->setBase(0x2F8);
-    m_pSerial[2]->setBase(0x3E8);
-    m_pSerial[3]->setBase(0x2E8);
+  // Initialise serial ports.
+  m_pSerial[0]->setBase(0x3F8);
+  m_pSerial[1]->setBase(0x2F8);
+  m_pSerial[2]->setBase(0x3E8);
+  m_pSerial[3]->setBase(0x2E8);
 
-    // Initialse the Real-time Clock / CMOS IRQs.
-    if (rtc.initialise2() == false)
-        panic("Pc: Rtc initialisation phase 2 failed");
+  // Initialse the Real-time Clock / CMOS IRQs.
+  if (rtc.initialise2() == false)
+    panic("Pc: Rtc initialisation phase 2 failed");
 
-    if (m_SchedulerTimerSelection.usesPit())
-    {
-        NOTICE("Using PIT scheduler timer fallback");
-        Pit &pit = Pit::instance();
-        if (pit.initialise() == false)
-            panic("Pc: Pit initialisation failed");
-    }
+  if (m_SchedulerTimerSelection.usesPit()) {
+    NOTICE("Using PIT scheduler timer fallback");
+    Pit& pit = Pit::instance();
+    if (pit.initialise() == false)
+      panic("Pc: Pit initialisation failed");
+  }
 
-    // Set up PS/2
-    m_Ps2Controller->initialise();
-    m_Keyboard->initialise();
+  // Set up PS/2
+  m_Ps2Controller->initialise();
+  m_Keyboard->initialise();
 
 // Find and parse the SMBIOS tables
 #if defined(SMBIOS)
-    m_SMBios->initialise();
+  m_SMBios->initialise();
 #endif
 
-    m_bInitialised = true;
+  m_bInitialised = true;
 }
 
-void Pc::deinitialise()
-{
-    if (!m_bInitialised)
-    {
-        return;
-    }
+void Pc::deinitialise() {
+  if (!m_bInitialised) {
+    return;
+  }
 
-    Rtc::instance().uninitialise();
-    m_Ps2Controller->uninitialise();
-    m_Keyboard->stopReaderThread();
-    if (m_SchedulerTimerSelection.usesPit())
-    {
-        Pit::instance().uninitialise();
-    }
-    if (!Pic::instance().shutdownThreaded())
-    {
-        FATAL("Pc: threaded IRQ workers did not stop");
-    }
-    m_bInitialised = false;
+  Rtc::instance().uninitialise();
+  m_Ps2Controller->uninitialise();
+  m_Keyboard->stopReaderThread();
+  if (m_SchedulerTimerSelection.usesPit()) {
+    Pit::instance().uninitialise();
+  }
+  if (!Pic::instance().shutdownThreaded()) {
+    FATAL("Pc: threaded IRQ workers did not stop");
+  }
+  m_bInitialised = false;
 }
 
 #if MULTIPROCESSOR
-void Pc::initialiseProcessor()
-{
-    // TODO: we might need to initialise per-processor ACPI shit, no idea atm
+void Pc::initialiseProcessor() {
+  // TODO: we might need to initialise per-processor ACPI shit, no idea atm
 
-    // Initialise the local APIC
-    if (m_LocalApic->initialiseProcessor() == false)
-        panic("Pc::initialiseProcessor(): Failed to initialise the local APIC");
+  // Initialise the local APIC
+  if (m_LocalApic->initialiseProcessor() == false)
+    panic("Pc::initialiseProcessor(): Failed to initialise the local APIC");
 
-    // AP startup calls this before creating its scheduler and enabling
-    // interrupts, so no migratable work can observe an unanchored local TSC.
-    Rtc::instance().initialiseProcessorClock();
+  // AP startup calls this before creating its scheduler and enabling
+  // interrupts, so no migratable work can observe an unanchored local TSC.
+  Rtc::instance().initialiseProcessorClock();
 }
 #endif
 
-void Pc::initialise3()
-{
-    if (!Pic::instance().initialiseThreaded())
-    {
-        panic("Pc: threaded IRQ worker initialisation failed");
-    }
-    if (!Rtc::instance().initialise3())
-    {
-        panic("Pc: RTC bottom-half initialisation failed");
-    }
-    if (!m_Ps2Controller->initialise3())
-    {
-        panic("Pc: PS/2 bottom-half initialisation failed");
-    }
-    m_Keyboard->startReaderThread();
+void Pc::initialise3() {
+  if (!Pic::instance().initialiseThreaded()) {
+    panic("Pc: threaded IRQ worker initialisation failed");
+  }
+  if (!Rtc::instance().initialise3()) {
+    panic("Pc: RTC bottom-half initialisation failed");
+  }
+  if (!m_Ps2Controller->initialise3()) {
+    panic("Pc: PS/2 bottom-half initialisation failed");
+  }
+  m_Keyboard->startReaderThread();
 }
 
-void Pc::initialiseDeviceTree()
-{
-    for (size_t i = 0; i < 4; ++i)
-    {
-        m_pSerial[i] = new X86Serial();
-    }
+void Pc::initialiseDeviceTree() {
+  for (size_t i = 0; i < 4; ++i) {
+    m_pSerial[i] = new X86Serial();
+  }
 
-    m_Vga = new X86Vga(0x3C0, 0xB8000);
+  m_Vga = new X86Vga(0x3C0, 0xB8000);
 
-    m_IsaBus = new Bus("ISA");
-    m_AtaMaster = new Controller();
-    m_AtaSlave = new Controller();
-    m_Watchdog = new Device();
+  m_IsaBus = new Bus("ISA");
+  m_AtaMaster = new Controller();
+  m_AtaSlave = new Controller();
+  m_Watchdog = new Device();
 
-    m_Ps2Controller = new Ps2Controller();
-    m_pKeyboard = m_Keyboard = new X86Keyboard(m_Ps2Controller);
+  m_Ps2Controller = new Ps2Controller();
+  m_pKeyboard = m_Keyboard = new X86Keyboard(m_Ps2Controller);
 
 #ifdef SMBIOS
-    m_SMBios = new SMBios();
+  m_SMBios = new SMBios();
 #endif
 
 #if APIC
-    m_LocalApic = new LocalApic();
+  m_LocalApic = new LocalApic();
 #endif
 
-    // Firstly add the ISA bus.
-    m_IsaBus->setSpecificType(String("isa"));
+  // Firstly add the ISA bus.
+  m_IsaBus->setSpecificType(String("isa"));
 
-    // ATA controllers.
-    m_AtaMaster->setSpecificType(String("ata"));
-    m_AtaMaster->addresses().pushBack(
-        new Device::Address(String("command"), 0x1F0, 8, true));
-    m_AtaMaster->addresses().pushBack(
-        new Device::Address(String("control"), 0x3F0, 8, true));
-    m_AtaMaster->setInterruptNumber(14);
-    m_IsaBus->addChild(m_AtaMaster);
-    m_AtaMaster->setParent(m_IsaBus);
+  // ATA controllers.
+  m_AtaMaster->setSpecificType(String("ata"));
+  m_AtaMaster->addresses().pushBack(new Device::Address(String("command"), 0x1F0, 8, true));
+  m_AtaMaster->addresses().pushBack(new Device::Address(String("control"), 0x3F0, 8, true));
+  m_AtaMaster->setInterruptNumber(14);
+  m_IsaBus->addChild(m_AtaMaster);
+  m_AtaMaster->setParent(m_IsaBus);
 
-    m_AtaSlave->setSpecificType(String("ata"));
-    m_AtaSlave->addresses().pushBack(
-        new Device::Address(String("command"), 0x170, 8, true));
-    m_AtaSlave->addresses().pushBack(
-        new Device::Address(String("control"), 0x370, 8, true));
-    m_AtaSlave->setInterruptNumber(15);
-    m_IsaBus->addChild(m_AtaSlave);
-    m_AtaSlave->setParent(m_IsaBus);
+  m_AtaSlave->setSpecificType(String("ata"));
+  m_AtaSlave->addresses().pushBack(new Device::Address(String("command"), 0x170, 8, true));
+  m_AtaSlave->addresses().pushBack(new Device::Address(String("control"), 0x370, 8, true));
+  m_AtaSlave->setInterruptNumber(15);
+  m_IsaBus->addChild(m_AtaSlave);
+  m_AtaSlave->setParent(m_IsaBus);
 
-    // PS/2
-    m_Ps2Controller->setSpecificType(String("ps2"));
-    m_Ps2Controller->addresses().pushBack(
-        new Device::Address(String("ps2-base"), 0x60, 5, true));
-    m_Ps2Controller->setInterruptNumber(
-        1);  // 12 for mouse, handled by the driver
-    m_IsaBus->addChild(m_Ps2Controller);
-    m_Ps2Controller->setParent(m_IsaBus);
+  // PS/2
+  m_Ps2Controller->setSpecificType(String("ps2"));
+  m_Ps2Controller->addresses().pushBack(new Device::Address(String("ps2-base"), 0x60, 5, true));
+  m_Ps2Controller->setInterruptNumber(1);  // 12 for mouse, handled by the driver
+  m_IsaBus->addChild(m_Ps2Controller);
+  m_Ps2Controller->setParent(m_IsaBus);
 
-    // IB700 Watchdog Timer
-    m_Watchdog->addresses().pushBack(
-        new Device::Address(String("ib700-base"), 0x441, 4, true));
-    m_IsaBus->addChild(m_Watchdog);
-    m_Watchdog->setParent(m_IsaBus);
+  // IB700 Watchdog Timer
+  m_Watchdog->addresses().pushBack(new Device::Address(String("ib700-base"), 0x441, 4, true));
+  m_IsaBus->addChild(m_Watchdog);
+  m_Watchdog->setParent(m_IsaBus);
 
-    Device::addToRoot(m_IsaBus);
+  Device::addToRoot(m_IsaBus);
 
-    // Initialise the PCI interface
-    PciBus::instance().initialise();
+  // Initialise the PCI interface
+  PciBus::instance().initialise();
 }
 
-Serial *Pc::getSerial(size_t n)
-{
-    return m_pSerial[n];
+Serial* Pc::getSerial(size_t n) {
+  return m_pSerial[n];
 }
 
-size_t Pc::getNumSerial()
-{
-    return 4;
+size_t Pc::getNumSerial() {
+  return 4;
 }
 
-Vga *Pc::getVga(size_t n)
-{
-    return m_Vga;
+Vga* Pc::getVga(size_t n) {
+  return m_Vga;
 }
 
-size_t Pc::getNumVga()
-{
-    return 1;
+size_t Pc::getNumVga() {
+  return 1;
 }
 
-IrqManager *Pc::getIrqManager()
-{
-    return &Pic::instance();
+IrqManager* Pc::getIrqManager() {
+  return &Pic::instance();
 }
 
-SchedulerTimer *Pc::getSchedulerTimer()
-{
+SchedulerTimer* Pc::getSchedulerTimer() {
 #if APIC
-    if (m_SchedulerTimerSelection.usesLocalApic())
-    {
-        return m_LocalApic;
-    }
+  if (m_SchedulerTimerSelection.usesLocalApic()) {
+    return m_LocalApic;
+  }
 #endif
-    return &Pit::instance();
+  return &Pit::instance();
 }
 
-Timer *Pc::getTimer()
-{
-    return &Rtc::instance();
+Timer* Pc::getTimer() {
+  return &Rtc::instance();
 }
 
-Keyboard *Pc::getKeyboard()
-{
-    return m_pKeyboard;
+Keyboard* Pc::getKeyboard() {
+  return m_pKeyboard;
 }
 
-void Pc::setKeyboard(Keyboard *kb)
-{
-    if (m_pKeyboard)
-    {
-        delete m_pKeyboard;
-    }
+void Pc::setKeyboard(Keyboard* kb) {
+  if (m_pKeyboard) {
+    delete m_pKeyboard;
+  }
 
-    m_pKeyboard = kb;
+  m_pKeyboard = kb;
 }
 
 #if MULTIPROCESSOR
-bool Pc::quiesceAllOtherProcessors()
-{
-    const size_t processorCount = Processor::getCount();
-    return reportProcessorControlResult(
-        m_LocalApic->quiesceAllOtherProcessors(
-            processorCount > 1 ? processorCount - 1 : 0),
-        "processor quiesce");
+bool Pc::quiesceAllOtherProcessors() {
+  const size_t processorCount = Processor::getCount();
+  return reportProcessorControlResult(
+      m_LocalApic->quiesceAllOtherProcessors(processorCount > 1 ? processorCount - 1 : 0),
+      "processor quiesce");
 }
 
-bool Pc::resumeAllOtherProcessors()
-{
-    if (Processor::getCount() <= 1)
-        return true;
-    return reportProcessorControlResult(
-        m_LocalApic->resumeAllOtherProcessors(), "processor resume");
+bool Pc::resumeAllOtherProcessors() {
+  if (Processor::getCount() <= 1)
+    return true;
+  return reportProcessorControlResult(m_LocalApic->resumeAllOtherProcessors(), "processor resume");
 }
 
-bool Pc::stopAllOtherProcessors()
-{
-    const size_t processorCount = Processor::getCount();
-    return reportProcessorControlResult(
-        m_LocalApic->haltAllOtherProcessors(
-            processorCount > 1 ? processorCount - 1 : 0),
-        "processor halt");
+bool Pc::stopAllOtherProcessors() {
+  const size_t processorCount = Processor::getCount();
+  return reportProcessorControlResult(
+      m_LocalApic->haltAllOtherProcessors(processorCount > 1 ? processorCount - 1 : 0),
+      "processor halt");
 }
 #endif
 
 Pc::Pc()
-    : m_pSerial(), m_Vga(nullptr), m_pKeyboard(nullptr),
+    : m_pSerial(),
+      m_Vga(nullptr),
+      m_pKeyboard(nullptr),
 #if defined(SMBIOS)
       m_SMBios(nullptr),
 #endif
 #if APIC
       m_LocalApic(nullptr),
 #endif
-      m_SchedulerTimerSelection(), m_Keyboard(nullptr), m_IsaBus(nullptr),
+      m_SchedulerTimerSelection(),
+      m_Keyboard(nullptr),
+      m_IsaBus(nullptr),
       m_AtaMaster(nullptr),
-      m_AtaSlave(nullptr), m_Ps2Controller(nullptr), m_Watchdog(nullptr)
-{
-    for (size_t i = 0; i < 4; ++i)
-    {
-        m_pSerial[i] = nullptr;
-    }
+      m_AtaSlave(nullptr),
+      m_Ps2Controller(nullptr),
+      m_Watchdog(nullptr) {
+  for (size_t i = 0; i < 4; ++i) {
+    m_pSerial[i] = nullptr;
+  }
 }
 
-Pc::~Pc()
-{
-}
+Pc::~Pc() {}

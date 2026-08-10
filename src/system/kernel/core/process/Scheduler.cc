@@ -19,12 +19,12 @@
 
 #if THREADS
 
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/ProcessorThreadAllocator.h"
 #include "pedigree/kernel/process/RoundRobinCoreAllocator.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/Iterator.h"
@@ -35,8 +35,7 @@
 Scheduler Scheduler::m_Instance;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-namespace
-{
+namespace {
 Scheduler::GenericThreadStatusHook g_GenericThreadStatusHook = nullptr;
 }
 #endif
@@ -50,372 +49,290 @@ Scheduler::GenericThreadStatusHook g_GenericThreadStatusHook = nullptr;
 // on Scheduler, you need to recurse.
 #define SCHEDULER_HAS_RECURSIVE_SPINLOCKS true
 
-Scheduler::ProcessLease::ProcessLease()
-    : m_pProcess(nullptr), m_TerminationDeferral(false)
-{
-}
+Scheduler::ProcessLease::ProcessLease() : m_pProcess(nullptr), m_TerminationDeferral(false) {}
 
-Scheduler::ProcessLease::ProcessLease(Process *process)
-    : m_pProcess(process), m_TerminationDeferral(process != nullptr)
-{
-}
+Scheduler::ProcessLease::ProcessLease(Process* process)
+    : m_pProcess(process), m_TerminationDeferral(process != nullptr) {}
 
-Scheduler::ProcessLease::ProcessLease(ProcessLease &&other)
+Scheduler::ProcessLease::ProcessLease(ProcessLease&& other)
     : m_pProcess(other.m_pProcess),
-      m_TerminationDeferral(
-          pedigree_std::move(other.m_TerminationDeferral))
-{
-    other.m_pProcess = nullptr;
+      m_TerminationDeferral(pedigree_std::move(other.m_TerminationDeferral)) {
+  other.m_pProcess = nullptr;
 }
 
-Scheduler::ProcessLease::~ProcessLease()
-{
+Scheduler::ProcessLease::~ProcessLease() {
+  reset();
+}
+
+Scheduler::ProcessLease& Scheduler::ProcessLease::operator=(ProcessLease&& other) {
+  if (this != &other) {
     reset();
+    m_TerminationDeferral = pedigree_std::move(other.m_TerminationDeferral);
+    m_pProcess = other.m_pProcess;
+    other.m_pProcess = nullptr;
+  }
+  return *this;
 }
 
-Scheduler::ProcessLease &Scheduler::ProcessLease::operator=(
-    ProcessLease &&other)
-{
-    if (this != &other)
-    {
-        reset();
-        m_TerminationDeferral =
-            pedigree_std::move(other.m_TerminationDeferral);
-        m_pProcess = other.m_pProcess;
-        other.m_pProcess = nullptr;
-    }
-    return *this;
-}
-
-void Scheduler::ProcessLease::reset()
-{
-    Process *process = m_pProcess;
-    m_pProcess = nullptr;
-    if (process)
-    {
-        Scheduler::instance().releaseProcessLease(process);
-    }
-    m_TerminationDeferral = TerminationDeferral(false);
+void Scheduler::ProcessLease::reset() {
+  Process* process = m_pProcess;
+  m_pProcess = nullptr;
+  if (process) {
+    Scheduler::instance().releaseProcessLease(process);
+  }
+  m_TerminationDeferral = TerminationDeferral(false);
 }
 
 Scheduler::Scheduler()
-    : m_Processes(), m_NextPid(0), m_PTMap(), m_TPMap(), m_pKernelProcess(0),
-      m_pBspScheduler(0), m_SchedulerLock(false), m_ProcessRemovalWaiters()
-{
-}
+    : m_Processes(),
+      m_NextPid(0),
+      m_PTMap(),
+      m_TPMap(),
+      m_pKernelProcess(0),
+      m_pBspScheduler(0),
+      m_SchedulerLock(false),
+      m_ProcessRemovalWaiters() {}
 
-bool Scheduler::initialise(Process *pKernelProcess)
-{
-    RoundRobinCoreAllocator *pRoundRobin = new RoundRobinCoreAllocator();
-    ProcessorThreadAllocator::instance().setAlgorithm(pRoundRobin);
+bool Scheduler::initialise(Process* pKernelProcess) {
+  RoundRobinCoreAllocator* pRoundRobin = new RoundRobinCoreAllocator();
+  ProcessorThreadAllocator::instance().setAlgorithm(pRoundRobin);
 
-    m_pKernelProcess = pKernelProcess;
+  m_pKernelProcess = pKernelProcess;
 
-    List<PerProcessorScheduler *> procList;
+  List<PerProcessorScheduler*> procList;
 
-    m_pBspScheduler = &Processor::information().getScheduler();
-    procList.pushBack(m_pBspScheduler);
+  m_pBspScheduler = &Processor::information().getScheduler();
+  procList.pushBack(m_pBspScheduler);
 
-    size_t i = 0;
-    for (Vector<ProcessorInformation *>::Iterator it =
-             Processor::m_ProcessorInformation.begin();
-         it != Processor::m_ProcessorInformation.end(); it++, i += 2)
-    {
-        auto thisScheduler = &((*it)->getScheduler());
-        if (thisScheduler != m_pBspScheduler)
-        {
-            procList.pushBack(thisScheduler);
-        }
+  size_t i = 0;
+  for (Vector<ProcessorInformation*>::Iterator it = Processor::m_ProcessorInformation.begin();
+       it != Processor::m_ProcessorInformation.end(); it++, i += 2) {
+    auto thisScheduler = &((*it)->getScheduler());
+    if (thisScheduler != m_pBspScheduler) {
+      procList.pushBack(thisScheduler);
     }
+  }
 
-    pRoundRobin->initialise(procList);
+  pRoundRobin->initialise(procList);
 
-    return true;
+  return true;
 }
 
-void Scheduler::addThread(Thread *pThread, PerProcessorScheduler &PPSched)
-{
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    m_TPMap.insert(pThread, &PPSched);
-    m_SchedulerLock.release();
+void Scheduler::addThread(Thread* pThread, PerProcessorScheduler& PPSched) {
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  m_TPMap.insert(pThread, &PPSched);
+  m_SchedulerLock.release();
 }
 
-void Scheduler::removeThread(Thread *pThread)
-{
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    PerProcessorScheduler *pPpSched = m_TPMap.lookup(pThread);
-    if (pPpSched)
-    {
-        pPpSched->removeThread(pThread);
-        m_TPMap.remove(pThread);
+void Scheduler::removeThread(Thread* pThread) {
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  PerProcessorScheduler* pPpSched = m_TPMap.lookup(pThread);
+  if (pPpSched) {
+    pPpSched->removeThread(pThread);
+    m_TPMap.remove(pThread);
+  }
+  m_SchedulerLock.release();
+}
+
+bool Scheduler::threadInSchedule(Thread* pThread) {
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  PerProcessorScheduler* pPpSched = m_TPMap.lookup(pThread);
+  m_SchedulerLock.release();
+  return pPpSched != 0;
+}
+
+size_t Scheduler::reserveProcessId() {
+  return (m_NextPid += 1) - 1;  // little dance for Atomic
+}
+
+void Scheduler::releaseProcessLease(Process* process) {
+  process->endExternalLease();
+}
+
+void Scheduler::drainDeferredTimeAccounting() {
+  // Reserve outside m_SchedulerLock. A worker generation is snapshotted
+  // before this call, so a Process added after the count can only publish a
+  // later generation and will be covered by the next pass.
+  Vector<Process*> processes(getNumProcesses());
+
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  for (List<Process*>::Iterator it = m_Processes.begin();
+       it != m_Processes.end() && processes.count() < processes.size(); ++it) {
+    Process* process = *it;
+    if (process->beginExternalLease()) {
+      processes.pushBack(process);
     }
-    m_SchedulerLock.release();
-}
+  }
+  m_SchedulerLock.release();
 
-bool Scheduler::threadInSchedule(Thread *pThread)
-{
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    PerProcessorScheduler *pPpSched = m_TPMap.lookup(pThread);
-    m_SchedulerLock.release();
-    return pPpSched != 0;
-}
-
-size_t Scheduler::reserveProcessId()
-{
-    return (m_NextPid += 1) - 1;  // little dance for Atomic
-}
-
-void Scheduler::releaseProcessLease(Process *process)
-{
+  for (Vector<Process*>::Iterator it = processes.begin(); it != processes.end(); ++it) {
+    Process* process = *it;
+    process->drainDeferredTimeAccounting();
     process->endExternalLease();
+  }
 }
 
-void Scheduler::drainDeferredTimeAccounting()
-{
-    // Reserve outside m_SchedulerLock. A worker generation is snapshotted
-    // before this call, so a Process added after the count can only publish a
-    // later generation and will be covered by the next pass.
-    Vector<Process *> processes(getNumProcesses());
+void Scheduler::addProcess(Process* pProcess) {
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  m_Processes.pushBack(pProcess);
+  m_SchedulerLock.release();
+}
 
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    for (List<Process *>::Iterator it = m_Processes.begin();
-         it != m_Processes.end() && processes.count() < processes.size(); ++it)
-    {
-        Process *process = *it;
-        if (process->beginExternalLease())
-        {
-            processes.pushBack(process);
-        }
+void Scheduler::removeProcess(Process* pProcess) {
+  bool removed = false;
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  pProcess->closeExternalLeaseAdmission();
+  for (List<Process*>::Iterator it = m_Processes.begin(); it != m_Processes.end(); it++) {
+    if (*it == pProcess) {
+      m_Processes.erase(it);
+      removed = true;
+      break;
+    }
+  }
+  m_SchedulerLock.release();
+  if (removed) {
+    m_ProcessRemovalWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(pProcess));
+  }
+}
+
+void Scheduler::yield() {
+  Processor::information().getScheduler().schedule();
+}
+
+size_t Scheduler::getNumProcesses() {
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  size_t result = m_Processes.count();
+  m_SchedulerLock.release();
+  return result;
+}
+
+bool Scheduler::acquireProcess(ProcessLease& lease, size_t n) {
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  if (n >= m_Processes.count()) {
+    m_SchedulerLock.release();
+    lease.reset();
+    return false;
+  }
+
+  size_t i = 0;
+  Process* pResult = 0;
+  for (List<Process*>::Iterator it = m_Processes.begin(); it != m_Processes.end(); it++) {
+    if (i == n) {
+      pResult = *it;
+      break;
+    }
+    i++;
+  }
+
+  if (pResult && !pResult->beginExternalLease()) {
+    pResult = nullptr;
+  }
+  m_SchedulerLock.release();
+  lease = ProcessLease(pResult);
+  return pResult != nullptr;
+}
+
+bool Scheduler::acquireProcess(ProcessLease& lease, Process* expected) {
+  if (!expected) {
+    lease.reset();
+    return false;
+  }
+
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  Process* pResult = nullptr;
+  for (List<Process*>::Iterator it = m_Processes.begin(); it != m_Processes.end(); ++it) {
+    if (*it == expected) {
+      pResult = *it;
+      break;
+    }
+  }
+
+  if (pResult && !pResult->beginExternalLease()) {
+    pResult = nullptr;
+  }
+  m_SchedulerLock.release();
+  lease = ProcessLease(pResult);
+  return pResult != nullptr;
+}
+
+bool Scheduler::acquireProcessById(ProcessLease& lease, size_t id) {
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  Process* pResult = nullptr;
+  for (List<Process*>::Iterator it = m_Processes.begin(); it != m_Processes.end(); ++it) {
+    Process* candidate = *it;
+    if (candidate->getId() == id) {
+      pResult = candidate;
+      break;
+    }
+  }
+
+  if (pResult && !pResult->beginExternalLease()) {
+    pResult = nullptr;
+  }
+  m_SchedulerLock.release();
+  lease = ProcessLease(pResult);
+  return pResult != nullptr;
+}
+
+void Scheduler::waitUntilProcessRemoved(Process* expected) {
+  TerminationDeferral terminationDeferral;
+  while (true) {
+    auto guard = m_ProcessRemovalWaiters.acquire();
+    bool present = false;
+    m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+    for (List<Process*>::Iterator it = m_Processes.begin(); it != m_Processes.end(); ++it) {
+      if (*it == expected) {
+        present = true;
+        break;
+      }
     }
     m_SchedulerLock.release();
-
-    for (Vector<Process *>::Iterator it = processes.begin();
-         it != processes.end(); ++it)
-    {
-        Process *process = *it;
-        process->drainDeferredTimeAccounting();
-        process->endExternalLease();
+    if (!present) {
+      return;
     }
+
+    const WaitQueue::WakeReason reason = guard.waitForCompletion(
+        WaitQueue::Channel(expected), Thread::ProcessWait, reinterpret_cast<uintptr_t>(expected));
+    (void)reason;
+  }
 }
 
-void Scheduler::addProcess(Process *pProcess)
-{
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    m_Processes.pushBack(pProcess);
-    m_SchedulerLock.release();
+Process* Scheduler::getChildProcess(Process* pParent, size_t n) {
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  size_t childIndex = 0;
+  Process* pResult = 0;
+  for (List<Process*>::Iterator it = m_Processes.begin(); it != m_Processes.end(); ++it) {
+    Process* pProcess = *it;
+    if (pProcess && pProcess->getParent() == pParent) {
+      if (childIndex == n) {
+        pResult = pProcess;
+        break;
+      }
+      ++childIndex;
+    }
+  }
+  m_SchedulerLock.release();
+  return pResult;
 }
 
-void Scheduler::removeProcess(Process *pProcess)
-{
-    bool removed = false;
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    pProcess->closeExternalLeaseAdmission();
-    for (List<Process *>::Iterator it = m_Processes.begin();
-         it != m_Processes.end(); it++)
-    {
-        if (*it == pProcess)
-        {
-            m_Processes.erase(it);
-            removed = true;
-            break;
-        }
-    }
-    m_SchedulerLock.release();
-    if (removed)
-    {
-        m_ProcessRemovalWaiters.wakeAll(
-            WaitQueue::WakeReason::Signalled,
-            WaitQueue::Channel(pProcess));
-    }
-}
-
-void Scheduler::yield()
-{
-    Processor::information().getScheduler().schedule();
-}
-
-size_t Scheduler::getNumProcesses()
-{
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    size_t result = m_Processes.count();
-    m_SchedulerLock.release();
-    return result;
-}
-
-bool Scheduler::acquireProcess(ProcessLease &lease, size_t n)
-{
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    if (n >= m_Processes.count())
-    {
-        m_SchedulerLock.release();
-        lease.reset();
-        return false;
-    }
-
-    size_t i = 0;
-    Process *pResult = 0;
-    for (List<Process *>::Iterator it = m_Processes.begin();
-         it != m_Processes.end(); it++)
-    {
-        if (i == n)
-        {
-            pResult = *it;
-            break;
-        }
-        i++;
-    }
-
-    if (pResult && !pResult->beginExternalLease())
-    {
-        pResult = nullptr;
-    }
-    m_SchedulerLock.release();
-    lease = ProcessLease(pResult);
-    return pResult != nullptr;
-}
-
-bool Scheduler::acquireProcess(ProcessLease &lease, Process *expected)
-{
-    if (!expected)
-    {
-        lease.reset();
-        return false;
-    }
-
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    Process *pResult = nullptr;
-    for (List<Process *>::Iterator it = m_Processes.begin();
-         it != m_Processes.end(); ++it)
-    {
-        if (*it == expected)
-        {
-            pResult = *it;
-            break;
-        }
-    }
-
-    if (pResult && !pResult->beginExternalLease())
-    {
-        pResult = nullptr;
-    }
-    m_SchedulerLock.release();
-    lease = ProcessLease(pResult);
-    return pResult != nullptr;
-}
-
-bool Scheduler::acquireProcessById(ProcessLease &lease, size_t id)
-{
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    Process *pResult = nullptr;
-    for (List<Process *>::Iterator it = m_Processes.begin();
-         it != m_Processes.end(); ++it)
-    {
-        Process *candidate = *it;
-        if (candidate->getId() == id)
-        {
-            pResult = candidate;
-            break;
-        }
-    }
-
-    if (pResult && !pResult->beginExternalLease())
-    {
-        pResult = nullptr;
-    }
-    m_SchedulerLock.release();
-    lease = ProcessLease(pResult);
-    return pResult != nullptr;
-}
-
-void Scheduler::waitUntilProcessRemoved(Process *expected)
-{
-    TerminationDeferral terminationDeferral;
-    while (true)
-    {
-        auto guard = m_ProcessRemovalWaiters.acquire();
-        bool present = false;
-        m_SchedulerLock.acquire(
-            SCHEDULER_HAS_RECURSIVE_SPINLOCKS,
-            SCHEDULER_HAS_SAFE_SPINLOCKS);
-        for (List<Process *>::Iterator it = m_Processes.begin();
-             it != m_Processes.end(); ++it)
-        {
-            if (*it == expected)
-            {
-                present = true;
-                break;
-            }
-        }
-        m_SchedulerLock.release();
-        if (!present)
-        {
-            return;
-        }
-
-        const WaitQueue::WakeReason reason = guard.waitForCompletion(
-            WaitQueue::Channel(expected), Thread::ProcessWait,
-            reinterpret_cast<uintptr_t>(expected));
-        (void) reason;
-    }
-}
-
-Process *Scheduler::getChildProcess(Process *pParent, size_t n)
-{
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    size_t childIndex = 0;
-    Process *pResult = 0;
-    for (List<Process *>::Iterator it = m_Processes.begin();
-         it != m_Processes.end(); ++it)
-    {
-        Process *pProcess = *it;
-        if (pProcess && pProcess->getParent() == pParent)
-        {
-            if (childIndex == n)
-            {
-                pResult = pProcess;
-                break;
-            }
-            ++childIndex;
-        }
-    }
-    m_SchedulerLock.release();
-    return pResult;
-}
-
-void Scheduler::threadStatusChanged(Thread *pThread)
-{
+void Scheduler::threadStatusChanged(Thread* pThread) {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    GenericThreadStatusHook hook =
-        __atomic_load_n(&g_GenericThreadStatusHook, __ATOMIC_ACQUIRE);
-    if (hook)
-    {
-        hook(pThread);
-    }
+  GenericThreadStatusHook hook = __atomic_load_n(&g_GenericThreadStatusHook, __ATOMIC_ACQUIRE);
+  if (hook) {
+    hook(pThread);
+  }
 #endif
-    m_SchedulerLock.acquire(
-        SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
-    PerProcessorScheduler *pSched = m_TPMap.lookup(pThread);
-    assert(pSched);
-    m_SchedulerLock.release();
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  PerProcessorScheduler* pSched = m_TPMap.lookup(pThread);
+  assert(pSched);
+  m_SchedulerLock.release();
 
-    pSched->threadStatusChanged(pThread);
+  pSched->threadStatusChanged(pThread);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-void Scheduler::setGenericThreadStatusHook(GenericThreadStatusHook hook)
-{
-    __atomic_store_n(&g_GenericThreadStatusHook, hook, __ATOMIC_RELEASE);
+void Scheduler::setGenericThreadStatusHook(GenericThreadStatusHook hook) {
+  __atomic_store_n(&g_GenericThreadStatusHook, hook, __ATOMIC_RELEASE);
 }
 #endif
 

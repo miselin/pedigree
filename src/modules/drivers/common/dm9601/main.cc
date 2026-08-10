@@ -17,18 +17,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Dm9601.h"
-#include "modules/Module.h"
-#include "modules/system/usb/UsbPnP.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
 
+#include "Dm9601.h"
+#include "modules/Module.h"
+#include "modules/system/usb/UsbPnP.h"
+
 class UsbDevice;
 
-static struct
-{
-    uint16_t vendor;
-    uint16_t product;
+static struct {
+  uint16_t vendor;
+  uint16_t product;
 } g_Devices[] = {
     {0x2630, 0x9601},  // Specification defines these for the chip
     {0x0fe6, 0x8101},  // Kontron product
@@ -38,36 +38,28 @@ static struct
 
 static UsbPnP::Registration g_Registrations[NUM_DEVICES];
 
-static UsbDevice *dm9601Connected(UsbDevice *pDevice)
-{
-    return new Dm9601(pDevice);
+static UsbDevice* dm9601Connected(UsbDevice* pDevice) {
+  return new Dm9601(pDevice);
 }
 
-static bool entry()
-{
-    for (size_t i = 0; i < NUM_DEVICES; i++)
-    {
-        if (!UsbPnP::instance().registerCallback(
-                g_Devices[i].vendor, g_Devices[i].product, dm9601Connected,
-                g_Registrations[i]))
-        {
-            while (i)
-            {
-                g_Registrations[--i].reset();
-            }
-            return false;
-        }
+static bool entry() {
+  for (size_t i = 0; i < NUM_DEVICES; i++) {
+    if (!UsbPnP::instance().registerCallback(g_Devices[i].vendor, g_Devices[i].product,
+                                             dm9601Connected, g_Registrations[i])) {
+      while (i) {
+        g_Registrations[--i].reset();
+      }
+      return false;
     }
+  }
 
-    return true;
+  return true;
 }
 
-static void exit()
-{
-    for (size_t i = NUM_DEVICES; i; --i)
-    {
-        g_Registrations[i - 1].reset();
-    }
+static void exit() {
+  for (size_t i = NUM_DEVICES; i; --i) {
+    g_Registrations[i - 1].reset();
+  }
 }
 
 MODULE_INFO("dm9601", &entry, &exit, "usb", "network-stack");

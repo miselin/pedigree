@@ -36,15 +36,13 @@
  *  notified of Disk changes (LoDisk, plug & play, hotplug drives) and
  *  update the partition tree accordingly.
  */
-class EXPORTED_PUBLIC Service
-{
-  public:
-    Service();
-    virtual ~Service();
+class EXPORTED_PUBLIC Service {
+ public:
+  Service();
+  virtual ~Service();
 
-    /** serve: Interface through which clients interact with the Service */
-    virtual bool
-    serve(ServiceFeatures::Type type, void *pData, size_t dataLen) = 0;
+  /** serve: Interface through which clients interact with the Service */
+  virtual bool serve(ServiceFeatures::Type type, void* pData, size_t dataLen) = 0;
 };
 
 #endif

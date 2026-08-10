@@ -19,252 +19,213 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <stdlib.h>
-#include <time.h>
+#include "pedigree/kernel/utilities/RadixTree.h"
 
 #include <fstream>
+#include <stdlib.h>
+#include <time.h>
 #include <vector>
 
 #include <benchmark/benchmark.h>
 
-#include "pedigree/kernel/utilities/RadixTree.h"
-
 #define RANDOM_MAX 0x1000000
 
-static const int RandomNumber(const int maximum = RANDOM_MAX)
-{
-    static bool seeded = false;
-    if (!seeded)
-    {
-        srand(time(0));
-        seeded = true;
-    }
+static const int RandomNumber(const int maximum = RANDOM_MAX) {
+  static bool seeded = false;
+  if (!seeded) {
+    srand(time(0));
+    seeded = true;
+  }
 
-    // Artificially limit the random number range so we get collisions.
-    return rand() % maximum;
+  // Artificially limit the random number range so we get collisions.
+  return rand() % maximum;
 }
 
-static void LoadWords(std::vector<String> &result)
-{
-    size_t i = 0;
+static void LoadWords(std::vector<String>& result) {
+  size_t i = 0;
 
-    std::ifstream ifs("/usr/share/dict/words");
-    while (ifs.good())
-    {
-        std::string s;
-        std::getline(ifs, s);
+  std::ifstream ifs("/usr/share/dict/words");
+  while (ifs.good()) {
+    std::string s;
+    std::getline(ifs, s);
 
-        if (!s.length())
-        {
-            continue;
-        }
-
-        result.emplace_back(s.c_str(), s.length());
+    if (!s.length()) {
+      continue;
     }
+
+    result.emplace_back(s.c_str(), s.length());
+  }
 }
 
-static void BM_RadixTreeInsert(benchmark::State &state)
-{
-    std::vector<String> words;
-    const int64_t value = 1;
+static void BM_RadixTreeInsert(benchmark::State& state) {
+  std::vector<String> words;
+  const int64_t value = 1;
 
-    LoadWords(words);
+  LoadWords(words);
 
-    RadixTree<int64_t> tree;
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        tree.clear();
-        state.ResumeTiming();
+  RadixTree<int64_t> tree;
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    tree.clear();
+    state.ResumeTiming();
 
-        for (auto &word : words)
-        {
-            tree.insert(word, value);
-        }
+    for (auto& word : words) {
+      tree.insert(word, value);
     }
+  }
 
-    state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(words.size()));
+  state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(words.size()));
 }
 
-static void BM_RadixTreeRemove(benchmark::State &state)
-{
-    std::vector<String> words;
-    const int64_t value = 1;
+static void BM_RadixTreeRemove(benchmark::State& state) {
+  std::vector<String> words;
+  const int64_t value = 1;
 
-    LoadWords(words);
+  LoadWords(words);
 
-    RadixTree<int64_t> tree;
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        tree.clear();
-        for (auto &word : words)
-        {
-            tree.insert(word, value);
-        }
-        state.ResumeTiming();
-
-        for (auto &word : words)
-        {
-            tree.remove(word);
-        }
+  RadixTree<int64_t> tree;
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    tree.clear();
+    for (auto& word : words) {
+      tree.insert(word, value);
     }
+    state.ResumeTiming();
 
-    state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(words.size()));
+    for (auto& word : words) {
+      tree.remove(word);
+    }
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(words.size()));
 }
 
-static void BM_RadixTreeInsertSame(benchmark::State &state)
-{
-    std::vector<String> words;
-    const int64_t value = 1;
+static void BM_RadixTreeInsertSame(benchmark::State& state) {
+  std::vector<String> words;
+  const int64_t value = 1;
 
-    LoadWords(words);
+  LoadWords(words);
 
-    RadixTree<int64_t> tree;
-    while (state.KeepRunning())
-    {
-        tree.insert(words[0], value);
-    }
+  RadixTree<int64_t> tree;
+  while (state.KeepRunning()) {
+    tree.insert(words[0], value);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_RadixTreeLookupHit(benchmark::State &state)
-{
-    std::vector<String> words;
-    const int64_t value = 1;
+static void BM_RadixTreeLookupHit(benchmark::State& state) {
+  std::vector<String> words;
+  const int64_t value = 1;
 
-    LoadWords(words);
+  LoadWords(words);
 
-    RadixTree<int64_t> tree;
-    for (auto &word : words)
-    {
-        tree.insert(word, value);
-    }
+  RadixTree<int64_t> tree;
+  for (auto& word : words) {
+    tree.insert(word, value);
+  }
 
-    String key;
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(
-            tree.lookup(words[RandomNumber(words.size())]));
-    }
+  String key;
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_RadixTreeLookupMiss(benchmark::State &state)
-{
-    std::vector<String> words;
-    const int64_t value = 1;
+static void BM_RadixTreeLookupMiss(benchmark::State& state) {
+  std::vector<String> words;
+  const int64_t value = 1;
 
-    LoadWords(words);
+  LoadWords(words);
 
-    RadixTree<int64_t> tree;
-    for (auto &word : words)
-    {
-        String copy = word.copy();
-        copy += "_";  // to never allow a match
-        tree.insert(copy, value);
-    }
+  RadixTree<int64_t> tree;
+  for (auto& word : words) {
+    String copy = word.copy();
+    copy += "_";  // to never allow a match
+    tree.insert(copy, value);
+  }
 
-    String key;
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(
-            tree.lookup(words[RandomNumber(words.size())]));
-    }
+  String key;
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_RadixTreeCaseInsensitiveInsert(benchmark::State &state)
-{
-    std::vector<String> words;
-    const int64_t value = 1;
+static void BM_RadixTreeCaseInsensitiveInsert(benchmark::State& state) {
+  std::vector<String> words;
+  const int64_t value = 1;
 
-    LoadWords(words);
+  LoadWords(words);
 
-    RadixTree<int64_t> tree(false);
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        tree.clear();
-        state.ResumeTiming();
+  RadixTree<int64_t> tree(false);
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    tree.clear();
+    state.ResumeTiming();
 
-        for (auto &word : words)
-        {
-            tree.insert(word, value);
-        }
+    for (auto& word : words) {
+      tree.insert(word, value);
     }
+  }
 
-    state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(words.size()));
+  state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(words.size()));
 }
 
-static void BM_RadixTreeCaseInsensitiveInsertSame(benchmark::State &state)
-{
-    std::vector<String> words;
-    const int64_t value = 1;
+static void BM_RadixTreeCaseInsensitiveInsertSame(benchmark::State& state) {
+  std::vector<String> words;
+  const int64_t value = 1;
 
-    LoadWords(words);
+  LoadWords(words);
 
-    RadixTree<int64_t> tree(false);
-    while (state.KeepRunning())
-    {
-        tree.insert(words[0], value);
-    }
+  RadixTree<int64_t> tree(false);
+  while (state.KeepRunning()) {
+    tree.insert(words[0], value);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_RadixTreeCaseInsensitiveLookupHit(benchmark::State &state)
-{
-    std::vector<String> words;
-    const int64_t value = 1;
+static void BM_RadixTreeCaseInsensitiveLookupHit(benchmark::State& state) {
+  std::vector<String> words;
+  const int64_t value = 1;
 
-    LoadWords(words);
+  LoadWords(words);
 
-    RadixTree<int64_t> tree(false);
-    for (auto &word : words)
-    {
-        tree.insert(word, value);
-    }
+  RadixTree<int64_t> tree(false);
+  for (auto& word : words) {
+    tree.insert(word, value);
+  }
 
-    String key;
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(
-            tree.lookup(words[RandomNumber(words.size())]));
-    }
+  String key;
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_RadixTreeCaseInsensitiveLookupMiss(benchmark::State &state)
-{
-    std::vector<String> words;
-    const int64_t value = 1;
+static void BM_RadixTreeCaseInsensitiveLookupMiss(benchmark::State& state) {
+  std::vector<String> words;
+  const int64_t value = 1;
 
-    LoadWords(words);
+  LoadWords(words);
 
-    RadixTree<int64_t> tree(false);
-    for (auto &word : words)
-    {
-        String copy = word.copy();
-        copy += "_";  // to never allow a match
-        tree.insert(copy, value);
-    }
+  RadixTree<int64_t> tree(false);
+  for (auto& word : words) {
+    String copy = word.copy();
+    copy += "_";  // to never allow a match
+    tree.insert(copy, value);
+  }
 
-    String key;
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(
-            tree.lookup(words[RandomNumber(words.size())]));
-    }
+  String key;
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(tree.lookup(words[RandomNumber(words.size())]));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
 BENCHMARK(BM_RadixTreeInsert);

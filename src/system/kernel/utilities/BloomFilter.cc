@@ -19,7 +19,7 @@
 
 #include "pedigree/kernel/utilities/BloomFilter.h"
 
-template class BloomFilter<void *>;
+template class BloomFilter<void*>;
 template class BloomFilter<int8_t>;
 template class BloomFilter<int16_t>;
 template class BloomFilter<int32_t>;

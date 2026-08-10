@@ -20,69 +20,66 @@
 #ifndef SYMLINK_H
 #define SYMLINK_H
 
-#include "File.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/String.h"
 
+#include "File.h"
+
 /** A symbolic link node. */
-class EXPORTED_PUBLIC Symlink : public File
-{
-    friend class Filesystem;
+class EXPORTED_PUBLIC Symlink : public File {
+  friend class Filesystem;
 
-  public:
-    /** Eases the pain of casting, and performs a sanity check. */
-    static Symlink *fromFile(File *pF)
-    {
-        if (!pF->isSymlink())
-            FATAL("Casting non-symlink File to Symlink!");
-        return reinterpret_cast<Symlink *>(pF);
-    }
+ public:
+  /** Eases the pain of casting, and performs a sanity check. */
+  static Symlink* fromFile(File* pF) {
+    if (!pF->isSymlink())
+      FATAL("Casting non-symlink File to Symlink!");
+    return reinterpret_cast<Symlink*>(pF);
+  }
 
-    /** Constructor, creates an invalid file. */
-    Symlink();
+  /** Constructor, creates an invalid file. */
+  Symlink();
 
-    /** Copy constructors are hidden - unused! */
-    Symlink(const Symlink &file);
+  /** Copy constructors are hidden - unused! */
+  Symlink(const Symlink& file);
 
-  private:
-    Symlink &operator=(const Symlink &);
+ private:
+  Symlink& operator=(const Symlink&);
 
-  public:
-    /** Constructor, should be called only by a Filesystem. */
-    Symlink(
-        const String &name, Time::Timestamp accessedTime,
-        Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-        uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent);
-    /** Destructor - doesn't do anything. */
-    virtual ~Symlink();
+ public:
+  /** Constructor, should be called only by a Filesystem. */
+  Symlink(const String& name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
+          Time::Timestamp creationTime, uintptr_t inode, class Filesystem* pFs, size_t size,
+          File* pParent);
+  /** Destructor - doesn't do anything. */
+  virtual ~Symlink();
 
-    /** Returns true if the File is actually a symlink. */
-    virtual bool isSymlink()
-    {
-        return true;
-    }
+  /** Returns true if the File is actually a symlink. */
+  virtual bool isSymlink() {
+    return true;
+  }
 
-    /** Reads the contents of the file as a symbolic link and returns the
-       contents in the given buffer. \return Number of bytes copied. */
-    int followLink(char *pBuffer, size_t bufLen);
+  /** Reads the contents of the file as a symbolic link and returns the
+     contents in the given buffer. \return Number of bytes copied. */
+  int followLink(char* pBuffer, size_t bufLen);
 
-    /** Reads the contents of the file as a symbolic link and follows. */
-    File *followLink();
+  /** Reads the contents of the file as a symbolic link and follows. */
+  File* followLink();
 
-  protected:
-    File *m_pCachedSymlink;
+ protected:
+  File* m_pCachedSymlink;
 
-    String m_sTarget;
+  String m_sTarget;
 
-    /** Read the symlink target. Allows this to be done lazily. */
-    void initialise(bool bForce = false);
+  /** Read the symlink target. Allows this to be done lazily. */
+  void initialise(bool bForce = false);
 
-    /** Most Symlink objects will be bytewise, but for those that aren't they
-     * can override this */
-    virtual bool isBytewise() const;
+  /** Most Symlink objects will be bytewise, but for those that aren't they
+   * can override this */
+  virtual bool isBytewise() const;
 };
 
 #endif

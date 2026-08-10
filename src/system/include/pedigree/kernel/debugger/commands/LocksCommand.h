@@ -51,146 +51,138 @@ class Spinlock;
 /**
  * Traces lock allocations.
  */
-class LocksCommand : public DebuggerCommand, public Scrollable
-{
-    friend class Spinlock;
+class LocksCommand : public DebuggerCommand, public Scrollable {
+  friend class Spinlock;
 
-  public:
-    /**
-     * Default constructor - zeroes stuff.
-     */
-    LocksCommand();
+ public:
+  /**
+   * Default constructor - zeroes stuff.
+   */
+  LocksCommand();
 
-    /**
-     * Default destructor - does nothing.
-     */
-    virtual ~LocksCommand();
+  /**
+   * Default destructor - does nothing.
+   */
+  virtual ~LocksCommand();
 
-    /**
-     * Return an autocomplete string, given an input string.
-     */
-    void autocomplete(const HugeStaticString &input, HugeStaticString &output);
+  /**
+   * Return an autocomplete string, given an input string.
+   */
+  void autocomplete(const HugeStaticString& input, HugeStaticString& output);
 
-    /**
-     * Execute the command with the given screen.
-     */
-    bool execute(
-        const HugeStaticString &input, HugeStaticString &output,
-        InterruptState &state, DebuggerIO *screen);
+  /**
+   * Execute the command with the given screen.
+   */
+  bool execute(const HugeStaticString& input, HugeStaticString& output, InterruptState& state,
+               DebuggerIO* screen);
 
-    /**
-     * Returns the string representation of this command.
-     */
-    const NormalStaticString getString()
+  /**
+   * Returns the string representation of this command.
+   */
+  const NormalStaticString getString() {
+    return NormalStaticString("locks");
+  }
+
+  void setReady();
+
+  /**
+   * LocksCommand defaults to logging errors and returning failure.
+   * Call this to change it to logging fatal errors itself.
+   */
+  void setFatal();
+
+  bool lockAttempted(const Spinlock* pLock, size_t nCpu = ~0U, bool intState = false);
+  bool lockAcquired(const Spinlock* pLock, size_t nCpu = ~0U, bool intState = false);
+  bool lockReleased(const Spinlock* pLock, size_t nCpu = ~0U);
+
+  /**
+   * Notifies the command that a core is about to reschedule.
+   *
+   * Note: NO locks should be held across a reschedule.
+   */
+  bool checkSchedule(size_t nCpu = ~0U);
+
+  /**
+   * Notifies the command that we'd like to lock the given lock, allowing
+   * the LocksCommand instance to detect common concurrency issues like
+   * dependency inversion. This should be called after an acquire() fails,
+   * as it may have undesirable overhead for the "perfect" case.
+   */
+  bool checkState(const Spinlock* pLock, size_t nCpu = ~0U);
+
+  // Scrollable interface.
+  virtual const char* getLine1(size_t index, DebuggerIO::Colour& colour,
+                               DebuggerIO::Colour& bgColour);
+  virtual const char* getLine2(size_t index, size_t& colOffset, DebuggerIO::Colour& colour,
+                               DebuggerIO::Colour& bgColour);
+  virtual size_t getLineCount();
+
+ protected:
+  void clearFatal();
+
+ private:
+  enum State {
+    /// This entry is no longer active.
+    Inactive = 0,
+    /// The lock is about to be attempted.
+    Attempted,
+    /// The lock is acquired.
+    Acquired,
+    /// The lock failed to be acquired, and has been checked once.
+    Checked,
+  };
+
+  const char* stateName(State s) {
+    switch (s) {
+      case Attempted:
+        return "attempted";
+      case Acquired:
+        return "acquired";
+      case Checked:
+        return "checked";
+      case Inactive:
+        return "inactive";
+      default:
+        return "unknown";
+    }
+  }
+
+  struct LockDescriptor {
+    LockDescriptor()
+        : pLock(0),
+          state(Inactive)
+#if LOCKS_COMMAND_DO_BACKTRACES
+          ,
+          n(0),
+          ra()
+#endif
     {
-        return NormalStaticString("locks");
     }
 
-    void setReady();
-
-    /**
-     * LocksCommand defaults to logging errors and returning failure.
-     * Call this to change it to logging fatal errors itself.
-     */
-    void setFatal();
-
-    bool lockAttempted(
-        const Spinlock *pLock, size_t nCpu = ~0U, bool intState = false);
-    bool lockAcquired(
-        const Spinlock *pLock, size_t nCpu = ~0U, bool intState = false);
-    bool lockReleased(const Spinlock *pLock, size_t nCpu = ~0U);
-
-    /**
-     * Notifies the command that a core is about to reschedule.
-     *
-     * Note: NO locks should be held across a reschedule.
-     */
-    bool checkSchedule(size_t nCpu = ~0U);
-
-    /**
-     * Notifies the command that we'd like to lock the given lock, allowing
-     * the LocksCommand instance to detect common concurrency issues like
-     * dependency inversion. This should be called after an acquire() fails,
-     * as it may have undesirable overhead for the "perfect" case.
-     */
-    bool checkState(const Spinlock *pLock, size_t nCpu = ~0U);
-
-    // Scrollable interface.
-    virtual const char *getLine1(
-        size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
-    virtual const char *getLine2(
-        size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
-        DebuggerIO::Colour &bgColour);
-    virtual size_t getLineCount();
-
-  protected:
-    void clearFatal();
-
-  private:
-    enum State
-    {
-        /// This entry is no longer active.
-        Inactive = 0,
-        /// The lock is about to be attempted.
-        Attempted,
-        /// The lock is acquired.
-        Acquired,
-        /// The lock failed to be acquired, and has been checked once.
-        Checked,
-    };
-
-    const char *stateName(State s)
-    {
-        switch (s)
-        {
-            case Attempted:
-                return "attempted";
-            case Acquired:
-                return "acquired";
-            case Checked:
-                return "checked";
-            case Inactive:
-                return "inactive";
-            default:
-                return "unknown";
-        }
-    }
-
-    struct LockDescriptor
-    {
-        LockDescriptor()
-            : pLock(0), state(Inactive)
+    const Spinlock* pLock;
+    State state;
 #if LOCKS_COMMAND_DO_BACKTRACES
-              ,
-              n(0), ra()
+    size_t n;
+    uintptr_t ra[NUM_BT_FRAMES];
 #endif
-        {
-        }
+  };
 
-        const Spinlock *pLock;
-        State state;
+  LockDescriptor m_pDescriptors[LOCKS_COMMAND_NUM_CPU][MAX_DESCRIPTORS];
+
+  Atomic<bool> m_bAcquiring;
 #if LOCKS_COMMAND_DO_BACKTRACES
-        size_t n;
-        uintptr_t ra[NUM_BT_FRAMES];
+  Atomic<bool> m_bTracing[LOCKS_COMMAND_NUM_CPU];
 #endif
-    };
+  /// \note locking up to 256 levels deep can be tracked
+  Atomic<uint8_t> m_NextPosition[LOCKS_COMMAND_NUM_CPU];
+  Atomic<size_t> m_LockIndex;
 
-    LockDescriptor m_pDescriptors[LOCKS_COMMAND_NUM_CPU][MAX_DESCRIPTORS];
+  bool m_bFatal;
 
-    Atomic<bool> m_bAcquiring;
-#if LOCKS_COMMAND_DO_BACKTRACES
-    Atomic<bool> m_bTracing[LOCKS_COMMAND_NUM_CPU];
-#endif
-    /// \note locking up to 256 levels deep can be tracked
-    Atomic<uint8_t> m_NextPosition[LOCKS_COMMAND_NUM_CPU];
-    Atomic<size_t> m_LockIndex;
+  size_t m_SelectedLine;
 
-    bool m_bFatal;
-
-    size_t m_SelectedLine;
-
-    /// Lock we've selected for backtracing.
-    LockDescriptor *m_pSelectedLock;
+  /// Lock we've selected for backtracing.
+  LockDescriptor* m_pSelectedLock;
 };
 
 extern LocksCommand g_LocksCommand;

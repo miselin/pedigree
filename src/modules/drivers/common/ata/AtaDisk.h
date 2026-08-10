@@ -20,9 +20,6 @@
 #ifndef ATA_ATA_DISK_H
 #define ATA_ATA_DISK_H
 
-#include "BusMasterIde.h"
-#include "ata-common.h"
-#include "modules/drivers/common/scsi/ScsiDisk.h"
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/Mutex.h"
@@ -30,6 +27,10 @@
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
+
+#include "BusMasterIde.h"
+#include "ata-common.h"
+#include "modules/drivers/common/scsi/ScsiDisk.h"
 
 class IoBase;
 
@@ -40,188 +41,174 @@ class IoBase;
  * IDE disk. We inherit ScsiDisk as it is needed for ATAPI. Non-ATAPI disks
  * simply don't use the ScsiDisk interface.
  */
-class AtaDisk : public ScsiDisk
-{
-  private:
-    /**
-     * Publishes stack-owned command completion storage to the IRQ handler and
-     * withdraws it under the same non-sleeping lock before destruction.
-     */
-    class IrqCompletion
-    {
-      public:
-        explicit IrqCompletion(AtaDisk &disk);
-        ~IrqCompletion();
+class AtaDisk : public ScsiDisk {
+ private:
+  /**
+   * Publishes stack-owned command completion storage to the IRQ handler and
+   * withdraws it under the same non-sleeping lock before destruction.
+   */
+  class IrqCompletion {
+   public:
+    explicit IrqCompletion(AtaDisk& disk);
+    ~IrqCompletion();
 
-        Semaphore *operator->()
-        {
-            return &m_Completion;
-        }
-
-      private:
-        AtaDisk &m_Disk;
-        Semaphore m_Completion;
-    };
-
-    enum AtaDiskType
-    {
-        Block = 0x00,
-        Sequential = 0x01,
-        Printer = 0x02,
-        Processor = 0x03,
-        WriteOnce = 0x04,
-        CdDvd = 0x05,
-        OpticalMemory = 0x07,
-        MediumChanger = 0x08,
-        Raid = 0x0C,
-        Enclosure = 0x0D,
-        None = 0x1F,
-        NotPacket = 0xFF,
-    };
-
-  public:
-    AtaDisk(
-        class AtaController *pDev, bool isMaster, IoBase *commandRegs,
-        IoBase *controlRegs, BusMasterIde *busMaster = 0);
-    virtual ~AtaDisk();
-
-    virtual void getName(String &str)
-    {
-        str.assign(m_pName);
+    Semaphore* operator->() {
+      return &m_Completion;
     }
 
-    /**
-     * Initialises the device and detects its features, if it is present.
-     * \return True if the device is present and was successfully initialised.
-     */
-    bool initialise(size_t nUnit = ~0);
+   private:
+    AtaDisk& m_Disk;
+    Semaphore m_Completion;
+  };
 
-    // Do-ers for read/write operations. For PACKET devices, these forward to
-    // the ScsiDisk implementations. For non-PACKET devices, these perform real
-    // disk I/O.
-    virtual uint64_t doRead(uint64_t location);
-    virtual uint64_t doWrite(uint64_t location);
+  enum AtaDiskType {
+    Block = 0x00,
+    Sequential = 0x01,
+    Printer = 0x02,
+    Processor = 0x03,
+    WriteOnce = 0x04,
+    CdDvd = 0x05,
+    OpticalMemory = 0x07,
+    MediumChanger = 0x08,
+    Raid = 0x0C,
+    Enclosure = 0x0D,
+    None = 0x1F,
+    NotPacket = 0xFF,
+  };
 
-    /** Called when an IRQ is received by the controller. */
-    virtual void irqReceived();
+ public:
+  AtaDisk(class AtaController* pDev, bool isMaster, IoBase* commandRegs, IoBase* controlRegs,
+          BusMasterIde* busMaster = 0);
+  virtual ~AtaDisk();
 
-    /** Masks fresh device interrupts before controller IRQ removal. */
-    void maskInterrupts();
+  virtual void getName(String& str) {
+    str.assign(m_pName);
+  }
 
-    /** Stops and acknowledges the bus-master channel after IRQ removal. */
-    void stopDma();
+  /**
+   * Initialises the device and detects its features, if it is present.
+   * \return True if the device is present and was successfully initialised.
+   */
+  bool initialise(size_t nUnit = ~0);
 
-    /** Retrieve the BusMaster IDE interface for this disk. */
-    virtual BusMasterIde *getBusMaster() const
-    {
-        return m_BusMaster;
+  // Do-ers for read/write operations. For PACKET devices, these forward to
+  // the ScsiDisk implementations. For non-PACKET devices, these perform real
+  // disk I/O.
+  virtual uint64_t doRead(uint64_t location);
+  virtual uint64_t doWrite(uint64_t location);
+
+  /** Called when an IRQ is received by the controller. */
+  virtual void irqReceived();
+
+  /** Masks fresh device interrupts before controller IRQ removal. */
+  void maskInterrupts();
+
+  /** Stops and acknowledges the bus-master channel after IRQ removal. */
+  void stopDma();
+
+  /** Retrieve the BusMaster IDE interface for this disk. */
+  virtual BusMasterIde* getBusMaster() const {
+    return m_BusMaster;
+  }
+
+  virtual size_t getSize() const;
+  virtual size_t getBlockSize() const;
+  virtual size_t getNativeBlockSize() const;
+  virtual size_t getBlockCount() const;
+
+  // SCSI controller interface calls this to send a PACKET command.
+  virtual bool sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
+                           uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
+
+ private:
+  virtual size_t getCacheFillSize() const;
+
+  /** Sets the drive up for reading from address 'n' in LBA28 mode. */
+  void setupLBA28(uint64_t n, uint32_t nSectors);
+  /** Sets the drive up for reading from address 'n' in LBA48 mode. */
+  void setupLBA48(uint64_t n, uint32_t nSectors);
+
+  /** Default block size for this device. */
+  virtual size_t defaultBlockSize() {
+    if (m_AtaDiskType == CdDvd) {
+      return 2048;
+    } else {
+      return 512;
     }
+  }
 
-    virtual size_t getSize() const;
-    virtual size_t getBlockSize() const;
-    virtual size_t getNativeBlockSize() const;
-    virtual size_t getBlockCount() const;
+  /** Type for read/write buffer lists. */
+  struct Buffer {
+    /// Virtual address of buffer to read into (page sized).
+    uintptr_t buffer;
 
-    // SCSI controller interface calls this to send a PACKET command.
-    virtual bool sendCommand(
-        size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
-        uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
+    /// Offset into the read.
+    size_t offset;
+  };
 
-  private:
-    virtual size_t getCacheFillSize() const;
+  /** Is this the master device on the bus? */
+  bool m_IsMaster;
 
-    /** Sets the drive up for reading from address 'n' in LBA28 mode. */
-    void setupLBA28(uint64_t n, uint32_t nSectors);
-    /** Sets the drive up for reading from address 'n' in LBA48 mode. */
-    void setupLBA48(uint64_t n, uint32_t nSectors);
+  /** The result of the IDENTIFY command. */
+  IdentifyData m_pIdent;
+  /** The model name of the device. */
+  char m_pName[64];
+  /** The serial number of the device. */
+  char m_pSerialNumber[64];
+  /** The firmware revision */
+  char m_pFirmwareRevision[64];
+  /** Does the device support LBA28? */
+  bool m_SupportsLBA28;
+  /** Does the device support LBA48? */
+  bool m_SupportsLBA48;
+  /** Block size in bytes for all read/write operations. */
+  size_t m_BlockSize;
 
-    /** Default block size for this device. */
-    virtual size_t defaultBlockSize()
-    {
-        if (m_AtaDiskType == CdDvd)
-        {
-            return 2048;
-        }
-        else
-        {
-            return 512;
-        }
-    }
+  /**
+   * A per-command completion released by the interrupt handler.
+   */
+  Semaphore* m_IrqReceived;
+  Spinlock m_IrqLock;
 
-    /** Type for read/write buffer lists. */
-    struct Buffer
-    {
-        /// Virtual address of buffer to read into (page sized).
-        uintptr_t buffer;
+  /** What type of disk are we? */
+  AtaDiskType m_AtaDiskType;
 
-        /// Offset into the read.
-        size_t offset;
-    };
+  /** Command packet size */
+  uint8_t m_PacketSize;
 
-    /** Is this the master device on the bus? */
-    bool m_IsMaster;
+  /** Device flags */
+  bool m_Removable;
 
-    /** The result of the IDENTIFY command. */
-    IdentifyData m_pIdent;
-    /** The model name of the device. */
-    char m_pName[64];
-    /** The serial number of the device. */
-    char m_pSerialNumber[64];
-    /** The firmware revision */
-    char m_pFirmwareRevision[64];
-    /** Does the device support LBA28? */
-    bool m_SupportsLBA28;
-    /** Does the device support LBA48? */
-    bool m_SupportsLBA48;
-    /** Block size in bytes for all read/write operations. */
-    size_t m_BlockSize;
+  /** Performs the SET FEATURES command. */
+  void setFeatures(uint8_t command, uint8_t countreg, uint8_t lowreg, uint8_t midreg,
+                   uint8_t hireg);
 
-    /**
-     * A per-command completion released by the interrupt handler.
-     */
-    Semaphore *m_IrqReceived;
-    Spinlock m_IrqLock;
+  /** Command & control registers, and DMA access for this disk */
+  IoBase* m_CommandRegs;
+  IoBase* m_ControlRegs;
+  BusMasterIde* m_BusMaster;
 
-    /** What type of disk are we? */
-    AtaDiskType m_AtaDiskType;
+  /** PRD table lock (only used when grabbing the offset) */
+  Mutex m_PrdTableLock;
 
-    /** Command packet size */
-    uint8_t m_PacketSize;
+  /** PRD table (virtual) */
+  PhysicalRegionDescriptor* m_PrdTable;
 
-    /** Device flags */
-    bool m_Removable;
+  /** Last used offset into the PRD table (so we can run multiple ops at once)
+   */
+  size_t m_LastPrdTableOffset;
 
-    /** Performs the SET FEATURES command. */
-    void setFeatures(
-        uint8_t command, uint8_t countreg, uint8_t lowreg, uint8_t midreg,
-        uint8_t hireg);
+  /** PRD table (physical) */
+  physical_uintptr_t m_PrdTablePhys;
 
-    /** Command & control registers, and DMA access for this disk */
-    IoBase *m_CommandRegs;
-    IoBase *m_ControlRegs;
-    BusMasterIde *m_BusMaster;
+  /** MemoryRegion for the PRD table */
+  MemoryRegion m_PrdTableMemRegion;
 
-    /** PRD table lock (only used when grabbing the offset) */
-    Mutex m_PrdTableLock;
+  /** Can we do DMA? */
+  bool m_bDma;
 
-    /** PRD table (virtual) */
-    PhysicalRegionDescriptor *m_PrdTable;
-
-    /** Last used offset into the PRD table (so we can run multiple ops at once)
-     */
-    size_t m_LastPrdTableOffset;
-
-    /** PRD table (physical) */
-    physical_uintptr_t m_PrdTablePhys;
-
-    /** MemoryRegion for the PRD table */
-    MemoryRegion m_PrdTableMemRegion;
-
-    /** Can we do DMA? */
-    bool m_bDma;
-
-    /** IRQ count. */
-    Atomic<size_t> m_IrqCount;
+  /** IRQ count. */
+  Atomic<size_t> m_IrqCount;
 };
 
 #endif

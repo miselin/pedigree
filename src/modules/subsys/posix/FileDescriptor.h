@@ -33,71 +33,69 @@ class IoEvent;
 /** Abstraction of a file descriptor, which defines an open file
  * and related flags.
  */
-class EXPORTED_PUBLIC FileDescriptor
-{
-  public:
-    /// Default constructor
-    FileDescriptor();
+class EXPORTED_PUBLIC FileDescriptor {
+ public:
+  /// Default constructor
+  FileDescriptor();
 
-    /// Parameterised constructor
-    FileDescriptor(
-        File *newFile, uint64_t newOffset = 0, size_t newFd = 0xFFFFFFFF,
-        int fdFlags = 0, int flFlags = 0, LockedFile *lf = 0);
+  /// Parameterised constructor
+  FileDescriptor(File* newFile, uint64_t newOffset = 0, size_t newFd = 0xFFFFFFFF, int fdFlags = 0,
+                 int flFlags = 0, LockedFile* lf = 0);
 
-    /// Copy constructor
-    FileDescriptor(FileDescriptor &desc);
+  /// Copy constructor
+  FileDescriptor(FileDescriptor& desc);
 
-    /// Pointer copy constructor
-    FileDescriptor(FileDescriptor *desc);
+  /// Pointer copy constructor
+  FileDescriptor(FileDescriptor* desc);
 
-    /// Descriptors own registrations and references which cannot be replaced.
-    FileDescriptor &operator=(FileDescriptor &desc) = delete;
+  /// Descriptors own registrations and references which cannot be replaced.
+  FileDescriptor& operator=(FileDescriptor& desc) = delete;
 
-    /// Destructor - decreases file reference count
-    virtual ~FileDescriptor();
+  /// Destructor - decreases file reference count
+  virtual ~FileDescriptor();
 
-    /// Set flags, distributing any associated changes as needed.
-    void setFlags(int newFlags);
+  /// Set flags, distributing any associated changes as needed.
+  void setFlags(int newFlags);
 
-    /// Helper to add a single flag to the descriptor flags.
-    void addFlag(int newFlag);
+  /// Helper to add a single flag to the descriptor flags.
+  void addFlag(int newFlag);
 
-    /// Get current descriptor flags.
-    int getFlags() const;
+  /// Get current descriptor flags.
+  int getFlags() const;
 
-    /// Set status flags, distributing any associated changes as needed.
-    void setStatusFlags(int newFlags);
+  /// Set status flags, distributing any associated changes as needed.
+  void setStatusFlags(int newFlags);
 
-    /// Helper to add a single flag to the status flags.
-    void addStatusFlag(int newFlag);
+  /// Helper to add a single flag to the status flags.
+  void addStatusFlag(int newFlag);
 
-    /// Get current status flags.
-    int getStatusFlags() const;
+  /// Get current status flags.
+  int getStatusFlags() const;
 
-    /// Our open file pointer
-    File *file;
+  /// Our open file pointer
+  File* file;
 
-    /// Offset within the file for I/O
-    uint64_t offset;
+  /// Offset within the file for I/O
+  uint64_t offset;
 
-    /// Descriptor number
-    size_t fd;
+  /// Descriptor number
+  size_t fd;
 
-    /// Locked file, non-zero if there is an advisory lock on the file
-    LockedFile *lockedFile;
+  /// Locked file, non-zero if there is an advisory lock on the file
+  LockedFile* lockedFile;
 
-    /// Network syscall implementation for this descriptor (if it's a socket).
-    SharedPointer<class NetworkSyscalls> networkImpl;
+  /// Network syscall implementation for this descriptor (if it's a socket).
+  SharedPointer<class NetworkSyscalls> networkImpl;
 
-    /// IO event for reporting changes to files
-    IoEvent *ioevent;
+  /// IO event for reporting changes to files
+  IoEvent* ioevent;
 
-  public:  /// \todo swap this to private and fix everything that breaks
-    /// File descriptor flags (fcntl)
-    int fdflags;
+ public:  /// \todo swap this to private and fix everything that breaks
+  /// File descriptor flags (fcntl)
+  int fdflags;
 
-    /// File status flags (fcntl)
-    int flflags;
+  /// File status flags (fcntl)
+  int flflags;
 };
 
 #endif

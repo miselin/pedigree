@@ -17,12 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-class SyscallTracer
-{
-  public:
-    /**
-     * Creates a new SyscallTracer object.
-     */
-    SyscallTracer(const char *pfileName, const char *pFnName, int line);
-    ~SyscallTracer();
+class SyscallTracer {
+ public:
+  /**
+   * Creates a new SyscallTracer object.
+   */
+  SyscallTracer(const char* pfileName, const char* pFnName, int line);
+  ~SyscallTracer();
 };

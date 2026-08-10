@@ -32,62 +32,51 @@
  * and line 1 belongs exclusively to the scheduler timer. Device, PCI, shared,
  * and threaded controller registrations are deliberately unsupported.
  */
-class HostedIrqManager : public IrqManager, private InterruptHandler
-{
-  public:
-    inline static HostedIrqManager &instance()
-    {
-        return m_Instance;
-    }
+class HostedIrqManager : public IrqManager, private InterruptHandler {
+ public:
+  inline static HostedIrqManager& instance() {
+    return m_Instance;
+  }
 
-    irq_id_t registerIsaIrqHandler(
-        uint8_t irq, IrqHandler *handler, const IrqPolicy &policy) override;
-    irq_id_t registerPciIrqHandler(
-        IrqHandler *handler, class Device *device,
-        const IrqPolicy &policy) override;
-    irq_id_t registerHardIsaIrqHandler(
-        uint8_t irq, HardIrqHandler *handler,
-        const IrqPolicy &policy) override;
-    irq_id_t registerHardPciIrqHandler(
-        HardIrqHandler *handler, class Device *device,
-        const IrqPolicy &policy) override;
-    irq_id_t registerSchedulerIrqHandler(
-        uint8_t irq, SchedulerIrqHandler *handler,
-        const IrqPolicy &policy) override;
-    bool unregisterSchedulerIrqHandler(
-        irq_id_t id, SchedulerIrqHandler *handler) override;
-    bool unregisterHandler(irq_id_t id, IrqHandlerBase *handler) override;
+  irq_id_t registerIsaIrqHandler(uint8_t irq, IrqHandler* handler,
+                                 const IrqPolicy& policy) override;
+  irq_id_t registerPciIrqHandler(IrqHandler* handler, class Device* device,
+                                 const IrqPolicy& policy) override;
+  irq_id_t registerHardIsaIrqHandler(uint8_t irq, HardIrqHandler* handler,
+                                     const IrqPolicy& policy) override;
+  irq_id_t registerHardPciIrqHandler(HardIrqHandler* handler, class Device* device,
+                                     const IrqPolicy& policy) override;
+  irq_id_t registerSchedulerIrqHandler(uint8_t irq, SchedulerIrqHandler* handler,
+                                       const IrqPolicy& policy) override;
+  bool unregisterSchedulerIrqHandler(irq_id_t id, SchedulerIrqHandler* handler) override;
+  bool unregisterHandler(irq_id_t id, IrqHandlerBase* handler) override;
 
-    bool initialise() INITIALISATION_ONLY;
+  bool initialise() INITIALISATION_ONLY;
 
-    bool control(uint8_t irq, ControlCode code, size_t argument) override;
+  bool control(uint8_t irq, ControlCode code, size_t argument) override;
 
-    void enable(uint8_t irq, bool enable) override
-    {
-        // Hosted has no per-line interrupt controller. Processor::setInterrupts
-        // owns the only meaningful signal mask.
-    }
+  void enable(uint8_t irq, bool enable) override {
+    // Hosted has no per-line interrupt controller. Processor::setInterrupts
+    // owns the only meaningful signal mask.
+  }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    static EXPORTED_PUBLIC SchedulerIrqHandler *
-    schedulerIrqHandlerForTest(uint8_t irq);
+  static EXPORTED_PUBLIC SchedulerIrqHandler* schedulerIrqHandlerForTest(uint8_t irq);
 #endif
 
-  private:
-    HostedIrqManager() INITIALISATION_ONLY;
-    inline ~HostedIrqManager() override
-    {
-    }
+ private:
+  HostedIrqManager() INITIALISATION_ONLY;
+  inline ~HostedIrqManager() override {}
 
-    HostedIrqManager(const HostedIrqManager &) = delete;
-    HostedIrqManager &operator=(const HostedIrqManager &) = delete;
+  HostedIrqManager(const HostedIrqManager&) = delete;
+  HostedIrqManager& operator=(const HostedIrqManager&) = delete;
 
-    void interrupt(size_t interruptNumber, InterruptState &state) override;
+  void interrupt(size_t interruptNumber, InterruptState& state) override;
 
-    HardIrqHandler *m_TimerHandler;
-    SchedulerIrqHandler *m_SchedulerHandler;
+  HardIrqHandler* m_TimerHandler;
+  SchedulerIrqHandler* m_SchedulerHandler;
 
-    static HostedIrqManager m_Instance;
+  static HostedIrqManager m_Instance;
 };
 
 #endif

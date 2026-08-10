@@ -18,63 +18,60 @@
  */
 
 #include "pedigree/native/ipc/Ipc.h"
+
 #include <stdio.h>
 
 #include <sys/klog.h>
 
 using namespace PedigreeIpc;
 
-int main(int argc, char *argv[])
-{
-    printf("IPC Test: Client\n");
+int main(int argc, char* argv[]) {
+  printf("IPC Test: Client\n");
 
-    // Grab an endpoint to use.
-    createEndpoint("ipc-test");
-    IpcEndpoint *pEndpoint = getEndpoint("ipc-test");
+  // Grab an endpoint to use.
+  createEndpoint("ipc-test");
+  IpcEndpoint* pEndpoint = getEndpoint("ipc-test");
 
-    // Create a "Hello World!" message.
-    IpcMessage *pMessage = new IpcMessage();
+  // Create a "Hello World!" message.
+  IpcMessage* pMessage = new IpcMessage();
 
-    if (!pMessage)
-        klog(LOG_ERR, "operator new returned null");
+  if (!pMessage)
+    klog(LOG_ERR, "operator new returned null");
 
-    if (!pMessage->initialise())
-    {
-        printf("Message couldn't be initialised.\n");
-        return 1;
-    }
+  if (!pMessage->initialise()) {
+    printf("Message couldn't be initialised.\n");
+    return 1;
+  }
 
-    char *pBuffer = reinterpret_cast<char *>(pMessage->getBuffer());
-    if (!pBuffer)
-    {
-        printf("Message creation failed.\n");
-        return 1;
-    }
-    else
-        printf("Writing into message %x\n", pBuffer);
+  char* pBuffer = reinterpret_cast<char*>(pMessage->getBuffer());
+  if (!pBuffer) {
+    printf("Message creation failed.\n");
+    return 1;
+  } else
+    printf("Writing into message %x\n", pBuffer);
 
-    sprintf(pBuffer, "Hello, world!\n");
+  sprintf(pBuffer, "Hello, world!\n");
 
-    printf("Sending message...\n");
+  printf("Sending message...\n");
 
-    // Send the message.
-    send(pEndpoint, pMessage, false);
+  // Send the message.
+  send(pEndpoint, pMessage, false);
 
-    printf("Message has been sent, waiting for response...\n");
+  printf("Message has been sent, waiting for response...\n");
 
-    // Wait for a response from the IPC test server.
-    IpcMessage *pRecv = 0;
-    recv(pEndpoint, &pRecv, false);
+  // Wait for a response from the IPC test server.
+  IpcMessage* pRecv = 0;
+  recv(pEndpoint, &pRecv, false);
 
-    // Display it.
-    printf("Got '%s' from the IPC server.\n", pRecv->getBuffer());
+  // Display it.
+  printf("Got '%s' from the IPC server.\n", pRecv->getBuffer());
 
-    // Clean up.
-    delete pMessage;
-    delete pRecv;
+  // Clean up.
+  delete pMessage;
+  delete pRecv;
 
-    // All done.
-    printf("IPC Test: Client completed.\n");
+  // All done.
+  printf("IPC Test: Client completed.\n");
 
-    return 0;
+  return 0;
 }

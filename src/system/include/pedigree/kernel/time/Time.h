@@ -23,12 +23,10 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
-namespace Time
-{
+namespace Time {
 typedef uint64_t Timestamp;
 
-namespace Multiplier
-{
+namespace Multiplier {
 const Timestamp Nanosecond = 1U;
 const Timestamp Microsecond = 1000U;
 const Timestamp Millisecond = 1000000U;
@@ -38,8 +36,10 @@ const Timestamp Hour = Minute * 60U;
 const Timestamp Day = Hour * 24U;
 
 // slightly sanity check the above multiplications
-static_assert(Microsecond == 1000, "Microsecond conversion multiplier to nanoseconds is incorrect.");
-static_assert(Millisecond == 1000000, "Millisecond conversion multiplier to nanoseconds is incorrect.");
+static_assert(Microsecond == 1000,
+              "Microsecond conversion multiplier to nanoseconds is incorrect.");
+static_assert(Millisecond == 1000000,
+              "Millisecond conversion multiplier to nanoseconds is incorrect.");
 static_assert(Second == 1000000000, "Seconds conversion multiplier to nanoseconds is incorrect.");
 }  // namespace Multiplier
 
@@ -53,10 +53,10 @@ EXPORTED_PUBLIC bool delay(Timestamp nanoseconds);
  * Add an alarm that interrupts the thread after the given time.
  * Can be used to request a wakeup from a sleep().
  */
-EXPORTED_PUBLIC void *addAlarm(Timestamp nanoseconds);
+EXPORTED_PUBLIC void* addAlarm(Timestamp nanoseconds);
 
 /** Remove an alarm created by addAlarm. */
-EXPORTED_PUBLIC void removeAlarm(void *handle);
+EXPORTED_PUBLIC void removeAlarm(void* handle);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 /** Hosted regression counters for exact alarm ownership. */
@@ -76,14 +76,12 @@ EXPORTED_PUBLIC Timestamp getTimeNanoseconds(bool sync = false);
  */
 EXPORTED_PUBLIC Timestamp getTicks();
 
-namespace Conversion
-{
+namespace Conversion {
 /**
  * Converts the given expanded date to a UNIX timestamp.
  */
-EXPORTED_PUBLIC Timestamp toUnix(
-    size_t second, size_t minute, size_t hour, size_t dom, size_t month,
-    size_t year);
+EXPORTED_PUBLIC Timestamp toUnix(size_t second, size_t minute, size_t hour, size_t dom,
+                                 size_t month, size_t year);
 
 }  // namespace Conversion
 

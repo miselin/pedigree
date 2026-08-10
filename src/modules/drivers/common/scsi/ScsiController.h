@@ -33,39 +33,36 @@
 class ScsiDisk;
 
 /** Generic class for Scsi Controllers */
-class EXPORTED_PUBLIC ScsiController : public Controller, public RequestQueue
-{
-  public:
-    ScsiController(Controller *pDev);
-    ScsiController();
+class EXPORTED_PUBLIC ScsiController : public Controller, public RequestQueue {
+ public:
+  ScsiController(Controller* pDev);
+  ScsiController();
 
-    virtual ~ScsiController();
+  virtual ~ScsiController();
 
-    virtual bool sendCommand(
-        size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
-        uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite) = 0;
+  virtual bool sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
+                           uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite) = 0;
 
-    virtual uint64_t executeRequest(
-        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-        uint64_t p6, uint64_t p7, uint64_t p8);
+  virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+                                  uint64_t p6, uint64_t p7, uint64_t p8);
 
-  protected:
-    virtual void cancelRequest(const Request &request);
+ protected:
+  virtual void cancelRequest(const Request& request);
 
-    /** Drains disk work and retires child Cache callbacks while I/O is live. */
-    void shutdownDiskCaches();
+  /** Drains disk work and retires child Cache callbacks while I/O is live. */
+  void shutdownDiskCaches();
 
-    virtual size_t getNumUnits() = 0;
+  virtual size_t getNumUnits() = 0;
 
-    void searchDisks();
+  void searchDisks();
 
-  private:
-    friend class ScsiDisk;
+ private:
+  friend class ScsiDisk;
 
-    bool acquireDiskOperation(OperationBarrier::Lease &operation);
+  bool acquireDiskOperation(OperationBarrier::Lease& operation);
 
-    /** Rejects new filesystem-facing disk work while teardown drains. */
-    OperationBarrier m_DiskOperations;
+  /** Rejects new filesystem-facing disk work while teardown drains. */
+  OperationBarrier m_DiskOperations;
 };
 
 #endif

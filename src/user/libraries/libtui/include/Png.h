@@ -20,43 +20,40 @@
 #ifndef TUI_PNG_H
 #define TUI_PNG_H
 
-#include "environment.h"
 #include <png.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-class Png
-{
-  public:
-    Png(const char *filename);
-    ~Png();
+#include "environment.h"
 
-    void render(rgb_t *pFb, size_t x, size_t y, size_t width, size_t height);
+class Png {
+ public:
+  Png(const char* filename);
+  ~Png();
 
-    size_t getWidth()
-    {
-        return m_nWidth;
-    }
+  void render(rgb_t* pFb, size_t x, size_t y, size_t width, size_t height);
 
-    size_t getHeight()
-    {
-        return m_nHeight;
-    }
+  size_t getWidth() {
+    return m_nWidth;
+  }
 
-  private:
-    Png(const Png &);
-    Png &operator=(const Png &);
+  size_t getHeight() {
+    return m_nHeight;
+  }
 
-    uint32_t
-    compileColour(uint8_t r, uint8_t g, uint8_t b, Display::PixelFormat pf);
+ private:
+  Png(const Png&);
+  Png& operator=(const Png&);
 
-    png_structp m_PngPtr;
-    png_infop m_InfoPtr;
-    size_t m_nWidth;
-    size_t m_nHeight;
+  uint32_t compileColour(uint8_t r, uint8_t g, uint8_t b, Display::PixelFormat pf);
 
-    uint8_t **m_pRowPointers;
+  png_structp m_PngPtr;
+  png_infop m_InfoPtr;
+  size_t m_nWidth;
+  size_t m_nHeight;
+
+  uint8_t** m_pRowPointers;
 };
 
 #endif

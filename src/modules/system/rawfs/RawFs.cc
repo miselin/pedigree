@@ -18,106 +18,88 @@
  */
 
 #include "RawFs.h"
-#include "RawFsDir.h"
-#include "RawFsFile.h"
-#include "modules/Module.h"
-#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
 
+#include "RawFsDir.h"
+#include "RawFsFile.h"
+#include "modules/Module.h"
+#include "modules/system/vfs/VFS.h"
+
 class Disk;
 class File;
 
-static RawFs *g_pRawFs = 0;
+static RawFs* g_pRawFs = 0;
 
 RawFsDir::~RawFsDir() = default;
 
-RawFs::RawFs() : m_pRoot(0)
-{
-    m_pRoot = new RawFsDir(String(""), this, 0);
+RawFs::RawFs() : m_pRoot(0) {
+  m_pRoot = new RawFsDir(String(""), this, 0);
 }
 
-RawFs::~RawFs()
-{
-    if (m_pRoot)
-        delete m_pRoot;
+RawFs::~RawFs() {
+  if (m_pRoot)
+    delete m_pRoot;
 }
 
-File *RawFs::getRoot() const
-{
-    return m_pRoot;
+File* RawFs::getRoot() const {
+  return m_pRoot;
 }
 
-static bool hasDiskChildren(Device *pDev)
-{
-    for (size_t i = 0; i < pDev->getNumChildren(); i++)
-    {
-        Device *pChild = pDev->getChild(i);
-        if (pChild->getType() == Device::Disk)
-            return true;
-        if (hasDiskChildren(pChild))
-            return true;
-    }
-    return false;
+static bool hasDiskChildren(Device* pDev) {
+  for (size_t i = 0; i < pDev->getNumChildren(); i++) {
+    Device* pChild = pDev->getChild(i);
+    if (pChild->getType() == Device::Disk)
+      return true;
+    if (hasDiskChildren(pChild))
+      return true;
+  }
+  return false;
 }
 
-static void searchNode(Device *pDev, RawFsDir *pDir)
-{
-    for (size_t i = 0; i < pDev->getNumChildren(); i++)
-    {
-        Device *pChild = pDev->getChild(i);
-        if (pChild->getType() == Device::Disk)
-        {
-            String str;
-            pChild->getName(str);
-            if (hasDiskChildren(pChild))
-            {
-                NOTICE("rawfs: adding dir '" << str << "'");
-                RawFsDir *pDir2 =
-                    new RawFsDir(str, g_pRawFs, static_cast<File *>(pDir));
-                pDir->addEntry(pDir2);
-                pDir->addEntry(new RawFsFile(
-                    String("entire-disk"), g_pRawFs, static_cast<File *>(pDir),
-                    reinterpret_cast<Disk *>(pChild)));
-                searchNode(pChild, pDir2);
-            }
-            else
-            {
-                NOTICE("rawfs: adding file '" << str << "'");
-                pDir->addEntry(new RawFsFile(
-                    str, g_pRawFs, static_cast<File *>(pDir),
-                    reinterpret_cast<Disk *>(pChild)));
-            }
-        }
-        else
-            searchNode(pChild, pDir);
-    }
+static void searchNode(Device* pDev, RawFsDir* pDir) {
+  for (size_t i = 0; i < pDev->getNumChildren(); i++) {
+    Device* pChild = pDev->getChild(i);
+    if (pChild->getType() == Device::Disk) {
+      String str;
+      pChild->getName(str);
+      if (hasDiskChildren(pChild)) {
+        NOTICE("rawfs: adding dir '" << str << "'");
+        RawFsDir* pDir2 = new RawFsDir(str, g_pRawFs, static_cast<File*>(pDir));
+        pDir->addEntry(pDir2);
+        pDir->addEntry(new RawFsFile(String("entire-disk"), g_pRawFs, static_cast<File*>(pDir),
+                                     reinterpret_cast<Disk*>(pChild)));
+        searchNode(pChild, pDir2);
+      } else {
+        NOTICE("rawfs: adding file '" << str << "'");
+        pDir->addEntry(new RawFsFile(str, g_pRawFs, static_cast<File*>(pDir),
+                                     reinterpret_cast<Disk*>(pChild)));
+      }
+    } else
+      searchNode(pChild, pDir);
+  }
 }
 
-static void rescanTree()
-{
-    RawFsDir *pD = static_cast<RawFsDir *>(g_pRawFs->getRoot());
-    pD->removeRecursive();
+static void rescanTree() {
+  RawFsDir* pD = static_cast<RawFsDir*>(g_pRawFs->getRoot());
+  pD->removeRecursive();
 
-    // Find the disk topology in an intermediate form.
-    /// \todo implement in terms of Device::foreach()
-    // searchNode(&Device::root(), pD);
+  // Find the disk topology in an intermediate form.
+  /// \todo implement in terms of Device::foreach()
+  // searchNode(&Device::root(), pD);
 }
 
-static bool init()
-{
-    g_pRawFs = new RawFs();
-    VFS::instance().addMountCallback(&rescanTree);
-    rescanTree();
-    VFS::instance().registerFilesystem(g_pRawFs, String("raw"));
+static bool init() {
+  g_pRawFs = new RawFs();
+  VFS::instance().addMountCallback(&rescanTree);
+  rescanTree();
+  VFS::instance().registerFilesystem(g_pRawFs, String("raw"));
 
-    return true;
+  return true;
 }
 
-static void destroy()
-{
-}
+static void destroy() {}
 
 MODULE_INFO("rawfs", &init, &destroy, "vfs");

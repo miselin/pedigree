@@ -21,22 +21,13 @@
 
 class DebuggerIO;
 
-QuitCommand::QuitCommand() : DebuggerCommand()
-{
-}
+QuitCommand::QuitCommand() : DebuggerCommand() {}
 
-QuitCommand::~QuitCommand()
-{
-}
+QuitCommand::~QuitCommand() {}
 
-void QuitCommand::autocomplete(
-    const HugeStaticString &input, HugeStaticString &output)
-{
-}
+void QuitCommand::autocomplete(const HugeStaticString& input, HugeStaticString& output) {}
 
-bool QuitCommand::execute(
-    const HugeStaticString &input, HugeStaticString &output,
-    InterruptState &state, DebuggerIO *pScreen)
-{
-    return false;  // Return control to the kernel.
+bool QuitCommand::execute(const HugeStaticString& input, HugeStaticString& output,
+                          InterruptState& state, DebuggerIO* pScreen) {
+  return false;  // Return control to the kernel.
 }

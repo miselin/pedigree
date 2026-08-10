@@ -19,31 +19,28 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/cpp.h"
 
-TEST(PedigreeUniquePointer, Construction)
-{
-    UniquePointer<int> p;
-    EXPECT_EQ(p.get(), nullptr);
+#include <gtest/gtest.h>
+
+TEST(PedigreeUniquePointer, Construction) {
+  UniquePointer<int> p;
+  EXPECT_EQ(p.get(), nullptr);
 }
 
-TEST(PedigreeUniquePointer, Allocate)
-{
-    UniquePointer<int> p = UniquePointer<int>::allocate();
-    EXPECT_NE(p.get(), nullptr);
-    p.reset();
-    EXPECT_EQ(p.get(), nullptr);
+TEST(PedigreeUniquePointer, Allocate) {
+  UniquePointer<int> p = UniquePointer<int>::allocate();
+  EXPECT_NE(p.get(), nullptr);
+  p.reset();
+  EXPECT_EQ(p.get(), nullptr);
 }
 
-TEST(PedigreeUniquePointer, Move)
-{
-    UniquePointer<int> p1(UniquePointer<int>::allocate()), p2;
-    EXPECT_NE(p1.get(), nullptr);
+TEST(PedigreeUniquePointer, Move) {
+  UniquePointer<int> p1(UniquePointer<int>::allocate()), p2;
+  EXPECT_NE(p1.get(), nullptr);
 
-    p2 = pedigree_std::move(p1);
-    EXPECT_EQ(p1.get(), nullptr);
-    EXPECT_NE(p2.get(), nullptr);
+  p2 = pedigree_std::move(p1);
+  EXPECT_EQ(p1.get(), nullptr);
+  EXPECT_NE(p2.get(), nullptr);
 }

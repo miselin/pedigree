@@ -19,126 +19,108 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/Cord.h"
+
 #include <string.h>
 
 #include <benchmark/benchmark.h>
 
-#include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/utilities/Cord.h"
+class DiscardLogger : public Log::LogCallback {
+ public:
+  DiscardLogger() : m_Length(0) {}
 
-class DiscardLogger : public Log::LogCallback
-{
-  public:
-    DiscardLogger() : m_Length(0) {}
+  void callback(const LogCord& cord, bool locked = true) {
+    // discard but keep length
+    m_Length += cord.length();
+  }
 
-    void callback(const LogCord &cord, bool locked = true)
-    {
-        // discard but keep length
-        m_Length += cord.length();
-    }
+  size_t length() const {
+    return m_Length;
+  }
 
-    size_t length() const
-    {
-        return m_Length;
-    }
+  void reset() {
+    m_Length = 0;
+  }
 
-    void reset()
-    {
-        m_Length = 0;
-    }
-
-   private:
-    size_t m_Length;
+ private:
+  size_t m_Length;
 };
 
-class LogFixture : public ::benchmark::Fixture
-{
-   public:
-    void SetUp(const ::benchmark::State& st)
-    {
-        m_Logger.reset();
+class LogFixture : public ::benchmark::Fixture {
+ public:
+  void SetUp(const ::benchmark::State& st) {
+    m_Logger.reset();
 
-        // Reset state, install our logger
-        Log::instance().enableTimestamps();
-        Log::instance().installCallback(&m_Logger, true);
-    }
+    // Reset state, install our logger
+    Log::instance().enableTimestamps();
+    Log::instance().installCallback(&m_Logger, true);
+  }
 
-    void TearDown(const ::benchmark::State&)
-    {
-        Log::instance().removeCallback(&m_Logger);
-    }
+  void TearDown(const ::benchmark::State&) {
+    Log::instance().removeCallback(&m_Logger);
+  }
 
-    const DiscardLogger &logger() const
-    {
-        return m_Logger;
-    }
+  const DiscardLogger& logger() const {
+    return m_Logger;
+  }
 
-   private:
-    DiscardLogger m_Logger;
+ private:
+  DiscardLogger m_Logger;
 };
 
-BENCHMARK_DEFINE_F(LogFixture, LogThroughputSimple)(benchmark::State& state)
-{
-    while (state.KeepRunning())
-    {
-        NOTICE("hello world");
-    }
+BENCHMARK_DEFINE_F(LogFixture, LogThroughputSimple)(benchmark::State& state) {
+  while (state.KeepRunning()) {
+    NOTICE("hello world");
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetBytesProcessed(logger().length());
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetBytesProcessed(logger().length());
 }
 
-BENCHMARK_DEFINE_F(LogFixture, LogThroughputSimpleNoTimestamps)(benchmark::State& state)
-{
-    Log::instance().disableTimestamps();
+BENCHMARK_DEFINE_F(LogFixture, LogThroughputSimpleNoTimestamps)(benchmark::State& state) {
+  Log::instance().disableTimestamps();
 
-    while (state.KeepRunning())
-    {
-        NOTICE("hello world");
-    }
+  while (state.KeepRunning()) {
+    NOTICE("hello world");
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetBytesProcessed(logger().length());
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetBytesProcessed(logger().length());
 }
 
-BENCHMARK_DEFINE_F(LogFixture, LogThroughputAllUnique)(benchmark::State& state)
-{
-    uint64_t i = 0;
-    while (state.KeepRunning())
-    {
-        NOTICE("hello world " << i++);
-    }
+BENCHMARK_DEFINE_F(LogFixture, LogThroughputAllUnique)(benchmark::State& state) {
+  uint64_t i = 0;
+  while (state.KeepRunning()) {
+    NOTICE("hello world " << i++);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetBytesProcessed(logger().length());
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetBytesProcessed(logger().length());
 }
 
-BENCHMARK_DEFINE_F(LogFixture, LogThroughputAllUniqueNoTimestamps)(benchmark::State& state)
-{
-    Log::instance().disableTimestamps();
+BENCHMARK_DEFINE_F(LogFixture, LogThroughputAllUniqueNoTimestamps)(benchmark::State& state) {
+  Log::instance().disableTimestamps();
 
-    uint64_t i = 0;
-    while (state.KeepRunning())
-    {
-        NOTICE("hello world " << i++);
-    }
+  uint64_t i = 0;
+  while (state.KeepRunning()) {
+    NOTICE("hello world " << i++);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetBytesProcessed(logger().length());
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetBytesProcessed(logger().length());
 }
 
-BENCHMARK_DEFINE_F(LogFixture, LogThroughputExistingEntry)(benchmark::State& state)
-{
-    Log::LogEntry entry;
-    entry << Log::Notice << "hello world";
+BENCHMARK_DEFINE_F(LogFixture, LogThroughputExistingEntry)(benchmark::State& state) {
+  Log::LogEntry entry;
+  entry << Log::Notice << "hello world";
 
-    while (state.KeepRunning())
-    {
-        Log::instance().addEntry(entry);
-    }
+  while (state.KeepRunning()) {
+    Log::instance().addEntry(entry);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetBytesProcessed(logger().length());
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetBytesProcessed(logger().length());
 }
 
 BENCHMARK_REGISTER_F(LogFixture, LogThroughputSimple);

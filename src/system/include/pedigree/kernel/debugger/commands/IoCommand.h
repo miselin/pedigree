@@ -32,38 +32,35 @@ class DebuggerIO;
 /**
  * Debugger command that list allocated I/O ports and memory-regions
  */
-class IoCommand : public DebuggerCommand
-{
-  public:
-    /**
-     * Default constructor - zero's stuff.
-     */
-    IoCommand();
+class IoCommand : public DebuggerCommand {
+ public:
+  /**
+   * Default constructor - zero's stuff.
+   */
+  IoCommand();
 
-    /**
-     * Default destructor - does nothing.
-     */
-    ~IoCommand();
+  /**
+   * Default destructor - does nothing.
+   */
+  ~IoCommand();
 
-    /**
-     * Return an autocomplete string, given an input string.
-     */
-    void autocomplete(const HugeStaticString &input, HugeStaticString &output);
+  /**
+   * Return an autocomplete string, given an input string.
+   */
+  void autocomplete(const HugeStaticString& input, HugeStaticString& output);
 
-    /**
-     * Execute the command with the given screen.
-     */
-    bool execute(
-        const HugeStaticString &input, HugeStaticString &output,
-        InterruptState &state, DebuggerIO *screen);
+  /**
+   * Execute the command with the given screen.
+   */
+  bool execute(const HugeStaticString& input, HugeStaticString& output, InterruptState& state,
+               DebuggerIO* screen);
 
-    /**
-     * Returns the string representation of this command.
-     */
-    const NormalStaticString getString()
-    {
-        return NormalStaticString("io");
-    }
+  /**
+   * Returns the string representation of this command.
+   */
+  const NormalStaticString getString() {
+    return NormalStaticString("io");
+  }
 };
 
 /** @} */

@@ -28,18 +28,17 @@
  * @{ */
 
 /** The x86/x64 I/O APIC */
-class IoApic
-{
-  public:
-    IoApic();
-    virtual ~IoApic();
+class IoApic {
+ public:
+  IoApic();
+  virtual ~IoApic();
 
-  private:
-    IoApic(const IoApic &) = delete;
-    IoApic &operator=(const IoApic &) = delete;
+ private:
+  IoApic(const IoApic&) = delete;
+  IoApic& operator=(const IoApic&) = delete;
 
-    /** The I/O APIC memory-mapped I/O space */
-    MemoryMappedIo m_IoSpace;
+  /** The I/O APIC memory-mapped I/O space */
+  MemoryMappedIo m_IoSpace;
 };
 
 /** @} */

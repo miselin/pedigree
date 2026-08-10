@@ -20,49 +20,48 @@
 #ifndef EXT2_FILE_H
 #define EXT2_FILE_H
 
-#include "Ext2Node.h"
-#include "modules/system/vfs/File.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
+
+#include "Ext2Node.h"
+#include "modules/system/vfs/File.h"
 
 struct Inode;
 
 /** A File is a file, a directory or a symlink. */
-class Ext2File : public File, public Ext2Node
-{
-  private:
-    /** Copy constructors are hidden - unused! */
-    Ext2File(const Ext2File &file);
-    Ext2File &operator=(const Ext2File &);
+class Ext2File : public File, public Ext2Node {
+ private:
+  /** Copy constructors are hidden - unused! */
+  Ext2File(const Ext2File& file);
+  Ext2File& operator=(const Ext2File&);
 
-  public:
-    /** Constructor, should be called only by a Filesystem. */
-    Ext2File(
-        const String &name, uintptr_t inode_num, Inode *inode,
-        class Ext2Filesystem *pFs, File *pParent = 0);
-    /** Destructor */
-    virtual ~Ext2File();
+ public:
+  /** Constructor, should be called only by a Filesystem. */
+  Ext2File(const String& name, uintptr_t inode_num, Inode* inode, class Ext2Filesystem* pFs,
+           File* pParent = 0);
+  /** Destructor */
+  virtual ~Ext2File();
 
-    virtual void preallocate(size_t expectedSize, bool zero=true);
+  virtual void preallocate(size_t expectedSize, bool zero = true);
 
-    virtual void extend(size_t newSize);
-    virtual void extend(size_t newSize, uint64_t location, uint64_t size);
+  virtual void extend(size_t newSize);
+  virtual void extend(size_t newSize, uint64_t location, uint64_t size);
 
-    virtual void truncate();
+  virtual void truncate();
 
-    /** Updates inode attributes. */
-    void fileAttributeChanged();
+  /** Updates inode attributes. */
+  void fileAttributeChanged();
 
-    virtual uintptr_t readBlock(uint64_t location);
-    virtual void writeBlock(uint64_t location, uintptr_t addr);
+  virtual uintptr_t readBlock(uint64_t location);
+  virtual void writeBlock(uint64_t location, uintptr_t addr);
 
-    virtual bool pinBlock(uint64_t location);
-    virtual void unpinBlock(uint64_t location);
+  virtual bool pinBlock(uint64_t location);
+  virtual void unpinBlock(uint64_t location);
 
-    using File::sync;
-    virtual void sync(size_t offset, bool async);
+  using File::sync;
+  virtual void sync(size_t offset, bool async);
 
-    virtual size_t getBlockSize() const;
+  virtual size_t getBlockSize() const;
 };
 
 #endif

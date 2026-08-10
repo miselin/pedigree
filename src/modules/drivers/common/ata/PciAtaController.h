@@ -20,11 +20,12 @@
 #ifndef PCI_ATA_CONTROLLER_H
 #define PCI_ATA_CONTROLLER_H
 
-#include "AtaController.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
+
+#include "AtaController.h"
 
 class BusMasterIde;
 class Controller;
@@ -34,61 +35,55 @@ class IoBase;
 #define ATA_CMD_WRITE 1
 
 /** Class for a PCI-based IDE controller. */
-class PciAtaController : public AtaController
-{
-  public:
-    PciAtaController(Controller *pDev, int nController = 0);
-    virtual ~PciAtaController();
+class PciAtaController : public AtaController {
+ public:
+  PciAtaController(Controller* pDev, int nController = 0);
+  virtual ~PciAtaController();
 
-    virtual void getName(String &str)
-    {
-        TinyStaticString s;
-        s.clear();
-        s += "pci-ata-";
-        s.append(m_nController);
-        str = String(static_cast<const char *>(s));
-    }
+  virtual void getName(String& str) {
+    TinyStaticString s;
+    s.clear();
+    s += "pci-ata-";
+    s.append(m_nController);
+    str = String(static_cast<const char*>(s));
+  }
 
-    virtual bool sendCommand(
-        size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
-        uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
+  virtual bool sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
+                           uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite);
 
-    virtual uint64_t executeRequest(
-        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-        uint64_t p6, uint64_t p7, uint64_t p8);
+  virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+                                  uint64_t p6, uint64_t p7, uint64_t p8);
 
-    // IRQ handler callback.
-    virtual IrqDisposition irq(irq_id_t number);
+  // IRQ handler callback.
+  virtual IrqDisposition irq(irq_id_t number);
 
-    IoBase *m_pCommandRegs;
-    IoBase *m_pControlRegs;
+  IoBase* m_pCommandRegs;
+  IoBase* m_pControlRegs;
 
-  private:
-    PciAtaController(const PciAtaController &);
-    void operator=(const PciAtaController &);
+ private:
+  PciAtaController(const PciAtaController&);
+  void operator=(const PciAtaController&);
 
-    enum
-    {
-        UnknownController,
-        PIIX,
-        PIIX3,
-        PIIX4,
-        ICH,
-        ICH0,
-        ICH2,
-        ICH3,
-        ICH4,
-        ICH5
-    } m_PciControllerType;
+  enum {
+    UnknownController,
+    PIIX,
+    PIIX3,
+    PIIX4,
+    ICH,
+    ICH0,
+    ICH2,
+    ICH3,
+    ICH4,
+    ICH5
+  } m_PciControllerType;
 
-    irq_id_t m_IrqIds[3];
-    size_t m_IrqCount;
+  irq_id_t m_IrqIds[3];
+  size_t m_IrqCount;
 
-    void diskHelper(
-        bool master, IoBase *cmd, IoBase *ctl, BusMasterIde *dma, size_t irq);
+  void diskHelper(bool master, IoBase* cmd, IoBase* ctl, BusMasterIde* dma, size_t irq);
 
-  protected:
-    int m_nController;
+ protected:
+  int m_nController;
 };
 
 #endif

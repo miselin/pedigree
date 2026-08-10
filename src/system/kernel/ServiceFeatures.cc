@@ -19,26 +19,19 @@
 
 #include "pedigree/kernel/ServiceFeatures.h"
 
-ServiceFeatures::ServiceFeatures() : m_OpEnum(0)
-{
-}
-ServiceFeatures::~ServiceFeatures()
-{
+ServiceFeatures::ServiceFeatures() : m_OpEnum(0) {}
+ServiceFeatures::~ServiceFeatures() {}
+
+bool ServiceFeatures::provides(Type service) {
+  return (m_OpEnum & service);
 }
 
-bool ServiceFeatures::provides(Type service)
-{
-    return (m_OpEnum & service);
+void ServiceFeatures::add(Type s) {
+  if (!provides(s))
+    m_OpEnum |= static_cast<uint32_t>(s);
 }
 
-void ServiceFeatures::add(Type s)
-{
-    if (!provides(s))
-        m_OpEnum |= static_cast<uint32_t>(s);
-}
-
-void ServiceFeatures::remove(Type s)
-{
-    if (provides(s))
-        m_OpEnum &= ~static_cast<uint32_t>(s);
+void ServiceFeatures::remove(Type s) {
+  if (provides(s))
+    m_OpEnum &= ~static_cast<uint32_t>(s);
 }

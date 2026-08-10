@@ -22,24 +22,15 @@
 
 class DebuggerIO;
 
-StepCommand::StepCommand() : DebuggerCommand()
-{
-}
+StepCommand::StepCommand() : DebuggerCommand() {}
 
-StepCommand::~StepCommand()
-{
-}
+StepCommand::~StepCommand() {}
 
-void StepCommand::autocomplete(
-    const HugeStaticString &input, HugeStaticString &output)
-{
-}
+void StepCommand::autocomplete(const HugeStaticString& input, HugeStaticString& output) {}
 
-bool StepCommand::execute(
-    const HugeStaticString &input, HugeStaticString &output,
-    InterruptState &state, DebuggerIO *pScreen)
-{
-    // Single step.
-    Processor::setSingleStep(true, state);
-    return false;  // Return control to the kernel.
+bool StepCommand::execute(const HugeStaticString& input, HugeStaticString& output,
+                          InterruptState& state, DebuggerIO* pScreen) {
+  // Single step.
+  Processor::setSingleStep(true, state);
+  return false;  // Return control to the kernel.
 }

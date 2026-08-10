@@ -22,9 +22,9 @@
 
 #include <poll.h>  // for pollfd
 
-int posix_poll(struct pollfd *fds, unsigned int nfds, int timeout);
+int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout);
 
 /** Like posix_poll, but doesn't check for safe memory regions. */
-int posix_poll_safe(struct pollfd *fds, unsigned int nfds, int timeout);
+int posix_poll_safe(struct pollfd* fds, unsigned int nfds, int timeout);
 
 #endif

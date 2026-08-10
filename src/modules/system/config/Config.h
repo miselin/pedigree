@@ -23,89 +23,83 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
+
 #include "sqlite3/sqlite3.h"
 
-extern sqlite3 *g_pSqlite;
+extern sqlite3* g_pSqlite;
 
 /** The configuration system for Pedigree.
  *
  * The system is database-based (currently using SQLite).
  */
-class EXPORTED_PUBLIC Config
-{
-  public:
-    class Result
-    {
-      public:
-        Result(char **ppResult, size_t rows, size_t cols, char *error, int ret);
-        ~Result();
+class EXPORTED_PUBLIC Config {
+ public:
+  class Result {
+   public:
+    Result(char** ppResult, size_t rows, size_t cols, char* error, int ret);
+    ~Result();
 
-        /** Returns true if the result is valid, false if there was an error. */
-        bool succeeded()
-        {
-            return m_Ret == 0;
-        }
-        /** Returns the error message. */
-        char *errorMessage()
-        {
-            return m_pError;
-        }
-
-        /** Returns the number of rows. */
-        size_t rows()
-        {
-            return m_Rows;
-        }
-        /** Returns the number of columns. */
-        size_t cols()
-        {
-            return m_Cols;
-        }
-
-        /** Returns the name of the n'th column. */
-        String getColumnName(size_t n);
-
-        /** Returns the value in column 'n' of the result, in String form. */
-        String getStr(size_t row, size_t n);
-        /** Returns the value in column 'n' of the result, in number form. */
-        size_t getNum(size_t row, size_t n);
-        /** Returns the value in column 'n' of the result, in boolean form. */
-        bool getBool(size_t row, size_t n);
-
-        /** Returns the value in the column called 'str', in String form. */
-        String getStr(size_t row, const char *str);
-        /** Returns the value in the column called 'str', in number form. */
-        size_t getNum(size_t row, const char *str);
-        /** Returns the value in the column called 'str', in boolean form. */
-        bool getBool(size_t row, const char *str);
-
-      private:
-        Result(const Result &);
-        Result &operator=(const Result &);
-
-        size_t lookupCol(const char *str);
-
-        char **m_ppResult;
-        size_t m_Rows, m_Cols;
-        char *m_pError;
-        int m_Ret;
-    };
-
-    Config();
-    ~Config();
-
-    static Config &instance()
-    {
-        return m_Instance;
+    /** Returns true if the result is valid, false if there was an error. */
+    bool succeeded() {
+      return m_Ret == 0;
+    }
+    /** Returns the error message. */
+    char* errorMessage() {
+      return m_pError;
     }
 
-    /** Performs a select/update/insert/whatever query on the database.
-        \return A Result* object, which should be deleted after use, or 0. */
-    Result *query(const char *sql);
-    Result *query(const String &sql);
+    /** Returns the number of rows. */
+    size_t rows() {
+      return m_Rows;
+    }
+    /** Returns the number of columns. */
+    size_t cols() {
+      return m_Cols;
+    }
 
-  private:
-    static Config m_Instance;
+    /** Returns the name of the n'th column. */
+    String getColumnName(size_t n);
+
+    /** Returns the value in column 'n' of the result, in String form. */
+    String getStr(size_t row, size_t n);
+    /** Returns the value in column 'n' of the result, in number form. */
+    size_t getNum(size_t row, size_t n);
+    /** Returns the value in column 'n' of the result, in boolean form. */
+    bool getBool(size_t row, size_t n);
+
+    /** Returns the value in the column called 'str', in String form. */
+    String getStr(size_t row, const char* str);
+    /** Returns the value in the column called 'str', in number form. */
+    size_t getNum(size_t row, const char* str);
+    /** Returns the value in the column called 'str', in boolean form. */
+    bool getBool(size_t row, const char* str);
+
+   private:
+    Result(const Result&);
+    Result& operator=(const Result&);
+
+    size_t lookupCol(const char* str);
+
+    char** m_ppResult;
+    size_t m_Rows, m_Cols;
+    char* m_pError;
+    int m_Ret;
+  };
+
+  Config();
+  ~Config();
+
+  static Config& instance() {
+    return m_Instance;
+  }
+
+  /** Performs a select/update/insert/whatever query on the database.
+      \return A Result* object, which should be deleted after use, or 0. */
+  Result* query(const char* sql);
+  Result* query(const String& sql);
+
+ private:
+  static Config m_Instance;
 };
 
 #endif

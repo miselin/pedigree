@@ -70,73 +70,70 @@
  * (current frame address - how to find the current frame base) and (possibly)
  * the return address.
  */
-class DwarfCfiAutomaton
-{
-  public:
-    /**
-     * Constructor - Creates the initial starting state with all registers
-     * 'undefined'.
-     */
-    DwarfCfiAutomaton();
-    /**
-     * Destructor - Doesn't do much, as we don't use dynamic memory.
-     */
-    ~DwarfCfiAutomaton();
+class DwarfCfiAutomaton {
+ public:
+  /**
+   * Constructor - Creates the initial starting state with all registers
+   * 'undefined'.
+   */
+  DwarfCfiAutomaton();
+  /**
+   * Destructor - Doesn't do much, as we don't use dynamic memory.
+   */
+  ~DwarfCfiAutomaton();
 
-    /**
-     * Points the automaton to code which it should use to construct the machine
-     * starting state. This state is saved for use by a DW_CFA_restore
-     * instruction. \param nCodeLocation Location of the CFA instruction stream
-     * used to initialise the machine. \param nCodeLen The length (in bytes) of
-     * code to execute.
-     */
-    void initialise(
-        const DwarfState &startingState, uintptr_t nCodeLocation,
-        size_t nCodeLen, int32_t nCodeAlignmentFactor,
-        int32_t nDataAlignmentFactor, uintptr_t nStartingPc);
+  /**
+   * Points the automaton to code which it should use to construct the machine
+   * starting state. This state is saved for use by a DW_CFA_restore
+   * instruction. \param nCodeLocation Location of the CFA instruction stream
+   * used to initialise the machine. \param nCodeLen The length (in bytes) of
+   * code to execute.
+   */
+  void initialise(const DwarfState& startingState, uintptr_t nCodeLocation, size_t nCodeLen,
+                  int32_t nCodeAlignmentFactor, int32_t nDataAlignmentFactor,
+                  uintptr_t nStartingPc);
 
-    /**
-     * Executes code at the location given until the instruction pointer passes
-     * nCodeLocation+nCodeLen or the instruction pointer equals nBreakAt. \param
-     * nCodeLocation Location of the CFA instruction stream to execute. \param
-     * nCodeLen Maximum length (in bytes) of code to execute. \param nBreakAt
-     * Execution should stop when the table row for this instruction has been
-     * constructed. \return The ending state on success, zero on failure.
-     */
-    DwarfState *
-    execute(uintptr_t nCodeLocation, size_t nCodeLen, uintptr_t nBreakAt);
+  /**
+   * Executes code at the location given until the instruction pointer passes
+   * nCodeLocation+nCodeLen or the instruction pointer equals nBreakAt. \param
+   * nCodeLocation Location of the CFA instruction stream to execute. \param
+   * nCodeLen Maximum length (in bytes) of code to execute. \param nBreakAt
+   * Execution should stop when the table row for this instruction has been
+   * constructed. \return The ending state on success, zero on failure.
+   */
+  DwarfState* execute(uintptr_t nCodeLocation, size_t nCodeLen, uintptr_t nBreakAt);
 
-  private:
-    /**
-     * Execute one instruction from the location given by nLocation,
-     * incrementing it to the next.
-     */
-    void executeInstruction(uintptr_t &nLocation, uintptr_t &nPc);
+ private:
+  /**
+   * Execute one instruction from the location given by nLocation,
+   * incrementing it to the next.
+   */
+  void executeInstruction(uintptr_t& nLocation, uintptr_t& nPc);
 
-    /**
-     * The starting state for this machine.
-     */
-    DwarfState m_InitialState;
+  /**
+   * The starting state for this machine.
+   */
+  DwarfState m_InitialState;
 
-    /**
-     * The current state of this machine.
-     */
-    DwarfState m_CurrentState;
+  /**
+   * The current state of this machine.
+   */
+  DwarfState m_CurrentState;
 
-    /**
-     * The code alignment factor.
-     */
-    int32_t m_nCodeAlignmentFactor;
+  /**
+   * The code alignment factor.
+   */
+  int32_t m_nCodeAlignmentFactor;
 
-    /**
-     * The data alignment factor.
-     */
-    int32_t m_nDataAlignmentFactor;
+  /**
+   * The data alignment factor.
+   */
+  int32_t m_nDataAlignmentFactor;
 
-    /**
-     * The initial PC.
-     */
-    uintptr_t m_nStartingPc;
+  /**
+   * The initial PC.
+   */
+  uintptr_t m_nStartingPc;
 };
 
 /** @} */

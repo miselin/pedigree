@@ -27,17 +27,16 @@ class Thread;
 
 /// \todo Document.
 
-class ThreadToCoreAllocationAlgorithm
-{
-  public:
-    ThreadToCoreAllocationAlgorithm();
-    virtual ~ThreadToCoreAllocationAlgorithm();
+class ThreadToCoreAllocationAlgorithm {
+ public:
+  ThreadToCoreAllocationAlgorithm();
+  virtual ~ThreadToCoreAllocationAlgorithm();
 
-    virtual bool initialise(List<PerProcessorScheduler *> &procList) = 0;
+  virtual bool initialise(List<PerProcessorScheduler*>& procList) = 0;
 
-    virtual PerProcessorScheduler *allocateThread(Thread *pThread) = 0;
+  virtual PerProcessorScheduler* allocateThread(Thread* pThread) = 0;
 
-    virtual void threadRemoved(Thread *pThread);
+  virtual void threadRemoved(Thread* pThread);
 };
 
 #endif

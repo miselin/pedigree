@@ -38,112 +38,101 @@ class Vga;
  * It also provides a "probe" function, which will attempt to detect
  * if a machine is present.
  */
-class EXPORTED_PUBLIC Machine
-{
-    friend void system_reset();
+class EXPORTED_PUBLIC Machine {
+  friend void system_reset();
 
-  public:
-    static Machine &instance();
+ public:
+  static Machine& instance();
 
-    /**
-     * Initialises the machine.
-     */
-    virtual void initialise() = 0;
-    /// Called after debugger startup.
-    virtual void initialise2()
-    {
-    }
-    /// Called after processor startup - for thread creation etc
-    virtual void initialise3()
-    {
-    }
-    /**
-     * Stops platform services while interrupts and the scheduler are alive.
-     * Implementations may synchronously drain callbacks and join workers.
-     */
-    virtual void deinitialise()
-    {
-        m_bInitialised = false;
-    }
-    inline bool isInitialised()
-    {
-        return m_bInitialised;
-    }
+  /**
+   * Initialises the machine.
+   */
+  virtual void initialise() = 0;
+  /// Called after debugger startup.
+  virtual void initialise2() {}
+  /// Called after processor startup - for thread creation etc
+  virtual void initialise3() {}
+  /**
+   * Stops platform services while interrupts and the scheduler are alive.
+   * Implementations may synchronously drain callbacks and join workers.
+   */
+  virtual void deinitialise() {
+    m_bInitialised = false;
+  }
+  inline bool isInitialised() {
+    return m_bInitialised;
+  }
 
-    /**
-     * Initialises the machine's base device tree, if one exists, to prefill
-     * the tree with those devices that are not otherwise able to be detected
-     * via some sort of bus support.
-     */
-    virtual void initialiseDeviceTree()
-    {
-    }
+  /**
+   * Initialises the machine's base device tree, if one exists, to prefill
+   * the tree with those devices that are not otherwise able to be detected
+   * via some sort of bus support.
+   */
+  virtual void initialiseDeviceTree() {}
 
-    /**
-     * Returns the n'th Serial device.
-     */
-    virtual Serial *getSerial(size_t n) = 0;
+  /**
+   * Returns the n'th Serial device.
+   */
+  virtual Serial* getSerial(size_t n) = 0;
 
-    /**
-     * Returns the number of Serial device.
-     */
-    virtual size_t getNumSerial() = 0;
+  /**
+   * Returns the number of Serial device.
+   */
+  virtual size_t getNumSerial() = 0;
 
-    /**
-     * Returns the n'th VGA device.
-     */
-    virtual Vga *getVga(size_t n) = 0;
+  /**
+   * Returns the n'th VGA device.
+   */
+  virtual Vga* getVga(size_t n) = 0;
 
-    /**
-     * Returns the number of VGA devices.
-     */
-    virtual size_t getNumVga() = 0;
+  /**
+   * Returns the number of VGA devices.
+   */
+  virtual size_t getNumVga() = 0;
 
-    virtual IrqManager *getIrqManager() = 0;
-    /**
-     * Returns the SchedulerTimer device.
-     */
-    virtual SchedulerTimer *getSchedulerTimer() = 0;
+  virtual IrqManager* getIrqManager() = 0;
+  /**
+   * Returns the SchedulerTimer device.
+   */
+  virtual SchedulerTimer* getSchedulerTimer() = 0;
 
-    /**
-     * Returns the n'th Timer device.
-     */
-    virtual Timer *getTimer() = 0;
+  /**
+   * Returns the n'th Timer device.
+   */
+  virtual Timer* getTimer() = 0;
 
-    /**
-     * Returns the keyboard device.
-     */
-    virtual Keyboard *getKeyboard() = 0;
+  /**
+   * Returns the keyboard device.
+   */
+  virtual Keyboard* getKeyboard() = 0;
 
-    /**
-     * Sets the keyboard device.
-     */
-    virtual void setKeyboard(Keyboard *kb) = 0;
+  /**
+   * Sets the keyboard device.
+   */
+  virtual void setKeyboard(Keyboard* kb) = 0;
 
-    /** Temporarily pauses every other processor for an interactive debugger. */
-    MUST_USE_RESULT virtual bool quiesceAllOtherProcessors();
+  /** Temporarily pauses every other processor for an interactive debugger. */
+  MUST_USE_RESULT virtual bool quiesceAllOtherProcessors();
 
-    /** Resumes processors paused by quiesceAllOtherProcessors(). */
-    MUST_USE_RESULT virtual bool resumeAllOtherProcessors();
+  /** Resumes processors paused by quiesceAllOtherProcessors(). */
+  MUST_USE_RESULT virtual bool resumeAllOtherProcessors();
 
-    /**
-     * Permanently stops all other cores for panic or terminal shutdown.
-     *
-     * \return true if every other processor reached its terminal halt path.
-     */
-    MUST_USE_RESULT virtual bool stopAllOtherProcessors();
+  /**
+   * Permanently stops all other cores for panic or terminal shutdown.
+   *
+   * \return true if every other processor reached its terminal halt path.
+   */
+  MUST_USE_RESULT virtual bool stopAllOtherProcessors();
 
-  protected:
-    inline Machine() : m_bInitialised(false)
-    {
-    }
-    virtual ~Machine();
+ protected:
+  inline Machine() : m_bInitialised(false) {}
+  virtual ~Machine();
 
-    bool m_bInitialised;
+  bool m_bInitialised;
 
-  private:
-    Machine(const Machine &);
-    Machine &operator=(const Machine &);
+ private:
+  Machine(const Machine&);
+  Machine& operator=(const Machine&);
 };
 
 #endif

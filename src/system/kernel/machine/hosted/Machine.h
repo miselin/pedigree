@@ -20,61 +20,60 @@
 #ifndef KERNEL_MACHINE_HOSTED_PC_H
 #define KERNEL_MACHINE_HOSTED_PC_H
 
+#include "pedigree/kernel/machine/Machine.h"
+
 #include "IrqManager.h"
 #include "Keyboard.h"
 #include "SchedulerTimer.h"
 #include "Serial.h"
 #include "Timer.h"
 #include "Vga.h"
-#include "pedigree/kernel/machine/Machine.h"
 
 /**
  * Concretion of the abstract Machine class for hosted systems
  */
-class HostedMachine : public Machine
-{
-  public:
-    inline static HostedMachine &instance()
-    {
-        return m_Instance;
-    }
+class HostedMachine : public Machine {
+ public:
+  inline static HostedMachine& instance() {
+    return m_Instance;
+  }
 
-    virtual void initialise() INITIALISATION_ONLY;
-    virtual void initialise3();
-    virtual void deinitialise();
+  virtual void initialise() INITIALISATION_ONLY;
+  virtual void initialise3();
+  virtual void deinitialise();
 
-    virtual void initialiseDeviceTree();
+  virtual void initialiseDeviceTree();
 
-    virtual Serial *getSerial(size_t n);
-    virtual size_t getNumSerial();
-    virtual Vga *getVga(size_t n);
-    virtual size_t getNumVga();
-    virtual IrqManager *getIrqManager();
-    virtual SchedulerTimer *getSchedulerTimer();
-    virtual Timer *getTimer();
-    virtual Keyboard *getKeyboard();
-    virtual void setKeyboard(Keyboard *kb);
-    MUST_USE_RESULT bool quiesceAllOtherProcessors() override;
-    MUST_USE_RESULT bool resumeAllOtherProcessors() override;
-    MUST_USE_RESULT bool stopAllOtherProcessors() override;
+  virtual Serial* getSerial(size_t n);
+  virtual size_t getNumSerial();
+  virtual Vga* getVga(size_t n);
+  virtual size_t getNumVga();
+  virtual IrqManager* getIrqManager();
+  virtual SchedulerTimer* getSchedulerTimer();
+  virtual Timer* getTimer();
+  virtual Keyboard* getKeyboard();
+  virtual void setKeyboard(Keyboard* kb);
+  MUST_USE_RESULT bool quiesceAllOtherProcessors() override;
+  MUST_USE_RESULT bool resumeAllOtherProcessors() override;
+  MUST_USE_RESULT bool stopAllOtherProcessors() override;
 
-  private:
-    /**
-     * Default constructor, does nothing.
-     */
-    HostedMachine() INITIALISATION_ONLY;
-    HostedMachine(const HostedMachine &);
-    HostedMachine &operator=(const HostedMachine &);
-    /**
-     * Virtual destructor, does nothing.
-     */
-    virtual ~HostedMachine();
+ private:
+  /**
+   * Default constructor, does nothing.
+   */
+  HostedMachine() INITIALISATION_ONLY;
+  HostedMachine(const HostedMachine&);
+  HostedMachine& operator=(const HostedMachine&);
+  /**
+   * Virtual destructor, does nothing.
+   */
+  virtual ~HostedMachine();
 
-    HostedSerial m_Serial[2];
-    HostedVga m_Vga;
-    Keyboard *m_Keyboard;
+  HostedSerial m_Serial[2];
+  HostedVga m_Vga;
+  Keyboard* m_Keyboard;
 
-    static HostedMachine m_Instance;
+  static HostedMachine m_Instance;
 };
 
 #endif

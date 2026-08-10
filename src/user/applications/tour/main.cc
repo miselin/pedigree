@@ -23,100 +23,85 @@
 #include <libintl.h>
 #include <locale.h>
 #include <stdlib.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
-int main(int argc, char *argv[])
-{
-    setlocale(LC_ALL, "");
-    bindtextdomain("tour", "/usr/share/locale");
-    bind_textdomain_codeset("tour", "UTF-8");
-    textdomain("tour");
+#include <sys/wait.h>
 
-    chdir("/");
+int main(int argc, char* argv[]) {
+  setlocale(LC_ALL, "");
+  bindtextdomain("tour", "/usr/share/locale");
+  bind_textdomain_codeset("tour", "UTF-8");
+  textdomain("tour");
 
-    /// \todo make available in man pages too
-    init_dialog(stdin, stdout);
-    dialog_vars.colors = TRUE;
-    dialog_vars.ok_label = gettext("OK");
-    dialog_vars.nocancel = 1;
+  chdir("/");
 
-    dialog_msgbox(
-        gettext("Welcome to Pedigree!"),
-        gettext(
-            "This short tour introduces the filesystem and the kernel "
-            "debugger."),
-        0, 0, 1);
+  /// \todo make available in man pages too
+  init_dialog(stdin, stdout);
+  dialog_vars.colors = TRUE;
+  dialog_vars.ok_label = gettext("OK");
+  dialog_vars.nocancel = 1;
 
-    dlg_clear();
+  dialog_msgbox(gettext("Welcome to Pedigree!"),
+                gettext("This short tour introduces the filesystem and the kernel "
+                        "debugger."),
+                0, 0, 1);
 
-    dialog_prgbox(
-        gettext("Pedigree Tour"), gettext("Here is the root filesystem:"),
-        "ls /", 20, 52, 1);
+  dlg_clear();
 
-    dlg_clear();
+  dialog_prgbox(gettext("Pedigree Tour"), gettext("Here is the root filesystem:"), "ls /", 20, 52,
+                1);
 
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext(
-            "Pedigree uses a conventional filesystem layout. Programs and "
-            "libraries are under /usr, configuration is under /etc, user "
-            "homes are under /home, and runtime state is under /run."),
-        0, 0, 1);
+  dlg_clear();
 
-    dlg_clear();
+  dialog_msgbox(gettext("Pedigree Tour"),
+                gettext("Pedigree uses a conventional filesystem layout. Programs and "
+                        "libraries are under /usr, configuration is under /etc, user "
+                        "homes are under /home, and runtime state is under /run."),
+                0, 0, 1);
 
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext(
-            "Device files are available under /dev, process information "
-            "under /proc, and temporary files under /tmp."),
-        0, 0, 1);
+  dlg_clear();
 
-    dlg_clear();
+  dialog_msgbox(gettext("Pedigree Tour"),
+                gettext("Device files are available under /dev, process information "
+                        "under /proc, and temporary files under /tmp."),
+                0, 0, 1);
 
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext(
-            "If something goes wrong, you may find yourself in the "
-            "Pedigree kernel debugger. This can also be accessed on-demand by "
-            "pressing F12 at any time."),
-        0, 0, 1);
+  dlg_clear();
 
-    dlg_clear();
+  dialog_msgbox(gettext("Pedigree Tour"),
+                gettext("If something goes wrong, you may find yourself in the "
+                        "Pedigree kernel debugger. This can also be accessed on-demand by "
+                        "pressing F12 at any time."),
+                0, 0, 1);
 
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext(
-            "In the debugger, you can read the kernel log, view "
-            "backtraces, and do various other inspections to identify what "
-            "went "
-            "wrong or inspect kernel state."),
-        0, 0, 1);
+  dlg_clear();
 
-    dlg_clear();
+  dialog_msgbox(gettext("Pedigree Tour"),
+                gettext("In the debugger, you can read the kernel log, view "
+                        "backtraces, and do various other inspections to identify what "
+                        "went "
+                        "wrong or inspect kernel state."),
+                0, 0, 1);
 
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext(
-            "You can use the `help` command to see what is available in "
-            "the debugger. If you run into an issue that triggers the "
-            "debugger, "
-            "please try and add a serial port log if you report it to us. "
-            "Thanks!"),
-        0, 0, 1);
+  dlg_clear();
 
-    dlg_clear();
+  dialog_msgbox(gettext("Pedigree Tour"),
+                gettext("You can use the `help` command to see what is available in "
+                        "the debugger. If you run into an issue that triggers the "
+                        "debugger, "
+                        "please try and add a serial port log if you report it to us. "
+                        "Thanks!"),
+                0, 0, 1);
 
-    dialog_msgbox(
-        gettext("Pedigree Tour"),
-        gettext(
-            "The tour is now complete, and you are now better-equipped to "
-            "handle Pedigree! Raise any issues you find at "
-            "https://github.com/miselin/pedigree/issues.\n\n"
-            "Thank you for trying out Pedigree!"),
-        0, 0, 1);
+  dlg_clear();
 
-    end_dialog();
-    return 0;
+  dialog_msgbox(gettext("Pedigree Tour"),
+                gettext("The tour is now complete, and you are now better-equipped to "
+                        "handle Pedigree! Raise any issues you find at "
+                        "https://github.com/miselin/pedigree/issues.\n\n"
+                        "Thank you for trying out Pedigree!"),
+                0, 0, 1);
+
+  end_dialog();
+  return 0;
 }

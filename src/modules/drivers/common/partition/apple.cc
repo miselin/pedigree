@@ -18,69 +18,61 @@
  */
 
 #include "apple.h"
-#include "Partition.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "Partition.h"
+
 class Device;
 
-bool appleProbeDisk(Disk *pDisk)
-{
-    // Read the second sector (512 bytes) of the disk into a buffer.
-    uintptr_t buff;
-    if ((buff = pDisk->read(512ULL)) == 0)
+bool appleProbeDisk(Disk* pDisk) {
+  // Read the second sector (512 bytes) of the disk into a buffer.
+  uintptr_t buff;
+  if ((buff = pDisk->read(512ULL)) == 0) {
+    WARNING("Disk read failure during Apple partition table search.");
+    return false;
+  }
+
+  ApplePartitionMap map;
+  MemoryCopy(&map, reinterpret_cast<void*>(buff), sizeof(map));
+  pDisk->unpin(512ULL);
+
+  String diskName;
+  pDisk->getName(diskName);
+
+  // Check for the magic signature.
+  if (map.pmSig != BIG_TO_HOST16(APPLE_PM_SIG)) {
+    NOTICE("Apple partition map not found on disk " << diskName);
+    return false;
+  }
+
+  NOTICE("Apple partition map found on disk " << diskName);
+
+  // Cache the number of partition table entries.
+  size_t nEntries = BIG_TO_HOST32(map.pmMapBlkCnt);
+  for (size_t i = 0; i < nEntries; i++) {
+    if (i > 0)  // We don't need to load anything in for the first pmap -
+                // already done!
     {
-        WARNING("Disk read failure during Apple partition table search.");
+      if ((buff = pDisk->read(512ULL + i * 512ULL)) == 0) {
+        WARNING("Disk read failure during partition table recognition.");
         return false;
+      }
+      MemoryCopy(&map, reinterpret_cast<void*>(buff), sizeof(map));
+      pDisk->unpin(512ULL + i * 512ULL);
     }
 
-    ApplePartitionMap map;
-    MemoryCopy(&map, reinterpret_cast<void *>(buff), sizeof(map));
-    pDisk->unpin(512ULL);
+    NOTICE("Detected partition '" << map.pmPartName << "', type '" << map.pmParType << "'");
 
-    String diskName;
-    pDisk->getName(diskName);
-
-    // Check for the magic signature.
-    if (map.pmSig != BIG_TO_HOST16(APPLE_PM_SIG))
-    {
-        NOTICE("Apple partition map not found on disk " << diskName);
-        return false;
-    }
-
-    NOTICE("Apple partition map found on disk " << diskName);
-
-    // Cache the number of partition table entries.
-    size_t nEntries = BIG_TO_HOST32(map.pmMapBlkCnt);
-    for (size_t i = 0; i < nEntries; i++)
-    {
-        if (i > 0)  // We don't need to load anything in for the first pmap -
-                    // already done!
-        {
-            if ((buff = pDisk->read(512ULL + i * 512ULL)) == 0)
-            {
-                WARNING(
-                    "Disk read failure during partition table recognition.");
-                return false;
-            }
-            MemoryCopy(&map, reinterpret_cast<void *>(buff), sizeof(map));
-            pDisk->unpin(512ULL + i * 512ULL);
-        }
-
-        NOTICE(
-            "Detected partition '" << map.pmPartName << "', type '"
-                                   << map.pmParType << "'");
-
-        // Create a partition object.
-        Partition *pObj = new Partition(
-            String(map.pmParType),
-            static_cast<uint64_t>(BIG_TO_HOST32(map.pmPyPartStart)) * 512ULL,
-            static_cast<uint64_t>(BIG_TO_HOST32(map.pmPartBlkCnt)) * 512ULL);
-        pObj->setParent(static_cast<Device *>(pDisk));
-        pDisk->addChild(static_cast<Device *>(pObj));
-    }
-    return true;
+    // Create a partition object.
+    Partition* pObj = new Partition(
+        String(map.pmParType), static_cast<uint64_t>(BIG_TO_HOST32(map.pmPyPartStart)) * 512ULL,
+        static_cast<uint64_t>(BIG_TO_HOST32(map.pmPartBlkCnt)) * 512ULL);
+    pObj->setParent(static_cast<Device*>(pDisk));
+    pDisk->addChild(static_cast<Device*>(pObj));
+  }
+  return true;
 }

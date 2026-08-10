@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/core/cppsupport.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/core/cppsupport.h"
 #include "pedigree/kernel/machine/Trace.h"
-#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/MemoryTracing.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -49,7 +49,7 @@
 
 // Required for G++ to link static init/destructors.
 #if !HOSTED
-extern "C" void *__dso_handle;
+extern "C" void* __dso_handle;
 #endif
 
 #if !PEDIGREE_HOSTED_DARWIN
@@ -61,155 +61,131 @@ extern uintptr_t end_kernel_dtors;
 #endif
 
 #if PEDIGREE_HOSTED_DARWIN
-static void runKernelConstructorSection(const char *section)
-{
-    unsigned long size = 0;
-    uint8_t *contents = getsectiondata(
-        &_mh_execute_header, "__DATA", section, &size);
-    auto functions = reinterpret_cast<void (**)()>(contents);
-    const size_t count = size / sizeof(*functions);
-    for (size_t i = 0; i < count; ++i)
-    {
-        functions[i]();
-    }
+static void runKernelConstructorSection(const char* section) {
+  unsigned long size = 0;
+  uint8_t* contents = getsectiondata(&_mh_execute_header, "__DATA", section, &size);
+  auto functions = reinterpret_cast<void (**)()>(contents);
+  const size_t count = size / sizeof(*functions);
+  for (size_t i = 0; i < count; ++i) {
+    functions[i]();
+  }
 }
 #endif
 
 /// Calls the constructors for all global objects.
 /// Call this before using any global objects.
-void initialiseConstructors()
-{
+void initialiseConstructors() {
 #if PEDIGREE_HOSTED_DARWIN
-    runKernelConstructorSection("__pedigree_init");
+  runKernelConstructorSection("__pedigree_init");
 #else
-    // Constructor list is defined in the linker script.
-    // The .ctors section is just an array of function pointers.
-    // iterate through, calling each in turn.
-    uintptr_t *iterator = &start_kernel_ctors;
-    while (iterator < &end_kernel_ctors)
-    {
-        void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
-        fp();
-        iterator++;
-    }
+  // Constructor list is defined in the linker script.
+  // The .ctors section is just an array of function pointers.
+  // iterate through, calling each in turn.
+  uintptr_t* iterator = &start_kernel_ctors;
+  while (iterator < &end_kernel_ctors) {
+    void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
+    fp();
+    iterator++;
+  }
 #endif
 }
 
-void runKernelDestructors()
-{
+void runKernelDestructors() {
 #if PEDIGREE_HOSTED_DARWIN
-    runKernelConstructorSection("__pedigree_term");
+  runKernelConstructorSection("__pedigree_term");
 #else
-    uintptr_t *iterator = &start_kernel_dtors;
-    while (iterator < &end_kernel_dtors)
-    {
-        void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
-        fp();
-        iterator++;
-    }
+  uintptr_t* iterator = &start_kernel_dtors;
+  while (iterator < &end_kernel_dtors) {
+    void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
+    fp();
+    iterator++;
+  }
 #endif
 }
 
 /// Memory tracing defaults to being enabled if enabled in CMake
 static bool traceAllocations = MEMORY_TRACING;
 
-void startTracingAllocations()
-{
-    if constexpr (MEMORY_TRACING)
-    {
-        traceAllocations = true;
-    }
+void startTracingAllocations() {
+  if constexpr (MEMORY_TRACING) {
+    traceAllocations = true;
+  }
 }
 
-void stopTracingAllocations()
-{
-    if constexpr (MEMORY_TRACING)
-    {
-        traceAllocations = false;
-    }
+void stopTracingAllocations() {
+  if constexpr (MEMORY_TRACING) {
+    traceAllocations = false;
+  }
 }
 
-void toggleTracingAllocations()
-{
-    if constexpr (MEMORY_TRACING)
-    {
-        traceAllocations = !traceAllocations;
-    }
+void toggleTracingAllocations() {
+  if constexpr (MEMORY_TRACING) {
+    traceAllocations = !traceAllocations;
+  }
 }
 
-void traceAllocation(
-    void *ptr, MemoryTracing::AllocationTrace type, size_t size)
-{
-    // Don't trace if the feature is completely disabled.
-    if constexpr (!MEMORY_TRACING)
-    {
-        return;
-    }
+void traceAllocation(void* ptr, MemoryTracing::AllocationTrace type, size_t size) {
+  // Don't trace if the feature is completely disabled.
+  if constexpr (!MEMORY_TRACING) {
+    return;
+  }
 
-    // Don't trace if we're not allowed to.
-    if (!traceAllocations)
-        return;
+  // Don't trace if we're not allowed to.
+  if (!traceAllocations)
+    return;
 
-    // Ignore physical allocations just for now.
-    switch (type)
-    {
-        case MemoryTracing::Allocation:
-        case MemoryTracing::Free:
-        case MemoryTracing::Metadata:
-            break;
-        default:
-            return;  // ignore
-    }
+  // Ignore physical allocations just for now.
+  switch (type) {
+    case MemoryTracing::Allocation:
+    case MemoryTracing::Free:
+    case MemoryTracing::Metadata:
+      break;
+    default:
+      return;  // ignore
+  }
 
-    VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
+  VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
 
-    MemoryTracing::AllocationTraceEntry entry;
-    entry.data.type = type;
-    entry.data.sz = size & 0xFFFFFFFFU;
-    entry.data.ptr = reinterpret_cast<uintptr_t>(ptr);
-    for (size_t i = 0; i < MemoryTracing::num_backtrace_entries; ++i)
-    {
-        entry.data.bt[i] = 0;
-    }
+  MemoryTracing::AllocationTraceEntry entry;
+  entry.data.type = type;
+  entry.data.sz = size & 0xFFFFFFFFU;
+  entry.data.ptr = reinterpret_cast<uintptr_t>(ptr);
+  for (size_t i = 0; i < MemoryTracing::num_backtrace_entries; ++i) {
+    entry.data.bt[i] = 0;
+  }
 
-#define BT_FRAME(M, N)                                                 \
-    do                                                                 \
-    {                                                                  \
-        if (M && !entry.data.bt[M - 1])                                \
-            break;                                                     \
-        void *frame_addr = __builtin_frame_address(N);                 \
-        if (!(frame_addr && va.isMapped(frame_addr)))                  \
-        {                                                              \
-            entry.data.bt[M] = 0;                                      \
-            break;                                                     \
-        }                                                              \
-        entry.data.bt[M] =                                             \
-            reinterpret_cast<uintptr_t>(__builtin_return_address(N)) & \
-            0xFFFFFFFFU;                                               \
-    } while (0)
+#define BT_FRAME(M, N)                                                                         \
+  do {                                                                                         \
+    if (M && !entry.data.bt[M - 1])                                                            \
+      break;                                                                                   \
+    void* frame_addr = __builtin_frame_address(N);                                             \
+    if (!(frame_addr && va.isMapped(frame_addr))) {                                            \
+      entry.data.bt[M] = 0;                                                                    \
+      break;                                                                                   \
+    }                                                                                          \
+    entry.data.bt[M] = reinterpret_cast<uintptr_t>(__builtin_return_address(N)) & 0xFFFFFFFFU; \
+  } while (0)
 
-    // we want to skip the allocate()/free() call and get a little bit of
-    // context
-    if (MemoryTracing::num_backtrace_entries >= 1)
-        BT_FRAME(0, 1);
-    if (MemoryTracing::num_backtrace_entries >= 2)
-        BT_FRAME(1, 2);
-    if (MemoryTracing::num_backtrace_entries >= 3)
-        BT_FRAME(2, 3);
-    if (MemoryTracing::num_backtrace_entries >= 4)
-        BT_FRAME(3, 4);
-    if (MemoryTracing::num_backtrace_entries >= 5)
-        BT_FRAME(4, 5);
+  // we want to skip the allocate()/free() call and get a little bit of
+  // context
+  if (MemoryTracing::num_backtrace_entries >= 1)
+    BT_FRAME(0, 1);
+  if (MemoryTracing::num_backtrace_entries >= 2)
+    BT_FRAME(1, 2);
+  if (MemoryTracing::num_backtrace_entries >= 3)
+    BT_FRAME(2, 3);
+  if (MemoryTracing::num_backtrace_entries >= 4)
+    BT_FRAME(3, 4);
+  if (MemoryTracing::num_backtrace_entries >= 5)
+    BT_FRAME(4, 5);
 
-    __asm__ __volatile__("pushfq; cli" ::: "memory");
+  __asm__ __volatile__("pushfq; cli" ::: "memory");
 
-    for (size_t i = 0; i < sizeof entry.buf; ++i)
-    {
-        __asm__ __volatile__(
-            "outb %%al, %%dx" ::"Nd"(0x2E8), "a"(entry.buf[i]));
-    }
+  for (size_t i = 0; i < sizeof entry.buf; ++i) {
+    __asm__ __volatile__("outb %%al, %%dx" ::"Nd"(0x2E8), "a"(entry.buf[i]));
+  }
 
-    __asm__ __volatile__("popf" ::: "memory");
+  __asm__ __volatile__("popf" ::: "memory");
 }
 
 /**
@@ -218,31 +194,26 @@ void traceAllocation(
  * This is typically used to define the region in which a module has been
  * loaded, so the correct debug symbols can be loaded and used.
  */
-void traceMetadata(NormalStaticString str, void *p1, void *p2)
-{
-    // Removed for now - this can be provided by scripts/addr2line.py now
+void traceMetadata(NormalStaticString str, void* p1, void* p2) {
+  // Removed for now - this can be provided by scripts/addr2line.py now
 }
 
 /// Required for G++ to compile code.
-extern "C" EXPORTED_PUBLIC void atexit(void (*f)(void *), void *p, void *d);
-void atexit(void (*f)(void *), void *p, void *d)
-{
-}
+extern "C" EXPORTED_PUBLIC void atexit(void (*f)(void*), void* p, void* d);
+void atexit(void (*f)(void*), void* p, void* d) {}
 
 /// Called by G++ if a pure virtual function is called. Bad Thing, should never
 /// happen!
 extern "C" EXPORTED_PUBLIC void __cxa_pure_virtual() NORETURN;
-void __cxa_pure_virtual()
-{
-    /// \todo if FATAL etc don't work we need to still make this evident
-    TRACE("Pure virtual function call made");
+void __cxa_pure_virtual() {
+  /// \todo if FATAL etc don't work we need to still make this evident
+  TRACE("Pure virtual function call made");
 
-    EMIT_IF(HOSTED)
-    {
-        asm volatile("int $3");
-    }
+  EMIT_IF(HOSTED) {
+    asm volatile("int $3");
+  }
 
-    FATAL_NOLOCK("Pure virtual function call made");
+  FATAL_NOLOCK("Pure virtual function call made");
 }
 
 /// Called by G++ if function local statics are initialised for the first time
@@ -250,13 +221,11 @@ void __cxa_pure_virtual()
 extern "C" EXPORTED_PUBLIC int __cxa_guard_acquire();
 extern "C" EXPORTED_PUBLIC void __cxa_guard_release();
 
-int __cxa_guard_acquire()
-{
-    return 1;
+int __cxa_guard_acquire() {
+  return 1;
 }
-void __cxa_guard_release()
-{
-    // TODO
+void __cxa_guard_release() {
+  // TODO
 }
 #endif
 
@@ -269,12 +238,12 @@ void __cxa_guard_release()
 #if HOSTED_SYSTEM_MALLOC
 // already using the system malloc so just define our versions as hosted_*
 #define INDIR_MALLOC hosted_malloc
-#define INDIR_CALLOC hosted_calloc 
+#define INDIR_CALLOC hosted_calloc
 #define INDIR_FREE hosted_free
 #define INDIR_REALLOC hosted_realloc
 #else
 #define INDIR_MALLOC _malloc
-#define INDIR_CALLOC _calloc 
+#define INDIR_CALLOC _calloc
 #define INDIR_FREE _free
 #define INDIR_REALLOC _realloc
 #endif  // HOSTED_SYSTEM_MALLOC != 0
@@ -286,158 +255,121 @@ void __cxa_guard_release()
 #define INDIR_REALLOC realloc
 #endif  // HOSTED
 
-extern "C" void *INDIR_MALLOC(size_t sz)
-{
-    return reinterpret_cast<void *>(new uint8_t[sz]);
+extern "C" void* INDIR_MALLOC(size_t sz) {
+  return reinterpret_cast<void*>(new uint8_t[sz]);
 }
 
-extern "C" void *INDIR_CALLOC(size_t num, size_t sz)
-{
-    void *result = reinterpret_cast<void *>(new uint8_t[num * sz]);
-    ByteSet(result, 0, num * sz);
-    return result;
+extern "C" void* INDIR_CALLOC(size_t num, size_t sz) {
+  void* result = reinterpret_cast<void*>(new uint8_t[num * sz]);
+  ByteSet(result, 0, num * sz);
+  return result;
 }
 
-extern "C" void INDIR_FREE(void *p)
-{
-    if (p == 0)
-        return;
-    // SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
-    delete[] reinterpret_cast<uint8_t *>(p);
+extern "C" void INDIR_FREE(void* p) {
+  if (p == 0)
+    return;
+  // SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
+  delete[] reinterpret_cast<uint8_t*>(p);
 }
 
-extern "C" void *INDIR_REALLOC(void *p, size_t sz)
-{
-    if (p == 0)
-        return INDIR_MALLOC(sz);
-    if (sz == 0)
-    {
-        INDIR_FREE(p);
-        return 0;
-    }
-
-    // Don't attempt to read past the end of the source buffer if we can help it
-    size_t copySz =
-        SlamAllocator::instance().allocSize(reinterpret_cast<uintptr_t>(p));
-    if (copySz > sz)
-        copySz = sz;
-
-    /// \note If sz > p's original size, this may fail.
-    void *tmp = INDIR_MALLOC(sz);
-    MemoryCopy(tmp, p, copySz);
+extern "C" void* INDIR_REALLOC(void* p, size_t sz) {
+  if (p == 0)
+    return INDIR_MALLOC(sz);
+  if (sz == 0) {
     INDIR_FREE(p);
+    return 0;
+  }
 
-    return tmp;
+  // Don't attempt to read past the end of the source buffer if we can help it
+  size_t copySz = SlamAllocator::instance().allocSize(reinterpret_cast<uintptr_t>(p));
+  if (copySz > sz)
+    copySz = sz;
+
+  /// \note If sz > p's original size, this may fail.
+  void* tmp = INDIR_MALLOC(sz);
+  MemoryCopy(tmp, p, copySz);
+  INDIR_FREE(p);
+
+  return tmp;
 }
 
-void *operator new(size_t, void *memory) noexcept
-{
-    return memory;
+void* operator new(size_t, void* memory) noexcept {
+  return memory;
 }
-void *operator new[](size_t, void *memory) noexcept
-{
-    return memory;
+void* operator new[](size_t, void* memory) noexcept {
+  return memory;
 }
-void operator delete(void *, void *) noexcept
-{
-}
-void operator delete[](void *, void *) noexcept
-{
-}
+void operator delete(void*, void*) noexcept {}
+void operator delete[](void*, void*) noexcept {}
 
 #if !HOSTED_SYSTEM_MALLOC
-namespace std
-{
-    enum class align_val_t : size_t {};
+namespace std {
+enum class align_val_t : size_t {};
 }
 
-void *operator new(size_t size) PEDIGREE_NOEXCEPT
-{
-    void *ret =
-        reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
-    return ret;
+void* operator new(size_t size) PEDIGREE_NOEXCEPT {
+  void* ret = reinterpret_cast<void*>(SlamAllocator::instance().allocate(size));
+  return ret;
 }
-void *operator new[](size_t size) PEDIGREE_NOEXCEPT
-{
-    void *ret =
-        reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
-    return ret;
+void* operator new[](size_t size) PEDIGREE_NOEXCEPT {
+  void* ret = reinterpret_cast<void*>(SlamAllocator::instance().allocate(size));
+  return ret;
 }
-void *operator new(size_t size, std::align_val_t align)
-{
-    /// \todo manage alignment
-    void *ret =
-        reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
-    return ret;
+void* operator new(size_t size, std::align_val_t align) {
+  /// \todo manage alignment
+  void* ret = reinterpret_cast<void*>(SlamAllocator::instance().allocate(size));
+  return ret;
 }
-static void delete_shared(void *p) noexcept
-{
-    if (p == 0)
-        return;
-    uintptr_t mem = reinterpret_cast<uintptr_t>(p);
-    // We want to attempt to delete even if this is not a valid pointer if
-    // allocations are being traced, so we can catch the bad free and get a
-    // backtrace for it.
-    if (traceAllocations || SlamAllocator::instance().isPointerValid(mem))
-    {
-        SlamAllocator::instance().free(mem);
+static void delete_shared(void* p) noexcept {
+  if (p == 0)
+    return;
+  uintptr_t mem = reinterpret_cast<uintptr_t>(p);
+  // We want to attempt to delete even if this is not a valid pointer if
+  // allocations are being traced, so we can catch the bad free and get a
+  // backtrace for it.
+  if (traceAllocations || SlamAllocator::instance().isPointerValid(mem)) {
+    SlamAllocator::instance().free(mem);
+  } else {
+    if (SlamAllocator::instance().isWithinHeap(mem)) {
+      FATAL("delete_shared failed as pointer was invalid: " << p);
+    } else {
+      // less critical - still annoying
+      PEDANTRY("delete_shared failed as pointer was not in the kernel heap: " << p);
     }
-    else
-    {
-        if (SlamAllocator::instance().isWithinHeap(mem))
-        {
-            FATAL("delete_shared failed as pointer was invalid: " << p);
-        }
-        else
-        {
-            // less critical - still annoying
-            PEDANTRY(
-                "delete_shared failed as pointer was not in the kernel heap: "
-                << p);
-        }
-    }
+  }
 }
-void operator delete(void *p) noexcept
-{
-    delete_shared(p);
+void operator delete(void* p) noexcept {
+  delete_shared(p);
 }
-void operator delete[](void *p) noexcept
-{
-    delete_shared(p);
+void operator delete[](void* p) noexcept {
+  delete_shared(p);
 }
-void operator delete(void *p, size_t sz) noexcept
-{
-    delete_shared(p);
+void operator delete(void* p, size_t sz) noexcept {
+  delete_shared(p);
 }
-void operator delete(void* p, std::align_val_t align) noexcept
-{
-    delete_shared(p);
+void operator delete(void* p, std::align_val_t align) noexcept {
+  delete_shared(p);
 }
-void operator delete(void* p, size_t sz, std::align_val_t align) noexcept
-{
-    delete_shared(p);
+void operator delete(void* p, size_t sz, std::align_val_t align) noexcept {
+  delete_shared(p);
 }
-void operator delete[](void *p, size_t sz) noexcept
-{
-    delete_shared(p);
+void operator delete[](void* p, size_t sz) noexcept {
+  delete_shared(p);
 }
-#endif  //!HOSTED_SYSTEM_MALLOC
+#endif  //! HOSTED_SYSTEM_MALLOC
 
 #if HOSTED && !HOSTED_SYSTEM_MALLOC
 extern "C" {
-void *__wrap_malloc(size_t sz)
-{
-    return INDIR_MALLOC(sz);
+void* __wrap_malloc(size_t sz) {
+  return INDIR_MALLOC(sz);
 }
 
-void *__wrap_realloc(void *p, size_t sz)
-{
-    return INDIR_REALLOC(p, sz);
+void* __wrap_realloc(void* p, size_t sz) {
+  return INDIR_REALLOC(p, sz);
 }
 
-void __wrap_free(void *p)
-{
-    return INDIR_FREE(p);
+void __wrap_free(void* p) {
+  return INDIR_FREE(p);
 }
 }
 #endif

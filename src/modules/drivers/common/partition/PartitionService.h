@@ -25,18 +25,13 @@
 #include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/processor/types.h"
 
-class PartitionService : public Service
-{
-  public:
-    PartitionService()
-    {
-    }
-    virtual ~PartitionService()
-    {
-    }
+class PartitionService : public Service {
+ public:
+  PartitionService() {}
+  virtual ~PartitionService() {}
 
-    /** serve: Interface through which clients interact with the Service */
-    bool serve(ServiceFeatures::Type type, void *pData, size_t dataLen);
+  /** serve: Interface through which clients interact with the Service */
+  bool serve(ServiceFeatures::Type type, void* pData, size_t dataLen);
 };
 
 #endif

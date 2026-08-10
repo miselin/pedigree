@@ -25,40 +25,38 @@
 
 class Thread;
 
-class RoundRobin : public SchedulingAlgorithm
-{
-  public:
-    /** Constructor. */
-    RoundRobin();
+class RoundRobin : public SchedulingAlgorithm {
+ public:
+  /** Constructor. */
+  RoundRobin();
 
-    /** Destructor. */
-    virtual ~RoundRobin();
+  /** Destructor. */
+  virtual ~RoundRobin();
 
-    virtual void addThread(Thread *pThread);
+  virtual void addThread(Thread* pThread);
 
-    virtual void removeThread(Thread *pThread);
+  virtual void removeThread(Thread* pThread);
 
-    virtual Thread *getNext(Thread *pCurrentThread);
+  virtual Thread* getNext(Thread* pCurrentThread);
 
-    virtual void threadStatusChanged(Thread *pThread);
+  virtual void threadStatusChanged(Thread* pThread);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    /** Exercises intrusive ready-list invariants without scheduling. */
-    static EXPORTED_PUBLIC bool runHostedIntrusiveQueueRegressions(
-        Thread *pThread);
+  /** Exercises intrusive ready-list invariants without scheduling. */
+  static EXPORTED_PUBLIC bool runHostedIntrusiveQueueRegressions(Thread* pThread);
 #endif
 
-  private:
-    static bool isReady(Thread *pThread);
-    static bool isEligible(Thread *pThread);
+ private:
+  static bool isReady(Thread* pThread);
+  static bool isEligible(Thread* pThread);
 
-    void enqueue(Thread *pThread);
-    void unlink(Thread *pThread);
+  void enqueue(Thread* pThread);
+  void unlink(Thread* pThread);
 
-    Thread *m_pReadyQueueHeads[MAX_PRIORITIES];
-    Thread *m_pReadyQueueTails[MAX_PRIORITIES];
+  Thread* m_pReadyQueueHeads[MAX_PRIORITIES];
+  Thread* m_pReadyQueueTails[MAX_PRIORITIES];
 
-    Spinlock m_Lock;
+  Spinlock m_Lock;
 };
 
 #endif

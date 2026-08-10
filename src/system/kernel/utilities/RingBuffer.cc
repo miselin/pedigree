@@ -20,4 +20,4 @@
 #include "pedigree/kernel/utilities/RingBuffer.h"
 
 template class RingBuffer<char>;
-template class RingBuffer<void *>;
+template class RingBuffer<void*>;

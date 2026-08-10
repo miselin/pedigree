@@ -24,36 +24,33 @@ class File;
 class PosixSubsystem;
 
 /** Event class for passing to File::monitor. */
-class IoEvent : public Event
-{
-  public:
-    /**
-     * Pass in a subsystem which is used to forward on the event.
-     * This allows the correct event handler in userspace to change without
-     * having to re-create the IoEvent.
-     */
-    IoEvent();
-    IoEvent(PosixSubsystem *subsystem, File *file);
+class IoEvent : public Event {
+ public:
+  /**
+   * Pass in a subsystem which is used to forward on the event.
+   * This allows the correct event handler in userspace to change without
+   * having to re-create the IoEvent.
+   */
+  IoEvent();
+  IoEvent(PosixSubsystem* subsystem, File* file);
 
-    void fire();
+  void fire();
 
-    PosixSubsystem *getSubsystem()
-    {
-        return m_pSubsystem;
-    }
+  PosixSubsystem* getSubsystem() {
+    return m_pSubsystem;
+  }
 
-    //
-    // Event interface
-    //
-    virtual size_t serialize(uint8_t *pBuffer);
-    static bool unserialize(uint8_t *pBuffer, IoEvent &event);
-    virtual size_t getNumber()
-    {
-        return EventNumbers::IoEvent;
-    }
+  //
+  // Event interface
+  //
+  virtual size_t serialize(uint8_t* pBuffer);
+  static bool unserialize(uint8_t* pBuffer, IoEvent& event);
+  virtual size_t getNumber() {
+    return EventNumbers::IoEvent;
+  }
 
-  private:
-    PosixSubsystem *m_pSubsystem;
-    File *m_pFile;
-    IoEvent *m_pRetriggerInstance;
+ private:
+  PosixSubsystem* m_pSubsystem;
+  File* m_pFile;
+  IoEvent* m_pRetriggerInstance;
 };

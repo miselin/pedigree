@@ -20,234 +20,217 @@
 #ifndef POSIX_PROCESS_H
 #define POSIX_PROCESS_H
 
-#include "PosixSubsystem.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/types.h"
 
+#include "PosixSubsystem.h"
+
 class PosixProcess;
 class Timer;
 
-class PosixSession
-{
-  public:
-    PosixSession() : Leader(0)
-    {
-    }
+class PosixSession {
+ public:
+  PosixSession() : Leader(0) {}
 
-    ~PosixSession()
-    {
-    }
+  ~PosixSession() {}
 
-    /** Session leader. */
-    PosixProcess *Leader;
+  /** Session leader. */
+  PosixProcess* Leader;
 };
 
-class ProcessGroup
-{
-  public:
-    ProcessGroup()
-        : processGroupId(0), Leader(0), Members(), registered(false)
-    {
-        Members.clear();
-    }
+class ProcessGroup {
+ public:
+  ProcessGroup() : processGroupId(0), Leader(0), Members(), registered(false) {
+    Members.clear();
+  }
 
-    virtual ~ProcessGroup();
+  virtual ~ProcessGroup();
 
-    /** The process group ID of this process group. */
-    int processGroupId;
+  /** The process group ID of this process group. */
+  int processGroupId;
 
-    /** The group leader of the process group. */
-    PosixProcess *Leader;
+  /** The group leader of the process group. */
+  PosixProcess* Leader;
 
-    /** List of each Process that is in this process group.
-     *  Includes the Leader, iterate over this in order to
-     *  obtain every Process in the process group.
+  /** List of each Process that is in this process group.
+   *  Includes the Leader, iterate over this in order to
+   *  obtain every Process in the process group.
+   */
+  List<PosixProcess*> Members;
+
+  /** Whether this group ID was installed in ProcessGroupManager. */
+  bool registered;
+
+ private:
+  ProcessGroup(const ProcessGroup&);
+  ProcessGroup& operator=(ProcessGroup&);
+};
+
+class IntervalTimer : public TimerHandler {
+ public:
+  enum Mode {
+    /// Hardware-backed timer (wall time).
+    Hardware = 0,
+    /// CPU time in user mode only.
+    Virtual,
+    /// CPU time in user and system.
+    Profile
+  };
+
+  /// Setting hw=true will use hardware. hw=false requires adjust() to be
+  /// called to be able to trigger timers.
+  IntervalTimer(PosixProcess* pProcess, Mode mode = Hardware);
+  virtual ~IntervalTimer();
+
+  /// Set the interval for the timer, which is loaded once the timer expires.
+  /// Set zero to make a non-reloading timer.
+  void setInterval(Time::Timestamp interval, Time::Timestamp* prevInterval = nullptr);
+
+  /// Set the current value of the timer.
+  void setTimerValue(Time::Timestamp value, Time::Timestamp* prevValue = nullptr);
+
+  /// Set both interval and value atomically.
+  void setIntervalAndValue(Time::Timestamp interval, Time::Timestamp value,
+                           Time::Timestamp* prevInterval = nullptr,
+                           Time::Timestamp* prevValue = nullptr);
+
+  /** Disarms without delivering an expiry during process teardown. */
+  void disarm();
+
+  void getIntervalAndValue(Time::Timestamp& interval, Time::Timestamp& value);
+
+  /** Advances a CPU timer to a monotonic absolute process-time snapshot. */
+  void consumeCpuTime(Time::Timestamp absoluteTotal);
+
+  Time::Timestamp getInterval() const;
+  Time::Timestamp getValue() const;
+
+ private:
+  virtual void timer(uint64_t delta);
+
+  Time::Timestamp absoluteCpuTotal() const;
+  bool advanceCpuTimeLocked(Time::Timestamp absoluteTotal);
+  void signal();
+
+  PosixProcess* m_Process;
+  Mode m_Mode;
+  Time::Timestamp m_Value;
+  Time::Timestamp m_Interval;
+  Time::Timestamp m_LastCpuTotal;
+  Spinlock m_Lock;
+  bool m_Armed;
+  Timer* m_pTimer;
+};
+
+class EXPORTED_PUBLIC PosixProcess : public Process {
+  friend class ProcessGroup;
+
+ public:
+  /** Defines what status this Process has within its group */
+  enum Membership {
+    /** Group leader. The one who created the group, and whose PID was
+     * absorbed to become the Process Group ID.
      */
-    List<PosixProcess *> Members;
+    Leader = 0,
 
-    /** Whether this group ID was installed in ProcessGroupManager. */
-    bool registered;
+    /** Group member. These processes have a unique Process ID. */
+    Member,
 
-  private:
-    ProcessGroup(const ProcessGroup &);
-    ProcessGroup &operator=(ProcessGroup &);
-};
+    /** Not in a group. */
+    NoGroup
+  };
 
-class IntervalTimer : public TimerHandler
-{
-  public:
-    enum Mode
-    {
-        /// Hardware-backed timer (wall time).
-        Hardware = 0,
-        /// CPU time in user mode only.
-        Virtual,
-        /// CPU time in user and system.
-        Profile
-    };
+  /** Information about a robust list. */
+  struct RobustListData {
+    void* head;
+    size_t head_len;
+  };
 
-    /// Setting hw=true will use hardware. hw=false requires adjust() to be
-    /// called to be able to trigger timers.
-    IntervalTimer(PosixProcess *pProcess, Mode mode = Hardware);
-    virtual ~IntervalTimer();
+  PosixProcess();
 
-    /// Set the interval for the timer, which is loaded once the timer expires.
-    /// Set zero to make a non-reloading timer.
-    void setInterval(
-        Time::Timestamp interval, Time::Timestamp *prevInterval = nullptr);
+  /** Copy constructor. */
+  PosixProcess(Process* pParent, bool bCopyOnWrite = true);
+  virtual ~PosixProcess();
 
-    /// Set the current value of the timer.
-    void
-    setTimerValue(Time::Timestamp value, Time::Timestamp *prevValue = nullptr);
+  /**
+   * Publishes a fully assembled POSIX process. Call after its subsystem,
+   * mappings, descriptors, and delayed initial Thread are ready.
+   */
+  void publish();
 
-    /// Set both interval and value atomically.
-    void setIntervalAndValue(
-        Time::Timestamp interval, Time::Timestamp value,
-        Time::Timestamp *prevInterval = nullptr,
-        Time::Timestamp *prevValue = nullptr);
+  void setProcessGroup(ProcessGroup* newGroup);
+  void inheritProcessGroup(PosixProcess* parent);
+  ProcessGroup* getProcessGroup() const;
+  bool getProcessGroupId(size_t& groupId) const;
+  void leaveProcessGroup();
 
-    /** Disarms without delivering an expiry during process teardown. */
-    void disarm();
+  void setGroupMembership(Membership type);
+  Membership getGroupMembership() const;
 
-    void getIntervalAndValue(Time::Timestamp &interval, Time::Timestamp &value);
+  PosixSession* getSession() const;
+  void setSession(PosixSession* p);
 
-    /** Advances a CPU timer to a monotonic absolute process-time snapshot. */
-    void consumeCpuTime(Time::Timestamp absoluteTotal);
+  virtual ProcessType getType();
 
-    Time::Timestamp getInterval() const;
-    Time::Timestamp getValue() const;
+  void setMask(uint32_t mask);
+  uint32_t getMask() const;
 
-  private:
-    virtual void timer(uint64_t delta);
+  const RobustListData& getRobustList() const;
+  void setRobustList(const RobustListData& data);
 
-    Time::Timestamp absoluteCpuTotal() const;
-    bool advanceCpuTimeLocked(Time::Timestamp absoluteTotal);
-    void signal();
+  IntervalTimer& getRealIntervalTimer();
+  IntervalTimer& getVirtualIntervalTimer();
+  IntervalTimer& getProfileIntervalTimer();
 
-    PosixProcess *m_Process;
-    Mode m_Mode;
-    Time::Timestamp m_Value;
-    Time::Timestamp m_Interval;
-    Time::Timestamp m_LastCpuTotal;
-    Spinlock m_Lock;
-    bool m_Armed;
-    Timer *m_pTimer;
-};
+  virtual int64_t getUserId() const;
+  virtual int64_t getGroupId() const;
+  virtual int64_t getEffectiveUserId() const;
+  virtual int64_t getEffectiveGroupId() const;
+  virtual void getSupplementalGroupIds(Vector<int64_t>& vec) const;
 
-class EXPORTED_PUBLIC PosixProcess : public Process
-{
-    friend class ProcessGroup;
+  void setUserId(int64_t id);
+  void setGroupId(int64_t id);
+  void setEffectiveUserId(int64_t id);
+  void setEffectiveGroupId(int64_t id);
+  void setSupplementalGroupIds(const Vector<int64_t>& vec);
 
-  public:
-    /** Defines what status this Process has within its group */
-    enum Membership
-    {
-        /** Group leader. The one who created the group, and whose PID was
-         * absorbed to become the Process Group ID.
-         */
-        Leader = 0,
+  int64_t getSavedUserId() const;
+  int64_t getSavedGroupId() const;
+  void setSavedUserId(int64_t id);
+  void setSavedGroupId(int64_t id);
 
-        /** Group member. These processes have a unique Process ID. */
-        Member,
+ private:
+  // Register with other systems e.g. procfs
+  void registerProcess();
+  void unregisterProcess();
 
-        /** Not in a group. */
-        NoGroup
-    };
+  virtual void reportTimesUpdated(Time::Timestamp userTotal, Time::Timestamp total);
+  virtual void processTerminated();
 
-    /** Information about a robust list. */
-    struct RobustListData
-    {
-        void *head;
-        size_t head_len;
-    };
+  PosixProcess(const PosixProcess&);
+  PosixProcess& operator=(const PosixProcess&);
 
-    PosixProcess();
+  PosixSession* m_pSession;
+  ProcessGroup* m_pProcessGroup;
+  Membership m_GroupMembership;
+  uint32_t m_Mask;
+  RobustListData m_RobustListData;
 
-    /** Copy constructor. */
-    PosixProcess(Process *pParent, bool bCopyOnWrite = true);
-    virtual ~PosixProcess();
+  IntervalTimer m_RealIntervalTimer;
+  IntervalTimer m_VirtualIntervalTimer;
+  IntervalTimer m_ProfileIntervalTimer;
 
-    /**
-     * Publishes a fully assembled POSIX process. Call after its subsystem,
-     * mappings, descriptors, and delayed initial Thread are ready.
-     */
-    void publish();
-
-    void setProcessGroup(ProcessGroup *newGroup);
-    void inheritProcessGroup(PosixProcess *parent);
-    ProcessGroup *getProcessGroup() const;
-    bool getProcessGroupId(size_t &groupId) const;
-    void leaveProcessGroup();
-
-    void setGroupMembership(Membership type);
-    Membership getGroupMembership() const;
-
-    PosixSession *getSession() const;
-    void setSession(PosixSession *p);
-
-    virtual ProcessType getType();
-
-    void setMask(uint32_t mask);
-    uint32_t getMask() const;
-
-    const RobustListData &getRobustList() const;
-    void setRobustList(const RobustListData &data);
-
-    IntervalTimer &getRealIntervalTimer();
-    IntervalTimer &getVirtualIntervalTimer();
-    IntervalTimer &getProfileIntervalTimer();
-
-    virtual int64_t getUserId() const;
-    virtual int64_t getGroupId() const;
-    virtual int64_t getEffectiveUserId() const;
-    virtual int64_t getEffectiveGroupId() const;
-    virtual void getSupplementalGroupIds(Vector<int64_t> &vec) const;
-
-    void setUserId(int64_t id);
-    void setGroupId(int64_t id);
-    void setEffectiveUserId(int64_t id);
-    void setEffectiveGroupId(int64_t id);
-    void setSupplementalGroupIds(const Vector<int64_t> &vec);
-
-    int64_t getSavedUserId() const;
-    int64_t getSavedGroupId() const;
-    void setSavedUserId(int64_t id);
-    void setSavedGroupId(int64_t id);
-
-  private:
-    // Register with other systems e.g. procfs
-    void registerProcess();
-    void unregisterProcess();
-
-    virtual void
-    reportTimesUpdated(
-        Time::Timestamp userTotal, Time::Timestamp total);
-    virtual void processTerminated();
-
-    PosixProcess(const PosixProcess &);
-    PosixProcess &operator=(const PosixProcess &);
-
-    PosixSession *m_pSession;
-    ProcessGroup *m_pProcessGroup;
-    Membership m_GroupMembership;
-    uint32_t m_Mask;
-    RobustListData m_RobustListData;
-
-    IntervalTimer m_RealIntervalTimer;
-    IntervalTimer m_VirtualIntervalTimer;
-    IntervalTimer m_ProfileIntervalTimer;
-
-    int64_t m_Uid;
-    int64_t m_Gid;
-    int64_t m_Euid;
-    int64_t m_Egid;
-    int64_t m_Suid;
-    int64_t m_Sgid;
-    Vector<int64_t> m_SupplementalIds;
-    bool m_bRegistered;
+  int64_t m_Uid;
+  int64_t m_Gid;
+  int64_t m_Euid;
+  int64_t m_Egid;
+  int64_t m_Suid;
+  int64_t m_Sgid;
+  Vector<int64_t> m_SupplementalIds;
+  bool m_bRegistered;
 };
 
 #endif

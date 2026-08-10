@@ -19,383 +19,320 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <list>
-
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/StringView.h"
 
+#include <list>
+
+#include <gtest/gtest.h>
+
 template <int hashModulo = 0>
-class HashableIntegerBase
-{
-  public:
-    HashableIntegerBase() : x_(-1)
-    {
-    }
+class HashableIntegerBase {
+ public:
+  HashableIntegerBase() : x_(-1) {}
 
-    HashableIntegerBase(int x) : x_(x)
-    {
-    }
+  HashableIntegerBase(int x) : x_(x) {}
 
-    virtual ~HashableIntegerBase()
-    {
-    }
+  virtual ~HashableIntegerBase() {}
 
-    virtual size_t hash() const
-    {
-        if (hashModulo)
-        {
-            return x_ % hashModulo;
-        }
-        else
-        {
-            return x_;
-        }
+  virtual size_t hash() const {
+    if (hashModulo) {
+      return x_ % hashModulo;
+    } else {
+      return x_;
     }
+  }
 
-    virtual bool operator==(const HashableIntegerBase &other) const
-    {
-        return x_ == other.x_;
-    }
+  virtual bool operator==(const HashableIntegerBase& other) const {
+    return x_ == other.x_;
+  }
 
-    virtual bool operator!=(const HashableIntegerBase &other) const
-    {
-        return x_ != other.x_;
-    }
+  virtual bool operator!=(const HashableIntegerBase& other) const {
+    return x_ != other.x_;
+  }
 
-  private:
-    int x_;
+ private:
+  int x_;
 };
 
-class CollidingHashableInteger : public HashableIntegerBase<0>
-{
-  public:
-    CollidingHashableInteger() : HashableIntegerBase()
-    {
-    }
+class CollidingHashableInteger : public HashableIntegerBase<0> {
+ public:
+  CollidingHashableInteger() : HashableIntegerBase() {}
 
-    CollidingHashableInteger(int x) : HashableIntegerBase(x)
-    {
-    }
+  CollidingHashableInteger(int x) : HashableIntegerBase(x) {}
 
-    size_t hash() const
-    {
-        return 1;
-    }
+  size_t hash() const {
+    return 1;
+  }
 };
 
-class HashableInteger : public HashableIntegerBase<0>
-{
-  public:
-    HashableInteger() : HashableIntegerBase()
-    {
-    }
+class HashableInteger : public HashableIntegerBase<0> {
+ public:
+  HashableInteger() : HashableIntegerBase() {}
 
-    HashableInteger(int x) : HashableIntegerBase(x)
-    {
-    }
+  HashableInteger(int x) : HashableIntegerBase(x) {}
 };
 
-class ModuloTenHashableInteger : public HashableIntegerBase<10>
-{
-  public:
-    ModuloTenHashableInteger() : HashableIntegerBase()
-    {
-    }
+class ModuloTenHashableInteger : public HashableIntegerBase<10> {
+ public:
+  ModuloTenHashableInteger() : HashableIntegerBase() {}
 
-    ModuloTenHashableInteger(int x) : HashableIntegerBase(x)
-    {
-    }
+  ModuloTenHashableInteger(int x) : HashableIntegerBase(x) {}
 };
 
-TEST(PedigreeHashTable, NoOpRemoval)
-{
-    HashTable<HashableInteger, int> hashtable(-1);
+TEST(PedigreeHashTable, NoOpRemoval) {
+  HashTable<HashableInteger, int> hashtable(-1);
 
-    HashableInteger key(0);
-    EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
-    hashtable.remove(key);
-    EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
+  HashableInteger key(0);
+  EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
+  hashtable.remove(key);
+  EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
 }
 
-TEST(PedigreeHashTable, AnotherNoOpRemoval)
-{
-    HashTable<HashableInteger, int> hashtable(-1);
+TEST(PedigreeHashTable, AnotherNoOpRemoval) {
+  HashTable<HashableInteger, int> hashtable(-1);
 
-    HashableInteger key(3);
-    EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
-    hashtable.remove(key);
-    EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
+  HashableInteger key(3);
+  EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
+  hashtable.remove(key);
+  EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
 }
 
-TEST(PedigreeHashTable, RemoveInserted)
-{
-    HashTable<HashableInteger, int> hashtable;
+TEST(PedigreeHashTable, RemoveInserted) {
+  HashTable<HashableInteger, int> hashtable;
 
-    HashableInteger key(3);
-    hashtable.insert(key, 5);
+  HashableInteger key(3);
+  hashtable.insert(key, 5);
 
-    EXPECT_EQ(hashtable.lookup(key).value(), 5);
+  EXPECT_EQ(hashtable.lookup(key).value(), 5);
 
-    hashtable.remove(key);
+  hashtable.remove(key);
 
-    EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
+  EXPECT_EQ(hashtable.lookup(key).error(), HashTableError::HashTableEmpty);
 }
 
-TEST(PedigreeHashTable, InsertedAlready)
-{
-    HashTable<HashableInteger, int> hashtable;
+TEST(PedigreeHashTable, InsertedAlready) {
+  HashTable<HashableInteger, int> hashtable;
 
-    HashableInteger key(0);
+  HashableInteger key(0);
 
-    hashtable.insert(key, 5);
-    hashtable.insert(key, 6);
-    EXPECT_EQ(hashtable.lookup(key).value(), 5);
+  hashtable.insert(key, 5);
+  hashtable.insert(key, 6);
+  EXPECT_EQ(hashtable.lookup(key).value(), 5);
 }
 
-TEST(PedigreeHashTable, Update)
-{
-    HashTable<HashableInteger, int> hashtable;
+TEST(PedigreeHashTable, Update) {
+  HashTable<HashableInteger, int> hashtable;
 
-    HashableInteger key(0);
+  HashableInteger key(0);
 
-    hashtable.insert(key, 5);
-    hashtable.update(key, 6);
-    EXPECT_EQ(hashtable.lookup(key).value(), 6);
+  hashtable.insert(key, 5);
+  hashtable.update(key, 6);
+  EXPECT_EQ(hashtable.lookup(key).value(), 6);
 }
 
-TEST(PedigreeHashTable, CollidingHashes)
-{
-    HashTable<CollidingHashableInteger, int> hashtable;
+TEST(PedigreeHashTable, CollidingHashes) {
+  HashTable<CollidingHashableInteger, int> hashtable;
 
-    CollidingHashableInteger key1(0), key2(1);
+  CollidingHashableInteger key1(0), key2(1);
 
-    hashtable.insert(key1, 5);
-    hashtable.insert(key2, 6);
-    EXPECT_EQ(hashtable.lookup(key1).value(), 5);
-    EXPECT_EQ(hashtable.lookup(key2).value(), 6);
+  hashtable.insert(key1, 5);
+  hashtable.insert(key2, 6);
+  EXPECT_EQ(hashtable.lookup(key1).value(), 5);
+  EXPECT_EQ(hashtable.lookup(key2).value(), 6);
 }
 
-TEST(PedigreeHashTable, InsertionNoChains)
-{
-    HashTable<HashableInteger, int> hashtable;
+TEST(PedigreeHashTable, InsertionNoChains) {
+  HashTable<HashableInteger, int> hashtable;
 
-    for (int i = 0; i < 10; ++i)
-    {
-        HashableInteger key(i);
-        hashtable.insert(key, 5 + i);
+  for (int i = 0; i < 10; ++i) {
+    HashableInteger key(i);
+    hashtable.insert(key, 5 + i);
+  }
+
+  for (int i = 0; i < 10; ++i) {
+    HashableInteger key(i);
+    EXPECT_EQ(hashtable.lookup(key).value(), 5 + i);
+  }
+}
+
+TEST(PedigreeHashTable, InsertionWithChains) {
+  HashTable<ModuloTenHashableInteger, int> hashtable;
+
+  for (int i = 0; i < 20; ++i) {
+    ModuloTenHashableInteger key(i);
+    EXPECT_TRUE(hashtable.insert(key, 5 + i));
+  }
+
+  for (int i = 0; i < 20; ++i) {
+    ModuloTenHashableInteger key(i);
+    EXPECT_EQ(hashtable.lookup(key).value(), 5 + i);
+  }
+}
+
+TEST(PedigreeHashTable, RemoveChained) {
+  HashTable<CollidingHashableInteger, int, int, 4> hashtable(-1);
+
+  CollidingHashableInteger key1(0), key2(1), key3(2);
+
+  EXPECT_TRUE(hashtable.insert(key1, 1));
+  EXPECT_TRUE(hashtable.insert(key2, 2));
+  EXPECT_TRUE(hashtable.insert(key3, 3));
+
+  hashtable.remove(key2);
+
+  EXPECT_EQ(hashtable.lookup(key1).value(), 1);
+  EXPECT_EQ(hashtable.lookup(key2).error(), HashTableError::NotFound);
+  EXPECT_EQ(hashtable.lookup(key3).value(), 3);
+}
+
+TEST(PedigreeHashTable, RemoveFirstInChain) {
+  HashTable<CollidingHashableInteger, int> hashtable;
+
+  CollidingHashableInteger key1(0), key2(1);
+
+  hashtable.insert(key1, 1);
+  hashtable.insert(key2, 2);
+
+  hashtable.remove(key1);
+
+  EXPECT_EQ(hashtable.lookup(key1).error(), HashTableError::NotFound);
+  EXPECT_EQ(hashtable.lookup(key2).value(), 2);
+}
+
+TEST(PedigreeHashTable, ForwardIteration) {
+  HashTable<HashableInteger, int> hashtable(1234);
+
+  for (int i = 0; i < 8; ++i) {
+    HashableInteger key(i);
+    EXPECT_TRUE(hashtable.insert(key, i + 1));
+  }
+
+  std::list<int> results;
+  std::list<int> expected = {1, 2, 3, 4, 5, 6, 7, 8};
+  for (auto it = hashtable.begin(); it != hashtable.end(); ++it) {
+    results.push_back(*it);
+  }
+  results.sort();
+
+  EXPECT_EQ(results, expected);
+}
+
+TEST(PedigreeHashTable, IterateErase) {
+  HashTable<HashableInteger, int> hashtable(1234);
+
+  for (int i = 0; i < 8; ++i) {
+    HashableInteger key(i);
+    EXPECT_TRUE(hashtable.insert(key, i + 1));
+  }
+
+  for (auto it = hashtable.begin(); it != hashtable.end();) {
+    if (((*it) % 2) == 0) {
+      it = hashtable.erase(it);
+    } else {
+      ++it;
     }
+  }
 
-    for (int i = 0; i < 10; ++i)
-    {
-        HashableInteger key(i);
-        EXPECT_EQ(hashtable.lookup(key).value(), 5 + i);
-    }
+  std::list<int> results;
+  std::list<int> expected = {1, 3, 5, 7};
+  for (auto it = hashtable.begin(); it != hashtable.end(); ++it) {
+    results.push_back(*it);
+  }
+  results.sort();
+
+  EXPECT_EQ(results, expected);
 }
 
-TEST(PedigreeHashTable, InsertionWithChains)
-{
-    HashTable<ModuloTenHashableInteger, int> hashtable;
+TEST(PedigreeHashTable, ForwardIterationCollisions) {
+  HashTable<CollidingHashableInteger, int> hashtable(1234);
 
-    for (int i = 0; i < 20; ++i)
-    {
-        ModuloTenHashableInteger key(i);
-        EXPECT_TRUE(hashtable.insert(key, 5 + i));
-    }
+  for (int i = 0; i < 8; ++i) {
+    CollidingHashableInteger key(i);
+    EXPECT_TRUE(hashtable.insert(key, i + 1));
+  }
 
-    for (int i = 0; i < 20; ++i)
-    {
-        ModuloTenHashableInteger key(i);
-        EXPECT_EQ(hashtable.lookup(key).value(), 5 + i);
-    }
+  std::list<int> results;
+  std::list<int> expected = {1, 2, 3, 4, 5, 6, 7, 8};
+  for (auto it = hashtable.begin(); it != hashtable.end(); ++it) {
+    results.push_back(*it);
+  }
+  results.sort();
+
+  EXPECT_EQ(results, expected);
 }
 
-TEST(PedigreeHashTable, RemoveChained)
-{
-    HashTable<CollidingHashableInteger, int, int, 4> hashtable(-1);
+TEST(PedigreeHashTable, GetNth) {
+  HashTable<CollidingHashableInteger, int> hashtable(1234);
 
-    CollidingHashableInteger key1(0), key2(1), key3(2);
+  CollidingHashableInteger key1(0), key2(1), key3(2), key4(3);
 
-    EXPECT_TRUE(hashtable.insert(key1, 1));
-    EXPECT_TRUE(hashtable.insert(key2, 2));
-    EXPECT_TRUE(hashtable.insert(key3, 3));
+  EXPECT_TRUE(hashtable.insert(key1, 1));
+  EXPECT_TRUE(hashtable.insert(key2, 2));
+  EXPECT_TRUE(hashtable.insert(key3, 3));
+  EXPECT_TRUE(hashtable.insert(key4, 4));
 
-    hashtable.remove(key2);
+  // shouldn't be able to get more than the number of items
+  EXPECT_EQ(hashtable.getNth(4).error(), HashTableError::IterationComplete);
 
-    EXPECT_EQ(hashtable.lookup(key1).value(), 1);
-    EXPECT_EQ(hashtable.lookup(key2).error(), HashTableError::NotFound);
-    EXPECT_EQ(hashtable.lookup(key3).value(), 3);
+  std::list<int> results;
+  std::list<int> expected = {1, 2, 3, 4};
+  for (size_t i = 0; i < 4; ++i) {
+    auto result = hashtable.getNth(i);
+    EXPECT_TRUE(result.hasValue());
+    results.push_back(result.value().second());
+  }
+  results.sort();
+
+  EXPECT_EQ(results, expected);
 }
 
-TEST(PedigreeHashTable, RemoveFirstInChain)
-{
-    HashTable<CollidingHashableInteger, int> hashtable;
+TEST(PedigreeHashTable, Copy) {
+  HashTable<CollidingHashableInteger, int> hashtable(1234);
 
-    CollidingHashableInteger key1(0), key2(1);
+  for (int i = 0; i < 8; ++i) {
+    CollidingHashableInteger key(i);
+    EXPECT_TRUE(hashtable.insert(key, i + 1));
+  }
 
-    hashtable.insert(key1, 1);
-    hashtable.insert(key2, 2);
+  HashTable<CollidingHashableInteger, int> hashtable2;
+  hashtable2.copyFrom(hashtable);
 
-    hashtable.remove(key1);
-
-    EXPECT_EQ(hashtable.lookup(key1).error(), HashTableError::NotFound);
-    EXPECT_EQ(hashtable.lookup(key2).value(), 2);
+  for (int i = 0; i < 8; ++i) {
+    CollidingHashableInteger key(i);
+    auto result = hashtable.lookup(key);
+    EXPECT_TRUE(result.hasValue());
+    EXPECT_EQ(result.value(), i + 1);
+  }
 }
 
-TEST(PedigreeHashTable, ForwardIteration)
-{
-    HashTable<HashableInteger, int> hashtable(1234);
+TEST(PedigreeHashTable, SelfCopyPreservesItems) {
+  HashTable<HashableInteger, int> hashtable;
+  hashtable.insert(HashableInteger(1), 10);
+  hashtable.insert(HashableInteger(2), 20);
 
-    for (int i = 0; i < 8; ++i)
-    {
-        HashableInteger key(i);
-        EXPECT_TRUE(hashtable.insert(key, i + 1));
-    }
-
-    std::list<int> results;
-    std::list<int> expected = {1, 2, 3, 4, 5, 6, 7, 8};
-    for (auto it = hashtable.begin(); it != hashtable.end(); ++it)
-    {
-        results.push_back(*it);
-    }
-    results.sort();
-
-    EXPECT_EQ(results, expected);
+  hashtable.copyFrom(hashtable);
+  EXPECT_EQ(hashtable.count(), 2U);
+  EXPECT_EQ(hashtable.lookup(HashableInteger(1)).value(), 10);
+  EXPECT_EQ(hashtable.lookup(HashableInteger(2)).value(), 20);
 }
 
-TEST(PedigreeHashTable, IterateErase)
-{
-    HashTable<HashableInteger, int> hashtable(1234);
+TEST(PedigreeHashTable, SiblingKeys) {
+  String key("key");
+  StringView keyView = key.view();
 
-    for (int i = 0; i < 8; ++i)
-    {
-        HashableInteger key(i);
-        EXPECT_TRUE(hashtable.insert(key, i + 1));
-    }
+  HashTable<String, int, StringView> hashtable(1234);
 
-    for (auto it = hashtable.begin(); it != hashtable.end();)
-    {
-        if (((*it) % 2) == 0)
-        {
-            it = hashtable.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
-    }
+  hashtable.insert(key, 1234);
 
-    std::list<int> results;
-    std::list<int> expected = {1, 3, 5, 7};
-    for (auto it = hashtable.begin(); it != hashtable.end(); ++it)
-    {
-        results.push_back(*it);
-    }
-    results.sort();
+  // Native key type
+  auto resultA = hashtable.lookup(key);
+  EXPECT_TRUE(resultA.hasValue());
+  EXPECT_EQ(resultA.value(), 1234);
 
-    EXPECT_EQ(results, expected);
-}
-
-TEST(PedigreeHashTable, ForwardIterationCollisions)
-{
-    HashTable<CollidingHashableInteger, int> hashtable(1234);
-
-    for (int i = 0; i < 8; ++i)
-    {
-        CollidingHashableInteger key(i);
-        EXPECT_TRUE(hashtable.insert(key, i + 1));
-    }
-
-    std::list<int> results;
-    std::list<int> expected = {1, 2, 3, 4, 5, 6, 7, 8};
-    for (auto it = hashtable.begin(); it != hashtable.end(); ++it)
-    {
-        results.push_back(*it);
-    }
-    results.sort();
-
-    EXPECT_EQ(results, expected);
-}
-
-TEST(PedigreeHashTable, GetNth)
-{
-    HashTable<CollidingHashableInteger, int> hashtable(1234);
-
-    CollidingHashableInteger key1(0), key2(1), key3(2), key4(3);
-
-    EXPECT_TRUE(hashtable.insert(key1, 1));
-    EXPECT_TRUE(hashtable.insert(key2, 2));
-    EXPECT_TRUE(hashtable.insert(key3, 3));
-    EXPECT_TRUE(hashtable.insert(key4, 4));
-
-    // shouldn't be able to get more than the number of items
-    EXPECT_EQ(hashtable.getNth(4).error(), HashTableError::IterationComplete);
-
-    std::list<int> results;
-    std::list<int> expected = {1, 2, 3, 4};
-    for (size_t i = 0; i < 4; ++i)
-    {
-        auto result = hashtable.getNth(i);
-        EXPECT_TRUE(result.hasValue());
-        results.push_back(result.value().second());
-    }
-    results.sort();
-
-    EXPECT_EQ(results, expected);
-}
-
-TEST(PedigreeHashTable, Copy)
-{
-    HashTable<CollidingHashableInteger, int> hashtable(1234);
-
-    for (int i = 0; i < 8; ++i)
-    {
-        CollidingHashableInteger key(i);
-        EXPECT_TRUE(hashtable.insert(key, i + 1));
-    }
-
-    HashTable<CollidingHashableInteger, int> hashtable2;
-    hashtable2.copyFrom(hashtable);
-
-    for (int i = 0; i < 8; ++i)
-    {
-        CollidingHashableInteger key(i);
-        auto result = hashtable.lookup(key);
-        EXPECT_TRUE(result.hasValue());
-        EXPECT_EQ(result.value(), i + 1);
-    }
-}
-
-TEST(PedigreeHashTable, SelfCopyPreservesItems)
-{
-    HashTable<HashableInteger, int> hashtable;
-    hashtable.insert(HashableInteger(1), 10);
-    hashtable.insert(HashableInteger(2), 20);
-
-    hashtable.copyFrom(hashtable);
-    EXPECT_EQ(hashtable.count(), 2U);
-    EXPECT_EQ(hashtable.lookup(HashableInteger(1)).value(), 10);
-    EXPECT_EQ(hashtable.lookup(HashableInteger(2)).value(), 20);
-}
-
-TEST(PedigreeHashTable, SiblingKeys)
-{
-    String key("key");
-    StringView keyView = key.view();
-
-    HashTable<String, int, StringView> hashtable(1234);
-
-    hashtable.insert(key, 1234);
-
-    // Native key type
-    auto resultA = hashtable.lookup(key);
-    EXPECT_TRUE(resultA.hasValue());
-    EXPECT_EQ(resultA.value(), 1234);
-
-    // Sibling key type
-    auto resultB = hashtable.lookup(keyView);
-    EXPECT_TRUE(resultB.hasValue());
-    EXPECT_EQ(resultB.value(), 1234);
+  // Sibling key type
+  auto resultB = hashtable.lookup(keyView);
+  EXPECT_TRUE(resultB.hasValue());
+  EXPECT_EQ(resultB.value(), 1234);
 }

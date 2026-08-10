@@ -22,8 +22,7 @@
 
 // Provides constants for Cache without needing to include the entire Cache
 // class, which may not be necessary in all situations.
-namespace CacheConstants
-{
+namespace CacheConstants {
 /**
  * Callback Cause enumeration.
  *
@@ -32,11 +31,10 @@ namespace CacheConstants
  * can then do a switch on this in order to select which behaviour to
  * invoke.
  */
-enum CallbackCause
-{
-    WriteBack,
-    Eviction,
-    PleaseEvict,
+enum CallbackCause {
+  WriteBack,
+  Eviction,
+  PleaseEvict,
 };
 }  // namespace CacheConstants
 

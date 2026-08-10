@@ -21,15 +21,12 @@
  * this callback, with no controller lifetime state left on the abandoned
  * stack.
  */
-class EXPORTED_PUBLIC SchedulerIrqHandler
-{
-  public:
-    virtual void schedulerIrq(irq_id_t number, InterruptState &state) = 0;
+class EXPORTED_PUBLIC SchedulerIrqHandler {
+ public:
+  virtual void schedulerIrq(irq_id_t number, InterruptState& state) = 0;
 
-  protected:
-    virtual ~SchedulerIrqHandler()
-    {
-    }
+ protected:
+  virtual ~SchedulerIrqHandler() {}
 };
 
 #endif

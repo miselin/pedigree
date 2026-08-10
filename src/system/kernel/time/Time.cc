@@ -17,47 +17,40 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
+#include "pedigree/kernel/time/Time.h"
 
-namespace Time
-{
-Timestamp getTime(bool sync)
-{
-    Timer *pTimer = Machine::instance().getTimer();
-    if (!pTimer)
-    {
-        return 0;
-    }
-    if (sync)
-        pTimer->synchronise();
-    auto r = pTimer->getUnixTimestamp();
-    return r;
+namespace Time {
+Timestamp getTime(bool sync) {
+  Timer* pTimer = Machine::instance().getTimer();
+  if (!pTimer) {
+    return 0;
+  }
+  if (sync)
+    pTimer->synchronise();
+  auto r = pTimer->getUnixTimestamp();
+  return r;
 }
 
-Timestamp getTimeNanoseconds(bool sync)
-{
-    Timer *pTimer = Machine::instance().getTimer();
-    if (!pTimer)
-    {
-        return 0;
-    }
-    if (sync)
-        pTimer->synchronise();
-    Timestamp r = pTimer->getUnixTimestamp() * Multiplier::Second;
-    r += pTimer->getNanosecond();
-    return r;
+Timestamp getTimeNanoseconds(bool sync) {
+  Timer* pTimer = Machine::instance().getTimer();
+  if (!pTimer) {
+    return 0;
+  }
+  if (sync)
+    pTimer->synchronise();
+  Timestamp r = pTimer->getUnixTimestamp() * Multiplier::Second;
+  r += pTimer->getNanosecond();
+  return r;
 }
 
-Timestamp getTicks()
-{
-    Timer *pTimer = Machine::instance().getTimer();
-    if (!pTimer)
-    {
-        return 0;
-    }
-    return pTimer->getTickCountNano();
+Timestamp getTicks() {
+  Timer* pTimer = Machine::instance().getTimer();
+  if (!pTimer) {
+    return 0;
+  }
+  return pTimer->getTickCountNano();
 }
 
 }  // namespace Time

@@ -49,48 +49,43 @@
  *
  * In single-threaded environments, produce() just calls consume().
  */
-class EXPORTED_PUBLIC ProducerConsumer
-{
-  public:
-    ProducerConsumer();
-    virtual ~ProducerConsumer();
+class EXPORTED_PUBLIC ProducerConsumer {
+ public:
+  ProducerConsumer();
+  virtual ~ProducerConsumer();
 
-    bool initialise();
+  bool initialise();
 
-    void produce(
-        uint64_t p0 = 0, uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,
-        uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0,
-        uint64_t p8 = 0);
+  void produce(uint64_t p0 = 0, uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
+               uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
 
-  protected:
-    /**
-     * Stops and joins the consumer thread. The most-derived destructor must
-     * call this before its state or virtual dispatch table can disappear.
-     */
-    void destroy();
+ protected:
+  /**
+   * Stops and joins the consumer thread. The most-derived destructor must
+   * call this before its state or virtual dispatch table can disappear.
+   */
+  void destroy();
 
-  private:
-    virtual void consume(
-        uint64_t p0, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
-        uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8) = 0;
+ private:
+  virtual void consume(uint64_t p0, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+                       uint64_t p6, uint64_t p7, uint64_t p8) = 0;
 
-    void consumerThread();
+  void consumerThread();
 
-    static int thread(void *p);
+  static int thread(void* p);
 
-    struct Task
-    {
-        uint64_t p0, p1, p2, p3, p4, p5, p6, p7, p8;
-    };
+  struct Task {
+    uint64_t p0, p1, p2, p3, p4, p5, p6, p7, p8;
+  };
 
 #if PRODUCERCONSUMER_ASYNCHRONOUS
-    Mutex m_Lock;
-    ConditionVariable m_Condition;
-    List<Task *> m_Tasks;
+  Mutex m_Lock;
+  ConditionVariable m_Condition;
+  List<Task*> m_Tasks;
 
-    void *m_pThreadHandle = nullptr;
-    bool m_Running = false;
-    bool m_Destroyed = false;
+  void* m_pThreadHandle = nullptr;
+  bool m_Running = false;
+  bool m_Destroyed = false;
 #endif
 };
 

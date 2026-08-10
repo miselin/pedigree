@@ -27,160 +27,137 @@
 
 ProducerConsumer::ProducerConsumer() = default;
 
-ProducerConsumer::~ProducerConsumer()
-{
+ProducerConsumer::~ProducerConsumer() {
 #if PRODUCERCONSUMER_ASYNCHRONOUS
-    if (m_pThreadHandle)
-    {
-        FATAL(
-            "ProducerConsumer destroyed before its most-derived destructor "
-            "stopped the worker.");
-    }
+  if (m_pThreadHandle) {
+    FATAL(
+        "ProducerConsumer destroyed before its most-derived destructor "
+        "stopped the worker.");
+  }
 
-    // Tasks queued on an object that was never initialised are still owned by
-    // the base class and cannot have reached virtual consume().
-    for (auto it : m_Tasks)
-    {
-        delete it;
-    }
+  // Tasks queued on an object that was never initialised are still owned by
+  // the base class and cannot have reached virtual consume().
+  for (auto it : m_Tasks) {
+    delete it;
+  }
 #endif
 }
 
-void ProducerConsumer::destroy()
-{
+void ProducerConsumer::destroy() {
 #if PRODUCERCONSUMER_ASYNCHRONOUS
-    m_Lock.acquire();
-    if (m_Destroyed)
-    {
-        m_Lock.release();
-        return;
-    }
+  m_Lock.acquire();
+  if (m_Destroyed) {
+    m_Lock.release();
+    return;
+  }
 
-    m_Destroyed = true;
+  m_Destroyed = true;
+  m_Running = false;
+  m_Condition.signal();
+  void* threadHandle = m_pThreadHandle;
+  m_pThreadHandle = nullptr;
+  m_Lock.release();
+
+  if (threadHandle) {
+    pocketknife::attachTo(threadHandle);
+  }
+
+  // Clean up tasks that didn't get executed.
+  for (auto it : m_Tasks) {
+    delete it;
+  }
+  m_Tasks.clear();
+#endif
+}
+
+bool ProducerConsumer::initialise() {
+#if PRODUCERCONSUMER_ASYNCHRONOUS
+  LockGuard<Mutex> guard(m_Lock);
+
+  if (m_Destroyed) {
+    return false;
+  }
+
+  if (m_Running) {
+    return true;
+  }
+
+  m_Running = true;
+  m_pThreadHandle = pocketknife::runConcurrentlyAttached(thread, this);
+  if (!m_pThreadHandle) {
     m_Running = false;
-    m_Condition.signal();
-    void *threadHandle = m_pThreadHandle;
-    m_pThreadHandle = nullptr;
+    return false;
+  }
+
+  return true;
+#else
+  return true;
+#endif
+}
+
+void ProducerConsumer::produce(uint64_t p0, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
+                               uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8) {
+#if PRODUCERCONSUMER_ASYNCHRONOUS
+  Task* task = new Task;
+  task->p0 = p0;
+  task->p1 = p1;
+  task->p2 = p2;
+  task->p3 = p3;
+  task->p4 = p4;
+  task->p5 = p5;
+  task->p6 = p6;
+  task->p7 = p7;
+  task->p8 = p8;
+
+  m_Lock.acquire();
+  if (m_Destroyed) {
+    m_Lock.release();
+    delete task;
+    return;
+  }
+  m_Tasks.pushBack(task);
+  m_Condition.signal();
+  m_Lock.release();
+#else
+  consume(p0, p1, p2, p3, p4, p5, p6, p7, p8);
+#endif
+}
+
+void ProducerConsumer::consumerThread() {
+  LockGuard<Mutex> guard(m_Lock);
+
+  while (true) {
+    while (m_Running && !m_Tasks.size()) {
+      ConditionVariable::Error error = ConditionVariable::NoError;
+      if (!m_Condition.wait(m_Lock, error)) {
+        if (!ConditionVariable::mutexAcquired(error)) {
+          guard.disown();
+        }
+        return;
+      }
+    }
+
+    if (!m_Running) {
+      break;
+    }
+
+    Task* task = m_Tasks.popFront();
+
+    // Don't hold lock while we actually perform the consume operation.
     m_Lock.release();
 
-    if (threadHandle)
-    {
-        pocketknife::attachTo(threadHandle);
-    }
+    consume(task->p0, task->p1, task->p2, task->p3, task->p4, task->p5, task->p6, task->p7,
+            task->p8);
 
-    // Clean up tasks that didn't get executed.
-    for (auto it : m_Tasks)
-    {
-        delete it;
-    }
-    m_Tasks.clear();
-#endif
-}
-
-bool ProducerConsumer::initialise()
-{
-#if PRODUCERCONSUMER_ASYNCHRONOUS
-    LockGuard<Mutex> guard(m_Lock);
-
-    if (m_Destroyed)
-    {
-        return false;
-    }
-
-    if (m_Running)
-    {
-        return true;
-    }
-
-    m_Running = true;
-    m_pThreadHandle = pocketknife::runConcurrentlyAttached(thread, this);
-    if (!m_pThreadHandle)
-    {
-        m_Running = false;
-        return false;
-    }
-
-    return true;
-#else
-    return true;
-#endif
-}
-
-void ProducerConsumer::produce(
-    uint64_t p0, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
-    uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
-{
-#if PRODUCERCONSUMER_ASYNCHRONOUS
-    Task *task = new Task;
-    task->p0 = p0;
-    task->p1 = p1;
-    task->p2 = p2;
-    task->p3 = p3;
-    task->p4 = p4;
-    task->p5 = p5;
-    task->p6 = p6;
-    task->p7 = p7;
-    task->p8 = p8;
+    delete task;
 
     m_Lock.acquire();
-    if (m_Destroyed)
-    {
-        m_Lock.release();
-        delete task;
-        return;
-    }
-    m_Tasks.pushBack(task);
-    m_Condition.signal();
-    m_Lock.release();
-#else
-    consume(p0, p1, p2, p3, p4, p5, p6, p7, p8);
-#endif
+  }
 }
 
-void ProducerConsumer::consumerThread()
-{
-    LockGuard<Mutex> guard(m_Lock);
+int ProducerConsumer::thread(void* p) {
+  ProducerConsumer* pc = reinterpret_cast<ProducerConsumer*>(p);
+  pc->consumerThread();
 
-    while (true)
-    {
-        while (m_Running && !m_Tasks.size())
-        {
-            ConditionVariable::Error error =
-                ConditionVariable::NoError;
-            if (!m_Condition.wait(m_Lock, error))
-            {
-                if (!ConditionVariable::mutexAcquired(error))
-                {
-                    guard.disown();
-                }
-                return;
-            }
-        }
-
-        if (!m_Running)
-        {
-            break;
-        }
-
-        Task *task = m_Tasks.popFront();
-
-        // Don't hold lock while we actually perform the consume operation.
-        m_Lock.release();
-
-        consume(
-            task->p0, task->p1, task->p2, task->p3, task->p4, task->p5,
-            task->p6, task->p7, task->p8);
-
-        delete task;
-
-        m_Lock.acquire();
-    }
-}
-
-int ProducerConsumer::thread(void *p)
-{
-    ProducerConsumer *pc = reinterpret_cast<ProducerConsumer *>(p);
-    pc->consumerThread();
-
-    return 0;
+  return 0;
 }

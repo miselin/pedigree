@@ -21,36 +21,30 @@
 
 #include <modules/subsys/posix/vdso.h>
 
-extern "C" void vdso_init_from_auxv(void *auxv);
+extern "C" void vdso_init_from_auxv(void* auxv);
 extern "C" void vdso_init_from_sysinfo_ehdr(uintptr_t base);
-extern "C" void *vdso_sym(const char *version, const char *name);
+extern "C" void* vdso_sym(const char* version, const char* name);
 
-int main(int argc, char *argv[])
-{
-    vdso_init_from_sysinfo_ehdr(reinterpret_cast<uintptr_t>(__vdso_so));
+int main(int argc, char* argv[]) {
+  vdso_init_from_sysinfo_ehdr(reinterpret_cast<uintptr_t>(__vdso_so));
 
-    void *gtod = vdso_sym("LINUX_2.6", "gettimeofday");
-    void *vdso_gtod = vdso_sym("LINUX_2.6", "__vdso_gettimeofday");
+  void* gtod = vdso_sym("LINUX_2.6", "gettimeofday");
+  void* vdso_gtod = vdso_sym("LINUX_2.6", "__vdso_gettimeofday");
 
-    bool ok = true;
+  bool ok = true;
 
-    if (gtod == nullptr)
-    {
-        std::cerr << "Could not successfully look up gettimeofday()"
-                  << std::endl;
-        ok = false;
-    }
-    if (vdso_gtod == nullptr)
-    {
-        std::cerr << "Could not successfully look up __vdso_gettimeofday()"
-                  << std::endl;
-        ok = false;
-    }
+  if (gtod == nullptr) {
+    std::cerr << "Could not successfully look up gettimeofday()" << std::endl;
+    ok = false;
+  }
+  if (vdso_gtod == nullptr) {
+    std::cerr << "Could not successfully look up __vdso_gettimeofday()" << std::endl;
+    ok = false;
+  }
 
-    if (ok)
-    {
-        std::cout << "OK!" << std::endl;
-    }
+  if (ok) {
+    std::cout << "OK!" << std::endl;
+  }
 
-    return 0;
+  return 0;
 }

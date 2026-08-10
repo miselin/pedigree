@@ -18,223 +18,204 @@
  */
 
 #include "FileDescriptor.h"
-#include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
-
-#include "modules/subsys/posix/IoEvent.h"
-#include "modules/system/vfs/File.h"
 
 #include <fcntl.h>
 
+#include "modules/subsys/posix/IoEvent.h"
+#include "modules/system/vfs/File.h"
+#include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
+
 #define ENABLE_LOCKED_FILES 0
 
-namespace
-{
-bool isReadWrite(int flags)
-{
-    return (flags & O_ACCMODE) == O_RDWR;
+namespace {
+bool isReadWrite(int flags) {
+  return (flags & O_ACCMODE) == O_RDWR;
 }
 
-void increaseFileReferences(File *file, int flags)
-{
-    if (!file)
-    {
-        return;
-    }
+void increaseFileReferences(File* file, int flags) {
+  if (!file) {
+    return;
+  }
 
-    const bool writer = (flags & O_ACCMODE) != O_RDONLY;
-    file->increaseRefCount(writer);
+  const bool writer = (flags & O_ACCMODE) != O_RDONLY;
+  file->increaseRefCount(writer);
 
-    // The historical boolean API cannot express that O_RDWR is both ends of a
-    // FIFO. Account its reader side separately so it satisfies waiting writers.
-    if (isReadWrite(flags) && (file->isPipe() || file->isFifo()))
-    {
-        file->increaseRefCount(false);
-    }
+  // The historical boolean API cannot express that O_RDWR is both ends of a
+  // FIFO. Account its reader side separately so it satisfies waiting writers.
+  if (isReadWrite(flags) && (file->isPipe() || file->isFifo())) {
+    file->increaseRefCount(false);
+  }
 }
 
-void decreaseFileReferences(File *file, int flags)
-{
-    if (!file)
-    {
-        return;
-    }
+void decreaseFileReferences(File* file, int flags) {
+  if (!file) {
+    return;
+  }
 
-    const bool writer = (flags & O_ACCMODE) != O_RDONLY;
-    file->decreaseRefCount(writer);
-    if (isReadWrite(flags) && (file->isPipe() || file->isFifo()))
-    {
-        file->decreaseRefCount(false);
-    }
+  const bool writer = (flags & O_ACCMODE) != O_RDONLY;
+  file->decreaseRefCount(writer);
+  if (isReadWrite(flags) && (file->isPipe() || file->isFifo())) {
+    file->decreaseRefCount(false);
+  }
 }
 
-void retireIoEvent(
-    File *file, SharedPointer<NetworkSyscalls> &networkImpl, IoEvent *&ioevent)
-{
-    if (!ioevent)
-    {
-        return;
-    }
+void retireIoEvent(File* file, SharedPointer<NetworkSyscalls>& networkImpl, IoEvent*& ioevent) {
+  if (!ioevent) {
+    return;
+  }
 
-    IoEvent *retiring = ioevent;
-    ioevent = nullptr;
-    Event::Retirement retirement;
-    retiring->beginRetirement(retirement);
+  IoEvent* retiring = ioevent;
+  ioevent = nullptr;
+  Event::Retirement retirement;
+  retiring->beginRetirement(retirement);
 
-    // Close admission before removing raw registry pointers. A callback which
-    // is already active can no longer re-arm itself after this pass.
-    if (file)
-    {
-        file->cullMonitorTargets(retiring);
-    }
-    if (networkImpl)
-    {
-        networkImpl->unmonitor(retiring);
-    }
+  // Close admission before removing raw registry pointers. A callback which
+  // is already active can no longer re-arm itself after this pass.
+  if (file) {
+    file->cullMonitorTargets(retiring);
+  }
+  if (networkImpl) {
+    networkImpl->unmonitor(retiring);
+  }
 }
 }  // namespace
 
 #if ENABLE_LOCKED_FILES
-RadixTree<LockedFile *> g_PosixGlobalLockedFiles;
+RadixTree<LockedFile*> g_PosixGlobalLockedFiles;
 #endif
 
 /// Default constructor
 FileDescriptor::FileDescriptor()
-    : file(0), offset(0), fd(0xFFFFFFFF), lockedFile(0), networkImpl(nullptr),
-    ioevent(nullptr), fdflags(0), flflags(0)
-{
-}
+    : file(0),
+      offset(0),
+      fd(0xFFFFFFFF),
+      lockedFile(0),
+      networkImpl(nullptr),
+      ioevent(nullptr),
+      fdflags(0),
+      flflags(0) {}
 
 /// Parameterised constructor
-FileDescriptor::FileDescriptor(
-    File *newFile, uint64_t newOffset, size_t newFd, int fdFlags, int flFlags,
-    LockedFile *lf)
-    : file(newFile), offset(newOffset), fd(newFd), lockedFile(lf),
-    networkImpl(nullptr), ioevent(nullptr), fdflags(fdFlags), flflags(flFlags)
-{
-    /// \todo need a copy constructor for networkImpl
-    if (file)
-    {
+FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, int fdFlags,
+                               int flFlags, LockedFile* lf)
+    : file(newFile),
+      offset(newOffset),
+      fd(newFd),
+      lockedFile(lf),
+      networkImpl(nullptr),
+      ioevent(nullptr),
+      fdflags(fdFlags),
+      flflags(flFlags) {
+  /// \todo need a copy constructor for networkImpl
+  if (file) {
 #if ENABLE_LOCKED_FILES
-        lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
+    lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
 #endif
-        increaseFileReferences(file, flflags);
-    }
+    increaseFileReferences(file, flflags);
+  }
 }
 
 /// Copy constructor
-FileDescriptor::FileDescriptor(FileDescriptor &desc)
-    : file(desc.file), offset(desc.offset), fd(desc.fd), lockedFile(0),
-      networkImpl(desc.networkImpl), ioevent(nullptr), fdflags(desc.fdflags),
-      flflags(desc.flflags)
-{
-    if (file)
-    {
+FileDescriptor::FileDescriptor(FileDescriptor& desc)
+    : file(desc.file),
+      offset(desc.offset),
+      fd(desc.fd),
+      lockedFile(0),
+      networkImpl(desc.networkImpl),
+      ioevent(nullptr),
+      fdflags(desc.fdflags),
+      flflags(desc.flflags) {
+  if (file) {
 #if ENABLE_LOCKED_FILES
-        lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
+    lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
 #endif
-        increaseFileReferences(file, flflags);
-    }
+    increaseFileReferences(file, flflags);
+  }
 
 #if THREADS
-    if (desc.ioevent)
-    {
-        ioevent = new IoEvent(*desc.ioevent);
-    }
+  if (desc.ioevent) {
+    ioevent = new IoEvent(*desc.ioevent);
+  }
 #endif
 }
 
 /// Pointer copy constructor
-FileDescriptor::FileDescriptor(FileDescriptor *desc)
-    : file(0), offset(0), fd(0), lockedFile(0), ioevent(nullptr), fdflags(0),
-    flflags(0)
-{
-    if (!desc)
-        return;
+FileDescriptor::FileDescriptor(FileDescriptor* desc)
+    : file(0), offset(0), fd(0), lockedFile(0), ioevent(nullptr), fdflags(0), flflags(0) {
+  if (!desc)
+    return;
 
-    file = desc->file;
-    offset = desc->offset;
-    fd = desc->fd;
-    fdflags = desc->fdflags;
-    flflags = desc->flflags;
-    networkImpl = desc->networkImpl;
-    if (file)
-    {
+  file = desc->file;
+  offset = desc->offset;
+  fd = desc->fd;
+  fdflags = desc->fdflags;
+  flflags = desc->flflags;
+  networkImpl = desc->networkImpl;
+  if (file) {
 #if ENABLE_LOCKED_FILES
-        lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
+    lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
 #endif
-        increaseFileReferences(file, flflags);
-    }
+    increaseFileReferences(file, flflags);
+  }
 
 #if THREADS
-    if (desc->ioevent)
-    {
-        ioevent = new IoEvent(*desc->ioevent);
-    }
+  if (desc->ioevent) {
+    ioevent = new IoEvent(*desc->ioevent);
+  }
 #endif
 }
 
 /// Destructor - decreases file reference count
-FileDescriptor::~FileDescriptor()
-{
+FileDescriptor::~FileDescriptor() {
 #if THREADS
-    retireIoEvent(file, networkImpl, ioevent);
+  retireIoEvent(file, networkImpl, ioevent);
 #endif
 
-    if (file)
-    {
+  if (file) {
 #if ENABLE_LOCKED_FILES
-        // Unlock the file we have a lock on, release from the global lock table
-        if (lockedFile)
-        {
-            g_PosixGlobalLockedFiles.remove(file->getFullPath());
-            lockedFile->unlock();
-            delete lockedFile;
-        }
+    // Unlock the file we have a lock on, release from the global lock table
+    if (lockedFile) {
+      g_PosixGlobalLockedFiles.remove(file->getFullPath());
+      lockedFile->unlock();
+      delete lockedFile;
+    }
 #endif
-        decreaseFileReferences(file, flflags);
-    }
+    decreaseFileReferences(file, flflags);
+  }
 
-    /// \note sockets are cleaned up by their reference count hitting zero
-    /// (SharedPointer)
-
+  /// \note sockets are cleaned up by their reference count hitting zero
+  /// (SharedPointer)
 }
 
-void FileDescriptor::setFlags(int newFlags)
-{
-    fdflags = newFlags;
+void FileDescriptor::setFlags(int newFlags) {
+  fdflags = newFlags;
 }
 
-void FileDescriptor::addFlag(int newFlag)
-{
-    setFlags(fdflags | newFlag);
+void FileDescriptor::addFlag(int newFlag) {
+  setFlags(fdflags | newFlag);
 }
 
-int FileDescriptor::getFlags() const
-{
-    return fdflags;
+int FileDescriptor::getFlags() const {
+  return fdflags;
 }
 
-void FileDescriptor::setStatusFlags(int newFlags)
-{
-    flflags = newFlags;
+void FileDescriptor::setStatusFlags(int newFlags) {
+  flflags = newFlags;
 
-    if (networkImpl)
-    {
-        /// \todo this blocks *all* operations on the socket. However, we
-        /// should only be blocking operations associated with *this descriptor*
-        /// on the socket!
-        /// maybe pass in a FileDescriptor to recvfrom et al?
-        bool nonblock = (flflags & O_NONBLOCK) == O_NONBLOCK;
-        networkImpl->setBlocking(!nonblock);
-    }
+  if (networkImpl) {
+    /// \todo this blocks *all* operations on the socket. However, we
+    /// should only be blocking operations associated with *this descriptor*
+    /// on the socket!
+    /// maybe pass in a FileDescriptor to recvfrom et al?
+    bool nonblock = (flflags & O_NONBLOCK) == O_NONBLOCK;
+    networkImpl->setBlocking(!nonblock);
+  }
 }
 
-void FileDescriptor::addStatusFlag(int newFlag)
-{
-    setFlags(flflags | newFlag);
+void FileDescriptor::addStatusFlag(int newFlag) {
+  setFlags(flflags | newFlag);
 }
 
-int FileDescriptor::getStatusFlags() const
-{
-    return flflags;
+int FileDescriptor::getStatusFlags() const {
+  return flflags;
 }

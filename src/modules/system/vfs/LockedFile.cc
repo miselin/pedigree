@@ -25,85 +25,78 @@
 
 class File;
 
-LockedFile::LockedFile(File *pFile)
-    : m_File(pFile), m_bLocked(false), m_LockerPid(0)
+LockedFile::LockedFile(File* pFile)
+    : m_File(pFile),
+      m_bLocked(false),
+      m_LockerPid(0)
 #if THREADS
       ,
       m_Lock()
 #endif
-          {};
+{};
 
-LockedFile::LockedFile(LockedFile &c)
-    : m_File(0), m_bLocked(false), m_LockerPid(0)
+LockedFile::LockedFile(LockedFile& c)
+    : m_File(0),
+      m_bLocked(false),
+      m_LockerPid(0)
 #if THREADS
       ,
       m_Lock()
 #endif
 {
-    m_File = c.m_File;
-    m_bLocked = c.m_bLocked;
-    m_LockerPid = c.m_LockerPid;
+  m_File = c.m_File;
+  m_bLocked = c.m_bLocked;
+  m_LockerPid = c.m_LockerPid;
 
 #if THREADS
-    if (m_bLocked)
-    {
-        m_Lock.acquire();
+  if (m_bLocked) {
+    m_Lock.acquire();
+  }
+#endif
+}
+
+bool LockedFile::lock(bool bBlock) {
+#if THREADS
+  if (!bBlock) {
+    if (!m_Lock.tryAcquire()) {
+      return false;
     }
+  } else
+    m_Lock.acquire();
+
+  // Obtained the lock
+  m_bLocked = true;
+  m_LockerPid = Processor::information().getCurrentThread()->getParent()->getId();
+#endif
+  return true;
+}
+
+void LockedFile::unlock() {
+#if THREADS
+  if (m_bLocked) {
+    m_bLocked = false;
+    m_Lock.release();
+  }
 #endif
 }
 
-bool LockedFile::lock(bool bBlock)
-{
+File* LockedFile::getFile() {
 #if THREADS
-    if (!bBlock)
-    {
-        if (!m_Lock.tryAcquire())
-        {
-            return false;
-        }
-    }
-    else
-        m_Lock.acquire();
-
-    // Obtained the lock
-    m_bLocked = true;
-    m_LockerPid =
-        Processor::information().getCurrentThread()->getParent()->getId();
+  // If we're locked, and we aren't the locking process, we can't access the
+  // file Otherwise, the file is accessible
+  if (m_bLocked == true &&
+      Processor::information().getCurrentThread()->getParent()->getId() != m_LockerPid)
+    return 0;
+  else
 #endif
-    return true;
+    return m_File;
 }
 
-void LockedFile::unlock()
-{
+size_t LockedFile::getLocker() {
 #if THREADS
-    if (m_bLocked)
-    {
-        m_bLocked = false;
-        m_Lock.release();
-    }
+  if (m_bLocked)
+    return m_LockerPid;
+  else
 #endif
-}
-
-File *LockedFile::getFile()
-{
-#if THREADS
-    // If we're locked, and we aren't the locking process, we can't access the
-    // file Otherwise, the file is accessible
-    if (m_bLocked == true &&
-        Processor::information().getCurrentThread()->getParent()->getId() !=
-            m_LockerPid)
-        return 0;
-    else
-#endif
-        return m_File;
-}
-
-size_t LockedFile::getLocker()
-{
-#if THREADS
-    if (m_bLocked)
-        return m_LockerPid;
-    else
-#endif
-        return 0;
+    return 0;
 }

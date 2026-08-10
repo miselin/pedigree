@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/machine/DeviceHashTree.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/DeviceHashTree.h"
 #include "pedigree/kernel/utilities/Cord.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/sha1/sha1.h"
@@ -27,100 +27,87 @@
 
 DeviceHashTree DeviceHashTree::m_Instance;
 
-DeviceHashTree::DeviceHashTree() : m_bInitialised(false), m_DeviceTree()
-{
+DeviceHashTree::DeviceHashTree() : m_bInitialised(false), m_DeviceTree() {}
+
+DeviceHashTree::~DeviceHashTree() {}
+
+static Device* testDevice(Device* p) {
+  if (p->getType() != Device::Root)
+    DeviceHashTree::instance().add(p);
+
+  return p;
 }
 
-DeviceHashTree::~DeviceHashTree()
-{
+void DeviceHashTree::fill(Device* root) {
+  Device::foreach (testDevice, root);
+
+  m_bInitialised = true;
 }
 
-static Device *testDevice(Device *p)
-{
-    if (p->getType() != Device::Root)
-        DeviceHashTree::instance().add(p);
+void DeviceHashTree::add(Device* p) {
+  size_t hash = getHash(p);
+  if (m_DeviceTree.lookup(hash))
+    return;
 
-    return p;
+  String dump;
+  p->dump(dump);
+
+  NOTICE("Device hash for `" << dump << "' is: " << hash << ".");
+  m_DeviceTree.insert(hash, p);
 }
 
-void DeviceHashTree::fill(Device *root)
-{
-    Device::foreach (testDevice, root);
-
-    m_bInitialised = true;
+Device* DeviceHashTree::getDevice(uint32_t hash) {
+  if (!m_bInitialised)
+    return 0;
+  else
+    return m_DeviceTree.lookup(hash);
 }
 
-void DeviceHashTree::add(Device *p)
-{
-    size_t hash = getHash(p);
-    if (m_DeviceTree.lookup(hash))
-        return;
-
-    String dump;
-    p->dump(dump);
-
-    NOTICE("Device hash for `" << dump << "' is: " << hash << ".");
-    m_DeviceTree.insert(hash, p);
+Device* DeviceHashTree::getDevice(const String& hash) {
+  if (!m_bInitialised)
+    return 0;
+  else {
+    uint32_t inthash = StringToUnsignedLong(static_cast<const char*>(hash), 0, 16);
+    return m_DeviceTree.lookup(inthash);
+  }
 }
 
-Device *DeviceHashTree::getDevice(uint32_t hash)
-{
-    if (!m_bInitialised)
-        return 0;
-    else
-        return m_DeviceTree.lookup(hash);
-}
+size_t DeviceHashTree::getHash(Device* pChild) {
+  static SHA1 mySha1;
 
-Device *DeviceHashTree::getDevice(const String &hash)
-{
-    if (!m_bInitialised)
-        return 0;
-    else
-    {
-        uint32_t inthash =
-            StringToUnsignedLong(static_cast<const char *>(hash), 0, 16);
-        return m_DeviceTree.lookup(inthash);
-    }
-}
+  // Grab the device information
+  String name, dump;
+  pChild->getName(name);
+  pChild->dump(dump);
+  uint32_t bus = pChild->getPciBusPosition();
+  uint32_t dev = pChild->getPciDevicePosition();
+  uint32_t func = pChild->getPciFunctionNumber();
 
-size_t DeviceHashTree::getHash(Device *pChild)
-{
-    static SHA1 mySha1;
+  TinyStaticString busStr, devStr, funcStr;
+  busStr.append(bus);
+  devStr.append(dev);
+  funcStr.append(func);
 
-    // Grab the device information
-    String name, dump;
-    pChild->getName(name);
-    pChild->dump(dump);
-    uint32_t bus = pChild->getPciBusPosition();
-    uint32_t dev = pChild->getPciDevicePosition();
-    uint32_t func = pChild->getPciFunctionNumber();
+  // Build the string to be hashed
+  Cord hashBuild;
+  hashBuild.append(name);
+  hashBuild.append("-");
+  hashBuild.append(dump);
+  hashBuild.append("-");
+  hashBuild.append(busStr);
+  hashBuild.append(".");
+  hashBuild.append(devStr);
+  hashBuild.append(".");
+  hashBuild.append(funcStr);
 
-    TinyStaticString busStr, devStr, funcStr;
-    busStr.append(bus);
-    devStr.append(dev);
-    funcStr.append(func);
+  // Hash the string
+  mySha1.Reset();
+  for (auto it = hashBuild.segbegin(); it != hashBuild.segend(); ++it) {
+    mySha1.Input(it.ptr(), it.length());
+  }
+  unsigned int digest[5];
+  mySha1.Result(digest);
 
-    // Build the string to be hashed
-    Cord hashBuild;
-    hashBuild.append(name);
-    hashBuild.append("-");
-    hashBuild.append(dump);
-    hashBuild.append("-");
-    hashBuild.append(busStr);
-    hashBuild.append(".");
-    hashBuild.append(devStr);
-    hashBuild.append(".");
-    hashBuild.append(funcStr);
-
-    // Hash the string
-    mySha1.Reset();
-    for (auto it = hashBuild.segbegin(); it != hashBuild.segend(); ++it)
-    {
-        mySha1.Input(it.ptr(), it.length());
-    }
-    unsigned int digest[5];
-    mySha1.Result(digest);
-
-    // Only use 4 bytes of the hash
-    return digest[0];
+  // Only use 4 bytes of the hash
+  return digest[0];
 }

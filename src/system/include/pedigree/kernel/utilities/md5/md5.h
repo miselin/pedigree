@@ -70,7 +70,7 @@
 
 //----------------------------------------------------------------------
 // typedefs
-typedef void *POINTER;
+typedef void* POINTER;
 
 //----------------------------------------------------------------------
 
@@ -81,96 +81,92 @@ typedef void *POINTER;
  *   		Basically the class provides three public member-functions
  *   		to create a hash:  Reset(), Input() and Result().
  */
-class MD5
-{
-  private:
-    /**
-     *  @brief 	Basic transformation. Transforms state based on block.
-     *  @param	state	state to transform
-     *  @param	block	block to transform
-     */
-    void MD5Transform(unsigned long int state[4], unsigned char block[64]);
+class MD5 {
+ private:
+  /**
+   *  @brief 	Basic transformation. Transforms state based on block.
+   *  @param	state	state to transform
+   *  @param	block	block to transform
+   */
+  void MD5Transform(unsigned long int state[4], unsigned char block[64]);
 
-    /**
-     *  @brief 	Encodes input data
-     *  @param	output Encoded data as OUT parameter
-     *  @param	input Input data
-     *  @param	len The length of the input assuming it is a
-     *  		multiple of 4
-     */
-    void
-    Encode(unsigned char *output, unsigned long int *input, unsigned int len);
+  /**
+   *  @brief 	Encodes input data
+   *  @param	output Encoded data as OUT parameter
+   *  @param	input Input data
+   *  @param	len The length of the input assuming it is a
+   *  		multiple of 4
+   */
+  void Encode(unsigned char* output, unsigned long int* input, unsigned int len);
 
-    /**
-     *  @brief 	Decodes input data into output
-     *  @param	output Decoded data as OUT parameter
-     *  @param	input Input data
-     *  @param	len The length of the input assuming it is a
-     *  		multiple of 4
-     */
-    void
-    Decode(unsigned long int *output, unsigned char *input, unsigned int len);
+  /**
+   *  @brief 	Decodes input data into output
+   *  @param	output Decoded data as OUT parameter
+   *  @param	input Input data
+   *  @param	len The length of the input assuming it is a
+   *  		multiple of 4
+   */
+  void Decode(unsigned long int* output, unsigned char* input, unsigned int len);
 
-    /**
-     *  @brief 	internal memory management
-     *  @param	output OUT parameter where POINTER is an unsigned
-     *  		char*
-     *  @param	input Data to copy where POINTER is a unsigned char*
-     *  @param	len The length of the data
-     */
-    void MD5_memcpy(POINTER output, POINTER input, unsigned int len);
+  /**
+   *  @brief 	internal memory management
+   *  @param	output OUT parameter where POINTER is an unsigned
+   *  		char*
+   *  @param	input Data to copy where POINTER is a unsigned char*
+   *  @param	len The length of the data
+   */
+  void MD5_memcpy(POINTER output, POINTER input, unsigned int len);
 
-    /**
-     *  @brief 	internal memory management
-     *  @param 	output OUT parameter where POINTER is an unsigned
-     *  		char*
-     *  @param	value Value to fill the memory with
-     *  @param	len The length of the data
-     *
-     */
-    void MD5_memset(POINTER output, int value, unsigned int len);
+  /**
+   *  @brief 	internal memory management
+   *  @param 	output OUT parameter where POINTER is an unsigned
+   *  		char*
+   *  @param	value Value to fill the memory with
+   *  @param	len The length of the data
+   *
+   */
+  void MD5_memset(POINTER output, int value, unsigned int len);
 
-    /** state (ABCD) */
-    unsigned long int state[4];
+  /** state (ABCD) */
+  unsigned long int state[4];
 
-    /** number of bits, modulo 2^64 (lsb first) */
-    unsigned long int count[2];
+  /** number of bits, modulo 2^64 (lsb first) */
+  unsigned long int count[2];
 
-    /** input buffer */
-    unsigned char buffer[64];
+  /** input buffer */
+  unsigned char buffer[64];
 
-  public:
-    /**
-     *  @brief 	Initialization begins an operation,
-     *  		writing a new context
-     */
-    void Reset();
+ public:
+  /**
+   *  @brief 	Initialization begins an operation,
+   *  		writing a new context
+   */
+  void Reset();
 
-    /**
-     *  @brief 	Block update operation. Continues an md5
-     *  		message-digest operation, processing another
-     *  		message block, and updating the context.
-     *  @param	input The data to write into the context
-     *  @param	inputLen The length of the input data
-     */
-    void Input(unsigned char *input, unsigned int inputLen);
+  /**
+   *  @brief 	Block update operation. Continues an md5
+   *  		message-digest operation, processing another
+   *  		message block, and updating the context.
+   *  @param	input The data to write into the context
+   *  @param	inputLen The length of the input data
+   */
+  void Input(unsigned char* input, unsigned int inputLen);
 
-    /**
-     *  @brief 	Finalization ends the md5 message-digest
-     *  		operation, writing the the message digest and
-     *  		zeroizing the context.
-     *  @param	digest This is an OUT parameter which contains
-     *  		the created hash after the method returns
-     */
-    void Result(unsigned char digest[16]);
+  /**
+   *  @brief 	Finalization ends the md5 message-digest
+   *  		operation, writing the the message digest and
+   *  		zeroizing the context.
+   *  @param	digest This is an OUT parameter which contains
+   *  		the created hash after the method returns
+   */
+  void Result(unsigned char digest[16]);
 
-    /**
-     *  @brief 	default constructor
-     */
-    MD5()
-    {
-        Reset();
-    };
+  /**
+   *  @brief 	default constructor
+   */
+  MD5() {
+    Reset();
+  };
 };
 
 //----------------------------------------------------------------------

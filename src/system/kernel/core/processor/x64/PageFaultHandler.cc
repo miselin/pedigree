@@ -17,7 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/debugger/Debugger.h"
@@ -27,6 +26,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -45,189 +45,161 @@ PageFaultHandler PageFaultHandler::m_Instance;
 #define PFE_RESERVED_BIT 0x08
 #define PFE_INSTRUCTION_FETCH 0x10
 
-bool PageFaultHandler::initialise()
-{
-    InterruptManager &IntManager = InterruptManager::instance();
+bool PageFaultHandler::initialise() {
+  InterruptManager& IntManager = InterruptManager::instance();
 
-    return (IntManager.registerInterruptHandler(PAGE_FAULT_EXCEPTION, this));
+  return (IntManager.registerInterruptHandler(PAGE_FAULT_EXCEPTION, this));
 }
 
-void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
-{
-    uintptr_t cr2, code;
-    asm volatile("mov %%cr2, %%rax" : "=a"(cr2));
-    code = state.m_Errorcode;
+void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) {
+  uintptr_t cr2, code;
+  asm volatile("mov %%cr2, %%rax" : "=a"(cr2));
+  code = state.m_Errorcode;
 
-    uintptr_t page =
-        cr2 & ~(PhysicalMemoryManager::instance().getPageSize() - 1);
+  uintptr_t page = cr2 & ~(PhysicalMemoryManager::instance().getPageSize() - 1);
 
-    // Check for copy-on-write.
-    VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-    if (va.isMapped(reinterpret_cast<void *>(page)))
-    {
-        physical_uintptr_t phys;
-        size_t flags;
-        va.getMapping(reinterpret_cast<void *>(page), phys, flags);
-        if (flags & VirtualAddressSpace::CopyOnWrite)
-        {
+  // Check for copy-on-write.
+  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
+  if (va.isMapped(reinterpret_cast<void*>(page))) {
+    physical_uintptr_t phys;
+    size_t flags;
+    va.getMapping(reinterpret_cast<void*>(page), phys, flags);
+    if (flags & VirtualAddressSpace::CopyOnWrite) {
 #if SUPERDEBUG
-            NOTICE_NOLOCK(
-                Processor::information()
-                    .getCurrentThread()
-                    ->getParent()
-                    ->getId()
-                << " PageFaultHandler: copy-on-write for v=" << Hex << page);
+      NOTICE_NOLOCK(Processor::information().getCurrentThread()->getParent()->getId()
+                    << " PageFaultHandler: copy-on-write for v=" << Hex << page);
 #endif
 
-            MemoryRegion tmpRegion("CoW Temporary Page");
-            if (!PhysicalMemoryManager::instance().allocateRegion(
-                    tmpRegion, 1,
-                    PhysicalMemoryManager::force |
-                        PhysicalMemoryManager::continuous |
-                        PhysicalMemoryManager::anonymous,
-                    VirtualAddressSpace::KernelMode, phys))
-            {
-                FATAL(
-                    "PageFaultHandler: CoW temporary map() failed @" << Hex
-                                                                     << page);
-                return;
-            }
+      MemoryRegion tmpRegion("CoW Temporary Page");
+      if (!PhysicalMemoryManager::instance().allocateRegion(
+              tmpRegion, 1,
+              PhysicalMemoryManager::force | PhysicalMemoryManager::continuous |
+                  PhysicalMemoryManager::anonymous,
+              VirtualAddressSpace::KernelMode, phys)) {
+        FATAL("PageFaultHandler: CoW temporary map() failed @" << Hex << page);
+        return;
+      }
 
-            // Remap faulting page
-            va.unmap(reinterpret_cast<void *>(page));
-            physical_uintptr_t p =
-                PhysicalMemoryManager::instance().allocatePage();
-            if (!p)
-            {
-                FATAL("PageFaultHandler: CoW OOM'd!");
-                return;
-            }
+      // Remap faulting page
+      va.unmap(reinterpret_cast<void*>(page));
+      physical_uintptr_t p = PhysicalMemoryManager::instance().allocatePage();
+      if (!p) {
+        FATAL("PageFaultHandler: CoW OOM'd!");
+        return;
+      }
 
-            flags |= VirtualAddressSpace::Write;
-            flags &= ~VirtualAddressSpace::CopyOnWrite;
-            if (!va.map(p, reinterpret_cast<void *>(page), flags))
-            {
-                FATAL("PageFaultHandler: CoW new map() failed.");
-                return;
-            }
+      flags |= VirtualAddressSpace::Write;
+      flags &= ~VirtualAddressSpace::CopyOnWrite;
+      if (!va.map(p, reinterpret_cast<void*>(page), flags)) {
+        FATAL("PageFaultHandler: CoW new map() failed.");
+        return;
+      }
 
-            // Perform the actual copy.
-            MemoryCopy(
-                reinterpret_cast<uint8_t *>(page),
-                reinterpret_cast<uint8_t *>(tmpRegion.virtualAddress()),
-                PhysicalMemoryManager::getPageSize());
+      // Perform the actual copy.
+      MemoryCopy(reinterpret_cast<uint8_t*>(page),
+                 reinterpret_cast<uint8_t*>(tmpRegion.virtualAddress()),
+                 PhysicalMemoryManager::getPageSize());
 
-            // Done with the memory region now - ready to release any additional
-            // references too
-            tmpRegion.free();
+      // Done with the memory region now - ready to release any additional
+      // references too
+      tmpRegion.free();
 
-            // Clean up old reference to memory (may free the page, if we were
-            // the last one to reference the CoW page)
-            PhysicalMemoryManager::instance().freePage(phys);
-            return;
-        }
+      // Clean up old reference to memory (may free the page, if we were
+      // the last one to reference the CoW page)
+      PhysicalMemoryManager::instance().freePage(phys);
+      return;
     }
+  }
 
-    /// \todo probably can just skip checking for traps across the entire kernel
-    /// address space?
-    if (!va.memIsInKernelHeap(reinterpret_cast<void *>(page)))
-    {
-        if (dispatchHandlers(state, cr2, code & PFE_ATTEMPTED_WRITE))
-        {
-            return;
-        }
+  /// \todo probably can just skip checking for traps across the entire kernel
+  /// address space?
+  if (!va.memIsInKernelHeap(reinterpret_cast<void*>(page))) {
+    if (dispatchHandlers(state, cr2, code & PFE_ATTEMPTED_WRITE)) {
+      return;
     }
+  }
 
-    Thread *pThread = Processor::information().getCurrentThread();
+  Thread* pThread = Processor::information().getCurrentThread();
 
-    if (pThread && !state.kernelMode())
-    {
-        Process *process = pThread->getParent();
-        if (process && process->getSubsystem())
-        {
-            pThread->deferSubsystemException(
-                static_cast<size_t>(Subsystem::PageFault), cr2, code);
-            return;
-        }
+  if (pThread && !state.kernelMode()) {
+    Process* process = pThread->getParent();
+    if (process && process->getSubsystem()) {
+      pThread->deferSubsystemException(static_cast<size_t>(Subsystem::PageFault), cr2, code);
+      return;
     }
+  }
 
-    //  Get PFE location and error code
-    static LargeStaticString sError;
-    sError.clear();
-    sError.append("Page Fault Exception at 0x");
-    sError.append(cr2, 16, 16, '0');
-    sError.append(", EIP 0x");
-    sError.append(state.getInstructionPointer(), 16, 16, '0');
-    sError.append(", error code 0x");
-    sError.append(code, 16, 8, '0');
+  //  Get PFE location and error code
+  static LargeStaticString sError;
+  sError.clear();
+  sError.append("Page Fault Exception at 0x");
+  sError.append(cr2, 16, 16, '0');
+  sError.append(", EIP 0x");
+  sError.append(state.getInstructionPointer(), 16, 16, '0');
+  sError.append(", error code 0x");
+  sError.append(code, 16, 8, '0');
 
-    //  Extract error code information
-    static LargeStaticString sCode;
-    sCode.clear();
-    sCode.append("Details: CPU=");
-    sCode.append(Processor::id());
-    if (pThread)
-    {
-        Process *pParent = pThread->getParent();
-        if (pParent)
-        {
-            sCode.append(" PID=");
-            sCode.append(pParent->getId());
-        }
-        sCode.append(" TID=");
-        sCode.append(pThread->getId());
+  //  Extract error code information
+  static LargeStaticString sCode;
+  sCode.clear();
+  sCode.append("Details: CPU=");
+  sCode.append(Processor::id());
+  if (pThread) {
+    Process* pParent = pThread->getParent();
+    if (pParent) {
+      sCode.append(" PID=");
+      sCode.append(pParent->getId());
     }
-    sCode.append(" ");
+    sCode.append(" TID=");
+    sCode.append(pThread->getId());
+  }
+  sCode.append(" ");
 
-    if (!(code & PFE_PAGE_PRESENT))
-        sCode.append("NOT ");
-    sCode.append("PRESENT | ");
+  if (!(code & PFE_PAGE_PRESENT))
+    sCode.append("NOT ");
+  sCode.append("PRESENT | ");
 
-    if (code & PFE_ATTEMPTED_WRITE)
-        sCode.append("WRITE | ");
-    else
-        sCode.append("READ | ");
+  if (code & PFE_ATTEMPTED_WRITE)
+    sCode.append("WRITE | ");
+  else
+    sCode.append("READ | ");
 
-    if (code & PFE_USER_MODE)
-        sCode.append("USER ");
-    else
-        sCode.append("KERNEL ");
-    sCode.append("MODE | ");
+  if (code & PFE_USER_MODE)
+    sCode.append("USER ");
+  else
+    sCode.append("KERNEL ");
+  sCode.append("MODE | ");
 
-    if (code & PFE_RESERVED_BIT)
-        sCode.append("RESERVED BIT SET | ");
-    if (code & PFE_INSTRUCTION_FETCH)
-        sCode.append("FETCH |");
+  if (code & PFE_RESERVED_BIT)
+    sCode.append("RESERVED BIT SET | ");
+  if (code & PFE_INSTRUCTION_FETCH)
+    sCode.append("FETCH |");
 
-    // Ensure the log spinlock isn't going to die on us...
-    //  Log::instance().m_Lock.release();
+  // Ensure the log spinlock isn't going to die on us...
+  //  Log::instance().m_Lock.release();
 
-    ERROR(static_cast<const char *>(sError));
-    ERROR(static_cast<const char *>(sCode));
+  ERROR(static_cast<const char*>(sError));
+  ERROR(static_cast<const char*>(sCode));
 
 // static LargeStaticString eCode;
 #if DEBUGGER
-    // Page faults in usermode are usually useless to debug in the debugger
-    // (some exceptions exist)
-    if (!(code & PFE_USER_MODE))
-        Debugger::instance().start(state, sError);
+  // Page faults in usermode are usually useless to debug in the debugger
+  // (some exceptions exist)
+  if (!(code & PFE_USER_MODE))
+    Debugger::instance().start(state, sError);
 #endif
 
-    Scheduler &scheduler = Scheduler::instance();
-    if (UNLIKELY(scheduler.getNumProcesses() == 0) || (pThread == nullptr))
-    {
-        // We are in the early stages of the boot process (no processes started)
-        panic(sError);
+  Scheduler& scheduler = Scheduler::instance();
+  if (UNLIKELY(scheduler.getNumProcesses() == 0) || (pThread == nullptr)) {
+    // We are in the early stages of the boot process (no processes started)
+    panic(sError);
+  } else {
+    //  Unrecoverable PFE in a process - Kill the process and yield
+    // Processor::information().getCurrentThread()->getParent()->kill();
+    Process* pProcess = pThread->getParent();
+    Subsystem* pSubsystem = pProcess->getSubsystem();
+    if (!pSubsystem || state.kernelMode()) {
+      pProcess->kill();
     }
-    else
-    {
-        //  Unrecoverable PFE in a process - Kill the process and yield
-        // Processor::information().getCurrentThread()->getParent()->kill();
-        Process *pProcess = pThread->getParent();
-        Subsystem *pSubsystem = pProcess->getSubsystem();
-        if (!pSubsystem || state.kernelMode())
-        {
-            pProcess->kill();
-        }
-    }
+  }
 }

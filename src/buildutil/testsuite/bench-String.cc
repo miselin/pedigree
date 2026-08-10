@@ -19,488 +19,421 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/utilities/String.h"
+
 #include <string.h>
 
 #include <benchmark/benchmark.h>
 
-#include "pedigree/kernel/utilities/String.h"
-
-static void BM_CxxStringCreation(benchmark::State &state)
-{
-    while (state.KeepRunning())
-    {
-        String s;
-        benchmark::DoNotOptimize(s);
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-}
-
-static void BM_CxxStringCreationConstexpr(benchmark::State &state)
-{
-    while (state.KeepRunning())
-    {
-        String s("Hello, world!");
-        benchmark::DoNotOptimize(s);
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-}
-
-static void BM_CxxStringCopyToStatic(benchmark::State &state)
-{
-    const char *assign = "Hello, world!";
-
-    while (state.KeepRunning())
-    {
-        String s(assign);
-        benchmark::DoNotOptimize(s);
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetBytesProcessed(
-        int64_t(state.iterations()) * int64_t(strlen(assign)));
-}
-
-static void BM_CxxStringCopyToDynamic(benchmark::State &state)
-{
-    char assign[128];
-    memset(assign, 'a', 128);
-    assign[127] = 0;
-
-    while (state.KeepRunning())
-    {
-        String s(assign);
-        benchmark::DoNotOptimize(s);
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetBytesProcessed(int64_t(state.iterations()) * 128);
-}
-
-static void BM_CxxStringCopyLength(benchmark::State &state)
-{
-    char assign[128];
-    memset(assign, 'a', 128);
-    assign[127] = 0;
-
-    while (state.KeepRunning())
-    {
-        String s(assign, 128);
-        benchmark::DoNotOptimize(s);
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetBytesProcessed(int64_t(state.iterations()) * 128);
-}
-
-static void BM_CxxStringFormat(benchmark::State &state)
-{
-    while (state.KeepRunning())
-    {
-        String s;
-        s.Format("Hello, %s!", "world");
-        benchmark::DoNotOptimize(s);
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-}
-
-static void BM_CxxStringStartswithBestCase(benchmark::State &state)
-{
-    String s("hello, world!");
-
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(s.startswith("hello"));
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(s.length());
-}
-
-static void BM_CxxStringStartswithWorstCase(benchmark::State &state)
-{
-    char buf[state.range(0)];
-    memset(buf, 'a', state.range(0));
-
-    String s(buf, state.range(0));
-
-    while (state.KeepRunning())
-    {
-        // not in string
-        benchmark::DoNotOptimize(s.startswith("goodbye"));
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(s.length());
-}
-
-static void BM_CxxStringEndswith(benchmark::State &state)
-{
-    String tail("hello, world!");
-
-    char buf[state.range(0)];
-    memset(buf, 'a', state.range(0));
-    strncpy(
-        buf + (state.range(0) - tail.length()), static_cast<const char *>(tail),
-        tail.length());
-
-    String s(buf, state.range(0));
-
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(s.endswith("world!"));
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(s.length());
-}
-
-static void BM_CxxStringStrip(benchmark::State &state)
-{
-    char buf[state.range(0)];
-    memset(buf, ' ', state.range(0));
-    buf[state.range(0) / 2] = 'a';
-    buf[state.range(0) - 1] = 0;
-
+static void BM_CxxStringCreation(benchmark::State& state) {
+  while (state.KeepRunning()) {
     String s;
-    while (state.KeepRunning())
-    {
-        s.assign(buf, state.range(0));
-        s.strip();
-        benchmark::DoNotOptimize(s);
-    }
+    benchmark::DoNotOptimize(s);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    // cater for the string assignment which is also O(N)
-    state.SetComplexityN(state.range(0) * 2);
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStringLStrip(benchmark::State &state)
-{
-    char buf[state.range(0)];
-    memset(buf, ' ', state.range(0));
-    buf[state.range(0) - 2] = 'a';
-    buf[state.range(0) - 1] = 0;
+static void BM_CxxStringCreationConstexpr(benchmark::State& state) {
+  while (state.KeepRunning()) {
+    String s("Hello, world!");
+    benchmark::DoNotOptimize(s);
+  }
 
+  state.SetItemsProcessed(int64_t(state.iterations()));
+}
+
+static void BM_CxxStringCopyToStatic(benchmark::State& state) {
+  const char* assign = "Hello, world!";
+
+  while (state.KeepRunning()) {
+    String s(assign);
+    benchmark::DoNotOptimize(s);
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(strlen(assign)));
+}
+
+static void BM_CxxStringCopyToDynamic(benchmark::State& state) {
+  char assign[128];
+  memset(assign, 'a', 128);
+  assign[127] = 0;
+
+  while (state.KeepRunning()) {
+    String s(assign);
+    benchmark::DoNotOptimize(s);
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetBytesProcessed(int64_t(state.iterations()) * 128);
+}
+
+static void BM_CxxStringCopyLength(benchmark::State& state) {
+  char assign[128];
+  memset(assign, 'a', 128);
+  assign[127] = 0;
+
+  while (state.KeepRunning()) {
+    String s(assign, 128);
+    benchmark::DoNotOptimize(s);
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetBytesProcessed(int64_t(state.iterations()) * 128);
+}
+
+static void BM_CxxStringFormat(benchmark::State& state) {
+  while (state.KeepRunning()) {
     String s;
-    while (state.KeepRunning())
-    {
-        s.assign(buf, state.range(0));
-        s.lstrip();
-        benchmark::DoNotOptimize(s);
-    }
+    s.Format("Hello, %s!", "world");
+    benchmark::DoNotOptimize(s);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    // cater for the string assignment which is also O(N)
-    state.SetComplexityN(state.range(0) * 2);
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_CxxStringRStrip(benchmark::State &state)
-{
-    char buf[state.range(0)];
-    memset(buf, ' ', state.range(0));
-    buf[0] = 'a';
-    buf[state.range(0) - 1] = 0;
+static void BM_CxxStringStartswithBestCase(benchmark::State& state) {
+  String s("hello, world!");
 
-    String s;
-    while (state.KeepRunning())
-    {
-        s.assign(buf, state.range(0));
-        s.rstrip();
-        benchmark::DoNotOptimize(s);
-    }
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(s.startswith("hello"));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    // cater for the string assignment which is also O(N)
-    state.SetComplexityN(state.range(0) * 2);
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(s.length());
 }
 
-static void BM_CxxStringSplit(benchmark::State &state)
-{
-    char *buf = new char[state.range(0) + 1];
-    memset(buf, 'a', state.range(0));
-    buf[state.range(0)] = 0;
+static void BM_CxxStringStartswithWorstCase(benchmark::State& state) {
+  char buf[state.range(0)];
+  memset(buf, 'a', state.range(0));
 
-    String s;
-    while (state.KeepRunning())
-    {
-        s.assign(buf, state.range(0), true);
-        benchmark::DoNotOptimize(s.split(state.range(0) / 2));
-    }
+  String s(buf, state.range(0));
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    // cater for the string assignment which is also O(N)
-    state.SetComplexityN(state.range(0) * 2);
+  while (state.KeepRunning()) {
+    // not in string
+    benchmark::DoNotOptimize(s.startswith("goodbye"));
+  }
 
-    delete [] buf;
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(s.length());
 }
 
-static void BM_CxxStringSplitRef(benchmark::State &state)
-{
-    char *buf = new char[state.range(0) + 1];
-    memset(buf, 'a', state.range(0));
-    buf[state.range(0)] = 0;
+static void BM_CxxStringEndswith(benchmark::State& state) {
+  String tail("hello, world!");
 
-    String s, target;
-    while (state.KeepRunning())
-    {
-        s.assign(buf, state.range(0));
-        s.split(state.range(0) / 2, target);
-        benchmark::DoNotOptimize(s);
-    }
+  char buf[state.range(0)];
+  memset(buf, 'a', state.range(0));
+  strncpy(buf + (state.range(0) - tail.length()), static_cast<const char*>(tail), tail.length());
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    // cater for the string assignment which is also O(N)
-    state.SetComplexityN(state.range(0) * 2);
+  String s(buf, state.range(0));
 
-    delete [] buf;
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(s.endswith("world!"));
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(s.length());
 }
 
-static void BM_CxxStringTokenize(benchmark::State &state)
-{
-    char buf[state.range(0)];
-    memset(buf, 0, state.range(0));
-    for (size_t i = 0; i < state.range(0) - 1; ++i)
-    {
-        if (i % 2)
-        {
-            buf[i] = ' ';
-        }
-        else
-        {
-            buf[i] = 'a';
-        }
-    }
+static void BM_CxxStringStrip(benchmark::State& state) {
+  char buf[state.range(0)];
+  memset(buf, ' ', state.range(0));
+  buf[state.range(0) / 2] = 'a';
+  buf[state.range(0) - 1] = 0;
 
-    String s;
-    while (state.KeepRunning())
-    {
-        s.assign(buf, state.range(0));
-        benchmark::DoNotOptimize(s.tokenise(' '));
-    }
+  String s;
+  while (state.KeepRunning()) {
+    s.assign(buf, state.range(0));
+    s.strip();
+    benchmark::DoNotOptimize(s);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  // cater for the string assignment which is also O(N)
+  state.SetComplexityN(state.range(0) * 2);
 }
 
-static void BM_CxxStringTokenizeRef(benchmark::State &state)
-{
-    char buf[state.range(0)];
-    memset(buf, 0, state.range(0));
-    for (size_t i = 0; i < state.range(0) - 1; ++i)
-    {
-        if (i % 2)
-        {
-            buf[i] = ' ';
-        }
-        else
-        {
-            buf[i] = 'a';
-        }
-    }
+static void BM_CxxStringLStrip(benchmark::State& state) {
+  char buf[state.range(0)];
+  memset(buf, ' ', state.range(0));
+  buf[state.range(0) - 2] = 'a';
+  buf[state.range(0) - 1] = 0;
 
-    String s(buf, state.range(0));
-    while (state.KeepRunning())
-    {
-        Vector<String> tokens;
-        s.tokenise(' ', tokens);
-        benchmark::DoNotOptimize(s);
-    }
+  String s;
+  while (state.KeepRunning()) {
+    s.assign(buf, state.range(0));
+    s.lstrip();
+    benchmark::DoNotOptimize(s);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  // cater for the string assignment which is also O(N)
+  state.SetComplexityN(state.range(0) * 2);
 }
 
-static void BM_CxxStringTokenizeViews(benchmark::State &state)
-{
-    char buf[state.range(0)];
-    memset(buf, 0, state.range(0));
-    for (size_t i = 0; i < state.range(0) - 1; ++i)
-    {
-        if (i % 2)
-        {
-            buf[i] = ' ';
-        }
-        else
-        {
-            buf[i] = 'a';
-        }
-    }
+static void BM_CxxStringRStrip(benchmark::State& state) {
+  char buf[state.range(0)];
+  memset(buf, ' ', state.range(0));
+  buf[0] = 'a';
+  buf[state.range(0) - 1] = 0;
 
-    String s(buf, state.range(0));
-    while (state.KeepRunning())
-    {
-        Vector<StringView> tokens;
-        s.tokenise(' ', tokens);
-        benchmark::DoNotOptimize(s);
-    }
+  String s;
+  while (state.KeepRunning()) {
+    s.assign(buf, state.range(0));
+    s.rstrip();
+    benchmark::DoNotOptimize(s);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  // cater for the string assignment which is also O(N)
+  state.SetComplexityN(state.range(0) * 2);
 }
 
-static void BM_CxxStringCompareBestCase(benchmark::State &state)
-{
-    char left[state.range(0)];
-    char right[state.range(0)];
-    memset(left, 'a', state.range(0));
-    memset(right, 'a', state.range(0));
-    right[0] = 'b';  // very early fail
+static void BM_CxxStringSplit(benchmark::State& state) {
+  char* buf = new char[state.range(0) + 1];
+  memset(buf, 'a', state.range(0));
+  buf[state.range(0)] = 0;
 
-    String l(left, state.range(0)), r(right, state.range(0));
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(l == r);
-    }
+  String s;
+  while (state.KeepRunning()) {
+    s.assign(buf, state.range(0), true);
+    benchmark::DoNotOptimize(s.split(state.range(0) / 2));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  // cater for the string assignment which is also O(N)
+  state.SetComplexityN(state.range(0) * 2);
+
+  delete[] buf;
 }
 
-static void BM_CxxStringCompareAverageCase(benchmark::State &state)
-{
-    char left[state.range(0)];
-    char right[state.range(0)];
-    memset(left, 'a', state.range(0));
-    memset(right, 'a', state.range(0));
-    right[state.range(0) / 2] = 'b';  // middle range fail
+static void BM_CxxStringSplitRef(benchmark::State& state) {
+  char* buf = new char[state.range(0) + 1];
+  memset(buf, 'a', state.range(0));
+  buf[state.range(0)] = 0;
 
-    String l(left, state.range(0)), r(right, state.range(0));
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(l == r);
-    }
+  String s, target;
+  while (state.KeepRunning()) {
+    s.assign(buf, state.range(0));
+    s.split(state.range(0) / 2, target);
+    benchmark::DoNotOptimize(s);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  // cater for the string assignment which is also O(N)
+  state.SetComplexityN(state.range(0) * 2);
+
+  delete[] buf;
 }
 
-static void BM_CxxStringCompareWorstCase(benchmark::State &state)
-{
-    char left[state.range(0)];
-    char right[state.range(0)];
-    memset(left, 'a', state.range(0));
-    memset(right, 'a', state.range(0));
-    right[state.range(0) - 1] = 'b';  // end of range fail
-
-    String l(left, state.range(0)), r(right, state.range(0));
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(l == r);
+static void BM_CxxStringTokenize(benchmark::State& state) {
+  char buf[state.range(0)];
+  memset(buf, 0, state.range(0));
+  for (size_t i = 0; i < state.range(0) - 1; ++i) {
+    if (i % 2) {
+      buf[i] = ' ';
+    } else {
+      buf[i] = 'a';
     }
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  String s;
+  while (state.KeepRunning()) {
+    s.assign(buf, state.range(0));
+    benchmark::DoNotOptimize(s.tokenise(' '));
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
 }
 
-static void BM_CxxStringCompareRawBestCase(benchmark::State &state)
-{
-    char left[state.range(0)];
-    char right[state.range(0)];
-    memset(left, 'a', state.range(0));
-    memset(right, 'a', state.range(0));
-    right[0] = 'b';  // very early fail
-
-    String l(left, state.range(0));
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(l == right);
+static void BM_CxxStringTokenizeRef(benchmark::State& state) {
+  char buf[state.range(0)];
+  memset(buf, 0, state.range(0));
+  for (size_t i = 0; i < state.range(0) - 1; ++i) {
+    if (i % 2) {
+      buf[i] = ' ';
+    } else {
+      buf[i] = 'a';
     }
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  String s(buf, state.range(0));
+  while (state.KeepRunning()) {
+    Vector<String> tokens;
+    s.tokenise(' ', tokens);
+    benchmark::DoNotOptimize(s);
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
 }
 
-static void BM_CxxStringCompareRawAverageCase(benchmark::State &state)
-{
-    char left[state.range(0)];
-    char right[state.range(0)];
-    memset(left, 'a', state.range(0));
-    memset(right, 'a', state.range(0));
-    right[state.range(0) / 2] = 'b';  // middle range fail
-
-    String l(left, state.range(0));
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(l == right);
+static void BM_CxxStringTokenizeViews(benchmark::State& state) {
+  char buf[state.range(0)];
+  memset(buf, 0, state.range(0));
+  for (size_t i = 0; i < state.range(0) - 1; ++i) {
+    if (i % 2) {
+      buf[i] = ' ';
+    } else {
+      buf[i] = 'a';
     }
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  String s(buf, state.range(0));
+  while (state.KeepRunning()) {
+    Vector<StringView> tokens;
+    s.tokenise(' ', tokens);
+    benchmark::DoNotOptimize(s);
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
 }
 
-static void BM_CxxStringCompareRawWorstCase(benchmark::State &state)
-{
-    char left[state.range(0)];
-    char right[state.range(0)];
-    memset(left, 'a', state.range(0));
-    memset(right, 'a', state.range(0));
-    right[state.range(0) - 1] = 'b';  // end of range fail
+static void BM_CxxStringCompareBestCase(benchmark::State& state) {
+  char left[state.range(0)];
+  char right[state.range(0)];
+  memset(left, 'a', state.range(0));
+  memset(right, 'a', state.range(0));
+  right[0] = 'b';  // very early fail
 
-    String l(left, state.range(0)), r(right, state.range(0));
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(l == right);
-    }
+  String l(left, state.range(0)), r(right, state.range(0));
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(l == r);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
 }
 
-static void BM_CxxStringCompareRawFuncBestCase(benchmark::State &state)
-{
-    char left[state.range(0)];
-    char right[state.range(0)];
-    memset(left, 'a', state.range(0));
-    memset(right, 'a', state.range(0));
-    right[0] = 'b';  // very early fail
+static void BM_CxxStringCompareAverageCase(benchmark::State& state) {
+  char left[state.range(0)];
+  char right[state.range(0)];
+  memset(left, 'a', state.range(0));
+  memset(right, 'a', state.range(0));
+  right[state.range(0) / 2] = 'b';  // middle range fail
 
-    String l(left, state.range(0));
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(l.compare(right, state.range(0)));
-    }
+  String l(left, state.range(0)), r(right, state.range(0));
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(l == r);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
 }
 
-static void BM_CxxStringCompareRawFuncAverageCase(benchmark::State &state)
-{
-    char left[state.range(0)];
-    char right[state.range(0)];
-    memset(left, 'a', state.range(0));
-    memset(right, 'a', state.range(0));
-    right[state.range(0) / 2] = 'b';  // middle range fail
+static void BM_CxxStringCompareWorstCase(benchmark::State& state) {
+  char left[state.range(0)];
+  char right[state.range(0)];
+  memset(left, 'a', state.range(0));
+  memset(right, 'a', state.range(0));
+  right[state.range(0) - 1] = 'b';  // end of range fail
 
-    String l(left, state.range(0));
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(l.compare(right, state.range(0)));
-    }
+  String l(left, state.range(0)), r(right, state.range(0));
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(l == r);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
 }
 
-static void BM_CxxStringCompareRawFuncWorstCase(benchmark::State &state)
-{
-    char left[state.range(0)];
-    char right[state.range(0)];
-    memset(left, 'a', state.range(0));
-    memset(right, 'a', state.range(0));
-    right[state.range(0) - 1] = 'b';  // end of range fail
+static void BM_CxxStringCompareRawBestCase(benchmark::State& state) {
+  char left[state.range(0)];
+  char right[state.range(0)];
+  memset(left, 'a', state.range(0));
+  memset(right, 'a', state.range(0));
+  right[0] = 'b';  // very early fail
 
-    String l(left, state.range(0)), r(right, state.range(0));
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(l.compare(right, state.range(0)));
-    }
+  String l(left, state.range(0));
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(l == right);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
-    state.SetComplexityN(state.range(0));
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
+}
+
+static void BM_CxxStringCompareRawAverageCase(benchmark::State& state) {
+  char left[state.range(0)];
+  char right[state.range(0)];
+  memset(left, 'a', state.range(0));
+  memset(right, 'a', state.range(0));
+  right[state.range(0) / 2] = 'b';  // middle range fail
+
+  String l(left, state.range(0));
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(l == right);
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
+}
+
+static void BM_CxxStringCompareRawWorstCase(benchmark::State& state) {
+  char left[state.range(0)];
+  char right[state.range(0)];
+  memset(left, 'a', state.range(0));
+  memset(right, 'a', state.range(0));
+  right[state.range(0) - 1] = 'b';  // end of range fail
+
+  String l(left, state.range(0)), r(right, state.range(0));
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(l == right);
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
+}
+
+static void BM_CxxStringCompareRawFuncBestCase(benchmark::State& state) {
+  char left[state.range(0)];
+  char right[state.range(0)];
+  memset(left, 'a', state.range(0));
+  memset(right, 'a', state.range(0));
+  right[0] = 'b';  // very early fail
+
+  String l(left, state.range(0));
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(l.compare(right, state.range(0)));
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
+}
+
+static void BM_CxxStringCompareRawFuncAverageCase(benchmark::State& state) {
+  char left[state.range(0)];
+  char right[state.range(0)];
+  memset(left, 'a', state.range(0));
+  memset(right, 'a', state.range(0));
+  right[state.range(0) / 2] = 'b';  // middle range fail
+
+  String l(left, state.range(0));
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(l.compare(right, state.range(0)));
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
+}
+
+static void BM_CxxStringCompareRawFuncWorstCase(benchmark::State& state) {
+  char left[state.range(0)];
+  char right[state.range(0)];
+  memset(left, 'a', state.range(0));
+  memset(right, 'a', state.range(0));
+  right[state.range(0) - 1] = 'b';  // end of range fail
+
+  String l(left, state.range(0)), r(right, state.range(0));
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(l.compare(right, state.range(0)));
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetComplexityN(state.range(0));
 }
 
 BENCHMARK(BM_CxxStringCreation);

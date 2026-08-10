@@ -28,36 +28,33 @@ class Process;
 
 /// Wrapper object for ZombieQueue so it can delete any type of object with
 /// the correct destructors called in MI situations.
-class ZombieObject
-{
-  public:
-    virtual ~ZombieObject() = default;
+class ZombieObject {
+ public:
+  virtual ~ZombieObject() = default;
 };
 
 /// Special wrapper object for Process
-class ZombieProcess : public ZombieObject
-{
-  public:
-    virtual ~ZombieProcess();
+class ZombieProcess : public ZombieObject {
+ public:
+  virtual ~ZombieProcess();
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    enum class ReapPhase
-    {
-        Entered,
-        Reapable,
-    };
-    using ReapHook = void (*)(Process *, ReapPhase);
-    static EXPORTED_PUBLIC void setReapHook(ReapHook hook);
+  enum class ReapPhase {
+    Entered,
+    Reapable,
+  };
+  using ReapHook = void (*)(Process*, ReapPhase);
+  static EXPORTED_PUBLIC void setReapHook(ReapHook hook);
 #endif
 
-  private:
-    friend class Process;
-    explicit ZombieProcess(Process *pProcess);
+ private:
+  friend class Process;
+  explicit ZombieProcess(Process* pProcess);
 
-    Process *m_pProcess;
+  Process* m_pProcess;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    static ReapHook m_ReapHook;
+  static ReapHook m_ReapHook;
 #endif
 };
 
@@ -65,24 +62,22 @@ class ZombieProcess : public ZombieObject
  * ZombieQueue: takes zombie objects and frees them. This is used so those
  * objects do not have to do something like "delete this", which is bad.
  */
-class EXPORTED_PUBLIC ZombieQueue : public RequestQueue
-{
-  public:
-    ZombieQueue();
-    virtual ~ZombieQueue();
+class EXPORTED_PUBLIC ZombieQueue : public RequestQueue {
+ public:
+  ZombieQueue();
+  virtual ~ZombieQueue();
 
-    static ZombieQueue &instance();
+  static ZombieQueue& instance();
 
-    void addObject(ZombieObject *pObject);
+  void addObject(ZombieObject* pObject);
 
-  private:
-    virtual uint64_t executeRequest(
-        uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-        uint64_t p6, uint64_t p7, uint64_t p8);
+ private:
+  virtual uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
+                                  uint64_t p6, uint64_t p7, uint64_t p8);
 
-    virtual void cancelRequest(const Request &request);
+  virtual void cancelRequest(const Request& request);
 
-    static ZombieQueue m_Instance;
+  static ZombieQueue m_Instance;
 };
 
 #endif

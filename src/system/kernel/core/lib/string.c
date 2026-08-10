@@ -20,334 +20,283 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
+
 #include <stdarg.h>
 #include <stddef.h>
 
 #define UNROLLED_STRLEN 1
 
-extern void *malloc(size_t);
-extern void free(void *);
+extern void* malloc(size_t);
+extern void free(void*);
 
-EXPORTED_PUBLIC size_t strlen(const char *s);
-char *strcpy(char *dest, const char *src);
-char *strncpy(char *dest, const char *src, size_t len);
-EXPORTED_PUBLIC int strcmp(const char *p1, const char *p2);
-EXPORTED_PUBLIC int strncmp(const char *p1, const char *p2, size_t n);
-char *strcat(char *dest, const char *src);
-char *strncat(char *dest, const char *src, size_t n);
-char *strchr(const char *str, int target);
-char *strrchr(const char *str, int target);
-int vsprintf(char *buf, const char *fmt, va_list arg);
-unsigned long strtoul(const char *nptr, char **endptr, int base);
+EXPORTED_PUBLIC size_t strlen(const char* s);
+char* strcpy(char* dest, const char* src);
+char* strncpy(char* dest, const char* src, size_t len);
+EXPORTED_PUBLIC int strcmp(const char* p1, const char* p2);
+EXPORTED_PUBLIC int strncmp(const char* p1, const char* p2, size_t n);
+char* strcat(char* dest, const char* src);
+char* strncat(char* dest, const char* src, size_t n);
+char* strchr(const char* str, int target);
+char* strrchr(const char* str, int target);
+int vsprintf(char* buf, const char* fmt, va_list arg);
+unsigned long strtoul(const char* nptr, char** endptr, int base);
 
 #define ULONG_MAX -1
 
-char toUpper(char c)
-{
-    if (c < 'a' || c > 'z')
-        return c;  // special chars
-    c += ('A' - 'a');
-    return c;
+char toUpper(char c) {
+  if (c < 'a' || c > 'z')
+    return c;  // special chars
+  c += ('A' - 'a');
+  return c;
 }
 
-char toLower(char c)
-{
-    if (c < 'A' || c > 'Z')
-        return c;  // special chars
-    c -= ('A' - 'a');
-    return c;
+char toLower(char c) {
+  if (c < 'A' || c > 'Z')
+    return c;  // special chars
+  c -= ('A' - 'a');
+  return c;
 }
 
-int max(size_t a, size_t b)
-{
-    return a > b ? a : b;
+int max(size_t a, size_t b) {
+  return a > b ? a : b;
 }
 
-int min(size_t a, size_t b)
-{
-    return a > b ? b : a;
+int min(size_t a, size_t b) {
+  return a > b ? b : a;
 }
 
-WEAK size_t _StringLength(const char *src)
-{
-    if(!UNROLLED_STRLEN)
-    {
-        if (UNLIKELY(!src))
-        {
-            return 0;
-        }
-
-        size_t n = 0;
-        while (*src++)
-        {
-            ++n;
-        }
-
-        return n;
-    }
-    else
-    {
-        if (!src)
-        {
-            return 0;
-        }
-
-        // Unrolled loop that still avoids reading past the end of src (instead of
-        // e.g. doing bitmasks with 64-bit views of src).
-        const char *orig = src;
-        size_t result = 0;
-        while (1)
-        {
-#define UNROLL(n)        \
-        if (!*(src + n)) \
-            return (src + n) - orig;
-            UNROLL(0);
-            UNROLL(1);
-            UNROLL(2);
-            UNROLL(3);
-            UNROLL(4);
-            UNROLL(5);
-            UNROLL(6);
-            UNROLL(7);
-#undef UNROLL
-            src += 8;
-        }
-    }
-}
-
-WEAK size_t _BoundedStringLength(const char *src, size_t maxlen)
-{
-    if (UNLIKELY(!src))
-    {
-        return 0;
+WEAK size_t _StringLength(const char* src) {
+  if (!UNROLLED_STRLEN) {
+    if (UNLIKELY(!src)) {
+      return 0;
     }
 
     size_t n = 0;
-    while ((n < maxlen) && *src++)
-    {
-        ++n;
+    while (*src++) {
+      ++n;
     }
 
     return n;
+  } else {
+    if (!src) {
+      return 0;
+    }
+
+    // Unrolled loop that still avoids reading past the end of src (instead of
+    // e.g. doing bitmasks with 64-bit views of src).
+    const char* orig = src;
+    size_t result = 0;
+    while (1) {
+#define UNROLL(n)  \
+  if (!*(src + n)) \
+    return (src + n) - orig;
+      UNROLL(0);
+      UNROLL(1);
+      UNROLL(2);
+      UNROLL(3);
+      UNROLL(4);
+      UNROLL(5);
+      UNROLL(6);
+      UNROLL(7);
+#undef UNROLL
+      src += 8;
+    }
+  }
 }
 
-char *StringCopy(char *dest, const char *src)
-{
-    char *orig_dest = dest;
-    while (*src)
-    {
-        *dest = *src;
-        ++dest;
-        ++src;
-    }
+WEAK size_t _BoundedStringLength(const char* src, size_t maxlen) {
+  if (UNLIKELY(!src)) {
+    return 0;
+  }
+
+  size_t n = 0;
+  while ((n < maxlen) && *src++) {
+    ++n;
+  }
+
+  return n;
+}
+
+char* StringCopy(char* dest, const char* src) {
+  char* orig_dest = dest;
+  while (*src) {
+    *dest = *src;
+    ++dest;
+    ++src;
+  }
+  *dest = '\0';
+
+  return orig_dest;
+}
+
+char* StringCopyN(char* dest, const char* src, size_t len) {
+  char* orig_dest = dest;
+  while (len && LIKELY(*src)) {
+    *dest = *src;
+    --len;
+    ++dest;
+    ++src;
+  }
+
+  // zero-pad if we hit the end of src but len is still non-zero
+  while (len) {
     *dest = '\0';
+    --len;
+    ++dest;
+  }
 
-    return orig_dest;
+  return orig_dest;
 }
 
-char *StringCopyN(char *dest, const char *src, size_t len)
-{
-    char *orig_dest = dest;
-    while (len && LIKELY(*src))
-    {
-        *dest = *src;
-        --len;
-        ++dest;
-        ++src;
-    }
+int StringFormat(char* buf, const char* fmt, ...) {
+  va_list args;
+  int i;
 
-    // zero-pad if we hit the end of src but len is still non-zero
-    while (len)
-    {
-        *dest = '\0';
-        --len;
-        ++dest;
-    }
+  va_start(args, fmt);
+  i = VStringFormat(buf, fmt, args);
+  va_end(args);
 
-    return orig_dest;
+  return i;
 }
 
-int StringFormat(char *buf, const char *fmt, ...)
-{
-    va_list args;
-    int i;
+WEAK int StringCompare(const char* restrict p1, const char* restrict p2) {
+  if (p1 == p2)
+    return 0;
 
-    va_start(args, fmt);
-    i = VStringFormat(buf, fmt, args);
-    va_end(args);
+  char c1 = 0, c2 = 0;
+  while (1) {
+    c1 = *p1++;
+    c2 = *p2++;
+    if ((!c1) || (c1 != c2)) {
+      break;
+    }
+  }
 
-    return i;
+  return c1 - c2;
 }
 
-WEAK int StringCompare(const char *restrict p1, const char *restrict p2)
-{
-    if (p1 == p2)
-        return 0;
+WEAK int StringCompareN(const char* restrict p1, const char* restrict p2, size_t n) {
+  if (!n) {
+    return 0;
+  } else if (p1 == p2) {
+    return 0;
+  }
 
-    char c1 = 0, c2 = 0;
-    while (1)
-    {
-        c1 = *p1++;
-        c2 = *p2++;
-        if ((!c1) || (c1 != c2))
-        {
-            break;
-        }
+  size_t i;
+  char c1 = 0, c2 = 0;
+  for (i = 0; i < n; ++i) {
+    c1 = p1[i];
+    c2 = p2[i];
+
+    if ((!c1) || (c1 != c2)) {
+      break;
     }
+  }
 
-    return c1 - c2;
+  return c1 - c2;
 }
 
-WEAK int StringCompareN(const char *restrict p1, const char *restrict p2, size_t n)
-{
-    if (!n)
-    {
-        return 0;
-    }
-    else if (p1 == p2)
-    {
-        return 0;
-    }
+WEAK int StringCompareNOffset(const char* restrict p1, const char* restrict p2, size_t n,
+                              size_t* offset) {
+  if (!n) {
+    return 0;
+  } else if (p1 == p2) {
+    return 0;
+  }
 
-    size_t i;
-    char c1 = 0, c2 = 0;
-    for (i = 0; i < n; ++i)
-    {
-        c1 = p1[i];
-        c2 = p2[i];
+  size_t i;
+  char c1 = 0, c2 = 0;
+  for (i = 0; i < n; ++i) {
+    c1 = p1[i];
+    c2 = p2[i];
 
-        if ((!c1) || (c1 != c2))
-        {
-            break;
-        }
+    if ((!c1) || (c1 != c2)) {
+      break;
     }
+  }
 
-    return c1 - c2;
+  if (offset) {
+    *offset = i;
+  }
+  return c1 - c2;
 }
 
-WEAK int
-StringCompareNOffset(const char *restrict p1, const char *restrict p2, size_t n, size_t *offset)
-{
-    if (!n)
-    {
-        return 0;
-    }
-    else if (p1 == p2)
-    {
-        return 0;
-    }
-
-    size_t i;
-    char c1 = 0, c2 = 0;
-    for (i = 0; i < n; ++i)
-    {
-        c1 = p1[i];
-        c2 = p2[i];
-
-        if ((!c1) || (c1 != c2))
-        {
-            break;
-        }
-    }
-
-    if (offset)
-    {
-        *offset = i;
-    }
-    return c1 - c2;
+WEAK int StringMatch(const char* restrict p1, const char* restrict p2) {
+  return StringCompare(p1, p2) == 0 ? 0 : 1;
 }
 
-WEAK int StringMatch(const char *restrict p1, const char *restrict p2)
-{
-    return StringCompare(p1, p2) == 0 ? 0 : 1;
+WEAK int StringMatchN(const char* restrict p1, const char* restrict p2, size_t n) {
+  if (!n) {
+    return 0;
+  } else if (p1 == p2) {
+    return 0;
+  }
+
+  size_t i;
+  unsigned c1 = 0, c2 = 0;
+  for (i = 0; i < n; ++i) {
+    c1 = p1[i];
+    c2 = p2[i];
+
+    if ((!c1) || (c1 != c2)) {
+      break;
+    }
+  }
+
+  return (c1 == c2) ? 0 : 1;
 }
 
-WEAK int StringMatchN(const char *restrict p1, const char *restrict p2, size_t n)
-{
-    if (!n)
-    {
-        return 0;
-    }
-    else if (p1 == p2)
-    {
-        return 0;
-    }
-
-    size_t i;
-    unsigned c1 = 0, c2 = 0;
-    for (i = 0; i < n; ++i)
-    {
-        c1 = p1[i];
-        c2 = p2[i];
-
-        if ((!c1) || (c1 != c2))
-        {
-            break;
-        }
-    }
-
-    return (c1 == c2) ? 0 : 1;
+WEAK int StringMatchNOffset(const char* restrict p1, const char* restrict p2, size_t n,
+                            size_t* offset) {
+  return StringCompareNOffset(p1, p2, n, offset) == 0 ? 0 : 1;
 }
 
-WEAK int
-StringMatchNOffset(const char *restrict p1, const char *restrict p2, size_t n, size_t *offset)
-{
-    return StringCompareNOffset(p1, p2, n, offset) == 0 ? 0 : 1;
+char* StringConcat(char* dest, const char* src) {
+  char* origDest = dest;
+  while (*dest)
+    ++dest;
+  while (src && *src) {
+    *dest++ = *src++;
+  }
+
+  *dest++ = 0;
+
+  return origDest;
 }
 
-char *StringConcat(char *dest, const char *src)
-{
-    char *origDest = dest;
-    while (*dest) ++dest;
-    while (src && *src)
-    {
-        *dest++ = *src++;
-    }
+char* StringConcatN(char* dest, const char* src, size_t n) {
+  char* origDest = dest;
+  while (*dest)
+    ++dest;
+  while (src && *src && n) {
+    *dest++ = *src++;
+    --n;
+  }
 
-    *dest++ = 0;
+  *dest++ = 0;
 
-    return origDest;
-}
-
-char *StringConcatN(char *dest, const char *src, size_t n)
-{
-    char *origDest = dest;
-    while (*dest) ++dest;
-    while (src && *src && n)
-    {
-        *dest++ = *src++;
-        --n;
-    }
-
-    *dest++ = 0;
-
-    return origDest;
+  return origDest;
 }
 
 #if !(UTILITY_LINUX && defined(__APPLE__))
-int isspace(int c)
-{
-    return (c == ' ' || c == '\n' || c == '\r' || c == '\t');
+int isspace(int c) {
+  return (c == ' ' || c == '\n' || c == '\r' || c == '\t');
 }
 
-int isupper(int c)
-{
-    return (c >= 'A' && c <= 'Z');
+int isupper(int c) {
+  return (c >= 'A' && c <= 'Z');
 }
 
-int islower(int c)
-{
-    return (c >= 'a' && c <= 'z');
+int islower(int c) {
+  return (c >= 'a' && c <= 'z');
 }
 
-int isdigit(int c)
-{
-    return (c >= '0' && c <= '9');
+int isdigit(int c) {
+  return (c >= '0' && c <= '9');
 }
 
-int isalpha(int c)
-{
-    return isupper(c) || islower(c) || isdigit(c);
+int isalpha(int c) {
+  return isupper(c) || islower(c) || isdigit(c);
 }
 #endif
 
@@ -355,391 +304,317 @@ int isalpha(int c)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-qual"
 
-unsigned long
-StringToUnsignedLong(const char *nptr, char **endptr, int base)
-{
-    register const char *s = nptr;
-    register unsigned long acc;
-    register int c;
-    register unsigned long cutoff;
-    register int neg = 0, any, cutlim;
+unsigned long StringToUnsignedLong(const char* nptr, char** endptr, int base) {
+  register const char* s = nptr;
+  register unsigned long acc;
+  register int c;
+  register unsigned long cutoff;
+  register int neg = 0, any, cutlim;
 
-    /*
-     * See strtol for comments as to the logic used.
-     */
-    do
-    {
-        c = *s++;
-    } while (isspace(c));
-    if (c == '-')
-    {
-        neg = 1;
-        c = *s++;
+  /*
+   * See strtol for comments as to the logic used.
+   */
+  do {
+    c = *s++;
+  } while (isspace(c));
+  if (c == '-') {
+    neg = 1;
+    c = *s++;
+  } else if (c == '+')
+    c = *s++;
+  if ((base == 0 || base == 16) && c == '0' && (*s == 'x' || *s == 'X')) {
+    c = s[1];
+    s += 2;
+    base = 16;
+  }
+  if (base == 0)
+    base = c == '0' ? 8 : 10;
+  cutoff = (unsigned long)ULONG_MAX / (unsigned long)base;
+  cutlim = (unsigned long)ULONG_MAX % (unsigned long)base;
+  for (acc = 0, any = 0;; c = *s++) {
+    if (isdigit(c))
+      c -= '0';
+    else if (isalpha(c))
+      c -= isupper(c) ? 'A' - 10 : 'a' - 10;
+    else
+      break;
+    if (c >= base)
+      break;
+    if (any < 0 || acc > cutoff || (acc == cutoff && c > cutlim))
+      any = -1;
+    else {
+      any = 1;
+      acc *= base;
+      acc += c;
     }
-    else if (c == '+')
-        c = *s++;
-    if ((base == 0 || base == 16) && c == '0' && (*s == 'x' || *s == 'X'))
-    {
-        c = s[1];
-        s += 2;
-        base = 16;
-    }
-    if (base == 0)
-        base = c == '0' ? 8 : 10;
-    cutoff = (unsigned long) ULONG_MAX / (unsigned long) base;
-    cutlim = (unsigned long) ULONG_MAX % (unsigned long) base;
-    for (acc = 0, any = 0;; c = *s++)
-    {
-        if (isdigit(c))
-            c -= '0';
-        else if (isalpha(c))
-            c -= isupper(c) ? 'A' - 10 : 'a' - 10;
-        else
-            break;
-        if (c >= base)
-            break;
-        if (any < 0 || acc > cutoff || (acc == cutoff && c > cutlim))
-            any = -1;
-        else
-        {
-            any = 1;
-            acc *= base;
-            acc += c;
-        }
-    }
-    if (any < 0)
-    {
-        acc = ULONG_MAX;
-    }
-    else if (neg)
-        acc = -acc;
-    if (endptr != 0)
-        *endptr = (char *) (any ? s - 1 : nptr);
+  }
+  if (any < 0) {
+    acc = ULONG_MAX;
+  } else if (neg)
+    acc = -acc;
+  if (endptr != 0)
+    *endptr = (char*)(any ? s - 1 : nptr);
 
-    return (acc);
+  return (acc);
 }
 
-char *StringFind(const char *str, int target)
-{
-    const char *s;
-    char ch;
-    while (1)
-    {
-#define UNROLL(n)     \
-    s = str + n;      \
-    ch = *s;          \
-    if (!ch)          \
-        return NULL;  \
-    if (ch == target) \
-        return (char *) s;
+char* StringFind(const char* str, int target) {
+  const char* s;
+  char ch;
+  while (1) {
+#define UNROLL(n)   \
+  s = str + n;      \
+  ch = *s;          \
+  if (!ch)          \
+    return NULL;    \
+  if (ch == target) \
+    return (char*)s;
 
-        UNROLL(0);
-        UNROLL(1);
-        UNROLL(2);
-        UNROLL(3);
-        UNROLL(4);
-        UNROLL(5);
-        UNROLL(6);
-        UNROLL(7);
+    UNROLL(0);
+    UNROLL(1);
+    UNROLL(2);
+    UNROLL(3);
+    UNROLL(4);
+    UNROLL(5);
+    UNROLL(6);
+    UNROLL(7);
 #undef UNROLL
-        str += 8;
-    }
+    str += 8;
+  }
 }
 
-char *StringReverseFind(const char *str, int target)
-{
-    // StringLength must traverse the entire string once to find the length,
-    // so rather than finding the length and then traversing in reverse, we just
-    // traverse the string once. This gives a small performance boost.
-    const char *s;
-    const char *result = NULL;
-    char ch;
-    while (1)
-    {
-#define UNROLL(n)      \
-    s = str + n;       \
-    ch = *s;           \
-    if (!ch)           \
-        return (char *) result; \
-    if (ch == target)  \
-        result = s;
+char* StringReverseFind(const char* str, int target) {
+  // StringLength must traverse the entire string once to find the length,
+  // so rather than finding the length and then traversing in reverse, we just
+  // traverse the string once. This gives a small performance boost.
+  const char* s;
+  const char* result = NULL;
+  char ch;
+  while (1) {
+#define UNROLL(n)         \
+  s = str + n;            \
+  ch = *s;                \
+  if (!ch)                \
+    return (char*)result; \
+  if (ch == target)       \
+    result = s;
 
-        UNROLL(0);
-        UNROLL(1);
-        UNROLL(2);
-        UNROLL(3);
-        UNROLL(4);
-        UNROLL(5);
-        UNROLL(6);
-        UNROLL(7);
+    UNROLL(0);
+    UNROLL(1);
+    UNROLL(2);
+    UNROLL(3);
+    UNROLL(4);
+    UNROLL(5);
+    UNROLL(6);
+    UNROLL(7);
 #undef UNROLL
-        str += 8;
-    }
+    str += 8;
+  }
 }
 
 #pragma GCC diagnostic pop
 
-int StringContains(const char *str, const char *search)
-{
-    size_t alen = StringLength(str);
-    size_t blen = StringLength(search);
-    return StringContainsN(str, alen, search, blen);
+int StringContains(const char* str, const char* search) {
+  size_t alen = StringLength(str);
+  size_t blen = StringLength(search);
+  return StringContainsN(str, alen, search, blen);
 }
 
-static int isPrefix(const char *word, size_t wordLength, size_t pos)
-{
-    size_t suffixLength = wordLength - pos;
-    return StringCompareN(word, word + pos, suffixLength) == 0 ? 1 : 0;
+static int isPrefix(const char* word, size_t wordLength, size_t pos) {
+  size_t suffixLength = wordLength - pos;
+  return StringCompareN(word, word + pos, suffixLength) == 0 ? 1 : 0;
 }
 
-static size_t suffixLength(const char *word, size_t wordLength, size_t pos)
-{
-    size_t i = 0;
-    for (; (word[pos - i] == word[wordLength - 1 - i]) && (i < pos); i++)
-        ;
-    return i;
+static size_t suffixLength(const char* word, size_t wordLength, size_t pos) {
+  size_t i = 0;
+  for (; (word[pos - i] == word[wordLength - 1 - i]) && (i < pos); i++)
+    ;
+  return i;
 }
 
-int StringContainsN(
-    const char *str, size_t len, const char *search, size_t slen)
-{
-    // Quick exit cases (these shouldn't really be "contains" queries).
-    if (len < slen)
-    {
-        return 0;
-    }
-    else if (!slen)
-    {
-        return 1;
-    }
-    else if (!len)
-    {
-        return 0;
-    }
-    else if (len == slen)
-    {
-        return StringCompareN(str, search, slen) == 0;
-    }
-
-    // Boyer-Moore string searching (around 2x faster than a naive search)
-    size_t delta1[256];
-    size_t *delta2 = (size_t *) malloc(slen * sizeof(size_t));
-
-    for (size_t i = 0; i < 256; ++i)
-    {
-        delta1[i] = slen;
-    }
-
-    // Build delta1 array (deltas of rightmost unique character in pattern).
-    for (size_t i = 0; i < slen; ++i)
-    {
-        delta1[(int) search[i]] = slen - 1 - i;
-    }
-
-    // Build delta2 array (full match alignment).
-    ByteSet(delta2, 0, slen * sizeof(size_t));
-
-    ssize_t lastPrefix = slen - 1;
-    for (ssize_t i = slen - 1; i >= 0; --i)
-    {
-        if (isPrefix(search, slen, i + 1))
-        {
-            lastPrefix = i + 1;
-        }
-        delta2[i] = lastPrefix + (slen - 1 - i);
-    }
-    for (size_t i = 0; i < slen - 1; ++i)
-    {
-        size_t suffixLen = suffixLength(search, slen, i);
-        if (search[i - suffixLen] != search[slen - 1 - suffixLen])
-        {
-            delta2[slen - 1 - suffixLen] = slen - 1 - i + suffixLen;
-        }
-    }
-
-    for (size_t i = slen - 1; i < len;)
-    {
-        ssize_t j = slen - 1;
-        while (j >= 0 && (str[i] == search[j]))
-        {
-            --i;
-            --j;
-        }
-
-        if (j < 0)
-        {
-            free(delta2);
-            return 1;
-        }
-
-        i += max(delta1[(int) str[i]], delta2[j]);
-    }
-
-    free(delta2);
+int StringContainsN(const char* str, size_t len, const char* search, size_t slen) {
+  // Quick exit cases (these shouldn't really be "contains" queries).
+  if (len < slen) {
     return 0;
+  } else if (!slen) {
+    return 1;
+  } else if (!len) {
+    return 0;
+  } else if (len == slen) {
+    return StringCompareN(str, search, slen) == 0;
+  }
+
+  // Boyer-Moore string searching (around 2x faster than a naive search)
+  size_t delta1[256];
+  size_t* delta2 = (size_t*)malloc(slen * sizeof(size_t));
+
+  for (size_t i = 0; i < 256; ++i) {
+    delta1[i] = slen;
+  }
+
+  // Build delta1 array (deltas of rightmost unique character in pattern).
+  for (size_t i = 0; i < slen; ++i) {
+    delta1[(int)search[i]] = slen - 1 - i;
+  }
+
+  // Build delta2 array (full match alignment).
+  ByteSet(delta2, 0, slen * sizeof(size_t));
+
+  ssize_t lastPrefix = slen - 1;
+  for (ssize_t i = slen - 1; i >= 0; --i) {
+    if (isPrefix(search, slen, i + 1)) {
+      lastPrefix = i + 1;
+    }
+    delta2[i] = lastPrefix + (slen - 1 - i);
+  }
+  for (size_t i = 0; i < slen - 1; ++i) {
+    size_t suffixLen = suffixLength(search, slen, i);
+    if (search[i - suffixLen] != search[slen - 1 - suffixLen]) {
+      delta2[slen - 1 - suffixLen] = slen - 1 - i + suffixLen;
+    }
+  }
+
+  for (size_t i = slen - 1; i < len;) {
+    ssize_t j = slen - 1;
+    while (j >= 0 && (str[i] == search[j])) {
+      --i;
+      --j;
+    }
+
+    if (j < 0) {
+      free(delta2);
+      return 1;
+    }
+
+    i += max(delta1[(int)str[i]], delta2[j]);
+  }
+
+  free(delta2);
+  return 0;
 }
 
-int StringCompareCase(
-    const char *restrict s1, const char *restrict s2, int sensitive, size_t length,
-    size_t *offset)
-{
-    // Case-sensitive compare is just strncmp, basically.
-    if (LIKELY(sensitive))
-    {
-        return StringCompareNOffset(s1, s2, length, offset);
+int StringCompareCase(const char* restrict s1, const char* restrict s2, int sensitive,
+                      size_t length, size_t* offset) {
+  // Case-sensitive compare is just strncmp, basically.
+  if (LIKELY(sensitive)) {
+    return StringCompareNOffset(s1, s2, length, offset);
+  }
+
+  if (!length) {
+    return 0;
+  } else if (s1 == s2) {
+    if (offset) {
+      *offset = StringLength(s1);
+    }
+    return 0;
+  } else if (!s1) {
+    return -1;
+  } else if (!s2) {
+    return 1;
+  }
+
+  static size_t local = 0;
+  if (UNLIKELY(!offset)) {
+    offset = &local;
+  }
+
+  size_t i;
+  char c1 = 0, c2 = 0, r1 = 0, r2 = 0;
+  for (i = 0; i < length; ++i) {
+    r1 = s1[i];
+    r2 = s2[i];
+    c1 = toLower(r1);
+    c2 = toLower(r2);
+
+    if (c1 != c2) {
+      if (offset) {
+        *offset = i;
+      }
+
+      break;
     }
 
-    if (!length)
-    {
-        return 0;
+    if (!c1) {
+      break;
     }
-    else if (s1 == s2)
-    {
-        if (offset)
-        {
-            *offset = StringLength(s1);
-        }
-        return 0;
-    }
-    else if (!s1)
-    {
-        return -1;
-    }
-    else if (!s2)
-    {
-        return 1;
-    }
+  }
 
-    static size_t local = 0;
-    if (UNLIKELY(!offset))
-    {
-        offset = &local;
-    }
-
-    size_t i;
-    char c1 = 0, c2 = 0, r1 = 0, r2 = 0;
-    for (i = 0; i < length; ++i)
-    {
-        r1 = s1[i];
-        r2 = s2[i];
-        c1 = toLower(r1);
-        c2 = toLower(r2);
-
-        if (c1 != c2)
-        {
-            if (offset)
-            {
-                *offset = i;
-            }
-
-            break;
-        }
-
-        if (!c1)
-        {
-            break;
-        }
-    }
-
-    return r1 - r2;
+  return r1 - r2;
 }
 
-size_t nextCharacter(const char *s, size_t i)
-{
-    if (UNLIKELY(!s))
-    {
-        return i;
-    }
+size_t nextCharacter(const char* s, size_t i) {
+  if (UNLIKELY(!s)) {
+    return i;
+  }
 
-    // UTF-8 version of getting the next character
-    const uint8_t *u8buf = (const uint8_t *) s;
-    if (LIKELY(u8buf[i] <= 0x7F))
-    {
-        return i + 1;
-    }
-    else if ((u8buf[i] & 0xC0) == 0xC0)
-    {
-        if ((u8buf[i] & 0xF8) == 0xF0)
-        {
-            return i + 4;  // 4-byte sequence
-        }
-        else if ((u8buf[i] & 0xF0) == 0xE0)
-        {
-            return i + 3;
-        }
-        else
-        {
-            return i + 2;
-        }
-    }
+  // UTF-8 version of getting the next character
+  const uint8_t* u8buf = (const uint8_t*)s;
+  if (LIKELY(u8buf[i] <= 0x7F)) {
     return i + 1;
+  } else if ((u8buf[i] & 0xC0) == 0xC0) {
+    if ((u8buf[i] & 0xF8) == 0xF0) {
+      return i + 4;  // 4-byte sequence
+    } else if ((u8buf[i] & 0xF0) == 0xE0) {
+      return i + 3;
+    } else {
+      return i + 2;
+    }
+  }
+  return i + 1;
 }
 
-size_t prevCharacter(const char *s, size_t i)
-{
-    if (!s)
-    {
-        return i;
-    }
+size_t prevCharacter(const char* s, size_t i) {
+  if (!s) {
+    return i;
+  }
 
-    // TODO handle multibyte chars.
-    return i - 1;
+  // TODO handle multibyte chars.
+  return i - 1;
 }
 
 #if !UTILITY_LINUX
 // Provide forwarding functions to handle GCC optimising things.
-size_t strlen(const char *s)
-{
-    return StringLength(s);
+size_t strlen(const char* s) {
+  return StringLength(s);
 }
 
-char *strcpy(char *dest, const char *src)
-{
-    return StringCopy(dest, src);
+char* strcpy(char* dest, const char* src) {
+  return StringCopy(dest, src);
 }
 
-char *strncpy(char *dest, const char *src, size_t len)
-{
-    return StringCopyN(dest, src, len);
+char* strncpy(char* dest, const char* src, size_t len) {
+  return StringCopyN(dest, src, len);
 }
 
-int strcmp(const char *p1, const char *p2)
-{
-    return StringCompare(p1, p2);
+int strcmp(const char* p1, const char* p2) {
+  return StringCompare(p1, p2);
 }
 
-int strncmp(const char *p1, const char *p2, size_t n)
-{
-    return StringCompareN(p1, p2, n);
+int strncmp(const char* p1, const char* p2, size_t n) {
+  return StringCompareN(p1, p2, n);
 }
 
-char *strcat(char *dest, const char *src)
-{
-    return StringConcat(dest, src);
+char* strcat(char* dest, const char* src) {
+  return StringConcat(dest, src);
 }
 
-char *strncat(char *dest, const char *src, size_t n)
-{
-    return StringConcatN(dest, src, n);
+char* strncat(char* dest, const char* src, size_t n) {
+  return StringConcatN(dest, src, n);
 }
 
-char *strchr(const char *str, int target)
-{
-    return StringFind(str, target);
+char* strchr(const char* str, int target) {
+  return StringFind(str, target);
 }
 
-char *strrchr(const char *str, int target)
-{
-    return StringReverseFind(str, target);
+char* strrchr(const char* str, int target) {
+  return StringReverseFind(str, target);
 }
 
-int vsprintf(char *buf, const char *fmt, va_list arg)
-{
-    return VStringFormat(buf, fmt, arg);
+int vsprintf(char* buf, const char* fmt, va_list arg) {
+  return VStringFormat(buf, fmt, arg);
 }
 
-unsigned long strtoul(const char *nptr, char **endptr, int base)
-{
-    return StringToUnsignedLong(nptr, endptr, base);
+unsigned long strtoul(const char* nptr, char** endptr, int base) {
+  return StringToUnsignedLong(nptr, endptr, base);
 }
 #endif

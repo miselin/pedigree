@@ -42,77 +42,71 @@
 
     \note Because it uses 'longjmp', this class can cause memory leaks and
           skip destructors for stack-local objects. Use it wisely. */
-class EXPORTED_PUBLIC TimeoutGuard
-{
-  public:
-    /** Creates a new TimeoutGuard, with the given timeout, in seconds. */
-    TimeoutGuard(size_t timeoutSecs);
+class EXPORTED_PUBLIC TimeoutGuard {
+ public:
+  /** Creates a new TimeoutGuard, with the given timeout, in seconds. */
+  TimeoutGuard(size_t timeoutSecs);
 
-    /** Destroys the TimeoutGuard, cancelling the timeout. */
-    ~TimeoutGuard();
+  /** Destroys the TimeoutGuard, cancelling the timeout. */
+  ~TimeoutGuard();
 
-    /** Returns true if the guard just timed out, false if not. This should be
-        called just after the constructor. */
-    bool timedOut()
-    {
-        return m_bTimedOut;
+  /** Returns true if the guard just timed out, false if not. This should be
+      called just after the constructor. */
+  bool timedOut() {
+    return m_bTimedOut;
+  }
+
+  /** Cancels the current operation.
+      \note This is intended only to be called from a TimeoutGuardEvent. */
+  void cancel() NORETURN;
+
+  /** Internal event class. */
+  class TimeoutGuardEvent : public Event {
+   public:
+    TimeoutGuardEvent() : Event(0, false), m_pTarget(0) {}
+    TimeoutGuardEvent(TimeoutGuard* pTarget, size_t specificNestingLevel);
+    virtual ~TimeoutGuardEvent();
+
+    virtual size_t serialize(uint8_t* pBuffer);
+    static bool unserialize(uint8_t* pBuffer, TimeoutGuardEvent& event);
+
+    virtual size_t getNumber() {
+      return EventNumbers::TimeoutGuard;
     }
 
-    /** Cancels the current operation.
-        \note This is intended only to be called from a TimeoutGuardEvent. */
-    void cancel() NORETURN;
+    /** The TimeoutGuard to cancel. */
+    TimeoutGuard* m_pTarget;
 
-    /** Internal event class. */
-    class TimeoutGuardEvent : public Event
-    {
-      public:
-        TimeoutGuardEvent() : Event(0, false), m_pTarget(0)
-        {
-        }
-        TimeoutGuardEvent(TimeoutGuard *pTarget, size_t specificNestingLevel);
-        virtual ~TimeoutGuardEvent();
+   private:
+    TimeoutGuardEvent(const TimeoutGuardEvent&);
+    TimeoutGuardEvent& operator=(const TimeoutGuardEvent&);
+  };
 
-        virtual size_t serialize(uint8_t *pBuffer);
-        static bool unserialize(uint8_t *pBuffer, TimeoutGuardEvent &event);
+ private:
+  TimeoutGuard(const TimeoutGuard&);
+  TimeoutGuard& operator=(const TimeoutGuard&);
 
-        virtual size_t getNumber()
-        {
-            return EventNumbers::TimeoutGuard;
-        }
+  /** The event, which will be automatically freed when it fires. */
+  TimeoutGuardEvent* m_pEvent;
 
-        /** The TimeoutGuard to cancel. */
-        TimeoutGuard *m_pTarget;
+  /** Did the operation time out? */
+  bool m_bTimedOut;
 
-      private:
-        TimeoutGuardEvent(const TimeoutGuardEvent &);
-        TimeoutGuardEvent &operator=(const TimeoutGuardEvent &);
-    };
-
-  private:
-    TimeoutGuard(const TimeoutGuard &);
-    TimeoutGuard &operator=(const TimeoutGuard &);
-
-    /** The event, which will be automatically freed when it fires. */
-    TimeoutGuardEvent *m_pEvent;
-
-    /** Did the operation time out? */
-    bool m_bTimedOut;
-
-    /** Saved state. \todo can we do this without ifdefs? */
+  /** Saved state. \todo can we do this without ifdefs? */
 #if THREADS
-    SchedulerState m_State;
+  SchedulerState m_State;
 #else
-    void *m_State;
+  void* m_State;
 #endif
 
-    /** Saved nesting level. */
-    size_t m_nLevel;
+  /** Saved nesting level. */
+  size_t m_nLevel;
 
-    /** Cleanup records armed after the saved state must be abandoned. */
-    size_t m_StateCleanupCheckpoint;
+  /** Cleanup records armed after the saved state must be abandoned. */
+  size_t m_StateCleanupCheckpoint;
 
-    /** Our own personal lock. */
-    Spinlock m_Lock;
+  /** Our own personal lock. */
+  Spinlock m_Lock;
 };
 
 #endif

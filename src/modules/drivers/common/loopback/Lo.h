@@ -31,34 +31,31 @@
 #include "pedigree/kernel/utilities/List.h"
 
 /** Device driver for the loopback network device */
-class Loopback : public Network
-{
-  public:
-    Loopback();
-    Loopback(Network *pDev);
-    ~Loopback();
+class Loopback : public Network {
+ public:
+  Loopback();
+  Loopback(Network* pDev);
+  ~Loopback();
 
-    Loopback &instance()
-    {
-        return m_Instance;
-    }
+  Loopback& instance() {
+    return m_Instance;
+  }
 
-    virtual void getName(String &str)
-    {
-        str = "Loopback";
-    }
+  virtual void getName(String& str) {
+    str = "Loopback";
+  }
 
-    virtual bool send(size_t nBytes, uintptr_t buffer);
+  virtual bool send(size_t nBytes, uintptr_t buffer);
 
-    virtual bool setStationInfo(StationInfo info);
+  virtual bool setStationInfo(StationInfo info);
 
-    virtual StationInfo getStationInfo();
+  virtual StationInfo getStationInfo();
 
-  private:
-    static Loopback m_Instance;
+ private:
+  static Loopback m_Instance;
 
-    Loopback(const Loopback &);
-    void operator=(const Loopback &);
+  Loopback(const Loopback&);
+  void operator=(const Loopback&);
 };
 
 #endif

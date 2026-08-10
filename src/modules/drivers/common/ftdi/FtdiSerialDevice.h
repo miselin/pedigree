@@ -20,37 +20,33 @@
 #ifndef FTDISERIALDEVICE_H
 #define FTDISERIALDEVICE_H
 
-#include "modules/system/usb/UsbDevice.h"
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 
-class FtdiSerialDevice : public UsbDevice, public Serial
-{
-  public:
-    FtdiSerialDevice(UsbDevice *dev);
-    virtual ~FtdiSerialDevice();
+#include "modules/system/usb/UsbDevice.h"
 
-    virtual void initialiseDriver();
+class FtdiSerialDevice : public UsbDevice, public Serial {
+ public:
+  FtdiSerialDevice(UsbDevice* dev);
+  virtual ~FtdiSerialDevice();
 
-    virtual void setBase(uintptr_t nBaseAddr)
-    {
-    }
-    virtual char read();
-    virtual char readNonBlock()
-    {
-        return 0;
-    }
-    virtual void write(char c);
+  virtual void initialiseDriver();
 
-    virtual void getName(String &str)
-    {
-        str.assign("USB FTDI Serial Device", 23);
-    }
+  virtual void setBase(uintptr_t nBaseAddr) {}
+  virtual char read();
+  virtual char readNonBlock() {
+    return 0;
+  }
+  virtual void write(char c);
 
-  private:
-    Endpoint *m_pInEndpoint;
-    Endpoint *m_pOutEndpoint;
+  virtual void getName(String& str) {
+    str.assign("USB FTDI Serial Device", 23);
+  }
+
+ private:
+  Endpoint* m_pInEndpoint;
+  Endpoint* m_pOutEndpoint;
 };
 
 #endif

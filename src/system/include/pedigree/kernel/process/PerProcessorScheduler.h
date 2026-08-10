@@ -36,153 +36,148 @@ class SchedulingAlgorithm;
 class Spinlock;
 class WaitQueue;
 
-class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler
-{
-  public:
-    /** Default constructor - Creates an empty scheduler with a new idle thread.
-     */
-    PerProcessorScheduler();
+class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
+ public:
+  /** Default constructor - Creates an empty scheduler with a new idle thread.
+   */
+  PerProcessorScheduler();
 
-    ~PerProcessorScheduler();
+  ~PerProcessorScheduler();
 
-    /** Initialises the scheduler with the given thread. */
-    void initialise(Thread *pThread);
+  /** Initialises the scheduler with the given thread. */
+  void initialise(Thread* pThread);
 
-    /** Looks for event handlers to run, and if found, dispatches one.
-        \param userStack The stack to use if the event has a user-mode handler.
-       Usually obtained from an interruptState or syscallState. */
-    void checkEventState(uintptr_t userStack);
+  /** Looks for event handlers to run, and if found, dispatches one.
+      \param userStack The stack to use if the event has a user-mode handler.
+     Usually obtained from an interruptState or syscallState. */
+  void checkEventState(uintptr_t userStack);
 
-    /** Assumes this thread has just returned from executing a event handler,
-        and lets it resume normal execution. */
-    void eventHandlerReturned() NORETURN;
+  /** Assumes this thread has just returned from executing a event handler,
+      and lets it resume normal execution. */
+  void eventHandlerReturned() NORETURN;
 
-    /** Adds a new thread.
-        \param pThread The thread to add.
-        \param pStartFunction The function to start the thread with.
-        \param pParam void* parameter to give to the function.
-        \param bUsermode Start the thread in User Mode?
-        \param pStack Stack to start the thread with. */
-    void addThread(
-        Thread *pThread, Thread::ThreadStartFunc pStartFunction, void *pParam,
-        bool bUsermode, void *pStack);
+  /** Adds a new thread.
+      \param pThread The thread to add.
+      \param pStartFunction The function to start the thread with.
+      \param pParam void* parameter to give to the function.
+      \param bUsermode Start the thread in User Mode?
+      \param pStack Stack to start the thread with. */
+  void addThread(Thread* pThread, Thread::ThreadStartFunc pStartFunction, void* pParam,
+                 bool bUsermode, void* pStack);
 
-    /** Adds a new thread.
-        \param pThread The thread to add.
-        \param state The syscall state to jump to. */
-    void addThread(Thread *pThread, SyscallState &state);
+  /** Adds a new thread.
+      \param pThread The thread to add.
+      \param state The syscall state to jump to. */
+  void addThread(Thread* pThread, SyscallState& state);
 
-    /** Destroys the currently running thread.
-        \note This calls Thread::~Thread itself! */
-    void killCurrentThread(Spinlock *pLock = 0) NORETURN;
+  /** Destroys the currently running thread.
+      \note This calls Thread::~Thread itself! */
+  void killCurrentThread(Spinlock* pLock = 0) NORETURN;
 
-    /** Selects the registered idle owner when the current Thread exits. */
-    void requestCurrentThreadExitToIdle();
+  /** Selects the registered idle owner when the current Thread exits. */
+  void requestCurrentThreadExitToIdle();
 
-    /** SchedulerTimerHandler callback. */
-    void timer(uint64_t delta, InterruptState &state);
+  /** SchedulerTimerHandler callback. */
+  void timer(uint64_t delta, InterruptState& state);
 
-    void removeThread(Thread *pThread);
+  void removeThread(Thread* pThread);
 
-    void threadStatusChanged(Thread *pThread);
+  void threadStatusChanged(Thread* pThread);
 
-    /** Atomic hard-IRQ publication; does not touch a lock or ready queue. */
-    void ringIrqWorkDoorbell();
+  /** Atomic hard-IRQ publication; does not touch a lock or ready queue. */
+  void ringIrqWorkDoorbell();
 
-    /**
-     * Publishes deferred process timer accounting from IRQ/scheduler context.
-     * The accounting worker is made runnable through the shared IRQ doorbell.
-     */
-    void publishDeferredTimeAccounting();
+  /**
+   * Publishes deferred process timer accounting from IRQ/scheduler context.
+   * The accounting worker is made runnable through the shared IRQ doorbell.
+   */
+  void publishDeferredTimeAccounting();
 
-    /** Reschedules once from ordinary thread context during lifecycle work. */
-    void serviceIrqWorkDoorbell();
+  /** Reschedules once from ordinary thread context during lifecycle work. */
+  void serviceIrqWorkDoorbell();
 
-    /**
-     * Delivers pending Events and terminal work immediately before a user
-     * return, after the raw interrupt frame has released its C++ scopes.
-     */
-    void serviceUserReturnWork(InterruptState &state);
+  /**
+   * Delivers pending Events and terminal work immediately before a user
+   * return, after the raw interrupt frame has released its C++ scopes.
+   */
+  void serviceUserReturnWork(InterruptState& state);
 
-    void setIdle(Thread *pThread);
+  void setIdle(Thread* pThread);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    /** Exercises the real add-worker predicate and owned shutdown path. */
-    bool runHostedNewThreadWorkerRegressions();
+  /** Exercises the real add-worker predicate and owned shutdown path. */
+  bool runHostedNewThreadWorkerRegressions();
 
-    static bool currentIrqWorkDoorbellPendingForTest();
-    static void serviceCurrentIrqWorkDoorbellForTest();
+  static bool currentIrqWorkDoorbellPendingForTest();
+  static void serviceCurrentIrqWorkDoorbellForTest();
 #endif
 
-  private:
-    friend class Scheduler;
-    friend class Thread;
-    friend class WaitQueue;
+ private:
+  friend class Scheduler;
+  friend class Thread;
+  friend class WaitQueue;
 
-    /** Picks another runnable thread and switches to it. */
-    void schedule(
-        Thread::Status nextStatus = Thread::Ready,
-        bool dispatchEvents = true);
+  /** Picks another runnable thread and switches to it. */
+  void schedule(Thread::Status nextStatus = Thread::Ready, bool dispatchEvents = true);
 
-    /** Blocks the current thread after WaitQueue has published its wait record. */
-    void blockCurrent();
+  /** Blocks the current thread after WaitQueue has published its wait record. */
+  void blockCurrent();
 
-    /** Publishes a completed wait directly to this scheduler's ready queue. */
-    void publishReadyFromWait(Thread *pThread);
+  /** Publishes a completed wait directly to this scheduler's ready queue. */
+  void publishReadyFromWait(Thread* pThread);
 
-    /** Consumes terminal state at an IRQ-enabled ordinary thread boundary. */
-    void serviceTerminalStateAtThreadBoundary();
+  /** Consumes terminal state at an IRQ-enabled ordinary thread boundary. */
+  void serviceTerminalStateAtThreadBoundary();
 
-    void killCurrentThreadImpl(Spinlock *pLock, bool transferToIdle) NORETURN;
+  void killCurrentThreadImpl(Spinlock* pLock, bool transferToIdle) NORETURN;
 
-    /** Runs a raw-frame exception through its subsystem in ordinary context. */
-    void serviceDeferredSubsystemException(InterruptState &state);
+  /** Runs a raw-frame exception through its subsystem in ordinary context. */
+  void serviceDeferredSubsystemException(InterruptState& state);
 
-    /** Copy-constructor
-     *  \note Not implemented - singleton class. */
-    PerProcessorScheduler(const PerProcessorScheduler &);
-    /** Assignment operator
-     *  \note Not implemented - singleton class */
-    PerProcessorScheduler &operator=(const PerProcessorScheduler &);
+  /** Copy-constructor
+   *  \note Not implemented - singleton class. */
+  PerProcessorScheduler(const PerProcessorScheduler&);
+  /** Assignment operator
+   *  \note Not implemented - singleton class */
+  PerProcessorScheduler& operator=(const PerProcessorScheduler&);
 
-    /** Switches stacks, calls PerProcessorScheduler::deleteThread, then context
-        switches.
+  /** Switches stacks, calls PerProcessorScheduler::deleteThread, then context
+      switches.
 
-        \note Implemented in core/processor/ARCH/asm*/
-    static void deleteThreadThenRestoreState(
-        Thread *pThread, SchedulerState &newState,
-        volatile uintptr_t *pLock = 0) NORETURN;
+      \note Implemented in core/processor/ARCH/asm*/
+  static void deleteThreadThenRestoreState(Thread* pThread, SchedulerState& newState,
+                                           volatile uintptr_t* pLock = 0) NORETURN;
 
-    static void deleteThread(Thread *pThread);
+  static void deleteThread(Thread* pThread);
 
-    void startNewThreadWorker(Process *pParent);
-    void stopNewThreadWorker();
+  void startNewThreadWorker(Process* pParent);
+  void stopNewThreadWorker();
 
-    void startTimeAccountingWorker(Process *pParent);
-    void stopTimeAccountingWorker();
-    static int timeAccountingWorkerEntry(void *instance);
-    static bool timeAccountingWorkerReady(void *instance);
-    int runTimeAccountingWorker();
+  void startTimeAccountingWorker(Process* pParent);
+  void stopTimeAccountingWorker();
+  static int timeAccountingWorkerEntry(void* instance);
+  static bool timeAccountingWorkerReady(void* instance);
+  int runTimeAccountingWorker();
 
-    /** The current SchedulingAlgorithm */
-    SchedulingAlgorithm *m_pSchedulingAlgorithm;
+  /** The current SchedulingAlgorithm */
+  SchedulingAlgorithm* m_pSchedulingAlgorithm;
 
-    Mutex m_NewThreadDataLock;
-    ConditionVariable m_NewThreadDataCondition;
+  Mutex m_NewThreadDataLock;
+  ConditionVariable m_NewThreadDataCondition;
 
-    List<void *> m_NewThreadData;
-    List<void *> m_DelayedNewThreadData;
-    bool m_NewThreadAdmissionOpen;
-    bool m_StopNewThreadWorker;
-    OwnedThread m_NewThreadWorker;
-    DeferredTimeAccountingWorkerState m_TimeAccountingState;
-    Atomic<size_t> m_StopTimeAccountingWorker;
-    OwnedThread m_TimeAccountingWorker;
-    Atomic<size_t> m_IrqWorkDoorbell;
+  List<void*> m_NewThreadData;
+  List<void*> m_DelayedNewThreadData;
+  bool m_NewThreadAdmissionOpen;
+  bool m_StopNewThreadWorker;
+  OwnedThread m_NewThreadWorker;
+  DeferredTimeAccountingWorkerState m_TimeAccountingState;
+  Atomic<size_t> m_StopTimeAccountingWorker;
+  OwnedThread m_TimeAccountingWorker;
+  Atomic<size_t> m_IrqWorkDoorbell;
 
-    static int processorAddThread(void *instance);
+  static int processorAddThread(void* instance);
 
-    Thread *m_pIdleThread;
+  Thread* m_pIdleThread;
 };
 
 #endif

@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/machine/Pci.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -31,102 +31,87 @@
 
 static IoPort configSpace("PCI config space");
 
-union ConfigAddress
-{
-    struct
-    {
-        uint32_t always0 : 2;
-        uint32_t offset : 6;
-        uint32_t function : 3;
-        uint32_t device : 5;
-        uint32_t bus : 8;
-        uint32_t reserved : 7;
-        uint32_t enable : 1;
-    } __attribute__((packed));
-    uint32_t raw;
+union ConfigAddress {
+  struct {
+    uint32_t always0 : 2;
+    uint32_t offset : 6;
+    uint32_t function : 3;
+    uint32_t device : 5;
+    uint32_t bus : 8;
+    uint32_t reserved : 7;
+    uint32_t enable : 1;
+  } __attribute__((packed));
+  uint32_t raw;
 };
 
 PciBus PciBus::m_Instance;
 
-PciBus::PciBus()
-{
+PciBus::PciBus() {}
+
+PciBus::~PciBus() {}
+
+void PciBus::initialise() {
+  if (!configSpace.allocate(0xCF8, 8)) {
+    ERROR("PCI: Config space - unable to allocate IO port!");
+    return;
+  }
+
+  configSpace.write32(0x80000000, CONFIG_ADDRESS);
+  if (configSpace.read32(CONFIG_ADDRESS) != 0x80000000) {
+    ERROR("PCI: Controller not detected.");
+    return;
+  }
 }
 
-PciBus::~PciBus()
-{
+uint32_t PciBus::readConfigSpace(Device* pDev, uint8_t offset) {
+  ConfigAddress addr;
+  ByteSet(&addr, 0, sizeof(addr));
+  addr.offset = offset;
+  addr.function = pDev->getPciFunctionNumber();
+  addr.device = pDev->getPciDevicePosition();
+  addr.bus = pDev->getPciBusPosition();
+  addr.enable = 1;
+
+  configSpace.write32(addr.raw, CONFIG_ADDRESS);
+  return configSpace.read32(CONFIG_DATA);
 }
 
-void PciBus::initialise()
-{
-    if (!configSpace.allocate(0xCF8, 8))
-    {
-        ERROR("PCI: Config space - unable to allocate IO port!");
-        return;
-    }
+uint32_t PciBus::readConfigSpace(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset) {
+  ConfigAddress addr;
+  ByteSet(&addr, 0, sizeof(addr));
+  addr.offset = offset;
+  addr.function = function;
+  addr.device = device;
+  addr.bus = bus;
+  addr.enable = 1;
 
-    configSpace.write32(0x80000000, CONFIG_ADDRESS);
-    if (configSpace.read32(CONFIG_ADDRESS) != 0x80000000)
-    {
-        ERROR("PCI: Controller not detected.");
-        return;
-    }
+  configSpace.write32(addr.raw, CONFIG_ADDRESS);
+  return configSpace.read32(CONFIG_DATA);
 }
 
-uint32_t PciBus::readConfigSpace(Device *pDev, uint8_t offset)
-{
-    ConfigAddress addr;
-    ByteSet(&addr, 0, sizeof(addr));
-    addr.offset = offset;
-    addr.function = pDev->getPciFunctionNumber();
-    addr.device = pDev->getPciDevicePosition();
-    addr.bus = pDev->getPciBusPosition();
-    addr.enable = 1;
+void PciBus::writeConfigSpace(Device* pDev, uint8_t offset, uint32_t data) {
+  ConfigAddress addr;
+  ByteSet(&addr, 0, sizeof(addr));
+  addr.offset = offset;
+  addr.function = pDev->getPciFunctionNumber();
+  addr.device = pDev->getPciDevicePosition();
+  addr.bus = pDev->getPciBusPosition();
+  addr.enable = 1;
 
-    configSpace.write32(addr.raw, CONFIG_ADDRESS);
-    return configSpace.read32(CONFIG_DATA);
+  configSpace.write32(addr.raw, CONFIG_ADDRESS);
+  configSpace.write32(data, CONFIG_DATA);
 }
 
-uint32_t PciBus::readConfigSpace(
-    uint8_t bus, uint8_t device, uint8_t function, uint8_t offset)
-{
-    ConfigAddress addr;
-    ByteSet(&addr, 0, sizeof(addr));
-    addr.offset = offset;
-    addr.function = function;
-    addr.device = device;
-    addr.bus = bus;
-    addr.enable = 1;
+void PciBus::writeConfigSpace(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset,
+                              uint32_t data) {
+  ConfigAddress addr;
+  ByteSet(&addr, 0, sizeof(addr));
+  addr.offset = offset;
+  addr.function = function;
+  addr.device = device;
+  addr.bus = bus;
+  addr.enable = 1;
 
-    configSpace.write32(addr.raw, CONFIG_ADDRESS);
-    return configSpace.read32(CONFIG_DATA);
-}
-
-void PciBus::writeConfigSpace(Device *pDev, uint8_t offset, uint32_t data)
-{
-    ConfigAddress addr;
-    ByteSet(&addr, 0, sizeof(addr));
-    addr.offset = offset;
-    addr.function = pDev->getPciFunctionNumber();
-    addr.device = pDev->getPciDevicePosition();
-    addr.bus = pDev->getPciBusPosition();
-    addr.enable = 1;
-
-    configSpace.write32(addr.raw, CONFIG_ADDRESS);
-    configSpace.write32(data, CONFIG_DATA);
-}
-
-void PciBus::writeConfigSpace(
-    uint8_t bus, uint8_t device, uint8_t function, uint8_t offset,
-    uint32_t data)
-{
-    ConfigAddress addr;
-    ByteSet(&addr, 0, sizeof(addr));
-    addr.offset = offset;
-    addr.function = function;
-    addr.device = device;
-    addr.bus = bus;
-    addr.enable = 1;
-
-    configSpace.write32(addr.raw, CONFIG_ADDRESS);
-    configSpace.write32(data, CONFIG_DATA);
+  configSpace.write32(addr.raw, CONFIG_ADDRESS);
+  configSpace.write32(data, CONFIG_DATA);
 }

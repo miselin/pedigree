@@ -22,30 +22,26 @@
 
 #include "pedigree/kernel/utilities/StaticString.h"
 
-namespace MemoryTracing
-{
-enum AllocationTrace
-{
-    Allocation = 'A',
-    Free = 'F',
-    Metadata = 'M',
-    PageAlloc = 'P',
-    PageFree = 'X',
+namespace MemoryTracing {
+enum AllocationTrace {
+  Allocation = 'A',
+  Free = 'F',
+  Metadata = 'M',
+  PageAlloc = 'P',
+  PageFree = 'X',
 };
 
 const int num_backtrace_entries = 4;
 
-union AllocationTraceEntry
-{
-    struct
-    {
-        AllocationTrace type;
-        uint32_t sz;
-        uint64_t ptr;
-        uint32_t bt[num_backtrace_entries];
-    } data;
+union AllocationTraceEntry {
+  struct {
+    AllocationTrace type;
+    uint32_t sz;
+    uint64_t ptr;
+    uint32_t bt[num_backtrace_entries];
+  } data;
 
-    char buf[sizeof(data)];
+  char buf[sizeof(data)];
 };
 }  // namespace MemoryTracing
 
@@ -55,8 +51,7 @@ union AllocationTraceEntry
  * This includes a full backtrace which will NOT include the caller of
  * traceAllocation.
  */
-extern void
-traceAllocation(void *ptr, MemoryTracing::AllocationTrace type, size_t size);
+extern void traceAllocation(void* ptr, MemoryTracing::AllocationTrace type, size_t size);
 
 /**
  * Adds a metadata field to the memory trace.
@@ -64,6 +59,6 @@ traceAllocation(void *ptr, MemoryTracing::AllocationTrace type, size_t size);
  * This is typically used to define the region in which a module has been
  * loaded, so the correct debug symbols can be loaded and used.
  */
-extern void traceMetadata(NormalStaticString str, void *p1, void *p2);
+extern void traceMetadata(NormalStaticString str, void* p1, void* p2);
 
 #endif

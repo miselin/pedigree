@@ -26,58 +26,55 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 
-class DwarfUnwinder
-{
-  public:
-    /**
-     * Creates a DwarfUnwinder object defined by frame definitions at nData,
-     * which has a maximum size of nLength.
-     */
-    DwarfUnwinder(uintptr_t nData, size_t nLength);
-    ~DwarfUnwinder();
+class DwarfUnwinder {
+ public:
+  /**
+   * Creates a DwarfUnwinder object defined by frame definitions at nData,
+   * which has a maximum size of nLength.
+   */
+  DwarfUnwinder(uintptr_t nData, size_t nLength);
+  ~DwarfUnwinder();
 
-    /**
-     * Populates outState with the result of unwinding one stack frame from
-     * inState. \param[in] inState The starting state. \param[out] outState The
-     * state after one stack frame has been unwound. \return False if the frame
-     * could not be unwound, true otherwise.
-     */
-    bool unwind(
-        const ProcessorState &inState, ProcessorState &outState,
-        uintptr_t &frameBase);
+  /**
+   * Populates outState with the result of unwinding one stack frame from
+   * inState. \param[in] inState The starting state. \param[out] outState The
+   * state after one stack frame has been unwound. \return False if the frame
+   * could not be unwound, true otherwise.
+   */
+  bool unwind(const ProcessorState& inState, ProcessorState& outState, uintptr_t& frameBase);
 
-    /**
-     * Decodes a ULEB128 encoded number.
-     * \param[in] pBase A pointer, to which nOffset is added to find the ULEB
-     * string. \param[in,out] nOffset An offset to add to pBase to find the ULEB
-     * string. This is incremented by the function, and the function ends with
-     * it pointing to the byte after the ULEB number.
-     * \return An integer representation of the ULEB128 number.
-     * \see DWARF specification v3.0, Appendix C.
-     */
-    static uint32_t decodeUleb128(uint8_t *pBase, uint32_t &nOffset);
+  /**
+   * Decodes a ULEB128 encoded number.
+   * \param[in] pBase A pointer, to which nOffset is added to find the ULEB
+   * string. \param[in,out] nOffset An offset to add to pBase to find the ULEB
+   * string. This is incremented by the function, and the function ends with
+   * it pointing to the byte after the ULEB number.
+   * \return An integer representation of the ULEB128 number.
+   * \see DWARF specification v3.0, Appendix C.
+   */
+  static uint32_t decodeUleb128(uint8_t* pBase, uint32_t& nOffset);
 
-    /**
-     * Decodes a SLEB128 encoded number.
-     * \param[in] pBase A pointer, to which nOffset is added to find the SLEB
-     * string. \param[in,out] nOffset An offset to add to pBase to find the SLEB
-     * string. This is incremented by the function, and the function ends with
-     * it pointing to the byte after the SLEB number.
-     * \return An integer representation of the SLEB128 number.
-     * \see DWARF specification v3.0, Appendix C.
-     */
-    static int32_t decodeSleb128(uint8_t *pBase, uint32_t &nOffset);
+  /**
+   * Decodes a SLEB128 encoded number.
+   * \param[in] pBase A pointer, to which nOffset is added to find the SLEB
+   * string. \param[in,out] nOffset An offset to add to pBase to find the SLEB
+   * string. This is incremented by the function, and the function ends with
+   * it pointing to the byte after the SLEB number.
+   * \return An integer representation of the SLEB128 number.
+   * \see DWARF specification v3.0, Appendix C.
+   */
+  static int32_t decodeSleb128(uint8_t* pBase, uint32_t& nOffset);
 
-  private:
-    /**
-     * Address of our frame data.
-     */
-    uintptr_t m_nData;
+ private:
+  /**
+   * Address of our frame data.
+   */
+  uintptr_t m_nData;
 
-    /**
-     * Length of our frame data..
-     */
-    size_t m_nLength;
+  /**
+   * Length of our frame data..
+   */
+  size_t m_nLength;
 };
 
 /** @} */

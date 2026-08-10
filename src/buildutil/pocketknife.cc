@@ -21,38 +21,28 @@
 
 #include <thread>
 
-namespace pocketknife
-{
-void runConcurrently(int (*func)(void *), void *param)
-{
-    std::thread thread(func, param);
-    thread.detach();
+namespace pocketknife {
+void runConcurrently(int (*func)(void*), void* param) {
+  std::thread thread(func, param);
+  thread.detach();
 }
 
-void *runConcurrentlyAttached(int (*func)(void *), void *param)
-{
-    std::thread *thread = new std::thread(func, param);
-    return thread;
+void* runConcurrentlyAttached(int (*func)(void*), void* param) {
+  std::thread* thread = new std::thread(func, param);
+  return thread;
 }
 
-int attachTo(void *handle)
-{
-    std::thread *thread = reinterpret_cast<std::thread *>(handle);
-    thread->join();
-    delete thread;
-    return 0;  /// \todo get return value from thread?
+int attachTo(void* handle) {
+  std::thread* thread = reinterpret_cast<std::thread*>(handle);
+  thread->join();
+  delete thread;
+  return 0;  /// \todo get return value from thread?
 }
 
-VirtualAddressSpaceSwitch::VirtualAddressSpaceSwitch() : va(nullptr)
-{
-}
+VirtualAddressSpaceSwitch::VirtualAddressSpaceSwitch() : va(nullptr) {}
 
-VirtualAddressSpaceSwitch::~VirtualAddressSpaceSwitch()
-{
-}
+VirtualAddressSpaceSwitch::~VirtualAddressSpaceSwitch() {}
 
-void VirtualAddressSpaceSwitch::restore()
-{
-}
+void VirtualAddressSpaceSwitch::restore() {}
 
 }  // namespace pocketknife

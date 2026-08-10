@@ -7,8 +7,8 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
@@ -19,591 +19,433 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-namespace
-{
-bool check(bool condition, const char *test, const char *detail)
-{
-    if (condition)
-    {
-        return true;
-    }
+namespace {
+bool check(bool condition, const char* test, const char* detail) {
+  if (condition) {
+    return true;
+  }
 
-    ERROR(
-        "HOSTED-WAIT-TEST: FAIL " << test << ": " << detail);
-    return false;
+  ERROR("HOSTED-WAIT-TEST: FAIL " << test << ": " << detail);
+  return false;
 }
 
 struct HandlerLifetimeContext;
-HandlerLifetimeContext *g_HandlerLifetimeContext = nullptr;
+HandlerLifetimeContext* g_HandlerLifetimeContext = nullptr;
 
-class LifetimeHandler : public SyscallHandler
-{
-  public:
-    explicit LifetimeHandler(HandlerLifetimeContext &context)
-        : m_Context(context)
-    {
-    }
+class LifetimeHandler : public SyscallHandler {
+ public:
+  explicit LifetimeHandler(HandlerLifetimeContext& context) : m_Context(context) {}
 
-    uintptr_t syscall(SyscallState &) override;
+  uintptr_t syscall(SyscallState&) override;
 
-  private:
-    HandlerLifetimeContext &m_Context;
+ private:
+  HandlerLifetimeContext& m_Context;
 };
 
-struct HandlerLifetimeContext
-{
-    HandlerLifetimeContext()
-        : handler(*this), remover(nullptr), phase(0), hookCalls(0),
-          hookObservedDrain(0), handlerCalls(0),
-          callbacksAfterReturn(0), unregisterReturned(0),
-          unregisterSucceeded(0), failures(0)
-    {
-    }
+struct HandlerLifetimeContext {
+  HandlerLifetimeContext()
+      : handler(*this),
+        remover(nullptr),
+        phase(0),
+        hookCalls(0),
+        hookObservedDrain(0),
+        handlerCalls(0),
+        callbacksAfterReturn(0),
+        unregisterReturned(0),
+        unregisterSucceeded(0),
+        failures(0) {}
 
-    LifetimeHandler handler;
-    SyscallManager::Registration registration;
-    Thread *remover;
-    Atomic<size_t> phase;
-    Atomic<size_t> hookCalls;
-    Atomic<size_t> hookObservedDrain;
-    Atomic<size_t> handlerCalls;
-    Atomic<size_t> callbacksAfterReturn;
-    Atomic<size_t> unregisterReturned;
-    Atomic<size_t> unregisterSucceeded;
-    Atomic<size_t> failures;
+  LifetimeHandler handler;
+  SyscallManager::Registration registration;
+  Thread* remover;
+  Atomic<size_t> phase;
+  Atomic<size_t> hookCalls;
+  Atomic<size_t> hookObservedDrain;
+  Atomic<size_t> handlerCalls;
+  Atomic<size_t> callbacksAfterReturn;
+  Atomic<size_t> unregisterReturned;
+  Atomic<size_t> unregisterSucceeded;
+  Atomic<size_t> failures;
 };
 
-uintptr_t LifetimeHandler::syscall(SyscallState &)
-{
-    m_Context.handlerCalls += 1;
-    if (m_Context.unregisterReturned)
-    {
-        m_Context.callbacksAfterReturn += 1;
-    }
-    return 0x51;
+uintptr_t LifetimeHandler::syscall(SyscallState&) {
+  m_Context.handlerCalls += 1;
+  if (m_Context.unregisterReturned) {
+    m_Context.callbacksAfterReturn += 1;
+  }
+  return 0x51;
 }
 
-class SelfUnregisteringHandler : public SyscallHandler
-{
-  public:
-    explicit SelfUnregisteringHandler(
-        SyscallManager::Registration &registration)
-        : m_Registration(registration), calls(0), rejectionSeen(0)
-    {
-    }
+class SelfUnregisteringHandler : public SyscallHandler {
+ public:
+  explicit SelfUnregisteringHandler(SyscallManager::Registration& registration)
+      : m_Registration(registration), calls(0), rejectionSeen(0) {}
 
-    uintptr_t syscall(SyscallState &) override
-    {
-        calls += 1;
-        if (!m_Registration.reset() && m_Registration)
-        {
-            rejectionSeen += 1;
-        }
-        return 0x52;
+  uintptr_t syscall(SyscallState&) override {
+    calls += 1;
+    if (!m_Registration.reset() && m_Registration) {
+      rejectionSeen += 1;
     }
+    return 0x52;
+  }
 
-    SyscallManager::Registration &m_Registration;
-    Atomic<size_t> calls;
-    Atomic<size_t> rejectionSeen;
+  SyscallManager::Registration& m_Registration;
+  Atomic<size_t> calls;
+  Atomic<size_t> rejectionSeen;
 };
 
-void handlerPinHook(Service_t service, SyscallHandler *handler)
-{
-    HandlerLifetimeContext *context = g_HandlerLifetimeContext;
-    if (
-        !context || service != TUI ||
-        handler != &context->handler ||
-        !context->phase.compareAndSwap(0, 1))
-    {
-        return;
-    }
+void handlerPinHook(Service_t service, SyscallHandler* handler) {
+  HandlerLifetimeContext* context = g_HandlerLifetimeContext;
+  if (!context || service != TUI || handler != &context->handler ||
+      !context->phase.compareAndSwap(0, 1)) {
+    return;
+  }
 
-    context->hookCalls += 1;
-    for (size_t attempt = 0; attempt < 10000; ++attempt)
-    {
-        Thread::WaitDebugInfo info = {};
-        uintptr_t debugAddress = 0;
-        if (
-            context->phase == static_cast<size_t>(2) &&
-            context->remover->getWaitDebugInfo(info) &&
-            info.queue && info.channelOwner && info.queued &&
-            context->remover->getDebugState(debugAddress) ==
-                Thread::CallbackDrain &&
-            debugAddress ==
-                reinterpret_cast<uintptr_t>(&context->handler))
-        {
-            context->hookObservedDrain += 1;
-            context->phase = 3;
-            return;
-        }
-        Scheduler::instance().yield();
+  context->hookCalls += 1;
+  for (size_t attempt = 0; attempt < 10000; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    uintptr_t debugAddress = 0;
+    if (context->phase == static_cast<size_t>(2) && context->remover->getWaitDebugInfo(info) &&
+        info.queue && info.channelOwner && info.queued &&
+        context->remover->getDebugState(debugAddress) == Thread::CallbackDrain &&
+        debugAddress == reinterpret_cast<uintptr_t>(&context->handler)) {
+      context->hookObservedDrain += 1;
+      context->phase = 3;
+      return;
     }
+    Scheduler::instance().yield();
+  }
 
+  context->failures += 1;
+  context->phase = 3;
+}
+
+int unregisterPinnedHandler(void* parameter) {
+  HandlerLifetimeContext* context = reinterpret_cast<HandlerLifetimeContext*>(parameter);
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (context->phase != static_cast<size_t>(1) && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+
+  if (context->phase != static_cast<size_t>(1)) {
     context->failures += 1;
-    context->phase = 3;
+    return 1;
+  }
+
+  context->phase = 2;
+  if (context->registration.reset()) {
+    context->unregisterSucceeded += 1;
+  }
+  context->unregisterReturned += 1;
+  return 0;
 }
 
-int unregisterPinnedHandler(void *parameter)
-{
-    HandlerLifetimeContext *context =
-        reinterpret_cast<HandlerLifetimeContext *>(parameter);
-    const Time::Timestamp deadline =
-        Time::getTicks() + (500 * Time::Multiplier::Millisecond);
-    while (
-        context->phase != static_cast<size_t>(1) &&
-        Time::getTicks() < deadline)
-    {
-        Scheduler::instance().yield();
-    }
+bool handlerLifetimeBarrier() {
+  SyscallManager& manager = SyscallManager::instance();
+  HandlerLifetimeContext context;
+  context.remover = new Thread(Scheduler::instance().getKernelProcess(), unregisterPinnedHandler,
+                               &context, nullptr, false, true);
+  context.remover->setName("hosted syscall-handler remover");
 
-    if (context->phase != static_cast<size_t>(1))
-    {
-        context->failures += 1;
-        return 1;
-    }
+  g_HandlerLifetimeContext = &context;
+  manager.setHandlerPinHook(handlerPinHook);
+  const bool registered =
+      manager.registerSyscallHandler(TUI, &context.handler, context.registration);
+  SyscallManager::Registration duplicate;
+  const bool duplicateRejected =
+      !manager.registerSyscallHandler(TUI, &context.handler, duplicate) && !duplicate;
+  const uintptr_t result = manager.syscall(TUI, 0);
+  const bool joined = context.remover->join();
+  manager.setHandlerPinHook(nullptr);
+  g_HandlerLifetimeContext = nullptr;
 
-    context->phase = 2;
-    if (context->registration.reset())
-    {
-        context->unregisterSucceeded += 1;
-    }
-    context->unregisterReturned += 1;
-    return 0;
-}
+  const size_t callsAtUnregisterReturn = context.handlerCalls;
+  const uintptr_t lateResult = manager.syscall(TUI, 0);
+  const bool lateDispatchRejected = lateResult == 0 &&
+                                    context.handlerCalls == callsAtUnregisterReturn &&
+                                    context.callbacksAfterReturn == 0;
 
-bool handlerLifetimeBarrier()
-{
-    SyscallManager &manager = SyscallManager::instance();
-    HandlerLifetimeContext context;
-    context.remover = new Thread(
-        Scheduler::instance().getKernelProcess(),
-        unregisterPinnedHandler, &context, nullptr, false, true);
-    context.remover->setName("hosted syscall-handler remover");
+  SyscallManager::Registration reusable;
+  const bool reregistered = manager.registerSyscallHandler(TUI, &context.handler, reusable);
+  const uintptr_t redispatchResult = reregistered ? manager.syscall(TUI, 0) : 0;
+  SyscallManager::Registration moved(pedigree_std::move(reusable));
+  const bool movePreservedOwnership = !reusable && moved && moved.reset();
 
-    g_HandlerLifetimeContext = &context;
-    manager.setHandlerPinHook(handlerPinHook);
-    const bool registered = manager.registerSyscallHandler(
-        TUI, &context.handler, context.registration);
-    SyscallManager::Registration duplicate;
-    const bool duplicateRejected =
-        !manager.registerSyscallHandler(
-            TUI, &context.handler, duplicate) &&
-        !duplicate;
-    const uintptr_t result = manager.syscall(TUI, 0);
-    const bool joined = context.remover->join();
-    manager.setHandlerPinHook(nullptr);
-    g_HandlerLifetimeContext = nullptr;
+  SyscallManager::Registration selfRegistration;
+  SelfUnregisteringHandler selfUnregistering(selfRegistration);
+  const bool selfRegistered =
+      manager.registerSyscallHandler(TUI, &selfUnregistering, selfRegistration);
+  const uintptr_t selfResult = selfRegistered ? manager.syscall(TUI, 0) : 0;
+  const bool selfCleanup = selfRegistered && selfRegistration.reset();
 
-    const size_t callsAtUnregisterReturn = context.handlerCalls;
-    const uintptr_t lateResult = manager.syscall(TUI, 0);
-    const bool lateDispatchRejected =
-        lateResult == 0 &&
-        context.handlerCalls == callsAtUnregisterReturn &&
-        context.callbacksAfterReturn == 0;
-
-    SyscallManager::Registration reusable;
-    const bool reregistered = manager.registerSyscallHandler(
-        TUI, &context.handler, reusable);
-    const uintptr_t redispatchResult =
-        reregistered ? manager.syscall(TUI, 0) : 0;
-    SyscallManager::Registration moved(
-        pedigree_std::move(reusable));
-    const bool movePreservedOwnership =
-        !reusable && moved && moved.reset();
-
-    SyscallManager::Registration selfRegistration;
-    SelfUnregisteringHandler selfUnregistering(
-        selfRegistration);
-    const bool selfRegistered = manager.registerSyscallHandler(
-        TUI, &selfUnregistering, selfRegistration);
-    const uintptr_t selfResult =
-        selfRegistered ? manager.syscall(TUI, 0) : 0;
-    const bool selfCleanup =
-        selfRegistered && selfRegistration.reset();
-
-    const bool passed =
-        check(
-            registered && duplicateRejected && result == 0x51,
-            "syscall-handler-lifetime",
+  const bool passed =
+      check(registered && duplicateRejected && result == 0x51, "syscall-handler-lifetime",
             "registration, token ownership, or dispatch failed") &&
-        check(
-            joined && context.failures == 0,
-            "syscall-handler-lifetime",
+      check(joined && context.failures == 0, "syscall-handler-lifetime",
             "the unregister worker did not finish cleanly") &&
-        check(
-            context.hookCalls == 1 &&
-                context.hookObservedDrain == 1 &&
-                context.unregisterSucceeded == 1 &&
-                context.unregisterReturned == 1,
-            "syscall-handler-lifetime",
-            "unregister returned before the admitted handler") &&
-        check(
-            lateDispatchRejected,
-            "syscall-handler-lifetime",
+      check(context.hookCalls == 1 && context.hookObservedDrain == 1 &&
+                context.unregisterSucceeded == 1 && context.unregisterReturned == 1,
+            "syscall-handler-lifetime", "unregister returned before the admitted handler") &&
+      check(lateDispatchRejected, "syscall-handler-lifetime",
             "a handler ran after token reset returned") &&
-        check(
-            reregistered && redispatchResult == 0x51 &&
-                movePreservedOwnership,
-            "syscall-handler-lifetime",
-            "generation-bearing token move or slot reuse failed") &&
-        check(
-            selfRegistered && selfResult == 0x52 &&
-                selfUnregistering.calls == 1 &&
-                selfUnregistering.rejectionSeen == 1 &&
-                selfCleanup,
-            "syscall-handler-lifetime",
-            "self-reset changed ownership or reported safe teardown");
+      check(reregistered && redispatchResult == 0x51 && movePreservedOwnership,
+            "syscall-handler-lifetime", "generation-bearing token move or slot reuse failed") &&
+      check(selfRegistered && selfResult == 0x52 && selfUnregistering.calls == 1 &&
+                selfUnregistering.rejectionSeen == 1 && selfCleanup,
+            "syscall-handler-lifetime", "self-reset changed ownership or reported safe teardown");
 
-    if (passed)
-    {
-        NOTICE(
-            "HOSTED-WAIT-TEST: PASS syscall-handler-lifetime");
-    }
-    return passed;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS syscall-handler-lifetime");
+  }
+  return passed;
 }
 
-class PostActionHandler : public SyscallHandler
-{
-  public:
-    PostActionHandler()
-        : requested(SyscallManager::NoPostSyscallAction), calls(0),
-          failures(0)
-    {
+class PostActionHandler : public SyscallHandler {
+ public:
+  PostActionHandler() : requested(SyscallManager::NoPostSyscallAction), calls(0), failures(0) {}
+
+  uintptr_t syscall(SyscallState&) override {
+    bool staged = false;
+    switch (requested) {
+      case SyscallManager::TerminateCurrentThread:
+        staged = SyscallManager::instance().requestThreadExit();
+        break;
+      case SyscallManager::ExitCurrentProcess:
+        staged = SyscallManager::instance().requestProcessExit(37);
+        break;
+      case SyscallManager::ReturnFromEvent:
+        staged = SyscallManager::instance().requestEventReturn();
+        break;
+      case SyscallManager::PopEventState:
+        staged = SyscallManager::instance().requestEventStatePop();
+        break;
+      case SyscallManager::RestoreProcessorState: {
+        ProcessorState state;
+        state.setInstructionPointer(0x1234);
+        state.setStackPointer(0x5678);
+        staged = SyscallManager::instance().requestStateRestore(state);
+        break;
+      }
+      case SyscallManager::JumpToUserspace:
+        staged = SyscallManager::instance().requestUserJump(0x1234, 0x5678);
+        break;
+      case SyscallManager::RebootSystem:
+        staged = SyscallManager::instance().requestReboot();
+        break;
+      case SyscallManager::NoPostSyscallAction:
+        break;
     }
 
-    uintptr_t syscall(SyscallState &) override
-    {
-        bool staged = false;
-        switch (requested)
-        {
-            case SyscallManager::TerminateCurrentThread:
-                staged =
-                    SyscallManager::instance().requestThreadExit();
-                break;
-            case SyscallManager::ExitCurrentProcess:
-                staged =
-                    SyscallManager::instance().requestProcessExit(37);
-                break;
-            case SyscallManager::ReturnFromEvent:
-                staged =
-                    SyscallManager::instance().requestEventReturn();
-                break;
-            case SyscallManager::PopEventState:
-                staged =
-                    SyscallManager::instance().requestEventStatePop();
-                break;
-            case SyscallManager::RestoreProcessorState:
-            {
-                ProcessorState state;
-                state.setInstructionPointer(0x1234);
-                state.setStackPointer(0x5678);
-                staged = SyscallManager::instance()
-                             .requestStateRestore(state);
-                break;
-            }
-            case SyscallManager::JumpToUserspace:
-                staged = SyscallManager::instance().requestUserJump(
-                    0x1234, 0x5678);
-                break;
-            case SyscallManager::RebootSystem:
-                staged = SyscallManager::instance().requestReboot();
-                break;
-            case SyscallManager::NoPostSyscallAction:
-                break;
-        }
-
-        calls += 1;
-        if (!staged)
-        {
-            failures += 1;
-        }
-        return 0x61;
+    calls += 1;
+    if (!staged) {
+      failures += 1;
     }
+    return 0x61;
+  }
 
-    SyscallManager::PostSyscallActionKind requested;
-    Atomic<size_t> calls;
-    Atomic<size_t> failures;
+  SyscallManager::PostSyscallActionKind requested;
+  Atomic<size_t> calls;
+  Atomic<size_t> failures;
 };
 
-struct PostActionContext
-{
-    SyscallManager::PostSyscallActionKind expected =
-        SyscallManager::NoPostSyscallAction;
-    intptr_t expectedValue = 0;
-    SyscallManager::Registration *registration = nullptr;
-    Atomic<size_t> calls = 0;
-    Atomic<size_t> retired = 0;
-    Atomic<size_t> failures = 0;
+struct PostActionContext {
+  SyscallManager::PostSyscallActionKind expected = SyscallManager::NoPostSyscallAction;
+  intptr_t expectedValue = 0;
+  SyscallManager::Registration* registration = nullptr;
+  Atomic<size_t> calls = 0;
+  Atomic<size_t> retired = 0;
+  Atomic<size_t> failures = 0;
 };
 
-PostActionContext *g_PostActionContext = nullptr;
+PostActionContext* g_PostActionContext = nullptr;
 
-bool postActionHook(
-    SyscallManager::PostSyscallActionKind kind, intptr_t value)
-{
-    PostActionContext *context = g_PostActionContext;
-    if (!context)
-    {
-        return false;
-    }
+bool postActionHook(SyscallManager::PostSyscallActionKind kind, intptr_t value) {
+  PostActionContext* context = g_PostActionContext;
+  if (!context) {
+    return false;
+  }
 
-    context->calls += 1;
-    Thread *thread = Processor::information().getCurrentThread();
-    if (
-        kind != context->expected ||
-        value != context->expectedValue || !thread ||
-        thread->isTerminationDeferred())
-    {
-        context->failures += 1;
-    }
-    if (
-        context->registration &&
-        context->registration->reset())
-    {
-        context->retired += 1;
-    }
-    else
-    {
-        context->failures += 1;
-    }
-    return true;
+  context->calls += 1;
+  Thread* thread = Processor::information().getCurrentThread();
+  if (kind != context->expected || value != context->expectedValue || !thread ||
+      thread->isTerminationDeferred()) {
+    context->failures += 1;
+  }
+  if (context->registration && context->registration->reset()) {
+    context->retired += 1;
+  } else {
+    context->failures += 1;
+  }
+  return true;
 }
 
-bool postSyscallActions()
-{
-    static const SyscallManager::PostSyscallActionKind actions[] = {
-        SyscallManager::TerminateCurrentThread,
-        SyscallManager::ExitCurrentProcess,
-        SyscallManager::ReturnFromEvent,
-        SyscallManager::PopEventState,
-        SyscallManager::RestoreProcessorState,
-        SyscallManager::JumpToUserspace,
-        SyscallManager::RebootSystem};
-    constexpr size_t ActionCount =
-        sizeof(actions) / sizeof(actions[0]);
+bool postSyscallActions() {
+  static const SyscallManager::PostSyscallActionKind actions[] = {
+      SyscallManager::TerminateCurrentThread,
+      SyscallManager::ExitCurrentProcess,
+      SyscallManager::ReturnFromEvent,
+      SyscallManager::PopEventState,
+      SyscallManager::RestoreProcessorState,
+      SyscallManager::JumpToUserspace,
+      SyscallManager::RebootSystem};
+  constexpr size_t ActionCount = sizeof(actions) / sizeof(actions[0]);
 
-    SyscallManager &manager = SyscallManager::instance();
-    PostActionHandler handler;
-    PostActionContext context;
-    g_PostActionContext = &context;
-    manager.setPostSyscallHook(postActionHook);
+  SyscallManager& manager = SyscallManager::instance();
+  PostActionHandler handler;
+  PostActionContext context;
+  g_PostActionContext = &context;
+  manager.setPostSyscallHook(postActionHook);
 
-    bool loopPassed = true;
-    for (size_t i = 0; i < ActionCount; ++i)
-    {
-        const bool needsEventState =
-            actions[i] == SyscallManager::ReturnFromEvent ||
-            actions[i] == SyscallManager::PopEventState;
-        Thread *thread =
-            Processor::information().getCurrentThread();
-        const bool stateReady =
-            !needsEventState ||
-            (thread && thread->pushState() != nullptr);
-        SyscallManager::Registration registration;
-        context.expected = actions[i];
-        context.expectedValue =
-            actions[i] == SyscallManager::ExitCurrentProcess ? 37 : 0;
-        context.registration = &registration;
-        handler.requested = actions[i];
-        if (
-            !stateReady ||
-            !manager.registerSyscallHandler(
-                TUI, &handler, registration) ||
-            manager.syscall(TUI, 0) != 0x61 || registration)
-        {
-            loopPassed = false;
-            if (registration)
-            {
-                registration.reset();
-            }
-        }
-        if (needsEventState && stateReady)
-        {
-            thread->popState();
-        }
-    }
-
-    manager.setPostSyscallHook(nullptr);
-    g_PostActionContext = nullptr;
-    const bool passed =
-        check(
-            loopPassed && handler.calls == ActionCount &&
-                handler.failures == 0 &&
-                context.calls == ActionCount &&
-                context.retired == ActionCount &&
-                context.failures == 0,
-            "syscall-post-actions",
-            "a terminal action ran before its handler token retired");
-    if (passed)
-    {
-        NOTICE("HOSTED-WAIT-TEST: PASS syscall-post-actions");
-    }
-    return passed;
-}
-
-class InvalidEventActionHandler : public SyscallHandler
-{
-  public:
-    InvalidEventActionHandler()
-        : requested(SyscallManager::NoPostSyscallAction), calls(0),
-          rejections(0)
-    {
-    }
-
-    uintptr_t syscall(SyscallState &) override
-    {
-        bool accepted = false;
-        if (requested == SyscallManager::ReturnFromEvent)
-        {
-            accepted =
-                SyscallManager::instance().requestEventReturn();
-        }
-        else if (requested == SyscallManager::PopEventState)
-        {
-            accepted =
-                SyscallManager::instance().requestEventStatePop();
-        }
-
-        calls += 1;
-        if (!accepted)
-        {
-            rejections += 1;
-        }
-        return 0x62;
-    }
-
-    SyscallManager::PostSyscallActionKind requested;
-    Atomic<size_t> calls;
-    Atomic<size_t> rejections;
-};
-
-bool baseStateEventActionsRejected()
-{
-    Thread *thread = Processor::information().getCurrentThread();
-    SyscallManager &manager = SyscallManager::instance();
-    InvalidEventActionHandler handler;
+  bool loopPassed = true;
+  for (size_t i = 0; i < ActionCount; ++i) {
+    const bool needsEventState = actions[i] == SyscallManager::ReturnFromEvent ||
+                                 actions[i] == SyscallManager::PopEventState;
+    Thread* thread = Processor::information().getCurrentThread();
+    const bool stateReady = !needsEventState || (thread && thread->pushState() != nullptr);
     SyscallManager::Registration registration;
-    const bool registered =
-        thread && !thread->getStateLevel() &&
-        manager.registerSyscallHandler(
-            TUI, &handler, registration);
-
-    handler.requested = SyscallManager::ReturnFromEvent;
-    const uintptr_t returnResult =
-        registered ? manager.syscall(TUI, 0) : 0;
-    handler.requested = SyscallManager::PopEventState;
-    const uintptr_t popResult =
-        registered ? manager.syscall(TUI, 0) : 0;
-    const bool retired =
-        registered && registration.reset();
-
-    const bool passed =
-        check(
-            registered && returnResult == 0x62 &&
-                popResult == 0x62 && handler.calls == 2 &&
-                handler.rejections == 2 && retired &&
-                !thread->getStateLevel(),
-            "syscall-event-action-boundary",
-            "a base-state event return or pop was accepted");
-    if (passed)
-    {
-        NOTICE(
-            "HOSTED-WAIT-TEST: PASS "
-            "syscall-event-action-boundary");
+    context.expected = actions[i];
+    context.expectedValue = actions[i] == SyscallManager::ExitCurrentProcess ? 37 : 0;
+    context.registration = &registration;
+    handler.requested = actions[i];
+    if (!stateReady || !manager.registerSyscallHandler(TUI, &handler, registration) ||
+        manager.syscall(TUI, 0) != 0x61 || registration) {
+      loopPassed = false;
+      if (registration) {
+        registration.reset();
+      }
     }
-    return passed;
+    if (needsEventState && stateReady) {
+      thread->popState();
+    }
+  }
+
+  manager.setPostSyscallHook(nullptr);
+  g_PostActionContext = nullptr;
+  const bool passed = check(
+      loopPassed && handler.calls == ActionCount && handler.failures == 0 &&
+          context.calls == ActionCount && context.retired == ActionCount && context.failures == 0,
+      "syscall-post-actions", "a terminal action ran before its handler token retired");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS syscall-post-actions");
+  }
+  return passed;
+}
+
+class InvalidEventActionHandler : public SyscallHandler {
+ public:
+  InvalidEventActionHandler()
+      : requested(SyscallManager::NoPostSyscallAction), calls(0), rejections(0) {}
+
+  uintptr_t syscall(SyscallState&) override {
+    bool accepted = false;
+    if (requested == SyscallManager::ReturnFromEvent) {
+      accepted = SyscallManager::instance().requestEventReturn();
+    } else if (requested == SyscallManager::PopEventState) {
+      accepted = SyscallManager::instance().requestEventStatePop();
+    }
+
+    calls += 1;
+    if (!accepted) {
+      rejections += 1;
+    }
+    return 0x62;
+  }
+
+  SyscallManager::PostSyscallActionKind requested;
+  Atomic<size_t> calls;
+  Atomic<size_t> rejections;
+};
+
+bool baseStateEventActionsRejected() {
+  Thread* thread = Processor::information().getCurrentThread();
+  SyscallManager& manager = SyscallManager::instance();
+  InvalidEventActionHandler handler;
+  SyscallManager::Registration registration;
+  const bool registered = thread && !thread->getStateLevel() &&
+                          manager.registerSyscallHandler(TUI, &handler, registration);
+
+  handler.requested = SyscallManager::ReturnFromEvent;
+  const uintptr_t returnResult = registered ? manager.syscall(TUI, 0) : 0;
+  handler.requested = SyscallManager::PopEventState;
+  const uintptr_t popResult = registered ? manager.syscall(TUI, 0) : 0;
+  const bool retired = registered && registration.reset();
+
+  const bool passed =
+      check(registered && returnResult == 0x62 && popResult == 0x62 && handler.calls == 2 &&
+                handler.rejections == 2 && retired && !thread->getStateLevel(),
+            "syscall-event-action-boundary", "a base-state event return or pop was accepted");
+  if (passed) {
+    NOTICE(
+        "HOSTED-WAIT-TEST: PASS "
+        "syscall-event-action-boundary");
+  }
+  return passed;
 }
 
 struct AbandonedStackContext;
 
-class AbandoningHandler : public SyscallHandler
-{
-  public:
-    explicit AbandoningHandler(AbandonedStackContext &context)
-        : m_Context(context)
-    {
-    }
+class AbandoningHandler : public SyscallHandler {
+ public:
+  explicit AbandoningHandler(AbandonedStackContext& context) : m_Context(context) {}
 
-    uintptr_t syscall(SyscallState &) override;
+  uintptr_t syscall(SyscallState&) override;
 
-  private:
-    AbandonedStackContext &m_Context;
+ private:
+  AbandonedStackContext& m_Context;
 };
 
-struct AbandonedStackContext
-{
-    AbandonedStackContext()
-        : handler(*this), entered(0), returned(0)
-    {
-    }
+struct AbandonedStackContext {
+  AbandonedStackContext() : handler(*this), entered(0), returned(0) {}
 
-    AbandoningHandler handler;
-    Atomic<size_t> entered;
-    Atomic<size_t> returned;
+  AbandoningHandler handler;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
 };
 
-uintptr_t AbandoningHandler::syscall(SyscallState &)
-{
-    Thread *thread = Processor::information().getCurrentThread();
-    if (!thread->pushState())
-    {
-        return 0;
-    }
+uintptr_t AbandoningHandler::syscall(SyscallState&) {
+  Thread* thread = Processor::information().getCurrentThread();
+  if (!thread->pushState()) {
+    return 0;
+  }
 
-    Uninterruptible eventAndTerminationDeferral;
-    TerminationDeferral nestedTerminationDeferral;
-    m_Context.entered += 1;
-    thread->getScheduler()->killCurrentThread();
+  Uninterruptible eventAndTerminationDeferral;
+  TerminationDeferral nestedTerminationDeferral;
+  m_Context.entered += 1;
+  thread->getScheduler()->killCurrentThread();
 }
 
-int invokeAbandoningSyscall(void *parameter)
-{
-    AbandonedStackContext *context =
-        reinterpret_cast<AbandonedStackContext *>(parameter);
-    SyscallManager::instance().syscall(TUI, 0);
-    context->returned += 1;
-    return 1;
+int invokeAbandoningSyscall(void* parameter) {
+  AbandonedStackContext* context = reinterpret_cast<AbandonedStackContext*>(parameter);
+  SyscallManager::instance().syscall(TUI, 0);
+  context->returned += 1;
+  return 1;
 }
 
-bool abandonedSyscallStack()
-{
-    SyscallManager &manager = SyscallManager::instance();
-    AbandonedStackContext context;
-    SyscallManager::Registration registration;
-    if (
-        !manager.registerSyscallHandler(
-            TUI, &context.handler, registration))
-    {
-        return check(
-            false, "syscall-abandoned-stack",
-            "the abandoning handler could not register");
-    }
+bool abandonedSyscallStack() {
+  SyscallManager& manager = SyscallManager::instance();
+  AbandonedStackContext context;
+  SyscallManager::Registration registration;
+  if (!manager.registerSyscallHandler(TUI, &context.handler, registration)) {
+    return check(false, "syscall-abandoned-stack", "the abandoning handler could not register");
+  }
 
-    Thread *thread = new Thread(
-        Scheduler::instance().getKernelProcess(),
-        invokeAbandoningSyscall, &context, nullptr, false, true);
-    thread->setName("hosted abandoning syscall");
-    const bool joined = thread->join();
-    const bool retired = registration.reset();
+  Thread* thread = new Thread(Scheduler::instance().getKernelProcess(), invokeAbandoningSyscall,
+                              &context, nullptr, false, true);
+  thread->setName("hosted abandoning syscall");
+  const bool joined = thread->join();
+  const bool retired = registration.reset();
 
-    const bool passed =
-        check(
-            joined && retired && context.entered == 1 &&
-                context.returned == 0,
-            "syscall-abandoned-stack",
-            "forced teardown stranded a handler or deferral record");
-    if (passed)
-    {
-        NOTICE(
-            "HOSTED-WAIT-TEST: PASS syscall-abandoned-stack");
-    }
-    return passed;
+  const bool passed =
+      check(joined && retired && context.entered == 1 && context.returned == 0,
+            "syscall-abandoned-stack", "forced teardown stranded a handler or deferral record");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS syscall-abandoned-stack");
+  }
+  return passed;
 }
 }  // namespace
 
-bool runHostedSyscallRegressions()
-{
-    return handlerLifetimeBarrier() && postSyscallActions() &&
-           baseStateEventActionsRejected() &&
-           abandonedSyscallStack();
+bool runHostedSyscallRegressions() {
+  return handlerLifetimeBarrier() && postSyscallActions() && baseStateEventActionsRejected() &&
+         abandonedSyscallStack();
 }

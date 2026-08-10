@@ -21,33 +21,29 @@
 #define CONSOLE_SYSCALLS_H
 
 #include "modules/system/vfs/File.h"
-
 #include <sys/types.h>
 
 struct termios;
 struct winsize;
 
-struct vt_mode
-{
-    char mode;
-    char waitv;
-    short relsig;
-    short acqsig;
-    short frsig;
+struct vt_mode {
+  char mode;
+  char waitv;
+  short relsig;
+  short acqsig;
+  short frsig;
 };
 
-struct vt_stat
-{
-    unsigned short v_active;
-    unsigned short v_signal;
-    unsigned short v_state;
+struct vt_stat {
+  unsigned short v_active;
+  unsigned short v_signal;
+  unsigned short v_state;
 };
 
-struct kbentry
-{
-    unsigned char kb_table;
-    unsigned char kb_index;
-    unsigned short kb_value;
+struct kbentry {
+  unsigned char kb_table;
+  unsigned char kb_index;
+  unsigned short kb_value;
 };
 
 // vt_mode modes
@@ -55,16 +51,16 @@ struct kbentry
 #define VT_PROCESS 1
 #define VT_ACKACQ 2
 
-int posix_tcgetattr(int fd, struct termios *p);
-int posix_tcsetattr(int fd, int optional_actions, struct termios *p);
-int console_getwinsize(File *file, struct winsize *buf);
-int console_setwinsize(File *file, const struct winsize *buf);
-int console_flush(File *file, void *what);
+int posix_tcgetattr(int fd, struct termios* p);
+int posix_tcsetattr(int fd, int optional_actions, struct termios* p);
+int console_getwinsize(File* file, struct winsize* buf);
+int console_setwinsize(File* file, const struct winsize* buf);
+int console_flush(File* file, void* what);
 
-int console_ptsname(int fd, char *buf);
-int console_ttyname(int fd, char *buf);
+int console_ptsname(int fd, char* buf);
+int console_ttyname(int fd, char* buf);
 
-int console_setctty(File *file, bool steal);
+int console_setctty(File* file, bool steal);
 int console_setctty(int fd, bool steal);
 int console_notty(int fd);
 

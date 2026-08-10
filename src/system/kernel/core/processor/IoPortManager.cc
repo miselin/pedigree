@@ -17,88 +17,75 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/processor/IoPortManager.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/processor/IoPort.h"
+#include "pedigree/kernel/processor/IoPortManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/new"
 
 IoPortManager IoPortManager::m_Instance;
 
-bool IoPortManager::allocate(IoPort *Port, io_port_t ioPort, size_t size)
-{
-    if (Processor::isInitialised() == 0)
-        Processor::halt();
+bool IoPortManager::allocate(IoPort* Port, io_port_t ioPort, size_t size) {
+  if (Processor::isInitialised() == 0)
+    Processor::halt();
 
-    // Acquire the lock untill the end of the function
-    LockGuard<Spinlock> lock(m_Lock);
+  // Acquire the lock untill the end of the function
+  LockGuard<Spinlock> lock(m_Lock);
 
-    // Remove the I/O ports from the list of free I/O ports
-    if (m_FreeIoPorts.allocateSpecific(ioPort, size) == false)
-        return false;
+  // Remove the I/O ports from the list of free I/O ports
+  if (m_FreeIoPorts.allocateSpecific(ioPort, size) == false)
+    return false;
 
-    // Add information to the list of used I/O ports
-    m_UsedIoPorts.pushBack(Port);
-    return true;
+  // Add information to the list of used I/O ports
+  m_UsedIoPorts.pushBack(Port);
+  return true;
 }
 
-void IoPortManager::free(IoPort *Port)
-{
-    if (Processor::isInitialised() == 0)
-        Processor::halt();
+void IoPortManager::free(IoPort* Port) {
+  if (Processor::isInitialised() == 0)
+    Processor::halt();
 
-    // Acquire the lock untill the end of the function
-    LockGuard<Spinlock> lock(m_Lock);
+  // Acquire the lock untill the end of the function
+  LockGuard<Spinlock> lock(m_Lock);
 
-    // Remove from the used I/O ports list
-    Vector<IoPort *>::Iterator i = m_UsedIoPorts.begin();
-    Vector<IoPort *>::Iterator end = m_UsedIoPorts.end();
-    for (; i != end; i++)
-        if ((*i) == Port)
-        {
-            m_UsedIoPorts.erase(i);
-            break;
-        }
-
-    // Add to the free I/O ports list
-    m_FreeIoPorts.free(Port->base(), Port->size());
-}
-
-void IoPortManager::allocateIoPortList(Vector<IoPortInfo *> &IoPorts)
-{
-    // Acquire the lock untill the end of the function
-    LockGuard<Spinlock> lock(m_Lock);
-
-    for (size_t i = 0; i < m_UsedIoPorts.count(); i++)
-    {
-        IoPortInfo *pIoPortInfo = new IoPortInfo(
-            m_UsedIoPorts[i]->base(), m_UsedIoPorts[i]->size(),
-            m_UsedIoPorts[i]->name());
-        IoPorts.pushBack(pIoPortInfo);
+  // Remove from the used I/O ports list
+  Vector<IoPort*>::Iterator i = m_UsedIoPorts.begin();
+  Vector<IoPort*>::Iterator end = m_UsedIoPorts.end();
+  for (; i != end; i++)
+    if ((*i) == Port) {
+      m_UsedIoPorts.erase(i);
+      break;
     }
+
+  // Add to the free I/O ports list
+  m_FreeIoPorts.free(Port->base(), Port->size());
 }
 
-void IoPortManager::freeIoPortList(Vector<IoPortInfo *> &IoPorts)
-{
-    while (IoPorts.count() != 0)
-    {
-        IoPortInfo *pIoPortInfo = IoPorts.popBack();
-        delete pIoPortInfo;
-    }
+void IoPortManager::allocateIoPortList(Vector<IoPortInfo*>& IoPorts) {
+  // Acquire the lock untill the end of the function
+  LockGuard<Spinlock> lock(m_Lock);
+
+  for (size_t i = 0; i < m_UsedIoPorts.count(); i++) {
+    IoPortInfo* pIoPortInfo = new IoPortInfo(m_UsedIoPorts[i]->base(), m_UsedIoPorts[i]->size(),
+                                             m_UsedIoPorts[i]->name());
+    IoPorts.pushBack(pIoPortInfo);
+  }
+}
+
+void IoPortManager::freeIoPortList(Vector<IoPortInfo*>& IoPorts) {
+  while (IoPorts.count() != 0) {
+    IoPortInfo* pIoPortInfo = IoPorts.popBack();
+    delete pIoPortInfo;
+  }
 }
 
 //
 // Functions only usable in the kernel initialisation phase
 //
 
-void IoPortManager::initialise(io_port_t ioPortBase, size_t size)
-{
-    m_FreeIoPorts.free(ioPortBase, size);
+void IoPortManager::initialise(io_port_t ioPortBase, size_t size) {
+  m_FreeIoPorts.free(ioPortBase, size);
 }
 
-IoPortManager::IoPortManager() : m_Lock(), m_FreeIoPorts(), m_UsedIoPorts()
-{
-}
-IoPortManager::~IoPortManager()
-{
-}
+IoPortManager::IoPortManager() : m_Lock(), m_FreeIoPorts(), m_UsedIoPorts() {}
+IoPortManager::~IoPortManager() {}

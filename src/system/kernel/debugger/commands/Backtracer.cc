@@ -17,36 +17,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/debugger/commands/Backtracer.h"
 #include "pedigree/kernel/debugger/Backtrace.h"
+#include "pedigree/kernel/debugger/commands/Backtracer.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
-Backtracer::Backtracer()
-{
+Backtracer::Backtracer() {}
+
+Backtracer::~Backtracer() {}
+
+void Backtracer::autocomplete(const HugeStaticString& input, HugeStaticString& output) {
+  // TODO: add symbols.
+  output = "<address> (optional)";
 }
 
-Backtracer::~Backtracer()
-{
+bool Backtracer::execute(const HugeStaticString& input, HugeStaticString& output,
+                         InterruptState& state, DebuggerIO* screen) {
+  Backtrace bt;
+  bt.performBacktrace(state);
+  bt.prettyPrint(output);
+  return true;
 }
 
-void Backtracer::autocomplete(
-    const HugeStaticString &input, HugeStaticString &output)
-{
-    // TODO: add symbols.
-    output = "<address> (optional)";
-}
-
-bool Backtracer::execute(
-    const HugeStaticString &input, HugeStaticString &output,
-    InterruptState &state, DebuggerIO *screen)
-{
-    Backtrace bt;
-    bt.performBacktrace(state);
-    bt.prettyPrint(output);
-    return true;
-}
-
-const NormalStaticString Backtracer::getString()
-{
-    return NormalStaticString("backtrace");
+const NormalStaticString Backtracer::getString() {
+  return NormalStaticString("backtrace");
 }

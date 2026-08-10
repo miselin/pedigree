@@ -28,42 +28,39 @@
  * @{ */
 
 /** Result of an ordinary thread-context IRQ callback. */
-enum class IrqDisposition
-{
-    NotHandled,
-    Handled,
-    /**
-     * Teardown synchronously gated this device's contribution to the physical
-     * line before publishing callback-admission closure. A stale threaded
-     * dispatch may therefore rearm that line without claiming that this
-     * callback observed the occurrence.
-     */
-    Quiesced,
+enum class IrqDisposition {
+  NotHandled,
+  Handled,
+  /**
+   * Teardown synchronously gated this device's contribution to the physical
+   * line before publishing callback-admission closure. A stale threaded
+   * dispatch may therefore rearm that line without claiming that this
+   * callback observed the occurrence.
+   */
+  Quiesced,
 };
 
 /** Result of a bounded hard-IRQ callback. */
-enum class HardIrqDisposition
-{
-    NotHandled = 0,
-    Handled,
-    /**
-     * The source was recognised, but completion could not be handed off
-     * safely. The controller must still perform its required acknowledgement,
-     * while leaving the physical line masked after this occurrence.
-     *
-     * This disposition dominates a peer's Handled result on a shared line.
-     */
-    KeepMasked,
+enum class HardIrqDisposition {
+  NotHandled = 0,
+  Handled,
+  /**
+   * The source was recognised, but completion could not be handed off
+   * safely. The controller must still perform its required acknowledgement,
+   * while leaving the physical line masked after this occurrence.
+   *
+   * This disposition dominates a peer's Handled result on a shared line.
+   */
+  KeepMasked,
 };
 
 /** Common identity for handlers stored by an IRQ registry. */
-class EXPORTED_PUBLIC IrqHandlerBase
-{
-  protected:
-    IrqHandlerBase();
+class EXPORTED_PUBLIC IrqHandlerBase {
+ protected:
+  IrqHandlerBase();
 
-    /** Handlers are owned by their registering device, not the registry. */
-    virtual ~IrqHandlerBase();
+  /** Handlers are owned by their registering device, not the registry. */
+  virtual ~IrqHandlerBase();
 };
 
 /**
@@ -73,17 +70,16 @@ class EXPORTED_PUBLIC IrqHandlerBase
  * recorded the physical-line event. They may use thread-context APIs and are
  * deliberately not given the interrupted processor state.
  */
-class EXPORTED_PUBLIC IrqHandler : public IrqHandlerBase
-{
-  public:
-    IrqHandler();
+class EXPORTED_PUBLIC IrqHandler : public IrqHandlerBase {
+ public:
+  IrqHandler();
 
-    /** Handles a pending IRQ in thread context. */
-    virtual IrqDisposition irq(irq_id_t number) = 0;
+  /** Handles a pending IRQ in thread context. */
+  virtual IrqDisposition irq(irq_id_t number) = 0;
 
-  protected:
-    /** Virtual destructor */
-    virtual ~IrqHandler();
+ protected:
+  /** Virtual destructor */
+  virtual ~IrqHandler();
 };
 
 /**
@@ -94,18 +90,16 @@ class EXPORTED_PUBLIC IrqHandler : public IrqHandlerBase
  * retain InterruptState. SplitIrqHandler is only for devices which require a
  * mandatory hard top half; it is not the normal threaded-delivery API.
  */
-class EXPORTED_PUBLIC HardIrqHandler : public IrqHandlerBase
-{
-  public:
-    HardIrqHandler();
+class EXPORTED_PUBLIC HardIrqHandler : public IrqHandlerBase {
+ public:
+  HardIrqHandler();
 
-    /** Handles an IRQ synchronously in hard interrupt context. */
-    virtual HardIrqDisposition
-    irq(irq_id_t number, InterruptState &state) = 0;
+  /** Handles an IRQ synchronously in hard interrupt context. */
+  virtual HardIrqDisposition irq(irq_id_t number, InterruptState& state) = 0;
 
-  protected:
-    /** Virtual destructor */
-    virtual ~HardIrqHandler();
+ protected:
+  /** Virtual destructor */
+  virtual ~HardIrqHandler();
 };
 
 /** @} */

@@ -17,29 +17,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/utilities/new"
+
 #include "UsbMassStorageDevice.h"
 #include "modules/Module.h"
 #include "modules/system/usb/UsbPnP.h"
-#include "pedigree/kernel/utilities/new"
 
 class UsbDevice;
 
 static UsbPnP::Registration g_Registration;
 
-static UsbDevice *massStorageConnected(UsbDevice *pDevice)
-{
-    return new UsbMassStorageDevice(pDevice);
+static UsbDevice* massStorageConnected(UsbDevice* pDevice) {
+  return new UsbMassStorageDevice(pDevice);
 }
 
-static bool entry()
-{
-    return UsbPnP::instance().registerCallback(
-        8, SubclassNone, ProtocolNone, massStorageConnected, g_Registration);
+static bool entry() {
+  return UsbPnP::instance().registerCallback(8, SubclassNone, ProtocolNone, massStorageConnected,
+                                             g_Registration);
 }
 
-static void exit()
-{
-    g_Registration.reset();
+static void exit() {
+  g_Registration.reset();
 }
 
 MODULE_INFO("usb-mass-storage", &entry, &exit, "usb");

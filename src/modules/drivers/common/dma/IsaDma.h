@@ -32,19 +32,17 @@
  *  data is ready. This class is merely designed to prepare operations on
  *  the DMA controller without requiring drivers to do it themselves.
  */
-class EXPORTED_PUBLIC IsaDma
-{
-  public:
-    IsaDma();
-    virtual ~IsaDma();
+class EXPORTED_PUBLIC IsaDma {
+ public:
+  IsaDma();
+  virtual ~IsaDma();
 
-    static IsaDma &instance();
+  static IsaDma& instance();
 
-    /// Initialises a read operation
-    virtual bool initTransfer(
-        uint8_t channel, uint8_t mode, size_t length, uintptr_t addr);
+  /// Initialises a read operation
+  virtual bool initTransfer(uint8_t channel, uint8_t mode, size_t length, uintptr_t addr);
 
-  private:
+ private:
 };
 
 #endif

@@ -31,70 +31,69 @@
 
 class String;
 
-class EXPORTED_PUBLIC StringView
-{
-    friend class String;
+class EXPORTED_PUBLIC StringView {
+  friend class String;
 
-  public:
-    StringView();
-    explicit StringView(const char *s);
-    StringView(const char *s, size_t length);
-    StringView(const StringView &other);
-    explicit StringView(const String &other);
-    virtual ~StringView();
+ public:
+  StringView();
+  explicit StringView(const char* s);
+  StringView(const char* s, size_t length);
+  StringView(const StringView& other);
+  explicit StringView(const String& other);
+  virtual ~StringView();
 
-    StringView &operator=(const StringView &s);
+  StringView& operator=(const StringView& s);
 
-    bool operator==(const char *s) const;
-    bool operator==(const String &s) const;
-    bool operator==(const StringView &s) const;
+  bool operator==(const char* s) const;
+  bool operator==(const String& s) const;
+  bool operator==(const StringView& s) const;
 
-    /**
-     * Perform a sized comparison on the given string.
-     * Generally this will perform better than operator==(const char *)
-     */
-    bool compare(const char *s, size_t length) const;
+  /**
+   * Perform a sized comparison on the given string.
+   * Generally this will perform better than operator==(const char *)
+   */
+  bool compare(const char* s, size_t length) const;
 
-    size_t length() const;
+  size_t length() const;
 
-    /** Pass hashed = true to hash the substring, which makes this slower. */
-    StringView substring(size_t start, size_t end, bool hashed = HASH_STRINGVIEWS_BY_DEFAULT) const;
+  /** Pass hashed = true to hash the substring, which makes this slower. */
+  StringView substring(size_t start, size_t end, bool hashed = HASH_STRINGVIEWS_BY_DEFAULT) const;
 
-    String toString() const;
+  String toString() const;
 
-    char operator[](size_t index) const;
+  char operator[](size_t index) const;
 
-    size_t nextCharacter(size_t i) const;
-    size_t prevCharacter(size_t i) const;
+  size_t nextCharacter(size_t i) const;
+  size_t prevCharacter(size_t i) const;
 
-    uint32_t hash() const;
-    uint32_t hash();
+  uint32_t hash() const;
+  uint32_t hash();
 
-    const char *str() const;
+  const char* str() const;
 
-    /**
-     * Set whether hashing is enabled for this StringView.
-     * Hashing makes comparisons against different strings faster, at the
-     * expense of much slower creation.
-     */
-    void setHashingEnable(bool enabled);
+  /**
+   * Set whether hashing is enabled for this StringView.
+   * Hashing makes comparisons against different strings faster, at the
+   * expense of much slower creation.
+   */
+  void setHashingEnable(bool enabled);
 
-  private:
-    bool compareHash(const StringView &other) const;
-    bool compareHash(const String &other) const;
+ private:
+  bool compareHash(const StringView& other) const;
+  bool compareHash(const String& other) const;
 
-    uint32_t computeHash() const;
+  uint32_t computeHash() const;
 
-    // String::view() can set m_Hash to avoid recalculating.
-    StringView(const char *s, size_t length, uint32_t hash, bool hashingEnabled);
+  // String::view() can set m_Hash to avoid recalculating.
+  StringView(const char* s, size_t length, uint32_t hash, bool hashingEnabled);
 
-    const char *m_String;
-    size_t m_Length;
-    uint32_t m_Hash;
-    bool m_HashingEnabled;
+  const char* m_String;
+  size_t m_Length;
+  uint32_t m_Hash;
+  bool m_HashingEnabled;
 
-  protected:
-    virtual bool defaultHashingEnabled() const;
+ protected:
+  virtual bool defaultHashingEnabled() const;
 };
 
 /**
@@ -103,18 +102,17 @@ class EXPORTED_PUBLIC StringView
  * Use in cases where a parameter must be able to be hashed but would otherwise
  * be const.
  */
-class EXPORTED_PUBLIC HashedStringView : public StringView
-{
-   public:
-    HashedStringView() = default;
-    explicit HashedStringView(const char *s);
-    HashedStringView(const char *s, size_t length);
-    HashedStringView(const StringView &other);
-    HashedStringView(const HashedStringView &other);
-    HashedStringView(const String &other);
+class EXPORTED_PUBLIC HashedStringView : public StringView {
+ public:
+  HashedStringView() = default;
+  explicit HashedStringView(const char* s);
+  HashedStringView(const char* s, size_t length);
+  HashedStringView(const StringView& other);
+  HashedStringView(const HashedStringView& other);
+  HashedStringView(const String& other);
 
-   private:
-    bool defaultHashingEnabled() const override;
+ private:
+  bool defaultHashingEnabled() const override;
 };
 
 /** @} */

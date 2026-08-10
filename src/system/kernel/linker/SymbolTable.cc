@@ -17,204 +17,175 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/linker/SymbolTable.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/linker/SymbolTable.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 
 #define RAII_LOCK ConstexprLockGuard<Mutex, THREADS> guard(m_Lock)
 
-SymbolTable::SymbolTable(Elf *pElf)
-    : m_LocalSymbols(), m_GlobalSymbols(), m_WeakSymbols(),
-      m_pOriginatingElf(pElf),  m_bPreallocated(false)
-{
+SymbolTable::SymbolTable(Elf* pElf)
+    : m_LocalSymbols(),
+      m_GlobalSymbols(),
+      m_WeakSymbols(),
+      m_pOriginatingElf(pElf),
+      m_bPreallocated(false) {}
+
+SymbolTable::~SymbolTable() {}
+
+void SymbolTable::copyTable(Elf* pNewElf, const SymbolTable& newSymtab) {
+  RAII_LOCK;
+
+  // Safe to do this, all members are SharedPointers and will be copy
+  // constructed by these operations.
+  m_LocalSymbols = newSymtab.m_LocalSymbols;
+  m_GlobalSymbols = newSymtab.m_GlobalSymbols;
+  m_WeakSymbols = newSymtab.m_WeakSymbols;
 }
 
-SymbolTable::~SymbolTable()
-{
+void SymbolTable::insert(const String& name, Binding binding, Elf* pParent, uintptr_t value) {
+  RAII_LOCK;
+
+  doInsert(name, binding, pParent, value);
 }
 
-void SymbolTable::copyTable(Elf *pNewElf, const SymbolTable &newSymtab)
-{
-    RAII_LOCK;
+void SymbolTable::insertMultiple(SymbolTable* pOther, const String& name, Binding binding,
+                                 Elf* pParent, uintptr_t value) {
+  RAII_LOCK;
+  ConstexprLockGuard<Mutex, THREADS> guard2(pOther->m_Lock);
 
-    // Safe to do this, all members are SharedPointers and will be copy
-    // constructed by these operations.
-    m_LocalSymbols = newSymtab.m_LocalSymbols;
-    m_GlobalSymbols = newSymtab.m_GlobalSymbols;
-    m_WeakSymbols = newSymtab.m_WeakSymbols;
+  SharedPointer<Symbol> ptr = doInsert(name, binding, pParent, value);
+  if (pOther)
+    pOther->insertShared(name, ptr);
 }
 
-void SymbolTable::insert(
-    const String &name, Binding binding, Elf *pParent, uintptr_t value)
-{
-    RAII_LOCK;
+void SymbolTable::preallocate(size_t numGlobal, size_t numWeak, Elf* localElf, size_t numLocal) {
+  auto tree = getOrInsertTree(localElf);
+  tree->reserve(numLocal);
 
-    doInsert(name, binding, pParent, value);
+  tree = getOrInsertTree(localElf, Global);
+  tree->reserve(numGlobal);
+
+  tree = getOrInsertTree(localElf, Weak);
+  tree->reserve(numWeak);
+
+  m_bPreallocated = true;
 }
 
-void SymbolTable::insertMultiple(
-    SymbolTable *pOther, const String &name, Binding binding, Elf *pParent,
-    uintptr_t value)
-{
-    RAII_LOCK;
-    ConstexprLockGuard<Mutex, THREADS> guard2(pOther->m_Lock);
+void SymbolTable::preallocateAdditional(size_t numGlobal, size_t numWeak, Elf* localElf,
+                                        size_t numLocal) {
+  auto tree = getOrInsertTree(localElf, Global);
+  tree->reserve(tree->count() + numGlobal);
 
-    SharedPointer<Symbol> ptr = doInsert(name, binding, pParent, value);
-    if (pOther)
-        pOther->insertShared(name, ptr);
+  tree = getOrInsertTree(localElf, Weak);
+  tree->reserve(tree->count() + numWeak);
+
+  tree = getOrInsertTree(localElf);
+  tree->reserve(tree->count() + numLocal);
+
+  m_bPreallocated = true;
 }
 
-void SymbolTable::preallocate(
-    size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal)
-{
-    auto tree = getOrInsertTree(localElf);
-    tree->reserve(numLocal);
-
-    tree = getOrInsertTree(localElf, Global);
-    tree->reserve(numGlobal);
-
-    tree = getOrInsertTree(localElf, Weak);
-    tree->reserve(numWeak);
-
-    m_bPreallocated = true;
+bool SymbolTable::hasPreallocated() const {
+  return m_bPreallocated;
 }
 
-void SymbolTable::preallocateAdditional(
-    size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal)
-{
-    auto tree = getOrInsertTree(localElf, Global);
-    tree->reserve(tree->count() + numGlobal);
+SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(const String& name, Binding binding,
+                                                         Elf* pParent, uintptr_t value) {
+  Symbol* pSymbol = new Symbol(pParent, binding, value);
+  SharedPointer<Symbol> newSymbol(pSymbol);
 
-    tree = getOrInsertTree(localElf, Weak);
-    tree->reserve(tree->count() + numWeak);
-
-    tree = getOrInsertTree(localElf);
-    tree->reserve(tree->count() + numLocal);
-
-    m_bPreallocated = true;
+  insertShared(name, newSymbol);
+  return newSymbol;
 }
 
-bool SymbolTable::hasPreallocated() const
-{
-    return m_bPreallocated;
+void SymbolTable::insertShared(const String& name, SharedPointer<SymbolTable::Symbol>& symbol) {
+  auto tree = getOrInsertTree(symbol->getParent(), symbol->getBinding());
+  tree->insert(name, symbol);
 }
 
-SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(
-    const String &name, Binding binding, Elf *pParent, uintptr_t value)
-{
-    Symbol *pSymbol = new Symbol(pParent, binding, value);
-    SharedPointer<Symbol> newSymbol(pSymbol);
+void SymbolTable::eraseByElf(Elf* pParent) {
+  RAII_LOCK;
 
-    insertShared(name, newSymbol);
-    return newSymbol;
+  // Will wipe out recursively by destroying the SharedPointers within.
+  m_LocalSymbols.remove(pParent);
+  m_GlobalSymbols.remove(pParent);
+  m_WeakSymbols.remove(pParent);
 }
 
-void SymbolTable::insertShared(
-    const String &name, SharedPointer<SymbolTable::Symbol> &symbol)
-{
-    auto tree = getOrInsertTree(symbol->getParent(), symbol->getBinding());
-    tree->insert(name, symbol);
-}
+uintptr_t SymbolTable::lookup(const HashedStringView& name, Elf* pElf, Policy policy,
+                              Binding* pBinding) {
+  RAII_LOCK;
 
-void SymbolTable::eraseByElf(Elf *pParent)
-{
-    RAII_LOCK;
+  // safe empty SharedPointer we can use for lookupRef()'s failed result
+  static SharedPointer<symbolTree_t> failedLookup;
 
-    // Will wipe out recursively by destroying the SharedPointers within.
-    m_LocalSymbols.remove(pParent);
-    m_GlobalSymbols.remove(pParent);
-    m_WeakSymbols.remove(pParent);
-}
+  uintptr_t lookupResult = 0;
 
-uintptr_t SymbolTable::lookup(
-    const HashedStringView &name, Elf *pElf, Policy policy, Binding *pBinding)
-{
-    RAII_LOCK;
-
-    // safe empty SharedPointer we can use for lookupRef()'s failed result
-    static SharedPointer<symbolTree_t> failedLookup;
-
-    uintptr_t lookupResult = 0;
-
-    // Local to the ELF file itself.
-    if (policy != NotOriginatingElf)
-    {
-        const SharedPointer<symbolTree_t> &symbolTree = m_LocalSymbols.lookupRef(pElf, failedLookup);
-        if (symbolTree)
-        {
-            symbolTree_t::LookupResult result = symbolTree->lookup(name);
-            if (result.hasValue())
-            {
-                lookupResult = result.value()->getValue();
-            }
-        }
+  // Local to the ELF file itself.
+  if (policy != NotOriginatingElf) {
+    const SharedPointer<symbolTree_t>& symbolTree = m_LocalSymbols.lookupRef(pElf, failedLookup);
+    if (symbolTree) {
+      symbolTree_t::LookupResult result = symbolTree->lookup(name);
+      if (result.hasValue()) {
+        lookupResult = result.value()->getValue();
+      }
     }
+  }
 
-    // Global lookup across all ELFs that expose global symbols.
-    if (!lookupResult)
-    {
-        for (parentedSymbolTree_t::Iterator it = m_GlobalSymbols.begin();
-             it != m_GlobalSymbols.end();
-             ++it)
-        {
-            symbolTree_t::LookupResult result = it.value(failedLookup)->lookup(name);
-            if (result.hasValue())
-            {
-                lookupResult = result.value()->getValue();
-                break;
-            }
-        }
+  // Global lookup across all ELFs that expose global symbols.
+  if (!lookupResult) {
+    for (parentedSymbolTree_t::Iterator it = m_GlobalSymbols.begin(); it != m_GlobalSymbols.end();
+         ++it) {
+      symbolTree_t::LookupResult result = it.value(failedLookup)->lookup(name);
+      if (result.hasValue()) {
+        lookupResult = result.value()->getValue();
+        break;
+      }
     }
+  }
 
-    // Finally we try and find a usable weak symbol.
-    if (!lookupResult)
-    {
-        for (parentedSymbolTree_t::Iterator it = m_WeakSymbols.begin();
-             it != m_WeakSymbols.end();
-             ++it)
-        {
-            symbolTree_t::LookupResult result = it.value(failedLookup)->lookup(name);
-            if (result.hasValue())
-            {
-                lookupResult = result.value()->getValue();
-                break;
-            }
-        }
+  // Finally we try and find a usable weak symbol.
+  if (!lookupResult) {
+    for (parentedSymbolTree_t::Iterator it = m_WeakSymbols.begin(); it != m_WeakSymbols.end();
+         ++it) {
+      symbolTree_t::LookupResult result = it.value(failedLookup)->lookup(name);
+      if (result.hasValue()) {
+        lookupResult = result.value()->getValue();
+        break;
+      }
     }
+  }
 
-    // NOTICE("SymbolTable::lookup(" << name << ", " << pElf->getName() << ")
-    // ==> " << Hex << lookupResult);
+  // NOTICE("SymbolTable::lookup(" << name << ", " << pElf->getName() << ")
+  // ==> " << Hex << lookupResult);
 
-    return lookupResult;
+  return lookupResult;
 }
 
-SymbolTable::symbolTree_t *SymbolTable::getOrInsertTree(Elf *p, Binding table)
-{
-    // safe empty SharedPointer we can use for lookupRef()'s failed result
-    static SharedPointer<symbolTree_t> v;
+SymbolTable::symbolTree_t* SymbolTable::getOrInsertTree(Elf* p, Binding table) {
+  // safe empty SharedPointer we can use for lookupRef()'s failed result
+  static SharedPointer<symbolTree_t> v;
 
-    Tree<Elf *, SharedPointer<symbolTree_t>> *tree = nullptr;
-    switch (table)
-    {
-        case Local:
-            tree = &m_LocalSymbols;
-            break;
-        case Global:
-            tree = &m_GlobalSymbols;
-            break;
-        default:
-            tree = &m_WeakSymbols;
-            break;
-    }
+  Tree<Elf*, SharedPointer<symbolTree_t>>* tree = nullptr;
+  switch (table) {
+    case Local:
+      tree = &m_LocalSymbols;
+      break;
+    case Global:
+      tree = &m_GlobalSymbols;
+      break;
+    default:
+      tree = &m_WeakSymbols;
+      break;
+  }
 
-    auto symbolTree = tree->lookupRef(p, v);
-    if (symbolTree)
-    {
-        return symbolTree.get();
-    }
+  auto symbolTree = tree->lookupRef(p, v);
+  if (symbolTree) {
+    return symbolTree.get();
+  }
 
-    auto newTree = SharedPointer<symbolTree_t>::allocate();
-    auto result = newTree.get();
-    tree->insert(p, pedigree_std::move(newTree));
-    return result;
+  auto newTree = SharedPointer<symbolTree_t>::allocate();
+  auto result = newTree.get();
+  tree->insert(p, pedigree_std::move(newTree));
+  return result;
 }

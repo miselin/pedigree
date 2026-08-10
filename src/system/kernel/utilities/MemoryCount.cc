@@ -17,26 +17,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/utilities/MemoryCount.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/MemoryCount.h"
 
-MemoryCount::MemoryCount(const char *context)
-{
-    m_StartPages = PhysicalMemoryManager::instance().freePageCount();
-    m_EndPages = 0;
-    m_Context = context;
+MemoryCount::MemoryCount(const char* context) {
+  m_StartPages = PhysicalMemoryManager::instance().freePageCount();
+  m_EndPages = 0;
+  m_Context = context;
 }
 
-MemoryCount::~MemoryCount()
-{
-    m_EndPages = PhysicalMemoryManager::instance().freePageCount();
-    ssize_t diff = static_cast<ssize_t>(m_StartPages - m_EndPages);
-    NOTICE(
-        "KERNELELF: Page difference while executing " << m_Context << ": "
-                                                      << Dec << diff << Hex);
-    NOTICE(
-        "KERNELELF:   -> difference is " << Dec << ((diff * 4096) / 1024) << Hex
-                                         << "K");
+MemoryCount::~MemoryCount() {
+  m_EndPages = PhysicalMemoryManager::instance().freePageCount();
+  ssize_t diff = static_cast<ssize_t>(m_StartPages - m_EndPages);
+  NOTICE("KERNELELF: Page difference while executing " << m_Context << ": " << Dec << diff << Hex);
+  NOTICE("KERNELELF:   -> difference is " << Dec << ((diff * 4096) / 1024) << Hex << "K");
 }

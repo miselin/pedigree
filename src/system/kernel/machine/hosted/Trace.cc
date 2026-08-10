@@ -18,12 +18,11 @@
  */
 
 #include "pedigree/kernel/machine/Trace.h"
+
 #include <stdio.h>
 
-namespace pedigree_trace
-{
-void trace(const char *msg)
-{
-    fprintf(stderr, "trace: %s\n", msg);
+namespace pedigree_trace {
+void trace(const char* msg) {
+  fprintf(stderr, "trace: %s\n", msg);
 }
 }  // namespace pedigree_trace

@@ -17,65 +17,59 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <gtest/gtest.h>
-
 #include "modules/system/ramfs/RamFs.h"
 #include "modules/system/vfs/VFS.h"
+#include <gtest/gtest.h>
 
-TEST(VFS, AbsolutePathsUseRootFilesystem)
-{
-    VFS vfs;
-    RamFs root;
-    ASSERT_TRUE(root.initialise(nullptr));
-    vfs.registerFilesystem(&root, String("root"));
-    ASSERT_TRUE(vfs.setRootFilesystem(&root));
+TEST(VFS, AbsolutePathsUseRootFilesystem) {
+  VFS vfs;
+  RamFs root;
+  ASSERT_TRUE(root.initialise(nullptr));
+  vfs.registerFilesystem(&root, String("root"));
+  ASSERT_TRUE(vfs.setRootFilesystem(&root));
 
-    EXPECT_TRUE(vfs.createDirectory(String("/usr"), 0755));
-    EXPECT_TRUE(vfs.createDirectory(String("/usr/bin"), 0755));
-    EXPECT_NE(vfs.find(String("/usr/bin")), nullptr);
+  EXPECT_TRUE(vfs.createDirectory(String("/usr"), 0755));
+  EXPECT_TRUE(vfs.createDirectory(String("/usr/bin"), 0755));
+  EXPECT_NE(vfs.find(String("/usr/bin")), nullptr);
 
-    vfs.unregisterFilesystem(&root, false);
+  vfs.unregisterFilesystem(&root, false);
 }
 
-TEST(VFS, RelativePathsStillRequireAStartingNode)
-{
-    VFS vfs;
-    RamFs root;
-    ASSERT_TRUE(root.initialise(nullptr));
-    vfs.registerFilesystem(&root, String("root"));
-    ASSERT_TRUE(vfs.setRootFilesystem(&root));
+TEST(VFS, RelativePathsStillRequireAStartingNode) {
+  VFS vfs;
+  RamFs root;
+  ASSERT_TRUE(root.initialise(nullptr));
+  vfs.registerFilesystem(&root, String("root"));
+  ASSERT_TRUE(vfs.setRootFilesystem(&root));
 
-    EXPECT_FALSE(vfs.createDirectory(String("usr"), 0755));
-    EXPECT_EQ(vfs.find(String("usr")), nullptr);
+  EXPECT_FALSE(vfs.createDirectory(String("usr"), 0755));
+  EXPECT_EQ(vfs.find(String("usr")), nullptr);
 
-    vfs.unregisterFilesystem(&root, false);
+  vfs.unregisterFilesystem(&root, false);
 }
 
-TEST(VFS, NonRootFilesystemsMountUnderMedia)
-{
-    VFS vfs;
-    RamFs root;
-    RamFs data;
-    ASSERT_TRUE(root.initialise(nullptr));
-    ASSERT_TRUE(data.initialise(nullptr));
+TEST(VFS, NonRootFilesystemsMountUnderMedia) {
+  VFS vfs;
+  RamFs root;
+  RamFs data;
+  ASSERT_TRUE(root.initialise(nullptr));
+  ASSERT_TRUE(data.initialise(nullptr));
 
-    vfs.registerFilesystem(&data, String("Data Disk"));
-    vfs.registerFilesystem(&root, String("root"));
-    ASSERT_TRUE(vfs.setRootFilesystem(&root));
+  vfs.registerFilesystem(&data, String("Data Disk"));
+  vfs.registerFilesystem(&root, String("root"));
+  ASSERT_TRUE(vfs.setRootFilesystem(&root));
 
-    String mountPath;
-    ASSERT_TRUE(vfs.getMountPath(&data, mountPath));
-    EXPECT_EQ(mountPath, String("/media/Data-Disk"));
-    EXPECT_TRUE(vfs.createFile(String("/media/Data-Disk/example"), 0644));
-    EXPECT_TRUE(vfs.createFile(String("/root-only"), 0644));
+  String mountPath;
+  ASSERT_TRUE(vfs.getMountPath(&data, mountPath));
+  EXPECT_EQ(mountPath, String("/media/Data-Disk"));
+  EXPECT_TRUE(vfs.createFile(String("/media/Data-Disk/example"), 0644));
+  EXPECT_TRUE(vfs.createFile(String("/root-only"), 0644));
 
-    File *example = vfs.find(String("/media/Data-Disk/example"));
-    ASSERT_NE(example, nullptr);
-    EXPECT_EQ(example->getFilesystem(), &data);
-    EXPECT_EQ(
-        vfs.find(String("/root-only"), data.getRoot()),
-        vfs.find(String("/root-only")));
+  File* example = vfs.find(String("/media/Data-Disk/example"));
+  ASSERT_NE(example, nullptr);
+  EXPECT_EQ(example->getFilesystem(), &data);
+  EXPECT_EQ(vfs.find(String("/root-only"), data.getRoot()), vfs.find(String("/root-only")));
 
-    vfs.unregisterFilesystem(&data, false);
-    vfs.unregisterFilesystem(&root, false);
+  vfs.unregisterFilesystem(&data, false);
+  vfs.unregisterFilesystem(&root, false);
 }

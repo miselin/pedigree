@@ -132,9 +132,7 @@
 #endif
 
 #if HOSTED
-namespace __pedigree_hosted
-{
-};  // namespace __pedigree_hosted
+namespace __pedigree_hosted {};  // namespace __pedigree_hosted
 using namespace __pedigree_hosted;
 #include <stdio.h>
 #endif
@@ -143,7 +141,7 @@ using namespace __pedigree_hosted;
 EXPORTED_PUBLIC BootIO bootIO;
 
 /** Global copy of the bootstrap information. */
-BootstrapStruct_t *g_pBootstrapInfo;
+BootstrapStruct_t* g_pBootstrapInfo;
 
 /** Do we need to shutdown? */
 static Atomic<bool> g_NeedsShutdown(false);
@@ -153,575 +151,500 @@ extern bool runHostedIrqClosureRegressions();
 #endif
 
 /** Handles doing recovery on SLAM if memory pressure is encountered. */
-class SlamRecovery : public MemoryPressureHandler
-{
-  public:
-    virtual const char *getMemoryPressureDescription();
-    virtual bool compact();
+class SlamRecovery : public MemoryPressureHandler {
+ public:
+  virtual const char* getMemoryPressureDescription();
+  virtual bool compact();
 };
 
 /** Kernel entry point for application processors (after processor/machine has
    been initialised on the particular processor */
 #if MULTIPROCESSOR
-void apMain()
-{
-    NOTICE("Processor #" << Processor::id() << " started.");
+void apMain() {
+  NOTICE("Processor #" << Processor::id() << " started.");
 
-    EMIT_IF(THREADS)
-    {
-        // Add us as the idle thread for this CPU.
-        Processor::information().getScheduler().setIdle(
-            Processor::information().getCurrentThread());
+  EMIT_IF(THREADS) {
+    // Add us as the idle thread for this CPU.
+    Processor::information().getScheduler().setIdle(Processor::information().getCurrentThread());
+  }
+
+  Processor::setInterrupts(true);
+  for (;;) {
+    Processor::haltUntilInterrupt();
+
+    EMIT_IF(THREADS) {
+      Scheduler::instance().yield();
     }
-
-    Processor::setInterrupts(true);
-    for (;;)
-    {
-        Processor::haltUntilInterrupt();
-
-        EMIT_IF(THREADS)
-        {
-            Scheduler::instance().yield();
-        }
-    }
+  }
 }
 #endif
 
-ModuleInfo *g_StaticDrivers[128];
+ModuleInfo* g_StaticDrivers[128];
 size_t g_StaticDriverN = 0;
 
 /** Loads all kernel modules */
-static int loadModules(void *inf)
-{
-    Archive *initrd = nullptr;
+static int loadModules(void* inf) {
+  Archive* initrd = nullptr;
 
-    EMIT_IF(STATIC_DRIVERS)
-    {
-        extern uintptr_t start_module_ctors;
-        extern uintptr_t end_module_ctors;
+  EMIT_IF(STATIC_DRIVERS) {
+    extern uintptr_t start_module_ctors;
+    extern uintptr_t end_module_ctors;
 
-        // Call static constructors before we start. If we don't... there won't
-        // be any properly initialised ModuleInfo structures :)
-        uintptr_t *iterator = &start_module_ctors;
-        while (iterator < &end_module_ctors)
-        {
-            void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
-            fp();
-            iterator++;
-        }
-
-        for (size_t i = 0; i < g_StaticDriverN; ++i)
-        {
-            assert(g_StaticDrivers[i]->tag == MODULE_TAG);
-            KernelElf::instance().loadModule(g_StaticDrivers[i]);
-        }
-
-        KernelElf::instance().executeModules();
-    }
-    else
-    {
-        BootstrapStruct_t *bsInf = static_cast<BootstrapStruct_t *>(inf);
-
-        NOTICE(
-            "initrd @ " << Hex << bsInf->getInitrdAddress() << " -> "
-                        << (bsInf->getInitrdAddress() + bsInf->getInitrdSize())
-                        << ", " << Dec << bsInf->getInitrdSize() << " bytes");
-
-        /// \note We have to do this before we call
-        /// Processor::initialisationDone() otherwise the
-        ///       BootstrapStruct_t might already be unmapped
-        initrd = new Archive(bsInf->getInitrdAddress(), bsInf->getInitrdSize());
-        bsInf = nullptr;
-
-        size_t nFiles = initrd->getNumFiles();
-        NOTICE("there are " << nFiles << " files");
-        g_BootProgressTotal =
-            nFiles * 2;  // Each file has to be preloaded and executed.
-        for (size_t i = 0; i < nFiles; i++)
-        {
-            // Handle archives with `._<filename>` entries from Apple tar file
-            // creation
-            if (!StringCompareN(initrd->getFileName(i), "._", 2))
-            {
-                continue;
-            }
-
-            NOTICE(
-                "loading module #" << i << " (" << initrd->getFileName(i)
-                                   << ")...");
-            Processor::setInterrupts(true);
-            KernelElf::instance().loadModule(
-                reinterpret_cast<uint8_t *>(initrd->getFile(i)),
-                initrd->getFileSize(i));
-            if (!Processor::getInterrupts())
-                WARNING("A loaded module disabled interrupts.");
-        }
-
-        // Start any modules we can run already.
-        KernelElf::instance().executeModules();
+    // Call static constructors before we start. If we don't... there won't
+    // be any properly initialised ModuleInfo structures :)
+    uintptr_t* iterator = &start_module_ctors;
+    while (iterator < &end_module_ctors) {
+      void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
+      fp();
+      iterator++;
     }
 
-    // Wait for all modules to finish loading before we continue.
-    KernelElf::instance().waitForModulesToLoad();
-
-    // The initialisation is done here, unmap/free the .init section and on
-    // x86/64 the identity mapping of 0-4MB NOTE: BootstrapStruct_t unusable
-    // after this point
-    Processor::initialisationDone();
-
-    // Now that we've cleaned up and are done loading modules, we can run the
-    // init module.
-    KernelElf::instance().invokeInitModule();
-
-    if (KernelElf::instance().hasPendingModules())
-    {
-        FATAL("At least one module's dependencies were never met.");
+    for (size_t i = 0; i < g_StaticDriverN; ++i) {
+      assert(g_StaticDrivers[i]->tag == MODULE_TAG);
+      KernelElf::instance().loadModule(g_StaticDrivers[i]);
     }
 
-    // It's now safe to clean up the initrd archive
-    if (initrd)
-    {
-        delete initrd;
+    KernelElf::instance().executeModules();
+  }
+  else {
+    BootstrapStruct_t* bsInf = static_cast<BootstrapStruct_t*>(inf);
+
+    NOTICE("initrd @ " << Hex << bsInf->getInitrdAddress() << " -> "
+                       << (bsInf->getInitrdAddress() + bsInf->getInitrdSize()) << ", " << Dec
+                       << bsInf->getInitrdSize() << " bytes");
+
+    /// \note We have to do this before we call
+    /// Processor::initialisationDone() otherwise the
+    ///       BootstrapStruct_t might already be unmapped
+    initrd = new Archive(bsInf->getInitrdAddress(), bsInf->getInitrdSize());
+    bsInf = nullptr;
+
+    size_t nFiles = initrd->getNumFiles();
+    NOTICE("there are " << nFiles << " files");
+    g_BootProgressTotal = nFiles * 2;  // Each file has to be preloaded and executed.
+    for (size_t i = 0; i < nFiles; i++) {
+      // Handle archives with `._<filename>` entries from Apple tar file
+      // creation
+      if (!StringCompareN(initrd->getFileName(i), "._", 2)) {
+        continue;
+      }
+
+      NOTICE("loading module #" << i << " (" << initrd->getFileName(i) << ")...");
+      Processor::setInterrupts(true);
+      KernelElf::instance().loadModule(reinterpret_cast<uint8_t*>(initrd->getFile(i)),
+                                       initrd->getFileSize(i));
+      if (!Processor::getInterrupts())
+        WARNING("A loaded module disabled interrupts.");
     }
+
+    // Start any modules we can run already.
+    KernelElf::instance().executeModules();
+  }
+
+  // Wait for all modules to finish loading before we continue.
+  KernelElf::instance().waitForModulesToLoad();
+
+  // The initialisation is done here, unmap/free the .init section and on
+  // x86/64 the identity mapping of 0-4MB NOTE: BootstrapStruct_t unusable
+  // after this point
+  Processor::initialisationDone();
+
+  // Now that we've cleaned up and are done loading modules, we can run the
+  // init module.
+  KernelElf::instance().invokeInitModule();
+
+  if (KernelElf::instance().hasPendingModules()) {
+    FATAL("At least one module's dependencies were never met.");
+  }
+
+  // It's now safe to clean up the initrd archive
+  if (initrd) {
+    delete initrd;
+  }
 
 #if HOSTED
-    fprintf(stderr, "Pedigree has started: all modules have been loaded.\n");
+  fprintf(stderr, "Pedigree has started: all modules have been loaded.\n");
 #endif
 
-    NOTICE("module load thread is terminating");
-    return 0;
+  NOTICE("module load thread is terminating");
+  return 0;
 }
 
 /** Kernel entry point. */
-extern "C" void _main(BootstrapStruct_t &bsInf) USED;
-void _cxx_main(BootstrapStruct_t &bsInf);
-extern "C" void _main(BootstrapStruct_t &bsInf)
-{
-    _cxx_main(bsInf);
+extern "C" void _main(BootstrapStruct_t& bsInf) USED;
+void _cxx_main(BootstrapStruct_t& bsInf);
+extern "C" void _main(BootstrapStruct_t& bsInf) {
+  _cxx_main(bsInf);
 }
 
-void _cxx_main(BootstrapStruct_t &bsInf)
-{
-    TRACE("constructors");
+void _cxx_main(BootstrapStruct_t& bsInf) {
+  TRACE("constructors");
 
-    // Firstly call the constructors of all global objects.
-    initialiseConstructors();
+  // Firstly call the constructors of all global objects.
+  initialiseConstructors();
 
-    g_pBootstrapInfo = &bsInf;
+  g_pBootstrapInfo = &bsInf;
 
-    EMIT_IF(TRACK_LOCKS)
-    {
-        g_LocksCommand.setReady();
-    }
+  EMIT_IF(TRACK_LOCKS) {
+    g_LocksCommand.setReady();
+  }
 
-    TRACE("Processor init");
+  TRACE("Processor init");
 
-    // Initialise the processor-specific interface
-    Processor::initialise1(bsInf);
+  // Initialise the processor-specific interface
+  Processor::initialise1(bsInf);
 
-    TRACE("log init");
+  TRACE("log init");
 
-    // Initialise the kernel log
-    Log::instance().initialise1();
+  // Initialise the kernel log
+  Log::instance().initialise1();
 
-    TRACE("Machine init");
+  TRACE("Machine init");
 
-    // Initialise the machine-specific interface
-    Machine &machine = Machine::instance();
-    Machine::instance().initialiseDeviceTree();
+  // Initialise the machine-specific interface
+  Machine& machine = Machine::instance();
+  Machine::instance().initialiseDeviceTree();
 
-    machine.initialise();
+  machine.initialise();
 
-#if DEBUGGER && \
-    (!defined(PEDIGREE_HOSTED_DARWIN) || !PEDIGREE_HOSTED_DARWIN)
-    TRACE("Debugger init");
-    Debugger::instance().initialise();
+#if DEBUGGER && (!defined(PEDIGREE_HOSTED_DARWIN) || !PEDIGREE_HOSTED_DARWIN)
+  TRACE("Debugger init");
+  Debugger::instance().initialise();
 #endif
 
-    TRACE("Machine init2");
+  TRACE("Machine init2");
 
-    machine.initialise2();
+  machine.initialise2();
 
-    TRACE("Log init2");
+  TRACE("Log init2");
 
-    // Initialise the kernel log's callbacks
-    Log::instance().initialise2();
+  // Initialise the kernel log's callbacks
+  Log::instance().initialise2();
 
-    TRACE("Processor init2");
+  TRACE("Processor init2");
 
-    // Initialise the processor-specific interface
-    // Bootup of the other Application Processors and related tasks
-    Processor::initialise2(bsInf);
+  // Initialise the processor-specific interface
+  // Bootup of the other Application Processors and related tasks
+  Processor::initialise2(bsInf);
 
-    TRACE("Machine init3");
+  TRACE("Machine init3");
 
-    machine.initialise3();
+  machine.initialise3();
 
-    TRACE("KernelElf init");
+  TRACE("KernelElf init");
 
-    // Initialise the Kernel Elf class
-    if (KernelElf::instance().initialise(bsInf) == false)
-        panic("KernelElf::initialise() failed");
+  // Initialise the Kernel Elf class
+  if (KernelElf::instance().initialise(bsInf) == false)
+    panic("KernelElf::initialise() failed");
 
-    EMIT_IF(!STATIC_DRIVERS)
-    {
-        // initrd needed if drivers aren't statically linked.
-        if (bsInf.isInitrdLoaded() == false)
-            panic("Initrd module not loaded!");
-    }
+  EMIT_IF(!STATIC_DRIVERS) {
+    // initrd needed if drivers aren't statically linked.
+    if (bsInf.isInitrdLoaded() == false)
+      panic("Initrd module not loaded!");
+  }
 
-    TRACE("kernel syscall init");
+  TRACE("kernel syscall init");
 
-    KernelCoreSyscallManager::instance().initialise();
+  KernelCoreSyscallManager::instance().initialise();
 
-    TRACE("initial init done, enabling interrupts");
+  TRACE("initial init done, enabling interrupts");
 
-    Processor::setInterrupts(true);
+  Processor::setInterrupts(true);
 
-    TRACE("bootIO init");
+  TRACE("bootIO init");
 
-    // Initialise the boot output.
-    bootIO.initialise();
+  // Initialise the boot output.
+  bootIO.initialise();
 
-    // Spew out a starting string.
-    HugeStaticString str, ident;
-    str += "Pedigree - revision ";
-    str += g_pBuildRevision;
-    EMIT_IF(DONT_LOG_TO_SERIAL)
-    {
-        str += "\n=======================\n";
-    }
-    else
-    {
-        str += "\r\n=======================\r\n";
-    }
-    bootIO.write(str, BootIO::White, BootIO::Black);
+  // Spew out a starting string.
+  HugeStaticString str, ident;
+  str += "Pedigree - revision ";
+  str += g_pBuildRevision;
+  EMIT_IF(DONT_LOG_TO_SERIAL) {
+    str += "\n=======================\n";
+  }
+  else {
+    str += "\r\n=======================\r\n";
+  }
+  bootIO.write(str, BootIO::White, BootIO::Black);
 
-    str.clear();
-    str += "Built at ";
-    str += g_pBuildTime;
-    str += " by ";
-    str += g_pBuildUser;
-    str += " on ";
-    str += g_pBuildMachine;
-    EMIT_IF(DONT_LOG_TO_SERIAL)
-    {
-        str += "\n";
-    }
-    else
-    {
-        str += "\r\n";
-    }
-    bootIO.write(str, BootIO::LightGrey, BootIO::Black);
+  str.clear();
+  str += "Built at ";
+  str += g_pBuildTime;
+  str += " by ";
+  str += g_pBuildUser;
+  str += " on ";
+  str += g_pBuildMachine;
+  EMIT_IF(DONT_LOG_TO_SERIAL) {
+    str += "\n";
+  }
+  else {
+    str += "\r\n";
+  }
+  bootIO.write(str, BootIO::LightGrey, BootIO::Black);
 
-    str.clear();
-    str += "Build flags: ";
-    str += g_pBuildFlags;
-    EMIT_IF(DONT_LOG_TO_SERIAL)
-    {
-        str += "\n";
-    }
-    else
-    {
-        str += "\r\n";
-    }
-    bootIO.write(str, BootIO::LightGrey, BootIO::Black);
+  str.clear();
+  str += "Build flags: ";
+  str += g_pBuildFlags;
+  EMIT_IF(DONT_LOG_TO_SERIAL) {
+    str += "\n";
+  }
+  else {
+    str += "\r\n";
+  }
+  bootIO.write(str, BootIO::LightGrey, BootIO::Black);
 
-    str.clear();
-    str += "Processor information: ";
-    Processor::identify(ident);
-    str += ident;
-    EMIT_IF(DONT_LOG_TO_SERIAL)
-    {
-        str += "\n";
-    }
-    else
-    {
-        str += "\r\n";
-    }
-    bootIO.write(str, BootIO::LightGrey, BootIO::Black);
+  str.clear();
+  str += "Processor information: ";
+  Processor::identify(ident);
+  str += ident;
+  EMIT_IF(DONT_LOG_TO_SERIAL) {
+    str += "\n";
+  }
+  else {
+    str += "\r\n";
+  }
+  bootIO.write(str, BootIO::LightGrey, BootIO::Black);
 
-    TRACE("creating graphics service");
+  TRACE("creating graphics service");
 
-    // Set up the graphics service for drivers to register with
-    EMIT_IF(!NOGFX)
-    {
-        GraphicsService *pService = new GraphicsService;
-        ServiceFeatures *pFeatures = new ServiceFeatures;
-        pFeatures->add(ServiceFeatures::touch);
-        pFeatures->add(ServiceFeatures::withdraw);
-        pFeatures->add(ServiceFeatures::probe);
-        ServiceManager::instance().addService(
-            String("graphics"), pService, pFeatures);
-    }
+  // Set up the graphics service for drivers to register with
+  EMIT_IF(!NOGFX) {
+    GraphicsService* pService = new GraphicsService;
+    ServiceFeatures* pFeatures = new ServiceFeatures;
+    pFeatures->add(ServiceFeatures::touch);
+    pFeatures->add(ServiceFeatures::withdraw);
+    pFeatures->add(ServiceFeatures::probe);
+    ServiceManager::instance().addService(String("graphics"), pService, pFeatures);
+  }
 
-    TRACE("creating memory pressure handlers");
+  TRACE("creating memory pressure handlers");
 
-    // Set up SLAM recovery memory pressure handler.
-    SlamRecovery recovery;
-    MemoryPressureManager::instance().registerHandler(
-        MemoryPressureManager::HighestPriority, &recovery);
+  // Set up SLAM recovery memory pressure handler.
+  SlamRecovery recovery;
+  MemoryPressureManager::instance().registerHandler(MemoryPressureManager::HighestPriority,
+                                                    &recovery);
 
-    // Set up the process killer memory pressure handler.
-    MemoryPressureProcessKiller killer;
-    MemoryPressureManager::instance().registerHandler(
-        MemoryPressureManager::LowestPriority, &killer);
+  // Set up the process killer memory pressure handler.
+  MemoryPressureProcessKiller killer;
+  MemoryPressureManager::instance().registerHandler(MemoryPressureManager::LowestPriority, &killer);
 
-    // Set up the global info block manager.
-    TRACE("InfoBlockManager init");
-    InfoBlockManager::instance().initialise();
+  // Set up the global info block manager.
+  TRACE("InfoBlockManager init");
+  InfoBlockManager::instance().initialise();
 
-    // Bring up the cache subsystem.
-    TRACE("CacheManager init");
-    CacheManager::instance().initialise();
+  // Bring up the cache subsystem.
+  TRACE("CacheManager init");
+  CacheManager::instance().initialise();
 
-    // Initialise the input manager
-    TRACE("InputManager init");
-    InputManager::instance().initialise();
+  // Initialise the input manager
+  TRACE("InputManager init");
+  InputManager::instance().initialise();
 
-    EMIT_IF(THREADS)
-    {
-        TRACE("ZombieQueue init");
-        ZombieQueue::instance().initialise();
-    }
+  EMIT_IF(THREADS) {
+    TRACE("ZombieQueue init");
+    ZombieQueue::instance().initialise();
+  }
 
-    /// \todo Seed random number generator.
+  /// \todo Seed random number generator.
 
-    OwnedThread moduleLoadThread;
+  OwnedThread moduleLoadThread;
 #if HOSTED && PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS
-    runHostedIrqClosureRegressions();
+  runHostedIrqClosureRegressions();
 #else
-    TRACE("starting module load thread");
+  TRACE("starting module load thread");
 
-    EMIT_IF(THREADS)
-    {
-        Thread *pThread = new Thread(
-            Processor::information().getCurrentThread()->getParent(),
-            &loadModules, static_cast<void *>(&bsInf), 0);
-        pThread->setName("module load thread");
-        moduleLoadThread.adopt(pThread);
-    }
-    else
-    {
-        loadModules(&bsInf);
-    }
+  EMIT_IF(THREADS) {
+    Thread* pThread = new Thread(Processor::information().getCurrentThread()->getParent(),
+                                 &loadModules, static_cast<void*>(&bsInf), 0);
+    pThread->setName("module load thread");
+    moduleLoadThread.adopt(pThread);
+  }
+  else {
+    loadModules(&bsInf);
+  }
 #endif
 
-    EMIT_IF(DEBUGGER_RUN_AT_START)
-    {
-        Processor::breakpoint();
-    }
+  EMIT_IF(DEBUGGER_RUN_AT_START) {
+    Processor::breakpoint();
+  }
 
-    TRACE("becoming idle");
+  TRACE("becoming idle");
 
-    EMIT_IF(THREADS)
-    {
-        // Add us as the idle thread for this CPU.
-        Processor::information().getScheduler().setIdle(
-            Processor::information().getCurrentThread());
-    }
+  EMIT_IF(THREADS) {
+    // Add us as the idle thread for this CPU.
+    Processor::information().getScheduler().setIdle(Processor::information().getCurrentThread());
+  }
 
-    // This will run when nothing else is available to run
-    while (!g_NeedsShutdown)
-    {
-        // Always enable interrupts in the idle thread, and halt. There is no
-        // point yielding as if this code is running, no other thread is ready
-        // (and cannot be made ready without an interrupt).
-        Processor::setInterrupts(true);
-        Processor::haltUntilInterrupt();
+  // This will run when nothing else is available to run
+  while (!g_NeedsShutdown) {
+    // Always enable interrupts in the idle thread, and halt. There is no
+    // point yielding as if this code is running, no other thread is ready
+    // (and cannot be made ready without an interrupt).
+    Processor::setInterrupts(true);
+    Processor::haltUntilInterrupt();
 
-        // Give up our timeslice (needed especially for no-tick scheduling)
-        Scheduler::instance().yield();
-    }
+    // Give up our timeslice (needed especially for no-tick scheduling)
+    Scheduler::instance().yield();
+  }
 
-    EMIT_IF(THREADS)
-    {
-        // Shutdown joins need this Thread to enter an ordinary WaitQueue and
-        // be republished when a worker exits. An idle Thread is only a fallback
-        // and never commits Sleeping, so retire that role before the first
-        // join rather than leaving its wake behind unrelated ready workers.
-        Processor::information().getScheduler().setIdle(nullptr);
+  EMIT_IF(THREADS) {
+    // Shutdown joins need this Thread to enter an ordinary WaitQueue and
+    // be republished when a worker exits. An idle Thread is only a fallback
+    // and never commits Sleeping, so retire that role before the first
+    // join rather than leaving its wake behind unrelated ready workers.
+    Processor::information().getScheduler().setIdle(nullptr);
 
-        // A module can request shutdown from its entry point. The loader still
-        // has bookkeeping and initrd cleanup to finish after that request, so
-        // module teardown must not race it.
-        moduleLoadThread.join();
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS && \
-    !PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS
-        NOTICE("HOSTED-WAIT-TEST: PASS module-loader-shutdown-join");
+    // A module can request shutdown from its entry point. The loader still
+    // has bookkeeping and initrd cleanup to finish after that request, so
+    // module teardown must not race it.
+    moduleLoadThread.join();
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS && !PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS
+    NOTICE("HOSTED-WAIT-TEST: PASS module-loader-shutdown-join");
 #endif
 
-        // The zombie worker must be joined before global teardown disables
-        // interrupts and destroys the scheduler.
-        ZombieQueue::instance().destroy();
+    // The zombie worker must be joined before global teardown disables
+    // interrupts and destroys the scheduler.
+    ZombieQueue::instance().destroy();
+  }
+
+  NOTICE("Resetting...");
+
+  EMIT_IF(MULTIPROCESSOR) {
+    if (!Machine::instance().stopAllOtherProcessors()) {
+      ERROR_NOLOCK("Shutdown aborted: not all other processors stopped");
+      Processor::setInterrupts(false);
+      while (true)
+        Processor::halt();
     }
+  }
 
-    NOTICE("Resetting...");
+  // Clean up all loaded modules (unmounts filesystems and the like).
+  KernelElf::instance().unloadModules();
 
-    EMIT_IF(MULTIPROCESSOR)
-    {
-        if (!Machine::instance().stopAllOtherProcessors())
-        {
-            ERROR_NOLOCK(
-                "Shutdown aborted: not all other processors stopped");
-            Processor::setInterrupts(false);
-            while (true)
-                Processor::halt();
-        }
+  EMIT_IF(STATIC_DRIVERS) {
+    extern uintptr_t start_module_dtors;
+    extern uintptr_t end_module_dtors;
+
+    // Call all the module destructors now
+    uintptr_t* iterator = &start_module_dtors;
+    while (iterator < &end_module_dtors) {
+      void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
+      fp();
+      iterator++;
     }
+  }
 
-    // Clean up all loaded modules (unmounts filesystems and the like).
-    KernelElf::instance().unloadModules();
+  // No need for user input anymore.
+  InputManager::instance().shutdown();
 
-    EMIT_IF(STATIC_DRIVERS)
-    {
-        extern uintptr_t start_module_dtors;
-        extern uintptr_t end_module_dtors;
+  // Clean up the Cache subsystem
+  CacheManager::destroyInstance();
 
-        // Call all the module destructors now
-        uintptr_t *iterator = &start_module_dtors;
-        while (iterator < &end_module_dtors)
-        {
-            void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
-            fp();
-            iterator++;
-        }
-    }
+  // Stop active platform services while the singleton objects they use are
+  // still alive and their worker/callback drains can still schedule.
+  Machine::instance().deinitialise();
 
-    // No need for user input anymore.
-    InputManager::instance().shutdown();
+  Processor::setInterrupts(false);
 
-    // Clean up the Cache subsystem
-    CacheManager::destroyInstance();
+  // Shut down the various pieces created by Processor before their global
+  // objects are destroyed.
+  Processor::deinitialise();
 
-    // Stop active platform services while the singleton objects they use are
-    // still alive and their worker/callback drains can still schedule.
-    Machine::instance().deinitialise();
+  NOTICE("All modules unloaded. Running destructors and terminating...");
+  runKernelDestructors();
 
-    Processor::setInterrupts(false);
-
-    // Shut down the various pieces created by Processor before their global
-    // objects are destroyed.
-    Processor::deinitialise();
-
-    NOTICE("All modules unloaded. Running destructors and terminating...");
-    runKernelDestructors();
-
-    // Done - return to caller.
-    // Boot code needs to handle this by resetting (or whatever makes sense)
-    TRACE("kernel main() terminating");
+  // Done - return to caller.
+  // Boot code needs to handle this by resetting (or whatever makes sense)
+  TRACE("kernel main() terminating");
 }
 
 void EXPORTED_PUBLIC system_reset();
-void system_reset()
-{
-    // Close out the main thread.
-    g_NeedsShutdown = true;
+void system_reset() {
+  // Close out the main thread.
+  g_NeedsShutdown = true;
 }
 
-void system_reboot()
-{
-    WARNING("System shutting down...");
-    Process *currentProcess =
-        Processor::information().getCurrentThread()->getParent();
-    Process *kernelProcess = Scheduler::instance().getKernelProcess();
-    const size_t shutdownProcessCount = Scheduler::instance().getNumProcesses();
-    for (size_t i = shutdownProcessCount; i > 0; --i)
-    {
-        Scheduler::ProcessLease process;
-        if (!Scheduler::instance().acquireProcess(process, i - 1))
-        {
-            continue;
-        }
-        Subsystem *subsystem = process->getSubsystem();
-        if (
-            process.get() == currentProcess ||
-            process.get() == kernelProcess)
-        {
-            continue;
-        }
-
-        if (subsystem)
-        {
-            Process::ThreadLease target;
-            if (process->acquireThread(target, static_cast<size_t>(0)))
-            {
-                subsystem->kill(Subsystem::Terminated, target.get());
-            }
-        }
-        else
-        {
-            FATAL(
-                "Shutdown found a non-kernel Process without a teardown "
-                "Subsystem");
-        }
+void system_reboot() {
+  WARNING("System shutting down...");
+  Process* currentProcess = Processor::information().getCurrentThread()->getParent();
+  Process* kernelProcess = Scheduler::instance().getKernelProcess();
+  const size_t shutdownProcessCount = Scheduler::instance().getNumProcesses();
+  for (size_t i = shutdownProcessCount; i > 0; --i) {
+    Scheduler::ProcessLease process;
+    if (!Scheduler::instance().acquireProcess(process, i - 1)) {
+      continue;
+    }
+    Subsystem* subsystem = process->getSubsystem();
+    if (process.get() == currentProcess || process.get() == kernelProcess) {
+      continue;
     }
 
-    while (true)
-    {
-        Scheduler::ProcessLease processToReap;
-        const size_t processCount = Scheduler::instance().getNumProcesses();
-        for (size_t i = 0; i < processCount; ++i)
-        {
-            Scheduler::ProcessLease candidate;
-            if (
-                Scheduler::instance().acquireProcess(candidate, i) &&
-                candidate.get() != currentProcess &&
-                candidate.get() != kernelProcess)
-            {
-                processToReap = pedigree_std::move(candidate);
-                break;
-            }
-        }
+    if (subsystem) {
+      Process::ThreadLease target;
+      if (process->acquireThread(target, static_cast<size_t>(0))) {
+        subsystem->kill(Subsystem::Terminated, target.get());
+      }
+    } else {
+      FATAL(
+          "Shutdown found a non-kernel Process without a teardown "
+          "Subsystem");
+    }
+  }
 
-        if (!processToReap)
-        {
-            break;
-        }
-        if (!processToReap->waitUntilTerminationReapable())
-        {
-            FATAL(
-                "reboot attempted to reap the currently terminating "
-                "process");
-        }
-
-        Process *processIdentity = processToReap.get();
-        Process::ReaperClaim reaper = processToReap->tryClaimReaper();
-        if (reaper)
-        {
-            reaper.publish();
-        }
-        processToReap.reset();
-        Scheduler::instance().waitUntilProcessRemoved(processIdentity);
+  while (true) {
+    Scheduler::ProcessLease processToReap;
+    const size_t processCount = Scheduler::instance().getNumProcesses();
+    for (size_t i = 0; i < processCount; ++i) {
+      Scheduler::ProcessLease candidate;
+      if (Scheduler::instance().acquireProcess(candidate, i) && candidate.get() != currentProcess &&
+          candidate.get() != kernelProcess) {
+        processToReap = pedigree_std::move(candidate);
+        break;
+      }
     }
 
-    Subsystem *currentSubsystem = currentProcess->getSubsystem();
-    if (!currentSubsystem)
-    {
-        FATAL("System reboot requires a userspace shutdown coordinator");
+    if (!processToReap) {
+      break;
+    }
+    if (!processToReap->waitUntilTerminationReapable()) {
+      FATAL(
+          "reboot attempted to reap the currently terminating "
+          "process");
     }
 
-    // The reaper owns the Process before its final Thread leaves the stack.
-    // Keeping the kernel Process registered preserves the final parent/adopter
-    // topology until off-stack completion is published.
-    Process::ReaperClaim shutdownReaper = currentProcess->tryClaimReaper();
-    if (!shutdownReaper)
-    {
-        FATAL("Shutdown coordinator Process already has a reaper");
+    Process* processIdentity = processToReap.get();
+    Process::ReaperClaim reaper = processToReap->tryClaimReaper();
+    if (reaper) {
+      reaper.publish();
     }
-    shutdownReaper.publish();
-    system_reset();
-    Processor::information().getScheduler().requestCurrentThreadExitToIdle();
-    currentSubsystem->exit(0);
-    FATAL("Shutdown coordinator returned from process exit");
+    processToReap.reset();
+    Scheduler::instance().waitUntilProcessRemoved(processIdentity);
+  }
+
+  Subsystem* currentSubsystem = currentProcess->getSubsystem();
+  if (!currentSubsystem) {
+    FATAL("System reboot requires a userspace shutdown coordinator");
+  }
+
+  // The reaper owns the Process before its final Thread leaves the stack.
+  // Keeping the kernel Process registered preserves the final parent/adopter
+  // topology until off-stack completion is published.
+  Process::ReaperClaim shutdownReaper = currentProcess->tryClaimReaper();
+  if (!shutdownReaper) {
+    FATAL("Shutdown coordinator Process already has a reaper");
+  }
+  shutdownReaper.publish();
+  system_reset();
+  Processor::information().getScheduler().requestCurrentThreadExitToIdle();
+  currentSubsystem->exit(0);
+  FATAL("Shutdown coordinator returned from process exit");
 }
 
-const char *SlamRecovery::getMemoryPressureDescription()
-{
-    return "SLAM recovery; freeing unused slabs.";
+const char* SlamRecovery::getMemoryPressureDescription() {
+  return "SLAM recovery; freeing unused slabs.";
 }
 
-bool SlamRecovery::compact()
-{
-    return SlamAllocator::instance().recovery(5) != 0;
+bool SlamRecovery::compact() {
+  return SlamAllocator::instance().recovery(5) != 0;
 }

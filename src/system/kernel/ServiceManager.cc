@@ -24,45 +24,35 @@ class Service;
 
 ServiceManager ServiceManager::m_Instance;
 
-ServiceManager::ServiceManager() : m_Services()
-{
+ServiceManager::ServiceManager() : m_Services() {}
+
+ServiceManager::~ServiceManager() {
+  /// \todo Delete all the pointers!
 }
 
-ServiceManager::~ServiceManager()
-{
-    /// \todo Delete all the pointers!
+ServiceFeatures* ServiceManager::enumerateOperations(const String& serviceName) {
+  RadixTree<InternalService*>::LookupType result = m_Services.lookup(serviceName);
+  if (result.hasValue())
+    return result.value()->pFeatures;
+  else
+    return 0;
 }
 
-ServiceFeatures *ServiceManager::enumerateOperations(const String &serviceName)
-{
-    RadixTree<InternalService *>::LookupType result =
-        m_Services.lookup(serviceName);
-    if (result.hasValue())
-        return result.value()->pFeatures;
-    else
-        return 0;
+void ServiceManager::addService(const String& serviceName, Service* s, ServiceFeatures* feats) {
+  InternalService* p = new InternalService;
+  p->pService = s;
+  p->pFeatures = feats;
+  m_Services.insert(serviceName, p);
 }
 
-void ServiceManager::addService(
-    const String &serviceName, Service *s, ServiceFeatures *feats)
-{
-    InternalService *p = new InternalService;
-    p->pService = s;
-    p->pFeatures = feats;
-    m_Services.insert(serviceName, p);
+void ServiceManager::removeService(const String& serviceName) {
+  m_Services.remove(serviceName);
 }
 
-void ServiceManager::removeService(const String &serviceName)
-{
-    m_Services.remove(serviceName);
-}
-
-Service *ServiceManager::getService(const String &serviceName)
-{
-    RadixTree<InternalService *>::LookupType result =
-        m_Services.lookup(serviceName);
-    if (result.hasValue())
-        return result.value()->pService;
-    else
-        return 0;
+Service* ServiceManager::getService(const String& serviceName) {
+  RadixTree<InternalService*>::LookupType result = m_Services.lookup(serviceName);
+  if (result.hasValue())
+    return result.value()->pService;
+  else
+    return 0;
 }

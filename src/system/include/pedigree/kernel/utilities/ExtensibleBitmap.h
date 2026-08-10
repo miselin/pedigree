@@ -29,72 +29,66 @@
     It does not currently deal well with a sparse domain - one bit set at 0x1
    and another at 0x100000 will generate a bitmap with 0x100000/0x8 bytes usage.
  */
-class EXPORTED_PUBLIC ExtensibleBitmap
-{
-  public:
-    /** Creates a new, empty bitmap. */
-    ExtensibleBitmap();
-    /** Creates a new bitmap identical to that given. */
-    ExtensibleBitmap(const ExtensibleBitmap &other);
-    /** Destroys the bitmap. */
-    ~ExtensibleBitmap();
+class EXPORTED_PUBLIC ExtensibleBitmap {
+ public:
+  /** Creates a new, empty bitmap. */
+  ExtensibleBitmap();
+  /** Creates a new bitmap identical to that given. */
+  ExtensibleBitmap(const ExtensibleBitmap& other);
+  /** Destroys the bitmap. */
+  ~ExtensibleBitmap();
 
-    /** Makes this bitmap mirror the one given. */
-    ExtensibleBitmap &operator=(const ExtensibleBitmap &other);
+  /** Makes this bitmap mirror the one given. */
+  ExtensibleBitmap& operator=(const ExtensibleBitmap& other);
 
-    //
-    // Public interface.
-    //
-    /** Sets the bit in the bitmap indexed by n. */
-    void set(size_t n);
-    /** Clears the bit in the bitmap indexed by n. */
-    void clear(size_t n);
-    /** Returns the bit in the bitmap indexed by n. */
-    bool test(size_t n) const;
-    /** Returns the index of the first set bit. */
-    inline size_t getFirstSet() const
-    {
-        return m_nFirstSetBit;
+  //
+  // Public interface.
+  //
+  /** Sets the bit in the bitmap indexed by n. */
+  void set(size_t n);
+  /** Clears the bit in the bitmap indexed by n. */
+  void clear(size_t n);
+  /** Returns the bit in the bitmap indexed by n. */
+  bool test(size_t n) const;
+  /** Returns the index of the first set bit. */
+  inline size_t getFirstSet() const {
+    return m_nFirstSetBit;
+  }
+  /** Returns the index of the first clear bit. */
+  inline size_t getFirstClear() {
+    while (test(m_nFirstClearBit)) {
+      m_nFirstClearBit++;
     }
-    /** Returns the index of the first clear bit. */
-    inline size_t getFirstClear()
-    {
-        while (test(m_nFirstClearBit))
-        {
-            m_nFirstClearBit++;
-        }
-        return m_nFirstClearBit;
-    }
-    /** Returns the index of the last set bit. */
-    inline size_t getLastSet() const
-    {
-        return m_nLastSetBit;
-    }
-    /** Returns the index of the last clear bit. */
-    inline size_t getLastClear() const
-    {
-        return m_nLastClearBit;
-    }
+    return m_nFirstClearBit;
+  }
+  /** Returns the index of the last set bit. */
+  inline size_t getLastSet() const {
+    return m_nLastSetBit;
+  }
+  /** Returns the index of the last clear bit. */
+  inline size_t getLastClear() const {
+    return m_nLastClearBit;
+  }
 
-  private:
-    /** Performance hint - one statically allocated word. Means we can index
-        data from 0..{31,63} without dynamically allocating anything. */
-    uintptr_t m_StaticMap;
+ private:
+  /** Performance hint - one statically allocated word. Means we can index
+      data from 0..{31,63} without dynamically allocating anything. */
+  uintptr_t m_StaticMap;
 
-    /** The dynamic map, to accommodate bit numbers > {31,63} */
-    uint8_t *m_pDynamicMap;
+  /** The dynamic map, to accommodate bit numbers > {31,63} */
+  uint8_t* m_pDynamicMap;
 
-    /** Amount of memory the dynamic map occupies. */
-    size_t m_DynamicMapSize;
+  /** Amount of memory the dynamic map occupies. */
+  size_t m_DynamicMapSize;
 
-    /** Largest stored bit in the dynamic map. */
-    size_t m_nMaxBit;
+  /** Largest stored bit in the dynamic map. */
+  size_t m_nMaxBit;
 
-    /** First/last bit set/clear indexes. */
-    size_t m_nFirstSetBit;
-    size_t m_nFirstClearBit;
-    size_t m_nLastSetBit;
-    size_t m_nLastClearBit;
+  /** First/last bit set/clear indexes. */
+  size_t m_nFirstSetBit;
+  size_t m_nFirstClearBit;
+  size_t m_nLastSetBit;
+  size_t m_nLastClearBit;
 };
 
 #endif

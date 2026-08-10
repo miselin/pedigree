@@ -20,7 +20,6 @@
 #ifndef KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
 #define KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
 
-#include "TickSource.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/SchedulerIrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
@@ -28,82 +27,81 @@
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state.h"
 
+#include "TickSource.h"
+
 /** @addtogroup kernelmachinehosted
  * @{ */
 
-class HostedSchedulerTimer : public SchedulerTimer, private SchedulerIrqHandler
-{
-  public:
-    /** Get the HostedSchedulerTimer class instance */
-    inline static HostedSchedulerTimer &instance()
-    {
-        return m_Instance;
-    }
+class HostedSchedulerTimer : public SchedulerTimer, private SchedulerIrqHandler {
+ public:
+  /** Get the HostedSchedulerTimer class instance */
+  inline static HostedSchedulerTimer& instance() {
+    return m_Instance;
+  }
 
-    //
-    // SchedulerTimer interface
-    //
-    virtual bool registerHandler(SchedulerTimerHandler *handler);
+  //
+  // SchedulerTimer interface
+  //
+  virtual bool registerHandler(SchedulerTimerHandler* handler);
 
-    virtual bool removeHandler(SchedulerTimerHandler *handler);
+  virtual bool removeHandler(SchedulerTimerHandler* handler);
 
-    /** Initialises the class
-     *\return true, if successful, false otherwise */
-    bool initialise() INITIALISATION_ONLY;
-    /** Uninitialises the class */
-    void uninitialise();
+  /** Initialises the class
+   *\return true, if successful, false otherwise */
+  bool initialise() INITIALISATION_ONLY;
+  /** Uninitialises the class */
+  void uninitialise();
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    using HardContextHook = void (*)(uint64_t, InterruptState &);
+  using HardContextHook = void (*)(uint64_t, InterruptState&);
 
-    /** Observes a real scheduler tick without replacing its handler. */
-    static EXPORTED_PUBLIC void
-    setHardContextHookForTest(HardContextHook hook);
-    /** Returns the opaque source carried by the real scheduler signal. */
-    static EXPORTED_PUBLIC uintptr_t sourceForTest();
-    /** Returns the atomically published callback owner for lifecycle tests. */
-    static EXPORTED_PUBLIC SchedulerTimerHandler *publishedHandlerForTest();
-    /** Returns the number of admitted scheduler frames for diagnostics. */
-    static EXPORTED_PUBLIC size_t activeDispatchesForTest();
-    /** Confirms that ticks bypass the generic hard-handler registry. */
-    static EXPORTED_PUBLIC bool directRoutePublishedForTest();
-    /** Queues a source-owned tick while hosted interrupts are masked. */
-    static EXPORTED_PUBLIC bool queueTickForTest();
+  /** Observes a real scheduler tick without replacing its handler. */
+  static EXPORTED_PUBLIC void setHardContextHookForTest(HardContextHook hook);
+  /** Returns the opaque source carried by the real scheduler signal. */
+  static EXPORTED_PUBLIC uintptr_t sourceForTest();
+  /** Returns the atomically published callback owner for lifecycle tests. */
+  static EXPORTED_PUBLIC SchedulerTimerHandler* publishedHandlerForTest();
+  /** Returns the number of admitted scheduler frames for diagnostics. */
+  static EXPORTED_PUBLIC size_t activeDispatchesForTest();
+  /** Confirms that ticks bypass the generic hard-handler registry. */
+  static EXPORTED_PUBLIC bool directRoutePublishedForTest();
+  /** Queues a source-owned tick while hosted interrupts are masked. */
+  static EXPORTED_PUBLIC bool queueTickForTest();
 #endif
 
-  protected:
-    /** The default constructor */
-    HostedSchedulerTimer() INITIALISATION_ONLY;
-    /** The destructor */
-    virtual ~HostedSchedulerTimer();
+ protected:
+  /** The default constructor */
+  HostedSchedulerTimer() INITIALISATION_ONLY;
+  /** The destructor */
+  virtual ~HostedSchedulerTimer();
 
-  private:
-    /** The copy-constructor
-     *\note NOT implemented */
-    HostedSchedulerTimer(const HostedSchedulerTimer &);
-    /** The assignment operator
-     *\note NOT implemented */
-    HostedSchedulerTimer &operator=(const HostedSchedulerTimer &);
+ private:
+  /** The copy-constructor
+   *\note NOT implemented */
+  HostedSchedulerTimer(const HostedSchedulerTimer&);
+  /** The assignment operator
+   *\note NOT implemented */
+  HostedSchedulerTimer& operator=(const HostedSchedulerTimer&);
 
-    //
-    // SchedulerIrqHandler interface
-    //
-    virtual void schedulerIrq(irq_id_t number, InterruptState &state);
+  //
+  // SchedulerIrqHandler interface
+  //
+  virtual void schedulerIrq(irq_id_t number, InterruptState& state);
 
-    irq_id_t m_IrqId;
-    HostedTickSource m_TickSource;
+  irq_id_t m_IrqId;
+  HostedTickSource m_TickSource;
 
-    /** The atomically published scheduler callback owner. */
-    SchedulerTimerHandlerSlot m_Handler;
+  /** The atomically published scheduler callback owner. */
+  SchedulerTimerHandlerSlot m_Handler;
 
-    bool m_bInitialized;
+  bool m_bInitialized;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    static HardContextHook m_HardContextHook;
+  static HardContextHook m_HardContextHook;
 #endif
 
-    /** The HostedSchedulerTimer class instance */
-    static HostedSchedulerTimer m_Instance;
+  /** The HostedSchedulerTimer class instance */
+  static HostedSchedulerTimer m_Instance;
 };
 
 /** @} */

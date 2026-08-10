@@ -25,39 +25,37 @@
 #include "pedigree/kernel/utilities/String.h"
 
 /** A MAC address */
-class EXPORTED_PUBLIC MacAddress
-{
-  public:
-    MacAddress();
-    MacAddress(const MacAddress &other);
+class EXPORTED_PUBLIC MacAddress {
+ public:
+  MacAddress();
+  MacAddress(const MacAddress& other);
 
-    bool valid() const
-    {
-        return m_Valid;
-    }
+  bool valid() const {
+    return m_Valid;
+  }
 
-    void setMac(uint8_t byte, size_t element);
+  void setMac(uint8_t byte, size_t element);
 
-    /** Useful for setting a broadcast MAC */
-    void setMac(uint8_t element);
+  /** Useful for setting a broadcast MAC */
+  void setMac(uint8_t element);
 
-    void setMac(const uint16_t *data, bool bSwap = false);
+  void setMac(const uint16_t* data, bool bSwap = false);
 
-    uint8_t getMac(size_t element) const;
+  uint8_t getMac(size_t element) const;
 
-    const uint16_t *getMac() const;
+  const uint16_t* getMac() const;
 
-    uint8_t operator[](size_t offset) const;
+  uint8_t operator[](size_t offset) const;
 
-    MacAddress &operator=(const MacAddress &a);
+  MacAddress& operator=(const MacAddress& a);
 
-    MacAddress &operator=(const uint16_t *a);
+  MacAddress& operator=(const uint16_t* a);
 
-    String toString();
+  String toString();
 
-  private:
-    uint16_t m_Mac[3];
-    bool m_Valid;
+ private:
+  uint16_t m_Mac[3];
+  bool m_Valid;
 };
 
 #endif

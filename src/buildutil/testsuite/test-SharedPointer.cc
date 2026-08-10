@@ -19,96 +19,85 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/utilities/SharedPointer.h"
+
 #include <iostream>
 
 #include <gtest/gtest.h>
 
-#include "pedigree/kernel/utilities/SharedPointer.h"
-
-TEST(PedigreeSharedPointer, Construction)
-{
-    SharedPointer<int> p;
-    EXPECT_FALSE(p);
+TEST(PedigreeSharedPointer, Construction) {
+  SharedPointer<int> p;
+  EXPECT_FALSE(p);
 }
 
-TEST(PedigreeSharedPointer, TakeOwnership)
-{
-    // Should not provide a hit when run under Valgrind, either.
-    SharedPointer<int> p(new int);
-    EXPECT_TRUE(p);
+TEST(PedigreeSharedPointer, TakeOwnership) {
+  // Should not provide a hit when run under Valgrind, either.
+  SharedPointer<int> p(new int);
+  EXPECT_TRUE(p);
 }
 
-TEST(PedigreeSharedPointer, CopyOwnership)
-{
-    // Should not provide a hit when run under Valgrind, either.
-    SharedPointer<int> p(new int);
-    SharedPointer<int> p2(p);
-    EXPECT_TRUE(p);
-    EXPECT_TRUE(p2);
+TEST(PedigreeSharedPointer, CopyOwnership) {
+  // Should not provide a hit when run under Valgrind, either.
+  SharedPointer<int> p(new int);
+  SharedPointer<int> p2(p);
+  EXPECT_TRUE(p);
+  EXPECT_TRUE(p2);
 }
 
-TEST(PedigreeSharedPointer, MoveOwnership)
-{
-    // Should not provide a hit when run under Valgrind, either.
-    SharedPointer<int> p(new int);
-    auto ptr = p.get();
-    SharedPointer<int> p2 = pedigree_std::move(p);
-    EXPECT_FALSE(p);
-    EXPECT_TRUE(p2);
-    EXPECT_EQ(p.get(), nullptr);
-    EXPECT_EQ(p2.get(), ptr);
+TEST(PedigreeSharedPointer, MoveOwnership) {
+  // Should not provide a hit when run under Valgrind, either.
+  SharedPointer<int> p(new int);
+  auto ptr = p.get();
+  SharedPointer<int> p2 = pedigree_std::move(p);
+  EXPECT_FALSE(p);
+  EXPECT_TRUE(p2);
+  EXPECT_EQ(p.get(), nullptr);
+  EXPECT_EQ(p2.get(), ptr);
 }
 
-TEST(PedigreeSharedPointer, Reset)
-{
-    SharedPointer<int> p(new int);
-    EXPECT_TRUE(p);
-    p.reset();
-    EXPECT_FALSE(p);
+TEST(PedigreeSharedPointer, Reset) {
+  SharedPointer<int> p(new int);
+  EXPECT_TRUE(p);
+  p.reset();
+  EXPECT_FALSE(p);
 }
 
-TEST(PedigreeSharedPointer, ResetNewPointer)
-{
-    int *a = new int;
-    int *b = new int;
-    SharedPointer<int> p(a);
-    EXPECT_TRUE(p);
-    p.reset(b);
-    EXPECT_TRUE(p);
-    EXPECT_NE(p.get(), a);
+TEST(PedigreeSharedPointer, ResetNewPointer) {
+  int* a = new int;
+  int* b = new int;
+  SharedPointer<int> p(a);
+  EXPECT_TRUE(p);
+  p.reset(b);
+  EXPECT_TRUE(p);
+  EXPECT_NE(p.get(), a);
 }
 
-TEST(PedigreeSharedPointer, GetNotHeld)
-{
-    SharedPointer<int> p;
-    EXPECT_EQ(p.get(), reinterpret_cast<int *>(0));
+TEST(PedigreeSharedPointer, GetNotHeld) {
+  SharedPointer<int> p;
+  EXPECT_EQ(p.get(), reinterpret_cast<int*>(0));
 }
 
-TEST(PedigreeSharedPointer, Deref)
-{
-    SharedPointer<int> p(new int(5));
-    EXPECT_EQ(*p, 5);
+TEST(PedigreeSharedPointer, Deref) {
+  SharedPointer<int> p(new int(5));
+  EXPECT_EQ(*p, 5);
 }
 
-TEST(PedigreeSharedPointer, Uniqueness)
-{
-    SharedPointer<int> p(new int);
-    EXPECT_TRUE(p.unique());
-    SharedPointer<int> p2(p);
-    EXPECT_FALSE(p.unique());
-    EXPECT_FALSE(p2.unique());
+TEST(PedigreeSharedPointer, Uniqueness) {
+  SharedPointer<int> p(new int);
+  EXPECT_TRUE(p.unique());
+  SharedPointer<int> p2(p);
+  EXPECT_FALSE(p.unique());
+  EXPECT_FALSE(p2.unique());
 }
 
-TEST(PedigreeSharedPointer, Allocated)
-{
-    SharedPointer<int> p = SharedPointer<int>::allocate();
-    EXPECT_TRUE(p);
+TEST(PedigreeSharedPointer, Allocated) {
+  SharedPointer<int> p = SharedPointer<int>::allocate();
+  EXPECT_TRUE(p);
 }
 
-TEST(PedigreeSharedPointer, Refcount)
-{
-    SharedPointer<int> p;
-    EXPECT_EQ(p.refcount(), 0U);
-    p.reset(new int);
-    EXPECT_EQ(p.refcount(), 1U);
+TEST(PedigreeSharedPointer, Refcount) {
+  SharedPointer<int> p;
+  EXPECT_EQ(p.refcount(), 0U);
+  p.reset(new int);
+  EXPECT_EQ(p.refcount(), 1U);
 }

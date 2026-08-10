@@ -28,25 +28,23 @@
 #include "pedigree/kernel/machine/Serial.h"
 #endif
 
-#define DUMP_MEM_INFO                                                         \
-    do                                                                        \
-    {                                                                         \
-        extern size_t g_FreePages;                                            \
-        extern size_t g_AllocedPages;                                         \
-        Serial *pSerial = Machine::instance().getSerial(1);                   \
-        NormalStaticString str;                                               \
-        str += "Heap: ";                                                      \
-        str += (reinterpret_cast<uintptr_t>(                                  \
-                    VirtualAddressSpace::getKernelAddressSpace().m_HeapEnd) - \
-                0xC0000000) /                                                 \
-               1024;                                                          \
-        str += "K\tPages: ";                                                  \
-        str += (g_AllocedPages * 4096) / 1024;                                \
-        str += "K\t Free: ";                                                  \
-        str += (g_FreePages * 4096) / 1024;                                   \
-        str += "K\n";                                                         \
-        pSerial->write(str);                                                  \
-    } while (0)
+#define DUMP_MEM_INFO                                                                             \
+  do {                                                                                            \
+    extern size_t g_FreePages;                                                                    \
+    extern size_t g_AllocedPages;                                                                 \
+    Serial* pSerial = Machine::instance().getSerial(1);                                           \
+    NormalStaticString str;                                                                       \
+    str += "Heap: ";                                                                              \
+    str += (reinterpret_cast<uintptr_t>(VirtualAddressSpace::getKernelAddressSpace().m_HeapEnd) - \
+            0xC0000000) /                                                                         \
+           1024;                                                                                  \
+    str += "K\tPages: ";                                                                          \
+    str += (g_AllocedPages * 4096) / 1024;                                                        \
+    str += "K\t Free: ";                                                                          \
+    str += (g_FreePages * 4096) / 1024;                                                           \
+    str += "K\n";                                                                                 \
+    pSerial->write(str);                                                                          \
+  } while (0)
 
 #else
 

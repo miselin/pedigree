@@ -19,23 +19,22 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
 
-TEST(PedigreeConditionVariable, Timeout)
-{
-    Mutex m;
-    ConditionVariable cond;
+#include <gtest/gtest.h>
 
-    m.acquire();
+TEST(PedigreeConditionVariable, Timeout) {
+  Mutex m;
+  ConditionVariable cond;
 
-    Time::Timestamp timeout = 500;
+  m.acquire();
 
-    ConditionVariable::Error error = ConditionVariable::NoError;
-    const bool result = cond.wait(m, timeout, error);
+  Time::Timestamp timeout = 500;
 
-    EXPECT_FALSE(result);
-    EXPECT_EQ(error, ConditionVariable::TimedOut);
+  ConditionVariable::Error error = ConditionVariable::NoError;
+  const bool result = cond.wait(m, timeout, error);
+
+  EXPECT_FALSE(result);
+  EXPECT_EQ(error, ConditionVariable::TimedOut);
 }

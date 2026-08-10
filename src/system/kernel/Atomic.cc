@@ -20,6 +20,4 @@
 #include "pedigree/kernel/Atomic.h"
 
 // vtable anchor for Atomic<bool>
-Atomic<bool, true>::~Atomic()
-{
-}
+Atomic<bool, true>::~Atomic() {}

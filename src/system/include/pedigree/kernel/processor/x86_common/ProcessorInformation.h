@@ -36,99 +36,97 @@ class SuspendDeviceHardIrqContext;
  * @{ */
 
 /** Common x86 processor information structure */
-class EXPORTED_PUBLIC X86CommonProcessorInformation
-{
-    friend class ProcessorBase;
-    friend class Multiprocessor;
+class EXPORTED_PUBLIC X86CommonProcessorInformation {
+  friend class ProcessorBase;
+  friend class Multiprocessor;
 
-  public:
-    typedef struct X64TaskStateSegment TaskStateSegment;
+ public:
+  typedef struct X64TaskStateSegment TaskStateSegment;
 
-    /** Get the current processor's VirtualAddressSpace
-     *\return reference to the current processor's VirtualAddressSpace */
-    VirtualAddressSpace &getVirtualAddressSpace() const;
-    /** Set the current processor's VirtualAddressSpace
-     *\param[in] virtualAddressSpace reference to the new VirtualAddressSpace */
-    void setVirtualAddressSpace(VirtualAddressSpace &virtualAddressSpace);
+  /** Get the current processor's VirtualAddressSpace
+   *\return reference to the current processor's VirtualAddressSpace */
+  VirtualAddressSpace& getVirtualAddressSpace() const;
+  /** Set the current processor's VirtualAddressSpace
+   *\param[in] virtualAddressSpace reference to the new VirtualAddressSpace */
+  void setVirtualAddressSpace(VirtualAddressSpace& virtualAddressSpace);
 
-    /** Set the processor's TSS selector
-     *\param[in] TssSelector the new TSS selector */
-    void setTssSelector(uint16_t TssSelector);
-    /** Set the processor's TSS
-     *\param[in] Tss pointer to the new TSS */
-    void setTss(void *Tss);
-    /** Get the processor's TSS selector
-     *\return the TSS selector of the processor */
-    uint16_t getTssSelector() const;
-    /** Get the processor's TSS
-     *\return the Tss of the processor */
-    void *getTss() const;
-    /** Gets the processor's TLS base segment */
-    uint16_t getTlsSelector();
-    /** Sets the processor's TLS base segment */
-    void setTlsSelector(uint16_t tls);
+  /** Set the processor's TSS selector
+   *\param[in] TssSelector the new TSS selector */
+  void setTssSelector(uint16_t TssSelector);
+  /** Set the processor's TSS
+   *\param[in] Tss pointer to the new TSS */
+  void setTss(void* Tss);
+  /** Get the processor's TSS selector
+   *\return the TSS selector of the processor */
+  uint16_t getTssSelector() const;
+  /** Get the processor's TSS
+   *\return the Tss of the processor */
+  void* getTss() const;
+  /** Gets the processor's TLS base segment */
+  uint16_t getTlsSelector();
+  /** Sets the processor's TLS base segment */
+  void setTlsSelector(uint16_t tls);
 
-    uintptr_t getKernelStack() const;
-    void setKernelStack(uintptr_t stack);
-    Thread *getCurrentThread() const;
-    void setCurrentThread(Thread *pThread);
+  uintptr_t getKernelStack() const;
+  void setKernelStack(uintptr_t stack);
+  Thread* getCurrentThread() const;
+  void setCurrentThread(Thread* pThread);
 
-    PerProcessorScheduler &getScheduler();
+  PerProcessorScheduler& getScheduler();
 
-    /** Installs this processor's immutable high-resolution clock anchor. */
-    void initialiseTscClockAnchor(uint64_t tsc, uint64_t nanoseconds);
+  /** Installs this processor's immutable high-resolution clock anchor. */
+  void initialiseTscClockAnchor(uint64_t tsc, uint64_t nanoseconds);
 
-    /** Reads this processor's clock anchor after its release publication. */
-    bool getTscClockAnchor(uint64_t &tsc, uint64_t &nanoseconds) const;
+  /** Reads this processor's clock anchor after its release publication. */
+  bool getTscClockAnchor(uint64_t& tsc, uint64_t& nanoseconds) const;
 
-  protected:
-    /** Construct a X86CommonProcessor object
-     *\param[in] processorId Identifier of the processor */
-    X86CommonProcessorInformation(ProcessorId processorId, uint8_t apicId = 0);
-    /** The destructor does nothing */
-    virtual ~X86CommonProcessorInformation();
+ protected:
+  /** Construct a X86CommonProcessor object
+   *\param[in] processorId Identifier of the processor */
+  X86CommonProcessorInformation(ProcessorId processorId, uint8_t apicId = 0);
+  /** The destructor does nothing */
+  virtual ~X86CommonProcessorInformation();
 
-    void setIds(ProcessorId processorId, uint8_t apicId = 0);
+  void setIds(ProcessorId processorId, uint8_t apicId = 0);
 
-  private:
-    friend class DeviceHardIrqContext;
-    friend class SuspendDeviceHardIrqContext;
+ private:
+  friend class DeviceHardIrqContext;
+  friend class SuspendDeviceHardIrqContext;
 
-    /** Default constructor
-     *\note NOT implemented */
-    X86CommonProcessorInformation();
-    /** Copy-constructor
-     *\note NOT implemented */
-    X86CommonProcessorInformation(const X86CommonProcessorInformation &);
-    /** Assignment operator
-     *\note NOT implemented */
-    X86CommonProcessorInformation &
-    operator=(const X86CommonProcessorInformation &);
+  /** Default constructor
+   *\note NOT implemented */
+  X86CommonProcessorInformation();
+  /** Copy-constructor
+   *\note NOT implemented */
+  X86CommonProcessorInformation(const X86CommonProcessorInformation&);
+  /** Assignment operator
+   *\note NOT implemented */
+  X86CommonProcessorInformation& operator=(const X86CommonProcessorInformation&);
 
-    /** Identifier of that processor */
-    ProcessorId m_ProcessorId;
-    /** The Task-State-Segment selector of that Processor */
-    uint16_t m_TssSelector;
-    /** Pointer to this processor's Task-State-Segment */
-    TaskStateSegment *m_Tss;
-    /** The current VirtualAddressSpace */
-    VirtualAddressSpace *m_VirtualAddressSpace;
-    /** Local APIC Id */
-    uint8_t m_LocalApicId;
-    /** The current thread */
-    Thread *m_pCurrentThread;
-    /** The processor's scheduler. */
-    PerProcessorScheduler *m_Scheduler;
-    /** The processor's TLS segment */
-    uint16_t m_TlsSelector;
-    /** Device hard-IRQ callbacks currently active on this processor. */
-    size_t m_DeviceHardIrqDepth;
-    /** This processor's local TSC at its monotonic-clock anchor. */
-    uint64_t m_TscClockAnchor;
-    /** Global monotonic time represented by m_TscClockAnchor. */
-    uint64_t m_TscClockAnchorNanoseconds;
-    /** Release-published after both anchor values have been installed. */
-    bool m_TscClockAnchorInitialised;
+  /** Identifier of that processor */
+  ProcessorId m_ProcessorId;
+  /** The Task-State-Segment selector of that Processor */
+  uint16_t m_TssSelector;
+  /** Pointer to this processor's Task-State-Segment */
+  TaskStateSegment* m_Tss;
+  /** The current VirtualAddressSpace */
+  VirtualAddressSpace* m_VirtualAddressSpace;
+  /** Local APIC Id */
+  uint8_t m_LocalApicId;
+  /** The current thread */
+  Thread* m_pCurrentThread;
+  /** The processor's scheduler. */
+  PerProcessorScheduler* m_Scheduler;
+  /** The processor's TLS segment */
+  uint16_t m_TlsSelector;
+  /** Device hard-IRQ callbacks currently active on this processor. */
+  size_t m_DeviceHardIrqDepth;
+  /** This processor's local TSC at its monotonic-clock anchor. */
+  uint64_t m_TscClockAnchor;
+  /** Global monotonic time represented by m_TscClockAnchor. */
+  uint64_t m_TscClockAnchorNanoseconds;
+  /** Release-published after both anchor values have been installed. */
+  bool m_TscClockAnchorInitialised;
 };
 
 /** @} */

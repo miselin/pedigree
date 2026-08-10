@@ -29,17 +29,16 @@
 
 /** Abstract base class for all syscall-handlers. All syscall-handlers mustbe
  * derived from this class */
-class EXPORTED_PUBLIC SyscallHandler
-{
-  public:
-    /** Called when the handler is registered with the syscall manager and a
-     *syscall occurred \param[in] State reference to the state before the
-     *syscall */
-    virtual uintptr_t syscall(SyscallState &State) = 0;
+class EXPORTED_PUBLIC SyscallHandler {
+ public:
+  /** Called when the handler is registered with the syscall manager and a
+   *syscall occurred \param[in] State reference to the state before the
+   *syscall */
+  virtual uintptr_t syscall(SyscallState& State) = 0;
 
-  protected:
-    /** Virtual destructor */
-    virtual ~SyscallHandler();
+ protected:
+  /** Virtual destructor */
+  virtual ~SyscallHandler();
 };
 
 /** @} */

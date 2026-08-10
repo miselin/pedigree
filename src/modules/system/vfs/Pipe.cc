@@ -29,240 +29,189 @@
 
 class Filesystem;
 
-class ZombiePipe : public ZombieObject
-{
-  public:
-    ZombiePipe(Pipe *pPipe) : m_pPipe(pPipe)
-    {
-    }
-    virtual ~ZombiePipe();
+class ZombiePipe : public ZombieObject {
+ public:
+  ZombiePipe(Pipe* pPipe) : m_pPipe(pPipe) {}
+  virtual ~ZombiePipe();
 
-  private:
-    Pipe *m_pPipe;
+ private:
+  Pipe* m_pPipe;
 };
 
-ZombiePipe::~ZombiePipe()
-{
-    NOTICE("ZombiePipe: freeing " << m_pPipe);
-    delete m_pPipe;
+ZombiePipe::~ZombiePipe() {
+  NOTICE("ZombiePipe: freeing " << m_pPipe);
+  delete m_pPipe;
 }
 
 Pipe::Pipe()
-    : File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX),
-      m_ReaderCondition()
-{
+    : File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX), m_ReaderCondition() {
 #if VERBOSE_KERNEL
-    NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
+  NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
 #endif
 }
 
-Pipe::Pipe(
-    const String &name, Time::Timestamp accessedTime,
-    Time::Timestamp modifiedTime, Time::Timestamp creationTime, uintptr_t inode,
-    Filesystem *pFs, size_t size, File *pParent, bool bIsAnonymous)
-    : File(
-          name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
-          pParent),
-      m_bIsAnonymous(bIsAnonymous), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX),
-      m_ReaderCondition()
-{
+Pipe::Pipe(const String& name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
+           Time::Timestamp creationTime, uintptr_t inode, Filesystem* pFs, size_t size,
+           File* pParent, bool bIsAnonymous)
+    : File(name, accessedTime, modifiedTime, creationTime, inode, pFs, size, pParent),
+      m_bIsAnonymous(bIsAnonymous),
+      m_bIsEOF(false),
+      m_Buffer(PIPE_BUF_MAX),
+      m_ReaderCondition() {
 #if VERBOSE_KERNEL
-    NOTICE(
-        "Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe "
-                     << Hex << this);
+  NOTICE("Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe " << Hex << this);
 #endif
 }
 
-Pipe::~Pipe()
-{
-    // ensure anything else in the critical section can finish before we clean
-    // up fully
-    // this is useful for cases where ZombieQueue destroys us before we get a
-    // chance to actually return from decreaseRefCount (which accesses the lock)
-    m_Lock.acquire();
-    m_Lock.release();
+Pipe::~Pipe() {
+  // ensure anything else in the critical section can finish before we clean
+  // up fully
+  // this is useful for cases where ZombieQueue destroys us before we get a
+  // chance to actually return from decreaseRefCount (which accesses the lock)
+  m_Lock.acquire();
+  m_Lock.release();
 }
 
-int Pipe::select(bool bWriting, int timeout)
-{
-    if (bWriting)
-    {
-        return m_Buffer.canWrite(timeout > 0) ? 1 : 0;
+int Pipe::select(bool bWriting, int timeout) {
+  if (bWriting) {
+    return m_Buffer.canWrite(timeout > 0) ? 1 : 0;
+  } else {
+    return m_Buffer.canRead(timeout > 0) ? 1 : 0;
+  }
+}
+
+uint64_t Pipe::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
+  // Need to read what's left in the pipe then EOF if there's no more readers!
+  if (m_nWriters == 0) {
+    bCanBlock = false;
+  }
+
+  uint8_t* pBuf = reinterpret_cast<uint8_t*>(buffer);
+  return m_Buffer.read(pBuf, size, bCanBlock);
+}
+
+uint64_t Pipe::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
+  if (m_nReaders == 0) {
+    // no more readers, abort the write
+    return 0;
+  }
+
+  uint8_t* pBuf = reinterpret_cast<uint8_t*>(buffer);
+  uint64_t result = m_Buffer.write(pBuf, size, bCanBlock);
+  if (result) {
+    dataChanged();
+  }
+
+  return result;
+}
+
+bool Pipe::isPipe() const {
+  return getName().length() == 0 || m_bIsAnonymous;
+}
+
+bool Pipe::isFifo() const {
+  return getName().length() > 0 && !m_bIsAnonymous;
+}
+
+void Pipe::increaseRefCount(bool bIsWriter) {
+  LockGuard<Mutex> guard(m_Lock);
+
+  if (bIsWriter) {
+    // Enable writes if they were previously disabled.
+    if (!m_Buffer.enableWrites()) {
+      // Writes were disabled previously (EOF), so wipe the pipe.
+      m_Buffer.wipe();
     }
-    else
-    {
-        return m_Buffer.canRead(timeout > 0) ? 1 : 0;
-    }
+    m_nWriters++;
+  } else {
+    // A reader is now present so we can enable reads if they weren't.
+    m_Buffer.enableReads();
+    m_nReaders++;
+
+    // The predicate is "at least one reader", so one arrival satisfies
+    // every writer currently blocked in open().
+    m_ReaderCondition.broadcast();
+  }
 }
 
-uint64_t Pipe::readBytewise(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
-{
-    // Need to read what's left in the pipe then EOF if there's no more readers!
-    if (m_nWriters == 0)
-    {
-        bCanBlock = false;
-    }
-
-    uint8_t *pBuf = reinterpret_cast<uint8_t *>(buffer);
-    return m_Buffer.read(pBuf, size, bCanBlock);
-}
-
-uint64_t Pipe::writeBytewise(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
-{
-    if (m_nReaders == 0)
-    {
-        // no more readers, abort the write
-        return 0;
-    }
-
-    uint8_t *pBuf = reinterpret_cast<uint8_t *>(buffer);
-    uint64_t result = m_Buffer.write(pBuf, size, bCanBlock);
-    if (result)
-    {
-        dataChanged();
-    }
-
-    return result;
-}
-
-bool Pipe::isPipe() const
-{
-    return getName().length() == 0 || m_bIsAnonymous;
-}
-
-bool Pipe::isFifo() const
-{
-    return getName().length() > 0 && !m_bIsAnonymous;
-}
-
-void Pipe::increaseRefCount(bool bIsWriter)
-{
+void Pipe::decreaseRefCount(bool bIsWriter) {
+  // Make sure only one thread decreases the refcount at a time. This is
+  // important as we add ourselves to the ZombieQueue if the refcount ticks
+  // to zero. Getting pre-empted by another thread that also decreases the
+  // refcount between the decrement and the check for zero may mean the pipe
+  // is added to the ZombieQueue twice, which causes a double free.
+  bool bDataChanged = false;
+  {
     LockGuard<Mutex> guard(m_Lock);
 
-    if (bIsWriter)
-    {
-        // Enable writes if they were previously disabled.
-        if (!m_Buffer.enableWrites())
-        {
-            // Writes were disabled previously (EOF), so wipe the pipe.
-            m_Buffer.wipe();
-        }
-        m_nWriters++;
+    if (m_nReaders == 0 && m_nWriters == 0) {
+      // Refcount is already zero - don't decrement! (also, bad.)
+      ERROR("Pipe: decreasing refcount when refcount is already zero.");
+      return;
     }
-    else
-    {
-        // A reader is now present so we can enable reads if they weren't.
-        m_Buffer.enableReads();
-        m_nReaders++;
 
-        // The predicate is "at least one reader", so one arrival satisfies
-        // every writer currently blocked in open().
-        m_ReaderCondition.broadcast();
+    if (bIsWriter) {
+      m_nWriters--;
+      if (m_nWriters == 0) {
+        // Wakes up readers waiting as they won't be able to be woken
+        // by new bytes being written anymore.
+        m_Buffer.disableWrites();
+        bDataChanged = true;
+      }
+    } else {
+      m_nReaders--;
+      if (m_nReaders == 0) {
+        // Wake up any writers that were waiting for space - no more
+        // readers (EOF condition, pipe other end has left).
+        m_Buffer.disableReads();
+        bDataChanged = true;
+      }
     }
-}
 
-void Pipe::decreaseRefCount(bool bIsWriter)
-{
-    // Make sure only one thread decreases the refcount at a time. This is
-    // important as we add ourselves to the ZombieQueue if the refcount ticks
-    // to zero. Getting pre-empted by another thread that also decreases the
-    // refcount between the decrement and the check for zero may mean the pipe
-    // is added to the ZombieQueue twice, which causes a double free.
-    bool bDataChanged = false;
-    {
-        LockGuard<Mutex> guard(m_Lock);
-
-        if (m_nReaders == 0 && m_nWriters == 0)
-        {
-            // Refcount is already zero - don't decrement! (also, bad.)
-            ERROR("Pipe: decreasing refcount when refcount is already zero.");
-            return;
-        }
-
-        if (bIsWriter)
-        {
-            m_nWriters--;
-            if (m_nWriters == 0)
-            {
-                // Wakes up readers waiting as they won't be able to be woken
-                // by new bytes being written anymore.
-                m_Buffer.disableWrites();
-                bDataChanged = true;
-            }
-        }
-        else
-        {
-            m_nReaders--;
-            if (m_nReaders == 0)
-            {
-                // Wake up any writers that were waiting for space - no more
-                // readers (EOF condition, pipe other end has left).
-                m_Buffer.disableReads();
-                bDataChanged = true;
-            }
-        }
-
-        if (m_nReaders == 0 && m_nWriters == 0)
-        {
-            // If we're anonymous, die completely.
-            if (m_bIsAnonymous)
-            {
-                size_t pid = Processor::information()
-                                 .getCurrentThread()
-                                 ->getParent()
-                                 ->getId();
+    if (m_nReaders == 0 && m_nWriters == 0) {
+      // If we're anonymous, die completely.
+      if (m_bIsAnonymous) {
+        size_t pid = Processor::information().getCurrentThread()->getParent()->getId();
 #if VERBOSE_KERNEL
-                NOTICE(
-                    "Adding pipe [" << pid << "] " << this
-                                    << " to ZombieQueue");
+        NOTICE("Adding pipe [" << pid << "] " << this << " to ZombieQueue");
 #endif
-                ZombieQueue::instance().addObject(new ZombiePipe(this));
-                bDataChanged = false;
-            }
-        }
+        ZombieQueue::instance().addObject(new ZombiePipe(this));
+        bDataChanged = false;
+      }
     }
+  }
 
-    if (bDataChanged)
-    {
-        dataChanged();
-    }
+  if (bDataChanged) {
+    dataChanged();
+  }
 }
 
-size_t Pipe::getReaderCount()
-{
-    LockGuard<Mutex> guard(m_Lock);
-    return m_nReaders;
+size_t Pipe::getReaderCount() {
+  LockGuard<Mutex> guard(m_Lock);
+  return m_nReaders;
 }
 
-size_t Pipe::getWriterCount()
-{
-    LockGuard<Mutex> guard(m_Lock);
-    return m_nWriters;
+size_t Pipe::getWriterCount() {
+  LockGuard<Mutex> guard(m_Lock);
+  return m_nWriters;
 }
 
-bool Pipe::waitForReader(bool bCanBlock)
-{
-    m_Lock.acquire();
-    while (!m_nReaders)
-    {
-        if (!bCanBlock)
-        {
-            m_Lock.release();
-            return false;
-        }
-
-        ConditionVariable::Error error = ConditionVariable::NoError;
-        if (!m_ReaderCondition.wait(m_Lock, error))
-        {
-            if (ConditionVariable::mutexAcquired(error))
-            {
-                m_Lock.release();
-            }
-            return false;
-        }
+bool Pipe::waitForReader(bool bCanBlock) {
+  m_Lock.acquire();
+  while (!m_nReaders) {
+    if (!bCanBlock) {
+      m_Lock.release();
+      return false;
     }
-    m_Lock.release();
-    return true;
+
+    ConditionVariable::Error error = ConditionVariable::NoError;
+    if (!m_ReaderCondition.wait(m_Lock, error)) {
+      if (ConditionVariable::mutexAcquired(error)) {
+        m_Lock.release();
+      }
+      return false;
+    }
+  }
+  m_Lock.release();
+  return true;
 }

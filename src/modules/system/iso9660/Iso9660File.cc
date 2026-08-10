@@ -21,24 +21,16 @@
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/types.h"
 
-uintptr_t Iso9660File::readBlock(uint64_t location)
-{
-    return reinterpret_cast<Iso9660Filesystem *>(m_pFilesystem)
-        ->readBlock(this, location);
+uintptr_t Iso9660File::readBlock(uint64_t location) {
+  return reinterpret_cast<Iso9660Filesystem*>(m_pFilesystem)->readBlock(this, location);
 }
 
-bool Iso9660File::pinBlock(uint64_t location)
-{
-    const uint64_t block =
-        LITTLE_TO_HOST32(m_Dir.ExtentLocation_LE) +
-        (location / getBlockSize());
-    return m_pFs->m_pDisk->pin(block * getBlockSize());
+bool Iso9660File::pinBlock(uint64_t location) {
+  const uint64_t block = LITTLE_TO_HOST32(m_Dir.ExtentLocation_LE) + (location / getBlockSize());
+  return m_pFs->m_pDisk->pin(block * getBlockSize());
 }
 
-void Iso9660File::unpinBlock(uint64_t location)
-{
-    const uint64_t block =
-        LITTLE_TO_HOST32(m_Dir.ExtentLocation_LE) +
-        (location / getBlockSize());
-    m_pFs->m_pDisk->unpin(block * getBlockSize());
+void Iso9660File::unpinBlock(uint64_t location) {
+  const uint64_t block = LITTLE_TO_HOST32(m_Dir.ExtentLocation_LE) + (location / getBlockSize());
+  m_pFs->m_pDisk->unpin(block * getBlockSize());
 }

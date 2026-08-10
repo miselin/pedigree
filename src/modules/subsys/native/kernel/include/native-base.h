@@ -91,23 +91,21 @@
 /**
  * Base class for all kernel-space native API implementations.
  */
-class NativeBase
-{
-  public:
-    NativeBase();
-    virtual ~NativeBase();
+class NativeBase {
+ public:
+  NativeBase();
+  virtual ~NativeBase();
 
-    /**
-     * System call entry.
-     *
-     * This is where every NATIVE_CALL syscall ends up for each kernel-space
-     * object.
-     * \param subid the method call ID specific to this class
-     * \param params parameter block for this class
-     */
-    /// \todo this definition needs work
-    virtual ReturnState
-    syscall(uint64_t subid, void *params, size_t params_size) = 0;
+  /**
+   * System call entry.
+   *
+   * This is where every NATIVE_CALL syscall ends up for each kernel-space
+   * object.
+   * \param subid the method call ID specific to this class
+   * \param params parameter block for this class
+   */
+  /// \todo this definition needs work
+  virtual ReturnState syscall(uint64_t subid, void* params, size_t params_size) = 0;
 };
 
 #endif

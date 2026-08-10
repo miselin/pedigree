@@ -28,17 +28,16 @@
 
 /** Abstract base class for all timer handlers. All those handlers must
  * be derived from this class */
-class EXPORTED_PUBLIC TimerHandler
-{
-  public:
-    /** Called when the handler is registered with the Timer class and a timer
-     * event occurred. \param[in] delta time elapsed since the last event, in
-     * nanoseconds.
-     */
-    virtual void timer(uint64_t delta) = 0;
+class EXPORTED_PUBLIC TimerHandler {
+ public:
+  /** Called when the handler is registered with the Timer class and a timer
+   * event occurred. \param[in] delta time elapsed since the last event, in
+   * nanoseconds.
+   */
+  virtual void timer(uint64_t delta) = 0;
 
-  protected:
-    virtual ~TimerHandler();
+ protected:
+  virtual ~TimerHandler();
 };
 
 /** @} */

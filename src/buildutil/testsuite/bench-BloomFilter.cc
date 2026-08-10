@@ -19,39 +19,35 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/utilities/BloomFilter.h"
+
 #include <string.h>
 
 #include <benchmark/benchmark.h>
 
-#include "pedigree/kernel/utilities/BloomFilter.h"
+static void BM_BloomFilterContains(benchmark::State& state) {
+  BloomFilter<char> filter(state.range(0), state.range(1));
 
-static void BM_BloomFilterContains(benchmark::State &state)
-{
-    BloomFilter<char> filter(state.range(0), state.range(1));
+  filter.add('t');
+  filter.add("test1", 5);
+  filter.add("test2", 5);
+  filter.add("hello world", 11);
 
-    filter.add('t');
-    filter.add("test1", 5);
-    filter.add("test2", 5);
-    filter.add("hello world", 11);
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(filter.contains('t'));
+  }
 
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(filter.contains('t'));
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_BloomFilterDoesNotContain(benchmark::State &state)
-{
-    BloomFilter<char> filter(state.range(0), state.range(1));
+static void BM_BloomFilterDoesNotContain(benchmark::State& state) {
+  BloomFilter<char> filter(state.range(0), state.range(1));
 
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(filter.contains('t'));
-    }
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(filter.contains('t'));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
 BENCHMARK(BM_BloomFilterContains)->Ranges({{1, 1024}, {1, 8}});

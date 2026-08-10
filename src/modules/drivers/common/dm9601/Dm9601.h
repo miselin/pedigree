@@ -20,7 +20,6 @@
 #ifndef DM9601_H
 #define DM9601_H
 
-#include "modules/system/usb/UsbDevice.h"
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
@@ -33,175 +32,171 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
 
-class Dm9601 : public UsbDevice, public Network
-{
-  public:
-    Dm9601(UsbDevice *pDev);
+#include "modules/system/usb/UsbDevice.h"
 
-    virtual ~Dm9601();
+class Dm9601 : public UsbDevice, public Network {
+ public:
+  Dm9601(UsbDevice* pDev);
 
-    virtual void initialiseDriver();
+  virtual ~Dm9601();
 
-    virtual void getName(String &str)
-    {
-        str.assign("DM9601", 7);
-    }
+  virtual void initialiseDriver();
 
-    virtual bool send(size_t nBytes, uintptr_t buffer);
+  virtual void getName(String& str) {
+    str.assign("DM9601", 7);
+  }
 
-    virtual bool setStationInfo(const StationInfo &info);
+  virtual bool send(size_t nBytes, uintptr_t buffer);
 
-    virtual const StationInfo &getStationInfo();
+  virtual bool setStationInfo(const StationInfo& info);
 
-  private:
-    static int recvTrampoline(void *p);
+  virtual const StationInfo& getStationInfo();
 
-    static int trampoline(void *p);
+ private:
+  static int recvTrampoline(void* p);
 
-    void receiveThread();
+  static int trampoline(void* p);
 
-    void receiveLoop();
+  void receiveThread();
 
-    void doReceive();
+  void receiveLoop();
 
-    enum VendorRequests
-    {
-        ReadRegister = 0,
-        WriteRegister = 1,
-        ReadMemory = 2,
-        WriteRegister1 = 3,
-        WriteMemory = 5,
-        WriteMemory1 = 7,
-    };
+  void doReceive();
 
-    enum Registers
-    {
-        NetworkControl = 0,
-        NetworkStatus = 1,
-        TxControl = 2,
-        TxStatus1 = 3,
-        TxStatus2 = 4,
-        RxControl = 5,
-        RxStatus = 6,
-        RxOverflowCount = 7,
-        BackPressThreshold = 8,
-        FlowControl = 9,
-        RxFlowControl = 10,
-        PhyControl = 11,
-        PhyAddress = 12,
-        PhyLowByte = 13,
-        PhyHighByte = 14,
-        WakeUpControl = 15,
-        PhysicalAddress = 16,
-        MulticastAddress = 22,
-        GeneralPurposeCtl = 30,
-        GeneralPurpose = 31,
-        TxWriteAddressLo = 32,
-        TxWriteAddressHi = 33,
-        TxReadAddressLo = 34,
-        TxReadAddressHi = 35,
-        RxWriteAddressLo = 36,
-        RxWriteAddressHi = 37,
-        RxReadAddressLo = 38,
-        RxReadAddressHi = 39,
-        Vendor = 40,
-        Product = 42,
-        Chip = 44,
+  enum VendorRequests {
+    ReadRegister = 0,
+    WriteRegister = 1,
+    ReadMemory = 2,
+    WriteRegister1 = 3,
+    WriteMemory = 5,
+    WriteMemory1 = 7,
+  };
 
-        UsbAddress = 0xF0,
-        RxCounter = 0xF1,
-        TxCount = 0xF2,
-        UsbStatus = 0xF2,
-        UsbControl = 0xF4
-    };
+  enum Registers {
+    NetworkControl = 0,
+    NetworkStatus = 1,
+    TxControl = 2,
+    TxStatus1 = 3,
+    TxStatus2 = 4,
+    RxControl = 5,
+    RxStatus = 6,
+    RxOverflowCount = 7,
+    BackPressThreshold = 8,
+    FlowControl = 9,
+    RxFlowControl = 10,
+    PhyControl = 11,
+    PhyAddress = 12,
+    PhyLowByte = 13,
+    PhyHighByte = 14,
+    WakeUpControl = 15,
+    PhysicalAddress = 16,
+    MulticastAddress = 22,
+    GeneralPurposeCtl = 30,
+    GeneralPurpose = 31,
+    TxWriteAddressLo = 32,
+    TxWriteAddressHi = 33,
+    TxReadAddressLo = 34,
+    TxReadAddressHi = 35,
+    RxWriteAddressLo = 36,
+    RxWriteAddressHi = 37,
+    RxReadAddressLo = 38,
+    RxReadAddressHi = 39,
+    Vendor = 40,
+    Product = 42,
+    Chip = 44,
 
-    struct InterruptInPacket
-    {
-        uint8_t networkStatus;
-        uint8_t txStatus1;
-        uint8_t txStatus2;
-        uint8_t rxStatus;
-        uint8_t rxOverflowCounter;
-        uint8_t rxCounter;
-        uint8_t txCounter;
-        uint8_t gpRegister;
-    } PACKED;
+    UsbAddress = 0xF0,
+    RxCounter = 0xF1,
+    TxCount = 0xF2,
+    UsbStatus = 0xF2,
+    UsbControl = 0xF4
+  };
 
-    /// Reads data from a register into a buffer.
-    bool readRegister(uint8_t reg, uintptr_t buffer, size_t nBytes);
+  struct InterruptInPacket {
+    uint8_t networkStatus;
+    uint8_t txStatus1;
+    uint8_t txStatus2;
+    uint8_t rxStatus;
+    uint8_t rxOverflowCounter;
+    uint8_t rxCounter;
+    uint8_t txCounter;
+    uint8_t gpRegister;
+  } PACKED;
 
-    /// Writes data from a buffer to a register.
-    bool writeRegister(uint8_t reg, uintptr_t buffer, size_t nBytes);
+  /// Reads data from a register into a buffer.
+  bool readRegister(uint8_t reg, uintptr_t buffer, size_t nBytes);
 
-    /// Writes a single 8-bit value to a register.
-    bool writeRegister(uint8_t reg, uint8_t data);
+  /// Writes data from a buffer to a register.
+  bool writeRegister(uint8_t reg, uintptr_t buffer, size_t nBytes);
 
-    /// Reads data from device memory into a buffer.
-    bool readMemory(uint16_t offset, uintptr_t buffer, size_t nBytes);
+  /// Writes a single 8-bit value to a register.
+  bool writeRegister(uint8_t reg, uint8_t data);
 
-    /// Writes data from a buffer into device memory.
-    bool writeMemory(uint16_t offset, uintptr_t buffer, size_t nBytes);
+  /// Reads data from device memory into a buffer.
+  bool readMemory(uint16_t offset, uintptr_t buffer, size_t nBytes);
 
-    /// Writes a single 8-bit value into device memory.
-    bool writeMemory(uint16_t offset, uint8_t data);
+  /// Writes data from a buffer into device memory.
+  bool writeMemory(uint16_t offset, uintptr_t buffer, size_t nBytes);
 
-    /// Reads a 16-bit value from the device EEPROM.
-    bool readEeprom(uint8_t offset, uint16_t &value);
+  /// Writes a single 8-bit value into device memory.
+  bool writeMemory(uint16_t offset, uint8_t data);
 
-    /// Writes a 16-bit value to the device EEPROM.
-    bool writeEeprom(uint8_t offset, uint16_t data);
+  /// Reads a 16-bit value from the device EEPROM.
+  bool readEeprom(uint8_t offset, uint16_t& value);
 
-    /// Reads a 16-bit value from the external MII.
-    bool readMii(uint8_t offset, uint16_t &value);
+  /// Writes a 16-bit value to the device EEPROM.
+  bool writeEeprom(uint8_t offset, uint16_t data);
 
-    /// Writes a 16-bit value to the external MII.
-    bool writeMii(uint8_t offset, uint16_t data);
+  /// Reads a 16-bit value from the external MII.
+  bool readMii(uint8_t offset, uint16_t& value);
 
-    bool readSharedWord(bool phy, uint8_t offset, uint16_t &value);
-    bool writeSharedWord(bool phy, uint8_t offset, uint16_t value);
-    bool waitForSharedOperation();
-    bool resetDevice();
-    bool waitForLink();
-    bool waitForTxReady();
+  /// Writes a 16-bit value to the external MII.
+  bool writeMii(uint8_t offset, uint16_t data);
 
-    /** Bulk IN endpoint */
-    Endpoint *m_pInEndpoint;
+  bool readSharedWord(bool phy, uint8_t offset, uint16_t& value);
+  bool writeSharedWord(bool phy, uint8_t offset, uint16_t value);
+  bool waitForSharedOperation();
+  bool resetDevice();
+  bool waitForLink();
+  bool waitForTxReady();
 
-    /** Bulk OUT endpoint */
-    Endpoint *m_pOutEndpoint;
+  /** Bulk IN endpoint */
+  Endpoint* m_pInEndpoint;
 
-    /** Mutex to only allow one TX in progress at a time. */
-    Mutex m_TxLock;
+  /** Bulk OUT endpoint */
+  Endpoint* m_pOutEndpoint;
 
-    /** Serialises the multi-request EEPROM and PHY register protocol. */
-    Mutex m_SharedRegisterLock;
+  /** Mutex to only allow one TX in progress at a time. */
+  Mutex m_TxLock;
 
-    /** Number of packets in the queue */
-    Semaphore m_IncomingPackets;
+  /** Serialises the multi-request EEPROM and PHY register protocol. */
+  Mutex m_SharedRegisterLock;
 
-    /** Packet queue */
-    struct Packet
-    {
-        uintptr_t buffer;
-        size_t len;
-        uint32_t offset;
-        Packet *next;
-    };
-    Packet *m_RxQueueHead;
-    Packet *m_RxQueueTail;
-    Spinlock m_RxPacketQueueLock;
+  /** Number of packets in the queue */
+  Semaphore m_IncomingPackets;
 
-    /** Internal state: which TX packet are we on at the moment */
-    size_t m_TxPacket;
+  /** Packet queue */
+  struct Packet {
+    uintptr_t buffer;
+    size_t len;
+    uint32_t offset;
+    Packet* next;
+  };
+  Packet* m_RxQueueHead;
+  Packet* m_RxQueueTail;
+  Spinlock m_RxPacketQueueLock;
 
-    Atomic<bool> m_Running;
-    bool m_Registered;
-    OperationBarrier m_Operations;
-    OwnedThread m_PacketWorker;
-    OwnedThread m_ReceiveWorker;
+  /** Internal state: which TX packet are we on at the moment */
+  size_t m_TxPacket;
 
-    Dm9601(const Dm9601 &);
-    void operator=(const Dm9601 &);
+  Atomic<bool> m_Running;
+  bool m_Registered;
+  OperationBarrier m_Operations;
+  OwnedThread m_PacketWorker;
+  OwnedThread m_ReceiveWorker;
+
+  Dm9601(const Dm9601&);
+  void operator=(const Dm9601&);
 };
 
 #endif

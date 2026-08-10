@@ -20,16 +20,15 @@
 #ifndef POSIX_SUBSYSTEM_H
 #define POSIX_SUBSYSTEM_H
 
-#include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Completion.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/processor/types.h"
-
-#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/LruCache.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
@@ -38,8 +37,8 @@
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
-#include "modules/subsys/posix/logging.h"
 #include "modules/subsys/posix/FileDescriptor.h"
+#include "modules/subsys/posix/logging.h"
 
 class File;
 class Filesystem;
@@ -56,693 +55,639 @@ class String;
  * lookup can therefore only produce an object whose lexical lifetime keeps
  * the descriptor alive across blocking operations and concurrent close/reuse.
  */
-class DescriptorLease
-{
-  public:
-    DescriptorLease() : m_Descriptor()
-    {
+class DescriptorLease {
+ public:
+  DescriptorLease() : m_Descriptor() {}
+
+  DescriptorLease(DescriptorLease&& other) : m_Descriptor(pedigree_std::move(other.m_Descriptor)) {}
+
+  DescriptorLease& operator=(DescriptorLease&& other) {
+    if (this != &other) {
+      m_Descriptor = pedigree_std::move(other.m_Descriptor);
     }
+    return *this;
+  }
 
-    DescriptorLease(DescriptorLease &&other)
-        : m_Descriptor(pedigree_std::move(other.m_Descriptor))
-    {
-    }
+  DescriptorLease(const DescriptorLease&) = delete;
+  DescriptorLease& operator=(const DescriptorLease&) = delete;
 
-    DescriptorLease &operator=(DescriptorLease &&other)
-    {
-        if (this != &other)
-        {
-            m_Descriptor = pedigree_std::move(other.m_Descriptor);
-        }
-        return *this;
-    }
+  FileDescriptor* operator->() const {
+    return m_Descriptor.operator->();
+  }
 
-    DescriptorLease(const DescriptorLease &) = delete;
-    DescriptorLease &operator=(const DescriptorLease &) = delete;
+  FileDescriptor& operator*() const {
+    return *m_Descriptor;
+  }
 
-    FileDescriptor *operator->() const
-    {
-        return m_Descriptor.operator->();
-    }
+  explicit operator bool() const {
+    return static_cast<bool>(m_Descriptor);
+  }
 
-    FileDescriptor &operator*() const
-    {
-        return *m_Descriptor;
-    }
+  void reset() {
+    m_Descriptor.reset();
+  }
 
-    explicit operator bool() const
-    {
-        return static_cast<bool>(m_Descriptor);
-    }
+ private:
+  friend class PosixSubsystem;
+  friend bool acquireDescriptor(int fd, DescriptorLease& descriptor);
+  friend bool removeDescriptor(int fd, const DescriptorLease& descriptor);
 
-    void reset()
-    {
-        m_Descriptor.reset();
-    }
+  void retain(const SharedPointer<FileDescriptor>& descriptor) {
+    m_Descriptor = descriptor;
+  }
 
-  private:
-    friend class PosixSubsystem;
-    friend bool acquireDescriptor(int fd, DescriptorLease &descriptor);
-    friend bool removeDescriptor(
-        int fd, const DescriptorLease &descriptor);
-
-    void retain(const SharedPointer<FileDescriptor> &descriptor)
-    {
-        m_Descriptor = descriptor;
-    }
-
-    SharedPointer<FileDescriptor> m_Descriptor;
+  SharedPointer<FileDescriptor> m_Descriptor;
 };
 
-extern PosixSubsystem *getSubsystem();
-extern bool acquireDescriptor(int fd, DescriptorLease &descriptor);
-extern void addDescriptor(int fd, FileDescriptor *f);
-extern bool removeDescriptor(
-    int fd, const DescriptorLease &descriptor);
+extern PosixSubsystem* getSubsystem();
+extern bool acquireDescriptor(int fd, DescriptorLease& descriptor);
+extern void addDescriptor(int fd, FileDescriptor* f);
+extern bool removeDescriptor(int fd, const DescriptorLease& descriptor);
 extern size_t getAvailableDescriptor();
 
 // Grabs a subsystem for use.
-#define GRAB_POSIX_SUBSYSTEM(returnValue)        \
-    PosixSubsystem *pSubsystem = getSubsystem(); \
-    if (!pSubsystem)                             \
-    {                                            \
-        return (returnValue);                    \
-    }
-#define GRAB_POSIX_SUBSYSTEM_NORET               \
-    PosixSubsystem *pSubsystem = getSubsystem(); \
-    if (!pSubsystem)                             \
-    {                                            \
-        return;                                  \
-    }
+#define GRAB_POSIX_SUBSYSTEM(returnValue)      \
+  PosixSubsystem* pSubsystem = getSubsystem(); \
+  if (!pSubsystem) {                           \
+    return (returnValue);                      \
+  }
+#define GRAB_POSIX_SUBSYSTEM_NORET             \
+  PosixSubsystem* pSubsystem = getSubsystem(); \
+  if (!pSubsystem) {                           \
+    return;                                    \
+  }
 
 /** A map linking full paths to (advisory) locked files */
 /// \todo Locking!
-extern RadixTree<LockedFile *> g_PosixGlobalLockedFiles;
+extern RadixTree<LockedFile*> g_PosixGlobalLockedFiles;
 
 /**
  * Process group ID control.
  */
-class ProcessGroupManager
-{
-  public:
-    ProcessGroupManager();
-    virtual ~ProcessGroupManager();
+class ProcessGroupManager {
+ public:
+  ProcessGroupManager();
+  virtual ~ProcessGroupManager();
 
-    static ProcessGroupManager &instance()
-    {
-        return m_Instance;
-    }
+  static ProcessGroupManager& instance() {
+    return m_Instance;
+  }
 
-    /** Allocates a new process group ID, that hasn't yet been used. */
-    size_t allocateGroupId();
+  /** Allocates a new process group ID, that hasn't yet been used. */
+  size_t allocateGroupId();
 
-    /** Forcibly set the given group ID as taken. */
-    void setGroupId(size_t gid);
+  /** Forcibly set the given group ID as taken. */
+  void setGroupId(size_t gid);
 
-    /** Checks whether the given process group ID is used or not. */
-    bool isGroupIdValid(size_t gid) const;
+  /** Checks whether the given process group ID is used or not. */
+  bool isGroupIdValid(size_t gid) const;
 
-    /** Returns the given process group ID to the available pool. */
-    void returnGroupId(size_t gid);
+  /** Returns the given process group ID to the available pool. */
+  void returnGroupId(size_t gid);
 
-    /** Installs/removes the concrete group behind a reserved ID. */
-    void registerGroup(size_t gid, ProcessGroup *group);
-    void unregisterGroup(size_t gid, ProcessGroup *group);
+  /** Installs/removes the concrete group behind a reserved ID. */
+  void registerGroup(size_t gid, ProcessGroup* group);
+  void unregisterGroup(size_t gid, ProcessGroup* group);
 
-    /** Caller must retain lock() while using the returned pointer. */
-    ProcessGroup *findGroup(size_t gid) const;
+  /** Caller must retain lock() while using the returned pointer. */
+  ProcessGroup* findGroup(size_t gid) const;
 
-    /** Serialises process-group pointers, membership lists, and destruction. */
-    Spinlock &lock()
-    {
-        return m_GroupLock;
-    }
+  /** Serialises process-group pointers, membership lists, and destruction. */
+  Spinlock& lock() {
+    return m_GroupLock;
+  }
 
-  private:
-    static ProcessGroupManager m_Instance;
-    /**
-     * Bitmap of available group IDs.
-     */
-    ExtensibleBitmap m_GroupIds;
-    Tree<size_t, ProcessGroup *> m_Groups;
+ private:
+  static ProcessGroupManager m_Instance;
+  /**
+   * Bitmap of available group IDs.
+   */
+  ExtensibleBitmap m_GroupIds;
+  Tree<size_t, ProcessGroup*> m_Groups;
 
-    mutable Spinlock m_GroupLock;
+  mutable Spinlock m_GroupLock;
 };
 
 /** Defines the compatibility layer for the POSIX Subsystem */
-class EXPORTED_PUBLIC PosixSubsystem : public Subsystem
-{
-  public:
-    /** Sanitise flags. */
-    static const size_t SafeRegion = 0x0;  // Region check is always done.
-    static const size_t SafeRead = 0x1;
-    static const size_t SafeWrite = 0x2;
+class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
+ public:
+  /** Sanitise flags. */
+  static const size_t SafeRegion = 0x0;  // Region check is always done.
+  static const size_t SafeRead = 0x1;
+  static const size_t SafeWrite = 0x2;
 
-    /** ABI mode. */
-    enum Abi
-    {
-        PosixAbi = 0,
-        LinuxAbi = 1,
-    };
+  /** ABI mode. */
+  enum Abi {
+    PosixAbi = 0,
+    LinuxAbi = 1,
+  };
 
-    /** Default constructor */
-    PosixSubsystem()
-        : Subsystem(Posix), m_SignalHandlers(), m_SignalHandlersLock(),
-          m_AlarmLock(false), m_pAlarmEvent(nullptr), m_pAlarmThread(nullptr),
-          m_FdMap(), m_NextFd(0), m_FdLock(), m_FdBitmap(), m_LastFd(0),
-          m_FreeCount(1), m_SyncObjects(), m_Threads(), m_ThreadWaiters(),
-          m_NextThreadWaiter(0), m_Abi(PosixAbi), m_bAcquired(false),
-          m_pAcquiredThread(nullptr)
-    {
+  /** Default constructor */
+  PosixSubsystem()
+      : Subsystem(Posix),
+        m_SignalHandlers(),
+        m_SignalHandlersLock(),
+        m_AlarmLock(false),
+        m_pAlarmEvent(nullptr),
+        m_pAlarmThread(nullptr),
+        m_FdMap(),
+        m_NextFd(0),
+        m_FdLock(),
+        m_FdBitmap(),
+        m_LastFd(0),
+        m_FreeCount(1),
+        m_SyncObjects(),
+        m_Threads(),
+        m_ThreadWaiters(),
+        m_NextThreadWaiter(0),
+        m_Abi(PosixAbi),
+        m_bAcquired(false),
+        m_pAcquiredThread(nullptr) {}
+
+  /** Copy constructor */
+  PosixSubsystem(PosixSubsystem& s);
+
+  /** Parameterised constructor */
+  PosixSubsystem(SubsystemType type)
+      : Subsystem(type),
+        m_SignalHandlers(),
+        m_SignalHandlersLock(),
+        m_AlarmLock(false),
+        m_pAlarmEvent(nullptr),
+        m_pAlarmThread(nullptr),
+        m_FdMap(),
+        m_NextFd(0),
+        m_FdLock(),
+        m_FdBitmap(),
+        m_LastFd(0),
+        m_FreeCount(1),
+        m_SyncObjects(),
+        m_Threads(),
+        m_ThreadWaiters(),
+        m_NextThreadWaiter(0),
+        m_Abi(PosixAbi),
+        m_bAcquired(false),
+        m_pAcquiredThread(nullptr) {}
+
+  /** Default destructor */
+  virtual ~PosixSubsystem();
+
+  /* Acquire mutual exclusion on the PosixSubsystem. */
+  virtual void acquire();
+
+  /** Release mutual exclusion acquired via acquire(). */
+  virtual void release();
+
+  /**
+   * Check whether a given region of memory is safe for the given
+   * operations.
+   *
+   * This is important to do as we can get pointers from anywhere in the
+   * POSIX subsystem, and making sure they are sane and safe is crucial.
+   * \todo This has a security flaw in that between the check and the use
+   *       of the actual pointer, the pointer can become invalid due to
+   *       other threads being active in the process. It may be worth
+   *       having a Process-wide UnlikelyLock which has the mmap family
+   *       of functions, sbrk, etc... as writers, and all other syscalls
+   *       as readers. This would ensure a multithreaded application is
+   *       not able to crash the kernel.
+   */
+  static bool checkAddress(uintptr_t addr, size_t extent, size_t flags);
+
+  enum UserStringResult { UserStringSuccess, UserStringBadAddress, UserStringTooLong };
+
+  /** Copy a NUL-terminated user string without reading past a mapped range. */
+  static UserStringResult copyUserString(const char* userString, String& copy, size_t maxLength);
+
+  /** A thread needs to be killed! */
+  virtual bool kill(KillReason killReason, Thread* pThread);
+
+  /** A thread has thrown an exception! */
+  virtual void threadException(Thread* pThread, ExceptionType eType,
+                               InterruptState* pState = nullptr, uintptr_t faultAddress = 0,
+                               uintptr_t errorCode = 0);
+
+  /** Send a POSIX signal to the given thread. */
+  virtual void sendSignal(Thread* pThread, int signal, bool yield = true);
+
+  /** A signal handler */
+  struct SignalHandler {
+    SignalHandler() : sig(255), pEvent(0), sigMask(0), flags(0), restorer(0), type(0) {}
+
+    SignalHandler(const SignalHandler& s)
+        : sig(s.sig),
+          pEvent(new SignalEvent(*(s.pEvent))),
+          sigMask(s.sigMask),
+          flags(s.flags),
+          restorer(s.restorer),
+          type(s.type) {}
+
+    ~SignalHandler() {
+      if (pEvent) {
+        pEvent->retire();
+      }
     }
 
-    /** Copy constructor */
-    PosixSubsystem(PosixSubsystem &s);
+    SignalHandler& operator=(const SignalHandler& s) {
+      if (this == &s) {
+        return *this;
+      }
 
-    /** Parameterised constructor */
-    PosixSubsystem(SubsystemType type)
-        : Subsystem(type), m_SignalHandlers(), m_SignalHandlersLock(),
-          m_AlarmLock(false), m_pAlarmEvent(nullptr), m_pAlarmThread(nullptr),
-          m_FdMap(), m_NextFd(0), m_FdLock(), m_FdBitmap(), m_LastFd(0),
-          m_FreeCount(1), m_SyncObjects(), m_Threads(), m_ThreadWaiters(),
-          m_NextThreadWaiter(0), m_Abi(PosixAbi), m_bAcquired(false),
-          m_pAcquiredThread(nullptr)
-    {
+      if (pEvent) {
+        pEvent->retire();
+      }
+
+      sig = s.sig;
+      pEvent = new SignalEvent(*(s.pEvent));
+      sigMask = s.sigMask;
+      flags = s.flags;
+      restorer = s.restorer;
+      type = s.type;
+      return *this;
     }
 
-    /** Default destructor */
-    virtual ~PosixSubsystem();
+    /// Signal number
+    size_t sig;
 
-    /* Acquire mutual exclusion on the PosixSubsystem. */
-    virtual void acquire();
+    /// Event for the signal handler
+    SignalEvent* pEvent;
 
-    /** Release mutual exclusion acquired via acquire(). */
-    virtual void release();
+    /// Signal mask to set when this signal handler is called
+    uint64_t sigMask;
 
-    /**
-     * Check whether a given region of memory is safe for the given
-     * operations.
-     *
-     * This is important to do as we can get pointers from anywhere in the
-     * POSIX subsystem, and making sure they are sane and safe is crucial.
-     * \todo This has a security flaw in that between the check and the use
-     *       of the actual pointer, the pointer can become invalid due to
-     *       other threads being active in the process. It may be worth
-     *       having a Process-wide UnlikelyLock which has the mmap family
-     *       of functions, sbrk, etc... as writers, and all other syscalls
-     *       as readers. This would ensure a multithreaded application is
-     *       not able to crash the kernel.
-     */
-    static bool checkAddress(uintptr_t addr, size_t extent, size_t flags);
+    /// Signal handler flags
+    uint32_t flags;
 
-    enum UserStringResult
-    {
-        UserStringSuccess,
-        UserStringBadAddress,
-        UserStringTooLong
-    };
+    /// Userspace restorer for Linux-compatible signal delivery
+    uintptr_t restorer;
 
-    /** Copy a NUL-terminated user string without reading past a mapped range. */
-    static UserStringResult copyUserString(
-        const char *userString, String &copy, size_t maxLength);
+    /// Type - 0 = normal, 1 = SIG_DFL, 2 = SIG_IGN
+    int type;
+  };
 
-    /** A thread needs to be killed! */
-    virtual bool kill(KillReason killReason, Thread *pThread);
+  /** Stable, pointer-free view of a signal disposition. */
+  struct SignalDisposition {
+    SignalDisposition() : handler(0), signalMask(0), flags(0), restorer(0), type(1) {}
 
-    /** A thread has thrown an exception! */
-    virtual void threadException(
-        Thread *pThread, ExceptionType eType,
-        InterruptState *pState = nullptr, uintptr_t faultAddress = 0,
-        uintptr_t errorCode = 0);
+    uintptr_t handler;
+    uint64_t signalMask;
+    uint32_t flags;
+    uintptr_t restorer;
+    int type;
+  };
 
-    /** Send a POSIX signal to the given thread. */
-    virtual void sendSignal(Thread *pThread, int signal, bool yield = true);
+  /** Sets a signal handler */
+  void setSignalHandler(size_t sig, SignalHandler* handler);
 
-    /** A signal handler */
-    struct SignalHandler
-    {
-        SignalHandler()
-            : sig(255), pEvent(0), sigMask(0), flags(0), restorer(0), type(0)
-        {
-        }
+  /** Copies a signal disposition while holding the disposition table lock. */
+  bool getSignalDisposition(size_t sig, SignalDisposition& disposition);
 
-        SignalHandler(const SignalHandler &s)
-            : sig(s.sig), pEvent(new SignalEvent(*(s.pEvent))),
-              sigMask(s.sigMask), flags(s.flags), restorer(s.restorer),
-              type(s.type)
-        {
-        }
+  /**
+   * Creates an independently owned event using the current disposition.
+   * The caller transfers ownership to Thread::sendEvent on success.
+   */
+  SignalEvent* createSignalDelivery(size_t sig, uint32_t* flags = nullptr);
 
-        ~SignalHandler()
-        {
-            if (pEvent)
-            {
-                pEvent->retire();
-            }
-        }
+  /**
+   * Replaces the process alarm. The timer references a stable relay Event,
+   * not the currently installed SIGALRM disposition.
+   */
+  size_t setAlarm(size_t seconds);
 
-        SignalHandler &operator=(const SignalHandler &s)
-        {
-            if (this == &s)
-            {
-                return *this;
-            }
+  /** Cancels the process alarm before its target thread can be destroyed. */
+  void cancelAlarm();
 
-            if (pEvent)
-            {
-                pEvent->retire();
-            }
+  /** Gets a signal handler */
+  SignalHandler* getSignalHandler(size_t sig) {
+    m_SignalHandlersLock.enter();
+    SignalHandler* ret = m_SignalHandlers.lookup(sig % 32);
+    m_SignalHandlersLock.leave();
+    return ret;
+  }
 
-            sig = s.sig;
-            pEvent = new SignalEvent(*(s.pEvent));
-            sigMask = s.sigMask;
-            flags = s.flags;
-            restorer = s.restorer;
-            type = s.type;
-            return *this;
-        }
+  void exit(int code) NORETURN;
 
-        /// Signal number
-        size_t sig;
+  /** Copies file descriptors from another subsystem */
+  bool copyDescriptors(PosixSubsystem* pSubsystem);
 
-        /// Event for the signal handler
-        SignalEvent *pEvent;
+  /** Returns the first available file descriptor. */
+  size_t getFd();
 
-        /// Signal mask to set when this signal handler is called
-        uint64_t sigMask;
+  /** Sets the given file descriptor as "in use". */
+  void allocateFd(size_t fdNum);
 
-        /// Signal handler flags
-        uint32_t flags;
+  /** Sets the given file descriptor as "available" and deletes the
+   * FileDescriptor linked to it. */
+  void freeFd(size_t fdNum);
 
-        /// Userspace restorer for Linux-compatible signal delivery
-        uintptr_t restorer;
+  /** Frees a range of descriptors (or only those marked FD_CLOEXEC) */
+  void freeMultipleFds(bool bOnlyCloExec = false, size_t iFirst = 0, size_t iLast = -1);
 
-        /// Type - 0 = normal, 1 = SIG_DFL, 2 = SIG_IGN
-        int type;
-    };
+  /**
+   * Pins the descriptor currently published at fd.
+   *
+   * Callers cannot obtain a borrowed table pointer: a successful lookup
+   * retains the descriptor until the returned handle leaves scope, even if
+   * another thread closes or replaces the descriptor in the meantime.
+   */
+  bool acquireFileDescriptor(size_t fd, DescriptorLease& descriptor);
 
-    /** Stable, pointer-free view of a signal disposition. */
-    struct SignalDisposition
-    {
-        SignalDisposition()
-            : handler(0), signalMask(0), flags(0), restorer(0), type(1)
-        {
-        }
+  /**
+   * Unpublishes fd only if it still names the generation in descriptor.
+   *
+   * This is the close counterpart to acquireFileDescriptor: a concurrent
+   * close and reuse of the numeric fd must not allow an older close path to
+   * remove the replacement descriptor.
+   */
+  bool closeFileDescriptor(size_t fd, const DescriptorLease& descriptor);
 
-        uintptr_t handler;
-        uint64_t signalMask;
-        uint32_t flags;
-        uintptr_t restorer;
-        int type;
-    };
+  /** Inserts a file descriptor */
+  void addFileDescriptor(size_t fd, FileDescriptor* pFd);
 
-    /** Sets a signal handler */
-    void setSignalHandler(size_t sig, SignalHandler *handler);
+  /**
+   * POSIX Semaphore or Mutex
+   *
+   * It's up to the programmer to use this right.
+   */
+  class PosixSyncObject {
+   public:
+    PosixSyncObject() : pObject(0), isMutex(false) {}
+    ~PosixSyncObject() {}
 
-    /** Copies a signal disposition while holding the disposition table lock. */
-    bool getSignalDisposition(size_t sig, SignalDisposition &disposition);
+    void* pObject;
+    bool isMutex;
 
-    /**
-     * Creates an independently owned event using the current disposition.
-     * The caller transfers ownership to Thread::sendEvent on success.
-     */
-    SignalEvent *createSignalDelivery(size_t sig, uint32_t *flags = nullptr);
+   private:
+    PosixSyncObject(const PosixSyncObject&);
+    const PosixSyncObject& operator=(const PosixSyncObject&);
+  };
 
-    /**
-     * Replaces the process alarm. The timer references a stable relay Event,
-     * not the currently installed SIGALRM disposition.
-     */
-    size_t setAlarm(size_t seconds);
+  /** Gets a synchronisation object given a descriptor */
+  PosixSyncObject* getSyncObject(size_t n) {
+    return m_SyncObjects.lookup(n);
+  }
 
-    /** Cancels the process alarm before its target thread can be destroyed. */
-    void cancelAlarm();
-
-    /** Gets a signal handler */
-    SignalHandler *getSignalHandler(size_t sig)
-    {
-        m_SignalHandlersLock.enter();
-        SignalHandler *ret = m_SignalHandlers.lookup(sig % 32);
-        m_SignalHandlersLock.leave();
-        return ret;
+  /** Inserts a synchronisation object given a descriptor */
+  void insertSyncObject(size_t n, PosixSyncObject* sem) {
+    PosixSyncObject* t = m_SyncObjects.lookup(n);
+    if (t) {
+      m_SyncObjects.remove(n);
+      delete t;
     }
 
-    void exit(int code) NORETURN;
+    m_SyncObjects.insert(n, sem);
+  }
 
-    /** Copies file descriptors from another subsystem */
-    bool copyDescriptors(PosixSubsystem *pSubsystem);
+  /** Removes a semaphore given a descriptor */
+  void removeSyncObject(size_t n) {
+    PosixSyncObject* t = m_SyncObjects.lookup(n);
+    if (t) {
+      m_SyncObjects.remove(n);
+      delete t;
+    }
+  }
 
-    /** Returns the first available file descriptor. */
-    size_t getFd();
+  /** POSIX thread-specific data */
+  struct PosixThreadKey {
+    /// Userspace function to be called when deleting the key
+    void (*destructor)(void*);
 
-    /** Sets the given file descriptor as "in use". */
-    void allocateFd(size_t fdNum);
+    /// Buffer pointer
+    void* buffer;
+  };
 
-    /** Sets the given file descriptor as "available" and deletes the
-     * FileDescriptor linked to it. */
-    void freeFd(size_t fdNum);
+  /** POSIX Thread information */
+  class PosixThread {
+   public:
+    PosixThread()
+        : pThread(0),
+          isRunning(),
+          returnValue(0),
+          canReclaim(false),
+          isDetached(false),
+          m_ThreadData(),
+          m_ThreadKeys(),
+          lastDataKey(0),
+          nextDataKey(0) {}
+    ~PosixThread() {}
 
-    /** Frees a range of descriptors (or only those marked FD_CLOEXEC) */
-    void freeMultipleFds(
-        bool bOnlyCloExec = false, size_t iFirst = 0, size_t iLast = -1);
+    Thread* pThread;
+    Completion isRunning;
+    void* returnValue;
+
+    bool canReclaim;
+    bool isDetached;
 
     /**
-     * Pins the descriptor currently published at fd.
-     *
-     * Callers cannot obtain a borrowed table pointer: a successful lookup
-     * retains the descriptor until the returned handle leaves scope, even if
-     * another thread closes or replaces the descriptor in the meantime.
+     * Links to POSIX thread keys (ie, thread-specific data)
      */
-    bool acquireFileDescriptor(
-        size_t fd, DescriptorLease &descriptor);
+    Tree<size_t, PosixThreadKey*> m_ThreadData;
+    ExtensibleBitmap m_ThreadKeys;
 
-    /**
-     * Unpublishes fd only if it still names the generation in descriptor.
-     *
-     * This is the close counterpart to acquireFileDescriptor: a concurrent
-     * close and reuse of the numeric fd must not allow an older close path to
-     * remove the replacement descriptor.
-     */
-    bool closeFileDescriptor(
-        size_t fd, const DescriptorLease &descriptor);
-
-    /** Inserts a file descriptor */
-    void addFileDescriptor(size_t fd, FileDescriptor *pFd);
-
-    /**
-     * POSIX Semaphore or Mutex
-     *
-     * It's up to the programmer to use this right.
-     */
-    class PosixSyncObject
-    {
-      public:
-        PosixSyncObject() : pObject(0), isMutex(false)
-        {
-        }
-        ~PosixSyncObject()
-        {
-        }
-
-        void *pObject;
-        bool isMutex;
-
-      private:
-        PosixSyncObject(const PosixSyncObject &);
-        const PosixSyncObject &operator=(const PosixSyncObject &);
-    };
-
-    /** Gets a synchronisation object given a descriptor */
-    PosixSyncObject *getSyncObject(size_t n)
-    {
-        return m_SyncObjects.lookup(n);
+    /** Grabs thread-specific data given a key */
+    PosixThreadKey* getThreadData(size_t key) {
+      return m_ThreadData.lookup(key);
     }
 
-    /** Inserts a synchronisation object given a descriptor */
-    void insertSyncObject(size_t n, PosixSyncObject *sem)
-    {
-        PosixSyncObject *t = m_SyncObjects.lookup(n);
-        if (t)
-        {
-            m_SyncObjects.remove(n);
-            delete t;
-        }
-
-        m_SyncObjects.insert(n, sem);
+    /**
+     * Removes thread-specific data given a key (does *not* call
+     * the destructor, or delete the storage.)
+     */
+    void removeThreadData(size_t key) {
+      m_ThreadData.remove(key);
     }
 
-    /** Removes a semaphore given a descriptor */
-    void removeSyncObject(size_t n)
-    {
-        PosixSyncObject *t = m_SyncObjects.lookup(n);
-        if (t)
-        {
-            m_SyncObjects.remove(n);
-            delete t;
-        }
+    /**
+     * Adds thread-specific data given a PosixThreadKey strcuture and a key.
+     * \return false if the key already exists.
+     */
+    bool addThreadData(size_t key, PosixThreadKey* info) {
+      if (m_ThreadData.lookup(key))
+        return false;
+      m_ThreadData.insert(key, info);
+      return true;
     }
 
-    /** POSIX thread-specific data */
-    struct PosixThreadKey
-    {
-        /// Userspace function to be called when deleting the key
-        void (*destructor)(void *);
+    /// Last data key that was allocated (for the bitmap)
+    size_t lastDataKey;
 
-        /// Buffer pointer
-        void *buffer;
-    };
+    /// Next data key available
+    size_t nextDataKey;
 
-    /** POSIX Thread information */
-    class PosixThread
-    {
-      public:
-        PosixThread()
-            : pThread(0), isRunning(), returnValue(0), canReclaim(false),
-              isDetached(false), m_ThreadData(), m_ThreadKeys(), lastDataKey(0),
-              nextDataKey(0)
-        {
-        }
-        ~PosixThread()
-        {
-        }
+   private:
+    PosixThread(const PosixThread&);
+    const PosixThread& operator=(const PosixThread&);
+  };
 
-        Thread *pThread;
-        Completion isRunning;
-        void *returnValue;
+  /** Gets a thread given a descriptor */
+  PosixThread* getThread(size_t n) {
+    return m_Threads.lookup(n);
+  }
 
-        bool canReclaim;
-        bool isDetached;
+  /** Inserts a thread given a descriptor and a Thread */
+  void insertThread(size_t n, PosixThread* thread) {
+    PosixThread* t = m_Threads.lookup(n);
+    if (t)
+      m_Threads.remove(n);  /// \todo It might be safe to delete the
+                            /// pointer... We'll see.
+    return m_Threads.insert(n, thread);
+  }
 
-        /**
-         * Links to POSIX thread keys (ie, thread-specific data)
-         */
-        Tree<size_t, PosixThreadKey *> m_ThreadData;
-        ExtensibleBitmap m_ThreadKeys;
+  /** Removes a thread given a descriptor */
+  void removeThread(size_t n) {
+    m_Threads.remove(n);  /// \todo It might be safe to delete the pointer... We'll see.
+  }
 
-        /** Grabs thread-specific data given a key */
-        PosixThreadKey *getThreadData(size_t key)
-        {
-            return m_ThreadData.lookup(key);
-        }
+  /** Gets a thread waiter object given a descriptor */
+  Semaphore* getThreadWaiter(void* n) {
+    return m_ThreadWaiters.lookup(n);
+  }
 
-        /**
-         * Removes thread-specific data given a key (does *not* call
-         * the destructor, or delete the storage.)
-         */
-        void removeThreadData(size_t key)
-        {
-            m_ThreadData.remove(key);
-        }
+  /** Inserts a thread waiter object, returns a descriptor */
+  void* insertThreadWaiter(Semaphore* waiter) {
+    void* descriptor = reinterpret_cast<void*>(m_NextThreadWaiter++);
+    Semaphore* t = m_ThreadWaiters.lookup(descriptor);
+    if (t)
+      m_ThreadWaiters.remove(descriptor);
+    m_ThreadWaiters.insert(descriptor, waiter);
+    return descriptor;
+  }
 
-        /**
-         * Adds thread-specific data given a PosixThreadKey strcuture and a key.
-         * \return false if the key already exists.
-         */
-        bool addThreadData(size_t key, PosixThreadKey *info)
-        {
-            if (m_ThreadData.lookup(key))
-                return false;
-            m_ThreadData.insert(key, info);
-            return true;
-        }
+  /** Removes a thread waiter object given a descriptor */
+  void removeThreadWaiter(void* n) {
+    m_ThreadWaiters.remove(n);
+  }
 
-        /// Last data key that was allocated (for the bitmap)
-        size_t lastDataKey;
+  bool checkAccess(const DescriptorLease& pFileDescriptor, bool bRead, bool bWrite,
+                   bool bExecute) const;
 
-        /// Next data key available
-        size_t nextDataKey;
+  /** Invokes the given command (thread mechanism). */
+  virtual bool invoke(const char* name, Vector<String>& argv, Vector<String>& env);
 
-      private:
-        PosixThread(const PosixThread &);
-        const PosixThread &operator=(const PosixThread &);
-    };
+  /** Invokes the given command (SyscallState mechanism). */
+  virtual bool invoke(const char* name, Vector<String>& argv, Vector<String>& env,
+                      SyscallState& state);
 
-    /** Gets a thread given a descriptor */
-    PosixThread *getThread(size_t n)
-    {
-        return m_Threads.lookup(n);
-    }
+  /** Invokes the given file (thread mechanism). */
+  virtual bool invoke(File* originalFile, const String& originalName, Vector<String>& argv,
+                      Vector<String>& env);
 
-    /** Inserts a thread given a descriptor and a Thread */
-    void insertThread(size_t n, PosixThread *thread)
-    {
-        PosixThread *t = m_Threads.lookup(n);
-        if (t)
-            m_Threads.remove(n);  /// \todo It might be safe to delete the
-                                  /// pointer... We'll see.
-        return m_Threads.insert(n, thread);
-    }
+  /** Invokes the given file (SyscallState mechanism). */
+  virtual bool invoke(File* originalFile, const String& originalName, Vector<String>& argv,
+                      Vector<String>& env, SyscallState& state);
 
-    /** Removes a thread given a descriptor */
-    void removeThread(size_t n)
-    {
-        m_Threads.remove(
-            n);  /// \todo It might be safe to delete the pointer... We'll see.
-    }
+  virtual File* findFile(const String& path, File* workingDir);
 
-    /** Gets a thread waiter object given a descriptor */
-    Semaphore *getThreadWaiter(void *n)
-    {
-        return m_ThreadWaiters.lookup(n);
-    }
+  /** Retrieves the currently-active ABI for the subsystem. */
+  Abi getAbi() const {
+    return m_Abi;
+  }
 
-    /** Inserts a thread waiter object, returns a descriptor */
-    void *insertThreadWaiter(Semaphore *waiter)
-    {
-        void *descriptor = reinterpret_cast<void *>(m_NextThreadWaiter++);
-        Semaphore *t = m_ThreadWaiters.lookup(descriptor);
-        if (t)
-            m_ThreadWaiters.remove(descriptor);
-        m_ThreadWaiters.insert(descriptor, waiter);
-        return descriptor;
-    }
+  /** Switch the ABI of the subsystem to the specified choice. */
+  void setAbi(Abi which) {
+    m_Abi = which;
+  }
 
-    /** Removes a thread waiter object given a descriptor */
-    void removeThreadWaiter(void *n)
-    {
-        m_ThreadWaiters.remove(n);
-    }
+ private:
+  virtual void threadExiting(Thread* pThread);
+  virtual void threadRemoved(Thread* pThread);
 
-    bool checkAccess(
-        const DescriptorLease &pFileDescriptor, bool bRead, bool bWrite,
-        bool bExecute) const;
+  /** Load an ELF's PT_LOAD sections into the address space. */
+  bool loadElf(File* pFile, uintptr_t mappedAddress, uintptr_t& newAddress, uintptr_t& finalAddress,
+               bool& relocated);
 
-    /** Invokes the given command (thread mechanism). */
-    virtual bool
-    invoke(const char *name, Vector<String> &argv, Vector<String> &env);
+  bool invoke(const char* name, Vector<String>& argv, Vector<String>& env, SyscallState* state);
 
-    /** Invokes the given command (SyscallState mechanism). */
-    virtual bool invoke(
-        const char *name, Vector<String> &argv, Vector<String> &env,
-        SyscallState &state);
+  /** Invokes the given command - actual implementation. */
+  bool invoke(File* originalFile, const String& originalName, Vector<String>& argv,
+              Vector<String>& env, SyscallState* state);
 
-    /** Invokes the given file (thread mechanism). */
-    virtual bool invoke(
-        File *originalFile, const String &originalName, Vector<String> &argv,
-        Vector<String> &env);
+  /** Parse a file for a possible shebang line. */
+  bool parseShebang(File* pFile, File*& outFile, Vector<String>& argv);
 
-    /** Invokes the given file (SyscallState mechanism). */
-    virtual bool invoke(
-        File *originalFile, const String &originalName, Vector<String> &argv,
-        Vector<String> &env, SyscallState &state);
+  /** Signal handlers */
+  Tree<size_t, SignalHandler*> m_SignalHandlers;
 
-    virtual File *findFile(const String &path, File *workingDir);
+  /** A lock for access to the signal handlers tree */
+  UnlikelyLock m_SignalHandlersLock;
 
-    /** Retrieves the currently-active ABI for the subsystem. */
-    Abi getAbi() const
-    {
-        return m_Abi;
-    }
+  /** Serialises alarm replacement with process and thread teardown. */
+  Spinlock m_AlarmLock;
 
-    /** Switch the ABI of the subsystem to the specified choice. */
-    void setAbi(Abi which)
-    {
-        m_Abi = which;
-    }
+  /** Stable timer-owned relay that resolves SIGALRM when delivered. */
+  Event* m_pAlarmEvent;
 
-  private:
-    virtual void threadExiting(Thread *pThread);
-    virtual void threadRemoved(Thread *pThread);
+  /** Thread whose lifetime is currently referenced by the timer alarm. */
+  Thread* m_pAlarmThread;
 
-    /** Load an ELF's PT_LOAD sections into the address space. */
-    bool loadElf(
-        File *pFile, uintptr_t mappedAddress, uintptr_t &newAddress,
-        uintptr_t &finalAddress, bool &relocated);
+  /**
+   * The file descriptor map. Maps number to pointers, the type of which is
+   * decided by the subsystem.
+   */
+  Tree<size_t, SharedPointer<FileDescriptor>> m_FdMap;
+  /**
+   * The next available file descriptor.
+   */
+  size_t m_NextFd;
+  /**
+   * Lock to guard the next file descriptor while it is being changed.
+   */
+  UnlikelyLock m_FdLock;
+  /**
+   * File descriptors used by this process
+   */
+  ExtensibleBitmap m_FdBitmap;
+  /**
+   * Last known unallocated descriptor
+   */
+  size_t m_LastFd;
+  /**
+   * Number of times freed
+   */
+  int m_FreeCount;
+  /** Links some file descriptors to PosixSyncObjects. */
+  Tree<size_t, PosixSyncObject*> m_SyncObjects;
+  /**
+   * Links some thread handles to Threads.
+   */
+  Tree<size_t, PosixThread*> m_Threads;
+  /**
+   * Links waiter objects to Semaphores.
+   */
+  Tree<void*, Semaphore*> m_ThreadWaiters;
+  size_t m_NextThreadWaiter;
 
-    bool invoke(
-        const char *name, Vector<String> &argv, Vector<String> &env,
-        SyscallState *state);
+  /**
+   * ABI for the subsystem
+   * This affects syscall parameters and the behaviors of some syscalls.
+   */
+  Abi m_Abi;
 
-    /** Invokes the given command - actual implementation. */
-    bool invoke(
-        File *originalFile, const String &originalName, Vector<String> &argv,
-        Vector<String> &env, SyscallState *state);
+  /**
+   * Are we acquired?
+   */
+  bool m_bAcquired;
 
-    /** Parse a file for a possible shebang line. */
-    bool parseShebang(File *pFile, File *&outFile, Vector<String> &argv);
+  /**
+   * Which thread acquired?
+   */
+  Thread* m_pAcquiredThread;
 
-    /** Signal handlers */
-    Tree<size_t, SignalHandler *> m_SignalHandlers;
+  /**
+   * Safety spinlock for mutual exclusion in acquire().
+   */
+  Spinlock m_Lock;
 
-    /** A lock for access to the signal handlers tree */
-    UnlikelyLock m_SignalHandlersLock;
+  /**
+   * \brief LRU cache for file lookups.
+   * Many usage patterns involve something like a stat() immediately followed
+   * by an open() or other similar system call. Rather than have both fully
+   * complete a filesystem traversal, we can cache the result and save time.
+   */
+  LruCache<String, File*> m_FindFileCache;
 
-    /** Serialises alarm replacement with process and thread teardown. */
-    Spinlock m_AlarmLock;
-
-    /** Stable timer-owned relay that resolves SIGALRM when delivered. */
-    Event *m_pAlarmEvent;
-
-    /** Thread whose lifetime is currently referenced by the timer alarm. */
-    Thread *m_pAlarmThread;
-
-    /**
-     * The file descriptor map. Maps number to pointers, the type of which is
-     * decided by the subsystem.
-     */
-    Tree<size_t, SharedPointer<FileDescriptor>> m_FdMap;
-    /**
-     * The next available file descriptor.
-     */
-    size_t m_NextFd;
-    /**
-     * Lock to guard the next file descriptor while it is being changed.
-     */
-    UnlikelyLock m_FdLock;
-    /**
-     * File descriptors used by this process
-     */
-    ExtensibleBitmap m_FdBitmap;
-    /**
-     * Last known unallocated descriptor
-     */
-    size_t m_LastFd;
-    /**
-     * Number of times freed
-     */
-    int m_FreeCount;
-    /** Links some file descriptors to PosixSyncObjects. */
-    Tree<size_t, PosixSyncObject *> m_SyncObjects;
-    /**
-     * Links some thread handles to Threads.
-     */
-    Tree<size_t, PosixThread *> m_Threads;
-    /**
-     * Links waiter objects to Semaphores.
-     */
-    Tree<void *, Semaphore *> m_ThreadWaiters;
-    size_t m_NextThreadWaiter;
-
-    /**
-     * ABI for the subsystem
-     * This affects syscall parameters and the behaviors of some syscalls.
-     */
-    Abi m_Abi;
-
-    /**
-     * Are we acquired?
-     */
-    bool m_bAcquired;
-
-    /**
-     * Which thread acquired?
-     */
-    Thread *m_pAcquiredThread;
-
-    /**
-     * Safety spinlock for mutual exclusion in acquire().
-     */
-    Spinlock m_Lock;
-
-    /**
-     * \brief LRU cache for file lookups.
-     * Many usage patterns involve something like a stat() immediately followed
-     * by an open() or other similar system call. Rather than have both fully
-     * complete a filesystem traversal, we can cache the result and save time.
-     */
-    LruCache<String, File *> m_FindFileCache;
-
-    /** Cached lookup of the root filesystem. */
-    Filesystem *m_pRootFs = nullptr;
+  /** Cached lookup of the root filesystem. */
+  Filesystem* m_pRootFs = nullptr;
 };
 
 #endif

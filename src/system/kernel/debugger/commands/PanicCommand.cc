@@ -22,22 +22,13 @@
 
 class DebuggerIO;
 
-PanicCommand::PanicCommand() : DebuggerCommand()
-{
-}
+PanicCommand::PanicCommand() : DebuggerCommand() {}
 
-PanicCommand::~PanicCommand()
-{
-}
+PanicCommand::~PanicCommand() {}
 
-void PanicCommand::autocomplete(
-    const HugeStaticString &input, HugeStaticString &output)
-{
-}
+void PanicCommand::autocomplete(const HugeStaticString& input, HugeStaticString& output) {}
 
-bool PanicCommand::execute(
-    const HugeStaticString &input, HugeStaticString &output,
-    InterruptState &state, DebuggerIO *pScreen)
-{
-    panic("uh oh!");
+bool PanicCommand::execute(const HugeStaticString& input, HugeStaticString& output,
+                           InterruptState& state, DebuggerIO* pScreen) {
+  panic("uh oh!");
 }

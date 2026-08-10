@@ -20,9 +20,7 @@
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/time/Time.h"
 
-Time::Timestamp Timer::getUnixTimestamp()
-{
-    return Time::Conversion::toUnix(
-        getSecond(), getMinute(), getHour(), getDayOfMonth(), getMonth(),
-        getYear());
+Time::Timestamp Timer::getUnixTimestamp() {
+  return Time::Conversion::toUnix(getSecond(), getMinute(), getHour(), getDayOfMonth(), getMonth(),
+                                  getYear());
 }

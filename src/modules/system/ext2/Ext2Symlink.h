@@ -20,39 +20,36 @@
 #ifndef EXT2_SYMLINK_H
 #define EXT2_SYMLINK_H
 
-#include "Ext2Node.h"
-#include "modules/system/vfs/Symlink.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
+
+#include "Ext2Node.h"
+#include "modules/system/vfs/Symlink.h"
 
 class File;
 struct Inode;
 
 /** A File is a file, a directory or a symlink. */
-class Ext2Symlink : public Symlink, public Ext2Node
-{
-  private:
-    /** Copy constructors are hidden - unused! */
-    Ext2Symlink(const Ext2Symlink &file);
-    Ext2Symlink &operator=(const Ext2Symlink &);
+class Ext2Symlink : public Symlink, public Ext2Node {
+ private:
+  /** Copy constructors are hidden - unused! */
+  Ext2Symlink(const Ext2Symlink& file);
+  Ext2Symlink& operator=(const Ext2Symlink&);
 
-  public:
-    /** Constructor, should be called only by a Filesystem. */
-    Ext2Symlink(
-        const String &name, uintptr_t inode_num, Inode *inode,
-        class Ext2Filesystem *pFs, File *pParent = 0);
-    /** Destructor */
-    virtual ~Ext2Symlink();
+ public:
+  /** Constructor, should be called only by a Filesystem. */
+  Ext2Symlink(const String& name, uintptr_t inode_num, Inode* inode, class Ext2Filesystem* pFs,
+              File* pParent = 0);
+  /** Destructor */
+  virtual ~Ext2Symlink();
 
-    virtual uint64_t readBytewise(
-        uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
-    virtual uint64_t writeBytewise(
-        uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
+  virtual uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
+  virtual uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock);
 
-    void truncate();
+  void truncate();
 
-    /** Updates inode attributes. */
-    void fileAttributeChanged();
+  /** Updates inode attributes. */
+  void fileAttributeChanged();
 };
 
 #endif

@@ -28,25 +28,24 @@
 /**
  * Serial device abstraction.
  */
-class HostedSerial : public Serial
-{
-  public:
-    HostedSerial();
-    virtual void setBase(uintptr_t nBaseAddr);
-    virtual ~HostedSerial();
+class HostedSerial : public Serial {
+ public:
+  HostedSerial();
+  virtual void setBase(uintptr_t nBaseAddr);
+  virtual ~HostedSerial();
 
-    virtual char read();
-    virtual char readNonBlock();
-    virtual void write(char c);
-    virtual void write_str(const char *c);
-    virtual void write_str(const char *c, size_t len);
-    virtual void write_str(const Cord &cord);
+  virtual char read();
+  virtual char readNonBlock();
+  virtual void write(char c);
+  virtual void write_str(const char* c);
+  virtual void write_str(const char* c, size_t len);
+  virtual void write_str(const Cord& cord);
 
-  private:
-    bool isConnected();
+ private:
+  bool isConnected();
 
-    int m_File;
-    uintptr_t m_nFileNumber;
+  int m_File;
+  uintptr_t m_nFileNumber;
 };
 
 #endif

@@ -25,93 +25,75 @@
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-Archive::Archive(uint8_t *pPhys, size_t sSize)
-    : m_pBase(pPhys), m_Region("Archive")
-{
-    EMIT_IF(!HOSTED)
-    {
-        if ((reinterpret_cast<physical_uintptr_t>(pPhys) &
-             (PhysicalMemoryManager::getPageSize() - 1)) != 0)
-            panic("Archive: Alignment issues");
+Archive::Archive(uint8_t* pPhys, size_t sSize) : m_pBase(pPhys), m_Region("Archive") {
+  EMIT_IF(!HOSTED) {
+    if ((reinterpret_cast<physical_uintptr_t>(pPhys) &
+         (PhysicalMemoryManager::getPageSize() - 1)) != 0)
+      panic("Archive: Alignment issues");
 
-        if (PhysicalMemoryManager::instance().allocateRegion(
-                m_Region,
-                (sSize + PhysicalMemoryManager::getPageSize() - 1) /
-                    PhysicalMemoryManager::getPageSize(),
-                PhysicalMemoryManager::continuous, VirtualAddressSpace::KernelMode,
-                reinterpret_cast<physical_uintptr_t>(pPhys)) == false)
-        {
-            ERROR("Archive: allocateRegion failed.");
-        }
-        else
-        {
-            NOTICE("Archive: mapped to " << m_Region.virtualAddress());
-        }
+    if (PhysicalMemoryManager::instance().allocateRegion(
+            m_Region,
+            (sSize + PhysicalMemoryManager::getPageSize() - 1) /
+                PhysicalMemoryManager::getPageSize(),
+            PhysicalMemoryManager::continuous, VirtualAddressSpace::KernelMode,
+            reinterpret_cast<physical_uintptr_t>(pPhys)) == false) {
+      ERROR("Archive: allocateRegion failed.");
+    } else {
+      NOTICE("Archive: mapped to " << m_Region.virtualAddress());
     }
+  }
 }
 
-Archive::~Archive()
-{
-    m_Region.free();
+Archive::~Archive() {
+  m_Region.free();
 }
 
-size_t Archive::getNumFiles()
-{
-    size_t i = 0;
-    ArchiveFile *pFile = getFirst();
-    while (pFile != 0)
-    {
-        i++;
-        pFile = getNext(pFile);
-    }
-    return i;
+size_t Archive::getNumFiles() {
+  size_t i = 0;
+  ArchiveFile* pFile = getFirst();
+  while (pFile != 0) {
+    i++;
+    pFile = getNext(pFile);
+  }
+  return i;
 }
 
-size_t Archive::getFileSize(size_t n)
-{
-    ArchiveFile *pFile = get(n);
-    NormalStaticString str(pFile->size);
-    return str.intValue(8);  // Octal
+size_t Archive::getFileSize(size_t n) {
+  ArchiveFile* pFile = get(n);
+  NormalStaticString str(pFile->size);
+  return str.intValue(8);  // Octal
 }
 
-char *Archive::getFileName(size_t n)
-{
-    return get(n)->name;
+char* Archive::getFileName(size_t n) {
+  return get(n)->name;
 }
 
-uintptr_t *Archive::getFile(size_t n)
-{
-    return reinterpret_cast<uintptr_t *>(
-        reinterpret_cast<uintptr_t>(get(n)) + 512);
+uintptr_t* Archive::getFile(size_t n) {
+  return reinterpret_cast<uintptr_t*>(reinterpret_cast<uintptr_t>(get(n)) + 512);
 }
 
-Archive::ArchiveFile *Archive::getFirst()
-{
-    EMIT_IF(HOSTED)
-    {
-        return reinterpret_cast<ArchiveFile *>(m_pBase);
-    }
-    else
-    {
-        return reinterpret_cast<ArchiveFile *>(m_Region.virtualAddress());
-    }
+Archive::ArchiveFile* Archive::getFirst() {
+  EMIT_IF(HOSTED) {
+    return reinterpret_cast<ArchiveFile*>(m_pBase);
+  }
+  else {
+    return reinterpret_cast<ArchiveFile*>(m_Region.virtualAddress());
+  }
 }
 
-Archive::ArchiveFile *Archive::getNext(ArchiveFile *pFile)
-{
-    NormalStaticString str(pFile->size);
-    size_t size = str.intValue(8);  // Octal.
-    size_t nBlocks = (size + 511) / 512;
-    pFile = adjust_pointer(pFile, 512 * (nBlocks + 1));
-    if (pFile->name[0] == '\0')
-        return 0;
-    return pFile;
+Archive::ArchiveFile* Archive::getNext(ArchiveFile* pFile) {
+  NormalStaticString str(pFile->size);
+  size_t size = str.intValue(8);  // Octal.
+  size_t nBlocks = (size + 511) / 512;
+  pFile = adjust_pointer(pFile, 512 * (nBlocks + 1));
+  if (pFile->name[0] == '\0')
+    return 0;
+  return pFile;
 }
 
-Archive::ArchiveFile *Archive::get(size_t n)
-{
-    ArchiveFile *pFile = getFirst();
-    for (size_t i = 0; i < n; i++)
-        pFile = getNext(pFile);
-    return pFile;
+Archive::ArchiveFile* Archive::get(size_t n) {
+  ArchiveFile* pFile = getFirst();
+  for (size_t i = 0; i < n; i++)
+    pFile = getNext(pFile);
+  return pFile;
 }

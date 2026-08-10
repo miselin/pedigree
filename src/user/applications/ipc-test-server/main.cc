@@ -18,75 +18,60 @@
  */
 
 #include "pedigree/native/ipc/Ipc.h"
+
 #include <stdio.h>
+#include <unistd.h>
 
 #include <sys/klog.h>
-#include <unistd.h>
 
 using namespace PedigreeIpc;
 
-int main(int argc, char *argv[])
-{
-    printf("IPC Test: Server, daemonising\n");
+int main(int argc, char* argv[]) {
+  printf("IPC Test: Server, daemonising\n");
 
-    pid_t id = fork();
-    if (id == -1)
-    {
-        printf("Forking failed.");
-        return 1;
+  pid_t id = fork();
+  if (id == -1) {
+    printf("Forking failed.");
+    return 1;
+  } else if (id == 0) {
+    // Grab an endpoint to use.
+    createEndpoint("ipc-test");
+    IpcEndpoint* pEndpoint = getEndpoint("ipc-test");
+
+    klog(LOG_NOTICE, "IPC Test: Server started and entering message loop.");
+
+    while (true) {
+      // Wait for an incoming message.
+      IpcMessage* pRecv = 0;
+      if (!recv(pEndpoint, &pRecv, false)) {
+        klog(LOG_WARNING, "IPC Test: Server failed to receive a message.");
+        continue;
+      }
+
+      // Log it.
+      klog(LOG_NOTICE, "IPC Test: Server got message '%s'.", pRecv->getBuffer());
+      delete pRecv;
+
+      // Send a response.
+      IpcMessage* pResponse = new IpcMessage();
+      pResponse->initialise();
+      char* pBuffer = reinterpret_cast<char*>(pResponse->getBuffer());
+      if (!pBuffer) {
+        klog(LOG_WARNING, "IPC Test: Server message creation failed.");
+        continue;
+      } else
+        klog(LOG_NOTICE, "IPC Test: Server is writing into message %x", pBuffer);
+
+      sprintf(pBuffer, "Server received message successfully!\n");
+
+      if (!send(pEndpoint, pResponse, false))
+        klog(LOG_WARNING, "IPC Test: Server failed to send a response.");
+
+      // Clean up.
+      delete pResponse;
     }
-    else if (id == 0)
-    {
-        // Grab an endpoint to use.
-        createEndpoint("ipc-test");
-        IpcEndpoint *pEndpoint = getEndpoint("ipc-test");
+  } else
+    printf("Successfully forked, child has PID %d\n", id);
 
-        klog(LOG_NOTICE, "IPC Test: Server started and entering message loop.");
-
-        while (true)
-        {
-            // Wait for an incoming message.
-            IpcMessage *pRecv = 0;
-            if (!recv(pEndpoint, &pRecv, false))
-            {
-                klog(
-                    LOG_WARNING,
-                    "IPC Test: Server failed to receive a message.");
-                continue;
-            }
-
-            // Log it.
-            klog(
-                LOG_NOTICE, "IPC Test: Server got message '%s'.",
-                pRecv->getBuffer());
-            delete pRecv;
-
-            // Send a response.
-            IpcMessage *pResponse = new IpcMessage();
-            pResponse->initialise();
-            char *pBuffer = reinterpret_cast<char *>(pResponse->getBuffer());
-            if (!pBuffer)
-            {
-                klog(LOG_WARNING, "IPC Test: Server message creation failed.");
-                continue;
-            }
-            else
-                klog(
-                    LOG_NOTICE, "IPC Test: Server is writing into message %x",
-                    pBuffer);
-
-            sprintf(pBuffer, "Server received message successfully!\n");
-
-            if (!send(pEndpoint, pResponse, false))
-                klog(
-                    LOG_WARNING, "IPC Test: Server failed to send a response.");
-
-            // Clean up.
-            delete pResponse;
-        }
-    }
-    else
-        printf("Successfully forked, child has PID %d\n", id);
-
-    return 0;
+  return 0;
 }

@@ -37,70 +37,64 @@
 /**
  * Traces page allocations.
  */
-class SlamCommand : public DebuggerCommand, public Scrollable
-{
-  public:
-    /**
-     * Default constructor - zeroes stuff.
-     */
-    SlamCommand();
+class SlamCommand : public DebuggerCommand, public Scrollable {
+ public:
+  /**
+   * Default constructor - zeroes stuff.
+   */
+  SlamCommand();
 
-    /**
-     * Default destructor - does nothing.
-     */
-    ~SlamCommand();
+  /**
+   * Default destructor - does nothing.
+   */
+  ~SlamCommand();
 
-    /**
-     * Return an autocomplete string, given an input string.
-     */
-    void autocomplete(const HugeStaticString &input, HugeStaticString &output);
+  /**
+   * Return an autocomplete string, given an input string.
+   */
+  void autocomplete(const HugeStaticString& input, HugeStaticString& output);
 
-    /**
-     * Execute the command with the given screen.
-     */
-    bool execute(
-        const HugeStaticString &input, HugeStaticString &output,
-        InterruptState &state, DebuggerIO *screen);
+  /**
+   * Execute the command with the given screen.
+   */
+  bool execute(const HugeStaticString& input, HugeStaticString& output, InterruptState& state,
+               DebuggerIO* screen);
 
-    /**
-     * Returns the string representation of this command.
-     */
-    const NormalStaticString getString()
-    {
-        return NormalStaticString("slam-allocations");
-    }
+  /**
+   * Returns the string representation of this command.
+   */
+  const NormalStaticString getString() {
+    return NormalStaticString("slam-allocations");
+  }
 
-    void addAllocation(uintptr_t *backtrace, size_t requested);
+  void addAllocation(uintptr_t* backtrace, size_t requested);
 
-    void removeAllocation(uintptr_t *backtrace, size_t requested);
+  void removeAllocation(uintptr_t* backtrace, size_t requested);
 
-    void clean()
-    {
-        m_Tree.clear();
-    }
+  void clean() {
+    m_Tree.clear();
+  }
 
-    //
-    // Scrollable interface
-    //
-    virtual const char *getLine1(
-        size_t index, DebuggerIO::Colour &colour, DebuggerIO::Colour &bgColour);
-    virtual const char *getLine2(
-        size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
-        DebuggerIO::Colour &bgColour);
-    virtual size_t getLineCount();
+  //
+  // Scrollable interface
+  //
+  virtual const char* getLine1(size_t index, DebuggerIO::Colour& colour,
+                               DebuggerIO::Colour& bgColour);
+  virtual const char* getLine2(size_t index, size_t& colOffset, DebuggerIO::Colour& colour,
+                               DebuggerIO::Colour& bgColour);
+  virtual size_t getLineCount();
 
-  private:
-    struct SlamAllocation
-    {
-        uintptr_t bt[NUM_SLAM_BT_FRAMES];
-        size_t n;
-        size_t size;
-    };
-    Tree<size_t, SlamAllocation *> m_Tree;
-    Tree<size_t, SlamAllocation *>::Iterator m_It;
-    size_t m_nLines;
-    size_t m_nIdx;
-    bool m_Lock;
+ private:
+  struct SlamAllocation {
+    uintptr_t bt[NUM_SLAM_BT_FRAMES];
+    size_t n;
+    size_t size;
+  };
+  Tree<size_t, SlamAllocation*> m_Tree;
+  Tree<size_t, SlamAllocation*>::Iterator m_It;
+  size_t m_nLines;
+  size_t m_nIdx;
+  bool m_Lock;
 };
 
 extern SlamCommand g_SlamCommand;

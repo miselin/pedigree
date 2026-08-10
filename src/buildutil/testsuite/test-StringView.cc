@@ -19,99 +19,89 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <iostream>
-
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/template.h"
 
-TEST(PedigreeStringView, ExplicitConstruction)
-{
-    StringView view("Hello world", 11);
+#include <iostream>
 
-    EXPECT_EQ(view.length(), 11U);
+#include <gtest/gtest.h>
+
+TEST(PedigreeStringView, ExplicitConstruction) {
+  StringView view("Hello world", 11);
+
+  EXPECT_EQ(view.length(), 11U);
 }
 
-TEST(PedigreeStringView, ImplicitConstruction)
-{
-    StringView view("Hello world");
+TEST(PedigreeStringView, ImplicitConstruction) {
+  StringView view("Hello world");
 
-    EXPECT_EQ(view.length(), 11U);
+  EXPECT_EQ(view.length(), 11U);
 }
 
-TEST(PedigreeStringView, EqualityCString)
-{
-    StringView view("Hello world", 11);
+TEST(PedigreeStringView, EqualityCString) {
+  StringView view("Hello world", 11);
 
-    EXPECT_EQ(view, "Hello world");
+  EXPECT_EQ(view, "Hello world");
 }
 
-TEST(PedigreeStringView, InEqualityCString)
-{
-    StringView view("Hello world", 11);
+TEST(PedigreeStringView, InEqualityCString) {
+  StringView view("Hello world", 11);
 
-    EXPECT_NE(view, "Hello world this shouldn't match");
+  EXPECT_NE(view, "Hello world this shouldn't match");
 }
 
-TEST(PedigreeStringView, EqualityStringView)
-{
-    StringView view1("Hello world", 11);
-    StringView view2("Hello world", 11);
+TEST(PedigreeStringView, EqualityStringView) {
+  StringView view1("Hello world", 11);
+  StringView view2("Hello world", 11);
 
-    EXPECT_EQ(view1, view2);
+  EXPECT_EQ(view1, view2);
 }
 
-TEST(PedigreeStringView, EmptyViewsCompareEqual)
-{
-    StringView view1;
-    StringView view2;
+TEST(PedigreeStringView, EmptyViewsCompareEqual) {
+  StringView view1;
+  StringView view2;
 
-    EXPECT_EQ(view1, view2);
-    EXPECT_EQ(view1, "");
+  EXPECT_EQ(view1, view2);
+  EXPECT_EQ(view1, "");
 }
 
-TEST(PedigreeStringView, EmptyStringProducesEmptyView)
-{
-    String str;
-    StringView view = str.view();
+TEST(PedigreeStringView, EmptyStringProducesEmptyView) {
+  String str;
+  StringView view = str.view();
 
-    EXPECT_EQ(view, "");
-    EXPECT_EQ(view.length(), 0U);
+  EXPECT_EQ(view, "");
+  EXPECT_EQ(view.length(), 0U);
 }
 
-TEST(PedigreeStringView, EqualityCxxString)
-{
-    StringView view("Hello world", 11);
-    String str("Hello world");
+TEST(PedigreeStringView, EqualityCxxString) {
+  StringView view("Hello world", 11);
+  String str("Hello world");
 
-    EXPECT_EQ(view, str);
+  EXPECT_EQ(view, str);
 }
 
-TEST(PedigreeStringView, ToString)
-{
-    StringView view("Hello world", 11);
-    String str = view.toString();
+TEST(PedigreeStringView, ToString) {
+  StringView view("Hello world", 11);
+  String str = view.toString();
 
-    EXPECT_STREQ(str.cstr(), "Hello world");
+  EXPECT_STREQ(str.cstr(), "Hello world");
 }
 
-TEST(PedigreeStringView, Substring)
-{
-    StringView view("Hello world", 11);
+TEST(PedigreeStringView, Substring) {
+  StringView view("Hello world", 11);
 
-    StringView sub1 = view.substring(0, 5);
-    StringView sub2 = view.substring(6, 11);
-    StringView sub3 = view.substring(5, 6);
-    StringView sub4 = view.substring(6, 5);
-    StringView sub5 = view.substring(0, 15);
-    StringView sub6 = view.substring(9, 15);
+  StringView sub1 = view.substring(0, 5);
+  StringView sub2 = view.substring(6, 11);
+  StringView sub3 = view.substring(5, 6);
+  StringView sub4 = view.substring(6, 5);
+  StringView sub5 = view.substring(0, 15);
+  StringView sub6 = view.substring(9, 15);
 
-    EXPECT_EQ(sub1, "Hello");
-    EXPECT_EQ(sub2, "world");
-    EXPECT_EQ(sub3, " ");
-    EXPECT_EQ(sub4, "");
-    EXPECT_EQ(sub5, "Hello world");
-    EXPECT_EQ(sub6, "ld");
+  EXPECT_EQ(sub1, "Hello");
+  EXPECT_EQ(sub2, "world");
+  EXPECT_EQ(sub3, " ");
+  EXPECT_EQ(sub4, "");
+  EXPECT_EQ(sub5, "Hello world");
+  EXPECT_EQ(sub6, "ld");
 }

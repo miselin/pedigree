@@ -20,18 +20,14 @@
 #include "pedigree/native/demo.h"
 #include "pedigree/native/native-protocol.h"
 
-Demo::Demo()
-{
-    register_object(this);
+Demo::Demo() {
+  register_object(this);
 }
 
-Demo::~Demo()
-{
-}
+Demo::~Demo() {}
 
-void Demo::something()
-{
-    ReturnState result = native_call(this, 0x1234, 0, 0);
-    if (!result.success)
-        throw 0xdeadbeef;
+void Demo::something() {
+  ReturnState result = native_call(this, 0x1234, 0, 0);
+  if (!result.success)
+    throw 0xdeadbeef;
 }

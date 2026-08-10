@@ -24,8 +24,7 @@
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/types.h"
 
-namespace serial
-{
+namespace serial {
 const int rxtx = 0;
 const int inten = 1;
 const int iififo = 2;
@@ -39,21 +38,20 @@ const int scratch = 7;
 /**
  * Serial device abstraction.
  */
-class X86Serial : public Serial
-{
-  public:
-    X86Serial();
-    virtual void setBase(uintptr_t nBaseAddr);
-    virtual ~X86Serial();
+class X86Serial : public Serial {
+ public:
+  X86Serial();
+  virtual void setBase(uintptr_t nBaseAddr);
+  virtual ~X86Serial();
 
-    virtual char read();
-    virtual char readNonBlock();
-    virtual void write(char c);
+  virtual char read();
+  virtual char readNonBlock();
+  virtual void write(char c);
 
-  private:
-    bool waitForStatus(uint8_t mask);
-    bool isConnected();
-    IoPort m_Port;
+ private:
+  bool waitForStatus(uint8_t mask);
+  bool isConnected();
+  IoPort m_Port;
 };
 
 #endif

@@ -37,62 +37,61 @@ class SuspendDeviceHardIrqContext;
  * @{ */
 
 /** Common hosted processor information structure */
-class HostedProcessorInformation
-{
-    friend class ProcessorBase;
-    friend class Multiprocessor;
+class HostedProcessorInformation {
+  friend class ProcessorBase;
+  friend class Multiprocessor;
 
-  public:
-    /** Get the current processor's VirtualAddressSpace
-     *\return reference to the current processor's VirtualAddressSpace */
-    EXPORTED_PUBLIC VirtualAddressSpace &getVirtualAddressSpace() const;
-    /** Set the current processor's VirtualAddressSpace
-     *\param[in] virtualAddressSpace reference to the new VirtualAddressSpace */
-    void setVirtualAddressSpace(VirtualAddressSpace &virtualAddressSpace);
+ public:
+  /** Get the current processor's VirtualAddressSpace
+   *\return reference to the current processor's VirtualAddressSpace */
+  EXPORTED_PUBLIC VirtualAddressSpace& getVirtualAddressSpace() const;
+  /** Set the current processor's VirtualAddressSpace
+   *\param[in] virtualAddressSpace reference to the new VirtualAddressSpace */
+  void setVirtualAddressSpace(VirtualAddressSpace& virtualAddressSpace);
 
-    uintptr_t getKernelStack() const;
-    void setKernelStack(uintptr_t stack);
-    EXPORTED_PUBLIC Thread *getCurrentThread() const;
-    void setCurrentThread(Thread *pThread);
-    PerProcessorScheduler &getScheduler();
+  uintptr_t getKernelStack() const;
+  void setKernelStack(uintptr_t stack);
+  EXPORTED_PUBLIC Thread* getCurrentThread() const;
+  void setCurrentThread(Thread* pThread);
+  PerProcessorScheduler& getScheduler();
 
-  protected:
-    /** Construct a HostedProcessorInformation object
-     *\param[in] processorId Identifier of the processor */
-    HostedProcessorInformation(ProcessorId processorId, uint8_t apicId = 0);
-    /** The destructor does nothing */
-    virtual ~HostedProcessorInformation();
+ protected:
+  /** Construct a HostedProcessorInformation object
+   *\param[in] processorId Identifier of the processor */
+  HostedProcessorInformation(ProcessorId processorId, uint8_t apicId = 0);
+  /** The destructor does nothing */
+  virtual ~HostedProcessorInformation();
 
-  private:
-    friend class DeviceHardIrqContext;
-    friend class SuspendDeviceHardIrqContext;
+ private:
+  friend class DeviceHardIrqContext;
+  friend class SuspendDeviceHardIrqContext;
 
-    /** Default constructor
-     *\note NOT implemented */
-    HostedProcessorInformation();
-    /** Copy-constructor
-     *\note NOT implemented */
-    HostedProcessorInformation(const HostedProcessorInformation &);
-    /** Assignment operator
-     *\note NOT implemented */
-    HostedProcessorInformation &operator=(const HostedProcessorInformation &);
+  /** Default constructor
+   *\note NOT implemented */
+  HostedProcessorInformation();
+  /** Copy-constructor
+   *\note NOT implemented */
+  HostedProcessorInformation(const HostedProcessorInformation&);
+  /** Assignment operator
+   *\note NOT implemented */
+  HostedProcessorInformation& operator=(const HostedProcessorInformation&);
 
-    /** Identifier of that processor */
-    ProcessorId m_ProcessorId;
-    /** The current VirtualAddressSpace */
-    VirtualAddressSpace *m_VirtualAddressSpace;
-    /** The current thread */
-    Thread *m_pCurrentThread;
-    /** The processor's scheduler. */
-    PerProcessorScheduler *m_Scheduler;
-    /** Kernel stack. */
-    uintptr_t m_KernelStack;
-    /** Linux thread which owns hosted processor execution and IRQ delivery. */
-    uintptr_t m_HostedExecutionThreadId;
-    /** Device hard-IRQ callbacks currently active on this processor. */
-    size_t m_DeviceHardIrqDepth;
-    /** POSIX signal frames live across hosted context switches. */
-    size_t m_HostedSignalFrameDepth;
+  /** Identifier of that processor */
+  ProcessorId m_ProcessorId;
+  /** The current VirtualAddressSpace */
+  VirtualAddressSpace* m_VirtualAddressSpace;
+  /** The current thread */
+  Thread* m_pCurrentThread;
+  /** The processor's scheduler. */
+  PerProcessorScheduler* m_Scheduler;
+  /** Kernel stack. */
+  uintptr_t m_KernelStack;
+  /** Linux thread which owns hosted processor execution and IRQ delivery. */
+  uintptr_t m_HostedExecutionThreadId;
+  /** Device hard-IRQ callbacks currently active on this processor. */
+  size_t m_DeviceHardIrqDepth;
+  /** POSIX signal frames live across hosted context switches. */
+  size_t m_HostedSignalFrameDepth;
 };
 
 /** @} */

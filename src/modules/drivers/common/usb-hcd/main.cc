@@ -17,119 +17,110 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Ehci.h"
-#include "Ohci.h"
-#include "Uhci.h"
-#include "modules/Module.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/new"
 
-enum HcdConstants
-{
-    HCI_CLASS = 0x0C,        // Host Controller PCI class
-    HCI_SUBCLASS = 0x03,     // Host Controller PCI subclass
-    HCI_PROGIF_UHCI = 0x00,  // UHCI PCI programming interface
-    HCI_PROGIF_OHCI = 0x10,  // OHCI PCI programming interface
-    HCI_PROGIF_EHCI = 0x20,  // EHCI PCI programming interface
-    HCI_PROGIF_XHCI = 0x30,  // xHCI PCI programming interface
+#include "Ehci.h"
+#include "Ohci.h"
+#include "Uhci.h"
+#include "modules/Module.h"
+
+enum HcdConstants {
+  HCI_CLASS = 0x0C,        // Host Controller PCI class
+  HCI_SUBCLASS = 0x03,     // Host Controller PCI subclass
+  HCI_PROGIF_UHCI = 0x00,  // UHCI PCI programming interface
+  HCI_PROGIF_OHCI = 0x10,  // OHCI PCI programming interface
+  HCI_PROGIF_EHCI = 0x20,  // EHCI PCI programming interface
+  HCI_PROGIF_XHCI = 0x30,  // xHCI PCI programming interface
 };
 
 static bool bFound = false;
 
-static void probeXhci(Device *pDev)
-{
-    WARNING("USB: xHCI found, not implemented yet!");
-    /*
-    // Create a new Xhci node
-    Xhci *pXhci = new Xhci(pDev);
+static void probeXhci(Device* pDev) {
+  WARNING("USB: xHCI found, not implemented yet!");
+  /*
+  // Create a new Xhci node
+  Xhci *pXhci = new Xhci(pDev);
 
-    // Replace pDev with pXhci, then delete pDev
-    pDev->getParent()->replaceChild(pDev, pXhci);
-    delete pDev;
-    */
+  // Replace pDev with pXhci, then delete pDev
+  pDev->getParent()->replaceChild(pDev, pXhci);
+  delete pDev;
+  */
 }
 
-static void probeEhci(Device *pDev)
-{
-    NOTICE("USB: EHCI found");
+static void probeEhci(Device* pDev) {
+  NOTICE("USB: EHCI found");
 
-    // Create a new Ehci node
-    Ehci *pEhci = new Ehci(pDev);
-    bool success = pEhci->initialiseController();
-    if (!success)
-    {
-        NOTICE("USB: EHCI failed to initialise");
-        delete pEhci;
-        return;
-    }
+  // Create a new Ehci node
+  Ehci* pEhci = new Ehci(pDev);
+  bool success = pEhci->initialiseController();
+  if (!success) {
+    NOTICE("USB: EHCI failed to initialise");
+    delete pEhci;
+    return;
+  }
 
-    // Replace pDev with pEhci, then delete pDev
-    pDev->getParent()->replaceChild(pDev, pEhci);
-    delete pDev;
+  // Replace pDev with pEhci, then delete pDev
+  pDev->getParent()->replaceChild(pDev, pEhci);
+  delete pDev;
 
-    bFound = true;
+  bFound = true;
 }
 
-static void probeOhci(Device *pDev)
-{
-    NOTICE("USB: OHCI found");
+static void probeOhci(Device* pDev) {
+  NOTICE("USB: OHCI found");
 
-    // Create a new Ohci node
-    Ohci *pOhci = new Ohci(pDev);
-    if (!pOhci->initialised())
-    {
-        NOTICE("USB: OHCI failed to initialise");
-        delete pOhci;
-        return;
-    }
+  // Create a new Ohci node
+  Ohci* pOhci = new Ohci(pDev);
+  if (!pOhci->initialised()) {
+    NOTICE("USB: OHCI failed to initialise");
+    delete pOhci;
+    return;
+  }
 
-    // Replace pDev with pOhci, then delete pDev
-    pDev->getParent()->replaceChild(pDev, pOhci);
-    delete pDev;
+  // Replace pDev with pOhci, then delete pDev
+  pDev->getParent()->replaceChild(pDev, pOhci);
+  delete pDev;
 
-    bFound = true;
+  bFound = true;
 }
 
 #if X86_COMMON
-static void probeUhci(Device *pDev)
-{
-    NOTICE("USB: UHCI found");
+static void probeUhci(Device* pDev) {
+  NOTICE("USB: UHCI found");
 
-    // Create a new Uhci node
-    Uhci *pUhci = new Uhci(pDev);
+  // Create a new Uhci node
+  Uhci* pUhci = new Uhci(pDev);
 
-    // Replace pDev with pUhci, then delete pDev
-    pDev->getParent()->replaceChild(pDev, pUhci);
-    delete pDev;
+  // Replace pDev with pUhci, then delete pDev
+  pDev->getParent()->replaceChild(pDev, pUhci);
+  delete pDev;
 
-    bFound = true;
+  bFound = true;
 }
 #endif
 
-static bool entry()
-{
-    // Interrupts may get disabled on the way here, so make sure they are
-    // enabled
-    Processor::setInterrupts(true);
-    Device::searchByClassSubclassAndProgInterface(
-        HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_XHCI, probeXhci);
-    Device::searchByClassSubclassAndProgInterface(
-        HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_EHCI, probeEhci);
-    Device::searchByClassSubclassAndProgInterface(
-        HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_OHCI, probeOhci);
+static bool entry() {
+  // Interrupts may get disabled on the way here, so make sure they are
+  // enabled
+  Processor::setInterrupts(true);
+  Device::searchByClassSubclassAndProgInterface(HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_XHCI,
+                                                probeXhci);
+  Device::searchByClassSubclassAndProgInterface(HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_EHCI,
+                                                probeEhci);
+  Device::searchByClassSubclassAndProgInterface(HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_OHCI,
+                                                probeOhci);
 #if X86_COMMON
-    Device::searchByClassSubclassAndProgInterface(
-        HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_UHCI, probeUhci);
+  Device::searchByClassSubclassAndProgInterface(HCI_CLASS, HCI_SUBCLASS, HCI_PROGIF_UHCI,
+                                                probeUhci);
 #endif
 
-    return bFound;
+  return bFound;
 }
 
-static void exit()
-{
-}
+static void exit() {}
 
 #if X86_COMMON
 MODULE_INFO("usb-hcd", &entry, &exit, "pci", "usb");

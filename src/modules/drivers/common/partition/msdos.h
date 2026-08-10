@@ -38,27 +38,26 @@ class Disk;
 #define MSDOS_EXT_PARTTAB_NUM 0x2
 
 /** An MS-DOS partition table entry. */
-typedef struct
-{
-    uint8_t active;
-    uint8_t start_head;
-    uint8_t start_cylinder_low;
-    uint8_t start_cylinder_high;
-    uint8_t type;
-    uint8_t end_head;
-    uint8_t end_cylinder_low;
-    uint8_t end_cylinder_high;
-    uint32_t start_lba;
-    uint32_t size;
+typedef struct {
+  uint8_t active;
+  uint8_t start_head;
+  uint8_t start_cylinder_low;
+  uint8_t start_cylinder_high;
+  uint8_t type;
+  uint8_t end_head;
+  uint8_t end_cylinder_low;
+  uint8_t end_cylinder_high;
+  uint32_t start_lba;
+  uint32_t size;
 } __attribute__((packed)) MsdosPartitionInfo;
 
 /** Attempts to find a MS-DOS partition table on pDisk. If found, new Partition
  * objects are created and added as children of pDisk. \return true if a ms-dos
  * partition table was found.
  */
-bool msdosProbeDisk(Disk *pDisk);
+bool msdosProbeDisk(Disk* pDisk);
 
 /** Given a partition table, read and parse the contents. */
-bool msdosReadTable(MsdosPartitionInfo *pPartitions, Disk *pDisk);
+bool msdosReadTable(MsdosPartitionInfo* pPartitions, Disk* pDisk);
 
 #endif

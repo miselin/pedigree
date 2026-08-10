@@ -20,22 +20,20 @@
 #ifndef NET_SYSCALLS_H
 #define NET_SYSCALLS_H
 
-#include "logging.h"
-
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
+#include "logging.h"
 #include "modules/subsys/posix/UnixFilesystem.h"
-
 #include <sys/socket.h>
 #include <sys/types.h>
 
 // Must be after sys/types.h to avoid problems with endian.h
 #include "modules/system/lwip/include/lwip/api.h"
 
-extern UnixFilesystem *g_pUnixFilesystem;
+extern UnixFilesystem* g_pUnixFilesystem;
 
 struct sockaddr;
 struct pbuf;
@@ -54,246 +52,215 @@ class Event;
  * Any non-negative result, including EOF and zero-length I/O, is a completed
  * operation and wins over a concurrently delivered signal.
  */
-bool finishInterruptibleSocketCall(Thread *thread, ssize_t result);
-bool finishInterruptibleSocketCall(Thread *thread, bool result) = delete;
+bool finishInterruptibleSocketCall(Thread* thread, ssize_t result);
+bool finishInterruptibleSocketCall(Thread* thread, bool result) = delete;
 
-ssize_t posix_send_descriptor(
-    const DescriptorLease &descriptor, const void *buffer,
-    size_t bufferLength, int flags);
-ssize_t posix_recv_descriptor(
-    const DescriptorLease &descriptor, void *buffer,
-    size_t bufferLength, int flags);
+ssize_t posix_send_descriptor(const DescriptorLease& descriptor, const void* buffer,
+                              size_t bufferLength, int flags);
+ssize_t posix_recv_descriptor(const DescriptorLease& descriptor, void* buffer, size_t bufferLength,
+                              int flags);
 
-class NetworkSyscalls
-{
-  public:
-    NetworkSyscalls(int domain, int type, int protocol);
-    virtual ~NetworkSyscalls();
+class NetworkSyscalls {
+ public:
+  NetworkSyscalls(int domain, int type, int protocol);
+  virtual ~NetworkSyscalls();
 
-    /// Implementation-specific final socket creation logic,
-    /// implementations must set a SYSCALL_ERROR on failure.
-    virtual bool create();
-    virtual int connect(const struct sockaddr_storage *address, socklen_t addrlen) = 0;
+  /// Implementation-specific final socket creation logic,
+  /// implementations must set a SYSCALL_ERROR on failure.
+  virtual bool create();
+  virtual int connect(const struct sockaddr_storage* address, socklen_t addrlen) = 0;
 
-    virtual ssize_t sendto_msg(const struct msghdr *msghdr) = 0;
-    virtual ssize_t recvfrom_msg(struct msghdr *msghdr) = 0;
+  virtual ssize_t sendto_msg(const struct msghdr* msghdr) = 0;
+  virtual ssize_t recvfrom_msg(struct msghdr* msghdr) = 0;
 
-    virtual ssize_t sendto(
-        const void *buffer, size_t bufferlen, int flags,
-        const struct sockaddr_storage *address, socklen_t addrlen);
-    virtual ssize_t recvfrom(
-        void *buffer, size_t bufferlen, int flags, struct sockaddr_storage *address,
-        socklen_t *addrlen);
+  virtual ssize_t sendto(const void* buffer, size_t bufferlen, int flags,
+                         const struct sockaddr_storage* address, socklen_t addrlen);
+  virtual ssize_t recvfrom(void* buffer, size_t bufferlen, int flags,
+                           struct sockaddr_storage* address, socklen_t* addrlen);
 
-    virtual int listen(int backlog) = 0;
-    virtual int bind(const struct sockaddr_storage *address, socklen_t addrlen) = 0;
-    virtual int
-    accept(struct sockaddr_storage *address, socklen_t *addrlen, int flags) = 0;
+  virtual int listen(int backlog) = 0;
+  virtual int bind(const struct sockaddr_storage* address, socklen_t addrlen) = 0;
+  virtual int accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags) = 0;
 
-    virtual int shutdown(int how);
+  virtual int shutdown(int how);
 
-    virtual int
-    getpeername(struct sockaddr_storage *address, socklen_t *address_len) = 0;
-    virtual int
-    getsockname(struct sockaddr_storage *address, socklen_t *address_len) = 0;
+  virtual int getpeername(struct sockaddr_storage* address, socklen_t* address_len) = 0;
+  virtual int getsockname(struct sockaddr_storage* address, socklen_t* address_len) = 0;
 
-    virtual int setsockopt(
-        int level, int optname, const void *optvalue, socklen_t optlen) = 0;
-    virtual int
-    getsockopt(int level, int optname, void *optvalue, socklen_t *optlen) = 0;
+  virtual int setsockopt(int level, int optname, const void* optvalue, socklen_t optlen) = 0;
+  virtual int getsockopt(int level, int optname, void* optvalue, socklen_t* optlen) = 0;
 
-    virtual bool canPoll() const;
-    virtual bool poll(bool &read, bool &write, bool &error, Semaphore *waiter);
-    virtual void unPoll(Semaphore *waiter);
+  virtual bool canPoll() const;
+  virtual bool poll(bool& read, bool& write, bool& error, Semaphore* waiter);
+  virtual void unPoll(Semaphore* waiter);
 
-    virtual bool monitor(Thread *pThread, Event *pEvent);
-    virtual bool unmonitor(Event *pEvent);
+  virtual bool monitor(Thread* pThread, Event* pEvent);
+  virtual bool unmonitor(Event* pEvent);
 
-    void associate(FileDescriptor *fd);
+  void associate(FileDescriptor* fd);
 
-    int getDomain() const
-    {
-        return m_Domain;
-    }
+  int getDomain() const {
+    return m_Domain;
+  }
 
-    int getType() const
-    {
-        return m_Type;
-    }
+  int getType() const {
+    return m_Type;
+  }
 
-    int getProtocol() const
-    {
-        return m_Protocol;
-    }
+  int getProtocol() const {
+    return m_Protocol;
+  }
 
-    bool isBlocking() const;
+  bool isBlocking() const;
 
-    virtual void setBlocking(bool blocking);
+  virtual void setBlocking(bool blocking);
 
-  protected:
-    int m_Domain;
-    int m_Type;
-    int m_Protocol;
+ protected:
+  int m_Domain;
+  int m_Type;
+  int m_Protocol;
 
-    bool m_Blocking;
-
+  bool m_Blocking;
 };
 
-class LwipSocketSyscalls : public NetworkSyscalls
-{
-  public:
-    LwipSocketSyscalls(int domain, int type, int protocol);
-    virtual ~LwipSocketSyscalls();
+class LwipSocketSyscalls : public NetworkSyscalls {
+ public:
+  LwipSocketSyscalls(int domain, int type, int protocol);
+  virtual ~LwipSocketSyscalls();
 
-    /// Implementation-specific final socket creation logic.
-    virtual bool create();
-    virtual int connect(const struct sockaddr_storage *address, socklen_t addrlen);
+  /// Implementation-specific final socket creation logic.
+  virtual bool create();
+  virtual int connect(const struct sockaddr_storage* address, socklen_t addrlen);
 
-    virtual ssize_t sendto_msg(const struct msghdr *msghdr);
-    virtual ssize_t recvfrom_msg(struct msghdr *msghdr);
+  virtual ssize_t sendto_msg(const struct msghdr* msghdr);
+  virtual ssize_t recvfrom_msg(struct msghdr* msghdr);
 
-    virtual int listen(int backlog);
-    virtual int bind(const struct sockaddr_storage *address, socklen_t addrlen);
-    virtual int
-    accept(struct sockaddr_storage *address, socklen_t *addrlen, int flags);
+  virtual int listen(int backlog);
+  virtual int bind(const struct sockaddr_storage* address, socklen_t addrlen);
+  virtual int accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags);
 
-    virtual int shutdown(int how);
+  virtual int shutdown(int how);
 
-    virtual int getpeername(struct sockaddr_storage *address, socklen_t *address_len);
-    virtual int getsockname(struct sockaddr_storage *address, socklen_t *address_len);
+  virtual int getpeername(struct sockaddr_storage* address, socklen_t* address_len);
+  virtual int getsockname(struct sockaddr_storage* address, socklen_t* address_len);
 
-    virtual int
-    setsockopt(int level, int optname, const void *optvalue, socklen_t optlen);
-    virtual int
-    getsockopt(int level, int optname, void *optvalue, socklen_t *optlen);
+  virtual int setsockopt(int level, int optname, const void* optvalue, socklen_t optlen);
+  virtual int getsockopt(int level, int optname, void* optvalue, socklen_t* optlen);
 
-    virtual bool canPoll() const;
-    virtual bool poll(bool &read, bool &write, bool &error, Semaphore *waiter);
-    virtual void unPoll(Semaphore *waiter);
+  virtual bool canPoll() const;
+  virtual bool poll(bool& read, bool& write, bool& error, Semaphore* waiter);
+  virtual void unPoll(Semaphore* waiter);
 
-    virtual void setBlocking(bool blocking);
+  virtual void setBlocking(bool blocking);
 
-  private:
-    static Tree<struct netconn *, LwipSocketSyscalls *> m_SyscallObjects;
-    static Mutex m_SyscallObjectsLock;
+ private:
+  static Tree<struct netconn*, LwipSocketSyscalls*> m_SyscallObjects;
+  static Mutex m_SyscallObjectsLock;
 
-    static void
-    netconnCallback(struct netconn *conn, enum netconn_evt evt, uint16_t len);
-    static void lwipToSyscallError(err_t err);
-    void registerSocket();
+  static void netconnCallback(struct netconn* conn, enum netconn_evt evt, uint16_t len);
+  static void lwipToSyscallError(err_t err);
+  void registerSocket();
 
-    struct netconn *m_Socket;
+  struct netconn* m_Socket;
 
-    struct LwipMetadata
-    {
-        LwipMetadata();
+  struct LwipMetadata {
+    LwipMetadata();
 
-        ssize_t recv;
-        ssize_t send;
-        err_t error;
-        bool closed;
+    ssize_t recv;
+    ssize_t send;
+    err_t error;
+    bool closed;
 
-        Mutex lock;
-        List<Semaphore *> semaphores;
+    Mutex lock;
+    List<Semaphore*> semaphores;
 
-        size_t offset;
-        struct pbuf *pb;
-        struct netbuf *buf;
-    } m_Metadata;
+    size_t offset;
+    struct pbuf* pb;
+    struct netbuf* buf;
+  } m_Metadata;
 };
 
-class UnixSocketSyscalls : public NetworkSyscalls
-{
-  public:
-    UnixSocketSyscalls(int domain, int type, int protocol);
-    virtual ~UnixSocketSyscalls();
+class UnixSocketSyscalls : public NetworkSyscalls {
+ public:
+  UnixSocketSyscalls(int domain, int type, int protocol);
+  virtual ~UnixSocketSyscalls();
 
-    /// Implementation-specific final socket creation logic.
-    virtual bool create();
-    virtual int connect(const struct sockaddr_storage *address, socklen_t addrlen);
+  /// Implementation-specific final socket creation logic.
+  virtual bool create();
+  virtual int connect(const struct sockaddr_storage* address, socklen_t addrlen);
 
-    virtual ssize_t sendto_msg(const struct msghdr *msghdr);
-    virtual ssize_t recvfrom_msg(struct msghdr *msghdr);
+  virtual ssize_t sendto_msg(const struct msghdr* msghdr);
+  virtual ssize_t recvfrom_msg(struct msghdr* msghdr);
 
-    virtual int listen(int backlog);
-    virtual int bind(const struct sockaddr_storage *address, socklen_t addrlen);
-    virtual int
-    accept(struct sockaddr_storage *address, socklen_t *addrlen, int flags);
+  virtual int listen(int backlog);
+  virtual int bind(const struct sockaddr_storage* address, socklen_t addrlen);
+  virtual int accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags);
 
-    virtual int shutdown(int how);
+  virtual int shutdown(int how);
 
-    virtual int getpeername(struct sockaddr_storage *address, socklen_t *address_len);
-    virtual int getsockname(struct sockaddr_storage *address, socklen_t *address_len);
+  virtual int getpeername(struct sockaddr_storage* address, socklen_t* address_len);
+  virtual int getsockname(struct sockaddr_storage* address, socklen_t* address_len);
 
-    virtual int
-    setsockopt(int level, int optname, const void *optvalue, socklen_t optlen);
-    virtual int
-    getsockopt(int level, int optname, void *optvalue, socklen_t *optlen);
+  virtual int setsockopt(int level, int optname, const void* optvalue, socklen_t optlen);
+  virtual int getsockopt(int level, int optname, void* optvalue, socklen_t* optlen);
 
-    virtual bool canPoll() const;
-    virtual bool poll(bool &read, bool &write, bool &error, Semaphore *waiter);
-    virtual void unPoll(Semaphore *waiter);
+  virtual bool canPoll() const;
+  virtual bool poll(bool& read, bool& write, bool& error, Semaphore* waiter);
+  virtual void unPoll(Semaphore* waiter);
 
-    virtual bool monitor(Thread *pThread, Event *pEvent);
-    virtual bool unmonitor(Event *pEvent);
+  virtual bool monitor(Thread* pThread, Event* pEvent);
+  virtual bool unmonitor(Event* pEvent);
 
-    /// Pair two UnixSocketSyscalls objects such that the referenced
-    /// sockets directly communicate with each other.
-    bool pairWith(UnixSocketSyscalls *other);
+  /// Pair two UnixSocketSyscalls objects such that the referenced
+  /// sockets directly communicate with each other.
+  bool pairWith(UnixSocketSyscalls* other);
 
-  private:
-    // Not safe to copy or assign - we assume we own m_Socket
-    NOT_COPYABLE_OR_ASSIGNABLE(UnixSocketSyscalls);
+ private:
+  // Not safe to copy or assign - we assume we own m_Socket
+  NOT_COPYABLE_OR_ASSIGNABLE(UnixSocketSyscalls);
 
-    UnixSocket *getRemote() const;
+  UnixSocket* getRemote() const;
 
-    UnixSocket::SocketType getSocketType() const;
+  UnixSocket::SocketType getSocketType() const;
 
-    UnixSocket *m_Socket;
-    UnixSocket *m_Remote;  // other side of the unix socket
-    bool m_RemoteTracked;
+  UnixSocket* m_Socket;
+  UnixSocket* m_Remote;  // other side of the unix socket
+  bool m_RemoteTracked;
 
-    String m_LocalPath;
-    String m_RemotePath;
+  String m_LocalPath;
+  String m_RemotePath;
 };
 
 /// Get metadata for a given lwIP connection.
-struct netconnMetadata *getNetconnMetadata(struct netconn *conn);
+struct netconnMetadata* getNetconnMetadata(struct netconn* conn);
 
 int posix_socket(int domain, int type, int protocol);
 int posix_socketpair(int domain, int type, int protocol, int sv[2]);
-int posix_connect(int sock, const struct sockaddr_storage *address, socklen_t addrlen);
+int posix_connect(int sock, const struct sockaddr_storage* address, socklen_t addrlen);
 
-ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags);
-ssize_t posix_sendto(
-    int sock, const void *buff, size_t bufflen, int flags,
-    struct sockaddr_storage *address, socklen_t addrlen);
-ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags);
-ssize_t posix_recvfrom(
-    int sock, void *buff, size_t bufflen, int flags, struct sockaddr_storage *address,
-    socklen_t *addrlen);
+ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags);
+ssize_t posix_sendto(int sock, const void* buff, size_t bufflen, int flags,
+                     struct sockaddr_storage* address, socklen_t addrlen);
+ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags);
+ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
+                       struct sockaddr_storage* address, socklen_t* addrlen);
 
 int posix_listen(int sock, int backlog);
-int posix_bind(int sock, const struct sockaddr_storage *address, socklen_t addrlen);
-int posix_accept(int sock, struct sockaddr_storage *address, socklen_t *addrlen);
-int posix_accept4(
-    int sock, struct sockaddr_storage *address, socklen_t *addrlen, int flags);
+int posix_bind(int sock, const struct sockaddr_storage* address, socklen_t addrlen);
+int posix_accept(int sock, struct sockaddr_storage* address, socklen_t* addrlen);
+int posix_accept4(int sock, struct sockaddr_storage* address, socklen_t* addrlen, int flags);
 
 int posix_shutdown(int socket, int how);
 
-int posix_getpeername(
-    int socket, struct sockaddr_storage *address, socklen_t *address_len);
-int posix_getsockname(
-    int socket, struct sockaddr_storage *address, socklen_t *address_len);
+int posix_getpeername(int socket, struct sockaddr_storage* address, socklen_t* address_len);
+int posix_getsockname(int socket, struct sockaddr_storage* address, socklen_t* address_len);
 
-int posix_setsockopt(
-    int sock, int level, int optname, const void *optvalue, socklen_t optlen);
-int posix_getsockopt(
-    int sock, int level, int optname, void *optvalue, socklen_t *optlen);
+int posix_setsockopt(int sock, int level, int optname, const void* optvalue, socklen_t optlen);
+int posix_getsockopt(int sock, int level, int optname, void* optvalue, socklen_t* optlen);
 
-int posix_sethostname(const char *name, size_t len);
+int posix_sethostname(const char* name, size_t len);
 
-ssize_t posix_sendmsg(int sockfd, const struct msghdr *msg, int flags);
-ssize_t posix_recvmsg(int sockfd, struct msghdr *msg, int flags);
+ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags);
+ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags);
 
 #endif

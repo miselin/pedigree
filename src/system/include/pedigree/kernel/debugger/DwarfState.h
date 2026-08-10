@@ -61,191 +61,164 @@
  * Holds one row of a Dwarf CFI table. We technically generate a table, but we
  * only keep track of the current row.
  */
-class DwarfState
-{
-  public:
-    enum RegisterState
-    {
-        SameValue = 0,
-        Undefined,
-        Offset,
-        ValOffset,
-        Register,
-        Expression,
-        ValExpression,
-        Architectural
-    };
+class DwarfState {
+ public:
+  enum RegisterState {
+    SameValue = 0,
+    Undefined,
+    Offset,
+    ValOffset,
+    Register,
+    Expression,
+    ValExpression,
+    Architectural
+  };
 
-    DwarfState()
-        : m_CfaState(ValOffset), m_CfaRegister(0), m_CfaOffset(0),
-          m_CfaExpression(0), m_ReturnAddress(0)
-    {
-        ByteSet(
-            static_cast<void *>(m_RegisterStates), 0,
-            sizeof(RegisterState) * DWARF_MAX_REGISTERS);
-        ByteSet(
-            static_cast<void *>(m_R), 0,
-            sizeof(uintptr_t) * DWARF_MAX_REGISTERS);
-    }
-    ~DwarfState()
-    {
-    }
+  DwarfState()
+      : m_CfaState(ValOffset),
+        m_CfaRegister(0),
+        m_CfaOffset(0),
+        m_CfaExpression(0),
+        m_ReturnAddress(0) {
+    ByteSet(static_cast<void*>(m_RegisterStates), 0, sizeof(RegisterState) * DWARF_MAX_REGISTERS);
+    ByteSet(static_cast<void*>(m_R), 0, sizeof(uintptr_t) * DWARF_MAX_REGISTERS);
+  }
+  ~DwarfState() {}
 
-    /**
-     * Copy constructor.
-     */
-    DwarfState(const DwarfState &other)
-        : m_CfaState(other.m_CfaState), m_CfaRegister(other.m_CfaRegister),
-          m_CfaOffset(other.m_CfaOffset),
-          m_CfaExpression(other.m_CfaExpression),
-          m_ReturnAddress(other.m_ReturnAddress)
-    {
-        MemoryCopy(
-            static_cast<void *>(m_RegisterStates),
-            static_cast<const void *>(other.m_RegisterStates),
-            sizeof(RegisterState) * DWARF_MAX_REGISTERS);
-        MemoryCopy(
-            static_cast<void *>(m_R), static_cast<const void *>(other.m_R),
-            sizeof(uintptr_t) * DWARF_MAX_REGISTERS);
-    }
+  /**
+   * Copy constructor.
+   */
+  DwarfState(const DwarfState& other)
+      : m_CfaState(other.m_CfaState),
+        m_CfaRegister(other.m_CfaRegister),
+        m_CfaOffset(other.m_CfaOffset),
+        m_CfaExpression(other.m_CfaExpression),
+        m_ReturnAddress(other.m_ReturnAddress) {
+    MemoryCopy(static_cast<void*>(m_RegisterStates),
+               static_cast<const void*>(other.m_RegisterStates),
+               sizeof(RegisterState) * DWARF_MAX_REGISTERS);
+    MemoryCopy(static_cast<void*>(m_R), static_cast<const void*>(other.m_R),
+               sizeof(uintptr_t) * DWARF_MAX_REGISTERS);
+  }
 
-    DwarfState &operator=(const DwarfState &other)
-    {
-        m_CfaState = other.m_CfaState;
-        m_CfaRegister = other.m_CfaRegister;
-        m_CfaOffset = other.m_CfaOffset;
-        m_CfaExpression = other.m_CfaExpression;
-        m_ReturnAddress = other.m_ReturnAddress;
-        MemoryCopy(
-            static_cast<void *>(m_RegisterStates),
-            static_cast<const void *>(other.m_RegisterStates),
-            sizeof(RegisterState) * DWARF_MAX_REGISTERS);
-        MemoryCopy(
-            static_cast<void *>(m_R), static_cast<const void *>(other.m_R),
-            sizeof(uintptr_t) * DWARF_MAX_REGISTERS);
-        return *this;
-    }
+  DwarfState& operator=(const DwarfState& other) {
+    m_CfaState = other.m_CfaState;
+    m_CfaRegister = other.m_CfaRegister;
+    m_CfaOffset = other.m_CfaOffset;
+    m_CfaExpression = other.m_CfaExpression;
+    m_ReturnAddress = other.m_ReturnAddress;
+    MemoryCopy(static_cast<void*>(m_RegisterStates),
+               static_cast<const void*>(other.m_RegisterStates),
+               sizeof(RegisterState) * DWARF_MAX_REGISTERS);
+    MemoryCopy(static_cast<void*>(m_R), static_cast<const void*>(other.m_R),
+               sizeof(uintptr_t) * DWARF_MAX_REGISTERS);
+    return *this;
+  }
 
-    processor_register_t getCfa(const DwarfState &initialState) const
-    {
-        switch (m_CfaState)
-        {
-            case ValOffset:
-            {
-                return initialState.m_R[m_CfaRegister] +
-                       static_cast<ssize_t>(m_CfaOffset);
-            }
-            case ValExpression:
-            {
-                WARNING("DwarfState::getCfa: Expression type not implemented.");
-                break;
-            }
-            default:
-                ERROR("CfaState invalid!");
-                return 0;
-        }
-
+  processor_register_t getCfa(const DwarfState& initialState) const {
+    switch (m_CfaState) {
+      case ValOffset: {
+        return initialState.m_R[m_CfaRegister] + static_cast<ssize_t>(m_CfaOffset);
+      }
+      case ValExpression: {
+        WARNING("DwarfState::getCfa: Expression type not implemented.");
+        break;
+      }
+      default:
+        ERROR("CfaState invalid!");
         return 0;
     }
 
-    processor_register_t
-    getRegister(unsigned int nRegister, const DwarfState &initialState) const
-    {
-        //       NOTICE("GetRegister: r" << Dec << nRegister);
-        switch (m_RegisterStates[nRegister])
-        {
-            case Undefined:
-                //           WARNING ("Request for undefined register: r" << Dec
-                //           << nRegister);
-                break;
-            case SameValue:
-                //           WARNING ("SameValue.");
-                return initialState.m_R[nRegister];
-            case Offset:
-            {
-                //           NOTICE("Offset: " << Hex << getCfa(initialState) <<
-                //           ", " << m_R[nRegister]);
-                /// \todo This needs to be better - we need to check if the CFA
-                /// is borked so we
-                ///       don't try to do a stupid read - This requires
-                ///       VirtualAddressSpace, I think.
-                if (getCfa(initialState) < 0x2000)
-                {
-                    WARNING("Malformed CFA!");
-                    return 0x0;
-                }
-                // "The previous value of this register is saved at the address
-                // CFA+N where CFA is the
-                //  current CFA value and N is a signed offset."
-                return *reinterpret_cast<processor_register_t *>(
-                    getCfa(initialState) +
-                    static_cast<ssize_t>(m_R[nRegister]));
-            }
-            case ValOffset:
-            {
-                //           WARNING ("ValOffset.");
-                // "The previous value of this register is the value CFA+N where
-                // CFA is the current
-                //  CFA value and N is a signed offset."
-                return getCfa(initialState) +
-                       static_cast<ssize_t>(m_R[nRegister]);
-            }
-            case Register:
-            {
-                //           WARNING ("Register.");
-                // "The previous value of this register is stored in another
-                // register numbered R."
-                return initialState.m_R[nRegister];
-            }
-            case Expression:
-            {
-                //           WARNING ("Expression not implemented, r" << Dec <<
-                //           nRegister);
-                return 0;
-            }
-            case ValExpression:
-            {
-                //           WARNING ("ValExpression not implemented, r" << Dec
-                //           << nRegister);
-                return 0;
-            }
-            case Architectural:
-                //           WARNING ("Request for 'architectural' register: r"
-                //           << Dec << nRegister);
-                return 0;
+    return 0;
+  }
+
+  processor_register_t getRegister(unsigned int nRegister, const DwarfState& initialState) const {
+    //       NOTICE("GetRegister: r" << Dec << nRegister);
+    switch (m_RegisterStates[nRegister]) {
+      case Undefined:
+        //           WARNING ("Request for undefined register: r" << Dec
+        //           << nRegister);
+        break;
+      case SameValue:
+        //           WARNING ("SameValue.");
+        return initialState.m_R[nRegister];
+      case Offset: {
+        //           NOTICE("Offset: " << Hex << getCfa(initialState) <<
+        //           ", " << m_R[nRegister]);
+        /// \todo This needs to be better - we need to check if the CFA
+        /// is borked so we
+        ///       don't try to do a stupid read - This requires
+        ///       VirtualAddressSpace, I think.
+        if (getCfa(initialState) < 0x2000) {
+          WARNING("Malformed CFA!");
+          return 0x0;
         }
+        // "The previous value of this register is saved at the address
+        // CFA+N where CFA is the
+        //  current CFA value and N is a signed offset."
+        return *reinterpret_cast<processor_register_t*>(getCfa(initialState) +
+                                                        static_cast<ssize_t>(m_R[nRegister]));
+      }
+      case ValOffset: {
+        //           WARNING ("ValOffset.");
+        // "The previous value of this register is the value CFA+N where
+        // CFA is the current
+        //  CFA value and N is a signed offset."
+        return getCfa(initialState) + static_cast<ssize_t>(m_R[nRegister]);
+      }
+      case Register: {
+        //           WARNING ("Register.");
+        // "The previous value of this register is stored in another
+        // register numbered R."
+        return initialState.m_R[nRegister];
+      }
+      case Expression: {
+        //           WARNING ("Expression not implemented, r" << Dec <<
+        //           nRegister);
+        return 0;
+      }
+      case ValExpression: {
+        //           WARNING ("ValExpression not implemented, r" << Dec
+        //           << nRegister);
+        return 0;
+      }
+      case Architectural:
+        //           WARNING ("Request for 'architectural' register: r"
+        //           << Dec << nRegister);
         return 0;
     }
+    return 0;
+  }
 
-    /**
-     * Register states - these define how to interpret the m_R members.
-     */
-    RegisterState m_RegisterStates[DWARF_MAX_REGISTERS];
+  /**
+   * Register states - these define how to interpret the m_R members.
+   */
+  RegisterState m_RegisterStates[DWARF_MAX_REGISTERS];
 
-    /**
-     * Registers (columns in the table).
-     */
-    processor_register_t m_R[DWARF_MAX_REGISTERS];
+  /**
+   * Registers (columns in the table).
+   */
+  processor_register_t m_R[DWARF_MAX_REGISTERS];
 
-    /**
-     * Current CFA (current frame address) - first and most important column in
-     * the table.
-     */
-    RegisterState m_CfaState;
-    /**
-     * Current CFA register, and offset.
-     */
-    uint32_t m_CfaRegister;
-    processor_register_t m_CfaOffset;
-    /**
-     * Current CFA expression, if applicable.
-     */
-    uint8_t *m_CfaExpression;
+  /**
+   * Current CFA (current frame address) - first and most important column in
+   * the table.
+   */
+  RegisterState m_CfaState;
+  /**
+   * Current CFA register, and offset.
+   */
+  uint32_t m_CfaRegister;
+  processor_register_t m_CfaOffset;
+  /**
+   * Current CFA expression, if applicable.
+   */
+  uint8_t* m_CfaExpression;
 
-    /**
-     * The column which contains the function return address.
-     */
-    uintptr_t m_ReturnAddress;
+  /**
+   * The column which contains the function return address.
+   */
+  uintptr_t m_ReturnAddress;
 };
 
 /** @} */

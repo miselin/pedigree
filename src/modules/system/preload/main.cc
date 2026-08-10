@@ -17,84 +17,78 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/Module.h"
-#include "modules/system/vfs/File.h"
-#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 
-static const char *g_FilesToPreload[] = {
-    "/usr/bin/init",
-    "/usr/bin/ttyterm",
-    "/usr/bin/winman",
-    "/usr/bin/tui",
-    "/usr/bin/TUI",
-    "/usr/bin/login",
-    "/usr/lib/libload.so",
-    "/usr/lib/libc.so",
-    "/usr/lib/libm.so",
-    "/usr/lib/libstdc++.so",
-    "/usr/lib/libpedigree.so",
-    "/usr/lib/libpedigree-c.so",
-    "/usr/lib/libpthread.so",
-    0};
+#include "modules/Module.h"
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/VFS.h"
+
+static const char* g_FilesToPreload[] = {"/usr/bin/init",
+                                         "/usr/bin/ttyterm",
+                                         "/usr/bin/winman",
+                                         "/usr/bin/tui",
+                                         "/usr/bin/TUI",
+                                         "/usr/bin/login",
+                                         "/usr/lib/libload.so",
+                                         "/usr/lib/libc.so",
+                                         "/usr/lib/libm.so",
+                                         "/usr/lib/libstdc++.so",
+                                         "/usr/lib/libpedigree.so",
+                                         "/usr/lib/libpedigree-c.so",
+                                         "/usr/lib/libpthread.so",
+                                         0};
 
 static Semaphore g_Preloads(0);
 
-static int preloadThread(void *p)
-{
-    const char *s = reinterpret_cast<const char *>(p);
+static int preloadThread(void* p) {
+  const char* s = reinterpret_cast<const char*>(p);
 
-    NOTICE("PRELOAD: " << s);
+  NOTICE("PRELOAD: " << s);
 
-    File *pFile = VFS::instance().find(String(s));
-    if (pFile)
-    {
-        NOTICE("PRELOAD: preloading " << s << "...");
-        size_t sz = 0;
-        while (sz < pFile->getSize())
-        {
-            pFile->read(sz, 0x1000, 0);
-            sz += 0x1000;
-        }
+  File* pFile = VFS::instance().find(String(s));
+  if (pFile) {
+    NOTICE("PRELOAD: preloading " << s << "...");
+    size_t sz = 0;
+    while (sz < pFile->getSize()) {
+      pFile->read(sz, 0x1000, 0);
+      sz += 0x1000;
     }
+  }
 
-    NOTICE("PRELOAD: preload " << s << " has completed.");
-    g_Preloads.release();
+  NOTICE("PRELOAD: preload " << s << " has completed.");
+  g_Preloads.release();
 
-    return 0;
+  return 0;
 }
 
-static bool init()
-{
-    /// \todo figure out why this causes numerous problems with ext2
-    return false;
-    /*
-        size_t n = 0;
-        const char *s = g_FilesToPreload[n++];
-        do
-        {
-            NOTICE("PRELOAD: Queue " << s);
-            Thread *pThread = new Thread(
-                Processor::information().getCurrentThread()->getParent(),
-                preloadThread, const_cast<char *>(s));
-            pThread->detach();
-            s = g_FilesToPreload[n++];
-        } while (s);
+static bool init() {
+  /// \todo figure out why this causes numerous problems with ext2
+  return false;
+  /*
+      size_t n = 0;
+      const char *s = g_FilesToPreload[n++];
+      do
+      {
+          NOTICE("PRELOAD: Queue " << s);
+          Thread *pThread = new Thread(
+              Processor::information().getCurrentThread()->getParent(),
+              preloadThread, const_cast<char *>(s));
+          pThread->detach();
+          s = g_FilesToPreload[n++];
+      } while (s);
 
-        g_Preloads.acquire(n - 1);
-        NOTICE("PRELOAD: preloaded " << n << " files.");
+      g_Preloads.acquire(n - 1);
+      NOTICE("PRELOAD: preloaded " << n << " files.");
 
-        // Trick: return false, which unloads this module (its purpose is
-       complete.) return false;
-    */
+      // Trick: return false, which unloads this module (its purpose is
+     complete.) return false;
+  */
 }
 
-static void destroy()
-{
-}
+static void destroy() {}
 
 MODULE_INFO("File Cache Preload", &init, &destroy, "vfs");
 MODULE_OPTIONAL_DEPENDS("filesystems", "mountroot");

@@ -108,7 +108,7 @@
 #define ASSUME_ALIGNMENT(b, sz) __builtin_assume_aligned((b), sz)
 #else
 #define ASSUME_ALIGNMENT(b, sz) \
-    ((reinterpret_cast<uintptr_t>(b) % (sz)) == 0) ? (b) : (UNREACHABLE, (b))
+  ((reinterpret_cast<uintptr_t>(b) % (sz)) == 0) ? (b) : (UNREACHABLE, (b))
 #endif
 
 /** Pack initialisation functions into a special section that could be freed
@@ -136,15 +136,15 @@
 #endif
 
 #ifdef __cplusplus
-#define NOT_COPY_CONSTRUCTIBLE(Type) Type(const Type &) = delete
-#define NOT_ASSIGNABLE(Type) Type &operator=(const Type &) = delete
+#define NOT_COPY_CONSTRUCTIBLE(Type) Type(const Type&) = delete
+#define NOT_ASSIGNABLE(Type) Type& operator=(const Type&) = delete
 #define NOT_COPYABLE_OR_ASSIGNABLE(Type) \
-    NOT_COPY_CONSTRUCTIBLE(Type);        \
-    NOT_ASSIGNABLE(Type)
+  NOT_COPY_CONSTRUCTIBLE(Type);          \
+  NOT_ASSIGNABLE(Type)
 
 #define WITHOUT_IMPLICIT_CONSTRUCTORS(Type) \
-    Type() = delete;                        \
-    NOT_COPYABLE_OR_ASSIGNABLE(Type)
+  Type() = delete;                          \
+  NOT_COPYABLE_OR_ASSIGNABLE(Type)
 #endif
 
 // BARRIER forces GCC to not reorder code across the barrier.

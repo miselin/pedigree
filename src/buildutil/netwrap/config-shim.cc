@@ -17,28 +17,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/system/config/sqlite3/sqlite3.h"
-
 #include <iostream>
 
-sqlite3 *g_pSqlite = 0;
+#include "modules/system/config/sqlite3/sqlite3.h"
 
-int initialize_config()
-{
-    sqlite3_initialize();
-    int e = sqlite3_open("pedigree.sqlite", &g_pSqlite);
-    if (e)
-    {
-        std::cerr << "sqlite3 startup failed [" << e
-                  << "]: " << sqlite3_errmsg(g_pSqlite) << std::endl;
-        return -1;
-    }
+sqlite3* g_pSqlite = 0;
 
-    return 0;
+int initialize_config() {
+  sqlite3_initialize();
+  int e = sqlite3_open("pedigree.sqlite", &g_pSqlite);
+  if (e) {
+    std::cerr << "sqlite3 startup failed [" << e << "]: " << sqlite3_errmsg(g_pSqlite) << std::endl;
+    return -1;
+  }
+
+  return 0;
 }
 
-void destroy_config()
-{
-    sqlite3_close(g_pSqlite);
-    sqlite3_shutdown();
+void destroy_config() {
+  sqlite3_close(g_pSqlite);
+  sqlite3_shutdown();
 }

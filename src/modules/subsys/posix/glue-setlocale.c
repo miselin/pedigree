@@ -42,14 +42,13 @@ int __mb_cur_max = 1;
 
 int __nlocale_changed = 0;
 int __mlocale_changed = 0;
-char *_PathLocale = NULL;
+char* _PathLocale = NULL;
 
 /// \todo this is lconv for the C locale, we want it for other locales too
 static const struct lconv lconv = {
-    (char *) ".", (char *) "", (char *) "", (char *) "", (char *) "",
-    (char *) "",  (char *) "", (char *) "", (char *) "", (char *) "",
-    CHAR_MAX,     CHAR_MAX,    CHAR_MAX,    CHAR_MAX,    CHAR_MAX,
-    CHAR_MAX,     CHAR_MAX,    CHAR_MAX,
+    (char*)".", (char*)"", (char*)"", (char*)"", (char*)"", (char*)"",
+    (char*)"",  (char*)"", (char*)"", (char*)"", CHAR_MAX,  CHAR_MAX,
+    CHAR_MAX,   CHAR_MAX,  CHAR_MAX,  CHAR_MAX,  CHAR_MAX,  CHAR_MAX,
 };
 
 static char __locale_charset_value[ENCODING_LEN] = "ISO-8859-1";
@@ -73,9 +72,9 @@ static char __locale_last_time[MAX_LOCALE_LENGTH] = "C";
 static char __locale_last_messages[MAX_LOCALE_LENGTH] = "C";
 
 // Needed for newlib.
-char *__lc_ctype = __locale_ctype;
+char* __lc_ctype = __locale_ctype;
 
-static char *__locale_entry[] = {
+static char* __locale_entry[] = {
     // LC_ALL
     __locale_all,
     __locale_last_all,
@@ -99,118 +98,93 @@ static char *__locale_entry[] = {
     __locale_last_time,
 };
 
-static const char *__locale_env[] = {
-    "LC_ALL",     "LC_COLLATE", "LC_CTYPE",    "LC_MONETARY",
-    "LC_NUMERIC", "LC_TIME",    "LC_MESSAGES",
+static const char* __locale_env[] = {
+    "LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MONETARY", "LC_NUMERIC", "LC_TIME", "LC_MESSAGES",
 };
 
-#define SET_LAST(cat) \
-    strncpy(__locale_last_##cat, __locale_##cat, MAX_LOCALE_LENGTH)
+#define SET_LAST(cat) strncpy(__locale_last_##cat, __locale_##cat, MAX_LOCALE_LENGTH)
 #define SET_TO(cat, val) strncpy(__locale_##cat, val, MAX_LOCALE_LENGTH)
 
-char *SETLOCALE_FUNCTION_NAME(int category, const char *locale)
-{
-    const char *new_locale_arg = "C";
-    char new_locale[MAX_LOCALE_LENGTH];
+char* SETLOCALE_FUNCTION_NAME(int category, const char* locale) {
+  const char* new_locale_arg = "C";
+  char new_locale[MAX_LOCALE_LENGTH];
 
-    // locale == NULL -> return current locale.
-    if (!locale)
-    {
-        if (category < LC_ALL || category > LC_MESSAGES)
-        {
-            return 0;
-        }
-
-        return __locale_entry[category * 2];
-    }
-    // locale == "" -> obtain locale from the current environment.
-    else if (!strcmp(locale, ""))
-    {
-        // Force "C" locale.
-    }
-    // locale == "C" or locale == "POSIX" -> C locale
-    else if (!strcmp(locale, "C") || !strcmp(locale, "POSIX"))
-    {
-        // OK - new_locale_arg is already "C"...
-    }
-    else
-    {
-        // Force C locale.
+  // locale == NULL -> return current locale.
+  if (!locale) {
+    if (category < LC_ALL || category > LC_MESSAGES) {
+      return 0;
     }
 
-    /// \todo real locale support
-    strncpy(new_locale, new_locale_arg, MAX_LOCALE_LENGTH);
+    return __locale_entry[category * 2];
+  }
+  // locale == "" -> obtain locale from the current environment.
+  else if (!strcmp(locale, "")) {
+    // Force "C" locale.
+  }
+  // locale == "C" or locale == "POSIX" -> C locale
+  else if (!strcmp(locale, "C") || !strcmp(locale, "POSIX")) {
+    // OK - new_locale_arg is already "C"...
+  } else {
+    // Force C locale.
+  }
 
-    // No UTF-8 for default C locale.
-    __mb_cur_max = 1;
-    strcpy(__locale_charset_value, "ISO-8859-1");
+  /// \todo real locale support
+  strncpy(new_locale, new_locale_arg, MAX_LOCALE_LENGTH);
 
-    if (category == LC_ALL)
-    {
-        SET_LAST(all);
-        SET_LAST(collate);
-        SET_LAST(ctype);
-        SET_LAST(monetary);
-        SET_LAST(numeric);
-        SET_LAST(time);
-        SET_LAST(messages);
+  // No UTF-8 for default C locale.
+  __mb_cur_max = 1;
+  strcpy(__locale_charset_value, "ISO-8859-1");
 
-        SET_TO(all, new_locale);
-        SET_TO(collate, new_locale);
-        SET_TO(ctype, new_locale);
-        SET_TO(monetary, new_locale);
-        SET_TO(numeric, new_locale);
-        SET_TO(time, new_locale);
-        SET_TO(messages, new_locale);
-    }
-    else if (category == LC_COLLATE)
-    {
-        SET_LAST(collate);
-        SET_TO(collate, new_locale);
-    }
-    else if (category == LC_CTYPE)
-    {
-        SET_LAST(ctype);
-        SET_TO(ctype, new_locale);
-    }
-    else if (category == LC_MONETARY)
-    {
-        SET_LAST(monetary);
-        SET_TO(monetary, new_locale);
-    }
-    else if (category == LC_NUMERIC)
-    {
-        SET_LAST(numeric);
-        SET_TO(numeric, new_locale);
-    }
-    else if (category == LC_TIME)
-    {
-        SET_LAST(time);
-        SET_TO(time, new_locale);
-    }
-    else if (category == LC_MESSAGES)
-    {
-        SET_LAST(messages);
-        SET_TO(messages, new_locale);
-    }
+  if (category == LC_ALL) {
+    SET_LAST(all);
+    SET_LAST(collate);
+    SET_LAST(ctype);
+    SET_LAST(monetary);
+    SET_LAST(numeric);
+    SET_LAST(time);
+    SET_LAST(messages);
 
-    // Return previous value.
-    _REENT->_current_category = category;
-    _REENT->_current_locale = locale;
-    return __locale_entry[(category + 1) * 2];
+    SET_TO(all, new_locale);
+    SET_TO(collate, new_locale);
+    SET_TO(ctype, new_locale);
+    SET_TO(monetary, new_locale);
+    SET_TO(numeric, new_locale);
+    SET_TO(time, new_locale);
+    SET_TO(messages, new_locale);
+  } else if (category == LC_COLLATE) {
+    SET_LAST(collate);
+    SET_TO(collate, new_locale);
+  } else if (category == LC_CTYPE) {
+    SET_LAST(ctype);
+    SET_TO(ctype, new_locale);
+  } else if (category == LC_MONETARY) {
+    SET_LAST(monetary);
+    SET_TO(monetary, new_locale);
+  } else if (category == LC_NUMERIC) {
+    SET_LAST(numeric);
+    SET_TO(numeric, new_locale);
+  } else if (category == LC_TIME) {
+    SET_LAST(time);
+    SET_TO(time, new_locale);
+  } else if (category == LC_MESSAGES) {
+    SET_LAST(messages);
+    SET_TO(messages, new_locale);
+  }
+
+  // Return previous value.
+  _REENT->_current_category = category;
+  _REENT->_current_locale = locale;
+  return __locale_entry[(category + 1) * 2];
 }
 
-struct lconv *_localeconv_r(struct _reent *data)
-{
-    return (struct lconv *) &lconv;
+struct lconv* _localeconv_r(struct _reent* data) {
+  return (struct lconv*)&lconv;
 }
 
-struct lconv *localeconv()
-{
-    return _localeconv_r(_REENT);
+struct lconv* localeconv() {
+  return _localeconv_r(_REENT);
 }
 
-char *__locale_charset()
-{
-    return __locale_charset_value;
+char* __locale_charset() {
+  return __locale_charset_value;
 }

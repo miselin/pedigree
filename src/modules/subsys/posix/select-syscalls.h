@@ -20,47 +20,42 @@
 #ifndef SELECT_SYSCALLS_H
 #define SELECT_SYSCALLS_H
 
-#include "file-syscalls.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/eventNumbers.h"
 
+#include "file-syscalls.h"
+
 /** Event class for passing to File::monitor. */
-class SelectEvent : public Event
-{
-  public:
-    /** The constructor takes a semaphore that it should signal when it fires,
-        and an fd_set with an index to set. */
-    SelectEvent();
-    SelectEvent(
-        Semaphore *pSemaphore, fd_set *pFdSet, size_t fdIdx, File *pFile);
-    virtual ~SelectEvent();
+class SelectEvent : public Event {
+ public:
+  /** The constructor takes a semaphore that it should signal when it fires,
+      and an fd_set with an index to set. */
+  SelectEvent();
+  SelectEvent(Semaphore* pSemaphore, fd_set* pFdSet, size_t fdIdx, File* pFile);
+  virtual ~SelectEvent();
 
-    void fire();
+  void fire();
 
-    File *getFile()
-    {
-        return m_pFile;
-    }
+  File* getFile() {
+    return m_pFile;
+  }
 
-    //
-    // Event interface
-    //
-    virtual size_t serialize(uint8_t *pBuffer);
-    static bool unserialize(uint8_t *pBuffer, SelectEvent &event);
-    virtual size_t getNumber()
-    {
-        return EventNumbers::SelectEvent;
-    }
+  //
+  // Event interface
+  //
+  virtual size_t serialize(uint8_t* pBuffer);
+  static bool unserialize(uint8_t* pBuffer, SelectEvent& event);
+  virtual size_t getNumber() {
+    return EventNumbers::SelectEvent;
+  }
 
-  private:
-    Semaphore *m_pSemaphore;
-    fd_set *m_pFdSet;
-    size_t m_FdIdx;
-    File *m_pFile;
+ private:
+  Semaphore* m_pSemaphore;
+  fd_set* m_pFdSet;
+  size_t m_FdIdx;
+  File* m_pFile;
 };
 
-int posix_select(
-    int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds,
-    timeval *timeout);
+int posix_select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* errorfds, timeval* timeout);
 
 #endif

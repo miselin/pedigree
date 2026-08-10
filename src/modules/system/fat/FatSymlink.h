@@ -20,10 +20,11 @@
 #ifndef FAT_SYMLINK_H
 #define FAT_SYMLINK_H
 
-#include "modules/system/vfs/Symlink.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/String.h"
+
+#include "modules/system/vfs/Symlink.h"
 
 class File;
 
@@ -34,52 +35,41 @@ class File;
  * been used. A filename with a suffix of '.__sym' will be turned into a symlink
  * and its contents will be considered the target of the link.
  */
-class FatSymlink : public Symlink
-{
-  public:
-    FatSymlink(
-        String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
-        Time::Timestamp creationTime, uintptr_t inode, class Filesystem *pFs,
-        size_t size, uint32_t dirClus = 0, uint32_t dirOffset = 0,
-        File *pParent = 0);
-    virtual ~FatSymlink()
-    {
-    }
-    uint32_t getDirCluster()
-    {
-        return m_DirClus;
-    }
-    void setDirCluster(uint32_t custom)
-    {
-        m_DirClus = custom;
-    }
-    uint32_t getDirOffset()
-    {
-        return m_DirOffset;
-    }
-    void setDirOffset(uint32_t custom)
-    {
-        m_DirOffset = custom;
-    }
+class FatSymlink : public Symlink {
+ public:
+  FatSymlink(String name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
+             Time::Timestamp creationTime, uintptr_t inode, class Filesystem* pFs, size_t size,
+             uint32_t dirClus = 0, uint32_t dirOffset = 0, File* pParent = 0);
+  virtual ~FatSymlink() {}
+  uint32_t getDirCluster() {
+    return m_DirClus;
+  }
+  void setDirCluster(uint32_t custom) {
+    m_DirClus = custom;
+  }
+  uint32_t getDirOffset() {
+    return m_DirOffset;
+  }
+  void setDirOffset(uint32_t custom) {
+    m_DirOffset = custom;
+  }
 
-    /** Reads from the file.
-     *  \param[in] buffer Buffer to write the read data into. Can be null, in
-     *      which case the data can be found by calling getPhysicalPage.
-     *  \param[in] bCanBlock Whether or not the File can block when reading
-     */
-    virtual uint64_t readBytewise(
-        uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true);
-    /** Writes to the file.
-     *  \param[in] bCanBlock Whether or not the File can block when reading
-     */
-    virtual uint64_t writeBytewise(
-        uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true);
+  /** Reads from the file.
+   *  \param[in] buffer Buffer to write the read data into. Can be null, in
+   *      which case the data can be found by calling getPhysicalPage.
+   *  \param[in] bCanBlock Whether or not the File can block when reading
+   */
+  virtual uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                bool bCanBlock = true);
+  /** Writes to the file.
+   *  \param[in] bCanBlock Whether or not the File can block when reading
+   */
+  virtual uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                 bool bCanBlock = true);
 
-  private:
-    uint32_t m_DirClus;
-    uint32_t m_DirOffset;
+ private:
+  uint32_t m_DirClus;
+  uint32_t m_DirOffset;
 };
 
 #endif

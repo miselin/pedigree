@@ -23,73 +23,60 @@
 #include "pedigree/kernel/processor/types.h"
 
 // PID types, ordered as they appear in the EHCI spec
-enum UsbPid
-{
-    // Token PID Types
-    UsbPidOut = 0xe1,
-    UsbPidIn = 0x69,
-    UsbPidSOF = 0xa5,
-    UsbPidSetup = 0x2d,
+enum UsbPid {
+  // Token PID Types
+  UsbPidOut = 0xe1,
+  UsbPidIn = 0x69,
+  UsbPidSOF = 0xa5,
+  UsbPidSetup = 0x2d,
 
-    // Data PID Types
-    UsbPidData0 = 0xc3,
-    UsbPidData1 = 0x4b,
-    UsbPidData2 = 0x87,
-    UsbPidMdata = 0x0f,
+  // Data PID Types
+  UsbPidData0 = 0xc3,
+  UsbPidData1 = 0x4b,
+  UsbPidData2 = 0x87,
+  UsbPidMdata = 0x0f,
 
-    // Handshake PID Types
-    UsbPidAck = 0xd2,
-    UsbPidNak = 0x5a,
-    UsbPidStall = 0x1e,
-    UsbPidNyet = 0x96,
+  // Handshake PID Types
+  UsbPidAck = 0xd2,
+  UsbPidNak = 0x5a,
+  UsbPidStall = 0x1e,
+  UsbPidNyet = 0x96,
 
-    // Special PID Types
-    UsbPidPre = 0x3c,  // Token
-    UsbPidErr = 0x3c,  // Handshake
-    UsbPidSplit = 0x78,
-    UsbPidPing = 0xb4,
-    UsbPidRsvd = 0xf0
+  // Special PID Types
+  UsbPidPre = 0x3c,  // Token
+  UsbPidErr = 0x3c,  // Handshake
+  UsbPidSplit = 0x78,
+  UsbPidPing = 0xb4,
+  UsbPidRsvd = 0xf0
 };
 
-enum UsbSpeed
-{
-    LowSpeed = 0,
-    FullSpeed,
-    HighSpeed,
-    SuperSpeed
-};
+enum UsbSpeed { LowSpeed = 0, FullSpeed, HighSpeed, SuperSpeed };
 
-enum UsbError
-{
-    Stall = 1,
-    NakNyet,
-    Timeout,
-    Babble,
-    CrcError,
-    TransactionError
-};
+enum UsbError { Stall = 1, NakNyet, Timeout, Babble, CrcError, TransactionError };
 
-struct UsbEndpoint
-{
-    inline UsbEndpoint()
-        : nAddress(0), nEndpoint(0), speed(LowSpeed), nMaxPacketSize(8),
-          nHubAddress(0), nHubPort(0)
-    {
-    }
-    inline UsbEndpoint(
-        uint8_t address, uint8_t hubPort, uint8_t endpoint, UsbSpeed _speed,
-        size_t maxPacketSize)
-        : nAddress(address), nEndpoint(endpoint), speed(_speed),
-          nMaxPacketSize(maxPacketSize), nHubAddress(0), nHubPort(hubPort)
-    {
-    }
+struct UsbEndpoint {
+  inline UsbEndpoint()
+      : nAddress(0),
+        nEndpoint(0),
+        speed(LowSpeed),
+        nMaxPacketSize(8),
+        nHubAddress(0),
+        nHubPort(0) {}
+  inline UsbEndpoint(uint8_t address, uint8_t hubPort, uint8_t endpoint, UsbSpeed _speed,
+                     size_t maxPacketSize)
+      : nAddress(address),
+        nEndpoint(endpoint),
+        speed(_speed),
+        nMaxPacketSize(maxPacketSize),
+        nHubAddress(0),
+        nHubPort(hubPort) {}
 
-    uint8_t nAddress;
-    uint8_t nEndpoint;
-    UsbSpeed speed;
-    size_t nMaxPacketSize;
-    uint8_t nHubAddress;
-    uint8_t nHubPort;
+  uint8_t nAddress;
+  uint8_t nEndpoint;
+  UsbSpeed speed;
+  size_t nMaxPacketSize;
+  uint8_t nHubAddress;
+  uint8_t nHubPort;
 };
 
 #endif

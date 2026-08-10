@@ -22,61 +22,54 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-extern int main(int, char **, char **);
+extern int main(int, char**, char**);
 extern void _init_signals(void);
 
-void _start(char **argv, char **env) _ATTRIBUTE((noreturn))
-    __attribute__((section(".text.crt0")));
-void _start(char **argv, char **env)
-{
-    _init_signals();
+void _start(char** argv, char** env) _ATTRIBUTE((noreturn)) __attribute__((section(".text.crt0")));
+void _start(char** argv, char** env) {
+  _init_signals();
 
-    if (write(2, 0, 0) == -1)
-    {
-        open("/dev/tty", O_RDONLY, 0);
-        open("/dev/tty", O_WRONLY, 0);
-        open("/dev/tty", O_WRONLY, 0);
+  if (write(2, 0, 0) == -1) {
+    open("/dev/tty", O_RDONLY, 0);
+    open("/dev/tty", O_WRONLY, 0);
+    open("/dev/tty", O_WRONLY, 0);
+  }
+
+  // Count how many args we have.
+  int argc;
+  if (argv == 0) {
+    char* p = 0;
+    argv = &p;
+    argc = 0;
+    environ = &p;
+  } else {
+    char** i = argv;
+    argc = 0;
+    while (*i++)
+      argc++;
+    if (!env)
+      env = environ;
+    i = env;
+    while (env && (*i)) {
+      // Save the key.
+      char* key = *i;
+      char* value = *i;
+      // Iterate until we see the end of the string or an '='.
+      while (*value && *value != '=')
+        value++;
+      // If we found a '=', change it to a NULL terminator (for the key)
+      // and increment position.
+      if (*value == '=')
+        *value++ = '\0';
+      // Set the env var.
+      setenv(key, value, 1);
+      i++;
     }
+  }
 
-    // Count how many args we have.
-    int argc;
-    if (argv == 0)
-    {
-        char *p = 0;
-        argv = &p;
-        argc = 0;
-        environ = &p;
-    }
-    else
-    {
-        char **i = argv;
-        argc = 0;
-        while (*i++)
-            argc++;
-        if (!env)
-            env = environ;
-        i = env;
-        while (env && (*i))
-        {
-            // Save the key.
-            char *key = *i;
-            char *value = *i;
-            // Iterate until we see the end of the string or an '='.
-            while (*value && *value != '=')
-                value++;
-            // If we found a '=', change it to a NULL terminator (for the key)
-            // and increment position.
-            if (*value == '=')
-                *value++ = '\0';
-            // Set the env var.
-            setenv(key, value, 1);
-            i++;
-        }
-    }
+  exit(main(argc, argv, env));
 
-    exit(main(argc, argv, env));
-
-    // Unreachable.
-    for (;;)
-        ;
+  // Unreachable.
+  for (;;)
+    ;
 }

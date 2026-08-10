@@ -34,372 +34,316 @@
 
 SlamAllocator SlamAllocator::m_Instance;
 
-inline uintptr_t getHeapBase()
-{
-    return VirtualAddressSpace::getKernelAddressSpace().getKernelHeapStart();
+inline uintptr_t getHeapBase() {
+  return VirtualAddressSpace::getKernelAddressSpace().getKernelHeapStart();
 }
 
-inline uintptr_t getHeapEnd()
-{
-    return VirtualAddressSpace::getKernelAddressSpace().getKernelHeapEnd();
+inline uintptr_t getHeapEnd() {
+  return VirtualAddressSpace::getKernelAddressSpace().getKernelHeapEnd();
 }
 
-inline size_t getPageSize()
-{
-    return PhysicalMemoryManager::getPageSize();
+inline size_t getPageSize() {
+  return PhysicalMemoryManager::getPageSize();
 }
 
-inline void allocateAndMapAt(void *addr)
-{
-    size_t standardFlags =
-        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write;
+inline void allocateAndMapAt(void* addr) {
+  size_t standardFlags = VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write;
 
-    static physical_uintptr_t physZero = 0;
+  static physical_uintptr_t physZero = 0;
 
-    physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
+  physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
 
-    VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
-    if (!va.map(phys, addr, standardFlags))
-    {
-        FATAL("SlamAllocator: failed to allocate and map at " << addr);
-    }
+  VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
+  if (!va.map(phys, addr, standardFlags)) {
+    FATAL("SlamAllocator: failed to allocate and map at " << addr);
+  }
 }
 
-inline void unmap(void *addr)
-{
-    VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
-    if (!va.isMapped(addr))
-        return;
+inline void unmap(void* addr) {
+  VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
+  if (!va.isMapped(addr))
+    return;
 
-    physical_uintptr_t phys;
-    size_t flags;
-    va.getMapping(addr, phys, flags);
-    va.unmap(addr);
+  physical_uintptr_t phys;
+  size_t flags;
+  va.getMapping(addr, phys, flags);
+  va.unmap(addr);
 
-    PhysicalMemoryManager::instance().freePage(phys);
+  PhysicalMemoryManager::instance().freePage(phys);
 }
 
-inline bool isMapped(void *addr)
-{
-    VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
-    return va.isMapped(addr);
+inline bool isMapped(void* addr) {
+  VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
+  return va.isMapped(addr);
 }
 
-inline void markReadOnly(void *addr)
-{
-    VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
-    va.setFlags(addr, VirtualAddressSpace::KernelMode);
+inline void markReadOnly(void* addr) {
+  VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
+  va.setFlags(addr, VirtualAddressSpace::KernelMode);
 }
 
 SlamCache::SlamCache()
-    : m_PartialLists(), m_ObjectSize(0), m_SlabSize(0), m_FirstSlab()
+    : m_PartialLists(),
+      m_ObjectSize(0),
+      m_SlabSize(0),
+      m_FirstSlab()
 #if THREADS
       ,
       m_RecoveryLock(false)
 #endif
       ,
-      m_EmptyNode()
-{
+      m_EmptyNode() {
 }
 
-SlamCache::~SlamCache()
-{
+SlamCache::~SlamCache() {}
+
+void SlamCache::initialise(SlamAllocator* parent, size_t objectSize) {
+  // no-op for debug allocator
 }
 
-void SlamCache::initialise(SlamAllocator *parent, size_t objectSize)
-{
-    // no-op for debug allocator
+SlamCache::Node* SlamCache::pop(SlamCache::alignedNode* head) {
+  // no-op for debug allocator
+  return nullptr;
 }
 
-SlamCache::Node *SlamCache::pop(SlamCache::alignedNode *head)
-{
-    // no-op for debug allocator
-    return nullptr;
+void SlamCache::push(SlamCache::alignedNode* head, SlamCache::Node* newTail,
+                     SlamCache::Node* newHead) {
+  // no-op for debug allocator
 }
 
-void SlamCache::push(
-    SlamCache::alignedNode *head, SlamCache::Node *newTail,
-    SlamCache::Node *newHead)
-{
-    // no-op for debug allocator
+uintptr_t SlamCache::allocate() {
+  // no-op for debug allocator
+  return 0;
 }
 
-uintptr_t SlamCache::allocate()
-{
-    // no-op for debug allocator
-    return 0;
+void SlamCache::free(uintptr_t object) {
+  // no-op for debug allocator
 }
 
-void SlamCache::free(uintptr_t object)
-{
-    // no-op for debug allocator
+bool SlamCache::isPointerValid(uintptr_t object) const {
+  // no-op for debug allocator
+  return false;
 }
 
-bool SlamCache::isPointerValid(uintptr_t object) const
-{
-    // no-op for debug allocator
-    return false;
+uintptr_t SlamCache::getSlab() {
+  // no-op for debug allocator
+  return 0;
 }
 
-uintptr_t SlamCache::getSlab()
-{
-    // no-op for debug allocator
-    return 0;
+void SlamCache::freeSlab(uintptr_t slab) {
+  // no-op for debug allocator
 }
 
-void SlamCache::freeSlab(uintptr_t slab)
-{
-    // no-op for debug allocator
+size_t SlamCache::recovery(size_t maxSlabs) {
+  // no-op for debug allocator
+  return 0;
 }
 
-size_t SlamCache::recovery(size_t maxSlabs)
-{
-    // no-op for debug allocator
-    return 0;
-}
-
-SlamCache::Node *SlamCache::initialiseSlab(uintptr_t slab)
-{
-    // no-op for debug allocator
-    return nullptr;
+SlamCache::Node* SlamCache::initialiseSlab(uintptr_t slab) {
+  // no-op for debug allocator
+  return nullptr;
 }
 
 #if CRIPPLINGLY_VIGILANT
-void SlamCache::check()
-{
-    // no-op for debug allocator
+void SlamCache::check() {
+  // no-op for debug allocator
 }
 
-void SlamCache::trackSlab(uintptr_t slab)
-{
-    // no-op for debug allocator
+void SlamCache::trackSlab(uintptr_t slab) {
+  // no-op for debug allocator
 }
 #endif
 
 SlamAllocator::SlamAllocator()
-    : m_bInitialised(false), m_bVigilant(false),
+    : m_bInitialised(false),
+      m_bVigilant(false),
 #if THREADS
       m_SlabRegionLock(false),
 #endif
-      m_HeapPageCount(0), m_SlabRegionBitmap(), m_SlabRegionBitmapEntries(0),
-      m_Base(0)
-{
+      m_HeapPageCount(0),
+      m_SlabRegionBitmap(),
+      m_SlabRegionBitmapEntries(0),
+      m_Base(0) {
 }
 
-SlamAllocator::~SlamAllocator()
-{
-    if (m_bInitialised)
-    {
-        wipe();
-    }
+SlamAllocator::~SlamAllocator() {
+  if (m_bInitialised) {
+    wipe();
+  }
 }
 
-void SlamAllocator::initialise()
-{
+void SlamAllocator::initialise() {
+  RecursingLockGuard<Spinlock> guard(m_Lock);
+
+  if (m_bInitialised) {
+    return;
+  }
+
+  m_Base = getHeapBase();
+  m_bInitialised = true;
+}
+
+void SlamAllocator::wipe() {
+  // no-op for debug allocator
+}
+
+uintptr_t SlamAllocator::getSlab(size_t fullSize) {
+  // no-op for debug allocator
+  return 0;
+}
+
+void SlamAllocator::freeSlab(uintptr_t address, size_t length) {
+  // no-op for debug allocator
+}
+
+size_t SlamAllocator::recovery(size_t maxSlabs) {
+  // no-op for debug allocator
+  return 0;
+}
+
+uintptr_t SlamAllocator::allocate(size_t nBytes) {
+  if (!Processor::guardDeviceHardIrqOperation(DeviceHardIrqOperation::HeapAllocate)) {
+    return 0;
+  }
+
+  if (!m_bInitialised) {
+    initialise();
+  }
+
+  if (!nBytes) {
+    return 0;
+  }
+
+  uintptr_t mapStart = 0, mapEnd = 0, result = 0;
+  size_t nTotalBytes = 0, numPages = 0;
+
+  numPages = nBytes / getPageSize();
+  if (nBytes % getPageSize()) {
+    ++numPages;
+  }
+  if (!numPages) {
+    ++numPages;
+  }
+  nTotalBytes = numPages * getPageSize();
+
+  {
     RecursingLockGuard<Spinlock> guard(m_Lock);
 
-    if (m_bInitialised)
-    {
-        return;
-    }
+    m_Base += getPageSize();  // gap between allocations
+    mapStart = m_Base;
+    m_Base += getPageSize();  // page for the allocation header (readonly once
+                              // it's written to)
+    result = m_Base;
+    m_Base += numPages * getPageSize();
+    mapEnd = m_Base;
+  }
 
-    m_Base = getHeapBase();
-    m_bInitialised = true;
-}
+  for (uintptr_t addr = mapStart; addr < mapEnd; addr += getPageSize()) {
+    allocateAndMapAt(reinterpret_cast<void*>(addr));
 
-void SlamAllocator::wipe()
-{
-    // no-op for debug allocator
-}
+    ++m_HeapPageCount;
+  }
 
-uintptr_t SlamAllocator::getSlab(size_t fullSize)
-{
-    // no-op for debug allocator
-    return 0;
-}
+  *((size_t*)(result - sizeof(size_t))) = numPages;
 
-void SlamAllocator::freeSlab(uintptr_t address, size_t length)
-{
-    // no-op for debug allocator
-}
-
-size_t SlamAllocator::recovery(size_t maxSlabs)
-{
-    // no-op for debug allocator
-    return 0;
-}
-
-uintptr_t SlamAllocator::allocate(size_t nBytes)
-{
-    if (!Processor::guardDeviceHardIrqOperation(
-            DeviceHardIrqOperation::HeapAllocate))
-    {
-        return 0;
-    }
-
-    if (!m_bInitialised)
-    {
-        initialise();
-    }
-
-    if (!nBytes)
-    {
-        return 0;
-    }
-
-    uintptr_t mapStart = 0, mapEnd = 0, result = 0;
-    size_t nTotalBytes = 0, numPages = 0;
-
-    numPages = nBytes / getPageSize();
-    if (nBytes % getPageSize())
-    {
-        ++numPages;
-    }
-    if (!numPages)
-    {
-        ++numPages;
-    }
-    nTotalBytes = numPages * getPageSize();
-
-    {
-        RecursingLockGuard<Spinlock> guard(m_Lock);
-
-        m_Base += getPageSize();  // gap between allocations
-        mapStart = m_Base;
-        m_Base += getPageSize();  // page for the allocation header (readonly once
-                                  // it's written to)
-        result = m_Base;
-        m_Base += numPages * getPageSize();
-        mapEnd = m_Base;
-    }
-
-    for (uintptr_t addr = mapStart; addr < mapEnd; addr += getPageSize())
-    {
-        allocateAndMapAt(reinterpret_cast<void *>(addr));
-
-        ++m_HeapPageCount;
-    }
-
-    *((size_t *) (result - sizeof(size_t))) = numPages;
-
-    // now that the size is written we can mark the header section readonly
-    markReadOnly(reinterpret_cast<void *>(mapStart));
+  // now that the size is written we can mark the header section readonly
+  markReadOnly(reinterpret_cast<void*>(mapStart));
 
 #if THREADS
-    if (Processor::m_Initialised == 2)
-    {
-        Thread *pThread = Processor::information().getCurrentThread();
-        if (pThread)
-        {
-            pThread->getParent()->trackHeap(nTotalBytes);
-        }
+  if (Processor::m_Initialised == 2) {
+    Thread* pThread = Processor::information().getCurrentThread();
+    if (pThread) {
+      pThread->getParent()->trackHeap(nTotalBytes);
     }
+  }
 #endif
 
 #if MEMORY_TRACING
-    traceAllocation(
-        reinterpret_cast<void *>(result), MemoryTracing::Allocation,
-        nTotalBytes);
+  traceAllocation(reinterpret_cast<void*>(result), MemoryTracing::Allocation, nTotalBytes);
 #endif
 
-    return result;
+  return result;
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-uintptr_t SlamAllocator::guardedAllocateForTest(size_t nBytes)
-{
-    return instance().allocate(nBytes);
+uintptr_t SlamAllocator::guardedAllocateForTest(size_t nBytes) {
+  return instance().allocate(nBytes);
 }
 
-void SlamAllocator::guardedFreeForTest(uintptr_t mem)
-{
-    instance().free(mem);
+void SlamAllocator::guardedFreeForTest(uintptr_t mem) {
+  instance().free(mem);
 }
 #endif
 
-size_t SlamAllocator::allocSize(uintptr_t mem)
-{
-    if (!m_bInitialised)
-    {
-        return 0;
-    }
+size_t SlamAllocator::allocSize(uintptr_t mem) {
+  if (!m_bInitialised) {
+    return 0;
+  }
 
-    if (!mem)
-    {
-        return 0;
-    }
+  if (!mem) {
+    return 0;
+  }
 
-    return *((size_t *) (mem - sizeof(size_t))) * getPageSize();
+  return *((size_t*)(mem - sizeof(size_t))) * getPageSize();
 }
 
-SlamAllocator &SlamAllocator::instance()
-{
-    EMIT_IF(PEDIGREE_BENCHMARK)
-    {
-        static SlamAllocator instance;
-        return instance;
-    }
-    else
-    {
-        return m_Instance;
-    }
+SlamAllocator& SlamAllocator::instance() {
+  EMIT_IF(PEDIGREE_BENCHMARK) {
+    static SlamAllocator instance;
+    return instance;
+  }
+  else {
+    return m_Instance;
+  }
 }
 
-void SlamAllocator::free(uintptr_t mem)
-{
-    if (!Processor::guardDeviceHardIrqOperation(
-            DeviceHardIrqOperation::HeapFree))
-    {
-        return;
-    }
+void SlamAllocator::free(uintptr_t mem) {
+  if (!Processor::guardDeviceHardIrqOperation(DeviceHardIrqOperation::HeapFree)) {
+    return;
+  }
 
-    assert(m_bInitialised);
+  assert(m_bInitialised);
 
-    if (!mem)
-    {
-        return;
-    }
+  if (!mem) {
+    return;
+  }
 
 #if MEMORY_TRACING
-    // do this first so we can detect double frees before the asserts/memory
-    // accesses below - this just helps a lot with tracing these issues after
-    // the fact
-    traceAllocation(reinterpret_cast<void *>(mem), MemoryTracing::Free, 0);
+  // do this first so we can detect double frees before the asserts/memory
+  // accesses below - this just helps a lot with tracing these issues after
+  // the fact
+  traceAllocation(reinterpret_cast<void*>(mem), MemoryTracing::Free, 0);
 #endif
 
-    assert(isMapped(reinterpret_cast<void *>(mem)));
+  assert(isMapped(reinterpret_cast<void*>(mem)));
 
-    if (!isPointerValid(mem))
-    {
-        return;
-    }
+  if (!isPointerValid(mem)) {
+    return;
+  }
 
-    size_t numPages = *((size_t *) (mem - sizeof(size_t)));
-    size_t nBytes = numPages * getPageSize();
+  size_t numPages = *((size_t*)(mem - sizeof(size_t)));
+  size_t nBytes = numPages * getPageSize();
 
-    uintptr_t unmapStart = mem - getPageSize();
-    uintptr_t unmapEnd = mem + nBytes;
+  uintptr_t unmapStart = mem - getPageSize();
+  uintptr_t unmapEnd = mem + nBytes;
 
-    for (uintptr_t addr = unmapStart; addr < unmapEnd; addr += getPageSize())
-    {
-        unmap(reinterpret_cast<void *>(addr));
+  for (uintptr_t addr = unmapStart; addr < unmapEnd; addr += getPageSize()) {
+    unmap(reinterpret_cast<void*>(addr));
 
-        --m_HeapPageCount;
-    }
+    --m_HeapPageCount;
+  }
 
 #if THREADS
-    if (Processor::m_Initialised == 2)
-    {
-        Thread *pThread = Processor::information().getCurrentThread();
-        if (pThread)
-        {
-            pThread->getParent()->trackHeap(-nBytes);
-        }
+  if (Processor::m_Initialised == 2) {
+    Thread* pThread = Processor::information().getCurrentThread();
+    if (pThread) {
+      pThread->getParent()->trackHeap(-nBytes);
     }
+  }
 #endif
 
 #if MEMORY_TRACING
-    traceAllocation(reinterpret_cast<void *>(mem), MemoryTracing::Free, 0);
+  traceAllocation(reinterpret_cast<void*>(mem), MemoryTracing::Free, 0);
 #endif
 }
 
@@ -408,63 +352,52 @@ bool SlamAllocator::isPointerValid(uintptr_t mem)
     const
 #endif
 {
-    if (!m_bInitialised)
-    {
-        return false;
-    }
+  if (!m_bInitialised) {
+    return false;
+  }
 
-    // On the heap?
-    if (!Processor::information().getVirtualAddressSpace().memIsInKernelHeap(
-            reinterpret_cast<void *>(mem)))
-    {
+  // On the heap?
+  if (!Processor::information().getVirtualAddressSpace().memIsInKernelHeap(
+          reinterpret_cast<void*>(mem))) {
 #if VERBOSE_ISPOINTERVALID
-        WARNING(
-            "SlamAllocator::isPointerValid: memory "
-            << Hex << mem << " is not in the heap region.");
+    WARNING("SlamAllocator::isPointerValid: memory " << Hex << mem
+                                                     << " is not in the heap region.");
 #endif
-        return false;
-    }
+    return false;
+  }
 
-    if (!isMapped(reinterpret_cast<void *>(mem)))
-    {
+  if (!isMapped(reinterpret_cast<void*>(mem))) {
 #if VERBOSE_ISPOINTERVALID
-        WARNING(
-            "SlamAllocator::isPointerValid: memory "
-            << Hex << mem << " is not mapped [current base = " << Hex << m_Base
-            << "].");
+    WARNING("SlamAllocator::isPointerValid: memory "
+            << Hex << mem << " is not mapped [current base = " << Hex << m_Base << "].");
 #endif
-        if (mem >= m_Base)
-        {
+    if (mem >= m_Base) {
 #if VERBOSE_ISPOINTERVALID
-            WARNING(" (pointer being deleted is beyond the end of the heap "
-                    "somehow)");
+      WARNING(
+          " (pointer being deleted is beyond the end of the heap "
+          "somehow)");
 #endif
-        }
-        return false;
     }
+    return false;
+  }
 
-    return true;
+  return true;
 }
 
-bool SlamAllocator::isWithinHeap(uintptr_t mem) const
-{
-    if (!Processor::information().getVirtualAddressSpace().memIsInKernelHeap(
-            reinterpret_cast<void *>(mem)))
-    {
+bool SlamAllocator::isWithinHeap(uintptr_t mem) const {
+  if (!Processor::information().getVirtualAddressSpace().memIsInKernelHeap(
+          reinterpret_cast<void*>(mem))) {
 #if VERBOSE_ISPOINTERVALID
-        WARNING(
-            "SlamAllocator::isWithinHeap: memory "
-            << Hex << mem << " is not in the heap region.");
+    WARNING("SlamAllocator::isWithinHeap: memory " << Hex << mem << " is not in the heap region.");
 #endif
-        return false;
-    }
+    return false;
+  }
 
-    return true;
+  return true;
 }
 
-bool _assert_ptr_valid(uintptr_t ptr)
-{
-    return SlamAllocator::instance().isPointerValid(ptr);
+bool _assert_ptr_valid(uintptr_t ptr) {
+  return SlamAllocator::instance().isPointerValid(ptr);
 }
 
 #endif  // SLAM_USE_DEBUG_ALLOCATOR

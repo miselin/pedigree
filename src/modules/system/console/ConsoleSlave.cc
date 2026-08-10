@@ -17,42 +17,36 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Console.h"
-#include "ConsoleDefines.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/String.h"
+
+#include "Console.h"
+#include "ConsoleDefines.h"
 
 class Filesystem;
 
 extern const char defaultControl[MAX_CONTROL_CHAR];
 
-ConsoleSlaveFile::ConsoleSlaveFile(
-    size_t consoleNumber, String consoleName, Filesystem *pFs)
-    : ConsoleFile(consoleNumber, consoleName, pFs)
-{
+ConsoleSlaveFile::ConsoleSlaveFile(size_t consoleNumber, String consoleName, Filesystem* pFs)
+    : ConsoleFile(consoleNumber, consoleName, pFs) {}
+
+uint64_t ConsoleSlaveFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                        bool bCanBlock) {
+  uint64_t nBytes = m_Buffer.read(reinterpret_cast<char*>(buffer), size, bCanBlock);
+  if (!nBytes) {
+    return 0;
+  }
+
+  size_t endSize = processInput(reinterpret_cast<char*>(buffer), nBytes);
+
+  return endSize;
 }
 
-uint64_t ConsoleSlaveFile::readBytewise(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
-{
-    uint64_t nBytes =
-        m_Buffer.read(reinterpret_cast<char *>(buffer), size, bCanBlock);
-    if (!nBytes)
-    {
-        return 0;
-    }
+uint64_t ConsoleSlaveFile::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                         bool bCanBlock) {
+  // Send straight to the master.
+  m_pOther->inject(reinterpret_cast<char*>(buffer), size, bCanBlock);
 
-    size_t endSize = processInput(reinterpret_cast<char *>(buffer), nBytes);
-
-    return endSize;
-}
-
-uint64_t ConsoleSlaveFile::writeBytewise(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
-{
-    // Send straight to the master.
-    m_pOther->inject(reinterpret_cast<char *>(buffer), size, bCanBlock);
-
-    return size;
+  return size;
 }

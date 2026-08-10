@@ -24,114 +24,102 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <syslog.h>
 #include <unistd.h>
 
-#include <SDL/SDL.h>
-
 #include "util.h"
+#include <SDL/SDL.h>
+#include <sys/mman.h>
 
 size_t SharedBuffer::m_NextId = 0;
 
 Framebuffer::Framebuffer()
-    : m_pFramebuffer(0), m_FramebufferSize(0), m_Format(), m_Width(0),
-      m_Height(0), m_pScreen(0), m_pBackbuffer(0)
-{
+    : m_pFramebuffer(0),
+      m_FramebufferSize(0),
+      m_Format(),
+      m_Width(0),
+      m_Height(0),
+      m_pScreen(0),
+      m_pBackbuffer(0) {}
+
+Framebuffer::~Framebuffer() {
+  SDL_FreeSurface(m_pBackbuffer);
 }
 
-Framebuffer::~Framebuffer()
-{
-    SDL_FreeSurface(m_pBackbuffer);
+bool Framebuffer::initialise() {
+  return true;
 }
 
-bool Framebuffer::initialise()
-{
-    return true;
+void Framebuffer::storeMode() {
+  // no-op for SDL
 }
 
-void Framebuffer::storeMode()
-{
-    // no-op for SDL
+void Framebuffer::restoreMode() {
+  // no-op for SDL
 }
 
-void Framebuffer::restoreMode()
-{
-    // no-op for SDL
+int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp) {
+  m_pScreen = SDL_SetVideoMode(desiredW, desiredH, desiredBpp, SDL_DOUBLEBUF | SDL_SWSURFACE);
+  /// \todo handle SDL_SetVideoMode failure.
+
+  m_pBackbuffer = SDL_CreateRGBSurface(SDL_DOUBLEBUF | SDL_SWSURFACE, desiredW, desiredH, 32,
+                                       0x00FF0000, 0x0000FF00, 0x000000FF, 0);
+
+  m_pFramebuffer = (void*)m_pBackbuffer->pixels;
+
+  m_Width = m_pScreen->w;
+  m_Height = m_pScreen->h;
+  m_Format = CAIRO_FORMAT_RGB24;
+
+  return 0;
 }
 
-int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp)
-{
-    m_pScreen = SDL_SetVideoMode(
-        desiredW, desiredH, desiredBpp, SDL_DOUBLEBUF | SDL_SWSURFACE);
-    /// \todo handle SDL_SetVideoMode failure.
-
-    m_pBackbuffer = SDL_CreateRGBSurface(
-        SDL_DOUBLEBUF | SDL_SWSURFACE, desiredW, desiredH, 32, 0x00FF0000,
-        0x0000FF00, 0x000000FF, 0);
-
-    m_pFramebuffer = (void *) m_pBackbuffer->pixels;
-
-    m_Width = m_pScreen->w;
-    m_Height = m_pScreen->h;
-    m_Format = CAIRO_FORMAT_RGB24;
-
-    return 0;
+void Framebuffer::flush(size_t x, size_t y, size_t w, size_t h) {
+  // Don't bother doing a dirty rectangle flush just yet.
+  SDL_BlitSurface(m_pBackbuffer, NULL, m_pScreen, NULL);
+  SDL_Flip(m_pScreen);
 }
 
-void Framebuffer::flush(size_t x, size_t y, size_t w, size_t h)
-{
-    // Don't bother doing a dirty rectangle flush just yet.
-    SDL_BlitSurface(m_pBackbuffer, NULL, m_pScreen, NULL);
-    SDL_Flip(m_pScreen);
+SharedBuffer::SharedBuffer(size_t size) : m_ShmName(), m_ShmFd(-1), m_pBuffer(0), m_Size(size) {
+  size_t bufferId = m_NextId++;
+
+  memset(m_ShmName, 0, sizeof m_ShmName);
+  sprintf(m_ShmName, "wm%zd", bufferId);
+
+  m_ShmFd = shm_open(m_ShmName, O_RDWR | O_CREAT, 0777);
+  syslog(LOG_INFO, "opening shm %s [fd=%d]", m_ShmName, m_ShmFd);
+  int r = ftruncate(m_ShmFd, size);
+  assert(r == 0);
+
+  m_pBuffer = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, m_ShmFd, 0);
 }
 
-SharedBuffer::SharedBuffer(size_t size)
-    : m_ShmName(), m_ShmFd(-1), m_pBuffer(0), m_Size(size)
-{
-    size_t bufferId = m_NextId++;
+SharedBuffer::SharedBuffer(size_t size, void* handle)
+    : m_ShmName(), m_ShmFd(-1), m_pBuffer(0), m_Size(size) {
+  /// \todo force null-termination
+  memcpy(m_ShmName, &handle, 8);
 
-    memset(m_ShmName, 0, sizeof m_ShmName);
-    sprintf(m_ShmName, "wm%zd", bufferId);
+  m_ShmFd = shm_open(m_ShmName, O_RDWR, 0777);
+  syslog(LOG_INFO, "opening client shm %s [fd=%d]", m_ShmName, m_ShmFd);
 
-    m_ShmFd = shm_open(m_ShmName, O_RDWR | O_CREAT, 0777);
-    syslog(LOG_INFO, "opening shm %s [fd=%d]", m_ShmName, m_ShmFd);
-    int r = ftruncate(m_ShmFd, size);
-    assert(r == 0);
-
-    m_pBuffer = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, m_ShmFd, 0);
+  m_pBuffer = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, m_ShmFd, 0);
 }
 
-SharedBuffer::SharedBuffer(size_t size, void *handle)
-    : m_ShmName(), m_ShmFd(-1), m_pBuffer(0), m_Size(size)
-{
-    /// \todo force null-termination
-    memcpy(m_ShmName, &handle, 8);
-
-    m_ShmFd = shm_open(m_ShmName, O_RDWR, 0777);
-    syslog(LOG_INFO, "opening client shm %s [fd=%d]", m_ShmName, m_ShmFd);
-
-    m_pBuffer = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, m_ShmFd, 0);
+SharedBuffer::~SharedBuffer() {
+  syslog(LOG_INFO, "unmapping %zd bytes @%p", m_Size, m_pBuffer);
+  munmap(m_pBuffer, m_Size);
+  close(m_ShmFd);
+  shm_unlink(m_ShmName);
 }
 
-SharedBuffer::~SharedBuffer()
-{
-    syslog(LOG_INFO, "unmapping %zd bytes @%p", m_Size, m_pBuffer);
-    munmap(m_pBuffer, m_Size);
-    close(m_ShmFd);
-    shm_unlink(m_ShmName);
+void* SharedBuffer::getHandle() {
+  uint64_t v = 0;
+  memcpy(&v, m_ShmName, 8);
+  return (void*)v;
 }
 
-void *SharedBuffer::getHandle()
-{
-    uint64_t v = 0;
-    memcpy(&v, m_ShmName, 8);
-    return (void *) v;
-}
-
-void *SharedBuffer::getBuffer()
-{
-    return m_pBuffer;
+void* SharedBuffer::getBuffer() {
+  return m_pBuffer;
 }
 
 #endif

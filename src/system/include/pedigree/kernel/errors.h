@@ -21,59 +21,57 @@
 #define ERRORS_H
 
 // This namespace is mapped to posix errno's where possible. Keep it that way!
-namespace Error
-{
-enum PosixError
-{
-    NoError = 0,
-    NotEnoughPermissions = 1,    // EPERM
-    DoesNotExist = 2,            // ENOENT
-    NoSuchProcess = 3,           // ESRCH
-    Interrupted = 4,             // EINTR
-    IoError = 5,                 // EIO
-    NoSuchDevice = 6,            // ENXIO
-    TooBig = 7,                  // E2BIG
-    ExecFormatError = 8,         // ENOEXEC
-    BadFileDescriptor = 9,       // EBADF
-    NoChildren = 10,             // ECHILD
-    NoMoreProcesses = 11,        // EAGAIN
-    OutOfMemory = 12,            // ENOMEM
-    PermissionDenied = 13,       // EACCES
-    BadAddress = 14,             // EFAULT
-    DeviceBusy = 16,             // EBUSY
-    FileExists = 17,             // EEXIST
-    CrossDeviceLink = 18,        // EXDEV
-    DeviceDoesNotExist = 19,     // ENODEV
-    NotADirectory = 20,          // ENOTDIR
-    IsADirectory = 21,           // EISDIR
-    InvalidArgument = 22,        // EINVAL
-    TooManyOpenFiles = 23,       // ENFILE
-    NotAConsole = 25,            // ENOTTY
-    FileTooLarge = 27,           // EFBIG
-    NoSpaceLeftOnDevice = 28,    // ENOSPC
-    IllegalSeek = 29,            // ESPIPE  (??)
-    ReadOnlyFilesystem = 30,     // EROFS
-    BrokenPipe = 32,             // EPIPE
-    BadRange = 34,               // ERANGE
-    Deadlock = 35,               // EDEADLK
-    NameTooLong = 36,            // ENAMETOOLONG
-    Unimplemented = 38,          // ENOSYS
-    NotEmpty = 39,               // ENOTEMPTY
-    LoopExists = 40,             // ELOOP
-    ProtocolWrongType = 91,      // EPROTOTYPE
-    ProtocolNotAvailable = 92,   // ENOPROTOOPT
-    OperationNotSupported = 95,  // ENOTSUP
-    AddressInUse = 98,           // EADDRINUSE
-    ConnectionAborted = 103,     // ECONNABORTED
-    ConnectionReset = 104,       // ECONNRESET
-    NoMoreBuffers = 105,         // ENOBUFS
-    IsConnected = 106,           // EISCONN
-    NotConnected = 107,          // ENOTCONN
-    TimedOut = 110,              // ETIMEDOUT
-    ConnectionRefused = 111,     // ECONNREFUSED
-    HostUnreachable = 113,       // EHOSTUNREACH
-    Already = 114,               // EALREADY
-    InProgress = 115,            // EINPROGRESS
+namespace Error {
+enum PosixError {
+  NoError = 0,
+  NotEnoughPermissions = 1,    // EPERM
+  DoesNotExist = 2,            // ENOENT
+  NoSuchProcess = 3,           // ESRCH
+  Interrupted = 4,             // EINTR
+  IoError = 5,                 // EIO
+  NoSuchDevice = 6,            // ENXIO
+  TooBig = 7,                  // E2BIG
+  ExecFormatError = 8,         // ENOEXEC
+  BadFileDescriptor = 9,       // EBADF
+  NoChildren = 10,             // ECHILD
+  NoMoreProcesses = 11,        // EAGAIN
+  OutOfMemory = 12,            // ENOMEM
+  PermissionDenied = 13,       // EACCES
+  BadAddress = 14,             // EFAULT
+  DeviceBusy = 16,             // EBUSY
+  FileExists = 17,             // EEXIST
+  CrossDeviceLink = 18,        // EXDEV
+  DeviceDoesNotExist = 19,     // ENODEV
+  NotADirectory = 20,          // ENOTDIR
+  IsADirectory = 21,           // EISDIR
+  InvalidArgument = 22,        // EINVAL
+  TooManyOpenFiles = 23,       // ENFILE
+  NotAConsole = 25,            // ENOTTY
+  FileTooLarge = 27,           // EFBIG
+  NoSpaceLeftOnDevice = 28,    // ENOSPC
+  IllegalSeek = 29,            // ESPIPE  (??)
+  ReadOnlyFilesystem = 30,     // EROFS
+  BrokenPipe = 32,             // EPIPE
+  BadRange = 34,               // ERANGE
+  Deadlock = 35,               // EDEADLK
+  NameTooLong = 36,            // ENAMETOOLONG
+  Unimplemented = 38,          // ENOSYS
+  NotEmpty = 39,               // ENOTEMPTY
+  LoopExists = 40,             // ELOOP
+  ProtocolWrongType = 91,      // EPROTOTYPE
+  ProtocolNotAvailable = 92,   // ENOPROTOOPT
+  OperationNotSupported = 95,  // ENOTSUP
+  AddressInUse = 98,           // EADDRINUSE
+  ConnectionAborted = 103,     // ECONNABORTED
+  ConnectionReset = 104,       // ECONNRESET
+  NoMoreBuffers = 105,         // ENOBUFS
+  IsConnected = 106,           // EISCONN
+  NotConnected = 107,          // ENOTCONN
+  TimedOut = 110,              // ETIMEDOUT
+  ConnectionRefused = 111,     // ECONNREFUSED
+  HostUnreachable = 113,       // EHOSTUNREACH
+  Already = 114,               // EALREADY
+  InProgress = 115,            // EINPROGRESS
 };
 }
 

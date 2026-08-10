@@ -28,16 +28,15 @@ class String;
 /**
  * A controller is a hub that controls multiple devices.
  */
-class EXPORTED_PUBLIC Controller : public Device
-{
-  public:
-    Controller();
-    Controller(Device *pDev);
-    virtual ~Controller();
+class EXPORTED_PUBLIC Controller : public Device {
+ public:
+  Controller();
+  Controller(Device* pDev);
+  virtual ~Controller();
 
-    virtual Type getType();
-    virtual void getName(String &str);
-    virtual void dump(String &str);
+  virtual Type getType();
+  virtual void getName(String& str);
+  virtual void dump(String& str);
 };
 
 #endif

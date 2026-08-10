@@ -19,43 +19,39 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/time.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 #include <arpa/inet.h>
-#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/types.h>
 
-#include <signal.h>
+int main(int argc, char** argv) {
+  int sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+  if (sock == -1) {
+    printf("Couldn't get a socket: %d [%s]\n", errno, strerror(errno));
+    return 1;
+  }
 
-int main(int argc, char **argv)
-{
-    int sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
-    if (sock == -1)
-    {
-        printf("Couldn't get a socket: %d [%s]\n", errno, strerror(errno));
-        return 1;
-    }
+  struct timeval t;
+  t.tv_sec = 30;
 
-    struct timeval t;
-    t.tv_sec = 30;
+  fd_set readfd;
+  FD_SET(sock, &readfd);
 
-    fd_set readfd;
-    FD_SET(sock, &readfd);
+  char* tmp = (char*)malloc(2048);
+  while (1) {
+    select(sock + 1, &readfd, 0, 0, &t);
+    int n = read(sock, tmp, 2048);
+    if (n > 0)
+      printf("interface received %d bytes\n", n);
+  }
 
-    char *tmp = (char *) malloc(2048);
-    while (1)
-    {
-        select(sock + 1, &readfd, 0, 0, &t);
-        int n = read(sock, tmp, 2048);
-        if (n > 0)
-            printf("interface received %d bytes\n", n);
-    }
-
-    return 0;
+  return 0;
 }

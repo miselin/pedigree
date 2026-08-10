@@ -20,41 +20,39 @@
 #ifndef RAWFS_FILE_H
 #define RAWFS_FILE_H
 
-#include "modules/system/vfs/File.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/String.h"
 
+#include "modules/system/vfs/File.h"
+
 class Disk;
 
-class RawFsFile : public File
-{
-  private:
-    /** Copy constructors are hidden - unused! */
-    RawFsFile(const RawFsFile &file);
-    RawFsFile &operator=(const RawFsFile &);
+class RawFsFile : public File {
+ private:
+  /** Copy constructors are hidden - unused! */
+  RawFsFile(const RawFsFile& file);
+  RawFsFile& operator=(const RawFsFile&);
 
-  public:
-    /** Constructor, should only be called by RawFs. */
-    RawFsFile(String name, class RawFs *pFs, File *pParent, Disk *pDisk);
-    ~RawFsFile();
+ public:
+  /** Constructor, should only be called by RawFs. */
+  RawFsFile(String name, class RawFs* pFs, File* pParent, Disk* pDisk);
+  ~RawFsFile();
 
-    virtual uintptr_t readBlock(uint64_t location);
-    virtual void writeBlock(uint64_t location, uintptr_t address);
-    virtual bool pinBlock(uint64_t location);
-    virtual void unpinBlock(uint64_t location);
+  virtual uintptr_t readBlock(uint64_t location);
+  virtual void writeBlock(uint64_t location, uintptr_t address);
+  virtual bool pinBlock(uint64_t location);
+  virtual void unpinBlock(uint64_t location);
 
-    virtual size_t getBlockSize() const;
+  virtual size_t getBlockSize() const;
 
-    virtual void fileAttributeChanged()
-    {
-    }
+  virtual void fileAttributeChanged() {}
 
-  private:
-    Disk *m_pDisk;
-    Cache m_PageCache;
-    Mutex m_PageCacheLock;
+ private:
+  Disk* m_pDisk;
+  Cache m_PageCache;
+  Mutex m_PageCacheLock;
 };
 
 #endif

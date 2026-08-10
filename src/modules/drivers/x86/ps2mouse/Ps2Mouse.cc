@@ -23,120 +23,109 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/new"
+
 #include "system/kernel/machine/mach_pc/Ps2Controller.h"
 
 class Process;
 
-Ps2Mouse::Ps2Mouse(Device *pDev)
-    : m_pController(0), m_Buffer(), m_BufferIndex(0), m_BufferLock(),
-      m_IrqWait(0), m_ReaderThread(), m_Callbacks()
-{
-    setSpecificType(String("ps2-mouse"));
+Ps2Mouse::Ps2Mouse(Device* pDev)
+    : m_pController(0),
+      m_Buffer(),
+      m_BufferIndex(0),
+      m_BufferLock(),
+      m_IrqWait(0),
+      m_ReaderThread(),
+      m_Callbacks() {
+  setSpecificType(String("ps2-mouse"));
 }
 
-Ps2Mouse::~Ps2Mouse()
-{
-    m_ReaderThread.stop();
+Ps2Mouse::~Ps2Mouse() {
+  m_ReaderThread.stop();
 }
 
-bool Ps2Mouse::initialise(Ps2Controller *pController)
-{
-    m_pController = pController;
+bool Ps2Mouse::initialise(Ps2Controller* pController) {
+  m_pController = pController;
 
-    /// \todo handle errors, resend requests, etc
+  /// \todo handle errors, resend requests, etc
 
-    // Command responses use the controller's split-IRQ buffer once its worker
-    // is active, so IRQ12 must be enabled before waiting for either ACK.
-    m_pController->setIrqEnable(true, true);
+  // Command responses use the controller's split-IRQ buffer once its worker
+  // is active, so IRQ12 must be enabled before waiting for either ACK.
+  m_pController->setIrqEnable(true, true);
 
-    // Set up the mouse.
-    uint8_t result = 0;
-    m_pController->writeSecondPort(SetDefaults);
-    m_pController->readSecondPort(result);
-    m_pController->writeSecondPort(MouseStream);
-    m_pController->readSecondPort(result);
+  // Set up the mouse.
+  uint8_t result = 0;
+  m_pController->writeSecondPort(SetDefaults);
+  m_pController->readSecondPort(result);
+  m_pController->writeSecondPort(MouseStream);
+  m_pController->readSecondPort(result);
 
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    Thread *pThread = new Thread(pProcess, readerThreadTrampoline, this);
-    pThread->setName("PS/2 mouse reader");
-    m_ReaderThread.adopt(pThread);
+  Process* pProcess = Processor::information().getCurrentThread()->getParent();
+  Thread* pThread = new Thread(pProcess, readerThreadTrampoline, this);
+  pThread->setName("PS/2 mouse reader");
+  m_ReaderThread.adopt(pThread);
 
-    return true;
+  return true;
 }
 
-void Ps2Mouse::write(const char *bytes, size_t len)
-{
-    for (size_t i = 0; i < len; ++i)
-    {
-        m_pController->writeSecondPort(bytes[i]);
+void Ps2Mouse::write(const char* bytes, size_t len) {
+  for (size_t i = 0; i < len; ++i) {
+    m_pController->writeSecondPort(bytes[i]);
+  }
+}
+
+bool Ps2Mouse::subscribe(MouseHandlerFunction handler, void* param, Registration& registration) {
+  return m_Callbacks.subscribe(handler, param, registration);
+}
+
+void Ps2Mouse::updateSubscribers(const void* buffer, size_t len) {
+  m_Callbacks.dispatch(buffer, len);
+}
+
+int Ps2Mouse::readerThreadTrampoline(void* param) {
+  Ps2Mouse* instance = reinterpret_cast<Ps2Mouse*>(param);
+  instance->readerThread();
+  return 0;
+}
+
+void Ps2Mouse::readerThread() {
+  while (true) {
+    uint8_t byte;
+    if (!m_pController->readSecondPort(byte)) {
+      Thread* thread = Processor::information().getCurrentThread();
+      if (m_pController->readsStopping() ||
+          (thread && thread->getUnwindState() != Thread::Continue)) {
+        return;
+      }
+      continue;
     }
-}
 
-bool Ps2Mouse::subscribe(
-    MouseHandlerFunction handler, void *param, Registration &registration)
-{
-    return m_Callbacks.subscribe(handler, param, registration);
-}
+    updateSubscribers(&byte, 1);
 
-void Ps2Mouse::updateSubscribers(const void *buffer, size_t len)
-{
-    m_Callbacks.dispatch(buffer, len);
-}
-
-int Ps2Mouse::readerThreadTrampoline(void *param)
-{
-    Ps2Mouse *instance = reinterpret_cast<Ps2Mouse *>(param);
-    instance->readerThread();
-    return 0;
-}
-
-void Ps2Mouse::readerThread()
-{
-    while (true)
-    {
-        uint8_t byte;
-        if (!m_pController->readSecondPort(byte))
-        {
-            Thread *thread = Processor::information().getCurrentThread();
-            if (m_pController->readsStopping() ||
-                (thread && thread->getUnwindState() != Thread::Continue))
-            {
-                return;
-            }
-            continue;
-        }
-
-        updateSubscribers(&byte, 1);
-
-        if (byte == 0xFA || byte == 0xFE)
-        {
-            // ignore for now
-            continue;
-        }
-
-        ssize_t xrel = 0;
-        ssize_t yrel = 0;
-        uint32_t buttons = 0;
-        bool needUpdate = false;
-        {
-            m_BufferLock.acquire();
-            m_Buffer[m_BufferIndex++] = byte;
-            needUpdate = m_BufferIndex == 3;
-            if (needUpdate)
-            {
-                xrel = static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[1]));
-                yrel = static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[2]));
-                buttons = static_cast<uint32_t>(m_Buffer[0]) & 0x3;
-                m_BufferIndex = 0;
-            }
-            m_BufferLock.release();
-        }
-
-        // lock no longer taken, safe to send the update
-        if (needUpdate)
-        {
-            InputManager::instance().mouseUpdate(xrel, yrel, 0, buttons);
-        }
+    if (byte == 0xFA || byte == 0xFE) {
+      // ignore for now
+      continue;
     }
+
+    ssize_t xrel = 0;
+    ssize_t yrel = 0;
+    uint32_t buttons = 0;
+    bool needUpdate = false;
+    {
+      m_BufferLock.acquire();
+      m_Buffer[m_BufferIndex++] = byte;
+      needUpdate = m_BufferIndex == 3;
+      if (needUpdate) {
+        xrel = static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[1]));
+        yrel = static_cast<ssize_t>(static_cast<int8_t>(m_Buffer[2]));
+        buttons = static_cast<uint32_t>(m_Buffer[0]) & 0x3;
+        m_BufferIndex = 0;
+      }
+      m_BufferLock.release();
+    }
+
+    // lock no longer taken, safe to send the update
+    if (needUpdate) {
+      InputManager::instance().mouseUpdate(xrel, yrel, 0, buttons);
+    }
+  }
 }

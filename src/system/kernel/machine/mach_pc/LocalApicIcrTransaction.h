@@ -15,31 +15,25 @@
  * register writes prevents a same-core hard interrupt from preempting an
  * in-progress submission; no cross-CPU software ownership exists to acquire.
  */
-class LocalApicIcrTransaction
-{
-  public:
-    explicit constexpr LocalApicIcrTransaction(bool interruptsWereEnabled)
-        : m_InterruptsWereEnabled(interruptsWereEnabled)
-    {
-    }
+class LocalApicIcrTransaction {
+ public:
+  explicit constexpr LocalApicIcrTransaction(bool interruptsWereEnabled)
+      : m_InterruptsWereEnabled(interruptsWereEnabled) {}
 
-    constexpr bool masksMaskableInterrupts() const
-    {
-        return true;
-    }
+  constexpr bool masksMaskableInterrupts() const {
+    return true;
+  }
 
-    constexpr bool restoreInterrupts() const
-    {
-        return m_InterruptsWereEnabled;
-    }
+  constexpr bool restoreInterrupts() const {
+    return m_InterruptsWereEnabled;
+  }
 
-    constexpr bool allowsMaskableHardIrqPreemption() const
-    {
-        return false;
-    }
+  constexpr bool allowsMaskableHardIrqPreemption() const {
+    return false;
+  }
 
-  private:
-    bool m_InterruptsWereEnabled;
+ private:
+  bool m_InterruptsWereEnabled;
 };
 
 #endif

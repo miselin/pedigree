@@ -17,147 +17,124 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/processor/x86_common/ProcessorInformation.h"
 #include "pedigree/kernel/process/InfoBlock.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/new"
-
 #include "pedigree/kernel/processor/x64/tss.h"
+#include "pedigree/kernel/processor/x86_common/ProcessorInformation.h"
+#include "pedigree/kernel/utilities/new"
 
 /** Get the current processor's VirtualAddressSpace
  *\return reference to the current processor's VirtualAddressSpace */
-VirtualAddressSpace &
-X86CommonProcessorInformation::getVirtualAddressSpace() const
-{
-    if (m_VirtualAddressSpace)
-        return *m_VirtualAddressSpace;
-    else
-        return VirtualAddressSpace::getKernelAddressSpace();
+VirtualAddressSpace& X86CommonProcessorInformation::getVirtualAddressSpace() const {
+  if (m_VirtualAddressSpace)
+    return *m_VirtualAddressSpace;
+  else
+    return VirtualAddressSpace::getKernelAddressSpace();
 }
 /** Set the current processor's VirtualAddressSpace
  *\param[in] virtualAddressSpace reference to the new VirtualAddressSpace */
 void X86CommonProcessorInformation::setVirtualAddressSpace(
-    VirtualAddressSpace &virtualAddressSpace)
-{
-    m_VirtualAddressSpace = &virtualAddressSpace;
+    VirtualAddressSpace& virtualAddressSpace) {
+  m_VirtualAddressSpace = &virtualAddressSpace;
 }
 
 /** Set the processor's TSS selector
  *\param[in] TssSelector the new TSS selector */
-void X86CommonProcessorInformation::setTssSelector(uint16_t TssSelector)
-{
-    m_TssSelector = TssSelector;
+void X86CommonProcessorInformation::setTssSelector(uint16_t TssSelector) {
+  m_TssSelector = TssSelector;
 }
 /** Set the processor's TSS
  *\param[in] Tss pointer to the new TSS */
-void X86CommonProcessorInformation::setTss(void *Tss)
-{
-    m_Tss = reinterpret_cast<TaskStateSegment *>(Tss);
+void X86CommonProcessorInformation::setTss(void* Tss) {
+  m_Tss = reinterpret_cast<TaskStateSegment*>(Tss);
 }
 /** Get the processor's TSS selector
  *\return the TSS selector of the processor */
-uint16_t X86CommonProcessorInformation::getTssSelector() const
-{
-    return m_TssSelector;
+uint16_t X86CommonProcessorInformation::getTssSelector() const {
+  return m_TssSelector;
 }
 /** Get the processor's TSS
  *\return the Tss of the processor */
-void *X86CommonProcessorInformation::getTss() const
-{
-    return reinterpret_cast<void *>(m_Tss);
+void* X86CommonProcessorInformation::getTss() const {
+  return reinterpret_cast<void*>(m_Tss);
 }
 /** Gets the processor's TLS base segment */
-uint16_t X86CommonProcessorInformation::getTlsSelector()
-{
-    return m_TlsSelector;
+uint16_t X86CommonProcessorInformation::getTlsSelector() {
+  return m_TlsSelector;
 }
 /** Sets the processor's TLS base segment */
-void X86CommonProcessorInformation::setTlsSelector(uint16_t tls)
-{
-    m_TlsSelector = tls;
+void X86CommonProcessorInformation::setTlsSelector(uint16_t tls) {
+  m_TlsSelector = tls;
 }
 
-uintptr_t X86CommonProcessorInformation::getKernelStack() const
-{
-    return m_Tss->rsp0;
+uintptr_t X86CommonProcessorInformation::getKernelStack() const {
+  return m_Tss->rsp0;
 }
-void X86CommonProcessorInformation::setKernelStack(uintptr_t stack)
-{
-    m_Tss->rsp0 = stack;
-    // Can't use Procesor::writeMachineSpecificRegister as Processor is
-    // undeclared here!
-    uint32_t eax = stack, edx = stack >> 32;
-    asm volatile("wrmsr" ::"a"(eax), "d"(edx), "c"(0xc0000102));
+void X86CommonProcessorInformation::setKernelStack(uintptr_t stack) {
+  m_Tss->rsp0 = stack;
+  // Can't use Procesor::writeMachineSpecificRegister as Processor is
+  // undeclared here!
+  uint32_t eax = stack, edx = stack >> 32;
+  asm volatile("wrmsr" ::"a"(eax), "d"(edx), "c"(0xc0000102));
 }
 
-Thread *X86CommonProcessorInformation::getCurrentThread() const
-{
-    return m_pCurrentThread;
+Thread* X86CommonProcessorInformation::getCurrentThread() const {
+  return m_pCurrentThread;
 }
 
-void X86CommonProcessorInformation::setCurrentThread(Thread *pThread)
-{
-    m_pCurrentThread = pThread;
-    InfoBlockManager::instance().setPid(pThread->getParent()->getId());
+void X86CommonProcessorInformation::setCurrentThread(Thread* pThread) {
+  m_pCurrentThread = pThread;
+  InfoBlockManager::instance().setPid(pThread->getParent()->getId());
 }
 
-PerProcessorScheduler &X86CommonProcessorInformation::getScheduler()
-{
-    // Allocate the scheduler lazily.
-    if (m_Scheduler == nullptr)
-    {
-        m_Scheduler = new PerProcessorScheduler();
-    }
-    return *m_Scheduler;
+PerProcessorScheduler& X86CommonProcessorInformation::getScheduler() {
+  // Allocate the scheduler lazily.
+  if (m_Scheduler == nullptr) {
+    m_Scheduler = new PerProcessorScheduler();
+  }
+  return *m_Scheduler;
 }
 
-void X86CommonProcessorInformation::initialiseTscClockAnchor(
-    uint64_t tsc, uint64_t nanoseconds)
-{
-    __atomic_store_n(&m_TscClockAnchor, tsc, __ATOMIC_RELAXED);
-    __atomic_store_n(
-        &m_TscClockAnchorNanoseconds, nanoseconds, __ATOMIC_RELAXED);
-    __atomic_store_n(
-        &m_TscClockAnchorInitialised, true, __ATOMIC_RELEASE);
+void X86CommonProcessorInformation::initialiseTscClockAnchor(uint64_t tsc, uint64_t nanoseconds) {
+  __atomic_store_n(&m_TscClockAnchor, tsc, __ATOMIC_RELAXED);
+  __atomic_store_n(&m_TscClockAnchorNanoseconds, nanoseconds, __ATOMIC_RELAXED);
+  __atomic_store_n(&m_TscClockAnchorInitialised, true, __ATOMIC_RELEASE);
 }
 
-bool X86CommonProcessorInformation::getTscClockAnchor(
-    uint64_t &tsc, uint64_t &nanoseconds) const
-{
-    if (!__atomic_load_n(
-            &m_TscClockAnchorInitialised, __ATOMIC_ACQUIRE))
-    {
-        return false;
-    }
+bool X86CommonProcessorInformation::getTscClockAnchor(uint64_t& tsc, uint64_t& nanoseconds) const {
+  if (!__atomic_load_n(&m_TscClockAnchorInitialised, __ATOMIC_ACQUIRE)) {
+    return false;
+  }
 
-    tsc = __atomic_load_n(&m_TscClockAnchor, __ATOMIC_RELAXED);
-    nanoseconds = __atomic_load_n(
-        &m_TscClockAnchorNanoseconds, __ATOMIC_RELAXED);
-    return true;
+  tsc = __atomic_load_n(&m_TscClockAnchor, __ATOMIC_RELAXED);
+  nanoseconds = __atomic_load_n(&m_TscClockAnchorNanoseconds, __ATOMIC_RELAXED);
+  return true;
 }
 
-X86CommonProcessorInformation::X86CommonProcessorInformation(
-    ProcessorId processorId, uint8_t apicId)
-    : m_ProcessorId(processorId), m_TssSelector(0), m_Tss(0),
+X86CommonProcessorInformation::X86CommonProcessorInformation(ProcessorId processorId,
+                                                             uint8_t apicId)
+    : m_ProcessorId(processorId),
+      m_TssSelector(0),
+      m_Tss(0),
       m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
-      m_LocalApicId(apicId), m_pCurrentThread(0), m_Scheduler(nullptr),
-      m_TlsSelector(0), m_DeviceHardIrqDepth(0), m_TscClockAnchor(0),
-      m_TscClockAnchorNanoseconds(0), m_TscClockAnchorInitialised(false)
-{
-}
+      m_LocalApicId(apicId),
+      m_pCurrentThread(0),
+      m_Scheduler(nullptr),
+      m_TlsSelector(0),
+      m_DeviceHardIrqDepth(0),
+      m_TscClockAnchor(0),
+      m_TscClockAnchorNanoseconds(0),
+      m_TscClockAnchorInitialised(false) {}
 /** The destructor does nothing */
-X86CommonProcessorInformation::~X86CommonProcessorInformation()
-{
-    delete m_Scheduler;
+X86CommonProcessorInformation::~X86CommonProcessorInformation() {
+  delete m_Scheduler;
 }
 
-void X86CommonProcessorInformation::setIds(
-    ProcessorId processorId, uint8_t apicId)
-{
-    m_ProcessorId = processorId;
-    m_LocalApicId = apicId;
+void X86CommonProcessorInformation::setIds(ProcessorId processorId, uint8_t apicId) {
+  m_ProcessorId = processorId;
+  m_LocalApicId = apicId;
 }

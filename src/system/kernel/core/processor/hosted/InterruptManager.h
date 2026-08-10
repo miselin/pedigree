@@ -23,8 +23,9 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
-#include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/processor/state_forward.h"
+#include "pedigree/kernel/processor/types.h"
+
 #include <signal.h>
 
 /** @addtogroup kernelprocessorhosted
@@ -33,95 +34,89 @@
 #define MAX_SIGNAL 32
 
 /** The interrupt manager on hosted systems */
-class HostedInterruptManager : public ::InterruptManager
-{
-  public:
-    /** Get the HostedInterruptManager class instance
-     *\return instance of the HostedInterruptManager class */
-    inline static HostedInterruptManager &instance()
-    {
-        return m_Instance;
-    }
+class HostedInterruptManager : public ::InterruptManager {
+ public:
+  /** Get the HostedInterruptManager class instance
+   *\return instance of the HostedInterruptManager class */
+  inline static HostedInterruptManager& instance() {
+    return m_Instance;
+  }
 
-    virtual bool registerInterruptHandler(
-        size_t nInterruptNumber, InterruptHandler *pHandler);
+  virtual bool registerInterruptHandler(size_t nInterruptNumber, InterruptHandler* pHandler);
 
 #if DEBUGGER
-    virtual bool registerInterruptHandlerDebugger(
-        size_t nInterruptNumber, InterruptHandler *pHandler);
-    virtual size_t getBreakpointInterruptNumber() PURE;
-    virtual size_t getDebugInterruptNumber() PURE;
+  virtual bool registerInterruptHandlerDebugger(size_t nInterruptNumber,
+                                                InterruptHandler* pHandler);
+  virtual size_t getBreakpointInterruptNumber() PURE;
+  virtual size_t getDebugInterruptNumber() PURE;
 #endif
 
-    /** Initialises this processors IDTR
-     *\note This should only be called from Processor::initialise1() and
-     *      Multiprocessor::applicationProcessorStartup() */
-    static void initialiseProcessor() INITIALISATION_ONLY;
+  /** Initialises this processors IDTR
+   *\note This should only be called from Processor::initialise1() and
+   *      Multiprocessor::applicationProcessorStartup() */
+  static void initialiseProcessor() INITIALISATION_ONLY;
 
-    /** Stops hosted IRQ signal delivery before global teardown. */
-    static void quiesceProcessor();
+  /** Stops hosted IRQ signal delivery before global teardown. */
+  static void quiesceProcessor();
 
-    /** Signal handling shim for InterruptState protected access. */
-    void signalShim(
-        int which, void *siginfo, void *meta, bool fromUserspace);
+  /** Signal handling shim for InterruptState protected access. */
+  void signalShim(int which, void* siginfo, void* meta, bool fromUserspace);
 
-    /** Get the original sigaction for an interrupt handler. */
-    struct sigaction getOriginalSigaction(int which) const;
+  /** Get the original sigaction for an interrupt handler. */
+  struct sigaction getOriginalSigaction(int which) const;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    using MutationLockHook = void (*)();
+  using MutationLockHook = void (*)();
 
-    /** Runs a deterministic test seam while handler mutation is locked. */
-    static EXPORTED_PUBLIC void
-    withMutationLockForTest(MutationLockHook hook);
+  /** Runs a deterministic test seam while handler mutation is locked. */
+  static EXPORTED_PUBLIC void withMutationLockForTest(MutationLockHook hook);
 #endif
 
-  private:
-    /** Called when an interrupt was triggered
-     *\param[in] interruptState reference to the usermode/kernel state before
-     *the interrupt */
-    static void interrupt(InterruptState &interruptState);
+ private:
+  /** Called when an interrupt was triggered
+   *\param[in] interruptState reference to the usermode/kernel state before
+   *the interrupt */
+  static void interrupt(InterruptState& interruptState);
 
-    /** Sets up an interrupt gate
-     *\param[in] interruptNumber the interrupt number
-     *\param[in] interruptHandler address of the assembler interrupt handler
-     *stub \note This function is defined in kernel/processor/ARCH/interrupt.cc
-     */
-    void setInterruptGate(size_t nInterruptNumber, uintptr_t interruptHandler)
-        INITIALISATION_ONLY;
-    /** Sets the IST field for a given interrupt gate
-     *\param[in] interruptNumber the interrupt number
-     *\param[in] ist IST index to use */
-    void setIst(size_t nInterruptNumber, size_t ist);
-    /** The constructor */
-    HostedInterruptManager() INITIALISATION_ONLY;
-    /** Copy constructor
-     *\note NOT implemented */
-    HostedInterruptManager(const HostedInterruptManager &);
-    /** Assignment operator
-     *\note NOT implemented */
-    HostedInterruptManager &operator=(const HostedInterruptManager &);
-    /** The destructor */
-    virtual ~HostedInterruptManager();
+  /** Sets up an interrupt gate
+   *\param[in] interruptNumber the interrupt number
+   *\param[in] interruptHandler address of the assembler interrupt handler
+   *stub \note This function is defined in kernel/processor/ARCH/interrupt.cc
+   */
+  void setInterruptGate(size_t nInterruptNumber, uintptr_t interruptHandler) INITIALISATION_ONLY;
+  /** Sets the IST field for a given interrupt gate
+   *\param[in] interruptNumber the interrupt number
+   *\param[in] ist IST index to use */
+  void setIst(size_t nInterruptNumber, size_t ist);
+  /** The constructor */
+  HostedInterruptManager() INITIALISATION_ONLY;
+  /** Copy constructor
+   *\note NOT implemented */
+  HostedInterruptManager(const HostedInterruptManager&);
+  /** Assignment operator
+   *\note NOT implemented */
+  HostedInterruptManager& operator=(const HostedInterruptManager&);
+  /** The destructor */
+  virtual ~HostedInterruptManager();
 
-    /** Serialises handler pointer mutations. Dispatch never takes this lock. */
-    Spinlock m_Lock;
+  /** Serialises handler pointer mutations. Dispatch never takes this lock. */
+  Spinlock m_Lock;
 
-    /** The normal interrupt handlers */
-    InterruptHandler *m_pHandler[MAX_SIGNAL];
+  /** The normal interrupt handlers */
+  InterruptHandler* m_pHandler[MAX_SIGNAL];
 #if DEBUGGER
-    /** The debugger interrupt handlers */
-    InterruptHandler *m_pDbgHandler[MAX_SIGNAL];
+  /** The debugger interrupt handlers */
+  InterruptHandler* m_pDbgHandler[MAX_SIGNAL];
 #endif
 
-    /** Original sigaction structs after we install our custom handlers. */
-    static struct sigaction m_OriginalActions[MAX_SIGNAL];
-    static bool m_ActionInstalled[MAX_SIGNAL];
+  /** Original sigaction structs after we install our custom handlers. */
+  static struct sigaction m_OriginalActions[MAX_SIGNAL];
+  static bool m_ActionInstalled[MAX_SIGNAL];
 
-    static bool m_bQuiesced;
+  static bool m_bQuiesced;
 
-    /** The instance of the interrupt manager  */
-    static HostedInterruptManager m_Instance;
+  /** The instance of the interrupt manager  */
+  static HostedInterruptManager m_Instance;
 };
 
 /** @} */

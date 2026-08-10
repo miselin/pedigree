@@ -19,208 +19,196 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <iostream>
-
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/utilities/Cord.h"
 #include "pedigree/kernel/utilities/StaticCord.h"
 #include "pedigree/kernel/utilities/String.h"
 
-TEST(PedigreeCord, ToString)
-{
-    const char *a = "hello ";
-    const char *b = "world!";
+#include <iostream>
 
-    Cord s;
-    s.append(a);
-    s.append(b);
-    EXPECT_EQ(s.length(), 12U);
+#include <gtest/gtest.h>
 
-    String str = s.toString();
+TEST(PedigreeCord, ToString) {
+  const char* a = "hello ";
+  const char* b = "world!";
 
-    EXPECT_STREQ(str.cstr(), "hello world!");
+  Cord s;
+  s.append(a);
+  s.append(b);
+  EXPECT_EQ(s.length(), 12U);
+
+  String str = s.toString();
+
+  EXPECT_STREQ(str.cstr(), "hello world!");
 }
 
-TEST(PedigreeCord, Append)
-{
-    const char *a = "a ";
-    const char *b = "b ";
-    const char *c = "c";
+TEST(PedigreeCord, Append) {
+  const char* a = "a ";
+  const char* b = "b ";
+  const char* c = "c";
 
-    Cord s;
-    s.append(a);
-    s.append(b);
-    s.append(c);
-    EXPECT_EQ(s.length(), 5U);
+  Cord s;
+  s.append(a);
+  s.append(b);
+  s.append(c);
+  EXPECT_EQ(s.length(), 5U);
 
-    String str = s.toString();
-    EXPECT_STREQ(str.cstr(), "a b c");
+  String str = s.toString();
+  EXPECT_STREQ(str.cstr(), "a b c");
 }
 
-TEST(PedigreeCord, Prepend)
-{
-    const char *a = "a ";
-    const char *b = "b ";
-    const char *c = "c";
+TEST(PedigreeCord, Prepend) {
+  const char* a = "a ";
+  const char* b = "b ";
+  const char* c = "c";
 
-    Cord s;
-    s.prepend(c);
-    s.prepend(b);
-    s.prepend(a);
-    EXPECT_EQ(s.length(), 5U);
+  Cord s;
+  s.prepend(c);
+  s.prepend(b);
+  s.prepend(a);
+  EXPECT_EQ(s.length(), 5U);
 
-    String str = s.toString();
-    EXPECT_STREQ(str.cstr(), "a b c");
+  String str = s.toString();
+  EXPECT_STREQ(str.cstr(), "a b c");
 }
 
-TEST(PedigreeCord, ClearResetsLength)
-{
-    Cord s;
-    s.append("hello");
-    s.clear();
+TEST(PedigreeCord, ClearResetsLength) {
+  Cord s;
+  s.append("hello");
+  s.clear();
 
-    EXPECT_EQ(s.length(), 0U);
-    EXPECT_EQ(s.toString(), "");
-    EXPECT_EQ(s.begin(), s.end());
+  EXPECT_EQ(s.length(), 0U);
+  EXPECT_EQ(s.toString(), "");
+  EXPECT_EQ(s.begin(), s.end());
 }
 
-TEST(PedigreeCord, SelfAssignmentPreservesSegments)
-{
-    Cord s;
-    s.append("hello ");
-    s.append("world");
+TEST(PedigreeCord, SelfAssignmentPreservesSegments) {
+  Cord s;
+  s.append("hello ");
+  s.append("world");
 
-    const Cord &same = s;
-    s = same;
-    EXPECT_EQ(s.length(), 11U);
-    EXPECT_EQ(s.toString(), "hello world");
+  const Cord& same = s;
+  s = same;
+  EXPECT_EQ(s.length(), 11U);
+  EXPECT_EQ(s.toString(), "hello world");
 }
 
-TEST(PedigreeCord, Indexing)
-{
-    const char *a = "a ";
-    const char *b = "b ";
-    const char *c = "c";
+TEST(PedigreeCord, Indexing) {
+  const char* a = "a ";
+  const char* b = "b ";
+  const char* c = "c";
 
-    Cord s;
-    s.append(a);
-    s.append(b);
-    s.append(c);
+  Cord s;
+  s.append(a);
+  s.append(b);
+  s.append(c);
 
-    EXPECT_EQ(s.length(), 5U);
-    EXPECT_EQ(s[0], 'a');
-    EXPECT_EQ(s[1], ' ');
-    EXPECT_EQ(s[2], 'b');
-    EXPECT_EQ(s[3], ' ');
-    EXPECT_EQ(s[4], 'c');
-    EXPECT_EQ(s[5], '\0');
+  EXPECT_EQ(s.length(), 5U);
+  EXPECT_EQ(s[0], 'a');
+  EXPECT_EQ(s[1], ' ');
+  EXPECT_EQ(s[2], 'b');
+  EXPECT_EQ(s[3], ' ');
+  EXPECT_EQ(s[4], 'c');
+  EXPECT_EQ(s[5], '\0');
 }
 
-TEST(PedigreeCord, Iteration)
-{
-    const char *a = "a ";
-    const char *b = "b ";
-    const char *c = "c";
+TEST(PedigreeCord, Iteration) {
+  const char* a = "a ";
+  const char* b = "b ";
+  const char* c = "c";
 
-    Cord s;
-    s.append(a);
-    s.append(b);
-    s.append(c);
+  Cord s;
+  s.append(a);
+  s.append(b);
+  s.append(c);
 
-    auto it = s.begin();
+  auto it = s.begin();
 
-    EXPECT_EQ(s.length(), 5U);
-    EXPECT_EQ(it, s.begin());
-    EXPECT_EQ(*it++, 'a');
-    EXPECT_EQ(*it++, ' ');
-    EXPECT_EQ(*it++, 'b');
-    EXPECT_EQ(*it++, ' ');
-    EXPECT_EQ(*it++, 'c');
-    EXPECT_EQ(it, s.end());
+  EXPECT_EQ(s.length(), 5U);
+  EXPECT_EQ(it, s.begin());
+  EXPECT_EQ(*it++, 'a');
+  EXPECT_EQ(*it++, ' ');
+  EXPECT_EQ(*it++, 'b');
+  EXPECT_EQ(*it++, ' ');
+  EXPECT_EQ(*it++, 'c');
+  EXPECT_EQ(it, s.end());
 }
 
-TEST(PedigreeCord, ReverseIteration)
-{
-    Cord s;
-    s.append("ab");
-    s.append("cd");
+TEST(PedigreeCord, ReverseIteration) {
+  Cord s;
+  s.append("ab");
+  s.append("cd");
 
-    auto it = s.end();
-    EXPECT_EQ(*--it, 'd');
-    EXPECT_EQ(*--it, 'c');
-    EXPECT_EQ(*--it, 'b');
-    EXPECT_EQ(*--it, 'a');
+  auto it = s.end();
+  EXPECT_EQ(*--it, 'd');
+  EXPECT_EQ(*--it, 'c');
+  EXPECT_EQ(*--it, 'b');
+  EXPECT_EQ(*--it, 'a');
 }
 
-TEST(PedigreeCord, StaticAppend)
-{
-    const char *a = "a ";
-    const char *b = "b ";
-    const char *c = "c";
+TEST(PedigreeCord, StaticAppend) {
+  const char* a = "a ";
+  const char* b = "b ";
+  const char* c = "c";
 
-    StaticCord<8> s;
-    s.append(a);
-    s.append(b);
-    s.append(c);
-    EXPECT_EQ(s.length(), 5U);
+  StaticCord<8> s;
+  s.append(a);
+  s.append(b);
+  s.append(c);
+  EXPECT_EQ(s.length(), 5U);
 
-    String str = s.toString();
-    EXPECT_STREQ(str.cstr(), "a b c");
+  String str = s.toString();
+  EXPECT_STREQ(str.cstr(), "a b c");
 }
 
-TEST(PedigreeCord, StaticIndexing)
-{
-    const char *a = "a ";
-    const char *b = "b ";
-    const char *c = "c";
+TEST(PedigreeCord, StaticIndexing) {
+  const char* a = "a ";
+  const char* b = "b ";
+  const char* c = "c";
 
-    StaticCord<8> s;
-    s.append(a);
-    s.append(b);
-    s.append(c);
+  StaticCord<8> s;
+  s.append(a);
+  s.append(b);
+  s.append(c);
 
-    EXPECT_EQ(s.length(), 5U);
-    EXPECT_EQ(s[0], 'a');
-    EXPECT_EQ(s[1], ' ');
-    EXPECT_EQ(s[2], 'b');
-    EXPECT_EQ(s[3], ' ');
-    EXPECT_EQ(s[4], 'c');
-    EXPECT_EQ(s[5], '\0');
+  EXPECT_EQ(s.length(), 5U);
+  EXPECT_EQ(s[0], 'a');
+  EXPECT_EQ(s[1], ' ');
+  EXPECT_EQ(s[2], 'b');
+  EXPECT_EQ(s[3], ' ');
+  EXPECT_EQ(s[4], 'c');
+  EXPECT_EQ(s[5], '\0');
 }
 
-TEST(PedigreeCord, StaticIteration)
-{
-    const char *a = "a ";
-    const char *b = "b ";
-    const char *c = "c";
+TEST(PedigreeCord, StaticIteration) {
+  const char* a = "a ";
+  const char* b = "b ";
+  const char* c = "c";
 
-    StaticCord<8> s;
-    s.append(a);
-    s.append(b);
-    s.append(c);
+  StaticCord<8> s;
+  s.append(a);
+  s.append(b);
+  s.append(c);
 
-    auto it = s.begin();
+  auto it = s.begin();
 
-    EXPECT_EQ(s.length(), 5U);
-    EXPECT_EQ(it, s.begin());
-    EXPECT_EQ(*it++, 'a');
-    EXPECT_EQ(*it++, ' ');
-    EXPECT_EQ(*it++, 'b');
-    EXPECT_EQ(*it++, ' ');
-    EXPECT_EQ(*it++, 'c');
-    EXPECT_EQ(it, s.end());
+  EXPECT_EQ(s.length(), 5U);
+  EXPECT_EQ(it, s.begin());
+  EXPECT_EQ(*it++, 'a');
+  EXPECT_EQ(*it++, ' ');
+  EXPECT_EQ(*it++, 'b');
+  EXPECT_EQ(*it++, ' ');
+  EXPECT_EQ(*it++, 'c');
+  EXPECT_EQ(it, s.end());
 }
 
-TEST(PedigreeCord, StaticReverseIteration)
-{
-    StaticCord<8> s;
-    s.append("ab");
-    s.append("cd");
+TEST(PedigreeCord, StaticReverseIteration) {
+  StaticCord<8> s;
+  s.append("ab");
+  s.append("cd");
 
-    auto it = s.end();
-    EXPECT_EQ(*--it, 'd');
-    EXPECT_EQ(*--it, 'c');
-    EXPECT_EQ(*--it, 'b');
-    EXPECT_EQ(*--it, 'a');
+  auto it = s.end();
+  EXPECT_EQ(*--it, 'd');
+  EXPECT_EQ(*--it, 'c');
+  EXPECT_EQ(*--it, 'b');
+  EXPECT_EQ(*--it, 'a');
 }

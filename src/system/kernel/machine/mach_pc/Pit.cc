@@ -36,85 +36,73 @@
 
 Pit Pit::m_Instance;
 
-bool Pit::registerHandler(SchedulerTimerHandler *handler)
-{
-    return m_Handler.publish(0, handler);
+bool Pit::registerHandler(SchedulerTimerHandler* handler) {
+  return m_Handler.publish(0, handler);
 }
 
-bool Pit::removeHandler(SchedulerTimerHandler *handler)
-{
-    return canRemoveHandlerInCurrentContext() &&
-           m_Handler.unpublish(0, handler);
+bool Pit::removeHandler(SchedulerTimerHandler* handler) {
+  return canRemoveHandlerInCurrentContext() && m_Handler.unpublish(0, handler);
 }
 
-bool Pit::initialise()
-{
-    // Allocate the PIT I/O range
-    if (m_IoPort.allocate(0x40, 4) == false)
-        return false;
+bool Pit::initialise() {
+  // Allocate the PIT I/O range
+  if (m_IoPort.allocate(0x40, 4) == false)
+    return false;
 
-    // Allocate the IRQ
-    IrqManager &irqManager = *Machine::instance().getIrqManager();
-    m_IrqId = irqManager.registerSchedulerIrqHandler(
-        0, this, IrqPolicy::edgeHard());
-    if (m_IrqId == 0)
-        return false;
+  // Allocate the IRQ
+  IrqManager& irqManager = *Machine::instance().getIrqManager();
+  m_IrqId = irqManager.registerSchedulerIrqHandler(0, this, IrqPolicy::edgeHard());
+  if (m_IrqId == 0)
+    return false;
 
-    // Set the PIT frequency
-    // The value we send to the PIT is the value to divide it's input clock
-    // (1193180 Hz) by, to get our required frequency. Important to note is
-    // that the divisor must be small enough to fit into 16-bits.
-    size_t divisor = 1193180 / PIT_FREQUENCY;
+  // Set the PIT frequency
+  // The value we send to the PIT is the value to divide it's input clock
+  // (1193180 Hz) by, to get our required frequency. Important to note is
+  // that the divisor must be small enough to fit into 16-bits.
+  size_t divisor = 1193180 / PIT_FREQUENCY;
 
-    // Send the command byte.
-    m_IoPort.write8(0x36, 3);
+  // Send the command byte.
+  m_IoPort.write8(0x36, 3);
 
-    // Divisor has to be sent byte-wise, so split here into upper/lower bytes.
-    uint8_t l = divisor & 0xFF;
-    uint8_t h = (divisor >> 8) & 0xFF;
+  // Divisor has to be sent byte-wise, so split here into upper/lower bytes.
+  uint8_t l = divisor & 0xFF;
+  uint8_t h = (divisor >> 8) & 0xFF;
 
-    // Send the frequency divisor.
-    m_IoPort.write8(l, 0);
-    m_IoPort.write8(h, 0);
+  // Send the frequency divisor.
+  m_IoPort.write8(l, 0);
+  m_IoPort.write8(h, 0);
 
-    return true;
+  return true;
 }
-void Pit::uninitialise()
-{
-    // TODO: Reset the PIT frequency
+void Pit::uninitialise() {
+  // TODO: Reset the PIT frequency
 
-    // Free the IRQ
-    if (m_IrqId != 0)
-    {
-        IrqManager &irqManager = *Machine::instance().getIrqManager();
-        if (!irqManager.unregisterSchedulerIrqHandler(m_IrqId, this))
-        {
-            FATAL("PIT teardown could not remove its direct IRQ route");
-        }
-        m_IrqId = 0;
+  // Free the IRQ
+  if (m_IrqId != 0) {
+    IrqManager& irqManager = *Machine::instance().getIrqManager();
+    if (!irqManager.unregisterSchedulerIrqHandler(m_IrqId, this)) {
+      FATAL("PIT teardown could not remove its direct IRQ route");
     }
+    m_IrqId = 0;
+  }
 
-    // Free the PIT I/O range
-    m_IoPort.free();
+  // Free the PIT I/O range
+  m_IoPort.free();
 
-    // Source teardown does not confer ownership of the scheduler callback.
-    // Its exact owner remains responsible for unpublishing it.
+  // Source teardown does not confer ownership of the scheduler callback.
+  // Its exact owner remains responsible for unpublishing it.
 }
 
-Pit::Pit() : m_IoPort("PIT"), m_IrqId(0), m_Handler()
-{
-}
+Pit::Pit() : m_IoPort("PIT"), m_IrqId(0), m_Handler() {}
 
-void Pit::schedulerIrq(irq_id_t number, InterruptState &state)
-{
-    // TODO: Delta is wrong
-    SchedulerTimerHandlerSlot::DispatchGuard dispatch;
-    if (LIKELY(m_Handler.beginDispatch(0, dispatch)))
-    {
-        SchedulerTimerDispatchCleanup dispatchCleanup(dispatch);
-        ExecutionContextGuard schedulerContext(ExecutionContext::SchedulerIrq);
-        dispatch.handler()->timer(0, state);
-    }
+void Pit::schedulerIrq(irq_id_t number, InterruptState& state) {
+  // TODO: Delta is wrong
+  SchedulerTimerHandlerSlot::DispatchGuard dispatch;
+  if (LIKELY(m_Handler.beginDispatch(0, dispatch))) {
+    SchedulerTimerDispatchCleanup dispatchCleanup(dispatch);
+    ExecutionContextGuard schedulerContext(ExecutionContext::SchedulerIrq);
+    dispatch.handler()->timer(0, state);
+  }
 
-    // Processor::information().getScheduler().checkEventState(state.getStackPointer());
+  // Processor::information().getScheduler().checkEventState(state.getStackPointer());
 }

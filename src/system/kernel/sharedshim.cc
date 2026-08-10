@@ -21,9 +21,9 @@
 // so that it can be linked against.
 
 extern "C" {
-void *mp_trampoline16;
-void *mp_trampoline32;
-void *trampolinegdt64;
-void *trampolinegdtr64;
-void *pml4;
+void* mp_trampoline16;
+void* mp_trampoline32;
+void* trampolinegdt64;
+void* trampolinegdtr64;
+void* pml4;
 }

@@ -17,36 +17,28 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/machine/Machine.h"
 
-Machine::~Machine()
-{
+Machine::~Machine() {}
+
+bool Machine::quiesceAllOtherProcessors() {
+  EMIT_IF(MULTIPROCESSOR) {
+    return false;
+  }
+  return true;
 }
 
-bool Machine::quiesceAllOtherProcessors()
-{
-    EMIT_IF(MULTIPROCESSOR)
-    {
-        return false;
-    }
-    return true;
+bool Machine::resumeAllOtherProcessors() {
+  EMIT_IF(MULTIPROCESSOR) {
+    return false;
+  }
+  return true;
 }
 
-bool Machine::resumeAllOtherProcessors()
-{
-    EMIT_IF(MULTIPROCESSOR)
-    {
-        return false;
-    }
-    return true;
-}
-
-bool Machine::stopAllOtherProcessors()
-{
-    EMIT_IF(MULTIPROCESSOR)
-    {
-        return false;
-    }
-    return true;
+bool Machine::stopAllOtherProcessors() {
+  EMIT_IF(MULTIPROCESSOR) {
+    return false;
+  }
+  return true;
 }

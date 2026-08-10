@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -28,784 +28,655 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
-namespace
-{
-void preserveConditionInterruption(
-    ConditionVariable::Error error)
-{
-    if (error == ConditionVariable::Interrupted)
-    {
-        Processor::information()
-            .getCurrentThread()
-            ->setInterruptionReason(Thread::InterruptedBySignal);
-    }
+namespace {
+void preserveConditionInterruption(ConditionVariable::Error error) {
+  if (error == ConditionVariable::Interrupted) {
+    Processor::information().getCurrentThread()->setInterruptionReason(Thread::InterruptedBySignal);
+  }
 }
 }  // namespace
 #endif
 
 template <class T, bool allowShortOperation>
 Buffer<T, allowShortOperation>::Buffer(size_t bufferSize)
-    : m_BufferSize(bufferSize), m_DataSize(0), m_Lock(),
-      m_WriteCondition(), m_ReadCondition(), m_DrainCondition(), m_Segments(),
-      m_MonitorTargets(), m_bCanRead(true), m_bCanWrite(true),
-      m_bClosing(false), m_ActiveOperations(0)
-{
+    : m_BufferSize(bufferSize),
+      m_DataSize(0),
+      m_Lock(),
+      m_WriteCondition(),
+      m_ReadCondition(),
+      m_DrainCondition(),
+      m_Segments(),
+      m_MonitorTargets(),
+      m_bCanRead(true),
+      m_bCanWrite(true),
+      m_bClosing(false),
+      m_ActiveOperations(0) {}
+
+template <class T, bool allowShortOperation>
+Buffer<T, allowShortOperation>::~Buffer() {
+  TerminationDeferral terminationDeferral;
+  m_Lock.acquire();
+  m_bClosing = true;
+  m_bCanRead = false;
+  m_bCanWrite = false;
+  m_ReadCondition.broadcast();
+  m_WriteCondition.broadcast();
+
+  while (m_ActiveOperations) {
+    m_DrainCondition.waitForCompletion(m_Lock);
+  }
+
+  for (auto pSegment : m_Segments) {
+    delete pSegment;
+  }
+  m_Segments.clear();
+  m_DataSize = 0;
+
+  for (auto pTarget : m_MonitorTargets) {
+#if THREADS
+    if (pTarget->pSemaphore) {
+      pTarget->pSemaphore->release();
+    }
+#endif
+    delete pTarget;
+  }
+  m_MonitorTargets.clear();
+  m_Lock.release();
 }
 
 template <class T, bool allowShortOperation>
-Buffer<T, allowShortOperation>::~Buffer()
-{
-    TerminationDeferral terminationDeferral;
+bool Buffer<T, allowShortOperation>::beginOperation() {
+  LockGuard<Mutex> guard(m_Lock);
+  if (m_bClosing) {
+    return false;
+  }
+
+  ++m_ActiveOperations;
+  return true;
+}
+
+template <class T, bool allowShortOperation>
+void Buffer<T, allowShortOperation>::endOperation() {
+  LockGuard<Mutex> guard(m_Lock);
+  assert(m_ActiveOperations);
+  --m_ActiveOperations;
+  if (m_bClosing && !m_ActiveOperations) {
+    m_DrainCondition.signal();
+  }
+}
+
+template <class T, bool allowShortOperation>
+size_t Buffer<T, allowShortOperation>::write(const T* buffer, size_t count, bool block) {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return 0;
+  }
+
+  if (!block) {
+    if (!m_Lock.tryAcquire()) {
+      // can't unlock buffer for writing
+      return 0;
+    }
+  } else {
+    // can block!
     m_Lock.acquire();
-    m_bClosing = true;
-    m_bCanRead = false;
-    m_bCanWrite = false;
-    m_ReadCondition.broadcast();
-    m_WriteCondition.broadcast();
+  }
 
-    while (m_ActiveOperations)
-    {
-        m_DrainCondition.waitForCompletion(m_Lock);
+  size_t countSoFar = 0;
+  while (true) {
+    // Can we write?
+    if (!m_bCanWrite) {
+      // No! Maybe not anymore, so return what we've written so far.
+      break;
     }
 
-    for (auto pSegment : m_Segments)
-    {
+    // Do we have space?
+    size_t bytesAvailable = m_BufferSize - m_DataSize;
+    if (!bytesAvailable) {
+      if (!block) {
+        // Cannot block!
+        break;
+      }
+
+      // Can any reader get us out of this situation?
+      if (!m_bCanRead) {
+        // No. Return what we've written so far.
+        break;
+      }
+
+      // No, we need to wait.
+      ConditionVariable::Error error = ConditionVariable::NoError;
+      if (!m_WriteCondition.wait(m_Lock, error)) {
+#if THREADS
+        preserveConditionInterruption(error);
+#endif
+        if (ConditionVariable::mutexAcquired(error)) {
+          m_Lock.release();
+        }
+        return countSoFar;
+      }
+      continue;
+    }
+
+    // Yes, we have room.
+    size_t totalCount = bytesAvailable;
+    if (totalCount > count) {
+      totalCount = count;
+    }
+
+    // If we're allowed to just give up if we don't have enough bytes, do
+    // so (e.g. for TCP buffers and the like).
+    if (allowShortOperation && (totalCount > bytesAvailable)) {
+      totalCount = bytesAvailable;
+      count = bytesAvailable;
+      if (!totalCount) {
+        break;
+      }
+    }
+
+    // Add the segment.
+    bool copiedData = false;
+    while (totalCount) {
+      size_t numberCopied = 0;
+      if (totalCount >= m_SegmentSize) {
+        // Ignore any existing segments, just create a new one.
+        addSegment(buffer, m_SegmentSize);
+        numberCopied = m_SegmentSize;
+      } else if (!m_Segments.count()) {
+        // Just add this segment.
+        addSegment(buffer, totalCount);
+        numberCopied = totalCount;
+      } else {
+        // Can we modify the most recent segment?
+        Segment* pSegment = m_Segments.popBack();
+        if (pSegment->size == m_SegmentSize) {
+          m_Segments.pushBack(pSegment);
+
+          // Full already, need a new segment.
+          addSegment(buffer, totalCount);
+          numberCopied = totalCount;
+        } else {
+          // There's room in this segment.
+          T* start = &pSegment->data[pSegment->size];
+          size_t availableSpace = m_SegmentSize - pSegment->size;
+          if (availableSpace > totalCount) {
+            availableSpace = totalCount;
+          }
+          pedigree_std::copy(start, buffer, availableSpace);
+
+          // We just added more bytes to this segment.
+          pSegment->size += availableSpace;
+
+          // Done with this segment, so push it back for reading.
+          m_Segments.pushBack(pSegment);
+
+          // Was that enough?
+          if (availableSpace < totalCount) {
+            // No, need one more segment.
+            addSegment(&buffer[availableSpace], totalCount - availableSpace);
+          }
+
+          // Done.
+          numberCopied = totalCount;
+        }
+      }
+
+      countSoFar += numberCopied;
+      m_DataSize += numberCopied;
+      buffer += numberCopied;
+      totalCount -= numberCopied;
+      count -= numberCopied;
+
+      if (!copiedData) {
+        copiedData = numberCopied > 0;
+      }
+    }
+
+    // Wake up a reader that was waiting for data.
+    // We do this here rather than after we finish as we may need to block
+    // again (e.g. if we're writing more than the size of the buffer), and
+    // a reader is needed to unblock that.
+    if (copiedData) {
+      m_ReadCondition.signal();
+    }
+
+    if (!count) {
+      // Complete.
+      break;
+    }
+  }
+
+  m_Lock.release();
+
+  if (countSoFar) {
+    // We've updated the buffer, so send events.
+    notifyMonitors();
+  }
+
+  return countSoFar;
+}
+
+template <class T, bool allowShortOperation>
+size_t Buffer<T, allowShortOperation>::read(T* buffer, size_t count, bool block) {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return 0;
+  }
+
+  if (!block) {
+    if (!m_Lock.tryAcquire()) {
+      // can't unlock buffer for writing
+      return 0;
+    }
+  } else {
+    // can block!
+    m_Lock.acquire();
+  }
+
+  size_t countSoFar = 0;
+  while (true) {
+    // Can we read?
+    if (!m_bCanRead) {
+      // No! Maybe not anymore, so return what we've read so far.
+      break;
+    }
+
+    // Do we have anything to read?
+    if (!m_DataSize) {
+      if (!block) {
+        // Cannot block!
+        break;
+      }
+
+      // Can any writer get us out of this situation?
+      if (!m_bCanWrite) {
+        // No. Return what we've read so far.
+        break;
+      }
+
+      // No, we need to wait.
+      ConditionVariable::Error error = ConditionVariable::NoError;
+      if (!m_ReadCondition.wait(m_Lock, error)) {
+#if THREADS
+        preserveConditionInterruption(error);
+#endif
+        if (ConditionVariable::mutexAcquired(error)) {
+          m_Lock.release();
+        }
+        return countSoFar;
+      }
+      continue;
+    }
+
+    // Yes, we have room.
+    size_t totalCount = count;
+    if (totalCount > m_DataSize) {
+      totalCount = m_DataSize;
+    }
+
+    size_t numberCopied = 0;
+    while (m_Segments.count() && numberCopied < totalCount) {
+      // Grab the first segment and read it.
+      Segment* pSegment = m_Segments.popFront();
+      size_t countToRead = pSegment->size - pSegment->reader;
+      if ((numberCopied + countToRead) > totalCount) {
+        countToRead = totalCount - numberCopied;
+      }
+
+      // Copy.
+      pedigree_std::copy(buffer, &pSegment->data[pSegment->reader], countToRead);
+      pSegment->reader += countToRead;
+
+      // Do we need to re-add it?
+      if (pSegment->reader < pSegment->size) {
+        m_Segments.pushFront(pSegment);
+      } else {
         delete pSegment;
-    }
-    m_Segments.clear();
-    m_DataSize = 0;
+      }
 
-    for (auto pTarget : m_MonitorTargets)
-    {
+      numberCopied += countToRead;
+      buffer += countToRead;
+    }
+
+    m_DataSize -= numberCopied;
+    countSoFar += numberCopied;
+    count -= numberCopied;
+
+    // We read some bytes so writers may be able to continue, which may be
+    // needed to unblock us if we loop back around and block.
+    if (numberCopied) {
+      // Wake up a writer that was waiting for space to write.
+      m_WriteCondition.signal();
+    }
+
+    if (!count) {
+      break;
+    }
+
+    // Once we've read at least some bytes, don't block - just return what
+    // we've read so far if we loop back around and have no data.
+    block = false;
+  }
+
+  m_Lock.release();
+
+  if (countSoFar) {
+    // We've updated the buffer, so send events.
+    notifyMonitors();
+  }
+
+  return countSoFar;
+}
+
+template <class T, bool allowShortOperation>
+void Buffer<T, allowShortOperation>::disableWrites() {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return;
+  }
+
+  LockGuard<Mutex> guard(m_Lock);
+  m_bCanWrite = false;
+
+  // All pending readers need to now return.
+  m_ReadCondition.broadcast();
+}
+
+template <class T, bool allowShortOperation>
+void Buffer<T, allowShortOperation>::disableReads() {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return;
+  }
+
+  LockGuard<Mutex> guard(m_Lock);
+  m_bCanRead = false;
+
+  // All pending writers need to now return.
+  m_WriteCondition.broadcast();
+}
+
+template <class T, bool allowShortOperation>
+bool Buffer<T, allowShortOperation>::enableWrites() {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return false;
+  }
+
+  LockGuard<Mutex> guard(m_Lock);
+  bool previous = m_bCanWrite;
+  m_bCanWrite = true;
+  return previous;
+}
+
+template <class T, bool allowShortOperation>
+bool Buffer<T, allowShortOperation>::enableReads() {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return false;
+  }
+
+  LockGuard<Mutex> guard(m_Lock);
+  bool previous = m_bCanRead;
+  m_bCanRead = true;
+  return previous;
+}
+
+template <class T, bool allowShortOperation>
+size_t Buffer<T, allowShortOperation>::getDataSize() {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return 0;
+  }
+
+  LockGuard<Mutex> guard(m_Lock);
+  return m_DataSize;
+}
+
+template <class T, bool allowShortOperation>
+size_t Buffer<T, allowShortOperation>::getSize() {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return 0;
+  }
+
+  return m_BufferSize;
+}
+
+template <class T, bool allowShortOperation>
+bool Buffer<T, allowShortOperation>::canWrite(bool block) {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return false;
+  }
+
+  LockGuard<Mutex> guard(m_Lock);
+
+  if (!block) {
+    return m_bCanWrite && (m_DataSize < m_BufferSize);
+  }
+
+  if (!m_bCanWrite) {
+    return false;
+  }
+
+  // We can get woken here if we stop being able to write.
+  while (m_bCanWrite && m_DataSize >= m_BufferSize) {
+    ConditionVariable::Error error = ConditionVariable::NoError;
+    if (!m_WriteCondition.wait(m_Lock, error)) {
 #if THREADS
-        if (pTarget->pSemaphore)
-        {
-            pTarget->pSemaphore->release();
-        }
+      preserveConditionInterruption(error);
 #endif
-        delete pTarget;
+      if (!ConditionVariable::mutexAcquired(error)) {
+        guard.disown();
+      }
+      return false;
     }
-    m_MonitorTargets.clear();
-    m_Lock.release();
+  }
+
+  return m_bCanWrite;
 }
 
 template <class T, bool allowShortOperation>
-bool Buffer<T, allowShortOperation>::beginOperation()
-{
-    LockGuard<Mutex> guard(m_Lock);
-    if (m_bClosing)
-    {
-        return false;
-    }
+bool Buffer<T, allowShortOperation>::canRead(bool block) {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return false;
+  }
 
-    ++m_ActiveOperations;
-    return true;
-}
+  LockGuard<Mutex> guard(m_Lock);
 
-template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::endOperation()
-{
-    LockGuard<Mutex> guard(m_Lock);
-    assert(m_ActiveOperations);
-    --m_ActiveOperations;
-    if (m_bClosing && !m_ActiveOperations)
-    {
-        m_DrainCondition.signal();
-    }
-}
+  if (!block) {
+    return m_bCanRead && (m_DataSize > 0);
+  }
 
-template <class T, bool allowShortOperation>
-size_t
-Buffer<T, allowShortOperation>::write(const T *buffer, size_t count, bool block)
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return 0;
-    }
+  if (!m_bCanRead) {
+    return false;
+  }
 
-    if (!block)
-    {
-        if (!m_Lock.tryAcquire())
-        {
-            // can't unlock buffer for writing
-            return 0;
-        }
-    }
-    else
-    {
-        // can block!
-        m_Lock.acquire();
-    }
-
-    size_t countSoFar = 0;
-    while (true)
-    {
-        // Can we write?
-        if (!m_bCanWrite)
-        {
-            // No! Maybe not anymore, so return what we've written so far.
-            break;
-        }
-
-        // Do we have space?
-        size_t bytesAvailable = m_BufferSize - m_DataSize;
-        if (!bytesAvailable)
-        {
-            if (!block)
-            {
-                // Cannot block!
-                break;
-            }
-
-            // Can any reader get us out of this situation?
-            if (!m_bCanRead)
-            {
-                // No. Return what we've written so far.
-                break;
-            }
-
-            // No, we need to wait.
-            ConditionVariable::Error error =
-                ConditionVariable::NoError;
-            if (!m_WriteCondition.wait(m_Lock, error))
-            {
+  // We can get woken here if we stop being able to read.
+  while (m_bCanRead && !m_DataSize) {
+    ConditionVariable::Error error = ConditionVariable::NoError;
+    if (!m_ReadCondition.wait(m_Lock, error)) {
 #if THREADS
-                preserveConditionInterruption(error);
+      preserveConditionInterruption(error);
 #endif
-                if (ConditionVariable::mutexAcquired(error))
-                {
-                    m_Lock.release();
-                }
-                return countSoFar;
-            }
-            continue;
-        }
-
-        // Yes, we have room.
-        size_t totalCount = bytesAvailable;
-        if (totalCount > count)
-        {
-            totalCount = count;
-        }
-
-        // If we're allowed to just give up if we don't have enough bytes, do
-        // so (e.g. for TCP buffers and the like).
-        if (allowShortOperation && (totalCount > bytesAvailable))
-        {
-            totalCount = bytesAvailable;
-            count = bytesAvailable;
-            if (!totalCount)
-            {
-                break;
-            }
-        }
-
-        // Add the segment.
-        bool copiedData = false;
-        while (totalCount)
-        {
-            size_t numberCopied = 0;
-            if (totalCount >= m_SegmentSize)
-            {
-                // Ignore any existing segments, just create a new one.
-                addSegment(buffer, m_SegmentSize);
-                numberCopied = m_SegmentSize;
-            }
-            else if (!m_Segments.count())
-            {
-                // Just add this segment.
-                addSegment(buffer, totalCount);
-                numberCopied = totalCount;
-            }
-            else
-            {
-                // Can we modify the most recent segment?
-                Segment *pSegment = m_Segments.popBack();
-                if (pSegment->size == m_SegmentSize)
-                {
-                    m_Segments.pushBack(pSegment);
-
-                    // Full already, need a new segment.
-                    addSegment(buffer, totalCount);
-                    numberCopied = totalCount;
-                }
-                else
-                {
-                    // There's room in this segment.
-                    T *start = &pSegment->data[pSegment->size];
-                    size_t availableSpace = m_SegmentSize - pSegment->size;
-                    if (availableSpace > totalCount)
-                    {
-                        availableSpace = totalCount;
-                    }
-                    pedigree_std::copy(start, buffer, availableSpace);
-
-                    // We just added more bytes to this segment.
-                    pSegment->size += availableSpace;
-
-                    // Done with this segment, so push it back for reading.
-                    m_Segments.pushBack(pSegment);
-
-                    // Was that enough?
-                    if (availableSpace < totalCount)
-                    {
-                        // No, need one more segment.
-                        addSegment(
-                            &buffer[availableSpace],
-                            totalCount - availableSpace);
-                    }
-
-                    // Done.
-                    numberCopied = totalCount;
-                }
-            }
-
-            countSoFar += numberCopied;
-            m_DataSize += numberCopied;
-            buffer += numberCopied;
-            totalCount -= numberCopied;
-            count -= numberCopied;
-
-            if (!copiedData)
-            {
-                copiedData = numberCopied > 0;
-            }
-        }
-
-        // Wake up a reader that was waiting for data.
-        // We do this here rather than after we finish as we may need to block
-        // again (e.g. if we're writing more than the size of the buffer), and
-        // a reader is needed to unblock that.
-        if (copiedData)
-        {
-            m_ReadCondition.signal();
-        }
-
-        if (!count)
-        {
-            // Complete.
-            break;
-        }
+      if (!ConditionVariable::mutexAcquired(error)) {
+        guard.disown();
+      }
+      return false;
     }
+  }
 
-    m_Lock.release();
-
-    if (countSoFar)
-    {
-        // We've updated the buffer, so send events.
-        notifyMonitors();
-    }
-
-    return countSoFar;
+  return m_bCanRead;
 }
 
 template <class T, bool allowShortOperation>
-size_t Buffer<T, allowShortOperation>::read(T *buffer, size_t count, bool block)
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return 0;
-    }
+void Buffer<T, allowShortOperation>::wipe() {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return;
+  }
 
-    if (!block)
-    {
-        if (!m_Lock.tryAcquire())
-        {
-            // can't unlock buffer for writing
-            return 0;
-        }
-    }
-    else
-    {
-        // can block!
-        m_Lock.acquire();
-    }
+  LockGuard<Mutex> guard(m_Lock);
 
-    size_t countSoFar = 0;
-    while (true)
-    {
-        // Can we read?
-        if (!m_bCanRead)
-        {
-            // No! Maybe not anymore, so return what we've read so far.
-            break;
-        }
+  // Wipe out every segment we own.
+  for (auto pSegment : m_Segments) {
+    delete pSegment;
+  }
+  m_Segments.clear();
+  m_DataSize = 0;
 
-        // Do we have anything to read?
-        if (!m_DataSize)
-        {
-            if (!block)
-            {
-                // Cannot block!
-                break;
-            }
-
-            // Can any writer get us out of this situation?
-            if (!m_bCanWrite)
-            {
-                // No. Return what we've read so far.
-                break;
-            }
-
-            // No, we need to wait.
-            ConditionVariable::Error error =
-                ConditionVariable::NoError;
-            if (!m_ReadCondition.wait(m_Lock, error))
-            {
-#if THREADS
-                preserveConditionInterruption(error);
-#endif
-                if (ConditionVariable::mutexAcquired(error))
-                {
-                    m_Lock.release();
-                }
-                return countSoFar;
-            }
-            continue;
-        }
-
-        // Yes, we have room.
-        size_t totalCount = count;
-        if (totalCount > m_DataSize)
-        {
-            totalCount = m_DataSize;
-        }
-
-        size_t numberCopied = 0;
-        while (m_Segments.count() && numberCopied < totalCount)
-        {
-            // Grab the first segment and read it.
-            Segment *pSegment = m_Segments.popFront();
-            size_t countToRead = pSegment->size - pSegment->reader;
-            if ((numberCopied + countToRead) > totalCount)
-            {
-                countToRead = totalCount - numberCopied;
-            }
-
-            // Copy.
-            pedigree_std::copy(
-                buffer, &pSegment->data[pSegment->reader], countToRead);
-            pSegment->reader += countToRead;
-
-            // Do we need to re-add it?
-            if (pSegment->reader < pSegment->size)
-            {
-                m_Segments.pushFront(pSegment);
-            }
-            else
-            {
-                delete pSegment;
-            }
-
-            numberCopied += countToRead;
-            buffer += countToRead;
-        }
-
-        m_DataSize -= numberCopied;
-        countSoFar += numberCopied;
-        count -= numberCopied;
-
-        // We read some bytes so writers may be able to continue, which may be
-        // needed to unblock us if we loop back around and block.
-        if (numberCopied)
-        {
-            // Wake up a writer that was waiting for space to write.
-            m_WriteCondition.signal();
-        }
-
-        if (!count)
-        {
-            break;
-        }
-
-        // Once we've read at least some bytes, don't block - just return what
-        // we've read so far if we loop back around and have no data.
-        block = false;
-    }
-
-    m_Lock.release();
-
-    if (countSoFar)
-    {
-        // We've updated the buffer, so send events.
-        notifyMonitors();
-    }
-
-    return countSoFar;
+  // Notify writers that might have been waiting for space.
+  m_WriteCondition.signal();
 }
 
 template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::disableWrites()
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return;
-    }
-
-    LockGuard<Mutex> guard(m_Lock);
-    m_bCanWrite = false;
-
-    // All pending readers need to now return.
-    m_ReadCondition.broadcast();
-}
-
-template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::disableReads()
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return;
-    }
-
-    LockGuard<Mutex> guard(m_Lock);
-    m_bCanRead = false;
-
-    // All pending writers need to now return.
-    m_WriteCondition.broadcast();
-}
-
-template <class T, bool allowShortOperation>
-bool Buffer<T, allowShortOperation>::enableWrites()
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return false;
-    }
-
-    LockGuard<Mutex> guard(m_Lock);
-    bool previous = m_bCanWrite;
-    m_bCanWrite = true;
-    return previous;
-}
-
-template <class T, bool allowShortOperation>
-bool Buffer<T, allowShortOperation>::enableReads()
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return false;
-    }
-
-    LockGuard<Mutex> guard(m_Lock);
-    bool previous = m_bCanRead;
-    m_bCanRead = true;
-    return previous;
-}
-
-template <class T, bool allowShortOperation>
-size_t Buffer<T, allowShortOperation>::getDataSize()
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return 0;
-    }
-
-    LockGuard<Mutex> guard(m_Lock);
-    return m_DataSize;
-}
-
-template <class T, bool allowShortOperation>
-size_t Buffer<T, allowShortOperation>::getSize()
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return 0;
-    }
-
-    return m_BufferSize;
-}
-
-template <class T, bool allowShortOperation>
-bool Buffer<T, allowShortOperation>::canWrite(bool block)
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return false;
-    }
-
-    LockGuard<Mutex> guard(m_Lock);
-
-    if (!block)
-    {
-        return m_bCanWrite && (m_DataSize < m_BufferSize);
-    }
-
-    if (!m_bCanWrite)
-    {
-        return false;
-    }
-
-    // We can get woken here if we stop being able to write.
-    while (m_bCanWrite && m_DataSize >= m_BufferSize)
-    {
-        ConditionVariable::Error error = ConditionVariable::NoError;
-        if (!m_WriteCondition.wait(m_Lock, error))
-        {
-#if THREADS
-            preserveConditionInterruption(error);
-#endif
-            if (!ConditionVariable::mutexAcquired(error))
-            {
-                guard.disown();
-            }
-            return false;
-        }
-    }
-
-    return m_bCanWrite;
-}
-
-template <class T, bool allowShortOperation>
-bool Buffer<T, allowShortOperation>::canRead(bool block)
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return false;
-    }
-
-    LockGuard<Mutex> guard(m_Lock);
-
-    if (!block)
-    {
-        return m_bCanRead && (m_DataSize > 0);
-    }
-
-    if (!m_bCanRead)
-    {
-        return false;
-    }
-
-    // We can get woken here if we stop being able to read.
-    while (m_bCanRead && !m_DataSize)
-    {
-        ConditionVariable::Error error = ConditionVariable::NoError;
-        if (!m_ReadCondition.wait(m_Lock, error))
-        {
-#if THREADS
-            preserveConditionInterruption(error);
-#endif
-            if (!ConditionVariable::mutexAcquired(error))
-            {
-                guard.disown();
-            }
-            return false;
-        }
-    }
-
-    return m_bCanRead;
-}
-
-template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::wipe()
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return;
-    }
-
-    LockGuard<Mutex> guard(m_Lock);
-
-    // Wipe out every segment we own.
-    for (auto pSegment : m_Segments)
-    {
-        delete pSegment;
-    }
-    m_Segments.clear();
-    m_DataSize = 0;
-
-    // Notify writers that might have been waiting for space.
-    m_WriteCondition.signal();
-}
-
-template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::monitor(Thread *pThread, Event *pEvent)
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return;
-    }
+void Buffer<T, allowShortOperation>::monitor(Thread* pThread, Event* pEvent) {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return;
+  }
 
 #if THREADS
-    LockGuard<Mutex> guard(m_Lock);
-    Event::SendLease registration;
-    if (pEvent->tryAcquireRegistration(registration))
-    {
-        MonitorTarget *pTarget = new MonitorTarget(
-            pThread, pEvent, pedigree_std::move(registration));
-        m_MonitorTargets.pushBack(pTarget);
-    }
-#endif
-}
-
-template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::monitor(Semaphore *pSemaphore)
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return;
-    }
-
-#if THREADS
-    LockGuard<Mutex> guard(m_Lock);
-    MonitorTarget *pTarget = new MonitorTarget(pSemaphore);
+  LockGuard<Mutex> guard(m_Lock);
+  Event::SendLease registration;
+  if (pEvent->tryAcquireRegistration(registration)) {
+    MonitorTarget* pTarget = new MonitorTarget(pThread, pEvent, pedigree_std::move(registration));
     m_MonitorTargets.pushBack(pTarget);
+  }
 #endif
 }
 
 template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::cullMonitorTargets(Thread *pThread)
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return;
-    }
+void Buffer<T, allowShortOperation>::monitor(Semaphore* pSemaphore) {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return;
+  }
 
 #if THREADS
-    LockGuard<Mutex> guard(m_Lock);
-    for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end(); ++it)
-    {
-        MonitorTarget *pMT = *it;
-
-        if (pMT->pThread == pThread)
-        {
-            delete pMT;
-            m_MonitorTargets.erase(it);
-            it = m_MonitorTargets.begin();
-            if (it == m_MonitorTargets.end())
-                return;
-        }
-    }
+  LockGuard<Mutex> guard(m_Lock);
+  MonitorTarget* pTarget = new MonitorTarget(pSemaphore);
+  m_MonitorTargets.pushBack(pTarget);
 #endif
 }
 
 template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::cullMonitorTargets(Semaphore *pSemaphore)
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return;
-    }
+void Buffer<T, allowShortOperation>::cullMonitorTargets(Thread* pThread) {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return;
+  }
 
 #if THREADS
-    LockGuard<Mutex> guard(m_Lock);
-    for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end();)
-    {
-        MonitorTarget *pMT = *it;
+  LockGuard<Mutex> guard(m_Lock);
+  for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end(); ++it) {
+    MonitorTarget* pMT = *it;
 
-        if (pMT->pSemaphore == pSemaphore)
-        {
-            delete pMT;
-            it = m_MonitorTargets.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
-    }
-#endif
-}
-
-template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::cullMonitorTargets(Event *pEvent)
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
+    if (pMT->pThread == pThread) {
+      delete pMT;
+      m_MonitorTargets.erase(it);
+      it = m_MonitorTargets.begin();
+      if (it == m_MonitorTargets.end())
         return;
     }
-
-#if THREADS
-    LockGuard<Mutex> guard(m_Lock);
-    for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end();)
-    {
-        MonitorTarget *pMT = *it;
-
-        if (pMT->pEvent == pEvent)
-        {
-            delete pMT;
-            it = m_MonitorTargets.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
-    }
+  }
 #endif
 }
 
 template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::notifyMonitors()
-{
-    ActiveOperation operation(*this);
-    if (!operation)
-    {
-        return;
-    }
+void Buffer<T, allowShortOperation>::cullMonitorTargets(Semaphore* pSemaphore) {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return;
+  }
 
 #if THREADS
-    LockGuard<Mutex> guard(m_Lock);
-    for (typename List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
-         it != m_MonitorTargets.end(); it++)
-    {
-        MonitorTarget *pMT = *it;
+  LockGuard<Mutex> guard(m_Lock);
+  for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end();) {
+    MonitorTarget* pMT = *it;
 
-        if (pMT->pThread)
-        {
-            pMT->pThread->sendEvent(pMT->pEvent);
-        }
-        else if (pMT->pSemaphore)
-        {
-            pMT->pSemaphore->release();
-        }
-        delete pMT;
+    if (pMT->pSemaphore == pSemaphore) {
+      delete pMT;
+      it = m_MonitorTargets.erase(it);
+    } else {
+      ++it;
     }
-    m_MonitorTargets.clear();
+  }
 #endif
 }
 
 template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::addSegment(const T *buffer, size_t count)
-{
-    // Called with lock taken.
-    Segment *pNewSegment = new Segment();
-    pedigree_std::copy(pNewSegment->data, buffer, count);
-    pNewSegment->size = count;
-    m_Segments.pushBack(pNewSegment);
+void Buffer<T, allowShortOperation>::cullMonitorTargets(Event* pEvent) {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return;
+  }
+
+#if THREADS
+  LockGuard<Mutex> guard(m_Lock);
+  for (auto it = m_MonitorTargets.begin(); it != m_MonitorTargets.end();) {
+    MonitorTarget* pMT = *it;
+
+    if (pMT->pEvent == pEvent) {
+      delete pMT;
+      it = m_MonitorTargets.erase(it);
+    } else {
+      ++it;
+    }
+  }
+#endif
+}
+
+template <class T, bool allowShortOperation>
+void Buffer<T, allowShortOperation>::notifyMonitors() {
+  ActiveOperation operation(*this);
+  if (!operation) {
+    return;
+  }
+
+#if THREADS
+  LockGuard<Mutex> guard(m_Lock);
+  for (typename List<MonitorTarget*>::Iterator it = m_MonitorTargets.begin();
+       it != m_MonitorTargets.end(); it++) {
+    MonitorTarget* pMT = *it;
+
+    if (pMT->pThread) {
+      pMT->pThread->sendEvent(pMT->pEvent);
+    } else if (pMT->pSemaphore) {
+      pMT->pSemaphore->release();
+    }
+    delete pMT;
+  }
+  m_MonitorTargets.clear();
+#endif
+}
+
+template <class T, bool allowShortOperation>
+void Buffer<T, allowShortOperation>::addSegment(const T* buffer, size_t count) {
+  // Called with lock taken.
+  Segment* pNewSegment = new Segment();
+  pedigree_std::copy(pNewSegment->data, buffer, count);
+  pNewSegment->size = count;
+  m_Segments.pushBack(pNewSegment);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::acquireHostedOperationLock()
-{
-    m_Lock.acquire();
+void Buffer<T, allowShortOperation>::acquireHostedOperationLock() {
+  m_Lock.acquire();
 }
 
 template <class T, bool allowShortOperation>
-void Buffer<T, allowShortOperation>::releaseHostedOperationLock()
-{
-    m_Lock.release();
+void Buffer<T, allowShortOperation>::releaseHostedOperationLock() {
+  m_Lock.release();
 }
 
 template <class T, bool allowShortOperation>
-size_t Buffer<T, allowShortOperation>::getHostedActiveOperationCount()
-{
-    LockGuard<Mutex> guard(m_Lock);
-    return m_ActiveOperations;
+size_t Buffer<T, allowShortOperation>::getHostedActiveOperationCount() {
+  LockGuard<Mutex> guard(m_Lock);
+  return m_ActiveOperations;
 }
 #endif
 

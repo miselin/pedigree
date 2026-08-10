@@ -20,10 +20,10 @@
 #ifndef LIBUI_PROTOCOL_H
 #define LIBUI_PROTOCOL_H
 
-#include "pedigree/native/types.h"
-
 #include "pedigree/native/graphics/Graphics.h"
 #include "pedigree/native/ipc/Ipc.h"
+#include "pedigree/native/types.h"
+
 #include <Widget.h>
 
 /** \addtogroup PedigreeGUI
@@ -38,289 +38,259 @@
 #define CLIENT_SOCKET_BASE "/run/sockets/winman-client-%s.sock"
 #endif
 
-namespace LibUiProtocol
-{
+namespace LibUiProtocol {
 /** Sends a message to the window manager. */
-bool sendMessage(void *pMessage, size_t messageLength);
+bool sendMessage(void* pMessage, size_t messageLength);
 
 /** Receives a message from the window manager. Blocks. */
-bool recvMessage(
-    PedigreeIpc::IpcEndpoint *endpoint, void *pBuffer, size_t maxSize);
+bool recvMessage(PedigreeIpc::IpcEndpoint* endpoint, void* pBuffer, size_t maxSize);
 
 /** Receives a message from the window manager. Blocks. */
-bool recvMessageAsync(
-    PedigreeIpc::IpcEndpoint *endpoint, void *pBuffer, size_t maxSize);
+bool recvMessageAsync(PedigreeIpc::IpcEndpoint* endpoint, void* pBuffer, size_t maxSize);
 
 /** Widget handle type. */
 typedef uint64_t handle_t;
 
-enum ButtonState
-{
-    Down,
-    Up,
-    Unchanged
-};
+enum ButtonState { Down, Up, Unchanged };
 
-enum MessageIdentifiers
-{
-    /**
-     * LargeBufferPrepare: no direction. Begins a handshake for creation of
-     * a buffer > 4 KB in size for communication. Most messages should fit
-     * into a smaller buffer.
-     */
-    LargeBufferPrepare,
+enum MessageIdentifiers {
+  /**
+   * LargeBufferPrepare: no direction. Begins a handshake for creation of
+   * a buffer > 4 KB in size for communication. Most messages should fit
+   * into a smaller buffer.
+   */
+  LargeBufferPrepare,
 
-    /**
-     * Create: widget -> window manager. Requests creation of a handle and
-     * framebuffer.
-     */
-    Create,
+  /**
+   * Create: widget -> window manager. Requests creation of a handle and
+   * framebuffer.
+   */
+  Create,
 
-    /**
-     * Reposition: window manager -> widget. Causes both a reposition and
-     * render event to be created by the widget layer.
-     */
-    Reposition,
+  /**
+   * Reposition: window manager -> widget. Causes both a reposition and
+   * render event to be created by the widget layer.
+   */
+  Reposition,
 
-    /**
-     * Sync: widget -> window manager. To be used synchronously from a
-     * client to synchronise with the window manager to ensure that it is
-     * not halfway through a reposition when a frame is rendered.
-     */
-    Sync,
+  /**
+   * Sync: widget -> window manager. To be used synchronously from a
+   * client to synchronise with the window manager to ensure that it is
+   * not halfway through a reposition when a frame is rendered.
+   */
+  Sync,
 
-    /**
-     * SetProperty: widget -> window manager. Requests modification of a window
-     * manager property for the widget.
-     */
-    SetProperty,
+  /**
+   * SetProperty: widget -> window manager. Requests modification of a window
+   * manager property for the widget.
+   */
+  SetProperty,
 
-    /**
-     * GetProperty: widget -> window manager. Requests the value of a window
-     * manager property for the widget.
-     */
-    GetProperty,
+  /**
+   * GetProperty: widget -> window manager. Requests the value of a window
+   * manager property for the widget.
+   */
+  GetProperty,
 
-    /**
-     * SetTitle: widget -> window manager. Sets the title of the widget.
-     */
-    SetTitle,
+  /**
+   * SetTitle: widget -> window manager. Sets the title of the widget.
+   */
+  SetTitle,
 
-    /**
-     * RequestRedraw: widget -> window manager. Requests a redraw of the given
-     * area. Causes a redraw to propagate if the widget is visible and the area
-     * is not obstructed by another widget.
-     */
-    RequestRedraw,
+  /**
+   * RequestRedraw: widget -> window manager. Requests a redraw of the given
+   * area. Causes a redraw to propagate if the widget is visible and the area
+   * is not obstructed by another widget.
+   */
+  RequestRedraw,
 
-    /**
-     * SetVisibility: widget -> window manager. Requests a change in the
-     * visibility of the given widget.
-     */
-    SetVisibility,
+  /**
+   * SetVisibility: widget -> window manager. Requests a change in the
+   * visibility of the given widget.
+   */
+  SetVisibility,
 
-    /**
-     * Destroy: widget -> window manager. Requests removal of the widget from
-     * the window manager. Invalidates the widget handle and also destroys it's
-     * framebuffer.
-     */
-    Destroy,
+  /**
+   * Destroy: widget -> window manager. Requests removal of the widget from
+   * the window manager. Invalidates the widget handle and also destroys it's
+   * framebuffer.
+   */
+  Destroy,
 
-    /**
-     * MouseEvent: window manager -> widget. Notifies a widget of a mouse event.
-     */
-    MouseEvent,
+  /**
+   * MouseEvent: window manager -> widget. Notifies a widget of a mouse event.
+   */
+  MouseEvent,
 
-    /**
-     * KeyboardEvent: window manager -> widget. Notifies a widget of a keyboard
-     * event.
-     */
-    KeyEvent,
+  /**
+   * KeyboardEvent: window manager -> widget. Notifies a widget of a keyboard
+   * event.
+   */
+  KeyEvent,
 
-    /**
-     * RawKeyEvent: window manager -> widget. Notifies a widget of a raw
-     * key event, where the key is actually a HID scancode.
-     */
-    RawKeyEvent,
+  /**
+   * RawKeyEvent: window manager -> widget. Notifies a widget of a raw
+   * key event, where the key is actually a HID scancode.
+   */
+  RawKeyEvent,
 
-    /**
-     * Focus: window manager -> widget. A notification to state that the
-     * window has now received focus.
-     */
-    Focus,
+  /**
+   * Focus: window manager -> widget. A notification to state that the
+   * window has now received focus.
+   */
+  Focus,
 
-    /**
-     * NoFocus: window manager -> widget. A notification to state that the
-     * window has just lost focus.
-     */
-    NoFocus,
+  /**
+   * NoFocus: window manager -> widget. A notification to state that the
+   * window has just lost focus.
+   */
+  NoFocus,
 
-    /**
-     * Nothing: nothing at all.
-     */
-    Nothing
+  /**
+   * Nothing: nothing at all.
+   */
+  Nothing
 };
 
 /** Applied as the header on a request or notification sent via IPC. */
-struct WindowManagerMessage
-{
-    /// Code of the message being sent.
-    MessageIdentifiers messageCode;
+struct WindowManagerMessage {
+  /// Code of the message being sent.
+  MessageIdentifiers messageCode;
 
-    /// Handle for the widget being referred to. Zero if no widget.
-    handle_t widgetHandle;
+  /// Handle for the widget being referred to. Zero if no widget.
+  handle_t widgetHandle;
 
-    /// Size of the data in the message (after this header).
-    size_t messageSize;
+  /// Size of the data in the message (after this header).
+  size_t messageSize;
 
-    /// Whether this message is a response from the window manager or not.
-    bool isResponse;
+  /// Whether this message is a response from the window manager or not.
+  bool isResponse;
 };
 
 /** Large buffer preparation message data. */
-struct LargeBufferPrepareMessage
-{
-    /// Whether this is a response or a request.
-    bool bIsResponse;
+struct LargeBufferPrepareMessage {
+  /// Whether this is a response or a request.
+  bool bIsResponse;
 
-    /// Address off the large buffer. Null in a request.
-    uintptr_t bufferAddress;
+  /// Address off the large buffer. Null in a request.
+  uintptr_t bufferAddress;
 
-    /// Length of the buffer (in & out).
-    size_t bufferLength;
+  /// Length of the buffer (in & out).
+  size_t bufferLength;
 };
 
 /** Create message data. */
-struct CreateMessage
-{
-    /// IPC endpoint for this widget.
-    char endpoint[256];
+struct CreateMessage {
+  /// IPC endpoint for this widget.
+  char endpoint[256];
 
-    /// Initial title for this widget.
-    char title[256];
+  /// Initial title for this widget.
+  char title[256];
 
-    /// Minimum width and height for the window.
-    size_t minWidth;
-    size_t minHeight;
+  /// Minimum width and height for the window.
+  size_t minWidth;
+  size_t minHeight;
 
-    /// A 'rigid' window cannot be resized by the window manager.
-    bool rigid;
+  /// A 'rigid' window cannot be resized by the window manager.
+  bool rigid;
 };
 
 /** Create message response data. */
-struct CreateMessageResponse
-{
-};
+struct CreateMessageResponse {};
 
 /** Reposition message data. */
-struct RepositionMessage
-{
-    /// New rect.
-    PedigreeGraphics::Rect rt;
+struct RepositionMessage {
+  /// New rect.
+  PedigreeGraphics::Rect rt;
 
-    /// New handle for the shared memory space.
-    void *shmem_handle;
+  /// New handle for the shared memory space.
+  void* shmem_handle;
 
-    /// Size of the framebuffer.
-    size_t shmem_size;
+  /// Size of the framebuffer.
+  size_t shmem_size;
 };
 
 /** Sync message data. */
-struct SyncMessage
-{
-};
+struct SyncMessage {};
 
 /** Sync message response data. */
-struct SyncMessageResponse
-{
-    /// The window manager will return the provider for the calling widget,
-    /// which can be used to refresh the local framebuffer if it changes
-    /// during a sync.
-    PedigreeGraphics::GraphicsProvider provider;
+struct SyncMessageResponse {
+  /// The window manager will return the provider for the calling widget,
+  /// which can be used to refresh the local framebuffer if it changes
+  /// during a sync.
+  PedigreeGraphics::GraphicsProvider provider;
 };
 
 /**
  * SetPropety message data. Value data is copied directly after this struct
  * in the message to be sent.
  */
-struct SetPropertyMessage
-{
-    char propertyName[256];
-    size_t valueLength;
+struct SetPropertyMessage {
+  char propertyName[256];
+  size_t valueLength;
 };
 
 /** GetProperty message data. */
-struct GetPropertyMessage
-{
-    char propertyName[256];
-    size_t maxValueLength;
+struct GetPropertyMessage {
+  char propertyName[256];
+  size_t maxValueLength;
 };
 
 /**
  * SetTitle message data.
  */
-struct SetTitleMessage
-{
-    char newTitle[512];
+struct SetTitleMessage {
+  char newTitle[512];
 };
 
 /** SetParent message data. */
-struct SetParentMessage
-{
-    handle_t newParent;
+struct SetParentMessage {
+  handle_t newParent;
 };
 
 /** GetParent message data (only used in the response message). */
-struct GetParentMessage
-{
-    handle_t parent;
+struct GetParentMessage {
+  handle_t parent;
 };
 
 /** RequestRedraw message data. */
-struct RequestRedrawMessage
-{
-    size_t x;
-    size_t y;
-    size_t width;
-    size_t height;
+struct RequestRedrawMessage {
+  size_t x;
+  size_t y;
+  size_t width;
+  size_t height;
 };
 
 /** SetVisibility message data. */
-struct SetVisibilityMessage
-{
-    bool bVisible;
+struct SetVisibilityMessage {
+  bool bVisible;
 };
 
 /** Destroy message data (none as yet). */
-struct DestroyMessage
-{
-};
+struct DestroyMessage {};
 
 /** MouseEvent message data. */
-struct MouseEventMessage
-{
-    size_t x;
-    size_t y;
+struct MouseEventMessage {
+  size_t x;
+  size_t y;
 
-    /// Whether or not the mouse has moved. Used to determine whether to
-    /// create a MouseMove event or just a MouseDown/Up event.
-    bool bMouseMove;
+  /// Whether or not the mouse has moved. Used to determine whether to
+  /// create a MouseMove event or just a MouseDown/Up event.
+  bool bMouseMove;
 
-    ButtonState buttons[8];
+  ButtonState buttons[8];
 };
 
 /** KeyEvent message data. */
-struct KeyEventMessage
-{
-    ButtonState state;
-    uint64_t key;
+struct KeyEventMessage {
+  ButtonState state;
+  uint64_t key;
 };
 
 /** RawKeyEvent message data. */
-struct RawKeyEventMessage
-{
-    ButtonState state;
-    uint16_t scancode;
+struct RawKeyEventMessage {
+  ButtonState state;
+  uint16_t scancode;
 };
 };  // namespace LibUiProtocol
 

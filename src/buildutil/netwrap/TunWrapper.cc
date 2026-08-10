@@ -18,159 +18,131 @@
  */
 
 #include "TunWrapper.h"
+#include "pedigree/kernel/utilities/pocketknife.h"
 
 #include <cstdio>
-#include <iostream>
-
 #include <errno.h>
+#include <iostream>
 #include <poll.h>
 #include <unistd.h>
 
 #include "modules/system/network-stack/NetworkStack.h"
-#include "pedigree/kernel/utilities/pocketknife.h"
 
-TunWrapper::TunWrapper() : m_StationInfo(), m_Fd(-1)
-{
-    m_SpecificType = "Pedigree TUN/TAP Device Wrapper";
+TunWrapper::TunWrapper() : m_StationInfo(), m_Fd(-1) {
+  m_SpecificType = "Pedigree TUN/TAP Device Wrapper";
 }
 
-TunWrapper::TunWrapper(Network *pDev) : Network(pDev), m_StationInfo()
-{
+TunWrapper::TunWrapper(Network* pDev) : Network(pDev), m_StationInfo() {}
+
+TunWrapper::~TunWrapper() {}
+
+Device::Type TunWrapper::getType() {
+  return Device::Network;
 }
 
-TunWrapper::~TunWrapper()
-{
+void TunWrapper::getName(String& str) {
+  str = "Pedigree TUN/TAP Wrapper";
 }
 
-Device::Type TunWrapper::getType()
-{
-    return Device::Network;
+void TunWrapper::dump(String& str) {
+  str = "Pedigree TUN/TAP Wrapper";
 }
 
-void TunWrapper::getName(String &str)
-{
-    str = "Pedigree TUN/TAP Wrapper";
+bool TunWrapper::send(size_t nBytes, uintptr_t buffer) {
+  if (m_Fd < 0) {
+    return false;
+  }
+
+  // make sure our writes are atomic where possible
+  lock.acquire();
+  ssize_t written = write(m_Fd, reinterpret_cast<void*>(buffer), nBytes);
+  lock.release();
+
+  return written == nBytes;
 }
 
-void TunWrapper::dump(String &str)
-{
-    str = "Pedigree TUN/TAP Wrapper";
+bool TunWrapper::setStationInfo(StationInfo info) {
+  m_StationInfo.ipv4 = info.ipv4;
+  NOTICE("TUNTAP: Setting ipv4, " << info.ipv4.toString());
+
+  m_StationInfo.subnetMask = info.subnetMask;
+  NOTICE("TUNTAP: Setting subnetMask, " << info.subnetMask.toString());
+
+  m_StationInfo.gateway = info.gateway;
+  NOTICE("TUNTAP: Setting gateway, " << info.gateway.toString());
+
+  m_StationInfo.mac = info.mac;
+  NOTICE("TUNTAP: Setting mac, " << info.mac.toString());
+
+  return true;
 }
 
-bool TunWrapper::send(size_t nBytes, uintptr_t buffer)
-{
-    if (m_Fd < 0)
-    {
-        return false;
+StationInfo TunWrapper::getStationInfo() {
+  return m_StationInfo;
+}
+
+void TunWrapper::run(int fd) {
+  pocketknife::runConcurrently(packetPusherThread, this);
+
+  m_Fd = fd;
+
+  struct pollfd pfd;
+  pfd.fd = fd;
+  pfd.events = POLLIN | POLLERR;
+
+  while (1) {
+    int ready = poll(&pfd, 1, 2000);
+    if (ready < 0) {
+      if (errno == EINTR) {
+        continue;
+      } else {
+        perror("Failed to poll");
+        return;
+      }
     }
 
-    // make sure our writes are atomic where possible
-    lock.acquire();
-    ssize_t written = write(m_Fd, reinterpret_cast<void *>(buffer), nBytes);
-    lock.release();
+    if ((pfd.revents & POLLIN) == POLLIN) {
+      packet* p = new packet;
+      memset(p, 0, sizeof(*p));
 
-    return written == nBytes;
-}
+      ssize_t bytes = read(fd, p->buffer, sizeof p->buffer);
+      p->bytes = bytes;
 
-bool TunWrapper::setStationInfo(StationInfo info)
-{
-    m_StationInfo.ipv4 = info.ipv4;
-    NOTICE("TUNTAP: Setting ipv4, " << info.ipv4.toString());
-
-    m_StationInfo.subnetMask = info.subnetMask;
-    NOTICE("TUNTAP: Setting subnetMask, " << info.subnetMask.toString());
-
-    m_StationInfo.gateway = info.gateway;
-    NOTICE("TUNTAP: Setting gateway, " << info.gateway.toString());
-
-    m_StationInfo.mac = info.mac;
-    NOTICE("TUNTAP: Setting mac, " << info.mac.toString());
-
-    return true;
-}
-
-StationInfo TunWrapper::getStationInfo()
-{
-    return m_StationInfo;
-}
-
-void TunWrapper::run(int fd)
-{
-    pocketknife::runConcurrently(packetPusherThread, this);
-
-    m_Fd = fd;
-
-    struct pollfd pfd;
-    pfd.fd = fd;
-    pfd.events = POLLIN | POLLERR;
-
-    while (1)
-    {
-        int ready = poll(&pfd, 1, 2000);
-        if (ready < 0)
-        {
-            if (errno == EINTR)
-            {
-                continue;
-            }
-            else
-            {
-                perror("Failed to poll");
-                return;
-            }
-        }
-
-        if ((pfd.revents & POLLIN) == POLLIN)
-        {
-            packet *p = new packet;
-            memset(p, 0, sizeof(*p));
-
-            ssize_t bytes = read(fd, p->buffer, sizeof p->buffer);
-            p->bytes = bytes;
-
-            if (bytes >= 0)
-            {
-                lock.acquire();
-                m_Packets.pushBack(p);
-                cond.signal();
-                lock.release();
-            }
-        }
-        else if ((pfd.revents & POLLERR) == POLLERR)
-        {
-            /// \todo how to handle this?
-        }
-    }
-}
-
-int TunWrapper::packetPusherThread(void *param)
-{
-    TunWrapper *wrapper = reinterpret_cast<TunWrapper *>(param);
-    wrapper->packetPusher();
-    return 0;
-}
-
-void TunWrapper::packetPusher()
-{
-    lock.acquire();
-    while (true)
-    {
-        if (!m_Packets.count())
-        {
-            cond.wait(lock);
-            continue;
-        }
-
-        packet *p = m_Packets.popFront();
-
-        lock.release();
-
-        NetworkStack::instance().receive(
-            p->bytes, reinterpret_cast<uintptr_t>(p->buffer), this, 0);
-
+      if (bytes >= 0) {
         lock.acquire();
-
-        delete p;
+        m_Packets.pushBack(p);
+        cond.signal();
+        lock.release();
+      }
+    } else if ((pfd.revents & POLLERR) == POLLERR) {
+      /// \todo how to handle this?
     }
+  }
+}
+
+int TunWrapper::packetPusherThread(void* param) {
+  TunWrapper* wrapper = reinterpret_cast<TunWrapper*>(param);
+  wrapper->packetPusher();
+  return 0;
+}
+
+void TunWrapper::packetPusher() {
+  lock.acquire();
+  while (true) {
+    if (!m_Packets.count()) {
+      cond.wait(lock);
+      continue;
+    }
+
+    packet* p = m_Packets.popFront();
+
     lock.release();
+
+    NetworkStack::instance().receive(p->bytes, reinterpret_cast<uintptr_t>(p->buffer), this, 0);
+
+    lock.acquire();
+
+    delete p;
+  }
+  lock.release();
 }

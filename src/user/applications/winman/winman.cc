@@ -20,15 +20,30 @@
 #define __STDCPP_WANT_MATH_SPEC_FUNCS__ 0
 
 #define _USE_MATH_DEFINES
-#include <arpa/inet.h>
+#include "pedigree/native/graphics/Graphics.h"
+#include "pedigree/native/input/Input.h"
+
+#include <cassert>
 #include <errno.h>
 #include <fcntl.h>
+#include <list>
+#include <map>
 #include <math.h>
-#include <netinet/in.h>
+#include <protocol.h>
+#include <queue>
 #include <sched.h>
+#include <set>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+#include <arpa/inet.h>
+#include <cairo/cairo-ft.h>
+#include <cairo/cairo.h>
+#include <netinet/in.h>
+#include <pango/pangocairo.h>
+#include <pedigree_fb.h>
 #include <sys/ioctl.h>
 #include <sys/klog.h>
 #include <sys/mman.h>
@@ -36,25 +51,6 @@
 #include <sys/time.h>
 #include <sys/un.h>
 #include <sys/wait.h>
-#include <unistd.h>
-
-#include <cassert>
-
-#include <list>
-#include <map>
-#include <queue>
-#include <set>
-
-#include "pedigree/native/graphics/Graphics.h"
-#include "pedigree/native/input/Input.h"
-
-#include <cairo/cairo-ft.h>
-#include <cairo/cairo.h>
-
-#include <pango/pangocairo.h>
-
-#include <pedigree_fb.h>
-#include <protocol.h>
 
 #ifdef TARGET_LINUX
 #include <SDL/SDL.h>
@@ -66,15 +62,15 @@
 
 #define DEBUG_REDRAWS 0
 
-RootContainer *g_pRootContainer = 0;
+RootContainer* g_pRootContainer = 0;
 
-Window *g_pFocusWindow = 0;
+Window* g_pFocusWindow = 0;
 
-uint8_t *g_pBackbuffer = 0;
+uint8_t* g_pBackbuffer = 0;
 
-std::map<uint64_t, Window *> *g_Windows;
+std::map<uint64_t, Window*>* g_Windows;
 
-std::set<WObject *> g_PendingWindows;
+std::set<WObject*> g_PendingWindows;
 
 /// UNIX socket (or UDP before UNIX sockets are implemented)
 int g_iSocket = 0;
@@ -86,7 +82,7 @@ std::string g_StatusField = "";
 
 std::queue<Input::InputNotification> g_InputQueue;
 
-void queueInputCallback(Input::InputNotification &note);
+void queueInputCallback(Input::InputNotification& note);
 
 ssize_t g_nWidth = 0;
 ssize_t g_nHeight = 0;
@@ -126,448 +122,363 @@ bool g_bAlive = true;
 #define WINMAN_FORK_WRAPPER 1
 #endif
 
-void startClient()
-{
-    pid_t pid = fork();
-    if (pid == -1)
-    {
-        klog(LOG_CRIT, "winman: fork failed: %s\n", strerror(errno));
-    }
-    else if (pid == 0)
-    {
-        // Forked. Close all of our existing handles, we don't really want the
-        // client to inherit them.
-        /// \todo Is it worth making these handles FD_CLOEXEC for this reason?
-        close(g_iControlPipe[0]);
-        close(g_iControlPipe[1]);
-        close(g_iSocket);
+void startClient() {
+  pid_t pid = fork();
+  if (pid == -1) {
+    klog(LOG_CRIT, "winman: fork failed: %s\n", strerror(errno));
+  } else if (pid == 0) {
+    // Forked. Close all of our existing handles, we don't really want the
+    // client to inherit them.
+    /// \todo Is it worth making these handles FD_CLOEXEC for this reason?
+    close(g_iControlPipe[0]);
+    close(g_iControlPipe[1]);
+    close(g_iSocket);
 
-        execl(CLIENT_DEFAULT, CLIENT_DEFAULT, NULL);
-        exit(1);
-    }
+    execl(CLIENT_DEFAULT, CLIENT_DEFAULT, NULL);
+    exit(1);
+  }
 }
 
-void fps()
-{
-    static unsigned int frames = 0;
-    static unsigned int start_time = 0;
+void fps() {
+  static unsigned int frames = 0;
+  static unsigned int start_time = 0;
 
-    struct timeval now;
-    gettimeofday(&now, NULL);
-    frames++;
-    if (!start_time)
-    {
-        start_time = now.tv_sec;
-    }
-    else if (now.tv_sec - start_time >= 5)
-    {
-        float seconds = now.tv_sec - start_time;
-        float fps = frames / seconds;
-        klog(
-            LOG_INFO, "%d frames in %3.1f seconds = %6.3f FPS", frames, seconds,
-            fps);
-        start_time = now.tv_sec;
-        frames = 0;
-    }
+  struct timeval now;
+  gettimeofday(&now, NULL);
+  frames++;
+  if (!start_time) {
+    start_time = now.tv_sec;
+  } else if (now.tv_sec - start_time >= 5) {
+    float seconds = now.tv_sec - start_time;
+    float fps = frames / seconds;
+    klog(LOG_INFO, "%d frames in %3.1f seconds = %6.3f FPS", frames, seconds, fps);
+    start_time = now.tv_sec;
+    frames = 0;
+  }
 }
 
-void handleDestroy(Window *pWindow)
-{
-    Container *myParent = pWindow->getParent();
-    Window *newFocus = 0;
-    WObject *sibling = 0;
+void handleDestroy(Window* pWindow) {
+  Container* myParent = pWindow->getParent();
+  Window* newFocus = 0;
+  WObject* sibling = 0;
 
-    // Find any siblings if we can.
-    WObject *siblingObject = myParent->getLeftSibling(pWindow);
-    if (!siblingObject)
-    {
-        siblingObject = myParent->getRightSibling(pWindow);
+  // Find any siblings if we can.
+  WObject* siblingObject = myParent->getLeftSibling(pWindow);
+  if (!siblingObject) {
+    siblingObject = myParent->getRightSibling(pWindow);
+  }
+
+  // Will there be any children left?
+  if (myParent->getChildCount() > 1) {
+    // Yes. Focus adjustment is mostly trivial.
+  } else {
+    // No. Focus adjustment is less trivial.
+    siblingObject = myParent->getLeft(pWindow);
+    if (!siblingObject) {
+      siblingObject = myParent->getRight(pWindow);
+    }
+    if (!siblingObject) {
+      siblingObject = myParent->getUp(pWindow);
+    }
+    if (!siblingObject) {
+      siblingObject = myParent->getDown(pWindow);
+    }
+  }
+
+  // Remove from the parent container.
+  myParent->removeChild(pWindow);
+  if (myParent->getChildCount() > 0) {
+    myParent->retile();
+  } else if (myParent->getParent()) {
+    Container* pContainer = static_cast<Container*>(myParent->getParent());
+    pContainer->removeChild(myParent);
+    pContainer->retile();
+    myParent = pContainer;
+  }
+
+  // Assign new focus.
+  if (siblingObject) {
+    while (siblingObject->getType() == WObject::Container) {
+      Container* pContainer = static_cast<Container*>(siblingObject);
+      siblingObject = pContainer->getFocusWindow();
     }
 
-    // Will there be any children left?
-    if (myParent->getChildCount() > 1)
-    {
-        // Yes. Focus adjustment is mostly trivial.
+    if (siblingObject->getType() == WObject::Window) {
+      newFocus = static_cast<Window*>(siblingObject);
     }
-    else
-    {
-        // No. Focus adjustment is less trivial.
-        siblingObject = myParent->getLeft(pWindow);
-        if (!siblingObject)
-        {
-            siblingObject = myParent->getRight(pWindow);
-        }
-        if (!siblingObject)
-        {
-            siblingObject = myParent->getUp(pWindow);
-        }
-        if (!siblingObject)
-        {
-            siblingObject = myParent->getDown(pWindow);
-        }
-    }
+  }
 
-    // Remove from the parent container.
-    myParent->removeChild(pWindow);
-    if (myParent->getChildCount() > 0)
-    {
-        myParent->retile();
-    }
-    else if (myParent->getParent())
-    {
-        Container *pContainer = static_cast<Container *>(myParent->getParent());
-        pContainer->removeChild(myParent);
-        pContainer->retile();
-        myParent = pContainer;
-    }
+  // All children are now pending a redraw.
+  g_PendingWindows.insert(myParent);
 
-    // Assign new focus.
-    if (siblingObject)
-    {
-        while (siblingObject->getType() == WObject::Container)
-        {
-            Container *pContainer = static_cast<Container *>(siblingObject);
-            siblingObject = pContainer->getFocusWindow();
-        }
-
-        if (siblingObject->getType() == WObject::Window)
-        {
-            newFocus = static_cast<Window *>(siblingObject);
-        }
+  // Switch focus, if needed.
+  if (g_pFocusWindow == pWindow) {
+    g_pFocusWindow = newFocus;
+    if (newFocus) {
+      newFocus->focus();
+      g_PendingWindows.insert(newFocus);
     }
+  }
 
-    // All children are now pending a redraw.
-    g_PendingWindows.insert(myParent);
-
-    // Switch focus, if needed.
-    if (g_pFocusWindow == pWindow)
-    {
-        g_pFocusWindow = newFocus;
-        if (newFocus)
-        {
-            newFocus->focus();
-            g_PendingWindows.insert(newFocus);
-        }
-    }
-
-    // If we couldn't find a new focus window, we're devoid of windows.
-    if (!newFocus)
-    {
-        // assertion may be taking place before we remove the final window
-        // from g_Windows - hence the <= 1.
-        klog(LOG_INFO, "winman: no new focus window, terminating");
-        assert(g_Windows->size() <= 1);
-        g_bAlive = false;
-    }
+  // If we couldn't find a new focus window, we're devoid of windows.
+  if (!newFocus) {
+    // assertion may be taking place before we remove the final window
+    // from g_Windows - hence the <= 1.
+    klog(LOG_INFO, "winman: no new focus window, terminating");
+    assert(g_Windows->size() <= 1);
+    g_bAlive = false;
+  }
 }
 
-void handleMessage(char *messageData, struct sockaddr *src, socklen_t slen)
-{
-    bool bResult = false;
-    LibUiProtocol::WindowManagerMessage *pWinMan =
-        reinterpret_cast<LibUiProtocol::WindowManagerMessage *>(messageData);
+void handleMessage(char* messageData, struct sockaddr* src, socklen_t slen) {
+  bool bResult = false;
+  LibUiProtocol::WindowManagerMessage* pWinMan =
+      reinterpret_cast<LibUiProtocol::WindowManagerMessage*>(messageData);
 
-    size_t totalSize = sizeof(LibUiProtocol::WindowManagerMessage);
+  size_t totalSize = sizeof(LibUiProtocol::WindowManagerMessage);
 
-    if (pWinMan->messageCode == LibUiProtocol::Create)
-    {
-        LibUiProtocol::CreateMessage *pCreate =
-            reinterpret_cast<LibUiProtocol::CreateMessage *>(
-                messageData + sizeof(LibUiProtocol::WindowManagerMessage));
-        char *responseData = new char[totalSize];
-        memset(responseData, 0, totalSize);
+  if (pWinMan->messageCode == LibUiProtocol::Create) {
+    LibUiProtocol::CreateMessage* pCreate = reinterpret_cast<LibUiProtocol::CreateMessage*>(
+        messageData + sizeof(LibUiProtocol::WindowManagerMessage));
+    char* responseData = new char[totalSize];
+    memset(responseData, 0, totalSize);
 
-        Container *pParent = g_pRootContainer;
-        if (g_pFocusWindow)
-        {
-            pParent = g_pFocusWindow->getParent();
-        }
-
-        /// \todo verify source is AF_UNIX etc
-
-        struct sockaddr_un *sun = new struct sockaddr_un;
-        *sun = *((struct sockaddr_un *) src);
-
-        std::string newTitle(pCreate->title);
-        Window *pWindow = new Window(
-            pWinMan->widgetHandle, g_iSocket, (struct sockaddr *) sun, slen,
-            pParent);
-        pWindow->setTitle(newTitle);
-
-        g_PendingWindows.insert(pWindow);
-
-        if (g_pFocusWindow)
-        {
-            g_pFocusWindow->nofocus();
-        }
-        g_pFocusWindow = pWindow;
-        pWindow->focus();
-
-        LibUiProtocol::WindowManagerMessage *pHeader =
-            reinterpret_cast<LibUiProtocol::WindowManagerMessage *>(
-                responseData);
-        pHeader->messageCode = LibUiProtocol::Create;
-        pHeader->widgetHandle = pWinMan->widgetHandle;
-        pHeader->messageSize = sizeof(LibUiProtocol::CreateMessageResponse);
-        pHeader->isResponse = true;
-
-        g_Windows->insert(std::make_pair(pWinMan->widgetHandle, pWindow));
-
-        pWindow->sendMessage(responseData, totalSize);
-
-        delete[] responseData;
+    Container* pParent = g_pRootContainer;
+    if (g_pFocusWindow) {
+      pParent = g_pFocusWindow->getParent();
     }
-    else if (pWinMan->messageCode == LibUiProtocol::Sync)
-    {
-        std::map<uint64_t, Window *>::iterator it =
-            g_Windows->find(pWinMan->widgetHandle);
-        if (it != g_Windows->end())
-        {
-            Window *pWindow = it->second;
-            char *responseData = new char[totalSize];
-            memset(responseData, 0, totalSize);
 
-            LibUiProtocol::WindowManagerMessage *pHeader =
-                reinterpret_cast<LibUiProtocol::WindowManagerMessage *>(
-                    responseData);
-            pHeader->messageCode = LibUiProtocol::Sync;
-            pHeader->widgetHandle = pWinMan->widgetHandle;
-            pHeader->messageSize = sizeof(LibUiProtocol::SyncMessageResponse);
-            pHeader->isResponse = true;
+    /// \todo verify source is AF_UNIX etc
 
-            pWindow->sendMessage(responseData, totalSize);
+    struct sockaddr_un* sun = new struct sockaddr_un;
+    *sun = *((struct sockaddr_un*)src);
 
-            delete[] responseData;
-        }
+    std::string newTitle(pCreate->title);
+    Window* pWindow =
+        new Window(pWinMan->widgetHandle, g_iSocket, (struct sockaddr*)sun, slen, pParent);
+    pWindow->setTitle(newTitle);
+
+    g_PendingWindows.insert(pWindow);
+
+    if (g_pFocusWindow) {
+      g_pFocusWindow->nofocus();
     }
-    else if (pWinMan->messageCode == LibUiProtocol::RequestRedraw)
-    {
-        LibUiProtocol::RequestRedrawMessage *pRedrawMsg =
-            reinterpret_cast<LibUiProtocol::RequestRedrawMessage *>(
-                messageData + sizeof(LibUiProtocol::WindowManagerMessage));
-        PedigreeGraphics::Rect dirty(
-            pRedrawMsg->x, pRedrawMsg->y, pRedrawMsg->width,
-            pRedrawMsg->height);
+    g_pFocusWindow = pWindow;
+    pWindow->focus();
 
-        std::map<uint64_t, Window *>::iterator it =
-            g_Windows->find(pWinMan->widgetHandle);
-        if (it != g_Windows->end())
-        {
-            Window *pWindow = it->second;
-            pWindow->setDirty(dirty);
-            g_PendingWindows.insert(pWindow);
-        }
+    LibUiProtocol::WindowManagerMessage* pHeader =
+        reinterpret_cast<LibUiProtocol::WindowManagerMessage*>(responseData);
+    pHeader->messageCode = LibUiProtocol::Create;
+    pHeader->widgetHandle = pWinMan->widgetHandle;
+    pHeader->messageSize = sizeof(LibUiProtocol::CreateMessageResponse);
+    pHeader->isResponse = true;
+
+    g_Windows->insert(std::make_pair(pWinMan->widgetHandle, pWindow));
+
+    pWindow->sendMessage(responseData, totalSize);
+
+    delete[] responseData;
+  } else if (pWinMan->messageCode == LibUiProtocol::Sync) {
+    std::map<uint64_t, Window*>::iterator it = g_Windows->find(pWinMan->widgetHandle);
+    if (it != g_Windows->end()) {
+      Window* pWindow = it->second;
+      char* responseData = new char[totalSize];
+      memset(responseData, 0, totalSize);
+
+      LibUiProtocol::WindowManagerMessage* pHeader =
+          reinterpret_cast<LibUiProtocol::WindowManagerMessage*>(responseData);
+      pHeader->messageCode = LibUiProtocol::Sync;
+      pHeader->widgetHandle = pWinMan->widgetHandle;
+      pHeader->messageSize = sizeof(LibUiProtocol::SyncMessageResponse);
+      pHeader->isResponse = true;
+
+      pWindow->sendMessage(responseData, totalSize);
+
+      delete[] responseData;
     }
-    else if (pWinMan->messageCode == LibUiProtocol::Destroy)
-    {
-        std::map<uint64_t, Window *>::iterator it =
-            g_Windows->find(pWinMan->widgetHandle);
-        if (it != g_Windows->end())
-        {
-            Window *pWindow = it->second;
-            // Remove from the tracked windows before handling the destroy.
-            g_Windows->erase(it);
-            handleDestroy(pWindow);
+  } else if (pWinMan->messageCode == LibUiProtocol::RequestRedraw) {
+    LibUiProtocol::RequestRedrawMessage* pRedrawMsg =
+        reinterpret_cast<LibUiProtocol::RequestRedrawMessage*>(
+            messageData + sizeof(LibUiProtocol::WindowManagerMessage));
+    PedigreeGraphics::Rect dirty(pRedrawMsg->x, pRedrawMsg->y, pRedrawMsg->width,
+                                 pRedrawMsg->height);
 
-            char *responseData = new char[totalSize];
-            memset(responseData, 0, totalSize);
-            LibUiProtocol::WindowManagerMessage *pHeader =
-                reinterpret_cast<LibUiProtocol::WindowManagerMessage *>(
-                    responseData);
-            pHeader->messageCode = LibUiProtocol::Destroy;
-            pHeader->widgetHandle = pWinMan->widgetHandle;
-            pHeader->messageSize = 0;
-            pHeader->isResponse = true;
-
-            pWindow->sendMessage(responseData, totalSize);
-
-            delete[] responseData;
-
-            delete pWindow;
-        }
+    std::map<uint64_t, Window*>::iterator it = g_Windows->find(pWinMan->widgetHandle);
+    if (it != g_Windows->end()) {
+      Window* pWindow = it->second;
+      pWindow->setDirty(dirty);
+      g_PendingWindows.insert(pWindow);
     }
-    else if (pWinMan->messageCode == LibUiProtocol::Nothing)
-    {
-        // We inject this to wake up checkForMessages and move on to rendering.
-    }
-    else if (pWinMan->messageCode == LibUiProtocol::SetTitle)
-    {
-        LibUiProtocol::SetTitleMessage *pTitleMsg =
-            reinterpret_cast<LibUiProtocol::SetTitleMessage *>(
-                messageData + sizeof(LibUiProtocol::WindowManagerMessage));
+  } else if (pWinMan->messageCode == LibUiProtocol::Destroy) {
+    std::map<uint64_t, Window*>::iterator it = g_Windows->find(pWinMan->widgetHandle);
+    if (it != g_Windows->end()) {
+      Window* pWindow = it->second;
+      // Remove from the tracked windows before handling the destroy.
+      g_Windows->erase(it);
+      handleDestroy(pWindow);
 
-        std::map<uint64_t, Window *>::iterator it =
-            g_Windows->find(pWinMan->widgetHandle);
-        if (it != g_Windows->end())
-        {
-            Window *pWindow = it->second;
-            pWindow->setTitle(std::string(pTitleMsg->newTitle));
-            g_PendingWindows.insert(pWindow);
-        }
+      char* responseData = new char[totalSize];
+      memset(responseData, 0, totalSize);
+      LibUiProtocol::WindowManagerMessage* pHeader =
+          reinterpret_cast<LibUiProtocol::WindowManagerMessage*>(responseData);
+      pHeader->messageCode = LibUiProtocol::Destroy;
+      pHeader->widgetHandle = pWinMan->widgetHandle;
+      pHeader->messageSize = 0;
+      pHeader->isResponse = true;
+
+      pWindow->sendMessage(responseData, totalSize);
+
+      delete[] responseData;
+
+      delete pWindow;
     }
-    else
-    {
-        klog(LOG_INFO, "winman: unhandled message type");
+  } else if (pWinMan->messageCode == LibUiProtocol::Nothing) {
+    // We inject this to wake up checkForMessages and move on to rendering.
+  } else if (pWinMan->messageCode == LibUiProtocol::SetTitle) {
+    LibUiProtocol::SetTitleMessage* pTitleMsg = reinterpret_cast<LibUiProtocol::SetTitleMessage*>(
+        messageData + sizeof(LibUiProtocol::WindowManagerMessage));
+
+    std::map<uint64_t, Window*>::iterator it = g_Windows->find(pWinMan->widgetHandle);
+    if (it != g_Windows->end()) {
+      Window* pWindow = it->second;
+      pWindow->setTitle(std::string(pTitleMsg->newTitle));
+      g_PendingWindows.insert(pWindow);
     }
+  } else {
+    klog(LOG_INFO, "winman: unhandled message type");
+  }
 }
 
-void checkForMessages()
-{
+void checkForMessages() {
 #ifdef TARGET_LINUX
-    bool bTerminate = false;
+  bool bTerminate = false;
 
-    SDL_Event event;
-    int result = SDL_PollEvent(&event);
-    if (result)
-    {
-        switch (event.type)
-        {
-            case SDL_KEYDOWN:
-                if (event.key.keysym.sym == SDLK_ESCAPE)
-                    bTerminate = true;
-                else
-                {
-                    Input::InputNotification note;
-                    memset(&note, 0, sizeof(note));
-                    note.type = Input::Key;
-                    if (event.key.keysym.mod & KMOD_SHIFT)
-                        note.data.key.key |= SHIFT_KEY;
-                    if (event.key.keysym.mod & KMOD_ALT)
-                        note.data.key.key |= ALT_KEY;
-                    if (event.key.keysym.mod & KMOD_CTRL)
-                        note.data.key.key |= CTRL_KEY;
+  SDL_Event event;
+  int result = SDL_PollEvent(&event);
+  if (result) {
+    switch (event.type) {
+      case SDL_KEYDOWN:
+        if (event.key.keysym.sym == SDLK_ESCAPE)
+          bTerminate = true;
+        else {
+          Input::InputNotification note;
+          memset(&note, 0, sizeof(note));
+          note.type = Input::Key;
+          if (event.key.keysym.mod & KMOD_SHIFT)
+            note.data.key.key |= SHIFT_KEY;
+          if (event.key.keysym.mod & KMOD_ALT)
+            note.data.key.key |= ALT_KEY;
+          if (event.key.keysym.mod & KMOD_CTRL)
+            note.data.key.key |= CTRL_KEY;
 
-                    bool bSpecial = false;
-                    if (event.key.keysym.sym == SDLK_LEFT)
-                    {
-                        memcpy(&note.data.key.key, "left", 4);
-                        bSpecial = true;
-                    }
-                    else if (event.key.keysym.sym == SDLK_RIGHT)
-                    {
-                        memcpy(&note.data.key.key, "righ", 4);
-                        bSpecial = true;
-                    }
-                    else if (event.key.keysym.sym == SDLK_UP)
-                    {
-                        memcpy(&note.data.key.key, "up", 2);
-                        bSpecial = true;
-                    }
-                    else if (event.key.keysym.sym == SDLK_DOWN)
-                    {
-                        memcpy(&note.data.key.key, "down", 4);
-                        bSpecial = true;
-                    }
+          bool bSpecial = false;
+          if (event.key.keysym.sym == SDLK_LEFT) {
+            memcpy(&note.data.key.key, "left", 4);
+            bSpecial = true;
+          } else if (event.key.keysym.sym == SDLK_RIGHT) {
+            memcpy(&note.data.key.key, "righ", 4);
+            bSpecial = true;
+          } else if (event.key.keysym.sym == SDLK_UP) {
+            memcpy(&note.data.key.key, "up", 2);
+            bSpecial = true;
+          } else if (event.key.keysym.sym == SDLK_DOWN) {
+            memcpy(&note.data.key.key, "down", 4);
+            bSpecial = true;
+          }
 
-                    if (bSpecial)
-                        note.data.key.key |= SPECIAL_KEY;
-                    else
-                        note.data.key.key |= event.key.keysym.sym;
+          if (bSpecial)
+            note.data.key.key |= SPECIAL_KEY;
+          else
+            note.data.key.key |= event.key.keysym.sym;
 
-                    // Make sure we're getting a modified key, not the actual
-                    // modifier itself.
-                    if (event.key.keysym.sym != SDLK_LALT &&
-                        event.key.keysym.sym != SDLK_RALT &&
-                        event.key.keysym.sym != SDLK_LSHIFT &&
-                        event.key.keysym.sym != SDLK_RSHIFT &&
-                        event.key.keysym.sym != SDLK_LCTRL &&
-                        event.key.keysym.sym != SDLK_RCTRL)
-                    {
-                        if (note.data.key.key & SHIFT_KEY)
-                        {
-                            char c = note.data.key.key & 0xFF;
-                            note.data.key.key &= ~0xFFFFFFFFUl;
-                            if (isalpha(c))
-                            {
-                                note.data.key.key |= toupper(c);
-                            }
-                            else if (isdigit(c))
-                            {
-                                note.data.key.key = c - 0x10;
-                            }
-                        }
-                        queueInputCallback(note);
-                    }
-                }
-                break;
-
-            case SDL_QUIT:
-                bTerminate = true;
-                break;
+          // Make sure we're getting a modified key, not the actual
+          // modifier itself.
+          if (event.key.keysym.sym != SDLK_LALT && event.key.keysym.sym != SDLK_RALT &&
+              event.key.keysym.sym != SDLK_LSHIFT && event.key.keysym.sym != SDLK_RSHIFT &&
+              event.key.keysym.sym != SDLK_LCTRL && event.key.keysym.sym != SDLK_RCTRL) {
+            if (note.data.key.key & SHIFT_KEY) {
+              char c = note.data.key.key & 0xFF;
+              note.data.key.key &= ~0xFFFFFFFFUl;
+              if (isalpha(c)) {
+                note.data.key.key |= toupper(c);
+              } else if (isdigit(c)) {
+                note.data.key.key = c - 0x10;
+              }
+            }
+            queueInputCallback(note);
+          }
         }
-    }
+        break;
 
-    if (bTerminate)
-    {
-        SDL_Quit();
-        exit(0);
+      case SDL_QUIT:
+        bTerminate = true;
+        break;
     }
+  }
 
-    SDL_Delay(1);
+  if (bTerminate) {
+    SDL_Quit();
+    exit(0);
+  }
+
+  SDL_Delay(1);
 #endif
 
-    fd_set fds;
-    FD_ZERO(&fds);
+  fd_set fds;
+  FD_ZERO(&fds);
 
-    // Prepare the set for select()ing on.
-    FD_SET(g_iSocket, &fds);
-    FD_SET(g_iControlPipe[0], &fds);
-    int nMax = std::max(g_iSocket, g_iControlPipe[0]);
+  // Prepare the set for select()ing on.
+  FD_SET(g_iSocket, &fds);
+  FD_SET(g_iControlPipe[0], &fds);
+  int nMax = std::max(g_iSocket, g_iControlPipe[0]);
 
-    struct timeval tv = {0, 0};  // Poll quickly.
+  struct timeval tv = {0, 0};  // Poll quickly.
 
-    struct timeval *timeout = 0;
+  struct timeval* timeout = 0;
 #ifdef TARGET_LINUX
-    timeout = &tv;
+  timeout = &tv;
 #endif
 
-    // Do the deed - no timeout.
-    int ret = select(nMax + 1, &fds, 0, 0, timeout);
-    if (ret > 0)
-    {
-        if (FD_ISSET(g_iSocket, &fds))
-        {
-            // Socket has a datagram ready to handle.
-            // We use recvfrom so we can create a socket back to the client
-            // easily.
-            char msg[4096];
-            struct sockaddr_un saddr;
-            socklen_t slen = sizeof(saddr);
-            ssize_t sz = recvfrom(
-                g_iSocket, msg, 4096, 0, (struct sockaddr *) &saddr, &slen);
-            if (sz > 0)
-            {
-                // Handle!
-                handleMessage(msg, (struct sockaddr *) &saddr, slen);
-            }
-        }
-
-        if (FD_ISSET(g_iControlPipe[0], &fds))
-        {
-            // Read a single byte (which will mean multiple writes to the pipe
-            // will wake select() up multiple times - good for the input queue).
-            char buf[2];
-            ssize_t bytes = read(g_iControlPipe[0], buf, 1);
-
-            // Handle any pending input in the input queue.
-            if ((bytes > 0) && (!g_InputQueue.empty()))
-            {
-                Input::InputNotification n = g_InputQueue.front();
-                g_InputQueue.pop();
-
-                queueInputCallback(n);
-            }
-        }
+  // Do the deed - no timeout.
+  int ret = select(nMax + 1, &fds, 0, 0, timeout);
+  if (ret > 0) {
+    if (FD_ISSET(g_iSocket, &fds)) {
+      // Socket has a datagram ready to handle.
+      // We use recvfrom so we can create a socket back to the client
+      // easily.
+      char msg[4096];
+      struct sockaddr_un saddr;
+      socklen_t slen = sizeof(saddr);
+      ssize_t sz = recvfrom(g_iSocket, msg, 4096, 0, (struct sockaddr*)&saddr, &slen);
+      if (sz > 0) {
+        // Handle!
+        handleMessage(msg, (struct sockaddr*)&saddr, slen);
+      }
     }
+
+    if (FD_ISSET(g_iControlPipe[0], &fds)) {
+      // Read a single byte (which will mean multiple writes to the pipe
+      // will wake select() up multiple times - good for the input queue).
+      char buf[2];
+      ssize_t bytes = read(g_iControlPipe[0], buf, 1);
+
+      // Handle any pending input in the input queue.
+      if ((bytes > 0) && (!g_InputQueue.empty())) {
+        Input::InputNotification n = g_InputQueue.front();
+        g_InputQueue.pop();
+
+        queueInputCallback(n);
+      }
+    }
+  }
 }
 
-enum ActualKey
-{
-    None,
-    Left,
-    Right,
-    Up,
-    Down,
+enum ActualKey {
+  None,
+  Left,
+  Right,
+  Up,
+  Down,
 };
 
 /**
@@ -577,749 +488,606 @@ enum ActualKey
  * queue), and helps avoid race conditions where we modify global state (such
  * as the "pending windows" list).
  */
-void queueInputCallback(Input::InputNotification &note)
-{
-    klog(LOG_INFO, "winman: system input (type=%d)", note.type);
-    static bool bResize = false;
+void queueInputCallback(Input::InputNotification& note) {
+  klog(LOG_INFO, "winman: system input (type=%d)", note.type);
+  static bool bResize = false;
 
-    bool bHandled = false;
-    if (note.type & Input::Key)
-    {
-        uint64_t c = note.data.key.key;
+  bool bHandled = false;
+  if (note.type & Input::Key) {
+    uint64_t c = note.data.key.key;
 
-        ActualKey realKey = None;
+    ActualKey realKey = None;
 
-        if (c & SPECIAL_KEY)
-        {
-            uint32_t k = c & 0xFFFFFFFFULL;
-            char str[5];
-            memcpy(str, reinterpret_cast<char *>(&k), 4);
-            str[4] = 0;
+    if (c & SPECIAL_KEY) {
+      uint32_t k = c & 0xFFFFFFFFULL;
+      char str[5];
+      memcpy(str, reinterpret_cast<char*>(&k), 4);
+      str[4] = 0;
 
-            if (!strcmp(str, "left"))
-            {
-                realKey = Left;
+      if (!strcmp(str, "left")) {
+        realKey = Left;
+      } else if (!strcmp(str, "righ")) {
+        realKey = Right;
+      } else if (!strcmp(str, "up")) {
+        realKey = Up;
+      } else if (!strcmp(str, "down")) {
+        realKey = Down;
+      }
+    }
+
+    /// \todo make configurable
+    if ((c & ALT_KEY) && (g_pFocusWindow != 0)) {
+      bool bShift = (c & SHIFT_KEY);
+
+      klog(LOG_INFO, "ALT-%d [%x%x] %c", (uint32_t)c, (uint32_t)(c >> 32ULL), (uint32_t)c, (char)c);
+
+      c &= 0xFFFFFFFFULL;
+      Container* focusParent = g_pFocusWindow->getParent();
+      Window* newFocus = 0;
+      WObject* sibling = 0;
+      if (bShift) {
+        if (c == 'R') {
+          klog(LOG_INFO, "winman: retiling");
+          g_pRootContainer->retile();
+          bHandled = true;
+        } else if (c == 'Q') {
+          // Are we the only child of the root container?
+          bool bSafe = true;
+          if (focusParent == g_pRootContainer) {
+            if (focusParent->getChildCount() == 1) {
+              klog(LOG_INFO,
+                   "winman: can't (yet) terminate only "
+                   "child of root container!");
+              bSafe = false;
             }
-            else if (!strcmp(str, "righ"))
-            {
-                realKey = Right;
-            }
-            else if (!strcmp(str, "up"))
-            {
-                realKey = Up;
-            }
-            else if (!strcmp(str, "down"))
-            {
-                realKey = Down;
-            }
-        }
+          }
 
-        /// \todo make configurable
-        if ((c & ALT_KEY) && (g_pFocusWindow != 0))
-        {
-            bool bShift = (c & SHIFT_KEY);
+          if (bSafe) {
+            size_t totalSize = sizeof(LibUiProtocol::WindowManagerMessage);
+            char* buffer = new char[totalSize];
+            memset(buffer, 0, totalSize);
 
-            klog(
-                LOG_INFO, "ALT-%d [%x%x] %c", (uint32_t) c,
-                (uint32_t) (c >> 32ULL), (uint32_t) c, (char) c);
+            LibUiProtocol::WindowManagerMessage* pHeader =
+                reinterpret_cast<LibUiProtocol::WindowManagerMessage*>(buffer);
+            pHeader->widgetHandle = g_pFocusWindow->getHandle();
+            pHeader->messageSize = 0;
+            pHeader->messageCode = LibUiProtocol::Destroy;
+            pHeader->isResponse = false;
 
-            c &= 0xFFFFFFFFULL;
-            Container *focusParent = g_pFocusWindow->getParent();
-            Window *newFocus = 0;
-            WObject *sibling = 0;
-            if (bShift)
-            {
-                if (c == 'R')
-                {
-                    klog(LOG_INFO, "winman: retiling");
-                    g_pRootContainer->retile();
-                    bHandled = true;
-                }
-                else if (c == 'Q')
-                {
-                    // Are we the only child of the root container?
-                    bool bSafe = true;
-                    if (focusParent == g_pRootContainer)
-                    {
-                        if (focusParent->getChildCount() == 1)
-                        {
-                            klog(
-                                LOG_INFO, "winman: can't (yet) terminate only "
-                                          "child of root container!");
-                            bSafe = false;
-                        }
-                    }
+            g_pFocusWindow->sendMessage(buffer, totalSize);
 
-                    if (bSafe)
-                    {
-                        size_t totalSize =
-                            sizeof(LibUiProtocol::WindowManagerMessage);
-                        char *buffer = new char[totalSize];
-                        memset(buffer, 0, totalSize);
+            delete[] buffer;
 
-                        LibUiProtocol::WindowManagerMessage *pHeader =
-                            reinterpret_cast<
-                                LibUiProtocol::WindowManagerMessage *>(buffer);
-                        pHeader->widgetHandle = g_pFocusWindow->getHandle();
-                        pHeader->messageSize = 0;
-                        pHeader->messageCode = LibUiProtocol::Destroy;
-                        pHeader->isResponse = false;
-
-                        g_pFocusWindow->sendMessage(buffer, totalSize);
-
-                        delete[] buffer;
-
-                        bHandled = true;
-                    }
-                }
-            }
-            else if (c == '\n' || c == '\r')
-            {
-                // Add window to active container.
-                startClient();
-                bHandled = true;
-            }
-            else if ((c == 'v') || (c == 'h'))
-            {
-                ::Container::Layout layout;
-                if (c == 'v')
-                {
-                    layout = Container::Stacked;
-                }
-                else if (c == 'h')
-                {
-                    layout = Container::SideBySide;
-                }
-                else
-                {
-                    layout = Container::SideBySide;
-                }
-
-                // Replace focus window with container (Container::replace) in
-                // the relevant layout mode.
-                if (focusParent->getChildCount() == 1)
-                {
-                    focusParent->setLayout(layout);
-                }
-                else if (focusParent->getLayout() != layout)
-                {
-                    Container *pNewContainer = new Container(focusParent);
-                    pNewContainer->addChild(g_pFocusWindow, true);
-                    g_pFocusWindow->setParent(pNewContainer);
-
-                    focusParent->replaceChild(g_pFocusWindow, pNewContainer);
-                    focusParent->retile();
-                    pNewContainer->setLayout(layout);
-                }
-
-                bHandled = true;
-            }
-            else if (c == 'r')
-            {
-                // State machine: enter 'resize mode', which allows us to resize
-                // the container in which the window with focus is in.
-                bResize = true;
-                bHandled = true;
-                g_StatusField = "<resize mode>";
-
-                // Don't transmit resizes to the client(s) yet.
-                g_pRootContainer->norefresh();
-            }
-            else if (realKey != None)
-            {
-                if (realKey == Left)
-                {
-                    sibling = focusParent->getLeft(g_pFocusWindow);
-                }
-                else if (realKey == Up)
-                {
-                    sibling = focusParent->getUp(g_pFocusWindow);
-                }
-                else if (realKey == Down)
-                {
-                    sibling = focusParent->getDown(g_pFocusWindow);
-                }
-                else if (realKey == Right)
-                {
-                    sibling = focusParent->getRight(g_pFocusWindow);
-                }
-
-                // Not edge of screen?
-                if (sibling)
-                {
-                    while (sibling->getType() == WObject::Container)
-                    {
-                        Container *pContainer =
-                            static_cast<Container *>(sibling);
-                        sibling = pContainer->getFocusWindow();
-                    }
-
-                    if (sibling->getType() == WObject::Window)
-                    {
-                        newFocus = static_cast<Window *>(sibling);
-                    }
-                }
-
-                bHandled = true;
-            }
-
-            if (newFocus)
-            {
-                if (g_pFocusWindow)
-                {
-                    g_PendingWindows.insert(g_pFocusWindow);
-                    g_pFocusWindow->nofocus();
-                }
-
-                g_PendingWindows.insert(newFocus);
-
-                g_pFocusWindow = newFocus;
-                g_pFocusWindow->focus();
-            }
-        }
-
-        if ((!bHandled) && bResize && (g_pFocusWindow))
-        {
-            bool bWakeup = true;
             bHandled = true;
-
-            Container *focusParent = g_pFocusWindow->getParent();
-            WObject *sibling = 0;
-            if (c == '\e')
-            {
-                g_StatusField = " ";
-                bResize = false;
-
-                // Okay, now the client(s) can get a refreshed context.
-                g_pRootContainer->yesrefresh();
-            }
-            else if (realKey == Left)
-            {
-                sibling = focusParent->getLeft(g_pFocusWindow);
-                if (sibling)
-                {
-                    sibling->resize(-10, 0);
-                }
-            }
-            else if (realKey == Right)
-            {
-                sibling = focusParent->getRight(g_pFocusWindow);
-                if (sibling)
-                {
-                    g_pFocusWindow->resize(10, 0);
-                }
-            }
-            else if (realKey == Up)
-            {
-                sibling = focusParent->getUp(g_pFocusWindow);
-                if (sibling)
-                {
-                    sibling->resize(0, -10);
-                }
-            }
-            else if (realKey == Down)
-            {
-                sibling = focusParent->getDown(g_pFocusWindow);
-                if (sibling)
-                {
-                    g_pFocusWindow->resize(0, 10);
-                }
-            }
-            else
-            {
-                bWakeup = false;
-            }
-
-            if (bWakeup)
-            {
-                g_PendingWindows.insert(sibling);
-                g_PendingWindows.insert(g_pFocusWindow);
-            }
+          }
         }
-    }
-
-    if (note.type & Input::Mouse)
-    {
-        // Update our cursor position.
-        /// \todo Need a divisor or something, in case the relative updates
-        ///       are too big for the user's taste.
-        g_CursorX += note.data.pointy.relx;
-        g_CursorY -= note.data.pointy.rely;
-
-        // Constrain.
-        if (g_CursorX < 0)
-            g_CursorX = 0;
-        if (g_CursorY < 0)
-            g_CursorY = 0;
-        if (g_CursorX >= g_nWidth)
-            g_CursorX = g_nWidth - 1;
-        if (g_CursorY >= g_nHeight)
-            g_CursorY = g_nHeight - 1;
-
-        klog(
-            LOG_INFO, "Cursor update %zd, %zd [rel %zd %zd]", g_CursorX,
-            g_CursorY, note.data.pointy.relx, note.data.pointy.rely);
-
-        // Trigger a render.
-        g_bCursorUpdate = true;
-    }
-
-    if ((!bHandled) && (g_pFocusWindow))
-    {
-        // Forward event to focus window.
-        size_t totalSize = sizeof(LibUiProtocol::WindowManagerMessage);
-        if (note.type & Input::Key)
-            totalSize += sizeof(LibUiProtocol::KeyEventMessage);
-        else if (note.type & Input::RawKey)
-            totalSize += sizeof(LibUiProtocol::RawKeyEventMessage);
-
-        char *buffer = new char[totalSize];
-        memset(buffer, 0, totalSize);
-
-        LibUiProtocol::WindowManagerMessage *pHeader =
-            reinterpret_cast<LibUiProtocol::WindowManagerMessage *>(buffer);
-        pHeader->widgetHandle = g_pFocusWindow->getHandle();
-        pHeader->messageSize = totalSize - sizeof(*pHeader);
-        pHeader->isResponse = false;
-
-        if (note.type & Input::Key)
-        {
-            pHeader->messageCode = LibUiProtocol::KeyEvent;
-
-            LibUiProtocol::KeyEventMessage *pKeyEvent =
-                reinterpret_cast<LibUiProtocol::KeyEventMessage *>(
-                    buffer + sizeof(LibUiProtocol::WindowManagerMessage));
-            pKeyEvent->state = LibUiProtocol::Up;  /// \todo 'keydown' messages.
-            pKeyEvent->key = note.data.key.key;
-
-            g_pFocusWindow->sendMessage(buffer, totalSize);
-        }
-        else if (note.type & Input::RawKey)
-        {
-            pHeader->messageCode = LibUiProtocol::RawKeyEvent;
-
-            LibUiProtocol::RawKeyEventMessage *pKeyEvent =
-                reinterpret_cast<LibUiProtocol::RawKeyEventMessage *>(
-                    buffer + sizeof(LibUiProtocol::WindowManagerMessage));
-            pKeyEvent->state = note.data.rawkey.keyUp ? LibUiProtocol::Up :
-                                                        LibUiProtocol::Down;
-            pKeyEvent->scancode = note.data.rawkey.scancode;
-
-            g_pFocusWindow->sendMessage(buffer, totalSize);
+      } else if (c == '\n' || c == '\r') {
+        // Add window to active container.
+        startClient();
+        bHandled = true;
+      } else if ((c == 'v') || (c == 'h')) {
+        ::Container::Layout layout;
+        if (c == 'v') {
+          layout = Container::Stacked;
+        } else if (c == 'h') {
+          layout = Container::SideBySide;
+        } else {
+          layout = Container::SideBySide;
         }
 
-        delete[] buffer;
+        // Replace focus window with container (Container::replace) in
+        // the relevant layout mode.
+        if (focusParent->getChildCount() == 1) {
+          focusParent->setLayout(layout);
+        } else if (focusParent->getLayout() != layout) {
+          Container* pNewContainer = new Container(focusParent);
+          pNewContainer->addChild(g_pFocusWindow, true);
+          g_pFocusWindow->setParent(pNewContainer);
+
+          focusParent->replaceChild(g_pFocusWindow, pNewContainer);
+          focusParent->retile();
+          pNewContainer->setLayout(layout);
+        }
+
+        bHandled = true;
+      } else if (c == 'r') {
+        // State machine: enter 'resize mode', which allows us to resize
+        // the container in which the window with focus is in.
+        bResize = true;
+        bHandled = true;
+        g_StatusField = "<resize mode>";
+
+        // Don't transmit resizes to the client(s) yet.
+        g_pRootContainer->norefresh();
+      } else if (realKey != None) {
+        if (realKey == Left) {
+          sibling = focusParent->getLeft(g_pFocusWindow);
+        } else if (realKey == Up) {
+          sibling = focusParent->getUp(g_pFocusWindow);
+        } else if (realKey == Down) {
+          sibling = focusParent->getDown(g_pFocusWindow);
+        } else if (realKey == Right) {
+          sibling = focusParent->getRight(g_pFocusWindow);
+        }
+
+        // Not edge of screen?
+        if (sibling) {
+          while (sibling->getType() == WObject::Container) {
+            Container* pContainer = static_cast<Container*>(sibling);
+            sibling = pContainer->getFocusWindow();
+          }
+
+          if (sibling->getType() == WObject::Window) {
+            newFocus = static_cast<Window*>(sibling);
+          }
+        }
+
+        bHandled = true;
+      }
+
+      if (newFocus) {
+        if (g_pFocusWindow) {
+          g_PendingWindows.insert(g_pFocusWindow);
+          g_pFocusWindow->nofocus();
+        }
+
+        g_PendingWindows.insert(newFocus);
+
+        g_pFocusWindow = newFocus;
+        g_pFocusWindow->focus();
+      }
     }
+
+    if ((!bHandled) && bResize && (g_pFocusWindow)) {
+      bool bWakeup = true;
+      bHandled = true;
+
+      Container* focusParent = g_pFocusWindow->getParent();
+      WObject* sibling = 0;
+      if (c == '\e') {
+        g_StatusField = " ";
+        bResize = false;
+
+        // Okay, now the client(s) can get a refreshed context.
+        g_pRootContainer->yesrefresh();
+      } else if (realKey == Left) {
+        sibling = focusParent->getLeft(g_pFocusWindow);
+        if (sibling) {
+          sibling->resize(-10, 0);
+        }
+      } else if (realKey == Right) {
+        sibling = focusParent->getRight(g_pFocusWindow);
+        if (sibling) {
+          g_pFocusWindow->resize(10, 0);
+        }
+      } else if (realKey == Up) {
+        sibling = focusParent->getUp(g_pFocusWindow);
+        if (sibling) {
+          sibling->resize(0, -10);
+        }
+      } else if (realKey == Down) {
+        sibling = focusParent->getDown(g_pFocusWindow);
+        if (sibling) {
+          g_pFocusWindow->resize(0, 10);
+        }
+      } else {
+        bWakeup = false;
+      }
+
+      if (bWakeup) {
+        g_PendingWindows.insert(sibling);
+        g_PendingWindows.insert(g_pFocusWindow);
+      }
+    }
+  }
+
+  if (note.type & Input::Mouse) {
+    // Update our cursor position.
+    /// \todo Need a divisor or something, in case the relative updates
+    ///       are too big for the user's taste.
+    g_CursorX += note.data.pointy.relx;
+    g_CursorY -= note.data.pointy.rely;
+
+    // Constrain.
+    if (g_CursorX < 0)
+      g_CursorX = 0;
+    if (g_CursorY < 0)
+      g_CursorY = 0;
+    if (g_CursorX >= g_nWidth)
+      g_CursorX = g_nWidth - 1;
+    if (g_CursorY >= g_nHeight)
+      g_CursorY = g_nHeight - 1;
+
+    klog(LOG_INFO, "Cursor update %zd, %zd [rel %zd %zd]", g_CursorX, g_CursorY,
+         note.data.pointy.relx, note.data.pointy.rely);
+
+    // Trigger a render.
+    g_bCursorUpdate = true;
+  }
+
+  if ((!bHandled) && (g_pFocusWindow)) {
+    // Forward event to focus window.
+    size_t totalSize = sizeof(LibUiProtocol::WindowManagerMessage);
+    if (note.type & Input::Key)
+      totalSize += sizeof(LibUiProtocol::KeyEventMessage);
+    else if (note.type & Input::RawKey)
+      totalSize += sizeof(LibUiProtocol::RawKeyEventMessage);
+
+    char* buffer = new char[totalSize];
+    memset(buffer, 0, totalSize);
+
+    LibUiProtocol::WindowManagerMessage* pHeader =
+        reinterpret_cast<LibUiProtocol::WindowManagerMessage*>(buffer);
+    pHeader->widgetHandle = g_pFocusWindow->getHandle();
+    pHeader->messageSize = totalSize - sizeof(*pHeader);
+    pHeader->isResponse = false;
+
+    if (note.type & Input::Key) {
+      pHeader->messageCode = LibUiProtocol::KeyEvent;
+
+      LibUiProtocol::KeyEventMessage* pKeyEvent = reinterpret_cast<LibUiProtocol::KeyEventMessage*>(
+          buffer + sizeof(LibUiProtocol::WindowManagerMessage));
+      pKeyEvent->state = LibUiProtocol::Up;  /// \todo 'keydown' messages.
+      pKeyEvent->key = note.data.key.key;
+
+      g_pFocusWindow->sendMessage(buffer, totalSize);
+    } else if (note.type & Input::RawKey) {
+      pHeader->messageCode = LibUiProtocol::RawKeyEvent;
+
+      LibUiProtocol::RawKeyEventMessage* pKeyEvent =
+          reinterpret_cast<LibUiProtocol::RawKeyEventMessage*>(
+              buffer + sizeof(LibUiProtocol::WindowManagerMessage));
+      pKeyEvent->state = note.data.rawkey.keyUp ? LibUiProtocol::Up : LibUiProtocol::Down;
+      pKeyEvent->scancode = note.data.rawkey.scancode;
+
+      g_pFocusWindow->sendMessage(buffer, totalSize);
+    }
+
+    delete[] buffer;
+  }
 }
 
 /// System input callback.
-void systemInputCallback(Input::InputNotification &note)
-{
-    Input::InputNotification n = note;
-    g_InputQueue.push(n);
+void systemInputCallback(Input::InputNotification& note) {
+  Input::InputNotification n = note;
+  g_InputQueue.push(n);
 
-    // Wake up any pending select() - input pushed to queue.
-    ssize_t r = 0;
-    while (r <= 0)
-    {
-        r = write(g_iControlPipe[1], "w", 1);
-    }
+  // Wake up any pending select() - input pushed to queue.
+  ssize_t r = 0;
+  while (r <= 0) {
+    r = write(g_iControlPipe[1], "w", 1);
+  }
 }
 
-void sigchld(int s)
-{
-    klog(LOG_INFO, "SIGCHLD");
-    int status = 0;
-    pid_t pid = waitpid(-1, &status, WNOHANG);
-    if (pid <= 0)
-    {
-        klog(LOG_ALERT, "SIGCHLD handler called but no children to reap.");
-        return;
-    }
+void sigchld(int s) {
+  klog(LOG_INFO, "SIGCHLD");
+  int status = 0;
+  pid_t pid = waitpid(-1, &status, WNOHANG);
+  if (pid <= 0) {
+    klog(LOG_ALERT, "SIGCHLD handler called but no children to reap.");
+    return;
+  }
 
-    if (WIFEXITED(status))
-    {
-        int exit_status = WEXITSTATUS(status);
-        klog(LOG_INFO, "Child %d exited with status %d.", pid, exit_status);
-    }
-    else if (WIFSIGNALED(status))
-    {
-        int term_signal = WTERMSIG(status);
-        klog(LOG_INFO, "Child %d terminated with signal %d.", pid, term_signal);
-    }
-    else
-    {
-        klog(LOG_INFO, "Child %d terminated for an unknown reason.", pid);
-    }
+  if (WIFEXITED(status)) {
+    int exit_status = WEXITSTATUS(status);
+    klog(LOG_INFO, "Child %d exited with status %d.", pid, exit_status);
+  } else if (WIFSIGNALED(status)) {
+    int term_signal = WTERMSIG(status);
+    klog(LOG_INFO, "Child %d terminated with signal %d.", pid, term_signal);
+  } else {
+    klog(LOG_INFO, "Child %d terminated for an unknown reason.", pid);
+  }
 
-    // Now, we don't know what resources it held.
-    for (std::map<uint64_t, Window *>::iterator it = g_Windows->begin();
-         it != g_Windows->end();)
-    {
-        uint64_t handle = it->first;
-        pid_t window_pid = (handle >> 32ULL) & 0xFFFFFFFFU;
-        klog(LOG_INFO, "%d vs %d", window_pid, pid);
-        if (window_pid == pid)
-        {
-            klog(LOG_INFO, "Found a child window for the terminated child.");
-            handleDestroy(it->second);
-            delete it->second;
+  // Now, we don't know what resources it held.
+  for (std::map<uint64_t, Window*>::iterator it = g_Windows->begin(); it != g_Windows->end();) {
+    uint64_t handle = it->first;
+    pid_t window_pid = (handle >> 32ULL) & 0xFFFFFFFFU;
+    klog(LOG_INFO, "%d vs %d", window_pid, pid);
+    if (window_pid == pid) {
+      klog(LOG_INFO, "Found a child window for the terminated child.");
+      handleDestroy(it->second);
+      delete it->second;
 
-            g_Windows->erase(it++);
-        }
-        else
-        {
-            ++it;
-        }
+      g_Windows->erase(it++);
+    } else {
+      ++it;
     }
+  }
 }
 
-void infoPanel(cairo_t *cr)
-{
-    // Create a nice little bar at the bottom of the screen.
-    cairo_save(cr);
-    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+void infoPanel(cairo_t* cr) {
+  // Create a nice little bar at the bottom of the screen.
+  cairo_save(cr);
+  cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
 
-    cairo_set_source_rgba(cr, 0.2, 0.2, 0.2, 0.8);
-    cairo_rectangle(cr, 0, g_nHeight - 24, g_nWidth, 24);
-    cairo_fill(cr);
+  cairo_set_source_rgba(cr, 0.2, 0.2, 0.2, 0.8);
+  cairo_rectangle(cr, 0, g_nHeight - 24, g_nWidth, 24);
+  cairo_fill(cr);
 
-    PangoLayout *layout = pango_cairo_create_layout(cr);
-    PangoFontDescription *desc =
-        pango_font_description_from_string(WINMAN_PANGO_FONT);
+  PangoLayout* layout = pango_cairo_create_layout(cr);
+  PangoFontDescription* desc = pango_font_description_from_string(WINMAN_PANGO_FONT);
 
-    pango_layout_set_markup(layout, "The Pedigree Operating System", -1);
+  pango_layout_set_markup(layout, "The Pedigree Operating System", -1);
 
-    pango_layout_set_font_description(layout, desc);
-    pango_font_description_free(desc);
+  pango_layout_set_font_description(layout, desc);
+  pango_font_description_free(desc);
 
-    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-    cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
-    cairo_move_to(cr, 3, (g_nHeight - 24) + 3);
+  cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+  cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
+  cairo_move_to(cr, 3, (g_nHeight - 24) + 3);
+  pango_cairo_show_layout(cr, layout);
+
+  if (g_StatusField.length()) {
+    gchar* safe_markup = g_markup_escape_text(g_StatusField.c_str(), -1);
+    pango_layout_set_markup(layout, safe_markup, -1);
+    int width = 0, height = 0;
+    pango_layout_get_size(layout, &width, &height);
+
+    cairo_move_to(cr, g_nWidth - 3 - width, (g_nHeight - 24) + 3);
     pango_cairo_show_layout(cr, layout);
+    g_StatusField.clear();
+    g_free(safe_markup);
+  }
 
-    if (g_StatusField.length())
-    {
-        gchar *safe_markup = g_markup_escape_text(g_StatusField.c_str(), -1);
-        pango_layout_set_markup(layout, safe_markup, -1);
-        int width = 0, height = 0;
-        pango_layout_get_size(layout, &width, &height);
-
-        cairo_move_to(cr, g_nWidth - 3 - width, (g_nHeight - 24) + 3);
-        pango_cairo_show_layout(cr, layout);
-        g_StatusField.clear();
-        g_free(safe_markup);
-    }
-
-    g_object_unref(layout);
-    cairo_restore(cr);
+  g_object_unref(layout);
+  cairo_restore(cr);
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char* argv[]) {
 #ifdef TARGET_LINUX
-    openlog("winman", LOG_PID, LOG_USER);
+  openlog("winman", LOG_PID, LOG_USER);
 #endif
 
-    klog(LOG_INFO, "winman: starting up...");
-    fprintf(stderr, "I am PID %d\n", getpid());
+  klog(LOG_INFO, "winman: starting up...");
+  fprintf(stderr, "I am PID %d\n", getpid());
 
-    // Create ourselves a lock file so we don't end up getting run twice.
-    /// \todo Revisit this when exiting the window manager is possible.
-    int fd = open("/run/winman.lck", O_WRONLY | O_EXCL | O_CREAT, 0500);
-    if (fd < 0)
-    {
-        fprintf(stderr, "winman: lock file exists, terminating.\n");
-        return EXIT_FAILURE;
-    }
-    close(fd);
+  // Create ourselves a lock file so we don't end up getting run twice.
+  /// \todo Revisit this when exiting the window manager is possible.
+  int fd = open("/run/winman.lck", O_WRONLY | O_EXCL | O_CREAT, 0500);
+  if (fd < 0) {
+    fprintf(stderr, "winman: lock file exists, terminating.\n");
+    return EXIT_FAILURE;
+  }
+  close(fd);
 
-    Framebuffer *pFramebuffer = new Framebuffer();
-    if (!pFramebuffer->initialise())
-    {
-        fprintf(stderr, "winman: framebuffer initialisation failed\n");
-        return EXIT_FAILURE;
-    }
+  Framebuffer* pFramebuffer = new Framebuffer();
+  if (!pFramebuffer->initialise()) {
+    fprintf(stderr, "winman: framebuffer initialisation failed\n");
+    return EXIT_FAILURE;
+  }
 
-    // Save current mode so we can restore it on quit.
-    pFramebuffer->storeMode();
+  // Save current mode so we can restore it on quit.
+  pFramebuffer->storeMode();
 
-    // Kick off a 'window manager' process group, fork to run the modeset shim.
-    setpgid(0, 0);
+  // Kick off a 'window manager' process group, fork to run the modeset shim.
+  setpgid(0, 0);
 #ifdef WINMAN_FORK_WRAPPER
-    pid_t child = fork();
-    if (child == -1)
-    {
-        fprintf(stderr, "winman: could not fork: %s\n", strerror(errno));
-        return 1;
+  pid_t child = fork();
+  if (child == -1) {
+    fprintf(stderr, "winman: could not fork: %s\n", strerror(errno));
+    return 1;
+  } else if (child != 0) {
+    // Wait for the child (ie, real window manager process) to terminate.
+    int status = 0;
+    waitpid(child, &status, 0);
+
+    // Restore old graphics mode.
+    pFramebuffer->restoreMode();
+    delete pFramebuffer;
+
+    // Termination information
+    if (WIFEXITED(status)) {
+      fprintf(stderr, "winman: terminated with status %d\n", WEXITSTATUS(status));
+    } else if (WIFSIGNALED(status)) {
+      fprintf(stderr, "winman: terminated by signal %d\n", WTERMSIG(status));
+    } else {
+      fprintf(stderr, "winman: terminated by unknown means\n");
     }
-    else if (child != 0)
-    {
-        // Wait for the child (ie, real window manager process) to terminate.
-        int status = 0;
-        waitpid(child, &status, 0);
 
-        // Restore old graphics mode.
-        pFramebuffer->restoreMode();
-        delete pFramebuffer;
-
-        // Termination information
-        if (WIFEXITED(status))
-        {
-            fprintf(
-                stderr, "winman: terminated with status %d\n",
-                WEXITSTATUS(status));
-        }
-        else if (WIFSIGNALED(status))
-        {
-            fprintf(
-                stderr, "winman: terminated by signal %d\n", WTERMSIG(status));
-        }
-        else
-        {
-            fprintf(stderr, "winman: terminated by unknown means\n");
-        }
-
-        // Terminate our process group.
-        kill(0, SIGTERM);
-        return 0;
-    }
+    // Terminate our process group.
+    kill(0, SIGTERM);
+    return 0;
+  }
 #endif
 
-    // Create control pipe.
-    int result = pipe(g_iControlPipe);
-    if (result != 0)
-    {
-        fprintf(
-            stderr, "winman: couldn't create control pipe [%s]\n",
-            strerror(errno));
-        return EXIT_FAILURE;
-    }
+  // Create control pipe.
+  int result = pipe(g_iControlPipe);
+  if (result != 0) {
+    fprintf(stderr, "winman: couldn't create control pipe [%s]\n", strerror(errno));
+    return EXIT_FAILURE;
+  }
 
-    // Create listening socket.
-    g_iSocket = socket(AF_UNIX, SOCK_DGRAM, 0);
-    if (g_iSocket < 0)
-    {
-        fprintf(
-            stderr,
-            "error: couldn't create the pedigree-winman IPC endpoint! [%s]",
+  // Create listening socket.
+  g_iSocket = socket(AF_UNIX, SOCK_DGRAM, 0);
+  if (g_iSocket < 0) {
+    fprintf(stderr, "error: couldn't create the pedigree-winman IPC endpoint! [%s]",
             strerror(errno));
-        return EXIT_FAILURE;
-    }
+    return EXIT_FAILURE;
+  }
 
-    // Bind.
-    struct sockaddr_un bind_addr;
-    bind_addr.sun_family = AF_UNIX;
-    memset(bind_addr.sun_path, 0, sizeof bind_addr.sun_path);
-    strncpy(bind_addr.sun_path, WINMAN_SOCKET_PATH, sizeof bind_addr.sun_path);
-    socklen_t socklen = sizeof(bind_addr);
-    result = bind(g_iSocket, (struct sockaddr *) &bind_addr, socklen);
-    if (result != 0)
-    {
-        fprintf(
-            stderr, "winman: couldn't bind to %s [%s]\n", WINMAN_SOCKET_PATH,
-            strerror(errno));
-        return EXIT_FAILURE;
-    }
+  // Bind.
+  struct sockaddr_un bind_addr;
+  bind_addr.sun_family = AF_UNIX;
+  memset(bind_addr.sun_path, 0, sizeof bind_addr.sun_path);
+  strncpy(bind_addr.sun_path, WINMAN_SOCKET_PATH, sizeof bind_addr.sun_path);
+  socklen_t socklen = sizeof(bind_addr);
+  result = bind(g_iSocket, (struct sockaddr*)&bind_addr, socklen);
+  if (result != 0) {
+    fprintf(stderr, "winman: couldn't bind to %s [%s]\n", WINMAN_SOCKET_PATH, strerror(errno));
+    return EXIT_FAILURE;
+  }
 
 #ifdef TARGET_LINUX
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
-    {
-        fprintf(stderr, "winman: SDL initialisation failed.\n");
-        return EXIT_FAILURE;
-    }
+  if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+    fprintf(stderr, "winman: SDL initialisation failed.\n");
+    return EXIT_FAILURE;
+  }
 #endif
 
-    // Can we set the graphics mode we want?
-    /// \todo Read from a config file!
-    result = pFramebuffer->enterMode(1024, 768, 32);
-    if (result != 0)
-        return result;
+  // Can we set the graphics mode we want?
+  /// \todo Read from a config file!
+  result = pFramebuffer->enterMode(1024, 768, 32);
+  if (result != 0)
+    return result;
 
-    g_nWidth = pFramebuffer->getWidth();
-    g_nHeight = pFramebuffer->getHeight();
+  g_nWidth = pFramebuffer->getWidth();
+  g_nHeight = pFramebuffer->getHeight();
 
-    klog(LOG_INFO, "Actual mode is %ux%u", g_nWidth, g_nHeight);
+  klog(LOG_INFO, "Actual mode is %ux%u", g_nWidth, g_nHeight);
 
-    cairo_format_t format = pFramebuffer->getFormat();
+  cairo_format_t format = pFramebuffer->getFormat();
 
-    int stride = cairo_format_stride_for_width(format, g_nWidth);
+  int stride = cairo_format_stride_for_width(format, g_nWidth);
 
-    void *framebufferVirt = pFramebuffer->getFramebuffer();
+  void* framebufferVirt = pFramebuffer->getFramebuffer();
 
-    cairo_surface_t *surface = cairo_image_surface_create_for_data(
-        (uint8_t *) framebufferVirt, format, g_nWidth, g_nHeight, stride);
-    cairo_t *cr = cairo_create(surface);
+  cairo_surface_t* surface = cairo_image_surface_create_for_data((uint8_t*)framebufferVirt, format,
+                                                                 g_nWidth, g_nHeight, stride);
+  cairo_t* cr = cairo_create(surface);
 
-    FT_Library font_library;
-    FT_Face ft_face;
-    int e = FT_Init_FreeType(&font_library);
-    if (e)
-    {
-        klog(LOG_CRIT, "error: couldn't initialise Freetype");
-        return 0;
-    }
+  FT_Library font_library;
+  FT_Face ft_face;
+  int e = FT_Init_FreeType(&font_library);
+  if (e) {
+    klog(LOG_CRIT, "error: couldn't initialise Freetype");
+    return 0;
+  }
 
-    e = FT_New_Face(font_library, DEJAVU_FONT, 0, &ft_face);
-    if (e)
-    {
-        klog(LOG_CRIT, "winman: error: couldn't load required font");
-        return 0;
-    }
+  e = FT_New_Face(font_library, DEJAVU_FONT, 0, &ft_face);
+  if (e) {
+    klog(LOG_CRIT, "winman: error: couldn't load required font");
+    return 0;
+  }
 
-    cairo_user_data_key_t key;
-    cairo_font_face_t *font_face;
+  cairo_user_data_key_t key;
+  cairo_font_face_t* font_face;
 
-    font_face = cairo_ft_font_face_create_for_ft_face(ft_face, 0);
-    cairo_font_face_set_user_data(
-        font_face, &key, ft_face, (cairo_destroy_func_t) FT_Done_Face);
-    cairo_set_font_face(cr, font_face);
+  font_face = cairo_ft_font_face_create_for_ft_face(ft_face, 0);
+  cairo_font_face_set_user_data(font_face, &key, ft_face, (cairo_destroy_func_t)FT_Done_Face);
+  cairo_set_font_face(cr, font_face);
 
-    Png *wallpaper = 0;
-    FILE *fp = fopen("/system/wallpaper/fields.png", "rb");
-    if (fp)
-    {
-        fclose(fp);
+  Png* wallpaper = 0;
+  FILE* fp = fopen("/system/wallpaper/fields.png", "rb");
+  if (fp) {
+    fclose(fp);
 
-        // A nice wallpaper.
-        wallpaper = new Png("/system/wallpaper/trees.png");
-        wallpaper->render(cr, 0, 0, g_nWidth, g_nHeight);
-    }
-    else
-    {
-        // No PNG found, fall back to a blue background.
-        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-        cairo_set_source_rgba(cr, 0, 0, 1.0, 1.0);
-        cairo_rectangle(cr, 0, 0, g_nWidth, g_nHeight);
-        cairo_fill(cr);
-    }
+    // A nice wallpaper.
+    wallpaper = new Png("/system/wallpaper/trees.png");
+    wallpaper->render(cr, 0, 0, g_nWidth, g_nHeight);
+  } else {
+    // No PNG found, fall back to a blue background.
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_rgba(cr, 0, 0, 1.0, 1.0);
+    cairo_rectangle(cr, 0, 0, g_nWidth, g_nHeight);
+    cairo_fill(cr);
+  }
 
-    g_pRootContainer = new RootContainer(g_nWidth, g_nHeight - 24);
+  g_pRootContainer = new RootContainer(g_nWidth, g_nHeight - 24);
 
-    infoPanel(cr);
+  infoPanel(cr);
 
-    klog(LOG_INFO, "winman: entering main loop pid=%d", getpid());
+  klog(LOG_INFO, "winman: entering main loop pid=%d", getpid());
 
-    g_Windows = new std::map<uint64_t, Window *>();
+  g_Windows = new std::map<uint64_t, Window*>();
 
 // Install our global input callback before we kick off our client.
 #ifndef TARGET_LINUX
-    Input::installCallback(
-        Input::RawKey | Input::Key | Input::Mouse, systemInputCallback);
+  Input::installCallback(Input::RawKey | Input::Key | Input::Mouse, systemInputCallback);
 #endif
 
-    // Render all window decorations and non-client display elements first up.
-    g_pRootContainer->render(cr);
+  // Render all window decorations and non-client display elements first up.
+  g_pRootContainer->render(cr);
 
-    // Kick off the first render before any windows are open.
-    cairo_surface_flush(surface);
-    pFramebuffer->flush(0, 0, g_nWidth, g_nHeight);
+  // Kick off the first render before any windows are open.
+  cairo_surface_flush(surface);
+  pFramebuffer->flush(0, 0, g_nWidth, g_nHeight);
 
-    // Prepare for SIGCHLD messages from children.
-    struct sigaction act;
-    memset(&act, 0, sizeof(act));
-    act.sa_handler = sigchld;
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_NOCLDSTOP | SA_SIGINFO;
-    sigaction(SIGCHLD, &act, NULL);
+  // Prepare for SIGCHLD messages from children.
+  struct sigaction act;
+  memset(&act, 0, sizeof(act));
+  act.sa_handler = sigchld;
+  sigemptyset(&act.sa_mask);
+  act.sa_flags = SA_NOCLDSTOP | SA_SIGINFO;
+  sigaction(SIGCHLD, &act, NULL);
 
-    // Load first tile.
-    startClient();
+  // Load first tile.
+  startClient();
 
-    // Main loop: logic & message handling goes here!
-    DirtyRectangle renderDirty;
-    g_bAlive = true;
-    while (g_bAlive)
-    {
-        // Check for any messages coming in from windows, asynchronously.
-        checkForMessages();
+  // Main loop: logic & message handling goes here!
+  DirtyRectangle renderDirty;
+  g_bAlive = true;
+  while (g_bAlive) {
+    // Check for any messages coming in from windows, asynchronously.
+    checkForMessages();
 
-        // Check for any windows that may need rendering.
-        if ((!g_PendingWindows.empty()) || g_StatusField.length() ||
-            g_bCursorUpdate)
-        {
-            // Render each window, also ensuring the wallpaper is rendered again
-            // so that windows with alpha look correct.
-            std::set<WObject *>::iterator it = g_PendingWindows.begin();
-            size_t nDirty = g_StatusField.length() ? 1 : 0;
-            if (g_bCursorUpdate)
-                ++nDirty;
-            for (; it != g_PendingWindows.end(); ++it)
-            {
-                Window *pWindow = 0;
-                if ((*it)->getType() == WObject::Window)
-                {
-                    pWindow = static_cast<Window *>(*it);
-                }
+    // Check for any windows that may need rendering.
+    if ((!g_PendingWindows.empty()) || g_StatusField.length() || g_bCursorUpdate) {
+      // Render each window, also ensuring the wallpaper is rendered again
+      // so that windows with alpha look correct.
+      std::set<WObject*>::iterator it = g_PendingWindows.begin();
+      size_t nDirty = g_StatusField.length() ? 1 : 0;
+      if (g_bCursorUpdate)
+        ++nDirty;
+      for (; it != g_PendingWindows.end(); ++it) {
+        Window* pWindow = 0;
+        if ((*it)->getType() == WObject::Window) {
+          pWindow = static_cast<Window*>(*it);
+        }
 
-                if (pWindow && !pWindow->isDirty())
-                {
-                    continue;
-                }
-                else
-                {
-                    ++nDirty;
-                }
+        if (pWindow && !pWindow->isDirty()) {
+          continue;
+        } else {
+          ++nDirty;
+        }
 
-                PedigreeGraphics::Rect rt = (*it)->getCopyDimensions();
-                PedigreeGraphics::Rect dirty = rt;
-                if (pWindow)
-                {
-                    dirty = pWindow->getDirty();
-                }
+        PedigreeGraphics::Rect rt = (*it)->getCopyDimensions();
+        PedigreeGraphics::Rect dirty = rt;
+        if (pWindow) {
+          dirty = pWindow->getDirty();
+        }
 
-                // Render wallpaper.
-                if (wallpaper)
-                {
-                    wallpaper->renderPartial(
-                        cr, rt.getX() + dirty.getX(), rt.getY() + dirty.getY(),
-                        0, 0, dirty.getW(), dirty.getH(), g_nWidth, g_nHeight);
+        // Render wallpaper.
+        if (wallpaper) {
+          wallpaper->renderPartial(cr, rt.getX() + dirty.getX(), rt.getY() + dirty.getY(), 0, 0,
+                                   dirty.getW(), dirty.getH(), g_nWidth, g_nHeight);
 #if DEBUG_REDRAWS
-                    cairo_set_source_rgba(cr, 0, 0, 1.0, 1.0);
-                    cairo_rectangle(
-                        cr, rt.getX() + dirty.getX(), rt.getY() + dirty.getY(),
-                        dirty.getW(), dirty.getH());
-                    cairo_stroke(cr);
+          cairo_set_source_rgba(cr, 0, 0, 1.0, 1.0);
+          cairo_rectangle(cr, rt.getX() + dirty.getX(), rt.getY() + dirty.getY(), dirty.getW(),
+                          dirty.getH());
+          cairo_stroke(cr);
 #endif
-                }
-                else
-                {
-                    // Boring background.
-                    cairo_set_source_rgba(cr, 0, 0, 1.0, 1.0);
-                    cairo_rectangle(
-                        cr, rt.getX() + dirty.getX(), rt.getY() + dirty.getY(),
-                        dirty.getW(), dirty.getH());
+        } else {
+          // Boring background.
+          cairo_set_source_rgba(cr, 0, 0, 1.0, 1.0);
+          cairo_rectangle(cr, rt.getX() + dirty.getX(), rt.getY() + dirty.getY(), dirty.getW(),
+                          dirty.getH());
 #if DEBUG_REDRAWS
-                    cairo_stroke_preserve(cr);
+          cairo_stroke_preserve(cr);
 #endif
-                    cairo_fill(cr);
-                }
+          cairo_fill(cr);
+        }
 
-                // Render window.
-                (*it)->render(cr);
+        // Render window.
+        (*it)->render(cr);
 
-                // Update the dirty rectangle.
-                renderDirty.point(
-                    rt.getX() + dirty.getX(), rt.getX() + dirty.getY());
-                renderDirty.point(
-                    rt.getX() + dirty.getX() + dirty.getW(),
-                    rt.getX() + dirty.getY() + dirty.getH());
-            }
+        // Update the dirty rectangle.
+        renderDirty.point(rt.getX() + dirty.getX(), rt.getX() + dirty.getY());
+        renderDirty.point(rt.getX() + dirty.getX() + dirty.getW(),
+                          rt.getX() + dirty.getY() + dirty.getH());
+      }
 
-            // Empty out the list in full.
-            g_PendingWindows.clear();
+      // Empty out the list in full.
+      g_PendingWindows.clear();
 
-            // Only do rendering if we actually did some rendering!
-            if (!nDirty)
-            {
-                renderDirty.reset();
-                continue;
-            }
+      // Only do rendering if we actually did some rendering!
+      if (!nDirty) {
+        renderDirty.reset();
+        continue;
+      }
 
-            if (g_StatusField.length())
-            {
-                infoPanel(cr);
-            }
+      if (g_StatusField.length()) {
+        infoPanel(cr);
+      }
 
 #if 0
             // After all else is said and done, render the cursor.
@@ -1342,44 +1110,42 @@ int main(int argc, char *argv[])
             g_bCursorUpdate = false;
 #endif
 
-            // Flush the cairo surface, which will ensure the most recent data
-            // is in the framebuffer ready to send to the device.
-            cairo_surface_flush(surface);
+      // Flush the cairo surface, which will ensure the most recent data
+      // is in the framebuffer ready to send to the device.
+      cairo_surface_flush(surface);
 
-            // Submit a redraw to the graphics card.
-            pFramebuffer->flush(
-                renderDirty.getX(), renderDirty.getY(), renderDirty.getWidth(),
-                renderDirty.getHeight());
+      // Submit a redraw to the graphics card.
+      pFramebuffer->flush(renderDirty.getX(), renderDirty.getY(), renderDirty.getWidth(),
+                          renderDirty.getHeight());
 
-            // Wipe out the dirty rectangle - we're all done.
-            renderDirty.reset();
-        }
+      // Wipe out the dirty rectangle - we're all done.
+      renderDirty.reset();
     }
+  }
 
-    /// \todo Clean up?
-    klog(LOG_INFO, "winman terminating");
+  /// \todo Clean up?
+  klog(LOG_INFO, "winman terminating");
 
-    // Clean up wallpaper, if one exists.
-    if (wallpaper)
-    {
-        delete wallpaper;
-    }
+  // Clean up wallpaper, if one exists.
+  if (wallpaper) {
+    delete wallpaper;
+  }
 
-    delete g_pRootContainer;
+  delete g_pRootContainer;
 
-    cairo_font_face_destroy(font_face);
+  cairo_font_face_destroy(font_face);
 
-    FT_Done_Face(ft_face);
-    FT_Done_FreeType(font_library);
+  FT_Done_Face(ft_face);
+  FT_Done_FreeType(font_library);
 
-    cairo_surface_destroy(surface);
+  cairo_surface_destroy(surface);
 
-    // Clean up the framebuffer finally.
-    delete pFramebuffer;
+  // Clean up the framebuffer finally.
+  delete pFramebuffer;
 
 #ifdef TARGET_LINUX
-    SDL_Quit();
+  SDL_Quit();
 #endif
 
-    return 0;
+  return 0;
 }

@@ -19,142 +19,119 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <string.h>
+#include "pedigree/kernel/utilities/Vector.h"
 
+#include <string.h>
 #include <vector>
 
 #include <benchmark/benchmark.h>
 
-#include "pedigree/kernel/utilities/Vector.h"
+static void BM_VectorPushBack(benchmark::State& state) {
+  Vector<int64_t> vector;
+  const int64_t value = 1;
 
-static void BM_VectorPushBack(benchmark::State &state)
-{
-    Vector<int64_t> vector;
-    const int64_t value = 1;
+  while (state.KeepRunning()) {
+    vector.pushBack(value);
+  }
 
-    while (state.KeepRunning())
-    {
-        vector.pushBack(value);
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_VectorPushBackSTL(benchmark::State &state)
-{
-    std::vector<int64_t> vector;
-    const int64_t value = 1;
+static void BM_VectorPushBackSTL(benchmark::State& state) {
+  std::vector<int64_t> vector;
+  const int64_t value = 1;
 
-    while (state.KeepRunning())
-    {
-        vector.push_back(value);
-    }
+  while (state.KeepRunning()) {
+    vector.push_back(value);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_VectorPushFront(benchmark::State &state)
-{
-    Vector<int64_t> vector;
-    const int64_t value = 1;
+static void BM_VectorPushFront(benchmark::State& state) {
+  Vector<int64_t> vector;
+  const int64_t value = 1;
 
-    while (state.KeepRunning())
-    {
-        vector.pushFront(value);
-    }
+  while (state.KeepRunning()) {
+    vector.pushFront(value);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_VectorPushFrontSTL(benchmark::State &state)
-{
-    std::vector<int64_t> vector;
-    const int64_t value = 1;
+static void BM_VectorPushFrontSTL(benchmark::State& state) {
+  std::vector<int64_t> vector;
+  const int64_t value = 1;
 
-    while (state.KeepRunning())
-    {
-        vector.insert(vector.begin(), value);
-    }
+  while (state.KeepRunning()) {
+    vector.insert(vector.begin(), value);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_VectorReservedPushFront(benchmark::State &state)
-{
-    Vector<int64_t> vector;
-    const int64_t value = 1;
-    vector.reserve(1024, false);
+static void BM_VectorReservedPushFront(benchmark::State& state) {
+  Vector<int64_t> vector;
+  const int64_t value = 1;
+  vector.reserve(1024, false);
 
-    while (state.KeepRunning())
-    {
-        vector.pushFront(value);
-    }
+  while (state.KeepRunning()) {
+    vector.pushFront(value);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_VectorReservedPushBack(benchmark::State &state)
-{
-    Vector<int64_t> vector;
-    const int64_t value = 1;
-    vector.reserve(1024, false);
+static void BM_VectorReservedPushBack(benchmark::State& state) {
+  Vector<int64_t> vector;
+  const int64_t value = 1;
+  vector.reserve(1024, false);
 
-    while (state.KeepRunning())
-    {
-        vector.pushBack(value);
-    }
+  while (state.KeepRunning()) {
+    vector.pushBack(value);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_VectorPopFront(benchmark::State &state)
-{
-    Vector<int64_t> vector;
-    const int64_t value = 1;
+static void BM_VectorPopFront(benchmark::State& state) {
+  Vector<int64_t> vector;
+  const int64_t value = 1;
 
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        vector.clear();
-        for (size_t i = 0; i < state.range(0); ++i)
-        {
-            vector.pushBack(value);
-        }
-        state.ResumeTiming();
-
-        for (size_t i = 0; i < state.range(0); ++i)
-        {
-            vector.popFront();
-        }
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    vector.clear();
+    for (size_t i = 0; i < state.range(0); ++i) {
+      vector.pushBack(value);
     }
+    state.ResumeTiming();
 
-    state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range(0)));
+    for (size_t i = 0; i < state.range(0); ++i) {
+      vector.popFront();
+    }
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
-static void BM_VectorPopBack(benchmark::State &state)
-{
-    Vector<int64_t> vector;
-    const int64_t value = 1;
+static void BM_VectorPopBack(benchmark::State& state) {
+  Vector<int64_t> vector;
+  const int64_t value = 1;
 
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        vector.clear();
-        for (size_t i = 0; i < state.range(0); ++i)
-        {
-            vector.pushBack(value);
-        }
-        state.ResumeTiming();
-
-        for (size_t i = 0; i < state.range(0); ++i)
-        {
-            vector.popBack();
-        }
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    vector.clear();
+    for (size_t i = 0; i < state.range(0); ++i) {
+      vector.pushBack(value);
     }
+    state.ResumeTiming();
 
-    state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range(0)));
+    for (size_t i = 0; i < state.range(0); ++i) {
+      vector.popBack();
+    }
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
 // Vector is *not fast* to do huge amounts of insertions/deletions in, so we

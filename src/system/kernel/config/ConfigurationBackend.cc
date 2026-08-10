@@ -20,23 +20,18 @@
 #include "pedigree/kernel/config/ConfigurationBackend.h"
 #include "pedigree/kernel/config/ConfigurationManager.h"
 
-ConfigurationBackend::ConfigurationBackend(const String &configStore)
-    : m_ConfigStore(configStore)
-{
+ConfigurationBackend::ConfigurationBackend(const String& configStore)
+    : m_ConfigStore(configStore) {}
+
+ConfigurationBackend::~ConfigurationBackend() {
+  ConfigurationManager::instance().removeBackend(m_ConfigStore);
 }
 
-ConfigurationBackend::~ConfigurationBackend()
-{
-    ConfigurationManager::instance().removeBackend(m_ConfigStore);
+const String& ConfigurationBackend::getConfigStore() {
+  return m_ConfigStore;
 }
 
-const String &ConfigurationBackend::getConfigStore()
-{
-    return m_ConfigStore;
-}
-
-const String &ConfigurationBackend::getTypeName()
-{
-    static String typeName("ConfigurationBackend [pure]");
-    return typeName;
+const String& ConfigurationBackend::getTypeName() {
+  static String typeName("ConfigurationBackend [pure]");
+  return typeName;
 }

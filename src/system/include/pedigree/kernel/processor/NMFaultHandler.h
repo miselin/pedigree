@@ -29,55 +29,51 @@
  * @{ */
 
 /** The x86 Device Not Present(NM) Exception handler. */
-class NMFaultHandler : private InterruptHandler
-{
-  public:
-    /** Get the NMFaultHandler instance
-     *  \return the NMFaultHandler instance.  */
-    inline static NMFaultHandler &instance()
-    {
-        return m_Instance;
-    }
+class NMFaultHandler : private InterruptHandler {
+ public:
+  /** Get the NMFaultHandler instance
+   *  \return the NMFaultHandler instance.  */
+  inline static NMFaultHandler& instance() {
+    return m_Instance;
+  }
 
-    /** Register the NMFaultHandler with the InterruptManager.
-     * \return true if sucessful, false otherwise.  */
-    bool initialise();
+  /** Register the NMFaultHandler with the InterruptManager.
+   * \return true if sucessful, false otherwise.  */
+  bool initialise();
 
-    /** Initialise the current processor's floating point state. */
-    bool initialiseProcessor();
+  /** Initialise the current processor's floating point state. */
+  bool initialiseProcessor();
 
-    /**
-     * Save the current thread's legacy FXSAVE image. When requested, install
-     * the initial image for a signal handler without losing the saved image.
-     */
-    EXPORTED_PUBLIC static bool saveCurrentThreadFpuState(
-        void *buffer, bool resetForSignalHandler);
+  /**
+   * Save the current thread's legacy FXSAVE image. When requested, install
+   * the initial image for a signal handler without losing the saved image.
+   */
+  EXPORTED_PUBLIC static bool saveCurrentThreadFpuState(void* buffer, bool resetForSignalHandler);
 
-    /** Restore the current thread's legacy FXSAVE image. */
-    EXPORTED_PUBLIC static bool
-    restoreCurrentThreadFpuState(const void *buffer);
+  /** Restore the current thread's legacy FXSAVE image. */
+  EXPORTED_PUBLIC static bool restoreCurrentThreadFpuState(const void* buffer);
 
-    /** Seed a new thread with the current thread's floating-point image. */
-    static bool inheritCurrentThreadFpuState(class Thread *thread);
+  /** Seed a new thread with the current thread's floating-point image. */
+  static bool inheritCurrentThreadFpuState(class Thread* thread);
 
-    //
-    // InterruptHandler interface.
-    //
-    virtual void interrupt(size_t interruptNumber, InterruptState &state);
+  //
+  // InterruptHandler interface.
+  //
+  virtual void interrupt(size_t interruptNumber, InterruptState& state);
 
-    // Handle thread termination (e.g. might need to clean up pointers to state)
-    void threadTerminated(class Thread *);
+  // Handle thread termination (e.g. might need to clean up pointers to state)
+  void threadTerminated(class Thread*);
 
-  private:
-    /** The default constructor.  */
-    NMFaultHandler() INITIALISATION_ONLY;
+ private:
+  /** The default constructor.  */
+  NMFaultHandler() INITIALISATION_ONLY;
 
-    /**The copy constructor.
-     * Note not implemented.  */
-    NMFaultHandler(const NMFaultHandler &);
+  /**The copy constructor.
+   * Note not implemented.  */
+  NMFaultHandler(const NMFaultHandler&);
 
-    /** The NMFaultHandler instance */
-    static NMFaultHandler m_Instance;
+  /** The NMFaultHandler instance */
+  static NMFaultHandler m_Instance;
 };
 
 /** @} */

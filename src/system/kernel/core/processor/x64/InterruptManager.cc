@@ -33,354 +33,299 @@
 
 #if THREADS
 #include "pedigree/kernel/Subsystem.h"
-#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/InterruptTimeAccounting.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Process.h"
 #endif
 
-static const char *g_ExceptionNames[] = {
-    "Divide Error",
-    "Debug",
-    "NMI Interrupt",
-    "Breakpoint",
-    "Overflow",
-    "BOUND Range Exceeded",
-    "Invalid Opcode",
-    "Device Not Available",
-    "Double Fault",
-    "Coprocessor Segment Overrun", /* recent IA-32 processors don't generate
-                                      this */
-    "Invalid TSS",
-    "Segment Not Present",
-    "Stack Fault",
-    "General Protection Fault",
-    "Page Fault",
-    "FPU Floating-Point Error",
-    "Alignment Check",
-    "Machine-Check",
-    "SIMD Floating-Point Exception",
-    "Reserved: Interrupt 19",
-    "Reserved: Interrupt 20",
-    "Reserved: Interrupt 21",
-    "Reserved: Interrupt 22",
-    "Reserved: Interrupt 23",
-    "Reserved: Interrupt 24",
-    "Reserved: Interrupt 25",
-    "Reserved: Interrupt 26",
-    "Reserved: Interrupt 27",
-    "Reserved: Interrupt 28",
-    "Reserved: Interrupt 29",
-    "Reserved: Interrupt 30",
-    "Reserved: Interrupt 31"};
+static const char* g_ExceptionNames[] = {"Divide Error",
+                                         "Debug",
+                                         "NMI Interrupt",
+                                         "Breakpoint",
+                                         "Overflow",
+                                         "BOUND Range Exceeded",
+                                         "Invalid Opcode",
+                                         "Device Not Available",
+                                         "Double Fault",
+                                         "Coprocessor Segment Overrun", /* recent IA-32 processors
+                                                                           don't generate this */
+                                         "Invalid TSS",
+                                         "Segment Not Present",
+                                         "Stack Fault",
+                                         "General Protection Fault",
+                                         "Page Fault",
+                                         "FPU Floating-Point Error",
+                                         "Alignment Check",
+                                         "Machine-Check",
+                                         "SIMD Floating-Point Exception",
+                                         "Reserved: Interrupt 19",
+                                         "Reserved: Interrupt 20",
+                                         "Reserved: Interrupt 21",
+                                         "Reserved: Interrupt 22",
+                                         "Reserved: Interrupt 23",
+                                         "Reserved: Interrupt 24",
+                                         "Reserved: Interrupt 25",
+                                         "Reserved: Interrupt 26",
+                                         "Reserved: Interrupt 27",
+                                         "Reserved: Interrupt 28",
+                                         "Reserved: Interrupt 29",
+                                         "Reserved: Interrupt 30",
+                                         "Reserved: Interrupt 31"};
 
 X64InterruptManager X64InterruptManager::m_Instance;
 
-InterruptManager &InterruptManager::instance()
-{
-    return X64InterruptManager::instance();
+InterruptManager& InterruptManager::instance() {
+  return X64InterruptManager::instance();
 }
 
-bool X64InterruptManager::registerInterruptHandler(
-    size_t nInterruptNumber, InterruptHandler *pHandler)
-{
-    // Lock the class until the end of the function
-    LockGuard<Spinlock> lock(m_Lock);
+bool X64InterruptManager::registerInterruptHandler(size_t nInterruptNumber,
+                                                   InterruptHandler* pHandler) {
+  // Lock the class until the end of the function
+  LockGuard<Spinlock> lock(m_Lock);
 
-    // Sanity checks
-    if (UNLIKELY(nInterruptNumber >= 256))
-        return false;
-    InterruptHandler *current =
-        __atomic_load_n(&m_pHandler[nInterruptNumber], __ATOMIC_ACQUIRE);
-    if (UNLIKELY(pHandler != 0 && current != 0))
-        return false;
-    if (UNLIKELY(pHandler == 0 && current == 0))
-        return false;
+  // Sanity checks
+  if (UNLIKELY(nInterruptNumber >= 256))
+    return false;
+  InterruptHandler* current = __atomic_load_n(&m_pHandler[nInterruptNumber], __ATOMIC_ACQUIRE);
+  if (UNLIKELY(pHandler != 0 && current != 0))
+    return false;
+  if (UNLIKELY(pHandler == 0 && current == 0))
+    return false;
 
-    // Exceptions and IRQs can re-enter on this CPU while this lock is held.
-    // Publish the complete old or new pointer without involving that lock.
-    return __atomic_compare_exchange_n(
-        &m_pHandler[nInterruptNumber], &current, pHandler, false,
-        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+  // Exceptions and IRQs can re-enter on this CPU while this lock is held.
+  // Publish the complete old or new pointer without involving that lock.
+  return __atomic_compare_exchange_n(&m_pHandler[nInterruptNumber], &current, pHandler, false,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
 
 #if DEBUGGER
 
-bool X64InterruptManager::registerInterruptHandlerDebugger(
-    size_t nInterruptNumber, InterruptHandler *pHandler)
-{
-    // Lock the class until the end of the function
-    LockGuard<Spinlock> lock(m_Lock);
+bool X64InterruptManager::registerInterruptHandlerDebugger(size_t nInterruptNumber,
+                                                           InterruptHandler* pHandler) {
+  // Lock the class until the end of the function
+  LockGuard<Spinlock> lock(m_Lock);
 
-    // Sanity checks
-    if (UNLIKELY(nInterruptNumber >= 256))
-        return false;
-    InterruptHandler *current =
-        __atomic_load_n(&m_pDbgHandler[nInterruptNumber], __ATOMIC_ACQUIRE);
-    if (UNLIKELY(pHandler != 0 && current != 0))
-        return false;
-    if (UNLIKELY(pHandler == 0 && current == 0))
-        return false;
+  // Sanity checks
+  if (UNLIKELY(nInterruptNumber >= 256))
+    return false;
+  InterruptHandler* current = __atomic_load_n(&m_pDbgHandler[nInterruptNumber], __ATOMIC_ACQUIRE);
+  if (UNLIKELY(pHandler != 0 && current != 0))
+    return false;
+  if (UNLIKELY(pHandler == 0 && current == 0))
+    return false;
 
-    return __atomic_compare_exchange_n(
-        &m_pDbgHandler[nInterruptNumber], &current, pHandler, false,
-        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+  return __atomic_compare_exchange_n(&m_pDbgHandler[nInterruptNumber], &current, pHandler, false,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
-size_t X64InterruptManager::getBreakpointInterruptNumber()
-{
-    return 3;
+size_t X64InterruptManager::getBreakpointInterruptNumber() {
+  return 3;
 }
-size_t X64InterruptManager::getDebugInterruptNumber()
-{
-    return 1;
+size_t X64InterruptManager::getDebugInterruptNumber() {
+  return 1;
 }
 
 #endif
 
-void X64InterruptManager::interrupt(InterruptState &interruptState)
-{
-    InterruptTimeAccounting accounting(!interruptState.kernelMode());
-    size_t nIntNumber = interruptState.getInterruptNumber();
+void X64InterruptManager::interrupt(InterruptState& interruptState) {
+  InterruptTimeAccounting accounting(!interruptState.kernelMode());
+  size_t nIntNumber = interruptState.getInterruptNumber();
 
 #if DEBUGGER
-    {
-        InterruptHandler *pHandler = __atomic_load_n(
-            &m_Instance.m_pDbgHandler[nIntNumber], __ATOMIC_ACQUIRE);
+  {
+    InterruptHandler* pHandler =
+        __atomic_load_n(&m_Instance.m_pDbgHandler[nIntNumber], __ATOMIC_ACQUIRE);
 
-        // Call the kernel debugger's handler, if any
-        if (pHandler != 0)
-        {
-            ExecutionContextGuard debuggerContext(ExecutionContext::DebuggerTrap);
-            pHandler->interrupt(nIntNumber, interruptState);
-        }
+    // Call the kernel debugger's handler, if any
+    if (pHandler != 0) {
+      ExecutionContextGuard debuggerContext(ExecutionContext::DebuggerTrap);
+      pHandler->interrupt(nIntNumber, interruptState);
     }
+  }
 #endif
 
-    InterruptHandler *pHandler = __atomic_load_n(
-        &m_Instance.m_pHandler[nIntNumber], __ATOMIC_ACQUIRE);
+  InterruptHandler* pHandler =
+      __atomic_load_n(&m_Instance.m_pHandler[nIntNumber], __ATOMIC_ACQUIRE);
 
-    // Call the normal interrupt handler, if any
-    if (LIKELY(pHandler != 0))
-    {
-        pHandler->interrupt(nIntNumber, interruptState);
-        return;
-    }
+  // Call the normal interrupt handler, if any
+  if (LIKELY(pHandler != 0)) {
+    pHandler->interrupt(nIntNumber, interruptState);
+    return;
+  }
 
 // Were we running in the kernel, or user space?
 // User space processes have a subsystem, kernel ones do not.
 #if THREADS
-    Thread *pThread = Processor::information().getCurrentThread();
-    if (pThread)
-    {
-        Process *pProcess = pThread->getParent();
-        if (pProcess)
-        {
-            Subsystem *pSubsystem = pProcess->getSubsystem();
-            if (pSubsystem && !interruptState.kernelMode())
-            {
-                size_t exceptionType = static_cast<size_t>(Subsystem::Other);
-                if (UNLIKELY(nIntNumber == 0))
-                {
-                    exceptionType =
-                        static_cast<size_t>(Subsystem::DivideByZero);
-                }
-                else if (UNLIKELY(nIntNumber == 6))
-                {
-                    exceptionType =
-                        static_cast<size_t>(Subsystem::InvalidOpcode);
-                }
-                else if (UNLIKELY(nIntNumber == 13))
-                {
-                    exceptionType = static_cast<size_t>(
-                        Subsystem::GeneralProtectionFault);
-                }
-                else if (UNLIKELY(nIntNumber == 16))
-                {
-                    exceptionType =
-                        static_cast<size_t>(Subsystem::FpuError);
-                }
-                else if (UNLIKELY(nIntNumber == 19))
-                {
-                    exceptionType =
-                        static_cast<size_t>(Subsystem::SpecialFpuError);
-                }
-
-                if (exceptionType != static_cast<size_t>(Subsystem::Other))
-                {
-                    pThread->deferSubsystemException(
-                        exceptionType, 0, interruptState.getErrorCode());
-                    return;
-                }
-            }
+  Thread* pThread = Processor::information().getCurrentThread();
+  if (pThread) {
+    Process* pProcess = pThread->getParent();
+    if (pProcess) {
+      Subsystem* pSubsystem = pProcess->getSubsystem();
+      if (pSubsystem && !interruptState.kernelMode()) {
+        size_t exceptionType = static_cast<size_t>(Subsystem::Other);
+        if (UNLIKELY(nIntNumber == 0)) {
+          exceptionType = static_cast<size_t>(Subsystem::DivideByZero);
+        } else if (UNLIKELY(nIntNumber == 6)) {
+          exceptionType = static_cast<size_t>(Subsystem::InvalidOpcode);
+        } else if (UNLIKELY(nIntNumber == 13)) {
+          exceptionType = static_cast<size_t>(Subsystem::GeneralProtectionFault);
+        } else if (UNLIKELY(nIntNumber == 16)) {
+          exceptionType = static_cast<size_t>(Subsystem::FpuError);
+        } else if (UNLIKELY(nIntNumber == 19)) {
+          exceptionType = static_cast<size_t>(Subsystem::SpecialFpuError);
         }
+
+        if (exceptionType != static_cast<size_t>(Subsystem::Other)) {
+          pThread->deferSubsystemException(exceptionType, 0, interruptState.getErrorCode());
+          return;
+        }
+      }
     }
+  }
 #endif
 
-    // unhandled interrupt, check for an exception (interrupts 0-31 inclusive
-    // are reserved, not for use by system programmers)
-    if (LIKELY(nIntNumber < 32 && nIntNumber != 1 && nIntNumber != 3))
-    {
-        // TODO:: Check for debugger initialisation.
-        // TODO: register dump, maybe a breakpoint so the deubbger can take
-        // over?
-        // TODO: Rework this
-        // for now just print out the exception name and number
-        static LargeStaticString e;
-        e.clear();
-        e.append("Exception #0x");
-        e.append(nIntNumber, 16);
-        e.append(": \"");
-        e.append(g_ExceptionNames[nIntNumber]);
-        e.append("\"");
+  // unhandled interrupt, check for an exception (interrupts 0-31 inclusive
+  // are reserved, not for use by system programmers)
+  if (LIKELY(nIntNumber < 32 && nIntNumber != 1 && nIntNumber != 3)) {
+    // TODO:: Check for debugger initialisation.
+    // TODO: register dump, maybe a breakpoint so the deubbger can take
+    // over?
+    // TODO: Rework this
+    // for now just print out the exception name and number
+    static LargeStaticString e;
+    e.clear();
+    e.append("Exception #0x");
+    e.append(nIntNumber, 16);
+    e.append(": \"");
+    e.append(g_ExceptionNames[nIntNumber]);
+    e.append("\"");
 
 #if THREADS
-        e.append(" CPU=");
-        e.append(Processor::id());
-        if (pThread)
-        {
-            Process *pParent = pThread->getParent();
-            if (pParent)
-            {
-                e.append(" PID=");
-                e.append(pParent->getId());
-            }
-            e.append(" TID=");
-            e.append(pThread->getId());
-        }
+    e.append(" CPU=");
+    e.append(Processor::id());
+    if (pThread) {
+      Process* pParent = pThread->getParent();
+      if (pParent) {
+        e.append(" PID=");
+        e.append(pParent->getId());
+      }
+      e.append(" TID=");
+      e.append(pThread->getId());
+    }
 #endif
 
-        if (nIntNumber == 14)
-        {
-            uint64_t cr2;
-            asm volatile("mov %%cr2, %%rax" : "=a"(cr2));
-            e.append(" at 0x");
-            e.append(cr2, 16, 16, '0');
-            e.append(", errorcode 0x");
-            e.append(interruptState.m_Errorcode, 16, 8, '0');
-        }
+    if (nIntNumber == 14) {
+      uint64_t cr2;
+      asm volatile("mov %%cr2, %%rax" : "=a"(cr2));
+      e.append(" at 0x");
+      e.append(cr2, 16, 16, '0');
+      e.append(", errorcode 0x");
+      e.append(interruptState.m_Errorcode, 16, 8, '0');
+    }
 
-        if (nIntNumber == 13)
-        {
-            // GPF
-            if (interruptState.m_Errorcode)
-            {
-                e.append(" errorcode 0x");
-                e.append(interruptState.m_Errorcode, 16, 8, '0');
-            }
-            e.append(" RIP 0x");
-            e.append(interruptState.getInstructionPointer(), 16, 16, '0');
-        }
+    if (nIntNumber == 13) {
+      // GPF
+      if (interruptState.m_Errorcode) {
+        e.append(" errorcode 0x");
+        e.append(interruptState.m_Errorcode, 16, 8, '0');
+      }
+      e.append(" RIP 0x");
+      e.append(interruptState.getInstructionPointer(), 16, 16, '0');
+    }
 
-        if (nIntNumber == 8)
-        {
-            // On amd64, we actually have a functional InterruptState.
-            ERROR_NOLOCK("(double fault, system is very unhappy)");
+    if (nIntNumber == 8) {
+      // On amd64, we actually have a functional InterruptState.
+      ERROR_NOLOCK("(double fault, system is very unhappy)");
 
-            uint64_t cr2;
-            asm volatile("mov %%cr2, %%rax" : "=a"(cr2));
-            NOTICE_NOLOCK(
-                "  -> #DF possibly caused by #PF at " << Hex << cr2 << ".");
-        }
+      uint64_t cr2;
+      asm volatile("mov %%cr2, %%rax" : "=a"(cr2));
+      NOTICE_NOLOCK("  -> #DF possibly caused by #PF at " << Hex << cr2 << ".");
+    }
 
-        // Write the failure into the kernel log before launching the debugger.
-        ERROR(static_cast<const char *>(e));
+    // Write the failure into the kernel log before launching the debugger.
+    ERROR(static_cast<const char*>(e));
 
 #if DEBUGGER
-        Debugger::instance().start(interruptState, e);
+    Debugger::instance().start(interruptState, e);
 #else
-        panic(e);
+    panic(e);
 #endif
-    }
+  }
 }
 
-void X64InterruptManager::returnFromInterrupt(
-    InterruptState &interruptState)
-{
-    const size_t vector = interruptState.getInterruptNumber();
-    if (interruptState.kernelMode())
-    {
-        return;
-    }
+void X64InterruptManager::returnFromInterrupt(InterruptState& interruptState) {
+  const size_t vector = interruptState.getInterruptNumber();
+  if (interruptState.kernelMode()) {
+    return;
+  }
 
-    Thread *thread = Processor::information().getCurrentThread();
-    if (!thread)
-    {
-        return;
-    }
+  Thread* thread = Processor::information().getCurrentThread();
+  if (!thread) {
+    return;
+  }
 
-    if (vector == 2 || vector == 8 || vector == 18)
-    {
-        // NMI blocking remains active until IRET, and #DF uses an IST stack.
-        // #MC likewise is not a boundary on which arbitrary thread work can
-        // safely suspend the architectural exception return.
-        Processor::setInterrupts(false);
-        InterruptTimeAccounting::finishUserReturn(thread);
-        return;
-    }
-
-    // interrupt() has returned, so InterruptTimeAccounting and every raw
-    // handler scope are complete. This tail is an ordinary, interruptible
-    // thread boundary; a terminal transition may consume this stack.
-    Processor::setInterrupts(true);
-    Processor::information().getScheduler().serviceUserReturnWork(
-        interruptState);
+  if (vector == 2 || vector == 8 || vector == 18) {
+    // NMI blocking remains active until IRET, and #DF uses an IST stack.
+    // #MC likewise is not a boundary on which arbitrary thread work can
+    // safely suspend the architectural exception return.
     Processor::setInterrupts(false);
     InterruptTimeAccounting::finishUserReturn(thread);
+    return;
+  }
+
+  // interrupt() has returned, so InterruptTimeAccounting and every raw
+  // handler scope are complete. This tail is an ordinary, interruptible
+  // thread boundary; a terminal transition may consume this stack.
+  Processor::setInterrupts(true);
+  Processor::information().getScheduler().serviceUserReturnWork(interruptState);
+  Processor::setInterrupts(false);
+  InterruptTimeAccounting::finishUserReturn(thread);
 }
 
 //
 // Functions only usable in the kernel initialisation phase
 //
 
-void X64InterruptManager::initialiseProcessor()
-{
-    // Load the IDT
-    struct
-    {
-        uint16_t size;
-        uint64_t idt;
-    } PACKED idtr = {4095, reinterpret_cast<uintptr_t>(&m_Instance.m_IDT)};
+void X64InterruptManager::initialiseProcessor() {
+  // Load the IDT
+  struct {
+    uint16_t size;
+    uint64_t idt;
+  } PACKED idtr = {4095, reinterpret_cast<uintptr_t>(&m_Instance.m_IDT)};
 
-    asm volatile("lidt %0" ::"m"(idtr));
+  asm volatile("lidt %0" ::"m"(idtr));
 }
 
-void X64InterruptManager::setInterruptGate(
-    size_t nInterruptNumber, uintptr_t interruptHandler)
-{
-    m_IDT[nInterruptNumber].offset0 = interruptHandler & 0xFFFF;
-    m_IDT[nInterruptNumber].selector = 0x08;
-    m_IDT[nInterruptNumber].ist = 0;
-    m_IDT[nInterruptNumber].flags = 0xEE /*0x8E*/;
-    m_IDT[nInterruptNumber].offset1 = (interruptHandler >> 16) & 0xFFFF;
-    m_IDT[nInterruptNumber].offset2 = (interruptHandler >> 32) & 0xFFFFFFFF;
-    m_IDT[nInterruptNumber].res = 0;
+void X64InterruptManager::setInterruptGate(size_t nInterruptNumber, uintptr_t interruptHandler) {
+  m_IDT[nInterruptNumber].offset0 = interruptHandler & 0xFFFF;
+  m_IDT[nInterruptNumber].selector = 0x08;
+  m_IDT[nInterruptNumber].ist = 0;
+  m_IDT[nInterruptNumber].flags = 0xEE /*0x8E*/;
+  m_IDT[nInterruptNumber].offset1 = (interruptHandler >> 16) & 0xFFFF;
+  m_IDT[nInterruptNumber].offset2 = (interruptHandler >> 32) & 0xFFFFFFFF;
+  m_IDT[nInterruptNumber].res = 0;
 }
 
-void X64InterruptManager::setIst(size_t nInterruptNumber, size_t ist)
-{
-    if (ist > 7)
-        return;
-    m_IDT[nInterruptNumber].ist = ist;
+void X64InterruptManager::setIst(size_t nInterruptNumber, size_t ist) {
+  if (ist > 7)
+    return;
+  m_IDT[nInterruptNumber].ist = ist;
 }
 
-X64InterruptManager::X64InterruptManager() : m_Lock()
-{
-    // Initialise the pointers to the pHandler
-    for (size_t i = 0; i < 256; i++)
-    {
-        m_pHandler[i] = 0;
+X64InterruptManager::X64InterruptManager() : m_Lock() {
+  // Initialise the pointers to the pHandler
+  for (size_t i = 0; i < 256; i++) {
+    m_pHandler[i] = 0;
 #if DEBUGGER
-        m_pDbgHandler[i] = 0;
+    m_pDbgHandler[i] = 0;
 #endif
-    }
+  }
 
-    // Initialise the IDT
-    extern uintptr_t interrupt_handler_array[];
-    for (size_t i = 0; i < 256; i++)
-        setInterruptGate(i, interrupt_handler_array[i]);
+  // Initialise the IDT
+  extern uintptr_t interrupt_handler_array[];
+  for (size_t i = 0; i < 256; i++)
+    setInterruptGate(i, interrupt_handler_array[i]);
 
-    // Set double fault handler IST entry.
-    setIst(8, 1);
+  // Set double fault handler IST entry.
+  setIst(8, 1);
 }
-X64InterruptManager::~X64InterruptManager()
-{
-}
+X64InterruptManager::~X64InterruptManager() {}

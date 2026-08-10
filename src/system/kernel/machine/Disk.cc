@@ -20,67 +20,48 @@
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/utilities/String.h"
 
-Disk::Disk()
-{
-    m_SpecificType.assign("Generic Disk", 13);
+Disk::Disk() {
+  m_SpecificType.assign("Generic Disk", 13);
 }
 
-Disk::Disk(Device *p) : Device(p)
-{
+Disk::Disk(Device* p) : Device(p) {}
+
+Disk::~Disk() {}
+
+Device::Type Disk::getType() {
+  return Device::Disk;
 }
 
-Disk::~Disk()
-{
+Disk::SubType Disk::getSubType() {
+  return ATA;
 }
 
-Device::Type Disk::getType()
-{
-    return Device::Disk;
+void Disk::getName(String& str) {
+  str.assign("Generic disk", 13);
 }
 
-Disk::SubType Disk::getSubType()
-{
-    return ATA;
+void Disk::dump(String& str) {
+  str.assign("Generic disk", 13);
 }
 
-void Disk::getName(String &str)
-{
-    str.assign("Generic disk", 13);
+uintptr_t Disk::read(uint64_t location) {
+  return 0;
 }
 
-void Disk::dump(String &str)
-{
-    str.assign("Generic disk", 13);
+void Disk::write(uint64_t location) {}
+
+void Disk::align(uint64_t location) {}
+
+size_t Disk::getSize() const {
+  return 0;
 }
 
-uintptr_t Disk::read(uint64_t location)
-{
-    return 0;
+size_t Disk::getBlockSize() const {
+  return 0;
 }
 
-void Disk::write(uint64_t location)
-{
+bool Disk::cacheIsCritical() {
+  return false;
 }
 
-void Disk::align(uint64_t location)
-{
-}
-
-size_t Disk::getSize() const
-{
-    return 0;
-}
-
-size_t Disk::getBlockSize() const
-{
-    return 0;
-}
-
-bool Disk::cacheIsCritical()
-{
-    return false;
-}
-
-void Disk::flush(uint64_t location)
-{
-}
+void Disk::flush(uint64_t location) {}

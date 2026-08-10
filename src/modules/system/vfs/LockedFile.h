@@ -29,52 +29,51 @@ class File;
  * access to it. Locked access is in the form of a Mutex that allows only
  * one thread exclusive access to the file.
  */
-class LockedFile
-{
-  public:
-    /** Standard wrapper constructor */
-    LockedFile(File *pFile);
+class LockedFile {
+ public:
+  /** Standard wrapper constructor */
+  LockedFile(File* pFile);
 
-    /** Copy constructor */
-    LockedFile(LockedFile &c);
+  /** Copy constructor */
+  LockedFile(LockedFile& c);
 
-    /** Operator = */
-    /// \todo Write me!
-    LockedFile &operator=(const LockedFile &c);
+  /** Operator = */
+  /// \todo Write me!
+  LockedFile& operator=(const LockedFile& c);
 
-    /** Attempts to obtain the lock (exclusively) */
-    bool lock(bool bBlock = false);
+  /** Attempts to obtain the lock (exclusively) */
+  bool lock(bool bBlock = false);
 
-    /** Releases the lock */
-    void unlock();
+  /** Releases the lock */
+  void unlock();
 
-    /** To enforce mandatory locking, use this function to obtain a File to
-     * work with. If the file is locked and you don't own the lock, you'll
-     * get a NULL File. Otherwise you'll get the wrapped File ready for I/O.
-     */
-    File *getFile();
+  /** To enforce mandatory locking, use this function to obtain a File to
+   * work with. If the file is locked and you don't own the lock, you'll
+   * get a NULL File. Otherwise you'll get the wrapped File ready for I/O.
+   */
+  File* getFile();
 
-    /** Who's locking the file? */
-    size_t getLocker();
+  /** Who's locking the file? */
+  size_t getLocker();
 
-  private:
-    /** Default constructor, not to be used */
-    LockedFile();
+ private:
+  /** Default constructor, not to be used */
+  LockedFile();
 
-    /** Is a range locked? */
+  /** Is a range locked? */
 
-    /** The file that we're wrapping */
-    File *m_File;
+  /** The file that we're wrapping */
+  File* m_File;
 
-    /** Is this file locked? */
-    bool m_bLocked;
+  /** Is this file locked? */
+  bool m_bLocked;
 
-    /** Locker PID */
-    size_t m_LockerPid;
+  /** Locker PID */
+  size_t m_LockerPid;
 
 /** Our lock */
 #if THREADS
-    Mutex m_Lock;
+  Mutex m_Lock;
 #endif
 };
 

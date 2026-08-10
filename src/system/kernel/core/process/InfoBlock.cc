@@ -17,13 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/process/InfoBlock.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
+#include "pedigree/kernel/process/InfoBlock.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state_forward.h"
@@ -34,80 +34,65 @@
 InfoBlockManager InfoBlockManager::m_Instance;
 
 InfoBlockManager::InfoBlockManager()
-    : TimerHandler(), m_bInitialised(false), m_pTimer(nullptr),
-      m_pInfoBlock(0)
-{
+    : TimerHandler(), m_bInitialised(false), m_pTimer(nullptr), m_pInfoBlock(0) {}
+
+InfoBlockManager::~InfoBlockManager() {
+  if (m_pTimer && !m_pTimer->unregisterHandler(this)) {
+    FATAL("InfoBlockManager could not drain its timer callback");
+  }
+  m_pTimer = nullptr;
 }
 
-InfoBlockManager::~InfoBlockManager()
-{
-    if (m_pTimer && !m_pTimer->unregisterHandler(this))
-    {
-        FATAL("InfoBlockManager could not drain its timer callback");
-    }
-    m_pTimer = nullptr;
+InfoBlockManager& InfoBlockManager::instance() {
+  return m_Instance;
 }
 
-InfoBlockManager &InfoBlockManager::instance()
-{
-    return m_Instance;
+bool InfoBlockManager::initialise() {
+  // Prepare the mapping, if we can.
+  VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
+  void* infoBlock = reinterpret_cast<void*>(va.getGlobalInfoBlock());
+  if (!infoBlock)
+    return false;  // Nothing to do here.
+
+  NOTICE("InfoBlockManager: Setting up global info block at " << Hex << infoBlock);
+
+  // Map for userspace.
+  physical_uintptr_t page = PhysicalMemoryManager::instance().allocatePage();
+  va.map(page, infoBlock, 0);
+
+  // Map for the kernel - trick is, our version is a page ahead.
+  m_pInfoBlock = reinterpret_cast<InfoBlock*>(adjust_pointer(infoBlock, 0x1000));
+  va.map(page, m_pInfoBlock, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
+
+  // Set up basic defaults.
+  ByteSet(m_pInfoBlock, 0, sizeof(InfoBlock));
+  StringCopy(m_pInfoBlock->sysname, "Pedigree");
+  StringCopy(m_pInfoBlock->release, "Foster");
+  StringCopy(m_pInfoBlock->version, g_pBuildRevision);
+  /// \todo this isn't quite x86_64 or i686 or similar...
+  StringCopy(m_pInfoBlock->machine, g_pBuildTarget);
+  m_pInfoBlock->now = Time::getTimeNanoseconds();
+  m_pInfoBlock->now_s = Time::getTime();
+  m_pInfoBlock->monotonic = Time::getTicks();
+
+  // Register ourselves with the main timer.
+  m_bInitialised = true;
+  Timer* timer = Machine::instance().getTimer();
+  if (timer && timer->registerHandler(this)) {
+    m_pTimer = timer;
+    return true;
+  }
+  return false;
 }
 
-bool InfoBlockManager::initialise()
-{
-    // Prepare the mapping, if we can.
-    VirtualAddressSpace &va = VirtualAddressSpace::getKernelAddressSpace();
-    void *infoBlock = reinterpret_cast<void *>(va.getGlobalInfoBlock());
-    if (!infoBlock)
-        return false;  // Nothing to do here.
-
-    NOTICE(
-        "InfoBlockManager: Setting up global info block at " << Hex
-                                                             << infoBlock);
-
-    // Map for userspace.
-    physical_uintptr_t page = PhysicalMemoryManager::instance().allocatePage();
-    va.map(page, infoBlock, 0);
-
-    // Map for the kernel - trick is, our version is a page ahead.
-    m_pInfoBlock =
-        reinterpret_cast<InfoBlock *>(adjust_pointer(infoBlock, 0x1000));
-    va.map(
-        page, m_pInfoBlock,
-        VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
-
-    // Set up basic defaults.
-    ByteSet(m_pInfoBlock, 0, sizeof(InfoBlock));
-    StringCopy(m_pInfoBlock->sysname, "Pedigree");
-    StringCopy(m_pInfoBlock->release, "Foster");
-    StringCopy(m_pInfoBlock->version, g_pBuildRevision);
-    /// \todo this isn't quite x86_64 or i686 or similar...
-    StringCopy(m_pInfoBlock->machine, g_pBuildTarget);
-    m_pInfoBlock->now = Time::getTimeNanoseconds();
-    m_pInfoBlock->now_s = Time::getTime();
-    m_pInfoBlock->monotonic = Time::getTicks();
-
-    // Register ourselves with the main timer.
-    m_bInitialised = true;
-    Timer *timer = Machine::instance().getTimer();
-    if (timer && timer->registerHandler(this))
-    {
-        m_pTimer = timer;
-        return true;
-    }
-    return false;
+void InfoBlockManager::timer(uint64_t) {
+  // Update the timestamp in the info block.
+  m_pInfoBlock->now = Time::getTimeNanoseconds();
+  m_pInfoBlock->now_s = Time::getTime();
+  m_pInfoBlock->monotonic = Time::getTicks();
 }
 
-void InfoBlockManager::timer(uint64_t)
-{
-    // Update the timestamp in the info block.
-    m_pInfoBlock->now = Time::getTimeNanoseconds();
-    m_pInfoBlock->now_s = Time::getTime();
-    m_pInfoBlock->monotonic = Time::getTicks();
-}
-
-void InfoBlockManager::setPid(size_t value)
-{
-    if (LIKELY(m_bInitialised))
-        m_pInfoBlock->pid = value;
+void InfoBlockManager::setPid(size_t value) {
+  if (LIKELY(m_bInitialised))
+    m_pInfoBlock->pid = value;
 }

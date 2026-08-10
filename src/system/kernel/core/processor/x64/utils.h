@@ -29,16 +29,15 @@
 inline uintptr_t physicalAddress(physical_uintptr_t address) PURE;
 
 template <typename T>
-inline T *physicalAddress(T *pAddress) PURE;
+inline T* physicalAddress(T* pAddress) PURE;
 
 /** Get the virtual address from the physical address. This is possible on x64
  *  because the whole physical memory is mapped into the virtual address space
  *\param[in] address the physical address
  *\return the virtual address */
-inline uintptr_t physicalAddress(physical_uintptr_t address)
-{
-    // Implicit cast due to return data type - no need to specify the cast.
-    return address + 0xFFFF800000000000ULL;
+inline uintptr_t physicalAddress(physical_uintptr_t address) {
+  // Implicit cast due to return data type - no need to specify the cast.
+  return address + 0xFFFF800000000000ULL;
 }
 
 /** Get the virtual address from the physical address. This is possible on x64
@@ -46,10 +45,8 @@ inline uintptr_t physicalAddress(physical_uintptr_t address)
  *\param[in] pAddress the physical address
  *\return the virtual address */
 template <typename T>
-inline T *physicalAddress(T *pAddress)
-{
-    return reinterpret_cast<T *>(
-        reinterpret_cast<uint64_t>(pAddress) + 0xFFFF800000000000);
+inline T* physicalAddress(T* pAddress) {
+  return reinterpret_cast<T*>(reinterpret_cast<uint64_t>(pAddress) + 0xFFFF800000000000);
 }
 
 /** @} */

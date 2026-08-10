@@ -22,41 +22,39 @@
 
 #include "pedigree/kernel/time/Time.h"
 
-namespace Time
-{
+namespace Time {
 /**
  * Stopwatch provides a timer that can be stopped, started, and reset.
  *
  * The value only ticks while the timer is running (it does not tick up during
  * stop). The value is only current while the stopwatch is stopped.
  */
-class Stopwatch
-{
-  public:
-    Stopwatch(bool startRunning = false);
-    virtual ~Stopwatch();
+class Stopwatch {
+ public:
+  Stopwatch(bool startRunning = false);
+  virtual ~Stopwatch();
 
-    /// Start the stopwatch if it is not already started.
-    void start();
+  /// Start the stopwatch if it is not already started.
+  void start();
 
-    /// Stop the stopwatch if it is not already stopped.
-    void stop();
+  /// Stop the stopwatch if it is not already stopped.
+  void stop();
 
-    /// Reset the stopwatch to zero.
-    void reset();
+  /// Reset the stopwatch to zero.
+  void reset();
 
-    /// Read the stopwatch value in nanoseconds.
-    Timestamp value();
+  /// Read the stopwatch value in nanoseconds.
+  Timestamp value();
 
-  private:
-    /// Current value.
-    Timestamp m_Value;
+ private:
+  /// Current value.
+  Timestamp m_Value;
 
-    /// Start time.
-    Timestamp m_StartValue;
+  /// Start time.
+  Timestamp m_StartValue;
 
-    /// Running or not.
-    bool m_bRunning;
+  /// Running or not.
+  bool m_bRunning;
 };
 }  // namespace Time
 

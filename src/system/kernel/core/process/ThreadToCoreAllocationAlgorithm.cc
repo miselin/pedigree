@@ -24,6 +24,4 @@ class Thread;
 ThreadToCoreAllocationAlgorithm::ThreadToCoreAllocationAlgorithm() = default;
 ThreadToCoreAllocationAlgorithm::~ThreadToCoreAllocationAlgorithm() = default;
 
-void ThreadToCoreAllocationAlgorithm::threadRemoved(Thread *pThread)
-{
-}
+void ThreadToCoreAllocationAlgorithm::threadRemoved(Thread* pThread) {}

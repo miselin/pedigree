@@ -27,14 +27,13 @@
 #define ALT_I 4
 #define ALTGR_I 8
 
-typedef struct cmd
-{
-    unsigned int scancode;
-    int modifiers;
-    int combinators;
-    unsigned int unicode_point;
-    char *val;
-    int set_modifiers;
+typedef struct cmd {
+  unsigned int scancode;
+  int modifiers;
+  int combinators;
+  unsigned int unicode_point;
+  char* val;
+  int set_modifiers;
 } cmd_t;
 
 #endif

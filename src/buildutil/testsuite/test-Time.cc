@@ -19,23 +19,20 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <gtest/gtest.h>
+#include "pedigree/kernel/time/Time.h"
 
 #include <ctime>
 
-#include "pedigree/kernel/time/Time.h"
+#include <gtest/gtest.h>
 
-TEST(PedigreeTime, ToUnixConversion)
-{
-    // UNIX epoch.
-    EXPECT_EQ(Time::Conversion::toUnix(0, 0, 0, 1, 1, 1970), 0U);
+TEST(PedigreeTime, ToUnixConversion) {
+  // UNIX epoch.
+  EXPECT_EQ(Time::Conversion::toUnix(0, 0, 0, 1, 1, 1970), 0U);
 }
 
-TEST(PedigreeTime, Over32bit)
-{
-    // 03:14:07 19 January 2038 - 32-bit signed integer rollover.
-    EXPECT_EQ(
-        Time::Conversion::toUnix(7, 14, 3, 19, 1, 2038), (1ULL << 31ULL) - 1);
-    // No longer fits into a 32-bit signed integer.
-    EXPECT_EQ(Time::Conversion::toUnix(8, 14, 3, 19, 1, 2038), (1ULL << 31ULL));
+TEST(PedigreeTime, Over32bit) {
+  // 03:14:07 19 January 2038 - 32-bit signed integer rollover.
+  EXPECT_EQ(Time::Conversion::toUnix(7, 14, 3, 19, 1, 2038), (1ULL << 31ULL) - 1);
+  // No longer fits into a 32-bit signed integer.
+  EXPECT_EQ(Time::Conversion::toUnix(8, 14, 3, 19, 1, 2038), (1ULL << 31ULL));
 }

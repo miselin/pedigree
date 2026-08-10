@@ -29,94 +29,86 @@
 class Group;
 
 /** Defines the properties of a User on the system. */
-class EXPORTED_PUBLIC User
-{
-  public:
-    /** Constructor
-        \param uid The user's system-wide unique ID.
-        \param name The user's username.
-        \param fullName The user's full name.
-        \param pGroup The default group.
-        \param home The user's home directory.
-        \param shell The user's default shell.
-        \param password Password hash.
-        \note Password hash not currently implemented - plaintext only. */
-    User(
-        size_t uid, const String &username, const String &fullName, Group *pGroup,
-        const String &home, const String &shell, const String &password);
+class EXPORTED_PUBLIC User {
+ public:
+  /** Constructor
+      \param uid The user's system-wide unique ID.
+      \param name The user's username.
+      \param fullName The user's full name.
+      \param pGroup The default group.
+      \param home The user's home directory.
+      \param shell The user's default shell.
+      \param password Password hash.
+      \note Password hash not currently implemented - plaintext only. */
+  User(size_t uid, const String& username, const String& fullName, Group* pGroup,
+       const String& home, const String& shell, const String& password);
 
-    /** The destructor does nothing. */
-    virtual ~User();
+  /** The destructor does nothing. */
+  virtual ~User();
 
-    /** Adds a group membership. */
-    void join(Group *pGroup);
+  /** Adds a group membership. */
+  void join(Group* pGroup);
 
-    /** Removes a group membership. */
-    void leave(Group *pGroup);
+  /** Removes a group membership. */
+  void leave(Group* pGroup);
 
-    /** Queries a group membership. */
-    bool isMember(Group *pGroup);
+  /** Queries a group membership. */
+  bool isMember(Group* pGroup);
 
-    /** (Attempts to) log in as this user. On success this process' user is set
-       to this, and the group is set to this user's default group. \return True
-       on success, false on failure. */
-    bool login(const String &password);
+  /** (Attempts to) log in as this user. On success this process' user is set
+     to this, and the group is set to this user's default group. \return True
+     on success, false on failure. */
+  bool login(const String& password);
 
-    /** Retrieves the user's UID. */
-    size_t getId() const
-    {
-        return m_Uid;
-    }
-    /** Retrieves the user's username. */
-    const String &getUsername() const
-    {
-        return m_Username;
-    }
-    /** Retrieves the user's full name. */
-    const String &getFullName() const
-    {
-        return m_FullName;
-    }
-    /** Retrieves the user's default group. */
-    Group *getDefaultGroup()
-    {
-        return m_pDefaultGroup;
-    }
-    /** Retrieves the user's home directory. */
-    const String &getHome() const
-    {
-        return m_Home;
-    }
-    /** Retrieves the user's default shell. */
-    const String &getShell() const
-    {
-        return m_Shell;
-    }
+  /** Retrieves the user's UID. */
+  size_t getId() const {
+    return m_Uid;
+  }
+  /** Retrieves the user's username. */
+  const String& getUsername() const {
+    return m_Username;
+  }
+  /** Retrieves the user's full name. */
+  const String& getFullName() const {
+    return m_FullName;
+  }
+  /** Retrieves the user's default group. */
+  Group* getDefaultGroup() {
+    return m_pDefaultGroup;
+  }
+  /** Retrieves the user's home directory. */
+  const String& getHome() const {
+    return m_Home;
+  }
+  /** Retrieves the user's default shell. */
+  const String& getShell() const {
+    return m_Shell;
+  }
 
-  private:
-    /** It doesn't make sense for a User to have a default or copy constructor.
-     */
-    User();
-    User(const User &);
-    User &operator=(const User &);
+ private:
+  /** It doesn't make sense for a User to have a default or copy constructor.
+   */
+  User();
+  User(const User&);
+  User& operator=(const User&);
 
-    /** User ID */
-    size_t m_Uid;
-    /** Username */
-    String m_Username;
-    /** Full name */
-    String m_FullName;
-    /** Default group. */
-    Group *m_pDefaultGroup;
-    /** Home directory. */
-    String m_Home;
-    /** Default shell. */
-    String m_Shell;
-    /** Password hash. */
-    String m_Password;
+  /** User ID */
+  size_t m_Uid;
+  /** Username */
+  String m_Username;
+  /** Full name */
+  String m_FullName;
+  /** Default group. */
+  Group* m_pDefaultGroup;
+  /** Home directory. */
+  String m_Home;
+  /** Default shell. */
+  String m_Shell;
+  /** Password hash. */
+  String m_Password;
 
-    /** Set of groups (excluding default group). */
-    List<Group *> m_Groups;
+  /** Set of groups (excluding default group). */
+  List<Group*> m_Groups;
 };
 
 #endif

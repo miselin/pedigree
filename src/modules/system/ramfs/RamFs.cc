@@ -18,7 +18,6 @@
  */
 
 #include "RamFs.h"
-#include "modules/Module.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -26,178 +25,151 @@
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/utilities/new"
 
+#include "modules/Module.h"
+
 String RamFs::m_VolumeLabel("ramfs");
 
-RamFile::RamFile(
-    const String &name, uintptr_t inode, Filesystem *pParentFS, File *pParent)
-    : File(name, 0, 0, 0, inode, pParentFS, 0, pParent), m_FileBlocks(),
-      m_FileBlocksLock(), m_nOwnerPid(0)
-{
-    // Full permissions.
-    setPermissions(0777);
+RamFile::RamFile(const String& name, uintptr_t inode, Filesystem* pParentFS, File* pParent)
+    : File(name, 0, 0, 0, inode, pParentFS, 0, pParent),
+      m_FileBlocks(),
+      m_FileBlocksLock(),
+      m_nOwnerPid(0) {
+  // Full permissions.
+  setPermissions(0777);
 
 #if THREADS
-    m_nOwnerPid =
-        Processor::information().getCurrentThread()->getParent()->getId();
+  m_nOwnerPid = Processor::information().getCurrentThread()->getParent()->getId();
 #else
-    m_nOwnerPid = 0;
+  m_nOwnerPid = 0;
 #endif
 }
 
-RamFile::~RamFile()
-{
-    truncate();
+RamFile::~RamFile() {
+  truncate();
 }
 
-void RamFile::truncate()
-{
-    if (canWrite())
-    {
-        LockGuard<Mutex> guard(m_FileBlocksLock);
-        // Empty the cache.
-        m_FileBlocks.empty();
-        setSize(0);
-    }
-}
-
-bool RamFile::canWrite()
-{
-    RamFs *pParent = static_cast<RamFs *>(getFilesystem());
-    if (!pParent->getProcessOwnership())
-    {
-        return true;
-    }
-
-#if THREADS
-    size_t pid =
-        Processor::information().getCurrentThread()->getParent()->getId();
-    return pid == m_nOwnerPid;
-#else
-    return true;
-#endif
-}
-
-uintptr_t RamFile::readBlock(uint64_t location)
-{
+void RamFile::truncate() {
+  if (canWrite()) {
     LockGuard<Mutex> guard(m_FileBlocksLock);
-    uintptr_t buffer = m_FileBlocks.lookup(location);
-    if (!buffer)
-    {
-        // Super trivial. But we are a ram filesystem... can't compact.
-        bool didExist = false;
-        buffer = m_FileBlocks.insert(location, &didExist);
-        if (!buffer)
-        {
-            return 0;
-        }
-        if (!didExist)
-        {
-            /// \todo Kind of irrelevant here?
-            m_FileBlocks.markNoLongerEditing(location);
-        }
-        buffer = m_FileBlocks.lookup(location);
+    // Empty the cache.
+    m_FileBlocks.empty();
+    setSize(0);
+  }
+}
+
+bool RamFile::canWrite() {
+  RamFs* pParent = static_cast<RamFs*>(getFilesystem());
+  if (!pParent->getProcessOwnership()) {
+    return true;
+  }
+
+#if THREADS
+  size_t pid = Processor::information().getCurrentThread()->getParent()->getId();
+  return pid == m_nOwnerPid;
+#else
+  return true;
+#endif
+}
+
+uintptr_t RamFile::readBlock(uint64_t location) {
+  LockGuard<Mutex> guard(m_FileBlocksLock);
+  uintptr_t buffer = m_FileBlocks.lookup(location);
+  if (!buffer) {
+    // Super trivial. But we are a ram filesystem... can't compact.
+    bool didExist = false;
+    buffer = m_FileBlocks.insert(location, &didExist);
+    if (!buffer) {
+      return 0;
     }
-    return buffer;
+    if (!didExist) {
+      /// \todo Kind of irrelevant here?
+      m_FileBlocks.markNoLongerEditing(location);
+    }
+    buffer = m_FileBlocks.lookup(location);
+  }
+  return buffer;
 }
 
-bool RamFile::pinBlock(uint64_t location)
-{
-    return m_FileBlocks.pin(location);
+bool RamFile::pinBlock(uint64_t location) {
+  return m_FileBlocks.pin(location);
 }
 
-void RamFile::unpinBlock(uint64_t location)
-{
-    m_FileBlocks.release(location);
+void RamFile::unpinBlock(uint64_t location) {
+  m_FileBlocks.release(location);
 }
 
-RamDir::RamDir(
-    const String &name, size_t inode, class Filesystem *pFs, File *pParent)
-    : Directory(name, 0, 0, 0, inode, pFs, 0, pParent)
-{
-    // Full permissions.
-    setPermissions(0777);
+RamDir::RamDir(const String& name, size_t inode, class Filesystem* pFs, File* pParent)
+    : Directory(name, 0, 0, 0, inode, pFs, 0, pParent) {
+  // Full permissions.
+  setPermissions(0777);
 }
 
-RamDir::~RamDir(){};
+RamDir::~RamDir() {};
 
-bool RamDir::addEntry(String filename, File *pFile)
-{
-    addDirectoryEntry(filename, pFile);
-    return true;
+bool RamDir::addEntry(String filename, File* pFile) {
+  addDirectoryEntry(filename, pFile);
+  return true;
 }
 
-bool RamDir::removeEntry(File *pFile)
-{
-    RamFile *pRamFile = static_cast<RamFile *>(pFile);
-    if (!pRamFile->canWrite())
-        return false;
-
-    // Remove from cache.
-    remove(pFile->getName());
-    return true;
-}
-
-RamFs::RamFs() : m_pRoot(0), m_bProcessOwners(false)
-{
-}
-
-RamFs::~RamFs()
-{
-    if (m_pRoot)
-        delete m_pRoot;
-}
-
-bool RamFs::initialise(Disk *pDisk)
-{
-    // Root directory with ./.. entries
-    m_pRoot = new RamDir(String(""), 0, this, 0);
-    return true;
-}
-
-bool RamFs::createFile(File *parent, const String &filename, uint32_t mask)
-{
-    if (!parent->isDirectory())
-        return false;
-
-    File *f = new RamFile(filename, 0, this, parent);
-
-    RamDir *p = static_cast<RamDir *>(parent);
-    return p->addEntry(filename, f);
-}
-
-bool RamFs::createDirectory(File *parent, const String &filename, uint32_t mask)
-{
-    if (!parent->isDirectory())
-        return false;
-
-    RamDir *pDir = new RamDir(filename, 0, this, parent);
-
-    RamDir *pParent = static_cast<RamDir *>(parent);
-    return pParent->addEntry(filename, pDir);
-}
-
-bool RamFs::createSymlink(
-    File *parent, const String &filename, const String &value)
-{
+bool RamDir::removeEntry(File* pFile) {
+  RamFile* pRamFile = static_cast<RamFile*>(pFile);
+  if (!pRamFile->canWrite())
     return false;
+
+  // Remove from cache.
+  remove(pFile->getName());
+  return true;
 }
 
-bool RamFs::remove(File *parent, File *file)
-{
-    if (file->isDirectory())
-        return false;
+RamFs::RamFs() : m_pRoot(0), m_bProcessOwners(false) {}
 
-    RamDir *p = static_cast<RamDir *>(parent);
-    return p->removeEntry(file);
+RamFs::~RamFs() {
+  if (m_pRoot)
+    delete m_pRoot;
 }
 
-static bool entry()
-{
-    return true;
+bool RamFs::initialise(Disk* pDisk) {
+  // Root directory with ./.. entries
+  m_pRoot = new RamDir(String(""), 0, this, 0);
+  return true;
 }
 
-static void destroy()
-{
+bool RamFs::createFile(File* parent, const String& filename, uint32_t mask) {
+  if (!parent->isDirectory())
+    return false;
+
+  File* f = new RamFile(filename, 0, this, parent);
+
+  RamDir* p = static_cast<RamDir*>(parent);
+  return p->addEntry(filename, f);
 }
+
+bool RamFs::createDirectory(File* parent, const String& filename, uint32_t mask) {
+  if (!parent->isDirectory())
+    return false;
+
+  RamDir* pDir = new RamDir(filename, 0, this, parent);
+
+  RamDir* pParent = static_cast<RamDir*>(parent);
+  return pParent->addEntry(filename, pDir);
+}
+
+bool RamFs::createSymlink(File* parent, const String& filename, const String& value) {
+  return false;
+}
+
+bool RamFs::remove(File* parent, File* file) {
+  if (file->isDirectory())
+    return false;
+
+  RamDir* p = static_cast<RamDir*>(parent);
+  return p->removeEntry(file);
+}
+
+static bool entry() {
+  return true;
+}
+
+static void destroy() {}
 
 MODULE_INFO("ramfs", &entry, &destroy, "vfs");

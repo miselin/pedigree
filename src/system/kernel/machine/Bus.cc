@@ -20,25 +20,18 @@
 #include "pedigree/kernel/machine/Bus.h"
 #include "pedigree/kernel/utilities/String.h"
 
-Bus::Bus(const char *pName) : m_pName(pName)
-{
+Bus::Bus(const char* pName) : m_pName(pName) {}
+
+Bus::~Bus() {}
+
+Bus::Type Bus::getType() {
+  return Device::Bus;
 }
 
-Bus::~Bus()
-{
+void Bus::getName(String& str) {
+  str.assign(m_pName);
 }
 
-Bus::Type Bus::getType()
-{
-    return Device::Bus;
-}
-
-void Bus::getName(String &str)
-{
-    str.assign(m_pName);
-}
-
-void Bus::dump(String &str)
-{
-    str.assign(m_pName);
+void Bus::dump(String& str) {
+  str.assign(m_pName);
 }

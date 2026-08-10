@@ -33,33 +33,30 @@ class DebuggerIO;
  * has a set of these DebuggerCommands, and calls the getString and autocomplete
  * functions to augment the command line interface with visual prompts.
  */
-class DebuggerCommand
-{
-  public:
-    DebuggerCommand();
-    virtual ~DebuggerCommand();
+class DebuggerCommand {
+ public:
+  DebuggerCommand();
+  virtual ~DebuggerCommand();
 
-    /**
-     * Return an autocomplete string, given an input string. The string put into
-     * *output must not exceed len in length.
-     */
-    virtual void
-    autocomplete(const HugeStaticString &input, HugeStaticString &output) = 0;
+  /**
+   * Return an autocomplete string, given an input string. The string put into
+   * *output must not exceed len in length.
+   */
+  virtual void autocomplete(const HugeStaticString& input, HugeStaticString& output) = 0;
 
-    /**
-     * Execute the command with the given screen. The command can take over the
-     * screen while executing, but must return it to CLI mode (via enableCLI)
-     * before returning. \return True if the debugger should continue accepting
-     * commands, false if it should return control to the kernel.
-     */
-    virtual bool execute(
-        const HugeStaticString &input, HugeStaticString &output,
-        InterruptState &state, DebuggerIO *screen) = 0;
+  /**
+   * Execute the command with the given screen. The command can take over the
+   * screen while executing, but must return it to CLI mode (via enableCLI)
+   * before returning. \return True if the debugger should continue accepting
+   * commands, false if it should return control to the kernel.
+   */
+  virtual bool execute(const HugeStaticString& input, HugeStaticString& output,
+                       InterruptState& state, DebuggerIO* screen) = 0;
 
-    /**
-     * Returns the string representation of this command.
-     */
-    virtual const NormalStaticString getString() = 0;
+  /**
+   * Returns the string representation of this command.
+   */
+  virtual const NormalStaticString getString() = 0;
 };
 
 /** @} */

@@ -17,31 +17,29 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/processor/PageFaultHandler.h"
-#include "HostedPlatform.h"
-#include "VirtualAddressSpace.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/debugger/Debugger.h"
 #include "pedigree/kernel/panic.h"
-#include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/processor/InterruptManager.h"
-#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/state.h"
 
+#include "HostedPlatform.h"
 #include "InterruptManager.h"
+#include "VirtualAddressSpace.h"
 
-namespace __pedigree_hosted
-{
-};
+namespace __pedigree_hosted {};
 using namespace __pedigree_hosted;
 
 #if HAS_ADDRESS_SANITIZER
-extern "C" void __asan_report_error(void *pc, void *bp, void *sp,
-                                    void *addr, int is_write, size_t access_size);
+extern "C" void __asan_report_error(void* pc, void* bp, void* sp, void* addr, int is_write,
+                                    size_t access_size);
 #endif
 
 #include <signal.h>
@@ -52,210 +50,177 @@ extern "C" void __asan_report_error(void *pc, void *bp, void *sp,
 
 PageFaultHandler PageFaultHandler::m_Instance;
 
-bool PageFaultHandler::initialise()
-{
-    InterruptManager &IntManager = InterruptManager::instance();
-    bool r1 = IntManager.registerInterruptHandler(SIGSEGV, this);
-    bool r2 = IntManager.registerInterruptHandler(SIGBUS, this);
+bool PageFaultHandler::initialise() {
+  InterruptManager& IntManager = InterruptManager::instance();
+  bool r1 = IntManager.registerInterruptHandler(SIGSEGV, this);
+  bool r2 = IntManager.registerInterruptHandler(SIGBUS, this);
 
-    return r1 && r2;
+  return r1 && r2;
 }
 
-void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState &state)
-{
-    siginfo_t *info = reinterpret_cast<siginfo_t *>(state.getRegister(1));
+void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) {
+  siginfo_t* info = reinterpret_cast<siginfo_t*>(state.getRegister(1));
 
-    uintptr_t page = reinterpret_cast<uintptr_t>(page_align(info->si_addr));
-    uintptr_t unaligned_page = reinterpret_cast<uintptr_t>(info->si_addr);
-    uintptr_t code = info->si_code;
-    uintptr_t ucontext_loc = state.getRegister(2);
-    ucontext_t *ctx = reinterpret_cast<ucontext_t *>(ucontext_loc);
+  uintptr_t page = reinterpret_cast<uintptr_t>(page_align(info->si_addr));
+  uintptr_t unaligned_page = reinterpret_cast<uintptr_t>(info->si_addr);
+  uintptr_t code = info->si_code;
+  uintptr_t ucontext_loc = state.getRegister(2);
+  ucontext_t* ctx = reinterpret_cast<ucontext_t*>(ucontext_loc);
 
-    state.setInstructionPointer(HostedPlatform::instructionPointer(ctx));
-    state.setStackPointer(HostedPlatform::stackPointer(ctx));
-    state.setBasePointer(HostedPlatform::basePointer(ctx));
+  state.setInstructionPointer(HostedPlatform::instructionPointer(ctx));
+  state.setStackPointer(HostedPlatform::stackPointer(ctx));
+  state.setBasePointer(HostedPlatform::basePointer(ctx));
 
-    bool isWrite = code == SEGV_ACCERR;
-    uintptr_t errorCode = code;
+  bool isWrite = code == SEGV_ACCERR;
+  uintptr_t errorCode = code;
 #ifdef REG_ERR
-    // SIGSEGV's si_code only distinguishes missing pages from protection
-    // faults. The processor error code retains the read/write distinction.
-    isWrite = (ctx->uc_mcontext.gregs[REG_ERR] & 0x2) != 0;
-    errorCode = ctx->uc_mcontext.gregs[REG_ERR];
+  // SIGSEGV's si_code only distinguishes missing pages from protection
+  // faults. The processor error code retains the read/write distinction.
+  isWrite = (ctx->uc_mcontext.gregs[REG_ERR] & 0x2) != 0;
+  errorCode = ctx->uc_mcontext.gregs[REG_ERR];
 #endif
 
-    VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-    if (va.isMapped(reinterpret_cast<void *>(page)))
-    {
-        physical_uintptr_t phys;
-        size_t flags;
-        va.getMapping(reinterpret_cast<void *>(page), phys, flags);
-        if (flags & VirtualAddressSpace::CopyOnWrite)
-        {
+  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
+  if (va.isMapped(reinterpret_cast<void*>(page))) {
+    physical_uintptr_t phys;
+    size_t flags;
+    va.getMapping(reinterpret_cast<void*>(page), phys, flags);
+    if (flags & VirtualAddressSpace::CopyOnWrite) {
 #if SUPERDEBUG
-            NOTICE_NOLOCK(
-                Processor::information()
-                    .getCurrentThread()
-                    ->getParent()
-                    ->getId()
-                << " PageFaultHandler: copy-on-write for v=" << page);
+      NOTICE_NOLOCK(Processor::information().getCurrentThread()->getParent()->getId()
+                    << " PageFaultHandler: copy-on-write for v=" << page);
 #endif
 
-            Process *pProcess =
-                Processor::information().getCurrentThread()->getParent();
-            size_t pageSz = PhysicalMemoryManager::instance().getPageSize();
+      Process* pProcess = Processor::information().getCurrentThread()->getParent();
+      size_t pageSz = PhysicalMemoryManager::instance().getPageSize();
 
-            // Get a temporary page in which we can store the current mapping
-            // for copy.
-            uintptr_t tempAddr = 0;
-            pProcess->getSpaceAllocator().allocate(pageSz, tempAddr);
+      // Get a temporary page in which we can store the current mapping
+      // for copy.
+      uintptr_t tempAddr = 0;
+      pProcess->getSpaceAllocator().allocate(pageSz, tempAddr);
 
-            // Map temporary page to the old page.
-            if (!va.map(
-                    phys, reinterpret_cast<void *>(tempAddr),
-                    VirtualAddressSpace::KernelMode))
-            {
-                FATAL_NOLOCK("PageFaultHandler: CoW temporary map() failed");
-                return;
-            }
+      // Map temporary page to the old page.
+      if (!va.map(phys, reinterpret_cast<void*>(tempAddr), VirtualAddressSpace::KernelMode)) {
+        FATAL_NOLOCK("PageFaultHandler: CoW temporary map() failed");
+        return;
+      }
 
-            // OK, we can now unmap the old page - we hold a valid temporary
-            // mapping.
-            va.unmap(reinterpret_cast<void *>(page));
+      // OK, we can now unmap the old page - we hold a valid temporary
+      // mapping.
+      va.unmap(reinterpret_cast<void*>(page));
 
-            // Allocate new page for the new memory region.
-            physical_uintptr_t p =
-                PhysicalMemoryManager::instance().allocatePage();
-            if (!p)
-            {
-                FATAL_NOLOCK("PageFaultHandler: CoW OOM'd!");
-                return;
-            }
+      // Allocate new page for the new memory region.
+      physical_uintptr_t p = PhysicalMemoryManager::instance().allocatePage();
+      if (!p) {
+        FATAL_NOLOCK("PageFaultHandler: CoW OOM'd!");
+        return;
+      }
 
-            // Map in the new page, making sure to mark it not CoW.
-            flags |= VirtualAddressSpace::Write;
-            flags &= ~VirtualAddressSpace::CopyOnWrite;
-            if (!va.map(p, reinterpret_cast<void *>(page), flags))
-            {
-                FATAL_NOLOCK("PageFaultHandler: CoW new map() failed.");
-                return;
-            }
+      // Map in the new page, making sure to mark it not CoW.
+      flags |= VirtualAddressSpace::Write;
+      flags &= ~VirtualAddressSpace::CopyOnWrite;
+      if (!va.map(p, reinterpret_cast<void*>(page), flags)) {
+        FATAL_NOLOCK("PageFaultHandler: CoW new map() failed.");
+        return;
+      }
 
-            // Perform the actual copy.
-            MemoryCopy(
-                reinterpret_cast<uint8_t *>(page),
-                reinterpret_cast<uint8_t *>(tempAddr), pageSz);
+      // Perform the actual copy.
+      MemoryCopy(reinterpret_cast<uint8_t*>(page), reinterpret_cast<uint8_t*>(tempAddr), pageSz);
 
-            // Release temporary page.
-            va.unmap(reinterpret_cast<void *>(tempAddr));
-            pProcess->getSpaceAllocator().free(tempAddr, pageSz);
+      // Release temporary page.
+      va.unmap(reinterpret_cast<void*>(tempAddr));
+      pProcess->getSpaceAllocator().free(tempAddr, pageSz);
 
-            // Clean up old reference to memory (may free the page, if we were
-            // the last one to reference the CoW page)
-            PhysicalMemoryManager::instance().freePage(phys);
-            return;
-        }
+      // Clean up old reference to memory (may free the page, if we were
+      // the last one to reference the CoW page)
+      PhysicalMemoryManager::instance().freePage(phys);
+      return;
     }
+  }
 
-    if (page < reinterpret_cast<uintptr_t>(KERNEL_SPACE_START))
-    {
-        if (dispatchHandlers(state, page, isWrite))
-        {
-            return;
-        }
+  if (page < reinterpret_cast<uintptr_t>(KERNEL_SPACE_START)) {
+    if (dispatchHandlers(state, page, isWrite)) {
+      return;
     }
+  }
 
-    Thread *pThread = Processor::information().getCurrentThread();
-    if (pThread && !state.kernelMode())
-    {
-        Process *process = pThread->getParent();
-        if (process && process->getSubsystem())
-        {
-            pThread->deferSubsystemException(
-                static_cast<size_t>(Subsystem::PageFault), unaligned_page,
-                errorCode);
-            return;
-        }
+  Thread* pThread = Processor::information().getCurrentThread();
+  if (pThread && !state.kernelMode()) {
+    Process* process = pThread->getParent();
+    if (process && process->getSubsystem()) {
+      pThread->deferSubsystemException(static_cast<size_t>(Subsystem::PageFault), unaligned_page,
+                                       errorCode);
+      return;
     }
+  }
 
 #if HAS_ADDRESS_SANITIZER
-    // Escalate to the original signal handler - this is a real error, and in
-    // asan we get asan-based analysis in the asan segv handler.
-    struct sigaction oact = static_cast<HostedInterruptManager &>(InterruptManager::instance()).getOriginalSigaction(info->si_signo);
-    if (oact.sa_handler == SIG_IGN)
-    {
-        return;
-    }
-    else if (oact.sa_handler == SIG_DFL)
-    {
-        sigaction(info->si_signo, &oact, nullptr);
-        raise(info->si_signo);
-    }
-    else if (oact.sa_flags & SA_SIGINFO)
-    {
-        oact.sa_sigaction(info->si_signo, info, ctx);
-    }
-    else
-    {
-        oact.sa_handler(info->si_signo);
-    }
-
+  // Escalate to the original signal handler - this is a real error, and in
+  // asan we get asan-based analysis in the asan segv handler.
+  struct sigaction oact = static_cast<HostedInterruptManager&>(InterruptManager::instance())
+                              .getOriginalSigaction(info->si_signo);
+  if (oact.sa_handler == SIG_IGN) {
     return;
+  } else if (oact.sa_handler == SIG_DFL) {
+    sigaction(info->si_signo, &oact, nullptr);
+    raise(info->si_signo);
+  } else if (oact.sa_flags & SA_SIGINFO) {
+    oact.sa_sigaction(info->si_signo, info, ctx);
+  } else {
+    oact.sa_handler(info->si_signo);
+  }
+
+  return;
 #endif
 
-    //  Get PFE location and error code
-    static LargeStaticString sError;
-    sError.clear();
-    sError.append("Page Fault Exception at 0x");
-    sError.append(unaligned_page, 16, 8, '0');
-    sError.append(", error code 0x");
-    sError.append(code, 16, 8, '0');
-    sError.append(", EIP 0x");
-    sError.append(state.getInstructionPointer(), 16, 8, '0');
+  //  Get PFE location and error code
+  static LargeStaticString sError;
+  sError.clear();
+  sError.append("Page Fault Exception at 0x");
+  sError.append(unaligned_page, 16, 8, '0');
+  sError.append(", error code 0x");
+  sError.append(code, 16, 8, '0');
+  sError.append(", EIP 0x");
+  sError.append(state.getInstructionPointer(), 16, 8, '0');
 
-    //  Extract error code information
-    static LargeStaticString sCode;
-    sCode.clear();
-    sCode.append("Details: PID=");
-    sCode.append(
-        Processor::information().getCurrentThread()->getParent()->getId());
-    sCode.append(" ");
+  //  Extract error code information
+  static LargeStaticString sCode;
+  sCode.clear();
+  sCode.append("Details: PID=");
+  sCode.append(Processor::information().getCurrentThread()->getParent()->getId());
+  sCode.append(" ");
 
-    if (code == SEGV_MAPERR)
-        sCode.append("NOT ");
-    sCode.append("PRESENT | ");
-    if (code == SEGV_ACCERR)
-        sCode.append("ACCESS ERROR");
+  if (code == SEGV_MAPERR)
+    sCode.append("NOT ");
+  sCode.append("PRESENT | ");
+  if (code == SEGV_ACCERR)
+    sCode.append("ACCESS ERROR");
 
-    ERROR(static_cast<const char *>(sError));
-    ERROR(static_cast<const char *>(sCode));
+  ERROR(static_cast<const char*>(sError));
+  ERROR(static_cast<const char*>(sCode));
 
 #if DEBUGGER
-    if (state.kernelMode())
-        Debugger::instance().start(state, sError);
+  if (state.kernelMode())
+    Debugger::instance().start(state, sError);
 #endif
 
-    Scheduler &scheduler = Scheduler::instance();
-    if (UNLIKELY(scheduler.getNumProcesses() == 0))
-    {
-        //  We are in the early stages of the boot process (no processes
-        //  started)
-        panic(sError);
-    }
-    else
-    {
-        //  Unrecoverable PFE in a process - Kill the process and yield
-        // Processor::information().getCurrentThread()->getParent()->kill();
-        pThread = Processor::information().getCurrentThread();
-        Process *pProcess = pThread->getParent();
-        Subsystem *pSubsystem = pProcess->getSubsystem();
-        if (!pSubsystem || state.kernelMode())
-        {
-            pProcess->kill();
+  Scheduler& scheduler = Scheduler::instance();
+  if (UNLIKELY(scheduler.getNumProcesses() == 0)) {
+    //  We are in the early stages of the boot process (no processes
+    //  started)
+    panic(sError);
+  } else {
+    //  Unrecoverable PFE in a process - Kill the process and yield
+    // Processor::information().getCurrentThread()->getParent()->kill();
+    pThread = Processor::information().getCurrentThread();
+    Process* pProcess = pThread->getParent();
+    Subsystem* pSubsystem = pProcess->getSubsystem();
+    if (!pSubsystem || state.kernelMode()) {
+      pProcess->kill();
 
-            //  kill member function also calls yield(), so shouldn't get here.
-            for (;;)
-                ;
-        }
+      //  kill member function also calls yield(), so shouldn't get here.
+      for (;;)
+        ;
     }
+  }
 }

@@ -20,58 +20,57 @@
 #if MULTIPROCESSOR
 
 #include "../x86_common/Multiprocessor.h"
-#include "InterruptManager.h"
-#include "SyscallManager.h"
-#include "gdt.h"
-#include "machine/mach_pc/Pc.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-void Multiprocessor::applicationProcessorStartup()
-{
-    // Enable Write-Protect on the AP early so we don't have any problems with
-    // the rest of the kernel.
-    asm volatile("mov %%cr0, %%rax; or $0x10000, %%rax; mov %%rax, %%cr0" ::
-                     : "rax");
+#include "InterruptManager.h"
+#include "SyscallManager.h"
+#include "gdt.h"
+#include "machine/mach_pc/Pc.h"
 
-    // Initialise this processor's interrupt handling
-    X64InterruptManager::initialiseProcessor();
+void Multiprocessor::applicationProcessorStartup() {
+  // Enable Write-Protect on the AP early so we don't have any problems with
+  // the rest of the kernel.
+  asm volatile("mov %%cr0, %%rax; or $0x10000, %%rax; mov %%rax, %%cr0" ::: "rax");
 
-    // Signal the Bootstrap processor that this processor is started and the BSP
-    // can continue to boot up other processors.
-    m_ProcessorStarted = true;
+  // Initialise this processor's interrupt handling
+  X64InterruptManager::initialiseProcessor();
 
-    // Wait until the GDT is initialised and the first 4MB identity mapping
-    // removed
-    m_ProcessorLock2.acquire(false, false);
-    m_ProcessorLock2.release();
+  // Signal the Bootstrap processor that this processor is started and the BSP
+  // can continue to boot up other processors.
+  m_ProcessorStarted = true;
 
-    // Initialise this processor's syscall handling
-    X64SyscallManager::initialiseProcessor();
+  // Wait until the GDT is initialised and the first 4MB identity mapping
+  // removed
+  m_ProcessorLock2.acquire(false, false);
+  m_ProcessorLock2.release();
 
-    // Load the GDT
-    X64GdtManager::initialiseProcessor();
+  // Initialise this processor's syscall handling
+  X64SyscallManager::initialiseProcessor();
 
-    // Configure floating point.
-    NMFaultHandler::instance().initialiseProcessor();
+  // Load the GDT
+  X64GdtManager::initialiseProcessor();
 
-    // Invalidate the first 4MB identity mapping
-    Processor::invalidate(0);
+  // Configure floating point.
+  NMFaultHandler::instance().initialiseProcessor();
 
-    // Initialise the machine-specific interface
-    Pc::instance().initialiseProcessor();
+  // Invalidate the first 4MB identity mapping
+  Processor::invalidate(0);
 
-    // We need to synchronize the -init section invalidation
-    Processor::invalidate(0);
-    Processor::invalidate(reinterpret_cast<void *>(0x200000));
+  // Initialise the machine-specific interface
+  Pc::instance().initialiseProcessor();
 
-    // Start up the kernel process and idle thread for this processor.
-    initialiseMultitaskingPerProcessor();
+  // We need to synchronize the -init section invalidation
+  Processor::invalidate(0);
+  Processor::invalidate(reinterpret_cast<void*>(0x200000));
 
-    // Call the per-processor code in main.cc
-    apMain();
+  // Start up the kernel process and idle thread for this processor.
+  initialiseMultitaskingPerProcessor();
+
+  // Call the per-processor code in main.cc
+  apMain();
 }
 
 #endif

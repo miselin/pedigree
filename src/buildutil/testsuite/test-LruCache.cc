@@ -19,60 +19,57 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/utilities/LruCache.h"
 
-TEST(PedigreeList, GetRecentlyUsed)
-{
-    LruCache<int, int> cache;
+#include <gtest/gtest.h>
 
-    cache.store(1, 1);
-    cache.store(2, 2);
+TEST(PedigreeList, GetRecentlyUsed) {
+  LruCache<int, int> cache;
 
-    int x;
-    EXPECT_TRUE(cache.get(1, x));
-    EXPECT_EQ(x, 1);
+  cache.store(1, 1);
+  cache.store(2, 2);
 
-    EXPECT_TRUE(cache.get(2, x));
-    EXPECT_EQ(x, 2);
+  int x;
+  EXPECT_TRUE(cache.get(1, x));
+  EXPECT_EQ(x, 1);
 
-    EXPECT_FALSE(cache.get(3, x));
+  EXPECT_TRUE(cache.get(2, x));
+  EXPECT_EQ(x, 2);
+
+  EXPECT_FALSE(cache.get(3, x));
 }
 
-TEST(PedigreeList, LoseOldest)
-{
-    LruCache<int, int, 4> cache;
+TEST(PedigreeList, LoseOldest) {
+  LruCache<int, int, 4> cache;
 
-    cache.store(1, 1);
-    cache.store(2, 2);
-    cache.store(3, 3);
-    cache.store(4, 4);
-    cache.store(5, 5);
+  cache.store(1, 1);
+  cache.store(2, 2);
+  cache.store(3, 3);
+  cache.store(4, 4);
+  cache.store(5, 5);
 
-    int x;
-    EXPECT_TRUE(cache.get(2, x));
-    EXPECT_EQ(x, 2);
+  int x;
+  EXPECT_TRUE(cache.get(2, x));
+  EXPECT_EQ(x, 2);
 
-    EXPECT_FALSE(cache.get(1, x));
+  EXPECT_FALSE(cache.get(1, x));
 }
 
-TEST(PedigreeList, DontFillTooMuch)
-{
-    LruCache<int, int, 4> cache;
+TEST(PedigreeList, DontFillTooMuch) {
+  LruCache<int, int, 4> cache;
 
-    cache.store(1, 1);
-    cache.store(2, 2);
-    cache.store(2, 2);
-    cache.store(2, 2);
-    cache.store(2, 2);
-    cache.store(2, 2);
+  cache.store(1, 1);
+  cache.store(2, 2);
+  cache.store(2, 2);
+  cache.store(2, 2);
+  cache.store(2, 2);
+  cache.store(2, 2);
 
-    int x;
-    EXPECT_TRUE(cache.get(2, x));
-    EXPECT_EQ(x, 2);
+  int x;
+  EXPECT_TRUE(cache.get(2, x));
+  EXPECT_EQ(x, 2);
 
-    // must still be present
-    EXPECT_TRUE(cache.get(1, x));
-    EXPECT_EQ(x, 1);
+  // must still be present
+  EXPECT_TRUE(cache.get(1, x));
+  EXPECT_EQ(x, 1);
 }

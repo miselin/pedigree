@@ -34,119 +34,108 @@ class MemoryMappedObject;
 
 /** The dynamic linker tracks instances of shared objects through
     an address space. */
-class EXPORTED_PUBLIC DynamicLinker
-{
-  public:
-    /** Creates a new DynamicLinker object. */
-    DynamicLinker();
+class EXPORTED_PUBLIC DynamicLinker {
+ public:
+  /** Creates a new DynamicLinker object. */
+  DynamicLinker();
 
-    ~DynamicLinker();
+  ~DynamicLinker();
 
-    /** Creates a new DynamicLinker from another. Copies all mappings. */
-    DynamicLinker(DynamicLinker &other);
+  /** Creates a new DynamicLinker from another. Copies all mappings. */
+  DynamicLinker(DynamicLinker& other);
 
-    /** Checks the given program for a requested interpreter, that we should
-        run instead of loading the binary ourselves. */
-    bool checkInterpreter(File *pFile, String &actualFilename)
-    {
-        return loadProgram(pFile, true, true, &actualFilename);
-    }
+  /** Checks the given program for a requested interpreter, that we should
+      run instead of loading the binary ourselves. */
+  bool checkInterpreter(File* pFile, String& actualFilename) {
+    return loadProgram(pFile, true, true, &actualFilename);
+  }
 
-    /** Checks dependencies for a given program. Returns true if
-        all dependencies are available and loadable, false if not. */
-    bool checkDependencies(File *pFile)
-    {
-        return loadProgram(pFile, true);
-    }
+  /** Checks dependencies for a given program. Returns true if
+      all dependencies are available and loadable, false if not. */
+  bool checkDependencies(File* pFile) {
+    return loadProgram(pFile, true);
+  }
 
-    /** Loads the main program. This must be an ELF file, and the
-        linker will also load all library dependencies. If any of
-        these loads fails, false is returned.
-        \param pFile The ELF file. */
-    bool loadProgram(
-        File *pFile, bool bDryRun = false, bool bInterpreter = false,
-        String *sInterpreter = 0);
+  /** Loads the main program. This must be an ELF file, and the
+      linker will also load all library dependencies. If any of
+      these loads fails, false is returned.
+      \param pFile The ELF file. */
+  bool loadProgram(File* pFile, bool bDryRun = false, bool bInterpreter = false,
+                   String* sInterpreter = 0);
 
-    /** Loads a shared object into this address space (along with
-        any dependencies.
-        \param pFile The ELF object to load.
-        \return True if the ELF and all dependencies was loaded successfully. */
-    bool loadObject(File *pFile, bool bDryRun = false);
+  /** Loads a shared object into this address space (along with
+      any dependencies.
+      \param pFile The ELF object to load.
+      \return True if the ELF and all dependencies was loaded successfully. */
+  bool loadObject(File* pFile, bool bDryRun = false);
 
-    /** Callback given to KernelCoreSyscallManager to resolve PLT relocations
-     * lazily. */
-    static uintptr_t resolvePlt(SyscallState &state);
+  /** Callback given to KernelCoreSyscallManager to resolve PLT relocations
+   * lazily. */
+  static uintptr_t resolvePlt(SyscallState& state);
 
-    /** Called when a trap is handled by the DLTrapHandler.
-        \param address Address of the trap.
-        \return True if the trap was handled successfully. */
-    bool trap(uintptr_t address);
+  /** Called when a trap is handled by the DLTrapHandler.
+      \param address Address of the trap.
+      \return True if the trap was handled successfully. */
+  bool trap(uintptr_t address);
 
-    /** Returns the program ELF. */
-    Elf *getProgramElf()
-    {
-        return m_pProgramElf;
-    }
+  /** Returns the program ELF. */
+  Elf* getProgramElf() {
+    return m_pProgramElf;
+  }
 
-    /** Manually resolves a given symbol name. */
-    uintptr_t resolve(String name);
+  /** Manually resolves a given symbol name. */
+  uintptr_t resolve(String name);
 
-  private:
-    /** Operator= is unused and is therefore private. */
-    DynamicLinker &operator=(const DynamicLinker &);
+ private:
+  /** Operator= is unused and is therefore private. */
+  DynamicLinker& operator=(const DynamicLinker&);
 
-    /** A shared object/library. */
-    struct SharedObject
-    {
-        SharedObject(
-            Elf *e, MemoryMappedObject *f, uintptr_t b, uintptr_t a, size_t s)
-            : elf(e), file(f), buffer(b), address(a), size(s)
-        {
-        }
-        Elf *elf;
-        MemoryMappedObject *file;
-        uintptr_t buffer;
-        uintptr_t address;
-        size_t size;
-    };
+  /** A shared object/library. */
+  struct SharedObject {
+    SharedObject(Elf* e, MemoryMappedObject* f, uintptr_t b, uintptr_t a, size_t s)
+        : elf(e), file(f), buffer(b), address(a), size(s) {}
+    Elf* elf;
+    MemoryMappedObject* file;
+    uintptr_t buffer;
+    uintptr_t address;
+    size_t size;
+  };
 
-    uintptr_t resolvePltSymbol(uintptr_t libraryId, uintptr_t symIdx);
+  uintptr_t resolvePltSymbol(uintptr_t libraryId, uintptr_t symIdx);
 
-    void initPlt(Elf *pElf, uintptr_t value);
+  void initPlt(Elf* pElf, uintptr_t value);
 
-    Elf *m_pProgramElf;
-    uintptr_t m_ProgramStart;
-    size_t m_ProgramSize;
-    uintptr_t m_ProgramBuffer;
-    RadixTree<void *> m_LoadedObjects;
+  Elf* m_pProgramElf;
+  uintptr_t m_ProgramStart;
+  size_t m_ProgramSize;
+  uintptr_t m_ProgramBuffer;
+  RadixTree<void*> m_LoadedObjects;
 
-    Tree<uintptr_t, SharedObject *> m_Objects;
+  Tree<uintptr_t, SharedObject*> m_Objects;
 };
 
 /** Tiny class for dispatching MemoryTrap events to DynamicLinkers.
     A MemoryTrap event will occur when a page of an ELF has yet to
     be loaded. */
-class DLTrapHandler : public MemoryTrapHandler
-{
-  public:
-    /** Retrieve the singleton DLTrapHandler instance. */
-    static DLTrapHandler &instance()
-    {
-        return m_Instance;
-    }
+class DLTrapHandler : public MemoryTrapHandler {
+ public:
+  /** Retrieve the singleton DLTrapHandler instance. */
+  static DLTrapHandler& instance() {
+    return m_Instance;
+  }
 
-    //
-    // MemoryTrapHandler interface.
-    //
-    virtual bool trap(InterruptState &state, uintptr_t address, bool bIsWrite);
+  //
+  // MemoryTrapHandler interface.
+  //
+  virtual bool trap(InterruptState& state, uintptr_t address, bool bIsWrite);
 
-  private:
-    /** Private constructor - does nothing. */
-    DLTrapHandler();
-    /** Private destructor - does nothing, not expected to be called. */
-    ~DLTrapHandler();
+ private:
+  /** Private constructor - does nothing. */
+  DLTrapHandler();
+  /** Private destructor - does nothing, not expected to be called. */
+  ~DLTrapHandler();
 
-    static DLTrapHandler m_Instance;
+  static DLTrapHandler m_Instance;
 };
 
 #endif

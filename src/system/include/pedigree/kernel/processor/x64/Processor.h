@@ -23,8 +23,6 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/x86_common/Processor.h"
 
-class X64Processor : public X86CommonProcessor
-{
-};
+class X64Processor : public X86CommonProcessor {};
 
 #endif

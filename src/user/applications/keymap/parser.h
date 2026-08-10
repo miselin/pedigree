@@ -55,32 +55,31 @@
 #define YYTOKENTYPE
 /* Put the tokens into the symbol table, so that GDB and other debuggers
    know about them.  */
-enum yytokentype
-{
-    NEWLINE = 258,
-    QUOTE = 259,
-    STRING = 260,
-    CTRL = 261,
-    SHIFT = 262,
-    ALT = 263,
-    ALTGR = 264,
-    CTRL_SHIFT = 265,
-    SHIFT_ALT = 266,
-    CTRL_ALT = 267,
-    CTRL_SHIFT_ALT = 268,
-    SHIFT_ALTGR = 269,
-    CTRL_ALTGR = 270,
-    CTRL_SHIFT_ALTGR = 271,
-    SET_COMBINE = 272,
-    COMBINE = 273,
-    OPEN_SQ = 274,
-    CLOSE_SQ = 275,
-    DEFINE = 276,
-    QUOTED_CHAR = 277,
-    CODE_POINT = 278,
-    NUM = 279,
-    ERROR = 280,
-    END = 281
+enum yytokentype {
+  NEWLINE = 258,
+  QUOTE = 259,
+  STRING = 260,
+  CTRL = 261,
+  SHIFT = 262,
+  ALT = 263,
+  ALTGR = 264,
+  CTRL_SHIFT = 265,
+  SHIFT_ALT = 266,
+  CTRL_ALT = 267,
+  CTRL_SHIFT_ALT = 268,
+  SHIFT_ALTGR = 269,
+  CTRL_ALTGR = 270,
+  CTRL_SHIFT_ALTGR = 271,
+  SET_COMBINE = 272,
+  COMBINE = 273,
+  OPEN_SQ = 274,
+  CLOSE_SQ = 275,
+  DEFINE = 276,
+  QUOTED_CHAR = 277,
+  CODE_POINT = 278,
+  NUM = 279,
+  ERROR = 280,
+  END = 281
 };
 #endif
 /* Tokens.  */
@@ -110,16 +109,15 @@ enum yytokentype
 #define END 281
 
 #if !defined YYSTYPE && !defined YYSTYPE_IS_DECLARED
-typedef union YYSTYPE
-{
+typedef union YYSTYPE {
 /* Line 1676 of yacc.c  */
 #line 31 "parser.y"
 
-    int n;
-    char str[256];
-    char c;
-    struct cmd *cmd;
-    struct cmd_list *cmd_list;
+  int n;
+  char str[256];
+  char c;
+  struct cmd* cmd;
+  struct cmd_list* cmd_list;
 
 /* Line 1676 of yacc.c  */
 #line 114 "parser.h"

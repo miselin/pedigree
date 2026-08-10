@@ -17,71 +17,57 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/utilities/UnlikelyLock.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/UnlikelyLock.h"
 
 UnlikelyLock::UnlikelyLock()
-    : m_Lock(), m_Condition(), m_nReaders(0), m_nWaitingWriters(0),
-      m_bActiveWriter(false)
-{
+    : m_Lock(), m_Condition(), m_nReaders(0), m_nWaitingWriters(0), m_bActiveWriter(false) {}
+
+UnlikelyLock::~UnlikelyLock() {
+  LockGuard<Mutex> guard(m_Lock);
+  if (m_nReaders || m_nWaitingWriters || m_bActiveWriter) {
+    FATAL("Destroying an owned or contended UnlikelyLock.");
+  }
 }
 
-UnlikelyLock::~UnlikelyLock()
-{
-    LockGuard<Mutex> guard(m_Lock);
-    if (m_nReaders || m_nWaitingWriters || m_bActiveWriter)
-    {
-        FATAL("Destroying an owned or contended UnlikelyLock.");
-    }
+void UnlikelyLock::enter() {
+  LockGuard<Mutex> guard(m_Lock);
+  while (m_bActiveWriter || m_nWaitingWriters) {
+    m_Condition.waitForCompletion(m_Lock);
+  }
+
+  ++m_nReaders;
 }
 
-void UnlikelyLock::enter()
-{
-    LockGuard<Mutex> guard(m_Lock);
-    while (m_bActiveWriter || m_nWaitingWriters)
-    {
-        m_Condition.waitForCompletion(m_Lock);
-    }
-
-    ++m_nReaders;
-}
-
-void UnlikelyLock::leave()
-{
-    LockGuard<Mutex> guard(m_Lock);
-    if (!m_nReaders)
-    {
-        FATAL("UnlikelyLock::leave without a matching enter.");
-    }
-    if (!--m_nReaders)
-    {
-        // A signal can select a reader, which must remain gated while a
-        // writer is pending. Wake the writer set as well.
-        m_Condition.broadcast();
-    }
-}
-
-void UnlikelyLock::acquire()
-{
-    LockGuard<Mutex> guard(m_Lock);
-    ++m_nWaitingWriters;
-    while (m_bActiveWriter || m_nReaders)
-    {
-        m_Condition.waitForCompletion(m_Lock);
-    }
-
-    --m_nWaitingWriters;
-    m_bActiveWriter = true;
-}
-
-void UnlikelyLock::release()
-{
-    LockGuard<Mutex> guard(m_Lock);
-    if (!m_bActiveWriter)
-    {
-        FATAL("UnlikelyLock::release without writer ownership.");
-    }
-    m_bActiveWriter = false;
+void UnlikelyLock::leave() {
+  LockGuard<Mutex> guard(m_Lock);
+  if (!m_nReaders) {
+    FATAL("UnlikelyLock::leave without a matching enter.");
+  }
+  if (!--m_nReaders) {
+    // A signal can select a reader, which must remain gated while a
+    // writer is pending. Wake the writer set as well.
     m_Condition.broadcast();
+  }
+}
+
+void UnlikelyLock::acquire() {
+  LockGuard<Mutex> guard(m_Lock);
+  ++m_nWaitingWriters;
+  while (m_bActiveWriter || m_nReaders) {
+    m_Condition.waitForCompletion(m_Lock);
+  }
+
+  --m_nWaitingWriters;
+  m_bActiveWriter = true;
+}
+
+void UnlikelyLock::release() {
+  LockGuard<Mutex> guard(m_Lock);
+  if (!m_bActiveWriter) {
+    FATAL("UnlikelyLock::release without writer ownership.");
+  }
+  m_bActiveWriter = false;
+  m_Condition.broadcast();
 }

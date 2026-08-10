@@ -26,53 +26,43 @@ class HardIrqHandler;
 class IrqHandler;
 class IrqHandlerBase;
 
-irq_id_t Apic::registerIsaIrqHandler(
-    uint8_t, IrqHandler *handler, const IrqPolicy &policy)
-{
-    // TODO
-    return 0;
+irq_id_t Apic::registerIsaIrqHandler(uint8_t, IrqHandler* handler, const IrqPolicy& policy) {
+  // TODO
+  return 0;
 }
-irq_id_t Apic::registerPciIrqHandler(
-    IrqHandler *handler, Device *pDevice, const IrqPolicy &policy)
-{
-    // TODO
-    return 0;
+irq_id_t Apic::registerPciIrqHandler(IrqHandler* handler, Device* pDevice,
+                                     const IrqPolicy& policy) {
+  // TODO
+  return 0;
 }
-irq_id_t
-Apic::registerHardIsaIrqHandler(
-    uint8_t, HardIrqHandler *handler, const IrqPolicy &policy)
-{
-    // TODO
-    return 0;
+irq_id_t Apic::registerHardIsaIrqHandler(uint8_t, HardIrqHandler* handler,
+                                         const IrqPolicy& policy) {
+  // TODO
+  return 0;
 }
-irq_id_t
-Apic::registerHardPciIrqHandler(
-    HardIrqHandler *handler, Device *pDevice, const IrqPolicy &policy)
-{
-    // TODO
-    return 0;
+irq_id_t Apic::registerHardPciIrqHandler(HardIrqHandler* handler, Device* pDevice,
+                                         const IrqPolicy& policy) {
+  // TODO
+  return 0;
 }
-bool Apic::unregisterHandler(irq_id_t Id, IrqHandlerBase *handler)
-{
-    // TODO
-    return false;
+bool Apic::unregisterHandler(irq_id_t Id, IrqHandlerBase* handler) {
+  // TODO
+  return false;
 }
-void Apic::enable(irq_id_t Id, bool bEnable)
-{
-    // TODO
+void Apic::enable(irq_id_t Id, bool bEnable) {
+  // TODO
 }
-bool Apic::initialise()
-{
-    // TODO
-    return false;
-    /*
-      if (m_LocalApic.initialise(localApic) == false)
-      {
-        ERROR("LocalApic::initialise(): failed");
-        return false;
-      }
+bool Apic::initialise() {
+  // TODO
+  return false;
+  /*
+    if (m_LocalApic.initialise(localApic) == false)
+    {
+      ERROR("LocalApic::initialise(): failed");
+      return false;
+    }
 
-      return true;*/
+    return true;*/
 }
 
 #endif

@@ -19,53 +19,39 @@
 
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 
-class StubbedPhysicalMemoryManager : public PhysicalMemoryManager
-{
-  public:
-    virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0);
-    virtual void freePage(physical_uintptr_t page);
-    virtual void pin(physical_uintptr_t page);
-    virtual bool allocateRegion(
-        MemoryRegion &Region, size_t cPages, size_t pageConstraints,
-        size_t Flags, physical_uintptr_t start = -1);
+class StubbedPhysicalMemoryManager : public PhysicalMemoryManager {
+ public:
+  virtual physical_uintptr_t allocatePage(size_t pageConstraints = 0);
+  virtual void freePage(physical_uintptr_t page);
+  virtual void pin(physical_uintptr_t page);
+  virtual bool allocateRegion(MemoryRegion& Region, size_t cPages, size_t pageConstraints,
+                              size_t Flags, physical_uintptr_t start = -1);
 
-  private:
-    virtual void freePageUnlocked(physical_uintptr_t page);
-    void unmapRegion(MemoryRegion *pRegion);
+ private:
+  virtual void freePageUnlocked(physical_uintptr_t page);
+  void unmapRegion(MemoryRegion* pRegion);
 };
 
 // Static shared instance.
-PhysicalMemoryManager &PhysicalMemoryManager::instance()
-{
-    static StubbedPhysicalMemoryManager stub;
-    return stub;
+PhysicalMemoryManager& PhysicalMemoryManager::instance() {
+  static StubbedPhysicalMemoryManager stub;
+  return stub;
 }
 
-physical_uintptr_t
-StubbedPhysicalMemoryManager::allocatePage(size_t pageConstraints)
-{
-    return 0;
+physical_uintptr_t StubbedPhysicalMemoryManager::allocatePage(size_t pageConstraints) {
+  return 0;
 }
 
-void StubbedPhysicalMemoryManager::freePage(physical_uintptr_t page)
-{
+void StubbedPhysicalMemoryManager::freePage(physical_uintptr_t page) {}
+
+void StubbedPhysicalMemoryManager::pin(physical_uintptr_t page) {}
+
+bool StubbedPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t cPages,
+                                                  size_t pageConstraints, size_t Flags,
+                                                  physical_uintptr_t start) {
+  return false;
 }
 
-void StubbedPhysicalMemoryManager::pin(physical_uintptr_t page)
-{
-}
+void StubbedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {}
 
-bool StubbedPhysicalMemoryManager::allocateRegion(
-    MemoryRegion &Region, size_t cPages, size_t pageConstraints, size_t Flags,
-    physical_uintptr_t start)
-{
-    return false;
-}
-
-void StubbedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page)
-{
-}
-
-void StubbedPhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
-{
-}
+void StubbedPhysicalMemoryManager::unmapRegion(MemoryRegion* pRegion) {}

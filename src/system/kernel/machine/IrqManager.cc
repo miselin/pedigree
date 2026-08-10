@@ -22,28 +22,20 @@
 IrqManager::IrqManager() = default;
 IrqManager::~IrqManager() = default;
 
-irq_id_t IrqManager::registerSchedulerIrqHandler(
-    uint8_t, SchedulerIrqHandler *, const IrqPolicy &)
-{
-    return 0;
+irq_id_t IrqManager::registerSchedulerIrqHandler(uint8_t, SchedulerIrqHandler*, const IrqPolicy&) {
+  return 0;
 }
 
-bool IrqManager::unregisterSchedulerIrqHandler(
-    irq_id_t, SchedulerIrqHandler *)
-{
-    return false;
+bool IrqManager::unregisterSchedulerIrqHandler(irq_id_t, SchedulerIrqHandler*) {
+  return false;
 }
 
-size_t IrqManager::snapshotIrqLines(IrqLineDiagnosticSnapshot *, size_t) const
-{
-    return 0;
+size_t IrqManager::snapshotIrqLines(IrqLineDiagnosticSnapshot*, size_t) const {
+  return 0;
 }
 
-void IrqManager::tick()
-{
-}
+void IrqManager::tick() {}
 
-bool IrqManager::control(uint8_t irq, ControlCode code, size_t argument)
-{
-    return true;
+bool IrqManager::control(uint8_t irq, ControlCode code, size_t argument) {
+  return true;
 }

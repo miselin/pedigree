@@ -18,81 +18,67 @@
  */
 
 #include "FtdiSerialDevice.h"
-#include "modules/system/usb/UsbConstants.h"
-#include "modules/system/usb/UsbDevice.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
 
+#include "modules/system/usb/UsbConstants.h"
+#include "modules/system/usb/UsbDevice.h"
+
 #define FTDI_BAUD_RATE 9600
 
 static uint8_t nSubdivisors[8] = {0, 3, 2, 4, 1, 5, 6, 7};
 
-FtdiSerialDevice::FtdiSerialDevice(UsbDevice *dev)
-    : UsbDevice(dev), Serial(), m_pInEndpoint(0), m_pOutEndpoint(0)
-{
+FtdiSerialDevice::FtdiSerialDevice(UsbDevice* dev)
+    : UsbDevice(dev), Serial(), m_pInEndpoint(0), m_pOutEndpoint(0) {}
+
+FtdiSerialDevice::~FtdiSerialDevice() {}
+
+void FtdiSerialDevice::initialiseDriver() {
+  // Reset the device
+  controlRequest(UsbRequestType::Vendor, 0, 0, 0);
+
+  // Calculate the divisor and subdivisor for the baud rate
+  uint16_t nDivisor = (48000000 / 2) / FTDI_BAUD_RATE, nSubdivisor = nSubdivisors[nDivisor % 8];
+  nDivisor /= 8;
+
+  // Set the divisor and subdivisor (0x4138 / 0x00 for 9600)
+  controlRequest(UsbRequestType::Vendor, 3, (nSubdivisor & 3) << 14 | nDivisor, nSubdivisor >> 2);
+
+  // Get the in and out endpoints
+  for (size_t i = 0; i < m_pInterface->endpointList.count(); i++) {
+    Endpoint* pEndpoint = m_pInterface->endpointList[i];
+    if (!m_pInEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) && pEndpoint->bIn)
+      m_pInEndpoint = pEndpoint;
+    if (!m_pOutEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) && pEndpoint->bOut)
+      m_pOutEndpoint = pEndpoint;
+    if (m_pInEndpoint && m_pOutEndpoint)
+      break;
+  }
+
+  if (!m_pInEndpoint) {
+    ERROR("USB: FTDI: No IN endpoint");
+    return;
+  }
+
+  if (!m_pOutEndpoint) {
+    ERROR("USB: FTDI: No OUT endpoint");
+    return;
+  }
+
+  m_UsbState = HasDriver;
 }
 
-FtdiSerialDevice::~FtdiSerialDevice()
-{
+char FtdiSerialDevice::read() {
+  char* pChar = new char(0);
+  PointerGuard<char> guard(pChar);
+  syncIn(m_pInEndpoint, reinterpret_cast<uintptr_t>(pChar), 1);
+  return *pChar;
 }
 
-void FtdiSerialDevice::initialiseDriver()
-{
-    // Reset the device
-    controlRequest(UsbRequestType::Vendor, 0, 0, 0);
-
-    // Calculate the divisor and subdivisor for the baud rate
-    uint16_t nDivisor = (48000000 / 2) / FTDI_BAUD_RATE,
-             nSubdivisor = nSubdivisors[nDivisor % 8];
-    nDivisor /= 8;
-
-    // Set the divisor and subdivisor (0x4138 / 0x00 for 9600)
-    controlRequest(
-        UsbRequestType::Vendor, 3, (nSubdivisor & 3) << 14 | nDivisor,
-        nSubdivisor >> 2);
-
-    // Get the in and out endpoints
-    for (size_t i = 0; i < m_pInterface->endpointList.count(); i++)
-    {
-        Endpoint *pEndpoint = m_pInterface->endpointList[i];
-        if (!m_pInEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) &&
-            pEndpoint->bIn)
-            m_pInEndpoint = pEndpoint;
-        if (!m_pOutEndpoint && (pEndpoint->nTransferType == Endpoint::Bulk) &&
-            pEndpoint->bOut)
-            m_pOutEndpoint = pEndpoint;
-        if (m_pInEndpoint && m_pOutEndpoint)
-            break;
-    }
-
-    if (!m_pInEndpoint)
-    {
-        ERROR("USB: FTDI: No IN endpoint");
-        return;
-    }
-
-    if (!m_pOutEndpoint)
-    {
-        ERROR("USB: FTDI: No OUT endpoint");
-        return;
-    }
-
-    m_UsbState = HasDriver;
-}
-
-char FtdiSerialDevice::read()
-{
-    char *pChar = new char(0);
-    PointerGuard<char> guard(pChar);
-    syncIn(m_pInEndpoint, reinterpret_cast<uintptr_t>(pChar), 1);
-    return *pChar;
-}
-
-void FtdiSerialDevice::write(char c)
-{
-    char *pChar = new char(c);
-    PointerGuard<char> guard(pChar);
-    syncOut(m_pOutEndpoint, reinterpret_cast<uintptr_t>(pChar), 1);
+void FtdiSerialDevice::write(char c) {
+  char* pChar = new char(c);
+  PointerGuard<char> guard(pChar);
+  syncOut(m_pOutEndpoint, reinterpret_cast<uintptr_t>(pChar), 1);
 }

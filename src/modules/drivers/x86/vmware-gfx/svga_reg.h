@@ -45,11 +45,9 @@
 #define SVGA_MAX_BITS_PER_PIXEL 32
 #define SVGA_MAX_DEPTH 24
 
-#define SVGA_FB_MAX_SIZE                                                   \
-    ((((SVGA_MAX_WIDTH * SVGA_MAX_HEIGHT * SVGA_MAX_BITS_PER_PIXEL / 8) >> \
-       PAGE_SHIFT) +                                                       \
-      1)                                                                   \
-     << PAGE_SHIFT)
+#define SVGA_FB_MAX_SIZE                                                                  \
+  ((((SVGA_MAX_WIDTH * SVGA_MAX_HEIGHT * SVGA_MAX_BITS_PER_PIXEL / 8) >> PAGE_SHIFT) + 1) \
+   << PAGE_SHIFT)
 
 #define SVGA_MAX_PSEUDOCOLOR_DEPTH 8
 #define SVGA_MAX_PSEUDOCOLORS (1 << SVGA_MAX_PSEUDOCOLOR_DEPTH)
@@ -88,67 +86,64 @@
 #define SVGA_LEGACY_ACCEL_PORT 0x3
 
 /* Legal values for the SVGA_REG_CURSOR_ON register in cursor bypass mode */
-#define SVGA_CURSOR_ON_HIDE \
-    0x0 /* Must be 0 to maintain backward compatibility */
-#define SVGA_CURSOR_ON_SHOW \
-    0x1 /* Must be 1 to maintain backward compatibility */
-#define SVGA_CURSOR_ON_REMOVE_FROM_FB                                    \
-    0x2 /* Remove the cursor from the framebuffer because we need to see \
-           what's under it */
+#define SVGA_CURSOR_ON_HIDE 0x0 /* Must be 0 to maintain backward compatibility */
+#define SVGA_CURSOR_ON_SHOW 0x1 /* Must be 1 to maintain backward compatibility */
+#define SVGA_CURSOR_ON_REMOVE_FROM_FB                                  \
+  0x2 /* Remove the cursor from the framebuffer because we need to see \
+         what's under it */
 #define SVGA_CURSOR_ON_RESTORE_TO_FB \
-    0x3 /* Put the cursor back in the framebuffer so the user can see it */
+  0x3 /* Put the cursor back in the framebuffer so the user can see it */
 
 /*
  * Registers
  */
 
-enum
-{
-    SVGA_REG_ID = 0,
-    SVGA_REG_ENABLE = 1,
-    SVGA_REG_WIDTH = 2,
-    SVGA_REG_HEIGHT = 3,
-    SVGA_REG_MAX_WIDTH = 4,
-    SVGA_REG_MAX_HEIGHT = 5,
-    SVGA_REG_DEPTH = 6,
-    SVGA_REG_BITS_PER_PIXEL = 7, /* Current bpp in the guest */
-    SVGA_REG_PSEUDOCOLOR = 8,
-    SVGA_REG_RED_MASK = 9,
-    SVGA_REG_GREEN_MASK = 10,
-    SVGA_REG_BLUE_MASK = 11,
-    SVGA_REG_BYTES_PER_LINE = 12,
-    SVGA_REG_FB_START = 13,
-    SVGA_REG_FB_OFFSET = 14,
-    SVGA_REG_VRAM_SIZE = 15,
-    SVGA_REG_FB_SIZE = 16,
+enum {
+  SVGA_REG_ID = 0,
+  SVGA_REG_ENABLE = 1,
+  SVGA_REG_WIDTH = 2,
+  SVGA_REG_HEIGHT = 3,
+  SVGA_REG_MAX_WIDTH = 4,
+  SVGA_REG_MAX_HEIGHT = 5,
+  SVGA_REG_DEPTH = 6,
+  SVGA_REG_BITS_PER_PIXEL = 7, /* Current bpp in the guest */
+  SVGA_REG_PSEUDOCOLOR = 8,
+  SVGA_REG_RED_MASK = 9,
+  SVGA_REG_GREEN_MASK = 10,
+  SVGA_REG_BLUE_MASK = 11,
+  SVGA_REG_BYTES_PER_LINE = 12,
+  SVGA_REG_FB_START = 13,
+  SVGA_REG_FB_OFFSET = 14,
+  SVGA_REG_VRAM_SIZE = 15,
+  SVGA_REG_FB_SIZE = 16,
 
-    /* ID 0 implementation only had the above registers, then the palette */
+  /* ID 0 implementation only had the above registers, then the palette */
 
-    SVGA_REG_CAPABILITIES = 17,
-    SVGA_REG_MEM_START = 18, /* Memory for command FIFO and bitmaps */
-    SVGA_REG_MEM_SIZE = 19,
-    SVGA_REG_CONFIG_DONE = 20,         /* Set when memory area configured */
-    SVGA_REG_SYNC = 21,                /* Write to force synchronization */
-    SVGA_REG_BUSY = 22,                /* Read to check if sync is done */
-    SVGA_REG_GUEST_ID = 23,            /* Set guest OS identifier */
-    SVGA_REG_CURSOR_ID = 24,           /* ID of cursor */
-    SVGA_REG_CURSOR_X = 25,            /* Set cursor X position */
-    SVGA_REG_CURSOR_Y = 26,            /* Set cursor Y position */
-    SVGA_REG_CURSOR_ON = 27,           /* Turn cursor on/off */
-    SVGA_REG_HOST_BITS_PER_PIXEL = 28, /* Current bpp in the host */
-    SVGA_REG_SCRATCH_SIZE = 29,        /* Number of scratch registers */
-    SVGA_REG_MEM_REGS = 30,            /* Number of FIFO registers */
-    SVGA_REG_NUM_DISPLAYS = 31,        /* Number of guest displays */
-    SVGA_REG_PITCHLOCK = 32,           /* Fixed pitch for all modes */
-    SVGA_REG_TOP = 33, /* Must be 1 more than the last register */
+  SVGA_REG_CAPABILITIES = 17,
+  SVGA_REG_MEM_START = 18, /* Memory for command FIFO and bitmaps */
+  SVGA_REG_MEM_SIZE = 19,
+  SVGA_REG_CONFIG_DONE = 20,         /* Set when memory area configured */
+  SVGA_REG_SYNC = 21,                /* Write to force synchronization */
+  SVGA_REG_BUSY = 22,                /* Read to check if sync is done */
+  SVGA_REG_GUEST_ID = 23,            /* Set guest OS identifier */
+  SVGA_REG_CURSOR_ID = 24,           /* ID of cursor */
+  SVGA_REG_CURSOR_X = 25,            /* Set cursor X position */
+  SVGA_REG_CURSOR_Y = 26,            /* Set cursor Y position */
+  SVGA_REG_CURSOR_ON = 27,           /* Turn cursor on/off */
+  SVGA_REG_HOST_BITS_PER_PIXEL = 28, /* Current bpp in the host */
+  SVGA_REG_SCRATCH_SIZE = 29,        /* Number of scratch registers */
+  SVGA_REG_MEM_REGS = 30,            /* Number of FIFO registers */
+  SVGA_REG_NUM_DISPLAYS = 31,        /* Number of guest displays */
+  SVGA_REG_PITCHLOCK = 32,           /* Fixed pitch for all modes */
+  SVGA_REG_TOP = 33,                 /* Must be 1 more than the last register */
 
-    SVGA_PALETTE_BASE = 1024, /* Base of SVGA color map */
-    /* Next 768 (== 256*3) registers exist for colormap */
-    SVGA_SCRATCH_BASE = SVGA_PALETTE_BASE + SVGA_NUM_PALETTE_REGS
-    /* Base of scratch registers */
-    /* Next reg[SVGA_REG_SCRATCH_SIZE] registers exist for scratch usage:
-         First 4 are reserved for VESA BIOS Extension; any remaining are for
-         the use of the current SVGA driver. */
+  SVGA_PALETTE_BASE = 1024, /* Base of SVGA color map */
+  /* Next 768 (== 256*3) registers exist for colormap */
+  SVGA_SCRATCH_BASE = SVGA_PALETTE_BASE + SVGA_NUM_PALETTE_REGS
+  /* Base of scratch registers */
+  /* Next reg[SVGA_REG_SCRATCH_SIZE] registers exist for scratch usage:
+       First 4 are reserved for VESA BIOS Extension; any remaining are for
+       the use of the current SVGA driver. */
 };
 
 /*
@@ -270,33 +265,32 @@ enum
  *  FIFO offsets (viewed as an array of 32-bit words)
  */
 
-enum
-{
-    /*
-     * The original defined FIFO offsets
-     */
+enum {
+  /*
+   * The original defined FIFO offsets
+   */
 
-    SVGA_FIFO_MIN = 0,
-    SVGA_FIFO_MAX, /* The distance from MIN to MAX must be at least 10K */
-    SVGA_FIFO_NEXT_CMD,
-    SVGA_FIFO_STOP,
+  SVGA_FIFO_MIN = 0,
+  SVGA_FIFO_MAX, /* The distance from MIN to MAX must be at least 10K */
+  SVGA_FIFO_NEXT_CMD,
+  SVGA_FIFO_STOP,
 
-    /*
-     * Additional offsets added as of SVGA_CAP_EXTENDED_FIFO
-     */
+  /*
+   * Additional offsets added as of SVGA_CAP_EXTENDED_FIFO
+   */
 
-    SVGA_FIFO_CAPABILITIES = 4,
-    SVGA_FIFO_FLAGS,
-    SVGA_FIFO_FENCE,
-    SVGA_FIFO_3D_HWVERSION, /* Check SVGA3dHardwareVersion in svga3d_reg.h */
-    SVGA_FIFO_PITCHLOCK,
+  SVGA_FIFO_CAPABILITIES = 4,
+  SVGA_FIFO_FLAGS,
+  SVGA_FIFO_FENCE,
+  SVGA_FIFO_3D_HWVERSION, /* Check SVGA3dHardwareVersion in svga3d_reg.h */
+  SVGA_FIFO_PITCHLOCK,
 
-    /*
-     * Always keep this last.  It's not an offset with semantic value, but
-     * rather a convenient way to produce the value of fifo[SVGA_FIFO_NUM_REGS]
-     */
+  /*
+   * Always keep this last.  It's not an offset with semantic value, but
+   * rather a convenient way to produce the value of fifo[SVGA_FIFO_NUM_REGS]
+   */
 
-    SVGA_FIFO_NUM_REGS
+  SVGA_FIFO_NUM_REGS
 };
 
 /*
@@ -343,8 +337,7 @@ enum
  *  Increment from one scanline to the next of a bitmap or pixmap
  */
 #define SVGA_BITMAP_INCREMENT(w) ((((w) + 31) >> 5) * sizeof(uint32))
-#define SVGA_PIXMAP_INCREMENT(w, bpp) \
-    (((((w) * (bpp)) + 31) >> 5) * sizeof(uint32))
+#define SVGA_PIXMAP_INCREMENT(w, bpp) (((((w) * (bpp)) + 31) >> 5) * sizeof(uint32))
 
 /*
  *  Transparent color for DRAW_GLYPH_CLIPPED

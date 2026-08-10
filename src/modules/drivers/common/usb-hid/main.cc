@@ -17,34 +17,31 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/utilities/new"
+
 #include "UsbHumanInterfaceDevice.h"
 #include "modules/Module.h"
 #include "modules/system/usb/UsbDevice.h"
 #include "modules/system/usb/UsbPnP.h"
-#include "pedigree/kernel/utilities/new"
 
 static UsbPnP::Registration g_Registration;
 
-static UsbDevice *hidConnected(UsbDevice *pDevice)
-{
-    // We have to use VMware's second mouse interface, the first one is
-    // tablet-like
-    if (pDevice->getDescriptor()->nVendorId == 0x0e0f &&
-        !pDevice->getInterface()->nInterface)
-        return 0;
+static UsbDevice* hidConnected(UsbDevice* pDevice) {
+  // We have to use VMware's second mouse interface, the first one is
+  // tablet-like
+  if (pDevice->getDescriptor()->nVendorId == 0x0e0f && !pDevice->getInterface()->nInterface)
+    return 0;
 
-    return new UsbHumanInterfaceDevice(pDevice);
+  return new UsbHumanInterfaceDevice(pDevice);
 }
 
-static bool entry()
-{
-    return UsbPnP::instance().registerCallback(
-        3, SubclassNone, ProtocolNone, hidConnected, g_Registration);
+static bool entry() {
+  return UsbPnP::instance().registerCallback(3, SubclassNone, ProtocolNone, hidConnected,
+                                             g_Registration);
 }
 
-static void exit()
-{
-    g_Registration.reset();
+static void exit() {
+  g_Registration.reset();
 }
 
 MODULE_INFO("usb-hid", &entry, &exit, "hid", "usb");

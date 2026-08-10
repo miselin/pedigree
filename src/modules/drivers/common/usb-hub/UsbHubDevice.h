@@ -20,103 +20,90 @@
 #ifndef USBHUBDEVICE_H
 #define USBHUBDEVICE_H
 
-#include "modules/system/usb/Usb.h"
-#include "modules/system/usb/UsbConstants.h"
-#include "modules/system/usb/UsbDevice.h"
-#include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 
-class UsbHubDevice : public UsbDevice, public UsbHub
-{
-  public:
-    UsbHubDevice(UsbDevice *dev);
-    virtual ~UsbHubDevice();
+#include "modules/system/usb/Usb.h"
+#include "modules/system/usb/UsbConstants.h"
+#include "modules/system/usb/UsbDevice.h"
+#include "modules/system/usb/UsbHub.h"
 
-    virtual void initialiseDriver();
+class UsbHubDevice : public UsbDevice, public UsbHub {
+ public:
+  UsbHubDevice(UsbDevice* dev);
+  virtual ~UsbHubDevice();
 
-    virtual void getName(String &str)
-    {
-        str.assign("USB Hub Device", 15);
-    }
+  virtual void initialiseDriver();
 
-    virtual void addTransferToTransaction(
-        uintptr_t pTransaction, bool bToggle, UsbPid pid, uintptr_t pBuffer,
-        size_t nBytes);
-    virtual uintptr_t createTransaction(UsbEndpoint endpointInfo);
-    MUST_USE_RESULT virtual bool doAsync(
-        uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t) = 0,
-        uintptr_t pParam = 0);
-    virtual void addInterruptInHandler(
-        UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
-        void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
+  virtual void getName(String& str) {
+    str.assign("USB Hub Device", 15);
+  }
 
-    virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
+  virtual void addTransferToTransaction(uintptr_t pTransaction, bool bToggle, UsbPid pid,
+                                        uintptr_t pBuffer, size_t nBytes);
+  virtual uintptr_t createTransaction(UsbEndpoint endpointInfo);
+  MUST_USE_RESULT virtual bool doAsync(uintptr_t pTransaction,
+                                       void (*pCallback)(uintptr_t, ssize_t) = 0,
+                                       uintptr_t pParam = 0);
+  virtual void addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
+                                     void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
 
-  protected:
-    virtual void cancelAsyncAndDrain(
-        uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
-        uintptr_t pParam);
+  virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
 
-  private:
-    enum HubFeatureSelectors
-    {
-        HubLocalPower = 0,
-        HubOverCurrent = 1,
-    };
+ protected:
+  virtual void cancelAsyncAndDrain(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
+                                   uintptr_t pParam);
 
-    enum PortFeatureSelectors
-    {
-        PortConnection = 0,
-        PortEnable = 1,
-        PortSuspend = 2,
-        PortOverCurrent = 3,
-        PortReset = 4,
-        PortPower = 8,
-        PortLowSpeed = 9,
-        CPortConnection = 16,
-        CPortEnable = 17,
-        CPortSuspend = 18,
-        CPortOverCurrent = 19,
-        CPortReset = 20,
-        PortTest = 21,
-        PortIndicator = 22,
-    };
+ private:
+  enum HubFeatureSelectors {
+    HubLocalPower = 0,
+    HubOverCurrent = 1,
+  };
 
-    enum HubRequests
-    {
-        HubPortRequest = UsbRequestType::Class | UsbRequestRecipient::Other
-    };
+  enum PortFeatureSelectors {
+    PortConnection = 0,
+    PortEnable = 1,
+    PortSuspend = 2,
+    PortOverCurrent = 3,
+    PortReset = 4,
+    PortPower = 8,
+    PortLowSpeed = 9,
+    CPortConnection = 16,
+    CPortEnable = 17,
+    CPortSuspend = 18,
+    CPortOverCurrent = 19,
+    CPortReset = 20,
+    PortTest = 21,
+    PortIndicator = 22,
+  };
 
-    bool setPortFeature(size_t port, PortFeatureSelectors feature);
-    bool clearPortFeature(size_t port, PortFeatureSelectors feature);
+  enum HubRequests { HubPortRequest = UsbRequestType::Class | UsbRequestRecipient::Other };
 
-    /// Top 16 bits of status hold the port-change flags.
-    bool getPortStatus(size_t port, uint32_t &status);
+  bool setPortFeature(size_t port, PortFeatureSelectors feature);
+  bool clearPortFeature(size_t port, PortFeatureSelectors feature);
 
-    struct HubDescriptor
-    {
-        inline HubDescriptor(void *pBuffer)
-            : pDescriptor(static_cast<Descriptor *>(pBuffer)),
-              nPorts(pDescriptor->nPorts),
-              hubCharacteristics(pDescriptor->hubCharacteristics)
-        {
-        }
+  /// Top 16 bits of status hold the port-change flags.
+  bool getPortStatus(size_t port, uint32_t& status);
 
-        struct Descriptor
-        {
-            uint8_t nLength;
-            uint8_t nType;
-            uint8_t nPorts;
-            uint16_t hubCharacteristics;
-        } PACKED *pDescriptor;
+  struct HubDescriptor {
+    inline HubDescriptor(void* pBuffer)
+        : pDescriptor(static_cast<Descriptor*>(pBuffer)),
+          nPorts(pDescriptor->nPorts),
+          hubCharacteristics(pDescriptor->hubCharacteristics) {}
 
-        uint8_t nPorts;
-        uint16_t hubCharacteristics;
-    };
+    struct Descriptor {
+      uint8_t nLength;
+      uint8_t nType;
+      uint8_t nPorts;
+      uint16_t hubCharacteristics;
+    } PACKED* pDescriptor;
 
-    size_t m_nPorts;
+    uint8_t nPorts;
+    uint16_t hubCharacteristics;
+  };
+
+  size_t m_nPorts;
 };
 
 #endif

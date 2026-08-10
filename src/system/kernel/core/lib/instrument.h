@@ -36,17 +36,15 @@
  * InstrumentationRecord is the full-size, full-featured instrumentation type.
  * It provides information about callers and allows for flexibility via flags.
  */
-typedef union
-{
-    struct
-    {
-        uint8_t flags;
-        uintptr_t function;
-        uintptr_t caller;
-        uint16_t magic;
-    } data;
+typedef union {
+  struct {
+    uint8_t flags;
+    uintptr_t function;
+    uintptr_t caller;
+    uint16_t magic;
+  } data;
 
-    uint8_t buffer[sizeof(data)];
+  uint8_t buffer[sizeof(data)];
 } InstrumentationRecord;
 
 /**
@@ -57,23 +55,21 @@ typedef union
  * This is done at the cost of flexibility (because there's no flags), and at
  * the cost of integrity (because there's no magic number for verification).
  */
-typedef union
-{
-    struct
-    {
-        /**
-         * The kernel is always going to have 32 one bits as the first part of
-         * the code addresses it works with, including module code. So, we can
-         * write even less data (improving performance) for lite records by
-         * simply writing the lower 32 bits of the address.
-         */
-        uint32_t function;
-    } data;
+typedef union {
+  struct {
+    /**
+     * The kernel is always going to have 32 one bits as the first part of
+     * the code addresses it works with, including module code. So, we can
+     * write even less data (improving performance) for lite records by
+     * simply writing the lower 32 bits of the address.
+     */
+    uint32_t function;
+  } data;
 
-    uint8_t buffer[sizeof(data)];
+  uint8_t buffer[sizeof(data)];
 
-    /// For SFINAE expansion in data processing.
-    typedef uintptr_t lite;
+  /// For SFINAE expansion in data processing.
+  typedef uintptr_t lite;
 } LiteInstrumentationRecord;
 
 #endif  // KERNEL_INSTRUMENT_H

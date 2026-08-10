@@ -19,16 +19,14 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include <memory>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-#include <memory>
-
-#include <benchmark/benchmark.h>
-
 #include "modules/system/ramfs/RamFs.h"
 #include "modules/system/vfs/VFS.h"
+#include <benchmark/benchmark.h>
 
 static String g_DeepPath("/foo/foo/foo/foo");
 static String g_ShallowPath("/");
@@ -810,149 +808,130 @@ static String paths[] = {
     String("/baz/baz/baz/baz/baz"),
 };
 
-static const String &randomPath()
-{
-    return paths[rand() % (sizeof(paths) / sizeof(paths[0]))];
+static const String& randomPath() {
+  return paths[rand() % (sizeof(paths) / sizeof(paths[0]))];
 }
 
-static std::unique_ptr<RamFs> prepareVFS(VFS &vfs)
-{
-    srand(time(0));
+static std::unique_ptr<RamFs> prepareVFS(VFS& vfs) {
+  srand(time(0));
 
-    std::unique_ptr<RamFs> ramfs = std::make_unique<RamFs>();
-    ramfs->initialise(nullptr);
+  std::unique_ptr<RamFs> ramfs = std::make_unique<RamFs>();
+  ramfs->initialise(nullptr);
 
-    vfs.registerFilesystem(ramfs.get(), String("ramfs"));
-    vfs.setRootFilesystem(ramfs.get());
+  vfs.registerFilesystem(ramfs.get(), String("ramfs"));
+  vfs.setRootFilesystem(ramfs.get());
 
-    // Add a bunch of directories for lookups
-    for (auto &p : paths)
-    {
-        vfs.createDirectory(p, 0777);
-    }
+  // Add a bunch of directories for lookups
+  for (auto& p : paths) {
+    vfs.createDirectory(p, 0777);
+  }
 
-    return ramfs;
+  return ramfs;
 }
 
-static void BM_VFSShallowDirectoryTraverse(benchmark::State &state)
-{
-    VFS vfs;
-    auto ramfs = prepareVFS(vfs);
+static void BM_VFSShallowDirectoryTraverse(benchmark::State& state) {
+  VFS vfs;
+  auto ramfs = prepareVFS(vfs);
 
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(vfs.find(g_ShallowPath));
-    }
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(vfs.find(g_ShallowPath));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 
-    vfs.unregisterFilesystem(ramfs.get(), false);
+  vfs.unregisterFilesystem(ramfs.get(), false);
 }
 
-static void BM_VFSMediumDirectoryTraverse(benchmark::State &state)
-{
-    VFS vfs;
-    auto ramfs = prepareVFS(vfs);
+static void BM_VFSMediumDirectoryTraverse(benchmark::State& state) {
+  VFS vfs;
+  auto ramfs = prepareVFS(vfs);
 
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(vfs.find(g_MiddlePath));
-    }
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(vfs.find(g_MiddlePath));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 
-    vfs.unregisterFilesystem(ramfs.get(), false);
+  vfs.unregisterFilesystem(ramfs.get(), false);
 }
 
-static void BM_VFSDeepDirectoryTraverse(benchmark::State &state)
-{
-    VFS vfs;
-    auto ramfs = prepareVFS(vfs);
+static void BM_VFSDeepDirectoryTraverse(benchmark::State& state) {
+  VFS vfs;
+  auto ramfs = prepareVFS(vfs);
 
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(vfs.find(g_DeepPath));
-    }
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(vfs.find(g_DeepPath));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 
-    vfs.unregisterFilesystem(ramfs.get(), false);
+  vfs.unregisterFilesystem(ramfs.get(), false);
 }
 
-static void BM_VFSRandomDirectoryTraverse(benchmark::State &state)
-{
-    VFS vfs;
-    auto ramfs = prepareVFS(vfs);
+static void BM_VFSRandomDirectoryTraverse(benchmark::State& state) {
+  VFS vfs;
+  auto ramfs = prepareVFS(vfs);
 
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(vfs.find(randomPath()));
-    }
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(vfs.find(randomPath()));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 
-    vfs.unregisterFilesystem(ramfs.get(), false);
+  vfs.unregisterFilesystem(ramfs.get(), false);
 }
 
-static void BM_VFSShallowDirectoryTraverseNoFs(benchmark::State &state)
-{
-    VFS vfs;
-    auto ramfs = prepareVFS(vfs);
+static void BM_VFSShallowDirectoryTraverseNoFs(benchmark::State& state) {
+  VFS vfs;
+  auto ramfs = prepareVFS(vfs);
 
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(vfs.find(g_ShallowPathNoFs, ramfs->getRoot()));
-    }
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(vfs.find(g_ShallowPathNoFs, ramfs->getRoot()));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 
-    vfs.unregisterFilesystem(ramfs.get(), false);
+  vfs.unregisterFilesystem(ramfs.get(), false);
 }
 
-static void BM_VFSMediumDirectoryTraverseNoFs(benchmark::State &state)
-{
-    VFS vfs;
-    auto ramfs = prepareVFS(vfs);
+static void BM_VFSMediumDirectoryTraverseNoFs(benchmark::State& state) {
+  VFS vfs;
+  auto ramfs = prepareVFS(vfs);
 
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(vfs.find(g_MiddlePathNoFs, ramfs->getRoot()));
-    }
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(vfs.find(g_MiddlePathNoFs, ramfs->getRoot()));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 
-    vfs.unregisterFilesystem(ramfs.get(), false);
+  vfs.unregisterFilesystem(ramfs.get(), false);
 }
 
-static void BM_VFSDeepDirectoryTraverseNoFs(benchmark::State &state)
-{
-    VFS vfs;
-    auto ramfs = prepareVFS(vfs);
+static void BM_VFSDeepDirectoryTraverseNoFs(benchmark::State& state) {
+  VFS vfs;
+  auto ramfs = prepareVFS(vfs);
 
-    while (state.KeepRunning())
-    {
-        benchmark::DoNotOptimize(vfs.find(g_DeepPathNoFs, ramfs->getRoot()));
-    }
+  while (state.KeepRunning()) {
+    benchmark::DoNotOptimize(vfs.find(g_DeepPathNoFs, ramfs->getRoot()));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 
-    vfs.unregisterFilesystem(ramfs.get(), false);
+  vfs.unregisterFilesystem(ramfs.get(), false);
 }
 
-static void BM_VFSRandomDirectoryTraverseNoFs(benchmark::State &state)
-{
-    VFS vfs;
-    auto ramfs = prepareVFS(vfs);
+static void BM_VFSRandomDirectoryTraverseNoFs(benchmark::State& state) {
+  VFS vfs;
+  auto ramfs = prepareVFS(vfs);
 
-    while (state.KeepRunning())
-    {
-        /// \todo VFS::find() should be able to accept a StringView
-        benchmark::DoNotOptimize(vfs.find(randomPath(), ramfs->getRoot()));
-    }
+  while (state.KeepRunning()) {
+    /// \todo VFS::find() should be able to accept a StringView
+    benchmark::DoNotOptimize(vfs.find(randomPath(), ramfs->getRoot()));
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 
-    vfs.unregisterFilesystem(ramfs.get(), false);
+  vfs.unregisterFilesystem(ramfs.get(), false);
 }
 
 BENCHMARK(BM_VFSDeepDirectoryTraverse);

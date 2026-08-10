@@ -38,32 +38,31 @@
  * remains visible to the outer operation, but cannot make a caller retry and
  * accidentally lose the interruption or bypass lock ownership.
  */
-class EXPORTED_PUBLIC UnlikelyLock
-{
-  public:
-    UnlikelyLock();
-    ~UnlikelyLock();
+class EXPORTED_PUBLIC UnlikelyLock {
+ public:
+  UnlikelyLock();
+  ~UnlikelyLock();
 
-    /** Enters the critical section after all active writers have left. */
-    void enter();
+  /** Enters the critical section after all active writers have left. */
+  void enter();
 
-    /** Leaving the critical section. */
-    void leave();
+  /** Leaving the critical section. */
+  void leave();
 
-    /** Locks the lock. Will not return until all other threads have exited
-        the critical region. */
-    void acquire();
+  /** Locks the lock. Will not return until all other threads have exited
+      the critical region. */
+  void acquire();
 
-    /** Releases the lock. */
-    void release();
+  /** Releases the lock. */
+  void release();
 
-  private:
-    Mutex m_Lock;
-    ConditionVariable m_Condition;
+ private:
+  Mutex m_Lock;
+  ConditionVariable m_Condition;
 
-    uint64_t m_nReaders;
-    uint64_t m_nWaitingWriters;
-    bool m_bActiveWriter;
+  uint64_t m_nReaders;
+  uint64_t m_nWaitingWriters;
+  bool m_bActiveWriter;
 };
 
 #endif

@@ -22,25 +22,22 @@ class Thread;
  * stack, so the handler slot cannot retain an admission whose destructor will
  * never run.
  */
-class EXPORTED_PUBLIC SchedulerTimerDispatchCleanup
-{
-  public:
-    explicit SchedulerTimerDispatchCleanup(
-        SchedulerTimerHandlerSlot::DispatchGuard &dispatch);
-    ~SchedulerTimerDispatchCleanup();
+class EXPORTED_PUBLIC SchedulerTimerDispatchCleanup {
+ public:
+  explicit SchedulerTimerDispatchCleanup(SchedulerTimerHandlerSlot::DispatchGuard& dispatch);
+  ~SchedulerTimerDispatchCleanup();
 
-  private:
-    SchedulerTimerDispatchCleanup(const SchedulerTimerDispatchCleanup &);
-    SchedulerTimerDispatchCleanup &operator=(
-        const SchedulerTimerDispatchCleanup &);
+ private:
+  SchedulerTimerDispatchCleanup(const SchedulerTimerDispatchCleanup&);
+  SchedulerTimerDispatchCleanup& operator=(const SchedulerTimerDispatchCleanup&);
 
-    static void abandon(void *context);
-    void release();
+  static void abandon(void* context);
+  void release();
 
-    SchedulerTimerHandlerSlot::DispatchGuard &m_Dispatch;
-    Thread *m_Thread;
-    AtomicStateCleanupRecord m_Cleanup;
-    bool m_Active;
+  SchedulerTimerHandlerSlot::DispatchGuard& m_Dispatch;
+  Thread* m_Thread;
+  AtomicStateCleanupRecord m_Cleanup;
+  bool m_Active;
 };
 
 #endif

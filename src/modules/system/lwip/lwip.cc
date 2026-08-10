@@ -17,10 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/Module.h"
-
 #include "pedigree/kernel/process/Completion.h"
 
+#include "modules/Module.h"
 #include "modules/system/lwip/include/lwip/init.h"
 #include "modules/system/lwip/include/lwip/tcpip.h"
 
@@ -29,28 +28,24 @@
 
 static Completion tcpipInitPending;
 
-static void tcpipInitComplete(void *)
-{
-    tcpipInitPending.complete();
+static void tcpipInitComplete(void*) {
+  tcpipInitPending.complete();
 }
 
-static bool entry()
-{
-    // make sure the multi threaded lwIP implementation is ready to go
-    /// \todo check if tcpip_init fails somehow
-    tcpip_init(tcpipInitComplete, nullptr);
+static bool entry() {
+  // make sure the multi threaded lwIP implementation is ready to go
+  /// \todo check if tcpip_init fails somehow
+  tcpip_init(tcpipInitComplete, nullptr);
 
-    if (!tcpipInitPending.wait())
-    {
-        return false;
-    }
+  if (!tcpipInitPending.wait()) {
+    return false;
+  }
 
-    return true;
+  return true;
 }
 
-static void exit()
-{
-    /// \todo can we shut down lwip cleanly here?
+static void exit() {
+  /// \todo can we shut down lwip cleanly here?
 }
 
 MODULE_INFO("lwip", &entry, &exit);

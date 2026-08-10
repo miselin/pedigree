@@ -18,14 +18,14 @@
  */
 
 #include <errno.h>
+#include <list>
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/klog.h>
-#include <sys/time.h>
 #include <unistd.h>
 
-#include <list>
+#include <sys/klog.h>
+#include <sys/time.h>
 
 #define LOOPS 1024  // 10000000
 
@@ -44,132 +44,125 @@ pthread_spinlock_t spinlock;
 pthread_mutex_t mutex;
 #endif
 
-void *consumer(void *ptr)
-{
-    int i;
+void* consumer(void* ptr) {
+  int i;
 
-    printf("Consumer TID %lu\n", (unsigned long) ptr);
+  printf("Consumer TID %lu\n", (unsigned long)ptr);
 
-    while (1)
-    {
+  while (1) {
 #ifdef USE_SPINLOCK
-        pthread_spin_lock(&spinlock);
+    pthread_spin_lock(&spinlock);
 #else
-        pthread_mutex_lock(&mutex);
+    pthread_mutex_lock(&mutex);
 #endif
 
-        if (the_list.empty())
-        {
+    if (the_list.empty()) {
 #ifdef USE_SPINLOCK
-            pthread_spin_unlock(&spinlock);
+      pthread_spin_unlock(&spinlock);
 #else
-            pthread_mutex_unlock(&mutex);
+      pthread_mutex_unlock(&mutex);
 #endif
-            break;
-        }
-
-        i = the_list.front();
-        the_list.pop_front();
-
-#ifdef USE_SPINLOCK
-        pthread_spin_unlock(&spinlock);
-#else
-        pthread_mutex_unlock(&mutex);
-#endif
+      break;
     }
 
-    return NULL;
+    i = the_list.front();
+    the_list.pop_front();
+
+#ifdef USE_SPINLOCK
+    pthread_spin_unlock(&spinlock);
+#else
+    pthread_mutex_unlock(&mutex);
+#endif
+  }
+
+  return NULL;
 }
 
-int main()
-{
-    int i;
-    pthread_t thr1, thr2;
-    struct timeval tv1, tv2;
+int main() {
+  int i;
+  pthread_t thr1, thr2;
+  struct timeval tv1, tv2;
 
 #ifdef USE_SPINLOCK
-    pthread_spin_init(&spinlock, 0);
+  pthread_spin_init(&spinlock, 0);
 #else
-    pthread_mutex_init(&mutex, NULL);
+  pthread_mutex_init(&mutex, NULL);
 #endif
 
-    // syslog used to split up debug logs.
-    klog(LOG_INFO, "TEST 0");
+  // syslog used to split up debug logs.
+  klog(LOG_INFO, "TEST 0");
 
-    printf("Locking without any contention...\n");
-    pthread_mutex_t contention_mutex;
-    pthread_mutex_init(&contention_mutex, 0);
-    pthread_mutex_lock(&contention_mutex);
-    printf("Acquired\n");
-    pthread_mutex_unlock(&contention_mutex);
-    printf("Released!\n");
+  printf("Locking without any contention...\n");
+  pthread_mutex_t contention_mutex;
+  pthread_mutex_init(&contention_mutex, 0);
+  pthread_mutex_lock(&contention_mutex);
+  printf("Acquired\n");
+  pthread_mutex_unlock(&contention_mutex);
+  printf("Released!\n");
 
-    klog(LOG_INFO, "TEST 1");
+  klog(LOG_INFO, "TEST 1");
 
-    printf("Creating a recursive lock!\n");
-    pthread_mutex_t recursive;
-    pthread_mutexattr_t attr;
-    pthread_mutexattr_init(&attr);
-    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&recursive, &attr);
-    printf("Testing recursion...\n");
-    pthread_mutex_lock(&recursive);
-    pthread_mutex_lock(&recursive);
-    pthread_mutex_lock(&recursive);
-    printf("Locked OK, testing unlock...\n");
-    pthread_mutex_unlock(&recursive);
-    pthread_mutex_unlock(&recursive);
-    pthread_mutex_unlock(&recursive);
-    printf("Testing re-acquire...\n");
-    pthread_mutex_lock(&recursive);
-    printf("OK!\n");
+  printf("Creating a recursive lock!\n");
+  pthread_mutex_t recursive;
+  pthread_mutexattr_t attr;
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init(&recursive, &attr);
+  printf("Testing recursion...\n");
+  pthread_mutex_lock(&recursive);
+  pthread_mutex_lock(&recursive);
+  pthread_mutex_lock(&recursive);
+  printf("Locked OK, testing unlock...\n");
+  pthread_mutex_unlock(&recursive);
+  pthread_mutex_unlock(&recursive);
+  pthread_mutex_unlock(&recursive);
+  printf("Testing re-acquire...\n");
+  pthread_mutex_lock(&recursive);
+  printf("OK!\n");
 
-    klog(LOG_INFO, "TEST 2");
-    printf("Locking with deadlock\n");
-    pthread_mutex_t deadlock_mutex;
-    errno = 0;
-    pthread_mutex_init(&deadlock_mutex, 0);
-    i = pthread_mutex_lock(&deadlock_mutex);
-    printf("First lock: %d (%s)\n", i, strerror(errno));
-    i = pthread_mutex_lock(&deadlock_mutex);
-    if (errno != EDEADLK)
-        printf("Didn't get EDEADLK!\n");
-    printf("Second lock: %d (%s)\n", i, strerror(errno));
-    pthread_mutex_unlock(&deadlock_mutex);
+  klog(LOG_INFO, "TEST 2");
+  printf("Locking with deadlock\n");
+  pthread_mutex_t deadlock_mutex;
+  errno = 0;
+  pthread_mutex_init(&deadlock_mutex, 0);
+  i = pthread_mutex_lock(&deadlock_mutex);
+  printf("First lock: %d (%s)\n", i, strerror(errno));
+  i = pthread_mutex_lock(&deadlock_mutex);
+  if (errno != EDEADLK)
+    printf("Didn't get EDEADLK!\n");
+  printf("Second lock: %d (%s)\n", i, strerror(errno));
+  pthread_mutex_unlock(&deadlock_mutex);
 
-    // Creating the list content...
-    for (i = 0; i < LOOPS; i++)
-        the_list.push_back(i);
+  // Creating the list content...
+  for (i = 0; i < LOOPS; i++)
+    the_list.push_back(i);
 
-    // Measuring time before starting the threads...
-    gettimeofday(&tv1, NULL);
+  // Measuring time before starting the threads...
+  gettimeofday(&tv1, NULL);
 
-    klog(LOG_INFO, "TEST 3");
-    pthread_create(&thr1, NULL, consumer, (void *) 1);
-    pthread_create(&thr2, NULL, consumer, (void *) 2);
+  klog(LOG_INFO, "TEST 3");
+  pthread_create(&thr1, NULL, consumer, (void*)1);
+  pthread_create(&thr2, NULL, consumer, (void*)2);
 
-    pthread_join(thr1, NULL);
-    pthread_join(thr2, NULL);
-    klog(LOG_INFO, "TEST 4");
+  pthread_join(thr1, NULL);
+  pthread_join(thr2, NULL);
+  klog(LOG_INFO, "TEST 4");
 
-    // Measuring time after threads finished...
-    gettimeofday(&tv2, NULL);
+  // Measuring time after threads finished...
+  gettimeofday(&tv2, NULL);
 
-    if (tv1.tv_usec > tv2.tv_usec)
-    {
-        tv2.tv_sec--;
-        tv2.tv_usec += 1000000;
-    }
+  if (tv1.tv_usec > tv2.tv_usec) {
+    tv2.tv_sec--;
+    tv2.tv_usec += 1000000;
+  }
 
-    printf(
-        "Result - %ld.%ld\n", tv2.tv_sec - tv1.tv_sec,
-        tv2.tv_usec - tv1.tv_usec);
+  printf("Result - %ld.%ld\n", tv2.tv_sec - tv1.tv_sec, tv2.tv_usec - tv1.tv_usec);
 
 #ifdef USE_SPINLOCK
-    pthread_spin_destroy(&spinlock);
+  pthread_spin_destroy(&spinlock);
 #else
-    pthread_mutex_destroy(&mutex);
+  pthread_mutex_destroy(&mutex);
 #endif
 
-    return 0;
+  return 0;
 }

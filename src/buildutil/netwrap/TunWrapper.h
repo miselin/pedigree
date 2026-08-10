@@ -24,48 +24,46 @@
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
 
-class TunWrapper : public Network
-{
-  public:
-    TunWrapper();
-    TunWrapper(Network *pDev);
-    virtual ~TunWrapper();
+class TunWrapper : public Network {
+ public:
+  TunWrapper();
+  TunWrapper(Network* pDev);
+  virtual ~TunWrapper();
 
-    virtual Type getType();
-    virtual void getName(String &str);
-    virtual void dump(String &str);
+  virtual Type getType();
+  virtual void getName(String& str);
+  virtual void dump(String& str);
 
-    /** Sends a given packet through the device.
-     * \param nBytes The number of bytes to send.
-     * \param buffer A buffer with the packet to send */
-    virtual bool send(size_t nBytes, uintptr_t buffer);
+  /** Sends a given packet through the device.
+   * \param nBytes The number of bytes to send.
+   * \param buffer A buffer with the packet to send */
+  virtual bool send(size_t nBytes, uintptr_t buffer);
 
-    /** Sets station information (such as IP addresses)
-     * \param info The information to set as the station info */
-    virtual bool setStationInfo(StationInfo info);
+  /** Sets station information (such as IP addresses)
+   * \param info The information to set as the station info */
+  virtual bool setStationInfo(StationInfo info);
 
-    /** Gets station information (such as IP addresses) */
-    virtual StationInfo getStationInfo();
+  /** Gets station information (such as IP addresses) */
+  virtual StationInfo getStationInfo();
 
-    /** Runs the wrapper's main loop with the given descriptor. */
-    void run(int fd);
+  /** Runs the wrapper's main loop with the given descriptor. */
+  void run(int fd);
 
-  protected:
-    static int packetPusherThread(void *param);
-    void packetPusher();
+ protected:
+  static int packetPusherThread(void* param);
+  void packetPusher();
 
-    int m_Fd;
-    StationInfo m_StationInfo;
+  int m_Fd;
+  StationInfo m_StationInfo;
 
-    struct packet
-    {
-        size_t bytes;
-        char buffer[4096];
-    };
+  struct packet {
+    size_t bytes;
+    char buffer[4096];
+  };
 
-    List<packet *> m_Packets;
-    Mutex lock;
-    ConditionVariable cond;
+  List<packet*> m_Packets;
+  Mutex lock;
+  ConditionVariable cond;
 };
 
 #endif  // TUNWRAPPER_H

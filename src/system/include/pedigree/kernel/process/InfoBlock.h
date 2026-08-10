@@ -26,25 +26,24 @@
 
 #endif
 
-struct InfoBlock
-{
-    /// Current timestamp in nanoseconds since the UNIX epoch.
-    uint64_t now;
+struct InfoBlock {
+  /// Current timestamp in nanoseconds since the UNIX epoch.
+  uint64_t now;
 
-    /// Current timestamp in seconds since the UNIX epoch.
-    uint64_t now_s;
+  /// Current timestamp in seconds since the UNIX epoch.
+  uint64_t now_s;
 
-    /// Current process' ID.
-    size_t pid;
+  /// Current process' ID.
+  size_t pid;
 
-    /// uname fields.
-    char sysname[64];
-    char release[64];
-    char version[64];
-    char machine[64];
+  /// uname fields.
+  char sysname[64];
+  char release[64];
+  char version[64];
+  char machine[64];
 
-    /// Monotonic tick count in nanoseconds.
-    uint64_t monotonic;
+  /// Monotonic tick count in nanoseconds.
+  uint64_t monotonic;
 };
 
 #ifdef __cplusplus
@@ -53,27 +52,26 @@ struct InfoBlock
 
 class Timer;
 
-class InfoBlockManager : public TimerHandler
-{
-  public:
-    InfoBlockManager();
-    virtual ~InfoBlockManager();
+class InfoBlockManager : public TimerHandler {
+ public:
+  InfoBlockManager();
+  virtual ~InfoBlockManager();
 
-    static InfoBlockManager &instance();
+  static InfoBlockManager& instance();
 
-    bool initialise();
+  bool initialise();
 
-    virtual void timer(uint64_t delta);
+  virtual void timer(uint64_t delta);
 
-    void setPid(size_t value);
+  void setPid(size_t value);
 
-  private:
-    static InfoBlockManager m_Instance;
+ private:
+  static InfoBlockManager m_Instance;
 
-    bool m_bInitialised;
-    Timer *m_pTimer;
+  bool m_bInitialised;
+  Timer* m_pTimer;
 
-    struct InfoBlock *m_pInfoBlock;
+  struct InfoBlock* m_pInfoBlock;
 };
 
 #endif

@@ -20,27 +20,21 @@
 #ifndef POSIX_LINUX_AMD64_SIGNAL_H
 #define POSIX_LINUX_AMD64_SIGNAL_H
 
-#include "PosixSubsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/state_forward.h"
 
-namespace LinuxAmd64Signal
-{
-enum DeliveryResult
-{
-    NotApplicable,
-    Delivered,
-    Failed
-};
+#include "PosixSubsystem.h"
+
+namespace LinuxAmd64Signal {
+enum DeliveryResult { NotApplicable, Delivered, Failed };
 
 #if X64
-DeliveryResult deliverSynchronous(
-    Thread *thread, int signal,
-    const PosixSubsystem::SignalDisposition &disposition,
-    Subsystem::ExceptionType exception, InterruptState &state,
-    uintptr_t faultAddress, uintptr_t errorCode);
+DeliveryResult deliverSynchronous(Thread* thread, int signal,
+                                  const PosixSubsystem::SignalDisposition& disposition,
+                                  Subsystem::ExceptionType exception, InterruptState& state,
+                                  uintptr_t faultAddress, uintptr_t errorCode);
 
-void sigreturn(SyscallState &state);
+void sigreturn(SyscallState& state);
 #endif
 }  // namespace LinuxAmd64Signal
 

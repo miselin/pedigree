@@ -19,391 +19,355 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/utilities/List.h"
 
-struct Foo
-{
-    Foo() : x(-1)
-    {
-    }
+#include <gtest/gtest.h>
 
-    // Must use explicit here to avoid the implicit conversion.
-    explicit Foo(int x) : x(x)
-    {
-    }
+struct Foo {
+  Foo() : x(-1) {}
 
-    int x;
+  // Must use explicit here to avoid the implicit conversion.
+  explicit Foo(int x) : x(x) {}
+
+  int x;
 };
 
-TEST(PedigreeList, Construction)
-{
-    List<int> x;
-    EXPECT_EQ(x.size(), 0U);
-    EXPECT_EQ(x.count(), 0U);
-    EXPECT_EQ(x.begin(), x.end());
+TEST(PedigreeList, Construction) {
+  List<int> x;
+  EXPECT_EQ(x.size(), 0U);
+  EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(x.begin(), x.end());
 }
 
-TEST(PedigreeList, Assignment)
-{
-    List<int> x;
-    x.pushBack(1);
+TEST(PedigreeList, Assignment) {
+  List<int> x;
+  x.pushBack(1);
 
-    List<int> y(x);
-    EXPECT_EQ(x.size(), y.size());
-    EXPECT_EQ(x.count(), y.count());
-    EXPECT_EQ(x.popFront(), y.popFront());
+  List<int> y(x);
+  EXPECT_EQ(x.size(), y.size());
+  EXPECT_EQ(x.count(), y.count());
+  EXPECT_EQ(x.popFront(), y.popFront());
 }
 
-TEST(PedigreeList, SelfAssignmentPreservesItems)
-{
-    List<int> x;
-    x.pushBack(1);
-    x.pushBack(2);
+TEST(PedigreeList, SelfAssignmentPreservesItems) {
+  List<int> x;
+  x.pushBack(1);
+  x.pushBack(2);
 
-    const List<int> &same = x;
-    x = same;
-    ASSERT_EQ(x.count(), 2U);
-    EXPECT_EQ(x.popFront(), 1);
-    EXPECT_EQ(x.popFront(), 2);
+  const List<int>& same = x;
+  x = same;
+  ASSERT_EQ(x.count(), 2U);
+  EXPECT_EQ(x.popFront(), 1);
+  EXPECT_EQ(x.popFront(), 2);
 }
 
-TEST(PedigreeList, AddItems)
-{
-    List<int> x;
-    x.pushBack(1);
-    x.pushBack(5);
-    x.pushBack(10);
-    EXPECT_EQ(x.size(), 3U);
-    EXPECT_EQ(x.count(), 3U);
-    auto it = x.begin();
-    EXPECT_EQ(*it, 1);
-    ++it;
-    EXPECT_EQ(*it, 5);
-    ++it;
-    EXPECT_EQ(*it, 10);
+TEST(PedigreeList, AddItems) {
+  List<int> x;
+  x.pushBack(1);
+  x.pushBack(5);
+  x.pushBack(10);
+  EXPECT_EQ(x.size(), 3U);
+  EXPECT_EQ(x.count(), 3U);
+  auto it = x.begin();
+  EXPECT_EQ(*it, 1);
+  ++it;
+  EXPECT_EQ(*it, 5);
+  ++it;
+  EXPECT_EQ(*it, 10);
 }
 
-TEST(PedigreeList, AddRemoveItems)
-{
-    List<int> x;
-    x.pushBack(1);
-    x.pushBack(5);
-    x.pushBack(10);
+TEST(PedigreeList, AddRemoveItems) {
+  List<int> x;
+  x.pushBack(1);
+  x.pushBack(5);
+  x.pushBack(10);
 
-    EXPECT_EQ(x.popFront(), 1);
-    EXPECT_EQ(x.popFront(), 5);
-    EXPECT_EQ(x.popFront(), 10);
-    EXPECT_EQ(x.popFront(), 0);
-    EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(x.popFront(), 1);
+  EXPECT_EQ(x.popFront(), 5);
+  EXPECT_EQ(x.popFront(), 10);
+  EXPECT_EQ(x.popFront(), 0);
+  EXPECT_EQ(x.count(), 0U);
 }
 
-TEST(PedigreeList, AddRemoveItemsReverse)
-{
-    List<int> x;
-    x.pushFront(1);
-    x.pushFront(5);
-    x.pushFront(10);
+TEST(PedigreeList, AddRemoveItemsReverse) {
+  List<int> x;
+  x.pushFront(1);
+  x.pushFront(5);
+  x.pushFront(10);
 
-    EXPECT_EQ(x.popFront(), 10);
-    EXPECT_EQ(x.popFront(), 5);
-    EXPECT_EQ(x.popFront(), 1);
-    EXPECT_EQ(x.popFront(), 0);
-    EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(x.popFront(), 10);
+  EXPECT_EQ(x.popFront(), 5);
+  EXPECT_EQ(x.popFront(), 1);
+  EXPECT_EQ(x.popFront(), 0);
+  EXPECT_EQ(x.count(), 0U);
 }
 
-TEST(PedigreeList, PopBack)
-{
-    List<int> x;
-    x.pushFront(1);
+TEST(PedigreeList, PopBack) {
+  List<int> x;
+  x.pushFront(1);
 
-    EXPECT_EQ(x.popBack(), 1);
+  EXPECT_EQ(x.popBack(), 1);
 
-    EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(x.count(), 0U);
 }
 
-TEST(PedigreeList, PopEmpty)
-{
-    List<int> x;
+TEST(PedigreeList, PopEmpty) {
+  List<int> x;
 
-    EXPECT_EQ(x.popFront(), 0);
-    EXPECT_EQ(x.popBack(), 0);
+  EXPECT_EQ(x.popFront(), 0);
+  EXPECT_EQ(x.popBack(), 0);
 
-    EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(x.count(), 0U);
 }
 
-TEST(PedigreeList, Falseish)
-{
-    List<int> x;
-    x.pushFront(0);
+TEST(PedigreeList, Falseish) {
+  List<int> x;
+  x.pushFront(0);
 
-    EXPECT_EQ(x.popFront(), 0);
+  EXPECT_EQ(x.popFront(), 0);
 
-    EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(x.count(), 0U);
 }
 
-TEST(PedigreeList, CleanupWorks)
-{
-    // Expecting a clean Valgrind pass; if Valgrind is not being used then this
-    // doesn't really matter very much.
-    List<int> x;
-    x.pushBack(2);
-    x.pushBack(4);
+TEST(PedigreeList, CleanupWorks) {
+  // Expecting a clean Valgrind pass; if Valgrind is not being used then this
+  // doesn't really matter very much.
+  List<int> x;
+  x.pushBack(2);
+  x.pushBack(4);
 
-    EXPECT_EQ(x.popBack(), 4);
+  EXPECT_EQ(x.popBack(), 4);
 
-    EXPECT_EQ(x.count(), 1U);
+  EXPECT_EQ(x.count(), 1U);
 }
 
-TEST(PedigreeList, ErasingBegin)
-{
-    List<int> x;
-    x.pushBack(2);
-    x.pushBack(4);
+TEST(PedigreeList, ErasingBegin) {
+  List<int> x;
+  x.pushBack(2);
+  x.pushBack(4);
 
-    // Erase takes a reference, we cannot just pass begin() straight in.
-    auto it = x.begin();
+  // Erase takes a reference, we cannot just pass begin() straight in.
+  auto it = x.begin();
+  it = x.erase(it);
+  EXPECT_EQ(*it, 4);
+  x.erase(it);
+
+  EXPECT_EQ(x.count(), 0U);
+}
+
+TEST(PedigreeList, ErasingMiddle) {
+  List<int> x;
+  x.pushBack(2);
+  x.pushBack(4);
+  x.pushBack(6);
+  x.pushBack(8);
+
+  // Erase takes a reference, we cannot just pass begin() straight in.
+  auto it = x.begin();
+  ++it;
+  it = x.erase(it);
+  x.erase(it);
+
+  EXPECT_EQ(x.popFront(), 2);
+  EXPECT_EQ(x.popFront(), 8);
+
+  EXPECT_EQ(x.count(), 0U);
+}
+
+TEST(PedigreeList, ErasingEnd) {
+  List<int> x;
+  x.pushBack(2);
+  x.pushBack(4);
+  x.pushBack(6);
+  x.pushBack(8);
+
+  auto it = x.begin();
+  ++it;
+  ++it;
+  ++it;
+  it = x.erase(it);
+
+  EXPECT_EQ(x.popFront(), 2);
+  EXPECT_EQ(x.popFront(), 4);
+  EXPECT_EQ(x.popFront(), 6);
+
+  EXPECT_EQ(x.count(), 0U);
+}
+
+TEST(PedigreeList, ErasingAll) {
+  List<int> x;
+  x.pushBack(2);
+  x.pushBack(4);
+  x.pushBack(6);
+  x.pushBack(8);
+
+  for (List<int>::Iterator it = x.begin(); it != x.end();) {
     it = x.erase(it);
-    EXPECT_EQ(*it, 4);
-    x.erase(it);
+  }
 
-    EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(x.count(), 0U);
 }
+TEST(PedigreeList, ErasingSome) {
+  List<int> x;
+  x.pushBack(2);
+  x.pushBack(3);
+  x.pushBack(4);
+  x.pushBack(5);
 
-TEST(PedigreeList, ErasingMiddle)
-{
-    List<int> x;
-    x.pushBack(2);
-    x.pushBack(4);
-    x.pushBack(6);
-    x.pushBack(8);
-
-    // Erase takes a reference, we cannot just pass begin() straight in.
-    auto it = x.begin();
-    ++it;
-    it = x.erase(it);
-    x.erase(it);
-
-    EXPECT_EQ(x.popFront(), 2);
-    EXPECT_EQ(x.popFront(), 8);
-
-    EXPECT_EQ(x.count(), 0U);
-}
-
-TEST(PedigreeList, ErasingEnd)
-{
-    List<int> x;
-    x.pushBack(2);
-    x.pushBack(4);
-    x.pushBack(6);
-    x.pushBack(8);
-
-    auto it = x.begin();
-    ++it;
-    ++it;
-    ++it;
-    it = x.erase(it);
-
-    EXPECT_EQ(x.popFront(), 2);
-    EXPECT_EQ(x.popFront(), 4);
-    EXPECT_EQ(x.popFront(), 6);
-
-    EXPECT_EQ(x.count(), 0U);
-}
-
-TEST(PedigreeList, ErasingAll)
-{
-    List<int> x;
-    x.pushBack(2);
-    x.pushBack(4);
-    x.pushBack(6);
-    x.pushBack(8);
-
-    for (List<int>::Iterator it = x.begin(); it != x.end();)
-    {
-        it = x.erase(it);
+  for (List<int>::Iterator it = x.begin(); it != x.end();) {
+    if (((*it) % 2) == 0) {
+      it = x.erase(it);
+    } else {
+      ++it;
     }
+  }
 
-    EXPECT_EQ(x.count(), 0U);
-}
-TEST(PedigreeList, ErasingSome)
-{
-    List<int> x;
-    x.pushBack(2);
-    x.pushBack(3);
-    x.pushBack(4);
-    x.pushBack(5);
-
-    for (List<int>::Iterator it = x.begin(); it != x.end();)
-    {
-        if (((*it) % 2) == 0)
-        {
-            it = x.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
-    }
-
-    EXPECT_EQ(x.count(), 2U);
+  EXPECT_EQ(x.count(), 2U);
 }
 
-TEST(PedigreeList, ErasingReverse)
-{
-    List<int> x;
-    x.pushBack(2);
-    x.pushBack(4);
-    x.pushBack(6);
-    x.pushBack(8);
+TEST(PedigreeList, ErasingReverse) {
+  List<int> x;
+  x.pushBack(2);
+  x.pushBack(4);
+  x.pushBack(6);
+  x.pushBack(8);
 
-    // Erase takes a reference, we cannot just pass begin() straight in.
-    auto it = x.rbegin();
-    ++it;
-    x.erase(it);
+  // Erase takes a reference, we cannot just pass begin() straight in.
+  auto it = x.rbegin();
+  ++it;
+  x.erase(it);
 
-    EXPECT_NE(it, x.rend());
+  EXPECT_NE(it, x.rend());
 
-    EXPECT_EQ(x.popFront(), 2);
-    EXPECT_EQ(x.popFront(), 4);
-    EXPECT_EQ(x.popFront(), 8);
+  EXPECT_EQ(x.popFront(), 2);
+  EXPECT_EQ(x.popFront(), 4);
+  EXPECT_EQ(x.popFront(), 8);
 
-    EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(x.count(), 0U);
 }
 
-TEST(PedigreeList, ErasingLastInReverseMaintainsBoundaries)
-{
-    List<int> x;
-    x.pushBack(2);
-    x.pushBack(4);
+TEST(PedigreeList, ErasingLastInReverseMaintainsBoundaries) {
+  List<int> x;
+  x.pushBack(2);
+  x.pushBack(4);
 
-    auto it = x.rbegin();
-    it = x.erase(it);
+  auto it = x.rbegin();
+  it = x.erase(it);
 
-    ASSERT_NE(it, x.rend());
-    EXPECT_EQ(*it, 2);
-    EXPECT_EQ(*x.rbegin(), 2);
-    EXPECT_EQ(x.popFront(), 2);
-    EXPECT_EQ(x.count(), 0U);
+  ASSERT_NE(it, x.rend());
+  EXPECT_EQ(*it, 2);
+  EXPECT_EQ(*x.rbegin(), 2);
+  EXPECT_EQ(x.popFront(), 2);
+  EXPECT_EQ(x.count(), 0U);
 }
 
-TEST(PedigreeList, ErasingFirstInReverseMaintainsBoundaries)
-{
-    List<int> x;
-    x.pushBack(2);
-    x.pushBack(4);
+TEST(PedigreeList, ErasingFirstInReverseMaintainsBoundaries) {
+  List<int> x;
+  x.pushBack(2);
+  x.pushBack(4);
 
-    auto it = x.rbegin();
-    ++it;
-    it = x.erase(it);
+  auto it = x.rbegin();
+  ++it;
+  it = x.erase(it);
 
-    EXPECT_EQ(it, x.rend());
-    EXPECT_EQ(*x.begin(), 4);
-    EXPECT_EQ(x.popBack(), 4);
-    EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(it, x.rend());
+  EXPECT_EQ(*x.begin(), 4);
+  EXPECT_EQ(x.popBack(), 4);
+  EXPECT_EQ(x.count(), 0U);
 }
 
-TEST(PedigreeList, Assign)
-{
-    List<int> x;
-    x.pushBack(2);
-    x.pushBack(4);
-    x.pushBack(6);
+TEST(PedigreeList, Assign) {
+  List<int> x;
+  x.pushBack(2);
+  x.pushBack(4);
+  x.pushBack(6);
 
-    List<int> y;
-    y.pushBack(10);  // Will be removed by the assignment.
-    y = x;
+  List<int> y;
+  y.pushBack(10);  // Will be removed by the assignment.
+  y = x;
 
-    EXPECT_EQ(x.popFront(), y.popFront());
-    EXPECT_EQ(x.popFront(), y.popFront());
-    EXPECT_EQ(x.popFront(), y.popFront());
+  EXPECT_EQ(x.popFront(), y.popFront());
+  EXPECT_EQ(x.popFront(), y.popFront());
+  EXPECT_EQ(x.popFront(), y.popFront());
 
-    EXPECT_EQ(x.count(), y.count());
-    EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(x.count(), y.count());
+  EXPECT_EQ(x.count(), 0U);
 }
 
-TEST(PedigreeList, NonZeroableType)
-{
-    Foo a(2), b(4), c(6);
+TEST(PedigreeList, NonZeroableType) {
+  Foo a(2), b(4), c(6);
 
-    List<Foo> x;
-    x.pushBack(a);
-    x.pushBack(b);
-    x.pushBack(c);
+  List<Foo> x;
+  x.pushBack(a);
+  x.pushBack(b);
+  x.pushBack(c);
 
-    EXPECT_EQ(x.popFront().x, 2);
-    EXPECT_EQ(x.popFront().x, 4);
-    EXPECT_EQ(x.popFront().x, 6);
-    EXPECT_EQ(x.popFront().x, -1);
+  EXPECT_EQ(x.popFront().x, 2);
+  EXPECT_EQ(x.popFront().x, 4);
+  EXPECT_EQ(x.popFront().x, 6);
+  EXPECT_EQ(x.popFront().x, -1);
 
-    EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(x.count(), 0U);
 }
 
-TEST(PedigreeList, IterateReverse)
-{
-    List<int> x_;
-    x_.pushBack(1);
-    x_.pushBack(5);
-    x_.pushBack(10);
+TEST(PedigreeList, IterateReverse) {
+  List<int> x_;
+  x_.pushBack(1);
+  x_.pushBack(5);
+  x_.pushBack(10);
 
-    const List<int> &x = x_;
+  const List<int>& x = x_;
 
-    EXPECT_NE(x.rbegin(), x.rend());
+  EXPECT_NE(x.rbegin(), x.rend());
 
-    auto it = x.rbegin();
-    EXPECT_EQ(*(it++), 10);
-    EXPECT_EQ(*(it++), 5);
-    EXPECT_EQ(*(it++), 1);
-    EXPECT_EQ(it, x.rend());
+  auto it = x.rbegin();
+  EXPECT_EQ(*(it++), 10);
+  EXPECT_EQ(*(it++), 5);
+  EXPECT_EQ(*(it++), 1);
+  EXPECT_EQ(it, x.rend());
 }
 
-TEST(PedigreeList, EmptyIterate)
-{
-    List<int> x;
+TEST(PedigreeList, EmptyIterate) {
+  List<int> x;
 
-    for (auto it = x.begin(); it != x.end(); ++it)
-    {
-        FAIL() << "empty iteration should never provide an iterator";
-    }
+  for (auto it = x.begin(); it != x.end(); ++it) {
+    FAIL() << "empty iteration should never provide an iterator";
+  }
 }
 
-TEST(PedigreeList, PointerPopFront)
-{
-    List<void *> x;
+TEST(PedigreeList, PointerPopFront) {
+  List<void*> x;
 
-    void *p = reinterpret_cast<void *>(5);
+  void* p = reinterpret_cast<void*>(5);
 
-    x.pushBack(reinterpret_cast<void *>(5));
+  x.pushBack(reinterpret_cast<void*>(5));
 
-    EXPECT_EQ(x.popFront(), p);
-    EXPECT_EQ(x.popFront(), reinterpret_cast<void *>(0));
+  EXPECT_EQ(x.popFront(), p);
+  EXPECT_EQ(x.popFront(), reinterpret_cast<void*>(0));
 }
 
-TEST(PedigreeList, PointerPopBack)
-{
-    List<void *> x;
+TEST(PedigreeList, PointerPopBack) {
+  List<void*> x;
 
-    void *p = reinterpret_cast<void *>(5);
+  void* p = reinterpret_cast<void*>(5);
 
-    x.pushBack(reinterpret_cast<void *>(5));
+  x.pushBack(reinterpret_cast<void*>(5));
 
-    EXPECT_EQ(x.popBack(), p);
-    EXPECT_EQ(x.popBack(), reinterpret_cast<void *>(0));
+  EXPECT_EQ(x.popBack(), p);
+  EXPECT_EQ(x.popBack(), reinterpret_cast<void*>(0));
 }
 
-TEST(PedigreeList, PointerRotatePop)
-{
-    List<void *> x;
+TEST(PedigreeList, PointerRotatePop) {
+  List<void*> x;
 
-    void *p = reinterpret_cast<void *>(5);
+  void* p = reinterpret_cast<void*>(5);
 
-    x.pushBack(reinterpret_cast<void *>(5));
-    void *p_ = x.popFront();
-    x.pushBack(p);
-    p_ = x.popFront();
+  x.pushBack(reinterpret_cast<void*>(5));
+  void* p_ = x.popFront();
+  x.pushBack(p);
+  p_ = x.popFront();
 
-    EXPECT_EQ(x.count(), 0U);
-    EXPECT_EQ(x.popFront(), reinterpret_cast<void *>(0));
-    EXPECT_EQ(p, p_);
+  EXPECT_EQ(x.count(), 0U);
+  EXPECT_EQ(x.popFront(), reinterpret_cast<void*>(0));
+  EXPECT_EQ(p, p_);
 }

@@ -25,123 +25,121 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
-#include "pedigree/kernel/utilities/template.h"  // IWYU pragma: keep
 #include "pedigree/kernel/utilities/Vector.h"
+#include "pedigree/kernel/utilities/template.h"  // IWYU pragma: keep
 
 class String;
 
-class EXPORTED_PUBLIC Cord
-{
-    friend class CordIterator;
-    friend class String;
+class EXPORTED_PUBLIC Cord {
+  friend class CordIterator;
+  friend class String;
 
-    struct CordSegment;
+  struct CordSegment;
 
-  public:
-    class CordIterator
-    {
-        friend class Cord;
-        public:
-            CordIterator(const Cord &owner);
-            virtual ~CordIterator();
+ public:
+  class CordIterator {
+    friend class Cord;
 
-            CordIterator &operator++();
-            CordIterator &operator--();
+   public:
+    CordIterator(const Cord& owner);
+    virtual ~CordIterator();
 
-            char operator*() const;
+    CordIterator& operator++();
+    CordIterator& operator--();
 
-            bool operator==(const CordIterator &other) const;
-            bool operator!=(const CordIterator &other) const;
+    char operator*() const;
 
-        protected:
-            CordIterator(const Cord &owner, bool end);
+    bool operator==(const CordIterator& other) const;
+    bool operator!=(const CordIterator& other) const;
 
-        private:
-            const Cord &cord;
-            size_t segment;
-            size_t index;
+   protected:
+    CordIterator(const Cord& owner, bool end);
 
-            const Cord::CordSegment *segptr;
-    };
-    class CordSegmentIterator
-    {
-        friend class Cord;
-        public:
-            CordSegmentIterator(const Cord &owner);
-            virtual ~CordSegmentIterator();
+   private:
+    const Cord& cord;
+    size_t segment;
+    size_t index;
 
-            CordSegmentIterator &operator++();
-            CordSegmentIterator &operator--();
+    const Cord::CordSegment* segptr;
+  };
+  class CordSegmentIterator {
+    friend class Cord;
 
-            const char *ptr() const;
-            size_t length() const;
+   public:
+    CordSegmentIterator(const Cord& owner);
+    virtual ~CordSegmentIterator();
 
-            bool operator==(const CordSegmentIterator &other) const;
-            bool operator!=(const CordSegmentIterator &other) const;
+    CordSegmentIterator& operator++();
+    CordSegmentIterator& operator--();
 
-        protected:
-            CordSegmentIterator(const Cord &owner, bool end);
-
-        private:
-            const Cord &cord;
-            size_t segment;
-    };
-
-    Cord();
-    Cord(const Cord &other);
-    virtual ~Cord();
-
-    Cord &operator=(const Cord &s);
-
-    bool operator==(const char *s) const;
-    bool operator==(const Cord &s) const;
-    bool operator==(const String &s) const;
-
-    /**
-     * Pre-reserve the given number of segments.
-     * Useful if the segment count is known in advance to avoid vector resizes.
-     */
-    void reserve(size_t segments);
-
-    void assign(const Cord &other);
-    void clear();
-
+    const char* ptr() const;
     size_t length() const;
 
-    String toString() const;
+    bool operator==(const CordSegmentIterator& other) const;
+    bool operator!=(const CordSegmentIterator& other) const;
 
-    char operator[](size_t index) const;
+   protected:
+    CordSegmentIterator(const Cord& owner, bool end);
 
-    void append(const char *s, size_t len=0);
-    void prepend(const char *s, size_t len=0);
+   private:
+    const Cord& cord;
+    size_t segment;
+  };
 
-    /**
-     * \note The String& versions of append/prepend are somewhat dangerous.
-     * Use these with caution, as if the String is modified or freed, the Cord
-     * will point at invalid memory.
-     */
+  Cord();
+  Cord(const Cord& other);
+  virtual ~Cord();
 
-    void append(const String &str);
-    void prepend(const String &str);
+  Cord& operator=(const Cord& s);
 
-    CordIterator begin() const;
-    CordIterator end() const;
+  bool operator==(const char* s) const;
+  bool operator==(const Cord& s) const;
+  bool operator==(const String& s) const;
 
-    CordSegmentIterator segbegin() const;
-    CordSegmentIterator segend() const;
+  /**
+   * Pre-reserve the given number of segments.
+   * Useful if the segment count is known in advance to avoid vector resizes.
+   */
+  void reserve(size_t segments);
 
-  private:
-    struct CordSegment
-    {
-        CordSegment() = default;
-        CordSegment(const char *s, size_t len) : ptr(s), length(len) {}
+  void assign(const Cord& other);
+  void clear();
 
-        const char *ptr = nullptr;
-        size_t length = 0;
-    };
+  size_t length() const;
 
-    Vector<CordSegment> m_Segments;
-    size_t m_Length = 0;
+  String toString() const;
+
+  char operator[](size_t index) const;
+
+  void append(const char* s, size_t len = 0);
+  void prepend(const char* s, size_t len = 0);
+
+  /**
+   * \note The String& versions of append/prepend are somewhat dangerous.
+   * Use these with caution, as if the String is modified or freed, the Cord
+   * will point at invalid memory.
+   */
+
+  void append(const String& str);
+  void prepend(const String& str);
+
+  CordIterator begin() const;
+  CordIterator end() const;
+
+  CordSegmentIterator segbegin() const;
+  CordSegmentIterator segend() const;
+
+ private:
+  struct CordSegment {
+    CordSegment() = default;
+    CordSegment(const char* s, size_t len) : ptr(s), length(len) {}
+
+    const char* ptr = nullptr;
+    size_t length = 0;
+  };
+
+  Vector<CordSegment> m_Segments;
+  size_t m_Length = 0;
 };
 
 /** @} */

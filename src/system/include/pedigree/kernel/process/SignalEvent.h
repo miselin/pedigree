@@ -24,38 +24,33 @@
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/processor/types.h"
 
-class EXPORTED_PUBLIC SignalEvent : public Event
-{
-  public:
-    SignalEvent(
-        uintptr_t handlerAddress, size_t signalNum,
-        size_t specificNestingLevel = ~0UL, uint64_t signalMask = 0,
-        bool deferSignal = true, bool isDeletable = false);
+class EXPORTED_PUBLIC SignalEvent : public Event {
+ public:
+  SignalEvent(uintptr_t handlerAddress, size_t signalNum, size_t specificNestingLevel = ~0UL,
+              uint64_t signalMask = 0, bool deferSignal = true, bool isDeletable = false);
 
-    virtual size_t serialize(uint8_t *pBuffer);
-    static bool unserialize(uint8_t *pBuffer, Event &event);
+  virtual size_t serialize(uint8_t* pBuffer);
+  static bool unserialize(uint8_t* pBuffer, Event& event);
 
-    virtual bool isSignalEvent() const
-    {
-        return true;
-    }
+  virtual bool isSignalEvent() const {
+    return true;
+  }
 
-    virtual Event *cloneForDelivery();
+  virtual Event* cloneForDelivery();
 
-    virtual size_t getNumber()
-    {
-        return m_SignalNumber;
-    }
+  virtual size_t getNumber() {
+    return m_SignalNumber;
+  }
 
-  private:
-    /** This keeps track of the actual signal this SignalEvent is linked to */
-    size_t m_SignalNumber;
+ private:
+  /** This keeps track of the actual signal this SignalEvent is linked to */
+  size_t m_SignalNumber;
 
-    /** Signals additionally blocked while the handler runs. */
-    uint64_t m_SignalMask;
+  /** Signals additionally blocked while the handler runs. */
+  uint64_t m_SignalMask;
 
-    /** Whether the delivered signal itself is blocked while the handler runs. */
-    bool m_DeferSignal;
+  /** Whether the delivered signal itself is blocked while the handler runs. */
+  bool m_DeferSignal;
 };
 
 #endif

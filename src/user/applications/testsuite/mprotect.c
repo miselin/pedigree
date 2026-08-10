@@ -22,11 +22,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <sys/mman.h>
 #include <unistd.h>
 
+#include <sys/mman.h>
+
 static int i = 0;
-static char *p = 0;
+static char* p = 0;
 
 static jmp_buf buf;
 
@@ -34,172 +35,154 @@ typedef void (*fn)();
 
 extern void fail();
 
-static void *adjust_pointer(void *p, ssize_t amt)
-{
-    return (void *) (((uintptr_t) p) + amt);
+static void* adjust_pointer(void* p, ssize_t amt) {
+  return (void*)(((uintptr_t)p) + amt);
 }
 
-static void sigsegv(int s)
-{
-    if (i == -1)
-    {
-        fail();
-    }
+static void sigsegv(int s) {
+  if (i == -1) {
+    fail();
+  }
 
-    switch (i)
-    {
-        case 0:
-        {
-            printf("PROT_NONE works, checking read...\n");
-            mprotect(p, 0x1000, PROT_READ);
-            i = -1;
-            volatile char c = *p;
-            i = 0;
-        }
-        break;
+  switch (i) {
+    case 0: {
+      printf("PROT_NONE works, checking read...\n");
+      mprotect(p, 0x1000, PROT_READ);
+      i = -1;
+      volatile char c = *p;
+      i = 0;
+    } break;
 
-        case 1:
-        {
-            printf("PROT_READ works, checking write...\n");
-            mprotect(p, 0x1000, PROT_WRITE);
-            i = -1;
-            *((volatile char *) p) = 'Y';
-            i = 1;
-            mprotect(p, 0x1000, PROT_NONE);
-        }
-        break;
+    case 1: {
+      printf("PROT_READ works, checking write...\n");
+      mprotect(p, 0x1000, PROT_WRITE);
+      i = -1;
+      *((volatile char*)p) = 'Y';
+      i = 1;
+      mprotect(p, 0x1000, PROT_NONE);
+    } break;
 
-        case 2:
-        {
-            printf("PROT_WRITE works, checking exec...\n");
-            mprotect(p, 0x1000, PROT_WRITE);
-            i = -1;
-            *((volatile unsigned char *) p) = 0xC3;  // ret
-            fn f = (fn) p;
-            mprotect(p, 0x1000, PROT_EXEC);
-            f();
-            i = 2;
-        }
-        break;
+    case 2: {
+      printf("PROT_WRITE works, checking exec...\n");
+      mprotect(p, 0x1000, PROT_WRITE);
+      i = -1;
+      *((volatile unsigned char*)p) = 0xC3;  // ret
+      fn f = (fn)p;
+      mprotect(p, 0x1000, PROT_EXEC);
+      f();
+      i = 2;
+    } break;
 
-        default:
-            printf("Attempting to return to original context...\n");
-            mprotect(p, 0x1000, PROT_READ | PROT_WRITE);
-            longjmp(buf, 1);
-    }
+    default:
+      printf("Attempting to return to original context...\n");
+      mprotect(p, 0x1000, PROT_READ | PROT_WRITE);
+      longjmp(buf, 1);
+  }
 
-    ++i;
+  ++i;
 }
 
-static void sigsegv_jumper(int s)
-{
-    longjmp(buf, 1);
+static void sigsegv_jumper(int s) {
+  longjmp(buf, 1);
 }
 
-static void status(const char *s)
-{
-    printf(s);
-    fflush(stdout);
+static void status(const char* s) {
+  printf(s);
+  fflush(stdout);
 }
 
-void test_mprotect()
-{
-    int rc = 0;
+void test_mprotect() {
+  int rc = 0;
 
-    p = mmap(0, 0x10000, PROT_NONE, MAP_PRIVATE | MAP_ANON, 0, 0);
+  p = mmap(0, 0x10000, PROT_NONE, MAP_PRIVATE | MAP_ANON, 0, 0);
 
-    // Install our custom SIGSEGV handler.
-    static struct sigaction act;
-    sigprocmask(0, 0, &act.sa_mask);
-    act.sa_handler = sigsegv;
+  // Install our custom SIGSEGV handler.
+  static struct sigaction act;
+  sigprocmask(0, 0, &act.sa_mask);
+  act.sa_handler = sigsegv;
 #ifdef SA_NODEFER
-    act.sa_flags = SA_NODEFER;
+  act.sa_flags = SA_NODEFER;
 #else
-    act.sa_flags =
-        0;  // Pedigree doesn't yet have SA_NODEFER (SIGSEGV nests anyway)
+  act.sa_flags = 0;  // Pedigree doesn't yet have SA_NODEFER (SIGSEGV nests anyway)
 #endif
-    sigaction(SIGSEGV, &act, 0);
+  sigaction(SIGSEGV, &act, 0);
 
-    // Start the test!
-    printf("Testing mprotect(2)...\n");
-    setjmp(buf);
+  // Start the test!
+  printf("Testing mprotect(2)...\n");
+  setjmp(buf);
+  *p = 'X';
+  printf("mprotect(2) initial test was successful!\n");
+
+  printf("Testing mprotect(2) on ranges of pages...\n");
+
+  i = -1;
+
+  act.sa_handler = sigsegv_jumper;
+  sigaction(SIGSEGV, &act, 0);
+
+  // Check for 100% coverage.
+  mprotect(p, 0x10000, PROT_WRITE);
+  status("Test A... ");
+  *p = 'X';
+  status("OK\n");
+  mprotect(p, 0x10000, PROT_NONE);
+
+  // Check for 100% enclosed.
+  mprotect(adjust_pointer(p, -0x1000), 0x12000, PROT_WRITE);
+  status("Test B... ");
+  if (setjmp(buf) == 1)
+    fail();
+  *p = 'X';
+  p[0x10000 - 1] = 'X';
+  status("OK\n");
+  mprotect(p, 0x10000, PROT_NONE);
+
+  // Check for overlap at beginning.
+  mprotect(adjust_pointer(p, -0x1000), 0x5000, PROT_WRITE);
+  status("Test C... ");
+  if (setjmp(buf) == 1)
+    fail();
+  *p = 'X';
+  if (setjmp(buf) == 0) {
+    p[0x5001] = 'X';
+    fail();
+  }
+  status("OK\n");
+  mprotect(p, 0x10000, PROT_NONE);
+
+  // Check for overlap at end.
+  mprotect(adjust_pointer(p, 0x5000), 0x6000, PROT_WRITE);
+  status("Test D... ");
+  if (setjmp(buf) == 1)
+    fail();
+  p[0x5000] = 'X';
+  if (setjmp(buf) == 0) {
     *p = 'X';
-    printf("mprotect(2) initial test was successful!\n");
+    fail();
+  }
+  status("OK\n");
+  mprotect(p, 0x10000, PROT_NONE);
 
-    printf("Testing mprotect(2) on ranges of pages...\n");
-
-    i = -1;
-
-    act.sa_handler = sigsegv_jumper;
-    sigaction(SIGSEGV, &act, 0);
-
-    // Check for 100% coverage.
-    mprotect(p, 0x10000, PROT_WRITE);
-    status("Test A... ");
+  // Check middle.
+  mprotect(adjust_pointer(p, 0x2000), 0x6000, PROT_WRITE);
+  status("Test E... ");
+  if (setjmp(buf) == 1)
+    fail();
+  p[0x2000] = 'X';
+  if (setjmp(buf) == 0) {
     *p = 'X';
-    status("OK\n");
-    mprotect(p, 0x10000, PROT_NONE);
+    fail();
+  }
 
-    // Check for 100% enclosed.
-    mprotect(adjust_pointer(p, -0x1000), 0x12000, PROT_WRITE);
-    status("Test B... ");
-    if (setjmp(buf) == 1)
-        fail();
-    *p = 'X';
-    p[0x10000 - 1] = 'X';
-    status("OK\n");
-    mprotect(p, 0x10000, PROT_NONE);
+  if (setjmp(buf) == 0) {
+    p[0x8001] = 'X';
+    fail();
+  }
+  status("OK\n");
+  mprotect(p, 0x10000, PROT_NONE);
 
-    // Check for overlap at beginning.
-    mprotect(adjust_pointer(p, -0x1000), 0x5000, PROT_WRITE);
-    status("Test C... ");
-    if (setjmp(buf) == 1)
-        fail();
-    *p = 'X';
-    if (setjmp(buf) == 0)
-    {
-        p[0x5001] = 'X';
-        fail();
-    }
-    status("OK\n");
-    mprotect(p, 0x10000, PROT_NONE);
+  printf("mprotect(2) page range test was successful!\n");
 
-    // Check for overlap at end.
-    mprotect(adjust_pointer(p, 0x5000), 0x6000, PROT_WRITE);
-    status("Test D... ");
-    if (setjmp(buf) == 1)
-        fail();
-    p[0x5000] = 'X';
-    if (setjmp(buf) == 0)
-    {
-        *p = 'X';
-        fail();
-    }
-    status("OK\n");
-    mprotect(p, 0x10000, PROT_NONE);
-
-    // Check middle.
-    mprotect(adjust_pointer(p, 0x2000), 0x6000, PROT_WRITE);
-    status("Test E... ");
-    if (setjmp(buf) == 1)
-        fail();
-    p[0x2000] = 'X';
-    if (setjmp(buf) == 0)
-    {
-        *p = 'X';
-        fail();
-    }
-
-    if (setjmp(buf) == 0)
-    {
-        p[0x8001] = 'X';
-        fail();
-    }
-    status("OK\n");
-    mprotect(p, 0x10000, PROT_NONE);
-
-    printf("mprotect(2) page range test was successful!\n");
-
-    // Restore SIGSEGV handler.
-    signal(SIGSEGV, SIG_DFL);
+  // Restore SIGSEGV handler.
+  signal(SIGSEGV, SIG_DFL);
 }

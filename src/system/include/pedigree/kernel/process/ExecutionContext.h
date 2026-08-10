@@ -20,50 +20,42 @@ class Thread;
  * disabled is AtomicThread, while an explicitly scoped IRQ route remains an
  * IRQ context even if it later enables interrupts.
  */
-enum class ExecutionContext
-{
-    WaitableThread,
-    AtomicThread,
-    HardDeviceIrq,
-    SchedulerIrq,
-    HostedSyntheticIrq,
-    DebuggerTrap,
+enum class ExecutionContext {
+  WaitableThread,
+  AtomicThread,
+  HardDeviceIrq,
+  SchedulerIrq,
+  HostedSyntheticIrq,
+  DebuggerTrap,
 };
 
 /** A small Thread-state value with explicit nested save/restore semantics. */
-class ExecutionContextState
-{
-  public:
-    ExecutionContextState(ExecutionContext context = ExecutionContext::WaitableThread)
-        : m_Context(context)
-    {
-    }
+class ExecutionContextState {
+ public:
+  ExecutionContextState(ExecutionContext context = ExecutionContext::WaitableThread)
+      : m_Context(context) {}
 
-    ExecutionContext current() const
-    {
-        return m_Context;
-    }
+  ExecutionContext current() const {
+    return m_Context;
+  }
 
-    /** Replaces the current context and returns the value to restore. */
-    ExecutionContext enter(ExecutionContext context)
-    {
-        const ExecutionContext previous = m_Context;
-        m_Context = context;
-        return previous;
-    }
+  /** Replaces the current context and returns the value to restore. */
+  ExecutionContext enter(ExecutionContext context) {
+    const ExecutionContext previous = m_Context;
+    m_Context = context;
+    return previous;
+  }
 
-    void restore(ExecutionContext context)
-    {
-        m_Context = context;
-    }
+  void restore(ExecutionContext context) {
+    m_Context = context;
+  }
 
-    void reset()
-    {
-        m_Context = ExecutionContext::WaitableThread;
-    }
+  void reset() {
+    m_Context = ExecutionContext::WaitableThread;
+  }
 
-  private:
-    ExecutionContext m_Context;
+ private:
+  ExecutionContext m_Context;
 };
 
 /**
@@ -73,24 +65,23 @@ class ExecutionContextState
  * physical stack without invoking this destructor. Thread then retires the
  * record before reusing the state level and restores its previous context.
  */
-class ExecutionContextGuard
-{
-  public:
-    explicit ExecutionContextGuard(ExecutionContext context);
-    ~ExecutionContextGuard();
+class ExecutionContextGuard {
+ public:
+  explicit ExecutionContextGuard(ExecutionContext context);
+  ~ExecutionContextGuard();
 
-  private:
-    ExecutionContextGuard(const ExecutionContextGuard &);
-    ExecutionContextGuard &operator=(const ExecutionContextGuard &);
+ private:
+  ExecutionContextGuard(const ExecutionContextGuard&);
+  ExecutionContextGuard& operator=(const ExecutionContextGuard&);
 
-    static void abandon(void *context);
-    void restore();
+  static void abandon(void* context);
+  void restore();
 
-    Thread *m_Thread;
-    size_t m_StateLevel;
-    ExecutionContext m_Previous;
-    AtomicStateCleanupRecord m_Cleanup;
-    bool m_Active;
+  Thread* m_Thread;
+  size_t m_StateLevel;
+  ExecutionContext m_Previous;
+  AtomicStateCleanupRecord m_Cleanup;
+  bool m_Active;
 };
 
 #endif

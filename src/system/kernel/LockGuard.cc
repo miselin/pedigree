@@ -28,29 +28,23 @@ template class LockGuard<Spinlock>;
 template class RecursingLockGuard<Spinlock>;
 
 #if THREADS && !defined(STANDALONE_MUTEXES)
-LockGuard<Mutex>::LockGuard(Mutex &Lock, bool Condition)
-    : m_TerminationDeferral(Condition), m_Lock(Lock),
-      m_bCondition(Condition)
-{
-    if (m_bCondition && !m_Lock.acquireForCompletion())
-    {
-        m_bCondition = false;
-        m_TerminationDeferral = TerminationDeferral(false);
-        FATAL("LockGuard<Mutex> could not acquire its mutex");
-    }
-}
-
-LockGuard<Mutex>::~LockGuard()
-{
-    if (m_bCondition)
-    {
-        m_Lock.release();
-    }
-}
-
-void LockGuard<Mutex>::disown()
-{
+LockGuard<Mutex>::LockGuard(Mutex& Lock, bool Condition)
+    : m_TerminationDeferral(Condition), m_Lock(Lock), m_bCondition(Condition) {
+  if (m_bCondition && !m_Lock.acquireForCompletion()) {
     m_bCondition = false;
     m_TerminationDeferral = TerminationDeferral(false);
+    FATAL("LockGuard<Mutex> could not acquire its mutex");
+  }
+}
+
+LockGuard<Mutex>::~LockGuard() {
+  if (m_bCondition) {
+    m_Lock.release();
+  }
+}
+
+void LockGuard<Mutex>::disown() {
+  m_bCondition = false;
+  m_TerminationDeferral = TerminationDeferral(false);
 }
 #endif

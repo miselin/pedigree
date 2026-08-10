@@ -17,43 +17,39 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "util.h"
+
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
 #include <sys/fb.h>
 #include <sys/ioctl.h>
 #include <sys/klog.h>
 #include <sys/mman.h>
-#include <unistd.h>
 
-#include "util.h"
-
-SharedBuffer::SharedBuffer(size_t size) : m_pFramebuffer(0)
-{
-    m_pFramebuffer = new PedigreeIpc::SharedIpcMessage(size, 0);
-    m_pFramebuffer->initialise();
+SharedBuffer::SharedBuffer(size_t size) : m_pFramebuffer(0) {
+  m_pFramebuffer = new PedigreeIpc::SharedIpcMessage(size, 0);
+  m_pFramebuffer->initialise();
 }
 
-SharedBuffer::SharedBuffer(size_t size, void *handle) : m_pFramebuffer(0)
-{
-    m_pFramebuffer = new PedigreeIpc::SharedIpcMessage(size, handle);
-    m_pFramebuffer->initialise();
+SharedBuffer::SharedBuffer(size_t size, void* handle) : m_pFramebuffer(0) {
+  m_pFramebuffer = new PedigreeIpc::SharedIpcMessage(size, handle);
+  m_pFramebuffer->initialise();
 }
 
-SharedBuffer::~SharedBuffer()
-{
-    /// \todo Need a way to destroy the old framebuffer without freeing the
-    ///       shared region. Refcount on the region perhaps?
-    // delete m_Framebuffer;
+SharedBuffer::~SharedBuffer() {
+  /// \todo Need a way to destroy the old framebuffer without freeing the
+  ///       shared region. Refcount on the region perhaps?
+  // delete m_Framebuffer;
 }
 
-void *SharedBuffer::getHandle()
-{
-    return m_pFramebuffer->getHandle();
+void* SharedBuffer::getHandle() {
+  return m_pFramebuffer->getHandle();
 }
 
-void *SharedBuffer::getBuffer()
-{
-    return m_pFramebuffer->getBuffer();
+void* SharedBuffer::getBuffer() {
+  return m_pFramebuffer->getBuffer();
 }

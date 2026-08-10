@@ -30,35 +30,29 @@
  * methods for configuration (for instance, a backend for SQL,
  * flat files, and pure memory access).
  */
-class ConfigurationBackend
-{
-  public:
-    ConfigurationBackend(const String &configStore);
-    virtual ~ConfigurationBackend();
+class ConfigurationBackend {
+ public:
+  ConfigurationBackend(const String& configStore);
+  virtual ~ConfigurationBackend();
 
-    virtual size_t createTable(const String &table) = 0;
-    /** Inserts the value 'value' into the table 'table', with its key as 'key'
-     */
-    virtual void insert(
-        const String &table, const String &key, const ConfigValue &value) = 0;
-    /** Returns the value in table, with key matching 'key', or zero. */
-    virtual ConfigValue &select(const String &table, const String &key) = 0;
+  virtual size_t createTable(const String& table) = 0;
+  /** Inserts the value 'value' into the table 'table', with its key as 'key'
+   */
+  virtual void insert(const String& table, const String& key, const ConfigValue& value) = 0;
+  /** Returns the value in table, with key matching 'key', or zero. */
+  virtual ConfigValue& select(const String& table, const String& key) = 0;
 
-    /** Watch a specific table entry. */
-    virtual void watch(
-        const String &table, const String &key,
-        ConfigurationWatcher watcher) = 0;
-    /** Remove a watcher from a table entry. */
-    virtual void unwatch(
-        const String &table, const String &key,
-        ConfigurationWatcher watcher) = 0;
+  /** Watch a specific table entry. */
+  virtual void watch(const String& table, const String& key, ConfigurationWatcher watcher) = 0;
+  /** Remove a watcher from a table entry. */
+  virtual void unwatch(const String& table, const String& key, ConfigurationWatcher watcher) = 0;
 
-    virtual const String &getConfigStore();
+  virtual const String& getConfigStore();
 
-    virtual const String &getTypeName() = 0;
+  virtual const String& getTypeName() = 0;
 
-  protected:
-    String m_ConfigStore;
+ protected:
+  String m_ConfigStore;
 };
 
 #endif

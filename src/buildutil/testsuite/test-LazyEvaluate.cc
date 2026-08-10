@@ -19,42 +19,37 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/utilities/LazyEvaluate.h"
 
-int *createInt(const int &meta)
-{
-    return new int(meta);
+#include <gtest/gtest.h>
+
+int* createInt(const int& meta) {
+  return new int(meta);
 }
 
-void destroyInt(int *v)
-{
-    delete v;
+void destroyInt(int* v) {
+  delete v;
 }
 
-TEST(PedigreeLazyEvaluate, CreationIsLazy)
-{
-    LazyEvaluate<int, int, createInt, destroyInt> evaluate(5);
+TEST(PedigreeLazyEvaluate, CreationIsLazy) {
+  LazyEvaluate<int, int, createInt, destroyInt> evaluate(5);
 
-    EXPECT_FALSE(evaluate.active());
+  EXPECT_FALSE(evaluate.active());
 }
 
-TEST(PedigreeLazyEvaluate, BecomeActive)
-{
-    LazyEvaluate<int, int, createInt, destroyInt> evaluate(5);
+TEST(PedigreeLazyEvaluate, BecomeActive) {
+  LazyEvaluate<int, int, createInt, destroyInt> evaluate(5);
 
-    EXPECT_FALSE(evaluate.active());
-    EXPECT_EQ(*evaluate, 5);
-    EXPECT_TRUE(evaluate.active());
+  EXPECT_FALSE(evaluate.active());
+  EXPECT_EQ(*evaluate, 5);
+  EXPECT_TRUE(evaluate.active());
 }
 
-TEST(PedigreeLazyEvaluate, Destruction)
-{
-    LazyEvaluate<int, int, createInt, destroyInt> evaluate(5);
+TEST(PedigreeLazyEvaluate, Destruction) {
+  LazyEvaluate<int, int, createInt, destroyInt> evaluate(5);
 
-    evaluate.get();
-    EXPECT_TRUE(evaluate.active());
-    evaluate.reset();
-    EXPECT_FALSE(evaluate.active());
+  evaluate.get();
+  EXPECT_TRUE(evaluate.active());
+  evaluate.reset();
+  EXPECT_FALSE(evaluate.active());
 }

@@ -30,17 +30,16 @@
 /** Abstract base class for all interrupt-handlers. All interrupt-handlers must
  *  be derived from this class
  *\brief Abstract base class for interrupt-handlers */
-class EXPORTED_PUBLIC InterruptHandler
-{
-  public:
-    /** Called when the handler is registered with the interrupt manager and the
-     *interrupt occurred \param[in] nInterruptNumber the interrupt number
-     *\param[in] state reference to the state before the interrupt */
-    virtual void interrupt(size_t nInterruptNumber, InterruptState &state) = 0;
+class EXPORTED_PUBLIC InterruptHandler {
+ public:
+  /** Called when the handler is registered with the interrupt manager and the
+   *interrupt occurred \param[in] nInterruptNumber the interrupt number
+   *\param[in] state reference to the state before the interrupt */
+  virtual void interrupt(size_t nInterruptNumber, InterruptState& state) = 0;
 
-  protected:
-    /** Virtual destructor */
-    virtual ~InterruptHandler();
+ protected:
+  /** Virtual destructor */
+  virtual ~InterruptHandler();
 };
 
 /** @} */

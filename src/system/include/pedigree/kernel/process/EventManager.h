@@ -22,12 +22,11 @@
 
 class Event;
 
-class EventManager
-{
-  public:
-    void dispatch(Event *pEvent, Thread *pThread);
+class EventManager {
+ public:
+  void dispatch(Event* pEvent, Thread* pThread);
 
-  private:
+ private:
 };
 
 #endif

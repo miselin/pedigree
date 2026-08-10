@@ -26,86 +26,80 @@
 struct Inode;
 
 /** A node in an ext2 filesystem. */
-class Ext2Node
-{
-    friend class Ext2Filesystem;
+class Ext2Node {
+  friend class Ext2Filesystem;
 
-  private:
-    /** Copy constructors are hidden - unused! */
-    Ext2Node(const Ext2Node &file);
-    Ext2Node &operator=(const Ext2Node &);
+ private:
+  /** Copy constructors are hidden - unused! */
+  Ext2Node(const Ext2Node& file);
+  Ext2Node& operator=(const Ext2Node&);
 
-  public:
-    /** Constructor, should be called only by a Filesystem. */
-    Ext2Node(uintptr_t inode_num, Inode *pInode, class Ext2Filesystem *pFs);
-    /** Destructor */
-    virtual ~Ext2Node();
+ public:
+  /** Constructor, should be called only by a Filesystem. */
+  Ext2Node(uintptr_t inode_num, Inode* pInode, class Ext2Filesystem* pFs);
+  /** Destructor */
+  virtual ~Ext2Node();
 
-    Inode *getInode()
-    {
-        return m_pInode;
-    }
+  Inode* getInode() {
+    return m_pInode;
+  }
 
-    uint32_t getInodeNumber()
-    {
-        return m_InodeNumber;
-    }
+  uint32_t getInodeNumber() {
+    return m_InodeNumber;
+  }
 
-    /** Updates inode attributes. */
-    void
-    fileAttributeChanged(size_t size, size_t atime, size_t mtime, size_t ctime);
+  /** Updates inode attributes. */
+  void fileAttributeChanged(size_t size, size_t atime, size_t mtime, size_t ctime);
 
-    /** Updates inode metadata. */
-    void updateMetadata(uint16_t uid, uint16_t gid, uint32_t perms);
+  /** Updates inode metadata. */
+  void updateMetadata(uint16_t uid, uint16_t gid, uint32_t perms);
 
-    /** Wipes the node of data - frees all blocks. */
-    void wipe();
+  /** Wipes the node of data - frees all blocks. */
+  void wipe();
 
-    void extend(size_t newSize);
-    void extend(size_t newSize, uint64_t location, uint64_t size);
+  void extend(size_t newSize);
+  void extend(size_t newSize, uint64_t location, uint64_t size);
 
-    uintptr_t readBlock(uint64_t location);
-    void writeBlock(uint64_t location);
+  uintptr_t readBlock(uint64_t location);
+  void writeBlock(uint64_t location);
 
-    void trackBlock(uint32_t block);
+  void trackBlock(uint32_t block);
 
-    bool pinBlock(uint64_t location);
-    void unpinBlock(uint64_t location);
+  bool pinBlock(uint64_t location);
+  void unpinBlock(uint64_t location);
 
-    void sync(size_t offset, bool async);
+  void sync(size_t offset, bool async);
 
-  protected:
-    /**
-     * Ensures the inode is at least 'size' big.
-     * Set onlyBlocks to true to not change the actual data size, which can be
-     * useful for preallocation.
-     */
-    bool ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize, bool onlyBlocks = false, bool nozeroblocks = false);
+ protected:
+  /**
+   * Ensures the inode is at least 'size' big.
+   * Set onlyBlocks to true to not change the actual data size, which can be
+   * useful for preallocation.
+   */
+  bool ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize, bool onlyBlocks = false,
+                         bool nozeroblocks = false);
 
-    bool addBlock(uint32_t blockValue);
+  bool addBlock(uint32_t blockValue);
 
-    bool ensureBlockLoaded(size_t nBlock);
-    bool getBlockNumber(size_t nBlock);
-    bool
-    getBlockNumberIndirect(uint32_t inode_block, size_t nBlocks, size_t nBlock);
-    bool getBlockNumberBiindirect(
-        uint32_t inode_block, size_t nBlocks, size_t nBlock);
-    bool getBlockNumberTriindirect(
-        uint32_t inode_block, size_t nBlocks, size_t nBlock);
+  bool ensureBlockLoaded(size_t nBlock);
+  bool getBlockNumber(size_t nBlock);
+  bool getBlockNumberIndirect(uint32_t inode_block, size_t nBlocks, size_t nBlock);
+  bool getBlockNumberBiindirect(uint32_t inode_block, size_t nBlocks, size_t nBlock);
+  bool getBlockNumberTriindirect(uint32_t inode_block, size_t nBlocks, size_t nBlock);
 
-    bool setBlockNumber(size_t blockNum, uint32_t blockValue);
+  bool setBlockNumber(size_t blockNum, uint32_t blockValue);
 
-    uint32_t modeToPermissions(uint32_t mode) const;
-    uint32_t permissionsToMode(uint32_t permissions) const;
+  uint32_t modeToPermissions(uint32_t mode) const;
+  uint32_t permissionsToMode(uint32_t permissions) const;
 
-    Inode *m_pInode;
-    uint32_t m_InodeNumber;
-    class Ext2Filesystem *m_pExt2Fs;
+  Inode* m_pInode;
+  uint32_t m_InodeNumber;
+  class Ext2Filesystem* m_pExt2Fs;
 
-    Vector<uint32_t> m_Blocks;
-    uint32_t m_nMetadataBlocks;
+  Vector<uint32_t> m_Blocks;
+  uint32_t m_nMetadataBlocks;
 
-    size_t m_nSize;
+  size_t m_nSize;
 };
 
 #endif

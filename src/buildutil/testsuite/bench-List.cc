@@ -19,100 +19,84 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/utilities/List.h"
+
 #include <string.h>
 
 #include <benchmark/benchmark.h>
 
-#include "pedigree/kernel/utilities/List.h"
+static void BM_ListPushBack(benchmark::State& state) {
+  List<int64_t> list;
+  const int64_t value = 1;
 
-static void BM_ListPushBack(benchmark::State &state)
-{
-    List<int64_t> list;
-    const int64_t value = 1;
+  while (state.KeepRunning()) {
+    list.pushBack(value);
+  }
 
-    while (state.KeepRunning())
-    {
-        list.pushBack(value);
-    }
-
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_ListPushFront(benchmark::State &state)
-{
-    List<int64_t> list;
-    const int64_t value = 1;
+static void BM_ListPushFront(benchmark::State& state) {
+  List<int64_t> list;
+  const int64_t value = 1;
 
-    while (state.KeepRunning())
-    {
-        list.pushFront(value);
-    }
+  while (state.KeepRunning()) {
+    list.pushFront(value);
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_ListPushPop(benchmark::State &state)
-{
-    List<int64_t> list;
-    const int64_t value = 1;
+static void BM_ListPushPop(benchmark::State& state) {
+  List<int64_t> list;
+  const int64_t value = 1;
 
-    while (state.KeepRunning())
-    {
-        list.pushFront(value);
-        list.popFront();
-    }
+  while (state.KeepRunning()) {
+    list.pushFront(value);
+    list.popFront();
+  }
 
-    state.SetItemsProcessed(int64_t(state.iterations()));
+  state.SetItemsProcessed(int64_t(state.iterations()));
 }
 
-static void BM_ListPopFront(benchmark::State &state)
-{
-    List<int64_t> list;
-    const int64_t value = 1;
+static void BM_ListPopFront(benchmark::State& state) {
+  List<int64_t> list;
+  const int64_t value = 1;
 
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        list.clear();
-        for (size_t i = 0; i < state.range(0); ++i)
-        {
-            list.pushFront(value);
-        }
-        state.ResumeTiming();
-
-        for (size_t i = 0; i < state.range(0); ++i)
-        {
-            list.popFront();
-        }
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    list.clear();
+    for (size_t i = 0; i < state.range(0); ++i) {
+      list.pushFront(value);
     }
+    state.ResumeTiming();
 
-    state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range(0)));
+    for (size_t i = 0; i < state.range(0); ++i) {
+      list.popFront();
+    }
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
-static void BM_ListPopBack(benchmark::State &state)
-{
-    List<int64_t> list;
-    const int64_t value = 1;
+static void BM_ListPopBack(benchmark::State& state) {
+  List<int64_t> list;
+  const int64_t value = 1;
 
-    while (state.KeepRunning())
-    {
-        state.PauseTiming();
-        list.clear();
-        for (size_t i = 0; i < state.range(0); ++i)
-        {
-            list.pushFront(value);
-        }
-        state.ResumeTiming();
-
-        for (size_t i = 0; i < state.range(0); ++i)
-        {
-            list.popBack();
-        }
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    list.clear();
+    for (size_t i = 0; i < state.range(0); ++i) {
+      list.pushFront(value);
     }
+    state.ResumeTiming();
 
-    state.SetItemsProcessed(
-        int64_t(state.iterations()) * int64_t(state.range(0)));
+    for (size_t i = 0; i < state.range(0); ++i) {
+      list.popBack();
+    }
+  }
+
+  state.SetItemsProcessed(int64_t(state.iterations()) * int64_t(state.range(0)));
 }
 
 BENCHMARK(BM_ListPushFront);

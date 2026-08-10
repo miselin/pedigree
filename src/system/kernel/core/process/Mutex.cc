@@ -19,17 +19,14 @@
 
 #include "pedigree/kernel/process/Mutex.h"
 
-Mutex::Mutex() : Semaphore(1, false)
-{
-    initialiseMutex(false);
+Mutex::Mutex() : Semaphore(1, false) {
+  initialiseMutex(false);
 }
 
-Mutex::~Mutex()
-{
-    destroyMutex();
+Mutex::~Mutex() {
+  destroyMutex();
 }
 
-bool Mutex::isOwnedByCurrentThread() const
-{
-    return mutexOwnedByCurrentThread();
+bool Mutex::isOwnedByCurrentThread() const {
+  return mutexOwnedByCurrentThread();
 }

@@ -22,11 +22,8 @@
 Keyboard::Keyboard() = default;
 Keyboard::~Keyboard() = default;
 
-char Keyboard::getLedState()
-{
-    return 0;
+char Keyboard::getLedState() {
+  return 0;
 }
 
-void Keyboard::setLedState(char state)
-{
-}
+void Keyboard::setLedState(char state) {}

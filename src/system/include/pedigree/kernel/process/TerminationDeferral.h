@@ -22,21 +22,20 @@ class Thread;
  * next ordinary WaitQueue, syscall, or user-mode scheduler boundary after the
  * outermost scope has retired its state.
  */
-class EXPORTED_PUBLIC TerminationDeferral
-{
-  public:
-    explicit TerminationDeferral(bool active = true);
-    TerminationDeferral(TerminationDeferral &&other);
-    ~TerminationDeferral();
+class EXPORTED_PUBLIC TerminationDeferral {
+ public:
+  explicit TerminationDeferral(bool active = true);
+  TerminationDeferral(TerminationDeferral&& other);
+  ~TerminationDeferral();
 
-    TerminationDeferral &operator=(TerminationDeferral &&other);
+  TerminationDeferral& operator=(TerminationDeferral&& other);
 
-  private:
-    TerminationDeferral(const TerminationDeferral &) = delete;
-    TerminationDeferral &operator=(const TerminationDeferral &) = delete;
+ private:
+  TerminationDeferral(const TerminationDeferral&) = delete;
+  TerminationDeferral& operator=(const TerminationDeferral&) = delete;
 
-    Thread *m_pThread;
-    DeferredScopeRecord m_Record;
+  Thread* m_pThread;
+  DeferredScopeRecord m_Record;
 };
 
 #endif

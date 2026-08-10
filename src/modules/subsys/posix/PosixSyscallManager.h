@@ -25,36 +25,34 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Tree.h"
 
-class PosixSyscallManager : public SyscallHandler
-{
-  public:
-    bool initialise();
-    bool shutdown();
+class PosixSyscallManager : public SyscallHandler {
+ public:
+  bool initialise();
+  bool shutdown();
 
-    /** Calls a syscall. */
-    uintptr_t call(
-        uintptr_t function, uintptr_t p1 = 0, uintptr_t p2 = 0,
-        uintptr_t p3 = 0, uintptr_t p4 = 0, uintptr_t p5 = 0);
+  /** Calls a syscall. */
+  uintptr_t call(uintptr_t function, uintptr_t p1 = 0, uintptr_t p2 = 0, uintptr_t p3 = 0,
+                 uintptr_t p4 = 0, uintptr_t p5 = 0);
 
-    /** Called when a syscall arrives. */
-    virtual uintptr_t syscall(SyscallState &state);
+  /** Called when a syscall arrives. */
+  virtual uintptr_t syscall(SyscallState& state);
 
-    /** The constructor */
-    PosixSyscallManager();
-    /** The destructor */
-    virtual ~PosixSyscallManager();
+  /** The constructor */
+  PosixSyscallManager();
+  /** The destructor */
+  virtual ~PosixSyscallManager();
 
-  private:
-    /** The copy-constructor
-     *\note Not implemented (singleton) */
-    PosixSyscallManager(const PosixSyscallManager &);
-    /** The copy-constructor
-     *\note Not implemented (singleton) */
-    PosixSyscallManager &operator=(const PosixSyscallManager &);
-    /** Records seen unknown syscalls so we don't spam logs. */
-    Tree<uint64_t, bool> m_SeenUnknownSyscalls;
-    SyscallManager::Registration m_LinuxRegistration;
-    SyscallManager::Registration m_PosixRegistration;
+ private:
+  /** The copy-constructor
+   *\note Not implemented (singleton) */
+  PosixSyscallManager(const PosixSyscallManager&);
+  /** The copy-constructor
+   *\note Not implemented (singleton) */
+  PosixSyscallManager& operator=(const PosixSyscallManager&);
+  /** Records seen unknown syscalls so we don't spam logs. */
+  Tree<uint64_t, bool> m_SeenUnknownSyscalls;
+  SyscallManager::Registration m_LinuxRegistration;
+  SyscallManager::Registration m_PosixRegistration;
 };
 
 #endif

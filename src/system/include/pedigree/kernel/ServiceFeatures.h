@@ -28,41 +28,39 @@
  *  This class provides a central interface for finding out the features
  *  a Service exposes to the system.
  */
-class EXPORTED_PUBLIC ServiceFeatures
-{
-  public:
-    enum Type
-    {
-        /** Write: send data to the Service. Open to interpretation (OTI) */
-        write = 0,
+class EXPORTED_PUBLIC ServiceFeatures {
+ public:
+  enum Type {
+    /** Write: send data to the Service. Open to interpretation (OTI) */
+    write = 0,
 
-        /** Read: obtain data form the service. OTI */
-        read = 1,
+    /** Read: obtain data form the service. OTI */
+    read = 1,
 
-        /** Touch: inform of new state, pass relevant object data */
-        touch = 2,
+    /** Touch: inform of new state, pass relevant object data */
+    touch = 2,
 
-        /** Probe: what's happening? OTI */
-        probe = 4,
+    /** Probe: what's happening? OTI */
+    probe = 4,
 
-        /** Withdraw: remove state previously registered with touch. */
-        withdraw = 8
-    };
+    /** Withdraw: remove state previously registered with touch. */
+    withdraw = 8
+  };
 
-    ServiceFeatures();
-    virtual ~ServiceFeatures();
+  ServiceFeatures();
+  virtual ~ServiceFeatures();
 
-    /** Does the operation provide a specific service? */
-    virtual bool provides(Type service);
+  /** Does the operation provide a specific service? */
+  virtual bool provides(Type service);
 
-    /** Used by the Service itself when installing */
-    virtual void add(Type s);
+  /** Used by the Service itself when installing */
+  virtual void add(Type s);
 
-    /** Used by the Service itself to dynamically change offered features */
-    virtual void remove(Type s);
+  /** Used by the Service itself to dynamically change offered features */
+  virtual void remove(Type s);
 
-  private:
-    uint32_t m_OpEnum;
+ private:
+  uint32_t m_OpEnum;
 };
 
 #endif

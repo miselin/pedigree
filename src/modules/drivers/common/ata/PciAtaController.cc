@@ -18,10 +18,6 @@
  */
 
 #include "PciAtaController.h"
-#include "AtaDisk.h"
-#include "BusMasterIde.h"
-#include "ata-common.h"
-#include "modules/drivers/common/scsi/ScsiController.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Controller.h"
 #include "pedigree/kernel/machine/Device.h"
@@ -37,408 +33,358 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-PciAtaController::PciAtaController(Controller *pDev, int nController)
-    : AtaController(pDev, nController), m_pCommandRegs(nullptr),
-      m_pControlRegs(nullptr), m_PciControllerType(UnknownController),
-      m_IrqIds(), m_IrqCount(0), m_nController(nController)
-{
-    setSpecificType(String("ata-controller"));
+#include "AtaDisk.h"
+#include "BusMasterIde.h"
+#include "ata-common.h"
+#include "modules/drivers/common/scsi/ScsiController.h"
 
-    // Determine controller type
-    NormalStaticString str;
-    switch (getPciDeviceId())
-    {
-        case 0x1230:
-            m_PciControllerType = PIIX;
-            str = "PIIX";
-            break;
-        case 0x7010:
-            m_PciControllerType = PIIX3;
-            str = "PIIX3";
-            break;
-        case 0x7111:
-            m_PciControllerType = PIIX4;
-            str = "PIIX4";
-            break;
-        case 0x2411:
-            m_PciControllerType = ICH;
-            str = "ICH";
-            break;
-        case 0x2421:
-            m_PciControllerType = ICH0;
-            str = "ICH0";
-            break;
-        case 0x244A:
-        case 0x244B:
-            m_PciControllerType = ICH2;
-            str = "ICH2";
-            break;
-        case 0x248A:
-        case 0x248B:
-            m_PciControllerType = ICH3;
-            str = "ICH3";
-            break;
-        case 0x24CA:
-        case 0x24CB:
-            m_PciControllerType = ICH4;
-            str = "ICH4";
-            break;
-        case 0x24DB:
-            m_PciControllerType = ICH5;
-            str = "ICH5";
-            break;
-        default:
-            m_PciControllerType = UnknownController;
-            str = "<unknown>";
-            break;
-    }
-    str += " PCI IDE controller found";
-    NOTICE(static_cast<const char *>(str));
+PciAtaController::PciAtaController(Controller* pDev, int nController)
+    : AtaController(pDev, nController),
+      m_pCommandRegs(nullptr),
+      m_pControlRegs(nullptr),
+      m_PciControllerType(UnknownController),
+      m_IrqIds(),
+      m_IrqCount(0),
+      m_nController(nController) {
+  setSpecificType(String("ata-controller"));
 
-    if (m_PciControllerType == UnknownController)
-        return;
+  // Determine controller type
+  NormalStaticString str;
+  switch (getPciDeviceId()) {
+    case 0x1230:
+      m_PciControllerType = PIIX;
+      str = "PIIX";
+      break;
+    case 0x7010:
+      m_PciControllerType = PIIX3;
+      str = "PIIX3";
+      break;
+    case 0x7111:
+      m_PciControllerType = PIIX4;
+      str = "PIIX4";
+      break;
+    case 0x2411:
+      m_PciControllerType = ICH;
+      str = "ICH";
+      break;
+    case 0x2421:
+      m_PciControllerType = ICH0;
+      str = "ICH0";
+      break;
+    case 0x244A:
+    case 0x244B:
+      m_PciControllerType = ICH2;
+      str = "ICH2";
+      break;
+    case 0x248A:
+    case 0x248B:
+      m_PciControllerType = ICH3;
+      str = "ICH3";
+      break;
+    case 0x24CA:
+    case 0x24CB:
+      m_PciControllerType = ICH4;
+      str = "ICH4";
+      break;
+    case 0x24DB:
+      m_PciControllerType = ICH5;
+      str = "ICH5";
+      break;
+    default:
+      m_PciControllerType = UnknownController;
+      str = "<unknown>";
+      break;
+  }
+  str += " PCI IDE controller found";
+  NOTICE(static_cast<const char*>(str));
 
-    // Find BAR4 (BusMaster registers)
-    Device::Address *bar4 = 0;
-    for (size_t i = 0; i < addresses().count(); i++)
-    {
-        if (!StringCompare(
-                static_cast<const char *>(addresses()[i]->m_Name), "bar4"))
-            bar4 = addresses()[i];
-    }
+  if (m_PciControllerType == UnknownController)
+    return;
 
-    m_Children.clear();
+  // Find BAR4 (BusMaster registers)
+  Device::Address* bar4 = 0;
+  for (size_t i = 0; i < addresses().count(); i++) {
+    if (!StringCompare(static_cast<const char*>(addresses()[i]->m_Name), "bar4"))
+      bar4 = addresses()[i];
+  }
 
-    // Read the BusMaster interface base address register and tell it where we
-    // would like to talk to it (BAR4).
-    if (bar4)
-    {
-        uint32_t busMasterIfaceAddr =
-            PciBus::instance().readConfigSpace(pDev, 8);
-        busMasterIfaceAddr &= 0xFFFF000F;
-        busMasterIfaceAddr |= bar4->m_Address & 0xFFF0;
-        NOTICE(
-            "    - Bus master interface base register at " << bar4->m_Address);
-        PciBus::instance().writeConfigSpace(pDev, 8, busMasterIfaceAddr);
+  m_Children.clear();
 
-        // Read the command register and then enable I/O space. We do this so
-        // that we can still access drives using PIO. We also enable the
-        // BusMaster function on the controller.
-        uint32_t commandReg = PciBus::instance().readConfigSpace(pDev, 1);
-        commandReg = (commandReg & ~(0x7)) | 0x7;
-        PciBus::instance().writeConfigSpace(pDev, 1, commandReg);
+  // Read the BusMaster interface base address register and tell it where we
+  // would like to talk to it (BAR4).
+  if (bar4) {
+    uint32_t busMasterIfaceAddr = PciBus::instance().readConfigSpace(pDev, 8);
+    busMasterIfaceAddr &= 0xFFFF000F;
+    busMasterIfaceAddr |= bar4->m_Address & 0xFFF0;
+    NOTICE("    - Bus master interface base register at " << bar4->m_Address);
+    PciBus::instance().writeConfigSpace(pDev, 8, busMasterIfaceAddr);
 
-        // Fiddle with the IDE timing registers
-        // TIME0, TIME1, IE0, IE1, PPE0, PPE1, DTE0, DTE1, minimum recovery
-        // time, minimum IORDY sample point, IDE decode enable.
-        uint32_t ideTiming = 0xB3FF;
-        // Apply to both channels.
-        ideTiming |= (ideTiming << 16);
-        PciBus::instance().writeConfigSpace(pDev, 0x10, ideTiming);
+    // Read the command register and then enable I/O space. We do this so
+    // that we can still access drives using PIO. We also enable the
+    // BusMaster function on the controller.
+    uint32_t commandReg = PciBus::instance().readConfigSpace(pDev, 1);
+    commandReg = (commandReg & ~(0x7)) | 0x7;
+    PciBus::instance().writeConfigSpace(pDev, 1, commandReg);
 
-        // Write the interrupt line into the PCI space if needed.
-        // This is only meaningful for < PIIX3...
-        if (m_PciControllerType == PIIX)
-        {
-            uint32_t miscFields = PciBus::instance().readConfigSpace(pDev, 0xF);
-            if ((miscFields & 0xF) != getInterruptNumber())
-            {
-                if (getInterruptNumber())
-                {
-                    miscFields &= ~0xF;
-                    miscFields |= getInterruptNumber() & 0xF;
-                }
-            }
-            PciBus::instance().writeConfigSpace(pDev, 0xF, miscFields);
+    // Fiddle with the IDE timing registers
+    // TIME0, TIME1, IE0, IE1, PPE0, PPE1, DTE0, DTE1, minimum recovery
+    // time, minimum IORDY sample point, IDE decode enable.
+    uint32_t ideTiming = 0xB3FF;
+    // Apply to both channels.
+    ideTiming |= (ideTiming << 16);
+    PciBus::instance().writeConfigSpace(pDev, 0x10, ideTiming);
+
+    // Write the interrupt line into the PCI space if needed.
+    // This is only meaningful for < PIIX3...
+    if (m_PciControllerType == PIIX) {
+      uint32_t miscFields = PciBus::instance().readConfigSpace(pDev, 0xF);
+      if ((miscFields & 0xF) != getInterruptNumber()) {
+        if (getInterruptNumber()) {
+          miscFields &= ~0xF;
+          miscFields |= getInterruptNumber() & 0xF;
         }
-
-        // PIIX4+ has Ultra DMA configuration.
-        /// \todo for ICH and the like, there's more Ultra DMA configuration.
-        if (m_PciControllerType == PIIX4)
-        {
-            // UDMACTL register - enable UDMA mode for all drives.
-            uint32_t udmactl = PciBus::instance().readConfigSpace(pDev, 0x12);
-            udmactl |= 0xF;
-            PciBus::instance().writeConfigSpace(pDev, 0x12, udmactl);
-
-            // Set timings for UDMA2 (Ultra DMA 33, max supported by PIIX4).
-            uint32_t timings = PciBus::instance().readConfigSpace(pDev, 0x13);
-            uint16_t target_timings = 0x2 * 0x3333;
-            timings = (timings & 0xFFFF) | target_timings;
-            PciBus::instance().writeConfigSpace(pDev, 0x13, timings);
-        }
+      }
+      PciBus::instance().writeConfigSpace(pDev, 0xF, miscFields);
     }
 
-    // The controller must be able to perform BusMaster IDE DMA transfers, or
-    // else we have to fall back to PIO transfers.
-    bool bDma = false;
-    if (bar4 && (pDev->getPciProgInterface() & 0x80))
-    {
-        NOTICE("    - This is a DMA capable controller");
-        bDma = true;
+    // PIIX4+ has Ultra DMA configuration.
+    /// \todo for ICH and the like, there's more Ultra DMA configuration.
+    if (m_PciControllerType == PIIX4) {
+      // UDMACTL register - enable UDMA mode for all drives.
+      uint32_t udmactl = PciBus::instance().readConfigSpace(pDev, 0x12);
+      udmactl |= 0xF;
+      PciBus::instance().writeConfigSpace(pDev, 0x12, udmactl);
+
+      // Set timings for UDMA2 (Ultra DMA 33, max supported by PIIX4).
+      uint32_t timings = PciBus::instance().readConfigSpace(pDev, 0x13);
+      uint16_t target_timings = 0x2 * 0x3333;
+      timings = (timings & 0xFFFF) | target_timings;
+      PciBus::instance().writeConfigSpace(pDev, 0x13, timings);
     }
+  }
+
+  // The controller must be able to perform BusMaster IDE DMA transfers, or
+  // else we have to fall back to PIO transfers.
+  bool bDma = false;
+  if (bar4 && (pDev->getPciProgInterface() & 0x80)) {
+    NOTICE("    - This is a DMA capable controller");
+    bDma = true;
+  }
 
 #if !KERNEL_PROCESSOR_NO_PORT_IO
-    IoPort *masterCommand = new IoPort("pci-ide-master-cmd");
-    IoPort *slaveCommand = new IoPort("pci-ide-slave-cmd");
-    IoPort *masterControl = new IoPort("pci-ide-master-ctl");
-    IoPort *slaveControl = new IoPort("pci-ide-slave-ctl");
+  IoPort* masterCommand = new IoPort("pci-ide-master-cmd");
+  IoPort* slaveCommand = new IoPort("pci-ide-slave-cmd");
+  IoPort* masterControl = new IoPort("pci-ide-master-ctl");
+  IoPort* slaveControl = new IoPort("pci-ide-slave-ctl");
 
-    /// \todo Bus master registerss may be memory mapped...
-    IoPort *bar4_a = 0;
-    IoPort *bar4_b = 0;
-    BusMasterIde *primaryBusMaster = 0;
-    BusMasterIde *secondaryBusMaster = 0;
-    if (bDma)
-    {
-        uintptr_t addr = bar4->m_Address;
+  /// \todo Bus master registerss may be memory mapped...
+  IoPort* bar4_a = 0;
+  IoPort* bar4_b = 0;
+  BusMasterIde* primaryBusMaster = 0;
+  BusMasterIde* secondaryBusMaster = 0;
+  if (bDma) {
+    uintptr_t addr = bar4->m_Address;
 
-        // Okay, now delete the BAR's IoBase. We're not going to use it again,
-        // and we need the ports.
-        delete bar4->m_Io;
-        bar4->m_Io = 0;
+    // Okay, now delete the BAR's IoBase. We're not going to use it again,
+    // and we need the ports.
+    delete bar4->m_Io;
+    bar4->m_Io = 0;
 
-        bar4_a = new IoPort("pci-ide-busmaster-primary");
-        if (!bar4_a->allocate(addr, 8))
-        {
-            ERROR("Couldn't allocate primary BusMaster ports");
-            delete bar4_a;
-            bar4_a = 0;
-        }
-
-        bar4_b = new IoPort("pci-ide-busmaster-secondary");
-        if (!bar4_b->allocate(addr + 8, 8))
-        {
-            ERROR("Couldn't allocate secondary BusMaster ports");
-            delete bar4_b;
-            bar4_b = 0;
-        }
-
-        // Create the BusMasterIde objects
-        if (bar4_a)
-        {
-            primaryBusMaster = new BusMasterIde;
-            if (!primaryBusMaster->initialise(bar4_a))
-            {
-                ERROR("Couldn't initialise primary BusMaster IDE interface");
-                delete primaryBusMaster;
-                delete bar4_a;
-
-                primaryBusMaster = 0;
-            }
-        }
-        if (bar4_b)
-        {
-            secondaryBusMaster = new BusMasterIde;
-            if (!secondaryBusMaster->initialise(bar4_b))
-            {
-                ERROR("Couldn't initialise secondary BusMaster IDE interface");
-                delete secondaryBusMaster;
-                delete bar4_b;
-
-                secondaryBusMaster = 0;
-            }
-        }
+    bar4_a = new IoPort("pci-ide-busmaster-primary");
+    if (!bar4_a->allocate(addr, 8)) {
+      ERROR("Couldn't allocate primary BusMaster ports");
+      delete bar4_a;
+      bar4_a = 0;
     }
 
-    // By default, this is the port layout we can expect for the system
-    /// \todo ICH will have "native mode" to worry about
-    if (!masterCommand->allocate(0x1F0, 8))
-        ERROR("Couldn't allocate master command ports");
-    if (!masterControl->allocate(0x3F4, 4))
-        ERROR("Couldn't allocate master control ports");
-    if (!slaveCommand->allocate(0x170, 8))
-        ERROR("Couldn't allocate slave command ports");
-    if (!slaveControl->allocate(0x374, 4))
-        ERROR("Couldn't allocate slave control ports");
-
-    // Check for non-existent controllers.
-    AtaStatus masterStatus = ataWait(masterCommand, masterControl);
-    AtaStatus slaveStatus = ataWait(slaveCommand, slaveControl);
-    if (masterStatus.__reg_contents == 0xff)
-    {
-        delete masterCommand;
-        delete masterControl;
-        masterCommand = 0;
-        masterControl = 0;
-    }
-    if (slaveStatus.__reg_contents == 0xff)
-    {
-        delete slaveCommand;
-        delete slaveControl;
-        slaveCommand = 0;
-        slaveControl = 0;
+    bar4_b = new IoPort("pci-ide-busmaster-secondary");
+    if (!bar4_b->allocate(addr + 8, 8)) {
+      ERROR("Couldn't allocate secondary BusMaster ports");
+      delete bar4_b;
+      bar4_b = 0;
     }
 
-    // Kick off an SRST on each control port.
-    if (masterControl)
-    {
-        masterControl->write8(0x6, 2);
-        Processor::pause();  // Hold SRST for 5 nanoseconds. /// \todo Better
-                             // way of doing this?
-        masterControl->write8(0x2, 2);
-    }
-    if (slaveControl)
-    {
-        slaveControl->write8(0x6, 2);
-        Processor::pause();
-        slaveControl->write8(0x2, 2);
-    }
+    // Create the BusMasterIde objects
+    if (bar4_a) {
+      primaryBusMaster = new BusMasterIde;
+      if (!primaryBusMaster->initialise(bar4_a)) {
+        ERROR("Couldn't initialise primary BusMaster IDE interface");
+        delete primaryBusMaster;
+        delete bar4_a;
 
-    Time::delay(
-        2 * Time::Multiplier::Millisecond);  // Wait 2 ms after clearing.
-
-    if (masterCommand)
-        ataWait(masterCommand, masterControl);
-    if (slaveCommand)
-        ataWait(slaveCommand, slaveControl);
-
-    // Install our IRQ handler
-    if (getInterruptNumber() != 0xFF)
-    {
-        irq_id_t irqId =
-            Machine::instance().getIrqManager()->registerPciIrqHandler(
-                static_cast<IrqHandler *>(this), this,
-                IrqPolicy::pciIntxThreaded());
-        if (irqId)
-        {
-            m_IrqIds[m_IrqCount++] = irqId;
-        }
+        primaryBusMaster = 0;
+      }
     }
+    if (bar4_b) {
+      secondaryBusMaster = new BusMasterIde;
+      if (!secondaryBusMaster->initialise(bar4_b)) {
+        ERROR("Couldn't initialise secondary BusMaster IDE interface");
+        delete secondaryBusMaster;
+        delete bar4_b;
 
-    /// \todo Detect PCI IRQ, don't use ISA IRQs in native mode (etc...)
-    size_t primaryIrq = 14, secondaryIrq = 15;
-    if (primaryIrq != getInterruptNumber())
-    {
-        irq_id_t irqId =
-            Machine::instance().getIrqManager()->registerIsaIrqHandler(
-                primaryIrq, static_cast<IrqHandler *>(this),
-                IrqPolicy::edgeThreaded());
-        if (irqId)
-        {
-            m_IrqIds[m_IrqCount++] = irqId;
-        }
+        secondaryBusMaster = 0;
+      }
     }
-    if (secondaryIrq != getInterruptNumber())
-    {
-        irq_id_t irqId =
-            Machine::instance().getIrqManager()->registerIsaIrqHandler(
-                secondaryIrq, static_cast<IrqHandler *>(this),
-                IrqPolicy::edgeThreaded());
-        if (irqId)
-        {
-            m_IrqIds[m_IrqCount++] = irqId;
-        }
-    }
+  }
 
-    // And finally, create disks
-    if (masterControl)
-    {
-        diskHelper(
-            true, masterCommand, masterControl, primaryBusMaster, primaryIrq);
-        diskHelper(
-            false, masterCommand, masterControl, primaryBusMaster, primaryIrq);
-    }
+  // By default, this is the port layout we can expect for the system
+  /// \todo ICH will have "native mode" to worry about
+  if (!masterCommand->allocate(0x1F0, 8))
+    ERROR("Couldn't allocate master command ports");
+  if (!masterControl->allocate(0x3F4, 4))
+    ERROR("Couldn't allocate master control ports");
+  if (!slaveCommand->allocate(0x170, 8))
+    ERROR("Couldn't allocate slave command ports");
+  if (!slaveControl->allocate(0x374, 4))
+    ERROR("Couldn't allocate slave control ports");
 
-    if (slaveControl)
-    {
-        diskHelper(
-            true, slaveCommand, slaveControl, secondaryBusMaster, secondaryIrq);
-        diskHelper(
-            false, slaveCommand, slaveControl, secondaryBusMaster,
-            secondaryIrq);
+  // Check for non-existent controllers.
+  AtaStatus masterStatus = ataWait(masterCommand, masterControl);
+  AtaStatus slaveStatus = ataWait(slaveCommand, slaveControl);
+  if (masterStatus.__reg_contents == 0xff) {
+    delete masterCommand;
+    delete masterControl;
+    masterCommand = 0;
+    masterControl = 0;
+  }
+  if (slaveStatus.__reg_contents == 0xff) {
+    delete slaveCommand;
+    delete slaveControl;
+    slaveCommand = 0;
+    slaveControl = 0;
+  }
+
+  // Kick off an SRST on each control port.
+  if (masterControl) {
+    masterControl->write8(0x6, 2);
+    Processor::pause();  // Hold SRST for 5 nanoseconds. /// \todo Better
+                         // way of doing this?
+    masterControl->write8(0x2, 2);
+  }
+  if (slaveControl) {
+    slaveControl->write8(0x6, 2);
+    Processor::pause();
+    slaveControl->write8(0x2, 2);
+  }
+
+  Time::delay(2 * Time::Multiplier::Millisecond);  // Wait 2 ms after clearing.
+
+  if (masterCommand)
+    ataWait(masterCommand, masterControl);
+  if (slaveCommand)
+    ataWait(slaveCommand, slaveControl);
+
+  // Install our IRQ handler
+  if (getInterruptNumber() != 0xFF) {
+    irq_id_t irqId = Machine::instance().getIrqManager()->registerPciIrqHandler(
+        static_cast<IrqHandler*>(this), this, IrqPolicy::pciIntxThreaded());
+    if (irqId) {
+      m_IrqIds[m_IrqCount++] = irqId;
     }
+  }
+
+  /// \todo Detect PCI IRQ, don't use ISA IRQs in native mode (etc...)
+  size_t primaryIrq = 14, secondaryIrq = 15;
+  if (primaryIrq != getInterruptNumber()) {
+    irq_id_t irqId = Machine::instance().getIrqManager()->registerIsaIrqHandler(
+        primaryIrq, static_cast<IrqHandler*>(this), IrqPolicy::edgeThreaded());
+    if (irqId) {
+      m_IrqIds[m_IrqCount++] = irqId;
+    }
+  }
+  if (secondaryIrq != getInterruptNumber()) {
+    irq_id_t irqId = Machine::instance().getIrqManager()->registerIsaIrqHandler(
+        secondaryIrq, static_cast<IrqHandler*>(this), IrqPolicy::edgeThreaded());
+    if (irqId) {
+      m_IrqIds[m_IrqCount++] = irqId;
+    }
+  }
+
+  // And finally, create disks
+  if (masterControl) {
+    diskHelper(true, masterCommand, masterControl, primaryBusMaster, primaryIrq);
+    diskHelper(false, masterCommand, masterControl, primaryBusMaster, primaryIrq);
+  }
+
+  if (slaveControl) {
+    diskHelper(true, slaveCommand, slaveControl, secondaryBusMaster, secondaryIrq);
+    diskHelper(false, slaveCommand, slaveControl, secondaryBusMaster, secondaryIrq);
+  }
 #else
-    ERROR("PCI ATA: no good, this machine has no port I/O");
+  ERROR("PCI ATA: no good, this machine has no port I/O");
 #endif
 }
 
-PciAtaController::~PciAtaController()
-{
-    shutdownDiskCaches();
-    RequestQueue::destroy();
-    maskDiskInterrupts();
+PciAtaController::~PciAtaController() {
+  shutdownDiskCaches();
+  RequestQueue::destroy();
+  maskDiskInterrupts();
 
-    IrqManager *irqManager = Machine::instance().getIrqManager();
-    for (size_t i = 0; i < m_IrqCount; ++i)
-    {
-        if (
-            !irqManager->unregisterHandler(
-                m_IrqIds[i], static_cast<IrqHandler *>(this)))
-        {
-            FATAL("PCI ATA controller could not drain an IRQ handler");
-        }
-        m_IrqIds[i] = 0;
+  IrqManager* irqManager = Machine::instance().getIrqManager();
+  for (size_t i = 0; i < m_IrqCount; ++i) {
+    if (!irqManager->unregisterHandler(m_IrqIds[i], static_cast<IrqHandler*>(this))) {
+      FATAL("PCI ATA controller could not drain an IRQ handler");
     }
-    m_IrqCount = 0;
+    m_IrqIds[i] = 0;
+  }
+  m_IrqCount = 0;
 
-    stopDiskDma();
+  stopDiskDma();
 }
 
-void PciAtaController::diskHelper(
-    bool master, IoBase *cmd, IoBase *ctl, BusMasterIde *dma, size_t irq)
-{
-    AtaDisk *pDisk = new AtaDisk(this, master, cmd, ctl, dma);
-    pDisk->setInterruptNumber(irq);
+void PciAtaController::diskHelper(bool master, IoBase* cmd, IoBase* ctl, BusMasterIde* dma,
+                                  size_t irq) {
+  AtaDisk* pDisk = new AtaDisk(this, master, cmd, ctl, dma);
+  pDisk->setInterruptNumber(irq);
 
-    // Allow the initialisation to use sendCommand.
-    size_t n = getNumChildren();
-    addChild(pDisk);
+  // Allow the initialisation to use sendCommand.
+  size_t n = getNumChildren();
+  addChild(pDisk);
 
-    if (!pDisk->initialise(n))
-    {
-        removeChild(pDisk);
-        delete pDisk;
-    }
+  if (!pDisk->initialise(n)) {
+    removeChild(pDisk);
+    delete pDisk;
+  }
 }
 
-bool PciAtaController::sendCommand(
-    size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
-    uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite)
-{
-    Device *pChild = getChild(nUnit);
-    if (!pChild)
-    {
-        ERROR("PCI ATA: sendCommand called with a bad unit number.");
-        return false;
-    }
+bool PciAtaController::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
+                                   uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite) {
+  Device* pChild = getChild(nUnit);
+  if (!pChild) {
+    ERROR("PCI ATA: sendCommand called with a bad unit number.");
+    return false;
+  }
 
-    AtaDisk *pDisk = static_cast<AtaDisk *>(pChild);
-    return pDisk->sendCommand(
-        nUnit, pCommand, nCommandSize, pRespBuffer, nRespBytes, bWrite);
+  AtaDisk* pDisk = static_cast<AtaDisk*>(pChild);
+  return pDisk->sendCommand(nUnit, pCommand, nCommandSize, pRespBuffer, nRespBytes, bWrite);
 }
 
-uint64_t PciAtaController::executeRequest(
-    uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-    uint64_t p6, uint64_t p7, uint64_t p8)
-{
-    // Pin handling threads to the BSP as we depend on IRQs.
-    Processor::information().getCurrentThread()->forceToStartupProcessor();
+uint64_t PciAtaController::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
+                                          uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8) {
+  // Pin handling threads to the BSP as we depend on IRQs.
+  Processor::information().getCurrentThread()->forceToStartupProcessor();
 
-    AtaDisk *pDisk = reinterpret_cast<AtaDisk *>(p2);
-    if (p1 == SCSI_REQUEST_READ)
-        return pDisk->doRead(p3);
-    else if (p1 == SCSI_REQUEST_WRITE)
-        return pDisk->doWrite(p3);
-    else
-        return 0;
+  AtaDisk* pDisk = reinterpret_cast<AtaDisk*>(p2);
+  if (p1 == SCSI_REQUEST_READ)
+    return pDisk->doRead(p3);
+  else if (p1 == SCSI_REQUEST_WRITE)
+    return pDisk->doWrite(p3);
+  else
+    return 0;
 }
 
-IrqDisposition PciAtaController::irq(irq_id_t number)
-{
-    for (unsigned int i = 0; i < getNumChildren(); i++)
-    {
-        AtaDisk *pDisk = static_cast<AtaDisk *>(getChild(i));
-        if (pDisk->getInterruptNumber() != number)
-            continue;
+IrqDisposition PciAtaController::irq(irq_id_t number) {
+  for (unsigned int i = 0; i < getNumChildren(); i++) {
+    AtaDisk* pDisk = static_cast<AtaDisk*>(getChild(i));
+    if (pDisk->getInterruptNumber() != number)
+      continue;
 
-        BusMasterIde *pBusMaster = pDisk->getBusMaster();
-        if (pBusMaster)
-        {
-            // No active DMA transfer - clear interrupt/error bits.
-            pBusMaster->completeIdleTransaction();
-        }
-        pDisk->irqReceived();
+    BusMasterIde* pBusMaster = pDisk->getBusMaster();
+    if (pBusMaster) {
+      // No active DMA transfer - clear interrupt/error bits.
+      pBusMaster->completeIdleTransaction();
     }
-    return IrqDisposition::Handled;
+    pDisk->irqReceived();
+  }
+  return IrqDisposition::Handled;
 }

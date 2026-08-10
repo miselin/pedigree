@@ -8,13 +8,12 @@
 #ifndef PEDIGREE_KERNEL_PROCESSOR_HOSTED_SMOKE_H
 #define PEDIGREE_KERNEL_PROCESSOR_HOSTED_SMOKE_H
 
-enum HostedSmokeStage
-{
-    HostedSmokeNone,
-    HostedSmokeRoot,
-    HostedSmokeInit,
-    HostedSmokeCommand,
-    HostedSmokeShutdown,
+enum HostedSmokeStage {
+  HostedSmokeNone,
+  HostedSmokeRoot,
+  HostedSmokeInit,
+  HostedSmokeCommand,
+  HostedSmokeShutdown,
 };
 
 extern "C" HostedSmokeStage g_HostedSmokeStage;

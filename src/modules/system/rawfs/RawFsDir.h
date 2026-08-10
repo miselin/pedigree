@@ -20,36 +20,32 @@
 #ifndef RAWFS_DIRECTORY_H
 #define RAWFS_DIRECTORY_H
 
-#include "modules/system/vfs/Directory.h"
 #include "pedigree/kernel/utilities/String.h"
+
+#include "modules/system/vfs/Directory.h"
 
 class File;
 
-class RawFsDir : public Directory
-{
-  private:
-    /** Copy constructors are hidden - unused! */
-    RawFsDir(const RawFsDir &file);
-    RawFsDir &operator=(const RawFsDir &);
+class RawFsDir : public Directory {
+ private:
+  /** Copy constructors are hidden - unused! */
+  RawFsDir(const RawFsDir& file);
+  RawFsDir& operator=(const RawFsDir&);
 
-  public:
-    /** Constructor, should only be called by RawFs. */
-    RawFsDir(String name, class RawFs *pFs, File *pParent);
-    virtual ~RawFsDir();
-    /** Reads directory contents into File* cache. */
-    virtual void cacheDirectoryContents()
-    {
-    }
+ public:
+  /** Constructor, should only be called by RawFs. */
+  RawFsDir(String name, class RawFs* pFs, File* pParent);
+  virtual ~RawFsDir();
+  /** Reads directory contents into File* cache. */
+  virtual void cacheDirectoryContents() {}
 
-    virtual void fileAttributeChanged()
-    {
-    }
+  virtual void fileAttributeChanged() {}
 
-    /** Adds an entry to this directory.
-        \note To be called by RawFS only. */
-    void addEntry(File *pEntry);
+  /** Adds an entry to this directory.
+      \note To be called by RawFS only. */
+  void addEntry(File* pEntry);
 
-    void removeRecursive();
+  void removeRecursive();
 };
 
 #endif

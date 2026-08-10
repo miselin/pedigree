@@ -29,139 +29,134 @@ class String;
 /**
  * A disk is a random access fixed size block device.
  */
-class EXPORTED_PUBLIC Disk : public Device
-{
-  public:
-    enum SubType
-    {
-        ATA = 0,
-        ATAPI
-    };
+class EXPORTED_PUBLIC Disk : public Device {
+ public:
+  enum SubType { ATA = 0, ATAPI };
 
-    Disk();
-    Disk(Device *p);
-    virtual ~Disk();
+  Disk();
+  Disk(Device* p);
+  virtual ~Disk();
 
-    virtual Type getType();
+  virtual Type getType();
 
-    virtual SubType getSubType();
+  virtual SubType getSubType();
 
-    virtual void getName(String &str);
+  virtual void getName(String& str);
 
-    virtual void dump(String &str);
+  virtual void dump(String& str);
 
-    /**
-     * Read from \p location on disk and return a pointer to it. \p location
-     * must be 512 byte aligned. The pointer returned is within a page of
-     * cache that maps to one native 4096-byte page of disk area.
-     * \note A successful read returns exactly one caller-owned reference to the
-     *       native cache page containing \p location. Use unpin() exactly once
-     *       when that page is no longer in use. Larger device block sizes are
-     *       internal I/O/readahead extents and do not extend this ownership.
-     * \param location The offset from the start of the device, in bytes,
-     *        to start the read, must be multiple of 512.
-     * \return Pointer to writable area of memory containing the data, or zero
-     *         on failure. If the data is written, the page is marked as dirty
-     *         and may be written back to disk at any time (or forced with
-     *         \c write() or \c flush() ).
-     */
-    virtual uintptr_t read(uint64_t location);
+  /**
+   * Read from \p location on disk and return a pointer to it. \p location
+   * must be 512 byte aligned. The pointer returned is within a page of
+   * cache that maps to one native 4096-byte page of disk area.
+   * \note A successful read returns exactly one caller-owned reference to the
+   *       native cache page containing \p location. Use unpin() exactly once
+   *       when that page is no longer in use. Larger device block sizes are
+   *       internal I/O/readahead extents and do not extend this ownership.
+   * \param location The offset from the start of the device, in bytes,
+   *        to start the read, must be multiple of 512.
+   * \return Pointer to writable area of memory containing the data, or zero
+   *         on failure. If the data is written, the page is marked as dirty
+   *         and may be written back to disk at any time (or forced with
+   *         \c write() or \c flush() ).
+   */
+  virtual uintptr_t read(uint64_t location);
 
-    /**
-     * This function schedules a cache writeback of the given location.
-     * The data to be written back is fetched from the cache (pointer returned
-     * by \c read() ).
-     * \param location The offset from the start of the device, in bytes, to
-     *                 start the write. Must be 512byte aligned.
-     */
-    virtual void write(uint64_t location);
+  /**
+   * This function schedules a cache writeback of the given location.
+   * The data to be written back is fetched from the cache (pointer returned
+   * by \c read() ).
+   * \param location The offset from the start of the device, in bytes, to
+   *                 start the write. Must be 512byte aligned.
+   */
+  virtual void write(uint64_t location);
 
-    /**
-     * \brief Sets the page boundary alignment after a specific location on the
-     * disk.
-     *
-     * For example, if one has a partition starting on byte 512, one will
-     * probably want 4096-byte reads to be aligned with this (so reading 4096
-     * bytes from byte 0 on the partition will create one page of cache and not
-     * span two). Without an align point a read of the first sector of a
-     * partition starting at byte 512 will have to have a location of 512 rather
-     * than 0.
-     *
-     * Use this function to allow reads to fit into the 4096 byte buffers
-     * manipulated in \c read() or \c write() even when location isn't aligned
-     * on a 4096 byte boundary.
-     */
-    virtual void align(uint64_t location);
+  /**
+   * \brief Sets the page boundary alignment after a specific location on the
+   * disk.
+   *
+   * For example, if one has a partition starting on byte 512, one will
+   * probably want 4096-byte reads to be aligned with this (so reading 4096
+   * bytes from byte 0 on the partition will create one page of cache and not
+   * span two). Without an align point a read of the first sector of a
+   * partition starting at byte 512 will have to have a location of 512 rather
+   * than 0.
+   *
+   * Use this function to allow reads to fit into the 4096 byte buffers
+   * manipulated in \c read() or \c write() even when location isn't aligned
+   * on a 4096 byte boundary.
+   */
+  virtual void align(uint64_t location);
 
-    /**
-     * \brief Gets the size of the disk.
-     *
-     * This is the size in bytes of the disk. Reads or writes beyond this size
-     * will fail.
-     */
-    virtual size_t getSize() const;
+  /**
+   * \brief Gets the size of the disk.
+   *
+   * This is the size in bytes of the disk. Reads or writes beyond this size
+   * will fail.
+   */
+  virtual size_t getSize() const;
 
-    /**
-     * \brief Gets the block size of the disk.
-     *
-     * This is the native block size with which all reads and writes are
-     * performed, regardless of how much data is available to be read/written.
-     */
-    virtual size_t getBlockSize() const;
+  /**
+   * \brief Gets the block size of the disk.
+   *
+   * This is the native block size with which all reads and writes are
+   * performed, regardless of how much data is available to be read/written.
+   */
+  virtual size_t getBlockSize() const;
 
-    /**
-     * \brief Pins a cache page.
-     *
-     * This allows an upstream user of Disk pages to 'pin' cache pages, causing
-     * them to only be freed once all consumers have done an 'unpin'. The pin
-     * and unpin semantics allow for memory mappings to be made in a reasonably
-     * safe manner, as it can be assumed that the physical page for a particular
-     * cache block will not be freed.
-     *
-     * \return True only when this call acquired a reference to the page
-     * currently published for \p location. Callers must not use an address
-     * obtained before a failed pin.
-     */
-    MUST_USE_RESULT virtual bool pin(uint64_t location) = 0;
+  /**
+   * \brief Pins a cache page.
+   *
+   * This allows an upstream user of Disk pages to 'pin' cache pages, causing
+   * them to only be freed once all consumers have done an 'unpin'. The pin
+   * and unpin semantics allow for memory mappings to be made in a reasonably
+   * safe manner, as it can be assumed that the physical page for a particular
+   * cache block will not be freed.
+   *
+   * \return True only when this call acquired a reference to the page
+   * currently published for \p location. Callers must not use an address
+   * obtained before a failed pin.
+   */
+  MUST_USE_RESULT virtual bool pin(uint64_t location) = 0;
 
-    /**
-     * Unpins a cache page (see \c pin() for more information and rationale).
-     */
-    virtual void unpin(uint64_t location) = 0;
+  /**
+   * Unpins a cache page (see \c pin() for more information and rationale).
+   */
+  virtual void unpin(uint64_t location) = 0;
 
-    /**
-     * \brief Whether or not the cache is critical and cannot be flushed or
-     * deleted.
-     *
-     * Some implementations of this class may provide a Disk that does not
-     * actually back onto a writable media, or perhaps sit only in RAM and have
-     * no correlation to physical hardware. If cache pages are deleted for these
-     * implementations, data may be lost.
-     *
-     * Note that cache should only be marked "critical" if it is possible to
-     * write via an implementation. There is no need to worry about cache pages
-     * being deleted on a read-only disk as they will be re-created on the next
-     * read (and no written data is lost).
-     *
-     * This function allows callers that want to delete cache pages to verify
-     * that the cache is not critical to the performance of the implementation.
-     *
-     * \return True if the cache is critical and must not be removed or flushed.
-     * False otherwise.
-     */
-    virtual bool cacheIsCritical();
+  /**
+   * \brief Whether or not the cache is critical and cannot be flushed or
+   * deleted.
+   *
+   * Some implementations of this class may provide a Disk that does not
+   * actually back onto a writable media, or perhaps sit only in RAM and have
+   * no correlation to physical hardware. If cache pages are deleted for these
+   * implementations, data may be lost.
+   *
+   * Note that cache should only be marked "critical" if it is possible to
+   * write via an implementation. There is no need to worry about cache pages
+   * being deleted on a read-only disk as they will be re-created on the next
+   * read (and no written data is lost).
+   *
+   * This function allows callers that want to delete cache pages to verify
+   * that the cache is not critical to the performance of the implementation.
+   *
+   * \return True if the cache is critical and must not be removed or flushed.
+   * False otherwise.
+   */
+  virtual bool cacheIsCritical();
 
-    /**
-     * \brief Flush a cached page to disk.
-     *
-     * Essentially a no-op if the given location is not actually in
-     * cache. Called either by filesystem drivers (on removable disks) or from a
-     * central cache manager which handles flushing caches back to the disk on a
-     * regular basis.
-     *
-     * Will not remove the page from cache, that must be done by the caller.
-     */
-    virtual void flush(uint64_t location);
+  /**
+   * \brief Flush a cached page to disk.
+   *
+   * Essentially a no-op if the given location is not actually in
+   * cache. Called either by filesystem drivers (on removable disks) or from a
+   * central cache manager which handles flushing caches back to the disk on a
+   * regular basis.
+   *
+   * Will not remove the page from cache, that must be done by the caller.
+   */
+  virtual void flush(uint64_t location);
 };
 
 #endif

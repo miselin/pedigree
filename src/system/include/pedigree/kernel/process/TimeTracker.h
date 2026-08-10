@@ -29,19 +29,18 @@ class Thread;
  * Mostly useful for things like syscalls where there's a definitive entry and
  * exit at which time should be tracked differently.
  */
-class TimeTracker
-{
-  public:
-    TimeTracker(Process *pProcess, bool fromUserspace);
-    virtual ~TimeTracker();
+class TimeTracker {
+ public:
+  TimeTracker(Process* pProcess, bool fromUserspace);
+  virtual ~TimeTracker();
 
-    /** Completes accounting before a no-return architectural transition. */
-    void finish();
+  /** Completes accounting before a no-return architectural transition. */
+  void finish();
 
-  private:
-    Process *m_pProcess;
-    Thread *m_pThread;
-    bool m_bFromUserspace;
+ private:
+  Process* m_pProcess;
+  Thread* m_pThread;
+  bool m_bFromUserspace;
 };
 
 #endif

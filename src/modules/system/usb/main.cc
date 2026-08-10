@@ -19,13 +19,10 @@
 
 #include "modules/Module.h"
 
-static bool entry()
-{
-    return true;
+static bool entry() {
+  return true;
 }
 
-static void exit()
-{
-}
+static void exit() {}
 
 MODULE_INFO("usb", &entry, &exit);

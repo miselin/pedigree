@@ -21,67 +21,60 @@
 
 #include <ucontext.h>
 
-const char *HostedInterruptStateRegisterName[3] = {
+const char* HostedInterruptStateRegisterName[3] = {
     "state",
     "extra",
     "meta",
 };
 
 HostedInterruptState::HostedInterruptState()
-    : state(0), which(0), fromUserspace(0), extra(0), meta(0),
-      m_basePointer(0), m_instructionPointer(0), m_stackPointer(0)
-{
+    : state(0),
+      which(0),
+      fromUserspace(0),
+      extra(0),
+      meta(0),
+      m_basePointer(0),
+      m_instructionPointer(0),
+      m_stackPointer(0) {}
+
+HostedInterruptState::~HostedInterruptState() {}
+
+size_t HostedInterruptState::getRegisterCount() const {
+  return 3;
+}
+processor_register_t HostedInterruptState::getRegister(size_t index) const {
+  if (index == 0)
+    return state;
+  if (index == 1)
+    return extra;
+  if (index == 2)
+    return meta;
+  return 0;
+}
+const char* HostedInterruptState::getRegisterName(size_t index) const {
+  return HostedInterruptStateRegisterName[index];
 }
 
-HostedInterruptState::~HostedInterruptState()
-{
+size_t HostedSyscallState::getRegisterCount() const {
+  return 0;
 }
 
-size_t HostedInterruptState::getRegisterCount() const
-{
-    return 3;
-}
-processor_register_t HostedInterruptState::getRegister(size_t index) const
-{
-    if (index == 0)
-        return state;
-    if (index == 1)
-        return extra;
-    if (index == 2)
-        return meta;
-    return 0;
-}
-const char *HostedInterruptState::getRegisterName(size_t index) const
-{
-    return HostedInterruptStateRegisterName[index];
+processor_register_t HostedSyscallState::getRegister(size_t index) const {
+  return 0;
 }
 
-size_t HostedSyscallState::getRegisterCount() const
-{
-    return 0;
+const char* HostedSyscallState::getRegisterName(size_t index) const {
+  return "<no registers>";
 }
 
-processor_register_t HostedSyscallState::getRegister(size_t index) const
-{
-    return 0;
+HostedInterruptState* HostedInterruptState::construct(HostedProcessorState& state, bool userMode) {
+  return 0;
 }
 
-const char *HostedSyscallState::getRegisterName(size_t index) const
-{
-    return "<no registers>";
-}
+HostedSchedulerState::HostedSchedulerState() {
+  stackBase = 0;
+  stackSize = 0;
 
-HostedInterruptState *
-HostedInterruptState::construct(HostedProcessorState &state, bool userMode)
-{
-    return 0;
-}
-
-HostedSchedulerState::HostedSchedulerState()
-{
-    stackBase = 0;
-    stackSize = 0;
-
-    ucontext_t *ctx = reinterpret_cast<ucontext_t *>(state);
-    getcontext(ctx);
+  ucontext_t* ctx = reinterpret_cast<ucontext_t*>(state);
+  getcontext(ctx);
 }

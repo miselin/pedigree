@@ -18,107 +18,87 @@
  */
 
 #include "Ext2Symlink.h"
-#include "Ext2Filesystem.h"
-#include "ext2.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "Ext2Filesystem.h"
+#include "ext2.h"
+
 class File;
 class Filesystem;
 
-Ext2Symlink::Ext2Symlink(
-    const String &name, uintptr_t inode_num, Inode *inode, Ext2Filesystem *pFs,
-    File *pParent)
-    : Symlink(
-          name, LITTLE_TO_HOST32(inode->i_atime),
-          LITTLE_TO_HOST32(inode->i_mtime), LITTLE_TO_HOST32(inode->i_ctime),
-          inode_num, static_cast<Filesystem *>(pFs),
-          LITTLE_TO_HOST32(inode->i_size),  /// \todo Deal with >4GB files here.
-          pParent),
-      Ext2Node(inode_num, inode, pFs)
-{
-    uint32_t mode = LITTLE_TO_HOST32(inode->i_mode);
-    setPermissionsOnly(modeToPermissions(mode));
-    setUidOnly(LITTLE_TO_HOST16(inode->i_uid));
-    setGidOnly(LITTLE_TO_HOST16(inode->i_gid));
+Ext2Symlink::Ext2Symlink(const String& name, uintptr_t inode_num, Inode* inode, Ext2Filesystem* pFs,
+                         File* pParent)
+    : Symlink(name, LITTLE_TO_HOST32(inode->i_atime), LITTLE_TO_HOST32(inode->i_mtime),
+              LITTLE_TO_HOST32(inode->i_ctime), inode_num, static_cast<Filesystem*>(pFs),
+              LITTLE_TO_HOST32(inode->i_size),  /// \todo Deal with >4GB files here.
+              pParent),
+      Ext2Node(inode_num, inode, pFs) {
+  uint32_t mode = LITTLE_TO_HOST32(inode->i_mode);
+  setPermissionsOnly(modeToPermissions(mode));
+  setUidOnly(LITTLE_TO_HOST16(inode->i_uid));
+  setGidOnly(LITTLE_TO_HOST16(inode->i_gid));
 }
 
-Ext2Symlink::~Ext2Symlink()
-{
-}
+Ext2Symlink::~Ext2Symlink() {}
 
-uint64_t Ext2Symlink::readBytewise(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock)
-{
-    if (!size || location >= getSize())
-        return 0;
-    const uint64_t remaining = getSize() - location;
-    if (size > remaining)
-        size = remaining;
+uint64_t Ext2Symlink::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                   bool canBlock) {
+  if (!size || location >= getSize())
+    return 0;
+  const uint64_t remaining = getSize() - location;
+  if (size > remaining)
+    size = remaining;
 
-    if (getSize() && Ext2Node::getInode()->i_blocks == 0)
-    {
-        MemoryCopy(
-            reinterpret_cast<void *>(buffer),
-            adjust_pointer(m_pInode->i_block, location), size);
-        return size;
-    }
-
-    if (getSize() > m_pExt2Fs->m_BlockSize)
-    {
-        WARNING("Ext2: rather large symlink found, not handled yet");
-        return 0;
-    }
-
-    uintptr_t block = Ext2Node::readBlock(location);
-    if (!block)
-    {
-        return 0;
-    }
-    MemoryCopy(
-        reinterpret_cast<void *>(buffer), reinterpret_cast<void *>(block),
-        size);
-    Ext2Node::unpinBlock(location);
-    m_Size = m_nSize;
+  if (getSize() && Ext2Node::getInode()->i_blocks == 0) {
+    MemoryCopy(reinterpret_cast<void*>(buffer), adjust_pointer(m_pInode->i_block, location), size);
     return size;
+  }
+
+  if (getSize() > m_pExt2Fs->m_BlockSize) {
+    WARNING("Ext2: rather large symlink found, not handled yet");
+    return 0;
+  }
+
+  uintptr_t block = Ext2Node::readBlock(location);
+  if (!block) {
+    return 0;
+  }
+  MemoryCopy(reinterpret_cast<void*>(buffer), reinterpret_cast<void*>(block), size);
+  Ext2Node::unpinBlock(location);
+  m_Size = m_nSize;
+  return size;
 }
 
-uint64_t Ext2Symlink::writeBytewise(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool canBlock)
-{
-    Ext2Node::extend(size);
-    m_Size = m_nSize;
+uint64_t Ext2Symlink::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                    bool canBlock) {
+  Ext2Node::extend(size);
+  m_Size = m_nSize;
 
-    if (getSize() > m_pExt2Fs->m_BlockSize)
-    {
-        WARNING("Ext2: rather large symlink found, not handled yet");
-        return 0;
-    }
+  if (getSize() > m_pExt2Fs->m_BlockSize) {
+    WARNING("Ext2: rather large symlink found, not handled yet");
+    return 0;
+  }
 
-    uintptr_t block = Ext2Node::readBlock(location);
-    if (!block)
-    {
-        return 0;
-    }
-    MemoryCopy(
-        reinterpret_cast<void *>(block), reinterpret_cast<void *>(buffer),
-        size);
-    Ext2Node::writeBlock(location);
-    Ext2Node::unpinBlock(location);
-    return size;
+  uintptr_t block = Ext2Node::readBlock(location);
+  if (!block) {
+    return 0;
+  }
+  MemoryCopy(reinterpret_cast<void*>(block), reinterpret_cast<void*>(buffer), size);
+  Ext2Node::writeBlock(location);
+  Ext2Node::unpinBlock(location);
+  return size;
 }
 
-void Ext2Symlink::truncate()
-{
-    Ext2Node::wipe();
-    m_Size = m_nSize;
+void Ext2Symlink::truncate() {
+  Ext2Node::wipe();
+  m_Size = m_nSize;
 }
 
-void Ext2Symlink::fileAttributeChanged()
-{
-    static_cast<Ext2Node *>(this)->fileAttributeChanged(
-        m_Size, m_AccessedTime, m_ModifiedTime, m_CreationTime);
-    static_cast<Ext2Node *>(this)->updateMetadata(
-        getUid(), getGid(), permissionsToMode(getPermissions()));
+void Ext2Symlink::fileAttributeChanged() {
+  static_cast<Ext2Node*>(this)->fileAttributeChanged(m_Size, m_AccessedTime, m_ModifiedTime,
+                                                     m_CreationTime);
+  static_cast<Ext2Node*>(this)->updateMetadata(getUid(), getGid(),
+                                               permissionsToMode(getPermissions()));
 }

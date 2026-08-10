@@ -38,9 +38,9 @@
 // Endianness shizzle.
 #define BS8(x) (x)
 #define BS16(x) (((x & 0xFF00) >> 8) | ((x & 0x00FF) << 8))
-#define BS32(x)                                           \
-    (((x & 0xFF000000) >> 24) | ((x & 0x00FF0000) >> 8) | \
-     ((x & 0x0000FF00) << 8) | ((x & 0x000000FF) << 24))
+#define BS32(x)                                                                   \
+  (((x & 0xFF000000) >> 24) | ((x & 0x00FF0000) >> 8) | ((x & 0x0000FF00) << 8) | \
+   ((x & 0x000000FF) << 24))
 #define BS64(x) (x)
 
 #if TARGET_IS_LITTLE_ENDIAN
@@ -94,7 +94,7 @@
 #define MAX_PARAM_LENGTH 64
 
 /** Page-align the given pointer. */
-EXPORTED_PUBLIC void *page_align(void *p) PURE;
+EXPORTED_PUBLIC void* page_align(void* p) PURE;
 
 #ifdef __cplusplus
 /** Add a offset (in bytes) to the pointer and return the result
@@ -102,40 +102,35 @@ EXPORTED_PUBLIC void *page_align(void *p) PURE;
  *\return new pointer pointing to 'pointer + offset' (NOT pointer arithmetic!)
  */
 template <typename T1, typename T2 = T1>
-T2 *adjust_pointer(T1 *pointer, ssize_t offset)
-{
-    return reinterpret_cast<T2 *>(reinterpret_cast<intptr_t>(pointer) + offset);
+T2* adjust_pointer(T1* pointer, ssize_t offset) {
+  return reinterpret_cast<T2*>(reinterpret_cast<intptr_t>(pointer) + offset);
 }
 
 template <typename T>
-void swap(T a, T b)
-{
-    T t = a;
-    a = b;
-    b = t;
+void swap(T a, T b) {
+  T t = a;
+  a = b;
+  b = t;
 }
 
 /** Return b - a. */
 template <typename T1, typename T2>
-intptr_t pointer_diff(const T1 *a, const T2 *b)
-{
-    return reinterpret_cast<uintptr_t>(b) - reinterpret_cast<uintptr_t>(a);
+intptr_t pointer_diff(const T1* a, const T2* b) {
+  return reinterpret_cast<uintptr_t>(b) - reinterpret_cast<uintptr_t>(a);
 }
 
 template <typename T1, typename T2>
-constexpr intptr_t pointer_diff_const(T1 *a, T2 *b)
-{
-    return reinterpret_cast<uintptr_t>(b) - reinterpret_cast<uintptr_t>(a);
+constexpr intptr_t pointer_diff_const(T1* a, T2* b) {
+  return reinterpret_cast<uintptr_t>(b) - reinterpret_cast<uintptr_t>(a);
 }
 
 /** Return the difference between a and b, without a sign. */
 template <typename T1, typename T2>
-uintptr_t abs_difference(T1 a, T2 b)
-{
-    intptr_t value = b - a;
-    if (value < 0)
-        value *= -1;
-    return value;
+uintptr_t abs_difference(T1 a, T2 b) {
+  intptr_t value = b - a;
+  if (value < 0)
+    value *= -1;
+  return value;
 }
 #endif
 

@@ -39,65 +39,61 @@ class IoBase;
 #define NE2K_DEVICE_ID 0x8029
 
 /** Device driver for the NE2K class of network device */
-class Ne2k : public Network, public IrqHandler
-{
-  public:
-    Ne2k(Network *pDev);
-    virtual ~Ne2k();
+class Ne2k : public Network, public IrqHandler {
+ public:
+  Ne2k(Network* pDev);
+  virtual ~Ne2k();
 
-    virtual void getName(String &str)
-    {
-        str.assign("ne2k", 5);
-    }
+  virtual void getName(String& str) {
+    str.assign("ne2k", 5);
+  }
 
-    virtual bool send(size_t nBytes, uintptr_t buffer);
+  virtual bool send(size_t nBytes, uintptr_t buffer);
 
-    virtual bool setStationInfo(const StationInfo &info);
+  virtual bool setStationInfo(const StationInfo& info);
 
-    virtual const StationInfo &getStationInfo();
+  virtual const StationInfo& getStationInfo();
 
-    // IRQ handler callback.
-    virtual IrqDisposition irq(irq_id_t number);
+  // IRQ handler callback.
+  virtual IrqDisposition irq(irq_id_t number);
 
-    IoBase *m_pBase;
+  IoBase* m_pBase;
 
-    bool isConnected();
-    bool isValid() const
-    {
-        return m_IrqId != 0 && m_NetworkRegistered;
-    }
+  bool isConnected();
+  bool isValid() const {
+    return m_IrqId != 0 && m_NetworkRegistered;
+  }
 
-  private:
-    bool recv();
-    bool waitForRemoteDma();
-    bool resetController();
-    bool recoverReceiveOverflow(uint8_t irqStatus);
-    void advanceReceiveBoundary(uint8_t nextPacket);
+ private:
+  bool recv();
+  bool waitForRemoteDma();
+  bool resetController();
+  bool recoverReceiveOverflow(uint8_t irqStatus);
+  void advanceReceiveBoundary(uint8_t nextPacket);
 
-    static int trampoline(void *p) NORETURN;
+  static int trampoline(void* p) NORETURN;
 
-    void receiveThread() NORETURN;
+  void receiveThread() NORETURN;
 
-    struct packet
-    {
-        uintptr_t ptr;
-        size_t len;
-    };
-    uint8_t m_NextPacket;
+  struct packet {
+    uintptr_t ptr;
+    size_t len;
+  };
+  uint8_t m_NextPacket;
 
-    Semaphore m_PacketQueueSize;
-    List<packet *> m_PacketQueue;
+  Semaphore m_PacketQueueSize;
+  List<packet*> m_PacketQueue;
 
-    Spinlock m_PacketQueueLock;
-    Mutex m_DmaLock;
+  Spinlock m_PacketQueueLock;
+  Mutex m_DmaLock;
 
-    irq_id_t m_IrqId;
-    bool m_Stopping;
-    bool m_NetworkRegistered;
-    OwnedThread m_ReceiveThread;
+  irq_id_t m_IrqId;
+  bool m_Stopping;
+  bool m_NetworkRegistered;
+  OwnedThread m_ReceiveThread;
 
-    Ne2k(const Ne2k &);
-    void operator=(const Ne2k &);
+  Ne2k(const Ne2k&);
+  void operator=(const Ne2k&);
 };
 
 #endif

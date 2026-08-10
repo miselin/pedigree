@@ -19,152 +19,132 @@
 
 #include "Png.h"
 
-#include <sys/klog.h>
 #include <unistd.h>
 
-Png::Png(const char *filename)
-    : m_PngPtr(0), m_InfoPtr(0), m_nWidth(0), m_nHeight(0), m_pRowPointers(0)
-{
-    // Open the file.
-    FILE *stream = fopen(filename, "rb");
-    if (!stream)
-    {
-        klog(LOG_ALERT, "PNG file failed to open");
-        return;
-    }
+#include <sys/klog.h>
 
-    // Read in some of the signature bytes.
-    char buf[4];
-    if (fread(buf, 1, 4, stream) != 4)
-    {
-        klog(LOG_ALERT, "PNG file failed to read ident");
-        fclose(stream);
-        return;
-    }
-    if (png_sig_cmp(reinterpret_cast<png_byte *>(buf), 0, 4) != 0)
-    {
-        klog(LOG_ALERT, "PNG file failed IDENT check");
-        fclose(stream);
-        return;
-    }
+Png::Png(const char* filename)
+    : m_PngPtr(0), m_InfoPtr(0), m_nWidth(0), m_nHeight(0), m_pRowPointers(0) {
+  // Open the file.
+  FILE* stream = fopen(filename, "rb");
+  if (!stream) {
+    klog(LOG_ALERT, "PNG file failed to open");
+    return;
+  }
 
-    m_PngPtr = png_create_read_struct(PNG_LIBPNG_VER_STRING, 0, 0, 0);
-
-    if (m_PngPtr == 0)
-    {
-        klog(LOG_ALERT, "PNG file failed to initialise");
-        fclose(stream);
-        return;
-    }
-
-    m_InfoPtr = png_create_info_struct(m_PngPtr);
-    if (m_InfoPtr == 0)
-    {
-        klog(LOG_ALERT, "PNG info failed to initialise");
-        png_destroy_read_struct(&m_PngPtr, NULL, NULL);
-        fclose(stream);
-        return;
-    }
-
-    png_init_io(m_PngPtr, stream);
-
-    png_set_sig_bytes(m_PngPtr, 4);
-
-    png_set_palette_to_rgb(m_PngPtr);
-
-    png_read_png(
-        m_PngPtr, m_InfoPtr,
-        PNG_TRANSFORM_STRIP_16 |         // 16-bit-per-channel down to 8.
-            PNG_TRANSFORM_STRIP_ALPHA |  // No alpha
-            PNG_TRANSFORM_PACKING,       // Unpack 2 and 4 bit samples.
-        reinterpret_cast<void *>(0));
-
-    m_pRowPointers = png_get_rows(m_PngPtr, m_InfoPtr);
-
-    // Grab the info header information.
-    int bit_depth, color_type, interlace_type, compression_type, filter_method;
-    png_uint_32 w, h;
-    png_get_IHDR(
-        m_PngPtr, m_InfoPtr, &w, &h, &bit_depth, &color_type, &interlace_type,
-        &compression_type, &filter_method);
-    m_nWidth = w;
-    m_nHeight = h;
-
-    /// \todo clean up after these errors.
-    if (bit_depth != 8)
-    {
-        klog(LOG_ALERT, "PNG - invalid bit depth");
-        return;
-    }
-    if (color_type != PNG_COLOR_TYPE_RGB)
-    {
-        klog(LOG_ALERT, "PNG - invalid colour type: %d", color_type);
-        return;
-    }
-
-    m_pBitmap = (uint32_t *) malloc(4 * w * h);
-    size_t x, y;
-    for (y = 0; y < m_nHeight; ++y)
-    {
-        png_byte *row = m_pRowPointers[y];
-        for (x = 0; x < m_nWidth; ++x)
-        {
-            png_byte *ptr = &(row[x * 3]);
-            m_pBitmap[(y * m_nWidth) + x] =
-                (ptr[0] << 16) | (ptr[1] << 8) | (ptr[2]);
-        }
-    }
-
-    png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, NULL);
-
+  // Read in some of the signature bytes.
+  char buf[4];
+  if (fread(buf, 1, 4, stream) != 4) {
+    klog(LOG_ALERT, "PNG file failed to read ident");
     fclose(stream);
+    return;
+  }
+  if (png_sig_cmp(reinterpret_cast<png_byte*>(buf), 0, 4) != 0) {
+    klog(LOG_ALERT, "PNG file failed IDENT check");
+    fclose(stream);
+    return;
+  }
 
-    klog(LOG_INFO, "PNG loaded %zd %zd", m_nWidth, m_nHeight);
+  m_PngPtr = png_create_read_struct(PNG_LIBPNG_VER_STRING, 0, 0, 0);
+
+  if (m_PngPtr == 0) {
+    klog(LOG_ALERT, "PNG file failed to initialise");
+    fclose(stream);
+    return;
+  }
+
+  m_InfoPtr = png_create_info_struct(m_PngPtr);
+  if (m_InfoPtr == 0) {
+    klog(LOG_ALERT, "PNG info failed to initialise");
+    png_destroy_read_struct(&m_PngPtr, NULL, NULL);
+    fclose(stream);
+    return;
+  }
+
+  png_init_io(m_PngPtr, stream);
+
+  png_set_sig_bytes(m_PngPtr, 4);
+
+  png_set_palette_to_rgb(m_PngPtr);
+
+  png_read_png(m_PngPtr, m_InfoPtr,
+               PNG_TRANSFORM_STRIP_16 |         // 16-bit-per-channel down to 8.
+                   PNG_TRANSFORM_STRIP_ALPHA |  // No alpha
+                   PNG_TRANSFORM_PACKING,       // Unpack 2 and 4 bit samples.
+               reinterpret_cast<void*>(0));
+
+  m_pRowPointers = png_get_rows(m_PngPtr, m_InfoPtr);
+
+  // Grab the info header information.
+  int bit_depth, color_type, interlace_type, compression_type, filter_method;
+  png_uint_32 w, h;
+  png_get_IHDR(m_PngPtr, m_InfoPtr, &w, &h, &bit_depth, &color_type, &interlace_type,
+               &compression_type, &filter_method);
+  m_nWidth = w;
+  m_nHeight = h;
+
+  /// \todo clean up after these errors.
+  if (bit_depth != 8) {
+    klog(LOG_ALERT, "PNG - invalid bit depth");
+    return;
+  }
+  if (color_type != PNG_COLOR_TYPE_RGB) {
+    klog(LOG_ALERT, "PNG - invalid colour type: %d", color_type);
+    return;
+  }
+
+  m_pBitmap = (uint32_t*)malloc(4 * w * h);
+  size_t x, y;
+  for (y = 0; y < m_nHeight; ++y) {
+    png_byte* row = m_pRowPointers[y];
+    for (x = 0; x < m_nWidth; ++x) {
+      png_byte* ptr = &(row[x * 3]);
+      m_pBitmap[(y * m_nWidth) + x] = (ptr[0] << 16) | (ptr[1] << 8) | (ptr[2]);
+    }
+  }
+
+  png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, NULL);
+
+  fclose(stream);
+
+  klog(LOG_INFO, "PNG loaded %zd %zd", m_nWidth, m_nHeight);
 }
 
-Png::~Png()
-{
+Png::~Png() {}
+
+void Png::render(cairo_t* cr, size_t x, size_t y, size_t width, size_t height) {
+  cairo_surface_t* surface = cairo_image_surface_create_for_data(
+      (uint8_t*)m_pBitmap, CAIRO_FORMAT_RGB24, m_nWidth, m_nHeight, m_nWidth * 4);
+
+  cairo_save(cr);
+  cairo_identity_matrix(cr);
+  cairo_translate(cr, x, y);
+  cairo_scale(cr, width / (double)m_nWidth, height / (double)m_nHeight);
+  cairo_set_source_surface(cr, surface, 0, 0);
+  cairo_paint(cr);
+  cairo_restore(cr);
+
+  cairo_surface_destroy(surface);
 }
 
-void Png::render(cairo_t *cr, size_t x, size_t y, size_t width, size_t height)
-{
-    cairo_surface_t *surface = cairo_image_surface_create_for_data(
-        (uint8_t *) m_pBitmap, CAIRO_FORMAT_RGB24, m_nWidth, m_nHeight,
-        m_nWidth * 4);
+void Png::renderPartial(cairo_t* cr, size_t atX, size_t atY, size_t innerX, size_t innerY,
+                        size_t partialWidth, size_t partialHeight, size_t scaleWidth,
+                        size_t scaleHeight) {
+  cairo_surface_t* surface = cairo_image_surface_create_for_data(
+      (uint8_t*)m_pBitmap, CAIRO_FORMAT_RGB24, m_nWidth, m_nHeight, m_nWidth * 4);
 
-    cairo_save(cr);
-    cairo_identity_matrix(cr);
-    cairo_translate(cr, x, y);
-    cairo_scale(cr, width / (double) m_nWidth, height / (double) m_nHeight);
-    cairo_set_source_surface(cr, surface, 0, 0);
-    cairo_paint(cr);
-    cairo_restore(cr);
+  cairo_save(cr);
 
-    cairo_surface_destroy(surface);
-}
+  cairo_rectangle(cr, atX, atY, partialWidth, partialHeight);
+  cairo_clip(cr);
+  cairo_new_path(cr);
 
-void Png::renderPartial(
-    cairo_t *cr, size_t atX, size_t atY, size_t innerX, size_t innerY,
-    size_t partialWidth, size_t partialHeight, size_t scaleWidth,
-    size_t scaleHeight)
-{
-    cairo_surface_t *surface = cairo_image_surface_create_for_data(
-        (uint8_t *) m_pBitmap, CAIRO_FORMAT_RGB24, m_nWidth, m_nHeight,
-        m_nWidth * 4);
+  cairo_identity_matrix(cr);
+  cairo_scale(cr, scaleWidth / (double)m_nWidth, scaleHeight / (double)m_nHeight);
+  cairo_translate(cr, innerX, innerY);
+  cairo_set_source_surface(cr, surface, 0, 0);
+  cairo_paint(cr);
+  cairo_restore(cr);
 
-    cairo_save(cr);
-
-    cairo_rectangle(cr, atX, atY, partialWidth, partialHeight);
-    cairo_clip(cr);
-    cairo_new_path(cr);
-
-    cairo_identity_matrix(cr);
-    cairo_scale(
-        cr, scaleWidth / (double) m_nWidth, scaleHeight / (double) m_nHeight);
-    cairo_translate(cr, innerX, innerY);
-    cairo_set_source_surface(cr, surface, 0, 0);
-    cairo_paint(cr);
-    cairo_restore(cr);
-
-    cairo_surface_destroy(surface);
+  cairo_surface_destroy(surface);
 }

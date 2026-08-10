@@ -21,33 +21,32 @@
 #define KERNEL_PROCESSOR_SYSCALLS_H
 
 /** Standard syscall service numbers */
-enum Service_t
-{
-    /** Linux syscall wrapper (redirects to POSIX). */
-    linuxCompat = 0,
+enum Service_t {
+  /** Linux syscall wrapper (redirects to POSIX). */
+  linuxCompat = 0,
 
-    /** Service number for the POSIX subsystem
-     * \note If you change this, ensure you change
-     * src/modules/subsys/posix/syscall.h !
-     */
-    posix = 1,
+  /** Service number for the POSIX subsystem
+   * \note If you change this, ensure you change
+   * src/modules/subsys/posix/syscall.h !
+   */
+  posix = 1,
 
-    /** Service number for the TUI module subsystem
-     * \note If you change this, ensure you change
-     * src/system/modules/TUI/syscall.h! */
-    TUI = 2,
+  /** Service number for the TUI module subsystem
+   * \note If you change this, ensure you change
+   * src/system/modules/TUI/syscall.h! */
+  TUI = 2,
 
-    /** Service number for the native subsystem */
-    native = 3,
+  /** Service number for the native subsystem */
+  native = 3,
 
-    /** Pedigree C calls (NOT the native subsystem) */
-    pedigree_c = 4,
+  /** Pedigree C calls (NOT the native subsystem) */
+  pedigree_c = 4,
 
-    /** Syscall service number of the kernel core */
-    kernelCore = 5,
+  /** Syscall service number of the kernel core */
+  kernelCore = 5,
 
-    /** The number of syscall service numbers */
-    serviceEnd
+  /** The number of syscall service numbers */
+  serviceEnd
 };
 
 #endif

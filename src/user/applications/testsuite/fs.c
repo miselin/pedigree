@@ -22,102 +22,98 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/stat.h>
 #include <unistd.h>
+
+#include <sys/stat.h>
 
 extern void fail();
 
-static void status(const char *s)
-{
-    puts(s);
-    fflush(stdout);
+static void status(const char* s) {
+  puts(s);
+  fflush(stdout);
 }
 
 #define OK status("OK\n")
 
-void test_fs()
-{
-    int fd = -1;
-    int rc = 0;
+void test_fs() {
+  int fd = -1;
+  int rc = 0;
 
-    srand(0);
+  srand(0);
 
-    printf("Testing filesystem...\n");
+  printf("Testing filesystem...\n");
 
-    int urandom_fd = open("/dev/urandom", O_RDONLY);
+  int urandom_fd = open("/dev/urandom", O_RDONLY);
 
-    // fsck test directory - deleting a directory like we do below will result
-    // in us possibly missing "bad directory count" errors.
-    status("Creating directory for fsck test... ");
-    rc = mkdir("/fscktest", 0777);
-    if (rc)
-        fail();
-    OK;
+  // fsck test directory - deleting a directory like we do below will result
+  // in us possibly missing "bad directory count" errors.
+  status("Creating directory for fsck test... ");
+  rc = mkdir("/fscktest", 0777);
+  if (rc)
+    fail();
+  OK;
 
-    // directory to be deleted later - shouldn't leave any cruft lying around
-    status("Creating directory for main test... ");
-    rc = mkdir("/testing", 0777);
-    if (rc)
-        fail();
-    OK;
+  // directory to be deleted later - shouldn't leave any cruft lying around
+  status("Creating directory for main test... ");
+  rc = mkdir("/testing", 0777);
+  if (rc)
+    fail();
+  OK;
 
-    // Create some files of varying sizes and destroy them.
-    status("Testing file creation... ");
-    for (size_t i = 0; i < 10; ++i)
-    {
-        size_t sz = rand() % 8192;
-        if (!sz)
-            ++sz;
-        void *p = malloc(sz);
-        read(urandom_fd, p, sz);
+  // Create some files of varying sizes and destroy them.
+  status("Testing file creation... ");
+  for (size_t i = 0; i < 10; ++i) {
+    size_t sz = rand() % 8192;
+    if (!sz)
+      ++sz;
+    void* p = malloc(sz);
+    read(urandom_fd, p, sz);
 
-        // Files that are expected to be deleted (might miss issues here in
-        // fsck after their deletion).
-        char fn[256];
-        sprintf(fn, "/testing/f%u", i);
-        fd = open(fn, O_RDWR | O_CREAT);
-        if (fd < 0)
-            fail();
-        write(fd, p, sz);
-        close(fd);
+    // Files that are expected to be deleted (might miss issues here in
+    // fsck after their deletion).
+    char fn[256];
+    sprintf(fn, "/testing/f%u", i);
+    fd = open(fn, O_RDWR | O_CREAT);
+    if (fd < 0)
+      fail();
+    write(fd, p, sz);
+    close(fd);
 
-        // Same deal for the fscktest directory. fsck will pick these up.
-        sprintf(fn, "/fscktest/f%u", i);
-        fd = open(fn, O_RDWR | O_CREAT);
-        if (fd < 0)
-            fail();
-        write(fd, p, sz);
-        close(fd);
-    }
-    OK;
+    // Same deal for the fscktest directory. fsck will pick these up.
+    sprintf(fn, "/fscktest/f%u", i);
+    fd = open(fn, O_RDWR | O_CREAT);
+    if (fd < 0)
+      fail();
+    write(fd, p, sz);
+    close(fd);
+  }
+  OK;
 
-    status("Testing file deletion... ");
-    for (size_t i = 0; i < 5; ++i)
-    {
-        char fn[256];
-        sprintf(fn, "/testing/f%u", i);
-        unlink(fn);
-    }
-    OK;
+  status("Testing file deletion... ");
+  for (size_t i = 0; i < 5; ++i) {
+    char fn[256];
+    sprintf(fn, "/testing/f%u", i);
+    unlink(fn);
+  }
+  OK;
 
-    status("Testing a failed rmdir... ");
-    rc = rmdir("/testing");
-    if (rc == 0)
-        fail();
-    OK;
+  status("Testing a failed rmdir... ");
+  rc = rmdir("/testing");
+  if (rc == 0)
+    fail();
+  OK;
 
-    status("Testing further file deletion... ");
-    for (size_t i = 5; i < 10; ++i)
-    {
-        char fn[256];
-        sprintf(fn, "/testing/f%u", i);
-        unlink(fn);
-    }
-    OK;
+  status("Testing further file deletion... ");
+  for (size_t i = 5; i < 10; ++i) {
+    char fn[256];
+    sprintf(fn, "/testing/f%u", i);
+    unlink(fn);
+  }
+  OK;
 
-    status("Testing rmdir... ");
-    rc = rmdir("/testing");
-    if (rc)
-        fail();
-    OK;
+  status("Testing rmdir... ");
+  rc = rmdir("/testing");
+  if (rc)
+    fail();
+  OK;
 }

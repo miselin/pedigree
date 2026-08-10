@@ -28,111 +28,102 @@
 class Device;
 class UsbDevice;
 
-enum UsbPnPConstants
-{
-    VendorIdNone = 0xFFFF,
-    ProductIdNone = 0xFFFF,
-    ClassNone = 0xFF,
-    SubclassNone = 0xFF,
-    ProtocolNone = 0xFF,
+enum UsbPnPConstants {
+  VendorIdNone = 0xFFFF,
+  ProductIdNone = 0xFFFF,
+  ClassNone = 0xFF,
+  SubclassNone = 0xFF,
+  ProtocolNone = 0xFF,
 };
 
-class EXPORTED_PUBLIC UsbPnP
-{
-  private:
-    struct CallbackItem;
+class EXPORTED_PUBLIC UsbPnP {
+ private:
+  struct CallbackItem;
 
-    /// Callback function type
-    typedef UsbDevice *(*callback_t)(UsbDevice *);
+  /// Callback function type
+  typedef UsbDevice* (*callback_t)(UsbDevice*);
 
-  public:
-    /**
-     * Owns one callback registration.
-     *
-     * reset() closes admission to the factory/probe callback and waits for
-     * callbacks which were already admitted. It does not retire successfully
-     * bound driver instances; a module must detach and destroy those objects
-     * separately before its code can be unloaded.
-     */
-    class EXPORTED_PUBLIC Registration
-    {
-      public:
-        Registration();
-        Registration(Registration &&other);
-        ~Registration();
+ public:
+  /**
+   * Owns one callback registration.
+   *
+   * reset() closes admission to the factory/probe callback and waits for
+   * callbacks which were already admitted. It does not retire successfully
+   * bound driver instances; a module must detach and destroy those objects
+   * separately before its code can be unloaded.
+   */
+  class EXPORTED_PUBLIC Registration {
+   public:
+    Registration();
+    Registration(Registration&& other);
+    ~Registration();
 
-        Registration &operator=(Registration &&other);
+    Registration& operator=(Registration&& other);
 
-        void reset();
+    void reset();
 
-        explicit operator bool() const
-        {
-            return m_Item != nullptr;
-        }
-
-      private:
-        friend class UsbPnP;
-
-        void adopt(UsbPnP *owner, CallbackItem *item);
-
-        Registration(const Registration &) = delete;
-        Registration &operator=(const Registration &) = delete;
-
-        UsbPnP *m_Owner;
-        CallbackItem *m_Item;
-    };
-
-    UsbPnP();
-    virtual ~UsbPnP();
-
-    /// Singleton design
-    static UsbPnP &instance()
-    {
-        return m_Instance;
+    explicit operator bool() const {
+      return m_Item != nullptr;
     }
 
-    /// Register a callback for the given vendor and product IDs
-    MUST_USE_RESULT bool registerCallback(
-        uint16_t nVendorId, uint16_t nProductId, callback_t callback,
-        Registration &registration);
+   private:
+    friend class UsbPnP;
 
-    /// Register a callback for the given class, subclass and protocol numbers
-    MUST_USE_RESULT bool registerCallback(
-        uint8_t nClass, uint8_t nSubclass, uint8_t nProtocol,
-        callback_t callback, Registration &registration);
+    void adopt(UsbPnP* owner, CallbackItem* item);
 
-    /// Tries to find a suitable driver for the given USB device
-    bool probeDevice(Device *pDeviceBase);
+    Registration(const Registration&) = delete;
+    Registration& operator=(const Registration&) = delete;
+
+    UsbPnP* m_Owner;
+    CallbackItem* m_Item;
+  };
+
+  UsbPnP();
+  virtual ~UsbPnP();
+
+  /// Singleton design
+  static UsbPnP& instance() {
+    return m_Instance;
+  }
+
+  /// Register a callback for the given vendor and product IDs
+  MUST_USE_RESULT bool registerCallback(uint16_t nVendorId, uint16_t nProductId,
+                                        callback_t callback, Registration& registration);
+
+  /// Register a callback for the given class, subclass and protocol numbers
+  MUST_USE_RESULT bool registerCallback(uint8_t nClass, uint8_t nSubclass, uint8_t nProtocol,
+                                        callback_t callback, Registration& registration);
+
+  /// Tries to find a suitable driver for the given USB device
+  bool probeDevice(Device* pDeviceBase);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    static bool runHostedRegistrationRegression();
-    bool invokeCallbackForTest();
-    size_t callbackCountForTest();
+  static bool runHostedRegistrationRegression();
+  bool invokeCallbackForTest();
+  size_t callbackCountForTest();
 #endif
 
-  private:
-    /// Probes a device and returns the new device if it was successfully
-    /// loaded and owned by a driver, or the original pointer otherwise.
-    Device *doProbe(Device *pDeviceBase);
+ private:
+  /// Probes a device and returns the new device if it was successfully
+  /// loaded and owned by a driver, or the original pointer otherwise.
+  Device* doProbe(Device* pDeviceBase);
 
-    bool registerCallbackItem(
-        CallbackItem *item, Registration &registration, bool reprobe);
-    void unregisterCallback(CallbackItem *item);
-    bool acquireCallback(
-        UsbDevice *device, size_t afterSequence, CallbackItem *&item,
-        callback_t &callback, size_t &sequence);
+  bool registerCallbackItem(CallbackItem* item, Registration& registration, bool reprobe);
+  void unregisterCallback(CallbackItem* item);
+  bool acquireCallback(UsbDevice* device, size_t afterSequence, CallbackItem*& item,
+                       callback_t& callback, size_t& sequence);
 
-    /// Static instance
-    static UsbPnP m_Instance;
+  /// Static instance
+  static UsbPnP m_Instance;
 
-    /// Goes down the device tree, reprobing every USB device
-    void reprobeDevices(Device *pParent);
+  /// Goes down the device tree, reprobing every USB device
+  void reprobeDevices(Device* pParent);
 
-    CallbackItem *m_FirstCallback;
-    CallbackItem *m_LastCallback;
-    size_t m_CallbackCount;
-    Spinlock m_CallbackLock;
-    size_t m_NextCallbackSequence;
+  CallbackItem* m_FirstCallback;
+  CallbackItem* m_LastCallback;
+  size_t m_CallbackCount;
+  Spinlock m_CallbackLock;
+  size_t m_NextCallbackSequence;
 };
 
 #endif

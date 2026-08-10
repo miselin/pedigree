@@ -17,73 +17,62 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Ps2Mouse.h"
-#include "modules/Module.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include "Ps2Mouse.h"
+#include "modules/Module.h"
 #include "system/kernel/machine/mach_pc/Ps2Controller.h"
 
 // Global static object for the PS/2 mouse we'll be working with
-EXPORTED_PUBLIC Ps2Mouse *g_Ps2Mouse = 0;
+EXPORTED_PUBLIC Ps2Mouse* g_Ps2Mouse = 0;
 
-static bool entry()
-{
-    auto f = [](Device *p) {
-        if (g_Ps2Mouse)
-        {
-            return p;
-        }
-
-        if (p->addresses().count() > 0)
-        {
-            if (p->addresses()[0]->m_Name.compare("ps2-base", 8))
-            {
-                Ps2Controller *controller = static_cast<Ps2Controller *>(p);
-
-                Ps2Mouse *pNewChild = new Ps2Mouse(p);
-                if (pNewChild->initialise(controller))
-                {
-                    g_Ps2Mouse = pNewChild;
-                }
-                else
-                {
-                    ERROR("PS/2 Mouse initialisation failed!");
-                    delete pNewChild;
-                }
-            }
-        }
-
-        return p;
-    };
-
-    auto c = pedigree_std::make_callable(f);
-    Device::foreach (c, 0);
-
-    // Cannot replace the child, as we need to have it present for keyboards.
-    if (g_Ps2Mouse)
-    {
-        Device::addToRoot(g_Ps2Mouse);
-        return true;
+static bool entry() {
+  auto f = [](Device* p) {
+    if (g_Ps2Mouse) {
+      return p;
     }
 
-    return false;
+    if (p->addresses().count() > 0) {
+      if (p->addresses()[0]->m_Name.compare("ps2-base", 8)) {
+        Ps2Controller* controller = static_cast<Ps2Controller*>(p);
+
+        Ps2Mouse* pNewChild = new Ps2Mouse(p);
+        if (pNewChild->initialise(controller)) {
+          g_Ps2Mouse = pNewChild;
+        } else {
+          ERROR("PS/2 Mouse initialisation failed!");
+          delete pNewChild;
+        }
+      }
+    }
+
+    return p;
+  };
+
+  auto c = pedigree_std::make_callable(f);
+  Device::foreach (c, 0);
+
+  // Cannot replace the child, as we need to have it present for keyboards.
+  if (g_Ps2Mouse) {
+    Device::addToRoot(g_Ps2Mouse);
+    return true;
+  }
+
+  return false;
 }
 
-static void unload()
-{
-    if (g_Ps2Mouse)
-    {
-        auto removeMouse = [](Device *device) {
-            return device == g_Ps2Mouse ? nullptr : device;
-        };
-        auto callback = pedigree_std::make_callable(removeMouse);
-        Device::foreach (callback, 0);
-        g_Ps2Mouse = nullptr;
-    }
+static void unload() {
+  if (g_Ps2Mouse) {
+    auto removeMouse = [](Device* device) { return device == g_Ps2Mouse ? nullptr : device; };
+    auto callback = pedigree_std::make_callable(removeMouse);
+    Device::foreach (callback, 0);
+    g_Ps2Mouse = nullptr;
+  }
 }
 
 MODULE_NAME("ps2mouse");

@@ -35,221 +35,206 @@ class Thread;
 /**
  * Global manager for all input from HID devices.
  */
-class EXPORTED_PUBLIC InputManager
-{
-  public:
-    /// The type for a given callback (enum values can't be used for bitwise
-    /// operations, so we define these as constants).
-    const static int Key = 1;
-    const static int Mouse = 2;
-    const static int Joystick = 4;
-    const static int RawKey = 8;
-    const static int MachineKey = 16;  // machine-specific key codes
-    const static int Unknown = 255;
+class EXPORTED_PUBLIC InputManager {
+ public:
+  /// The type for a given callback (enum values can't be used for bitwise
+  /// operations, so we define these as constants).
+  const static int Key = 1;
+  const static int Mouse = 2;
+  const static int Joystick = 4;
+  const static int RawKey = 8;
+  const static int MachineKey = 16;  // machine-specific key codes
+  const static int Unknown = 255;
 
-    typedef int CallbackType;
+  typedef int CallbackType;
 
-    /// Structure containing notification to the remote application
-    /// of input. Used to generalise input handling across the system
-    /// for all types of devices.
-    struct InputNotification
-    {
-        CallbackType type;
-        void *meta;
+  /// Structure containing notification to the remote application
+  /// of input. Used to generalise input handling across the system
+  /// for all types of devices.
+  struct InputNotification {
+    CallbackType type;
+    void* meta;
 
-        union
-        {
-            struct
-            {
-                uint64_t key;
-            } key;
-            struct
-            {
-                ssize_t relx;
-                ssize_t rely;
-                ssize_t relz;
+    union {
+      struct {
+        uint64_t key;
+      } key;
+      struct {
+        ssize_t relx;
+        ssize_t rely;
+        ssize_t relz;
 
-                bool buttons[64];
-            } pointy;
-            struct
-            {
-                /// HID scancode for the key (most generic type of scancode,
-                /// and easy to build translation tables for)
-                uint8_t scancode;
+        bool buttons[64];
+      } pointy;
+      struct {
+        /// HID scancode for the key (most generic type of scancode,
+        /// and easy to build translation tables for)
+        uint8_t scancode;
 
-                /// Whether this is a keyUp event or not.
-                bool keyUp;
-            } rawkey;
-            struct
-            {
-                /// Machine-specific scancode for the key.
-                uint8_t scancode;
+        /// Whether this is a keyUp event or not.
+        bool keyUp;
+      } rawkey;
+      struct {
+        /// Machine-specific scancode for the key.
+        uint8_t scancode;
 
-                /// Whether this is a keyUp event or not.
-                bool keyUp;
-            } machinekey;
-        } data;
-    };
+        /// Whether this is a keyUp event or not.
+        bool keyUp;
+      } machinekey;
+    } data;
+  };
 
-    /// Callback function type
-    typedef void (*callback_t)(InputNotification &);
+  /// Callback function type
+  typedef void (*callback_t)(InputNotification&);
 
-    /// Default constructor
-    InputManager();
+  /// Default constructor
+  InputManager();
 
-    /// Default destructor
-    virtual ~InputManager();
+  /// Default destructor
+  virtual ~InputManager();
 
-    /// Begins the worker thread
-    void initialise();
+  /// Begins the worker thread
+  void initialise();
 
-    /// Shuts down the worker thread, clears queues, and removes callbacks.
-    void shutdown();
+  /// Shuts down the worker thread, clears queues, and removes callbacks.
+  void shutdown();
 
-    /// Singleton design
-    static InputManager &instance()
-    {
-        return m_Instance;
-    }
+  /// Singleton design
+  static InputManager& instance() {
+    return m_Instance;
+  }
 
-    /// Called whenever a key is pressed and needs to be added to the queue
-    void keyPressed(uint64_t key);
+  /// Called whenever a key is pressed and needs to be added to the queue
+  void keyPressed(uint64_t key);
 
-    /// Called whenever a raw key signal comes in
-    /// \param scancode a HID scancode
-    void rawKeyUpdate(uint8_t scancode, bool bKeyUp);
+  /// Called whenever a raw key signal comes in
+  /// \param scancode a HID scancode
+  void rawKeyUpdate(uint8_t scancode, bool bKeyUp);
 
-    /// Called whenever a machine-specific key scancode comes in.
-    void machineKeyUpdate(uint8_t scancode, bool bKeyUp);
+  /// Called whenever a machine-specific key scancode comes in.
+  void machineKeyUpdate(uint8_t scancode, bool bKeyUp);
 
-    /// Called whenever mouse input comes in.
-    void mouseUpdate(
-        ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);
+  /// Called whenever mouse input comes in.
+  void mouseUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);
 
-    /// Called whenever joystick input comes in
-    void joystickUpdate(
-        ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);
+  /// Called whenever joystick input comes in
+  void joystickUpdate(ssize_t relX, ssize_t relY, ssize_t relZ, uint32_t buttonBitmap);
 
-    /// Installs a callback
-    void installCallback(
-        CallbackType filter, callback_t callback, void *meta = 0,
-        Thread *pThread = 0, uintptr_t param = 0);
+  /// Installs a callback
+  void installCallback(CallbackType filter, callback_t callback, void* meta = 0,
+                       Thread* pThread = 0, uintptr_t param = 0);
 
-    /// Removes a callback
-    void
-    removeCallback(callback_t callback, void *meta = 0, Thread *pThread = 0);
+  /// Removes a callback
+  void removeCallback(callback_t callback, void* meta = 0, Thread* pThread = 0);
 
-    /// Removes a callback by searching for a Thread pointer. This can be
-    /// used to avoid useless and broken links to a Thread in the callback
-    /// list if the Thread doesn't clean up properly.
-    bool removeCallbackByThread(Thread *pThread);
+  /// Removes a callback by searching for a Thread pointer. This can be
+  /// used to avoid useless and broken links to a Thread in the callback
+  /// list if the Thread doesn't clean up properly.
+  bool removeCallbackByThread(Thread* pThread);
 
-    /// Thread trampoline
-    static int trampoline(void *ptr);
+  /// Thread trampoline
+  static int trampoline(void* ptr);
 
-    /// Main worker thread
-    void mainThread();
+  /// Main worker thread
+  void mainThread();
 
-    /// Returns whether the instance is creating notifications.
-    bool isActive() const
-    {
-        return m_bActive;
-    }
+  /// Returns whether the instance is creating notifications.
+  bool isActive() const {
+    return m_bActive;
+  }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    using CallbackPinHook = void (*)(callback_t callback, void *meta);
+  using CallbackPinHook = void (*)(callback_t callback, void* meta);
 
-    static void setCallbackPinHook(CallbackPinHook hook);
+  static void setCallbackPinHook(CallbackPinHook hook);
 #endif
 
-  private:
-    /// Static instance
-    static InputManager m_Instance;
+ private:
+  /// Static instance
+  static InputManager m_Instance;
 
-    struct CallbackItem;
+  struct CallbackItem;
 
-    /// Puts a notification into the queue (doer for all main functions)
-    /// \note Deletes \p note if THREADS is not defined
-    void putNotification(InputNotification *note);
+  /// Puts a notification into the queue (doer for all main functions)
+  /// \note Deletes \p note if THREADS is not defined
+  void putNotification(InputNotification* note);
 
 #if THREADS
-    bool removeCallbacks(
-        callback_t callback, void *meta, Thread *pThread, bool byThread);
-    void drainCallback(CallbackItem *item);
+  bool removeCallbacks(callback_t callback, void* meta, Thread* pThread, bool byThread);
+  void drainCallback(CallbackItem* item);
 #endif
 
-    /// Item in the callback list. This stores information that may be needed
-    /// to create and send an Event for a userspace callback.
-    struct CallbackItem
-    {
-        /// The handler function
-        callback_t func;
+  /// Item in the callback list. This stores information that may be needed
+  /// to create and send an Event for a userspace callback.
+  struct CallbackItem {
+    /// The handler function
+    callback_t func;
 
 #if THREADS
-        /// Thread to send an Event to. If null, the Event will be sent to the
-        /// current thread, which is only valid for kernel callbacks (as there
-        /// will be no address space switch for a call to a kernel function).
-        Thread *pThread;
+    /// Thread to send an Event to. If null, the Event will be sent to the
+    /// current thread, which is only valid for kernel callbacks (as there
+    /// will be no address space switch for a call to a kernel function).
+    Thread* pThread;
 #endif
 
-        /// Parameter to put into the serialised buffer sent to userspace.
-        /// Typically holds the address of a userspace callback.
-        uintptr_t nParam;
+    /// Parameter to put into the serialised buffer sent to userspace.
+    /// Typically holds the address of a userspace callback.
+    uintptr_t nParam;
 
-        /// Filter for this callback
-        CallbackType filter;
+    /// Filter for this callback
+    CallbackType filter;
 
-        /// Meta pointer for the InputNotifications we generate.
-        void *meta;
+    /// Meta pointer for the InputNotifications we generate.
+    void* meta;
 
 #if THREADS
-        /// Pins held by a worker snapshot or an active callback invocation.
-        size_t inFlight;
+    /// Pins held by a worker snapshot or an active callback invocation.
+    size_t inFlight;
 
-        /// No new invocation may begin after this becomes false.
-        bool enabled;
+    /// No new invocation may begin after this becomes false.
+    bool enabled;
 
-        /// An external remover owns final deletion after draining inFlight.
-        bool draining;
+    /// An external remover owns final deletion after draining inFlight.
+    bool draining;
 
-        /// External removers which must all finish before final deletion.
-        size_t removers;
+    /// External removers which must all finish before final deletion.
+    size_t removers;
 
-        /// The input worker must delete this item after self-removal drains.
-        bool deferredRemoval;
+    /// The input worker must delete this item after self-removal drains.
+    bool deferredRemoval;
 
-        WaitQueue drainWaiters;
+    WaitQueue drainWaiters;
 #endif
-    };
+  };
 
-    /// Input queue (for distribution to applications)
-    List<InputNotification *> m_InputQueue;
+  /// Input queue (for distribution to applications)
+  List<InputNotification*> m_InputQueue;
 
-    /// Spinlock for work on queues.
-    /// \note Using a Spinlock here because a lot of our work will happen
-    ///       in the middle of an IRQ where it's potentially dangerous to
-    ///       reschedule (which may happen with a Mutex or Semaphore).
-    Spinlock m_QueueLock;
+  /// Spinlock for work on queues.
+  /// \note Using a Spinlock here because a lot of our work will happen
+  ///       in the middle of an IRQ where it's potentially dangerous to
+  ///       reschedule (which may happen with a Mutex or Semaphore).
+  Spinlock m_QueueLock;
 
-    /// Callback list
-    List<CallbackItem *> m_Callbacks;
+  /// Callback list
+  List<CallbackItem*> m_Callbacks;
 
 #if THREADS
-    /// Key press queue Semaphore
-    Semaphore m_InputQueueSize;
+  /// Key press queue Semaphore
+  Semaphore m_InputQueueSize;
 
-    /// Thread object for our worker thread
-    Thread *m_pThread;
+  /// Thread object for our worker thread
+  Thread* m_pThread;
 
-    /// Set only while the input worker is executing a committed callback.
-    Thread *m_pCallbackDispatchThread;
+  /// Set only while the input worker is executing a committed callback.
+  Thread* m_pCallbackDispatchThread;
 #endif
 
-    /// Are we active?
-    Atomic<bool> m_bActive;
+  /// Are we active?
+  Atomic<bool> m_bActive;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    static CallbackPinHook m_CallbackPinHook;
+  static CallbackPinHook m_CallbackPinHook;
 #endif
 };
 

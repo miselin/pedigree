@@ -21,46 +21,36 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/assert.h"
 
-namespace Time
-{
-Stopwatch::Stopwatch(bool startRunning)
-    : m_Value(0), m_StartValue(), m_bRunning(startRunning)
-{
-    reset();
+namespace Time {
+Stopwatch::Stopwatch(bool startRunning) : m_Value(0), m_StartValue(), m_bRunning(startRunning) {
+  reset();
 
-    if (startRunning)
-    {
-        start();
-    }
+  if (startRunning) {
+    start();
+  }
 }
 
-Stopwatch::~Stopwatch()
-{
+Stopwatch::~Stopwatch() {}
+
+void Stopwatch::start() {
+  m_bRunning = true;
+  m_StartValue = Time::getTicks();
 }
 
-void Stopwatch::start()
-{
-    m_bRunning = true;
-    m_StartValue = Time::getTicks();
+void Stopwatch::stop() {
+  assert(m_bRunning);
+  m_bRunning = false;
+  Timestamp now = Time::getTicks();
+  m_Value += now - m_StartValue;
 }
 
-void Stopwatch::stop()
-{
-    assert(m_bRunning);
-    m_bRunning = false;
-    Timestamp now = Time::getTicks();
-    m_Value += now - m_StartValue;
+void Stopwatch::reset() {
+  m_Value = 0;
+  m_StartValue = 0;
+  m_bRunning = false;
 }
 
-void Stopwatch::reset()
-{
-    m_Value = 0;
-    m_StartValue = 0;
-    m_bRunning = false;
-}
-
-Timestamp Stopwatch::value()
-{
-    return m_Value;
+Timestamp Stopwatch::value() {
+  return m_Value;
 }
 }  // namespace Time

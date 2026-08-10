@@ -19,163 +19,119 @@
 
 #include "SyscallManager.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/state.h"
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
-#include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/process/Process.h"
 
 HostedSyscallManager HostedSyscallManager::m_Instance;
 
 extern void system_reboot();
 
-SyscallManager &SyscallManager::instance()
-{
-    return HostedSyscallManager::instance();
+SyscallManager& SyscallManager::instance() {
+  return HostedSyscallManager::instance();
 }
 
-bool HostedSyscallManager::registerSyscallHandler(
-    Service_t Service, SyscallHandler *pHandler,
-    Registration &registration)
-{
-    return registerHandler(Service, pHandler, registration);
+bool HostedSyscallManager::registerSyscallHandler(Service_t Service, SyscallHandler* pHandler,
+                                                  Registration& registration) {
+  return registerHandler(Service, pHandler, registration);
 }
 
-void HostedSyscallManager::syscall(SyscallState &syscallState)
-{
-    size_t serviceNumber = syscallState.getSyscallService();
+void HostedSyscallManager::syscall(SyscallState& syscallState) {
+  size_t serviceNumber = syscallState.getSyscallService();
 
-    if (UNLIKELY(serviceNumber >= serviceEnd))
-    {
-        // TODO: We should return an error here
-        return;
+  if (UNLIKELY(serviceNumber >= serviceEnd)) {
+    // TODO: We should return an error here
+    return;
+  }
+
+  bool handled = false;
+  PostSyscallAction action;
+  {
+    // The lease must retire before the deferral allows a pending terminal
+    // request to consume this thread's stack.
+    TerminationDeferral callbackDeferral;
+    HandlerLease handler;
+    if (m_Instance.acquireHandler(static_cast<Service_t>(serviceNumber), handler, action)) {
+      handled = true;
+      syscallState.setSyscallReturnValue(handler.handler()->syscall(syscallState));
+      Thread* thread = Processor::information().getCurrentThread();
+      syscallState.setSyscallErrno(thread->getErrno());
+      thread->setErrno(0);
     }
+  }
 
-    bool handled = false;
-    PostSyscallAction action;
-    {
-        // The lease must retire before the deferral allows a pending terminal
-        // request to consume this thread's stack.
-        TerminationDeferral callbackDeferral;
-        HandlerLease handler;
-        if (m_Instance.acquireHandler(
-                static_cast<Service_t>(serviceNumber), handler,
-                action))
-        {
-            handled = true;
-            syscallState.setSyscallReturnValue(
-                handler.handler()->syscall(syscallState));
-            Thread *thread =
-                Processor::information().getCurrentThread();
-            syscallState.setSyscallErrno(thread->getErrno());
-            thread->setErrno(0);
-        }
-    }
-
-    if (handled)
-    {
+  if (handled) {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-        if (
-            action.kind != NoPostSyscallAction &&
-            m_Instance.postSyscallHookHandled(action))
-        {
-            return;
-        }
-#endif
-        switch (action.kind)
-        {
-            case TerminateCurrentThread:
-                Processor::information()
-                    .getScheduler()
-                    .killCurrentThread();
-            case ExitCurrentProcess:
-                Processor::information()
-                    .getCurrentThread()
-                    ->getParent()
-                    ->getSubsystem()
-                    ->exit(static_cast<int>(action.value));
-                return;
-            case ReturnFromEvent:
-                Processor::information()
-                    .getScheduler()
-                    .eventHandlerReturned();
-            case PopEventState:
-                Processor::information()
-                    .getCurrentThread()
-                    ->abandonCurrentState(false);
-                break;
-            case RestoreProcessorState:
-                FATAL(
-                    "Processor-state restoration requested on hosted.");
-                return;
-            case JumpToUserspace:
-                Processor::setInterrupts(false);
-                Processor::information()
-                    .getCurrentThread()
-                    ->abandonAllStates();
-                Processor::jumpUser(
-                    nullptr, action.state.getInstructionPointer(),
-                    action.state.getStackPointer());
-            case RebootSystem:
-                Processor::setInterrupts(false);
-                Processor::information()
-                    .getCurrentThread()
-                    ->abandonAllStates();
-                Processor::setInterrupts(true);
-                system_reboot();
-                return;
-            case NoPostSyscallAction:
-                break;
-        }
-
-        Thread *pThread =
-            Processor::information().getCurrentThread();
-        const Thread::UnwindType unwindState =
-            pThread->getUnwindState();
-        if (unwindState == Thread::TerminateThread)
-        {
-            Processor::information().getScheduler().killCurrentThread();
-        }
-        if (unwindState == Thread::Exit)
-        {
-            NOTICE("Unwind state exit, in interrupt handler");
-            pThread->getParent()
-                ->getSubsystem()
-                ->exit(pThread->takeDeferredProcessExitCode());
-        }
+    if (action.kind != NoPostSyscallAction && m_Instance.postSyscallHookHandled(action)) {
+      return;
     }
+#endif
+    switch (action.kind) {
+      case TerminateCurrentThread:
+        Processor::information().getScheduler().killCurrentThread();
+      case ExitCurrentProcess:
+        Processor::information().getCurrentThread()->getParent()->getSubsystem()->exit(
+            static_cast<int>(action.value));
+        return;
+      case ReturnFromEvent:
+        Processor::information().getScheduler().eventHandlerReturned();
+      case PopEventState:
+        Processor::information().getCurrentThread()->abandonCurrentState(false);
+        break;
+      case RestoreProcessorState:
+        FATAL("Processor-state restoration requested on hosted.");
+        return;
+      case JumpToUserspace:
+        Processor::setInterrupts(false);
+        Processor::information().getCurrentThread()->abandonAllStates();
+        Processor::jumpUser(nullptr, action.state.getInstructionPointer(),
+                            action.state.getStackPointer());
+      case RebootSystem:
+        Processor::setInterrupts(false);
+        Processor::information().getCurrentThread()->abandonAllStates();
+        Processor::setInterrupts(true);
+        system_reboot();
+        return;
+      case NoPostSyscallAction:
+        break;
+    }
+
+    Thread* pThread = Processor::information().getCurrentThread();
+    const Thread::UnwindType unwindState = pThread->getUnwindState();
+    if (unwindState == Thread::TerminateThread) {
+      Processor::information().getScheduler().killCurrentThread();
+    }
+    if (unwindState == Thread::Exit) {
+      NOTICE("Unwind state exit, in interrupt handler");
+      pThread->getParent()->getSubsystem()->exit(pThread->takeDeferredProcessExitCode());
+    }
+  }
 }
 
-uintptr_t HostedSyscallManager::syscall(
-    Service_t service, uintptr_t function, uintptr_t p1, uintptr_t p2,
-    uintptr_t p3, uintptr_t p4, uintptr_t p5)
-{
-    HostedSyscallState state = {};
-    state.service = service;
-    state.number = function;
-    state.p1 = p1;
-    state.p2 = p2;
-    state.p3 = p3;
-    state.p4 = p4;
-    state.p5 = p5;
-    syscall(state);
-    return state.result;
+uintptr_t HostedSyscallManager::syscall(Service_t service, uintptr_t function, uintptr_t p1,
+                                        uintptr_t p2, uintptr_t p3, uintptr_t p4, uintptr_t p5) {
+  HostedSyscallState state = {};
+  state.service = service;
+  state.number = function;
+  state.p1 = p1;
+  state.p2 = p2;
+  state.p3 = p3;
+  state.p4 = p4;
+  state.p5 = p5;
+  syscall(state);
+  return state.result;
 }
 
 //
 // Functions only usable in the kernel initialisation phase
 //
 
-void HostedSyscallManager::initialiseProcessor()
-{
-}
+void HostedSyscallManager::initialiseProcessor() {}
 
-HostedSyscallManager::HostedSyscallManager()
-{
-}
+HostedSyscallManager::HostedSyscallManager() {}
 
-HostedSyscallManager::~HostedSyscallManager()
-{
-}
+HostedSyscallManager::~HostedSyscallManager() {}

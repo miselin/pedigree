@@ -19,83 +19,77 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/utilities/utility.h"
+
 #include <string.h>
 
 #include <gtest/gtest.h>
 
-#include "pedigree/kernel/utilities/utility.h"
+TEST(PedigreeMemoryLibrary, ForwardMemoryCopy) {
+  char buf1[16];
+  char buf2[16];
 
-TEST(PedigreeMemoryLibrary, ForwardMemoryCopy)
-{
-    char buf1[16];
-    char buf2[16];
+  memset(buf1, 0, 16);
+  memset(buf2, 0xAB, 16);
 
-    memset(buf1, 0, 16);
-    memset(buf2, 0xAB, 16);
+  MemoryCopy(buf1, buf2, 16);
 
-    MemoryCopy(buf1, buf2, 16);
-
-    EXPECT_EQ(memcmp(buf1, buf2, 16), 0);
+  EXPECT_EQ(memcmp(buf1, buf2, 16), 0);
 }
 
-TEST(PedigreeMemoryLibrary, OverlappingMemoryCopy)
-{
-    char buf[16] = {0};
-    char expected[16] = {0};
+TEST(PedigreeMemoryLibrary, OverlappingMemoryCopy) {
+  char buf[16] = {0};
+  char expected[16] = {0};
 
-    // This copy will bring across the null terminating byte.
-    strcpy(buf, "ABCDEFGHIJKLMNO");
-    strcpy(expected, "BCDEFGHIJKLMNO");
+  // This copy will bring across the null terminating byte.
+  strcpy(buf, "ABCDEFGHIJKLMNO");
+  strcpy(expected, "BCDEFGHIJKLMNO");
 
-    MemoryCopy(buf, buf + 1, 15);
+  MemoryCopy(buf, buf + 1, 15);
 
-    EXPECT_STREQ(buf, expected);
+  EXPECT_STREQ(buf, expected);
 }
 
-TEST(PedigreeMemoryLibrary, ReversedMemoryCopy)
-{
-    char buf[32] = {0};
-    char expected[32] = {0};
+TEST(PedigreeMemoryLibrary, ReversedMemoryCopy) {
+  char buf[32] = {0};
+  char expected[32] = {0};
 
-    // This copy will bring across the null terminating byte.
-    strcpy(buf, "ABCDEFGHIJKLMNO");
-    strcpy(expected, "AABCDEFGHIJKLMNO");
+  // This copy will bring across the null terminating byte.
+  strcpy(buf, "ABCDEFGHIJKLMNO");
+  strcpy(expected, "AABCDEFGHIJKLMNO");
 
-    MemoryCopy(buf + 1, buf, 16);
+  MemoryCopy(buf + 1, buf, 16);
 
-    EXPECT_STREQ(buf, expected);
+  EXPECT_STREQ(buf, expected);
 }
 
-TEST(PedigreeMemoryLibrary, MemoryCompareSame)
-{
-    char buf1[32];
-    char buf2[32];
+TEST(PedigreeMemoryLibrary, MemoryCompareSame) {
+  char buf1[32];
+  char buf2[32];
 
-    memset(buf1, 'a', 32);
-    memset(buf2, 'a', 32);
+  memset(buf1, 'a', 32);
+  memset(buf2, 'a', 32);
 
-    EXPECT_EQ(MemoryCompare(buf1, buf2, 32), 0);
+  EXPECT_EQ(MemoryCompare(buf1, buf2, 32), 0);
 }
 
-TEST(PedigreeMemoryLibrary, MemoryCompareDiffers)
-{
-    char buf1[32];
-    char buf2[32];
+TEST(PedigreeMemoryLibrary, MemoryCompareDiffers) {
+  char buf1[32];
+  char buf2[32];
 
-    memset(buf1, 'a', 32);
-    memset(buf2, 'b', 32);
+  memset(buf1, 'a', 32);
+  memset(buf2, 'b', 32);
 
-    EXPECT_NE(MemoryCompare(buf1, buf2, 32), 0);
+  EXPECT_NE(MemoryCompare(buf1, buf2, 32), 0);
 }
 
-TEST(PedigreeMemoryLibrary, MemoryCompareHalfDiffers)
-{
-    char buf1[32];
-    char buf2[32];
+TEST(PedigreeMemoryLibrary, MemoryCompareHalfDiffers) {
+  char buf1[32];
+  char buf2[32];
 
-    memset(buf1, 'a', 32);
-    memset(buf2, 'a', 16);
-    memset(buf2 + 16, 'b', 16);
+  memset(buf1, 'a', 32);
+  memset(buf2, 'a', 16);
+  memset(buf2 + 16, 'b', 16);
 
-    EXPECT_NE(MemoryCompare(buf1, buf2, 32), 0);
+  EXPECT_NE(MemoryCompare(buf1, buf2, 32), 0);
 }

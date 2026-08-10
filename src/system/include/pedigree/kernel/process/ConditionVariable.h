@@ -31,78 +31,67 @@ class Thread;
 /**
  * ConditionVariable provides an abstraction over condition variables.
  */
-class EXPORTED_PUBLIC ConditionVariable
-{
-  public:
-    enum Error
-    {
-        NoError,
-        TimedOut,
-        Interrupted,
-        TerminationDeferred,
-        MutexNotLocked
-    };
+class EXPORTED_PUBLIC ConditionVariable {
+ public:
+  enum Error { NoError, TimedOut, Interrupted, TerminationDeferred, MutexNotLocked };
 
-    /** Whether wait() returned with ownership of the supplied mutex. */
-    static bool mutexAcquired(Error error)
-    {
-        return error != MutexNotLocked;
-    }
+  /** Whether wait() returned with ownership of the supplied mutex. */
+  static bool mutexAcquired(Error error) {
+    return error != MutexNotLocked;
+  }
 
-    ConditionVariable();
-    ~ConditionVariable();
+  ConditionVariable();
+  ~ConditionVariable();
 
-    /** Wait for a signal on the condition variable with a specific timeout.
-     *
-     * The timeout specifies a relative deadline in nanoseconds. Zero requests
-     * an immediate timeout; use Time::Infinity or the overload without a
-     * timeout parameter to wait indefinitely. If the operation times out, the
-     * value is set to zero. If it succeeds first, the value is the remaining
-     * timeout.
-     *
-     * The mutex is reacquired for every returning outcome. Forced thread
-     * termination ordinarily does not return; inside a TerminationDeferral it
-     * returns TerminationDeferred with the mutex held so stack-owned state can
-     * be retired. onAbandon runs exactly once only when teardown cannot return.
-     *
-     * \param[in] mutex an acquired mutex protecting the resource.
-     * \param[inout] timeout a relative timeout in nanoseconds, zero for an
-     * immediate deadline, or Time::Infinity for no deadline.
-     */
-    MUST_USE_RESULT bool wait(
-        Mutex &mutex, Time::Timestamp &timeout, Error &error,
-        WaitQueue::AbandonCallback onAbandon = nullptr,
-        void *abandonContext = nullptr);
+  /** Wait for a signal on the condition variable with a specific timeout.
+   *
+   * The timeout specifies a relative deadline in nanoseconds. Zero requests
+   * an immediate timeout; use Time::Infinity or the overload without a
+   * timeout parameter to wait indefinitely. If the operation times out, the
+   * value is set to zero. If it succeeds first, the value is the remaining
+   * timeout.
+   *
+   * The mutex is reacquired for every returning outcome. Forced thread
+   * termination ordinarily does not return; inside a TerminationDeferral it
+   * returns TerminationDeferred with the mutex held so stack-owned state can
+   * be retired. onAbandon runs exactly once only when teardown cannot return.
+   *
+   * \param[in] mutex an acquired mutex protecting the resource.
+   * \param[inout] timeout a relative timeout in nanoseconds, zero for an
+   * immediate deadline, or Time::Infinity for no deadline.
+   */
+  MUST_USE_RESULT bool wait(Mutex& mutex, Time::Timestamp& timeout, Error& error,
+                            WaitQueue::AbandonCallback onAbandon = nullptr,
+                            void* abandonContext = nullptr);
 
-    /** Wait for a signal on the condition variable with no timeout. */
-    MUST_USE_RESULT bool wait(
-        Mutex &mutex, Error &error,
-        WaitQueue::AbandonCallback onAbandon = nullptr,
-        void *abandonContext = nullptr);
+  /** Wait for a signal on the condition variable with no timeout. */
+  MUST_USE_RESULT bool wait(Mutex& mutex, Error& error,
+                            WaitQueue::AbandonCallback onAbandon = nullptr,
+                            void* abandonContext = nullptr);
 
-    /**
-     * Wait for a lifetime predicate which must be rechecked with mutex held.
-     *
-     * Signal and terminal events are delivered but cannot abandon the wait or
-     * mutex reacquisition. A delivered signal remains recorded on the current
-     * Thread so an outer syscall boundary can still report interruption after
-     * the protected lifetime state has drained.
-     */
-    void waitForCompletion(Mutex &mutex);
+  /**
+   * Wait for a lifetime predicate which must be rechecked with mutex held.
+   *
+   * Signal and terminal events are delivered but cannot abandon the wait or
+   * mutex reacquisition. A delivered signal remains recorded on the current
+   * Thread so an outer syscall boundary can still report interruption after
+   * the protected lifetime state has drained.
+   */
+  void waitForCompletion(Mutex& mutex);
 
-    /** Wake up at least one thread that is currently waiting. */
-    void signal();
+  /** Wake up at least one thread that is currently waiting. */
+  void signal();
 
-    /** Wake up all threads currently waiting. */
-    void broadcast();
+  /** Wake up all threads currently waiting. */
+  void broadcast();
 
-  private:
+ private:
 #if THREADS
-    WaitQueue m_Waiters;
+  WaitQueue m_Waiters;
 #endif
 
-    /// Private data.
-    void *m_Private;
+  /// Private data.
+  void* m_Private;
 };
 
 #endif

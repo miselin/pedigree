@@ -21,37 +21,27 @@
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-Group::Group(size_t gid, String name) : m_Gid(gid), m_Name(name), m_Users()
-{
+Group::Group(size_t gid, String name) : m_Gid(gid), m_Name(name), m_Users() {}
+
+Group::~Group() {}
+
+void Group::join(User* pUser) {
+  m_Users.pushBack(pUser);
 }
 
-Group::~Group()
-{
-}
-
-void Group::join(User *pUser)
-{
-    m_Users.pushBack(pUser);
-}
-
-void Group::leave(User *pUser)
-{
-    for (List<User *>::Iterator it = m_Users.begin(); it != m_Users.end(); it++)
-    {
-        if (*it == pUser)
-        {
-            m_Users.erase(it);
-            return;
-        }
+void Group::leave(User* pUser) {
+  for (List<User*>::Iterator it = m_Users.begin(); it != m_Users.end(); it++) {
+    if (*it == pUser) {
+      m_Users.erase(it);
+      return;
     }
+  }
 }
 
-bool Group::isMember(User *pUser)
-{
-    for (List<User *>::Iterator it = m_Users.begin(); it != m_Users.end(); it++)
-    {
-        if (*it == pUser)
-            return true;
-    }
-    return false;
+bool Group::isMember(User* pUser) {
+  for (List<User*>::Iterator it = m_Users.begin(); it != m_Users.end(); it++) {
+    if (*it == pUser)
+      return true;
+  }
+  return false;
 }

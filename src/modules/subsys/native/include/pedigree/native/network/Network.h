@@ -20,8 +20,7 @@
 #ifndef _NETWORK_H
 #define _NETWORK_H
 
-namespace PedigreeNetwork
-{
+namespace PedigreeNetwork {
 class NetworkInterface;
 
 class IpAddress;
@@ -33,15 +32,15 @@ class StationInfo;
 class NetworkEndpoint;
 
 /** Does a route exist for the given IP? */
-bool routeExists(IpAddress &ip);
+bool routeExists(IpAddress& ip);
 
 /** Different mechanisms for getting a network interface */
-NetworkInterface *getInterface(uint32_t hash);
-NetworkInterface *getInterface(IpAddress &ipaddr);
-NetworkInterface *getInterface(EthernetAddress &ethaddr);
+NetworkInterface* getInterface(uint32_t hash);
+NetworkInterface* getInterface(IpAddress& ipaddr);
+NetworkInterface* getInterface(EthernetAddress& ethaddr);
 
 /** Releases memory taken by getInterface */
-void releaseInterface(NetworkInterface *iface);
+void releaseInterface(NetworkInterface* iface);
 
 /** \todo Interface for endpoints and such */
 };  // namespace PedigreeNetwork

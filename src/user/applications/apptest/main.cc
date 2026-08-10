@@ -19,9 +19,8 @@
 
 #include "pedigree/native/demo.h"
 
-int main(int argc, char **argv)
-{
-    Demo demo;
-    demo.something();
-    return 0;
+int main(int argc, char** argv) {
+  Demo demo;
+  demo.something();
+  return 0;
 }

@@ -17,10 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "PartitionService.h"
-#include "apple.h"
-#include "modules/Module.h"
-#include "msdos.h"
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/ServiceManager.h"
@@ -30,100 +26,92 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-static Service *pService = 0;
-static ServiceFeatures *pFeatures = 0;
+#include "PartitionService.h"
+#include "apple.h"
+#include "modules/Module.h"
+#include "msdos.h"
 
-static bool probeDevice(Disk *pDev)
-{
-    // Does the disk have an MS-DOS partition table?
-    if (msdosProbeDisk(pDev))
-        return true;
+static Service* pService = 0;
+static ServiceFeatures* pFeatures = 0;
 
-    // No? how about an Apple_Map?
-    if (appleProbeDisk(pDev))
-        return true;
-
-    // Oh well, better luck next time.
-    return false;
-}
-
-static Device *checkNode(Device *pDev)
-{
-    String s;
-    pDev->getName(s);
-    NOTICE("checkNode(" << pDev << " / " << s << ")");
-    bool hasPartitions = false;
-    if (pDev->getType() == Device::Disk)
-    {
-        // Check that none of its children are Partitions
-        // (in which case we've probed this before!)
-        for (unsigned int i = 0; i < pDev->getNumChildren(); i++)
-        {
-            String name;
-            pDev->getChild(i)->getName(name);
-            if (!StringCompare(name.cstr(), "msdos-partition") ||
-                !StringCompare(name.cstr(), "apple-partition"))
-            {
-                hasPartitions = true;
-                break;
-            }
-        }
-
-        if (!hasPartitions)
-        {
-            NOTICE("probe...");
-            probeDevice(static_cast<Disk *>(pDev));
-            NOTICE("probe done...");
-        }
-    }
-
-    NOTICE("checkNode(" << pDev << ") - complete!");
-    return pDev;
-}
-
-bool PartitionService::serve(
-    ServiceFeatures::Type type, void *pData, size_t dataLen)
-{
-    // Correct type?
-    if (pFeatures->provides(type))
-    {
-        // We only provide Touch services
-        if (type & ServiceFeatures::touch)
-        {
-            Disk *pDisk = static_cast<Disk *>(pData);
-            return probeDevice(pDisk);
-        }
-    }
-
-    // Not provided by us, fail!
-    return false;
-}
-
-static bool entry()
-{
-    // Install the Partition Service
-    pService = new PartitionService;
-    pFeatures = new ServiceFeatures;
-    pFeatures->add(ServiceFeatures::touch);
-    ServiceManager::instance().addService(
-        String("partition"), pService, pFeatures);
-
-    // Walk the device tree looking for disks that don't have "partition"
-    // children.
-    Device::foreach (checkNode);
-
-    NOTICE("partition entry() is done");
-
-    // Never fail, even if no partitions found. The partition service is still
-    // critical to the system.
+static bool probeDevice(Disk* pDev) {
+  // Does the disk have an MS-DOS partition table?
+  if (msdosProbeDisk(pDev))
     return true;
+
+  // No? how about an Apple_Map?
+  if (appleProbeDisk(pDev))
+    return true;
+
+  // Oh well, better luck next time.
+  return false;
 }
 
-static void exit()
-{
-    ServiceManager::instance().removeService(String("partition"));
-    delete pService;
-    delete pFeatures;
+static Device* checkNode(Device* pDev) {
+  String s;
+  pDev->getName(s);
+  NOTICE("checkNode(" << pDev << " / " << s << ")");
+  bool hasPartitions = false;
+  if (pDev->getType() == Device::Disk) {
+    // Check that none of its children are Partitions
+    // (in which case we've probed this before!)
+    for (unsigned int i = 0; i < pDev->getNumChildren(); i++) {
+      String name;
+      pDev->getChild(i)->getName(name);
+      if (!StringCompare(name.cstr(), "msdos-partition") ||
+          !StringCompare(name.cstr(), "apple-partition")) {
+        hasPartitions = true;
+        break;
+      }
+    }
+
+    if (!hasPartitions) {
+      NOTICE("probe...");
+      probeDevice(static_cast<Disk*>(pDev));
+      NOTICE("probe done...");
+    }
+  }
+
+  NOTICE("checkNode(" << pDev << ") - complete!");
+  return pDev;
+}
+
+bool PartitionService::serve(ServiceFeatures::Type type, void* pData, size_t dataLen) {
+  // Correct type?
+  if (pFeatures->provides(type)) {
+    // We only provide Touch services
+    if (type & ServiceFeatures::touch) {
+      Disk* pDisk = static_cast<Disk*>(pData);
+      return probeDevice(pDisk);
+    }
+  }
+
+  // Not provided by us, fail!
+  return false;
+}
+
+static bool entry() {
+  // Install the Partition Service
+  pService = new PartitionService;
+  pFeatures = new ServiceFeatures;
+  pFeatures->add(ServiceFeatures::touch);
+  ServiceManager::instance().addService(String("partition"), pService, pFeatures);
+
+  // Walk the device tree looking for disks that don't have "partition"
+  // children.
+  Device::foreach (checkNode);
+
+  NOTICE("partition entry() is done");
+
+  // Never fail, even if no partitions found. The partition service is still
+  // critical to the system.
+  return true;
+}
+
+static void exit() {
+  ServiceManager::instance().removeService(String("partition"));
+  delete pService;
+  delete pFeatures;
 }
 
 #if HOSTED

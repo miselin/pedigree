@@ -25,111 +25,97 @@
  *\date   Sun May 17 10:00:00 2009
  *\brief  An in-RAM filesystem. */
 
-#include "modules/system/vfs/Directory.h"
-#include "modules/system/vfs/File.h"
-#include "modules/system/vfs/Filesystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/String.h"
 
+#include "modules/system/vfs/Directory.h"
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/Filesystem.h"
+
 class Disk;
 
-class EXPORTED_PUBLIC RamFile : public File
-{
-  public:
-    RamFile(
-        const String &name, uintptr_t inode, Filesystem *pParentFS,
-        File *pParent);
+class EXPORTED_PUBLIC RamFile : public File {
+ public:
+  RamFile(const String& name, uintptr_t inode, Filesystem* pParentFS, File* pParent);
 
-    virtual ~RamFile();
+  virtual ~RamFile();
 
-    virtual void truncate();
+  virtual void truncate();
 
-    bool canWrite();
+  bool canWrite();
 
-  protected:
-    virtual uintptr_t readBlock(uint64_t location);
+ protected:
+  virtual uintptr_t readBlock(uint64_t location);
 
-    virtual bool pinBlock(uint64_t location);
+  virtual bool pinBlock(uint64_t location);
 
-    virtual void unpinBlock(uint64_t location);
+  virtual void unpinBlock(uint64_t location);
 
-  private:
-    Cache m_FileBlocks;
-    Mutex m_FileBlocksLock;
+ private:
+  Cache m_FileBlocks;
+  Mutex m_FileBlocksLock;
 
-    size_t m_nOwnerPid;
+  size_t m_nOwnerPid;
 };
 
 /** Defines a directory in the RamFS */
-class EXPORTED_PUBLIC RamDir : public Directory
-{
-  private:
-    RamDir(const RamDir &);
-    RamDir &operator=(const RamDir &);
+class EXPORTED_PUBLIC RamDir : public Directory {
+ private:
+  RamDir(const RamDir&);
+  RamDir& operator=(const RamDir&);
 
-  public:
-    RamDir(
-        const String &name, size_t inode, class Filesystem *pFs, File *pParent);
-    virtual ~RamDir();
+ public:
+  RamDir(const String& name, size_t inode, class Filesystem* pFs, File* pParent);
+  virtual ~RamDir();
 
-    virtual void cacheDirectoryContents()
-    {
-    }
+  virtual void cacheDirectoryContents() {}
 
-    virtual bool addEntry(String filename, File *pFile);
+  virtual bool addEntry(String filename, File* pFile);
 
-    virtual bool removeEntry(File *pFile);
+  virtual bool removeEntry(File* pFile);
 };
 
 /** Defines a filesystem that is completely in RAM. */
-class EXPORTED_PUBLIC RamFs : public Filesystem
-{
-  public:
-    RamFs();
-    virtual ~RamFs();
+class EXPORTED_PUBLIC RamFs : public Filesystem {
+ public:
+  RamFs();
+  virtual ~RamFs();
 
-    virtual bool initialise(Disk *pDisk);
+  virtual bool initialise(Disk* pDisk);
 
-    void setProcessOwnership(bool bEnable)
-    {
-        m_bProcessOwners = bEnable;
-    }
+  void setProcessOwnership(bool bEnable) {
+    m_bProcessOwners = bEnable;
+  }
 
-    bool getProcessOwnership() const
-    {
-        return m_bProcessOwners;
-    }
+  bool getProcessOwnership() const {
+    return m_bProcessOwners;
+  }
 
-    virtual File *getRoot() const
-    {
-        return m_pRoot;
-    }
-    virtual const String &getVolumeLabel() const
-    {
-        return m_VolumeLabel;
-    }
+  virtual File* getRoot() const {
+    return m_pRoot;
+  }
+  virtual const String& getVolumeLabel() const {
+    return m_VolumeLabel;
+  }
 
-  protected:
-    virtual bool
-    createFile(File *parent, const String &filename, uint32_t mask);
-    virtual bool
-    createDirectory(File *parent, const String &filename, uint32_t mask);
-    virtual bool
-    createSymlink(File *parent, const String &filename, const String &value);
-    virtual bool remove(File *parent, File *file);
+ protected:
+  virtual bool createFile(File* parent, const String& filename, uint32_t mask);
+  virtual bool createDirectory(File* parent, const String& filename, uint32_t mask);
+  virtual bool createSymlink(File* parent, const String& filename, const String& value);
+  virtual bool remove(File* parent, File* file);
 
-    RamFs(const RamFs &);
-    void operator=(const RamFs &);
+  RamFs(const RamFs&);
+  void operator=(const RamFs&);
 
-    static String m_VolumeLabel;
+  static String m_VolumeLabel;
 
-    /** Root filesystem node. */
-    File *m_pRoot;
+  /** Root filesystem node. */
+  File* m_pRoot;
 
-    bool m_bProcessOwners;
+  bool m_bProcessOwners;
 };
 
 #endif

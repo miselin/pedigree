@@ -20,7 +20,6 @@
 #ifndef DIRECTORY_H
 #define DIRECTORY_H
 
-#include "File.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
@@ -30,6 +29,8 @@
 #include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include "File.h"
 
 class StringView;
 class HashedStringView;
@@ -41,172 +42,161 @@ class HashedStringView;
  *       so we can potentially offer a way to cull directory entries that are
  *       otherwise just consuming space.
  **/
-class EXPORTED_PUBLIC Directory : public File
-{
-    friend class Filesystem;
+class EXPORTED_PUBLIC Directory : public File {
+  friend class Filesystem;
 
-  public:
-    /** Eases the pain of casting, and performs a sanity check. */
-    static Directory *fromFile(File *pF)
-    {
-        if (!pF->isDirectory())
-            FATAL("Casting non-directory File to Directory!");
-        return reinterpret_cast<Directory *>(pF);
-    }
+ public:
+  /** Eases the pain of casting, and performs a sanity check. */
+  static Directory* fromFile(File* pF) {
+    if (!pF->isDirectory())
+      FATAL("Casting non-directory File to Directory!");
+    return reinterpret_cast<Directory*>(pF);
+  }
 
-    /** Constructor, creates an invalid directory. */
-    Directory();
+  /** Constructor, creates an invalid directory. */
+  Directory();
 
-    /** Copy constructors are hidden - unused! */
-  private:
-    Directory(const Directory &file);
-    Directory &operator=(const Directory &);
+  /** Copy constructors are hidden - unused! */
+ private:
+  Directory(const Directory& file);
+  Directory& operator=(const Directory&);
 
-  public:
-    /** Constructor, should be called only by a Filesystem. */
-    Directory(
-        const String &name, Time::Timestamp accessedTime,
-        Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-        uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent);
-    /** Destructor - doesn't do anything. */
-    virtual ~Directory();
+ public:
+  /** Constructor, should be called only by a Filesystem. */
+  Directory(const String& name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
+            Time::Timestamp creationTime, uintptr_t inode, class Filesystem* pFs, size_t size,
+            File* pParent);
+  /** Destructor - doesn't do anything. */
+  virtual ~Directory();
 
-    /** Returns true if the File is actually a directory. */
-    virtual bool isDirectory()
-    {
-        return true;
-    }
+  /** Returns true if the File is actually a directory. */
+  virtual bool isDirectory() {
+    return true;
+  }
 
-    /** Returns the n'th child of this directory, or an invalid file. */
-    File *getChild(size_t n);
+  /** Returns the n'th child of this directory, or an invalid file. */
+  File* getChild(size_t n);
 
-    /** Returns the number of children in this directory. */
-    size_t getNumChildren();
+  /** Returns the number of children in this directory. */
+  size_t getNumChildren();
 
-    /** Load the directory's contents into the cache. */
-    virtual void cacheDirectoryContents();
+  /** Load the directory's contents into the cache. */
+  virtual void cacheDirectoryContents();
 
-    /** Does this directory have cache? */
-    virtual bool isCachePopulated() const
-    {
-        return m_bCachePopulated;
-    }
+  /** Does this directory have cache? */
+  virtual bool isCachePopulated() const {
+    return m_bCachePopulated;
+  }
 
-    /** Look up the given filename in the directory. */
-    File *lookup(const HashedStringView &s) const;
+  /** Look up the given filename in the directory. */
+  File* lookup(const HashedStringView& s) const;
 
-    /** Remove the given filename in the directory. */
-    void remove(const HashedStringView &s);
+  /** Remove the given filename in the directory. */
+  void remove(const HashedStringView& s);
 
-    /**
-     * \brief Get the reparse point attached to this directory.
-     * Reparse points allow locations on the filesystem to redirect lookups to
-     * a separate directory. While the reparse point is active, the target
-     * directory is used for lookups instead of this one.
-     */
-    Directory *getReparsePoint() const;
+  /**
+   * \brief Get the reparse point attached to this directory.
+   * Reparse points allow locations on the filesystem to redirect lookups to
+   * a separate directory. While the reparse point is active, the target
+   * directory is used for lookups instead of this one.
+   */
+  Directory* getReparsePoint() const;
 
-    /** Set/unset the reparse point for this directory. */
-    void setReparsePoint(Directory *pTarget);
+  /** Set/unset the reparse point for this directory. */
+  void setReparsePoint(Directory* pTarget);
 
-    /**
-     * \brief Add an ephemeral file to the directory
-     *
-     * This is used to store files that need to be visible in the VFS but are
-     * not backed by a "real" file on disk. For example, a socket might need to
-     * be present with a filesystem path but should not be written to disk.
-     */
-    bool addEphemeralFile(File *pFile);
+  /**
+   * \brief Add an ephemeral file to the directory
+   *
+   * This is used to store files that need to be visible in the VFS but are
+   * not backed by a "real" file on disk. For example, a socket might need to
+   * be present with a filesystem path but should not be written to disk.
+   */
+  bool addEphemeralFile(File* pFile);
 
-    /**
-     * Empty the entire directory, deleting all files within it
-     * (non-recursively). This does NOT check that the directory is "empty"
-     * first.
-     */
-    bool empty();
+  /**
+   * Empty the entire directory, deleting all files within it
+   * (non-recursively). This does NOT check that the directory is "empty"
+   * first.
+   */
+  bool empty();
 
-    /**
-     * Empty the entire directory cache.
-     */
-    void emptyCache();
+  /**
+   * Empty the entire directory cache.
+   */
+  void emptyCache();
 
-  protected:
-    struct DirectoryEntryMetadata
-    {
-        DirectoryEntryMetadata();
-        DirectoryEntryMetadata(DirectoryEntryMetadata &&other);
+ protected:
+  struct DirectoryEntryMetadata {
+    DirectoryEntryMetadata();
+    DirectoryEntryMetadata(DirectoryEntryMetadata&& other);
 
-        ~DirectoryEntryMetadata();
+    ~DirectoryEntryMetadata();
 
-        // No copy construction (UniqueArray)
-        NOT_COPYABLE_OR_ASSIGNABLE(DirectoryEntryMetadata);
+    // No copy construction (UniqueArray)
+    NOT_COPYABLE_OR_ASSIGNABLE(DirectoryEntryMetadata);
 
-        // These two should always be known at metadata creation time.
-        Directory *pDirectory;
-        String filename;
+    // These two should always be known at metadata creation time.
+    Directory* pDirectory;
+    String filename;
 
-        // Space for anything else to be stored by the filesystem.
-        UniqueArray<char> opaque;
-    };
+    // Space for anything else to be stored by the filesystem.
+    UniqueArray<char> opaque;
+  };
 
-  private:
-    static File *evaluateEntry(const DirectoryEntryMetadata &meta);
-    static void destroyEntry(File *file);
+ private:
+  static File* evaluateEntry(const DirectoryEntryMetadata& meta);
+  static void destroyEntry(File* file);
 
-    virtual bool isBytewise() const
-    {
-        // This will cause read()/write() to fail as readBytewise/writeBytewise
-        // are not overridden and remain as their default implementation, which
-        // errors out.
-        return true;
-    }
+  virtual bool isBytewise() const {
+    // This will cause read()/write() to fail as readBytewise/writeBytewise
+    // are not overridden and remain as their default implementation, which
+    // errors out.
+    return true;
+  }
 
-  protected:
-    typedef LazyEvaluate<
-        File, DirectoryEntryMetadata, evaluateEntry, destroyEntry>
-        DirectoryEntry;
+ protected:
+  typedef LazyEvaluate<File, DirectoryEntryMetadata, evaluateEntry, destroyEntry> DirectoryEntry;
 
-  private:
-    typedef HashTable<String, DirectoryEntry *, HashedStringView> DirectoryEntryCache;
+ private:
+  typedef HashTable<String, DirectoryEntry*, HashedStringView> DirectoryEntryCache;
 
-    /** Directory contents cache. */
-    DirectoryEntryCache m_Cache;
+  /** Directory contents cache. */
+  DirectoryEntryCache m_Cache;
 
-    /**
-     * Whether the directory cache is populated with entries or still needs to
-     * be loaded. Directories are lazy-loaded using this.
-     */
-    bool m_bCachePopulated;
+  /**
+   * Whether the directory cache is populated with entries or still needs to
+   * be loaded. Directories are lazy-loaded using this.
+   */
+  bool m_bCachePopulated;
 
-    /** Reparse target. */
-    Directory *m_ReparseTarget = nullptr;
+  /** Reparse target. */
+  Directory* m_ReparseTarget = nullptr;
 
-  protected:
-    /** Provides subclasses with direct access to the directory's listing. */
-    virtual const DirectoryEntryCache &getCache()
-    {
-        return m_Cache;
-    }
+ protected:
+  /** Provides subclasses with direct access to the directory's listing. */
+  virtual const DirectoryEntryCache& getCache() {
+    return m_Cache;
+  }
 
-    /** Mark the directory cache as populated now. */
-    void markCachePopulated()
-    {
-        m_bCachePopulated = true;
-    }
+  /** Mark the directory cache as populated now. */
+  void markCachePopulated() {
+    m_bCachePopulated = true;
+  }
 
-    /** Add an entry to the directory. */
-    void addDirectoryEntry(const String &name, File *pTarget);
+  /** Add an entry to the directory. */
+  void addDirectoryEntry(const String& name, File* pTarget);
 
-    /** Add a lazily-evaluated entry to the directory. */
-    void addDirectoryEntry(const String &name, DirectoryEntryMetadata &&meta);
+  /** Add a lazily-evaluated entry to the directory. */
+  void addDirectoryEntry(const String& name, DirectoryEntryMetadata&& meta);
 
-    /** Preallocate space for the given number of directory entries. */
-    void preallocateDirectoryEntries(size_t count);
+  /** Preallocate space for the given number of directory entries. */
+  void preallocateDirectoryEntries(size_t count);
 
-    /** Convert given metadata into a useful File object. */
-    virtual File *convertToFile(const DirectoryEntryMetadata &meta);
+  /** Convert given metadata into a useful File object. */
+  virtual File* convertToFile(const DirectoryEntryMetadata& meta);
 };
 
-extern template class HashTable<String, Directory::DirectoryEntry *, HashedStringView>;
+extern template class HashTable<String, Directory::DirectoryEntry*, HashedStringView>;
 
 #endif

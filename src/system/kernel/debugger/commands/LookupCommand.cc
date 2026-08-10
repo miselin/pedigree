@@ -23,49 +23,35 @@
 
 class DebuggerIO;
 
-LookupCommand::LookupCommand() : DebuggerCommand()
-{
-}
+LookupCommand::LookupCommand() : DebuggerCommand() {}
 
-LookupCommand::~LookupCommand()
-{
-}
+LookupCommand::~LookupCommand() {}
 
-void LookupCommand::autocomplete(
-    const HugeStaticString &input, HugeStaticString &output)
-{
-}
+void LookupCommand::autocomplete(const HugeStaticString& input, HugeStaticString& output) {}
 
-bool LookupCommand::execute(
-    const HugeStaticString &input, HugeStaticString &output,
-    InterruptState &state, DebuggerIO *pScreen)
-{
-    intptr_t n = input.intValue();
-    if (n == -1)
-    {
-        uintptr_t addr = KernelElf::instance().lookupSymbol(
-            static_cast<const char *>(input));
-        if (addr)
-            output.append(addr, 16);
-        else
-            output += "No symbol corresponding to given name";
-        output += "\n";
-    }
+bool LookupCommand::execute(const HugeStaticString& input, HugeStaticString& output,
+                            InterruptState& state, DebuggerIO* pScreen) {
+  intptr_t n = input.intValue();
+  if (n == -1) {
+    uintptr_t addr = KernelElf::instance().lookupSymbol(static_cast<const char*>(input));
+    if (addr)
+      output.append(addr, 16);
     else
-    {
-        uintptr_t symStart;
-        const char *pSym = KernelElf::instance().globalLookupSymbol(
-            static_cast<uintptr_t>(n), &symStart);
-        if (!pSym)
-        {
-            output += "No symbol corresponding to given address.";
-            return false;
-        }
-        output += "`";
-        output += pSym;
-        output += "' - symbol starts at ";
-        output.append(symStart, 16);
-        output += "\n";
+      output += "No symbol corresponding to given name";
+    output += "\n";
+  } else {
+    uintptr_t symStart;
+    const char* pSym =
+        KernelElf::instance().globalLookupSymbol(static_cast<uintptr_t>(n), &symStart);
+    if (!pSym) {
+      output += "No symbol corresponding to given address.";
+      return false;
     }
-    return true;
+    output += "`";
+    output += pSym;
+    output += "' - symbol starts at ";
+    output.append(symStart, 16);
+    output += "\n";
+  }
+  return true;
 }

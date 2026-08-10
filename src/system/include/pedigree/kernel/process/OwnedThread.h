@@ -15,82 +15,65 @@
  * Owns one joinable worker and makes cancellation plus joining part of the
  * containing object's lifetime.
  */
-class OwnedThread
-{
-  public:
-    OwnedThread() : m_pThread(nullptr)
-    {
+class OwnedThread {
+ public:
+  OwnedThread() : m_pThread(nullptr) {}
+
+  explicit OwnedThread(Thread* thread) : m_pThread(thread) {}
+
+  ~OwnedThread() {
+    stop();
+  }
+
+  void adopt(Thread* thread) {
+    if (m_pThread || !thread || thread->detached()) {
+      FATAL("OwnedThread cannot adopt this worker.");
+    }
+    m_pThread = thread;
+  }
+
+  void stop() {
+    if (!m_pThread) {
+      return;
     }
 
-    explicit OwnedThread(Thread *thread) : m_pThread(thread)
-    {
+    Thread* thread = m_pThread;
+    if (thread->getStatus() != Thread::AwaitingJoin) {
+      thread->setUnwindState(Thread::TerminateThread);
+    }
+    join();
+  }
+
+  /** Joins a worker whose containing object has published its own stop. */
+  void join() {
+    if (!m_pThread) {
+      return;
     }
 
-    ~OwnedThread()
-    {
-        stop();
+    Thread* thread = m_pThread;
+    if (!thread->joinForCompletion()) {
+      FATAL("OwnedThread could not join its worker.");
     }
+    m_pThread = nullptr;
+  }
 
-    void adopt(Thread *thread)
-    {
-        if (m_pThread || !thread || thread->detached())
-        {
-            FATAL("OwnedThread cannot adopt this worker.");
-        }
-        m_pThread = thread;
-    }
+  Thread* get() const {
+    return m_pThread;
+  }
 
-    void stop()
-    {
-        if (!m_pThread)
-        {
-            return;
-        }
+  Thread* operator->() const {
+    return m_pThread;
+  }
 
-        Thread *thread = m_pThread;
-        if (thread->getStatus() != Thread::AwaitingJoin)
-        {
-            thread->setUnwindState(Thread::TerminateThread);
-        }
-        join();
-    }
+  explicit operator bool() const {
+    return m_pThread != nullptr;
+  }
 
-    /** Joins a worker whose containing object has published its own stop. */
-    void join()
-    {
-        if (!m_pThread)
-        {
-            return;
-        }
+ private:
+  OwnedThread(const OwnedThread&) = delete;
+  OwnedThread& operator=(const OwnedThread&) = delete;
 
-        Thread *thread = m_pThread;
-        if (!thread->joinForCompletion())
-        {
-            FATAL("OwnedThread could not join its worker.");
-        }
-        m_pThread = nullptr;
-    }
-
-    Thread *get() const
-    {
-        return m_pThread;
-    }
-
-    Thread *operator->() const
-    {
-        return m_pThread;
-    }
-
-    explicit operator bool() const
-    {
-        return m_pThread != nullptr;
-    }
-
-  private:
-    OwnedThread(const OwnedThread &) = delete;
-    OwnedThread &operator=(const OwnedThread &) = delete;
-
-    Thread *m_pThread;
+  Thread* m_pThread;
 };
 
 #endif

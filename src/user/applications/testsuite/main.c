@@ -28,25 +28,22 @@ static jmp_buf buf;
 
 void fail() __attribute__((noreturn));
 
-void fail()
-{
-    longjmp(buf, 1);
+void fail() {
+  longjmp(buf, 1);
 }
 
-int main(int argc, char *argv[])
-{
-    if (setjmp(buf) == 1)
-    {
-        printf("FAILED\n");
-        return 1;
-    }
+int main(int argc, char* argv[]) {
+  if (setjmp(buf) == 1) {
+    printf("FAILED\n");
+    return 1;
+  }
 
-    printf("Running tests...\n");
+  printf("Running tests...\n");
 
-    // Add calls to test functions here...
-    test_mprotect();
-    test_fs();
+  // Add calls to test functions here...
+  test_mprotect();
+  test_fs();
 
-    printf("Tests complete!\n");
-    return 0;
+  printf("Tests complete!\n");
+  return 0;
 }

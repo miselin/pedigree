@@ -15,11 +15,9 @@
 using IrqDiagnosticString = StaticString<2048>;
 
 /** Renders one detached IRQ snapshot without consulting live kernel state. */
-class IrqDiagnosticRenderer
-{
-  public:
-    static void
-    render(const IrqLineDiagnosticSnapshot &snapshot, IrqDiagnosticString &line);
+class IrqDiagnosticRenderer {
+ public:
+  static void render(const IrqLineDiagnosticSnapshot& snapshot, IrqDiagnosticString& line);
 };
 
 #endif

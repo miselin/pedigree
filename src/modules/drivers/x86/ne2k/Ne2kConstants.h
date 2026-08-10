@@ -20,34 +20,33 @@
 #ifndef NE2K_CONSTANTS_H
 #define NE2K_CONSTANTS_H
 
-enum Ne2kConstants
-{
-    NE_CMD = 0x0,
-    NE_PSTART = 0x1,  // write
-    NE_PSTOP = 0x2,   // write
-    NE_BNDRY = 0x3,
+enum Ne2kConstants {
+  NE_CMD = 0x0,
+  NE_PSTART = 0x1,  // write
+  NE_PSTOP = 0x2,   // write
+  NE_BNDRY = 0x3,
 
-    NE_TSR = 0x4,  // read
+  NE_TSR = 0x4,  // read
 
-    NE_TPSR = 0x4,   // write
-    NE_TBCR0 = 0x5,  // write
-    NE_TBCR1 = 0x6,  // write
+  NE_TPSR = 0x4,   // write
+  NE_TBCR0 = 0x5,  // write
+  NE_TBCR1 = 0x6,  // write
 
-    NE_ISR = 0x7,
+  NE_ISR = 0x7,
 
-    NE_RSAR0 = 0x8,  // write
-    NE_RSAR1 = 0x9,  // write
-    NE_RBCR0 = 0xa,  // write
-    NE_RBCR1 = 0xb,  // write
-    NE_RCR = 0xc,    // write
-    NE_TCR = 0xd,    // write
-    NE_DCR = 0xe,    // write
+  NE_RSAR0 = 0x8,  // write
+  NE_RSAR1 = 0x9,  // write
+  NE_RBCR0 = 0xa,  // write
+  NE_RBCR1 = 0xb,  // write
+  NE_RCR = 0xc,    // write
+  NE_TCR = 0xd,    // write
+  NE_DCR = 0xe,    // write
 
-    NE_IMR = 0xf,  // write
+  NE_IMR = 0xf,  // write
 
-    NE_PAR = 0x1,   // page 1, really 0x1 - 0x6
-    NE_CURR = 0x7,  // page 1
-    NE_MAR = 0x8,   // page 1, really 0x8 - 0xf
+  NE_PAR = 0x1,   // page 1, really 0x1 - 0x6
+  NE_CURR = 0x7,  // page 1
+  NE_MAR = 0x8,   // page 1, really 0x8 - 0xf
 };
 
 #define MAR_SIZE 8

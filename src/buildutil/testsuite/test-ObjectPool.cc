@@ -19,90 +19,86 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/utilities/ObjectPool.h"
 
-TEST(PedigreeObjectPool, EmptyPoolAllocation)
-{
-    ObjectPool<int> x;
+#include <gtest/gtest.h>
 
-    int *a = x.allocate();
-    int *b = x.allocate();
+TEST(PedigreeObjectPool, EmptyPoolAllocation) {
+  ObjectPool<int> x;
 
-    EXPECT_NE(a, b);
+  int* a = x.allocate();
+  int* b = x.allocate();
 
-    delete a;
-    delete b;
+  EXPECT_NE(a, b);
+
+  delete a;
+  delete b;
 }
 
-TEST(PedigreeObjectPool, ObjectReuse)
-{
-    ObjectPool<int, 2> x;
+TEST(PedigreeObjectPool, ObjectReuse) {
+  ObjectPool<int, 2> x;
 
-    int *a1 = x.allocate();
-    int *b1 = x.allocate();
+  int* a1 = x.allocate();
+  int* b1 = x.allocate();
 
-    x.deallocate(a1);
-    x.deallocate(b1);
+  x.deallocate(a1);
+  x.deallocate(b1);
 
-    int *b2 = x.allocate();
-    int *a2 = x.allocate();
+  int* b2 = x.allocate();
+  int* a2 = x.allocate();
 
-    EXPECT_EQ(a1, a2);
-    EXPECT_EQ(b1, b2);
+  EXPECT_EQ(a1, a2);
+  EXPECT_EQ(b1, b2);
 
-    delete a1;
-    delete b1;
+  delete a1;
+  delete b1;
 }
 
-TEST(PedigreeObjectPool, ObjectReuseThenAllocation)
-{
-    ObjectPool<int, 2> x;
+TEST(PedigreeObjectPool, ObjectReuseThenAllocation) {
+  ObjectPool<int, 2> x;
 
-    // Add an object to the pool.
-    int *a1 = new int;
-    x.deallocate(a1);
+  // Add an object to the pool.
+  int* a1 = new int;
+  x.deallocate(a1);
 
-    // Re-use that object.
-    int *a2 = x.allocate();
+  // Re-use that object.
+  int* a2 = x.allocate();
 
-    // This will allocate a new object.
-    int *a3 = x.allocate();
+  // This will allocate a new object.
+  int* a3 = x.allocate();
 
-    EXPECT_EQ(a1, a2);
-    EXPECT_NE(a1, a3);
+  EXPECT_EQ(a1, a2);
+  EXPECT_NE(a1, a3);
 
-    delete a2;
-    delete a3;
+  delete a2;
+  delete a3;
 }
 
-TEST(PedigreeObjectPool, DISABLED_DeallocatedTooMany)
-{
-    ObjectPool<int, 1> x;
+TEST(PedigreeObjectPool, DISABLED_DeallocatedTooMany) {
+  ObjectPool<int, 1> x;
 
-    // Add a new item to the pool.
-    int *a1 = new int;
-    x.deallocate(a1);
+  // Add a new item to the pool.
+  int* a1 = new int;
+  x.deallocate(a1);
 
-    // Try to add another item (won't actually add to pool).
-    int *b1 = new int;
-    x.deallocate(b1);
+  // Try to add another item (won't actually add to pool).
+  int* b1 = new int;
+  x.deallocate(b1);
 
-    // Allocate a new object from the heap in case the current heap
-    // implementation gives b1 back to us (which would fail the test).
-    int *c = new int;
+  // Allocate a new object from the heap in case the current heap
+  // implementation gives b1 back to us (which would fail the test).
+  int* c = new int;
 
-    // Comes from pool.
-    int *a2 = x.allocate();
+  // Comes from pool.
+  int* a2 = x.allocate();
 
-    // Comes from heap.
-    int *b2 = x.allocate();
+  // Comes from heap.
+  int* b2 = x.allocate();
 
-    EXPECT_EQ(a1, a2);
-    EXPECT_NE(b1, b2);
+  EXPECT_EQ(a1, a2);
+  EXPECT_NE(b1, b2);
 
-    delete c;
-    delete a2;
-    delete b2;
+  delete c;
+  delete a2;
+  delete b2;
 }

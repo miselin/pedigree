@@ -17,8 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/Module.h"
-#include "modules/system/network-stack/Filter.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
@@ -28,23 +26,24 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 
-struct PcapHeader
-{
-    uint32_t magic;
-    uint16_t major;
-    uint16_t minor;
-    uint32_t tz;
-    uint32_t sigfig;
-    uint32_t caplen;
-    uint32_t network;
+#include "modules/Module.h"
+#include "modules/system/network-stack/Filter.h"
+
+struct PcapHeader {
+  uint32_t magic;
+  uint16_t major;
+  uint16_t minor;
+  uint32_t tz;
+  uint32_t sigfig;
+  uint32_t caplen;
+  uint32_t network;
 };
 
-struct PcapRecord
-{
-    uint32_t ts_sec;
-    uint32_t ts_usec;
-    uint32_t stored_length;
-    uint32_t orig_length;
+struct PcapRecord {
+  uint32_t ts_sec;
+  uint32_t ts_usec;
+  uint32_t stored_length;
+  uint32_t orig_length;
 };
 
 #define PCAP_MAGIC 0xa1b2c3d4
@@ -58,113 +57,99 @@ static size_t g_FilterEntry = 0;
 
 static Mutex g_PcapMutex;
 
-static Serial *getSerial() PURE;
-static Serial *getSerial()
-{
-    // Ignore if we don't have a machine abstraction yet.
-    if (!Machine::instance().isInitialised())
-    {
-        return 0;
-    }
+static Serial* getSerial() PURE;
+static Serial* getSerial() {
+  // Ignore if we don't have a machine abstraction yet.
+  if (!Machine::instance().isInitialised()) {
+    return 0;
+  }
 
-    // Serial port to write PCAP data to.
-    if (Machine::instance().getNumSerial() < 3)
-    {
-        return 0;
-    }
+  // Serial port to write PCAP data to.
+  if (Machine::instance().getNumSerial() < 3) {
+    return 0;
+  }
 
-    return Machine::instance().getSerial(2);
+  return Machine::instance().getSerial(2);
 }
 
-bool pcapLogPacket(uintptr_t packet, size_t size)
-{
-    LockGuard<Mutex> guard(g_PcapMutex);
+bool pcapLogPacket(uintptr_t packet, size_t size) {
+  LockGuard<Mutex> guard(g_PcapMutex);
 
-    Serial *pSerial = getSerial();
-    if (!pSerial)
-    {
-        return true;
-    }
-
-    // 256K is the max packet we ever want to capture.
-    if (size >= 262144)
-    {
-        ERROR("pcap: packet is way too big - size is " << size);
-        return true;  // don't write to the serial port at all.
-    }
-
-    static uint64_t time = 0;
-
-    // Time::Timestamp time = Time::getTimeNanoseconds();
-
-    // Don't care about timing in Wireshark but do care about ordering, and
-    // so we want timestamps to always increase.
-    time += Time::Multiplier::Millisecond;
-
-    PcapRecord header;
-    header.ts_sec = time / Time::Multiplier::Second;
-    header.ts_usec =
-        (time % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
-    header.stored_length = size;
-    header.orig_length = size;
-
-    // Write the pcap record header.
-    const uint8_t *headerData = reinterpret_cast<const uint8_t *>(&header);
-    for (size_t i = 0; i < sizeof(header); ++i)
-    {
-        pSerial->write(headerData[i]);
-    }
-
-    // Write the packet data now.
-    const uint8_t *data = reinterpret_cast<const uint8_t *>(packet);
-    for (size_t i = 0; i < size; ++i)
-    {
-        pSerial->write(data[i]);
-    }
-
-    // Always let the packet through.
+  Serial* pSerial = getSerial();
+  if (!pSerial) {
     return true;
+  }
+
+  // 256K is the max packet we ever want to capture.
+  if (size >= 262144) {
+    ERROR("pcap: packet is way too big - size is " << size);
+    return true;  // don't write to the serial port at all.
+  }
+
+  static uint64_t time = 0;
+
+  // Time::Timestamp time = Time::getTimeNanoseconds();
+
+  // Don't care about timing in Wireshark but do care about ordering, and
+  // so we want timestamps to always increase.
+  time += Time::Multiplier::Millisecond;
+
+  PcapRecord header;
+  header.ts_sec = time / Time::Multiplier::Second;
+  header.ts_usec = (time % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+  header.stored_length = size;
+  header.orig_length = size;
+
+  // Write the pcap record header.
+  const uint8_t* headerData = reinterpret_cast<const uint8_t*>(&header);
+  for (size_t i = 0; i < sizeof(header); ++i) {
+    pSerial->write(headerData[i]);
+  }
+
+  // Write the packet data now.
+  const uint8_t* data = reinterpret_cast<const uint8_t*>(packet);
+  for (size_t i = 0; i < size; ++i) {
+    pSerial->write(data[i]);
+  }
+
+  // Always let the packet through.
+  return true;
 }
 
-static bool entry()
-{
-    LockGuard<Mutex> guard(g_PcapMutex);
+static bool entry() {
+  LockGuard<Mutex> guard(g_PcapMutex);
 
-    Serial *pSerial = getSerial();
-    if (!pSerial)
-    {
-        NOTICE("pcap: could not find a useful serial port");
-        return false;
-    }
+  Serial* pSerial = getSerial();
+  if (!pSerial) {
+    NOTICE("pcap: could not find a useful serial port");
+    return false;
+  }
 
-    g_FilterEntry = NetworkFilter::instance().installCallback(1, pcapLogPacket);
-    if (g_FilterEntry == static_cast<size_t>(-1))
-    {
-        NOTICE("pcap: could not install callback");
-        return false;
-    }
+  g_FilterEntry = NetworkFilter::instance().installCallback(1, pcapLogPacket);
+  if (g_FilterEntry == static_cast<size_t>(-1)) {
+    NOTICE("pcap: could not install callback");
+    return false;
+  }
 
-    PcapHeader header;
-    header.magic = PCAP_MAGIC;
-    header.major = PCAP_MAJOR;
-    header.minor = PCAP_MINOR;
-    header.tz = 0;
-    header.sigfig = 0;
-    header.caplen = 0xFFFF;
-    header.network = PCAP_NETWORK;
+  PcapHeader header;
+  header.magic = PCAP_MAGIC;
+  header.major = PCAP_MAJOR;
+  header.minor = PCAP_MINOR;
+  header.tz = 0;
+  header.sigfig = 0;
+  header.caplen = 0xFFFF;
+  header.network = PCAP_NETWORK;
 
-    const uint8_t *data = reinterpret_cast<const uint8_t *>(&header);
-    for (size_t i = 0; i < sizeof(header); ++i)
-    {
-        pSerial->write(data[i]);
-    }
+  const uint8_t* data = reinterpret_cast<const uint8_t*>(&header);
+  for (size_t i = 0; i < sizeof(header); ++i) {
+    pSerial->write(data[i]);
+  }
 
-    return true;
+  return true;
 }
 
-static void exit()
-{
-    NetworkFilter::instance().removeCallback(1, g_FilterEntry);
+static void exit() {
+  NetworkFilter::instance().removeCallback(1, g_FilterEntry);
 }
 
 MODULE_INFO("pcap", &entry, &exit, "network-stack");

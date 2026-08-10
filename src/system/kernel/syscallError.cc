@@ -17,12 +17,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/syscallError.h"
 
-void syscallError(int errno)
-{
-    Processor::information().getCurrentThread()->setErrno(errno);
+void syscallError(int errno) {
+  Processor::information().getCurrentThread()->setErrno(errno);
 }

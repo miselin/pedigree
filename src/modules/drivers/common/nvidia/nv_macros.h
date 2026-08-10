@@ -877,35 +877,31 @@
 #define NV32_NV44_WHAT13 0x0000170c
 
 /* Macros for convenient accesses to the NV chips */
-#define NV_REG8(r_) ((vuint8 *) regs)[(r_)]
-#define NV_REG16(r_) ((vuint16 *) regs)[(r_) >> 1]
-#define NV_REG32(r_) ((vuint32 *) regs)[(r_) >> 2]
+#define NV_REG8(r_) ((vuint8*)regs)[(r_)]
+#define NV_REG16(r_) ((vuint16*)regs)[(r_) >> 1]
+#define NV_REG32(r_) ((vuint32*)regs)[(r_) >> 2]
 
 /* read and write to PCI config space */
-#define CFGR(A)                                                      \
-    (*(nv_pci_access.offset = NVCFG_##A,                             \
-       ioctl(fd, NV_GET_PCI, &nv_pci_access, sizeof(nv_pci_access)), \
-       &nv_pci_access.value))
-#define CFGW(A, B)                                              \
-    (nv_pci_access.offset = NVCFG_##A, nv_pci_access.value = B, \
-     ioctl(fd, NV_SET_PCI, &nv_pci_access, sizeof(nv_pci_access)))
+#define CFGR(A)                        \
+  (*(nv_pci_access.offset = NVCFG_##A, \
+     ioctl(fd, NV_GET_PCI, &nv_pci_access, sizeof(nv_pci_access)), &nv_pci_access.value))
+#define CFGW(A, B)                                            \
+  (nv_pci_access.offset = NVCFG_##A, nv_pci_access.value = B, \
+   ioctl(fd, NV_SET_PCI, &nv_pci_access, sizeof(nv_pci_access)))
 
 /* read and write from ISA I/O space */
-#define ISAWB(A, B)                                            \
-    (nv_isa_access.adress = A, nv_isa_access.data = (uint8) B, \
-     nv_isa_access.size = 1,                                   \
-     ioctl(fd, NV_ISA_OUT, &nv_isa_access, sizeof(nv_isa_access)))
-#define ISAWW(A, B)                                                            \
-    (nv_isa_access.adress = A, nv_isa_access.data = B, nv_isa_access.size = 2, \
-     ioctl(fd, NV_ISA_OUT, &nv_isa_access, sizeof(nv_isa_access)))
-#define ISARB(A)                                                  \
-    (nv_isa_access.adress = A,                                    \
-     ioctl(fd, NV_ISA_IN, &nv_isa_access, sizeof(nv_isa_access)), \
-     (uint8) nv_isa_access.data)
-#define ISARW(A)                                                  \
-    (nv_isa_access.adress = A,                                    \
-     ioctl(fd, NV_ISA_IN, &nv_isa_access, sizeof(nv_isa_access)), \
-     nv_isa_access.data)
+#define ISAWB(A, B)                                                                 \
+  (nv_isa_access.adress = A, nv_isa_access.data = (uint8)B, nv_isa_access.size = 1, \
+   ioctl(fd, NV_ISA_OUT, &nv_isa_access, sizeof(nv_isa_access)))
+#define ISAWW(A, B)                                                          \
+  (nv_isa_access.adress = A, nv_isa_access.data = B, nv_isa_access.size = 2, \
+   ioctl(fd, NV_ISA_OUT, &nv_isa_access, sizeof(nv_isa_access)))
+#define ISARB(A)                                                                          \
+  (nv_isa_access.adress = A, ioctl(fd, NV_ISA_IN, &nv_isa_access, sizeof(nv_isa_access)), \
+   (uint8)nv_isa_access.data)
+#define ISARW(A)                                                                          \
+  (nv_isa_access.adress = A, ioctl(fd, NV_ISA_IN, &nv_isa_access, sizeof(nv_isa_access)), \
+   nv_isa_access.data)
 
 /* read and write from the dac registers */
 #define DACR(A) (NV_REG32(NVDAC_##A))
@@ -928,20 +924,17 @@
 #define CRTC2R(A) (NV_REG8(NV8_CRTC2IND) = (NVCRTCX_##A), NV_REG8(NV8_CRTC2DAT))
 
 /* read and write from ATTRIBUTE indexed registers */
-#define ATBW(A, B)                                                        \
-    (NV_REG8(NV8_INSTAT1), NV_REG8(NV8_ATTRINDW) = ((NVATBX_##A) | 0x20), \
-     NV_REG8(NV8_ATTRDATW) = (B))
-#define ATBR(A)                                                           \
-    (NV_REG8(NV8_INSTAT1), NV_REG8(NV8_ATTRINDW) = ((NVATBX_##A) | 0x20), \
-     NV_REG8(NV8_ATTRDATR))
+#define ATBW(A, B) \
+  (NV_REG8(NV8_INSTAT1), NV_REG8(NV8_ATTRINDW) = ((NVATBX_##A) | 0x20), NV_REG8(NV8_ATTRDATW) = (B))
+#define ATBR(A) \
+  (NV_REG8(NV8_INSTAT1), NV_REG8(NV8_ATTRINDW) = ((NVATBX_##A) | 0x20), NV_REG8(NV8_ATTRDATR))
 
 /* read and write from ATTRIBUTE indexed registers */
-#define ATB2W(A, B)                                                        \
-    (NV_REG8(NV8_INSTAT1), NV_REG8(NV8_ATTR2INDW) = ((NVATBX_##A) | 0x20), \
-     NV_REG8(NV8_ATTR2DATW) = (B))
-#define ATB2R(A)                                                           \
-    (NV_REG8(NV8_INSTAT1), NV_REG8(NV8_ATTR2INDW) = ((NVATBX_##A) | 0x20), \
-     NV_REG8(NV8_ATTR2DATR))
+#define ATB2W(A, B)                                                      \
+  (NV_REG8(NV8_INSTAT1), NV_REG8(NV8_ATTR2INDW) = ((NVATBX_##A) | 0x20), \
+   NV_REG8(NV8_ATTR2DATW) = (B))
+#define ATB2R(A) \
+  (NV_REG8(NV8_INSTAT1), NV_REG8(NV8_ATTR2INDW) = ((NVATBX_##A) | 0x20), NV_REG8(NV8_ATTR2DATR))
 
 /* read and write from SEQUENCER indexed registers */
 #define SEQW(A, B) (NV_REG16(NV16_SEQIND) = ((NVSEQX_##A) | ((B) << 8)))

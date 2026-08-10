@@ -20,17 +20,11 @@
 #include "Partition.h"
 #include "pedigree/kernel/processor/types.h"
 
-Partition::Partition(const String &type, uint64_t start, uint64_t length)
-    : m_Type(type), m_Start(start), m_Length(length), m_AlignmentLock(),
-      m_bAligned(false)
-{
-}
+Partition::Partition(const String& type, uint64_t start, uint64_t length)
+    : m_Type(type), m_Start(start), m_Length(length), m_AlignmentLock(), m_bAligned(false) {}
 
-Partition::~Partition()
-{
-}
+Partition::~Partition() {}
 
-uint64_t Partition::getStart()
-{
-    return m_Start;
+uint64_t Partition::getStart() {
+  return m_Start;
 }

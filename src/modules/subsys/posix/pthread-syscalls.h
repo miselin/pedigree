@@ -20,33 +20,29 @@
 #ifndef _PTHREAD_SYSCALLS_H
 #define _PTHREAD_SYSCALLS_H
 
+#include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
 
 #include "PosixSubsystem.h"
-#include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/process/Thread.h"
-
 #include "logging.h"
-
 #include <sys/types.h>
 
 void pedigree_init_pthreads();
-void pedigree_copy_posix_thread(
-    Thread *, PosixSubsystem *, Thread *, PosixSubsystem *);
+void pedigree_copy_posix_thread(Thread*, PosixSubsystem*, Thread*, PosixSubsystem*);
 
 /// Creates a new wait object that threads can use to synchronise.
-void *posix_pedigree_create_waiter();
-int posix_pedigree_thread_wait_for(void *waiter);
-int posix_pedigree_thread_trigger(void *waiter);
-void posix_pedigree_destroy_waiter(void *waiter);
+void* posix_pedigree_create_waiter();
+int posix_pedigree_thread_wait_for(void* waiter);
+int posix_pedigree_thread_trigger(void* waiter);
+void posix_pedigree_destroy_waiter(void* waiter);
 
-int posix_futex(
-    int *uaddr, int futex_op, int val, const struct timespec *timeout);
-int posix_futex_wake(Process *process, int *uaddr, int count);
+int posix_futex(int* uaddr, int futex_op, int val, const struct timespec* timeout);
+int posix_futex_wake(Process* process, int* uaddr, int count);
 
 pid_t posix_gettid();
-pid_t posix_set_tid_address(int *tidptr);
+pid_t posix_set_tid_address(int* tidptr);
 
 #endif

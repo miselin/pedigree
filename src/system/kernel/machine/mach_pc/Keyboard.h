@@ -34,48 +34,47 @@ class Ps2Controller;
 /**
  * Keyboard device implementation
  */
-class X86Keyboard : public Keyboard
-{
-  public:
-    X86Keyboard(Ps2Controller *controller);
-    virtual ~X86Keyboard();
+class X86Keyboard : public Keyboard {
+ public:
+  X86Keyboard(Ps2Controller* controller);
+  virtual ~X86Keyboard();
 
-    /// Initialises the device
-    virtual void initialise();
+  /// Initialises the device
+  virtual void initialise();
 
-    virtual void setDebugState(bool enableDebugState);
-    virtual bool getDebugState();
+  virtual void setDebugState(bool enableDebugState);
+  virtual bool getDebugState();
 
-    virtual char getChar();
-    virtual char getCharNonBlock();
+  virtual char getChar();
+  virtual char getCharNonBlock();
 
-    virtual char getLedState();
-    virtual void setLedState(char state);
+  virtual char getLedState();
+  virtual void setLedState(char state);
 
-    void startReaderThread();
-    void stopReaderThread();
+  void startReaderThread();
+  void stopReaderThread();
 
-  private:
-    static int readerThreadTrampoline(void *);
-    void readerThread();
+ private:
+  static int readerThreadTrampoline(void*);
+  void readerThread();
 
-    /// Converts a scancode into an ASCII character (for use in debug state)
-    char scancodeToAscii(uint8_t scancode);
+  /// Converts a scancode into an ASCII character (for use in debug state)
+  char scancodeToAscii(uint8_t scancode);
 
-    /// Parent PS/2 controller
-    Ps2Controller *m_pPs2Controller;
+  /// Parent PS/2 controller
+  Ps2Controller* m_pPs2Controller;
 
-    /// The current escape state
-    KeymapManager::EscapeState m_Escape;
+  /// The current escape state
+  KeymapManager::EscapeState m_Escape;
 
-    /// IRQ id
-    irq_id_t m_IrqId;
+  /// IRQ id
+  irq_id_t m_IrqId;
 
-    /// Current LED state
-    char m_LedState;
+  /// Current LED state
+  char m_LedState;
 
-    /// The controller buffer may block this worker until teardown wakes it.
-    OwnedThread m_ReaderThread;
+  /// The controller buffer may block this worker until teardown wakes it.
+  OwnedThread m_ReaderThread;
 };
 
 #endif

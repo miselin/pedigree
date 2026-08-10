@@ -31,50 +31,46 @@
 #endif
 
 /** Loads a disk image as a usable disk device. */
-class DiskImage : public Disk
-{
-  public:
-    DiskImage(const char *path);
-    virtual ~DiskImage();
+class DiskImage : public Disk {
+ public:
+  DiskImage(const char* path);
+  virtual ~DiskImage();
 
-    bool initialise();
+  bool initialise();
 
-    virtual void getName(String &str)
-    {
-        str.assign("Hosted disk image", 18);
-    }
+  virtual void getName(String& str) {
+    str.assign("Hosted disk image", 18);
+  }
 
-    virtual void dump(String &str)
-    {
-        str.assign("Hosted disk image", 18);
-    }
+  virtual void dump(String& str) {
+    str.assign("Hosted disk image", 18);
+  }
 
-    virtual uintptr_t read(uint64_t location);
-    virtual void write(uint64_t location);
+  virtual uintptr_t read(uint64_t location);
+  virtual void write(uint64_t location);
 
-    virtual size_t getSize() const;
+  virtual size_t getSize() const;
 
-    virtual size_t getBlockSize() const
-    {
-        return 4096;
-    }
+  virtual size_t getBlockSize() const {
+    return 4096;
+  }
 
-    virtual bool pin(uint64_t location);
+  virtual bool pin(uint64_t location);
 
-    virtual void unpin(uint64_t location);
+  virtual void unpin(uint64_t location);
 
-  private:
-    void *bufferForLocation(uint64_t location);
+ private:
+  void* bufferForLocation(uint64_t location);
 
-    const char *m_pFileName;
-    size_t m_nSize;
-    FILE *m_pFile;
-    int m_FileNo;
+  const char* m_pFileName;
+  size_t m_nSize;
+  FILE* m_pFile;
+  int m_FileNo;
 
-    void *m_pBuffer;
+  void* m_pBuffer;
 
 #if HAS_ADDRESS_SANITIZER
-    std::map<uint64_t, void *> m_BufferMap;
+  std::map<uint64_t, void*> m_BufferMap;
 #endif
 };
 

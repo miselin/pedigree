@@ -17,69 +17,57 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/process/MemoryPressureKiller.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/process/MemoryPressureKiller.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-static size_t mb(size_t pages)
-{
-    return (pages * 0x1000) / 0x100000;
+static size_t mb(size_t pages) {
+  return (pages * 0x1000) / 0x100000;
 }
 
-bool MemoryPressureProcessKiller::compact()
-{
-    Scheduler::ProcessLease candidate;
-    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
-    {
-        Scheduler::ProcessLease process;
-        if (!Scheduler::instance().acquireProcess(process, i))
-        {
-            continue;
-        }
-
-        // Requires a subsystem to kill.
-        if (!process->getSubsystem())
-            continue;
-
-        if (!candidate)
-            candidate = pedigree_std::move(process);
-        else
-        {
-            if (process->getPhysicalPageCount() >
-                candidate->getPhysicalPageCount())
-            {
-                candidate = pedigree_std::move(process);
-            }
-        }
+bool MemoryPressureProcessKiller::compact() {
+  Scheduler::ProcessLease candidate;
+  for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i) {
+    Scheduler::ProcessLease process;
+    if (!Scheduler::instance().acquireProcess(process, i)) {
+      continue;
     }
+
+    // Requires a subsystem to kill.
+    if (!process->getSubsystem())
+      continue;
 
     if (!candidate)
-        return false;
-
-    NOTICE_NOLOCK(
-        "MemoryPressureProcessKiller will kill pid="
-        << Dec << candidate->getId() << Hex);
-    NOTICE_NOLOCK(
-        "virt=" << Dec << mb(candidate->getVirtualPageCount())
-                << "m phys=" << mb(candidate->getPhysicalPageCount())
-                << "m shared=" << mb(candidate->getSharedPageCount())
-                << "m" << Hex);
-
-    // Hard kill the process (SIGKILL, in POSIX terms).
-    // We cannot afford to let the thread do anything else.
-    Subsystem *pSubsystem = candidate->getSubsystem();
-    Process::ThreadLease target;
-    if (!candidate->acquireThread(target, static_cast<size_t>(0)))
-    {
-        return false;
+      candidate = pedigree_std::move(process);
+    else {
+      if (process->getPhysicalPageCount() > candidate->getPhysicalPageCount()) {
+        candidate = pedigree_std::move(process);
+      }
     }
-    pSubsystem->kill(Subsystem::Unknown, target.get());
+  }
 
-    // Success means a victim accepted termination, not that its pages are
-    // already reclaimed. The pressure manager may make another pass later.
-    return true;
+  if (!candidate)
+    return false;
+
+  NOTICE_NOLOCK("MemoryPressureProcessKiller will kill pid=" << Dec << candidate->getId() << Hex);
+  NOTICE_NOLOCK("virt=" << Dec << mb(candidate->getVirtualPageCount())
+                        << "m phys=" << mb(candidate->getPhysicalPageCount())
+                        << "m shared=" << mb(candidate->getSharedPageCount()) << "m" << Hex);
+
+  // Hard kill the process (SIGKILL, in POSIX terms).
+  // We cannot afford to let the thread do anything else.
+  Subsystem* pSubsystem = candidate->getSubsystem();
+  Process::ThreadLease target;
+  if (!candidate->acquireThread(target, static_cast<size_t>(0))) {
+    return false;
+  }
+  pSubsystem->kill(Subsystem::Unknown, target.get());
+
+  // Success means a victim accepted termination, not that its pages are
+  // already reclaimed. The pressure manager may make another pass later.
+  return true;
 }

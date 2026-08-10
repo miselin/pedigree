@@ -31,38 +31,35 @@ class DebuggerIO;
 /**
  * Debugger command that allows viewing of the Cpu dump.
  */
-class LookupCommand : public DebuggerCommand
-{
-  public:
-    /**
-     * Default constructor - does nothing.
-     */
-    LookupCommand();
+class LookupCommand : public DebuggerCommand {
+ public:
+  /**
+   * Default constructor - does nothing.
+   */
+  LookupCommand();
 
-    /**
-     * Default destructor - does nothing.
-     */
-    ~LookupCommand();
+  /**
+   * Default destructor - does nothing.
+   */
+  ~LookupCommand();
 
-    /**
-     * Return an autocomplete string, given an input string.
-     */
-    void autocomplete(const HugeStaticString &input, HugeStaticString &output);
+  /**
+   * Return an autocomplete string, given an input string.
+   */
+  void autocomplete(const HugeStaticString& input, HugeStaticString& output);
 
-    /**
-     * Execute the command with the given screen.
-     */
-    bool execute(
-        const HugeStaticString &input, HugeStaticString &output,
-        InterruptState &state, DebuggerIO *screen);
+  /**
+   * Execute the command with the given screen.
+   */
+  bool execute(const HugeStaticString& input, HugeStaticString& output, InterruptState& state,
+               DebuggerIO* screen);
 
-    /**
-     * Returns the string representation of this command.
-     */
-    const NormalStaticString getString()
-    {
-        return NormalStaticString("lookup");
-    }
+  /**
+   * Returns the string representation of this command.
+   */
+  const NormalStaticString getString() {
+    return NormalStaticString("lookup");
+  }
 };
 
 /** @} */

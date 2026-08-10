@@ -22,23 +22,18 @@
 
 Controller::Controller() = default;
 
-Controller::Controller(Device *pDev) : Device(pDev)
-{
-}
+Controller::Controller(Device* pDev) : Device(pDev) {}
 
 Controller::~Controller() = default;
 
-Device::Type Controller::getType()
-{
-    return Device::Controller;
+Device::Type Controller::getType() {
+  return Device::Controller;
 }
 
-void Controller::getName(String &str)
-{
-    str.assign("Generic controller", 19);
+void Controller::getName(String& str) {
+  str.assign("Generic controller", 19);
 }
 
-void Controller::dump(String &str)
-{
-    str.assign("Generic controller", 19);
+void Controller::dump(String& str) {
+  str.assign("Generic controller", 19);
 }

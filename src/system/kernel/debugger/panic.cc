@@ -17,7 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"
@@ -28,6 +27,7 @@
 #include "pedigree/kernel/graphics/GraphicsService.h"
 #include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
@@ -39,163 +39,144 @@
 #include <stdlib.h>
 #endif
 
-static size_t newlineCount(const char *pString)
-{
-    size_t nNewlines = 0;
-    while (*pString != '\0')
-        if (*pString++ == '\n')
-            ++nNewlines;
+static size_t newlineCount(const char* pString) {
+  size_t nNewlines = 0;
+  while (*pString != '\0')
+    if (*pString++ == '\n')
+      ++nNewlines;
 
-    return nNewlines;
+  return nNewlines;
 }
 
 // TODO: We might want a separate parameter for a stacktrace/register dump
-static void _panic(const char *msg, DebuggerIO *pScreen)
-{
-    static HugeStaticString panic_output;
-    panic_output.clear();
+static void _panic(const char* msg, DebuggerIO* pScreen) {
+  static HugeStaticString panic_output;
+  panic_output.clear();
 
-    panic_output.append("PANIC: ");
-    panic_output.append(msg);
+  panic_output.append("PANIC: ");
+  panic_output.append(msg);
 
-    // write the final string to the screen
-    pScreen->drawString(panic_output, 0, 0, DebuggerIO::Red, DebuggerIO::Black);
+  // write the final string to the screen
+  pScreen->drawString(panic_output, 0, 0, DebuggerIO::Red, DebuggerIO::Black);
 
-    size_t nLines = newlineCount(panic_output) + 2;
+  size_t nLines = newlineCount(panic_output) + 2;
 
-    Log &log = Log::instance();
-    Log::SeverityLevel level;
-    static NormalStaticString Line;
+  Log& log = Log::instance();
+  Log::SeverityLevel level;
+  static NormalStaticString Line;
 
-    size_t iEntry = 0, iUsedEntries = 0;
-    if ((pScreen->getHeight() - nLines) <
-        (log.getStaticEntryCount() + log.getDynamicEntryCount()))
-        iEntry = log.getStaticEntryCount() + log.getDynamicEntryCount() -
-                 (pScreen->getHeight() - nLines) + 1;
-    bool bPrintThisLine = false;
-    for (; iEntry < (log.getStaticEntryCount() + log.getDynamicEntryCount());
-         iEntry++)
-    {
-        if (iEntry < log.getStaticEntryCount())
-        {
-            const Log::StaticLogEntry &entry = log.getStaticEntry(iEntry);
+  size_t iEntry = 0, iUsedEntries = 0;
+  if ((pScreen->getHeight() - nLines) < (log.getStaticEntryCount() + log.getDynamicEntryCount()))
+    iEntry = log.getStaticEntryCount() + log.getDynamicEntryCount() -
+             (pScreen->getHeight() - nLines) + 1;
+  bool bPrintThisLine = false;
+  for (; iEntry < (log.getStaticEntryCount() + log.getDynamicEntryCount()); iEntry++) {
+    if (iEntry < log.getStaticEntryCount()) {
+      const Log::StaticLogEntry& entry = log.getStaticEntry(iEntry);
 
-            // level = entry.severity;
-            // if( level == Log::Fatal || level == Log::Error )
-            // {
-            Line.clear();
-            Line.append("[");
-            Line.append(entry.timestamp, 10, 8, '0');
-            Line.append("] ");
-            Line.append(entry.str);
-            Line.append("\n");
+      // level = entry.severity;
+      // if( level == Log::Fatal || level == Log::Error )
+      // {
+      Line.clear();
+      Line.append("[");
+      Line.append(entry.timestamp, 10, 8, '0');
+      Line.append("] ");
+      Line.append(entry.str);
+      Line.append("\n");
 
-            bPrintThisLine = true;
-            // }
-        }
-        else
-        {
-            const Log::DynamicLogEntry &entry = log.getDynamicEntry(iEntry);
-            level = entry.severity;
+      bPrintThisLine = true;
+      // }
+    } else {
+      const Log::DynamicLogEntry& entry = log.getDynamicEntry(iEntry);
+      level = entry.severity;
 
-            //      if( level == Log::Fatal || level == Log::Error )
-            //      {
-            Line.clear();
-            Line.append("[");
-            Line.append(entry.timestamp, 10, 8, '0');
-            Line.append("] ");
-            Line.append(entry.str);
-            Line.append("\n");
+      //      if( level == Log::Fatal || level == Log::Error )
+      //      {
+      Line.clear();
+      Line.append("[");
+      Line.append(entry.timestamp, 10, 8, '0');
+      Line.append("] ");
+      Line.append(entry.str);
+      Line.append("\n");
 
-            bPrintThisLine = true;
-            //      }
-        }
-
-        // print the line
-        if (bPrintThisLine == true)
-        {
-            ++iUsedEntries;
-            pScreen->drawString(
-                Line, nLines + iUsedEntries, 0, DebuggerIO::White,
-                DebuggerIO::Black);
-            bPrintThisLine = false;
-        }
+      bPrintThisLine = true;
+      //      }
     }
+
+    // print the line
+    if (bPrintThisLine == true) {
+      ++iUsedEntries;
+      pScreen->drawString(Line, nLines + iUsedEntries, 0, DebuggerIO::White, DebuggerIO::Black);
+      bPrintThisLine = false;
+    }
+  }
 }
 
-void panic(const char *msg)
-{
-    static String graphicsService("graphics");
+void panic(const char* msg) {
+  static String graphicsService("graphics");
 
 #if HOSTED
-    fprintf(stderr, "panic: %s\n", msg);
-    abort();
+  fprintf(stderr, "panic: %s\n", msg);
+  abort();
 #endif
 
-    Processor::setInterrupts(false);
+  Processor::setInterrupts(false);
 
 #if MULTIPROCESSOR
-    if (!Machine::instance().stopAllOtherProcessors())
-    {
-        ERROR_NOLOCK("panic: not all other processors stopped");
-    }
+  if (!Machine::instance().stopAllOtherProcessors()) {
+    ERROR_NOLOCK("panic: not all other processors stopped");
+  }
 #endif
 
-    // Drop out of whatever graphics mode we were in
-    GraphicsService::GraphicsParameters params;
-    ByteSet(&params, 0, sizeof(params));
-    params.wantTextMode = false;
+  // Drop out of whatever graphics mode we were in
+  GraphicsService::GraphicsParameters params;
+  ByteSet(&params, 0, sizeof(params));
+  params.wantTextMode = false;
 
-    ServiceFeatures *pFeatures =
-        ServiceManager::instance().enumerateOperations(graphicsService);
-    Service *pService = ServiceManager::instance().getService(graphicsService);
-    bool bSuccess = false;
-    if (pFeatures && pFeatures->provides(ServiceFeatures::probe))
-        if (pService)
-            bSuccess = pService->serve(
-                ServiceFeatures::probe, reinterpret_cast<void *>(&params),
-                sizeof(params));
+  ServiceFeatures* pFeatures = ServiceManager::instance().enumerateOperations(graphicsService);
+  Service* pService = ServiceManager::instance().getService(graphicsService);
+  bool bSuccess = false;
+  if (pFeatures && pFeatures->provides(ServiceFeatures::probe))
+    if (pService)
+      bSuccess =
+          pService->serve(ServiceFeatures::probe, reinterpret_cast<void*>(&params), sizeof(params));
 
-    if (bSuccess && params.providerFound && !params.providerResult.bTextModes &&
-        params.providerResult.pDisplay)
-    {
-        params.providerResult.pDisplay->setScreenMode(0);
-    }
+  if (bSuccess && params.providerFound && !params.providerResult.bTextModes &&
+      params.providerResult.pDisplay) {
+    params.providerResult.pDisplay->setScreenMode(0);
+  }
 
-    /*
-     * I/O implementations.
-     */
-    SerialIO serialIO(Machine::instance().getSerial(0));
+  /*
+   * I/O implementations.
+   */
+  SerialIO serialIO(Machine::instance().getSerial(0));
 
-    DebuggerIO *pInterfaces[2] = {0};
+  DebuggerIO* pInterfaces[2] = {0};
 
-    int nInterfaces = 0;
-    if (Machine::instance()
-            .getNumVga())  // Not all machines have "VGA", so handle that
-    {
-        static LocalIO localIO(
-            Machine::instance().getVga(0), Machine::instance().getKeyboard());
+  int nInterfaces = 0;
+  if (Machine::instance().getNumVga())  // Not all machines have "VGA", so handle that
+  {
+    static LocalIO localIO(Machine::instance().getVga(0), Machine::instance().getKeyboard());
 #if DONT_LOG_TO_SERIAL
-        pInterfaces[0] = &localIO;
-        nInterfaces = 1;
+    pInterfaces[0] = &localIO;
+    nInterfaces = 1;
 #else
-        pInterfaces[0] = &localIO;
-        pInterfaces[1] = &serialIO;
-        nInterfaces = 2;
+    pInterfaces[0] = &localIO;
+    pInterfaces[1] = &serialIO;
+    nInterfaces = 2;
 #endif
-    }
+  }
 #if !DONT_LOG_TO_SERIAL
-    else
-    {
-        pInterfaces[0] = &serialIO;
-        nInterfaces = 1;
-    }
+  else {
+    pInterfaces[0] = &serialIO;
+    nInterfaces = 1;
+  }
 #endif
 
-    for (int nIFace = 0; nIFace < nInterfaces; nIFace++)
-        _panic(msg, pInterfaces[nIFace]);
+  for (int nIFace = 0; nIFace < nInterfaces; nIFace++)
+    _panic(msg, pInterfaces[nIFace]);
 
-    // Halt the processor
-    while (1)
-        Processor::halt();
+  // Halt the processor
+  while (1)
+    Processor::halt();
 }

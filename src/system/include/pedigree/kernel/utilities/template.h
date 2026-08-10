@@ -29,48 +29,43 @@
  *\param[in] x2 second operand
  *\return true, if the objects are not equal, false otherwise */
 template <class T1, class T2>
-bool operator!=(const T1 &x1, const T2 &x2)
-{
-    return !(x1 == x2);
+bool operator!=(const T1& x1, const T2& x2) {
+  return !(x1 == x2);
 }
 /** Global postincrement operator is provided for every type that provides a
  *  preincrement operator.
  *\brief Global postincrement operator for types with overloaded preincrement
  *operator \param[in] x object \return original object */
 template <class T>
-T operator++(T &x, int)
-{
-    T tmp(x);
-    ++x;
-    return tmp;
+T operator++(T& x, int) {
+  T tmp(x);
+  ++x;
+  return tmp;
 }
 /** Global postdecrement operator is provided for every type that provides a
  *  predecrement operator.
  *\brief Global postdecrement operator for types with overloaded predecrement
  *operator \param[in] x object \return original object */
 template <class T>
-T operator--(T &x, int)
-{
-    T tmp(x);
-    --x;
-    return tmp;
+T operator--(T& x, int) {
+  T tmp(x);
+  --x;
+  return tmp;
 }
 
 /** Remove the const qualifier of a type without const qualifier
  *\brief Remove the const qualifier of a type */
 template <typename T>
-struct nonconst_type
-{
-    /** The same type */
-    typedef T type;
+struct nonconst_type {
+  /** The same type */
+  typedef T type;
 };
 /** Remove the const qualifier of a type with const qualifier
  *\brief Remove the const qualifier of a type */
 template <typename T>
-struct nonconst_type<const T>
-{
-    /** The Type without the const qualifier */
-    typedef T type;
+struct nonconst_type<const T> {
+  /** The Type without the const qualifier */
+  typedef T type;
 };
 
 /** @} */

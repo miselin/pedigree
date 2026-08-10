@@ -33,66 +33,68 @@ class Serial;
  * A class which provides *extremely* simple output to both the Vga class and
  * Serial classes, intended to be used for displaying messages during bootup.
  */
-class BootIO
-{
-  public:
-    /**
-     * Enumeration of all possible foreground and background colours.
-     */
-    enum Colour
-    {
-        Black = 0,
-        Blue = 1,
-        Green = 2,
-        Cyan = 3,
-        Red = 4,
-        Magenta = 5,
-        Orange = 6,
-        LightGrey = 7,
-        DarkGrey = 8,
-        LightBlue = 9,
-        LightGreen = 10,
-        LightCyan = 11,
-        LightRed = 12,
-        LightMagenta = 13,
-        Yellow = 14,
-        White = 15
-    };
+class BootIO {
+ public:
+  /**
+   * Enumeration of all possible foreground and background colours.
+   */
+  enum Colour {
+    Black = 0,
+    Blue = 1,
+    Green = 2,
+    Cyan = 3,
+    Red = 4,
+    Magenta = 5,
+    Orange = 6,
+    LightGrey = 7,
+    DarkGrey = 8,
+    LightBlue = 9,
+    LightGreen = 10,
+    LightCyan = 11,
+    LightRed = 12,
+    LightMagenta = 13,
+    Yellow = 14,
+    White = 15
+  };
 
-    /** Constructor. I hope you knew that already. */
-    BootIO() NOTHROW;
-    /** Destructor. Let's hope you knew that too. */
-    ~BootIO();
+  /** Constructor. I hope you knew that already. */
+  BootIO() NOTHROW;
+  /** Destructor. Let's hope you knew that too. */
+  ~BootIO();
 
-    /** Initialise the BootIO - If we have a VGA device this clears the screen.
-     */
-    void initialise();
+  /** Initialise the BootIO - If we have a VGA device this clears the screen.
+   */
+  void initialise();
 
-    /** Write a string out to each output device.
-     * \param str The string to write
-     * \param foreColour The foreground colour
-     * \param backColour The background colour */
-    template <class T>
-    EXPORTED_PUBLIC void write(T &str, Colour foreColour, Colour backColour);
+  /** Write a string out to each output device.
+   * \param str The string to write
+   * \param foreColour The foreground colour
+   * \param backColour The background colour */
+  template <class T>
+  EXPORTED_PUBLIC void write(T& str, Colour foreColour, Colour backColour);
 
-  private:
-    void putCharVga(const char c, Colour foreColour, Colour backColour);
-    void startColour(Serial *pSerial, Colour foreColour, Colour backColour);
-    void endColour(Serial *pSerial);
+ private:
+  void putCharVga(const char c, Colour foreColour, Colour backColour);
+  void startColour(Serial* pSerial, Colour foreColour, Colour backColour);
+  void endColour(Serial* pSerial);
 
-    /**
-     * Current cursor position for VGA.
-     */
-    size_t m_CursorX, m_CursorY;
+  /**
+   * Current cursor position for VGA.
+   */
+  size_t m_CursorX, m_CursorY;
 };
 
-extern template EXPORTED_PUBLIC void BootIO::write<TinyStaticString>(
-    TinyStaticString &str, Colour foreColour, Colour backColour);
-extern template EXPORTED_PUBLIC void BootIO::write<NormalStaticString>(
-    NormalStaticString &str, Colour foreColour, Colour backColour);
-extern template EXPORTED_PUBLIC void BootIO::write<LargeStaticString>(
-    LargeStaticString &str, Colour foreColour, Colour backColour);
-extern template EXPORTED_PUBLIC void BootIO::write<HugeStaticString>(
-    HugeStaticString &str, Colour foreColour, Colour backColour);
+extern template EXPORTED_PUBLIC void BootIO::write<TinyStaticString>(TinyStaticString& str,
+                                                                     Colour foreColour,
+                                                                     Colour backColour);
+extern template EXPORTED_PUBLIC void BootIO::write<NormalStaticString>(NormalStaticString& str,
+                                                                       Colour foreColour,
+                                                                       Colour backColour);
+extern template EXPORTED_PUBLIC void BootIO::write<LargeStaticString>(LargeStaticString& str,
+                                                                      Colour foreColour,
+                                                                      Colour backColour);
+extern template EXPORTED_PUBLIC void BootIO::write<HugeStaticString>(HugeStaticString& str,
+                                                                     Colour foreColour,
+                                                                     Colour backColour);
 
 #endif

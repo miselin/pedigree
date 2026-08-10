@@ -25,117 +25,103 @@
 using namespace PedigreeIpc;
 using namespace LibUiProtocol;
 
-static IpcEndpoint *g_pWinmanEndpoint = 0;
+static IpcEndpoint* g_pWinmanEndpoint = 0;
 
-bool LibUiProtocol::sendMessage(void *pMessage, size_t messageLength)
-{
-    // Grab the endpoint for the window manager.
-    if (!g_pWinmanEndpoint)
-    {
-        g_pWinmanEndpoint = getEndpoint("pedigree-winman");
-    }
+bool LibUiProtocol::sendMessage(void* pMessage, size_t messageLength) {
+  // Grab the endpoint for the window manager.
+  if (!g_pWinmanEndpoint) {
+    g_pWinmanEndpoint = getEndpoint("pedigree-winman");
+  }
 
-    IpcEndpoint *pEndpoint = g_pWinmanEndpoint;
-    if (!pEndpoint)
-    {
-        /// \todo Log the error somewhere.
-        return false;
-    }
+  IpcEndpoint* pEndpoint = g_pWinmanEndpoint;
+  if (!pEndpoint) {
+    /// \todo Log the error somewhere.
+    return false;
+  }
 
-    // Create an initial message. This will be used for a handshake if the
-    // actual message is longer than 4 KB in size, and for the actual message if
-    // not.
-    if (messageLength > 0x1000)
-    {
-        /// \todo Implement buffer-negotiate handshake.
-        return false;
-    }
-    IpcMessage *pIpcMessage = new IpcMessage();
-    if (!pIpcMessage->initialise())
-    {
-        return false;
-    }
+  // Create an initial message. This will be used for a handshake if the
+  // actual message is longer than 4 KB in size, and for the actual message if
+  // not.
+  if (messageLength > 0x1000) {
+    /// \todo Implement buffer-negotiate handshake.
+    return false;
+  }
+  IpcMessage* pIpcMessage = new IpcMessage();
+  if (!pIpcMessage->initialise()) {
+    return false;
+  }
 
-    // Fill the message with the data to transmit. Callers should have the
-    // proper window manager message structures in the buffer already.
-    void *pDest = pIpcMessage->getBuffer();
-    if (!pDest)
-    {
-        delete pIpcMessage;
-        return false;
-    }
-    memcpy(pDest, pMessage, messageLength);
+  // Fill the message with the data to transmit. Callers should have the
+  // proper window manager message structures in the buffer already.
+  void* pDest = pIpcMessage->getBuffer();
+  if (!pDest) {
+    delete pIpcMessage;
+    return false;
+  }
+  memcpy(pDest, pMessage, messageLength);
 
-    // Transmit the message.
-    send(pEndpoint, pIpcMessage, false);
+  // Transmit the message.
+  send(pEndpoint, pIpcMessage, false);
 
-    return true;
+  return true;
 }
 
-bool LibUiProtocol::recvMessage(
-    IpcEndpoint *pEndpoint, void *pBuffer, size_t maxSize)
-{
-    /// \todo Handle messages > 4 KB in size!
-    if (maxSize > 0x1000)
-        return false;
+bool LibUiProtocol::recvMessage(IpcEndpoint* pEndpoint, void* pBuffer, size_t maxSize) {
+  /// \todo Handle messages > 4 KB in size!
+  if (maxSize > 0x1000)
+    return false;
 
-    // Grab the endpoint for the window manager.
-    if (!pEndpoint)
-    {
-        /// \todo Log the error somewhere.
-        return false;
-    }
+  // Grab the endpoint for the window manager.
+  if (!pEndpoint) {
+    /// \todo Log the error somewhere.
+    return false;
+  }
 
-    // Block and wait for a message to appear on the endpoint.
-    IpcMessage *pRecv = 0;
-    recv(pEndpoint, &pRecv, false);
+  // Block and wait for a message to appear on the endpoint.
+  IpcMessage* pRecv = 0;
+  recv(pEndpoint, &pRecv, false);
 
-    // Verify.
-    if ((!pRecv) || (!pRecv->getBuffer()))
-    {
-        return false;
-    }
+  // Verify.
+  if ((!pRecv) || (!pRecv->getBuffer())) {
+    return false;
+  }
 
-    // Copy the message across.
-    /// \todo When messages > 4 KB are made possible, sanitise maxSize here!
-    memcpy(pBuffer, pRecv->getBuffer(), maxSize);
+  // Copy the message across.
+  /// \todo When messages > 4 KB are made possible, sanitise maxSize here!
+  memcpy(pBuffer, pRecv->getBuffer(), maxSize);
 
-    // Clean up.
-    delete pRecv;
+  // Clean up.
+  delete pRecv;
 
-    return true;
+  return true;
 }
 
-bool LibUiProtocol::recvMessageAsync(
-    IpcEndpoint *pEndpoint, void *pBuffer, size_t maxSize)
-{
-    /// \todo Handle messages > 4 KB in size!
-    if (maxSize > 0x1000)
-        return false;
+bool LibUiProtocol::recvMessageAsync(IpcEndpoint* pEndpoint, void* pBuffer, size_t maxSize) {
+  /// \todo Handle messages > 4 KB in size!
+  if (maxSize > 0x1000)
+    return false;
 
-    // Grab the endpoint for the window manager.
-    if (!pEndpoint)
-    {
-        /// \todo Log the error somewhere.
-        return false;
-    }
+  // Grab the endpoint for the window manager.
+  if (!pEndpoint) {
+    /// \todo Log the error somewhere.
+    return false;
+  }
 
-    // Check for a message on the endpoint.
-    IpcMessage *pRecv = 0;
-    recv(pEndpoint, &pRecv, true);
+  // Check for a message on the endpoint.
+  IpcMessage* pRecv = 0;
+  recv(pEndpoint, &pRecv, true);
 
-    // Verify.
-    if ((!pRecv) || (!pRecv->getBuffer()))
-    {
-        return false;
-    }
+  // Verify.
+  if ((!pRecv) || (!pRecv->getBuffer())) {
+    return false;
+  }
 
-    // Copy the message across.
-    /// \todo When messages > 4 KB are made possible, sanitise maxSize here!
-    memcpy(pBuffer, pRecv->getBuffer(), maxSize);
+  // Copy the message across.
+  /// \todo When messages > 4 KB are made possible, sanitise maxSize here!
+  memcpy(pBuffer, pRecv->getBuffer(), maxSize);
 
-    // Clean up.
-    delete pRecv;
+  // Clean up.
+  delete pRecv;
 
-    return true;
+  return true;
 }

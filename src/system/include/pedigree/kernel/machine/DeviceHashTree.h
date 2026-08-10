@@ -35,49 +35,46 @@ class Device;
  * and are therefore ideal for use in addressing devices in userspace scripts
  * or in configuration files.
  */
-class EXPORTED_PUBLIC DeviceHashTree
-{
-  public:
-    DeviceHashTree();
-    virtual ~DeviceHashTree();
+class EXPORTED_PUBLIC DeviceHashTree {
+ public:
+  DeviceHashTree();
+  virtual ~DeviceHashTree();
 
-    static DeviceHashTree &instance()
-    {
-        return m_Instance;
-    }
+  static DeviceHashTree& instance() {
+    return m_Instance;
+  }
 
-    /** Whether or not the hash tree is ready for use. */
-    bool initialised()
-    {
-        return m_bInitialised;
-    }
+  /** Whether or not the hash tree is ready for use. */
+  bool initialised() {
+    return m_bInitialised;
+  }
 
-    /**
-     * Fills the hash tree, starting at the given Device and recursively
-     * traversing each device with children.
-     */
-    void fill(Device *root = 0);
+  /**
+   * Fills the hash tree, starting at the given Device and recursively
+   * traversing each device with children.
+   */
+  void fill(Device* root = 0);
 
-    /**
-     * Adds a device, if it doesn't already exist
-     */
-    void add(Device *p);
+  /**
+   * Adds a device, if it doesn't already exist
+   */
+  void add(Device* p);
 
-    /** Gets a device from an integer hash */
-    Device *getDevice(uint32_t hash);
+  /** Gets a device from an integer hash */
+  Device* getDevice(uint32_t hash);
 
-    /** Gets a device from a string hash */
-    Device *getDevice(const String &hash);
+  /** Gets a device from a string hash */
+  Device* getDevice(const String& hash);
 
-    /** Grabs the hash for a given device */
-    size_t getHash(Device *p);
+  /** Grabs the hash for a given device */
+  size_t getHash(Device* p);
 
-  private:
-    static DeviceHashTree m_Instance;
+ private:
+  static DeviceHashTree m_Instance;
 
-    bool m_bInitialised;
+  bool m_bInitialised;
 
-    Tree<size_t, Device *> m_DeviceTree;
+  Tree<size_t, Device*> m_DeviceTree;
 };
 
 #endif

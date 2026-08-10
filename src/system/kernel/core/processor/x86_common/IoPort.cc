@@ -17,80 +17,72 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/panic.h"
 
-uint8_t IoPort::read8(size_t offset)
-{
+uint8_t IoPort::read8(size_t offset) {
 #if ADDITIONAL_CHECKS
-    if (offset >= m_Size)
-        panic("8-bit IO read past allocated space.");
+  if (offset >= m_Size)
+    panic("8-bit IO read past allocated space.");
 #endif
 
-    uint8_t value;
-    asm volatile("inb %%dx, %%al" : "=a"(value) : "dN"(m_IoPort + offset));
-    return value;
+  uint8_t value;
+  asm volatile("inb %%dx, %%al" : "=a"(value) : "dN"(m_IoPort + offset));
+  return value;
 }
-uint16_t IoPort::read16(size_t offset)
-{
+uint16_t IoPort::read16(size_t offset) {
 #if ADDITIONAL_CHECKS
-    if ((offset + 1) >= m_Size)
-        panic("16-bit IO read past allocated space.");
+  if ((offset + 1) >= m_Size)
+    panic("16-bit IO read past allocated space.");
 #endif
 
-    uint16_t value;
-    asm volatile("inw %%dx, %%ax" : "=a"(value) : "dN"(m_IoPort + offset));
-    return value;
+  uint16_t value;
+  asm volatile("inw %%dx, %%ax" : "=a"(value) : "dN"(m_IoPort + offset));
+  return value;
 }
-uint32_t IoPort::read32(size_t offset)
-{
+uint32_t IoPort::read32(size_t offset) {
 #if ADDITIONAL_CHECKS
-    if ((offset + 3) >= m_Size)
-        panic("32-bit IO read past allocated space.");
+  if ((offset + 3) >= m_Size)
+    panic("32-bit IO read past allocated space.");
 #endif
 
-    uint32_t value;
-    asm volatile("in %%dx, %%eax" : "=a"(value) : "dN"(m_IoPort + offset));
-    return value;
+  uint32_t value;
+  asm volatile("in %%dx, %%eax" : "=a"(value) : "dN"(m_IoPort + offset));
+  return value;
 }
 #if BITS_64
-uint64_t IoPort::read64(size_t offset)
-{
-    Processor::halt();
-    return 0;
+uint64_t IoPort::read64(size_t offset) {
+  Processor::halt();
+  return 0;
 }
 #endif
-void IoPort::write8(uint8_t value, size_t offset)
-{
+void IoPort::write8(uint8_t value, size_t offset) {
 #if ADDITIONAL_CHECKS
-    if (offset >= m_Size)
-        panic("8-bit IO write past allocated space.");
+  if (offset >= m_Size)
+    panic("8-bit IO write past allocated space.");
 #endif
 
-    asm volatile("outb %%al, %%dx" ::"dN"(m_IoPort + offset), "a"(value));
+  asm volatile("outb %%al, %%dx" ::"dN"(m_IoPort + offset), "a"(value));
 }
-void IoPort::write16(uint16_t value, size_t offset)
-{
+void IoPort::write16(uint16_t value, size_t offset) {
 #if ADDITIONAL_CHECKS
-    if ((offset + 1) >= m_Size)
-        panic("16-bit IO write past allocated space.");
+  if ((offset + 1) >= m_Size)
+    panic("16-bit IO write past allocated space.");
 #endif
 
-    asm volatile("outw %%ax, %%dx" ::"dN"(m_IoPort + offset), "a"(value));
+  asm volatile("outw %%ax, %%dx" ::"dN"(m_IoPort + offset), "a"(value));
 }
-void IoPort::write32(uint32_t value, size_t offset)
-{
+void IoPort::write32(uint32_t value, size_t offset) {
 #if ADDITIONAL_CHECKS
-    if (offset >= m_Size)
-        panic("32-bit IO write past allocated space.");
+  if (offset >= m_Size)
+    panic("32-bit IO write past allocated space.");
 #endif
 
-    asm volatile("out %%eax, %%dx" ::"dN"(m_IoPort + offset), "a"(value));
+  asm volatile("out %%eax, %%dx" ::"dN"(m_IoPort + offset), "a"(value));
 }
 #if BITS_64
-void IoPort::write64(uint64_t value, size_t offset)
-{
-    Processor::halt();
+void IoPort::write64(uint64_t value, size_t offset) {
+  Processor::halt();
 }
 #endif

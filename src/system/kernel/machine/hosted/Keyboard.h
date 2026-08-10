@@ -23,28 +23,27 @@
 #include "pedigree/kernel/machine/Keyboard.h"
 #include "pedigree/kernel/processor/types.h"
 
-class HostedKeyboard : public Keyboard
-{
-  public:
-    HostedKeyboard();
-    virtual ~HostedKeyboard();
+class HostedKeyboard : public Keyboard {
+ public:
+  HostedKeyboard();
+  virtual ~HostedKeyboard();
 
-    virtual void initialise();
+  virtual void initialise();
 
-    virtual void setDebugState(bool enableDebugState);
-    virtual bool getDebugState();
+  virtual void setDebugState(bool enableDebugState);
+  virtual bool getDebugState();
 
-    virtual char getChar();
-    virtual char getCharNonBlock();
+  virtual char getChar();
+  virtual char getCharNonBlock();
 
-    virtual char getLedState();
-    virtual void setLedState(char state);
+  virtual char getLedState();
+  virtual void setLedState(char state);
 
-  private:
-    /// True if we're in debug state
-    bool m_bDebugState;
+ private:
+  /// True if we're in debug state
+  bool m_bDebugState;
 
-    void blocking(bool enable);
+  void blocking(bool enable);
 };
 
 #endif

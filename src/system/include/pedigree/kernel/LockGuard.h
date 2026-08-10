@@ -34,61 +34,51 @@ class Semaphore;
  * @{ */
 
 template <class T, bool Condition>
-class EXPORTED_PUBLIC ConstexprLockGuard
-{
-  public:
-    ConstexprLockGuard(T &Lock)
-        : m_Lock(Lock)
-    {
-        if constexpr (Condition)
-            m_Lock.acquire();
-    }
-    ~ConstexprLockGuard()
-    {
-        if (Condition)
-            m_Lock.release();
-    }
+class EXPORTED_PUBLIC ConstexprLockGuard {
+ public:
+  ConstexprLockGuard(T& Lock) : m_Lock(Lock) {
+    if constexpr (Condition)
+      m_Lock.acquire();
+  }
+  ~ConstexprLockGuard() {
+    if (Condition)
+      m_Lock.release();
+  }
 
-  private:
-    ConstexprLockGuard() = delete;
-    NOT_COPYABLE_OR_ASSIGNABLE(ConstexprLockGuard);
+ private:
+  ConstexprLockGuard() = delete;
+  NOT_COPYABLE_OR_ASSIGNABLE(ConstexprLockGuard);
 
-    T &m_Lock;
+  T& m_Lock;
 };
 
 template <class T>
-class EXPORTED_PUBLIC LockGuard
-{
-  public:
-    LockGuard(T &Lock, bool Condition = true)
-        : m_Lock(Lock), m_bCondition(Condition)
-    {
-        if (m_bCondition)
-            m_Lock.acquire();
-    }
-    ~LockGuard()
-    {
-        if (m_bCondition)
-            m_Lock.release();
-    }
+class EXPORTED_PUBLIC LockGuard {
+ public:
+  LockGuard(T& Lock, bool Condition = true) : m_Lock(Lock), m_bCondition(Condition) {
+    if (m_bCondition)
+      m_Lock.acquire();
+  }
+  ~LockGuard() {
+    if (m_bCondition)
+      m_Lock.release();
+  }
 
-    /** Stops managing the lock without releasing it. */
-    void disown()
-    {
-        m_bCondition = false;
-    }
+  /** Stops managing the lock without releasing it. */
+  void disown() {
+    m_bCondition = false;
+  }
 
-    bool ownsLock() const
-    {
-        return m_bCondition;
-    }
+  bool ownsLock() const {
+    return m_bCondition;
+  }
 
-  private:
-    LockGuard() = delete;
-    NOT_COPYABLE_OR_ASSIGNABLE(LockGuard);
+ private:
+  LockGuard() = delete;
+  NOT_COPYABLE_OR_ASSIGNABLE(LockGuard);
 
-    T &m_Lock;
-    bool m_bCondition;
+  T& m_Lock;
+  bool m_bCondition;
 };
 
 #if THREADS && !defined(STANDALONE_MUTEXES)
@@ -97,80 +87,70 @@ class EXPORTED_PUBLIC LockGuard
  * Terminal teardown remains deferred until after the owned mutex is released.
  */
 template <>
-class EXPORTED_PUBLIC LockGuard<Mutex>
-{
-  public:
-    explicit LockGuard(Mutex &Lock, bool Condition = true);
-    ~LockGuard();
+class EXPORTED_PUBLIC LockGuard<Mutex> {
+ public:
+  explicit LockGuard(Mutex& Lock, bool Condition = true);
+  ~LockGuard();
 
-    /**
-     * Transfers release responsibility to the caller and ends this guard's
-     * lifetime barrier. The caller must already have released the mutex or
-     * provide its own barrier while retaining ownership.
-     */
-    void disown();
+  /**
+   * Transfers release responsibility to the caller and ends this guard's
+   * lifetime barrier. The caller must already have released the mutex or
+   * provide its own barrier while retaining ownership.
+   */
+  void disown();
 
-    bool ownsLock() const
-    {
-        return m_bCondition;
-    }
+  bool ownsLock() const {
+    return m_bCondition;
+  }
 
-  private:
-    LockGuard() = delete;
-    NOT_COPYABLE_OR_ASSIGNABLE(LockGuard);
+ private:
+  LockGuard() = delete;
+  NOT_COPYABLE_OR_ASSIGNABLE(LockGuard);
 
-    TerminationDeferral m_TerminationDeferral;
-    Mutex &m_Lock;
-    bool m_bCondition;
+  TerminationDeferral m_TerminationDeferral;
+  Mutex& m_Lock;
+  bool m_bCondition;
 };
 
 template <>
-class EXPORTED_PUBLIC ConstexprLockGuard<Mutex, true>
-{
-  public:
-    explicit ConstexprLockGuard(Mutex &Lock) : m_Guard(Lock)
-    {
-    }
+class EXPORTED_PUBLIC ConstexprLockGuard<Mutex, true> {
+ public:
+  explicit ConstexprLockGuard(Mutex& Lock) : m_Guard(Lock) {}
 
-  private:
-    ConstexprLockGuard() = delete;
-    NOT_COPYABLE_OR_ASSIGNABLE(ConstexprLockGuard);
+ private:
+  ConstexprLockGuard() = delete;
+  NOT_COPYABLE_OR_ASSIGNABLE(ConstexprLockGuard);
 
-    LockGuard<Mutex> m_Guard;
+  LockGuard<Mutex> m_Guard;
 };
 
 /** Counting-semaphore acquisition is fallible and must be handled explicitly. */
 template <>
-class LockGuard<Semaphore>
-{
-  public:
-    LockGuard(Semaphore &, bool = true) = delete;
+class LockGuard<Semaphore> {
+ public:
+  LockGuard(Semaphore&, bool = true) = delete;
 };
 #endif
 
 template <class T>
-class EXPORTED_PUBLIC RecursingLockGuard
-{
-  public:
-    RecursingLockGuard(T &Lock, bool Condition = true)
-        : m_Lock(Lock), m_bCondition(Condition)
-    {
-        // T::allow_recursion must exist to be able to use RecursingLockGuard.
-        if (m_bCondition)
-            m_Lock.acquire(T::allow_recursion);
-    }
-    ~RecursingLockGuard()
-    {
-        if (m_bCondition)
-            m_Lock.release();
-    }
+class EXPORTED_PUBLIC RecursingLockGuard {
+ public:
+  RecursingLockGuard(T& Lock, bool Condition = true) : m_Lock(Lock), m_bCondition(Condition) {
+    // T::allow_recursion must exist to be able to use RecursingLockGuard.
+    if (m_bCondition)
+      m_Lock.acquire(T::allow_recursion);
+  }
+  ~RecursingLockGuard() {
+    if (m_bCondition)
+      m_Lock.release();
+  }
 
-  private:
-    RecursingLockGuard() = delete;
-    NOT_COPYABLE_OR_ASSIGNABLE(RecursingLockGuard);
+ private:
+  RecursingLockGuard() = delete;
+  NOT_COPYABLE_OR_ASSIGNABLE(RecursingLockGuard);
 
-    T &m_Lock;
-    bool m_bCondition;
+  T& m_Lock;
+  bool m_bCondition;
 };
 
 extern template class LockGuard<Spinlock>;

@@ -17,20 +17,18 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/processor/StackFrame.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/processor/StackFrame.h"
+
 #include <stdarg.h>
 
 #if DEBUGGER
 
-uintptr_t HostedStackFrame::getParameter(size_t n)
-{
-    return 0;
+uintptr_t HostedStackFrame::getParameter(size_t n) {
+  return 0;
 }
 
 #endif
 
-void HostedStackFrame::construct(
-    ProcessorState &state, uintptr_t returnAddress, unsigned int nParams, ...)
-{
-}
+void HostedStackFrame::construct(ProcessorState& state, uintptr_t returnAddress,
+                                 unsigned int nParams, ...) {}

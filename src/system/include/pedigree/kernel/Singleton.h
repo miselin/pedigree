@@ -21,26 +21,20 @@
 #define KERNEL_SINGLETON_H
 
 template <class T>
-class Singleton
-{
-  public:
-    static T &instance()
-    {
-        static T m_Instance;
-        return m_Instance;
-    }
+class Singleton {
+ public:
+  static T& instance() {
+    static T m_Instance;
+    return m_Instance;
+  }
 
-  protected:
-    Singleton()
-    {
-    }
-    ~Singleton()
-    {
-    }
+ protected:
+  Singleton() {}
+  ~Singleton() {}
 
-  private:
-    Singleton(const Singleton &);
-    Singleton &operator=(const Singleton &);
+ private:
+  Singleton(const Singleton&);
+  Singleton& operator=(const Singleton&);
 };
 
 #endif

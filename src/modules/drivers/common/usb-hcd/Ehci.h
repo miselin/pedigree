@@ -20,11 +20,6 @@
 #ifndef EHCI_H
 #define EHCI_H
 
-#include "CallbackDelivery.h"
-#include "PortChangeRequest.h"
-#include "TransferCompletion.h"
-#include "modules/system/usb/Usb.h"
-#include "modules/system/usb/UsbHub.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
@@ -41,6 +36,12 @@
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
 
+#include "CallbackDelivery.h"
+#include "PortChangeRequest.h"
+#include "TransferCompletion.h"
+#include "modules/system/usb/Usb.h"
+#include "modules/system/usb/UsbHub.h"
+
 class Device;
 class IoBase;
 
@@ -51,282 +52,272 @@ class Ehci : public UsbHub,
 #else
              public InterruptHandler,
 #endif
-             public RequestQueue
-{
-  private:
+             public RequestQueue {
+ private:
 #if X86_COMMON
-    using IrqProcessingLock = Mutex;
+  using IrqProcessingLock = Mutex;
 #else
-    using IrqProcessingLock = Spinlock;
+  using IrqProcessingLock = Spinlock;
 #endif
 
-  public:
-    Ehci(Device *pDev);
-    virtual ~Ehci();
+ public:
+  Ehci(Device* pDev);
+  virtual ~Ehci();
 
-    bool initialiseController();
+  bool initialiseController();
 
-    struct qTD
-    {
-        uint32_t bNextInvalid : 1;
-        uint32_t res0 : 4;
-        uint32_t pNext : 27;
-        uint32_t bAltNextInvalid : 1;
-        uint32_t res1 : 4;
-        uint32_t pAltNext : 27;
-        uint32_t nStatus : 8;
-        uint32_t nPid : 2;
-        uint32_t nErr : 2;
-        uint32_t nPage : 3;
-        uint32_t bIoc : 1;
-        uint32_t nBytes : 15;
-        uint32_t bDataToggle : 1;
-        uint32_t nOffset : 12;
-        uint32_t pPage0 : 20;
-        uint32_t res2 : 12;
-        uint32_t pPage1 : 20;
-        uint32_t res3 : 12;
-        uint32_t pPage2 : 20;
-        uint32_t res4 : 12;
-        uint32_t pPage3 : 20;
-        uint32_t res5 : 12;
-        uint32_t pPage4 : 20;
+  struct qTD {
+    uint32_t bNextInvalid : 1;
+    uint32_t res0 : 4;
+    uint32_t pNext : 27;
+    uint32_t bAltNextInvalid : 1;
+    uint32_t res1 : 4;
+    uint32_t pAltNext : 27;
+    uint32_t nStatus : 8;
+    uint32_t nPid : 2;
+    uint32_t nErr : 2;
+    uint32_t nPage : 3;
+    uint32_t bIoc : 1;
+    uint32_t nBytes : 15;
+    uint32_t bDataToggle : 1;
+    uint32_t nOffset : 12;
+    uint32_t pPage0 : 20;
+    uint32_t res2 : 12;
+    uint32_t pPage1 : 20;
+    uint32_t res3 : 12;
+    uint32_t pPage2 : 20;
+    uint32_t res4 : 12;
+    uint32_t pPage3 : 20;
+    uint32_t res5 : 12;
+    uint32_t pPage4 : 20;
 
-        // 64-bit qTD fields
-        uint32_t extend0;
-        uint32_t extend1;
-        uint32_t extend2;
-        uint32_t extend3;
-        uint32_t extend4;
+    // 64-bit qTD fields
+    uint32_t extend0;
+    uint32_t extend1;
+    uint32_t extend2;
+    uint32_t extend3;
+    uint32_t extend4;
 
-        // Custom qTD fields
-        uint16_t nBufferSize;
+    // Custom qTD fields
+    uint16_t nBufferSize;
 
-        // Possible values for status
-        enum StatusCodes
-        {
-            Halted = 0x40,
-        };
+    // Possible values for status
+    enum StatusCodes {
+      Halted = 0x40,
+    };
 
-        UsbError getError()
-        {
-            if (nStatus & Halted)
-                return Stall;
-            return TransactionError;
-        }
-    } PACKED ALIGN(32);
-
-    struct QH
-    {
-        uint32_t bNextInvalid : 1;
-        uint32_t nNextType : 2;
-        uint32_t res0 : 2;
-        uint32_t pNext : 27;
-        uint32_t nAddress : 7;
-        uint32_t bInactiveNext : 1;
-        uint32_t nEndpoint : 4;
-        uint32_t nSpeed : 2;
-        uint32_t bDataToggleSrc : 1;
-        uint32_t hrcl : 1;
-        uint32_t nMaxPacketSize : 11;
-        uint32_t bControlEndpoint : 1;
-        uint32_t nNakReload : 4;
-        uint32_t ism : 8;
-        uint32_t scm : 8;
-        uint32_t nHubAddress : 7;
-        uint32_t nHubPort : 7;
-        uint32_t mult : 2;
-        uint32_t res1 : 5;
-        uint32_t pQTD : 27;
-
-        qTD overlay ALIGN(32);
-
-        struct MetaData
-        {
-            MetaData()
-                : pCallback(nullptr), pParam(0), periodicGeneration(0),
-                  bPeriodic(false), bBuildFailed(false), pFirstQTD(nullptr),
-                  pLastQTD(nullptr), nTotalBytes(0), pPrev(nullptr),
-                  pNext(nullptr), bIgnore(false), completion()
-            {
-            }
-
-            /** Periodic registrations have no one-shot completion obligation.
-             */
-            void (*pCallback)(uintptr_t, ssize_t);
-            uintptr_t pParam;
-            size_t periodicGeneration;
-
-            bool bPeriodic;
-            bool bBuildFailed;
-            qTD *pFirstQTD;
-            qTD *pLastQTD;
-            size_t nTotalBytes;
-
-            QH *pPrev;
-            QH *pNext;
-
-            bool bIgnore;  /// Ignore this QH when iterating over the list -
-                           /// don't look at any of its qTDs
-            UsbHcd::TransferCompletion completion;
-        } *pMetaData;
-    } PACKED ALIGN(32);
-
-    virtual void getName(String &str)
-    {
-        str.assign("EHCI", 5);
+    UsbError getError() {
+      if (nStatus & Halted)
+        return Stall;
+      return TransactionError;
     }
+  } PACKED ALIGN(32);
 
-    virtual void addTransferToTransaction(
-        uintptr_t pTransaction, bool bToggle, UsbPid pid, uintptr_t pBuffer,
-        size_t nBytes);
-    virtual uintptr_t createTransaction(UsbEndpoint endpointInfo);
+  struct QH {
+    uint32_t bNextInvalid : 1;
+    uint32_t nNextType : 2;
+    uint32_t res0 : 2;
+    uint32_t pNext : 27;
+    uint32_t nAddress : 7;
+    uint32_t bInactiveNext : 1;
+    uint32_t nEndpoint : 4;
+    uint32_t nSpeed : 2;
+    uint32_t bDataToggleSrc : 1;
+    uint32_t hrcl : 1;
+    uint32_t nMaxPacketSize : 11;
+    uint32_t bControlEndpoint : 1;
+    uint32_t nNakReload : 4;
+    uint32_t ism : 8;
+    uint32_t scm : 8;
+    uint32_t nHubAddress : 7;
+    uint32_t nHubPort : 7;
+    uint32_t mult : 2;
+    uint32_t res1 : 5;
+    uint32_t pQTD : 27;
 
-    MUST_USE_RESULT virtual bool doAsync(
-        uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t) = 0,
-        uintptr_t pParam = 0);
-    virtual void addInterruptInHandler(
-        UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
-        void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
+    qTD overlay ALIGN(32);
+
+    struct MetaData {
+      MetaData()
+          : pCallback(nullptr),
+            pParam(0),
+            periodicGeneration(0),
+            bPeriodic(false),
+            bBuildFailed(false),
+            pFirstQTD(nullptr),
+            pLastQTD(nullptr),
+            nTotalBytes(0),
+            pPrev(nullptr),
+            pNext(nullptr),
+            bIgnore(false),
+            completion() {}
+
+      /** Periodic registrations have no one-shot completion obligation.
+       */
+      void (*pCallback)(uintptr_t, ssize_t);
+      uintptr_t pParam;
+      size_t periodicGeneration;
+
+      bool bPeriodic;
+      bool bBuildFailed;
+      qTD* pFirstQTD;
+      qTD* pLastQTD;
+      size_t nTotalBytes;
+
+      QH* pPrev;
+      QH* pNext;
+
+      bool bIgnore;  /// Ignore this QH when iterating over the list -
+                     /// don't look at any of its qTDs
+      UsbHcd::TransferCompletion completion;
+    }* pMetaData;
+  } PACKED ALIGN(32);
+
+  virtual void getName(String& str) {
+    str.assign("EHCI", 5);
+  }
+
+  virtual void addTransferToTransaction(uintptr_t pTransaction, bool bToggle, UsbPid pid,
+                                        uintptr_t pBuffer, size_t nBytes);
+  virtual uintptr_t createTransaction(UsbEndpoint endpointInfo);
+
+  MUST_USE_RESULT virtual bool doAsync(uintptr_t pTransaction,
+                                       void (*pCallback)(uintptr_t, ssize_t) = 0,
+                                       uintptr_t pParam = 0);
+  virtual void addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
+                                     void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
 
 /// IRQ handler
 #if X86_COMMON
-    IrqDisposition irq(irq_id_t number) override;
+  IrqDisposition irq(irq_id_t number) override;
 #else
-    virtual void interrupt(size_t number, InterruptState &state);
+  virtual void interrupt(size_t number, InterruptState& state);
 #endif
 
-    void doDequeue();
+  void doDequeue();
 
-    virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
+  virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
 
-  protected:
-    virtual void cancelAsyncAndDrain(
-        uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
-        uintptr_t pParam);
-    void replaySuppressedConnectionChange(size_t port) override;
+ protected:
+  virtual void cancelAsyncAndDrain(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
+                                   uintptr_t pParam);
+  void replaySuppressedConnectionChange(size_t port) override;
 
-    virtual uint64_t executeRequest(
-        uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0, uint64_t p4 = 0,
-        uint64_t p5 = 0, uint64_t p6 = 0, uint64_t p7 = 0, uint64_t p8 = 0);
-    void cancelRequest(const Request &request) override;
+  virtual uint64_t executeRequest(uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,
+                                  uint64_t p4 = 0, uint64_t p5 = 0, uint64_t p6 = 0,
+                                  uint64_t p7 = 0, uint64_t p8 = 0);
+  void cancelRequest(const Request& request) override;
 
-  private:
-    enum EhciConstants
-    {
-        EHCI_CAPLENGTH = 0x00,   // Capability Registers Length
-        EHCI_HCIVERSION = 0x02,  // Host Controller Interface Version
-        EHCI_HCSPARAMS = 0x04,   // Host Controller Structural Parameters
-        EHCI_HCCPARAMS = 0x08,   // Host Controller Structural Parameters
+ private:
+  enum EhciConstants {
+    EHCI_CAPLENGTH = 0x00,   // Capability Registers Length
+    EHCI_HCIVERSION = 0x02,  // Host Controller Interface Version
+    EHCI_HCSPARAMS = 0x04,   // Host Controller Structural Parameters
+    EHCI_HCCPARAMS = 0x08,   // Host Controller Structural Parameters
 
-        EHCI_CMD = 0x00,         // Command register
-        EHCI_STS = 0x04,         // Status register
-        EHCI_INTR = 0x08,        // Intrerrupt Enable register
-        EHCI_CTRLDSEG = 0x10,    // Control Data Structure Segment Register
-        EHCI_FRINDEX = 0x0c,     // Periodic Frame Index register
-        EHCI_PERIODICLP = 0x14,  // Periodic List Pointer register
-        EHCI_ASYNCLP = 0x18,     // Async List Pointer register
-        EHCI_CFGFLAG = 0x40,     // Config Flag register
-        EHCI_PORTSC = 0x44,      // Port Status/Control registers
+    EHCI_CMD = 0x00,         // Command register
+    EHCI_STS = 0x04,         // Status register
+    EHCI_INTR = 0x08,        // Intrerrupt Enable register
+    EHCI_CTRLDSEG = 0x10,    // Control Data Structure Segment Register
+    EHCI_FRINDEX = 0x0c,     // Periodic Frame Index register
+    EHCI_PERIODICLP = 0x14,  // Periodic List Pointer register
+    EHCI_ASYNCLP = 0x18,     // Async List Pointer register
+    EHCI_CFGFLAG = 0x40,     // Config Flag register
+    EHCI_PORTSC = 0x44,      // Port Status/Control registers
 
-        EHCI_CMD_ASYNCLE = 0x20,     // Async List Enable bit
-        EHCI_CMD_PERIODICLE = 0x10,  // Periodic List Enable bit
-        EHCI_CMD_HCRES = 0x02,       // Host Controller Reset bit
-        EHCI_CMD_RUN = 0x01,         // Run bit
+    EHCI_CMD_ASYNCLE = 0x20,     // Async List Enable bit
+    EHCI_CMD_PERIODICLE = 0x10,  // Periodic List Enable bit
+    EHCI_CMD_HCRES = 0x02,       // Host Controller Reset bit
+    EHCI_CMD_RUN = 0x01,         // Run bit
 
-        EHCI_STS_HALTED = 0x1000,      // Host Controller Halted bit
-        EHCI_STS_ASYNCADVANCE = 0x20,  // Async Advance
-        EHCI_STS_PORTCH = 0x4,         // Port Change Detect bit
-        EHCI_STS_ERR = 0x2,            // Error bit
-        EHCI_STS_INT = 0x1,            // On Completition Interrupt bit
+    EHCI_STS_HALTED = 0x1000,      // Host Controller Halted bit
+    EHCI_STS_ASYNCADVANCE = 0x20,  // Async Advance
+    EHCI_STS_PORTCH = 0x4,         // Port Change Detect bit
+    EHCI_STS_ERR = 0x2,            // Error bit
+    EHCI_STS_INT = 0x1,            // On Completition Interrupt bit
 
-        EHCI_PORTSC_PPOW = 0x1000,  // Port Power bit
-        EHCI_PORTSC_PRES = 0x100,   // Port Reset bit
-        EHCI_PORTSC_OCCH = 0x20,    // Over-current Change bit
-        EHCI_PORTSC_ENCH = 0x8,     // Port Enable/Disable Change bit
-        EHCI_PORTSC_EN = 0x4,       // Port Enabled bit
-        EHCI_PORTSC_CSCH = 0x2,     // Port Connect Status Change bit
-        EHCI_PORTSC_CONN = 0x1,     // Port Connected bit
-    };
+    EHCI_PORTSC_PPOW = 0x1000,  // Port Power bit
+    EHCI_PORTSC_PRES = 0x100,   // Port Reset bit
+    EHCI_PORTSC_OCCH = 0x20,    // Over-current Change bit
+    EHCI_PORTSC_ENCH = 0x8,     // Port Enable/Disable Change bit
+    EHCI_PORTSC_EN = 0x4,       // Port Enabled bit
+    EHCI_PORTSC_CSCH = 0x2,     // Port Connect Status Change bit
+    EHCI_PORTSC_CONN = 0x1,     // Port Connected bit
+  };
 
-    /** Keep non-interrupt PORTSC writes from acknowledging W1C changes. */
-    static uint32_t portControlValue(uint32_t value)
-    {
-        return value &
-               ~(EHCI_PORTSC_OCCH | EHCI_PORTSC_ENCH | EHCI_PORTSC_CSCH);
-    }
+  /** Keep non-interrupt PORTSC writes from acknowledging W1C changes. */
+  static uint32_t portControlValue(uint32_t value) {
+    return value & ~(EHCI_PORTSC_OCCH | EHCI_PORTSC_ENCH | EHCI_PORTSC_CSCH);
+  }
 
-    void modifyPortControl(
-        size_t portRegister, uint32_t clearMask, uint32_t setMask);
+  void modifyPortControl(size_t portRegister, uint32_t clearMask, uint32_t setMask);
 
-    uintptr_t createTransactionAdmitted(UsbEndpoint endpointInfo);
-    void addTransferToTransactionAdmitted(
-        uintptr_t pTransaction, bool bToggle, UsbPid pid, uintptr_t pBuffer,
-        size_t nBytes);
-    void releaseQtdChainLocked(QH *qh);
-    void reclaimQhLocked(size_t transaction);
-    void captureCompletionLocked(
-        size_t transaction, QH *qh,
-        const UsbHcd::TransferCompletion::Claim &claim,
-        List<UsbHcd::CallbackDeliveryQueue::Record *> &completions);
+  uintptr_t createTransactionAdmitted(UsbEndpoint endpointInfo);
+  void addTransferToTransactionAdmitted(uintptr_t pTransaction, bool bToggle, UsbPid pid,
+                                        uintptr_t pBuffer, size_t nBytes);
+  void releaseQtdChainLocked(QH* qh);
+  void reclaimQhLocked(size_t transaction);
+  void captureCompletionLocked(size_t transaction, QH* qh,
+                               const UsbHcd::TransferCompletion::Claim& claim,
+                               List<UsbHcd::CallbackDeliveryQueue::Record*>& completions);
 
-    static void finishDeferredCompletion(void *context);
+  static void finishDeferredCompletion(void* context);
 
-    IoBase *m_pBase;
+  IoBase* m_pBase;
 
-    uint8_t m_nOpRegsOffset;
-    uint8_t m_nPorts;
-    UsbHcd::PortChangeRequest m_PortChanges[UsbHcd::EhciRootPortCount];
-    UsbHcd::DeferredPortChanges m_DeferredPortChanges;
+  uint8_t m_nOpRegsOffset;
+  uint8_t m_nPorts;
+  UsbHcd::PortChangeRequest m_PortChanges[UsbHcd::EhciRootPortCount];
+  UsbHcd::DeferredPortChanges m_DeferredPortChanges;
 
-    Mutex m_Mutex;
+  Mutex m_Mutex;
 
-    /** Serialises transaction completion with synchronous cancellation. */
-    IrqProcessingLock m_IrqProcessingLock;
-    /** Per-generation callback publication and cancellation drain boundary. */
-    UsbHcd::CallbackDeliveryQueue m_CompletionDeliveries;
-    Spinlock m_QueueListChangeLock;
+  /** Serialises transaction completion with synchronous cancellation. */
+  IrqProcessingLock m_IrqProcessingLock;
+  /** Per-generation callback publication and cancellation drain boundary. */
+  UsbHcd::CallbackDeliveryQueue m_CompletionDeliveries;
+  Spinlock m_QueueListChangeLock;
 
-    QH *m_pQHList;
-    uintptr_t m_pQHListPhys;
-    ExtensibleBitmap m_QHBitmap;
+  QH* m_pQHList;
+  uintptr_t m_pQHListPhys;
+  ExtensibleBitmap m_QHBitmap;
 
-    uint32_t *m_pFrameList;
-    uintptr_t m_pFrameListPhys;
-    ExtensibleBitmap m_FrameBitmap;
+  uint32_t* m_pFrameList;
+  uintptr_t m_pFrameListPhys;
+  ExtensibleBitmap m_FrameBitmap;
 
-    qTD *m_pqTDList;
-    uintptr_t m_pqTDListPhys;
-    ExtensibleBitmap m_qTDBitmap;
+  qTD* m_pqTDList;
+  uintptr_t m_pqTDListPhys;
+  ExtensibleBitmap m_qTDBitmap;
 
-    // Pointer to the current queue tail, which allows insertion of new queue
-    // heads to the asynchronous schedule.
-    QH *m_pCurrentQueueTail;
+  // Pointer to the current queue tail, which allows insertion of new queue
+  // heads to the asynchronous schedule.
+  QH* m_pCurrentQueueTail;
 
-    // Pointer to the current queue head. Used to fill pNext automatically
-    // for new queue heads inserted to the asynchronous schedule.
-    QH *m_pCurrentQueueHead;
+  // Pointer to the current queue head. Used to fill pNext automatically
+  // for new queue heads inserted to the asynchronous schedule.
+  QH* m_pCurrentQueueHead;
 
-    MemoryRegion m_EhciMR;
+  MemoryRegion m_EhciMR;
 
-    /** Persistent reclaim worker; destruction wakes and joins it. */
-    Semaphore m_DequeueCount;
-    Atomic<bool> m_DequeueStopping;
-    OwnedThread m_DequeueThread;
+  /** Persistent reclaim worker; destruction wakes and joins it. */
+  Semaphore m_DequeueCount;
+  Atomic<bool> m_DequeueStopping;
+  OwnedThread m_DequeueThread;
 
-    /** Rejects new transaction construction before the DMA halt boundary. */
-    OperationBarrier m_SubmissionOperations;
-    /** Remains open while teardown callbacks synchronously cancel peers. */
-    OperationBarrier m_CancelOperations;
-    /** Closes and drains interrupt callbacks before controller teardown. */
-    OperationBarrier m_CallbackOperations;
-    irq_id_t m_IrqId;
-    bool m_InterruptHandlerRegistered;
-    /** 0=open, 1=PORTCH closed, 2=all controller IRQs closed. */
-    Atomic<size_t> m_InterruptClosure;
+  /** Rejects new transaction construction before the DMA halt boundary. */
+  OperationBarrier m_SubmissionOperations;
+  /** Remains open while teardown callbacks synchronously cancel peers. */
+  OperationBarrier m_CancelOperations;
+  /** Closes and drains interrupt callbacks before controller teardown. */
+  OperationBarrier m_CallbackOperations;
+  irq_id_t m_IrqId;
+  bool m_InterruptHandlerRegistered;
+  /** 0=open, 1=PORTCH closed, 2=all controller IRQs closed. */
+  Atomic<size_t> m_InterruptClosure;
 
-    Ehci(const Ehci &);
-    void operator=(const Ehci &);
+  Ehci(const Ehci&);
+  void operator=(const Ehci&);
 };
 
 #endif

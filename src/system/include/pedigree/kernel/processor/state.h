@@ -26,7 +26,7 @@
 // These should all be able to be present at the same time, as they define
 // processor-specific names which are typedef'd to the global names in
 // state_forward.h
-#include "pedigree/kernel/processor/x64/state.h"  // IWYU pragma: export
 #include "pedigree/kernel/processor/hosted/state.h"  // IWYU pragma: export
+#include "pedigree/kernel/processor/x64/state.h"     // IWYU pragma: export
 
 #endif

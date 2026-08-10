@@ -18,9 +18,9 @@
  */
 
 #include "pedigree/kernel/machine/Machine.h"
+
 #include "Pc.h"
 
-Machine &Machine::instance()
-{
-    return Pc::instance();
+Machine& Machine::instance() {
+  return Pc::instance();
 }

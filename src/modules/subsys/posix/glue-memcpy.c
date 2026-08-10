@@ -23,14 +23,10 @@
 
 #if X86_COMMON
 
-void *memcpy(void *restrict s1, const void *restrict s2, size_t n)
-{
-    int a, b, c;
-    asm volatile("rep movsb"
-                 : "=&c"(a), "=&D"(b), "=&S"(c)
-                 : "1"(s1), "2"(s2), "0"(n)
-                 : "memory");
-    return s1;
+void* memcpy(void* restrict s1, const void* restrict s2, size_t n) {
+  int a, b, c;
+  asm volatile("rep movsb" : "=&c"(a), "=&D"(b), "=&S"(c) : "1"(s1), "2"(s2), "0"(n) : "memory");
+  return s1;
 }
 
 #endif

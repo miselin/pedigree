@@ -10,19 +10,16 @@
 
 #include "pedigree/kernel/time/Time.h"
 
-namespace PosixIntervalTimerState
-{
-struct Consumption
-{
-    Time::Timestamp value;
-    bool armed;
-    bool expired;
+namespace PosixIntervalTimerState {
+struct Consumption {
+  Time::Timestamp value;
+  bool armed;
+  bool expired;
 };
 
-struct AbsoluteConsumption
-{
-    Consumption timer;
-    Time::Timestamp baseline;
+struct AbsoluteConsumption {
+  Consumption timer;
+  Time::Timestamp baseline;
 };
 
 /**
@@ -32,26 +29,21 @@ struct AbsoluteConsumption
  * periods produces one signal while retaining the exact phase of the next
  * expiry.
  */
-inline Consumption consume(
-    Time::Timestamp value, Time::Timestamp interval, bool armed,
-    Time::Timestamp elapsed)
-{
-    if (!armed || !elapsed)
-    {
-        return {value, armed, false};
-    }
-    if (elapsed < value)
-    {
-        return {value - elapsed, true, false};
-    }
-    if (!interval)
-    {
-        return {0, false, true};
-    }
+inline Consumption consume(Time::Timestamp value, Time::Timestamp interval, bool armed,
+                           Time::Timestamp elapsed) {
+  if (!armed || !elapsed) {
+    return {value, armed, false};
+  }
+  if (elapsed < value) {
+    return {value - elapsed, true, false};
+  }
+  if (!interval) {
+    return {0, false, true};
+  }
 
-    const Time::Timestamp overshoot = elapsed - value;
-    const Time::Timestamp phase = overshoot % interval;
-    return {phase ? interval - phase : interval, true, true};
+  const Time::Timestamp overshoot = elapsed - value;
+  const Time::Timestamp phase = overshoot % interval;
+  return {phase ? interval - phase : interval, true, true};
 }
 
 /**
@@ -61,17 +53,14 @@ inline Consumption consume(
  * value is armed. Never regressing the baseline makes that stale callback a
  * no-op instead of debiting the new timer.
  */
-inline AbsoluteConsumption consumeAbsolute(
-    Time::Timestamp value, Time::Timestamp interval, bool armed,
-    Time::Timestamp baseline, Time::Timestamp current)
-{
-    if (current <= baseline)
-    {
-        return {{value, armed, false}, baseline};
-    }
+inline AbsoluteConsumption consumeAbsolute(Time::Timestamp value, Time::Timestamp interval,
+                                           bool armed, Time::Timestamp baseline,
+                                           Time::Timestamp current) {
+  if (current <= baseline) {
+    return {{value, armed, false}, baseline};
+  }
 
-    return {
-        consume(value, interval, armed, current - baseline), current};
+  return {consume(value, interval, armed, current - baseline), current};
 }
 }  // namespace PosixIntervalTimerState
 

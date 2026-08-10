@@ -29,48 +29,46 @@
 
 /** The MemoryMappedIo handles special MemoryRegions for I/O to hardware devices
  *\brief Memory mapped I/O range */
-class MemoryMappedIo : public IoBase, public MemoryRegion
-{
-  public:
-    MemoryMappedIo(
-        const char *pName, uintptr_t offset = 0, uintptr_t padding = 1);
-    /** The destructor frees the allocated ressources */
-    virtual ~MemoryMappedIo();
+class MemoryMappedIo : public IoBase, public MemoryRegion {
+ public:
+  MemoryMappedIo(const char* pName, uintptr_t offset = 0, uintptr_t padding = 1);
+  /** The destructor frees the allocated ressources */
+  virtual ~MemoryMappedIo();
 
-    //
-    // IoBase Interface
-    //
-    virtual size_t size() const;
-    virtual uint8_t read8(size_t offset = 0);
-    virtual uint16_t read16(size_t offset = 0);
-    virtual uint32_t read32(size_t offset = 0);
-    virtual uint64_t read64(size_t offset = 0);
-    virtual void write8(uint8_t value, size_t offset = 0);
-    virtual void write16(uint16_t value, size_t offset = 0);
-    virtual void write32(uint32_t value, size_t offset = 0);
-    virtual void write64(uint64_t value, size_t offset = 0);
-    virtual operator bool() const;
+  //
+  // IoBase Interface
+  //
+  virtual size_t size() const;
+  virtual uint8_t read8(size_t offset = 0);
+  virtual uint16_t read16(size_t offset = 0);
+  virtual uint32_t read32(size_t offset = 0);
+  virtual uint64_t read64(size_t offset = 0);
+  virtual void write8(uint8_t value, size_t offset = 0);
+  virtual void write16(uint16_t value, size_t offset = 0);
+  virtual void write32(uint32_t value, size_t offset = 0);
+  virtual void write64(uint64_t value, size_t offset = 0);
+  virtual operator bool() const;
 
-    //
-    // MemoryRegion Interface
-    //
+  //
+  // MemoryRegion Interface
+  //
 
-  private:
-    /** The copy-constructor
-     *\note NOT implemented */
-    MemoryMappedIo(const MemoryMappedIo &);
-    /** The assignment operator
-     *\note NOT implemented */
-    MemoryMappedIo &operator=(const MemoryMappedIo &);
+ private:
+  /** The copy-constructor
+   *\note NOT implemented */
+  MemoryMappedIo(const MemoryMappedIo&);
+  /** The assignment operator
+   *\note NOT implemented */
+  MemoryMappedIo& operator=(const MemoryMappedIo&);
 
-    /** MemoryRegion only supports allocation on a page boundary.
-        This variable adds an offset onto each access to make up for this
-        (if required) */
-    uintptr_t m_Offset;
+  /** MemoryRegion only supports allocation on a page boundary.
+      This variable adds an offset onto each access to make up for this
+      (if required) */
+  uintptr_t m_Offset;
 
-    /** It is possible that registers may not follow one another directly in
-       memory, instead being padded to some boundary. */
-    size_t m_Padding;
+  /** It is possible that registers may not follow one another directly in
+     memory, instead being padded to some boundary. */
+  size_t m_Padding;
 };
 
 /** @} */

@@ -18,71 +18,62 @@
  */
 
 #include "Lo.h"
-#include "modules/system/network-stack/NetworkStack.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/processor/Processor.h"
 
+#include "modules/system/network-stack/NetworkStack.h"
 #include "modules/system/network-stack/RoutingTable.h"
 
 Loopback Loopback::m_Instance;
 
-static uint8_t g_LocalIpv6[16] = {0, 0, 0, 0, 0, 0, 0, 0,
-                                  0, 0, 0, 0, 0, 0, 0, 1};
+static uint8_t g_LocalIpv6[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
 
-Loopback::Loopback() : Network()
-{
-    setSpecificType(String("Loopback-card"));
-    NetworkStack::instance().registerDevice(this);
-    NetworkStack::instance().setLoopback(this);
+Loopback::Loopback() : Network() {
+  setSpecificType(String("Loopback-card"));
+  NetworkStack::instance().registerDevice(this);
+  NetworkStack::instance().setLoopback(this);
 
-    m_StationInfo.ipv4.setIp(Network::convertToIpv4(127, 0, 0, 1));
-    m_StationInfo.subnetMask.setIp(Network::convertToIpv4(255, 0, 0, 0));
-    m_StationInfo.mac.setMac(static_cast<uint8_t>(0));
+  m_StationInfo.ipv4.setIp(Network::convertToIpv4(127, 0, 0, 1));
+  m_StationInfo.subnetMask.setIp(Network::convertToIpv4(255, 0, 0, 0));
+  m_StationInfo.mac.setMac(static_cast<uint8_t>(0));
 
-    m_StationInfo.ipv6 = new IpAddress(g_LocalIpv6);
-    m_StationInfo.ipv6->setIpv6Prefix(128);
-    m_StationInfo.nIpv6Addresses = 1;
+  m_StationInfo.ipv6 = new IpAddress(g_LocalIpv6);
+  m_StationInfo.ipv6->setIpv6Prefix(128);
+  m_StationInfo.nIpv6Addresses = 1;
 }
 
-Loopback::Loopback(Network *pDev) : Network(pDev)
-{
-    setSpecificType(String("Loopback-card"));
-    NetworkStack::instance().registerDevice(this);
-    NetworkStack::instance().setLoopback(this);
+Loopback::Loopback(Network* pDev) : Network(pDev) {
+  setSpecificType(String("Loopback-card"));
+  NetworkStack::instance().registerDevice(this);
+  NetworkStack::instance().setLoopback(this);
 
-    m_StationInfo.ipv4.setIp(Network::convertToIpv4(127, 0, 0, 1));
-    m_StationInfo.subnetMask.setIp(Network::convertToIpv4(255, 0, 0, 0));
-    m_StationInfo.mac.setMac(static_cast<uint8_t>(0));
+  m_StationInfo.ipv4.setIp(Network::convertToIpv4(127, 0, 0, 1));
+  m_StationInfo.subnetMask.setIp(Network::convertToIpv4(255, 0, 0, 0));
+  m_StationInfo.mac.setMac(static_cast<uint8_t>(0));
 
-    m_StationInfo.ipv6 = new IpAddress(g_LocalIpv6);
-    m_StationInfo.ipv6->setIpv6Prefix(128);
-    m_StationInfo.nIpv6Addresses = 1;
+  m_StationInfo.ipv6 = new IpAddress(g_LocalIpv6);
+  m_StationInfo.ipv6->setIpv6Prefix(128);
+  m_StationInfo.nIpv6Addresses = 1;
 }
 
-Loopback::~Loopback()
-{
+Loopback::~Loopback() {}
+
+bool Loopback::send(size_t nBytes, uintptr_t buffer) {
+  if (nBytes > 0xffff) {
+    ERROR("Loopback: Attempt to send a packet with size > 64 KB");
+    return false;
+  }
+  NetworkStack::instance().receive(nBytes, buffer, this, 0);
+  return true;
 }
 
-bool Loopback::send(size_t nBytes, uintptr_t buffer)
-{
-    if (nBytes > 0xffff)
-    {
-        ERROR("Loopback: Attempt to send a packet with size > 64 KB");
-        return false;
-    }
-    NetworkStack::instance().receive(nBytes, buffer, this, 0);
-    return true;
+bool Loopback::setStationInfo(StationInfo info) {
+  // Nothing here is modifiable
+  return true;
 }
 
-bool Loopback::setStationInfo(StationInfo info)
-{
-    // Nothing here is modifiable
-    return true;
-}
-
-StationInfo Loopback::getStationInfo()
-{
-    return m_StationInfo;
+StationInfo Loopback::getStationInfo() {
+  return m_StationInfo;
 }

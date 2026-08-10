@@ -24,26 +24,24 @@
 
 #include "pedigree/kernel/processor/types.h"
 
-class Mutex
-{
-  public:
-    Mutex();
-    Mutex(bool) = delete;
-    ~Mutex();
+class Mutex {
+ public:
+  Mutex();
+  Mutex(bool) = delete;
+  ~Mutex();
 
-    bool acquire();
-    bool tryAcquire();
-    void release();
+  bool acquire();
+  bool tryAcquire();
+  void release();
 
-    ssize_t getValue();
+  ssize_t getValue();
 
-    void *getPrivate() const
-    {
-        return m_Private;
-    }
+  void* getPrivate() const {
+    return m_Private;
+  }
 
-  private:
-    void *m_Private;
+ private:
+  void* m_Private;
 };
 
 #else
@@ -54,17 +52,16 @@ class Mutex
 #include "pedigree/kernel/process/Semaphore.h"
 
 /** An owner-tracked, non-recursive mutex. */
-class EXPORTED_PUBLIC Mutex : public Semaphore
-{
-  public:
-    /** Constructor */
-    Mutex();
-    Mutex(bool) = delete;
-    /** Destructor */
-    ~Mutex();
+class EXPORTED_PUBLIC Mutex : public Semaphore {
+ public:
+  /** Constructor */
+  Mutex();
+  Mutex(bool) = delete;
+  /** Destructor */
+  ~Mutex();
 
-    /** True only when the calling thread currently owns this mutex. */
-    bool isOwnedByCurrentThread() const;
+  /** True only when the calling thread currently owns this mutex. */
+  bool isOwnedByCurrentThread() const;
 };
 
 #endif  // THREADS

@@ -34,14 +34,13 @@
  * may switch away from that state directly. Ordinary TimerHandler callbacks
  * deliberately do not expose it.
  */
-class EXPORTED_PUBLIC SchedulerTimerHandler
-{
-  public:
-    /** Handles a scheduler tick in interrupt context. */
-    virtual void timer(uint64_t delta, InterruptState &state) = 0;
+class EXPORTED_PUBLIC SchedulerTimerHandler {
+ public:
+  /** Handles a scheduler tick in interrupt context. */
+  virtual void timer(uint64_t delta, InterruptState& state) = 0;
 
-  protected:
-    virtual ~SchedulerTimerHandler();
+ protected:
+  virtual ~SchedulerTimerHandler();
 };
 
 /** @} */

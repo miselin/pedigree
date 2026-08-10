@@ -20,7 +20,6 @@
 #ifndef USBDEVICE_H
 #define USBDEVICE_H
 
-#include "modules/system/usb/Usb.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/types.h"
@@ -28,324 +27,277 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "modules/system/usb/Usb.h"
+
 class UsbDeviceContainer;
 class UsbHub;
 struct UsbDeviceDescriptor;
 struct UsbEndpointDescriptor;
 struct UsbInterfaceDescriptor;
 
-class EXPORTED_PUBLIC UsbDevice
-{
-    friend class UsbDeviceContainer;
+class EXPORTED_PUBLIC UsbDevice {
+  friend class UsbDeviceContainer;
 
-  public:
-    struct Setup
-    {
-        inline Setup(
-            uint8_t requestType, uint8_t request, uint16_t value,
-            uint16_t index, uint16_t length)
-            : nRequestType(requestType), nRequest(request), nValue(value),
-              nIndex(index), nLength(length)
-        {
-        }
+ public:
+  struct Setup {
+    inline Setup(uint8_t requestType, uint8_t request, uint16_t value, uint16_t index,
+                 uint16_t length)
+        : nRequestType(requestType),
+          nRequest(request),
+          nValue(value),
+          nIndex(index),
+          nLength(length) {}
 
-        uint8_t nRequestType;
-        uint8_t nRequest;
-        uint16_t nValue;
-        uint16_t nIndex;
-        uint16_t nLength;
-    } PACKED;
+    uint8_t nRequestType;
+    uint8_t nRequest;
+    uint16_t nValue;
+    uint16_t nIndex;
+    uint16_t nLength;
+  } PACKED;
 
-    struct UnknownDescriptor
-    {
-        inline UnknownDescriptor(uint8_t *pBuffer, uint8_t type, size_t length)
-            : nType(type), nLength(length)
-        {
-            pDescriptor = new uint8_t[nLength];
-            MemoryCopy(pDescriptor, pBuffer, nLength);
-        }
-
-        void *pDescriptor;
-        uint8_t nType;
-        size_t nLength;
-    };
-
-    struct Endpoint
-    {
-        Endpoint(UsbEndpointDescriptor *pDescriptor, UsbSpeed speed);
-
-        enum TransferTypes
-        {
-            Control = 0,
-            Isochronus = 1,
-            Bulk = 2,
-            Interrupt = 3
-        };
-
-        uint8_t nEndpoint;
-        bool bIn;
-        bool bOut;
-        uint8_t nTransferType;
-        uint16_t nMaxPacketSize;
-
-        bool bDataToggle;
-    };
-
-    struct Interface
-    {
-        Interface(UsbInterfaceDescriptor *pDescriptor);
-        ~Interface();
-
-        uint8_t nInterface;
-        uint8_t nAlternateSetting;
-        uint8_t nClass;
-        uint8_t nSubclass;
-        uint8_t nProtocol;
-        uint8_t nString;
-
-        Vector<Endpoint *> endpointList;
-        Vector<UnknownDescriptor *> otherDescriptorList;
-        String sString;
-    };
-
-    struct ConfigDescriptor
-    {
-        ConfigDescriptor(
-            void *pConfigBuffer, size_t nConfigLength, UsbSpeed speed);
-        ~ConfigDescriptor();
-
-        uint8_t nConfig;
-        uint8_t nString;
-
-        Vector<Interface *> interfaceList;
-        Vector<UnknownDescriptor *> otherDescriptorList;
-        String sString;
-    };
-
-    struct DeviceDescriptor
-    {
-        DeviceDescriptor(UsbDeviceDescriptor *pDescriptor);
-        ~DeviceDescriptor();
-
-        uint16_t nBcdUsbRelease;
-        uint8_t nClass;
-        uint8_t nSubclass;
-        uint8_t nProtocol;
-        uint8_t nMaxControlPacketSize;
-        uint16_t nVendorId;
-        uint16_t nProductId;
-        uint16_t nBcdDeviceRelease;
-        uint8_t nVendorString;
-        uint8_t nProductString;
-        uint8_t nSerialString;
-        uint8_t nConfigurations;
-
-        Vector<ConfigDescriptor *> configList;
-        String sVendor;
-        String sProduct;
-        String sSerial;
-    };
-
-    struct DeviceQualifier
-    {
-        uint16_t nVersion;
-        uint8_t nClass;
-        uint8_t nSubclass;
-        uint8_t nProtocol;
-        uint8_t nMaxControlPacketSize;
-        uint8_t nConfigurations;
-        uint8_t nRsvd;
-    } PACKED;
-
-    /// Possible states for an USB device
-    enum UsbState
-    {
-        Connected = 0,
-        Addressed,
-        HasDescriptors,
-        Configured,
-        HasInterface,
-        HasDriver
-    };
-
-    /// Default constructor
-    UsbDevice(UsbHub *pHub, uint8_t nPort, UsbSpeed speed);
-
-    /// Copy constructor
-    UsbDevice(UsbDevice *pDev);
-
-    /// Destructor
-    virtual ~UsbDevice();
-
-    /// Initialises the device at the given address
-    void initialise(uint8_t nAddress);
-
-    /// Implemented by the driver class, initialises driver-specific stuff
-    virtual void initialiseDriver()
-    {
+  struct UnknownDescriptor {
+    inline UnknownDescriptor(uint8_t* pBuffer, uint8_t type, size_t length)
+        : nType(type), nLength(length) {
+      pDescriptor = new uint8_t[nLength];
+      MemoryCopy(pDescriptor, pBuffer, nLength);
     }
 
-    virtual void getUsbDeviceName(String &str)
-    {
-        str.assign("Generic USB Device", 19);
-    }
+    void* pDescriptor;
+    uint8_t nType;
+    size_t nLength;
+  };
 
-    /// Returns the current address of the device
-    inline uint8_t getAddress()
-    {
-        return m_nAddress;
-    }
+  struct Endpoint {
+    Endpoint(UsbEndpointDescriptor* pDescriptor, UsbSpeed speed);
 
-    /// Returns the number of the port on which the device is connected
-    inline uint8_t getPort()
-    {
-        return m_nPort;
-    }
+    enum TransferTypes { Control = 0, Isochronus = 1, Bulk = 2, Interrupt = 3 };
 
-    /// Returns the speed at which the device operates
-    inline UsbSpeed getSpeed()
-    {
-        return m_Speed;
-    }
+    uint8_t nEndpoint;
+    bool bIn;
+    bool bOut;
+    uint8_t nTransferType;
+    uint16_t nMaxPacketSize;
 
-    /// Returns the current state of the device
-    inline UsbState getUsbState()
-    {
-        return m_UsbState;
-    }
+    bool bDataToggle;
+  };
 
-    /// Returns the device descriptor of the device
-    inline DeviceDescriptor *getDescriptor()
-    {
-        return m_pDescriptor;
-    }
+  struct Interface {
+    Interface(UsbInterfaceDescriptor* pDescriptor);
+    ~Interface();
 
-    /// Returns the configuration in use
-    inline ConfigDescriptor *getConfiguration()
-    {
-        return m_pConfiguration;
-    }
+    uint8_t nInterface;
+    uint8_t nAlternateSetting;
+    uint8_t nClass;
+    uint8_t nSubclass;
+    uint8_t nProtocol;
+    uint8_t nString;
 
-    /// Returns the interface in use
-    inline Interface *getInterface()
-    {
-        return m_pInterface;
-    }
+    Vector<Endpoint*> endpointList;
+    Vector<UnknownDescriptor*> otherDescriptorList;
+    String sString;
+  };
 
-    /// Switches to the given configuration
-    void useConfiguration(uint8_t nConfig);
+  struct ConfigDescriptor {
+    ConfigDescriptor(void* pConfigBuffer, size_t nConfigLength, UsbSpeed speed);
+    ~ConfigDescriptor();
 
-    /// Switches to the given interface
-    void useInterface(uint8_t nInterface);
+    uint8_t nConfig;
+    uint8_t nString;
 
-    /// Gets our Device container, for replacing parents on hubs etc.
-    UsbDeviceContainer *getContainer() const
-    {
-        return m_pContainer;
-    }
+    Vector<Interface*> interfaceList;
+    Vector<UnknownDescriptor*> otherDescriptorList;
+    String sString;
+  };
 
-    /// Do we expose our own Device tree?
-    virtual bool hasSubtree() const
-    {
-        return false;
-    }
+  struct DeviceDescriptor {
+    DeviceDescriptor(UsbDeviceDescriptor* pDescriptor);
+    ~DeviceDescriptor();
 
-    /// Get a usable Device for this particular UsbDevice, if it has a subtree.
-    /// \return NULL if this operation is not supported.
-    virtual Device *getDevice()
-    {
-        return 0;
-    }
+    uint16_t nBcdUsbRelease;
+    uint8_t nClass;
+    uint8_t nSubclass;
+    uint8_t nProtocol;
+    uint8_t nMaxControlPacketSize;
+    uint16_t nVendorId;
+    uint16_t nProductId;
+    uint16_t nBcdDeviceRelease;
+    uint8_t nVendorString;
+    uint8_t nProductString;
+    uint8_t nSerialString;
+    uint8_t nConfigurations;
 
-  protected:
-    // Sync transfer methods
-    ssize_t doSync(
-        Endpoint *pEndpoint, UsbPid pid, uintptr_t pBuffer, size_t nBytes,
-        size_t timeout);
-    ssize_t syncIn(
-        Endpoint *pEndpoint, uintptr_t pBuffer, size_t nBytes,
-        size_t timeout = 5000);
-    ssize_t syncOut(
-        Endpoint *pEndpoint, uintptr_t pBuffer, size_t nBytes,
-        size_t timeout = 5000);
+    Vector<ConfigDescriptor*> configList;
+    String sVendor;
+    String sProduct;
+    String sSerial;
+  };
 
-    void addInterruptInHandler(
-        Endpoint *pEndpoint, uintptr_t pBuffer, uint16_t nBytes,
-        void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
+  struct DeviceQualifier {
+    uint16_t nVersion;
+    uint8_t nClass;
+    uint8_t nSubclass;
+    uint8_t nProtocol;
+    uint8_t nMaxControlPacketSize;
+    uint8_t nConfigurations;
+    uint8_t nRsvd;
+  } PACKED;
 
-    /// Performs an USB control request
-    bool controlRequest(
-        uint8_t nRequestType, uint8_t nRequest, uint16_t nValue,
-        uint16_t nIndex, uint16_t nLength = 0, uintptr_t pBuffer = 0,
-        uint32_t timeout = 5000);
+  /// Possible states for an USB device
+  enum UsbState { Connected = 0, Addressed, HasDescriptors, Configured, HasInterface, HasDriver };
 
-    /// Gets device's current status
-    uint16_t getStatus();
+  /// Default constructor
+  UsbDevice(UsbHub* pHub, uint8_t nPort, UsbSpeed speed);
 
-    /// Clears a halt on the given endpoint
-    bool clearEndpointHalt(Endpoint *pEndpoint);
+  /// Copy constructor
+  UsbDevice(UsbDevice* pDev);
 
-    /// Gets a descriptor from the device
-    void *getDescriptor(
-        uint8_t nDescriptorType, uint8_t nDescriptorIndex, uint16_t nBytes,
-        uint8_t requestType = 0);
+  /// Destructor
+  virtual ~UsbDevice();
 
-    /// Gets a descriptor's length from the device
-    uint8_t getDescriptorLength(
-        uint8_t nDescriptorType, uint8_t nDescriptorIndex,
-        uint8_t requestType = 0);
+  /// Initialises the device at the given address
+  void initialise(uint8_t nAddress);
 
-    /// Gets a string
-    String getString(uint8_t nString);
+  /// Implemented by the driver class, initialises driver-specific stuff
+  virtual void initialiseDriver() {}
 
-    /// The current address of the device
-    uint8_t m_nAddress;
+  virtual void getUsbDeviceName(String& str) {
+    str.assign("Generic USB Device", 19);
+  }
 
-    /// The number of the port on which the device is connected
-    uint8_t m_nPort;
+  /// Returns the current address of the device
+  inline uint8_t getAddress() {
+    return m_nAddress;
+  }
 
-    /// The speed at which the device operates
-    UsbSpeed m_Speed;
+  /// Returns the number of the port on which the device is connected
+  inline uint8_t getPort() {
+    return m_nPort;
+  }
 
-    /// The current state of the device
-    UsbState m_UsbState;
+  /// Returns the speed at which the device operates
+  inline UsbSpeed getSpeed() {
+    return m_Speed;
+  }
 
-    /// Device descriptor for this device
-    DeviceDescriptor *m_pDescriptor;
+  /// Returns the current state of the device
+  inline UsbState getUsbState() {
+    return m_UsbState;
+  }
 
-    /// Configuration in use
-    ConfigDescriptor *m_pConfiguration;
+  /// Returns the device descriptor of the device
+  inline DeviceDescriptor* getDescriptor() {
+    return m_pDescriptor;
+  }
 
-    /// Interface in use
-    Interface *m_pInterface;
+  /// Returns the configuration in use
+  inline ConfigDescriptor* getConfiguration() {
+    return m_pConfiguration;
+  }
 
-    /// Parent USB hub.
-    UsbHub *m_pHub;
+  /// Returns the interface in use
+  inline Interface* getInterface() {
+    return m_pInterface;
+  }
 
-    /// Our current container.
-    UsbDeviceContainer *m_pContainer;
+  /// Switches to the given configuration
+  void useConfiguration(uint8_t nConfig);
 
-  private:
-    UsbDevice(const UsbDevice &d);
-    const UsbDevice &operator=(const UsbDevice &d);
+  /// Switches to the given interface
+  void useInterface(uint8_t nInterface);
+
+  /// Gets our Device container, for replacing parents on hubs etc.
+  UsbDeviceContainer* getContainer() const {
+    return m_pContainer;
+  }
+
+  /// Do we expose our own Device tree?
+  virtual bool hasSubtree() const {
+    return false;
+  }
+
+  /// Get a usable Device for this particular UsbDevice, if it has a subtree.
+  /// \return NULL if this operation is not supported.
+  virtual Device* getDevice() {
+    return 0;
+  }
+
+ protected:
+  // Sync transfer methods
+  ssize_t doSync(Endpoint* pEndpoint, UsbPid pid, uintptr_t pBuffer, size_t nBytes, size_t timeout);
+  ssize_t syncIn(Endpoint* pEndpoint, uintptr_t pBuffer, size_t nBytes, size_t timeout = 5000);
+  ssize_t syncOut(Endpoint* pEndpoint, uintptr_t pBuffer, size_t nBytes, size_t timeout = 5000);
+
+  void addInterruptInHandler(Endpoint* pEndpoint, uintptr_t pBuffer, uint16_t nBytes,
+                             void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
+
+  /// Performs an USB control request
+  bool controlRequest(uint8_t nRequestType, uint8_t nRequest, uint16_t nValue, uint16_t nIndex,
+                      uint16_t nLength = 0, uintptr_t pBuffer = 0, uint32_t timeout = 5000);
+
+  /// Gets device's current status
+  uint16_t getStatus();
+
+  /// Clears a halt on the given endpoint
+  bool clearEndpointHalt(Endpoint* pEndpoint);
+
+  /// Gets a descriptor from the device
+  void* getDescriptor(uint8_t nDescriptorType, uint8_t nDescriptorIndex, uint16_t nBytes,
+                      uint8_t requestType = 0);
+
+  /// Gets a descriptor's length from the device
+  uint8_t getDescriptorLength(uint8_t nDescriptorType, uint8_t nDescriptorIndex,
+                              uint8_t requestType = 0);
+
+  /// Gets a string
+  String getString(uint8_t nString);
+
+  /// The current address of the device
+  uint8_t m_nAddress;
+
+  /// The number of the port on which the device is connected
+  uint8_t m_nPort;
+
+  /// The speed at which the device operates
+  UsbSpeed m_Speed;
+
+  /// The current state of the device
+  UsbState m_UsbState;
+
+  /// Device descriptor for this device
+  DeviceDescriptor* m_pDescriptor;
+
+  /// Configuration in use
+  ConfigDescriptor* m_pConfiguration;
+
+  /// Interface in use
+  Interface* m_pInterface;
+
+  /// Parent USB hub.
+  UsbHub* m_pHub;
+
+  /// Our current container.
+  UsbDeviceContainer* m_pContainer;
+
+ private:
+  UsbDevice(const UsbDevice& d);
+  const UsbDevice& operator=(const UsbDevice& d);
 };
 
-class UsbDeviceContainer : public Device
-{
-  public:
-    UsbDeviceContainer(UsbDevice *pDev);
-    virtual ~UsbDeviceContainer();
+class UsbDeviceContainer : public Device {
+ public:
+  UsbDeviceContainer(UsbDevice* pDev);
+  virtual ~UsbDeviceContainer();
 
-    UsbDevice *getUsbDevice() const;
+  UsbDevice* getUsbDevice() const;
 
-    virtual void getName(String &str);
+  virtual void getName(String& str);
 
-    virtual Type getType();
+  virtual Type getType();
 
-    virtual void dump(String &str);
+  virtual void dump(String& str);
 
-  private:
-    UsbDevice *m_pUsbDevice;
+ private:
+  UsbDevice* m_pUsbDevice;
 };
 
 #endif

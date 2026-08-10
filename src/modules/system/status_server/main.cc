@@ -17,14 +17,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "modules/Module.h"
-#include "modules/system/network-stack/NetworkStack.h"
-#include "modules/system/vfs/Filesystem.h"
-#include "modules/system/vfs/VFS.h"
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
-#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
@@ -37,487 +33,438 @@
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/Processor.h"
 
+#include "modules/Module.h"
 #include "modules/system/lwip/include/lwip/api.h"
 #include "modules/system/lwip/include/lwip/ip_addr.h"
 #include "modules/system/lwip/include/lwip/netif.h"
+#include "modules/system/network-stack/NetworkStack.h"
+#include "modules/system/vfs/Filesystem.h"
+#include "modules/system/vfs/VFS.h"
 
 #define LISTEN_PORT 1234
 
-static Tree<struct netconn *, Completion *> g_Netconns;
+static Tree<struct netconn*, Completion*> g_Netconns;
 static Spinlock g_NetconnsLock;
-static OperationBarrier *g_pClientWork = nullptr;
+static OperationBarrier* g_pClientWork = nullptr;
 
 static Atomic<bool> g_Running(false);
-static Thread *g_pServerThread = nullptr;
+static Thread* g_pServerThread = nullptr;
 
-struct ClientContext
-{
-    ClientContext(struct netconn *connection, OperationBarrier::Lease work)
-        : connection(connection), work(pedigree_std::move(work))
-    {
-    }
+struct ClientContext {
+  ClientContext(struct netconn* connection, OperationBarrier::Lease work)
+      : connection(connection), work(pedigree_std::move(work)) {}
 
-    struct netconn *connection;
-    OperationBarrier::Lease work;
+  struct netconn* connection;
+  OperationBarrier::Lease work;
 };
 
-static void
-netconnCallback(struct netconn *conn, enum netconn_evt evt, u16_t len)
-{
-    LockGuard<Spinlock> guard(g_NetconnsLock);
-    Completion *completion = g_Netconns.lookup(conn);
-    if (
-        completion &&
-        (evt == NETCONN_EVT_RCVPLUS || evt == NETCONN_EVT_SENDPLUS ||
-         evt == NETCONN_EVT_ERROR))
-    {
-        completion->complete();
-    }
+static void netconnCallback(struct netconn* conn, enum netconn_evt evt, u16_t len) {
+  LockGuard<Spinlock> guard(g_NetconnsLock);
+  Completion* completion = g_Netconns.lookup(conn);
+  if (completion &&
+      (evt == NETCONN_EVT_RCVPLUS || evt == NETCONN_EVT_SENDPLUS || evt == NETCONN_EVT_ERROR)) {
+    completion->complete();
+  }
 }
 
-static int clientThread(void *p)
-{
-    if (!p)
-        return 0;
+static int clientThread(void* p) {
+  if (!p)
+    return 0;
 
-    ClientContext *context = reinterpret_cast<ClientContext *>(p);
-    struct netconn *connection = context->connection;
-    OperationBarrier::Lease work = pedigree_std::move(context->work);
-    delete context;
+  ClientContext* context = reinterpret_cast<ClientContext*>(p);
+  struct netconn* connection = context->connection;
+  OperationBarrier::Lease work = pedigree_std::move(context->work);
+  delete context;
 
-    // Connection teardown, callback deregistration, and netconn deletion are
-    // one lifetime unit. A terminal request may interrupt its waits, but must
-    // return through this function's cleanup.
-    TerminationDeferral clientLifetime;
-    connection->callback = netconnCallback;
-    netconn_set_recvtimeout(connection, 500);
+  // Connection teardown, callback deregistration, and netconn deletion are
+  // one lifetime unit. A terminal request may interrupt its waits, but must
+  // return through this function's cleanup.
+  TerminationDeferral clientLifetime;
+  connection->callback = netconnCallback;
+  netconn_set_recvtimeout(connection, 500);
 
-    bool stillOk = true;
-    bool requestComplete = false;
+  bool stillOk = true;
+  bool requestComplete = false;
 
-    String httpRequest;
-    String httpResponse;
-    err_t err;
-    while (g_Running && !requestComplete)
-    {
-        struct netbuf *buf = nullptr;
-        if ((err = netconn_recv(connection, &buf)) != ERR_OK)
-        {
-            if (err == ERR_RST || err == ERR_CLSD)
-            {
-                WARNING("Unexpected disconnection from remote client.");
-                stillOk = false;
-                break;
-            }
-            else if (err == ERR_TIMEOUT)
-            {
-                continue;
-            }
-            else
-            {
-                ERROR("error in recv: " << lwip_strerr(err));
-            }
-            continue;
-        }
-
-        do
-        {
-            void *data = nullptr;
-            u16_t len = 0;
-            netbuf_data(buf, &data, &len);
-
-            if (stillOk && len)
-            {
-                httpRequest += String(reinterpret_cast<char *>(data), len);
-
-                if (httpRequest.length() >= 4)
-                {
-                    if (!(httpRequest.startswith("GET") ||
-                          httpRequest.startswith("HEAD")))
-                    {
-                        // We really don't want to deal with this.
-                        httpResponse.assign(
-                            "HTTP/1.1 400 Bad Request\r\nAllow: GET, "
-                            "HEAD\r\nContent-Type: text/plain; "
-                            "charset=utf-8\r\n\r\nThe Pedigree built-in status "
-                            "server only accepts GET and HEAD requests.");
-                        stillOk = false;
-                    }
-                }
-
-                if (stillOk)
-                {
-                    if (StringContains(
-                            static_cast<const char *>(httpRequest), "\r\n\r\n"))
-                    {
-                        // no more data needed, we have the full request
-                        requestComplete = true;
-                    }
-                }
-            }
-        } while (netbuf_next(buf) >= 0);
-
-        netbuf_delete(buf);
+  String httpRequest;
+  String httpResponse;
+  err_t err;
+  while (g_Running && !requestComplete) {
+    struct netbuf* buf = nullptr;
+    if ((err = netconn_recv(connection, &buf)) != ERR_OK) {
+      if (err == ERR_RST || err == ERR_CLSD) {
+        WARNING("Unexpected disconnection from remote client.");
+        stillOk = false;
+        break;
+      } else if (err == ERR_TIMEOUT) {
+        continue;
+      } else {
+        ERROR("error in recv: " << lwip_strerr(err));
+      }
+      continue;
     }
 
-    // no longer needing to RX any data
-    netconn_shutdown(connection, 1, 0);
+    do {
+      void* data = nullptr;
+      u16_t len = 0;
+      netbuf_data(buf, &data, &len);
 
-    if (!stillOk)
-    {
-        if (httpResponse.length())
-        {
-            netconn_write(
-                connection, static_cast<const char *>(httpResponse),
-                httpResponse.length(), 0);
-            netconn_shutdown(connection, 1, 1);
+      if (stillOk && len) {
+        httpRequest += String(reinterpret_cast<char*>(data), len);
+
+        if (httpRequest.length() >= 4) {
+          if (!(httpRequest.startswith("GET") || httpRequest.startswith("HEAD"))) {
+            // We really don't want to deal with this.
+            httpResponse.assign(
+                "HTTP/1.1 400 Bad Request\r\nAllow: GET, "
+                "HEAD\r\nContent-Type: text/plain; "
+                "charset=utf-8\r\n\r\nThe Pedigree built-in status "
+                "server only accepts GET and HEAD requests.");
+            stillOk = false;
+          }
         }
 
-        netconn_close(connection);
-        netconn_delete(connection);
-        return 0;
+        if (stillOk) {
+          if (StringContains(static_cast<const char*>(httpRequest), "\r\n\r\n")) {
+            // no more data needed, we have the full request
+            requestComplete = true;
+          }
+        }
+      }
+    } while (netbuf_next(buf) >= 0);
+
+    netbuf_delete(buf);
+  }
+
+  // no longer needing to RX any data
+  netconn_shutdown(connection, 1, 0);
+
+  if (!stillOk) {
+    if (httpResponse.length()) {
+      netconn_write(connection, static_cast<const char*>(httpResponse), httpResponse.length(), 0);
+      netconn_shutdown(connection, 1, 1);
     }
 
-    // Build the response.
-    bool bHeadRequest = !httpRequest.startswith("GET");
-    bool bNotFound = false;  /// \todo add path parsing
+    netconn_close(connection);
+    netconn_delete(connection);
+    return 0;
+  }
 
-    // Got a heap of information now - prepare to return
-    size_t code = bNotFound ? 404 : 200;
-    NormalStaticString statusLine;
-    statusLine = "HTTP/1.1 ";
-    statusLine += code;
-    statusLine += " ";
-    statusLine += bNotFound ? "Not Found" : "OK";
+  // Build the response.
+  bool bHeadRequest = !httpRequest.startswith("GET");
+  bool bNotFound = false;  /// \todo add path parsing
 
-    // Build up the reply.
-    String responseContent;
-    if (bNotFound)
+  // Got a heap of information now - prepare to return
+  size_t code = bNotFound ? 404 : 200;
+  NormalStaticString statusLine;
+  statusLine = "HTTP/1.1 ";
+  statusLine += code;
+  statusLine += " ";
+  statusLine += bNotFound ? "Not Found" : "OK";
+
+  // Build up the reply.
+  String responseContent;
+  if (bNotFound) {
+    responseContent += "Error 404: Page not found.";
+  } else {
+    responseContent +=
+        "<html><head><title>Pedigree - Live System Status "
+        "Report</title></head><body>";
+    responseContent += "<h1>Pedigree Live Status Report</h1>";
+    responseContent +=
+        "<p>This is a live status report from a running "
+        "Pedigree system.</p>";
+    responseContent += "<h3>Current Build</h3><pre>";
+
     {
-        responseContent += "Error 404: Page not found.";
+      HugeStaticString str;
+      str += "Pedigree - revision ";
+      str += g_pBuildRevision;
+      str += "<br />===========================<br />Built at ";
+      str += g_pBuildTime;
+      str += " by ";
+      str += g_pBuildUser;
+      str += " on ";
+      str += g_pBuildMachine;
+      str += "<br />Build flags: ";
+      str += g_pBuildFlags;
+      str += "<br />";
+      responseContent += str;
     }
-    else
-    {
-        responseContent += "<html><head><title>Pedigree - Live System Status "
-                           "Report</title></head><body>";
-        responseContent += "<h1>Pedigree Live Status Report</h1>";
-        responseContent += "<p>This is a live status report from a running "
-                           "Pedigree system.</p>";
-        responseContent += "<h3>Current Build</h3><pre>";
 
-        {
-            HugeStaticString str;
-            str += "Pedigree - revision ";
-            str += g_pBuildRevision;
-            str += "<br />===========================<br />Built at ";
-            str += g_pBuildTime;
-            str += " by ";
-            str += g_pBuildUser;
-            str += " on ";
-            str += g_pBuildMachine;
-            str += "<br />Build flags: ";
-            str += g_pBuildFlags;
-            str += "<br />";
-            responseContent += str;
+    responseContent += "</pre>";
+
+    responseContent += "<h3>Network Interfaces</h3>";
+    responseContent +=
+        "<table border='1'><tr><th>Interface</th><th>IP "
+        "Addresses</th><th>Subnet "
+        "Mask</th><th>Gateway</th><th>Driver Name</th><th>MAC "
+        "address</th><th>Statistics</th></tr>";
+    for (size_t i = 0; i < NetworkStack::instance().getNumDevices(); i++) {
+      /// \todo switch to using netif interface for all this
+      Network* card = NetworkStack::instance().getDevice(i);
+      StationInfo info = card->getStationInfo();
+
+      struct netif* iface = NetworkStack::instance().getInterface(card);
+      if (!iface) {
+        continue;
+      }
+
+      // Interface number
+      responseContent += "<tr><td>";
+      NormalStaticString s;
+      s.append(iface->name, 2);
+      s.append(iface->num);
+      responseContent += s;
+      if (iface == netif_default) {
+        responseContent += " <b>(default interface)</b>";
+      }
+      responseContent += "</td>";
+
+      // IP address(es)
+      responseContent += "<td>";
+      const ip4_addr_t* ip4 = netif_ip4_addr(iface);
+      responseContent += ip4addr_ntoa(ip4);
+      for (size_t j = 0; j < LWIP_IPV6_NUM_ADDRESSES; ++j) {
+        const ip6_addr_t* ip6 = netif_ip6_addr(iface, j);
+        if (ip6_addr_isany(ip6)) {
+          continue;
         }
+        responseContent += "<br />";
+        responseContent += ip6addr_ntoa(ip6);
+      }
+      responseContent += "</td>";
 
-        responseContent += "</pre>";
+      const ip4_addr_t* subnet4 = netif_ip4_netmask(iface);
+      const ip4_addr_t* gw4 = netif_ip4_gw(iface);
 
-        responseContent += "<h3>Network Interfaces</h3>";
-        responseContent +=
-            "<table border='1'><tr><th>Interface</th><th>IP "
-            "Addresses</th><th>Subnet "
-            "Mask</th><th>Gateway</th><th>Driver Name</th><th>MAC "
-            "address</th><th>Statistics</th></tr>";
-        for (size_t i = 0; i < NetworkStack::instance().getNumDevices(); i++)
-        {
-            /// \todo switch to using netif interface for all this
-            Network *card = NetworkStack::instance().getDevice(i);
-            StationInfo info = card->getStationInfo();
+      // Subnet mask
+      responseContent += "<td>";
+      responseContent += ip4addr_ntoa(subnet4);
+      responseContent += "</td>";
 
-            struct netif *iface = NetworkStack::instance().getInterface(card);
-            if (!iface)
-            {
-                continue;
-            }
+      // Gateway
+      responseContent += "<td>";
+      responseContent += ip4addr_ntoa(gw4);
+      responseContent += "</td>";
 
-            // Interface number
-            responseContent += "<tr><td>";
-            NormalStaticString s;
-            s.append(iface->name, 2);
-            s.append(iface->num);
-            responseContent += s;
-            if (iface == netif_default)
-            {
-                responseContent += " <b>(default interface)</b>";
-            }
-            responseContent += "</td>";
+      // Driver name
+      responseContent += "<td>";
+      String cardName;
+      card->getName(cardName);
+      responseContent += cardName;
+      responseContent += "</td>";
 
-            // IP address(es)
-            responseContent += "<td>";
-            const ip4_addr_t *ip4 = netif_ip4_addr(iface);
-            responseContent += ip4addr_ntoa(ip4);
-            for (size_t j = 0; j < LWIP_IPV6_NUM_ADDRESSES; ++j)
-            {
-                const ip6_addr_t *ip6 = netif_ip6_addr(iface, j);
-                if (ip6_addr_isany(ip6))
-                {
-                    continue;
-                }
-                responseContent += "<br />";
-                responseContent += ip6addr_ntoa(ip6);
-            }
-            responseContent += "</td>";
+      // MAC
+      responseContent += "<td>";
+      responseContent += info.mac.toString();
+      responseContent += "</td>";
 
-            const ip4_addr_t *subnet4 = netif_ip4_netmask(iface);
-            const ip4_addr_t *gw4 = netif_ip4_gw(iface);
+      // Statistics
+      responseContent += "<td>";
+      s.clear();
+      s += "Packets: ";
+      s.append(info.nPackets);
+      s += "<br />Dropped: ";
+      s.append(info.nDropped);
+      s += "<br />RX Errors: ";
+      s.append(info.nBad);
+      responseContent += s;
+      responseContent += "</td>";
 
-            // Subnet mask
-            responseContent += "<td>";
-            responseContent += ip4addr_ntoa(subnet4);
-            responseContent += "</td>";
+      responseContent += "</tr>";
+    }
+    responseContent += "</table>";
 
-            // Gateway
-            responseContent += "<td>";
-            responseContent += ip4addr_ntoa(gw4);
-            responseContent += "</td>";
+    responseContent += "<h3>VFS</h3>";
+    responseContent += "<table border='1'><tr><th>Mount Point</th><th>Disk</th></tr>";
 
-            // Driver name
-            responseContent += "<td>";
-            String cardName;
-            card->getName(cardName);
-            responseContent += cardName;
-            responseContent += "</td>";
+    VFS::MountTable& mounts = VFS::instance().getMounts();
 
-            // MAC
-            responseContent += "<td>";
-            responseContent += info.mac.toString();
-            responseContent += "</td>";
+    for (VFS::MountTable::Iterator it = mounts.begin(); it != mounts.end(); it++) {
+      Filesystem* pFs = it.key();
+      Disk* pDisk = pFs->getDisk();
 
-            // Statistics
-            responseContent += "<td>";
-            s.clear();
-            s += "Packets: ";
-            s.append(info.nPackets);
-            s += "<br />Dropped: ";
-            s.append(info.nDropped);
-            s += "<br />RX Errors: ";
-            s.append(info.nBad);
-            responseContent += s;
-            responseContent += "</td>";
+      String mount = it.value()->path;
+      String diskInfo, temp;
 
-            responseContent += "</tr>";
-        }
-        responseContent += "</table>";
+      if (pDisk) {
+        pDisk->getName(temp);
+        pDisk->getParent()->getName(diskInfo);
 
-        responseContent += "<h3>VFS</h3>";
-        responseContent +=
-            "<table border='1'><tr><th>Mount Point</th><th>Disk</th></tr>";
+        diskInfo += " -- ";
+        diskInfo += temp;
+      } else
+        diskInfo.assign("(no disk)", 10);
 
-        VFS::MountTable &mounts = VFS::instance().getMounts();
+      responseContent += "<tr><td>";
+      responseContent += mount;
+      responseContent += "</td><td>";
+      responseContent += diskInfo;
+      responseContent += "</td></tr>";
+    }
 
-        for (VFS::MountTable::Iterator it = mounts.begin(); it != mounts.end();
-             it++)
-        {
-            Filesystem *pFs = it.key();
-            Disk *pDisk = pFs->getDisk();
-
-            String mount = it.value()->path;
-            String diskInfo, temp;
-
-            if (pDisk)
-            {
-                pDisk->getName(temp);
-                pDisk->getParent()->getName(diskInfo);
-
-                diskInfo += " -- ";
-                diskInfo += temp;
-            }
-            else
-                diskInfo.assign("(no disk)", 10);
-
-            responseContent += "<tr><td>";
-            responseContent += mount;
-            responseContent += "</td><td>";
-            responseContent += diskInfo;
-            responseContent += "</td></tr>";
-        }
-
-        responseContent += "</table>";
+    responseContent += "</table>";
 
 #if X86_COMMON
-        responseContent += "<h3>Memory Usage (KiB)</h3>";
-        responseContent += "<table "
-                           "border='1'><tr><th>Heap</th><th>Used</th><th>Free</"
-                           "th></tr>";
-        {
-            extern size_t g_FreePages;
-            extern size_t g_AllocedPages;
+    responseContent += "<h3>Memory Usage (KiB)</h3>";
+    responseContent +=
+        "<table "
+        "border='1'><tr><th>Heap</th><th>Used</th><th>Free</"
+        "th></tr>";
+    {
+      extern size_t g_FreePages;
+      extern size_t g_AllocedPages;
 
-            NormalStaticString str;
-            str += "<tr><td>";
-            str += SlamAllocator::instance().heapPageCount() * 4;
-            str += "</td><td>";
-            str += (g_AllocedPages * 4096) / 1024;
-            str += "</td><td>";
-            str += (g_FreePages * 4096) / 1024;
-            str += "</td></tr>";
-            responseContent += str;
-        }
-        responseContent += "</table>";
+      NormalStaticString str;
+      str += "<tr><td>";
+      str += SlamAllocator::instance().heapPageCount() * 4;
+      str += "</td><td>";
+      str += (g_AllocedPages * 4096) / 1024;
+      str += "</td><td>";
+      str += (g_FreePages * 4096) / 1024;
+      str += "</td></tr>";
+      responseContent += str;
+    }
+    responseContent += "</table>";
 #endif
 
-        responseContent += "<h3>Processes</h3>";
-        responseContent +=
-            "<table "
-            "border='1'><tr><th>PID</th><th>Description</"
-            "th><th>Virtual Memory (KiB)</th><th>Physical Memory "
-            "(KiB)</th><th>Shared Memory (KiB)</th>";
-        for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
-        {
-            Scheduler::ProcessLease processLease;
-            if (!Scheduler::instance().acquireProcess(processLease, i))
-            {
-                continue;
-            }
-            responseContent += "<tr>";
-            Process *pProcess = processLease.get();
-            HugeStaticString str;
+    responseContent += "<h3>Processes</h3>";
+    responseContent +=
+        "<table "
+        "border='1'><tr><th>PID</th><th>Description</"
+        "th><th>Virtual Memory (KiB)</th><th>Physical Memory "
+        "(KiB)</th><th>Shared Memory (KiB)</th>";
+    for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i) {
+      Scheduler::ProcessLease processLease;
+      if (!Scheduler::instance().acquireProcess(processLease, i)) {
+        continue;
+      }
+      responseContent += "<tr>";
+      Process* pProcess = processLease.get();
+      HugeStaticString str;
 
-            ssize_t virtK = (pProcess->getVirtualPageCount() * 0x1000) / 1024;
-            ssize_t physK = (pProcess->getPhysicalPageCount() * 0x1000) / 1024;
-            ssize_t shrK = (pProcess->getSharedPageCount() * 0x1000) / 1024;
+      ssize_t virtK = (pProcess->getVirtualPageCount() * 0x1000) / 1024;
+      ssize_t physK = (pProcess->getPhysicalPageCount() * 0x1000) / 1024;
+      ssize_t shrK = (pProcess->getSharedPageCount() * 0x1000) / 1024;
 
-            /// \todo add timing
-            str.append("<td>");
-            str.append(pProcess->getId());
-            str.append("</td><td>");
-            str.append(pProcess->description());
-            str.append("</td><td>");
-            str.append(virtK, 10);
-            str.append("</td><td>");
-            str.append(physK, 10);
-            str.append("</td><td>");
-            str.append(shrK, 10);
-            str.append("</td>");
+      /// \todo add timing
+      str.append("<td>");
+      str.append(pProcess->getId());
+      str.append("</td><td>");
+      str.append(pProcess->description());
+      str.append("</td><td>");
+      str.append(virtK, 10);
+      str.append("</td><td>");
+      str.append(physK, 10);
+      str.append("</td><td>");
+      str.append(shrK, 10);
+      str.append("</td>");
 
-            responseContent += str;
-            responseContent += "</tr>";
-        }
-        responseContent += "</table>";
-
-        responseContent += "</body></html>";
+      responseContent += str;
+      responseContent += "</tr>";
     }
+    responseContent += "</table>";
 
-    String contentLength;
-    contentLength.Format("\r\nContent-Length: %d", responseContent.length());
+    responseContent += "</body></html>";
+  }
 
-    httpResponse.assign(statusLine, statusLine.length());
-    httpResponse += contentLength;
-    httpResponse += "\r\nContent-type: text/html; charset=utf-8";
-    httpResponse += "\r\nConnection: close";
-    httpResponse += "\r\n\r\n";
-    httpResponse += responseContent;
+  String contentLength;
+  contentLength.Format("\r\nContent-Length: %d", responseContent.length());
 
-    // The callback retains a pointer into this stack. The outer lifetime scope
-    // keeps it valid until registration is removed under the callback lock.
-    Completion completion;
+  httpResponse.assign(statusLine, statusLine.length());
+  httpResponse += contentLength;
+  httpResponse += "\r\nContent-type: text/html; charset=utf-8";
+  httpResponse += "\r\nConnection: close";
+  httpResponse += "\r\n\r\n";
+  httpResponse += responseContent;
 
-    {
-        LockGuard<Spinlock> guard(g_NetconnsLock);
-        g_Netconns.insert(connection, &completion);
-    }
+  // The callback retains a pointer into this stack. The outer lifetime scope
+  // keeps it valid until registration is removed under the callback lock.
+  Completion completion;
 
-    /// \todo error handling
-    netconn_write(
-        connection, static_cast<const char *>(httpResponse),
-        httpResponse.length(), 0);
-    netconn_close(connection);
+  {
+    LockGuard<Spinlock> guard(g_NetconnsLock);
+    g_Netconns.insert(connection, &completion);
+  }
 
-    bool completed = completion.wait();
+  /// \todo error handling
+  netconn_write(connection, static_cast<const char*>(httpResponse), httpResponse.length(), 0);
+  netconn_close(connection);
 
-    {
-        // Serialising removal with the callback ensures it has finished using
-        // the stack-backed completion before this function returns.
-        LockGuard<Spinlock> guard(g_NetconnsLock);
-        g_Netconns.remove(connection);
-    }
+  bool completed = completion.wait();
 
-    // Connection closed cleanly, delete our netconn now.
-    netconn_delete(connection);
+  {
+    // Serialising removal with the callback ensures it has finished using
+    // the stack-backed completion before this function returns.
+    LockGuard<Spinlock> guard(g_NetconnsLock);
+    g_Netconns.remove(connection);
+  }
 
-    return completed ? 0 : -1;
+  // Connection closed cleanly, delete our netconn now.
+  netconn_delete(connection);
+
+  return completed ? 0 : -1;
 }
 
-static int mainThread(void *)
-{
-    struct netconn *server = netconn_new(NETCONN_TCP);
+static int mainThread(void*) {
+  struct netconn* server = netconn_new(NETCONN_TCP);
 
-    // Don't block for more than ~500 ms so we can shut down the server when
-    // this module is unloaded.
-    netconn_set_recvtimeout(server, 500);
+  // Don't block for more than ~500 ms so we can shut down the server when
+  // this module is unloaded.
+  netconn_set_recvtimeout(server, 500);
 
-    ip_addr_t ipaddr;
-    ByteSet(&ipaddr, 0, sizeof(ipaddr));
+  ip_addr_t ipaddr;
+  ByteSet(&ipaddr, 0, sizeof(ipaddr));
 
-    netconn_bind(server, &ipaddr, LISTEN_PORT);
+  netconn_bind(server, &ipaddr, LISTEN_PORT);
 
-    netconn_listen(server);
+  netconn_listen(server);
 
-    while (g_Running)
-    {
-        struct netconn *connection;
-        if (netconn_accept(server, &connection) == ERR_OK)
-        {
-            OperationBarrier::Lease work;
-            if (!g_pClientWork->tryAcquire(work))
-            {
-                netconn_close(connection);
-                netconn_delete(connection);
-                continue;
-            }
+  while (g_Running) {
+    struct netconn* connection;
+    if (netconn_accept(server, &connection) == ERR_OK) {
+      OperationBarrier::Lease work;
+      if (!g_pClientWork->tryAcquire(work)) {
+        netconn_close(connection);
+        netconn_delete(connection);
+        continue;
+      }
 
-            ClientContext *context = new ClientContext(
-                connection, pedigree_std::move(work));
-            Thread *pThread = new Thread(
-                Processor::information().getCurrentThread()->getParent(),
-                clientThread, context);
-            pThread->setName("Status Server client thread");
-            pThread->detach();
-        }
+      ClientContext* context = new ClientContext(connection, pedigree_std::move(work));
+      Thread* pThread = new Thread(Processor::information().getCurrentThread()->getParent(),
+                                   clientThread, context);
+      pThread->setName("Status Server client thread");
+      pThread->detach();
     }
+  }
 
-    netconn_close(server);
-    netconn_delete(server);
+  netconn_close(server);
+  netconn_delete(server);
 
-    return 0;
+  return 0;
 }
 
-static bool init()
-{
-    g_pClientWork = new OperationBarrier;
-    g_Running = true;
-    g_pServerThread = new Thread(
-        Processor::information().getCurrentThread()->getParent(), mainThread,
-        nullptr);
-    g_pServerThread->setName("Status Server main thread");
-    return true;
+static bool init() {
+  g_pClientWork = new OperationBarrier;
+  g_Running = true;
+  g_pServerThread =
+      new Thread(Processor::information().getCurrentThread()->getParent(), mainThread, nullptr);
+  g_pServerThread->setName("Status Server main thread");
+  return true;
 }
 
-static void destroy()
-{
-    g_Running = false;
-    if (g_pServerThread)
-    {
-        if (!g_pServerThread->joinForCompletion())
-        {
-            FATAL("Status Server could not retire its listener thread.");
-        }
-        g_pServerThread = nullptr;
+static void destroy() {
+  g_Running = false;
+  if (g_pServerThread) {
+    if (!g_pServerThread->joinForCompletion()) {
+      FATAL("Status Server could not retire its listener thread.");
     }
-    g_pClientWork->closeAndWait();
-    delete g_pClientWork;
-    g_pClientWork = nullptr;
+    g_pServerThread = nullptr;
+  }
+  g_pClientWork->closeAndWait();
+  delete g_pClientWork;
+  g_pClientWork = nullptr;
 }
 
 MODULE_INFO("Status Server", &init, &destroy, "config", "lwip", "network-stack");

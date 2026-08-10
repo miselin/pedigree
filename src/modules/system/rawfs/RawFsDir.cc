@@ -18,33 +18,28 @@
  */
 
 #include "RawFsDir.h"
-#include "RawFs.h"
-#include "modules/system/vfs/File.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/types.h"
 
+#include "RawFs.h"
+#include "modules/system/vfs/File.h"
+
 class Filesystem;
 
-RawFsDir::RawFsDir(String name, RawFs *pFs, File *pParent)
-    : Directory(
-          name, 0 /* Accessed time */, 0 /* Modified time */,
-          0 /* Creation time */, 0 /* Inode number */,
-          static_cast<Filesystem *>(pFs), 0 /* Size */, pParent)
-{
-    // RW for root, readable only by others.
-    uint32_t permissions =
-        FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX;
-    setPermissions(permissions);
+RawFsDir::RawFsDir(String name, RawFs* pFs, File* pParent)
+    : Directory(name, 0 /* Accessed time */, 0 /* Modified time */, 0 /* Creation time */,
+                0 /* Inode number */, static_cast<Filesystem*>(pFs), 0 /* Size */, pParent) {
+  // RW for root, readable only by others.
+  uint32_t permissions = FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GX | FILE_OR | FILE_OX;
+  setPermissions(permissions);
 }
 
-void RawFsDir::addEntry(File *pEntry)
-{
-    addDirectoryEntry(pEntry->getName(), pEntry);
+void RawFsDir::addEntry(File* pEntry) {
+  addDirectoryEntry(pEntry->getName(), pEntry);
 }
 
-void RawFsDir::removeRecursive()
-{
-    /// \todo Leaky.
-    NOTICE("rawfs: removing '" << getName() << "'");
-    /// \todo do this
+void RawFsDir::removeRecursive() {
+  /// \todo Leaky.
+  NOTICE("rawfs: removing '" << getName() << "'");
+  /// \todo do this
 }

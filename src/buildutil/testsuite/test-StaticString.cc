@@ -19,377 +19,325 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/utilities/StaticString.h"
+
 #include <limits.h>
 
 #include <gtest/gtest.h>
 
-#include "pedigree/kernel/utilities/StaticString.h"
-
 // Test fixture for typed tests.
 template <typename T>
-class PedigreeStaticStringSignedTypes : public ::testing::Test
-{
-};
+class PedigreeStaticStringSignedTypes : public ::testing::Test {};
 template <typename T>
-class PedigreeStaticStringUnsignedTypes : public ::testing::Test
-{
-};
+class PedigreeStaticStringUnsignedTypes : public ::testing::Test {};
 
 typedef ::testing::Types<short, int, long, long long> SignedIntegerTypes;
-typedef ::testing::Types<
-    unsigned char, unsigned short, unsigned int, unsigned long,
-    unsigned long long>
+typedef ::testing::Types<unsigned char, unsigned short, unsigned int, unsigned long,
+                         unsigned long long>
     UnsignedIntegerTypes;
 TYPED_TEST_CASE(PedigreeStaticStringSignedTypes, SignedIntegerTypes);
 TYPED_TEST_CASE(PedigreeStaticStringUnsignedTypes, UnsignedIntegerTypes);
 
-TEST(PedigreeStaticString, Construction)
-{
-    StaticString<64> s;
-    EXPECT_STREQ(s, "");
+TEST(PedigreeStaticString, Construction) {
+  StaticString<64> s;
+  EXPECT_STREQ(s, "");
 }
 
-TEST(PedigreeStaticString, ConstructionFromString)
-{
-    StaticString<64> s("hello");
-    EXPECT_STREQ(s, "hello");
-    EXPECT_EQ(s.length(), 5U);
+TEST(PedigreeStaticString, ConstructionFromString) {
+  StaticString<64> s("hello");
+  EXPECT_STREQ(s, "hello");
+  EXPECT_EQ(s.length(), 5U);
 }
 
-TEST(PedigreeStaticString, ConstructionFromStringWithLength)
-{
-    StaticString<64> s("hello", 3);
-    EXPECT_STREQ(s, "hel");
-    EXPECT_EQ(s.length(), 3U);
+TEST(PedigreeStaticString, ConstructionFromStringWithLength) {
+  StaticString<64> s("hello", 3);
+  EXPECT_STREQ(s, "hel");
+  EXPECT_EQ(s.length(), 3U);
 }
 
-TEST(PedigreeStaticString, ConstructionFromTooLongString)
-{
-    StaticString<3> s("hello");
-    EXPECT_STREQ(s, "he");
-    EXPECT_EQ(s.length(), 2U);
+TEST(PedigreeStaticString, ConstructionFromTooLongString) {
+  StaticString<3> s("hello");
+  EXPECT_STREQ(s, "he");
+  EXPECT_EQ(s.length(), 2U);
 }
 
-TEST(PedigreeStaticString, ConstructionFromStaticString)
-{
-    StaticString<64> other("hello");
-    StaticString<64> s(other);
-    EXPECT_STREQ(s, "hello");
-    EXPECT_EQ(s.length(), 5U);
+TEST(PedigreeStaticString, ConstructionFromStaticString) {
+  StaticString<64> other("hello");
+  StaticString<64> s(other);
+  EXPECT_STREQ(s, "hello");
+  EXPECT_EQ(s.length(), 5U);
 }
 
-TEST(PedigreeStaticString, ConstructionFromTooLongStaticString)
-{
-    StaticString<64> other("hello");
-    StaticString<3> s(other);
-    EXPECT_STREQ(s, "he");
-    EXPECT_EQ(s.length(), 2U);
+TEST(PedigreeStaticString, ConstructionFromTooLongStaticString) {
+  StaticString<64> other("hello");
+  StaticString<3> s(other);
+  EXPECT_STREQ(s, "he");
+  EXPECT_EQ(s.length(), 2U);
 }
 
-TEST(PedigreeStaticString, AppendOperator)
-{
-    StaticString<64> s("hello");
-    s += " world";
-    EXPECT_STREQ(s, "hello world");
+TEST(PedigreeStaticString, AppendOperator) {
+  StaticString<64> s("hello");
+  s += " world";
+  EXPECT_STREQ(s, "hello world");
 }
 
-TEST(PedigreeStaticString, Clear)
-{
-    StaticString<64> s("hello");
-    s.clear();
-    EXPECT_STREQ(s, "");
+TEST(PedigreeStaticString, Clear) {
+  StaticString<64> s("hello");
+  s.clear();
+  EXPECT_STREQ(s, "");
 }
 
-TEST(PedigreeStaticString, AssignOperator)
-{
-    StaticString<64> s("hello");
-    s = "goodbye";
-    EXPECT_STREQ(s, "goodbye");
+TEST(PedigreeStaticString, AssignOperator) {
+  StaticString<64> s("hello");
+  s = "goodbye";
+  EXPECT_STREQ(s, "goodbye");
 }
 
-TEST(PedigreeStaticString, AssignOperatorTooLong)
-{
-    StaticString<5> s("hello");
-    s = "goodbye";
-    EXPECT_STREQ(s, "good");
+TEST(PedigreeStaticString, AssignOperatorTooLong) {
+  StaticString<5> s("hello");
+  s = "goodbye";
+  EXPECT_STREQ(s, "good");
 }
 
-TEST(PedigreeStaticString, Equality)
-{
-    StaticString<64> s("hello");
-    EXPECT_EQ(s, "hello");
+TEST(PedigreeStaticString, Equality) {
+  StaticString<64> s("hello");
+  EXPECT_EQ(s, "hello");
 }
 
-TEST(PedigreeStaticString, EqualityToOtherStaticString)
-{
-    StaticString<64> s1("hello");
-    StaticString<64> s2("hello");
-    EXPECT_EQ(s1, s2);
+TEST(PedigreeStaticString, EqualityToOtherStaticString) {
+  StaticString<64> s1("hello");
+  StaticString<64> s2("hello");
+  EXPECT_EQ(s1, s2);
 }
 
-TEST(PedigreeStaticString, First)
-{
-    StaticString<64> s("hello");
-    EXPECT_EQ(s.first('e'), 1);
-    EXPECT_EQ(s.first('z'), -1);
+TEST(PedigreeStaticString, First) {
+  StaticString<64> s("hello");
+  EXPECT_EQ(s.first('e'), 1);
+  EXPECT_EQ(s.first('z'), -1);
 }
 
-TEST(PedigreeStaticString, Last)
-{
-    StaticString<64> s("hello");
-    EXPECT_EQ(s.last('l'), 3);
-    EXPECT_EQ(s.last('z'), -1);
+TEST(PedigreeStaticString, Last) {
+  StaticString<64> s("hello");
+  EXPECT_EQ(s.last('l'), 3);
+  EXPECT_EQ(s.last('z'), -1);
 }
 
-TEST(PedigreeStaticString, StripLast)
-{
-    StaticString<64> s("hello");
-    s.stripLast();
-    EXPECT_STREQ(s, "hell");
+TEST(PedigreeStaticString, StripLast) {
+  StaticString<64> s("hello");
+  s.stripLast();
+  EXPECT_STREQ(s, "hell");
 }
 
-TEST(PedigreeStaticString, Contains)
-{
-    StaticString<64> s("hello");
-    EXPECT_TRUE(s.contains("ell"));
-    EXPECT_TRUE(s.contains("hello"));
-    EXPECT_FALSE(s.contains("world"));
-    EXPECT_FALSE(s.contains("goo"));
+TEST(PedigreeStaticString, Contains) {
+  StaticString<64> s("hello");
+  EXPECT_TRUE(s.contains("ell"));
+  EXPECT_TRUE(s.contains("hello"));
+  EXPECT_FALSE(s.contains("world"));
+  EXPECT_FALSE(s.contains("goo"));
 }
 
-TEST(PedigreeStaticString, ContainsStaticString)
-{
-    StaticString<64> other("ell");
-    StaticString<64> s("hello");
-    EXPECT_TRUE(s.contains(other));
-    other = "world";
-    EXPECT_FALSE(s.contains(other));
-    other = "goo";
-    EXPECT_FALSE(s.contains(other));
+TEST(PedigreeStaticString, ContainsStaticString) {
+  StaticString<64> other("ell");
+  StaticString<64> s("hello");
+  EXPECT_TRUE(s.contains(other));
+  other = "world";
+  EXPECT_FALSE(s.contains(other));
+  other = "goo";
+  EXPECT_FALSE(s.contains(other));
 }
 
-TEST(PedigreeStaticString, IntValue)
-{
-    StaticString<64> s("1234");
-    EXPECT_EQ(s.intValue(10), 1234);
+TEST(PedigreeStaticString, IntValue) {
+  StaticString<64> s("1234");
+  EXPECT_EQ(s.intValue(10), 1234);
 }
 
-TEST(PedigreeStaticString, BadIntValue)
-{
-    StaticString<64> s("foo");
-    EXPECT_EQ(s.intValue(10), -1);
+TEST(PedigreeStaticString, BadIntValue) {
+  StaticString<64> s("foo");
+  EXPECT_EQ(s.intValue(10), -1);
 }
 
-TEST(PedigreeStaticString, IntPtrValue)
-{
-    StaticString<64> s("1234");
-    EXPECT_EQ(s.uintptrValue(10), 1234U);
+TEST(PedigreeStaticString, IntPtrValue) {
+  StaticString<64> s("1234");
+  EXPECT_EQ(s.uintptrValue(10), 1234U);
 }
 
-TEST(PedigreeStaticString, BadIntPtrValue)
-{
-    StaticString<64> s("foo");
-    EXPECT_EQ(s.uintptrValue(10), ~0UL);
+TEST(PedigreeStaticString, BadIntPtrValue) {
+  StaticString<64> s("foo");
+  EXPECT_EQ(s.uintptrValue(10), ~0UL);
 }
 
-TEST(PedigreeStaticString, Truncate)
-{
-    StaticString<64> s("hello");
-    s.truncate(2);
-    EXPECT_STREQ(s, "he");
+TEST(PedigreeStaticString, Truncate) {
+  StaticString<64> s("hello");
+  s.truncate(2);
+  EXPECT_STREQ(s, "he");
 }
 
-TEST(PedigreeStaticString, TruncateNoOp)
-{
-    StaticString<64> s("hello");
-    s.truncate(64);
-    EXPECT_STREQ(s, "hello");
+TEST(PedigreeStaticString, TruncateNoOp) {
+  StaticString<64> s("hello");
+  s.truncate(64);
+  EXPECT_STREQ(s, "hello");
 }
 
-TEST(PedigreeStaticString, Left)
-{
-    StaticString<64> s("hello");
-    StaticString<64> s2 = s.left(2);
-    EXPECT_STREQ(s, "hello");
-    EXPECT_STREQ(s2, "he");
+TEST(PedigreeStaticString, Left) {
+  StaticString<64> s("hello");
+  StaticString<64> s2 = s.left(2);
+  EXPECT_STREQ(s, "hello");
+  EXPECT_STREQ(s2, "he");
 }
 
-TEST(PedigreeStaticString, Right)
-{
-    StaticString<64> s("hello");
-    StaticString<64> s2 = s.right(2);
-    EXPECT_STREQ(s, "hello");
-    EXPECT_STREQ(s2, "lo");
+TEST(PedigreeStaticString, Right) {
+  StaticString<64> s("hello");
+  StaticString<64> s2 = s.right(2);
+  EXPECT_STREQ(s, "hello");
+  EXPECT_STREQ(s2, "lo");
 }
 
-TEST(PedigreeStaticString, StripFirst)
-{
-    StaticString<64> s("hello");
-    s.stripFirst(3);
-    EXPECT_STREQ(s, "lo");
-    s.stripFirst(5);
-    EXPECT_STREQ(s, "");
+TEST(PedigreeStaticString, StripFirst) {
+  StaticString<64> s("hello");
+  s.stripFirst(3);
+  EXPECT_STREQ(s, "lo");
+  s.stripFirst(5);
+  EXPECT_STREQ(s, "");
 }
 
-TEST(PedigreeStaticString, StreamInsertion)
-{
-    StaticString<64> s("hello");
-    s << " world"
-      << "!";
-    EXPECT_STREQ(s, "hello world!");
+TEST(PedigreeStaticString, StreamInsertion) {
+  StaticString<64> s("hello");
+  s << " world"
+    << "!";
+  EXPECT_STREQ(s, "hello world!");
 }
 
-TEST(PedigreeStaticString, AppendChar)
-{
-    StaticString<64> s("hello");
-    s.append('!');
-    EXPECT_STREQ(s, "hello!");
+TEST(PedigreeStaticString, AppendChar) {
+  StaticString<64> s("hello");
+  s.append('!');
+  EXPECT_STREQ(s, "hello!");
 }
 
-TEST(PedigreeStaticString, AppendCharTwice)
-{
-    StaticString<64> s("hello");
-    s.append('!');
-    s.append('!');
-    EXPECT_STREQ(s, "hello!!");
+TEST(PedigreeStaticString, AppendCharTwice) {
+  StaticString<64> s("hello");
+  s.append('!');
+  s.append('!');
+  EXPECT_STREQ(s, "hello!!");
 }
 
-TEST(PedigreeStaticString, AppendCharTooLong)
-{
-    StaticString<6> s("hello");
-    s.append('!');
-    EXPECT_STREQ(s, "hello");
+TEST(PedigreeStaticString, AppendCharTooLong) {
+  StaticString<6> s("hello");
+  s.append('!');
+  EXPECT_STREQ(s, "hello");
 }
 
-TEST(PedigreeStaticString, AppendString)
-{
-    char append[4] = {'a', 'b', 0x7f, 0x7f};
-    StaticString<64> s("hello ");
-    s.append(append, 2);
-    EXPECT_STREQ(s, "hello ab");
+TEST(PedigreeStaticString, AppendString) {
+  char append[4] = {'a', 'b', 0x7f, 0x7f};
+  StaticString<64> s("hello ");
+  s.append(append, 2);
+  EXPECT_STREQ(s, "hello ab");
 }
 
-TEST(PedigreeStaticString, AppendStaticString)
-{
-    StaticString<64> s("hello");
-    StaticString<64> other("!");
-    s.append(other);
-    EXPECT_STREQ(s, "hello!");
+TEST(PedigreeStaticString, AppendStaticString) {
+  StaticString<64> s("hello");
+  StaticString<64> other("!");
+  s.append(other);
+  EXPECT_STREQ(s, "hello!");
 }
 
-TEST(PedigreeStaticString, AppendStaticStringTooLong)
-{
-    StaticString<6> s("hello");
-    StaticString<64> other("!");
-    s.append(other);
-    EXPECT_STREQ(s, "hello");
+TEST(PedigreeStaticString, AppendStaticStringTooLong) {
+  StaticString<6> s("hello");
+  StaticString<64> other("!");
+  s.append(other);
+  EXPECT_STREQ(s, "hello");
 }
 
-TEST(PedigreeStaticString, AppendTruncatesToRemainingCapacity)
-{
-    StaticString<6> s("1234");
-    StaticString<64> other("56789");
-    s.append(other);
+TEST(PedigreeStaticString, AppendTruncatesToRemainingCapacity) {
+  StaticString<6> s("1234");
+  StaticString<64> other("56789");
+  s.append(other);
 
-    EXPECT_STREQ(s, "12345");
-    EXPECT_EQ(s.length(), 5U);
+  EXPECT_STREQ(s, "12345");
+  EXPECT_EQ(s.length(), 5U);
 }
 
-TEST(PedigreeStaticString, PaddingTruncatesToCapacity)
-{
-    StaticString<6> s("1");
-    s.pad(20, 'x');
+TEST(PedigreeStaticString, PaddingTruncatesToCapacity) {
+  StaticString<6> s("1");
+  s.pad(20, 'x');
 
-    EXPECT_STREQ(s, "1xxxx");
-    EXPECT_EQ(s.length(), 5U);
+  EXPECT_STREQ(s, "1xxxx");
+  EXPECT_EQ(s.length(), 5U);
 }
 
-TYPED_TEST(PedigreeStaticStringSignedTypes, AppendSignedIntegers)
-{
-    StaticString<64> s("hello");
-    s.append(static_cast<TypeParam>(50));
-    EXPECT_STREQ(s, "hello50");
-    s.append(static_cast<TypeParam>(-5));
-    EXPECT_STREQ(s, "hello50-5");
+TYPED_TEST(PedigreeStaticStringSignedTypes, AppendSignedIntegers) {
+  StaticString<64> s("hello");
+  s.append(static_cast<TypeParam>(50));
+  EXPECT_STREQ(s, "hello50");
+  s.append(static_cast<TypeParam>(-5));
+  EXPECT_STREQ(s, "hello50-5");
 }
 
-TEST(PedigreeStaticString, AppendMinimumSignedInteger)
-{
-    StaticString<64> s;
-    s.append(INT_MIN);
-    EXPECT_STREQ(s, "-2147483648");
+TEST(PedigreeStaticString, AppendMinimumSignedInteger) {
+  StaticString<64> s;
+  s.append(INT_MIN);
+  EXPECT_STREQ(s, "-2147483648");
 }
 
-TYPED_TEST(PedigreeStaticStringUnsignedTypes, AppendUnsignedIntegers)
-{
-    StaticString<64> s("hello");
-    s.append(static_cast<TypeParam>(50));
-    EXPECT_STREQ(s, "hello50");
+TYPED_TEST(PedigreeStaticStringUnsignedTypes, AppendUnsignedIntegers) {
+  StaticString<64> s("hello");
+  s.append(static_cast<TypeParam>(50));
+  EXPECT_STREQ(s, "hello50");
 }
 
-TEST(PedigreeStaticString, PaddedIntegerAppend)
-{
-    StaticString<64> s("hello ");
-    s.append(5, 10, 4, 'x');
-    EXPECT_STREQ(s, "hello xxx5");
-    s.append(15, 16, 4, 'x');
-    EXPECT_STREQ(s, "hello xxx5xxxf");
+TEST(PedigreeStaticString, PaddedIntegerAppend) {
+  StaticString<64> s("hello ");
+  s.append(5, 10, 4, 'x');
+  EXPECT_STREQ(s, "hello xxx5");
+  s.append(15, 16, 4, 'x');
+  EXPECT_STREQ(s, "hello xxx5xxxf");
 }
 
-TEST(PedigreeStaticString, PaddedStringAppend)
-{
-    StaticString<64> s("hello ");
-    s.append("world", 6, '!');
-    EXPECT_STREQ(s, "hello !world");
+TEST(PedigreeStaticString, PaddedStringAppend) {
+  StaticString<64> s("hello ");
+  s.append("world", 6, '!');
+  EXPECT_STREQ(s, "hello !world");
 }
 
-TEST(PedigreeStaticString, PaddedStaticStringAppend)
-{
-    StaticString<64> s("hello ");
-    StaticString<64> other("world");
-    s.append(other, 6, '!');
-    EXPECT_STREQ(s, "hello !world");
+TEST(PedigreeStaticString, PaddedStaticStringAppend) {
+  StaticString<64> s("hello ");
+  StaticString<64> other("world");
+  s.append(other, 6, '!');
+  EXPECT_STREQ(s, "hello !world");
 }
 
-TEST(PedigreeStaticString, Pad)
-{
-    StaticString<64> s("hello");
-    s.pad(10, 'x');
-    EXPECT_STREQ(s, "helloxxxxx");
+TEST(PedigreeStaticString, Pad) {
+  StaticString<64> s("hello");
+  s.pad(10, 'x');
+  EXPECT_STREQ(s, "helloxxxxx");
 }
 
-TEST(PedigreeStaticString, TooMuchAppending)
-{
-    StaticString<64> s("hello");
-    for (size_t i = 0; i < 64; ++i)
-    {
-        s.append(' ');
-    }
-    EXPECT_EQ(s.length(), 63U);
+TEST(PedigreeStaticString, TooMuchAppending) {
+  StaticString<64> s("hello");
+  for (size_t i = 0; i < 64; ++i) {
+    s.append(' ');
+  }
+  EXPECT_EQ(s.length(), 63U);
 }
 
-TEST(PedigreeStaticString, AssignThenAppend)
-{
-    StaticString<64> s;
-    s = "hello";
-    s.append(" world");
-    EXPECT_STREQ(s, "hello world");
-    EXPECT_EQ(s.length(), 11U);
+TEST(PedigreeStaticString, AssignThenAppend) {
+  StaticString<64> s;
+  s = "hello";
+  s.append(" world");
+  EXPECT_STREQ(s, "hello world");
+  EXPECT_EQ(s.length(), 11U);
 }
 
-TEST(PedigreeStaticString, AssignThenAppendStaticString)
-{
-    StaticString<64> s;
-    StaticString<64> s2(" world");
-    s = "hello";
-    s += s2;
-    EXPECT_STREQ(s, "hello world");
-    EXPECT_EQ(s.length(), 11U);
+TEST(PedigreeStaticString, AssignThenAppendStaticString) {
+  StaticString<64> s;
+  StaticString<64> s2(" world");
+  s = "hello";
+  s += s2;
+  EXPECT_STREQ(s, "hello world");
+  EXPECT_EQ(s.length(), 11U);
 }
 
-TEST(PedigreeStaticString, HashWorks)
-{
-    StaticString<64> s("hello world");
-    s.allowHashing(true);
-    EXPECT_NE(s.hash(), 0U);
+TEST(PedigreeStaticString, HashWorks) {
+  StaticString<64> s("hello world");
+  s.allowHashing(true);
+  EXPECT_NE(s.hash(), 0U);
 }

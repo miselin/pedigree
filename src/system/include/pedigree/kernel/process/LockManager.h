@@ -32,23 +32,22 @@ class Semaphore;
  *
  * It is expected to have one LockManager per processor.
  */
-class LockManager
-{
-  public:
-    /** Constructor */
-    LockManager();
-    /** Destructor */
-    ~LockManager();
+class LockManager {
+ public:
+  /** Constructor */
+  LockManager();
+  /** Destructor */
+  ~LockManager();
 
-    /** Called by Semaphore on successful acquisition. */
-    void acquired(Semaphore &sem);
+  /** Called by Semaphore on successful acquisition. */
+  void acquired(Semaphore& sem);
 
-    /** Called by Semaphore on successful release. */
-    void released(Semaphore &sem);
+  /** Called by Semaphore on successful release. */
+  void released(Semaphore& sem);
 
-  private:
-    /** The stack of acquired semaphores. */
-    Vector<Semaphore *> m_Stack;
+ private:
+  /** The stack of acquired semaphores. */
+  Vector<Semaphore*> m_Stack;
 };
 
 #endif

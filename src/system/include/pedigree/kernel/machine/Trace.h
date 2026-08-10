@@ -39,9 +39,8 @@
 #define TRACE(...)
 #endif  // TRACING
 
-namespace pedigree_trace
-{
-void trace(const char *msg);
+namespace pedigree_trace {
+void trace(const char* msg);
 }
 
 #endif  // MACHINE_TRACE_H

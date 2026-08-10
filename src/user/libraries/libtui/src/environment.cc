@@ -18,38 +18,31 @@
  */
 
 #include "environment.h"
-
 #include "pedigree/native/graphics/Graphics.h"
 
 #include <cairo/cairo.h>
 
-DirtyRectangle::DirtyRectangle() : m_X(~0), m_Y(~0), m_X2(0), m_Y2(0)
-{
+DirtyRectangle::DirtyRectangle() : m_X(~0), m_Y(~0), m_X2(0), m_Y2(0) {}
+
+DirtyRectangle::~DirtyRectangle() {}
+
+void DirtyRectangle::point(size_t x, size_t y) {
+  if (x < m_X)
+    m_X = x;
+  if (x > m_X2)
+    m_X2 = x;
+
+  if (y < m_Y)
+    m_Y = y;
+  if (y > m_Y2)
+    m_Y2 = y;
 }
 
-DirtyRectangle::~DirtyRectangle()
-{
-}
+rgb_t interpolateColour(rgb_t col1, rgb_t col2, uint16_t a) {
+  rgb_t ret;
+  ret.r = (col1.r * a + col2.r * (256 - a)) / 256;
+  ret.g = (col1.g * a + col2.g * (256 - a)) / 256;
+  ret.b = (col1.b * a + col2.b * (256 - a)) / 256;
 
-void DirtyRectangle::point(size_t x, size_t y)
-{
-    if (x < m_X)
-        m_X = x;
-    if (x > m_X2)
-        m_X2 = x;
-
-    if (y < m_Y)
-        m_Y = y;
-    if (y > m_Y2)
-        m_Y2 = y;
-}
-
-rgb_t interpolateColour(rgb_t col1, rgb_t col2, uint16_t a)
-{
-    rgb_t ret;
-    ret.r = (col1.r * a + col2.r * (256 - a)) / 256;
-    ret.g = (col1.g * a + col2.g * (256 - a)) / 256;
-    ret.b = (col1.b * a + col2.b * (256 - a)) / 256;
-
-    return ret;
+  return ret;
 }

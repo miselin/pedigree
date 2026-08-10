@@ -31,12 +31,11 @@
 #include "pedigree/kernel/processor/types.h"
 
 #if PEDIGREE_BENCHMARK
-namespace SlamSupport
-{
+namespace SlamSupport {
 uintptr_t getHeapBase();
 uintptr_t getHeapEnd();
-void getPageAt(void *addr);
-void unmapPage(void *page);
+void getPageAt(void* addr);
+void unmapPage(void* page);
 void unmapAll();
 }  // namespace SlamSupport
 #endif
@@ -65,12 +64,11 @@ class SlamCache;
 
 /// Minimum size of an object.
 #define ABSOLUTE_MINIMUM_SIZE 64
-#define ALL_HEADERS_SIZE                                            \
-    (sizeof(SlamCache::Node) + sizeof(SlamAllocator::AllocHeader) + \
-     sizeof(SlamAllocator::AllocFooter))
-#define OBJECT_MINIMUM_SIZE                                             \
-    (ALL_HEADERS_SIZE < ABSOLUTE_MINIMUM_SIZE ? ABSOLUTE_MINIMUM_SIZE : \
-                                                ALL_HEADERS_SIZE)
+#define ALL_HEADERS_SIZE                                          \
+  (sizeof(SlamCache::Node) + sizeof(SlamAllocator::AllocHeader) + \
+   sizeof(SlamAllocator::AllocFooter))
+#define OBJECT_MINIMUM_SIZE \
+  (ALL_HEADERS_SIZE < ABSOLUTE_MINIMUM_SIZE ? ABSOLUTE_MINIMUM_SIZE : ALL_HEADERS_SIZE)
 
 /// Outputs information during each function call
 #define DEBUGGING_SLAB_ALLOCATOR 0
@@ -140,216 +138,204 @@ class SlamCache;
 #endif
 
 /** A cache allocates objects of a constant size. */
-class SlamCache
-{
-    // struct Node must be public so that sizeof(SlamCache::Node) is available.
-  public:
-    /** The structure inside a free object (list node) */
-    struct Node
-    {
-        Node *next;
+class SlamCache {
+  // struct Node must be public so that sizeof(SlamCache::Node) is available.
+ public:
+  /** The structure inside a free object (list node) */
+  struct Node {
+    Node* next;
 #if USING_MAGIC
-        MAGIC_TYPE magic;
+    MAGIC_TYPE magic;
 #endif
-    } __attribute__((aligned(16)));
+  } __attribute__((aligned(16)));
 
-    /** Default constructor, does nothing. */
-    SlamCache();
-    /** Destructor is not designed to be called. There is no cleanup,
-        this is a kernel heap! */
-    virtual ~SlamCache();
+  /** Default constructor, does nothing. */
+  SlamCache();
+  /** Destructor is not designed to be called. There is no cleanup,
+      this is a kernel heap! */
+  virtual ~SlamCache();
 
-    /** Main init function. */
-    void initialise(SlamAllocator *parent, size_t objectSize);
+  /** Main init function. */
+  void initialise(SlamAllocator* parent, size_t objectSize);
 
-    /** Allocates an object. */
-    uintptr_t allocate();
+  /** Allocates an object. */
+  uintptr_t allocate();
 
-    /** Frees an object. */
-    void free(uintptr_t object);
+  /** Frees an object. */
+  void free(uintptr_t object);
 
-    /** Attempt to recover slabs from this cache. */
-    size_t recovery(size_t maxSlabs);
+  /** Attempt to recover slabs from this cache. */
+  size_t recovery(size_t maxSlabs);
 
-    bool isPointerValid(uintptr_t object) const;
+  bool isPointerValid(uintptr_t object) const;
 
-    inline size_t objectSize() const
-    {
-        return m_ObjectSize;
-    }
+  inline size_t objectSize() const {
+    return m_ObjectSize;
+  }
 
-    inline size_t slabSize() const
-    {
-        return m_SlabSize;
-    }
+  inline size_t slabSize() const {
+    return m_SlabSize;
+  }
 
-    void trackSlab(uintptr_t slab);
-    void check();
+  void trackSlab(uintptr_t slab);
+  void check();
 
-  private:
-    SlamCache(const SlamCache &);
-    const SlamCache &operator=(const SlamCache &);
+ private:
+  SlamCache(const SlamCache&);
+  const SlamCache& operator=(const SlamCache&);
 
-    static constexpr const int NUM_LISTS = MULTIPROCESSOR ? 256 : 1;
+  static constexpr const int NUM_LISTS = MULTIPROCESSOR ? 256 : 1;
 
-    typedef volatile Node *alignedNode;
-    alignedNode m_PartialLists[NUM_LISTS];
+  typedef volatile Node* alignedNode;
+  alignedNode m_PartialLists[NUM_LISTS];
 
-    Node *pop(alignedNode *head);
-    /* newHead = 0 to use newTail. */
-    void push(alignedNode *head, Node *newTail, Node *newHead = 0);
+  Node* pop(alignedNode* head);
+  /* newHead = 0 to use newTail. */
+  void push(alignedNode* head, Node* newTail, Node* newHead = 0);
 
-    uintptr_t getSlab();
-    void freeSlab(uintptr_t slab);
+  uintptr_t getSlab();
+  void freeSlab(uintptr_t slab);
 
-    Node *initialiseSlab(uintptr_t slab);
+  Node* initialiseSlab(uintptr_t slab);
 
-    size_t m_ObjectSize;
-    size_t m_SlabSize;
+  size_t m_ObjectSize;
+  size_t m_SlabSize;
 
-    // This version of the allocator doesn't have a free list, instead
-    // the reap() function returns memory directly to the VMM. This
-    // avoids needing to lock the free list on MP systems.
+  // This version of the allocator doesn't have a free list, instead
+  // the reap() function returns memory directly to the VMM. This
+  // avoids needing to lock the free list on MP systems.
 
-    uintptr_t m_FirstSlab;
+  uintptr_t m_FirstSlab;
 
-    /**
-     * Recovery cannot be done trivially.
-     * Spinlock disables interrupts as part of its operation, so we can
-     * use it to ensure recovery isn't interrupted. Note recovery is a
-     * per-CPU thing.
-     */
-    Spinlock m_RecoveryLock;
+  /**
+   * Recovery cannot be done trivially.
+   * Spinlock disables interrupts as part of its operation, so we can
+   * use it to ensure recovery isn't interrupted. Note recovery is a
+   * per-CPU thing.
+   */
+  Spinlock m_RecoveryLock;
 
-    /** Pointer back to the associated SlamAllocator. */
-    SlamAllocator *m_pParentAllocator;
+  /** Pointer back to the associated SlamAllocator. */
+  SlamAllocator* m_pParentAllocator;
 
-    struct Node m_EmptyNode;
+  struct Node m_EmptyNode;
 };
 
-class SlamAllocator
-{
-  public:
-    SlamAllocator();
-    virtual ~SlamAllocator();
+class SlamAllocator {
+ public:
+  SlamAllocator();
+  virtual ~SlamAllocator();
 
-    void initialise();
+  void initialise();
 
-    // quickly clear all allocations from the allocator
-    void clearAll();
+  // quickly clear all allocations from the allocator
+  void clearAll();
 
-    uintptr_t allocate(size_t nBytes);
-    void free(uintptr_t mem);
+  uintptr_t allocate(size_t nBytes);
+  void free(uintptr_t mem);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    /** Hosted seam which still enters the production allocation paths. */
-    static EXPORTED_PUBLIC uintptr_t guardedAllocateForTest(size_t nBytes);
-    static EXPORTED_PUBLIC void guardedFreeForTest(uintptr_t mem);
+  /** Hosted seam which still enters the production allocation paths. */
+  static EXPORTED_PUBLIC uintptr_t guardedAllocateForTest(size_t nBytes);
+  static EXPORTED_PUBLIC void guardedFreeForTest(uintptr_t mem);
 #endif
 
-    size_t recovery(size_t maxSlabs = 1);
+  size_t recovery(size_t maxSlabs = 1);
 
-    bool isPointerValid(uintptr_t mem)
+  bool isPointerValid(uintptr_t mem)
 #if !SLAM_LOCKED
-        const
+      const
 #endif
-        ;
-    bool isWithinHeap(uintptr_t mem) const;
+      ;
+  bool isWithinHeap(uintptr_t mem) const;
 
-    size_t allocSize(uintptr_t mem);
+  size_t allocSize(uintptr_t mem);
 
-    static EXPORTED_PUBLIC SlamAllocator &instance();
+  static EXPORTED_PUBLIC SlamAllocator& instance();
 
-    size_t heapPageCount() const
-    {
-        return m_HeapPageCount;
-    }
+  size_t heapPageCount() const {
+    return m_HeapPageCount;
+  }
 
-    uintptr_t getSlab(size_t fullSize);
-    void freeSlab(uintptr_t address, size_t length);
+  uintptr_t getSlab(size_t fullSize);
+  void freeSlab(uintptr_t address, size_t length);
 
-  private:
-    /** Variant of freeSlab that does not take the lock first. Dangerous if
-     * misused. */
-    void freeSlabUnlocked(uintptr_t address, size_t length);
+ private:
+  /** Variant of freeSlab that does not take the lock first. Dangerous if
+   * misused. */
+  void freeSlabUnlocked(uintptr_t address, size_t length);
 
-  public:
-    size_t headerSize() const
-    {
-        return sizeof(AllocHeader);
-    }
-    size_t footerSize() const
-    {
-        return sizeof(AllocFooter);
-    }
+ public:
+  size_t headerSize() const {
+    return sizeof(AllocHeader);
+  }
+  size_t footerSize() const {
+    return sizeof(AllocFooter);
+  }
 
-    void setVigilance(bool b)
-    {
-        m_bVigilant = b;
-    }
-    bool getVigilance() const
-    {
-        return m_bVigilant;
-    }
+  void setVigilance(bool b) {
+    m_bVigilant = b;
+  }
+  bool getVigilance() const {
+    return m_bVigilant;
+  }
 
-  private:
-    SlamAllocator(const SlamAllocator &);
-    const SlamAllocator &operator=(const SlamAllocator &);
+ private:
+  SlamAllocator(const SlamAllocator&);
+  const SlamAllocator& operator=(const SlamAllocator&);
 
-    static SlamAllocator m_Instance;
+  static SlamAllocator m_Instance;
 
-    /** Wipe out all memory used by the allocator. */
-    void wipe();
+  /** Wipe out all memory used by the allocator. */
+  void wipe();
 
-    bool isAllocatedPage(uintptr_t address) const;
+  bool isAllocatedPage(uintptr_t address) const;
 
-    SlamCache m_Caches[32];
+  SlamCache m_Caches[32];
 
-  public:
-    struct AllocHeader_VigilantOverrunCheck_Empty
-    {};
-    struct AllocHeader_VigilantOverrunCheck
-    {
-        uintptr_t backtrace[SLAM_BT_FRAMES];
-        size_t requested;
-    };
+ public:
+  struct AllocHeader_VigilantOverrunCheck_Empty {};
+  struct AllocHeader_VigilantOverrunCheck {
+    uintptr_t backtrace[SLAM_BT_FRAMES];
+    size_t requested;
+  };
 
-    struct OverrunCheck_Magic_Empty
-    {};
-    struct OverrunCheck_Magic : pedigree_std::conditional<VIGILANT_OVERRUN_CHECK, AllocHeader_VigilantOverrunCheck, AllocHeader_VigilantOverrunCheck_Empty>::type
-    {
-        size_t magic;
-    };
+  struct OverrunCheck_Magic_Empty {};
+  struct OverrunCheck_Magic
+      : pedigree_std::conditional<VIGILANT_OVERRUN_CHECK, AllocHeader_VigilantOverrunCheck,
+                                  AllocHeader_VigilantOverrunCheck_Empty>::type {
+    size_t magic;
+  };
 
-    /// Prepended to all allocated data. Basically just information to make
-    /// freeing slightly less performance-intensive...
-    struct AllocHeader : pedigree_std::conditional<OVERRUN_CHECK, OverrunCheck_Magic, OverrunCheck_Magic_Empty>::type
-    {
-        // Already-present and embedded Node fields.
-        SlamCache::Node node;
-        SlamCache *cache;
-    } __attribute__((aligned(16)));
+  /// Prepended to all allocated data. Basically just information to make
+  /// freeing slightly less performance-intensive...
+  struct AllocHeader : pedigree_std::conditional<OVERRUN_CHECK, OverrunCheck_Magic,
+                                                 OverrunCheck_Magic_Empty>::type {
+    // Already-present and embedded Node fields.
+    SlamCache::Node node;
+    SlamCache* cache;
+  } __attribute__((aligned(16)));
 
-    struct AllocFooter : pedigree_std::conditional<OVERRUN_CHECK, OverrunCheck_Magic, OverrunCheck_Magic_Empty>::type
-    {
-    } __attribute__((aligned(16)));
+  struct AllocFooter : pedigree_std::conditional<OVERRUN_CHECK, OverrunCheck_Magic,
+                                                 OverrunCheck_Magic_Empty>::type {
+  } __attribute__((aligned(16)));
 
-  private:
-    bool m_bInitialised;
+ private:
+  bool m_bInitialised;
 
-    bool m_bVigilant;
+  bool m_bVigilant;
 
-    Spinlock m_SlabRegionLock;
+  Spinlock m_SlabRegionLock;
 
-    size_t m_HeapPageCount;
+  size_t m_HeapPageCount;
 
-    uint64_t *m_SlabRegionBitmap;
-    size_t m_SlabRegionBitmapEntries;
-    size_t m_SlabRegionPages;
+  uint64_t* m_SlabRegionBitmap;
+  size_t m_SlabRegionBitmapEntries;
+  size_t m_SlabRegionPages;
 
-    uintptr_t m_Base;
+  uintptr_t m_Base;
 
-    Spinlock m_Lock;
+  Spinlock m_Lock;
 };
 
 #endif

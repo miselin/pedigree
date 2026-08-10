@@ -23,31 +23,31 @@
 /**
  * Ascii string giving the date and time of this build.
  */
-extern const char *g_pBuildTime;
+extern const char* g_pBuildTime;
 
 /**
  * Ascii string giving the SVN revision it was built from.
  */
-extern const char *g_pBuildRevision;
+extern const char* g_pBuildRevision;
 
 /**
  * Ascii string giving the build flags used.
  */
-extern const char *g_pBuildFlags;
+extern const char* g_pBuildFlags;
 
 /**
  * Ascii string giving the user who built us.
  */
-extern const char *g_pBuildUser;
+extern const char* g_pBuildUser;
 
 /**
  * Ascii string giving the machine we were built on.
  */
-extern const char *g_pBuildMachine;
+extern const char* g_pBuildMachine;
 
 /**
  * Ascii string giving the target we were built for.
  */
-extern const char *g_pBuildTarget;
+extern const char* g_pBuildTarget;
 
 #endif

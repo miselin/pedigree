@@ -25,6 +25,7 @@
 #include <assert.h>
 #else
 #include "pedigree/kernel/compiler.h"
+
 #include <stdint.h>
 
 /** @addtogroup kernel
@@ -34,21 +35,17 @@
  * halted and a message displayed.
  */
 #if DEBUGGER || ASSERTS
-#define assert(x)                                          \
-    do                                                     \
-    {                                                      \
-        bool __pedigree_assert_chk = (x);                  \
-        if (UNLIKELY(!__pedigree_assert_chk))              \
-            _assert(                                       \
-                __pedigree_assert_chk, __FILE__, __LINE__, \
-                __PRETTY_FUNCTION__);                      \
-    } while (0)
+#define assert(x)                                                              \
+  do {                                                                         \
+    bool __pedigree_assert_chk = (x);                                          \
+    if (UNLIKELY(!__pedigree_assert_chk))                                      \
+      _assert(__pedigree_assert_chk, __FILE__, __LINE__, __PRETTY_FUNCTION__); \
+  } while (0)
 
 #if !USE_DEBUG_ALLOCATOR
-#define assert_heap_ptr_valid(x)                                               \
-    _assert(                                                                   \
-        _assert_ptr_valid(reinterpret_cast<uintptr_t>(x)), __FILE__, __LINE__, \
-        __PRETTY_FUNCTION__)
+#define assert_heap_ptr_valid(x)                                                 \
+  _assert(_assert_ptr_valid(reinterpret_cast<uintptr_t>(x)), __FILE__, __LINE__, \
+          __PRETTY_FUNCTION__)
 #else
 #define assert_heap_ptr_valid
 #endif
@@ -68,8 +65,7 @@
 extern "C" {
 #endif
 
-void EXPORTED_PUBLIC
-_assert(bool b, const char *file, int line, const char *func);
+void EXPORTED_PUBLIC _assert(bool b, const char* file, int line, const char* func);
 bool _assert_ptr_valid(uintptr_t x);
 
 #ifdef __cplusplus

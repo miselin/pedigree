@@ -20,7 +20,7 @@
 #include "pedigree/kernel/utilities/Vector.h"
 
 // Explicitly instantiate a few known types.
-template class Vector<void *>;
+template class Vector<void*>;
 template class Vector<uint64_t>;
 template class Vector<uint32_t>;
 template class Vector<uint16_t>;

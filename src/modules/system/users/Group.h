@@ -29,48 +29,45 @@
 class User;
 
 /** Defines the properties of a Group on the system.  */
-class EXPORTED_PUBLIC Group
-{
-  public:
-    /** Constructor.
-        \param gid System-wide unique group ID.
-        \param name Group name. */
-    Group(size_t gid, String name);
-    virtual ~Group();
+class EXPORTED_PUBLIC Group {
+ public:
+  /** Constructor.
+      \param gid System-wide unique group ID.
+      \param name Group name. */
+  Group(size_t gid, String name);
+  virtual ~Group();
 
-    /** Adds a user. */
-    void join(User *pUser);
+  /** Adds a user. */
+  void join(User* pUser);
 
-    /** Removes a user. */
-    void leave(User *pUser);
+  /** Removes a user. */
+  void leave(User* pUser);
 
-    /** Queries user membership. */
-    bool isMember(User *pUser);
+  /** Queries user membership. */
+  bool isMember(User* pUser);
 
-    /** Returns the GID. */
-    size_t getId() const
-    {
-        return m_Gid;
-    }
-    /** Returns the group name. */
-    const String &getName() const
-    {
-        return m_Name;
-    }
+  /** Returns the GID. */
+  size_t getId() const {
+    return m_Gid;
+  }
+  /** Returns the group name. */
+  const String& getName() const {
+    return m_Name;
+  }
 
-  private:
-    /** It doesn't make sense for a Group to have public default or copy
-     * constructors. */
-    Group();
-    Group(const Group &);
-    Group &operator=(const Group &);
+ private:
+  /** It doesn't make sense for a Group to have public default or copy
+   * constructors. */
+  Group();
+  Group(const Group&);
+  Group& operator=(const Group&);
 
-    /** Group ID. */
-    size_t m_Gid;
-    /** Name. */
-    String m_Name;
-    /** Group contents. */
-    List<User *> m_Users;
+  /** Group ID. */
+  size_t m_Gid;
+  /** Name. */
+  String m_Name;
+  /** Group contents. */
+  List<User*> m_Users;
 };
 
 #endif

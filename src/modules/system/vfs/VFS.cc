@@ -18,8 +18,6 @@
  */
 
 #include "VFS.h"
-#include "Directory.h"
-#include "File.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Iterator.h"
@@ -28,12 +26,16 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "Directory.h"
+#include "File.h"
+
 #ifndef VFS_STANDALONE
-#include "modules/Module.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+
+#include "modules/Module.h"
 #endif
 
 class Disk;
@@ -45,465 +47,369 @@ class Disk;
 
 VFS VFS::m_Instance;
 
-VFS &VFS::instance()
-{
-    return m_Instance;
+VFS& VFS::instance() {
+  return m_Instance;
 }
 
-VFS::VFS()
-    : m_pRootFilesystem(nullptr), m_Mounts(), m_ProbeCallbacks(),
-      m_MountCallbacks()
-{
+VFS::VFS() : m_pRootFilesystem(nullptr), m_Mounts(), m_ProbeCallbacks(), m_MountCallbacks() {}
+
+VFS::~VFS() {
+  // Wipe out probe callbacks we know about.
+  for (auto it = m_ProbeCallbacks.begin(); it != m_ProbeCallbacks.end(); ++it) {
+    delete *it;
+  }
+
+  // Unmount each registered filesystem exactly once.
+  for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+    delete it.value();
+    delete it.key();
+  }
 }
 
-VFS::~VFS()
-{
-    // Wipe out probe callbacks we know about.
-    for (auto it = m_ProbeCallbacks.begin(); it != m_ProbeCallbacks.end(); ++it)
-    {
-        delete *it;
-    }
+bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
+  for (List<Filesystem::ProbeCallback*>::Iterator it = m_ProbeCallbacks.begin();
+       it != m_ProbeCallbacks.end(); it++) {
+    Filesystem::ProbeCallback cb = **it;
+    Filesystem* pFs = cb(pDisk);
+    if (pFs) {
+      if (stableName.length() == 0) {
+        stableName = pFs->getVolumeLabel();
+      }
+      stableName = registerFilesystem(pFs, stableName);
 
-    // Unmount each registered filesystem exactly once.
-    for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it)
-    {
-        delete it.value();
-        delete it.key();
+      for (List<MountCallback*>::Iterator it2 = m_MountCallbacks.begin();
+           it2 != m_MountCallbacks.end(); it2++) {
+        MountCallback mc = *(*it2);
+        mc();
+      }
+
+      if (pMountedFs) {
+        *pMountedFs = pFs;
+      }
+
+      NOTICE("mounted filesystem '" << stableName << "'");
+
+      return true;
     }
+  }
+  return false;
 }
 
-bool VFS::mount(Disk *pDisk, String &stableName, Filesystem **pMountedFs)
-{
-    for (List<Filesystem::ProbeCallback *>::Iterator it =
-             m_ProbeCallbacks.begin();
-         it != m_ProbeCallbacks.end(); it++)
-    {
-        Filesystem::ProbeCallback cb = **it;
-        Filesystem *pFs = cb(pDisk);
-        if (pFs)
-        {
-            if (stableName.length() == 0)
-            {
-                stableName = pFs->getVolumeLabel();
-            }
-            stableName = registerFilesystem(pFs, stableName);
+String VFS::registerFilesystem(Filesystem* pFs, const String& preferredStableName) {
+  if (!pFs) {
+    return String();
+  }
 
-            for (List<MountCallback *>::Iterator it2 = m_MountCallbacks.begin();
-                 it2 != m_MountCallbacks.end(); it2++)
-            {
-                MountCallback mc = *(*it2);
-                mc();
-            }
+  MountInfo* existing = m_Mounts.lookup(pFs);
+  if (existing) {
+    return existing->stableName;
+  }
 
-            if (pMountedFs)
-            {
-                *pMountedFs = pFs;
-            }
+  String stableName = getUniqueStableName(preferredStableName);
+  NormalStaticString path;
+  path += "/media/";
+  path += stableName;
+  MountInfo* info = new MountInfo(stableName, String(path));
+  m_Mounts.insert(pFs, info);
 
-            NOTICE("mounted filesystem '" << stableName << "'");
+  if (m_pRootFilesystem) {
+    attachFilesystem(pFs, info->path);
+  }
 
-            return true;
-        }
+  return stableName;
+}
+
+void VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete) {
+  if (!pFs)
+    return;
+
+  MountInfo* info = m_Mounts.lookup(pFs);
+  if (info && m_pRootFilesystem && pFs != m_pRootFilesystem) {
+    File* point = find(info->path);
+    if (point && point->isDirectory()) {
+      Directory::fromFile(point)->setReparsePoint(nullptr);
     }
+  }
+
+  if (pFs == m_pRootFilesystem) {
+    m_pRootFilesystem = nullptr;
+  }
+
+  delete info;
+  m_Mounts.remove(pFs);
+
+  if (canDelete) {
+    delete pFs;
+  }
+}
+
+bool VFS::setRootFilesystem(Filesystem* pFs) {
+  if (pFs && !m_Mounts.lookup(pFs)) {
+    registerFilesystem(pFs, pFs->getVolumeLabel());
+  }
+
+  m_pRootFilesystem = pFs;
+  attachRegisteredFilesystems();
+  return !pFs || m_pRootFilesystem == pFs;
+}
+
+bool VFS::getMountPath(Filesystem* pFs, String& path) const {
+  MountInfo* info = m_Mounts.lookup(pFs);
+  if (!info) {
     return false;
+  }
+
+  path = info->path;
+  return true;
 }
 
-String VFS::registerFilesystem(
-    Filesystem *pFs, const String &preferredStableName)
-{
-    if (!pFs)
-    {
-        return String();
+Filesystem* VFS::getFilesystemAt(const String& path) const {
+  for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+    if (it.value()->path == path) {
+      return it.key();
     }
+  }
 
-    MountInfo *existing = m_Mounts.lookup(pFs);
-    if (existing)
-    {
-        return existing->stableName;
-    }
-
-    String stableName = getUniqueStableName(preferredStableName);
-    NormalStaticString path;
-    path += "/media/";
-    path += stableName;
-    MountInfo *info = new MountInfo(stableName, String(path));
-    m_Mounts.insert(pFs, info);
-
-    if (m_pRootFilesystem)
-    {
-        attachFilesystem(pFs, info->path);
-    }
-
-    return stableName;
+  return nullptr;
 }
 
-void VFS::unregisterFilesystem(Filesystem *pFs, bool canDelete)
-{
-    if (!pFs)
-        return;
+File* VFS::find(const String& path, File* pStartNode) {
+  // NOTICE("find: " << path);
 
-    MountInfo *info = m_Mounts.lookup(pFs);
-    if (info && m_pRootFilesystem && pFs != m_pRootFilesystem)
-    {
-        File *point = find(info->path);
-        if (point && point->isDirectory())
-        {
-            Directory::fromFile(point)->setReparsePoint(nullptr);
-        }
-    }
+  File* pResult = 0;
 
-    if (pFs == m_pRootFilesystem)
-    {
-        m_pRootFilesystem = nullptr;
-    }
+  pStartNode = resolveStartNode(path, pStartNode);
+  if (pStartNode) {
+    pResult = pStartNode->getFilesystem()->find(path.view(), pStartNode);
+  }
 
-    delete info;
-    m_Mounts.remove(pFs);
-
-    if (canDelete)
-    {
-        delete pFs;
-    }
+  // NOTICE("find: " << path << " -> " << pResult);
+  return pResult;
 }
 
-bool VFS::setRootFilesystem(Filesystem *pFs)
-{
-    if (pFs && !m_Mounts.lookup(pFs))
-    {
-        registerFilesystem(pFs, pFs->getVolumeLabel());
-    }
-
-    m_pRootFilesystem = pFs;
-    attachRegisteredFilesystems();
-    return !pFs || m_pRootFilesystem == pFs;
+void VFS::addProbeCallback(Filesystem::ProbeCallback callback) {
+  Filesystem::ProbeCallback* p = new Filesystem::ProbeCallback;
+  *p = callback;
+  m_ProbeCallbacks.pushBack(p);
 }
 
-bool VFS::getMountPath(Filesystem *pFs, String &path) const
-{
-    MountInfo *info = m_Mounts.lookup(pFs);
-    if (!info)
-    {
-        return false;
-    }
-
-    path = info->path;
-    return true;
+void VFS::addMountCallback(MountCallback callback) {
+  MountCallback* p = new MountCallback;
+  *p = callback;
+  m_MountCallbacks.pushBack(p);
 }
 
-Filesystem *VFS::getFilesystemAt(const String &path) const
-{
-    for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it)
-    {
-        if (it.value()->path == path)
-        {
-            return it.key();
-        }
-    }
-
-    return nullptr;
+bool VFS::createFile(const String& path, uint32_t mask, File* pStartNode) {
+  pStartNode = resolveStartNode(path, pStartNode);
+  return pStartNode && pStartNode->getFilesystem()->createFile(path, mask, pStartNode);
 }
 
-File *VFS::find(const String &path, File *pStartNode)
-{
-    // NOTICE("find: " << path);
+bool VFS::createDirectory(const String& path, uint32_t mask, File* pStartNode) {
+  pStartNode = resolveStartNode(path, pStartNode);
+  if (!pStartNode) {
+    NOTICE("no start node found");
+    return false;
+  }
 
-    File *pResult = 0;
-
-    pStartNode = resolveStartNode(path, pStartNode);
-    if (pStartNode)
-    {
-        pResult = pStartNode->getFilesystem()->find(path.view(), pStartNode);
-    }
-
-    // NOTICE("find: " << path << " -> " << pResult);
-    return pResult;
+  return pStartNode->getFilesystem()->createDirectory(path, mask, pStartNode);
 }
 
-void VFS::addProbeCallback(Filesystem::ProbeCallback callback)
-{
-    Filesystem::ProbeCallback *p = new Filesystem::ProbeCallback;
-    *p = callback;
-    m_ProbeCallbacks.pushBack(p);
+bool VFS::createSymlink(const String& path, const String& value, File* pStartNode) {
+  pStartNode = resolveStartNode(path, pStartNode);
+  return pStartNode && pStartNode->getFilesystem()->createSymlink(path, value, pStartNode);
 }
 
-void VFS::addMountCallback(MountCallback callback)
-{
-    MountCallback *p = new MountCallback;
-    *p = callback;
-    m_MountCallbacks.pushBack(p);
+bool VFS::createLink(const String& path, File* target, File* pStartNode) {
+  pStartNode = resolveStartNode(path, pStartNode);
+  return pStartNode && pStartNode->getFilesystem()->createLink(path, target, pStartNode);
 }
 
-bool VFS::createFile(const String &path, uint32_t mask, File *pStartNode)
-{
-    pStartNode = resolveStartNode(path, pStartNode);
-    return pStartNode &&
-           pStartNode->getFilesystem()->createFile(path, mask, pStartNode);
+bool VFS::remove(const String& path, File* pStartNode) {
+  pStartNode = resolveStartNode(path, pStartNode);
+  return pStartNode && pStartNode->getFilesystem()->remove(path, pStartNode);
 }
 
-bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
-{
-    pStartNode = resolveStartNode(path, pStartNode);
-    if (!pStartNode)
-    {
-        NOTICE("no start node found");
-        return false;
-    }
-
-    return pStartNode->getFilesystem()->createDirectory(path, mask, pStartNode);
-}
-
-bool VFS::createSymlink(
-    const String &path, const String &value, File *pStartNode)
-{
-    pStartNode = resolveStartNode(path, pStartNode);
-    return pStartNode && pStartNode->getFilesystem()->createSymlink(
-                             path, value, pStartNode);
-}
-
-bool VFS::createLink(const String &path, File *target, File *pStartNode)
-{
-    pStartNode = resolveStartNode(path, pStartNode);
-    return pStartNode &&
-           pStartNode->getFilesystem()->createLink(path, target, pStartNode);
-}
-
-bool VFS::remove(const String &path, File *pStartNode)
-{
-    pStartNode = resolveStartNode(path, pStartNode);
-    return pStartNode && pStartNode->getFilesystem()->remove(path, pStartNode);
-}
-
-bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
-{
+bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute) {
 #ifdef VFS_STANDALONE
-    // We don't check permissions on standalone builds of the VFS.
-    return true;
+  // We don't check permissions on standalone builds of the VFS.
+  return true;
 #else
-    if (!pFile)
-    {
-        // The error for a null file is not EPERM or EACCESS.
-        return true;
-    }
-
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-
-    int64_t fuid = pFile->getUid();
-    int64_t fgid = pFile->getGid();
-
-    int64_t processUid = pProcess->getEffectiveUserId();
-    if (processUid < 0)
-    {
-        processUid = pProcess->getUserId();
-    }
-
-    int64_t processGid = pProcess->getEffectiveGroupId();
-    if (processGid < 0)
-    {
-        processGid = pProcess->getGroupId();
-    }
-
-    uint32_t check = 0;
-    uint32_t permissions = pFile->getPermissions();
-    uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) |
-                      (bExecute ? FILE_UX : 0);
-
-    if (processUid == 0)
-    {
-        if (!bExecute ||
-            (permissions & (FILE_UX | FILE_GX | FILE_OX)))
-        {
-            return true;
-        }
-    }
-    else if (fuid == processUid)
-    {
-        check = (permissions >> FILE_UBITS) & 0x7;
-    }
-    else
-    {
-        bool inFileGroup = fgid == processGid;
-
-        if (!inFileGroup)
-        {
-            Vector<int64_t> supplementalGroups;
-            pProcess->getSupplementalGroupIds(supplementalGroups);
-
-            for (auto it : supplementalGroups)
-            {
-                if (it == fgid)
-                {
-                    inFileGroup = true;
-                    break;
-                }
-            }
-        }
-
-        check = (permissions >> (inFileGroup ? FILE_GBITS : FILE_OBITS)) & 0x7;
-    }
-
-    if ((check & needed) != needed)
-    {
-        NOTICE(
-            "VFS::checkAccess: needed " << Oct << needed << ", check was "
-                                        << check);
-        SYSCALL_ERROR(PermissionDenied);
-        return false;
-    }
-
+  if (!pFile) {
+    // The error for a null file is not EPERM or EACCESS.
     return true;
+  }
+
+  Process* pProcess = Processor::information().getCurrentThread()->getParent();
+
+  int64_t fuid = pFile->getUid();
+  int64_t fgid = pFile->getGid();
+
+  int64_t processUid = pProcess->getEffectiveUserId();
+  if (processUid < 0) {
+    processUid = pProcess->getUserId();
+  }
+
+  int64_t processGid = pProcess->getEffectiveGroupId();
+  if (processGid < 0) {
+    processGid = pProcess->getGroupId();
+  }
+
+  uint32_t check = 0;
+  uint32_t permissions = pFile->getPermissions();
+  uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) | (bExecute ? FILE_UX : 0);
+
+  if (processUid == 0) {
+    if (!bExecute || (permissions & (FILE_UX | FILE_GX | FILE_OX))) {
+      return true;
+    }
+  } else if (fuid == processUid) {
+    check = (permissions >> FILE_UBITS) & 0x7;
+  } else {
+    bool inFileGroup = fgid == processGid;
+
+    if (!inFileGroup) {
+      Vector<int64_t> supplementalGroups;
+      pProcess->getSupplementalGroupIds(supplementalGroups);
+
+      for (auto it : supplementalGroups) {
+        if (it == fgid) {
+          inFileGroup = true;
+          break;
+        }
+      }
+    }
+
+    check = (permissions >> (inFileGroup ? FILE_GBITS : FILE_OBITS)) & 0x7;
+  }
+
+  if ((check & needed) != needed) {
+    NOTICE("VFS::checkAccess: needed " << Oct << needed << ", check was " << check);
+    SYSCALL_ERROR(PermissionDenied);
+    return false;
+  }
+
+  return true;
 #endif
 }
 
-void VFS::trackFile(File *pFile)
-{
-    size_t n = m_TrackedFiles.lookup(pFile);
-    ++n;
-    m_TrackedFiles.insert(pFile, n);
+void VFS::trackFile(File* pFile) {
+  size_t n = m_TrackedFiles.lookup(pFile);
+  ++n;
+  m_TrackedFiles.insert(pFile, n);
 }
 
-bool VFS::untrackFile(File *pFile, bool destroy)
-{
-    size_t n = m_TrackedFiles.lookup(pFile);
-    if ((n == 0) || ((n - 1) == 0))
-    {
-        m_TrackedFiles.remove(pFile);
-        if (destroy)
-        {
-            delete pFile;
-        }
-        return true;
+bool VFS::untrackFile(File* pFile, bool destroy) {
+  size_t n = m_TrackedFiles.lookup(pFile);
+  if ((n == 0) || ((n - 1) == 0)) {
+    m_TrackedFiles.remove(pFile);
+    if (destroy) {
+      delete pFile;
     }
-    else
-    {
-        m_TrackedFiles.insert(pFile, n - 1);
-    }
-
-    return false;
-}
-
-String VFS::getUniqueStableName(const String &preferredName) const
-{
-    NormalStaticString safeName;
-    for (size_t i = 0; i < preferredName.length(); ++i)
-    {
-        char c = preferredName[i];
-        bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                       (c >= '0' && c <= '9') || c == '.' || c == '_' ||
-                       c == '-';
-        safeName.append(allowed ? c : '-');
-    }
-
-    String base(safeName, safeName.length());
-    if (!base.length() || base == "." || base == "..")
-    {
-        base.assign("filesystem");
-    }
-
-    size_t suffix = 1;
-    while (true)
-    {
-        NormalStaticString candidateBuffer;
-        candidateBuffer += base;
-        if (suffix > 1)
-        {
-            candidateBuffer += "-";
-            candidateBuffer.append(suffix);
-        }
-        String candidate(candidateBuffer, candidateBuffer.length());
-
-        bool exists = false;
-        for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end();
-             ++it)
-        {
-            if (it.value()->stableName == candidate)
-            {
-                exists = true;
-                break;
-            }
-        }
-
-        if (!exists)
-        {
-            return candidate;
-        }
-
-        ++suffix;
-    }
-}
-
-File *VFS::resolveStartNode(const String &path, File *pStartNode)
-{
-    if (!path.length() || path[0] != '/')
-    {
-        return pStartNode;
-    }
-
-    return m_pRootFilesystem ? m_pRootFilesystem->getRoot() : nullptr;
-}
-
-bool VFS::attachFilesystem(Filesystem *pFs, const String &path)
-{
-    if (!m_pRootFilesystem || !pFs || pFs == m_pRootFilesystem)
-    {
-        return pFs == m_pRootFilesystem;
-    }
-
-    if (!find(String("/media")))
-    {
-        createDirectory(String("/media"), 0755);
-    }
-    if (!find(path))
-    {
-        createDirectory(path, 0755);
-    }
-
-    File *point = find(path);
-    if (!point || !point->isDirectory())
-    {
-        ERROR("VFS: cannot attach filesystem at " << path);
-        return false;
-    }
-
-    Directory::fromFile(point)->setReparsePoint(
-        Directory::fromFile(pFs->getRoot()));
-    NOTICE("VFS: attached filesystem at " << path);
     return true;
+  } else {
+    m_TrackedFiles.insert(pFile, n - 1);
+  }
+
+  return false;
 }
 
-void VFS::attachRegisteredFilesystems()
-{
-    if (!m_pRootFilesystem)
-    {
-        return;
+String VFS::getUniqueStableName(const String& preferredName) const {
+  NormalStaticString safeName;
+  for (size_t i = 0; i < preferredName.length(); ++i) {
+    char c = preferredName[i];
+    bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                   c == '.' || c == '_' || c == '-';
+    safeName.append(allowed ? c : '-');
+  }
+
+  String base(safeName, safeName.length());
+  if (!base.length() || base == "." || base == "..") {
+    base.assign("filesystem");
+  }
+
+  size_t suffix = 1;
+  while (true) {
+    NormalStaticString candidateBuffer;
+    candidateBuffer += base;
+    if (suffix > 1) {
+      candidateBuffer += "-";
+      candidateBuffer.append(suffix);
+    }
+    String candidate(candidateBuffer, candidateBuffer.length());
+
+    bool exists = false;
+    for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+      if (it.value()->stableName == candidate) {
+        exists = true;
+        break;
+      }
     }
 
-    for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it)
-    {
-        MountInfo *info = it.value();
-        if (it.key() == m_pRootFilesystem)
-        {
-            info->path.assign("/");
-            continue;
-        }
-
-        NormalStaticString path;
-        path += "/media/";
-        path += info->stableName;
-        info->path.assign(path, path.length());
-        attachFilesystem(it.key(), info->path);
+    if (!exists) {
+      return candidate;
     }
+
+    ++suffix;
+  }
+}
+
+File* VFS::resolveStartNode(const String& path, File* pStartNode) {
+  if (!path.length() || path[0] != '/') {
+    return pStartNode;
+  }
+
+  return m_pRootFilesystem ? m_pRootFilesystem->getRoot() : nullptr;
+}
+
+bool VFS::attachFilesystem(Filesystem* pFs, const String& path) {
+  if (!m_pRootFilesystem || !pFs || pFs == m_pRootFilesystem) {
+    return pFs == m_pRootFilesystem;
+  }
+
+  if (!find(String("/media"))) {
+    createDirectory(String("/media"), 0755);
+  }
+  if (!find(path)) {
+    createDirectory(path, 0755);
+  }
+
+  File* point = find(path);
+  if (!point || !point->isDirectory()) {
+    ERROR("VFS: cannot attach filesystem at " << path);
+    return false;
+  }
+
+  Directory::fromFile(point)->setReparsePoint(Directory::fromFile(pFs->getRoot()));
+  NOTICE("VFS: attached filesystem at " << path);
+  return true;
+}
+
+void VFS::attachRegisteredFilesystems() {
+  if (!m_pRootFilesystem) {
+    return;
+  }
+
+  for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+    MountInfo* info = it.value();
+    if (it.key() == m_pRootFilesystem) {
+      info->path.assign("/");
+      continue;
+    }
+
+    NormalStaticString path;
+    path += "/media/";
+    path += info->stableName;
+    info->path.assign(path, path.length());
+    attachFilesystem(it.key(), info->path);
+  }
 }
 
 #ifndef VFS_STANDALONE
-static bool initVFS()
-{
-    return true;
+static bool initVFS() {
+  return true;
 }
 
-static void destroyVFS()
-{
-}
+static void destroyVFS() {}
 
 MODULE_INFO("vfs", &initVFS, &destroyVFS, "users");
 #endif

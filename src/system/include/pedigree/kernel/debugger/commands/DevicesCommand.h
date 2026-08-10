@@ -39,89 +39,73 @@ class Device;
  * breakpoints, while displaying a disassembly, the target CPU state and a stack
  * backtrace.
  */
-class DevicesCommand : public DebuggerCommand
-{
-  public:
-    /**
-     * Default constructor - zero's stuff.
-     */
-    DevicesCommand();
+class DevicesCommand : public DebuggerCommand {
+ public:
+  /**
+   * Default constructor - zero's stuff.
+   */
+  DevicesCommand();
 
-    /**
-     * Default destructor - does nothing.
-     */
-    ~DevicesCommand();
+  /**
+   * Default destructor - does nothing.
+   */
+  ~DevicesCommand();
 
-    /**
-     * Return an autocomplete string, given an input string.
-     */
-    void autocomplete(const HugeStaticString &input, HugeStaticString &output);
+  /**
+   * Return an autocomplete string, given an input string.
+   */
+  void autocomplete(const HugeStaticString& input, HugeStaticString& output);
 
-    /**
-     * Execute the command with the given screen.
-     */
-    bool execute(
-        const HugeStaticString &input, HugeStaticString &output,
-        InterruptState &state, DebuggerIO *screen);
+  /**
+   * Execute the command with the given screen.
+   */
+  bool execute(const HugeStaticString& input, HugeStaticString& output, InterruptState& state,
+               DebuggerIO* screen);
 
-    /**
-     * Returns the string representation of this command.
-     */
-    const NormalStaticString getString()
-    {
-        return NormalStaticString("devices");
+  /**
+   * Returns the string representation of this command.
+   */
+  const NormalStaticString getString() {
+    return NormalStaticString("devices");
+  }
+
+ private:
+  class DeviceTree : public Scrollable {
+   public:
+    DeviceTree();
+    ~DeviceTree() {}
+    const char* getLine1(size_t index, DebuggerIO::Colour& colour, DebuggerIO::Colour& bgColour);
+    const char* getLine2(size_t index, size_t& colOffset, DebuggerIO::Colour& colour,
+                         DebuggerIO::Colour& bgColour);
+    size_t getLineCount();
+    Device* getDevForIndex(size_t index);
+    size_t m_Line;
+
+   private:
+    void probeDev(Device* pDev);
+    Vector<Device*> m_LinearTree;
+  };
+
+  class DeviceInfo : public Scrollable {
+   public:
+    DeviceInfo();
+    ~DeviceInfo() {}
+    void setDevice(Device* dev);
+    Device* getDevice() {
+      return m_pDev;
     }
+    const char* getLine1(size_t index, DebuggerIO::Colour& colour, DebuggerIO::Colour& bgColour);
+    const char* getLine2(size_t index, size_t& colOffset, DebuggerIO::Colour& colour,
+                         DebuggerIO::Colour& bgColour);
+    size_t getLineCount();
 
-  private:
-    class DeviceTree : public Scrollable
-    {
-      public:
-        DeviceTree();
-        ~DeviceTree()
-        {
-        }
-        const char *getLine1(
-            size_t index, DebuggerIO::Colour &colour,
-            DebuggerIO::Colour &bgColour);
-        const char *getLine2(
-            size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
-            DebuggerIO::Colour &bgColour);
-        size_t getLineCount();
-        Device *getDevForIndex(size_t index);
-        size_t m_Line;
+   private:
+    Device* m_pDev;
+    DeviceInfo(const DeviceInfo&);
+    void operator=(const DeviceInfo&);
+  };
 
-      private:
-        void probeDev(Device *pDev);
-        Vector<Device *> m_LinearTree;
-    };
-
-    class DeviceInfo : public Scrollable
-    {
-      public:
-        DeviceInfo();
-        ~DeviceInfo()
-        {
-        }
-        void setDevice(Device *dev);
-        Device *getDevice()
-        {
-            return m_pDev;
-        }
-        const char *getLine1(
-            size_t index, DebuggerIO::Colour &colour,
-            DebuggerIO::Colour &bgColour);
-        const char *getLine2(
-            size_t index, size_t &colOffset, DebuggerIO::Colour &colour,
-            DebuggerIO::Colour &bgColour);
-        size_t getLineCount();
-
-      private:
-        Device *m_pDev;
-        DeviceInfo(const DeviceInfo &);
-        void operator=(const DeviceInfo &);
-    };
-
-    void drawBackground(size_t nLines, DebuggerIO *pScreen);
+  void drawBackground(size_t nLines, DebuggerIO* pScreen);
 };
 
 /** @} */

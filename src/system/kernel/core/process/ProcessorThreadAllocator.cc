@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/process/ProcessorThreadAllocator.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/ProcessorThreadAllocator.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/ThreadToCoreAllocationAlgorithm.h"
@@ -26,31 +26,23 @@
 
 ProcessorThreadAllocator ProcessorThreadAllocator::m_Instance;
 
-ProcessorThreadAllocator::ProcessorThreadAllocator() : m_pAlgorithm(0)
-{
+ProcessorThreadAllocator::ProcessorThreadAllocator() : m_pAlgorithm(0) {}
+
+ProcessorThreadAllocator::~ProcessorThreadAllocator() {
+  delete m_pAlgorithm;
 }
 
-ProcessorThreadAllocator::~ProcessorThreadAllocator()
-{
-    delete m_pAlgorithm;
+void ProcessorThreadAllocator::addThread(Thread* pThread, Thread::ThreadStartFunc pStartFunction,
+                                         void* pParam, bool bUsermode, void* pStack) {
+  PerProcessorScheduler* pSchedule = m_pAlgorithm->allocateThread(pThread);
+  Scheduler::instance().addThread(pThread, *pSchedule);
+  pSchedule->addThread(pThread, pStartFunction, pParam, bUsermode, pStack);
 }
 
-void ProcessorThreadAllocator::addThread(
-    Thread *pThread, Thread::ThreadStartFunc pStartFunction, void *pParam,
-    bool bUsermode, void *pStack)
-{
-    PerProcessorScheduler *pSchedule = m_pAlgorithm->allocateThread(pThread);
-    Scheduler::instance().addThread(pThread, *pSchedule);
-    pSchedule->addThread(pThread, pStartFunction, pParam, bUsermode, pStack);
+void ProcessorThreadAllocator::addThread(Thread* pThread, SyscallState& state) {
+  PerProcessorScheduler* pSchedule = m_pAlgorithm->allocateThread(pThread);
+  Scheduler::instance().addThread(pThread, *pSchedule);
+  pSchedule->addThread(pThread, state);
 }
 
-void ProcessorThreadAllocator::addThread(Thread *pThread, SyscallState &state)
-{
-    PerProcessorScheduler *pSchedule = m_pAlgorithm->allocateThread(pThread);
-    Scheduler::instance().addThread(pThread, *pSchedule);
-    pSchedule->addThread(pThread, state);
-}
-
-void ProcessorThreadAllocator::threadRemoved(Thread *pThread)
-{
-}
+void ProcessorThreadAllocator::threadRemoved(Thread* pThread) {}

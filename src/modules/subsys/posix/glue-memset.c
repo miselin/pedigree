@@ -23,14 +23,10 @@
 
 #if X86_COMMON
 
-void *memset(void *s, int c, size_t n)
-{
-    int a, b;
-    asm volatile("rep stosb"
-                 : "=&D"(a), "=&c"(b)
-                 : "0"(s), "a"(c), "1"(n)
-                 : "memory");
-    return s;
+void* memset(void* s, int c, size_t n) {
+  int a, b;
+  asm volatile("rep stosb" : "=&D"(a), "=&c"(b) : "0"(s), "a"(c), "1"(n) : "memory");
+  return s;
 }
 
 #endif

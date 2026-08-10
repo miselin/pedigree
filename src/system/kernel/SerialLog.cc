@@ -23,66 +23,53 @@
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/utilities/Cord.h"
 
-class SerialLogger : public Log::LogCallback
-{
-  public:
-    SerialLogger();
-    virtual ~SerialLogger();
+class SerialLogger : public Log::LogCallback {
+ public:
+  SerialLogger();
+  virtual ~SerialLogger();
 
-    virtual void callback(const LogCord &cord, bool locked = true);
+  virtual void callback(const LogCord& cord, bool locked = true);
 
-  private:
-    Serial *m_pSerial;
-    bool m_bInitialised;
-    Spinlock m_Lock;
+ private:
+  Serial* m_pSerial;
+  bool m_bInitialised;
+  Spinlock m_Lock;
 };
 
 static SerialLogger g_SerialCallback;
 
-void installSerialLogger()
-{
-    Log::instance().installCallback(&g_SerialCallback, false);
+void installSerialLogger() {
+  Log::instance().installCallback(&g_SerialCallback, false);
 }
 
-SerialLogger::SerialLogger()
-    : m_pSerial(nullptr), m_bInitialised(false), m_Lock(false)
-{
+SerialLogger::SerialLogger() : m_pSerial(nullptr), m_bInitialised(false), m_Lock(false) {}
+
+SerialLogger::~SerialLogger() {
+  Log::instance().removeCallback(this);
 }
 
-SerialLogger::~SerialLogger()
-{
-    Log::instance().removeCallback(this);
-}
-
-void SerialLogger::callback(const LogCord &cord, bool locked)
-{
-    if (!m_bInitialised)
-    {
-        m_bInitialised = Machine::instance().isInitialised();
-        if (!m_bInitialised)
-        {
-            return;
-        }
-        else
-        {
-            m_pSerial = Machine::instance().getSerial(0);
-        }
+void SerialLogger::callback(const LogCord& cord, bool locked) {
+  if (!m_bInitialised) {
+    m_bInitialised = Machine::instance().isInitialised();
+    if (!m_bInitialised) {
+      return;
+    } else {
+      m_pSerial = Machine::instance().getSerial(0);
     }
+  }
 
-    if (LIKELY(locked))
-    {
-        m_Lock.acquire();
-    }
-    m_pSerial->write_str(cord);
+  if (LIKELY(locked)) {
+    m_Lock.acquire();
+  }
+  m_pSerial->write_str(cord);
 #if !SERIAL_IS_FILE
-    // Handle carriage return if we're writing to a real terminal
-    // Technically this will create a \n\r, but it will do the same
-    // thing. This may also be redundant, but better to be safe than
-    // sorry imho.
-    m_pSerial->write('\r');
+  // Handle carriage return if we're writing to a real terminal
+  // Technically this will create a \n\r, but it will do the same
+  // thing. This may also be redundant, but better to be safe than
+  // sorry imho.
+  m_pSerial->write('\r');
 #endif
-    if (LIKELY(locked))
-    {
-        m_Lock.release();
-    }
+  if (LIKELY(locked)) {
+    m_Lock.release();
+  }
 }

@@ -20,7 +20,6 @@
 #ifndef PIPE_H
 #define PIPE_H
 
-#include "File.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
@@ -29,97 +28,92 @@
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/String.h"
 
+#include "File.h"
+
 #define PIPE_BUF_MAX 2048
 
 /** A first-in-first-out buffer node. */
-class EXPORTED_PUBLIC Pipe : public File
-{
-    friend class Filesystem;
-    friend class ZombiePipe;
+class EXPORTED_PUBLIC Pipe : public File {
+  friend class Filesystem;
+  friend class ZombiePipe;
 
-  public:
-    /** Eases the pain of casting, and performs a sanity check. */
-    static Pipe *fromFile(File *pF)
-    {
-        if (!(pF->isPipe() || pF->isFifo()))
-            FATAL("Casting non-pipe/fifo File to Pipe!");
-        return reinterpret_cast<Pipe *>(pF);
-    }
+ public:
+  /** Eases the pain of casting, and performs a sanity check. */
+  static Pipe* fromFile(File* pF) {
+    if (!(pF->isPipe() || pF->isFifo()))
+      FATAL("Casting non-pipe/fifo File to Pipe!");
+    return reinterpret_cast<Pipe*>(pF);
+  }
 
-    /** Constructor, creates an invalid file. */
-    Pipe();
+  /** Constructor, creates an invalid file. */
+  Pipe();
 
-    /** Copy constructors are hidden - unused! */
-    Pipe(const Pipe &file);
+  /** Copy constructors are hidden - unused! */
+  Pipe(const Pipe& file);
 
-  private:
-    Pipe &operator=(const Pipe &);
+ private:
+  Pipe& operator=(const Pipe&);
 
-  public:
-    /** Constructor, should be called only by a Filesystem. */
-    Pipe(
-        const String &name, Time::Timestamp accessedTime,
-        Time::Timestamp modifiedTime, Time::Timestamp creationTime,
-        uintptr_t inode, class Filesystem *pFs, size_t size, File *pParent,
-        bool bIsAnonymous = false);
-    /** Destructor - doesn't do anything. */
-    virtual ~Pipe();
+ public:
+  /** Constructor, should be called only by a Filesystem. */
+  Pipe(const String& name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
+       Time::Timestamp creationTime, uintptr_t inode, class Filesystem* pFs, size_t size,
+       File* pParent, bool bIsAnonymous = false);
+  /** Destructor - doesn't do anything. */
+  virtual ~Pipe();
 
-    /** select() */
-    virtual int select(bool bWriting = false, int timeout = 0);
+  /** select() */
+  virtual int select(bool bWriting = false, int timeout = 0);
 
-    /** Reads from the file. */
-    virtual uint64_t readBytewise(
-        uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true);
-    /** Writes to the file. */
-    virtual uint64_t writeBytewise(
-        uint64_t location, uint64_t size, uintptr_t buffer,
-        bool bCanBlock = true);
+  /** Reads from the file. */
+  virtual uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                bool bCanBlock = true);
+  /** Writes to the file. */
+  virtual uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                 bool bCanBlock = true);
 
-    /** Pipes are anonymous (no name). */
-    virtual bool isPipe() const;
-    /** FIFOs are not anonymous (have a name). */
-    virtual bool isFifo() const;
+  /** Pipes are anonymous (no name). */
+  virtual bool isPipe() const;
+  /** FIFOs are not anonymous (have a name). */
+  virtual bool isFifo() const;
 
-    virtual void increaseRefCount(bool bIsWriter);
+  virtual void increaseRefCount(bool bIsWriter);
 
-    /** Override decreaseRefCount so we can tell when all writers have hung up
-        (and also when all readers have hung up so we can die). */
-    virtual void decreaseRefCount(bool bIsWriter);
+  /** Override decreaseRefCount so we can tell when all writers have hung up
+      (and also when all readers have hung up so we can die). */
+  virtual void decreaseRefCount(bool bIsWriter);
 
-    /** Returns a locked diagnostic snapshot of the current reader count. */
-    size_t getReaderCount();
+  /** Returns a locked diagnostic snapshot of the current reader count. */
+  size_t getReaderCount();
 
-    /** Returns a locked diagnostic snapshot of the current writer count. */
-    size_t getWriterCount();
+  /** Returns a locked diagnostic snapshot of the current writer count. */
+  size_t getWriterCount();
 
-    /**
-     * Atomically tests for a reader and, when permitted, waits for one.
-     *
-     * All writers waiting on the predicate are released when a reader arrives.
-     * Returns false for a nonblocking miss or an interrupted blocking wait.
-     */
-    bool waitForReader(bool bCanBlock);
+  /**
+   * Atomically tests for a reader and, when permitted, waits for one.
+   *
+   * All writers waiting on the predicate are released when a reader arrives.
+   * Returns false for a nonblocking miss or an interrupted blocking wait.
+   */
+  bool waitForReader(bool bCanBlock);
 
-  protected:
-    /** If we're an anonymous pipe, we should delete ourselves when all
-     * readers/writers have hung up. */
-    bool m_bIsAnonymous;
+ protected:
+  /** If we're an anonymous pipe, we should delete ourselves when all
+   * readers/writers have hung up. */
+  bool m_bIsAnonymous;
 
-    /** Have we reached EOF? */
-    volatile bool m_bIsEOF;
+  /** Have we reached EOF? */
+  volatile bool m_bIsEOF;
 
-    /** Internal pipe buffer. */
-    Buffer<uint8_t> m_Buffer;
+  /** Internal pipe buffer. */
+  Buffer<uint8_t> m_Buffer;
 
-    /** Writers waiting for the protected m_nReaders predicate. */
-    ConditionVariable m_ReaderCondition;
+  /** Writers waiting for the protected m_nReaders predicate. */
+  ConditionVariable m_ReaderCondition;
 
-    virtual bool isBytewise() const
-    {
-        return true;
-    }
+  virtual bool isBytewise() const {
+    return true;
+  }
 };
 
 #endif

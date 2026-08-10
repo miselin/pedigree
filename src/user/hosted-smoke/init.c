@@ -6,18 +6,17 @@
  */
 
 #include <errno.h>
+
 #include <sys/klog.h>
 #include <sys/reboot.h>
 
-int main(void)
-{
-    klog(LOG_INFO, "HOSTED-SMOKE: init launched");
+int main(void) {
+  klog(LOG_INFO, "HOSTED-SMOKE: init launched");
 
-    if (reboot(0) != 0)
-    {
-        klog(LOG_ERR, "HOSTED-SMOKE: shutdown request failed: %d", errno);
-        return 1;
-    }
+  if (reboot(0) != 0) {
+    klog(LOG_ERR, "HOSTED-SMOKE: shutdown request failed: %d", errno);
+    return 1;
+  }
 
-    return 0;
+  return 0;
 }

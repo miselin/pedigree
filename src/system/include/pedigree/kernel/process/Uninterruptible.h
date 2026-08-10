@@ -32,17 +32,16 @@ class Thread;
  *
  * \note Threads cannot be set uninterruptible without using this.
  */
-class EXPORTED_PUBLIC Uninterruptible
-{
-  public:
-    Uninterruptible();
-    ~Uninterruptible();
+class EXPORTED_PUBLIC Uninterruptible {
+ public:
+  Uninterruptible();
+  ~Uninterruptible();
 
-  private:
-    NOT_COPYABLE_OR_ASSIGNABLE(Uninterruptible);
+ private:
+  NOT_COPYABLE_OR_ASSIGNABLE(Uninterruptible);
 
-    Thread *m_pThread;
-    DeferredScopeRecord m_Record;
+  Thread* m_pThread;
+  DeferredScopeRecord m_Record;
 };
 
 #endif  // PROCESS_INTERRUPTIBLE_H

@@ -20,94 +20,71 @@
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/IoPortManager.h"
 
-IoPort::IoPort(const char *name) : m_IoPort(0), m_Size(0), m_Name(name)
-{
+IoPort::IoPort(const char* name) : m_IoPort(0), m_Size(0), m_Name(name) {}
+
+IoPort::~IoPort() {
+  free();
 }
 
-IoPort::~IoPort()
-{
+bool IoPort::allocate(io_port_t ioPort, size_t size) {
+  // Free any allocated I/O ports
+  if (m_Size != 0)
     free();
+
+  if (IoPortManager::instance().allocate(this, ioPort, size) == true) {
+    m_IoPort = ioPort;
+    m_Size = size;
+    return true;
+  }
+  return false;
 }
 
-bool IoPort::allocate(io_port_t ioPort, size_t size)
-{
-    // Free any allocated I/O ports
-    if (m_Size != 0)
-        free();
+void IoPort::free() {
+  if (m_Size != 0) {
+    IoPortManager::instance().free(this);
 
-    if (IoPortManager::instance().allocate(this, ioPort, size) == true)
-    {
-        m_IoPort = ioPort;
-        m_Size = size;
-        return true;
-    }
-    return false;
+    m_IoPort = 0;
+    m_Size = 0;
+  }
 }
 
-void IoPort::free()
-{
-    if (m_Size != 0)
-    {
-        IoPortManager::instance().free(this);
-
-        m_IoPort = 0;
-        m_Size = 0;
-    }
+size_t IoPort::size() const {
+  return m_Size;
 }
 
-size_t IoPort::size() const
-{
-    return m_Size;
+io_port_t IoPort::base() const {
+  return m_IoPort;
 }
 
-io_port_t IoPort::base() const
-{
-    return m_IoPort;
+IoPort::operator bool() const {
+  return (m_Size != 0);
 }
 
-IoPort::operator bool() const
-{
-    return (m_Size != 0);
-}
-
-const char *IoPort::name() const
-{
-    return m_Name;
+const char* IoPort::name() const {
+  return m_Name;
 }
 
 #if KERNEL_PROCESSOR_NO_PORT_IO
 /// \todo all these should actually panic or something
 
-uint8_t IoPort::read8(size_t offset)
-{
-    return 0;
+uint8_t IoPort::read8(size_t offset) {
+  return 0;
 }
-uint16_t IoPort::read16(size_t offset)
-{
-    return 0;
+uint16_t IoPort::read16(size_t offset) {
+  return 0;
 }
-uint32_t IoPort::read32(size_t offset)
-{
-    return 0;
+uint32_t IoPort::read32(size_t offset) {
+  return 0;
 }
 #if BITS_64
-uint64_t IoPort::read64(size_t offset)
-{
-    return 0;
+uint64_t IoPort::read64(size_t offset) {
+  return 0;
 }
 #endif
-void IoPort::write8(uint8_t value, size_t offset)
-{
-}
-void IoPort::write16(uint16_t value, size_t offset)
-{
-}
-void IoPort::write32(uint32_t value, size_t offset)
-{
-}
+void IoPort::write8(uint8_t value, size_t offset) {}
+void IoPort::write16(uint16_t value, size_t offset) {}
+void IoPort::write32(uint32_t value, size_t offset) {}
 #if BITS_64
-void IoPort::write64(uint64_t value, size_t offset)
-{
-}
+void IoPort::write64(uint64_t value, size_t offset) {}
 #endif
 #endif

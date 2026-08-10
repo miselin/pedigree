@@ -26,94 +26,76 @@
 
 class DebuggerIO;
 
-MappingCommand::MappingCommand() : DebuggerCommand()
-{
-}
+MappingCommand::MappingCommand() : DebuggerCommand() {}
 
-MappingCommand::~MappingCommand()
-{
-}
+MappingCommand::~MappingCommand() {}
 
-void MappingCommand::autocomplete(
-    const HugeStaticString &input, HugeStaticString &output)
-{
-}
+void MappingCommand::autocomplete(const HugeStaticString& input, HugeStaticString& output) {}
 
-bool MappingCommand::execute(
-    const HugeStaticString &input, HugeStaticString &output,
-    InterruptState &state, DebuggerIO *pScreen)
-{
-    // If we see just "mapping", no parameters were matched.
-    uintptr_t address = 0;
-    if (!(input == "mapping"))  /// \todo define operator != on StaticString
-    {
-        // Is it an address?
-        address = input.intValue();
+bool MappingCommand::execute(const HugeStaticString& input, HugeStaticString& output,
+                             InterruptState& state, DebuggerIO* pScreen) {
+  // If we see just "mapping", no parameters were matched.
+  uintptr_t address = 0;
+  if (!(input == "mapping"))  /// \todo define operator != on StaticString
+  {
+    // Is it an address?
+    address = input.intValue();
 
-        if (address == 0)
-        {
-            // No, try a symbol name.
-            // TODO.
-            output = "Not a valid address: `";
-            output += input;
-            output += "'.\n";
-            return true;
-        }
+    if (address == 0) {
+      // No, try a symbol name.
+      // TODO.
+      output = "Not a valid address: `";
+      output += input;
+      output += "'.\n";
+      return true;
     }
-    else
-    {
-        output = "Usage: mapping <effective address>";
-        return true;
-    }
-
-    VirtualAddressSpace &thisVa =
-        Processor::information().getVirtualAddressSpace();
-    VirtualAddressSpace &kernelVa =
-        VirtualAddressSpace::getKernelAddressSpace();
-
-    address &= ~(PhysicalMemoryManager::getPageSize() - 1);
-
-    void *vAddr = reinterpret_cast<void *>(address);
-
-    output = "0x";
-    output.append(address, 16);
-    output += ":\n";
-
-    if (thisVa.isMapped(vAddr))
-    {
-        size_t flags;
-        physical_uintptr_t phys;
-        thisVa.getMapping(vAddr, phys, flags);
-        output += "    Mapped to ";
-        output.append(phys, 16);
-        output += " (flags ";
-        output.append(flags, 16);
-        output += ") in this address space.\n";
-    }
-    else
-        output += "    Not mapped in this address space.\n";
-
-#if KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    Processor::switchAddressSpace(kernelVa);
-#endif
-
-    if (kernelVa.isMapped(vAddr))
-    {
-        size_t flags;
-        physical_uintptr_t phys;
-        kernelVa.getMapping(vAddr, phys, flags);
-        output += "    Mapped to ";
-        output.append(phys, 16);
-        output += " (flags ";
-        output.append(flags, 16);
-        output += ") in the kernel address space.\n";
-    }
-    else
-        output += "    Not mapped in the kernel address space.\n";
-
-#if KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
-    Processor::switchAddressSpace(thisVa);
-#endif
-
+  } else {
+    output = "Usage: mapping <effective address>";
     return true;
+  }
+
+  VirtualAddressSpace& thisVa = Processor::information().getVirtualAddressSpace();
+  VirtualAddressSpace& kernelVa = VirtualAddressSpace::getKernelAddressSpace();
+
+  address &= ~(PhysicalMemoryManager::getPageSize() - 1);
+
+  void* vAddr = reinterpret_cast<void*>(address);
+
+  output = "0x";
+  output.append(address, 16);
+  output += ":\n";
+
+  if (thisVa.isMapped(vAddr)) {
+    size_t flags;
+    physical_uintptr_t phys;
+    thisVa.getMapping(vAddr, phys, flags);
+    output += "    Mapped to ";
+    output.append(phys, 16);
+    output += " (flags ";
+    output.append(flags, 16);
+    output += ") in this address space.\n";
+  } else
+    output += "    Not mapped in this address space.\n";
+
+#if KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
+  Processor::switchAddressSpace(kernelVa);
+#endif
+
+  if (kernelVa.isMapped(vAddr)) {
+    size_t flags;
+    physical_uintptr_t phys;
+    kernelVa.getMapping(vAddr, phys, flags);
+    output += "    Mapped to ";
+    output.append(phys, 16);
+    output += " (flags ";
+    output.append(flags, 16);
+    output += ") in the kernel address space.\n";
+  } else
+    output += "    Not mapped in the kernel address space.\n";
+
+#if KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
+  Processor::switchAddressSpace(thisVa);
+#endif
+
+  return true;
 }

@@ -18,8 +18,6 @@
  */
 
 #include "IsaAtaController.h"
-#include "AtaDisk.h"
-#include "modules/drivers/common/scsi/ScsiController.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/IrqManager.h"
@@ -29,154 +27,131 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
 
+#include "AtaDisk.h"
+#include "modules/drivers/common/scsi/ScsiController.h"
+
 class Controller;
 
-IsaAtaController::IsaAtaController(Controller *pDev, int nController)
-    : AtaController(pDev, nController), m_IrqId(0)
-{
-    setSpecificType(String("ata-controller"));
+IsaAtaController::IsaAtaController(Controller* pDev, int nController)
+    : AtaController(pDev, nController), m_IrqId(0) {
+  setSpecificType(String("ata-controller"));
 
-    // Initialise our ports.
-    bool bPortsFound = false;
-    for (unsigned int i = 0; i < m_Addresses.count(); i++)
-    {
-        if (m_Addresses[i]->m_Name.compare("command") ||
-            m_Addresses[i]->m_Name.compare("bar0"))
-        {
-            m_pCommandRegs = m_Addresses[i]->m_Io;
-            bPortsFound = true;
-        }
-        if (m_Addresses[i]->m_Name.compare("control") ||
-            m_Addresses[i]->m_Name.compare("bar1"))
-        {
-            m_pControlRegs = m_Addresses[i]->m_Io;
-            bPortsFound = true;
-        }
+  // Initialise our ports.
+  bool bPortsFound = false;
+  for (unsigned int i = 0; i < m_Addresses.count(); i++) {
+    if (m_Addresses[i]->m_Name.compare("command") || m_Addresses[i]->m_Name.compare("bar0")) {
+      m_pCommandRegs = m_Addresses[i]->m_Io;
+      bPortsFound = true;
     }
-
-    if (!bPortsFound)
-    {
-        ERROR("ISA ATA: No addresses found for this controller");
-        return;
+    if (m_Addresses[i]->m_Name.compare("control") || m_Addresses[i]->m_Name.compare("bar1")) {
+      m_pControlRegs = m_Addresses[i]->m_Io;
+      bPortsFound = true;
     }
+  }
 
-    // Look for a floating bus
-    if (m_pControlRegs->read8(6) == 0xFF || m_pCommandRegs->read8(7) == 0xFF)
-    {
-        // No devices on this controller
-        return;
-    }
+  if (!bPortsFound) {
+    ERROR("ISA ATA: No addresses found for this controller");
+    return;
+  }
 
-    m_Children.clear();
+  // Look for a floating bus
+  if (m_pControlRegs->read8(6) == 0xFF || m_pCommandRegs->read8(7) == 0xFF) {
+    // No devices on this controller
+    return;
+  }
 
-    // Set up the RequestQueue
-    initialise();
+  m_Children.clear();
 
-    // Perform a software reset.
-    m_pControlRegs->write8(0x04, 6);  // Assert SRST
-    Time::delay(5 * Time::Multiplier::Millisecond);
+  // Set up the RequestQueue
+  initialise();
 
-    m_pControlRegs->write8(0, 6);  // Negate SRST
-    Time::delay(5 * Time::Multiplier::Millisecond);
+  // Perform a software reset.
+  m_pControlRegs->write8(0x04, 6);  // Assert SRST
+  Time::delay(5 * Time::Multiplier::Millisecond);
 
-    // Use the shared bounded wait after reset. A controller which keeps BSY
-    // asserted must leave this channel offline instead of hanging discovery.
-    const AtaStatus status = ataWait(m_pCommandRegs, m_pControlRegs);
-    if (status.reg.err || status.reg.bsy)
-    {
-        NOTICE(
-            "Error during ATA software reset, status = "
-            << status.__reg_contents);
-        return;
-    }
+  m_pControlRegs->write8(0, 6);  // Negate SRST
+  Time::delay(5 * Time::Multiplier::Millisecond);
 
-    // Create two disks - master and slave.
-    AtaDisk *pMaster = new AtaDisk(this, true, m_pCommandRegs, m_pControlRegs);
-    AtaDisk *pSlave = new AtaDisk(this, false, m_pCommandRegs, m_pControlRegs);
+  // Use the shared bounded wait after reset. A controller which keeps BSY
+  // asserted must leave this channel offline instead of hanging discovery.
+  const AtaStatus status = ataWait(m_pCommandRegs, m_pControlRegs);
+  if (status.reg.err || status.reg.bsy) {
+    NOTICE("Error during ATA software reset, status = " << status.__reg_contents);
+    return;
+  }
 
-    pMaster->setInterruptNumber(getInterruptNumber());
-    pSlave->setInterruptNumber(getInterruptNumber());
+  // Create two disks - master and slave.
+  AtaDisk* pMaster = new AtaDisk(this, true, m_pCommandRegs, m_pControlRegs);
+  AtaDisk* pSlave = new AtaDisk(this, false, m_pCommandRegs, m_pControlRegs);
 
-    size_t masterN = getNumChildren();
-    addChild(pMaster);
-    size_t slaveN = getNumChildren();
-    addChild(pSlave);
+  pMaster->setInterruptNumber(getInterruptNumber());
+  pSlave->setInterruptNumber(getInterruptNumber());
 
-    // Try and initialise the disks.
-    bool masterInitialised = pMaster->initialise(masterN);
-    bool slaveInitialised = pSlave->initialise(slaveN);
+  size_t masterN = getNumChildren();
+  addChild(pMaster);
+  size_t slaveN = getNumChildren();
+  addChild(pSlave);
 
-    m_IrqId = Machine::instance().getIrqManager()->registerIsaIrqHandler(
-        getInterruptNumber(), static_cast<IrqHandler *>(this),
-        IrqPolicy::edgeThreaded());
+  // Try and initialise the disks.
+  bool masterInitialised = pMaster->initialise(masterN);
+  bool slaveInitialised = pSlave->initialise(slaveN);
 
-    if (!masterInitialised)
-    {
-        removeChild(pMaster);
-        delete pMaster;
-    }
+  m_IrqId = Machine::instance().getIrqManager()->registerIsaIrqHandler(
+      getInterruptNumber(), static_cast<IrqHandler*>(this), IrqPolicy::edgeThreaded());
 
-    if (!slaveInitialised)
-    {
-        removeChild(pSlave);
-        delete pSlave;
-    }
+  if (!masterInitialised) {
+    removeChild(pMaster);
+    delete pMaster;
+  }
+
+  if (!slaveInitialised) {
+    removeChild(pSlave);
+    delete pSlave;
+  }
 }
 
-IsaAtaController::~IsaAtaController()
-{
-    shutdownDiskCaches();
-    RequestQueue::destroy();
-    maskDiskInterrupts();
+IsaAtaController::~IsaAtaController() {
+  shutdownDiskCaches();
+  RequestQueue::destroy();
+  maskDiskInterrupts();
 
-    if (
-        m_IrqId &&
-        !Machine::instance().getIrqManager()->unregisterHandler(
-            m_IrqId, static_cast<IrqHandler *>(this)))
-    {
-        FATAL("ISA ATA controller could not drain its IRQ handler");
-    }
-    m_IrqId = 0;
+  if (m_IrqId && !Machine::instance().getIrqManager()->unregisterHandler(
+                     m_IrqId, static_cast<IrqHandler*>(this))) {
+    FATAL("ISA ATA controller could not drain its IRQ handler");
+  }
+  m_IrqId = 0;
 
-    stopDiskDma();
+  stopDiskDma();
 }
 
-bool IsaAtaController::sendCommand(
-    size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
-    uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite)
-{
-    Device *pChild = getChild(nUnit);
-    if (!pChild)
-    {
-        ERROR("ISA ATA: sendCommand called with a bad unit number.");
-        return false;
-    }
+bool IsaAtaController::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
+                                   uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite) {
+  Device* pChild = getChild(nUnit);
+  if (!pChild) {
+    ERROR("ISA ATA: sendCommand called with a bad unit number.");
+    return false;
+  }
 
-    AtaDisk *pDisk = static_cast<AtaDisk *>(pChild);
-    return pDisk->sendCommand(
-        nUnit, pCommand, nCommandSize, pRespBuffer, nRespBytes, bWrite);
+  AtaDisk* pDisk = static_cast<AtaDisk*>(pChild);
+  return pDisk->sendCommand(nUnit, pCommand, nCommandSize, pRespBuffer, nRespBytes, bWrite);
 }
 
-uint64_t IsaAtaController::executeRequest(
-    uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
-    uint64_t p6, uint64_t p7, uint64_t p8)
-{
-    AtaDisk *pDisk = reinterpret_cast<AtaDisk *>(p2);
-    if (p1 == SCSI_REQUEST_READ)
-        return pDisk->doRead(p3);
-    else if (p1 == SCSI_REQUEST_WRITE)
-        return pDisk->doWrite(p3);
-    else
-        return 0;
+uint64_t IsaAtaController::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
+                                          uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8) {
+  AtaDisk* pDisk = reinterpret_cast<AtaDisk*>(p2);
+  if (p1 == SCSI_REQUEST_READ)
+    return pDisk->doRead(p3);
+  else if (p1 == SCSI_REQUEST_WRITE)
+    return pDisk->doWrite(p3);
+  else
+    return 0;
 }
 
-IrqDisposition IsaAtaController::irq(irq_id_t number)
-{
-    for (unsigned int i = 0; i < getNumChildren(); i++)
-    {
-        AtaDisk *pDisk = static_cast<AtaDisk *>(getChild(i));
-        pDisk->irqReceived();
-    }
+IrqDisposition IsaAtaController::irq(irq_id_t number) {
+  for (unsigned int i = 0; i < getNumChildren(); i++) {
+    AtaDisk* pDisk = static_cast<AtaDisk*>(getChild(i));
+    pDisk->irqReceived();
+  }
 
-    return IrqDisposition::Handled;
+  return IrqDisposition::Handled;
 }

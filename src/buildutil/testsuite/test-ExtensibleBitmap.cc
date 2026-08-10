@@ -19,139 +19,129 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include <gtest/gtest.h>
-
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 
-TEST(PedigreeExtensibleBitmap, InitialState)
-{
-    ExtensibleBitmap bitmap;
+#include <gtest/gtest.h>
 
-    EXPECT_EQ(bitmap.getFirstSet(), ~0U);
-    EXPECT_EQ(bitmap.getFirstClear(), 0U);
-    EXPECT_EQ(bitmap.getLastSet(), ~0U);
-    EXPECT_EQ(bitmap.getLastClear(), 0U);
+TEST(PedigreeExtensibleBitmap, InitialState) {
+  ExtensibleBitmap bitmap;
+
+  EXPECT_EQ(bitmap.getFirstSet(), ~0U);
+  EXPECT_EQ(bitmap.getFirstClear(), 0U);
+  EXPECT_EQ(bitmap.getLastSet(), ~0U);
+  EXPECT_EQ(bitmap.getLastClear(), 0U);
 }
 
-TEST(PedigreeExtensibleBitmap, CopyConstruct)
-{
-    ExtensibleBitmap bitmap;
-    bitmap.set(1);
-    bitmap.set(128);
+TEST(PedigreeExtensibleBitmap, CopyConstruct) {
+  ExtensibleBitmap bitmap;
+  bitmap.set(1);
+  bitmap.set(128);
 
-    ExtensibleBitmap bitmap2(bitmap);
+  ExtensibleBitmap bitmap2(bitmap);
 
-    EXPECT_FALSE(bitmap2.test(0));
-    EXPECT_TRUE(bitmap2.test(1));
-    EXPECT_TRUE(bitmap2.test(128));
+  EXPECT_FALSE(bitmap2.test(0));
+  EXPECT_TRUE(bitmap2.test(1));
+  EXPECT_TRUE(bitmap2.test(128));
 }
 
-TEST(PedigreeExtensibleBitmap, Assignment)
-{
-    ExtensibleBitmap bitmap;
-    bitmap.set(1);
-    bitmap.set(128);
+TEST(PedigreeExtensibleBitmap, Assignment) {
+  ExtensibleBitmap bitmap;
+  bitmap.set(1);
+  bitmap.set(128);
 
-    ExtensibleBitmap bitmap2;
-    bitmap2 = bitmap;
+  ExtensibleBitmap bitmap2;
+  bitmap2 = bitmap;
 
-    EXPECT_FALSE(bitmap2.test(0));
-    EXPECT_TRUE(bitmap2.test(1));
-    EXPECT_TRUE(bitmap2.test(128));
+  EXPECT_FALSE(bitmap2.test(0));
+  EXPECT_TRUE(bitmap2.test(1));
+  EXPECT_TRUE(bitmap2.test(128));
 }
 
-TEST(PedigreeExtensibleBitmap, SetOne)
-{
-    ExtensibleBitmap bitmap;
+TEST(PedigreeExtensibleBitmap, SetOne) {
+  ExtensibleBitmap bitmap;
 
-    bitmap.set(0);
+  bitmap.set(0);
 
-    EXPECT_TRUE(bitmap.test(0));
-    EXPECT_FALSE(bitmap.test(1));
-    EXPECT_EQ(bitmap.getFirstSet(), 0U);
-    EXPECT_EQ(bitmap.getFirstClear(), 1U);
-    EXPECT_EQ(bitmap.getLastSet(), 0U);
-    EXPECT_EQ(bitmap.getLastClear(), 0U);
+  EXPECT_TRUE(bitmap.test(0));
+  EXPECT_FALSE(bitmap.test(1));
+  EXPECT_EQ(bitmap.getFirstSet(), 0U);
+  EXPECT_EQ(bitmap.getFirstClear(), 1U);
+  EXPECT_EQ(bitmap.getLastSet(), 0U);
+  EXPECT_EQ(bitmap.getLastClear(), 0U);
 }
 
-TEST(PedigreeExtensibleBitmap, SetThenClear)
-{
-    ExtensibleBitmap bitmap;
+TEST(PedigreeExtensibleBitmap, SetThenClear) {
+  ExtensibleBitmap bitmap;
 
-    bitmap.set(0);
-    bitmap.clear(0);
+  bitmap.set(0);
+  bitmap.clear(0);
 
-    EXPECT_FALSE(bitmap.test(0));
-    EXPECT_FALSE(bitmap.test(1));
-    EXPECT_EQ(bitmap.getFirstSet(), ~0U);
-    EXPECT_EQ(bitmap.getFirstClear(), 0U);
-    EXPECT_EQ(bitmap.getLastSet(), ~0U);
-    EXPECT_EQ(bitmap.getLastClear(), 0U);
+  EXPECT_FALSE(bitmap.test(0));
+  EXPECT_FALSE(bitmap.test(1));
+  EXPECT_EQ(bitmap.getFirstSet(), ~0U);
+  EXPECT_EQ(bitmap.getFirstClear(), 0U);
+  EXPECT_EQ(bitmap.getLastSet(), ~0U);
+  EXPECT_EQ(bitmap.getLastClear(), 0U);
 }
 
-TEST(PedigreeExtensibleBitmap, SetMultiple)
-{
-    ExtensibleBitmap bitmap;
+TEST(PedigreeExtensibleBitmap, SetMultiple) {
+  ExtensibleBitmap bitmap;
 
-    for (size_t i = 0; i < 5; ++i)
-    {
-        bitmap.set(i);
-    }
+  for (size_t i = 0; i < 5; ++i) {
+    bitmap.set(i);
+  }
 
-    EXPECT_TRUE(bitmap.test(0));
-    EXPECT_TRUE(bitmap.test(1));
-    EXPECT_TRUE(bitmap.test(2));
-    EXPECT_TRUE(bitmap.test(3));
-    EXPECT_TRUE(bitmap.test(4));
-    EXPECT_FALSE(bitmap.test(5));
-    EXPECT_EQ(bitmap.getFirstSet(), 0U);
-    EXPECT_EQ(bitmap.getFirstClear(), 5U);
-    EXPECT_EQ(bitmap.getLastSet(), 4U);
-    EXPECT_EQ(bitmap.getLastClear(), 0U);
+  EXPECT_TRUE(bitmap.test(0));
+  EXPECT_TRUE(bitmap.test(1));
+  EXPECT_TRUE(bitmap.test(2));
+  EXPECT_TRUE(bitmap.test(3));
+  EXPECT_TRUE(bitmap.test(4));
+  EXPECT_FALSE(bitmap.test(5));
+  EXPECT_EQ(bitmap.getFirstSet(), 0U);
+  EXPECT_EQ(bitmap.getFirstClear(), 5U);
+  EXPECT_EQ(bitmap.getLastSet(), 4U);
+  EXPECT_EQ(bitmap.getLastClear(), 0U);
 }
 
-TEST(PedigreeExtensibleBitmap, SetDynamic)
-{
-    ExtensibleBitmap bitmap;
+TEST(PedigreeExtensibleBitmap, SetDynamic) {
+  ExtensibleBitmap bitmap;
 
-    // Initial add of dynamic memory.
-    bitmap.set(128);
+  // Initial add of dynamic memory.
+  bitmap.set(128);
 
-    // Resize dynamic bitmap.
-    bitmap.set(256);
+  // Resize dynamic bitmap.
+  bitmap.set(256);
 
-    EXPECT_TRUE(bitmap.test(128));
-    EXPECT_TRUE(bitmap.test(256));
-    EXPECT_FALSE(bitmap.test(0));
-    EXPECT_FALSE(bitmap.test(127));
-    EXPECT_FALSE(bitmap.test(129));
-    EXPECT_EQ(bitmap.getFirstSet(), 128U);
-    EXPECT_EQ(bitmap.getFirstClear(), 0U);
-    EXPECT_EQ(bitmap.getLastSet(), 256U);
-    EXPECT_EQ(bitmap.getLastClear(), 0U);
+  EXPECT_TRUE(bitmap.test(128));
+  EXPECT_TRUE(bitmap.test(256));
+  EXPECT_FALSE(bitmap.test(0));
+  EXPECT_FALSE(bitmap.test(127));
+  EXPECT_FALSE(bitmap.test(129));
+  EXPECT_EQ(bitmap.getFirstSet(), 128U);
+  EXPECT_EQ(bitmap.getFirstClear(), 0U);
+  EXPECT_EQ(bitmap.getLastSet(), 256U);
+  EXPECT_EQ(bitmap.getLastClear(), 0U);
 }
 
-TEST(PedigreeExtensibleBitmap, ClearDynamic)
-{
-    ExtensibleBitmap bitmap;
+TEST(PedigreeExtensibleBitmap, ClearDynamic) {
+  ExtensibleBitmap bitmap;
 
-    bitmap.set(128);
-    bitmap.set(256);
+  bitmap.set(128);
+  bitmap.set(256);
 
-    bitmap.clear(128);
+  bitmap.clear(128);
 
-    EXPECT_TRUE(bitmap.test(256));
-    EXPECT_FALSE(bitmap.test(128));
+  EXPECT_TRUE(bitmap.test(256));
+  EXPECT_FALSE(bitmap.test(128));
 }
 
-TEST(PedigreeExtensibleBitmap, ClearEdge)
-{
-    ExtensibleBitmap bitmap;
+TEST(PedigreeExtensibleBitmap, ClearEdge) {
+  ExtensibleBitmap bitmap;
 
-    // Try to clear the first bit of the dynamic bitmap, before anything has
-    // actually been allocated.
-    bitmap.clear(sizeof(uintptr_t) * 8);
+  // Try to clear the first bit of the dynamic bitmap, before anything has
+  // actually been allocated.
+  bitmap.clear(sizeof(uintptr_t) * 8);
 
-    EXPECT_FALSE(bitmap.test(0x44));
-    EXPECT_FALSE(bitmap.test(0x40));
+  EXPECT_FALSE(bitmap.test(0x44));
+  EXPECT_FALSE(bitmap.test(0x40));
 }

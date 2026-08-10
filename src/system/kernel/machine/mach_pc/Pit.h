@@ -34,57 +34,53 @@ class SchedulerTimerHandler;
  * @{ */
 
 /** The programmable interval timer implements the SchedulerTimer interface */
-class Pit : public SchedulerTimer, private SchedulerIrqHandler
-{
-  public:
-    /** Get the Pit class instance */
-    inline static Pit &instance()
-    {
-        return m_Instance;
-    }
+class Pit : public SchedulerTimer, private SchedulerIrqHandler {
+ public:
+  /** Get the Pit class instance */
+  inline static Pit& instance() {
+    return m_Instance;
+  }
 
-    //
-    // SchedulerTimer interface
-    //
-    virtual bool registerHandler(SchedulerTimerHandler *handler);
-    virtual bool removeHandler(SchedulerTimerHandler *handler);
+  //
+  // SchedulerTimer interface
+  //
+  virtual bool registerHandler(SchedulerTimerHandler* handler);
+  virtual bool removeHandler(SchedulerTimerHandler* handler);
 
-    /** Initialises the class
-     *\return true, if successful, false otherwise */
-    bool initialise() INITIALISATION_ONLY;
-    /** Uninitialises the class */
-    void uninitialise();
+  /** Initialises the class
+   *\return true, if successful, false otherwise */
+  bool initialise() INITIALISATION_ONLY;
+  /** Uninitialises the class */
+  void uninitialise();
 
-  protected:
-    /** The default constructor */
-    Pit() INITIALISATION_ONLY;
-    /** The destructor */
-    inline virtual ~Pit()
-    {
-    }
+ protected:
+  /** The default constructor */
+  Pit() INITIALISATION_ONLY;
+  /** The destructor */
+  inline virtual ~Pit() {}
 
-  private:
-    /** The copy-constructor
-     *\note NOT implemented */
-    Pit(const Pit &);
-    /** The assignment operator
-     *\note NOT implemented */
-    Pit &operator=(const Pit &);
+ private:
+  /** The copy-constructor
+   *\note NOT implemented */
+  Pit(const Pit&);
+  /** The assignment operator
+   *\note NOT implemented */
+  Pit& operator=(const Pit&);
 
-    //
-    // SchedulerIrqHandler interface
-    //
-    virtual void schedulerIrq(irq_id_t number, InterruptState &state);
+  //
+  // SchedulerIrqHandler interface
+  //
+  virtual void schedulerIrq(irq_id_t number, InterruptState& state);
 
-    /** The PIT I/O port range */
-    IoPort m_IoPort;
-    /** The PIT IRQ Id */
-    irq_id_t m_IrqId;
-    /** The atomically published scheduler callback owner. */
-    SchedulerTimerHandlerSlot m_Handler;
+  /** The PIT I/O port range */
+  IoPort m_IoPort;
+  /** The PIT IRQ Id */
+  irq_id_t m_IrqId;
+  /** The atomically published scheduler callback owner. */
+  SchedulerTimerHandlerSlot m_Handler;
 
-    /** The Pit class instance */
-    static Pit m_Instance;
+  /** The Pit class instance */
+  static Pit m_Instance;
 };
 
 /** @} */

@@ -18,60 +18,48 @@
  */
 
 #include "modules/subsys/posix/PsAuxFile.h"
+
 #include "modules/drivers/x86/ps2mouse/Ps2Mouse.h"
 
-PsAuxFile::~PsAuxFile()
-{
-    m_MouseRegistration.reset();
+PsAuxFile::~PsAuxFile() {
+  m_MouseRegistration.reset();
 }
 
-bool PsAuxFile::initialise()
-{
-    // g_Ps2Mouse is a weak extern, so if nothing defines it it'll be null
-    // This could happen if the ps2mouse driver fails to load.
-    if (!g_Ps2Mouse)
-    {
-        return false;
-    }
+bool PsAuxFile::initialise() {
+  // g_Ps2Mouse is a weak extern, so if nothing defines it it'll be null
+  // This could happen if the ps2mouse driver fails to load.
+  if (!g_Ps2Mouse) {
+    return false;
+  }
 
-    return g_Ps2Mouse->subscribe(
-        subscriber, this, m_MouseRegistration);
+  return g_Ps2Mouse->subscribe(subscriber, this, m_MouseRegistration);
 }
 
-uint64_t PsAuxFile::readBytewise(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
-{
-    return m_Buffer.read(reinterpret_cast<uint8_t *>(buffer), size, bCanBlock);
+uint64_t PsAuxFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                 bool bCanBlock) {
+  return m_Buffer.read(reinterpret_cast<uint8_t*>(buffer), size, bCanBlock);
 }
 
-uint64_t PsAuxFile::writeBytewise(
-    uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock)
-{
-    g_Ps2Mouse->write(reinterpret_cast<const char *>(buffer), size);
-    return size;
+uint64_t PsAuxFile::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
+                                  bool bCanBlock) {
+  g_Ps2Mouse->write(reinterpret_cast<const char*>(buffer), size);
+  return size;
 }
 
-int PsAuxFile::select(bool bWriting, int timeout)
-{
-    if (bWriting)
-    {
-        return m_Buffer.canWrite(timeout == 1) ? 1 : 0;
-    }
-    else
-    {
-        return m_Buffer.canRead(timeout == 1) ? 1 : 0;
-    }
+int PsAuxFile::select(bool bWriting, int timeout) {
+  if (bWriting) {
+    return m_Buffer.canWrite(timeout == 1) ? 1 : 0;
+  } else {
+    return m_Buffer.canRead(timeout == 1) ? 1 : 0;
+  }
 }
 
-void PsAuxFile::subscriber(void *param, const void *buffer, size_t len)
-{
-    reinterpret_cast<PsAuxFile *>(param)->handleIncoming(buffer, len);
+void PsAuxFile::subscriber(void* param, const void* buffer, size_t len) {
+  reinterpret_cast<PsAuxFile*>(param)->handleIncoming(buffer, len);
 }
 
-void PsAuxFile::handleIncoming(const void *buffer, size_t len)
-{
-    if (m_Buffer.write(reinterpret_cast<const uint8_t *>(buffer), len, false))
-    {
-        dataChanged();
-    }
+void PsAuxFile::handleIncoming(const void* buffer, size_t len) {
+  if (m_Buffer.write(reinterpret_cast<const uint8_t*>(buffer), len, false)) {
+    dataChanged();
+  }
 }

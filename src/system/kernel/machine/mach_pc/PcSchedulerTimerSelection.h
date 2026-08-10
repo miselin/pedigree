@@ -14,41 +14,33 @@
  * PIT is the safe default. The local APIC timer is selected only after its
  * complete bootstrap-processor initialisation has succeeded.
  */
-class PcSchedulerTimerSelection
-{
-  public:
-    enum class Source
-    {
-        Pit,
-        LocalApic,
-    };
+class PcSchedulerTimerSelection {
+ public:
+  enum class Source {
+    Pit,
+    LocalApic,
+  };
 
-    PcSchedulerTimerSelection() : m_Source(Source::Pit)
-    {
-    }
+  PcSchedulerTimerSelection() : m_Source(Source::Pit) {}
 
-    void recordLocalApicInitialisation(bool succeeded)
-    {
-        m_Source = succeeded ? Source::LocalApic : Source::Pit;
-    }
+  void recordLocalApicInitialisation(bool succeeded) {
+    m_Source = succeeded ? Source::LocalApic : Source::Pit;
+  }
 
-    Source source() const
-    {
-        return m_Source;
-    }
+  Source source() const {
+    return m_Source;
+  }
 
-    bool usesPit() const
-    {
-        return m_Source == Source::Pit;
-    }
+  bool usesPit() const {
+    return m_Source == Source::Pit;
+  }
 
-    bool usesLocalApic() const
-    {
-        return m_Source == Source::LocalApic;
-    }
+  bool usesLocalApic() const {
+    return m_Source == Source::LocalApic;
+  }
 
-  private:
-    Source m_Source;
+ private:
+  Source m_Source;
 };
 
 #endif

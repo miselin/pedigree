@@ -56,44 +56,39 @@ No supporting OS subroutines are required.
 
 #define _COMPILING_NEWLIB
 
+#include <errno.h>
 #include <newlib.h>
+#include <stdio.h>
 
 #include "local.h"
 #include <_ansi.h>
-#include <errno.h>
-#include <stdio.h>
 
 /* Discard I/O from a single file.  */
 
-int _fpurge_r(struct _reent *ptr, register FILE *fp)
-{
-    int t;
+int _fpurge_r(struct _reent* ptr, register FILE* fp) {
+  int t;
 
-    CHECK_INIT(ptr, fp);
+  CHECK_INIT(ptr, fp);
 
-    _flockfile(fp);
+  _flockfile(fp);
 
-    t = fp->_flags;
-    if (!t)
-    {
-        ptr->_errno = EBADF;
-        _funlockfile(fp);
-        return EOF;
-    }
-    fp->_p = fp->_bf._base;
-    if ((t & __SWR) == 0)
-    {
-        fp->_r = 0;
-        if (HASUB(fp))
-            FREEUB(ptr, fp);
-    }
-    else
-        fp->_w = t & (__SLBF | __SNBF) ? 0 : fp->_bf._size;
+  t = fp->_flags;
+  if (!t) {
+    ptr->_errno = EBADF;
     _funlockfile(fp);
-    return 0;
+    return EOF;
+  }
+  fp->_p = fp->_bf._base;
+  if ((t & __SWR) == 0) {
+    fp->_r = 0;
+    if (HASUB(fp))
+      FREEUB(ptr, fp);
+  } else
+    fp->_w = t & (__SLBF | __SNBF) ? 0 : fp->_bf._size;
+  _funlockfile(fp);
+  return 0;
 }
 
-int fpurge(register FILE *fp)
-{
-    return _fpurge_r(_REENT, fp);
+int fpurge(register FILE* fp) {
+  return _fpurge_r(_REENT, fp);
 }

@@ -25,83 +25,69 @@
 #include <stdio.h>
 #include <unistd.h>
 
-HostedSerial::HostedSerial() : m_File(-1), m_nFileNumber(0)
-{
+HostedSerial::HostedSerial() : m_File(-1), m_nFileNumber(0) {}
+
+HostedSerial::~HostedSerial() {
+  if (m_File >= 0) {
+    close(m_File);
+    m_File = -1;
+  }
 }
 
-HostedSerial::~HostedSerial()
-{
-    if (m_File >= 0)
-    {
-        close(m_File);
-        m_File = -1;
-    }
+void HostedSerial::setBase(uintptr_t nBaseAddr) {
+  m_nFileNumber = nBaseAddr;
+  if (m_File >= 0)
+    close(m_File);
+
+  NormalStaticString s;
+  s.clear();
+  s.append("serial");
+  s.append(m_nFileNumber);
+  s.append(".log");
+  m_File = open(static_cast<const char*>(s), O_TRUNC | O_CREAT | O_WRONLY, 0644);
 }
 
-void HostedSerial::setBase(uintptr_t nBaseAddr)
-{
-    m_nFileNumber = nBaseAddr;
-    if (m_File >= 0)
-        close(m_File);
-
-    NormalStaticString s;
-    s.clear();
-    s.append("serial");
-    s.append(m_nFileNumber);
-    s.append(".log");
-    m_File =
-        open(static_cast<const char *>(s), O_TRUNC | O_CREAT | O_WRONLY, 0644);
+char HostedSerial::read() {
+  // Cannot do.
+  return '\0';
 }
 
-char HostedSerial::read()
-{
-    // Cannot do.
-    return '\0';
+char HostedSerial::readNonBlock() {
+  return read();
 }
 
-char HostedSerial::readNonBlock()
-{
-    return read();
+void HostedSerial::write(char c) {
+  char buf[2] = {c, 0};
+  ::write(m_File, buf, 1);
+  ::fsync(m_File);
+  ::write(2, buf, 1);
+  ::fsync(2);
 }
 
-void HostedSerial::write(char c)
-{
-    char buf[2] = {c, 0};
-    ::write(m_File, buf, 1);
-    ::fsync(m_File);
-    ::write(2, buf, 1);
-    ::fsync(2);
+void HostedSerial::write_str(const char* c) {
+  ::write(m_File, c, StringLength(c));
+  ::fsync(m_File);
+  ::write(2, c, StringLength(c));
+  ::fsync(2);
 }
 
-void HostedSerial::write_str(const char *c)
-{
-    ::write(m_File, c, StringLength(c));
-    ::fsync(m_File);
-    ::write(2, c, StringLength(c));
-    ::fsync(2);
+void HostedSerial::write_str(const char* c, size_t len) {
+  ::write(m_File, c, len);
+  ::fsync(m_File);
+  ::write(2, c, len);
+  ::fsync(2);
 }
 
-void HostedSerial::write_str(const char *c, size_t len)
-{
-    ::write(m_File, c, len);
-    ::fsync(m_File);
-    ::write(2, c, len);
-    ::fsync(2);
+void HostedSerial::write_str(const Cord& cord) {
+  for (auto it = cord.segbegin(); it != cord.segend(); ++it) {
+    ::write(m_File, it.ptr(), it.length());
+    ::write(2, it.ptr(), it.length());
+  }
+
+  ::fsync(m_File);
+  ::fsync(2);
 }
 
-void HostedSerial::write_str(const Cord &cord)
-{
-    for (auto it = cord.segbegin(); it != cord.segend(); ++it)
-    {
-        ::write(m_File, it.ptr(), it.length());
-        ::write(2, it.ptr(), it.length());
-    }
-
-    ::fsync(m_File);
-    ::fsync(2);
-}
-
-bool HostedSerial::isConnected()
-{
-    return m_File >= 0;
+bool HostedSerial::isConnected() {
+  return m_File >= 0;
 }

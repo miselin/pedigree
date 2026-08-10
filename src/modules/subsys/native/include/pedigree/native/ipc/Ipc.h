@@ -23,68 +23,61 @@
 #include "pedigree/native/compiler.h"
 #include "pedigree/native/types.h"
 
-namespace PedigreeIpc
-{
+namespace PedigreeIpc {
 /// A standard IPC message that is less than 4 KB in size.
-class EXPORTED_PUBLIC StandardIpcMessage
-{
-  public:
-    StandardIpcMessage();
-    virtual ~StandardIpcMessage();
+class EXPORTED_PUBLIC StandardIpcMessage {
+ public:
+  StandardIpcMessage();
+  virtual ~StandardIpcMessage();
 
-    virtual bool initialise();
+  virtual bool initialise();
 
-    /// Internal use only.
-    StandardIpcMessage(void *);
+  /// Internal use only.
+  StandardIpcMessage(void*);
 
-    virtual void *getBuffer() const
-    {
-        return static_cast<void *>(m_vAddr);
-    }
+  virtual void* getBuffer() const {
+    return static_cast<void*>(m_vAddr);
+  }
 
-  protected:
-    void *m_vAddr;
+ protected:
+  void* m_vAddr;
 };
 
 /// A message that is over 4 KB in size, and is really a shared memory area
 /// rather than an IPC message, to be precise.
-class EXPORTED_PUBLIC SharedIpcMessage : public StandardIpcMessage
-{
-  public:
-    SharedIpcMessage(size_t nBytes, void *existingHandle);
-    virtual ~SharedIpcMessage();
+class EXPORTED_PUBLIC SharedIpcMessage : public StandardIpcMessage {
+ public:
+  SharedIpcMessage(size_t nBytes, void* existingHandle);
+  virtual ~SharedIpcMessage();
 
-    virtual bool initialise();
+  virtual bool initialise();
 
-    void *getHandle() const
-    {
-        return m_pHandle;
-    }
+  void* getHandle() const {
+    return m_pHandle;
+  }
 
-    size_t getSize() const
-    {
-        return m_nBytes;
-    }
+  size_t getSize() const {
+    return m_nBytes;
+  }
 
-  private:
-    size_t m_nBytes;
-    void *m_pHandle;
+ private:
+  size_t m_nBytes;
+  void* m_pHandle;
 };
 
 /// Wrapper for an IPC endpoint. Utterly meaningless to everyone except the
 /// kernel, where it's actually useful.
-typedef void *IpcEndpoint;
+typedef void* IpcEndpoint;
 
 /// System calls. Cast SharedIpcMessage pointers to StandardIpcMessage.
-EXPORTED_PUBLIC bool
-send(IpcEndpoint pEndpoint, StandardIpcMessage *pMessage, bool bAsync = false);
-EXPORTED_PUBLIC bool recv(
-    IpcEndpoint pEndpoint, StandardIpcMessage **pMessage, bool bAsync = false);
+EXPORTED_PUBLIC bool send(IpcEndpoint pEndpoint, StandardIpcMessage* pMessage, bool bAsync = false);
+EXPORTED_PUBLIC bool recv(IpcEndpoint pEndpoint, StandardIpcMessage** pMessage,
+                          bool bAsync = false);
 
-EXPORTED_PUBLIC IpcEndpoint *getEndpoint(const char *name);
+EXPORTED_PUBLIC IpcEndpoint* getEndpoint(const char* name);
 
-EXPORTED_PUBLIC void createEndpoint(const char *name);
-EXPORTED_PUBLIC void removeEndpoint(const char *name);
+EXPORTED_PUBLIC void createEndpoint(const char* name);
+EXPORTED_PUBLIC void removeEndpoint(const char* name);
 
 /// Shorthand for the < 4 KB message type.
 typedef StandardIpcMessage IpcMessage;

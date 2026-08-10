@@ -17,27 +17,25 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "PedigreeCSyscallManager.h"
-#include "modules/Module.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 
+#include "PedigreeCSyscallManager.h"
+#include "modules/Module.h"
+
 static PedigreeCSyscallManager g_PedigreeCSyscallManager;
 
-static bool init()
-{
-    return g_PedigreeCSyscallManager.initialise();
+static bool init() {
+  return g_PedigreeCSyscallManager.initialise();
 }
 
-static void destroy()
-{
-    if (!g_PedigreeCSyscallManager.shutdown())
-    {
-        FATAL("Pedigree-C syscall handler could not be retired safely.");
-    }
+static void destroy() {
+  if (!g_PedigreeCSyscallManager.shutdown()) {
+    FATAL("Pedigree-C syscall handler could not be retired safely.");
+  }
 }
 
 MODULE_INFO("pedigree-c", &init, &destroy);

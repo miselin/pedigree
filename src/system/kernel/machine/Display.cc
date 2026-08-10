@@ -17,156 +17,122 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Display.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 Display::ScreenMode::ScreenMode()
-    : id(0), width(0), height(0), refresh(0), framebuffer(0), pf(), pf2(),
-      bytesPerLine(0), bytesPerPixel(0), textMode(false)
-{
+    : id(0),
+      width(0),
+      height(0),
+      refresh(0),
+      framebuffer(0),
+      pf(),
+      pf2(),
+      bytesPerLine(0),
+      bytesPerPixel(0),
+      textMode(false) {}
+
+Display::Display() {
+  m_SpecificType.assign("Generic Display", 16);
 }
 
-Display::Display()
-{
-    m_SpecificType.assign("Generic Display", 16);
+Display::Display(Device* p) : Device(p) {}
+
+Display::~Display() {}
+
+Device::Type Display::getType() {
+  return Device::Display;
 }
 
-Display::Display(Device *p) : Device(p)
-{
+void Display::getName(String& str) {
+  str.assign("Generic Display", 16);
 }
 
-Display::~Display()
-{
+void Display::dump(String& str) {
+  str.assign("Generic Display", 16);
 }
 
-Device::Type Display::getType()
-{
-    return Device::Display;
+void* Display::getFramebuffer() {
+  return 0;
 }
 
-void Display::getName(String &str)
-{
-    str.assign("Generic Display", 16);
+Display::rgb_t* Display::newBuffer() {
+  return 0;
 }
 
-void Display::dump(String &str)
-{
-    str.assign("Generic Display", 16);
+void Display::setCurrentBuffer(rgb_t* pBuffer) {}
+
+void Display::updateBuffer(rgb_t* pBuffer, size_t x1, size_t y1, size_t x2, size_t y2) {}
+
+void Display::killBuffer(rgb_t* pBuffer) {}
+
+void Display::bitBlit(rgb_t* pBuffer, size_t fromX, size_t fromY, size_t toX, size_t toY,
+                      size_t width, size_t height) {}
+
+void Display::fillRectangle(rgb_t* pBuffer, size_t x, size_t y, size_t width, size_t height,
+                            rgb_t colour) {}
+
+bool Display::getPixelFormat(PixelFormat& pf) {
+  return false;
 }
 
-void *Display::getFramebuffer()
-{
-    return 0;
+bool Display::getCurrentScreenMode(ScreenMode& sm) {
+  return false;
 }
 
-Display::rgb_t *Display::newBuffer()
-{
-    return 0;
+bool Display::getScreenModes(List<ScreenMode*>& sms) {
+  return false;
 }
 
-void Display::setCurrentBuffer(rgb_t *pBuffer)
-{
+bool Display::setScreenMode(ScreenMode sm) {
+  return false;
 }
 
-void Display::updateBuffer(
-    rgb_t *pBuffer, size_t x1, size_t y1, size_t x2, size_t y2)
-{
-}
+bool Display::setScreenMode(size_t modeId) {
+  Display::ScreenMode* pSm = 0;
 
-void Display::killBuffer(rgb_t *pBuffer)
-{
-}
-
-void Display::bitBlit(
-    rgb_t *pBuffer, size_t fromX, size_t fromY, size_t toX, size_t toY,
-    size_t width, size_t height)
-{
-}
-
-void Display::fillRectangle(
-    rgb_t *pBuffer, size_t x, size_t y, size_t width, size_t height,
-    rgb_t colour)
-{
-}
-
-bool Display::getPixelFormat(PixelFormat &pf)
-{
+  List<Display::ScreenMode*> modes;
+  if (!getScreenModes(modes))
     return false;
-}
-
-bool Display::getCurrentScreenMode(ScreenMode &sm)
-{
+  for (List<Display::ScreenMode*>::Iterator it = modes.begin(); it != modes.end(); it++) {
+    if ((*it)->id == modeId) {
+      pSm = *it;
+      break;
+    }
+  }
+  if (pSm == 0) {
+    ERROR("Screenmode not found: " << modeId);
     return false;
+  }
+
+  return setScreenMode(*pSm);
 }
 
-bool Display::getScreenModes(List<ScreenMode *> &sms)
-{
+bool Display::setScreenMode(size_t nWidth, size_t nHeight, size_t nBpp) {
+  // This default implementation is enough for VBE
+  /// \todo "Closest match": allow a threshold for a match in case the
+  ///       specific mode specified cannot be set.
+
+  Display::ScreenMode* pSm = 0;
+
+  List<Display::ScreenMode*> modes;
+  if (!getScreenModes(modes))
     return false;
-}
-
-bool Display::setScreenMode(ScreenMode sm)
-{
+  for (List<Display::ScreenMode*>::Iterator it = modes.begin(); it != modes.end(); it++) {
+    if (((*it)->width == nWidth) && ((*it)->height == nHeight)) {
+      if ((*it)->pf.nBpp == nBpp) {
+        pSm = *it;
+        break;
+      }
+    }
+  }
+  if (pSm == 0) {
+    ERROR("Screenmode not found: " << Dec << nWidth << "x" << nHeight << "x" << nBpp << Hex);
     return false;
-}
+  }
 
-bool Display::setScreenMode(size_t modeId)
-{
-    Display::ScreenMode *pSm = 0;
-
-    List<Display::ScreenMode *> modes;
-    if (!getScreenModes(modes))
-        return false;
-    for (List<Display::ScreenMode *>::Iterator it = modes.begin();
-         it != modes.end(); it++)
-    {
-        if ((*it)->id == modeId)
-        {
-            pSm = *it;
-            break;
-        }
-    }
-    if (pSm == 0)
-    {
-        ERROR("Screenmode not found: " << modeId);
-        return false;
-    }
-
-    return setScreenMode(*pSm);
-}
-
-bool Display::setScreenMode(size_t nWidth, size_t nHeight, size_t nBpp)
-{
-    // This default implementation is enough for VBE
-    /// \todo "Closest match": allow a threshold for a match in case the
-    ///       specific mode specified cannot be set.
-
-    Display::ScreenMode *pSm = 0;
-
-    List<Display::ScreenMode *> modes;
-    if (!getScreenModes(modes))
-        return false;
-    for (List<Display::ScreenMode *>::Iterator it = modes.begin();
-         it != modes.end(); it++)
-    {
-        if (((*it)->width == nWidth) && ((*it)->height == nHeight))
-        {
-            if ((*it)->pf.nBpp == nBpp)
-            {
-                pSm = *it;
-                break;
-            }
-        }
-    }
-    if (pSm == 0)
-    {
-        ERROR(
-            "Screenmode not found: " << Dec << nWidth << "x" << nHeight << "x"
-                                     << nBpp << Hex);
-        return false;
-    }
-
-    return setScreenMode(*pSm);
+  return setScreenMode(*pSm);
 }

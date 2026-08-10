@@ -27,39 +27,35 @@
 
 #include <cairo/cairo.h>
 
-class Png
-{
-  public:
-    Png(const char *filename);
-    ~Png();
+class Png {
+ public:
+  Png(const char* filename);
+  ~Png();
 
-    void render(cairo_t *cr, size_t x, size_t y, size_t width, size_t height);
-    void renderPartial(
-        cairo_t *cr, size_t atX, size_t atY, size_t innerX, size_t innerY,
-        size_t partialWidth, size_t partialHeight, size_t scaleWidth,
-        size_t scaleHeight);
+  void render(cairo_t* cr, size_t x, size_t y, size_t width, size_t height);
+  void renderPartial(cairo_t* cr, size_t atX, size_t atY, size_t innerX, size_t innerY,
+                     size_t partialWidth, size_t partialHeight, size_t scaleWidth,
+                     size_t scaleHeight);
 
-    size_t getWidth()
-    {
-        return m_nWidth;
-    }
+  size_t getWidth() {
+    return m_nWidth;
+  }
 
-    size_t getHeight()
-    {
-        return m_nHeight;
-    }
+  size_t getHeight() {
+    return m_nHeight;
+  }
 
-  private:
-    Png(const Png &);
-    Png &operator=(const Png &);
+ private:
+  Png(const Png&);
+  Png& operator=(const Png&);
 
-    png_structp m_PngPtr;
-    png_infop m_InfoPtr;
-    size_t m_nWidth;
-    size_t m_nHeight;
+  png_structp m_PngPtr;
+  png_infop m_InfoPtr;
+  size_t m_nWidth;
+  size_t m_nHeight;
 
-    uint8_t **m_pRowPointers;
-    uint32_t *m_pBitmap;
+  uint8_t** m_pRowPointers;
+  uint32_t* m_pBitmap;
 };
 
 #endif

@@ -30,71 +30,62 @@
 class Display;
 class Framebuffer;
 
-class GraphicsService : public Service
-{
-  public:
-    GraphicsService()
-        : m_Providers(), m_pCurrentProvider(0), m_pCurrentTextProvider(0),
-          m_ProviderLock()
-    {
-    }
-    virtual ~GraphicsService()
-    {
-    }
+class GraphicsService : public Service {
+ public:
+  GraphicsService()
+      : m_Providers(), m_pCurrentProvider(0), m_pCurrentTextProvider(0), m_ProviderLock() {}
+  virtual ~GraphicsService() {}
 
-    struct GraphicsProvider
-    {
-        Display *pDisplay;
+  struct GraphicsProvider {
+    Display* pDisplay;
 
-        /* Some form of hardware caps here... */
-        bool bHardwareAccel;
+    /* Some form of hardware caps here... */
+    bool bHardwareAccel;
 
-        Framebuffer *pFramebuffer;
+    Framebuffer* pFramebuffer;
 
-        size_t maxWidth;
-        size_t maxHeight;
-        size_t maxDepth;
+    size_t maxWidth;
+    size_t maxHeight;
+    size_t maxDepth;
 
-        size_t maxTextWidth;
-        size_t maxTextHeight;
+    size_t maxTextWidth;
+    size_t maxTextHeight;
 
-        /// Set to true if this display can drop back to a text-based mode
-        /// with x86's int 10h thing. If this is false, the driver should
-        /// handle "mode zero" as a "disable the video device" mode.
-        bool bTextModes;
-    };
+    /// Set to true if this display can drop back to a text-based mode
+    /// with x86's int 10h thing. If this is false, the driver should
+    /// handle "mode zero" as a "disable the video device" mode.
+    bool bTextModes;
+  };
 
-    struct GraphicsParameters
-    {
-        // Typically, the current "best" provider will be used for a probe.
-        // However, setting this adjusts the determination of the best
-        // provider to give one with the largest possible text mode.
-        bool wantTextMode;
+  struct GraphicsParameters {
+    // Typically, the current "best" provider will be used for a probe.
+    // However, setting this adjusts the determination of the best
+    // provider to give one with the largest possible text mode.
+    bool wantTextMode;
 
-        // Provider target, the resulting provider will be copied into this.
-        // It is only valid if providerFound is true.
-        bool providerFound;
-        GraphicsProvider providerResult;
-    };
+    // Provider target, the resulting provider will be copied into this.
+    // It is only valid if providerFound is true.
+    bool providerFound;
+    GraphicsProvider providerResult;
+  };
 
-    /** serve: Interface through which clients interact with the Service */
-    bool serve(ServiceFeatures::Type type, void *pData, size_t dataLen);
+  /** serve: Interface through which clients interact with the Service */
+  bool serve(ServiceFeatures::Type type, void* pData, size_t dataLen);
 
-  private:
-    struct ProviderPair
-    {
-        GraphicsProvider *bestBase;
-        GraphicsProvider *bestText;
-    };
+ private:
+  struct ProviderPair {
+    GraphicsProvider* bestBase;
+    GraphicsProvider* bestText;
+  };
 
-    ProviderPair determineBestProvider();
+  ProviderPair determineBestProvider();
 
-    List<GraphicsProvider *> m_Providers;
+  List<GraphicsProvider*> m_Providers;
 
-    GraphicsProvider *m_pCurrentProvider;
-    GraphicsProvider *m_pCurrentTextProvider;
+  GraphicsProvider* m_pCurrentProvider;
+  GraphicsProvider* m_pCurrentTextProvider;
 
-    Mutex m_ProviderLock;
+  Mutex m_ProviderLock;
 };
 
 #endif

@@ -36,48 +36,44 @@ class ServiceFeatures;
  *
  *  It also provides services such as enumeration of Service operations.
  */
-class EXPORTED_PUBLIC ServiceManager
-{
-  public:
-    ServiceManager();
-    virtual ~ServiceManager();
+class EXPORTED_PUBLIC ServiceManager {
+ public:
+  ServiceManager();
+  virtual ~ServiceManager();
 
-    static ServiceManager &instance()
-    {
-        return m_Instance;
-    }
+  static ServiceManager& instance() {
+    return m_Instance;
+  }
 
-    /**
-     *  Enumerates all possible operations that can be performed for a
-     *  given Service
-     */
-    ServiceFeatures *enumerateOperations(const String &serviceName);
+  /**
+   *  Enumerates all possible operations that can be performed for a
+   *  given Service
+   */
+  ServiceFeatures* enumerateOperations(const String& serviceName);
 
-    /** Adds a service to the manager */
-    void
-    addService(const String &serviceName, Service *s, ServiceFeatures *feats);
+  /** Adds a service to the manager */
+  void addService(const String& serviceName, Service* s, ServiceFeatures* feats);
 
-    /** Removes a service from the manager */
-    void removeService(const String &serviceName);
+  /** Removes a service from the manager */
+  void removeService(const String& serviceName);
 
-    /** Gets the Service object for a service */
-    Service *getService(const String &serviceName);
+  /** Gets the Service object for a service */
+  Service* getService(const String& serviceName);
 
-  private:
-    static ServiceManager m_Instance;
+ private:
+  static ServiceManager m_Instance;
 
-    /** Internal representation of a Service */
-    class InternalService
-    {
-      public:
-        /// The Service itself
-        Service *pService;
+  /** Internal representation of a Service */
+  class InternalService {
+   public:
+    /// The Service itself
+    Service* pService;
 
-        /// Service operation enumeration
-        ServiceFeatures *pFeatures;
-    };
+    /// Service operation enumeration
+    ServiceFeatures* pFeatures;
+  };
 
-    /** Services we know about */
-    RadixTree<InternalService *> m_Services;
+  /** Services we know about */
+  RadixTree<InternalService*> m_Services;
 };
 #endif

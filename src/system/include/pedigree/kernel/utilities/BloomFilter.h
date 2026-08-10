@@ -25,69 +25,57 @@
 #include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
 
 template <class T>
-class BloomFilter
-{
-  public:
-    BloomFilter(size_t length, size_t hashcount)
-        : m_Bitmap(), m_nLength(length), m_nHashCount(hashcount)
-    {
+class BloomFilter {
+ public:
+  BloomFilter(size_t length, size_t hashcount)
+      : m_Bitmap(), m_nLength(length), m_nHashCount(hashcount) {}
+  virtual ~BloomFilter() {};
+
+  void add(const T& data) {
+    add(&data, sizeof(T));
+  }
+
+  void add(const T* data, size_t length) {
+    uint64_t baseHash[2];
+    MurmurHash3_x64_128(data, length, 0, baseHash);
+
+    for (size_t i = 0; i < m_nHashCount; ++i) {
+      uint64_t n = (baseHash[0] + (i * baseHash[1])) % m_nLength;
+      m_Bitmap.set(n);
     }
-    virtual ~BloomFilter(){};
+  }
 
-    void add(const T &data)
-    {
-        add(&data, sizeof(T));
-    }
+  bool contains(const T& data) {
+    return contains(&data, sizeof(T));
+  }
 
-    void add(const T *data, size_t length)
-    {
-        uint64_t baseHash[2];
-        MurmurHash3_x64_128(data, length, 0, baseHash);
+  bool contains(const T* data, size_t length) {
+    uint64_t baseHash[2];
+    MurmurHash3_x64_128(data, length, 0, baseHash);
 
-        for (size_t i = 0; i < m_nHashCount; ++i)
-        {
-            uint64_t n = (baseHash[0] + (i * baseHash[1])) % m_nLength;
-            m_Bitmap.set(n);
-        }
-    }
-
-    bool contains(const T &data)
-    {
-        return contains(&data, sizeof(T));
-    }
-
-    bool contains(const T *data, size_t length)
-    {
-        uint64_t baseHash[2];
-        MurmurHash3_x64_128(data, length, 0, baseHash);
-
-        for (size_t i = 0; i < m_nHashCount; ++i)
-        {
-            uint64_t n = (baseHash[0] + (i * baseHash[1])) % m_nLength;
-            if (!m_Bitmap.test(n))
-            {
-                return false;
-            }
-        }
-
-        return true;
+    for (size_t i = 0; i < m_nHashCount; ++i) {
+      uint64_t n = (baseHash[0] + (i * baseHash[1])) % m_nLength;
+      if (!m_Bitmap.test(n)) {
+        return false;
+      }
     }
 
-    void clear()
-    {
-        for (size_t i = 0; i < m_nLength; ++i)
-        {
-            m_Bitmap.clear(i);
-        }
-    }
+    return true;
+  }
 
-  private:
-    ExtensibleBitmap m_Bitmap;
-    size_t m_nLength;
-    size_t m_nHashCount;
+  void clear() {
+    for (size_t i = 0; i < m_nLength; ++i) {
+      m_Bitmap.clear(i);
+    }
+  }
+
+ private:
+  ExtensibleBitmap m_Bitmap;
+  size_t m_nLength;
+  size_t m_nHashCount;
 };
 
-extern template class BloomFilter<void *>;    // IWYU pragma: keep
+extern template class BloomFilter<void*>;     // IWYU pragma: keep
 extern template class BloomFilter<int8_t>;    // IWYU pragma: keep
 extern template class BloomFilter<int16_t>;   // IWYU pragma: keep
 extern template class BloomFilter<int32_t>;   // IWYU pragma: keep

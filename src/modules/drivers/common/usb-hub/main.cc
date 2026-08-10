@@ -17,29 +17,27 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/utilities/new"
+
 #include "UsbHubDevice.h"
 #include "modules/Module.h"
 #include "modules/system/usb/UsbPnP.h"
-#include "pedigree/kernel/utilities/new"
 
 class UsbDevice;
 
 static UsbPnP::Registration g_Registration;
 
-static UsbDevice *hubConnected(UsbDevice *pDevice)
-{
-    return new UsbHubDevice(pDevice);
+static UsbDevice* hubConnected(UsbDevice* pDevice) {
+  return new UsbHubDevice(pDevice);
 }
 
-static bool entry()
-{
-    return UsbPnP::instance().registerCallback(
-        9, SubclassNone, ProtocolNone, hubConnected, g_Registration);
+static bool entry() {
+  return UsbPnP::instance().registerCallback(9, SubclassNone, ProtocolNone, hubConnected,
+                                             g_Registration);
 }
 
-static void exit()
-{
-    g_Registration.reset();
+static void exit() {
+  g_Registration.reset();
 }
 
 MODULE_INFO("usb-hub", &entry, &exit, "usb");

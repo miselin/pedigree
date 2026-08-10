@@ -19,102 +19,89 @@
 
 #include "pedigree/native/graphics/Graphics.h"
 #include "pedigree/native/types.h"
-#include <Widget.h>
 
+#include <Widget.h>
 #include <iostream>
 
 using namespace PedigreeGraphics;
 
-class TestWidget : public Widget
-{
-  public:
-    TestWidget(uint32_t rgb) : Widget(), m_Rgb(rgb){};
-    virtual ~TestWidget()
-    {
+class TestWidget : public Widget {
+ public:
+  TestWidget(uint32_t rgb) : Widget(), m_Rgb(rgb) {};
+  virtual ~TestWidget() {}
+
+  virtual bool render(Rect& rt, Rect& dirty) {
+    std::cout << "uitest: rendering widget." << std::endl;
+
+    void* pFramebuffer = getRawFramebuffer();
+    uint32_t* buffer = (uint32_t*)pFramebuffer;
+    for (size_t y = 0; y < rt.getH(); ++y) {
+      for (size_t x = 0; x < rt.getW(); ++x)
+        buffer[y * rt.getW() + x] = m_Rgb;
     }
 
-    virtual bool render(Rect &rt, Rect &dirty)
-    {
-        std::cout << "uitest: rendering widget." << std::endl;
+    dirty.update(0, 0, rt.getW(), rt.getH());
 
-        void *pFramebuffer = getRawFramebuffer();
-        uint32_t *buffer = (uint32_t *) pFramebuffer;
-        for (size_t y = 0; y < rt.getH(); ++y)
-        {
-            for (size_t x = 0; x < rt.getW(); ++x)
-                buffer[y * rt.getW() + x] = m_Rgb;
-        }
+    return true;
+  }
 
-        dirty.update(0, 0, rt.getW(), rt.getH());
-
-        return true;
-    }
-
-  private:
-    uint32_t m_Rgb;
+ private:
+  uint32_t m_Rgb;
 };
 
 volatile bool bRun = true;
 
-bool callback(WidgetMessages message, size_t msgSize, const void *msgData)
-{
-    std::cout << "uitest: callback for '" << static_cast<int>(message) << "'."
-              << std::endl;
+bool callback(WidgetMessages message, size_t msgSize, const void* msgData) {
+  std::cout << "uitest: callback for '" << static_cast<int>(message) << "'." << std::endl;
 
-    if (message == Terminate)
-    {
-        bRun = false;
-    }
+  if (message == Terminate) {
+    bRun = false;
+  }
 
-    return true;
+  return true;
 }
 
-int main(int argc, char *argv[])
-{
-    std::cout << "uitest: starting up" << std::endl;
+int main(int argc, char* argv[]) {
+  std::cout << "uitest: starting up" << std::endl;
 
-    Rect rt(20, 20, 20, 20);
+  Rect rt(20, 20, 20, 20);
 
-    Widget *pWidgetA = new TestWidget(createRgb(0xFF, 0, 0));
-    if (!pWidgetA->construct("uitest.A", "UI Test A", callback, rt))
-    {
-        std::cerr << "uitest: widget A construction failed" << std::endl;
-        delete pWidgetA;
-        return 1;
-    }
-
-    Widget *pWidgetB = new TestWidget(createRgb(0, 0xFF, 0));
-    if (!pWidgetB->construct("uitest.B", "UI Test B", callback, rt))
-    {
-        std::cerr << "uitest: widget B construction failed" << std::endl;
-        delete pWidgetA;
-        delete pWidgetB;
-        return 1;
-    }
-
-    std::cout << "uitest: widgets created (handles are "
-              << pWidgetA->getHandle() << ", " << pWidgetB->getHandle() << ")."
-              << std::endl;
-
-    pWidgetA->visibility(true);
-    pWidgetB->visibility(true);
-
-    std::cout << "Widgets are visible!" << std::endl;
-
-    Rect dirtyA, dirtyB;
-    pWidgetA->render(rt, dirtyA);
-    pWidgetB->render(rt, dirtyB);
-    pWidgetA->redraw(dirtyA);
-    pWidgetB->redraw(dirtyB);
-
-    // Main loop
-    while (bRun)
-    {
-        Widget::checkForEvents();
-    }
-
-    delete pWidgetB;
+  Widget* pWidgetA = new TestWidget(createRgb(0xFF, 0, 0));
+  if (!pWidgetA->construct("uitest.A", "UI Test A", callback, rt)) {
+    std::cerr << "uitest: widget A construction failed" << std::endl;
     delete pWidgetA;
+    return 1;
+  }
 
-    return 0;
+  Widget* pWidgetB = new TestWidget(createRgb(0, 0xFF, 0));
+  if (!pWidgetB->construct("uitest.B", "UI Test B", callback, rt)) {
+    std::cerr << "uitest: widget B construction failed" << std::endl;
+    delete pWidgetA;
+    delete pWidgetB;
+    return 1;
+  }
+
+  std::cout << "uitest: widgets created (handles are " << pWidgetA->getHandle() << ", "
+            << pWidgetB->getHandle() << ")." << std::endl;
+
+  pWidgetA->visibility(true);
+  pWidgetB->visibility(true);
+
+  std::cout << "Widgets are visible!" << std::endl;
+
+  Rect dirtyA, dirtyB;
+  pWidgetA->render(rt, dirtyA);
+  pWidgetB->render(rt, dirtyB);
+  pWidgetA->redraw(dirtyA);
+  pWidgetB->redraw(dirtyB);
+
+  // Main loop
+  while (bRun) {
+    Widget::checkForEvents();
+  }
+
+  delete pWidgetB;
+  delete pWidgetA;
+
+  return 0;
 }

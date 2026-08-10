@@ -18,78 +18,67 @@
  */
 
 #include "Symlink.h"
-#include "Filesystem.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-Symlink::Symlink() : File(), m_pCachedSymlink(0)
-{
+#include "Filesystem.h"
+
+Symlink::Symlink() : File(), m_pCachedSymlink(0) {}
+
+Symlink::Symlink(const String& name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
+                 Time::Timestamp creationTime, uintptr_t inode, Filesystem* pFs, size_t size,
+                 File* pParent)
+    : File(name, accessedTime, modifiedTime, creationTime, inode, pFs, size, pParent),
+      m_pCachedSymlink(0),
+      m_sTarget() {}
+
+Symlink::~Symlink() {}
+
+void Symlink::initialise(bool bForce) {
+  if (m_sTarget.length() && !bForce)
+    return;
+
+  size_t sz = getSize();
+  if (sz > 0x1000)
+    sz = 0x1000;
+
+  // Read symlink target.
+  char* pBuffer = new char[sz];
+  read(0ULL, sz, reinterpret_cast<uintptr_t>(pBuffer));
+  pBuffer[sz] = '\0';
+
+  // Convert to String object, wipe out whitespace.
+  m_sTarget.assign(pBuffer, sz);
+  m_sTarget.rstrip();
+
+  // Wipe out cached symlink if we're being forced to re-init.
+  if (bForce)
+    m_pCachedSymlink = 0;
 }
 
-Symlink::Symlink(
-    const String &name, Time::Timestamp accessedTime,
-    Time::Timestamp modifiedTime, Time::Timestamp creationTime, uintptr_t inode,
-    Filesystem *pFs, size_t size, File *pParent)
-    : File(
-          name, accessedTime, modifiedTime, creationTime, inode, pFs, size,
-          pParent),
-      m_pCachedSymlink(0), m_sTarget()
-{
-}
-
-Symlink::~Symlink()
-{
-}
-
-void Symlink::initialise(bool bForce)
-{
-    if (m_sTarget.length() && !bForce)
-        return;
-
-    size_t sz = getSize();
-    if (sz > 0x1000)
-        sz = 0x1000;
-
-    // Read symlink target.
-    char *pBuffer = new char[sz];
-    read(0ULL, sz, reinterpret_cast<uintptr_t>(pBuffer));
-    pBuffer[sz] = '\0';
-
-    // Convert to String object, wipe out whitespace.
-    m_sTarget.assign(pBuffer, sz);
-    m_sTarget.rstrip();
-
-    // Wipe out cached symlink if we're being forced to re-init.
-    if (bForce)
-        m_pCachedSymlink = 0;
-}
-
-File *Symlink::followLink()
-{
-    if (m_pCachedSymlink)
-        return m_pCachedSymlink;
-
-    initialise();
-
-    m_pCachedSymlink = m_pFilesystem->find(m_sTarget, m_pParent);
+File* Symlink::followLink() {
+  if (m_pCachedSymlink)
     return m_pCachedSymlink;
+
+  initialise();
+
+  m_pCachedSymlink = m_pFilesystem->find(m_sTarget, m_pParent);
+  return m_pCachedSymlink;
 }
 
-int Symlink::followLink(char *pBuffer, size_t bufLen)
-{
-    initialise();
+int Symlink::followLink(char* pBuffer, size_t bufLen) {
+  initialise();
 
-    if (m_sTarget.length() < bufLen)
-        bufLen = m_sTarget.length();
+  if (m_sTarget.length() < bufLen)
+    bufLen = m_sTarget.length();
 
-    StringCopyN(pBuffer, static_cast<const char *>(m_sTarget), bufLen);
+  StringCopyN(pBuffer, static_cast<const char*>(m_sTarget), bufLen);
 
-    if (bufLen < m_sTarget.length())
-        pBuffer[bufLen] = '\0';
+  if (bufLen < m_sTarget.length())
+    pBuffer[bufLen] = '\0';
 
-    return bufLen;
+  return bufLen;
 }
 
-bool Symlink::isBytewise() const
-{
-    return true;
+bool Symlink::isBytewise() const {
+  return true;
 }
