@@ -94,6 +94,127 @@ class SelfUnregisteringHandler : public SyscallHandler {
   Atomic<size_t> rejectionSeen;
 };
 
+struct ReciprocalUnregisterContext;
+
+class ReciprocalUnregisterHandler : public SyscallHandler {
+ public:
+  ReciprocalUnregisterHandler(ReciprocalUnregisterContext& context, bool first)
+      : m_Context(context), m_First(first) {}
+
+  uintptr_t syscall(SyscallState&) override;
+
+ private:
+  ReciprocalUnregisterContext& m_Context;
+  bool m_First;
+};
+
+struct ReciprocalUnregisterContext {
+  ReciprocalUnregisterContext()
+      : first(*this, true),
+        second(*this, false),
+        entered(0),
+        attempts(0),
+        rejections(0),
+        resetReturns(0),
+        failures(0) {}
+
+  ReciprocalUnregisterHandler first;
+  ReciprocalUnregisterHandler second;
+  SyscallManager::Registration firstRegistration;
+  SyscallManager::Registration secondRegistration;
+  Atomic<size_t> entered;
+  Atomic<size_t> attempts;
+  Atomic<size_t> rejections;
+  Atomic<size_t> resetReturns;
+  Atomic<size_t> failures;
+};
+
+uintptr_t ReciprocalUnregisterHandler::syscall(SyscallState&) {
+  m_Context.entered += 1;
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (m_Context.entered != static_cast<size_t>(2) && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+
+  if (m_Context.entered != static_cast<size_t>(2)) {
+    m_Context.failures += 1;
+    return 0;
+  }
+
+  m_Context.attempts += 1;
+  SyscallManager::Registration& peer =
+      m_First ? m_Context.secondRegistration : m_Context.firstRegistration;
+  if (!peer.reset() && peer) {
+    m_Context.rejections += 1;
+  } else {
+    m_Context.failures += 1;
+  }
+  m_Context.resetReturns += 1;
+  const Time::Timestamp returnDeadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (m_Context.resetReturns != static_cast<size_t>(2) && Time::getTicks() < returnDeadline) {
+    Scheduler::instance().yield();
+  }
+  if (m_Context.resetReturns != static_cast<size_t>(2)) {
+    m_Context.failures += 1;
+  }
+  return m_First ? 0x53 : 0x54;
+}
+
+struct ReciprocalSyscallInvocation {
+  ReciprocalUnregisterContext* context;
+  Service_t service;
+  uintptr_t result;
+};
+
+int invokeReciprocalSyscall(void* parameter) {
+  ReciprocalSyscallInvocation* invocation =
+      reinterpret_cast<ReciprocalSyscallInvocation*>(parameter);
+  invocation->result = SyscallManager::instance().syscall(invocation->service, 0);
+  return 0;
+}
+
+bool reciprocalUnregisterRejected() {
+  SyscallManager& manager = SyscallManager::instance();
+  ReciprocalUnregisterContext context;
+  const bool registered =
+      manager.registerSyscallHandler(TUI, &context.first, context.firstRegistration) &&
+      manager.registerSyscallHandler(native, &context.second, context.secondRegistration);
+  if (!registered) {
+    if (context.firstRegistration) {
+      context.firstRegistration.reset();
+    }
+    return check(false, "syscall-reciprocal-unregister",
+                 "the reciprocal handlers could not register");
+  }
+
+  ReciprocalSyscallInvocation first = {&context, TUI, 0};
+  ReciprocalSyscallInvocation second = {&context, native, 0};
+  Thread* firstThread = new Thread(Scheduler::instance().getKernelProcess(),
+                                   invokeReciprocalSyscall, &first, nullptr, false, true);
+  Thread* secondThread = new Thread(Scheduler::instance().getKernelProcess(),
+                                    invokeReciprocalSyscall, &second, nullptr, false, true);
+  firstThread->setName("hosted syscall reciprocal first");
+  secondThread->setName("hosted syscall reciprocal second");
+
+  const bool firstJoined = firstThread->join();
+  const bool secondJoined = secondThread->join();
+  const bool registrationsPreserved = context.firstRegistration && context.secondRegistration;
+  const bool firstRetired = context.firstRegistration.reset();
+  const bool secondRetired = context.secondRegistration.reset();
+  const bool passed =
+      check(firstJoined && secondJoined && first.result == 0x53 && second.result == 0x54 &&
+                context.entered == 2 && context.attempts == 2 && context.rejections == 2 &&
+                context.resetReturns == 2 && context.failures == 0,
+            "syscall-reciprocal-unregister", "reciprocal callbacks did not finish cleanly") &&
+      check(registrationsPreserved && firstRetired && secondRetired,
+            "syscall-reciprocal-unregister",
+            "callback-context rejection lost external cleanup ownership");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS syscall-reciprocal-unregister");
+  }
+  return passed;
+}
+
 void handlerPinHook(Service_t service, SyscallHandler* handler) {
   HandlerLifetimeContext* context = g_HandlerLifetimeContext;
   if (!context || service != TUI || handler != &context->handler ||
@@ -446,6 +567,6 @@ bool abandonedSyscallStack() {
 }  // namespace
 
 bool runHostedSyscallRegressions() {
-  return handlerLifetimeBarrier() && postSyscallActions() && baseStateEventActionsRejected() &&
-         abandonedSyscallStack();
+  return handlerLifetimeBarrier() && reciprocalUnregisterRejected() && postSyscallActions() &&
+         baseStateEventActionsRejected() && abandonedSyscallStack();
 }

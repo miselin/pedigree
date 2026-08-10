@@ -23,6 +23,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/utilities/assert.h"
 
@@ -162,6 +163,20 @@ bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler
   return true;
 }
 
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+bool SyscallManager::dispatchHandlerForTest(Service_t service, uintptr_t& result) {
+  PostSyscallAction action;
+  HandlerLease handler;
+  if (!acquireHandler(service, handler, action)) {
+    return false;
+  }
+
+  SyscallState state = {};
+  result = handler.handler()->syscall(state);
+  return action.kind == NoPostSyscallAction;
+}
+#endif
+
 bool SyscallManager::unregisterHandler(Registration& registration) {
   if (registration.m_pManager != this || UNLIKELY(registration.m_Service >= serviceEnd) ||
       !registration.m_pHandler || !registration.m_Generation) {
@@ -179,6 +194,7 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
     m_HandlerLock.release();
     return false;
   }
+
   const size_t targetGeneration = registration.m_Generation;
   if (!slot.inFlight) {
     clearSlot(slot);
@@ -187,19 +203,27 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
   }
 
   void* owner = currentDispatchOwner();
-  bool selfUnregister = false;
-  for (HandlerDispatch* dispatch = slot.dispatches; dispatch; dispatch = dispatch->next) {
-    if (dispatch->owner == owner) {
-      selfUnregister = true;
-      break;
+  bool callbackContext = false;
+  for (size_t i = 0; i < serviceEnd && !callbackContext; ++i) {
+    for (HandlerDispatch* dispatch = m_HandlerSlots[i].dispatches; dispatch;
+         dispatch = dispatch->next) {
+      if (dispatch->owner == owner) {
+        callbackContext = true;
+        break;
+      }
     }
   }
 
-  if (selfUnregister || !canYield) {
-    // A callback cannot drain its own admission, and waiting without a
-    // schedulable thread cannot make progress. Keep the registration live
-    // so false never authorises caller teardown. A different service's
-    // callback may wait here normally under TerminationDeferral.
+  // A callback draining any handler can form a reciprocal wait with that
+  // handler. Keep token ownership live for an ordinary external drain.
+  if (callbackContext) {
+    m_HandlerLock.release();
+    return false;
+  }
+
+  if (!canYield) {
+    // Waiting without a schedulable thread cannot make progress. Keep the
+    // registration live so false never authorises caller teardown.
     m_HandlerLock.release();
     return false;
   }

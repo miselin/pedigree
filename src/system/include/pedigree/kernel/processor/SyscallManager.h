@@ -123,6 +123,11 @@ class SyscallManager {
                             uintptr_t p2 = 0, uintptr_t p3 = 0, uintptr_t p4 = 0,
                             uintptr_t p5 = 0) = 0;
 
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+  /** Dispatch a synthetic kernel-side call without entering through SYSCALL. */
+  EXPORTED_PUBLIC bool dispatchHandlerForTest(Service_t service, uintptr_t& result);
+#endif
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   using HandlerPinHook = void (*)(Service_t, SyscallHandler*);
   using PostSyscallHook = bool (*)(PostSyscallActionKind, intptr_t);
