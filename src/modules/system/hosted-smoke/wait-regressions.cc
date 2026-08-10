@@ -45,7 +45,7 @@ EXPORTED_PUBLIC bool runHostedFatSectorRegressions();
 EXPORTED_PUBLIC bool runHostedRawFsContractRegressions();
 EXPORTED_PUBLIC bool runHostedUnixDatagramRegressions();
 bool runHostedLogRegressions();
-bool runHostedNetworkFilterRegressions();
+bool runNetworkFilterConcurrencyRegressions();
 bool runHostedPipeRegressions();
 bool runHostedPs2ControllerRegressions();
 bool runHostedPs2MouseRegressions();
@@ -1775,7 +1775,7 @@ bool runHostedWaitRegressions() {
       runHostedUsbCallbackDeliveryRegressions() && runHostedUsbHcdPortChangeRegressions() &&
       runHostedUsbTransferLifecycleRegressions() && runHostedMutexRegressions() &&
       runHostedInterruptManagerRegressions() && runHostedCdiIrqRegressions() &&
-      runHostedInputRegressions() && runHostedNetworkFilterRegressions() &&
+      runHostedInputRegressions() && runNetworkFilterConcurrencyRegressions() &&
       runHostedCacheRegressions() && runHostedFatSectorRegressions() &&
       runHostedRawFsContractRegressions() && runHostedUnixDatagramRegressions() &&
 #endif

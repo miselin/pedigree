@@ -66,10 +66,18 @@ class EXPORTED_PUBLIC NetworkFilter {
    */
   size_t installCallback(size_t level, bool (*callback)(uintptr_t, size_t));
 
-  /** Removes a callback for a specific level. */
-  void removeCallback(size_t level, size_t id);
+  /**
+   * Closes admission and removes a callback for a specific level.
+   *
+   * Outside filter dispatch this waits for admitted calls and returns true
+   * once callback-owned state may be destroyed. During dispatch, an active
+   * target is disabled but retained and false is returned; the caller must
+   * preserve the identifier and callback-owned state, then retry from outside
+   * callback context. An already absent valid identifier is complete.
+   */
+  bool removeCallback(size_t level, size_t id);
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
   using CallbackPinHook = void (*)(bool (*)(uintptr_t, size_t), size_t);
   static void setCallbackPinHook(CallbackPinHook hook);
 #endif
@@ -82,7 +90,6 @@ class EXPORTED_PUBLIC NetworkFilter {
     size_t removers;
     bool enabled;
     bool draining;
-    bool deferredRemoval;
     WaitQueue drainWaiters;
   };
 
@@ -93,7 +100,7 @@ class EXPORTED_PUBLIC NetworkFilter {
   };
 
   void drainCallback(size_t level, CallbackItem* item);
-  bool isSelfRemoval(CallbackItem* item, Thread* thread) const;
+  bool isCallbackInvocation(Thread* thread) const;
 
   static NetworkFilter m_Instance;
 
@@ -102,7 +109,7 @@ class EXPORTED_PUBLIC NetworkFilter {
   size_t m_NextCallbackId;
   ActiveInvocation* m_pActiveInvocations;
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
   static CallbackPinHook m_CallbackPinHook;
 #endif
 };

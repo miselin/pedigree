@@ -25,7 +25,7 @@
 
 NetworkFilter NetworkFilter::m_Instance;
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
 NetworkFilter::CallbackPinHook NetworkFilter::m_CallbackPinHook = nullptr;
 #endif
 
@@ -33,6 +33,13 @@ NetworkFilter::NetworkFilter()
     : m_Callbacks(), m_Lock(), m_NextCallbackId(1), m_pActiveInvocations(nullptr) {}
 
 NetworkFilter::~NetworkFilter() {
+  m_Lock.acquire();
+  const bool callbackContext = isCallbackInvocation(Processor::information().getCurrentThread());
+  m_Lock.release();
+  if (callbackContext) {
+    FATAL("NetworkFilter cannot be destroyed from callback context.");
+  }
+
   for (size_t level = 1; level <= 4; ++level) {
     while (true) {
       m_Lock.acquire();
@@ -43,7 +50,9 @@ NetworkFilter::~NetworkFilter() {
       if (!item) {
         break;
       }
-      removeCallback(level, id);
+      if (!removeCallback(level, id)) {
+        FATAL("NetworkFilter callback teardown did not complete.");
+      }
     }
   }
 }
@@ -89,7 +98,7 @@ bool NetworkFilter::filter(size_t level, uintptr_t packet, size_t sz) {
       break;
     }
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
     CallbackPinHook hook = __atomic_load_n(&m_CallbackPinHook, __ATOMIC_ACQUIRE);
     if (hook) {
       hook(item->callback, item->id);
@@ -97,7 +106,6 @@ bool NetworkFilter::filter(size_t level, uintptr_t packet, size_t sz) {
 #endif
     accepted = item->callback(packet, sz);
 
-    bool deleteDeferred = false;
     {
       auto completionGuard = item->drainWaiters.acquire();
       bool wakeDrainers = false;
@@ -118,25 +126,12 @@ bool NetworkFilter::filter(size_t level, uintptr_t packet, size_t sz) {
       --item->inFlight;
       if (!item->inFlight) {
         wakeDrainers = item->draining;
-        deleteDeferred = item->deferredRemoval && !item->draining;
-        if (deleteDeferred) {
-          for (List<CallbackItem*>::Iterator it = m_Callbacks[level - 1].begin();
-               it != m_Callbacks[level - 1].end(); ++it) {
-            if (*it == item) {
-              m_Callbacks[level - 1].erase(it);
-              break;
-            }
-          }
-        }
       }
       m_Lock.release();
 
       if (wakeDrainers) {
         completionGuard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(item));
       }
-    }
-    if (deleteDeferred) {
-      delete item;
     }
   }
 
@@ -154,7 +149,6 @@ size_t NetworkFilter::installCallback(size_t level, bool (*callback)(uintptr_t, 
   item->removers = 0;
   item->enabled = true;
   item->draining = false;
-  item->deferredRemoval = false;
 
   m_Lock.acquire();
   size_t id = m_NextCallbackId++;
@@ -168,15 +162,15 @@ size_t NetworkFilter::installCallback(size_t level, bool (*callback)(uintptr_t, 
   return id;
 }
 
-void NetworkFilter::removeCallback(size_t level, size_t id) {
+bool NetworkFilter::removeCallback(size_t level, size_t id) {
   if (!level || level > 4 || id == static_cast<size_t>(-1)) {
-    return;
+    return false;
   }
 
   TerminationDeferral terminationDeferral;
   CallbackItem* item = nullptr;
   bool deleteNow = false;
-  bool selfRemoval = false;
+  bool callbackRemoval = false;
   Thread* current = Processor::information().getCurrentThread();
 
   m_Lock.acquire();
@@ -188,18 +182,13 @@ void NetworkFilter::removeCallback(size_t level, size_t id) {
 
     item = *it;
     item->enabled = false;
-    selfRemoval = isSelfRemoval(item, current);
-    if (selfRemoval) {
-      if (item->inFlight) {
-        if (!item->draining) {
-          item->deferredRemoval = true;
-        }
-      } else {
+    callbackRemoval = isCallbackInvocation(current);
+    if (callbackRemoval) {
+      if (!item->draining && !item->inFlight) {
         m_Callbacks[level - 1].erase(it);
         deleteNow = true;
       }
     } else {
-      item->deferredRemoval = false;
       item->draining = true;
       ++item->removers;
     }
@@ -208,13 +197,16 @@ void NetworkFilter::removeCallback(size_t level, size_t id) {
   m_Lock.release();
 
   if (!item) {
-    return;
+    return true;
   }
   if (deleteNow) {
     delete item;
-  } else if (!selfRemoval) {
+    return true;
+  } else if (!callbackRemoval) {
     drainCallback(level, item);
+    return true;
   }
+  return false;
 }
 
 void NetworkFilter::drainCallback(size_t level, CallbackItem* item) {
@@ -262,17 +254,17 @@ void NetworkFilter::drainCallback(size_t level, CallbackItem* item) {
   }
 }
 
-bool NetworkFilter::isSelfRemoval(CallbackItem* item, Thread* thread) const {
+bool NetworkFilter::isCallbackInvocation(Thread* thread) const {
   for (ActiveInvocation* invocation = m_pActiveInvocations; invocation;
        invocation = invocation->next) {
-    if (invocation->item == item && invocation->thread == thread) {
+    if (invocation->thread == thread) {
       return true;
     }
   }
   return false;
 }
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
 void NetworkFilter::setCallbackPinHook(CallbackPinHook hook) {
   __atomic_store_n(&m_CallbackPinHook, hook, __ATOMIC_RELEASE);
 }
