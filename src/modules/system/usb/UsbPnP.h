@@ -47,10 +47,13 @@ class EXPORTED_PUBLIC UsbPnP {
   /**
    * Owns one callback registration.
    *
-   * reset() closes admission to the factory/probe callback and waits for
-   * callbacks which were already admitted. It does not retire successfully
-   * bound driver instances; a module must detach and destroy those objects
-   * separately before its code can be unloaded.
+   * reset() closes admission to the factory/probe callback. Outside callback
+   * dispatch it waits for callbacks which were already admitted and returns
+   * true once callback-owned state may be destroyed. During dispatch, an active
+   * target is closed but retained and false is returned; ownership remains live
+   * for a later retry from outside callback context. It does not retire
+   * successfully bound driver instances; a module must detach and destroy those
+   * objects separately before its code can be unloaded.
    */
   class EXPORTED_PUBLIC Registration {
    public:
@@ -60,7 +63,7 @@ class EXPORTED_PUBLIC UsbPnP {
 
     Registration& operator=(Registration&& other);
 
-    void reset();
+    bool reset();
 
     explicit operator bool() const {
       return m_Item != nullptr;
@@ -99,19 +102,33 @@ class EXPORTED_PUBLIC UsbPnP {
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   static bool runHostedRegistrationRegression();
-  bool invokeCallbackForTest();
+#endif
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+  static bool runQemuRegistrationRegression();
+#endif
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
+  bool invokeCallbackForTest(size_t callbackIndex = 0);
   size_t callbackCountForTest();
+  bool callbackStorageEmptyForTest();
 #endif
 
  private:
+  struct ActiveInvocation;
+
   /// Probes a device and returns the new device if it was successfully
   /// loaded and owned by a driver, or the original pointer otherwise.
   Device* doProbe(Device* pDeviceBase);
 
   bool registerCallbackItem(CallbackItem* item, Registration& registration, bool reprobe);
-  void unregisterCallback(CallbackItem* item);
+  bool unregisterCallback(CallbackItem* item);
   bool acquireCallback(UsbDevice* device, size_t afterSequence, CallbackItem*& item,
-                       callback_t& callback, size_t& sequence);
+                       callback_t& callback, size_t& sequence, ActiveInvocation& invocation);
+  void finishCallback(CallbackItem* item, ActiveInvocation& invocation);
+  static void* currentInvocationOwner();
+  bool isCallbackContext(void* owner) const;
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
+  static bool runRegistrationRegression();
+#endif
 
   /// Static instance
   static UsbPnP m_Instance;
@@ -124,6 +141,7 @@ class EXPORTED_PUBLIC UsbPnP {
   size_t m_CallbackCount;
   Spinlock m_CallbackLock;
   size_t m_NextCallbackSequence;
+  ActiveInvocation* m_ActiveInvocations;
 };
 
 #endif

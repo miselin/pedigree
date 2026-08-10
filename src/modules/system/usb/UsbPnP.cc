@@ -19,18 +19,19 @@
 
 #include "modules/system/usb/UsbPnP.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "modules/system/usb/UsbDevice.h"
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
 #include "pedigree/kernel/Atomic.h"
-#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
-#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/time/Time.h"
 #endif
 
@@ -60,6 +61,11 @@ struct UsbPnP::CallbackItem {
   OperationBarrier operations;
 };
 
+struct UsbPnP::ActiveInvocation {
+  void* owner;
+  ActiveInvocation* next;
+};
+
 UsbPnP::Registration::Registration() : m_Owner(nullptr), m_Item(nullptr) {}
 
 UsbPnP::Registration::Registration(Registration&& other)
@@ -69,12 +75,16 @@ UsbPnP::Registration::Registration(Registration&& other)
 }
 
 UsbPnP::Registration::~Registration() {
-  reset();
+  if (m_Item && !reset()) {
+    FATAL("Live UsbPnP registration could not be retired.");
+  }
 }
 
 UsbPnP::Registration& UsbPnP::Registration::operator=(Registration&& other) {
   if (this != &other) {
-    reset();
+    if (m_Item && !reset()) {
+      FATAL("UsbPnP registration move could not retire ownership.");
+    }
     m_Owner = other.m_Owner;
     m_Item = other.m_Item;
     other.m_Owner = nullptr;
@@ -83,16 +93,18 @@ UsbPnP::Registration& UsbPnP::Registration::operator=(Registration&& other) {
   return *this;
 }
 
-void UsbPnP::Registration::reset() {
+bool UsbPnP::Registration::reset() {
   if (!m_Item) {
-    return;
+    return true;
   }
 
-  UsbPnP* owner = m_Owner;
-  CallbackItem* item = m_Item;
+  if (!m_Owner->unregisterCallback(m_Item)) {
+    return false;
+  }
+
   m_Owner = nullptr;
   m_Item = nullptr;
-  owner->unregisterCallback(item);
+  return true;
 }
 
 void UsbPnP::Registration::adopt(UsbPnP* owner, CallbackItem* item) {
@@ -105,9 +117,17 @@ UsbPnP::UsbPnP()
       m_LastCallback(nullptr),
       m_CallbackCount(0),
       m_CallbackLock(),
-      m_NextCallbackSequence(1) {}
+      m_NextCallbackSequence(1),
+      m_ActiveInvocations(nullptr) {}
 
 UsbPnP::~UsbPnP() {
+  {
+    LockGuard<Spinlock> guard(m_CallbackLock);
+    if (isCallbackContext(currentInvocationOwner())) {
+      FATAL("UsbPnP cannot be destroyed from callback context.");
+    }
+  }
+
   while (true) {
     CallbackItem* item = nullptr;
     {
@@ -121,7 +141,9 @@ UsbPnP::~UsbPnP() {
       if (!m_FirstCallback) {
         m_LastCallback = nullptr;
       }
-      --m_CallbackCount;
+      if (item->operations.isOpen()) {
+        --m_CallbackCount;
+      }
       item->operations.close();
     }
 
@@ -153,7 +175,8 @@ Device* UsbPnP::doProbe(Device* pDeviceBase) {
     CallbackItem* item = nullptr;
     callback_t callback = nullptr;
     size_t sequence = 0;
-    if (!acquireCallback(pDevice, afterSequence, item, callback, sequence)) {
+    ActiveInvocation invocation = {nullptr, nullptr};
+    if (!acquireCallback(pDevice, afterSequence, item, callback, sequence, invocation)) {
       break;
     }
 
@@ -164,7 +187,7 @@ Device* UsbPnP::doProbe(Device* pDeviceBase) {
 
     // Was this device rejected by the driver?
     if (!pNewDevice) {
-      item->operations.leave();
+      finishCallback(item, invocation);
       continue;
     }
 
@@ -175,18 +198,19 @@ Device* UsbPnP::doProbe(Device* pDeviceBase) {
     if (pNewDevice->getUsbState() == UsbDevice::HasDriver) {
       // Replace the old device with the new one
       UsbDeviceContainer* pNewContainer = new UsbDeviceContainer(pNewDevice);
-      item->operations.leave();
+      finishCallback(item, invocation);
       return pNewContainer;
     } else {
       delete pNewDevice;
-      item->operations.leave();
+      finishCallback(item, invocation);
     }
   }
   return pDeviceBase;
 }
 
 bool UsbPnP::acquireCallback(UsbDevice* device, size_t afterSequence, CallbackItem*& resultItem,
-                             callback_t& resultCallback, size_t& resultSequence) {
+                             callback_t& resultCallback, size_t& resultSequence,
+                             ActiveInvocation& invocation) {
   resultItem = nullptr;
   resultCallback = nullptr;
   resultSequence = 0;
@@ -222,9 +246,43 @@ bool UsbPnP::acquireCallback(UsbDevice* device, size_t afterSequence, CallbackIt
     resultItem = item;
     resultCallback = item->callback;
     resultSequence = item->sequence;
+    invocation.owner = currentInvocationOwner();
+    invocation.next = m_ActiveInvocations;
+    m_ActiveInvocations = &invocation;
     return true;
   }
 
+  return false;
+}
+
+void UsbPnP::finishCallback(CallbackItem* item, ActiveInvocation& invocation) {
+  LockGuard<Spinlock> guard(m_CallbackLock);
+  ActiveInvocation** invocationLink = &m_ActiveInvocations;
+  while (*invocationLink && *invocationLink != &invocation) {
+    invocationLink = &((*invocationLink)->next);
+  }
+  if (*invocationLink) {
+    *invocationLink = invocation.next;
+  } else {
+    FATAL("UsbPnP lost an active callback invocation.");
+  }
+
+  item->operations.leave();
+}
+
+void* UsbPnP::currentInvocationOwner() {
+  ProcessorInformation& information = Processor::information();
+  Thread* thread = information.getCurrentThread();
+  return thread ? static_cast<void*>(thread) : static_cast<void*>(&information);
+}
+
+bool UsbPnP::isCallbackContext(void* owner) const {
+  for (ActiveInvocation* invocation = m_ActiveInvocations; invocation;
+       invocation = invocation->next) {
+    if (invocation->owner == owner) {
+      return true;
+    }
+  }
   return false;
 }
 
@@ -281,8 +339,10 @@ bool UsbPnP::registerCallback(uint8_t nClass, uint8_t nSubclass, uint8_t nProtoc
       registration, true);
 }
 
-void UsbPnP::unregisterCallback(CallbackItem* item) {
+bool UsbPnP::unregisterCallback(CallbackItem* item) {
   bool found = false;
+  bool callbackContext = false;
+  bool drained = false;
   {
     LockGuard<Spinlock> guard(m_CallbackLock);
     CallbackItem* previous = nullptr;
@@ -292,30 +352,45 @@ void UsbPnP::unregisterCallback(CallbackItem* item) {
         continue;
       }
 
-      item->operations.close();
-      if (previous) {
-        previous->next = item->next;
-      } else {
-        m_FirstCallback = item->next;
+      if (item->operations.isOpen()) {
+        item->operations.close();
+        --m_CallbackCount;
       }
-      if (m_LastCallback == item) {
-        m_LastCallback = previous;
+      callbackContext = isCallbackContext(currentInvocationOwner());
+      drained = item->operations.isClosedAndDrained();
+      if (!callbackContext || drained) {
+        if (previous) {
+          previous->next = item->next;
+        } else {
+          m_FirstCallback = item->next;
+        }
+        if (m_LastCallback == item) {
+          m_LastCallback = previous;
+        }
+        item->next = nullptr;
       }
-      item->next = nullptr;
-      --m_CallbackCount;
       found = true;
       break;
     }
   }
 
-  if (found) {
-    item->operations.wait();
-    delete item;
+  if (!found) {
+    return true;
   }
+  if (callbackContext && !drained) {
+    return false;
+  }
+  if (!callbackContext) {
+    item->operations.wait();
+  }
+  delete item;
+  return true;
 }
 
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
 namespace {
+constexpr bool PinTestThreads = HOSTED;
+
 struct HostedRegistrationContext {
   HostedRegistrationContext(UsbPnP* registry, UsbPnP::Registration* registration)
       : registry(registry),
@@ -339,12 +414,108 @@ struct HostedRegistrationContext {
 
 HostedRegistrationContext* g_HostedRegistrationContext = nullptr;
 
+struct HostedSelfRemovalContext {
+  explicit HostedSelfRemovalContext(UsbPnP::Registration* registration)
+      : registration(registration), callbackEntered(0), resetRejected(0), resetFinished(0) {}
+
+  UsbPnP::Registration* registration;
+  Atomic<size_t> callbackEntered;
+  Atomic<size_t> resetRejected;
+  Atomic<size_t> resetFinished;
+};
+
+HostedSelfRemovalContext* g_HostedSelfRemovalContext = nullptr;
+
+struct HostedReciprocalRemovalContext {
+  HostedReciprocalRemovalContext(UsbPnP* registry, UsbPnP::Registration* first,
+                                 UsbPnP::Registration* second)
+      : registry(registry),
+        first(first),
+        second(second),
+        beginReset(0),
+        callbacksEntered(0),
+        resetRejections(0),
+        resetsFinished(0),
+        invocationsFinished(0),
+        firstProcessor(static_cast<size_t>(-1)),
+        secondProcessor(static_cast<size_t>(-1)),
+        failures(0) {}
+
+  UsbPnP* registry;
+  UsbPnP::Registration* first;
+  UsbPnP::Registration* second;
+  Semaphore beginReset;
+  Atomic<size_t> callbacksEntered;
+  Atomic<size_t> resetRejections;
+  Atomic<size_t> resetsFinished;
+  Atomic<size_t> invocationsFinished;
+  Atomic<size_t> firstProcessor;
+  Atomic<size_t> secondProcessor;
+  Atomic<size_t> failures;
+};
+
+HostedReciprocalRemovalContext* g_HostedReciprocalRemovalContext = nullptr;
+
 UsbDevice* hostedRegistrationCallback(UsbDevice*) {
   HostedRegistrationContext* context = g_HostedRegistrationContext;
   context->callbackEntered += 1;
   const bool released = context->releaseCallback.acquireForCompletion();
   (void)released;
   context->callbackFinished += 1;
+  return nullptr;
+}
+
+UsbDevice* hostedSelfRemovalCallback(UsbDevice*) {
+  HostedSelfRemovalContext* context = g_HostedSelfRemovalContext;
+  context->callbackEntered += 1;
+  if (!context->registration->reset() && *context->registration) {
+    context->resetRejected += 1;
+  }
+  context->resetFinished += 1;
+  return nullptr;
+}
+
+UsbDevice* hostedFirstReciprocalRemovalCallback(UsbDevice*) {
+  HostedReciprocalRemovalContext* context = g_HostedReciprocalRemovalContext;
+  context->firstProcessor = Processor::id();
+  context->callbacksEntered += 1;
+  const bool released = context->beginReset.acquireForCompletion();
+  (void)released;
+  if (!context->second->reset() && *context->second) {
+    context->resetRejections += 1;
+  } else {
+    context->failures += 1;
+  }
+  context->resetsFinished += 1;
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (context->resetsFinished != static_cast<size_t>(2) && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+  if (context->resetsFinished != static_cast<size_t>(2)) {
+    context->failures += 1;
+  }
+  return nullptr;
+}
+
+UsbDevice* hostedSecondReciprocalRemovalCallback(UsbDevice*) {
+  HostedReciprocalRemovalContext* context = g_HostedReciprocalRemovalContext;
+  context->secondProcessor = Processor::id();
+  context->callbacksEntered += 1;
+  const bool released = context->beginReset.acquireForCompletion();
+  (void)released;
+  if (!context->first->reset() && *context->first) {
+    context->resetRejections += 1;
+  } else {
+    context->failures += 1;
+  }
+  context->resetsFinished += 1;
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (context->resetsFinished != static_cast<size_t>(2) && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+  if (context->resetsFinished != static_cast<size_t>(2)) {
+    context->failures += 1;
+  }
   return nullptr;
 }
 
@@ -364,6 +535,24 @@ int unregisterHostedRegistration(void* parameter) {
   return 0;
 }
 
+int invokeFirstReciprocalRemoval(void* parameter) {
+  HostedReciprocalRemovalContext* context =
+      reinterpret_cast<HostedReciprocalRemovalContext*>(parameter);
+  if (context->registry->invokeCallbackForTest(0)) {
+    context->invocationsFinished += 1;
+  }
+  return 0;
+}
+
+int invokeSecondReciprocalRemoval(void* parameter) {
+  HostedReciprocalRemovalContext* context =
+      reinterpret_cast<HostedReciprocalRemovalContext*>(parameter);
+  if (context->registry->invokeCallbackForTest(1)) {
+    context->invocationsFinished += 1;
+  }
+  return 0;
+}
+
 bool waitForHostedValue(Atomic<size_t>& value, size_t expected) {
   const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
   while (value != expected && Time::getTicks() < deadline) {
@@ -373,24 +562,28 @@ bool waitForHostedValue(Atomic<size_t>& value, size_t expected) {
 }
 }  // namespace
 
-bool UsbPnP::invokeCallbackForTest() {
+bool UsbPnP::invokeCallbackForTest(size_t callbackIndex) {
   CallbackItem* item = nullptr;
   callback_t callback = nullptr;
+  ActiveInvocation invocation = {nullptr, nullptr};
   {
     LockGuard<Spinlock> guard(m_CallbackLock);
-    if (!m_FirstCallback) {
-      return false;
-    }
-
     item = m_FirstCallback;
-    if (!item->operations.tryEnter()) {
+    while (item && callbackIndex) {
+      item = item->next;
+      --callbackIndex;
+    }
+    if (!item || !item->operations.tryEnter()) {
       return false;
     }
     callback = item->callback;
+    invocation.owner = currentInvocationOwner();
+    invocation.next = m_ActiveInvocations;
+    m_ActiveInvocations = &invocation;
   }
 
   callback(nullptr);
-  item->operations.leave();
+  finishCallback(item, invocation);
   return true;
 }
 
@@ -399,7 +592,12 @@ size_t UsbPnP::callbackCountForTest() {
   return m_CallbackCount;
 }
 
-bool UsbPnP::runHostedRegistrationRegression() {
+bool UsbPnP::callbackStorageEmptyForTest() {
+  LockGuard<Spinlock> guard(m_CallbackLock);
+  return !m_FirstCallback && !m_LastCallback && !m_CallbackCount;
+}
+
+bool UsbPnP::runRegistrationRegression() {
   UsbPnP registry;
   Registration registration;
   HostedRegistrationContext context(&registry, &registration);
@@ -419,13 +617,14 @@ bool UsbPnP::runHostedRegistrationRegression() {
 
   if (registered) {
     Process* process = Scheduler::instance().getKernelProcess();
-    invoker = new Thread(process, invokeHostedRegistration, &context, nullptr, false, true);
+    invoker =
+        new Thread(process, invokeHostedRegistration, &context, nullptr, false, PinTestThreads);
     invoker->setName("hosted USB PnP callback");
     callbackEntered = waitForHostedValue(context.callbackEntered, 1);
 
     if (callbackEntered) {
-      unregisterer =
-          new Thread(process, unregisterHostedRegistration, &context, nullptr, false, true);
+      unregisterer = new Thread(process, unregisterHostedRegistration, &context, nullptr, false,
+                                PinTestThreads);
       unregisterer->setName("hosted USB PnP unregister");
 
       const bool unregisterStarted = waitForHostedValue(context.unregisterStarted, 1);
@@ -435,7 +634,8 @@ bool UsbPnP::runHostedRegistrationRegression() {
       }
 
       registrationRemoved = registry.callbackCountForTest() == 0;
-      unregisterBlocked = registrationRemoved && context.unregisterFinished == 0;
+      unregisterBlocked =
+          registrationRemoved && context.unregisterFinished == static_cast<size_t>(0);
       lateInvocationRejected = registrationRemoved && !registry.invokeCallbackForTest();
     }
   }
@@ -448,18 +648,116 @@ bool UsbPnP::runHostedRegistrationRegression() {
   }
   g_HostedRegistrationContext = nullptr;
 
-  const bool passed = registered && callbackEntered && registrationRemoved && unregisterBlocked &&
-                      lateInvocationRejected && invokerJoined && unregistererJoined &&
-                      context.callbackFinished == 1 && context.invocationFinished == 1 &&
-                      context.unregisterFinished == 1;
+  const bool drainPassed = registered && callbackEntered && registrationRemoved &&
+                           unregisterBlocked && lateInvocationRejected && invokerJoined &&
+                           unregistererJoined &&
+                           context.callbackFinished == static_cast<size_t>(1) &&
+                           context.invocationFinished == static_cast<size_t>(1) &&
+                           context.unregisterFinished == static_cast<size_t>(1);
+
+  Registration selfRegistration;
+  HostedSelfRemovalContext selfContext(&selfRegistration);
+  g_HostedSelfRemovalContext = &selfContext;
+  const bool selfRegistered = registry.registerCallbackItem(
+      new CallbackItem(hostedSelfRemovalCallback, VendorIdNone, ProductIdNone, ClassNone,
+                       SubclassNone, ProtocolNone),
+      selfRegistration, false);
+  const bool selfInvoked = selfRegistered && registry.invokeCallbackForTest();
+  const bool selfOwnershipPreserved = selfInvoked && selfRegistration &&
+                                      registry.callbackCountForTest() == 0 &&
+                                      !registry.callbackStorageEmptyForTest() &&
+                                      selfContext.callbackEntered == static_cast<size_t>(1) &&
+                                      selfContext.resetRejected == static_cast<size_t>(1) &&
+                                      selfContext.resetFinished == static_cast<size_t>(1);
+  const bool selfRetired = selfRegistration && selfRegistration.reset();
+  const bool selfRemovalPassed = selfOwnershipPreserved && selfRetired && !selfRegistration &&
+                                 registry.callbackStorageEmptyForTest();
+  g_HostedSelfRemovalContext = nullptr;
+
+  Registration first;
+  Registration second;
+  HostedReciprocalRemovalContext reciprocalContext(&registry, &first, &second);
+  g_HostedReciprocalRemovalContext = &reciprocalContext;
+  const bool firstRegistered = registry.registerCallbackItem(
+      new CallbackItem(hostedFirstReciprocalRemovalCallback, VendorIdNone, ProductIdNone, ClassNone,
+                       SubclassNone, ProtocolNone),
+      first, false);
+  const bool secondRegistered = registry.registerCallbackItem(
+      new CallbackItem(hostedSecondReciprocalRemovalCallback, VendorIdNone, ProductIdNone,
+                       ClassNone, SubclassNone, ProtocolNone),
+      second, false);
+
+  Thread* firstInvoker = nullptr;
+  Thread* secondInvoker = nullptr;
+  bool bothEntered = false;
+  if (firstRegistered && secondRegistered) {
+    Process* process = Scheduler::instance().getKernelProcess();
+    firstInvoker = new Thread(process, invokeFirstReciprocalRemoval, &reciprocalContext, nullptr,
+                              false, PinTestThreads);
+    firstInvoker->setName("hosted USB PnP reciprocal callback A");
+    secondInvoker = new Thread(process, invokeSecondReciprocalRemoval, &reciprocalContext, nullptr,
+                               false, PinTestThreads);
+    secondInvoker->setName("hosted USB PnP reciprocal callback B");
+    bothEntered = waitForHostedValue(reciprocalContext.callbacksEntered, 2);
+  }
+
+  reciprocalContext.beginReset.release(2);
+  const bool firstJoined = !firstInvoker || firstInvoker->joinForCompletion();
+  const bool secondJoined = !secondInvoker || secondInvoker->joinForCompletion();
+  const bool registrationsPreserved = first && second;
+  const bool admissionClosed = registry.callbackCountForTest() == 0 &&
+                               !registry.callbackStorageEmptyForTest() &&
+                               !registry.invokeCallbackForTest();
+  const bool firstRetired = first && first.reset();
+  const bool secondRetired = second && second.reset();
+  const bool reciprocalRemovalPassed =
+      firstRegistered && secondRegistered && bothEntered && firstJoined && secondJoined &&
+      registrationsPreserved && admissionClosed && firstRetired && secondRetired && !first &&
+      !second && registry.callbackStorageEmptyForTest() && !reciprocalContext.failures &&
+      reciprocalContext.resetRejections == static_cast<size_t>(2) &&
+      reciprocalContext.resetsFinished == static_cast<size_t>(2) &&
+      reciprocalContext.invocationsFinished == static_cast<size_t>(2)
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+      && reciprocalContext.firstProcessor != reciprocalContext.secondProcessor
+#endif
+      ;
+  g_HostedReciprocalRemovalContext = nullptr;
+
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+  NOTICE("QEMU-CONCURRENCY-TEST: usb-pnp reciprocal cpus="
+         << Dec << static_cast<size_t>(reciprocalContext.firstProcessor) << "/"
+         << static_cast<size_t>(reciprocalContext.secondProcessor));
+#endif
+
+  return drainPassed && selfRemovalPassed && reciprocalRemovalPassed;
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+bool UsbPnP::runHostedRegistrationRegression() {
+  const bool passed = runRegistrationRegression();
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS usb-pnp-registration-drain");
   } else {
     ERROR(
         "HOSTED-WAIT-TEST: FAIL usb-pnp-registration-drain: "
-        "unregister did not close admission and drain the pinned "
-        "callback");
+        "external drain, self-removal, or reciprocal removal failed");
   }
   return passed;
 }
+#endif
+
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+bool UsbPnP::runQemuRegistrationRegression() {
+  const bool passed = runRegistrationRegression();
+  if (passed) {
+    NOTICE("QEMU-CONCURRENCY-TEST: PASS usb-pnp-reciprocal-unregister-smp");
+  } else {
+    ERROR(
+        "QEMU-CONCURRENCY-TEST: FAIL usb-pnp-reciprocal-unregister-smp: "
+        "external drain, self-removal, reciprocal removal, or CPU spread failed");
+  }
+  return passed;
+}
+#endif
+
 #endif
