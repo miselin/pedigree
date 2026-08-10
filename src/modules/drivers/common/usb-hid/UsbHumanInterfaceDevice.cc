@@ -19,6 +19,7 @@
 
 #include "UsbHumanInterfaceDevice.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -29,9 +30,20 @@
 #include "modules/system/usb/UsbDevice.h"
 
 UsbHumanInterfaceDevice::UsbHumanInterfaceDevice(UsbDevice* pDev)
-    : UsbDevice(pDev), m_pInEndpoint(0) {}
+    : UsbDevice(pDev),
+      m_pInEndpoint(nullptr),
+      m_pReport(nullptr),
+      m_InterruptIn(),
+      m_pInReportBuffer(nullptr),
+      m_pOldInReportBuffer(nullptr) {}
 
-UsbHumanInterfaceDevice::~UsbHumanInterfaceDevice() {}
+UsbHumanInterfaceDevice::~UsbHumanInterfaceDevice() {
+  if (!m_InterruptIn.reset())
+    panic("USB HID destroyed from its running interrupt callback");
+  delete[] m_pInReportBuffer;
+  delete[] m_pOldInReportBuffer;
+  delete m_pReport;
+}
 
 void UsbHumanInterfaceDevice::initialiseDriver() {
   // Get the HID descriptor
@@ -57,7 +69,11 @@ void UsbHumanInterfaceDevice::initialiseDriver() {
   uint16_t nReportDescriptorSize = pHidDescriptor->nDescriptorLength;
   uint8_t* pReportDescriptor = static_cast<uint8_t*>(
       getDescriptor(0x22, 0, nReportDescriptorSize, UsbRequestRecipient::Interface));
-  PointerGuard<uint8_t> guard2(pReportDescriptor);
+  PointerGuard<uint8_t> guard2(pReportDescriptor, true);
+  if (!pReportDescriptor) {
+    ERROR("USB: HID: Could not read report descriptor");
+    return;
+  }
 
   // Create a new report instance and use it to parse the report descriptor
   m_pReport = new HidReport();
@@ -75,7 +91,6 @@ void UsbHumanInterfaceDevice::initialiseDriver() {
   // Did we end up with no interrupt IN endpoint?
   if (!m_pInEndpoint) {
     ERROR("USB: HID: No Interrupt IN endpoint");
-    delete m_pReport;
     return;
   }
 
@@ -86,8 +101,12 @@ void UsbHumanInterfaceDevice::initialiseDriver() {
   ByteSet(m_pOldInReportBuffer, 0, m_pInEndpoint->nMaxPacketSize);
 
   // Add the input handler
-  addInterruptInHandler(m_pInEndpoint, reinterpret_cast<uintptr_t>(m_pInReportBuffer),
-                        m_pInEndpoint->nMaxPacketSize, callback, reinterpret_cast<uintptr_t>(this));
+  if (!addInterruptInHandler(m_pInEndpoint, reinterpret_cast<uintptr_t>(m_pInReportBuffer),
+                             m_pInEndpoint->nMaxPacketSize, callback, m_InterruptIn,
+                             reinterpret_cast<uintptr_t>(this))) {
+    ERROR("USB: HID: recurring interrupt-IN submission failed");
+    return;
+  }
 
   m_UsbState = HasDriver;
 }

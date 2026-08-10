@@ -41,6 +41,26 @@ class EXPORTED_PUBLIC Device {
  public:
   typedef Device* (*Callback)(Device*);
 
+  /** Serializes a bounded publication or retirement in the device tree. */
+  class TreeLockGuard {
+   public:
+    TreeLockGuard() {
+#if THREADS
+      Device::m_TreeLock.acquire();
+#endif
+    }
+
+    ~TreeLockGuard() {
+#if THREADS
+      Device::m_TreeLock.release();
+#endif
+    }
+
+   private:
+    TreeLockGuard(const TreeLockGuard&) = delete;
+    TreeLockGuard& operator=(const TreeLockGuard&) = delete;
+  };
+
   /** Every device has a type. This can be used to downcast to a more specific
    * class during runtime without RTTI. */
   enum Type {

@@ -123,7 +123,7 @@ static bool entry() {
 static void exit() {}
 
 #if X86_COMMON
-MODULE_INFO("usb-hcd", &entry, &exit, "pci", "usb");
+MODULE_INFO_NON_UNLOADABLE("usb-hcd", &entry, &exit, "pci", "usb");
 #else
-MODULE_INFO("usb-hcd", &entry, &exit, "usb");
+MODULE_INFO_NON_UNLOADABLE("usb-hcd", &entry, &exit, "usb");
 #endif

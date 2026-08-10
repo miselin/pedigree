@@ -40,20 +40,37 @@ class UsbHubDevice : public UsbDevice, public UsbHub {
     str.assign("USB Hub Device", 15);
   }
 
+  bool hasSubtree() const override {
+    return true;
+  }
+
+  Device* getDevice() override {
+    return this;
+  }
+
+  void prepareForDriverRetirement() override;
+
   virtual void addTransferToTransaction(uintptr_t pTransaction, bool bToggle, UsbPid pid,
                                         uintptr_t pBuffer, size_t nBytes);
   virtual uintptr_t createTransaction(UsbEndpoint endpointInfo);
   MUST_USE_RESULT virtual bool doAsync(uintptr_t pTransaction,
                                        void (*pCallback)(uintptr_t, ssize_t) = 0,
                                        uintptr_t pParam = 0);
-  virtual void addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
-                                     void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
+  MUST_USE_RESULT virtual bool addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer,
+                                                     uint16_t nBytes,
+                                                     void (*pCallback)(uintptr_t, ssize_t),
+                                                     UsbInterruptInHandle& handle,
+                                                     uintptr_t pParam = 0);
 
   virtual bool portReset(uint8_t nPort, bool bErrorResponse = false);
 
  protected:
   virtual void cancelAsyncAndDrain(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
                                    uintptr_t pParam);
+  MUST_USE_RESULT bool cancelInterruptInAndDrain(const UsbInterruptInToken& token,
+                                                 void (*callback)(uintptr_t, ssize_t),
+                                                 uintptr_t parameter,
+                                                 bool producerAlreadyStopped) override;
 
  private:
   enum HubFeatureSelectors {
@@ -91,6 +108,10 @@ class UsbHubDevice : public UsbDevice, public UsbHub {
         : pDescriptor(static_cast<Descriptor*>(pBuffer)),
           nPorts(pDescriptor->nPorts),
           hubCharacteristics(pDescriptor->hubCharacteristics) {}
+
+    ~HubDescriptor() {
+      delete[] reinterpret_cast<uint8_t*>(pDescriptor);
+    }
 
     struct Descriptor {
       uint8_t nLength;

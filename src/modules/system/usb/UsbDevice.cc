@@ -27,33 +27,54 @@
 #include "modules/system/usb/UsbConstants.h"
 #include "modules/system/usb/UsbDescriptors.h"
 #include "modules/system/usb/UsbHub.h"
+#include "modules/system/usb/UsbPnP.h"
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+Atomic<size_t> g_HostedUsbDescriptorDestructions(0);
+#endif
 
 UsbDevice::UsbDevice(UsbHub* pHub, uint8_t nPort, UsbSpeed speed)
     : m_nAddress(0),
       m_nPort(nPort),
+      m_nRootPort(0xff),
+      m_nRootPortGeneration(0),
       m_Speed(speed),
       m_UsbState(Connected),
       m_pDescriptor(0),
       m_pConfiguration(0),
       m_pInterface(0),
       m_pHub(pHub),
-      m_pContainer(0) {}
+      m_pContainer(0) {
+  if (pHub) {
+    const auto connection = pHub->rootConnectionForChild(nPort);
+    m_nRootPort = connection.port;
+    m_nRootPortGeneration = connection.generation;
+  }
+}
 
 UsbDevice::UsbDevice(UsbDevice* pDev)
     : m_nAddress(pDev->m_nAddress),
       m_nPort(pDev->m_nPort),
+      m_nRootPort(pDev->m_nRootPort),
+      m_nRootPortGeneration(pDev->m_nRootPortGeneration),
       m_Speed(pDev->m_Speed),
-      m_UsbState(Connected),
+      m_UsbState(pDev->m_UsbState),
       m_pDescriptor(pDev->m_pDescriptor),
       m_pConfiguration(pDev->m_pConfiguration),
-      m_pInterface(pDev->m_pInterface) {
+      m_pInterface(pDev->m_pInterface),
+      m_pHub(pDev->m_pHub),
+      m_pContainer(nullptr) {
   // We have the same parent as pDev
-  m_pHub = pDev->m_pHub;
+  if (m_pDescriptor)
+    m_pDescriptor->retain();
 }
 
-UsbDevice::~UsbDevice() {}
+UsbDevice::~UsbDevice() {
+  if (m_pDescriptor)
+    m_pDescriptor->release();
+}
 
-UsbDevice::DeviceDescriptor::DeviceDescriptor(UsbDeviceDescriptor* pDescriptor) {
+UsbDevice::DeviceDescriptor::DeviceDescriptor(UsbDeviceDescriptor* pDescriptor) : m_References(1) {
   nBcdUsbRelease = pDescriptor->nBcdUsbRelease;
   nClass = pDescriptor->nClass;
   nSubclass = pDescriptor->nSubclass;
@@ -67,12 +88,26 @@ UsbDevice::DeviceDescriptor::DeviceDescriptor(UsbDeviceDescriptor* pDescriptor) 
   nSerialString = pDescriptor->nSerialString;
   nConfigurations = pDescriptor->nConfigurations;
 
-  delete pDescriptor;
+  delete[] reinterpret_cast<uint8_t*>(pDescriptor);
 }
 
 UsbDevice::DeviceDescriptor::~DeviceDescriptor() {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  g_HostedUsbDescriptorDestructions += 1;
+#endif
   for (size_t i = 0; i < configList.count(); i++)
     delete configList[i];
+}
+
+void UsbDevice::DeviceDescriptor::retain() {
+  m_References += 1;
+}
+
+void UsbDevice::DeviceDescriptor::release() {
+  const size_t remaining = m_References -= 1;
+  assert(remaining != static_cast<size_t>(-1));
+  if (!remaining)
+    delete this;
 }
 
 UsbDevice::ConfigDescriptor::ConfigDescriptor(void* pConfigBuffer, size_t nConfigLength,
@@ -105,7 +140,7 @@ UsbDevice::ConfigDescriptor::ConfigDescriptor(void* pConfigBuffer, size_t nConfi
   }
   assert(interfaceList.count());
 
-  delete pDescriptor;
+  delete[] pBuffer;
 }
 
 UsbDevice::ConfigDescriptor::~ConfigDescriptor() {
@@ -240,7 +275,7 @@ void UsbDevice::initialise(uint8_t nAddress) {
     if (!pPartialConfig)
       return;
     uint16_t configLength = pPartialConfig[1];
-    delete pPartialConfig;
+    delete[] reinterpret_cast<uint8_t*>(pPartialConfig);
 
     // Get our configuration descriptor
     ConfigDescriptor* pConfig = new ConfigDescriptor(
@@ -301,6 +336,8 @@ ssize_t UsbDevice::doSync(UsbDevice::Endpoint* pEndpoint, UsbPid pid, uintptr_t 
 
   UsbEndpoint endpointInfo(m_nAddress, m_nPort, pEndpoint->nEndpoint, m_Speed,
                            pEndpoint->nMaxPacketSize);
+  endpointInfo.nRootPort = m_nRootPort;
+  endpointInfo.nRootPortGeneration = m_nRootPortGeneration;
   uintptr_t nTransaction = pParentHub->createTransaction(endpointInfo);
   if (nTransaction == static_cast<uintptr_t>(-1)) {
     ERROR(
@@ -333,32 +370,36 @@ ssize_t UsbDevice::syncOut(Endpoint* pEndpoint, uintptr_t pBuffer, size_t nBytes
   return doSync(pEndpoint, UsbPidOut, pBuffer, nBytes, timeout);
 }
 
-void UsbDevice::addInterruptInHandler(Endpoint* pEndpoint, uintptr_t pBuffer, uint16_t nBytes,
-                                      void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam) {
+bool UsbDevice::addInterruptInHandler(Endpoint* pEndpoint, uintptr_t pBuffer, uint16_t nBytes,
+                                      void (*pCallback)(uintptr_t, ssize_t),
+                                      UsbInterruptInHandle& handle, uintptr_t pParam) {
   if (!pEndpoint) {
     ERROR(
         "USB: UsbDevice::addInterruptInHandler called with invalid "
         "endpoint");
-    return;
+    return false;
   }
 
   UsbHub* pParentHub = m_pHub;
   if (!pParentHub) {
     ERROR("USB: Orphaned UsbDevice!");
-    return;
+    return false;
   }
 
   if (!nBytes)
-    return;
+    return false;
 
   if (pBuffer & 0xF) {
     ERROR("USB: Input pointer wasn't properly aligned [" << pBuffer << ", " << nBytes << "]");
-    return;
+    return false;
   }
 
   UsbEndpoint endpointInfo(m_nAddress, m_nPort, pEndpoint->nEndpoint, m_Speed,
                            pEndpoint->nMaxPacketSize);
-  pParentHub->addInterruptInHandler(endpointInfo, pBuffer, nBytes, pCallback, pParam);
+  endpointInfo.nRootPort = m_nRootPort;
+  endpointInfo.nRootPortGeneration = m_nRootPortGeneration;
+  return pParentHub->addInterruptInHandler(endpointInfo, pBuffer, nBytes, pCallback, handle,
+                                           pParam);
 }
 
 bool UsbDevice::controlRequest(uint8_t nRequestType, uint8_t nRequest, uint16_t nValue,
@@ -375,6 +416,8 @@ bool UsbDevice::controlRequest(uint8_t nRequestType, uint8_t nRequest, uint16_t 
   }
 
   UsbEndpoint endpointInfo(m_nAddress, m_nPort, 0, m_Speed, 64);
+  endpointInfo.nRootPort = m_nRootPort;
+  endpointInfo.nRootPortGeneration = m_nRootPortGeneration;
 
   uintptr_t nTransaction = pParentHub->createTransaction(endpointInfo);
   if (nTransaction == static_cast<uintptr_t>(-1)) {
@@ -517,8 +560,8 @@ String UsbDevice::getString(uint8_t nString) {
   if (!descriptorLength)
     return String("");
 
-  char* pBuffer =
-      static_cast<char*>(getDescriptor(UsbDescriptor::String, nString, descriptorLength));
+  uint8_t* pBuffer =
+      static_cast<uint8_t*>(getDescriptor(UsbDescriptor::String, nString, descriptorLength));
   if (!pBuffer)
     return String("");
 
@@ -535,27 +578,112 @@ String UsbDevice::getString(uint8_t nString) {
   // Set the last byte of the string to 0, delete the old buffer and return
   // the string
   pString[nStrLength] = 0;
-  delete pBuffer;
+  delete[] pBuffer;
   return String(pString);
 }
 
-UsbDeviceContainer::UsbDeviceContainer(UsbDevice* pDev) : Device(), m_pUsbDevice(pDev) {
+UsbDeviceContainer::UsbDeviceContainer(UsbDevice* pDev)
+    : Device(),
+      m_pUsbDevice(pDev),
+      m_ProbeOperations(),
+      m_ProbeLock(),
+      m_BindingRegistry(nullptr),
+      m_BindingOwner(nullptr),
+      m_BindingLease(),
+      m_PreviousBinding(nullptr),
+      m_NextBinding(nullptr) {
+  assert(pDev);
   pDev->m_pContainer = this;
-
-  // Classes that expose a subtree can be converted to Device.
-  // But, we need to do this so children will continue to have
-  // the correct parents.
-  if (pDev->hasSubtree()) {
-    Device* pChild = pDev->getDevice();
-    addChild(pChild);
-    pChild->setParent(this);
-  }
+  attachSubtree(pDev);
 }
 
-UsbDeviceContainer::~UsbDeviceContainer() {}
+UsbDeviceContainer::~UsbDeviceContainer() {
+  if (m_ProbeOperations.isOpen())
+    m_ProbeOperations.close();
+  m_ProbeOperations.wait();
+  UsbPnP* bindingRegistry = m_BindingRegistry;
+  if (bindingRegistry)
+    bindingRegistry->detachBinding(this);
+
+  if (m_pUsbDevice && m_pUsbDevice->hasSubtree() && m_pUsbDevice->getDevice()) {
+    Device* child = m_pUsbDevice->getDevice();
+    removeChild(child);
+    child->setParent(nullptr);
+    m_pUsbDevice->m_pContainer = nullptr;
+    delete m_pUsbDevice;
+    m_pUsbDevice = nullptr;
+    return;
+  }
+
+  destroyUsbDevice(m_pUsbDevice);
+  m_pUsbDevice = nullptr;
+}
+
+bool UsbDeviceContainer::tryAcquireProbe(OperationBarrier::Lease& lease) {
+  return m_ProbeOperations.tryAcquire(lease);
+}
+
+void UsbDeviceContainer::closeProbeAdmission() {
+  m_ProbeOperations.close();
+}
+
+void UsbDeviceContainer::waitForProbes() {
+  m_ProbeOperations.wait();
+}
 
 UsbDevice* UsbDeviceContainer::getUsbDevice() const {
   return m_pUsbDevice;
+}
+
+bool UsbDeviceContainer::replaceUsbDevice(UsbDevice* pDev) {
+  if (!pDev || pDev == m_pUsbDevice)
+    return false;
+
+  UsbDevice* oldDevice = m_pUsbDevice;
+  {
+    Device::TreeLockGuard treeGuard;
+    if (oldDevice && oldDevice->hasSubtree()) {
+      Device* child = oldDevice->getDevice();
+      if (child) {
+        removeChild(child);
+        child->setParent(nullptr);
+      }
+    }
+    if (oldDevice)
+      oldDevice->m_pContainer = nullptr;
+
+    m_pUsbDevice = pDev;
+    pDev->m_pContainer = this;
+    attachSubtree(pDev);
+  }
+  delete oldDevice;
+  return true;
+}
+
+void UsbDeviceContainer::attachSubtree(UsbDevice* pDev) {
+  if (!pDev || !pDev->hasSubtree())
+    return;
+
+  Device* child = pDev->getDevice();
+  if (!child)
+    return;
+  addChild(child);
+  child->setParent(this);
+}
+
+void UsbDeviceContainer::destroyUsbDevice(UsbDevice* pDev) {
+  if (!pDev)
+    return;
+
+  if (pDev->hasSubtree()) {
+    Device* child = pDev->getDevice();
+    if (child) {
+      removeChild(child);
+      child->setParent(nullptr);
+    }
+  }
+  pDev->m_pContainer = nullptr;
+  delete pDev;
 }
 
 void UsbDeviceContainer::getName(String& str) {
@@ -569,3 +697,68 @@ Device::Type UsbDeviceContainer::getType() {
 void UsbDeviceContainer::dump(String& str) {
   str.assign("Generic USB Device", 19);
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+namespace {
+Atomic<size_t> g_HostedUsbDeviceDestructions(0);
+
+class HostedOwnedUsbDevice : public UsbDevice {
+ public:
+  HostedOwnedUsbDevice() : UsbDevice(nullptr, 1, FullSpeed) {
+    auto* descriptor =
+        reinterpret_cast<UsbDeviceDescriptor*>(new uint8_t[sizeof(UsbDeviceDescriptor)]);
+    ByteSet(descriptor, 0, sizeof(UsbDeviceDescriptor));
+    m_pDescriptor = new DeviceDescriptor(descriptor);
+  }
+
+  explicit HostedOwnedUsbDevice(UsbDevice* device) : UsbDevice(device) {}
+
+  ~HostedOwnedUsbDevice() override {
+    g_HostedUsbDeviceDestructions += 1;
+  }
+};
+
+class HostedSubtreeUsbDevice : public Device, public HostedOwnedUsbDevice {
+ public:
+  explicit HostedSubtreeUsbDevice(UsbDevice* device) : Device(), HostedOwnedUsbDevice(device) {}
+
+  bool hasSubtree() const override {
+    return true;
+  }
+
+  Device* getDevice() override {
+    return this;
+  }
+};
+}  // namespace
+
+bool runHostedUsbContainerOwnershipRegression() {
+  const size_t devicesBefore = g_HostedUsbDeviceDestructions;
+  const size_t descriptorsBefore = g_HostedUsbDescriptorDestructions;
+
+  auto* original = new HostedOwnedUsbDevice;
+  auto* replacement = new HostedSubtreeUsbDevice(original);
+  auto* container = new UsbDeviceContainer(original);
+  const bool replaced = container->replaceUsbDevice(replacement);
+  const bool replacementReachable = container->getUsbDevice() == replacement;
+  const bool oldDestroyedOnce =
+      g_HostedUsbDeviceDestructions == static_cast<size_t>(devicesBefore + 1);
+  const bool descriptorStillOwned =
+      g_HostedUsbDescriptorDestructions == static_cast<size_t>(descriptorsBefore);
+
+  delete container;
+
+  const bool passed =
+      replaced && replacementReachable && oldDestroyedOnce && descriptorStillOwned &&
+      g_HostedUsbDeviceDestructions == static_cast<size_t>(devicesBefore + 2) &&
+      g_HostedUsbDescriptorDestructions == static_cast<size_t>(descriptorsBefore + 1);
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS usb-container-owned-replacement");
+  } else {
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL usb-container-owned-replacement: container replacement or "
+        "shared-descriptor teardown was not exact");
+  }
+  return passed;
+}
+#endif

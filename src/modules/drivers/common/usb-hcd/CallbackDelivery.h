@@ -22,19 +22,23 @@ namespace UsbHcd {
 /**
  * Publishes captured callbacks before an HCD releases its completion lock.
  *
- * A cancellation can steal a pending callback and run it inline. This is what
- * makes callback A synchronously cancelling later callback B safe: waiting for
- * B on the same delivery thread would deadlock. Running callbacks owned by a
- * different thread are drained through a per-record wait queue instead.
+ * One-shot cancellation can steal a pending callback and run it inline.
+ * Recurring-subscription cancellation instead suppresses pending samples and
+ * only waits for samples which are already running outside callback context.
  */
 class CallbackDeliveryQueue {
  public:
   struct Key {
+    Key(uintptr_t transaction = 0, size_t generation = 0, size_t subscription = 0)
+        : transaction(transaction), generation(generation), subscription(subscription) {}
+
     uintptr_t transaction;
     size_t generation;
+    size_t subscription;
 
     bool operator==(const Key& other) const {
-      return transaction == other.transaction && generation == other.generation;
+      return transaction == other.transaction && generation == other.generation &&
+             subscription == other.subscription;
     }
   };
 
@@ -207,6 +211,62 @@ class CallbackDeliveryQueue {
   }
 
   /**
+   * Cancels every sample captured for one recurring subscription.
+   *
+   * Pending samples are suppressed rather than invoked during object
+   * destruction. Running samples are drained only outside USB callback
+   * context, avoiding reciprocal callback cancellation cycles. False retains
+   * ownership for an external retry after the caller's callback returns.
+   */
+  bool cancelSubscription(uintptr_t transaction, size_t subscription) {
+    TerminationDeferral cancellationLifetime;
+    bool runningTarget = false;
+    const bool callerIsCallback = inCallbackContext();
+    while (true) {
+      Record* record = nullptr;
+      bool suppressed = false;
+      bool wait = false;
+      {
+        LockGuard<Mutex> guard(m_Lock);
+        for (List<Record*>::Iterator it = m_Records.begin(); it != m_Records.end(); ++it) {
+          Record* candidate = *it;
+          if (candidate->m_Key.transaction != transaction ||
+              candidate->m_Key.subscription != subscription) {
+            continue;
+          }
+
+          if (candidate->m_State == Record::State::Running &&
+              (callerIsCallback || candidate->m_Runner == currentRunner())) {
+            runningTarget = true;
+            continue;
+          }
+
+          record = candidate;
+          record->retain();
+          if (record->m_State == Record::State::Pending) {
+            m_Records.erase(it);
+            record->m_State = Record::State::Complete;
+            record->m_Runner = nullptr;
+            suppressed = true;
+          } else if (record->m_State == Record::State::Running) {
+            wait = true;
+          }
+          break;
+        }
+      }
+
+      if (!record)
+        return !runningTarget;
+
+      if (suppressed)
+        record->complete();
+      else if (wait)
+        record->waitForCompletion();
+      record->release();
+    }
+  }
+
+  /**
    * Drains every callback after all producers have been quiesced.
    *
    * A callback may drain another pending record, so the queue is searched
@@ -253,9 +313,63 @@ class CallbackDeliveryQueue {
     return activeCount() == 0;
   }
 
+  /** True while this execution context is delivering any USB HCD callback. */
+  static bool isInCallbackContext() {
+    return inCallbackContext();
+  }
+
  private:
+  struct ActiveCallback {
+    void* runner;
+    ActiveCallback* next;
+  };
+
+  class CallbackContext {
+   public:
+    CallbackContext() : m_Active{currentRunner(), nullptr} {
+      LockGuard<Mutex> guard(callbackContextLock());
+      m_Active.next = callbackContexts();
+      callbackContexts() = &m_Active;
+    }
+
+    ~CallbackContext() {
+      LockGuard<Mutex> guard(callbackContextLock());
+      ActiveCallback** link = &callbackContexts();
+      while (*link && *link != &m_Active)
+        link = &((*link)->next);
+      assert(*link == &m_Active);
+      if (*link)
+        *link = m_Active.next;
+    }
+
+   private:
+    ActiveCallback m_Active;
+  };
+
+  static Mutex& callbackContextLock() {
+    static Mutex lock;
+    return lock;
+  }
+
+  static ActiveCallback*& callbackContexts() {
+    static ActiveCallback* contexts = nullptr;
+    return contexts;
+  }
+
+  static bool inCallbackContext() {
+    const void* runner = currentRunner();
+    LockGuard<Mutex> guard(callbackContextLock());
+    for (ActiveCallback* active = callbackContexts(); active; active = active->next) {
+      if (active->runner == runner)
+        return true;
+    }
+    return false;
+  }
+
   static void* currentRunner() {
-    return Processor::information().getCurrentThread();
+    ProcessorInformation& information = Processor::information();
+    auto* thread = information.getCurrentThread();
+    return thread ? static_cast<void*>(thread) : static_cast<void*>(&information);
   }
 
   Record* findLocked(const Key& key) {
@@ -286,6 +400,7 @@ class CallbackDeliveryQueue {
 
   void runRecord(Record* record) {
     TerminationDeferral deliveryLifetime;
+    CallbackContext callbackContext;
     assert(Processor::getInterrupts());
     if (record->m_Callback)
       record->m_Callback(record->m_Parameter, record->m_Result);

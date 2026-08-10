@@ -7,6 +7,7 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -33,6 +34,7 @@ class HostedConnectionChangeHub final : public UsbHub {
         replayTotal(0),
         publicationClosing(false),
         closedReplayNoops(0),
+        rootGenerationBase(100),
         replayHoldPort(16),
         replayEntered(0),
         allowReplay(0) {
@@ -46,6 +48,7 @@ class HostedConnectionChangeHub final : public UsbHub {
         replayTotal(0),
         publicationClosing(false),
         closedReplayNoops(0),
+        rootGenerationBase(100),
         replayHoldPort(16),
         replayEntered(0),
         allowReplay(0) {
@@ -54,8 +57,8 @@ class HostedConnectionChangeHub final : public UsbHub {
     }
   }
 
-  void attach(UsbHub* upstream) {
-    attachToUpstreamHub(upstream);
+  void attach(UsbHub* upstream, uint8_t upstreamPort) {
+    attachToUpstreamHub(upstream, upstream->rootConnectionForChild(upstreamPort));
   }
 
   UsbHub* root() const {
@@ -91,8 +94,10 @@ class HostedConnectionChangeHub final : public UsbHub {
 
   void cancelAsyncAndDrain(uintptr_t, void (*)(uintptr_t, ssize_t), uintptr_t) override {}
 
-  void addInterruptInHandler(UsbEndpoint, uintptr_t, uint16_t, void (*)(uintptr_t, ssize_t),
-                             uintptr_t) override {}
+  bool addInterruptInHandler(UsbEndpoint, uintptr_t, uint16_t, void (*)(uintptr_t, ssize_t),
+                             UsbInterruptInHandle&, uintptr_t) override {
+    return false;
+  }
 
   bool portReset(uint8_t, bool) override {
     return true;
@@ -102,11 +107,22 @@ class HostedConnectionChangeHub final : public UsbHub {
   Atomic<size_t> replays[16];
   Atomic<bool> publicationClosing;
   Atomic<size_t> closedReplayNoops;
+  Atomic<size_t> rootGenerationBase;
   Atomic<size_t> replayHoldPort;
   Semaphore replayEntered;
   Semaphore allowReplay;
 
  protected:
+  size_t currentRootPortGeneration(size_t port) const override {
+    return port + rootGenerationBase;
+  }
+
+  bool cancelInterruptInAndDrain(const UsbInterruptInToken&, void (*)(uintptr_t, ssize_t),
+                                 uintptr_t, bool) override {
+    panic("hosted port-change hub unexpectedly owned an interrupt subscription");
+    return false;
+  }
+
   void replaySuppressedConnectionChange(size_t port) override {
     if (publicationClosing) {
       closedReplayNoops += 1;
@@ -245,10 +261,18 @@ bool runConnectionChangeSuppressionRegressions() {
 
   HostedConnectionChangeHub downstream;
   HostedConnectionChangeHub nested;
-  downstream.attach(&hub);
-  nested.attach(&downstream);
+  downstream.attach(&hub, 5);
+  hub.rootGenerationBase = 200;
+  nested.attach(&downstream, 7);
+  const auto rootConnection = hub.rootConnectionForChild(5);
+  const auto downstreamConnection = downstream.rootConnectionForChild(9);
+  const auto nestedConnection = nested.rootConnectionForChild(11);
   passed &= check(hub.root() == &hub && downstream.root() == &hub && nested.root() == &hub,
                   "nested hubs did not retain their root-controller association");
+  passed &= check(rootConnection.port == 5 && rootConnection.generation == 205 &&
+                      downstreamConnection.port == 5 && downstreamConnection.generation == 105 &&
+                      nestedConnection.port == 5 && nestedConnection.generation == 105,
+                  "nested hubs did not preserve root-port generation provenance");
 
   HostedConnectionChangeHub::Suppression outer;
   HostedConnectionChangeHub::Suppression inner;
@@ -556,13 +580,11 @@ bool allIdle(UsbHcd::PortChangeRequest* requests, size_t count) {
   }
   return true;
 }
-}  // namespace
-
-bool runHostedUsbHcdPortChangeRegressions() {
+bool runPortChangePublicationRegressions() {
   using Publication = UsbHcd::PortChangeRequest;
   using Result = Publication::Result;
 
-  bool passed = runConnectionChangeSuppressionRegressions();
+  bool passed = true;
   passed &= check(UsbHcd::EhciRootPortCount == 15 && UsbHcd::OhciRootPortCount == 15 &&
                       UsbHcd::UhciRootPortCount == 8 && UsbHcd::validEhciRootPortCount(15) &&
                       !UsbHcd::validEhciRootPortCount(16) && !UsbHcd::validOhciRootPortCount(0) &&
@@ -811,4 +833,14 @@ bool runHostedUsbHcdPortChangeRegressions() {
     NOTICE("HOSTED-WAIT-TEST: PASS usb-hcd-port-change-publication");
   }
   return passed;
+}
+}  // namespace
+
+bool runHostedUsbHcdPortChangeRegressions() {
+  // Keep these two stack-heavy fixtures sequential. Nesting the suppression
+  // fixture under the publication fixture exhausts the bounded kernel stack
+  // in ASan hosted builds before either fixture reports its result.
+  const bool suppressionPassed = runConnectionChangeSuppressionRegressions();
+  const bool publicationPassed = runPortChangePublicationRegressions();
+  return suppressionPassed && publicationPassed;
 }

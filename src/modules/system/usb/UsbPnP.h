@@ -20,13 +20,18 @@
 #ifndef USBPNP_H
 #define USBPNP_H
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
 
 class Device;
 class UsbDevice;
+class UsbDeviceContainer;
+class UsbHub;
 
 enum UsbPnPConstants {
   VendorIdNone = 0xFFFF,
@@ -49,11 +54,11 @@ class EXPORTED_PUBLIC UsbPnP {
    *
    * reset() closes admission to the factory/probe callback. Outside callback
    * dispatch it waits for callbacks which were already admitted and returns
-   * true once callback-owned state may be destroyed. During dispatch, an active
-   * target is closed but retained and false is returned; ownership remains live
-   * for a later retry from outside callback context. It does not retire
-   * successfully bound driver instances; a module must detach and destroy those
-   * objects separately before its code can be unloaded.
+   * true once callback-owned state may be destroyed. During any PnP callback,
+   * the target is closed but retained and false is returned; ownership remains
+   * live for a later retry from outside callback context. A successful external
+   * reset also replaces every object bound by this registration with its
+   * generic USB interface and drains the driver destructors before returning.
    */
   class EXPORTED_PUBLIC Registration {
    public:
@@ -66,7 +71,7 @@ class EXPORTED_PUBLIC UsbPnP {
     bool reset();
 
     explicit operator bool() const {
-      return m_Item != nullptr;
+      return static_cast<CallbackItem*>(m_Item) != nullptr;
     }
 
    private:
@@ -77,8 +82,9 @@ class EXPORTED_PUBLIC UsbPnP {
     Registration(const Registration&) = delete;
     Registration& operator=(const Registration&) = delete;
 
-    UsbPnP* m_Owner;
-    CallbackItem* m_Item;
+    Atomic<UsbPnP*> m_Owner;
+    Atomic<CallbackItem*> m_Item;
+    Atomic<bool> m_Resetting;
   };
 
   UsbPnP();
@@ -113,7 +119,12 @@ class EXPORTED_PUBLIC UsbPnP {
 #endif
 
  private:
+  friend class UsbHub;
+  friend class UsbDeviceContainer;
+
   struct ActiveInvocation;
+
+  bool probeDeviceAdmitted(UsbDeviceContainer* container, OperationBarrier::Lease& lease);
 
   /// Probes a device and returns the new device if it was successfully
   /// loaded and owned by a driver, or the original pointer otherwise.
@@ -121,11 +132,17 @@ class EXPORTED_PUBLIC UsbPnP {
 
   bool registerCallbackItem(CallbackItem* item, Registration& registration, bool reprobe);
   bool unregisterCallback(CallbackItem* item);
+  void retireBindings(CallbackItem* item, bool reprobe);
+  void publishBinding(CallbackItem* item, UsbDeviceContainer* container,
+                      OperationBarrier::Lease& binding);
+  void detachBinding(UsbDeviceContainer* container);
+  void unlinkBindingLocked(UsbDeviceContainer* container);
   bool acquireCallback(UsbDevice* device, size_t afterSequence, CallbackItem*& item,
                        callback_t& callback, size_t& sequence, ActiveInvocation& invocation);
   void finishCallback(CallbackItem* item, ActiveInvocation& invocation);
   static void* currentInvocationOwner();
   bool isCallbackContext(void* owner) const;
+  bool inCurrentCallbackContext();
 #if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
   static bool runRegistrationRegression();
 #endif
@@ -140,6 +157,7 @@ class EXPORTED_PUBLIC UsbPnP {
   CallbackItem* m_LastCallback;
   size_t m_CallbackCount;
   Spinlock m_CallbackLock;
+  Mutex m_BindingLock;
   size_t m_NextCallbackSequence;
   ActiveInvocation* m_ActiveInvocations;
 };

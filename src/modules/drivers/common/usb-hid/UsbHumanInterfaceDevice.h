@@ -26,6 +26,7 @@
 #include "pedigree/kernel/utilities/new"
 
 #include "modules/system/usb/UsbDevice.h"
+#include "modules/system/usb/UsbHub.h"
 
 class HidReport;
 
@@ -45,7 +46,6 @@ class UsbHumanInterfaceDevice : public UsbDevice {
     inline HidDescriptor(UnknownDescriptor* pDes) {
       Descriptor* pDescriptor = static_cast<Descriptor*>(pDes->pDescriptor);
       nDescriptorLength = pDescriptor->nDescriptorLength;
-      delete pDescriptor;
     }
 
     struct Descriptor {
@@ -69,6 +69,9 @@ class UsbHumanInterfaceDevice : public UsbDevice {
 
   /// The report instance used for input parsing
   HidReport* m_pReport;
+
+  /// Owns and synchronously cancels the recurring controller callback.
+  UsbInterruptInHandle m_InterruptIn;
 
   /// Input report buffer
   uint8_t* m_pInReportBuffer;

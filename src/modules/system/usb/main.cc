@@ -21,6 +21,7 @@
 #if PEDIGREE_CONCURRENCY_SMOKE_TESTS
 #include "pedigree/kernel/Log.h"
 
+#include "modules/system/usb/UsbHub.h"
 #include "modules/system/usb/UsbPnP.h"
 #endif
 
@@ -29,6 +30,10 @@ static bool entry() {
   NOTICE("QEMU-CONCURRENCY-TEST: BEGIN usb-pnp-reciprocal-unregister-smp");
   if (!UsbPnP::runQemuRegistrationRegression()) {
     FATAL("QEMU UsbPnP reciprocal-unregister regression failed");
+  }
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN usb-interrupt-cancel-drain-smp");
+  if (!UsbHub::runQemuInterruptOwnershipRegression()) {
+    FATAL("QEMU USB interrupt cancellation/drain regression failed");
   }
 #endif
   return true;

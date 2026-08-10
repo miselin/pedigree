@@ -370,8 +370,19 @@ Ohci::Ohci(Device* pDev)
     DEBUG_LOG("OHCI: Determining if there's a device on this port");
 
     // Check for a connected device
-    if (m_pBase->read32(OhciRhPortStatus + (i * 4)) & OhciRhPortStsConnected)
+    if (m_pBase->read32(OhciRhPortStatus + (i * 4)) & OhciRhPortStsConnected) {
+#if THREADS
+      // Device discovery constructs the controller under the global tree
+      // lock. The worker's topology mutation waits until the factory returns.
+      const auto observation = m_PortChanges[i].observe();
+      if (!UsbHcd::PortChangeRequest::canAcknowledge(observation.result)) {
+        panic("OHCI could not publish its initial root-port state");
+      }
+      m_PortChanges[i].acknowledge(observation.generation);
+#else
       executeRequest(i);
+#endif
+    }
   }
 
 #if THREADS
@@ -401,6 +412,10 @@ Ohci::~Ohci() {
     m_PortChanges[i].stopAfterQuiesce();
   }
   RequestQueue::destroy();
+
+  // Enumeration is quiesced, while transfer cancellation and DMA are still
+  // live for class-driver destructors.
+  disconnectAllDevices();
 
   // No new descriptor builder can race the terminal scan. Calls which were
   // already admitted finish while the controller and transfer IRQ are live.
@@ -1549,90 +1564,30 @@ void Ohci::cancelAsyncAndDrain(uintptr_t pTransaction, void (*pCallback)(uintptr
     (void)m_CompletionDeliveries.drain(deliveryKey);
 }
 
-void Ohci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
-                                 void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam) {
-  OperationBarrier::Lease submission;
-  if (!m_SubmissionOperations.tryAcquire(submission))
-    return;
+bool Ohci::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
+                                     void (*callback)(uintptr_t, ssize_t), uintptr_t parameter,
+                                     bool producerAlreadyStopped) {
+  (void)token;
+  (void)callback;
+  (void)parameter;
+  (void)producerAlreadyStopped;
+  panic("OHCI returned an interrupt-IN handle for an unsupported transfer");
+  return false;
+}
 
-  LockGuard<ControllerLock> controllerGuard(m_Mutex);
-  LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
-
-  size_t nIndex = m_PeriodicEDBitmap.getFirstClear();
-  if (nIndex >= (0x1000 / sizeof(ED))) {
-    ERROR("USB: OHCI: ED space full");
-    return;
-  }
-
-  m_PeriodicEDBitmap.set(nIndex);
-  ED* pED = &m_pPeriodicEDList[nIndex];
-
-  // Periodic identifier
-  nIndex += 0x2000;
-
-  ByteSet(pED, 0, sizeof(ED));
-
-  // Device address, endpoint and speed
-  pED->nAddress = endpointInfo.nAddress;
-  pED->nEndpoint = endpointInfo.nEndpoint;
-  pED->bLoSpeed = endpointInfo.speed == LowSpeed;
-
-  // Maximum packet size
-  pED->nMaxPacketSize = endpointInfo.nMaxPacketSize;
-
-  // Make sure this ED is ignored until it's properly queued.
-  pED->bSkip = true;
-
-  // Setup the metadata
-  pED->pMetaData = new ED::MetaData;
-  pED->pMetaData->endpointInfo = endpointInfo;
-  pED->pMetaData->id = nIndex;
-  pED->pMetaData->bIgnore = true;  // Don't handle this ED until we're ready.
-  pED->pMetaData->edType = PeriodicList;
-  pED->pMetaData->pFirstTD = pED->pMetaData->pLastTD = 0;
-  pED->pMetaData->nTotalBytes = 0;
-  pED->pMetaData->pPrev = pED->pMetaData->pNext = 0;
-  pED->pMetaData->bLinked = false;
-
-  pED->pMetaData->bPeriodic = true;
-
-  // Set up the callback and pointer.
-  pED->pMetaData->pCallback = pCallback;
-  pED->pMetaData->pParam = pParam;
-  pED->pMetaData->acceptedOperation = false;
-
-  // Periodic transfer construction remains incomplete in this driver: the
-  // supplied buffer and length are not yet represented by a TD. Teardown
-  // still owns and drains the subscription which this legacy path publishes.
+bool Ohci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
+                                 void (*pCallback)(uintptr_t, ssize_t),
+                                 UsbInterruptInHandle& handle, uintptr_t pParam) {
+  (void)endpointInfo;
   (void)pBuffer;
   (void)nBytes;
-
-  if (!m_AcceptedOperations.tryEnter()) {
-    retireEDStorage(pED);
-    return;
-  }
-  pED->pMetaData->acceptedOperation = true;
-
-  // Add to the housekeeping schedule before we link in proper.
-  {
-    LockGuard<Spinlock> scheduleGuard(m_ScheduleChangeLock);
-    m_FullSchedule.pushBack(pED);
-  }
-
-  // Lock before linking.
-  LockGuard<Spinlock> guard(m_PeriodicListChangeLock);
-
-  pED->pMetaData->pPrev = m_pPeriodicQueueTail;
-
-  m_pPeriodicQueueTail->pNext = vtp_ed(pED) >> 4;
-  m_pPeriodicQueueTail = pED;
-
-  // All linked in and ready to go!
-  pED->bSkip = pED->pMetaData->bIgnore = false;
-  pED->pMetaData->bLinked = true;
-
-  // Start processing of the list if it isn't already active.
-  start(pED->pMetaData->edType);
+  (void)pCallback;
+  (void)handle;
+  (void)pParam;
+  // The legacy OHCI path never built the periodic TD it claimed to publish.
+  // Failing here retains neither a DMA buffer nor a callback target.
+  WARNING("USB: OHCI: recurring interrupt-IN transfers are not implemented");
+  return false;
 }
 
 void Ohci::replaySuppressedConnectionChange(size_t port) {

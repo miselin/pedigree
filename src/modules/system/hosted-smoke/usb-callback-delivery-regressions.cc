@@ -347,6 +347,141 @@ bool allPendingRecordsCanBeDrained() {
   return passed;
 }
 
+bool recurringCancellationSuppressesPendingSamples() {
+  DeliveryQueue queue;
+  Atomic<size_t> destroyed(0);
+  CountContext context;
+  constexpr uintptr_t Transaction = 0x600;
+  constexpr size_t Subscription = 0x61;
+  constexpr size_t OtherSubscription = 0x62;
+  List<DeliveryQueue::Record*> records;
+  DeliveryQueue::Record* first = queue.create({Transaction, queue.nextGeneration(), Subscription},
+                                              countCallback, reinterpret_cast<uintptr_t>(&context),
+                                              0, nullptr, nullptr, countDestruction, &destroyed);
+  DeliveryQueue::Record* second = queue.create({Transaction, queue.nextGeneration(), Subscription},
+                                               countCallback, reinterpret_cast<uintptr_t>(&context),
+                                               0, nullptr, nullptr, countDestruction, &destroyed);
+  DeliveryQueue::Record* other = queue.create(
+      {Transaction, queue.nextGeneration(), OtherSubscription}, countCallback,
+      reinterpret_cast<uintptr_t>(&context), 0, nullptr, nullptr, countDestruction, &destroyed);
+  records.pushBack(first);
+  records.pushBack(second);
+  records.pushBack(other);
+  queue.publish(records);
+
+  const bool cancelled = queue.cancelSubscription(Transaction, Subscription);
+  const bool generationScoped = queue.activeCount() == 1;
+  queue.deliver(first);
+  queue.deliver(second);
+  queue.deliver(other);
+
+  const bool passed =
+      check(cancelled && generationScoped && context.calls == 1 && destroyed == 3 && queue.empty(),
+            "usb-callback-recurring-cancel",
+            "recurring cancellation invoked a pending callback or consumed a reused generation");
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS usb-callback-recurring-cancel");
+  return passed;
+}
+
+struct ReciprocalSubscriptionContext {
+  ReciprocalSubscriptionContext(DeliveryQueue* first, DeliveryQueue* second)
+      : first(first),
+        second(second),
+        callbacksEntered(0),
+        cancellationsAttempted(0),
+        resetRejected(0),
+        failures(0) {}
+
+  DeliveryQueue* first;
+  DeliveryQueue* second;
+  Atomic<size_t> callbacksEntered;
+  Atomic<size_t> cancellationsAttempted;
+  Atomic<size_t> resetRejected;
+  Atomic<size_t> failures;
+};
+
+void firstReciprocalSubscriptionCallback(uintptr_t parameter, ssize_t) {
+  auto* context = reinterpret_cast<ReciprocalSubscriptionContext*>(parameter);
+  context->callbacksEntered += 1;
+  while (context->callbacksEntered != static_cast<size_t>(2))
+    Scheduler::instance().yield();
+  if (!context->second->cancelSubscription(0x701, 0x72))
+    context->resetRejected += 1;
+  else
+    context->failures += 1;
+  context->cancellationsAttempted += 1;
+  while (context->cancellationsAttempted != static_cast<size_t>(2))
+    Scheduler::instance().yield();
+}
+
+void secondReciprocalSubscriptionCallback(uintptr_t parameter, ssize_t) {
+  auto* context = reinterpret_cast<ReciprocalSubscriptionContext*>(parameter);
+  context->callbacksEntered += 1;
+  while (context->callbacksEntered != static_cast<size_t>(2))
+    Scheduler::instance().yield();
+  if (!context->first->cancelSubscription(0x700, 0x71))
+    context->resetRejected += 1;
+  else
+    context->failures += 1;
+  context->cancellationsAttempted += 1;
+  while (context->cancellationsAttempted != static_cast<size_t>(2))
+    Scheduler::instance().yield();
+}
+
+struct ReciprocalDeliveryThread {
+  DeliveryQueue* queue;
+  DeliveryQueue::Record* record;
+};
+
+int deliverReciprocalSubscription(void* parameter) {
+  auto* delivery = reinterpret_cast<ReciprocalDeliveryThread*>(parameter);
+  delivery->queue->deliver(delivery->record);
+  return 0;
+}
+
+bool reciprocalSubscriptionCancellationDoesNotDeadlock() {
+  DeliveryQueue first;
+  DeliveryQueue second;
+  ReciprocalSubscriptionContext context(&first, &second);
+  DeliveryQueue::Record* firstRecord =
+      first.create({0x700, first.nextGeneration(), 0x71}, firstReciprocalSubscriptionCallback,
+                   reinterpret_cast<uintptr_t>(&context), 0);
+  DeliveryQueue::Record* secondRecord =
+      second.create({0x701, second.nextGeneration(), 0x72}, secondReciprocalSubscriptionCallback,
+                    reinterpret_cast<uintptr_t>(&context), 0);
+  List<DeliveryQueue::Record*> firstRecords;
+  List<DeliveryQueue::Record*> secondRecords;
+  firstRecords.pushBack(firstRecord);
+  secondRecords.pushBack(secondRecord);
+  first.publish(firstRecords);
+  second.publish(secondRecords);
+
+  ReciprocalDeliveryThread firstDelivery = {&first, firstRecord};
+  ReciprocalDeliveryThread secondDelivery = {&second, secondRecord};
+  Process* process = Scheduler::instance().getKernelProcess();
+  Thread* firstThread =
+      new Thread(process, deliverReciprocalSubscription, &firstDelivery, nullptr, false, true);
+  Thread* secondThread =
+      new Thread(process, deliverReciprocalSubscription, &secondDelivery, nullptr, false, true);
+  firstThread->setName("hosted USB reciprocal callback one");
+  secondThread->setName("hosted USB reciprocal callback two");
+  const bool firstJoined = firstThread->join();
+  const bool secondJoined = secondThread->join();
+
+  const bool externallyRetired =
+      first.cancelSubscription(0x700, 0x71) && second.cancelSubscription(0x701, 0x72);
+  const bool passed =
+      check(firstJoined && secondJoined && externallyRetired && context.callbacksEntered == 2 &&
+                context.cancellationsAttempted == 2 && context.resetRejected == 2 &&
+                context.failures == 0 && first.empty() && second.empty(),
+            "usb-callback-reciprocal-cancel",
+            "callbacks on separate queues waited on each other during cancellation");
+  if (passed)
+    NOTICE("HOSTED-WAIT-TEST: PASS usb-callback-reciprocal-cancel");
+  return passed;
+}
+
 bool capturedCompletionHasOnePublisher() {
   UsbHcd::TransferCompletion completion;
   UsbHcd::TransferCompletion::Claim claim;
@@ -499,6 +634,8 @@ bool runHostedUsbCallbackDeliveryRegressions() {
   return pendingRecordCanBeStolen() && runningRecordCanDrainItself() &&
          anotherThreadWaitsForRunningRecord() && producerWaitsForStolenRunningRecord() &&
          generationIsPartOfIdentity() && allPendingRecordsCanBeDrained() &&
+         recurringCancellationSuppressesPendingSamples() &&
+         reciprocalSubscriptionCancellationDoesNotDeadlock() &&
          capturedCompletionHasOnePublisher() && cancellationOwnsCompletion() &&
          teardownTerminalizesActiveCompletion() && teardownPreservesCapturedResult() &&
          cancellationPreservesCapturedResult() && cancellationRequiresExactIdentity();

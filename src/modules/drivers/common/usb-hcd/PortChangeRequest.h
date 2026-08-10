@@ -215,6 +215,10 @@ class PortChangeRequest {
     return m_Request.isAvailable() && (m_Stopping || m_Consumed >= m_Observed);
   }
 
+  size_t observedGeneration() const {
+    return m_Observed;
+  }
+
   static bool canAcknowledge(Result result) {
     return result == Result::Accepted || result == Result::Coalesced;
   }

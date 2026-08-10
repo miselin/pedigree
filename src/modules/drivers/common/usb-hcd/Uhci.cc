@@ -140,6 +140,7 @@ Uhci::Uhci(Device* pDev)
   pDummyQH->pMetaData->pOwner = this;
   pDummyQH->pMetaData->pPeriodicCallback = nullptr;
   pDummyQH->pMetaData->pPeriodicParam = 0;
+  pDummyQH->pMetaData->periodicGeneration = 0;
   pDummyQH->pMetaData->bPeriodic = false;
   pDummyQH->pMetaData->pFirstTD = nullptr;
   pDummyQH->pMetaData->pLastTD = nullptr;
@@ -267,7 +268,18 @@ Uhci::Uhci(Device* pDev)
         (void)m_pBase->read16(portRegister);
       }
     }
+#if THREADS
+    // Device discovery constructs the controller while holding the global
+    // device-tree lock. Let the queue worker enumerate after that factory
+    // callback returns instead of recursively acquiring the same lock here.
+    const auto observation = m_PortChanges[i].observe();
+    if (!UsbHcd::PortChangeRequest::canAcknowledge(observation.result)) {
+      panic("UHCI could not publish its initial root-port state");
+    }
+    m_PortChanges[i].acknowledge(observation.generation);
+#else
     executeRequest(i);
+#endif
   }
 
   // Install the timer handler for the periodic port checks. A threadless
@@ -369,6 +381,10 @@ Uhci::~Uhci() {
     m_PortChanges[i].stopAfterQuiesce();
   }
   RequestQueue::destroy();
+
+  // Enumeration is quiesced, while transfer cancellation and DMA are still
+  // live for class-driver destructors.
+  disconnectAllDevices();
 
   // Port enumeration has drained. No new transaction may now cross the DMA
   // publication boundary, but accepted transfers retain ownership until the
@@ -647,6 +663,24 @@ IrqDisposition Uhci::irq(irq_id_t number) {
               break;
             }
 
+            if (bPeriodic) {
+              const UsbEndpoint& endpoint = pQH->pMetaData->endpointInfo;
+              const size_t rootPort = endpoint.nRootPort;
+              const uint16_t rootStatus =
+                  rootPort < m_nPorts ? m_pBase->read16(UHCI_PORTSC + (rootPort * 2)) : 0;
+              if (rootPort < m_nPorts &&
+                  (!(rootStatus & UHCI_PORTSC_CONN) || (rootStatus & UHCI_PORTSC_CSCH) ||
+                   endpoint.nRootPortGeneration != currentRootPortGeneration(rootPort))) {
+                // A physical disconnect can complete its periodic TD before
+                // the port worker reaches the class-driver destructor. Leave
+                // the inactive descriptor owned by its handle, but neither
+                // report nor rearm a sample from the absent device.
+                pQH->pMetaData->bIgnore = true;
+                pQH->pMetaData->tdList.pushBack(pTD);
+                break;
+              }
+            }
+
             ssize_t nResult;
             if (((pTD->nErr == 0) && (pTD->nStatus & 0x7e)) || (nStatus & UHCI_STS_ERR)) {
               // #ifdef USB_VERBOSE_DEBUG
@@ -735,7 +769,8 @@ IrqDisposition Uhci::irq(irq_id_t number) {
 
                 if (pQH->pMetaData->pPeriodicCallback) {
                   completions.pushBack(m_CompletionDeliveries.create(
-                      {pQH->pMetaData->id, m_CompletionDeliveries.nextGeneration()},
+                      {pQH->pMetaData->id, m_CompletionDeliveries.nextGeneration(),
+                       pQH->pMetaData->periodicGeneration},
                       pQH->pMetaData->pPeriodicCallback, pQH->pMetaData->pPeriodicParam,
                       completionResult));
                 }
@@ -911,6 +946,7 @@ uintptr_t Uhci::createTransaction(UsbEndpoint endpointInfo) {
   pQH->pMetaData->pOwner = this;
   pQH->pMetaData->pPeriodicCallback = nullptr;
   pQH->pMetaData->pPeriodicParam = 0;
+  pQH->pMetaData->periodicGeneration = 0;
   pQH->pMetaData->endpointInfo = endpointInfo;
   pQH->pMetaData->bPeriodic = false;
   pQH->pMetaData->pFirstTD = pQH->pMetaData->pLastTD = 0;
@@ -924,6 +960,12 @@ uintptr_t Uhci::createTransaction(UsbEndpoint endpointInfo) {
 
 bool Uhci::doAsync(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
                    uintptr_t pParam) {
+  return doAsyncOwned(pTransaction, pCallback, pParam, nullptr, 0);
+}
+
+bool Uhci::doAsyncOwned(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
+                        uintptr_t pParam, UsbInterruptInHandle* interruptHandle,
+                        size_t interruptGeneration) {
   OperationBarrier::Lease submission;
   if (!m_SubmissionOperations.tryAcquire(submission))
     return false;
@@ -997,6 +1039,11 @@ bool Uhci::doAsync(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t)
     if (pQH->pMetaData->bPeriodic) {
       pQH->pMetaData->pPeriodicCallback = pCallback;
       pQH->pMetaData->pPeriodicParam = pParam;
+      if (!interruptHandle || pQH->pMetaData->periodicGeneration != interruptGeneration ||
+          !publishInterruptInHandle(*interruptHandle, {pTransaction, interruptGeneration},
+                                    pCallback, pParam)) {
+        panic("UHCI could not publish interrupt-IN ownership before DMA");
+      }
     } else {
       pQH->pMetaData->completion.arm(pCallback, pParam, m_CompletionDeliveries.nextGeneration());
     }
@@ -1077,22 +1124,77 @@ void Uhci::cancelAsyncAndDrain(uintptr_t pTransaction, void (*pCallback)(uintptr
     (void)m_CompletionDeliveries.drain(deliveryKey);
 }
 
-void Uhci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
-                                 void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam) {
+bool Uhci::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
+                                     void (*callback)(uintptr_t, ssize_t), uintptr_t parameter,
+                                     bool producerAlreadyStopped) {
+  OperationBarrier::Lease cancellation;
+  if (!m_CancelOperations.tryAcquire(cancellation))
+    panic("UHCI interrupt-IN cancellation raced controller teardown");
+
+  if (!producerAlreadyStopped) {
+    bool matched = false;
+    {
+      LockGuard<Mutex> transactionGuard(m_Mutex);
+      constexpr size_t QhListCount = QH_REGION_SIZE / sizeof(QH);
+      if (token.transaction < QhListCount && m_QHBitmap.test(token.transaction)) {
+        QH* pQH = &m_pQHList[token.transaction];
+        QH::MetaData* metadata = pQH->pMetaData;
+        if (metadata && metadata->bPeriodic && metadata->periodicGeneration == token.generation &&
+            metadata->pPeriodicCallback == callback && metadata->pPeriodicParam == parameter) {
+          LockGuard<Mutex> irqGuard(m_IrqProcessingLock);
+          const uint16_t interruptMask = m_pBase->read16(UHCI_INTR);
+          m_pBase->write16(0, UHCI_INTR);
+          (void)m_pBase->read16(UHCI_INTR);
+          stop();
+
+          {
+            LockGuard<Mutex> queueGuard(m_AsyncQueueListChangeLock);
+            detachQueueHeadLocked(pQH);
+          }
+          metadata->pPeriodicCallback = nullptr;
+          metadata->pPeriodicParam = 0;
+          reclaimQueueHeadLocked(pQH);
+          m_TransferOperations.leave();
+          matched = true;
+
+          if (!m_InterruptsClosing) {
+            start();
+            m_pBase->write16(interruptMask, UHCI_INTR);
+          }
+          (void)m_pBase->read16(UHCI_INTR);
+        }
+      }
+    }
+
+    if (!matched)
+      panic("UHCI interrupt-IN handle lost its controller subscription");
+  }
+
+  return m_CompletionDeliveries.cancelSubscription(token.transaction, token.generation);
+}
+
+bool Uhci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
+                                 void (*pCallback)(uintptr_t, ssize_t),
+                                 UsbInterruptInHandle& handle, uintptr_t pParam) {
   OperationBarrier::Lease submission;
-  if (!m_SubmissionOperations.tryAcquire(submission))
-    return;
+  if (!m_SubmissionOperations.tryAcquire(submission) || handle || !pCallback)
+    return false;
 
   // Create a new transaction
   uintptr_t nTransaction = createTransaction(endpointInfo);
   if (nTransaction == static_cast<uintptr_t>(-1)) {
     ERROR("USB: UHCI: Couldn't create interrupt transaction!");
-    return;
+    return false;
   }
 
   // Get the QH and set the periodic flag
   QH* pQH = &m_pQHList[nTransaction];
-  pQH->pMetaData->bPeriodic = true;
+  const size_t generation = m_CompletionDeliveries.nextGeneration();
+  {
+    LockGuard<Mutex> transactionGuard(m_Mutex);
+    pQH->pMetaData->bPeriodic = true;
+    pQH->pMetaData->periodicGeneration = generation;
+  }
 
   // Add a single transfer to the transaction
   addTransferToTransaction(nTransaction, false, UsbPidIn, pBuffer, nBytes);
@@ -1101,7 +1203,7 @@ void Uhci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, ui
     LockGuard<Mutex> transactionGuard(m_Mutex);
     if (m_QHBitmap.test(nTransaction) && pQH->pMetaData)
       reclaimQueueHeadLocked(pQH);
-    return;
+    return false;
   }
 
   // Get the TD and set the error counter to "unlimited retries"
@@ -1109,12 +1211,15 @@ void Uhci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, ui
   pTD->nErr = 0;
 
   // Let doAsync do the rest
-  if (!doAsync(nTransaction, pCallback, pParam)) {
+  if (!doAsyncOwned(nTransaction, pCallback, pParam, &handle, generation)) {
     ERROR("USB: UHCI: Couldn't submit interrupt transaction!");
     LockGuard<Mutex> transactionGuard(m_Mutex);
     if (m_QHBitmap.test(nTransaction) && pQH->pMetaData)
       reclaimQueueHeadLocked(pQH);
+    return false;
   }
+
+  return true;
 }
 
 void Uhci::modifyPortControl(size_t portRegister, uint16_t clearMask, uint16_t setMask) {
@@ -1322,6 +1427,10 @@ void Uhci::replaySuppressedConnectionChange(size_t port) {
 #else
   (void)port;
 #endif
+}
+
+size_t Uhci::currentRootPortGeneration(size_t port) const {
+  return port < m_nPorts ? m_PortChanges[port].observedGeneration() : 0;
 }
 
 void Uhci::stop() {

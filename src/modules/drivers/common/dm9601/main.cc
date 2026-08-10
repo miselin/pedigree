@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
 
@@ -58,7 +59,8 @@ static bool entry() {
 
 static void exit() {
   for (size_t i = NUM_DEVICES; i; --i) {
-    g_Registrations[i - 1].reset();
+    if (!g_Registrations[i - 1].reset())
+      FATAL("DM9601 USB binding could not be retired");
   }
 }
 

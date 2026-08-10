@@ -481,7 +481,17 @@ bool Ehci::initialiseController() {
       (void)m_pBase->read32(portRegister);
     }
 
+#if THREADS
+    // Controller discovery runs inside the device-tree walk. Defer topology
+    // mutation until that walk releases its non-recursive tree lock.
+    const auto observation = m_PortChanges[i].observe();
+    if (!UsbHcd::PortChangeRequest::canAcknowledge(observation.result)) {
+      panic("EHCI could not publish its initial root-port state");
+    }
+    m_PortChanges[i].acknowledge(observation.generation);
+#else
     executeRequest(i);
+#endif
   }
 
 #if THREADS
@@ -512,6 +522,10 @@ Ehci::~Ehci() {
     m_PortChanges[i].stopAfterQuiesce();
   }
   RequestQueue::destroy();
+
+  // Enumeration is quiesced, while transfer cancellation and DMA are still
+  // live for class-driver destructors.
+  disconnectAllDevices();
 
   // Port enumeration has drained, so no internal producer needs to construct
   // another transfer while the controller is being halted.
@@ -974,7 +988,7 @@ void Ehci::interrupt(size_t number, InterruptState& state)
         if (!pQH->pMetaData)  // This QH isn't actually ready to be
                               // handled yet.
           continue;
-        if (!(pQH->pMetaData->pPrev && pQH->pMetaData->pNext))  // This QH isn't actually linked yet
+        if (!pQH->pMetaData->bPeriodic && !(pQH->pMetaData->pPrev && pQH->pMetaData->pNext))
           continue;
         if (pQH->pMetaData->bIgnore)
           continue;
@@ -1070,8 +1084,9 @@ void Ehci::interrupt(size_t number, InterruptState& state)
               if (bPeriodic && pQH->pMetaData->pCallback) {
 #if X86_COMMON
                 completions.pushBack(m_CompletionDeliveries.create(
-                    {i, pQH->pMetaData->periodicGeneration}, pQH->pMetaData->pCallback,
-                    pQH->pMetaData->pParam, completionResult));
+                    {i, m_CompletionDeliveries.nextGeneration(),
+                     pQH->pMetaData->periodicGeneration},
+                    pQH->pMetaData->pCallback, pQH->pMetaData->pParam, completionResult));
 #else
               pQH->pMetaData->pCallback(pQH->pMetaData->pParam, completionResult);
 #endif
@@ -1472,11 +1487,96 @@ void Ehci::cancelAsyncAndDrain(uintptr_t nTransaction, void (*pCallback)(uintptr
     (void)m_CompletionDeliveries.drain(deliveryKey);
 }
 
-void Ehci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
-                                 void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam) {
+bool Ehci::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
+                                     void (*callback)(uintptr_t, ssize_t), uintptr_t parameter,
+                                     bool producerAlreadyStopped) {
+  OperationBarrier::Lease cancellation;
+  if (!m_CancelOperations.tryAcquire(cancellation))
+    panic("EHCI interrupt-IN cancellation raced controller teardown");
+
+  if (!producerAlreadyStopped) {
+    bool matched = false;
+    {
+      LockGuard<Mutex> guard(m_Mutex);
+      const bool teardownHalted = m_InterruptClosure >= 2;
+      uint32_t savedInterrupts = 0;
+      uint32_t savedCommand = 0;
+      if (!teardownHalted && m_pBase && m_nOpRegsOffset) {
+        savedInterrupts = m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+        savedCommand = m_pBase->read32(m_nOpRegsOffset + EHCI_CMD);
+        m_pBase->write32(0, m_nOpRegsOffset + EHCI_INTR);
+        m_pBase->write32(savedCommand & ~EHCI_CMD_RUN, m_nOpRegsOffset + EHCI_CMD);
+        if (!waitForMmioState(m_pBase, m_nOpRegsOffset + EHCI_STS, EHCI_STS_HALTED,
+                              EHCI_STS_HALTED)) {
+          panic("EHCI interrupt-IN cancellation could not halt DMA");
+        }
+      }
+
+      {
+        LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
+        constexpr size_t QhCount = 0x2000 / sizeof(QH);
+        if (token.transaction < QhCount && m_QHBitmap.test(token.transaction)) {
+          QH* pQH = &m_pQHList[token.transaction];
+          QH::MetaData* metadata = pQH->pMetaData;
+          if (metadata && metadata->bPeriodic && metadata->periodicGeneration == token.generation &&
+              metadata->pCallback == callback && metadata->pParam == parameter) {
+            metadata->bIgnore = true;
+            metadata->pCallback = nullptr;
+            metadata->pParam = 0;
+            const size_t frame = metadata->periodicFrameIndex;
+            if (frame >= 1024 || !m_FrameBitmap.test(frame))
+              panic("EHCI interrupt-IN subscription lost its frame slot");
+            m_pFrameList[frame] = 1;
+            m_FrameBitmap.clear(frame);
+            reclaimQhLocked(token.transaction);
+            matched = true;
+          }
+        }
+      }
+
+      if (!teardownHalted && m_pBase && m_nOpRegsOffset) {
+        m_pBase->write32(savedCommand, m_nOpRegsOffset + EHCI_CMD);
+        if ((savedCommand & EHCI_CMD_RUN) &&
+            !waitForMmioState(m_pBase, m_nOpRegsOffset + EHCI_STS, EHCI_STS_HALTED, 0)) {
+          panic("EHCI interrupt-IN cancellation could not restart DMA");
+        }
+        LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
+        uint32_t restoredInterrupts = savedInterrupts;
+        if (m_InterruptClosure == 1)
+          restoredInterrupts &= ~EHCI_STS_PORTCH;
+        m_pBase->write32(restoredInterrupts, m_nOpRegsOffset + EHCI_INTR);
+        (void)m_pBase->read32(m_nOpRegsOffset + EHCI_INTR);
+      }
+    }
+
+    if (!matched)
+      panic("EHCI interrupt-IN handle lost its controller subscription");
+  }
+
+#if X86_COMMON
+  return m_CompletionDeliveries.cancelSubscription(token.transaction, token.generation);
+#else
+  panic("non-x86 EHCI unexpectedly owned an interrupt-IN handle");
+  return false;
+#endif
+}
+
+bool Ehci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
+                                 void (*pCallback)(uintptr_t, ssize_t),
+                                 UsbInterruptInHandle& handle, uintptr_t pParam) {
+#if !X86_COMMON
+  (void)endpointInfo;
+  (void)pBuffer;
+  (void)nBytes;
+  (void)pCallback;
+  (void)handle;
+  (void)pParam;
+  ERROR("USB: non-x86 EHCI recurring interrupt-IN is not safely supported");
+  return false;
+#else
   OperationBarrier::Lease submission;
-  if (!m_SubmissionOperations.tryAcquire(submission))
-    return;
+  if (!m_SubmissionOperations.tryAcquire(submission) || handle || !pCallback)
+    return false;
 
   // Find an empty frame entry
   size_t nFrameIndex = 0;
@@ -1485,7 +1585,7 @@ void Ehci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, ui
     nFrameIndex = m_FrameBitmap.getFirstClear();
     if (nFrameIndex >= 1024) {
       ERROR("USB: EHCI: Frame list full");
-      return;
+      return false;
     }
     m_FrameBitmap.set(nFrameIndex);
   }
@@ -1495,7 +1595,7 @@ void Ehci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, ui
   if (nTransaction == static_cast<uintptr_t>(-1)) {
     LockGuard<Mutex> guard(m_Mutex);
     m_FrameBitmap.clear(nFrameIndex);
-    return;
+    return false;
   }
 
   // Get the QH and set the periodic flag
@@ -1516,7 +1616,7 @@ void Ehci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, ui
       ERROR("USB: EHCI: Couldn't add interrupt transfer!");
       reclaimQhLocked(nTransaction);
       m_FrameBitmap.clear(nFrameIndex);
-      return;
+      return false;
     }
 
     LockGuard<IrqProcessingLock> transactionGuard(m_IrqProcessingLock);
@@ -1524,8 +1624,15 @@ void Ehci::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, ui
     pQH->pMetaData->pCallback = pCallback;
     pQH->pMetaData->pParam = pParam;
     pQH->pMetaData->periodicGeneration = m_CompletionDeliveries.nextGeneration();
+    pQH->pMetaData->periodicFrameIndex = nFrameIndex;
+    const bool published = publishInterruptInHandle(
+        handle, {nTransaction, pQH->pMetaData->periodicGeneration}, pCallback, pParam);
+    if (!published)
+      panic("EHCI submitted interrupt-IN without publishing its owner handle");
     m_pFrameList[nFrameIndex] = (m_pQHListPhys + nTransaction * sizeof(QH)) | 2;
   }
+  return true;
+#endif
 }
 
 void Ehci::replaySuppressedConnectionChange(size_t port) {

@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/new"
 
 #include "FtdiSerialDevice.h"
@@ -36,7 +37,8 @@ static bool entry() {
 }
 
 static void exit() {
-  g_Registration.reset();
+  if (!g_Registration.reset())
+    FATAL("FTDI USB binding could not be retired");
 }
 
 MODULE_INFO("ftdi", &entry, &exit, "usb");

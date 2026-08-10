@@ -19,6 +19,7 @@
 
 #include "UsbHubDevice.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/time/Time.h"
 
 #include "modules/system/usb/UsbDevice.h"
@@ -29,10 +30,16 @@ constexpr size_t PortResetPollLimit = 100;
 }
 
 UsbHubDevice::UsbHubDevice(UsbDevice* dev) : UsbDevice(dev), UsbHub() {
-  attachToUpstreamHub(m_pHub);
+  attachToUpstreamHub(m_pHub, {m_nRootPort, m_nRootPortGeneration});
 }
 
-UsbHubDevice::~UsbHubDevice() {}
+UsbHubDevice::~UsbHubDevice() {
+  disconnectAllDevices();
+}
+
+void UsbHubDevice::prepareForDriverRetirement() {
+  retainDisconnectedAddressesUntilControllerTeardown();
+}
 
 void UsbHubDevice::initialiseDriver() {
   uint8_t len = getDescriptorLength(0, 0, UsbRequestType::Class);
@@ -185,10 +192,22 @@ void UsbHubDevice::cancelAsyncAndDrain(uintptr_t pTransaction,
   m_pHub->cancelAsyncAndDrain(pTransaction, pCallback, pParam);
 }
 
-void UsbHubDevice::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer,
+bool UsbHubDevice::addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer,
                                          uint16_t nBytes, void (*pCallback)(uintptr_t, ssize_t),
-                                         uintptr_t pParam) {
+                                         UsbInterruptInHandle& handle, uintptr_t pParam) {
   if ((m_Speed == HighSpeed) && (endpointInfo.speed != HighSpeed) && (!endpointInfo.nHubAddress))
     endpointInfo.nHubAddress = m_nAddress;
-  m_pHub->addInterruptInHandler(endpointInfo, pBuffer, nBytes, pCallback, pParam);
+  // The upstream call publishes the handle directly against the root HCD.
+  return m_pHub->addInterruptInHandler(endpointInfo, pBuffer, nBytes, pCallback, handle, pParam);
+}
+
+bool UsbHubDevice::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
+                                             void (*callback)(uintptr_t, ssize_t),
+                                             uintptr_t parameter, bool producerAlreadyStopped) {
+  (void)token;
+  (void)callback;
+  (void)parameter;
+  (void)producerAlreadyStopped;
+  panic("downstream USB hub unexpectedly owned an interrupt-IN handle");
+  return false;
 }

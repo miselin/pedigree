@@ -142,6 +142,7 @@ class Ehci : public UsbHub,
           : pCallback(nullptr),
             pParam(0),
             periodicGeneration(0),
+            periodicFrameIndex(static_cast<size_t>(-1)),
             bPeriodic(false),
             bBuildFailed(false),
             pFirstQTD(nullptr),
@@ -157,6 +158,7 @@ class Ehci : public UsbHub,
       void (*pCallback)(uintptr_t, ssize_t);
       uintptr_t pParam;
       size_t periodicGeneration;
+      size_t periodicFrameIndex;
 
       bool bPeriodic;
       bool bBuildFailed;
@@ -184,8 +186,11 @@ class Ehci : public UsbHub,
   MUST_USE_RESULT virtual bool doAsync(uintptr_t pTransaction,
                                        void (*pCallback)(uintptr_t, ssize_t) = 0,
                                        uintptr_t pParam = 0);
-  virtual void addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer, uint16_t nBytes,
-                                     void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
+  MUST_USE_RESULT virtual bool addInterruptInHandler(UsbEndpoint endpointInfo, uintptr_t pBuffer,
+                                                     uint16_t nBytes,
+                                                     void (*pCallback)(uintptr_t, ssize_t),
+                                                     UsbInterruptInHandle& handle,
+                                                     uintptr_t pParam = 0);
 
 /// IRQ handler
 #if X86_COMMON
@@ -201,6 +206,13 @@ class Ehci : public UsbHub,
  protected:
   virtual void cancelAsyncAndDrain(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t),
                                    uintptr_t pParam);
+  MUST_USE_RESULT bool cancelInterruptInAndDrain(const UsbInterruptInToken& token,
+                                                 void (*callback)(uintptr_t, ssize_t),
+                                                 uintptr_t parameter,
+                                                 bool producerAlreadyStopped) override;
+  bool inInterruptCallbackContext() const override {
+    return UsbHcd::CallbackDeliveryQueue::isInCallbackContext();
+  }
   void replaySuppressedConnectionChange(size_t port) override;
 
   virtual uint64_t executeRequest(uint64_t p1 = 0, uint64_t p2 = 0, uint64_t p3 = 0,

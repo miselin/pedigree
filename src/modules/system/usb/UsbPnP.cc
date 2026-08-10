@@ -22,15 +22,20 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "modules/system/usb/UsbDevice.h"
+#if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
+#include "modules/system/usb/UsbConstants.h"
+#include "modules/system/usb/UsbDescriptors.h"
+#endif
 
 #if (HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS) || PEDIGREE_CONCURRENCY_SMOKE_TESTS
 #include "pedigree/kernel/Atomic.h"
-#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/time/Time.h"
 #endif
@@ -48,7 +53,20 @@ struct UsbPnP::CallbackItem {
         nProtocol(protocol),
         sequence(0),
         next(nullptr),
-        operations() {}
+        operations(),
+        bindings(),
+        firstBinding(nullptr),
+        lastBinding(nullptr) {}
+
+  ~CallbackItem() {
+    if (operations.isOpen())
+      operations.close();
+    operations.wait();
+    if (bindings.isOpen())
+      bindings.close();
+    bindings.wait();
+    assert(!firstBinding && !lastBinding);
+  }
 
   callback_t callback;
   uint16_t nVendorId;
@@ -59,6 +77,9 @@ struct UsbPnP::CallbackItem {
   size_t sequence;
   CallbackItem* next;
   OperationBarrier operations;
+  OperationBarrier bindings;
+  UsbDeviceContainer* firstBinding;
+  UsbDeviceContainer* lastBinding;
 };
 
 struct UsbPnP::ActiveInvocation {
@@ -66,27 +87,31 @@ struct UsbPnP::ActiveInvocation {
   ActiveInvocation* next;
 };
 
-UsbPnP::Registration::Registration() : m_Owner(nullptr), m_Item(nullptr) {}
+UsbPnP::Registration::Registration() : m_Owner(nullptr), m_Item(nullptr), m_Resetting(false) {}
 
 UsbPnP::Registration::Registration(Registration&& other)
-    : m_Owner(other.m_Owner), m_Item(other.m_Item) {
+    : m_Owner(static_cast<UsbPnP*>(other.m_Owner)),
+      m_Item(static_cast<CallbackItem*>(other.m_Item)),
+      m_Resetting(false) {
+  assert(!other.m_Resetting);
   other.m_Owner = nullptr;
   other.m_Item = nullptr;
 }
 
 UsbPnP::Registration::~Registration() {
-  if (m_Item && !reset()) {
+  if (!reset()) {
     FATAL("Live UsbPnP registration could not be retired.");
   }
 }
 
 UsbPnP::Registration& UsbPnP::Registration::operator=(Registration&& other) {
   if (this != &other) {
-    if (m_Item && !reset()) {
+    if (!reset()) {
       FATAL("UsbPnP registration move could not retire ownership.");
     }
-    m_Owner = other.m_Owner;
-    m_Item = other.m_Item;
+    assert(!other.m_Resetting);
+    m_Owner = static_cast<UsbPnP*>(other.m_Owner);
+    m_Item = static_cast<CallbackItem*>(other.m_Item);
     other.m_Owner = nullptr;
     other.m_Item = nullptr;
   }
@@ -94,20 +119,34 @@ UsbPnP::Registration& UsbPnP::Registration::operator=(Registration&& other) {
 }
 
 bool UsbPnP::Registration::reset() {
-  if (!m_Item) {
+  while (!m_Resetting.compareAndSwap(false, true)) {
+    UsbPnP* owner = m_Owner;
+    if (owner && owner->inCurrentCallbackContext())
+      return false;
+    Scheduler::instance().yield();
+  }
+
+  UsbPnP* owner = m_Owner;
+  CallbackItem* item = m_Item;
+  if (!owner || !item) {
+    m_Resetting = false;
     return true;
   }
 
-  if (!m_Owner->unregisterCallback(m_Item)) {
+  if (!owner->unregisterCallback(item)) {
+    m_Resetting = false;
     return false;
   }
 
   m_Owner = nullptr;
   m_Item = nullptr;
+  m_Resetting = false;
   return true;
 }
 
 void UsbPnP::Registration::adopt(UsbPnP* owner, CallbackItem* item) {
+  assert(!static_cast<CallbackItem*>(m_Item));
+  assert(!m_Resetting);
   m_Owner = owner;
   m_Item = item;
 }
@@ -117,6 +156,7 @@ UsbPnP::UsbPnP()
       m_LastCallback(nullptr),
       m_CallbackCount(0),
       m_CallbackLock(),
+      m_BindingLock(),
       m_NextCallbackSequence(1),
       m_ActiveInvocations(nullptr) {}
 
@@ -148,13 +188,29 @@ UsbPnP::~UsbPnP() {
     }
 
     item->operations.wait();
+    retireBindings(item, false);
     delete item;
   }
 }
 
 bool UsbPnP::probeDevice(Device* pDeviceBase) {
-  Device* pResult = doProbe(pDeviceBase);
-  return pResult == pDeviceBase;
+  if (!pDeviceBase || pDeviceBase->getType() != Device::UsbContainer)
+    return false;
+  auto* container = static_cast<UsbDeviceContainer*>(pDeviceBase);
+  OperationBarrier::Lease probe;
+  if (!container->tryAcquireProbe(probe))
+    return false;
+  return probeDeviceAdmitted(container, probe);
+}
+
+bool UsbPnP::probeDeviceAdmitted(UsbDeviceContainer* container, OperationBarrier::Lease& probe) {
+  if (!container || !probe)
+    return false;
+
+  LockGuard<Mutex> guard(container->m_ProbeLock);
+  doProbe(container);
+  UsbDevice* device = container->getUsbDevice();
+  return device && device->getUsbState() == UsbDevice::HasDriver;
 }
 
 Device* UsbPnP::doProbe(Device* pDeviceBase) {
@@ -163,7 +219,8 @@ Device* UsbPnP::doProbe(Device* pDeviceBase) {
     return pDeviceBase;
   }
 
-  UsbDevice* pDevice = static_cast<UsbDeviceContainer*>(pDeviceBase)->getUsbDevice();
+  UsbDeviceContainer* pContainer = static_cast<UsbDeviceContainer*>(pDeviceBase);
+  UsbDevice* pDevice = pContainer->getUsbDevice();
 
   // Is this device already handled by a driver?
   if (pDevice->getUsbState() == UsbDevice::HasDriver) {
@@ -190,16 +247,36 @@ Device* UsbPnP::doProbe(Device* pDeviceBase) {
       finishCallback(item, invocation);
       continue;
     }
+    if (pNewDevice == pDevice) {
+      ERROR("USB: PnP factories must return a distinct driver instance");
+      finishCallback(item, invocation);
+      continue;
+    }
 
     // Initialise the driver
     pNewDevice->initialiseDriver();
 
     // Did the device go into the driver state?
     if (pNewDevice->getUsbState() == UsbDevice::HasDriver) {
-      // Replace the old device with the new one
-      UsbDeviceContainer* pNewContainer = new UsbDeviceContainer(pNewDevice);
+      OperationBarrier::Lease binding;
+      if (!item->bindings.tryAcquire(binding)) {
+        delete pNewDevice;
+        finishCallback(item, invocation);
+        ERROR("USB: PnP registration closed before its binding was published");
+        return pDeviceBase;
+      }
+
+      // Publish into the already-linked container before releasing callback
+      // ownership, so registration teardown cannot miss the bound object.
+      const bool replaced = pContainer->replaceUsbDevice(pNewDevice);
+      if (replaced)
+        publishBinding(item, pContainer, binding);
       finishCallback(item, invocation);
-      return pNewContainer;
+      if (!replaced) {
+        delete pNewDevice;
+        ERROR("USB: PnP could not publish a matched driver into its container");
+      }
+      return pDeviceBase;
     } else {
       delete pNewDevice;
       finishCallback(item, invocation);
@@ -286,18 +363,39 @@ bool UsbPnP::isCallbackContext(void* owner) const {
   return false;
 }
 
-void UsbPnP::reprobeDevices(Device* pParent) {
-  auto performReprobe = [](Device* p) {
-    if (p->getType() == Device::UsbContainer) {
-      return UsbPnP::instance().doProbe(p);
-    }
+bool UsbPnP::inCurrentCallbackContext() {
+  LockGuard<Spinlock> guard(m_CallbackLock);
+  return isCallbackContext(currentInvocationOwner());
+}
 
-    // don't edit the tree - just iterating
+void UsbPnP::reprobeDevices(Device* pParent) {
+  struct ProbeCandidate {
+    explicit ProbeCandidate(UsbDeviceContainer* container) : container(container), probe() {}
+
+    UsbDeviceContainer* container;
+    OperationBarrier::Lease probe;
+  };
+
+  List<ProbeCandidate*> candidates;
+  auto collectCandidate = [](Device* p, List<ProbeCandidate*>* candidates) -> Device* {
+    if (p->getType() == Device::UsbContainer) {
+      auto* candidate = new ProbeCandidate(static_cast<UsbDeviceContainer*>(p));
+      if (candidate->container->tryAcquireProbe(candidate->probe))
+        candidates->pushBack(candidate);
+      else
+        delete candidate;
+    }
     return p;
   };
 
-  auto c = pedigree_std::make_callable(performReprobe);
-  Device::foreach (c, pParent);
+  auto collector = pedigree_std::make_callable(collectCandidate);
+  Device::foreach (collector, pParent, &candidates);
+
+  while (candidates.count()) {
+    ProbeCandidate* candidate = candidates.popFront();
+    probeDeviceAdmitted(candidate->container, candidate->probe);
+    delete candidate;
+  }
 }
 
 bool UsbPnP::registerCallbackItem(CallbackItem* item, Registration& registration, bool reprobe) {
@@ -339,10 +437,113 @@ bool UsbPnP::registerCallback(uint8_t nClass, uint8_t nSubclass, uint8_t nProtoc
       registration, true);
 }
 
+void UsbPnP::publishBinding(CallbackItem* item, UsbDeviceContainer* container,
+                            OperationBarrier::Lease& binding) {
+  assert(item && container && binding);
+  LockGuard<Mutex> guard(m_BindingLock);
+  assert(!container->m_BindingOwner && !container->m_PreviousBinding && !container->m_NextBinding);
+
+  container->m_BindingRegistry = this;
+  container->m_BindingOwner = item;
+  container->m_PreviousBinding = item->lastBinding;
+  if (item->lastBinding)
+    item->lastBinding->m_NextBinding = container;
+  else
+    item->firstBinding = container;
+  item->lastBinding = container;
+  container->m_BindingLease = pedigree_std::move(binding);
+}
+
+void UsbPnP::unlinkBindingLocked(UsbDeviceContainer* container) {
+  auto* item = static_cast<CallbackItem*>(container->m_BindingOwner);
+  if (!item) {
+    assert(!container->m_PreviousBinding && !container->m_NextBinding);
+    return;
+  }
+
+  if (container->m_PreviousBinding)
+    container->m_PreviousBinding->m_NextBinding = container->m_NextBinding;
+  else
+    item->firstBinding = container->m_NextBinding;
+  if (container->m_NextBinding)
+    container->m_NextBinding->m_PreviousBinding = container->m_PreviousBinding;
+  else
+    item->lastBinding = container->m_PreviousBinding;
+
+  container->m_BindingOwner = nullptr;
+  container->m_PreviousBinding = nullptr;
+  container->m_NextBinding = nullptr;
+  // Destruction treats this atomic pointer as the unlink-complete sentinel.
+  // Publish it only after every other access to the container has finished.
+  container->m_BindingRegistry = nullptr;
+}
+
+void UsbPnP::detachBinding(UsbDeviceContainer* container) {
+  if (!container)
+    return;
+  LockGuard<Mutex> guard(m_BindingLock);
+  unlinkBindingLocked(container);
+}
+
+void UsbPnP::retireBindings(CallbackItem* item, bool reprobe) {
+  if (!item)
+    return;
+  if (item->bindings.isOpen())
+    item->bindings.close();
+
+  struct BoundCandidate {
+    BoundCandidate() : container(nullptr), probe(), binding() {}
+
+    UsbDeviceContainer* container;
+    OperationBarrier::Lease probe;
+    OperationBarrier::Lease binding;
+  };
+
+  while (true) {
+    BoundCandidate candidate;
+    {
+      LockGuard<Mutex> bindingGuard(m_BindingLock);
+      candidate.container = item->firstBinding;
+      if (!candidate.container)
+        break;
+
+      const bool admitted = candidate.container->tryAcquireProbe(candidate.probe);
+      unlinkBindingLocked(candidate.container);
+      if (admitted)
+        candidate.binding = pedigree_std::move(candidate.container->m_BindingLease);
+    }
+
+    if (!candidate.probe) {
+      // Physical teardown already closed this container. It keeps the binding
+      // lease until its driver has been destroyed; bindings.wait() below is
+      // the retirement join.
+      continue;
+    }
+
+    {
+      // Keep the retiring registration alive through its driver's destructor,
+      // then release it before another callback can bind the generic device.
+      OperationBarrier::Lease binding = pedigree_std::move(candidate.binding);
+      LockGuard<Mutex> probeGuard(candidate.container->m_ProbeLock);
+      UsbDevice* bound = candidate.container->m_pUsbDevice;
+      UsbDevice* generic = new UsbDevice(bound);
+      generic->m_UsbState = UsbDevice::HasInterface;
+      bound->prepareForDriverRetirement();
+      const bool replaced = candidate.container->replaceUsbDevice(generic);
+      assert(replaced);
+      (void)replaced;
+    }
+
+    if (reprobe)
+      probeDeviceAdmitted(candidate.container, candidate.probe);
+  }
+
+  item->bindings.wait();
+}
+
 bool UsbPnP::unregisterCallback(CallbackItem* item) {
   bool found = false;
   bool callbackContext = false;
-  bool drained = false;
   {
     LockGuard<Spinlock> guard(m_CallbackLock);
     CallbackItem* previous = nullptr;
@@ -357,8 +558,7 @@ bool UsbPnP::unregisterCallback(CallbackItem* item) {
         --m_CallbackCount;
       }
       callbackContext = isCallbackContext(currentInvocationOwner());
-      drained = item->operations.isClosedAndDrained();
-      if (!callbackContext || drained) {
+      if (!callbackContext) {
         if (previous) {
           previous->next = item->next;
         } else {
@@ -377,12 +577,11 @@ bool UsbPnP::unregisterCallback(CallbackItem* item) {
   if (!found) {
     return true;
   }
-  if (callbackContext && !drained) {
+  if (callbackContext) {
     return false;
   }
-  if (!callbackContext) {
-    item->operations.wait();
-  }
+  item->operations.wait();
+  retireBindings(item, true);
   delete item;
   return true;
 }
@@ -398,6 +597,7 @@ struct HostedRegistrationContext {
         releaseCallback(0),
         callbackEntered(0),
         callbackFinished(0),
+        callbackResetRejected(0),
         invocationFinished(0),
         unregisterStarted(0),
         unregisterFinished(0) {}
@@ -407,6 +607,7 @@ struct HostedRegistrationContext {
   Semaphore releaseCallback;
   Atomic<size_t> callbackEntered;
   Atomic<size_t> callbackFinished;
+  Atomic<size_t> callbackResetRejected;
   Atomic<size_t> invocationFinished;
   Atomic<size_t> unregisterStarted;
   Atomic<size_t> unregisterFinished;
@@ -456,11 +657,90 @@ struct HostedReciprocalRemovalContext {
 
 HostedReciprocalRemovalContext* g_HostedReciprocalRemovalContext = nullptr;
 
+Atomic<size_t> g_BoundDriverDestructions(0);
+Atomic<size_t> g_BoundDriverRetirements(0);
+Atomic<size_t> g_UnrelatedTreeVisits(0);
+
+class BindingTreeAccess : public Device {
+ public:
+  static Device& rootDevice() {
+    return root();
+  }
+};
+
+class HostedUnrelatedTreeDevice : public Device {
+ public:
+  Type getType() override {
+    g_UnrelatedTreeVisits += 1;
+    return Generic;
+  }
+};
+
+class HostedBindingUsbDevice : public UsbDevice {
+ public:
+  HostedBindingUsbDevice() : UsbDevice(nullptr, 1, FullSpeed), m_IsDriver(false) {
+    auto* rawDevice =
+        reinterpret_cast<UsbDeviceDescriptor*>(new uint8_t[sizeof(UsbDeviceDescriptor)]);
+    ByteSet(rawDevice, 0, sizeof(UsbDeviceDescriptor));
+    rawDevice->nLength = sizeof(UsbDeviceDescriptor);
+    rawDevice->nType = UsbDescriptor::Device;
+    rawDevice->nConfigurations = 1;
+    m_pDescriptor = new DeviceDescriptor(rawDevice);
+
+    constexpr size_t ConfigBytes =
+        sizeof(UsbConfigurationDescriptor) + sizeof(UsbInterfaceDescriptor);
+    uint8_t* rawConfig = new uint8_t[ConfigBytes];
+    ByteSet(rawConfig, 0, ConfigBytes);
+    auto* config = reinterpret_cast<UsbConfigurationDescriptor*>(rawConfig);
+    config->nLength = sizeof(UsbConfigurationDescriptor);
+    config->nType = UsbDescriptor::Configuration;
+    config->nTotalLength = ConfigBytes;
+    config->nInterfaces = 1;
+    config->nConfig = 1;
+    auto* interface =
+        reinterpret_cast<UsbInterfaceDescriptor*>(rawConfig + sizeof(UsbConfigurationDescriptor));
+    interface->nLength = sizeof(UsbInterfaceDescriptor);
+    interface->nType = UsbDescriptor::Interface;
+    interface->nClass = 0xFE;
+
+    m_pConfiguration = new ConfigDescriptor(rawConfig, ConfigBytes, FullSpeed);
+    m_pDescriptor->configList.pushBack(m_pConfiguration);
+    m_pInterface = m_pConfiguration->interfaceList[0];
+    m_nAddress = 1;
+    m_UsbState = HasInterface;
+  }
+
+  explicit HostedBindingUsbDevice(UsbDevice* device) : UsbDevice(device), m_IsDriver(true) {}
+
+  ~HostedBindingUsbDevice() override {
+    if (m_IsDriver)
+      g_BoundDriverDestructions += 1;
+  }
+
+  void initialiseDriver() override {
+    m_UsbState = HasDriver;
+  }
+
+  void prepareForDriverRetirement() override {
+    if (m_IsDriver)
+      g_BoundDriverRetirements += 1;
+  }
+
+ private:
+  bool m_IsDriver;
+};
+
+UsbDevice* hostedBindingCallback(UsbDevice* device) {
+  return new HostedBindingUsbDevice(device);
+}
+
 UsbDevice* hostedRegistrationCallback(UsbDevice*) {
   HostedRegistrationContext* context = g_HostedRegistrationContext;
   context->callbackEntered += 1;
   const bool released = context->releaseCallback.acquireForCompletion();
   (void)released;
+  if (!context->registration->reset())
+    context->callbackResetRejected += 1;
   context->callbackFinished += 1;
   return nullptr;
 }
@@ -652,6 +932,7 @@ bool UsbPnP::runRegistrationRegression() {
                            unregisterBlocked && lateInvocationRejected && invokerJoined &&
                            unregistererJoined &&
                            context.callbackFinished == static_cast<size_t>(1) &&
+                           context.callbackResetRejected == static_cast<size_t>(1) &&
                            context.invocationFinished == static_cast<size_t>(1) &&
                            context.unregisterFinished == static_cast<size_t>(1);
 
@@ -729,7 +1010,48 @@ bool UsbPnP::runRegistrationRegression() {
          << static_cast<size_t>(reciprocalContext.secondProcessor));
 #endif
 
-  return drainPassed && selfRemovalPassed && reciprocalRemovalPassed;
+  const size_t destructionsBefore = g_BoundDriverDestructions;
+  const size_t retirementsBefore = g_BoundDriverRetirements;
+  Registration bindingRegistration;
+  const bool bindingRegistered = registry.registerCallbackItem(
+      new CallbackItem(hostedBindingCallback, VendorIdNone, ProductIdNone, ClassNone, SubclassNone,
+                       ProtocolNone),
+      bindingRegistration, false);
+  auto* bindingContainer = new UsbDeviceContainer(new HostedBindingUsbDevice);
+  auto* unrelatedDevice = new HostedUnrelatedTreeDevice;
+  {
+    Device::TreeLockGuard treeGuard;
+    bindingContainer->setParent(&BindingTreeAccess::rootDevice());
+    BindingTreeAccess::rootDevice().addChild(bindingContainer);
+    unrelatedDevice->setParent(&BindingTreeAccess::rootDevice());
+    BindingTreeAccess::rootDevice().addChild(unrelatedDevice);
+  }
+  const bool bindingPublished =
+      bindingRegistered && registry.probeDevice(bindingContainer) &&
+      bindingContainer->getUsbDevice()->getUsbState() == UsbDevice::HasDriver;
+  const size_t unrelatedVisitsBefore = g_UnrelatedTreeVisits;
+  const bool bindingRetired = bindingPublished && bindingRegistration.reset();
+  const bool genericRestored =
+      bindingRetired && !bindingRegistration &&
+      bindingContainer->getUsbDevice()->getUsbState() == UsbDevice::HasInterface &&
+      g_BoundDriverRetirements == retirementsBefore + 1 &&
+      g_BoundDriverDestructions == destructionsBefore + 1 &&
+      g_UnrelatedTreeVisits == unrelatedVisitsBefore;
+  {
+    Device::TreeLockGuard treeGuard;
+    bindingContainer->closeProbeAdmission();
+    BindingTreeAccess::rootDevice().removeChild(bindingContainer);
+    bindingContainer->setParent(nullptr);
+    BindingTreeAccess::rootDevice().removeChild(unrelatedDevice);
+    unrelatedDevice->setParent(nullptr);
+  }
+  bindingContainer->waitForProbes();
+  delete bindingContainer;
+  delete unrelatedDevice;
+  const bool bindingRetirementPassed =
+      bindingRegistered && bindingPublished && bindingRetired && genericRestored;
+
+  return drainPassed && selfRemovalPassed && reciprocalRemovalPassed && bindingRetirementPassed;
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -740,7 +1062,7 @@ bool UsbPnP::runHostedRegistrationRegression() {
   } else {
     ERROR(
         "HOSTED-WAIT-TEST: FAIL usb-pnp-registration-drain: "
-        "external drain, self-removal, or reciprocal removal failed");
+        "callback drain, reciprocal removal, or bound-instance retirement failed");
   }
   return passed;
 }
@@ -754,7 +1076,7 @@ bool UsbPnP::runQemuRegistrationRegression() {
   } else {
     ERROR(
         "QEMU-CONCURRENCY-TEST: FAIL usb-pnp-reciprocal-unregister-smp: "
-        "external drain, self-removal, reciprocal removal, or CPU spread failed");
+        "callback drain, reciprocal removal, bound-instance retirement, or CPU spread failed");
   }
   return passed;
 }

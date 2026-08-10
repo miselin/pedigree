@@ -20,8 +20,11 @@
 #ifndef USBDEVICE_H
 #define USBDEVICE_H
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -31,12 +34,15 @@
 
 class UsbDeviceContainer;
 class UsbHub;
+class UsbInterruptInHandle;
+class UsbPnP;
 struct UsbDeviceDescriptor;
 struct UsbEndpointDescriptor;
 struct UsbInterfaceDescriptor;
 
 class EXPORTED_PUBLIC UsbDevice {
   friend class UsbDeviceContainer;
+  friend class UsbPnP;
 
  public:
   struct Setup {
@@ -60,6 +66,10 @@ class EXPORTED_PUBLIC UsbDevice {
         : nType(type), nLength(length) {
       pDescriptor = new uint8_t[nLength];
       MemoryCopy(pDescriptor, pBuffer, nLength);
+    }
+
+    ~UnknownDescriptor() {
+      delete[] static_cast<uint8_t*>(pDescriptor);
     }
 
     void* pDescriptor;
@@ -113,6 +123,9 @@ class EXPORTED_PUBLIC UsbDevice {
     DeviceDescriptor(UsbDeviceDescriptor* pDescriptor);
     ~DeviceDescriptor();
 
+    void retain();
+    void release();
+
     uint16_t nBcdUsbRelease;
     uint8_t nClass;
     uint8_t nSubclass;
@@ -130,6 +143,9 @@ class EXPORTED_PUBLIC UsbDevice {
     String sVendor;
     String sProduct;
     String sSerial;
+
+   private:
+    Atomic<size_t> m_References;
   };
 
   struct DeviceQualifier {
@@ -221,14 +237,18 @@ class EXPORTED_PUBLIC UsbDevice {
     return 0;
   }
 
+  /** Quiesces driver-specific ownership before replacing this binding. */
+  virtual void prepareForDriverRetirement() {}
+
  protected:
   // Sync transfer methods
   ssize_t doSync(Endpoint* pEndpoint, UsbPid pid, uintptr_t pBuffer, size_t nBytes, size_t timeout);
   ssize_t syncIn(Endpoint* pEndpoint, uintptr_t pBuffer, size_t nBytes, size_t timeout = 5000);
   ssize_t syncOut(Endpoint* pEndpoint, uintptr_t pBuffer, size_t nBytes, size_t timeout = 5000);
 
-  void addInterruptInHandler(Endpoint* pEndpoint, uintptr_t pBuffer, uint16_t nBytes,
-                             void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
+  MUST_USE_RESULT bool addInterruptInHandler(Endpoint* pEndpoint, uintptr_t pBuffer,
+                                             uint16_t nBytes, void (*pCallback)(uintptr_t, ssize_t),
+                                             UsbInterruptInHandle& handle, uintptr_t pParam = 0);
 
   /// Performs an USB control request
   bool controlRequest(uint8_t nRequestType, uint8_t nRequest, uint16_t nValue, uint16_t nIndex,
@@ -256,6 +276,10 @@ class EXPORTED_PUBLIC UsbDevice {
 
   /// The number of the port on which the device is connected
   uint8_t m_nPort;
+
+  /// Root-controller connection which owns this device generation.
+  uint8_t m_nRootPort;
+  size_t m_nRootPortGeneration;
 
   /// The speed at which the device operates
   UsbSpeed m_Speed;
@@ -290,6 +314,9 @@ class UsbDeviceContainer : public Device {
 
   UsbDevice* getUsbDevice() const;
 
+  /** Replaces and destroys the currently-owned device in this container. */
+  MUST_USE_RESULT bool replaceUsbDevice(UsbDevice* pDev);
+
   virtual void getName(String& str);
 
   virtual Type getType();
@@ -297,7 +324,28 @@ class UsbDeviceContainer : public Device {
   virtual void dump(String& str);
 
  private:
+  friend class UsbHub;
+  friend class UsbPnP;
+
+  bool tryAcquireProbe(OperationBarrier::Lease& lease);
+  void closeProbeAdmission();
+  void waitForProbes();
+
+  void attachSubtree(UsbDevice* pDev);
+  void destroyUsbDevice(UsbDevice* pDev);
+
   UsbDevice* m_pUsbDevice;
+  OperationBarrier m_ProbeOperations;
+  Mutex m_ProbeLock;
+  Atomic<UsbPnP*> m_BindingRegistry;
+  void* m_BindingOwner;
+  OperationBarrier::Lease m_BindingLease;
+  UsbDeviceContainer* m_PreviousBinding;
+  UsbDeviceContainer* m_NextBinding;
 };
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+EXPORTED_PUBLIC bool runHostedUsbContainerOwnershipRegression();
+#endif
 
 #endif

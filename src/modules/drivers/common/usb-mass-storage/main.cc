@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/new"
 
 #include "UsbMassStorageDevice.h"
@@ -37,7 +38,8 @@ static bool entry() {
 }
 
 static void exit() {
-  g_Registration.reset();
+  if (!g_Registration.reset())
+    FATAL("USB mass-storage binding could not be retired");
 }
 
-MODULE_INFO("usb-mass-storage", &entry, &exit, "usb");
+MODULE_INFO("usb-mass-storage", &entry, &exit, "usb", "scsi");
