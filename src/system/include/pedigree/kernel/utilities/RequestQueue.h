@@ -94,6 +94,24 @@ class EXPORTED_PUBLIC RequestQueue
     }
 #endif
 
+#if THREADS && PEDIGREE_CONCURRENCY_SMOKE_TESTS
+    using ConcurrencySmokeHook = void (*)(void *);
+
+    void setAfterPreallocatedClaimHookForTest(
+        ConcurrencySmokeHook hook, void *context)
+    {
+        m_AfterPreallocatedClaimHook = hook;
+        m_AfterPreallocatedClaimContext = context;
+    }
+
+    void setPreallocatedClaimWaitHookForTest(
+        ConcurrencySmokeHook hook, void *context)
+    {
+        m_PreallocatedClaimWaitHook = hook;
+        m_PreallocatedClaimWaitContext = context;
+    }
+#endif
+
 #if THREADS
   private:
     class RequestQueueOverrunChecker : public TimerHandler
@@ -545,6 +563,12 @@ class EXPORTED_PUBLIC RequestQueue
     Atomic<size_t> m_WorkerTransientRetries;
     Atomic<size_t> m_GuardedTransientRetries;
     Atomic<size_t> m_PublisherDrainRetries;
+#endif
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+    ConcurrencySmokeHook m_AfterPreallocatedClaimHook;
+    void *m_AfterPreallocatedClaimContext;
+    ConcurrencySmokeHook m_PreallocatedClaimWaitHook;
+    void *m_PreallocatedClaimWaitContext;
 #endif
 #endif
 

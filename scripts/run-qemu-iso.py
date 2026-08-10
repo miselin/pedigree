@@ -125,7 +125,10 @@ def build_command(
 
 
 def evaluate_output(
-    output: str, scenario: str, require_rtc_progress: bool = False
+    output: str,
+    scenario: str,
+    require_rtc_progress: bool = False,
+    required_markers: tuple[str, ...] = (),
 ) -> tuple[str | None, list[str]]:
     for marker in FAILURE_MARKERS:
         if marker in output:
@@ -134,6 +137,7 @@ def evaluate_output(
     if require_rtc_progress:
         markers += RTC_PROGRESS_MARKERS
     missing = [marker for marker in markers if marker not in output]
+    missing.extend(marker for marker in required_markers if marker not in output)
     if require_rtc_progress:
         timestamp_seconds = [
             int(match) for match in re.findall(r"\[(\d+)\.\d+\]", output)
@@ -233,7 +237,10 @@ def run_checkpoint(args: argparse.Namespace) -> int:
         while time.monotonic() < deadline:
             output = serial_log.read_text(encoding="utf-8", errors="replace")
             failure_marker, missing = evaluate_output(
-                output, scenario, args.require_rtc_progress
+                output,
+                scenario,
+                args.require_rtc_progress,
+                tuple(args.require_marker),
             )
             if failure_marker is not None:
                 return fail(
@@ -280,7 +287,12 @@ def run_checkpoint(args: argparse.Namespace) -> int:
             time.sleep(0.05)
 
         output = serial_log.read_text(encoding="utf-8", errors="replace")
-        _, missing = evaluate_output(output, scenario, args.require_rtc_progress)
+        _, missing = evaluate_output(
+            output,
+            scenario,
+            args.require_rtc_progress,
+            tuple(args.require_marker),
+        )
         return fail(
             process,
             result_log,
@@ -315,6 +327,10 @@ def self_test() -> bool:
     up_output = "\n".join(SCENARIOS["up"]["markers"])
     failure, missing = evaluate_output(up_output, "up")
     assert failure is None and not missing
+    failure, missing = evaluate_output(
+        up_output, "up", required_markers=("focused regression passed",)
+    )
+    assert failure is None and missing == ["focused regression passed"]
     failure, missing = evaluate_output("panic: model failure", "up")
     assert failure == "panic:" and not missing
     rtc_output = (
@@ -354,6 +370,12 @@ def parse_args() -> argparse.Namespace:
         "--require-rtc-progress",
         action="store_true",
         help="wait for RTC calibration and one second of IRQ8-driven progress",
+    )
+    parser.add_argument(
+        "--require-marker",
+        action="append",
+        default=[],
+        help="wait for an additional serial-log marker (repeatable)",
     )
     arguments = sys.argv[1:]
     if "--" in arguments:

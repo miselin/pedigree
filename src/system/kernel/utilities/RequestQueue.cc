@@ -249,6 +249,12 @@ RequestQueue::RequestQueue(const String &name)
       m_WorkerTransientRetries(0), m_GuardedTransientRetries(0),
       m_PublisherDrainRetries(0),
 #endif
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+      m_AfterPreallocatedClaimHook(nullptr),
+      m_AfterPreallocatedClaimContext(nullptr),
+      m_PreallocatedClaimWaitHook(nullptr),
+      m_PreallocatedClaimWaitContext(nullptr),
+#endif
 #endif
       m_nMaxAsyncRequests(256), m_nAsyncRequests(0), m_nTotalRequests(0),
       m_nActiveRequests(0), m_Name(name.cstr(), name.length())
@@ -794,6 +800,12 @@ RequestQueue::publishPreallocatedRequest(
         m_PublicationState -= 1;
         return PreallocatedPublishResult::TokenBusy;
     }
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+    if (m_AfterPreallocatedClaimHook)
+    {
+        m_AfterPreallocatedClaimHook(m_AfterPreallocatedClaimContext);
+    }
+#endif
 #else
     if (!token.m_State.compareAndSwap(
             availableState, PreallocatedRequest::Claimed))
@@ -1231,9 +1243,16 @@ void RequestQueue::releasePreallocatedRequest(Request *request)
         }
         if (state == PreallocatedRequest::Claimed)
         {
-            // A concurrent producer won the final Releasing handoff. It only
-            // needs the queue's non-sleeping guard to finish publication.
-            Processor::pause();
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+            if (m_PreallocatedClaimWaitHook)
+            {
+                m_PreallocatedClaimWaitHook(m_PreallocatedClaimWaitContext);
+            }
+#endif
+            // The claimant can have been preempted on this worker's CPU. Give
+            // it a scheduling opportunity instead of monopolising the only
+            // processor which can finish publication.
+            Scheduler::instance().yield();
             continue;
         }
 

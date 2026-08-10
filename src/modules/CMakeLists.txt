@@ -354,6 +354,12 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/static-syscall-regressions.cc)
 endif ()
 
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_CONCURRENCY_SMOKE_TESTS)
+    pedigree_module(concurrency-smoke "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/main.cc)
+endif ()
+
 if (PEDIGREE_WITH_INIT)
 pedigree_module(init "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/init/main.cc)
