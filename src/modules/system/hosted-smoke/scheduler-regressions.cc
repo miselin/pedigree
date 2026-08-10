@@ -850,16 +850,41 @@ bool schedulerTimerSelfRemovalRejected() {
   SchedulerTimerHandler* owner = HostedSchedulerTimer::publishedHandlerForTest();
   SelfRemovingSchedulerTimerHandler probe(timer);
 
-  const bool ownerRemoved = timer && owner && timer->removeHandler(owner);
+  auto removeWithRetry = [timer](SchedulerTimerHandler* handler, size_t& attempts) {
+    constexpr size_t RemovalAttemptLimit = 256;
+    while (timer && handler && attempts < RemovalAttemptLimit) {
+      ++attempts;
+      if (timer->removeHandler(handler)) {
+        return true;
+      }
+      // The regression driver can resume inside the scheduler tick whose
+      // dispatch admission makes removal retryable. Yield until that older
+      // hard frame returns instead of treating a live admission as failure.
+      Scheduler::instance().yield();
+    }
+    return false;
+  };
+
+  size_t ownerRemovalAttempts = 0;
+  const bool ownerRemoved = removeWithRetry(owner, ownerRemovalAttempts);
   const bool probeRegistered = ownerRemoved && timer->registerHandler(&probe);
   const Time::Timestamp deadline = Time::getTicks() + (2 * Time::Multiplier::Second);
   while (probeRegistered && !probe.calls && Time::getTicks() < deadline) {
     Processor::pause();
   }
 
-  const bool probeRemoved = probeRegistered && timer->removeHandler(&probe);
-  const bool ownerRestored =
-      ownerRemoved && (probeRemoved || probe.removalSucceeded) && timer->registerHandler(owner);
+  size_t probeRemovalAttempts = 0;
+  const bool probeRemoved =
+      probeRegistered && !probe.removalSucceeded && removeWithRetry(&probe, probeRemovalAttempts);
+  if (probeRegistered && !probeRemoved && !probe.removalSucceeded) {
+    FATAL("Hosted scheduler-timer regression could not retire its stack probe");
+  }
+
+  const bool probeQuiesced = !probeRegistered || probeRemoved || probe.removalSucceeded;
+  const bool ownerRestored = ownerRemoved && probeQuiesced && timer->registerHandler(owner);
+  if (ownerRemoved && !ownerRestored) {
+    FATAL("Hosted scheduler-timer regression could not restore the real owner");
+  }
   const bool passed = ownerRemoved && probeRegistered && probe.calls.value() >= 1 &&
                       !probe.removalSucceeded && probe.continuedAfterRemoval == 1 &&
                       !probe.wrongContext && probeRemoved && ownerRestored &&
@@ -873,7 +898,10 @@ bool schedulerTimerSelfRemovalRejected() {
           << " wrong-context=" << probe.wrongContext.value() << " probe-removed=" << probeRemoved);
     ERROR("HOSTED-WAIT-TEST: DETAIL "
           << Test << ": owner-restored=" << ownerRestored
-          << " published-owner=" << (HostedSchedulerTimer::publishedHandlerForTest() == owner));
+          << " published-owner=" << (HostedSchedulerTimer::publishedHandlerForTest() == owner)
+          << " owner-remove-attempts=" << ownerRemovalAttempts
+          << " probe-remove-attempts=" << probeRemovalAttempts
+          << " active-dispatches=" << HostedSchedulerTimer::activeDispatchesForTest());
   } else {
     NOTICE(
         "HOSTED-WAIT-TEST: PASS "
