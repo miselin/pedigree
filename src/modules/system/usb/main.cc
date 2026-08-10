@@ -18,8 +18,19 @@
  */
 
 #include "modules/Module.h"
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+#include "pedigree/kernel/Log.h"
+
+#include "modules/system/usb/UsbPnP.h"
+#endif
 
 static bool entry() {
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN usb-pnp-reciprocal-unregister-smp");
+  if (!UsbPnP::runQemuRegistrationRegression()) {
+    FATAL("QEMU UsbPnP reciprocal-unregister regression failed");
+  }
+#endif
   return true;
 }
 

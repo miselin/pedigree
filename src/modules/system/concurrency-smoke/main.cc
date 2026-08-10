@@ -10,10 +10,16 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/SyscallHandler.h"
+#include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/processor/Syscalls.h"
 #include "pedigree/kernel/utilities/ProducerConsumer.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 
 #include "modules/Module.h"
+
+extern bool runNetworkFilterConcurrencyRegressions();
 
 namespace {
 class HandoffQueue : public RequestQueue {
@@ -132,6 +138,134 @@ int publishHandoff(void* context) {
   return 0;
 }
 
+struct ReciprocalSyscallContext;
+
+class ReciprocalSyscallHandler : public SyscallHandler {
+ public:
+  ReciprocalSyscallHandler(ReciprocalSyscallContext& context, bool first)
+      : m_Context(context), m_First(first) {}
+
+  uintptr_t syscall(SyscallState&) override;
+
+ private:
+  ReciprocalSyscallContext& m_Context;
+  bool m_First;
+};
+
+struct ReciprocalSyscallContext {
+  ReciprocalSyscallContext()
+      : first(*this, true),
+        second(*this, false),
+        entered(0),
+        rejections(0),
+        resetReturns(0),
+        failures(0),
+        firstProcessor(static_cast<size_t>(-1)),
+        secondProcessor(static_cast<size_t>(-1)) {}
+
+  ReciprocalSyscallHandler first;
+  ReciprocalSyscallHandler second;
+  SyscallManager::Registration firstRegistration;
+  SyscallManager::Registration secondRegistration;
+  Atomic<size_t> entered;
+  Atomic<size_t> rejections;
+  Atomic<size_t> resetReturns;
+  Atomic<size_t> failures;
+  Atomic<size_t> firstProcessor;
+  Atomic<size_t> secondProcessor;
+};
+
+uintptr_t ReciprocalSyscallHandler::syscall(SyscallState&) {
+  if (m_First) {
+    m_Context.firstProcessor = Processor::id();
+  } else {
+    m_Context.secondProcessor = Processor::id();
+  }
+  m_Context.entered += 1;
+  for (size_t attempt = 0; attempt < 65536 && m_Context.entered != static_cast<size_t>(2);
+       ++attempt) {
+    Scheduler::instance().yield();
+  }
+  if (m_Context.entered != static_cast<size_t>(2)) {
+    m_Context.failures += 1;
+    return 0;
+  }
+
+  SyscallManager::Registration& peer =
+      m_First ? m_Context.secondRegistration : m_Context.firstRegistration;
+  if (!peer.reset() && peer) {
+    m_Context.rejections += 1;
+  } else {
+    m_Context.failures += 1;
+  }
+  m_Context.resetReturns += 1;
+  for (size_t attempt = 0; attempt < 65536 && m_Context.resetReturns != static_cast<size_t>(2);
+       ++attempt) {
+    Scheduler::instance().yield();
+  }
+  if (m_Context.resetReturns != static_cast<size_t>(2)) {
+    m_Context.failures += 1;
+  }
+  return m_First ? 0x71 : 0x72;
+}
+
+struct ReciprocalSyscallInvocation {
+  Service_t service;
+  uintptr_t result;
+};
+
+int invokeReciprocalSyscall(void* context) {
+  ReciprocalSyscallInvocation* invocation = reinterpret_cast<ReciprocalSyscallInvocation*>(context);
+  return SyscallManager::instance().dispatchHandlerForTest(invocation->service, invocation->result)
+             ? 0
+             : 1;
+}
+
+void testSyscallReciprocalUnregister() {
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN syscall-reciprocal-unregister-smp");
+
+  SyscallManager& manager = SyscallManager::instance();
+  ReciprocalSyscallContext context;
+  if (!manager.registerSyscallHandler(TUI, &context.first, context.firstRegistration) ||
+      !manager.registerSyscallHandler(native, &context.second, context.secondRegistration)) {
+    if (context.firstRegistration) {
+      context.firstRegistration.reset();
+    }
+    FATAL("QEMU syscall reciprocal handlers could not register");
+  }
+
+  ReciprocalSyscallInvocation first = {TUI, 0};
+  ReciprocalSyscallInvocation second = {native, 0};
+  Process* process = Scheduler::instance().getKernelProcess();
+  Thread* firstThread =
+      new Thread(process, invokeReciprocalSyscall, &first, nullptr, false, false, true);
+  Thread* secondThread =
+      new Thread(process, invokeReciprocalSyscall, &second, nullptr, false, false, true);
+  firstThread->setName("QEMU syscall reciprocal callback A");
+  secondThread->setName("QEMU syscall reciprocal callback B");
+  if (!firstThread->start() || !secondThread->start()) {
+    FATAL("QEMU syscall reciprocal workers did not start");
+  }
+
+  const bool firstJoined = firstThread->joinForCompletion();
+  const bool secondJoined = secondThread->joinForCompletion();
+  const bool registrationsPreserved = context.firstRegistration && context.secondRegistration;
+  const bool firstRetired = context.firstRegistration.reset();
+  const bool secondRetired = context.secondRegistration.reset();
+  if (!firstJoined || !secondJoined || first.result != 0x71 || second.result != 0x72 ||
+      context.entered != static_cast<size_t>(2) || context.rejections != static_cast<size_t>(2) ||
+      context.resetReturns != static_cast<size_t>(2) || context.failures ||
+      context.firstProcessor == context.secondProcessor || !registrationsPreserved ||
+      !firstRetired || !secondRetired) {
+    FATAL("QEMU syscall reciprocal unregister did not preserve external cleanup ownership");
+  }
+
+  NOTICE("QEMU-CONCURRENCY-TEST: syscall reciprocal cpus="
+         << Dec << static_cast<size_t>(context.firstProcessor) << "/"
+         << static_cast<size_t>(context.secondProcessor));
+  NOTICE("QEMU-CONCURRENCY-TEST: PASS syscall-reciprocal-unregister-smp");
+}
+
 void testProducerConsumerTeardown() {
   NOTICE("QEMU-CONCURRENCY-TEST: BEGIN producerconsumer-teardown-completion");
 
@@ -186,6 +320,11 @@ void testProducerConsumerTeardown() {
 }
 
 bool entry() {
+  testSyscallReciprocalUnregister();
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN network-filter-reciprocal-removal-smp");
+  if (!runNetworkFilterConcurrencyRegressions()) {
+    FATAL("QEMU NetworkFilter reciprocal-removal regression failed");
+  }
   testProducerConsumerTeardown();
 
   NOTICE("QEMU-CONCURRENCY-TEST: BEGIN requestqueue-release-handoff");

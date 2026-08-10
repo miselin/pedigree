@@ -49,6 +49,7 @@ SCENARIOS = {
     },
 }
 FAILURE_MARKERS = (
+    "(FF)",
     "panic:",
     "Page Fault Exception",
     "Double Fault Exception",
@@ -333,6 +334,8 @@ def self_test() -> bool:
     assert failure is None and missing == ["focused regression passed"]
     failure, missing = evaluate_output("panic: model failure", "up")
     assert failure == "panic:" and not missing
+    failure, missing = evaluate_output("(FF) model failure", "up")
+    assert failure == "(FF)" and not missing
     rtc_output = (
         "[100.0]\n"
         + up_output
