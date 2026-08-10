@@ -58,6 +58,15 @@ int attachTo(void* handle) {
 #endif
 }
 
+bool attachToForCompletion(void* handle) {
+#if THREADS
+  Thread* pThread = reinterpret_cast<Thread*>(handle);
+  return pThread->joinForCompletion();
+#else
+  return true;
+#endif
+}
+
 VirtualAddressSpaceSwitch::VirtualAddressSpaceSwitch() : va(nullptr) {
   EMIT_IF(KERNEL_NEEDS_ADDRESS_SPACE_SWITCH) {
     VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();

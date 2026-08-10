@@ -48,6 +48,12 @@ EXPORTED_PUBLIC void* runConcurrentlyAttached(int (*func)(void*), void* param);
  */
 EXPORTED_PUBLIC int attachTo(void* handle);
 
+/**
+ * Join the given handle without allowing terminal requests to abandon the
+ * wait. Use only for owned worker teardown.
+ */
+EXPORTED_PUBLIC bool attachToForCompletion(void* handle);
+
 /** RAII class to swap address spaces if needed. */
 class VirtualAddressSpaceSwitch {
  public:

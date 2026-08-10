@@ -10,6 +10,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/utilities/ProducerConsumer.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 
 #include "modules/Module.h"
@@ -78,6 +79,52 @@ void pauseClaimedPublication(void* context) {
   }
 }
 
+class BlockingConsumer : public ProducerConsumer {
+ public:
+  BlockingConsumer() : entered(0), release(0), returned(0) {}
+
+  ~BlockingConsumer() override {
+    shutdown();
+  }
+
+  bool start() {
+    return initialise();
+  }
+
+  void shutdown() {
+    destroy();
+  }
+
+  Semaphore entered;
+  Semaphore release;
+  Atomic<size_t> returned;
+
+ private:
+  void consume(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+               uint64_t) override {
+    entered.release();
+    if (!release.acquireForCompletion()) {
+      FATAL("QEMU ProducerConsumer callback release was interrupted");
+    }
+    returned += 1;
+  }
+};
+
+struct ConsumerDestroyContext {
+  explicit ConsumerDestroyContext(BlockingConsumer* producerConsumer)
+      : consumer(producerConsumer), finished(0) {}
+
+  BlockingConsumer* consumer;
+  Atomic<size_t> finished;
+};
+
+int destroyConsumer(void* context) {
+  ConsumerDestroyContext* destroy = reinterpret_cast<ConsumerDestroyContext*>(context);
+  destroy->consumer->shutdown();
+  destroy->finished += 1;
+  return 0;
+}
+
 int publishHandoff(void* context) {
   PublishContext* publication = reinterpret_cast<PublishContext*>(context);
   publication->result =
@@ -85,7 +132,62 @@ int publishHandoff(void* context) {
   return 0;
 }
 
+void testProducerConsumerTeardown() {
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN producerconsumer-teardown-completion");
+
+  BlockingConsumer consumer;
+  if (!consumer.start()) {
+    FATAL("QEMU ProducerConsumer worker did not start");
+  }
+  consumer.produce(1);
+  if (!consumer.entered.acquireForCompletion()) {
+    FATAL("QEMU ProducerConsumer callback did not enter");
+  }
+
+  ConsumerDestroyContext destroy(&consumer);
+  Thread* destroyer = new Thread(Scheduler::instance().getKernelProcess(), destroyConsumer,
+                                 &destroy, nullptr, false, true);
+  destroyer->setName("QEMU ProducerConsumer destroyer");
+
+  bool joinPublished = false;
+  for (size_t attempt = 0; attempt < 4096; ++attempt) {
+    uintptr_t address = 0;
+    if (destroyer->getStatus() == Thread::Sleeping &&
+        destroyer->getDebugState(address) == Thread::Joining) {
+      joinPublished = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+  if (!joinPublished) {
+    FATAL("QEMU ProducerConsumer destroyer did not join its worker");
+  }
+
+  destroyer->setUnwindState(Thread::TerminateThread);
+  bool teardownAbandoned = false;
+  for (size_t attempt = 0; attempt < 4096; ++attempt) {
+    if (destroyer->getStatus() == Thread::AwaitingJoin) {
+      teardownAbandoned = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+  if (teardownAbandoned) {
+    FATAL("QEMU ProducerConsumer teardown abandoned its worker join");
+  }
+
+  consumer.release.release();
+  if (!destroyer->joinForCompletion() || destroy.finished.value() != static_cast<size_t>(1) ||
+      consumer.returned.value() != static_cast<size_t>(1)) {
+    FATAL("QEMU ProducerConsumer teardown did not drain its worker");
+  }
+
+  NOTICE("QEMU-CONCURRENCY-TEST: PASS producerconsumer-teardown-completion");
+}
+
 bool entry() {
+  testProducerConsumerTeardown();
+
   NOTICE("QEMU-CONCURRENCY-TEST: BEGIN requestqueue-release-handoff");
 
   HandoffQueue queue;

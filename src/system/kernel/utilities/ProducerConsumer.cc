@@ -59,7 +59,9 @@ void ProducerConsumer::destroy() {
   m_Lock.release();
 
   if (threadHandle) {
-    pocketknife::attachTo(threadHandle);
+    if (!pocketknife::attachToForCompletion(threadHandle)) {
+      FATAL("ProducerConsumer could not join its worker during teardown.");
+    }
   }
 
   // Clean up tasks that didn't get executed.
