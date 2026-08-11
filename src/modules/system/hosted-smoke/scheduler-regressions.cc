@@ -810,7 +810,9 @@ bool schedulerTimerAbandonedAdmissionCleanup() {
                                     << ": an abandoned scheduler frame "
                                        "stranded its callback admission");
   } else {
-    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+    NOTICE(
+        "HOSTED-WAIT-TEST: PASS "
+        "hosted-scheduler-timer-abandoned-admission-cleanup");
   }
   return passed;
 }

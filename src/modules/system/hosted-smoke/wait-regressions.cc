@@ -1764,6 +1764,9 @@ bool runHostedWaitRegressions() {
   NOTICE("HOSTED-WAIT-TEST: BEGIN");
 
   const bool passed =
+#if !PEDIGREE_HOSTED_CORE_SMOKE
+      runHostedPs2ControllerRegressions() &&
+#endif
       wakeBeforeBlock() && semaphoreReleaseBeforeBlock() && terminalCancelCallbackOrdering() &&
       terminalCancelBeforeBlock() && nestedTerminalShutdownBeforeBlock() &&
       conditionVariableSignalBeforeBlock() && runHostedRingBufferRegressions() &&
