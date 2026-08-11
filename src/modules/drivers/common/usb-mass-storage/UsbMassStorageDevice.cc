@@ -26,7 +26,13 @@
 #include "modules/system/usb/UsbDevice.h"
 
 UsbMassStorageDevice::UsbMassStorageDevice(UsbDevice* dev)
-    : ScsiController(), UsbDevice(dev), m_nUnits(0), m_pInEndpoint(0), m_pOutEndpoint(0) {}
+    : ScsiController(),
+      UsbDevice(dev),
+      m_nUnits(0),
+      m_pInEndpoint(0),
+      m_pOutEndpoint(0),
+      m_NextTag(1),
+      m_ResetRecoveryRequired(false) {}
 
 UsbMassStorageDevice::~UsbMassStorageDevice() {
   shutdownDiskCaches();
@@ -79,8 +85,119 @@ bool UsbMassStorageDevice::massStorageReset() {
   return controlRequest(MassStorageRequest, MassStorageReset, 0, m_pInterface->nInterface);
 }
 
+bool UsbMassStorageDevice::performResetRecovery() {
+  m_ResetRecoveryRequired = true;
+  if (!m_pInterface || !m_pInEndpoint || !m_pOutEndpoint)
+    return false;
+
+  const bool reset = massStorageReset();
+  const bool clearedIn = clearEndpointHalt(m_pInEndpoint);
+  const bool clearedOut = clearEndpointHalt(m_pOutEndpoint);
+  if (reset && clearedIn && clearedOut)
+    m_ResetRecoveryRequired = false;
+  return !m_ResetRecoveryRequired;
+}
+
+UsbMassStorageDevice::BotStatus UsbMassStorageDevice::readDataOutStatus(uint32_t tag,
+                                                                        uint32_t expectedBytes) {
+  Csw* pCsw = new Csw;
+  PointerGuard<Csw> guard(pCsw);
+  ByteSet(pCsw, 0, sizeof(Csw));
+
+  ssize_t result = syncIn(m_pInEndpoint, reinterpret_cast<uintptr_t>(pCsw), sizeof(Csw));
+  if (result == -Stall) {
+    if (!clearEndpointHalt(m_pInEndpoint))
+      return BotStatus::RecoveryRequired;
+    ByteSet(pCsw, 0, sizeof(Csw));
+    result = syncIn(m_pInEndpoint, reinterpret_cast<uintptr_t>(pCsw), sizeof(Csw));
+  }
+
+  if (result != static_cast<ssize_t>(sizeof(Csw)) || pCsw->nSig != CswSig ||
+      pCsw->nTag != HOST_TO_LITTLE32(tag))
+    return BotStatus::RecoveryRequired;
+
+  const uint32_t residue = LITTLE_TO_HOST32(pCsw->nResidue);
+  if (residue > expectedBytes)
+    return BotStatus::RecoveryRequired;
+
+  if (pCsw->nStatus == 0)
+    return residue ? BotStatus::Failed : BotStatus::Passed;
+  if (pCsw->nStatus == 1)
+    return BotStatus::Failed;
+  return BotStatus::RecoveryRequired;
+}
+
+bool UsbMassStorageDevice::sendDataOutCommand(size_t nUnit, uintptr_t pCommand,
+                                              uint8_t nCommandSize, uintptr_t pRespBuffer,
+                                              uint16_t nRespBytes) {
+  Cbw* pCbw = new Cbw;
+  PointerGuard<Cbw> guard(pCbw);
+  ByteSet(pCbw, 0, sizeof(Cbw));
+
+  const uint32_t tag = m_NextTag++;
+  pCbw->nSig = CbwSig;
+  pCbw->nTag = HOST_TO_LITTLE32(tag);
+  pCbw->nDataBytes = HOST_TO_LITTLE32(nRespBytes);
+  pCbw->nFlags = 0;
+  pCbw->nLUN = nUnit;
+  pCbw->nCommandSize = nCommandSize;
+  MemoryCopy(pCbw->pCommand, reinterpret_cast<void*>(pCommand), nCommandSize);
+
+  ssize_t result = syncOut(m_pOutEndpoint, reinterpret_cast<uintptr_t>(pCbw), sizeof(Cbw));
+  if (result != static_cast<ssize_t>(sizeof(Cbw))) {
+    const bool recovered = performResetRecovery();
+    if (!recovered)
+      DEBUG_LOG("USB: MSD: reset recovery failed after an incomplete CBW");
+    return false;
+  }
+
+  bool dataOutComplete = false;
+  bool dataOutStalled = false;
+  result = syncOut(m_pOutEndpoint, pRespBuffer, nRespBytes);
+  if (result == static_cast<ssize_t>(nRespBytes)) {
+    dataOutComplete = true;
+  } else if (result == -Stall) {
+    if (!clearEndpointHalt(m_pOutEndpoint)) {
+      const bool recovered = performResetRecovery();
+      if (!recovered)
+        DEBUG_LOG("USB: MSD: reset recovery failed after a DATA-OUT STALL");
+      return false;
+    }
+    dataOutStalled = true;
+  } else {
+    const bool recovered = performResetRecovery();
+    if (!recovered)
+      DEBUG_LOG("USB: MSD: reset recovery failed after an incomplete DATA-OUT transfer");
+    return false;
+  }
+
+  const BotStatus status = readDataOutStatus(tag, nRespBytes);
+  if (status == BotStatus::RecoveryRequired) {
+    const bool recovered = performResetRecovery();
+    if (!recovered)
+      DEBUG_LOG("USB: MSD: reset recovery failed after an invalid CSW");
+    return false;
+  }
+  if (status != BotStatus::Passed)
+    return false;
+
+  if (dataOutStalled)
+    dataOutComplete = true;
+  return dataOutComplete;
+}
+
 bool UsbMassStorageDevice::sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
                                        uintptr_t pRespBuffer, uint16_t nRespBytes, bool bWrite) {
+  if (!pCommand || !nCommandSize || nCommandSize > 16 || nUnit >= m_nUnits || nUnit > 0xf ||
+      (nRespBytes && !pRespBuffer) || !m_pInterface || !m_pInEndpoint || !m_pOutEndpoint)
+    return false;
+
+  if (m_ResetRecoveryRequired && !performResetRecovery())
+    return false;
+
+  if (bWrite && nRespBytes)
+    return sendDataOutCommand(nUnit, pCommand, nCommandSize, pRespBuffer, nRespBytes);
+
   Cbw* pCbw = new Cbw;
   PointerGuard<Cbw> guard(pCbw);
   ByteSet(pCbw, 0, sizeof(Cbw));

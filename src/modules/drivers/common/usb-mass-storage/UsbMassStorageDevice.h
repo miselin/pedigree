@@ -31,6 +31,10 @@
 
 class Device;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+class UsbMassStorageBotTestAccess;
+#endif
+
 class UsbMassStorageDevice : public ScsiController, public UsbDevice {
  public:
   UsbMassStorageDevice(UsbDevice* dev);
@@ -54,7 +58,17 @@ class UsbMassStorageDevice : public ScsiController, public UsbDevice {
   }
 
  private:
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  friend class UsbMassStorageBotTestAccess;
+#endif
+
+  enum class BotStatus { Passed, Failed, RecoveryRequired };
+
   bool massStorageReset();
+  MUST_USE_RESULT bool performResetRecovery();
+  MUST_USE_RESULT bool sendDataOutCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize,
+                                          uintptr_t pRespBuffer, uint16_t nRespBytes);
+  MUST_USE_RESULT BotStatus readDataOutStatus(uint32_t tag, uint32_t expectedBytes);
 
   enum MassStorageRequests {
     MassStorageRequest = UsbRequestType::Class | UsbRequestRecipient::Interface,
@@ -85,9 +99,14 @@ class UsbMassStorageDevice : public ScsiController, public UsbDevice {
     uint8_t nStatus;
   } PACKED;
 
+  static_assert(sizeof(Cbw) == 31, "BOT CBW wire size changed");
+  static_assert(sizeof(Csw) == 13, "BOT CSW wire size changed");
+
   size_t m_nUnits;
   Endpoint* m_pInEndpoint;
   Endpoint* m_pOutEndpoint;
+  uint32_t m_NextTag;
+  bool m_ResetRecoveryRequired;
 
  protected:
   virtual size_t getNumUnits() {

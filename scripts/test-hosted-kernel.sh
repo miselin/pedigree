@@ -129,6 +129,9 @@ if [ "$static_syscall_regressions_only" = "0" ]; then
     dynamic_fat_module=$(realpath "$dynamic_module_dir/fat.o")
     dynamic_rawfs_module=$(realpath "$dynamic_module_dir/rawfs.o")
     dynamic_usb_module=$(realpath "$dynamic_module_dir/usb.o")
+    dynamic_scsi_module=$(realpath "$dynamic_module_dir/scsi.o")
+    dynamic_usb_mass_storage_module=$(
+        realpath "$dynamic_module_dir/usb-mass-storage.o")
     disk_image=$(realpath "$disk_image")
 fi
 
@@ -408,6 +411,11 @@ if [ "$require_asan" = "1" ]; then
         assert_asan_module \
             "$dynamic_usb_module" "$scratch_dir/usb-module.symbols"
         assert_asan_module \
+            "$dynamic_scsi_module" "$scratch_dir/scsi-module.symbols"
+        assert_asan_module \
+            "$dynamic_usb_mass_storage_module" \
+            "$scratch_dir/usb-mass-storage-module.symbols"
+        assert_asan_module \
             "$dynamic_smoke_module" "$scratch_dir/smoke-module.symbols"
     fi
 fi
@@ -480,25 +488,31 @@ cp "$dynamic_vfs_module" "$scratch_dir/populated-initrd/vfs.o"
 cp "$dynamic_fat_module" "$scratch_dir/populated-initrd/fat.o"
 cp "$dynamic_rawfs_module" "$scratch_dir/populated-initrd/rawfs.o"
 cp "$dynamic_usb_module" "$scratch_dir/populated-initrd/usb.o"
+cp "$dynamic_scsi_module" "$scratch_dir/populated-initrd/scsi.o"
+cp "$dynamic_usb_mass_storage_module" \
+    "$scratch_dir/populated-initrd/usb-mass-storage.o"
 cp "$dynamic_smoke_module" "$scratch_dir/populated-initrd/hosted-smoke.o"
 (
     cd "$scratch_dir/populated-initrd"
     cmake -E tar cf "$scratch_dir/populated-initrd.tar" \
         --format=gnutar -- \
-        config.o users.o vfs.o fat.o rawfs.o usb.o hosted-smoke.o
+        config.o users.o vfs.o fat.o rawfs.o usb.o scsi.o \
+        usb-mass-storage.o hosted-smoke.o
 )
 
 run_kernel \
     02-module-populated-initrd "$dynamic_kernel" \
     "$scratch_dir/populated-initrd.tar"
 populated_log="$log_dir/02-module-populated-initrd.log"
-assert_marker "$populated_log" "there are 7 files"
+assert_marker "$populated_log" "there are 9 files"
 assert_marker "$populated_log" "KERNELELF: Preloaded module config"
 assert_marker "$populated_log" "KERNELELF: Preloaded module users"
 assert_marker "$populated_log" "KERNELELF: Preloaded module vfs"
 assert_marker "$populated_log" "KERNELELF: Preloaded module fat"
 assert_marker "$populated_log" "KERNELELF: Preloaded module rawfs"
 assert_marker "$populated_log" "KERNELELF: Preloaded module usb"
+assert_marker "$populated_log" "KERNELELF: Preloaded module scsi"
+assert_marker "$populated_log" "KERNELELF: Preloaded module usb-mass-storage"
 assert_marker "$populated_log" "KERNELELF: Preloaded module hosted-smoke"
 assert_marker \
     "$populated_log" "HOSTED-MEMORY-TEST: PASS anonymous-region-release"

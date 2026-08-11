@@ -613,9 +613,23 @@ pedigree_module(usb-hub "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hub/UsbHubDevice.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hub/main.cc)
 
+set(USB_MASS_STORAGE_REGRESSION_SOURCES)
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+    list(APPEND USB_MASS_STORAGE_REGRESSION_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/usb-bot-regressions.cc)
+endif ()
+
 pedigree_module(usb-mass-storage "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-mass-storage/UsbMassStorageDevice.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-mass-storage/main.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-mass-storage/main.cc
+    ${USB_MASS_STORAGE_REGRESSION_SOURCES})
+
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS AND
+    NOT PEDIGREE_HOSTED_DARWIN)
+    add_dependencies(hosted-smoke scsi usb-mass-storage)
+endif ()
 
 if (PEDIGREE_DRIVERDIR STREQUAL "x86")
     # pedigree_module(cdi "" ""
