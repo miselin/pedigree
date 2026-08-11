@@ -1,0 +1,6 @@
+# PASS: removing a sparse file must not release its holes
+# FIXTURE: sparse-direct
+# BLOCKSIZE: 1024
+# ABSENT: /sparse
+
+rm /sparse

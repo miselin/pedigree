@@ -39,9 +39,15 @@ Ext2Node::Ext2Node(uintptr_t inode_num, Inode* pInode, Ext2Filesystem* pFs)
   uint32_t blockCount = LITTLE_TO_HOST32(pInode->i_blocks);
   uint32_t totalBlocks = (blockCount * 512) / m_pExt2Fs->m_BlockSize;
 
-  size_t dataBlockCount = m_nSize / m_pExt2Fs->m_BlockSize;
-  if (m_nSize % m_pExt2Fs->m_BlockSize) {
-    ++dataBlockCount;
+  // Fast symlinks store their payload in i_block, not block numbers.
+  const uint16_t mode = LITTLE_TO_HOST16(pInode->i_mode);
+  const bool inlineSymlink = (mode & 0xF000) == EXT2_S_IFLNK && !blockCount;
+  size_t dataBlockCount = 0;
+  if (!inlineSymlink) {
+    dataBlockCount = m_nSize / m_pExt2Fs->m_BlockSize;
+    if (m_nSize % m_pExt2Fs->m_BlockSize) {
+      ++dataBlockCount;
+    }
   }
 
   m_Blocks.reserve(dataBlockCount, false);
@@ -111,7 +117,7 @@ void Ext2Node::trackBlock(uint32_t block) {
 
 void Ext2Node::wipe() {
   for (size_t i = 0; i < m_Blocks.count(); ++i) {
-    if (!ensureBlockLoaded(i)) {
+    if (!ensureBlockLoaded(i) || !m_Blocks[i]) {
       continue;
     }
     m_pExt2Fs->releaseBlock(m_Blocks[i]);

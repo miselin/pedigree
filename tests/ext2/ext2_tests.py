@@ -31,10 +31,13 @@ class Ext2Tests(unittest.TestCase):
             os.unlink('_t.img')
         if os.path.exists('big.dat'):
             os.unlink('big.dat')
+        if os.path.exists('_sparse.dat'):
+            os.unlink('_sparse.dat')
 
 
 def generate_new_test(ext2img, script, should_pass, sz=0x1000000, suffix=None,
-                      blocksz=None, verifies=None):
+                      blocksz=None, verifies=None, absents=None,
+                      fixture=None):
     """Generate a test that runs ext2img to complete."""
     def _setup(self):
         # Pre-test: create the image.
@@ -52,6 +55,40 @@ def generate_new_test(ext2img, script, should_pass, sz=0x1000000, suffix=None,
             args.extend(['-b', str(blocksz)])
         args.append('_t.img')
         subprocess.check_call(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+        if fixture:
+            def debugfs(command):
+                result = subprocess.Popen(
+                    ['debugfs', '-w', '-R', command, '_t.img'],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                output, _ = result.communicate()
+                output = output.decode('utf-8')
+                self.assertEqual(
+                    result.returncode, 0,
+                    'debugfs command failed: %s\n%s' % (command, output))
+                return output
+
+        if fixture == 'inline-symlink':
+            debugfs('symlink /inline ABCD')
+            inode = debugfs('stat /inline')
+            self.assertRegex(inode, r'\bSize:\s+4\b')
+            self.assertRegex(inode, r'\bBlockcount:\s+0\b')
+        elif fixture == 'sparse-direct':
+            with open('_sparse.dat', 'wb') as f:
+                f.write(b'x' * (12 * 1024))
+
+            debugfs('write _sparse.dat /sparse')
+            debugfs('punch /sparse 1 1')
+            inode = debugfs('stat /sparse')
+            self.assertRegex(inode, r'\bSize:\s+12288\b')
+            for block in (0, 2, 11):
+                bmap = debugfs(
+                    'bmap /sparse %d' % block).strip().splitlines()[-1]
+                self.assertNotEqual(
+                    bmap, '0',
+                    'sparse fixture data block %d is a hole' % block)
+            hole = debugfs('bmap /sparse 1').strip().splitlines()[-1]
+            self.assertEqual(hole, '0', 'sparse fixture block 1 is allocated: %s' % hole)
 
     def call(self, wrapper=None):
         try:
@@ -100,6 +137,18 @@ def generate_new_test(ext2img, script, should_pass, sz=0x1000000, suffix=None,
                         subprocess.check_call(args)
                     except subprocess.CalledProcessError:
                         self.fail('The file "%s" in the image does not match with the local file "%s".' % (imgfile, localfile))
+
+            if absents is not None:
+                for imgfile in absents:
+                    args = ['debugfs', '-R', 'stat %s' % (imgfile,), '_t.img']
+                    result = subprocess.Popen(args, stdout=subprocess.PIPE,
+                                              stderr=subprocess.STDOUT)
+                    output, _ = result.communicate()
+                    output = output.decode('utf-8')
+                    self.assertIn(
+                        'File not found', output,
+                        'The file "%s" still exists in the image:\n%s' %
+                        (imgfile, output))
         else:
             self.assertNotEqual(run_result, 0, 'exit status %d == 0\n'
                                 'ext2img output:\n%s\n' % (run_result,
@@ -134,7 +183,8 @@ def generate_new_test(ext2img, script, should_pass, sz=0x1000000, suffix=None,
 
 def find_pedigree_tests():
     # Should be run from the top level of the source tree.
-    ext2img_bin = 'build-host/src/buildutil/ext2img'
+    ext2img_bin = os.environ.get(
+        'PEDIGREE_EXT2IMG', 'build-host/src/buildutil/ext2img')
     testdir = 'tests/ext2'
 
     # Find tests to run.
@@ -149,6 +199,8 @@ def find_pedigree_tests():
 
         blocksz = None
         verifies = []
+        absents = []
+        fixture = None
         with open(f) as f_:
             header = f_.read(128).splitlines()
             start = header[0]
@@ -162,6 +214,12 @@ def find_pedigree_tests():
             if 'bigblocks' in start.lower():
                 blocksz = 16384
 
+            for line in header[1:]:
+                if 'fixture:' in line.lower():
+                    fixture = line.split(' ')[-1]
+                elif 'blocksize:' in line.lower():
+                    blocksz = int(line.split(' ')[-1])
+
             # Look for a verify
             try:
                 nextline = header[1]
@@ -172,10 +230,16 @@ def find_pedigree_tests():
                 x = nextline.split(' ')
                 verifies.append((x[-2], x[-1]))
 
+            for line in header[1:]:
+                if 'absent:' in line.lower():
+                    absents.append(line.split(' ')[-1])
+
         for sz in (0x100000 * 16, 0x100000 * 256, 0x100000 * 512):
             tests = generate_new_test(ext2img_bin, f, should_pass, sz=sz,
                                       suffix='%dMB' % (sz / 0x100000,),
-                                      blocksz=blocksz, verifies=verifies)
+                                      blocksz=blocksz, verifies=verifies,
+                                      absents=absents,
+                                      fixture=fixture)
             for test in tests:
                 setattr(Ext2Tests, test.__name__, test)
 

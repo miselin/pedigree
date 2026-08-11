@@ -1,0 +1,5 @@
+# PASS: removing an inline symlink must not treat its target as block pointers
+# FIXTURE: inline-symlink
+# ABSENT: /inline
+
+rm /inline
