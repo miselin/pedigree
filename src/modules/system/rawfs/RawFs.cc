@@ -108,4 +108,4 @@ static void destroy() {
   g_pRawFs = nullptr;
 }
 
-MODULE_INFO("rawfs", &init, &destroy, "vfs");
+MODULE_INFO_RUNTIME_PINNED("rawfs", &init, &destroy, "vfs");

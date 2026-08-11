@@ -680,19 +680,23 @@ bool filesystemModuleUnloadPolicyIsCorrect() {
   size_t posixMatches = 0;
   size_t mountrootMatches = 0;
   size_t ramfsMatches = 0;
+  size_t rawfsMatches = 0;
   ModuleInfo* posix = findStaticModuleInfo("posix", posixMatches);
   ModuleInfo* mountroot = findStaticModuleInfo("mountroot", mountrootMatches);
   ModuleInfo* ramfs = findStaticModuleInfo("ramfs", ramfsMatches);
+  ModuleInfo* rawfs = findStaticModuleInfo("rawfs", rawfsMatches);
 
   const bool metadataValid =
-      posixMatches == 1 && mountrootMatches == 1 && ramfsMatches == 1 && posix && mountroot &&
-      ramfs && posix->unloadable && !posix->runtimeUnloadable && mountroot->unloadable &&
-      !mountroot->runtimeUnloadable && !ramfs->unloadable && !ramfs->runtimeUnloadable &&
+      posixMatches == 1 && mountrootMatches == 1 && ramfsMatches == 1 && rawfsMatches == 1 &&
+      posix && mountroot && ramfs && rawfs && posix->unloadable && !posix->runtimeUnloadable &&
+      mountroot->unloadable && !mountroot->runtimeUnloadable && !ramfs->unloadable &&
+      !ramfs->runtimeUnloadable && rawfs->unloadable && !rawfs->runtimeUnloadable &&
       moduleInfoDependsOn(posix, "mountroot") && moduleInfoDependsOn(posix, "ramfs") &&
       moduleInfoDependsOn(mountroot, "vfs") && moduleInfoDependsOn(mountroot, "rawfs") &&
       moduleInfoDependsOn(mountroot, "ramfs") && moduleInfoDependsOn(mountroot, "fat", true) &&
       moduleInfoDependsOn(mountroot, "ext2", true) &&
-      moduleInfoDependsOn(mountroot, "iso9660", true) && moduleInfoDependsOn(ramfs, "vfs");
+      moduleInfoDependsOn(mountroot, "iso9660", true) && moduleInfoDependsOn(ramfs, "vfs") &&
+      moduleInfoDependsOn(rawfs, "vfs");
   if (!metadataValid) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL filesystem-unload-policy-metadata: "

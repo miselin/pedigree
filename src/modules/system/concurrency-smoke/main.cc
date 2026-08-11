@@ -348,6 +348,16 @@ void testFilesystemModuleUnloadRejection() {
   }
   NOTICE("QEMU-CONCURRENCY-TEST: PASS posix-runtime-unload-rejection");
 
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN rawfs-runtime-unload-rejection");
+  static char rawfsName[] = "rawfs";
+  const bool rawfsLoadedBefore = kernelElf.moduleIsLoaded(rawfsName);
+  const bool rawfsUnloadAccepted = kernelElf.unloadModule(rawfsName, true, false);
+  const bool rawfsLoadedAfter = kernelElf.moduleIsLoaded(rawfsName);
+  if (!rawfsLoadedBefore || rawfsUnloadAccepted || !rawfsLoadedAfter) {
+    FATAL("QEMU rawfs module did not reject runtime unload while preserving its image");
+  }
+  NOTICE("QEMU-CONCURRENCY-TEST: PASS rawfs-runtime-unload-rejection");
+
   NOTICE("QEMU-CONCURRENCY-TEST: BEGIN ramfs-pinned-unload-rejection");
   static char ramfsName[] = "ramfs";
   if (!kernelElf.moduleIsLoaded(ramfsName) || kernelElf.unloadModule(ramfsName, true, false) ||
@@ -439,4 +449,4 @@ bool entry() {
 void exit() {}
 }  // namespace
 
-MODULE_INFO("concurrency-smoke", &entry, &exit, "vfs");
+MODULE_INFO("concurrency-smoke", &entry, &exit, "vfs", "rawfs");
