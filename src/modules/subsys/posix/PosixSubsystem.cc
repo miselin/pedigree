@@ -523,8 +523,8 @@ void PosixSubsystem::exit(int code) {
   NOTICE("PosixSubsystem::exit(" << Dec << pProcess->getId() << ", code=" << code << ")");
 
   if (!pProcess->beginTermination()) {
-    // Another thread owns all process-wide cleanup. This thread is already
-    // a rendezvous participant and must take only the thread exit path.
+    // Another thread owns or has reserved process-wide cleanup. A competitor
+    // must take only the thread exit path; the owner will retire every peer.
     Processor::information().getScheduler().killCurrentThread();
   }
 

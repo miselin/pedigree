@@ -129,6 +129,35 @@ class EXPORTED_PUBLIC Process {
     TerminationDeferral m_TerminationDeferral;
   };
 
+  /**
+   * Keeps process termination from sealing while a dedicated exit owner is
+   * constructed and made runnable.
+   */
+  class EXPORTED_PUBLIC TerminalOwnerReservation {
+   public:
+    TerminalOwnerReservation();
+    TerminalOwnerReservation(TerminalOwnerReservation&& other);
+    ~TerminalOwnerReservation();
+
+    TerminalOwnerReservation& operator=(TerminalOwnerReservation&& other);
+
+    explicit operator bool() const {
+      return m_pProcess != nullptr;
+    }
+
+    /** Installs the delayed owner and transfers reservation ownership. */
+    void install(Thread* owner);
+
+   private:
+    friend class Process;
+
+    TerminalOwnerReservation(const TerminalOwnerReservation&) = delete;
+    TerminalOwnerReservation& operator=(const TerminalOwnerReservation&) = delete;
+
+    Process* m_pProcess;
+    TerminationDeferral m_TerminationDeferral;
+  };
+
   /** Subsystems may inherit Process to provide custom functionality. However,
    * they need to know whether a Process pointer is subsystem-specific. This
    * enumeration is designed to allow functions using Process objects in
@@ -186,6 +215,13 @@ class EXPORTED_PUBLIC Process {
    * Any previous lease is released; failure leaves \p lease empty.
    */
   MUST_USE_RESULT bool acquireThread(ThreadLease& lease, Thread* expected);
+
+  /**
+   * Reserves the Active/Suspended lifecycle while a terminal owner is
+   * constructed. Competing exit attempts take the thread-only path until the
+   * installed owner enters process termination.
+   */
+  TerminalOwnerReservation reserveTerminalOwner();
 
   /** Returns the process ID. */
   size_t getId() {
@@ -352,6 +388,12 @@ class EXPORTED_PUBLIC Process {
    * Returns false rather than self-deadlocking if called by that thread.
    */
   bool waitUntilTerminationReapable();
+
+  /**
+   * Polls terminal completion without sleeping the shutdown coordinator.
+   * This keeps it runnable as the last same-CPU exit owner's successor.
+   */
+  bool waitUntilTerminationReapableForTerminalCoordinator();
 
   bool hasSuspended() {
     bool bRet = m_bUnreportedSuspend;
@@ -648,6 +690,12 @@ class EXPORTED_PUBLIC Process {
   /** Process::kill has installed the complete live-thread rendezvous. */
   bool m_bTerminationRendezvousStarted;
 
+  /** A dedicated exit owner is being constructed or waiting to run. */
+  bool m_bTerminalOwnerReserved;
+
+  /** Installed owner permitted to consume the terminal reservation. */
+  Thread* m_pReservedTerminalOwner;
+
   /** The elected owner has exclusively claimed shared process teardown. */
   bool m_bTerminationCleanupStarted;
 
@@ -702,6 +750,9 @@ class EXPORTED_PUBLIC Process {
 
   /** Releases both halves of an admitted ThreadLease. */
   void releaseThreadLease(Thread* thread);
+
+  /** Installs the Thread which alone may consume a terminal reservation. */
+  void installTerminalOwner(Thread* owner);
 
   /** Stores metadata about this process. */
   struct ProcessMetadata {

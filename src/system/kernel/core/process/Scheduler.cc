@@ -232,6 +232,22 @@ bool Scheduler::acquireProcess(ProcessLease& lease, size_t n) {
   return pResult != nullptr;
 }
 
+bool Scheduler::acquireFirstProcessOfType(ProcessLease& lease, Process::ProcessType type) {
+  m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+  Process* pResult = nullptr;
+  for (List<Process*>::Iterator it = m_Processes.begin(); it != m_Processes.end(); ++it) {
+    Process* candidate = *it;
+    if (candidate->getType() == type && candidate->beginExternalLease()) {
+      pResult = candidate;
+      break;
+    }
+  }
+  m_SchedulerLock.release();
+
+  lease = ProcessLease(pResult);
+  return pResult != nullptr;
+}
+
 bool Scheduler::acquireProcess(ProcessLease& lease, Process* expected) {
   if (!expected) {
     lease.reset();

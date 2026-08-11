@@ -64,10 +64,20 @@ bool PosixSyscallManager::initialise() {
   return true;
 }
 
-bool PosixSyscallManager::shutdown() {
+bool PosixSyscallManager::closeAdmission() {
+  const bool posixClosed = m_PosixRegistration.closeAdmission();
+  const bool linuxClosed = m_LinuxRegistration.closeAdmission();
+  return posixClosed && linuxClosed;
+}
+
+bool PosixSyscallManager::finishShutdown() {
   const bool posixRetired = m_PosixRegistration.reset();
   const bool linuxRetired = m_LinuxRegistration.reset();
   return posixRetired && linuxRetired;
+}
+
+bool PosixSyscallManager::shutdown() {
+  return closeAdmission() && finishShutdown();
 }
 
 uintptr_t PosixSyscallManager::call(uintptr_t function, uintptr_t p1, uintptr_t p2, uintptr_t p3,

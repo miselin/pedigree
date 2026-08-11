@@ -107,6 +107,45 @@ void Process::ReaperClaim::publish() {
   m_TerminationDeferral = TerminationDeferral(false);
 }
 
+Process::TerminalOwnerReservation::TerminalOwnerReservation()
+    : m_pProcess(nullptr), m_TerminationDeferral(false) {}
+
+Process::TerminalOwnerReservation::TerminalOwnerReservation(TerminalOwnerReservation&& other)
+    : m_pProcess(other.m_pProcess),
+      m_TerminationDeferral(pedigree_std::move(other.m_TerminationDeferral)) {
+  other.m_pProcess = nullptr;
+}
+
+Process::TerminalOwnerReservation::~TerminalOwnerReservation() {
+  if (m_pProcess) {
+    FATAL("Process terminal-owner reservation left scope without installation");
+  }
+}
+
+Process::TerminalOwnerReservation& Process::TerminalOwnerReservation::operator=(
+    TerminalOwnerReservation&& other) {
+  if (this != &other) {
+    if (m_pProcess) {
+      FATAL("Process terminal-owner reservation overwritten before installation");
+    }
+    m_pProcess = other.m_pProcess;
+    m_TerminationDeferral = pedigree_std::move(other.m_TerminationDeferral);
+    other.m_pProcess = nullptr;
+  }
+  return *this;
+}
+
+void Process::TerminalOwnerReservation::install(Thread* owner) {
+  if (!m_pProcess || !owner) {
+    FATAL("Invalid Process terminal-owner installation");
+  }
+
+  Process* process = m_pProcess;
+  process->installTerminalOwner(owner);
+  m_pProcess = nullptr;
+  m_TerminationDeferral = TerminationDeferral(false);
+}
+
 Process::ThreadLease::ThreadLease(Process* process, Thread* thread)
     : m_pProcess(process), m_pThread(thread), m_TerminationDeferral(process && thread) {}
 
@@ -186,6 +225,8 @@ Process::Process(DeferredPublication)
       m_pTerminatingThread(0),
       m_nTerminationParticipants(0),
       m_bTerminationRendezvousStarted(false),
+      m_bTerminalOwnerReserved(false),
+      m_pReservedTerminalOwner(nullptr),
       m_bTerminationCleanupStarted(false),
       m_bTerminationSealed(false),
       m_bTerminationReapable(false),
@@ -252,6 +293,8 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
       m_pTerminatingThread(0),
       m_nTerminationParticipants(0),
       m_bTerminationRendezvousStarted(false),
+      m_bTerminalOwnerReserved(false),
+      m_pReservedTerminalOwner(nullptr),
       m_bTerminationCleanupStarted(false),
       m_bTerminationSealed(false),
       m_bTerminationReapable(false),
@@ -737,6 +780,56 @@ bool Process::acquireThread(ThreadLease& lease, Thread* expected) {
   return true;
 }
 
+Process::TerminalOwnerReservation Process::reserveTerminalOwner() {
+  TerminalOwnerReservation reservation;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    const ProcessState state = getState();
+    if (m_bDestroying || m_bTerminationRendezvousStarted || m_bTerminationSealed ||
+        state == Terminating || state == Terminated || state == Reaped) {
+      return reservation;
+    }
+    if (m_bTerminalOwnerReserved) {
+      FATAL("Process terminal owner reserved more than once for pid " << Dec << m_Id << ".");
+    }
+
+    m_bTerminalOwnerReserved = true;
+    m_pReservedTerminalOwner = nullptr;
+    reservation.m_pProcess = this;
+  }
+  reservation.m_TerminationDeferral = TerminationDeferral(true);
+  return reservation;
+}
+
+void Process::installTerminalOwner(Thread* owner) {
+  LockGuard<Spinlock> guard(m_Lock);
+  if (!m_bTerminalOwnerReserved || m_pReservedTerminalOwner) {
+    FATAL("Process terminal owner installed without a reservation for pid " << Dec << m_Id << ".");
+  }
+
+  bool found = false;
+  for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); ++it) {
+    if (*it == owner) {
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    FATAL("Process terminal owner was not published to pid " << Dec << m_Id << ".");
+  }
+
+  {
+    LockGuard<Spinlock> ownerGuard(owner->m_Lock);
+    if (owner->m_Status != Thread::Created || owner->m_bStartRequested ||
+        owner->getUnwindState() != Thread::Continue) {
+      FATAL("Process terminal owner was not installed before startup for pid " << Dec << m_Id
+                                                                               << ".");
+    }
+  }
+
+  m_pReservedTerminalOwner = owner;
+}
+
 bool Process::transitionState(ProcessState expected, ProcessState desired) {
   return __atomic_compare_exchange_n(&m_State, &expected, desired, false, __ATOMIC_ACQ_REL,
                                      __ATOMIC_ACQUIRE);
@@ -780,6 +873,15 @@ bool Process::beginTermination() {
   if (!pCurrentThread || pCurrentThread->getParent() != this) {
     FATAL("Process::beginTermination invariant failed for pid "
           << Dec << m_Id << ": exit must be initiated by a thread in the target process.");
+  }
+
+  if (m_bTerminalOwnerReserved) {
+    if (pCurrentThread != m_pReservedTerminalOwner) {
+      m_Lock.release();
+      return false;
+    }
+    m_bTerminalOwnerReserved = false;
+    m_pReservedTerminalOwner = nullptr;
   }
 
   if (m_bTerminationRendezvousStarted) {
@@ -1207,6 +1309,22 @@ bool Process::waitUntilTerminationReapable() {
       // Keep the wrapper alive until the off-stack completion arrives.
       continue;
     }
+  }
+}
+
+bool Process::waitUntilTerminationReapableForTerminalCoordinator() {
+  while (true) {
+    {
+      auto guard = m_TerminationWaiters.acquire();
+      if (m_bTerminationReapable) {
+        return true;
+      }
+      if (Processor::information().getCurrentThread() == m_pTerminatingThread) {
+        return false;
+      }
+    }
+
+    Scheduler::instance().yield();
   }
 }
 

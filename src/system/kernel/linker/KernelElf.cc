@@ -357,10 +357,14 @@ KernelElf::KernelElf()
       m_pSymbolTable(0),
       m_ModuleAdjustmentLock(false),
       m_ModuleShutdown(false),
+      m_ModuleShutdownStatus(ShutdownOpen),
       m_ModuleLoading(false),
       m_UnloadingModule(nullptr),
       m_ModuleExecutions(0),
       m_ModuleExecutionPasses(0),
+      m_TerminalQuiesceOwner(nullptr),
+      m_TerminalQuiesceHook(nullptr),
+      m_TerminalQuiesceStatus(QuiesceOpen),
       m_InitModule(nullptr) {}
 
 KernelElf::~KernelElf() {
@@ -752,6 +756,9 @@ KernelElf::ModuleUnloadClaim KernelElf::claimModuleUnloadLocked(
   if (!allowShutdown && !module->runtimeUnloadable) {
     return UnloadRuntimePinned;
   }
+  if (module == m_TerminalQuiesceOwner && m_TerminalQuiesceHook) {
+    return UnloadBusy;
+  }
   if (m_ModuleLoading || m_UnloadingModule) {
     return UnloadBusy;
   }
@@ -942,14 +949,163 @@ bool KernelElf::unloadModule(Module* module, bool silent, bool progress) {
   return completeUnloadAttempt(module, claim, wasFailed, runLifecycle, silent, progress);
 }
 
+bool KernelElf::registerTerminalQuiesce(ModuleEntry ownerEntry, TerminalQuiesceHook hook) {
+  if (!ownerEntry || !hook) {
+    return false;
+  }
+
+  lockModules();
+  if (m_ModuleShutdown || m_TerminalQuiesceStatus != QuiesceOpen) {
+    unlockModules();
+    return false;
+  }
+  if (m_TerminalQuiesceHook) {
+    const bool alreadyRegistered = m_TerminalQuiesceOwner &&
+                                   m_TerminalQuiesceOwner->entry == ownerEntry &&
+                                   m_TerminalQuiesceHook == hook;
+    unlockModules();
+    return alreadyRegistered;
+  }
+
+  Module* owner = nullptr;
+  for (auto module : m_Modules) {
+    if (module->entry != ownerEntry || !(module->isExecuting() || module->isActive())) {
+      continue;
+    }
+    if (owner) {
+      unlockModules();
+      return false;
+    }
+    owner = module;
+  }
+  if (!owner) {
+    unlockModules();
+    return false;
+  }
+
+  m_TerminalQuiesceOwner = owner;
+  m_TerminalQuiesceHook = hook;
+  unlockModules();
+  return true;
+}
+
+bool KernelElf::unregisterTerminalQuiesce(ModuleEntry ownerEntry, TerminalQuiesceHook hook) {
+  lockModules();
+  if (!m_TerminalQuiesceHook) {
+    unlockModules();
+    return true;
+  }
+  if (!m_TerminalQuiesceOwner || m_TerminalQuiesceOwner->entry != ownerEntry ||
+      m_TerminalQuiesceHook != hook || m_TerminalQuiesceStatus != QuiesceOpen) {
+    unlockModules();
+    return false;
+  }
+
+  m_TerminalQuiesceOwner = nullptr;
+  m_TerminalQuiesceHook = nullptr;
+  unlockModules();
+  return true;
+}
+
 void KernelElf::unloadModules() {
+  while (true) {
+    bool waiting = false;
+    bool failed = false;
+
+    lockModules();
+    if (m_ModuleShutdownStatus == ShutdownOpen) {
+      m_ModuleShutdown = true;
+      m_ModuleShutdownStatus = ShutdownRunning;
+      unlockModules();
+      break;
+    }
+    if (m_ModuleShutdownStatus == ShutdownComplete) {
+      unlockModules();
+      return;
+    }
+    failed = m_ModuleShutdownStatus == ShutdownFailed;
+    waiting = m_ModuleShutdownStatus == ShutdownRunning;
+    unlockModules();
+
+    if (failed) {
+      FATAL("KERNELELF: Module shutdown previously failed");
+      return;
+    }
+    if (waiting) {
+#if THREADS
+      Scheduler::instance().yield();
+      continue;
+#else
+      FATAL("KERNELELF: Concurrent module shutdown without scheduler support");
+      return;
+#endif
+    }
+  }
+
   if (g_BootProgressUpdate) {
     g_BootProgressUpdate("unload");
   }
 
-  lockModules();
-  m_ModuleShutdown = true;
-  unlockModules();
+  while (true) {
+    TerminalQuiesceHook hook = nullptr;
+    bool waiting = false;
+    bool failed = false;
+
+    lockModules();
+    if (m_TerminalQuiesceStatus == QuiesceComplete) {
+      unlockModules();
+      break;
+    }
+    if (m_TerminalQuiesceStatus == QuiesceFailed) {
+      failed = true;
+    } else if (m_TerminalQuiesceStatus == QuiesceInvoking || m_ModuleLoading || m_UnloadingModule ||
+               m_ModuleExecutions || m_ModuleExecutionPasses) {
+      waiting = true;
+    } else {
+      m_TerminalQuiesceStatus = QuiesceInvoking;
+      hook = m_TerminalQuiesceHook;
+      m_TerminalQuiesceOwner = nullptr;
+      m_TerminalQuiesceHook = nullptr;
+      if (!hook) {
+        m_TerminalQuiesceStatus = QuiesceComplete;
+      }
+    }
+    unlockModules();
+
+    if (failed) {
+      lockModules();
+      m_ModuleShutdownStatus = ShutdownFailed;
+      unlockModules();
+      FATAL("KERNELELF: Terminal module quiesce failed; refusing to unload modules");
+      return;
+    }
+    if (hook) {
+      const bool quiesced = hook();
+      lockModules();
+      m_TerminalQuiesceStatus = quiesced ? QuiesceComplete : QuiesceFailed;
+      unlockModules();
+      if (!quiesced) {
+        lockModules();
+        m_ModuleShutdownStatus = ShutdownFailed;
+        unlockModules();
+        FATAL("KERNELELF: Terminal module quiesce failed; refusing to unload modules");
+        return;
+      }
+      break;
+    }
+    if (!waiting) {
+      break;
+    }
+#if THREADS
+    Scheduler::instance().yield();
+#else
+    lockModules();
+    m_ModuleShutdownStatus = ShutdownFailed;
+    unlockModules();
+    FATAL("KERNELELF: Terminal quiesce encountered an in-flight module operation");
+    return;
+#endif
+  }
 
   while (true) {
     Module* candidate = nullptr;
@@ -986,8 +1142,11 @@ void KernelElf::unloadModules() {
       Scheduler::instance().yield();
       continue;
 #else
+      lockModules();
+      m_ModuleShutdownStatus = ShutdownFailed;
+      unlockModules();
       FATAL("KERNELELF: Module shutdown encountered an in-flight module operation");
-      break;
+      return;
 #endif
     }
     break;
@@ -1010,6 +1169,7 @@ void KernelElf::unloadModules() {
   // pointer list is safer than freeing records another CPU may still name.
   lockModules();
   m_Modules.clear();
+  m_ModuleShutdownStatus = ShutdownComplete;
   unlockModules();
 }
 

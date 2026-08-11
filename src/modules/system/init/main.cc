@@ -141,6 +141,23 @@ static int init_stage2(void* param) {
 
 static bool init() {
 #if THREADS
+  EMIT_IF(HOSTED) {
+    if (!HOSTED_SMOKE_TESTS || !VFS::instance().find(String("/.pedigree-root"))) {
+      extern void system_reset();
+      NOTICE("Hosted build has no smoke-test root; shutting down.");
+      system_reset();
+      return true;
+    }
+  }
+
+  // Resolve the only fallible prerequisite before a PosixProcess constructor
+  // registers its hardware IntervalTimer callback.
+  File* pNull = VFS::instance().find(String("/dev/null"));
+  if (!pNull) {
+    error("/dev/null does not exist");
+    return false;
+  }
+
   // Create a new process for the init process.
   PosixProcess* pProcess =
       new PosixProcess(Processor::information().getCurrentThread()->getParent());
@@ -160,12 +177,6 @@ static bool init() {
   pProcess->setSubsystem(pSubsystem);
 
   // add an empty stdout, stdin
-  File* pNull = VFS::instance().find(String("/dev/null"));
-  if (!pNull) {
-    error("/dev/null does not exist");
-    return false;
-  }
-
   FileDescriptor* stdinDescriptor = new FileDescriptor(pNull, 0, 0, 0, 0);
   FileDescriptor* stdoutDescriptor = new FileDescriptor(pNull, 0, 1, 0, 0);
 

@@ -189,6 +189,54 @@ assert_marker_once()
     fi
 }
 
+assert_terminal_quiesce_order()
+{
+    local log=$1
+    local admission_marker=$2
+    local initial_process_marker=$3
+    local handler_marker=$4
+    local final_process_marker=$5
+    local complete_marker=$6
+    if ! awk \
+        -v admission_marker="$admission_marker" \
+        -v initial_process_marker="$initial_process_marker" \
+        -v handler_marker="$handler_marker" \
+        -v final_process_marker="$final_process_marker" \
+        -v complete_marker="$complete_marker" '
+        !reset && index($0, "Resetting...") {
+            reset = NR
+        }
+        reset && !admission && index($0, admission_marker) {
+            admission = NR
+        }
+        reset && !initial_process && index($0, initial_process_marker) {
+            initial_process = NR
+        }
+        reset && !handler && index($0, handler_marker) {
+            handler = NR
+        }
+        reset && !final_process && index($0, final_process_marker) {
+            final_process = NR
+        }
+        reset && !complete && index($0, complete_marker) {
+            complete = NR
+        }
+        reset && !unload && index($0, "KERNELELF: Unloading module") {
+            unload = NR
+        }
+        END {
+            exit !(reset && admission && initial_process && handler && final_process &&
+                   complete && unload && reset < admission && admission < initial_process &&
+                   initial_process < handler && handler < final_process &&
+                   final_process < complete && complete < unload)
+        }
+    ' "$log"; then
+        cat "$log"
+        echo "POSIX terminal phases did not complete before shutdown module unloading." >&2
+        return 1
+    fi
+}
+
 assert_all_wait_markers_once()
 {
     local log=$1
@@ -386,10 +434,36 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS filesystem-unload-policy-metadata" \
         "HOSTED-SYSCALL-TEST: PASS runtime-pinned-cleanup" \
         "HOSTED-SYSCALL-TEST: PASS module-shutdown-retention-policy" \
-        "HOSTED-SYSCALL-TEST: PASS real-event-boundaries"
+        "HOSTED-SYSCALL-TEST: PASS real-event-boundaries" \
+        "HOSTED-SYSCALL-TEST: PASS posix-terminal-drain-fixture-published" \
+        "HOSTED-SYSCALL-TEST: PASS posix-duplicate-init-rollback-preserved-process" \
+        "HOSTED-SYSCALL-TEST: PASS posix-terminal-drain-created-fixture-published" \
+        "HOSTED-SYSCALL-TEST: PASS posix-terminal-blocked-handler-fixture-published" \
+        "HOSTED-SYSCALL-TEST: PASS posix-terminal-blocked-handler-released-by-process-exit"
     do
         assert_marker_once "$empty_log" "$checkpoint"
     done
+    admission_marker="HOSTED-POSIX-SHUTDOWN: PHASE syscall-admission-closed"
+    initial_process_marker="HOSTED-POSIX-SHUTDOWN: PHASE initial-process-drain-complete"
+    handler_marker="HOSTED-POSIX-SHUTDOWN: PHASE syscall-handler-drain-complete"
+    final_process_marker="HOSTED-POSIX-SHUTDOWN: PHASE final-process-drain-complete"
+    terminal_complete_marker="HOSTED-POSIX-SHUTDOWN: PASS terminal-drain synthetic=3 zero-thread=1 threaded=2 zombies=0"
+    for checkpoint in \
+        "$admission_marker" \
+        "$initial_process_marker" \
+        "$handler_marker" \
+        "$final_process_marker" \
+        "$terminal_complete_marker"
+    do
+        assert_marker_once "$empty_log" "$checkpoint"
+    done
+    assert_terminal_quiesce_order \
+        "$empty_log" \
+        "$admission_marker" \
+        "$initial_process_marker" \
+        "$handler_marker" \
+        "$final_process_marker" \
+        "$terminal_complete_marker"
     assert_lifecycle "$empty_log"
 fi
 

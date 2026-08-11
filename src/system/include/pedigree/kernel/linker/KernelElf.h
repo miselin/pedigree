@@ -123,6 +123,8 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
   friend void _cxx_main(BootstrapStruct_t&);
 
  public:
+  typedef bool (*TerminalQuiesceHook)();
+
   /** Get the class instance
    *\return reference to the class instance */
   inline static KernelElf& instance() {
@@ -152,6 +154,16 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
 
   /** Unloads all loaded modules. */
   void unloadModules();
+
+  /**
+   * Registers one terminal quiesce callback owned by the module whose entry
+   * point is ownerEntry. Registration is valid only while that module is
+   * executing or active and before terminal module shutdown begins.
+   */
+  bool registerTerminalQuiesce(ModuleEntry ownerEntry, TerminalQuiesceHook hook);
+
+  /** Removes a terminal callback only when both its owner and function match. */
+  bool unregisterTerminalQuiesce(ModuleEntry ownerEntry, TerminalQuiesceHook hook);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   enum TestModuleUnloadClaim {
@@ -242,6 +254,20 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
     UnloadShutdown,
   };
 
+  enum TerminalQuiesceState {
+    QuiesceOpen,
+    QuiesceInvoking,
+    QuiesceComplete,
+    QuiesceFailed,
+  };
+
+  enum ModuleShutdownState {
+    ShutdownOpen,
+    ShutdownRunning,
+    ShutdownComplete,
+    ShutdownFailed,
+  };
+
   bool beginModuleLoad();
   void finishModuleLoad();
   bool moduleRegisteredLocked(Module* module) const;
@@ -312,10 +338,14 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
 
   Spinlock m_ModuleAdjustmentLock;
   bool m_ModuleShutdown;
+  ModuleShutdownState m_ModuleShutdownStatus;
   bool m_ModuleLoading;
   Module* m_UnloadingModule;
   size_t m_ModuleExecutions;
   size_t m_ModuleExecutionPasses;
+  Module* m_TerminalQuiesceOwner;
+  TerminalQuiesceHook m_TerminalQuiesceHook;
+  TerminalQuiesceState m_TerminalQuiesceStatus;
 
   /** Pending init module. */
   Module* m_InitModule;

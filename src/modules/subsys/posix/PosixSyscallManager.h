@@ -28,6 +28,8 @@
 class PosixSyscallManager : public SyscallHandler {
  public:
   bool initialise();
+  bool closeAdmission();
+  bool finishShutdown();
   bool shutdown();
 
   /** Calls a syscall. */

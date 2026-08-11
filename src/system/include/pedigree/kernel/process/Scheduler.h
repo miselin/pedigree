@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
@@ -31,7 +32,6 @@
 #include "pedigree/kernel/utilities/new"
 
 class Thread;
-class Process;
 class PerProcessorScheduler;
 
 /** \brief This class manages how processes and threads are scheduled across
@@ -123,6 +123,9 @@ class EXPORTED_PUBLIC Scheduler {
    * Any previous lease is released; failure leaves \p lease empty.
    */
   MUST_USE_RESULT bool acquireProcess(ProcessLease& lease, size_t n);
+
+  /** Pins the first enumerated process with the requested concrete type. */
+  MUST_USE_RESULT bool acquireFirstProcessOfType(ProcessLease& lease, Process::ProcessType type);
 
   /**
    * Pins the process with the given scheduler-assigned ID into \p lease.

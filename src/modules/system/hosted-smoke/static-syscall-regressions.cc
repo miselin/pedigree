@@ -8,6 +8,7 @@
 #include "modules/Module.h"
 #include "modules/subsys/pedigree-c/pedigreecSyscallNumbers.h"
 #include "modules/subsys/posix/FileDescriptor.h"
+#include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/subsys/posix/poll-syscalls.h"
@@ -29,10 +30,67 @@
 
 #include "modules/subsys/posix/syscalls/posixSyscallNumbers.h"
 
+extern void system_reset();
+extern "C" bool posixDuplicateInitRollbackPreservesProcessForTest(Process* processIdentity);
+
 namespace {
 constexpr size_t HostedAttempts = 10000;
 constexpr int PollCloseReuseTimeoutMilliseconds = 5000;
 size_t g_RuntimePinnedLifecycleCalls = 0;
+
+struct TerminalBlockedHandlerContext {
+  TerminalBlockedHandlerContext()
+      : blocker(0, true),
+        thread(nullptr),
+        hookEntered(0),
+        exitStaged(0),
+        releasedByTermination(0),
+        unexpectedRelease(0),
+        syscallReturned(0) {}
+
+  Semaphore blocker;
+  Thread* thread;
+  Atomic<size_t> hookEntered;
+  Atomic<size_t> exitStaged;
+  Atomic<size_t> releasedByTermination;
+  Atomic<size_t> unexpectedRelease;
+  Atomic<size_t> syscallReturned;
+};
+
+TerminalBlockedHandlerContext* g_TerminalBlockedHandlerContext = nullptr;
+
+int terminalCreatedFixtureEntry(void*) {
+  FATAL("HOSTED-SYSCALL-TEST: FAIL posix-terminal-drain-created-entry-ran");
+  return 0;
+}
+
+void terminalBlockedHandlerPin(Service_t service, SyscallHandler*) {
+  TerminalBlockedHandlerContext* context = g_TerminalBlockedHandlerContext;
+  Thread* current = Processor::information().getCurrentThread();
+  if (!context || service != posix || current != context->thread) {
+    return;
+  }
+
+  context->hookEntered += 1;
+  if (SyscallManager::instance().requestProcessExit(73)) {
+    context->exitStaged += 1;
+  }
+
+  const bool acquired = context->blocker.acquire();
+  if (!acquired && current->getUnwindState() == Thread::TerminateThread) {
+    context->releasedByTermination += 1;
+  } else {
+    context->unexpectedRelease += 1;
+  }
+}
+
+int terminalBlockedHandlerEntry(void* parameter) {
+  TerminalBlockedHandlerContext* context =
+      reinterpret_cast<TerminalBlockedHandlerContext*>(parameter);
+  SyscallManager::instance().syscall(posix, POSIX_GETPID);
+  context->syscallReturned += 1;
+  return 1;
+}
 
 void runtimePinnedLifecycleProbe() {
   ++g_RuntimePinnedLifecycleCalls;
@@ -836,7 +894,48 @@ bool moduleShutdownOrderIsDependencySafe() {
   return true;
 }
 
-bool entry() {
+bool publishTerminalBlockedHandlerFixture(Process* kernelProcess) {
+  TerminalBlockedHandlerContext* context = new TerminalBlockedHandlerContext;
+  PosixProcess* process = new PosixProcess(kernelProcess);
+  process->setSubsystem(new PosixSubsystem);
+  process->description() = "hosted blocked POSIX handler shutdown fixture";
+  Thread* thread =
+      new Thread(process, terminalBlockedHandlerEntry, context, nullptr, false, true, true);
+  thread->setName("hosted blocked POSIX handler fixture");
+  context->thread = thread;
+  process->publish();
+
+  g_TerminalBlockedHandlerContext = context;
+  SyscallManager::instance().setHandlerPinHook(terminalBlockedHandlerPin);
+  const bool started = thread->start();
+
+  bool blocked = false;
+  for (size_t attempt = 0; attempt < HostedAttempts && started; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    if (context->hookEntered == static_cast<size_t>(1) && thread->getWaitDebugInfo(info) &&
+        info.queue && info.queued && info.channelOwner == &context->blocker &&
+        thread->getStatus() == Thread::Sleeping) {
+      blocked = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+
+  SyscallManager::instance().setHandlerPinHook(nullptr);
+
+  if (!started || !blocked || context->exitStaged != static_cast<size_t>(1) ||
+      context->releasedByTermination || context->unexpectedRelease || context->syscallReturned) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL posix-terminal-blocked-handler-fixture: "
+        "the POSIX handler was not admitted and blocked with a staged process exit");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS posix-terminal-blocked-handler-fixture-published");
+  return true;
+}
+
+bool runRegressions() {
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN real-event-boundaries");
   Thread* thread = Processor::information().getCurrentThread();
   if (!thread || thread->getStateLevel()) {
@@ -949,10 +1048,74 @@ bool entry() {
   }
 
   NOTICE("HOSTED-SYSCALL-TEST: PASS real-event-boundaries");
+
+  PosixProcess* terminalFixture = new PosixProcess(kernelProcess);
+  terminalFixture->setSubsystem(new PosixSubsystem);
+  terminalFixture->description() = "hosted zero-thread POSIX shutdown fixture";
+  terminalFixture->publish();
+  if (terminalFixture->getNumThreads() != 0 || terminalFixture->getType() != Process::Posix) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL posix-terminal-drain-fixture: "
+        "fixture was not published as an ownerless POSIX process");
+    return false;
+  }
+  NOTICE("HOSTED-SYSCALL-TEST: PASS posix-terminal-drain-fixture-published");
+
+  if (!posixDuplicateInitRollbackPreservesProcessForTest(terminalFixture)) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL posix-duplicate-init-rollback: "
+        "an unowned duplicate initialisation retired an existing POSIX process");
+    return false;
+  }
+  NOTICE("HOSTED-SYSCALL-TEST: PASS posix-duplicate-init-rollback-preserved-process");
+
+  PosixProcess* createdFixture = new PosixProcess(kernelProcess);
+  createdFixture->setSubsystem(new PosixSubsystem);
+  createdFixture->description() = "hosted Created-thread POSIX shutdown fixture";
+  Thread* createdThread =
+      new Thread(createdFixture, terminalCreatedFixtureEntry, nullptr, nullptr, false, true, true);
+  createdThread->setName("hosted terminal Created-thread fixture");
+  createdFixture->publish();
+  if (createdFixture->getNumThreads() != 1 || createdThread->getStatus() != Thread::Created ||
+      createdFixture->getType() != Process::Posix) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL posix-terminal-drain-created-fixture: "
+        "fixture did not retain its unstarted ordinary entry");
+    return false;
+  }
+  NOTICE("HOSTED-SYSCALL-TEST: PASS posix-terminal-drain-created-fixture-published");
+
+  if (!publishTerminalBlockedHandlerFixture(kernelProcess)) {
+    return false;
+  }
   return true;
 }
 
-void exit() {}
+bool entry() {
+  const bool passed = runRegressions();
+  system_reset();
+  return passed;
+}
+
+void exit() {
+  TerminalBlockedHandlerContext* context = g_TerminalBlockedHandlerContext;
+  g_TerminalBlockedHandlerContext = nullptr;
+  if (!context) {
+    return;
+  }
+
+  if (context->hookEntered != static_cast<size_t>(1) ||
+      context->exitStaged != static_cast<size_t>(1) ||
+      context->releasedByTermination != static_cast<size_t>(1) || context->unexpectedRelease ||
+      context->syscallReturned) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL posix-terminal-blocked-handler-release: "
+        "terminal process teardown did not release the admitted handler before module exit");
+  } else {
+    NOTICE("HOSTED-SYSCALL-TEST: PASS posix-terminal-blocked-handler-released-by-process-exit");
+  }
+  delete context;
+}
 }  // namespace
 
 MODULE_INFO("hosted-syscall-smoke", &entry, &exit, "posix", "pedigree-c");

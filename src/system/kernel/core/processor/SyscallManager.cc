@@ -76,6 +76,10 @@ SyscallManager::Registration& SyscallManager::Registration::operator=(Registrati
   return *this;
 }
 
+bool SyscallManager::Registration::closeAdmission() {
+  return !m_pManager || m_pManager->closeHandler(*this);
+}
+
 bool SyscallManager::Registration::reset() {
   if (!m_pManager) {
     return true;
@@ -134,6 +138,18 @@ void* SyscallManager::currentDispatchOwner() {
   return thread ? static_cast<void*>(thread) : static_cast<void*>(&information);
 }
 
+bool SyscallManager::callbackContextLocked(void* owner) const {
+  for (size_t i = 0; i < serviceEnd; ++i) {
+    for (HandlerDispatch* dispatch = m_HandlerSlots[i].dispatches; dispatch;
+         dispatch = dispatch->next) {
+      if (dispatch->owner == owner) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler,
                                      Registration& registration) {
   if (UNLIKELY(service >= serviceEnd) || !pHandler || registration) {
@@ -163,6 +179,27 @@ bool SyscallManager::registerHandler(Service_t service, SyscallHandler* pHandler
   return true;
 }
 
+bool SyscallManager::closeHandler(Registration& registration) {
+  if (registration.m_pManager != this || UNLIKELY(registration.m_Service >= serviceEnd) ||
+      !registration.m_pHandler || !registration.m_Generation) {
+    return false;
+  }
+
+  void* owner = currentDispatchOwner();
+  m_HandlerLock.acquire();
+  HandlerSlot& slot = m_HandlerSlots[registration.m_Service];
+  if (slot.handler != registration.m_pHandler || slot.generation != registration.m_Generation ||
+      callbackContextLocked(owner)) {
+    m_HandlerLock.release();
+    return false;
+  }
+
+  slot.enabled = false;
+  slot.draining = true;
+  m_HandlerLock.release();
+  return true;
+}
+
 #if PEDIGREE_CONCURRENCY_SMOKE_TESTS
 bool SyscallManager::dispatchHandlerForTest(Service_t service, uintptr_t& result) {
   PostSyscallAction action;
@@ -184,9 +221,11 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
   }
 
   Thread* current = Processor::information().getCurrentThread();
-  // Spinlock acquisition disables interrupts, so schedulability must be
-  // captured before taking m_HandlerLock.
-  const bool canYield = current && Processor::getInterrupts();
+  // Spinlock acquisition changes raw IF state, so logical schedulability must
+  // be captured before taking m_HandlerLock.
+  const bool canYield =
+      current && Processor::executionContext() == ExecutionContext::WaitableThread;
+  void* owner = currentDispatchOwner();
   TerminationDeferral terminationDeferral;
   m_HandlerLock.acquire();
   HandlerSlot& slot = m_HandlerSlots[registration.m_Service];
@@ -202,21 +241,9 @@ bool SyscallManager::unregisterHandler(Registration& registration) {
     return true;
   }
 
-  void* owner = currentDispatchOwner();
-  bool callbackContext = false;
-  for (size_t i = 0; i < serviceEnd && !callbackContext; ++i) {
-    for (HandlerDispatch* dispatch = m_HandlerSlots[i].dispatches; dispatch;
-         dispatch = dispatch->next) {
-      if (dispatch->owner == owner) {
-        callbackContext = true;
-        break;
-      }
-    }
-  }
-
   // A callback draining any handler can form a reciprocal wait with that
   // handler. Keep token ownership live for an ordinary external drain.
-  if (callbackContext) {
+  if (callbackContextLocked(owner)) {
     m_HandlerLock.release();
     return false;
   }

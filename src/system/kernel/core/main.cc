@@ -509,10 +509,6 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS && !PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS
     NOTICE("HOSTED-WAIT-TEST: PASS module-loader-shutdown-join");
 #endif
-
-    // The zombie worker must be joined before global teardown disables
-    // interrupts and destroys the scheduler.
-    ZombieQueue::instance().destroy();
   }
 
   NOTICE("Resetting...");
@@ -531,6 +527,13 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
       fp();
       iterator++;
     }
+  }
+
+  EMIT_IF(THREADS) {
+    // Module exits may publish mandatory deferred destruction. Keep the
+    // worker alive through every exit, then join it before lower-level
+    // scheduler and interrupt teardown begins.
+    ZombieQueue::instance().destroy();
   }
 
   // No need for user input anymore.
@@ -583,59 +586,6 @@ void system_reset() {
 void system_reboot() {
   WARNING("System shutting down...");
   Process* currentProcess = Processor::information().getCurrentThread()->getParent();
-  Process* kernelProcess = Scheduler::instance().getKernelProcess();
-  const size_t shutdownProcessCount = Scheduler::instance().getNumProcesses();
-  for (size_t i = shutdownProcessCount; i > 0; --i) {
-    Scheduler::ProcessLease process;
-    if (!Scheduler::instance().acquireProcess(process, i - 1)) {
-      continue;
-    }
-    Subsystem* subsystem = process->getSubsystem();
-    if (process.get() == currentProcess || process.get() == kernelProcess) {
-      continue;
-    }
-
-    if (subsystem) {
-      Process::ThreadLease target;
-      if (process->acquireThread(target, static_cast<size_t>(0))) {
-        subsystem->kill(Subsystem::Terminated, target.get());
-      }
-    } else {
-      FATAL(
-          "Shutdown found a non-kernel Process without a teardown "
-          "Subsystem");
-    }
-  }
-
-  while (true) {
-    Scheduler::ProcessLease processToReap;
-    const size_t processCount = Scheduler::instance().getNumProcesses();
-    for (size_t i = 0; i < processCount; ++i) {
-      Scheduler::ProcessLease candidate;
-      if (Scheduler::instance().acquireProcess(candidate, i) && candidate.get() != currentProcess &&
-          candidate.get() != kernelProcess) {
-        processToReap = pedigree_std::move(candidate);
-        break;
-      }
-    }
-
-    if (!processToReap) {
-      break;
-    }
-    if (!processToReap->waitUntilTerminationReapable()) {
-      FATAL(
-          "reboot attempted to reap the currently terminating "
-          "process");
-    }
-
-    Process* processIdentity = processToReap.get();
-    Process::ReaperClaim reaper = processToReap->tryClaimReaper();
-    if (reaper) {
-      reaper.publish();
-    }
-    processToReap.reset();
-    Scheduler::instance().waitUntilProcessRemoved(processIdentity);
-  }
 
   Subsystem* currentSubsystem = currentProcess->getSubsystem();
   if (!currentSubsystem) {

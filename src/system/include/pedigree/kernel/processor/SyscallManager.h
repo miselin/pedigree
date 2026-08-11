@@ -82,6 +82,9 @@ class SyscallManager {
 
     Registration& operator=(Registration&& other);
 
+    /** Stops new handler leases while retaining ownership for a later reset. */
+    bool closeAdmission();
+
     bool reset();
     explicit operator bool() const {
       return m_pManager != nullptr;
@@ -180,6 +183,7 @@ class SyscallManager {
   };
 
   bool registerHandler(Service_t service, SyscallHandler* pHandler, Registration& registration);
+  bool closeHandler(Registration& registration);
   bool unregisterHandler(Registration& registration);
   bool acquireHandler(Service_t service, HandlerLease& lease, PostSyscallAction& action);
 
@@ -195,6 +199,7 @@ class SyscallManager {
  private:
   static void clearSlot(HandlerSlot& slot);
   static void* currentDispatchOwner();
+  bool callbackContextLocked(void* owner) const;
   static void abandonedHandlerCleanup(void* context);
   bool requestPostSyscallAction(PostSyscallActionKind kind, intptr_t value,
                                 const ProcessorState* state = nullptr);
