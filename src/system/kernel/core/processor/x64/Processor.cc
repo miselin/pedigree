@@ -95,9 +95,9 @@ void ProcessorBase::switchAddressSpace(VirtualAddressSpace& AddressSpace) {
 void ProcessorBase::deinitialise() {
   shutdownMultitasking();
 
-  // Release physical-memory bookkeeping while the global memory manager and
-  // allocator are still alive. Global destructors tear down the remaining
-  // singleton objects exactly once after this returns.
+  // Release physical-memory bookkeeping only after every runtime owner has
+  // been terminally quiesced. Terminal bare-metal shutdown retains static
+  // storage; nothing may consume PMM state after this point.
   X86CommonPhysicalMemoryManager::instance().shutdown();
 }
 

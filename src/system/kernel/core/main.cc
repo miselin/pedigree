@@ -574,16 +574,32 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
 
   Processor::setInterrupts(false);
 
-  // Shut down the various pieces created by Processor before their global
-  // objects are destroyed.
+  // Shut down the pieces created by Processor before hosted global destruction
+  // or the bare-metal terminal handoff.
   Processor::deinitialise();
 
+#if HOSTED
   NOTICE("Module shutdown complete. Running destructors and terminating...");
   runKernelDestructors();
+#else
+  // Bare-metal ends in a terminal halt loop, not an owning runtime.
+  // Retain static storage because its providers are already quiesced and the
+  // active kernel page tables cannot be destroyed while still executing.
+  NOTICE("Module shutdown complete. Retaining kernel static storage and terminating...");
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+  TRACE("QEMU-CONCURRENCY-TEST: PASS kernel-static-storage-retained");
+#endif
+#endif
 
-  // Done - return to caller.
-  // Boot code needs to handle this by resetting (or whatever makes sense)
+  // Hosted returns to its owning runtime after the terminal trace.
   TRACE("kernel main() terminating");
+
+#if !HOSTED
+  // The boot entry lives in the discarded init mapping, so bare-metal cannot
+  // return after terminal shutdown.
+  while (true)
+    Processor::halt();
+#endif
 }
 
 void EXPORTED_PUBLIC system_reset();
