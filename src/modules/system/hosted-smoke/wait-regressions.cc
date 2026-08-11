@@ -58,6 +58,7 @@ bool runHostedUsbTransferLifecycleRegressions();
 EXPORTED_PUBLIC bool runHostedUsbSyncOwnershipRegression();
 EXPORTED_PUBLIC bool runHostedUsbInterruptOwnershipRegression();
 EXPORTED_PUBLIC bool runHostedUsbContainerOwnershipRegression();
+EXPORTED_PUBLIC bool runHostedUsbEndpointHaltRegressions();
 #endif
 
 namespace {
@@ -1803,7 +1804,8 @@ bool runHostedWaitRegressions() {
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedPipeRegressions() && runHostedUsbSyncOwnershipRegression() &&
       runHostedUsbInterruptOwnershipRegression() && runHostedUsbContainerOwnershipRegression() &&
-      UsbPnP::runHostedRegistrationRegression() && Ipc::runHostedIpcInterruptionRegression() &&
+      runHostedUsbEndpointHaltRegressions() && UsbPnP::runHostedRegistrationRegression() &&
+      Ipc::runHostedIpcInterruptionRegression() &&
 #endif
       runHostedTimerRegressions(g_ImmediateWaiter) &&
       runHostedPrimitiveRegressions(g_ImmediateWaiter) &&

@@ -488,8 +488,15 @@ uint16_t UsbDevice::getStatus() {
 }
 
 bool UsbDevice::clearEndpointHalt(Endpoint* pEndpoint) {
-  return controlRequest(UsbRequestRecipient::Endpoint, UsbRequest::ClearFeature, 0,
-                        pEndpoint->nEndpoint);
+  const uint16_t endpointAddress =
+      pEndpoint->nEndpoint | (pEndpoint->bIn ? UsbRequestDirection::In : 0);
+  if (!controlRequest(UsbRequestRecipient::Endpoint, UsbRequest::ClearFeature, 0,
+                      endpointAddress)) {
+    return false;
+  }
+
+  pEndpoint->bDataToggle = false;
+  return true;
 }
 
 void UsbDevice::useConfiguration(uint8_t nConfig) {

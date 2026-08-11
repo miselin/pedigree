@@ -508,11 +508,19 @@ pedigree_module(status_server "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/status_server/main.cc)
 add_dependencies(status_server lwip)
 
+set(USB_REGRESSION_SOURCES)
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+    list(APPEND USB_REGRESSION_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/usb-endpoint-halt-regressions.cc)
+endif ()
+
 pedigree_module(usb "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/usb/UsbDevice.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/usb/UsbHub.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/usb/UsbPnP.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/system/usb/main.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/usb/main.cc
+    ${USB_REGRESSION_SOURCES})
 
 pedigree_module(users "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/users/Group.cc
