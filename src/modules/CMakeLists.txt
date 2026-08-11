@@ -36,6 +36,7 @@ set(PEDIGREE_PCAP TRUE CACHE BOOL "Build the pcap kernel module which writes a p
 
 set(MUSL_NAME "musl-1.1.14")
 set(MUSL_FILENAME "${MUSL_NAME}.tar.gz")
+set(MUSL_SHA256 "35f6c00c84a6091bd5dab29eedde7508dae755ead92dcc0239f3677d1055b9b5")
 
 add_definitions(-DIN_PEDIGREE_KERNEL)
 
@@ -788,17 +789,46 @@ else ()
     add_custom_target(initrd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp)
 endif ()
 
-if (NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME})
-    file(DOWNLOAD "https://www.musl-libc.org/releases/${MUSL_FILENAME}" ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME})
+set(MUSL_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME}")
+set(MUSL_DOWNLOAD "${MUSL_ARCHIVE}.download")
+
+if (EXISTS "${MUSL_ARCHIVE}")
+    file(SHA256 "${MUSL_ARCHIVE}" MUSL_ACTUAL_SHA256)
+    if (NOT "${MUSL_ACTUAL_SHA256}" STREQUAL "${MUSL_SHA256}")
+        message(FATAL_ERROR
+            "Cached musl archive has SHA256 ${MUSL_ACTUAL_SHA256}; expected ${MUSL_SHA256}: ${MUSL_ARCHIVE}")
+    endif ()
+else ()
+    file(REMOVE "${MUSL_DOWNLOAD}")
+    file(DOWNLOAD
+        "https://www.musl-libc.org/releases/${MUSL_FILENAME}"
+        "${MUSL_DOWNLOAD}"
+        STATUS MUSL_DOWNLOAD_STATUS)
+    list(GET MUSL_DOWNLOAD_STATUS 0 MUSL_DOWNLOAD_STATUS_CODE)
+    list(GET MUSL_DOWNLOAD_STATUS 1 MUSL_DOWNLOAD_STATUS_MESSAGE)
+    if (NOT MUSL_DOWNLOAD_STATUS_CODE EQUAL 0)
+        file(REMOVE "${MUSL_DOWNLOAD}")
+        message(FATAL_ERROR
+            "Failed to download ${MUSL_FILENAME}: ${MUSL_DOWNLOAD_STATUS_MESSAGE}")
+    endif ()
+
+    file(SHA256 "${MUSL_DOWNLOAD}" MUSL_ACTUAL_SHA256)
+    if (NOT "${MUSL_ACTUAL_SHA256}" STREQUAL "${MUSL_SHA256}")
+        file(REMOVE "${MUSL_DOWNLOAD}")
+        message(FATAL_ERROR
+            "Downloaded musl archive has SHA256 ${MUSL_ACTUAL_SHA256}; expected ${MUSL_SHA256}")
+    endif ()
+
+    file(RENAME "${MUSL_DOWNLOAD}" "${MUSL_ARCHIVE}")
 endif ()
 
 add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure
-    COMMAND ${CMAKE_COMMAND} -E tar xzf ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME}
-    COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure
-    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME}
+    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure"
+    COMMAND ${CMAKE_COMMAND} -E tar xzf "${MUSL_ARCHIVE}"
+    COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure"
+    DEPENDS "${MUSL_ARCHIVE}"
 )
-add_custom_target(musl_extract ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure)
+add_custom_target(musl_extract ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure")
 
 # Build libc
 add_custom_command(
