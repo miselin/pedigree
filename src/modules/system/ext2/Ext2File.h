@@ -62,6 +62,9 @@ class Ext2File : public File, public Ext2Node {
   virtual void sync(size_t offset, bool async);
 
   virtual size_t getBlockSize() const;
+
+ protected:
+  virtual void writeBlocks(uint64_t location, uintptr_t addr, size_t length);
 };
 
 #endif

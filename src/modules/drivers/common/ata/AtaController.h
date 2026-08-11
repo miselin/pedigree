@@ -66,6 +66,14 @@ class AtaController : public ScsiController, public IrqHandler {
   void operator=(const AtaController&);
 
  protected:
+  /** ScsiDisk publishes canonical p3 keys. Reads are immutable fill work,
+   * while active writes consume a mutable cache page and must stay distinct. */
+  static bool canCoalesceCanonicalRequests(uint64_t aType, uint64_t aDisk, uint64_t aLocation,
+                                           uint64_t bType, uint64_t bDisk, uint64_t bLocation) {
+    return aType == SCSI_REQUEST_READ && bType == SCSI_REQUEST_READ && aDisk == bDisk &&
+           aLocation == bLocation;
+  }
+
   bool beginShutdown() {
     if (m_bShutdown) {
       return false;

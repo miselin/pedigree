@@ -1049,6 +1049,9 @@ uint64_t AtaDisk::doWrite(uint64_t location) {
 
   if (m_AtaDiskType != NotPacket) {
     /// \todo might still want to allow writes - assuming CDROM here...
+    // ATA controllers bypass ScsiController's post-write unpin, so unsupported
+    // packet writes must retire the cache pin transferred by ScsiDisk::write.
+    getCache().release(location);
     return 0;
   }
 

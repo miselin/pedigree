@@ -43,11 +43,7 @@ void File::writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uin
 
   switch (cause) {
     case CacheConstants::WriteBack: {
-      // We are given one dirty page. Blocks can be smaller than a page.
-      size_t off = 0;
-      for (; off < PhysicalMemoryManager::getPageSize(); off += pFile->getBlockSize()) {
-        pFile->writeBlock(loc + off, page + off);
-      }
+      pFile->writeBlocks(loc, page, PhysicalMemoryManager::getPageSize());
     } break;
     case CacheConstants::Eviction:
       // Remove this page from our data cache.
@@ -59,6 +55,16 @@ void File::writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uin
           "File: unknown cache callback -- could indicate potential "
           "future I/O issues.");
       break;
+  }
+}
+
+void File::fillCacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+                             void* meta) {
+  File* pFile = reinterpret_cast<File*>(meta);
+  if (cause == CacheConstants::WriteBack) {
+    pFile->writeBlocks(loc, page, PhysicalMemoryManager::getPageSize());
+  } else if (cause != CacheConstants::Eviction) {
+    WARNING("File: unknown fill-cache callback cause.");
   }
 }
 
@@ -214,10 +220,9 @@ uint64_t File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bC
       const uint64_t pageOffset = block * blockSize;
       const size_t firstBlock = offs / filesystemBlockSize;
       const size_t endBlock = (offs + sz + filesystemBlockSize - 1) / filesystemBlockSize;
-      for (size_t i = firstBlock; i < endBlock; ++i) {
-        const size_t fileBlockOffset = i * filesystemBlockSize;
-        writeBlock(pageOffset + fileBlockOffset, buff + fileBlockOffset);
-      }
+      const size_t fileBlockOffset = firstBlock * filesystemBlockSize;
+      writeBlocks(pageOffset + fileBlockOffset, buff + fileBlockOffset,
+                  (endBlock - firstBlock) * filesystemBlockSize);
     } else {
       writeBlock(block * blockSize, buff);
     }
@@ -570,6 +575,17 @@ uintptr_t File::readBlock(uint64_t location) {
 
 void File::writeBlock(uint64_t location, uintptr_t addr) {}
 
+void File::writeBlocks(uint64_t location, uintptr_t addr, size_t length) {
+  const size_t blockSize = getBlockSize();
+  if (!blockSize) {
+    return;
+  }
+
+  for (size_t offset = 0; offset < length; offset += blockSize) {
+    writeBlock(location + offset, addr + offset);
+  }
+}
+
 void File::extend(size_t newSize) {
   if (m_Size < newSize)
     m_Size = newSize;
@@ -757,6 +773,11 @@ void File::setCachedPage(size_t block, uintptr_t value, bool locked) {
 
 bool File::useFillCache() const {
   EMIT_IF(VFS_NOMMU) {
+#if defined(PEDIGREE_BUILDUTILS)
+    if (m_bForceFillCache) {
+      return getBlockSize() < PhysicalMemoryManager::getPageSize();
+    }
+#endif
     // No fill cache in NOMMU builds.
     return false;
   }
@@ -765,6 +786,27 @@ bool File::useFillCache() const {
     size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
     return blockSize < nativeBlockSize;
   }
+}
+
+void File::enableFillCacheWriteback() {
+  m_FillCache.setCallback(fillCacheCallback, this);
+}
+
+void File::shutdownFillCacheWriteback() {
+  m_FillCache.shutdown();
+}
+
+bool File::syncFillCache(size_t offset, bool async) {
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t pageOffset = offset - (offset % pageSize);
+  LockGuard<Mutex> guard(m_FillCacheLock);
+  if (!m_FillCache.lookup(pageOffset)) {
+    return false;
+  }
+
+  m_FillCache.sync(pageOffset, async);
+  m_FillCache.release(pageOffset);
+  return true;
 }
 
 uintptr_t File::readIntoCache(uintptr_t block) {

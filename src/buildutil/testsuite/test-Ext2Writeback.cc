@@ -34,7 +34,8 @@ constexpr uint32_t kBlockSize = 4096;
 
 class TrackingDisk final : public Disk {
  public:
-  uintptr_t read(uint64_t) override {
+  uintptr_t read(uint64_t location) override {
+    reads.push_back(location);
     return 0;
   }
 
@@ -67,6 +68,7 @@ class TrackingDisk final : public Disk {
   std::vector<uint64_t> writes;
   std::vector<uint64_t> flushes;
   std::vector<uint64_t> alignments;
+  std::vector<uint64_t> reads;
 };
 
 class OrderedSyncFile final : public File {
@@ -129,6 +131,22 @@ TEST(Ext2Writeback, UsesPhysicalBlockNumberExactlyOnce) {
   file.sync(3 * kBlockSize, false);
   EXPECT_EQ(disk.flushes.size(), 1U);
   EXPECT_EQ(disk.writes.size(), 1U);
+}
+
+TEST(Ext2Writeback, KeepsNativeBlockWritePath) {
+  constexpr uint32_t kPhysicalBlock = 127;
+  uint8_t source[kBlockSize] = {};
+  TrackingDisk disk;
+  Ext2Filesystem filesystem;
+  Ext2WritebackTestPeer::configure(filesystem, &disk, kBlockSize);
+  Inode inode = makeInode(kPhysicalBlock, kPhysicalBlock + 1);
+  Ext2File file(String("native-write"), 3, &inode, &filesystem);
+
+  file.writeBlock(0, reinterpret_cast<uintptr_t>(source));
+
+  EXPECT_TRUE(disk.reads.empty());
+  EXPECT_EQ(disk.writes,
+            std::vector<uint64_t>({static_cast<uint64_t>(kPhysicalBlock) * kBlockSize}));
 }
 
 TEST(PartitionWriteback, AlignsAndTranslatesFlush) {

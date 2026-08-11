@@ -36,6 +36,7 @@ class Vector;
 
 /** This class provides an implementation of the second extended filesystem. */
 class Ext2Filesystem : public Filesystem {
+  friend class Ext2FillCacheTestPeer;
   friend class Ext2WritebackTestPeer;
   friend class Ext2File;
   friend class Ext2Node;

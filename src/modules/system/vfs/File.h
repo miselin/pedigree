@@ -65,6 +65,10 @@ class Thread;
     and Pipe. */
 class EXPORTED_PUBLIC File {
   friend class Filesystem;
+#if defined(PEDIGREE_BUILDUTILS)
+  friend class Ext2FillCacheTestPeer;
+  friend class Ext2WritebackTestPeer;
+#endif
 
  public:
   /** Constructor, creates an invalid file. */
@@ -272,6 +276,9 @@ class EXPORTED_PUBLIC File {
    */
   virtual void writeBlock(uint64_t location, uintptr_t addr);
 
+  /** Writes a range of whole filesystem blocks back to the file. */
+  virtual void writeBlocks(uint64_t location, uintptr_t addr, size_t length);
+
   /** Internal function to extend a file to be at least the given size. */
   virtual void extend(size_t newSize);
 
@@ -298,6 +305,19 @@ class EXPORTED_PUBLIC File {
    */
   static void writeCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
                             void* meta);
+
+  static void fillCacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
+                                void* meta);
+
+  /** Installs and drains the native-page fill-cache callback. */
+  void enableFillCacheWriteback();
+  void shutdownFillCacheWriteback();
+
+  /** Queues a fill-page writeback if the page is currently published. */
+  bool syncFillCache(size_t offset, bool async);
+
+  /** Whether this file currently uses native-page fill caching. */
+  bool useFillCache() const;
 
   /**
    * Pins the given page.
@@ -376,6 +396,9 @@ class EXPORTED_PUBLIC File {
   HashTable<DataCacheKey, uintptr_t> m_DataCache;
 
   bool m_bDirect;
+#if defined(PEDIGREE_BUILDUTILS)
+  bool m_bForceFillCache = false;
+#endif
 
   /**
    * This cache is necessary to handle filesystems with block sizes that are
@@ -406,10 +429,6 @@ class EXPORTED_PUBLIC File {
 
   /** Set a page in our cache. */
   void setCachedPage(size_t block, uintptr_t value, bool locked = true);
-
-  /** Indicate whether the 'fill cache' is needed to handle sub-page block
-   * sizes. */
-  bool useFillCache() const;
 
   /**
    * Reads the given cache block and returns one per-use reference.

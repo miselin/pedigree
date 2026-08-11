@@ -19,6 +19,8 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 
+#include "modules/drivers/common/ata/AtaController.h"
+
 namespace {
 constexpr size_t RequestQueueSignalNumber = 11;
 constexpr size_t WaitAttempts = 10000;
@@ -197,6 +199,104 @@ class HostedRequestQueue : public RequestQueue {
  private:
   bool matchEqualPayload;
 };
+
+class AtaRequestIdentityProbe : public AtaController {
+ public:
+  using AtaController::canCoalesceCanonicalRequests;
+};
+
+class HostedAtaRequestQueue : public RequestQueue {
+ public:
+  HostedAtaRequestQueue()
+      : RequestQueue(MakeConstantString("Hosted ATA request identity")),
+        executions(0),
+        firstStarted(0),
+        releaseFirst(0) {}
+
+  ~HostedAtaRequestQueue() override {
+    destroy();
+  }
+
+  Atomic<size_t> executions;
+  Semaphore firstStarted;
+  Semaphore releaseFirst;
+
+ protected:
+  uint64_t executeRequest(uint64_t, uint64_t, uint64_t location, uint64_t, uint64_t, uint64_t,
+                          uint64_t, uint64_t) override {
+    const size_t execution = executions += 1;
+    if (execution == 1) {
+      firstStarted.release();
+      if (!releaseFirst.acquireForCompletion()) {
+        return 0;
+      }
+    }
+    return location;
+  }
+
+  bool compareRequests(const Request& a, const Request& b) override {
+    return AtaRequestIdentityProbe::canCoalesceCanonicalRequests(a.p1, a.p2, a.p3, b.p1, b.p2,
+                                                                 b.p3);
+  }
+};
+
+bool ataRequestIdentityRegression() {
+  constexpr uint64_t DiskA = 0xA7A;
+  constexpr uint64_t DiskB = 0xB7B;
+  constexpr uint64_t FirstPartitionPage = 0x600;
+  constexpr uint64_t SecondPartitionPage = FirstPartitionPage + 0x1000;
+  constexpr uint64_t SecondPartitionExtent = FirstPartitionPage + (128 * 1024);
+
+  HostedAtaRequestQueue writeQueue;
+  writeQueue.initialise();
+  bool passed = writeQueue.addAsyncRequest(0, SCSI_REQUEST_WRITE, DiskA, FirstPartitionPage) == 1 &&
+                writeQueue.firstStarted.acquire();
+  const bool repeatedWriteAccepted =
+      writeQueue.addAsyncRequest(0, SCSI_REQUEST_WRITE, DiskA, FirstPartitionPage) == 1;
+  const bool distinctWritePageAccepted =
+      writeQueue.addAsyncRequest(0, SCSI_REQUEST_WRITE, DiskA, SecondPartitionPage) == 1;
+  writeQueue.releaseFirst.release();
+  const bool writesDrained = writeQueue.drain();
+  writeQueue.destroy();
+  passed &= repeatedWriteAccepted && distinctWritePageAccepted && writesDrained &&
+            writeQueue.executions == 3;
+
+  HostedAtaRequestQueue syncQueue;
+  syncQueue.initialise();
+  passed &= syncQueue.addAsyncRequest(0, SCSI_REQUEST_SYNC, DiskA, FirstPartitionPage) == 1 &&
+            syncQueue.firstStarted.acquire();
+  const bool repeatedSyncAccepted =
+      syncQueue.addAsyncRequest(0, SCSI_REQUEST_SYNC, DiskA, FirstPartitionPage) == 1;
+  syncQueue.releaseFirst.release();
+  const bool syncsDrained = syncQueue.drain();
+  syncQueue.destroy();
+  passed &= repeatedSyncAccepted && syncsDrained && syncQueue.executions == 2;
+
+  HostedAtaRequestQueue readQueue;
+  readQueue.initialise();
+  passed &= readQueue.addAsyncRequest(0, SCSI_REQUEST_READ, DiskA, FirstPartitionPage) == 1 &&
+            readQueue.firstStarted.acquire();
+  const bool repeatedReadCoalesced =
+      readQueue.addAsyncRequest(0, SCSI_REQUEST_READ, DiskA, FirstPartitionPage) == 0;
+  const bool distinctExtentAccepted =
+      readQueue.addAsyncRequest(0, SCSI_REQUEST_READ, DiskA, SecondPartitionExtent) == 1;
+  const bool differentTypeAccepted =
+      readQueue.addAsyncRequest(0, SCSI_REQUEST_WRITE, DiskA, FirstPartitionPage) == 1;
+  const bool differentDiskAccepted =
+      readQueue.addAsyncRequest(0, SCSI_REQUEST_READ, DiskB, FirstPartitionPage) == 1;
+  readQueue.releaseFirst.release();
+  const bool readsDrained = readQueue.drain();
+  readQueue.destroy();
+  passed &= repeatedReadCoalesced && distinctExtentAccepted && differentTypeAccepted &&
+            differentDiskAccepted && readsDrained && readQueue.executions == 4;
+
+  if (!check(passed, "ATA request identity dropped write or sync work, or merged distinct reads")) {
+    return false;
+  }
+
+  NOTICE("HOSTED-WAIT-TEST: PASS ata-request-identity");
+  return true;
+}
 
 bool watchdogProgressRegression() {
   HostedRequestQueue queue;
@@ -1196,6 +1296,10 @@ bool runHostedRequestQueueRegressions() {
     return false;
   }
   NOTICE("HOSTED-WAIT-TEST: PASS scheduler-intrusive-ready-queue");
+
+  if (!ataRequestIdentityRegression()) {
+    return false;
+  }
 
   if (!preallocatedRequestRegressions()) {
     return false;

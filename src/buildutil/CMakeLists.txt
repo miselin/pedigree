@@ -214,6 +214,7 @@ set(TESTSUITE_SRCS
     ext2img/DiskImage.cc
     testsuite/test-BloomFilter.cc
     testsuite/test-DiskImage.cc
+    testsuite/test-Ext2FillCache.cc
     testsuite/test-Ext2Writeback.cc
     testsuite/test-Tree.cc
     testsuite/test-ObjectPool.cc
