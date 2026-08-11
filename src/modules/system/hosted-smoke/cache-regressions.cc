@@ -41,6 +41,20 @@ bool waitUntilQueued(Thread* thread, size_t debugState) {
   return false;
 }
 
+bool waitUntilQueuedAt(Thread* thread, size_t debugState, uintptr_t debugAddress) {
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (Time::getTicks() < deadline) {
+    Thread::WaitDebugInfo info = {};
+    uintptr_t address = 0;
+    if (thread->getWaitDebugInfo(info) && info.queue && info.queued &&
+        thread->getDebugState(address) == debugState && address == debugAddress) {
+      return true;
+    }
+    Scheduler::instance().yield();
+  }
+  return false;
+}
+
 struct CacheLifetimeContext {
   CacheLifetimeContext()
       : cache(nullptr),
@@ -422,6 +436,308 @@ bool failedPublicationDiscard() {
   return passed;
 }
 
+struct RetirePublicationContext {
+  RetirePublicationContext()
+      : cache(nullptr),
+        key(0),
+        page(0),
+        admissionEntered(0),
+        allowPublication(0),
+        callbackEntered(0),
+        allowCallbackReturn(0),
+        admissionCalls(0),
+        queuedCallbacks(0),
+        queuedCallbackFinished(0),
+        evictionCalls(0),
+        retireCallbacks(0),
+        retireSawQueuedCompletion(0),
+        retireArgumentsValid(0),
+        syncReturned(0),
+        retireReturned(0),
+        retireSucceeded(0) {}
+
+  Cache* cache;
+  uintptr_t key;
+  uintptr_t page;
+  Semaphore admissionEntered;
+  Semaphore allowPublication;
+  Semaphore callbackEntered;
+  Semaphore allowCallbackReturn;
+  Atomic<size_t> admissionCalls;
+  Atomic<size_t> queuedCallbacks;
+  Atomic<size_t> queuedCallbackFinished;
+  Atomic<size_t> evictionCalls;
+  Atomic<size_t> retireCallbacks;
+  Atomic<size_t> retireSawQueuedCompletion;
+  Atomic<size_t> retireArgumentsValid;
+  Atomic<size_t> syncReturned;
+  Atomic<size_t> retireReturned;
+  Atomic<size_t> retireSucceeded;
+};
+
+void retireAdmissionHook(Cache* cache, uintptr_t key, void* parameter) {
+  RetirePublicationContext* context = reinterpret_cast<RetirePublicationContext*>(parameter);
+  if (cache == context->cache && key == context->key && (context->admissionCalls += 1) == 1) {
+    context->admissionEntered.release();
+    const bool released = context->allowPublication.acquireForCompletion();
+    (void)released;
+  }
+}
+
+void retireQueuedCallback(CacheConstants::CallbackCause cause, uintptr_t, uintptr_t,
+                          void* parameter) {
+  RetirePublicationContext* context = reinterpret_cast<RetirePublicationContext*>(parameter);
+  if (cause == CacheConstants::Eviction) {
+    context->evictionCalls += 1;
+  } else if (cause == CacheConstants::WriteBack && (context->queuedCallbacks += 1) == 1) {
+    context->callbackEntered.release();
+    const bool released = context->allowCallbackReturn.acquireForCompletion();
+    (void)released;
+    context->queuedCallbackFinished = 1;
+  }
+}
+
+bool retireSynchronousCallback(uintptr_t key, uintptr_t page, void* parameter) {
+  RetirePublicationContext* context = reinterpret_cast<RetirePublicationContext*>(parameter);
+  context->retireCallbacks += 1;
+  context->retireSawQueuedCompletion = context->queuedCallbackFinished;
+  context->retireArgumentsValid = key == context->key && page == context->page;
+  return true;
+}
+
+int publishRetireWriteback(void* parameter) {
+  RetirePublicationContext* context = reinterpret_cast<RetirePublicationContext*>(parameter);
+  context->cache->sync(context->key, true);
+  context->syncReturned += 1;
+  return 0;
+}
+
+int retirePublishedWriteback(void* parameter) {
+  RetirePublicationContext* context = reinterpret_cast<RetirePublicationContext*>(parameter);
+  if (context->cache->retireWriteback(context->key, retireSynchronousCallback, context)) {
+    context->retireSucceeded += 1;
+  }
+  context->retireReturned += 1;
+  return 0;
+}
+
+bool retirePrepublicationWriteback() {
+  constexpr uintptr_t Key = 0xCA7E500;
+  RetirePublicationContext context;
+  Cache cache;
+  context.cache = &cache;
+  context.key = Key;
+  cache.setCallback(retireQueuedCallback, &context);
+
+  context.page = cache.insert(Key);
+  if (!checkNamed(context.page != 0, "cache-retire-prepublication",
+                  "could not create the test page")) {
+    return false;
+  }
+  cache.markNoLongerEditing(Key);
+  cache.startAtomic();
+  cache.setWritebackAdmissionHookForTest(retireAdmissionHook, &context);
+
+  Thread* producer = new Thread(Scheduler::instance().getKernelProcess(), publishRetireWriteback,
+                                &context, nullptr, false, true);
+  producer->setName("hosted Cache paused writeback producer");
+  const bool admissionPaused = context.admissionEntered.acquire(1, 2);
+  if (!admissionPaused) {
+    context.allowPublication.release();
+    context.allowCallbackReturn.release();
+    producer->join();
+    cache.setWritebackAdmissionHookForTest(nullptr, nullptr);
+    cache.endAtomic();
+    cache.empty();
+    return checkNamed(false, "cache-retire-prepublication",
+                      "sync did not pause after publishing its page reference");
+  }
+
+  Thread* retirer = new Thread(Scheduler::instance().getKernelProcess(), retirePublishedWriteback,
+                               &context, nullptr, false, true);
+  retirer->setName("hosted Cache writeback retirer");
+  const bool drainPublished = waitUntilQueuedAt(retirer, Thread::CallbackDrain, Key);
+  const bool blockedBeforePublication = context.retireReturned == 0;
+  if (drainPublished) {
+    cache.sync(Key, true);
+  }
+  const bool drainingSyncRejected = context.admissionCalls == 1;
+
+  context.allowPublication.release();
+  const bool queuedCallbackEntered = context.callbackEntered.acquire(1, 2);
+  const bool blockedThroughCallback = context.retireReturned == 0;
+  context.allowCallbackReturn.release();
+
+  const bool producerJoined = producer->join();
+  const bool retirerJoined = retirer->join();
+  cache.setWritebackAdmissionHookForTest(nullptr, nullptr);
+  cache.endAtomic();
+
+  const bool passed =
+      checkNamed(drainPublished, "cache-retire-prepublication",
+                 "retirement did not publish its exact per-key CallbackDrain wait") &&
+      checkNamed(blockedBeforePublication, "cache-retire-prepublication",
+                 "retirement returned before a visible writeback was queued") &&
+      checkNamed(drainingSyncRejected, "cache-retire-prepublication",
+                 "sync admitted another writeback while retirement was draining") &&
+      checkNamed(queuedCallbackEntered && blockedThroughCallback, "cache-retire-prepublication",
+                 "retirement did not wait for the queued callback to finish") &&
+      checkNamed(producerJoined && retirerJoined, "cache-retire-prepublication",
+                 "writeback producer or retirer did not become reapable") &&
+      checkNamed(
+          context.syncReturned == 1 && context.retireReturned == 1 && context.retireSucceeded == 1,
+          "cache-retire-prepublication", "retirement did not complete exactly once") &&
+      checkNamed(context.queuedCallbacks == 1 && context.queuedCallbackFinished == 1 &&
+                     context.retireCallbacks == 1 && context.retireSawQueuedCompletion == 1,
+                 "cache-retire-prepublication",
+                 "the synchronous retirement callback overtook queued writeback") &&
+      checkNamed(context.retireArgumentsValid == 1 && context.evictionCalls == 1,
+                 "cache-retire-prepublication",
+                 "retirement callback arguments or final eviction were incorrect") &&
+      checkNamed(!cache.exists(Key, 4096) && cache.lookup(Key) == 0, "cache-retire-prepublication",
+                 "the successful page remained published");
+
+  if (cache.exists(Key, 4096)) {
+    cache.empty();
+  }
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS cache-retire-prepublication");
+  }
+  return passed;
+}
+
+struct RetireContractContext {
+  RetireContractContext()
+      : cache(nullptr),
+        key(0),
+        page(0),
+        shouldSucceed(0),
+        callbacks(0),
+        argumentsValid(0),
+        retireReturned(0),
+        retireSucceeded(0) {}
+
+  Cache* cache;
+  uintptr_t key;
+  uintptr_t page;
+  Atomic<size_t> shouldSucceed;
+  Atomic<size_t> callbacks;
+  Atomic<size_t> argumentsValid;
+  Atomic<size_t> retireReturned;
+  Atomic<size_t> retireSucceeded;
+};
+
+bool retireContractCallback(uintptr_t key, uintptr_t page, void* parameter) {
+  RetireContractContext* context = reinterpret_cast<RetireContractContext*>(parameter);
+  context->callbacks += 1;
+  context->argumentsValid = key == context->key && page == context->page;
+  return static_cast<size_t>(context->shouldSucceed) != 0;
+}
+
+int retirePinnedWriteback(void* parameter) {
+  RetireContractContext* context = reinterpret_cast<RetireContractContext*>(parameter);
+  if (context->cache->retireWriteback(context->key, retireContractCallback, context)) {
+    context->retireSucceeded += 1;
+  }
+  context->retireReturned += 1;
+  return 0;
+}
+
+bool retireWritebackContract() {
+  constexpr uintptr_t EditingKey = 0xCA7E600;
+  constexpr uintptr_t RetryKey = 0xCA7E700;
+  constexpr uintptr_t PinnedKey = 0xCA7E800;
+  constexpr uintptr_t MissingKey = 0xCA7E900;
+  Cache cache;
+
+  RetireContractContext editing;
+  editing.cache = &cache;
+  editing.key = EditingKey;
+  editing.page = cache.insert(EditingKey);
+  editing.shouldSucceed = 1;
+  const bool editingRejected =
+      editing.page && !cache.retireWriteback(EditingKey, retireContractCallback, &editing) &&
+      editing.callbacks == 0 && cache.exists(EditingKey, 4096);
+  const bool editingDiscarded = editingRejected && cache.discardEditing(EditingKey);
+
+  RetireContractContext retry;
+  retry.cache = &cache;
+  retry.key = RetryKey;
+  retry.page = cache.insert(RetryKey);
+  if (retry.page) {
+    cache.markNoLongerEditing(RetryKey);
+  }
+  const bool failureKeptPage = retry.page &&
+                               !cache.retireWriteback(RetryKey, retireContractCallback, &retry) &&
+                               retry.callbacks == 1 && cache.lookup(RetryKey) == retry.page;
+  if (failureKeptPage) {
+    cache.release(RetryKey);
+  }
+  retry.shouldSucceed = 1;
+  const bool retryRetired =
+      failureKeptPage && cache.retireWriteback(RetryKey, retireContractCallback, &retry) &&
+      retry.callbacks == 2 && retry.argumentsValid == 1 && !cache.exists(RetryKey, 4096);
+
+  RetireContractContext pinned;
+  pinned.cache = &cache;
+  pinned.key = PinnedKey;
+  pinned.page = cache.insert(PinnedKey);
+  if (pinned.page) {
+    cache.markNoLongerEditing(PinnedKey);
+  }
+  pinned.shouldSucceed = 1;
+  const bool pinnedReady = pinned.page && cache.pin(PinnedKey);
+  Thread* retirer = nullptr;
+  if (pinnedReady) {
+    retirer = new Thread(Scheduler::instance().getKernelProcess(), retirePinnedWriteback, &pinned,
+                         nullptr, false, true);
+    retirer->setName("hosted Cache pinned-page retirer");
+  }
+  const bool pinDrainPublished =
+      retirer && waitUntilQueuedAt(retirer, Thread::CallbackDrain, PinnedKey);
+  const uintptr_t unexpectedLookup = pinDrainPublished ? cache.lookup(PinnedKey) : 0;
+  const bool unexpectedPin = pinDrainPublished && cache.pin(PinnedKey);
+  const bool newConsumersRejected =
+      pinDrainPublished && pinned.retireReturned == 0 && !unexpectedLookup && !unexpectedPin;
+  if (unexpectedLookup) {
+    cache.release(PinnedKey);
+  }
+  if (unexpectedPin) {
+    cache.release(PinnedKey);
+  }
+  if (pinnedReady) {
+    cache.release(PinnedKey);
+  }
+  const bool pinnedJoined = retirer && retirer->join();
+  const bool pinnedRetired = pinnedJoined && pinned.retireReturned == 1 &&
+                             pinned.retireSucceeded == 1 && pinned.callbacks == 1 &&
+                             pinned.argumentsValid == 1 && !cache.exists(PinnedKey, 4096);
+
+  RetireContractContext missing;
+  missing.cache = &cache;
+  missing.key = MissingKey;
+  missing.shouldSucceed = 1;
+  const bool missingSucceeded =
+      cache.retireWriteback(MissingKey, retireContractCallback, &missing) && missing.callbacks == 0;
+
+  const bool passed =
+      checkNamed(editingDiscarded, "cache-retire-contract",
+                 "retirement invoked writeback for an Editing page") &&
+      checkNamed(retryRetired, "cache-retire-contract",
+                 "failed writeback did not preserve a retryable page") &&
+      checkNamed(pinDrainPublished && newConsumersRejected && pinnedRetired,
+                 "cache-retire-contract",
+                 "retirement did not drain the old pin while rejecting new consumers") &&
+      checkNamed(missingSucceeded, "cache-retire-contract",
+                 "retiring a missing page invoked the callback or failed");
+
+  cache.empty();
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS cache-retire-contract");
+  }
+  return passed;
+}
+
 bool rangeExistence() {
   constexpr uintptr_t Key = 0xCA7E500;
   constexpr uintptr_t ProbeKey = 0xCA80500;
@@ -480,5 +796,6 @@ bool rangeExistence() {
 
 bool runHostedCacheRegressions() {
   return callbackLifetime() && queuedRequestLifetime() && emptyAndReuse() &&
-         retirementPublication() && failedPublicationDiscard() && rangeExistence();
+         retirementPublication() && failedPublicationDiscard() && retirePrepublicationWriteback() &&
+         retireWritebackContract() && rangeExistence();
 }

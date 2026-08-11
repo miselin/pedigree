@@ -184,6 +184,7 @@ class EXPORTED_PUBLIC Cache {
     enum class EvictionState {
       None,
       WriteBack,
+      Draining,
       Retiring,
     } evictionState;
 
@@ -232,6 +233,13 @@ class EXPORTED_PUBLIC Cache {
    */
   typedef void (*writeback_t)(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
                               void* meta);
+
+  /** Synchronous writeback used immediately before retiring one page. */
+  typedef bool (*retirement_writeback_t)(uintptr_t key, uintptr_t page, void* meta);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  typedef void (*writeback_admission_hook_t)(Cache* cache, uintptr_t key, void* meta);
+#endif
 
   Cache(size_t pageConstraints = 0);
   virtual ~Cache();
@@ -308,6 +316,23 @@ class EXPORTED_PUBLIC Cache {
    * failed data back to the backing store.
    */
   MUST_USE_RESULT bool discardEditing(uintptr_t key);
+
+  /**
+   * Prevents new users of a published page, waits for its existing users and
+   * queued writebacks, and retires it after a successful synchronous
+   * writeback. The callback must use the supplied page directly and must not
+   * re-enter this Cache.
+   *
+   * A missing page is already retired and succeeds without invoking the
+   * callback. Editing or concurrently retiring pages are left unchanged and
+   * fail immediately.
+   */
+  MUST_USE_RESULT bool retireWriteback(uintptr_t key, retirement_writeback_t callback, void* meta);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  /** Pauses writeback publication after its page reference is visible. */
+  void setWritebackAdmissionHookForTest(writeback_admission_hook_t hook, void* meta);
+#endif
 
   /**
    * Empties the cache.
@@ -414,6 +439,9 @@ class EXPORTED_PUBLIC Cache {
 
   /** Retires one page according to the caller's refcount contract. */
   bool evict(uintptr_t key, EvictionMode mode);
+
+  /** Completes retirement after the caller publishes Retiring under m_Lock. */
+  bool finishRetirement(CachePage* page, writeback_t callback, void* callbackMeta);
 
   /** Waits until an in-progress same-key eviction has published its result. */
   void waitForPageEviction(uintptr_t key);
@@ -538,6 +566,11 @@ class EXPORTED_PUBLIC Cache {
 
   /** Constraints we need to apply to each page we allocate. */
   size_t m_PageConstraints;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  writeback_admission_hook_t m_WritebackAdmissionHook;
+  void* m_WritebackAdmissionHookMeta;
+#endif
 
 #ifdef STANDALONE_CACHE
   /** Determines the range of addresses permitted for use for Cache. */

@@ -22,6 +22,7 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/Cache.h"
@@ -424,7 +425,13 @@ Cache::Cache(size_t pageConstraints)
       m_CallbackMeta(nullptr),
       m_bInCritical(0),
       m_ShutdownState(0),
-      m_PageConstraints(pageConstraints) {
+      m_PageConstraints(pageConstraints)
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+      ,
+      m_WritebackAdmissionHook(nullptr),
+      m_WritebackAdmissionHookMeta(nullptr)
+#endif
+{
   {
     LockGuard<Spinlock> allocatorGuard(m_AllocatorLock);
     if (!g_AllocatorInited) {
@@ -520,7 +527,8 @@ uintptr_t Cache::lookup(uintptr_t key) {
   if (!pPage) {
     return 0;
   }
-  if (pPage->evictionState == CachePage::EvictionState::Retiring) {
+  if (pPage->evictionState == CachePage::EvictionState::Draining ||
+      pPage->evictionState == CachePage::EvictionState::Retiring) {
     return 0;
   }
 
@@ -855,6 +863,13 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
     }
   }
 
+  return finishRetirement(page, callback, callbackMeta);
+}
+
+bool Cache::finishRetirement(CachePage* page, writeback_t callback, void* callbackMeta) {
+  const uintptr_t key = page->key;
+  const uintptr_t location = page->location;
+
   // Same-key insertions wait while the external cache index is invalidated.
   if (callback) {
     callback(CacheConstants::Eviction, key, location, callbackMeta);
@@ -894,6 +909,119 @@ bool Cache::evict(uintptr_t key, EvictionMode mode) {
   }
   delete page;
   return true;
+}
+
+bool Cache::retireWriteback(uintptr_t key, retirement_writeback_t callback, void* meta) {
+  if (!ensureUsable("retireWriteback")) {
+    return false;
+  }
+
+#if THREADS
+  TerminationDeferral terminationDeferral;
+#endif
+  CachePage* page = nullptr;
+  CachePage::Status status = CachePage::Editing;
+  writeback_t evictionCallback = nullptr;
+  void* evictionCallbackMeta = nullptr;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    if (m_PageFilter.contains(key)) {
+      page = m_Pages.lookup(key);
+    }
+    if (!page) {
+      return true;
+    }
+    if (!callback || page->evictionState != CachePage::EvictionState::None ||
+        page->status == CachePage::Editing) {
+      return false;
+    }
+
+    page->evictionState = CachePage::EvictionState::Draining;
+    status = page->status;
+    evictionCallback = m_Callback;
+    evictionCallbackMeta = m_CallbackMeta;
+  }
+
+#if THREADS
+  while (true) {
+    bool ready = false;
+    bool invalidated = false;
+    bool reopened = false;
+    auto waitGuard = m_EvictionWaiters.acquire();
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      CachePage* current = nullptr;
+      if (m_PageFilter.contains(key)) {
+        current = m_Pages.lookup(key);
+      }
+      if (current != page || page->evictionState != CachePage::EvictionState::Draining ||
+          page->status != status) {
+        invalidated = true;
+        if (current == page && page->evictionState == CachePage::EvictionState::Draining) {
+          page->evictionState = CachePage::EvictionState::None;
+          reopened = true;
+        }
+      } else {
+        ready = page->refcnt == 1;
+      }
+    }
+
+    if (reopened) {
+      waitGuard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(page));
+    }
+    if (invalidated) {
+      return false;
+    }
+    if (ready) {
+      break;
+    }
+
+    const WaitQueue::WakeReason reason =
+        waitGuard.waitForCompletion(WaitQueue::Channel(page), Thread::CallbackDrain, key);
+    (void)reason;
+  }
+#else
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    if (page->refcnt != 1) {
+      page->evictionState = CachePage::EvictionState::None;
+      return false;
+    }
+  }
+#endif
+
+  const bool writebackSucceeded = callback(key, page->location, meta);
+  bool retire = false;
+  bool wake = false;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    CachePage* current = nullptr;
+    if (m_PageFilter.contains(key)) {
+      current = m_Pages.lookup(key);
+    }
+    if (writebackSucceeded && current == page &&
+        page->evictionState == CachePage::EvictionState::Draining && page->refcnt == 1 &&
+        page->status == status) {
+      page->evictionState = CachePage::EvictionState::Retiring;
+      retire = true;
+    } else if (current == page && page->evictionState == CachePage::EvictionState::Draining) {
+      page->evictionState = CachePage::EvictionState::None;
+      wake = true;
+    }
+  }
+
+  if (!retire) {
+#if THREADS
+    if (wake) {
+      m_EvictionWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(page));
+    }
+#else
+    (void)wake;
+#endif
+    return false;
+  }
+
+  return finishRetirement(page, evictionCallback, evictionCallbackMeta);
 }
 
 void Cache::empty() {
@@ -958,7 +1086,8 @@ bool Cache::pin(uintptr_t key) {
   if (!pPage) {
     return false;
   }
-  if (pPage->evictionState == CachePage::EvictionState::Retiring) {
+  if (pPage->evictionState == CachePage::EvictionState::Draining ||
+      pPage->evictionState == CachePage::EvictionState::Retiring) {
     return false;
   }
 
@@ -1028,10 +1157,17 @@ void Cache::sync(uintptr_t key, bool async) {
     return;
   }
 
+#if THREADS
+  TerminationDeferral terminationDeferral;
+#endif
   if (!m_Callback)
     return;
 
   uintptr_t location = 0;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  writeback_admission_hook_t admissionHook = nullptr;
+  void* admissionHookMeta = nullptr;
+#endif
   {
     LockGuard<Spinlock> guard(m_Lock);
 
@@ -1040,14 +1176,25 @@ void Cache::sync(uintptr_t key, bool async) {
     }
 
     CachePage* pPage = m_Pages.lookup(key);
-    if (!pPage || pPage->evictionState == CachePage::EvictionState::Retiring) {
+    if (!pPage || pPage->evictionState == CachePage::EvictionState::Draining ||
+        pPage->evictionState == CachePage::EvictionState::Retiring) {
       return;
     }
 
     ++pPage->refcnt;
     location = pPage->location;
     promotePage(pPage);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    admissionHook = m_WritebackAdmissionHook;
+    admissionHookMeta = m_WritebackAdmissionHookMeta;
+#endif
   }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  if (admissionHook) {
+    admissionHook(this, key, admissionHookMeta);
+  }
+#endif
 
   if (async) {
     CacheManager::instance().addCacheRequest(this, true, CacheConstants::WriteBack, key, location,
@@ -1085,6 +1232,9 @@ void Cache::timer(uint64_t delta) {
     return;
   }
 
+#if THREADS
+  TerminationDeferral terminationDeferral;
+#endif
   {
     LockGuard<Spinlock> guard(m_Lock);
     const uint64_t maximum = ~static_cast<uint64_t>(0);
@@ -1110,6 +1260,10 @@ void Cache::timer(uint64_t delta) {
     bool queueWriteback = false;
     uintptr_t key = 0;
     uintptr_t location = 0;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    writeback_admission_hook_t admissionHook = nullptr;
+    void* admissionHookMeta = nullptr;
+#endif
     {
       LockGuard<Spinlock> guard(m_Lock);
       if (!m_Callback || m_bInCritical == 1) {
@@ -1149,6 +1303,10 @@ void Cache::timer(uint64_t delta) {
         key = it.key();
         location = page->location;
         queueWriteback = true;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+        admissionHook = m_WritebackAdmissionHook;
+        admissionHookMeta = m_WritebackAdmissionHookMeta;
+#endif
         break;
       }
     }
@@ -1158,6 +1316,11 @@ void Cache::timer(uint64_t delta) {
     }
 
     NOTICE("** writeback @" << Hex << key);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    if (admissionHook) {
+      admissionHook(this, key, admissionHookMeta);
+    }
+#endif
     CacheManager::instance().addCacheRequest(this, true, CacheConstants::WriteBack, key, location,
                                              true);
   }
@@ -1185,6 +1348,14 @@ void Cache::setCallback(Cache::writeback_t newCallback, void* meta) {
   m_Callback = newCallback;
   m_CallbackMeta = meta;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void Cache::setWritebackAdmissionHookForTest(writeback_admission_hook_t hook, void* meta) {
+  LockGuard<Spinlock> guard(m_Lock);
+  m_WritebackAdmissionHook = hook;
+  m_WritebackAdmissionHookMeta = meta;
+}
+#endif
 
 uint64_t Cache::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
                                uint64_t p6, uint64_t p7, uint64_t p8) {
