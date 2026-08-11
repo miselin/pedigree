@@ -76,6 +76,17 @@ class Partition : public Disk {
     pParent->write(location + m_Start);
   }
 
+  virtual void flush(uint64_t location) {
+    if (location >= m_Length || (m_Length - location) < 0x1000)
+      return;
+
+    Disk* pParent = static_cast<Disk*>(getParent());
+
+    ensureAligned(pParent);
+
+    pParent->flush(location + m_Start);
+  }
+
   virtual size_t getSize() const {
     return getLength();
   }

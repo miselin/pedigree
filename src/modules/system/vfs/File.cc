@@ -328,6 +328,11 @@ void File::returnPhysicalPage(size_t offset) {
   }
 }
 
+void File::syncAndReturnPhysicalPage(size_t offset, bool async) {
+  sync(offset, async);
+  returnPhysicalPage(offset);
+}
+
 void File::sync() {
   struct SyncPage {
     size_t block;

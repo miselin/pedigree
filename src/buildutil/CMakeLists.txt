@@ -214,6 +214,7 @@ set(TESTSUITE_SRCS
     ext2img/DiskImage.cc
     testsuite/test-BloomFilter.cc
     testsuite/test-DiskImage.cc
+    testsuite/test-Ext2Writeback.cc
     testsuite/test-Tree.cc
     testsuite/test-ObjectPool.cc
     testsuite/test-SlamAllocator.cc
@@ -267,7 +268,7 @@ set(TESTSUITE_SRCS
 # non-ASAN testsuite
 add_executable(testsuite ${TESTSUITE_SRCS})
 target_link_libraries(testsuite PRIVATE
-    debugger ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
+    debugger ext2 partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
     Threads::Threads gtest gtest_main)
 target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
 if (PEDIGREE_COVERAGE)
@@ -279,7 +280,7 @@ endif ()
 if (HAVE_ASAN)
     add_executable(testsuite-asan ${TESTSUITE_SRCS})
     target_link_libraries(testsuite-asan PRIVATE
-        debugger ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
+        debugger ext2 partition ramfs vfs ${TEST_UTILITY_TARGET} ${TEST_KERNEL_TARGET}
         Threads::Threads gtest gtest_main)
     target_compile_definitions(testsuite-asan PRIVATE -DTESTSUITE)
     target_compile_options(testsuite-asan PRIVATE "-fsanitize=address")

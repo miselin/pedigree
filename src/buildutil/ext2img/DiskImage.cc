@@ -35,6 +35,13 @@ extern BootstrapStruct_t* g_pBootstrapInfo;
 
 #define USE_FILE_IO 0
 
+#if defined(TESTSUITE)
+extern int diskImageMsync(void* address, size_t length, int flags);
+#define DISKIMAGE_MSYNC diskImageMsync
+#else
+#define DISKIMAGE_MSYNC msync
+#endif
+
 DiskImage::DiskImage(const char* path)
     : Disk(),
       m_pFileName(path),
@@ -53,13 +60,13 @@ DiskImage::~DiskImage() {
 #elif HAS_ADDRESS_SANITIZER
   for (const auto& entry : m_BufferMap) {
     const BufferMapping& mapping = entry.second;
-    msync(mapping.base, mapping.length, MS_SYNC);
+    DISKIMAGE_MSYNC(mapping.base, mapping.length, MS_SYNC);
     munmap(mapping.base, mapping.length);
   }
   m_BufferMap.clear();
 #else
   if (m_pBuffer) {
-    msync(m_pBuffer, m_nSize, MS_SYNC);
+    DISKIMAGE_MSYNC(m_pBuffer, m_nSize, MS_SYNC);
     munmap(m_pBuffer, m_nSize);
   }
 #endif
@@ -174,6 +181,14 @@ uintptr_t DiskImage::read(uint64_t location) {
 }
 
 void DiskImage::write(uint64_t location) {
+  writeback(location, MS_ASYNC);
+}
+
+void DiskImage::flush(uint64_t location) {
+  writeback(location, MS_SYNC);
+}
+
+void DiskImage::writeback(uint64_t location, int flags) {
   const uint64_t pageLocation = location & ~0xFFFULL;
   if (!m_pFile || location >= m_nSize || pageLocation >= m_nSize ||
       (m_nSize - pageLocation) < 4096) {
@@ -184,11 +199,14 @@ void DiskImage::write(uint64_t location) {
   location &= ~0xFFF;
   fseek(m_pFile, location, SEEK_SET);
   fwrite(adjust_pointer(m_pBuffer, location), 4096, 1, m_pFile);
+  if (flags == MS_SYNC) {
+    fflush(m_pFile);
+  }
 #elif HAS_ADDRESS_SANITIZER
   auto it = m_BufferMap.find(pageLocation);
   if (it != m_BufferMap.end()) {
     const BufferMapping& mapping = it->second;
-    msync(mapping.base, mapping.length, MS_ASYNC);
+    DISKIMAGE_MSYNC(mapping.base, mapping.length, flags);
   }
 #else
   const uint64_t syncLocation = (pageLocation / m_HostPageSize) * m_HostPageSize;
@@ -196,7 +214,7 @@ void DiskImage::write(uint64_t location) {
   if (logicalOffset > std::numeric_limits<size_t>::max() - getBlockSize()) {
     return;
   }
-  msync(adjust_pointer(m_pBuffer, syncLocation), logicalOffset + getBlockSize(), MS_ASYNC);
+  DISKIMAGE_MSYNC(adjust_pointer(m_pBuffer, syncLocation), logicalOffset + getBlockSize(), flags);
 #endif
 }
 

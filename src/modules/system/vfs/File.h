@@ -109,6 +109,11 @@ class EXPORTED_PUBLIC File {
   virtual void returnPhysicalPage(size_t offset);
 
   /**
+   * Syncs a mapped page before releasing its backing-cache reference.
+   */
+  void syncAndReturnPhysicalPage(size_t offset, bool async);
+
+  /**
    * Sync all cached pages for the file back to disk.
    *
    * Default implementation calls writeBlock; only override if your

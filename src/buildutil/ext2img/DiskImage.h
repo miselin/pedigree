@@ -47,6 +47,7 @@ class DiskImage : public Disk {
 
   virtual uintptr_t read(uint64_t location);
   virtual void write(uint64_t location);
+  virtual void flush(uint64_t location);
 
   virtual size_t getSize() const;
 
@@ -59,6 +60,8 @@ class DiskImage : public Disk {
   virtual void unpin(uint64_t location);
 
  private:
+  void writeback(uint64_t location, int flags);
+
 #if HAS_ADDRESS_SANITIZER
   struct BufferMapping {
     void* base;

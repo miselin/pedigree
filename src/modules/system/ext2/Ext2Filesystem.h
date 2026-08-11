@@ -36,6 +36,7 @@ class Vector;
 
 /** This class provides an implementation of the second extended filesystem. */
 class Ext2Filesystem : public Filesystem {
+  friend class Ext2WritebackTestPeer;
   friend class Ext2File;
   friend class Ext2Node;
   friend class Ext2Directory;
@@ -77,7 +78,7 @@ class Ext2Filesystem : public Filesystem {
   bool pinBlock(uint64_t location);
   void unpinBlock(uint64_t location);
 
-  void sync(size_t offset, bool async);
+  void syncBlock(uint32_t block, bool async);
 
   uint32_t findFreeBlock(uint32_t inode);
   bool findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_t>& blocks);

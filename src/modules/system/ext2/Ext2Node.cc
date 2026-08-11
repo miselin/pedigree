@@ -491,7 +491,7 @@ void Ext2Node::sync(size_t offset, bool async) {
   // Sync the block.
   if (!ensureBlockLoaded(nBlock))
     return;
-  m_pExt2Fs->sync(m_Blocks[nBlock] * m_pExt2Fs->m_BlockSize, async);
+  m_pExt2Fs->syncBlock(m_Blocks[nBlock], async);
 }
 
 bool Ext2Node::pinBlock(uint64_t location) {

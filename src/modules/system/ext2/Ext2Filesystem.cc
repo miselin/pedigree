@@ -548,11 +548,15 @@ void Ext2Filesystem::unpinBlock(uint64_t location) {
   m_pDisk->unpin(static_cast<uint64_t>(m_BlockSize) * location);
 }
 
-void Ext2Filesystem::sync(size_t offset, bool async) {
+void Ext2Filesystem::syncBlock(uint32_t block, bool async) {
+  if (!block)
+    return;
+
+  const uint64_t location = static_cast<uint64_t>(m_BlockSize) * block;
   if (async)
-    m_pDisk->write(static_cast<uint64_t>(m_BlockSize) * offset);
+    m_pDisk->write(location);
   else
-    m_pDisk->flush(static_cast<uint64_t>(m_BlockSize) * offset);
+    m_pDisk->flush(location);
 }
 
 uint32_t Ext2Filesystem::findFreeBlock(uint32_t inode) {

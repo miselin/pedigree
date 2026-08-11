@@ -30,10 +30,20 @@
 #include "buildutil/ext2img/DiskImage.h"
 #include <gtest/gtest.h>
 #include <sys/mman.h>
+#include <type_traits>
 
 namespace {
 constexpr size_t kBlockSize = 4096;
 constexpr size_t kImageSize = (3 * kBlockSize) + (kBlockSize / 2);
+
+struct MsyncCall {
+  uintptr_t address;
+  size_t length;
+  int flags;
+  int result;
+};
+
+std::vector<MsyncCall> g_MsyncCalls;
 
 uint8_t patternAt(size_t offset) {
   return static_cast<uint8_t>((offset / kBlockSize) * 37 + (offset % 251));
@@ -90,6 +100,14 @@ class DiskImageTest : public ::testing::Test {
   std::string m_Path;
 };
 }  // namespace
+
+int diskImageMsync(void* address, size_t length, int flags) {
+  const int result = ::msync(address, length, flags);
+  const int savedErrno = errno;
+  g_MsyncCalls.push_back({reinterpret_cast<uintptr_t>(address), length, flags, result});
+  errno = savedErrno;
+  return result;
+}
 
 TEST_F(DiskImageTest, ReadsOnlyCompleteLogicalBlocks) {
   DiskImage image(m_Path.c_str());
@@ -166,6 +184,35 @@ TEST_F(DiskImageTest, WritesBackAndUnmapsOnDestruction) {
   }
   EXPECT_EQ(readByte(firstOffset), 0xA5);
   EXPECT_EQ(readByte(secondOffset), 0x5A);
+}
+
+TEST_F(DiskImageTest, ProvidesSynchronousFlush) {
+  EXPECT_TRUE((std::is_same<decltype(&DiskImage::flush), void (DiskImage::*)(uint64_t)>::value));
+
+  DiskImage image(m_Path.c_str());
+  ASSERT_TRUE(image.initialise());
+
+  const size_t offset = kBlockSize + 137;
+  const uintptr_t data = image.read(offset);
+  ASSERT_NE(data, 0U);
+  *reinterpret_cast<uint8_t*>(data) = 0xC3;
+
+  g_MsyncCalls.clear();
+  errno = 0;
+  image.flush(offset);
+  EXPECT_NE(errno, EINVAL);
+  ASSERT_EQ(g_MsyncCalls.size(), 1U);
+  const MsyncCall& call = g_MsyncCalls[0];
+  EXPECT_EQ(call.flags, MS_SYNC);
+  EXPECT_EQ(call.result, 0);
+
+  const long hostPageSize = sysconf(_SC_PAGESIZE);
+  ASSERT_GT(hostPageSize, 0);
+  EXPECT_EQ(call.address % static_cast<size_t>(hostPageSize), 0U);
+  const size_t pageLocation = offset & ~(kBlockSize - 1);
+  const size_t logicalOffset = pageLocation % static_cast<size_t>(hostPageSize);
+  EXPECT_EQ(call.length, logicalOffset + kBlockSize);
+  EXPECT_EQ(readByte(offset), 0xC3);
 }
 
 TEST_F(DiskImageTest, FailedInitialisationDoesNotRetainFileDescriptor) {
