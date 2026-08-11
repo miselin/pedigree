@@ -121,5 +121,5 @@ static void destroy() {
   delete g_pDevFs;
 }
 
-MODULE_INFO(
-    "posix", &init, &destroy, "console", "network-stack", "mountroot", "ramfs", "lwip");
+MODULE_INFO_RUNTIME_PINNED("posix", &init, &destroy, "console", "network-stack", "mountroot",
+                           "ramfs", "lwip");

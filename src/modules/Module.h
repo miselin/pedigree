@@ -106,6 +106,8 @@ struct ModuleInfo {
   const char** opt_dependencies;
   // False pins the module image for the kernel lifetime, even if entry fails.
   bool unloadable;
+  // False rejects explicit unload while still permitting failure and shutdown cleanup.
+  bool runtimeUnloadable;
 } PACKED;
 
 #if STATIC_DRIVERS
@@ -116,7 +118,11 @@ extern size_t g_StaticDriverN;
 class StaticDriverModule {
  public:
   StaticDriverModule(const char* name, ModuleEntry entry, ModuleExit exit, const char** deps,
-                     bool unloadable, const char** opt_deps = nullptr) {
+                     bool unloadable, const char** opt_deps = nullptr)
+      : StaticDriverModule(name, entry, exit, deps, unloadable, opt_deps, unloadable) {}
+
+  StaticDriverModule(const char* name, ModuleEntry entry, ModuleExit exit, const char** deps,
+                     bool unloadable, const char** opt_deps, bool runtimeUnloadable) {
     info.tag = MODULE_TAG;
     info.name = name;
     info.entry = entry;
@@ -124,24 +130,31 @@ class StaticDriverModule {
     info.dependencies = deps;
     info.opt_dependencies = opt_deps;
     info.unloadable = unloadable;
+    info.runtimeUnloadable = runtimeUnloadable;
     g_StaticDrivers[g_StaticDriverN++] = &info;
   }
 
   ModuleInfo info;
 };
 
-#define MODULE_INFO2_FLAGS(unloadable, name, entry, exit, ...) \
-  static const char* __mod_deps[] = {__VA_ARGS__, 0};          \
-  static StaticDriverModule __module(name, entry, exit, __mod_deps, unloadable);
+class StaticDriverOptionalDependencies {
+ public:
+  StaticDriverOptionalDependencies(StaticDriverModule& module, const char** dependencies) {
+    module.info.opt_dependencies = dependencies;
+  }
+};
+
+#define MODULE_INFO2_FLAGS(unloadable, runtimeUnloadable, name, entry, exit, ...)        \
+  static const char* __mod_deps[] = {__VA_ARGS__, 0};                                    \
+  static StaticDriverModule __module(name, entry, exit, __mod_deps, unloadable, nullptr, \
+                                     runtimeUnloadable);
 
 #define MODULE_INFO2(name, entry, exit, ...) \
-  MODULE_INFO2_FLAGS(true, name, entry, exit, __VA_ARGS__)
+  MODULE_INFO2_FLAGS(true, true, name, entry, exit, __VA_ARGS__)
 
 #define MODULE_OPTIONAL_DEPENDS(...)                      \
   static const char* __mod_opt_deps[] = {__VA_ARGS__, 0}; \
-  static void CONSTRUCTOR __add_optional_deps() {         \
-    __module.info.opt_dependencies = __mod_opt_deps;      \
-  }
+  static StaticDriverOptionalDependencies __module_opt_dependencies(__module, __mod_opt_deps)
 
 #else
 
@@ -150,6 +163,8 @@ class StaticDriverModule {
 #define MODULE_EXIT(x) ModuleExit g_pModuleExit EXPORTED_PUBLIC SECTION(".modinfo") USED = x
 #define MODULE_UNLOADABLE(x) \
   bool g_bModuleUnloadable EXPORTED_PUBLIC SECTION(".modinfo") USED = x
+#define MODULE_RUNTIME_UNLOADABLE(x) \
+  bool g_bModuleRuntimeUnloadable EXPORTED_PUBLIC SECTION(".modinfo") USED = x
 #define MODULE_DEPENDS(...) \
   const char* g_pDepends[] EXPORTED_PUBLIC SECTION(".modinfo") USED = {__VA_ARGS__, 0}
 #define MODULE_DEPENDS2(...) \
@@ -158,26 +173,29 @@ class StaticDriverModule {
 #define MODULE_OPTIONAL_DEPENDS(...) \
   const char* g_pOptionalDepends[] EXPORTED_PUBLIC SECTION(".modinfo") USED = {__VA_ARGS__, 0}
 
-#define MODULE_INFO2_FLAGS(unloadable, name, entry, exit, ...) \
-  MODULE_NAME(name);                                           \
-  MODULE_ENTRY(entry);                                         \
-  MODULE_EXIT(exit);                                           \
-  MODULE_UNLOADABLE(unloadable);                               \
+#define MODULE_INFO2_FLAGS(unloadable, runtimeUnloadable, name, entry, exit, ...) \
+  MODULE_NAME(name);                                                              \
+  MODULE_ENTRY(entry);                                                            \
+  MODULE_EXIT(exit);                                                              \
+  MODULE_UNLOADABLE(unloadable);                                                  \
+  MODULE_RUNTIME_UNLOADABLE(runtimeUnloadable);                                   \
   MODULE_DEPENDS2(__VA_ARGS__);
 
 #define MODULE_INFO2(name, entry, exit, ...) \
-  MODULE_INFO2_FLAGS(true, name, entry, exit, __VA_ARGS__)
+  MODULE_INFO2_FLAGS(true, true, name, entry, exit, __VA_ARGS__)
 
 extern const char* g_pModuleName;
 extern ModuleEntry g_pModuleEntry;
 extern ModuleExit g_pModuleExit;
 extern bool g_bModuleUnloadable;
+extern bool g_bModuleRuntimeUnloadable;
 extern const char* g_pDepends[];
 extern const char* g_pOptionalDepends[];
 
 #endif
 
 #define MODULE_INFO(...) MODULE_INFO2(__VA_ARGS__, 0)
-#define MODULE_INFO_NON_UNLOADABLE(...) MODULE_INFO2_FLAGS(false, __VA_ARGS__, 0)
+#define MODULE_INFO_NON_UNLOADABLE(...) MODULE_INFO2_FLAGS(false, false, __VA_ARGS__, 0)
+#define MODULE_INFO_RUNTIME_PINNED(...) MODULE_INFO2_FLAGS(true, false, __VA_ARGS__, 0)
 
 #endif

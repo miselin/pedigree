@@ -32,6 +32,11 @@
 namespace {
 constexpr size_t HostedAttempts = 10000;
 constexpr int PollCloseReuseTimeoutMilliseconds = 5000;
+size_t g_RuntimePinnedLifecycleCalls = 0;
+
+void runtimePinnedLifecycleProbe() {
+  ++g_RuntimePinnedLifecycleCalls;
+}
 
 class DescriptorRetirementProbe : public FileDescriptor {
  public:
@@ -571,28 +576,38 @@ bool failedPinnedModuleRejectsUnload() {
   return true;
 }
 
-bool linkerModuleMetadataIsPinned() {
-  ModuleInfo* linker = nullptr;
-  size_t matches = 0;
+ModuleInfo* findStaticModuleInfo(const char* name, size_t& matches) {
+  ModuleInfo* match = nullptr;
+  matches = 0;
   for (size_t i = 0; i < g_StaticDriverN; ++i) {
     ModuleInfo* info = g_StaticDrivers[i];
-    if (info && info->name && !StringCompare(info->name, "linker")) {
-      linker = info;
+    if (info && info->name && !StringCompare(info->name, name)) {
+      match = info;
       ++matches;
     }
   }
+  return match;
+}
 
-  bool dependsOnVfs = false;
-  if (linker && linker->dependencies) {
-    for (size_t i = 0; linker->dependencies[i]; ++i) {
-      if (!StringCompare(linker->dependencies[i], "vfs")) {
-        dependsOnVfs = true;
-        break;
-      }
+bool moduleInfoDependsOn(ModuleInfo* info, const char* dependency, bool optional = false) {
+  const char** dependencies = optional ? info->opt_dependencies : info->dependencies;
+  if (!dependencies) {
+    return false;
+  }
+  for (size_t i = 0; dependencies[i]; ++i) {
+    if (!StringCompare(dependencies[i], dependency)) {
+      return true;
     }
   }
+  return false;
+}
 
-  if (matches != 1 || !linker || linker->unloadable || !dependsOnVfs) {
+bool linkerModuleMetadataIsPinned() {
+  size_t matches = 0;
+  ModuleInfo* linker = findStaticModuleInfo("linker", matches);
+
+  if (matches != 1 || !linker || linker->unloadable || linker->runtimeUnloadable ||
+      !moduleInfoDependsOn(linker, "vfs")) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL linker-pinned-metadata: "
         "the real linker ModuleInfo did not pin its dependency closure");
@@ -600,6 +615,121 @@ bool linkerModuleMetadataIsPinned() {
   }
 
   NOTICE("HOSTED-SYSCALL-TEST: PASS linker-pinned-metadata");
+  return true;
+}
+
+bool filesystemModuleUnloadPolicyIsCorrect() {
+  size_t posixMatches = 0;
+  size_t mountrootMatches = 0;
+  size_t ramfsMatches = 0;
+  ModuleInfo* posix = findStaticModuleInfo("posix", posixMatches);
+  ModuleInfo* mountroot = findStaticModuleInfo("mountroot", mountrootMatches);
+  ModuleInfo* ramfs = findStaticModuleInfo("ramfs", ramfsMatches);
+
+  const bool metadataValid =
+      posixMatches == 1 && mountrootMatches == 1 && ramfsMatches == 1 && posix && mountroot &&
+      ramfs && posix->unloadable && !posix->runtimeUnloadable && mountroot->unloadable &&
+      !mountroot->runtimeUnloadable && !ramfs->unloadable && !ramfs->runtimeUnloadable &&
+      moduleInfoDependsOn(posix, "mountroot") && moduleInfoDependsOn(posix, "ramfs") &&
+      moduleInfoDependsOn(mountroot, "vfs") && moduleInfoDependsOn(mountroot, "rawfs") &&
+      moduleInfoDependsOn(mountroot, "ramfs") && moduleInfoDependsOn(mountroot, "fat", true) &&
+      moduleInfoDependsOn(mountroot, "ext2", true) &&
+      moduleInfoDependsOn(mountroot, "iso9660", true) && moduleInfoDependsOn(ramfs, "vfs");
+  if (!metadataValid) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL filesystem-unload-policy-metadata: "
+        "the real filesystem owner metadata did not encode the expected unload policy or "
+        "dependency closure");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS filesystem-unload-policy-metadata");
+  return true;
+}
+
+bool runtimePinnedModuleAllowsLifecycleCleanup() {
+  g_RuntimePinnedLifecycleCalls = 0;
+
+  Module active;
+  active.name.assign("hosted-runtime-pinned-active-probe");
+  active.exit = runtimePinnedLifecycleProbe;
+  active.runtimeUnloadable = false;
+  active.status = Module::Active;
+
+  bool runLifecycle = true;
+  const KernelElf::TestModuleUnloadClaim explicitActive =
+      KernelElf::claimModuleUnloadForTest(&active, false, &runLifecycle);
+  const bool explicitActiveValid = explicitActive == KernelElf::TestUnloadRuntimePinned &&
+                                   !runLifecycle && active.status == Module::Active &&
+                                   !active.unloadComplete && !g_RuntimePinnedLifecycleCalls;
+  if (explicitActive == KernelElf::TestUnloadClaimed) {
+    KernelElf::completeModuleUnloadForTest(&active);
+  }
+  if (!explicitActiveValid) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL runtime-pinned-cleanup: "
+        "explicit unload escaped the runtime-only lifetime boundary");
+    return false;
+  }
+
+  const KernelElf::TestModuleUnloadClaim shutdownActive =
+      KernelElf::claimModuleUnloadForTest(&active, true, &runLifecycle);
+  const bool shutdownActiveValid = shutdownActive == KernelElf::TestUnloadClaimed && runLifecycle &&
+                                   active.status == Module::Unloading;
+  if (shutdownActive == KernelElf::TestUnloadClaimed) {
+    KernelElf::completeModuleUnloadForTest(&active, false, runLifecycle);
+  }
+  if (!shutdownActiveValid) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL runtime-pinned-cleanup: "
+        "shutdown could not claim an active runtime-pinned module");
+    return false;
+  }
+
+  Module failed;
+  failed.name.assign("hosted-runtime-pinned-failed-probe");
+  failed.exit = runtimePinnedLifecycleProbe;
+  failed.runtimeUnloadable = false;
+  failed.status = Module::Failed;
+  runLifecycle = true;
+  const KernelElf::TestModuleUnloadClaim explicitFailed =
+      KernelElf::claimModuleUnloadForTest(&failed, false, &runLifecycle);
+  const bool explicitFailedValid = explicitFailed == KernelElf::TestUnloadRuntimePinned &&
+                                   !runLifecycle && failed.status == Module::Failed &&
+                                   !failed.unloadComplete;
+  if (explicitFailed == KernelElf::TestUnloadClaimed) {
+    KernelElf::completeModuleUnloadForTest(&failed, true);
+  }
+  if (!explicitFailedValid) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL runtime-pinned-cleanup: "
+        "explicit unload escaped a failed runtime-pinned module");
+    return false;
+  }
+
+  const KernelElf::TestModuleUnloadClaim failureCleanup =
+      KernelElf::claimModuleUnloadForTest(&failed, true, &runLifecycle);
+  const bool failureCleanupValid = failureCleanup == KernelElf::TestUnloadClaimed && runLifecycle &&
+                                   failed.status == Module::Unloading;
+  if (failureCleanup == KernelElf::TestUnloadClaimed) {
+    KernelElf::completeModuleUnloadForTest(&failed, true, runLifecycle);
+  }
+  if (!failureCleanupValid) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL runtime-pinned-cleanup: "
+        "failed initialisation could not claim lifecycle cleanup");
+    return false;
+  }
+
+  if (!active.isUnloaded() || !active.unloadComplete || failed.status != Module::Failed ||
+      !failed.unloadComplete || g_RuntimePinnedLifecycleCalls != 2) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL runtime-pinned-cleanup: "
+        "shutdown or failure cleanup did not publish completion");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS runtime-pinned-cleanup");
   return true;
 }
 
@@ -643,6 +773,7 @@ bool moduleShutdownOrderIsDependencySafe() {
   Module nics;
   nics.name.assign("nics");
   nics.depends_opt = nicsOptional;
+  nics.runtimeUnloadable = false;
   nics.status = Module::Active;
 
   Module ne2k;
@@ -678,7 +809,30 @@ bool moduleShutdownOrderIsDependencySafe() {
     return false;
   }
 
+  Module permanent;
+  permanent.name.assign("permanent-shutdown-probe");
+  permanent.unloadable = false;
+  permanent.runtimeUnloadable = false;
+  permanent.status = Module::Active;
+  Module runtimePinned;
+  runtimePinned.name.assign("runtime-pinned-shutdown-probe");
+  runtimePinned.runtimeUnloadable = false;
+  runtimePinned.status = Module::Active;
+  Module* retentionModules[] = {&permanent, &runtimePinned};
+  Module* retentionOrder[2] = {};
+  const size_t retentionPlanned =
+      KernelElf::planModuleUnloadOrderForTest(retentionModules, 2, retentionOrder, 2);
+
+  if (retentionPlanned != 1 || retentionOrder[0] != &runtimePinned ||
+      !runtimePinned.unloadComplete || permanent.unloadComplete) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL module-shutdown-retention-policy: "
+        "a runtime-only module was retained or a permanent pin was retired");
+    return false;
+  }
+
   NOTICE("HOSTED-SYSCALL-TEST: PASS module-shutdown-order");
+  NOTICE("HOSTED-SYSCALL-TEST: PASS module-shutdown-retention-policy");
   return true;
 }
 
@@ -734,6 +888,16 @@ bool entry() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN linker-pinned-metadata");
   if (!linkerModuleMetadataIsPinned()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN filesystem-unload-policy-metadata");
+  if (!filesystemModuleUnloadPolicyIsCorrect()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN runtime-pinned-cleanup");
+  if (!runtimePinnedModuleAllowsLifecycleCleanup()) {
     return false;
   }
 

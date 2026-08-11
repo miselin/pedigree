@@ -566,7 +566,7 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   // objects are destroyed.
   Processor::deinitialise();
 
-  NOTICE("All modules unloaded. Running destructors and terminating...");
+  NOTICE("Module shutdown complete. Running destructors and terminating...");
   runKernelDestructors();
 
   // Done - return to caller.

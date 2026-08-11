@@ -329,7 +329,7 @@ assert_lifecycle()
     for checkpoint in \
         "Pedigree has started: all modules have been loaded." \
         "HOSTED-SHUTDOWN: timers and signals quiesced" \
-        "All modules unloaded. Running destructors and terminating..." \
+        "Module shutdown complete. Running destructors and terminating..." \
         "trace: kernel main() terminating" \
         "main() returned, cleaning up..."
     do
@@ -383,6 +383,9 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS posix-teardown-contention" \
         "HOSTED-SYSCALL-TEST: PASS socket-zero-result-signal" \
         "HOSTED-SYSCALL-TEST: PASS clone-errno-lifetime" \
+        "HOSTED-SYSCALL-TEST: PASS filesystem-unload-policy-metadata" \
+        "HOSTED-SYSCALL-TEST: PASS runtime-pinned-cleanup" \
+        "HOSTED-SYSCALL-TEST: PASS module-shutdown-retention-policy" \
         "HOSTED-SYSCALL-TEST: PASS real-event-boundaries"
     do
         assert_marker_once "$empty_log" "$checkpoint"

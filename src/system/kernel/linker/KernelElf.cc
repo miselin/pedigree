@@ -470,6 +470,10 @@ Module* KernelElf::loadModule(uint8_t* pModule, size_t len, bool silent) {
   bool* unloadable =
       reinterpret_cast<bool*>(module->elf->lookupSymbol("g_bModuleUnloadable"));
   module->unloadable = unloadable ? *unloadable : true;
+  bool* runtimeUnloadable =
+      reinterpret_cast<bool*>(module->elf->lookupSymbol("g_bModuleRuntimeUnloadable"));
+  // Older modules predate explicit-unload policy metadata.
+  module->runtimeUnloadable = runtimeUnloadable ? *runtimeUnloadable : true;
   module->depends = reinterpret_cast<const char**>(module->elf->lookupSymbol("g_pDepends"));
   module->depends_opt =
       reinterpret_cast<const char**>(module->elf->lookupSymbol("g_pOptionalDepends"));
@@ -612,6 +616,7 @@ Module* KernelElf::loadModule(struct ModuleInfo* info, bool silent) {
   module->entry = info->entry;
   module->exit = info->exit;
   module->unloadable = info->unloadable;
+  module->runtimeUnloadable = info->runtimeUnloadable;
   module->depends = info->dependencies;
   module->depends_opt = info->opt_dependencies;
   DEBUG_LOG("KERNELELF: Preloaded module " << module->name);
@@ -744,6 +749,9 @@ KernelElf::ModuleUnloadClaim KernelElf::claimModuleUnloadLocked(
   if (!module->unloadable) {
     return UnloadPinned;
   }
+  if (!allowShutdown && !module->runtimeUnloadable) {
+    return UnloadRuntimePinned;
+  }
   if (m_ModuleLoading || m_UnloadingModule) {
     return UnloadBusy;
   }
@@ -785,6 +793,10 @@ bool KernelElf::completeUnloadAttempt(Module* module, ModuleUnloadClaim claim, b
       return false;
     case UnloadPinned:
       WARNING("KERNELELF: Module " << module->name << " is pinned and cannot be unloaded");
+      return false;
+    case UnloadRuntimePinned:
+      WARNING("KERNELELF: Module " << module->name
+                                   << " cannot be unloaded while the system is running");
       return false;
     case UnloadDependedOn:
       WARNING("KERNELELF: Module " << module->name << " still has a live dependent");
@@ -983,8 +995,13 @@ void KernelElf::unloadModules() {
 
   for (auto module : m_Modules) {
     if (!module->unloadComplete && module->status != Module::Unloaded) {
-      WARNING("KERNELELF: Leaving module " << module->name
-                                           << " mapped because its shutdown dependencies remain");
+      if (!module->unloadable) {
+        WARNING("KERNELELF: Leaving permanently pinned module " << module->name
+                                                                << " mapped at shutdown");
+      } else {
+        WARNING("KERNELELF: Leaving module " << module->name
+                                             << " mapped because its shutdown dependencies remain");
+      }
     }
   }
 
@@ -1021,14 +1038,19 @@ size_t KernelElf::planModuleUnloadOrderForTest(Module** modules, size_t count, M
   return planned;
 }
 
-KernelElf::TestModuleUnloadClaim KernelElf::claimModuleUnloadForTest(Module* module) {
+KernelElf::TestModuleUnloadClaim KernelElf::claimModuleUnloadForTest(Module* module,
+                                                                     bool allowShutdown,
+                                                                     bool* lifecycle) {
   bool wasFailed = false;
   bool runLifecycle = false;
   KernelElf& kernelElf = instance();
   kernelElf.lockModules();
-  const ModuleUnloadClaim claim = kernelElf.claimModuleUnloadLocked(
-      module, true, false, false, wasFailed, runLifecycle);
+  const ModuleUnloadClaim claim = kernelElf.claimModuleUnloadLocked(module, allowShutdown, false,
+                                                                    false, wasFailed, runLifecycle);
   kernelElf.unlockModules();
+  if (lifecycle) {
+    *lifecycle = runLifecycle;
+  }
   return static_cast<TestModuleUnloadClaim>(claim);
 }
 
@@ -1052,8 +1074,8 @@ KernelElf::TestModuleUnloadClaim KernelElf::claimNamedModuleUnloadForTest(
   return static_cast<TestModuleUnloadClaim>(claim);
 }
 
-void KernelElf::completeModuleUnloadForTest(Module* module) {
-  instance().finishClaimedUnload(module, false);
+void KernelElf::completeModuleUnloadForTest(Module* module, bool wasFailed, bool runLifecycle) {
+  instance().completeUnloadAttempt(module, UnloadClaimed, wasFailed, runLifecycle, true, false);
 }
 #endif
 

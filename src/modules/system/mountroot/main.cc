@@ -208,7 +208,7 @@ static void destroy() {
   NOTICE("Unmounting all filesystems has completed.");
 }
 
-MODULE_INFO("mountroot", &init, &destroy, "vfs", "partition", "rawfs", "ramfs");
+MODULE_INFO_RUNTIME_PINNED("mountroot", &init, &destroy, "vfs", "partition", "rawfs", "ramfs");
 
 // We expect the filesystems metamodule to fail, but by the time it does and
 // we are allowed to continue, all the filesystems are loaded.

@@ -56,6 +56,7 @@ class Module {
         loadBase(0),
         loadSize(0),
         unloadable(true),
+        runtimeUnloadable(true),
         unloadComplete(false),
         progressCredits(0),
         status(Unknown) {}
@@ -75,6 +76,7 @@ class Module {
   uintptr_t loadBase;
   size_t loadSize;
   bool unloadable;
+  bool runtimeUnloadable;
   bool unloadComplete;
   size_t progressCredits;
 
@@ -157,6 +159,7 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
     TestUnloadComplete,
     TestUnloadBusy,
     TestUnloadPinned,
+    TestUnloadRuntimePinned,
     TestUnloadDependedOn,
     TestUnloadUnknown,
     TestUnloadShutdown,
@@ -167,10 +170,12 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
                                              size_t capacity);
 
   /** Exercises the production single-owner unload claim. */
-  static TestModuleUnloadClaim claimModuleUnloadForTest(Module* module);
+  static TestModuleUnloadClaim claimModuleUnloadForTest(Module* module, bool allowShutdown = true,
+                                                        bool* runLifecycle = nullptr);
   static TestModuleUnloadClaim claimNamedModuleUnloadForTest(Module** modules, size_t count,
-                                                              const char* name);
-  static void completeModuleUnloadForTest(Module* module);
+                                                             const char* name);
+  static void completeModuleUnloadForTest(Module* module, bool wasFailed = false,
+                                          bool runLifecycle = false);
 #endif
 
   /** Returns true if a module with the specified name has been loaded. */
@@ -231,6 +236,7 @@ class EXPORTED_PUBLIC KernelElf : public Elf {
     UnloadComplete,
     UnloadBusy,
     UnloadPinned,
+    UnloadRuntimePinned,
     UnloadDependedOn,
     UnloadUnknown,
     UnloadShutdown,

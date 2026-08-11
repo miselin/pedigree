@@ -337,8 +337,29 @@ void testPinnedLinkerUnloadRejection() {
   NOTICE("QEMU-CONCURRENCY-TEST: PASS linker-pinned-unload-rejection");
 }
 
+void testFilesystemModuleUnloadRejection() {
+  KernelElf& kernelElf = KernelElf::instance();
+
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN posix-runtime-unload-rejection");
+  static char posixName[] = "posix";
+  if (!kernelElf.moduleIsLoaded(posixName) || kernelElf.unloadModule(posixName, true, false) ||
+      !kernelElf.moduleIsLoaded(posixName)) {
+    FATAL("QEMU POSIX module did not reject runtime unload while preserving its image");
+  }
+  NOTICE("QEMU-CONCURRENCY-TEST: PASS posix-runtime-unload-rejection");
+
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN ramfs-pinned-unload-rejection");
+  static char ramfsName[] = "ramfs";
+  if (!kernelElf.moduleIsLoaded(ramfsName) || kernelElf.unloadModule(ramfsName, true, false) ||
+      !kernelElf.moduleIsLoaded(ramfsName)) {
+    FATAL("QEMU RamFs module did not reject unload while preserving its image");
+  }
+  NOTICE("QEMU-CONCURRENCY-TEST: PASS ramfs-pinned-unload-rejection");
+}
+
 bool entry() {
   testPinnedLinkerUnloadRejection();
+  testFilesystemModuleUnloadRejection();
   testSyscallReciprocalUnregister();
   NOTICE("QEMU-CONCURRENCY-TEST: BEGIN network-filter-reciprocal-removal-smp");
   if (!runNetworkFilterConcurrencyRegressions()) {

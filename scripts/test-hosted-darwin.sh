@@ -67,7 +67,7 @@ required_markers=(
     "HOSTED-WAIT-TEST: PASS all"
     "HOSTED-SMOKE: Darwin core smoke executed"
     "HOSTED-SHUTDOWN: timers and signals quiesced"
-    "All modules unloaded. Running destructors and terminating"
+    "Module shutdown complete. Running destructors and terminating"
     "main() returned, cleaning up"
 )
 for marker in "${required_markers[@]}"; do

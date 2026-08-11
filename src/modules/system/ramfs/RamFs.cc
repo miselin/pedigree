@@ -172,4 +172,4 @@ static bool entry() {
 
 static void destroy() {}
 
-MODULE_INFO("ramfs", &entry, &destroy, "vfs");
+MODULE_INFO_NON_UNLOADABLE("ramfs", &entry, &destroy, "vfs");
