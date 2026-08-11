@@ -36,7 +36,7 @@ typedef union {
     uint32_t obs2 : 1;
     uint32_t drq : 1;
     uint32_t rsvd1 : 1;
-    uint32_t rsvd2 : 1;
+    uint32_t df : 1;
     uint32_t drdy : 1;
     uint32_t bsy : 1;
   } PACKED reg;
@@ -562,6 +562,75 @@ inline AtaStatus ataWait(IoBase* pBase, IoBase* pControl) {
   // caller to read the status and verify further bits (eg, ERR)
   ret.__reg_contents = status;
   return ret;
+}
+
+struct AtaPioPollBudget {
+  Time::Timestamp started;
+  Time::Timestamp timeout;
+  size_t polls;
+  size_t maximumPolls;
+};
+
+MUST_USE_RESULT inline bool ataPollPioWriteStatus(IoBase* commandRegs, IoBase* controlRegs,
+                                                  AtaPioPollBudget& budget, AtaStatus& status,
+                                                  bool dataPhase) {
+  if (!commandRegs || budget.polls >= budget.maximumPolls ||
+      (Time::getTicks() - budget.started) >= budget.timeout) {
+    return false;
+  }
+
+  // Each data phase and the final completion phase need the ATA 400 ns
+  // settling interval, but they share one deadline for the whole command.
+  if (controlRegs) {
+    for (size_t i = 0; i < 4; ++i) {
+      controlRegs->read8(2);
+    }
+  }
+
+  while (budget.polls < budget.maximumPolls &&
+         (Time::getTicks() - budget.started) < budget.timeout) {
+    status.__reg_contents = commandRegs->read8(7);
+    ++budget.polls;
+
+    if (status.reg.bsy) {
+      // ATA defines every other status bit as stale while BSY is asserted.
+      Processor::pause();
+      continue;
+    }
+
+    if (!status.__reg_contents || status.reg.err || status.reg.df) {
+      return false;
+    }
+
+    // Once BSY clears, the device has committed to this command phase.
+    // WRITE SECTOR(S) needs DRQ for data and DRDY without DRQ for its
+    // command-specific terminal state; a different phase is not progress.
+    return dataPhase ? status.reg.drq : (!status.reg.drq && status.reg.drdy);
+  }
+
+  return false;
+}
+
+MUST_USE_RESULT inline bool ataPioWrite512ByteSectors(IoBase* commandRegs, IoBase* controlRegs,
+                                                      const uint16_t* source, size_t sectorCount,
+                                                      AtaPioPollBudget& budget,
+                                                      AtaStatus& finalStatus) {
+  finalStatus.__reg_contents = 0;
+  if (!commandRegs || !source || !sectorCount) {
+    return false;
+  }
+
+  for (size_t sector = 0; sector < sectorCount; ++sector) {
+    if (!ataPollPioWriteStatus(commandRegs, controlRegs, budget, finalStatus, true)) {
+      return false;
+    }
+
+    for (size_t word = 0; word < 256; ++word) {
+      commandRegs->write16(source[(sector * 256) + word], 0);
+    }
+  }
+
+  return ataPollPioWriteStatus(commandRegs, controlRegs, budget, finalStatus, false);
 }
 
 /// Logs the given AtaStatus object.

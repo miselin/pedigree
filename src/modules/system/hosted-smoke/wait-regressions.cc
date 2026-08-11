@@ -27,6 +27,7 @@
 #include "pedigree/kernel/utilities/UnlikelyLock.h"
 
 bool runHostedRequestQueueRegressions();
+bool runHostedAtaPioRegressions();
 bool runHostedLifetimeLeaseRegressions();
 bool runHostedMutexRegressions();
 bool runHostedPageFaultRegressions();
@@ -1770,6 +1771,7 @@ bool runHostedWaitRegressions() {
       wakeBeforeBlock() && semaphoreReleaseBeforeBlock() && terminalCancelCallbackOrdering() &&
       terminalCancelBeforeBlock() && nestedTerminalShutdownBeforeBlock() &&
       conditionVariableSignalBeforeBlock() && runHostedRingBufferRegressions() &&
+      runHostedAtaPioRegressions() &&
       Scheduler::instance()
           .getBootstrapProcessorScheduler()
           ->runHostedNewThreadWorkerRegressions() &&

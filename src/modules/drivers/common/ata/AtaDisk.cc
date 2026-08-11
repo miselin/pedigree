@@ -45,6 +45,8 @@ constexpr Time::Timestamp AtapiCommandTimeout = 30 * Time::Multiplier::Second;
 constexpr size_t AtapiMaximumStatusPolls = 30000000;
 constexpr Time::Timestamp AtaDmaCompletionTimeout = 30 * Time::Multiplier::Second;
 constexpr size_t AtaDmaCompletionPollLimit = 30000000;
+constexpr Time::Timestamp AtaPioCompletionTimeout = 30 * Time::Multiplier::Second;
+constexpr size_t AtaPioCompletionPollLimit = 30000000;
 
 bool waitForAtapiStatus(IoBase* commandRegs, IoBase* controlRegs, Time::Timestamp commandStarted,
                         size_t& commandPolls, AtaStatus& status) {
@@ -1075,6 +1077,11 @@ uint64_t AtaDisk::doWrite(uint64_t location) {
   // Make sure we don't leave the refcnt increased by writing.
   CachePageGuard guard(getCache(), location);
 
+  if (getNativeBlockSize() != 512) {
+    ERROR("ATA: writes require 512-byte logical sectors");
+    return 0;
+  }
+
 #if SUPERDEBUG
   NOTICE("doWrite(" << location << ")");
 #endif
@@ -1083,8 +1090,7 @@ uint64_t AtaDisk::doWrite(uint64_t location) {
   IoBase* commandRegs = m_CommandRegs;
   IoBase* controlRegs = m_ControlRegs;
 
-  // How many sectors do we need to read?
-  /// \todo logical sector size here
+  // Geometry has been validated above, so one cache page is eight sectors.
   uint32_t nSectors = nBytes / 512;
   if (nBytes % 512)
     nSectors++;
@@ -1117,14 +1123,19 @@ uint64_t AtaDisk::doWrite(uint64_t location) {
       return 0;
     }
 
-    // Send out sector count.
-    uint8_t nSectorsToWrite = min(m_pIdent.data.max_sectors_per_irq, nSectors);
-    nSectors -= nSectorsToWrite;
+    // PIO WRITE SECTORS is one page-sized command. The IDENTIFY multiple-mode
+    // limit does not apply to it.
+    uint8_t nSectorsToWrite =
+        m_bDma ? min(m_pIdent.data.max_sectors_per_irq, nSectors) : static_cast<uint8_t>(nSectors);
 
     bool bDmaSetup = false;
-    if (m_bDma) {
+    if (m_bDma && nSectorsToWrite) {
       bDmaSetup = dmaTransaction.add(buffer, nSectorsToWrite * 512);
     }
+    if (!bDmaSetup) {
+      nSectorsToWrite = static_cast<uint8_t>(nSectors);
+    }
+    nSectors -= nSectorsToWrite;
 
     if (m_SupportsLBA48)
       setupLBA48(location, nSectorsToWrite);
@@ -1148,7 +1159,10 @@ uint64_t AtaDisk::doWrite(uint64_t location) {
 
     if (m_bDma && bDmaSetup) {
       // Start DMA before we send the command.
-      bDmaSetup = dmaTransaction.begin(true);
+      if (!dmaTransaction.begin(true)) {
+        ERROR("ATA: failed to start DMA write");
+        return 0;
+      }
 
       if (!m_SupportsLBA48) {
         // Send command "write DMA"
@@ -1157,48 +1171,33 @@ uint64_t AtaDisk::doWrite(uint64_t location) {
         // Send command "read write EXT"
         commandRegs->write8(0x35, 7);
       }
-    } else {
-      if (m_SupportsLBA48) {
-        // Send command "write sectors EXT"
-        commandRegs->write8(0x34, 7);
-      } else {
-        // Send command "write sectors with retry"
-        commandRegs->write8(0x30, 7);
-      }
-    }
+      const Time::Timestamp completionStarted = Time::getTicks();
+      size_t completionPolls = 0;
 
-    const Time::Timestamp completionStarted = Time::getTicks();
-    size_t completionPolls = 0;
+      // Wait for completion.
+      while (true) {
+        if (++completionPolls >= AtaDmaCompletionPollLimit ||
+            (Time::getTicks() - completionStarted) >= AtaDmaCompletionTimeout) {
+          ERROR("ATA: DMA write exceeded its completion deadline");
+          return 0;
+        }
 
-    // Wait for completion.
-    while (true) {
-      if (++completionPolls >= AtaDmaCompletionPollLimit ||
-          (Time::getTicks() - completionStarted) >= AtaDmaCompletionTimeout) {
-        ERROR("ATA: DMA write exceeded its completion deadline");
-        return 0;
-      }
-
-      if (getInterruptNumber() != 0xFF) {
-        // 10 second timeout.
-        if (!irqCompletion->acquireForCompletion(1, 10)) {
-          WARNING("ATA: failed to get IRQ");
-          if (bDmaSetup) {
+        if (getInterruptNumber() != 0xFF) {
+          // 10 second timeout.
+          if (!irqCompletion->acquireForCompletion(1, 10)) {
+            WARNING("ATA: failed to get IRQ");
             return 0;
           }
         }
-      }
 
-      // Ensure we are not busy before continuing handling.
-      status = ataWait(commandRegs, controlRegs);
-      if (status.reg.err) {
-        /// \todo What's the best way to handle this?
-        if (m_bDma && bDmaSetup) {
+        // Ensure we are not busy before continuing handling.
+        status = ataWait(commandRegs, controlRegs);
+        if (status.reg.err) {
+          /// \todo What's the best way to handle this?
           WARNING("ATA: write failed during DMA data transfer");
+          return false;
         }
-        return false;
-      }
 
-      if (m_bDma && bDmaSetup) {
         if (m_BusMaster->hasInterrupt() || m_BusMaster->hasCompleted()) {
           // commandComplete effectively resets the device state, so
           // we need to get the error register first.
@@ -1209,25 +1208,26 @@ uint64_t AtaDisk::doWrite(uint64_t location) {
           else
             break;
         }
-      } else
-        break;
-      Processor::pause();
-    }
+        Processor::pause();
+      }
+    } else {
+      AtaPioPollBudget budget = {Time::getTicks(), AtaPioCompletionTimeout, 0,
+                                 AtaPioCompletionPollLimit};
 
-    if (!bDmaSetup) {
-      for (int i = 0; i < nSectorsToWrite; i++) {
-        // Wait until !BUSY
-        status = ataWait(commandRegs, controlRegs);
-        if (status.reg.err) {
-          // Ka-boom! Something went wrong :(
-          /// \todo What's the best way to handle this?
-          WARNING("ATA: write failed during data transfer");
-          return 0;
-        }
+      if (m_SupportsLBA48) {
+        // Send command "write sectors EXT"
+        commandRegs->write8(0x34, 7);
+      } else {
+        // Send command "write sectors with retry"
+        commandRegs->write8(0x30, 7);
+      }
 
-        // Write the sector to disk.
-        for (int j = 0; j < 256; j++)
-          commandRegs->write16(*tmp++, 0);
+      // A write-completion IRQ cannot arrive until the host services the
+      // initial DRQ, so the data-phase poll must begin immediately.
+      if (!ataPioWrite512ByteSectors(commandRegs, controlRegs, tmp, nSectorsToWrite, budget,
+                                     status)) {
+        WARNING("ATA: PIO write failed, status=" << status.__reg_contents);
+        return 0;
       }
     }
   }
