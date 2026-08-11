@@ -31,6 +31,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "AtaController.h"
+#include "AtaWriteCache.h"
 #include "ata-common.h"
 
 #if CRIPPLE_HDD
@@ -1063,16 +1064,11 @@ uint64_t AtaDisk::doWrite(uint64_t location) {
   // This means we don't need to care about evicted pages within a disk block
   // because we're writing only a specific page that we already know exists.
   uintptr_t nBytes = 0x1000;
-  uintptr_t buffer = getCache().lookup(location);
+  const uintptr_t buffer = ataTakeQueuedWritePage(getCache(), location);
   if (!buffer) {
-    FATAL("AtaDisk::doWrite - no buffer (completely misused method)");
+    ERROR("AtaDisk::doWrite - queued buffer was not in cache");
+    return 0;
   }
-
-  // Undo the pin done by ScsiDisk::write that verified this location exists
-  // in the first place. We have two active pins here: that from the above
-  // lookup(), and the one from ScsiDisk::write. This just ensures we're
-  // keeping the counts correct.
-  getCache().release(location);
 
   // Make sure we don't leave the refcnt increased by writing.
   CachePageGuard guard(getCache(), location);

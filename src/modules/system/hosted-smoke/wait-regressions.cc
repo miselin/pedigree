@@ -60,6 +60,7 @@ EXPORTED_PUBLIC bool runHostedUsbInterruptOwnershipRegression();
 EXPORTED_PUBLIC bool runHostedUsbContainerOwnershipRegression();
 EXPORTED_PUBLIC bool runHostedUsbEndpointHaltRegressions();
 EXPORTED_PUBLIC bool runHostedUsbBotRegressions();
+EXPORTED_PUBLIC bool runHostedScsiWriteRegressions();
 #endif
 
 namespace {
@@ -1806,7 +1807,8 @@ bool runHostedWaitRegressions() {
       runHostedPipeRegressions() && runHostedUsbSyncOwnershipRegression() &&
       runHostedUsbInterruptOwnershipRegression() && runHostedUsbContainerOwnershipRegression() &&
       runHostedUsbEndpointHaltRegressions() && runHostedUsbBotRegressions() &&
-      UsbPnP::runHostedRegistrationRegression() && Ipc::runHostedIpcInterruptionRegression() &&
+      runHostedScsiWriteRegressions() && UsbPnP::runHostedRegistrationRegression() &&
+      Ipc::runHostedIpcInterruptionRegression() &&
 #endif
       runHostedTimerRegressions(g_ImmediateWaiter) &&
       runHostedPrimitiveRegressions(g_ImmediateWaiter) &&

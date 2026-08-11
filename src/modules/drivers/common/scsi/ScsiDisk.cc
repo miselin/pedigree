@@ -697,7 +697,7 @@ uint64_t ScsiDisk::doWrite(uint64_t location) {
     ERROR("SCSI: writing failed?");
   }
 
-  return getBlockSize();
+  return bOk ? getBlockSize() : 0;
 }
 
 uint64_t ScsiDisk::doSync(uint64_t location) {

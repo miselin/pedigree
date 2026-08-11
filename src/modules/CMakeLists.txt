@@ -593,11 +593,19 @@ pedigree_module(partition "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/partition/main.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/partition/msdos.cc)
 
+set(SCSI_REGRESSION_SOURCES)
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
+    list(APPEND SCSI_REGRESSION_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/scsi-write-regressions.cc)
+endif ()
+
 pedigree_module(scsi "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/scsi/ScsiCommands.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/scsi/ScsiController.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/scsi/ScsiDisk.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/scsi/main.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/scsi/main.cc
+    ${SCSI_REGRESSION_SOURCES})
 
 pedigree_module(usb-hcd "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/usb-hcd/Ehci.cc
