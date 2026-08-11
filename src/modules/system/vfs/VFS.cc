@@ -18,7 +18,9 @@
  */
 
 #include "VFS.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/StaticString.h"
@@ -53,7 +55,9 @@ VFS& VFS::instance() {
 }
 
 VFS::VFS()
-    : m_pRootFilesystem(nullptr),
+    : m_MountMutationLock(),
+      m_MountTableLock(),
+      m_pRootFilesystem(nullptr),
       m_Mounts(),
       m_ProbeCallbacks(),
       m_MountCallbacks()
@@ -68,6 +72,9 @@ VFS::VFS()
 }
 
 VFS::~VFS() {
+#if THREADS
+  TerminationDeferral teardownDeferral;
+#endif
 #if THREADS
   m_CallbackLock.acquire();
   m_CallbacksClosing = true;
@@ -98,10 +105,26 @@ VFS::~VFS() {
     delete *it;
   }
 
-  // Unmount each registered filesystem exactly once.
-  for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
-    delete it.value();
-    delete it.key();
+  Vector<MountInfo*> mountInfo;
+  Vector<Filesystem*> filesystems;
+  {
+    LockGuard<Mutex> mutationGuard(m_MountMutationLock);
+    LockGuard<Mutex> tableGuard(m_MountTableLock);
+    for (auto it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+      mountInfo.pushBack(it.value());
+      filesystems.pushBack(it.key());
+    }
+    m_Mounts.clear();
+    m_pRootFilesystem = nullptr;
+  }
+
+  // Filesystem destructors can re-enter VFS, so publication locks must no
+  // longer be held when ownership is released.
+  for (auto info : mountInfo) {
+    delete info;
+  }
+  for (auto filesystem : filesystems) {
+    delete filesystem;
   }
 }
 
@@ -187,64 +210,108 @@ bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
 }
 
 String VFS::registerFilesystem(Filesystem* pFs, const String& preferredStableName) {
+  LockGuard<Mutex> mutationGuard(m_MountMutationLock);
+  return registerFilesystemLocked(pFs, preferredStableName);
+}
+
+String VFS::registerFilesystemLocked(Filesystem* pFs, const String& preferredStableName) {
   if (!pFs) {
     return String();
   }
 
-  MountInfo* existing = m_Mounts.lookup(pFs);
-  if (existing) {
-    return existing->stableName;
+  MountInfo* info = nullptr;
+  Filesystem* root = nullptr;
+  {
+    LockGuard<Mutex> tableGuard(m_MountTableLock);
+    MountInfo* existing = m_Mounts.lookup(pFs);
+    if (existing) {
+      return existing->stableName;
+    }
+
+    String stableName = getUniqueStableNameLocked(preferredStableName);
+    NormalStaticString path;
+    path += "/media/";
+    path += stableName;
+    info = new MountInfo(stableName, String(path));
+    m_Mounts.insert(pFs, info);
+    root = m_pRootFilesystem;
   }
 
-  String stableName = getUniqueStableName(preferredStableName);
-  NormalStaticString path;
-  path += "/media/";
-  path += stableName;
-  MountInfo* info = new MountInfo(stableName, String(path));
-  m_Mounts.insert(pFs, info);
-
-  if (m_pRootFilesystem) {
-    attachFilesystem(pFs, info->path);
+  if (root) {
+    attachFilesystem(root, pFs, info->path);
   }
 
-  return stableName;
+  return info->stableName;
 }
 
-void VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete) {
-  if (!pFs)
-    return;
+bool VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete) {
+#if THREADS
+  TerminationDeferral teardownDeferral;
+#endif
+  if (!pFs) {
+    return false;
+  }
 
-  MountInfo* info = m_Mounts.lookup(pFs);
-  if (info && m_pRootFilesystem && pFs != m_pRootFilesystem) {
-    File* point = find(info->path);
-    if (point && point->isDirectory()) {
-      Directory::fromFile(point)->setReparsePoint(nullptr);
+  MountInfo* info = nullptr;
+  bool detach = false;
+  {
+    LockGuard<Mutex> mutationGuard(m_MountMutationLock);
+    {
+      LockGuard<Mutex> tableGuard(m_MountTableLock);
+      if (!m_Mounts.take(pFs, info)) {
+        return false;
+      }
+
+      if (pFs == m_pRootFilesystem) {
+        m_pRootFilesystem = nullptr;
+      } else {
+        detach = m_pRootFilesystem != nullptr;
+      }
+    }
+
+    if (detach) {
+      File* point = find(info->path);
+      if (point && point->isDirectory()) {
+        Directory::fromFile(point)->setReparsePoint(nullptr);
+      }
     }
   }
 
-  if (pFs == m_pRootFilesystem) {
-    m_pRootFilesystem = nullptr;
-  }
-
   delete info;
-  m_Mounts.remove(pFs);
-
   if (canDelete) {
     delete pFs;
   }
+  return true;
 }
 
 bool VFS::setRootFilesystem(Filesystem* pFs) {
-  if (pFs && !m_Mounts.lookup(pFs)) {
-    registerFilesystem(pFs, pFs->getVolumeLabel());
+  LockGuard<Mutex> mutationGuard(m_MountMutationLock);
+  if (pFs) {
+    bool registered = false;
+    {
+      LockGuard<Mutex> tableGuard(m_MountTableLock);
+      registered = m_Mounts.lookup(pFs) != nullptr;
+    }
+    if (!registered) {
+      registerFilesystemLocked(pFs, pFs->getVolumeLabel());
+    }
   }
 
-  m_pRootFilesystem = pFs;
-  attachRegisteredFilesystems();
-  return !pFs || m_pRootFilesystem == pFs;
+  {
+    LockGuard<Mutex> tableGuard(m_MountTableLock);
+    m_pRootFilesystem = pFs;
+  }
+  attachRegisteredFilesystemsLocked();
+  return true;
+}
+
+Filesystem* VFS::getRootFilesystem() const {
+  LockGuard<Mutex> tableGuard(m_MountTableLock);
+  return m_pRootFilesystem;
 }
 
 bool VFS::getMountPath(Filesystem* pFs, String& path) const {
+  LockGuard<Mutex> tableGuard(m_MountTableLock);
   MountInfo* info = m_Mounts.lookup(pFs);
   if (!info) {
     return false;
@@ -255,6 +322,7 @@ bool VFS::getMountPath(Filesystem* pFs, String& path) const {
 }
 
 Filesystem* VFS::getFilesystemAt(const String& path) const {
+  LockGuard<Mutex> tableGuard(m_MountTableLock);
   for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
     if (it.value()->path == path) {
       return it.key();
@@ -262,6 +330,43 @@ Filesystem* VFS::getFilesystemAt(const String& path) const {
   }
 
   return nullptr;
+}
+
+void VFS::getMounts(Vector<MountSnapshot>& mounts) const {
+  struct MountSnapshotSource {
+    MountSnapshotSource() : filesystem(nullptr) {}
+    MountSnapshotSource(Filesystem* filesystem, const String& stableName, const String& path)
+        : filesystem(filesystem), stableName(stableName), path(path) {}
+
+    Filesystem* filesystem;
+    String stableName;
+    String path;
+  };
+
+  mounts.clear();
+  Vector<MountSnapshotSource> sources;
+  LockGuard<Mutex> mutationGuard(m_MountMutationLock);
+  {
+    LockGuard<Mutex> tableGuard(m_MountTableLock);
+    for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+      sources.createBack(it.key(), it.value()->stableName, it.value()->path);
+    }
+  }
+
+  for (const auto& source : sources) {
+    bool hasDisk = false;
+    String diskParentName;
+    String diskName;
+    Disk* disk = source.filesystem->getDisk();
+    if (disk) {
+      hasDisk = true;
+      disk->getName(diskName);
+      if (disk->getParent()) {
+        disk->getParent()->getName(diskParentName);
+      }
+    }
+    mounts.createBack(source.stableName, source.path, hasDisk, diskParentName, diskName);
+  }
 }
 
 File* VFS::find(const String& path, File* pStartNode) {
@@ -801,7 +906,7 @@ bool VFS::untrackFile(File* pFile, bool destroy) {
   return false;
 }
 
-String VFS::getUniqueStableName(const String& preferredName) const {
+String VFS::getUniqueStableNameLocked(const String& preferredName) const {
   NormalStaticString safeName;
   for (size_t i = 0; i < preferredName.length(); ++i) {
     char c = preferredName[i];
@@ -846,12 +951,17 @@ File* VFS::resolveStartNode(const String& path, File* pStartNode) {
     return pStartNode;
   }
 
-  return m_pRootFilesystem ? m_pRootFilesystem->getRoot() : nullptr;
+  Filesystem* root = nullptr;
+  {
+    LockGuard<Mutex> tableGuard(m_MountTableLock);
+    root = m_pRootFilesystem;
+  }
+  return root ? root->getRoot() : nullptr;
 }
 
-bool VFS::attachFilesystem(Filesystem* pFs, const String& path) {
-  if (!m_pRootFilesystem || !pFs || pFs == m_pRootFilesystem) {
-    return pFs == m_pRootFilesystem;
+bool VFS::attachFilesystem(Filesystem* pRootFs, Filesystem* pFs, const String& path) {
+  if (!pRootFs || !pFs || pFs == pRootFs) {
+    return pFs == pRootFs;
   }
 
   if (!find(String("/media"))) {
@@ -872,23 +982,41 @@ bool VFS::attachFilesystem(Filesystem* pFs, const String& path) {
   return true;
 }
 
-void VFS::attachRegisteredFilesystems() {
-  if (!m_pRootFilesystem) {
-    return;
-  }
+void VFS::attachRegisteredFilesystemsLocked() {
+  struct AttachWork {
+    AttachWork() : filesystem(nullptr) {}
+    AttachWork(Filesystem* filesystem, const String& path) : filesystem(filesystem), path(path) {}
 
-  for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
-    MountInfo* info = it.value();
-    if (it.key() == m_pRootFilesystem) {
-      info->path.assign("/");
-      continue;
+    Filesystem* filesystem;
+    String path;
+  };
+
+  Filesystem* root = nullptr;
+  Vector<AttachWork> work;
+  {
+    LockGuard<Mutex> tableGuard(m_MountTableLock);
+    root = m_pRootFilesystem;
+    if (!root) {
+      return;
     }
 
-    NormalStaticString path;
-    path += "/media/";
-    path += info->stableName;
-    info->path.assign(path, path.length());
-    attachFilesystem(it.key(), info->path);
+    for (MountTable::Iterator it = m_Mounts.begin(); it != m_Mounts.end(); ++it) {
+      MountInfo* info = it.value();
+      if (it.key() == root) {
+        info->path.assign("/");
+        continue;
+      }
+
+      NormalStaticString path;
+      path += "/media/";
+      path += info->stableName;
+      info->path.assign(path, path.length());
+      work.createBack(it.key(), info->path);
+    }
+  }
+
+  for (const auto& item : work) {
+    attachFilesystem(root, item.filesystem, item.path);
   }
 }
 

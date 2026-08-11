@@ -42,18 +42,77 @@ class TestDisk final : public Disk {
   void unpin(uint64_t) override {}
 };
 
+class BlockingNameDisk final : public Disk {
+ public:
+  BlockingNameDisk()
+      : nameEntered(0),
+        nameRelease(0),
+        nameCalls(0),
+        nameProcessor(static_cast<size_t>(-1)),
+        failures(0) {}
+
+  void getName(String& name) override {
+    const size_t call = nameCalls += 1;
+    if (call == static_cast<size_t>(1)) {
+      nameProcessor = Processor::id();
+      nameEntered.release();
+      if (!nameRelease.acquireForCompletion()) {
+        failures += 1;
+      }
+    }
+    name.assign("mount-table-disk");
+  }
+
+  uintptr_t read(uint64_t) override {
+    return 0;
+  }
+
+  size_t getSize() const override {
+    return 0;
+  }
+
+  size_t getBlockSize() const override {
+    return 512;
+  }
+
+  bool pin(uint64_t) override {
+    return false;
+  }
+
+  void unpin(uint64_t) override {}
+
+  Semaphore nameEntered;
+  Semaphore nameRelease;
+  Atomic<size_t> nameCalls;
+  Atomic<size_t> nameProcessor;
+  Atomic<size_t> failures;
+};
+
 class TestFilesystem final : public Filesystem {
  public:
-  explicit TestFilesystem(Atomic<size_t>* destructions)
-      : m_Destructions(destructions), m_Label("vfs-callback-test") {}
+  explicit TestFilesystem(Atomic<size_t>* destructions, VFS* registry = nullptr,
+                          Atomic<size_t>* reentries = nullptr,
+                          Atomic<size_t>* reentryMounts = nullptr)
+      : m_Destructions(destructions),
+        m_Registry(registry),
+        m_Reentries(reentries),
+        m_ReentryMounts(reentryMounts),
+        m_Label("vfs-callback-test") {}
 
   ~TestFilesystem() override {
+    if (m_Registry) {
+      Vector<VFS::MountSnapshot> mounts;
+      m_Registry->getMounts(mounts);
+      *m_Reentries += 1;
+      *m_ReentryMounts += mounts.count();
+    }
     if (m_Destructions) {
       *m_Destructions += 1;
     }
   }
 
-  bool initialise(Disk*) override {
+  bool initialise(Disk* disk) override {
+    m_pDisk = disk;
     return true;
   }
 
@@ -84,6 +143,9 @@ class TestFilesystem final : public Filesystem {
 
  private:
   Atomic<size_t>* m_Destructions;
+  VFS* m_Registry;
+  Atomic<size_t>* m_Reentries;
+  Atomic<size_t>* m_ReentryMounts;
   String m_Label;
 };
 
@@ -105,6 +167,19 @@ bool waitForCallbackDrain(Thread* thread, uintptr_t callback) {
     uintptr_t debugAddress = 0;
     if (thread->getWaitDebugInfo(info) && info.queue && info.channelOwner && info.queued &&
         thread->getDebugState(debugAddress) == Thread::CallbackDrain && debugAddress == callback) {
+      return true;
+    }
+    Scheduler::instance().yield();
+  }
+  return false;
+}
+
+bool waitForSemaphoreBlock(Thread* thread) {
+  for (size_t attempt = 0; attempt < Attempts; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    uintptr_t debugAddress = 0;
+    if (thread->getWaitDebugInfo(info) && info.queue && info.channelOwner && info.queued &&
+        thread->getDebugState(debugAddress) == Thread::SemWait) {
       return true;
     }
     Scheduler::instance().yield();
@@ -393,6 +468,201 @@ bool mountCallbackDrain(size_t& callbackProcessor, size_t& removerProcessor) {
   return passed;
 }
 
+struct MountTableContext {
+  MountTableContext()
+      : disk(),
+        registrationReady(0),
+        registrationStart(0),
+        registrations(0),
+        unregisters(0),
+        unregisterReturned(0),
+        unregisterSucceeded(0),
+        destructions(0),
+        destructorReentries(0),
+        destructorReentryMounts(0),
+        failures(0),
+        firstRegisterProcessor(static_cast<size_t>(-1)),
+        secondRegisterProcessor(static_cast<size_t>(-1)),
+        snapshotProcessor(static_cast<size_t>(-1)),
+        unregisterProcessor(static_cast<size_t>(-1)),
+        registry(),
+        first(new TestFilesystem(&destructions, &registry, &destructorReentries,
+                                 &destructorReentryMounts)),
+        second(new TestFilesystem(&destructions, &registry, &destructorReentries,
+                                  &destructorReentryMounts)) {}
+
+  BlockingNameDisk disk;
+  Semaphore registrationReady;
+  Semaphore registrationStart;
+  Atomic<size_t> registrations;
+  Atomic<size_t> unregisters;
+  Atomic<size_t> unregisterReturned;
+  Atomic<size_t> unregisterSucceeded;
+  Atomic<size_t> destructions;
+  Atomic<size_t> destructorReentries;
+  Atomic<size_t> destructorReentryMounts;
+  Atomic<size_t> failures;
+  Atomic<size_t> firstRegisterProcessor;
+  Atomic<size_t> secondRegisterProcessor;
+  Atomic<size_t> snapshotProcessor;
+  Atomic<size_t> unregisterProcessor;
+  VFS registry;
+  TestFilesystem* first;
+  TestFilesystem* second;
+  String firstName;
+  String secondName;
+  Vector<VFS::MountSnapshot> snapshot;
+};
+
+struct MountRegistrationWork {
+  MountTableContext* context;
+  TestFilesystem* filesystem;
+  String* stableName;
+  Atomic<size_t>* processor;
+};
+
+int registerMountTableFilesystem(void* parameter) {
+  MountRegistrationWork* work = reinterpret_cast<MountRegistrationWork*>(parameter);
+  work->context->registrationReady.release();
+  if (!work->context->registrationStart.acquireForCompletion()) {
+    work->context->failures += 1;
+    return 0;
+  }
+  *work->processor = Processor::id();
+  *work->stableName = work->context->registry.registerFilesystem(work->filesystem, String("tmpfs"));
+  work->context->registrations += 1;
+  return 0;
+}
+
+int snapshotMountTable(void* parameter) {
+  MountTableContext* context = reinterpret_cast<MountTableContext*>(parameter);
+  context->snapshotProcessor = Processor::id();
+  context->registry.getMounts(context->snapshot);
+  return 0;
+}
+
+int unregisterMountTableFilesystem(void* parameter) {
+  MountTableContext* context = reinterpret_cast<MountTableContext*>(parameter);
+  context->unregisterProcessor = Processor::id();
+  if (context->registry.unregisterFilesystem(context->first)) {
+    context->unregisters += 1;
+    context->unregisterSucceeded = 1;
+  } else {
+    context->failures += 1;
+  }
+  context->unregisterReturned = 1;
+  return 0;
+}
+
+bool mountTableConcurrency(size_t& snapshotProcessor, size_t& unregisterProcessor,
+                           size_t& firstRegisterProcessor, size_t& secondRegisterProcessor) {
+  MountTableContext context;
+  context.first->initialise(&context.disk);
+  context.second->initialise(&context.disk);
+
+  MountRegistrationWork firstWork = {&context, context.first, &context.firstName,
+                                     &context.firstRegisterProcessor};
+  MountRegistrationWork secondWork = {&context, context.second, &context.secondName,
+                                      &context.secondRegisterProcessor};
+  Process* process = Scheduler::instance().getKernelProcess();
+  Thread* firstWriter =
+      new Thread(process, registerMountTableFilesystem, &firstWork, nullptr, false, DontPickCore);
+  firstWriter->setName("VFS mount-table first registrar");
+  Thread* secondWriter =
+      new Thread(process, registerMountTableFilesystem, &secondWork, nullptr, false, DontPickCore);
+  secondWriter->setName("VFS mount-table second registrar");
+
+  const bool registrationReady = context.registrationReady.acquireForCompletion(2);
+  context.registrationStart.release(2);
+  const bool firstWriterJoined = firstWriter->joinForCompletion();
+  const bool secondWriterJoined = secondWriter->joinForCompletion();
+
+  Thread* snapshot =
+      new Thread(process, snapshotMountTable, &context, nullptr, false, DontPickCore);
+  snapshot->setName("VFS mount-table snapshot");
+  const bool snapshotBlocked = context.disk.nameEntered.acquireForCompletion();
+  Thread* unregister =
+      new Thread(process, unregisterMountTableFilesystem, &context, nullptr, false, DontPickCore);
+  unregister->setName("VFS mount-table unregister");
+  const bool unregisterBlocked = snapshotBlocked && waitForSemaphoreBlock(unregister);
+  const bool unregisterReturnedEarly = context.unregisterReturned != static_cast<size_t>(0);
+  const bool destroyedEarly = context.destructions != static_cast<size_t>(0);
+
+  context.disk.nameRelease.release();
+  const bool snapshotJoined = snapshot->joinForCompletion();
+  const bool unregisterJoined = unregister->joinForCompletion();
+  if (context.unregisterSucceeded) {
+    context.first = nullptr;
+  }
+  if (context.second && context.registry.unregisterFilesystem(context.second)) {
+    context.unregisters += 1;
+    context.second = nullptr;
+  }
+  if (context.second) {
+    String path;
+    if (!context.registry.getMountPath(context.second, path)) {
+      delete context.second;
+    }
+    context.second = nullptr;
+  }
+  if (context.first && context.registry.unregisterFilesystem(context.first)) {
+    context.unregisters += 1;
+    context.first = nullptr;
+  }
+  if (context.first) {
+    String path;
+    if (!context.registry.getMountPath(context.first, path)) {
+      delete context.first;
+    }
+    context.first = nullptr;
+  }
+
+  snapshotProcessor = context.snapshotProcessor;
+  unregisterProcessor = context.unregisterProcessor;
+  firstRegisterProcessor = context.firstRegisterProcessor;
+  secondRegisterProcessor = context.secondRegisterProcessor;
+
+  const bool stableNames =
+      (context.firstName == String("tmpfs") && context.secondName == String("tmpfs-2")) ||
+      (context.firstName == String("tmpfs-2") && context.secondName == String("tmpfs"));
+  bool snapshotCoherent = context.snapshot.count() == static_cast<size_t>(2);
+  bool sawTmpfs = false;
+  bool sawTmpfs2 = false;
+  for (const auto& mount : context.snapshot) {
+    if (mount.stableName == String("tmpfs") && mount.path == String("/media/tmpfs")) {
+      sawTmpfs = true;
+    } else if (mount.stableName == String("tmpfs-2") && mount.path == String("/media/tmpfs-2")) {
+      sawTmpfs2 = true;
+    } else {
+      snapshotCoherent = false;
+    }
+    snapshotCoherent &= mount.hasDisk && mount.diskParentName.length() == 0 &&
+                        mount.diskName == String("mount-table-disk");
+  }
+  snapshotCoherent &= sawTmpfs && sawTmpfs2;
+
+  const bool passed =
+      check(registrationReady && firstWriterJoined && secondWriterJoined &&
+                context.registrations == static_cast<size_t>(2) && stableNames,
+            "vfs-mount-table-concurrency", "same-name registration was not one transaction") &&
+      check(snapshotBlocked && unregisterBlocked && !unregisterReturnedEarly && !destroyedEarly &&
+                snapshotJoined && unregisterJoined && !context.disk.failures,
+            "vfs-mount-table-concurrency",
+            "unregister did not wait behind the filesystem metadata snapshot") &&
+      check(snapshotCoherent && context.unregisters == static_cast<size_t>(2) &&
+                context.destructions == static_cast<size_t>(2) &&
+                context.destructorReentries == static_cast<size_t>(2) &&
+                context.destructorReentryMounts == static_cast<size_t>(1) && !context.failures,
+            "vfs-mount-table-concurrency",
+            "snapshot ownership or unpublished destructor reentry was incoherent");
+  if (passed) {
+#if !PEDIGREE_CONCURRENCY_SMOKE_TESTS
+    NOTICE("HOSTED-WAIT-TEST: PASS vfs-mount-table-concurrency");
+#endif
+  }
+  return passed;
+}
+
 struct SelfRemovalContext {
   SelfRemovalContext() : calls(0), deferred(0), idleCalls(0), destroyedFilesystems(0) {}
 
@@ -474,24 +744,47 @@ bool runVfsCallbackLifetimeRegressions() {
   size_t probeRemoverProcessor = static_cast<size_t>(-1);
   size_t mountCallbackProcessor = static_cast<size_t>(-1);
   size_t mountRemoverProcessor = static_cast<size_t>(-1);
+  size_t mountTableSnapshotProcessor = static_cast<size_t>(-1);
+  size_t mountTableUnregisterProcessor = static_cast<size_t>(-1);
+  size_t firstRegisterProcessor = static_cast<size_t>(-1);
+  size_t secondRegisterProcessor = static_cast<size_t>(-1);
 
   const bool probePassed = probeCallbackDrain(probeCallbackProcessor, probeRemoverProcessor);
   const bool mountPassed = mountCallbackDrain(mountCallbackProcessor, mountRemoverProcessor);
+  const bool mountTablePassed =
+      mountTableConcurrency(mountTableSnapshotProcessor, mountTableUnregisterProcessor,
+                            firstRegisterProcessor, secondRegisterProcessor);
   const bool selfRemovalPassed = probeSelfRemoval();
 
 #if PEDIGREE_CONCURRENCY_SMOKE_TESTS
   NOTICE("QEMU-CONCURRENCY-TEST: vfs-callback-cpus probe="
          << Dec << probeCallbackProcessor << "/" << probeRemoverProcessor
          << " mount=" << mountCallbackProcessor << "/" << mountRemoverProcessor);
+  NOTICE("QEMU-CONCURRENCY-TEST: vfs-mount-table-cpus register="
+         << Dec << firstRegisterProcessor << "/" << secondRegisterProcessor << " snapshot="
+         << mountTableSnapshotProcessor << " unregister=" << mountTableUnregisterProcessor);
+  const size_t invalidProcessor = static_cast<size_t>(-1);
+  const bool mountTableCpuSpread = firstRegisterProcessor != invalidProcessor &&
+                                   secondRegisterProcessor != invalidProcessor &&
+                                   mountTableSnapshotProcessor != invalidProcessor &&
+                                   mountTableUnregisterProcessor != invalidProcessor &&
+                                   firstRegisterProcessor != secondRegisterProcessor &&
+                                   mountTableSnapshotProcessor != mountTableUnregisterProcessor;
   const bool cpuSpread =
       check(probeCallbackProcessor != probeRemoverProcessor &&
                 mountCallbackProcessor != mountRemoverProcessor,
-            "vfs-callback-cpu-spread", "callback retirement did not cross test CPUs");
+            "vfs-callback-cpu-spread", "callback retirement did not cross test CPUs") &&
+      check(mountTableCpuSpread, "vfs-mount-table-cpu-spread",
+            "mount registration or snapshot/unregister handoff stayed on one test CPU");
+  if (mountTablePassed && mountTableCpuSpread) {
+    NOTICE("QEMU-CONCURRENCY-TEST: PASS vfs-mount-table-concurrency-smp");
+  }
 #else
   const bool cpuSpread = true;
 #endif
 
-  const bool passed = probePassed && mountPassed && selfRemovalPassed && cpuSpread;
+  const bool passed =
+      probePassed && mountPassed && mountTablePassed && selfRemovalPassed && cpuSpread;
   if (passed) {
 #if PEDIGREE_CONCURRENCY_SMOKE_TESTS
     NOTICE("QEMU-CONCURRENCY-TEST: PASS vfs-callback-lifetime-smp");

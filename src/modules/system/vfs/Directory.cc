@@ -115,11 +115,11 @@ void Directory::addDirectoryEntry(const String& name, DirectoryEntryMetadata&& m
 }
 
 Directory* Directory::getReparsePoint() const {
-  return m_ReparseTarget;
+  return __atomic_load_n(&m_ReparseTarget, __ATOMIC_ACQUIRE);
 }
 
 void Directory::setReparsePoint(Directory* pTarget) {
-  m_ReparseTarget = pTarget;
+  __atomic_store_n(&m_ReparseTarget, pTarget, __ATOMIC_RELEASE);
 }
 
 bool Directory::addEphemeralFile(File* pFile) {

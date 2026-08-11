@@ -99,6 +99,8 @@ class EXPORTED_PUBLIC Directory : public File {
    * Reparse points allow locations on the filesystem to redirect lookups to
    * a separate directory. While the reparse point is active, the target
    * directory is used for lookups instead of this one.
+   * The returned pointer is borrowed; atomic publication does not pin the
+   * target directory's lifetime.
    */
   Directory* getReparsePoint() const;
 

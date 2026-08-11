@@ -25,11 +25,13 @@
 #include "pedigree/kernel/process/WaitQueue.h"
 #endif
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/LruCache.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "Filesystem.h"
@@ -47,14 +49,23 @@ class EXPORTED_PUBLIC VFS {
   /** Callback type, called when a disk is mounted or unmounted. */
   typedef void (*MountCallback)();
 
-  struct MountInfo {
-    MountInfo(const String& stableName, const String& path) : stableName(stableName), path(path) {}
+  /** Detached metadata for one published filesystem. */
+  struct MountSnapshot {
+    MountSnapshot() : hasDisk(false) {}
+    MountSnapshot(const String& stableName, const String& path, bool hasDisk,
+                  const String& diskParentName, const String& diskName)
+        : stableName(stableName),
+          path(path),
+          hasDisk(hasDisk),
+          diskParentName(diskParentName),
+          diskName(diskName) {}
 
     String stableName;
     String path;
+    bool hasDisk;
+    String diskParentName;
+    String diskName;
   };
-
-  typedef Tree<Filesystem*, MountInfo*> MountTable;
 
   /** Constructor */
   VFS();
@@ -70,26 +81,31 @@ class EXPORTED_PUBLIC VFS {
   /** Register a filesystem for mounting under /media/<stable-name>. */
   String registerFilesystem(Filesystem* pFs, const String& preferredStableName);
 
-  /** Remove a registered filesystem and optionally destroy it. */
-  void unregisterFilesystem(Filesystem* pFs, bool canDelete = true);
+  /**
+   * Remove a registered filesystem and optionally destroy it.
+   * When canDelete is true, the caller must provide exclusive ownership;
+   * success consumes the pointer, while false leaves it unconsumed. When
+   * canDelete is false, ownership always remains external.
+   */
+  bool unregisterFilesystem(Filesystem* pFs, bool canDelete = true);
 
   /** Select the filesystem that supplies the root namespace. */
   bool setRootFilesystem(Filesystem* pFs);
 
-  Filesystem* getRootFilesystem() const {
-    return m_pRootFilesystem;
-  }
+  /** Returns a borrowed pointer; the lookup does not pin filesystem lifetime. */
+  Filesystem* getRootFilesystem() const;
 
   /** Obtain the canonical mount path for a filesystem. */
   bool getMountPath(Filesystem* pFs, String& path) const;
 
-  /** Find the filesystem mounted at an exact absolute path. */
+  /**
+   * Find the filesystem mounted at an exact absolute path.
+   * The returned pointer is borrowed and is not pinned against unregistration.
+   */
   Filesystem* getFilesystemAt(const String& path) const;
 
-  /** Obtains a list of all mounted filesystems */
-  inline MountTable& getMounts() {
-    return m_Mounts;
-  }
+  /** Copies a detached snapshot of all mounted filesystems. */
+  void getMounts(Vector<MountSnapshot>& mounts) const;
 
   /** Attempts to obtain a File for a specific path. */
   File* find(const String& path, File* pStartNode = 0);
@@ -148,6 +164,15 @@ class EXPORTED_PUBLIC VFS {
   bool untrackFile(File* pFile, bool destroy = true);
 
  private:
+  struct MountInfo {
+    MountInfo(const String& stableName, const String& path) : stableName(stableName), path(path) {}
+
+    String stableName;
+    String path;
+  };
+
+  typedef Tree<Filesystem*, MountInfo*> MountTable;
+
   struct CallbackState {
 #if THREADS
     size_t sequence = 0;
@@ -193,15 +218,19 @@ class EXPORTED_PUBLIC VFS {
 #endif
 
   File* resolveStartNode(const String& path, File* pStartNode);
-  String getUniqueStableName(const String& preferredName) const;
-  bool attachFilesystem(Filesystem* pFs, const String& path);
-  void attachRegisteredFilesystems();
+  String registerFilesystemLocked(Filesystem* pFs, const String& preferredStableName);
+  String getUniqueStableNameLocked(const String& preferredName) const;
+  bool attachFilesystem(Filesystem* pRootFs, Filesystem* pFs, const String& path);
+  void attachRegisteredFilesystemsLocked();
 
   /** The static instance object. */
   static VFS m_Instance;
 
   /** A static File object representing an invalid file */
   static File* m_EmptyFile;
+
+  mutable Mutex m_MountMutationLock;
+  mutable Mutex m_MountTableLock;
 
   Filesystem* m_pRootFilesystem;
   MountTable m_Mounts;

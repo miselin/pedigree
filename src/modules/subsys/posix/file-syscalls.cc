@@ -1924,28 +1924,29 @@ EXPORTED_PUBLIC int pedigree_get_mount(char* mount_buf, char* info_buf, size_t n
 
   NOTICE("pedigree_get_mount(" << Dec << n << Hex << ")");
 
-  VFS::MountTable& mounts = VFS::instance().getMounts();
+  Vector<VFS::MountSnapshot> mounts;
+  VFS::instance().getMounts(mounts);
 
   size_t i = 0;
-  for (VFS::MountTable::Iterator it = mounts.begin(); it != mounts.end(); it++, i++) {
-    Filesystem* pFs = it.key();
-    Disk* pDisk = pFs->getDisk();
-
+  for (const auto& mount : mounts) {
     if (i == n) {
-      String info, s;
-      if (pDisk) {
-        pDisk->getName(s);
-        pDisk->getParent()->getName(info);
-        info += " // ";
-        info += s;
-      } else
+      String info;
+      if (mount.hasDisk) {
+        info = mount.diskParentName;
+        if (info.length() && mount.diskName.length()) {
+          info += " // ";
+        }
+        info += mount.diskName;
+      } else {
         info.assign("no disk", 8);
+      }
 
-      StringCopy(mount_buf, static_cast<const char*>(it.value()->path));
+      StringCopy(mount_buf, static_cast<const char*>(mount.path));
       StringCopy(info_buf, static_cast<const char*>(info));
 
       return 0;
     }
+    ++i;
   }
 
   return -1;

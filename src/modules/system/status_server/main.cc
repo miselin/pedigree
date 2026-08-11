@@ -24,7 +24,6 @@
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
-#include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/machine/Network.h"
 #include "pedigree/kernel/process/Completion.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
@@ -282,26 +281,23 @@ static int clientThread(void* p) {
     responseContent += "<h3>VFS</h3>";
     responseContent += "<table border='1'><tr><th>Mount Point</th><th>Disk</th></tr>";
 
-    VFS::MountTable& mounts = VFS::instance().getMounts();
+    Vector<VFS::MountSnapshot> mounts;
+    VFS::instance().getMounts(mounts);
 
-    for (VFS::MountTable::Iterator it = mounts.begin(); it != mounts.end(); it++) {
-      Filesystem* pFs = it.key();
-      Disk* pDisk = pFs->getDisk();
-
-      String mount = it.value()->path;
-      String diskInfo, temp;
-
-      if (pDisk) {
-        pDisk->getName(temp);
-        pDisk->getParent()->getName(diskInfo);
-
-        diskInfo += " -- ";
-        diskInfo += temp;
-      } else
+    for (const auto& mount : mounts) {
+      String diskInfo;
+      if (mount.hasDisk) {
+        diskInfo = mount.diskParentName;
+        if (diskInfo.length() && mount.diskName.length()) {
+          diskInfo += " -- ";
+        }
+        diskInfo += mount.diskName;
+      } else {
         diskInfo.assign("(no disk)", 10);
+      }
 
       responseContent += "<tr><td>";
-      responseContent += mount;
+      responseContent += mount.path;
       responseContent += "</td><td>";
       responseContent += diskInfo;
       responseContent += "</td></tr>";
