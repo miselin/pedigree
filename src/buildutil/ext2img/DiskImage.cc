@@ -22,6 +22,8 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include <cerrno>
+#include <cstring>
 #include <unistd.h>
 
 #include <sys/mman.h>
@@ -124,7 +126,7 @@ uintptr_t DiskImage::read(uint64_t location) {
 
   void* p = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo, location);
   if (p == MAP_FAILED) {
-    fprintf(stderr, "DiskImage::read: mmap failed (%s)\n", strerror(errno));
+    fprintf(stderr, "DiskImage::read: mmap failed (%s)\n", std::strerror(errno));
     return 0;
   }
 
