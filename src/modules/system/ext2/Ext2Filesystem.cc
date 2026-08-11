@@ -839,15 +839,15 @@ void Ext2Filesystem::releaseBlock(uint32_t block) {
   writeBlock(gdBlock + groupBlock);
 }
 
-bool Ext2Filesystem::releaseInode(uint32_t inode) {
-  Inode* pInode = getInode(inode);
-  --inode;  // Inode zero is undefined, so it's not used.
+bool Ext2Filesystem::releaseInode(uint32_t inodeNumber) {
+  Inode* pInode = getInode(inodeNumber);
+  const uint32_t inodeIndex = inodeNumber - 1;  // Inode zero is undefined, so it's not used.
 
   uint32_t inodesPerGroup = LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
-  uint32_t group = inode / inodesPerGroup;
-  uint32_t index = inode % inodesPerGroup;
+  uint32_t group = inodeIndex / inodesPerGroup;
+  uint32_t index = inodeIndex % inodesPerGroup;
 
-  bool bRemove = decreaseInodeRefcount(inode + 1);
+  bool bRemove = decreaseInodeRefcount(inodeNumber);
 
   // Do we need to free this inode?
   if (bRemove) {
@@ -887,7 +887,7 @@ bool Ext2Filesystem::releaseInode(uint32_t inode) {
     writeBlock(gdBlock + groupBlock);
   }
 
-  writeInode(inode);
+  writeInode(inodeNumber);
   return bRemove;
 }
 

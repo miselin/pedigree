@@ -6,8 +6,11 @@
  */
 
 #include "pedigree/kernel/machine/Disk.h"
+#include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -22,6 +25,29 @@ class Ext2WritebackTestPeer {
   static void configure(Ext2Filesystem& filesystem, Disk* disk, uint32_t blockSize) {
     filesystem.m_pDisk = disk;
     filesystem.m_BlockSize = blockSize;
+  }
+
+  static void configureInodeRelease(Ext2Filesystem& filesystem, Disk* disk, Superblock* superblock,
+                                    GroupDesc* groupDescriptor, uintptr_t inodeBitmap,
+                                    uintptr_t inodeTableBlock0, uintptr_t inodeTableBlock1) {
+    filesystem.m_pDisk = disk;
+    filesystem.m_pSuperblock = superblock;
+    filesystem.m_BlockSize = 4096;
+    filesystem.m_InodeSize = sizeof(Inode);
+    filesystem.m_nGroupDescriptors = 1;
+
+    filesystem.m_pGroupDescriptors = new GroupDesc*[1];
+    filesystem.m_pGroupDescriptors[0] = groupDescriptor;
+    filesystem.m_pBlockBitmaps = new Vector<size_t>[1];
+    filesystem.m_pInodeBitmaps = new Vector<size_t>[1];
+    filesystem.m_pInodeBitmaps[0].pushBack(inodeBitmap);
+    filesystem.m_pInodeTables = new Vector<size_t>[1];
+    filesystem.m_pInodeTables[0].pushBack(inodeTableBlock0);
+    filesystem.m_pInodeTables[0].pushBack(inodeTableBlock1);
+  }
+
+  static bool releaseInode(Ext2Filesystem& filesystem, uint32_t inode) {
+    return filesystem.releaseInode(inode);
   }
 };
 
@@ -147,6 +173,70 @@ TEST(Ext2Writeback, KeepsNativeBlockWritePath) {
   EXPECT_TRUE(disk.reads.empty());
   EXPECT_EQ(disk.writes,
             std::vector<uint64_t>({static_cast<uint64_t>(kPhysicalBlock) * kBlockSize}));
+}
+
+TEST(Ext2Writeback, ReleaseInodeFinishesOnTargetTableBlock) {
+  constexpr uint32_t kTargetInode = 33;
+  constexpr uint32_t kInodesPerGroup = 64;
+  constexpr uint32_t kInodeTableBlock = 100;
+  constexpr uint32_t kInodeBitmapBlock = 200;
+  constexpr uint32_t kFreeInodes = 7;
+  constexpr uint16_t kGroupFreeInodes = 3;
+  constexpr size_t kInodesPerTableBlock = kBlockSize / sizeof(Inode);
+  static_assert(kInodesPerTableBlock == 32, "fixture requires 128-byte ext2 inodes");
+
+  TrackingDisk disk;
+  Superblock superblock = {};
+  superblock.s_first_data_block = HOST_TO_LITTLE32(0);
+  superblock.s_inodes_per_group = HOST_TO_LITTLE32(kInodesPerGroup);
+  superblock.s_free_inodes_count = HOST_TO_LITTLE32(kFreeInodes);
+
+  GroupDesc groupDescriptor = {};
+  groupDescriptor.bg_inode_bitmap = HOST_TO_LITTLE32(kInodeBitmapBlock);
+  groupDescriptor.bg_inode_table = HOST_TO_LITTLE32(kInodeTableBlock);
+  groupDescriptor.bg_free_inodes_count = HOST_TO_LITTLE16(kGroupFreeInodes);
+
+  std::array<Inode, kInodesPerTableBlock> inodeTableBlock0 = {};
+  std::array<Inode, kInodesPerTableBlock> inodeTableBlock1 = {};
+  inodeTableBlock1[0].i_links_count = HOST_TO_LITTLE16(2);
+
+  std::array<uint8_t, kBlockSize> inodeBitmap = {};
+  const size_t targetIndex = kTargetInode - 1;
+  const uint8_t targetMask = 1U << (targetIndex % 8);
+  inodeBitmap[targetIndex / 8] |= targetMask;
+
+  Ext2Filesystem filesystem;
+  Ext2WritebackTestPeer::configureInodeRelease(
+      filesystem, &disk, &superblock, &groupDescriptor,
+      reinterpret_cast<uintptr_t>(inodeBitmap.data()),
+      reinterpret_cast<uintptr_t>(inodeTableBlock0.data()),
+      reinterpret_cast<uintptr_t>(inodeTableBlock1.data()));
+
+  const uint64_t previousTableLocation = static_cast<uint64_t>(kInodeTableBlock) * kBlockSize;
+  const uint64_t targetTableLocation = static_cast<uint64_t>(kInodeTableBlock + 1) * kBlockSize;
+
+  ASSERT_FALSE(Ext2WritebackTestPeer::releaseInode(filesystem, kTargetInode));
+  EXPECT_EQ(LITTLE_TO_HOST16(inodeTableBlock1[0].i_links_count), 1);
+  EXPECT_NE(inodeBitmap[targetIndex / 8] & targetMask, 0);
+  EXPECT_EQ(LITTLE_TO_HOST32(superblock.s_free_inodes_count), kFreeInodes);
+  EXPECT_EQ(LITTLE_TO_HOST16(groupDescriptor.bg_free_inodes_count), kGroupFreeInodes);
+  EXPECT_EQ(std::count(disk.writes.begin(), disk.writes.end(), targetTableLocation), 2);
+  EXPECT_EQ(std::count(disk.writes.begin(), disk.writes.end(), previousTableLocation), 0);
+  ASSERT_FALSE(disk.writes.empty());
+  EXPECT_EQ(disk.writes.back(), targetTableLocation);
+
+  disk.writes.clear();
+  ASSERT_TRUE(Ext2WritebackTestPeer::releaseInode(filesystem, kTargetInode));
+  EXPECT_EQ(LITTLE_TO_HOST16(inodeTableBlock1[0].i_links_count), 0);
+  EXPECT_EQ(inodeBitmap[targetIndex / 8] & targetMask, 0);
+  EXPECT_EQ(LITTLE_TO_HOST32(superblock.s_free_inodes_count), kFreeInodes + 1);
+  EXPECT_EQ(LITTLE_TO_HOST16(groupDescriptor.bg_free_inodes_count), kGroupFreeInodes + 1);
+
+  EXPECT_EQ(std::count(disk.writes.begin(), disk.writes.end(), targetTableLocation), 2);
+  EXPECT_EQ(std::count(disk.writes.begin(), disk.writes.end(), previousTableLocation), 0);
+  ASSERT_FALSE(disk.writes.empty());
+  EXPECT_NE(disk.writes.back(), previousTableLocation);
+  EXPECT_EQ(disk.writes.back(), targetTableLocation);
 }
 
 TEST(PartitionWriteback, AlignsAndTranslatesFlush) {
