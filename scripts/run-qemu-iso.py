@@ -48,14 +48,28 @@ SCENARIOS = {
         ),
     },
 }
-FAILURE_MARKERS = (
-    "(FF)",
-    "panic:",
-    "Page Fault Exception",
-    "Double Fault Exception",
-    "Triple fault",
-    "application processor startup timed out",
-    "did not acknowledge startup",
+ANSI_CSI_PATTERN = re.compile(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]")
+FAILURE_PATTERNS = (
+    ("(FF)", re.compile(r"(?<![\w-])\(ff\)(?![\w-])")),
+    ("panic:", re.compile(r"(?<![\w-])panic:")),
+    ("FATAL:", re.compile(r"(?<![\w-])fatal:")),
+    (
+        "Page Fault Exception",
+        re.compile(r"(?<![\w-])page[ \t]+fault(?:[ \t]+exception)?(?![\w-])"),
+    ),
+    (
+        "Double Fault Exception",
+        re.compile(r"(?<![\w-])double[ \t]+fault(?:[ \t]+exception)?(?![\w-])"),
+    ),
+    (
+        "Triple fault",
+        re.compile(r"(?<![\w-])triple[ \t]+fault(?:[ \t]+exception)?(?![\w-])"),
+    ),
+    (
+        "application processor startup timed out",
+        re.compile(r"application processor startup timed out"),
+    ),
+    ("did not acknowledge startup", re.compile(r"did not acknowledge startup")),
 )
 MANAGED_QEMU_OPTIONS = {
     "-blockdev",
@@ -131,8 +145,9 @@ def evaluate_output(
     require_rtc_progress: bool = False,
     required_markers: tuple[str, ...] = (),
 ) -> tuple[str | None, list[str]]:
-    for marker in FAILURE_MARKERS:
-        if marker in output:
+    failure_output = ANSI_CSI_PATTERN.sub("", output).replace("\0", "").casefold()
+    for marker, pattern in FAILURE_PATTERNS:
+        if pattern.search(failure_output):
             return marker, []
     markers = SCENARIOS[scenario]["markers"]
     if require_rtc_progress:
@@ -329,13 +344,53 @@ def self_test() -> bool:
     failure, missing = evaluate_output(up_output, "up")
     assert failure is None and not missing
     failure, missing = evaluate_output(
+        up_output.replace("Local APIC initialised", "local APIC initialised"),
+        "up",
+    )
+    assert failure is None and missing == ["Local APIC initialised"]
+    failure, missing = evaluate_output(
         up_output, "up", required_markers=("focused regression passed",)
     )
     assert failure is None and missing == ["focused regression passed"]
-    failure, missing = evaluate_output("panic: model failure", "up")
+    failure, missing = evaluate_output(
+        up_output + "\nFOCUSED REGRESSION PASSED",
+        "up",
+        required_markers=("focused regression passed",),
+    )
+    assert failure is None and missing == ["focused regression passed"]
+    decorated_failures = (
+        ("\x1b[s\x1b[1;1H\0\x1b[31;40mPaNiC:\x1b[0m model failure", "panic:"),
+        ("\0FaTaL:\0 model failure", "FATAL:"),
+        ("\x1b[31m(fF)\x1b[0m model failure", "(FF)"),
+        ("pAgE fAuLt", "Page Fault Exception"),
+        ("DoUbLe FaUlT ExCePtIoN", "Double Fault Exception"),
+        ("TrIpLe FaUlT ExCePtIoN", "Triple fault"),
+    )
+    for output, expected_marker in decorated_failures:
+        failure, missing = evaluate_output(output, "up")
+        assert failure == expected_marker and not missing
+
+    expected_labels = (
+        "TLB-EXPECTED-PANIC: armed",
+        "TLB-EXPECTED-FATAL: armed",
+        "TLB-EXPECTED-(FF): armed",
+        "TLB-EXPECTED-PAGE FAULT: armed",
+        "TLB-EXPECTED-DOUBLE FAULT EXCEPTION: armed",
+        "TLB-EXPECTED-TRIPLE FAULT: armed",
+        "failed",
+        "panicroom",
+        "required marker mentions FATAL",
+        "NONFATAL: harness label",
+    )
+    for output in expected_labels:
+        failure, _ = evaluate_output(output, "up")
+        assert failure is None
+
+    failure, missing = evaluate_output(
+        "TLB-EXPECTED-PANIC: armed\n\x1b[31mPaNiC:\x1b[0m real failure",
+        "up",
+    )
     assert failure == "panic:" and not missing
-    failure, missing = evaluate_output("(FF) model failure", "up")
-    assert failure == "(FF)" and not missing
     rtc_output = (
         "[100.0]\n"
         + up_output
