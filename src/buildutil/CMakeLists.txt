@@ -211,7 +211,9 @@ target_compile_definitions(memorytracer PRIVATE -DMEMORY_TRACING)
 # TODO: figure out how to build vdsotest given vdso.h could potentially not exist
 
 set(TESTSUITE_SRCS
+    ext2img/DiskImage.cc
     testsuite/test-BloomFilter.cc
+    testsuite/test-DiskImage.cc
     testsuite/test-Tree.cc
     testsuite/test-ObjectPool.cc
     testsuite/test-SlamAllocator.cc

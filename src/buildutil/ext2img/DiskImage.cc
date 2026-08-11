@@ -23,7 +23,9 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
+#include <limits>
 #include <unistd.h>
 
 #include <sys/mman.h>
@@ -34,34 +36,41 @@ extern BootstrapStruct_t* g_pBootstrapInfo;
 #define USE_FILE_IO 0
 
 DiskImage::DiskImage(const char* path)
-    : Disk(), m_pFileName(path), m_nSize(0), m_pFile(0), m_FileNo(-1), m_pBuffer(0) {}
+    : Disk(),
+      m_pFileName(path),
+      m_nSize(0),
+      m_pFile(0),
+      m_FileNo(-1),
+      m_pBuffer(0),
+      m_HostPageSize(0) {}
 
 DiskImage::~DiskImage() {
-  if (m_pBuffer) {
 #if USE_FILE_IO
+  if (m_pBuffer) {
     fflush(m_pFile);
     delete[] (char*)m_pBuffer;
+  }
 #elif HAS_ADDRESS_SANITIZER
-    for (auto it : m_BufferMap) {
-      void* buf = it.second;
-      msync(buf, 4096, MS_SYNC);
-      munmap(buf, 4096);
-    }
+  for (const auto& entry : m_BufferMap) {
+    const BufferMapping& mapping = entry.second;
+    msync(mapping.base, mapping.length, MS_SYNC);
+    munmap(mapping.base, mapping.length);
+  }
+  m_BufferMap.clear();
 #else
+  if (m_pBuffer) {
     msync(m_pBuffer, m_nSize, MS_SYNC);
     munmap(m_pBuffer, m_nSize);
-#endif
-    m_pBuffer = 0;
   }
+#endif
+  m_pBuffer = 0;
 
   if (m_pFile) {
     fflush(m_pFile);
     fclose(m_pFile);
+    m_pFile = 0;
   }
-
-  if (m_FileNo >= 0) {
-    close(m_FileNo);
-  }
+  m_FileNo = -1;
 }
 
 bool DiskImage::initialise() {
@@ -73,15 +82,31 @@ bool DiskImage::initialise() {
     return false;
 
   m_FileNo = fileno(m_pFile);
-  struct stat st;
-  int r = fstat(m_FileNo, &st);
-  if (r < 0) {
+  if (m_FileNo < 0) {
     fclose(m_pFile);
     m_pFile = 0;
+    m_FileNo = -1;
+    m_nSize = 0;
+    m_HostPageSize = 0;
     return false;
   }
 
-  m_nSize = st.st_size;
+  struct stat st;
+  int r = fstat(m_FileNo, &st);
+  const long hostPageSize = sysconf(_SC_PAGESIZE);
+  if (r < 0 || st.st_size <= 0 || hostPageSize <= 0 ||
+      static_cast<std::uintmax_t>(st.st_size) > std::numeric_limits<size_t>::max() ||
+      static_cast<std::uintmax_t>(hostPageSize) > std::numeric_limits<size_t>::max()) {
+    fclose(m_pFile);
+    m_pFile = 0;
+    m_FileNo = -1;
+    m_nSize = 0;
+    m_HostPageSize = 0;
+    return false;
+  }
+
+  m_nSize = static_cast<size_t>(st.st_size);
+  m_HostPageSize = static_cast<size_t>(hostPageSize);
 
 #if USE_FILE_IO
   m_pBuffer = (void*)new char[m_nSize];
@@ -90,8 +115,12 @@ bool DiskImage::initialise() {
 #else
   m_pBuffer = mmap(0, m_nSize, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo, 0);
   if (m_pBuffer == MAP_FAILED) {
+    m_pBuffer = 0;
     fclose(m_pFile);
     m_pFile = 0;
+    m_FileNo = -1;
+    m_nSize = 0;
+    m_HostPageSize = 0;
     return false;
   }
 
@@ -118,20 +147,27 @@ uintptr_t DiskImage::read(uint64_t location) {
     return 0;
   return reinterpret_cast<uintptr_t>(m_pBuffer) + location + off;
 #elif HAS_ADDRESS_SANITIZER
-  location &= ~0xFFF;
-  auto it = m_BufferMap.find(location);
+  auto it = m_BufferMap.find(pageLocation);
   if (it != m_BufferMap.end()) {
-    return reinterpret_cast<uintptr_t>((*it).second) + off;
+    const BufferMapping& mapping = it->second;
+    return reinterpret_cast<uintptr_t>(mapping.base) + mapping.logicalOffset + off;
   }
 
-  void* p = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo, location);
+  const uint64_t mappingLocation = (pageLocation / m_HostPageSize) * m_HostPageSize;
+  const size_t logicalOffset = static_cast<size_t>(pageLocation - mappingLocation);
+  if (logicalOffset > std::numeric_limits<size_t>::max() - getBlockSize()) {
+    return 0;
+  }
+  const size_t mappingLength = logicalOffset + getBlockSize();
+  void* p = mmap(0, mappingLength, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo,
+                 static_cast<off_t>(mappingLocation));
   if (p == MAP_FAILED) {
     fprintf(stderr, "DiskImage::read: mmap failed (%s)\n", std::strerror(errno));
     return 0;
   }
 
-  m_BufferMap.insert({location, p});
-  return reinterpret_cast<uintptr_t>(p) + off;
+  m_BufferMap.insert({pageLocation, {p, mappingLength, logicalOffset}});
+  return reinterpret_cast<uintptr_t>(p) + logicalOffset + off;
 #else
   return reinterpret_cast<uintptr_t>(m_pBuffer) + location;
 #endif
@@ -149,13 +185,18 @@ void DiskImage::write(uint64_t location) {
   fseek(m_pFile, location, SEEK_SET);
   fwrite(adjust_pointer(m_pBuffer, location), 4096, 1, m_pFile);
 #elif HAS_ADDRESS_SANITIZER
-  location &= ~0xFFF;
-  auto it = m_BufferMap.find(location);
+  auto it = m_BufferMap.find(pageLocation);
   if (it != m_BufferMap.end()) {
-    msync((*it).second, 4096, MS_ASYNC);
+    const BufferMapping& mapping = it->second;
+    msync(mapping.base, mapping.length, MS_ASYNC);
   }
 #else
-  msync(adjust_pointer(m_pBuffer, location), getBlockSize(), MS_ASYNC);
+  const uint64_t syncLocation = (pageLocation / m_HostPageSize) * m_HostPageSize;
+  const size_t logicalOffset = static_cast<size_t>(pageLocation - syncLocation);
+  if (logicalOffset > std::numeric_limits<size_t>::max() - getBlockSize()) {
+    return;
+  }
+  msync(adjust_pointer(m_pBuffer, syncLocation), logicalOffset + getBlockSize(), MS_ASYNC);
 #endif
 }
 

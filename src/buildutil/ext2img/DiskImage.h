@@ -22,7 +22,6 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Disk.h"
-#include "pedigree/kernel/utilities/Tree.h"
 
 #include <stdio.h>
 
@@ -60,7 +59,13 @@ class DiskImage : public Disk {
   virtual void unpin(uint64_t location);
 
  private:
-  void* bufferForLocation(uint64_t location);
+#if HAS_ADDRESS_SANITIZER
+  struct BufferMapping {
+    void* base;
+    size_t length;
+    size_t logicalOffset;
+  };
+#endif
 
   const char* m_pFileName;
   size_t m_nSize;
@@ -68,9 +73,10 @@ class DiskImage : public Disk {
   int m_FileNo;
 
   void* m_pBuffer;
+  size_t m_HostPageSize;
 
 #if HAS_ADDRESS_SANITIZER
-  std::map<uint64_t, void*> m_BufferMap;
+  std::map<uint64_t, BufferMapping> m_BufferMap;
 #endif
 };
 
