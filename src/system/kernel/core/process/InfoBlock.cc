@@ -37,10 +37,9 @@ InfoBlockManager::InfoBlockManager()
     : TimerHandler(), m_bInitialised(false), m_pTimer(nullptr), m_pInfoBlock(0) {}
 
 InfoBlockManager::~InfoBlockManager() {
-  if (m_pTimer && !m_pTimer->unregisterHandler(this)) {
+  if (!shutdown()) {
     FATAL("InfoBlockManager could not drain its timer callback");
   }
-  m_pTimer = nullptr;
 }
 
 InfoBlockManager& InfoBlockManager::instance() {
@@ -76,13 +75,23 @@ bool InfoBlockManager::initialise() {
   m_pInfoBlock->monotonic = Time::getTicks();
 
   // Register ourselves with the main timer.
-  m_bInitialised = true;
+  __atomic_store_n(&m_bInitialised, true, __ATOMIC_RELEASE);
   Timer* timer = Machine::instance().getTimer();
   if (timer && timer->registerHandler(this)) {
     m_pTimer = timer;
     return true;
   }
   return false;
+}
+
+bool InfoBlockManager::shutdown() {
+  if (m_pTimer && !m_pTimer->unregisterHandler(this)) {
+    return false;
+  }
+
+  m_pTimer = nullptr;
+  __atomic_store_n(&m_bInitialised, false, __ATOMIC_RELEASE);
+  return true;
 }
 
 void InfoBlockManager::timer(uint64_t) {
@@ -93,6 +102,6 @@ void InfoBlockManager::timer(uint64_t) {
 }
 
 void InfoBlockManager::setPid(size_t value) {
-  if (LIKELY(m_bInitialised))
+  if (LIKELY(__atomic_load_n(&m_bInitialised, __ATOMIC_ACQUIRE)))
     m_pInfoBlock->pid = value;
 }

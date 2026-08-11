@@ -543,6 +543,15 @@ void _cxx_main(BootstrapStruct_t& bsInf) {
   // workers while the platform timer registry is still available.
   CacheManager::destroyInstance();
 
+  // The shared info block remains live until userspace and module teardown
+  // finish, but its callback must retire before the platform timer does.
+  if (!InfoBlockManager::instance().shutdown()) {
+    FATAL("InfoBlockManager could not drain its timer callback");
+  }
+#if PEDIGREE_CONCURRENCY_SMOKE_TESTS
+  NOTICE("QEMU-CONCURRENCY-TEST: PASS infoblock-timer-drain");
+#endif
+
   // Stop active platform services while their worker/callback drains can
   // still schedule.
   Machine::instance().deinitialise();

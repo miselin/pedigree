@@ -66,6 +66,9 @@ class InfoBlockManager : public TimerHandler {
 
   bool initialise();
 
+  /** Drains the timer callback before the platform timer is torn down. */
+  bool shutdown();
+
   virtual void timer(uint64_t delta);
 
   void setPid(size_t value);
