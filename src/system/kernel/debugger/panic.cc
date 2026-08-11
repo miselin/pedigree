@@ -113,37 +113,64 @@ static void _panic(const char* msg, DebuggerIO* pScreen) {
 }
 
 void panic(const char* msg) {
-  static String graphicsService("graphics");
-
 #if HOSTED
   fprintf(stderr, "panic: %s\n", msg);
   abort();
 #endif
 
+  const bool terminalTlbFailure = Processor::tlbInvalidationTerminal();
   Processor::setInterrupts(false);
 
+  bool processorsStopped = true;
 #if MULTIPROCESSOR
-  if (!Machine::instance().stopAllOtherProcessors()) {
+  if (terminalTlbFailure) {
+    do {
+      processorsStopped = Machine::instance().stopAllOtherProcessors();
+      if (!processorsStopped) {
+        Processor::pause();
+      }
+    } while (!processorsStopped);
+  } else {
+    processorsStopped = Machine::instance().stopAllOtherProcessors();
+  }
+  if (!processorsStopped && !terminalTlbFailure) {
     ERROR_NOLOCK("panic: not all other processors stopped");
   }
 #endif
 
-  // Drop out of whatever graphics mode we were in
-  GraphicsService::GraphicsParameters params;
-  ByteSet(&params, 0, sizeof(params));
-  params.wantTextMode = false;
+  if (terminalTlbFailure) {
+    // Arbitrarily halted peers may own allocator, log, graphics, or input
+    // locks. Keep the terminal failure path to literal serial writes only.
+    SerialIO serialIO(Machine::instance().getSerial(0));
+    serialIO.drawString("PANIC: ", 0, 0, DebuggerIO::Red, DebuggerIO::Black);
+    serialIO.drawString(msg, 0, 7, DebuggerIO::Red, DebuggerIO::Black);
+    while (true) {
+      Processor::halt();
+    }
+  }
 
-  ServiceFeatures* pFeatures = ServiceManager::instance().enumerateOperations(graphicsService);
-  Service* pService = ServiceManager::instance().getService(graphicsService);
-  bool bSuccess = false;
-  if (pFeatures && pFeatures->provides(ServiceFeatures::probe))
-    if (pService)
-      bSuccess =
-          pService->serve(ServiceFeatures::probe, reinterpret_cast<void*>(&params), sizeof(params));
+  if (processorsStopped) {
+    static String graphicsService("graphics");
 
-  if (bSuccess && params.providerFound && !params.providerResult.bTextModes &&
-      params.providerResult.pDisplay) {
-    params.providerResult.pDisplay->setScreenMode(0);
+    // Drop out of whatever graphics mode we were in.
+    GraphicsService::GraphicsParameters params;
+    ByteSet(&params, 0, sizeof(params));
+    params.wantTextMode = false;
+
+    ServiceFeatures* pFeatures = ServiceManager::instance().enumerateOperations(graphicsService);
+    Service* pService = ServiceManager::instance().getService(graphicsService);
+    bool bSuccess = false;
+    if (pFeatures && pFeatures->provides(ServiceFeatures::probe)) {
+      if (pService) {
+        bSuccess = pService->serve(ServiceFeatures::probe, reinterpret_cast<void*>(&params),
+                                   sizeof(params));
+      }
+    }
+
+    if (bSuccess && params.providerFound && !params.providerResult.bTextModes &&
+        params.providerResult.pDisplay) {
+      params.providerResult.pDisplay->setScreenMode(0);
+    }
   }
 
   /*

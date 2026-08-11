@@ -54,6 +54,13 @@ Pc Pc::m_Instance;
 #if MULTIPROCESSOR
 namespace {
 bool reportProcessorControlResult(LocalApic::ProcessorControlResult result, const char* operation) {
+  if (result != LocalApic::ProcessorControlResult::Success &&
+      Processor::tlbInvalidationTerminal()) {
+    // The terminal TLB coordinator may hold an outer allocator lock. Its
+    // retry loop must not format or publish diagnostics before peers stop.
+    return false;
+  }
+
   switch (result) {
     case LocalApic::ProcessorControlResult::Success:
       return true;

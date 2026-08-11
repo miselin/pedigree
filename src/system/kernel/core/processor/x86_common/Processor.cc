@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
@@ -182,8 +183,7 @@ void ProcessorBase::invalidate(void* pAddress) {
 TlbInvalidationResult ProcessorBase::beginTlbInvalidation(TlbInvalidationGuard& guard) {
   const ExecutionContext context = executionContext();
   if (guard.m_Active ||
-      (context != ExecutionContext::WaitableThread &&
-       context != ExecutionContext::AtomicThread)) {
+      (context != ExecutionContext::WaitableThread && context != ExecutionContext::AtomicThread)) {
     return TlbInvalidationResult::InvalidContext;
   }
 
@@ -217,17 +217,90 @@ void ProcessorBase::endTlbInvalidation(TlbInvalidationGuard& guard) {
   guard.m_Active = false;
 }
 
+bool ProcessorBase::closeTlbInvalidationAdmissionForTerminalFailure(TlbInvalidationGuard& guard,
+                                                                    TlbInvalidationResult result) {
+  if (!guard.m_Active) {
+    return false;
+  }
+
+#if MULTIPROCESSOR && APIC
+  if (guard.m_Global) {
+    return Pc::instance().getLocalApic().closeTlbInvalidationAdmissionForTerminalFailure(result);
+  }
+#endif
+
+  return true;
+}
+
+bool ProcessorBase::tlbInvalidationFailureActive() {
+#if MULTIPROCESSOR && APIC
+  if (m_Initialised == 2 && getCount() > 1) {
+    Pc& pc = Pc::instance();
+    return pc.localApicAvailable() && pc.getLocalApic().tlbInvalidationFailureActive();
+  }
+#endif
+  return false;
+}
+
+bool ProcessorBase::tlbInvalidationTerminal() {
+#if MULTIPROCESSOR && APIC
+  if (m_Initialised == 2 && getCount() > 1) {
+    Pc& pc = Pc::instance();
+    return pc.localApicAvailable() && pc.getLocalApic().tlbInvalidationTerminal();
+  }
+#endif
+  return false;
+}
+
 TlbInvalidationResult ProcessorBase::invalidateAll(void* pAddress) {
   TlbInvalidationGuard guard;
   const TlbInvalidationResult result = beginTlbInvalidation(guard);
   if (result != TlbInvalidationResult::Success) {
+    if (result == TlbInvalidationResult::SerialisationTimedOut && tlbInvalidationFailureActive()) {
+      Processor::setInterrupts(false);
+      while (true) {
+        Processor::pause();
+      }
+    }
     return result;
   }
-  return invalidateAll(pAddress, guard);
+  const TlbInvalidationResult invalidation = invalidateAll(pAddress, guard);
+  if (invalidation == TlbInvalidationResult::Success) {
+    return invalidation;
+  }
+
+  // The Local APIC retains a failed generation for terminal adoption. Even
+  // this non-mutating convenience call must complete that handoff rather than
+  // returning with an orphaned shootdown owner.
+  const bool coordinator = guard.closeAdmissionForTerminalFailure(invalidation);
+  guard.retire();
+  Processor::setInterrupts(false);
+  if (!coordinator) {
+    while (true) {
+      Processor::pause();
+    }
+  }
+
+  switch (invalidation) {
+    case TlbInvalidationResult::InvalidContext:
+      panic("TLB invalidation failed from an invalid context");
+    case TlbInvalidationResult::UnsupportedTopology:
+      panic("TLB invalidation has no safe all-processor route");
+    case TlbInvalidationResult::SerialisationTimedOut:
+      panic("TLB invalidation serialisation timed out");
+    case TlbInvalidationResult::SubmissionFailed:
+      panic("TLB invalidation IPI submission failed");
+    case TlbInvalidationResult::AcknowledgementTimedOut:
+      panic("TLB invalidation acknowledgement timed out");
+    case TlbInvalidationResult::DrainTimedOut:
+      panic("TLB invalidation service drain timed out");
+    case TlbInvalidationResult::Success:
+      break;
+  }
+  panic("TLB invalidation returned an unknown result");
 }
 
-TlbInvalidationResult ProcessorBase::invalidateAll(
-    void* pAddress, TlbInvalidationGuard& guard) {
+TlbInvalidationResult ProcessorBase::invalidateAll(void* pAddress, TlbInvalidationGuard& guard) {
   if (!guard.m_Active) {
     return TlbInvalidationResult::InvalidContext;
   }
@@ -334,6 +407,7 @@ void ProcessorBase::pause() {
     Pc& pc = Pc::instance();
     if (pc.localApicAvailable()) {
       pc.getLocalApic().servicePendingTlbShootdown();
+      pc.getLocalApic().servicePendingTerminalProcessorControl();
     }
   }
 #endif

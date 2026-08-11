@@ -92,6 +92,12 @@ static void beginMappingInvalidation(TlbInvalidationGuard& invalidation) {
     case TlbInvalidationResult::UnsupportedTopology:
       panic("Mapping mutation has no safe all-processor TLB route");
     case TlbInvalidationResult::SerialisationTimedOut:
+      if (Processor::tlbInvalidationFailureActive()) {
+        Processor::setInterrupts(false);
+        while (true) {
+          Processor::pause();
+        }
+      }
       panic("Mapping mutation admission timed out");
     case TlbInvalidationResult::SubmissionFailed:
     case TlbInvalidationResult::AcknowledgementTimedOut:
@@ -100,6 +106,147 @@ static void beginMappingInvalidation(TlbInvalidationGuard& invalidation) {
   }
   panic("Mapping mutation admission returned an unknown result");
 }
+
+static const char* mappingInvalidationFailureMessage(TlbInvalidationResult result) {
+  switch (result) {
+    case TlbInvalidationResult::InvalidContext:
+      return "Mapping changed from an invalid TLB-shootdown context";
+    case TlbInvalidationResult::UnsupportedTopology:
+      return "Mapping has no safe all-processor TLB route";
+    case TlbInvalidationResult::SerialisationTimedOut:
+      return "Cross-processor TLB shootdown serialisation timed out";
+    case TlbInvalidationResult::SubmissionFailed:
+      return "Cross-processor TLB shootdown IPI submission failed";
+    case TlbInvalidationResult::AcknowledgementTimedOut:
+      return "Cross-processor TLB shootdown acknowledgement timed out";
+    case TlbInvalidationResult::DrainTimedOut:
+      return "Cross-processor TLB shootdown service drain timed out";
+    case TlbInvalidationResult::Success:
+      break;
+  }
+  return "Cross-processor TLB shootdown returned an unknown result";
+}
+
+/**
+ * Keeps interrupts suppressed until every VAS lock and the mutation lease are
+ * retired. This ordering prevents terminal processor control from racing a
+ * stale PTE with either an IRQ callback or another mapper.
+ */
+class X64MappingMutationScope {
+ public:
+  X64MappingMutationScope()
+      : m_Invalidation(),
+        m_RestoreInterrupts(Processor::getInterrupts()),
+        m_Locks(),
+        m_LockCount(0),
+        m_Result(TlbInvalidationResult::Success),
+        m_Coordinator(false),
+        m_Finished(false) {
+    beginMappingInvalidation(m_Invalidation);
+  }
+
+  ~X64MappingMutationScope() {
+    finish(true);
+  }
+
+  void lock(Spinlock& lock) {
+    lock.acquire();
+    m_Locks[m_LockCount].lock = &lock;
+    m_Locks[m_LockCount].owned = true;
+    ++m_LockCount;
+  }
+
+  void unlock(Spinlock& lock) {
+    for (size_t i = m_LockCount; i > 0; --i) {
+      LockState& state = m_Locks[i - 1];
+      if (state.lock == &lock && state.owned) {
+        lock.exit();
+        state.owned = false;
+        return;
+      }
+    }
+    panicWithoutRestoringInterrupts("Mapping mutation released an unowned VAS lock");
+  }
+
+  void relock(Spinlock& lock) {
+    for (size_t i = 0; i < m_LockCount; ++i) {
+      LockState& state = m_Locks[i];
+      if (state.lock == &lock && !state.owned) {
+        lock.acquire();
+        state.owned = true;
+        return;
+      }
+    }
+    panicWithoutRestoringInterrupts("Mapping mutation reacquired an unknown VAS lock");
+  }
+
+  bool invalidate(void* virtualAddress) {
+    m_Result = Processor::invalidateAll(virtualAddress, m_Invalidation);
+    if (m_Result == TlbInvalidationResult::Success) {
+      return true;
+    }
+
+    m_Coordinator = m_Invalidation.closeAdmissionForTerminalFailure(m_Result);
+    return false;
+  }
+
+  bool failed() const {
+    return m_Result != TlbInvalidationResult::Success;
+  }
+
+  void panicInvalidationFailure() NORETURN {
+    const TlbInvalidationResult result = m_Result;
+    const bool coordinator = m_Coordinator;
+    finish(false);
+
+    if (!coordinator) {
+      while (true) {
+        Processor::pause();
+      }
+    }
+    panic(mappingInvalidationFailureMessage(result));
+  }
+
+  void panicWithoutRestoringInterrupts(const char* message) NORETURN {
+    finish(false);
+    panic(message);
+  }
+
+ private:
+  struct LockState {
+    Spinlock* lock;
+    bool owned;
+  };
+
+  void finish(bool restoreInterrupts) {
+    if (m_Finished) {
+      return;
+    }
+
+    Processor::setInterrupts(false);
+    for (size_t i = m_LockCount; i > 0; --i) {
+      LockState& state = m_Locks[i - 1];
+      if (state.owned) {
+        state.lock->exit();
+        state.owned = false;
+      }
+    }
+    m_Invalidation.retire();
+    m_Finished = true;
+
+    if (restoreInterrupts && m_RestoreInterrupts) {
+      Processor::setInterrupts(true);
+    }
+  }
+
+  TlbInvalidationGuard m_Invalidation;
+  bool m_RestoreInterrupts;
+  LockState m_Locks[2];
+  size_t m_LockCount;
+  TlbInvalidationResult m_Result;
+  bool m_Coordinator;
+  bool m_Finished;
+};
 
 VirtualAddressSpace& VirtualAddressSpace::getKernelAddressSpace() {
   return X64VirtualAddressSpace::m_KernelSpace;
@@ -186,11 +333,14 @@ bool X64VirtualAddressSpace::isMapped(void* virtualAddress) {
 
 bool X64VirtualAddressSpace::map(physical_uintptr_t physAddress, void* virtualAddress,
                                  size_t flags) {
-  TlbInvalidationGuard invalidation;
-  beginMappingInvalidation(invalidation);
-  LockGuard<Spinlock> guard(m_Lock);
+  X64MappingMutationScope mutation;
+  mutation.lock(m_Lock);
 
-  return mapUnlocked(physAddress, virtualAddress, flags, invalidation, m_Lock.acquired());
+  const bool mapped = mapUnlocked(physAddress, virtualAddress, flags, mutation, true);
+  if (mutation.failed()) {
+    mutation.panicInvalidationFailure();
+  }
+  return mapped;
 }
 
 bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtualAddress,
@@ -210,13 +360,15 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtu
   const size_t numHugePages = count / pagesPerTwoMiB;
   const size_t mappedPages = numHugePages * pagesPerTwoMiB;
   {
-    TlbInvalidationGuard invalidation;
-    beginMappingInvalidation(invalidation);
-    LockGuard<Spinlock> guard(m_Lock);
+    X64MappingMutationScope mutation;
+    mutation.lock(m_Lock);
 
     // Clean up existing mappings before installing the huge-page entries.
     for (size_t i = 0; i < mappedPages; ++i) {
-      unmapUnlocked(adjust_pointer(virtualAddress, i * smallPageSize), invalidation, false);
+      unmapUnlocked(adjust_pointer(virtualAddress, i * smallPageSize), mutation, false);
+      if (mutation.failed()) {
+        mutation.panicInvalidationFailure();
+      }
     }
 
     size_t Flags = toFlags(flags, true);
@@ -243,7 +395,9 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtu
           TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryPointerEntry), pageDirectoryIndex);
 
       *pageDirectoryEntry = physAddress | PAGE_2MB | Flags;
-      invalidateMapping(virtualAddress, invalidation);
+      if (!invalidateMapping(virtualAddress, mutation)) {
+        mutation.panicInvalidationFailure();
+      }
 
       virtualAddress = adjust_pointer(virtualAddress, twoMiB);
       physAddress += twoMiB;
@@ -257,9 +411,9 @@ bool X64VirtualAddressSpace::mapHuge(physical_uintptr_t physAddress, void* virtu
   return true;
 }
 
-bool X64VirtualAddressSpace::mapUnlocked(
-    physical_uintptr_t physAddress, void* virtualAddress, size_t flags,
-    TlbInvalidationGuard& invalidation, bool locked) {
+bool X64VirtualAddressSpace::mapUnlocked(physical_uintptr_t physAddress, void* virtualAddress,
+                                         size_t flags, X64MappingMutationScope& mutation,
+                                         bool locked) {
   size_t Flags = toFlags(flags, true);
   size_t pml4Index = PML4_INDEX(virtualAddress);
   uint64_t* pml4Entry = TABLE_ENTRY(m_PhysicalPML4, pml4Index);
@@ -306,8 +460,9 @@ bool X64VirtualAddressSpace::mapUnlocked(
   trackPages(1, 0, 0);
 
   // We don't need the lock to propagate the PDPT.
-  if (locked)
-    m_Lock.release();
+  if (locked) {
+    mutation.unlock(m_Lock);
+  }
 
   // If there wasn't a PDPT already present, and the address is in the kernel
   // area of memory, we need to propagate this change across all address
@@ -328,13 +483,16 @@ bool X64VirtualAddressSpace::mapUnlocked(
   }
 
   // If we were locked before, take the lock to enforce that.
-  if (locked)
-    m_Lock.acquire();
+  if (locked) {
+    mutation.relock(m_Lock);
+  }
 
   // A previously non-present entry can be cached, and upper-half entries are
   // shared by every active address space. Invalidate only after any new PML4
   // entry has been propagated.
-  invalidateMapping(virtualAddress, invalidation);
+  if (!invalidateMapping(virtualAddress, mutation)) {
+    return false;
+  }
 
   return true;
 }
@@ -383,34 +541,39 @@ bool X64VirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value) {
 }
 
 void X64VirtualAddressSpace::setFlags(void* virtualAddress, size_t newFlags) {
-  TlbInvalidationGuard invalidation;
-  beginMappingInvalidation(invalidation);
-  LockGuard<Spinlock> guard(m_Lock);
+  X64MappingMutationScope mutation;
+  mutation.lock(m_Lock);
 
   // Get a pointer to the page-table entry (Also checks whether the page is
   // actually present or marked swapped out)
   uint64_t* pageTableEntry = 0;
   if (getPageTableEntry(virtualAddress, pageTableEntry) == false) {
-    panic("VirtualAddressSpace::setFlags(): function misused");
+    mutation.panicWithoutRestoringInterrupts("VirtualAddressSpace::setFlags(): function misused");
   }
 
   // Set the flags
   PAGE_SET_FLAGS(pageTableEntry, toFlags(newFlags, true));
 
   // Flush TLB - modified the mapping for this address.
-  invalidateMapping(virtualAddress, invalidation);
+  if (!invalidateMapping(virtualAddress, mutation)) {
+    mutation.panicInvalidationFailure();
+  }
 }
 
 void X64VirtualAddressSpace::unmap(void* virtualAddress) {
-  TlbInvalidationGuard invalidation;
-  beginMappingInvalidation(invalidation);
-  LockGuard<Spinlock> guard(m_Lock);
+  X64MappingMutationScope mutation;
+  mutation.lock(m_Lock);
 
-  unmapUnlocked(virtualAddress, invalidation);
+  if (!unmapUnlocked(virtualAddress, mutation)) {
+    if (mutation.failed()) {
+      mutation.panicInvalidationFailure();
+    }
+    mutation.panicWithoutRestoringInterrupts("VirtualAddressSpace::unmap(): function misused");
+  }
 }
 
-void X64VirtualAddressSpace::unmapUnlocked(
-    void* virtualAddress, TlbInvalidationGuard& invalidation, bool requireMapped) {
+bool X64VirtualAddressSpace::unmapUnlocked(void* virtualAddress, X64MappingMutationScope& mutation,
+                                           bool requireMapped) {
   // Get a pointer to the page-table entry (Also checks whether the page is
   // actually present or marked swapped out)
   uint64_t* pageTableEntry = 0;
@@ -418,9 +581,9 @@ void X64VirtualAddressSpace::unmapUnlocked(
     // Not mapped! This is a panic for most cases, but private usage of
     // unmap within X64VirtualAddressSpace is allowed to do this.
     if (requireMapped) {
-      panic("VirtualAddressSpace::unmap(): function misused");
+      return false;
     } else {
-      return;
+      return true;
     }
   }
 
@@ -434,10 +597,13 @@ void X64VirtualAddressSpace::unmapUnlocked(
   // paging-structure-cache entries for this address.
   physical_uintptr_t detachedTables[3] = {};
   const size_t detachedCount = detachEmptyTables(virtualAddress, detachedTables);
-  invalidateMapping(virtualAddress, invalidation);
+  if (!invalidateMapping(virtualAddress, mutation)) {
+    return false;
+  }
   for (size_t i = 0; i < detachedCount; ++i) {
     PhysicalMemoryManager::instance().freePage(detachedTables[i]);
   }
+  return true;
 }
 
 VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
@@ -452,12 +618,10 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
   }
 
   {
-    TlbInvalidationGuard invalidation;
-    beginMappingInvalidation(invalidation);
-
     // Lock both address spaces so we can clone their mappings safely.
-    LockGuard<Spinlock> cloneGuard(pClone->m_Lock);
-    m_Lock.acquire();
+    X64MappingMutationScope mutation;
+    mutation.lock(pClone->m_Lock);
+    mutation.lock(m_Lock);
 
     // The userspace area is only the bottom half of the address space - the top
     // 256 PML4 entries are for the kernel, and these should be mapped anyway.
@@ -503,7 +667,10 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
               // Handle shared mappings - don't copy the original
               // page.
               pClone->mapUnlocked(physicalAddress, virtualAddress, fromFlags(flags, true),
-                                  invalidation);
+                                  mutation);
+              if (mutation.failed()) {
+                mutation.panicInvalidationFailure();
+              }
               continue;
             }
 
@@ -515,8 +682,10 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
               flags |= PAGE_COPY_ON_WRITE;
               flags &= ~PAGE_WRITE;
             }
-            pClone->mapUnlocked(physicalAddress, virtualAddress, fromFlags(flags, true),
-                                invalidation);
+            pClone->mapUnlocked(physicalAddress, virtualAddress, fromFlags(flags, true), mutation);
+            if (mutation.failed()) {
+              mutation.panicInvalidationFailure();
+            }
 
             // We need to modify the entry in *this* address space as
             // well to also have the read-only and copy-on-write flag
@@ -526,7 +695,9 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
             // otherwise the flags are unchanged in the parent space.
             if (copyOnWrite) {
               PAGE_SET_FLAGS(ptEntry, flags);
-              invalidateMapping(virtualAddress, invalidation);
+              if (!invalidateMapping(virtualAddress, mutation)) {
+                mutation.panicInvalidationFailure();
+              }
             }
 
             // Pin the page twice - once for each side of the clone.
@@ -551,9 +722,6 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
       pClone->m_Heap = m_Heap;
       pClone->m_HeapEnd = m_HeapEnd;
     }
-
-    // No longer need this address space's lock - cloning is mostly done.
-    m_Lock.release();
   }
 
   // Now we pick up the stacks lock, so we can copy safely. However, we don't
@@ -576,9 +744,8 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
 }
 
 void X64VirtualAddressSpace::revertToKernelAddressSpace() {
-  TlbInvalidationGuard invalidation;
-  beginMappingInvalidation(invalidation);
-  LockGuard<Spinlock> guard(m_Lock);
+  X64MappingMutationScope mutation;
+  mutation.lock(m_Lock);
 
   // The userspace area is only the bottom half of the address space - the top
   // 256 PML4 entries are for the kernel, and these should be mapped anyway.
@@ -592,8 +759,8 @@ void X64VirtualAddressSpace::revertToKernelAddressSpace() {
       if ((*pdptEntry & PAGE_PRESENT) != PAGE_PRESENT)
         continue;
 
-      void* pdptVirtualAddress = reinterpret_cast<void*>(
-          ((i & 0x100) ? (~0ULL << 48) : 0ULL) | (i << 39) | (j << 30));
+      void* pdptVirtualAddress =
+          reinterpret_cast<void*>(((i & 0x100) ? (~0ULL << 48) : 0ULL) | (i << 39) | (j << 30));
 
       for (uint64_t k = 0; k < 512; k++) {
         uint64_t* pdEntry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pdptEntry), k);
@@ -636,7 +803,9 @@ void X64VirtualAddressSpace::revertToKernelAddressSpace() {
           // Free the page.
           trackPages(-1, 0, 0);
           *ptEntry = 0;
-          invalidateMapping(virtualAddress, invalidation);
+          if (!invalidateMapping(virtualAddress, mutation)) {
+            mutation.panicInvalidationFailure();
+          }
           if (releasePhysicalPage) {
             PhysicalMemoryManager::instance().freePage(physicalAddress);
           }
@@ -645,21 +814,27 @@ void X64VirtualAddressSpace::revertToKernelAddressSpace() {
         // Remove the table.
         const physical_uintptr_t pageTable = PAGE_GET_PHYSICAL_ADDRESS(pdEntry);
         *pdEntry = 0;
-        invalidateMapping(regionVirtualAddress, invalidation);
+        if (!invalidateMapping(regionVirtualAddress, mutation)) {
+          mutation.panicInvalidationFailure();
+        }
         PhysicalMemoryManager::instance().freePage(pageTable);
       }
 
       const physical_uintptr_t pageDirectory = PAGE_GET_PHYSICAL_ADDRESS(pdptEntry);
       *pdptEntry = 0;
-      invalidateMapping(pdptVirtualAddress, invalidation);
+      if (!invalidateMapping(pdptVirtualAddress, mutation)) {
+        mutation.panicInvalidationFailure();
+      }
       PhysicalMemoryManager::instance().freePage(pageDirectory);
     }
 
     const physical_uintptr_t pageDirectoryPointerTable = PAGE_GET_PHYSICAL_ADDRESS(pml4Entry);
     *pml4Entry = 0;
-    void* pml4VirtualAddress = reinterpret_cast<void*>(((i & 0x100) ? (~0ULL << 48) : 0ULL) |
-                                                       (i << 39));
-    invalidateMapping(pml4VirtualAddress, invalidation);
+    void* pml4VirtualAddress =
+        reinterpret_cast<void*>(((i & 0x100) ? (~0ULL << 48) : 0ULL) | (i << 39));
+    if (!invalidateMapping(pml4VirtualAddress, mutation)) {
+      mutation.panicInvalidationFailure();
+    }
     PhysicalMemoryManager::instance().freePage(pageDirectoryPointerTable);
   }
 
@@ -944,29 +1119,13 @@ bool X64VirtualAddressSpace::getPageTableEntry(void* virtualAddress,
   return true;
 }
 
-void X64VirtualAddressSpace::invalidateMapping(
-    void* virtualAddress, TlbInvalidationGuard& invalidation) {
+bool X64VirtualAddressSpace::invalidateMapping(void* virtualAddress,
+                                               X64MappingMutationScope& mutation) {
   // Upper-half mappings are shared by every address space. Lower-half
   // mappings can also be active on more than one processor, and no residency
   // mask currently identifies a narrower destination set. Use the same
   // address-specific barrier conservatively for both.
-  switch (Processor::invalidateAll(virtualAddress, invalidation)) {
-    case TlbInvalidationResult::Success:
-      return;
-    case TlbInvalidationResult::InvalidContext:
-      panic("Mapping changed from an invalid TLB-shootdown context");
-    case TlbInvalidationResult::UnsupportedTopology:
-      panic("Mapping has no safe all-processor TLB route");
-    case TlbInvalidationResult::SerialisationTimedOut:
-      panic("Cross-processor TLB shootdown serialisation timed out");
-    case TlbInvalidationResult::SubmissionFailed:
-      panic("Cross-processor TLB shootdown IPI submission failed");
-    case TlbInvalidationResult::AcknowledgementTimedOut:
-      panic("Cross-processor TLB shootdown acknowledgement timed out");
-    case TlbInvalidationResult::DrainTimedOut:
-      panic("Cross-processor TLB shootdown service drain timed out");
-  }
-  panic("Cross-processor TLB shootdown returned an unknown result");
+  return mutation.invalidate(virtualAddress);
 }
 
 size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,

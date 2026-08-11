@@ -27,7 +27,7 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-class TlbInvalidationGuard;
+class X64MappingMutationScope;
 
 /**
  * Virtual address space layout
@@ -258,7 +258,7 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
   /** Invalidate an address under a lease acquired before its first PTE write.
    * Private address spaces have no processor-residency mask to narrow the
    * destination set safely. */
-  void invalidateMapping(void* virtualAddress, TlbInvalidationGuard& invalidation);
+  bool invalidateMapping(void* virtualAddress, X64MappingMutationScope& mutation);
   /** Convert the processor independant flags to the processor's
    *representation of the flags \param[in] flags the processor independant
    *flag representation \param[in] bFinal whether this is for the actual page
@@ -288,12 +288,12 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
    * \param[in] locked whether the lock was taken before calling or not.
    */
   bool mapUnlocked(physical_uintptr_t physAddress, void* virtualAddress, size_t flags,
-                   TlbInvalidationGuard& invalidation, bool locked = false);
+                   X64MappingMutationScope& mutation, bool locked = false);
 
   /**
    * Perform an unmap without taking the lock.
    */
-  void unmapUnlocked(void* virtualAddress, TlbInvalidationGuard& invalidation,
+  bool unmapUnlocked(void* virtualAddress, X64MappingMutationScope& mutation,
                      bool requireMapped = true);
 
   /** Allocates a stack with a given size. */

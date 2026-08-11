@@ -205,10 +205,9 @@ TlbInvalidationResult LocalApic::invalidateAllProcessors(void* address) {
       processor >= processorCount) {
     return TlbInvalidationResult::UnsupportedTopology;
   }
-  const bool terminalSelfOnly =
-      processorControlState() == ProcessorControlState::Terminal &&
-      LocalApicTlbShootdown::onlyCurrentProcessorServiceable(
-          processorCount, m_TerminalProcessorCount.value());
+  const bool terminalSelfOnly = processorControlState() == ProcessorControlState::Terminal &&
+                                LocalApicTlbShootdown::onlyCurrentProcessorServiceable(
+                                    processorCount, m_TerminalProcessorCount.value());
   if (processorCount == 1 || terminalSelfOnly) {
     // Terminal processors have acknowledged their permanent CLI+HLT loop and
     // can never execute with a stale translation again. Processor::getCount()
@@ -226,23 +225,19 @@ TlbInvalidationResult LocalApic::invalidateAllProcessors(void* address) {
   // after acquiring rather than publishing a request to processors which can
   // no longer acknowledge it.
   if (processorControlState() == ProcessorControlState::Terminal &&
-      LocalApicTlbShootdown::onlyCurrentProcessorServiceable(
-          processorCount, m_TerminalProcessorCount.value())) {
+      LocalApicTlbShootdown::onlyCurrentProcessorServiceable(processorCount,
+                                                             m_TerminalProcessorCount.value())) {
     Processor::invalidate(address);
-    return m_TlbShootdown.release() ? TlbInvalidationResult::Success
-                                    : TlbInvalidationResult::DrainTimedOut;
+    return releaseTlbShootdownBarrier() ? TlbInvalidationResult::Success
+                                        : TlbInvalidationResult::DrainTimedOut;
   }
 
-  for (size_t poll = 0; !m_TlbShootdown.drained() && poll < TlbShootdownPollLimit; ++poll) {
-    Processor::pause();
-  }
-  if (!m_TlbShootdown.drained()) {
-    return TlbInvalidationResult::DrainTimedOut;
-  }
-
+  // A reader can have speculated on the prior generation before this owner
+  // acquired. Publishing a new generation is safe while that reader retires:
+  // it copied the prior address and its generation tag cannot acknowledge the
+  // request published last below.
   Processor::invalidate(address);
   if (!m_TlbShootdown.publish(reinterpret_cast<uintptr_t>(address), processor, processorCount)) {
-    m_TlbShootdown.release();
     return TlbInvalidationResult::UnsupportedTopology;
   }
 
@@ -254,7 +249,6 @@ TlbInvalidationResult LocalApic::invalidateAllProcessors(void* address) {
     if (!m_TlbShootdown.drained()) {
       return TlbInvalidationResult::DrainTimedOut;
     }
-    m_TlbShootdown.release();
     return TlbInvalidationResult::SubmissionFailed;
   }
 
@@ -274,11 +268,11 @@ TlbInvalidationResult LocalApic::invalidateAllProcessors(void* address) {
   if (!m_TlbShootdown.drained()) {
     return TlbInvalidationResult::DrainTimedOut;
   }
-  if (!m_TlbShootdown.release()) {
-    return TlbInvalidationResult::DrainTimedOut;
+  if (!complete) {
+    return TlbInvalidationResult::AcknowledgementTimedOut;
   }
-  return complete ? TlbInvalidationResult::Success
-                  : TlbInvalidationResult::AcknowledgementTimedOut;
+  return releaseTlbShootdownBarrier() ? TlbInvalidationResult::Success
+                                      : TlbInvalidationResult::DrainTimedOut;
 }
 
 TlbInvalidationResult LocalApic::beginTlbInvalidation(bool& global) {
@@ -297,9 +291,12 @@ TlbInvalidationResult LocalApic::beginTlbInvalidation(bool& global) {
 
   for (size_t poll = 0; poll < TlbShootdownPollLimit; ++poll) {
     if (processorControlState() == ProcessorControlState::Terminal &&
-        LocalApicTlbShootdown::onlyCurrentProcessorServiceable(
-            processorCount, m_TerminalProcessorCount.value())) {
+        LocalApicTlbShootdown::onlyCurrentProcessorServiceable(processorCount,
+                                                               m_TerminalProcessorCount.value())) {
       return TlbInvalidationResult::Success;
+    }
+    if (m_TlbMutations.terminalClosed()) {
+      return TlbInvalidationResult::SerialisationTimedOut;
     }
     if (m_TlbMutations.tryEnter()) {
       global = true;
@@ -316,15 +313,61 @@ void LocalApic::endTlbInvalidation() {
   }
 }
 
+bool LocalApic::closeTlbInvalidationAdmissionForTerminalFailure(TlbInvalidationResult result) {
+  const size_t processor = Processor::index();
+  const bool coordinator = m_TlbTerminalFailure.elect(processor, static_cast<size_t>(result));
+  if (!m_TlbMutations.closeTerminal()) {
+    return false;
+  }
+  return coordinator;
+}
+
+bool LocalApic::tlbInvalidationFailureActive() const {
+  return m_TlbTerminalFailure.active();
+}
+
+bool LocalApic::tlbInvalidationTerminal() const {
+  return m_TlbMutations.terminalClosed();
+}
+
 void LocalApic::servicePendingTlbShootdown() {
+  // This is only a fast-path hint; beginService publishes and revalidates its
+  // reader lease before using any generation data.
+  if (!m_TlbShootdown.generation()) {
+    return;
+  }
+
+  const bool restoreInterrupts = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+
   const size_t processor = Processor::index();
   LocalApicTlbShootdown::Service service;
   if (!m_TlbShootdown.beginService(processor, service)) {
+    Processor::setInterrupts(restoreInterrupts);
     return;
   }
 
   Processor::invalidate(reinterpret_cast<void*>(service.address));
   m_TlbShootdown.finishService(service);
+  Processor::setInterrupts(restoreInterrupts);
+}
+
+void LocalApic::servicePendingTerminalProcessorControl() {
+  if (!m_TlbMutations.terminalClosed()) {
+    return;
+  }
+
+  const ProcessorControlState state = processorControlState();
+  const size_t processor = Processor::index();
+  const bool precommitFailureCoordinator =
+      state != ProcessorControlState::Terminal && m_TlbTerminalFailure.coordinator(processor);
+  if ((state != ProcessorControlState::Paused && state != ProcessorControlState::Terminal) ||
+      !m_ProcessorControlOwner.owned() || m_ProcessorControlOwner.ownedBy(processor) ||
+      precommitFailureCoordinator) {
+    return;
+  }
+
+  enterTerminalProcessorControl();
 }
 
 bool LocalApic::acquireTlbShootdownBarrier() {
@@ -339,6 +382,16 @@ bool LocalApic::acquireTlbShootdownBarrier() {
     Processor::pause();
   }
   return false;
+}
+
+bool LocalApic::releaseTlbShootdownBarrier() {
+  for (size_t poll = 0; poll < TlbShootdownPollLimit; ++poll) {
+    if (!m_TlbShootdown.generation() && m_TlbShootdown.drained() && m_TlbShootdown.release()) {
+      return true;
+    }
+    Processor::pause();
+  }
+  return !m_TlbShootdown.generation() && m_TlbShootdown.drained() && m_TlbShootdown.release();
 }
 
 bool LocalApic::waitForTlbMutationDrain() {
@@ -356,20 +409,27 @@ LocalApic::ProcessorControlState LocalApic::processorControlState() const {
   return static_cast<ProcessorControlState>(m_ProcessorControlState.value());
 }
 
-bool LocalApic::acquireProcessorControlOwner(
-    bool acceptRetained, ProcessorControlOwnership& ownership) {
+bool LocalApic::acquireProcessorControlOwner(bool acceptRetained,
+                                             ProcessorControlOwnership& ownership) {
   ownership = ProcessorControlOwnership::Fresh;
   const size_t processor = Processor::index();
   if (processor >= LocalApicProcessorControlOwner::MaxProcessors) {
     return false;
   }
 
-  if (acceptRetained && m_ProcessorControlOwner.claimQuiesced(processor)) {
+  if (acceptRetained && m_ProcessorControlOwner.claimAnyQuiesced(processor)) {
     ownership = ProcessorControlOwnership::Quiesced;
+    return true;
+  }
+  if (acceptRetained && m_ProcessorControlOwner.claimAnyFailed(processor)) {
+    ownership = ProcessorControlOwnership::Failed;
     return true;
   }
   if (acceptRetained && m_ProcessorControlOwner.claimTerminal(processor)) {
     ownership = ProcessorControlOwnership::Terminal;
+    return true;
+  }
+  if (acceptRetained && m_ProcessorControlOwner.activeBy(processor)) {
     return true;
   }
 
@@ -377,12 +437,19 @@ bool LocalApic::acquireProcessorControlOwner(
     if (m_ProcessorControlOwner.tryAcquire(processor)) {
       return true;
     }
-    if (acceptRetained && m_ProcessorControlOwner.claimQuiesced(processor)) {
+    if (acceptRetained && m_ProcessorControlOwner.claimAnyQuiesced(processor)) {
       ownership = ProcessorControlOwnership::Quiesced;
+      return true;
+    }
+    if (acceptRetained && m_ProcessorControlOwner.claimAnyFailed(processor)) {
+      ownership = ProcessorControlOwnership::Failed;
       return true;
     }
     if (acceptRetained && m_ProcessorControlOwner.claimTerminal(processor)) {
       ownership = ProcessorControlOwnership::Terminal;
+      return true;
+    }
+    if (acceptRetained && m_ProcessorControlOwner.activeBy(processor)) {
       return true;
     }
     Processor::pause();
@@ -394,26 +461,53 @@ bool LocalApic::releaseProcessorControlOwner() {
   return m_ProcessorControlOwner.release(Processor::index());
 }
 
-LocalApic::ProcessorControlResult LocalApic::completeTerminalControl(
-    size_t expectedProcessors) {
+LocalApic::ProcessorControlResult LocalApic::completeTerminalControl(size_t expectedProcessors) {
   if (!waitForTerminalProcessorCount(expectedProcessors)) {
-    // Make a timed-out terminal operation explicitly claimable only after
-    // this invocation has stopped touching its barriers.
-    if (!m_ProcessorControlOwner.markTerminal(Processor::index())) {
-      return ProcessorControlResult::DrainTimedOut;
-    }
-    return ProcessorControlResult::AcknowledgementTimedOut;
+    return retainTerminalControl(ProcessorControlResult::AcknowledgementTimedOut);
   }
 
   const size_t processor = Processor::index();
   if (!m_ProcessorControlOwner.activeBy(processor)) {
     return ProcessorControlResult::InvalidState;
   }
-  if (m_TlbShootdown.owned() && !m_TlbShootdown.release()) {
-    return ProcessorControlResult::DrainTimedOut;
+
+  for (size_t poll = 0;
+       m_TlbShootdown.owned() && !m_TlbShootdown.drained() && poll < TlbShootdownPollLimit;
+       ++poll) {
+    Processor::pause();
   }
-  return releaseProcessorControlOwner() ? ProcessorControlResult::Success
-                                        : ProcessorControlResult::DrainTimedOut;
+  ProcessorControlResult result = ProcessorControlResult::Success;
+  if (m_TlbShootdown.owned() && !releaseTlbShootdownBarrier()) {
+    result = ProcessorControlResult::DrainTimedOut;
+  }
+  return retainTerminalControl(result);
+}
+
+LocalApic::ProcessorControlResult LocalApic::retainTerminalControl(ProcessorControlResult result) {
+  return m_ProcessorControlOwner.markTerminal(Processor::index())
+             ? result
+             : ProcessorControlResult::DrainTimedOut;
+}
+
+bool LocalApic::adoptTerminalTlbShootdownBarrier() {
+  if (!m_TlbMutations.terminalClosed() || !m_TlbMutations.drained()) {
+    return false;
+  }
+
+  if (!m_TlbShootdown.owned() && !m_TlbShootdown.tryAcquire()) {
+    return false;
+  }
+  if (m_TlbShootdown.generation()) {
+    return false;
+  }
+
+  // A service path may have read the old generation immediately before its
+  // owner closed it. Keep the retained barrier and wait for that observer to
+  // reject the stale generation before adopting the orphaned owner.
+  for (size_t poll = 0; !m_TlbShootdown.drained() && poll < TlbShootdownPollLimit; ++poll) {
+    Processor::pause();
+  }
+  return !m_TlbShootdown.generation() && m_TlbShootdown.drained();
 }
 
 bool LocalApic::waitForProcessorCount(size_t expectedProcessors) {
@@ -443,6 +537,67 @@ bool LocalApic::waitForProcessorDrain() {
   return !m_ControlledProcessorCount;
 }
 
+bool LocalApic::markTerminalProcessor(size_t processor) {
+  if (processor >= LocalApicTlbShootdown::MaxProcessors) {
+    return false;
+  }
+
+  const uint64_t processorBit = uint64_t(1) << processor;
+  uint64_t mask = m_TerminalProcessorMask.value();
+  while (!(mask & processorBit)) {
+    if (m_TerminalProcessorMask.compareAndSwap(mask, mask | processorBit)) {
+      m_TerminalProcessorCount += 1;
+      return true;
+    }
+    mask = m_TerminalProcessorMask.value();
+  }
+  return false;
+}
+
+void LocalApic::enterTerminalProcessorControl() {
+  Processor::setInterrupts(false);
+  while (processorControlState() != ProcessorControlState::Terminal) {
+    // Processor::pause() would recurse into this cooperative service path.
+    asm volatile("pause");
+  }
+
+  markTerminalProcessor(Processor::index());
+  while (true) {
+    Processor::halt();
+  }
+}
+
+LocalApic::ProcessorControlResult LocalApic::retainQuiescedControl(ProcessorControlResult result) {
+  if (!releaseTlbShootdownBarrier()) {
+    return retainFailedControl(ProcessorControlResult::DrainTimedOut);
+  }
+  if (m_ProcessorControlOwner.markQuiesced(Processor::index())) {
+    return result;
+  }
+  return retainFailedControl(ProcessorControlResult::DrainTimedOut);
+}
+
+LocalApic::ProcessorControlResult LocalApic::retainFailedControl(ProcessorControlResult result) {
+  return m_ProcessorControlOwner.markFailed(Processor::index())
+             ? result
+             : ProcessorControlResult::DrainTimedOut;
+}
+
+LocalApic::ProcessorControlResult LocalApic::releaseProcessorControlOrRetainFailure(
+    ProcessorControlResult released, ProcessorControlResult retained) {
+  if (releaseProcessorControlOwner()) {
+    return released;
+  }
+  return retainFailedControl(retained);
+}
+
+LocalApic::ProcessorControlResult LocalApic::finishFailedQuiesce(ProcessorControlResult result) {
+  if (!releaseTlbShootdownBarrier()) {
+    result = ProcessorControlResult::DrainTimedOut;
+  }
+  return retainFailedControl(result);
+}
+
 LocalApic::ProcessorControlResult LocalApic::unwindQuiesce(ProcessorControlResult failure) {
   if (!m_ProcessorControlState.compareAndSwap(
           static_cast<size_t>(ProcessorControlState::Paused),
@@ -465,92 +620,151 @@ LocalApic::ProcessorControlResult LocalApic::quiesceAllOtherProcessors(size_t ex
     return ProcessorControlResult::InvalidState;
   }
   if (processorControlState() != ProcessorControlState::Idle) {
-    // Terminal is already safe and needs no retained owner. Any other state
-    // is inconsistent without an existing owner, so preserve ownership and
-    // fail closed rather than guessing who owns its gate closure.
-    if (processorControlState() == ProcessorControlState::Terminal) {
-      releaseProcessorControlOwner();
-    } else if (!m_TlbMutations.closed()) {
-      m_TlbMutations.close();
+    if (m_TlbMutations.terminalClosed()) {
+      return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                    ProcessorControlResult::InvalidState);
     }
-    return ProcessorControlResult::InvalidState;
+    // Terminal is already safe and needs no retained owner. Any other state
+    // is inconsistent without an existing owner, so fail closed and publish
+    // the abandoned operation as transferable only after this last access.
+    if (processorControlState() == ProcessorControlState::Terminal) {
+      return releaseProcessorControlOrRetainFailure(ProcessorControlResult::InvalidState,
+                                                    ProcessorControlResult::DrainTimedOut);
+    } else if (!m_TlbMutations.closed()) {
+      if (!m_TlbMutations.closeReversible() && m_TlbMutations.terminalClosed()) {
+        return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                      ProcessorControlResult::InvalidState);
+      }
+    }
+    return retainFailedControl(ProcessorControlResult::InvalidState);
   }
   if (!waitForProcessorDrain()) {
+    if (m_TlbMutations.terminalClosed()) {
+      return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                    ProcessorControlResult::InvalidState);
+    }
     if (!m_ProcessorControlState.compareAndSwap(
             static_cast<size_t>(ProcessorControlState::Idle),
             static_cast<size_t>(ProcessorControlState::Unavailable))) {
-      if (!m_TlbMutations.closed()) {
-        m_TlbMutations.close();
+      if (m_TlbMutations.terminalClosed()) {
+        return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                      ProcessorControlResult::InvalidState);
       }
-      return ProcessorControlResult::InvalidState;
+      if (!m_TlbMutations.closed()) {
+        if (!m_TlbMutations.closeReversible() && m_TlbMutations.terminalClosed()) {
+          return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                        ProcessorControlResult::InvalidState);
+        }
+      }
+      return retainFailedControl(ProcessorControlResult::InvalidState);
     }
     // A stale control generation did not drain. Retain ownership and close
     // mapping admission so neither a new quiesce nor halt can reuse it.
-    m_TlbMutations.close();
-    return ProcessorControlResult::DrainTimedOut;
+    if (m_TlbMutations.terminalClosed()) {
+      return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                    ProcessorControlResult::InvalidState);
+    }
+    if (!m_TlbMutations.closeReversible()) {
+      if (m_TlbMutations.terminalClosed()) {
+        return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                      ProcessorControlResult::InvalidState);
+      }
+      return retainFailedControl(ProcessorControlResult::InvalidState);
+    }
+    return retainFailedControl(ProcessorControlResult::DrainTimedOut);
   }
 
   // Admission begins before the VAS lock and first PTE write. Closing it here
   // therefore drains both published shootdowns and the mutation-before-
   // publication window before any processor can be paused.
-  if (!m_TlbMutations.close()) {
-    return ProcessorControlResult::InvalidState;
+  if (!m_TlbMutations.closeReversible()) {
+    if (m_TlbMutations.terminalClosed()) {
+      return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                    ProcessorControlResult::InvalidState);
+    }
+    return retainFailedControl(ProcessorControlResult::InvalidState);
   }
   if (!waitForTlbMutationDrain()) {
+    if (m_TlbMutations.terminalClosed()) {
+      return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                    ProcessorControlResult::InvalidState);
+    }
     // No processor-control state has changed, so a debugger which interrupted
     // an admitted mapper can safely cancel this close and resume that mapper.
     if (!m_TlbMutations.cancelClose()) {
-      if (!m_TlbMutations.closed()) {
-        m_TlbMutations.close();
+      if (m_TlbMutations.terminalClosed()) {
+        return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                      ProcessorControlResult::InvalidState);
       }
-      return ProcessorControlResult::InvalidState;
+      return retainFailedControl(ProcessorControlResult::InvalidState);
     }
-    return releaseProcessorControlOwner() ? ProcessorControlResult::DrainTimedOut
-                                          : ProcessorControlResult::InvalidState;
+    return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                  ProcessorControlResult::InvalidState);
+  }
+  if (m_TlbMutations.terminalClosed()) {
+    return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                  ProcessorControlResult::InvalidState);
   }
 
   // Do not interrupt a remote shootdown owner inside its synchronous wait.
   // Once this barrier is held, changing Idle to Paused closes the interval in
   // which a published generation can be stranded by the control IPI.
   if (!acquireTlbShootdownBarrier()) {
-    if (!m_TlbMutations.reopen()) {
-      return ProcessorControlResult::DrainTimedOut;
+    if (m_TlbMutations.terminalClosed()) {
+      return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                    ProcessorControlResult::InvalidState);
     }
-    return releaseProcessorControlOwner() ? ProcessorControlResult::DrainTimedOut
-                                          : ProcessorControlResult::InvalidState;
+    if (!m_TlbMutations.reopen()) {
+      if (m_TlbMutations.terminalClosed()) {
+        return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                      ProcessorControlResult::InvalidState);
+      }
+      return retainFailedControl(ProcessorControlResult::DrainTimedOut);
+    }
+    return releaseProcessorControlOrRetainFailure(ProcessorControlResult::DrainTimedOut,
+                                                  ProcessorControlResult::InvalidState);
   }
   if (processorControlState() != ProcessorControlState::Idle) {
     // The control owner excludes legitimate state changes here. Keep the
     // mutation gate closed and ownership retained on any invariant failure.
-    return m_TlbShootdown.release() ? ProcessorControlResult::InvalidState
-                                    : ProcessorControlResult::DrainTimedOut;
+    return finishFailedQuiesce(ProcessorControlResult::InvalidState);
   }
   if (!m_ProcessorControlState.compareAndSwap(static_cast<size_t>(ProcessorControlState::Idle),
                                               static_cast<size_t>(ProcessorControlState::Paused))) {
-    return m_TlbShootdown.release() ? ProcessorControlResult::InvalidState
-                                    : ProcessorControlResult::DrainTimedOut;
+    return finishFailedQuiesce(ProcessorControlResult::InvalidState);
   }
 
-  if (!interProcessorInterruptAllExcludingThis(IPI_PROCESSOR_CONTROL_VECTOR, deliveryModeFixed)) {
-    const ProcessorControlResult result =
-        unwindQuiesce(ProcessorControlResult::SubmissionFailed);
-    return m_TlbShootdown.release() ? result : ProcessorControlResult::DrainTimedOut;
+  // Once Paused is visible, terminal observers may already be waiting for the
+  // irreversible state. Retain this completed pause for the elected terminal
+  // coordinator instead of publishing Unavailable underneath them.
+  if (m_TlbMutations.terminalClosed()) {
+    return retainQuiescedControl(ProcessorControlResult::DrainTimedOut);
+  }
+
+  const bool submitted =
+      interProcessorInterruptAllExcludingThis(IPI_PROCESSOR_CONTROL_VECTOR, deliveryModeFixed);
+  if (m_TlbMutations.terminalClosed()) {
+    return retainQuiescedControl(ProcessorControlResult::DrainTimedOut);
+  }
+  if (!submitted) {
+    const ProcessorControlResult result = unwindQuiesce(ProcessorControlResult::SubmissionFailed);
+    return finishFailedQuiesce(result);
   }
   if (!waitForProcessorCount(expectedProcessors)) {
+    if (m_TlbMutations.terminalClosed()) {
+      return retainQuiescedControl(ProcessorControlResult::DrainTimedOut);
+    }
     const ProcessorControlResult result =
         unwindQuiesce(ProcessorControlResult::AcknowledgementTimedOut);
-    return m_TlbShootdown.release() ? result : ProcessorControlResult::DrainTimedOut;
+    return finishFailedQuiesce(result);
+  }
+  if (m_TlbMutations.terminalClosed()) {
+    return retainQuiescedControl(ProcessorControlResult::DrainTimedOut);
   }
   if (processorControlState() != ProcessorControlState::Paused) {
-    return m_TlbShootdown.release() ? ProcessorControlResult::InvalidState
-                                    : ProcessorControlResult::DrainTimedOut;
+    return finishFailedQuiesce(ProcessorControlResult::InvalidState);
   }
-  if (!m_TlbShootdown.release()) {
-    return ProcessorControlResult::DrainTimedOut;
-  }
-  return m_ProcessorControlOwner.markQuiesced(Processor::index())
-             ? ProcessorControlResult::Success
-             : ProcessorControlResult::DrainTimedOut;
+  return retainQuiescedControl(ProcessorControlResult::Success);
 }
 
 LocalApic::ProcessorControlResult LocalApic::resumeAllOtherProcessors() {
@@ -558,27 +772,36 @@ LocalApic::ProcessorControlResult LocalApic::resumeAllOtherProcessors() {
   if (!m_ProcessorControlOwner.claimQuiesced(processor)) {
     return ProcessorControlResult::InvalidState;
   }
+  if (m_TlbMutations.terminalClosed()) {
+    if (m_ProcessorControlOwner.markQuiesced(processor)) {
+      return ProcessorControlResult::InvalidState;
+    }
+    return retainFailedControl(ProcessorControlResult::DrainTimedOut);
+  }
   if (!m_ProcessorControlState.compareAndSwap(
           static_cast<size_t>(ProcessorControlState::Paused),
           static_cast<size_t>(ProcessorControlState::Unavailable))) {
-    return ProcessorControlResult::InvalidState;
+    return retainFailedControl(ProcessorControlResult::InvalidState);
   }
-  if (!waitForProcessorDrain())
-    return ProcessorControlResult::DrainTimedOut;
+  if (!waitForProcessorDrain()) {
+    return retainFailedControl(ProcessorControlResult::DrainTimedOut);
+  }
   if (!m_ProcessorControlState.compareAndSwap(
           static_cast<size_t>(ProcessorControlState::Unavailable),
           static_cast<size_t>(ProcessorControlState::Idle))) {
-    return ProcessorControlResult::InvalidState;
+    return retainFailedControl(ProcessorControlResult::InvalidState);
   }
   if (!m_TlbMutations.reopen()) {
     if (!m_TlbMutations.closed()) {
-      return releaseProcessorControlOwner() ? ProcessorControlResult::InvalidState
-                                            : ProcessorControlResult::DrainTimedOut;
+      return releaseProcessorControlOrRetainFailure(ProcessorControlResult::InvalidState,
+                                                    ProcessorControlResult::DrainTimedOut);
     }
-    return ProcessorControlResult::DrainTimedOut;
+    return retainFailedControl(ProcessorControlResult::DrainTimedOut);
   }
-  return releaseProcessorControlOwner() ? ProcessorControlResult::Success
-                                        : ProcessorControlResult::DrainTimedOut;
+  if (releaseProcessorControlOwner()) {
+    return ProcessorControlResult::Success;
+  }
+  return retainFailedControl(ProcessorControlResult::DrainTimedOut);
 }
 
 LocalApic::ProcessorControlResult LocalApic::haltAllOtherProcessors(size_t expectedProcessors) {
@@ -589,104 +812,34 @@ LocalApic::ProcessorControlResult LocalApic::haltAllOtherProcessors(size_t expec
   if (!acquireProcessorControlOwner(true, ownership)) {
     return ProcessorControlResult::InvalidState;
   }
-  const bool retained = ownership == ProcessorControlOwnership::Quiesced;
-  if (processorControlState() == ProcessorControlState::Terminal) {
-    if (ownership == ProcessorControlOwnership::Quiesced) {
-      return ProcessorControlResult::InvalidState;
-    }
-    return completeTerminalControl(expectedProcessors);
+  if (!m_TlbMutations.closeTerminal() || !waitForTlbMutationDrain()) {
+    return retainTerminalControl(ProcessorControlResult::DrainTimedOut);
   }
-  if (ownership == ProcessorControlOwnership::Terminal) {
-    if (!m_TlbMutations.closed()) {
-      m_TlbMutations.close();
-    }
-    return ProcessorControlResult::InvalidState;
+  if (!adoptTerminalTlbShootdownBarrier()) {
+    return retainTerminalControl(ProcessorControlResult::DrainTimedOut);
   }
 
-  bool barrierHeld = false;
-  bool sendPauseIpi = false;
+  bool terminalSelected = false;
   for (size_t poll = 0; poll < ProcessorControlPollLimit; ++poll) {
     const ProcessorControlState state = processorControlState();
-    if (state == ProcessorControlState::Terminal) {
-      return completeTerminalControl(expectedProcessors);
-    }
-    if (state == ProcessorControlState::Idle && m_ControlledProcessorCount) {
-      Processor::pause();
-      continue;
-    }
-
-    if (!m_TlbMutations.closed() && !m_TlbMutations.close()) {
-      Processor::pause();
-      continue;
-    }
-    if (!waitForTlbMutationDrain()) {
-      // Processor retirement is terminal. Keep admission closed on failure so
-      // no mapping can start against a partially controlled processor set.
-      return ProcessorControlResult::DrainTimedOut;
-    }
-
-    // Acquire before selecting Paused. A remote processor which already owns
-    // a shootdown remains fully runnable until it has closed and released that
-    // generation. Holding the owner from Paused through Terminal then excludes
-    // every later publisher until no serviceable peer remains.
-    if (!acquireTlbShootdownBarrier()) {
-      return ProcessorControlResult::DrainTimedOut;
-    }
-    barrierHeld = true;
-
-    const ProcessorControlState selectedState = processorControlState();
-    if (selectedState == ProcessorControlState::Terminal) {
-      return completeTerminalControl(expectedProcessors);
-    }
-    if (selectedState == ProcessorControlState::Paused) {
-      if (!retained) {
-        return m_TlbShootdown.release() ? ProcessorControlResult::InvalidState
-                                        : ProcessorControlResult::DrainTimedOut;
-      }
-      sendPauseIpi = m_ControlledProcessorCount < expectedProcessors;
+    if (state == ProcessorControlState::Terminal ||
+        m_ProcessorControlState.compareAndSwap(
+            static_cast<size_t>(state), static_cast<size_t>(ProcessorControlState::Terminal))) {
+      terminalSelected = true;
       break;
     }
-    if (selectedState == ProcessorControlState::Idle ||
-        selectedState == ProcessorControlState::Unavailable) {
-      if (m_ProcessorControlState.compareAndSwap(
-              static_cast<size_t>(selectedState),
-              static_cast<size_t>(ProcessorControlState::Paused))) {
-        sendPauseIpi = true;
-        break;
-      }
-    }
-
-    m_TlbShootdown.release();
-    barrierHeld = false;
+    Processor::pause();
   }
-  if (!barrierHeld) {
-    // The only path which can exhaust the selection loop before closing the
-    // gate is a stale controlled processor in Idle. Keep new mutations out
-    // after that bounded wait while retaining the operation owner.
-    if (!m_TlbMutations.closed()) {
-      m_TlbMutations.close();
-    }
-    return ProcessorControlResult::DrainTimedOut;
+  if (!terminalSelected) {
+    return retainTerminalControl(ProcessorControlResult::InvalidState);
   }
 
-  const bool submitted =
-      !sendPauseIpi ||
-      interProcessorInterruptAllExcludingThis(IPI_PROCESSOR_CONTROL_VECTOR, deliveryModeFixed);
-  if (!waitForProcessorCount(expectedProcessors)) {
-    const ProcessorControlResult failure =
-        submitted ? ProcessorControlResult::AcknowledgementTimedOut
-                  : ProcessorControlResult::SubmissionFailed;
-    const ProcessorControlResult result = unwindQuiesce(failure);
-    return m_TlbShootdown.release() ? result : ProcessorControlResult::DrainTimedOut;
+  // Retried terminal operations resend the IPI only to prompt peers which did
+  // not observe the first attempt. The terminal mask makes acknowledgements
+  // idempotent for processors which were already committed.
+  if (!interProcessorInterruptAllExcludingThis(IPI_PROCESSOR_CONTROL_VECTOR, deliveryModeFixed)) {
+    return retainTerminalControl(ProcessorControlResult::SubmissionFailed);
   }
-
-  if (!m_ProcessorControlState.compareAndSwap(
-          static_cast<size_t>(ProcessorControlState::Paused),
-          static_cast<size_t>(ProcessorControlState::Terminal))) {
-    return m_TlbShootdown.release() ? ProcessorControlResult::InvalidState
-                                    : ProcessorControlResult::DrainTimedOut;
-  }
-
   return completeTerminalControl(expectedProcessors);
 }
 
@@ -765,6 +918,12 @@ void LocalApic::interrupt(size_t nInterruptNumber, InterruptState& state) {
   if (nInterruptNumber == IPI_PROCESSOR_CONTROL_VECTOR) {
     ack();
     Processor::setInterrupts(false);
+    const ProcessorControlState initialState = processorControlState();
+    if (m_TlbMutations.terminalClosed() && (initialState == ProcessorControlState::Paused ||
+                                            initialState == ProcessorControlState::Terminal)) {
+      enterTerminalProcessorControl();
+    }
+
     m_ControlledProcessorCount += 1;
     while (true) {
       const ProcessorControlState controlState = processorControlState();
@@ -774,11 +933,13 @@ void LocalApic::interrupt(size_t nInterruptNumber, InterruptState& state) {
         return;
       }
       if (controlState == ProcessorControlState::Terminal) {
-        m_TerminalProcessorCount += 1;
-        while (true)
+        m_ControlledProcessorCount -= 1;
+        markTerminalProcessor(Processor::index());
+        while (true) {
           Processor::halt();
+        }
       }
-      Processor::pause();
+      asm volatile("pause");
     }
   }
 }

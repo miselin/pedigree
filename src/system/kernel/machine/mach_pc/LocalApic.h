@@ -52,7 +52,7 @@ class SchedulerTimerHandler;
 class LocalApic : public SchedulerTimer, private InterruptHandler {
  private:
   enum class ProcessorControlState : size_t { Idle, Paused, Unavailable, Terminal };
-  enum class ProcessorControlOwnership { Fresh, Quiesced, Terminal };
+  enum class ProcessorControlOwnership { Fresh, Quiesced, Failed, Terminal };
 
  public:
   /** The default constructor */
@@ -62,10 +62,12 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
         m_BusFrequency(0),
         m_ProcessorControlOwner(),
         m_TlbMutations(),
+        m_TlbTerminalFailure(),
         m_TlbShootdown(),
         m_ProcessorControlState(static_cast<size_t>(ProcessorControlState::Idle)),
         m_ControlledProcessorCount(0),
-        m_TerminalProcessorCount(0) {}
+        m_TerminalProcessorCount(0),
+        m_TerminalProcessorMask(0) {}
   /** The destructor */
   inline virtual ~LocalApic() {}
 
@@ -120,8 +122,18 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
   /** Retire a page-table mutation admitted by beginTlbInvalidation. */
   void endTlbInvalidation();
 
+  /** Elect the terminal failure coordinator before permanently closing admission. */
+  MUST_USE_RESULT bool closeTlbInvalidationAdmissionForTerminalFailure(
+      TlbInvalidationResult result);
+
+  bool tlbInvalidationFailureActive() const;
+  bool tlbInvalidationTerminal() const;
+
   /** Service a published shootdown without relying on maskable interrupts. */
   void servicePendingTlbShootdown();
+
+  /** Join irreversible processor control without relying on maskable IPIs. */
+  void servicePendingTerminalProcessorControl();
 
   enum class ProcessorControlResult {
     Success,
@@ -180,16 +192,25 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
   bool submitIcr(uint32_t high, uint32_t low);
 
   ProcessorControlState processorControlState() const;
-  bool acquireProcessorControlOwner(
-      bool acceptRetained, ProcessorControlOwnership& ownership);
+  bool acquireProcessorControlOwner(bool acceptRetained, ProcessorControlOwnership& ownership);
   bool releaseProcessorControlOwner();
   ProcessorControlResult completeTerminalControl(size_t expectedProcessors);
+  ProcessorControlResult retainTerminalControl(ProcessorControlResult result);
   bool acquireTlbShootdownBarrier();
+  bool releaseTlbShootdownBarrier();
+  bool adoptTerminalTlbShootdownBarrier();
   bool waitForTlbMutationDrain();
   bool waitForProcessorCount(size_t expectedProcessors);
   bool waitForTerminalProcessorCount(size_t expectedProcessors);
   bool waitForProcessorDrain();
+  ProcessorControlResult retainFailedControl(ProcessorControlResult result);
+  ProcessorControlResult releaseProcessorControlOrRetainFailure(ProcessorControlResult released,
+                                                                ProcessorControlResult retained);
+  ProcessorControlResult retainQuiescedControl(ProcessorControlResult result);
+  ProcessorControlResult finishFailedQuiesce(ProcessorControlResult result);
   ProcessorControlResult unwindQuiesce(ProcessorControlResult failure);
+  bool markTerminalProcessor(size_t processor);
+  void enterTerminalProcessorControl() NORETURN;
 
   //
   // InterruptHandler interface
@@ -210,6 +231,7 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
 
   /** One allocation-free, synchronously acknowledged TLB transaction. */
   LocalApicTlbMutationGate m_TlbMutations;
+  LocalApicTlbTerminalFailure m_TlbTerminalFailure;
   LocalApicTlbShootdown m_TlbShootdown;
 
   /** Shared state observed by CPUs inside the processor-control IPI. */
@@ -220,6 +242,7 @@ class LocalApic : public SchedulerTimer, private InterruptHandler {
 
   /** CPUs which have reached the permanent interrupt-disabled halt loop. */
   Atomic<size_t> m_TerminalProcessorCount;
+  Atomic<uint64_t> m_TerminalProcessorMask;
 };
 
 /** @} */

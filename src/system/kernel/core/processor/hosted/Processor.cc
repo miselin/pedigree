@@ -540,8 +540,7 @@ void ProcessorBase::invalidate(void* pAddress) {
 TlbInvalidationResult ProcessorBase::beginTlbInvalidation(TlbInvalidationGuard& guard) {
   const ExecutionContext context = executionContext();
   if (guard.m_Active ||
-      (context != ExecutionContext::WaitableThread &&
-       context != ExecutionContext::AtomicThread)) {
+      (context != ExecutionContext::WaitableThread && context != ExecutionContext::AtomicThread)) {
     return TlbInvalidationResult::InvalidContext;
   }
 
@@ -555,6 +554,20 @@ void ProcessorBase::endTlbInvalidation(TlbInvalidationGuard& guard) {
   guard.m_Active = false;
 }
 
+bool ProcessorBase::closeTlbInvalidationAdmissionForTerminalFailure(TlbInvalidationGuard& guard,
+                                                                    TlbInvalidationResult result) {
+  (void)result;
+  return guard.m_Active;
+}
+
+bool ProcessorBase::tlbInvalidationFailureActive() {
+  return false;
+}
+
+bool ProcessorBase::tlbInvalidationTerminal() {
+  return false;
+}
+
 TlbInvalidationResult ProcessorBase::invalidateAll(void* pAddress) {
   TlbInvalidationGuard guard;
   const TlbInvalidationResult result = beginTlbInvalidation(guard);
@@ -564,8 +577,7 @@ TlbInvalidationResult ProcessorBase::invalidateAll(void* pAddress) {
   return invalidateAll(pAddress, guard);
 }
 
-TlbInvalidationResult ProcessorBase::invalidateAll(
-    void* pAddress, TlbInvalidationGuard& guard) {
+TlbInvalidationResult ProcessorBase::invalidateAll(void* pAddress, TlbInvalidationGuard& guard) {
   if (!guard.m_Active) {
     return TlbInvalidationResult::InvalidContext;
   }

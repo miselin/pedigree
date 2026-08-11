@@ -81,6 +81,15 @@ class TlbInvalidationGuard {
   TlbInvalidationGuard() : m_Active(false), m_Global(false) {}
   ~TlbInvalidationGuard();
 
+  /**
+   * Permanently close mapping admission after a post-PTE invalidation
+   * failure. The first failing processor becomes the terminal coordinator.
+   */
+  MUST_USE_RESULT bool closeAdmissionForTerminalFailure(TlbInvalidationResult result);
+
+  /** Retire this mutation lease before entering terminal processor control. */
+  void retire();
+
   TlbInvalidationGuard(const TlbInvalidationGuard&) = delete;
   TlbInvalidationGuard& operator=(const TlbInvalidationGuard&) = delete;
 
@@ -381,8 +390,7 @@ class EXPORTED_PUBLIC ProcessorBase {
    * contexts before the mapping can change. The guarded region must not sleep
    * or wait for work which itself needs new mapping admission.
    */
-  MUST_USE_RESULT static TlbInvalidationResult beginTlbInvalidation(
-      TlbInvalidationGuard& guard);
+  MUST_USE_RESULT static TlbInvalidationResult beginTlbInvalidation(TlbInvalidationGuard& guard);
 
   /**
    * Invalidate one virtual address on every online processor and do not
@@ -404,8 +412,14 @@ class EXPORTED_PUBLIC ProcessorBase {
   MUST_USE_RESULT static TlbInvalidationResult invalidateAll(void* pAddress);
 
   /** Invalidate under an admission lease acquired before the PTE mutation. */
-  MUST_USE_RESULT static TlbInvalidationResult invalidateAll(
-      void* pAddress, TlbInvalidationGuard& guard);
+  MUST_USE_RESULT static TlbInvalidationResult invalidateAll(void* pAddress,
+                                                             TlbInvalidationGuard& guard);
+
+  /** True after a failed invalidation has permanently closed admission. */
+  static bool tlbInvalidationFailureActive();
+
+  /** True while page-table mutation admission is permanently closed. */
+  static bool tlbInvalidationTerminal();
 
   /** Invalidate a line in the instruction cache.
    *\param[in] nAddr The address of a memory location to invalidate from the
@@ -457,6 +471,10 @@ class EXPORTED_PUBLIC ProcessorBase {
   static size_t m_Initialised;
 
  private:
+  /** Escalate an admitted mutation to terminal failure. */
+  MUST_USE_RESULT static bool closeTlbInvalidationAdmissionForTerminalFailure(
+      TlbInvalidationGuard& guard, TlbInvalidationResult result);
+
   /** Release an active page-table mutation admission lease. */
   static void endTlbInvalidation(TlbInvalidationGuard& guard);
 
@@ -481,6 +499,14 @@ class EXPORTED_PUBLIC ProcessorBase {
 };
 
 inline TlbInvalidationGuard::~TlbInvalidationGuard() {
+  retire();
+}
+
+inline bool TlbInvalidationGuard::closeAdmissionForTerminalFailure(TlbInvalidationResult result) {
+  return ProcessorBase::closeTlbInvalidationAdmissionForTerminalFailure(*this, result);
+}
+
+inline void TlbInvalidationGuard::retire() {
   if (m_Active) {
     ProcessorBase::endTlbInvalidation(*this);
   }
