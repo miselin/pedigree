@@ -7,6 +7,7 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -322,7 +323,21 @@ void testProducerConsumerTeardown() {
   NOTICE("QEMU-CONCURRENCY-TEST: PASS producerconsumer-teardown-completion");
 }
 
+void testPinnedLinkerUnloadRejection() {
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN linker-pinned-unload-rejection");
+
+  static char linkerName[] = "linker";
+  KernelElf& kernelElf = KernelElf::instance();
+  if (!kernelElf.moduleIsLoaded(linkerName) || kernelElf.unloadModule(linkerName, true, false) ||
+      !kernelElf.moduleIsLoaded(linkerName)) {
+    FATAL("QEMU linker module did not reject unload while preserving its image");
+  }
+
+  NOTICE("QEMU-CONCURRENCY-TEST: PASS linker-pinned-unload-rejection");
+}
+
 bool entry() {
+  testPinnedLinkerUnloadRejection();
   testSyscallReciprocalUnregister();
   NOTICE("QEMU-CONCURRENCY-TEST: BEGIN network-filter-reciprocal-removal-smp");
   if (!runNetworkFilterConcurrencyRegressions()) {

@@ -394,4 +394,4 @@ static bool init() {
 
 static void destroy() {}
 
-MODULE_INFO("linker", &init, &destroy, "vfs");
+MODULE_INFO_NON_UNLOADABLE("linker", &init, &destroy, "vfs");

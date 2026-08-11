@@ -25,6 +25,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #include "modules/subsys/posix/syscalls/posixSyscallNumbers.h"
 
@@ -570,6 +571,38 @@ bool failedPinnedModuleRejectsUnload() {
   return true;
 }
 
+bool linkerModuleMetadataIsPinned() {
+  ModuleInfo* linker = nullptr;
+  size_t matches = 0;
+  for (size_t i = 0; i < g_StaticDriverN; ++i) {
+    ModuleInfo* info = g_StaticDrivers[i];
+    if (info && info->name && !StringCompare(info->name, "linker")) {
+      linker = info;
+      ++matches;
+    }
+  }
+
+  bool dependsOnVfs = false;
+  if (linker && linker->dependencies) {
+    for (size_t i = 0; linker->dependencies[i]; ++i) {
+      if (!StringCompare(linker->dependencies[i], "vfs")) {
+        dependsOnVfs = true;
+        break;
+      }
+    }
+  }
+
+  if (matches != 1 || !linker || linker->unloadable || !dependsOnVfs) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL linker-pinned-metadata: "
+        "the real linker ModuleInfo did not pin its dependency closure");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS linker-pinned-metadata");
+  return true;
+}
+
 bool moduleUnloadOwnershipIsRetryable() {
   Module module;
   module.name.assign("hosted-unload-owner-probe");
@@ -696,6 +729,11 @@ bool entry() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN failed-pinned-module");
   if (!failedPinnedModuleRejectsUnload()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN linker-pinned-metadata");
+  if (!linkerModuleMetadataIsPinned()) {
     return false;
   }
 
