@@ -24,6 +24,7 @@ extern bool runNetworkFilterConcurrencyRegressions();
 extern bool runAnonymousMemoryRegionRegression();
 extern bool runSlamAllocatorConcurrencyRegression();
 extern bool runTlbShootdownConcurrencyRegression();
+extern bool runVfsCallbackLifetimeRegressions();
 
 namespace {
 class HandoffQueue : public RequestQueue {
@@ -354,6 +355,9 @@ bool entry() {
   if (!runSlamAllocatorConcurrencyRegression()) {
     FATAL("QEMU SLAM allocator concurrency regression failed");
   }
+  if (!runVfsCallbackLifetimeRegressions()) {
+    FATAL("QEMU VFS callback lifetime regression failed");
+  }
 
   NOTICE("QEMU-CONCURRENCY-TEST: BEGIN requestqueue-release-handoff");
 
@@ -414,4 +418,4 @@ bool entry() {
 void exit() {}
 }  // namespace
 
-MODULE_INFO("concurrency-smoke", &entry, &exit);
+MODULE_INFO("concurrency-smoke", &entry, &exit, "vfs");

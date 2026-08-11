@@ -8,6 +8,7 @@
 #ifndef PEDIGREE_KERNEL_PROCESS_EXECUTIONCONTEXT_H
 #define PEDIGREE_KERNEL_PROCESS_EXECUTIONCONTEXT_H
 
+#include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
 
 class Thread;
@@ -65,7 +66,7 @@ class ExecutionContextState {
  * physical stack without invoking this destructor. Thread then retires the
  * record before reusing the state level and restores its previous context.
  */
-class ExecutionContextGuard {
+class EXPORTED_PUBLIC ExecutionContextGuard {
  public:
   explicit ExecutionContextGuard(ExecutionContext context);
   ~ExecutionContextGuard();

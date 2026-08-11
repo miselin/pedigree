@@ -46,6 +46,7 @@ EXPORTED_PUBLIC bool runHostedRawFsContractRegressions();
 EXPORTED_PUBLIC bool runHostedUnixDatagramRegressions();
 bool runHostedLogRegressions();
 bool runNetworkFilterConcurrencyRegressions();
+bool runVfsCallbackLifetimeRegressions();
 bool runHostedPipeRegressions();
 bool runHostedPs2ControllerRegressions();
 bool runHostedPs2MouseRegressions();
@@ -1778,8 +1779,9 @@ bool runHostedWaitRegressions() {
       runHostedUsbTransferLifecycleRegressions() && runHostedMutexRegressions() &&
       runHostedInterruptManagerRegressions() && runHostedCdiIrqRegressions() &&
       runHostedInputRegressions() && runNetworkFilterConcurrencyRegressions() &&
-      runHostedCacheRegressions() && runHostedFatSectorRegressions() &&
-      runHostedRawFsContractRegressions() && runHostedUnixDatagramRegressions() &&
+      runVfsCallbackLifetimeRegressions() && runHostedCacheRegressions() &&
+      runHostedFatSectorRegressions() && runHostedRawFsContractRegressions() &&
+      runHostedUnixDatagramRegressions() &&
 #endif
       runHostedLifetimeLeaseRegressions() &&
 #if !PEDIGREE_HOSTED_CORE_SMOKE

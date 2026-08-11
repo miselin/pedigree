@@ -20,6 +20,10 @@
 #ifndef VFS_H
 #define VFS_H
 
+#if THREADS
+#include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/WaitQueue.h"
+#endif
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
@@ -107,14 +111,16 @@ class EXPORTED_PUBLIC VFS {
   bool remove(const String& path, File* pStartNode = 0);
 
   /** Adds a filesystem probe callback - this is called when a device is
-   * mounted. */
+   * mounted. Duplicate registration is idempotent and revives an entry closed
+   * by a deferred removal which has no external drainer. */
   void addProbeCallback(Filesystem::ProbeCallback callback);
 
   /** Removes a filesystem probe callback before its implementation unloads. */
   bool removeProbeCallback(Filesystem::ProbeCallback callback);
 
   /** Adds a mount callback - the function is called when a disk is mounted or
-      unmounted. */
+      unmounted. Duplicate registration is idempotent and revives an entry
+      closed by a deferred removal which has no external drainer. */
   void addMountCallback(MountCallback callback);
 
   /** Removes a mount callback before its implementation unloads. */
@@ -142,6 +148,50 @@ class EXPORTED_PUBLIC VFS {
   bool untrackFile(File* pFile, bool destroy = true);
 
  private:
+  struct CallbackState {
+#if THREADS
+    size_t sequence = 0;
+    size_t inFlight = 0;
+    size_t removers = 0;
+    bool enabled = true;
+    bool draining = false;
+    uintptr_t debugAddress = 0;
+    WaitQueue drainWaiters;
+#endif
+  };
+
+  struct ProbeCallbackItem {
+    explicit ProbeCallbackItem(Filesystem::ProbeCallback callback) : callback(callback) {}
+
+    CallbackState state;
+    Filesystem::ProbeCallback callback;
+  };
+
+  struct MountCallbackItem {
+    explicit MountCallbackItem(MountCallback callback) : callback(callback) {}
+
+    CallbackState state;
+    MountCallback callback;
+  };
+
+#if THREADS
+  struct ActiveInvocation {
+    CallbackState* state;
+    void* owner;
+    ActiveInvocation* next;
+  };
+
+  ProbeCallbackItem* acquireProbeCallback(size_t& afterSequence, size_t boundary,
+                                          ActiveInvocation& invocation);
+  MountCallbackItem* acquireMountCallback(size_t& afterSequence, size_t boundary,
+                                          ActiveInvocation& invocation);
+  void finishCallback(CallbackState* state, ActiveInvocation& invocation);
+  void drainProbeCallback(ProbeCallbackItem* item);
+  void drainMountCallback(MountCallbackItem* item);
+  void dispatchMountCallbacks(void* owner);
+  bool isCallbackInvocation(void* owner) const;
+#endif
+
   File* resolveStartNode(const String& path, File* pStartNode);
   String getUniqueStableName(const String& preferredName) const;
   bool attachFilesystem(Filesystem* pFs, const String& path);
@@ -156,8 +206,15 @@ class EXPORTED_PUBLIC VFS {
   Filesystem* m_pRootFilesystem;
   MountTable m_Mounts;
 
-  List<Filesystem::ProbeCallback*> m_ProbeCallbacks;
-  List<MountCallback*> m_MountCallbacks;
+  List<ProbeCallbackItem*> m_ProbeCallbacks;
+  List<MountCallbackItem*> m_MountCallbacks;
+
+#if THREADS
+  Spinlock m_CallbackLock;
+  size_t m_NextCallbackSequence;
+  ActiveInvocation* m_pActiveCallbacks;
+  bool m_CallbacksClosing;
+#endif
 
   LruCache<String, File*> m_FindCache;
 

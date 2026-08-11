@@ -31,6 +31,7 @@
 
 #ifndef VFS_STANDALONE
 #include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -51,9 +52,44 @@ VFS& VFS::instance() {
   return m_Instance;
 }
 
-VFS::VFS() : m_pRootFilesystem(nullptr), m_Mounts(), m_ProbeCallbacks(), m_MountCallbacks() {}
+VFS::VFS()
+    : m_pRootFilesystem(nullptr),
+      m_Mounts(),
+      m_ProbeCallbacks(),
+      m_MountCallbacks()
+#if THREADS
+      ,
+      m_CallbackLock(),
+      m_NextCallbackSequence(1),
+      m_pActiveCallbacks(nullptr),
+      m_CallbacksClosing(false)
+#endif
+{
+}
 
 VFS::~VFS() {
+#if THREADS
+  m_CallbackLock.acquire();
+  m_CallbacksClosing = true;
+  if (m_pActiveCallbacks) {
+    m_CallbackLock.release();
+    FATAL("VFS destroyed with an active callback invocation");
+  }
+  for (auto item : m_ProbeCallbacks) {
+    if (item->state.inFlight || item->state.removers) {
+      m_CallbackLock.release();
+      FATAL("VFS destroyed before probe callback retirement completed");
+    }
+  }
+  for (auto item : m_MountCallbacks) {
+    if (item->state.inFlight || item->state.removers) {
+      m_CallbackLock.release();
+      FATAL("VFS destroyed before mount callback retirement completed");
+    }
+  }
+  m_CallbackLock.release();
+#endif
+
   // Wipe out probe callbacks we know about.
   for (auto it = m_ProbeCallbacks.begin(); it != m_ProbeCallbacks.end(); ++it) {
     delete *it;
@@ -70,20 +106,71 @@ VFS::~VFS() {
 }
 
 bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
-  for (List<Filesystem::ProbeCallback*>::Iterator it = m_ProbeCallbacks.begin();
+#if THREADS
+  TerminationDeferral dispatchDeferral;
+  Thread* current = Processor::information().getCurrentThread();
+  void* owner =
+      current ? static_cast<void*>(current) : static_cast<void*>(&Processor::information());
+  size_t boundary = 0;
+  m_CallbackLock.acquire();
+  boundary = m_NextCallbackSequence;
+  m_CallbackLock.release();
+
+  size_t afterSequence = 0;
+  while (true) {
+    ActiveInvocation invocation = {nullptr, owner, nullptr};
+    ProbeCallbackItem* item = acquireProbeCallback(afterSequence, boundary, invocation);
+    if (!item) {
+      break;
+    }
+
+    Filesystem* pFs = item->callback(pDisk);
+    if (pFs) {
+      m_CallbackLock.acquire();
+      // This is the publication commit point. Retirement which closes the
+      // entry first rejects the result while the provider remains pinned;
+      // commit which wins keeps the pin through every use below.
+      const bool committed = item->state.enabled && !m_CallbacksClosing;
+      m_CallbackLock.release();
+      if (!committed) {
+        // The provider must still be pinned while its rejected result is
+        // destroyed; removal can only return after finishCallback below.
+        delete pFs;
+        finishCallback(&item->state, invocation);
+        continue;
+      }
+
+      if (stableName.length() == 0) {
+        stableName = pFs->getVolumeLabel();
+      }
+      stableName = registerFilesystem(pFs, stableName);
+      dispatchMountCallbacks(owner);
+
+      if (pMountedFs) {
+        *pMountedFs = pFs;
+      }
+
+      NOTICE("mounted filesystem '" << stableName << "'");
+
+      finishCallback(&item->state, invocation);
+      return true;
+    }
+
+    finishCallback(&item->state, invocation);
+  }
+#else
+  for (List<ProbeCallbackItem*>::Iterator it = m_ProbeCallbacks.begin();
        it != m_ProbeCallbacks.end(); it++) {
-    Filesystem::ProbeCallback cb = **it;
-    Filesystem* pFs = cb(pDisk);
+    Filesystem* pFs = (*it)->callback(pDisk);
     if (pFs) {
       if (stableName.length() == 0) {
         stableName = pFs->getVolumeLabel();
       }
       stableName = registerFilesystem(pFs, stableName);
 
-      for (List<MountCallback*>::Iterator it2 = m_MountCallbacks.begin();
+      for (List<MountCallbackItem*>::Iterator it2 = m_MountCallbacks.begin();
            it2 != m_MountCallbacks.end(); it2++) {
-        MountCallback mc = *(*it2);
-        mc();
+        (*it2)->callback();
       }
 
       if (pMountedFs) {
@@ -95,6 +182,7 @@ bool VFS::mount(Disk* pDisk, String& stableName, Filesystem** pMountedFs) {
       return true;
     }
   }
+#endif
   return false;
 }
 
@@ -191,40 +279,413 @@ File* VFS::find(const String& path, File* pStartNode) {
 }
 
 void VFS::addProbeCallback(Filesystem::ProbeCallback callback) {
-  Filesystem::ProbeCallback* p = new Filesystem::ProbeCallback;
-  *p = callback;
-  m_ProbeCallbacks.pushBack(p);
+  if (!callback) {
+    FATAL("VFS cannot register a null probe callback");
+  }
+
+  ProbeCallbackItem* item = new ProbeCallbackItem(callback);
+#if THREADS
+  m_CallbackLock.acquire();
+  if (m_CallbacksClosing) {
+    m_CallbackLock.release();
+    delete item;
+    FATAL("VFS probe callback registered during teardown");
+  }
+  for (auto registered : m_ProbeCallbacks) {
+    if (registered->callback == callback) {
+      if (!registered->state.draining) {
+        registered->state.enabled = true;
+      }
+      m_CallbackLock.release();
+      delete item;
+      return;
+    }
+  }
+  if (m_NextCallbackSequence == static_cast<size_t>(-1)) {
+    m_CallbackLock.release();
+    delete item;
+    FATAL("VFS callback sequence exhausted");
+  }
+  item->state.sequence = m_NextCallbackSequence++;
+  item->state.debugAddress = reinterpret_cast<uintptr_t>(callback);
+  m_ProbeCallbacks.pushBack(item);
+  m_CallbackLock.release();
+#else
+  for (auto registered : m_ProbeCallbacks) {
+    if (registered->callback == callback) {
+      delete item;
+      return;
+    }
+  }
+  m_ProbeCallbacks.pushBack(item);
+#endif
 }
 
 bool VFS::removeProbeCallback(Filesystem::ProbeCallback callback) {
+#if THREADS
+  if (!callback) {
+    return false;
+  }
+
+  TerminationDeferral removalDeferral;
+  Thread* current = Processor::information().getCurrentThread();
+  const bool canYield =
+      current && Processor::executionContext() == ExecutionContext::WaitableThread;
+  void* owner =
+      current ? static_cast<void*>(current) : static_cast<void*>(&Processor::information());
+  ProbeCallbackItem* item = nullptr;
+  bool callbackContext = false;
+
+  m_CallbackLock.acquire();
+  if (m_CallbacksClosing) {
+    m_CallbackLock.release();
+    return false;
+  }
   for (auto it = m_ProbeCallbacks.begin(); it != m_ProbeCallbacks.end(); ++it) {
-    Filesystem::ProbeCallback* registered = *it;
-    if (*registered == callback) {
+    if ((*it)->callback != callback) {
+      continue;
+    }
+
+    item = *it;
+    item->state.enabled = false;
+    callbackContext = isCallbackInvocation(owner);
+    if (!callbackContext && canYield) {
+      item->state.draining = true;
+      ++item->state.removers;
+    }
+    break;
+  }
+  m_CallbackLock.release();
+
+  if (!item) {
+    return false;
+  }
+  if (callbackContext || !canYield) {
+    return false;
+  }
+
+  drainProbeCallback(item);
+  return true;
+#else
+  for (auto it = m_ProbeCallbacks.begin(); it != m_ProbeCallbacks.end(); ++it) {
+    ProbeCallbackItem* item = *it;
+    if (item->callback == callback) {
       m_ProbeCallbacks.erase(it);
-      delete registered;
+      delete item;
       return true;
     }
   }
   return false;
+#endif
 }
 
 void VFS::addMountCallback(MountCallback callback) {
-  MountCallback* p = new MountCallback;
-  *p = callback;
-  m_MountCallbacks.pushBack(p);
+  if (!callback) {
+    FATAL("VFS cannot register a null mount callback");
+  }
+
+  MountCallbackItem* item = new MountCallbackItem(callback);
+#if THREADS
+  m_CallbackLock.acquire();
+  if (m_CallbacksClosing) {
+    m_CallbackLock.release();
+    delete item;
+    FATAL("VFS mount callback registered during teardown");
+  }
+  for (auto registered : m_MountCallbacks) {
+    if (registered->callback == callback) {
+      if (!registered->state.draining) {
+        registered->state.enabled = true;
+      }
+      m_CallbackLock.release();
+      delete item;
+      return;
+    }
+  }
+  if (m_NextCallbackSequence == static_cast<size_t>(-1)) {
+    m_CallbackLock.release();
+    delete item;
+    FATAL("VFS callback sequence exhausted");
+  }
+  item->state.sequence = m_NextCallbackSequence++;
+  item->state.debugAddress = reinterpret_cast<uintptr_t>(callback);
+  m_MountCallbacks.pushBack(item);
+  m_CallbackLock.release();
+#else
+  for (auto registered : m_MountCallbacks) {
+    if (registered->callback == callback) {
+      delete item;
+      return;
+    }
+  }
+  m_MountCallbacks.pushBack(item);
+#endif
 }
 
 bool VFS::removeMountCallback(MountCallback callback) {
+#if THREADS
+  if (!callback) {
+    return false;
+  }
+
+  TerminationDeferral removalDeferral;
+  Thread* current = Processor::information().getCurrentThread();
+  const bool canYield =
+      current && Processor::executionContext() == ExecutionContext::WaitableThread;
+  void* owner =
+      current ? static_cast<void*>(current) : static_cast<void*>(&Processor::information());
+  MountCallbackItem* item = nullptr;
+  bool callbackContext = false;
+
+  m_CallbackLock.acquire();
+  if (m_CallbacksClosing) {
+    m_CallbackLock.release();
+    return false;
+  }
   for (auto it = m_MountCallbacks.begin(); it != m_MountCallbacks.end(); ++it) {
-    MountCallback* registered = *it;
-    if (*registered == callback) {
+    if ((*it)->callback != callback) {
+      continue;
+    }
+
+    item = *it;
+    item->state.enabled = false;
+    callbackContext = isCallbackInvocation(owner);
+    if (!callbackContext && canYield) {
+      item->state.draining = true;
+      ++item->state.removers;
+    }
+    break;
+  }
+  m_CallbackLock.release();
+
+  if (!item) {
+    return false;
+  }
+  if (callbackContext || !canYield) {
+    return false;
+  }
+
+  drainMountCallback(item);
+  return true;
+#else
+  for (auto it = m_MountCallbacks.begin(); it != m_MountCallbacks.end(); ++it) {
+    MountCallbackItem* item = *it;
+    if (item->callback == callback) {
       m_MountCallbacks.erase(it);
-      delete registered;
+      delete item;
+      return true;
+    }
+  }
+  return false;
+#endif
+}
+
+#if THREADS
+VFS::ProbeCallbackItem* VFS::acquireProbeCallback(size_t& afterSequence, size_t boundary,
+                                                  ActiveInvocation& invocation) {
+  ProbeCallbackItem* item = nullptr;
+  m_CallbackLock.acquire();
+  if (!m_CallbacksClosing) {
+    for (auto candidate : m_ProbeCallbacks) {
+      if (candidate->state.sequence <= afterSequence) {
+        continue;
+      }
+      if (candidate->state.sequence >= boundary) {
+        break;
+      }
+
+      afterSequence = candidate->state.sequence;
+      if (!candidate->state.enabled) {
+        continue;
+      }
+
+      item = candidate;
+      invocation.state = &item->state;
+      ++item->state.inFlight;
+      invocation.next = m_pActiveCallbacks;
+      m_pActiveCallbacks = &invocation;
+      break;
+    }
+  }
+  m_CallbackLock.release();
+  return item;
+}
+
+VFS::MountCallbackItem* VFS::acquireMountCallback(size_t& afterSequence, size_t boundary,
+                                                  ActiveInvocation& invocation) {
+  MountCallbackItem* item = nullptr;
+  m_CallbackLock.acquire();
+  if (!m_CallbacksClosing) {
+    for (auto candidate : m_MountCallbacks) {
+      if (candidate->state.sequence <= afterSequence) {
+        continue;
+      }
+      if (candidate->state.sequence >= boundary) {
+        break;
+      }
+
+      afterSequence = candidate->state.sequence;
+      if (!candidate->state.enabled) {
+        continue;
+      }
+
+      item = candidate;
+      invocation.state = &item->state;
+      ++item->state.inFlight;
+      invocation.next = m_pActiveCallbacks;
+      m_pActiveCallbacks = &invocation;
+      break;
+    }
+  }
+  m_CallbackLock.release();
+  return item;
+}
+
+void VFS::finishCallback(CallbackState* state, ActiveInvocation& invocation) {
+  auto completionGuard = state->drainWaiters.acquire();
+  bool wakeDrainers = false;
+
+  m_CallbackLock.acquire();
+  ActiveInvocation** link = &m_pActiveCallbacks;
+  while (*link && *link != &invocation) {
+    link = &((*link)->next);
+  }
+  if (!*link) {
+    m_CallbackLock.release();
+    FATAL("VFS lost an active callback invocation");
+  }
+  *link = invocation.next;
+
+  if (!state->inFlight) {
+    m_CallbackLock.release();
+    FATAL("VFS callback pin underflow");
+  }
+  --state->inFlight;
+  wakeDrainers = !state->inFlight && state->draining;
+  m_CallbackLock.release();
+
+  if (wakeDrainers) {
+    completionGuard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(state));
+  }
+}
+
+void VFS::drainProbeCallback(ProbeCallbackItem* item) {
+  while (true) {
+    bool complete = false;
+    {
+      auto waitGuard = item->state.drainWaiters.acquire();
+      m_CallbackLock.acquire();
+      if (!item->state.inFlight) {
+        complete = true;
+        m_CallbackLock.release();
+      } else {
+        m_CallbackLock.release();
+        const WaitQueue::WakeReason reason = waitGuard.waitForCompletion(
+            WaitQueue::Channel(&item->state), Thread::CallbackDrain, item->state.debugAddress);
+        (void)reason;
+      }
+    }
+    if (complete) {
+      break;
+    }
+  }
+
+  bool deleteItem = false;
+  m_CallbackLock.acquire();
+  if (!item->state.removers) {
+    m_CallbackLock.release();
+    FATAL("VFS probe callback remover underflow");
+  }
+  --item->state.removers;
+  if (!item->state.removers) {
+    for (auto it = m_ProbeCallbacks.begin(); it != m_ProbeCallbacks.end(); ++it) {
+      if (*it == item) {
+        m_ProbeCallbacks.erase(it);
+        deleteItem = true;
+        break;
+      }
+    }
+  }
+  m_CallbackLock.release();
+
+  if (deleteItem) {
+    delete item;
+  }
+}
+
+void VFS::drainMountCallback(MountCallbackItem* item) {
+  while (true) {
+    bool complete = false;
+    {
+      auto waitGuard = item->state.drainWaiters.acquire();
+      m_CallbackLock.acquire();
+      if (!item->state.inFlight) {
+        complete = true;
+        m_CallbackLock.release();
+      } else {
+        m_CallbackLock.release();
+        const WaitQueue::WakeReason reason = waitGuard.waitForCompletion(
+            WaitQueue::Channel(&item->state), Thread::CallbackDrain, item->state.debugAddress);
+        (void)reason;
+      }
+    }
+    if (complete) {
+      break;
+    }
+  }
+
+  bool deleteItem = false;
+  m_CallbackLock.acquire();
+  if (!item->state.removers) {
+    m_CallbackLock.release();
+    FATAL("VFS mount callback remover underflow");
+  }
+  --item->state.removers;
+  if (!item->state.removers) {
+    for (auto it = m_MountCallbacks.begin(); it != m_MountCallbacks.end(); ++it) {
+      if (*it == item) {
+        m_MountCallbacks.erase(it);
+        deleteItem = true;
+        break;
+      }
+    }
+  }
+  m_CallbackLock.release();
+
+  if (deleteItem) {
+    delete item;
+  }
+}
+
+void VFS::dispatchMountCallbacks(void* owner) {
+  size_t boundary = 0;
+  m_CallbackLock.acquire();
+  boundary = m_NextCallbackSequence;
+  m_CallbackLock.release();
+
+  size_t afterSequence = 0;
+  while (true) {
+    ActiveInvocation invocation = {nullptr, owner, nullptr};
+    MountCallbackItem* item = acquireMountCallback(afterSequence, boundary, invocation);
+    if (!item) {
+      break;
+    }
+
+    item->callback();
+    finishCallback(&item->state, invocation);
+  }
+}
+
+bool VFS::isCallbackInvocation(void* owner) const {
+  for (ActiveInvocation* invocation = m_pActiveCallbacks; invocation;
+       invocation = invocation->next) {
+    if (invocation->owner == owner) {
       return true;
     }
   }
   return false;
 }
+#endif
 
 bool VFS::createFile(const String& path, uint32_t mask, File* pStartNode) {
   pStartNode = resolveStartNode(path, pStartNode);
