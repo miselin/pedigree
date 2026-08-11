@@ -85,6 +85,8 @@ uint64_t ScsiController::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, u
     return result;
   } else if (p1 == SCSI_REQUEST_SYNC)
     return pDisk->doSync(p3);
+  else if (p1 == SCSI_REQUEST_WRITE_DIRECT)
+    return pDisk->doWriteDirect(p3, static_cast<uintptr_t>(p4));
   else
     return 0;
 }

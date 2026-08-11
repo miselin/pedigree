@@ -93,6 +93,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   virtual uintptr_t read(uint64_t location);
   virtual void write(uint64_t location);
   virtual void flush(uint64_t location);
+  MUST_USE_RESULT virtual bool retireCachePage(uint64_t location);
   virtual void align(uint64_t location);
 
   virtual void getName(String& str) {
@@ -170,6 +171,12 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   /** Writes a cache page without client-operation admission. */
   void flushCachePage(uint64_t location);
 
+  /** Issues the SCSI write fallback sequence for one supplied page. */
+  bool writePageBuffer(uint64_t location, uintptr_t page);
+
+  /** Cache::retireWriteback callback; the supplied page is borrowed. */
+  static bool retireCachePageCallback(uintptr_t key, uintptr_t page, void* meta);
+
   /** Snapshots the most recent alignment boundary for a location. */
   uint64_t getAlignmentPoint(uint64_t location) const;
 
@@ -196,6 +203,10 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   virtual size_t defaultBlockSize() {
     return m_BlockSize;
   }
+
+ public:
+  /** Writes one caller-borrowed page without acquiring cache ownership. */
+  MUST_USE_RESULT virtual uint64_t doWriteDirect(uint64_t location, uintptr_t page);
 };
 
 #endif

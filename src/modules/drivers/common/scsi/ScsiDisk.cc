@@ -43,6 +43,8 @@
 #endif
 
 namespace {
+constexpr size_t ScsiCachePageBytes = 0x1000;
+
 bool discardEditingRange(Cache& cache, uintptr_t key, size_t length) {
   bool discarded = true;
   for (size_t offset = 0; offset < length; offset += 4096) {
@@ -106,6 +108,23 @@ void ScsiDisk::cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc,
           "potential future I/O issues.");
       break;
   }
+}
+
+bool ScsiDisk::retireCachePageCallback(uintptr_t key, uintptr_t page, void* meta) {
+  ScsiDisk* disk = reinterpret_cast<ScsiDisk*>(meta);
+  if (!disk || !page) {
+    return false;
+  }
+
+  ScsiController* controller = static_cast<ScsiController*>(disk->m_pParent);
+  if (!controller) {
+    return false;
+  }
+
+  const uint64_t result =
+      controller->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_WRITE_DIRECT,
+                             reinterpret_cast<uint64_t>(disk), key, page);
+  return result == ScsiCachePageBytes;
 }
 
 ScsiDisk::ScsiDisk()
@@ -422,6 +441,32 @@ void ScsiDisk::flush(uint64_t location) {
   flushCachePage(location);
 }
 
+bool ScsiDisk::retireCachePage(uint64_t location) {
+  ScsiController* controller = static_cast<ScsiController*>(m_pParent);
+  if (!controller) {
+    return false;
+  }
+
+  OperationBarrier::Lease operation;
+  if (!controller->acquireDiskOperation(operation)) {
+    return false;
+  }
+
+  const size_t nativeBlockSize = getNativeBlockSize();
+  if (!getBlockSize() || !nativeBlockSize || (ScsiCachePageBytes % nativeBlockSize)) {
+    return false;
+  }
+
+  const uint64_t alignPoint = getAlignmentPoint(location);
+  const uint64_t pageLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
+  if (pageLocation >= getSize() || ScsiCachePageBytes > (getSize() - pageLocation) ||
+      (pageLocation % nativeBlockSize)) {
+    return false;
+  }
+
+  return m_Cache.retireWriteback(pageLocation, retireCachePageCallback, this);
+}
+
 void ScsiDisk::flushCachePage(uint64_t location) {
 #if !CRIPPLE_HDD
   ScsiController* pParent = static_cast<ScsiController*>(m_pParent);
@@ -658,8 +703,37 @@ uint64_t ScsiDisk::doWrite(uint64_t location) {
   // Make sure we don't hold the refcnt once we exit this method.
   CachePageGuard guard(m_Cache, location);
 
-  size_t block = location / getNativeBlockSize();
-  size_t count = 4096 / getNativeBlockSize();
+  return writePageBuffer(location, buffer) ? getBlockSize() : 0;
+}
+
+uint64_t ScsiDisk::doWriteDirect(uint64_t location, uintptr_t page) {
+  if (!page) {
+    return 0;
+  }
+
+  bool ready = false;
+  for (int i = 0; i < 3; ++i) {
+    if ((ready = unitReady())) {
+      break;
+    }
+  }
+
+  if (!ready) {
+    ERROR("ScsiDisk::doWriteDirect - unit not ready");
+    return 0;
+  }
+
+  return writePageBuffer(location, page) ? ScsiCachePageBytes : 0;
+}
+
+bool ScsiDisk::writePageBuffer(uint64_t location, uintptr_t page) {
+  const size_t nativeBlockSize = getNativeBlockSize();
+  if (!page || !nativeBlockSize || (ScsiCachePageBytes % nativeBlockSize)) {
+    return false;
+  }
+
+  size_t block = location / nativeBlockSize;
+  size_t count = ScsiCachePageBytes / nativeBlockSize;
 
   bool bOk = false;
   ScsiCommand* pCommand;
@@ -667,7 +741,7 @@ uint64_t ScsiDisk::doWrite(uint64_t location) {
   for (int i = 0; i < 3; i++) {
     SCSI_DEBUG_LOG("SCSI: trying write(10)");
     pCommand = new ScsiCommands::Write10(block, count);
-    bOk = sendCommand(pCommand, buffer, 4096, true);
+    bOk = sendCommand(pCommand, page, ScsiCachePageBytes, true);
     delete pCommand;
     if (bOk)
       break;
@@ -676,7 +750,7 @@ uint64_t ScsiDisk::doWrite(uint64_t location) {
     for (int i = 0; i < 3; i++) {
       SCSI_DEBUG_LOG("SCSI: trying write(12)");
       pCommand = new ScsiCommands::Write12(block, count);
-      bOk = sendCommand(pCommand, buffer, 4096, true);
+      bOk = sendCommand(pCommand, page, ScsiCachePageBytes, true);
       delete pCommand;
       if (bOk)
         break;
@@ -686,7 +760,7 @@ uint64_t ScsiDisk::doWrite(uint64_t location) {
     for (int i = 0; i < 3; i++) {
       SCSI_DEBUG_LOG("SCSI: trying write(16)");
       pCommand = new ScsiCommands::Write16(block, count);
-      bOk = sendCommand(pCommand, buffer, 4096, true);
+      bOk = sendCommand(pCommand, page, ScsiCachePageBytes, true);
       delete pCommand;
       if (bOk)
         break;
@@ -697,7 +771,7 @@ uint64_t ScsiDisk::doWrite(uint64_t location) {
     ERROR("SCSI: writing failed?");
   }
 
-  return bOk ? getBlockSize() : 0;
+  return bOk;
 }
 
 uint64_t ScsiDisk::doSync(uint64_t location) {

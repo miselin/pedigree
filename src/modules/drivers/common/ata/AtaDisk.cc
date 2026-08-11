@@ -1063,7 +1063,6 @@ uint64_t AtaDisk::doWrite(uint64_t location) {
   // aside) are done asynchronously, while reads are synchronous.
   // This means we don't need to care about evicted pages within a disk block
   // because we're writing only a specific page that we already know exists.
-  uintptr_t nBytes = 0x1000;
   const uintptr_t buffer = ataTakeQueuedWritePage(getCache(), location);
   if (!buffer) {
     ERROR("AtaDisk::doWrite - queued buffer was not in cache");
@@ -1072,6 +1071,27 @@ uint64_t AtaDisk::doWrite(uint64_t location) {
 
   // Make sure we don't leave the refcnt increased by writing.
   CachePageGuard guard(getCache(), location);
+
+  return writePageBuffer(location, buffer);
+}
+
+uint64_t AtaDisk::doWriteDirect(uint64_t location, uintptr_t page) {
+  if ((location % 512) || !page)
+    return 0;
+
+// Safety check
+#if CRIPPLE_HDD
+  return 0;
+#endif
+
+  if (m_AtaDiskType != NotPacket)
+    return 0;
+
+  return writePageBuffer(location, page);
+}
+
+uint64_t AtaDisk::writePageBuffer(uint64_t location, uintptr_t buffer) {
+  const uintptr_t nBytes = 0x1000;
 
   if (getNativeBlockSize() != 512) {
     ERROR("ATA: writes require 512-byte logical sectors");

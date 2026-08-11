@@ -29,6 +29,7 @@
 #define SCSI_REQUEST_READ 1
 #define SCSI_REQUEST_WRITE 2
 #define SCSI_REQUEST_SYNC 3
+#define SCSI_REQUEST_WRITE_DIRECT 4
 
 class ScsiDisk;
 

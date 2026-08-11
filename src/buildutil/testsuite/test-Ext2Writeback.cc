@@ -77,6 +77,11 @@ class TrackingDisk final : public Disk {
     flushes.push_back(location);
   }
 
+  bool retireCachePage(uint64_t location) override {
+    retirements.push_back(location);
+    return retirementResult;
+  }
+
   size_t getSize() const override {
     return static_cast<size_t>(-1);
   }
@@ -93,8 +98,10 @@ class TrackingDisk final : public Disk {
 
   std::vector<uint64_t> writes;
   std::vector<uint64_t> flushes;
+  std::vector<uint64_t> retirements;
   std::vector<uint64_t> alignments;
   std::vector<uint64_t> reads;
+  bool retirementResult = true;
 };
 
 class OrderedSyncFile final : public File {
@@ -263,6 +270,43 @@ TEST(PartitionWriteback, AlignsAndTranslatesFlush) {
   partition.flush(UINT64_MAX);
   EXPECT_EQ(parent.alignments.size(), 1U);
   EXPECT_EQ(parent.flushes.size(), 2U);
+}
+
+TEST(PartitionWriteback, AlignsAndTranslatesRetirement) {
+  constexpr uint64_t kStart = 1536;
+  constexpr uint64_t kLength = 4 * kBlockSize;
+  constexpr uint64_t kLocation = 1024;
+
+  TrackingDisk parent;
+  Partition partition(String("test"), kStart, kLength);
+  partition.setParent(&parent);
+
+  ASSERT_TRUE(partition.retireCachePage(kLocation));
+  ASSERT_EQ(parent.alignments.size(), 1U);
+  EXPECT_EQ(parent.alignments[0], kStart);
+  ASSERT_EQ(parent.retirements.size(), 1U);
+  EXPECT_EQ(parent.retirements[0], kStart + kLocation);
+
+  ASSERT_TRUE(partition.retireCachePage(kLength - kBlockSize));
+  ASSERT_EQ(parent.retirements.size(), 2U);
+  EXPECT_EQ(parent.retirements[1], kStart + kLength - kBlockSize);
+
+  EXPECT_FALSE(partition.retireCachePage(kLength - kBlockSize + 1));
+  EXPECT_FALSE(partition.retireCachePage(kLength));
+  EXPECT_FALSE(partition.retireCachePage(UINT64_MAX));
+  EXPECT_EQ(parent.alignments.size(), 1U);
+  EXPECT_EQ(parent.retirements.size(), 2U);
+
+  parent.retirementResult = false;
+  EXPECT_FALSE(partition.retireCachePage(kLocation));
+  ASSERT_EQ(parent.retirements.size(), 3U);
+  EXPECT_EQ(parent.retirements[2], kStart + kLocation);
+}
+
+TEST(DiskWriteback, RetirementIsUnsupportedByDefault) {
+  TrackingDisk disk;
+  EXPECT_FALSE(disk.Disk::retireCachePage(0));
+  EXPECT_TRUE(disk.retirements.empty());
 }
 
 TEST(FileWriteback, SyncsMappedPageBeforeReturningIt) {

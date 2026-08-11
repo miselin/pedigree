@@ -65,3 +65,7 @@ bool Disk::cacheIsCritical() {
 }
 
 void Disk::flush(uint64_t location) {}
+
+bool Disk::retireCachePage(uint64_t location) {
+  return false;
+}

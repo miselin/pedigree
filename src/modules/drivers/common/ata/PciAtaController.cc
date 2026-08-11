@@ -377,6 +377,8 @@ uint64_t PciAtaController::executeRequest(uint64_t p1, uint64_t p2, uint64_t p3,
     return pDisk->doRead(p3);
   else if (p1 == SCSI_REQUEST_WRITE)
     return pDisk->doWrite(p3);
+  else if (p1 == SCSI_REQUEST_WRITE_DIRECT)
+    return pDisk->doWriteDirect(p3, static_cast<uintptr_t>(p4));
   else
     return 0;
 }

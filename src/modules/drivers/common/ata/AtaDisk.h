@@ -137,6 +137,14 @@ class AtaDisk : public ScsiDisk {
     }
   }
 
+ public:
+  /** Writes one caller-borrowed page without acquiring cache ownership. */
+  MUST_USE_RESULT virtual uint64_t doWriteDirect(uint64_t location, uintptr_t page);
+
+ private:
+  /** Writes one supplied page through the native ATA data path. */
+  uint64_t writePageBuffer(uint64_t location, uintptr_t page);
+
   /** Type for read/write buffer lists. */
   struct Buffer {
     /// Virtual address of buffer to read into (page sized).

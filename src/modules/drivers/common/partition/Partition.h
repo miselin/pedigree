@@ -87,6 +87,17 @@ class Partition : public Disk {
     pParent->flush(location + m_Start);
   }
 
+  MUST_USE_RESULT virtual bool retireCachePage(uint64_t location) {
+    if (location >= m_Length || (m_Length - location) < 0x1000)
+      return false;
+
+    Disk* pParent = static_cast<Disk*>(getParent());
+
+    ensureAligned(pParent);
+
+    return pParent->retireCachePage(location + m_Start);
+  }
+
   virtual size_t getSize() const {
     return getLength();
   }

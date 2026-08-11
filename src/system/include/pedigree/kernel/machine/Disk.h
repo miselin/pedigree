@@ -157,6 +157,21 @@ class EXPORTED_PUBLIC Disk : public Device {
    * Will not remove the page from cache, that must be done by the caller.
    */
   virtual void flush(uint64_t location);
+
+  /**
+   * Synchronously writes and retires the native cache page containing
+   * \p location.
+   *
+   * A successful call means the page is no longer published by this disk's
+   * cache. It does not imply that a volatile device write cache has been
+   * flushed. Callers must release their own reference to the page before
+   * entering this operation.
+   *
+   * \return True when the page was retired or was already absent. False when
+   *         this disk does not support retirement or the page must remain
+   *         available for a later retry.
+   */
+  MUST_USE_RESULT virtual bool retireCachePage(uint64_t location);
 };
 
 #endif
