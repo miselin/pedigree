@@ -52,12 +52,12 @@ class EXPORTED_PUBLIC Serial {
   // Const string overload (so no strlen needed)
   template <unsigned int N>
   void write_str(const char (&c)[N]) {
-    write_str(c, N);
+    write_str(c, N - 1);
   }
 
   template <unsigned int N>
   void write_str(const StaticString<N>(&c)) {
-    write_str(static_cast<const char*>(c), N);
+    write_str(static_cast<const char*>(c), c.length());
   }
 };
 

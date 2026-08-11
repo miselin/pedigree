@@ -56,6 +56,7 @@ set(KERNEL_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Device.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/DeviceHashTree.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Disk.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Serial.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/SymbolTable.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/IoBase.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Event.cc

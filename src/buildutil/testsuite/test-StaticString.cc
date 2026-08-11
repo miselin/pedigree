@@ -19,11 +19,39 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 
 #include <limits.h>
 
 #include <gtest/gtest.h>
+
+namespace {
+
+class RecordingSerial final : public Serial {
+ public:
+  using Serial::write_str;
+
+  void setBase(uintptr_t) override {}
+  char read() override {
+    return 0;
+  }
+  char readNonBlock() override {
+    return 0;
+  }
+  void write(char) override {
+    ++m_Writes;
+  }
+
+  size_t writes() const {
+    return m_Writes;
+  }
+
+ private:
+  size_t m_Writes = 0;
+};
+
+}  // namespace
 
 // Test fixture for typed tests.
 template <typename T>
@@ -73,6 +101,21 @@ TEST(PedigreeStaticString, ConstructionFromTooLongStaticString) {
   StaticString<3> s(other);
   EXPECT_STREQ(s, "he");
   EXPECT_EQ(s.length(), 2U);
+}
+
+TEST(PedigreeSerial, WritesLiteralWithoutTerminator) {
+  RecordingSerial serial;
+  serial.write_str<sizeof("hello")>("hello");
+
+  EXPECT_EQ(serial.writes(), 5U);
+}
+
+TEST(PedigreeSerial, WritesStaticStringLogicalLength) {
+  RecordingSerial serial;
+  StaticString<64> message("hello");
+  serial.write_str(message);
+
+  EXPECT_EQ(serial.writes(), message.length());
 }
 
 TEST(PedigreeStaticString, AppendOperator) {
