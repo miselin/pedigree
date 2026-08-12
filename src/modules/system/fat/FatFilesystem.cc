@@ -1369,6 +1369,7 @@ bool FatFilesystem::createSymlink(File* parent, const String& filename, const St
 
 bool FatFilesystem::remove(File* parent, File* file) {
   FatDirectory* parentDir = static_cast<FatDirectory*>(Directory::fromFile(parent));
+  uint32_t clus = file->getInode();
 
   // Firstly, remove from the directory itself
   if (!parentDir->removeEntry(file))
@@ -1377,7 +1378,6 @@ bool FatFilesystem::remove(File* parent, File* file) {
   // LockGuard<Mutex> guard(m_FatLock);
 
   // Then, clean up the cluster chain
-  uint32_t clus = file->getInode();
   if (clus != 0) {
     uint32_t prev = 0;
     while (true) {

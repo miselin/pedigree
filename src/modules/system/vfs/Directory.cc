@@ -145,29 +145,23 @@ bool Directory::addEphemeralFile(File* pFile) {
 }
 
 bool Directory::empty() {
-  // Need to make sure we can safely remove all nodes regardless of what
-  // happens to the directory cache while we empty
-  Vector<DirectoryEntry*> dentries;
-  Vector<File*> entries;
-  for (auto it = m_Cache.begin(); it != m_Cache.end(); ++it) {
-    dentries.pushBack(*it);
-    entries.pushBack((*it)->get());
-  }
+  while (m_Cache.count()) {
+    DirectoryEntryCache::PairLookupResult result = m_Cache.getNth(0);
+    if (result.hasError()) {
+      return false;
+    }
 
-  for (auto it : entries) {
-    if (!getFilesystem()->remove(this, it)) {
+    const String name = result.value().first();
+    File* file = result.value().second()->get();
+    if (!file || !getFilesystem()->remove(this, file)) {
       /// \note partial failure - some entries have been deleted by this
       /// point!
       return false;
     }
+
+    // The filesystem callback may already have removed this cache entry.
+    remove(HashedStringView(name));
   }
-
-  m_Cache.clear();
-
-  for (auto it : dentries) {
-    delete it;
-  }
-
   return true;
 }
 

@@ -549,6 +549,9 @@ assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS cache-range-existence"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS fat-sector-page-boundary"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS fat-short-read-publication"
 assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS directory-empty-removal-ownership"
+assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS fat-remove-retirement-order"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS rawfs-native-page-ownership"
 assert_marker \
     "$populated_log" \
