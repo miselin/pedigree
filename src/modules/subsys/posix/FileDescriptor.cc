@@ -23,6 +23,7 @@
 
 #include "modules/subsys/posix/IoEvent.h"
 #include "modules/system/vfs/File.h"
+#include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
 
 #define ENABLE_LOCKED_FILES 0
@@ -93,7 +94,8 @@ FileDescriptor::FileDescriptor()
       networkImpl(nullptr),
       ioevent(nullptr),
       fdflags(0),
-      flflags(0) {}
+      flflags(0),
+      m_bVfsLease(false) {}
 
 /// Parameterised constructor
 FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, int fdFlags,
@@ -105,7 +107,8 @@ FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, 
       networkImpl(nullptr),
       ioevent(nullptr),
       fdflags(fdFlags),
-      flflags(flFlags) {
+      flflags(flFlags),
+      m_bVfsLease(newFile && VFS::instance().retainTrackedFile(newFile)) {
   /// \todo need a copy constructor for networkImpl
   if (file) {
 #if ENABLE_LOCKED_FILES
@@ -124,7 +127,8 @@ FileDescriptor::FileDescriptor(FileDescriptor& desc)
       networkImpl(desc.networkImpl),
       ioevent(nullptr),
       fdflags(desc.fdflags),
-      flflags(desc.flflags) {
+      flflags(desc.flflags),
+      m_bVfsLease(file && VFS::instance().retainTrackedFile(file)) {
   if (file) {
 #if ENABLE_LOCKED_FILES
     lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
@@ -141,7 +145,14 @@ FileDescriptor::FileDescriptor(FileDescriptor& desc)
 
 /// Pointer copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor* desc)
-    : file(0), offset(0), fd(0), lockedFile(0), ioevent(nullptr), fdflags(0), flflags(0) {
+    : file(0),
+      offset(0),
+      fd(0),
+      lockedFile(0),
+      ioevent(nullptr),
+      fdflags(0),
+      flflags(0),
+      m_bVfsLease(false) {
   if (!desc)
     return;
 
@@ -151,6 +162,7 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
   fdflags = desc->fdflags;
   flflags = desc->flflags;
   networkImpl = desc->networkImpl;
+  m_bVfsLease = file && VFS::instance().retainTrackedFile(file);
   if (file) {
 #if ENABLE_LOCKED_FILES
     lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
@@ -181,6 +193,11 @@ FileDescriptor::~FileDescriptor() {
     }
 #endif
     decreaseFileReferences(file, flflags);
+  }
+
+  if (m_bVfsLease) {
+    m_bVfsLease = false;
+    VFS::instance().untrackFile(file);
   }
 
   /// \note sockets are cleaned up by their reference count hitting zero

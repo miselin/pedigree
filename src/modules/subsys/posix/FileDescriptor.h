@@ -96,6 +96,10 @@ class EXPORTED_PUBLIC FileDescriptor {
 
   /// File status flags (fcntl)
   int flflags;
+
+ private:
+  /** Whether this descriptor retained an established VFS File owner. */
+  bool m_bVfsLease;
 };
 
 #endif

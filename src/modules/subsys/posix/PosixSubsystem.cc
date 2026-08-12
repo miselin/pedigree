@@ -625,8 +625,6 @@ void PosixSubsystem::exit(int code) {
 
   // Tell some interesting info
   NOTICE("at exit for pid " << Dec << pProcess->getId() << "...");
-  NOTICE(" -> file lookup LRU cache had " << m_FindFileCache.hits() << " hits and "
-                                          << m_FindFileCache.misses() << " misses");
 
   pProcess->finishTermination();
 
@@ -1409,23 +1407,16 @@ File* PosixSubsystem::findFile(const String& path, File* workingDir) {
     return VFS::instance().find(path, workingDir);
   }
 
-  File* target = nullptr;
-  if (!m_FindFileCache.get(path, target)) {
-    // fall back to root filesystem
-    if (!m_pRootFs) {
-      m_pRootFs = VFS::instance().getRootFilesystem();
-    }
-
-    if (m_pRootFs) {
-      target = VFS::instance().find(path, m_pRootFs->getRoot());
-    }
+  // fall back to root filesystem
+  if (!m_pRootFs) {
+    m_pRootFs = VFS::instance().getRootFilesystem();
   }
 
-  if (target) {
-    m_FindFileCache.store(path, target);
+  if (m_pRootFs) {
+    return VFS::instance().find(path, m_pRootFs->getRoot());
   }
 
-  return target;
+  return nullptr;
 }
 
 #define STACK_PUSH(stack, value) *--stack = value

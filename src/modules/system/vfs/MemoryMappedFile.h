@@ -383,6 +383,9 @@ class MemoryMappedFile : public MemoryMappedObject {
    * sleeping lock rather than a Spinlock.
    */
   Mutex m_Lock;
+
+  /** Whether this mapping retained an established VFS File owner. */
+  bool m_bVfsLease;
 };
 
 /**

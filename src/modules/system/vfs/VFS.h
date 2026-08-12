@@ -95,6 +95,11 @@ class EXPORTED_PUBLIC VFS {
   /** Returns a borrowed pointer; the lookup does not pin filesystem lifetime. */
   Filesystem* getRootFilesystem() const;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  /** Replace the hosted test namespace without registering or attaching it. */
+  Filesystem* swapRootFilesystemForHostedTest(Filesystem* pFs);
+#endif
+
   /** Obtain the canonical mount path for a filesystem. */
   bool getMountPath(Filesystem* pFs, String& path) const;
 
@@ -155,6 +160,9 @@ class EXPORTED_PUBLIC VFS {
    */
   void trackFile(File* pFile);
 
+  /** Retain an already tracked File without publishing an untracked pointer. */
+  MUST_USE_RESULT bool retainTrackedFile(File* pFile);
+
   /**
    * Stop tracking a File object, destroying by default if it is no longer
    * tracked by any other owners.
@@ -162,6 +170,14 @@ class EXPORTED_PUBLIC VFS {
    *        if destroy == false)
    */
   bool untrackFile(File* pFile, bool destroy = true);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  using RetainTrackedFileHook = void (*)(File* pFile);
+  static void setRetainTrackedFileHookForHostedTest(RetainTrackedFileHook hook);
+  const void* trackedFilesLockAddressForHostedTest() const {
+    return static_cast<const Semaphore*>(&m_TrackedFilesLock);
+  }
+#endif
 
  private:
   struct MountInfo {
@@ -247,7 +263,12 @@ class EXPORTED_PUBLIC VFS {
 
   LruCache<String, File*> m_FindCache;
 
+  Mutex m_TrackedFilesLock;
   Tree<File*, size_t> m_TrackedFiles;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  static RetainTrackedFileHook m_RetainTrackedFileHook;
+#endif
 };
 
 #endif

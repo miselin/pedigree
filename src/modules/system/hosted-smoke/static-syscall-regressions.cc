@@ -10,10 +10,13 @@
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
+#include "modules/subsys/posix/UnixFilesystem.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/subsys/posix/poll-syscalls.h"
 #include "modules/subsys/posix/system-syscalls.h"
+#include "modules/system/vfs/File.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include "modules/system/vfs/VFS.h"
 #undef PEDIGREE_INIT_SIGRET
 #undef PEDIGREE_SIGRET
 #include "pedigree/kernel/Atomic.h"
@@ -23,6 +26,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
@@ -108,6 +112,411 @@ class DescriptorRetirementProbe : public FileDescriptor {
  private:
   Atomic<size_t>& m_Destructions;
 };
+
+class EstablishedAliasFileProbe : public File {
+ public:
+  explicit EstablishedAliasFileProbe(Atomic<size_t>& destructions)
+      : File(), m_Destructions(destructions) {}
+
+  ~EstablishedAliasFileProbe() override {
+    m_Destructions += 1;
+  }
+
+ private:
+  Atomic<size_t>& m_Destructions;
+};
+
+void repairAliasFileProbe(EstablishedAliasFileProbe* file, Atomic<size_t>& destructions) {
+  if (!destructions) {
+    VFS::instance().untrackFile(file);
+  }
+  if (!destructions) {
+    delete file;
+  }
+}
+
+struct TrackedFileRetainHookContext {
+  explicit TrackedFileRetainHookContext(File* target)
+      : target(target), release(0, false), claimed(0), entered(0), returned(0) {}
+
+  File* target;
+  Semaphore release;
+  Atomic<size_t> claimed;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+};
+
+struct TrackedFileRetainWorkerContext {
+  explicit TrackedFileRetainWorkerContext(File* file) : file(file), retained(0), returned(0) {}
+
+  File* file;
+  Atomic<size_t> retained;
+  Atomic<size_t> returned;
+};
+
+Atomic<TrackedFileRetainHookContext*> g_TrackedFileRetainHookContext(nullptr);
+
+void pauseFirstTrackedFileRetain(File* file) {
+  TrackedFileRetainHookContext* context = g_TrackedFileRetainHookContext;
+  if (!context || context->target != file || !context->claimed.compareAndSwap(0, 1)) {
+    return;
+  }
+
+  context->entered += 1;
+  if (context->release.acquireForCompletion()) {
+    context->returned += 1;
+  }
+}
+
+int retainTrackedFileWorker(void* parameter) {
+  TrackedFileRetainWorkerContext* context =
+      reinterpret_cast<TrackedFileRetainWorkerContext*>(parameter);
+  context->retained = VFS::instance().retainTrackedFile(context->file) ? 1 : 0;
+  context->returned += 1;
+  return context->retained ? 0 : 1;
+}
+
+bool establishedAliasRetainSerialization(Process* kernelProcess) {
+  Atomic<size_t> destructions(0);
+  EstablishedAliasFileProbe* file = new EstablishedAliasFileProbe(destructions);
+  VFS::instance().trackFile(file);
+
+  TrackedFileRetainHookContext hook(file);
+  TrackedFileRetainWorkerContext workerAContext(file);
+  TrackedFileRetainWorkerContext workerBContext(file);
+  Thread* workerA = new Thread(kernelProcess, retainTrackedFileWorker, &workerAContext, nullptr,
+                               false, true, true);
+  Thread* workerB = nullptr;
+  workerA->setName("hosted VFS retain serializer A");
+
+  g_TrackedFileRetainHookContext = &hook;
+  VFS::setRetainTrackedFileHookForHostedTest(pauseFirstTrackedFileRetain);
+  const bool startedA = workerA->start();
+
+  bool workerABlocked = false;
+  for (size_t attempt = 0; attempt < HostedAttempts && startedA; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    if (hook.entered == static_cast<size_t>(1) && workerA->getWaitDebugInfo(info) && info.queue &&
+        info.queued && info.channelOwner == &hook.release &&
+        workerA->getStatus() == Thread::Sleeping) {
+      workerABlocked = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+
+  bool startedB = false;
+  if (startedA) {
+    workerB = new Thread(kernelProcess, retainTrackedFileWorker, &workerBContext, nullptr, false,
+                         true, true);
+    workerB->setName("hosted VFS retain serializer B");
+    startedB = workerB->start();
+  }
+  bool workerBQueued = false;
+  for (size_t attempt = 0; attempt < HostedAttempts && startedB; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    if (workerB->getWaitDebugInfo(info) && info.queue && info.queued &&
+        info.channelOwner == VFS::instance().trackedFilesLockAddressForHostedTest() &&
+        workerB->getStatus() == Thread::Sleeping) {
+      workerBQueued = true;
+      break;
+    }
+    if (workerBContext.returned) {
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+
+  bool passed = startedA && workerABlocked && startedB && workerBQueued && !workerBContext.returned;
+
+  hook.release.release();
+  const bool joinedA = startedA ? workerA->joinForCompletion() : false;
+  const bool joinedB = startedB ? workerB->joinForCompletion() : false;
+  if (!startedA) {
+    delete workerA;
+  }
+  if (workerB && !startedB) {
+    delete workerB;
+  }
+  VFS::setRetainTrackedFileHookForHostedTest(nullptr);
+  g_TrackedFileRetainHookContext = nullptr;
+
+  passed = passed && joinedA && joinedB && hook.returned == static_cast<size_t>(1) &&
+           workerAContext.retained == static_cast<size_t>(1) &&
+           workerBContext.retained == static_cast<size_t>(1);
+
+  const bool firstWasFinal = VFS::instance().untrackFile(file, false);
+  bool secondWasFinal = false;
+  if (!firstWasFinal) {
+    secondWasFinal = VFS::instance().untrackFile(file, false);
+  }
+
+  bool finalDestroyed = false;
+  if (!firstWasFinal && !secondWasFinal) {
+    finalDestroyed = VFS::instance().untrackFile(file);
+  } else {
+    delete file;
+  }
+
+  passed = passed && !firstWasFinal && !secondWasFinal && finalDestroyed &&
+           destructions == static_cast<size_t>(1);
+  if (!destructions) {
+    repairAliasFileProbe(file, destructions);
+  }
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL vfs-established-alias-serialization: "
+        "concurrent established-owner retains were not serialized by the tracker lock");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS vfs-established-alias-serialization");
+  return true;
+}
+
+enum DescriptorAliasConstruction {
+  DescriptorDirect,
+  DescriptorCopy,
+  DescriptorPointerCopy,
+};
+
+bool descriptorEstablishedAliasLifetime(DescriptorAliasConstruction construction) {
+  Atomic<size_t> destructions(0);
+  EstablishedAliasFileProbe* file = new EstablishedAliasFileProbe(destructions);
+  FileDescriptor* source = nullptr;
+
+  if (construction != DescriptorDirect) {
+    source = new FileDescriptor(file);
+  }
+
+  VFS::instance().trackFile(file);
+  VFS::instance().trackFile(file);
+
+  FileDescriptor* alias = nullptr;
+  if (construction == DescriptorDirect) {
+    alias = new FileDescriptor(file);
+  } else if (construction == DescriptorCopy) {
+    alias = new FileDescriptor(*source);
+  } else {
+    alias = new FileDescriptor(source);
+  }
+
+  delete source;
+  VFS::instance().untrackFile(file);
+  const bool emergencyWasFinal = VFS::instance().untrackFile(file, false);
+  bool passed = !emergencyWasFinal && !destructions;
+
+  delete alias;
+  passed = passed && destructions == static_cast<size_t>(1);
+  repairAliasFileProbe(file, destructions);
+  return passed;
+}
+
+bool establishedFileAliasLifetime() {
+  const bool directPassed = descriptorEstablishedAliasLifetime(DescriptorDirect);
+  const bool copyPassed = descriptorEstablishedAliasLifetime(DescriptorCopy);
+  const bool pointerCopyPassed = descriptorEstablishedAliasLifetime(DescriptorPointerCopy);
+  bool passed = directPassed && copyPassed && pointerCopyPassed;
+
+  Atomic<size_t> destructions(0);
+  EstablishedAliasFileProbe* untracked = new EstablishedAliasFileProbe(destructions);
+  FileDescriptor* descriptor = new FileDescriptor(untracked);
+  const bool descriptorPublishedFile = VFS::instance().untrackFile(untracked, false);
+  delete descriptor;
+  passed = passed && !descriptorPublishedFile && !destructions;
+  repairAliasFileProbe(untracked, destructions);
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL file-established-alias-lifetime: "
+        "tracked descriptors did not retain exactly one VFS owner, or an untracked descriptor "
+        "published a new owner");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS file-established-alias-lifetime");
+  return true;
+}
+
+enum MappingAliasConstruction {
+  MappingDirect,
+  MappingClone,
+  MappingSplit,
+};
+
+bool mappingEstablishedAliasLifetime(MappingAliasConstruction construction) {
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  Atomic<size_t> destructions(0);
+  EstablishedAliasFileProbe* file = new EstablishedAliasFileProbe(destructions);
+  MemoryMappedObject* source = nullptr;
+
+  if (construction != MappingDirect) {
+    source = new MemoryMappedFile(0x100000, pageSize * 2, 0, file, false, MemoryMappedObject::Read);
+  }
+
+  VFS::instance().trackFile(file);
+  VFS::instance().trackFile(file);
+
+  MemoryMappedObject* alias = nullptr;
+  if (construction == MappingDirect) {
+    alias = new MemoryMappedFile(0x100000, pageSize, 0, file, false, MemoryMappedObject::Read);
+  } else if (construction == MappingClone) {
+    alias = source->clone();
+  } else {
+    alias = source->split(0x100000 + pageSize);
+  }
+
+  delete source;
+  VFS::instance().untrackFile(file);
+  const bool emergencyWasFinal = VFS::instance().untrackFile(file, false);
+  bool passed = !emergencyWasFinal && !destructions;
+
+  delete alias;
+  passed = passed && destructions == static_cast<size_t>(1);
+  repairAliasFileProbe(file, destructions);
+  return passed;
+}
+
+bool establishedMappingAliasLifetime() {
+  const bool directPassed = mappingEstablishedAliasLifetime(MappingDirect);
+  const bool clonePassed = mappingEstablishedAliasLifetime(MappingClone);
+  const bool splitPassed = mappingEstablishedAliasLifetime(MappingSplit);
+  bool passed = directPassed && clonePassed && splitPassed;
+
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  Atomic<size_t> destructions(0);
+  EstablishedAliasFileProbe* untracked = new EstablishedAliasFileProbe(destructions);
+  MemoryMappedObject* mapping =
+      new MemoryMappedFile(0x100000, pageSize, 0, untracked, false, MemoryMappedObject::Read);
+  const bool mappingPublishedFile = VFS::instance().untrackFile(untracked, false);
+  delete mapping;
+  passed = passed && !mappingPublishedFile && !destructions;
+  repairAliasFileProbe(untracked, destructions);
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL mmap-established-alias-lifetime: "
+        "tracked mappings did not retain a VFS owner, or an untracked mapping published a new "
+        "owner");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS mmap-established-alias-lifetime");
+  return true;
+}
+
+bool mappingManagerSplitLifetime(Process* process, bool exactSuffix) {
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t mappingLength = pageSize * 3;
+  uintptr_t address = 0;
+  if (!process->getSpaceAllocator().allocate(mappingLength, address)) {
+    return false;
+  }
+
+  Atomic<size_t> destructions(0);
+  EstablishedAliasFileProbe* file = new EstablishedAliasFileProbe(destructions);
+  VFS::instance().trackFile(file);
+  VFS::instance().trackFile(file);
+
+  uintptr_t mappedAddress = address;
+  MemoryMappedObject* mapping = MemoryMapManager::instance().mapFile(
+      file, mappedAddress, mappingLength, MemoryMappedObject::Read);
+  bool passed = mapping && mappedAddress == address;
+  if (mapping) {
+    const size_t removedMiddleOrSuffix = MemoryMapManager::instance().remove(
+        address + pageSize, exactSuffix ? pageSize * 2 : pageSize);
+    const size_t removedPrefix = MemoryMapManager::instance().remove(address, pageSize);
+    size_t removedTail = 1;
+    if (!exactSuffix) {
+      removedTail = MemoryMapManager::instance().remove(address + pageSize * 2, pageSize);
+    }
+    passed = passed && removedMiddleOrSuffix == 1 && removedPrefix == 1 && removedTail == 1;
+  }
+
+  MemoryMapManager::instance().remove(address, mappingLength);
+  process->getSpaceAllocator().free(address, mappingLength);
+  const bool namespaceWasFinal = VFS::instance().untrackFile(file);
+  const bool emergencyWasFinal = VFS::instance().untrackFile(file);
+  passed =
+      passed && !namespaceWasFinal && emergencyWasFinal && destructions == static_cast<size_t>(1);
+  repairAliasFileProbe(file, destructions);
+  return passed;
+}
+
+bool mappingManagerSplitLifetime(Process* process) {
+  const bool exactSuffixPassed = mappingManagerSplitLifetime(process, true);
+  const bool middlePassed = mappingManagerSplitLifetime(process, false);
+  const bool passed = exactSuffixPassed && middlePassed;
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL mmap-split-alias-lifetime: "
+        "an exact-suffix or middle removal leaked a file-backed mapping owner");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS mmap-split-alias-lifetime");
+  return true;
+}
+
+bool posixPathLookupLifetime(Process* kernelProcess) {
+  Filesystem* priorRoot = VFS::instance().getRootFilesystem();
+  if (priorRoot) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL posix-path-lookup-lifetime: "
+        "the isolated pathname fixture requires an empty hosted root namespace");
+    return false;
+  }
+  UnixFilesystem* testFilesystem = new UnixFilesystem;
+  Filesystem* displacedRoot = VFS::instance().swapRootFilesystemForHostedTest(testFilesystem);
+  const bool rootInstalled = displacedRoot == priorRoot;
+  File* root = testFilesystem->getRoot();
+  const String path("/hosted-established-alias-path-cache");
+  VFS::instance().remove(path, root);
+  const bool created = VFS::instance().createFile(path, 0600, root);
+
+  Process* process = new Process(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  subsystem->setAbi(PosixSubsystem::LinuxAbi);
+
+  File* original = created ? subsystem->findFile(path, root) : nullptr;
+  if (original) {
+    VFS::instance().trackFile(original);
+  }
+
+  const bool originalRemoved = original && VFS::instance().remove(path, root);
+  const bool recreated = originalRemoved && VFS::instance().createFile(path, 0600, root);
+
+  File* replacement = recreated ? VFS::instance().find(path, root) : nullptr;
+  File* resolved = recreated ? subsystem->findFile(path, root) : nullptr;
+  const bool resolvedReplacement =
+      replacement && replacement != original && resolved == replacement;
+
+  File* remaining = VFS::instance().find(path, root);
+  const bool pathCleaned = !remaining || VFS::instance().remove(path, root);
+  delete process;
+  if (original) {
+    VFS::instance().untrackFile(original);
+  }
+
+  Filesystem* removedRoot = VFS::instance().swapRootFilesystemForHostedTest(priorRoot);
+  const bool rootRestored = removedRoot == testFilesystem;
+  delete testFilesystem;
+
+  const bool passed = rootInstalled && created && original && originalRemoved && recreated &&
+                      resolvedReplacement && pathCleaned && rootRestored;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL posix-path-lookup-lifetime: "
+        "a removed pathname resolved to its retired cached File object");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS posix-path-lookup-lifetime");
+  return true;
+}
 
 class PollGenerationProbe : public NetworkSyscalls {
  public:
@@ -951,6 +1360,25 @@ bool runRegressions() {
 
   Process* kernelProcess = Scheduler::instance().getKernelProcess();
   if (!kernelProcess) {
+    return false;
+  }
+
+  bool establishedAliasPassed = true;
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN vfs-established-alias-serialization");
+  establishedAliasPassed &= establishedAliasRetainSerialization(kernelProcess);
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN file-established-alias-lifetime");
+  establishedAliasPassed &= establishedFileAliasLifetime();
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN mmap-established-alias-lifetime");
+  establishedAliasPassed &= establishedMappingAliasLifetime();
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN mmap-split-alias-lifetime");
+  establishedAliasPassed &= mappingManagerSplitLifetime(kernelProcess);
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN posix-path-lookup-lifetime");
+  establishedAliasPassed &= posixPathLookupLifetime(kernelProcess);
+  if (!establishedAliasPassed) {
     return false;
   }
 

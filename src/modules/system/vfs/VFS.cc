@@ -50,6 +50,10 @@ class Disk;
 
 VFS VFS::m_Instance;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+VFS::RetainTrackedFileHook VFS::m_RetainTrackedFileHook = nullptr;
+#endif
+
 VFS& VFS::instance() {
   return m_Instance;
 }
@@ -309,6 +313,16 @@ Filesystem* VFS::getRootFilesystem() const {
   LockGuard<Mutex> tableGuard(m_MountTableLock);
   return m_pRootFilesystem;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+Filesystem* VFS::swapRootFilesystemForHostedTest(Filesystem* pFs) {
+  LockGuard<Mutex> mutationGuard(m_MountMutationLock);
+  LockGuard<Mutex> tableGuard(m_MountTableLock);
+  Filesystem* previous = m_pRootFilesystem;
+  m_pRootFilesystem = pFs;
+  return previous;
+}
+#endif
 
 bool VFS::getMountPath(Filesystem* pFs, String& path) const {
   LockGuard<Mutex> tableGuard(m_MountTableLock);
@@ -886,25 +900,62 @@ bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute) {
 }
 
 void VFS::trackFile(File* pFile) {
+  LockGuard<Mutex> guard(m_TrackedFilesLock);
   size_t n = m_TrackedFiles.lookup(pFile);
   ++n;
   m_TrackedFiles.insert(pFile, n);
 }
 
-bool VFS::untrackFile(File* pFile, bool destroy) {
-  size_t n = m_TrackedFiles.lookup(pFile);
-  if ((n == 0) || ((n - 1) == 0)) {
-    m_TrackedFiles.remove(pFile);
-    if (destroy) {
-      delete pFile;
-    }
-    return true;
-  } else {
-    m_TrackedFiles.insert(pFile, n - 1);
+bool VFS::retainTrackedFile(File* pFile) {
+  if (!pFile) {
+    return false;
   }
 
-  return false;
+  LockGuard<Mutex> guard(m_TrackedFilesLock);
+  size_t n = m_TrackedFiles.lookup(pFile);
+  if (!n) {
+    return false;
+  }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  RetainTrackedFileHook hook = __atomic_load_n(&m_RetainTrackedFileHook, __ATOMIC_ACQUIRE);
+  if (hook) {
+    hook(pFile);
+  }
+#endif
+
+  m_TrackedFiles.insert(pFile, n + 1);
+  return true;
 }
+
+bool VFS::untrackFile(File* pFile, bool destroy) {
+  bool finalOwner = false;
+  {
+    LockGuard<Mutex> guard(m_TrackedFilesLock);
+    size_t n = m_TrackedFiles.lookup(pFile);
+    if (!n) {
+      return false;
+    }
+
+    if (n == 1) {
+      m_TrackedFiles.remove(pFile);
+      finalOwner = true;
+    } else {
+      m_TrackedFiles.insert(pFile, n - 1);
+    }
+  }
+
+  if (finalOwner && destroy) {
+    delete pFile;
+  }
+  return finalOwner;
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void VFS::setRetainTrackedFileHookForHostedTest(RetainTrackedFileHook hook) {
+  __atomic_store_n(&m_RetainTrackedFileHook, hook, __ATOMIC_RELEASE);
+}
+#endif
 
 String VFS::getUniqueStableNameLocked(const String& preferredName) const {
   NormalStaticString safeName;

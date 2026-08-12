@@ -36,6 +36,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "File.h"
+#include "VFS.h"
 
 MemoryMapManager MemoryMapManager::m_Instance;
 
@@ -309,12 +310,17 @@ MemoryMappedFile::MemoryMappedFile(uintptr_t address, size_t length, size_t offs
       m_pBacking(backing),
       m_Offset(offset),
       m_Mappings(),
-      m_Lock() {
+      m_Lock(),
+      m_bVfsLease(backing && VFS::instance().retainTrackedFile(backing)) {
   assert(m_pBacking);
 }
 
 MemoryMappedFile::~MemoryMappedFile() {
   unmap();
+  if (m_bVfsLease) {
+    m_bVfsLease = false;
+    VFS::instance().untrackFile(m_pBacking);
+  }
 }
 
 MemoryMappedObject* MemoryMappedFile::clone() {
@@ -1094,6 +1100,8 @@ size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
       if (!bAll) {
         // Remainder not fully removed - add to housekeeping.
         pMmObjectList->pushBack(pNewObject);
+      } else {
+        delete pNewObject;
       }
     }
 

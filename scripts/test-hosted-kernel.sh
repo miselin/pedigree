@@ -433,7 +433,12 @@ if [ "$wait_regressions_only" = "0" ] ||
         "$empty_log" \
         "HOSTED-NETWORK-TEST: PASS receive-generation-aba"
     for checkpoint in \
+        "HOSTED-SYSCALL-TEST: PASS vfs-established-alias-serialization" \
         "HOSTED-SYSCALL-TEST: PASS descriptor-close-pinning" \
+        "HOSTED-SYSCALL-TEST: PASS file-established-alias-lifetime" \
+        "HOSTED-SYSCALL-TEST: PASS mmap-established-alias-lifetime" \
+        "HOSTED-SYSCALL-TEST: PASS mmap-split-alias-lifetime" \
+        "HOSTED-SYSCALL-TEST: PASS posix-path-lookup-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS descriptor-close-generation" \
         "HOSTED-SYSCALL-TEST: PASS poll-close-reuse-cleanup" \
         "HOSTED-SYSCALL-TEST: PASS posix-teardown-contention" \
