@@ -29,7 +29,6 @@ const size_t PosixSignalStart = 0;
 // Posix signals in here.
 const size_t PosixSignalEnd = 32;
 
-const size_t TimeoutGuard = 33;
 const size_t Interrupt = 34;
 const size_t TimedTask = 35;
 const size_t SelectEvent = 36;

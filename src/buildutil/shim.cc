@@ -29,11 +29,9 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/MemoryPool.h"
-#include "pedigree/kernel/utilities/TimeoutGuard.h"
 
 #include <errno.h>
 #include <pthread.h>
-#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -499,26 +497,6 @@ Scheduler::Scheduler() = default;
 
 void Scheduler::yield() {
   sched_yield();
-}
-
-TimeoutGuard::TimeoutGuard(size_t timeoutSecs) : m_bTimedOut(false) {
-  jmp_buf* buf = reinterpret_cast<jmp_buf*>(malloc(sizeof(jmp_buf)));
-  if (sigsetjmp(*buf, 0)) {
-    m_bTimedOut = true;
-    return;
-  }
-
-  m_State = buf;
-}
-
-TimeoutGuard::~TimeoutGuard() {
-  jmp_buf* buf = reinterpret_cast<jmp_buf*>(m_State);
-  free(buf);
-}
-
-void TimeoutGuard::cancel() {
-  jmp_buf* buf = reinterpret_cast<jmp_buf*>(m_State);
-  siglongjmp(*buf, 1);
 }
 
 size_t ProcessorBase::id() {

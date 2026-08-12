@@ -79,8 +79,7 @@ _ZN13ProcessorBase9saveStateER17X64SchedulerState:
 ; [rsi] Lock.
 ; [rdi] State pointer.
 _ZN13ProcessorBase12restoreStateER17X64SchedulerStatePVm:
-    ;; Eagerly restore a valid image. This also preserves private scheduler
-    ;; snapshots such as TimeoutGuard's; brand-new states fault in lazily.
+    ;; Eagerly restore a valid image. Brand-new states fault in lazily.
     test     dword [rdi+96], 2
     jz       .invalid_fpu
     mov      rdx, cr0

@@ -42,7 +42,6 @@ class PageFaultHandler;
 class Process;
 class SyscallManager;
 class TerminationDeferral;
-class TimeoutGuard;
 class IrqHandlerRegistry;
 class TimerHandlerRegistry;
 class HostedInterruptManager;
@@ -71,7 +70,6 @@ class EXPORTED_PUBLIC Thread {
   friend class Uninterruptible;
   friend class TerminationDeferral;
   friend class SyscallManager;
-  friend class TimeoutGuard;
   friend class IrqHandlerRegistry;
   friend class TimerHandlerRegistry;
   friend class HostedInterruptManager;

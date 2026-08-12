@@ -46,8 +46,8 @@ about memory leaks.
 So, hypothetically, what if you had an Event that when fired, did a kind of
 `longjmp` (Probably using the `Processor::saveState` and
 `Processor::restoreState` functions) to some code in the original thread? This
-could be used as a hard timeout (in fact, this exact mechanism is implemented in
-`TimeoutGuard`). There is a problem here - Events can be nested, and you may be
+could be used as a hard timeout. There is a problem here - Events can be nested,
+and you may be
 inadvertently longjmp'ing over another Event that is partially executed (and
 possibly preempted).
 

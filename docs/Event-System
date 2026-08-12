@@ -46,7 +46,7 @@ for creating 'fire-and-forget' type events, so you don't have to worry about
 memory leaks.
 
 So, hypothetically, what if you had an Event that when fired, did a kind of `longjmp` (Probably using the `Processor::saveState` and `Processor::restoreState` functions) to some code in the original thread? This could be used as a hard timeout
-(in fact, this exact mechanism is implemented in `TimeoutGuard`). There is a problem here - Events can be nested, and you may be inadvertently longjmp'ing over another Event that is partially executed (and possibly preempted).
+There is a problem here - Events can be nested, and you may be inadvertently longjmp'ing over another Event that is partially executed (and possibly preempted).
 
 It is for this reason that the `specificNestingLevel` constructor parameter is implemented. Using this (as opposed to the default value of `~0UL`) constrains the kernel to only run this Event when it is currently at that event nesting level.
 
@@ -54,4 +54,3 @@ Implementation
 --------------
 
 TODO.
-
