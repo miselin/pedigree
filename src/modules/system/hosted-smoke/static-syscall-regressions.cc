@@ -14,6 +14,7 @@
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/subsys/posix/poll-syscalls.h"
 #include "modules/subsys/posix/system-syscalls.h"
+#include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/VFS.h"
@@ -30,6 +31,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
+#include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "modules/subsys/posix/syscalls/posixSyscallNumbers.h"
@@ -133,6 +135,892 @@ void repairAliasFileProbe(EstablishedAliasFileProbe* file, Atomic<size_t>& destr
   if (!destructions) {
     delete file;
   }
+}
+
+class RetainedLookupDirectory;
+
+class RetainedLookupFilesystem final : public Filesystem {
+ public:
+  using RemoveHook = bool (*)(File*, File*, void*);
+
+  RetainedLookupFilesystem()
+      : m_Root(nullptr),
+        m_Label("retained-lookup-test"),
+        m_RemoveHook(nullptr),
+        m_RemoveHookContext(nullptr) {}
+
+  void setRoot(File* root) {
+    m_Root = root;
+  }
+
+  void setRemoveHook(RemoveHook hook, void* context) {
+    m_RemoveHook = hook;
+    m_RemoveHookContext = context;
+  }
+
+  bool initialise(Disk*) override {
+    return true;
+  }
+
+  File* getRoot() const override {
+    return m_Root;
+  }
+
+  const String& getVolumeLabel() const override {
+    return m_Label;
+  }
+
+ protected:
+  bool createFile(File*, const String&, uint32_t) override {
+    return false;
+  }
+
+  bool createDirectory(File*, const String&, uint32_t) override {
+    return false;
+  }
+
+  bool createSymlink(File*, const String&, const String&) override {
+    return false;
+  }
+
+  bool remove(File* parent, File* file) override {
+    return m_RemoveHook ? m_RemoveHook(parent, file, m_RemoveHookContext) : false;
+  }
+
+ private:
+  File* m_Root;
+  String m_Label;
+  RemoveHook m_RemoveHook;
+  void* m_RemoveHookContext;
+};
+
+class RetainedLookupFile final : public File {
+ public:
+  RetainedLookupFile(const String& name, Filesystem* filesystem, File* parent,
+                     Atomic<size_t>& destructions, RetainedLookupDirectory* lockProbe = nullptr,
+                     Atomic<size_t>* lockAvailable = nullptr)
+      : File(name, 0, 0, 0, 0, filesystem, 0, parent),
+        m_Destructions(destructions),
+        m_LockProbe(lockProbe),
+        m_LockAvailable(lockAvailable) {}
+
+  ~RetainedLookupFile() override;
+
+ private:
+  Atomic<size_t>& m_Destructions;
+  RetainedLookupDirectory* m_LockProbe;
+  Atomic<size_t>* m_LockAvailable;
+};
+
+class RetainedLookupDirectory final : public Directory {
+ public:
+  RetainedLookupDirectory(const String& name, Filesystem* filesystem,
+                          Atomic<size_t>* destructions = nullptr)
+      : Directory(name, 0, 0, 0, 0, filesystem, 0, nullptr),
+        m_LazyTarget(nullptr),
+        m_Conversions(nullptr),
+        m_FirstConversionEntered(nullptr),
+        m_FirstConversionRelease(nullptr),
+        m_SecondConversionEntered(nullptr),
+        m_SecondConversionRelease(nullptr),
+        m_Destructions(destructions) {}
+
+  ~RetainedLookupDirectory() override {
+    if (m_Destructions) {
+      *m_Destructions += 1;
+    }
+  }
+
+  void publish(const String& name, File* file) {
+    addDirectoryEntry(name, file);
+  }
+
+  bool publishEphemeral(File* file) {
+    return addEphemeralFile(file);
+  }
+
+  void publishLazy(const String& name, File* file, Atomic<size_t>& conversions,
+                   Atomic<size_t>& firstEntered, Semaphore& firstRelease,
+                   Atomic<size_t>& secondEntered, Semaphore& secondRelease) {
+    m_LazyTarget = file;
+    m_Conversions = &conversions;
+    m_FirstConversionEntered = &firstEntered;
+    m_FirstConversionRelease = &firstRelease;
+    m_SecondConversionEntered = &secondEntered;
+    m_SecondConversionRelease = &secondRelease;
+
+    DirectoryEntryMetadata metadata;
+    metadata.pDirectory = this;
+    metadata.filename = name;
+    addDirectoryEntry(name, pedigree_std::move(metadata));
+  }
+
+  void publishFailedLazy(const String& name, Atomic<size_t>& conversions) {
+    m_LazyTarget = nullptr;
+    m_Conversions = &conversions;
+    m_FirstConversionEntered = nullptr;
+    m_FirstConversionRelease = nullptr;
+    m_SecondConversionEntered = nullptr;
+    m_SecondConversionRelease = nullptr;
+
+    DirectoryEntryMetadata metadata;
+    metadata.pDirectory = this;
+    metadata.filename = name;
+    addDirectoryEntry(name, pedigree_std::move(metadata));
+  }
+
+ protected:
+  File* convertToFile(const DirectoryEntryMetadata&) override {
+    const size_t conversion = (*m_Conversions += 1);
+    Atomic<size_t>* entered = nullptr;
+    Semaphore* release = nullptr;
+    if (conversion == static_cast<size_t>(1)) {
+      entered = m_FirstConversionEntered;
+      release = m_FirstConversionRelease;
+    } else if (conversion == static_cast<size_t>(2)) {
+      entered = m_SecondConversionEntered;
+      release = m_SecondConversionRelease;
+    }
+    if (entered && release) {
+      *entered += 1;
+      const bool released = release->acquireForCompletion();
+      (void)released;
+    }
+    return m_LazyTarget;
+  }
+
+ private:
+  File* m_LazyTarget;
+  Atomic<size_t>* m_Conversions;
+  Atomic<size_t>* m_FirstConversionEntered;
+  Semaphore* m_FirstConversionRelease;
+  Atomic<size_t>* m_SecondConversionEntered;
+  Semaphore* m_SecondConversionRelease;
+  Atomic<size_t>* m_Destructions;
+};
+
+RetainedLookupFile::~RetainedLookupFile() {
+  if (m_LockProbe && m_LockAvailable && m_LockProbe->tryCacheLockForHostedTest()) {
+    *m_LockAvailable += 1;
+  }
+  m_Destructions += 1;
+}
+
+struct RetainedLookupHookContext {
+  RetainedLookupHookContext(Directory* directory, File* file, bool pauseBefore, bool pauseAfter)
+      : directory(directory),
+        file(file),
+        pauseBefore(pauseBefore),
+        pauseAfter(pauseAfter),
+        beforeRelease(0, false),
+        afterRelease(0, false),
+        beforeClaimed(0),
+        beforeEntered(0),
+        beforeReturned(0),
+        beforeNullFile(0),
+        afterClaimed(0),
+        afterEntered(0),
+        afterReturned(0) {}
+
+  Directory* directory;
+  File* file;
+  bool pauseBefore;
+  bool pauseAfter;
+  Semaphore beforeRelease;
+  Semaphore afterRelease;
+  Atomic<size_t> beforeClaimed;
+  Atomic<size_t> beforeEntered;
+  Atomic<size_t> beforeReturned;
+  Atomic<size_t> beforeNullFile;
+  Atomic<size_t> afterClaimed;
+  Atomic<size_t> afterEntered;
+  Atomic<size_t> afterReturned;
+};
+
+struct RetainedLookupWorkerContext {
+  RetainedLookupWorkerContext(Directory* directory, const String& name)
+      : directory(directory), name(name), child(nullptr), result(false), returned(0) {}
+
+  Directory* directory;
+  String name;
+  File* child;
+  bool result;
+  Atomic<size_t> returned;
+};
+
+struct DirectoryRemoveWorkerContext {
+  DirectoryRemoveWorkerContext(Directory* directory, const String& name)
+      : directory(directory), name(name), returned(0) {}
+
+  Directory* directory;
+  String name;
+  Atomic<size_t> returned;
+};
+
+struct RetainedLookupReplacementWorkerContext {
+  RetainedLookupReplacementWorkerContext(Directory* directory, const String& oldName,
+                                         const String& replacementName, File* oldFile,
+                                         File* replacementFile)
+      : directory(directory),
+        oldName(oldName),
+        replacementName(replacementName),
+        oldFile(oldFile),
+        replacementFile(replacementFile),
+        oldRetained(false),
+        missingPreserved(false),
+        replaced(false),
+        returned(0) {}
+
+  Directory* directory;
+  String oldName;
+  String replacementName;
+  File* oldFile;
+  File* replacementFile;
+  bool oldRetained;
+  bool missingPreserved;
+  bool replaced;
+  Atomic<size_t> returned;
+};
+
+Atomic<RetainedLookupHookContext*> g_RetainedLookupHookContext(nullptr);
+
+void pauseRetainedLookup(Directory* directory, File* file, Directory::RetainedLookupPhase phase) {
+  RetainedLookupHookContext* context = g_RetainedLookupHookContext;
+  if (!context || context->directory != directory) {
+    return;
+  }
+
+  const bool before = phase == Directory::RetainedLookupPhase::BeforeLookup;
+  if ((before && file) || (!before && context->file != file)) {
+    return;
+  }
+  const bool pause = before ? context->pauseBefore : context->pauseAfter;
+  Atomic<size_t>& claimed = before ? context->beforeClaimed : context->afterClaimed;
+  if (!pause || !claimed.compareAndSwap(0, 1)) {
+    return;
+  }
+
+  Atomic<size_t>& entered = before ? context->beforeEntered : context->afterEntered;
+  Atomic<size_t>& returned = before ? context->beforeReturned : context->afterReturned;
+  Semaphore& release = before ? context->beforeRelease : context->afterRelease;
+  if (before) {
+    context->beforeNullFile += 1;
+  }
+  entered += 1;
+  if (release.acquireForCompletion()) {
+    returned += 1;
+  }
+}
+
+int retainedLookupWorker(void* parameter) {
+  RetainedLookupWorkerContext* context = reinterpret_cast<RetainedLookupWorkerContext*>(parameter);
+  Directory::ChildLease child;
+  context->result = context->directory->lookupRetained(HashedStringView(context->name), child);
+  context->child = child.get();
+  child.reset();
+  context->returned += 1;
+  return context->result ? 0 : 1;
+}
+
+int directoryRemoveWorker(void* parameter) {
+  DirectoryRemoveWorkerContext* context =
+      reinterpret_cast<DirectoryRemoveWorkerContext*>(parameter);
+  context->directory->remove(HashedStringView(context->name));
+  context->returned += 1;
+  return 0;
+}
+
+int retainedLookupReplacementWorker(void* parameter) {
+  RetainedLookupReplacementWorkerContext* context =
+      reinterpret_cast<RetainedLookupReplacementWorkerContext*>(parameter);
+  Directory::ChildLease child;
+  context->oldRetained =
+      context->directory->lookupRetained(HashedStringView(context->oldName), child) &&
+      child.get() == context->oldFile;
+  if (context->oldRetained) {
+    context->directory->remove(HashedStringView(context->oldName));
+    context->missingPreserved =
+        !context->directory->lookupRetained(HashedStringView("retained-missing"), child) &&
+        child.get() == context->oldFile;
+  }
+  if (context->missingPreserved) {
+    context->replaced =
+        context->directory->lookupRetained(HashedStringView(context->replacementName), child) &&
+        child.get() == context->replacementFile;
+  }
+  child.reset();
+  context->returned += 1;
+  return context->oldRetained && context->missingPreserved && context->replaced ? 0 : 1;
+}
+
+bool waitForDirectoryLock(Thread* thread, const Directory& directory, Atomic<size_t>& returned) {
+  for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+    if (returned) {
+      return false;
+    }
+    Thread::WaitDebugInfo info = {};
+    if (thread->getWaitDebugInfo(info) && info.queue && info.queued &&
+        info.channelOwner == directory.cacheLockAddressForHostedTest() &&
+        thread->getStatus() == Thread::Sleeping) {
+      return true;
+    }
+    Scheduler::instance().yield();
+  }
+  return false;
+}
+
+bool waitForRetainedLookupPause(Thread* thread, Atomic<size_t>& entered, Semaphore& release,
+                                Atomic<size_t>& returned) {
+  for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+    if (returned) {
+      return false;
+    }
+    Thread::WaitDebugInfo info = {};
+    if (entered == static_cast<size_t>(1) && thread->getWaitDebugInfo(info) && info.queue &&
+        info.queued && info.channelOwner == &release && thread->getStatus() == Thread::Sleeping) {
+      return true;
+    }
+    Scheduler::instance().yield();
+  }
+  return false;
+}
+
+size_t drainTrackedFileOwners(File* file, Atomic<size_t>& destructions) {
+  for (size_t release = 1; release <= 8 && !destructions; ++release) {
+    if (VFS::instance().untrackFile(file, false)) {
+      delete file;
+      return release;
+    }
+  }
+  return 0;
+}
+
+bool directoryRetainedLookupRemoval(Process* kernelProcess) {
+  RetainedLookupFilesystem filesystem;
+  RetainedLookupDirectory directory(String("retained-removal-root"), &filesystem);
+  filesystem.setRoot(&directory);
+  Atomic<size_t> destructions(0);
+  const String alias("retained-removal-alias");
+  RetainedLookupFile* child = new RetainedLookupFile(String("retained-removal-child"), &filesystem,
+                                                     &directory, destructions);
+  directory.publish(alias, child);
+  const bool firstEmergencyRetained = VFS::instance().retainTrackedFile(child);
+  const bool secondEmergencyRetained =
+      firstEmergencyRetained && VFS::instance().retainTrackedFile(child);
+
+  RetainedLookupHookContext hook(&directory, child, true, true);
+  RetainedLookupWorkerContext lookupContext(&directory, alias);
+  DirectoryRemoveWorkerContext removeContext(&directory, alias);
+  Thread* lookup =
+      new Thread(kernelProcess, retainedLookupWorker, &lookupContext, nullptr, false, true, true);
+  lookup->setName("hosted retained directory lookup");
+  Thread* remover = nullptr;
+
+  g_RetainedLookupHookContext = &hook;
+  Directory::setRetainedLookupHookForHostedTest(pauseRetainedLookup);
+  const bool lookupStarted = secondEmergencyRetained && lookup->start();
+  const bool beforePaused =
+      lookupStarted && waitForRetainedLookupPause(lookup, hook.beforeEntered, hook.beforeRelease,
+                                                  lookupContext.returned);
+
+  bool removeStarted = false;
+  bool removeQueuedBefore = false;
+  if (beforePaused) {
+    remover = new Thread(kernelProcess, directoryRemoveWorker, &removeContext, nullptr, false, true,
+                         true);
+    remover->setName("hosted retained directory remover");
+    removeStarted = remover->start();
+    if (removeStarted) {
+      removeQueuedBefore = waitForDirectoryLock(remover, directory, removeContext.returned);
+    }
+  }
+
+  const bool removalStayedPendingBefore = removeQueuedBefore && !removeContext.returned;
+  hook.beforeRelease.release();
+
+  const bool afterPaused =
+      lookupStarted && waitForRetainedLookupPause(lookup, hook.afterEntered, hook.afterRelease,
+                                                  lookupContext.returned);
+  const bool removeQueuedAfter = afterPaused && removeStarted &&
+                                 waitForDirectoryLock(remover, directory, removeContext.returned);
+  const bool removalStayedPendingAfter = removeQueuedAfter && !removeContext.returned;
+
+  // Every blocking gate gets a rescue token before completion-safe joins.
+  hook.beforeRelease.release();
+  hook.afterRelease.release();
+  const bool lookupJoined = lookupStarted && lookup->joinForCompletion();
+  const bool removeJoined = removeStarted && remover->joinForCompletion();
+  if (!lookupStarted) {
+    delete lookup;
+  }
+  if (remover && !removeStarted) {
+    delete remover;
+  }
+  Directory::setRetainedLookupHookForHostedTest(nullptr);
+  g_RetainedLookupHookContext = nullptr;
+
+  const bool lookupSucceeded = lookupContext.result && lookupContext.child == child;
+  directory.remove(HashedStringView(alias));
+  const size_t cleanupReleases = drainTrackedFileOwners(child, destructions);
+
+  return firstEmergencyRetained && secondEmergencyRetained && lookupStarted && beforePaused &&
+         removeStarted && removalStayedPendingBefore && afterPaused && removalStayedPendingAfter &&
+         lookupJoined && removeJoined && hook.beforeReturned == static_cast<size_t>(1) &&
+         hook.beforeNullFile == static_cast<size_t>(1) &&
+         hook.afterReturned == static_cast<size_t>(1) && lookupSucceeded &&
+         removeContext.returned == static_cast<size_t>(1) && cleanupReleases == 2 &&
+         destructions == static_cast<size_t>(1);
+}
+
+bool directoryRetainedLazyLookup(Process* kernelProcess) {
+  RetainedLookupFilesystem filesystem;
+  RetainedLookupDirectory directory(String("retained-lazy-root"), &filesystem);
+  filesystem.setRoot(&directory);
+  Atomic<size_t> destructions(0);
+  Atomic<size_t> conversions(0);
+  Atomic<size_t> firstConversionEntered(0);
+  Semaphore firstConversionRelease(0, false);
+  Atomic<size_t> secondConversionEntered(0);
+  Semaphore secondConversionRelease(0, false);
+  const String alias("retained-lazy-alias");
+  RetainedLookupFile* child =
+      new RetainedLookupFile(String("retained-lazy-child"), &filesystem, &directory, destructions);
+  directory.publishLazy(alias, child, conversions, firstConversionEntered, firstConversionRelease,
+                        secondConversionEntered, secondConversionRelease);
+
+  RetainedLookupWorkerContext firstContext(&directory, alias);
+  RetainedLookupWorkerContext secondContext(&directory, alias);
+  Thread* first =
+      new Thread(kernelProcess, retainedLookupWorker, &firstContext, nullptr, false, true, true);
+  first->setName("hosted first lazy retained lookup");
+  Thread* second = nullptr;
+  const bool firstStarted = first->start();
+
+  bool firstPaused = false;
+  for (size_t attempt = 0; attempt < HostedAttempts && firstStarted; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    if (firstConversionEntered == static_cast<size_t>(1) && first->getWaitDebugInfo(info) &&
+        info.queue && info.queued && info.channelOwner == &firstConversionRelease &&
+        first->getStatus() == Thread::Sleeping) {
+      firstPaused = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+
+  bool secondStarted = false;
+  bool secondQueued = false;
+  bool secondConverted = false;
+  if (firstStarted && firstPaused) {
+    second =
+        new Thread(kernelProcess, retainedLookupWorker, &secondContext, nullptr, false, true, true);
+    second->setName("hosted second lazy retained lookup");
+    secondStarted = second->start();
+    if (secondStarted) {
+      for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+        Thread::WaitDebugInfo info = {};
+        if (secondConversionEntered == static_cast<size_t>(1) && second->getWaitDebugInfo(info) &&
+            info.queue && info.queued && info.channelOwner == &secondConversionRelease &&
+            second->getStatus() == Thread::Sleeping) {
+          secondConverted = true;
+          break;
+        }
+        if (second->getWaitDebugInfo(info) && info.queue && info.queued &&
+            info.channelOwner == directory.cacheLockAddressForHostedTest() &&
+            second->getStatus() == Thread::Sleeping) {
+          secondQueued = true;
+          break;
+        }
+        if (secondContext.returned) {
+          break;
+        }
+        Scheduler::instance().yield();
+      }
+    }
+  }
+
+  const bool singleConversionWhilePaused = secondQueued && !secondConverted &&
+                                           !secondContext.returned &&
+                                           conversions == static_cast<size_t>(1);
+
+  bool secondFinishedBeforeFirstRelease = false;
+  if (secondConverted) {
+    secondConversionRelease.release();
+    for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+      if (secondContext.returned) {
+        secondFinishedBeforeFirstRelease = true;
+        break;
+      }
+      Scheduler::instance().yield();
+    }
+  }
+
+  // In an unlocked mutant, conversion two completes before conversion one is
+  // allowed to write its LazyEvaluate result.
+  firstConversionRelease.release();
+  firstConversionRelease.release();
+  secondConversionRelease.release();
+  const bool firstJoined = firstStarted && first->joinForCompletion();
+  const bool secondJoined = secondStarted && second->joinForCompletion();
+  if (!firstStarted) {
+    delete first;
+  }
+  if (second && !secondStarted) {
+    delete second;
+  }
+
+  const bool lookupsSucceeded = firstContext.result && secondContext.result &&
+                                firstContext.child == child && secondContext.child == child;
+  directory.remove(HashedStringView(alias));
+  const size_t cleanupReleases = drainTrackedFileOwners(child, destructions);
+  if (!destructions) {
+    delete child;
+  }
+
+  return firstStarted && firstPaused && secondStarted && singleConversionWhilePaused &&
+         !secondFinishedBeforeFirstRelease && firstJoined && secondJoined && lookupsSucceeded &&
+         conversions == static_cast<size_t>(1) && cleanupReleases == 0 &&
+         destructions == static_cast<size_t>(1);
+}
+
+bool directoryRetainedLookupDisjoint(Process* kernelProcess) {
+  RetainedLookupFilesystem filesystem;
+  RetainedLookupDirectory firstDirectory(String("retained-disjoint-first"), &filesystem);
+  RetainedLookupDirectory secondDirectory(String("retained-disjoint-second"), &filesystem);
+  filesystem.setRoot(&firstDirectory);
+  Atomic<size_t> destructions(0);
+  const String firstAlias("retained-disjoint-first-alias");
+  const String secondAlias("retained-disjoint-second-alias");
+  RetainedLookupFile* firstChild = new RetainedLookupFile(
+      String("retained-disjoint-first-child"), &filesystem, &firstDirectory, destructions);
+  RetainedLookupFile* secondChild = new RetainedLookupFile(
+      String("retained-disjoint-second-child"), &filesystem, &secondDirectory, destructions);
+  firstDirectory.publish(firstAlias, firstChild);
+  secondDirectory.publish(secondAlias, secondChild);
+
+  RetainedLookupHookContext hook(&firstDirectory, firstChild, false, true);
+  RetainedLookupWorkerContext firstContext(&firstDirectory, firstAlias);
+  RetainedLookupWorkerContext secondContext(&secondDirectory, secondAlias);
+  Thread* first =
+      new Thread(kernelProcess, retainedLookupWorker, &firstContext, nullptr, false, true, true);
+  first->setName("hosted blocked retained lookup");
+  Thread* second = nullptr;
+
+  g_RetainedLookupHookContext = &hook;
+  Directory::setRetainedLookupHookForHostedTest(pauseRetainedLookup);
+  const bool firstStarted = first->start();
+
+  const bool firstPaused =
+      firstStarted && waitForRetainedLookupPause(first, hook.afterEntered, hook.afterRelease,
+                                                 firstContext.returned);
+
+  bool secondStarted = false;
+  bool secondFinishedWhilePaused = false;
+  if (firstStarted && firstPaused) {
+    second =
+        new Thread(kernelProcess, retainedLookupWorker, &secondContext, nullptr, false, true, true);
+    second->setName("hosted disjoint retained lookup");
+    secondStarted = second->start();
+    for (size_t attempt = 0; attempt < HostedAttempts && secondStarted; ++attempt) {
+      if (secondContext.returned) {
+        secondFinishedWhilePaused = true;
+        break;
+      }
+      Scheduler::instance().yield();
+    }
+  }
+
+  hook.beforeRelease.release();
+  hook.afterRelease.release();
+  const bool firstJoined = firstStarted && first->joinForCompletion();
+  const bool secondJoined = secondStarted && second->joinForCompletion();
+  if (!firstStarted) {
+    delete first;
+  }
+  if (second && !secondStarted) {
+    delete second;
+  }
+  Directory::setRetainedLookupHookForHostedTest(nullptr);
+  g_RetainedLookupHookContext = nullptr;
+
+  const bool lookupsSucceeded = firstContext.result && secondContext.result &&
+                                firstContext.child == firstChild &&
+                                secondContext.child == secondChild;
+  firstDirectory.remove(HashedStringView(firstAlias));
+  secondDirectory.remove(HashedStringView(secondAlias));
+
+  return firstStarted && firstPaused && secondStarted && secondFinishedWhilePaused && firstJoined &&
+         secondJoined && hook.beforeEntered == static_cast<size_t>(0) &&
+         hook.afterReturned == static_cast<size_t>(1) && lookupsSucceeded &&
+         destructions == static_cast<size_t>(2);
+}
+
+bool directoryRetainedLookupDeletion() {
+  RetainedLookupFilesystem filesystem;
+  RetainedLookupDirectory directory(String("retained-delete-root"), &filesystem);
+  filesystem.setRoot(&directory);
+  Atomic<size_t> destructions(0);
+  Atomic<size_t> lockAvailable(0);
+  const String alias("retained-delete-alias");
+  RetainedLookupFile* child =
+      new RetainedLookupFile(String("retained-delete-child"), &filesystem, &directory, destructions,
+                             &directory, &lockAvailable);
+  directory.publish(alias, child);
+  directory.remove(HashedStringView(alias));
+  return destructions == static_cast<size_t>(1) && lockAvailable == static_cast<size_t>(1);
+}
+
+bool directoryRetainedLookupReplacement(Process* kernelProcess) {
+  RetainedLookupFilesystem filesystem;
+  RetainedLookupDirectory directory(String("retained-replacement-root"), &filesystem);
+  filesystem.setRoot(&directory);
+  Atomic<size_t> oldDestructions(0);
+  Atomic<size_t> oldLockAvailable(0);
+  Atomic<size_t> replacementDestructions(0);
+  const String oldAlias("retained-replacement-old-alias");
+  const String replacementAlias("retained-replacement-new-alias");
+  RetainedLookupFile* oldFile =
+      new RetainedLookupFile(String("retained-replacement-old"), &filesystem, &directory,
+                             oldDestructions, &directory, &oldLockAvailable);
+  RetainedLookupFile* replacement = new RetainedLookupFile(
+      String("retained-replacement-new"), &filesystem, &directory, replacementDestructions);
+  directory.publish(oldAlias, oldFile);
+  directory.publish(replacementAlias, replacement);
+  const bool firstReplacementEmergency = VFS::instance().retainTrackedFile(replacement);
+  const bool secondReplacementEmergency =
+      firstReplacementEmergency && VFS::instance().retainTrackedFile(replacement);
+
+  RetainedLookupHookContext hook(&directory, replacement, false, true);
+  RetainedLookupReplacementWorkerContext workerContext(&directory, oldAlias, replacementAlias,
+                                                       oldFile, replacement);
+  Thread* worker = new Thread(kernelProcess, retainedLookupReplacementWorker, &workerContext,
+                              nullptr, false, true, true);
+  worker->setName("hosted retained lookup replacement");
+
+  g_RetainedLookupHookContext = &hook;
+  Directory::setRetainedLookupHookForHostedTest(pauseRetainedLookup);
+  const bool workerStarted = secondReplacementEmergency && worker->start();
+  const bool afterPaused =
+      workerStarted && waitForRetainedLookupPause(worker, hook.afterEntered, hook.afterRelease,
+                                                  workerContext.returned);
+  const bool oldStayedAliveThroughRetain = afterPaused && !oldDestructions;
+
+  hook.afterRelease.release();
+  const bool workerJoined = workerStarted && worker->joinForCompletion();
+  if (!workerStarted) {
+    delete worker;
+  }
+  Directory::setRetainedLookupHookForHostedTest(nullptr);
+  g_RetainedLookupHookContext = nullptr;
+
+  directory.remove(HashedStringView(oldAlias));
+  directory.remove(HashedStringView(replacementAlias));
+  if (!oldDestructions) {
+    drainTrackedFileOwners(oldFile, oldDestructions);
+  }
+  const size_t replacementCleanupReleases =
+      drainTrackedFileOwners(replacement, replacementDestructions);
+
+  return firstReplacementEmergency && secondReplacementEmergency && workerStarted && afterPaused &&
+         oldStayedAliveThroughRetain && workerJoined && workerContext.oldRetained &&
+         workerContext.missingPreserved && workerContext.replaced &&
+         workerContext.returned == static_cast<size_t>(1) &&
+         hook.afterReturned == static_cast<size_t>(1) &&
+         oldDestructions == static_cast<size_t>(1) && oldLockAvailable == static_cast<size_t>(1) &&
+         replacementCleanupReleases == 2 && replacementDestructions == static_cast<size_t>(1);
+}
+
+bool directoryRetainedFailedLazyLookup() {
+  RetainedLookupFilesystem filesystem;
+  RetainedLookupDirectory directory(String("retained-failed-lazy-root"), &filesystem);
+  filesystem.setRoot(&directory);
+  Atomic<size_t> conversions(0);
+  const String alias("retained-failed-lazy-alias");
+
+  // This seed makes any attempt to track a null conversion result observable.
+  VFS::instance().trackFile(nullptr);
+  directory.publishFailedLazy(alias, conversions);
+
+  Directory::ChildLease first;
+  Directory::ChildLease second;
+  const bool firstFailed = !directory.lookupRetained(HashedStringView(alias), first);
+  const bool secondFailed = !directory.lookupRetained(HashedStringView(alias), second);
+  directory.remove(HashedStringView(alias));
+
+  const bool seedWasFinal = VFS::instance().untrackFile(nullptr, false);
+  bool mutantExtrasDrained = seedWasFinal;
+  for (size_t release = 0; release < 4 && !mutantExtrasDrained; ++release) {
+    mutantExtrasDrained = VFS::instance().untrackFile(nullptr, false);
+  }
+
+  return firstFailed && secondFailed && !first && !second &&
+         conversions == static_cast<size_t>(2) && seedWasFinal && mutantExtrasDrained;
+}
+
+struct DirectoryEmptyAbaContext {
+  DirectoryEmptyAbaContext(RetainedLookupDirectory* directory, const String& alias,
+                           RetainedLookupFile* oldChild, Atomic<size_t>& oldDestructions,
+                           RetainedLookupFile* replacement)
+      : directory(directory),
+        alias(alias),
+        oldChild(oldChild),
+        oldDestructions(oldDestructions),
+        replacement(replacement),
+        callbacks(0),
+        firstSawOld(false),
+        oldStayedAliveAfterAliasRemoval(false),
+        secondSawReplacement(false),
+        replacementPublished(false),
+        firstReplacementEmergency(false),
+        secondReplacementEmergency(false) {}
+
+  RetainedLookupDirectory* directory;
+  String alias;
+  RetainedLookupFile* oldChild;
+  Atomic<size_t>& oldDestructions;
+  RetainedLookupFile* replacement;
+  size_t callbacks;
+  bool firstSawOld;
+  bool oldStayedAliveAfterAliasRemoval;
+  bool secondSawReplacement;
+  bool replacementPublished;
+  bool firstReplacementEmergency;
+  bool secondReplacementEmergency;
+};
+
+bool directoryEmptyAbaRemove(File* parent, File* file, void* opaque) {
+  DirectoryEmptyAbaContext* context = reinterpret_cast<DirectoryEmptyAbaContext*>(opaque);
+  ++context->callbacks;
+  if (context->callbacks == 1) {
+    context->firstSawOld = parent == context->directory && file == context->oldChild;
+    if (!context->firstSawOld) {
+      return false;
+    }
+
+    context->directory->remove(HashedStringView(context->alias));
+    context->oldStayedAliveAfterAliasRemoval = context->oldDestructions == static_cast<size_t>(0);
+    if (!context->oldStayedAliveAfterAliasRemoval) {
+      return false;
+    }
+    context->directory->publish(context->alias, context->replacement);
+    context->replacementPublished = true;
+    context->firstReplacementEmergency = VFS::instance().retainTrackedFile(context->replacement);
+    context->secondReplacementEmergency = context->firstReplacementEmergency &&
+                                          VFS::instance().retainTrackedFile(context->replacement);
+    return context->secondReplacementEmergency;
+  }
+
+  context->secondSawReplacement =
+      context->callbacks == 2 && parent == context->directory && file == context->replacement;
+  return false;
+}
+
+bool directoryEmptyPreservesSameKeyReplacement() {
+  RetainedLookupFilesystem filesystem;
+  RetainedLookupDirectory directory(String("retained-empty-aba-root"), &filesystem);
+  filesystem.setRoot(&directory);
+  Atomic<size_t> oldDestructions(0);
+  Atomic<size_t> replacementDestructions(0);
+  const String alias("retained-empty-aba-alias");
+  RetainedLookupFile* oldChild = new RetainedLookupFile(String("retained-empty-aba-old"),
+                                                        &filesystem, &directory, oldDestructions);
+  RetainedLookupFile* replacement = new RetainedLookupFile(
+      String("retained-empty-aba-replacement"), &filesystem, &directory, replacementDestructions);
+  directory.publish(alias, oldChild);
+
+  DirectoryEmptyAbaContext context(&directory, alias, oldChild, oldDestructions, replacement);
+  filesystem.setRemoveHook(directoryEmptyAbaRemove, &context);
+  const bool emptyRejected = !directory.empty();
+  filesystem.setRemoveHook(nullptr, nullptr);
+
+  const bool replacementStayedAlive = !replacementDestructions;
+  Directory::ChildLease retainedReplacement;
+  const bool replacementVisible =
+      context.secondReplacementEmergency &&
+      directory.lookupRetained(HashedStringView(alias), retainedReplacement) &&
+      retainedReplacement.get() == replacement;
+
+  directory.remove(HashedStringView(alias));
+  retainedReplacement.reset();
+  size_t oldCleanupReleases = 0;
+  if (!oldDestructions) {
+    oldCleanupReleases = drainTrackedFileOwners(oldChild, oldDestructions);
+  }
+  size_t replacementCleanupReleases = 0;
+  if (context.replacementPublished) {
+    replacementCleanupReleases = drainTrackedFileOwners(replacement, replacementDestructions);
+  } else if (!replacementDestructions) {
+    delete replacement;
+  }
+
+  return emptyRejected && context.callbacks == 2 && context.firstSawOld &&
+         context.oldStayedAliveAfterAliasRemoval && context.secondSawReplacement &&
+         context.replacementPublished && context.firstReplacementEmergency &&
+         context.secondReplacementEmergency && replacementStayedAlive && replacementVisible &&
+         oldCleanupReleases == 0 && replacementCleanupReleases == 2 &&
+         oldDestructions == static_cast<size_t>(1) &&
+         replacementDestructions == static_cast<size_t>(1);
+}
+
+bool directoryRetainedDuplicateEphemeral() {
+  RetainedLookupFilesystem filesystem;
+  RetainedLookupDirectory directory(String("retained-ephemeral-root"), &filesystem);
+  filesystem.setRoot(&directory);
+  Atomic<size_t> originalDestructions(0);
+  Atomic<size_t> duplicateDestructions(0);
+  const String name("retained-ephemeral-child");
+  RetainedLookupFile* original =
+      new RetainedLookupFile(name, &filesystem, &directory, originalDestructions);
+  RetainedLookupFile* duplicate =
+      new RetainedLookupFile(name, &filesystem, &directory, duplicateDestructions);
+  directory.publish(name, original);
+
+  const bool duplicateAdded = directory.publishEphemeral(duplicate);
+  Directory::ChildLease visible;
+  const bool originalVisible =
+      directory.lookupRetained(HashedStringView(name), visible) && visible.get() == original;
+  const bool duplicateWasTracked = VFS::instance().untrackFile(duplicate, false);
+
+  directory.remove(HashedStringView(name));
+  visible.reset();
+  const size_t originalCleanupReleases = drainTrackedFileOwners(original, originalDestructions);
+  if (!duplicateDestructions) {
+    delete duplicate;
+  }
+
+  return !duplicateAdded && originalVisible && !duplicateWasTracked &&
+         originalCleanupReleases == 0 && originalDestructions == static_cast<size_t>(1) &&
+         duplicateDestructions == static_cast<size_t>(1);
+}
+
+bool directoryRetainedLookupAtomicity(Process* kernelProcess) {
+  const bool removal = directoryRetainedLookupRemoval(kernelProcess);
+  const bool lazy = directoryRetainedLazyLookup(kernelProcess);
+  const bool failedLazy = directoryRetainedFailedLazyLookup();
+  if (!removal || !lazy || !failedLazy) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL directory-retained-lookup-atomicity: "
+        "lookup did not linearise child retention with removal and lazy evaluation");
+    return false;
+  }
+  NOTICE("HOSTED-SYSCALL-TEST: PASS directory-retained-lookup-atomicity");
+  return true;
+}
+
+bool directoryRetainedLookupLifecycle(Process* kernelProcess) {
+  const bool disjoint = directoryRetainedLookupDisjoint(kernelProcess);
+  const bool deletion = directoryRetainedLookupDeletion();
+  const bool replacement = directoryRetainedLookupReplacement(kernelProcess);
+  const bool emptyAba = directoryEmptyPreservesSameKeyReplacement();
+  const bool duplicateEphemeral = directoryRetainedDuplicateEphemeral();
+  if (!disjoint || !deletion || !replacement || !emptyAba || !duplicateEphemeral) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL directory-retained-lookup-lifecycle: "
+        "directory locks were global or child destruction ran while locked");
+    return false;
+  }
+  NOTICE("HOSTED-SYSCALL-TEST: PASS directory-retained-lookup-lifecycle");
+  return true;
 }
 
 struct TrackedFileRetainHookContext {
@@ -1364,6 +2252,12 @@ bool runRegressions() {
   }
 
   bool establishedAliasPassed = true;
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN directory-retained-lookup-atomicity");
+  establishedAliasPassed &= directoryRetainedLookupAtomicity(kernelProcess);
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN directory-retained-lookup-lifecycle");
+  establishedAliasPassed &= directoryRetainedLookupLifecycle(kernelProcess);
+
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN vfs-established-alias-serialization");
   establishedAliasPassed &= establishedAliasRetainSerialization(kernelProcess);
 

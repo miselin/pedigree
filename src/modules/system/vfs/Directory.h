@@ -22,6 +22,10 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Mutex.h"
+#if THREADS && !defined(STANDALONE_MUTEXES)
+#include "pedigree/kernel/process/TerminationDeferral.h"
+#endif
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/HashTable.h"
@@ -46,6 +50,39 @@ class EXPORTED_PUBLIC Directory : public File {
   friend class Filesystem;
 
  public:
+  class EXPORTED_PUBLIC ChildLease {
+   public:
+    ChildLease();
+    ~ChildLease();
+
+    File* get() const {
+      return m_pFile;
+    }
+
+    explicit operator bool() const {
+      return m_pFile != nullptr;
+    }
+
+    void reset();
+
+   private:
+    friend class Directory;
+
+    ChildLease(const ChildLease&) = delete;
+    ChildLease& operator=(const ChildLease&) = delete;
+    ChildLease(ChildLease&&) = delete;
+    ChildLease& operator=(ChildLease&&) = delete;
+
+    void adopt(File* file);
+
+    File* m_pFile;
+#if THREADS && !defined(STANDALONE_MUTEXES)
+    // A lease's deferral follows its lexical lifetime. Dynamically arming an
+    // older object would cross any newer guard's strict LIFO scope.
+    TerminationDeferral m_TerminationDeferral;
+#endif
+  };
+
   /** Eases the pain of casting, and performs a sanity check. */
   static Directory* fromFile(File* pF) {
     if (!pF->isDirectory())
@@ -84,12 +121,19 @@ class EXPORTED_PUBLIC Directory : public File {
   virtual void cacheDirectoryContents();
 
   /** Does this directory have cache? */
-  virtual bool isCachePopulated() const {
-    return m_bCachePopulated;
-  }
+  virtual bool isCachePopulated() const;
 
   /** Look up the given filename in the directory. */
   File* lookup(const HashedStringView& s) const;
+
+  /**
+   * Atomically retain the current child of an already-stable directory.
+   * A previous output lease is preserved on failure and released only after
+   * the replacement lookup has finished using this directory. Leases are
+   * thread-affine and must have strictly lexical stack lifetimes on the Thread
+   * which acquired them.
+   */
+  MUST_USE_RESULT bool lookupRetained(const HashedStringView& s, ChildLease& child) const;
 
   /** Remove the given filename in the directory. */
   void remove(const HashedStringView& s);
@@ -128,6 +172,16 @@ class EXPORTED_PUBLIC Directory : public File {
    */
   void emptyCache();
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  enum class RetainedLookupPhase { BeforeLookup, AfterRetain };
+  using RetainedLookupHook = void (*)(Directory*, File*, RetainedLookupPhase);
+  static void setRetainedLookupHookForHostedTest(RetainedLookupHook hook);
+  const void* cacheLockAddressForHostedTest() const {
+    return static_cast<const Semaphore*>(&m_CacheLock);
+  }
+  bool tryCacheLockForHostedTest() const;
+#endif
+
  protected:
   struct DirectoryEntryMetadata {
     DirectoryEntryMetadata();
@@ -162,9 +216,14 @@ class EXPORTED_PUBLIC Directory : public File {
 
  private:
   typedef HashTable<String, DirectoryEntry*, HashedStringView> DirectoryEntryCache;
+  typedef HashTable<String, uint64_t, HashedStringView> DirectoryEntryGenerationCache;
 
   /** Directory contents cache. */
   DirectoryEntryCache m_Cache;
+
+  /** Publication identity for cache entries across callback unlocks. */
+  DirectoryEntryGenerationCache m_CacheGenerations;
+  uint64_t m_NextCacheGeneration;
 
   /**
    * Whether the directory cache is populated with entries or still needs to
@@ -175,6 +234,13 @@ class EXPORTED_PUBLIC Directory : public File {
   /** Reparse target. */
   Directory* m_ReparseTarget = nullptr;
 
+  /** Serialises child cache membership and evaluation. */
+  mutable Mutex m_CacheLock;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  static RetainedLookupHook m_RetainedLookupHook;
+#endif
+
  protected:
   /** Provides subclasses with direct access to the directory's listing. */
   virtual const DirectoryEntryCache& getCache() {
@@ -182,9 +248,7 @@ class EXPORTED_PUBLIC Directory : public File {
   }
 
   /** Mark the directory cache as populated now. */
-  void markCachePopulated() {
-    m_bCachePopulated = true;
-  }
+  void markCachePopulated();
 
   /** Add an entry to the directory. */
   void addDirectoryEntry(const String& name, File* pTarget);
@@ -197,6 +261,10 @@ class EXPORTED_PUBLIC Directory : public File {
 
   /** Convert given metadata into a useful File object. */
   virtual File* convertToFile(const DirectoryEntryMetadata& meta);
+
+ private:
+  uint64_t nextCacheGeneration();
+  void removeIfGeneration(const HashedStringView& name, uint64_t generation);
 };
 
 extern template class HashTable<String, Directory::DirectoryEntry*, HashedStringView>;

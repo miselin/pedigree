@@ -433,6 +433,8 @@ if [ "$wait_regressions_only" = "0" ] ||
         "$empty_log" \
         "HOSTED-NETWORK-TEST: PASS receive-generation-aba"
     for checkpoint in \
+        "HOSTED-SYSCALL-TEST: PASS directory-retained-lookup-atomicity" \
+        "HOSTED-SYSCALL-TEST: PASS directory-retained-lookup-lifecycle" \
         "HOSTED-SYSCALL-TEST: PASS vfs-established-alias-serialization" \
         "HOSTED-SYSCALL-TEST: PASS descriptor-close-pinning" \
         "HOSTED-SYSCALL-TEST: PASS file-established-alias-lifetime" \
