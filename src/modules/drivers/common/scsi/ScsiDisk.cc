@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
@@ -89,6 +90,103 @@ class CacheFillGuard {
 };
 }  // namespace
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+Mutex ScsiDisk::m_HostedReadRequestHookLock;
+ScsiDisk::HostedReadRequestHook ScsiDisk::m_HostedReadRequestHook = nullptr;
+void* ScsiDisk::m_HostedReadRequestHookContext = nullptr;
+
+void ScsiDisk::setHostedReadRequestHookForTest(HostedReadRequestHook hook, void* context) {
+  LockGuard<Mutex> guard(m_HostedReadRequestHookLock);
+  m_HostedReadRequestHookContext = context;
+  m_HostedReadRequestHook = hook;
+}
+#endif
+
+ScsiDisk::CacheRangeAdmission::CacheRangeAdmission(ScsiDisk& disk, uint64_t start, size_t length,
+                                                   bool retire)
+    : m_Disk(disk),
+      m_Start(start),
+      m_Length(length),
+      m_Retire(retire),
+      m_Linked(false),
+      m_Previous(nullptr),
+      m_Next(nullptr),
+      m_TerminationDeferral() {
+  m_Disk.enterCacheRange(*this);
+}
+
+ScsiDisk::CacheRangeAdmission::~CacheRangeAdmission() {
+  m_Disk.leaveCacheRange(*this);
+}
+
+bool ScsiDisk::cacheRangesOverlap(uint64_t firstStart, size_t firstLength, uint64_t secondStart,
+                                  size_t secondLength) {
+  if (!firstLength || !secondLength) {
+    return false;
+  }
+
+  if (firstStart <= secondStart) {
+    return (secondStart - firstStart) < firstLength;
+  }
+  return (firstStart - secondStart) < secondLength;
+}
+
+bool ScsiDisk::cacheRangeBlocked(const CacheRangeAdmission& admission) const {
+  for (CacheRangeAdmission* earlier = m_FirstCacheRangeAdmission; earlier != &admission;
+       earlier = earlier->m_Next) {
+    assert(earlier);
+    if ((admission.m_Retire || earlier->m_Retire) &&
+        cacheRangesOverlap(admission.m_Start, admission.m_Length, earlier->m_Start,
+                           earlier->m_Length)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void ScsiDisk::enterCacheRange(CacheRangeAdmission& admission) {
+  while (true) {
+    auto guard = m_CacheRangeWaiters.acquire();
+    if (!admission.m_Linked) {
+      admission.m_Previous = m_LastCacheRangeAdmission;
+      if (m_LastCacheRangeAdmission) {
+        m_LastCacheRangeAdmission->m_Next = &admission;
+      } else {
+        m_FirstCacheRangeAdmission = &admission;
+      }
+      m_LastCacheRangeAdmission = &admission;
+      admission.m_Linked = true;
+    }
+
+    if (!cacheRangeBlocked(admission)) {
+      return;
+    }
+
+    const WaitQueue::WakeReason reason =
+        guard.waitForCompletion(WaitQueue::Channel(this), Thread::CondWait, admission.m_Start);
+    (void)reason;
+  }
+}
+
+void ScsiDisk::leaveCacheRange(CacheRangeAdmission& admission) {
+  auto guard = m_CacheRangeWaiters.acquire();
+  assert(admission.m_Linked);
+  if (admission.m_Previous) {
+    admission.m_Previous->m_Next = admission.m_Next;
+  } else {
+    m_FirstCacheRangeAdmission = admission.m_Next;
+  }
+  if (admission.m_Next) {
+    admission.m_Next->m_Previous = admission.m_Previous;
+  } else {
+    m_LastCacheRangeAdmission = admission.m_Previous;
+  }
+  admission.m_Linked = false;
+  admission.m_Previous = nullptr;
+  admission.m_Next = nullptr;
+  guard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+}
+
 void ScsiDisk::cacheCallback(CacheConstants::CallbackCause cause, uintptr_t loc, uintptr_t page,
                              void* meta) {
   ScsiDisk* pDisk = reinterpret_cast<ScsiDisk*>(meta);
@@ -131,6 +229,9 @@ ScsiDisk::ScsiDisk()
     : Disk(),
       m_Cache(PhysicalMemoryManager::below4GB),
       m_Inquiry(0),
+      m_CacheRangeWaiters(),
+      m_FirstCacheRangeAdmission(nullptr),
+      m_LastCacheRangeAdmission(nullptr),
       m_AlignmentLock(),
       m_nAlignPoints(0),
       m_NumBlocks(0),
@@ -345,11 +446,6 @@ uintptr_t ScsiDisk::read(uint64_t location) {
   const uint64_t pageLocation = location - ((location - alignPoint) % 4096);
   const size_t pageOffset = location - pageLocation;
 
-  uintptr_t buffer;
-  if ((buffer = m_Cache.lookup(pageLocation))) {
-    return buffer + pageOffset;
-  }
-
   // Cache extents follow the most recent alignment point, which may not be
   // aligned to the device's cache block size.
   size_t loc = location - ((location - alignPoint) % fillSize);
@@ -359,6 +455,13 @@ uintptr_t ScsiDisk::read(uint64_t location) {
     return 0;
   }
 
+  CacheRangeAdmission admission(*this, loc, fillLength, false);
+
+  uintptr_t buffer;
+  if ((buffer = m_Cache.lookup(pageLocation))) {
+    return buffer + pageOffset;
+  }
+
   uint64_t numRead =
       pParent->addRequest(0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t>(this), loc);
   if (numRead < fillLength) {
@@ -366,8 +469,21 @@ uintptr_t ScsiDisk::read(uint64_t location) {
     WARNING("ScsiDisk::read - short read!");
     return 0;
   }
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  HostedReadRequestHook readRequestHook = nullptr;
+  void* readRequestHookContext = nullptr;
+  {
+    LockGuard<Mutex> guard(m_HostedReadRequestHookLock);
+    readRequestHook = m_HostedReadRequestHook;
+    readRequestHookContext = m_HostedReadRequestHookContext;
+  }
+  if (readRequestHook) {
+    readRequestHook(this, pageLocation, readRequestHookContext);
+  }
+#endif
 #if READAHEAD_ENABLED
-  // Read the next block.
+  // Async readahead needs request-owned range admission before it can safely
+  // outlive this stack record.
   for (size_t i = 0; i < 2; ++i) {
     loc += fillSize;
     pParent->addAsyncRequest(0, SCSI_REQUEST_READ, reinterpret_cast<uint64_t>(this), loc);
@@ -464,6 +580,7 @@ bool ScsiDisk::retireCachePage(uint64_t location) {
     return false;
   }
 
+  CacheRangeAdmission admission(*this, pageLocation, ScsiCachePageBytes, true);
   return m_Cache.retireWriteback(pageLocation, retireCachePageCallback, this);
 }
 

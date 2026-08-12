@@ -9,6 +9,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
@@ -32,9 +33,17 @@ constexpr uint64_t ShortDirectLocation = 36864;
 constexpr uint64_t PinnedDirectLocation = 40960;
 constexpr uint64_t CancelledDirectLocation = 45056;
 constexpr uint64_t CanonicalDirectLocation = 49152;
+constexpr uint64_t ReadFirstLocation = 65536;
+constexpr uint64_t RejectedReadLocation = 73728;
+constexpr uint64_t RetireFirstExtent = 98304;
+constexpr uint64_t RetireFirstInterior = RetireFirstExtent + 4096;
+constexpr uint64_t NonoverlapReadLocation = 114688;
+constexpr uint64_t RecheckReadLocation = 131072;
+constexpr uint64_t LookupPauseLocation = 147456;
 constexpr size_t PageBytes = 4096;
 
 enum class WriteMode { Initialising, FailAll, PassWrite12, UnitNotReady };
+enum class RequestEvent : uint8_t { Read = 1, Direct = 2 };
 
 class ScriptedScsiController final : public ScsiController {
  public:
@@ -49,6 +58,15 @@ class ScriptedScsiController final : public ScsiController {
         m_DirectDisk(0),
         m_DirectLocation(0),
         m_DirectPage(0),
+        m_HoldNextRead(0),
+        m_ReadHoldsRemaining(0),
+        m_DelegateHeldRead(0),
+        m_ReadEntered(0, false),
+        m_ReadRelease(0, false),
+        m_ReadRequestCount(0),
+        m_ReadCommandCount(0),
+        m_RequestEvents(),
+        m_RequestEventCount(0),
         m_Valid(true) {}
 
   bool sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize, uintptr_t pRespBuffer,
@@ -89,6 +107,10 @@ class ScriptedScsiController final : public ScsiController {
         capacity->BlockSize = HOST_TO_BIG32(512);
         return true;
       }
+      case 0x28:
+      case 0xa8:
+      case 0x88:
+        return handleRead(opcode, nCommandSize, pRespBuffer, nRespBytes, bWrite);
       case 0x2a:
       case 0xaa:
       case 0x8a:
@@ -108,6 +130,62 @@ class ScriptedScsiController final : public ScsiController {
     m_DirectDisk = 0;
     m_DirectLocation = 0;
     m_DirectPage = 0;
+  }
+
+  void beginRequestTrace() {
+    m_ReadRequestCount = 0;
+    m_ReadCommandCount = 0;
+    m_RequestEventCount = 0;
+  }
+
+  void holdNextRead() {
+    const size_t staleEntries = m_ReadEntered.drainAvailable();
+    const size_t staleReleases = m_ReadRelease.drainAvailable();
+    (void)staleEntries;
+    (void)staleReleases;
+    m_DelegateHeldRead = 0;
+    m_HoldNextRead = 1;
+    m_ReadHoldsRemaining = 1;
+  }
+
+  void holdFollowingRead() {
+    m_ReadHoldsRemaining += 1;
+  }
+
+  bool waitForHeldRead() {
+    return m_ReadEntered.acquireForCompletion(1, 0, 500000);
+  }
+
+  void releaseHeldRead(bool delegate) {
+    m_DelegateHeldRead = delegate ? 1 : 0;
+    m_ReadRelease.release();
+  }
+
+  void disarmReadHold() {
+    m_ReadHoldsRemaining = 0;
+    m_HoldNextRead = 0;
+    const size_t staleEntries = m_ReadEntered.drainAvailable();
+    const size_t staleReleases = m_ReadRelease.drainAvailable();
+    m_ReadRelease.release();
+    (void)staleEntries;
+    (void)staleReleases;
+  }
+
+  size_t readRequestCount() const {
+    return m_ReadRequestCount.value();
+  }
+
+  size_t readCommandCount() const {
+    return m_ReadCommandCount.value();
+  }
+
+  size_t directRequestCount() const {
+    return m_DirectRequestCount;
+  }
+
+  bool requestTraceMatches(const RequestEvent* expected, size_t count) const {
+    return m_Valid && m_RequestEventCount == count &&
+           !MemoryCompare(m_RequestEvents, expected, count * sizeof(RequestEvent));
   }
 
   bool writeTraceMatches(const uint8_t* expected, size_t count) const {
@@ -138,7 +216,31 @@ class ScriptedScsiController final : public ScsiController {
 
   uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
                           uint64_t p6, uint64_t p7, uint64_t p8) override {
+    if (p1 == SCSI_REQUEST_READ) {
+      appendRequestEvent(RequestEvent::Read);
+      m_ReadRequestCount += 1;
+      size_t remaining = m_ReadHoldsRemaining.value();
+      bool hold = false;
+      while (remaining && !hold) {
+        hold = m_ReadHoldsRemaining.compareAndSwap(remaining, remaining - 1);
+        remaining = m_ReadHoldsRemaining.value();
+      }
+      if (hold) {
+        m_HoldNextRead = 2;
+        m_ReadEntered.release();
+        if (!m_ReadRelease.acquireForCompletion()) {
+          m_Valid = false;
+          m_HoldNextRead = 0;
+          return 0;
+        }
+        const bool delegate = static_cast<size_t>(m_DelegateHeldRead) != 0;
+        m_HoldNextRead = 0;
+        if (!delegate)
+          return 0;
+      }
+    }
     if (p1 == SCSI_REQUEST_WRITE_DIRECT) {
+      appendRequestEvent(RequestEvent::Direct);
       ++m_DirectRequestCount;
       m_DirectDisk = p2;
       m_DirectLocation = p3;
@@ -153,6 +255,20 @@ class ScriptedScsiController final : public ScsiController {
   }
 
  private:
+  bool handleRead(uint8_t opcode, uint8_t commandSize, uintptr_t response, uint16_t responseBytes,
+                  bool write) {
+    const uint8_t expectedSize = opcode == 0x28 ? 10 : (opcode == 0xa8 ? 12 : 16);
+    if (write || !response || !responseBytes || (responseBytes % PageBytes) ||
+        commandSize != expectedSize) {
+      m_Valid = false;
+      return false;
+    }
+
+    ByteSet(reinterpret_cast<void*>(response), 0x3c, responseBytes);
+    m_ReadCommandCount += 1;
+    return true;
+  }
+
   bool handleWrite(uint8_t opcode, uint8_t commandSize, uintptr_t response, uint16_t responseBytes,
                    bool write) {
     const uint8_t expectedSize = opcode == 0x2a ? 10 : (opcode == 0xaa ? 12 : 16);
@@ -167,6 +283,14 @@ class ScriptedScsiController final : public ScsiController {
     return m_Mode == WriteMode::PassWrite12 && opcode == 0xaa;
   }
 
+  void appendRequestEvent(RequestEvent event) {
+    if (m_RequestEventCount >= sizeof(m_RequestEvents) / sizeof(m_RequestEvents[0])) {
+      m_Valid = false;
+      return;
+    }
+    m_RequestEvents[m_RequestEventCount++] = event;
+  }
+
   WriteMode m_Mode;
   uint8_t m_WriteOpcodes[16];
   size_t m_WriteCount;
@@ -176,6 +300,15 @@ class ScriptedScsiController final : public ScsiController {
   uint64_t m_DirectDisk;
   uint64_t m_DirectLocation;
   uintptr_t m_DirectPage;
+  Atomic<size_t> m_HoldNextRead;
+  Atomic<size_t> m_ReadHoldsRemaining;
+  Atomic<size_t> m_DelegateHeldRead;
+  Semaphore m_ReadEntered;
+  Semaphore m_ReadRelease;
+  Atomic<size_t> m_ReadRequestCount;
+  Atomic<size_t> m_ReadCommandCount;
+  RequestEvent m_RequestEvents[16];
+  size_t m_RequestEventCount;
   bool m_Valid;
 };
 
@@ -187,7 +320,8 @@ class HostedScsiDisk final : public ScsiDisk {
         m_DirectResult(0),
         m_ObserveUnpin(false),
         m_UnpinCalls(0),
-        m_LastUnpinLocation(0) {}
+        m_LastUnpinLocation(0),
+        m_CacheFillSize(PageBytes) {}
 
   bool preparePage(uint64_t location) {
     bool alreadyExisted = false;
@@ -229,6 +363,15 @@ class HostedScsiDisk final : public ScsiDisk {
     return getCache().evict(location);
   }
 
+  bool evictRange(uint64_t location, size_t length) {
+    bool evicted = true;
+    for (size_t offset = 0; offset < length; offset += PageBytes) {
+      if (hasPage(location + offset) && !getCache().evict(location + offset))
+        evicted = false;
+    }
+    return evicted;
+  }
+
   bool retirePage(uint64_t location, Cache::retirement_writeback_t callback, void* context) {
     return getCache().retireWriteback(location, callback, context);
   }
@@ -251,6 +394,10 @@ class HostedScsiDisk final : public ScsiDisk {
 
   void restoreDirectResult() {
     m_OverrideDirectResult = false;
+  }
+
+  void setCacheFillSize(size_t fillSize) {
+    m_CacheFillSize = fillSize;
   }
 
   void beginUnpinObservation() {
@@ -283,12 +430,18 @@ class HostedScsiDisk final : public ScsiDisk {
     return ScsiDisk::doWriteDirect(location, page);
   }
 
+ protected:
+  size_t getCacheFillSize() const override {
+    return m_CacheFillSize;
+  }
+
  private:
   bool m_OverrideDirectResult;
   uint64_t m_DirectResult;
   bool m_ObserveUnpin;
   size_t m_UnpinCalls;
   uint64_t m_LastUnpinLocation;
+  size_t m_CacheFillSize;
 };
 
 struct RetirementResult {
@@ -340,6 +493,120 @@ bool waitUntilSet(Atomic<size_t>& value) {
   }
   return static_cast<size_t>(value) != 0;
 }
+
+bool waitForAdmissionOrRead(Thread* thread, uint64_t location, ScriptedScsiController& controller,
+                            size_t priorReadCount, bool& admissionWait) {
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (Time::getTicks() < deadline) {
+    Thread::WaitDebugInfo info = {};
+    uintptr_t address = 0;
+    if (thread->getWaitDebugInfo(info) && info.queue && info.queued &&
+        thread->getDebugState(address) == Thread::CondWait) {
+      admissionWait = address == location;
+      return true;
+    }
+    if (controller.readRequestCount() > priorReadCount) {
+      admissionWait = false;
+      return true;
+    }
+    Scheduler::instance().yield();
+  }
+  admissionWait = false;
+  return false;
+}
+
+bool waitForRetireAdmissionOrDrain(Thread* retirer, HostedScsiDisk& disk, uint64_t location,
+                                   bool& admissionWait) {
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (Time::getTicks() < deadline) {
+    Thread::WaitDebugInfo info = {};
+    uintptr_t address = 0;
+    if (retirer->getWaitDebugInfo(info) && info.queue && info.queued &&
+        retirer->getDebugState(address) == Thread::CondWait && address == location) {
+      admissionWait = true;
+      return true;
+    }
+    if (!disk.pageAddress(location)) {
+      admissionWait = false;
+      return true;
+    }
+    Scheduler::instance().yield();
+  }
+  admissionWait = false;
+  return false;
+}
+
+struct ReadContext {
+  ReadContext(HostedScsiDisk* pDisk, uint64_t readLocation)
+      : disk(pDisk), location(readLocation), returned(0), result(0) {}
+
+  HostedScsiDisk* disk;
+  uint64_t location;
+  Atomic<size_t> returned;
+  uintptr_t result;
+};
+
+int readPage(void* parameter) {
+  auto* context = reinterpret_cast<ReadContext*>(parameter);
+  context->result = context->disk->read(context->location);
+  if (context->result)
+    context->disk->unpin(context->location);
+  context->returned += 1;
+  return 0;
+}
+
+Thread* startRead(ReadContext& context, const char* name) {
+  Thread* thread = new Thread(Scheduler::instance().getKernelProcess(), readPage, &context, nullptr,
+                              false, true);
+  thread->setName(String(name));
+  return thread;
+}
+
+struct ReadRequestPause {
+  ReadRequestPause(HostedScsiDisk* pDisk, uint64_t pageLocation)
+      : disk(pDisk), location(pageLocation), state(0), entered(0, false), release(0, false) {}
+
+  void arm() {
+    const size_t staleEntries = entered.drainAvailable();
+    const size_t staleReleases = release.drainAvailable();
+    (void)staleEntries;
+    (void)staleReleases;
+    state = 1;
+    ScsiDisk::setHostedReadRequestHookForTest(pause, this);
+  }
+
+  bool wait() {
+    return entered.acquireForCompletion(1, 0, 500000);
+  }
+
+  void resume() {
+    release.release();
+  }
+
+  void clear() {
+    ScsiDisk::setHostedReadRequestHookForTest(nullptr, nullptr);
+    state = 0;
+  }
+
+  static void pause(ScsiDisk* pDisk, uint64_t pageLocation, void* parameter) {
+    auto* context = reinterpret_cast<ReadRequestPause*>(parameter);
+    if (!context || pDisk != context->disk || pageLocation != context->location ||
+        !context->state.compareAndSwap(1, 2)) {
+      return;
+    }
+
+    context->entered.release();
+    if (!context->release.acquireForCompletion())
+      context->state = 0;
+    context->state = 0;
+  }
+
+  HostedScsiDisk* disk;
+  uint64_t location;
+  Atomic<size_t> state;
+  Semaphore entered;
+  Semaphore release;
+};
 
 struct AtaRetirementContext {
   AtaRetirementContext(HostedScsiDisk* pDisk, uint64_t pageLocation, uintptr_t pageBuffer)
@@ -658,6 +925,362 @@ bool scsiDirectRetireOwnership(Fixture& fixture) {
   }
   return passed;
 }
+
+bool scsiReadRetireAdmission(Fixture& fixture) {
+  constexpr RequestEvent ExpectedOrder[] = {RequestEvent::Read, RequestEvent::Direct,
+                                            RequestEvent::Read};
+
+  fixture.disk.setCacheFillSize(PageBytes);
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginRequestTrace();
+  fixture.controller.holdNextRead();
+
+  ReadContext firstRead(&fixture.disk, ReadFirstLocation);
+  Thread* firstReader = startRead(firstRead, "hosted SCSI admitted first reader");
+  const bool firstReadEntered = firstReader && fixture.controller.waitForHeldRead();
+  const bool prepared = firstReadEntered && fixture.disk.preparePage(ReadFirstLocation);
+  const bool retireSerialPin = prepared && fixture.disk.pin(ReadFirstLocation);
+
+  DirectRetirementContext retirement(&fixture.disk, ReadFirstLocation);
+  Thread* retirer = nullptr;
+  if (retireSerialPin) {
+    retirer = new Thread(Scheduler::instance().getKernelProcess(), retireDirectPage, &retirement,
+                         nullptr, false, true);
+    retirer->setName("hosted SCSI queued-read retirement");
+  }
+
+  bool retireAdmissionWait = false;
+  const bool retireStopped =
+      retirer &&
+      waitForRetireAdmissionOrDrain(retirer, fixture.disk, ReadFirstLocation, retireAdmissionWait);
+  const bool retireIntentQueued = retireStopped && retireAdmissionWait;
+  const bool pageStayedVisible = retireIntentQueued && fixture.disk.pageAddress(ReadFirstLocation);
+
+  DirectRetirementContext secondRetirement(&fixture.disk, ReadFirstLocation);
+  Thread* secondRetirer = nullptr;
+  if (retirer) {
+    secondRetirer = new Thread(Scheduler::instance().getKernelProcess(), retireDirectPage,
+                               &secondRetirement, nullptr, false, true);
+    secondRetirer->setName("hosted SCSI second queued retirement");
+  }
+  bool secondRetireAdmissionWait = false;
+  const bool secondRetireStopped =
+      secondRetirer && waitForRetireAdmissionOrDrain(secondRetirer, fixture.disk, ReadFirstLocation,
+                                                     secondRetireAdmissionWait);
+  const bool retiresSerialised = secondRetireStopped && secondRetireAdmissionWait;
+
+  fixture.controller.holdFollowingRead();
+  ReadContext secondRead(&fixture.disk, ReadFirstLocation);
+  Thread* secondReader = startRead(secondRead, "hosted SCSI writer-preference reader");
+  bool secondAdmissionWait = false;
+  const bool secondStopped =
+      secondReader && waitForAdmissionOrRead(secondReader, ReadFirstLocation, fixture.controller, 1,
+                                             secondAdmissionWait);
+  const bool writerPreferred = secondStopped && secondAdmissionWait;
+  const bool safeToDelegate =
+      retireIntentQueued && pageStayedVisible && retiresSerialised && writerPreferred;
+  fixture.controller.releaseHeldRead(safeToDelegate);
+
+  const bool firstCompleted =
+      firstReader && (static_cast<size_t>(firstRead.returned) || waitUntilSet(firstRead.returned));
+  bool secondReadEntered = false;
+  if (!writerPreferred) {
+    secondReadEntered = fixture.controller.waitForHeldRead();
+    fixture.controller.releaseHeldRead(false);
+  }
+  const bool firstRetireDraining =
+      safeToDelegate && firstCompleted &&
+      waitUntilQueuedAt(retirer, Thread::CallbackDrain, ReadFirstLocation);
+  const bool secondRetireStillQueued =
+      firstRetireDraining && waitUntilQueuedAt(secondRetirer, Thread::CondWait, ReadFirstLocation);
+  if (retireSerialPin)
+    fixture.disk.unpin(ReadFirstLocation);
+  const bool retireCompleted =
+      retirer && (static_cast<size_t>(retirement.returned) || waitUntilSet(retirement.returned));
+  const bool secondRetireCompleted =
+      secondRetirer &&
+      (static_cast<size_t>(secondRetirement.returned) || waitUntilSet(secondRetirement.returned));
+  if (secondReader && writerPreferred) {
+    secondReadEntered = fixture.controller.waitForHeldRead();
+    fixture.controller.releaseHeldRead(true);
+  }
+  const bool secondCompleted = secondReader && (static_cast<size_t>(secondRead.returned) ||
+                                                waitUntilSet(secondRead.returned));
+  const bool firstJoined = firstReader && firstReader->joinForCompletion();
+  const bool retireJoined = retirer && retirer->joinForCompletion();
+  const bool secondRetireJoined = secondRetirer && secondRetirer->joinForCompletion();
+  const bool secondJoined = secondReader && secondReader->joinForCompletion();
+
+  const bool ordered = fixture.controller.requestTraceMatches(
+      ExpectedOrder, sizeof(ExpectedOrder) / sizeof(ExpectedOrder[0]));
+  const bool queueCycleClosed =
+      firstCompleted && firstRetireDraining && secondRetireStillQueued && retireCompleted &&
+      secondRetireCompleted && secondCompleted && firstJoined && retireJoined &&
+      secondRetireJoined && secondJoined && secondReadEntered && firstRead.result &&
+      retirement.succeeded == 1 && secondRetirement.succeeded == 1 && secondRead.result &&
+      ordered && fixture.controller.readCommandCount() == 1 &&
+      fixture.controller.directRequestCount() == 1 && fixture.disk.hasPage(ReadFirstLocation);
+
+  const bool halted = fixture.controller.halt();
+  const uintptr_t rejectedRead = halted ? fixture.disk.read(RejectedReadLocation) : 1;
+  DirectRetirementContext rejectedRetirement(&fixture.disk, RejectedReadLocation);
+  Thread* rejectedRetirer = nullptr;
+  if (halted && !rejectedRead) {
+    rejectedRetirer = new Thread(Scheduler::instance().getKernelProcess(), retireDirectPage,
+                                 &rejectedRetirement, nullptr, false, true);
+    rejectedRetirer->setName("hosted SCSI rejected-read retirement");
+  }
+  const bool rejectedCompleted =
+      rejectedRetirer && (static_cast<size_t>(rejectedRetirement.returned) ||
+                          waitUntilSet(rejectedRetirement.returned));
+  const bool rejectedJoined = rejectedRetirer && rejectedRetirer->joinForCompletion();
+  const bool resumed = halted && fixture.controller.resume();
+  const bool rejectionReleased =
+      !rejectedRead && rejectedCompleted && rejectedJoined && rejectedRetirement.succeeded == 1;
+
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  const bool cleaned = fixture.disk.retireCachePage(ReadFirstLocation);
+  const bool passed = fixture.ready && prepared && retireSerialPin && firstReadEntered &&
+                      retireIntentQueued && pageStayedVisible && retiresSerialised &&
+                      writerPreferred && queueCycleClosed && halted && resumed &&
+                      rejectionReleased && cleaned;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-read-retire-admission");
+  } else {
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL scsi-read-retire-admission: queued reads, retirement intent, "
+        "writer preference, or rejected-request cleanup changed");
+  }
+  return passed;
+}
+
+bool retireCachedRange(Fixture& fixture, uint64_t location, size_t length) {
+  bool retired = true;
+  for (size_t offset = 0; offset < length; offset += PageBytes) {
+    if (!fixture.disk.hasPage(location + offset))
+      continue;
+    fixture.controller.beginWrites(WriteMode::PassWrite12);
+    if (!fixture.disk.retireCachePage(location + offset))
+      retired = false;
+  }
+  return retired;
+}
+
+bool scsiRetireReadRecheck(Fixture& fixture) {
+  constexpr size_t WideFill = PageBytes * 2;
+  constexpr RequestEvent RangeOrder[] = {RequestEvent::Read, RequestEvent::Direct,
+                                         RequestEvent::Read};
+  constexpr RequestEvent FailedRetirementOrder[] = {RequestEvent::Direct};
+
+  fixture.disk.setCacheFillSize(WideFill);
+  const bool interiorPrepared = fixture.disk.preparePage(RetireFirstInterior);
+  const bool interiorPinned = interiorPrepared && fixture.disk.pin(RetireFirstInterior);
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginRequestTrace();
+
+  DirectRetirementContext rangeRetirement(&fixture.disk, RetireFirstInterior);
+  Thread* rangeRetirer = nullptr;
+  if (interiorPinned) {
+    rangeRetirer = new Thread(Scheduler::instance().getKernelProcess(), retireDirectPage,
+                              &rangeRetirement, nullptr, false, true);
+    rangeRetirer->setName("hosted SCSI interior-page retirer");
+  }
+  const bool rangeDrainPublished =
+      rangeRetirer && waitUntilQueuedAt(rangeRetirer, Thread::CallbackDrain, RetireFirstInterior);
+
+  ReadContext nonoverlapRead(&fixture.disk, NonoverlapReadLocation);
+  Thread* nonoverlapReader = startRead(nonoverlapRead, "hosted SCSI disjoint retirement reader");
+  bool nonoverlapCompleted = nonoverlapReader && (static_cast<size_t>(nonoverlapRead.returned) ||
+                                                  waitUntilSet(nonoverlapRead.returned));
+  bool releasedForRepair = false;
+  if (interiorPinned && !nonoverlapCompleted) {
+    fixture.disk.unpin(RetireFirstInterior);
+    releasedForRepair = true;
+    nonoverlapCompleted = waitUntilSet(nonoverlapRead.returned);
+  }
+  const bool nonoverlapJoined = nonoverlapReader && nonoverlapReader->joinForCompletion();
+  const bool disjointProgress =
+      nonoverlapCompleted && nonoverlapJoined && nonoverlapRead.result && !releasedForRepair;
+
+  bool overlapAdmissionWait = false;
+  bool overlapStopped = false;
+  bool overlapReadEntered = false;
+  bool overlapCompleted = false;
+  bool overlapJoined = false;
+  ReadContext overlapRead(&fixture.disk, RetireFirstExtent);
+  Thread* overlapReader = nullptr;
+  if (disjointProgress) {
+    fixture.controller.holdNextRead();
+    overlapReader = startRead(overlapRead, "hosted SCSI interior-overlap reader");
+    overlapStopped =
+        overlapReader && waitForAdmissionOrRead(overlapReader, RetireFirstExtent,
+                                                fixture.controller, 1, overlapAdmissionWait);
+    if (!overlapAdmissionWait) {
+      overlapReadEntered = fixture.controller.waitForHeldRead();
+      fixture.controller.releaseHeldRead(false);
+    }
+  }
+
+  if (interiorPinned && !releasedForRepair)
+    fixture.disk.unpin(RetireFirstInterior);
+  const bool rangeRetireCompleted =
+      rangeRetirer &&
+      (static_cast<size_t>(rangeRetirement.returned) || waitUntilSet(rangeRetirement.returned));
+  const bool rangeRetireJoined = rangeRetirer && rangeRetirer->joinForCompletion();
+
+  if (overlapReader && overlapAdmissionWait) {
+    overlapReadEntered = fixture.controller.waitForHeldRead();
+    fixture.controller.releaseHeldRead(true);
+  }
+  if (overlapReader) {
+    overlapCompleted =
+        static_cast<size_t>(overlapRead.returned) || waitUntilSet(overlapRead.returned);
+    overlapJoined = overlapReader->joinForCompletion();
+  }
+
+  const bool rangeOrder = fixture.controller.requestTraceMatches(
+      RangeOrder, sizeof(RangeOrder) / sizeof(RangeOrder[0]));
+  const bool rangeAdmission =
+      rangeDrainPublished && disjointProgress && overlapStopped && overlapAdmissionWait &&
+      overlapReadEntered && rangeRetireCompleted && rangeRetireJoined &&
+      rangeRetirement.succeeded == 1 && overlapCompleted && overlapJoined && overlapRead.result &&
+      fixture.controller.readCommandCount() == 2 && rangeOrder &&
+      fixture.disk.hasPage(RetireFirstExtent) && fixture.disk.hasPage(RetireFirstInterior);
+  const bool rangeCleaned = retireCachedRange(fixture, RetireFirstExtent, WideFill) &&
+                            retireCachedRange(fixture, NonoverlapReadLocation, WideFill);
+
+  fixture.disk.setCacheFillSize(PageBytes);
+  const bool recheckPrepared = fixture.disk.preparePage(RecheckReadLocation);
+  const bool recheckPinned = recheckPrepared && fixture.disk.pin(RecheckReadLocation);
+  fixture.disk.overrideDirectResult(0);
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginRequestTrace();
+
+  DirectRetirementContext failedRetirement(&fixture.disk, RecheckReadLocation);
+  Thread* failedRetirer = nullptr;
+  if (recheckPinned) {
+    failedRetirer = new Thread(Scheduler::instance().getKernelProcess(), retireDirectPage,
+                               &failedRetirement, nullptr, false, true);
+    failedRetirer->setName("hosted SCSI failed retirement recheck");
+  }
+  const bool failureDrainPublished =
+      failedRetirer && waitUntilQueuedAt(failedRetirer, Thread::CallbackDrain, RecheckReadLocation);
+
+  fixture.controller.holdNextRead();
+  ReadContext recheckRead(&fixture.disk, RecheckReadLocation);
+  Thread* recheckReader = startRead(recheckRead, "hosted SCSI reopened-page reader");
+  bool recheckAdmissionWait = false;
+  const bool recheckStopped =
+      recheckReader && waitForAdmissionOrRead(recheckReader, RecheckReadLocation,
+                                              fixture.controller, 0, recheckAdmissionWait);
+  bool recheckReadEntered = false;
+  if (!recheckAdmissionWait) {
+    recheckReadEntered = fixture.controller.waitForHeldRead();
+    fixture.controller.releaseHeldRead(false);
+  }
+
+  if (recheckPinned)
+    fixture.disk.unpin(RecheckReadLocation);
+  const bool failedRetireCompleted =
+      failedRetirer &&
+      (static_cast<size_t>(failedRetirement.returned) || waitUntilSet(failedRetirement.returned));
+  const bool failedRetireJoined = failedRetirer && failedRetirer->joinForCompletion();
+  bool recheckCompleted = recheckReader && (static_cast<size_t>(recheckRead.returned) ||
+                                            waitUntilSet(recheckRead.returned));
+  if (!recheckCompleted) {
+    recheckReadEntered = fixture.controller.waitForHeldRead();
+    fixture.controller.releaseHeldRead(false);
+    recheckCompleted = waitUntilSet(recheckRead.returned);
+  } else if (!fixture.controller.readRequestCount()) {
+    fixture.controller.disarmReadHold();
+  }
+  const bool recheckJoined = recheckReader && recheckReader->joinForCompletion();
+  const bool failedOrder = fixture.controller.requestTraceMatches(
+      FailedRetirementOrder, sizeof(FailedRetirementOrder) / sizeof(FailedRetirementOrder[0]));
+  const bool failureRechecked = failureDrainPublished && recheckStopped && recheckAdmissionWait &&
+                                !recheckReadEntered && failedRetireCompleted &&
+                                failedRetireJoined && failedRetirement.succeeded == 0 &&
+                                recheckCompleted && recheckJoined && recheckRead.result &&
+                                fixture.controller.readRequestCount() == 0 && failedOrder &&
+                                fixture.disk.hasPage(RecheckReadLocation);
+
+  fixture.disk.restoreDirectResult();
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  const bool recheckCleaned = fixture.disk.retireCachePage(RecheckReadLocation);
+
+  constexpr RequestEvent LookupPauseOrder[] = {RequestEvent::Read, RequestEvent::Direct};
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  fixture.controller.beginRequestTrace();
+  ReadRequestPause lookupPause(&fixture.disk, LookupPauseLocation);
+  lookupPause.arm();
+
+  ReadContext pausedRead(&fixture.disk, LookupPauseLocation);
+  Thread* pausedReader = startRead(pausedRead, "hosted SCSI pre-lookup reader");
+  const bool lookupPauseEntered = pausedReader && lookupPause.wait();
+  const bool readPublished = lookupPauseEntered && fixture.disk.hasPage(LookupPauseLocation);
+
+  ReadContext sharedRead(&fixture.disk, LookupPauseLocation);
+  Thread* sharedReader = nullptr;
+  if (readPublished) {
+    sharedReader = startRead(sharedRead, "hosted SCSI shared cache-hit reader");
+  }
+  const bool sharedCompletedBeforeRelease =
+      sharedReader &&
+      (static_cast<size_t>(sharedRead.returned) || waitUntilSet(sharedRead.returned));
+
+  DirectRetirementContext lookupRetirement(&fixture.disk, LookupPauseLocation);
+  Thread* lookupRetirer = nullptr;
+  if (sharedReader) {
+    lookupRetirer = new Thread(Scheduler::instance().getKernelProcess(), retireDirectPage,
+                               &lookupRetirement, nullptr, false, true);
+    lookupRetirer->setName("hosted SCSI pre-lookup retirer");
+  }
+  bool lookupRetireAdmissionWait = false;
+  const bool lookupRetireStopped =
+      lookupRetirer &&
+      waitForRetireAdmissionOrDrain(lookupRetirer, fixture.disk, LookupPauseLocation,
+                                    lookupRetireAdmissionWait);
+  const bool admissionHeldThroughLookup = lookupRetireStopped && lookupRetireAdmissionWait &&
+                                          fixture.disk.pageAddress(LookupPauseLocation);
+
+  lookupPause.resume();
+  const bool pausedCompleted = pausedReader && (static_cast<size_t>(pausedRead.returned) ||
+                                                waitUntilSet(pausedRead.returned));
+  const bool sharedCompleted = sharedReader && (static_cast<size_t>(sharedRead.returned) ||
+                                                waitUntilSet(sharedRead.returned));
+  const bool lookupRetireCompleted =
+      lookupRetirer &&
+      (static_cast<size_t>(lookupRetirement.returned) || waitUntilSet(lookupRetirement.returned));
+  const bool pausedJoined = pausedReader && pausedReader->joinForCompletion();
+  const bool sharedJoined = sharedReader && sharedReader->joinForCompletion();
+  const bool lookupRetireJoined = lookupRetirer && lookupRetirer->joinForCompletion();
+  lookupPause.clear();
+
+  const bool lookupOrder = fixture.controller.requestTraceMatches(
+      LookupPauseOrder, sizeof(LookupPauseOrder) / sizeof(LookupPauseOrder[0]));
+  const bool finalLookupProtected =
+      lookupPauseEntered && readPublished && sharedCompletedBeforeRelease &&
+      admissionHeldThroughLookup && pausedCompleted && sharedCompleted && lookupRetireCompleted &&
+      pausedJoined && sharedJoined && lookupRetireJoined && pausedRead.result &&
+      sharedRead.result && lookupRetirement.succeeded == 1 &&
+      fixture.controller.readRequestCount() == 1 && fixture.controller.readCommandCount() == 1 &&
+      fixture.controller.directRequestCount() == 1 && lookupOrder;
+  fixture.controller.beginWrites(WriteMode::PassWrite12);
+  const bool lookupCleaned = !fixture.disk.hasPage(LookupPauseLocation) ||
+                             fixture.disk.retireCachePage(LookupPauseLocation);
+
+  const bool passed = interiorPrepared && interiorPinned && rangeAdmission && rangeCleaned &&
+                      recheckPrepared && recheckPinned && failureRechecked && recheckCleaned &&
+                      finalLookupProtected && lookupCleaned;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-retire-read-recheck");
+  } else {
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL scsi-retire-read-recheck: interior overlap, disjoint progress, "
+        "failed-retirement cache recheck, shared reads, or final lookup changed");
+  }
+  return passed;
+}
 }  // namespace
 
 EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {
@@ -666,5 +1289,8 @@ EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {
   const bool scsiResult = scsiWriteResult(fixture);
   const bool directResult = scsiDirectRetireResult(fixture);
   const bool directOwnership = scsiDirectRetireOwnership(fixture);
-  return ataOwnership && scsiResult && directResult && directOwnership;
+  const bool readRetireAdmission = scsiReadRetireAdmission(fixture);
+  const bool retireReadRecheck = scsiRetireReadRecheck(fixture);
+  return ataOwnership && scsiResult && directResult && directOwnership && readRetireAdmission &&
+         retireReadRecheck;
 }

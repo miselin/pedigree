@@ -23,6 +23,8 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
 #include "pedigree/kernel/utilities/CacheConstants.h"
@@ -84,6 +86,11 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 
   ScsiDisk();
   virtual ~ScsiDisk();
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  using HostedReadRequestHook = void (*)(ScsiDisk*, uint64_t, void*);
+  static void setHostedReadRequestHookForTest(HostedReadRequestHook hook, void* context);
+#endif
 
   /** Drains cache callbacks while the disk/controller state is still live. */
   void shutdownCache();
@@ -159,6 +166,32 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   }
 
  private:
+  class CacheRangeAdmission {
+   public:
+    CacheRangeAdmission(ScsiDisk& disk, uint64_t start, size_t length, bool retire);
+    ~CacheRangeAdmission();
+
+   private:
+    friend class ScsiDisk;
+
+    NOT_COPYABLE_OR_ASSIGNABLE(CacheRangeAdmission);
+
+    ScsiDisk& m_Disk;
+    uint64_t m_Start;
+    size_t m_Length;
+    bool m_Retire;
+    bool m_Linked;
+    CacheRangeAdmission* m_Previous;
+    CacheRangeAdmission* m_Next;
+    TerminationDeferral m_TerminationDeferral;
+  };
+
+  void enterCacheRange(CacheRangeAdmission& admission);
+  void leaveCacheRange(CacheRangeAdmission& admission);
+  bool cacheRangeBlocked(const CacheRangeAdmission& admission) const;
+  static bool cacheRangesOverlap(uint64_t firstStart, size_t firstLength, uint64_t secondStart,
+                                 size_t secondLength);
+
   bool unitReady();
 
   bool readSense(Sense* s);
@@ -188,6 +221,16 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 
   Cache m_Cache;
   Inquiry* m_Inquiry;
+
+  WaitQueue m_CacheRangeWaiters;
+  CacheRangeAdmission* m_FirstCacheRangeAdmission;
+  CacheRangeAdmission* m_LastCacheRangeAdmission;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  static Mutex m_HostedReadRequestHookLock;
+  static HostedReadRequestHook m_HostedReadRequestHook;
+  static void* m_HostedReadRequestHookContext;
+#endif
 
   mutable Mutex m_AlignmentLock;
   uint64_t m_AlignPoints[8];
