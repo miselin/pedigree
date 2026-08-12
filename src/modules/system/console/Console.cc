@@ -57,8 +57,6 @@ void ConsoleManager::newConsole(char c, size_t i, bool lock) {
 }
 
 ConsoleManager::ConsoleManager() : m_Consoles(), m_Lock() {
-  LockGuard<Spinlock> guard(m_Lock);
-
   // Create all consoles, so we can look them up easily.
   for (size_t i = 0; i < 16; ++i) {
     for (char c = 'p'; c <= 'z'; ++c) {
