@@ -660,6 +660,10 @@ assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS event-delivery-lease"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS event-shutdown-drain"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS thread-join-lifecycle"
 assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS admitted-thread-terminal-release-order"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS admitted-thread-pre-start-cancellation"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS owned-thread-terminal-join"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS lifetime-leases"
 assert_marker \

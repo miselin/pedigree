@@ -25,13 +25,16 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/machine/Network.h"
+#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/process/AdmittedThread.h"
 #include "pedigree/kernel/process/Completion.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
+#include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/UniqueResource.h"
 
 #include "modules/Module.h"
 #include "modules/system/lwip/include/lwip/api.h"
@@ -48,15 +51,48 @@ static Spinlock g_NetconnsLock;
 static OperationBarrier* g_pClientWork = nullptr;
 
 static Atomic<bool> g_Running(false);
-static Thread* g_pServerThread = nullptr;
+
+struct NetconnReleaser {
+  static void release(struct netconn* connection) {
+    if (netconn_delete(connection) != ERR_OK) {
+      panic("Status Server could not delete an owned lwIP connection.");
+    }
+  }
+};
+
+struct NetbufReleaser {
+  static void release(struct netbuf* buffer) {
+    netbuf_delete(buffer);
+  }
+};
+
+using NetconnOwner = UniqueResource<struct netconn, NetconnReleaser>;
+using NetbufOwner = UniqueResource<struct netbuf, NetbufReleaser>;
+
+// lwIP deletion can wait for its core thread, so these owners belong only in
+// ordinary thread context and must not be destroyed while holding a spinlock.
+
+static OwnedThread g_ServerThread;
+
+static bool currentThreadIsTerminating() {
+  Thread* thread = Processor::information().getCurrentThread();
+  return thread && thread->getUnwindState() != Thread::Continue;
+}
 
 struct ClientContext {
-  ClientContext(struct netconn* connection, OperationBarrier::Lease work)
-      : connection(connection), work(pedigree_std::move(work)) {}
+  explicit ClientContext(NetconnOwner&& connection) : connection(pedigree_std::move(connection)) {}
 
-  struct netconn* connection;
-  OperationBarrier::Lease work;
+  NetconnOwner connection;
+
+  ClientContext(const ClientContext&) = delete;
+  ClientContext& operator=(const ClientContext&) = delete;
+  ClientContext(ClientContext&&) = delete;
+  ClientContext& operator=(ClientContext&&) = delete;
 };
+
+static void cancelClientThread(void* parameter) {
+  delete reinterpret_cast<ClientContext*>(parameter);
+}
 
 struct NetconnCompletionRegistration {
   struct netconn* connection;
@@ -89,16 +125,11 @@ static int clientThread(void* p) {
     return 0;
 
   ClientContext* context = reinterpret_cast<ClientContext*>(p);
-  struct netconn* connection = context->connection;
-  OperationBarrier::Lease work = pedigree_std::move(context->work);
+  NetconnOwner connection = pedigree_std::move(context->connection);
   delete context;
 
-  // Connection teardown, callback deregistration, and netconn deletion are
-  // one lifetime unit. A terminal request may interrupt its waits, but must
-  // return through this function's cleanup.
-  TerminationDeferral clientLifetime;
   connection->callback = netconnCallback;
-  netconn_set_recvtimeout(connection, 500);
+  netconn_set_recvtimeout(connection.get(), 500);
 
   bool stillOk = true;
   bool requestComplete = false;
@@ -107,8 +138,12 @@ static int clientThread(void* p) {
   String httpResponse;
   err_t err;
   while (g_Running && !requestComplete) {
-    struct netbuf* buf = nullptr;
-    if ((err = netconn_recv(connection, &buf)) != ERR_OK) {
+    struct netbuf* received = nullptr;
+    if ((err = netconn_recv(connection.get(), &received)) != ERR_OK) {
+      if (currentThreadIsTerminating()) {
+        stillOk = false;
+        break;
+      }
       if (err == ERR_RST || err == ERR_CLSD) {
         WARNING("Unexpected disconnection from remote client.");
         stillOk = false;
@@ -120,11 +155,12 @@ static int clientThread(void* p) {
       }
       continue;
     }
+    NetbufOwner buffer = NetbufOwner::adopt(received);
 
     do {
       void* data = nullptr;
       u16_t len = 0;
-      netbuf_data(buf, &data, &len);
+      netbuf_data(buffer.get(), &data, &len);
 
       if (stillOk && len) {
         httpRequest += String(reinterpret_cast<char*>(data), len);
@@ -148,22 +184,25 @@ static int clientThread(void* p) {
           }
         }
       }
-    } while (netbuf_next(buf) >= 0);
-
-    netbuf_delete(buf);
+    } while (netbuf_next(buffer.get()) >= 0);
   }
 
   // no longer needing to RX any data
-  netconn_shutdown(connection, 1, 0);
+  netconn_shutdown(connection.get(), 1, 0);
+
+  if (!g_Running || currentThreadIsTerminating()) {
+    netconn_close(connection.get());
+    return 0;
+  }
 
   if (!stillOk) {
     if (httpResponse.length()) {
-      netconn_write(connection, static_cast<const char*>(httpResponse), httpResponse.length(), 0);
-      netconn_shutdown(connection, 1, 1);
+      netconn_write(connection.get(), static_cast<const char*>(httpResponse), httpResponse.length(),
+                    NETCONN_COPY);
+      netconn_shutdown(connection.get(), 1, 1);
     }
 
-    netconn_close(connection);
-    netconn_delete(connection);
+    netconn_close(connection.get());
     return 0;
   }
 
@@ -400,86 +439,93 @@ static int clientThread(void* p) {
   // keeps it valid until registration is removed under the callback lock.
   Completion completion;
 
-  {
-    LockGuard<Spinlock> guard(g_NetconnsLock);
-    g_Netconns.insert(connection, &completion);
-  }
-  NetconnCompletionRegistration completionRegistration = {connection, true};
+  NetconnCompletionRegistration completionRegistration = {connection.get(), false};
   Thread::StackDiscardScope completionRegistrationScope(&removeNetconnCompletion,
                                                         &completionRegistration);
+  {
+    LockGuard<Spinlock> guard(g_NetconnsLock);
+    g_Netconns.insert(connection.get(), &completion);
+    completionRegistration.registered = true;
+  }
 
-  /// \todo error handling
-  netconn_write(connection, static_cast<const char*>(httpResponse), httpResponse.length(), 0);
-  netconn_close(connection);
-
-  bool completed = completion.wait();
+  const err_t writeResult = netconn_write(connection.get(), static_cast<const char*>(httpResponse),
+                                          httpResponse.length(), NETCONN_COPY);
+  const err_t closeResult = netconn_close(connection.get());
+  const bool completed = writeResult == ERR_OK && closeResult == ERR_OK && completion.wait();
 
   // Serialising removal with the callback ensures it has finished using the
   // stack-backed completion before this function returns or is discarded.
   removeNetconnCompletion(&completionRegistration);
 
-  // Connection closed cleanly, delete our netconn now.
-  netconn_delete(connection);
-
   return completed ? 0 : -1;
 }
 
 static int mainThread(void*) {
-  struct netconn* server = netconn_new(NETCONN_TCP);
+  NetconnOwner server = NetconnOwner::adopt(netconn_new(NETCONN_TCP));
+  if (!server) {
+    ERROR("Status Server could not allocate its listener connection.");
+    return -1;
+  }
 
   // Don't block for more than ~500 ms so we can shut down the server when
   // this module is unloaded.
-  netconn_set_recvtimeout(server, 500);
+  netconn_set_recvtimeout(server.get(), 500);
 
   ip_addr_t ipaddr;
   ByteSet(&ipaddr, 0, sizeof(ipaddr));
 
-  netconn_bind(server, &ipaddr, LISTEN_PORT);
-
-  netconn_listen(server);
+  if (netconn_bind(server.get(), &ipaddr, LISTEN_PORT) != ERR_OK ||
+      netconn_listen(server.get()) != ERR_OK) {
+    ERROR("Status Server could not bind its listener connection.");
+    return -1;
+  }
 
   while (g_Running) {
-    struct netconn* connection;
-    if (netconn_accept(server, &connection) == ERR_OK) {
-      OperationBarrier::Lease work;
-      if (!g_pClientWork->tryAcquire(work)) {
-        netconn_close(connection);
-        netconn_delete(connection);
-        continue;
+    struct netconn* accepted = nullptr;
+    if (netconn_accept(server.get(), &accepted) == ERR_OK) {
+      NetconnOwner connection = NetconnOwner::adopt(accepted);
+      ClientContext* context = new ClientContext(pedigree_std::move(connection));
+      if (!context ||
+          !AdmittedThread::launchDetached(clientThread, context, cancelClientThread, *g_pClientWork,
+                                          "Status Server client thread")) {
+        delete context;
       }
-
-      ClientContext* context = new ClientContext(connection, pedigree_std::move(work));
-      Thread* pThread = new Thread(Processor::information().getCurrentThread()->getParent(),
-                                   clientThread, context);
-      pThread->setName("Status Server client thread");
-      pThread->detach();
+    }
+    if (currentThreadIsTerminating()) {
+      break;
     }
   }
 
-  netconn_close(server);
-  netconn_delete(server);
+  netconn_close(server.get());
 
   return 0;
 }
 
 static bool init() {
   g_pClientWork = new OperationBarrier;
+  if (!g_pClientWork) {
+    return false;
+  }
   g_Running = true;
-  g_pServerThread =
+  Thread* serverThread =
       new Thread(Processor::information().getCurrentThread()->getParent(), mainThread, nullptr);
-  g_pServerThread->setName("Status Server main thread");
+  if (!serverThread) {
+    g_Running = false;
+    g_pClientWork->closeAndWait();
+    delete g_pClientWork;
+    g_pClientWork = nullptr;
+    return false;
+  }
+  g_ServerThread.adopt(serverThread);
+  g_ServerThread->setName("Status Server main thread");
   return true;
 }
 
 static void destroy() {
   g_Running = false;
-  if (g_pServerThread) {
-    if (!g_pServerThread->joinForCompletion()) {
-      FATAL("Status Server could not retire its listener thread.");
-    }
-    g_pServerThread = nullptr;
-  }
-  g_pClientWork->closeAndWait();
+  g_pClientWork->close();
+  g_ServerThread.join();
+  g_pClientWork->wait();
   delete g_pClientWork;
   g_pClientWork = nullptr;
 }

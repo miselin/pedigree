@@ -27,6 +27,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/UniqueResource.h"
 
 #include <fcntl.h>
 #include <stddef.h>
@@ -61,6 +62,16 @@ Tree<struct netconn*, LwipSocketSyscalls*> LwipSocketSyscalls::m_SyscallObjects;
 Mutex LwipSocketSyscalls::m_SyscallObjectsLock;
 
 extern UnixFilesystem* g_pUnixFilesystem;
+
+namespace {
+struct NetbufReleaser {
+  static void release(struct netbuf* buffer) {
+    netbuf_delete(buffer);
+  }
+};
+
+using NetbufOwner = UniqueResource<struct netbuf, NetbufReleaser>;
+}  // namespace
 
 static File* findTrackedUnixSocket(const String& pathname) {
   LockGuard<Mutex> guard(UnixFilesystem::namespaceLock());
@@ -1086,19 +1097,45 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
       bytesWritten += thisBytesWritten;
     }
   } else {
-    struct netbuf* buf = netbuf_new();
+    NetbufOwner buffer = NetbufOwner::adopt(netbuf_new());
+    if (!buffer) {
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
+    }
+
+    size_t datagramLength = 0;
     for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
-      netbuf_ref(buf, msghdr->msg_iov[i].iov_base, msghdr->msg_iov[i].iov_len);
+      const size_t fragmentLength = msghdr->msg_iov[i].iov_len;
+      if (fragmentLength > static_cast<size_t>(0xFFFF) - datagramLength) {
+        SYSCALL_ERROR(TooBig);
+        return -1;
+      }
+      datagramLength += fragmentLength;
+    }
+
+    char* payload =
+        reinterpret_cast<char*>(netbuf_alloc(buffer.get(), static_cast<u16_t>(datagramLength)));
+    if (!payload) {
+      SYSCALL_ERROR(OutOfMemory);
+      return -1;
+    }
+
+    size_t offset = 0;
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
+      const size_t fragmentLength = msghdr->msg_iov[i].iov_len;
+      if (fragmentLength) {
+        MemoryCopy(payload + offset, msghdr->msg_iov[i].iov_base, fragmentLength);
+        offset += fragmentLength;
+      }
     }
 
     /// \todo implement sendto
-    err = netconn_send(m_Socket, buf);
+    err = netconn_send(m_Socket, buffer.get());
     if (err != ERR_OK) {
       lwipToSyscallError(err);
       ok = false;
     } else {
-      bytesWritten += netbuf_len(buf);
-      netbuf_delete(buf);
+      bytesWritten += netbuf_len(buffer.get());
     }
   }
 

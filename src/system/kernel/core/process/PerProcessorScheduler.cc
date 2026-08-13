@@ -142,11 +142,21 @@ struct newThreadData {
   Thread* pThread;
   Thread::ThreadStartFunc pStartFunction;
   void* pParam;
+  Thread::ThreadStartCleanup startCleanup;
   bool bUsermode;
   void* pStack;
   SyscallState state;
   bool useSyscallState;
 };
+
+static void retireUnstartedThreadData(newThreadData* data) {
+  Thread::ThreadStartCleanup cleanup = data->startCleanup;
+  void* parameter = cleanup ? data->pParam : nullptr;
+  delete data;
+  if (cleanup) {
+    cleanup(parameter);
+  }
+}
 
 void PerProcessorScheduler::startNewThreadWorker(Process* pParent) {
   m_NewThreadDataLock.acquire();
@@ -228,8 +238,12 @@ int PerProcessorScheduler::processorAddThread(void* instance) {
       pThread->m_Lock.release();
       // This thread has never owned a running stack. The add worker owns
       // the last queued reference and can complete its off-stack exit.
-      delete pData;
+      retireUnstartedThreadData(pData);
       pThread->shutdown();
+      pThread->m_Lock.acquire();
+      EMIT_IF(TRACK_LOCKS) {
+        g_LocksCommand.lockReleased(&pThread->m_Lock);
+      }
       deleteThread(pThread);
       continue;
     }
@@ -257,8 +271,12 @@ int PerProcessorScheduler::processorAddThread(void* instance) {
       }
 
       pThread->setUnwindState(Thread::TerminateThread);
-      delete pData;
+      retireUnstartedThreadData(pData);
       pThread->shutdown();
+      pThread->m_Lock.acquire();
+      EMIT_IF(TRACK_LOCKS) {
+        g_LocksCommand.lockReleased(&pThread->m_Lock);
+      }
       deleteThread(pThread);
       continue;
     }
@@ -637,12 +655,19 @@ void PerProcessorScheduler::eventHandlerReturned() {
 
 void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc pStartFunction,
                                       void* pParam, bool bUsermode, void* pStack) {
+  addThread(pThread, pStartFunction, pParam, bUsermode, pStack, nullptr);
+}
+
+void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc pStartFunction,
+                                      void* pParam, bool bUsermode, void* pStack,
+                                      Thread::ThreadStartCleanup startCleanup) {
   // Handle wrong CPU, and handle thread not yet ready to schedule.
   if (this != &Processor::information().getScheduler() || pThread->getStatus() == Thread::Created) {
     newThreadData* pData = new newThreadData;
     pData->pThread = pThread;
     pData->pStartFunction = pStartFunction;
     pData->pParam = pParam;
+    pData->startCleanup = startCleanup;
     pData->bUsermode = bUsermode;
     pData->pStack = pStack;
     pData->useSyscallState = false;
@@ -652,7 +677,7 @@ void PerProcessorScheduler::addThread(Thread* pThread, Thread::ThreadStartFunc p
       m_NewThreadDataLock.release();
       pThread->m_Lock.release();
       delete pData;
-      FATAL("Thread admitted after its per-processor worker stopped.");
+      panic("Thread admitted after its per-processor worker stopped.");
     }
     m_NewThreadData.pushBack(pData);
     m_NewThreadDataLock.release();
@@ -754,6 +779,8 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
   if (this != &Processor::information().getScheduler() || pThread->getStatus() == Thread::Created) {
     newThreadData* pData = new newThreadData;
     pData->pThread = pThread;
+    pData->pParam = nullptr;
+    pData->startCleanup = nullptr;
     pData->useSyscallState = true;
     pData->state = state;
 
@@ -763,7 +790,7 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
     if (!m_NewThreadAdmissionOpen) {
       m_NewThreadDataLock.release();
       delete pData;
-      FATAL("Thread admitted after its per-processor worker stopped.");
+      panic("Thread admitted after its per-processor worker stopped.");
     }
     m_NewThreadData.pushBack(pData);
     m_NewThreadDataLock.release();
@@ -1016,6 +1043,15 @@ void PerProcessorScheduler::deleteThread(Thread* pThread) {
   // joins drain in ordinary thread context, while the final external lease
   // completes deferred detached deletion.
   pThread->closeExternalLeaseAdmission();
+
+  // This is the scheduler's final access outside the Process-serialised
+  // retirement block below. Publish the unlocked atom before m_bReapable so
+  // a joiner or detach owner can treat reapable as a true final-use boundary.
+  // No Process lock is held here, so waking another same-core thread cannot
+  // resume it into a conflicting terminal operation under that lock.
+  pThread->getLock().unwind();
+  pThread->getLock().m_Atom.m_Atom = 1;
+
   bool deleteTarget = false;
   bool completesProcessExit = false;
   bool wakeExitOwner = false;
@@ -1027,15 +1063,6 @@ void PerProcessorScheduler::deleteThread(Thread* pThread) {
     if (deleteTarget) {
       delete pThread;
     }
-  }
-
-  // The terminal transition keeps this lock closed until execution has left the
-  // target stack. Release it only after all outer Process locks have
-  // unwound: making another same-core thread runnable under those locks can
-  // otherwise resume straight into a conflicting terminal operation.
-  if (!deleteTarget) {
-    pThread->getLock().unwind();
-    pThread->getLock().m_Atom.m_Atom = 1;
   }
 
   // Process-exit progress is a predicate update under m_Lock followed by an
@@ -1209,10 +1236,20 @@ void PerProcessorScheduler::commitUserReturnTerminalState() {
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 namespace {
+struct HostedNewThreadContext {
+  Atomic<size_t> calls;
+  Atomic<size_t> cleanups;
+};
+
 int hostedNewThreadWorkerEntry(void* parameter) {
-  Atomic<size_t>* calls = reinterpret_cast<Atomic<size_t>*>(parameter);
-  *calls += 1;
+  HostedNewThreadContext* context = reinterpret_cast<HostedNewThreadContext*>(parameter);
+  context->calls += 1;
   return 0;
+}
+
+void hostedNewThreadStartCleanup(void* parameter) {
+  HostedNewThreadContext* context = reinterpret_cast<HostedNewThreadContext*>(parameter);
+  context->cleanups += 1;
 }
 }  // namespace
 
@@ -1266,19 +1303,20 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
   Process* kernelProcess = Processor::information().getCurrentThread()->getParent();
   bool passed = true;
 
-  Atomic<size_t> delayedCalls(0);
-  Thread* delayed = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &delayedCalls, nullptr,
-                               false, true, true);
+  HostedNewThreadContext delayedContext;
+  Thread* delayed = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &delayedContext, nullptr,
+                               false, true, true, hostedNewThreadStartCleanup);
   delayed->setName("hosted delayed add-worker target");
   const bool delayedParked = waitUntilParked(delayed);
   for (size_t attempt = 0; attempt < 64; ++attempt) {
     Scheduler::instance().yield();
   }
-  const bool stayedDormant = delayedParked && isParked(delayed) && delayedCalls == 0;
+  const bool stayedDormant = delayedParked && isParked(delayed) && delayedContext.calls == 0;
   const bool started = delayed->start();
   const bool delayedJoined = delayed->joinForCompletion();
   const bool delayedPassed =
-      check(stayedDormant && started && delayedJoined && delayedCalls == 1,
+      check(stayedDormant && started && delayedJoined && delayedContext.calls == 1 &&
+                delayedContext.cleanups == 0,
             "delayed add-worker target did not remain parked until its single "
             "start publication");
   passed &= delayedPassed;
@@ -1286,24 +1324,25 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
     NOTICE("HOSTED-WAIT-TEST: PASS perprocessor-delayed-start-wake");
   }
 
-  Atomic<size_t> terminatedCalls(0);
-  Thread* terminated = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &terminatedCalls,
-                                  nullptr, false, true, true);
+  HostedNewThreadContext terminatedContext;
+  Thread* terminated = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &terminatedContext,
+                                  nullptr, false, true, true, hostedNewThreadStartCleanup);
   terminated->setName("hosted terminated add-worker target");
   const bool terminatedParked = waitUntilParked(terminated);
   terminated->setUnwindState(Thread::TerminateThread);
   const bool terminatedJoined = terminated->joinForCompletion();
   const bool terminatedPassed =
-      check(terminatedParked && terminatedJoined && terminatedCalls == 0,
+      check(terminatedParked && terminatedJoined && terminatedContext.calls == 0 &&
+                terminatedContext.cleanups == 1,
             "terminate-before-start did not retire the parked add-worker target");
   passed &= terminatedPassed;
   if (terminatedPassed) {
     NOTICE("HOSTED-WAIT-TEST: PASS perprocessor-terminate-before-start");
   }
 
-  Atomic<size_t> teardownCalls(0);
-  Thread* teardown = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &teardownCalls, nullptr,
-                                false, true, true);
+  HostedNewThreadContext teardownContext;
+  Thread* teardown = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &teardownContext,
+                                nullptr, false, true, true, hostedNewThreadStartCleanup);
   teardown->setName("hosted add-worker teardown target");
   const bool teardownParked = waitUntilParked(teardown);
   stopNewThreadWorker();
@@ -1322,9 +1361,10 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
     Scheduler::instance().yield();
   }
 
-  const bool teardownPassed = check(
-      teardownParked && teardownJoined && teardownCalls == 0 && teardownDrained && workerJoined,
-      "owned add worker did not drain and join with pending parked work");
+  const bool teardownPassed =
+      check(teardownParked && teardownJoined && teardownContext.calls == 0 &&
+                teardownContext.cleanups == 1 && teardownDrained && workerJoined,
+            "owned add worker did not drain and join with pending parked work");
   passed &= teardownPassed;
   if (teardownPassed) {
     NOTICE("HOSTED-WAIT-TEST: PASS perprocessor-worker-teardown");
@@ -1332,9 +1372,9 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
 
   startNewThreadWorker(kernelProcess);
 
-  Atomic<size_t> restartCalls(0);
-  Thread* restart = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &restartCalls, nullptr,
-                               false, true, true);
+  HostedNewThreadContext restartContext;
+  Thread* restart = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &restartContext, nullptr,
+                               false, true, true, hostedNewThreadStartCleanup);
   restart->setName("hosted restarted add-worker target");
   const bool restartParked = waitUntilParked(restart);
   const bool restartStarted = restart->start();
@@ -1348,7 +1388,8 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
   }
   const bool restartJoined = restartReapable && restart->joinForCompletion();
   const bool restartPassed =
-      check(restartParked && restartStarted && restartJoined && restartCalls == 1,
+      check(restartParked && restartStarted && restartJoined && restartContext.calls == 1 &&
+                restartContext.cleanups == 0,
             "replacement add worker did not process a fresh delayed admission");
   passed &= restartPassed;
   if (restartPassed) {

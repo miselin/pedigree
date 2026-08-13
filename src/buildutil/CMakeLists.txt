@@ -233,6 +233,7 @@ set(TESTSUITE_SRCS
     testsuite/test-List.cc
     testsuite/test-SharedPointer.cc
     testsuite/test-UniquePointer.cc
+    testsuite/test-UniqueResource.cc
     testsuite/test-RingBuffer.cc
     testsuite/test-Buffer.cc
     testsuite/test-stringlib.cc

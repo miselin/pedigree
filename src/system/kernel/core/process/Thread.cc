@@ -134,6 +134,12 @@ class CpuTimeSample {
 
 Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
                bool semiUser, bool bDontPickCore, bool delayedStart)
+    : Thread(pParent, pStartFunction, pParam, pStack, semiUser, bDontPickCore, delayedStart,
+             nullptr) {}
+
+Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
+               bool semiUser, bool bDontPickCore, bool delayedStart,
+               ThreadStartCleanup startCleanup)
     : m_pParent(pParent) {
   if (pParent == 0) {
     FATAL("Thread::Thread(): Parent process was NULL!");
@@ -200,11 +206,12 @@ Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, v
 
   // Add to the scheduler
   if (!bDontPickCore) {
-    ProcessorThreadAllocator::instance().addThread(this, pStartFunction, pParam, bUserMode, pStack);
+    ProcessorThreadAllocator::instance().addThread(this, pStartFunction, pParam, bUserMode, pStack,
+                                                   startCleanup);
   } else {
     Scheduler::instance().addThread(this, Processor::information().getScheduler());
     Processor::information().getScheduler().addThread(this, pStartFunction, pParam, bUserMode,
-                                                      pStack);
+                                                      pStack, startCleanup);
   }
 }
 
@@ -568,6 +575,61 @@ bool Thread::start() {
   // without allowing the worker to preempt us under the thread lock.
   Scheduler::instance().threadStatusChanged(this);
   return true;
+}
+
+bool Thread::startDetached() {
+  Process* parent = m_pParent;
+  if (!parent->beginThreadJoin()) {
+    return false;
+  }
+
+  bool claimed = false;
+  {
+    RecursingLockGuard<Spinlock> processGuard(parent->m_Lock);
+    auto guard = m_JoinWaiters.acquire();
+    if (!m_bJoinClaimed && !m_bDetachedRetirementClaimed) {
+      m_bDetached = true;
+      m_bDetachedRetirementClaimed = true;
+      claimed = true;
+    }
+  }
+
+  if (!claimed) {
+    parent->endThreadJoin();
+    return false;
+  }
+
+  const bool started = start();
+  const bool accepted = started || getUnwindState() == Thread::TerminateThread;
+  if (!accepted) {
+    setUnwindState(Thread::TerminateThread);
+  }
+
+  bool deleteNow = false;
+  {
+    RecursingLockGuard<Spinlock> processGuard(parent->m_Lock);
+    auto guard = m_JoinWaiters.acquire();
+    deleteNow = m_bReapable && !m_bProcessExitOwned;
+    if (!deleteNow) {
+      m_bDetachedRetirementClaimed = false;
+    }
+  }
+
+  if (deleteNow) {
+    closeExternalLeaseAdmissionAndDrain();
+    RecursingLockGuard<Spinlock> processGuard(parent->m_Lock);
+    {
+      auto guard = m_JoinWaiters.acquire();
+      deleteNow =
+          m_bDetached && m_bReapable && !m_bProcessExitOwned && m_bDetachedRetirementClaimed;
+    }
+    if (deleteNow) {
+      delete this;
+    }
+  }
+
+  parent->endThreadJoin();
+  return accepted;
 }
 
 bool Thread::setSchedulerReadyPredicate(SchedulerReadyPredicate predicate, void* context) {

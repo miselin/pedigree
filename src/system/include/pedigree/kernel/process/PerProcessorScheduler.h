@@ -143,7 +143,12 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
  private:
   friend class Scheduler;
   friend class Thread;
+  friend class ProcessorThreadAllocator;
   friend class WaitQueue;
+
+  /** Kernel-only cleanup for a parameter whose entry never begins. */
+  void addThread(Thread* pThread, Thread::ThreadStartFunc pStartFunction, void* pParam,
+                 bool bUsermode, void* pStack, Thread::ThreadStartCleanup startCleanup);
 
   /** Link compatibility only; new source must choose an explicit exit API. */
   void killCurrentThread(Spinlock* pLock = 0) NORETURN;

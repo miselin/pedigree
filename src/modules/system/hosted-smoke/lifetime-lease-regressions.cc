@@ -7,12 +7,16 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/AdmittedThread.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/UniqueResource.h"
 
 namespace {
 constexpr size_t Attempts = 10000;
@@ -88,6 +92,67 @@ struct OwnedWorkerContext {
   Atomic<size_t> joins;
 };
 
+struct AdmittedThreadResourceProbe {
+  AdmittedThreadResourceProbe(OperationBarrier* barrier, Atomic<size_t>* releases,
+                              Atomic<size_t>* releasesBeforeDrain)
+      : barrier(barrier), releases(releases), releasesBeforeDrain(releasesBeforeDrain) {}
+
+  OperationBarrier* barrier;
+  Atomic<size_t>* releases;
+  Atomic<size_t>* releasesBeforeDrain;
+};
+
+struct AdmittedThreadProbeReleaser {
+  static void release(AdmittedThreadResourceProbe* resource) {
+    *resource->releases += 1;
+    if (!resource->barrier->isClosedAndDrained()) {
+      *resource->releasesBeforeDrain += 1;
+    }
+  }
+};
+
+using AdmittedThreadProbeOwner =
+    UniqueResource<AdmittedThreadResourceProbe, AdmittedThreadProbeReleaser>;
+
+struct AdmittedThreadWorkerContext {
+  explicit AdmittedThreadWorkerContext(AdmittedThreadProbeOwner&& resource)
+      : gate(0),
+        resource(pedigree_std::move(resource)),
+        worker(0),
+        entered(0),
+        returned(0),
+        destructed(0) {}
+
+  Semaphore gate;
+  AdmittedThreadProbeOwner resource;
+  Atomic<uintptr_t> worker;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+  Atomic<size_t> destructed;
+};
+
+struct AdmittedThreadCancelContext {
+  explicit AdmittedThreadCancelContext(OperationBarrier* barrier)
+      : barrier(barrier), entered(0), cancelled(0), cancelledBeforeDrain(0) {}
+
+  OperationBarrier* barrier;
+  Atomic<size_t> entered;
+  Atomic<size_t> cancelled;
+  Atomic<size_t> cancelledBeforeDrain;
+};
+
+class AdmittedThreadStackCanary {
+ public:
+  explicit AdmittedThreadStackCanary(AdmittedThreadWorkerContext* context) : m_Context(context) {}
+
+  ~AdmittedThreadStackCanary() {
+    m_Context->destructed += 1;
+  }
+
+ private:
+  AdmittedThreadWorkerContext* m_Context;
+};
+
 class OwnedWorkerStackCanary {
  public:
   explicit OwnedWorkerStackCanary(OwnedWorkerContext* context) : m_Context(context) {}
@@ -118,6 +183,37 @@ int blockedOwnedWorker(void* parameter) {
   context->waitInterrupted = context->gate.acquire() ? 0 : 1;
   context->returnedPastWait += 1;
   return 0;
+}
+
+int blockedAdmittedThreadWorker(void* parameter) {
+  AdmittedThreadWorkerContext* context = reinterpret_cast<AdmittedThreadWorkerContext*>(parameter);
+  AdmittedThreadStackCanary stackCanary(context);
+  AdmittedThreadProbeOwner resource = pedigree_std::move(context->resource);
+  context->worker = reinterpret_cast<uintptr_t>(Processor::information().getCurrentThread());
+  context->entered += 1;
+  context->gate.acquire();
+  context->returned += 1;
+  return 0;
+}
+
+int unstartedAdmittedThreadWorker(void* parameter) {
+  AdmittedThreadCancelContext* context = reinterpret_cast<AdmittedThreadCancelContext*>(parameter);
+  context->entered += 1;
+  return 0;
+}
+
+void cancelUnstartedAdmittedThread(void* parameter) {
+  AdmittedThreadCancelContext* context = reinterpret_cast<AdmittedThreadCancelContext*>(parameter);
+  context->cancelled += 1;
+  if (!context->barrier->isOpen() && !context->barrier->isClosedAndDrained()) {
+    context->cancelledBeforeDrain += 1;
+  }
+}
+
+void terminateAdmittedThreadBeforeStart(Thread* thread, void* parameter) {
+  reinterpret_cast<OperationBarrier*>(parameter)->close();
+  thread->setUnwindState(Thread::TerminateThread);
+  thread->waitUntilReapableForHostedTest();
 }
 
 int deleteLeasedProcess(void* parameter) {
@@ -171,6 +267,61 @@ bool ownedThreadTerminalJoin(Process* kernelProcess) {
                             "exactly once");
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS owned-thread-terminal-join");
+  }
+  return passed;
+}
+
+bool admittedThreadTerminalReleaseOrder() {
+  OperationBarrier barrier;
+  Atomic<size_t> releases(0);
+  Atomic<size_t> releasesBeforeDrain(0);
+  AdmittedThreadResourceProbe resource(&barrier, &releases, &releasesBeforeDrain);
+  AdmittedThreadWorkerContext context(AdmittedThreadProbeOwner::adopt(&resource));
+  bool passed = check(AdmittedThread::launchDetached(blockedAdmittedThreadWorker, &context, nullptr,
+                                                     barrier, "hosted admitted thread worker"),
+                      "could not launch admitted thread");
+
+  Thread* worker = nullptr;
+  for (size_t attempt = 0; attempt < Attempts && !context.worker; ++attempt) {
+    Scheduler::instance().yield();
+  }
+  worker = reinterpret_cast<Thread*>(context.worker.value());
+
+  const bool waiting = worker && waitForLeaseDrain(worker, &context.gate);
+  barrier.close();
+  passed &= check(waiting && context.entered == 1 && !barrier.isClosedAndDrained(),
+                  "kernel trampoline did not retain admission while worker was blocked");
+
+  if (worker) {
+    worker->setUnwindState(Thread::TerminateThread);
+  }
+  barrier.wait();
+
+  passed &= check(context.returned == 1 && context.destructed == 1 && releases == 1 &&
+                      releasesBeforeDrain == 1 && barrier.isClosedAndDrained(),
+                  "kernel trampoline drained before module-style worker cleanup returned");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS admitted-thread-terminal-release-order");
+  }
+  return passed;
+}
+
+bool admittedThreadPreStartCancellation() {
+  OperationBarrier barrier;
+  AdmittedThreadCancelContext context(&barrier);
+  AdmittedThread::setBeforeStartHookForTest(terminateAdmittedThreadBeforeStart, &barrier);
+  const bool launched = AdmittedThread::launchDetached(unstartedAdmittedThreadWorker, &context,
+                                                       cancelUnstartedAdmittedThread, barrier,
+                                                       "hosted unstarted admitted thread");
+  AdmittedThread::setBeforeStartHookForTest(nullptr, nullptr);
+
+  barrier.close();
+  barrier.wait();
+  const bool passed = check(launched && context.entered == 0 && context.cancelled == 1 &&
+                                context.cancelledBeforeDrain == 1 && barrier.isClosedAndDrained(),
+                            "admitted pre-start cancellation did not retire ownership once");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS admitted-thread-pre-start-cancellation");
   }
   return passed;
 }
@@ -262,7 +413,9 @@ bool threadLeaseBarrier(Process* kernelProcess) {
 
 bool runHostedLifetimeLeaseRegressions() {
   Process* kernelProcess = Scheduler::instance().getKernelProcess();
-  const bool passed = ownedThreadTerminalJoin(kernelProcess) &&
+  const bool passed = admittedThreadPreStartCancellation() &&
+                      admittedThreadTerminalReleaseOrder() &&
+                      ownedThreadTerminalJoin(kernelProcess) &&
                       processLeaseBarrier(kernelProcess) && threadLeaseBarrier(kernelProcess);
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS lifetime-leases");

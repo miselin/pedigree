@@ -25,8 +25,15 @@ include(FindGettext)
 
 find_package(BISON)
 find_package(FLEX)
-find_package(PythonInterp)
+find_package(PythonInterp 3 REQUIRED)
 find_program(MKISOFS NAMES mkisofs genisoimage xorriso)
+
+add_test(
+    NAME lifetime-escape-audit
+    COMMAND ${PYTHON_EXECUTABLE}
+        ${CMAKE_SOURCE_DIR}/scripts/audit-lifetime-escapes.py
+        --root ${CMAKE_SOURCE_DIR}
+        --inventory ${CMAKE_SOURCE_DIR}/docs/lifetime-escape-inventory.json)
 
 find_library(LIBRT rt)
 

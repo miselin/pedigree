@@ -48,6 +48,7 @@ class HostedInterruptManager;
 class RoundRobin;
 class RequestQueueCallbackScope;
 class SchedulerTimerDispatchCleanup;
+class AdmittedThread;
 
 /** Thread TLS area size */
 #define THREAD_TLS_SIZE 0x1000
@@ -77,6 +78,7 @@ class EXPORTED_PUBLIC Thread {
   friend class ExecutionContextGuard;
   friend class RequestQueueCallbackScope;
   friend class SchedulerTimerDispatchCleanup;
+  friend class AdmittedThread;
 
  public:
   class EXPORTED_PUBLIC StackDiscardScope {
@@ -117,6 +119,9 @@ class EXPORTED_PUBLIC Thread {
 
   /** Thread start function type. */
   typedef int (*ThreadStartFunc)(void*);
+
+  /** Releases a start parameter if a delayed thread retires before entry. */
+  typedef void (*ThreadStartCleanup)(void*);
 
   /**
    * Optional scheduler-side admission predicate for a ready kernel worker.
@@ -655,6 +660,13 @@ class EXPORTED_PUBLIC Thread {
   void disarmAtomicStateCleanup(AtomicStateCleanupRecord& record);
 
  private:
+  /** Kernel-owned start cleanup; unloadable code must use AdmittedThread. */
+  Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
+         bool semiUser, bool bDontPickCore, bool delayedStart, ThreadStartCleanup startCleanup);
+
+  /** Publishes a delayed worker as detached while retaining its final-use claim. */
+  bool startDetached();
+
   /** Copy-constructor */
   Thread(const Thread&);
   /** Assignment operator */

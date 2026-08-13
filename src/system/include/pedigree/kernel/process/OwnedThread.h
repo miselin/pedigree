@@ -8,7 +8,7 @@
 #ifndef PEDIGREE_KERNEL_PROCESS_OWNEDTHREAD_H
 #define PEDIGREE_KERNEL_PROCESS_OWNEDTHREAD_H
 
-#include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Thread.h"
 
 /**
@@ -27,7 +27,7 @@ class OwnedThread {
 
   void adopt(Thread* thread) {
     if (m_pThread || !thread || thread->detached()) {
-      FATAL("OwnedThread cannot adopt this worker.");
+      panic("OwnedThread cannot adopt this worker.");
     }
     m_pThread = thread;
   }
@@ -52,7 +52,7 @@ class OwnedThread {
 
     Thread* thread = m_pThread;
     if (!thread->joinForCompletion()) {
-      FATAL("OwnedThread could not join its worker.");
+      panic("OwnedThread could not join its worker.");
     }
     m_pThread = nullptr;
   }

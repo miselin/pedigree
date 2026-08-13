@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "legacy-pointer-guard",
+      "description": "Lexical allocations still using the virtual PointerGuard wrapper.",
+      "pattern": "\\bPointerGuard\\s*<",
+      "roots": ["src/system", "src/modules"],
+      "suffixes": [".cc", ".cpp", ".cxx", ".h", ".hpp"],
+      "exclude_substrings": [
+        "/hosted-smoke/",
+        "/buildutil/",
+        "src/system/include/pedigree/kernel/utilities/PointerGuard.h"
+      ],
+      "allowances": {
+        "src/modules/drivers/common/ata/AtaDisk.cc": {
+          "expected": 3,
+          "classification": "lexical-migration-debt"
+        },
+        "src/modules/drivers/common/dm9601/Dm9601.cc": {
+          "expected": 1,
+          "classification": "lexical-migration-debt"
+        },
+        "src/modules/drivers/common/ftdi/FtdiSerialDevice.cc": {
+          "expected": 2,
+          "classification": "lexical-migration-debt"
+        },
+        "src/modules/drivers/common/scsi/ScsiDisk.cc": {
+          "expected": 3,
+          "classification": "lexical-migration-debt"
+        },
+        "src/modules/drivers/common/usb-hid/UsbHumanInterfaceDevice.cc": {
+          "expected": 2,
+          "classification": "lexical-migration-debt"
+        },
+        "src/modules/drivers/common/usb-mass-storage/UsbMassStorageDevice.cc": {
+          "expected": 5,
+          "classification": "lexical-migration-debt"
+        },
+        "src/modules/subsys/posix/file-syscalls.cc": {
+          "expected": 2,
+          "classification": "lexical-migration-debt"
+        },
+        "src/modules/system/fat/FatDirectory.cc": {
+          "expected": 5,
+          "classification": "lexical-migration-debt"
+        },
+        "src/modules/system/usb/UsbDevice.cc": {
+          "expected": 3,
+          "classification": "lexical-migration-debt"
+        }
+      }
+    },
+    {
+      "id": "lwip-resource-acquisition",
+      "description": "First-party lwIP resources requiring reviewed ownership or transfer.",
+      "pattern": "\\b(?:netconn_new(?:_with_(?:callback|proto_and_callback))?|netbuf_new|pbuf_alloc(?:ed_custom)?|pbuf_ref|pbuf_dechain|pbuf_coalesce|netconn_accept|netconn_recv(?:_tcp_pbuf)?)\\s*\\(",
+      "roots": ["src/system", "src/modules"],
+      "suffixes": [".cc", ".cpp", ".cxx", ".h", ".hpp"],
+      "exclude_substrings": ["src/modules/system/lwip/", "/hosted-smoke/"],
+      "allowances": {
+        "src/modules/subsys/posix/net-syscalls.cc": {
+          "expected": 5,
+          "classification": "mixed-reviewed",
+          "owner": "NetbufOwner or LwipSocketSyscalls member transfer"
+        },
+        "src/modules/system/network-stack/NetworkStack.cc": {
+          "expected": 1,
+          "classification": "async-transfer",
+          "owner": "Request cancellation and lwIP receive path"
+        },
+        "src/modules/system/status_server/main.cc": {
+          "expected": 3,
+          "classification": "lexical-owner",
+          "owner": "Immediate NetconnOwner or NetbufOwner adoption"
+        }
+      }
+    },
+    {
+      "id": "detached-publication",
+      "description": "Detached thread or resource publication requiring ownership and shutdown review.",
+      "pattern": "(?:->|\\.)\\s*(?:detach|startDetached)\\s*\\(",
+      "roots": ["src/system", "src/modules"],
+      "suffixes": [".cc", ".cpp", ".cxx", ".h", ".hpp"],
+      "exclude_substrings": ["/hosted-smoke/", "/buildutil/"],
+      "allowances": {
+        "src/modules/drivers/x86/vmware-gfx/main.cc": {
+          "expected": 1,
+          "classification": "non-thread-api"
+        },
+        "src/modules/subsys/posix/PosixSubsystem.cc": {
+          "expected": 1,
+          "classification": "thread-publication"
+        },
+        "src/modules/subsys/posix/system-syscalls.cc": {
+          "expected": 2,
+          "classification": "thread-publication"
+        },
+        "src/modules/system/preload/main.cc": {
+          "expected": 1,
+          "classification": "thread-publication"
+        },
+        "src/system/kernel/core/process/AdmittedThread.cc": {
+          "expected": 1,
+          "classification": "kernel-admitted-wrapper",
+          "owner": "Kernel-resident OperationBarrier lease"
+        },
+        "src/system/kernel/core/process/initialiseMultitasking.cc": {
+          "expected": 2,
+          "classification": "kernel-root-thread"
+        },
+        "src/system/kernel/linker/KernelElf.cc": {
+          "expected": 1,
+          "classification": "module-thread-publication"
+        },
+        "src/system/kernel/utilities/pocketknife.cc": {
+          "expected": 1,
+          "classification": "legacy-async-transfer"
+        }
+      }
+    },
+    {
+      "id": "legacy-run-concurrently",
+      "description": "Legacy void-pointer async helper declarations and callers.",
+      "pattern": "\\brunConcurrently\\s*\\(",
+      "roots": ["src/system", "src/modules"],
+      "suffixes": [".cc", ".cpp", ".cxx", ".h", ".hpp"],
+      "exclude_substrings": ["/hosted-smoke/", "/buildutil/"],
+      "allowances": {
+        "src/system/include/pedigree/kernel/utilities/pocketknife.h": {
+          "expected": 1,
+          "classification": "api-declaration"
+        },
+        "src/system/kernel/utilities/pocketknife.cc": {
+          "expected": 1,
+          "classification": "api-definition"
+        }
+      }
+    }
+  ]
+}

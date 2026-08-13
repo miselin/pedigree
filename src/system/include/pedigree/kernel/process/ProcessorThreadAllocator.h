@@ -55,6 +55,12 @@ class ProcessorThreadAllocator {
   }
 
  private:
+  friend class Thread;
+
+  /** Kernel-only cleanup for a parameter whose entry never begins. */
+  void addThread(Thread* pThread, Thread::ThreadStartFunc pStartFunction, void* pParam,
+                 bool bUsermode, void* pStack, Thread::ThreadStartCleanup startCleanup);
+
   ThreadToCoreAllocationAlgorithm* m_pAlgorithm;
 
   static ProcessorThreadAllocator m_Instance;

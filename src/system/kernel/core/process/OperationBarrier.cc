@@ -6,10 +6,10 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
-#include "pedigree/kernel/utilities/assert.h"
 
 OperationBarrier::Lease::Lease() : m_Barrier(nullptr) {}
 
@@ -45,7 +45,7 @@ OperationBarrier::OperationBarrier() : m_Waiters(), m_Open(true), m_ActiveOperat
 OperationBarrier::~OperationBarrier() {
   auto guard = m_Waiters.acquire();
   if (m_Open || m_ActiveOperations) {
-    FATAL("OperationBarrier destroyed before close-and-drain completed.");
+    panic("OperationBarrier destroyed before close-and-drain completed.");
   }
 }
 
@@ -71,7 +71,9 @@ bool OperationBarrier::tryAcquire(Lease& lease) {
 
 void OperationBarrier::leave() {
   auto guard = m_Waiters.acquire();
-  assert(m_ActiveOperations);
+  if (!m_ActiveOperations) {
+    panic("OperationBarrier operation count underflow.");
+  }
   --m_ActiveOperations;
   if (!m_Open && !m_ActiveOperations) {
     guard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
@@ -88,7 +90,7 @@ void OperationBarrier::wait() {
   while (true) {
     auto guard = m_Waiters.acquire();
     if (m_Open) {
-      FATAL("OperationBarrier::wait called before close.");
+      panic("OperationBarrier::wait called before close.");
     }
     if (!m_ActiveOperations) {
       return;

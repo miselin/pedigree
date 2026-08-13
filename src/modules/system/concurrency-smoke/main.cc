@@ -8,6 +8,8 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/process/AdmittedThread.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -17,6 +19,7 @@
 #include "pedigree/kernel/processor/Syscalls.h"
 #include "pedigree/kernel/utilities/ProducerConsumer.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
+#include "pedigree/kernel/utilities/UniqueResource.h"
 
 #include "modules/Module.h"
 
@@ -129,14 +132,54 @@ struct ConsumerDestroyContext {
   Atomic<size_t> finished;
 };
 
+struct TerminalResourceProbe {
+  TerminalResourceProbe(OperationBarrier* barrier, Atomic<size_t>* releases,
+                        Atomic<size_t>* releasesBeforeDrain)
+      : barrier(barrier), releases(releases), releasesBeforeDrain(releasesBeforeDrain) {}
+
+  OperationBarrier* barrier;
+  Atomic<size_t>* releases;
+  Atomic<size_t>* releasesBeforeDrain;
+};
+
+struct TerminalResourceProbeReleaser {
+  static void release(TerminalResourceProbe* resource) {
+    *resource->releases += 1;
+    if (!resource->barrier->isClosedAndDrained()) {
+      *resource->releasesBeforeDrain += 1;
+    }
+  }
+};
+
+using TerminalResourceOwner = UniqueResource<TerminalResourceProbe, TerminalResourceProbeReleaser>;
+
 struct TerminalUnwindContext {
-  TerminalUnwindContext() : wait(0), entered(0), returned(0), interrupted(0), destructed(0) {}
+  explicit TerminalUnwindContext(TerminalResourceOwner&& resource)
+      : wait(0),
+        resource(pedigree_std::move(resource)),
+        worker(0),
+        entered(0),
+        returned(0),
+        interrupted(0),
+        destructed(0) {}
 
   Semaphore wait;
+  TerminalResourceOwner resource;
+  Atomic<uintptr_t> worker;
   Atomic<size_t> entered;
   Atomic<size_t> returned;
   Atomic<size_t> interrupted;
   Atomic<size_t> destructed;
+};
+
+struct UnstartedThreadContext {
+  explicit UnstartedThreadContext(OperationBarrier* barrier)
+      : barrier(barrier), entered(0), cancelled(0), cancelledBeforeDrain(0) {}
+
+  OperationBarrier* barrier;
+  Atomic<size_t> entered;
+  Atomic<size_t> cancelled;
+  Atomic<size_t> cancelledBeforeDrain;
 };
 
 class TerminalUnwindCanary {
@@ -154,6 +197,8 @@ class TerminalUnwindCanary {
 int waitForTerminalRequest(void* context) {
   TerminalUnwindContext* terminal = reinterpret_cast<TerminalUnwindContext*>(context);
   TerminalUnwindCanary canary(terminal->destructed);
+  TerminalResourceOwner resource = pedigree_std::move(terminal->resource);
+  terminal->worker = reinterpret_cast<uintptr_t>(Processor::information().getCurrentThread());
   terminal->entered += 1;
   terminal->interrupted = terminal->wait.acquire() ? 0 : 1;
   terminal->returned += 1;
@@ -165,6 +210,25 @@ int destroyConsumer(void* context) {
   destroy->consumer->shutdown();
   destroy->finished += 1;
   return 0;
+}
+
+int unstartedThreadEntry(void* context) {
+  UnstartedThreadContext* unstarted = reinterpret_cast<UnstartedThreadContext*>(context);
+  unstarted->entered += 1;
+  return 0;
+}
+
+void cancelUnstartedThread(void* context) {
+  UnstartedThreadContext* unstarted = reinterpret_cast<UnstartedThreadContext*>(context);
+  unstarted->cancelled += 1;
+  if (!unstarted->barrier->isOpen() && !unstarted->barrier->isClosedAndDrained()) {
+    unstarted->cancelledBeforeDrain += 1;
+  }
+}
+
+void terminateAdmittedThreadBeforeStart(Thread* thread, void* parameter) {
+  reinterpret_cast<OperationBarrier*>(parameter)->close();
+  thread->setUnwindState(Thread::TerminateThread);
 }
 
 int publishHandoff(void* context) {
@@ -358,13 +422,24 @@ void testProducerConsumerTeardown() {
 void testTerminalRequestStackUnwind() {
   NOTICE("QEMU-CONCURRENCY-TEST: BEGIN terminal-request-stack-unwind");
 
-  TerminalUnwindContext context;
-  Thread* worker = new Thread(Scheduler::instance().getKernelProcess(), waitForTerminalRequest,
-                              &context, nullptr, false, true);
-  worker->setName("QEMU terminal request stack unwind");
+  OperationBarrier barrier;
+  Atomic<size_t> releases(0);
+  Atomic<size_t> releasesBeforeDrain(0);
+  TerminalResourceProbe resource(&barrier, &releases, &releasesBeforeDrain);
+  TerminalUnwindContext context(TerminalResourceOwner::adopt(&resource));
+  if (!AdmittedThread::launchDetached(waitForTerminalRequest, &context, nullptr, barrier,
+                                      "QEMU terminal request stack unwind")) {
+    FATAL("QEMU terminal request could not launch admitted thread");
+  }
+
+  Thread* worker = nullptr;
+  for (size_t attempt = 0; attempt < 4096 && !context.worker; ++attempt) {
+    Scheduler::instance().yield();
+  }
+  worker = reinterpret_cast<Thread*>(context.worker.value());
 
   bool waitPublished = false;
-  for (size_t attempt = 0; attempt < 4096; ++attempt) {
+  for (size_t attempt = 0; worker && attempt < 4096; ++attempt) {
     uintptr_t address = 0;
     if (worker->getStatus() == Thread::Sleeping &&
         worker->getDebugState(address) == Thread::SemWait) {
@@ -374,16 +449,45 @@ void testTerminalRequestStackUnwind() {
     Scheduler::instance().yield();
   }
 
-  worker->setUnwindState(Thread::TerminateThread);
-  const bool joined = worker->joinForCompletion();
-  if (!waitPublished || !joined || context.entered.value() != static_cast<size_t>(1) ||
+  barrier.close();
+  if (worker) {
+    worker->setUnwindState(Thread::TerminateThread);
+  }
+  barrier.wait();
+  if (!waitPublished || context.entered.value() != static_cast<size_t>(1) ||
       context.interrupted.value() != static_cast<size_t>(1) ||
       context.returned.value() != static_cast<size_t>(1) ||
-      context.destructed.value() != static_cast<size_t>(1)) {
+      context.destructed.value() != static_cast<size_t>(1) ||
+      releases.value() != static_cast<size_t>(1) ||
+      releasesBeforeDrain.value() != static_cast<size_t>(1) || !barrier.isClosedAndDrained()) {
     FATAL("QEMU terminal request did not unwind the worker's C++ stack");
   }
 
   NOTICE("QEMU-CONCURRENCY-TEST: PASS terminal-request-stack-unwind");
+  NOTICE("QEMU-CONCURRENCY-TEST: PASS admitted-thread-terminal-release-order");
+}
+
+void testUnstartedThreadParameterCancellation() {
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN thread-start-parameter-cancellation");
+
+  OperationBarrier barrier;
+  UnstartedThreadContext context(&barrier);
+  AdmittedThread::setBeforeStartHookForTest(terminateAdmittedThreadBeforeStart, &barrier);
+  const bool launched =
+      AdmittedThread::launchDetached(unstartedThreadEntry, &context, cancelUnstartedThread, barrier,
+                                     "QEMU unstarted parameter cancellation");
+  AdmittedThread::setBeforeStartHookForTest(nullptr, nullptr);
+  barrier.close();
+  barrier.wait();
+
+  if (!launched || context.entered.value() != static_cast<size_t>(0) ||
+      context.cancelled.value() != static_cast<size_t>(1) ||
+      context.cancelledBeforeDrain.value() != static_cast<size_t>(1) ||
+      !barrier.isClosedAndDrained()) {
+    FATAL("QEMU AdmittedThread did not retire its unstarted parameter exactly once");
+  }
+
+  NOTICE("QEMU-CONCURRENCY-TEST: PASS thread-start-parameter-cancellation");
 }
 
 void testPinnedLinkerUnloadRejection() {
@@ -438,6 +542,7 @@ bool entry() {
     FATAL("QEMU NetworkFilter reciprocal-removal regression failed");
   }
   testProducerConsumerTeardown();
+  testUnstartedThreadParameterCancellation();
   testTerminalRequestStackUnwind();
 
   if (!runAnonymousMemoryRegionRegression()) {
