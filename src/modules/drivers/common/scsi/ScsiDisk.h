@@ -24,6 +24,7 @@
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Cache.h"
@@ -176,6 +177,8 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 
     NOT_COPYABLE_OR_ASSIGNABLE(CacheRangeAdmission);
 
+    static void discard(void* context);
+
     ScsiDisk& m_Disk;
     uint64_t m_Start;
     size_t m_Length;
@@ -184,6 +187,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
     CacheRangeAdmission* m_Previous;
     CacheRangeAdmission* m_Next;
     TerminationDeferral m_TerminationDeferral;
+    Thread::StackDiscardScope m_StackDiscardScope;
   };
 
   void enterCacheRange(CacheRangeAdmission& admission);

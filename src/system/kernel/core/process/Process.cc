@@ -163,12 +163,21 @@ Process::ThreadLease::~ThreadLease() {
 
 Process::ThreadLease& Process::ThreadLease::operator=(ThreadLease&& other) {
   if (this != &other) {
-    reset();
-    m_TerminationDeferral = pedigree_std::move(other.m_TerminationDeferral);
-    m_pProcess = other.m_pProcess;
-    m_pThread = other.m_pThread;
-    other.m_pProcess = nullptr;
-    other.m_pThread = nullptr;
+    if (other.m_pProcess && other.m_pThread) {
+      m_TerminationDeferral = pedigree_std::move(other.m_TerminationDeferral);
+
+      Process* previousProcess = m_pProcess;
+      Thread* previousThread = m_pThread;
+      m_pProcess = other.m_pProcess;
+      m_pThread = other.m_pThread;
+      other.m_pProcess = nullptr;
+      other.m_pThread = nullptr;
+      if (previousProcess) {
+        previousProcess->releaseThreadLease(previousThread);
+      }
+    } else {
+      reset();
+    }
   }
   return *this;
 }
@@ -1045,6 +1054,10 @@ bool Process::quiesceTermination() {
 }
 
 void Process::finishTermination() {
+  finishTermination(false);
+}
+
+void Process::finishTermination(bool abandonStack) {
   Thread* pCurrentThread = Processor::information().getCurrentThread();
   {
     LockGuard<Spinlock> guard(m_Lock);
@@ -1103,7 +1116,11 @@ void Process::finishTermination() {
         "parent.");
   }
 #endif
-  Processor::information().getScheduler().killCurrentThread(&m_Lock);
+  if (abandonStack) {
+    Processor::information().getScheduler().abandonCurrentThreadStack(
+        PerProcessorScheduler::StackDiscardReason::EmergencyProcessKill, &m_Lock);
+  }
+  Processor::information().getScheduler().commitCurrentThreadExit(&m_Lock);
 
   FATAL("Should never get here");
 }
@@ -1128,12 +1145,13 @@ void Process::publishReaperClaim() {
 
 void Process::kill() {
   if (!beginTermination()) {
-    Processor::information().getScheduler().killCurrentThread();
+    Processor::information().getScheduler().abandonCurrentThreadStack(
+        PerProcessorScheduler::StackDiscardReason::EmergencyProcessKill);
   }
   if (!quiesceTermination()) {
     FATAL("Process::kill failed to claim teardown for pid " << Dec << m_Id << ".");
   }
-  finishTermination();
+  finishTermination(true);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

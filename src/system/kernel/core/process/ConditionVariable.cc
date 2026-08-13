@@ -31,20 +31,26 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 namespace {
-struct ConditionAbandonment {
+struct ConditionStackDiscard {
   void* alarmHandle;
-  WaitQueue::AbandonCallback caller;
+  WaitQueue::StackDiscardCleanup caller;
   void* callerContext;
 };
 
-void abandonConditionWait(void* context) {
-  ConditionAbandonment* abandonment = reinterpret_cast<ConditionAbandonment*>(context);
-  if (abandonment->alarmHandle) {
-    Time::removeAlarm(abandonment->alarmHandle);
-    abandonment->alarmHandle = nullptr;
+void discardConditionWait(void* context) {
+  ConditionStackDiscard* discard = reinterpret_cast<ConditionStackDiscard*>(context);
+  void* alarmHandle = discard->alarmHandle;
+  WaitQueue::StackDiscardCleanup caller = discard->caller;
+  void* callerContext = discard->callerContext;
+  discard->alarmHandle = nullptr;
+  discard->caller = nullptr;
+  discard->callerContext = nullptr;
+
+  if (alarmHandle) {
+    Time::removeAlarm(alarmHandle);
   }
-  if (abandonment->caller) {
-    abandonment->caller(abandonment->callerContext);
+  if (caller) {
+    caller(callerContext);
   }
 }
 }  // namespace
@@ -53,14 +59,16 @@ ConditionVariable::ConditionVariable() : m_Waiters() {}
 
 ConditionVariable::~ConditionVariable() {}
 
-bool ConditionVariable::wait(Mutex& mutex, Error& error, WaitQueue::AbandonCallback onAbandon,
-                             void* abandonContext) {
+bool ConditionVariable::wait(Mutex& mutex, Error& error,
+                             WaitQueue::StackDiscardCleanup onStackDiscard,
+                             void* stackDiscardContext) {
   Time::Timestamp timeout = Time::Infinity;
-  return wait(mutex, timeout, error, onAbandon, abandonContext);
+  return wait(mutex, timeout, error, onStackDiscard, stackDiscardContext);
 }
 
 bool ConditionVariable::wait(Mutex& mutex, Time::Timestamp& timeout, Error& error,
-                             WaitQueue::AbandonCallback onAbandon, void* abandonContext) {
+                             WaitQueue::StackDiscardCleanup onStackDiscard,
+                             void* stackDiscardContext) {
   error = NoError;
   Time::Timestamp startTime = Time::getTicks();
 
@@ -80,15 +88,16 @@ bool ConditionVariable::wait(Mutex& mutex, Time::Timestamp& timeout, Error& erro
 
   auto guard = m_Waiters.acquire();
 
-  ConditionAbandonment abandonment = {nullptr, onAbandon, abandonContext};
+  ConditionStackDiscard discard = {nullptr, onStackDiscard, stackDiscardContext};
   if (timeout != Time::Infinity) {
-    abandonment.alarmHandle = Time::addAlarm(timeout);
+    discard.alarmHandle = Time::addAlarm(timeout);
   }
+  Thread::StackDiscardScope discardScope(
+      (discard.alarmHandle || onStackDiscard) ? &discardConditionWait : nullptr, &discard);
 
   uintptr_t ra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-  WaitQueue::WakeReason wakeReason = guard.waitAndUnlock(
-      mutex, WaitQueue::Channel(), Thread::CondWait, ra,
-      (abandonment.alarmHandle || onAbandon) ? &abandonConditionWait : nullptr, &abandonment);
+  WaitQueue::WakeReason wakeReason =
+      guard.waitAndUnlock(mutex, WaitQueue::Channel(), Thread::CondWait, ra);
 
   // Event delivery can follow an ordinary wake which already won
   // waiter.reason. The per-wait marker remains authoritative.
@@ -96,9 +105,10 @@ bool ConditionVariable::wait(Mutex& mutex, Time::Timestamp& timeout, Error& erro
 
   // Woken up by something. Remove any alarm we have pending as we're
   // finishing our wait now.
-  if (abandonment.alarmHandle) {
-    Time::removeAlarm(abandonment.alarmHandle);
-    abandonment.alarmHandle = nullptr;
+  if (discard.alarmHandle) {
+    void* alarmHandle = discard.alarmHandle;
+    discard.alarmHandle = nullptr;
+    Time::removeAlarm(alarmHandle);
   }
 
   me->clearInterruption();
@@ -109,8 +119,8 @@ bool ConditionVariable::wait(Mutex& mutex, Time::Timestamp& timeout, Error& erro
     error = Interrupted;
   } else if (wakeReason == WaitQueue::WakeReason::Unwinding ||
              wakeReason == WaitQueue::WakeReason::Terminating) {
-    // This can return only inside a TerminationDeferral. WaitQueue has
-    // already reacquired mutex, so callers can retire stack-owned state.
+    // WaitQueue has already reacquired mutex, so callers can retire
+    // stack-owned state while propagating the terminal request.
     error = TerminationDeferred;
   }
 

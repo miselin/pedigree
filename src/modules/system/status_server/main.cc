@@ -30,6 +30,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 
 #include "modules/Module.h"
@@ -56,6 +57,23 @@ struct ClientContext {
   struct netconn* connection;
   OperationBarrier::Lease work;
 };
+
+struct NetconnCompletionRegistration {
+  struct netconn* connection;
+  bool registered;
+};
+
+static void removeNetconnCompletion(void* context) {
+  NetconnCompletionRegistration* registration =
+      reinterpret_cast<NetconnCompletionRegistration*>(context);
+  if (!registration->registered) {
+    return;
+  }
+
+  registration->registered = false;
+  LockGuard<Spinlock> guard(g_NetconnsLock);
+  g_Netconns.remove(registration->connection);
+}
 
 static void netconnCallback(struct netconn* conn, enum netconn_evt evt, u16_t len) {
   LockGuard<Spinlock> guard(g_NetconnsLock);
@@ -386,6 +404,9 @@ static int clientThread(void* p) {
     LockGuard<Spinlock> guard(g_NetconnsLock);
     g_Netconns.insert(connection, &completion);
   }
+  NetconnCompletionRegistration completionRegistration = {connection, true};
+  Thread::StackDiscardScope completionRegistrationScope(&removeNetconnCompletion,
+                                                        &completionRegistration);
 
   /// \todo error handling
   netconn_write(connection, static_cast<const char*>(httpResponse), httpResponse.length(), 0);
@@ -393,12 +414,9 @@ static int clientThread(void* p) {
 
   bool completed = completion.wait();
 
-  {
-    // Serialising removal with the callback ensures it has finished using
-    // the stack-backed completion before this function returns.
-    LockGuard<Spinlock> guard(g_NetconnsLock);
-    g_Netconns.remove(connection);
-  }
+  // Serialising removal with the callback ensures it has finished using the
+  // stack-backed completion before this function returns or is discarded.
+  removeNetconnCompletion(&completionRegistration);
 
   // Connection closed cleanly, delete our netconn now.
   netconn_delete(connection);

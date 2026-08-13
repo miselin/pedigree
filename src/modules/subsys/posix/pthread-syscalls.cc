@@ -68,6 +68,21 @@ struct FutexKey {
 
 static WaitQueue g_FutexWaiters;
 
+namespace {
+struct FutexDiscard {
+  void* alarm;
+};
+
+void discardFutexWait(void* context) {
+  FutexDiscard* discard = reinterpret_cast<FutexDiscard*>(context);
+  void* alarm = discard->alarm;
+  discard->alarm = nullptr;
+  if (alarm) {
+    Time::removeAlarm(alarm);
+  }
+}
+}  // namespace
+
 static WaitQueue::Channel futexChannel(const FutexKey& key) {
   return WaitQueue::Channel(reinterpret_cast<const void*>(key.addressSpace), key.address);
 }
@@ -163,18 +178,17 @@ int posix_futex(int* uaddr, int futex_op, int val, const struct timespec* timeou
         if (timeout) {
           pAlarm = Time::addAlarm(timeoutNanoseconds);
         }
+        FutexDiscard discard = {pAlarm};
+        Thread::StackDiscardScope discardScope(pAlarm ? &discardFutexWait : nullptr, &discard);
 
         PT_NOTICE(" -> waiting...");
         WaitQueue::WakeReason wakeReason =
             guard.wait(futexChannel(key), Thread::FutexWait,
-                       reinterpret_cast<uintptr_t>(__builtin_return_address(0)),
-                       pAlarm ? &Time::removeAlarm : nullptr, pAlarm);
+                       reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
         PT_NOTICE(" -> waiting complete!");
 
         const Thread::InterruptionReason interruption = pThread->getInterruptionReason();
-        if (pAlarm) {
-          Time::removeAlarm(pAlarm);
-        }
+        discardFutexWait(&discard);
         pThread->clearInterruption();
 
         if (wakeReason != WaitQueue::WakeReason::Signalled) {

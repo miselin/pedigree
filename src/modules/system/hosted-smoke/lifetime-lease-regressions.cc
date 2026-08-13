@@ -68,27 +68,54 @@ struct ProcessDeleteContext {
 };
 
 struct OwnedWorkerContext {
-  OwnedWorkerContext() : gate(0), worker(nullptr), entered(0), returnedPastWait(0), joins(0) {}
+  OwnedWorkerContext()
+      : gate(0),
+        worker(nullptr),
+        entered(0),
+        returnedPastWait(0),
+        waitInterrupted(0),
+        destructed(0),
+        destructedBeforeJoin(0),
+        joins(0) {}
 
   Semaphore gate;
   Thread* worker;
   Atomic<size_t> entered;
   Atomic<size_t> returnedPastWait;
+  Atomic<size_t> waitInterrupted;
+  Atomic<size_t> destructed;
+  Atomic<size_t> destructedBeforeJoin;
   Atomic<size_t> joins;
+};
+
+class OwnedWorkerStackCanary {
+ public:
+  explicit OwnedWorkerStackCanary(OwnedWorkerContext* context) : m_Context(context) {}
+
+  ~OwnedWorkerStackCanary() {
+    m_Context->destructed += 1;
+  }
+
+ private:
+  OwnedWorkerContext* m_Context;
 };
 
 OwnedWorkerContext* g_OwnedWorkerContext = nullptr;
 
 void observeOwnedWorkerJoin(Thread* target, Process*) {
   if (g_OwnedWorkerContext && target == g_OwnedWorkerContext->worker) {
+    if (g_OwnedWorkerContext->destructed == 1) {
+      g_OwnedWorkerContext->destructedBeforeJoin += 1;
+    }
     g_OwnedWorkerContext->joins += 1;
   }
 }
 
 int blockedOwnedWorker(void* parameter) {
   OwnedWorkerContext* context = reinterpret_cast<OwnedWorkerContext*>(parameter);
+  OwnedWorkerStackCanary stackCanary(context);
   context->entered += 1;
-  context->gate.acquire();
+  context->waitInterrupted = context->gate.acquire() ? 0 : 1;
   context->returnedPastWait += 1;
   return 0;
 }
@@ -137,10 +164,11 @@ bool ownedThreadTerminalJoin(Process* kernelProcess) {
   Thread::setJoinOperationHook(nullptr);
   g_OwnedWorkerContext = nullptr;
 
-  const bool passed =
-      check(waiting && context.entered == 1 && context.returnedPastWait == 0 && context.joins == 1,
-            "OwnedThread did not terminal-cancel and join its blocked worker "
-            "exactly once");
+  const bool passed = check(waiting && context.entered == 1 && context.waitInterrupted == 1 &&
+                                context.returnedPastWait == 1 && context.destructed == 1 &&
+                                context.destructedBeforeJoin == 1 && context.joins == 1,
+                            "OwnedThread did not let its blocked worker unwind and join "
+                            "exactly once");
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS owned-thread-terminal-join");
   }

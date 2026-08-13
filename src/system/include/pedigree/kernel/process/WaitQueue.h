@@ -29,7 +29,8 @@ class EXPORTED_PUBLIC WaitQueue {
   struct Waiter;
 
  public:
-  using AbandonCallback = void (*)(void*);
+  using StackDiscardCleanup = void (*)(void*);
+  using AbandonCallback = StackDiscardCleanup;  // Source compatibility.
 
   enum class WakeReason {
     Waiting,
@@ -64,8 +65,9 @@ class EXPORTED_PUBLIC WaitQueue {
      * Enrols and blocks the current thread. The Guard is consumed.
      */
     MUST_USE_RESULT WakeReason wait(const Channel& channel = Channel(), size_t debugState = 0,
-                                    uintptr_t debugAddress = 0, AbandonCallback onAbandon = nullptr,
-                                    void* abandonContext = nullptr);
+                                    uintptr_t debugAddress = 0,
+                                    StackDiscardCleanup onStackDiscard = nullptr,
+                                    void* stackDiscardContext = nullptr);
 
     /**
      * Waits for an ownership/lifetime barrier which must complete before
@@ -78,14 +80,13 @@ class EXPORTED_PUBLIC WaitQueue {
 
     /**
      * Releases a caller mutex before enrolling and blocking. The mutex is
-     * reacquired before ordinary wakeups return. Forced unwind or
-     * termination returns without entering a fresh, uncancellable mutex
-     * wait.
+     * reacquired before every returning outcome, including a pending process
+     * or thread exit.
      */
     MUST_USE_RESULT WakeReason waitAndUnlock(Mutex& mutex, const Channel& channel = Channel(),
                                              size_t debugState = 0, uintptr_t debugAddress = 0,
-                                             AbandonCallback onAbandon = nullptr,
-                                             void* abandonContext = nullptr);
+                                             StackDiscardCleanup onStackDiscard = nullptr,
+                                             void* stackDiscardContext = nullptr);
 
     /**
      * Releases a caller mutex while waiting for an ownership/lifetime
@@ -131,11 +132,8 @@ class EXPORTED_PUBLIC WaitQueue {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   using BeforeBlockHook = void (*)(WaitQueue* queue, Thread* thread, const Channel& channel,
                                    size_t debugState);
-  using BeforeCancelAbandonHook = void (*)(Thread* thread);
 
   static void setBeforeBlockHook(BeforeBlockHook hook);
-  static void setBeforeCancelAbandonHook(BeforeCancelAbandonHook hook);
-  static bool cancelThreadWaitForTest(Thread* thread);
 #endif
 
  private:
@@ -173,16 +171,18 @@ class EXPORTED_PUBLIC WaitQueue {
     size_t stateLevel = 0;
     size_t reason = static_cast<size_t>(WakeReason::Waiting);
     bool queued = false;
-    AbandonCallback onAbandon = nullptr;
-    void* abandonContext = nullptr;
+
+    // Kept inert so Waiter and Thread::StateLevel retain their exported
+    // binary layout.
+    StackDiscardCleanup legacyOnAbandon = nullptr;
+    void* legacyAbandonContext = nullptr;
     Waiter* previous = nullptr;
     Waiter* next = nullptr;
     Waiter* notificationNext = nullptr;
   };
 
   WakeReason wait(Guard& guard, Mutex* mutex, const Channel& channel, size_t debugState,
-                  uintptr_t debugAddress, AbandonCallback onAbandon, void* abandonContext,
-                  bool deferTerminal);
+                  uintptr_t debugAddress, bool deferTerminal);
   bool wakeOneLocked(Guard& guard, WakeReason reason, const Channel& channel);
   size_t wakeAllLocked(Guard& guard, WakeReason reason, const Channel& channel);
   bool completeWaiter(Guard& guard, Waiter* waiter, WakeReason reason);
@@ -197,7 +197,6 @@ class EXPORTED_PUBLIC WaitQueue {
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   static BeforeBlockHook m_BeforeBlockHook;
-  static BeforeCancelAbandonHook m_BeforeCancelAbandonHook;
 #endif
 };
 

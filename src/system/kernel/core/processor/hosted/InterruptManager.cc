@@ -128,12 +128,12 @@ struct HostedUserReturnContext {
   InterruptState* state;
 };
 
-void serviceHostedUserReturnWork(uintptr_t rawContext) {
+int serviceHostedUserReturnWork(uintptr_t rawContext) {
   HostedUserReturnContext* context = reinterpret_cast<HostedUserReturnContext*>(rawContext);
-  Processor::information().getScheduler().serviceUserReturnWork(*context->state);
+  return Processor::information().getScheduler().serviceUserReturnWork(*context->state) ? 1 : 0;
 }
 
-void runHostedUserReturnTail(Thread* thread, InterruptState& state) {
+bool runHostedUserReturnTail(Thread* thread, InterruptState& state) {
   Processor::setInterrupts(false);
   if (!thread->pushState()) {
     FATAL_NOLOCK("Hosted user-return work exhausted Thread state stacks");
@@ -141,14 +141,15 @@ void runHostedUserReturnTail(Thread* thread, InterruptState& state) {
 
   HostedUserReturnContext context = {&state};
   Processor::setInterrupts(true);
-  callOnStack(reinterpret_cast<uintptr_t>(thread->getKernelStack()),
-              reinterpret_cast<uintptr_t>(&serviceHostedUserReturnWork),
-              reinterpret_cast<uintptr_t>(&context));
+  const bool terminal = callOnStack(reinterpret_cast<uintptr_t>(thread->getKernelStack()),
+                                    reinterpret_cast<uintptr_t>(&serviceHostedUserReturnWork),
+                                    reinterpret_cast<uintptr_t>(&context)) != 0;
 
   const bool returnInterrupts = Processor::getInterrupts();
   Processor::setInterrupts(false);
   thread->popState(false);
   Processor::setInterrupts(returnInterrupts);
+  return terminal;
 }
 }  // namespace
 #endif
@@ -323,6 +324,7 @@ extern "C" void hostedSignalTrampoline(int which, siginfo_t* info, void* ptr) {
 #endif
 
 void HostedInterruptManager::signalShim(int which, void* siginfo, void* meta, bool fromUserspace) {
+  bool terminalUserReturn = false;
   const bool hostedIrq = isHostedIrqSignal(which);
   if (hostedIrq && !Processor::onHostedExecutionThread()) {
     FATAL_NOLOCK("Hosted IRQ delivered on a non-processor host thread");
@@ -404,7 +406,7 @@ void HostedInterruptManager::signalShim(int which, void* siginfo, void* meta, bo
 #if THREADS
   if (fromUserspace && pSignalThread &&
       Processor::information().getCurrentThread() == pSignalThread) {
-    runHostedUserReturnTail(pSignalThread, state);
+    terminalUserReturn = runHostedUserReturnTail(pSignalThread, state);
   }
 #endif
 
@@ -425,6 +427,14 @@ void HostedInterruptManager::signalShim(int which, void* siginfo, void* meta, bo
   }
 #else
   Processor::leaveHostedSignalFrame();
+#endif
+
+#if THREADS
+  if (terminalUserReturn && pSignalThread &&
+      Processor::information().getCurrentThread() == pSignalThread) {
+    Processor::information().getScheduler().commitUserReturnTerminalState();
+    FATAL_NOLOCK("Hosted terminal user-return commit unexpectedly returned");
+  }
 #endif
 }
 

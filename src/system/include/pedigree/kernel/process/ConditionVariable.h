@@ -52,22 +52,21 @@ class EXPORTED_PUBLIC ConditionVariable {
    * timeout.
    *
    * The mutex is reacquired for every returning outcome. Forced thread
-   * termination ordinarily does not return; inside a TerminationDeferral it
-   * returns TerminationDeferred with the mutex held so stack-owned state can
-   * be retired. onAbandon runs exactly once only when teardown cannot return.
+   * termination returns TerminationDeferred with the mutex held so the caller
+   * can retire stack-owned state while unwinding toward a thread boundary.
    *
    * \param[in] mutex an acquired mutex protecting the resource.
    * \param[inout] timeout a relative timeout in nanoseconds, zero for an
    * immediate deadline, or Time::Infinity for no deadline.
    */
   MUST_USE_RESULT bool wait(Mutex& mutex, Time::Timestamp& timeout, Error& error,
-                            WaitQueue::AbandonCallback onAbandon = nullptr,
-                            void* abandonContext = nullptr);
+                            WaitQueue::StackDiscardCleanup onStackDiscard = nullptr,
+                            void* stackDiscardContext = nullptr);
 
   /** Wait for a signal on the condition variable with no timeout. */
   MUST_USE_RESULT bool wait(Mutex& mutex, Error& error,
-                            WaitQueue::AbandonCallback onAbandon = nullptr,
-                            void* abandonContext = nullptr);
+                            WaitQueue::StackDiscardCleanup onStackDiscard = nullptr,
+                            void* stackDiscardContext = nullptr);
 
   /**
    * Wait for a lifetime predicate which must be rechecked with mutex held.

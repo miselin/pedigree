@@ -47,6 +47,13 @@
 
 #define VERBOSE_SCHEDULER 0
 
+namespace {
+Atomic<size_t> g_StackDiscardCount(0);
+Atomic<size_t> g_EmergencyProcessKillDiscardCount(0);
+Atomic<size_t> g_HostedRegressionDiscardCount(0);
+Atomic<size_t> g_LegacyAbiDiscardCount(0);
+}  // namespace
+
 PerProcessorScheduler::PerProcessorScheduler()
     : m_pSchedulingAlgorithm(0),
       m_NewThreadDataLock(),
@@ -844,13 +851,81 @@ void PerProcessorScheduler::addThread(Thread* pThread, SyscallState& state) {
   }
 }
 
-void PerProcessorScheduler::killCurrentThread(Spinlock* pLock) {
+void PerProcessorScheduler::commitCurrentThreadExit(Spinlock* pLock) {
   Thread* pThread = Processor::information().getCurrentThread();
-  const bool transferToIdle = pThread && pThread->m_ExitToIdle;
-  if (pThread) {
-    pThread->m_ExitToIdle = false;
+  if (!pThread) {
+    FATAL("Clean thread exit has no current Thread.");
   }
-  killCurrentThreadImpl(pLock, transferToIdle);
+
+  if (__atomic_load_n(&pThread->m_TerminationDeferralDepth, __ATOMIC_ACQUIRE) ||
+      __atomic_load_n(&pThread->m_EventDeferralDepth, __ATOMIC_ACQUIRE)) {
+    FATAL("Clean thread exit reached a boundary with active deferral scopes.");
+  }
+
+  for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
+    if (__atomic_load_n(&pThread->m_pDeferredScopes[level], __ATOMIC_ACQUIRE)) {
+      FATAL("Clean thread exit reached a boundary with armed cleanup records.");
+    }
+  }
+  if (pThread->hasActiveWaitAtAnyLevel()) {
+    FATAL("Clean thread exit reached a boundary with an active WaitQueue record.");
+  }
+
+  const bool transferToIdle = pThread && pThread->m_ExitToIdle;
+  pThread->m_ExitToIdle = false;
+  finishCurrentThreadExit(pLock, transferToIdle);
+}
+
+void PerProcessorScheduler::killCurrentThread(Spinlock* pLock) {
+  abandonCurrentThreadStack(StackDiscardReason::LegacyAbiCall, pLock);
+}
+
+void PerProcessorScheduler::abandonCurrentThreadStack(StackDiscardReason reason, Spinlock* pLock) {
+  Thread* pThread = Processor::information().getCurrentThread();
+  if (!pThread) {
+    FATAL("Stack discard has no current Thread.");
+  }
+
+  g_StackDiscardCount += 1;
+  switch (reason) {
+    case StackDiscardReason::EmergencyProcessKill:
+      g_EmergencyProcessKillDiscardCount += 1;
+      break;
+    case StackDiscardReason::HostedRegression:
+      g_HostedRegressionDiscardCount += 1;
+      break;
+    case StackDiscardReason::LegacyAbiCall:
+      g_LegacyAbiDiscardCount += 1;
+      break;
+  }
+
+  // Cleanup callbacks can destroy the object which owns a published wait
+  // queue. Unlink intrusive wait records before invoking those callbacks.
+  pThread->unlinkWaitsForStackDiscard();
+
+  // No C++ destructors run after this call. Retire registered stack-owned
+  // lifetime records while their abandoned storage is still mapped.
+  pThread->retireDeferredScopes(true);
+
+  const bool transferToIdle = pThread->m_ExitToIdle;
+  pThread->m_ExitToIdle = false;
+  finishCurrentThreadExit(pLock, transferToIdle);
+}
+
+size_t PerProcessorScheduler::stackDiscardCount() {
+  return g_StackDiscardCount.value();
+}
+
+size_t PerProcessorScheduler::stackDiscardCount(StackDiscardReason reason) {
+  switch (reason) {
+    case StackDiscardReason::EmergencyProcessKill:
+      return g_EmergencyProcessKillDiscardCount.value();
+    case StackDiscardReason::HostedRegression:
+      return g_HostedRegressionDiscardCount.value();
+    case StackDiscardReason::LegacyAbiCall:
+      return g_LegacyAbiDiscardCount.value();
+  }
+  return 0;
 }
 
 void PerProcessorScheduler::requestCurrentThreadExitToIdle() {
@@ -861,12 +936,8 @@ void PerProcessorScheduler::requestCurrentThreadExitToIdle() {
   pThread->m_ExitToIdle = true;
 }
 
-void PerProcessorScheduler::killCurrentThreadImpl(Spinlock* pLock, bool transferToIdle) {
+void PerProcessorScheduler::finishCurrentThreadExit(Spinlock* pLock, bool transferToIdle) {
   Thread* pThread = Processor::information().getCurrentThread();
-
-  // No C++ destructors run after this call. Retire stack-owned lifetime
-  // records while their abandoned stack is still mapped.
-  pThread->retireDeferredScopes(true);
 
   // Start shutting down the current thread while we can still schedule it.
   pThread->shutdown();
@@ -958,7 +1029,7 @@ void PerProcessorScheduler::deleteThread(Thread* pThread) {
     }
   }
 
-  // killCurrentThread() keeps this lock closed until execution has left the
+  // The terminal transition keeps this lock closed until execution has left the
   // target stack. Release it only after all outer Process locks have
   // unwound: making another same-core thread runnable under those locks can
   // otherwise resume straight into a conflicting terminal operation.
@@ -1061,7 +1132,7 @@ void PerProcessorScheduler::serviceIrqWorkDoorbell() {
   }
 }
 
-void PerProcessorScheduler::serviceUserReturnWork(InterruptState& state) {
+bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state) {
   if (!Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
       Processor::executionContext() != ExecutionContext::WaitableThread) {
     FATAL_NOLOCK(
@@ -1074,14 +1145,22 @@ void PerProcessorScheduler::serviceUserReturnWork(InterruptState& state) {
     FATAL_NOLOCK("Return-to-user work escaped Kernel accounting mode");
   }
 
-  // Terminal requests win over later work. A synchronous exception can
-  // publish a signal Event or terminal state, and an Event callback can do
-  // the same, so consume each transition before returning to userspace.
-  serviceTerminalStateAtThreadBoundary();
+  // Terminal requests win over later work. The architecture caller owns the
+  // final commit after its return-tail scopes and accounting have retired.
+  if (current && !current->isTerminationDeferred() &&
+      current->getUnwindState() != Thread::Continue) {
+    return true;
+  }
   serviceDeferredSubsystemException(state);
-  serviceTerminalStateAtThreadBoundary();
+  current = Processor::information().getCurrentThread();
+  if (current && !current->isTerminationDeferred() &&
+      current->getUnwindState() != Thread::Continue) {
+    return true;
+  }
   checkEventState(state.getStackPointer());
-  serviceTerminalStateAtThreadBoundary();
+  current = Processor::information().getCurrentThread();
+  return current && !current->isTerminationDeferred() &&
+         current->getUnwindState() != Thread::Continue;
 }
 
 void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& state) {
@@ -1107,7 +1186,7 @@ void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& st
                              faultAddress, errorCode);
 }
 
-void PerProcessorScheduler::serviceTerminalStateAtThreadBoundary() {
+void PerProcessorScheduler::commitUserReturnTerminalState() {
   Thread* thread = Processor::information().getCurrentThread();
   if (!thread || thread->isTerminationDeferred()) {
     return;
@@ -1115,7 +1194,7 @@ void PerProcessorScheduler::serviceTerminalStateAtThreadBoundary() {
 
   const Thread::UnwindType unwindState = thread->getUnwindState();
   if (unwindState == Thread::TerminateThread) {
-    killCurrentThread();
+    commitCurrentThreadExit();
   }
   if (unwindState == Thread::Exit) {
     Process* process = thread->getParent();

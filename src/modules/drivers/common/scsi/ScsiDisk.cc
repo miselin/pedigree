@@ -111,12 +111,18 @@ ScsiDisk::CacheRangeAdmission::CacheRangeAdmission(ScsiDisk& disk, uint64_t star
       m_Linked(false),
       m_Previous(nullptr),
       m_Next(nullptr),
-      m_TerminationDeferral() {
+      m_TerminationDeferral(),
+      m_StackDiscardScope(&CacheRangeAdmission::discard, this) {
   m_Disk.enterCacheRange(*this);
 }
 
 ScsiDisk::CacheRangeAdmission::~CacheRangeAdmission() {
   m_Disk.leaveCacheRange(*this);
+}
+
+void ScsiDisk::CacheRangeAdmission::discard(void* context) {
+  CacheRangeAdmission* admission = reinterpret_cast<CacheRangeAdmission*>(context);
+  admission->m_Disk.leaveCacheRange(*admission);
 }
 
 bool ScsiDisk::cacheRangesOverlap(uint64_t firstStart, size_t firstLength, uint64_t secondStart,
@@ -170,7 +176,9 @@ void ScsiDisk::enterCacheRange(CacheRangeAdmission& admission) {
 
 void ScsiDisk::leaveCacheRange(CacheRangeAdmission& admission) {
   auto guard = m_CacheRangeWaiters.acquire();
-  assert(admission.m_Linked);
+  if (!admission.m_Linked) {
+    return;
+  }
   if (admission.m_Previous) {
     admission.m_Previous->m_Next = admission.m_Next;
   } else {

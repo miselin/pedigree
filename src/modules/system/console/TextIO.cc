@@ -1517,7 +1517,10 @@ void TextIO::flipThread() {
     flip(true, !bBlinkOn);
 
     // Wait for the next trigger time.
-    m_FlipWake.acquire(1, m_NextInterval / 1000, (m_NextInterval % 1000) * 1000);
+    if (!m_FlipWake.acquire(1, m_NextInterval / 1000, (m_NextInterval % 1000) * 1000) &&
+        Processor::information().getCurrentThread()->getUnwindState() != Thread::Continue) {
+      return;
+    }
   }
 }
 

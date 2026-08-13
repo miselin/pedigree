@@ -20,6 +20,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Completion.h"
 #include "pedigree/kernel/process/Ipc.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -28,10 +29,6 @@
 #include "pedigree/kernel/utilities/MemoryPool.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/Result.h"
-
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-#include "pedigree/kernel/process/Thread.h"
-#endif
 
 using namespace Ipc;
 
@@ -51,7 +48,7 @@ class Ipc::IpcEndpoint::IpcCompletion {
 
  private:
   ~IpcCompletion();
-  static void abandonWait(void* context);
+  static void discardWait(void* context);
   void releaseReference();
 
   Completion m_Completion;
@@ -144,7 +141,9 @@ IpcEndpoint::IpcCompletion::IpcCompletion(bool asynchronous)
 IpcEndpoint::IpcCompletion::~IpcCompletion() = default;
 
 bool IpcEndpoint::IpcCompletion::wait() {
-  bool result = m_Completion.wait(&IpcCompletion::abandonWait, this);
+  Thread::StackDiscardScope discardScope(&IpcCompletion::discardWait, this);
+  bool result = m_Completion.wait();
+  discardScope.disarm();
   releaseReference();
   return result;
 }
@@ -154,7 +153,7 @@ void IpcEndpoint::IpcCompletion::complete() {
   releaseReference();
 }
 
-void IpcEndpoint::IpcCompletion::abandonWait(void* context) {
+void IpcEndpoint::IpcCompletion::discardWait(void* context) {
   reinterpret_cast<IpcCompletion*>(context)->releaseReference();
 }
 

@@ -429,6 +429,9 @@ void InputManager::mainThread() {
 #if THREADS
   while (isActive()) {
     if (!m_InputQueueSize.acquire()) {
+      if (Processor::information().getCurrentThread()->getUnwindState() != Thread::Continue) {
+        return;
+      }
       continue;
     }
 

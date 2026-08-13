@@ -48,23 +48,31 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
     return;
   }
 
-  bool handled = false;
-  PostSyscallAction action;
+  bool commitThreadExit = false;
+  bool exitCurrentProcess = false;
+  bool rebootSystem = false;
+  int processExitCode = 0;
   {
-    // The lease must retire before the deferral allows a pending terminal
-    // request to consume this thread's stack.
-    TerminationDeferral callbackDeferral;
-    HandlerLease handler;
-    if (m_Instance.acquireHandler(static_cast<Service_t>(serviceNumber), handler, action)) {
-      handled = true;
-      syscallState.setSyscallReturnValue(handler.handler()->syscall(syscallState));
-      Thread* thread = Processor::information().getCurrentThread();
-      syscallState.setSyscallErrno(thread->getErrno());
-      thread->setErrno(0);
+    bool handled = false;
+    PostSyscallAction action;
+    {
+      // The lease must retire before the deferral allows a pending terminal
+      // request to consume this thread's stack.
+      TerminationDeferral callbackDeferral;
+      HandlerLease handler;
+      if (m_Instance.acquireHandler(static_cast<Service_t>(serviceNumber), handler, action)) {
+        handled = true;
+        syscallState.setSyscallReturnValue(handler.handler()->syscall(syscallState));
+        Thread* thread = Processor::information().getCurrentThread();
+        syscallState.setSyscallErrno(thread->getErrno());
+        thread->setErrno(0);
+      }
     }
-  }
 
-  if (handled) {
+    if (!handled) {
+      return;
+    }
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
     if (action.kind != NoPostSyscallAction && m_Instance.postSyscallHookHandled(action)) {
       return;
@@ -72,11 +80,12 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
 #endif
     switch (action.kind) {
       case TerminateCurrentThread:
-        Processor::information().getScheduler().killCurrentThread();
+        commitThreadExit = true;
+        break;
       case ExitCurrentProcess:
-        Processor::information().getCurrentThread()->getParent()->getSubsystem()->exit(
-            static_cast<int>(action.value));
-        return;
+        exitCurrentProcess = true;
+        processExitCode = static_cast<int>(action.value);
+        break;
       case ReturnFromEvent:
         Processor::information().getScheduler().eventHandlerReturned();
       case PopEventState:
@@ -91,24 +100,38 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
         Processor::jumpUser(nullptr, action.state.getInstructionPointer(),
                             action.state.getStackPointer());
       case RebootSystem:
-        Processor::setInterrupts(false);
-        Processor::information().getCurrentThread()->abandonAllStates();
-        Processor::setInterrupts(true);
-        system_reboot();
-        return;
+        rebootSystem = true;
+        break;
       case NoPostSyscallAction:
         break;
     }
 
-    Thread* pThread = Processor::information().getCurrentThread();
-    const Thread::UnwindType unwindState = pThread->getUnwindState();
-    if (unwindState == Thread::TerminateThread) {
-      Processor::information().getScheduler().killCurrentThread();
+    if (!exitCurrentProcess && !rebootSystem) {
+      Thread* pThread = Processor::information().getCurrentThread();
+      const Thread::UnwindType unwindState = pThread->getUnwindState();
+      if (unwindState == Thread::TerminateThread) {
+        commitThreadExit = true;
+      }
+      if (unwindState == Thread::Exit) {
+        NOTICE("Unwind state exit, in interrupt handler");
+        exitCurrentProcess = true;
+        processExitCode = pThread->takeDeferredProcessExitCode();
+      }
     }
-    if (unwindState == Thread::Exit) {
-      NOTICE("Unwind state exit, in interrupt handler");
-      pThread->getParent()->getSubsystem()->exit(pThread->takeDeferredProcessExitCode());
-    }
+  }
+
+  if (rebootSystem) {
+    Processor::setInterrupts(false);
+    Processor::information().getCurrentThread()->abandonAllStates();
+    Processor::setInterrupts(true);
+    system_reboot();
+    return;
+  }
+  if (exitCurrentProcess) {
+    Processor::information().getCurrentThread()->getParent()->getSubsystem()->exit(processExitCode);
+  }
+  if (commitThreadExit) {
+    Processor::information().getScheduler().commitCurrentThreadExit();
   }
 }
 

@@ -6,10 +6,8 @@
  */
 
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
-#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -19,34 +17,18 @@
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 WaitQueue::BeforeBlockHook WaitQueue::m_BeforeBlockHook = nullptr;
-WaitQueue::BeforeCancelAbandonHook WaitQueue::m_BeforeCancelAbandonHook = nullptr;
 #endif
 
 namespace {
-void finishTerminalWait(Thread* thread, Thread::UnwindType unwindState,
-                        WaitQueue::AbandonCallback onAbandon, void* abandonContext) NORETURN;
-
-void finishTerminalWait(Thread* thread, Thread::UnwindType unwindState,
-                        WaitQueue::AbandonCallback onAbandon, void* abandonContext) {
-  if (onAbandon) {
-    onAbandon(abandonContext);
+WaitQueue::WakeReason terminalWakeReason(Thread::UnwindType state) {
+  if (state == Thread::Exit) {
+    return WaitQueue::WakeReason::Unwinding;
   }
-
-  if (unwindState == Thread::Exit) {
-    Process* process = thread->getParent();
-    Subsystem* subsystem = process ? process->getSubsystem() : nullptr;
-    if (!subsystem) {
-      FATAL("Process exit reached a WaitQueue without a subsystem.");
-    }
-    subsystem->exit(thread->takeDeferredProcessExitCode());
-    FATAL("Subsystem::exit returned to a terminal WaitQueue.");
+  if (state == Thread::TerminateThread) {
+    return WaitQueue::WakeReason::Terminating;
   }
-
-  if (unwindState != Thread::TerminateThread) {
-    FATAL("Unknown terminal WaitQueue unwind state.");
-  }
-  Processor::information().getScheduler().killCurrentThread();
-  FATAL("Thread termination returned to a WaitQueue.");
+  FATAL("Unknown terminal WaitQueue unwind state.");
+  return WaitQueue::WakeReason::Spurious;
 }
 }  // namespace
 
@@ -105,15 +87,16 @@ void WaitQueue::Guard::queueSchedulerNotification(Waiter* waiter) {
 }
 
 WaitQueue::WakeReason WaitQueue::Guard::wait(const Channel& channel, size_t debugState,
-                                             uintptr_t debugAddress, AbandonCallback onAbandon,
-                                             void* abandonContext) {
+                                             uintptr_t debugAddress,
+                                             StackDiscardCleanup onStackDiscard,
+                                             void* stackDiscardContext) {
   assert(m_Queue);
   if (!m_OwnsLock) {
     return WakeReason::Spurious;
   }
   assert(m_OwnsLock);
-  return m_Queue->wait(*this, nullptr, channel, debugState, debugAddress, onAbandon, abandonContext,
-                       false);
+  Thread::StackDiscardScope discardScope(onStackDiscard, stackDiscardContext);
+  return m_Queue->wait(*this, nullptr, channel, debugState, debugAddress, false);
 }
 
 WaitQueue::WakeReason WaitQueue::Guard::waitForCompletion(const Channel& channel, size_t debugState,
@@ -123,20 +106,20 @@ WaitQueue::WakeReason WaitQueue::Guard::waitForCompletion(const Channel& channel
     return WakeReason::Spurious;
   }
   assert(m_OwnsLock);
-  return m_Queue->wait(*this, nullptr, channel, debugState, debugAddress, nullptr, nullptr, true);
+  return m_Queue->wait(*this, nullptr, channel, debugState, debugAddress, true);
 }
 
 WaitQueue::WakeReason WaitQueue::Guard::waitAndUnlock(Mutex& mutex, const Channel& channel,
                                                       size_t debugState, uintptr_t debugAddress,
-                                                      AbandonCallback onAbandon,
-                                                      void* abandonContext) {
+                                                      StackDiscardCleanup onStackDiscard,
+                                                      void* stackDiscardContext) {
   assert(m_Queue);
   if (!m_OwnsLock) {
     return WakeReason::Spurious;
   }
   assert(m_OwnsLock);
-  return m_Queue->wait(*this, &mutex, channel, debugState, debugAddress, onAbandon, abandonContext,
-                       false);
+  Thread::StackDiscardScope discardScope(onStackDiscard, stackDiscardContext);
+  return m_Queue->wait(*this, &mutex, channel, debugState, debugAddress, false);
 }
 
 WaitQueue::WakeReason WaitQueue::Guard::waitAndUnlockForCompletion(Mutex& mutex,
@@ -148,7 +131,7 @@ WaitQueue::WakeReason WaitQueue::Guard::waitAndUnlockForCompletion(Mutex& mutex,
     return WakeReason::Spurious;
   }
   assert(m_OwnsLock);
-  return m_Queue->wait(*this, &mutex, channel, debugState, debugAddress, nullptr, nullptr, true);
+  return m_Queue->wait(*this, &mutex, channel, debugState, debugAddress, true);
 }
 
 bool WaitQueue::Guard::wakeOne(WakeReason reason, const Channel& channel) {
@@ -182,7 +165,6 @@ WaitQueue::~WaitQueue() {
 
 WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel& channel,
                                       size_t debugState, uintptr_t debugAddress,
-                                      AbandonCallback onAbandon, void* abandonContext,
                                       bool deferTerminal) {
   if (mutex && !mutex->isOwnedByCurrentThread()) {
     FATAL(
@@ -192,8 +174,6 @@ WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel&
 
   Thread* thread = Processor::information().getCurrentThread();
   assert(thread);
-  const bool terminalDeferred = deferTerminal || thread->isTerminationDeferred();
-
   const size_t stateLevel = thread->getStateLevel();
   Waiter& waiter = thread->m_StateLevels[stateLevel].m_Waiter;
 
@@ -203,19 +183,10 @@ WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel&
   }
   thread->clearTerminalWaitCancelledBeforeBlockUnlocked(stateLevel);
   const Thread::UnwindType unwindState = thread->getUnwindState();
-  if (unwindState != Thread::Continue && terminalDeferred && !deferTerminal) {
+  if (unwindState != Thread::Continue && !deferTerminal) {
     thread->m_Lock.release();
     guard.release();
-    return unwindState == Thread::TerminateThread ? WakeReason::Terminating : WakeReason::Unwinding;
-  }
-  if (unwindState != Thread::Continue && !terminalDeferred) {
-    thread->m_Lock.release();
-    if (mutex) {
-      mutex->release();
-    }
-    guard.release();
-
-    finishTerminalWait(thread, unwindState, onAbandon, abandonContext);
+    return terminalWakeReason(unwindState);
   }
   waiter.thread = thread;
   waiter.scheduler = thread->m_pScheduler;
@@ -224,8 +195,6 @@ WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel&
   waiter.stateLevel = stateLevel;
   waiter.storeReason(WakeReason::Waiting);
   waiter.setQueued(false);
-  waiter.onAbandon = onAbandon;
-  waiter.abandonContext = abandonContext;
   waiter.notificationNext = nullptr;
   waiter.previous = m_pLastWaiter;
   waiter.next = nullptr;
@@ -262,8 +231,6 @@ WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel&
 
   Processor::information().getScheduler().blockCurrent();
 
-  AbandonCallback terminalAbandon = nullptr;
-  void* terminalAbandonContext = nullptr;
   m_Lock.acquire();
   thread->m_Lock.acquire();
   thread->clearTerminalWaitCancelledBeforeBlockUnlocked(stateLevel);
@@ -272,10 +239,6 @@ WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel&
     waiter.storeQueue(nullptr);
   }
   WakeReason reason = waiter.loadReason();
-  terminalAbandon = waiter.onAbandon;
-  terminalAbandonContext = waiter.abandonContext;
-  waiter.onAbandon = nullptr;
-  waiter.abandonContext = nullptr;
   waiter.scheduler = nullptr;
   thread->setDebugState(Thread::None, 0);
   thread->m_Lock.release();
@@ -287,8 +250,8 @@ WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel&
   }
 
   Thread::UnwindType terminalState = thread->getUnwindState();
-  if (terminalState != Thread::Continue && !terminalDeferred) {
-    finishTerminalWait(thread, terminalState, terminalAbandon, terminalAbandonContext);
+  if (terminalState != Thread::Continue && !deferTerminal) {
+    reason = terminalWakeReason(terminalState);
   }
 
   // Event handlers may themselves block. Dispatch only after removing the
@@ -296,40 +259,33 @@ WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel&
   // An ordinary wake and an event publication can race. Once the outer wait
   // record is retired, dispatch any event which is now deliverable regardless
   // of which wake reason won.
-  thread->m_StateLevels[stateLevel].m_bDispatchingWaitEvent = true;
-  Processor::information().getScheduler().checkEventState(0);
-  thread->m_StateLevels[stateLevel].m_bDispatchingWaitEvent = false;
+  if (terminalState == Thread::Continue || deferTerminal) {
+    thread->m_StateLevels[stateLevel].m_bDispatchingWaitEvent = true;
+    Processor::information().getScheduler().checkEventState(0);
+    thread->m_StateLevels[stateLevel].m_bDispatchingWaitEvent = false;
+  }
 
   // An event handler can itself request process termination. Do not enter a
   // fresh external-mutex wait after that terminal decision.
   terminalState = thread->getUnwindState();
-  if (terminalState != Thread::Continue && !terminalDeferred) {
-    finishTerminalWait(thread, terminalState, terminalAbandon, terminalAbandonContext);
-  }
-  if (terminalState != Thread::Continue && terminalDeferred && !deferTerminal) {
-    reason =
-        terminalState == Thread::TerminateThread ? WakeReason::Terminating : WakeReason::Unwinding;
+  if (terminalState != Thread::Continue && !deferTerminal) {
+    reason = terminalWakeReason(terminalState);
   }
 
   if (mutex) {
     // Event delivery happens before reacquiring the external mutex, avoiding
     // re-entry into a handler that needs the same lock. Reacquisition is
     // itself an ownership barrier: an outer signal/timeout marker is
-    // retained, and terminal teardown is applied only after the mutex and
-    // stack-owned abandonment state are safe.
+    // retained, and terminal propagation happens only after mutex ownership
+    // has been restored.
     const bool acquired = mutex->acquireForCompletion();
     if (!acquired) {
       FATAL("WaitQueue could not reacquire its caller mutex");
     }
 
     terminalState = thread->getUnwindState();
-    if (terminalState != Thread::Continue && !terminalDeferred) {
-      mutex->release();
-      finishTerminalWait(thread, terminalState, terminalAbandon, terminalAbandonContext);
-    }
-    if (terminalState != Thread::Continue && terminalDeferred && !deferTerminal) {
-      reason = terminalState == Thread::TerminateThread ? WakeReason::Terminating
-                                                        : WakeReason::Unwinding;
+    if (terminalState != Thread::Continue && !deferTerminal) {
+      reason = terminalWakeReason(terminalState);
     }
   }
   return reason;
@@ -437,8 +393,6 @@ void WaitQueue::removeWaiterLocked(Waiter* waiter) {
 }
 
 void WaitQueue::cancel(Waiter* waiter, WakeReason reason) {
-  AbandonCallback onAbandon = nullptr;
-  void* abandonContext = nullptr;
   Thread* thread = waiter->thread;
   bool makeReady = false;
   {
@@ -465,21 +419,8 @@ void WaitQueue::cancel(Waiter* waiter, WakeReason reason) {
         // that level between publication and blockCurrent().
         thread->markTerminalWaitCancelledBeforeBlockUnlocked(waiter->stateLevel);
       }
-      onAbandon = waiter->onAbandon;
-      abandonContext = waiter->abandonContext;
-      waiter->onAbandon = nullptr;
-      waiter->abandonContext = nullptr;
     }
     thread->m_Lock.release();
-  }
-
-  if (onAbandon) {
-#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
-    if (m_BeforeCancelAbandonHook) {
-      m_BeforeCancelAbandonHook(thread);
-    }
-#endif
-    onAbandon(abandonContext);
   }
 
   bool becameReady = false;
@@ -508,25 +449,5 @@ size_t WaitQueue::waiterCount() {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 void WaitQueue::setBeforeBlockHook(BeforeBlockHook hook) {
   m_BeforeBlockHook = hook;
-}
-
-void WaitQueue::setBeforeCancelAbandonHook(BeforeCancelAbandonHook hook) {
-  m_BeforeCancelAbandonHook = hook;
-}
-
-bool WaitQueue::cancelThreadWaitForTest(Thread* thread) {
-  if (!thread) {
-    return false;
-  }
-
-  const size_t level = thread->getStateLevel();
-  Waiter& waiter = thread->m_StateLevels[level].m_Waiter;
-  WaitQueue* queue = waiter.loadQueue();
-  if (!queue) {
-    return false;
-  }
-
-  queue->cancel(&waiter, WakeReason::Terminating);
-  return true;
 }
 #endif

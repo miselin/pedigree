@@ -12,10 +12,13 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/utilities/ZombieQueue.h"
 
 namespace {
+bool check(bool condition, const char* detail);
+
 bool schedulerContains(Process* process) {
   const size_t count = Scheduler::instance().getNumProcesses();
   for (size_t i = 0; i < count; ++i) {
@@ -25,6 +28,32 @@ bool schedulerContains(Process* process) {
     }
   }
   return false;
+}
+
+bool processLeaseReplacement(Process* process) {
+  Scheduler::ProcessLease lease;
+  bool passed = check(Scheduler::instance().acquireProcess(lease, process),
+                      "the process-lease replacement fixture could not acquire its first lease");
+  {
+    TerminationDeferral nestedDeferral;
+    passed &= check(Scheduler::instance().acquireProcess(lease, process),
+                    "an active ProcessLease could not be replaced under a newer deferral");
+    passed &= check(lease.get() == process, "ProcessLease replacement changed its target");
+
+    const bool invalidReplacement =
+        Scheduler::instance().acquireProcess(lease, ~static_cast<size_t>(0));
+    passed &= check(!invalidReplacement && !lease,
+                    "a failed ProcessLease replacement did not reset the active lease");
+  }
+
+  passed &= check(Scheduler::instance().acquireProcess(lease, process),
+                  "ProcessLease could not be reacquired after nested reset");
+  lease.reset();
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS process-lease-active-replacement");
+  }
+  return passed;
 }
 
 struct PublicationProbe {
@@ -342,7 +371,7 @@ int competingProcessExit(void* parameter) {
   const bool elected = context->process->beginTermination();
   context->competitorElected = elected ? 1 : 0;
   context->competitorEntered += 1;
-  context->process->competitor->getScheduler()->killCurrentThread();
+  context->process->competitor->getScheduler()->commitCurrentThreadExit();
 }
 
 int owningProcessExit(void* parameter) {
@@ -351,7 +380,7 @@ int owningProcessExit(void* parameter) {
   context->ownerElected = elected ? 1 : 0;
   if (!elected || !context->process->quiesceTermination()) {
     context->hookFailures += 1;
-    context->owner->getScheduler()->killCurrentThread();
+    context->owner->getScheduler()->commitCurrentThreadExit();
   }
   context->process->finishTermination();
 }
@@ -650,6 +679,10 @@ bool runHostedProcessExitRegressions() {
   Mutex mutex;
   ProcessExitContext context(&mutex);
   bool passed = true;
+
+  if (!processLeaseReplacement(kernelProcess)) {
+    return false;
+  }
 
   if (!joinReaperLease(kernelProcess)) {
     return false;

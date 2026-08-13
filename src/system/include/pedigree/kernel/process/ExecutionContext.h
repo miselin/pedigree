@@ -62,9 +62,9 @@ class ExecutionContextState {
 /**
  * Scopes one logical context on the current Thread's active state level.
  *
- * The cleanup record is essential: exception and signal paths may abandon the
- * physical stack without invoking this destructor. Thread then retires the
- * record before reusing the state level and restores its previous context.
+ * The cleanup record covers an explicitly audited logical-state replacement
+ * or exceptional physical-stack discard. Ordinary thread termination returns
+ * through this destructor before reaching its root exit boundary.
  */
 class EXPORTED_PUBLIC ExecutionContextGuard {
  public:

@@ -543,12 +543,16 @@ bool Ne2k::recv() {
 int Ne2k::trampoline(void* p) {
   Ne2k* pNe = reinterpret_cast<Ne2k*>(p);
   pNe->receiveThread();
+  return 0;
 }
 
 void Ne2k::receiveThread() {
   while (true) {
     // handle the incoming packet
     if (!m_PacketQueueSize.acquire()) {
+      if (Processor::information().getCurrentThread()->getUnwindState() != Thread::Continue) {
+        return;
+      }
       continue;
     }
 

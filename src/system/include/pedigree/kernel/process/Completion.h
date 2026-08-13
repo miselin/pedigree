@@ -27,11 +27,13 @@ class EXPORTED_PUBLIC Completion {
    * Waits for completion.
    *
    * A Completion has exactly one wait operation in its lifetime.
-   * onAbandon runs if terminal thread destruction makes this call unable to
-   * return, allowing a caller-owned reference to be released safely.
+   * A pending terminal request returns false after retiring the wait record;
+   * caller-owned state can therefore be released by ordinary scope cleanup.
+   * onStackDiscard is only a best-effort safety hook for an explicitly
+   * discarded physical stack.
    */
-  MUST_USE_RESULT bool wait(WaitQueue::AbandonCallback onAbandon = nullptr,
-                            void* abandonContext = nullptr);
+  MUST_USE_RESULT bool wait(WaitQueue::StackDiscardCleanup onStackDiscard = nullptr,
+                            void* stackDiscardContext = nullptr);
 
   /**
    * Latches completion and wakes the waiter.

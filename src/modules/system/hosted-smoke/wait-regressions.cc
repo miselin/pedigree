@@ -144,34 +144,84 @@ struct SemaphoreHookContext {
 
 SemaphoreHookContext* g_SemaphoreContext = nullptr;
 
-struct TerminalCancelOrderContext {
-  TerminalCancelOrderContext()
-      : waiter(nullptr),
-        entered(0),
-        abandoned(0),
-        resumed(0),
-        callbackBeforeResume(0),
-        hookCalls(0),
-        hookFailures(0) {}
+class StackDestructionCanary {
+ public:
+  explicit StackDestructionCanary(Atomic<size_t>* destructions) : m_Destructions(destructions) {}
+
+  ~StackDestructionCanary() {
+    *m_Destructions += 1;
+  }
+
+ private:
+  Atomic<size_t>* m_Destructions;
+};
+
+struct TerminalCancelContext {
+  TerminalCancelContext()
+      : waiter(nullptr), entered(0), resumed(0), terminalResult(0), destructed(0) {}
 
   WaitQueue queue;
   Thread* waiter;
   Atomic<size_t> entered;
-  Atomic<size_t> abandoned;
   Atomic<size_t> resumed;
-  Atomic<size_t> callbackBeforeResume;
+  Atomic<size_t> terminalResult;
+  Atomic<size_t> destructed;
+};
+
+class PublishedWaitOwner;
+
+struct PublishedWaitDiscardContext {
+  PublishedWaitDiscardContext()
+      : owner(nullptr),
+        waiter(nullptr),
+        entered(0),
+        hookCalls(0),
+        hookFailures(0),
+        published(0),
+        cleanupCalls(0),
+        ownerDestructed(0),
+        waitersAtDestruction(0),
+        returned(0),
+        stackDestructed(0) {}
+
+  PublishedWaitOwner* owner;
+  Thread* waiter;
+  Atomic<size_t> entered;
   Atomic<size_t> hookCalls;
   Atomic<size_t> hookFailures;
+  Atomic<size_t> published;
+  Atomic<size_t> cleanupCalls;
+  Atomic<size_t> ownerDestructed;
+  Atomic<size_t> waitersAtDestruction;
+  Atomic<size_t> returned;
+  Atomic<size_t> stackDestructed;
 };
 
-struct TerminalCancelStackState {
-  TerminalCancelOrderContext* context;
-  uintptr_t magic;
+class PublishedWaitOwner {
+ public:
+  explicit PublishedWaitOwner(PublishedWaitDiscardContext* context) : m_Context(context) {}
+
+  ~PublishedWaitOwner() {
+    m_Context->waitersAtDestruction += queue.waiterCount();
+    m_Context->ownerDestructed += 1;
+  }
+
+  WaitQueue queue;
+
+ private:
+  PublishedWaitDiscardContext* m_Context;
 };
 
-constexpr uintptr_t TerminalCancelStackMagic = 0x43414e43454c;
-constexpr uintptr_t TerminalCancelStackAbandoned = 0x4142414e444f4e;
-TerminalCancelOrderContext* g_TerminalCancelOrderContext = nullptr;
+constexpr uintptr_t PublishedWaitDiscardChannel = 0x44495343;
+PublishedWaitDiscardContext* g_PublishedWaitDiscardContext = nullptr;
+
+void destroyPublishedWaitOwner(void* parameter) {
+  PublishedWaitDiscardContext* context = reinterpret_cast<PublishedWaitDiscardContext*>(parameter);
+  context->cleanupCalls += 1;
+  PublishedWaitOwner* owner = context->owner;
+  context->owner = nullptr;
+  delete owner;
+}
 
 struct ConditionVariableHookContext {
   ConditionVariableHookContext(ConditionVariable* condition, Mutex* mutex, Thread* expectedWaiter)
@@ -244,13 +294,22 @@ struct ContendedConditionContext {
 };
 
 struct TerminalConditionContext {
-  TerminalConditionContext() : waiter(nullptr), entered(0), waitReturned(0) {}
+  TerminalConditionContext()
+      : waiter(nullptr),
+        entered(0),
+        waitReturned(0),
+        terminalResult(0),
+        mutexHeldOnReturn(0),
+        destructed(0) {}
 
   Thread* waiter;
   Mutex mutex;
   ConditionVariable condition;
   Atomic<size_t> entered;
   Atomic<size_t> waitReturned;
+  Atomic<size_t> terminalResult;
+  Atomic<size_t> mutexHeldOnReturn;
+  Atomic<size_t> destructed;
 };
 
 Atomic<size_t> g_ContendedSignalHandlerCalls(0);
@@ -348,6 +407,7 @@ int holdConditionMutex(void* parameter) {
 
 int waitForTerminalCondition(void* parameter) {
   TerminalConditionContext* context = reinterpret_cast<TerminalConditionContext*>(parameter);
+  StackDestructionCanary stackCanary(&context->destructed);
   if (!context->mutex.acquireForCompletion()) {
     return 1;
   }
@@ -355,13 +415,15 @@ int waitForTerminalCondition(void* parameter) {
 
   ConditionVariable::Error error = ConditionVariable::NoError;
   const bool waited = context->condition.wait(context->mutex, error);
-  (void)waited;
+  context->terminalResult =
+      !waited && error == ConditionVariable::TerminationDeferred ? static_cast<size_t>(1) : 0;
+  context->mutexHeldOnReturn = context->mutex.isOwnedByCurrentThread() ? 1 : 0;
   context->waitReturned += 1;
 
-  if (context->mutex.isOwnedByCurrentThread()) {
+  if (context->mutexHeldOnReturn) {
     context->mutex.release();
   }
-  return 1;
+  return context->terminalResult ? 0 : 1;
 }
 
 struct ProcessSuspendContext {
@@ -395,15 +457,21 @@ ProcessSuspendContext* g_ProcessSuspendContext = nullptr;
 
 Atomic<size_t> g_ImmediateThreadExits(0);
 
-struct JoinAbandonmentContext {
-  explicit JoinAbandonmentContext(Semaphore* gate)
-      : gate(gate), target(nullptr), targetEntered(0), joinReturned(0), joinSucceeded(0) {}
+struct JoinPropagationContext {
+  explicit JoinPropagationContext(Semaphore* gate)
+      : gate(gate),
+        target(nullptr),
+        targetEntered(0),
+        joinReturned(0),
+        joinSucceeded(0),
+        joinerDestructed(0) {}
 
   Semaphore* gate;
   Thread* target;
   Atomic<size_t> targetEntered;
   Atomic<size_t> joinReturned;
   Atomic<size_t> joinSucceeded;
+  Atomic<size_t> joinerDestructed;
 };
 
 struct JoinPublicationContext {
@@ -462,6 +530,29 @@ void immediateWakeHook(WaitQueue* queue, Thread* thread, const WaitQueue::Channe
   }
 }
 
+void discardPublishedWaitHook(WaitQueue* queue, Thread* thread, const WaitQueue::Channel& channel,
+                              size_t debugState) {
+  PublishedWaitDiscardContext* context = g_PublishedWaitDiscardContext;
+  if (!context || thread != context->waiter) {
+    return;
+  }
+
+  context->hookCalls += 1;
+  PublishedWaitOwner* owner = context->owner;
+  Thread::WaitDebugInfo wait = {};
+  if (context->hookCalls != 1 || !owner || queue != &owner->queue || channel.owner != owner ||
+      channel.value != PublishedWaitDiscardChannel || debugState != Thread::EventWait ||
+      !thread->getWaitDebugInfo(wait) || wait.queue != queue || !wait.queued ||
+      wait.reason != WaitQueue::WakeReason::Waiting || queue->waiterCount() != 1) {
+    context->hookFailures += 1;
+  } else {
+    context->published += 1;
+  }
+
+  thread->getScheduler()->abandonCurrentThreadStack(
+      PerProcessorScheduler::StackDiscardReason::HostedRegression);
+}
+
 void terminalCancelBeforeBlockHook(WaitQueue* queue, Thread* thread,
                                    const WaitQueue::Channel& channel, size_t debugState) {
   TerminalCancelBeforeBlockContext* context = g_TerminalCancelBeforeBlockContext;
@@ -479,19 +570,14 @@ void terminalCancelBeforeBlockHook(WaitQueue* queue, Thread* thread,
   }
 
   if (context->phase == 0) {
-    if (!(channel == context->firstChannel) || !WaitQueue::cancelThreadWaitForTest(thread)) {
+    if (!(channel == context->firstChannel)) {
       context->hookFailures += 1;
       return;
     }
 
+    thread->setUnwindState(Thread::TerminateThread);
     context->cancellations += 1;
     context->phase = 1;
-
-    // The pre-block cancellation must have detached the waiter already;
-    // schedule(Sleeping) consumes only the one-shot terminal handoff.
-    if (context->queue.waiterCount() || thread->getWaitDebugInfo(wait)) {
-      context->hookFailures += 1;
-    }
     return;
   }
 
@@ -558,57 +644,39 @@ void semaphoreReleaseHook(WaitQueue* queue, Thread* thread, const WaitQueue::Cha
   context->semaphore->release();
 }
 
-void abandonTerminalCancelWait(void* parameter) {
-  TerminalCancelStackState* state = reinterpret_cast<TerminalCancelStackState*>(parameter);
-  TerminalCancelOrderContext* context = state->context;
-  if (state->magic != TerminalCancelStackMagic) {
-    context->hookFailures += 1;
-    return;
-  }
-
-  state->magic = TerminalCancelStackAbandoned;
-  context->abandoned += 1;
-}
-
 int waitForTerminalCancellation(void* parameter) {
-  TerminalCancelOrderContext* context = reinterpret_cast<TerminalCancelOrderContext*>(parameter);
-  TerminalCancelStackState stackState = {context, TerminalCancelStackMagic};
+  TerminalCancelContext* context = reinterpret_cast<TerminalCancelContext*>(parameter);
+  StackDestructionCanary stackCanary(&context->destructed);
 
   context->entered += 1;
   auto guard = context->queue.acquire();
   const WaitQueue::WakeReason reason =
       guard.wait(WaitQueue::Channel(&context->queue), Thread::EventWait,
-                 reinterpret_cast<uintptr_t>(__builtin_return_address(0)),
-                 abandonTerminalCancelWait, &stackState);
+                 reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
 
+  context->terminalResult = reason == WaitQueue::WakeReason::Terminating ? 1 : 0;
   context->resumed += 1;
-  if (reason == WaitQueue::WakeReason::Terminating && context->abandoned == 1 &&
-      stackState.magic == TerminalCancelStackAbandoned) {
-    context->callbackBeforeResume += 1;
-  }
-  return 0;
+  return context->terminalResult ? 0 : 1;
 }
 
-void beforeCancelAbandonHook(Thread* thread) {
-  TerminalCancelOrderContext* context = g_TerminalCancelOrderContext;
-  if (!context) {
-    return;
+int abandonPublishedWait(void* parameter) {
+  PublishedWaitDiscardContext* context = reinterpret_cast<PublishedWaitDiscardContext*>(parameter);
+  PublishedWaitOwner* owner = new PublishedWaitOwner(context);
+  context->owner = owner;
+
+  Thread::StackDiscardScope discardScope(destroyPublishedWaitOwner, context);
+  StackDestructionCanary stackCanary(&context->stackDestructed);
+  context->entered += 1;
+  {
+    auto guard = owner->queue.acquire();
+    guard.wait(WaitQueue::Channel(owner, PublishedWaitDiscardChannel), Thread::EventWait,
+               reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
   }
 
-  context->hookCalls += 1;
-  if (thread != context->waiter || context->abandoned || context->resumed) {
-    context->hookFailures += 1;
-    return;
-  }
-
-  // Give a prematurely published Ready target repeated opportunities to
-  // resume before its stack-owned abandonment callback.
-  for (size_t i = 0; i < 32; ++i) {
-    Scheduler::instance().yield();
-  }
-  if (context->resumed) {
-    context->hookFailures += 1;
-  }
+  context->returned += 1;
+  discardScope.disarm();
+  destroyPublishedWaitOwner(context);
+  return 1;
 }
 
 void conditionVariableSignalHook(WaitQueue* queue, Thread* thread,
@@ -780,13 +848,14 @@ int immediateThreadExit(void*) {
 }
 
 int blockedJoinTarget(void* parameter) {
-  JoinAbandonmentContext* context = reinterpret_cast<JoinAbandonmentContext*>(parameter);
+  JoinPropagationContext* context = reinterpret_cast<JoinPropagationContext*>(parameter);
   context->targetEntered += 1;
   return context->gate->acquireForCompletion() ? 0 : 1;
 }
 
 int joinTarget(void* parameter) {
-  JoinAbandonmentContext* context = reinterpret_cast<JoinAbandonmentContext*>(parameter);
+  JoinPropagationContext* context = reinterpret_cast<JoinPropagationContext*>(parameter);
+  StackDestructionCanary stackCanary(&context->joinerDestructed);
   if (context->target->join()) {
     context->joinSucceeded += 1;
   }
@@ -1014,31 +1083,60 @@ bool semaphoreReleaseBeforeBlock() {
   return passed;
 }
 
-bool terminalCancelCallbackOrdering() {
-  TerminalCancelOrderContext context;
+bool terminalCancellationReturns() {
+  TerminalCancelContext context;
   Thread* waiter = new Thread(Scheduler::instance().getKernelProcess(), waitForTerminalCancellation,
                               &context, nullptr, false, true);
-  waiter->setName("hosted terminal cancellation ordering");
+  waiter->setName("hosted terminal cancellation return");
   context.waiter = waiter;
 
   const bool queued = waitForDebugState(waiter, Thread::EventWait);
-  g_TerminalCancelOrderContext = &context;
-  WaitQueue::setBeforeCancelAbandonHook(beforeCancelAbandonHook);
-  const bool cancelled = WaitQueue::cancelThreadWaitForTest(waiter);
-  WaitQueue::setBeforeCancelAbandonHook(nullptr);
-  g_TerminalCancelOrderContext = nullptr;
-  const bool joined = waiter->join();
+  waiter->setUnwindState(Thread::TerminateThread);
+  const bool joined = waiter->joinForCompletion();
+
+  const bool passed = check(
+      context.entered == 1 && queued && joined && context.terminalResult == 1 &&
+          context.resumed == 1 && context.destructed == 1,
+      "terminal-cancel-return", "terminal cancellation did not return through the target's stack");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS terminal-cancel-return");
+  }
+  return passed;
+}
+
+bool publishedWaitDiscardCleanup() {
+  PublishedWaitDiscardContext context;
+  const auto reason = PerProcessorScheduler::StackDiscardReason::HostedRegression;
+  const size_t discardsBefore = PerProcessorScheduler::stackDiscardCount(reason);
+
+  Thread* waiter = new Thread(Scheduler::instance().getKernelProcess(), abandonPublishedWait,
+                              &context, nullptr, false, true, true);
+  waiter->setName("hosted published wait stack discard");
+  context.waiter = waiter;
+
+  g_PublishedWaitDiscardContext = &context;
+  WaitQueue::setBeforeBlockHook(discardPublishedWaitHook);
+  const bool started = waiter->start();
+  const bool joined = started && waiter->joinForCompletion();
+  WaitQueue::setBeforeBlockHook(nullptr);
+  g_PublishedWaitDiscardContext = nullptr;
+
+  PublishedWaitOwner* residue = context.owner;
+  context.owner = nullptr;
+  if (residue) {
+    delete residue;
+  }
 
   const bool passed =
-      check(context.entered == 1 && queued && cancelled && joined && context.hookCalls == 1 &&
-                context.hookFailures == 0 && context.abandoned == 1 && context.resumed == 1 &&
-                context.callbackBeforeResume == 1,
-            "terminal-cancel-callback-order",
-            "the target became schedulable before stack abandonment completed");
+      check(started && joined && context.entered == 1 && context.hookCalls == 1 &&
+                context.hookFailures == 0 && context.published == 1 && context.cleanupCalls == 1 &&
+                context.ownerDestructed == 1 && context.waitersAtDestruction == 0 &&
+                context.returned == 0 && context.stackDestructed == 0 &&
+                PerProcessorScheduler::stackDiscardCount(reason) == discardsBefore + 1,
+            "waitqueue-published-stack-discard",
+            "stack discard did not unlink the published waiter before owner cleanup");
   if (passed) {
-    NOTICE(
-        "HOSTED-WAIT-TEST: PASS "
-        "terminal-cancel-callback-order");
+    NOTICE("HOSTED-WAIT-TEST: PASS waitqueue-published-stack-discard");
   }
   return passed;
 }
@@ -1053,9 +1151,10 @@ bool terminalCancelBeforeBlock() {
   const WaitQueue::WakeReason cancelled =
       firstGuard.wait(context.firstChannel, Thread::EventWait,
                       reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
+  waiter->setUnwindState(Thread::Continue);
 
-  // A fresh enrolment proves the one-shot marker cannot suppress a later,
-  // unrelated sleep on the same persistent Waiter record.
+  // A fresh enrolment proves returning a terminal result retired the old
+  // waiter before the record is reused.
   auto secondGuard = context.queue.acquire();
   const WaitQueue::WakeReason signalled =
       secondGuard.wait(context.secondChannel, Thread::EventWait,
@@ -1075,7 +1174,7 @@ bool terminalCancelBeforeBlock() {
                   "the deterministic pre-block interleaving did not complete");
   passed &= check(context.queue.waiterCount() == 0 && waiter->getStatus() == Thread::Running,
                   "terminal-cancel-before-block",
-                  "terminal cancellation left a linked waiter or stale Sleeping state");
+                  "terminal return left a linked waiter or stale Sleeping state");
 
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS terminal-cancel-before-block");
@@ -1314,11 +1413,12 @@ bool conditionVariableTerminalReacquire() {
     context.mutex.release();
   }
 
-  const bool passed =
-      check(started && context.entered == 1 && conditionQueued && mutexAcquired &&
-                reacquireQueued && joined && context.waitReturned == 0 && mutexRecoverable,
-            "condition-variable-terminal-reacquire",
-            "terminal abandonment returned through wait or stranded its mutex");
+  const bool passed = check(
+      started && context.entered == 1 && conditionQueued && mutexAcquired && reacquireQueued &&
+          joined && context.waitReturned == 1 && context.terminalResult == 1 &&
+          context.mutexHeldOnReturn == 1 && context.destructed == 1 && mutexRecoverable,
+      "condition-variable-terminal-reacquire",
+      "terminal propagation did not return with mutex ownership and unwind the stack");
   if (passed) {
     NOTICE(
         "HOSTED-WAIT-TEST: PASS "
@@ -1694,44 +1794,44 @@ bool joinPublicationAndDetachExclusion() {
   return passed;
 }
 
-bool terminalJoinAbandonment() {
+bool terminalJoinPropagation() {
   Process* process = Scheduler::instance().getKernelProcess();
   Semaphore targetGate(0);
-  JoinAbandonmentContext context(&targetGate);
+  JoinPropagationContext context(&targetGate);
   bool passed = true;
 
   context.target = new Thread(process, blockedJoinTarget, &context, nullptr, false, true);
-  context.target->setName("hosted join-abandonment target");
+  context.target->setName("hosted join-propagation target");
 
   while (context.targetEntered != 1) {
     Scheduler::instance().yield();
   }
 
-  Thread* abandonedJoiner = new Thread(process, joinTarget, &context, nullptr, false, true);
-  abandonedJoiner->setName("hosted terminal join-abandonment waiter");
+  Thread* interruptedJoiner = new Thread(process, joinTarget, &context, nullptr, false, true);
+  interruptedJoiner->setName("hosted terminal join-propagation waiter");
 
   bool enrolled = false;
   constexpr size_t EnrolmentAttempts = 10000;
   for (size_t attempt = 0; attempt < EnrolmentAttempts; ++attempt) {
     Thread::WaitDebugInfo info = {};
     uintptr_t debugAddress = 0;
-    if (abandonedJoiner->getWaitDebugInfo(info) && info.queue && info.queued &&
-        abandonedJoiner->getDebugState(debugAddress) == Thread::Joining &&
-        abandonedJoiner->getStatus() == Thread::Sleeping) {
+    if (interruptedJoiner->getWaitDebugInfo(info) && info.queue && info.queued &&
+        interruptedJoiner->getDebugState(debugAddress) == Thread::Joining &&
+        interruptedJoiner->getStatus() == Thread::Sleeping) {
       enrolled = true;
       break;
     }
     Scheduler::instance().yield();
   }
-  passed &= check(enrolled, "join-terminal-abandonment",
+  passed &= check(enrolled, "join-terminal-propagation",
                   "the first joiner did not publish its join wait");
 
-  abandonedJoiner->setUnwindState(Thread::TerminateThread);
-  passed &= check(abandonedJoiner->join(), "join-terminal-abandonment",
+  interruptedJoiner->setUnwindState(Thread::TerminateThread);
+  passed &= check(interruptedJoiner->joinForCompletion(), "join-terminal-propagation",
                   "the terminated joiner did not become reapable");
-  passed &=
-      check(context.joinReturned == 0 && context.joinSucceeded == 0, "join-terminal-abandonment",
-            "terminal wait abandonment incorrectly returned through join()");
+  passed &= check(
+      context.joinReturned == 1 && context.joinSucceeded == 0 && context.joinerDestructed == 1,
+      "join-terminal-propagation", "the interrupted join did not return and unwind its stack");
 
   Thread* replacementJoiner = new Thread(process, joinTarget, &context, nullptr, false, true);
   replacementJoiner->setName("hosted replacement join waiter");
@@ -1746,18 +1846,18 @@ bool terminalJoinAbandonment() {
     }
     Scheduler::instance().yield();
   }
-  passed &= check(replacementEnrolled, "join-terminal-abandonment",
-                  "the abandoned exclusive join claim blocked a replacement joiner");
+  passed &= check(replacementEnrolled, "join-terminal-propagation",
+                  "the interrupted exclusive join claim blocked a replacement joiner");
 
   targetGate.release();
-  passed &= check(replacementJoiner->join(), "join-terminal-abandonment",
+  passed &= check(replacementJoiner->join(), "join-terminal-propagation",
                   "the replacement joiner did not become reapable");
-  passed &=
-      check(context.joinReturned == 1 && context.joinSucceeded == 1, "join-terminal-abandonment",
-            "the replacement join did not consume the released claim");
+  passed &= check(
+      context.joinReturned == 2 && context.joinSucceeded == 1 && context.joinerDestructed == 2,
+      "join-terminal-propagation", "the replacement join did not consume the released claim");
 
   if (passed) {
-    NOTICE("HOSTED-WAIT-TEST: PASS join-terminal-abandonment");
+    NOTICE("HOSTED-WAIT-TEST: PASS join-terminal-propagation");
   }
   return passed;
 }
@@ -1771,10 +1871,10 @@ bool runHostedWaitRegressions() {
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedPs2ControllerRegressions() &&
 #endif
-      wakeBeforeBlock() && semaphoreReleaseBeforeBlock() && terminalCancelCallbackOrdering() &&
-      terminalCancelBeforeBlock() && nestedTerminalShutdownBeforeBlock() &&
-      conditionVariableSignalBeforeBlock() && runHostedRingBufferRegressions() &&
-      runHostedAtaPioRegressions() &&
+      wakeBeforeBlock() && semaphoreReleaseBeforeBlock() && terminalCancellationReturns() &&
+      publishedWaitDiscardCleanup() && terminalCancelBeforeBlock() &&
+      nestedTerminalShutdownBeforeBlock() && conditionVariableSignalBeforeBlock() &&
+      runHostedRingBufferRegressions() && runHostedAtaPioRegressions() &&
       Scheduler::instance()
           .getBootstrapProcessorScheduler()
           ->runHostedNewThreadWorkerRegressions() &&
@@ -1817,7 +1917,7 @@ bool runHostedWaitRegressions() {
       runHostedSyscallRegressions() &&
 #endif
       ordinaryBlockAndWake() && processSuspendResume() && immediateExitJoinLifecycle() &&
-      joinPublicationAndDetachExclusion() && terminalJoinAbandonment() &&
+      joinPublicationAndDetachExclusion() && terminalJoinPropagation() &&
       prequeuedEventDispatch() && stateLevelPublication() && stateCleanupOrder() &&
       activeEventDeliveryLease() && eventQueueShutdown();
   if (passed) {

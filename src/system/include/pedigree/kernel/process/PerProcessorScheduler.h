@@ -38,6 +38,13 @@ class WaitQueue;
 
 class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
  public:
+  /** Why an exceptional exit is intentionally discarding live C++ frames. */
+  enum class StackDiscardReason {
+    EmergencyProcessKill,
+    HostedRegression,
+    LegacyAbiCall,
+  };
+
   /** Default constructor - Creates an empty scheduler with a new idle thread.
    */
   PerProcessorScheduler();
@@ -70,9 +77,27 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
       \param state The syscall state to jump to. */
   void addThread(Thread* pThread, SyscallState& state);
 
-  /** Destroys the currently running thread.
-      \note This calls Thread::~Thread itself! */
-  void killCurrentThread(Spinlock* pLock = 0) NORETURN;
+  /**
+   * Commits an exit after the current C++ call chain has returned to an
+   * audited boundary.
+   *
+   * This refuses to switch away while stack-owned cleanup records, deferral
+   * scopes, or active WaitQueue records remain.
+   */
+  void commitCurrentThreadExit(Spinlock* pLock = 0) NORETURN;
+
+  /**
+   * Explicitly discards the current physical stack for exceptional recovery.
+   * Every call is counted and stack-owned cleanup records are retired on a
+   * best-effort basis before switching away.
+   */
+  void abandonCurrentThreadStack(StackDiscardReason reason, Spinlock* pLock = 0) NORETURN;
+
+  /** Monotonic count of explicit physical-stack discards. */
+  static size_t stackDiscardCount();
+
+  /** Monotonic count for one explicit physical-stack discard reason. */
+  static size_t stackDiscardCount(StackDiscardReason reason);
 
   /** Selects the registered idle owner when the current Thread exits. */
   void requestCurrentThreadExitToIdle();
@@ -100,7 +125,10 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
    * Delivers pending Events and terminal work immediately before a user
    * return, after the raw interrupt frame has released its C++ scopes.
    */
-  void serviceUserReturnWork(InterruptState& state);
+  MUST_USE_RESULT bool serviceUserReturnWork(InterruptState& state);
+
+  /** Commits terminal state after architecture return-tail cleanup is done. */
+  void commitUserReturnTerminalState();
 
   void setIdle(Thread* pThread);
 
@@ -117,6 +145,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   friend class Thread;
   friend class WaitQueue;
 
+  /** Link compatibility only; new source must choose an explicit exit API. */
+  void killCurrentThread(Spinlock* pLock = 0) NORETURN;
+
   /** Picks another runnable thread and switches to it. */
   void schedule(Thread::Status nextStatus = Thread::Ready, bool dispatchEvents = true);
 
@@ -126,10 +157,7 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   /** Publishes a completed wait directly to this scheduler's ready queue. */
   void publishReadyFromWait(Thread* pThread);
 
-  /** Consumes terminal state at an IRQ-enabled ordinary thread boundary. */
-  void serviceTerminalStateAtThreadBoundary();
-
-  void killCurrentThreadImpl(Spinlock* pLock, bool transferToIdle) NORETURN;
+  void finishCurrentThreadExit(Spinlock* pLock, bool transferToIdle) NORETURN;
 
   /** Runs a raw-frame exception through its subsystem in ordinary context. */
   void serviceDeferredSubsystemException(InterruptState& state);

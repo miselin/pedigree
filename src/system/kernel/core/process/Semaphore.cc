@@ -83,16 +83,22 @@ void destroyTimeoutEvent(Thread* thread, Event* event) {
   delete event;
 }
 
-struct SemaphoreTimeoutAbandonment {
+struct SemaphoreTimeoutDiscard {
   Thread* thread;
   Event* event;
 };
 
-void abandonSemaphoreWait(void* context) {
-  SemaphoreTimeoutAbandonment* abandonment =
-      reinterpret_cast<SemaphoreTimeoutAbandonment*>(context);
-  destroyTimeoutEvent(abandonment->thread, abandonment->event);
-  abandonment->event = nullptr;
+void discardSemaphoreWait(void* context) {
+  SemaphoreTimeoutDiscard* discard = reinterpret_cast<SemaphoreTimeoutDiscard*>(context);
+  Event* event = discard->event;
+  discard->event = nullptr;
+  destroyTimeoutEvent(discard->thread, event);
+}
+
+void finishSemaphoreTimeout(SemaphoreTimeoutDiscard& discard) {
+  Event* event = discard.event;
+  discard.event = nullptr;
+  destroyTimeoutEvent(discard.thread, event);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -190,8 +196,7 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
   else {
     Thread* pThread = Processor::information().getCurrentThread();
     pThread->clearInterruption();
-    const bool scopedTerminationDeferral = pThread->isTerminationDeferred();
-    const bool terminalWaitDeferred = deferTerminal || scopedTerminationDeferral;
+    const bool completionWait = deferTerminal || !m_bCanInterrupt;
 
     // If we have a timeout, create the event and register it.
     Event* pEvent = 0;
@@ -199,13 +204,13 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
       pEvent = new SemaphoreEvent(pThread->getStateLevel());
       Machine::instance().getTimer()->addAlarm(pEvent, timeoutSecs, timeoutUsecs);
     }
-    SemaphoreTimeoutAbandonment timeoutAbandonment = {pThread, pEvent};
-
+    SemaphoreTimeoutDiscard timeoutDiscard = {pThread, pEvent};
+    Thread::StackDiscardScope discardScope(pEvent ? &discardSemaphoreWait : nullptr,
+                                           &timeoutDiscard);
     SemaphoreResult result = SemaphoreResult::withValue(true);
     while (true) {
-      if (scopedTerminationDeferral && !deferTerminal && m_bCanInterrupt &&
-          pThread->getUnwindState() != Thread::Continue) {
-        destroyTimeoutEvent(pThread, pEvent);
+      if (!completionWait && pThread->getUnwindState() != Thread::Continue) {
+        finishSemaphoreTimeout(timeoutDiscard);
         return SemaphoreResult::withError(Interrupted);
       }
 
@@ -213,13 +218,13 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
       // WaitQueue::wait(). Keep its state as a predicate rather than
       // clearing the only evidence that the deadline expired.
       if (pThread->getInterruptionReason() == Thread::InterruptedByTimeout) {
-        destroyTimeoutEvent(pThread, pEvent);
+        finishSemaphoreTimeout(timeoutDiscard);
         pThread->clearInterruption();
         return SemaphoreResult::withError(TimedOut);
       }
 
       if (tryAcquire(n)) {
-        destroyTimeoutEvent(pThread, pEvent);
+        finishSemaphoreTimeout(timeoutDiscard);
 
         return result;
       }
@@ -230,17 +235,16 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
       // WaitQueue publishes a persistent wait record before dropping this
       // guard, closing both wake-before-enrol and wake-before-sleep gaps.
       if (tryAcquire(n)) {
-        destroyTimeoutEvent(pThread, pEvent);
+        finishSemaphoreTimeout(timeoutDiscard);
         return result;
       }
 
       WaitQueue::WakeReason wakeReason =
-          terminalWaitDeferred
+          completionWait
               ? guard.waitForCompletion(WaitQueue::Channel(this), Thread::SemWait,
                                         reinterpret_cast<uintptr_t>(__builtin_return_address(0)))
               : guard.wait(WaitQueue::Channel(this), Thread::SemWait,
-                           reinterpret_cast<uintptr_t>(__builtin_return_address(0)),
-                           pEvent ? &abandonSemaphoreWait : nullptr, &timeoutAbandonment);
+                           reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
 
       // Event delivery can follow an ordinary wake which already won
       // waiter.reason. The per-wait marker remains authoritative.
@@ -249,22 +253,16 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
            wakeReason == WaitQueue::WakeReason::Unwinding ||
            wakeReason == WaitQueue::WakeReason::Terminating ||
            interruption != Thread::NotInterrupted)) {
-        if (terminalWaitDeferred && (wakeReason == WaitQueue::WakeReason::Unwinding ||
-                                     wakeReason == WaitQueue::WakeReason::Terminating)) {
-          if (deferTerminal || !m_bCanInterrupt) {
-            continue;
-          }
-
-          destroyTimeoutEvent(pThread, pEvent);
-          return SemaphoreResult::withError(Interrupted);
+        if (completionWait && (wakeReason == WaitQueue::WakeReason::Unwinding ||
+                               wakeReason == WaitQueue::WakeReason::Terminating)) {
+          continue;
         }
 
         if (interruption == Thread::InterruptedByTimeout) {
           result = SemaphoreResult::withError(TimedOut);
           pThread->clearInterruption();
-        } else if (!m_bCanInterrupt && !deferTerminal &&
-                   (wakeReason == WaitQueue::WakeReason::Event ||
-                    interruption == Thread::InterruptedBySignal)) {
+        } else if (!m_bCanInterrupt && (wakeReason == WaitQueue::WakeReason::Event ||
+                                        interruption == Thread::InterruptedBySignal)) {
           // A Mutex wait is not an interruptible operation. The
           // event was delivered, but must not leak into the next
           // unrelated interruptible wait. The interruption marker
@@ -283,7 +281,7 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
           }
         }
 
-        destroyTimeoutEvent(pThread, pEvent);
+        finishSemaphoreTimeout(timeoutDiscard);
         return result;
       }
     }

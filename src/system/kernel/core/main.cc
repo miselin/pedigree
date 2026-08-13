@@ -620,11 +620,13 @@ void system_reboot() {
   // The reaper owns the Process before its final Thread leaves the stack.
   // Keeping the kernel Process registered preserves the final parent/adopter
   // topology until off-stack completion is published.
-  Process::ReaperClaim shutdownReaper = currentProcess->tryClaimReaper();
-  if (!shutdownReaper) {
-    FATAL("Shutdown coordinator Process already has a reaper");
+  {
+    Process::ReaperClaim shutdownReaper = currentProcess->tryClaimReaper();
+    if (!shutdownReaper) {
+      FATAL("Shutdown coordinator Process already has a reaper");
+    }
+    shutdownReaper.publish();
   }
-  shutdownReaper.publish();
   system_reset();
   Processor::information().getScheduler().requestCurrentThreadExitToIdle();
   currentSubsystem->exit(0);

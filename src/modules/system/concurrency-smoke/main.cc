@@ -129,6 +129,37 @@ struct ConsumerDestroyContext {
   Atomic<size_t> finished;
 };
 
+struct TerminalUnwindContext {
+  TerminalUnwindContext() : wait(0), entered(0), returned(0), interrupted(0), destructed(0) {}
+
+  Semaphore wait;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+  Atomic<size_t> interrupted;
+  Atomic<size_t> destructed;
+};
+
+class TerminalUnwindCanary {
+ public:
+  explicit TerminalUnwindCanary(Atomic<size_t>& destructed) : m_Destructed(destructed) {}
+
+  ~TerminalUnwindCanary() {
+    m_Destructed += 1;
+  }
+
+ private:
+  Atomic<size_t>& m_Destructed;
+};
+
+int waitForTerminalRequest(void* context) {
+  TerminalUnwindContext* terminal = reinterpret_cast<TerminalUnwindContext*>(context);
+  TerminalUnwindCanary canary(terminal->destructed);
+  terminal->entered += 1;
+  terminal->interrupted = terminal->wait.acquire() ? 0 : 1;
+  terminal->returned += 1;
+  return terminal->interrupted ? 0 : 1;
+}
+
 int destroyConsumer(void* context) {
   ConsumerDestroyContext* destroy = reinterpret_cast<ConsumerDestroyContext*>(context);
   destroy->consumer->shutdown();
@@ -324,6 +355,37 @@ void testProducerConsumerTeardown() {
   NOTICE("QEMU-CONCURRENCY-TEST: PASS producerconsumer-teardown-completion");
 }
 
+void testTerminalRequestStackUnwind() {
+  NOTICE("QEMU-CONCURRENCY-TEST: BEGIN terminal-request-stack-unwind");
+
+  TerminalUnwindContext context;
+  Thread* worker = new Thread(Scheduler::instance().getKernelProcess(), waitForTerminalRequest,
+                              &context, nullptr, false, true);
+  worker->setName("QEMU terminal request stack unwind");
+
+  bool waitPublished = false;
+  for (size_t attempt = 0; attempt < 4096; ++attempt) {
+    uintptr_t address = 0;
+    if (worker->getStatus() == Thread::Sleeping &&
+        worker->getDebugState(address) == Thread::SemWait) {
+      waitPublished = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+
+  worker->setUnwindState(Thread::TerminateThread);
+  const bool joined = worker->joinForCompletion();
+  if (!waitPublished || !joined || context.entered.value() != static_cast<size_t>(1) ||
+      context.interrupted.value() != static_cast<size_t>(1) ||
+      context.returned.value() != static_cast<size_t>(1) ||
+      context.destructed.value() != static_cast<size_t>(1)) {
+    FATAL("QEMU terminal request did not unwind the worker's C++ stack");
+  }
+
+  NOTICE("QEMU-CONCURRENCY-TEST: PASS terminal-request-stack-unwind");
+}
+
 void testPinnedLinkerUnloadRejection() {
   NOTICE("QEMU-CONCURRENCY-TEST: BEGIN linker-pinned-unload-rejection");
 
@@ -376,6 +438,7 @@ bool entry() {
     FATAL("QEMU NetworkFilter reciprocal-removal regression failed");
   }
   testProducerConsumerTeardown();
+  testTerminalRequestStackUnwind();
 
   if (!runAnonymousMemoryRegionRegression()) {
     FATAL("QEMU anonymous MemoryRegion regression failed");

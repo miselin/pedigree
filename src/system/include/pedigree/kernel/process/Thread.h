@@ -79,6 +79,20 @@ class EXPORTED_PUBLIC Thread {
   friend class SchedulerTimerDispatchCleanup;
 
  public:
+  class EXPORTED_PUBLIC StackDiscardScope {
+   public:
+    StackDiscardScope(DeferredScopeRecord::Cleanup cleanup, void* context);
+    ~StackDiscardScope();
+
+    void disarm();
+
+   private:
+    NOT_COPYABLE_OR_ASSIGNABLE(StackDiscardScope);
+
+    Thread* m_pThread;
+    DeferredScopeRecord m_Record;
+  };
+
   /** The state that a thread can possibly have. */
   enum Status {
     Created,
@@ -404,11 +418,9 @@ class EXPORTED_PUBLIC Thread {
      on failure ownership remains with the caller. */
   bool sendEvent(Event* pEvent);
 
-  /**
-   * Blocks until an event can be delivered to this thread.
-   * onAbandon runs if terminal cancellation prevents this call returning.
-   */
-  void waitForEvent(WaitQueue::AbandonCallback onAbandon = nullptr, void* abandonContext = nullptr);
+  /** Blocks until an event is delivered or terminal state is pending. */
+  void waitForEvent(WaitQueue::StackDiscardCleanup onStackDiscard = nullptr,
+                    void* stackDiscardContext = nullptr);
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   enum StateTransitionWindow {
@@ -631,7 +643,8 @@ class EXPORTED_PUBLIC Thread {
                        void* context);
   void unregisterDeferredScope(DeferredScopeRecord& record);
   void disarmStateCleanup(DeferredScopeRecord& record);
-  void moveDeferredScope(DeferredScopeRecord& from, DeferredScopeRecord& to);
+  void unregisterTerminationDeferral(DeferredScopeRecord& record);
+  void moveTerminationDeferral(DeferredScopeRecord& from, DeferredScopeRecord& to);
   void retireDeferredScopes(bool allStateLevels, size_t stateLevel = 0);
   size_t stateCleanupCheckpoint();
   void retireDeferredScopesAfter(size_t checkpoint);
@@ -666,10 +679,17 @@ class EXPORTED_PUBLIC Thread {
    */
   bool markReapable();
 
-  /** Releases an exclusive join claim when a terminal wait cannot return. */
-  static void abandonJoin(void* context);
-
+  /** Implements ordinary and completion-safe exclusive joins. */
   bool joinInternal(bool completion);
+
+  struct JoinDiscardContext {
+    Thread* target;
+    Process* parent;
+    bool claimed;
+  };
+
+  /** Releases a join claim if an exceptional stack discard cannot return. */
+  static void discardJoin(void* context);
 
   /** Admits a Process::ThreadLease while this object remains discoverable. */
   bool beginExternalLease();
@@ -686,7 +706,11 @@ class EXPORTED_PUBLIC Thread {
   /** Interrupts the active wait at the current event nesting level. */
   bool interruptWaitUnlocked(WaitQueue::WakeReason reason, PerProcessorScheduler*& readyScheduler);
   bool hasActiveWaitUnlocked() const;
+  bool hasActiveWaitAtAnyLevel() const;
   bool activeWaitPendingUnlocked() const;
+
+  /** Unpublishes every waiter before exceptional stack cleanup can run. */
+  void unlinkWaitsForStackDiscard();
 
   /**
    * A terminal cancel can unlink a published waiter before its owner has

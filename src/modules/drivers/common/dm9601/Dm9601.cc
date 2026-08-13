@@ -204,7 +204,8 @@ int Dm9601::trampoline(void* p) {
 void Dm9601::receiveThread() {
   while (true) {
     if (!m_IncomingPackets.acquire()) {
-      if (!m_Running)
+      if (!m_Running ||
+          Processor::information().getCurrentThread()->getUnwindState() != Thread::Continue)
         return;
       continue;
     }

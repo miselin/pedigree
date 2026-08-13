@@ -18,9 +18,10 @@ class Thread;
  *
  * A terminal request still wakes waits inside the scope. Interruptible waits
  * return a terminal-pending result, while ownership waits such as Mutex
- * acquisition finish before returning. The pending request is consumed at the
- * next ordinary WaitQueue, syscall, or user-mode scheduler boundary after the
- * outermost scope has retired its state.
+ * acquisition finish before returning. The scope does not turn ordinary waits
+ * into completion barriers: callers still propagate their failure until a
+ * syscall, kernel-thread, or user-mode scheduler boundary can commit the exit
+ * after the outermost scope has retired its state.
  */
 class EXPORTED_PUBLIC TerminationDeferral {
  public:

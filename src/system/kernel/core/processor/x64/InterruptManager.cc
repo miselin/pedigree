@@ -273,12 +273,18 @@ void X64InterruptManager::returnFromInterrupt(InterruptState& interruptState) {
   }
 
   // interrupt() has returned, so InterruptTimeAccounting and every raw
-  // handler scope are complete. This tail is an ordinary, interruptible
-  // thread boundary; a terminal transition may consume this stack.
+  // handler scope are complete. Finish the architecture accounting tail
+  // before a terminal transition consumes this root stack.
   Processor::setInterrupts(true);
-  Processor::information().getScheduler().serviceUserReturnWork(interruptState);
+  const bool terminal =
+      Processor::information().getScheduler().serviceUserReturnWork(interruptState);
   Processor::setInterrupts(false);
   InterruptTimeAccounting::finishUserReturn(thread);
+  if (terminal) {
+    Processor::setInterrupts(true);
+    Processor::information().getScheduler().commitUserReturnTerminalState();
+    FATAL_NOLOCK("Terminal user-return commit unexpectedly returned");
+  }
 }
 
 //

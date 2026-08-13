@@ -528,7 +528,9 @@ assert_all_wait_markers_once "$populated_log"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS wake-before-block"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS semaphore-pre-block"
 assert_marker \
-    "$populated_log" "HOSTED-WAIT-TEST: PASS terminal-cancel-callback-order"
+    "$populated_log" "HOSTED-WAIT-TEST: PASS terminal-cancel-return"
+assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS waitqueue-published-stack-discard"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS condition-variable-pre-block"
 assert_marker \
@@ -661,7 +663,7 @@ assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS owned-thread-terminal-join"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS lifetime-leases"
 assert_marker \
-    "$populated_log" "HOSTED-WAIT-TEST: PASS join-terminal-abandonment"
+    "$populated_log" "HOSTED-WAIT-TEST: PASS join-terminal-propagation"
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS scheduler-same-priority-progress"
 assert_marker \

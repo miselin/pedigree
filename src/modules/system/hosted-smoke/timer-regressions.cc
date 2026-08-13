@@ -289,7 +289,8 @@ struct TimerAbandonContext {
 };
 
 void abandonCurrentTimerDispatcher() {
-  Processor::information().getCurrentThread()->getScheduler()->killCurrentThread();
+  Processor::information().getCurrentThread()->getScheduler()->abandonCurrentThreadStack(
+      PerProcessorScheduler::StackDiscardReason::HostedRegression);
 }
 
 void AbandoningTimerHandler::timer(uint64_t) {

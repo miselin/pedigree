@@ -172,20 +172,37 @@ class CachePageFillGuard {
 };
 }  // namespace
 
-AtaDisk::IrqCompletion::IrqCompletion(AtaDisk& disk) : m_Disk(disk), m_Completion(0) {
+AtaDisk::IrqCompletion::IrqCompletion(AtaDisk& disk)
+    : m_Disk(disk),
+      m_Completion(0),
+      m_Published(false),
+      m_StackDiscardScope(&IrqCompletion::discard, this) {
   LockGuard<Spinlock> guard(m_Disk.m_IrqLock);
   if (m_Disk.m_IrqReceived) {
     FATAL("ATA command attempted to replace a live IRQ completion");
   }
   m_Disk.m_IrqReceived = &m_Completion;
+  m_Published = true;
 }
 
 AtaDisk::IrqCompletion::~IrqCompletion() {
+  withdraw();
+}
+
+void AtaDisk::IrqCompletion::discard(void* context) {
+  reinterpret_cast<IrqCompletion*>(context)->withdraw();
+}
+
+void AtaDisk::IrqCompletion::withdraw() {
   LockGuard<Spinlock> guard(m_Disk.m_IrqLock);
+  if (!m_Published) {
+    return;
+  }
   if (m_Disk.m_IrqReceived != &m_Completion) {
     FATAL("ATA IRQ completion publication was corrupted");
   }
   m_Disk.m_IrqReceived = nullptr;
+  m_Published = false;
 }
 
 AtaDisk::AtaDisk(AtaController* pDev, bool isMaster, IoBase* commandRegs, IoBase* controlRegs,

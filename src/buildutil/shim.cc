@@ -286,13 +286,13 @@ TerminationDeferral::TerminationDeferral(bool) : m_pThread(nullptr) {}
 
 TerminationDeferral::~TerminationDeferral() = default;
 
-bool ConditionVariable::wait(Mutex& mutex, Error& error, WaitQueue::AbandonCallback, void*) {
+bool ConditionVariable::wait(Mutex& mutex, Error& error, WaitQueue::StackDiscardCleanup, void*) {
   Time::Timestamp timeout = Time::Infinity;
   return wait(mutex, timeout, error, nullptr, nullptr);
 }
 
 bool ConditionVariable::wait(Mutex& mutex, Time::Timestamp& timeout, Error& error,
-                             WaitQueue::AbandonCallback, void*) {
+                             WaitQueue::StackDiscardCleanup, void*) {
   error = NoError;
   if (timeout == 0) {
     error = TimedOut;

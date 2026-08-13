@@ -21,6 +21,7 @@
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
@@ -40,6 +41,27 @@
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+Thread::StackDiscardScope::StackDiscardScope(DeferredScopeRecord::Cleanup cleanup, void* context)
+    : m_pThread(cleanup ? Processor::information().getCurrentThread() : nullptr), m_Record() {
+  if (cleanup && !m_pThread) {
+    FATAL("StackDiscardScope cleanup has no current Thread.");
+  }
+  if (m_pThread) {
+    m_pThread->armStateCleanup(m_Record, cleanup, context);
+  }
+}
+
+Thread::StackDiscardScope::~StackDiscardScope() {
+  disarm();
+}
+
+void Thread::StackDiscardScope::disarm() {
+  if (m_pThread) {
+    m_pThread->disarmStateCleanup(m_Record);
+    m_pThread = nullptr;
+  }
+}
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 namespace {
@@ -402,14 +424,7 @@ void Thread::shutdown() {
     (void)reason;
   }
 
-  // Cancel every outstanding wait before any state-level stack can be freed.
-  for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
-    WaitQueue::Waiter& waiter = m_StateLevels[level].m_Waiter;
-    WaitQueue* queue = waiter.loadQueue();
-    if (queue) {
-      queue->cancel(&waiter, WaitQueue::WakeReason::Terminating);
-    }
-  }
+  unlinkWaitsForStackDiscard();
 
   // Once shutdown is visible, no sender can publish another event. Remove
   // each queued registration under the thread lock, but complete it outside
@@ -448,6 +463,19 @@ void Thread::shutdown() {
   // can still be published on the ready queue while idle, so the status
   // transition must also withdraw that scheduler publication.
   setStatus(Thread::AwaitingJoin);
+}
+
+void Thread::unlinkWaitsForStackDiscard() {
+  // A discard callback can release the final reference to the object which
+  // owns a WaitQueue. Unpublish every intrusive waiter before invoking any
+  // such callback.
+  for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
+    WaitQueue::Waiter& waiter = m_StateLevels[level].m_Waiter;
+    WaitQueue* queue = waiter.loadQueue();
+    if (queue) {
+      queue->cancel(&waiter, WaitQueue::WakeReason::Terminating);
+    }
+  }
 }
 
 void Thread::setClearChildTid(uintptr_t address) {
@@ -696,7 +724,26 @@ size_t Thread::getStateLevel() const {
 }
 
 void Thread::threadExited() {
-  Processor::information().getScheduler().killCurrentThread();
+  Thread* thread = Processor::information().getCurrentThread();
+  if (!thread) {
+    FATAL("Kernel thread root returned without a current Thread.");
+  }
+  if (thread->getStateLevel()) {
+    FATAL("Kernel thread root returned with nested event state still active.");
+  }
+
+  const UnwindType unwindState = thread->getUnwindState();
+  if (unwindState == Exit) {
+    Process* process = thread->getParent();
+    Subsystem* subsystem = process ? process->getSubsystem() : nullptr;
+    if (!subsystem) {
+      FATAL("Kernel thread root reached process exit without a subsystem.");
+    }
+    subsystem->exit(thread->takeDeferredProcessExitCode());
+    FATAL("Subsystem::exit returned to a kernel thread root.");
+  }
+
+  Processor::information().getScheduler().commitCurrentThreadExit();
 }
 
 void Thread::allocateStackAtLevel(size_t stateLevel) {
@@ -844,8 +891,14 @@ bool Thread::sendEvent(Event* pEvent) {
   return accepted;
 }
 
-void Thread::waitForEvent(WaitQueue::AbandonCallback onAbandon, void* abandonContext) {
+void Thread::waitForEvent(WaitQueue::StackDiscardCleanup onStackDiscard,
+                          void* stackDiscardContext) {
+  StackDiscardScope discardScope(onStackDiscard, stackDiscardContext);
   while (true) {
+    if (getUnwindState() != Continue) {
+      return;
+    }
+
     bool ready = false;
     WaitQueue::WakeReason reason = WaitQueue::WakeReason::Spurious;
     {
@@ -856,12 +909,11 @@ void Thread::waitForEvent(WaitQueue::AbandonCallback onAbandon, void* abandonCon
       m_Lock.release();
       if (!ready) {
         reason = guard.wait(WaitQueue::Channel(), Thread::EventWait,
-                            reinterpret_cast<uintptr_t>(__builtin_return_address(0)), onAbandon,
-                            abandonContext);
+                            reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
       }
     }
 
-    if (ready) {
+    if (ready && getUnwindState() == Continue) {
       // A pre-existing event did not pass through WaitQueue::wait(), so
       // dispatch it explicitly after dropping the event-wait guard and
       // identify it as the event which satisfied this wait.
@@ -1630,6 +1682,8 @@ bool Thread::joinInternal(bool completion) {
     m_bJoinClaimed = true;
   }
 
+  JoinDiscardContext discard = {this, pParent, true};
+  StackDiscardScope discardScope(&Thread::discardJoin, &discard);
   while (true) {
     bool reapable = false;
     {
@@ -1641,13 +1695,14 @@ bool Thread::joinInternal(bool completion) {
         WaitQueue::WakeReason reason =
             completion
                 ? guard.waitForCompletion(WaitQueue::Channel(), Thread::Joining, returnAddress)
-                : guard.wait(WaitQueue::Channel(), Thread::Joining, returnAddress,
-                             &Thread::abandonJoin, this);
+                : guard.wait(WaitQueue::Channel(), Thread::Joining, returnAddress);
         if (reason == WaitQueue::WakeReason::Unwinding ||
             reason == WaitQueue::WakeReason::Terminating) {
           if (completion) {
             continue;
           }
+          discardScope.disarm();
+          discard.claimed = false;
           {
             auto claimGuard = m_JoinWaiters.acquire();
             m_bJoinClaimed = false;
@@ -1688,6 +1743,11 @@ bool Thread::joinInternal(bool completion) {
           processOwnsTarget = true;
         }
       }
+
+      // No callback can observe the target after the ownership decision
+      // below deletes it. From here, ordinary code owns the claim release.
+      discardScope.disarm();
+      discard.claimed = false;
 
       if (!processOwnsTarget) {
         // markReapable() runs only after the scheduler has switched
@@ -1796,9 +1856,17 @@ void Thread::closeExternalLeaseAdmissionAndDrain() {
   }
 }
 
-void Thread::abandonJoin(void* context) {
-  Thread* target = reinterpret_cast<Thread*>(context);
-  Process* parent = target->m_pParent;
+void Thread::discardJoin(void* context) {
+  JoinDiscardContext* discard = reinterpret_cast<JoinDiscardContext*>(context);
+  if (!discard->claimed) {
+    return;
+  }
+
+  Thread* target = discard->target;
+  Process* parent = discard->parent;
+  discard->claimed = false;
+  discard->target = nullptr;
+  discard->parent = nullptr;
   {
     auto guard = target->m_JoinWaiters.acquire();
     target->m_bJoinClaimed = false;
@@ -2110,23 +2178,65 @@ void Thread::disarmStateCleanup(DeferredScopeRecord& record) {
   Processor::setInterrupts(interruptsWereEnabled);
 }
 
-void Thread::moveDeferredScope(DeferredScopeRecord& from, DeferredScopeRecord& to) {
-  if (&from == &to || !from.armed || from.stateLevel >= MAX_NESTED_EVENTS) {
-    FATAL("Moved deferred scope was not registered.");
-  }
-  if (to.armed || to.next || to.defersTermination || to.defersEvents || to.sequence || to.cleanup ||
-      to.context) {
-    FATAL("Deferred scope move destination was already registered.");
+void Thread::unregisterTerminationDeferral(DeferredScopeRecord& record) {
+  if (!record.armed || !record.defersTermination || record.defersEvents || record.cleanup ||
+      record.stateLevel >= MAX_NESTED_EVENTS) {
+    FATAL("Invalid termination deferral retirement.");
   }
 
   const bool interruptsWereEnabled = Processor::getInterrupts();
   Processor::setInterrupts(false);
 
+  DeferredScopeRecord* previous = nullptr;
+  DeferredScopeRecord* current =
+      __atomic_load_n(&m_pDeferredScopes[record.stateLevel], __ATOMIC_ACQUIRE);
+  while (current && current != &record) {
+    previous = current;
+    current = current->next;
+  }
+  if (!current) {
+    FATAL("Termination deferral was absent from its Thread.");
+  }
+
+  if (previous) {
+    previous->next = record.next;
+  } else {
+    __atomic_store_n(&m_pDeferredScopes[record.stateLevel], record.next, __ATOMIC_RELEASE);
+  }
+  resumeTermination();
+  record = DeferredScopeRecord();
+
+  Processor::setInterrupts(interruptsWereEnabled);
+}
+
+void Thread::moveTerminationDeferral(DeferredScopeRecord& from, DeferredScopeRecord& to) {
+  if (&from == &to || !from.armed || from.stateLevel >= MAX_NESTED_EVENTS) {
+    FATAL("Moved termination deferral was not registered.");
+  }
+  if (!from.defersTermination || from.defersEvents || from.cleanup || to.armed || to.next ||
+      to.defersTermination || to.defersEvents || to.sequence || to.cleanup || to.context) {
+    FATAL("Invalid termination deferral move.");
+  }
+
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+
+  DeferredScopeRecord* previous = nullptr;
+  DeferredScopeRecord* current =
+      __atomic_load_n(&m_pDeferredScopes[from.stateLevel], __ATOMIC_ACQUIRE);
+  while (current && current != &from) {
+    previous = current;
+    current = current->next;
+  }
+  if (!current) {
+    FATAL("Moved termination deferral was absent from its Thread.");
+  }
+
   to = from;
-  DeferredScopeRecord* expected = &from;
-  if (!__atomic_compare_exchange_n(&m_pDeferredScopes[from.stateLevel], &expected, &to, false,
-                                   __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-    FATAL("Deferred scopes were not moved in LIFO order.");
+  if (previous) {
+    previous->next = &to;
+  } else {
+    __atomic_store_n(&m_pDeferredScopes[from.stateLevel], &to, __ATOMIC_RELEASE);
   }
   from = DeferredScopeRecord();
 
@@ -2386,6 +2496,15 @@ bool Thread::interruptWaitUnlocked(WaitQueue::WakeReason reason,
 
 bool Thread::hasActiveWaitUnlocked() const {
   return m_StateLevels[m_nStateLevel].m_Waiter.loadQueue() != nullptr;
+}
+
+bool Thread::hasActiveWaitAtAnyLevel() const {
+  for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
+    if (m_StateLevels[level].m_Waiter.loadQueue()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool Thread::activeWaitPendingUnlocked() const {

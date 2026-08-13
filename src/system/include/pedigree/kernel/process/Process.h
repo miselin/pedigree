@@ -537,6 +537,8 @@ class EXPORTED_PUBLIC Process {
   void enableTimeAccountingReports();
 
  private:
+  void finishTermination(bool abandonStack) NORETURN;
+
   Process(const Process&);
   Process& operator=(const Process&);
 

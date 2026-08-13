@@ -48,6 +48,78 @@ extern void pollEventHandler(uint8_t* pBuffer);
 
 enum TimeoutType { ReturnImmediately, SpecificTimeout, InfiniteTimeout };
 
+namespace {
+struct PollCleanupContext {
+  Thread* thread;
+  List<PollEvent*>* events;
+  Spinlock* reentrancyLock;
+  SharedPointer<Semaphore>* semaphore;
+  DescriptorLease** descriptors;
+  size_t descriptorCount;
+  bool fileEventsActive;
+  bool socketRegistrationsActive;
+  bool active;
+};
+
+void removePollEvents(PollCleanupContext& cleanup) {
+  if (!cleanup.fileEventsActive) {
+    return;
+  }
+  cleanup.fileEventsActive = false;
+
+  if (!cleanup.events->count()) {
+    return;
+  }
+
+  EMIT_IF(THREADS) {
+    cleanup.reentrancyLock->acquire();
+    cleanup.thread->inhibitEvent(EventNumbers::PollEvent, true);
+    cleanup.reentrancyLock->release();
+  }
+
+  for (auto event : *cleanup.events) {
+    event->getFile()->cullMonitorTargets(cleanup.thread);
+  }
+
+  EMIT_IF(THREADS) {
+    cleanup.thread->cullEvent(EventNumbers::PollEvent);
+  }
+
+  while (cleanup.events->count()) {
+    delete cleanup.events->popFront();
+  }
+
+  EMIT_IF(THREADS) {
+    cleanup.thread->inhibitEvent(EventNumbers::PollEvent, false);
+  }
+}
+
+void removePollRegistrations(void* context) {
+  PollCleanupContext* cleanup = reinterpret_cast<PollCleanupContext*>(context);
+  if (!cleanup->active) {
+    return;
+  }
+  cleanup->active = false;
+
+  removePollEvents(*cleanup);
+
+  DescriptorLease* descriptors = *cleanup->descriptors;
+  if (cleanup->socketRegistrationsActive) {
+    cleanup->socketRegistrationsActive = false;
+    for (size_t i = 0; i < cleanup->descriptorCount; ++i) {
+      DescriptorLease& descriptor = descriptors[i];
+      if (descriptor && descriptor->networkImpl && descriptor->networkImpl->canPoll()) {
+        descriptor->networkImpl->unPoll(cleanup->semaphore->get());
+      }
+    }
+  }
+
+  *cleanup->descriptors = nullptr;
+  delete[] descriptors;
+  cleanup->semaphore->reset();
+}
+}  // namespace
+
 /** poll: determine if a set of file descriptors are writable/readable.
  *
  *  Permits any number of descriptors, unlike select().
@@ -129,6 +201,9 @@ int posix_poll_safe(struct pollfd* fds, unsigned int nfds, int timeout) {
   // the numeric fd during wakeup or cleanup could target a reused descriptor
   // and leave a registration pointing into this stack behind.
   DescriptorLease* descriptors = new DescriptorLease[nfds];
+  PollCleanupContext cleanup = {pThread, &events, &reentrancyLock, &pSem, &descriptors, nfds, true,
+                                true,    true};
+  Thread::StackDiscardScope discardScope(THREADS ? &removePollRegistrations : nullptr, &cleanup);
 
   for (unsigned int i = 0; i < nfds; i++) {
     // Grab the pollfd structure.
@@ -356,33 +431,7 @@ int posix_poll_safe(struct pollfd* fds, unsigned int nfds, int timeout) {
     }
   }
 
-  // Only do cleanup and lock acquire/release if we set events up.
-  if (events.count()) {
-    // Block any more events being sent to us so we can safely clean up.
-    EMIT_IF(THREADS) {
-      reentrancyLock.acquire();
-      pThread->inhibitEvent(EventNumbers::PollEvent, true);
-      reentrancyLock.release();
-    }
-
-    for (auto pEvent : events) {
-      pEvent->getFile()->cullMonitorTargets(pThread);
-    }
-
-    EMIT_IF(THREADS) {
-      // Ensure there are no events still pending for this thread.
-      pThread->cullEvent(EventNumbers::PollEvent);
-    }
-
-    for (auto pEvent : events) {
-      delete pEvent;
-    }
-
-    EMIT_IF(THREADS) {
-      // Cleanup is complete, stop inhibiting events now.
-      pThread->inhibitEvent(EventNumbers::PollEvent, false);
-    }
-  }
+  removePollEvents(cleanup);
 
   // Prepare return value (number of fds with events).
   size_t nRet = 0;
@@ -393,22 +442,12 @@ int posix_poll_safe(struct pollfd* fds, unsigned int nfds, int timeout) {
     if (fds[i].revents != 0) {
       ++nRet;
     }
-
-    // Clean up socket Semaphores that we registered, if any.
-    DescriptorLease& pFd = descriptors[i];
-    if (!pFd) {
-      continue;
-    }
-
-    if (pFd->networkImpl && pFd->networkImpl->canPoll()) {
-      pFd->networkImpl->unPoll(pSem.get());
-    }
   }
 
   POLL_NOTICE("    -> " << Dec << ((bError) ? -1 : (int)nRet) << Hex);
   POLL_NOTICE("    -> nRet is " << nRet << ", error is " << bError);
 
   const int result = bError ? -1 : static_cast<int>(nRet);
-  delete[] descriptors;
+  removePollRegistrations(&cleanup);
   return result;
 }

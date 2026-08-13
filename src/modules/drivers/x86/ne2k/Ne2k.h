@@ -71,9 +71,9 @@ class Ne2k : public Network, public IrqHandler {
   bool recoverReceiveOverflow(uint8_t irqStatus);
   void advanceReceiveBoundary(uint8_t nextPacket);
 
-  static int trampoline(void* p) NORETURN;
+  static int trampoline(void* p);
 
-  void receiveThread() NORETURN;
+  void receiveThread();
 
   struct packet {
     uintptr_t ptr;

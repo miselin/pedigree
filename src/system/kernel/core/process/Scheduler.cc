@@ -66,10 +66,18 @@ Scheduler::ProcessLease::~ProcessLease() {
 
 Scheduler::ProcessLease& Scheduler::ProcessLease::operator=(ProcessLease&& other) {
   if (this != &other) {
-    reset();
-    m_TerminationDeferral = pedigree_std::move(other.m_TerminationDeferral);
-    m_pProcess = other.m_pProcess;
-    other.m_pProcess = nullptr;
+    if (other.m_pProcess) {
+      m_TerminationDeferral = pedigree_std::move(other.m_TerminationDeferral);
+
+      Process* previous = m_pProcess;
+      m_pProcess = other.m_pProcess;
+      other.m_pProcess = nullptr;
+      if (previous) {
+        Scheduler::instance().releaseProcessLease(previous);
+      }
+    } else {
+      reset();
+    }
   }
   return *this;
 }

@@ -640,25 +640,6 @@ int posix_waitpid(const int pid, int* status, int options) {
   }
 }
 
-int posix_exit(int code, bool allthreads) {
-  SC_NOTICE("exit(" << Dec << (code & 0xFF) << Hex << ")");
-
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-  PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
-
-  if (allthreads) {
-    SC_NOTICE(" -> thread group");
-    pSubsystem->exit(code);
-  } else {
-    // Not all threads - only kill current thread!
-    SC_NOTICE(" -> current thread");
-    Processor::information().getScheduler().killCurrentThread();
-  }
-
-  // Should NEVER get here.
-  FATAL("exit method returned in posix_exit");
-}
-
 int posix_getpid() {
   SC_NOTICE("getpid");
 

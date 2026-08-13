@@ -13,8 +13,9 @@
 /**
  * Intrusive record for a deferral scope living on a Thread kernel stack.
  *
- * Thread teardown unlinks these records before abandoning their stack. The
- * record itself needs no destructor in that case.
+ * Explicit context replacement or exceptional stack discard unlinks these
+ * records before the storage disappears. Ordinary termination relies on the
+ * owning C++ scope to unregister the record while returning normally.
  */
 struct DeferredScopeRecord {
   using Cleanup = void (*)(void*);

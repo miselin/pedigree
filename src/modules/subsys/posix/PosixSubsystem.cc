@@ -525,7 +525,7 @@ void PosixSubsystem::exit(int code) {
   if (!pProcess->beginTermination()) {
     // Another thread owns or has reserved process-wide cleanup. A competitor
     // must take only the thread exit path; the owner will retire every peer.
-    Processor::information().getScheduler().killCurrentThread();
+    Processor::information().getScheduler().commitCurrentThreadExit();
   }
 
   if (pProcess->getExitStatus() == 0 ||     // Normal exit.
@@ -534,24 +534,6 @@ void PosixSubsystem::exit(int code) {
     pProcess->setExitStatus((code & 0xFF) << 8);
   if (code) {
     pThread->unexpectedExit();
-  }
-
-  // Exit called, but we could be at any nesting level in the event stack.
-  // We have to propagate this exit() to all lower stack levels because they
-  // may have semaphores and stuff open.
-
-  // So, if we're not dealing with the lowest in the stack...
-  /// \note If we're at state level one, we're potentially running as a thread
-  /// that has
-  ///       had an event sent to it from another process. If this is changed
-  ///       to > 0, it is impossible to return to a shell when a segfault
-  ///       occurs in an app.
-  if (pThread->getStateLevel() > 1) {
-    // OK, we have other events running. They'll have to die first before we
-    // can do anything.
-    pThread->deferProcessExit(code);
-
-    Processor::information().getScheduler().eventHandlerReturned();
   }
 
   // Exit has reached the final cleanup context. Blocking cleanup below must

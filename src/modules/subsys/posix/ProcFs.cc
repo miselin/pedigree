@@ -22,7 +22,9 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/machine/Device.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/time/Time.h"
 
 #include "PosixProcess.h"
@@ -77,7 +79,10 @@ void MeminfoFile::updateThread() {
                       freeKb, freeKb);
     m_Lock.release();
 
-    m_UpdateWake.acquire(1, 1, 0);
+    if (!m_UpdateWake.acquire(1, 1, 0) &&
+        Processor::information().getCurrentThread()->getUnwindState() != Thread::Continue) {
+      return;
+    }
   }
 
   NOTICE("MeminfoFile::updateThread completed");

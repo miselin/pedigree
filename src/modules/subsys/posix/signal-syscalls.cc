@@ -50,22 +50,20 @@ static int doThreadKill(Thread* p, int sig);
 
 /// \todo These are ok initially, but it'll all have to change at some point
 
-#define SIGNAL_HANDLER_EXIT(name, errcode) \
-  static void name(int) NORETURN;          \
-  static void name(int) {                  \
-    posix_exit(errcode);                   \
+#define SIGNAL_HANDLER_EXIT(name, errcode)                                  \
+  static void name(int) {                                                   \
+    Processor::information().getCurrentThread()->deferProcessExit(errcode); \
   }
 #define SIGNAL_HANDLER_EMPTY(name) \
   static void name(int s) {        \
     NOTICE("EMPTY handler.");      \
   }
-#define SIGNAL_HANDLER_EXITMSG(name, errcode, msg) \
-  static void name(int) NORETURN;                  \
-  static void name(int) {                          \
-    Processor::setInterrupts(true);                \
-    posix_write(1, msg, StringLength(msg), true);  \
-    Scheduler::instance().yield();                 \
-    posix_exit(errcode);                           \
+#define SIGNAL_HANDLER_EXITMSG(name, errcode, msg)                          \
+  static void name(int) {                                                   \
+    Processor::setInterrupts(true);                                         \
+    posix_write(1, msg, StringLength(msg), true);                           \
+    Scheduler::instance().yield();                                          \
+    Processor::information().getCurrentThread()->deferProcessExit(errcode); \
   }
 #define SIGNAL_HANDLER_SUSPEND(name)                                             \
   static void name(int s) {                                                      \

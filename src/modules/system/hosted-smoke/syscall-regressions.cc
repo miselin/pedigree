@@ -516,11 +516,24 @@ class AbandoningHandler : public SyscallHandler {
 };
 
 struct AbandonedStackContext {
-  AbandonedStackContext() : handler(*this), entered(0), returned(0) {}
+  AbandonedStackContext() : handler(*this), entered(0), returned(0), destructed(0) {}
 
   AbandoningHandler handler;
   Atomic<size_t> entered;
   Atomic<size_t> returned;
+  Atomic<size_t> destructed;
+};
+
+class AbandonedStackCanary {
+ public:
+  explicit AbandonedStackCanary(Atomic<size_t>* destructed) : m_Destructed(destructed) {}
+
+  ~AbandonedStackCanary() {
+    *m_Destructed += 1;
+  }
+
+ private:
+  Atomic<size_t>* m_Destructed;
 };
 
 uintptr_t AbandoningHandler::syscall(SyscallState&) {
@@ -531,8 +544,10 @@ uintptr_t AbandoningHandler::syscall(SyscallState&) {
 
   Uninterruptible eventAndTerminationDeferral;
   TerminationDeferral nestedTerminationDeferral;
+  AbandonedStackCanary stackCanary(&m_Context.destructed);
   m_Context.entered += 1;
-  thread->getScheduler()->killCurrentThread();
+  thread->getScheduler()->abandonCurrentThreadStack(
+      PerProcessorScheduler::StackDiscardReason::HostedRegression);
 }
 
 int invokeAbandoningSyscall(void* parameter) {
@@ -550,15 +565,21 @@ bool abandonedSyscallStack() {
     return check(false, "syscall-abandoned-stack", "the abandoning handler could not register");
   }
 
+  const size_t discardsBefore = PerProcessorScheduler::stackDiscardCount(
+      PerProcessorScheduler::StackDiscardReason::HostedRegression);
   Thread* thread = new Thread(Scheduler::instance().getKernelProcess(), invokeAbandoningSyscall,
                               &context, nullptr, false, true);
   thread->setName("hosted abandoning syscall");
   const bool joined = thread->join();
   const bool retired = registration.reset();
 
-  const bool passed =
-      check(joined && retired && context.entered == 1 && context.returned == 0,
-            "syscall-abandoned-stack", "forced teardown stranded a handler or deferral record");
+  const bool passed = check(
+      joined && retired && context.entered == 1 && context.returned == 0 &&
+          context.destructed == 0 &&
+          PerProcessorScheduler::stackDiscardCount(
+              PerProcessorScheduler::StackDiscardReason::HostedRegression) == discardsBefore + 1,
+      "syscall-abandoned-stack",
+      "forced teardown did not count exactly one intentionally leaked stack");
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS syscall-abandoned-stack");
   }

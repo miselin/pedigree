@@ -367,7 +367,10 @@ void CacheManager::trimThread() {
       if (!m_bTrimRequested) {
         const WaitQueue::WakeReason reason = guard.wait(
             WaitQueue::Channel(this), Thread::CallbackDrain, reinterpret_cast<uintptr_t>(this));
-        (void)reason;
+        if (reason == WaitQueue::WakeReason::Unwinding ||
+            reason == WaitQueue::WakeReason::Terminating) {
+          return;
+        }
         continue;
       }
       m_bTrimRequested = false;

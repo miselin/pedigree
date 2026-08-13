@@ -58,24 +58,40 @@ Atomic<size_t> g_HostedAlarmCreates(0);
 Atomic<size_t> g_HostedAlarmDestroys(0);
 #endif
 
+namespace {
+struct DelayDiscard {
+  void* alarm;
+};
+
+void discardDelay(void* context) {
+  DelayDiscard* discard = reinterpret_cast<DelayDiscard*>(context);
+  void* alarm = discard->alarm;
+  discard->alarm = nullptr;
+  if (alarm) {
+    removeAlarm(alarm);
+  }
+}
+}  // namespace
+
 bool delay(Timestamp nanoseconds) {
   Thread* pThread = Processor::information().getCurrentThread();
-  void* handle = addAlarm(nanoseconds);
+  DelayDiscard discard = {addAlarm(nanoseconds)};
+  Thread::StackDiscardScope discardScope(&discardDelay, &discard);
 
   while (true) {
     if (!pThread->wasInterrupted())
-      pThread->waitForEvent(&removeAlarm, handle);
+      pThread->waitForEvent();
 
     const Thread::InterruptionReason interruption = pThread->getInterruptionReason();
     if (interruption == Thread::InterruptedByTimeout) {
-      removeAlarm(handle);
+      discardDelay(&discard);
       pThread->clearInterruption();
       break;
     } else if (interruption == Thread::InterruptedBySignal) {
-      removeAlarm(handle);
+      discardDelay(&discard);
       return false;
     } else if (pThread->getUnwindState() != Thread::Continue) {
-      removeAlarm(handle);
+      discardDelay(&discard);
       return false;
     }
 

@@ -722,7 +722,8 @@ void abandonedDispatchPinHook(MemoryTrapHandler* handler) {
     if (context->phase == static_cast<size_t>(2) &&
         hasCallbackDrainWait(context->remover, &context->handler)) {
       context->hookObservedDrain += 1;
-      Processor::information().getCurrentThread()->getScheduler()->killCurrentThread();
+      Processor::information().getCurrentThread()->getScheduler()->abandonCurrentThreadStack(
+          PerProcessorScheduler::StackDiscardReason::HostedRegression);
     }
     Scheduler::instance().yield();
   }
@@ -731,7 +732,8 @@ void abandonedDispatchPinHook(MemoryTrapHandler* handler) {
   // drain wait. Returning would exercise the ordinary cleanup path instead
   // of the abandoned-stack path this regression is intended to prove.
   context->failures += 1;
-  Processor::information().getCurrentThread()->getScheduler()->killCurrentThread();
+  Processor::information().getCurrentThread()->getScheduler()->abandonCurrentThreadStack(
+      PerProcessorScheduler::StackDiscardReason::HostedRegression);
 }
 
 int unregisterAbandonedDispatch(void* parameter) {

@@ -13,7 +13,8 @@ Completion::Completion() : m_Waiters(), m_Completed(false), m_WaitClaimed(false)
 
 Completion::~Completion() = default;
 
-bool Completion::wait(WaitQueue::AbandonCallback onAbandon, void* abandonContext) {
+bool Completion::wait(WaitQueue::StackDiscardCleanup onStackDiscard, void* stackDiscardContext) {
+  Thread::StackDiscardScope discardScope(onStackDiscard, stackDiscardContext);
   bool claimed = false;
   while (true) {
     auto guard = m_Waiters.acquire();
@@ -29,9 +30,9 @@ bool Completion::wait(WaitQueue::AbandonCallback onAbandon, void* abandonContext
       return true;
     }
 
-    WaitQueue::WakeReason reason = guard.wait(
-        WaitQueue::Channel(), Thread::SemWait,
-        reinterpret_cast<uintptr_t>(__builtin_return_address(0)), onAbandon, abandonContext);
+    WaitQueue::WakeReason reason =
+        guard.wait(WaitQueue::Channel(), Thread::SemWait,
+                   reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
     if (reason == WaitQueue::WakeReason::Unwinding ||
         reason == WaitQueue::WakeReason::Terminating) {
       return false;

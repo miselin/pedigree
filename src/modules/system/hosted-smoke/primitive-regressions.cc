@@ -1032,42 +1032,73 @@ struct TerminalTimeoutContext {
         mutex(mutex),
         semaphoreEntered(0),
         semaphoreReturned(0),
+        semaphoreInterrupted(0),
+        semaphoreDestructed(0),
         conditionEntered(0),
         conditionReturned(0),
+        conditionTerminal(0),
+        conditionMutexHeld(0),
+        conditionDestructed(0),
         delayEntered(0),
-        delayReturned(0) {}
+        delayReturned(0),
+        delayInterrupted(0),
+        delayDestructed(0) {}
 
   Semaphore* semaphore;
   ConditionVariable* condition;
   Mutex* mutex;
   Atomic<size_t> semaphoreEntered;
   Atomic<size_t> semaphoreReturned;
+  Atomic<size_t> semaphoreInterrupted;
+  Atomic<size_t> semaphoreDestructed;
   Atomic<size_t> conditionEntered;
   Atomic<size_t> conditionReturned;
+  Atomic<size_t> conditionTerminal;
+  Atomic<size_t> conditionMutexHeld;
+  Atomic<size_t> conditionDestructed;
   Atomic<size_t> delayEntered;
   Atomic<size_t> delayReturned;
+  Atomic<size_t> delayInterrupted;
+  Atomic<size_t> delayDestructed;
+};
+
+class TerminalTimeoutStackCanary {
+ public:
+  explicit TerminalTimeoutStackCanary(Atomic<size_t>* destructed) : m_Destructed(destructed) {}
+
+  ~TerminalTimeoutStackCanary() {
+    *m_Destructed += 1;
+  }
+
+ private:
+  Atomic<size_t>* m_Destructed;
 };
 
 int terminalTimedSemaphoreWait(void* parameter) {
   TerminalTimeoutContext* context = reinterpret_cast<TerminalTimeoutContext*>(parameter);
+  TerminalTimeoutStackCanary stackCanary(&context->semaphoreDestructed);
   context->semaphoreEntered += 1;
   Semaphore::SemaphoreError error = Semaphore::NoError;
   const bool acquired = context->semaphore->acquireWithError(1, 0, 500000, error);
-  (void)acquired;
+  context->semaphoreInterrupted =
+      !acquired && error == Semaphore::Interrupted ? static_cast<size_t>(1) : 0;
   context->semaphoreReturned += 1;
   return 0;
 }
 
 int terminalTimedConditionWait(void* parameter) {
   TerminalTimeoutContext* context = reinterpret_cast<TerminalTimeoutContext*>(parameter);
+  TerminalTimeoutStackCanary stackCanary(&context->conditionDestructed);
   context->mutex->acquire();
   context->conditionEntered += 1;
   Time::Timestamp timeout = 500 * Time::Multiplier::Millisecond;
   ConditionVariable::Error error = ConditionVariable::NoError;
   const bool signalled = context->condition->wait(*context->mutex, timeout, error);
-  (void)signalled;
+  context->conditionTerminal =
+      !signalled && error == ConditionVariable::TerminationDeferred ? static_cast<size_t>(1) : 0;
+  context->conditionMutexHeld = context->mutex->isOwnedByCurrentThread() ? 1 : 0;
   context->conditionReturned += 1;
-  if (context->mutex->isOwnedByCurrentThread()) {
+  if (context->conditionMutexHeld) {
     context->mutex->release();
   }
   return 0;
@@ -1075,8 +1106,9 @@ int terminalTimedConditionWait(void* parameter) {
 
 int terminalDelay(void* parameter) {
   TerminalTimeoutContext* context = reinterpret_cast<TerminalTimeoutContext*>(parameter);
+  TerminalTimeoutStackCanary stackCanary(&context->delayDestructed);
   context->delayEntered += 1;
-  Time::delay(500 * Time::Multiplier::Millisecond);
+  context->delayInterrupted = Time::delay(500 * Time::Multiplier::Millisecond) ? 0 : 1;
   context->delayReturned += 1;
   return 0;
 }
@@ -1118,9 +1150,13 @@ bool terminalTimeoutCleanup() {
   passed &=
       check(semaphoreJoined && conditionJoined && delayJoined && context.semaphoreEntered == 1 &&
                 context.conditionEntered == 1 && context.delayEntered == 1 &&
-                context.semaphoreReturned == 0 && context.conditionReturned == 0 &&
-                context.delayReturned == 0,
-            "terminal-timeout-cleanup", "a terminal timed wait returned through ordinary cleanup");
+                context.semaphoreReturned == 1 && context.semaphoreInterrupted == 1 &&
+                context.semaphoreDestructed == 1 && context.conditionReturned == 1 &&
+                context.conditionTerminal == 1 && context.conditionMutexHeld == 1 &&
+                context.conditionDestructed == 1 && context.delayReturned == 1 &&
+                context.delayInterrupted == 1 && context.delayDestructed == 1,
+            "terminal-timeout-cleanup",
+            "a terminal timed wait did not return through ordinary stack cleanup");
   passed &=
       check(Semaphore::getHostedTimeoutCreateCount() == semaphoreCreates + 1 &&
                 Semaphore::getHostedTimeoutDestroyCount() == semaphoreDestroys + 1 &&
