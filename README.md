@@ -48,11 +48,26 @@ To bootstrap the retained x86-64 cross-toolchain from its pinned source and
 patch set, run:
 
 ```sh
-python3 scripts/bootstrap_toolchain.py x86_64-pedigree ./pedigree-compiler
+python3 scripts/bootstrap_toolchain.py \
+    x86_64-pedigree ./pedigree-compiler-15.3.0
 ```
 
-The command verifies downloaded archives, preserves the `compilers/dir` layout,
-and leaves the libc/sysroot integration point at `build/musl` by default.
+The command builds GCC 15.3, Binutils 2.46.1, and NASM 3.02 from verified
+archives. GCC's tested GMP, MPFR, and MPC sources are pinned too. The system
+build uses musl 1.2.6 with the post-release qsort and iconv security fixes.
+Select the side-by-side prefix with
+`-DPEDIGREE_TOOLCHAIN_ROOT=/path/to/prefix`; the hosted verification helper
+accepts the same selection through the `PEDIGREE_TOOLCHAIN_ROOT` environment
+variable.
+The libc/sysroot integration point remains `build/musl` by default and can be
+changed with `--sysroot`.
+
+The first pass installs the headerless C compiler needed to build musl. After
+musl is installed, rerun the same command with `--libcpp --activate`; that pass
+finishes the compiler against the target headers, validates it, installs the
+POSIX-threaded PIC-capable static C++ runtime, and atomically points
+`compilers/dir` at the completed prefix. Activation is deliberately unavailable
+for the headerless first stage.
 
 It builds the native support surface and runs its tests normally and under
 AddressSanitizer. On macOS it also runs the focused hosted-kernel lifecycle.

@@ -10,7 +10,11 @@ old=$(pwd)
 script_dir=$(cd -P -- "$(dirname -- "$0")" && pwd -P) && script_dir=$script_dir
 cd $old
 
-COMPILER_DIR=$script_dir/pedigree-compiler
+COMPILER_DIR=${PEDIGREE_TOOLCHAIN_ROOT:-$script_dir/pedigree-compiler-15.3.0}
+case $COMPILER_DIR in
+    /*) ;;
+    *) COMPILER_DIR=$old/$COMPILER_DIR ;;
+esac
 
 set -e
 set -v
@@ -21,18 +25,10 @@ echo "Please wait, checking for a working cross-compiler."
 echo "If none is found, the source code for one will be downloaded, and it will be"
 echo "compiled for you."
 
-# Special parameters for some operating systems when building cross-compilers
-compiler_build_args=()
-case $real_os in
-    osx)
-        compiler_build_args+=(--osx-compat)
-        ;;
-esac
-
 # Install cross-compilers
 python3 "$script_dir/scripts/bootstrap_toolchain.py" \
     x86_64-pedigree "$COMPILER_DIR" \
-    --source-root "$script_dir" "${compiler_build_args[@]}"
+    --source-root "$script_dir"
 
 old=$(pwd)
 
@@ -73,7 +69,9 @@ make
 cd ..
 
 mkdir -p build && cd build
-cmake -DCMAKE_TOOLCHAIN_FILE=${script_dir}/build-etc/cmake/pedigree_amd64.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake ..
+cmake -DCMAKE_TOOLCHAIN_FILE=${script_dir}/build-etc/cmake/pedigree_amd64.cmake \
+    -DPEDIGREE_TOOLCHAIN_ROOT="$COMPILER_DIR" \
+    -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake ..
 
 # Build libc/libm
 make libc
@@ -93,7 +91,7 @@ export LIBTOOL=$script_dir/../images/local/applications:$PATH
 # What a mess!
 python3 "$script_dir/scripts/bootstrap_toolchain.py" \
     x86_64-pedigree "$COMPILER_DIR" \
-    --source-root "$script_dir" "${compiler_build_args[@]}" --libcpp
+    --source-root "$script_dir" --activate --libcpp
 
 set +e
 

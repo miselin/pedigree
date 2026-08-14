@@ -1,23 +1,44 @@
 {
   "gcc": {
-    "version": "8.3.0",
-    "archive": "gcc-8.3.0.tar.xz",
-    "source_dir": "gcc-8.3.0",
-    "url": "https://ftp.gnu.org/gnu/gcc/gcc-8.3.0/gcc-8.3.0.tar.xz",
-    "sha256": "64baadfe6cc0f4947a84cb12d7f0dfaf45bb58b7e92461639596c21e02d97d2c"
+    "version": "15.3.0",
+    "archive": "gcc-15.3.0.tar.xz",
+    "source_dir": "gcc-15.3.0",
+    "url": "https://ftp.gnu.org/gnu/gcc/gcc-15.3.0/gcc-15.3.0.tar.xz",
+    "sha256": "fa59c1beef8995f27c4d71c1df227587189315d3e6faff1bb4306e61b0c530eb"
   },
   "binutils": {
-    "version": "2.32",
-    "archive": "binutils-2.32.tar.bz2",
-    "source_dir": "binutils-2.32",
-    "url": "https://ftp.gnu.org/gnu/binutils/binutils-2.32.tar.bz2",
-    "sha256": "de38b15c902eb2725eac6af21183a5f34ea4634cb0bcef19612b50e5ed31072d"
+    "version": "2.46.1",
+    "archive": "binutils-2.46.1.tar.xz",
+    "source_dir": "binutils-2.46.1",
+    "url": "https://sourceware.org/pub/binutils/releases/binutils-2.46.1.tar.xz",
+    "sha256": "e127a709cba24c76de8936cb7083dd768f28cd37eb010492e2f19b71eb1294e4"
+  },
+  "gmp": {
+    "version": "6.2.1",
+    "archive": "gmp-6.2.1.tar.bz2",
+    "source_dir": "gmp-6.2.1",
+    "url": "https://gcc.gnu.org/pub/gcc/infrastructure/gmp-6.2.1.tar.bz2",
+    "sha256": "eae9326beb4158c386e39a356818031bd28f3124cf915f8c5b1dc4c7a36b4d7c"
+  },
+  "mpfr": {
+    "version": "4.1.0",
+    "archive": "mpfr-4.1.0.tar.bz2",
+    "source_dir": "mpfr-4.1.0",
+    "url": "https://gcc.gnu.org/pub/gcc/infrastructure/mpfr-4.1.0.tar.bz2",
+    "sha256": "feced2d430dd5a97805fa289fed3fc8ff2b094c02d05287fd6133e7f1f0ec926"
+  },
+  "mpc": {
+    "version": "1.2.1",
+    "archive": "mpc-1.2.1.tar.gz",
+    "source_dir": "mpc-1.2.1",
+    "url": "https://gcc.gnu.org/pub/gcc/infrastructure/mpc-1.2.1.tar.gz",
+    "sha256": "17503d2c395dfcf106b622dc142683c1199431d095367c6aacba6eec30340459"
   },
   "nasm": {
-    "version": "2.12.02",
-    "archive": "nasm-2.12.02.tar.bz2",
-    "source_dir": "nasm-2.12.02",
-    "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.12.02/nasm-2.12.02.tar.bz2",
-    "sha256": "00b0891c678c065446ca59bcee64719d0096d54d6886e6e472aeee2e170ae324"
+    "version": "3.02",
+    "archive": "nasm-3.02.tar.xz",
+    "source_dir": "nasm-3.02",
+    "url": "https://www.nasm.us/pub/nasm/releasebuilds/3.02/nasm-3.02.tar.xz",
+    "sha256": "87336eba53b4acfe917424ab5d500d2b0054d9f5148d35c2273ccf2cfb712f0d"
   }
 }

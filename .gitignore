@@ -38,6 +38,7 @@ images/local*
 images/local/*
 images/x86/games/dos
 pedigree-compiler
+pedigree-compiler-*
 physical.bin
 Release
 scripts/*.pyc

@@ -1,5 +1,6 @@
 .text
 .global __clone
+.hidden __clone
 .type   __clone,@function
 .hidden pedigree_translate_syscall
 .hidden pedigree_musl_thread_exit

@@ -20,7 +20,7 @@ class Ps2MouseCallbackRegistry {
  public:
   using Handler = void (*)(void*, const void*, size_t);
 
-  class Registration {
+  class EXPORTED_PUBLIC Registration {
    private:
     using UnregisterThunk = bool (*)(void*, void*, size_t, Registration*);
 

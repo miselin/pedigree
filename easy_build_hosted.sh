@@ -34,6 +34,7 @@ build_root=${PEDIGREE_NATIVE_BUILD_ROOT:-"$script_dir/build-native"}
 regular_build_dir="$build_root/regular"
 asan_build_dir="$build_root/asan"
 darwin_hosted_build_dir="$build_root/darwin-hosted"
+toolchain_root=${PEDIGREE_TOOLCHAIN_ROOT:-"$script_dir/compilers/dir"}
 cmake_options=(
     -DPEDIGREE_WARNINGS=ON
 )
@@ -55,10 +56,10 @@ if [[ $(uname -s) == Darwin ]]; then
         fi
     done
     for tool in \
-        compilers/dir/bin/x86_64-pedigree-gcc \
-        compilers/dir/bin/x86_64-pedigree-g++ \
-        compilers/dir/bin/x86_64-pedigree-objcopy \
-        compilers/dir/bin/x86_64-pedigree-strip; do
+        "$toolchain_root/bin/x86_64-pedigree-gcc" \
+        "$toolchain_root/bin/x86_64-pedigree-g++" \
+        "$toolchain_root/bin/x86_64-pedigree-objcopy" \
+        "$toolchain_root/bin/x86_64-pedigree-strip"; do
         if [[ ! -x "$tool" ]]; then
             echo "Required Pedigree cross-tool is unavailable: $tool" >&2
             exit 1
@@ -70,6 +71,7 @@ if [[ $(uname -s) == Darwin ]]; then
     cmake -S "$script_dir" -B "$darwin_hosted_build_dir" \
         -DCMAKE_TOOLCHAIN_FILE="$script_dir/build-etc/cmake/pedigree_hosted_darwin.cmake" \
         -DIMPORT_EXECUTABLES="$regular_build_dir/HostUtilities.cmake" \
+        -DPEDIGREE_TOOLCHAIN_ROOT="$toolchain_root" \
         -DPEDIGREE_BUILD_USER_DIR=OFF \
         -DPEDIGREE_HOSTED_DYNAMIC_MODULES=ON \
         -DPEDIGREE_HOSTED_SMOKE_TESTS=ON \

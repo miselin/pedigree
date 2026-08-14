@@ -1,8 +1,15 @@
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_VERSION 1)
 
-set(PEDIGREE_C_COMPILER ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-gcc)
-set(PEDIGREE_CXX_COMPILER ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-g++)
+get_filename_component(
+    PEDIGREE_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(PEDIGREE_TOOLCHAIN_ROOT
+    "${PEDIGREE_SOURCE_ROOT}/compilers/dir" CACHE PATH
+    "Pedigree cross-toolchain installation root")
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES PEDIGREE_TOOLCHAIN_ROOT)
+
+set(PEDIGREE_C_COMPILER ${PEDIGREE_TOOLCHAIN_ROOT}/bin/x86_64-pedigree-gcc)
+set(PEDIGREE_CXX_COMPILER ${PEDIGREE_TOOLCHAIN_ROOT}/bin/x86_64-pedigree-g++)
 
 # CMAKE_TRY_COMPILE_TARGET_TYPE is new in 3.6 and newer, so we need this little
 # song and dance to make sure older versions of cmake still work with this
@@ -10,19 +17,22 @@ set(PEDIGREE_CXX_COMPILER ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-
 if (${CMAKE_VERSION} VERSION_LESS 3.6.0)
     include(CMakeForceCompiler)
     cmake_force_c_compiler(${PEDIGREE_C_COMPILER} GNU)
-    cmake_force_cxx_compiler(${PEDIGREE_C_COMPILER} GNU)
+    cmake_force_cxx_compiler(${PEDIGREE_CXX_COMPILER} GNU)
 
-    set(CMAKE_OBJCOPY ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-objcopy)
-    set(CMAKE_STRIP ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-strip)
+    set(CMAKE_OBJCOPY ${PEDIGREE_TOOLCHAIN_ROOT}/bin/x86_64-pedigree-objcopy)
+    set(CMAKE_STRIP ${PEDIGREE_TOOLCHAIN_ROOT}/bin/x86_64-pedigree-strip)
 else ()
     set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
     set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
-    set(CMAKE_CXX_COMPILER ${PEDIGREE_C_COMPILER})
+    set(CMAKE_CXX_COMPILER ${PEDIGREE_CXX_COMPILER})
 endif ()
 
-set(CMAKE_SYSROOT "${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree")
+set(CMAKE_SYSROOT "${PEDIGREE_TOOLCHAIN_ROOT}/x86_64-pedigree")
 
-set(CMAKE_FIND_ROOT_PATH ${CMAKE_SOURCE_DIR}/compilers/dir ${CMAKE_SOURCE_DIR}/compilers/dir/bin ${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree)
+set(CMAKE_FIND_ROOT_PATH
+    ${PEDIGREE_TOOLCHAIN_ROOT}
+    ${PEDIGREE_TOOLCHAIN_ROOT}/bin
+    ${PEDIGREE_TOOLCHAIN_ROOT}/x86_64-pedigree)
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)

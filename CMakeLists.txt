@@ -14,8 +14,8 @@ project(Pedigree)
 
 if (NOT CMAKE_CXX_COMPILER_VERSION)
     # Keep this aligned with the bootstrap toolchain manifest.
-    set(CMAKE_C_COMPILER_VERSION 8.3.0)
-    set(CMAKE_CXX_COMPILER_VERSION 8.3.0)
+    set(CMAKE_C_COMPILER_VERSION 15.3.0)
+    set(CMAKE_CXX_COMPILER_VERSION 15.3.0)
 endif ()
 
 include(CTest)

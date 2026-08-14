@@ -1,11 +1,11 @@
 # Use the Pedigree compiler regardless of the system target
 set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
-set(CMAKE_CXX_COMPILER ${PEDIGREE_C_COMPILER})
+set(CMAKE_CXX_COMPILER ${PEDIGREE_CXX_COMPILER})
 
 link_directories(
     ${CMAKE_BINARY_DIR}/musl/lib
-    ${CMAKE_SOURCE_DIR}/images/local/libraries
-    ${CMAKE_SOURCE_DIR}/compilers/dir/${PEDIGREE_COMPILER_TARGET}/lib)
+    ${PEDIGREE_TOOLCHAIN_ROOT}/${PEDIGREE_COMPILER_TARGET}/lib
+    ${CMAKE_SOURCE_DIR}/images/local/libraries)
 
 include_directories(
     ${CMAKE_BINARY_DIR}/musl/include

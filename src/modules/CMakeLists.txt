@@ -1,7 +1,7 @@
 # Modules use Pedigree's headers and syscall ABI even when linked statically
 # into the hosted kernel.
 set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
-set(CMAKE_CXX_COMPILER ${PEDIGREE_C_COMPILER})
+set(CMAKE_CXX_COMPILER ${PEDIGREE_CXX_COMPILER})
 if (NOT PEDIGREE_MODULE_OBJCOPY)
     set(PEDIGREE_MODULE_OBJCOPY ${CMAKE_OBJCOPY})
 endif ()
@@ -34,9 +34,9 @@ set(PEDIGREE_POSIX_NOEFAULT FALSE CACHE BOOL "Disable checks for EFAULT conditio
 
 set(PEDIGREE_PCAP TRUE CACHE BOOL "Build the pcap kernel module which writes a pcap log to a serial port.")
 
-set(MUSL_NAME "musl-1.1.14")
+set(MUSL_NAME "musl-1.2.6")
 set(MUSL_FILENAME "${MUSL_NAME}.tar.gz")
-set(MUSL_SHA256 "35f6c00c84a6091bd5dab29eedde7508dae755ead92dcc0239f3677d1055b9b5")
+set(MUSL_SHA256 "d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a")
 
 add_definitions(-DIN_PEDIGREE_KERNEL)
 
@@ -62,8 +62,8 @@ else ()
 endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
-    set(ARCH_MODULE_FLAGS ${ARCH_MODULE_FLAGS} "--sysroot=${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree")
-    set(ARCH_MODULE_LINKFLAGS ${ARCH_MODULE_LINKFLAGS} "--sysroot=${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree")
+    set(ARCH_MODULE_FLAGS ${ARCH_MODULE_FLAGS} "--sysroot=${PEDIGREE_TOOLCHAIN_ROOT}/x86_64-pedigree")
+    set(ARCH_MODULE_LINKFLAGS ${ARCH_MODULE_LINKFLAGS} "--sysroot=${PEDIGREE_TOOLCHAIN_ROOT}/x86_64-pedigree")
     if (PEDIGREE_HOSTED_ASAN)
         list(APPEND ARCH_MODULE_FLAGS "-fsanitize=address")
         list(APPEND ARCH_MODULE_LINKFLAGS "-fsanitize=address")
@@ -885,13 +885,15 @@ add_custom_command(
     ${CMAKE_COMMAND} -E env
     CC=${PEDIGREE_C_COMPILER} LD=${CMAKE_C_COMPILER}
     COMPILER_TARGET=${PEDIGREE_COMPILER_TARGET}
+    PEDIGREE_TOOLCHAIN_ROOT=${PEDIGREE_TOOLCHAIN_ROOT}
     SRCDIR=${CMAKE_SOURCE_DIR}
     TARGETDIR=${CMAKE_BINARY_DIR}/musl
     ARCH_TARGET=${PEDIGREE_MUSL_ARCH_TARGET}
     ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
     DEPENDS
     ${CMAKE_TOOLCHAIN_FILE}
-    ${CMAKE_SOURCE_DIR}/compilers/pedigree-musl.patch
+    ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-1.2.6-cve-2026-40200-qsort.patch
+    ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-1.2.6-cve-2026-6042-iconv.patch
     ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/clone-${PEDIGREE_MUSLARCH}.musl-s
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/clone-hosted-amd64.musl-s

@@ -3,8 +3,15 @@
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_VERSION 1)
 
-set(PEDIGREE_C_COMPILER ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-gcc)
-set(PEDIGREE_CXX_COMPILER ${CMAKE_SOURCE_DIR}/compilers/dir/bin/x86_64-pedigree-g++)
+get_filename_component(
+    PEDIGREE_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(PEDIGREE_TOOLCHAIN_ROOT
+    "${PEDIGREE_SOURCE_ROOT}/compilers/dir" CACHE PATH
+    "Pedigree cross-toolchain installation root")
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES PEDIGREE_TOOLCHAIN_ROOT)
+
+set(PEDIGREE_C_COMPILER ${PEDIGREE_TOOLCHAIN_ROOT}/bin/x86_64-pedigree-gcc)
+set(PEDIGREE_CXX_COMPILER ${PEDIGREE_TOOLCHAIN_ROOT}/bin/x86_64-pedigree-g++)
 
 find_program(PEDIGREE_HOST_C_COMPILER gcc REQUIRED)
 find_program(PEDIGREE_HOST_CXX_COMPILER g++ REQUIRED)

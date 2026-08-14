@@ -255,7 +255,7 @@ bool RangeList<T, Reversed>::allocateSpecific(T address, T length) {
       }
 
       // Match at end.
-      else if ((*cur)->address < address &&
+      else if (address > (*cur)->address &&
                ((*cur)->address + (*cur)->length) == (address + length)) {
         (*cur)->length -= length;
         bSuccess = true;
@@ -271,7 +271,7 @@ bool RangeList<T, Reversed>::allocateSpecific(T address, T length) {
       }
 
       // Match within.
-      else if ((*cur)->address < address &&
+      else if (address > (*cur)->address &&
                ((*cur)->address + (*cur)->length) > (address + length)) {
         // Need to split the range.
         Range* newRange =

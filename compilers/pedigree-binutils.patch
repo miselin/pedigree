@@ -1,263 +1,37 @@
-From fd4fa8c05afd13c957eaf9993d8ab14958bb92c7 Mon Sep 17 00:00:00 2001
-From: Matthew Iselin <matthew@theiselins.net>
-Date: Fri, 5 Apr 2019 13:44:53 -0700
-Subject: [PATCH] Add arm-pedigree and x86_64-pedigree to Binutils.
-
----
- bfd/config.bfd                   | 11 ++++++++++
- binutils/configure               |  2 ++
- binutils/configure.ac            |  3 +++
- config.sub                       |  2 ++
- configure.ac                     |  4 ++--
- gas/configure.tgt                |  2 ++
- ld/Makefile.in                   | 10 +++++++++
- ld/configure.tgt                 |  2 ++
- ld/emulparams/pedigree_arm.sh    | 35 ++++++++++++++++++++++++++++++++
- ld/emulparams/pedigree_x86_64.sh | 25 +++++++++++++++++++++++
- 10 files changed, 94 insertions(+), 2 deletions(-)
- create mode 100644 ld/emulparams/pedigree_arm.sh
- create mode 100644 ld/emulparams/pedigree_x86_64.sh
-
 diff --git a/bfd/config.bfd b/bfd/config.bfd
-index 0e1ddb659c..7b57257f45 100644
+index 4dde532..2885e05 100644
 --- a/bfd/config.bfd
 +++ b/bfd/config.bfd
-@@ -370,6 +370,10 @@ case "${targ}" in
-     targ_underscore=no
-     targ_cflags="-DARM_WINCE -DARM_COFF_BUGFIX"
-     ;;
-+  arm-*-pedigree*)
-+    targ_defvec=arm_elf32_le_vec
-+    targ_selvecs=arm_elf32_be_vec
+@@ -681 +681 @@ case "${targ}" in
+-  x86_64-*-elf* | x86_64-*-rtems* | x86_64-*-fuchsia | x86_64-*-genode*)
++  x86_64-*-elf* | x86_64-*-pedigree* | x86_64-*-rtems* | x86_64-*-fuchsia | x86_64-*-genode*)
+diff --git a/config/elf.m4 b/config/elf.m4
+index 1772a44..b824f8b 100644
+--- a/config/elf.m4
++++ b/config/elf.m4
+@@ -17,0 +18,3 @@ case $target in
++  *-*-pedigree*)
++    target_elf=yes
 +    ;;
-   arm-*-pe*)
-     targ_defvec=arm_pe_le_vec
-     targ_selvecs="arm_pe_le_vec arm_pe_be_vec arm_pei_le_vec arm_pei_be_vec"
-@@ -766,6 +770,13 @@ case "${targ}" in
-     targ_defvec=i386_elf32_vec
-     targ_selfvecs="iamcu_elf32_vec i386chaos_vec"
-     ;;
-+#ifdef BFD64
-+  amd64-*-pedigree* | \
-+  x86_64-*-pedigree*)
-+    targ_defvec=x86_64_elf64_vec
-+    targ_selvecs=i386_elf32_vec
+diff --git a/configure b/configure
+index 2551fe0..299dc53 100755
+--- a/configure
++++ b/configure
+@@ -9613,0 +9614,3 @@ case $target in
++  *-*-pedigree*)
++    target_elf=yes
 +    ;;
-+#endif
- 
-   ia16-*-elf)
-     targ_defvec=i386_elf32_vec
-diff --git a/binutils/configure b/binutils/configure
-index 051db4baa2..24d1239ec8 100755
---- a/binutils/configure
-+++ b/binutils/configure
-@@ -14969,6 +14969,8 @@ do
- 	  BUILD_WINDRES='$(WINDRES_PROG)$(EXEEXT)'
- 	  BUILD_WINDMC='$(WINDMC_PROG)$(EXEEXT)'
- 	  ;;
-+  arm-*-pedigree*)
-+    ;;
- 	arm-*-pe*)
-   	  BUILD_DLLTOOL='$(DLLTOOL_PROG)$(EXEEXT)'
- 	  if test -z "$DLLTOOL_DEFAULT"; then
-diff --git a/binutils/configure.ac b/binutils/configure.ac
-index b1cd4552f2..0e4e140c60 100644
---- a/binutils/configure.ac
-+++ b/binutils/configure.ac
-@@ -272,6 +272,9 @@ do
- 	  BUILD_WINDRES='$(WINDRES_PROG)$(EXEEXT)'
- 	  BUILD_WINDMC='$(WINDMC_PROG)$(EXEEXT)'
- 	  ;;
-+    arm-*-pedigree*)
-+      # Avoid pedigree OS target overlapping with arm-*-pe
-+      ;;
- 	arm-*-pe*)
-   	  BUILD_DLLTOOL='$(DLLTOOL_PROG)$(EXEEXT)'
- 	  if test -z "$DLLTOOL_DEFAULT"; then
-diff --git a/config.sub b/config.sub
-index 75bb6a3135..f30019f392 100755
---- a/config.sub
-+++ b/config.sub
-@@ -1509,6 +1509,8 @@ case $os in
- 		;;
- 	none)
- 		;;
-+	-pedigree*)
-+		;;
- 	*-eabi)
- 		;;
- 	*)
-diff --git a/configure.ac b/configure.ac
-index 46501c2882..f9d9df6f8f 100644
---- a/configure.ac
-+++ b/configure.ac
-@@ -1692,7 +1692,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
-   build_lto_plugin=yes
- ],[if test x"$default_enable_lto" = x"yes" ; then
-     case $target in
--      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp*) ;;
-+      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
-       # On other non-ELF platforms, LTO has yet to be validated.
-       *) enable_lto=no ;;
-     esac
-@@ -1703,7 +1703,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
-   # warn during gcc/ subconfigure; unless you're bootstrapping with
-   # -flto it won't be needed until after installation anyway.
-     case $target in
--      *-cygwin* | *-mingw* | *-apple-darwin* | *djgpp*) ;;
-+      *-cygwin* | *-mingw* | *-apple-darwin* | *djgpp* | *pedigree*) ;;
-       *) if test x"$enable_lto" = x"yes"; then
- 	AC_MSG_ERROR([LTO support is not enabled for this target.])
-         fi
 diff --git a/gas/configure.tgt b/gas/configure.tgt
-index 616d211308..4533f5a0ea 100644
+index f0ea55d..838fc95 100644
 --- a/gas/configure.tgt
 +++ b/gas/configure.tgt
-@@ -158,6 +158,7 @@ case ${generic_target} in
- 					fmt=coff em=wince-pe ;;
-   arm-*-pe)				fmt=coff em=pe ;;
-   arm-*-fuchsia*)			fmt=elf ;;
-+  arm-*-pedigree*)		fmt=elf ;;
- 
-   avr-*-*)				fmt=elf bfd_gas=yes ;;
- 
-@@ -260,6 +261,7 @@ case ${generic_target} in
-   i386-*-chaos)				fmt=elf ;;
-   i386-*-rdos*)				fmt=elf ;;
-   i386-*-darwin*)			fmt=macho ;;
-+  i386-*-pedigree*)		fmt=elf ;;
- 
-   ia16-*-elf*)				fmt=elf ;;
- 
-diff --git a/ld/Makefile.in b/ld/Makefile.in
-index fc687fc516..b58534958f 100644
---- a/ld/Makefile.in
-+++ b/ld/Makefile.in
-@@ -829,6 +829,8 @@ ALL_EMULATION_SOURCES = \
- 	enios2linux.c \
- 	epc532macha.c \
- 	epdp11.c \
-+	epedigree_arm.c \
-+	epedigree_x86_64.c \
- 	epjelf.c \
- 	epjlelf.c \
- 	eppclynx.c \
-@@ -1456,6 +1458,8 @@ distclean-compile:
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ens32knbsd.Po@am__quote@
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epc532macha.Po@am__quote@
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epdp11.Po@am__quote@
-+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epedigree_arm.Po@am__quote@
-+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epedigree_x86_64.Po@am__quote@
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epjelf.Po@am__quote@
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epjlelf.Po@am__quote@
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eppclynx.Po@am__quote@
-@@ -3166,6 +3170,12 @@ epc532macha.c: $(srcdir)/emulparams/pc532macha.sh \
- epdp11.c: $(srcdir)/emulparams/pdp11.sh \
-   $(srcdir)/emultempl/generic.em $(srcdir)/scripttempl/aout.sc ${GEN_DEPENDS}
- 
-+epedigree_arm.c: $(srcdir)/emulparams/pedigree_arm.sh \
-+  $(ELF_DEPS) $(srcdir)/emultempl/armelf.em $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
-+
-+epedigree_x86_64.c: $(srcdir)/emulparams/pedigree_x86_64.sh \
-+  $(ELF_X86_DEPS) $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
-+
- epjelf.c: $(srcdir)/emulparams/pjelf.sh \
-   $(ELF_GEN_DEPS) $(srcdir)/scripttempl/elf.sc ${GEN_DEPENDS}
- 
+@@ -230,0 +231 @@ case ${generic_target} in
++  i386-*-pedigree*)			fmt=elf ;;
 diff --git a/ld/configure.tgt b/ld/configure.tgt
-index beba17ef51..4d8782cb52 100644
+index 3e15891..04b0383 100644
 --- a/ld/configure.tgt
 +++ b/ld/configure.tgt
-@@ -112,6 +112,7 @@ armeb-*-netbsdelf*)	targ_emul=armelfb_nbsd;
- arm-*-netbsdelf*)	targ_emul=armelf_nbsd;
- 			targ_extra_emuls="armelfb_nbsd armelf" ;;
- arm-*-nto*)		targ_emul=armnto ;;
-+arm-*-pedigree*)	targ_emul=pedigree_arm ;;
- arm-*-phoenix*)		targ_emul=armelf ;;
- armeb-*-elf | armeb-*-eabi*)
- 			targ_emul=armelfb ;;
-@@ -244,6 +245,7 @@ i[3-7]86-*-rdos*)	targ_emul=elf_i386
- 			targ_extra_emuls=elf_iamcu ;;
- x86_64-*-rdos*)		targ_emul=elf64rdos ;;
- x86_64-*-cloudabi*)	targ_emul=elf_x86_64_cloudabi ;;
-+x86_64-*-pedigree*)	targ_emul=pedigree_x86_64 targ_extra_emuls="elf_i386" ;;
- i[3-7]86-*-bsd)		targ_emul=i386bsd ;;
- i[3-7]86-*-bsd386)	targ_emul=i386bsd ;;
- i[3-7]86-*-bsdi*)	targ_emul=i386bsd ;;
-diff --git a/ld/emulparams/pedigree_arm.sh b/ld/emulparams/pedigree_arm.sh
-new file mode 100644
-index 0000000000..ca443ce0e3
---- /dev/null
-+++ b/ld/emulparams/pedigree_arm.sh
-@@ -0,0 +1,35 @@
-+MACHINE=
-+SCRIPT_NAME=elf
-+OUTPUT_FORMAT="elf32-littlearm"
-+BIG_OUTPUT_FORMAT="elf32-bigarm"
-+LITTLE_OUTPUT_FORMAT="elf32-littlearm"
-+TEXT_START_ADDR=0x8000
-+TEMPLATE_NAME=elf32
-+EXTRA_EM_FILE=armelf
-+OTHER_TEXT_SECTIONS='*(.glue_7t) *(.glue_7) *(.vfp11_veneer) *(.v4_bx)'
-+OTHER_BSS_SYMBOLS='__bss_start__ = .;'
-+OTHER_BSS_END_SYMBOLS='_bss_end__ = . ; __bss_end__ = . ;'
-+OTHER_END_SYMBOLS='__end__ = . ;'
-+OTHER_SECTIONS='.note.gnu.arm.ident 0 : { KEEP (*(.note.gnu.arm.ident)) }'
-+ATTRS_SECTIONS='.ARM.attributes 0 : { KEEP (*(.ARM.attributes)) KEEP (*(.gnu.attributes)) }'
-+OTHER_READONLY_SECTIONS="
-+  .ARM.extab ${RELOCATING-0} : { *(.ARM.extab${RELOCATING+* .gnu.linkonce.armextab.*}) }
-+  ${RELOCATING+ PROVIDE_HIDDEN (__exidx_start = .); }
-+  .ARM.exidx ${RELOCATING-0} : { *(.ARM.exidx${RELOCATING+* .gnu.linkonce.armexidx.*}) }
-+  ${RELOCATING+ PROVIDE_HIDDEN (__exidx_end = .); }"
-+
-+DATA_START_SYMBOLS='__data_start = . ;';
-+
-+GENERATE_SHLIB_SCRIPT=yes
-+
-+ARCH=arm
-+MACHINE=
-+MAXPAGESIZE="CONSTANT (MAXPAGESIZE)"
-+ENTRY=_start
-+EMBEDDED=yes
-+
-+# This sets the stack to the top of the simulator memory (2^19 bytes).
-+STACK_ADDR=0x80000
-+
-+# ARM does not support .s* sections.
-+NO_SMALL_DATA=yes
-\ No newline at end of file
-diff --git a/ld/emulparams/pedigree_x86_64.sh b/ld/emulparams/pedigree_x86_64.sh
-new file mode 100644
-index 0000000000..2a7005c34b
---- /dev/null
-+++ b/ld/emulparams/pedigree_x86_64.sh
-@@ -0,0 +1,25 @@
-+. ${srcdir}/emulparams/plt_unwind.sh
-+SCRIPT_NAME=elf
-+ELFSIZE=64
-+OUTPUT_FORMAT="elf64-x86-64"
-+NO_REL_RELOCS=yes
-+TEXT_START_ADDR=0x400000
-+MAXPAGESIZE="CONSTANT (MAXPAGESIZE)"
-+COMMONPAGESIZE="CONSTANT (COMMONPAGESIZE)"
-+ARCH="i386:x86-64"
-+MACHINE=
-+TEMPLATE_NAME=elf32
-+GENERATE_SHLIB_SCRIPT=yes
-+GENERATE_PIE_SCRIPT=yes
-+NO_SMALL_DATA=yes
-+LARGE_SECTIONS=yes
-+LARGE_BSS_AFTER_BSS=
-+SEPARATE_GOTPLT="SIZEOF (.got.plt) >= 24 ? 24 : 0"
-+IREL_IN_PLT=
-+
-+if [ "x${host}" = "x${target}" ]; then
-+  case " $EMULATION_LIBPATH " in
-+    *" ${EMULATION_NAME} "*)
-+      NATIVE=yes
-+  esac
-+fi
-\ No newline at end of file
--- 
-2.21.0.593.g511ec345e18-goog
-
+@@ -967,0 +968,3 @@ x86_64-*-redox*)	targ_emul=elf_x86_64
++x86_64-*-pedigree*)	targ_emul=elf_x86_64
++			targ_extra_emuls=elf_i386
++			;;

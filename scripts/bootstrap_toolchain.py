@@ -7,26 +7,23 @@ import argparse
 import hashlib
 import json
 import os
-import re
+import platform
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 
-TARGETS = {
-    "i686-pedigree",
-    "x86_64-pedigree",
-    "amd64-pedigree",
-    "i686-elf",
-    "amd64-elf",
-}
-NASM_TARGETS = TARGETS
-REQUIRED_COMMANDS = ("autoconf", "autoreconf", "cc", "c++", "make", "patch", "tar")
+TARGETS = {"x86_64-pedigree"}
+GCC_PREREQUISITES = ("gmp", "mpfr", "mpc")
+REQUIRED_COMMANDS = ("cc", "c++", "make", "patch", "tar")
+TOOLCHAIN_STATE_SCHEMA = 1
+TOOLCHAIN_RECIPE = 1
 PATCHES = {
     "gcc": "compilers/pedigree-gcc.patch",
     "binutils": "compilers/pedigree-binutils.patch",
@@ -56,6 +53,13 @@ def load_archives(path: Path) -> dict[str, Archive]:
     }
 
 
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build the pinned Pedigree cross-toolchain."
@@ -64,7 +68,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "prefix",
         type=Path,
-        help="installation prefix (the legacy script used compilers/dir)",
+        help="installation prefix",
     )
     parser.add_argument(
         "--source-root",
@@ -78,14 +82,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="directory containing the libc startup objects and headers",
     )
     parser.add_argument(
-        "--osx-compat",
-        action="store_true",
-        help="use the historical Homebrew/MacPorts dependency flags",
-    )
-    parser.add_argument(
         "--libcpp",
         action="store_true",
-        help="also build and install the target libstdc++ archive",
+        help="finish the compiler against target headers and install libstdc++",
+    )
+    parser.add_argument(
+        "--activate",
+        action="store_true",
+        help="point compilers/dir at this prefix after checking it is safe",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=positive_int,
+        default=min(os.cpu_count() or 1, 8),
+        help="parallel make jobs (default: up to 8)",
     )
     parser.add_argument(
         "--keep-build",
@@ -120,6 +130,7 @@ class Bootstrapper:
             else self.source_root / "build/musl"
         )
         self.dry_run = args.dry_run
+        self.make = ["make", f"-j{args.jobs}"]
 
     def log(self, message: str) -> None:
         print(message)
@@ -153,18 +164,30 @@ class Bootstrapper:
                 "required host commands are unavailable: " + ", ".join(missing)
             )
 
-    def ensure_prefix_link(self) -> None:
+    def activate_prefix(self) -> None:
         link = self.source_root / "compilers/dir"
         if self.dry_run:
-            self.log(f"would ensure {link} -> {self.prefix}")
+            self.log(f"would activate {link} -> {self.prefix}")
             return
-        if link.exists() or link.is_symlink():
-            if not link.is_symlink() or link.resolve() != self.prefix:
-                raise BootstrapError(
-                    f"refusing to replace existing compiler path: {link}"
-                )
+        if not self.installation_current(require_libcpp=True):
+            raise BootstrapError("refusing to activate an incomplete toolchain")
+        if link.exists() and not link.is_symlink():
+            raise BootstrapError(f"refusing to replace compiler directory: {link}")
+        if link.is_symlink() and link.resolve() == self.prefix:
             return
-        link.symlink_to(self.prefix)
+        temporary = link.with_name(f".{link.name}.{os.getpid()}.tmp")
+        if temporary.exists() or temporary.is_symlink():
+            raise BootstrapError(f"temporary activation path already exists: {temporary}")
+        try:
+            temporary.symlink_to(self.prefix)
+            os.replace(temporary, link)
+        finally:
+            if temporary.is_symlink():
+                temporary.unlink()
+
+    def prefix_is_active(self) -> bool:
+        link = self.source_root / "compilers/dir"
+        return link.is_symlink() and link.resolve() == self.prefix
 
     def environment(self) -> dict[str, str]:
         environment = os.environ.copy()
@@ -175,11 +198,12 @@ class Bootstrapper:
             "CPP",
             "CFLAGS",
             "CXXFLAGS",
+            "CFLAGS_FOR_TARGET",
+            "CXXFLAGS_FOR_TARGET",
             "LDFLAGS",
             "ASFLAGS",
         ):
             environment[name] = ""
-        environment["ac_cv_prog_cc_c23"] = "no"
         return environment
 
     def host_configure_environment(self) -> dict[str, str]:
@@ -188,38 +212,25 @@ class Bootstrapper:
         environment["CXX"] = "c++ -std=gnu++14"
         return environment
 
-    def dependency_flags(self) -> list[str]:
-        if not self.args.osx_compat:
-            return []
-        if shutil.which("brew") and not self.dry_run:
-            result = subprocess.run(
-                ["brew", "--prefix"],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            prefix = result.stdout.strip() if result.returncode == 0 else "/opt/local"
-        else:
-            prefix = "/opt/local"
-        return [
-            f"--with-gmp={prefix}",
-            f"--with-libiconv-prefix={prefix}",
-            "--with-system-zlib",
-        ]
-
-    def autoconf_version(self) -> str:
-        if self.dry_run:
-            return "<host-autoconf-version>"
-        result = subprocess.run(
-            ["autoconf", "--version"],
-            check=True,
-            capture_output=True,
-            text=True,
+    def gcc_environment(
+        self, *, with_headers: bool, configure: bool
+    ) -> dict[str, str]:
+        environment = (
+            self.host_configure_environment() if configure else self.environment()
         )
-        match = re.search(r"\d+\.\d+(?:\.\d+)?", result.stdout)
-        if not match:
-            raise BootstrapError("unable to determine the installed Autoconf version")
-        return match.group(0)
+        if with_headers:
+            # Userspace DSOs consume the static target runtimes, so every target
+            # object in the final compiler pass must be suitable for a DSO.
+            environment["CFLAGS_FOR_TARGET"] = "-g -O2 -fPIC"
+            environment["CXXFLAGS_FOR_TARGET"] = "-g -O2 -fPIC"
+        return environment
+
+    def host_dependency_flags(self) -> list[str]:
+        # GCC's bundled zlib 1.2.11 mistakes modern macOS for classic Mac OS.
+        # The SDK provides a maintained zlib and is already on the default path.
+        if sys.platform == "darwin":
+            return ["--with-system-zlib"]
+        return []
 
     def download(self, archive: Archive) -> Path:
         destination = self.download_root / archive.archive
@@ -257,152 +268,395 @@ class Bootstrapper:
         source = self.build_root / archive.source_dir
         if source.exists():
             return source
-        self.build_root.mkdir(parents=True, exist_ok=True)
+        if not self.dry_run:
+            self.build_root.mkdir(parents=True, exist_ok=True)
         self.run(["tar", "-xf", str(archive_path)], cwd=self.build_root)
         return source
 
     def patch_sources(self, sources: dict[str, Path]) -> None:
         for name, source in sources.items():
             marker = source / ".pedigree-patched"
-            if marker.exists():
-                continue
             patch = self.source_root / PATCHES[name]
+            patch_digest = hashlib.sha256(patch.read_bytes()).hexdigest()
+            if marker.exists() and marker.read_text(encoding="utf-8").strip() == patch_digest:
+                continue
+            if marker.exists():
+                raise BootstrapError(
+                    f"patch changed after it was applied; remove {source} and retry"
+                )
             patch_contents = None if self.dry_run else patch.read_text(encoding="utf-8")
             self.run(["patch", "-p1"], cwd=source, input_text=patch_contents)
             if not self.dry_run:
-                marker.touch()
+                marker.write_text(patch_digest + "\n", encoding="utf-8")
 
-    def fix_autoconf_and_regenerate(self, sources: dict[str, Path]) -> None:
-        version = self.autoconf_version()
-        for source in sources.values():
-            override = source / "config/override.m4"
-            if not self.dry_run and not override.exists():
-                raise BootstrapError(f"missing Autoconf override file: {override}")
+    def link_gcc_prerequisites(self, gcc_source: Path, sources: dict[str, Path]) -> None:
+        for name in GCC_PREREQUISITES:
+            destination = gcc_source / name
+            source = sources[name]
+            self.log(f"link {destination} -> {source}")
             if self.dry_run:
-                self.log(f"update {override} for Autoconf {version}")
-            else:
-                contents = override.read_text(encoding="utf-8")
-                updated = re.sub(
-                    r"(_GCC_AUTOCONF_VERSION\], \])[0-9.]+",
-                    rf"\g<1>{version}",
-                    contents,
+                continue
+            if destination.is_symlink() and destination.resolve() == source:
+                continue
+            if destination.exists() or destination.is_symlink():
+                raise BootstrapError(
+                    f"refusing to replace GCC prerequisite path: {destination}"
                 )
-                override.write_text(updated, encoding="utf-8")
-
-        self.run(["autoreconf", "--force"], cwd=sources["binutils"], env=self.environment())
-        self.run(["autoreconf", "--force"], cwd=sources["gcc"], env=self.environment())
-        self.run(
-            ["autoconf", "--force"],
-            cwd=sources["gcc"] / "libstdc++-v3",
-            env=self.environment(),
-        )
-
-    def component_installed(self, name: str) -> bool:
-        archive = self.manifest[name]
-        if name == "nasm":
-            executable = self.prefix / "bin/nasm"
-            command = [str(executable), "-version"]
-            expected = f"NASM version {archive.version}"
-        elif name == "binutils":
-            executable = self.prefix / f"bin/{self.args.target}-objdump"
-            command = [str(executable), "--version"]
-            expected = f"GNU objdump (GNU Binutils) {archive.version}"
-        else:
-            executable = self.prefix / f"bin/{self.args.target}-gcc"
-            command = [str(executable), "-dumpversion"]
-            expected = archive.version
-        if not executable.is_file():
-            return False
-        if self.dry_run:
-            return False
-        result = subprocess.run(command, check=False, capture_output=True, text=True)
-        return result.returncode == 0 and result.stdout.startswith(expected)
+            destination.symlink_to(source)
 
     def libcpp_installed(self) -> bool:
+        version = self.manifest["gcc"].version
         return (
             self.prefix / f"{self.args.target}/lib/libstdc++.a"
+        ).is_file() and (
+            self.prefix
+            / f"{self.args.target}/include/c++/{version}/{self.args.target}/bits/c++config.h"
         ).is_file()
 
+    @property
+    def state_path(self) -> Path:
+        return self.prefix / ".pedigree-toolchain-state.json"
+
+    def state_fingerprint(self, *, libcpp: bool) -> dict[str, object]:
+        archives = {
+            name: {"version": archive.version, "sha256": archive.sha256}
+            for name, archive in sorted(self.manifest.items())
+        }
+        patches = {
+            name: hashlib.sha256(
+                (self.source_root / relative).read_bytes()
+            ).hexdigest()
+            for name, relative in sorted(PATCHES.items())
+        }
+        return {
+            "schema": TOOLCHAIN_STATE_SCHEMA,
+            "recipe": TOOLCHAIN_RECIPE,
+            "target": self.args.target,
+            "host": {
+                "platform": sys.platform,
+                "machine": platform.machine(),
+            },
+            "archives": archives,
+            "patches": patches,
+            "libcpp": libcpp,
+        }
+
+    def read_state(self) -> dict[str, object] | None:
+        try:
+            with self.state_path.open(encoding="utf-8") as stream:
+                state = json.load(stream)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
+        return state if isinstance(state, dict) else None
+
+    def write_state(self, *, libcpp: bool) -> None:
+        state = self.state_fingerprint(libcpp=libcpp)
+        self.prefix.mkdir(parents=True, exist_ok=True)
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.prefix,
+                prefix=".pedigree-toolchain-state.",
+                delete=False,
+            ) as stream:
+                temporary_path = Path(stream.name)
+                json.dump(state, stream, indent=2, sort_keys=True)
+                stream.write("\n")
+            os.replace(temporary_path, self.state_path)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def checked_output(command: list[str]) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise BootstrapError(
+                f"toolchain check failed: {shell_command(command)}"
+                + (f": {detail}" if detail else "")
+            )
+        return result
+
+    def validate_installation(self, *, require_libcpp: bool) -> None:
+        target = self.args.target
+        tools = {
+            name: self.prefix / "bin" / ("nasm" if name == "nasm" else f"{target}-{name}")
+            for name in (
+                "gcc",
+                "g++",
+                "ld",
+                "ar",
+                "nm",
+                "objdump",
+                "objcopy",
+                "strip",
+                "nasm",
+            )
+        }
+        for name, executable in tools.items():
+            if not executable.is_file() or not os.access(executable, os.X_OK):
+                raise BootstrapError(f"required installed tool is unavailable: {name}")
+
+        gcc_version = self.manifest["gcc"].version
+        binutils_version = self.manifest["binutils"].version
+        nasm_version = self.manifest["nasm"].version
+        for name in ("gcc", "g++"):
+            version = self.checked_output(
+                [str(tools[name]), "-dumpfullversion"]
+            ).stdout.strip()
+            machine = self.checked_output(
+                [str(tools[name]), "-dumpmachine"]
+            ).stdout.strip()
+            if version != gcc_version or machine != target:
+                raise BootstrapError(
+                    f"installed {name} identifies as {machine} {version}, "
+                    f"expected {target} {gcc_version}"
+                )
+        for name in ("ld", "ar", "nm", "objdump", "objcopy", "strip"):
+            output = self.checked_output([str(tools[name]), "--version"]).stdout
+            if f"(GNU Binutils) {binutils_version}" not in output.splitlines()[0]:
+                raise BootstrapError(
+                    f"installed {name} is not Binutils {binutils_version}"
+                )
+        output = self.checked_output([str(tools["nasm"]), "-version"]).stdout
+        if not output.startswith(f"NASM version {nasm_version}"):
+            raise BootstrapError(f"installed nasm is not NASM {nasm_version}")
+
+        with tempfile.TemporaryDirectory(prefix="pedigree-toolchain-check-") as temporary:
+            check_root = Path(temporary)
+            compile_probes = (
+                (
+                    "gcc",
+                    "c",
+                    "int pedigree_compiler_probe(void) { return 0; }\n",
+                ),
+                (
+                    "g++",
+                    "c++",
+                    "template<class T> T probe(T value) { return value; }\n"
+                    "int pedigree_compiler_probe() { return probe(0); }\n",
+                ),
+            )
+            for name, language, source in compile_probes:
+                output_path = check_root / f"{name}.o"
+                result = subprocess.run(
+                    [
+                        str(tools[name]),
+                        "-ffreestanding",
+                        "-x",
+                        language,
+                        "-c",
+                        "-",
+                        "-o",
+                        str(output_path),
+                    ],
+                    input=source,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0 or not output_path.is_file():
+                    raise BootstrapError(
+                        f"installed {name} cannot compile {language}: "
+                        f"{result.stderr.strip()}"
+                    )
+
+            if require_libcpp:
+                if not self.libcpp_installed():
+                    raise BootstrapError("installed libstdc++ is incomplete")
+                verbose = self.checked_output([str(tools["g++"]), "-v"])
+                if "Thread model: posix" not in verbose.stderr:
+                    raise BootstrapError("final compiler does not use POSIX threads")
+                shared = check_root / "libpedigree-cxx-probe.so"
+                result = subprocess.run(
+                    [
+                        str(tools["g++"]),
+                        "-shared",
+                        "-fPIC",
+                        "-fstack-protector-strong",
+                        "-x",
+                        "c++",
+                        "-",
+                        "-o",
+                        str(shared),
+                    ],
+                    input=(
+                        "#include <string>\n"
+                        "extern \"C\" unsigned pedigree_cxx_probe() {\n"
+                        "  volatile char stack_guard_probe[16] = {};\n"
+                        "  std::string value(\"ok\");\n"
+                        "  return static_cast<unsigned>(value.size()) + "
+                        "stack_guard_probe[0];\n"
+                        "}\n"
+                    ),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0 or not shared.is_file():
+                    raise BootstrapError(
+                        "installed libstdc++ is not usable from a shared library: "
+                        + result.stderr.strip()
+                    )
+                libgcc = (
+                    self.prefix
+                    / f"lib/gcc/{target}/{gcc_version}/libgcc.a"
+                )
+                symbols = self.checked_output(
+                    [str(tools["nm"]), "-A", str(libgcc)]
+                ).stdout
+                weak_pthread = [
+                    line
+                    for line in symbols.splitlines()
+                    if len(line.split()) >= 2
+                    and line.split()[-2].lower() == "w"
+                    and line.split()[-1].startswith("pthread_")
+                ]
+                if weak_pthread:
+                    raise BootstrapError(
+                        "installed libgcc retains unsafe weak pthread references"
+                    )
+
+    def installation_current(self, *, require_libcpp: bool) -> bool:
+        state = self.read_state()
+        if state is None or not isinstance(state.get("libcpp"), bool):
+            return False
+        try:
+            expected = self.state_fingerprint(libcpp=bool(state["libcpp"]))
+        except OSError:
+            return False
+        if state != expected or (require_libcpp and not state["libcpp"]):
+            return False
+        try:
+            self.validate_installation(require_libcpp=require_libcpp)
+        except (BootstrapError, OSError):
+            return False
+        return True
+
     def build_nasm(self, archive: Archive, archive_path: Path) -> None:
-        if self.component_installed("nasm"):
-            self.log("Nasm: already installed")
-            return
         source = self.extract(archive, archive_path)
         self.run(
             ["./configure", f"--prefix={self.prefix}"],
             cwd=source,
             env=self.environment(),
         )
-        self.run(["make"], cwd=source, env=self.environment())
+        self.run(self.make, cwd=source, env=self.environment())
         self.run(["make", "install"], cwd=source, env=self.environment())
 
-    def configure_binutils(self, source: Path) -> None:
+    def configure_binutils(self, source: Path, build: Path) -> None:
         flags = [
             "--target=" + self.args.target,
             "--prefix=" + str(self.prefix),
             "--disable-nls",
-            "--enable-gold",
-            "--enable-ld",
-            "--with-sysroot",
+            "--disable-gold",
+            "--enable-ld=default",
+            "--disable-multilib",
+            "--with-sysroot=" + str(self.prefix / self.args.target),
             "--enable-lto",
             "--disable-werror",
-            *self.dependency_flags(),
+            *self.host_dependency_flags(),
         ]
-        self.run([str(source / "configure"), *flags], cwd=self.build_root / "build", env=self.host_configure_environment())
+        self.run(
+            [str(source / "configure"), *flags],
+            cwd=build,
+            env=self.host_configure_environment(),
+        )
 
-    def configure_gcc(self, source: Path) -> None:
+    def configure_gcc(self, source: Path, build: Path, with_headers: bool) -> None:
         flags = [
             "--target=" + self.args.target,
             "--prefix=" + str(self.prefix),
             "--disable-nls",
             "--enable-languages=c,c++",
-            "--without-headers",
-            "--without-newlib",
+            "--disable-multilib",
+            "--with-sysroot=" + str(self.prefix / self.args.target),
+            "--with-native-system-header-dir=/include",
             "--enable-lto",
             "--disable-werror",
-            *self.dependency_flags(),
+            *self.host_dependency_flags(),
         ]
-        self.run([str(source / "configure"), *flags], cwd=self.build_root / "build", env=self.host_configure_environment())
-
-    def configure_libcpp(self, source: Path) -> None:
-        flags = [
-            "--target=" + self.args.target,
-            "--disable-nls",
-            "--enable-languages=c++",
-            "--without-newlib",
-            "--disable-libstdcxx-pch",
-            "--enable-shared",
-            "--enable-lto",
-            *self.dependency_flags(),
-        ]
-        self.run([str(source / "configure"), *flags], cwd=self.build_root / "build", env=self.host_configure_environment())
-
-    def build_gcc(self, sources: dict[str, Path]) -> None:
-        build = self.build_root / "build"
-        if self.component_installed("binutils"):
-            self.log("Binutils: already installed")
+        if with_headers:
+            flags.extend(
+                (
+                    "--without-newlib",
+                    "--with-headers",
+                    "--enable-threads=posix",
+                    "--disable-libstdcxx-pch",
+                    "--disable-shared",
+                )
+            )
         else:
-            build.mkdir(parents=True, exist_ok=True) if not self.dry_run else None
-            self.configure_binutils(sources["binutils"])
-            self.run(["make", "all"], cwd=build, env=self.environment())
-            self.run(["make", "install"], cwd=build, env=self.environment())
-            if not self.dry_run and build.exists():
-                shutil.rmtree(build)
-        if self.component_installed("gcc"):
-            self.log("GCC: already installed")
-        else:
-            build.mkdir(parents=True, exist_ok=True) if not self.dry_run else None
-            self.configure_gcc(sources["gcc"])
-            self.run(["make", "all-gcc", "all-target-libgcc"], cwd=build, env=self.environment())
-            self.run(["make", "install-gcc", "install-target-libgcc"], cwd=build, env=self.environment())
-        if self.args.libcpp:
-            build.mkdir(parents=True, exist_ok=True) if not self.dry_run else None
-            if self.libcpp_installed() and not self.dry_run:
-                self.log("libstdc++: already installed")
-            else:
-                self.configure_libcpp(sources["gcc"])
-                self.run(["make", "all-target-libstdc++-v3"], cwd=build, env=self.environment())
-                self.run(["make", "install-target-libstdc++-v3"], cwd=build, env=self.environment())
+            # The stage-one compiler precedes musl.  This keeps libgcc from
+            # depending on libc and prevents fixincludes probing an empty sysroot.
+            flags.extend(
+                (
+                    "--with-newlib",
+                    "--without-headers",
+                    "--disable-threads",
+                    "--disable-fixincludes",
+                )
+            )
+        self.run(
+            [str(source / "configure"), *flags],
+            cwd=build,
+            env=self.gcc_environment(with_headers=with_headers, configure=True),
+        )
+
+    def build_base_compiler(self, sources: dict[str, Path]) -> None:
+        binutils_build = self.build_root / f"build-binutils-r{TOOLCHAIN_RECIPE}"
+        binutils_build.mkdir(parents=True, exist_ok=True) if not self.dry_run else None
+        self.configure_binutils(sources["binutils"], binutils_build)
+        self.run([*self.make, "all"], cwd=binutils_build, env=self.environment())
+        self.run(["make", "install"], cwd=binutils_build, env=self.environment())
+
+        gcc_build = self.build_root / f"build-gcc-r{TOOLCHAIN_RECIPE}"
+        gcc_build.mkdir(parents=True, exist_ok=True) if not self.dry_run else None
+        self.configure_gcc(sources["gcc"], gcc_build, with_headers=False)
+        self.run(
+            [*self.make, "all-gcc", "all-target-libgcc"],
+            cwd=gcc_build,
+            env=self.gcc_environment(with_headers=False, configure=False),
+        )
+        self.run(
+            ["make", "install-gcc", "install-target-libgcc"],
+            cwd=gcc_build,
+            env=self.gcc_environment(with_headers=False, configure=False),
+        )
+
+    def build_final_compiler(self, gcc_source: Path) -> None:
+        if not self.dry_run and not (self.sysroot / "include").is_dir():
+            raise BootstrapError(
+                f"--libcpp requires installed musl headers at {self.sysroot / 'include'}"
+            )
+        if not self.dry_run:
+            self.link_sysroot()
+        build = self.build_root / f"build-libcpp-r{TOOLCHAIN_RECIPE}"
+        build.mkdir(parents=True, exist_ok=True) if not self.dry_run else None
+        self.configure_gcc(gcc_source, build, with_headers=True)
+        environment = self.gcc_environment(with_headers=True, configure=False)
+        self.run(
+            [
+                *self.make,
+                "all-gcc",
+                "all-target-libgcc",
+                "all-target-libstdc++-v3",
+            ],
+            cwd=build,
+            env=environment,
+        )
+        self.run(
+            [
+                "make",
+                "install-gcc",
+                "install-target-libgcc",
+                "install-target-libstdc++-v3",
+            ],
+            cwd=build,
+            env=environment,
+        )
 
     def link_sysroot(self) -> None:
         gcc_version = self.manifest["gcc"].version
@@ -420,20 +674,28 @@ class Bootstrapper:
         ]
         for destination in relative_targets:
             source = self.sysroot / "lib" / destination.name
-            self.log(f"link {destination} -> {source}")
-            if not self.dry_run:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.unlink(missing_ok=True)
-                destination.symlink_to(source)
+            self.link_path(source, destination, "startup object")
+        target_lib = self.prefix / self.args.target / "lib"
+        sysroot_lib = self.sysroot / "lib"
+        if self.dry_run:
+            self.log(f"link musl libraries from {sysroot_lib} into {target_lib}")
+        elif sysroot_lib.is_dir():
+            for source in sorted(sysroot_lib.iterdir()):
+                destination = target_lib / source.name
+                self.link_path(source, destination, "target library")
         include = self.prefix / self.args.target / "include"
-        self.log(f"link {include} -> {self.sysroot / 'include'}")
-        if not self.dry_run:
-            include.parent.mkdir(parents=True, exist_ok=True)
-            include.unlink(missing_ok=True)
-            include.symlink_to(self.sysroot / "include")
-        include_fixed = self.prefix / f"lib/gcc/{self.args.target}/{gcc_version}/include-fixed"
-        if include_fixed.is_dir() and not include_fixed.is_symlink() and not self.dry_run:
-            shutil.rmtree(include_fixed)
+        self.link_path(self.sysroot / "include", include, "target include directory")
+
+    def link_path(self, source: Path, destination: Path, description: str) -> None:
+        self.log(f"link {destination} -> {source}")
+        if self.dry_run:
+            return
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.is_symlink() and destination.resolve() == source.resolve():
+            return
+        if destination.exists() or destination.is_symlink():
+            raise BootstrapError(f"refusing to replace {description}: {destination}")
+        destination.symlink_to(source)
 
     def clean(self) -> None:
         if self.args.keep_build or self.dry_run:
@@ -443,20 +705,32 @@ class Bootstrapper:
 
     def build(self) -> None:
         self.require_commands()
-        self.ensure_prefix_link()
-        self.prefix.mkdir(parents=True, exist_ok=True) if not self.dry_run else None
-        selected = ["gcc", "binutils"]
-        if self.args.target in NASM_TARGETS:
-            selected.append("nasm")
-        if (
-            not self.dry_run
-            and all(self.component_installed(name) for name in selected)
-            and (not self.args.libcpp or self.libcpp_installed())
+        if self.args.activate and not self.args.libcpp:
+            raise BootstrapError("--activate requires the final --libcpp stage")
+        if not self.dry_run and self.installation_current(
+            require_libcpp=self.args.libcpp
         ):
             self.log("Toolchain: already installed")
             self.link_sysroot()
+            self.clean()
+            if self.args.activate:
+                self.activate_prefix()
             self.log("Toolchain bootstrap complete.")
             return
+        if not self.dry_run and self.prefix_is_active():
+            raise BootstrapError(
+                "refusing to rebuild the active toolchain; use a side-by-side prefix"
+            )
+
+        self.prefix.mkdir(parents=True, exist_ok=True) if not self.dry_run else None
+        base_current = (
+            False
+            if self.dry_run
+            else self.installation_current(require_libcpp=False)
+        )
+        selected = ["gcc", *GCC_PREREQUISITES]
+        if not base_current:
+            selected.extend(("binutils", "nasm"))
         archives = {name: self.manifest[name] for name in selected}
         archive_paths = {name: self.download(item) for name, item in archives.items()}
         sources = {
@@ -464,13 +738,27 @@ class Bootstrapper:
             for name, item in archives.items()
             if name != "nasm"
         }
-        if "nasm" in archives:
+        if not base_current:
             self.build_nasm(archives["nasm"], archive_paths["nasm"])
-        self.patch_sources(sources)
-        self.fix_autoconf_and_regenerate(sources)
-        self.build_gcc(sources)
-        self.link_sysroot()
+            self.patch_sources({name: sources[name] for name in PATCHES})
+        else:
+            self.patch_sources({"gcc": sources["gcc"]})
+        self.link_gcc_prerequisites(sources["gcc"], sources)
+        if not base_current:
+            self.build_base_compiler({name: sources[name] for name in PATCHES})
+            self.link_sysroot()
+            if not self.dry_run:
+                self.validate_installation(require_libcpp=False)
+                self.write_state(libcpp=False)
+        if self.args.libcpp:
+            self.build_final_compiler(sources["gcc"])
+            self.link_sysroot()
+            if not self.dry_run:
+                self.validate_installation(require_libcpp=True)
+                self.write_state(libcpp=True)
         self.clean()
+        if self.args.activate:
+            self.activate_prefix()
         self.log("Toolchain bootstrap complete.")
 
 

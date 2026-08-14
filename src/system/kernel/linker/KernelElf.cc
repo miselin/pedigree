@@ -204,6 +204,8 @@ bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
     uintptr_t shdr_addr =
         pBootstrap.getSectionHeaders() + i * pBootstrap.getSectionHeaderEntrySize();
 
+    // The expanded x86 header must live until the section has been inspected.
+    ElfSectionHeader_t sh;
     ElfSectionHeader_t* pSh = 0;
 
     EMIT_IF(X86_COMMON) {
@@ -211,7 +213,6 @@ bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
           m_AdditionalSectionHeaders->convertPhysicalPointer<KernelElfSectionHeader_t>(shdr_addr);
 
       // Copy into larger format for analysis
-      ElfSectionHeader_t sh;
       sh.name = pTruncatedSh->name;
       sh.type = pTruncatedSh->type;
       sh.flags = pTruncatedSh->flags;

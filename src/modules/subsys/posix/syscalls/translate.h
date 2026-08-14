@@ -30,7 +30,7 @@
 
 #include <posixSyscallNumbers.h>
 
-inline long posix_translate_syscall(long which) {
+static inline long posix_translate_syscall(long which) {
   long pedigree_translation = -1;
 
   switch (which) {

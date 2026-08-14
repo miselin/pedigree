@@ -1,5 +1,6 @@
 .text
 .global __clone
+.hidden __clone
 .type   __clone,@function
 # The clone child must leave through linuxCompat exit so it retires only its
 # thread; the native POSIX service's exit operation terminates the process.

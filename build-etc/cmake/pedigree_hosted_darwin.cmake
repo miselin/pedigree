@@ -6,6 +6,10 @@ set(CMAKE_OSX_ARCHITECTURES x86_64 CACHE STRING "" FORCE)
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 get_filename_component(
     PEDIGREE_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(PEDIGREE_TOOLCHAIN_ROOT
+    "${PEDIGREE_SOURCE_ROOT}/compilers/dir" CACHE PATH
+    "Pedigree cross-toolchain installation root")
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES PEDIGREE_TOOLCHAIN_ROOT)
 
 find_program(PEDIGREE_HOST_C_COMPILER clang REQUIRED)
 find_program(PEDIGREE_HOST_CXX_COMPILER clang++ REQUIRED)
@@ -17,13 +21,13 @@ set(CMAKE_ASM_COMPILER ${PEDIGREE_HOST_C_COMPILER})
 set(CMAKE_STRIP ${PEDIGREE_HOST_STRIP})
 
 set(PEDIGREE_C_COMPILER
-    ${PEDIGREE_SOURCE_ROOT}/compilers/dir/bin/x86_64-pedigree-gcc)
+    ${PEDIGREE_TOOLCHAIN_ROOT}/bin/x86_64-pedigree-gcc)
 set(PEDIGREE_CXX_COMPILER
-    ${PEDIGREE_SOURCE_ROOT}/compilers/dir/bin/x86_64-pedigree-g++)
+    ${PEDIGREE_TOOLCHAIN_ROOT}/bin/x86_64-pedigree-g++)
 set(PEDIGREE_MODULE_OBJCOPY
-    ${PEDIGREE_SOURCE_ROOT}/compilers/dir/bin/x86_64-pedigree-objcopy)
+    ${PEDIGREE_TOOLCHAIN_ROOT}/bin/x86_64-pedigree-objcopy)
 set(PEDIGREE_MODULE_STRIP
-    ${PEDIGREE_SOURCE_ROOT}/compilers/dir/bin/x86_64-pedigree-strip)
+    ${PEDIGREE_TOOLCHAIN_ROOT}/bin/x86_64-pedigree-strip)
 
 set(TARGET_SUPPORTS_SHARED_LIBS TRUE)
 

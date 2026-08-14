@@ -69,14 +69,6 @@ void pedigree_musl_thread_exit(long status)
     __builtin_trap();
 }
 
-// Normally implemented in assembly - brought in here to avoid having to
-// replace the .c file
-long __syscall(long which, long a1, long a2, long a3, long a4,
-               long a5, long a6)
-{
-    return pedigree_translate_syscall(which, a1, a2, a3, a4, a5, a6);
-}
-
 // Extension that provides write access to the kernel log.
 int klog(int prio, const char *fmt, ...)
 {
@@ -84,6 +76,7 @@ int klog(int prio, const char *fmt, ...)
     va_list argptr;
     va_start(argptr, fmt);
     vsnprintf(print_temp, sizeof print_temp, fmt, argptr);
-    syscall2(POSIX_SYSLOG, (long) print_temp, prio);
+    int result = (int) syscall2(POSIX_SYSLOG, (long) print_temp, prio);
     va_end(argptr);
+    return result;
 }
