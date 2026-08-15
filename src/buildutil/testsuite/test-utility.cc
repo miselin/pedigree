@@ -24,6 +24,10 @@
 
 #include <gtest/gtest.h>
 
+static_assert(BS16(0x0123U) == 0x2301U);
+static_assert(BS32(0x01234567U) == 0x67452301U);
+static_assert(BS64(0x0123456789ABCDEFULL) == 0xEFCDAB8967452301ULL);
+
 TEST(PedigreeUtility, SDirectoryName) {
   char buf[256];
   EXPECT_STREQ(SDirectoryName("/a/b/c", buf, 256), "/a/b");
@@ -72,6 +76,17 @@ TEST(PedigreeUtility, Fletcher16) {
   reinterpret_cast<uint8_t*>(buf)[0] = 'b';
   uint16_t c2 = checksum16(buf, 4096);
   EXPECT_NE(c1, c2);
+}
+
+TEST(PedigreeUtility, ByteSwapEvaluatesInputOnce) {
+  size_t evaluations = 0;
+  auto value = [&evaluations]() {
+    ++evaluations;
+    return 0x01234567U;
+  };
+
+  EXPECT_EQ(BS32(value()), 0x67452301U);
+  EXPECT_EQ(evaluations, 1U);
 }
 
 TEST(PedigreeUtility, Fletcher32) {

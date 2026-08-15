@@ -140,7 +140,7 @@ size_t Read12::serialise(uintptr_t& addr) {
   return sizeof(command);
 }
 
-Read16::Read16(uint32_t nLba, uint32_t nSectors) {
+Read16::Read16(uint64_t nLba, uint32_t nSectors) {
   ByteSet(&command, 0, sizeof(command));
   command.nOpCode = 0x88;
   command.nLba = HOST_TO_BIG64(nLba);
@@ -176,7 +176,7 @@ size_t Write12::serialise(uintptr_t& addr) {
   return sizeof(command);
 }
 
-Write16::Write16(uint32_t nLba, uint32_t nSectors) {
+Write16::Write16(uint64_t nLba, uint32_t nSectors) {
   ByteSet(&command, 0, sizeof(command));
   command.nOpCode = 0x8A;
   command.nLba = HOST_TO_BIG64(nLba);
@@ -200,7 +200,7 @@ size_t Synchronise10::serialise(uintptr_t& addr) {
   return sizeof(command);
 }
 
-Synchronise16::Synchronise16(uint32_t nLba, uint32_t nSectors) {
+Synchronise16::Synchronise16(uint64_t nLba, uint32_t nSectors) {
   ByteSet(&command, 0, sizeof(command));
   command.nOpCode = 0x91;
   command.nLba = HOST_TO_BIG64(nLba);

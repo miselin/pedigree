@@ -27,6 +27,10 @@
 #include "pedigree/kernel/utilities/cpp.h"  // IWYU pragma: export
 #include "pedigree/kernel/utilities/lib.h"  // IWYU pragma: export
 
+#ifdef __cplusplus
+#include <bit>
+#endif
+
 #if HOSTED && !UTILITY_LINUX
 // Override headers we are replacing.
 #define _STRING_H 1
@@ -35,13 +39,28 @@
 /** @addtogroup kernelutilities
  * @{ */
 
-// Endianness shizzle.
-#define BS8(x) (x)
-#define BS16(x) (((x & 0xFF00) >> 8) | ((x & 0x00FF) << 8))
-#define BS32(x)                                                                   \
-  (((x & 0xFF000000) >> 24) | ((x & 0x00FF0000) >> 8) | ((x & 0x0000FF00) << 8) | \
-   ((x & 0x000000FF) << 24))
-#define BS64(x) (x)
+#ifdef __cplusplus
+constexpr uint8_t BS8(uint8_t value) noexcept {
+  return value;
+}
+
+constexpr uint16_t BS16(uint16_t value) noexcept {
+  return std::byteswap(value);
+}
+
+constexpr uint32_t BS32(uint32_t value) noexcept {
+  return std::byteswap(value);
+}
+
+constexpr uint64_t BS64(uint64_t value) noexcept {
+  return std::byteswap(value);
+}
+#else
+#define BS8(x) ((uint8_t)(x))
+#define BS16(x) __builtin_bswap16((uint16_t)(x))
+#define BS32(x) __builtin_bswap32((uint32_t)(x))
+#define BS64(x) __builtin_bswap64((uint64_t)(x))
+#endif
 
 #if TARGET_IS_LITTLE_ENDIAN
 

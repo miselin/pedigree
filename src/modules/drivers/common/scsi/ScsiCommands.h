@@ -196,7 +196,7 @@ class Read12 : public ScsiCommand {
 
 class Read16 : public ScsiCommand {
  public:
-  Read16(uint32_t nLba, uint32_t nSectors);
+  Read16(uint64_t nLba, uint32_t nSectors);
 
   virtual size_t serialise(uintptr_t& addr);
 
@@ -212,6 +212,8 @@ class Read16 : public ScsiCommand {
     uint8_t res2;
     uint8_t nControl;
   } PACKED command;
+
+  static_assert(sizeof(command) == 16, "READ(16) CDB must be 16 bytes");
 };
 
 class Write10 : public ScsiCommand {
@@ -258,7 +260,7 @@ class Write12 : public ScsiCommand {
 
 class Write16 : public ScsiCommand {
  public:
-  Write16(uint32_t nLba, uint32_t nSectors);
+  Write16(uint64_t nLba, uint32_t nSectors);
 
   virtual size_t serialise(uintptr_t& addr);
 
@@ -275,6 +277,8 @@ class Write16 : public ScsiCommand {
     uint8_t res2;
     uint8_t nControl;
   } PACKED command;
+
+  static_assert(sizeof(command) == 16, "WRITE(16) CDB must be 16 bytes");
 };
 
 class Synchronise10 : public ScsiCommand {
@@ -299,7 +303,7 @@ class Synchronise10 : public ScsiCommand {
 
 class Synchronise16 : public ScsiCommand {
  public:
-  Synchronise16(uint32_t nLba, uint32_t nSectors);
+  Synchronise16(uint64_t nLba, uint32_t nSectors);
 
   virtual size_t serialise(uintptr_t& addr);
 
@@ -315,6 +319,8 @@ class Synchronise16 : public ScsiCommand {
     uint8_t rsvd2 : 3;
     uint8_t nControl;
   } PACKED command;
+
+  static_assert(sizeof(command) == 16, "SYNCHRONIZE CACHE(16) CDB must be 16 bytes");
 };
 };  // namespace ScsiCommands
 

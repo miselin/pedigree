@@ -212,6 +212,7 @@ target_compile_definitions(memorytracer PRIVATE -DMEMORY_TRACING)
 
 set(TESTSUITE_SRCS
     ext2img/DiskImage.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/drivers/common/scsi/ScsiCommands.cc
     testsuite/test-BloomFilter.cc
     testsuite/test-DiskImage.cc
     testsuite/test-Ext2FillCache.cc
@@ -219,6 +220,7 @@ set(TESTSUITE_SRCS
     testsuite/test-Tree.cc
     testsuite/test-ObjectPool.cc
     testsuite/test-SlamAllocator.cc
+    testsuite/test-ScsiCommands.cc
     testsuite/test-utility.cc
     testsuite/test-String.cc
     testsuite/test-Vector.cc
