@@ -135,6 +135,132 @@ struct AccountingThreadContext {
   Atomic<size_t> firstSliceAccounted;
 };
 
+struct TlsResetContext {
+  TlsResetContext()
+      : hookCalls(0),
+        beforeClearCalls(0),
+        clearedCalls(0),
+        remappedCalls(0),
+        failures(0),
+        interruptsInitiallyEnabled(0),
+        initialBaseValid(0),
+        remappedBase(0),
+        mapped(0),
+        interruptsRestored(0),
+        returned(0) {}
+
+  Atomic<size_t> hookCalls;
+  Atomic<size_t> beforeClearCalls;
+  Atomic<size_t> clearedCalls;
+  Atomic<size_t> remappedCalls;
+  Atomic<size_t> failures;
+  Atomic<size_t> interruptsInitiallyEnabled;
+  Atomic<size_t> initialBaseValid;
+  Atomic<size_t> remappedBase;
+  Atomic<size_t> mapped;
+  Atomic<size_t> interruptsRestored;
+  Atomic<size_t> returned;
+};
+
+TlsResetContext* g_TlsResetContext = nullptr;
+
+void observeTlsReset(Thread* thread, Thread::TlsResetPhase phase, uintptr_t base) {
+  TlsResetContext* context = __atomic_load_n(&g_TlsResetContext, __ATOMIC_ACQUIRE);
+  if (!context) {
+    return;
+  }
+
+  context->hookCalls += 1;
+  if (thread != Processor::information().getCurrentThread() || Processor::getInterrupts() ||
+      Processor::executionContext() != ExecutionContext::AtomicThread) {
+    context->failures += 1;
+  }
+
+  if (phase == Thread::TlsResetBeforeClear && !base) {
+    context->beforeClearCalls += 1;
+  } else if (phase == Thread::TlsResetCleared && !base) {
+    context->clearedCalls += 1;
+  } else if (phase == Thread::TlsResetRemapped && base) {
+    context->remappedCalls += 1;
+    context->remappedBase = base;
+  } else {
+    context->failures += 1;
+  }
+
+  // Keep the controlled missing-guard regression out of the real race window.
+  if (Processor::getInterrupts()) {
+    Processor::setInterrupts(false);
+  }
+}
+
+int resetTlsBaseThread(void* parameter) {
+  TlsResetContext* context = reinterpret_cast<TlsResetContext*>(parameter);
+  Thread* current = Processor::information().getCurrentThread();
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  context->interruptsInitiallyEnabled = interruptsWereEnabled ? 1 : 0;
+  const uintptr_t initialBase = current->getTlsBase();
+  context->initialBaseValid = initialBase && current->getParent()->getAddressSpace()->isMapped(
+                                                 reinterpret_cast<void*>(initialBase));
+
+  Process* process = current->getParent();
+  process->getSpaceAllocator().clear();
+  process->getDynamicSpaceAllocator().clear();
+  process->getSpaceAllocator().free(process->getAddressSpace()->getUserStart(),
+                                    process->getAddressSpace()->getUserReservedStart() -
+                                        process->getAddressSpace()->getUserStart());
+  if (process->getAddressSpace()->getDynamicStart()) {
+    process->getDynamicSpaceAllocator().free(process->getAddressSpace()->getDynamicStart(),
+                                             process->getAddressSpace()->getDynamicEnd() -
+                                                 process->getAddressSpace()->getDynamicStart());
+  }
+  process->getAddressSpace()->revertToKernelAddressSpace();
+
+  current->resetTlsBase();
+
+  context->interruptsRestored = Processor::getInterrupts() == interruptsWereEnabled ? 1 : 0;
+  if (Processor::getInterrupts() != interruptsWereEnabled) {
+    Processor::setInterrupts(interruptsWereEnabled);
+  }
+  const uintptr_t tlsBase = context->remappedBase;
+  context->mapped =
+      tlsBase && process->getAddressSpace()->isMapped(reinterpret_cast<void*>(tlsBase));
+  context->returned = 1;
+  return 0;
+}
+
+bool tlsResetAtomicRemap() {
+  Process* process = new Process(Scheduler::instance().getKernelProcess());
+  TlsResetContext context;
+  Thread* target = new Thread(process, resetTlsBaseThread, &context, nullptr, true, true, true);
+  target->setName("hosted TLS reset atomicity probe");
+
+  __atomic_store_n(&g_TlsResetContext, &context, __ATOMIC_RELEASE);
+  Thread::setTlsResetHookForHostedTest(target, observeTlsReset);
+  const bool started = target->start();
+  const bool joined = started && target->joinForCompletion();
+  Thread::setTlsResetHookForHostedTest(nullptr, nullptr);
+  __atomic_store_n(&g_TlsResetContext, static_cast<TlsResetContext*>(nullptr), __ATOMIC_RELEASE);
+
+  if (!started) {
+    delete target;
+  }
+  delete process;
+
+  const bool passed = started && joined && context.interruptsInitiallyEnabled &&
+                      context.initialBaseValid && context.hookCalls == 3 &&
+                      context.beforeClearCalls == 1 && context.clearedCalls == 1 &&
+                      context.remappedCalls == 1 && !context.failures && context.mapped &&
+                      context.interruptsRestored && context.returned;
+  if (!passed) {
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL thread-tls-reset-interrupt-atomicity: "
+        "TLS reset escaped its non-preemptible mapping window");
+  } else {
+    NOTICE("HOSTED-WAIT-TEST: PASS thread-tls-reset-interrupt-atomicity");
+  }
+  return passed;
+}
+
 int accountedKernelThread(void* parameter) {
   AccountingThreadContext* context = reinterpret_cast<AccountingThreadContext*>(parameter);
   Scheduler::instance().yield();
@@ -1020,6 +1146,10 @@ extern "C" void hostedSchedulerExitUserProbeTimedOut(void* parameter) {
 #endif
 
 bool runHostedSchedulerRegressions() {
+  if (!tlsResetAtomicRemap()) {
+    return false;
+  }
+
   if (!hostedSignalMaskSpansContextSwitch() || !schedulerTimerSingleOwner() ||
       !schedulerTimerAbandonedAdmissionCleanup() || !schedulerTimerSelfRemovalRejected() ||
       !schedulerRouteIsDedicated() || !schedulerTimerHardContext()) {

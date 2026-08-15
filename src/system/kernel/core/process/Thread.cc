@@ -67,6 +67,8 @@ void Thread::StackDiscardScope::disarm() {
 namespace {
 Thread::StateTransitionHook g_StateTransitionHook = nullptr;
 Thread::JoinOperationHook g_JoinOperationHook = nullptr;
+Thread::TlsResetHook g_TlsResetHook = nullptr;
+Thread* g_TlsResetTarget = nullptr;
 using EventAdmissionHook = void (*)(Thread*);
 EventAdmissionHook g_EventAdmissionHook = nullptr;
 Thread* g_EventAdmissionTarget = nullptr;
@@ -1188,6 +1190,11 @@ void Thread::setJoinOperationHook(JoinOperationHook hook) {
   __atomic_store_n(&g_JoinOperationHook, hook, __ATOMIC_RELEASE);
 }
 
+void Thread::setTlsResetHookForHostedTest(Thread* target, TlsResetHook hook) {
+  __atomic_store_n(&g_TlsResetTarget, target, __ATOMIC_RELEASE);
+  __atomic_store_n(&g_TlsResetHook, hook, __ATOMIC_RELEASE);
+}
+
 bool Thread::isReapableForHostedTest() {
   auto guard = m_JoinWaiters.acquire();
   return m_bReapable;
@@ -1695,9 +1702,30 @@ uintptr_t Thread::getTlsBase() {
 }
 
 void Thread::resetTlsBase() {
+  // The scheduler queries the base while restoring an interrupted Thread, so
+  // the old value must not be unpublished until remapping is non-preemptible.
+  EnsureInterrupts interrupts(false);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  TlsResetHook hook = __atomic_load_n(&g_TlsResetHook, __ATOMIC_ACQUIRE);
+  Thread* hookTarget = __atomic_load_n(&g_TlsResetTarget, __ATOMIC_ACQUIRE);
+  if (hook && hookTarget == this) {
+    hook(this, TlsResetBeforeClear, 0);
+  }
+#endif
   m_pTlsBase = 0;
   m_bTlsBaseOverride = false;
-  Processor::setTlsBase(getTlsBase());
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  if (hook && hookTarget == this) {
+    hook(this, TlsResetCleared, 0);
+  }
+#endif
+  const uintptr_t tlsBase = getTlsBase();
+  Processor::setTlsBase(tlsBase);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  if (hook && hookTarget == this) {
+    hook(this, TlsResetRemapped, tlsBase);
+  }
+#endif
 }
 
 void Thread::setTlsBase(uintptr_t base) {

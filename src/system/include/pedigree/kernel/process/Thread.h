@@ -529,6 +529,18 @@ class EXPORTED_PUBLIC Thread {
    */
   void resetTlsBase();
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  enum TlsResetPhase {
+    TlsResetBeforeClear,
+    TlsResetCleared,
+    TlsResetRemapped,
+  };
+  using TlsResetHook = void (*)(Thread* thread, TlsResetPhase phase, uintptr_t base);
+
+  /** Observes the protected TLS reset window in deterministic hosted tests. */
+  static void setTlsResetHookForHostedTest(Thread* target, TlsResetHook hook);
+#endif
+
   /**
    * Set the TLS base for this thread. Once set, it must be cleaned up by
    * the caller when the thread terminates, which makes this primarily useful
