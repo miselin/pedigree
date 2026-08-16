@@ -130,10 +130,19 @@ int main(int argc, char** argv) {
 
     // This handles the case where a bad character goes into the stream and
     // is impossible to get out. Everything else I've tried does not work...
-    close(0);
-    int fd = open("/dev/tty", 0);
-    if (fd != 0)
-      dup2(fd, 0);
+    int fd = open("/dev/tty", O_RDONLY);
+    if (fd < 0) {
+      klog(LOG_ERR, "Opening /dev/tty failed: %s", strerror(errno));
+      return 1;
+    }
+    if (fd != STDIN_FILENO) {
+      if (dup2(fd, STDIN_FILENO) < 0) {
+        klog(LOG_ERR, "Replacing stdin failed: %s", strerror(errno));
+        close(fd);
+        return 1;
+      }
+      close(fd);
+    }
 
     // Get username
     printf(gettext("Username: "));

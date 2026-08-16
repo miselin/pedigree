@@ -29,7 +29,6 @@ Png::Png(const char* filename)
   FILE* stream = fopen(filename, "rb");
   if (!stream) {
     klog(LOG_ALERT, "PNG file failed to open");
-    fclose(stream);
     return;
   }
 
@@ -57,6 +56,7 @@ Png::Png(const char* filename)
   m_InfoPtr = png_create_info_struct(m_PngPtr);
   if (m_InfoPtr == 0) {
     klog(LOG_ALERT, "PNG info failed to initialise");
+    png_destroy_read_struct(&m_PngPtr, nullptr, nullptr);
     fclose(stream);
     return;
   }
@@ -73,6 +73,7 @@ Png::Png(const char* filename)
                    PNG_TRANSFORM_PACKING,       // Unpack 2 and 4 bit samples.
 
                reinterpret_cast<void*>(0));
+  fclose(stream);
 
   m_pRowPointers = png_get_rows(m_PngPtr, m_InfoPtr);
 
@@ -86,17 +87,26 @@ Png::Png(const char* filename)
 
   if (bit_depth != 8) {
     klog(LOG_ALERT, "PNG - invalid bit depth");
+    m_nWidth = m_nHeight = 0;
+    m_pRowPointers = 0;
+    png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, nullptr);
     return;
   }
   if (color_type != PNG_COLOR_TYPE_RGB) {
     klog(LOG_ALERT, "PNG - invalid colour type: %d", color_type);
+    m_nWidth = m_nHeight = 0;
+    m_pRowPointers = 0;
+    png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, nullptr);
     return;
   }
 
   klog(LOG_ALERT, "PNG loaded %ul %ul", m_nWidth, m_nHeight);
 }
 
-Png::~Png() {}
+Png::~Png() {
+  if (m_PngPtr)
+    png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, nullptr);
+}
 
 void Png::render(rgb_t* pFb, size_t x, size_t y, size_t width, size_t height) {
   for (size_t r = 0; r < m_nHeight; r++) {

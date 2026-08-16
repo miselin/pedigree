@@ -229,8 +229,14 @@ void pedigree_config_get_error_message(size_t resultIdx, char* buf, int bufsz) {
 }
 
 char* pedigree_config_escape_string(const char* str) {
+  if (!str)
+    return NULL;
+
   // Expect the worst: every char needs to be escaped
   char* bufferStart = (char*)malloc(strlen(str) * 2 + 1);
+  if (!bufferStart)
+    return NULL;
+
   char* buffer = bufferStart;
   while (*str) {
     if (*str == '\'') {
@@ -243,8 +249,11 @@ char* pedigree_config_escape_string(const char* str) {
   }
   *buffer = '\0';
 
-  // Reallocate so we won't use more space than we need
-  bufferStart = realloc(bufferStart, strlen(bufferStart) + 1);
+  // Reallocate so we won't use more space than we need. A failed shrink
+  // leaves the original allocation valid and ready for the caller to free.
+  char* resized = realloc(bufferStart, (size_t)(buffer - bufferStart) + 1);
+  if (resized)
+    bufferStart = resized;
 
   return bufferStart;
 }

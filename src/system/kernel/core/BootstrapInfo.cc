@@ -34,42 +34,46 @@ BootstrapStruct_t::BootstrapStruct_t() {
 
 bool BootstrapStruct_t::isInitrdLoaded() const {
   if (flags & MULTIBOOT_FLAG_MODS)
-    return (mods_count != 0);
+    return (mods_count != 0) && mods_addr;
   else
     return false;
 }
 
 uint8_t* BootstrapStruct_t::getInitrdAddress() const {
-  if (flags & MULTIBOOT_FLAG_MODS)
-    return reinterpret_cast<uint8_t*>(getModuleArray()[0].base);
+  const Module* modules = getModuleArray();
+  if (isInitrdLoaded() && modules)
+    return reinterpret_cast<uint8_t*>(modules[0].base);
   else
     return 0;
 }
 
 size_t BootstrapStruct_t::getInitrdSize() const {
-  if (flags & MULTIBOOT_FLAG_MODS)
-    return getModuleArray()[0].end - getModuleArray()[0].base;
+  const Module* modules = getModuleArray();
+  if (isInitrdLoaded() && modules)
+    return modules[0].end - modules[0].base;
   else
     return 0;
 }
 
 bool BootstrapStruct_t::isDatabaseLoaded() const {
   if (flags & MULTIBOOT_FLAG_MODS)
-    return (mods_count > 1);
+    return (mods_count > 1) && mods_addr;
   else
     return 0;
 }
 
 uint8_t* BootstrapStruct_t::getDatabaseAddress() const {
-  if (flags & MULTIBOOT_FLAG_MODS)
-    return reinterpret_cast<uint8_t*>(getModuleArray()[1].base);
+  const Module* modules = getModuleArray();
+  if (isDatabaseLoaded() && modules)
+    return reinterpret_cast<uint8_t*>(modules[1].base);
   else
     return 0;
 }
 
 size_t BootstrapStruct_t::getDatabaseSize() const {
-  if (flags & MULTIBOOT_FLAG_MODS)
-    return getModuleArray()[1].end - getModuleArray()[1].base;
+  const Module* modules = getModuleArray();
+  if (isDatabaseLoaded() && modules)
+    return modules[1].end - modules[1].base;
   else
     return 0;
 }

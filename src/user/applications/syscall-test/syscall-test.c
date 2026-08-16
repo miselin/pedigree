@@ -41,16 +41,18 @@ int test_open(void) {
 
   printf("\tOpen nonexistant file - ");
   int fd2 = open("/usr/bin/does-not-exist", O_RDONLY);
-  if (fd2 == -1 && errno == ENOENT) {
+  if (fd2 != -1) {
     close(fd2);
-    printf("PASS\n");
-  } else {
+    printf("FAIL - unexpectedly opened missing file\n");
+    return FAIL;
+  } else if (errno != ENOENT) {
     printf("FAIL - errno %d (%s)\n", errno, strerror(errno));
     return FAIL;
   }
+  printf("PASS\n");
 
   printf("\tCreate file - ");
-  int fd3 = open("/file-doesnt-exist", O_RDWR | O_CREAT);
+  int fd3 = open("/file-doesnt-exist", O_RDWR | O_CREAT, 0666);
   if (fd3 != -1) {
     close(fd3);
     printf("PASS\n");
@@ -75,6 +77,7 @@ int test_open(void) {
   pid_t pid = fork();
 
   if (pid == -1) {
+    close(hahaha);
     printf("FAIL - fork failed\n");
     return FAIL;
   }

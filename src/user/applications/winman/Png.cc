@@ -24,7 +24,12 @@
 #include <sys/klog.h>
 
 Png::Png(const char* filename)
-    : m_PngPtr(0), m_InfoPtr(0), m_nWidth(0), m_nHeight(0), m_pRowPointers(0) {
+    : m_PngPtr(0),
+      m_InfoPtr(0),
+      m_nWidth(0),
+      m_nHeight(0),
+      m_pRowPointers(0),
+      m_pBitmap(0) {
   // Open the file.
   FILE* stream = fopen(filename, "rb");
   if (!stream) {
@@ -72,6 +77,7 @@ Png::Png(const char* filename)
                    PNG_TRANSFORM_STRIP_ALPHA |  // No alpha
                    PNG_TRANSFORM_PACKING,       // Unpack 2 and 4 bit samples.
                reinterpret_cast<void*>(0));
+  fclose(stream);
 
   m_pRowPointers = png_get_rows(m_PngPtr, m_InfoPtr);
 
@@ -83,17 +89,29 @@ Png::Png(const char* filename)
   m_nWidth = w;
   m_nHeight = h;
 
-  /// \todo clean up after these errors.
   if (bit_depth != 8) {
     klog(LOG_ALERT, "PNG - invalid bit depth");
+    m_nWidth = m_nHeight = 0;
+    m_pRowPointers = 0;
+    png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, NULL);
     return;
   }
   if (color_type != PNG_COLOR_TYPE_RGB) {
     klog(LOG_ALERT, "PNG - invalid colour type: %d", color_type);
+    m_nWidth = m_nHeight = 0;
+    m_pRowPointers = 0;
+    png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, NULL);
     return;
   }
 
-  m_pBitmap = (uint32_t*)malloc(4 * w * h);
+  m_pBitmap = (uint32_t*)malloc(sizeof(uint32_t) * w * h);
+  if (!m_pBitmap) {
+    klog(LOG_ALERT, "PNG bitmap allocation failed");
+    m_nWidth = m_nHeight = 0;
+    m_pRowPointers = 0;
+    png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, NULL);
+    return;
+  }
   size_t x, y;
   for (y = 0; y < m_nHeight; ++y) {
     png_byte* row = m_pRowPointers[y];
@@ -104,13 +122,14 @@ Png::Png(const char* filename)
   }
 
   png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, NULL);
-
-  fclose(stream);
+  m_pRowPointers = 0;
 
   klog(LOG_INFO, "PNG loaded %zd %zd", m_nWidth, m_nHeight);
 }
 
-Png::~Png() {}
+Png::~Png() {
+  free(m_pBitmap);
+}
 
 void Png::render(cairo_t* cr, size_t x, size_t y, size_t width, size_t height) {
   cairo_surface_t* surface = cairo_image_surface_create_for_data(

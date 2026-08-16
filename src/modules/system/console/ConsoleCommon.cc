@@ -82,7 +82,11 @@ size_t ConsoleFile::outputLineDiscipline(char* buf, size_t len, size_t maxSz, si
 
   // Post-process output if enabled.
   if (slaveFlags & (ConsoleManager::OPostProcess)) {
-    char* tmpBuff = new char[len];
+    const size_t tmpSize = maxSz > len ? maxSz : len;
+    char* tmpBuff = new char[tmpSize];
+    if (!tmpBuff) {
+      return len;
+    }
     size_t realSize = len;
 
     char* pC = buf;
@@ -108,11 +112,6 @@ size_t ConsoleFile::outputLineDiscipline(char* buf, size_t len, size_t maxSz, si
         }
 
         realSize++;
-
-        char* newBuff = new char[realSize];
-        MemoryCopy(newBuff, tmpBuff, i);
-        delete[] tmpBuff;
-        tmpBuff = newBuff;
 
         // Add the newline and the caused carriage return
         tmpBuff[i++] = '\r';
@@ -188,8 +187,11 @@ void ConsoleFile::inputLineDiscipline(char* buf, size_t len, size_t flags,
     // Whether or not the application buffer has already been filled
     bool bAppBufferComplete = false;
 
-    // Used for raw mode - just a buffer for erase echo etc
+    // Used for raw mode - just a buffer for erase echo etc.
     char* destBuff = new char[len];
+    if (!destBuff) {
+      return;
+    }
     size_t destBuffOffset = 0;
 
     // Iterate over the buffer
@@ -200,6 +202,7 @@ void ConsoleFile::inputLineDiscipline(char* buf, size_t len, size_t flags,
         if (isCanonical && (buf[i] == slaveControlChars[VEOF])) {
           // EOF. Write it and it alone to the slave.
           performInject(&buf[i], 1, true);
+          delete[] destBuff;
           return;
         }
 
@@ -333,7 +336,7 @@ void ConsoleFile::inputLineDiscipline(char* buf, size_t len, size_t flags,
     }
 
     if (destBuffOffset) {
-      performInject(destBuff, len, true);
+      performInject(destBuff, destBuffOffset, true);
     }
 
     delete[] destBuff;

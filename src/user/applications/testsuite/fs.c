@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -26,7 +27,7 @@
 
 #include <sys/stat.h>
 
-extern void fail();
+extern void fail(void) __attribute__((noreturn));
 
 static void status(const char* s) {
   puts(s);
@@ -44,6 +45,8 @@ void test_fs() {
   printf("Testing filesystem...\n");
 
   int urandom_fd = open("/dev/urandom", O_RDONLY);
+  if (urandom_fd < 0)
+    fail();
 
   // fsck test directory - deleting a directory like we do below will result
   // in us possibly missing "bad directory count" errors.
@@ -67,25 +70,50 @@ void test_fs() {
     if (!sz)
       ++sz;
     void* p = malloc(sz);
-    read(urandom_fd, p, sz);
+    if (!p)
+      fail();
+    size_t bytesRead = 0;
+    while (bytesRead < sz) {
+      ssize_t n = read(urandom_fd, (char*)p + bytesRead, sz - bytesRead);
+      if (n < 0 && errno == EINTR)
+        continue;
+      if (n <= 0) {
+        free(p);
+        fail();
+      }
+      bytesRead += (size_t)n;
+    }
 
     // Files that are expected to be deleted (might miss issues here in
     // fsck after their deletion).
     char fn[256];
     sprintf(fn, "/testing/f%u", i);
-    fd = open(fn, O_RDWR | O_CREAT);
-    if (fd < 0)
+    fd = open(fn, O_RDWR | O_CREAT, 0666);
+    if (fd < 0) {
+      free(p);
       fail();
-    write(fd, p, sz);
+    }
+    if (write(fd, p, sz) != (ssize_t)sz) {
+      close(fd);
+      free(p);
+      fail();
+    }
     close(fd);
 
     // Same deal for the fscktest directory. fsck will pick these up.
     sprintf(fn, "/fscktest/f%u", i);
-    fd = open(fn, O_RDWR | O_CREAT);
-    if (fd < 0)
+    fd = open(fn, O_RDWR | O_CREAT, 0666);
+    if (fd < 0) {
+      free(p);
       fail();
-    write(fd, p, sz);
+    }
+    if (write(fd, p, sz) != (ssize_t)sz) {
+      close(fd);
+      free(p);
+      fail();
+    }
     close(fd);
+    free(p);
   }
   OK;
 
@@ -115,5 +143,6 @@ void test_fs() {
   rc = rmdir("/testing");
   if (rc)
     fail();
+  close(urandom_fd);
   OK;
 }

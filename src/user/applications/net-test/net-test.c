@@ -39,16 +39,26 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  struct timeval t;
-  t.tv_sec = 30;
-
-  fd_set readfd;
-  FD_SET(sock, &readfd);
-
-  char* tmp = (char*)malloc(2048);
+  char tmp[2048];
   while (1) {
-    select(sock + 1, &readfd, 0, 0, &t);
-    int n = read(sock, tmp, 2048);
+    // select modifies both arguments, so each iteration needs fresh state.
+    struct timeval timeout = {.tv_sec = 30, .tv_usec = 0};
+    fd_set readfd;
+    FD_ZERO(&readfd);
+    FD_SET(sock, &readfd);
+
+    int ready = select(sock + 1, &readfd, 0, 0, &timeout);
+    if (ready < 0) {
+      if (errno == EINTR)
+        continue;
+      printf("select failed: %d [%s]\n", errno, strerror(errno));
+      close(sock);
+      return 1;
+    }
+    if (!ready)
+      continue;
+
+    int n = read(sock, tmp, sizeof(tmp));
     if (n > 0)
       printf("interface received %d bytes\n", n);
   }
