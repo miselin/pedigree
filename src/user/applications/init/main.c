@@ -79,7 +79,7 @@ static pid_t start(const char* proc) {
   init.ut_type = INIT_PROCESS;
   init.ut_pid = f;
   init.ut_tv = tv;
-  strncpy(init.ut_id, basename(basename_buf), UT_LINESIZE);
+  strncpy(init.ut_id, basename(basename_buf), sizeof(init.ut_id));
   pututxline(&init);
   endutxent();
 
@@ -206,7 +206,7 @@ int main(int argc, char** argv) {
     dead.ut_type = DEAD_PROCESS;
     dead.ut_pid = changer;
     dead.ut_tv = tv;
-    strncpy(dead.ut_id, p->ut_id, UT_LINESIZE);
+    strncpy(dead.ut_id, p->ut_id, sizeof(dead.ut_id));
     pututxline(&dead);
     endutxent();
   }

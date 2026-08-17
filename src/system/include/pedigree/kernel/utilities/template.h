@@ -23,15 +23,18 @@
 /** @addtogroup kernelutilities
  * @{ */
 
-/** Global != operator is provided for every type that provides a == operator
+/** Before C++20, provide != for every type that provides ==. Newer modes
+ *  rewrite inequality through the equality operator.
  *\brief Global != operator for types with overloaded == operator
  *\param[in] x1 first operand
  *\param[in] x2 second operand
  *\return true, if the objects are not equal, false otherwise */
+#if __cplusplus < 202002L
 template <class T1, class T2>
 bool operator!=(const T1& x1, const T2& x2) {
   return !(x1 == x2);
 }
+#endif
 /** Global postincrement operator is provided for every type that provides a
  *  preincrement operator.
  *\brief Global postincrement operator for types with overloaded preincrement

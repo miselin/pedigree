@@ -265,7 +265,7 @@ int main(int argc, char** argv) {
     ut.ut_type = LOGIN_PROCESS;
     ut.ut_pid = getpid();
     ut.ut_tv = tv;
-    strncpy(ut.ut_id, "/", UT_LINESIZE);
+    strncpy(ut.ut_id, "/", sizeof(ut.ut_id));
     strncpy(ut.ut_line, "console", UT_LINESIZE);  // ttyterm is the console
     pututxline(&ut);
     endutxent();

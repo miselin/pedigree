@@ -39,10 +39,12 @@ Run the complete maintained verification set from the repository root:
 ./verify.sh
 ```
 
-The host needs Git, CMake/CTest, and a C/C++ compiler with AddressSanitizer.
-Docker is not used. Apple silicon macOS and Linux are both valid hosts. The
-macOS hosted-kernel lane additionally needs Rosetta, NASM, and the existing
-`compilers/dir` x86-64 Pedigree cross-toolchain.
+The host needs Git, CMake 3.21 or newer, CTest, and a C23/C++23 compiler with
+AddressSanitizer and `-ftrivial-auto-var-init=pattern`/`zero`. Docker is not
+used. Apple silicon macOS and Linux are both valid hosts. The macOS
+hosted-kernel lane additionally needs Rosetta, NASM, and the GCC 15.3
+x86-64 Pedigree cross-toolchain, either activated as `compilers/dir` or selected
+with `PEDIGREE_TOOLCHAIN_ROOT`.
 
 To bootstrap the retained x86-64 cross-toolchain from its pinned source and
 patch set, run:
@@ -94,6 +96,10 @@ the merged report. Bundled SQLite and x86 emulator sources are excluded so the
 pass can enable diagnostics for Pedigree-owned code even where normal targets
 compile with warnings disabled. Findings are reported for triage; the stage
 fails only when analysis cannot complete.
+
+Pedigree's CMake builds use GNU C23 and C++23. Debug configurations initialize
+otherwise-uninitialized automatic storage with the compiler's diagnostic
+pattern; Release, RelWithDebInfo, and MinSizeRel use zero initialization.
 
 ## Run native hosted validation
 

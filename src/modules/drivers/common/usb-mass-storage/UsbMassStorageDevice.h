@@ -71,7 +71,9 @@ class UsbMassStorageDevice : public ScsiController, public UsbDevice {
   MUST_USE_RESULT BotStatus readDataOutStatus(uint32_t tag, uint32_t expectedBytes);
 
   enum MassStorageRequests {
-    MassStorageRequest = UsbRequestType::Class | UsbRequestRecipient::Interface,
+    MassStorageRequest =
+        static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Class) |
+                             static_cast<uint8_t>(UsbRequestRecipient::Interface)),
 
     MassStorageReset = 0xFF,
     MassStorageGetMaxLUN = 0xFE

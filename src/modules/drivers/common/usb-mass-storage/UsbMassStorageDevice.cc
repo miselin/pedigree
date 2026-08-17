@@ -68,8 +68,11 @@ void UsbMassStorageDevice::initialiseDriver() {
   ///       return logical information, or just report incorrect data.
   ///       All that needs to be handled.
   uint8_t* nMaxLUN = new uint8_t(0);
-  if (!controlRequest(UsbRequestDirection::In | MassStorageRequest, MassStorageGetMaxLUN, 0,
-                      m_pInterface->nInterface, 1, reinterpret_cast<uintptr_t>(nMaxLUN))) {
+  if (!controlRequest(
+          static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestDirection::In) |
+                               static_cast<uint8_t>(MassStorageRequest)),
+          MassStorageGetMaxLUN, 0, m_pInterface->nInterface, 1,
+          reinterpret_cast<uintptr_t>(nMaxLUN))) {
     ERROR("USB: MSD: Couldn't get maximum LUN");
     return;
   }

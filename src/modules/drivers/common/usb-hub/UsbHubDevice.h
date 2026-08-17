@@ -95,7 +95,10 @@ class UsbHubDevice : public UsbDevice, public UsbHub {
     PortIndicator = 22,
   };
 
-  enum HubRequests { HubPortRequest = UsbRequestType::Class | UsbRequestRecipient::Other };
+  enum HubRequests {
+    HubPortRequest = static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Class) |
+                                          static_cast<uint8_t>(UsbRequestRecipient::Other))
+  };
 
   bool setPortFeature(size_t port, PortFeatureSelectors feature);
   bool clearPortFeature(size_t port, PortFeatureSelectors feature);

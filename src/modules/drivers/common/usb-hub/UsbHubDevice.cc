@@ -167,8 +167,11 @@ bool UsbHubDevice::clearPortFeature(size_t port, PortFeatureSelectors feature) {
 
 bool UsbHubDevice::getPortStatus(size_t port, uint32_t& status) {
   status = 0;
-  return controlRequest(UsbRequestDirection::In | HubPortRequest, UsbRequest::GetStatus, 0,
-                        (port + 1) & 0xFF, sizeof(status), reinterpret_cast<uintptr_t>(&status));
+  return controlRequest(
+      static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestDirection::In) |
+                           static_cast<uint8_t>(HubPortRequest)),
+      UsbRequest::GetStatus, 0, (port + 1) & 0xFF, sizeof(status),
+      reinterpret_cast<uintptr_t>(&status));
 }
 
 void UsbHubDevice::addTransferToTransaction(uintptr_t pTransaction, bool bToggle, UsbPid pid,

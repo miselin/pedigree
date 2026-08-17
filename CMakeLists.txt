@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.21)
 # The bundled GoogleTest release still declares compatibility with CMake 2.6.
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
@@ -6,11 +6,44 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/build-etc/cmake")
 
 SET(CMAKE_BUILD_TYPE_INIT Debug)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_C_STANDARD 23)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS ON)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS ON)
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(Pedigree)
+
+include(CheckCCompilerFlag)
+include(CheckCXXCompilerFlag)
+
+check_c_compiler_flag(
+    "-ftrivial-auto-var-init=pattern"
+    PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN)
+check_c_compiler_flag(
+    "-ftrivial-auto-var-init=zero"
+    PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
+check_cxx_compiler_flag(
+    "-ftrivial-auto-var-init=pattern"
+    PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN)
+check_cxx_compiler_flag(
+    "-ftrivial-auto-var-init=zero"
+    PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
+
+if (NOT PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN OR
+    NOT PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO OR
+    NOT PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN OR
+    NOT PEDIGREE_CXX_HAS_TRIVIAL_AUTO_VAR_INIT_ZERO)
+    message(FATAL_ERROR
+        "The selected C and C++ compilers must support "
+        "-ftrivial-auto-var-init=pattern and =zero")
+endif ()
+
+add_compile_options(
+    "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C,CXX>>:-ftrivial-auto-var-init=pattern>"
+    "$<$<AND:$<CONFIG:Release,RelWithDebInfo,MinSizeRel>,$<COMPILE_LANGUAGE:C,CXX>>:-ftrivial-auto-var-init=zero>")
 
 if (NOT CMAKE_CXX_COMPILER_VERSION)
     # Keep this aligned with the bootstrap toolchain manifest.
@@ -113,7 +146,7 @@ cmake_host_system_information(RESULT PEDIGREE_BUILD_HOSTNAME QUERY FQDN)
 # Set up some general default flags for the entire project.
 # NOTE: don't include optimization flags - they need to be added elsewhere based on input flags.
 set(GENERIC_COMPILE_FLAGS "-fvisibility=hidden" "-pipe")
-set(GENERIC_COMPILE_CFLAGS "-std=gnu99")
+set(GENERIC_COMPILE_CFLAGS "")
 set(GENERIC_COMPILE_CXXFLAGS "")
 set(GENERIC_LINKFLAGS "-fvisibility=hidden")
 

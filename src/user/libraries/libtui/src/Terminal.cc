@@ -166,7 +166,7 @@ bool Terminal::initialise() {
     ut.ut_type = USER_PROCESS;
     ut.ut_pid = getpid();
     const char* ttyid = slavename + strlen("/dev/");
-    strncpy(ut.ut_id, ttyid + strlen("tty"), UT_LINESIZE);
+    strncpy(ut.ut_id, ttyid + strlen("tty"), sizeof(ut.ut_id));
     strncpy(ut.ut_line, ttyid, UT_LINESIZE);
     strncpy(ut.ut_user, pw->pw_name, UT_NAMESIZE);
     gettimeofday(&ut.ut_tv, NULL);

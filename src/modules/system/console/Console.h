@@ -40,9 +40,14 @@ class Process;
 class RequestQueue;
 
 #define DEFAULT_FLAGS                                                                         \
-  (ConsoleManager::OPostProcess | ConsoleManager::IMapCRToNL | ConsoleManager::OMapNLToCRNL | \
-   ConsoleManager::LEcho | ConsoleManager::LEchoErase | ConsoleManager::LEchoKill |           \
-   ConsoleManager::LCookedMode | ConsoleManager::LGenerateEvent)
+  (static_cast<size_t>(ConsoleManager::OPostProcess) |                                         \
+   static_cast<size_t>(ConsoleManager::IMapCRToNL) |                                           \
+   static_cast<size_t>(ConsoleManager::OMapNLToCRNL) |                                         \
+   static_cast<size_t>(ConsoleManager::LEcho) |                                                \
+   static_cast<size_t>(ConsoleManager::LEchoErase) |                                           \
+   static_cast<size_t>(ConsoleManager::LEchoKill) |                                            \
+   static_cast<size_t>(ConsoleManager::LCookedMode) |                                          \
+   static_cast<size_t>(ConsoleManager::LGenerateEvent))
 
 class ConsoleFile : public File {
   friend class ConsoleMasterFile;

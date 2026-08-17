@@ -56,11 +56,12 @@ stage also builds an x86-64 hosted kernel and focused dynamic module, executes
 them through Rosetta, and requires the bounded core regression suite and clean
 shutdown markers.
 
-Git, CMake/CTest, and a native C/C++ compiler with AddressSanitizer are the
-canonical prerequisites. Docker is not used, and verification does not update
-submodules or invoke the legacy host package installer. The macOS hosted lane
-also requires Rosetta, NASM, and the checked-out `compilers/dir` x86-64
-Pedigree cross-toolchain.
+Git, CMake 3.21 or newer, CTest, and a native C23/C++23 compiler with
+AddressSanitizer and `-ftrivial-auto-var-init=pattern`/`zero` are the canonical
+prerequisites. Docker is not used, and verification does not update submodules
+or invoke the legacy host package installer. The macOS hosted lane also
+requires Rosetta, NASM, and the GCC 15.3 x86-64 Pedigree cross-toolchain, either
+activated as `compilers/dir` or selected with `PEDIGREE_TOOLCHAIN_ROOT`.
 
 Each run writes durable output below:
 
@@ -148,9 +149,9 @@ For a direct native build and test run:
 The historical script name is preserved, but the command is now Docker-free
 and runs directly on macOS or Linux. It builds `testsuite`, `headerify`,
 `ext2img`, `keymap`, and `memorytracer`, runs CTest, and repeats the test build
-under ASan. On macOS it also uses the existing Pedigree cross-toolchain to
-build a focused ELF smoke module, links the hosted kernel as a low-address
-x86-64 Mach-O executable, and runs both through Rosetta.
+under ASan. On macOS it also uses the selected GCC 15.3 Pedigree
+cross-toolchain to build a focused ELF smoke module, links the hosted kernel as
+a low-address x86-64 Mach-O executable, and runs both through Rosetta.
 
 The Darwin lifecycle intentionally avoids the historical root filesystem,
 full module set, services, musl, and userspace. Its module covers the core

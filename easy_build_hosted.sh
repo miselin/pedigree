@@ -36,6 +36,7 @@ asan_build_dir="$build_root/asan"
 darwin_hosted_build_dir="$build_root/darwin-hosted"
 toolchain_root=${PEDIGREE_TOOLCHAIN_ROOT:-"$script_dir/compilers/dir"}
 cmake_options=(
+    -DCMAKE_BUILD_TYPE=Debug
     -DPEDIGREE_WARNINGS=ON
 )
 
@@ -72,6 +73,7 @@ if [[ $(uname -s) == Darwin ]]; then
         -DCMAKE_TOOLCHAIN_FILE="$script_dir/build-etc/cmake/pedigree_hosted_darwin.cmake" \
         -DIMPORT_EXECUTABLES="$regular_build_dir/HostUtilities.cmake" \
         -DPEDIGREE_TOOLCHAIN_ROOT="$toolchain_root" \
+        -DCMAKE_BUILD_TYPE=Debug \
         -DPEDIGREE_BUILD_USER_DIR=OFF \
         -DPEDIGREE_HOSTED_DYNAMIC_MODULES=ON \
         -DPEDIGREE_HOSTED_SMOKE_TESTS=ON \
