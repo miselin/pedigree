@@ -17,6 +17,17 @@ for command in cmake ctest date git tee; do
     fi
 done
 
+# The analyzer requires the modern cross-compiler and is intentionally opt-in.
+verify_sarif=${PEDIGREE_VERIFY_SARIF:-0}
+if [[ "$verify_sarif" != 0 && "$verify_sarif" != 1 ]]; then
+    echo "PEDIGREE_VERIFY_SARIF must be either 0 or 1." >&2
+    exit 2
+fi
+if [[ "$verify_sarif" == 1 ]] && ! command -v python3 >/dev/null 2>&1; then
+    echo "Required SARIF analysis command is unavailable: python3" >&2
+    exit 1
+fi
+
 build_root=${PEDIGREE_VERIFY_BUILD_ROOT:-"$script_dir/build-verify"}
 log_root=${PEDIGREE_VERIFY_LOG_ROOT:-"$build_root/logs"}
 run_id=${PEDIGREE_VERIFY_RUN_ID:-$(date -u "+%Y%m%dT%H%M%SZ")}
@@ -103,6 +114,68 @@ run_stage()
     return "$status"
 }
 
+run_sarif_analysis()
+{
+    local compile_commands=${PEDIGREE_SARIF_COMPILE_COMMANDS:-}
+    local sarif_build_dir="$build_root/sarif-x64"
+    local sarif_output_dir="$run_log_dir/sarif"
+    local toolchain_root=${PEDIGREE_TOOLCHAIN_ROOT:-"$script_dir/compilers/dir"}
+    local musl_archive=${PEDIGREE_SARIF_MUSL_ARCHIVE:-}
+    local jobs=()
+    local parallel_args=(--parallel)
+
+    if [[ -n "${PEDIGREE_VERIFY_JOBS:-}" ]]; then
+        jobs=(--jobs "$PEDIGREE_VERIFY_JOBS")
+        parallel_args=(--parallel "$PEDIGREE_VERIFY_JOBS")
+    fi
+
+    if [[ -n "$compile_commands" ]]; then
+        if [[ "$compile_commands" != /* ]]; then
+            compile_commands="$script_dir/$compile_commands"
+        fi
+    else
+        compile_commands="$sarif_build_dir/compile_commands.json"
+        if [[ -z "$musl_archive" ]]; then
+            if [[ -f "$build_root/native/darwin-hosted/src/modules/musl-1.2.6.tar.gz" ]]; then
+                musl_archive="$build_root/native/darwin-hosted/src/modules/musl-1.2.6.tar.gz"
+            elif [[ -f "$build_root/native/regular/src/modules/musl-1.2.6.tar.gz" ]]; then
+                musl_archive="$build_root/native/regular/src/modules/musl-1.2.6.tar.gz"
+            fi
+        fi
+        if [[ -n "${PEDIGREE_SARIF_MUSL_ARCHIVE:-}" && "$musl_archive" != /* ]]; then
+            musl_archive="$script_dir/$musl_archive"
+        fi
+        if [[ -n "${PEDIGREE_SARIF_MUSL_ARCHIVE:-}" && ! -f "$musl_archive" ]]; then
+            echo "PEDIGREE_SARIF_MUSL_ARCHIVE is unavailable: $musl_archive" >&2
+            return 1
+        fi
+        if [[ -f "$musl_archive" ]]; then
+            cmake -E make_directory "$sarif_build_dir/src/modules"
+            cmake -E copy_if_different "$musl_archive" \
+                "$sarif_build_dir/src/modules/musl-1.2.6.tar.gz"
+        fi
+        cmake -S "$script_dir" -B "$sarif_build_dir" \
+            -DCMAKE_TOOLCHAIN_FILE="$script_dir/build-etc/cmake/pedigree_amd64.cmake" \
+            -DIMPORT_EXECUTABLES="$build_root/native/regular/HostUtilities.cmake" \
+            -DPEDIGREE_TOOLCHAIN_ROOT="$toolchain_root" \
+            -DPEDIGREE_BUILD_USER_DIR=ON \
+            -DPEDIGREE_WARNINGS=ON \
+            -DPEDIGREE_WITH_INIT=ON
+        cmake --build "$sarif_build_dir" "${parallel_args[@]}" \
+            --target vdso-header
+    fi
+
+    python3 "$script_dir/scripts/run_sarif_analysis.py" \
+        --compile-commands "$compile_commands" \
+        --output-dir "$sarif_output_dir" \
+        --source-root "$script_dir" \
+        "${jobs[@]}"
+}
+
 run_stage host-build-and-test \
     env PEDIGREE_NATIVE_BUILD_ROOT="$build_root/native" \
         "$script_dir/easy_build_hosted.sh"
+
+if [[ "$verify_sarif" == 1 ]]; then
+    run_stage gcc15-sarif-analysis run_sarif_analysis
+fi

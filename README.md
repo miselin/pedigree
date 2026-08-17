@@ -80,6 +80,21 @@ build-verify/logs/<UTC timestamp>/
 A passing run means those recorded lanes passed for that checkout. It does not
 claim an x86-64 PC boot, hardware support, or complete userspace coverage.
 
+To add the GCC 15 static-analyzer pass without changing the normal build, run:
+
+```sh
+PEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-compiler-15.3.0 \
+PEDIGREE_VERIFY_SARIF=1 ./verify.sh
+```
+
+The additional stage replays the x86-64 compilation database with GCC's
+analyzer and writes `sarif/pedigree.sarif` below the run's log directory. Text
+diagnostics and collision-free per-translation-unit reports are retained beside
+the merged report. Bundled SQLite and x86 emulator sources are excluded so the
+pass can enable diagnostics for Pedigree-owned code even where normal targets
+compile with warnings disabled. Findings are reported for triage; the stage
+fails only when analysis cannot complete.
+
 ## Run native hosted validation
 
 ```sh

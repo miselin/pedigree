@@ -717,6 +717,7 @@ add_dependencies(vdso libc)
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/genvdso.py $<TARGET_FILE:vdso> ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
     DEPENDS vdso)
+add_custom_target(vdso-header DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
 
 pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/console-syscalls.cc

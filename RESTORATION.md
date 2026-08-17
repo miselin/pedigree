@@ -68,6 +68,20 @@ Each run writes durable output below:
 build-verify/logs/<UTC timestamp>/
 ```
 
+An opt-in sibling stage replays the x86-64 compile database with GCC 15's
+static analyzer and publishes merged SARIF without modifying the ordinary build
+objects:
+
+```sh
+PEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-compiler-15.3.0 \
+PEDIGREE_VERIFY_SARIF=1 ./verify.sh
+```
+
+Its report is saved as `sarif/pedigree.sarif` inside the same run directory.
+This analysis is additional evidence; it is not required by the default green
+contract. Analyzer findings are retained for triage and do not themselves fail
+the stage.
+
 Keep the whole run directory when reporting a failure. A terminal scrollback,
 an existing build directory, or one passing test executable is not equivalent
 to a green verification run.
