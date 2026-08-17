@@ -100,6 +100,9 @@ fails only when analysis cannot complete.
 Pedigree's CMake builds use GNU C23 and C++23. Debug configurations initialize
 otherwise-uninitialized automatic storage with the compiler's diagnostic
 pattern; Release, RelWithDebInfo, and MinSizeRel use zero initialization.
+x86-64 userspace and musl use packed `DT_RELR` relative relocations by default;
+kernel modules remain on RELA until their loader gains RELR support. Pass
+`-DPEDIGREE_DTRELR=OFF` at CMake configure time to disable userspace packing.
 
 ## Run native hosted validation
 

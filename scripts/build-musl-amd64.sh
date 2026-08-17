@@ -146,8 +146,18 @@ die()
     cat musl.log >&2; exit 1;
 }
 
+musl_ldflags=
+musl_dtrelr=0
+case "${PEDIGREE_DTRELR:-OFF}" in
+    1 | [Oo][Nn] | [Tt][Rr][Uu][Ee] | [Yy][Ee][Ss] | [Yy])
+        musl_ldflags="-Wl,-z,pack-relative-relocs"
+        musl_dtrelr=1
+        ;;
+esac
+
 CPPFLAGS="-I$SRCDIR/src/modules/subsys/posix/syscalls -I$SRCDIR/src/system/include -D$ARCH_TARGET=1" \
 CFLAGS="-O2 -g3 -ggdb -fno-omit-frame-pointer -fPIC" CROSS_COMPILE="$COMPILER_TARGET-" \
+LDFLAGS="$musl_ldflags" \
 ../configure --target=$COMPILER_TARGET --prefix="$TARGETDIR" \
     --syslibdir="$TARGETDIR/lib" --enable-shared \
     >>musl.log 2>&1 || die
@@ -184,6 +194,13 @@ case "$ARCH_TARGET" in
         fi
         ;;
 esac
+
+if [ "$musl_dtrelr" -eq 1 ] && \
+    ! "$COMPILER_TARGET-readelf" -d "$staged_target/lib/libc.so" 2>>musl.log | \
+        grep -q '(RELR)'; then
+    echo "DT_RELR was requested but the staged libc does not contain it." >>musl.log
+    die
+fi
 
 # Replace the complete sysroot only after validating it. Replacing the tree,
 # instead of installing over it, also removes files left by older musl builds.

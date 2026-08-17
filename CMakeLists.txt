@@ -116,9 +116,17 @@ set(PEDIGREE_CONCURRENCY_SMOKE_TESTS FALSE CACHE BOOL "Build focused kernel conc
 
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")
+set(PEDIGREE_DTRELR TRUE CACHE BOOL "Pack userspace relative relocations as DT_RELR.")
 set(PEDIGREE_OPTIMIZE TRUE CACHE BOOL "Build an optimized kernel and modules.")
 set(PEDIGREE_OPTIMIZE_SIZE TRUE CACHE BOOL "If building an optimized kernel, optimize for size.")
 set(PEDIGREE_WARNINGS FALSE CACHE BOOL "Allow compiler warnings.")
+
+set(PEDIGREE_DTRELR_ENABLED FALSE)
+if (PEDIGREE_DTRELR AND
+    (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR
+     PEDIGREE_ARCH_TARGET STREQUAL "HOSTED"))
+    set(PEDIGREE_DTRELR_ENABLED TRUE)
+endif ()
 set(PEDIGREE_COVERAGE FALSE CACHE BOOL "Build utilities with coverage instrumentation and reporting.")
 
 # Build artifact controls.

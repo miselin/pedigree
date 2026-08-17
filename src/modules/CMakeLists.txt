@@ -786,6 +786,9 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
         ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}
         ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
     target_link_libraries(native-user PRIVATE -nostdlib gcc)
+    if (PEDIGREE_DTRELR_ENABLED)
+        target_link_options(native-user PRIVATE -Wl,-z,pack-relative-relocs)
+    endif ()
     set_target_properties(native-user PROPERTIES OUTPUT_NAME "pedigree")
     add_dependencies(native-user libc)
 endif ()
@@ -801,6 +804,9 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     add_library(pedigree-c-user SHARED
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-c-syscalls.c)
     set_target_properties(pedigree-c-user PROPERTIES OUTPUT_NAME "pedigree-c")
+    if (PEDIGREE_DTRELR_ENABLED)
+        target_link_options(pedigree-c-user PRIVATE -Wl,-z,pack-relative-relocs)
+    endif ()
     add_dependencies(pedigree-c-user libc)
 endif ()
 
@@ -824,6 +830,9 @@ endif ()
 
 set(MUSL_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME}")
 set(MUSL_DOWNLOAD "${MUSL_ARCHIVE}.download")
+set(MUSL_DTRELR_STATE "${CMAKE_CURRENT_BINARY_DIR}/musl-dtrelr.state")
+file(GENERATE OUTPUT "${MUSL_DTRELR_STATE}"
+    CONTENT "PEDIGREE_DTRELR=$<BOOL:${PEDIGREE_DTRELR_ENABLED}>\n")
 
 if (EXISTS "${MUSL_ARCHIVE}")
     file(SHA256 "${MUSL_ARCHIVE}" MUSL_ACTUAL_SHA256)
@@ -886,6 +895,7 @@ add_custom_command(
     ${CMAKE_COMMAND} -E env
     CC=${PEDIGREE_C_COMPILER} LD=${CMAKE_C_COMPILER}
     COMPILER_TARGET=${PEDIGREE_COMPILER_TARGET}
+    PEDIGREE_DTRELR=$<BOOL:${PEDIGREE_DTRELR_ENABLED}>
     PEDIGREE_TOOLCHAIN_ROOT=${PEDIGREE_TOOLCHAIN_ROOT}
     SRCDIR=${CMAKE_SOURCE_DIR}
     TARGETDIR=${CMAKE_BINARY_DIR}/musl
@@ -893,6 +903,7 @@ add_custom_command(
     ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
     DEPENDS
     ${CMAKE_TOOLCHAIN_FILE}
+    ${MUSL_DTRELR_STATE}
     ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-1.2.6-cve-2026-40200-qsort.patch
     ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-1.2.6-cve-2026-6042-iconv.patch
     ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
