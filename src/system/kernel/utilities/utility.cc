@@ -20,7 +20,7 @@
 #define IMPLEMENTING_LOG_FORMAT_FUNCTIONS
 
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/utilities/spooky/SpookyV2.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -28,7 +28,7 @@
 
 void* page_align(void* p) {
   return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(p) &
-                                 ~(PhysicalMemoryManager::getPageSize() - 1));
+                                 ~static_cast<uintptr_t>(TargetInfo::getPageOffsetMask()));
 }
 
 const char* SDirectoryName(const char* path, char* buf, size_t buflen) {
@@ -133,8 +133,7 @@ uint32_t checksum32_naive(const uint32_t* pMemory, size_t sMemory) {
 
 uint32_t checksumPage(uintptr_t address) {
   // may be able to be inlined with the knowledge of the constant size
-  return checksum32(reinterpret_cast<const uint32_t*>(address),
-                    PhysicalMemoryManager::getPageSize());
+  return checksum32(reinterpret_cast<const uint32_t*>(address), TargetInfo::getPageSize());
 }
 
 uint32_t elfHash(const char* buffer, size_t length) {

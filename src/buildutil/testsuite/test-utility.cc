@@ -19,6 +19,7 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -27,6 +28,30 @@
 static_assert(BS16(0x0123U) == 0x2301U);
 static_assert(BS32(0x01234567U) == 0x67452301U);
 static_assert(BS64(0x0123456789ABCDEFULL) == 0xEFCDAB8967452301ULL);
+static_assert(TargetInfo::getPageSize() == PAGE_SIZE);
+static_assert(TargetInfo::getPointerBits() == sizeof(void*) * __CHAR_BIT__);
+
+TEST(PedigreeUtility, PageAlignUsesTargetGeometry) {
+  constexpr size_t pageSize = TargetInfo::getPageSize();
+  alignas(pageSize) uint8_t pages[pageSize * 2] = {};
+  const uintptr_t base = reinterpret_cast<uintptr_t>(pages);
+  const auto align = [](void* address) { return reinterpret_cast<uintptr_t>(page_align(address)); };
+
+  EXPECT_EQ(align(pages), base);
+  EXPECT_EQ(align(pages + pageSize - 1), base);
+  EXPECT_EQ(align(pages + pageSize), base + pageSize);
+  EXPECT_EQ(align(pages + pageSize + 1), base + pageSize);
+  EXPECT_EQ(align(pages + (pageSize * 2) - 1), base + pageSize);
+}
+
+TEST(PedigreeUtility, ChecksumPageUsesTargetGeometry) {
+  uint32_t page[TargetInfo::getPageSize() / sizeof(uint32_t)] = {};
+  page[0] = 0x12345678;
+  page[(sizeof(page) / sizeof(page[0])) - 1] = 0x87654321;
+
+  EXPECT_EQ(checksumPage(reinterpret_cast<uintptr_t>(page)),
+            checksum32(page, TargetInfo::getPageSize()));
+}
 
 TEST(PedigreeUtility, SDirectoryName) {
   char buf[256];

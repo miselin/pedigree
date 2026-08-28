@@ -20,6 +20,7 @@
 #ifndef KERNEL_PROCESSOR_PHYSICALMEMORYMANAGER_H
 #define KERNEL_PROCESSOR_PHYSICALMEMORYMANAGER_H
 
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -71,8 +72,8 @@ class EXPORTED_PUBLIC PhysicalMemoryManager {
 
   /** Get the size of one page
    *\return size of one page in bytes */
-  inline static size_t getPageSize() PURE {
-    return PAGE_SIZE;
+  inline static constexpr size_t getPageSize() PURE {
+    return TargetInfo::getPageSize();
   }
   /** Allocate a single page with optional constraints.
    * \return physical address of the page or 0 if no page available. */
