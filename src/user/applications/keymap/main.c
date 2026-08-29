@@ -180,8 +180,8 @@ void parse(char* filename) {
 }
 
 int sparse(int idx, int bisect_size) {
-  int ime = sparse_add();
-  sparse_t* me = &sparse_buff[ime];
+  int byte_offset = sparse_add();
+  sparse_t* me = &sparse_buff[byte_offset / sizeof(*sparse_buff)];
 
   // Check the right child - is everything zero?
   if (all_clear(&table[idx - bisect_size], &table[idx]) > 0) {
@@ -195,7 +195,7 @@ int sparse(int idx, int bisect_size) {
   } else {
     uint16_t tmp = sparse(idx - bisect_size / 2, bisect_size / 2);
     // Buffer location may have changed with the me->left call.
-    me = (sparse_t*)(&sparse_buff[ime]);
+    me = &sparse_buff[byte_offset / sizeof(*sparse_buff)];
     me->left = tmp;
   }
 
@@ -211,11 +211,11 @@ int sparse(int idx, int bisect_size) {
   } else {
     uint16_t tmp = sparse(idx + bisect_size / 2, bisect_size / 2);
     // Buffer location may have changed with the me->left call.
-    me = (sparse_t*)(&sparse_buff[ime]);
+    me = &sparse_buff[byte_offset / sizeof(*sparse_buff)];
     me->right = tmp;
   }
 
-  return ime;
+  return byte_offset;
 }
 
 void compile(char* filename) {
