@@ -30,7 +30,7 @@
 
 #define RANDOM_MAX 0x1000000
 
-static const int RandomNumber(const int maximum = RANDOM_MAX) {
+static int RandomNumber(const int maximum = RANDOM_MAX) {
   static bool seeded = false;
   if (!seeded) {
     srand(time(0));

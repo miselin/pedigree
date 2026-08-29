@@ -330,7 +330,7 @@ if (BENCHMARK_LIBRARY)
     target_include_directories(benchmarker PRIVATE ${BENCHMARK_INCLUDE_DIR})
     target_link_libraries(benchmarker PRIVATE
         ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
-    target_compile_options(benchmarker PRIVATE "-Os" "-fno-omit-frame-pointer")
+    target_compile_options(benchmarker PRIVATE "-Os" "-fno-omit-frame-pointer" "-Wno-vla-cxx-extension")
     if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
         target_compile_options(benchmarker PRIVATE
             -mcpu=native
@@ -350,7 +350,7 @@ if (BENCHMARK_LIBRARY)
     target_include_directories(benchmarker-native PRIVATE ${BENCHMARK_INCLUDE_DIR})
     target_link_libraries(benchmarker-native PRIVATE
         ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
-    target_compile_options(benchmarker-native PRIVATE "-O3" "-march=native" "-mtune=native")
+    target_compile_options(benchmarker-native PRIVATE "-O3" "-march=native" "-mtune=native" "-Wno-vla-cxx-extension")
     target_compile_definitions(benchmarker-native PRIVATE -DTESTSUITE)
 
 
@@ -411,6 +411,11 @@ add_library(lwip
     ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/netif/ethernetif.c)
 target_include_directories(lwip PUBLIC
     ${CMAKE_SOURCE_DIR}/src/modules/system/lwip/include)
+
+if (APPLE)
+    target_compile_definitions(lwip PRIVATE LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS=1)
+    target_compile_options(lwip PRIVATE "-Wno-cast-align")
+endif ()
 
 # No SOCK_NONBLOCK etc on Apple, should fix properly, just omitting for now
 if (NOT APPLE)

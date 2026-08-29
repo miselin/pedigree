@@ -101,12 +101,12 @@ static void BM_VectorPopFront(benchmark::State& state) {
   while (state.KeepRunning()) {
     state.PauseTiming();
     vector.clear();
-    for (size_t i = 0; i < state.range(0); ++i) {
+    for (ssize_t i = 0; i < state.range(0); ++i) {
       vector.pushBack(value);
     }
     state.ResumeTiming();
 
-    for (size_t i = 0; i < state.range(0); ++i) {
+    for (ssize_t i = 0; i < state.range(0); ++i) {
       vector.popFront();
     }
   }
@@ -121,12 +121,12 @@ static void BM_VectorPopBack(benchmark::State& state) {
   while (state.KeepRunning()) {
     state.PauseTiming();
     vector.clear();
-    for (size_t i = 0; i < state.range(0); ++i) {
+    for (ssize_t i = 0; i < state.range(0); ++i) {
       vector.pushBack(value);
     }
     state.ResumeTiming();
 
-    for (size_t i = 0; i < state.range(0); ++i) {
+    for (ssize_t i = 0; i < state.range(0); ++i) {
       vector.popBack();
     }
   }

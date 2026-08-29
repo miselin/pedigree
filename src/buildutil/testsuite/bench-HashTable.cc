@@ -32,7 +32,7 @@ class HashedInteger {
 
   HashedInteger(int n) : n_(n) {}
 
-  int hash() const {
+  uint32_t hash() const {
     return n_;
   }
 
@@ -54,7 +54,7 @@ class CollidingHashedInteger {
 
   CollidingHashedInteger(int modulus, int n) : n_(n), modulus_(modulus) {}
 
-  int hash() const {
+  uint32_t hash() const {
     return n_ % modulus_;
   }
 

@@ -34,7 +34,7 @@
 
 template class Tree<int64_t, int64_t>;
 
-static const int RandomNumber() {
+static int RandomNumber() {
   static bool seeded = false;
   if (!seeded) {
     srand(time(0));
@@ -98,7 +98,7 @@ static void BM_TreeInsertReverse(benchmark::State& state) {
 static void BM_TreeLookupSingle(benchmark::State& state) {
   Tree<int64_t, int64_t> tree;
 
-  for (size_t i = 0; i < state.range(0); ++i) {
+  for (int64_t i = 0; i < state.range(0); ++i) {
     tree.insert(i, RandomNumber());
   }
 
@@ -112,7 +112,7 @@ static void BM_TreeLookupSingle(benchmark::State& state) {
 static void BM_TreeLookupMany(benchmark::State& state) {
   Tree<int64_t, int64_t> tree;
 
-  for (size_t i = 0; i < state.range(0); ++i) {
+  for (int64_t i = 0; i < state.range(0); ++i) {
     tree.insert(RandomNumber(), RandomNumber());
   }
 
@@ -136,7 +136,7 @@ static void BM_TreeLookupWithFilter(benchmark::State& state) {
 
   BloomFilter<int64_t> filter(m, k);
 
-  for (size_t i = 0; i < state.range(0); ++i) {
+  for (int64_t i = 0; i < state.range(0); ++i) {
     int64_t key = static_cast<int64_t>(i);
     tree.insert(key, RandomNumber());
     filter.add(key);
@@ -171,7 +171,7 @@ static void BM_TreeFailedLookupWithFilter(benchmark::State& state) {
 
   BloomFilter<int64_t> filter(m, k);
 
-  for (size_t i = 0; i < state.range(0); ++i) {
+  for (int64_t i = 0; i < state.range(0); ++i) {
     tree.insert(i, RandomNumber());
     filter.add(i);
   }
@@ -192,7 +192,7 @@ static void BM_TreeLookupDoesNotExist(benchmark::State& state) {
   /// \todo rethink this
   Tree<int64_t, int64_t> tree;
 
-  for (size_t i = 0; i < state.range(0); ++i) {
+  for (int64_t i = 0; i < state.range(0); ++i) {
     tree.insert(i, RandomNumber());
   }
 

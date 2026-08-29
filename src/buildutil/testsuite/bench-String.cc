@@ -230,7 +230,7 @@ static void BM_CxxStringSplitRef(benchmark::State& state) {
 static void BM_CxxStringTokenize(benchmark::State& state) {
   char buf[state.range(0)];
   memset(buf, 0, state.range(0));
-  for (size_t i = 0; i < state.range(0) - 1; ++i) {
+  for (ssize_t i = 0; i < state.range(0) - 1; ++i) {
     if (i % 2) {
       buf[i] = ' ';
     } else {
@@ -251,7 +251,7 @@ static void BM_CxxStringTokenize(benchmark::State& state) {
 static void BM_CxxStringTokenizeRef(benchmark::State& state) {
   char buf[state.range(0)];
   memset(buf, 0, state.range(0));
-  for (size_t i = 0; i < state.range(0) - 1; ++i) {
+  for (ssize_t i = 0; i < state.range(0) - 1; ++i) {
     if (i % 2) {
       buf[i] = ' ';
     } else {
@@ -273,7 +273,7 @@ static void BM_CxxStringTokenizeRef(benchmark::State& state) {
 static void BM_CxxStringTokenizeViews(benchmark::State& state) {
   char buf[state.range(0)];
   memset(buf, 0, state.range(0));
-  for (size_t i = 0; i < state.range(0) - 1; ++i) {
+  for (ssize_t i = 0; i < state.range(0) - 1; ++i) {
     if (i % 2) {
       buf[i] = ' ';
     } else {

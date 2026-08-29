@@ -66,12 +66,12 @@ static void BM_ListPopFront(benchmark::State& state) {
   while (state.KeepRunning()) {
     state.PauseTiming();
     list.clear();
-    for (size_t i = 0; i < state.range(0); ++i) {
+    for (ssize_t i = 0; i < state.range(0); ++i) {
       list.pushFront(value);
     }
     state.ResumeTiming();
 
-    for (size_t i = 0; i < state.range(0); ++i) {
+    for (ssize_t i = 0; i < state.range(0); ++i) {
       list.popFront();
     }
   }
@@ -86,12 +86,12 @@ static void BM_ListPopBack(benchmark::State& state) {
   while (state.KeepRunning()) {
     state.PauseTiming();
     list.clear();
-    for (size_t i = 0; i < state.range(0); ++i) {
+    for (ssize_t i = 0; i < state.range(0); ++i) {
       list.pushFront(value);
     }
     state.ResumeTiming();
 
-    for (size_t i = 0; i < state.range(0); ++i) {
+    for (ssize_t i = 0; i < state.range(0); ++i) {
       list.popBack();
     }
   }
