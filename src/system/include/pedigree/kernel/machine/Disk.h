@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/BufferView.h"
 
 class String;
 
@@ -46,21 +47,22 @@ class EXPORTED_PUBLIC Disk : public Device {
   virtual void dump(String& str);
 
   /**
-   * Read from \p location on disk and return a pointer to it. \p location
-   * must be 512 byte aligned. The pointer returned is within a page of
-   * cache that maps to one native 4096-byte page of disk area.
+   * Read from \p location on disk and return a view beginning at that byte.
+   * \p location must be 512-byte aligned. The returned view ends at the
+   * boundary of the independently owned cache page containing \p location;
+   * its size is unrelated to the device's block or readahead size.
    * \note A successful read returns exactly one caller-owned reference to the
-   *       native cache page containing \p location. Use unpin() exactly once
-   *       when that page is no longer in use. Larger device block sizes are
-   *       internal I/O/readahead extents and do not extend this ownership.
+   *       cache page containing \p location. The view is non-owning: use
+   *       unpin() exactly once after every copy and subview is no longer in
+   *       use. Larger I/O extents do not extend this ownership.
    * \param location The offset from the start of the device, in bytes,
    *        to start the read, must be multiple of 512.
-   * \return Pointer to writable area of memory containing the data, or zero
-   *         on failure. If the data is written, the page is marked as dirty
-   *         and may be written back to disk at any time (or forced with
-   *         \c write() or \c flush() ).
+   * \return A writable view containing the data, or an empty view on failure.
+   *         If the data is written, the page is marked as dirty and may be
+   *         written back to disk at any time (or forced with \c write() or
+   *         \c flush() ).
    */
-  virtual uintptr_t read(uint64_t location);
+  virtual BufferView read(uint64_t location);
 
   /**
    * This function schedules a cache writeback of the given location.
@@ -75,16 +77,12 @@ class EXPORTED_PUBLIC Disk : public Device {
    * \brief Sets the page boundary alignment after a specific location on the
    * disk.
    *
-   * For example, if one has a partition starting on byte 512, one will
-   * probably want 4096-byte reads to be aligned with this (so reading 4096
-   * bytes from byte 0 on the partition will create one page of cache and not
-   * span two). Without an align point a read of the first sector of a
-   * partition starting at byte 512 will have to have a location of 512 rather
-   * than 0.
+   * For example, a partition beginning at byte 512 should align its first
+   * cache page with that boundary rather than with byte zero of the parent.
    *
-   * Use this function to allow reads to fit into the 4096 byte buffers
-   * manipulated in \c read() or \c write() even when location isn't aligned
-   * on a 4096 byte boundary.
+   * Use this function to keep the cache pages manipulated in \c read() and
+   * \c write() aligned with a child device whose start is not naturally
+   * page-aligned on the parent.
    */
   virtual void align(uint64_t location);
 
@@ -97,10 +95,11 @@ class EXPORTED_PUBLIC Disk : public Device {
   virtual size_t getSize() const;
 
   /**
-   * \brief Gets the block size of the disk.
+   * \brief Gets the preferred I/O extent of the disk.
    *
-   * This is the native block size with which all reads and writes are
-   * performed, regardless of how much data is available to be read/written.
+   * This may describe a native device block or a larger cache-fill/readahead
+   * extent, depending on the implementation. It is independent of the cache
+   * page boundary reported by BufferView::size().
    */
   virtual size_t getBlockSize() const;
 
@@ -159,7 +158,7 @@ class EXPORTED_PUBLIC Disk : public Device {
   virtual void flush(uint64_t location);
 
   /**
-   * Synchronously writes and retires the native cache page containing
+   * Synchronously writes and retires the target cache page containing
    * \p location.
    *
    * A successful call means the page is no longer published by this disk's

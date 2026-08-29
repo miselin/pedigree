@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/utilities/assert.h"
 
 #include "modules/Module.h"
@@ -78,50 +79,53 @@ bool FileDisk::initialise() {
   return (m_pFile != 0);
 }
 
-uintptr_t FileDisk::read(uint64_t location) {
+BufferView FileDisk::read(uint64_t location) {
   LockGuard<Mutex> guard(m_ReqMutex);
 
   if (location % 512)
     FATAL("Read with location % 512.");
 
   if (!m_pFile)
-    return 0;
+    return BufferView();
+
+  const size_t pageSize = TargetInfo::getPageSize();
 
   // Look through the align points.
   uint64_t alignPoint = 0;
   for (size_t i = 0; i < m_nAlignPoints; i++)
     if (m_AlignPoints[i] <= location && m_AlignPoints[i] > alignPoint)
       alignPoint = m_AlignPoints[i];
-  alignPoint %= 4096;
+  alignPoint %= pageSize;
 
   // Determine which page the read is in
-  uint64_t readPage = ((location - alignPoint) & ~0xFFFUL) + alignPoint;
-  uint64_t pageOffset = (location - alignPoint) % 4096;
+  const uint64_t pageOffset = (location - alignPoint) % pageSize;
+  const uint64_t readPage = location - pageOffset;
   const uint64_t fileSize = m_pFile->getSize();
-  if (location >= fileSize || readPage >= fileSize || (fileSize - readPage) < FILEDISK_PAGE_SIZE) {
-    return 0;
+  if (location >= fileSize || readPage >= fileSize || (fileSize - readPage) < pageSize) {
+    return BufferView();
   }
 
   uintptr_t buffer = m_Cache.lookup(readPage);
 
   if (buffer)
-    return buffer + pageOffset;
+    return BufferView::fromAddress(buffer + pageOffset, pageSize - pageOffset);
 
   buffer = m_Cache.insert(readPage);
   if (!buffer)
-    return 0;
+    return BufferView();
 
   // Read the data from the file itself
-  if (m_pFile->read(readPage, FILEDISK_PAGE_SIZE, buffer) != FILEDISK_PAGE_SIZE) {
+  if (m_pFile->read(readPage, pageSize, buffer) != pageSize) {
     const bool discarded = m_Cache.discardEditing(readPage);
     (void)discarded;
-    return 0;
+    return BufferView();
   }
 
   m_Cache.markNoLongerEditing(readPage);
 
   buffer = m_Cache.lookup(readPage);
-  return buffer ? buffer + pageOffset : 0;
+  return buffer ? BufferView::fromAddress(buffer + pageOffset, pageSize - pageOffset)
+                : BufferView();
 }
 
 void FileDisk::write(uint64_t location) {
@@ -150,15 +154,17 @@ size_t FileDisk::getSize() const {
 bool FileDisk::pin(uint64_t location) {
   LockGuard<Mutex> guard(m_ReqMutex);
 
+  const size_t pageSize = TargetInfo::getPageSize();
+
   uint64_t alignPoint = 0;
   for (size_t i = 0; i < m_nAlignPoints; i++)
     if (m_AlignPoints[i] <= location && m_AlignPoints[i] > alignPoint)
       alignPoint = m_AlignPoints[i];
-  alignPoint %= FILEDISK_PAGE_SIZE;
+  alignPoint %= pageSize;
 
-  const uint64_t page = ((location - alignPoint) & ~(FILEDISK_PAGE_SIZE - 1)) + alignPoint;
+  const uint64_t page = location - ((location - alignPoint) % pageSize);
   const uint64_t fileSize = m_pFile ? m_pFile->getSize() : 0;
-  if (location >= fileSize || page >= fileSize || (fileSize - page) < FILEDISK_PAGE_SIZE) {
+  if (location >= fileSize || page >= fileSize || (fileSize - page) < pageSize) {
     return false;
   }
   return m_Cache.pin(page);
@@ -167,15 +173,17 @@ bool FileDisk::pin(uint64_t location) {
 void FileDisk::unpin(uint64_t location) {
   LockGuard<Mutex> guard(m_ReqMutex);
 
+  const size_t pageSize = TargetInfo::getPageSize();
+
   uint64_t alignPoint = 0;
   for (size_t i = 0; i < m_nAlignPoints; i++)
     if (m_AlignPoints[i] <= location && m_AlignPoints[i] > alignPoint)
       alignPoint = m_AlignPoints[i];
-  alignPoint %= FILEDISK_PAGE_SIZE;
+  alignPoint %= pageSize;
 
-  const uint64_t page = ((location - alignPoint) & ~(FILEDISK_PAGE_SIZE - 1)) + alignPoint;
+  const uint64_t page = location - ((location - alignPoint) % pageSize);
   const uint64_t fileSize = m_pFile ? m_pFile->getSize() : 0;
-  if (location >= fileSize || page >= fileSize || (fileSize - page) < FILEDISK_PAGE_SIZE) {
+  if (location >= fileSize || page >= fileSize || (fileSize - page) < pageSize) {
     return;
   }
   m_Cache.release(page);

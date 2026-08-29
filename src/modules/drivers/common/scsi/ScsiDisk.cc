@@ -23,6 +23,7 @@
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/ServiceManager.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
@@ -44,11 +45,11 @@
 #endif
 
 namespace {
-constexpr size_t ScsiCachePageBytes = 0x1000;
+constexpr size_t ScsiCachePageBytes = TargetInfo::getPageSize();
 
 bool discardEditingRange(Cache& cache, uintptr_t key, size_t length) {
   bool discarded = true;
-  for (size_t offset = 0; offset < length; offset += 4096) {
+  for (size_t offset = 0; offset < length; offset += ScsiCachePageBytes) {
     if (!cache.discardEditing(key + offset)) {
       discarded = false;
     }
@@ -243,7 +244,7 @@ ScsiDisk::ScsiDisk()
       m_AlignmentLock(),
       m_nAlignPoints(0),
       m_NumBlocks(0),
-      m_BlockSize(0x1000),
+      m_BlockSize(ScsiCachePageBytes),
       m_NativeBlockSize(0),
       m_DeviceType(NoDevice) {
   m_Cache.setCallback(cacheCallback, this);
@@ -422,36 +423,36 @@ bool ScsiDisk::sendCommand(ScsiCommand* pCommand, uintptr_t pRespBuffer, uint16_
                                     bWrite);
 }
 
-uintptr_t ScsiDisk::read(uint64_t location) {
+BufferView ScsiDisk::read(uint64_t location) {
   ScsiController* pParent = static_cast<ScsiController*>(m_pParent);
   if (!pParent) {
-    return 0;
+    return BufferView();
   }
 
   OperationBarrier::Lease operation;
   if (!pParent->acquireDiskOperation(operation)) {
-    return 0;
+    return BufferView();
   }
 
   const size_t fillSize = getCacheFillSize();
-  if (!fillSize || !getNativeBlockSize() || (fillSize % 4096) ||
+  if (!fillSize || !getNativeBlockSize() || (fillSize % ScsiCachePageBytes) ||
       (fillSize % getNativeBlockSize())) {
     ERROR("ScsiDisk::read - invalid cache or native block size.");
-    return 0;
+    return BufferView();
   }
   if (location >= getSize() || getNativeBlockSize() > (getSize() - location)) {
     ERROR("ScsiDisk::read - location too high (" << location << " of " << getSize() << ")");
-    return 0;
+    return BufferView();
   }
   size_t blockNum = location / getNativeBlockSize();
   if (blockNum >= getBlockCount()) {
     ERROR("ScsiDisk::read - location too high (block " << blockNum << " > " << getBlockCount()
                                                        << ")");
-    return 0;
+    return BufferView();
   }
   const uint64_t alignPoint = getAlignmentPoint(location);
 
-  const uint64_t pageLocation = location - ((location - alignPoint) % 4096);
+  const uint64_t pageLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
   const size_t pageOffset = location - pageLocation;
 
   // Cache extents follow the most recent alignment point, which may not be
@@ -459,15 +460,15 @@ uintptr_t ScsiDisk::read(uint64_t location) {
   size_t loc = location - ((location - alignPoint) % fillSize);
   const size_t fillLength = getCacheFillLength(loc);
   if (pageLocation < loc || (pageLocation - loc) >= fillLength ||
-      4096 > (fillLength - (pageLocation - loc))) {
-    return 0;
+      ScsiCachePageBytes > (fillLength - (pageLocation - loc))) {
+    return BufferView();
   }
 
   CacheRangeAdmission admission(*this, loc, fillLength, false);
 
   uintptr_t buffer;
   if ((buffer = m_Cache.lookup(pageLocation))) {
-    return buffer + pageOffset;
+    return BufferView::fromAddress(buffer + pageOffset, ScsiCachePageBytes - pageOffset);
   }
 
   uint64_t numRead =
@@ -475,7 +476,7 @@ uintptr_t ScsiDisk::read(uint64_t location) {
   if (numRead < fillLength) {
     // Failed to read for some reason, expose the failure to our caller.
     WARNING("ScsiDisk::read - short read!");
-    return 0;
+    return BufferView();
   }
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   HostedReadRequestHook readRequestHook = nullptr;
@@ -499,9 +500,9 @@ uintptr_t ScsiDisk::read(uint64_t location) {
 #endif
   buffer = m_Cache.lookup(pageLocation);
   if (!buffer) {
-    return 0;
+    return BufferView();
   }
-  return buffer + pageOffset;
+  return BufferView::fromAddress(buffer + pageOffset, ScsiCachePageBytes - pageOffset);
 }
 
 void ScsiDisk::write(uint64_t location) {
@@ -516,8 +517,9 @@ void ScsiDisk::write(uint64_t location) {
   }
 
 #if !CRIPPLE_HDD
-  if (!(getBlockSize() && getNativeBlockSize())) {
-    ERROR("ScsiDisk::write - block size is zero.");
+  const size_t nativeBlockSize = getNativeBlockSize();
+  if (!nativeBlockSize || (ScsiCachePageBytes % nativeBlockSize)) {
+    ERROR("ScsiDisk::write - incompatible cache and native block sizes.");
     return;
   }
 
@@ -536,7 +538,7 @@ void ScsiDisk::write(uint64_t location) {
   const uint64_t alignPoint = getAlignmentPoint(location);
 
   // Calculate the offset to get location on a page boundary.
-  ssize_t offs = -((location - alignPoint) % 4096);
+  ssize_t offs = -((location - alignPoint) % ScsiCachePageBytes);
 
   uintptr_t buffer;
   if (!(buffer = m_Cache.lookup(location + offs))) {
@@ -577,7 +579,7 @@ bool ScsiDisk::retireCachePage(uint64_t location) {
   }
 
   const size_t nativeBlockSize = getNativeBlockSize();
-  if (!getBlockSize() || !nativeBlockSize || (ScsiCachePageBytes % nativeBlockSize)) {
+  if (!nativeBlockSize || (ScsiCachePageBytes % nativeBlockSize)) {
     return false;
   }
 
@@ -599,8 +601,9 @@ void ScsiDisk::flushCachePage(uint64_t location) {
     return;
   }
 
-  if (!(getBlockSize() && getNativeBlockSize())) {
-    ERROR("ScsiDisk::flush - block size is zero.");
+  const size_t nativeBlockSize = getNativeBlockSize();
+  if (!nativeBlockSize || (ScsiCachePageBytes % nativeBlockSize)) {
+    ERROR("ScsiDisk::flush - incompatible cache and native block sizes.");
     return;
   }
 
@@ -617,7 +620,7 @@ void ScsiDisk::flushCachePage(uint64_t location) {
   const uint64_t alignPoint = getAlignmentPoint(location);
 
   // Calculate the offset to get location on a page boundary.
-  ssize_t offs = -((location - alignPoint) % 4096);
+  ssize_t offs = -((location - alignPoint) % ScsiCachePageBytes);
 
   uintptr_t buffer;
   if (!(buffer = m_Cache.lookup(location + offs))) {
@@ -664,7 +667,7 @@ void ScsiDisk::align(uint64_t location) {
 
 uint64_t ScsiDisk::doRead(uint64_t location) {
   const size_t fillSize = getCacheFillLength(location);
-  if (!fillSize || !getNativeBlockSize() || (fillSize % 4096) ||
+  if (!fillSize || !getNativeBlockSize() || (fillSize % ScsiCachePageBytes) ||
       (fillSize % getNativeBlockSize())) {
     return 0;
   }
@@ -786,7 +789,7 @@ uint64_t ScsiDisk::doRead(uint64_t location) {
 size_t ScsiDisk::getCacheFillLength(uint64_t location) const {
   const size_t preferred = getCacheFillSize();
   const size_t native = getNativeBlockSize();
-  if (!preferred || !native || (preferred % 4096) || (preferred % native) ||
+  if (!preferred || !native || (preferred % ScsiCachePageBytes) || (preferred % native) ||
       location >= getSize()) {
     return 0;
   }
@@ -797,9 +800,9 @@ size_t ScsiDisk::getCacheFillLength(uint64_t location) const {
     length = static_cast<size_t>(remaining);
   }
 
-  length -= length % 4096;
+  length -= length % ScsiCachePageBytes;
   while (length && (length % native)) {
-    length -= 4096;
+    length -= ScsiCachePageBytes;
   }
   return length;
 }
@@ -828,7 +831,7 @@ uint64_t ScsiDisk::doWrite(uint64_t location) {
   // Make sure we don't hold the refcnt once we exit this method.
   CachePageGuard guard(m_Cache, location);
 
-  return writePageBuffer(location, buffer) ? getBlockSize() : 0;
+  return writePageBuffer(location, buffer) ? ScsiCachePageBytes : 0;
 }
 
 uint64_t ScsiDisk::doWriteDirect(uint64_t location, uintptr_t page) {
@@ -913,7 +916,7 @@ uint64_t ScsiDisk::doSync(uint64_t location) {
   }
 
   size_t block = location / getNativeBlockSize();
-  size_t count = 4096 / getNativeBlockSize();
+  size_t count = ScsiCachePageBytes / getNativeBlockSize();
 
   bool bOk = false;
   ScsiCommand* pCommand;
@@ -940,7 +943,7 @@ uint64_t ScsiDisk::doSync(uint64_t location) {
     }
   }
 
-  return getBlockSize();
+  return bOk ? ScsiCachePageBytes : 0;
 }
 
 bool ScsiDisk::pin(uint64_t location) {
@@ -956,14 +959,14 @@ bool ScsiDisk::pin(uint64_t location) {
 
   const uint64_t alignPoint = getAlignmentPoint(location);
 
-  const uint64_t cacheLocation = location - ((location - alignPoint) % 4096);
+  const uint64_t cacheLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
   return m_Cache.pin(cacheLocation);
 }
 
 void ScsiDisk::unpin(uint64_t location) {
   const uint64_t alignPoint = getAlignmentPoint(location);
 
-  const uint64_t cacheLocation = location - ((location - alignPoint) % 4096);
+  const uint64_t cacheLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
   m_Cache.release(cacheLocation);
 }
 

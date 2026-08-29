@@ -25,16 +25,17 @@ class FillCacheDisk final : public Disk {
         persisted(storage.size(), 0),
         pageReferences(storage.size() / kPageSize, 0) {}
 
-  uintptr_t read(uint64_t location) override {
+  BufferView read(uint64_t location) override {
     if (location >= storage.size()) {
       outOfRange = true;
-      return 0;
+      return BufferView();
     }
 
     ++pageReferences[location / kPageSize];
     reads.push_back(location);
     operations.push_back('R');
-    return reinterpret_cast<uintptr_t>(storage.data() + location);
+    const size_t pageOffset = location % kPageSize;
+    return BufferView(storage.data() + location, kPageSize - pageOffset);
   }
 
   void write(uint64_t location) override {

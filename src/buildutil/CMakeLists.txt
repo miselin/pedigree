@@ -238,6 +238,7 @@ set(TESTSUITE_SRCS
     testsuite/test-UniqueResource.cc
     testsuite/test-RingBuffer.cc
     testsuite/test-Buffer.cc
+    testsuite/test-BufferView.cc
     testsuite/test-stringlib.cc
     testsuite/test-ExtensibleBitmap.cc
     testsuite/test-Time.cc

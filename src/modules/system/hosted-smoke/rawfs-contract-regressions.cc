@@ -6,6 +6,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -15,8 +16,8 @@
 namespace {
 class TrackingDisk final : public Disk {
  public:
-  static constexpr size_t DataSize = 12288;
-  static constexpr size_t PageSize = 4096;
+  static constexpr size_t PageSize = TargetInfo::getPageSize();
+  static constexpr size_t DataSize = 3 * PageSize;
   static constexpr size_t PageSlots = 4;
 
   TrackingDisk()
@@ -44,15 +45,15 @@ class TrackingDisk final : public Disk {
     delete[] m_DataAllocation;
   }
 
-  uintptr_t read(uint64_t location) override {
+  BufferView read(uint64_t location) override {
     const uint64_t page = pageLocation(location);
     if (page >= DataSize || PageSize > (DataSize - page)) {
-      return 0;
+      return BufferView();
     }
 
     const size_t slot = findPage(page, true);
     if (slot == PageSlots) {
-      return 0;
+      return BufferView();
     }
 
     if (m_ReadCount < 8) {
@@ -60,7 +61,8 @@ class TrackingDisk final : public Disk {
     }
     ++m_ReadCount;
     ++m_PageReferences[slot];
-    return reinterpret_cast<uintptr_t>(m_PageData + (slot * PageSize) + (location - page));
+    return BufferView(m_PageData + (slot * PageSize) + (location - page),
+                      PageSize - (location - page));
   }
 
   size_t getSize() const override {
@@ -158,7 +160,7 @@ class TrackingDisk final : public Disk {
 
 bool rawFsNativePageOwnership() {
   constexpr size_t Start = 512;
-  constexpr size_t TransferSize = 4096;
+  constexpr size_t TransferSize = TrackingDisk::PageSize;
 
   TrackingDisk disk;
   RawFs filesystem;
@@ -170,10 +172,10 @@ bool rawFsNativePageOwnership() {
   const bool bytesMatch = !MemoryCompare(destination, disk.data() + Start, TransferSize);
   delete[] destination;
 
-  const bool splitAtPage =
-      disk.m_ReadCount == 2 && disk.m_ReadLocations[0] == 0 && disk.m_ReadLocations[1] == 4096;
+  const bool splitAtPage = disk.m_ReadCount == 2 && disk.m_ReadLocations[0] == 0 &&
+                           disk.m_ReadLocations[1] == TrackingDisk::PageSize;
   const bool balanced = disk.m_UnpinCount == 2 && disk.m_UnpinLocations[0] == 0 &&
-                        disk.m_UnpinLocations[1] == 4096 && disk.balanced();
+                        disk.m_UnpinLocations[1] == TrackingDisk::PageSize && disk.balanced();
 
   const bool passed = bytesRead == TransferSize && bytesMatch && splitAtPage && balanced;
   if (passed) {
@@ -188,8 +190,8 @@ bool rawFsNativePageOwnership() {
 }
 
 bool rawFsParentAlignmentIsolation() {
-  constexpr size_t Start = 4096;
-  constexpr size_t TransferSize = 4096;
+  constexpr size_t Start = TrackingDisk::PageSize;
+  constexpr size_t TransferSize = TrackingDisk::PageSize;
 
   TrackingDisk disk;
   disk.align(512);
@@ -202,10 +204,10 @@ bool rawFsParentAlignmentIsolation() {
   const bool bytesMatch = !MemoryCompare(destination, disk.data() + Start, TransferSize);
   delete[] destination;
 
-  const bool splitAtParentPage =
-      disk.m_ReadCount == 2 && disk.m_ReadLocations[0] == Start && disk.m_ReadLocations[1] == 4608;
+  const bool splitAtParentPage = disk.m_ReadCount == 2 && disk.m_ReadLocations[0] == Start &&
+                                 disk.m_ReadLocations[1] == (Start + 512);
   const bool balanced = disk.m_UnpinCount == 2 && disk.m_UnpinLocations[0] == Start &&
-                        disk.m_UnpinLocations[1] == 4608 && disk.balanced();
+                        disk.m_UnpinLocations[1] == (Start + 512) && disk.balanced();
 
   const bool passed = bytesRead == TransferSize && bytesMatch && splitAtParentPage && balanced;
   if (passed) {

@@ -41,7 +41,7 @@ class DiskImage : public Disk {
     str.assign("Hosted disk image");
   }
 
-  virtual uintptr_t read(uint64_t location);
+  virtual BufferView read(uint64_t location);
 
   virtual size_t getSize() const;
 

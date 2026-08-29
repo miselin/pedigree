@@ -45,7 +45,7 @@ class DiskImage : public Disk {
     str.assign("Hosted disk image", 18);
   }
 
-  virtual uintptr_t read(uint64_t location);
+  virtual BufferView read(uint64_t location);
   virtual void write(uint64_t location);
   virtual void flush(uint64_t location);
 

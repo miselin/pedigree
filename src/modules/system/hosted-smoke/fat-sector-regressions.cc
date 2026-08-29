@@ -6,6 +6,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/StringView.h"
@@ -17,7 +18,8 @@
 namespace {
 class TrackingDisk final : public Disk {
  public:
-  static constexpr size_t DataSize = 8192;
+  static constexpr size_t PageSize = TargetInfo::getPageSize();
+  static constexpr size_t DataSize = 2 * PageSize;
 
   TrackingDisk()
       : m_ReadCount(0),
@@ -36,17 +38,17 @@ class TrackingDisk final : public Disk {
     delete[] m_Data;
   }
 
-  uintptr_t read(uint64_t location) override {
+  BufferView read(uint64_t location) override {
     if (location >= DataSize) {
-      return 0;
+      return BufferView();
     }
 
     if (m_ReadCount < 4) {
       m_ReadLocations[m_ReadCount] = location;
     }
     ++m_ReadCount;
-    ++m_PageReferences[location / 4096];
-    return reinterpret_cast<uintptr_t>(m_Data + location);
+    ++m_PageReferences[location / PageSize];
+    return BufferView(m_Data + location, PageSize - (location % PageSize));
   }
 
   void write(uint64_t location) override {
@@ -69,7 +71,7 @@ class TrackingDisk final : public Disk {
     if (location >= DataSize) {
       return false;
     }
-    ++m_PageReferences[location / 4096];
+    ++m_PageReferences[location / PageSize];
     return true;
   }
 
@@ -79,7 +81,7 @@ class TrackingDisk final : public Disk {
     }
     ++m_UnpinCount;
 
-    size_t& references = m_PageReferences[location / 4096];
+    size_t& references = m_PageReferences[location / PageSize];
     if (!references) {
       m_BalanceError = true;
       return;
@@ -312,7 +314,7 @@ class RetainedFatFile final : public FatFile {
 };
 
 bool fatSectorPageBoundary() {
-  constexpr size_t TransferSize = 4096;
+  constexpr size_t TransferSize = TrackingDisk::PageSize;
   uint8_t* source = new uint8_t[TransferSize];
   for (size_t i = 0; i < TransferSize; ++i) {
     source[i] = static_cast<uint8_t>((i * 37) ^ (i >> 3));
@@ -326,11 +328,12 @@ bool fatSectorPageBoundary() {
   const bool bytesMatch = !MemoryCompare(disk.data() + 512, source, TransferSize);
   delete[] source;
 
-  const bool splitAtPage = disk.m_ReadCount == 2 && disk.m_WriteCount == 2 &&
-                           disk.m_ReadLocations[0] == 512 && disk.m_ReadLocations[1] == 4096 &&
-                           disk.m_WriteLocations[0] == 512 && disk.m_WriteLocations[1] == 4096;
+  const bool splitAtPage =
+      disk.m_ReadCount == 2 && disk.m_WriteCount == 2 && disk.m_ReadLocations[0] == 512 &&
+      disk.m_ReadLocations[1] == TrackingDisk::PageSize && disk.m_WriteLocations[0] == 512 &&
+      disk.m_WriteLocations[1] == TrackingDisk::PageSize;
   const bool balanced = disk.m_UnpinCount == 2 && disk.m_UnpinLocations[0] == 512 &&
-                        disk.m_UnpinLocations[1] == 4096 && disk.balanced();
+                        disk.m_UnpinLocations[1] == TrackingDisk::PageSize && disk.balanced();
 
   const bool passed = wrote && bytesMatch && splitAtPage && balanced;
   if (passed) {

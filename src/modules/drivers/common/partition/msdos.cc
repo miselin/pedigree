@@ -347,14 +347,15 @@ static bool msdosReadExtTable(MsdosPartitionInfo* pPartitions, Disk* pDisk, int 
       pPartitions[i].start_lba = static_cast<uint32_t>(startLba & 0xFFFFFFFF);
 
       // Extended partition - read in 512 bytes and recurse.
-      uintptr_t buff;
       const uint64_t diskLocation = pPartitions[i].start_lba * 512ULL;
-      if ((buff = pDisk->read(diskLocation)) == 0) {
+      const BufferView buffer = pDisk->read(diskLocation);
+      if (!buffer || buffer.size() < 512) {
+        if (buffer) {
+          pDisk->unpin(diskLocation);
+        }
         WARNING("Couldn't read next sector for the extended partition.");
         continue;
       }
-
-      uint8_t* buffer = reinterpret_cast<uint8_t*>(buff);
 
       // Is it a "valid" MBR?
       if (buffer[510] != MSDOS_IDENT_1 || buffer[511] != MSDOS_IDENT_2) {
@@ -367,7 +368,7 @@ static bool msdosReadExtTable(MsdosPartitionInfo* pPartitions, Disk* pDisk, int 
       // extended partition record's base, along with the base of the
       // extended partition record we're about to parse.
       MsdosPartitionInfo nextPartitions[MSDOS_PARTTAB_NUM];
-      MemoryCopy(nextPartitions, &buffer[MSDOS_PARTTAB_START], sizeof(nextPartitions));
+      MemoryCopy(nextPartitions, buffer.as<uint8_t>(MSDOS_PARTTAB_START), sizeof(nextPartitions));
       pDisk->unpin(diskLocation);
       if (!msdosReadExtTable(nextPartitions, pDisk, MSDOS_PARTTAB_NUM, partitionBase, startLba))
         WARNING("Reading the extended partition table failed");
@@ -400,14 +401,15 @@ bool msdosReadTable(MsdosPartitionInfo* pPartitions, Disk* pDisk) {
 
       // Extended partition - read in 512 bytes and recurse. The first
       // sector will always be relative to this sector (zero).
-      uintptr_t buff;
       const uint64_t diskLocation = startLba * 512ULL;
-      if ((buff = pDisk->read(diskLocation)) == 0) {
+      const BufferView buffer = pDisk->read(diskLocation);
+      if (!buffer || buffer.size() < 512) {
+        if (buffer) {
+          pDisk->unpin(diskLocation);
+        }
         WARNING("Couldn't read next sector for the extended partition.");
         continue;
       }
-
-      uint8_t* buffer = reinterpret_cast<uint8_t*>(buff);
 
       // Is it valid?
       if (buffer[510] != MSDOS_IDENT_1 || buffer[511] != MSDOS_IDENT_2) {
@@ -419,7 +421,7 @@ bool msdosReadTable(MsdosPartitionInfo* pPartitions, Disk* pDisk) {
       // Call the extended partition reader, give it the base of this
       // partition entry for its calculations.
       MsdosPartitionInfo readPartitions[MSDOS_PARTTAB_NUM];
-      MemoryCopy(readPartitions, &buffer[MSDOS_PARTTAB_START], sizeof(readPartitions));
+      MemoryCopy(readPartitions, buffer.as<uint8_t>(MSDOS_PARTTAB_START), sizeof(readPartitions));
       pDisk->unpin(diskLocation);
       if (!msdosReadExtTable(readPartitions, pDisk, MSDOS_PARTTAB_NUM, startLba, startLba))
         WARNING("Reading the extended partition table failed");
@@ -434,13 +436,14 @@ bool msdosReadTable(MsdosPartitionInfo* pPartitions, Disk* pDisk) {
 
 bool msdosProbeDisk(Disk* pDisk) {
   // Read the first sector (512 bytes) of the disk into a buffer.
-  uintptr_t buff;
-  if ((buff = pDisk->read(0ULL)) == 0) {
+  const BufferView buffer = pDisk->read(0ULL);
+  if (!buffer || buffer.size() < 512) {
+    if (buffer) {
+      pDisk->unpin(0ULL);
+    }
     WARNING("Disk read failure during MS-DOS partition table search.");
     return false;
   }
-
-  uint8_t* buffer = reinterpret_cast<uint8_t*>(buff);
 
   String diskName;
   pDisk->getName(diskName);
@@ -455,7 +458,7 @@ bool msdosProbeDisk(Disk* pDisk) {
   NOTICE("MS-DOS partition table found on disk " << diskName);
 
   MsdosPartitionInfo partitions[MSDOS_PARTTAB_NUM];
-  MemoryCopy(partitions, &buffer[MSDOS_PARTTAB_START], sizeof(partitions));
+  MemoryCopy(partitions, buffer.as<uint8_t>(MSDOS_PARTTAB_START), sizeof(partitions));
   pDisk->unpin(0ULL);
   return msdosReadTable(partitions, pDisk);
 }

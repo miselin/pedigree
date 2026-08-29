@@ -83,32 +83,45 @@ class Iso9660Directory : public Directory {
     }
 
     // How big is the directory?
+    constexpr size_t blockSize = 2048;
     size_t dirSize = LITTLE_TO_HOST32(m_Dir.DataLen_LE);
     size_t dirLoc = LITTLE_TO_HOST32(m_Dir.ExtentLocation_LE);
 
     // Read the directory, block by block
-    size_t numBlocks = (dirSize > 2048) ? dirSize / 2048 : 1;
+    size_t numBlocks = (dirSize > blockSize) ? dirSize / blockSize : 1;
     size_t i;
     for (i = 0; i < numBlocks; i++) {
       // Read the block
-      const uint64_t diskLocation = (dirLoc + i) * 2048;
-      uintptr_t block = myDisk->read(diskLocation);
-      if (!block) {
+      const uint64_t diskLocation = (dirLoc + i) * blockSize;
+      const BufferView block = myDisk->read(diskLocation);
+      if (!block || block.size() < blockSize) {
+        if (block) {
+          myDisk->unpin(diskLocation);
+        }
         break;
       }
 
       // Complete, so start reading entries
       size_t offset = 0;
       bool bLastHit = false;
-      while (offset < 2048) {
-        Iso9660DirRecord* record = reinterpret_cast<Iso9660DirRecord*>(block + offset);
-        offset += record->RecLen;
-        uint8_t* fileIdent = reinterpret_cast<uint8_t*>(adjust_pointer(record, sizeof(*record)));
+      while (offset < blockSize) {
+        if (sizeof(Iso9660DirRecord) > (blockSize - offset)) {
+          break;
+        }
+        Iso9660DirRecord* record = block.as<Iso9660DirRecord>(offset);
 
         if (record->RecLen == 0) {
           bLastHit = true;
           break;
-        } else if (record->FileFlags & (1 << 0))
+        }
+        if (record->RecLen < sizeof(*record) || record->RecLen > (blockSize - offset) ||
+            record->FileIdentLen > (record->RecLen - sizeof(*record))) {
+          break;
+        }
+        uint8_t* fileIdent = block.as<uint8_t>(offset + sizeof(*record));
+        offset += record->RecLen;
+
+        if (record->FileFlags & (1 << 0))
           continue;
         else if (record->FileFlags & (1 << 1) && record->FileIdentLen == 1) {
           if (fileIdent[0] == 0 || fileIdent[0] == 1)

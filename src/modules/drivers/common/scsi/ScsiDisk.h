@@ -20,6 +20,7 @@
 #ifndef SCSIDISK_H
 #define SCSIDISK_H
 
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Mutex.h"
@@ -98,7 +99,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 
   bool initialise(class ScsiController* pController, size_t nUnit);
 
-  virtual uintptr_t read(uint64_t location);
+  virtual BufferView read(uint64_t location);
   virtual void write(uint64_t location);
   virtual void flush(uint64_t location);
   MUST_USE_RESULT virtual bool retireCachePage(uint64_t location);
@@ -128,7 +129,7 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 
   /**
    * Retrieves the native block size - that is, the logical block size.
-   * This differs from the main block size, which is for caching.
+   * This differs from the preferred I/O/cache-fill extent.
    */
   virtual size_t getNativeBlockSize() const {
     return m_NativeBlockSize;
@@ -141,12 +142,12 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   /**
    * Size of one cache fill performed by this implementation.
    *
-   * The generic path owns independently evictable native pages. A subclass
+   * The generic path owns independently evictable target pages. A subclass
    * may opt into a larger extent only when its doRead() handles partially
    * populated extents page by page.
    */
   virtual size_t getCacheFillSize() const {
-    return 4096;
+    return TargetInfo::getPageSize();
   }
 
   /**

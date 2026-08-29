@@ -18,6 +18,7 @@
  */
 
 #include "CdiDisk.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include <stddef.h>
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
@@ -94,7 +95,7 @@ bool CdiDisk::initialise()
 }
 
 // These are the functions that others call - they add a request to the parent controller's queue.
-uintptr_t CdiDisk::read(uint64_t location)
+BufferView CdiDisk::read(uint64_t location)
 {
     LockGuard<Mutex> guard(m_CacheMutex);
     assert( (location % 512) == 0 );
@@ -105,10 +106,10 @@ uintptr_t CdiDisk::read(uint64_t location)
     {
         buff = m_Cache.insert(pageLocation);
         if (!buff)
-            return 0;
+            return BufferView();
 
         if (cdi_storage_read(
-                m_Device, pageLocation, getBlockSize(),
+                m_Device, pageLocation, TargetInfo::getPageSize(),
                 reinterpret_cast<void*>(buff)) != 0)
         {
             if (!m_Cache.discardEditing(pageLocation))
@@ -117,17 +118,18 @@ uintptr_t CdiDisk::read(uint64_t location)
                     "CdiDisk::read could not discard a failed fill at "
                     << pageLocation);
             }
-            return 0;
+            return BufferView();
         }
 
         m_Cache.markNoLongerEditing(pageLocation);
         buff = m_Cache.lookup(pageLocation);
         if (!buff)
         {
-            return 0;
+            return BufferView();
         }
     }
-    return buff + pageOffset;
+    return BufferView::fromAddress(
+        buff + pageOffset, TargetInfo::getPageSize() - pageOffset);
 }
 
 void CdiDisk::write(uint64_t location)
@@ -140,7 +142,7 @@ void CdiDisk::write(uint64_t location)
     CachePageGuard pageGuard(m_Cache, pageLocation);
 
     if (cdi_storage_write(
-            m_Device, pageLocation, getBlockSize(),
+            m_Device, pageLocation, TargetInfo::getPageSize(),
             reinterpret_cast<void*>(buff)) != 0)
         return;
 }
@@ -184,7 +186,7 @@ uint64_t CdiDisk::getPageLocation(uint64_t location) const
         }
     }
 
-    return location - ((location - alignPoint) % getBlockSize());
+    return location - ((location - alignPoint) % TargetInfo::getPageSize());
 }
 
 void cdi_cpp_disk_register(struct cdi_storage_device* device)

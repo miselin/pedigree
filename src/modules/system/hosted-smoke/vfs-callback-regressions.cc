@@ -23,8 +23,8 @@ constexpr bool DontPickCore = HOSTED;
 
 class TestDisk final : public Disk {
  public:
-  uintptr_t read(uint64_t) override {
-    return 0;
+  BufferView read(uint64_t) override {
+    return BufferView();
   }
 
   size_t getSize() const override {
@@ -63,8 +63,8 @@ class BlockingNameDisk final : public Disk {
     name.assign("mount-table-disk");
   }
 
-  uintptr_t read(uint64_t) override {
-    return 0;
+  BufferView read(uint64_t) override {
+    return BufferView();
   }
 
   size_t getSize() const override {

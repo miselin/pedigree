@@ -21,6 +21,7 @@
 #define PARTITION_H
 
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
@@ -52,21 +53,25 @@ class Partition : public Disk {
     str.assign(str2, str2.length());
   }
 
-  virtual uintptr_t read(uint64_t location) {
-    // Ensure the read does not begin past the end of our partition
-    if (location >= m_Length || (m_Length - location) < 0x1000)
-      return 0;
+  virtual BufferView read(uint64_t location) {
+    if (!containsCachePage(location))
+      return BufferView();
 
     Disk* pParent = static_cast<Disk*>(getParent());
 
     ensureAligned(pParent);
 
-    return pParent->read(location + m_Start);
+    BufferView view = pParent->read(location + m_Start);
+    if (!view) {
+      return BufferView();
+    }
+
+    const uint64_t remaining = m_Length - location;
+    return remaining < view.size() ? view.first(static_cast<size_t>(remaining)) : view;
   }
 
   virtual void write(uint64_t location) {
-    // Ensure the read does not begin past the end of our partition
-    if (location >= m_Length || (m_Length - location) < 0x1000)
+    if (!containsCachePage(location))
       return;
 
     Disk* pParent = static_cast<Disk*>(getParent());
@@ -77,7 +82,7 @@ class Partition : public Disk {
   }
 
   virtual void flush(uint64_t location) {
-    if (location >= m_Length || (m_Length - location) < 0x1000)
+    if (!containsCachePage(location))
       return;
 
     Disk* pParent = static_cast<Disk*>(getParent());
@@ -88,7 +93,7 @@ class Partition : public Disk {
   }
 
   MUST_USE_RESULT virtual bool retireCachePage(uint64_t location) {
-    if (location >= m_Length || (m_Length - location) < 0x1000)
+    if (!containsCachePage(location))
       return false;
 
     Disk* pParent = static_cast<Disk*>(getParent());
@@ -108,7 +113,7 @@ class Partition : public Disk {
   }
 
   virtual bool pin(uint64_t location) {
-    if (location >= m_Length || (m_Length - location) < 0x1000)
+    if (!containsCachePage(location))
       return false;
     Disk* pParent = static_cast<Disk*>(getParent());
     ensureAligned(pParent);
@@ -116,7 +121,7 @@ class Partition : public Disk {
   }
 
   virtual void unpin(uint64_t location) {
-    if (location >= m_Length || (m_Length - location) < 0x1000)
+    if (!containsCachePage(location))
       return;
     Disk* pParent = static_cast<Disk*>(getParent());
     pParent->unpin(location + m_Start);
@@ -136,6 +141,16 @@ class Partition : public Disk {
   }
 
  private:
+  bool containsCachePage(uint64_t location) const {
+    if (location >= m_Length) {
+      return false;
+    }
+
+    const uint64_t pageSize = TargetInfo::getPageSize();
+    const uint64_t pageLocation = location - (location % pageSize);
+    return pageSize <= (m_Length - pageLocation);
+  }
+
   void ensureAligned(Disk* pParent) {
     LockGuard<Mutex> guard(m_AlignmentLock);
     if (!m_bAligned) {

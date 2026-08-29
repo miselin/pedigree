@@ -75,13 +75,16 @@ bool Iso9660Filesystem::initialise(Disk* pDisk) {
   bool bFound = false;
   for (size_t i = 16; i < 256; i++) {
     const uint64_t diskLocation = i * m_BlockSize;
-    uintptr_t buff = m_pDisk->read(diskLocation);
-    if (!buff) {
+    const BufferView buffer = m_pDisk->read(diskLocation);
+    if (!buffer || buffer.size() < m_BlockSize) {
+      if (buffer) {
+        m_pDisk->unpin(diskLocation);
+      }
       return false;
     }
 
     // Get the descriptor for this entry
-    Iso9660VolumeDescriptor* vDesc = reinterpret_cast<Iso9660VolumeDescriptor*>(buff);
+    Iso9660VolumeDescriptor* vDesc = buffer.as<Iso9660VolumeDescriptor>();
     if (StringCompareN(reinterpret_cast<const char*>(vDesc->Ident), "CD001", 5) != 0) {
       NOTICE("IDENT: " << reinterpret_cast<const char*>(vDesc->Ident));
       m_pDisk->unpin(diskLocation);
@@ -92,12 +95,10 @@ bool Iso9660Filesystem::initialise(Disk* pDisk) {
 
     // Is this a primary descriptor?
     if (descriptorType == PRIM_VOL_DESC) {
-      MemoryCopy(&m_PrimaryVolDesc, reinterpret_cast<uint8_t*>(buff),
-                 sizeof(Iso9660VolumeDescriptorPrimary));
+      MemoryCopy(&m_PrimaryVolDesc, buffer.data(), sizeof(Iso9660VolumeDescriptorPrimary));
       bFound = true;
     } else if (descriptorType == SUPP_VOL_DESC) {
-      MemoryCopy(&m_SuppVolDesc, reinterpret_cast<uint8_t*>(buff),
-                 sizeof(Iso9660VolumeDescriptorPrimary));
+      MemoryCopy(&m_SuppVolDesc, buffer.data(), sizeof(Iso9660VolumeDescriptorPrimary));
       bFound = true;
 
       // Figure out the Joliet level
@@ -208,9 +209,16 @@ uintptr_t Iso9660Filesystem::readBlock(File* pFile, uint64_t location) {
   size_t blockNum = LITTLE_TO_HOST32(rec.ExtentLocation_LE) + blockSkip;
 
   // Begin reading
-  uintptr_t buff = m_pDisk->read(blockNum * m_BlockSize);
+  const uint64_t diskLocation = blockNum * m_BlockSize;
+  const BufferView buffer = m_pDisk->read(diskLocation);
+  if (!buffer || buffer.size() < m_BlockSize) {
+    if (buffer) {
+      m_pDisk->unpin(diskLocation);
+    }
+    return 0;
+  }
 
-  return buff;
+  return buffer.address();
 }
 
 bool Iso9660Filesystem::createFile(File* parent, const String& filename, uint32_t mask) {

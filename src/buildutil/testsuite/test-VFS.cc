@@ -60,8 +60,8 @@ class MountTestDisk final : public Disk {
     name.assign("test-disk");
   }
 
-  uintptr_t read(uint64_t) override {
-    return 0;
+  BufferView read(uint64_t) override {
+    return BufferView();
   }
 
   size_t getSize() const override {

@@ -81,20 +81,22 @@ uintptr_t RawFsFile::readBlock(uint64_t location) {
     size_t copied = 0;
     while (copied < pageSize) {
       const uint64_t diskLocation = pageLocation + copied;
-      const uintptr_t source = m_pDisk->read(diskLocation);
+      const BufferView source = m_pDisk->read(diskLocation);
       if (!source) {
         const bool discarded = m_PageCache.discardEditing(pageLocation);
         (void)discarded;
         return 0;
       }
 
-      const size_t sourceOffset = source % pageSize;
-      size_t chunk = pageSize - sourceOffset;
-      if (chunk > (pageSize - copied)) {
-        chunk = pageSize - copied;
+      const size_t remaining = pageSize - copied;
+      const size_t chunk = source.size() < remaining ? source.size() : remaining;
+      if (!chunk) {
+        m_pDisk->unpin(diskLocation);
+        const bool discarded = m_PageCache.discardEditing(pageLocation);
+        (void)discarded;
+        return 0;
       }
-      MemoryCopy(reinterpret_cast<void*>(buffer + copied), reinterpret_cast<const void*>(source),
-                 chunk);
+      MemoryCopy(reinterpret_cast<void*>(buffer + copied), source.data(), chunk);
       m_pDisk->unpin(diskLocation);
       copied += chunk;
     }
@@ -115,18 +117,18 @@ void RawFsFile::writeBlock(uint64_t location, uintptr_t address) {
   size_t copied = 0;
   while (copied < pageSize) {
     const uint64_t diskLocation = pageLocation + copied;
-    const uintptr_t destination = m_pDisk->read(diskLocation);
+    const BufferView destination = m_pDisk->read(diskLocation);
     if (!destination) {
       return;
     }
 
-    const size_t destinationOffset = destination % pageSize;
-    size_t chunk = pageSize - destinationOffset;
-    if (chunk > (pageSize - copied)) {
-      chunk = pageSize - copied;
+    const size_t remaining = pageSize - copied;
+    const size_t chunk = destination.size() < remaining ? destination.size() : remaining;
+    if (!chunk) {
+      m_pDisk->unpin(diskLocation);
+      return;
     }
-    MemoryCopy(reinterpret_cast<void*>(destination),
-               reinterpret_cast<const void*>(address + copied), chunk);
+    MemoryCopy(destination.data(), reinterpret_cast<const void*>(address + copied), chunk);
     m_pDisk->write(diskLocation);
     m_pDisk->unpin(diskLocation);
     copied += chunk;

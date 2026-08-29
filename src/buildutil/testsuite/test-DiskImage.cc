@@ -115,27 +115,28 @@ TEST_F(DiskImageTest, ReadsOnlyCompleteLogicalBlocks) {
   EXPECT_EQ(image.getBlockSize(), kBlockSize);
   EXPECT_EQ(image.getSize(), kImageSize);
 
-  const uintptr_t first = image.read(0);
-  const uintptr_t interior = image.read(1024);
-  ASSERT_NE(first, 0U);
-  ASSERT_NE(interior, 0U);
-  EXPECT_EQ(interior, first + 1024);
-  EXPECT_EQ(image.read(1024), interior);
-  EXPECT_EQ(*reinterpret_cast<const uint8_t*>(interior), patternAt(1024));
+  const BufferView first = image.read(0);
+  const BufferView interior = image.read(1024);
+  ASSERT_TRUE(first);
+  ASSERT_TRUE(interior);
+  EXPECT_EQ(interior.address(), (first + 1024).address());
+  EXPECT_EQ(interior.size(), kBlockSize - 1024);
+  EXPECT_EQ(image.read(1024).address(), interior.address());
+  EXPECT_EQ(*interior.as<const uint8_t>(), patternAt(1024));
 
-  const uintptr_t second = image.read(kBlockSize);
-  const uintptr_t third = image.read(2 * kBlockSize);
-  ASSERT_NE(second, 0U);
-  ASSERT_NE(third, 0U);
-  EXPECT_EQ(*reinterpret_cast<const uint8_t*>(second), patternAt(kBlockSize));
-  EXPECT_EQ(*reinterpret_cast<const uint8_t*>(third), patternAt(2 * kBlockSize));
+  const BufferView second = image.read(kBlockSize);
+  const BufferView third = image.read(2 * kBlockSize);
+  ASSERT_TRUE(second);
+  ASSERT_TRUE(third);
+  EXPECT_EQ(*second.as<const uint8_t>(), patternAt(kBlockSize));
+  EXPECT_EQ(*third.as<const uint8_t>(), patternAt(2 * kBlockSize));
 
   EXPECT_TRUE(image.pin(2 * kBlockSize));
   EXPECT_FALSE(image.pin(3 * kBlockSize));
-  EXPECT_EQ(image.read(3 * kBlockSize), 0U);
-  EXPECT_EQ(image.read(kImageSize), 0U);
+  EXPECT_FALSE(image.read(3 * kBlockSize));
+  EXPECT_FALSE(image.read(kImageSize));
   EXPECT_FALSE(image.pin(UINT64_MAX));
-  EXPECT_EQ(image.read(UINT64_MAX), 0U);
+  EXPECT_FALSE(image.read(UINT64_MAX));
   image.write(UINT64_MAX);
 }
 
@@ -145,13 +146,13 @@ TEST_F(DiskImageTest, WritesBackAndUnmapsOnDestruction) {
 
   const size_t firstOffset = kBlockSize + 137;
   const size_t secondOffset = (2 * kBlockSize) + 511;
-  const uintptr_t first = image->read(firstOffset);
-  const uintptr_t second = image->read(secondOffset);
-  ASSERT_NE(first, 0U);
-  ASSERT_NE(second, 0U);
+  const BufferView first = image->read(firstOffset);
+  const BufferView second = image->read(secondOffset);
+  ASSERT_TRUE(first);
+  ASSERT_TRUE(second);
 
-  *reinterpret_cast<uint8_t*>(first) = 0xA5;
-  *reinterpret_cast<uint8_t*>(second) = 0x5A;
+  first[0] = 0xA5;
+  second[0] = 0x5A;
   errno = 0;
   image->write(firstOffset);
   EXPECT_NE(errno, EINVAL);
@@ -162,8 +163,8 @@ TEST_F(DiskImageTest, WritesBackAndUnmapsOnDestruction) {
   const long hostPageSize = sysconf(_SC_PAGESIZE);
   ASSERT_GT(hostPageSize, 0);
   std::set<uintptr_t> mappedPages;
-  addMappingPages(mappedPages, first, firstOffset, static_cast<size_t>(hostPageSize));
-  addMappingPages(mappedPages, second, secondOffset, static_cast<size_t>(hostPageSize));
+  addMappingPages(mappedPages, first.address(), firstOffset, static_cast<size_t>(hostPageSize));
+  addMappingPages(mappedPages, second.address(), secondOffset, static_cast<size_t>(hostPageSize));
   ASSERT_FALSE(mappedPages.empty());
 #if defined(__APPLE__)
   char resident = 0;
@@ -193,9 +194,9 @@ TEST_F(DiskImageTest, ProvidesSynchronousFlush) {
   ASSERT_TRUE(image.initialise());
 
   const size_t offset = kBlockSize + 137;
-  const uintptr_t data = image.read(offset);
-  ASSERT_NE(data, 0U);
-  *reinterpret_cast<uint8_t*>(data) = 0xC3;
+  const BufferView data = image.read(offset);
+  ASSERT_TRUE(data);
+  data[0] = 0xC3;
 
   g_MsyncCalls.clear();
   errno = 0;

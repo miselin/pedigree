@@ -134,12 +134,15 @@ bool Ext2Filesystem::initialise(Disk* pDisk) {
 
   // Attempt to read the superblock. A successful Disk::read() transfers the
   // persistent reference that this filesystem holds until destruction.
-  uintptr_t block = m_pDisk->read(1024ULL);
-  if (!block) {
+  const BufferView block = m_pDisk->read(1024ULL);
+  if (!block || block.size() < sizeof(Superblock)) {
+    if (block) {
+      m_pDisk->unpin(1024ULL);
+    }
     ERROR("Ext2: Failed to read a superblock on " << devName);
     return false;
   }
-  m_pSuperblock = reinterpret_cast<Superblock*>(block);
+  m_pSuperblock = block.as<Superblock>();
 
   // Read correctly?
   if (LITTLE_TO_HOST16(m_pSuperblock->s_magic) != 0xEF53) {
@@ -524,7 +527,15 @@ uintptr_t Ext2Filesystem::readBlock(uint32_t block) {
   if (block == 0)
     return reinterpret_cast<uintptr_t>(g_pSparseBlock);
 
-  return m_pDisk->read(static_cast<uint64_t>(m_BlockSize) * static_cast<uint64_t>(block));
+  const uint64_t location = static_cast<uint64_t>(m_BlockSize) * static_cast<uint64_t>(block);
+  const BufferView view = m_pDisk->read(location);
+  if (!view || view.size() < m_BlockSize) {
+    if (view) {
+      m_pDisk->unpin(location);
+    }
+    return 0;
+  }
+  return view.address();
 }
 
 void Ext2Filesystem::writeBlock(uint32_t block) {

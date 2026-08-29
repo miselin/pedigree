@@ -137,12 +137,12 @@ bool DiskImage::initialise() {
   return true;
 }
 
-uintptr_t DiskImage::read(uint64_t location) {
+BufferView DiskImage::read(uint64_t location) {
   const uint64_t pageLocation = location & ~0xFFFULL;
   if (!m_pFile || location >= m_nSize || pageLocation >= m_nSize ||
       (m_nSize - pageLocation) < 4096) {
     fprintf(stderr, "DiskImage::read: read past EOF (%lu vs %lu)\n", location, m_nSize);
-    return 0;
+    return BufferView();
   }
 
   uint64_t off = location & 0xFFF;
@@ -151,32 +151,37 @@ uintptr_t DiskImage::read(uint64_t location) {
   fseek(m_pFile, location, SEEK_SET);
   ssize_t x = fread(adjust_pointer(m_pBuffer, location), 4096, 1, m_pFile);
   if (!x)
-    return 0;
-  return reinterpret_cast<uintptr_t>(m_pBuffer) + location + off;
+    return BufferView();
+  return BufferView::fromAddress(reinterpret_cast<uintptr_t>(m_pBuffer) + location + off,
+                                 getBlockSize() - off);
 #elif HAS_ADDRESS_SANITIZER
   auto it = m_BufferMap.find(pageLocation);
   if (it != m_BufferMap.end()) {
     const BufferMapping& mapping = it->second;
-    return reinterpret_cast<uintptr_t>(mapping.base) + mapping.logicalOffset + off;
+    return BufferView::fromAddress(
+        reinterpret_cast<uintptr_t>(mapping.base) + mapping.logicalOffset + off,
+        getBlockSize() - off);
   }
 
   const uint64_t mappingLocation = (pageLocation / m_HostPageSize) * m_HostPageSize;
   const size_t logicalOffset = static_cast<size_t>(pageLocation - mappingLocation);
   if (logicalOffset > std::numeric_limits<size_t>::max() - getBlockSize()) {
-    return 0;
+    return BufferView();
   }
   const size_t mappingLength = logicalOffset + getBlockSize();
   void* p = mmap(0, mappingLength, PROT_READ | PROT_WRITE, MAP_SHARED, m_FileNo,
                  static_cast<off_t>(mappingLocation));
   if (p == MAP_FAILED) {
     fprintf(stderr, "DiskImage::read: mmap failed (%s)\n", std::strerror(errno));
-    return 0;
+    return BufferView();
   }
 
   m_BufferMap.insert({pageLocation, {p, mappingLength, logicalOffset}});
-  return reinterpret_cast<uintptr_t>(p) + logicalOffset + off;
+  return BufferView::fromAddress(reinterpret_cast<uintptr_t>(p) + logicalOffset + off,
+                                 getBlockSize() - off);
 #else
-  return reinterpret_cast<uintptr_t>(m_pBuffer) + location;
+  return BufferView::fromAddress(reinterpret_cast<uintptr_t>(m_pBuffer) + location,
+                                 getBlockSize() - off);
 #endif
 }
 

@@ -52,12 +52,12 @@ class CdiDisk : public Disk
         bool initialise();
 
         // These are the functions that others call - they add a request to the parent controller's queue.
-        virtual uintptr_t read(uint64_t location);
+        virtual BufferView read(uint64_t location);
         virtual void write(uint64_t location);
         virtual void align(uint64_t location);
         virtual size_t getBlockSize() const
         {
-            return 4096;
+            return m_Device ? m_Device->block_size : 0;
         }
         virtual bool pin(uint64_t location);
         virtual void unpin(uint64_t location);

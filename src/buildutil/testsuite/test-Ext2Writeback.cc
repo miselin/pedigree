@@ -5,6 +5,7 @@
  * purpose with or without fee is hereby granted.
  */
 
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -60,9 +61,9 @@ constexpr uint32_t kBlockSize = 4096;
 
 class TrackingDisk final : public Disk {
  public:
-  uintptr_t read(uint64_t location) override {
+  BufferView read(uint64_t location) override {
     reads.push_back(location);
-    return 0;
+    return BufferView();
   }
 
   void write(uint64_t location) override {
@@ -248,8 +249,10 @@ TEST(Ext2Writeback, ReleaseInodeFinishesOnTargetTableBlock) {
 
 TEST(PartitionWriteback, AlignsAndTranslatesFlush) {
   constexpr uint64_t kStart = 1536;
-  constexpr uint64_t kLength = 4 * kBlockSize;
+  constexpr uint64_t kCachePageSize = TargetInfo::getPageSize();
+  constexpr uint64_t kLength = 4 * kCachePageSize;
   constexpr uint64_t kLocation = 1024;
+  constexpr uint64_t kInteriorLocation = (3 * kCachePageSize) + 512;
 
   TrackingDisk parent;
   Partition partition(String("test"), kStart, kLength);
@@ -261,11 +264,10 @@ TEST(PartitionWriteback, AlignsAndTranslatesFlush) {
   ASSERT_EQ(parent.flushes.size(), 1U);
   EXPECT_EQ(parent.flushes[0], kStart + kLocation);
 
-  partition.flush(kLength - kBlockSize);
+  partition.flush(kInteriorLocation);
   ASSERT_EQ(parent.flushes.size(), 2U);
-  EXPECT_EQ(parent.flushes[1], kStart + kLength - kBlockSize);
+  EXPECT_EQ(parent.flushes[1], kStart + kInteriorLocation);
 
-  partition.flush(kLength - kBlockSize + 1);
   partition.flush(kLength);
   partition.flush(UINT64_MAX);
   EXPECT_EQ(parent.alignments.size(), 1U);
@@ -274,8 +276,10 @@ TEST(PartitionWriteback, AlignsAndTranslatesFlush) {
 
 TEST(PartitionWriteback, AlignsAndTranslatesRetirement) {
   constexpr uint64_t kStart = 1536;
-  constexpr uint64_t kLength = 4 * kBlockSize;
+  constexpr uint64_t kCachePageSize = TargetInfo::getPageSize();
+  constexpr uint64_t kLength = 4 * kCachePageSize;
   constexpr uint64_t kLocation = 1024;
+  constexpr uint64_t kInteriorLocation = (3 * kCachePageSize) + 512;
 
   TrackingDisk parent;
   Partition partition(String("test"), kStart, kLength);
@@ -287,11 +291,10 @@ TEST(PartitionWriteback, AlignsAndTranslatesRetirement) {
   ASSERT_EQ(parent.retirements.size(), 1U);
   EXPECT_EQ(parent.retirements[0], kStart + kLocation);
 
-  ASSERT_TRUE(partition.retireCachePage(kLength - kBlockSize));
+  ASSERT_TRUE(partition.retireCachePage(kInteriorLocation));
   ASSERT_EQ(parent.retirements.size(), 2U);
-  EXPECT_EQ(parent.retirements[1], kStart + kLength - kBlockSize);
+  EXPECT_EQ(parent.retirements[1], kStart + kInteriorLocation);
 
-  EXPECT_FALSE(partition.retireCachePage(kLength - kBlockSize + 1));
   EXPECT_FALSE(partition.retireCachePage(kLength));
   EXPECT_FALSE(partition.retireCachePage(UINT64_MAX));
   EXPECT_EQ(parent.alignments.size(), 1U);

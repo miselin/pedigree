@@ -33,10 +33,6 @@
 /// \todo Expose functionality here as a Service - specifically
 /// creating/removing disks.
 
-/// 4 KB is enough to fit 8 HD sectors and 2 CD sectors, which makes it a good
-/// choice for the page cache size.
-#define FILEDISK_PAGE_SIZE 4096
-
 /** Abstraction for Files as Disks
  * This allows disk images to be opened as a real disk for installer ramdisks
  * or for testing.
@@ -69,7 +65,7 @@ class EXPORTED_PUBLIC FileDisk : public Disk {
 
   bool initialise();
 
-  virtual uintptr_t read(uint64_t location);
+  virtual BufferView read(uint64_t location);
   virtual void write(uint64_t location);
   virtual void align(uint64_t location);
   virtual size_t getSize() const;

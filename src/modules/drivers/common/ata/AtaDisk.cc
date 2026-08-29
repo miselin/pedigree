@@ -20,6 +20,7 @@
 #include "AtaDisk.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/IoBase.h"
@@ -244,6 +245,13 @@ void AtaDisk::stopDma() {
 }
 
 bool AtaDisk::initialise(size_t nUnit) {
+  // The legacy cache walker and PRD builder assume 4 KiB cache pages. Reject
+  // other target pages until both sides of the transfer are converted.
+  if (TargetInfo::getPageSize() != 4096) {
+    ERROR("ATA: this driver requires 4096-byte target pages");
+    return false;
+  }
+
   // Grab our parent.
   AtaController* pParent = static_cast<AtaController*>(m_pParent);
 

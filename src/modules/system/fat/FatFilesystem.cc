@@ -21,7 +21,6 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/process/Scheduler.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/StaticString.h"
@@ -84,10 +83,14 @@ bool FatFilesystem::initialise(Disk* pDisk) {
   m_pDisk = pDisk;
 
   // Attempt to read the superblock.
-  uint8_t* buffer = reinterpret_cast<uint8_t*>(m_pDisk->read(0));
-  if (!buffer) {
+  const BufferView superblock = m_pDisk->read(0);
+  if (!superblock || superblock.size() < (36 + sizeof(Superblock32))) {
+    if (superblock) {
+      m_pDisk->unpin(0);
+    }
     return false;
   }
+  uint8_t* buffer = superblock.as<uint8_t>();
 
   MemoryCopy(reinterpret_cast<void*>(&m_Superblock), reinterpret_cast<void*>(buffer),
              sizeof(Superblock));
@@ -750,10 +753,14 @@ bool FatFilesystem::readSectorBlock(uint32_t sec, size_t size, uintptr_t buffer)
     size_t sz = (size > 512) ? 512 : size;
     const uint64_t diskLocation =
         (static_cast<uint64_t>(m_Superblock.BPB_BytsPerSec) * static_cast<uint64_t>(sec)) + off;
-    uintptr_t buff = m_pDisk->read(diskLocation);
-    if (!buff)
+    const BufferView diskBuffer = m_pDisk->read(diskLocation);
+    if (!diskBuffer || diskBuffer.size() < sz) {
+      if (diskBuffer) {
+        m_pDisk->unpin(diskLocation);
+      }
       return false;
-    MemoryCopy(reinterpret_cast<void*>(buffer), reinterpret_cast<void*>(buff), sz);
+    }
+    MemoryCopy(reinterpret_cast<void*>(buffer), diskBuffer.data(), sz);
     m_pDisk->unpin(diskLocation);
     buffer += sz;
     size -= sz;
@@ -776,14 +783,15 @@ bool FatFilesystem::writeSectorBlock(uint32_t sec, size_t size, uintptr_t buffer
   while (size) {
     const uint64_t diskLocation =
         static_cast<uint64_t>(m_Superblock.BPB_BytsPerSec) * static_cast<uint64_t>(sec) + off;
-    const size_t pageOffset = diskLocation % PhysicalMemoryManager::getPageSize();
-    const size_t pageRemaining = PhysicalMemoryManager::getPageSize() - pageOffset;
-    const size_t sz = (size > pageRemaining) ? pageRemaining : size;
-    uintptr_t buff = m_pDisk->read(diskLocation);
-    if (!buff) {
+    const BufferView diskBuffer = m_pDisk->read(diskLocation);
+    if (!diskBuffer || diskBuffer.empty()) {
+      if (diskBuffer) {
+        m_pDisk->unpin(diskLocation);
+      }
       return false;
     }
-    MemoryCopy(reinterpret_cast<void*>(buff), reinterpret_cast<void*>(buffer), sz);
+    const size_t sz = size > diskBuffer.size() ? diskBuffer.size() : size;
+    MemoryCopy(diskBuffer.data(), reinterpret_cast<void*>(buffer), sz);
     m_pDisk->write(diskLocation);
     m_pDisk->unpin(diskLocation);
     buffer += sz;

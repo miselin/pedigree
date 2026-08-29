@@ -44,8 +44,8 @@ void Disk::dump(String& str) {
   str.assign("Generic disk", 13);
 }
 
-uintptr_t Disk::read(uint64_t location) {
-  return 0;
+BufferView Disk::read(uint64_t location) {
+  return BufferView();
 }
 
 void Disk::write(uint64_t location) {}

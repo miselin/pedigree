@@ -30,14 +30,17 @@ class Device;
 
 bool appleProbeDisk(Disk* pDisk) {
   // Read the second sector (512 bytes) of the disk into a buffer.
-  uintptr_t buff;
-  if ((buff = pDisk->read(512ULL)) == 0) {
+  BufferView buffer = pDisk->read(512ULL);
+  if (!buffer || buffer.size() < sizeof(ApplePartitionMap)) {
+    if (buffer) {
+      pDisk->unpin(512ULL);
+    }
     WARNING("Disk read failure during Apple partition table search.");
     return false;
   }
 
   ApplePartitionMap map;
-  MemoryCopy(&map, reinterpret_cast<void*>(buff), sizeof(map));
+  MemoryCopy(&map, buffer.data(), sizeof(map));
   pDisk->unpin(512ULL);
 
   String diskName;
@@ -57,12 +60,17 @@ bool appleProbeDisk(Disk* pDisk) {
     if (i > 0)  // We don't need to load anything in for the first pmap -
                 // already done!
     {
-      if ((buff = pDisk->read(512ULL + i * 512ULL)) == 0) {
+      const uint64_t diskLocation = 512ULL + i * 512ULL;
+      buffer = pDisk->read(diskLocation);
+      if (!buffer || buffer.size() < sizeof(ApplePartitionMap)) {
+        if (buffer) {
+          pDisk->unpin(diskLocation);
+        }
         WARNING("Disk read failure during partition table recognition.");
         return false;
       }
-      MemoryCopy(&map, reinterpret_cast<void*>(buff), sizeof(map));
-      pDisk->unpin(512ULL + i * 512ULL);
+      MemoryCopy(&map, buffer.data(), sizeof(map));
+      pDisk->unpin(diskLocation);
     }
 
     NOTICE("Detected partition '" << map.pmPartName << "', type '" << map.pmParType << "'");

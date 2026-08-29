@@ -7,6 +7,7 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
@@ -20,27 +21,27 @@
 #include "modules/drivers/common/scsi/ScsiDisk.h"
 
 namespace {
+constexpr size_t PageBytes = TargetInfo::getPageSize();
 constexpr uint64_t AtaOwnershipLocation = 0;
-constexpr uint64_t AtaDrainingLocation = 4096;
-constexpr uint64_t FailedWriteLocation = 8192;
-constexpr uint64_t SuccessfulWriteLocation = 12288;
-constexpr uint64_t MissingDirectLocation = 16384;
-constexpr uint64_t EditingDirectLocation = 20480;
-constexpr uint64_t SuccessfulDirectLocation = 24576;
-constexpr uint64_t FailedDirectLocation = 28672;
-constexpr uint64_t UnreadyDirectLocation = 32768;
-constexpr uint64_t ShortDirectLocation = 36864;
-constexpr uint64_t PinnedDirectLocation = 40960;
-constexpr uint64_t CancelledDirectLocation = 45056;
-constexpr uint64_t CanonicalDirectLocation = 49152;
-constexpr uint64_t ReadFirstLocation = 65536;
-constexpr uint64_t RejectedReadLocation = 73728;
-constexpr uint64_t RetireFirstExtent = 98304;
-constexpr uint64_t RetireFirstInterior = RetireFirstExtent + 4096;
-constexpr uint64_t NonoverlapReadLocation = 114688;
-constexpr uint64_t RecheckReadLocation = 131072;
-constexpr uint64_t LookupPauseLocation = 147456;
-constexpr size_t PageBytes = 4096;
+constexpr uint64_t AtaDrainingLocation = PageBytes;
+constexpr uint64_t FailedWriteLocation = 2 * PageBytes;
+constexpr uint64_t SuccessfulWriteLocation = 3 * PageBytes;
+constexpr uint64_t MissingDirectLocation = 4 * PageBytes;
+constexpr uint64_t EditingDirectLocation = 5 * PageBytes;
+constexpr uint64_t SuccessfulDirectLocation = 6 * PageBytes;
+constexpr uint64_t FailedDirectLocation = 7 * PageBytes;
+constexpr uint64_t UnreadyDirectLocation = 8 * PageBytes;
+constexpr uint64_t ShortDirectLocation = 9 * PageBytes;
+constexpr uint64_t PinnedDirectLocation = 10 * PageBytes;
+constexpr uint64_t CancelledDirectLocation = 11 * PageBytes;
+constexpr uint64_t CanonicalDirectLocation = 12 * PageBytes;
+constexpr uint64_t ReadFirstLocation = 16 * PageBytes;
+constexpr uint64_t RejectedReadLocation = 18 * PageBytes;
+constexpr uint64_t RetireFirstExtent = 24 * PageBytes;
+constexpr uint64_t RetireFirstInterior = RetireFirstExtent + PageBytes;
+constexpr uint64_t NonoverlapReadLocation = 28 * PageBytes;
+constexpr uint64_t RecheckReadLocation = 32 * PageBytes;
+constexpr uint64_t LookupPauseLocation = 36 * PageBytes;
 
 enum class WriteMode { Initialising, FailAll, PassWrite12, UnitNotReady };
 enum class RequestEvent : uint8_t { Read = 1, Direct = 2 };
@@ -103,7 +104,7 @@ class ScriptedScsiController final : public ScsiController {
           return false;
         }
         auto* capacity = reinterpret_cast<ScsiDisk::Capacity*>(pRespBuffer);
-        capacity->LBA = HOST_TO_BIG32(1023);
+        capacity->LBA = HOST_TO_BIG32(static_cast<uint32_t>((64 * PageBytes / 512) - 1));
         capacity->BlockSize = HOST_TO_BIG32(512);
         return true;
       }
@@ -543,13 +544,14 @@ struct ReadContext {
   HostedScsiDisk* disk;
   uint64_t location;
   Atomic<size_t> returned;
-  uintptr_t result;
+  bool result;
 };
 
 int readPage(void* parameter) {
   auto* context = reinterpret_cast<ReadContext*>(parameter);
-  context->result = context->disk->read(context->location);
-  if (context->result)
+  const BufferView result = context->disk->read(context->location);
+  context->result = static_cast<bool>(result);
+  if (result)
     context->disk->unpin(context->location);
   context->returned += 1;
   return 0;
@@ -1022,7 +1024,7 @@ bool scsiReadRetireAdmission(Fixture& fixture) {
       fixture.controller.directRequestCount() == 1 && fixture.disk.hasPage(ReadFirstLocation);
 
   const bool halted = fixture.controller.halt();
-  const uintptr_t rejectedRead = halted ? fixture.disk.read(RejectedReadLocation) : 1;
+  const bool rejectedRead = halted && static_cast<bool>(fixture.disk.read(RejectedReadLocation));
   DirectRetirementContext rejectedRetirement(&fixture.disk, RejectedReadLocation);
   Thread* rejectedRetirer = nullptr;
   if (halted && !rejectedRead) {
