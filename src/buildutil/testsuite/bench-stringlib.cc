@@ -200,7 +200,7 @@ static void BM_StringCompareCaseInsensitive(benchmark::State& state) {
   buf2[state.range(0) - 1] = '\0';
 
   // aAaAaA etc... for truly testing the insensitive case
-  for (size_t i = 0; i < state.range(0) - 1; ++i) {
+  for (ssize_t i = 0; i < state.range(0) - 1; ++i) {
     if ((i % 2) == 0) {
       buf2[i] = 'A';
     }

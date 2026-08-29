@@ -124,7 +124,7 @@ void MurmurHash3_x86_32 ( const void * key, int len,
   //----------
   // body
 
-  const uint32_t * blocks = (const uint32_t *)(data + nblocks*4);
+  const uint32_t * blocks = ((const uint32_t *)key) + nblocks;
 
   for(int i = -nblocks; i; i++)
   {
@@ -185,7 +185,7 @@ void MurmurHash3_x86_128 ( const void * key, const int len,
   //----------
   // body
 
-  const uint32_t * blocks = (const uint32_t *)(data + nblocks*16);
+  const uint32_t * blocks = ((const uint32_t *) key) + nblocks*4;
 
   for(int i = -nblocks; i; i++)
   {
@@ -286,7 +286,7 @@ void MurmurHash3_x64_128 ( const void * key, const int len,
   //----------
   // body
 
-  const uint64_t * blocks = (const uint64_t *)(data);
+  const uint64_t * blocks = (const uint64_t *)(key);
 
   for(int i = 0; i < nblocks; i++)
   {

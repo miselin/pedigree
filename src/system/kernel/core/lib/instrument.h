@@ -55,7 +55,7 @@ typedef union {
  * This is done at the cost of flexibility (because there's no flags), and at
  * the cost of integrity (because there's no magic number for verification).
  */
-typedef union {
+typedef union LiteInstrumentationRecord {
   struct {
     /**
      * The kernel is always going to have 32 one bits as the first part of

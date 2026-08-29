@@ -28,7 +28,7 @@
 
 #define RANDOM_MAX 0x10000
 
-static const int RandomNumber() {
+static int RandomNumber() {
   static bool seeded = false;
   if (!seeded) {
     srand(time(0));

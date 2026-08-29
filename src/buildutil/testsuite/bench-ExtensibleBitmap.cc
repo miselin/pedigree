@@ -28,7 +28,7 @@
 
 #define RANDOM_MAX 0x1000000
 
-static const int RandomNumber() {
+static int RandomNumber() {
   static bool seeded = false;
   if (!seeded) {
     srand(time(0));
@@ -73,7 +73,7 @@ static void BM_ExtensibleBitmapSetRandomly(benchmark::State& state) {
 static void BM_ExtensibleBitmapTestLinear(benchmark::State& state) {
   ExtensibleBitmap bitmap;
 
-  for (size_t i = 0; i < state.range(0); ++i) {
+  for (ssize_t i = 0; i < state.range(0); ++i) {
     if (i % 2) {
       bitmap.set(i);
     }
@@ -92,7 +92,7 @@ static void BM_ExtensibleBitmapTestLinear(benchmark::State& state) {
 static void BM_ExtensibleBitmapTestRandomly(benchmark::State& state) {
   ExtensibleBitmap bitmap;
 
-  for (size_t i = 0; i < state.range(0); ++i) {
+  for (ssize_t i = 0; i < state.range(0); ++i) {
     if (i % 2) {
       bitmap.set(i);
     }

@@ -22,12 +22,11 @@ print(spec.origin or '' if spec else '')
     if [[ "$module_path" != "$repo_dir/"* ]]; then
         echo "Installing local editable package..."
         (
-            cd "$repo_dir"
-            python3 -m pip install -e .
+            uv pip install -e "$repo_dir"
         )
     fi
 
-    exec python3 -m "$module" --config="$DIR/scripts/pup/pup.conf" "$@"
+    exec uv run -m "$module" --config="$DIR/scripts/pup/pup.conf" "$@"
 fi
 
 PUP_TMP="$DIR/scripts/pup.whl.tmp"
@@ -58,5 +57,5 @@ fi
 
 set -e
 
-python3 "$PUP/pedigree_updater" --config="$DIR/scripts/pup/pup.conf" $*
+exec python3 "$PUP/pedigree_updater" --config="$DIR/scripts/pup/pup.conf" $*
 

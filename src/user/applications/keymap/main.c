@@ -39,12 +39,14 @@ extern YYSTYPE yylval;
 extern int pedigree_load_keymap(char* buffer, size_t len);
 #endif
 
+typedef struct sparse_entry sparse_t;
+
 cmd_t* cmds[MAX_CMDS];
 int n_cmds = 0;
 
 int sparse_pos = 0;
 int sparse_buffsz = 0;
-char* sparse_buff = 0;
+sparse_t* sparse_buff = 0;
 
 int data_pos = 0;
 int data_buffsz = 0;
@@ -82,13 +84,13 @@ int sparse_add() {
       fprintf(stderr, "Too many sparse nodes.\n");
       exit(1);
     }
-    char* new_sparse_buff = realloc(sparse_buff, sparse_buffsz + sz + 32);
+    sparse_t* new_sparse_buff = realloc(sparse_buff, sparse_buffsz + sz + sizeof(sparse_t));
     if (!new_sparse_buff) {
       fprintf(stderr, "Couldn't allocate buffer for new sparse buffer: %s.\n", strerror(errno));
       exit(1);
     }
     sparse_buff = new_sparse_buff;
-    sparse_buffsz += sz + 32;
+    sparse_buffsz += sz + sizeof(sparse_t);
   }
   sparse_pos += sz;
 
@@ -103,13 +105,13 @@ int data_add(table_entry_t* start, table_entry_t* end) {
       fprintf(stderr, "Too much data.\n");
       exit(1);
     }
-    char* new_data_buff = realloc(data_buff, data_buffsz + sz + 32);
+    char* new_data_buff = realloc(data_buff, data_buffsz + sz + sizeof(sparse_t));
     if (!new_data_buff) {
       fprintf(stderr, "Couldn't allocate buffer for new data buffer: %s.\n", strerror(errno));
       exit(1);
     }
     data_buff = new_data_buff;
-    data_buffsz += sz + 32;
+    data_buffsz += sz + sizeof(sparse_t);
   }
 
   memcpy(&data_buff[data_pos], (char*)start, sz);
@@ -179,7 +181,7 @@ void parse(char* filename) {
 
 int sparse(int idx, int bisect_size) {
   int ime = sparse_add();
-  sparse_t* me = (sparse_t*)(&sparse_buff[ime]);
+  sparse_t* me = &sparse_buff[ime];
 
   // Check the right child - is everything zero?
   if (all_clear(&table[idx - bisect_size], &table[idx]) > 0) {
@@ -291,7 +293,7 @@ static char sparseBuff[%d] =\n\"",
           header_guard, header_guard, sparse_buffsz + 1);
 
   for (i = 0; i < sparse_buffsz; i++) {
-    fprintf(stream, "\\x%02x", (unsigned char)sparse_buff[i]);
+    fprintf(stream, "\\x%02x", (unsigned char)((char *)sparse_buff)[i]);
     if ((i % 20) == 0 && i != 0)
       fprintf(stream, "\\\n");
   }

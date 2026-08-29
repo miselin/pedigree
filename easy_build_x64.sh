@@ -19,6 +19,8 @@ esac
 set -e
 set -v
 
+[ -d ".venv" ] || uv venv
+
 . $script_dir/scripts/easy_build_deps.sh
 
 echo "Please wait, checking for a working cross-compiler."
