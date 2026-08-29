@@ -257,10 +257,11 @@ Graphics::Buffer* Framebuffer::swCreateBuffer(const void* srcData, Graphics::Pix
   size_t destBytesPerLine = width * destBytesPerPixel;
 
   size_t fullBufferSize = height * destBytesPerLine;
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
 
   MemoryRegion* pRegion = new MemoryRegion("sw-framebuffer-buffer");
   bool bSuccess = PhysicalMemoryManager::instance().allocateRegion(
-      *pRegion, (fullBufferSize / 0x1000) + 1, 0, VirtualAddressSpace::Write);
+      *pRegion, (fullBufferSize + pageSize - 1) / pageSize, 0, VirtualAddressSpace::Write);
 
   if (!bSuccess) {
     delete pRegion;

@@ -20,6 +20,7 @@
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -76,8 +77,8 @@ extern "C" void panic(const char* s) {
 }
 
 namespace SlamSupport {
-static const size_t heapSize = 0x40000000ULL;
-static const size_t logicalPageSize = 0x1000;
+static constexpr size_t heapSize = 0x40000000ULL;
+static constexpr size_t logicalPageSize = TargetInfo::getPageSize();
 static void* heapBase = nullptr;
 static size_t hostPageSize = 0;
 static size_t* hostPageReferences = nullptr;
@@ -86,12 +87,18 @@ static pthread_mutex_t pageMappingLock = PTHREAD_MUTEX_INITIALIZER;
 
 static void initialiseHostPages() {
   long pageSize = sysconf(_SC_PAGESIZE);
-  if (pageSize < static_cast<long>(logicalPageSize) || (pageSize % logicalPageSize) != 0) {
+  if (pageSize <= 0) {
     fprintf(stderr, "unsupported host page size: %ld\n", pageSize);
     abort();
   }
 
   hostPageSize = static_cast<size_t>(pageSize);
+  if ((hostPageSize % logicalPageSize) != 0 && (logicalPageSize % hostPageSize) != 0) {
+    fprintf(stderr, "incompatible target and host page sizes: %zu and %zu\n", logicalPageSize,
+            hostPageSize);
+    abort();
+  }
+
   hostPageReferences = static_cast<size_t*>(calloc(heapSize / hostPageSize, sizeof(size_t)));
   logicalPageMappings =
       static_cast<unsigned char*>(calloc(heapSize / logicalPageSize, sizeof(unsigned char)));
@@ -107,12 +114,26 @@ static uintptr_t getHeapBaseLocked() {
   }
 
   initialiseHostPages();
-  heapBase = mmap(0, heapSize, PROT_NONE, MAP_PRIVATE | MAP_NORESERVE | MAP_ANONYMOUS, -1, 0);
-  if (heapBase == MAP_FAILED) {
+  const size_t mappingGranule = hostPageSize > logicalPageSize ? hostPageSize : logicalPageSize;
+  const size_t reservationSize = heapSize + mappingGranule;
+  void* reservation =
+      mmap(0, reservationSize, PROT_NONE, MAP_PRIVATE | MAP_NORESERVE | MAP_ANONYMOUS, -1, 0);
+  if (reservation == MAP_FAILED) {
     fprintf(stderr, "cannot get a region of memory for SlamAllocator: %s\n", strerror(errno));
     abort();
   }
 
+  const uintptr_t reservationStart = reinterpret_cast<uintptr_t>(reservation);
+  const uintptr_t alignedStart = (reservationStart + mappingGranule - 1) & ~(mappingGranule - 1);
+  const size_t prefix = alignedStart - reservationStart;
+  const size_t suffix = reservationSize - prefix - heapSize;
+  if ((prefix && munmap(reservation, prefix) != 0) ||
+      (suffix && munmap(reinterpret_cast<void*>(alignedStart + heapSize), suffix) != 0)) {
+    fprintf(stderr, "cannot align SlamAllocator region: %s\n", strerror(errno));
+    abort();
+  }
+
+  heapBase = reinterpret_cast<void*>(alignedStart);
   return reinterpret_cast<uintptr_t>(heapBase);
 }
 
@@ -138,17 +159,26 @@ void getPageAt(void* addr) {
 
   size_t offset = address - base;
   size_t logicalPage = offset / logicalPageSize;
-  size_t hostPage = offset / hostPageSize;
-  uintptr_t hostAddress = base + (hostPage * hostPageSize);
+  size_t firstHostPage = offset / hostPageSize;
+  size_t lastHostPage = (offset + logicalPageSize - 1) / hostPageSize;
   if (!logicalPageMappings[logicalPage]) {
-    if (!hostPageReferences[hostPage] &&
-        mprotect(reinterpret_cast<void*>(hostAddress), hostPageSize, PROT_READ | PROT_WRITE) != 0) {
+    bool needsProtection = false;
+    for (size_t hostPage = firstHostPage; hostPage <= lastHostPage; ++hostPage) {
+      needsProtection |= hostPageReferences[hostPage] == 0;
+    }
+
+    const uintptr_t hostAddress = base + (firstHostPage * hostPageSize);
+    const size_t hostLength = (lastHostPage - firstHostPage + 1) * hostPageSize;
+    if (needsProtection &&
+        mprotect(reinterpret_cast<void*>(hostAddress), hostLength, PROT_READ | PROT_WRITE) != 0) {
       fprintf(stderr, "map failed: %s\n", strerror(errno));
       abort();
     }
 
     logicalPageMappings[logicalPage] = 1;
-    ++hostPageReferences[hostPage];
+    for (size_t hostPage = firstHostPage; hostPage <= lastHostPage; ++hostPage) {
+      ++hostPageReferences[hostPage];
+    }
   }
 
   memset(addr, 0, logicalPageSize);
@@ -166,20 +196,28 @@ void unmapPage(void* page) {
 
   size_t offset = address - base;
   size_t logicalPage = offset / logicalPageSize;
-  size_t hostPage = offset / hostPageSize;
+  size_t firstHostPage = offset / hostPageSize;
+  size_t lastHostPage = (offset + logicalPageSize - 1) / hostPageSize;
   if (!logicalPageMappings[logicalPage]) {
     fprintf(stderr, "SlamAllocator page is already unmapped: %p\n", page);
     abort();
   }
 
   logicalPageMappings[logicalPage] = 0;
-  if (!--hostPageReferences[hostPage]) {
-    uintptr_t hostAddress = base + (hostPage * hostPageSize);
-    void* hostPageAddress = reinterpret_cast<void*>(hostAddress);
-    madvise(hostPageAddress, hostPageSize, MADV_DONTNEED);
-    if (mprotect(hostPageAddress, hostPageSize, PROT_NONE) != 0) {
-      fprintf(stderr, "unmap failed: %s\n", strerror(errno));
+  for (size_t hostPage = firstHostPage; hostPage <= lastHostPage; ++hostPage) {
+    if (!hostPageReferences[hostPage]) {
+      fprintf(stderr, "SlamAllocator host page reference underflow: %p\n", page);
       abort();
+    }
+
+    if (!--hostPageReferences[hostPage]) {
+      uintptr_t hostAddress = base + (hostPage * hostPageSize);
+      void* hostPageAddress = reinterpret_cast<void*>(hostAddress);
+      madvise(hostPageAddress, hostPageSize, MADV_DONTNEED);
+      if (mprotect(hostPageAddress, hostPageSize, PROT_NONE) != 0) {
+        fprintf(stderr, "unmap failed: %s\n", strerror(errno));
+        abort();
+      }
     }
   }
   pthread_mutex_unlock(&pageMappingLock);

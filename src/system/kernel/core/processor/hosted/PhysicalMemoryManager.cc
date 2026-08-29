@@ -100,7 +100,7 @@ physical_uintptr_t HostedPhysicalMemoryManager::allocatePage(size_t pageConstrai
   }
 
 #ifdef USE_BITMAP
-  physical_uintptr_t ptr_bitmap = ptr / 0x1000;
+  physical_uintptr_t ptr_bitmap = ptr / getPageSize();
   size_t idx = ptr_bitmap / 32;
   size_t bit = ptr_bitmap % 32;
   if (g_PageBitmap[idx] & (1 << bit)) {
@@ -152,7 +152,7 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
   }
 
 #ifdef USE_BITMAP
-  physical_uintptr_t ptr_bitmap = page / 0x1000;
+  physical_uintptr_t ptr_bitmap = page / getPageSize();
   size_t idx = ptr_bitmap / 32;
   size_t bit = ptr_bitmap % 32;
   if (!(g_PageBitmap[idx] & (1 << bit))) {
@@ -163,7 +163,7 @@ void HostedPhysicalMemoryManager::freePageUnlocked(physical_uintptr_t page) {
   g_PageBitmap[idx] &= ~(1 << bit);
 #endif
 
-  m_PageStack.free(page, 0x1000);
+  m_PageStack.free(page, getPageSize());
 }
 
 void HostedPhysicalMemoryManager::pin(physical_uintptr_t page) {
@@ -293,7 +293,7 @@ void HostedPhysicalMemoryManager::initialise(const BootstrapStruct_t& Info) {
   m_PageStack.markBelow4GReady();
   TRACE("Hosted PMM: page stack done");
 
-  m_PageMetadata.reserve(HOSTED_PHYSICAL_MEMORY_SIZE >> 12);
+  m_PageMetadata.reserve(HOSTED_PHYSICAL_MEMORY_SIZE / pageSize);
 
   // Initialise the free physical ranges
   m_PhysicalRanges.free(0, 0x100000000ULL);
@@ -406,7 +406,7 @@ void HostedPhysicalMemoryManager::unmapRegion(MemoryRegion* pRegion) {
         virtualAddressSpace.getMapping(vAddr, pAddr, flags);
 
         if (!pRegion->getNonRamMemory() && pAddr > 0x1000000)
-          m_PageStack.free(pAddr, 0x1000);
+          m_PageStack.free(pAddr, getPageSize());
 
         virtualAddressSpace.unmap(vAddr);
       }

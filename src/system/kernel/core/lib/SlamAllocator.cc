@@ -129,7 +129,7 @@ inline uintptr_t getHeapEnd() {
 
 inline size_t getPageSize() {
 #if PEDIGREE_BENCHMARK
-  return 0x1000;
+  return TargetInfo::getPageSize();
 #else
   return PhysicalMemoryManager::getPageSize();
 #endif

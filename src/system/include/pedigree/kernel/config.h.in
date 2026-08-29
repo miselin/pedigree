@@ -153,6 +153,8 @@
 
 /** Clean up target definitions if needed. **/
 
+#define PEDIGREE_TARGET_PAGE_SIZE @PEDIGREE_TARGET_PAGE_SIZE@
+
 #ifndef X86
 #define X86 0
 #endif

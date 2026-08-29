@@ -10,7 +10,7 @@ SECTIONS
     *(.note*)
   }
 
-  . = ALIGN(4096);
+  . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
   .text :
   {
     *(.init*)
@@ -20,31 +20,31 @@ SECTIONS
     *(.fini*)
   } :text
 
-  . = ALIGN(4096);
+  . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
   .dynsym :
   {
     *(.dynsym)
   } :rodata
 
-  . = ALIGN(4096);
+  . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
   .dynstr :
   {
     *(.dynstr)
   } :rodata
 
-  . = ALIGN(4096);
+  . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
   .modinfo :
   {
     *(.modinfo*)
   } :rodata
 
-  . = ALIGN(4096);
+  . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
   .rodata :
   {
     *(.rodata*)
   } :rodata
 
-  . = ALIGN(4096);
+  . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
   .init_array :
   {
     HIDDEN(start_ctors = .);
@@ -61,25 +61,25 @@ SECTIONS
     HIDDEN(end_dtors = .);
   } :data
 
-  . = ALIGN(4096);
+  . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
   .dynamic :
   {
     *(.dynamic)
   } :data :dynamic
 
-  . = ALIGN(4096);
+  . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
   .got :
   {
     *(.got)
   } :data
 
-  . = ALIGN(4096);
+  . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
   .got.plt :
   {
     *(.got.plt)
   } :data
 
-  . = ALIGN(4096);
+  . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
   .data :
   {
     *(.data*)
@@ -100,7 +100,7 @@ SECTIONS
     *(.text.crt0*);
   }
 
-  . = ALIGN(4096);
+  . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
   .bss :
   {
     *(.bss*)

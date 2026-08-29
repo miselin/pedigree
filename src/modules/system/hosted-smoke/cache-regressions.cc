@@ -7,6 +7,7 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -14,6 +15,8 @@
 #include "pedigree/kernel/utilities/Cache.h"
 
 namespace {
+constexpr size_t PageSize = TargetInfo::getPageSize();
+
 bool checkNamed(bool condition, const char* test, const char* detail) {
   if (condition) {
     return true;
@@ -263,7 +266,7 @@ bool emptyAndReuse() {
   const uintptr_t secondPage = cache.insert(SecondKey);
   const bool reused = checkNamed(secondPage != 0, "cache-empty-reuse",
                                  "could not insert after emptying a dirty Cache") &&
-                      checkNamed(cache.exists(SecondKey, 4096), "cache-empty-reuse",
+                      checkNamed(cache.exists(SecondKey, PageSize), "cache-empty-reuse",
                                  "the replacement page was not published");
   cache.empty();
 
@@ -367,7 +370,7 @@ bool retirementPublication() {
                  "the original eviction did not complete successfully") &&
       checkNamed(inserterJoined && context.insertReturned == 1 && context.replacementPage != 0,
                  "cache-retirement-publication", "the replacement insertion did not complete") &&
-      checkNamed(cache.exists(Key, 4096), "cache-retirement-publication",
+      checkNamed(cache.exists(Key, PageSize), "cache-retirement-publication",
                  "the replacement page was invalidated by the old callback");
 
   cache.empty();
@@ -402,7 +405,7 @@ bool failedPublicationDiscard() {
 
   const uintptr_t failedPage = cache.insert(Key);
   const bool discarded = failedPage != 0 && cache.discardEditing(Key);
-  const bool removed = !cache.exists(Key, 4096);
+  const bool removed = !cache.exists(Key, PageSize);
   const bool suppressedWriteback = context.writebacks == 0 && context.evictions == 1;
 
   const uintptr_t pinnedPage = cache.insert(Key);
@@ -594,10 +597,10 @@ bool retirePrepublicationWriteback() {
       checkNamed(context.retireArgumentsValid == 1 && context.evictionCalls == 1,
                  "cache-retire-prepublication",
                  "retirement callback arguments or final eviction were incorrect") &&
-      checkNamed(!cache.exists(Key, 4096) && cache.lookup(Key) == 0, "cache-retire-prepublication",
-                 "the successful page remained published");
+      checkNamed(!cache.exists(Key, PageSize) && cache.lookup(Key) == 0,
+                 "cache-retire-prepublication", "the successful page remained published");
 
-  if (cache.exists(Key, 4096)) {
+  if (cache.exists(Key, PageSize)) {
     cache.empty();
   }
   if (passed) {
@@ -657,7 +660,7 @@ bool retireWritebackContract() {
   editing.shouldSucceed = 1;
   const bool editingRejected =
       editing.page && !cache.retireWriteback(EditingKey, retireContractCallback, &editing) &&
-      editing.callbacks == 0 && cache.exists(EditingKey, 4096);
+      editing.callbacks == 0 && cache.exists(EditingKey, PageSize);
   const bool editingDiscarded = editingRejected && cache.discardEditing(EditingKey);
 
   RetireContractContext retry;
@@ -676,7 +679,7 @@ bool retireWritebackContract() {
   retry.shouldSucceed = 1;
   const bool retryRetired =
       failureKeptPage && cache.retireWriteback(RetryKey, retireContractCallback, &retry) &&
-      retry.callbacks == 2 && retry.argumentsValid == 1 && !cache.exists(RetryKey, 4096);
+      retry.callbacks == 2 && retry.argumentsValid == 1 && !cache.exists(RetryKey, PageSize);
 
   RetireContractContext pinned;
   pinned.cache = &cache;
@@ -711,7 +714,7 @@ bool retireWritebackContract() {
   const bool pinnedJoined = retirer && retirer->join();
   const bool pinnedRetired = pinnedJoined && pinned.retireReturned == 1 &&
                              pinned.retireSucceeded == 1 && pinned.callbacks == 1 &&
-                             pinned.argumentsValid == 1 && !cache.exists(PinnedKey, 4096);
+                             pinned.argumentsValid == 1 && !cache.exists(PinnedKey, PageSize);
 
   RetireContractContext missing;
   missing.cache = &cache;
@@ -740,9 +743,9 @@ bool retireWritebackContract() {
 
 bool rangeExistence() {
   constexpr uintptr_t Key = 0xCA7E500;
-  constexpr uintptr_t ProbeKey = 0xCA80500;
-  constexpr uintptr_t SecondProbeKey = 0xCA86500;
-  constexpr size_t Length = 3 * 4096;
+  constexpr size_t Length = 3 * PageSize;
+  constexpr uintptr_t ProbeKey = Key + (8 * PageSize);
+  constexpr uintptr_t SecondProbeKey = ProbeKey + (4 * PageSize);
   Cache cache;
 
   // Reserve and return a known six-page allocator extent. After a rejected
@@ -758,17 +761,17 @@ bool rangeExistence() {
   bool alreadyExisted = false;
   const uintptr_t reused = cache.insert(Key, Length, &alreadyExisted);
   const bool completeRangeReused = alreadyExisted && reused == pages;
-  const bool removedInterior = cache.discardEditing(Key + 4096);
+  const bool removedInterior = cache.discardEditing(Key + PageSize);
   const bool missingInteriorRejected = removedInterior && !cache.exists(Key, Length);
   cache.empty();
 
-  const uintptr_t interior = cache.insert(Key + 4096);
+  const uintptr_t interior = cache.insert(Key + PageSize);
   bool overlapExisted = true;
   const uintptr_t overlappingRange = cache.insert(Key, Length, &overlapExisted);
   const bool overlapRejectedBeforeAllocation =
-      interior != 0 && !overlappingRange && !overlapExisted && cache.exists(Key + 4096, 4096) &&
-      !cache.exists(Key, 4096) && !cache.exists(Key + (2 * 4096), 4096) &&
-      !cache.exists(Key, Length);
+      interior != 0 && !overlappingRange && !overlapExisted &&
+      cache.exists(Key + PageSize, PageSize) && !cache.exists(Key, PageSize) &&
+      !cache.exists(Key + (2 * PageSize), PageSize) && !cache.exists(Key, Length);
   cache.empty();
 
   const uintptr_t firstHalf = cache.insert(ProbeKey, Length);

@@ -18,6 +18,7 @@
  */
 
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -27,6 +28,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/state.h"
 
+#include "HostedPlatform.h"
 #include "InterruptManager.h"
 #include "PhysicalMemoryManager.h"
 #include "SyscallManager.h"
@@ -114,6 +116,12 @@ void ProcessorBase::initialisationDone() {
 }
 
 void ProcessorBase::initialise1(const BootstrapStruct_t& Info) {
+  const size_t hostPageSize = HostedPlatform::pageSize();
+  if (!hostPageSize || TargetInfo::getPageSize() < hostPageSize ||
+      (TargetInfo::getPageSize() % hostPageSize) != 0) {
+    panic("Hosted: incompatible target and host page sizes");
+  }
+
   const uintptr_t executionThreadId = currentHostedExecutionThread();
   if (!executionThreadId) {
     panic("Hosted: failed to capture the processor execution thread");

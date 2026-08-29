@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
@@ -40,6 +41,9 @@
 #include "pedigree/kernel/utilities/smhasher/MurmurHash3.h"
 
 class Process;
+
+static constexpr size_t CachePageSize = TargetInfo::getPageSize();
+static constexpr uintptr_t CachePageMask = TargetInfo::getPageOffsetMask();
 
 // Don't allocate cache space in reverse, but DO re-use cache pages.
 // This gives us wins because we don't need to reallocate page tables for
@@ -586,7 +590,7 @@ uintptr_t Cache::insert(uintptr_t key, bool* alreadyExisted) {
 
     m_AllocatorLock.acquire();
     uintptr_t location = 0;
-    bool succeeded = m_Allocator.allocate(4096, location);
+    bool succeeded = m_Allocator.allocate(CachePageSize, location);
     m_AllocatorLock.release();
 
     if (!succeeded) {
@@ -619,12 +623,12 @@ uintptr_t Cache::insert(uintptr_t key, size_t size, bool* alreadyExisted) {
     return 0;
   }
 
-  if (size % 4096) {
+  if (size % CachePageSize) {
     WARNING("Cache::insert called with a size that isn't page-aligned");
-    size &= ~0xFFF;
+    size &= ~CachePageMask;
   }
 
-  size_t nPages = size / 4096;
+  size_t nPages = size / CachePageSize;
   if (!nPages) {
     return 0;
   }
@@ -637,13 +641,13 @@ uintptr_t Cache::insert(uintptr_t key, size_t size, bool* alreadyExisted) {
 
   while (true) {
     for (size_t page = 0; page < nPages; ++page) {
-      waitForPageEviction(key + (page * 4096));
+      waitForPageEviction(key + (page * CachePageSize));
     }
 
     LockGuard<Spinlock> guard(m_Lock);
     bool evictionPending = false;
     for (size_t page = 0; page < nPages; ++page) {
-      CachePage* pageEntry = m_Pages.lookup(key + (page * 4096));
+      CachePage* pageEntry = m_Pages.lookup(key + (page * CachePageSize));
       if (pageEntry && pageEntry->evictionState != CachePage::EvictionState::None) {
         evictionPending = true;
         break;
@@ -662,7 +666,7 @@ uintptr_t Cache::insert(uintptr_t key, size_t size, bool* alreadyExisted) {
     size_t existingPages = 0;
     bool contiguousExtent = true;
     for (size_t page = 0; page < nPages; ++page) {
-      pPage = m_Pages.lookup(key + (page * 4096));
+      pPage = m_Pages.lookup(key + (page * CachePageSize));
       if (pPage) {
         ++existingPages;
         if (!firstPage) {
@@ -670,7 +674,7 @@ uintptr_t Cache::insert(uintptr_t key, size_t size, bool* alreadyExisted) {
         }
         if (page == 0 && pPage->location != firstPage->location) {
           contiguousExtent = false;
-        } else if (page > 0 && pPage->location != firstPage->location + (page * 4096)) {
+        } else if (page > 0 && pPage->location != firstPage->location + (page * CachePageSize)) {
           contiguousExtent = false;
         }
       }
@@ -712,7 +716,7 @@ uintptr_t Cache::insert(uintptr_t key, size_t size, bool* alreadyExisted) {
 
       pPage = new CachePage;
       ByteSet(pPage, 0, sizeof(CachePage));
-      pPage->key = key + (page * 4096);
+      pPage->key = key + (page * CachePageSize);
       pPage->location = location;
 
       // Cache pages retain one base reference while published.
@@ -722,11 +726,11 @@ uintptr_t Cache::insert(uintptr_t key, size_t size, bool* alreadyExisted) {
       pPage->checksum[1] = 0;
       pPage->status = CachePage::Editing;
 
-      m_Pages.insert(key + (page * 4096), pPage);
-      m_PageFilter.add(key + (page * 4096));
+      m_Pages.insert(key + (page * CachePageSize), pPage);
+      m_PageFilter.add(key + (page * CachePageSize));
       linkPage(pPage);
 
-      location += 4096;
+      location += CachePageSize;
     }
 
     return returnLocation;
@@ -753,7 +757,7 @@ bool Cache::exists(uintptr_t key, size_t length) {
   LockGuard<Spinlock> guard(m_Lock);
 
   bool result = true;
-  for (size_t i = 0; i < length; i += 0x1000) {
+  for (size_t i = 0; i < length; i += CachePageSize) {
     if (!m_PageFilter.contains(key + i)) {
       result = false;
       break;
@@ -908,7 +912,7 @@ bool Cache::finishRetirement(CachePage* page, writeback_t callback, void* callba
 
   {
     LockGuard<Spinlock> allocatorGuard(m_AllocatorLock);
-    m_Allocator.free(location, 4096);
+    m_Allocator.free(location, CachePageSize);
   }
   delete page;
   return true;
@@ -1470,14 +1474,14 @@ void Cache::unlinkPage(CachePage* pPage) {
 
 void Cache::calculateChecksum(CachePage* pPage) {
   void* buffer = reinterpret_cast<void*>(pPage->location);
-  checksum(buffer, 4096, pPage->checksum);
+  checksum(buffer, CachePageSize, pPage->checksum);
 }
 
 bool Cache::verifyChecksum(CachePage* pPage, bool replace) {
   void* buffer = reinterpret_cast<void*>(pPage->location);
 
   uint64_t new_checksum[2];
-  checksum(buffer, 4096, new_checksum);
+  checksum(buffer, CachePageSize, new_checksum);
 
   bool result = pPage->checkZeroChecksum() || pPage->checkChecksum(new_checksum);
   if (replace) {
@@ -1499,23 +1503,23 @@ void Cache::markEditing(uintptr_t key, size_t length) {
 
   LockGuard<Spinlock> guard(m_Lock);
 
-  if (length % 4096) {
+  if (length % CachePageSize) {
     WARNING("Cache::markEditing called with a length that isn't page-aligned");
-    length &= ~0xFFFU;
+    length &= ~CachePageMask;
   }
 
   if (!length) {
-    length = 4096;
+    length = CachePageSize;
   }
 
-  size_t nPages = length / 4096;
+  size_t nPages = length / CachePageSize;
 
   for (size_t page = 0; page < nPages; page++) {
-    if (!m_PageFilter.contains(key + (page * 4096))) {
+    if (!m_PageFilter.contains(key + (page * CachePageSize))) {
       continue;
     }
 
-    CachePage* pPage = m_Pages.lookup(key + (page * 4096));
+    CachePage* pPage = m_Pages.lookup(key + (page * CachePageSize));
     if (!pPage) {
       continue;
     }
@@ -1531,23 +1535,23 @@ void Cache::markNoLongerEditing(uintptr_t key, size_t length) {
 
   LockGuard<Spinlock> guard(m_Lock);
 
-  if (length % 4096) {
+  if (length % CachePageSize) {
     WARNING("Cache::markEditing called with a length that isn't page-aligned");
-    length &= ~0xFFFU;
+    length &= ~CachePageMask;
   }
 
   if (!length) {
-    length = 4096;
+    length = CachePageSize;
   }
 
-  size_t nPages = length / 4096;
+  size_t nPages = length / CachePageSize;
 
   for (size_t page = 0; page < nPages; page++) {
-    if (!m_PageFilter.contains(key + (page * 4096))) {
+    if (!m_PageFilter.contains(key + (page * CachePageSize))) {
       continue;
     }
 
-    CachePage* pPage = m_Pages.lookup(key + (page * 4096));
+    CachePage* pPage = m_Pages.lookup(key + (page * CachePageSize));
     if (!pPage) {
       continue;
     }

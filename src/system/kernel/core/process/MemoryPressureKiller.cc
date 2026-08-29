@@ -19,6 +19,7 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Subsystem.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/process/MemoryPressureKiller.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -26,7 +27,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 static size_t mb(size_t pages) {
-  return (pages * 0x1000) / 0x100000;
+  return (pages * TargetInfo::getPageSize()) / 0x100000;
 }
 
 bool MemoryPressureProcessKiller::compact() {

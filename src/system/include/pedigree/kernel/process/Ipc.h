@@ -67,7 +67,7 @@ class EXPORTED_PUBLIC IpcMessage {
   /// Creating an IpcMessage in another process when the size is over 4 KB
   /// should be done with IpcMessage(size_t, uintptr_t).
   IpcMessage(const IpcMessage& src) {
-    if (src.nPages > 1)
+    if (src.m_pMemRegion)
       FATAL("IpcMessage: copy constructor misused.");
     nPages = src.nPages;
     m_vAddr = src.m_vAddr;
@@ -75,6 +75,8 @@ class EXPORTED_PUBLIC IpcMessage {
   }
 
  private:
+  void allocatePoolBuffer();
+
   size_t nPages;
 
   /// Virtual address of a message when m_pMemRegion is invalid.

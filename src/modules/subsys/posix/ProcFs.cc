@@ -20,6 +20,7 @@
 #include "ProcFs.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -73,8 +74,8 @@ int MeminfoFile::run(void* p) {
 void MeminfoFile::updateThread() {
   while (m_bRunning) {
     m_Lock.acquire();
-    uint64_t freeKb = (g_FreePages * 4096) / 1024;      // each page is 4K
-    uint64_t allocKb = (g_AllocedPages * 4096) / 1024;  // each page is 4K
+    uint64_t freeKb = (g_FreePages * TargetInfo::getPageSize()) / 1024;
+    uint64_t allocKb = (g_AllocedPages * TargetInfo::getPageSize()) / 1024;
     m_Contents.Format("MemTotal: %ld kB\nMemFree: %ld kB\nMemAvailable: %ld kB\n", freeKb + allocKb,
                       freeKb, freeKb);
     m_Lock.release();

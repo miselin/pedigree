@@ -202,8 +202,8 @@ bool MemoryPool::initialise(size_t poolSize, size_t bufferSize) {
   m_BufferSize = bufferSize;
 
   NOTICE("MemoryPool: allocating memory pool '" << m_Pool.name() << "', " << Dec
-                                                << ((poolSize * 4096) / 1024) << Hex
-                                                << "K. Buffer size is " << m_BufferSize << ".");
+                                                << (poolBytes / 1024) << Hex << "K. Buffer size is "
+                                                << m_BufferSize << ".");
   m_bInitialised = PhysicalMemoryManager::instance().allocateRegion(
       m_Pool, poolSize, PhysicalMemoryManager::virtualOnly,
       VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode);

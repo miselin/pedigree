@@ -60,7 +60,8 @@ bool InfoBlockManager::initialise() {
   va.map(page, infoBlock, 0);
 
   // Map for the kernel - trick is, our version is a page ahead.
-  m_pInfoBlock = reinterpret_cast<InfoBlock*>(adjust_pointer(infoBlock, 0x1000));
+  m_pInfoBlock =
+      reinterpret_cast<InfoBlock*>(adjust_pointer(infoBlock, PhysicalMemoryManager::getPageSize()));
   va.map(page, m_pInfoBlock, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
 
   // Set up basic defaults.

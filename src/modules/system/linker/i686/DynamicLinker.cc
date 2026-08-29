@@ -53,8 +53,8 @@ void DynamicLinker::initPlt(Elf* pElf, uintptr_t value) {
     // Grab a page to copy the PLT resolve function to.
     // Start at 0x20000000, looking for the next free page.
     /// \todo Change this to use the size of the elf!
-    for (uintptr_t i = 0x40000000; i < 0x50000000; i += 0x1000)  /// \todo Page size here.
-    {
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    for (uintptr_t i = 0x40000000; i < 0x50000000; i += pageSize) {
       bool failed = false;
       if (Processor::information().getVirtualAddressSpace().isMapped(reinterpret_cast<void*>(i))) {
         failed = true;
@@ -81,8 +81,7 @@ void DynamicLinker::initPlt(Elf* pElf, uintptr_t value) {
     // Memcpy over the resolve function into the user address space.
     // resolveSymbol is an ASM function, defined in ./asm-i686.s
     MemoryCopy(reinterpret_cast<uint8_t*>(resolveLocation),
-               reinterpret_cast<uint8_t*>(&::resolveSymbol),
-               0x1000);  /// \todo Page size here.
+               reinterpret_cast<uint8_t*>(&::resolveSymbol), pageSize);
 
     *got = resolveLocation;
   }

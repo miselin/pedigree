@@ -18,6 +18,7 @@
  */
 
 #include "Ext2File.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -95,13 +96,13 @@ void Ext2File::writeBlocks(uint64_t location, uintptr_t addr, size_t length) {
   }
 
   const size_t blockSize = getBlockSize();
-  uint32_t pinnedBlocks[4] = {};
+  uint32_t pinnedBlocks[TargetInfo::getPageSize() / 1024] = {};
   size_t pinnedCount = 0;
 
   // ATA queues can coalesce writes by native page, so copy every constituent
   // before publishing the first lower write.
   for (size_t offset = 0; offset < length; offset += blockSize) {
-    if (pinnedCount == 4) {
+    if (pinnedCount == sizeof(pinnedBlocks) / sizeof(pinnedBlocks[0])) {
       break;
     }
     if (location > ~static_cast<uint64_t>(0) - offset) {

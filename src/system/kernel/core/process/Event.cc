@@ -24,6 +24,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
@@ -208,11 +209,12 @@ uintptr_t Event::getSecondaryTrampoline() {
 }
 
 uintptr_t Event::getHandlerBuffer() {
-  return getTrampoline() + 0x1000;
+  return getTrampoline() + PhysicalMemoryManager::getPageSize();
 }
 
 uintptr_t Event::getLastHandlerBuffer() {
-  return getHandlerBuffer() + ((EVENT_TID_MAX * MAX_NESTED_EVENTS) * EVENT_LIMIT);
+  return getHandlerBuffer() +
+         ((EVENT_TID_MAX * MAX_NESTED_EVENTS) * PhysicalMemoryManager::getPageSize());
 }
 
 bool Event::isDeletable() {

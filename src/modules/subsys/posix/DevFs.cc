@@ -31,6 +31,7 @@
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Vga.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/lib.h"
@@ -353,7 +354,7 @@ physical_uintptr_t MemFile::getPhysicalPage(size_t offset) {
 #endif
 
   // offset is literally the physical page for /dev/mem
-  return offset & ~0xFFF;
+  return offset & ~(PhysicalMemoryManager::getPageSize() - 1);
 }
 
 void MemFile::returnPhysicalPage(size_t offset) {

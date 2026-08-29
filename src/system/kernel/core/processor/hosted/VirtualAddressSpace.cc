@@ -272,8 +272,7 @@ bool HostedVirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value
 
     __atomic_store_n(reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(alias) + pageOffset),
                      value, __ATOMIC_RELEASE);
-    munmap(alias, pageSize);
-    return true;
+    return munmap(alias, pageSize) == 0;
   }
 
   return false;
@@ -303,7 +302,9 @@ void HostedVirtualAddressSpace::setFlags(void* virtualAddress, size_t newFlags) 
   }
 
   size_t flags = toFlags(newFlags, true);
-  mprotect(virtualAddress, PhysicalMemoryManager::getPageSize(), flags);
+  if (mprotect(virtualAddress, PhysicalMemoryManager::getPageSize(), flags) != 0) {
+    FATAL("HostedVirtualAddressSpace::setFlags failed with errno " << Dec << errno);
+  }
 }
 
 void HostedVirtualAddressSpace::unmap(void* virtualAddress) {
@@ -327,7 +328,9 @@ void HostedVirtualAddressSpace::unmap(void* virtualAddress) {
     }
   }
 
-  munmap(virtualAddress, PhysicalMemoryManager::getPageSize());
+  if (munmap(virtualAddress, PhysicalMemoryManager::getPageSize()) != 0) {
+    FATAL("HostedVirtualAddressSpace::unmap failed with errno " << Dec << errno);
+  }
 }
 
 VirtualAddressSpace* HostedVirtualAddressSpace::clone(bool copyOnWrite) {
@@ -400,7 +403,10 @@ void HostedVirtualAddressSpace::revertToKernelAddressSpace() {
       } else if (m_pKnownMaps[i].vaddr > KERNEL_SPACE_START)
         continue;
 
-      munmap(m_pKnownMaps[i].vaddr, PhysicalMemoryManager::getPageSize());
+      if (munmap(m_pKnownMaps[i].vaddr, PhysicalMemoryManager::getPageSize()) != 0) {
+        FATAL("HostedVirtualAddressSpace::revertToKernelAddressSpace failed with errno " << Dec
+                                                                                         << errno);
+      }
 
       // Clean up references to physical memory as needed.
       if ((m_pKnownMaps[i].flags & (Shared | Swapped)) == 0)
@@ -571,7 +577,10 @@ void HostedVirtualAddressSpace::switchAddressSpace(VirtualAddressSpace& a, Virtu
           continue;
         }
 
-        munmap(oldSpace.m_pKnownMaps[i].vaddr, PhysicalMemoryManager::getPageSize());
+        if (munmap(oldSpace.m_pKnownMaps[i].vaddr, PhysicalMemoryManager::getPageSize()) != 0) {
+          FATAL("HostedVirtualAddressSpace::switchAddressSpace unmap failed with errno " << Dec
+                                                                                         << errno);
+        }
       }
     }
   }
@@ -582,10 +591,14 @@ void HostedVirtualAddressSpace::switchAddressSpace(VirtualAddressSpace& a, Virtu
         continue;
       }
 
-      mmap(newSpace.m_pKnownMaps[i].vaddr, PhysicalMemoryManager::getPageSize(),
-           newSpace.toFlags(newSpace.m_pKnownMaps[i].flags, true), MAP_FIXED | MAP_SHARED,
-           HostedPhysicalMemoryManager::instance().getBackingFile(),
-           newSpace.m_pKnownMaps[i].paddr);
+      void* mapped = mmap(
+          newSpace.m_pKnownMaps[i].vaddr, PhysicalMemoryManager::getPageSize(),
+          newSpace.toFlags(newSpace.m_pKnownMaps[i].flags, true), MAP_FIXED | MAP_SHARED,
+          HostedPhysicalMemoryManager::instance().getBackingFile(), newSpace.m_pKnownMaps[i].paddr);
+      if (mapped == MAP_FAILED || mapped != newSpace.m_pKnownMaps[i].vaddr) {
+        FATAL("HostedVirtualAddressSpace::switchAddressSpace map failed with errno " << Dec
+                                                                                     << errno);
+      }
     }
   }
 }

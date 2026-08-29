@@ -1668,7 +1668,8 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
   }
 
   // Verify the passed length
-  if (!len || (sanityAddress & (pageSz - 1))) {
+  if (!len || (sanityAddress & (pageSz - 1)) ||
+      (!(flags & MAP_ANON) && (off < 0 || (static_cast<uint64_t>(off) & (pageSz - 1))))) {
     SYSCALL_ERROR(InvalidArgument);
     return MAP_FAILED;
   }

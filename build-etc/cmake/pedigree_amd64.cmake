@@ -42,6 +42,8 @@ set(TARGET_SUPPORTS_SHARED_LIBS TRUE)
 
 set(PEDIGREE_COMPILER_TARGET x86_64-pedigree)
 set(PEDIGREE_ARCH_TARGET X64)
+set(PEDIGREE_TARGET_PAGE_SIZE 4096 CACHE STRING
+    "Pedigree base virtual-memory page size in bytes.")
 set(PEDIGREE_LINKERSCRIPT "${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/x64/kernel.ld")
 set(PEDIGREE_ARCHDIR "x64")
 set(PEDIGREE_MACHDIR "mach_pc")

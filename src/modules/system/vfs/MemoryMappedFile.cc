@@ -133,7 +133,7 @@ bool AnonymousMemoryMap::remove(size_t length) {
   size_t pageSz = PhysicalMemoryManager::getPageSize();
 
   if (length & (pageSz - 1)) {
-    length += 0x1000;
+    length += pageSz;
     length &= ~(pageSz - 1);
   }
 
@@ -387,7 +387,7 @@ bool MemoryMappedFile::remove(size_t length) {
   size_t pageSz = PhysicalMemoryManager::getPageSize();
 
   if (length & (pageSz - 1)) {
-    length += 0x1000;
+    length += pageSz;
     length &= ~(pageSz - 1);
   }
 
@@ -936,7 +936,7 @@ MemoryMappedObject* MemoryMapManager::mapFile(File* pFile, uintptr_t& address, s
   // the end of the extent with zeroes).
   size_t actualLength = length;
   if (length & (pageSz - 1)) {
-    length += 0x1000;
+    length += pageSz;
     length &= ~(pageSz - 1);
   }
 
@@ -975,7 +975,7 @@ MemoryMappedObject* MemoryMapManager::mapAnon(uintptr_t& address, size_t length,
   // Make sure the size is page aligned. (we'll fill any space that is past
   // the end of the extent with zeroes).
   if (length & (pageSz - 1)) {
-    length += 0x1000;
+    length += pageSz;
     length &= ~(pageSz - 1);
   }
 

@@ -144,13 +144,13 @@ TEST_F(SlamAllocatorCorrectnessTest, ExactSizeClassBoundaryIsNotRoundedUp) {
 
 TEST_F(SlamAllocatorCorrectnessTest, RecoveryPreservesOtherSlabFreeObjects) {
   SlamAllocator& allocator = SlamAllocator::instance();
-  uintptr_t allocations[64] = {};
+  uintptr_t allocations[SLAB_MINIMUM_SIZE / OBJECT_MINIMUM_SIZE + 1] = {};
 
   allocations[0] = allocator.allocate(1);
   const size_t fullObjectSize =
       allocator.allocSize(allocations[0]) + allocator.headerSize() + allocator.footerSize();
   const size_t objectsPerSlab = SLAB_MINIMUM_SIZE / fullObjectSize;
-  ASSERT_LT(objectsPerSlab, 64U);
+  ASSERT_LT(objectsPerSlab, sizeof(allocations) / sizeof(allocations[0]));
 
   for (size_t i = 1; i <= objectsPerSlab; ++i) {
     allocations[i] = allocator.allocate(1);
@@ -179,12 +179,12 @@ TEST_F(SlamAllocatorCorrectnessTest, RecoveryHonoursGlobalSlabLimit) {
   uintptr_t firstCache = allocator.allocate(1);
   allocator.free(firstCache);
 
-  uintptr_t secondCache[32] = {};
+  uintptr_t secondCache[SLAB_MINIMUM_SIZE / 128 + 1] = {};
   secondCache[0] = allocator.allocate(100);
   const size_t fullObjectSize =
       allocator.allocSize(secondCache[0]) + allocator.headerSize() + allocator.footerSize();
   const size_t objectsPerSlab = SLAB_MINIMUM_SIZE / fullObjectSize;
-  ASSERT_LT(objectsPerSlab, 32U);
+  ASSERT_LT(objectsPerSlab, sizeof(secondCache) / sizeof(secondCache[0]));
   for (size_t i = 1; i <= objectsPerSlab; ++i) {
     secondCache[i] = allocator.allocate(100);
   }

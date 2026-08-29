@@ -32,5 +32,6 @@ MemoryCount::~MemoryCount() {
   m_EndPages = PhysicalMemoryManager::instance().freePageCount();
   ssize_t diff = static_cast<ssize_t>(m_StartPages - m_EndPages);
   NOTICE("KERNELELF: Page difference while executing " << m_Context << ": " << Dec << diff << Hex);
-  NOTICE("KERNELELF:   -> difference is " << Dec << ((diff * 4096) / 1024) << Hex << "K");
+  NOTICE("KERNELELF:   -> difference is "
+         << Dec << ((diff * PhysicalMemoryManager::getPageSize()) / 1024) << Hex << "K");
 }

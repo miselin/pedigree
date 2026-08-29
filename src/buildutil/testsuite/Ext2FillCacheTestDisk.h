@@ -8,15 +8,17 @@
 #ifndef EXT2_FILL_CACHE_TEST_DISK_H
 #define EXT2_FILL_CACHE_TEST_DISK_H
 
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Disk.h"
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 class FillCacheDisk final : public Disk {
  public:
-  static constexpr size_t kPageSize = 4096;
+  static constexpr size_t kPageSize = TargetInfo::getPageSize();
 
   FillCacheDisk()
       : storage(512 * 1024, 0),
@@ -90,6 +92,15 @@ class FillCacheDisk final : public Disk {
     }
     std::fill(storage.begin() + location, storage.begin() + location + length, value);
     std::fill(persisted.begin() + location, persisted.begin() + location + length, value);
+  }
+
+  void store32(uint64_t location, uint32_t value) {
+    if (location + sizeof(value) > storage.size()) {
+      outOfRange = true;
+      return;
+    }
+    std::memcpy(storage.data() + location, &value, sizeof(value));
+    std::memcpy(persisted.data() + location, &value, sizeof(value));
   }
 
   bool equals(uint64_t location, const uint8_t* expected, size_t length) const {

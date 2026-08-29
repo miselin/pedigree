@@ -9,7 +9,7 @@ SECTIONS
     }
 
     . = __pedigree_after_rodata;
-    . = ALIGN(4096);
+    . = ALIGN(@PEDIGREE_TARGET_PAGE_SIZE@);
 
     .cdtors :
     {

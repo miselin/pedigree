@@ -8,10 +8,17 @@
 #ifndef PEDIGREE_KERNEL_PROCESSOR_HOSTED_PLATFORM_H
 #define PEDIGREE_KERNEL_PROCESSOR_HOSTED_PLATFORM_H
 
+#include <cstddef>
 #include <cstdint>
 #include <ucontext.h>
+#include <unistd.h>
 
 namespace HostedPlatform {
+inline size_t pageSize() {
+  const long result = sysconf(_SC_PAGESIZE);
+  return result > 0 ? static_cast<size_t>(result) : 0;
+}
+
 template <class Context>
 inline uintptr_t instructionPointer(const Context* context) {
 #if defined(__APPLE__) && defined(__aarch64__)

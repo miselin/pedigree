@@ -254,6 +254,10 @@ IpcMessage* IpcEndpoint::getMessage(bool bBlock) {
 }
 
 Ipc::IpcMessage::IpcMessage() : nPages(1), m_vAddr(0), m_pMemRegion(0) {
+  allocatePoolBuffer();
+}
+
+void Ipc::IpcMessage::allocatePoolBuffer() {
   if (!__ipc_mempool.initialised()) {
     if (!__ipc_mempool.initialise(MEMPOOL_BASE_SIZE, MEMPOOL_BUFF_SIZE)) {
       ERROR("IpcMessage: memory pool could not be initialised.");
@@ -277,12 +281,17 @@ Ipc::IpcMessage::IpcMessage() : nPages(1), m_vAddr(0), m_pMemRegion(0) {
 
 Ipc::IpcMessage::IpcMessage(size_t nBytes, uintptr_t regionHandle)
     : nPages(0), m_vAddr(0), m_pMemRegion(0) {
-  nPages = (nBytes / 4096) + 1;
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  if (nBytes > (~size_t{0} - (pageSize - 1))) {
+    ERROR("IpcMessage: requested size overflows the page count.");
+    return;
+  }
+  nPages = (nBytes + pageSize - 1) / pageSize;
 
-  if (nPages == 1)  // Don't be silly with memory regions and such when the
-                    // pool is adequate.
-    IpcMessage();
-  else {
+  if (nBytes < MEMPOOL_BUFF_SIZE) {
+    nPages = 1;
+    allocatePoolBuffer();
+  } else {
     MemoryRegion* pRegion = reinterpret_cast<MemoryRegion*>(regionHandle);
     if (!pRegion) {
       // Need to allocate RAM for this space.
@@ -351,8 +360,5 @@ void* Ipc::IpcMessage::getBuffer() {
 }
 
 void* Ipc::IpcMessage::getHandle() {
-  if (nPages > 1)
-    return m_pMemRegion;
-  else
-    return 0;
+  return m_pMemRegion;
 }

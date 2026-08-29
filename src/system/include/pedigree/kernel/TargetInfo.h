@@ -37,7 +37,7 @@ class TargetInfo final {
    * VM granule is a separate runtime property.
    */
   static constexpr size_t getPageSize() noexcept {
-    return PAGE_SIZE;
+    return PEDIGREE_TARGET_PAGE_SIZE;
   }
 
   static constexpr size_t getPageShift() noexcept {
@@ -64,6 +64,8 @@ class TargetInfo final {
 };
 
 static_assert(TargetInfo::getPageSize() != 0, "Target page size must be nonzero.");
+static_assert(TargetInfo::getPageSize() == PAGE_SIZE,
+              "The compatibility page-size macro must match TargetInfo.");
 static_assert((TargetInfo::getPageSize() & TargetInfo::getPageOffsetMask()) == 0,
               "Target page size must be a power of two.");
 static_assert((size_t{1} << TargetInfo::getPageShift()) == TargetInfo::getPageSize(),

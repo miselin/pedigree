@@ -22,6 +22,8 @@
 
 #if MEMORY_LOGGING_ENABLED
 
+#include "pedigree/kernel/TargetInfo.h"
+
 #ifndef _MACHINE_H
 #define MACHINE_FORWARD_DECL_ONLY
 #include "pedigree/kernel/machine/Machine.h"
@@ -39,9 +41,9 @@
             0xC0000000) /                                                                         \
            1024;                                                                                  \
     str += "K\tPages: ";                                                                          \
-    str += (g_AllocedPages * 4096) / 1024;                                                        \
+    str += (g_AllocedPages * TargetInfo::getPageSize()) / 1024;                                   \
     str += "K\t Free: ";                                                                          \
-    str += (g_FreePages * 4096) / 1024;                                                           \
+    str += (g_FreePages * TargetInfo::getPageSize()) / 1024;                                      \
     str += "K\n";                                                                                 \
     pSerial->write(str);                                                                          \
   } while (0)

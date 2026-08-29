@@ -21,6 +21,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/Version.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
@@ -374,11 +375,11 @@ static int clientThread(void* p) {
 
       NormalStaticString str;
       str += "<tr><td>";
-      str += SlamAllocator::instance().heapPageCount() * 4;
+      str += (SlamAllocator::instance().heapPageCount() * TargetInfo::getPageSize()) / 1024;
       str += "</td><td>";
-      str += (g_AllocedPages * 4096) / 1024;
+      str += (g_AllocedPages * TargetInfo::getPageSize()) / 1024;
       str += "</td><td>";
-      str += (g_FreePages * 4096) / 1024;
+      str += (g_FreePages * TargetInfo::getPageSize()) / 1024;
       str += "</td></tr>";
       responseContent += str;
     }
@@ -400,9 +401,9 @@ static int clientThread(void* p) {
       Process* pProcess = processLease.get();
       HugeStaticString str;
 
-      ssize_t virtK = (pProcess->getVirtualPageCount() * 0x1000) / 1024;
-      ssize_t physK = (pProcess->getPhysicalPageCount() * 0x1000) / 1024;
-      ssize_t shrK = (pProcess->getSharedPageCount() * 0x1000) / 1024;
+      ssize_t virtK = (pProcess->getVirtualPageCount() * TargetInfo::getPageSize()) / 1024;
+      ssize_t physK = (pProcess->getPhysicalPageCount() * TargetInfo::getPageSize()) / 1024;
+      ssize_t shrK = (pProcess->getSharedPageCount() * TargetInfo::getPageSize()) / 1024;
 
       /// \todo add timing
       str.append("<td>");

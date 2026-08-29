@@ -5,6 +5,7 @@
  * purpose with or without fee is hereby granted.
  */
 
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Disk.h"
 
 #include <algorithm>
@@ -41,7 +42,7 @@ class Ext2FillCacheTestPeer {
   }
 
   static bool fillPageExists(File& file, size_t offset) {
-    return file.m_FillCache.exists(offset, 4096);
+    return file.m_FillCache.exists(offset, TargetInfo::getPageSize());
   }
 
   static bool evictFillPage(File& file, size_t offset) {
@@ -62,8 +63,9 @@ class Ext2FillCacheTestPeer {
 };
 
 namespace {
-constexpr size_t kNativePageSize = 4096;
+constexpr size_t kNativePageSize = TargetInfo::getPageSize();
 constexpr size_t kTargetPage = kNativePageSize;
+constexpr uint32_t kIndirectBlock = 4;
 enum class TargetLayout { CoResident, Noncontiguous, Sparse };
 
 std::vector<uint32_t> makeBlocks(uint32_t blockSize, TargetLayout layout) {
@@ -73,13 +75,11 @@ std::vector<uint32_t> makeBlocks(uint32_t blockSize, TargetLayout layout) {
     blocks[i] = 8 + static_cast<uint32_t>(i * 3);
   }
 
-  const uint32_t coResident1KBlocks[] = {36, 39, 37, 38};
-  const uint32_t coResident2KBlocks[] = {18, 19};
-  const uint32_t noncontiguousBlocks[] = {37, 53, 71, 89};
+  const uint32_t coResidentBase = static_cast<uint32_t>((9 * kNativePageSize) / blockSize);
   for (size_t i = 0; i < blocksPerPage; ++i) {
-    const uint32_t* coResidentBlocks = blockSize == 1024 ? coResident1KBlocks : coResident2KBlocks;
-    blocks[blocksPerPage + i] =
-        layout == TargetLayout::CoResident ? coResidentBlocks[i] : noncontiguousBlocks[i];
+    blocks[blocksPerPage + i] = layout == TargetLayout::CoResident
+                                    ? coResidentBase + static_cast<uint32_t>(i)
+                                    : coResidentBase + 1 + static_cast<uint32_t>(i * blocksPerPage);
   }
   if (layout == TargetLayout::Sparse) {
     blocks[blocksPerPage + 1] = 0;
@@ -87,14 +87,22 @@ std::vector<uint32_t> makeBlocks(uint32_t blockSize, TargetLayout layout) {
   return blocks;
 }
 
-Inode makeSubpageInode(uint32_t blockSize, const std::vector<uint32_t>& blocks,
+Inode makeSubpageInode(FillCacheDisk& disk, uint32_t blockSize, const std::vector<uint32_t>& blocks,
                        size_t size = 2 * kNativePageSize) {
   Inode inode = {};
   inode.i_mode = HOST_TO_LITTLE16(EXT2_S_IFREG);
   inode.i_size = HOST_TO_LITTLE32(size);
-  inode.i_blocks = HOST_TO_LITTLE32((blocks.size() * blockSize) / 512);
-  for (size_t i = 0; i < blocks.size(); ++i) {
+  const size_t metadataBlocks = blocks.size() > 12 ? 1 : 0;
+  inode.i_blocks = HOST_TO_LITTLE32(((blocks.size() + metadataBlocks) * blockSize) / 512);
+  for (size_t i = 0; i < blocks.size() && i < 12; ++i) {
     inode.i_block[i] = HOST_TO_LITTLE32(blocks[i]);
+  }
+  if (metadataBlocks) {
+    inode.i_block[12] = HOST_TO_LITTLE32(kIndirectBlock);
+    for (size_t i = 12; i < blocks.size(); ++i) {
+      disk.store32((kIndirectBlock * blockSize) + ((i - 12) * sizeof(uint32_t)),
+                   HOST_TO_LITTLE32(blocks[i]));
+    }
   }
   return inode;
 }
@@ -192,7 +200,7 @@ TEST_P(Ext2FillCacheWriteback, OrdinaryWriteCopiesAllBlocksBeforeSchedulingWrite
 
   Ext2Filesystem filesystem;
   Ext2FillCacheTestPeer::configure(filesystem, &disk, blockSize);
-  Inode inode = makeSubpageInode(blockSize, blocks);
+  Inode inode = makeSubpageInode(disk, blockSize, blocks);
   Ext2File file(String("fill-write"), 3, &inode, &filesystem);
   EXPECT_FALSE(Ext2FillCacheTestPeer::usesFillCache(file));
   Ext2FillCacheTestPeer::forceFillCache(file);
@@ -213,6 +221,12 @@ TEST_P(Ext2FillCacheWriteback, OrdinaryWriteCopiesAllBlocksBeforeSchedulingWrite
 
   const std::vector<uint64_t> locations = targetLocations(blocks, blockSize);
   std::vector<uint64_t> reads = locations;
+  if (blocks.size() > 12) {
+    const size_t blocksPerPage = kNativePageSize / blockSize;
+    const size_t directTargetBlocks = blocksPerPage < 12 ? 12 - blocksPerPage : 0;
+    reads.insert(reads.begin() + directTargetBlocks,
+                 static_cast<uint64_t>(kIndirectBlock) * blockSize);
+  }
   reads.insert(reads.end(), locations.begin(), locations.end());
   EXPECT_EQ(disk.writes, locations);
   expectBalancedPins(disk, reads);
@@ -231,7 +245,7 @@ TEST_P(Ext2FillCacheWriteback, AsynchronousMappedSyncCopiesAllBlocksWithoutFlush
 
   Ext2Filesystem filesystem;
   Ext2FillCacheTestPeer::configure(filesystem, &disk, blockSize);
-  Inode inode = makeSubpageInode(blockSize, blocks);
+  Inode inode = makeSubpageInode(disk, blockSize, blocks);
   Ext2File file(String("fill-async"), 3, &inode, &filesystem);
   Ext2FillCacheTestPeer::forceFillCache(file);
 
@@ -268,7 +282,7 @@ TEST_P(Ext2FillCacheWriteback, SynchronousMappedSyncCopiesThenFlushesEveryPhysic
 
   Ext2Filesystem filesystem;
   Ext2FillCacheTestPeer::configure(filesystem, &disk, blockSize);
-  Inode inode = makeSubpageInode(blockSize, blocks);
+  Inode inode = makeSubpageInode(disk, blockSize, blocks);
   Ext2File file(String("fill-sync"), 3, &inode, &filesystem);
   Ext2FillCacheTestPeer::forceFillCache(file);
 
@@ -314,7 +328,7 @@ TEST_P(Ext2FillCacheWriteback, SkipsSparseAndPastEofBlocks) {
     initialiseBlocks(disk, blocks, blockSize, expected);
     Ext2Filesystem filesystem;
     Ext2FillCacheTestPeer::configure(filesystem, &disk, blockSize);
-    Inode inode = makeSubpageInode(blockSize, blocks);
+    Inode inode = makeSubpageInode(disk, blockSize, blocks);
     Ext2File file(String("fill-sparse"), 3, &inode, &filesystem);
     Ext2FillCacheTestPeer::forceFillCache(file);
 
@@ -355,7 +369,7 @@ TEST_P(Ext2FillCacheWriteback, SkipsSparseAndPastEofBlocks) {
     initialiseBlocks(disk, blocks, blockSize, expected);
     Ext2Filesystem filesystem;
     Ext2FillCacheTestPeer::configure(filesystem, &disk, blockSize);
-    Inode inode = makeSubpageInode(blockSize, blocks, fileSize);
+    Inode inode = makeSubpageInode(disk, blockSize, blocks, fileSize);
     Ext2File file(String("fill-tail"), 3, &inode, &filesystem);
     Ext2FillCacheTestPeer::forceFillCache(file);
 
@@ -389,7 +403,7 @@ TEST_P(Ext2FillCacheWriteback, DestructorDrainsDirtyFillPageWhileDerivedTypeIsAl
   initialiseBlocks(disk, blocks, blockSize, expected);
   Ext2Filesystem filesystem;
   Ext2FillCacheTestPeer::configure(filesystem, &disk, blockSize);
-  Inode inode = makeSubpageInode(blockSize, blocks);
+  Inode inode = makeSubpageInode(disk, blockSize, blocks);
   Ext2File* file = new Ext2File(String("fill-destroy"), 3, &inode, &filesystem);
   Ext2FillCacheTestPeer::forceFillCache(*file);
 
@@ -423,7 +437,7 @@ TEST_P(Ext2FillCacheWriteback, MissingFillPageFallsBackToOneFilesystemBlock) {
   FillCacheDisk disk;
   Ext2Filesystem filesystem;
   Ext2FillCacheTestPeer::configure(filesystem, &disk, blockSize);
-  Inode inode = makeSubpageInode(blockSize, blocks);
+  Inode inode = makeSubpageInode(disk, blockSize, blocks);
   Ext2File file(String("fill-missing"), 3, &inode, &filesystem);
   Ext2FillCacheTestPeer::forceFillCache(file);
 

@@ -67,9 +67,12 @@ cp "$SRCDIR/src/modules/subsys/posix/musl/syscall_arch.h" arch/x86_64/syscall_ar
 case "$ARCH_TARGET" in
     HOSTED)
         clone_source=clone-hosted-amd64.musl-s
+        # Hosted page geometry is supplied through AT_PAGESZ at runtime.
+        : >arch/x86_64/bits/limits.h
         ;;
     X64)
         clone_source=clone-amd64.musl-s
+        printf '#define PAGESIZE 4096\n' >arch/x86_64/bits/limits.h
         ;;
     *)
         echo "Unsupported amd64 musl architecture target: $ARCH_TARGET" >&2

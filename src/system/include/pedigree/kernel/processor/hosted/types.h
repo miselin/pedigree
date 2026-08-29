@@ -54,7 +54,7 @@ typedef long HOSTEDssize_t;
 typedef HOSTEDuint16_t HOSTEDio_port_t;
 
 /** Define the size of one physical page */
-#define PAGE_SIZE 4096
+#define PAGE_SIZE PEDIGREE_TARGET_PAGE_SIZE
 
 /** @} */
 

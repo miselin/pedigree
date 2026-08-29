@@ -51,7 +51,7 @@ class SchedulerTimerDispatchCleanup;
 class AdmittedThread;
 
 /** Thread TLS area size */
-#define THREAD_TLS_SIZE 0x1000
+#define THREAD_TLS_SIZE PAGE_SIZE
 
 /**
  * An abstraction of a thread of execution.

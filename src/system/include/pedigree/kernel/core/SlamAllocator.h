@@ -27,6 +27,7 @@
 **/
 
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 
@@ -47,11 +48,11 @@ class EXPORTED_PUBLIC SlamCache;
 class SlamCache;
 #endif
 
-/// Size of each slab in 4096-byte pages
+/// Size of each slab in target pages
 #define SLAB_SIZE 1
 
 /// Minimum slab size in bytes
-#define SLAB_MINIMUM_SIZE (4096 * SLAB_SIZE)
+#define SLAB_MINIMUM_SIZE (TargetInfo::getPageSize() * SLAB_SIZE)
 
 /// Define if using the magic number method of slab recovery.
 /// This turns recovery into an O(n) instead of O(n^2) algorithm,
@@ -285,8 +286,8 @@ class SlamAllocator {
 
 #if defined(PEDIGREE_BUILDUTILS)
   enum class SlabTransitionForTest { Reserved, Mapped, Unmapped };
-  using SlabTransitionHookForTest =
-      void (*)(SlabTransitionForTest transition, uintptr_t address, void* context);
+  using SlabTransitionHookForTest = void (*)(SlabTransitionForTest transition, uintptr_t address,
+                                             void* context);
 
   /** Installs a no-allocation transition hook for deterministic host tests. */
   void setSlabTransitionHookForTest(SlabTransitionHookForTest hook, void* context);

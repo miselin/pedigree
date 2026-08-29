@@ -21,7 +21,8 @@ import sys
 
 
 def main():
-    vdso, outfile = sys.argv[1:]
+    vdso, outfile, page_size = sys.argv[1:]
+    page_size = int(page_size)
 
     with open(vdso, 'rb') as fs:
         fs_data = fs.read()
@@ -36,7 +37,7 @@ def main():
 
             fd.write('const int __vdso_so_len = %d;\n' % (len(fs_data),))
             fd.write('const int __vdso_so_pages = %d;\n' % (
-                (len(fs_data) + 0x1000) / 0x1000,))
+                (len(fs_data) + page_size - 1) // page_size,))
 
 
 if __name__ == '__main__':

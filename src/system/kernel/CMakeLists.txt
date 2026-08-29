@@ -517,7 +517,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
         # ELF modules live at 0x70000000 and use signed PC32 relocations. Keep
         # the non-PIE Mach-O image below 2 GiB and export its kernel symbols.
         target_link_options(kernel PRIVATE
-            -Wl,-no_pie,-pagezero_size,0x1000,-image_base,0x100000
+            -Wl,-no_pie,-pagezero_size,${PEDIGREE_TARGET_PAGE_SIZE_HEX},-image_base,0x100000
             -Wl,-no_fixup_chains
             -Wl,-rename_section,__DATA,__mod_init_func,__DATA,__pedigree_init
             -Wl,-rename_section,__DATA,__mod_term_func,__DATA,__pedigree_term

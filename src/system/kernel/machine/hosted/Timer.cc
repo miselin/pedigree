@@ -19,6 +19,7 @@
 
 #include "Timer.h"
 #include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/machine/Machine.h"
@@ -436,11 +437,11 @@ void HostedTimer::processTimerBatch(uint64_t delta) {
     Serial* pSerial = Machine::instance().getSerial(1);
     NormalStaticString str;
     str += "Heap: ";
-    str += SlamAllocator::instance().heapPageCount() * 4;
+    str += (SlamAllocator::instance().heapPageCount() * TargetInfo::getPageSize()) / 1024;
     str += "K\tPages: ";
-    str += (g_AllocedPages * 4096) / 1024;
+    str += (g_AllocedPages * TargetInfo::getPageSize()) / 1024;
     str += "K\t Free: ";
-    str += (g_FreePages * 4096) / 1024;
+    str += (g_FreePages * TargetInfo::getPageSize()) / 1024;
     str += "K\n";
 
     pSerial->write_str(str);

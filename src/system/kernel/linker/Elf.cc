@@ -768,49 +768,77 @@ bool Elf::allocate(uint8_t* pBuffer, size_t length, uintptr_t& loadBase, SymbolT
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
 
   // Scan the segments to find the size.
-  uintptr_t size = 0;
-  uintptr_t start = ~0;
+  uintptr_t end = 0;
+  uintptr_t start = ~uintptr_t{0};
   for (size_t i = 0; i < m_nProgramHeaders; i++) {
     if (m_pProgramHeaders[i].type == PT_LOAD) {
-      size = m_pProgramHeaders[i].vaddr + m_pProgramHeaders[i].memsz;
+      if (m_pProgramHeaders[i].vaddr > (~uintptr_t{0} - m_pProgramHeaders[i].memsz)) {
+        return false;
+      }
+      const uintptr_t segmentEnd = m_pProgramHeaders[i].vaddr + m_pProgramHeaders[i].memsz;
+      if (segmentEnd > end)
+        end = segmentEnd;
       if (m_pProgramHeaders[i].vaddr < start)
         start = m_pProgramHeaders[i].vaddr;
     }
   }
-  // Currently size is actually the last loaded address - subtract the first
-  // loaded address to make it valid.
-  size -= start;
+  if (start == ~uintptr_t{0} || end < start) {
+    return false;
+  }
+
+  const uintptr_t pageSize = PhysicalMemoryManager::getPageSize();
+  const uintptr_t pageMask = pageSize - 1;
+  const uintptr_t alignedStart = start & ~pageMask;
+  if (end > (~uintptr_t{0} - pageMask)) {
+    return false;
+  }
+  const uintptr_t alignedEnd = (end + pageMask) & ~pageMask;
+  const uintptr_t allocationSize = alignedEnd - alignedStart;
+  if (!allocationSize) {
+    return false;
+  }
 
   if (pSize)
-    *pSize = (size + 0x1000) & 0xFFFFF000;
+    *pSize = allocationSize;
 
   // Here we use an atrocious heuristic for determining if the Elf needs
   // relocating - if its entry point is < 1MB, it is likely that it needs
   // relocation.
   if (m_nEntry < 0x100000) {
-    if (!pProcess->getDynamicSpaceAllocator().allocate((size + 0x1000) & 0xFFFFF000, loadBase)) {
-      if (!pProcess->getSpaceAllocator().allocate((size + 0x1000) & 0xFFFFF000, loadBase)) {
+    // The loader API uses loadBase as the relocation delta and as the start
+    // of the reserved range. Existing dynamic objects therefore require a
+    // zero-based PT_LOAD layout.
+    if (alignedStart != 0) {
+      ERROR("Elf::allocate: non-zero-based dynamic object is unsupported");
+      return false;
+    }
+    if (!pProcess->getDynamicSpaceAllocator().allocate(allocationSize, loadBase)) {
+      if (!pProcess->getSpaceAllocator().allocate(allocationSize, loadBase)) {
         return false;
       }
     }
   } else {
-    loadBase = start;
+    loadBase = alignedStart;
 
     // Make sure the Process knows that we've just plonked an Elf at a
     // specific place, and doesn't try to allocate mmaps or libraries over
     // it!
-    if (!pProcess->getSpaceAllocator().allocateSpecific(start, (size + 0x1000) & 0xFFFFF000))
+    if (!pProcess->getSpaceAllocator().allocateSpecific(alignedStart, allocationSize))
       return false;
   }
 
   m_LoadBase = loadBase;
 
   if (bAllocate) {
-    uintptr_t loadAddr = (loadBase == 0) ? start : loadBase;
-    for (uintptr_t j = loadAddr; j < loadAddr + size + 0x1000; j += 0x1000) {
+    const uintptr_t loadAddr = (m_nEntry < 0x100000) ? loadBase : alignedStart;
+    if (loadAddr > (~uintptr_t{0} - allocationSize)) {
+      return false;
+    }
+    for (uintptr_t offset = 0; offset < allocationSize; offset += pageSize) {
+      const uintptr_t j = loadAddr + offset;
       physical_uintptr_t phys = PhysicalMemoryManager::instance().allocatePage();
       bool b = Processor::information().getVirtualAddressSpace().map(
-          phys, reinterpret_cast<void*>(j & ~(PhysicalMemoryManager::getPageSize() - 1)),
+          phys, reinterpret_cast<void*>(j),
           VirtualAddressSpace::Write | VirtualAddressSpace::Execute);
       if (!b)
         WARNING("map() failed for address " << Hex << j);

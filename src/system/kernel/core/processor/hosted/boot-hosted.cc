@@ -33,6 +33,7 @@
 #endif
 
 #include "pedigree/kernel/BootstrapInfo.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/hosted/smoke.h"
 
@@ -166,14 +167,14 @@ extern "C" int main(int argc, char* argv[]) {
 #endif
 
   // Make the module locations available to the kernel.
-  module_region =
-      (uintptr_t*)mmap(0, 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+  module_region = (uintptr_t*)mmap(0, TargetInfo::getPageSize(), PROT_READ | PROT_WRITE,
+                                   MAP_PRIVATE | MAP_ANON, -1, 0);
   if (module_region == MAP_FAILED) {
     fprintf(stderr, "Can't map module information region: %s\n", strerror(errno));
     goto fail;
   }
   fprintf(stderr, "module region is at %p\n", module_region);
-  memset(module_region, 0, 0x1000);
+  memset(module_region, 0, TargetInfo::getPageSize());
 
   // initrd
   module_region[0] = reinterpret_cast<uintptr_t>(initrd_mapping);
@@ -240,7 +241,8 @@ extern "C" int main(int argc, char* argv[]) {
 #endif
   fprintf(stderr, " diskimage: %p -> %p\n", diskimage_mapping,
           add_ptr(diskimage_mapping, diskimage_length));
-  fprintf(stderr, " modules: %p -> %p\n", module_region, add_ptr(module_region, 0x1000));
+  fprintf(stderr, " modules: %p -> %p\n", module_region,
+          add_ptr(module_region, TargetInfo::getPageSize()));
   fprintf(stderr, " configdb: %p -> %p\n", configdb_mapping,
           add_ptr(configdb_mapping, configdb_length));
   fprintf(stderr, " initrd: %p -> %p\n", initrd_mapping, add_ptr(initrd_mapping, initrd_length));
@@ -259,7 +261,7 @@ fail:
   s = 1;
 cleanup:
   if (module_region != MAP_FAILED)
-    munmap(module_region, 0x1000);
+    munmap(module_region, TargetInfo::getPageSize());
   if (diskimage_mapping != MAP_FAILED)
     munmap(diskimage_mapping, diskimage_length);
 #ifndef PEDIGREE_HOSTED_DARWIN
