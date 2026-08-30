@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_X64_STATE_H
 #define KERNEL_PROCESSOR_X64_STATE_H
+#include <config.h>
 
 // IWYU pragma: private, include "pedigree/kernel/processor/state.h"
 

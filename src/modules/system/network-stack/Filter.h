@@ -19,6 +19,7 @@
 
 #ifndef NETWORK_STACK_FILTER_H
 #define NETWORK_STACK_FILTER_H
+#include <config.h>
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"

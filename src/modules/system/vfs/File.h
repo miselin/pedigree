@@ -19,6 +19,7 @@
 
 #ifndef FILE_H
 #define FILE_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Event.h"

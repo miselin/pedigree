@@ -19,6 +19,7 @@
 
 #ifndef SLAM_ALLOCATOR_H
 #define SLAM_ALLOCATOR_H
+#include <config.h>
 
 /** The SLAM allocator (SLAB à la James Molloy) is based on the Slab
     allocator (Bonwick94).

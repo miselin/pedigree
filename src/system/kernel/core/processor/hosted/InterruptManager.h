@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_HOSTED_INTERRUPTMANAGER_H
 #define KERNEL_PROCESSOR_HOSTED_INTERRUPTMANAGER_H
+#include <config.h>
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"

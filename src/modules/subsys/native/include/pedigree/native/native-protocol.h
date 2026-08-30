@@ -19,6 +19,7 @@
 
 #ifndef _PEDIGREE_NATIVE_PROTOCOL_H
 #define _PEDIGREE_NATIVE_PROTOCOL_H
+#include <config.h>
 
 #include "pedigree/native/Object.h"
 

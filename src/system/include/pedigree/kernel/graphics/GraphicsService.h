@@ -19,6 +19,7 @@
 
 #ifndef _GRAPHICS_SERVICE_H
 #define _GRAPHICS_SERVICE_H
+#include <config.h>
 
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"

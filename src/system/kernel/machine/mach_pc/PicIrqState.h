@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_MACH_PC_PICIRQSTATE_H
 #define PEDIGREE_KERNEL_MACHINE_MACH_PC_PICIRQSTATE_H
+#include <config.h>
 
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/IrqManager.h"

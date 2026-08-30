@@ -19,6 +19,7 @@
 
 #ifndef VFS_H
 #define VFS_H
+#include <config.h>
 
 #if THREADS
 #include "pedigree/kernel/Spinlock.h"

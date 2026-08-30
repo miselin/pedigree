@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_CORE_PROCESSOR_DEVICEHARDIRQCONTEXT_H
 #define PEDIGREE_KERNEL_CORE_PROCESSOR_DEVICEHARDIRQCONTEXT_H
+#include <config.h>
 
 #include "pedigree/kernel/process/ExecutionContext.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"

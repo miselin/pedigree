@@ -19,6 +19,7 @@
 
 #ifndef EXT2FILESYSTEM_H
 #define EXT2FILESYSTEM_H
+#include <config.h>
 
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"

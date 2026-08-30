@@ -19,6 +19,7 @@
 
 #ifndef __X86EMU_FPU_H
 #define __X86EMU_FPU_H
+#include <config.h>
 
 #ifdef __cplusplus
 extern "C" { /* Use "C" linkage when in C++ mode */

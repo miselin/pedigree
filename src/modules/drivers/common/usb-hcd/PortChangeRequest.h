@@ -7,6 +7,7 @@
 
 #ifndef USB_HCD_PORTCHANGEREQUEST_H
 #define USB_HCD_PORTCHANGEREQUEST_H
+#include <config.h>
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/process/Thread.h"

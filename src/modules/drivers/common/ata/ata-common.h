@@ -19,6 +19,7 @@
 
 #ifndef _ATA_COMMON_H
 #define _ATA_COMMON_H
+#include <config.h>
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"

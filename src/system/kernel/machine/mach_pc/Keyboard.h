@@ -19,6 +19,7 @@
 
 #ifndef MACHINE_X86_KEYBOARD_H
 #define MACHINE_X86_KEYBOARD_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Keyboard.h"

@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_LINKER_ELF_H
 #define KERNEL_LINKER_ELF_H
+#include <config.h>
 
 #ifdef IN_PEDIGREE_KERNEL
 #include "pedigree/kernel/compiler.h"

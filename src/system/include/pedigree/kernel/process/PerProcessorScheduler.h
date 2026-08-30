@@ -19,6 +19,7 @@
 
 #ifndef PERPROCESSORSCHEDULER_H
 #define PERPROCESSORSCHEDULER_H
+#include <config.h>
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"

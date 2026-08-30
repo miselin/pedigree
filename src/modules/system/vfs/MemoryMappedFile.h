@@ -19,6 +19,7 @@
 
 #ifndef MEMORY_MAPPED_FILE_H
 #define MEMORY_MAPPED_FILE_H
+#include <config.h>
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"

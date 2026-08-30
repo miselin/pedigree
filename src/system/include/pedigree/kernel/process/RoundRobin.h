@@ -19,6 +19,7 @@
 
 #ifndef ROUND_ROBIN_H
 #define ROUND_ROBIN_H
+#include <config.h>
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/SchedulingAlgorithm.h"

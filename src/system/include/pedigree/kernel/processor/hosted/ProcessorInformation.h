@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_HOSTED_PROCESSORINFORMATION_H
 #define KERNEL_PROCESSOR_HOSTED_PROCESSORINFORMATION_H
+#include <config.h>
 
 #define _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
 #include "pedigree/kernel/processor/ProcessorInformation.h"

@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_LOG_H
 #define KERNEL_LOG_H
+#include <config.h>
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"

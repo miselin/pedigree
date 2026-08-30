@@ -169,7 +169,8 @@ case "${PEDIGREE_DTRELR:-OFF}" in
         ;;
 esac
 
-CPPFLAGS="-I$SRCDIR/src/modules/subsys/posix/syscalls -I$SRCDIR/src/system/include -D$ARCH_TARGET=1" \
+config_include_dir=${PEDIGREE_CONFIG_INCLUDE_DIR:-$SRCDIR/build}
+CPPFLAGS="-I$SRCDIR/src/modules/subsys/posix/syscalls -I$SRCDIR/src/system/include -I$config_include_dir -D$ARCH_TARGET=1" \
 CFLAGS="-O2 -g3 -ggdb -fno-omit-frame-pointer -fPIC" CROSS_COMPILE="$COMPILER_TARGET-" \
 LDFLAGS="$musl_ldflags" \
 ../configure --target=$COMPILER_TARGET --prefix="$TARGETDIR" \

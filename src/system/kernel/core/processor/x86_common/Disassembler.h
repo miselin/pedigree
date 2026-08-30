@@ -19,6 +19,7 @@
 
 #ifndef X86_COMMON_DISASSEMBLER_H
 #define X86_COMMON_DISASSEMBLER_H
+#include <config.h>
 
 #include "pedigree/kernel/debugger/libudis86/udis86.h"
 #include "pedigree/kernel/processor/Disassembler.h"

@@ -19,6 +19,7 @@
 
 #ifndef __X86EMU_TYPES_H
 #define __X86EMU_TYPES_H
+#include <config.h>
 
 // include <types/types.h>
 #ifndef NO_SYS_HEADERS

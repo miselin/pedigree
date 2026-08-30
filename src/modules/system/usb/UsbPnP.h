@@ -19,6 +19,7 @@
 
 #ifndef USBPNP_H
 #define USBPNP_H
+#include <config.h>
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"

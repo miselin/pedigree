@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_HOSTED_PHYSICALMEMORYMANAGER_H
 #define KERNEL_PROCESSOR_HOSTED_PHYSICALMEMORYMANAGER_H
+#include <config.h>
 
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/Spinlock.h"

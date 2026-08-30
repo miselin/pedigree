@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_TYPES_H
 #define KERNEL_PROCESSOR_TYPES_H
+#include <config.h>
 
 #if X86
 #include "pedigree/kernel/processor/x86/types.h"  // IWYU pragma: export

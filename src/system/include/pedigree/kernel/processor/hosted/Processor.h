@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_HOSTED_PROCESSOR_H
 #define KERNEL_PROCESSOR_HOSTED_PROCESSOR_H
+#include <config.h>
 
 #include "pedigree/kernel/processor/Processor.h"
 

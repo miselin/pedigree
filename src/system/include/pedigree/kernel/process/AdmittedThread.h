@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESS_ADMITTEDTHREAD_H
 #define PEDIGREE_KERNEL_PROCESS_ADMITTEDTHREAD_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 

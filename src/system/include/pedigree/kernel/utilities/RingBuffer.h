@@ -19,6 +19,7 @@
 
 #ifndef RINGBUFFER_H
 #define RINGBUFFER_H
+#include <config.h>
 
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"

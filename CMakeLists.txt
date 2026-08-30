@@ -225,8 +225,9 @@ set(GENERIC_CXXFLAGS ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS}
     ${GENERIC_WARNING_FLAGS} ${GENERIC_WARNING_CXXFLAGS}
     ${GENERIC_WARNING_DISABLES})
 
-# Set up include directories for most targets
-include_directories(src src/system/include)
+# Set up include directories for most targets. The generated config.h is a
+# normal project header, so keep the build directory on the include path.
+include_directories(${CMAKE_CURRENT_BINARY_DIR} src src/system/include)
 
 # Always do this regardless of cross-compile state
 BISON_TARGET(KeymapParser
@@ -296,9 +297,6 @@ if(CMAKE_CROSSCOMPILING)
     configure_file(
         ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/config.h.in
         ${CMAKE_CURRENT_BINARY_DIR}/config.h)
-
-    # Include the definitions file in every translation unit
-    add_definitions("--include=${CMAKE_CURRENT_BINARY_DIR}/config.h")
 
     # cross-compiled variant is definitely not running on a linux host
     add_definitions(-DUTILITY_LINUX=0 -DPEDIGREE_BENCHMARK=0)
@@ -448,9 +446,6 @@ else ()
     configure_file(
         ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/config.h.in
         ${CMAKE_CURRENT_BINARY_DIR}/config.h)
-
-    # Include the definitions file in every translation unit
-    add_definitions(-include ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
     add_subdirectory(external/googletest)
     add_subdirectory(src/buildutil)

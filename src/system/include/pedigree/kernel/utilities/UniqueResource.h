@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_UTILITIES_UNIQUERESOURCE_H
 #define PEDIGREE_KERNEL_UTILITIES_UNIQUERESOURCE_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 

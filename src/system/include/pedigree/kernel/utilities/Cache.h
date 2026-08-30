@@ -19,6 +19,7 @@
 
 #ifndef CACHE_H
 #define CACHE_H
+#include <config.h>
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"

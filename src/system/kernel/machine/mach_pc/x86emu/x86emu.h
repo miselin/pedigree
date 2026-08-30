@@ -19,6 +19,7 @@
 
 #ifndef __X86EMU_X86EMU_H
 #define __X86EMU_X86EMU_H
+#include <config.h>
 
 #define NO_SYS_HEADERS
 #define NULL 0

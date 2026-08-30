@@ -19,6 +19,7 @@
 
 #ifndef LWIP_ARCH_SYS_ARCH_H
 #define LWIP_ARCH_SYS_ARCH_H
+#include <config.h>
 
 #ifdef fcntl
 #define __fcntl_prev fcntl

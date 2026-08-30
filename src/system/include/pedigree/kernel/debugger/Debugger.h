@@ -19,6 +19,7 @@
 
 #ifndef DEBUGGER_H
 #define DEBUGGER_H
+#include <config.h>
 
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/state_forward.h"

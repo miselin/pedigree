@@ -19,6 +19,7 @@
 
 #ifndef INITIALISE_MULTITASKING_H
 #define INITIALISE_MULTITASKING_H
+#include <config.h>
 
 /// Starts up the threading subsystem.
 void initialiseMultitasking();

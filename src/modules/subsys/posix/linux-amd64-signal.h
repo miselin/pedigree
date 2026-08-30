@@ -19,6 +19,7 @@
 
 #ifndef POSIX_LINUX_AMD64_SIGNAL_H
 #define POSIX_LINUX_AMD64_SIGNAL_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/state_forward.h"

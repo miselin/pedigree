@@ -19,6 +19,7 @@
 
 #ifndef MACHINE_TRACE_H
 #define MACHINE_TRACE_H
+#include <config.h>
 
 /**
  * TRACE provides an interface to tracing kernel startup progress.

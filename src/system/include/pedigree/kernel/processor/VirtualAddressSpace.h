@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_VIRTUALADDRESSSPACE_H
+#include <config.h>
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"

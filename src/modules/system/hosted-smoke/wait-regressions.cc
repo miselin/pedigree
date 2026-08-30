@@ -5,6 +5,8 @@
  * purpose with or without fee is hereby granted.
  */
 
+#include <config.h>
+
 #if !PEDIGREE_HOSTED_CORE_SMOKE
 #include "modules/system/usb/UsbPnP.h"
 #endif

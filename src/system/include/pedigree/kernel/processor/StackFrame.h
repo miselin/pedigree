@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_STACKFRAME_H
 #define KERNEL_PROCESSOR_STACKFRAME_H
+#include <config.h>
 
 #include "pedigree/kernel/processor/StackFrameBase.h"     // IWYU pragma: export
 #include "pedigree/kernel/processor/hosted/StackFrame.h"  // IWYU pragma: export

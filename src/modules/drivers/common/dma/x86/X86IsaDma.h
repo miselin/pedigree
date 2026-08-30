@@ -19,6 +19,7 @@
 
 #ifndef X86_ISA_DMA_H
 #define X86_ISA_DMA_H
+#include <config.h>
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/IoPort.h"

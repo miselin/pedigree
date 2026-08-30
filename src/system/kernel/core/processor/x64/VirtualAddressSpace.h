@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_X64_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_X64_VIRTUALADDRESSSPACE_H
+#include <config.h>
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"

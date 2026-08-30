@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_IOPORT_H
 #define KERNEL_PROCESSOR_IOPORT_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/IoBase.h"

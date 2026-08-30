@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESSOR_HOSTED_DARWINABI_H
 #define PEDIGREE_KERNEL_PROCESSOR_HOSTED_DARWINABI_H
+#include <config.h>
 
 #ifdef __APPLE__
 // Pedigree's x86-64 ELF ABI uses long for its exact-width 64-bit types. Keep

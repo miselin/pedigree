@@ -19,5 +19,6 @@
 
 #ifndef KERNEL_PROCESSOR_X86_COMMON_IO_H
 #define KERNEL_PROCESSOR_X86_COMMON_IO_H
+#include <config.h>
 
 #endif

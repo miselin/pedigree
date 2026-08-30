@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_UTILITIES_BUFFER_H
 #define KERNEL_UTILITIES_BUFFER_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"

@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESSOR_HOSTED_SMOKE_H
 #define PEDIGREE_KERNEL_PROCESSOR_HOSTED_SMOKE_H
+#include <config.h>
 
 enum HostedSmokeStage {
   HostedSmokeNone,

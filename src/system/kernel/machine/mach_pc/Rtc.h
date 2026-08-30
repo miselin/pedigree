@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_MACHINE_X86_COMMON_RTC_H
 #define KERNEL_MACHINE_X86_COMMON_RTC_H
+#include <config.h>
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"

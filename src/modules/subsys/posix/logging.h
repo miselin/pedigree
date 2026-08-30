@@ -19,6 +19,7 @@
 
 #ifndef _POSIX_KERNEL_LOGGING_H
 #define _POSIX_KERNEL_LOGGING_H
+#include <config.h>
 
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"

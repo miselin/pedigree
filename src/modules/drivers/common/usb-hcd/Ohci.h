@@ -19,6 +19,7 @@
 
 #ifndef OHCI_H
 #define OHCI_H
+#include <config.h>
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"

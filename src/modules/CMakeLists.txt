@@ -940,6 +940,7 @@ add_custom_command(
     COMPILER_TARGET=${PEDIGREE_COMPILER_TARGET}
     PEDIGREE_DTRELR=$<BOOL:${PEDIGREE_DTRELR_ENABLED}>
     PEDIGREE_TARGET_PAGE_SIZE=${PEDIGREE_TARGET_PAGE_SIZE}
+    PEDIGREE_CONFIG_INCLUDE_DIR=${CMAKE_BINARY_DIR}
     PEDIGREE_TOOLCHAIN_ROOT=${PEDIGREE_TOOLCHAIN_ROOT}
     SRCDIR=${CMAKE_SOURCE_DIR}
     TARGETDIR=${CMAKE_BINARY_DIR}/musl
@@ -963,6 +964,7 @@ add_custom_command(
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posix-syscall.h
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posixSyscallNumbers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/translate.h
+    ${CMAKE_BINARY_DIR}/config.h
     ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/syscall-stubs.h
     ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/hosted/syscall-stubs.h
     ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure

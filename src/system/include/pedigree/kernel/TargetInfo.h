@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_TARGETINFO_H
 #define KERNEL_TARGETINFO_H
+#include <config.h>
 
 #include "pedigree/kernel/processor/types.h"
 

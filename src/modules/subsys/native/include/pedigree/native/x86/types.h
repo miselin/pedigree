@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_X86_TYPES_H
 #define KERNEL_PROCESSOR_X86_TYPES_H
+#include <config.h>
 
 /** @addtogroup kernelprocessorx86
  * @{ */

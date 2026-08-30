@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_LOCKGUARD_H
 #define KERNEL_LOCKGUARD_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 

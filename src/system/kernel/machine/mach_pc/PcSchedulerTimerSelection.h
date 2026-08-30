@@ -7,6 +7,7 @@
 
 #ifndef KERNEL_MACHINE_X86_COMMON_PCSCHEDULERTIMERSELECTION_H
 #define KERNEL_MACHINE_X86_COMMON_PCSCHEDULERTIMERSELECTION_H
+#include <config.h>
 
 /**
  * Runtime scheduler-timer choice for PC machines.

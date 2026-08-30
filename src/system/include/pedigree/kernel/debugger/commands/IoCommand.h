@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_DEBUGGER_IOLIST_H
 #define KERNEL_DEBUGGER_IOLIST_H
+#include <config.h>
 
 /** @addtogroup kerneldebuggercommands
  * @{ */

@@ -84,6 +84,7 @@
 
 #ifndef MODULE_H
 #define MODULE_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/utility.h"

@@ -19,6 +19,7 @@
 
 #ifndef __X86EMU_FPU_REGS_H
 #define __X86EMU_FPU_REGS_H
+#include <config.h>
 
 #if X86_FPU_SUPPORT
 

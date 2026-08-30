@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
 #define KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
+#include <config.h>
 
 #include "pedigree/kernel/machine/IrqEventCounter.h"
 #include "pedigree/kernel/machine/IrqManager.h"

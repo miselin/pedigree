@@ -19,6 +19,7 @@
 
 #ifndef PEDIGREE_C_SYSCALL_NUMBERS_H
 #define PEDIGREE_C_SYSCALL_NUMBERS_H
+#include <config.h>
 
 #define PEDIGREE_LOGIN 1
 #define PEDIGREE_SIGRET 2

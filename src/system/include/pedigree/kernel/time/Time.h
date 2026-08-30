@@ -19,6 +19,7 @@
 
 #ifndef TIME_H
 #define TIME_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"

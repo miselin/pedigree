@@ -20,6 +20,7 @@
 
 #ifndef LWIP_LWIPOPTS_H
 #define LWIP_LWIPOPTS_H
+#include <config.h>
 
 #include <pedigree/kernel/utilities/utility.h>
 

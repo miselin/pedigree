@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_MACHINE_X86_COMMON_PC_H
 #define KERNEL_MACHINE_X86_COMMON_PC_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Bus.h"

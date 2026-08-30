@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESS_TERMINATIONDEFERRAL_H
 #define PEDIGREE_KERNEL_PROCESS_TERMINATIONDEFERRAL_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/DeferredScope.h"

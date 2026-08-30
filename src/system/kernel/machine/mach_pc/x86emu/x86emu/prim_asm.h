@@ -19,6 +19,7 @@
 
 #ifndef __X86EMU_PRIM_ASM_H
 #define __X86EMU_PRIM_ASM_H
+#include <config.h>
 
 #ifdef __WATCOMC__
 

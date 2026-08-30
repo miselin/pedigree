@@ -19,6 +19,7 @@
 
 #ifndef MACHINE_HOSTED_SERIAL_H
 #define MACHINE_HOSTED_SERIAL_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Serial.h"

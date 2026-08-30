@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_MACHINE_X86_COMMON_LOCAL_APIC_H
 #define KERNEL_MACHINE_X86_COMMON_LOCAL_APIC_H
+#include <config.h>
 
 #if APIC
 

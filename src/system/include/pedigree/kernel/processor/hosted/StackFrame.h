@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_HOSTED_STACKFRAME_H
 #define KERNEL_PROCESSOR_HOSTED_STACKFRAME_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"

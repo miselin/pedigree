@@ -31,6 +31,7 @@
 
 #ifndef _SVGA_REG_H_
 #define _SVGA_REG_H_
+#include <config.h>
 
 /*
  * Memory and port addresses and fundamental constants

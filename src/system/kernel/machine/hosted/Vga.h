@@ -19,6 +19,7 @@
 
 #ifndef MACHINE_HOSTED_VGA_H
 #define MACHINE_HOSTED_VGA_H
+#include <config.h>
 
 #include "pedigree/kernel/machine/Vga.h"
 

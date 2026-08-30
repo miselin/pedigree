@@ -19,6 +19,7 @@
 
 #ifndef DEBUGGER_COMMAND_H
 #define DEBUGGER_COMMAND_H
+#include <config.h>
 
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/utilities/StaticString.h"

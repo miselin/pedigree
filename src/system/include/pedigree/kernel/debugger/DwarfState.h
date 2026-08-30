@@ -19,6 +19,7 @@
 
 #ifndef DWARFSTATE_H
 #define DWARFSTATE_H
+#include <config.h>
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/types.h"

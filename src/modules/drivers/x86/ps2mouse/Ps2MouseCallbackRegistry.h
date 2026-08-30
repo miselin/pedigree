@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_PS2_MOUSE_CALLBACK_REGISTRY_H
 #define PEDIGREE_PS2_MOUSE_CALLBACK_REGISTRY_H
+#include <config.h>
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"

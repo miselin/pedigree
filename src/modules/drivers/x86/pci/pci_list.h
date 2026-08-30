@@ -17,6 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <config.h>
 #if 0
 
 PCIHDR.H: PCI Vendors, Devices, and Class Type information

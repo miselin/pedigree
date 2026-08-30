@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_PROCESSOR_STACKFRAMEBASE_H
 #define KERNEL_PROCESSOR_STACKFRAMEBASE_H
+#include <config.h>
 
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"

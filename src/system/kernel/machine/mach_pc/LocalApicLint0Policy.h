@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_MACH_PC_LOCALAPICLINT0POLICY_H
 #define PEDIGREE_KERNEL_MACHINE_MACH_PC_LOCALAPICLINT0POLICY_H
+#include <config.h>
 
 #include "pedigree/kernel/processor/types.h"
 

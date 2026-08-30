@@ -7,6 +7,7 @@
 
 #ifndef KERNEL_MACHINE_MACH_PC_LOCALAPICICRTRANSACTION_H
 #define KERNEL_MACHINE_MACH_PC_LOCALAPICICRTRANSACTION_H
+#include <config.h>
 
 /**
  * Models the local interrupt boundary around one LAPIC ICR transaction.

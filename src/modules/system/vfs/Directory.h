@@ -19,6 +19,7 @@
 
 #ifndef DIRECTORY_H
 #define DIRECTORY_H
+#include <config.h>
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"

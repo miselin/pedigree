@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_MACHINE_X86_COMMON_SMBIOS_H
 #define KERNEL_MACHINE_X86_COMMON_SMBIOS_H
+#include <config.h>
 
 #if defined(SMBIOS)
 

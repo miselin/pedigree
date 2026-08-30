@@ -19,6 +19,7 @@
 
 #ifndef PEDIGREE_MODULES_DRIVERS_COMMON_DMABUFFER_H
 #define PEDIGREE_MODULES_DRIVERS_COMMON_DMABUFFER_H
+#include <config.h>
 
 #include "pedigree/kernel/TargetInfo.h"
 

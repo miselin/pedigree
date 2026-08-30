@@ -19,6 +19,7 @@
 
 #ifndef MACHINE_X86_SERIAL_H
 #define MACHINE_X86_SERIAL_H
+#include <config.h>
 
 #include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/processor/IoPort.h"

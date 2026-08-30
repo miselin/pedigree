@@ -19,6 +19,7 @@
 
 #ifndef THREADSCOMMAND_H
 #define THREADSCOMMAND_H
+#include <config.h>
 
 #if THREADS
 

@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_MACHINE_HOSTED_TICKSOURCE_H
 #define KERNEL_MACHINE_HOSTED_TICKSOURCE_H
+#include <config.h>
 
 #include <pthread.h>
 #include <signal.h>

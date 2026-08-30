@@ -19,6 +19,7 @@
 
 #ifndef MACHINE_X86_VGA_H
 #define MACHINE_X86_VGA_H
+#include <config.h>
 
 #include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/processor/IoPort.h"

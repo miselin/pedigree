@@ -19,6 +19,7 @@
 
 #ifndef _PEDIGREE_KERNEL_UTILITIES_THREADSAFETY_H
 #define _PEDIGREE_KERNEL_UTILITIES_THREADSAFETY_H
+#include <config.h>
 
 // Thread-safety annotations that can be used by clang
 

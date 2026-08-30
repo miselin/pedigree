@@ -19,6 +19,7 @@
 
 #ifndef DYNAMIC_LINKER_H
 #define DYNAMIC_LINKER_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"

@@ -19,6 +19,7 @@
 
 #ifndef SIGNAL_SYSCALLS_H
 #define SIGNAL_SYSCALLS_H
+#include <config.h>
 
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/SignalEvent.h"

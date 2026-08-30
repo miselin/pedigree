@@ -19,6 +19,7 @@
 
 #ifndef POSIX_VIRTUALTERMINAL_H
 #define POSIX_VIRTUALTERMINAL_H
+#include <config.h>
 
 #include "modules/subsys/posix/console-syscalls.h"
 #include "modules/system/console/TextIO.h"

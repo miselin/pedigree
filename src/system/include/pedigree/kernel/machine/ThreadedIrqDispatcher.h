@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_THREADEDIRQDISPATCHER_H
 #define PEDIGREE_KERNEL_MACHINE_THREADEDIRQDISPATCHER_H
+#include <config.h>
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"

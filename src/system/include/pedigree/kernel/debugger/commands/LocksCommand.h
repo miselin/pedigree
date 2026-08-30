@@ -19,6 +19,7 @@
 
 #ifndef LOCKSCOMMAND_H
 #define LOCKSCOMMAND_H
+#include <config.h>
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/debugger/DebuggerCommand.h"

@@ -19,6 +19,7 @@
 
 #ifndef __X86EMU_DECODE_H
 #define __X86EMU_DECODE_H
+#include <config.h>
 
 /*---------------------- Macros and type definitions ----------------------*/
 

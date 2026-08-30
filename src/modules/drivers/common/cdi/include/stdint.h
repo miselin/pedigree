@@ -19,6 +19,7 @@
 
 #ifndef PEDIGREE_CDI_STDINT_H
 #define PEDIGREE_CDI_STDINT_H
+#include <config.h>
 
 #include "pedigree/kernel/processor/types.h"
 

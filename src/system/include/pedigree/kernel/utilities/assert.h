@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_ASSERT_H
 #define KERNEL_ASSERT_H
+#include <config.h>
 
 #if UTILITY_LINUX
 // Redirect to system assert.h

@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESSOR_HOSTED_PLATFORM_H
 #define PEDIGREE_KERNEL_PROCESSOR_HOSTED_PLATFORM_H
+#include <config.h>
 
 #include <cstddef>
 #include <cstdint>

@@ -19,6 +19,7 @@
 
 #ifndef _MEMLOG_H
 #define _MEMLOG_H
+#include <config.h>
 
 #if MEMORY_LOGGING_ENABLED
 

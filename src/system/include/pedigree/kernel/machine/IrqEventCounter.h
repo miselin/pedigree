@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_IRQEVENTCOUNTER_H
 #define PEDIGREE_KERNEL_MACHINE_IRQEVENTCOUNTER_H
+#include <config.h>
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/processor/types.h"

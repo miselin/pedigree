@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
 #define KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
+#include <config.h>
 
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/SchedulerIrqHandler.h"

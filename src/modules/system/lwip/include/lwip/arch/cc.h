@@ -20,6 +20,7 @@
 
 #ifndef LWIP_ARCH_CC_H
 #define LWIP_ARCH_CC_H
+#include <config.h>
 
 #include <pedigree/kernel/compiler.h>
 #include <pedigree/kernel/processor/types.h>

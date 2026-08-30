@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_BOOTSTRAPINFO_H
 #define KERNEL_BOOTSTRAPINFO_H
+#include <config.h>
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"

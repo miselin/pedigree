@@ -7,6 +7,7 @@
 
 #ifndef KERNEL_MACHINE_MACH_PC_LOCALAPICTLBSHOOTDOWN_H
 #define KERNEL_MACHINE_MACH_PC_LOCALAPICTLBSHOOTDOWN_H
+#include <config.h>
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/process/ExecutionContext.h"

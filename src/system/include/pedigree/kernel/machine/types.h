@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_MACHINE_TYPES_H
 #define KERNEL_MACHINE_TYPES_H
+#include <config.h>
 
 #if X86_COMMON
 #include "pedigree/kernel/machine/x86_common/types.h"

@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_CORE_PROCESSOR_PAGEFAULTHANDLER_H_
 #define KERNEL_CORE_PROCESSOR_PAGEFAULTHANDLER_H_
+#include <config.h>
 
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"

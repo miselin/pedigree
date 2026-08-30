@@ -19,6 +19,7 @@
 
 #ifndef SCSIDISK_H
 #define SCSIDISK_H
+#include <config.h>
 
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"

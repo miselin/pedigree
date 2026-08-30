@@ -19,6 +19,7 @@
 
 #ifndef _PROCESS_IPC_H
 #define _PROCESS_IPC_H
+#include <config.h>
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"

@@ -18,6 +18,7 @@
  */
 
 #ifndef SYSCALL_STUBS_H
+#include <config.h>
 
 /**
  * \module syscall_stubs Syscall Stubs

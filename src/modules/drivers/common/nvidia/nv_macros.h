@@ -20,6 +20,7 @@
 /* NV registers definitions and macros for access to them */
 
 /* PCI_config_space */
+#include <config.h>
 #define NVCFG_DEVID 0x00
 #define NVCFG_DEVCTRL 0x04
 #define NVCFG_CLASS 0x08

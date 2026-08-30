@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_MACHINE_HOSTED_TYPES_H
 #define KERNEL_MACHINE_HOSTED_TYPES_H
+#include <config.h>
 
 #include "pedigree/kernel/processor/types.h"
 

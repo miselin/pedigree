@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_PS2CAPTURESTATE_H
 #define PEDIGREE_KERNEL_MACHINE_PS2CAPTURESTATE_H
+#include <config.h>
 
 #include "pedigree/kernel/processor/types.h"
 

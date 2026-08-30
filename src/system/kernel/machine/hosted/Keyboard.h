@@ -19,6 +19,7 @@
 
 #ifndef MACHINE_HOSTED_KEYBOARD_H
 #define MACHINE_HOSTED_KEYBOARD_H
+#include <config.h>
 
 #include "pedigree/kernel/machine/Keyboard.h"
 #include "pedigree/kernel/processor/types.h"

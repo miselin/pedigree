@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_UTILITIES_LIB_H
 #define KERNEL_UTILITIES_LIB_H
+#include <config.h>
 
 // IWYU pragma: private, include "pedigree/kernel/utilities/utility.h"
 

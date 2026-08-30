@@ -7,6 +7,7 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESS_DEFERREDSCOPE_H
 #define PEDIGREE_KERNEL_PROCESS_DEFERREDSCOPE_H
+#include <config.h>
 
 #include "pedigree/kernel/processor/types.h"
 
