@@ -1,142 +1,207 @@
-# Pedigree
+# The Pedigree Operating System
 
-> [!NOTE]
-> This is the active development repository. The restoration is receiving
-> substantial AI-assisted maintenance to resolve long-standing bugs and
-> stabilize the system. For the pre-AI historical snapshot, see
-> [`miselin/pedigree-legacy`](https://github.com/miselin/pedigree-legacy).
+The Pedigree Operating System started as a project in 2008 on the [OSDev.org Forums](https://forum.osdev.org/viewtopic.php?t=15939).
+A small team built the core, and since then it has received contributions from numerous others.
+It is as much a research project as it is a hobby OS kernel: exploring ideas around subsystems,
+syscall APIs, and kernel design, and the result is a powerful kernel with a flexible userspace.
 
-Pedigree is a research operating system with its own kernel, modules,
-filesystems, POSIX layer, userspace, and build tools. This fork is restoring the
-last development baseline around a focused, testable x86-64 scope while
-preserving the project as useful systems-software history.
+While regular development on Pedigree has slowed down dramatically, it is still a powerful system,
+with past demonstrations including:
 
-The active source targets are:
+- a publicly hosted website running in Pedigree on a VM
+- a public SSH endpoint to log into a real Pedigree system and explore
+- a Linux-compatible userspace subsystem that could run a Debian LiveCD's userspace from init to shell
 
-- x86-64 PC, built with the Pedigree cross-toolchain;
-- native host support and unit tests, built directly on macOS or Linux;
-- a focused x86-64 hosted-kernel lifecycle on Apple silicon macOS, run through
-  Rosetta without a virtual machine or container.
+> [!IMPORTANT]
+> This repository is moving forward with modernization and AI-assisted development
+> to address long-standing bugs from my early years as a programmer.
+> I have preserved the original state of the repository before these newer
+> developments at [miselin/pedigree-legacy](https://github.com/miselin/pedigree-legacy)
+> as a reference.
 
-The native test path is canonical on every supported host. On macOS,
-verification also builds an x86-64 Mach-O hosted kernel, loads a focused
-Pedigree ELF module, runs the core wait/timer/lifetime/page-fault suite, and
-checks clean shutdown. The x86-64 Linux hosted sources remain available for
-focused experiments, but their old container-backed runtime matrix is not part
-of the maintained public entrypoints. The x86-64 PC kernel, ISO, full
-userspace, and QEMU boot path remain active restoration work; they are not
-implied by a green host build. ARM, MIPS, and PowerPC material is historical,
-not supported.
+---
 
-See [RESTORATION.md](RESTORATION.md) for the exact support boundary, build
-commands, verification contract, and known gaps.
+> [!IMPORTANT]
+> The rest of this README is being modernized: it is not accurate at this time.
 
-## Verify the fork
+## Downloads
 
-Run the complete maintained verification set from the repository root:
+- [Latest ISO](https://dl.pedigree-project.org/pedigree-latest.iso.gz)
+  [SHA256](https://dl.pedigree-project.org/pedigree-latest.iso.gz.sha256)
+- [Nightly ISO](https://dl.pedigree-project.org/pedigree-nightly.iso.gz)
+  [SHA256](https://dl.pedigree-project.org/pedigree-nightly.iso.gz.sha256)
+- [All Downloads](https://dl.pedigree-project.org)
 
-```sh
-./verify.sh
+The latest disk image is the most recent successful build of Pedigree from our
+[Buildbot](http://build.pedigree-project.org). There are no guarantees of
+stability or even functionality of these builds.
+
+The nightly disk image is from nightly builds on our Buildbot, with the same
+disclaimer.
+
+## Build Dependencies
+
+You'll need at least the following to build Pedigree and its compilers:
+
+- SCons (>1.2.0)
+- `libmpfr`, `libgmp`, and `libmpc` headers (typically via `-dev` packages)
+- SQLite3
+- genisoimage and/or mkisofs
+- perl
+- autoconf
+
+## Building Pedigree with Easy Build
+
+We highly recommend you first try one of our Easy Build scripts before you try
+and run SCons manually. There's a little bit of work involved in setting up a
+build of Pedigree for the first time, which the Easy Build script handles for
+you. After that it's as easy as just running `scons` at the command line.
+
+Just run `./easy_build_[target].sh` to build Pedigree. Valid options for
+`target` include:
+
+- x64
+- arm
+- hosted (for a version of the kernel that runs on Linux)
+
+Dependencies and a cross-compiler will be installed and/or created, allowing
+you to jump straight into testing Pedigree.
+
+To build Pedigree at any point after this, just run `scons`. The build system
+remembers the configuration the Easy Build specified for you.
+
+### Different Targets
+
+To switch between architectures, just remove `options.cache` and
+`.autogen.cache`, and then run an Easy Build script.
+
+## Building Pedigree Manually
+
+Alternatively, you can build manually.
+
+### Step 1: Cross-Compiler
+
+To build a cross-compiler, in the root of the Pedigree tree, run:
+
+`$ ./scripts/checkBuildSystemNoInteractive.pl $TARGET-pedigree \
+    $PWD/pedigree-compiler`
+
+If you are building on OSX, you should also pass `osx-compat` as the final
+parameter to the script.
+
+Valid targets include:
+
+- `x86_64`
+- `armv7`
+
+### Step 2: Pedigree Base
+
+Configure the Pedigree UPdater (pup) to start:
+
+`$ ./setup_pup.py amd64  # (or arm) && ./run_pup.sh sync`
+
+You'll need at least Pedigree's `libtool` to continue:
+
+`$ ./run_pup.sh install libtool`
+
+Now, build an initial `libc` and `libm`:
+
+`$ scons CROSS=$PWD/pedigree-compiler/bin/$TARGET-pedigree- build/libc.so \
+    build/libm.so`
+
+With this complete, the compiler build process can be completed:
+
+`$ ./scripts/checkBuildSystemNoInteractive.pl $TARGET-pedigree \
+    $PWD/pedigree-compiler libcpp`
+
+### Step 3: Required Packages
+
+Install necessary packages to build the full userspace:
+
+```
+$ ./run_pup.py install libpng
+$ ./run_pup.py install libfreetype
+$ ./run_pup.py install libiconv
+$ ./run_pup.py install zlib
+$ ./run_pup.py install bash
+$ ./run_pup.py install coreutils
+$ ./run_pup.py install fontconfig
+$ ./run_pup.py install pixman
+$ ./run_pup.py install cairo
+$ ./run_pup.py install expat
+$ ./run_pup.py install mesa
+$ ./run_pup.py install ncurses
+$ ./run_pup.py install gettext
+$ ./run_pup.py install pango
+$ ./run_pup.py install glib
+$ ./run_pup.py install harfbuzz
+$ ./run_pup.py install libffi
+$ ./run_pup.py install gcc
 ```
 
-The host needs Git, CMake 3.21 or newer, CTest, and a C23/C++23 compiler with
-AddressSanitizer and `-ftrivial-auto-var-init=pattern`/`zero`. Docker is not
-used. Apple silicon macOS and Linux are both valid hosts. The macOS
-hosted-kernel lane additionally needs Rosetta, NASM, and the GCC 15.3
-x86-64 Pedigree cross-toolchain, either activated as `compilers/dir` or selected
-with `PEDIGREE_TOOLCHAIN_ROOT`.
+### Step 4: Final Build
 
-To bootstrap the retained x86-64 cross-toolchain from its pinned source and
-patch set, run:
+Finally, build the rest of the kernel and userspace:
 
-```sh
-python3 scripts/bootstrap_toolchain.py \
-    x86_64-pedigree ./pedigree-compiler-15.3.0-r2
-```
+`$ scons`
 
-The command builds GCC 15.3, Binutils 2.46.1, and NASM 3.02 from verified
-archives. GCC's tested GMP, MPFR, and MPC sources are pinned too. The system
-build uses musl 1.2.6 with the post-release qsort and iconv security fixes.
-Select the side-by-side prefix with
-`-DPEDIGREE_TOOLCHAIN_ROOT=/path/to/prefix`; the hosted verification helper
-accepts the same selection through the `PEDIGREE_TOOLCHAIN_ROOT` environment
-variable.
-The libc/sysroot integration point remains `build/musl` by default and can be
-changed with `--sysroot`.
+From now on, you can simply run `scons` to build Pedigree.
 
-The first pass installs the headerless C compiler needed to build musl. After
-musl is installed, rerun the same command with `--libcpp --activate`; that pass
-finishes the compiler against the target headers, validates it, installs the
-POSIX-threaded PIC-capable static C++ runtime, and atomically points
-`compilers/dir` at the completed prefix. Activation is deliberately unavailable
-for the headerless first stage. The matching libstdc++ headers are owned by the
-compiler prefix, so rebuilding the musl sysroot does not remove them.
+## Running Pedigree
 
-It builds the native support surface and runs its tests normally and under
-AddressSanitizer. On macOS it also runs the focused hosted-kernel lifecycle.
-Logs are kept under:
+Boot from `build/pedigree.iso`, with an attached disk for `build/hdd.img`, to
+run Pedigree.
 
-```text
-build-verify/logs/<UTC timestamp>/
-```
+You can also specify `createvmdk=1` and/or `createvdi=1` to create VMDK or VDI
+disk images for your emulator. These options require `qemu-img`.
 
-A passing run means those recorded lanes passed for that checkout. It does not
-claim an x86-64 PC boot, hardware support, or complete userspace coverage.
+## Images Directory
 
-To add the GCC 15 static-analyzer pass without changing the normal build, run:
+The images/local directory allows you to use `pup`, Pedigree's package manager,
+to manage your hard disk image file set. If you ran the Easy Build script, pup
+is already configured and ready to go.
 
-```sh
-PEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-compiler-15.3.0-r2 \
-PEDIGREE_VERIFY_SARIF=1 ./verify.sh
-```
+Simply run:
 
-The additional stage replays the x86-64 compilation database with GCC's
-analyzer and writes `sarif/pedigree.sarif` below the run's log directory. Text
-diagnostics and collision-free per-translation-unit reports are retained beside
-the merged report. Bundled SQLite and x86 emulator sources are excluded so the
-pass can enable diagnostics for Pedigree-owned code even where normal targets
-compile with warnings disabled. Findings are reported for triage; the stage
-fails only when analysis cannot complete.
+`$ ./run_pup.sh sync`
 
-Pedigree's CMake builds use GNU C23 and C++23. Debug configurations initialize
-otherwise-uninitialized automatic storage with the compiler's diagnostic
-pattern; Release, RelWithDebInfo, and MinSizeRel use zero initialization.
-x86-64 userspace and musl use packed `DT_RELR` relative relocations by default;
-kernel modules remain on RELA until their loader gains RELR support. Pass
-`-DPEDIGREE_DTRELR=OFF` at CMake configure time to disable userspace packing.
+to synchronise your local pup repository with the server.
 
-## Run native hosted validation
+Then you can run:
+`$ ./run_pup.sh install <package>`
+to install a package.
 
-```sh
-./easy_build_hosted.sh
-```
+Visit http://pup.pedigree-project.org to see a list of all packages that are
+available and can be downloaded.
 
-The historical name is preserved as a public entrypoint. On macOS and Linux it
-builds the native kernel-support and selected module-support libraries, the
-test suite, and the image/debug utilities at the native 4 KiB page size. It
-also runs synthetic 1 KiB and 16 KiB test builds, with 4 KiB and 16 KiB
-AddressSanitizer lanes. On macOS it builds and runs focused 4 KiB and 16 KiB
-x86-64 hosted-kernel lifecycles through Rosetta. It does not build or run the
-legacy x86-64 Linux hosted kernel.
+Remember to re-run `scons` after installing a package to ensure your disk image
+has the new package on it. You may need to `rm build/hdd.img` if SCons doesn't
+detect that the images directory has changed.
 
-The retained Linux hosted processor, machine, module-smoke, and Docker files are
-non-canonical. They can inform future work, but a green run makes no claim
-about that runtime, hosted userspace, full service modules, or its old six-rung
-lifecycle ladder.
+You can also add arbitrary files to the images/local directory to use them at
+runtime. For example, you could create a directory under `users` for yourself,
+and add a `.bashrc` and `.vimrc`.
 
-## Repository map
+## User Management
 
-- `src/system/kernel`: kernel, processor, and machine support
-- `src/modules`: loadable and statically linked kernel modules
-- `src/modules/subsys`: native and POSIX subsystems
-- `src/user`: Pedigree userspace
-- `src/buildutil`: native test and image-building utilities
-- `images`: filesystem and boot-image inputs
-- `scripts`: build, image, and runtime tooling
-- `docs`: design notes and historical documentation
+A utility script, `scripts/manage_users.py`, is provided to add or remove users
+from the database for use at runtime.
+
+## Reporting Issues
+
+Report any issues on the project tracker at http://pedigree-project.org
+
+## Contact
+
+You can find us in #pedigree on Freenode IRC.
 
 ## Contributing
 
-Keep changes focused and make the relevant verification lane green. When a
-change touches the support boundary or the meaning of green, update
-[RESTORATION.md](RESTORATION.md) in the same change.
+We welcome contributions. The preferred mechanism for contributing is via pull
+requests. See the issue trackers at http://pedigree-project.org if you need
+ideas. Alternatively, come join us in our IRC channel on Freenode (see above).
+
+We highly recommend working through a successful build and playing with some of
+Pedigree's features in a VM before leaping into contributing. This will help
+with understanding much of what you see in the code, and also potentially give
+you some more ideas about areas to contribute to.
