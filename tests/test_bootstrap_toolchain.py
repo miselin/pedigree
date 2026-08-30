@@ -91,6 +91,11 @@ class BootstrapToolchainContractTests(unittest.TestCase):
                 result.stdout,
             )
             self.assertIn("--disable-shared", result.stdout)
+            self.assertIn(
+                "--with-gxx-include-dir="
+                + str(prefix.resolve() / "include/c++/15.3.0"),
+                result.stdout,
+            )
             self.assertIn("make -j4 all-gcc all-target-libgcc", result.stdout)
             self.assertIn(
                 "make -j4 all-gcc all-target-libgcc all-target-libstdc++-v3",
@@ -148,6 +153,38 @@ class BootstrapToolchainContractTests(unittest.TestCase):
         self.assertEqual(stage_one["CXXFLAGS_FOR_TARGET"], "")
         self.assertEqual(final["CFLAGS_FOR_TARGET"], "-g -O2 -fPIC")
         self.assertEqual(final["CXXFLAGS_FOR_TARGET"], "-g -O2 -fPIC")
+
+    def test_build_and_validation_ignore_ambient_toolchain_overrides(self):
+        bootstrapper = Bootstrapper(
+            parse_args(
+                [
+                    "x86_64-pedigree",
+                    "/tmp/pedigree-toolchain-contract",
+                    "--source-root",
+                    str(ROOT),
+                ]
+            )
+        )
+        overrides = {
+            "C_INCLUDE_PATH": "/legacy/c",
+            "COMPILER_PATH": "/legacy/tools",
+            "CPATH": "/legacy/include",
+            "CPLUS_INCLUDE_PATH": "/legacy/c++/8.3.0",
+            "GCC_EXEC_PREFIX": "/legacy/gcc",
+            "LIBRARY_PATH": "/legacy/lib",
+        }
+
+        with mock.patch.dict(os.environ, overrides):
+            build = bootstrapper.environment()
+            validation = bootstrapper.validation_environment()
+
+        for name in overrides:
+            self.assertNotIn(name, build)
+            self.assertNotIn(name, validation)
+        self.assertEqual(
+            validation["PATH"].split(os.pathsep)[0],
+            str(bootstrapper.prefix / "bin"),
+        )
 
     def test_state_fingerprint_controls_stage_and_patch_identity(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -338,13 +375,114 @@ class BootstrapToolchainContractTests(unittest.TestCase):
             )
             self.assertFalse(bootstrapper.libcpp_installed())
 
+            for header in ("concepts", "memory", "version"):
+                (bootstrapper.gxx_include_dir / header).parent.mkdir(
+                    parents=True, exist_ok=True
+                )
+                (bootstrapper.gxx_include_dir / header).touch()
+            config = bootstrapper.gxx_include_dir / (
+                "x86_64-pedigree/bits/c++config.h"
+            )
+            config.parent.mkdir(parents=True, exist_ok=True)
+            config.touch()
+            self.assertTrue(bootstrapper.libcpp_installed())
+
+    def test_libcpp_headers_survive_sysroot_replacement(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp = Path(tempdir)
+            prefix = temp / "compiler"
+            sysroot = temp / "musl"
+            (sysroot / "include").mkdir(parents=True)
+
+            bootstrapper = Bootstrapper(
+                parse_args(
+                    [
+                        "x86_64-pedigree",
+                        str(prefix),
+                        "--source-root",
+                        str(ROOT),
+                        "--sysroot",
+                        str(sysroot),
+                    ]
+                )
+            )
+            (prefix / "x86_64-pedigree/lib").mkdir(parents=True)
+            (prefix / "x86_64-pedigree/lib/libstdc++.a").touch()
             config = (
-                target
-                / "include/c++/15.3.0/x86_64-pedigree/bits/c++config.h"
+                bootstrapper.gxx_include_dir
+                / "x86_64-pedigree/bits/c++config.h"
             )
             config.parent.mkdir(parents=True)
             config.touch()
+            for header in ("concepts", "memory", "version"):
+                (bootstrapper.gxx_include_dir / header).touch()
+
+            with redirect_stdout(io.StringIO()):
+                bootstrapper.link_sysroot()
+            previous_sysroot = temp / "previous-musl"
+            sysroot.rename(previous_sysroot)
+            (sysroot / "include").mkdir(parents=True)
+
+            self.assertTrue(config.is_file())
             self.assertTrue(bootstrapper.libcpp_installed())
+            self.assertEqual(
+                (prefix / "x86_64-pedigree/include").resolve(),
+                (sysroot / "include").resolve(),
+            )
+
+    def test_cmake_does_not_inject_legacy_libstdcxx_headers(self):
+        cmake_files = (
+            ROOT / "CMakeLists.txt",
+            ROOT / "src/modules/CMakeLists.txt",
+            ROOT / "src/user/CMakeLists.txt",
+        )
+        for path in cmake_files:
+            contents = path.read_text(encoding="utf-8")
+            self.assertNotIn("PEDIGREE_CXX_STDLIB_INCLUDE_DIR", contents)
+            self.assertNotIn("support/gcc/include/c++", contents)
+
+    def test_amd64_toolchain_rebinds_compiler_companion_tools(self):
+        contents = (
+            ROOT / "build-etc/cmake/pedigree_amd64.cmake"
+        ).read_text(encoding="utf-8")
+        expected = {
+            "CMAKE_ADDR2LINE": "x86_64-pedigree-addr2line",
+            "CMAKE_AR": "x86_64-pedigree-ar",
+            "CMAKE_ASM_COMPILER": "x86_64-pedigree-gcc",
+            "CMAKE_ASM_COMPILER_AR": "x86_64-pedigree-gcc-ar",
+            "CMAKE_ASM_COMPILER_RANLIB": "x86_64-pedigree-gcc-ranlib",
+            "CMAKE_ASM_NASM_COMPILER": "nasm",
+            "CMAKE_C_COMPILER_AR": "x86_64-pedigree-gcc-ar",
+            "CMAKE_C_COMPILER_RANLIB": "x86_64-pedigree-gcc-ranlib",
+            "CMAKE_CXX_COMPILER_AR": "x86_64-pedigree-gcc-ar",
+            "CMAKE_CXX_COMPILER_RANLIB": "x86_64-pedigree-gcc-ranlib",
+            "CMAKE_LINKER": "x86_64-pedigree-ld",
+            "CMAKE_NM": "x86_64-pedigree-nm",
+            "CMAKE_OBJCOPY": "x86_64-pedigree-objcopy",
+            "CMAKE_OBJDUMP": "x86_64-pedigree-objdump",
+            "CMAKE_RANLIB": "x86_64-pedigree-ranlib",
+            "CMAKE_READELF": "x86_64-pedigree-readelf",
+            "CMAKE_STRIP": "x86_64-pedigree-strip",
+        }
+
+        for variable, tool in expected.items():
+            self.assertIn(
+                f'set({variable} "${{PEDIGREE_TOOLCHAIN_BIN}}/{tool}" '
+                'CACHE FILEPATH "" FORCE)',
+                contents,
+            )
+
+    def test_easy_build_refreshes_metadata_when_toolchain_changes(self):
+        contents = (ROOT / "easy_build_x64.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'COMPILER_DIR=$(cd -P -- "$COMPILER_DIR" && pwd -P)', contents
+        )
+        self.assertIn(
+            'PEDIGREE_TOOLCHAIN_ROOT:PATH=$COMPILER_DIR', contents
+        )
+        self.assertIn("cmake -E rm -f build/CMakeCache.txt", contents)
+        self.assertIn("cmake -E remove_directory build/CMakeFiles", contents)
 
     def test_patches_do_not_carry_legacy_regeneration_or_emulations(self):
         gcc_patch = (ROOT / "compilers/pedigree-gcc.patch").read_text(

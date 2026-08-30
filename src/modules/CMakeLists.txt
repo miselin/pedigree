@@ -818,9 +818,7 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/input/Input.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/user/ipc/Ipc.cc)
     target_include_directories(native-user PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/include
-        ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}
-        ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/native/include)
     target_link_libraries(native-user PRIVATE -nostdlib gcc)
     target_link_options(native-user PRIVATE
         -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}

@@ -10,7 +10,7 @@ old=$(pwd)
 script_dir=$(cd -P -- "$(dirname -- "$0")" && pwd -P) && script_dir=$script_dir
 cd $old
 
-COMPILER_DIR=${PEDIGREE_TOOLCHAIN_ROOT:-$script_dir/pedigree-compiler-15.3.0}
+COMPILER_DIR=${PEDIGREE_TOOLCHAIN_ROOT:-$script_dir/pedigree-compiler-15.3.0-r2}
 case $COMPILER_DIR in
     /*) ;;
     *) COMPILER_DIR=$old/$COMPILER_DIR ;;
@@ -30,6 +30,7 @@ echo "compiled for you."
 python3 "$script_dir/scripts/bootstrap_toolchain.py" \
     x86_64-pedigree "$COMPILER_DIR" \
     --source-root "$script_dir"
+COMPILER_DIR=$(cd -P -- "$COMPILER_DIR" && pwd -P)
 
 old=$(pwd)
 
@@ -69,6 +70,13 @@ cmake ..
 make
 cd ..
 
+if [ -f build/CMakeCache.txt ] && \
+    ! grep -Fqx "PEDIGREE_TOOLCHAIN_ROOT:PATH=$COMPILER_DIR" build/CMakeCache.txt; then
+    # Compiler identities and their companion tools are immutable CMake cache
+    # facts. Preserve build outputs, but regenerate that metadata on an upgrade.
+    cmake -E rm -f build/CMakeCache.txt
+    cmake -E remove_directory build/CMakeFiles
+fi
 mkdir -p build && cd build
 cmake -DCMAKE_TOOLCHAIN_FILE=${script_dir}/build-etc/cmake/pedigree_amd64.cmake \
     -DPEDIGREE_TOOLCHAIN_ROOT="$COMPILER_DIR" \

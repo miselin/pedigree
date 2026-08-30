@@ -51,7 +51,7 @@ patch set, run:
 
 ```sh
 python3 scripts/bootstrap_toolchain.py \
-    x86_64-pedigree ./pedigree-compiler-15.3.0
+    x86_64-pedigree ./pedigree-compiler-15.3.0-r2
 ```
 
 The command builds GCC 15.3, Binutils 2.46.1, and NASM 3.02 from verified
@@ -69,7 +69,8 @@ musl is installed, rerun the same command with `--libcpp --activate`; that pass
 finishes the compiler against the target headers, validates it, installs the
 POSIX-threaded PIC-capable static C++ runtime, and atomically points
 `compilers/dir` at the completed prefix. Activation is deliberately unavailable
-for the headerless first stage.
+for the headerless first stage. The matching libstdc++ headers are owned by the
+compiler prefix, so rebuilding the musl sysroot does not remove them.
 
 It builds the native support surface and runs its tests normally and under
 AddressSanitizer. On macOS it also runs the focused hosted-kernel lifecycle.
@@ -85,7 +86,7 @@ claim an x86-64 PC boot, hardware support, or complete userspace coverage.
 To add the GCC 15 static-analyzer pass without changing the normal build, run:
 
 ```sh
-PEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-compiler-15.3.0 \
+PEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-compiler-15.3.0-r2 \
 PEDIGREE_VERIFY_SARIF=1 ./verify.sh
 ```
 

@@ -74,7 +74,7 @@ static analyzer and publishes merged SARIF without modifying the ordinary build
 objects:
 
 ```sh
-PEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-compiler-15.3.0 \
+PEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-compiler-15.3.0-r2 \
 PEDIGREE_VERIFY_SARIF=1 ./verify.sh
 ```
 

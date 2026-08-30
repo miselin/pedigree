@@ -23,7 +23,7 @@ TARGETS = {"x86_64-pedigree"}
 GCC_PREREQUISITES = ("gmp", "mpfr", "mpc")
 REQUIRED_COMMANDS = ("cc", "c++", "make", "patch", "tar")
 TOOLCHAIN_STATE_SCHEMA = 1
-TOOLCHAIN_RECIPE = 1
+TOOLCHAIN_RECIPE = 2
 PATCHES = {
     "gcc": "compilers/pedigree-gcc.patch",
     "binutils": "compilers/pedigree-binutils.patch",
@@ -132,6 +132,10 @@ class Bootstrapper:
         self.dry_run = args.dry_run
         self.make = ["make", f"-j{args.jobs}"]
 
+    @property
+    def gxx_include_dir(self) -> Path:
+        return self.prefix / "include" / "c++" / self.manifest["gcc"].version
+
     def log(self, message: str) -> None:
         print(message)
 
@@ -204,6 +208,15 @@ class Bootstrapper:
             "ASFLAGS",
         ):
             environment[name] = ""
+        for name in (
+            "C_INCLUDE_PATH",
+            "COMPILER_PATH",
+            "CPATH",
+            "CPLUS_INCLUDE_PATH",
+            "GCC_EXEC_PREFIX",
+            "LIBRARY_PATH",
+        ):
+            environment.pop(name, None)
         return environment
 
     def host_configure_environment(self) -> dict[str, str]:
@@ -305,13 +318,16 @@ class Bootstrapper:
             destination.symlink_to(source)
 
     def libcpp_installed(self) -> bool:
-        version = self.manifest["gcc"].version
+        headers = (
+            self.gxx_include_dir / "concepts",
+            self.gxx_include_dir / "memory",
+            self.gxx_include_dir / "version",
+            self.gxx_include_dir
+            / f"{self.args.target}/bits/c++config.h",
+        )
         return (
             self.prefix / f"{self.args.target}/lib/libstdc++.a"
-        ).is_file() and (
-            self.prefix
-            / f"{self.args.target}/include/c++/{version}/{self.args.target}/bits/c++config.h"
-        ).is_file()
+        ).is_file() and all(header.is_file() for header in headers)
 
     @property
     def state_path(self) -> Path:
@@ -369,9 +385,25 @@ class Bootstrapper:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
 
+    def validation_environment(self) -> dict[str, str]:
+        environment = self.environment()
+        candidate_bin = str(self.prefix / "bin")
+        environment["PATH"] = os.pathsep.join(
+            part for part in (candidate_bin, environment.get("PATH", "")) if part
+        )
+        return environment
+
     @staticmethod
-    def checked_output(command: list[str]) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(command, check=False, capture_output=True, text=True)
+    def checked_output(
+        command: list[str], *, environment: dict[str, str]
+    ) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()
             raise BootstrapError(
@@ -382,6 +414,7 @@ class Bootstrapper:
 
     def validate_installation(self, *, require_libcpp: bool) -> None:
         target = self.args.target
+        environment = self.validation_environment()
         tools = {
             name: self.prefix / "bin" / ("nasm" if name == "nasm" else f"{target}-{name}")
             for name in (
@@ -405,10 +438,10 @@ class Bootstrapper:
         nasm_version = self.manifest["nasm"].version
         for name in ("gcc", "g++"):
             version = self.checked_output(
-                [str(tools[name]), "-dumpfullversion"]
+                [str(tools[name]), "-dumpfullversion"], environment=environment
             ).stdout.strip()
             machine = self.checked_output(
-                [str(tools[name]), "-dumpmachine"]
+                [str(tools[name]), "-dumpmachine"], environment=environment
             ).stdout.strip()
             if version != gcc_version or machine != target:
                 raise BootstrapError(
@@ -416,12 +449,16 @@ class Bootstrapper:
                     f"expected {target} {gcc_version}"
                 )
         for name in ("ld", "ar", "nm", "objdump", "objcopy", "strip"):
-            output = self.checked_output([str(tools[name]), "--version"]).stdout
+            output = self.checked_output(
+                [str(tools[name]), "--version"], environment=environment
+            ).stdout
             if f"(GNU Binutils) {binutils_version}" not in output.splitlines()[0]:
                 raise BootstrapError(
                     f"installed {name} is not Binutils {binutils_version}"
                 )
-        output = self.checked_output([str(tools["nasm"]), "-version"]).stdout
+        output = self.checked_output(
+            [str(tools["nasm"]), "-version"], environment=environment
+        ).stdout
         if not output.startswith(f"NASM version {nasm_version}"):
             raise BootstrapError(f"installed nasm is not NASM {nasm_version}")
 
@@ -457,6 +494,7 @@ class Bootstrapper:
                     check=False,
                     capture_output=True,
                     text=True,
+                    env=environment,
                 )
                 if result.returncode != 0 or not output_path.is_file():
                     raise BootstrapError(
@@ -467,13 +505,48 @@ class Bootstrapper:
             if require_libcpp:
                 if not self.libcpp_installed():
                     raise BootstrapError("installed libstdc++ is incomplete")
-                verbose = self.checked_output([str(tools["g++"]), "-v"])
+                verbose = self.checked_output(
+                    [str(tools["g++"]), "-v"], environment=environment
+                )
                 if "Thread model: posix" not in verbose.stderr:
                     raise BootstrapError("final compiler does not use POSIX threads")
+                include_trace = subprocess.run(
+                    [
+                        str(tools["g++"]),
+                        "-std=gnu++23",
+                        "-E",
+                        "-x",
+                        "c++",
+                        "-v",
+                        "-",
+                    ],
+                    input="",
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    env=environment,
+                )
+                expected_include_dirs = (
+                    self.gxx_include_dir,
+                    self.gxx_include_dir / target,
+                )
+                if include_trace.returncode != 0 or any(
+                    str(path) not in include_trace.stderr
+                    for path in expected_include_dirs
+                ):
+                    raise BootstrapError(
+                        "final compiler does not search its installed GCC 15 "
+                        "C++ headers"
+                    )
+                if "include/c++/8.3.0" in include_trace.stderr:
+                    raise BootstrapError(
+                        "final compiler still searches legacy GCC 8 C++ headers"
+                    )
                 shared = check_root / "libpedigree-cxx-probe.so"
                 result = subprocess.run(
                     [
                         str(tools["g++"]),
+                        "-std=gnu++23",
                         "-shared",
                         "-fPIC",
                         "-fstack-protector-strong",
@@ -484,17 +557,42 @@ class Bootstrapper:
                         str(shared),
                     ],
                     input=(
+                        "#include <bit>\n"
+                        "#include <concepts>\n"
+                        "#include <cstdint>\n"
+                        "#include <memory>\n"
                         "#include <string>\n"
+                        "#include <version>\n"
+                        "#if _GLIBCXX_RELEASE != 15\n"
+                        "#error unexpected libstdc++ release\n"
+                        "#endif\n"
+                        "#if __cpp_lib_concepts < 202002L\n"
+                        "#error concepts support is incomplete\n"
+                        "#endif\n"
+                        "#if __cpp_lib_constexpr_memory < 202202L\n"
+                        "#error constexpr memory support is incomplete\n"
+                        "#endif\n"
+                        "template <std::integral T> constexpr T identity(T value) {\n"
+                        "  return value;\n"
+                        "}\n"
+                        "constexpr bool memory_probe() {\n"
+                        "  auto value = std::make_unique<int>(42);\n"
+                        "  return *value == 42;\n"
+                        "}\n"
+                        "static_assert(memory_probe());\n"
+                        "static_assert(std::byteswap(std::uint32_t{0x01020304}) == "
+                        "0x04030201);\n"
                         "extern \"C\" unsigned pedigree_cxx_probe() {\n"
                         "  volatile char stack_guard_probe[16] = {};\n"
                         "  std::string value(\"ok\");\n"
-                        "  return static_cast<unsigned>(value.size()) + "
+                        "  return identity(static_cast<unsigned>(value.size())) + "
                         "stack_guard_probe[0];\n"
                         "}\n"
                     ),
                     check=False,
                     capture_output=True,
                     text=True,
+                    env=environment,
                 )
                 if result.returncode != 0 or not shared.is_file():
                     raise BootstrapError(
@@ -506,7 +604,8 @@ class Bootstrapper:
                     / f"lib/gcc/{target}/{gcc_version}/libgcc.a"
                 )
                 symbols = self.checked_output(
-                    [str(tools["nm"]), "-A", str(libgcc)]
+                    [str(tools["nm"]), "-A", str(libgcc)],
+                    environment=environment,
                 ).stdout
                 weak_pthread = [
                     line
@@ -574,6 +673,7 @@ class Bootstrapper:
             "--disable-multilib",
             "--with-sysroot=" + str(self.prefix / self.args.target),
             "--with-native-system-header-dir=/include",
+            "--with-gxx-include-dir=" + str(self.gxx_include_dir),
             "--enable-lto",
             "--disable-werror",
             *self.host_dependency_flags(),

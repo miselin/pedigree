@@ -15,9 +15,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/images/local/include/glib-2.0
     ${CMAKE_SOURCE_DIR}/images/local/include/pango-1.0
     ${CMAKE_SOURCE_DIR}/images/local/include/cairo
-    ${CMAKE_SOURCE_DIR}/images/local/include/freetype2
-    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}
-    ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
+    ${CMAKE_SOURCE_DIR}/images/local/include/freetype2)
 
 function(pedigree_app name posix native pedigreec libs)
     add_executable(app-${name} ${ARGN})
