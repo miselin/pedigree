@@ -17,7 +17,6 @@ case $COMPILER_DIR in
 esac
 
 set -e
-set -v
 
 [ -d ".venv" ] || uv venv
 

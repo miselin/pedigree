@@ -12,7 +12,7 @@ if [[ ${LOCAL_PUP} == 1 ]]; then
     module="pedigree_updater"
 
     module_path="$(
-      python3 -c "
+      uv run python -c "
 import importlib.util
 spec = importlib.util.find_spec('$module')
 print(spec.origin or '' if spec else '')
@@ -20,7 +20,7 @@ print(spec.origin or '' if spec else '')
 )"
 
     if [[ "$module_path" != "$repo_dir/"* ]]; then
-        echo "Installing local editable package..."
+        echo "Installing local editable package ($module_path != $repo_dir)..."
         (
             uv pip install -e "$repo_dir"
         )
