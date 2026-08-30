@@ -167,8 +167,18 @@ class EXPORTED_PUBLIC Event {
   /** Retrieves the event handler buffer memory address. */
   static uintptr_t getHandlerBuffer();
 
+  /** Retrieves the target-page-rounded size of one event handler buffer. */
+  static size_t getHandlerBufferSize();
+
   /** Retrieves the last handler buffer memory address. */
   static uintptr_t getLastHandlerBuffer();
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  /** Hosted-only seam for checking handler-buffer geometry. */
+  static constexpr size_t getHostedHandlerBufferSize(size_t pageSize) {
+    return pageSize ? handlerBufferSize(pageSize) : 0;
+  }
+#endif
 
   /** Returns true if the event is on the heap and can be deleted when
      handled. This is for creating fire-and-forget messages and not worrying
@@ -280,6 +290,11 @@ class EXPORTED_PUBLIC Event {
 
  private:
   friend class Thread;
+
+  static constexpr size_t handlerBufferSize(size_t pageSize) {
+    const size_t pageCount = (EVENT_LIMIT / pageSize) + ((EVENT_LIMIT % pageSize) ? 1 : 0);
+    return pageCount * pageSize;
+  }
 
   /** Admits and pins one sender before it touches any other Event state. */
   SendLease beginSend();

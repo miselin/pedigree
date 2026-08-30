@@ -10,6 +10,9 @@ function(hosted_smoke_app target output source)
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/src/user)
     target_compile_options(${target} PRIVATE -fPIE)
     target_link_libraries(${target} PRIVATE gcc -pie)
+    target_link_options(${target} PRIVATE
+        -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
+        -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})
     if (PEDIGREE_DTRELR_ENABLED)
         target_link_options(${target} PRIVATE -Wl,-z,pack-relative-relocs)
     endif ()

@@ -795,10 +795,42 @@ bool rangeExistence() {
   }
   return passed;
 }
+
+bool strictRangeGeometry() {
+  constexpr uintptr_t InsertKey = 0xCA7F000;
+  constexpr uintptr_t PublishKey = InsertKey + (4 * PageSize);
+  Cache cache;
+
+  bool alreadyExisted = true;
+  const uintptr_t invalid = cache.insert(InsertKey, PageSize + 1, &alreadyExisted);
+  const bool insertionRejected = !invalid && !alreadyExisted && !cache.exists(InsertKey, PageSize);
+
+  const uintptr_t editing = cache.insert(InsertKey);
+  cache.markNoLongerEditing(InsertKey, PageSize + 1);
+  const bool invalidPublishLeftEditing = editing && cache.discardEditing(InsertKey);
+
+  const uintptr_t published = cache.insert(PublishKey);
+  cache.markNoLongerEditing(PublishKey);
+  cache.markEditing(PublishKey, PageSize + 1);
+  const bool invalidEditLeftPublished = published && !cache.discardEditing(PublishKey);
+
+  cache.empty();
+  const bool passed =
+      checkNamed(insertionRejected, "cache-range-geometry",
+                 "a partial target-page insertion was truncated instead of rejected") &&
+      checkNamed(invalidPublishLeftEditing, "cache-range-geometry",
+                 "an invalid publish range changed the first cache page") &&
+      checkNamed(invalidEditLeftPublished, "cache-range-geometry",
+                 "an invalid edit range changed the first cache page");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS cache-range-geometry");
+  }
+  return passed;
+}
 }  // namespace
 
 bool runHostedCacheRegressions() {
   return callbackLifetime() && queuedRequestLifetime() && emptyAndReuse() &&
          retirementPublication() && failedPublicationDiscard() && retirePrepublicationWriteback() &&
-         retireWritebackContract() && rangeExistence();
+         retireWritebackContract() && rangeExistence() && strictRangeGeometry();
 }

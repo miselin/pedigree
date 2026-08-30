@@ -17,7 +17,7 @@ namespace {
 class TrackingDisk final : public Disk {
  public:
   static constexpr size_t PageSize = TargetInfo::getPageSize();
-  static constexpr size_t DataSize = 3 * PageSize;
+  static constexpr size_t DataSize = (2 * PageSize) + 512;
   static constexpr size_t PageSlots = 4;
 
   TrackingDisk()
@@ -47,7 +47,7 @@ class TrackingDisk final : public Disk {
 
   BufferView read(uint64_t location) override {
     const uint64_t page = pageLocation(location);
-    if (page >= DataSize || PageSize > (DataSize - page)) {
+    if (location >= DataSize || page >= DataSize) {
       return BufferView();
     }
 
@@ -61,8 +61,9 @@ class TrackingDisk final : public Disk {
     }
     ++m_ReadCount;
     ++m_PageReferences[slot];
+    const size_t validLength = PageSize < (DataSize - page) ? PageSize : (DataSize - page);
     return BufferView(m_PageData + (slot * PageSize) + (location - page),
-                      PageSize - (location - page));
+                      validLength - (location - page));
   }
 
   size_t getSize() const override {
@@ -144,7 +145,10 @@ class TrackingDisk final : public Disk {
     }
 
     m_PageKeys[freeSlot] = page;
-    MemoryCopy(m_PageData + (freeSlot * PageSize), m_Data + page, PageSize);
+    uint8_t* destination = m_PageData + (freeSlot * PageSize);
+    ByteSet(destination, 0, PageSize);
+    const size_t validLength = PageSize < (DataSize - page) ? PageSize : (DataSize - page);
+    MemoryCopy(destination, m_Data + page, validLength);
     return freeSlot;
   }
 
@@ -228,7 +232,10 @@ bool filePastEofDoesNotRead() {
 
   const uint64_t bytesRead =
       file.read(TrackingDisk::DataSize + 1, 1, reinterpret_cast<uintptr_t>(&destination));
-  const bool passed = !bytesRead && !disk.m_ReadCount && !disk.m_UnpinCount && disk.balanced();
+  const uintptr_t block = file.readBlock(TrackingDisk::DataSize + 1);
+  const bool pinned = file.pinBlock(TrackingDisk::DataSize + 1);
+  const bool passed =
+      !bytesRead && !block && !pinned && !disk.m_ReadCount && !disk.m_UnpinCount && disk.balanced();
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS file-past-eof-no-read");
   } else {
@@ -238,8 +245,46 @@ bool filePastEofDoesNotRead() {
   }
   return passed;
 }
+
+bool rawFsTerminalPage() {
+  constexpr uint64_t Start = 2 * TrackingDisk::PageSize;
+  constexpr size_t TransferSize = 512;
+
+  TrackingDisk disk;
+  RawFs filesystem;
+  RawFsFile file(String("raw-disk"), &filesystem, nullptr, &disk);
+  uint8_t destination[TransferSize] = {};
+
+  const uint64_t bytesRead =
+      file.read(Start, TransferSize, reinterpret_cast<uintptr_t>(destination));
+  const bool bytesMatch = !MemoryCompare(destination, disk.data() + Start, TransferSize);
+
+  const uintptr_t cached = file.readBlock(Start);
+  bool zeroFilled = cached != 0;
+  for (size_t i = TransferSize; cached && i < TrackingDisk::PageSize; ++i) {
+    if (reinterpret_cast<const uint8_t*>(cached)[i]) {
+      zeroFilled = false;
+      break;
+    }
+  }
+  if (cached) {
+    file.unpinBlock(Start);
+  }
+
+  const bool passed = bytesRead == TransferSize && bytesMatch && zeroFilled &&
+                      disk.m_ReadCount == 1 && disk.m_UnpinCount == 1 && disk.balanced();
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS rawfs-terminal-page");
+  } else {
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL rawfs-terminal-page: terminal bytes were rejected, exposed past "
+        "EOF, or leaked a backing reference");
+  }
+  return passed;
+}
 }  // namespace
 
 EXPORTED_PUBLIC bool runHostedRawFsContractRegressions() {
-  return rawFsNativePageOwnership() && rawFsParentAlignmentIsolation() && filePastEofDoesNotRead();
+  return rawFsNativePageOwnership() && rawFsParentAlignmentIsolation() &&
+         filePastEofDoesNotRead() && rawFsTerminalPage();
 }

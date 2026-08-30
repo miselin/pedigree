@@ -32,9 +32,6 @@
 
 using namespace Ipc;
 
-#define MEMPOOL_BUFF_SIZE 4096
-#define MEMPOOL_BASE_SIZE 1024  /// \todo Tune.
-
 static MemoryPool __ipc_mempool("IPC Message Pool");
 
 static RadixTree<IpcEndpoint*> __endpoints;
@@ -202,7 +199,7 @@ bool Ipc::recv(IpcEndpoint* pEndpoint, IpcMessage** pMessage, bool bAsync) {
 
   IpcMessage* pMsg = pEndpoint->getMessage(!bAsync);
   if (pMsg) {
-    /// > 4 KB messages only use this form of IPC as a synchronisation
+    /// >= 4 KiB messages only use this form of IPC as a synchronisation
     /// method, they actually communicate via reads and writes to their
     /// shared block of memory.
     *pMessage = new IpcMessage(*pMsg);
@@ -253,13 +250,16 @@ IpcMessage* IpcEndpoint::getMessage(bool bBlock) {
   return pReturn;
 }
 
-Ipc::IpcMessage::IpcMessage() : nPages(1), m_vAddr(0), m_pMemRegion(0) {
+Ipc::IpcMessage::IpcMessage()
+    : nPages(inlinePageCount(PhysicalMemoryManager::getPageSize())), m_vAddr(0), m_pMemRegion(0) {
   allocatePoolBuffer();
 }
 
 void Ipc::IpcMessage::allocatePoolBuffer() {
   if (!__ipc_mempool.initialised()) {
-    if (!__ipc_mempool.initialise(MEMPOOL_BASE_SIZE, MEMPOOL_BUFF_SIZE)) {
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    const size_t pageCount = inlinePoolPageCount(pageSize);
+    if (!__ipc_mempool.initialise(pageCount, inlineSlotSize(pageSize))) {
       ERROR("IpcMessage: memory pool could not be initialised.");
       return;
     }
@@ -269,8 +269,11 @@ void Ipc::IpcMessage::allocatePoolBuffer() {
   uintptr_t msg = __ipc_mempool.allocate();
   if (msg) {
     // Remap to user read/write.
-    Processor::information().getVirtualAddressSpace().setFlags(reinterpret_cast<void*>(msg),
-                                                               VirtualAddressSpace::Write);
+    VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    for (size_t page = 0; page < inlinePageCount(pageSize); ++page) {
+      va.setFlags(reinterpret_cast<void*>(msg + (page * pageSize)), VirtualAddressSpace::Write);
+    }
 
     m_vAddr = msg;
   } else {
@@ -288,8 +291,8 @@ Ipc::IpcMessage::IpcMessage(size_t nBytes, uintptr_t regionHandle)
   }
   nPages = (nBytes + pageSize - 1) / pageSize;
 
-  if (nBytes < MEMPOOL_BUFF_SIZE) {
-    nPages = 1;
+  if (nBytes < InlineCapacity) {
+    nPages = inlinePageCount(pageSize);
     allocatePoolBuffer();
   } else {
     MemoryRegion* pRegion = reinterpret_cast<MemoryRegion*>(regionHandle);

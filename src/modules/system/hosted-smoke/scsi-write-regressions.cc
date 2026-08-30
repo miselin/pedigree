@@ -48,7 +48,8 @@ enum class RequestEvent : uint8_t { Read = 1, Direct = 2 };
 
 class ScriptedScsiController final : public ScsiController {
  public:
-  ScriptedScsiController()
+  explicit ScriptedScsiController(size_t capacityBytes = 64 * PageBytes,
+                                  size_t nativeBlockBytes = 512)
       : ScsiController(),
         m_Mode(WriteMode::Initialising),
         m_WriteOpcodes(),
@@ -68,6 +69,10 @@ class ScriptedScsiController final : public ScsiController {
         m_ReadCommandCount(0),
         m_RequestEvents(),
         m_RequestEventCount(0),
+        m_CapacityBytes(capacityBytes),
+        m_NativeBlockBytes(nativeBlockBytes),
+        m_LastReadBytes(0),
+        m_LastWriteBytes(0),
         m_Valid(true) {}
 
   bool sendCommand(size_t nUnit, uintptr_t pCommand, uint8_t nCommandSize, uintptr_t pRespBuffer,
@@ -99,13 +104,15 @@ class ScriptedScsiController final : public ScsiController {
       }
       case 0x25: {
         if (bWrite || !pRespBuffer || nRespBytes != sizeof(ScsiDisk::Capacity) ||
-            nCommandSize != 10) {
+            nCommandSize != 10 || !m_NativeBlockBytes || !m_CapacityBytes ||
+            (m_CapacityBytes % m_NativeBlockBytes)) {
           m_Valid = false;
           return false;
         }
         auto* capacity = reinterpret_cast<ScsiDisk::Capacity*>(pRespBuffer);
-        capacity->LBA = HOST_TO_BIG32(static_cast<uint32_t>((64 * PageBytes / 512) - 1));
-        capacity->BlockSize = HOST_TO_BIG32(512);
+        capacity->LBA =
+            HOST_TO_BIG32(static_cast<uint32_t>((m_CapacityBytes / m_NativeBlockBytes) - 1));
+        capacity->BlockSize = HOST_TO_BIG32(static_cast<uint32_t>(m_NativeBlockBytes));
         return true;
       }
       case 0x28:
@@ -131,12 +138,14 @@ class ScriptedScsiController final : public ScsiController {
     m_DirectDisk = 0;
     m_DirectLocation = 0;
     m_DirectPage = 0;
+    m_LastWriteBytes = 0;
   }
 
   void beginRequestTrace() {
     m_ReadRequestCount = 0;
     m_ReadCommandCount = 0;
     m_RequestEventCount = 0;
+    m_LastReadBytes = 0;
   }
 
   void holdNextRead() {
@@ -215,6 +224,14 @@ class ScriptedScsiController final : public ScsiController {
     return m_LastWriteBuffer;
   }
 
+  size_t lastReadBytes() const {
+    return m_LastReadBytes;
+  }
+
+  size_t lastWriteBytes() const {
+    return m_LastWriteBytes;
+  }
+
   uint64_t executeRequest(uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4, uint64_t p5,
                           uint64_t p6, uint64_t p7, uint64_t p8) override {
     if (p1 == SCSI_REQUEST_READ) {
@@ -259,13 +276,14 @@ class ScriptedScsiController final : public ScsiController {
   bool handleRead(uint8_t opcode, uint8_t commandSize, uintptr_t response, uint16_t responseBytes,
                   bool write) {
     const uint8_t expectedSize = opcode == 0x28 ? 10 : (opcode == 0xa8 ? 12 : 16);
-    if (write || !response || !responseBytes || (responseBytes % PageBytes) ||
+    if (write || !response || !responseBytes || (responseBytes % m_NativeBlockBytes) ||
         commandSize != expectedSize) {
       m_Valid = false;
       return false;
     }
 
     ByteSet(reinterpret_cast<void*>(response), 0x3c, responseBytes);
+    m_LastReadBytes = responseBytes;
     m_ReadCommandCount += 1;
     return true;
   }
@@ -273,14 +291,16 @@ class ScriptedScsiController final : public ScsiController {
   bool handleWrite(uint8_t opcode, uint8_t commandSize, uintptr_t response, uint16_t responseBytes,
                    bool write) {
     const uint8_t expectedSize = opcode == 0x2a ? 10 : (opcode == 0xaa ? 12 : 16);
-    if (m_Mode == WriteMode::Initialising || !write || !response || responseBytes != PageBytes ||
-        commandSize != expectedSize || m_WriteCount >= sizeof(m_WriteOpcodes)) {
+    if (m_Mode == WriteMode::Initialising || !write || !response || !responseBytes ||
+        (responseBytes % m_NativeBlockBytes) || commandSize != expectedSize ||
+        m_WriteCount >= sizeof(m_WriteOpcodes)) {
       m_Valid = false;
       return false;
     }
 
     m_WriteOpcodes[m_WriteCount++] = opcode;
     m_LastWriteBuffer = response;
+    m_LastWriteBytes = responseBytes;
     return m_Mode == WriteMode::PassWrite12 && opcode == 0xaa;
   }
 
@@ -310,6 +330,10 @@ class ScriptedScsiController final : public ScsiController {
   Atomic<size_t> m_ReadCommandCount;
   RequestEvent m_RequestEvents[16];
   size_t m_RequestEventCount;
+  size_t m_CapacityBytes;
+  size_t m_NativeBlockBytes;
+  size_t m_LastReadBytes;
+  size_t m_LastWriteBytes;
   bool m_Valid;
 };
 
@@ -1283,6 +1307,69 @@ bool scsiRetireReadRecheck(Fixture& fixture) {
   }
   return passed;
 }
+
+bool scsiTerminalCachePage() {
+  constexpr size_t TerminalBytes = 512;
+  constexpr uint64_t TerminalLocation = 4 * PageBytes;
+  constexpr uint8_t SuccessfulOpcodes[] = {0x2a, 0x2a, 0x2a, 0xaa};
+
+  ScriptedScsiController controller(TerminalLocation + TerminalBytes);
+  HostedScsiDisk disk;
+  const bool ready = disk.initialise(&controller, 0);
+  controller.beginRequestTrace();
+  const BufferView view = ready ? disk.read(TerminalLocation) : BufferView();
+
+  bool payloadValid =
+      view && view.size() == TerminalBytes && controller.lastReadBytes() == TerminalBytes;
+  bool tailZeroed = payloadValid;
+  const uint8_t* page = payloadValid ? reinterpret_cast<const uint8_t*>(view.data()) : nullptr;
+  for (size_t i = 0; page && i < TerminalBytes; ++i) {
+    if (page[i] != 0x3c) {
+      payloadValid = false;
+      break;
+    }
+  }
+  for (size_t i = TerminalBytes; page && i < PageBytes; ++i) {
+    if (page[i]) {
+      tailZeroed = false;
+      break;
+    }
+  }
+  if (view) {
+    disk.unpin(TerminalLocation);
+  }
+
+  controller.beginWrites(WriteMode::PassWrite12);
+  const bool retired = ready && disk.retireCachePage(TerminalLocation);
+  const bool boundedWriteback =
+      retired && controller.lastWriteBytes() == TerminalBytes &&
+      controller.writeTraceMatches(SuccessfulOpcodes, sizeof(SuccessfulOpcodes)) &&
+      !disk.hasPage(TerminalLocation);
+
+  const bool passed = ready && payloadValid && tailZeroed && boundedWriteback;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-terminal-cache-page");
+  } else {
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL scsi-terminal-cache-page: terminal read length, zero fill, or "
+        "writeback bounds changed");
+  }
+  return passed;
+}
+
+bool scsiRejectsNativeBlocksLargerThanCachePages() {
+  ScriptedScsiController controller(64 * PageBytes, 2 * PageBytes);
+  HostedScsiDisk disk;
+  const bool passed = !disk.initialise(&controller, 0);
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-larger-native-block-rejected");
+  } else {
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL scsi-larger-native-block-rejected: a native block spanning "
+        "independently owned cache pages was accepted without an RMW contract");
+  }
+  return passed;
+}
 }  // namespace
 
 EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {
@@ -1293,6 +1380,8 @@ EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {
   const bool directOwnership = scsiDirectRetireOwnership(fixture);
   const bool readRetireAdmission = scsiReadRetireAdmission(fixture);
   const bool retireReadRecheck = scsiRetireReadRecheck(fixture);
+  const bool terminalPage = scsiTerminalCachePage();
+  const bool largerNativeRejected = scsiRejectsNativeBlocksLargerThanCachePages();
   return ataOwnership && scsiResult && directResult && directOwnership && readRetireAdmission &&
-         retireReadRecheck;
+         retireReadRecheck && terminalPage && largerNativeRejected;
 }

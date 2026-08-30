@@ -149,11 +149,22 @@ die()
     cat musl.log >&2; exit 1;
 }
 
-musl_ldflags=
+case "${PEDIGREE_TARGET_PAGE_SIZE:-}" in
+    '' | *[!0-9]*)
+        echo "PEDIGREE_TARGET_PAGE_SIZE must be a positive integer." >&2
+        exit 1
+        ;;
+    0)
+        echo "PEDIGREE_TARGET_PAGE_SIZE must be a positive integer." >&2
+        exit 1
+        ;;
+esac
+
+musl_ldflags="-Wl,-z,max-page-size=$PEDIGREE_TARGET_PAGE_SIZE -Wl,-z,common-page-size=$PEDIGREE_TARGET_PAGE_SIZE"
 musl_dtrelr=0
 case "${PEDIGREE_DTRELR:-OFF}" in
     1 | [Oo][Nn] | [Tt][Rr][Uu][Ee] | [Yy][Ee][Ss] | [Yy])
-        musl_ldflags="-Wl,-z,pack-relative-relocs"
+        musl_ldflags="$musl_ldflags -Wl,-z,pack-relative-relocs"
         musl_dtrelr=1
         ;;
 esac

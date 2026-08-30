@@ -286,7 +286,8 @@ class EXPORTED_PUBLIC Cache {
    *
    * The operation is all-or-nothing. A complete, contiguous existing range
    * is returned unchanged; any partial overlap rejects the insertion before
-   * virtual address space or physical pages are allocated.
+   * virtual address space or physical pages are allocated. A size that is not
+   * a whole number of target pages is rejected rather than truncated.
    *
    * As with the single-page overload, the returned address carries no
    * caller-owned lifetime reference.
@@ -418,12 +419,15 @@ class EXPORTED_PUBLIC Cache {
    * be calculated. Once a page is no longer being edited, it goes into an
    * intermediate mode that means it'll have its checksum calculated
    * asynchronously. After that point, normal checksum-based writebacks take
-   * place.
+   * place. A nonzero length must be a whole number of target pages; invalid
+   * ranges are left unchanged.
    */
   void markEditing(uintptr_t key, size_t length = 0);
 
   /**
    * Mark the given page as no longer being edited.
+   * A nonzero length must be a whole number of target pages; invalid ranges
+   * are left unchanged.
    */
   void markNoLongerEditing(uintptr_t key, size_t length = 0);
 

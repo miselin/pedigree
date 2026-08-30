@@ -56,8 +56,6 @@ class Iso9660Directory : public Directory {
       return;
     }
 
-    Disk* myDisk = m_pFs->getDisk();
-
     // Grab our parent (will always be a directory)
     Iso9660Directory* pParentDir = reinterpret_cast<Iso9660Directory*>(m_pParent);
     if (pParentDir == 0) {
@@ -93,13 +91,11 @@ class Iso9660Directory : public Directory {
     for (i = 0; i < numBlocks; i++) {
       // Read the block
       const uint64_t diskLocation = (dirLoc + i) * blockSize;
-      const BufferView block = myDisk->read(diskLocation);
-      if (!block || block.size() < blockSize) {
-        if (block) {
-          myDisk->unpin(diskLocation);
-        }
+      alignas(Iso9660DirRecord) uint8_t blockBytes[blockSize];
+      if (!m_pFs->readSector(diskLocation, blockBytes)) {
         break;
       }
+      const BufferView block(blockBytes, sizeof(blockBytes));
 
       // Complete, so start reading entries
       size_t offset = 0;
@@ -142,8 +138,6 @@ class Iso9660Directory : public Directory {
           addDirectoryEntry(fileName, file);
         }
       }
-
-      myDisk->unpin(diskLocation);
 
       // Last in the block, but are there still blocks to read?
       if (bLastHit && ((i + 1) == numBlocks))

@@ -62,9 +62,11 @@ uintptr_t RawFsFile::readBlock(uint64_t location) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const uint64_t pageLocation = location - (location % pageSize);
   const size_t pageOffset = location - pageLocation;
-  if (pageLocation >= getSize() || pageSize > (getSize() - pageLocation)) {
+  if (location >= getSize() || pageLocation >= getSize()) {
     return 0;
   }
+  const size_t validLength =
+      pageSize < (getSize() - pageLocation) ? pageSize : (getSize() - pageLocation);
 
   uintptr_t buffer = m_PageCache.lookup(pageLocation);
   if (buffer) {
@@ -78,8 +80,9 @@ uintptr_t RawFsFile::readBlock(uint64_t location) {
   }
 
   if (!didExist) {
+    ByteSet(reinterpret_cast<void*>(buffer), 0, pageSize);
     size_t copied = 0;
-    while (copied < pageSize) {
+    while (copied < validLength) {
       const uint64_t diskLocation = pageLocation + copied;
       const BufferView source = m_pDisk->read(diskLocation);
       if (!source) {
@@ -88,7 +91,7 @@ uintptr_t RawFsFile::readBlock(uint64_t location) {
         return 0;
       }
 
-      const size_t remaining = pageSize - copied;
+      const size_t remaining = validLength - copied;
       const size_t chunk = source.size() < remaining ? source.size() : remaining;
       if (!chunk) {
         m_pDisk->unpin(diskLocation);
@@ -110,19 +113,21 @@ uintptr_t RawFsFile::readBlock(uint64_t location) {
 void RawFsFile::writeBlock(uint64_t location, uintptr_t address) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const uint64_t pageLocation = location - (location % pageSize);
-  if (!address || pageLocation >= getSize() || pageSize > (getSize() - pageLocation)) {
+  if (!address || location >= getSize() || pageLocation >= getSize()) {
     return;
   }
+  const size_t validLength =
+      pageSize < (getSize() - pageLocation) ? pageSize : (getSize() - pageLocation);
 
   size_t copied = 0;
-  while (copied < pageSize) {
+  while (copied < validLength) {
     const uint64_t diskLocation = pageLocation + copied;
     const BufferView destination = m_pDisk->read(diskLocation);
     if (!destination) {
       return;
     }
 
-    const size_t remaining = pageSize - copied;
+    const size_t remaining = validLength - copied;
     const size_t chunk = destination.size() < remaining ? destination.size() : remaining;
     if (!chunk) {
       m_pDisk->unpin(diskLocation);
@@ -137,10 +142,16 @@ void RawFsFile::writeBlock(uint64_t location, uintptr_t address) {
 
 bool RawFsFile::pinBlock(uint64_t location) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  if (location >= getSize()) {
+    return false;
+  }
   return m_PageCache.pin(location - (location % pageSize));
 }
 
 void RawFsFile::unpinBlock(uint64_t location) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  if (location >= getSize()) {
+    return;
+  }
   m_PageCache.release(location - (location % pageSize));
 }

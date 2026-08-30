@@ -20,6 +20,7 @@
 #include "Rtc.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
 #include "pedigree/kernel/machine/IrqManager.h"
@@ -558,11 +559,11 @@ void Rtc::processElapsedTime(uint64_t observed) {
     Serial* pSerial = Machine::instance().getSerial(1);
     NormalStaticString memoryLogStr;
     memoryLogStr += "Heap: ";
-    memoryLogStr += SlamAllocator::instance().heapPageCount() * 4;
+    memoryLogStr += (SlamAllocator::instance().heapPageCount() * TargetInfo::getPageSize()) / 1024;
     memoryLogStr += "K\tPages: ";
-    memoryLogStr += (g_AllocedPages * 4096) / 1024;
+    memoryLogStr += (g_AllocedPages * TargetInfo::getPageSize()) / 1024;
     memoryLogStr += "K\t Free: ";
-    memoryLogStr += (g_FreePages * 4096) / 1024;
+    memoryLogStr += (g_FreePages * TargetInfo::getPageSize()) / 1024;
     memoryLogStr += "K\n";
 
     pSerial->write_str(memoryLogStr);
@@ -577,9 +578,9 @@ void Rtc::processElapsedTime(uint64_t observed) {
       LargeStaticString processListStr;
 
       ssize_t heapK = pProcess->getHeapUsage() / 1024;
-      ssize_t virtK = (pProcess->getVirtualPageCount() * 0x1000) / 1024;
-      ssize_t physK = (pProcess->getPhysicalPageCount() * 0x1000) / 1024;
-      ssize_t shrK = (pProcess->getSharedPageCount() * 0x1000) / 1024;
+      ssize_t virtK = (pProcess->getVirtualPageCount() * TargetInfo::getPageSize()) / 1024;
+      ssize_t physK = (pProcess->getPhysicalPageCount() * TargetInfo::getPageSize()) / 1024;
+      ssize_t shrK = (pProcess->getSharedPageCount() * TargetInfo::getPageSize()) / 1024;
 
       processListStr.append("\tProcess #");
       processListStr.append(pProcess->getId(), 10);

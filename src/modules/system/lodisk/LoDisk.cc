@@ -25,6 +25,7 @@
 #include "pedigree/kernel/ServiceManager.h"
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 #include "modules/Module.h"
 #include "modules/system/vfs/VFS.h"
@@ -101,21 +102,23 @@ BufferView FileDisk::read(uint64_t location) {
   const uint64_t pageOffset = (location - alignPoint) % pageSize;
   const uint64_t readPage = location - pageOffset;
   const uint64_t fileSize = m_pFile->getSize();
-  if (location >= fileSize || readPage >= fileSize || (fileSize - readPage) < pageSize) {
+  if (location >= fileSize || readPage >= fileSize) {
     return BufferView();
   }
+  const size_t validLength = pageSize < (fileSize - readPage) ? pageSize : (fileSize - readPage);
 
   uintptr_t buffer = m_Cache.lookup(readPage);
 
   if (buffer)
-    return BufferView::fromAddress(buffer + pageOffset, pageSize - pageOffset);
+    return BufferView::fromAddress(buffer + pageOffset, validLength - pageOffset);
 
   buffer = m_Cache.insert(readPage);
   if (!buffer)
     return BufferView();
 
   // Read the data from the file itself
-  if (m_pFile->read(readPage, pageSize, buffer) != pageSize) {
+  ByteSet(reinterpret_cast<void*>(buffer), 0, pageSize);
+  if (m_pFile->read(readPage, validLength, buffer) != validLength) {
     const bool discarded = m_Cache.discardEditing(readPage);
     (void)discarded;
     return BufferView();
@@ -124,7 +127,7 @@ BufferView FileDisk::read(uint64_t location) {
   m_Cache.markNoLongerEditing(readPage);
 
   buffer = m_Cache.lookup(readPage);
-  return buffer ? BufferView::fromAddress(buffer + pageOffset, pageSize - pageOffset)
+  return buffer ? BufferView::fromAddress(buffer + pageOffset, validLength - pageOffset)
                 : BufferView();
 }
 
@@ -164,7 +167,7 @@ bool FileDisk::pin(uint64_t location) {
 
   const uint64_t page = location - ((location - alignPoint) % pageSize);
   const uint64_t fileSize = m_pFile ? m_pFile->getSize() : 0;
-  if (location >= fileSize || page >= fileSize || (fileSize - page) < pageSize) {
+  if (location >= fileSize || page >= fileSize) {
     return false;
   }
   return m_Cache.pin(page);
@@ -183,7 +186,7 @@ void FileDisk::unpin(uint64_t location) {
 
   const uint64_t page = location - ((location - alignPoint) % pageSize);
   const uint64_t fileSize = m_pFile ? m_pFile->getSize() : 0;
-  if (location >= fileSize || page >= fileSize || (fileSize - page) < pageSize) {
+  if (location >= fileSize || page >= fileSize) {
     return;
   }
   m_Cache.release(page);

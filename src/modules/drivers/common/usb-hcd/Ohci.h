@@ -52,6 +52,9 @@ class Ohci : public UsbHub,
 #endif
              public RequestQueue {
  private:
+  static constexpr size_t EdRegionBytes = 4096;
+  static constexpr size_t EdRegionOffsetMask = EdRegionBytes - 1;
+
 #if THREADS
   using ControllerLock = Mutex;
 #else
@@ -140,6 +143,7 @@ class Ohci : public UsbHub,
       UsbEndpoint endpointInfo;
 
       bool bPeriodic;
+      bool bBuildFailed;
       TD* pFirstTD;
       TD* pLastTD;
       size_t nTotalBytes;
@@ -260,7 +264,7 @@ class Ohci : public UsbHub,
     if (!pED || !pED->pMetaData)
       return 0;
 
-    size_t id = pED->pMetaData->id & 0xFFF;
+    size_t id = pED->pMetaData->id & EdRegionOffsetMask;
     Lists type = pED->pMetaData->edType;
     switch (type) {
       case ControlList:
@@ -280,10 +284,10 @@ class Ohci : public UsbHub,
     // Figure out which list the ED was in.
     /// \todo defines for the list sizes so changing one doesn't involve
     /// rewriting heaps of code
-    if ((m_pControlEDListPhys <= phys) && (phys < (m_pControlEDListPhys + 0x1000))) {
-      return &m_pControlEDList[phys & 0xFFF];
-    } else if ((m_pBulkEDListPhys <= phys) && (phys < (m_pBulkEDListPhys + 0x1000))) {
-      return &m_pBulkEDList[phys & 0xFFF];
+    if ((m_pControlEDListPhys <= phys) && (phys < (m_pControlEDListPhys + EdRegionBytes))) {
+      return &m_pControlEDList[(phys - m_pControlEDListPhys) / sizeof(ED)];
+    } else if ((m_pBulkEDListPhys <= phys) && (phys < (m_pBulkEDListPhys + EdRegionBytes))) {
+      return &m_pBulkEDList[(phys - m_pBulkEDListPhys) / sizeof(ED)];
     } else
       return 0;
   }

@@ -7,6 +7,7 @@
 
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/RoundRobin.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -244,7 +245,7 @@ bool ataRequestIdentityRegression() {
   constexpr uint64_t DiskA = 0xA7A;
   constexpr uint64_t DiskB = 0xB7B;
   constexpr uint64_t FirstPartitionPage = 0x600;
-  constexpr uint64_t SecondPartitionPage = FirstPartitionPage + 0x1000;
+  constexpr uint64_t SecondPartitionPage = FirstPartitionPage + TargetInfo::getPageSize();
   constexpr uint64_t SecondPartitionExtent = FirstPartitionPage + (128 * 1024);
 
   HostedAtaRequestQueue writeQueue;

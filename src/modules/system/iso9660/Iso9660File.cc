@@ -26,11 +26,13 @@ uintptr_t Iso9660File::readBlock(uint64_t location) {
 }
 
 bool Iso9660File::pinBlock(uint64_t location) {
-  const uint64_t block = LITTLE_TO_HOST32(m_Dir.ExtentLocation_LE) + (location / getBlockSize());
-  return m_pFs->m_pDisk->pin(block * getBlockSize());
+  const uint64_t diskLocation =
+      (static_cast<uint64_t>(LITTLE_TO_HOST32(m_Dir.ExtentLocation_LE)) * 2048) + location;
+  return m_pFs->m_pDisk->pin(diskLocation);
 }
 
 void Iso9660File::unpinBlock(uint64_t location) {
-  const uint64_t block = LITTLE_TO_HOST32(m_Dir.ExtentLocation_LE) + (location / getBlockSize());
-  m_pFs->m_pDisk->unpin(block * getBlockSize());
+  const uint64_t diskLocation =
+      (static_cast<uint64_t>(LITTLE_TO_HOST32(m_Dir.ExtentLocation_LE)) * 2048) + location;
+  m_pFs->m_pDisk->unpin(diskLocation);
 }

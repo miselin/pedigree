@@ -59,9 +59,6 @@ typedef X64uint64_t X64size_t;
 /** Define an I/O port type */
 typedef X64uint16_t X64io_port_t;
 
-/** Define the size of one physical page */
-#define PAGE_SIZE 4096
-
 /** @} */
 
 #endif

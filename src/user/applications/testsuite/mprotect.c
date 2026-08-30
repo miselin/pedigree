@@ -28,6 +28,8 @@
 
 static int i = 0;
 static char* p = 0;
+static size_t page_size = 0;
+static size_t mapping_size = 0;
 
 static jmp_buf buf;
 
@@ -47,7 +49,7 @@ static void sigsegv(int s) {
   switch (i) {
     case 0: {
       printf("PROT_NONE works, checking read...\n");
-      mprotect(p, 0x1000, PROT_READ);
+      mprotect(p, page_size, PROT_READ);
       i = -1;
       volatile char c = *p;
       i = 0;
@@ -55,27 +57,27 @@ static void sigsegv(int s) {
 
     case 1: {
       printf("PROT_READ works, checking write...\n");
-      mprotect(p, 0x1000, PROT_WRITE);
+      mprotect(p, page_size, PROT_WRITE);
       i = -1;
       *((volatile char*)p) = 'Y';
       i = 1;
-      mprotect(p, 0x1000, PROT_NONE);
+      mprotect(p, page_size, PROT_NONE);
     } break;
 
     case 2: {
       printf("PROT_WRITE works, checking exec...\n");
-      mprotect(p, 0x1000, PROT_WRITE);
+      mprotect(p, page_size, PROT_WRITE);
       i = -1;
       *((volatile unsigned char*)p) = 0xC3;  // ret
       fn f = (fn)p;
-      mprotect(p, 0x1000, PROT_EXEC);
+      mprotect(p, page_size, PROT_EXEC);
       f();
       i = 2;
     } break;
 
     default:
       printf("Attempting to return to original context...\n");
-      mprotect(p, 0x1000, PROT_READ | PROT_WRITE);
+      mprotect(p, page_size, PROT_READ | PROT_WRITE);
       longjmp(buf, 1);
   }
 
@@ -94,7 +96,15 @@ static void status(const char* s) {
 void test_mprotect() {
   int rc = 0;
 
-  p = mmap(0, 0x10000, PROT_NONE, MAP_PRIVATE | MAP_ANON, 0, 0);
+  const long configured_page_size = sysconf(_SC_PAGESIZE);
+  if (configured_page_size <= 0)
+    fail();
+  page_size = (size_t)configured_page_size;
+  mapping_size = 16 * page_size;
+
+  p = mmap(0, mapping_size, PROT_NONE, MAP_PRIVATE | MAP_ANON, 0, 0);
+  if (p == MAP_FAILED)
+    fail();
 
   // Install our custom SIGSEGV handler.
   static struct sigaction act;
@@ -121,65 +131,65 @@ void test_mprotect() {
   sigaction(SIGSEGV, &act, 0);
 
   // Check for 100% coverage.
-  mprotect(p, 0x10000, PROT_WRITE);
+  mprotect(p, mapping_size, PROT_WRITE);
   status("Test A... ");
   *p = 'X';
   status("OK\n");
-  mprotect(p, 0x10000, PROT_NONE);
+  mprotect(p, mapping_size, PROT_NONE);
 
   // Check for 100% enclosed.
-  mprotect(adjust_pointer(p, -0x1000), 0x12000, PROT_WRITE);
+  mprotect(adjust_pointer(p, -((ssize_t)page_size)), mapping_size + (2 * page_size), PROT_WRITE);
   status("Test B... ");
   if (setjmp(buf) == 1)
     fail();
   *p = 'X';
-  p[0x10000 - 1] = 'X';
+  p[mapping_size - 1] = 'X';
   status("OK\n");
-  mprotect(p, 0x10000, PROT_NONE);
+  mprotect(p, mapping_size, PROT_NONE);
 
   // Check for overlap at beginning.
-  mprotect(adjust_pointer(p, -0x1000), 0x5000, PROT_WRITE);
+  mprotect(adjust_pointer(p, -((ssize_t)page_size)), 5 * page_size, PROT_WRITE);
   status("Test C... ");
   if (setjmp(buf) == 1)
     fail();
   *p = 'X';
   if (setjmp(buf) == 0) {
-    p[0x5001] = 'X';
+    p[(5 * page_size) + 1] = 'X';
     fail();
   }
   status("OK\n");
-  mprotect(p, 0x10000, PROT_NONE);
+  mprotect(p, mapping_size, PROT_NONE);
 
   // Check for overlap at end.
-  mprotect(adjust_pointer(p, 0x5000), 0x6000, PROT_WRITE);
+  mprotect(adjust_pointer(p, 5 * page_size), 6 * page_size, PROT_WRITE);
   status("Test D... ");
   if (setjmp(buf) == 1)
     fail();
-  p[0x5000] = 'X';
+  p[5 * page_size] = 'X';
   if (setjmp(buf) == 0) {
     *p = 'X';
     fail();
   }
   status("OK\n");
-  mprotect(p, 0x10000, PROT_NONE);
+  mprotect(p, mapping_size, PROT_NONE);
 
   // Check middle.
-  mprotect(adjust_pointer(p, 0x2000), 0x6000, PROT_WRITE);
+  mprotect(adjust_pointer(p, 2 * page_size), 6 * page_size, PROT_WRITE);
   status("Test E... ");
   if (setjmp(buf) == 1)
     fail();
-  p[0x2000] = 'X';
+  p[2 * page_size] = 'X';
   if (setjmp(buf) == 0) {
     *p = 'X';
     fail();
   }
 
   if (setjmp(buf) == 0) {
-    p[0x8001] = 'X';
+    p[(8 * page_size) + 1] = 'X';
     fail();
   }
   status("OK\n");
-  mprotect(p, 0x10000, PROT_NONE);
+  mprotect(p, mapping_size, PROT_NONE);
 
   printf("mprotect(2) page range test was successful!\n");
 

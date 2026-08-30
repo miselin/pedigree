@@ -151,11 +151,12 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
   }
 
   /**
-   * Returns the full-page portion of an extent that is safe to transfer.
+   * Returns the native-block-aligned portion of an extent that is safe to
+   * transfer.
    *
    * The final extent of a device may be shorter than the preferred
-   * readahead size, but it must still satisfy both cache-page and device
-   * block alignment.
+   * readahead size. Cache allocation is rounded up separately so the final
+   * target page can be zero-filled beyond the device boundary.
    */
   size_t getCacheFillLength(uint64_t location) const;
 
@@ -211,6 +212,9 @@ class EXPORTED_PUBLIC ScsiDisk : public Disk {
 
   /** Issues the SCSI write fallback sequence for one supplied page. */
   bool writePageBuffer(uint64_t location, uintptr_t page);
+
+  /** Returns the device-backed portion of a cache page at p location. */
+  size_t getCachePageValidLength(uint64_t location) const;
 
   /** Cache::retireWriteback callback; the supplied page is borrowed. */
   static bool retireCachePageCallback(uintptr_t key, uintptr_t page, void* meta);

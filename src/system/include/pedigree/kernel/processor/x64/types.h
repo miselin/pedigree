@@ -60,7 +60,11 @@ typedef X64uint64_t X64size_t;
 typedef X64uint16_t X64io_port_t;
 
 /** Define the size of one physical page */
+#ifndef PAGE_SIZE
 #define PAGE_SIZE 4096
+#elif PAGE_SIZE != 4096
+#error PAGE_SIZE disagrees with the x86-64 MMU geometry
+#endif
 
 /** @} */
 

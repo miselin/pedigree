@@ -42,6 +42,17 @@
 
 DLTrapHandler DLTrapHandler::m_Instance;
 
+#if defined(PEDIGREE_HOSTED_PAGE_CONTENT_REGRESSIONS) && \
+    (!defined(PEDIGREE_HOSTED_DARWIN) || !PEDIGREE_HOSTED_DARWIN)
+extern bool runHostedPageContentRegressions();
+#endif
+
+#if defined(PEDIGREE_HOSTED_PAGE_CONTENT_REGRESSIONS)
+namespace {
+physical_uintptr_t (*g_DemandPageAllocationHook)() = nullptr;
+}
+#endif
+
 uintptr_t DynamicLinker::resolvePlt(SyscallState& state) {
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
 
@@ -305,6 +316,50 @@ bool DynamicLinker::loadObject(File* pFile, bool bDryRun) {
   return true;
 }
 
+#if defined(PEDIGREE_HOSTED_PAGE_CONTENT_REGRESSIONS)
+void DynamicLinker::setDemandPageAllocationHookForTest(physical_uintptr_t (*hook)()) {
+  g_DemandPageAllocationHook = hook;
+}
+#endif
+
+bool DynamicLinker::loadDemandPage(Elf* pElf, uintptr_t buffer, size_t size, uintptr_t offset,
+                                   SymbolTable* pSymbols, uintptr_t address) {
+  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const uintptr_t v = address & ~(pageSize - 1);
+
+  // Grab a physical page.
+  const physical_uintptr_t p =
+#if defined(PEDIGREE_HOSTED_PAGE_CONTENT_REGRESSIONS)
+      g_DemandPageAllocationHook ? g_DemandPageAllocationHook() :
+#endif
+                                 PhysicalMemoryManager::instance().allocatePage();
+  if (!p) {
+    WARNING("IMAGE: allocatePage() failed in ElfImage::trap()");
+    return false;
+  }
+
+  // Map it into the address space.
+  if (!va.map(p, reinterpret_cast<void*>(v),
+              VirtualAddressSpace::Write | VirtualAddressSpace::Execute)) {
+    WARNING("IMAGE: map() failed in ElfImage::trap(): vaddr: " << v);
+    PhysicalMemoryManager::instance().freePage(p);
+    return false;
+  }
+
+  ByteSet(reinterpret_cast<void*>(v), 0, pageSize);
+
+  // Now that it's mapped, load the ELF region.
+  if (!pElf->load(reinterpret_cast<uint8_t*>(buffer), size, offset, pSymbols, v, v + pageSize)) {
+    WARNING("LINKER: load() failed in DynamicLinker::trap()");
+    va.unmap(reinterpret_cast<void*>(v));
+    PhysicalMemoryManager::instance().freePage(p);
+    return false;
+  }
+
+  return true;
+}
+
 bool DynamicLinker::trap(uintptr_t address) {
   Elf* pElf = 0;
   uintptr_t offset = 0;
@@ -342,27 +397,7 @@ bool DynamicLinker::trap(uintptr_t address) {
   if (!pElf)
     return false;
 
-  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-
-  uintptr_t v = address & ~(PhysicalMemoryManager::getPageSize() - 1);
-
-  // Grab a physical page.
-  physical_uintptr_t p = PhysicalMemoryManager::instance().allocatePage();
-  // Map it into the address space.
-  if (!va.map(p, reinterpret_cast<void*>(v),
-              VirtualAddressSpace::Write | VirtualAddressSpace::Execute)) {
-    WARNING("IMAGE: map() failed in ElfImage::trap(): vaddr: " << v);
-    return false;
-  }
-
-  // Now that it's mapped, load the ELF region.
-  if (pElf->load(reinterpret_cast<uint8_t*>(buffer), size, offset, m_pProgramElf->getSymbolTable(),
-                 v, v + PhysicalMemoryManager::getPageSize()) == false) {
-    WARNING("LINKER: load() failed in DynamicLinker::trap()");
-    return false;
-  }
-
-  return true;
+  return loadDemandPage(pElf, buffer, size, offset, m_pProgramElf->getSymbolTable(), address);
 }
 
 uintptr_t DynamicLinker::resolve(String name) {
@@ -387,6 +422,12 @@ bool DLTrapHandler::trap(InterruptState& state, uintptr_t address, bool bIsWrite
 }
 
 static bool init() {
+#if defined(PEDIGREE_HOSTED_PAGE_CONTENT_REGRESSIONS) && \
+    (!defined(PEDIGREE_HOSTED_DARWIN) || !PEDIGREE_HOSTED_DARWIN)
+  if (!runHostedPageContentRegressions()) {
+    return false;
+  }
+#endif
   KernelCoreSyscallManager::instance().registerSyscall(KernelCoreSyscallManager::link,
                                                        &DynamicLinker::resolvePlt);
   return true;

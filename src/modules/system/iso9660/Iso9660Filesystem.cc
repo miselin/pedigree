@@ -19,6 +19,7 @@
 
 #include "Iso9660Filesystem.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -29,6 +30,12 @@
 #include "modules/Module.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
+
+namespace {
+constexpr size_t IsoSectorSize = 2048;
+constexpr size_t IsoSectorViewCapacity =
+    ((IsoSectorSize + TargetInfo::getPageSize() - 1) / TargetInfo::getPageSize()) + 1;
+}  // namespace
 
 String WideToMultiByteStr(uint8_t* in, size_t inLen, size_t maxLen) {
   NormalStaticString ret;
@@ -67,7 +74,7 @@ bool Iso9660Filesystem::initialise(Disk* pDisk) {
   m_pDisk = pDisk;
 
   /// \todo Obtain disk information (perhaps a new call in Disk?)
-  m_BlockSize = 2048;
+  m_BlockSize = IsoSectorSize;
   m_BlockNumber = 0;
 
   // Read volume descriptors until the primary one is found
@@ -75,19 +82,16 @@ bool Iso9660Filesystem::initialise(Disk* pDisk) {
   bool bFound = false;
   for (size_t i = 16; i < 256; i++) {
     const uint64_t diskLocation = i * m_BlockSize;
-    const BufferView buffer = m_pDisk->read(diskLocation);
-    if (!buffer || buffer.size() < m_BlockSize) {
-      if (buffer) {
-        m_pDisk->unpin(diskLocation);
-      }
+    alignas(Iso9660VolumeDescriptorPrimary) uint8_t sector[IsoSectorSize];
+    if (!readSector(diskLocation, sector)) {
       return false;
     }
+    const BufferView buffer(sector, sizeof(sector));
 
     // Get the descriptor for this entry
     Iso9660VolumeDescriptor* vDesc = buffer.as<Iso9660VolumeDescriptor>();
     if (StringCompareN(reinterpret_cast<const char*>(vDesc->Ident), "CD001", 5) != 0) {
       NOTICE("IDENT: " << reinterpret_cast<const char*>(vDesc->Ident));
-      m_pDisk->unpin(diskLocation);
       return false;
     }
 
@@ -115,8 +119,6 @@ bool Iso9660Filesystem::initialise(Disk* pDisk) {
       } else
         NOTICE("Not handling Joliet level");
     }
-    m_pDisk->unpin(diskLocation);
-
     if (descriptorType == TERM_VOL_DESC)
       break;
   }
@@ -193,6 +195,22 @@ const String& Iso9660Filesystem::getVolumeLabel() const {
   return m_VolumeLabel;
 }
 
+bool Iso9660Filesystem::readSector(uint64_t location, void* destination) {
+  if (!m_pDisk || !destination) {
+    return false;
+  }
+
+  BufferView storage[IsoSectorViewCapacity];
+  BufferViewSequence views(storage, IsoSectorViewCapacity);
+  if (!m_pDisk->readViews(location, IsoSectorSize, views)) {
+    return false;
+  }
+
+  const bool copied = views.copyTo(destination, IsoSectorSize);
+  m_pDisk->unpinViews(location, views);
+  return copied;
+}
+
 uintptr_t Iso9660Filesystem::readBlock(File* pFile, uint64_t location) {
   // Sanity check.
   if (pFile->isDirectory())
@@ -202,16 +220,15 @@ uintptr_t Iso9660Filesystem::readBlock(File* pFile, uint64_t location) {
   Iso9660DirRecord rec = file->getDirRecord();
 
   // Attempting to read past the EOF?
-  if (location > pFile->getSize())
+  if (location >= pFile->getSize())
     return 0;  // Impossible
 
-  size_t blockSkip = location / m_BlockSize;
-  size_t blockNum = LITTLE_TO_HOST32(rec.ExtentLocation_LE) + blockSkip;
-
-  // Begin reading
-  const uint64_t diskLocation = blockNum * m_BlockSize;
+  const size_t viewLength =
+      TargetInfo::getPageSize() < m_BlockSize ? TargetInfo::getPageSize() : m_BlockSize;
+  const uint64_t diskLocation =
+      (static_cast<uint64_t>(LITTLE_TO_HOST32(rec.ExtentLocation_LE)) * m_BlockSize) + location;
   const BufferView buffer = m_pDisk->read(diskLocation);
-  if (!buffer || buffer.size() < m_BlockSize) {
+  if (!buffer || buffer.size() < viewLength) {
     if (buffer) {
       m_pDisk->unpin(diskLocation);
     }

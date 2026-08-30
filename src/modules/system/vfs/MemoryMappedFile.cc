@@ -686,7 +686,7 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite) {
     size_t nRead = m_pBacking->read(fileOffset, nBytes, address);
     if (nRead < pageSz) {
       // Couldn't quite read in a page - zero out what's left.
-      ByteSet(reinterpret_cast<void*>(address + nRead), 0, pageSz - nRead - 1);
+      ByteSet(reinterpret_cast<void*>(address + nRead), 0, pageSz - nRead);
     }
 
     trackMapping(address, newPhys);

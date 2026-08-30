@@ -31,6 +31,7 @@
 class Elf;
 class File;
 class MemoryMappedObject;
+class SymbolTable;
 
 /** The dynamic linker tracks instances of shared objects through
     an address space. */
@@ -86,6 +87,15 @@ class EXPORTED_PUBLIC DynamicLinker {
   /** Manually resolves a given symbol name. */
   uintptr_t resolve(String name);
 
+#if defined(PEDIGREE_HOSTED_PAGE_CONTENT_REGRESSIONS)
+  static bool loadDemandPageForTest(Elf* pElf, uintptr_t buffer, size_t size, uintptr_t offset,
+                                    SymbolTable* pSymbols, uintptr_t address) {
+    return loadDemandPage(pElf, buffer, size, offset, pSymbols, address);
+  }
+
+  static void setDemandPageAllocationHookForTest(physical_uintptr_t (*hook)());
+#endif
+
  private:
   /** Operator= is unused and is therefore private. */
   DynamicLinker& operator=(const DynamicLinker&);
@@ -104,6 +114,9 @@ class EXPORTED_PUBLIC DynamicLinker {
   uintptr_t resolvePltSymbol(uintptr_t libraryId, uintptr_t symIdx);
 
   void initPlt(Elf* pElf, uintptr_t value);
+
+  static bool loadDemandPage(Elf* pElf, uintptr_t buffer, size_t size, uintptr_t offset,
+                             SymbolTable* pSymbols, uintptr_t address);
 
   Elf* m_pProgramElf;
   uintptr_t m_ProgramStart;

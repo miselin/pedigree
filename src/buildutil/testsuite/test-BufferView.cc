@@ -83,6 +83,47 @@ TEST(PedigreeBufferView, SubviewRestrictsBothEnds) {
   EXPECT_EQ(prefix.size(), 4U);
 }
 
+TEST(PedigreeBufferViewSequence, CopiesAcrossDiscontiguousViews) {
+  uint8_t first[] = {0, 1, 2};
+  uint8_t second[] = {3, 4};
+  uint8_t third[] = {5, 6, 7, 8};
+  BufferView storage[3];
+  BufferViewSequence sequence(storage, 3);
+
+  ASSERT_TRUE(sequence.append(BufferView(first, sizeof(first))));
+  ASSERT_TRUE(sequence.append(BufferView(second, sizeof(second))));
+  ASSERT_TRUE(sequence.append(BufferView(third, sizeof(third))));
+  EXPECT_EQ(sequence.count(), 3U);
+  EXPECT_EQ(sequence.size(), 9U);
+
+  uint8_t copied[6] = {};
+  ASSERT_TRUE(sequence.copyTo(copied, sizeof(copied), 2));
+  const uint8_t expected[] = {2, 3, 4, 5, 6, 7};
+  EXPECT_EQ(MemoryCompare(copied, expected, sizeof(expected)), 0);
+
+  const uint8_t replacement[] = {0xA1, 0xA2, 0xA3, 0xA4};
+  ASSERT_TRUE(sequence.copyFrom(replacement, sizeof(replacement), 1));
+  EXPECT_EQ(first[1], 0xA1);
+  EXPECT_EQ(first[2], 0xA2);
+  EXPECT_EQ(second[0], 0xA3);
+  EXPECT_EQ(second[1], 0xA4);
+
+  sequence.clear();
+  EXPECT_TRUE(sequence.empty());
+  EXPECT_EQ(sequence.size(), 0U);
+}
+
+TEST(PedigreeBufferViewSequence, RejectsDescriptorExhaustion) {
+  uint8_t bytes[2] = {};
+  BufferView storage[1];
+  BufferViewSequence sequence(storage, 1);
+
+  ASSERT_TRUE(sequence.append(BufferView(bytes, 1)));
+  EXPECT_FALSE(sequence.append(BufferView(bytes + 1, 1)));
+  EXPECT_EQ(sequence.count(), 1U);
+  EXPECT_EQ(sequence.size(), 1U);
+}
+
 #if !defined(NDEBUG)
 TEST(PedigreeBufferView, RejectsOutOfBoundsArithmeticInDebugBuilds) {
   alignas(uint32_t) uint8_t bytes[8] = {};
@@ -92,5 +133,11 @@ TEST(PedigreeBufferView, RejectsOutOfBoundsArithmeticInDebugBuilds) {
   EXPECT_DEATH((void)view.subview(7, 2), "");
   EXPECT_DEATH((void)view.as<uint32_t>(1), "");
   EXPECT_DEATH((void)view[8], "");
+
+  BufferView storage[1];
+  BufferViewSequence sequence(storage, 1);
+  ASSERT_TRUE(sequence.append(view));
+  uint8_t output[1] = {};
+  EXPECT_DEATH((void)sequence.copyTo(output, 1, 9), "");
 }
 #endif

@@ -11,6 +11,7 @@
 #include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/UnixFilesystem.h"
+#include "modules/subsys/posix/file-syscalls.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/subsys/posix/poll-syscalls.h"
 #include "modules/subsys/posix/system-syscalls.h"
@@ -22,6 +23,7 @@
 #undef PEDIGREE_SIGRET
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/errors.h"
 #include "pedigree/kernel/linker/KernelElf.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
@@ -1294,6 +1296,30 @@ bool establishedMappingAliasLifetime() {
   return true;
 }
 
+bool munmapUsesTargetPageGeometry(Thread* thread) {
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+
+  thread->setErrno(0);
+  const int misalignedResult = posix_munmap(reinterpret_cast<void*>(pageSize / 2), pageSize);
+  const bool rejectedMisaligned =
+      misalignedResult == -1 && thread->getErrno() == Error::InvalidArgument;
+
+  thread->setErrno(0);
+  const int alignedResult = posix_munmap(reinterpret_cast<void*>(pageSize), pageSize);
+  const bool acceptedAligned = alignedResult == 0 && !thread->getErrno();
+  thread->setErrno(0);
+
+  if (!rejectedMisaligned || !acceptedAligned) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL munmap-target-page-geometry: "
+        "munmap did not validate addresses against the target page size");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS munmap-target-page-geometry");
+  return true;
+}
+
 bool mappingManagerSplitLifetime(Process* process, bool exactSuffix) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t mappingLength = pageSize * 3;
@@ -2266,6 +2292,9 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN mmap-established-alias-lifetime");
   establishedAliasPassed &= establishedMappingAliasLifetime();
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN munmap-target-page-geometry");
+  establishedAliasPassed &= munmapUsesTargetPageGeometry(thread);
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN mmap-split-alias-lifetime");
   establishedAliasPassed &= mappingManagerSplitLifetime(kernelProcess);

@@ -452,4 +452,8 @@ TEST_P(Ext2FillCacheWriteback, MissingFillPageFallsBackToOneFilesystemBlock) {
   EXPECT_FALSE(Ext2FillCacheTestPeer::fillPageExists(file, kTargetPage));
 }
 
+#if PEDIGREE_TARGET_PAGE_SIZE > 2048
 INSTANTIATE_TEST_CASE_P(BlockSizes, Ext2FillCacheWriteback, ::testing::Values(1024U, 2048U));
+#elif PEDIGREE_TARGET_PAGE_SIZE > 1024
+INSTANTIATE_TEST_CASE_P(BlockSizes, Ext2FillCacheWriteback, ::testing::Values(1024U));
+#endif

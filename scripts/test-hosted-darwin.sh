@@ -5,8 +5,8 @@
 
 set -Eeuo pipefail
 
-if (( $# != 4 )); then
-    echo "usage: scripts/test-hosted-darwin.sh KERNEL MODULE CONFIGDB LOG" >&2
+if (( $# != 5 )); then
+    echo "usage: scripts/test-hosted-darwin.sh KERNEL MODULE CONFIGDB LOG TARGET_PAGE_SIZE" >&2
     exit 2
 fi
 
@@ -15,18 +15,24 @@ kernel=$1
 module=$2
 configdb=$3
 log_file=$4
+expected_target_page_size=$5
 
 if [[ $(uname -s) != Darwin ]]; then
     echo "The Darwin hosted lifecycle can only run on macOS." >&2
     exit 2
 fi
 
-for command in arch grep python3 tar tee; do
+for command in arch getconf grep python3 tar tee; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "Required host command is unavailable: $command" >&2
         exit 1
     fi
 done
+
+if [[ ! "$expected_target_page_size" =~ ^[1-9][0-9]*$ ]]; then
+    echo "TARGET_PAGE_SIZE must be a positive integer." >&2
+    exit 2
+fi
 
 for artifact in "$kernel" "$module" "$configdb"; do
     if [[ ! -f "$artifact" ]]; then
@@ -39,6 +45,7 @@ if ! arch -x86_64 /usr/bin/true; then
     echo "Rosetta x86-64 execution is unavailable." >&2
     exit 1
 fi
+host_page_size=$(arch -x86_64 getconf PAGESIZE)
 
 mkdir -p "$(dirname -- "$log_file")"
 initrd="$(dirname -- "$log_file")/hosted-core-initrd.tar"
@@ -62,8 +69,14 @@ if (( run_status != 0 )); then
 fi
 
 required_markers=(
+    "HOSTED-PAGE-GEOMETRY: target=$expected_target_page_size host=$host_page_size"
     "KERNELELF: Preloaded module hosted-core-smoke"
     "HOSTED-MEMORY-TEST: PASS anonymous-region-release"
+    "HOSTED-WAIT-TEST: PASS event-payload-page-span"
+    "HOSTED-WAIT-TEST: PASS memory-pool-page-span"
+    "HOSTED-WAIT-TEST: PASS ipc-payload-page-span"
+    "HOSTED-WAIT-TEST: PASS cache-range-geometry"
+    "HOSTED-WAIT-TEST: PASS disk-view-sequence-page-span"
     "HOSTED-WAIT-TEST: PASS all"
     "HOSTED-SMOKE: Darwin core smoke executed"
     "HOSTED-SHUTDOWN: timers and signals quiesced"

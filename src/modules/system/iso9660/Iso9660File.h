@@ -20,6 +20,7 @@
 #ifndef ISO9660FILE_H
 #define ISO9660FILE_H
 
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/String.h"
@@ -57,7 +58,7 @@ class Iso9660File : public File {
   virtual void unpinBlock(uint64_t location);
 
   virtual size_t getBlockSize() const {
-    return 2048;
+    return TargetInfo::getPageSize() < 2048 ? TargetInfo::getPageSize() : 2048;
   }
 
  private:

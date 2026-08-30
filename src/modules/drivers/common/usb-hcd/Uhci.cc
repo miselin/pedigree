@@ -40,6 +40,7 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "modules/drivers/common/DmaBuffer.h"
 #include "modules/system/usb/Usb.h"
 
 #define INDEX_FROM_TD_VIRT(ptr) \
@@ -47,10 +48,15 @@
 #define INDEX_FROM_TD_PHYS(ptr) ((((ptr) - m_pTDListPhys) / sizeof(TD)))
 #define PHYS_TD(idx) (m_pTDListPhys + ((idx) * sizeof(TD)))
 
-#define QH_REGION_SIZE 0x4000
-#define TD_REGION_SIZE 0x8000
-
-#define TOTAL_MEM_PAGES ((QH_REGION_SIZE / 0x1000) + (TD_REGION_SIZE / 0x1000) + 1)
+namespace {
+constexpr size_t UhciHardwareFrameListBytes = 4096;
+constexpr size_t UhciQhRegionBytes = 0x4000;
+constexpr size_t UhciTdRegionBytes = 0x8000;
+constexpr size_t UhciDmaRegionBytes =
+    UhciHardwareFrameListBytes + UhciQhRegionBytes + UhciTdRegionBytes;
+constexpr size_t UhciMaximumTransferBytes = 0x800;
+constexpr physical_uintptr_t UhciHighestDmaAddress = 0xffffffff;
+}  // namespace
 
 static int threadStub(void* p) {
   TerminationDeferral workerLifetime;
@@ -104,9 +110,16 @@ Uhci::Uhci(Device* pDev)
   m_pBase = m_Addresses[0]->m_Io;
   m_Addresses[0]->map();
 
+  if (TargetInfo::getPageSize() < UhciHardwareFrameListBytes ||
+      (TargetInfo::getPageSize() % UhciHardwareFrameListBytes)) {
+    ERROR("USB: UHCI: target pages cannot align the 4 KiB hardware frame list");
+    return;
+  }
+
   // Allocate the memory region
   if (!PhysicalMemoryManager::instance().allocateRegion(
-          m_UhciMR, TOTAL_MEM_PAGES, PhysicalMemoryManager::continuous,
+          m_UhciMR, DriverDma::pageCountForBytes(UhciDmaRegionBytes),
+          PhysicalMemoryManager::continuous | PhysicalMemoryManager::below4GB,
           VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode)) {
     ERROR("USB: UHCI: Couldn't allocate memory region!");
     return;
@@ -116,12 +129,12 @@ Uhci::Uhci(Device* pDev)
   physical_uintptr_t pPhysBase = m_UhciMR.physicalAddress();
 
   m_pFrameList = reinterpret_cast<uint32_t*>(pVirtBase);
-  m_pQHList = reinterpret_cast<QH*>(pVirtBase + 0x1000);
-  m_pTDList = reinterpret_cast<TD*>(pVirtBase + 0x1000 + QH_REGION_SIZE);
+  m_pQHList = reinterpret_cast<QH*>(pVirtBase + UhciHardwareFrameListBytes);
+  m_pTDList = reinterpret_cast<TD*>(pVirtBase + UhciHardwareFrameListBytes + UhciQhRegionBytes);
 
   m_pFrameListPhys = pPhysBase;
-  m_pQHListPhys = pPhysBase + 0x1000;
-  m_pTDListPhys = m_pQHListPhys + QH_REGION_SIZE;
+  m_pQHListPhys = pPhysBase + UhciHardwareFrameListBytes;
+  m_pTDListPhys = m_pQHListPhys + UhciQhRegionBytes;
 
   // Allocate room for the Dummy QH
   m_QHBitmap.set(0);
@@ -142,6 +155,7 @@ Uhci::Uhci(Device* pDev)
   pDummyQH->pMetaData->pPeriodicParam = 0;
   pDummyQH->pMetaData->periodicGeneration = 0;
   pDummyQH->pMetaData->bPeriodic = false;
+  pDummyQH->pMetaData->bBuildFailed = false;
   pDummyQH->pMetaData->pFirstTD = nullptr;
   pDummyQH->pMetaData->pLastTD = nullptr;
   pDummyQH->pMetaData->nTotalBytes = 0;
@@ -529,8 +543,8 @@ Uhci::~Uhci() {
 
   if (m_pQHList) {
     LockGuard<Mutex> transactionGuard(m_Mutex);
-    constexpr size_t QhListCount = QH_REGION_SIZE / sizeof(QH);
-    constexpr size_t TdListCount = TD_REGION_SIZE / sizeof(TD);
+    constexpr size_t QhListCount = UhciQhRegionBytes / sizeof(QH);
+    constexpr size_t TdListCount = UhciTdRegionBytes / sizeof(TD);
 
     // Transactions built but never accepted were never DMA-owned and do
     // not carry a retained transfer admission.
@@ -628,8 +642,8 @@ IrqDisposition Uhci::irq(irq_id_t number) {
     // that occur before the last transfer. These will create an error
     // status only.
     if (nStatus & (UHCI_STS_INT | UHCI_STS_ERR)) {
-      constexpr size_t QhListCount = QH_REGION_SIZE / sizeof(QH);
-      constexpr size_t TdListCount = TD_REGION_SIZE / sizeof(TD);
+      constexpr size_t QhListCount = UhciQhRegionBytes / sizeof(QH);
+      constexpr size_t TdListCount = UhciTdRegionBytes / sizeof(TD);
       size_t qhBudget = QhListCount;
       QH* pQH = 0;
       while (qhBudget) {
@@ -839,22 +853,28 @@ void Uhci::addTransferToTransaction(uintptr_t pTransaction, bool bToggle, UsbPid
 
   LockGuard<Mutex> transactionGuard(m_Mutex);
   size_t nIndex = 0;
-  constexpr size_t QhListCount = QH_REGION_SIZE / sizeof(QH);
+  constexpr size_t QhListCount = UhciQhRegionBytes / sizeof(QH);
   if ((pTransaction == static_cast<uintptr_t>(-1)) || (pTransaction >= QhListCount) || !m_pQHList ||
       !m_QHBitmap.test(pTransaction) || !m_pQHList[pTransaction].pMetaData) {
     ERROR("USB: UHCI: invalid transaction for transfer");
     return;
   }
   QH* pQH = &m_pQHList[pTransaction];
-  if (pQH->pMetaData->pPrev || pQH->pMetaData->pNext ||
+  if (pQH->pMetaData->bBuildFailed || pQH->pMetaData->pPrev || pQH->pMetaData->pNext ||
       (!pQH->pMetaData->bPeriodic &&
        pQH->pMetaData->completion.state() != UsbHcd::TransferCompletion::State::Idle)) {
     ERROR("USB: UHCI: cannot extend an accepted transaction");
     return;
   }
+  if (nBytes > UhciMaximumTransferBytes) {
+    ERROR("USB: UHCI: transfer exceeds one TD");
+    pQH->pMetaData->bBuildFailed = true;
+    return;
+  }
   nIndex = m_TDBitmap.getFirstClear();
-  if (nIndex >= (TD_REGION_SIZE / sizeof(TD))) {
+  if (nIndex >= (UhciTdRegionBytes / sizeof(TD))) {
     ERROR("USB: UHCI: TD space full");
+    pQH->pMetaData->bBuildFailed = true;
     return;
   }
   m_TDBitmap.set(nIndex);
@@ -890,17 +910,16 @@ void Uhci::addTransferToTransaction(uintptr_t pTransaction, bool bToggle, UsbPid
   pTD->nBufferSize = nBytes;
   if (nBytes) {
     VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-    if (va.isMapped(reinterpret_cast<void*>(pBuffer))) {
-      physical_uintptr_t phys = 0;
-      size_t flags = 0;
-      va.getMapping(reinterpret_cast<void*>(pBuffer), phys, flags);
-      pTD->pBuff = phys + (pBuffer & 0xFFF);
-    } else {
-      ERROR("UHCI: addTransferToTransaction: Buffer (page " << Dec << pBuffer << Hex
-                                                            << ") isn't mapped!");
+    physical_uintptr_t physicalBuffer = 0;
+    if (!DriverDma::contiguousVirtualRangeToPhysical(va, pBuffer, nBytes, physicalBuffer) ||
+        !DriverDma::physicalRangeFits(physicalBuffer, nBytes, UhciHighestDmaAddress)) {
+      ERROR("UHCI: addTransferToTransaction: buffer range is not contiguous DMA memory");
+      pQH->pMetaData->bBuildFailed = true;
+      ByteSet(pTD, 0, sizeof(TD));
       m_TDBitmap.clear(nIndex);
       return;
     }
+    pTD->pBuff = physicalBuffer;
   }
 
   // Link into the existing TD list
@@ -930,7 +949,7 @@ uintptr_t Uhci::createTransaction(UsbEndpoint endpointInfo) {
   if (!m_pQHList)
     return static_cast<uintptr_t>(-1);
   nIndex = m_QHBitmap.getFirstClear();
-  if (nIndex >= (QH_REGION_SIZE / sizeof(QH))) {
+  if (nIndex >= (UhciQhRegionBytes / sizeof(QH))) {
     ERROR("USB: UHCI: QH space full");
     return static_cast<uintptr_t>(-1);
   }
@@ -949,6 +968,7 @@ uintptr_t Uhci::createTransaction(UsbEndpoint endpointInfo) {
   pQH->pMetaData->periodicGeneration = 0;
   pQH->pMetaData->endpointInfo = endpointInfo;
   pQH->pMetaData->bPeriodic = false;
+  pQH->pMetaData->bBuildFailed = false;
   pQH->pMetaData->pFirstTD = pQH->pMetaData->pLastTD = 0;
   pQH->pMetaData->nTotalBytes = 0;
   pQH->pMetaData->pPrev = pQH->pMetaData->pNext = 0;
@@ -971,7 +991,7 @@ bool Uhci::doAsyncOwned(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssi
     return false;
 
   LockGuard<Mutex> transactionGuard(m_Mutex);
-  constexpr size_t QhListCount = QH_REGION_SIZE / sizeof(QH);
+  constexpr size_t QhListCount = UhciQhRegionBytes / sizeof(QH);
   if ((pTransaction == static_cast<uintptr_t>(-1)) || (pTransaction >= QhListCount) ||
       !m_QHBitmap.test(pTransaction)) {
     ERROR("UHCI: doAsync: didn't get a valid transaction id [" << pTransaction << "].");
@@ -984,8 +1004,8 @@ bool Uhci::doAsyncOwned(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssi
     m_QHBitmap.clear(pTransaction);
     return false;
   }
-  if (!pQH->pMetaData->pLastTD) {
-    ERROR("UHCI: doAsync: transaction has no transfers [" << pTransaction << "].");
+  if (pQH->pMetaData->bBuildFailed || !pQH->pMetaData->pLastTD) {
+    ERROR("UHCI: doAsync: transaction could not be submitted [" << pTransaction << "].");
     reclaimQueueHeadLocked(pQH);
     return false;
   }
@@ -1069,7 +1089,7 @@ void Uhci::cancelAsyncAndDrain(uintptr_t pTransaction, void (*pCallback)(uintptr
 
   {
     LockGuard<Mutex> transactionGuard(m_Mutex);
-    constexpr size_t QhListCount = QH_REGION_SIZE / sizeof(QH);
+    constexpr size_t QhListCount = UhciQhRegionBytes / sizeof(QH);
     if ((pTransaction != static_cast<uintptr_t>(-1)) && (pTransaction < QhListCount) &&
         m_QHBitmap.test(pTransaction)) {
       QH* pQH = &m_pQHList[pTransaction];
@@ -1135,7 +1155,7 @@ bool Uhci::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
     bool matched = false;
     {
       LockGuard<Mutex> transactionGuard(m_Mutex);
-      constexpr size_t QhListCount = QH_REGION_SIZE / sizeof(QH);
+      constexpr size_t QhListCount = UhciQhRegionBytes / sizeof(QH);
       if (token.transaction < QhListCount && m_QHBitmap.test(token.transaction)) {
         QH* pQH = &m_pQHList[token.transaction];
         QH::MetaData* metadata = pQH->pMetaData;

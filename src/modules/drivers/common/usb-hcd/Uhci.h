@@ -125,6 +125,7 @@ class Uhci : public UsbHub, public IrqHandler, public RequestQueue, public Timer
       UsbEndpoint endpointInfo;
 
       bool bPeriodic;
+      bool bBuildFailed;
       TD* pFirstTD;
       TD* pLastTD;
       size_t nTotalBytes;

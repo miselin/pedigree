@@ -15,6 +15,13 @@ if (PEDIGREE_HOSTED_DARWIN)
     set(CMAKE_EXECUTABLE_CREATE_CXX_FLAGS "")
     set(CMAKE_C_LINK_FLAGS "")
     set(CMAKE_CXX_LINK_FLAGS "")
+
+    if (NOT PEDIGREE_STATIC_DRIVERS)
+        # Kernel assembly is Mach-O, but dynamically loaded modules remain
+        # Pedigree ELF and must retain ELF symbol spelling.
+        set(CMAKE_ASM_NASM_COMPILE_OBJECT
+            "<CMAKE_ASM_NASM_COMPILER> <DEFINES> <INCLUDES> -felf64 -DPEDIGREE_TARGET_PAGE_SIZE=${PEDIGREE_TARGET_PAGE_SIZE} -o <OBJECT> <SOURCE>")
+    endif ()
 endif ()
 
 # Preserve original linker flags
@@ -94,7 +101,12 @@ if (PEDIGREE_STATIC_DRIVERS)
     # time as the kernel's constructors.
     set(PEDIGREE_MODULE_LINKFLAGS "${PEDIGREE_MODULE_LINKFLAGS}" "-Wl,-T,${PEDIGREE_MODULE_STATICLINKSCRIPT}")
 else ()
-    set(PEDIGREE_MODULE_LINKFLAGS "${PEDIGREE_MODULE_LINKFLAGS}" "-Wl,-shared" "-Wl,-T,${PEDIGREE_MODULE_LINKSCRIPT}")
+    set(PEDIGREE_MODULE_LINKFLAGS
+        "${PEDIGREE_MODULE_LINKFLAGS}"
+        "-Wl,-shared"
+        "-Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}"
+        "-Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE}"
+        "-Wl,-T,${PEDIGREE_MODULE_LINKSCRIPT}")
 endif ()
 
 include_directories(
@@ -313,10 +325,12 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/lifetime-lease-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/mutex-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pagefault-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/payload-page-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/primitive-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/process-exit-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/requestqueue-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/signal-interruption-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/storage-page-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/timer-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/wait-regressions.cc)
         target_compile_definitions(
@@ -333,6 +347,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/mutex-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/network-filter-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pagefault-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/payload-page-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pipe-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/primitive-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/process-exit-regressions.cc
@@ -392,10 +407,23 @@ if (NOT EXISTS ${LINKER_ASM})
     set (LINKER_ASM "")
 endif ()
 
+set(LINKER_REGRESSION_SOURCES)
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
+    PEDIGREE_HOSTED_SMOKE_TESTS)
+    list(APPEND LINKER_REGRESSION_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/page-content-regressions.cc)
+endif ()
+
 pedigree_module(linker "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/DynamicLinker.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/${PEDIGREE_LINKERDIR}/DynamicLinker.cc
-    ${LINKER_ASM})
+    ${LINKER_ASM}
+    ${LINKER_REGRESSION_SOURCES})
+
+if (LINKER_REGRESSION_SOURCES)
+    target_compile_definitions(
+        linker PRIVATE PEDIGREE_HOSTED_PAGE_CONTENT_REGRESSIONS=1)
+endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     set_source_files_properties(
@@ -713,6 +741,8 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED
 endif ()
 target_link_libraries(vdso PRIVATE gcc
     "-Wl,--soname,linux-vdso.so.1" "-Wl,--hash-style=both" "-Wl,-Bsymbolic"
+    "-Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}"
+    "-Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE}"
     "-nostdlib"
     "-T${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/vdso.ld"
     "-Wl,--version-script,${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/glue-infoblock.ld")
@@ -792,6 +822,9 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
         ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}
         ${CMAKE_SOURCE_DIR}/images/local/support/gcc/include/c++/${CMAKE_CXX_COMPILER_VERSION}/${PEDIGREE_COMPILER_TARGET})
     target_link_libraries(native-user PRIVATE -nostdlib gcc)
+    target_link_options(native-user PRIVATE
+        -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
+        -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})
     if (PEDIGREE_DTRELR_ENABLED)
         target_link_options(native-user PRIVATE -Wl,-z,pack-relative-relocs)
     endif ()
@@ -810,6 +843,9 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     add_library(pedigree-c-user SHARED
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-c-syscalls.c)
     set_target_properties(pedigree-c-user PROPERTIES OUTPUT_NAME "pedigree-c")
+    target_link_options(pedigree-c-user PRIVATE
+        -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
+        -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})
     if (PEDIGREE_DTRELR_ENABLED)
         target_link_options(pedigree-c-user PRIVATE -Wl,-z,pack-relative-relocs)
     endif ()

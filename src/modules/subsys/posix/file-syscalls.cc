@@ -1829,12 +1829,14 @@ int posix_mprotect(void* p, size_t len, int prot) {
 int posix_munmap(void* addr, size_t len) {
   F_NOTICE("munmap(" << reinterpret_cast<uintptr_t>(addr) << ", " << len << ")");
 
-  if (!len) {
+  const uintptr_t address = reinterpret_cast<uintptr_t>(addr);
+  const size_t pageSz = PhysicalMemoryManager::getPageSize();
+  if (!len || (address & (pageSz - 1))) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
-  MemoryMapManager::instance().remove(reinterpret_cast<uintptr_t>(addr), len);
+  MemoryMapManager::instance().remove(address, len);
 
   return 0;
 }

@@ -301,6 +301,7 @@ assert_clean_log()
         "invoke attempted with multiple threads" \
         "HOSTED-WAIT-TEST: FAIL" \
         "HOSTED-MEMORY-TEST: FAIL" \
+        "HOSTED-PAGE-CONTENT-TEST: FAIL" \
         "HOSTED-SYSCALL-TEST: FAIL" \
         "HOSTED-NETWORK-TEST: FAIL" \
         "HOSTED-SMOKE: FAIL" \
@@ -439,6 +440,7 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS descriptor-close-pinning" \
         "HOSTED-SYSCALL-TEST: PASS file-established-alias-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS mmap-established-alias-lifetime" \
+        "HOSTED-SYSCALL-TEST: PASS munmap-target-page-geometry" \
         "HOSTED-SYSCALL-TEST: PASS mmap-split-alias-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS posix-path-lookup-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS descriptor-close-generation" \
@@ -454,7 +456,9 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS posix-duplicate-init-rollback-preserved-process" \
         "HOSTED-SYSCALL-TEST: PASS posix-terminal-drain-created-fixture-published" \
         "HOSTED-SYSCALL-TEST: PASS posix-terminal-blocked-handler-fixture-published" \
-        "HOSTED-SYSCALL-TEST: PASS posix-terminal-blocked-handler-released-by-process-exit"
+        "HOSTED-SYSCALL-TEST: PASS posix-terminal-blocked-handler-released-by-process-exit" \
+        "HOSTED-PAGE-CONTENT-TEST: PASS dynamic-demand-page-zero-fill" \
+        "HOSTED-PAGE-CONTENT-TEST: PASS mmap-eof-zero-fill"
     do
         assert_marker_once "$empty_log" "$checkpoint"
     done
@@ -525,6 +529,9 @@ assert_marker \
     "$populated_log" "HOSTED-MEMORY-TEST: PASS anonymous-region-release"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: BEGIN"
 assert_all_wait_markers_once "$populated_log"
+assert_marker_once "$populated_log" "HOSTED-WAIT-TEST: PASS event-payload-page-span"
+assert_marker_once "$populated_log" "HOSTED-WAIT-TEST: PASS memory-pool-page-span"
+assert_marker_once "$populated_log" "HOSTED-WAIT-TEST: PASS ipc-payload-page-span"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS wake-before-block"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS semaphore-pre-block"
 assert_marker \

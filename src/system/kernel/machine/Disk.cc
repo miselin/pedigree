@@ -48,6 +48,43 @@ BufferView Disk::read(uint64_t location) {
   return BufferView();
 }
 
+bool Disk::readViews(uint64_t location, size_t length, BufferViewSequence& views) {
+  if (!views.empty() || location > getSize() || length > (getSize() - location)) {
+    return false;
+  }
+
+  size_t remaining = length;
+  uint64_t current = location;
+  while (remaining) {
+    const BufferView view = read(current);
+    if (!view || view.empty()) {
+      unpinViews(location, views);
+      return false;
+    }
+
+    const size_t chunk = view.size() < remaining ? view.size() : remaining;
+    if (!views.append(view.first(chunk))) {
+      unpin(current);
+      unpinViews(location, views);
+      return false;
+    }
+
+    current += chunk;
+    remaining -= chunk;
+  }
+  return true;
+}
+
+void Disk::unpinViews(uint64_t location, BufferViewSequence& views) {
+  uint64_t current = location;
+  for (size_t i = 0; i < views.count(); ++i) {
+    const BufferView view = views[i];
+    unpin(current);
+    current += view.size();
+  }
+  views.clear();
+}
+
 void Disk::write(uint64_t location) {}
 
 void Disk::align(uint64_t location) {}

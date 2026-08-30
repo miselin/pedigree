@@ -47,6 +47,13 @@
 namespace {
 constexpr size_t ScsiCachePageBytes = TargetInfo::getPageSize();
 
+size_t cacheExtentLength(size_t validLength) {
+  if (!validLength || validLength > (~static_cast<size_t>(0) - (ScsiCachePageBytes - 1))) {
+    return 0;
+  }
+  return (validLength + ScsiCachePageBytes - 1) & ~(ScsiCachePageBytes - 1);
+}
+
 bool discardEditingRange(Cache& cache, uintptr_t key, size_t length) {
   bool discarded = true;
   for (size_t offset = 0; offset < length; offset += ScsiCachePageBytes) {
@@ -231,7 +238,7 @@ bool ScsiDisk::retireCachePageCallback(uintptr_t key, uintptr_t page, void* meta
   const uint64_t result =
       controller->addRequest(0, RequestQueue::NewRequest, SCSI_REQUEST_WRITE_DIRECT,
                              reinterpret_cast<uint64_t>(disk), key, page);
-  return result == ScsiCachePageBytes;
+  return result == disk->getCachePageValidLength(key);
 }
 
 ScsiDisk::ScsiDisk()
@@ -327,6 +334,13 @@ bool ScsiDisk::initialise(ScsiController* pController, size_t nUnit) {
   // Get the capacity of the device
   if (!getCapacityInternal(&m_NumBlocks, &m_NativeBlockSize)) {
     ERROR("ScsiDisk: could not determine device capacity");
+    return false;
+  }
+  if (!m_NativeBlockSize || m_NativeBlockSize > ScsiCachePageBytes ||
+      (ScsiCachePageBytes % m_NativeBlockSize)) {
+    ERROR("ScsiDisk: native block size " << m_NativeBlockSize
+                                         << " is incompatible with target cache pages of "
+                                         << ScsiCachePageBytes << " bytes");
     return false;
   }
   SCSI_DEBUG_LOG("ScsiDisk: Capacity: "
@@ -440,7 +454,7 @@ BufferView ScsiDisk::read(uint64_t location) {
     ERROR("ScsiDisk::read - invalid cache or native block size.");
     return BufferView();
   }
-  if (location >= getSize() || getNativeBlockSize() > (getSize() - location)) {
+  if (location >= getSize()) {
     ERROR("ScsiDisk::read - location too high (" << location << " of " << getSize() << ")");
     return BufferView();
   }
@@ -459,16 +473,18 @@ BufferView ScsiDisk::read(uint64_t location) {
   // aligned to the device's cache block size.
   size_t loc = location - ((location - alignPoint) % fillSize);
   const size_t fillLength = getCacheFillLength(loc);
-  if (pageLocation < loc || (pageLocation - loc) >= fillLength ||
-      ScsiCachePageBytes > (fillLength - (pageLocation - loc))) {
+  const size_t cacheLength = cacheExtentLength(fillLength);
+  const size_t validPageLength = getCachePageValidLength(pageLocation);
+  if (!cacheLength || pageLocation < loc || (pageLocation - loc) >= cacheLength ||
+      pageOffset >= validPageLength) {
     return BufferView();
   }
 
-  CacheRangeAdmission admission(*this, loc, fillLength, false);
+  CacheRangeAdmission admission(*this, loc, cacheLength, false);
 
   uintptr_t buffer;
   if ((buffer = m_Cache.lookup(pageLocation))) {
-    return BufferView::fromAddress(buffer + pageOffset, ScsiCachePageBytes - pageOffset);
+    return BufferView::fromAddress(buffer + pageOffset, validPageLength - pageOffset);
   }
 
   uint64_t numRead =
@@ -502,7 +518,7 @@ BufferView ScsiDisk::read(uint64_t location) {
   if (!buffer) {
     return BufferView();
   }
-  return BufferView::fromAddress(buffer + pageOffset, ScsiCachePageBytes - pageOffset);
+  return BufferView::fromAddress(buffer + pageOffset, validPageLength - pageOffset);
 }
 
 void ScsiDisk::write(uint64_t location) {
@@ -523,7 +539,7 @@ void ScsiDisk::write(uint64_t location) {
     return;
   }
 
-  if (location >= getSize() || getNativeBlockSize() > (getSize() - location)) {
+  if (location >= getSize()) {
     ERROR("ScsiDisk::write - location too high");
     ERROR(" -> " << location << " vs " << getSize());
     return;
@@ -537,19 +553,22 @@ void ScsiDisk::write(uint64_t location) {
 
   const uint64_t alignPoint = getAlignmentPoint(location);
 
-  // Calculate the offset to get location on a page boundary.
-  ssize_t offs = -((location - alignPoint) % ScsiCachePageBytes);
+  const uint64_t pageLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
+  const size_t validLength = getCachePageValidLength(pageLocation);
+  if (!validLength || (pageLocation % nativeBlockSize) || (validLength % nativeBlockSize)) {
+    ERROR("ScsiDisk::write - invalid terminal cache page geometry.");
+    return;
+  }
 
   uintptr_t buffer;
-  if (!(buffer = m_Cache.lookup(location + offs))) {
+  if (!(buffer = m_Cache.lookup(pageLocation))) {
     ERROR("ScsiDisk::write - no buffer!");
     return;
   }
 
   // Implicit pin caused by lookup() must be released by the write request
   // handler, to ensure the refcount is correct.
-  pParent->addAsyncRequest(0, SCSI_REQUEST_WRITE, reinterpret_cast<uint64_t>(this),
-                           location + offs);
+  pParent->addAsyncRequest(0, SCSI_REQUEST_WRITE, reinterpret_cast<uint64_t>(this), pageLocation);
 #endif
 }
 
@@ -585,8 +604,8 @@ bool ScsiDisk::retireCachePage(uint64_t location) {
 
   const uint64_t alignPoint = getAlignmentPoint(location);
   const uint64_t pageLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
-  if (pageLocation >= getSize() || ScsiCachePageBytes > (getSize() - pageLocation) ||
-      (pageLocation % nativeBlockSize)) {
+  const size_t validLength = getCachePageValidLength(pageLocation);
+  if (!validLength || (pageLocation % nativeBlockSize) || (validLength % nativeBlockSize)) {
     return false;
   }
 
@@ -607,7 +626,7 @@ void ScsiDisk::flushCachePage(uint64_t location) {
     return;
   }
 
-  if (location >= getSize() || getNativeBlockSize() > (getSize() - location)) {
+  if (location >= getSize()) {
     ERROR("ScsiDisk::flush - location too high");
     return;
   }
@@ -619,28 +638,32 @@ void ScsiDisk::flushCachePage(uint64_t location) {
 
   const uint64_t alignPoint = getAlignmentPoint(location);
 
-  // Calculate the offset to get location on a page boundary.
-  ssize_t offs = -((location - alignPoint) % ScsiCachePageBytes);
+  const uint64_t pageLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
+  const size_t validLength = getCachePageValidLength(pageLocation);
+  if (!validLength || (pageLocation % nativeBlockSize) || (validLength % nativeBlockSize)) {
+    ERROR("ScsiDisk::flush - invalid terminal cache page geometry.");
+    return;
+  }
 
   uintptr_t buffer;
-  if (!(buffer = m_Cache.lookup(location + offs))) {
+  if (!(buffer = m_Cache.lookup(pageLocation))) {
     return;
   }
 
   // Make sure this page remains for both the write AND the sync.
-  const bool pinned = m_Cache.pin(location + offs);
+  const bool pinned = m_Cache.pin(pageLocation);
   assert(pinned);
 
   const uint64_t writeResult =
-      pParent->addRequest(0, SCSI_REQUEST_WRITE, reinterpret_cast<uint64_t>(this), location + offs);
+      pParent->addRequest(0, SCSI_REQUEST_WRITE, reinterpret_cast<uint64_t>(this), pageLocation);
   const uint64_t syncResult =
-      pParent->addRequest(0, SCSI_REQUEST_SYNC, reinterpret_cast<uint64_t>(this), location + offs);
+      pParent->addRequest(0, SCSI_REQUEST_SYNC, reinterpret_cast<uint64_t>(this), pageLocation);
   if (!writeResult || !syncResult) {
     WARNING("ScsiDisk::flush - write or synchronise request failed");
   }
 
   // Undo our pin for write+sync.
-  m_Cache.release(location + offs);
+  m_Cache.release(pageLocation);
 #endif
 }
 
@@ -667,8 +690,9 @@ void ScsiDisk::align(uint64_t location) {
 
 uint64_t ScsiDisk::doRead(uint64_t location) {
   const size_t fillSize = getCacheFillLength(location);
-  if (!fillSize || !getNativeBlockSize() || (fillSize % ScsiCachePageBytes) ||
-      (fillSize % getNativeBlockSize())) {
+  const size_t cacheLength = cacheExtentLength(fillSize);
+  if (!fillSize || !cacheLength || fillSize > 0xffff || !getNativeBlockSize() ||
+      (cacheLength % ScsiCachePageBytes) || (fillSize % getNativeBlockSize())) {
     return 0;
   }
 
@@ -693,17 +717,16 @@ uint64_t ScsiDisk::doRead(uint64_t location) {
     return fillSize;
   }
   bool didExist = false;
-  buffer = m_Cache.insert(location, fillSize, &didExist);
+  buffer = m_Cache.insert(location, cacheLength, &didExist);
   if (!buffer) {
-    const bool discarded = discardEditingRange(m_Cache, location, fillSize);
-    (void)discarded;
-    FATAL("ScsiDisk::doRead - no buffer");
+    WARNING("ScsiDisk::doRead - could not allocate a complete cache extent");
     return 0;
   }
   if (didExist) {
     return fillSize;
   }
-  CacheFillGuard fillGuard(m_Cache, location, fillSize);
+  CacheFillGuard fillGuard(m_Cache, location, cacheLength);
+  ByteSet(reinterpret_cast<void*>(buffer), 0, cacheLength);
 
   size_t blockNum = location / getNativeBlockSize();
   size_t blockCount = fillSize / getNativeBlockSize();
@@ -790,7 +813,7 @@ size_t ScsiDisk::getCacheFillLength(uint64_t location) const {
   const size_t preferred = getCacheFillSize();
   const size_t native = getNativeBlockSize();
   if (!preferred || !native || (preferred % ScsiCachePageBytes) || (preferred % native) ||
-      location >= getSize()) {
+      location >= getSize() || (location % native)) {
     return 0;
   }
 
@@ -800,10 +823,7 @@ size_t ScsiDisk::getCacheFillLength(uint64_t location) const {
     length = static_cast<size_t>(remaining);
   }
 
-  length -= length % ScsiCachePageBytes;
-  while (length && (length % native)) {
-    length -= ScsiCachePageBytes;
-  }
+  length -= length % native;
   return length;
 }
 
@@ -831,7 +851,8 @@ uint64_t ScsiDisk::doWrite(uint64_t location) {
   // Make sure we don't hold the refcnt once we exit this method.
   CachePageGuard guard(m_Cache, location);
 
-  return writePageBuffer(location, buffer) ? ScsiCachePageBytes : 0;
+  const size_t validLength = getCachePageValidLength(location);
+  return writePageBuffer(location, buffer) ? validLength : 0;
 }
 
 uint64_t ScsiDisk::doWriteDirect(uint64_t location, uintptr_t page) {
@@ -851,17 +872,20 @@ uint64_t ScsiDisk::doWriteDirect(uint64_t location, uintptr_t page) {
     return 0;
   }
 
-  return writePageBuffer(location, page) ? ScsiCachePageBytes : 0;
+  const size_t validLength = getCachePageValidLength(location);
+  return writePageBuffer(location, page) ? validLength : 0;
 }
 
 bool ScsiDisk::writePageBuffer(uint64_t location, uintptr_t page) {
   const size_t nativeBlockSize = getNativeBlockSize();
-  if (!page || !nativeBlockSize || (ScsiCachePageBytes % nativeBlockSize)) {
+  const size_t validLength = getCachePageValidLength(location);
+  if (!page || !nativeBlockSize || !validLength || validLength > 0xffff ||
+      (location % nativeBlockSize) || (validLength % nativeBlockSize)) {
     return false;
   }
 
   size_t block = location / nativeBlockSize;
-  size_t count = ScsiCachePageBytes / nativeBlockSize;
+  size_t count = validLength / nativeBlockSize;
 
   bool bOk = false;
   ScsiCommand* pCommand;
@@ -869,7 +893,7 @@ bool ScsiDisk::writePageBuffer(uint64_t location, uintptr_t page) {
   for (int i = 0; i < 3; i++) {
     SCSI_DEBUG_LOG("SCSI: trying write(10)");
     pCommand = new ScsiCommands::Write10(block, count);
-    bOk = sendCommand(pCommand, page, ScsiCachePageBytes, true);
+    bOk = sendCommand(pCommand, page, validLength, true);
     delete pCommand;
     if (bOk)
       break;
@@ -878,7 +902,7 @@ bool ScsiDisk::writePageBuffer(uint64_t location, uintptr_t page) {
     for (int i = 0; i < 3; i++) {
       SCSI_DEBUG_LOG("SCSI: trying write(12)");
       pCommand = new ScsiCommands::Write12(block, count);
-      bOk = sendCommand(pCommand, page, ScsiCachePageBytes, true);
+      bOk = sendCommand(pCommand, page, validLength, true);
       delete pCommand;
       if (bOk)
         break;
@@ -888,7 +912,7 @@ bool ScsiDisk::writePageBuffer(uint64_t location, uintptr_t page) {
     for (int i = 0; i < 3; i++) {
       SCSI_DEBUG_LOG("SCSI: trying write(16)");
       pCommand = new ScsiCommands::Write16(block, count);
-      bOk = sendCommand(pCommand, page, ScsiCachePageBytes, true);
+      bOk = sendCommand(pCommand, page, validLength, true);
       delete pCommand;
       if (bOk)
         break;
@@ -915,8 +939,15 @@ uint64_t ScsiDisk::doSync(uint64_t location) {
     return 0;
   }
 
-  size_t block = location / getNativeBlockSize();
-  size_t count = ScsiCachePageBytes / getNativeBlockSize();
+  const size_t nativeBlockSize = getNativeBlockSize();
+  const size_t validLength = getCachePageValidLength(location);
+  if (!nativeBlockSize || !validLength || (location % nativeBlockSize) ||
+      (validLength % nativeBlockSize)) {
+    return 0;
+  }
+
+  size_t block = location / nativeBlockSize;
+  size_t count = validLength / nativeBlockSize;
 
   bool bOk = false;
   ScsiCommand* pCommand;
@@ -943,7 +974,7 @@ uint64_t ScsiDisk::doSync(uint64_t location) {
     }
   }
 
-  return bOk ? ScsiCachePageBytes : 0;
+  return bOk ? validLength : 0;
 }
 
 bool ScsiDisk::pin(uint64_t location) {
@@ -956,6 +987,9 @@ bool ScsiDisk::pin(uint64_t location) {
   if (!pParent->acquireDiskOperation(operation)) {
     return false;
   }
+  if (location >= getSize()) {
+    return false;
+  }
 
   const uint64_t alignPoint = getAlignmentPoint(location);
 
@@ -964,10 +998,22 @@ bool ScsiDisk::pin(uint64_t location) {
 }
 
 void ScsiDisk::unpin(uint64_t location) {
+  if (location >= getSize()) {
+    return;
+  }
   const uint64_t alignPoint = getAlignmentPoint(location);
 
   const uint64_t cacheLocation = location - ((location - alignPoint) % ScsiCachePageBytes);
   m_Cache.release(cacheLocation);
+}
+
+size_t ScsiDisk::getCachePageValidLength(uint64_t location) const {
+  if (location >= getSize()) {
+    return 0;
+  }
+
+  const uint64_t remaining = getSize() - location;
+  return remaining < ScsiCachePageBytes ? static_cast<size_t>(remaining) : ScsiCachePageBytes;
 }
 
 uint64_t ScsiDisk::getAlignmentPoint(uint64_t location) const {

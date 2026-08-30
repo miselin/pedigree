@@ -839,6 +839,12 @@ uint64_t AtaDisk::doRead(uint64_t location) {
   if (!nBytes) {
     return 0;
   }
+  // This legacy path allocates and publishes only complete 4 KiB cache pages.
+  // Do not report a terminal native-block tail as a successful empty transfer.
+  if (nBytes % 4096) {
+    ERROR("ATA: cache fill did not cover a complete 4096-byte cache page");
+    return 0;
+  }
   const uint64_t cacheLocation = location;
   uint64_t ioLocation = location;
 

@@ -284,10 +284,14 @@ uintptr_t MemoryPool::allocateDoer(bool canBlock) {
 #if THREADS
   {
     LockGuard<Mutex> mappingGuard(m_MappingLock);
-    map(result);
+    for (size_t offset = 0; offset < m_BufferSize; offset += PhysicalMemoryManager::getPageSize()) {
+      map(result + offset);
+    }
   }
 #else
-  map(result);
+  for (size_t offset = 0; offset < m_BufferSize; offset += PhysicalMemoryManager::getPageSize()) {
+    map(result + offset);
+  }
 #endif
   return result;
 }

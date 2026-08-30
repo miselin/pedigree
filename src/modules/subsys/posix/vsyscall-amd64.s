@@ -18,9 +18,13 @@
 [bits 64]
 [section .data]
 
+%ifndef PEDIGREE_TARGET_PAGE_SIZE
+%error PEDIGREE_TARGET_PAGE_SIZE must be supplied by the target configuration
+%endif
+
 global __posix_compat_vsyscall_base
 
-align 4096
+align PEDIGREE_TARGET_PAGE_SIZE
 __posix_compat_vsyscall_base:
 __posix_compat_vsyscall_gettimeofday:
     mov rax, 96

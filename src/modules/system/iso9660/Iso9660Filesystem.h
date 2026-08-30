@@ -67,6 +67,9 @@ class Iso9660Filesystem : public Filesystem {
   String parseName(Iso9660DirRecord& name);
   String parseJolietName(Iso9660DirRecord& name);
 
+  /** Copies one logical ISO sector from one or more target-page views. */
+  bool readSector(uint64_t location, void* destination);
+
   inline bool isLeap(uint32_t year) {
     if (year % 400 == 0)
       return true;

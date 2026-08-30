@@ -35,6 +35,9 @@ function(pedigree_app name posix native pedigreec libs)
     target_link_libraries(app-${name} PRIVATE
         ${TARGET_LIBS} gcc
         -Wl,-rpath-link=${CMAKE_SOURCE_DIR}/images/local/libraries)
+    target_link_options(app-${name} PRIVATE
+        -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
+        -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})
     if (PEDIGREE_DTRELR_ENABLED)
         target_link_options(app-${name} PRIVATE -Wl,-z,pack-relative-relocs)
     endif ()
@@ -54,6 +57,9 @@ function(pedigree_lib name libs)
     add_library(lib${name} SHARED ${ARGN})
     set_target_properties(lib${name} PROPERTIES OUTPUT_NAME "${name}")
     target_link_libraries(lib${name} PRIVATE ${libs} gcc)
+    target_link_options(lib${name} PRIVATE
+        -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
+        -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})
     if (PEDIGREE_DTRELR_ENABLED)
         target_link_options(lib${name} PRIVATE -Wl,-z,pack-relative-relocs)
     endif ()

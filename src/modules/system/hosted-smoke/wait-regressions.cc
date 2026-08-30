@@ -31,11 +31,15 @@ bool runHostedAtaPioRegressions();
 bool runHostedLifetimeLeaseRegressions();
 bool runHostedMutexRegressions();
 bool runHostedPageFaultRegressions();
+bool runHostedPayloadPageRegressions();
 bool runHostedPrimitiveRegressions(Thread* thread);
 bool runHostedRingBufferRegressions();
 bool runHostedProcessExitRegressions();
 bool runHostedSignalInterruptionRegressions(Thread* thread);
 bool runHostedTimerRegressions(Thread* thread);
+#if PEDIGREE_HOSTED_CORE_SMOKE
+bool runHostedStoragePageRegressions();
+#endif
 #if !PEDIGREE_HOSTED_CORE_SMOKE
 bool runHostedSchedulerRegressions();
 bool runHostedCacheRegressions();
@@ -1882,6 +1886,9 @@ bool runHostedWaitRegressions() {
       runHostedSchedulerRegressions() &&
 #endif
       runHostedRequestQueueRegressions() &&
+#if PEDIGREE_HOSTED_CORE_SMOKE
+      runHostedStoragePageRegressions() &&
+#endif
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedUsbCallbackDeliveryRegressions() && runHostedUsbHcdPortChangeRegressions() &&
       runHostedUsbTransferLifecycleRegressions() && runHostedMutexRegressions() &&
@@ -1903,6 +1910,7 @@ bool runHostedWaitRegressions() {
       conditionVariableContendedReacquire(g_ImmediateWaiter, ContendedConditionContext::Timeout) &&
       conditionVariableTerminalReacquire() && conditionVariableCompletionBarrier() &&
       unlikelyLockAdmission() && runHostedPageFaultRegressions() &&
+      runHostedPayloadPageRegressions() &&
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedPipeRegressions() && runHostedUsbSyncOwnershipRegression() &&
       runHostedUsbInterruptOwnershipRegression() && runHostedUsbContainerOwnershipRegression() &&

@@ -67,6 +67,10 @@ add_test(
         ${CMAKE_SOURCE_DIR}/scripts/audit-lifetime-escapes.py
         --root ${CMAKE_SOURCE_DIR}
         --inventory ${CMAKE_SOURCE_DIR}/docs/lifetime-escape-inventory.json)
+add_test(
+    NAME target-page-assumption-audit
+    COMMAND ${PYTHON_EXECUTABLE}
+        ${CMAKE_SOURCE_DIR}/scripts/check-target-page-assumptions.py)
 
 find_library(LIBRT rt)
 
@@ -167,12 +171,14 @@ enable_language(ASM_NASM ASM)
 if (NOT PEDIGREE_NASM_FORMAT)
     set(PEDIGREE_NASM_FORMAT elf64)
 endif ()
-set(PEDIGREE_NASM_FLAGS "")
+set(PEDIGREE_NASM_FLAGS
+    "-DPEDIGREE_TARGET_PAGE_SIZE=${PEDIGREE_TARGET_PAGE_SIZE}")
 if (PEDIGREE_NASM_GLOBAL_PREFIX)
-    set(PEDIGREE_NASM_FLAGS "--gprefix ${PEDIGREE_NASM_GLOBAL_PREFIX}")
+    string(APPEND PEDIGREE_NASM_FLAGS
+        " --gprefix ${PEDIGREE_NASM_GLOBAL_PREFIX}")
 endif ()
 set(CMAKE_ASM_NASM_COMPILE_OBJECT
-    "<CMAKE_ASM_NASM_COMPILER> -f${PEDIGREE_NASM_FORMAT} ${PEDIGREE_NASM_FLAGS} -o <OBJECT> <SOURCE>")
+    "<CMAKE_ASM_NASM_COMPILER> <DEFINES> <INCLUDES> -f${PEDIGREE_NASM_FORMAT} ${PEDIGREE_NASM_FLAGS} -o <OBJECT> <SOURCE>")
 
 cmake_host_system_information(RESULT PEDIGREE_BUILD_HOSTNAME QUERY FQDN)
 

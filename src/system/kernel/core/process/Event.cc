@@ -212,9 +212,12 @@ uintptr_t Event::getHandlerBuffer() {
   return getTrampoline() + PhysicalMemoryManager::getPageSize();
 }
 
+size_t Event::getHandlerBufferSize() {
+  return handlerBufferSize(PhysicalMemoryManager::getPageSize());
+}
+
 uintptr_t Event::getLastHandlerBuffer() {
-  return getHandlerBuffer() +
-         ((EVENT_TID_MAX * MAX_NESTED_EVENTS) * PhysicalMemoryManager::getPageSize());
+  return getHandlerBuffer() + ((EVENT_TID_MAX * MAX_NESTED_EVENTS) * getHandlerBufferSize());
 }
 
 bool Event::isDeletable() {

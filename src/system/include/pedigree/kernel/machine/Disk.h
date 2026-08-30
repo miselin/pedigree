@@ -65,6 +65,19 @@ class EXPORTED_PUBLIC Disk : public Device {
   virtual BufferView read(uint64_t location);
 
   /**
+   * Reads exactly the requested length into a caller-supplied sequence of bounded
+   * cache views. The sequence must be empty on entry. Each appended view owns
+   * one cache reference until unpinViews() is called.
+   *
+   * Failure releases every reference acquired by this operation and leaves
+   * the sequence empty.
+   */
+  MUST_USE_RESULT bool readViews(uint64_t location, size_t length, BufferViewSequence& views);
+
+  /** Releases every cache reference represented by the supplied sequence. */
+  void unpinViews(uint64_t location, BufferViewSequence& views);
+
+  /**
    * This function schedules a cache writeback of the given location.
    * The data to be written back is fetched from the cache (pointer returned
    * by \c read() ).

@@ -72,13 +72,12 @@
 #include "pedigree/kernel/network/MacAddress.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
-#include "pedigree/kernel/processor/Processor.h"
-#include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "3Com90xConstants.h"
+#include "modules/drivers/common/DmaBuffer.h"
 #include "modules/system/network-stack/NetworkStack.h"
 
 namespace {
@@ -89,6 +88,8 @@ constexpr size_t EepromPollLimit = 100;
 constexpr uint32_t UpPacketComplete = 1U << 15U;
 constexpr uint32_t UpPacketError = 1U << 14U;
 constexpr uint32_t UpPacketLengthMask = 0x1FFF;
+constexpr size_t Dma32Constraints =
+    PhysicalMemoryManager::continuous | PhysicalMemoryManager::below4GB;
 }  // namespace
 
 bool Nic3C90x::issueCommand(int cmd, int param) {
@@ -344,7 +345,7 @@ bool Nic3C90x::stopDeviceLocked() {
 }
 
 bool Nic3C90x::send(size_t nBytes, uintptr_t buffer) {
-  if (!nBytes || nBytes > UpPacketLengthMask) {
+  if (!buffer || !nBytes || nBytes > UpPacketLengthMask) {
     ERROR("3C90x: invalid transmit packet length " << Dec << nBytes << Hex);
     return false;
   }
@@ -370,15 +371,11 @@ bool Nic3C90x::send(size_t nBytes, uintptr_t buffer) {
     (void)discardedCompletions;
     m_TxSuccessful = false;
 
-    physical_uintptr_t destPtr = m_pTxBuffPhys;
-    size_t dud = 0;
-    if (Processor::information().getVirtualAddressSpace().isMapped(
-            reinterpret_cast<void*>(buffer))) {
-      Processor::information().getVirtualAddressSpace().getMapping(reinterpret_cast<void*>(buffer),
-                                                                   destPtr, dud);
-      destPtr += buffer & 0xFFF;
-    } else
-      MemoryCopy(m_pTxBuffVirt, reinterpret_cast<void*>(buffer), nBytes);
+    // The 3C90x descriptor has one 32-bit data pointer, not scatter/gather.
+    // Keep arbitrary caller mappings out of that contract by using the
+    // controller-owned contiguous bounce buffer for every transmission.
+    MemoryCopy(m_pTxBuffVirt, reinterpret_cast<void*>(buffer), nBytes);
+    const physical_uintptr_t destPtr = m_pTxBuffPhys;
 
     /** Setup the DPD (download descriptor) **/
     m_TransmitDPD->DnNextPtr = 0;
@@ -470,15 +467,14 @@ Nic3C90x::Nic3C90x(Network* pDev)
 #define HWADDR_OFFSET 10
 
   // allocate the rx and tx buffers
-  if (!PhysicalMemoryManager::instance().allocateRegion(m_RxBuffMR, (MAX_PACKET_SIZE / 0x1000) + 1,
-                                                        PhysicalMemoryManager::continuous,
-                                                        VirtualAddressSpace::Write, -1)) {
+  const size_t packetBufferPages = DriverDma::pageCountForBytes(MAX_PACKET_SIZE);
+  if (!PhysicalMemoryManager::instance().allocateRegion(
+          m_RxBuffMR, packetBufferPages, Dma32Constraints, VirtualAddressSpace::Write, -1)) {
     ERROR("3C90x: Couldn't allocate Rx Buffer!");
     return;
   }
-  if (!PhysicalMemoryManager::instance().allocateRegion(m_TxBuffMR, (MAX_PACKET_SIZE / 0x1000) + 1,
-                                                        PhysicalMemoryManager::continuous,
-                                                        VirtualAddressSpace::Write, -1)) {
+  if (!PhysicalMemoryManager::instance().allocateRegion(
+          m_TxBuffMR, packetBufferPages, Dma32Constraints, VirtualAddressSpace::Write, -1)) {
     ERROR("3C90x: Couldn't allocate Tx Buffer!");
     return;
   }
@@ -487,13 +483,13 @@ Nic3C90x::Nic3C90x(Network* pDev)
   m_pRxBuffPhys = m_RxBuffMR.physicalAddress();
   m_pTxBuffPhys = m_TxBuffMR.physicalAddress();
 
-  if (!PhysicalMemoryManager::instance().allocateRegion(
-          m_DPDMR, 2, PhysicalMemoryManager::continuous, VirtualAddressSpace::Write, -1)) {
+  if (!PhysicalMemoryManager::instance().allocateRegion(m_DPDMR, 2, Dma32Constraints,
+                                                        VirtualAddressSpace::Write, -1)) {
     ERROR("3C90x: Couldn't allocated buffer for DPD\n");
     return;
   }
-  if (!PhysicalMemoryManager::instance().allocateRegion(
-          m_UPDMR, 2, PhysicalMemoryManager::continuous, VirtualAddressSpace::Write, -1)) {
+  if (!PhysicalMemoryManager::instance().allocateRegion(m_UPDMR, 2, Dma32Constraints,
+                                                        VirtualAddressSpace::Write, -1)) {
     ERROR("3C90x: Couldn't allocated buffer for UPD\n");
     return;
   }

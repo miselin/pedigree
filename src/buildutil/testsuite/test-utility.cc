@@ -23,6 +23,7 @@
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "modules/drivers/common/DmaBuffer.h"
 #include <gtest/gtest.h>
 
 static_assert(BS16(0x0123U) == 0x2301U);
@@ -30,6 +31,55 @@ static_assert(BS32(0x01234567U) == 0x67452301U);
 static_assert(BS64(0x0123456789ABCDEFULL) == 0xEFCDAB8967452301ULL);
 static_assert(TargetInfo::getPageSize() == PAGE_SIZE);
 static_assert(TargetInfo::getPointerBits() == sizeof(void*) * __CHAR_BIT__);
+
+namespace {
+class TestDmaAddressSpace {
+ public:
+  bool isMapped(void* address) {
+    const uintptr_t page = reinterpret_cast<uintptr_t>(address) & ~uintptr_t(0x3fff);
+    return page == 0x10000 || (m_MapSecond && page == 0x14000);
+  }
+
+  void getMapping(void* address, physical_uintptr_t& physicalAddress, size_t& flags) {
+    const uintptr_t page = reinterpret_cast<uintptr_t>(address) & ~uintptr_t(0x3fff);
+    physicalAddress = page == 0x10000 ? 0x80000 : m_SecondPhysical;
+    flags = 0;
+  }
+
+  physical_uintptr_t m_SecondPhysical = 0x84000;
+  bool m_MapSecond = true;
+};
+}  // namespace
+
+TEST(DriverDma, ExactTranslationUsesTargetPageOffset) {
+  TestDmaAddressSpace addressSpace;
+  physical_uintptr_t physical = 0;
+
+  ASSERT_TRUE(DriverDma::virtualToPhysical<16384>(addressSpace, 0x12345, physical));
+  EXPECT_EQ(physical, 0x82345U);
+}
+
+TEST(DriverDma, ContiguousRangeChecksEveryTargetPage) {
+  TestDmaAddressSpace addressSpace;
+  physical_uintptr_t physical = 0;
+
+  ASSERT_TRUE(
+      DriverDma::contiguousVirtualRangeToPhysical<16384>(addressSpace, 0x13f00, 0x200, physical));
+  EXPECT_EQ(physical, 0x83f00U);
+
+  addressSpace.m_SecondPhysical = 0x94000;
+  EXPECT_FALSE(
+      DriverDma::contiguousVirtualRangeToPhysical<16384>(addressSpace, 0x13f00, 0x200, physical));
+
+  addressSpace.m_MapSecond = false;
+  EXPECT_FALSE(
+      DriverDma::contiguousVirtualRangeToPhysical<16384>(addressSpace, 0x13f00, 0x200, physical));
+}
+
+TEST(DriverDma, PhysicalEndpointsRejectDiscontiguousPages) {
+  EXPECT_TRUE(DriverDma::physicalEndpointsAreContiguous(0x83f00, 0x840ff, 0x200, 0xffffffff));
+  EXPECT_FALSE(DriverDma::physicalEndpointsAreContiguous(0x83f00, 0x940ff, 0x200, 0xffffffff));
+}
 
 TEST(PedigreeUtility, PageAlignUsesTargetGeometry) {
   constexpr size_t pageSize = TargetInfo::getPageSize();

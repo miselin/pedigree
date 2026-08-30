@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/assert.h"
+#include "pedigree/kernel/utilities/lib.h"
 
 /** A mutable, non-owning view over a contiguous byte range. */
 class BufferView {
@@ -109,6 +110,113 @@ class BufferView {
 
  private:
   uintptr_t m_Data;
+  size_t m_Size;
+};
+
+/**
+ * A mutable, non-owning sequence of discontiguous byte ranges.
+ *
+ * The caller owns both the descriptor storage and every buffer referenced by
+ * it. This class only provides bounded traversal and copying across the
+ * supplied views.
+ */
+class BufferViewSequence {
+ public:
+  BufferViewSequence(BufferView* storage, size_t capacity)
+      : m_Storage(storage), m_Capacity(capacity), m_Count(0), m_Size(0) {
+    assert(storage || !capacity);
+  }
+
+  bool append(const BufferView& view) {
+    assert(view && !view.empty());
+    if (!view || view.empty() || m_Count >= m_Capacity ||
+        view.size() > (~static_cast<size_t>(0) - m_Size)) {
+      return false;
+    }
+
+    m_Storage[m_Count++] = view;
+    m_Size += view.size();
+    return true;
+  }
+
+  void clear() {
+    m_Count = 0;
+    m_Size = 0;
+  }
+
+  bool empty() const {
+    return m_Count == 0;
+  }
+
+  size_t count() const {
+    return m_Count;
+  }
+
+  size_t size() const {
+    return m_Size;
+  }
+
+  BufferView operator[](size_t index) const {
+    assert(index < m_Count);
+    return index < m_Count ? m_Storage[index] : BufferView();
+  }
+
+  bool copyTo(void* destination, size_t length, size_t offset = 0) const {
+    assert(destination || !length);
+    assert(offset <= m_Size && length <= (m_Size - offset));
+    if ((!destination && length) || offset > m_Size || length > (m_Size - offset)) {
+      return false;
+    }
+
+    uint8_t* output = reinterpret_cast<uint8_t*>(destination);
+    size_t remaining = length;
+    for (size_t i = 0; i < m_Count && remaining; ++i) {
+      const BufferView view = m_Storage[i];
+      if (offset >= view.size()) {
+        offset -= view.size();
+        continue;
+      }
+
+      const size_t available = view.size() - offset;
+      const size_t chunk = available < remaining ? available : remaining;
+      MemoryCopy(output, reinterpret_cast<const uint8_t*>(view.data()) + offset, chunk);
+      output += chunk;
+      remaining -= chunk;
+      offset = 0;
+    }
+    return remaining == 0;
+  }
+
+  bool copyFrom(const void* source, size_t length, size_t offset = 0) const {
+    assert(source || !length);
+    assert(offset <= m_Size && length <= (m_Size - offset));
+    if ((!source && length) || offset > m_Size || length > (m_Size - offset)) {
+      return false;
+    }
+
+    const uint8_t* input = reinterpret_cast<const uint8_t*>(source);
+    size_t remaining = length;
+    for (size_t i = 0; i < m_Count && remaining; ++i) {
+      const BufferView view = m_Storage[i];
+      if (offset >= view.size()) {
+        offset -= view.size();
+        continue;
+      }
+
+      const size_t available = view.size() - offset;
+      const size_t chunk = available < remaining ? available : remaining;
+      MemoryCopy(reinterpret_cast<uint8_t*>(view.data()) + offset, input, chunk);
+      input += chunk;
+      remaining -= chunk;
+      offset = 0;
+    }
+    return remaining == 0;
+  }
+
+ private:
+  BufferView* m_Storage;
+  size_t m_Capacity;
+  size_t m_Count;
   size_t m_Size;
 };
 

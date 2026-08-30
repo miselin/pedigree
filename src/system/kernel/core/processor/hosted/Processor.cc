@@ -121,6 +121,8 @@ void ProcessorBase::initialise1(const BootstrapStruct_t& Info) {
       (TargetInfo::getPageSize() % hostPageSize) != 0) {
     panic("Hosted: incompatible target and host page sizes");
   }
+  NOTICE("HOSTED-PAGE-GEOMETRY: target=" << Dec << TargetInfo::getPageSize()
+                                         << " host=" << hostPageSize << Hex);
 
   const uintptr_t executionThreadId = currentHostedExecutionThread();
   if (!executionThreadId) {

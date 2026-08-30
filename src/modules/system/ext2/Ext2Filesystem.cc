@@ -19,6 +19,7 @@
 
 #include "Ext2Filesystem.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Disk.h"
 #include "pedigree/kernel/machine/Machine.h"
@@ -202,6 +203,11 @@ bool Ext2Filesystem::initialise(Disk* pDisk) {
   if (m_BlockSize > 4096) {
     ERROR("Ext2: filesystem's block size is too large (must be 4096 or less, but is " << m_BlockSize
                                                                                       << ")");
+    return false;
+  }
+  if (m_BlockSize > TargetInfo::getPageSize()) {
+    ERROR("Ext2: filesystem block size " << m_BlockSize << " exceeds the target page size "
+                                         << TargetInfo::getPageSize());
     return false;
   }
 

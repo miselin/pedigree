@@ -55,14 +55,15 @@ BufferView DiskImage::read(uint64_t location) {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const uint64_t pageLocation = getPageLocation(location);
   const uint64_t pageOffset = location - pageLocation;
-  if (pageLocation >= m_nSize || pageSize > (m_nSize - pageLocation)) {
-    ERROR("DiskImage::read() - page at " << pageLocation << " extends past " << m_nSize);
+  if (location >= m_nSize || pageLocation >= m_nSize) {
     return BufferView();
   }
+  const size_t validLength =
+      pageSize < (m_nSize - pageLocation) ? pageSize : (m_nSize - pageLocation);
 
   uintptr_t buffer = m_Cache.lookup(pageLocation);
   if (buffer) {
-    return BufferView::fromAddress(buffer + pageOffset, pageSize - pageOffset);
+    return BufferView::fromAddress(buffer + pageOffset, validLength - pageOffset);
   }
 
   bool didExist = false;
@@ -71,13 +72,14 @@ BufferView DiskImage::read(uint64_t location) {
     return BufferView();
   }
   if (!didExist) {
-    MemoryCopy(reinterpret_cast<void*>(buffer), adjust_pointer(m_pBase, pageLocation), pageSize);
+    ByteSet(reinterpret_cast<void*>(buffer), 0, pageSize);
+    MemoryCopy(reinterpret_cast<void*>(buffer), adjust_pointer(m_pBase, pageLocation), validLength);
 
     m_Cache.markNoLongerEditing(pageLocation);
   }
 
   buffer = m_Cache.lookup(pageLocation);
-  return buffer ? BufferView::fromAddress(buffer + pageOffset, pageSize - pageOffset)
+  return buffer ? BufferView::fromAddress(buffer + pageOffset, validLength - pageOffset)
                 : BufferView();
 }
 
@@ -99,11 +101,17 @@ void DiskImage::align(uint64_t location) {
 
 bool DiskImage::pin(uint64_t location) {
   LockGuard<Mutex> guard(m_CacheLock);
+  if (location >= m_nSize) {
+    return false;
+  }
   return m_Cache.pin(getPageLocation(location));
 }
 
 void DiskImage::unpin(uint64_t location) {
   LockGuard<Mutex> guard(m_CacheLock);
+  if (location >= m_nSize) {
+    return;
+  }
   m_Cache.release(getPageLocation(location));
 }
 

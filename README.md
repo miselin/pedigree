@@ -112,10 +112,11 @@ kernel modules remain on RELA until their loader gains RELR support. Pass
 
 The historical name is preserved as a public entrypoint. On macOS and Linux it
 builds the native kernel-support and selected module-support libraries, the
-test suite, and the image/debug utilities, then repeats the test build with
-AddressSanitizer. On macOS it also builds and runs the focused x86-64 hosted
-kernel lifecycle through Rosetta. It does not build or run the legacy x86-64
-Linux hosted kernel.
+test suite, and the image/debug utilities at the native 4 KiB page size. It
+also runs synthetic 1 KiB and 16 KiB test builds, with 4 KiB and 16 KiB
+AddressSanitizer lanes. On macOS it builds and runs focused 4 KiB and 16 KiB
+x86-64 hosted-kernel lifecycles through Rosetta. It does not build or run the
+legacy x86-64 Linux hosted kernel.
 
 The retained Linux hosted processor, machine, module-smoke, and Docker files are
 non-canonical. They can inform future work, but a green run makes no claim

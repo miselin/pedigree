@@ -148,10 +148,11 @@ For a direct native build and test run:
 
 The historical script name is preserved, but the command is now Docker-free
 and runs directly on macOS or Linux. It builds `testsuite`, `headerify`,
-`ext2img`, `keymap`, and `memorytracer`, runs CTest, and repeats the test build
-under ASan. On macOS it also uses the selected GCC 15.3 Pedigree
-cross-toolchain to build a focused ELF smoke module, links the hosted kernel as
-a low-address x86-64 Mach-O executable, and runs both through Rosetta.
+`ext2img`, `keymap`, and `memorytracer`, then runs isolated 1 KiB, 4 KiB, and
+16 KiB target-page test lanes plus 4 KiB and 16 KiB ASan lanes. On macOS it
+also uses the selected GCC 15.3 Pedigree cross-toolchain to build focused 4 KiB
+and 16 KiB ELF smoke modules, links the hosted kernels as low-address x86-64
+Mach-O executables, and runs both through Rosetta.
 
 The Darwin lifecycle intentionally avoids the historical root filesystem,
 full module set, services, musl, and userspace. Its module covers the core

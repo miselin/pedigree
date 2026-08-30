@@ -574,15 +574,18 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack) {
   // the nesting level.
   uintptr_t addr = Event::getHandlerBuffer() +
                    (pThread->getId() * MAX_NESTED_EVENTS + (pThread->getStateLevel() - 1)) *
-                       PhysicalMemoryManager::getPageSize();
+                       Event::getHandlerBufferSize();
 
-  // Ensure the page is mapped.
-  if (!va.isMapped(reinterpret_cast<void*>(addr))) {
-    physical_uintptr_t p = PhysicalMemoryManager::instance().allocatePage();
-    if (!p) {
-      panic("checkEventState: Out of memory!");
+  // Ensure the complete serialized-event span is mapped.
+  for (size_t offset = 0; offset < Event::getHandlerBufferSize(); offset += pageSz) {
+    void* eventPage = reinterpret_cast<void*>(addr + offset);
+    if (!va.isMapped(eventPage)) {
+      physical_uintptr_t p = PhysicalMemoryManager::instance().allocatePage();
+      if (!p) {
+        panic("checkEventState: Out of memory!");
+      }
+      va.map(p, eventPage, VirtualAddressSpace::Write);
     }
-    va.map(p, reinterpret_cast<void*>(addr), VirtualAddressSpace::Write);
   }
 
   const bool deletableEvent = pEvent->isDeletable();

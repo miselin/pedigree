@@ -43,7 +43,6 @@
 class Process;
 
 static constexpr size_t CachePageSize = TargetInfo::getPageSize();
-static constexpr uintptr_t CachePageMask = TargetInfo::getPageOffsetMask();
 
 // Don't allocate cache space in reverse, but DO re-use cache pages.
 // This gives us wins because we don't need to reallocate page tables for
@@ -625,7 +624,10 @@ uintptr_t Cache::insert(uintptr_t key, size_t size, bool* alreadyExisted) {
 
   if (size % CachePageSize) {
     WARNING("Cache::insert called with a size that isn't page-aligned");
-    size &= ~CachePageMask;
+    if (alreadyExisted) {
+      *alreadyExisted = false;
+    }
+    return 0;
   }
 
   size_t nPages = size / CachePageSize;
@@ -1501,16 +1503,16 @@ void Cache::markEditing(uintptr_t key, size_t length) {
     return;
   }
 
-  LockGuard<Spinlock> guard(m_Lock);
-
-  if (length % CachePageSize) {
+  if (length && (length % CachePageSize)) {
     WARNING("Cache::markEditing called with a length that isn't page-aligned");
-    length &= ~CachePageMask;
+    return;
   }
 
   if (!length) {
     length = CachePageSize;
   }
+
+  LockGuard<Spinlock> guard(m_Lock);
 
   size_t nPages = length / CachePageSize;
 
@@ -1533,16 +1535,16 @@ void Cache::markNoLongerEditing(uintptr_t key, size_t length) {
     return;
   }
 
-  LockGuard<Spinlock> guard(m_Lock);
-
-  if (length % CachePageSize) {
-    WARNING("Cache::markEditing called with a length that isn't page-aligned");
-    length &= ~CachePageMask;
+  if (length && (length % CachePageSize)) {
+    WARNING("Cache::markNoLongerEditing called with a length that isn't page-aligned");
+    return;
   }
 
   if (!length) {
     length = CachePageSize;
   }
+
+  LockGuard<Spinlock> guard(m_Lock);
 
   size_t nPages = length / CachePageSize;
 

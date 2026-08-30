@@ -238,9 +238,6 @@ bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t cP
     Region.m_PhysicalAddress = start;
     Region.m_Size = cPages * PhysicalMemoryManager::getPageSize();
     Region.setAnonymous(pageConstraints & PhysicalMemoryManager::anonymous);
-    //       NOTICE("MR: Allocated " << Hex << vAddress << " (phys " <<
-    //       static_cast<uintptr_t>(start) << "), size " << (cPages*4096));
-
     // Add to the list of memory-regions
     PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
     return true;

@@ -44,10 +44,26 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "modules/drivers/common/DmaBuffer.h"
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbHub.h"
 
-#define INDEX_FROM_TD(ptr) (((reinterpret_cast<uintptr_t>((ptr)) & 0xFFF) / sizeof(TD)))
+namespace {
+constexpr size_t OhciHardwarePageBytes = 4096;
+constexpr size_t OhciDescriptorRegionBytes = 4096;
+constexpr size_t OhciDescriptorOffsetMask = OhciDescriptorRegionBytes - 1;
+constexpr size_t OhciHccaOffset = 0;
+constexpr size_t OhciBulkEdOffset = OhciDescriptorRegionBytes;
+constexpr size_t OhciControlEdOffset = 2 * OhciDescriptorRegionBytes;
+constexpr size_t OhciPeriodicEdOffset = 3 * OhciDescriptorRegionBytes;
+constexpr size_t OhciTdOffset = 4 * OhciDescriptorRegionBytes;
+constexpr size_t OhciDmaRegionBytes = 5 * OhciDescriptorRegionBytes;
+constexpr size_t OhciBufferPageCount = 2;
+constexpr physical_uintptr_t OhciHighestDmaAddress = 0xffffffff;
+}  // namespace
+
+#define INDEX_FROM_TD(ptr) \
+  (((reinterpret_cast<uintptr_t>((ptr)) & OhciDescriptorOffsetMask) / sizeof(TD)))
 #define PHYS_TD(idx) (m_pTDListPhys + ((idx) * sizeof(TD)))
 
 namespace {
@@ -127,9 +143,16 @@ Ohci::Ohci(Device* pDev)
   return;
 #endif
 
+  if (TargetInfo::getPageSize() < OhciHardwarePageBytes ||
+      (TargetInfo::getPageSize() % OhciHardwarePageBytes)) {
+    ERROR("OHCI: target pages cannot represent 4 KiB OHCI buffer pages");
+    return;
+  }
+
   // Allocate the memory region
   if (!PhysicalMemoryManager::instance().allocateRegion(
-          m_OhciMR, 5, PhysicalMemoryManager::continuous,
+          m_OhciMR, DriverDma::pageCountForBytes(OhciDmaRegionBytes),
+          PhysicalMemoryManager::continuous | PhysicalMemoryManager::below4GB,
           VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode)) {
     ERROR("USB: OHCI: Couldn't allocate memory region!");
     return;
@@ -138,17 +161,17 @@ Ohci::Ohci(Device* pDev)
   uintptr_t virtualBase = reinterpret_cast<uintptr_t>(m_OhciMR.virtualAddress());
   uintptr_t physicalBase = m_OhciMR.physicalAddress();
 
-  m_pHcca = reinterpret_cast<Hcca*>(virtualBase);
-  m_pBulkEDList = reinterpret_cast<ED*>(virtualBase + 0x1000);
-  m_pControlEDList = reinterpret_cast<ED*>(virtualBase + 0x2000);
-  m_pPeriodicEDList = reinterpret_cast<ED*>(virtualBase + 0x3000);
-  m_pTDList = reinterpret_cast<TD*>(virtualBase + 0x4000);
+  m_pHcca = reinterpret_cast<Hcca*>(virtualBase + OhciHccaOffset);
+  m_pBulkEDList = reinterpret_cast<ED*>(virtualBase + OhciBulkEdOffset);
+  m_pControlEDList = reinterpret_cast<ED*>(virtualBase + OhciControlEdOffset);
+  m_pPeriodicEDList = reinterpret_cast<ED*>(virtualBase + OhciPeriodicEdOffset);
+  m_pTDList = reinterpret_cast<TD*>(virtualBase + OhciTdOffset);
 
-  m_pHccaPhys = physicalBase;
-  m_pBulkEDListPhys = physicalBase + 0x1000;
-  m_pControlEDListPhys = physicalBase + 0x2000;
-  m_pPeriodicEDListPhys = physicalBase + 0x3000;
-  m_pTDListPhys = physicalBase + 0x4000;
+  m_pHccaPhys = physicalBase + OhciHccaOffset;
+  m_pBulkEDListPhys = physicalBase + OhciBulkEdOffset;
+  m_pControlEDListPhys = physicalBase + OhciControlEdOffset;
+  m_pPeriodicEDListPhys = physicalBase + OhciPeriodicEdOffset;
+  m_pTDListPhys = physicalBase + OhciTdOffset;
 
   // Clear out the HCCA block.
   ByteSet(m_pHcca, 0, 0x800);
@@ -162,6 +185,7 @@ Ohci::Ohci(Device* pDev)
   pPeriodicED->pMetaData->pCallback = nullptr;
   pPeriodicED->pMetaData->pParam = 0;
   pPeriodicED->pMetaData->bPeriodic = true;
+  pPeriodicED->pMetaData->bBuildFailed = false;
   pPeriodicED->pMetaData->pFirstTD = nullptr;
   pPeriodicED->pMetaData->pLastTD = nullptr;
   pPeriodicED->pMetaData->nTotalBytes = 0;
@@ -169,7 +193,7 @@ Ohci::Ohci(Device* pDev)
   pPeriodicED->pMetaData->bLinked = false;
   pPeriodicED->pMetaData->edType = PeriodicList;
   pPeriodicED->pMetaData->acceptedOperation = false;
-  pPeriodicED->pMetaData->id = 0x2000;
+  pPeriodicED->pMetaData->id = 2 * OhciDescriptorRegionBytes;
   pPeriodicED->pMetaData->pPrev = pPeriodicED->pMetaData->pNext = pPeriodicED;
 
   // Set all HCCA interrupt ED entries to our periodic ED
@@ -455,7 +479,7 @@ Ohci::~Ohci() {
         terminalizeEDForTeardown(pED, completions);
       }
 
-      constexpr size_t EdCount = 0x1000 / sizeof(ED);
+      constexpr size_t EdCount = OhciDescriptorRegionBytes / sizeof(ED);
       for (size_t i = 0; i < EdCount; ++i) {
         if (m_ControlEDBitmap.test(i))
           terminalizeEDForTeardown(&m_pControlEDList[i], completions);
@@ -548,13 +572,13 @@ Ohci::~Ohci() {
   assert(!m_pControlQueueHead && !m_pControlQueueTail);
   assert(!m_pBulkQueueHead && !m_pBulkQueueTail);
   assert(!m_pPeriodicQueueTail);
-  constexpr size_t FinalEdCount = 0x1000 / sizeof(ED);
+  constexpr size_t FinalEdCount = OhciDescriptorRegionBytes / sizeof(ED);
   for (size_t i = 0; i < FinalEdCount; ++i) {
     assert(!m_ControlEDBitmap.test(i));
     assert(!m_BulkEDBitmap.test(i));
     assert(!m_PeriodicEDBitmap.test(i));
   }
-  constexpr size_t FinalTdCount = 0x1000 / sizeof(TD);
+  constexpr size_t FinalTdCount = OhciDescriptorRegionBytes / sizeof(TD);
   for (size_t i = 0; i < FinalTdCount; ++i)
     assert(!m_TDBitmap.test(i));
   assert(m_SubmissionOperations.isClosedAndDrained());
@@ -736,7 +760,7 @@ void Ohci::retireEDStorage(ED* pED) {
 
   reclaimTransferDescriptors(pED);
   ED::MetaData* metadata = pED->pMetaData;
-  const size_t id = metadata->id & 0xFFF;
+  const size_t id = metadata->id & OhciDescriptorOffsetMask;
   const Lists type = metadata->edType;
   const bool acceptedOperation = metadata->acceptedOperation;
   delete metadata;
@@ -863,7 +887,7 @@ IrqDisposition Ohci::irq(irq_id_t number) {
       m_pBase->write32(OhciInterruptStartOfFrame, OhciInterruptDisable);
 
       // Process the reclaim list.
-      constexpr size_t EdListCount = 3 * (0x1000 / sizeof(ED));
+      constexpr size_t EdListCount = 3 * (OhciDescriptorRegionBytes / sizeof(ED));
       size_t reclaimBudget = EdListCount;
       while (reclaimBudget) {
         ED* pED = nullptr;
@@ -982,8 +1006,8 @@ IrqDisposition Ohci::irq(irq_id_t number) {
     List<ED*> persistList;
 
     if (nStatus & OhciInterruptWbDoneHead) {
-      constexpr size_t EdListCount = 3 * (0x1000 / sizeof(ED));
-      constexpr size_t TdListCount = 0x1000 / sizeof(TD);
+      constexpr size_t EdListCount = 3 * (OhciDescriptorRegionBytes / sizeof(ED));
+      constexpr size_t TdListCount = OhciDescriptorRegionBytes / sizeof(TD);
       size_t scheduleBudget = EdListCount;
       ED* pED = 0;
       while (scheduleBudget) {
@@ -1160,9 +1184,9 @@ void Ohci::addTransferToTransaction(uintptr_t pTransaction, bool bToggle, UsbPid
   LockGuard<ControllerLock> controllerGuard(m_Mutex);
   LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
 
-  constexpr size_t EdCount = 0x1000 / sizeof(ED);
-  const size_t transactionType = (pTransaction & 0x3000) >> 12;
-  const uintptr_t edOffset = pTransaction & 0xFFF;
+  constexpr size_t EdCount = OhciDescriptorRegionBytes / sizeof(ED);
+  const size_t transactionType = pTransaction / OhciDescriptorRegionBytes;
+  const uintptr_t edOffset = pTransaction & OhciDescriptorOffsetMask;
   ED* pED = nullptr;
   bool valid = edOffset < EdCount;
   if (valid && transactionType == 0) {
@@ -1178,15 +1202,16 @@ void Ohci::addTransferToTransaction(uintptr_t pTransaction, bool bToggle, UsbPid
     valid = false;
 
   if (pTransaction == static_cast<uintptr_t>(-1) || !valid || !pED || !pED->pMetaData ||
-      pED->pMetaData->acceptedOperation ||
+      pED->pMetaData->acceptedOperation || pED->pMetaData->bBuildFailed ||
       pED->pMetaData->completion.state() != UsbHcd::TransferCompletion::State::Idle) {
     ERROR("USB: OHCI: transaction " << pTransaction << " is invalid.");
     return;
   }
 
   size_t nIndex = m_TDBitmap.getFirstClear();
-  if (nIndex >= (0x1000 / sizeof(TD))) {
+  if (nIndex >= (OhciDescriptorRegionBytes / sizeof(TD))) {
     ERROR("USB: OHCI: TD space full");
+    pED->pMetaData->bBuildFailed = true;
     return;
   }
   m_TDBitmap.set(nIndex);
@@ -1220,21 +1245,56 @@ void Ohci::addTransferToTransaction(uintptr_t pTransaction, bool bToggle, UsbPid
 
   // Buffer for transfer
   if (nBytes) {
-    VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-    if (va.isMapped(reinterpret_cast<void*>(pBuffer))) {
-      physical_uintptr_t phys = 0;
-      size_t flags = 0;
-      va.getMapping(reinterpret_cast<void*>(pBuffer), phys, flags);
-      pTD->pBufferStart = phys + (pBuffer & 0xFFF);
-      pTD->pBufferEnd = pTD->pBufferStart + nBytes - 1;
-    } else {
-      ERROR("OHCI: addTransferToTransaction: Buffer (page " << Dec << pBuffer << Hex
-                                                            << ") isn't mapped!");
+    const uintptr_t highestVirtual = static_cast<uintptr_t>(-1);
+    if ((nBytes - 1) > highestVirtual - pBuffer) {
+      ERROR("OHCI: addTransferToTransaction: buffer range wraps");
+      pED->pMetaData->bBuildFailed = true;
       ByteSet(pTD, 0, sizeof(TD));
       m_TDBitmap.clear(nIndex);
       return;
     }
 
+    // A General TD can name the current and final physical 4 KiB pages. It
+    // cannot describe a third page, regardless of the target VM page size.
+    const uintptr_t lastBufferByte = pBuffer + nBytes - 1;
+    const uintptr_t firstHardwarePage = pBuffer & ~uintptr_t(OhciHardwarePageBytes - 1);
+    const uintptr_t lastHardwarePage = lastBufferByte & ~uintptr_t(OhciHardwarePageBytes - 1);
+    const size_t hardwarePageCount =
+        ((lastHardwarePage - firstHardwarePage) / OhciHardwarePageBytes) + 1;
+    if (hardwarePageCount > OhciBufferPageCount) {
+      ERROR("OHCI: addTransferToTransaction: buffer spans too many hardware pages");
+      pED->pMetaData->bBuildFailed = true;
+      ByteSet(pTD, 0, sizeof(TD));
+      m_TDBitmap.clear(nIndex);
+      return;
+    }
+
+    VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
+    physical_uintptr_t physicalStart = 0;
+    physical_uintptr_t physicalEnd = 0;
+    if (!DriverDma::virtualToPhysical(va, pBuffer, physicalStart) ||
+        !DriverDma::virtualToPhysical(va, lastBufferByte, physicalEnd) || !physicalStart ||
+        physicalStart > OhciHighestDmaAddress || physicalEnd > OhciHighestDmaAddress) {
+      ERROR("OHCI: addTransferToTransaction: buffer range is not DMA-addressable");
+      pED->pMetaData->bBuildFailed = true;
+      ByteSet(pTD, 0, sizeof(TD));
+      m_TDBitmap.clear(nIndex);
+      return;
+    }
+
+    // Completion and periodic rearming use the controller-updated current
+    // buffer pointer as a linear byte cursor.
+    if (!DriverDma::physicalEndpointsAreContiguous(physicalStart, physicalEnd, nBytes,
+                                                   OhciHighestDmaAddress)) {
+      ERROR("OHCI: addTransferToTransaction: buffer is not physically contiguous");
+      pED->pMetaData->bBuildFailed = true;
+      ByteSet(pTD, 0, sizeof(TD));
+      m_TDBitmap.clear(nIndex);
+      return;
+    }
+
+    pTD->pBufferStart = physicalStart;
+    pTD->pBufferEnd = physicalEnd;
     pTD->nBufferSize = nBytes;
   }
 
@@ -1269,7 +1329,7 @@ uintptr_t Ohci::createTransaction(UsbEndpoint endpointInfo) {
   ED* pED = nullptr;
   size_t nIndex = bIsBulk ? m_BulkEDBitmap.getFirstClear() : m_ControlEDBitmap.getFirstClear();
 
-  if (nIndex >= (0x1000 / sizeof(ED))) {
+  if (nIndex >= (OhciDescriptorRegionBytes / sizeof(ED))) {
     ERROR("USB: OHCI: ED space full");
     return static_cast<uintptr_t>(-1);
   }
@@ -1277,7 +1337,7 @@ uintptr_t Ohci::createTransaction(UsbEndpoint endpointInfo) {
   if (bIsBulk) {
     m_BulkEDBitmap.set(nIndex);
     pED = &m_pBulkEDList[nIndex];
-    nIndex += 0x1000;
+    nIndex += OhciDescriptorRegionBytes;
   } else {
     m_ControlEDBitmap.set(nIndex);
     pED = &m_pControlEDList[nIndex];
@@ -1303,6 +1363,7 @@ uintptr_t Ohci::createTransaction(UsbEndpoint endpointInfo) {
   pED->pMetaData->bIgnore = true;  // Don't handle this ED until we're ready.
   pED->pMetaData->edType = bIsBulk ? BulkList : ControlList;
   pED->pMetaData->bPeriodic = false;
+  pED->pMetaData->bBuildFailed = false;
   pED->pMetaData->pFirstTD = pED->pMetaData->pLastTD = 0;
   pED->pMetaData->nTotalBytes = 0;
   pED->pMetaData->pPrev = pED->pMetaData->pNext = 0;
@@ -1326,9 +1387,9 @@ bool Ohci::doAsync(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t)
 
   // pTransaction will be 0x0xxx for CONTROL, 0x1xxx for BULK, 0x2xxx for
   // PERIODIC.
-  const size_t transactionType = (pTransaction & 0x3000) >> 12;
-  const uintptr_t edOffset = pTransaction & 0xFFF;
-  constexpr size_t EdCount = 0x1000 / sizeof(ED);
+  const size_t transactionType = pTransaction / OhciDescriptorRegionBytes;
+  const uintptr_t edOffset = pTransaction & OhciDescriptorOffsetMask;
+  constexpr size_t EdCount = OhciDescriptorRegionBytes / sizeof(ED);
 
   Spinlock* pLock = nullptr;
   ED* pED = nullptr;
@@ -1360,8 +1421,8 @@ bool Ohci::doAsync(uintptr_t pTransaction, void (*pCallback)(uintptr_t, ssize_t)
     return false;
   }
 
-  if (!pED->pMetaData->pLastTD) {
-    ERROR("OHCI: doAsync: transaction has no transfers [" << pTransaction << "].");
+  if (pED->pMetaData->bBuildFailed || !pED->pMetaData->pLastTD) {
+    ERROR("OHCI: doAsync: transaction could not be submitted [" << pTransaction << "].");
     retireEDStorage(pED);
     return false;
   }
@@ -1500,9 +1561,9 @@ void Ohci::cancelAsyncAndDrain(uintptr_t pTransaction, void (*pCallback)(uintptr
     {
       LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
 
-      const size_t transactionType = (pTransaction & 0x3000) >> 12;
-      const uintptr_t edOffset = pTransaction & 0xFFF;
-      constexpr size_t EdCount = 0x1000 / sizeof(ED);
+      const size_t transactionType = pTransaction / OhciDescriptorRegionBytes;
+      const uintptr_t edOffset = pTransaction & OhciDescriptorOffsetMask;
+      constexpr size_t EdCount = OhciDescriptorRegionBytes / sizeof(ED);
       bool valid = edOffset < EdCount;
       if (valid && transactionType == 0) {
         valid = m_ControlEDBitmap.test(edOffset);

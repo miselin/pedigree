@@ -31,9 +31,4 @@
 
 #include <sys/types.h>
 
-#ifndef PEDIGREE_TARGET_PAGE_SIZE
-#define PEDIGREE_TARGET_PAGE_SIZE 4096
-#endif
-#define PAGE_SIZE PEDIGREE_TARGET_PAGE_SIZE
-
 #endif

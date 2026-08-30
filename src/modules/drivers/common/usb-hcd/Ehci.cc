@@ -47,10 +47,26 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "modules/drivers/common/DmaBuffer.h"
 #include "modules/system/usb/Usb.h"
 #include "modules/system/usb/UsbHub.h"
 
-#define INDEX_FROM_QTD(ptr) (((reinterpret_cast<uintptr_t>((ptr)) & 0xFFF) / sizeof(qTD)))
+namespace {
+constexpr size_t EhciHardwarePageBytes = 4096;
+constexpr size_t EhciHardwarePageShift = 12;
+constexpr size_t EhciDescriptorOffsetMask = EhciHardwarePageBytes - 1;
+constexpr size_t EhciQhRegionBytes = 2 * EhciHardwarePageBytes;
+constexpr size_t EhciFrameListOffset = EhciQhRegionBytes;
+constexpr size_t EhciQtdListOffset = EhciFrameListOffset + EhciHardwarePageBytes;
+constexpr size_t EhciDmaRegionBytes = EhciQtdListOffset + EhciHardwarePageBytes;
+constexpr size_t EhciQtdBufferPageCount = 5;
+constexpr size_t EhciQtdBufferWindowBytes = EhciQtdBufferPageCount * EhciHardwarePageBytes;
+constexpr physical_uintptr_t EhciHighestDmaAddress = 0xffffffff;
+static_assert((size_t{1} << EhciHardwarePageShift) == EhciHardwarePageBytes);
+}  // namespace
+
+#define INDEX_FROM_QTD(ptr) \
+  (((reinterpret_cast<uintptr_t>((ptr)) & EhciDescriptorOffsetMask) / sizeof(qTD)))
 #define PHYS_QTD(idx) (m_pqTDListPhys + ((idx) * sizeof(qTD)))
 
 static int threadStub(void* p);
@@ -70,25 +86,6 @@ static bool waitForMmioState(IoBase* base, size_t registerOffset, uint32_t mask,
   }
   return (base->read32(registerOffset) & mask) == expected;
 }
-
-#define GET_PAGE(param, page, qtdIndex)                                                          \
-  do {                                                                                           \
-    if ((nBufferPageOffset + nBytes) > ((page) * 0x1000)) {                                      \
-      if (va.isMapped(reinterpret_cast<void*>(pBufferPageStart + (page) * 0x1000))) {            \
-        physical_uintptr_t phys = 0;                                                             \
-        size_t flags = 0;                                                                        \
-        va.getMapping(reinterpret_cast<void*>(pBufferPageStart + (page) * 0x1000), phys, flags); \
-        (param) = phys >> 12;                                                                    \
-      } else {                                                                                   \
-        ERROR("EHCI: addTransferToTransaction: Buffer (page " << Dec << (page) << Hex            \
-                                                              << ") isn't mapped!");             \
-        pQH->pMetaData->bBuildFailed = true;                                                     \
-        m_qTDBitmap.clear((qtdIndex));                                                           \
-        ByteSet(pqTD, 0, sizeof(qTD));                                                           \
-        return;                                                                                  \
-      }                                                                                          \
-    }                                                                                            \
-  } while (0)
 
 Ehci::Ehci(Device* pDev)
     : UsbHub(pDev),
@@ -120,9 +117,16 @@ Ehci::Ehci(Device* pDev)
 }
 
 bool Ehci::initialiseController() {
+  if (TargetInfo::getPageSize() < EhciHardwarePageBytes ||
+      (TargetInfo::getPageSize() % EhciHardwarePageBytes)) {
+    ERROR("USB: EHCI: target pages cannot represent 4 KiB EHCI buffer pages");
+    return false;
+  }
+
   // Allocate the pages we need
   if (!PhysicalMemoryManager::instance().allocateRegion(
-          m_EhciMR, 4, PhysicalMemoryManager::continuous,
+          m_EhciMR, DriverDma::pageCountForBytes(EhciDmaRegionBytes),
+          PhysicalMemoryManager::continuous | PhysicalMemoryManager::below4GB,
           VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) {
     ERROR("USB: EHCI: Couldn't allocate Memory Region!");
     return false;
@@ -131,11 +135,11 @@ bool Ehci::initialiseController() {
   uintptr_t virtualBase = reinterpret_cast<uintptr_t>(m_EhciMR.virtualAddress());
   uintptr_t physicalBase = m_EhciMR.physicalAddress();
   m_pQHList = reinterpret_cast<QH*>(virtualBase);
-  m_pFrameList = reinterpret_cast<uint32_t*>(virtualBase + 0x2000);
-  m_pqTDList = reinterpret_cast<qTD*>(virtualBase + 0x3000);
+  m_pFrameList = reinterpret_cast<uint32_t*>(virtualBase + EhciFrameListOffset);
+  m_pqTDList = reinterpret_cast<qTD*>(virtualBase + EhciQtdListOffset);
   m_pQHListPhys = physicalBase;
-  m_pFrameListPhys = physicalBase + 0x2000;
-  m_pqTDListPhys = physicalBase + 0x3000;
+  m_pFrameListPhys = physicalBase + EhciFrameListOffset;
+  m_pqTDListPhys = physicalBase + EhciQtdListOffset;
 
   DoubleWordSet(m_pFrameList, 1, 0x400);
 
@@ -604,7 +608,7 @@ Ehci::~Ehci() {
     }
 
     if (m_pQHList) {
-      constexpr size_t QhCount = 0x2000 / sizeof(QH);
+      constexpr size_t QhCount = EhciQhRegionBytes / sizeof(QH);
       for (size_t i = 1; i < QhCount; ++i) {
         if (!m_QHBitmap.test(i))
           continue;
@@ -660,7 +664,7 @@ Ehci::~Ehci() {
   {
     LockGuard<Mutex> controllerGuard(m_Mutex);
     if (m_pQHList) {
-      constexpr size_t QhCount = 0x2000 / sizeof(QH);
+      constexpr size_t QhCount = EhciQhRegionBytes / sizeof(QH);
       for (size_t i = 1; i < QhCount; ++i)
         assert(!m_QHBitmap.test(i));
 
@@ -672,7 +676,7 @@ Ehci::~Ehci() {
     }
 
     if (m_pqTDList) {
-      constexpr size_t QtdCount = 0x1000 / sizeof(qTD);
+      constexpr size_t QtdCount = EhciHardwarePageBytes / sizeof(qTD);
       for (size_t i = 1; i < QtdCount; ++i)
         assert(!m_qTDBitmap.test(i));
       if (m_qTDBitmap.test(0)) {
@@ -706,7 +710,7 @@ void Ehci::releaseQtdChainLocked(QH* qh) {
   if (!qh || !qh->pMetaData || !qh->pMetaData->pFirstQTD)
     return;
 
-  constexpr size_t QtdCount = 0x1000 / sizeof(qTD);
+  constexpr size_t QtdCount = EhciHardwarePageBytes / sizeof(qTD);
   size_t qtdIndex = INDEX_FROM_QTD(qh->pMetaData->pFirstQTD);
   size_t budget = QtdCount;
   bool foundLast = false;
@@ -719,7 +723,7 @@ void Ehci::releaseQtdChainLocked(QH* qh) {
     const bool last = qtd->bNextInvalid;
     size_t nextIndex = 0;
     if (!last)
-      nextIndex = ((qtd->pNext << 5) & 0xFFF) / sizeof(qTD);
+      nextIndex = ((qtd->pNext << 5) & EhciDescriptorOffsetMask) / sizeof(qTD);
 
     if (m_qTDBitmap.test(qtdIndex))
       m_qTDBitmap.clear(qtdIndex);
@@ -799,7 +803,7 @@ void Ehci::doDequeue() {
       LockGuard<Mutex> guard(m_Mutex);
       LockGuard<IrqProcessingLock> transactionGuard(m_IrqProcessingLock);
 
-      for (size_t i = 1; i < 0x2000 / sizeof(QH); i++) {
+      for (size_t i = 1; i < EhciQhRegionBytes / sizeof(QH); i++) {
         if (!m_QHBitmap.test(i))
           continue;
 
@@ -998,7 +1002,7 @@ void Ehci::interrupt(size_t number, InterruptState& state)
         bool bPeriodic = pQH->pMetaData->bPeriodic;
 
         size_t nQTDIndex = INDEX_FROM_QTD(pQH->pMetaData->pFirstQTD);
-        constexpr size_t QtdCount = 0x1000 / sizeof(qTD);
+        constexpr size_t QtdCount = EhciHardwarePageBytes / sizeof(qTD);
         size_t qtdBudget = QtdCount;
         while (qtdBudget) {
           --qtdBudget;
@@ -1097,15 +1101,7 @@ void Ehci::interrupt(size_t number, InterruptState& state)
               pqTD->nStatus = 0x80;
               pqTD->nBytes = pqTD->nBufferSize;
               pqTD->nPage = 0;
-              // pqTD->nOffset =
-              // pQH->pMetaData->nBufferOffset%0x1000;
               pqTD->nErr = 0;
-              // pqTD->pPage0 = m_pTransferPagesPhys>>12;
-              // pqTD->pPage1 = (m_pTransferPagesPhys +
-              // 0x1000)>>12; pqTD->pPage2 = (m_pTransferPagesPhys
-              // + 0x2000)>>12; pqTD->pPage3 =
-              // (m_pTransferPagesPhys + 0x3000)>>12; pqTD->pPage4
-              // = (m_pTransferPagesPhys + 0x4000)>>12;
               MemoryCopy(&pQH->overlay, pqTD, sizeof(qTD));
             }
           }
@@ -1115,7 +1111,7 @@ void Ehci::interrupt(size_t number, InterruptState& state)
           if (pqTD->bNextInvalid)
             break;
           else
-            nQTDIndex = ((pqTD->pNext << 5) & 0xFFF) / sizeof(qTD);
+            nQTDIndex = ((pqTD->pNext << 5) & EhciDescriptorOffsetMask) / sizeof(qTD);
 
           if (nQTDIndex == oldIndex) {
             ERROR_NOLOCK("EHCI: QH #" << Dec << i << Hex
@@ -1164,7 +1160,7 @@ void Ehci::addTransferToTransaction(uintptr_t nTransaction, bool bToggle, UsbPid
 void Ehci::addTransferToTransactionAdmitted(uintptr_t nTransaction, bool bToggle, UsbPid pid,
                                             uintptr_t pBuffer, size_t nBytes) {
   LockGuard<Mutex> guard(m_Mutex);
-  constexpr size_t QhCount = 0x2000 / sizeof(QH);
+  constexpr size_t QhCount = EhciQhRegionBytes / sizeof(QH);
   if (nTransaction >= QhCount || !m_QHBitmap.test(nTransaction)) {
     ERROR("EHCI: addTransferToTransaction: invalid transaction");
     return;
@@ -1178,7 +1174,7 @@ void Ehci::addTransferToTransactionAdmitted(uintptr_t nTransaction, bool bToggle
   }
 
   const size_t nIndex = m_qTDBitmap.getFirstClear();
-  if (nIndex >= (0x1000 / sizeof(qTD))) {
+  if (nIndex >= (EhciHardwarePageBytes / sizeof(qTD))) {
     ERROR("USB: EHCI: qTD space full");
     pQH->pMetaData->bBuildFailed = true;
     return;
@@ -1219,11 +1215,22 @@ void Ehci::addTransferToTransactionAdmitted(uintptr_t nTransaction, bool bToggle
   pqTD->bDataToggle = bToggle;
 
   if (nBytes) {
-    // Configure transfer pages
-    uintptr_t nBufferPageOffset = pBuffer & 0xFFF, pBufferPageStart = pBuffer & ~0xFFF;
+    // EHCI qTDs always describe five 4 KiB hardware pages, independently of
+    // the target VM page size.
+    const size_t nBufferPageOffset = pBuffer & EhciDescriptorOffsetMask;
+    const uintptr_t pBufferPageStart = pBuffer & ~uintptr_t(EhciDescriptorOffsetMask);
     pqTD->nOffset = nBufferPageOffset;
 
-    if (nBufferPageOffset + nBytes >= 0x5000) {
+    const uintptr_t highestVirtual = static_cast<uintptr_t>(-1);
+    if ((nBytes - 1) > highestVirtual - pBuffer) {
+      ERROR("EHCI: addTransferToTransaction: buffer range wraps");
+      pQH->pMetaData->bBuildFailed = true;
+      m_qTDBitmap.clear(nIndex);
+      ByteSet(pqTD, 0, sizeof(qTD));
+      return;
+    }
+
+    if (nBytes > EhciQtdBufferWindowBytes - nBufferPageOffset) {
       ERROR(
           "EHCI: addTransferToTransaction: Too many bytes for a single "
           "transaction!");
@@ -1234,11 +1241,34 @@ void Ehci::addTransferToTransactionAdmitted(uintptr_t nTransaction, bool bToggle
     }
 
     VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-    GET_PAGE(pqTD->pPage0, 0, nIndex);
-    GET_PAGE(pqTD->pPage1, 1, nIndex);
-    GET_PAGE(pqTD->pPage2, 2, nIndex);
-    GET_PAGE(pqTD->pPage3, 3, nIndex);
-    GET_PAGE(pqTD->pPage4, 4, nIndex);
+    uint32_t bufferPages[EhciQtdBufferPageCount] = {};
+    const size_t bufferSpan = nBufferPageOffset + nBytes;
+    for (size_t page = 0; page < EhciQtdBufferPageCount; ++page) {
+      if (bufferSpan <= page * EhciHardwarePageBytes)
+        break;
+
+      physical_uintptr_t physicalPage = 0;
+      const uintptr_t virtualPage = pBufferPageStart + page * EhciHardwarePageBytes;
+      if (!DriverDma::virtualToPhysical(va, virtualPage, physicalPage) ||
+          (physicalPage & EhciDescriptorOffsetMask) ||
+          !DriverDma::physicalRangeFits(physicalPage, EhciHardwarePageBytes,
+                                        EhciHighestDmaAddress)) {
+        ERROR("EHCI: addTransferToTransaction: buffer hardware page " << Dec << page << Hex
+                                                                      << " is not DMA-addressable");
+        pQH->pMetaData->bBuildFailed = true;
+        m_qTDBitmap.clear(nIndex);
+        ByteSet(pqTD, 0, sizeof(qTD));
+        return;
+      }
+
+      bufferPages[page] = physicalPage >> EhciHardwarePageShift;
+    }
+
+    pqTD->pPage0 = bufferPages[0];
+    pqTD->pPage1 = bufferPages[1];
+    pqTD->pPage2 = bufferPages[2];
+    pqTD->pPage3 = bufferPages[3];
+    pqTD->pPage4 = bufferPages[4];
   }
 
   // Add our qTD to the transaction.
@@ -1268,7 +1298,7 @@ uintptr_t Ehci::createTransaction(UsbEndpoint endpointInfo) {
 uintptr_t Ehci::createTransactionAdmitted(UsbEndpoint endpointInfo) {
   LockGuard<Mutex> guard(m_Mutex);
   const size_t nIndex = m_QHBitmap.getFirstClear();
-  if (nIndex >= (0x2000 / sizeof(QH))) {
+  if (nIndex >= (EhciQhRegionBytes / sizeof(QH))) {
     ERROR("USB: EHCI: QH space full");
     return static_cast<uintptr_t>(-1);
   }
@@ -1319,7 +1349,7 @@ bool Ehci::doAsync(uintptr_t nTransaction, void (*pCallback)(uintptr_t, ssize_t)
     return false;
 
   LockGuard<Mutex> guard(m_Mutex);
-  constexpr size_t QhCount = 0x2000 / sizeof(QH);
+  constexpr size_t QhCount = EhciQhRegionBytes / sizeof(QH);
   if ((nTransaction == static_cast<uintptr_t>(-1)) || nTransaction >= QhCount ||
       !m_QHBitmap.test(nTransaction)) {
     ERROR("EHCI: doAsync: didn't get a valid transaction id [" << nTransaction << "].");
@@ -1364,8 +1394,7 @@ bool Ehci::doAsync(uintptr_t nTransaction, void (*pCallback)(uintptr_t, ssize_t)
   // circle, when in fact it's only partway there.
   pQH->hrcl = 0;
 
-  const size_t queueHeadIndex =
-      (reinterpret_cast<uintptr_t>(m_pCurrentQueueHead) & 0xFFF) / sizeof(QH);
+  const size_t queueHeadIndex = m_pCurrentQueueHead - m_pQHList;
   pQH->pNext = (m_pQHListPhys + (queueHeadIndex * sizeof(QH))) >> 5;
   pQH->pMetaData->pNext = m_pCurrentQueueHead;
   pQH->pMetaData->pPrev = m_pCurrentQueueTail;
@@ -1419,7 +1448,7 @@ void Ehci::cancelAsyncAndDrain(uintptr_t nTransaction, void (*pCallback)(uintptr
     {
       LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
 
-      constexpr size_t QhCount = 0x2000 / sizeof(QH);
+      constexpr size_t QhCount = EhciQhRegionBytes / sizeof(QH);
       if ((nTransaction != static_cast<uintptr_t>(-1)) && nTransaction < QhCount &&
           m_QHBitmap.test(nTransaction)) {
         QH* pQH = &m_pQHList[nTransaction];
@@ -1514,7 +1543,7 @@ bool Ehci::cancelInterruptInAndDrain(const UsbInterruptInToken& token,
 
       {
         LockGuard<IrqProcessingLock> irqGuard(m_IrqProcessingLock);
-        constexpr size_t QhCount = 0x2000 / sizeof(QH);
+        constexpr size_t QhCount = EhciQhRegionBytes / sizeof(QH);
         if (token.transaction < QhCount && m_QHBitmap.test(token.transaction)) {
           QH* pQH = &m_pQHList[token.transaction];
           QH::MetaData* metadata = pQH->pMetaData;

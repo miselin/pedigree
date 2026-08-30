@@ -34,15 +34,20 @@ class MemoryRegion;
 namespace Ipc {
 class EXPORTED_PUBLIC IpcMessage {
  public:
+  /** Maximum payload carried directly through the IPC message pool. */
+  static constexpr size_t InlineCapacity = 4096;
+  /** Number of fixed-size buffers retained by the IPC message pool. */
+  static constexpr size_t InlinePoolBufferCount = 1024;
+
   IpcMessage();
 
   /**
-   * \brief Constructor for regions > 4 KB in size.
+   * \brief Constructor for messages with an optional shared-region handle.
    *
    * If you pass an existing region handle, this will link the instance
    * being created to an existing message that may well be in another
    * address space. That handle is obtained via IpcMessage::getHandle,
-   * and should be passed via conventional < 4 KB IPC messages.
+   * and should be passed via conventional < 4 KiB IPC messages.
    *
    * \param nBytes Number of bytes to allocate for this region.
    * \param regionHandle Handle to a region. Each message allocated with
@@ -58,13 +63,28 @@ class EXPORTED_PUBLIC IpcMessage {
   void* getBuffer();
 
   /// Get a handle for the region this message is in. Returns NULL for
-  /// messages that do not have a size greater than 4 KB, as these are
+  /// messages smaller than 4 KiB, as these are
   /// shared by default.
   void* getHandle();
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  /** Hosted-only seam for checking inline-buffer page geometry. */
+  static constexpr size_t getHostedInlinePageCount(size_t pageSize) {
+    return pageSize ? inlinePageCount(pageSize) : 0;
+  }
+
+  static constexpr size_t getHostedInlineSlotSize(size_t pageSize) {
+    return pageSize ? inlineSlotSize(pageSize) : 0;
+  }
+
+  static constexpr size_t getHostedInlinePoolPageCount(size_t pageSize) {
+    return pageSize ? inlinePoolPageCount(pageSize) : 0;
+  }
+#endif
+
   /// Copy constructor. Used to create an IpcMessage on the other side
-  /// of a send (ie, in the receiving process) when the size is < 4 KB.
-  /// Creating an IpcMessage in another process when the size is over 4 KB
+  /// of a send (ie, in the receiving process) when the size is < 4 KiB.
+  /// Creating an IpcMessage in another process when the size is at least 4 KiB
   /// should be done with IpcMessage(size_t, uintptr_t).
   IpcMessage(const IpcMessage& src) {
     if (src.m_pMemRegion)
@@ -75,6 +95,18 @@ class EXPORTED_PUBLIC IpcMessage {
   }
 
  private:
+  static constexpr size_t inlinePageCount(size_t pageSize) {
+    return (InlineCapacity / pageSize) + ((InlineCapacity % pageSize) ? 1 : 0);
+  }
+
+  static constexpr size_t inlineSlotSize(size_t pageSize) {
+    return inlinePageCount(pageSize) * pageSize;
+  }
+
+  static constexpr size_t inlinePoolPageCount(size_t pageSize) {
+    return InlinePoolBufferCount * inlinePageCount(pageSize);
+  }
+
   void allocatePoolBuffer();
 
   size_t nPages;
@@ -83,8 +115,9 @@ class EXPORTED_PUBLIC IpcMessage {
   uintptr_t m_vAddr;
 
   /// This is the memory region we can pass around as a handle IFF we are
-  /// working with a region > 4 KB in size. Allocated as a result of
-  /// the @IpcMessage constructor with regionHandle == 0 and nBytes > 4096
+  /// working with a region at least 4 KiB in size. Allocated as a result of
+  /// the @IpcMessage constructor with regionHandle == 0 once nBytes reaches
+  /// the inline capacity.
   MemoryRegion* m_pMemRegion;
 };
 
