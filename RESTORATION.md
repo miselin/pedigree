@@ -154,6 +154,12 @@ also uses the selected GCC 15.3 Pedigree cross-toolchain to build focused 4 KiB
 and 16 KiB ELF smoke modules, links the hosted kernels as low-address x86-64
 Mach-O executables, and runs both through Rosetta.
 
+The test-support build remains a Debug build. Host utilities are built in a
+separate native tools tree using the `Speed` profile by default, so `ext2img`
+and the filesystem code it links are optimized without changing test
+assertions. Set `PEDIGREE_HOST_TOOLS_PROFILE` to `Debug`, `Size`, `Speed`, or
+`MaxSpeed` to select a different host-tools profile.
+
 The Darwin lifecycle intentionally avoids the historical root filesystem,
 full module set, services, musl, and userspace. Its module covers the core
 wait, request-queue, lifetime, process-exit, page-fault, timer, primitive, and

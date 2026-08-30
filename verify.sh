@@ -156,7 +156,7 @@ run_sarif_analysis()
         fi
         cmake -S "$script_dir" -B "$sarif_build_dir" \
             -DCMAKE_TOOLCHAIN_FILE="$script_dir/build-etc/cmake/pedigree_amd64.cmake" \
-            -DIMPORT_EXECUTABLES="$build_root/native/regular/HostUtilities.cmake" \
+            -DIMPORT_EXECUTABLES="$build_root/native/tools/HostUtilities.cmake" \
             -DPEDIGREE_TOOLCHAIN_ROOT="$toolchain_root" \
             -DPEDIGREE_BUILD_USER_DIR=ON \
             -DPEDIGREE_WARNINGS=ON \

@@ -216,6 +216,40 @@ TEST_F(DiskImageTest, ProvidesSynchronousFlush) {
   EXPECT_EQ(readByte(offset), 0xC3);
 }
 
+#if !HAS_ADDRESS_SANITIZER
+TEST_F(DiskImageTest, BatchesAsynchronousWriteback) {
+  constexpr size_t imageSize = 32U * 1024U * 1024U;
+  ASSERT_EQ(truncate(m_Path.c_str(), imageSize), 0);
+
+  DiskImage image(m_Path.c_str());
+  ASSERT_TRUE(image.initialise());
+
+  const long hostPageSize = sysconf(_SC_PAGESIZE);
+  ASSERT_GT(hostPageSize, 0);
+
+  g_MsyncCalls.clear();
+  for (size_t offset = 0; offset < imageSize; offset += static_cast<size_t>(hostPageSize)) {
+    const BufferView block = image.read(offset);
+    ASSERT_TRUE(block);
+    block[0] = static_cast<uint8_t>(offset / static_cast<size_t>(hostPageSize));
+    image.write(offset);
+  }
+
+  size_t asynchronousCalls = 0;
+  for (const MsyncCall& call : g_MsyncCalls) {
+    if (call.flags != MS_ASYNC) {
+      continue;
+    }
+    ++asynchronousCalls;
+    EXPECT_EQ(call.address % static_cast<size_t>(hostPageSize), 0U);
+    EXPECT_EQ(call.length % static_cast<size_t>(hostPageSize), 0U);
+  }
+
+  EXPECT_GT(asynchronousCalls, 0U);
+  EXPECT_LT(asynchronousCalls, imageSize / kBlockSize);
+}
+#endif
+
 TEST_F(DiskImageTest, FailedInitialisationDoesNotRetainFileDescriptor) {
   ASSERT_EQ(truncate(m_Path.c_str(), 0), 0);
   auto image = std::make_unique<DiskImage>(m_Path.c_str());

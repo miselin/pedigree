@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "modules/drivers/common/partition/Partition.h"
@@ -49,6 +50,21 @@ class Ext2WritebackTestPeer {
 
   static bool releaseInode(Ext2Filesystem& filesystem, uint32_t inode) {
     return filesystem.releaseInode(inode);
+  }
+
+  static void configureGrowth(Ext2Filesystem& filesystem, Disk* disk, Superblock* superblock,
+                              GroupDesc* groupDescriptor) {
+    filesystem.m_pDisk = disk;
+    filesystem.m_pSuperblock = superblock;
+    filesystem.m_BlockSize = 4096;
+    filesystem.m_InodeSize = sizeof(Inode);
+    filesystem.m_nGroupDescriptors = 1;
+
+    filesystem.m_pGroupDescriptors = new GroupDesc*[1];
+    filesystem.m_pGroupDescriptors[0] = groupDescriptor;
+    filesystem.m_pBlockBitmaps = new Vector<size_t>[1];
+    filesystem.m_pInodeBitmaps = new Vector<size_t>[1];
+    filesystem.m_pInodeTables = new Vector<size_t>[1];
   }
 };
 
@@ -103,6 +119,53 @@ class TrackingDisk final : public Disk {
   std::vector<uint64_t> alignments;
   std::vector<uint64_t> reads;
   bool retirementResult = true;
+};
+
+class GrowthDisk final : public Disk {
+ public:
+  static constexpr size_t kBlockCount = 32768;
+
+  GrowthDisk() : blocks(kBlockCount) {}
+
+  BufferView read(uint64_t location) override {
+    if (location >= getSize()) {
+      return BufferView();
+    }
+    reads.push_back(location);
+    const size_t block = static_cast<size_t>(location / kBlockSize);
+    const size_t offset = static_cast<size_t>(location % kBlockSize);
+    uint8_t* data = getBlock(block);
+    return BufferView(data + offset, kBlockSize - offset);
+  }
+
+  void write(uint64_t location) override {
+    writes.push_back(location);
+  }
+
+  size_t getSize() const override {
+    return kBlockCount * kBlockSize;
+  }
+
+  size_t getBlockSize() const override {
+    return kBlockSize;
+  }
+
+  bool pin(uint64_t location) override {
+    return location < getSize();
+  }
+
+  void unpin(uint64_t) override {}
+
+  uint8_t* getBlock(size_t block) {
+    if (!blocks[block]) {
+      blocks[block] = std::unique_ptr<uint8_t[]>(new uint8_t[kBlockSize]());
+    }
+    return blocks[block].get();
+  }
+
+  std::vector<std::unique_ptr<uint8_t[]>> blocks;
+  std::vector<uint64_t> reads;
+  std::vector<uint64_t> writes;
 };
 
 class OrderedSyncFile final : public File {
@@ -181,6 +244,59 @@ TEST(Ext2Writeback, KeepsNativeBlockWritePath) {
   EXPECT_TRUE(disk.reads.empty());
   EXPECT_EQ(disk.writes,
             std::vector<uint64_t>({static_cast<uint64_t>(kPhysicalBlock) * kBlockSize}));
+}
+
+TEST(Ext2Growth, BatchesIndirectMappingAndInodeWrites) {
+  GrowthDisk disk;
+  Superblock superblock = {};
+  superblock.s_first_data_block = HOST_TO_LITTLE32(0);
+  superblock.s_blocks_per_group = HOST_TO_LITTLE32(GrowthDisk::kBlockCount);
+  superblock.s_inodes_per_group = HOST_TO_LITTLE32(32);
+  superblock.s_free_blocks_count = HOST_TO_LITTLE32(GrowthDisk::kBlockCount - 16);
+  superblock.s_free_inodes_count = HOST_TO_LITTLE32(31);
+
+  GroupDesc groupDescriptor = {};
+  groupDescriptor.bg_block_bitmap = HOST_TO_LITTLE32(2);
+  groupDescriptor.bg_inode_bitmap = HOST_TO_LITTLE32(3);
+  groupDescriptor.bg_inode_table = HOST_TO_LITTLE32(4);
+  groupDescriptor.bg_free_blocks_count = HOST_TO_LITTLE16(GrowthDisk::kBlockCount - 16);
+  groupDescriptor.bg_free_inodes_count = HOST_TO_LITTLE16(31);
+
+  // Reserve the filesystem metadata blocks so allocation starts at block 16.
+  std::fill(disk.getBlock(2), disk.getBlock(2) + 2, 0xFF);
+
+  Ext2Filesystem filesystem;
+  Ext2WritebackTestPeer::configureGrowth(filesystem, &disk, &superblock, &groupDescriptor);
+
+  Inode inode = {};
+  inode.i_mode = HOST_TO_LITTLE16(EXT2_S_IFREG);
+  inode.i_links_count = HOST_TO_LITTLE16(1);
+  {
+    Ext2File file(String("growth"), 3, &inode, &filesystem);
+    file.preallocate(16 * kBlockSize, false);
+  }
+
+  EXPECT_EQ(LITTLE_TO_HOST32(inode.i_block[12]), 32U);
+  EXPECT_EQ(LITTLE_TO_HOST32(inode.i_blocks), 17U * (kBlockSize / 512));
+  uint32_t* indirect = reinterpret_cast<uint32_t*>(disk.getBlock(32));
+  for (size_t i = 0; i < 4; ++i) {
+    EXPECT_EQ(LITTLE_TO_HOST32(indirect[i]), 28U + i);
+  }
+  for (uint32_t block = 16; block < 32; ++block) {
+    EXPECT_EQ(static_cast<size_t>(std::count(disk.reads.begin(), disk.reads.end(),
+                                             static_cast<uint64_t>(block) * kBlockSize)),
+              0U);
+  }
+
+  const uint64_t inodeTableLocation = 4ULL * kBlockSize;
+  const uint64_t indirectLocation = 32ULL * kBlockSize;
+  EXPECT_EQ(static_cast<size_t>(std::count(disk.writes.begin(), disk.writes.end(),
+                                           inodeTableLocation)),
+            1U);
+  // One write initializes the indirect block; the second publishes its entries.
+  EXPECT_EQ(static_cast<size_t>(std::count(disk.writes.begin(), disk.writes.end(),
+                                           indirectLocation)),
+            2U);
 }
 
 TEST(Ext2Writeback, ReleaseInodeFinishesOnTargetTableBlock) {

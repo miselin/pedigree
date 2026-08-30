@@ -23,6 +23,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Disk.h"
 
+#include <cstddef>
 #include <stdio.h>
 
 #if HAS_ADDRESS_SANITIZER
@@ -62,6 +63,10 @@ class DiskImage : public Disk {
  private:
   void writeback(uint64_t location, int flags);
 
+#if !HAS_ADDRESS_SANITIZER
+  void flushDirtyPages(int flags);
+#endif
+
 #if HAS_ADDRESS_SANITIZER
   struct BufferMapping {
     void* base;
@@ -77,6 +82,13 @@ class DiskImage : public Disk {
 
   void* m_pBuffer;
   size_t m_HostPageSize;
+
+#if !HAS_ADDRESS_SANITIZER
+  unsigned char* m_pDirtyPages;
+  size_t m_DirtyPageTotal;
+  size_t m_DirtyPageCount;
+  size_t m_DirtyPageBatchLimit;
+#endif
 
 #if HAS_ADDRESS_SANITIZER
   std::map<uint64_t, BufferMapping> m_BufferMap;

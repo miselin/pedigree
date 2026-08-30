@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <new>
 #include <unistd.h>
 
 #include <sys/mman.h>
@@ -42,6 +43,10 @@ extern int diskImageMsync(void* address, size_t length, int flags);
 #define DISKIMAGE_MSYNC msync
 #endif
 
+namespace {
+constexpr size_t kWritebackBatchBytes = 16U * 1024U * 1024U;
+}
+
 DiskImage::DiskImage(const char* path)
     : Disk(),
       m_pFileName(path),
@@ -49,7 +54,17 @@ DiskImage::DiskImage(const char* path)
       m_pFile(0),
       m_FileNo(-1),
       m_pBuffer(0),
-      m_HostPageSize(0) {}
+#if HAS_ADDRESS_SANITIZER
+      m_HostPageSize(0)
+#else
+      m_HostPageSize(0),
+      m_pDirtyPages(0),
+      m_DirtyPageTotal(0),
+      m_DirtyPageCount(0),
+      m_DirtyPageBatchLimit(0)
+#endif
+{
+}
 
 DiskImage::~DiskImage() {
 #if USE_FILE_IO
@@ -69,6 +84,14 @@ DiskImage::~DiskImage() {
     DISKIMAGE_MSYNC(m_pBuffer, m_nSize, MS_SYNC);
     munmap(m_pBuffer, m_nSize);
   }
+#endif
+
+#if !HAS_ADDRESS_SANITIZER
+  delete[] m_pDirtyPages;
+  m_pDirtyPages = 0;
+  m_DirtyPageTotal = 0;
+  m_DirtyPageCount = 0;
+  m_DirtyPageBatchLimit = 0;
 #endif
   m_pBuffer = 0;
 
@@ -134,6 +157,34 @@ bool DiskImage::initialise() {
   posix_madvise(m_pBuffer, m_nSize, POSIX_MADV_SEQUENTIAL);
 #endif
 
+#if !HAS_ADDRESS_SANITIZER
+  m_DirtyPageTotal = (m_nSize / m_HostPageSize) + ((m_nSize % m_HostPageSize) ? 1 : 0);
+  m_DirtyPageBatchLimit = kWritebackBatchBytes / m_HostPageSize;
+  if (kWritebackBatchBytes % m_HostPageSize) {
+    ++m_DirtyPageBatchLimit;
+  }
+  if (!m_DirtyPageBatchLimit) {
+    m_DirtyPageBatchLimit = 1;
+  }
+  m_pDirtyPages = new (std::nothrow) unsigned char[m_DirtyPageTotal]();
+  if (!m_pDirtyPages) {
+#if USE_FILE_IO
+    delete[] static_cast<char*>(m_pBuffer);
+#else
+    munmap(m_pBuffer, m_nSize);
+#endif
+    m_pBuffer = 0;
+    fclose(m_pFile);
+    m_pFile = 0;
+    m_FileNo = -1;
+    m_nSize = 0;
+    m_HostPageSize = 0;
+    m_DirtyPageTotal = 0;
+    m_DirtyPageBatchLimit = 0;
+    return false;
+  }
+#endif
+
   return true;
 }
 
@@ -186,12 +237,71 @@ BufferView DiskImage::read(uint64_t location) {
 }
 
 void DiskImage::write(uint64_t location) {
+#if !USE_FILE_IO && !HAS_ADDRESS_SANITIZER
+  const uint64_t pageLocation = location & ~0xFFFULL;
+  if (!m_pFile || location >= m_nSize || pageLocation >= m_nSize ||
+      (m_nSize - pageLocation) < 4096) {
+    return;
+  }
+
+  const size_t page = static_cast<size_t>(pageLocation / m_HostPageSize);
+  if (!m_pDirtyPages || page >= m_DirtyPageTotal) {
+    writeback(location, MS_ASYNC);
+    return;
+  }
+
+  if (!m_pDirtyPages[page]) {
+    m_pDirtyPages[page] = 1;
+    ++m_DirtyPageCount;
+  }
+
+  if (m_DirtyPageCount >= m_DirtyPageBatchLimit) {
+    flushDirtyPages(MS_ASYNC);
+  }
+#else
   writeback(location, MS_ASYNC);
+#endif
 }
 
 void DiskImage::flush(uint64_t location) {
   writeback(location, MS_SYNC);
 }
+
+#if !HAS_ADDRESS_SANITIZER
+void DiskImage::flushDirtyPages(int flags) {
+  if (!m_pDirtyPages || !m_DirtyPageCount) {
+    return;
+  }
+
+  size_t page = 0;
+  while (page < m_DirtyPageTotal) {
+    while (page < m_DirtyPageTotal && !m_pDirtyPages[page]) {
+      ++page;
+    }
+    if (page >= m_DirtyPageTotal) {
+      break;
+    }
+
+    const size_t firstPage = page;
+    while (page < m_DirtyPageTotal && m_pDirtyPages[page]) {
+      ++page;
+    }
+
+    const uint64_t start = static_cast<uint64_t>(firstPage) * m_HostPageSize;
+    uint64_t end = static_cast<uint64_t>(page) * m_HostPageSize;
+    if (end > m_nSize) {
+      end = m_nSize;
+    }
+
+    const int result = DISKIMAGE_MSYNC(
+        adjust_pointer(m_pBuffer, start), static_cast<size_t>(end - start), flags);
+    if (result == 0) {
+      std::memset(m_pDirtyPages + firstPage, 0, page - firstPage);
+      m_DirtyPageCount -= page - firstPage;
+    }
+  }
+}
+#endif
 
 void DiskImage::writeback(uint64_t location, int flags) {
   const uint64_t pageLocation = location & ~0xFFFULL;

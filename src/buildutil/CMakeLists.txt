@@ -41,6 +41,22 @@ set(NONCOVERAGE_FLAGS -Os)
 set(COVERAGE_FLAGS -O0 -fprofile-arcs -ftest-coverage)
 set(COVERAGE_LINKFLAGS --coverage gcov)
 
+set(PEDIGREE_BUILDUTILS_PROFILE "Debug" CACHE STRING
+    "Optimization profile for host build utilities (Debug, Size, Speed, or MaxSpeed).")
+set_property(CACHE PEDIGREE_BUILDUTILS_PROFILE PROPERTY STRINGS Debug Size Speed MaxSpeed)
+if (PEDIGREE_BUILDUTILS_PROFILE STREQUAL "Debug")
+    set(BUILDUTILS_PROFILE_FLAGS "")
+elseif (PEDIGREE_BUILDUTILS_PROFILE STREQUAL "Size")
+    set(BUILDUTILS_PROFILE_FLAGS -Os)
+elseif (PEDIGREE_BUILDUTILS_PROFILE STREQUAL "Speed")
+    set(BUILDUTILS_PROFILE_FLAGS -O2)
+elseif (PEDIGREE_BUILDUTILS_PROFILE STREQUAL "MaxSpeed")
+    set(BUILDUTILS_PROFILE_FLAGS -O3)
+else ()
+    message(FATAL_ERROR
+        "PEDIGREE_BUILDUTILS_PROFILE must be Debug, Size, Speed, or MaxSpeed.")
+endif ()
+
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${BUILDUTIL_LINKFLAGS}")
 
 add_compile_options(
@@ -297,6 +313,13 @@ if (HAVE_ASAN)
 endif ()
 
 add_executable(headerify headerify/main.cc)
+
+if (BUILDUTILS_PROFILE_FLAGS)
+    foreach (target kernel utility vfs ext2 ramfs partition debugger config posix
+             keymap ext2img instrument memorytracer headerify)
+        target_compile_options(${target} PRIVATE ${BUILDUTILS_PROFILE_FLAGS})
+    endforeach ()
+endif ()
 
 export(
     TARGETS keymap ext2img instrument memorytracer testsuite headerify

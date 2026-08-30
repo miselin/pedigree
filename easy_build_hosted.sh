@@ -32,6 +32,7 @@ fi
 
 build_root=${PEDIGREE_NATIVE_BUILD_ROOT:-"$script_dir/build-native"}
 regular_build_dir="$build_root/regular"
+host_tools_build_dir="$build_root/tools"
 asan_build_dir="$build_root/asan"
 page1k_build_dir="$build_root/page1k"
 page16k_build_dir="$build_root/page16k"
@@ -39,10 +40,20 @@ page16k_asan_build_dir="$build_root/page16k-asan"
 darwin_hosted_build_dir="$build_root/darwin-hosted"
 darwin_hosted_page16k_build_dir="$build_root/darwin-hosted-page16k"
 toolchain_root=${PEDIGREE_TOOLCHAIN_ROOT:-"$script_dir/compilers/dir"}
+host_tools_profile=${PEDIGREE_HOST_TOOLS_PROFILE:-Speed}
 cmake_options=(
     -DCMAKE_BUILD_TYPE=Debug
+    -DPEDIGREE_BUILDUTILS_PROFILE=Debug
     -DPEDIGREE_WARNINGS=ON
 )
+
+case "$host_tools_profile" in
+    Debug|Size|Speed|MaxSpeed) ;;
+    *)
+        echo "PEDIGREE_HOST_TOOLS_PROFILE must be Debug, Size, Speed, or MaxSpeed." >&2
+        exit 2
+        ;;
+esac
 
 python3 "$script_dir/scripts/check-target-page-assumptions.py"
 
@@ -63,9 +74,6 @@ run_native_lane()
     grep -q "^#define PEDIGREE_TARGET_PAGE_SIZE $page_size$" \
         "$build_dir/config.h"
 
-    if [[ "$build_dir" == "$regular_build_dir" ]]; then
-        targets+=(headerify ext2img keymap memorytracer)
-    fi
     cmake --build "$build_dir" "${parallel_args[@]}" --target "${targets[@]}"
 
     if [[ "$use_asan" == ON ]]; then
@@ -82,6 +90,26 @@ run_native_lane()
     fi
 }
 
+run_host_tools_lane()
+{
+    local label=$1
+    local build_dir=$2
+
+    echo
+    echo "Configuring $label ($host_tools_profile profile)."
+    cmake -S "$script_dir" -B "$build_dir" \
+        -DCMAKE_BUILD_TYPE=Debug \
+        -DPEDIGREE_BUILDUTILS_ASAN=OFF \
+        -DPEDIGREE_BUILDUTILS_PROFILE="$host_tools_profile" \
+        -DPEDIGREE_COVERAGE=OFF \
+        -DPEDIGREE_TARGET_PAGE_SIZE=4096 \
+        -DPEDIGREE_WARNINGS=ON
+    grep -q "^#define PEDIGREE_TARGET_PAGE_SIZE 4096$" \
+        "$build_dir/config.h"
+    cmake --build "$build_dir" "${parallel_args[@]}" \
+        --target headerify ext2img keymap memorytracer
+}
+
 run_darwin_lane()
 {
     local label=$1
@@ -92,7 +120,7 @@ run_darwin_lane()
     echo "Configuring $label."
     cmake -S "$script_dir" -B "$build_dir" \
         -DCMAKE_TOOLCHAIN_FILE="$script_dir/build-etc/cmake/pedigree_hosted_darwin.cmake" \
-        -DIMPORT_EXECUTABLES="$regular_build_dir/HostUtilities.cmake" \
+        -DIMPORT_EXECUTABLES="$host_tools_build_dir/HostUtilities.cmake" \
         -DPEDIGREE_TOOLCHAIN_ROOT="$toolchain_root" \
         -DCMAKE_BUILD_TYPE=Debug \
         -DPEDIGREE_BUILD_USER_DIR=OFF \
@@ -151,7 +179,9 @@ expect_configure_failure x64-page16k \
     -DPEDIGREE_ARCH_TARGET=X64 \
     -DPEDIGREE_TARGET_PAGE_SIZE=16384
 
-run_native_lane "native 4 KiB kernel support and utilities" \
+run_host_tools_lane "native build tools" \
+    "$host_tools_build_dir"
+run_native_lane "native 4 KiB kernel support and tests" \
     "$regular_build_dir" 4096 OFF
 run_native_lane "native synthetic 1 KiB target-page validation" \
     "$page1k_build_dir" 1024 OFF
@@ -189,6 +219,7 @@ fi
 echo
 echo "Host validation passed."
 echo "Regular build: $regular_build_dir"
+echo "Host tools:    $host_tools_build_dir ($host_tools_profile)"
 echo "1 KiB build:   $page1k_build_dir"
 echo "16 KiB build:  $page16k_build_dir"
 echo "ASan build:    $asan_build_dir"

@@ -104,15 +104,17 @@ void Ext2Node::writeBlock(uint64_t location) {
   m_pExt2Fs->writeBlock(m_Blocks[nBlock]);
 }
 
-void Ext2Node::trackBlock(uint32_t block) {
+void Ext2Node::trackBlock(uint32_t block, bool writeInode) {
   m_Blocks.pushBack(block);
 
   // Inode i_blocks field is actually the count of 512-byte blocks.
   uint32_t i_blocks = ((m_Blocks.count() + m_nMetadataBlocks) * m_pExt2Fs->m_BlockSize) / 512;
   m_pInode->i_blocks = HOST_TO_LITTLE32(i_blocks);
 
-  // Write updated inode.
-  m_pExt2Fs->writeInode(getInodeNumber());
+  if (writeInode) {
+    // Write updated inode.
+    m_pExt2Fs->writeInode(getInodeNumber());
+  }
 }
 
 void Ext2Node::wipe() {
@@ -189,16 +191,13 @@ bool Ext2Node::ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize
   }
 #endif
 
+  Vector<uint32_t> pendingWrites;
+  bool success = true;
   for (auto block : newBlocks) {
-    if (!addBlock(block)) {
+    if (!addBlock(block, &pendingWrites)) {
       ERROR("Adding block " << block << " failed!");
-      return false;
-    }
-
-    // Load the block
-    uint8_t* pBuffer = reinterpret_cast<uint8_t*>(m_pExt2Fs->readBlock(block));
-    if (!pBuffer) {
-      return false;
+      success = false;
+      break;
     }
 
     // do we need to zero it?
@@ -215,13 +214,33 @@ bool Ext2Node::ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize
       }
     }
 
-    if (zero) {
-      ByteSet(pBuffer, 0, m_pExt2Fs->m_BlockSize);
+    // ext2img preallocates blocks immediately before overwriting every byte.
+    // Avoid faulting each newly allocated block into the cache in that case.
+    if (!zero) {
+      continue;
     }
+
+    uint8_t* pBuffer = reinterpret_cast<uint8_t*>(m_pExt2Fs->readBlock(block));
+    if (!pBuffer) {
+      success = false;
+      break;
+    }
+
+    ByteSet(pBuffer, 0, m_pExt2Fs->m_BlockSize);
     m_pExt2Fs->unpinBlock(block);
   }
 
-  return true;
+  // Publish mapping blocks before the inode points at the newly allocated
+  // data. This also collapses repeated updates to the same mapping block.
+  for (auto block : pendingWrites) {
+    m_pExt2Fs->writeBlock(block);
+    m_pExt2Fs->unpinBlock(block);
+  }
+  // trackBlock() deliberately withheld these writes so one allocation
+  // operation updates the inode table only once.
+  m_pExt2Fs->writeInode(getInodeNumber());
+
+  return success;
 }
 
 bool Ext2Node::ensureBlockLoaded(size_t nBlock) {
@@ -309,7 +328,30 @@ bool Ext2Node::getBlockNumberTriindirect(uint32_t inode_block, size_t nBlocks, s
   return getBlockNumberBiindirect(biBlock, nBlocks + nBiBlock * nPerBlock * nPerBlock, nBlock);
 }
 
-bool Ext2Node::addBlock(uint32_t blockValue) {
+void Ext2Node::writeBlockOrQueue(uint32_t block, Vector<uint32_t>* pendingWrites) {
+  if (!pendingWrites) {
+    m_pExt2Fs->writeBlock(block);
+    return;
+  }
+
+  for (auto pending : *pendingWrites) {
+    if (pending == block) {
+      return;
+    }
+  }
+  // Keep the page resident until the batched write is submitted. The normal
+  // caller reference is released immediately after addBlock(), so without
+  // this pin a memory-pressure eviction could discard a deferred update.
+  if (!m_pExt2Fs->pinBlock(block)) {
+    // Fall back to the original write-through behaviour if the device cannot
+    // acquire a second reference to the mapping page.
+    m_pExt2Fs->writeBlock(block);
+    return;
+  }
+  pendingWrites->pushBack(block);
+}
+
+bool Ext2Node::addBlock(uint32_t blockValue, Vector<uint32_t>* pendingWrites) {
   size_t nEntriesPerBlock = m_pExt2Fs->m_BlockSize / 4;
 
   // Calculate whether direct, indirect or tri-indirect addressing is needed.
@@ -354,7 +396,7 @@ bool Ext2Node::addBlock(uint32_t blockValue) {
     }
 
     buffer[indirectIdx] = HOST_TO_LITTLE32(blockValue);
-    m_pExt2Fs->writeBlock(bufferBlock);
+    writeBlockOrQueue(bufferBlock, pendingWrites);
     m_pExt2Fs->unpinBlock(bufferBlock);
   } else if (m_Blocks.count() < 12 + nEntriesPerBlock + nEntriesPerBlock * nEntriesPerBlock) {
     // Bi-indirect addressing required.
@@ -410,7 +452,7 @@ bool Ext2Node::addBlock(uint32_t blockValue) {
         return false;
       }
 
-      m_pExt2Fs->writeBlock(bufferBlock);
+      writeBlockOrQueue(bufferBlock, pendingWrites);
 
       void* buffer = reinterpret_cast<void*>(m_pExt2Fs->readBlock(newBlock));
       if (!buffer) {
@@ -444,7 +486,7 @@ bool Ext2Node::addBlock(uint32_t blockValue) {
 
     // Set the correct entry.
     pBlock[indirectIdx] = HOST_TO_LITTLE32(blockValue);
-    m_pExt2Fs->writeBlock(nIndirectBlockNum);
+    writeBlockOrQueue(nIndirectBlockNum, pendingWrites);
     m_pExt2Fs->unpinBlock(nIndirectBlockNum);
   } else {
     // Tri-indirect addressing required.
@@ -452,7 +494,7 @@ bool Ext2Node::addBlock(uint32_t blockValue) {
     return false;
   }
 
-  trackBlock(blockValue);
+  trackBlock(blockValue, !pendingWrites);
 
   return true;
 }

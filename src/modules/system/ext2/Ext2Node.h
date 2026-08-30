@@ -63,7 +63,7 @@ class Ext2Node {
   uintptr_t readBlock(uint64_t location);
   void writeBlock(uint64_t location);
 
-  void trackBlock(uint32_t block);
+  void trackBlock(uint32_t block, bool writeInode = true);
 
   bool pinBlock(uint64_t location);
   void unpinBlock(uint64_t location);
@@ -79,7 +79,9 @@ class Ext2Node {
   bool ensureLargeEnough(size_t size, uint64_t location, uint64_t opsize, bool onlyBlocks = false,
                          bool nozeroblocks = false);
 
-  bool addBlock(uint32_t blockValue);
+  bool addBlock(uint32_t blockValue, Vector<uint32_t>* pendingWrites = 0);
+
+  void writeBlockOrQueue(uint32_t block, Vector<uint32_t>* pendingWrites);
 
   bool ensureBlockLoaded(size_t nBlock);
   bool getBlockNumber(size_t nBlock);

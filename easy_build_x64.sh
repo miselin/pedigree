@@ -65,8 +65,9 @@ $script_dir/run_pup.sh sync
 $script_dir/run_pup.sh install ncurses
 
 # Build Pedigree.
+HOST_TOOLS_PROFILE=${PEDIGREE_HOST_TOOLS_PROFILE:-Speed}
 mkdir -p build-host && cd build-host
-cmake ..
+cmake -DPEDIGREE_BUILDUTILS_PROFILE="$HOST_TOOLS_PROFILE" ..
 make
 cd ..
 
