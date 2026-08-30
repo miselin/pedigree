@@ -1,8 +1,20 @@
 ---
-Checks:          'clang-diagnostic-*,clang-analyzer-*,bugprone-*,performance-*'
+# Keep the defect-oriented checks broad, while omitting categories that are
+# currently dominated by established kernel naming/API/layout conventions.
+Checks:          >-
+  clang-diagnostic-*,clang-analyzer-*,bugprone-*,performance-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
+  -performance-enum-size
 WarningsAsErrors: ''
-HeaderFilterRegex: '.*'
-AnalyzeTemporaryDtors: true
+# Keep diagnostics from the project headers that make up the hosted kernel and
+# modules. In particular, this excludes generated build/config.h and standard
+# library headers from the report.
+HeaderFilterRegex: '(^|/)src/(system/include/pedigree|system/kernel|modules)(/|$)'
+# These directories contain imported implementations or compatibility headers;
+# their translation units may still be analyzed, but their headers should not
+# dominate findings in project code.
+ExcludeHeaderFilterRegex: '(^|/)src/(modules/(drivers/common/cdi|subsys/posix/(musl|include|newlib)|system/(config/sqlite3|lwip/(api|core|include|netif)))|system/kernel/(debugger/libudis86|machine/mach_pc/x86emu))(/|$)'
 CheckOptions:    
   - key:             google-readability-braces-around-statements.ShortStatementLines
     value:           '1'
@@ -25,4 +37,3 @@ CheckOptions:
   - key:             modernize-use-nullptr.NullMacros
     value:           'NULL'
 ...
-
