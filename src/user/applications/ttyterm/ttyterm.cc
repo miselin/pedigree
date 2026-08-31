@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <config.h>
 #include "pedigree/native/input/Input.h"
 
-#include <config.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -45,7 +45,7 @@ pid_t g_RunningPid = -1;
 // File descriptor for our PTY master.
 int g_MasterPty;
 
-#if defined(LIVECD)
+#if LIVECD
 #define FIRST_PROGRAM "/usr/bin/live"
 #else
 #define FIRST_PROGRAM "/usr/bin/login"
@@ -247,8 +247,20 @@ int main(int argc, char** argv) {
 
     // Open the slave ready for the child.
     int slave = open(slavename, O_RDWR);
+    if (slave < 0) {
+      klog(LOG_ALERT, "ttyterm: couldn't open pty slave: %s", strerror(errno));
+      exit(1);
+    }
+
+    if (dup2(slave, STDIN_FILENO) < 0) {
+      klog(LOG_ALERT, "ttyterm: couldn't attach pty slave to stdin: %s", strerror(errno));
+      exit(1);
+    }
     dup2(slave, 1);
     dup2(slave, 2);
+    if (slave > STDERR_FILENO) {
+      close(slave);
+    }
 
     // Text UI has a custom terminfo (it can do a little more than a
     // traditional vt100 can).

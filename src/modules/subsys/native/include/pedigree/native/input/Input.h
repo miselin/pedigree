@@ -38,6 +38,9 @@ typedef int CallbackType;
 /// for all types of devices.
 struct EXPORTED_PUBLIC InputNotification {
   CallbackType type;
+  // Keep the userspace view aligned with the kernel event payload. This slot
+  // is reserved for callback metadata and is not used by native callbacks.
+  void* meta;
 
   union {
     struct {
