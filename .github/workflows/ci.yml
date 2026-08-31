@@ -150,9 +150,18 @@ jobs:
 
           mkdir -p "$TIDY_TOOLCHAIN_ROOT"
           docker run --rm \
-            --volume "$TIDY_TOOLCHAIN_ROOT:/export" \
             "$BUILDER_IMAGE" \
-            bash -euo pipefail -c 'cp -aL /opt/pedigree/. /export/'
+            bash -euo pipefail -c '
+              tar --create --dereference --file=- \
+                --exclude="sysroot/lib/ld-musl-x86_64.so.1" \
+                --exclude="x86_64-pedigree/lib/ld-musl-x86_64.so.1" \
+                --directory=/opt/pedigree .
+            ' | tar --extract --file=- --directory="$TIDY_TOOLCHAIN_ROOT"
+
+          test -x "$TIDY_TOOLCHAIN_ROOT/bin/x86_64-pedigree-g++"
+          test -d "$TIDY_TOOLCHAIN_ROOT/x86_64-pedigree/include"
+          test -d "$TIDY_TOOLCHAIN_ROOT/lib/gcc/x86_64-pedigree"
+          test -n "$(find "$TIDY_TOOLCHAIN_ROOT/include/c++" -mindepth 1 -maxdepth 1 -type d -print -quit)"
 
       - name: Configure host utility exporters
         run: |
