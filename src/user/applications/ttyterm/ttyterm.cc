@@ -51,126 +51,12 @@ int g_MasterPty;
 #define FIRST_PROGRAM "/usr/bin/login"
 #endif
 
-#define ALT_KEY (1ULL << 60)
-#define SHIFT_KEY (1ULL << 61)
-#define CTRL_KEY (1ULL << 62)
-#define SPECIAL_KEY (1ULL << 63)
-
-enum ActualKey {
-  None,
-  Left,
-  Right,
-  Up,
-  Down,
-};
-
 // Pedigree function, defined in glue.c
 extern int login(int uid, char* password);
 
 // SIGINT handler
 void sigint(int sig) {
   // Ignore, but don't log (running program)
-}
-
-void handle_input(Input::InputNotification& note) {
-  pedigree_fb_mode current_mode;
-  int fb = open("/dev/fb", O_RDWR);
-  if (fb >= 0) {
-    int result = ioctl(fb, PEDIGREE_FB_GETMODE, &current_mode);
-    close(fb);
-
-    if (!result) {
-      if (current_mode.width && current_mode.height && current_mode.depth) {
-        klog(LOG_INFO, "ttyterm: dropping input, currently in graphics mode!");
-        return;
-      }
-    }
-  }
-
-  klog(LOG_INFO, "ttyterm: system input (type=%d)", note.type);
-
-  if (note.type & Input::Key) {
-    uint64_t c = note.data.key.key;
-
-    ActualKey realKey = None;
-    if (c & SPECIAL_KEY) {
-      uint32_t k = c & 0xFFFFFFFFULL;
-      char str[5];
-      memcpy(str, reinterpret_cast<char*>(&k), 4);
-      str[4] = 0;
-
-      if (!strcmp(str, "left")) {
-        realKey = Left;
-      } else if (!strcmp(str, "righ")) {
-        realKey = Right;
-      } else if (!strcmp(str, "up")) {
-        realKey = Up;
-      } else if (!strcmp(str, "down")) {
-        realKey = Down;
-      } else {
-        // unhandled special key
-        return;
-      }
-    } else if (c & CTRL_KEY) {
-      // CTRL-key = unprintable (ie, CTRL-C, CTRL-U)
-      c &= 0x1F;
-    }
-
-    if (c == '\n')
-      c = '\r';  // Enter key (ie, return) - CRtoNL.
-
-    if (realKey != None) {
-      switch (realKey) {
-        case Left:
-          write(g_MasterPty, "\e[D", 3);
-          break;
-        case Right:
-          write(g_MasterPty, "\e[C", 3);
-          break;
-        case Up:
-          write(g_MasterPty, "\e[A", 3);
-          break;
-        case Down:
-          write(g_MasterPty, "\e[B", 3);
-          break;
-        default:
-          break;
-      }
-    } else if (c & ALT_KEY) {
-      // ALT escaped key
-      c &= 0x7F;
-      char buf[2] = {'\e', static_cast<char>(c & 0xFF)};
-      write(g_MasterPty, buf, 2);
-    } else if (c) {
-      uint32_t utf32 = c & 0xFFFFFFFF;
-
-      // UTF32 -> UTF8
-      char buf[4];
-      size_t nbuf = 0;
-      if (utf32 <= 0x7F) {
-        buf[0] = utf32 & 0x7F;
-        nbuf = 1;
-      } else if (utf32 <= 0x7FF) {
-        buf[0] = 0xC0 | ((utf32 >> 6) & 0x1F);
-        buf[1] = 0x80 | (utf32 & 0x3F);
-        nbuf = 2;
-      } else if (utf32 <= 0xFFFF) {
-        buf[0] = 0xE0 | ((utf32 >> 12) & 0x0F);
-        buf[1] = 0x80 | ((utf32 >> 6) & 0x3F);
-        buf[2] = 0x80 | (utf32 & 0x3F);
-        nbuf = 3;
-      } else if (utf32 <= 0x10FFFF) {
-        buf[0] = 0xF0 | ((utf32 >> 18) & 0x07);
-        buf[1] = 0x80 | ((utf32 >> 12) & 0x3F);
-        buf[2] = 0x80 | ((utf32 >> 6) & 0x3F);
-        buf[3] = 0x80 | (utf32 & 0x3F);
-        nbuf = 4;
-      }
-
-      // UTF8 conversion complete.
-      write(g_MasterPty, buf, nbuf);
-    }
-  }
 }
 
 int main(int argc, char** argv) {
@@ -204,7 +90,7 @@ int main(int argc, char** argv) {
   }
 
   // Get a PTY and the main TTY.
-  int tty = open("/dev/textui", O_WRONLY);
+  int tty = open("/dev/textui", O_RDWR);
   if (tty < 0) {
     klog(LOG_ALERT, "ttyterm: couldn't open /dev/textui: %s", strerror(errno));
     return 1;
@@ -229,9 +115,6 @@ int main(int argc, char** argv) {
 
   // Clear the screen.
   write(tty, "\e[2J", 5);
-
-  // Install our input callback so we can hook that in to the pty as well.
-  Input::installCallback(Input::Key, handle_input);
 
   // Start up child process.
   g_RunningPid = fork();
