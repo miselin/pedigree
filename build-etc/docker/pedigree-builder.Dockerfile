@@ -100,6 +100,7 @@ RUN apt-get update \
         python3 \
         python3-requests \
         qemu-system-x86 \
+        sqlite3 \
         zlib1g-dev \
         xorriso \
     && rm -rf /var/lib/apt/lists/*
