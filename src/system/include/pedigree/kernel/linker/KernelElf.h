@@ -19,8 +19,6 @@
 
 #ifndef KERNEL_LINKER_KERNELELF_H
 #define KERNEL_LINKER_KERNELELF_H
-#include <config.h>
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/linker/Elf.h"
@@ -30,6 +28,8 @@
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include <config.h>
 
 #include "modules/Module.h"
 

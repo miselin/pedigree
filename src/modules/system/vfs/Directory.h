@@ -19,11 +19,11 @@
 
 #ifndef DIRECTORY_H
 #define DIRECTORY_H
-#include <config.h>
-
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
+
+#include <config.h>
 #if THREADS && !defined(STANDALONE_MUTEXES)
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #endif

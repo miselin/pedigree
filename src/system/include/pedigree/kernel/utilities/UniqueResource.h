@@ -7,9 +7,9 @@
 
 #ifndef PEDIGREE_KERNEL_UTILITIES_UNIQUERESOURCE_H
 #define PEDIGREE_KERNEL_UTILITIES_UNIQUERESOURCE_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
+
+#include <config.h>
 
 /**
  * Owns one resource released by a stateless, compile-time policy.

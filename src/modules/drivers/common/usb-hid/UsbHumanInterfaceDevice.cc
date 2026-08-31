@@ -62,10 +62,9 @@ void UsbHumanInterfaceDevice::initialiseDriver() {
   PointerGuard<HidDescriptor> guard(pHidDescriptor);
 
   // Set Idle Rate to 0
-  controlRequest(
-      static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Class) |
-                           static_cast<uint8_t>(UsbRequestRecipient::Interface)),
-      UsbRequest::GetInterface, 0, 0);
+  controlRequest(static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Class) |
+                                      static_cast<uint8_t>(UsbRequestRecipient::Interface)),
+                 UsbRequest::GetInterface, 0, 0);
 
   // Get the report descriptor
   uint16_t nReportDescriptorSize = pHidDescriptor->nDescriptorLength;

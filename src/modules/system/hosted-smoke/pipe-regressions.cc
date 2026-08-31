@@ -58,11 +58,11 @@ int accessPipeEndpointState(void* parameter) {
   PipeIoContext* context = reinterpret_cast<PipeIoContext*>(parameter);
   context->entered += 1;
   if (context->operation == PipeIoContext::Read) {
-    context->result = context->pipe->readBytewise(
-        0, 1, reinterpret_cast<uintptr_t>(&context->value), false);
+    context->result =
+        context->pipe->readBytewise(0, 1, reinterpret_cast<uintptr_t>(&context->value), false);
   } else {
-    context->result = context->pipe->writeBytewise(
-        0, 1, reinterpret_cast<uintptr_t>(&context->value), false);
+    context->result =
+        context->pipe->writeBytewise(0, 1, reinterpret_cast<uintptr_t>(&context->value), false);
   }
   context->returned += 1;
   return 0;
@@ -133,8 +133,8 @@ bool runEndpointLockCase(PipeIoContext::Operation operation, const char* name, u
                               &context, nullptr, false, true);
   worker->setName("hosted pipe endpoint snapshot");
 
-  const bool blocked = waitUntilEndpointLockBlocked(worker) && context.entered == 1 &&
-                       context.returned == 0;
+  const bool blocked =
+      waitUntilEndpointLockBlocked(worker) && context.entered == 1 && context.returned == 0;
   pipe.unlockEndpointState();
   const bool joined = worker->join();
   return blocked && joined && context.returned == 1 && context.result == 0;

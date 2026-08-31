@@ -7,10 +7,10 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESS_DEFERREDTIMEACCOUNTING_H
 #define PEDIGREE_KERNEL_PROCESS_DEFERREDTIMEACCOUNTING_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
+
+#include <config.h>
 
 static_assert(__atomic_always_lock_free(sizeof(Time::Timestamp), nullptr),
               "interrupt time accounting requires lock-free timestamps");

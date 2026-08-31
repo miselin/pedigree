@@ -21,11 +21,10 @@ bool runAnonymousMemoryRegionRegression() {
   }
 
   MemoryRegion region("QEMU anonymous MemoryRegion regression");
-  if (!memory.allocateRegion(
-          region, 1,
-          PhysicalMemoryManager::force | PhysicalMemoryManager::continuous |
-              PhysicalMemoryManager::anonymous,
-          VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write, page)) {
+  if (!memory.allocateRegion(region, 1,
+                             PhysicalMemoryManager::force | PhysicalMemoryManager::continuous |
+                                 PhysicalMemoryManager::anonymous,
+                             VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write, page)) {
     memory.freePage(page);
     ERROR("QEMU anonymous MemoryRegion regression could not map its page");
     return false;

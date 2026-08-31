@@ -19,8 +19,6 @@
 
 #ifndef DYNAMIC_LINKER_H
 #define DYNAMIC_LINKER_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/processor/state_forward.h"
@@ -28,6 +26,8 @@
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
+
+#include <config.h>
 
 class Elf;
 class File;

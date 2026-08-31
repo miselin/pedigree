@@ -21,7 +21,6 @@
 
 #if APIC
 
-#include "LocalApic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/machine/SchedulerTimerDispatchCleanup.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
@@ -30,6 +29,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 
+#include "LocalApic.h"
 #include "LocalApicIcrTransaction.h"
 #include "LocalApicLint0Policy.h"
 

@@ -19,8 +19,6 @@
 
 #ifndef KERNEL_CORE_PROCESSOR_PAGEFAULTHANDLER_H_
 #define KERNEL_CORE_PROCESSOR_PAGEFAULTHANDLER_H_
-#include <config.h>
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
@@ -28,6 +26,8 @@
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 /** @addtogroup kernelprocessor
  * @{ */

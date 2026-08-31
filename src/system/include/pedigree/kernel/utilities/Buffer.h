@@ -19,8 +19,6 @@
 
 #ifndef KERNEL_UTILITIES_BUFFER_H
 #define KERNEL_UTILITIES_BUFFER_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Event.h"
@@ -29,6 +27,8 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 class Semaphore;
 class Thread;

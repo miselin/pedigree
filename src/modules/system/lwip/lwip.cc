@@ -17,8 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "pedigree/kernel/process/Completion.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Completion.h"
 
 #include "modules/Module.h"
 #include "modules/system/lwip/include/lwip/init.h"

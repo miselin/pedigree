@@ -211,8 +211,7 @@ SlamCache::SlamCache()
       m_SlabSize(0),
       m_FirstSlab(),
       m_RecoveryLock(false, true),
-      m_EmptyNode() {
-}
+      m_EmptyNode() {}
 
 SlamCache::~SlamCache() {}
 
@@ -337,8 +336,7 @@ uintptr_t SlamCache::allocate() {
       // Recovery uses the allocation header to decide whether the slab is
       // wholly free. Publish ownership before releasing the same lock that
       // removed this node from the free list.
-      SlamAllocator::AllocHeader* header =
-          reinterpret_cast<SlamAllocator::AllocHeader*>(N);
+      SlamAllocator::AllocHeader* header = reinterpret_cast<SlamAllocator::AllocHeader*>(N);
       header->cache = this;
     }
   }
@@ -774,8 +772,7 @@ void SlamAllocator::initialise() {
   uintptr_t heapEnd = getHeapEnd();
   size_t heapSize = heapEnd - bitmapBase;
   size_t heapPages = heapSize / getPageSize();
-  size_t bitmapBytes =
-      ((heapPages + 63) / 64) * sizeof(SlabBitmapEntry);
+  size_t bitmapBytes = ((heapPages + 63) / 64) * sizeof(SlabBitmapEntry);
 
   // Ensure the bitmap size is now page-aligned before we allocate it.
   if (bitmapBytes & (getPageSize() - 1)) {
@@ -918,11 +915,10 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
   auto firstCowBitmapPage = [&](size_t pageIndex) {
     const size_t firstEntry = pageIndex / 64;
     const size_t lastEntry = (pageIndex + nPages - 1) / 64;
-    const uintptr_t firstAddress = reinterpret_cast<uintptr_t>(&m_SlabRegionBitmap[firstEntry]) &
-                                   ~(getPageSize() - 1);
+    const uintptr_t firstAddress =
+        reinterpret_cast<uintptr_t>(&m_SlabRegionBitmap[firstEntry]) & ~(getPageSize() - 1);
     const uintptr_t lastEntryByte =
-        reinterpret_cast<uintptr_t>(&m_SlabRegionBitmap[lastEntry]) +
-        sizeof(SlabBitmapEntry) - 1;
+        reinterpret_cast<uintptr_t>(&m_SlabRegionBitmap[lastEntry]) + sizeof(SlabBitmapEntry) - 1;
     const uintptr_t lastAddress = lastEntryByte & ~(getPageSize() - 1);
     VirtualAddressSpace& va = VirtualAddressSpace::getKernelAddressSpace();
     for (uintptr_t address = firstAddress; address <= lastAddress; address += getPageSize()) {
@@ -980,8 +976,7 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
 
       for (size_t i = 0; i < nPages; ++i) {
         const size_t currentPage = pageIndex + i;
-        m_SlabRegionBitmap[currentPage / 64].reserved |=
-            1ULL << (currentPage % 64);
+        m_SlabRegionBitmap[currentPage / 64].reserved |= 1ULL << (currentPage % 64);
       }
       m_HeapPageCount += nPages;
       m_SlabRegionLock.release();
@@ -992,8 +987,7 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
 
     for (size_t i = 0; i < nPages; ++i) {
       const size_t currentPage = pageIndex + i;
-      m_SlabRegionBitmap[currentPage / 64].reserved |=
-          1ULL << (currentPage % 64);
+      m_SlabRegionBitmap[currentPage / 64].reserved |= 1ULL << (currentPage % 64);
     }
     m_HeapPageCount += nPages;
     m_SlabRegionLock.release();
@@ -1020,8 +1014,7 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
   m_SlabRegionLock.acquire();
   for (size_t i = 0; i < nPages; ++i) {
     size_t currentPage = pageIndex + i;
-    m_SlabRegionBitmap[currentPage / 64].mapped |=
-        1ULL << (currentPage % 64);
+    m_SlabRegionBitmap[currentPage / 64].mapped |= 1ULL << (currentPage % 64);
   }
   m_SlabRegionLock.release();
 
@@ -1035,9 +1028,8 @@ uintptr_t SlamAllocator::getSlab(size_t fullSize) {
 }
 
 void SlamAllocator::markSlabReady(uintptr_t address, size_t length) {
-  if (length < getPageSize() || (length % getPageSize()) ||
-      (address % getPageSize()) || address < m_Base ||
-      address >= getHeapEnd() || length > (getHeapEnd() - address)) {
+  if (length < getPageSize() || (length % getPageSize()) || (address % getPageSize()) ||
+      address < m_Base || address >= getHeapEnd() || length > (getHeapEnd() - address)) {
     panic("Attempted to publish an invalid slab.");
   }
 
@@ -1296,8 +1288,7 @@ bool SlamAllocator::isAllocatedPage(uintptr_t address) const {
 
   const uint64_t bit = 1ULL << (page % 64);
   const SlabBitmapEntry& entry = m_SlabRegionBitmap[page / 64];
-  return (entry.reserved & bit) && (entry.mapped & bit) &&
-         (entry.ready & bit);
+  return (entry.reserved & bit) && (entry.mapped & bit) && (entry.ready & bit);
 }
 
 #if defined(PEDIGREE_BUILDUTILS)

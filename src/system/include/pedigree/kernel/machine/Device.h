@@ -19,12 +19,12 @@
 
 #ifndef MACHINE_DEVICE_H
 #define MACHINE_DEVICE_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
+
+#include <config.h>
 #if THREADS
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"

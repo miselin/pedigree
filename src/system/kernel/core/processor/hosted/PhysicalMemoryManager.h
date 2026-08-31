@@ -19,14 +19,14 @@
 
 #ifndef KERNEL_PROCESSOR_HOSTED_PHYSICALMEMORYMANAGER_H
 #define KERNEL_PROCESSOR_HOSTED_PHYSICALMEMORYMANAGER_H
-#include <config.h>
-
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/RangeList.h"
+
+#include <config.h>
 
 #include "../x86_common/PhysicalMemoryManager.h"
 

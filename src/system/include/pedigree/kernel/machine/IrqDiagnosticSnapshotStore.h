@@ -7,9 +7,9 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_IRQDIAGNOSTICSNAPSHOTSTORE_H
 #define PEDIGREE_KERNEL_MACHINE_IRQDIAGNOSTICSNAPSHOTSTORE_H
-#include <config.h>
-
 #include "pedigree/kernel/machine/IrqManager.h"
+
+#include <config.h>
 
 static_assert(__atomic_always_lock_free(sizeof(size_t), nullptr),
               "IRQ diagnostic publication words must be lock-free");

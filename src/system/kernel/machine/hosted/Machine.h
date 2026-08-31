@@ -19,9 +19,9 @@
 
 #ifndef KERNEL_MACHINE_HOSTED_PC_H
 #define KERNEL_MACHINE_HOSTED_PC_H
-#include <config.h>
-
 #include "pedigree/kernel/machine/Machine.h"
+
+#include <config.h>
 
 #include "IrqManager.h"
 #include "Keyboard.h"

@@ -19,13 +19,13 @@
 
 #ifndef NETWORK_STACK_FILTER_H
 #define NETWORK_STACK_FILTER_H
-#include <config.h>
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
+
+#include <config.h>
 
 class Thread;
 

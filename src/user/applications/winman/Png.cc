@@ -24,12 +24,7 @@
 #include <sys/klog.h>
 
 Png::Png(const char* filename)
-    : m_PngPtr(0),
-      m_InfoPtr(0),
-      m_nWidth(0),
-      m_nHeight(0),
-      m_pRowPointers(0),
-      m_pBitmap(0) {
+    : m_PngPtr(0), m_InfoPtr(0), m_nWidth(0), m_nHeight(0), m_pRowPointers(0), m_pBitmap(0) {
   // Open the file.
   FILE* stream = fopen(filename, "rb");
   if (!stream) {

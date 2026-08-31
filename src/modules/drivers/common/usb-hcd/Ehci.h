@@ -19,8 +19,6 @@
 
 #ifndef EHCI_H
 #define EHCI_H
-#include <config.h>
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
@@ -36,6 +34,8 @@
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
+
+#include <config.h>
 
 #include "CallbackDelivery.h"
 #include "PortChangeRequest.h"

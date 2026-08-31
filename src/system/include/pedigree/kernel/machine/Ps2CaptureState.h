@@ -7,9 +7,9 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_PS2CAPTURESTATE_H
 #define PEDIGREE_KERNEL_MACHINE_PS2CAPTURESTATE_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 static_assert(__atomic_always_lock_free(sizeof(size_t), nullptr),
               "PS/2 hard-stage and debugger-state words must be lock-free");

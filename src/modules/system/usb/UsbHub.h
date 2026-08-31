@@ -19,8 +19,6 @@
 
 #ifndef USBHUB_H
 #define USBHUB_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
@@ -29,6 +27,8 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/ExtensibleBitmap.h"
 #include "pedigree/kernel/utilities/List.h"
+
+#include <config.h>
 
 #include "modules/system/usb/Usb.h"
 

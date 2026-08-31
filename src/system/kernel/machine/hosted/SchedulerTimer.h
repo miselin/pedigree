@@ -19,14 +19,14 @@
 
 #ifndef KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
 #define KERNEL_MACHINE_HOSTED_SCHEDULERTIMER_H
-#include <config.h>
-
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/SchedulerIrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandlerSlot.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state.h"
+
+#include <config.h>
 
 #include "TickSource.h"
 

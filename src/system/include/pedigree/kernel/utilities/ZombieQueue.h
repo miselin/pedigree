@@ -19,11 +19,11 @@
 
 #ifndef _PROCESS_ZOMBIE_QUEUE_H
 #define _PROCESS_ZOMBIE_QUEUE_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
+
+#include <config.h>
 
 class Process;
 

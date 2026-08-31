@@ -21,7 +21,6 @@
 
 #if MULTIPROCESSOR
 
-#include "Multiprocessor.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/panic.h"
@@ -33,6 +32,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "../x64/VirtualAddressSpace.h"
+#include "Multiprocessor.h"
 #include <machine/mach_pc/Acpi.h>
 #include <machine/mach_pc/LocalApic.h>
 #include <machine/mach_pc/Pc.h>

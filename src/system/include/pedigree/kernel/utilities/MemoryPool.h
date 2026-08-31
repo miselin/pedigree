@@ -19,10 +19,10 @@
 
 #ifndef _UTILITY_MEMORY_POOL
 #define _UTILITY_MEMORY_POOL
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 #if THREADS
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"

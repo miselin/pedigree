@@ -19,8 +19,6 @@
 
 #ifndef USBDEVICE_H
 #define USBDEVICE_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Device.h"
@@ -30,6 +28,8 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include <config.h>
 
 #include "modules/system/usb/Usb.h"
 

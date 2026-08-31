@@ -19,9 +19,9 @@
 
 #ifndef _PEDIGREE_OBJECT_H
 #define _PEDIGREE_OBJECT_H
-#include <config.h>
-
 #include "pedigree/native/types.h"
+
+#include <config.h>
 
 /** Object is merely the base class for all native subsystem objects. */
 class Object {

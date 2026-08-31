@@ -105,10 +105,7 @@ int sys_thread_is_current(sys_thread_t thread) {
   std::thread* candidate = reinterpret_cast<std::thread*>(thread);
   return candidate->get_id() == std::this_thread::get_id() ? 1 : 0;
 #else
-  return reinterpret_cast<Thread*>(thread) ==
-                 Processor::information().getCurrentThread()
-             ? 1
-             : 0;
+  return reinterpret_cast<Thread*>(thread) == Processor::information().getCurrentThread() ? 1 : 0;
 #endif
 }
 

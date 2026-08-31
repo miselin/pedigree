@@ -7,13 +7,13 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_TIMERHANDLERREGISTRY_H
 #define PEDIGREE_KERNEL_MACHINE_TIMERHANDLERREGISTRY_H
-#include <config.h>
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 class TimerHandler;
 

@@ -7,10 +7,10 @@
 
 #ifndef KERNEL_MACHINE_MACH_PC_LOCALAPICTIMERHANDLERSLOTS_H
 #define KERNEL_MACHINE_MACH_PC_LOCALAPICTIMERHANDLERSLOTS_H
-#include <config.h>
-
 #include "pedigree/kernel/machine/SchedulerTimerHandlerSlot.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+
+#include <config.h>
 
 /** Fixed handler publication slots for the 8-bit xAPIC processor envelope. */
 class LocalApicTimerHandlerSlots {

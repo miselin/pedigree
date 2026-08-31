@@ -84,10 +84,10 @@
 
 #ifndef MODULE_H
 #define MODULE_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include <config.h>
 
 #ifndef __cplusplus
 #include <stdbool.h>
@@ -162,8 +162,7 @@ class StaticDriverOptionalDependencies {
 #define MODULE_NAME(x) const char* g_pModuleName EXPORTED_PUBLIC SECTION(".modinfo") USED = x
 #define MODULE_ENTRY(x) ModuleEntry g_pModuleEntry EXPORTED_PUBLIC SECTION(".modinfo") USED = x
 #define MODULE_EXIT(x) ModuleExit g_pModuleExit EXPORTED_PUBLIC SECTION(".modinfo") USED = x
-#define MODULE_UNLOADABLE(x) \
-  bool g_bModuleUnloadable EXPORTED_PUBLIC SECTION(".modinfo") USED = x
+#define MODULE_UNLOADABLE(x) bool g_bModuleUnloadable EXPORTED_PUBLIC SECTION(".modinfo") USED = x
 #define MODULE_RUNTIME_UNLOADABLE(x) \
   bool g_bModuleRuntimeUnloadable EXPORTED_PUBLIC SECTION(".modinfo") USED = x
 #define MODULE_DEPENDS(...) \

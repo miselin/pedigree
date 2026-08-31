@@ -7,10 +7,10 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESS_COMPLETION_H
 #define PEDIGREE_KERNEL_PROCESS_COMPLETION_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/WaitQueue.h"
+
+#include <config.h>
 
 /**
  * A one-shot, latched completion with an exactly-once wait claim.

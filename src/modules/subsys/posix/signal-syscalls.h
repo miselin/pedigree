@@ -19,13 +19,13 @@
 
 #ifndef SIGNAL_SYSCALLS_H
 #define SIGNAL_SYSCALLS_H
-#include <config.h>
-
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
+
+#include <config.h>
 
 #include "logging.h"
 #include <sys/types.h>

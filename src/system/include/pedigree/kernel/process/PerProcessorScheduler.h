@@ -19,8 +19,6 @@
 
 #ifndef PERPROCESSORSCHEDULER_H
 #define PERPROCESSORSCHEDULER_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
@@ -32,6 +30,8 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
+
+#include <config.h>
 
 class SchedulingAlgorithm;
 class Spinlock;

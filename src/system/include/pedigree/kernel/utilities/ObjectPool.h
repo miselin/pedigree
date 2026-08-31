@@ -19,9 +19,9 @@
 
 #ifndef KERNEL_UTILITY_OBJECT_POOL_H
 #define KERNEL_UTILITY_OBJECT_POOL_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 #if THREADS
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Spinlock.h"

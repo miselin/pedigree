@@ -19,8 +19,6 @@
 
 #ifndef KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
 #define KERNEL_MACHINE_HOSTED_COMMON_TIMER_H
-#include <config.h>
-
 #include "pedigree/kernel/machine/IrqEventCounter.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
@@ -29,6 +27,8 @@
 #include "pedigree/kernel/machine/TimerHandlerRegistry.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/utilities/List.h"
+
+#include <config.h>
 
 #include "TickSource.h"
 

@@ -19,9 +19,9 @@
 
 #ifndef KERNEL_LOCKGUARD_H
 #define KERNEL_LOCKGUARD_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
+
+#include <config.h>
 
 #if THREADS && !defined(STANDALONE_MUTEXES)
 #include "pedigree/kernel/process/TerminationDeferral.h"

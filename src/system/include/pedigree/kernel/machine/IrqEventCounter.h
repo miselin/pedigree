@@ -7,10 +7,10 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_IRQEVENTCOUNTER_H
 #define PEDIGREE_KERNEL_MACHINE_IRQEVENTCOUNTER_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 /**
  * Preserves the number of identical events captured by a split IRQ top half.

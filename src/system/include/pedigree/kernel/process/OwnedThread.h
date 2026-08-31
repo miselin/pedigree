@@ -7,10 +7,10 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESS_OWNEDTHREAD_H
 #define PEDIGREE_KERNEL_PROCESS_OWNEDTHREAD_H
-#include <config.h>
-
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Thread.h"
+
+#include <config.h>
 
 /**
  * Owns one joinable worker and makes cancellation plus joining part of the

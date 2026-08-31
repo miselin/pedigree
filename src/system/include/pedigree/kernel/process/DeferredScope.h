@@ -7,9 +7,9 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESS_DEFERREDSCOPE_H
 #define PEDIGREE_KERNEL_PROCESS_DEFERREDSCOPE_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 /**
  * Intrusive record for a deferral scope living on a Thread kernel stack.

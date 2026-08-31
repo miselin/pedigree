@@ -19,9 +19,9 @@
 
 #ifndef _PEDIGREE_NATIVE_PROTOCOL_H
 #define _PEDIGREE_NATIVE_PROTOCOL_H
-#include <config.h>
-
 #include "pedigree/native/Object.h"
+
+#include <config.h>
 
 // Values for the 'meta' field in ReturnState.
 #define META_ERROR_MASK 0xFFFF

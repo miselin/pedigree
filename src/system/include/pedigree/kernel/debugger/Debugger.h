@@ -19,12 +19,12 @@
 
 #ifndef DEBUGGER_H
 #define DEBUGGER_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+
+#include <config.h>
 
 /** @addtogroup kerneldebugger
  * @{ */

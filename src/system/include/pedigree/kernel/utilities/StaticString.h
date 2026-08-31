@@ -19,13 +19,13 @@
 
 #ifndef STATICSTRING_H
 #define STATICSTRING_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include <config.h>
 
 /**
  * Set to 1 to enable a variety of asserts that validate sane behavior, at a

@@ -7,9 +7,9 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_MACH_PC_TSCCLOCK_H
 #define PEDIGREE_KERNEL_MACHINE_MACH_PC_TSCCLOCK_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 static_assert(__atomic_always_lock_free(sizeof(uint64_t), nullptr),
               "the PC monotonic clock requires lock-free 64-bit publication");

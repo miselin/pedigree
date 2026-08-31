@@ -19,8 +19,6 @@
 
 #ifndef MACHINE_INPUT_MANAGER_H
 #define MACHINE_INPUT_MANAGER_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
@@ -30,6 +28,8 @@
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 class Thread;
 

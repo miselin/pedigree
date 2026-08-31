@@ -7,10 +7,10 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESS_RELAYEVENT_H
 #define PEDIGREE_KERNEL_PROCESS_RELAYEVENT_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Event.h"
+
+#include <config.h>
 
 /**
  * A stable Event that resolves work through a callback when it is delivered.

@@ -19,9 +19,9 @@
 
 #ifndef KERNEL_PROCESSOR_X86_COMMON_PROCESSOR_H
 #define KERNEL_PROCESSOR_X86_COMMON_PROCESSOR_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/Processor.h"
+
+#include <config.h>
 
 /** Common x86 processor functionality. Cast needed to get these. */
 class X86CommonProcessor : public ProcessorBase {

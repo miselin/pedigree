@@ -7,10 +7,10 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_MACH_PC_RTCALARMQUEUE_H
 #define PEDIGREE_KERNEL_MACHINE_MACH_PC_RTCALARMQUEUE_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/assert.h"
+
+#include <config.h>
 
 /**
  * Allocation-free ownership state for RTC alarms.

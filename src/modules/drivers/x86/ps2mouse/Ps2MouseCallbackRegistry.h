@@ -7,12 +7,12 @@
 
 #ifndef PEDIGREE_PS2_MOUSE_CALLBACK_REGISTRY_H
 #define PEDIGREE_PS2_MOUSE_CALLBACK_REGISTRY_H
-#include <config.h>
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 class Ps2MouseCallbackRegistry {
  private:

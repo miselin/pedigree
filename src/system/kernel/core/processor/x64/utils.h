@@ -19,10 +19,10 @@
 
 #ifndef KERNEL_PROCESSOR_X64_UTILS_H
 #define KERNEL_PROCESSOR_X64_UTILS_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 /** @addtogroup kernelprocessorx64
  * @{ */

@@ -7,9 +7,9 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_MACH_PC_LOCALAPICLINT0POLICY_H
 #define PEDIGREE_KERNEL_MACHINE_MACH_PC_LOCALAPICLINT0POLICY_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 /** Executable virtual-wire routing policy for the legacy dual 8259 PIC. */
 class LocalApicLint0Policy {

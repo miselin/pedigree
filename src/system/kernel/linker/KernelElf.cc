@@ -472,8 +472,7 @@ Module* KernelElf::loadModule(uint8_t* pModule, size_t len, bool silent) {
   }
   module->entry = entryPoint;
   module->exit = exitPoint;
-  bool* unloadable =
-      reinterpret_cast<bool*>(module->elf->lookupSymbol("g_bModuleUnloadable"));
+  bool* unloadable = reinterpret_cast<bool*>(module->elf->lookupSymbol("g_bModuleUnloadable"));
   module->unloadable = unloadable ? *unloadable : true;
   bool* runtimeUnloadable =
       reinterpret_cast<bool*>(module->elf->lookupSymbol("g_bModuleRuntimeUnloadable"));
@@ -736,9 +735,11 @@ Module* KernelElf::findUnloadCandidate(const Vector<Module*>& modules, bool& wai
   return nullptr;
 }
 
-KernelElf::ModuleUnloadClaim KernelElf::claimModuleUnloadLocked(
-    Module* module, bool allowShutdown, bool requireMembership, bool enforceDependencies,
-    bool& wasFailed, bool& runLifecycle) {
+KernelElf::ModuleUnloadClaim KernelElf::claimModuleUnloadLocked(Module* module, bool allowShutdown,
+                                                                bool requireMembership,
+                                                                bool enforceDependencies,
+                                                                bool& wasFailed,
+                                                                bool& runLifecycle) {
   wasFailed = false;
   runLifecycle = false;
 
@@ -1215,8 +1216,9 @@ KernelElf::TestModuleUnloadClaim KernelElf::claimModuleUnloadForTest(Module* mod
   return static_cast<TestModuleUnloadClaim>(claim);
 }
 
-KernelElf::TestModuleUnloadClaim KernelElf::claimNamedModuleUnloadForTest(
-    Module** modules, size_t count, const char* name) {
+KernelElf::TestModuleUnloadClaim KernelElf::claimNamedModuleUnloadForTest(Module** modules,
+                                                                          size_t count,
+                                                                          const char* name) {
   Vector<Module*> fixtures;
   for (size_t i = 0; i < count; ++i) {
     fixtures.pushBack(modules[i]);
@@ -1452,8 +1454,8 @@ void KernelElf::updateModuleStatus(Module* module, bool status, bool runFailureL
 void KernelElf::waitForModulesToLoad() {
   while (true) {
     lockModules();
-    const bool executing = m_ModuleLoading || m_UnloadingModule || m_ModuleExecutions ||
-                           m_ModuleExecutionPasses;
+    const bool executing =
+        m_ModuleLoading || m_UnloadingModule || m_ModuleExecutions || m_ModuleExecutionPasses;
     unlockModules();
     if (!executing) {
       break;

@@ -7,11 +7,11 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_SCHEDULERIRQHANDLER_H
 #define PEDIGREE_KERNEL_MACHINE_SCHEDULERIRQHANDLER_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/state_forward.h"
+
+#include <config.h>
 
 /**
  * Dedicated controller callback for a scheduler-timer interrupt source.

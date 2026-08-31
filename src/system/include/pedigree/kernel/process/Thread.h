@@ -19,8 +19,6 @@
 
 #ifndef THREAD_H
 #define THREAD_H
-#include <config.h>
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
@@ -37,6 +35,8 @@
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 class ExtensibleBitmap;
 class PageFaultHandler;

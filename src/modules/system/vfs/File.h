@@ -19,8 +19,6 @@
 
 #ifndef FILE_H
 #define FILE_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Mutex.h"
@@ -33,6 +31,8 @@
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 class Filesystem;
 class Thread;

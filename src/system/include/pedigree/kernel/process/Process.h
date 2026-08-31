@@ -19,8 +19,6 @@
 
 #ifndef PROCESS_H
 #define PROCESS_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/Subsystem.h"
@@ -37,6 +35,8 @@
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 class VirtualAddressSpace;
 class File;

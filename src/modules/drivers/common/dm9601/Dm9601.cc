@@ -413,51 +413,45 @@ const StationInfo& Dm9601::getStationInfo() {
 bool Dm9601::readRegister(uint8_t reg, uintptr_t buffer, size_t nBytes) {
   if (!buffer || (nBytes > 0xFF))
     return false;
-  return controlRequest(
-      static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
-                           static_cast<uint8_t>(UsbRequestDirection::In)),
-      ReadRegister, 0, reg, nBytes, buffer, ControlTransferTimeoutMs);
+  return controlRequest(static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
+                                             static_cast<uint8_t>(UsbRequestDirection::In)),
+                        ReadRegister, 0, reg, nBytes, buffer, ControlTransferTimeoutMs);
 }
 
 bool Dm9601::writeRegister(uint8_t reg, uintptr_t buffer, size_t nBytes) {
   if (!buffer || (nBytes > 0xFF))
     return false;
-  return controlRequest(
-      static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
-                           static_cast<uint8_t>(UsbRequestDirection::Out)),
-      WriteRegister, 0, reg, nBytes, buffer, ControlTransferTimeoutMs);
+  return controlRequest(static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
+                                             static_cast<uint8_t>(UsbRequestDirection::Out)),
+                        WriteRegister, 0, reg, nBytes, buffer, ControlTransferTimeoutMs);
 }
 
 bool Dm9601::writeRegister(uint8_t reg, uint8_t data) {
-  return controlRequest(
-      static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
-                           static_cast<uint8_t>(UsbRequestDirection::Out)),
-      WriteRegister1, data, reg, 0, 0, ControlTransferTimeoutMs);
+  return controlRequest(static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
+                                             static_cast<uint8_t>(UsbRequestDirection::Out)),
+                        WriteRegister1, data, reg, 0, 0, ControlTransferTimeoutMs);
 }
 
 bool Dm9601::readMemory(uint16_t offset, uintptr_t buffer, size_t nBytes) {
   if (!buffer || (nBytes > 0xFF))
     return false;
-  return controlRequest(
-      static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
-                           static_cast<uint8_t>(UsbRequestDirection::In)),
-      ReadMemory, 0, offset, nBytes, buffer, ControlTransferTimeoutMs);
+  return controlRequest(static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
+                                             static_cast<uint8_t>(UsbRequestDirection::In)),
+                        ReadMemory, 0, offset, nBytes, buffer, ControlTransferTimeoutMs);
 }
 
 bool Dm9601::writeMemory(uint16_t offset, uintptr_t buffer, size_t nBytes) {
   if (!buffer || (nBytes > 0xFF))
     return false;
-  return controlRequest(
-      static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
-                           static_cast<uint8_t>(UsbRequestDirection::Out)),
-      WriteMemory, 0, offset, nBytes, buffer, ControlTransferTimeoutMs);
+  return controlRequest(static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
+                                             static_cast<uint8_t>(UsbRequestDirection::Out)),
+                        WriteMemory, 0, offset, nBytes, buffer, ControlTransferTimeoutMs);
 }
 
 bool Dm9601::writeMemory(uint16_t offset, uint8_t data) {
-  return controlRequest(
-      static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
-                           static_cast<uint8_t>(UsbRequestDirection::Out)),
-      WriteMemory1, data, offset, 0, 0, ControlTransferTimeoutMs);
+  return controlRequest(static_cast<uint8_t>(static_cast<uint8_t>(UsbRequestType::Vendor) |
+                                             static_cast<uint8_t>(UsbRequestDirection::Out)),
+                        WriteMemory1, data, offset, 0, 0, ControlTransferTimeoutMs);
 }
 
 bool Dm9601::readEeprom(uint8_t offset, uint16_t& value) {

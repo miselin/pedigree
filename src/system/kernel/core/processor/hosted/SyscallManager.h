@@ -19,11 +19,11 @@
 
 #ifndef KERNEL_PROCESSOR_HOSTED_SYSCALLMANAGER_H
 #define KERNEL_PROCESSOR_HOSTED_SYSCALLMANAGER_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 /** @addtogroup kernelprocessorhosted
  * @{ */

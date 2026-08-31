@@ -19,8 +19,6 @@
 
 #ifndef SEMAPHORE_H
 #define SEMAPHORE_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
@@ -29,6 +27,8 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Result.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 /**
  * A counting semaphore.

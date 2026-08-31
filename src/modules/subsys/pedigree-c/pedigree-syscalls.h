@@ -19,9 +19,9 @@
 
 #ifndef PEDIGREE_SYSCALLS_H
 #define PEDIGREE_SYSCALLS_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
+
+#include <config.h>
 
 #ifndef PEDIGREE_SYSCALLS_LIBC
 

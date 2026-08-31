@@ -19,9 +19,9 @@
 
 #ifndef KERNEL_MACHINE_X86_COMMON_TYPES_H
 #define KERNEL_MACHINE_X86_COMMON_TYPES_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 /** @addtogroup kernelmachinex86common
  * @{ */

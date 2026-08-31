@@ -19,8 +19,6 @@
 
 #ifndef OHCI_H
 #define OHCI_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
@@ -36,6 +34,8 @@
 #include "pedigree/kernel/utilities/RequestQueue.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 #include "CallbackDelivery.h"
 #include "PortChangeRequest.h"

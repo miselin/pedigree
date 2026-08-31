@@ -19,8 +19,6 @@
 
 #ifndef KERNEL_MACHINE_X86_COMMON_PIC_H
 #define KERNEL_MACHINE_X86_COMMON_PIC_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqDiagnosticSnapshotStore.h"
 #include "pedigree/kernel/machine/IrqHandler.h"
@@ -34,6 +32,8 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 #include "PicIrqState.h"
 

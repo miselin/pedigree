@@ -19,14 +19,14 @@
 
 #ifndef KERNEL_MACHINE_X86_COMMON_PC_H
 #define KERNEL_MACHINE_X86_COMMON_PC_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Bus.h"
 #include "pedigree/kernel/machine/Controller.h"
 #include "pedigree/kernel/machine/Device.h"
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 #include "Keyboard.h"
 #include "LocalApic.h"

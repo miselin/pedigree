@@ -171,18 +171,17 @@ bool runTlbShootdownConcurrencyRegression() {
   memory.freePage(replacementPage);
   reservation.free();
 
-  const bool passed =
-      startedReaders == readerTarget && readersJoined && replacementMapped && mapped &&
-      !context.failures && context.remoteReaders &&
-      context.remoteSuccesses == context.remoteReaders;
+  const bool passed = startedReaders == readerTarget && readersJoined && replacementMapped &&
+                      mapped && !context.failures && context.remoteReaders &&
+                      context.remoteSuccesses == context.remoteReaders;
   if (!passed) {
     ERROR("QEMU TLB shootdown regression did not observe the replacement mapping");
     return false;
   }
 
   NOTICE("QEMU-CONCURRENCY-TEST: shared-kernel-tlb-shootdown mask="
-         << Hex << context.successfulProcessors.value() << Dec << ", mutator="
-         << static_cast<size_t>(context.mutatorProcessor));
+         << Hex << context.successfulProcessors.value() << Dec
+         << ", mutator=" << static_cast<size_t>(context.mutatorProcessor));
   NOTICE("QEMU-CONCURRENCY-TEST: PASS shared-kernel-tlb-shootdown-smp");
   return true;
 }

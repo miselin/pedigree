@@ -8,7 +8,6 @@
 #ifndef KERNEL_MACHINE_SCHEDULERTIMERHANDLERSLOT_H
 #define KERNEL_MACHINE_SCHEDULERTIMERHANDLERSLOT_H
 #include <config.h>
-
 #include <stddef.h>
 
 class SchedulerTimerHandler;

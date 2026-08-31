@@ -19,8 +19,6 @@
 
 #ifndef KERNEL_MACHINE_X86_COMMON_PIT_H
 #define KERNEL_MACHINE_X86_COMMON_PIT_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/SchedulerIrqHandler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
@@ -28,6 +26,8 @@
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/state_forward.h"
+
+#include <config.h>
 
 class SchedulerTimerHandler;
 

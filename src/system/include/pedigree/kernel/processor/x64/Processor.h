@@ -19,10 +19,10 @@
 
 #ifndef KERNEL_PROCESSOR_X64_PROCESSOR_H
 #define KERNEL_PROCESSOR_X64_PROCESSOR_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/x86_common/Processor.h"
+
+#include <config.h>
 
 class X64Processor : public X86CommonProcessor {};
 

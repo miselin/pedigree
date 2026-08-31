@@ -7,11 +7,11 @@
 
 #ifndef KERNEL_MACHINE_MACH_PC_LOCALAPICTLBSHOOTDOWN_H
 #define KERNEL_MACHINE_MACH_PC_LOCALAPICTLBSHOOTDOWN_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/process/ExecutionContext.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 /**
  * Serialises processor-control state and mutation-gate ownership.

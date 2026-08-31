@@ -7,10 +7,10 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESS_OPERATIONBARRIER_H
 #define PEDIGREE_KERNEL_PROCESS_OPERATIONBARRIER_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/WaitQueue.h"
+
+#include <config.h>
 
 /**
  * Closes admission to asynchronous work and drains work already admitted.

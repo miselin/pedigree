@@ -178,15 +178,13 @@ static void destroy() {
   // retains a File in the original backing filesystem.
   while (liveDiskFilesystems.count()) {
     Filesystem* filesystem = liveDiskFilesystems.popFront();
-    NOTICE(
-        "Unmounting " << filesystem->getVolumeLabel() << " [" << Hex
-                       << filesystem << "]...");
+    NOTICE("Unmounting " << filesystem->getVolumeLabel() << " [" << Hex << filesystem << "]...");
     VFS::instance().unregisterFilesystem(filesystem);
     NOTICE("unmount done");
   }
 
   if (g_pLiveDisk) {
-    Device::foreach(removeLiveDisk);
+    Device::foreach (removeLiveDisk);
     if (g_pLiveDisk) {
       FATAL("mountroot could not retire its live-disk device");
       return;
@@ -195,9 +193,7 @@ static void destroy() {
 
   while (backingFilesystems.count()) {
     Filesystem* filesystem = backingFilesystems.popFront();
-    NOTICE(
-        "Unmounting " << filesystem->getVolumeLabel() << " [" << Hex
-                       << filesystem << "]...");
+    NOTICE("Unmounting " << filesystem->getVolumeLabel() << " [" << Hex << filesystem << "]...");
     VFS::instance().unregisterFilesystem(filesystem);
     NOTICE("unmount done");
   }

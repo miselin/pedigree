@@ -19,8 +19,6 @@
 
 #ifndef MACHINE_NETWORK_STACK_H
 #define MACHINE_NETWORK_STACK_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Network.h"
@@ -31,6 +29,8 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/Vector.h"
+
+#include <config.h>
 
 // lwIP network interface type
 struct netif;

@@ -21,7 +21,6 @@
 
 #if ACPI
 
-#include "Acpi.h"
 #include "pedigree/kernel/BootstrapInfo.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -30,6 +29,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "../../core/processor/x86_common/PhysicalMemoryManager.h"
+#include "Acpi.h"
 
 Acpi Acpi::m_Instance;
 

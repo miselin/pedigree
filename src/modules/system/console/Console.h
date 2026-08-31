@@ -39,14 +39,13 @@ class Event;
 class Process;
 class RequestQueue;
 
-#define DEFAULT_FLAGS                                                                         \
-  (static_cast<size_t>(ConsoleManager::OPostProcess) |                                         \
-   static_cast<size_t>(ConsoleManager::IMapCRToNL) |                                           \
-   static_cast<size_t>(ConsoleManager::OMapNLToCRNL) |                                         \
-   static_cast<size_t>(ConsoleManager::LEcho) |                                                \
-   static_cast<size_t>(ConsoleManager::LEchoErase) |                                           \
-   static_cast<size_t>(ConsoleManager::LEchoKill) |                                            \
-   static_cast<size_t>(ConsoleManager::LCookedMode) |                                          \
+#define DEFAULT_FLAGS                                                                             \
+  (static_cast<size_t>(ConsoleManager::OPostProcess) |                                            \
+   static_cast<size_t>(ConsoleManager::IMapCRToNL) |                                              \
+   static_cast<size_t>(ConsoleManager::OMapNLToCRNL) |                                            \
+   static_cast<size_t>(ConsoleManager::LEcho) | static_cast<size_t>(ConsoleManager::LEchoErase) | \
+   static_cast<size_t>(ConsoleManager::LEchoKill) |                                               \
+   static_cast<size_t>(ConsoleManager::LCookedMode) |                                             \
    static_cast<size_t>(ConsoleManager::LGenerateEvent))
 
 class ConsoleFile : public File {

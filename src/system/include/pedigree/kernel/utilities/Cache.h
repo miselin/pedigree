@@ -19,8 +19,6 @@
 
 #ifndef CACHE_H
 #define CACHE_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
@@ -37,6 +35,8 @@
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/new"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include <config.h>
 
 class Thread;
 class Timer;

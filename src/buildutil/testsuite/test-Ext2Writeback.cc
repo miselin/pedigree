@@ -290,13 +290,13 @@ TEST(Ext2Growth, BatchesIndirectMappingAndInodeWrites) {
 
   const uint64_t inodeTableLocation = 4ULL * kBlockSize;
   const uint64_t indirectLocation = 32ULL * kBlockSize;
-  EXPECT_EQ(static_cast<size_t>(std::count(disk.writes.begin(), disk.writes.end(),
-                                           inodeTableLocation)),
-            1U);
+  EXPECT_EQ(
+      static_cast<size_t>(std::count(disk.writes.begin(), disk.writes.end(), inodeTableLocation)),
+      1U);
   // One write initializes the indirect block; the second publishes its entries.
-  EXPECT_EQ(static_cast<size_t>(std::count(disk.writes.begin(), disk.writes.end(),
-                                           indirectLocation)),
-            2U);
+  EXPECT_EQ(
+      static_cast<size_t>(std::count(disk.writes.begin(), disk.writes.end(), indirectLocation)),
+      2U);
 }
 
 TEST(Ext2Writeback, ReleaseInodeFinishesOnTargetTableBlock) {

@@ -7,8 +7,6 @@
 
 #ifndef PEDIGREE_KERNEL_MACHINE_SPLITIRQHANDLER_H
 #define PEDIGREE_KERNEL_MACHINE_SPLITIRQHANDLER_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
@@ -17,6 +15,8 @@
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 class Device;
 class IrqManager;

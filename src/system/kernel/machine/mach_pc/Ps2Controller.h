@@ -19,8 +19,6 @@
 
 #ifndef MACHINE_X86_PS2CONTROLLER_H
 #define MACHINE_X86_PS2CONTROLLER_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/Controller.h"
@@ -31,6 +29,8 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/String.h"
+
+#include <config.h>
 
 class IoBase;
 

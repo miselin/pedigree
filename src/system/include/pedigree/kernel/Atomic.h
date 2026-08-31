@@ -19,11 +19,11 @@
 
 #ifndef KERNEL_ATOMIC_H
 #define KERNEL_ATOMIC_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include <config.h>
 
 /** @addtogroup kernel
  * @{ */

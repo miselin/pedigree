@@ -176,8 +176,7 @@ uint32_t jenkinsHash(const char* buffer, size_t length);
 /// Spooky hash.
 EXPORTED_PUBLIC uint32_t spookyHash(const char* buffer, size_t length);
 EXPORTED_PUBLIC uint64_t spookyHash64(const char* buffer, size_t length);
-EXPORTED_PUBLIC void spookyHash128(const char* buffer, size_t length, uint64_t* h1,
-                                   uint64_t* h2);
+EXPORTED_PUBLIC void spookyHash128(const char* buffer, size_t length, uint64_t* h1, uint64_t* h2);
 
 /// Report whether or not two pointers regions overlap.
 EXPORTED_PUBLIC int overlaps(const void* s1, const void* s2, size_t n) PURE;

@@ -7,12 +7,12 @@
 
 #ifndef USB_HCD_PORTCHANGEREQUEST_H
 #define USB_HCD_PORTCHANGEREQUEST_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/utilities/RequestQueue.h"
+
+#include <config.h>
 
 namespace UsbHcd {
 constexpr size_t EhciRootPortCount = 15;

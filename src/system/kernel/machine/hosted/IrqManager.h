@@ -19,11 +19,11 @@
 
 #ifndef KERNEL_MACHINE_HOSTED_IRQMANAGER_H
 #define KERNEL_MACHINE_HOSTED_IRQMANAGER_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/IrqManager.h"
 #include "pedigree/kernel/processor/InterruptHandler.h"
+
+#include <config.h>
 
 /**
  * Routes the two synthetic signals used by the hosted machine.

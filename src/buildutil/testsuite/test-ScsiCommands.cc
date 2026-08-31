@@ -19,9 +19,9 @@
 
 #define PEDIGREE_EXTERNAL_SOURCE 1
 
-#include "modules/drivers/common/scsi/ScsiCommands.h"
-
 #include <cstring>
+
+#include "modules/drivers/common/scsi/ScsiCommands.h"
 #include <gtest/gtest.h>
 
 namespace {

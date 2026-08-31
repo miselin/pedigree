@@ -19,11 +19,11 @@
 
 #ifndef _POSIX_KERNEL_LOGGING_H
 #define _POSIX_KERNEL_LOGGING_H
-#include <config.h>
-
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+
+#include <config.h>
 
 // Logs to the kernel log with the current PID.
 #if THREADS

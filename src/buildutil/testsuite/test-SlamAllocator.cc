@@ -21,10 +21,10 @@
 
 #include "pedigree/kernel/core/SlamAllocator.h"
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <thread>
+
+#include <gtest/gtest.h>
 
 class SlamAllocatorCorrectnessTest : public ::testing::Test {
  protected:
@@ -222,8 +222,7 @@ TEST_F(SlamAllocatorCorrectnessTest, ReusesAndRecoversCrossCpuFreeLists) {
 
   cache.setListForTest(0);
   uintptr_t reused = cache.allocate();
-  EXPECT_EQ(reused & ~(SLAB_MINIMUM_SIZE - 1),
-            allocations[0] & ~(SLAB_MINIMUM_SIZE - 1));
+  EXPECT_EQ(reused & ~(SLAB_MINIMUM_SIZE - 1), allocations[0] & ~(SLAB_MINIMUM_SIZE - 1));
   EXPECT_EQ(allocator.heapPageCount(), pagesBefore + 1);
   prepareCacheAllocation(cache, reused);
 
@@ -297,8 +296,7 @@ TEST_F(SlamAllocatorCorrectnessTest, ValidationRejectsReservedUnmappedSlab) {
   std::atomic<bool> validationComplete(false);
   bool valid = true;
   if (entered) {
-    EXPECT_EQ(gate.address.load(std::memory_order_relaxed),
-              stale & ~(SLAB_MINIMUM_SIZE - 1));
+    EXPECT_EQ(gate.address.load(std::memory_order_relaxed), stale & ~(SLAB_MINIMUM_SIZE - 1));
     std::thread validator([&]() {
       validationStarted.store(true, std::memory_order_release);
       valid = allocator.isPointerValid(stale);
@@ -307,9 +305,8 @@ TEST_F(SlamAllocatorCorrectnessTest, ValidationRejectsReservedUnmappedSlab) {
     while (!validationStarted.load(std::memory_order_acquire)) {
       std::this_thread::yield();
     }
-    for (size_t attempt = 0; attempt < 100000 &&
-                             !validationComplete.load(std::memory_order_acquire);
-         ++attempt) {
+    for (size_t attempt = 0;
+         attempt < 100000 && !validationComplete.load(std::memory_order_acquire); ++attempt) {
       std::this_thread::yield();
     }
     EXPECT_TRUE(validationComplete.load(std::memory_order_acquire));
@@ -344,8 +341,7 @@ TEST_F(SlamAllocatorCorrectnessTest, ValidationRejectsMappedUninitialisedSlab) {
   EXPECT_TRUE(entered);
   bool valid = true;
   if (entered) {
-    EXPECT_EQ(gate.address.load(std::memory_order_relaxed),
-              stale & ~(SLAB_MINIMUM_SIZE - 1));
+    EXPECT_EQ(gate.address.load(std::memory_order_relaxed), stale & ~(SLAB_MINIMUM_SIZE - 1));
     valid = allocator.isPointerValid(stale);
     EXPECT_FALSE(valid);
   }

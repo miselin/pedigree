@@ -19,10 +19,10 @@
 
 #ifndef KERNEL_UTILITY_H
 #define KERNEL_UTILITY_H
-#include <config.h>
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 // Export memcpy et al
 #include "pedigree/kernel/utilities/cpp.h"  // IWYU pragma: export

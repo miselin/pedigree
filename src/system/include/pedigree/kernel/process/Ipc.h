@@ -19,8 +19,6 @@
 
 #ifndef _PROCESS_IPC_H
 #define _PROCESS_IPC_H
-#include <config.h>
-
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
@@ -29,6 +27,8 @@
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 class MemoryRegion;
 

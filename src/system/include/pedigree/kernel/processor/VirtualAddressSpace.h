@@ -19,12 +19,12 @@
 
 #ifndef KERNEL_PROCESSOR_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_VIRTUALADDRESSSPACE_H
-#include <config.h>
-
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include <config.h>
 
 /** @addtogroup kernelprocessor
  * @{ */

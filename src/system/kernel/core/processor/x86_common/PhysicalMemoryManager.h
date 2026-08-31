@@ -19,8 +19,6 @@
 
 #ifndef KERNEL_PROCESSOR_X86_COMMON_PHYSICALMEMORYMANAGER_H
 #define KERNEL_PROCESSOR_X86_COMMON_PHYSICALMEMORYMANAGER_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
@@ -29,6 +27,8 @@
 #include "pedigree/kernel/utilities/HashTable.h"
 #include "pedigree/kernel/utilities/RangeList.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include <config.h>
 
 class BootstrapStruct_t;
 class MemoryRegion;

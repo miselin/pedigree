@@ -7,9 +7,9 @@
 
 #ifndef PEDIGREE_MODULES_POSIX_INTERVALTIMERSTATE_H
 #define PEDIGREE_MODULES_POSIX_INTERVALTIMERSTATE_H
-#include <config.h>
-
 #include "pedigree/kernel/time/Time.h"
+
+#include <config.h>
 
 namespace PosixIntervalTimerState {
 struct Consumption {

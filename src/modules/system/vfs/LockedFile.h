@@ -19,10 +19,10 @@
 
 #ifndef LOCKED_FILE_H
 #define LOCKED_FILE_H
-#include <config.h>
-
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 class File;
 

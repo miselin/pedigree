@@ -19,9 +19,9 @@
 
 #ifndef KERNEL_PROCESSOR_PROCESSORINFORMATION_H
 #define KERNEL_PROCESSOR_PROCESSORINFORMATION_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 /** @addtogroup kernelprocessor
  * @{ */

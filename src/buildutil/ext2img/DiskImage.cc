@@ -293,8 +293,8 @@ void DiskImage::flushDirtyPages(int flags) {
       end = m_nSize;
     }
 
-    const int result = DISKIMAGE_MSYNC(
-        adjust_pointer(m_pBuffer, start), static_cast<size_t>(end - start), flags);
+    const int result =
+        DISKIMAGE_MSYNC(adjust_pointer(m_pBuffer, start), static_cast<size_t>(end - start), flags);
     if (result == 0) {
       std::memset(m_pDirtyPages + firstPage, 0, page - firstPage);
       m_DirtyPageCount -= page - firstPage;

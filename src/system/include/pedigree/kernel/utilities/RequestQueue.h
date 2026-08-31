@@ -19,8 +19,6 @@
 
 #ifndef REQUEST_QUEUE_H
 #define REQUEST_QUEUE_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Mutex.h"
@@ -30,6 +28,8 @@
 #include "pedigree/kernel/utilities/IntrusiveMpscQueue.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/String.h"
+
+#include <config.h>
 #if THREADS
 #include "pedigree/kernel/machine/TimerHandler.h"
 #endif

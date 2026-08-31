@@ -2185,9 +2185,8 @@ bool moduleShutdownOrderIsDependencySafe() {
   Module* cycleOrder[2] = {};
   const size_t cyclicPlanned = KernelElf::planModuleUnloadOrderForTest(cycle, 2, cycleOrder, 2);
 
-  if (planned != 3 || order[0] != &nics || order[1] != &ne2k ||
-      order[2] != &networkStack || repeated != 0 || cyclicPlanned != 0 ||
-      cycleA.unloadComplete || cycleB.unloadComplete) {
+  if (planned != 3 || order[0] != &nics || order[1] != &ne2k || order[2] != &networkStack ||
+      repeated != 0 || cyclicPlanned != 0 || cycleA.unloadComplete || cycleB.unloadComplete) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL module-shutdown-order: "
         "optional/mandatory dependents were not retired first or a cycle was torn down");
@@ -2377,25 +2376,20 @@ bool runRegressions() {
   const uintptr_t stillLoadedResult = manager.syscall(pedigree_c, PEDIGREE_MODULE_IS_LOADED,
                                                       reinterpret_cast<uintptr_t>(pedigreeCModule));
   const uintptr_t lwipUnloadResult =
-      manager.syscall(pedigree_c, PEDIGREE_MODULE_UNLOAD,
-                      reinterpret_cast<uintptr_t>(lwipModule));
-  const uintptr_t lwipStillLoadedResult =
-      manager.syscall(pedigree_c, PEDIGREE_MODULE_IS_LOADED,
-                      reinterpret_cast<uintptr_t>(lwipModule));
-  const uintptr_t networkStackUnloadResult =
-      manager.syscall(pedigree_c, PEDIGREE_MODULE_UNLOAD,
-                      reinterpret_cast<uintptr_t>(networkStackModule));
-  const uintptr_t networkStackStillLoadedResult =
-      manager.syscall(pedigree_c, PEDIGREE_MODULE_IS_LOADED,
-                      reinterpret_cast<uintptr_t>(networkStackModule));
+      manager.syscall(pedigree_c, PEDIGREE_MODULE_UNLOAD, reinterpret_cast<uintptr_t>(lwipModule));
+  const uintptr_t lwipStillLoadedResult = manager.syscall(pedigree_c, PEDIGREE_MODULE_IS_LOADED,
+                                                          reinterpret_cast<uintptr_t>(lwipModule));
+  const uintptr_t networkStackUnloadResult = manager.syscall(
+      pedigree_c, PEDIGREE_MODULE_UNLOAD, reinterpret_cast<uintptr_t>(networkStackModule));
+  const uintptr_t networkStackStillLoadedResult = manager.syscall(
+      pedigree_c, PEDIGREE_MODULE_IS_LOADED, reinterpret_cast<uintptr_t>(networkStackModule));
 
   if (sigretResult != static_cast<uintptr_t>(-1) || unwindResult != static_cast<uintptr_t>(-1) ||
       eventReturnResult != static_cast<uintptr_t>(-1) ||
       selfUnloadResult != static_cast<uintptr_t>(-1) || stillLoadedResult != 1 ||
       lwipUnloadResult != static_cast<uintptr_t>(-1) || lwipStillLoadedResult != 1 ||
       networkStackUnloadResult != static_cast<uintptr_t>(-1) ||
-      networkStackStillLoadedResult != 1 ||
-      thread->getStateLevel() || thread->getErrno()) {
+      networkStackStillLoadedResult != 1 || thread->getStateLevel() || thread->getErrno()) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL real-event-boundaries: "
         "a public misuse path escaped its lifetime boundary");

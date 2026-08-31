@@ -19,8 +19,6 @@
 
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
@@ -31,6 +29,8 @@
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 class Thread;
 class PerProcessorScheduler;

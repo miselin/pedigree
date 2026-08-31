@@ -88,8 +88,7 @@ SlamCache::SlamCache()
       m_SlabSize(0),
       m_FirstSlab(),
       m_RecoveryLock(false, true),
-      m_EmptyNode() {
-}
+      m_EmptyNode() {}
 
 SlamCache::~SlamCache() {}
 
@@ -168,8 +167,7 @@ SlamAllocator::SlamAllocator()
       m_SlabRegionBitmap(),
       m_SlabRegionBitmapEntries(0),
       m_SlabRegionPages(0),
-      m_Base(0) {
-}
+      m_Base(0) {}
 
 SlamAllocator::~SlamAllocator() {
   if (m_bInitialised) {

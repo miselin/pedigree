@@ -293,7 +293,7 @@ static char sparseBuff[%d] =\n\"",
           header_guard, header_guard, sparse_buffsz + 1);
 
   for (i = 0; i < sparse_buffsz; i++) {
-    fprintf(stream, "\\x%02x", (unsigned char)((char *)sparse_buff)[i]);
+    fprintf(stream, "\\x%02x", (unsigned char)((char*)sparse_buff)[i]);
     if ((i % 20) == 0 && i != 0)
       fprintf(stream, "\\\n");
   }

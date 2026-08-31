@@ -19,8 +19,6 @@
 
 #ifndef KERNEL_LOG_H
 #define KERNEL_LOG_H
-#include <config.h>
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/WaitQueue.h"
@@ -28,6 +26,8 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/StaticCord.h"
 #include "pedigree/kernel/utilities/StaticString.h"
+
+#include <config.h>
 
 class String;
 class StringView;

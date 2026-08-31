@@ -19,14 +19,14 @@
 
 #ifndef KERNEL_PROCESSOR_X64_VIRTUALADDRESSSPACE_H
 #define KERNEL_PROCESSOR_X64_VIRTUALADDRESSSPACE_H
-#include <config.h>
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include <config.h>
 
 class X64MappingMutationScope;
 

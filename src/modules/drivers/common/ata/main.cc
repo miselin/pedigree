@@ -236,7 +236,7 @@ static Device* removeAtaController(Device* device) {
 }
 
 static void exit() {
-  Device::foreach(removeAtaController);
+  Device::foreach (removeAtaController);
   g_Controllers.clear();
   nController = 0;
   bFound = false;

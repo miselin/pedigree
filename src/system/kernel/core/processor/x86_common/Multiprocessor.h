@@ -19,11 +19,11 @@
 
 #ifndef KERNEL_PROCESSOR_X86_COMMON_MULTIPROCESSOR_H
 #define KERNEL_PROCESSOR_X86_COMMON_MULTIPROCESSOR_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 class Spinlock;
 

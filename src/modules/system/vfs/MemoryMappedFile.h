@@ -19,8 +19,6 @@
 
 #ifndef MEMORY_MAPPED_FILE_H
 #define MEMORY_MAPPED_FILE_H
-#include <config.h>
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/MemoryPressureManager.h"
@@ -34,6 +32,8 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 class File;
 class Process;

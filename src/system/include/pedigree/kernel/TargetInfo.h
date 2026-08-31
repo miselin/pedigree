@@ -19,9 +19,9 @@
 
 #ifndef KERNEL_TARGETINFO_H
 #define KERNEL_TARGETINFO_H
-#include <config.h>
-
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 #if !defined(TARGET_IS_LITTLE_ENDIAN)
 #error TARGET_IS_LITTLE_ENDIAN not defined

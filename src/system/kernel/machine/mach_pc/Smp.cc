@@ -21,8 +21,9 @@
 
 #if SMP
 
-#include "Smp.h"
 #include "pedigree/kernel/utilities/utility.h"
+
+#include "Smp.h"
 
 #if !defined(SMP_NOTICE)
 #undef NOTICE

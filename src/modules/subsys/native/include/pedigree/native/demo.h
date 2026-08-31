@@ -19,11 +19,11 @@
 
 #ifndef _PEDIGREE_DEMO_H
 #define _PEDIGREE_DEMO_H
-#include <config.h>
-
 #include "pedigree/native/Object.h"
 #include "pedigree/native/compiler.h"
 #include "pedigree/native/types.h"
+
+#include <config.h>
 
 /** Object is merely the base class for all native subsystem objects. */
 class EXPORTED_PUBLIC Demo : public Object {

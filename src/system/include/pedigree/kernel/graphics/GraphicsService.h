@@ -19,14 +19,14 @@
 
 #ifndef _GRAPHICS_SERVICE_H
 #define _GRAPHICS_SERVICE_H
-#include <config.h>
-
 #include "pedigree/kernel/Service.h"
 #include "pedigree/kernel/ServiceFeatures.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 class Display;
 class Framebuffer;

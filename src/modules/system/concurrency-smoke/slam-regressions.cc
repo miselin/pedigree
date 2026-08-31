@@ -28,8 +28,7 @@ void prepareAllocation(SlamCache& cache, uintptr_t object) {
 }
 
 struct RemoteFreeContext {
-  RemoteFreeContext(SlamCache& cache, uintptr_t* objects, size_t count,
-                    size_t allocatingProcessor)
+  RemoteFreeContext(SlamCache& cache, uintptr_t* objects, size_t count, size_t allocatingProcessor)
       : cache(cache),
         objects(objects),
         count(count),
@@ -61,8 +60,8 @@ bool runRemoteFree(RemoteFreeContext& context) {
   Thread* workers[64] = {};
   size_t started = 0;
   for (; started < processorCount; ++started) {
-    workers[started] = new Thread(Scheduler::instance().getKernelProcess(), freeRemotely,
-                                  &context, nullptr, false, false, true);
+    workers[started] = new Thread(Scheduler::instance().getKernelProcess(), freeRemotely, &context,
+                                  nullptr, false, false, true);
     workers[started]->setName("QEMU SLAM remote freer");
     if (!workers[started]->start()) {
       break;
@@ -100,30 +99,32 @@ bool runSlamAllocatorConcurrencyRegression() {
   const size_t allocatingProcessor = Processor::index();
   RemoteFreeContext firstFree(cache, objects, ObjectCount, allocatingProcessor);
   if (!runRemoteFree(firstFree) || firstFree.processor == allocatingProcessor) {
-    ERROR("QEMU-CONCURRENCY-TEST: FAIL slam-cross-cpu-recovery-smp: "
-          "free worker did not complete on a remote CPU");
+    ERROR(
+        "QEMU-CONCURRENCY-TEST: FAIL slam-cross-cpu-recovery-smp: "
+        "free worker did not complete on a remote CPU");
     return false;
   }
 
   uintptr_t reused = cache.allocate();
-  if ((reused & ~(SLAB_MINIMUM_SIZE - 1)) !=
-      (objects[0] & ~(SLAB_MINIMUM_SIZE - 1))) {
-    ERROR("QEMU-CONCURRENCY-TEST: FAIL slam-cross-cpu-recovery-smp: "
-          "remote free list was stranded");
+  if ((reused & ~(SLAB_MINIMUM_SIZE - 1)) != (objects[0] & ~(SLAB_MINIMUM_SIZE - 1))) {
+    ERROR(
+        "QEMU-CONCURRENCY-TEST: FAIL slam-cross-cpu-recovery-smp: "
+        "remote free list was stranded");
     return false;
   }
   prepareAllocation(cache, reused);
 
   RemoteFreeContext finalFree(cache, &reused, 1, allocatingProcessor);
   if (!runRemoteFree(finalFree) || cache.recovery(1) != 1) {
-    ERROR("QEMU-CONCURRENCY-TEST: FAIL slam-cross-cpu-recovery-smp: "
-          "cross-CPU sub-page slab was not reclaimed");
+    ERROR(
+        "QEMU-CONCURRENCY-TEST: FAIL slam-cross-cpu-recovery-smp: "
+        "cross-CPU sub-page slab was not reclaimed");
     return false;
   }
 
-  NOTICE("QEMU-CONCURRENCY-TEST: slam cpus="
-         << Dec << allocatingProcessor << "/" << static_cast<size_t>(firstFree.processor) << "/"
-         << static_cast<size_t>(finalFree.processor));
+  NOTICE("QEMU-CONCURRENCY-TEST: slam cpus=" << Dec << allocatingProcessor << "/"
+                                             << static_cast<size_t>(firstFree.processor) << "/"
+                                             << static_cast<size_t>(finalFree.processor));
   NOTICE("QEMU-CONCURRENCY-TEST: PASS slam-cross-cpu-recovery-smp");
   return true;
 }

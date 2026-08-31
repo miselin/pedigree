@@ -19,8 +19,6 @@
 
 #ifndef KERNEL_PROCESSOR_SYSCALLMANAGER_H
 #define KERNEL_PROCESSOR_SYSCALLMANAGER_H
-#include <config.h>
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/DeferredScope.h"
@@ -28,6 +26,8 @@
 #include "pedigree/kernel/processor/Syscalls.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
+
+#include <config.h>
 
 class SyscallHandler;
 class Thread;

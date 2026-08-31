@@ -7,9 +7,9 @@
 
 #ifndef PEDIGREE_KERNEL_PROCESS_ATOMICSTATECLEANUP_H
 #define PEDIGREE_KERNEL_PROCESS_ATOMICSTATECLEANUP_H
-#include <config.h>
-
 #include "pedigree/kernel/process/DeferredScope.h"
+
+#include <config.h>
 
 /** Interrupt and exception cleanup records share Thread's one ordered stack. */
 using AtomicStateCleanupRecord = DeferredScopeRecord;

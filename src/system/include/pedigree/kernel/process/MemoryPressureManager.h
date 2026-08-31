@@ -19,14 +19,14 @@
 
 #ifndef MEMORY_PRESSURE_MANAGER_H
 #define MEMORY_PRESSURE_MANAGER_H
-#include <config.h>
-
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/new"
+
+#include <config.h>
 
 /** Maximum memory pressure handler priority (one list per priority level). */
 #define MAX_MEMPRESSURE_PRIORITY 16

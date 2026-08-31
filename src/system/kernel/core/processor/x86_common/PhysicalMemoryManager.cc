@@ -195,8 +195,7 @@ void X86CommonPhysicalMemoryManager::pin(physical_uintptr_t page) {
   if (!m_PageMetadataReady) {
     if (m_BootstrapPinnedPageRefcount) {
       if (m_BootstrapPinnedPage != page) {
-        FATAL_NOLOCK(
-            "PhysicalMemoryManager: multiple pages pinned during metadata bootstrap");
+        FATAL_NOLOCK("PhysicalMemoryManager: multiple pages pinned during metadata bootstrap");
       }
     } else {
       m_BootstrapPinnedPage = page;
@@ -365,8 +364,8 @@ bool X86CommonPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t
                   Flags) == false) {
             freePage(page);
             for (size_t mapped = 0; mapped < i; ++mapped) {
-              void* mappedAddress = reinterpret_cast<void*>(
-                  vAddress + mapped * PhysicalMemoryManager::getPageSize());
+              void* mappedAddress =
+                  reinterpret_cast<void*>(vAddress + mapped * PhysicalMemoryManager::getPageSize());
               physical_uintptr_t mappedPage = 0;
               size_t mappedFlags = 0;
               virtualAddressSpace.getMapping(mappedAddress, mappedPage, mappedFlags);

@@ -19,14 +19,14 @@
 
 #ifndef _ATA_COMMON_H
 #define _ATA_COMMON_H
-#include <config.h>
-
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/IoBase.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
+
+#include <config.h>
 
 typedef union {
   /// This struct provides an easy way to literally code when working with

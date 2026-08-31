@@ -21,12 +21,12 @@
 
 #if MULTIPROCESSOR
 
-#include "../x86_common/Multiprocessor.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/process/initialiseMultitasking.h"
 #include "pedigree/kernel/processor/NMFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 
+#include "../x86_common/Multiprocessor.h"
 #include "InterruptManager.h"
 #include "SyscallManager.h"
 #include "gdt.h"
