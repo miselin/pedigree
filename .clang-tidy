@@ -1,18 +1,27 @@
-# Keep the defect-oriented checks broad, while omitting categories that are
-# currently dominated by established kernel naming/API/layout conventions.
+# Keep this first enforced set deliberately narrow. The broad bugprone,
+# performance, and analyzer groups currently report thousands of diagnostics
+# from intentional low-level code patterns; adding them here would turn CI into
+# a permanently ignored report instead of a useful quality gate.
 Checks:          >-
-  clang-diagnostic-*,clang-analyzer-*,bugprone-*,performance-*,
-  -bugprone-easily-swappable-parameters,
-  -bugprone-reserved-identifier,
-  -performance-enum-size
-WarningsAsErrors: ''
+  clang-diagnostic-*,-clang-diagnostic-frame-address,
+  -clang-diagnostic-inconsistent-missing-override,-clang-diagnostic-main,
+  clang-analyzer-core.*,
+  clang-analyzer-cplusplus.NewDelete,
+  clang-analyzer-cplusplus.NewDeleteLeaks,
+  clang-analyzer-cplusplus.PureVirtualCall,
+  bugprone-copy-constructor-mutates-argument,
+  bugprone-suspicious-*,
+  bugprone-virtual-near-miss,
+  performance-noexcept-move-constructor,
+  performance-unnecessary-copy-initialization
+WarningsAsErrors: '*'
 # Keep diagnostics from the project headers that make up the hosted kernel and
 # modules. In particular, this excludes generated build/config.h and standard
 # library headers from the report.
 HeaderFilterRegex: '(^|/)src/(system/include/pedigree|system/kernel|modules)(/|$)'
-# These directories contain imported implementations or compatibility headers;
-# their translation units may still be analyzed, but their headers should not
-# dominate findings in project code.
+# These directories contain imported implementations or compatibility headers.
+# The workflow excludes their translation units as well; this header filter
+# keeps diagnostics from their included headers out of first-party reports.
 ExcludeHeaderFilterRegex: '(^|/)src/(modules/(drivers/common/cdi|subsys/posix/(musl|include|newlib)|system/(config/sqlite3|lwip/(api|core|include|netif)))|system/kernel/(debugger/libudis86|machine/mach_pc/x86emu))(/|$)'
 CheckOptions:
   - key:             google-readability-braces-around-statements.ShortStatementLines

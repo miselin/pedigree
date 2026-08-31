@@ -272,7 +272,7 @@ Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart) : m_pPa
 
   // SyscallState variant has to be called from the parent thread, so this is
   // OK to do.
-  if (pCurrent->m_bTlsBaseOverride) {
+  if (pCurrent && pCurrent->m_bTlsBaseOverride) {
     // Override our TLS base too (but this will be in the copied address
     // space).
     m_bTlsBaseOverride = true;

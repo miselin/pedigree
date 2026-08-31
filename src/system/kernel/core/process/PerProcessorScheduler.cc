@@ -1093,7 +1093,10 @@ void PerProcessorScheduler::blockCurrent() {
 }
 
 void PerProcessorScheduler::publishReadyFromWait(Thread* pThread) {
-  assert(pThread);
+  if (!pThread) {
+    assert(false);
+    return;
+  }
   assert(pThread->getScheduler() == this);
   assert(pThread->getStatus() == Thread::Ready);
   m_pSchedulingAlgorithm->threadStatusChanged(pThread);

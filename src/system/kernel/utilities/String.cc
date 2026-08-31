@@ -104,6 +104,8 @@ String& String::operator+=(const String& x) {
   assert(assignable());
 
   if (this == &x) {
+    // The copy breaks self-append aliasing before the recursive append.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     String copy(x);
     return *this += copy;
   }

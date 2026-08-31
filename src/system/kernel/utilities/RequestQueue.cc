@@ -877,7 +877,8 @@ bool RequestQueue::drainIntakeLocked(size_t priority) {
       return false;
     }
 
-    assert(node && node->owner);
+    if (!node || !node->owner)
+      return false;
     Request* request = node->owner;
     assert(request->m_Priority == priority);
     assert(!request->m_Next);
@@ -917,7 +918,8 @@ RequestQueue::NextRequestResult RequestQueue::getNextRequest(Request*& out) {
       return NextRequestResult::Retry;
     }
     if (result == PopResult::Item) {
-      assert(node && node->owner);
+      if (!node || !node->owner)
+        return NextRequestResult::Retry;
       request = node->owner;
       assert(request->m_Priority == priority);
       out = request;

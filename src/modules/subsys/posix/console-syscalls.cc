@@ -67,7 +67,7 @@ class PosixTerminalEvent : public Event {
   virtual ConsoleFile* getConsole() const;
 
   virtual size_t getNumber();
-  virtual bool isDeleteable();
+  virtual bool isDeletable();
 
  private:
   size_t m_GroupId;
@@ -643,6 +643,6 @@ size_t PosixTerminalEvent::getNumber() {
   return EventNumbers::TerminalEvent;
 }
 
-bool PosixTerminalEvent::isDeleteable() {
+bool PosixTerminalEvent::isDeletable() {
   return false;
 }

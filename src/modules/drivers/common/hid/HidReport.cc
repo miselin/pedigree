@@ -438,6 +438,8 @@ uint16_t HidReport::LocalState::getUsageByIndex(uint16_t nUsageIndex) {
 }
 
 /// Copy constructor
+// This assignment transfers the usage vector from the source state.
+// NOLINTNEXTLINE(bugprone-copy-constructor-mutates-argument)
 HidReport::LocalState& HidReport::LocalState::operator=(LocalState& s) {
   // Copy all the data we need
   nUsagePage = s.nUsagePage;

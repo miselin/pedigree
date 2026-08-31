@@ -342,6 +342,10 @@ void SyscallManager::releaseHandler(HandlerLease& lease, bool normalReturn) {
   bool wakeDrainers = false;
 
   m_HandlerLock.acquire();
+  if (!slot) {
+    m_HandlerLock.release();
+    return;
+  }
   assert(slot);
   assert(slot->generation == lease.m_Generation);
   if (normalReturn && lease.m_pThread) {

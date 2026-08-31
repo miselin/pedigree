@@ -74,7 +74,6 @@ jobs:
   clang-tidy:
     name: clang-tidy
     runs-on: ubuntu-24.04
-    continue-on-error: true
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -154,18 +153,27 @@ jobs:
           cxx_version="$(g++ -dumpversion)"
           cxx_include_dir="/usr/include/c++/$cxx_version"
           cxx_target_include_dir="/usr/include/$(gcc -dumpmachine)/c++/$cxx_version"
+          gcc_target_include_dir="/usr/include/$(gcc -dumpmachine)"
           test -d "$cxx_include_dir"
           test -d "$cxx_target_include_dir"
+          test -d "$gcc_target_include_dir"
+
+          # The hosted database also contains NASM/assembly and generated
+          # parser entries. They are build inputs, not C/C++ translation units
+          # that clang-tidy can analyze.
+          source_filter="^${GITHUB_WORKSPACE}/src/(system/kernel|modules)(?!/system/(config/sqlite3|lwip)(/|$)|/drivers/common/cdi(/|$)|/subsys/posix/(musl|include|newlib)(/|$)).*\\.(c|cc|cpp|cxx)$"
 
           run-clang-tidy \
             -p build/tidy \
+            -source-filter="$source_filter" \
             -removed-arg=-march=k8 \
             -removed-arg="--sysroot=$TIDY_TOOLCHAIN_ROOT/x86_64-pedigree" \
-            -extra-arg-before=--gcc-toolchain=/usr \
             -extra-arg-before=-isystem \
             -extra-arg-before="$cxx_include_dir" \
             -extra-arg-before=-isystem \
             -extra-arg-before="$cxx_target_include_dir" \
+            -extra-arg-before=-isystem \
+            -extra-arg-before="$gcc_target_include_dir" \
             -j 2
 
   builder-availability:

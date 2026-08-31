@@ -27,10 +27,10 @@ class Thread;
 class EXPORTED_PUBLIC TerminationDeferral {
  public:
   explicit TerminationDeferral(bool active = true);
-  TerminationDeferral(TerminationDeferral&& other);
+  TerminationDeferral(TerminationDeferral&& other) noexcept;
   ~TerminationDeferral();
 
-  TerminationDeferral& operator=(TerminationDeferral&& other);
+  TerminationDeferral& operator=(TerminationDeferral&& other) noexcept;
 
  private:
   TerminationDeferral(const TerminationDeferral&) = delete;

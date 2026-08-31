@@ -26,7 +26,7 @@ TerminationDeferral::TerminationDeferral(bool active)
   }
 }
 
-TerminationDeferral::TerminationDeferral(TerminationDeferral&& other)
+TerminationDeferral::TerminationDeferral(TerminationDeferral&& other) noexcept
     : m_pThread(other.m_pThread), m_Record() {
   assertCurrentThread(m_pThread);
   if (m_pThread) {
@@ -42,7 +42,7 @@ TerminationDeferral::~TerminationDeferral() {
   }
 }
 
-TerminationDeferral& TerminationDeferral::operator=(TerminationDeferral&& other) {
+TerminationDeferral& TerminationDeferral::operator=(TerminationDeferral&& other) noexcept {
   if (this != &other) {
     if (m_pThread && other.m_pThread) {
       assertCurrentThread(m_pThread);

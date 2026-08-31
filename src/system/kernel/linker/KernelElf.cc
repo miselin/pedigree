@@ -259,7 +259,7 @@ bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
   m_pSectionHeaders = reinterpret_cast<KernelElfSectionHeader_t*>(pBootstrap.getSectionHeaders());
   m_nSectionHeaders = pBootstrap.getSectionHeaderCount();
 
-  if (DEBUGGER && m_pSymbolTable && m_pStringTable) {
+  if (DEBUGGER && m_pSymbolTable && m_pStringTable && m_pShstrtab) {
     KernelElfSymbol_t* pSymbol = m_pSymbolTable;
 
     const char* pStrtab = reinterpret_cast<const char*>(m_pStringTable);

@@ -118,6 +118,8 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t* pSh, SymbolTable* p
   } else if (R_TYPE(rel.info) != R_X86_64_RELATIVE)  // Relative doesn't need a
                                                      // symbol!
   {
+    if (!pStringTable || !pSymbols)
+      return false;
     const char* pStr = pStringTable + pSymbols[R_SYM(rel.info)].name;
 
     if (R_TYPE(rel.info) == R_X86_64_COPY)
@@ -187,6 +189,8 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t* pSh, SymbolTable* p
       break;
     case R_X86_64_COPY:
       NOTICE("Copy needed, " << symbolSize << " bytes wanted");
+      if (!S)
+        return false;
       result = *reinterpret_cast<uintptr_t*>(S);
       break;
     case R_X86_64_JUMP_SLOT:
