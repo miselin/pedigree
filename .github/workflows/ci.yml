@@ -21,10 +21,15 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install clang-format
+      - name: Set up LLVM 22
+        uses: ZhongRuoyu/setup-llvm@36fd1a5ee4cc4a882a5ae7fe6349a32423c16bbc # v0.2.0
+        with:
+          llvm-version: 22
+
+      - name: Show LLVM tool versions
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y clang-format
+          clang-format --version
+          clang-tidy --version
 
       - name: Check src formatting
         run: scripts/clang-format.sh --dry-run --Werror
@@ -77,14 +82,17 @@ jobs:
       - name: Set tidy toolchain location
         run: echo "TIDY_TOOLCHAIN_ROOT=$RUNNER_TEMP/pedigree-clang-tidy-toolchain" >> "$GITHUB_ENV"
 
+      - name: Set up LLVM 22
+        uses: ZhongRuoyu/setup-llvm@36fd1a5ee4cc4a882a5ae7fe6349a32423c16bbc # v0.2.0
+        with:
+          llvm-version: 22
+
       - name: Install host analysis dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             bison \
             binutils \
-            clang \
-            clang-tidy \
             cmake \
             flex \
             g++ \
@@ -92,6 +100,12 @@ jobs:
             libssl-dev \
             nasm \
             ninja-build
+
+      - name: Show LLVM tool versions
+        run: |
+          clang --version
+          clang-tidy --version
+          run-clang-tidy --help | sed -n '1,12p'
 
       - name: Configure host utility exporters
         run: |
