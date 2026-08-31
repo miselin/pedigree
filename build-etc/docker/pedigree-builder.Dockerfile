@@ -86,6 +86,7 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         clang \
+        clang-tools \
         clang-format \
         clang-tidy \
         cmake \

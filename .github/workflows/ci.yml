@@ -36,7 +36,7 @@ jobs:
         run: scripts/clang-format.sh --dry-run --Werror
 
   buildutil-tests:
-    name: buildutil testsuite
+    name: buildutil testsuite and clang-tidy
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -44,6 +44,11 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+
+      - name: Set up LLVM 22
+        uses: ZhongRuoyu/setup-llvm@eea6238baf53d41c1615923680d7a738da584318 # v0.2.0
+        with:
+          llvm-version: 22
 
       - name: Install host build dependencies
         run: |
@@ -57,6 +62,11 @@ jobs:
             nasm \
             ninja-build
 
+      - name: Show LLVM tool versions
+        run: |
+          clang-tidy --version
+          run-clang-tidy --help | sed -n '1,12p'
+
       - name: Configure native host utilities
         run: |
           cmake -S . -B build/host -G Ninja \
@@ -68,140 +78,18 @@ jobs:
       - name: Build buildutil testsuite
         run: cmake --build build/host --target testsuite --parallel
 
+      - name: Run clang-tidy across buildutil
+        run: |
+          set -euo pipefail
+
+          source_filter="^${GITHUB_WORKSPACE}/src/buildutil/.*\\.(c|cc|cpp|cxx)$"
+          run-clang-tidy \
+            -p build/host \
+            -source-filter="$source_filter" \
+            -j 2
+
       - name: Run CTest
         run: ctest --test-dir build/host --output-on-failure --no-tests=error
-
-  clang-tidy:
-    name: clang-tidy
-    runs-on: ubuntu-24.04
-    needs:
-      - builder-availability
-      - build-builder
-    if: >-
-      always() &&
-      needs.builder-availability.result == 'success' &&
-      (needs.build-builder.result == 'success' || needs.build-builder.result == 'skipped')
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          persist-credentials: false
-
-      - name: Set tidy toolchain location
-        run: echo "TIDY_TOOLCHAIN_ROOT=$RUNNER_TEMP/pedigree-clang-tidy-toolchain" >> "$GITHUB_ENV"
-
-      - name: Set up LLVM 22
-        uses: ZhongRuoyu/setup-llvm@eea6238baf53d41c1615923680d7a738da584318 # v0.2.0
-        with:
-          llvm-version: 22
-
-      - name: Install host analysis dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            bison \
-            binutils \
-            cmake \
-            flex \
-            g++ \
-            gcc \
-            libssl-dev \
-            nasm \
-            ninja-build
-
-      - name: Show LLVM tool versions
-        run: |
-          clang --version
-          clang-tidy --version
-          run-clang-tidy --help | sed -n '1,12p'
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: Pull or build matching builder image
-        env:
-          BUILDER_IMAGE: ${{ needs.builder-availability.outputs.image }}
-        run: |
-          set -euo pipefail
-
-          if docker pull "$BUILDER_IMAGE"; then
-            echo "Using the published builder image."
-          else
-            echo "No published builder image is available; building it for this run."
-            docker build --pull \
-              --file build-etc/docker/pedigree-builder.Dockerfile \
-              --tag "$BUILDER_IMAGE" \
-              .
-          fi
-
-      - name: Export target toolchain from builder image
-        env:
-          BUILDER_IMAGE: ${{ needs.builder-availability.outputs.image }}
-        run: |
-          set -euo pipefail
-
-          mkdir -p "$TIDY_TOOLCHAIN_ROOT"
-          docker run --rm \
-            "$BUILDER_IMAGE" \
-            bash -euo pipefail -c '
-              tar --create --dereference --file=- \
-                --exclude="sysroot/lib/ld-musl-x86_64.so.1" \
-                --exclude="x86_64-pedigree/lib/ld-musl-x86_64.so.1" \
-                --directory=/opt/pedigree .
-            ' | tar --extract --file=- --directory="$TIDY_TOOLCHAIN_ROOT"
-
-          test -x "$TIDY_TOOLCHAIN_ROOT/bin/x86_64-pedigree-g++"
-          test -d "$TIDY_TOOLCHAIN_ROOT/x86_64-pedigree/include"
-          test -d "$TIDY_TOOLCHAIN_ROOT/lib/gcc/x86_64-pedigree"
-          test -n "$(find "$TIDY_TOOLCHAIN_ROOT/include/c++" -mindepth 1 -maxdepth 1 -type d -print -quit)"
-
-      - name: Configure host utility exporters
-        run: |
-          cmake -S . -B build/host -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DPEDIGREE_WARNINGS=ON \
-            -DPEDIGREE_BUILDUTILS_ASAN=OFF \
-            -DPEDIGREE_BUILDUTILS_PROFILE=Speed
-
-      - name: Build host utility exporters
-        run: cmake --build build/host --target headerify ext2img keymap memorytracer --parallel
-
-      - name: Configure full hosted compilation database
-        run: |
-          cmake -S . -B build/tidy -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/build-etc/cmake/pedigree_hosted.cmake" \
-            -DPEDIGREE_TOOLCHAIN_ROOT="$TIDY_TOOLCHAIN_ROOT" \
-            -DIMPORT_EXECUTABLES="$GITHUB_WORKSPACE/build/host/HostUtilities.cmake" \
-            -DPEDIGREE_BUILD_USER_DIR=OFF \
-            -DPEDIGREE_HOSTED_DYNAMIC_MODULES=ON \
-            -DPEDIGREE_HOSTED_SMOKE_TESTS=OFF \
-            -DPEDIGREE_WITH_INIT=OFF \
-            -DPEDIGREE_WARNINGS=ON
-
-      - name: Run clang-tidy across the hosted kernel and modules
-        run: |
-          set -euo pipefail
-
-          # The hosted database also contains NASM/assembly and generated
-          # parser entries. They are build inputs, not C/C++ translation units
-          # that clang-tidy can analyze.
-          source_filter="^${GITHUB_WORKSPACE}/src/(system/kernel|modules)(?!/system/(config/sqlite3|lwip)(/|$)|/drivers/common/cdi(/|$)|/subsys/posix/(musl|include|newlib)(/|$)).*\\.(c|cc|cpp|cxx)$"
-
-          run-clang-tidy \
-            -p build/tidy \
-            -source-filter="$source_filter" \
-            -removed-arg=-march=k8 \
-            -extra-arg-before="--gcc-toolchain=$TIDY_TOOLCHAIN_ROOT" \
-            -extra-arg-before=--target=x86_64-pedigree \
-            -j 2
 
   builder-availability:
     name: resolve builder image
@@ -270,14 +158,12 @@ jobs:
     needs:
       - clang-format
       - buildutil-tests
-      - clang-tidy
       - builder-availability
       - build-builder
     if: >-
       always() &&
       needs.clang-format.result == 'success' &&
       needs.buildutil-tests.result == 'success' &&
-      needs.clang-tidy.result == 'success' &&
       needs.builder-availability.result == 'success' &&
       (needs.build-builder.result == 'success' || needs.build-builder.result == 'skipped')
     permissions:
@@ -346,6 +232,36 @@ jobs:
               cmake --build build/cross \
                 --target livecd hddimage \
                 --parallel
+
+              clang-tidy --version
+              gcc_version="$(x86_64-pedigree-g++ -dumpversion)"
+              source_filter="^/workspace/src/(system/kernel|modules)(?!/system/(config/sqlite3|lwip)(/|$)|/drivers/common/cdi(/|$)|/subsys/posix/(musl|include|newlib)(/|$)).*\\.(c|cc|cpp|cxx)$"
+
+              # Clang cannot infer GCC's implicit include directories for this
+              # custom target triple. The cross compiler provides the exact
+              # target C++ and builtin header roots used by the build.
+              tidy_extra_args=()
+              for include_dir in \
+                "/opt/pedigree/include/c++/$gcc_version" \
+                "/opt/pedigree/include/c++/$gcc_version/x86_64-pedigree" \
+                "/opt/pedigree/include/c++/$gcc_version/backward" \
+                "/opt/pedigree/lib/gcc/x86_64-pedigree/$gcc_version/include" \
+                "/opt/pedigree/lib/gcc/x86_64-pedigree/$gcc_version/include-fixed" \
+                "/opt/pedigree/x86_64-pedigree/include"; do
+                test -d "$include_dir"
+                tidy_extra_args+=("-extra-arg-before=-isystem")
+                tidy_extra_args+=("-extra-arg-before=$include_dir")
+              done
+
+              run-clang-tidy \
+                -p build/cross \
+                -source-filter="$source_filter" \
+                -removed-arg=-march=k8 \
+                -extra-arg-before=-nostdinc++ \
+                -extra-arg-before=--target=x86_64-pedigree \
+                "${tidy_extra_args[@]}" \
+                -j 2
+
               ctest --test-dir build/cross --output-on-failure --no-tests=error
               test -s build/cross/pedigree.iso
               test -s build/cross/hdd.img
