@@ -1,0 +1,15 @@
+.git
+.github
+.codex
+.agents
+.venv
+/build/
+/build-host/
+/build-tidy/
+/build-verify/
+/images/local*
+/physical.bin
+/recovery/
+/serial*.log
+compilers/dir
+*.log

@@ -94,13 +94,14 @@ jobs:
     name: clang-tidy
     runs-on: ubuntu-24.04
     continue-on-error: true
-    env:
-      TIDY_TOOLCHAIN_ROOT: ${{ runner.temp }}/pedigree-clang-tidy-toolchain
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Set tidy toolchain location
+        run: echo "TIDY_TOOLCHAIN_ROOT=$RUNNER_TEMP/pedigree-clang-tidy-toolchain" >> "$GITHUB_ENV"
 
       - name: Install host analysis dependencies
         run: |
@@ -181,3 +182,162 @@ jobs:
             -warnings-as-errors='*' \
             -j 2 \
             '.*/src/.*'
+
+  builder-availability:
+    name: resolve builder image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      image: ${{ steps.fingerprint.outputs.image }}
+      available: ${{ steps.lookup.outputs.available }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Compute builder image reference
+        id: fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          fingerprint=$(bash scripts/ci/builder-fingerprint.sh)
+          image="ghcr.io/${{ github.repository_owner }}/pedigree-builder:x86_64-${fingerprint}"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "Builder image: $image"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Check for the fingerprinted image
+        id: lookup
+        env:
+          BUILDER_IMAGE: ${{ steps.fingerprint.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          if docker manifest inspect "$BUILDER_IMAGE" >/dev/null 2>&1; then
+            available=true
+            echo "The fingerprinted builder image is already available."
+          else
+            available=false
+            echo "The fingerprinted builder image is not available yet."
+          fi
+          echo "available=$available" >> "$GITHUB_OUTPUT"
+
+  build-builder:
+    name: build missing builder image
+    needs: builder-availability
+    if: >-
+      needs.builder-availability.outputs.available != 'true' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/develop'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/builder-image.yml
+
+  cross-build:
+    name: cross-compiled kernel and ISO
+    needs:
+      - clang-format
+      - buildutil-tests
+      - clang-tidy
+      - builder-availability
+      - build-builder
+    if: >-
+      always() &&
+      needs.clang-format.result == 'success' &&
+      needs.buildutil-tests.result == 'success' &&
+      needs.clang-tidy.result == 'success' &&
+      needs.builder-availability.result == 'success' &&
+      (needs.build-builder.result == 'success' || needs.build-builder.result == 'skipped')
+    permissions:
+      contents: read
+      packages: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Pull or build the matching builder image
+        env:
+          BUILDER_IMAGE: ${{ needs.builder-availability.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          if docker pull "$BUILDER_IMAGE"; then
+            echo "Using the published builder image."
+          else
+            echo "No published builder image is available; building it for this run."
+            docker build --pull \
+              --file build-etc/docker/pedigree-builder.Dockerfile \
+              --tag "$BUILDER_IMAGE" \
+              .
+          fi
+
+          docker image inspect "$BUILDER_IMAGE" >/dev/null
+
+      - name: Build the cross-compiled kernel and ISO
+        env:
+          BUILDER_IMAGE: ${{ needs.builder-availability.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            "$BUILDER_IMAGE" \
+            bash -euo pipefail -c '
+              cmake -S . -B build/host -G Ninja \
+                -DCMAKE_BUILD_TYPE=Debug \
+                -DPEDIGREE_WARNINGS=ON \
+                -DPEDIGREE_BUILDUTILS_ASAN=OFF \
+                -DPEDIGREE_BUILDUTILS_PROFILE=Speed
+              cmake --build build/host \
+                --target headerify ext2img keymap memorytracer \
+                --parallel
+
+              cmake -S . -B build/cross -G Ninja \
+                -DCMAKE_TOOLCHAIN_FILE=/workspace/build-etc/cmake/pedigree_amd64.cmake \
+                -DPEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree \
+                -DIMPORT_EXECUTABLES=/workspace/build/host/HostUtilities.cmake \
+                -DPEDIGREE_BUILD_USER_DIR=OFF \
+                -DPEDIGREE_WARNINGS=ON
+              cmake --build build/cross \
+                --target livecd hddimage \
+                --parallel
+              ctest --test-dir build/cross --output-on-failure --no-tests=error
+              test -s build/cross/pedigree.iso
+              test -s build/cross/hdd.img
+              test -s build/cross/src/system/kernel/kernel-mini64
+              test -s build/cross/src/modules/initrd.tar
+            '
+
+      - name: Upload cross-build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pedigree-cross-build-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            build/cross/pedigree.iso
+            build/cross/hdd.img
+            build/cross/src/system/kernel/kernel-mini64
+            build/cross/src/modules/initrd.tar

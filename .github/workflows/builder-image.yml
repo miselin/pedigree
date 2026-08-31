@@ -1,0 +1,82 @@
+name: Builder image
+
+on:
+  workflow_call:
+    outputs:
+      image:
+        description: Fingerprinted builder image reference
+        value: ${{ jobs.publish.outputs.image }}
+      digest:
+        description: Published builder image digest
+        value: ${{ jobs.publish.outputs.digest }}
+  schedule:
+    - cron: '17 4 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: builder-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish x86-64 builder image
+    runs-on: ubuntu-24.04
+    outputs:
+      image: ${{ steps.fingerprint.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Compute builder fingerprint
+        id: fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint=$(bash scripts/ci/builder-fingerprint.sh)
+          echo "value=$fingerprint" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${{ github.repository_owner }}/pedigree-builder:x86_64-${fingerprint}" >> "$GITHUB_OUTPUT"
+          echo "Builder fingerprint: $fingerprint"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and publish builder image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: build-etc/docker/pedigree-builder.Dockerfile
+          push: true
+          pull: true
+          no-cache: ${{ github.event_name == 'schedule' }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/pedigree-builder:x86_64-${{ steps.fingerprint.outputs.value }}
+            ghcr.io/${{ github.repository_owner }}/pedigree-builder:ci
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=Pedigree CI/CD x86-64 builder
+
+      - name: Publish image summary
+        run: |
+          {
+            echo '### Builder image published'
+            echo
+            echo '- Fingerprint: `${{ steps.fingerprint.outputs.value }}`'
+            echo '- Image: `ghcr.io/${{ github.repository_owner }}/pedigree-builder:x86_64-${{ steps.fingerprint.outputs.value }}`'
+            echo '- Digest: `${{ steps.build.outputs.digest }}`'
+          } >> "$GITHUB_STEP_SUMMARY"
