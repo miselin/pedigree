@@ -779,6 +779,8 @@ void Ohci::retireEDStorage(ED* pED) {
 
 UsbHcd::CallbackDeliveryQueue::Record* Ohci::prepareCompletion(
     ED* pED, const UsbHcd::TransferCompletion::Claim& claim) {
+  if (!pED || !pED->pMetaData)
+    return nullptr;
   assert(pED && pED->pMetaData);
   assert(!pED->pMetaData->bPeriodic);
   assert(claim.generation == pED->pMetaData->completion.generation());

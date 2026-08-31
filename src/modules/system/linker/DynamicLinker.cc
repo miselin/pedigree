@@ -68,7 +68,7 @@ DynamicLinker::DynamicLinker()
       m_LoadedObjects(),
       m_Objects() {}
 
-DynamicLinker::DynamicLinker(DynamicLinker& other)
+DynamicLinker::DynamicLinker(const DynamicLinker& other)
     : m_pProgramElf(other.m_pProgramElf),
       m_ProgramStart(other.m_ProgramStart),
       m_ProgramSize(other.m_ProgramSize),
@@ -76,7 +76,7 @@ DynamicLinker::DynamicLinker(DynamicLinker& other)
       m_LoadedObjects(other.m_LoadedObjects),
       m_Objects() {
   m_pProgramElf = new Elf(*other.m_pProgramElf);
-  for (Tree<uintptr_t, SharedObject*>::Iterator it = other.m_Objects.begin();
+  for (Tree<uintptr_t, SharedObject*>::ConstIterator it = other.m_Objects.begin();
        it != other.m_Objects.end(); it++) {
     uintptr_t key = it.key();
     SharedObject* pSo = it.value();

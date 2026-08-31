@@ -97,6 +97,9 @@ void HidReport::parseDescriptor(uint8_t* pDescriptor, size_t nDescriptorLength) 
     switch (MIX_TYPE_N_TAG(item.type, item.tag)) {
       // Main items
       case MIX_TYPE_N_TAG(MainItem, InputItem): {
+        if (!pCurrentCollection)
+          continue;
+
         // Create a new InputBlock and set the state and type
         InputBlock* pBlock = new InputBlock();
         pBlock->state = currentState;
@@ -439,7 +442,6 @@ uint16_t HidReport::LocalState::getUsageByIndex(uint16_t nUsageIndex) {
 
 /// Copy constructor
 // This assignment transfers the usage vector from the source state.
-// NOLINTNEXTLINE(bugprone-copy-constructor-mutates-argument)
 HidReport::LocalState& HidReport::LocalState::operator=(LocalState& s) {
   // Copy all the data we need
   nUsagePage = s.nUsagePage;
@@ -454,8 +456,9 @@ HidReport::LocalState& HidReport::LocalState::operator=(LocalState& s) {
   nUsageMin = s.nUsageMin;
   nUsageMax = s.nUsageMax;
 
-  // Make sure the usage vector won't get deleted
-  s.pUsages = 0;
+  // Make sure the usage vector won't get deleted. This is an ownership
+  // transfer, not an ordinary const copy assignment.
+  s.pUsages = 0;  // NOLINT(bugprone-copy-constructor-mutates-argument)
 
   return *this;
 }

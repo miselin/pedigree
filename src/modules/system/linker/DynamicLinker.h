@@ -44,7 +44,7 @@ class EXPORTED_PUBLIC DynamicLinker {
   ~DynamicLinker();
 
   /** Creates a new DynamicLinker from another. Copies all mappings. */
-  DynamicLinker(DynamicLinker& other);
+  DynamicLinker(const DynamicLinker& other);
 
   /** Checks the given program for a requested interpreter, that we should
       run instead of loading the binary ourselves. */

@@ -27,6 +27,10 @@ static const uint16_t cumulativeDays[] = {0,   31,  59,  90,  120, 151, 181,
 namespace Time {
 namespace Conversion {
 Timestamp toUnix(size_t second, size_t minute, size_t hour, size_t dom, size_t month, size_t year) {
+  if (year < 1970 || month < 1 || month > 12 || dom < 1 || dom > 31) {
+    assert(false);
+    return 0;
+  }
   assert(year >= 1970);
   assert(month >= 1 && month <= 12);
   assert(dom >= 1 && dom <= 31);

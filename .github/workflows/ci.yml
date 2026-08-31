@@ -74,6 +74,16 @@ jobs:
   clang-tidy:
     name: clang-tidy
     runs-on: ubuntu-24.04
+    needs:
+      - builder-availability
+      - build-builder
+    if: >-
+      always() &&
+      needs.builder-availability.result == 'success' &&
+      (needs.build-builder.result == 'success' || needs.build-builder.result == 'skipped')
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -109,6 +119,41 @@ jobs:
           clang-tidy --version
           run-clang-tidy --help | sed -n '1,12p'
 
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Pull or build matching builder image
+        env:
+          BUILDER_IMAGE: ${{ needs.builder-availability.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          if docker pull "$BUILDER_IMAGE"; then
+            echo "Using the published builder image."
+          else
+            echo "No published builder image is available; building it for this run."
+            docker build --pull \
+              --file build-etc/docker/pedigree-builder.Dockerfile \
+              --tag "$BUILDER_IMAGE" \
+              .
+          fi
+
+      - name: Export target toolchain from builder image
+        env:
+          BUILDER_IMAGE: ${{ needs.builder-availability.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$TIDY_TOOLCHAIN_ROOT"
+          docker run --rm \
+            --volume "$TIDY_TOOLCHAIN_ROOT:/export" \
+            "$BUILDER_IMAGE" \
+            bash -euo pipefail -c 'cp -aL /opt/pedigree/. /export/'
+
       - name: Configure host utility exporters
         run: |
           cmake -S . -B build/host -G Ninja \
@@ -119,20 +164,6 @@ jobs:
 
       - name: Build host utility exporters
         run: cmake --build build/host --target headerify ext2img keymap memorytracer --parallel
-
-      - name: Prepare host compiler shim
-        run: |
-          set -euo pipefail
-
-          mkdir -p "$TIDY_TOOLCHAIN_ROOT/bin"
-          ln -s "$(command -v clang)" \
-            "$TIDY_TOOLCHAIN_ROOT/bin/x86_64-pedigree-gcc"
-          ln -s "$(command -v clang++)" \
-            "$TIDY_TOOLCHAIN_ROOT/bin/x86_64-pedigree-g++"
-          ln -s "$(command -v objcopy)" \
-            "$TIDY_TOOLCHAIN_ROOT/bin/x86_64-pedigree-objcopy"
-          ln -s "$(command -v strip)" \
-            "$TIDY_TOOLCHAIN_ROOT/bin/x86_64-pedigree-strip"
 
       - name: Configure full hosted compilation database
         run: |
@@ -150,14 +181,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          cxx_version="$(g++ -dumpversion)"
-          cxx_include_dir="/usr/include/c++/$cxx_version"
-          cxx_target_include_dir="/usr/include/$(gcc -dumpmachine)/c++/$cxx_version"
-          gcc_target_include_dir="/usr/include/$(gcc -dumpmachine)"
-          test -d "$cxx_include_dir"
-          test -d "$cxx_target_include_dir"
-          test -d "$gcc_target_include_dir"
-
           # The hosted database also contains NASM/assembly and generated
           # parser entries. They are build inputs, not C/C++ translation units
           # that clang-tidy can analyze.
@@ -167,13 +190,8 @@ jobs:
             -p build/tidy \
             -source-filter="$source_filter" \
             -removed-arg=-march=k8 \
-            -removed-arg="--sysroot=$TIDY_TOOLCHAIN_ROOT/x86_64-pedigree" \
-            -extra-arg-before=-isystem \
-            -extra-arg-before="$cxx_include_dir" \
-            -extra-arg-before=-isystem \
-            -extra-arg-before="$cxx_target_include_dir" \
-            -extra-arg-before=-isystem \
-            -extra-arg-before="$gcc_target_include_dir" \
+            -extra-arg-before="--gcc-toolchain=$TIDY_TOOLCHAIN_ROOT" \
+            -extra-arg-before=--target=x86_64-pedigree \
             -j 2
 
   builder-availability:

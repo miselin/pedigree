@@ -94,7 +94,7 @@ bool pcapLogPacket(uintptr_t packet, size_t size) {
   // so we want timestamps to always increase.
   time += Time::Multiplier::Millisecond;
 
-  PcapRecord header;
+  PcapRecord header{};
   header.ts_sec = time / Time::Multiplier::Second;
   header.ts_usec = (time % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
   header.stored_length = size;
@@ -131,7 +131,7 @@ static bool entry() {
     return false;
   }
 
-  PcapHeader header;
+  PcapHeader header{};
   header.magic = PCAP_MAGIC;
   header.major = PCAP_MAJOR;
   header.minor = PCAP_MINOR;

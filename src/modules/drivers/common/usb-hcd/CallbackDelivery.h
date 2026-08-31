@@ -406,7 +406,8 @@ class CallbackDeliveryQueue {
       record->m_Callback(record->m_Parameter, record->m_Result);
     if (record->m_AfterDelivery)
       record->m_AfterDelivery(record->m_AfterDeliveryContext);
-    finishRecord(record);
+    // CallbackContext unregisters its stack record before runRecord returns.
+    finishRecord(record);  // NOLINT(clang-analyzer-core.StackAddressEscape)
   }
 
   Mutex m_Lock;
