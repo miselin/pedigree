@@ -115,6 +115,9 @@ void Ps2Controller::initialise() {
   TRACE("PS2: enabling ports");
   sendCommand(0xAE);
   sendCommand(0xA8);
+  // Keep the cached command byte in sync with the port-enable commands so a
+  // later IRQ configuration write does not disable the ports again.
+  m_ConfigByte &= static_cast<uint8_t>(~((1 << 4) | (1 << 5)));
 
   // Reset all devices.
   TRACE("PS2: resetting first device");
