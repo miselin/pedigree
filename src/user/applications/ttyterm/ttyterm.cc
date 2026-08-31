@@ -17,9 +17,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config.h>
 #include "pedigree/native/input/Input.h"
 
+#include <config.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>

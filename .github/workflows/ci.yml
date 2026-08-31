@@ -27,33 +27,7 @@ jobs:
           sudo apt-get install --no-install-recommends -y clang-format
 
       - name: Check src formatting
-        run: |
-          set -euo pipefail
-
-          find src -type d \( \
-              -path src/user/applications/nyancat -o \
-              -path src/user/applications/fire -o \
-              -path src/user/applications/gears -o \
-              -path src/user/applications/chess -o \
-              -path src/modules/drivers/cdi -o \
-              -path src/modules/drivers/common/cdi -o \
-              -path src/modules/system/config/sqlite3 -o \
-              -path src/modules/subsys/posix/musl -o \
-              -path src/modules/subsys/posix/include -o \
-              -path src/modules/subsys/posix/newlib -o \
-              -path src/system/kernel/debugger/libudis86 -o \
-              -path src/system/kernel/machine/mach_pc/x86emu -o \
-              -path src/modules/system/lwip/api -o \
-              -path src/modules/system/lwip/core -o \
-              -path src/modules/system/lwip/include -o \
-              -path src/modules/system/lwip/netif \
-            \) -prune -o -type f \( \
-              -path src/modules/subsys/posix/glue-dlmalloc.c \
-            \) -prune -o \( \
-              -name '*.cc' -o -name '*.h' -o -name '*.c' \
-              -o -name '*.cpp' -o -name '*.cxx' -o -name '*.hpp' \
-            \) -print0 | \
-            xargs -0 clang-format --style=file --dry-run --Werror
+        run: scripts/clang-format.sh --dry-run --Werror
 
   buildutil-tests:
     name: buildutil testsuite
@@ -166,11 +140,8 @@ jobs:
           test -d "$cxx_include_dir"
           test -d "$cxx_target_include_dir"
 
-          source_filter='.*\/src\/(system\/kernel(?!\/debugger\/libudis86(?:\/|$)|\/machine\/mach_pc\/x86emu(?:\/|$))|modules\/(?!drivers\/(?:cdi|common\/cdi)(?:\/|$)|subsys\/posix\/(?:musl|include|newlib)(?:\/|$)|system\/config\/sqlite3(?:\/|$)|system\/lwip\/(?:api|core|include|netif)(?:\/|$)))'
-
           run-clang-tidy \
             -p build/tidy \
-            -config-file "$GITHUB_WORKSPACE/src/.clang-tidy" \
             -removed-arg=-march=k8 \
             -removed-arg="--sysroot=$TIDY_TOOLCHAIN_ROOT/x86_64-pedigree" \
             -extra-arg-before=--gcc-toolchain=/usr \
@@ -178,10 +149,7 @@ jobs:
             -extra-arg-before="$cxx_include_dir" \
             -extra-arg-before=-isystem \
             -extra-arg-before="$cxx_target_include_dir" \
-            -source-filter="$source_filter" \
-            -warnings-as-errors='*' \
-            -j 2 \
-            '.*/src/.*'
+            -j 2
 
   builder-availability:
     name: resolve builder image
