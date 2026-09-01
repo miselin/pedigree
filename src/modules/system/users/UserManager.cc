@@ -29,7 +29,8 @@
 #include "Group.h"
 #include "User.h"
 #include "modules/Module.h"
-#include "modules/system/config/Config.h"
+#include "modules/system/vfs/File.h"
+#include "modules/system/vfs/VFS.h"
 
 UserManager UserManager::m_Instance;
 
@@ -37,45 +38,115 @@ UserManager::UserManager() : m_Users(), m_Groups() {}
 
 UserManager::~UserManager() {}
 
-void UserManager::initialiseGroups() {
-  Config::Result* pResult = Config::instance().query("select * from groups");
-  if (!pResult->succeeded())
-    ERROR("Error: " << pResult->errorMessage());
-
-  for (size_t i = 0; i < pResult->rows(); i++) {
-    uint32_t gid;
-    String name;
-
-    gid = pResult->getNum(i, "gid") - 1;
-    name = pResult->getStr(i, "name");
-
-    addGroup(gid, name);
+static bool readAccountFile(const char* path, String& contents) {
+  File* pFile = VFS::instance().find(String(path));
+  if (!pFile || pFile->isDirectory()) {
+    ERROR("USERS: Unable to read " << path);
+    return false;
   }
 
-  delete pResult;
+  size_t offset = 0;
+  char buffer[256];
+  while (offset < pFile->getSize()) {
+    size_t amount = pFile->getSize() - offset;
+    if (amount >= sizeof(buffer))
+      amount = sizeof(buffer) - 1;
+
+    uint64_t nRead = pFile->read(offset, amount, reinterpret_cast<uintptr_t>(buffer));
+    if (!nRead) {
+      ERROR("USERS: Unable to read " << path);
+      return false;
+    }
+
+    contents += String(buffer, nRead, true);
+    offset += nRead;
+  }
+
+  return true;
 }
 
-void UserManager::initialiseUsers() {
-  Config::Result* pResult = Config::instance().query("select * from users");
-  if (!pResult->succeeded())
-    ERROR("Error: " << pResult->errorMessage());
+bool UserManager::initialiseGroups() {
+  String contents;
+  if (!readAccountFile("/etc/group", contents))
+    return false;
 
-  for (size_t i = 0; i < pResult->rows(); i++) {
-    uint32_t uid;
-    String username, fullname, groupname, homedir, shell, password;
+  Vector<String> lines;
+  contents.tokenise('\n', lines);
+  for (auto& line : lines) {
+    line.strip();
+    if (!line.length() || line[0] == '#')
+      continue;
 
-    uid = pResult->getNum(i, "uid") - 1;
-    username = pResult->getStr(i, "username");
-    fullname = pResult->getStr(i, "fullname");
-    groupname = pResult->getStr(i, "groupname");
-    homedir = pResult->getStr(i, "homedir");
-    shell = pResult->getStr(i, "shell");
-    password = pResult->getStr(i, "password");
+    Vector<String> fields;
+    line.tokenise(':', fields);
+    if (fields.count() < 3) {
+      WARNING("USERS: Ignoring malformed /etc/group entry");
+      continue;
+    }
 
-    addUser(uid, username, fullname, groupname, homedir, shell, password);
+    addGroup(StringToUnsignedLong(fields[2].cstr(), 0, 10), fields[0]);
   }
 
-  delete pResult;
+  return true;
+}
+
+bool UserManager::initialiseUsers() {
+  String contents;
+  if (!readAccountFile("/etc/passwd", contents))
+    return false;
+
+  Vector<String> lines;
+  contents.tokenise('\n', lines);
+  for (auto& line : lines) {
+    line.strip();
+    if (!line.length() || line[0] == '#')
+      continue;
+
+    Vector<String> fields;
+    line.tokenise(':', fields);
+    if (fields.count() < 7) {
+      WARNING("USERS: Ignoring malformed /etc/passwd entry");
+      continue;
+    }
+
+    addUser(StringToUnsignedLong(fields[2].cstr(), 0, 10), fields[0], fields[4],
+            StringToUnsignedLong(fields[3].cstr(), 0, 10), fields[5], fields[6]);
+  }
+
+  return true;
+}
+
+bool UserManager::initialiseMemberships() {
+  String contents;
+  if (!readAccountFile("/etc/group", contents))
+    return false;
+
+  Vector<String> lines;
+  contents.tokenise('\n', lines);
+  for (auto& line : lines) {
+    line.strip();
+    if (!line.length() || line[0] == '#')
+      continue;
+
+    Vector<String> fields;
+    line.tokenise(':', fields);
+    if (fields.count() < 4)
+      continue;
+
+    Group* pGroup = getGroup(StringToUnsignedLong(fields[2].cstr(), 0, 10));
+    if (!pGroup)
+      continue;
+
+    Vector<String> members;
+    fields[3].tokenise(',', members);
+    for (auto& member : members) {
+      User* pUser = getUser(member);
+      if (pUser)
+        pUser->join(pGroup);
+    }
+  }
+
+  return true;
 }
 
 User* UserManager::getUser(size_t id) {
@@ -104,8 +175,8 @@ Group* UserManager::getGroup(String name) {
   return 0;
 }
 
-void UserManager::addUser(size_t uid, String username, String fullName, String group, String home,
-                          String shell, String password) {
+void UserManager::addUser(size_t uid, String username, String fullName, size_t group, String home,
+                          String shell) {
   // Check for duplicates.
   if (getUser(uid)) {
     WARNING("USERS: Not inserting user '" << username << "' with uid " << uid << ": duplicate.");
@@ -115,13 +186,13 @@ void UserManager::addUser(size_t uid, String username, String fullName, String g
   // Check that the given group exists.
   Group* pGroup = getGroup(group);
   if (!pGroup) {
-    WARNING("USERS: Not inserting user '" << username << "': group '" << group
-                                          << "' does not exist.");
+    WARNING("USERS: Not inserting user '" << username << "': group " << group
+                                          << " does not exist.");
     return;
   }
 
   NOTICE("USERS: Adding user {" << uid << ",'" << username << "','" << fullName << "'}");
-  User* pUser = new User(uid, username, fullName, pGroup, home, shell, password);
+  User* pUser = new User(uid, username, fullName, pGroup, home, shell);
   pGroup->join(pUser);
   m_Users.insert(uid, pUser);
 }
@@ -139,14 +210,10 @@ void UserManager::addGroup(size_t gid, String name) {
 }
 
 void UserManager::initialise() {
-#ifdef INSTALLER
-  addGroup(0, String("root"));
-  addUser(0, String("root"), String("root"), String("root"), String("/"), String("/bin/bash"),
-          String(""));
-#else
-  initialiseGroups();
-  initialiseUsers();
-#endif
+  if (!initialiseGroups() || !initialiseUsers() || !initialiseMemberships()) {
+    FATAL("USERS: Unable to load /etc/passwd and /etc/group");
+    return;
+  }
 
   User* pUser = getUser(0);
   if (!pUser) {
@@ -168,4 +235,4 @@ static bool init() {
 
 static void destroy() {}
 
-MODULE_INFO("users", &init, &destroy, "config");
+MODULE_INFO("users", &init, &destroy, "mountroot");

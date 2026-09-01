@@ -82,7 +82,7 @@ int posix_getgrgid(gid_t id, struct group* out);
 int posix_linux_syslog(int type, char* buf, int len);
 int posix_syslog(const char* msg, int prio);
 
-int pedigree_login(int uid, const char* password);
+int pedigree_login(int uid);
 
 int pedigree_reboot();
 

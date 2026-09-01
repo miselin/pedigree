@@ -1078,5 +1078,5 @@ static bool initVFS() {
 
 static void destroyVFS() {}
 
-MODULE_INFO("vfs", &initVFS, &destroyVFS, "users");
+MODULE_INFO("vfs", &initVFS, &destroyVFS);
 #endif

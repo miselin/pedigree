@@ -19,6 +19,7 @@
 
 #include <errno.h>
 #include <pwd.h>
+#include <shadow.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +31,20 @@
 #include <sys/wait.h>
 
 // Pedigree function, from libpedigree-c
-extern int pedigree_login(int uid, char* password);
+extern int pedigree_login(int uid);
+
+static int password_matches(const char* password, const char* stored) {
+  if (!stored || stored[0] == '!' || stored[0] == '*')
+    return 0;
+  if (!stored[0])
+    return !password[0];
+  if (stored[0] == '$') {
+    const char* encrypted = crypt(password, stored);
+    return encrypted && !strcmp(encrypted, stored);
+  }
+
+  return !strcmp(password, stored);
+}
 
 static int wait_for_child(pid_t pid) {
   int status;
@@ -76,6 +90,11 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "sudo: user 'root' doesn't exist!\n");
     return 1;
   }
+  struct spwd* sp = getspnam("root");
+  if (!sp) {
+    fprintf(stderr, "sudo: shadow entry for 'root' doesn't exist!\n");
+    return 1;
+  }
 
   // Request the root password
   char password[256];
@@ -109,7 +128,7 @@ int main(int argc, char* argv[]) {
   password[passwordLength] = '\0';
 
   // Attempt to log in as that user
-  if (pedigree_login(pw->pw_uid, password) != 0) {
+  if (!password_matches(password, sp->sp_pwdp) || pedigree_login(pw->pw_uid) != 0) {
     fprintf(stderr, "sudo: password is incorrect\n");
     return 1;
   }

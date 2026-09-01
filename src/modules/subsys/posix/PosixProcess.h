@@ -191,10 +191,10 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   virtual int64_t getEffectiveGroupId() const;
   virtual void getSupplementalGroupIds(Vector<int64_t>& vec) const;
 
-  void setUserId(int64_t id);
-  void setGroupId(int64_t id);
-  void setEffectiveUserId(int64_t id);
-  void setEffectiveGroupId(int64_t id);
+  void setUserId(int64_t id) override;
+  void setGroupId(int64_t id) override;
+  void setEffectiveUserId(int64_t id) override;
+  void setEffectiveGroupId(int64_t id) override;
   void setSupplementalGroupIds(const Vector<int64_t>& vec);
 
   int64_t getSavedUserId() const;

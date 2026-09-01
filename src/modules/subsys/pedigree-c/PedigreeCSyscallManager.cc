@@ -70,7 +70,7 @@ uintptr_t PedigreeCSyscallManager::syscall(SyscallState& state) {
   switch (state.getSyscallNumber()) {
     // Pedigree system calls, called from POSIX applications
     case PEDIGREE_LOGIN:
-      return pedigree_login(static_cast<int>(p1), reinterpret_cast<const char*>(p2));
+      return pedigree_login(static_cast<int>(p1));
     case PEDIGREE_LOAD_KEYMAP:
       return pedigree_load_keymap(reinterpret_cast<uint32_t*>(p1), p2);
     case PEDIGREE_GET_MOUNT:

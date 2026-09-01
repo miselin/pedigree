@@ -50,7 +50,7 @@
 int g_RunningPid = -1;
 
 // Pedigree function, from libpedigree-c
-extern int pedigree_login(int uid, const char* password);
+extern int pedigree_login(int uid);
 
 // SIGINT handler
 void sigint(int sig) {
@@ -239,7 +239,7 @@ int main(int argc, char** argv) {
     // use the standard crypt(3) format.
     int passwordValid = password_matches(password, sp->sp_pwdp);
 
-    if (!passwordValid || pedigree_login(pw->pw_uid, password) != 0) {
+    if (!passwordValid || pedigree_login(pw->pw_uid) != 0) {
       printf(gettext("Password incorrect.\n"));
       continue;
     } else {

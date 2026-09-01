@@ -37,11 +37,9 @@ class EXPORTED_PUBLIC User {
       \param fullName The user's full name.
       \param pGroup The default group.
       \param home The user's home directory.
-      \param shell The user's default shell.
-      \param password Password hash.
-      \note Password hash not currently implemented - plaintext only. */
+      \param shell The user's default shell. */
   User(size_t uid, const String& username, const String& fullName, Group* pGroup,
-       const String& home, const String& shell, const String& password);
+       const String& home, const String& shell);
 
   /** The destructor does nothing. */
   virtual ~User();
@@ -55,10 +53,8 @@ class EXPORTED_PUBLIC User {
   /** Queries a group membership. */
   bool isMember(Group* pGroup);
 
-  /** (Attempts to) log in as this user. On success this process' user is set
-     to this, and the group is set to this user's default group. \return True
-     on success, false on failure. */
-  bool login(const String& password);
+  /** Sets this process' identity to this user and its default group. */
+  void login();
 
   /** Retrieves the user's UID. */
   size_t getId() const {
@@ -104,9 +100,6 @@ class EXPORTED_PUBLIC User {
   String m_Home;
   /** Default shell. */
   String m_Shell;
-  /** Password hash. */
-  String m_Password;
-
   /** Set of groups (excluding default group). */
   List<Group*> m_Groups;
 };

@@ -1310,6 +1310,14 @@ void Process::getSupplementalGroupIds(Vector<int64_t>& vec) const {
   // no-op
 }
 
+void Process::setUserId(int64_t) {}
+
+void Process::setGroupId(int64_t) {}
+
+void Process::setEffectiveUserId(int64_t) {}
+
+void Process::setEffectiveGroupId(int64_t) {}
+
 bool Process::waitUntilTerminationReapable() {
   while (true) {
     auto guard = m_TerminationWaiters.acquire();

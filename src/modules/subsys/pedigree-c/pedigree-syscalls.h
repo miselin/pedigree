@@ -73,7 +73,7 @@ void pedigree_config_get_error_message(size_t resultIdx, char* buf, int buflen);
 
 /** Pedigree generic system calls **/
 
-int pedigree_login(int uid, const char* password);
+int pedigree_login(int uid);
 
 int pedigree_reboot();
 

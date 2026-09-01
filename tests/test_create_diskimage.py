@@ -1,13 +1,8 @@
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.create_diskimage import (
-    build_account_files,
-    build_file_list,
-    translate_target_path,
-)
+from scripts.create_diskimage import build_file_list, translate_target_path
 
 
 class DiskImageLayoutTests(unittest.TestCase):
@@ -52,6 +47,9 @@ class DiskImageLayoutTests(unittest.TestCase):
                 images / "support" / "pup" / "db" / "packages.pupdb": "db",
                 base / "config" / "profile": "profile",
                 base / ".profile": "root profile",
+                base / "etc" / "passwd": "root:x:0:0:Root User:/root:/bin/bash\n",
+                base / "etc" / "group": "administrators:x:0:root\n",
+                base / "etc" / "shadow": "root:root:0:0:99999:7:::\n",
                 musl / "lib" / "crt1.o": "crt",
                 musl / "include" / "stdio.h": "header",
             }
@@ -64,12 +62,7 @@ class DiskImageLayoutTests(unittest.TestCase):
             (binary / "keymaps").mkdir(parents=True)
 
             configdb = root / "config.db"
-            connection = sqlite3.connect(configdb)
-            connection.execute("create table groups (gid integer, name text)")
-            connection.execute(
-                "create table users (uid integer, username text, groupname text)"
-            )
-            connection.close()
+            configdb.write_text("config")
 
             kernel = root / "kernel"
             grub = root / "menu.lst"
@@ -95,46 +88,14 @@ class DiskImageLayoutTests(unittest.TestCase):
             self.assertIn("symlink /lib /usr/lib", commands)
             self.assertIn("mkdir /media", commands)
             self.assertTrue(any(command.endswith(" /etc/profile") for command in commands))
+            self.assertTrue(any(command.endswith(" /etc/passwd") for command in commands))
+            self.assertTrue(any(command.endswith(" /etc/group") for command in commands))
+            self.assertTrue(any(command.endswith(" /etc/shadow") for command in commands))
+            self.assertIn("chmod /etc/shadow 600", commands)
             self.assertTrue(any(command.endswith(" /root/.profile") for command in commands))
             self.assertTrue(any(command.endswith(" /var/cache/pup/packages.pupdb") for command in commands))
             self.assertFalse(any(" /applications" in command for command in commands))
             self.assertFalse(any(" /libraries" in command for command in commands))
-
-    def test_build_account_files_uses_standard_formats(self):
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            configdb = root / "config.db"
-            connection = sqlite3.connect(configdb)
-            connection.execute("create table groups (gid integer, name text)")
-            connection.execute(
-                "create table users (uid integer, username text, fullname text, "
-                "groupname text, homedir text, shell text, password text)"
-            )
-            connection.execute("insert into groups values (1, 'administrators')")
-            connection.execute(
-                "insert into users values "
-                "(1, 'root', 'Root User', 'administrators', '/root', '/bin/bash', 'root')"
-            )
-            connection.commit()
-            connection.close()
-
-            output_dir = root / "account"
-            output_dir.mkdir()
-            files = build_account_files(str(configdb), str(output_dir))
-
-            self.assertEqual(
-                Path(files["/etc/passwd"]).read_text(),
-                "root:x:0:0:Root User:/root:/bin/bash\n",
-            )
-            self.assertEqual(
-                Path(files["/etc/shadow"]).read_text(),
-                "root:root:0:0:99999:7:::\n",
-            )
-            self.assertEqual(
-                Path(files["/etc/group"]).read_text(),
-                "administrators:x:0:root\n",
-            )
-
 
 def files_key(files, basename):
     return next(str(path) for path in files if path.name == basename)

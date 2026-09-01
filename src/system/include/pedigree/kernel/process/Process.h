@@ -356,6 +356,10 @@ class EXPORTED_PUBLIC Process {
   virtual int64_t getEffectiveUserId() const;
   virtual int64_t getEffectiveGroupId() const;
   virtual void getSupplementalGroupIds(Vector<int64_t>& vec) const;
+  virtual void setUserId(int64_t id);
+  virtual void setGroupId(int64_t id);
+  virtual void setEffectiveUserId(int64_t id);
+  virtual void setEffectiveGroupId(int64_t id);
 
   void setLinker(DynamicLinker* pDl) {
     m_pDynamicLinker = pDl;

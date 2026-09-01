@@ -85,7 +85,7 @@ EXPORTED_PUBLIC void pedigree_config_get_error_message(size_t resultIdx, char* b
 
 EXPORTED_PUBLIC char* pedigree_config_escape_string(const char* str);
 
-EXPORTED_PUBLIC int pedigree_login(uid_t uid, const char* password);
+EXPORTED_PUBLIC int pedigree_login(uid_t uid);
 
 EXPORTED_PUBLIC int pedigree_gfx_get_provider(void* p);
 
@@ -258,9 +258,9 @@ char* pedigree_config_escape_string(const char* str) {
   return bufferStart;
 }
 
-// Pedigree-specific function: login with given uid and password.
-int pedigree_login(uid_t uid, const char* password) {
-  return (long)syscall2(PEDIGREE_LOGIN, uid, (long)password);
+// Pedigree-specific function: switch this process to a known uid.
+int pedigree_login(uid_t uid) {
+  return (long)syscall1(PEDIGREE_LOGIN, uid);
 }
 
 int pedigree_gfx_get_provider(void* p) {

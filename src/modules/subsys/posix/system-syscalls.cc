@@ -970,22 +970,14 @@ int posix_setegid(gid_t egid) {
   return posix_setresgid(-1, egid, -1);
 }
 
-EXPORTED_PUBLIC int pedigree_login(int uid, const char* password) {
-  String passwordCopy;
-  if (!copyUserString(password, passwordCopy)) {
-    SC_NOTICE("pedigree_login -> invalid address");
-    return -1;
-  }
-
+EXPORTED_PUBLIC int pedigree_login(int uid) {
   // Grab the given user.
   User* pUser = UserManager::instance().getUser(uid);
   if (!pUser)
     return -1;
 
-  if (pUser->login(passwordCopy))
-    return 0;
-  else
-    return -1;
+  pUser->login();
+  return 0;
 }
 
 int posix_setsid() {

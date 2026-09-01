@@ -53,10 +53,11 @@ class EXPORTED_PUBLIC UserManager {
   UserManager(const UserManager&);
   UserManager& operator=(const UserManager&);
 
-  void initialiseUsers();
-  void initialiseGroups();
-  void addUser(size_t uid, String username, String fullName, String group, String home,
-               String shell, String password);
+  bool initialiseUsers();
+  bool initialiseGroups();
+  bool initialiseMemberships();
+  void addUser(size_t uid, String username, String fullName, size_t group, String home,
+               String shell);
   void addGroup(size_t gid, String name);
 
   /** Dictionary of users, indexed by ID. */

@@ -25,15 +25,16 @@
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include "Group.h"
+
 User::User(size_t uid, const String& username, const String& fullName, Group* pGroup,
-           const String& home, const String& shell, const String& password)
+           const String& home, const String& shell)
     : m_Uid(uid),
       m_Username(username),
       m_FullName(fullName),
       m_pDefaultGroup(pGroup),
       m_Home(home),
       m_Shell(shell),
-      m_Password(password),
       m_Groups() {}
 
 User::~User() {}
@@ -61,16 +62,16 @@ bool User::isMember(Group* pGroup) {
   return false;
 }
 
-bool User::login(const String& password) {
+void User::login() {
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
 
-  if (password == m_Password) {
-    pProcess->setUser(this);
-    pProcess->setGroup(m_pDefaultGroup);
+  pProcess->setUser(this);
+  pProcess->setGroup(m_pDefaultGroup);
+  pProcess->setUserId(m_Uid);
+  pProcess->setGroupId(m_pDefaultGroup->getId());
 
-    pProcess->setEffectiveUser(this);
-    pProcess->setEffectiveGroup(m_pDefaultGroup);
-    return true;
-  } else
-    return false;
+  pProcess->setEffectiveUser(this);
+  pProcess->setEffectiveGroup(m_pDefaultGroup);
+  pProcess->setEffectiveUserId(m_Uid);
+  pProcess->setEffectiveGroupId(m_pDefaultGroup->getId());
 }

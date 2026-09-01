@@ -308,12 +308,10 @@ if(CMAKE_CROSSCOMPILING)
         ${CMAKE_SOURCE_DIR}/src/system/kernel/schema
         ${CMAKE_SOURCE_DIR}/src/modules/drivers/x86/vbe/schema
         ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema
-        ${CMAKE_SOURCE_DIR}/src/modules/system/users/schema
         DEPENDS
         ${CMAKE_SOURCE_DIR}/src/system/kernel/schema
         ${CMAKE_SOURCE_DIR}/src/modules/drivers/x86/vbe/schema
-        ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema
-        ${CMAKE_SOURCE_DIR}/src/modules/system/users/schema)
+        ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema)
     add_custom_target(configdb ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/config.db)
 
     # Embed config database in a header for static driver builds
@@ -387,6 +385,9 @@ if(CMAKE_CROSSCOMPILING)
         $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:initrd>
         ${PEDIGREE_KERNEL_MODULE_TARGETS}
         configdb ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
+        ${CMAKE_SOURCE_DIR}/images/base/etc/passwd
+        ${CMAKE_SOURCE_DIR}/images/base/etc/group
+        ${CMAKE_SOURCE_DIR}/images/base/etc/shadow
         libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS}
         ${PEDIGREE_KEYMAPS_TARGETS} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
         )
