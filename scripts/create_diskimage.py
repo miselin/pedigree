@@ -98,6 +98,64 @@ def build_user_map(dbfile):
     return users, groups
 
 
+def build_account_files(dbfile, output_dir):
+    """Generate the standard account files from the build configuration."""
+    conn = sqlite3.connect(dbfile)
+    groups = []
+    group_ids = {}
+    for gid, name in conn.execute("select gid, name from groups order by gid"):
+        group_id = int(gid) - 1
+        groups.append((name, group_id))
+        group_ids[name] = group_id
+
+    users = []
+    for row in conn.execute(
+        "select uid, username, fullname, groupname, homedir, shell, password "
+        "from users order by uid"
+    ):
+        uid, username, fullname, groupname, homedir, shell, password = row
+        users.append(
+            (
+                int(uid) - 1,
+                username,
+                fullname,
+                group_ids[groupname],
+                homedir,
+                shell,
+                password or "",
+            )
+        )
+    conn.close()
+
+    group_members = {name: [] for name, _ in groups}
+    for _, username, _, gid, _, _, _ in users:
+        for name, group_id in groups:
+            if group_id == gid:
+                group_members[name].append(username)
+                break
+
+    passwd_path = os.path.join(output_dir, "passwd")
+    shadow_path = os.path.join(output_dir, "shadow")
+    group_path = os.path.join(output_dir, "group")
+    with open(passwd_path, "w") as passwd, open(shadow_path, "w") as shadow:
+        for uid, username, fullname, gid, homedir, shell, password in users:
+            passwd.write(
+                "%s:x:%d:%d:%s:%s:%s\n"
+                % (username, uid, gid, fullname, homedir, shell)
+            )
+            shadow.write("%s:%s:0:0:99999:7:::\n" % (username, password))
+
+    with open(group_path, "w") as group:
+        for name, gid in groups:
+            group.write("%s:x:%d:%s\n" % (name, gid, ",".join(group_members[name])))
+
+    return {
+        "/etc/passwd": passwd_path,
+        "/etc/shadow": shadow_path,
+        "/etc/group": group_path,
+    }
+
+
 def add_copy(copylist, source, target, override=False):
     """Adds a copy to the given copy list, handling duplicates correctly"""
     target = translate_target_path(target)
@@ -169,7 +227,7 @@ def safe_mkdirs_cmdlist(cmdlist, d, safe_dirs):
         safe_dirs.add(d)
 
 
-def build_file_list(all_sources):
+def build_file_list(all_sources, account_files=None):
     """Builds a full command list for ext2img."""
     (
         imagesdir,
@@ -190,6 +248,9 @@ def build_file_list(all_sources):
     copies = {}
 
     add_copy(copies, configdb, "/.pedigree-root")
+    if account_files:
+        for target, source in account_files.items():
+            add_copy(copies, source, target)
     add_copy(copies, grublst, "/boot/grub/menu.lst")
     add_copy(copies, kernel, "/boot/kernel")
     if initrd != "__noinitrd__":
@@ -324,6 +385,9 @@ def build_file_list(all_sources):
                     % (host_path, target_path)
                 )
 
+    if account_files:
+        cmdlist.append("chmod /etc/shadow 600")
+
     # Add some more useful layout features (e.g. to make /bin/sh work).
     cmdlist.append("symlink /usr/bin/sh /usr/bin/bash")
     cmdlist.append("symlink /bin /usr/bin")
@@ -426,29 +490,32 @@ def create_base_image(target):
 def main():
     targetfile = sys.argv[1]
     ext2img = sys.argv[2]
-    cmdlist = build_file_list(sys.argv[3:])
+    sources = sys.argv[3:]
+    with tempfile.TemporaryDirectory() as account_dir:
+        account_files = build_account_files(sources[5], account_dir)
+        cmdlist = build_file_list(sources, account_files)
 
-    create_base_image(targetfile)
+        create_base_image(targetfile)
 
-    with open("/tmp/cmdlist", "w") as f:
-        f.write("\n".join(cmdlist))
+        with open("/tmp/cmdlist", "w") as f:
+            f.write("\n".join(cmdlist))
 
-    # Dump our files into the image using ext2img (built as part of the normal
-    # Pedigree build, to run on the build system - not on Pedigree).
-    with tempfile.NamedTemporaryFile() as f:
-        f.write("\n".join(cmdlist).encode("utf-8"))
-        f.flush()
+        # Dump our files into the image using ext2img (built as part of the normal
+        # Pedigree build, to run on the build system - not on Pedigree).
+        with tempfile.NamedTemporaryFile() as f:
+            f.write("\n".join(cmdlist).encode("utf-8"))
+            f.flush()
 
-        args = [
-            ext2img,
-            "-q",
-            "-c",
-            f.name,
-            "-f",
-            targetfile,
-        ]
+            args = [
+                ext2img,
+                "-q",
+                "-c",
+                f.name,
+                "-f",
+                targetfile,
+            ]
 
-        subprocess.check_call(args)
+            subprocess.check_call(args)
 
 
 if __name__ == "__main__":

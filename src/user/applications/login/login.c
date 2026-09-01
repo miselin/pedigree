@@ -27,6 +27,7 @@
 #include <libintl.h>
 #include <locale.h>
 #include <pwd.h>
+#include <shadow.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +62,20 @@ void sigint(int sig) {
     // is active
     klog(LOG_NOTICE, "SIGINT ignored");
   }
+}
+
+static int password_matches(const char* password, const char* stored) {
+  if (!stored || stored[0] == '!' || stored[0] == '*')
+    return 0;
+  if (!stored[0])
+    return !password[0];
+  if (stored[0] == '$') {
+    const char* encrypted = crypt(password, stored);
+    return encrypted && !strcmp(encrypted, stored);
+  }
+
+  // The initial schema predates password hashing and stores plaintext values.
+  return !strcmp(password, stored);
 }
 
 int main(int argc, char** argv) {
@@ -171,7 +186,8 @@ int main(int argc, char** argv) {
     }
 
     struct passwd* pw = getpwnam(username);
-    if (!pw) {
+    struct spwd* sp = getspnam(username);
+    if (!pw || !sp) {
       printf(gettext("\nUnknown user: '%s'\n"), username);
       continue;
     }
@@ -218,8 +234,12 @@ int main(int argc, char** argv) {
       password = buffer;
     }
 
-    // Perform login - this function is in glue.c.
-    if (pedigree_login(pw->pw_uid, password) != 0) {
+    // Shadow entries in the initial image may contain plaintext passwords for
+    // compatibility with the existing configuration schema. Hashed entries
+    // use the standard crypt(3) format.
+    int passwordValid = password_matches(password, sp->sp_pwdp);
+
+    if (!passwordValid || pedigree_login(pw->pw_uid, password) != 0) {
       printf(gettext("Password incorrect.\n"));
       continue;
     } else {

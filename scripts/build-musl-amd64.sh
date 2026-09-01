@@ -62,8 +62,6 @@ apply_source_patch \
     "$SRCDIR/build-etc/toolchain/musl-1.2.6-cve-2026-6042-iconv.patch" || exit 1
 
 cp "$SRCDIR/src/modules/subsys/posix/musl/glue-musl.c" src/internal/pedigree-musl.c
-cp "$SRCDIR/src/modules/subsys/posix/musl/getpwent.c" src/passwd/getpwent.c
-cp "$SRCDIR/src/modules/subsys/posix/musl/getpw_r.c" src/passwd/getpw_r.c
 cp "$SRCDIR/src/modules/subsys/posix/musl/syscall_arch.h" arch/x86_64/syscall_arch.h
 
 case "$ARCH_TARGET" in
