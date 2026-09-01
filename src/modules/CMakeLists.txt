@@ -957,6 +957,8 @@ add_custom_command(
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/clone-hosted-amd64.musl-s
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/fb.h
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/glue-musl.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/getpwent.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/getpw_r.c
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/klog.h
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_arch.h
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_cp-${PEDIGREE_MUSLARCH}.musl-s
