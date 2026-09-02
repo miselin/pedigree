@@ -1,2 +1,16 @@
+---
+If:
+  PathMatch: '(^|/)src/(system|modules|user)/.*'
 CompileFlags:
   CompilationDatabase: build/
+  # CMake compiles from build/src/*; clangd does not discover this cross
+  # sysroot's libc and libstdc++ search paths from --sysroot alone.
+  Add:
+    - -idirafter
+    - ../../musl/include
+    - -isystem
+    - ../../../compilers/dir/include/c++/15.3.0
+    - -isystem
+    - ../../../compilers/dir/include/c++/15.3.0/x86_64-pedigree
+    - -isystem
+    - ../../../compilers/dir/include/c++/15.3.0/backward
