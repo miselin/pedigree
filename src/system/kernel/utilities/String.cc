@@ -51,8 +51,8 @@ String::String(const StringView& x) : String() {
   assign(x.str(), x.length(), true);
 }
 
-String::String(String&& x) : String() {
-  move(pedigree_std::move(x));
+String::String(String&& x) noexcept : String() {
+  move(static_cast<String&&>(x));
 }
 
 String::String(const Cord& x) : String() {
@@ -63,7 +63,7 @@ String::~String() {
   clear();
 }
 
-void String::move(String&& other) {
+void String::move(String&& other) noexcept {
   clear();
 
   // take ownership of the object
@@ -78,8 +78,8 @@ void String::move(String&& other) {
   other.clear();
 }
 
-String& String::operator=(String&& x) {
-  move(pedigree_std::move(x));
+String& String::operator=(String&& x) noexcept {
+  move(static_cast<String&&>(x));
   return *this;
 }
 
@@ -401,7 +401,7 @@ void String::downsize() {
   m_Size = newSize;
 }
 
-void String::clear() {
+void String::clear() noexcept {
   assert(assignable());
 
   if (m_Data) {

@@ -58,9 +58,10 @@ class DescriptorLease {
  public:
   DescriptorLease() : m_Descriptor() {}
 
-  DescriptorLease(DescriptorLease&& other) : m_Descriptor(pedigree_std::move(other.m_Descriptor)) {}
+  DescriptorLease(DescriptorLease&& other) noexcept
+      : m_Descriptor(pedigree_std::move(other.m_Descriptor)) {}
 
-  DescriptorLease& operator=(DescriptorLease&& other) {
+  DescriptorLease& operator=(DescriptorLease&& other) noexcept {
     if (this != &other) {
       m_Descriptor = pedigree_std::move(other.m_Descriptor);
     }

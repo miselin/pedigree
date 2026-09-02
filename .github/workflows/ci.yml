@@ -58,6 +58,7 @@ jobs:
             clang \
             cmake \
             flex \
+            libbenchmark-dev \
             libssl-dev \
             nasm \
             ninja-build
@@ -79,14 +80,7 @@ jobs:
         run: cmake --build build/host --target testsuite --parallel
 
       - name: Run clang-tidy across buildutil
-        run: |
-          set -euo pipefail
-
-          source_filter="^${GITHUB_WORKSPACE}/src/buildutil/.*\\.(c|cc|cpp|cxx)$"
-          run-clang-tidy \
-            -p build/host \
-            -source-filter="$source_filter" \
-            -j 2
+        run: scripts/clang-tidy.sh host build/host -j 2 -quiet -hide-progress
 
       - name: Run CTest
         run: ctest --test-dir build/host --output-on-failure --no-tests=error
@@ -223,6 +217,8 @@ jobs:
                 --target headerify ext2img keymap memorytracer \
                 --parallel
 
+              # The ignored images/local SDK is not present in the builder, so
+              # userspace tidy remains an explicit local runner mode.
               cmake -S . -B build/cross -G Ninja \
                 -DCMAKE_TOOLCHAIN_FILE=/workspace/build-etc/cmake/pedigree_amd64.cmake \
                 -DPEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree \
@@ -234,33 +230,7 @@ jobs:
                 --parallel
 
               clang-tidy --version
-              gcc_version="$(x86_64-pedigree-g++ -dumpversion)"
-              source_filter="^/workspace/src/(system/kernel|modules)(?!/system/(config/sqlite3|lwip)(/|$)|/drivers/common/cdi(/|$)|/subsys/posix/(musl|include|newlib)(/|$)).*\\.(c|cc|cpp|cxx)$"
-
-              # Clang cannot infer GCC's implicit include directories for this
-              # custom target triple. The cross compiler provides the exact
-              # target C++ and builtin header roots used by the build.
-              tidy_extra_args=()
-              for include_dir in \
-                "/opt/pedigree/include/c++/$gcc_version" \
-                "/opt/pedigree/include/c++/$gcc_version/x86_64-pedigree" \
-                "/opt/pedigree/include/c++/$gcc_version/backward" \
-                "/opt/pedigree/lib/gcc/x86_64-pedigree/$gcc_version/include" \
-                "/opt/pedigree/lib/gcc/x86_64-pedigree/$gcc_version/include-fixed" \
-                "/opt/pedigree/x86_64-pedigree/include"; do
-                test -d "$include_dir"
-                tidy_extra_args+=("-extra-arg-before=-isystem")
-                tidy_extra_args+=("-extra-arg-before=$include_dir")
-              done
-
-              run-clang-tidy \
-                -p build/cross \
-                -source-filter="$source_filter" \
-                -removed-arg=-march=k8 \
-                -extra-arg-before=-nostdinc++ \
-                -extra-arg-before=--target=x86_64-pedigree \
-                "${tidy_extra_args[@]}" \
-                -j 2
+              scripts/clang-tidy.sh cross build/cross -j 2 -quiet -hide-progress
 
               ctest --test-dir build/cross --output-on-failure --no-tests=error
               test -s build/cross/pedigree.iso

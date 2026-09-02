@@ -42,7 +42,7 @@ WaitQueue::Guard::Guard(WaitQueue& queue)
   m_OwnsLock = true;
 }
 
-WaitQueue::Guard::Guard(Guard&& other)
+WaitQueue::Guard::Guard(Guard&& other) noexcept
     : m_Queue(other.m_Queue),
       m_OwnsLock(other.m_OwnsLock),
       m_pFirstReady(other.m_pFirstReady),

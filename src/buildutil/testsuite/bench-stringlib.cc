@@ -48,7 +48,7 @@ static void BM_StringLengthConstant(benchmark::State& state) {
     // constexpr here ensures, via compiler check, that we're actually
     // properly testing the compile-time constant version of StringLength
     constexpr size_t result = StringLength(CONSTANT_MESSAGE);
-    benchmark::DoNotOptimize(result);
+    benchmark::DoNotOptimize(static_cast<size_t>(result));
   }
 
   state.SetBytesProcessed(int64_t(state.iterations()) * strlen(CONSTANT_MESSAGE));

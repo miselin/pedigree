@@ -17,6 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _GNU_SOURCE 1
+
 #include "pedigree/native/input/Input.h"
 
 #include <config.h>
@@ -36,7 +38,9 @@
 #include <sys/fb.h>
 #include <sys/ioctl.h>
 #include <sys/klog.h>
+#include <sys/select.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/wait.h>
 
 // PID of the process we're running

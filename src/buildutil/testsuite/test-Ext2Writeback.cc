@@ -170,6 +170,8 @@ class GrowthDisk final : public Disk {
 
 class OrderedSyncFile final : public File {
  public:
+  using File::sync;
+
   void sync(size_t offset, bool async) override {
     syncOffset = offset;
     syncAsync = async;

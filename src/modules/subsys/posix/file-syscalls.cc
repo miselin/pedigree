@@ -146,36 +146,31 @@ static File* traverseSymlink(File* file) {
 }
 
 static bool doChdir(File* dir) {
-  File* target = 0;
-  if (dir->isSymlink()) {
-    target = traverseSymlink(dir);
-    if (!target) {
-      F_NOTICE("Symlink traversal failed.");
-      SYSCALL_ERROR(DoesNotExist);
-      return false;
-    }
-  }
-
-  if (dir && (dir->isDirectory() || (dir->isSymlink() && target->isDirectory()))) {
-    File* pRealFile = dir;
-    if (dir->isSymlink()) {
-      pRealFile = target;
-    }
-
-    // Only need execute permissions to enter a directory.
-    if (!VFS::checkAccess(pRealFile, false, false, true)) {
-      return false;
-    }
-
-    Processor::information().getCurrentThread()->getParent()->setCwd(dir);
-  } else if (dir && !dir->isDirectory()) {
-    SYSCALL_ERROR(NotADirectory);
-    return false;
-  } else {
+  if (!dir) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
 
+  File* target = dir;
+  if (target->isSymlink()) {
+    target = traverseSymlink(dir);
+    if (!target) {
+      F_NOTICE("Symlink traversal failed.");
+      return false;
+    }
+  }
+
+  if (!target->isDirectory()) {
+    SYSCALL_ERROR(NotADirectory);
+    return false;
+  }
+
+  // Only need execute permissions to enter a directory.
+  if (!VFS::checkAccess(target, false, false, true)) {
+    return false;
+  }
+
+  Processor::information().getCurrentThread()->getParent()->setCwd(dir);
   return true;
 }
 

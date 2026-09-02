@@ -263,6 +263,7 @@ bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
     KernelElfSymbol_t* pSymbol = m_pSymbolTable;
 
     const char* pStrtab = reinterpret_cast<const char*>(m_pStringTable);
+    const char* pShstrtab = reinterpret_cast<const char*>(m_pShstrtab);
 
     // quick pass to preallocate for the symbol table
     size_t numLocal = 0;
@@ -287,7 +288,6 @@ bool KernelElf::initialise(const BootstrapStruct_t& pBootstrap) {
     NOTICE("KERNELELF: preallocating symbol table with "
            << numGlobal << " global " << numWeak << " weak and " << numLocal << " local symbols.");
     m_SymbolTable.preallocate(numGlobal, numWeak, this, numLocal);
-    const char* pShstrtab = reinterpret_cast<const char*>(m_pShstrtab);
 
     for (size_t i = 1; i < m_nSymbolTableSize / sizeof(*pSymbol); i++) {
       const char* pStr = 0;

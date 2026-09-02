@@ -40,6 +40,8 @@ TEST(PedigreeObjectPool, ObjectReuse) {
 
   int* a1 = x.allocate();
   int* b1 = x.allocate();
+  const uintptr_t a1Address = reinterpret_cast<uintptr_t>(a1);
+  const uintptr_t b1Address = reinterpret_cast<uintptr_t>(b1);
 
   x.deallocate(a1);
   x.deallocate(b1);
@@ -47,11 +49,11 @@ TEST(PedigreeObjectPool, ObjectReuse) {
   int* b2 = x.allocate();
   int* a2 = x.allocate();
 
-  EXPECT_EQ(a1, a2);
-  EXPECT_EQ(b1, b2);
+  EXPECT_EQ(a1Address, reinterpret_cast<uintptr_t>(a2));
+  EXPECT_EQ(b1Address, reinterpret_cast<uintptr_t>(b2));
 
-  delete a1;
-  delete b1;
+  delete a2;
+  delete b2;
 }
 
 TEST(PedigreeObjectPool, ObjectReuseThenAllocation) {
@@ -59,6 +61,7 @@ TEST(PedigreeObjectPool, ObjectReuseThenAllocation) {
 
   // Add an object to the pool.
   int* a1 = new int;
+  const uintptr_t a1Address = reinterpret_cast<uintptr_t>(a1);
   x.deallocate(a1);
 
   // Re-use that object.
@@ -67,8 +70,8 @@ TEST(PedigreeObjectPool, ObjectReuseThenAllocation) {
   // This will allocate a new object.
   int* a3 = x.allocate();
 
-  EXPECT_EQ(a1, a2);
-  EXPECT_NE(a1, a3);
+  EXPECT_EQ(a1Address, reinterpret_cast<uintptr_t>(a2));
+  EXPECT_NE(a1Address, reinterpret_cast<uintptr_t>(a3));
 
   delete a2;
   delete a3;
@@ -79,10 +82,12 @@ TEST(PedigreeObjectPool, DISABLED_DeallocatedTooMany) {
 
   // Add a new item to the pool.
   int* a1 = new int;
+  const uintptr_t a1Address = reinterpret_cast<uintptr_t>(a1);
   x.deallocate(a1);
 
   // Try to add another item (won't actually add to pool).
   int* b1 = new int;
+  const uintptr_t b1Address = reinterpret_cast<uintptr_t>(b1);
   x.deallocate(b1);
 
   // Allocate a new object from the heap in case the current heap
@@ -95,8 +100,8 @@ TEST(PedigreeObjectPool, DISABLED_DeallocatedTooMany) {
   // Comes from heap.
   int* b2 = x.allocate();
 
-  EXPECT_EQ(a1, a2);
-  EXPECT_NE(b1, b2);
+  EXPECT_EQ(a1Address, reinterpret_cast<uintptr_t>(a2));
+  EXPECT_NE(b1Address, reinterpret_cast<uintptr_t>(b2));
 
   delete c;
   delete a2;

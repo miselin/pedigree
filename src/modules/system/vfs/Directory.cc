@@ -404,7 +404,8 @@ void Directory::removeIfGeneration(const HashedStringView& name, uint64_t genera
 
 Directory::DirectoryEntryMetadata::DirectoryEntryMetadata()
     : pDirectory(nullptr), filename(), opaque() {}
-Directory::DirectoryEntryMetadata::DirectoryEntryMetadata(Directory::DirectoryEntryMetadata&& other)
+Directory::DirectoryEntryMetadata::DirectoryEntryMetadata(
+    Directory::DirectoryEntryMetadata&& other) noexcept
     : pDirectory(pedigree_std::move(other.pDirectory)),
       filename(pedigree_std::move(other.filename)),
       opaque(pedigree_std::move(other.opaque)) {

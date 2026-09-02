@@ -552,8 +552,10 @@ Uhci::~Uhci() {
       if (!m_QHBitmap.test(i))
         continue;
       QH* pQH = &m_pQHList[i];
-      assert(pQH->pMetaData);
-      assert(pQH->pMetaData->completion.state() == UsbHcd::TransferCompletion::State::Idle);
+      if (!pQH->pMetaData)
+        panic("UHCI teardown found an allocated queue head without metadata");
+      if (pQH->pMetaData->completion.state() != UsbHcd::TransferCompletion::State::Idle)
+        panic("UHCI teardown found a live unpublished queue head");
       reclaimQueueHeadLocked(pQH);
     }
 

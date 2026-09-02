@@ -15,7 +15,7 @@ OperationBarrier::Lease::Lease() : m_Barrier(nullptr) {}
 
 OperationBarrier::Lease::Lease(OperationBarrier* barrier) : m_Barrier(barrier) {}
 
-OperationBarrier::Lease::Lease(Lease&& other) : m_Barrier(other.m_Barrier) {
+OperationBarrier::Lease::Lease(Lease&& other) noexcept : m_Barrier(other.m_Barrier) {
   other.m_Barrier = nullptr;
 }
 
@@ -23,7 +23,8 @@ OperationBarrier::Lease::~Lease() {
   reset();
 }
 
-OperationBarrier::Lease& OperationBarrier::Lease::operator=(OperationBarrier::Lease&& other) {
+OperationBarrier::Lease& OperationBarrier::Lease::operator=(
+    OperationBarrier::Lease&& other) noexcept {
   if (this != &other) {
     reset();
     m_Barrier = other.m_Barrier;

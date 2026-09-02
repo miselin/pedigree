@@ -122,18 +122,22 @@ void Ps2Controller::initialise() {
   // Reset all devices.
   TRACE("PS2: resetting first device");
   writeFirstPort(0xFF);
-  uint8_t ack, status;
-  readFirstPort(ack);
-  readFirstPort(status);
-  NOTICE("PS/2: first port reset result: " << Hex << ack << ", " << status);
+  uint8_t firstAck = 0;
+  uint8_t firstStatus = 0;
+  readFirstPort(firstAck);
+  readFirstPort(firstStatus);
+  NOTICE("PS/2: first port reset result: " << Hex << firstAck << ", " << firstStatus);
 
   TRACE("PS2: resetting second device");
   writeSecondPort(0xFF);
-  uint8_t extra = 0;
-  readSecondPort(ack);
-  readSecondPort(status);
-  readSecondPort(extra);
-  NOTICE("PS/2: second port reset result: " << Hex << ack << ", " << status << ", " << extra);
+  uint8_t secondAck = 0;
+  uint8_t secondStatus = 0;
+  uint8_t secondExtra = 0;
+  readSecondPort(secondAck);
+  readSecondPort(secondStatus);
+  readSecondPort(secondExtra);
+  NOTICE("PS/2: second port reset result: " << Hex << secondAck << ", " << secondStatus << ", "
+                                            << secondExtra);
 
   TRACE("PS2: startup complete");
 }

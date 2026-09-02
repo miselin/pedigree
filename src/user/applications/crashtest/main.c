@@ -39,7 +39,8 @@ int main(int argc, char* argv[]) {
 
   // SIGFPE
   printf("Testing SIGFPE...\n");
-  int a = 1 / 0;
+  volatile int zero = 0;
+  int a = 1 / zero;  // NOLINT(clang-analyzer-core.DivideZero)
   float b = 1.0f / 0.0f;
   double c = 1.0 / 0.0;
   printf("Works.\n");

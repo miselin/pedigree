@@ -104,8 +104,8 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp) 
     /// depth
     ///       if the desired one cannot be set.
     klog(LOG_INFO, "libfb: can't set the desired mode");
-    fprintf(stderr, "libfb: could not set desired mode (%ux%u) in any colour depth.\n", mode.width,
-            mode.height);
+    fprintf(stderr, "libfb: could not set desired mode (%zux%zu) in any colour depth.\n",
+            mode.width, mode.height);
     return EXIT_FAILURE;
   }
 

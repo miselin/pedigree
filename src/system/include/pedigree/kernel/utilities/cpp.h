@@ -33,7 +33,7 @@
 #include "pedigree/kernel/utilities/lib.h"
 #include "pedigree/kernel/utilities/template.h"  // IWYU pragma: export
 
-// Include our custom <new> header which defines all operators as noexcept
+// Include our custom allocation operator declarations.
 #include "pedigree/kernel/utilities/new"  // IWYU pragma: export
 
 namespace pedigree_std {

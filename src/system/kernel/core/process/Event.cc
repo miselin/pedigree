@@ -49,7 +49,7 @@ Event::SendLease::SendLease() : m_pEvent(nullptr) {}
 
 Event::SendLease::SendLease(Event* event) : m_pEvent(event) {}
 
-Event::SendLease::SendLease(SendLease&& other) : m_pEvent(other.m_pEvent) {
+Event::SendLease::SendLease(SendLease&& other) noexcept : m_pEvent(other.m_pEvent) {
   other.m_pEvent = nullptr;
 }
 
@@ -57,7 +57,7 @@ Event::SendLease::~SendLease() {
   reset();
 }
 
-Event::SendLease& Event::SendLease::operator=(SendLease&& other) {
+Event::SendLease& Event::SendLease::operator=(SendLease&& other) noexcept {
   if (this != &other) {
     reset();
     m_pEvent = other.m_pEvent;
@@ -78,7 +78,7 @@ Event::Retirement::Retirement() : m_pEvent(nullptr) {}
 
 Event::Retirement::Retirement(Event* event) : m_pEvent(event) {}
 
-Event::Retirement::Retirement(Retirement&& other) : m_pEvent(other.m_pEvent) {
+Event::Retirement::Retirement(Retirement&& other) noexcept : m_pEvent(other.m_pEvent) {
   other.m_pEvent = nullptr;
 }
 
@@ -86,7 +86,7 @@ Event::Retirement::~Retirement() {
   reset();
 }
 
-Event::Retirement& Event::Retirement::operator=(Retirement&& other) {
+Event::Retirement& Event::Retirement::operator=(Retirement&& other) noexcept {
   if (this != &other) {
     reset();
     m_pEvent = other.m_pEvent;
@@ -117,7 +117,7 @@ Event::Delivery::Delivery(Event* event, Thread* thread)
       m_pNextActive(nullptr),
       m_bActive(false) {}
 
-Event::Delivery::Delivery(Delivery&& other)
+Event::Delivery::Delivery(Delivery&& other) noexcept
     : m_pEvent(other.m_pEvent),
       m_pThread(other.m_pThread),
       m_pPreviousActive(nullptr),
@@ -134,7 +134,7 @@ Event::Delivery::~Delivery() {
   reset();
 }
 
-Event::Delivery& Event::Delivery::operator=(Delivery&& other) {
+Event::Delivery& Event::Delivery::operator=(Delivery&& other) noexcept {
   if (this != &other) {
     if (other.m_bActive) {
       FATAL("Moving an active Event delivery.");

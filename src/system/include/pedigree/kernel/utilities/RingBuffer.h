@@ -644,9 +644,8 @@ class EXPORTED_PUBLIC RingBuffer {
   }
 
   void notifyMonitorsLocked() {
-    for (typename List<MonitorTarget*>::Iterator it = m_MonitorTargets.begin();
-         it != m_MonitorTargets.end(); it++) {
-      MonitorTarget* pMT = *it;
+    while (m_MonitorTargets.count()) {
+      MonitorTarget* pMT = m_MonitorTargets.popFront();
 
       if (pMT->pThread) {
         EMIT_IF(THREADS) {
@@ -659,7 +658,6 @@ class EXPORTED_PUBLIC RingBuffer {
       }
       delete pMT;
     }
-    m_MonitorTargets.clear();
   }
 
   bool beginOperation() {

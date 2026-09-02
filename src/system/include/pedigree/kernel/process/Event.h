@@ -51,10 +51,10 @@ class EXPORTED_PUBLIC Event {
   class SendLease {
    public:
     SendLease();
-    SendLease(SendLease&& other);
+    SendLease(SendLease&& other) noexcept;
     ~SendLease();
 
-    SendLease& operator=(SendLease&& other);
+    SendLease& operator=(SendLease&& other) noexcept;
 
     explicit operator bool() const {
       return m_pEvent != nullptr;
@@ -83,10 +83,10 @@ class EXPORTED_PUBLIC Event {
   class Retirement {
    public:
     Retirement();
-    Retirement(Retirement&& other);
+    Retirement(Retirement&& other) noexcept;
     ~Retirement();
 
-    Retirement& operator=(Retirement&& other);
+    Retirement& operator=(Retirement&& other) noexcept;
 
    private:
     friend class Event;
@@ -109,10 +109,10 @@ class EXPORTED_PUBLIC Event {
   class Delivery {
    public:
     Delivery();
-    Delivery(Delivery&& other);
+    Delivery(Delivery&& other) noexcept;
     ~Delivery();
 
-    Delivery& operator=(Delivery&& other);
+    Delivery& operator=(Delivery&& other) noexcept;
 
     Event* get() const {
       return m_pEvent;

@@ -26,10 +26,10 @@ class EXPORTED_PUBLIC OperationBarrier {
   class EXPORTED_PUBLIC Lease {
    public:
     Lease();
-    Lease(Lease&& other);
+    Lease(Lease&& other) noexcept;
     ~Lease();
 
-    Lease& operator=(Lease&& other);
+    Lease& operator=(Lease&& other) noexcept;
 
     explicit operator bool() const {
       return m_Barrier != nullptr;

@@ -330,8 +330,7 @@ void install(char* filename) {
     printf("\nContinue? [no] ");
 
     char input[64];
-    scanf("%s", input);
-    if (strcmp(input, "yes")) {
+    if ((scanf("%63s", input) != 1) || (strcmp(input, "yes") != 0)) {
       printf("Aborted, no change took place.\n");
       exit(0);
     }

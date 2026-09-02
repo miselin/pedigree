@@ -137,7 +137,8 @@ size_t Multiprocessor::initialise1() {
     trampolineStack = reinterpret_cast<volatile uintptr_t*>(0x7FF0);
     trampolineKernelEntry = reinterpret_cast<volatile uintptr_t*>(0x7FE8);
 
-    // Set the virtual address space
+    // The AP trampoline ABI reserves 0x7FF8 for the boot PML4 address.
+    // NOLINTNEXTLINE(clang-analyzer-core.FixedAddressDereference)
     *reinterpret_cast<volatile uintptr_t*>(0x7FF8) =
         static_cast<X64VirtualAddressSpace&>(VirtualAddressSpace::getKernelAddressSpace())
             .m_PhysicalPML4;

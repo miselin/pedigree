@@ -29,23 +29,6 @@
 #include "modules/Module.h"
 #include "modules/system/network-stack/Filter.h"
 
-struct PcapHeader {
-  uint32_t magic;
-  uint16_t major;
-  uint16_t minor;
-  uint32_t tz;
-  uint32_t sigfig;
-  uint32_t caplen;
-  uint32_t network;
-};
-
-struct PcapRecord {
-  uint32_t ts_sec;
-  uint32_t ts_usec;
-  uint32_t stored_length;
-  uint32_t orig_length;
-};
-
 #define PCAP_MAGIC 0xa1b2c3d4
 
 #define PCAP_MAJOR 2
@@ -56,6 +39,18 @@ struct PcapRecord {
 static size_t g_FilterEntry = 0;
 
 static Mutex g_PcapMutex;
+
+static void writePcapUint16(Serial* pSerial, uint16_t value) {
+  pSerial->write(static_cast<char>(value & 0xff));
+  pSerial->write(static_cast<char>((value >> 8) & 0xff));
+}
+
+static void writePcapUint32(Serial* pSerial, uint32_t value) {
+  pSerial->write(static_cast<char>(value & 0xff));
+  pSerial->write(static_cast<char>((value >> 8) & 0xff));
+  pSerial->write(static_cast<char>((value >> 16) & 0xff));
+  pSerial->write(static_cast<char>((value >> 24) & 0xff));
+}
 
 static Serial* getSerial() PURE;
 static Serial* getSerial() {
@@ -94,17 +89,13 @@ bool pcapLogPacket(uintptr_t packet, size_t size) {
   // so we want timestamps to always increase.
   time += Time::Multiplier::Millisecond;
 
-  PcapRecord header{};
-  header.ts_sec = time / Time::Multiplier::Second;
-  header.ts_usec = (time % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
-  header.stored_length = size;
-  header.orig_length = size;
-
-  // Write the pcap record header.
-  const uint8_t* headerData = reinterpret_cast<const uint8_t*>(&header);
-  for (size_t i = 0; i < sizeof(header); ++i) {
-    pSerial->write(headerData[i]);
-  }
+  // PCAP readers use the magic to determine byte order. Emit one canonical
+  // little-endian representation rather than relying on the target ABI.
+  writePcapUint32(pSerial, static_cast<uint32_t>(time / Time::Multiplier::Second));
+  writePcapUint32(pSerial, static_cast<uint32_t>((time % Time::Multiplier::Second) /
+                                                 Time::Multiplier::Microsecond));
+  writePcapUint32(pSerial, static_cast<uint32_t>(size));
+  writePcapUint32(pSerial, static_cast<uint32_t>(size));
 
   // Write the packet data now.
   const uint8_t* data = reinterpret_cast<const uint8_t*>(packet);
@@ -131,19 +122,13 @@ static bool entry() {
     return false;
   }
 
-  PcapHeader header{};
-  header.magic = PCAP_MAGIC;
-  header.major = PCAP_MAJOR;
-  header.minor = PCAP_MINOR;
-  header.tz = 0;
-  header.sigfig = 0;
-  header.caplen = 0xFFFF;
-  header.network = PCAP_NETWORK;
-
-  const uint8_t* data = reinterpret_cast<const uint8_t*>(&header);
-  for (size_t i = 0; i < sizeof(header); ++i) {
-    pSerial->write(data[i]);
-  }
+  writePcapUint32(pSerial, PCAP_MAGIC);
+  writePcapUint16(pSerial, PCAP_MAJOR);
+  writePcapUint16(pSerial, PCAP_MINOR);
+  writePcapUint32(pSerial, 0);  // UTC timezone
+  writePcapUint32(pSerial, 0);  // timestamp accuracy is unspecified
+  writePcapUint32(pSerial, 0xFFFF);
+  writePcapUint32(pSerial, PCAP_NETWORK);
 
   return true;
 }

@@ -17,6 +17,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _GNU_SOURCE 1
+
 #include "pedigree/native/ipc/Ipc.h"
 
 #include <Widget.h>

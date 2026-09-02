@@ -548,8 +548,8 @@ WObject* Container::getLeft(const WObject* obj) const {
     }
   }
 
-  // Root has no parent.
-  if (getType() != WObject::Root) {
+  // Root and any detached container have no direction beyond this boundary.
+  if (m_pParent && (getType() != WObject::Root)) {
     const Container* pContainer = static_cast<const Container*>(m_pParent);
     return pContainer->getLeft(this);
   }
@@ -578,8 +578,8 @@ WObject* Container::getRight(const WObject* obj) const {
     }
   }
 
-  // Root has no parent.
-  if (getType() != WObject::Root) {
+  // Root and any detached container have no direction beyond this boundary.
+  if (m_pParent && (getType() != WObject::Root)) {
     const Container* pContainer = static_cast<const Container*>(m_pParent);
     return pContainer->getRight(this);
   }
@@ -608,8 +608,8 @@ WObject* Container::getUp(const WObject* obj) const {
     }
   }
 
-  // Root has no parent.
-  if (getType() != WObject::Root) {
+  // Root and any detached container have no direction beyond this boundary.
+  if (m_pParent && (getType() != WObject::Root)) {
     const Container* pContainer = static_cast<const Container*>(m_pParent);
     return pContainer->getUp(this);
   }
@@ -638,8 +638,8 @@ WObject* Container::getDown(const WObject* obj) const {
     }
   }
 
-  // Root has no parent.
-  if (getType() != WObject::Root) {
+  // Root and any detached container have no direction beyond this boundary.
+  if (m_pParent && (getType() != WObject::Root)) {
     const Container* pContainer = static_cast<const Container*>(m_pParent);
     return pContainer->getDown(this);
   }

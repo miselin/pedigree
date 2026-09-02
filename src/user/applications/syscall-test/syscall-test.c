@@ -102,7 +102,7 @@ int test_open(void) {
 }
 
 int main(int argc, char** argv) {
-  printf("argc: %d, argv[0]: %s, &optind: %x\n", argc, argv[0], &optind);
+  printf("argc: %d, argv[0]: %s, &optind: %p\n", argc, argv[0], (void*)&optind);
   while (getopt(argc, argv, "h?ABC:DEFHIKLNOQ:RST:UVWY:abcdefgijklmo:pr:s:tvwxz") != -1) {
     printf("bleh\n");
   }

@@ -66,10 +66,10 @@ class EXPORTED_PUBLIC Process {
   class EXPORTED_PUBLIC ReaperClaim {
    public:
     ReaperClaim();
-    ReaperClaim(ReaperClaim&& other);
+    ReaperClaim(ReaperClaim&& other) noexcept;
     ~ReaperClaim();
 
-    ReaperClaim& operator=(ReaperClaim&& other);
+    ReaperClaim& operator=(ReaperClaim&& other) noexcept;
 
     explicit operator bool() const {
       return m_pProcess != nullptr;
@@ -99,10 +99,10 @@ class EXPORTED_PUBLIC Process {
   class EXPORTED_PUBLIC ThreadLease {
    public:
     ThreadLease();
-    ThreadLease(ThreadLease&& other);
+    ThreadLease(ThreadLease&& other) noexcept;
     ~ThreadLease();
 
-    ThreadLease& operator=(ThreadLease&& other);
+    ThreadLease& operator=(ThreadLease&& other) noexcept;
 
     Thread* get() const {
       return m_pThread;
@@ -137,10 +137,10 @@ class EXPORTED_PUBLIC Process {
   class EXPORTED_PUBLIC TerminalOwnerReservation {
    public:
     TerminalOwnerReservation();
-    TerminalOwnerReservation(TerminalOwnerReservation&& other);
+    TerminalOwnerReservation(TerminalOwnerReservation&& other) noexcept;
     ~TerminalOwnerReservation();
 
-    TerminalOwnerReservation& operator=(TerminalOwnerReservation&& other);
+    TerminalOwnerReservation& operator=(TerminalOwnerReservation&& other) noexcept;
 
     explicit operator bool() const {
       return m_pProcess != nullptr;

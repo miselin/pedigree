@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
     printf("Message creation failed.\n");
     return 1;
   } else
-    printf("Writing into message %x\n", pBuffer);
+    printf("Writing into message %p\n", static_cast<void*>(pBuffer));
 
   sprintf(pBuffer, "Hello, world!\n");
 
@@ -64,7 +64,7 @@ int main(int argc, char* argv[]) {
   recv(pEndpoint, &pRecv, false);
 
   // Display it.
-  printf("Got '%s' from the IPC server.\n", pRecv->getBuffer());
+  printf("Got '%s' from the IPC server.\n", static_cast<const char*>(pRecv->getBuffer()));
 
   // Clean up.
   delete pMessage;

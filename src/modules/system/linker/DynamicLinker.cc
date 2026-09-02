@@ -69,15 +69,16 @@ DynamicLinker::DynamicLinker()
       m_Objects() {}
 
 DynamicLinker::DynamicLinker(const DynamicLinker& other)
-    : m_pProgramElf(other.m_pProgramElf),
+    : m_pProgramElf(other.m_pProgramElf ? new Elf(*other.m_pProgramElf) : nullptr),
       m_ProgramStart(other.m_ProgramStart),
       m_ProgramSize(other.m_ProgramSize),
       m_ProgramBuffer(other.m_ProgramBuffer),
       m_LoadedObjects(other.m_LoadedObjects),
       m_Objects() {
-  m_pProgramElf = new Elf(*other.m_pProgramElf);
-  for (Tree<uintptr_t, SharedObject*>::ConstIterator it = other.m_Objects.begin();
-       it != other.m_Objects.end(); it++) {
+  // Tree iteration uses a tree-owned cursor. Walk our shallow node copy so
+  // copying a linker cannot disturb an active traversal of the source linker.
+  Tree<uintptr_t, SharedObject*> objects(other.m_Objects);
+  for (Tree<uintptr_t, SharedObject*>::Iterator it = objects.begin(); it != objects.end(); it++) {
     uintptr_t key = it.key();
     SharedObject* pSo = it.value();
     m_Objects.insert(

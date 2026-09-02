@@ -186,7 +186,7 @@ class EXPORTED_PUBLIC Directory : public File {
  protected:
   struct DirectoryEntryMetadata {
     DirectoryEntryMetadata();
-    DirectoryEntryMetadata(DirectoryEntryMetadata&& other);
+    DirectoryEntryMetadata(DirectoryEntryMetadata&& other) noexcept;
 
     ~DirectoryEntryMetadata();
 

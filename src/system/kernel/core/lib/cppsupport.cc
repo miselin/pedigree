@@ -36,12 +36,6 @@
 /// mode.
 #define DEBUG_ALLOCATOR_CHECK_UNDERFLOWS 1
 
-#if HOSTED
-#define PEDIGREE_NOEXCEPT
-#else
-#define PEDIGREE_NOEXCEPT noexcept
-#endif
-
 // We need to use __builtin_frame_* with non-zero arguments in some cases here.
 #if __GNUC__ && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wframe-address"
@@ -255,24 +249,30 @@ void __cxa_guard_release() {
 #define INDIR_REALLOC realloc
 #endif  // HOSTED
 
-extern "C" void* INDIR_MALLOC(size_t sz) {
+#if HOSTED
+#define PEDIGREE_ALLOCATOR_NOTHROW
+#else
+#define PEDIGREE_ALLOCATOR_NOTHROW C_NOTHROW
+#endif
+
+extern "C" PEDIGREE_ALLOCATOR_NOTHROW void* INDIR_MALLOC(size_t sz) {
   return reinterpret_cast<void*>(new uint8_t[sz]);
 }
 
-extern "C" void* INDIR_CALLOC(size_t num, size_t sz) {
+extern "C" PEDIGREE_ALLOCATOR_NOTHROW void* INDIR_CALLOC(size_t num, size_t sz) {
   void* result = reinterpret_cast<void*>(new uint8_t[num * sz]);
   ByteSet(result, 0, num * sz);
   return result;
 }
 
-extern "C" void INDIR_FREE(void* p) {
+extern "C" PEDIGREE_ALLOCATOR_NOTHROW void INDIR_FREE(void* p) {
   if (p == 0)
     return;
   // SlamAllocator::instance().free(reinterpret_cast<uintptr_t>(p));
   delete[] reinterpret_cast<uint8_t*>(p);
 }
 
-extern "C" void* INDIR_REALLOC(void* p, size_t sz) {
+extern "C" PEDIGREE_ALLOCATOR_NOTHROW void* INDIR_REALLOC(void* p, size_t sz) {
   if (p == 0)
     return INDIR_MALLOC(sz);
   if (sz == 0) {
@@ -293,6 +293,8 @@ extern "C" void* INDIR_REALLOC(void* p, size_t sz) {
   return tmp;
 }
 
+#undef PEDIGREE_ALLOCATOR_NOTHROW
+
 void* operator new(size_t, void* memory) noexcept {
   return memory;
 }
@@ -307,11 +309,11 @@ namespace std {
 enum class align_val_t : size_t {};
 }
 
-void* operator new(size_t size) PEDIGREE_NOEXCEPT {
+void* operator new(size_t size) {
   void* ret = reinterpret_cast<void*>(SlamAllocator::instance().allocate(size));
   return ret;
 }
-void* operator new[](size_t size) PEDIGREE_NOEXCEPT {
+void* operator new[](size_t size) {
   void* ret = reinterpret_cast<void*>(SlamAllocator::instance().allocate(size));
   return ret;
 }

@@ -79,16 +79,26 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+ARG LLVM_VERSION=22
+
 RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        gnupg \
+    && curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+        | gpg --dearmor -o /usr/share/keyrings/apt.llvm.org.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-${LLVM_VERSION} main" \
+        > /etc/apt/sources.list.d/apt.llvm.org.list \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         binutils \
         bison \
         build-essential \
-        ca-certificates \
-        clang \
-        clang-tools \
-        clang-format \
-        clang-tidy \
+        clang-${LLVM_VERSION} \
+        clang-tools-${LLVM_VERSION} \
+        clang-format-${LLVM_VERSION} \
+        clang-tidy-${LLVM_VERSION} \
         cmake \
         e2fsprogs \
         flex \
@@ -108,7 +118,7 @@ RUN apt-get update \
 
 COPY --from=toolchain-builder /opt/pedigree /opt/pedigree
 
-ENV PATH="/opt/pedigree/bin:${PATH}" \
+ENV PATH="/usr/lib/llvm-${LLVM_VERSION}/bin:/opt/pedigree/bin:${PATH}" \
     PEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree
 
 WORKDIR /workspace

@@ -87,7 +87,7 @@ void test_fs() {
     // Files that are expected to be deleted (might miss issues here in
     // fsck after their deletion).
     char fn[256];
-    sprintf(fn, "/testing/f%u", i);
+    sprintf(fn, "/testing/f%zu", i);
     fd = open(fn, O_RDWR | O_CREAT, 0666);
     if (fd < 0) {
       free(p);
@@ -101,7 +101,7 @@ void test_fs() {
     close(fd);
 
     // Same deal for the fscktest directory. fsck will pick these up.
-    sprintf(fn, "/fscktest/f%u", i);
+    sprintf(fn, "/fscktest/f%zu", i);
     fd = open(fn, O_RDWR | O_CREAT, 0666);
     if (fd < 0) {
       free(p);
@@ -120,7 +120,7 @@ void test_fs() {
   status("Testing file deletion... ");
   for (size_t i = 0; i < 5; ++i) {
     char fn[256];
-    sprintf(fn, "/testing/f%u", i);
+    sprintf(fn, "/testing/f%zu", i);
     unlink(fn);
   }
   OK;
@@ -134,7 +134,7 @@ void test_fs() {
   status("Testing further file deletion... ");
   for (size_t i = 5; i < 10; ++i) {
     char fn[256];
-    sprintf(fn, "/testing/f%u", i);
+    sprintf(fn, "/testing/f%zu", i);
     unlink(fn);
   }
   OK;

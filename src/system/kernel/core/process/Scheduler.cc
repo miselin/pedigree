@@ -56,7 +56,7 @@ Scheduler::ProcessLease::ProcessLease() : m_pProcess(nullptr), m_TerminationDefe
 Scheduler::ProcessLease::ProcessLease(Process* process)
     : m_pProcess(process), m_TerminationDeferral(process != nullptr) {}
 
-Scheduler::ProcessLease::ProcessLease(ProcessLease&& other)
+Scheduler::ProcessLease::ProcessLease(ProcessLease&& other) noexcept
     : m_pProcess(other.m_pProcess),
       m_TerminationDeferral(pedigree_std::move(other.m_TerminationDeferral)) {
   other.m_pProcess = nullptr;
@@ -66,7 +66,7 @@ Scheduler::ProcessLease::~ProcessLease() {
   reset();
 }
 
-Scheduler::ProcessLease& Scheduler::ProcessLease::operator=(ProcessLease&& other) {
+Scheduler::ProcessLease& Scheduler::ProcessLease::operator=(ProcessLease&& other) noexcept {
   if (this != &other) {
     if (other.m_pProcess) {
       m_TerminationDeferral = pedigree_std::move(other.m_TerminationDeferral);

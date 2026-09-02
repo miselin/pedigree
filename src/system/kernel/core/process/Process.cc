@@ -74,7 +74,7 @@ Process::ReaperClaim::ReaperClaim() : m_pProcess(nullptr), m_TerminationDeferral
 Process::ReaperClaim::ReaperClaim(Process* process)
     : m_pProcess(process), m_TerminationDeferral(process != nullptr) {}
 
-Process::ReaperClaim::ReaperClaim(ReaperClaim&& other)
+Process::ReaperClaim::ReaperClaim(ReaperClaim&& other) noexcept
     : m_pProcess(other.m_pProcess),
       m_TerminationDeferral(pedigree_std::move(other.m_TerminationDeferral)) {
   other.m_pProcess = nullptr;
@@ -86,7 +86,7 @@ Process::ReaperClaim::~ReaperClaim() {
   }
 }
 
-Process::ReaperClaim& Process::ReaperClaim::operator=(ReaperClaim&& other) {
+Process::ReaperClaim& Process::ReaperClaim::operator=(ReaperClaim&& other) noexcept {
   if (this != &other) {
     if (m_pProcess) {
       FATAL("Process reaper ownership overwritten before publication");
@@ -112,7 +112,8 @@ void Process::ReaperClaim::publish() {
 Process::TerminalOwnerReservation::TerminalOwnerReservation()
     : m_pProcess(nullptr), m_TerminationDeferral(false) {}
 
-Process::TerminalOwnerReservation::TerminalOwnerReservation(TerminalOwnerReservation&& other)
+Process::TerminalOwnerReservation::TerminalOwnerReservation(
+    TerminalOwnerReservation&& other) noexcept
     : m_pProcess(other.m_pProcess),
       m_TerminationDeferral(pedigree_std::move(other.m_TerminationDeferral)) {
   other.m_pProcess = nullptr;
@@ -125,7 +126,7 @@ Process::TerminalOwnerReservation::~TerminalOwnerReservation() {
 }
 
 Process::TerminalOwnerReservation& Process::TerminalOwnerReservation::operator=(
-    TerminalOwnerReservation&& other) {
+    TerminalOwnerReservation&& other) noexcept {
   if (this != &other) {
     if (m_pProcess) {
       FATAL("Process terminal-owner reservation overwritten before installation");
@@ -151,7 +152,7 @@ void Process::TerminalOwnerReservation::install(Thread* owner) {
 Process::ThreadLease::ThreadLease(Process* process, Thread* thread)
     : m_pProcess(process), m_pThread(thread), m_TerminationDeferral(process && thread) {}
 
-Process::ThreadLease::ThreadLease(ThreadLease&& other)
+Process::ThreadLease::ThreadLease(ThreadLease&& other) noexcept
     : m_pProcess(other.m_pProcess),
       m_pThread(other.m_pThread),
       m_TerminationDeferral(pedigree_std::move(other.m_TerminationDeferral)) {
@@ -163,7 +164,7 @@ Process::ThreadLease::~ThreadLease() {
   reset();
 }
 
-Process::ThreadLease& Process::ThreadLease::operator=(ThreadLease&& other) {
+Process::ThreadLease& Process::ThreadLease::operator=(ThreadLease&& other) noexcept {
   if (this != &other) {
     if (other.m_pProcess && other.m_pThread) {
       m_TerminationDeferral = pedigree_std::move(other.m_TerminationDeferral);

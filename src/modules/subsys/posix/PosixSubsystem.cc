@@ -176,9 +176,11 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
   m_SignalHandlersLock.acquire();
   s.m_SignalHandlersLock.enter();
 
+  // Tree iterators store their cursor in the tree, so iterate a shallow copy.
+  sigHandlerTree signalHandlers(s.m_SignalHandlers);
+
   // Copy all signal handlers
-  for (sigHandlerTree::Iterator it = s.m_SignalHandlers.begin(); it != s.m_SignalHandlers.end();
-       it++) {
+  for (sigHandlerTree::Iterator it = signalHandlers.begin(); it != signalHandlers.end(); it++) {
     size_t key = it.key();
     void* value = it.value();
     if (!value)
@@ -192,8 +194,9 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
   m_SignalHandlersLock.release();
 
   // Copy across waiter state.
-  for (Tree<void*, Semaphore*>::Iterator it = s.m_ThreadWaiters.begin();
-       it != s.m_ThreadWaiters.end(); ++it) {
+  Tree<void*, Semaphore*> threadWaiters(s.m_ThreadWaiters);
+  for (Tree<void*, Semaphore*>::Iterator it = threadWaiters.begin(); it != threadWaiters.end();
+       ++it) {
     void* key = it.key();
 
     Semaphore* sem = new Semaphore(0);

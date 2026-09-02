@@ -89,7 +89,7 @@ static void sigsegv_jumper(int s) {
 }
 
 static void status(const char* s) {
-  printf(s);
+  printf("%s", s);
   fflush(stdout);
 }
 

@@ -238,6 +238,7 @@ set(TESTSUITE_SRCS
     testsuite/test-SlamAllocator.cc
     testsuite/test-ScsiCommands.cc
     testsuite/test-utility.cc
+    testsuite/test-SharedPointerCopy.cc
     testsuite/test-String.cc
     testsuite/test-Vector.cc
     testsuite/test-memory.cc

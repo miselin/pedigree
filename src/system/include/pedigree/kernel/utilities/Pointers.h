@@ -44,7 +44,7 @@ class UniqueCommon {
     return m_Pointer;
   }
 
-  void reset() {
+  void reset() noexcept {
     if (m_Pointer) {
       destroy();
       m_Pointer = 0;
@@ -56,16 +56,16 @@ class UniqueCommon {
  protected:
   UniqueCommon(T* p) : m_Pointer(p) {}
 
-  virtual void destroy() {
+  virtual void destroy() noexcept {
     delete m_Pointer;
   }
 
-  void setPointer(T* p) {
+  void setPointer(T* p) noexcept {
     m_Pointer = p;
   }
 
   /** Stop tracking the memory but don't free it. */
-  void release() {
+  void release() noexcept {
     m_Pointer = nullptr;
   }
 
@@ -85,15 +85,15 @@ class UniquePointer : public UniqueCommon<T> {
   }
 
   // move constructor
-  UniquePointer(UniquePointer<T>&& p) {
-    move_from(pedigree_std::move(p));
+  UniquePointer(UniquePointer<T>&& p) noexcept {
+    move_from(p);
   }
 
   // no copy construction permitted
   NOT_COPYABLE_OR_ASSIGNABLE(UniquePointer);
 
-  UniquePointer<T>& operator=(UniquePointer<T>&& p) {
-    move_from(pedigree_std::move(p));
+  UniquePointer<T>& operator=(UniquePointer<T>&& p) noexcept {
+    move_from(p);
     return *this;
   }
 
@@ -105,7 +105,7 @@ class UniquePointer : public UniqueCommon<T> {
  private:
   UniquePointer(T* p) : UniqueCommon<T>(p) {}
 
-  void move_from(UniquePointer<T>&& p) {
+  void move_from(UniquePointer<T>& p) noexcept {
     T* ptr = p.get();
     p.release();
 
@@ -125,15 +125,15 @@ class UniqueArray : public UniqueCommon<T> {
   }
 
   // move constructor
-  UniqueArray(UniqueArray<T>&& p) {
-    move_from(pedigree_std::move(p));
+  UniqueArray(UniqueArray<T>&& p) noexcept {
+    move_from(p);
   }
 
   // no copy construction permitted
   NOT_COPYABLE_OR_ASSIGNABLE(UniqueArray);
 
-  UniqueArray<T>& operator=(UniqueArray<T>&& p) {
-    move_from(pedigree_std::move(p));
+  UniqueArray<T>& operator=(UniqueArray<T>&& p) noexcept {
+    move_from(p);
     return *this;
   }
 
@@ -142,7 +142,7 @@ class UniqueArray : public UniqueCommon<T> {
   }
 
  protected:
-  virtual void destroy() override {
+  virtual void destroy() noexcept override {
     T* ptr = this->get();
     delete[] ptr;
   }
@@ -150,7 +150,7 @@ class UniqueArray : public UniqueCommon<T> {
  private:
   UniqueArray(T* p) : UniqueCommon<T>(p) {}
 
-  void move_from(UniqueArray<T>&& p) {
+  void move_from(UniqueArray<T>& p) noexcept {
     T* ptr = p.get();
     p.release();
 

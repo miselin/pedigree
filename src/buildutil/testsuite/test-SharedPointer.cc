@@ -39,7 +39,9 @@ TEST(PedigreeSharedPointer, TakeOwnership) {
 TEST(PedigreeSharedPointer, CopyOwnership) {
   // Should not provide a hit when run under Valgrind, either.
   SharedPointer<int> p(new int);
-  SharedPointer<int> p2(p);
+  // This copy is the behavior under test.
+  // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+  const SharedPointer<int> p2(p);
   EXPECT_TRUE(p);
   EXPECT_TRUE(p2);
 }
@@ -85,7 +87,9 @@ TEST(PedigreeSharedPointer, Deref) {
 TEST(PedigreeSharedPointer, Uniqueness) {
   SharedPointer<int> p(new int);
   EXPECT_TRUE(p.unique());
-  SharedPointer<int> p2(p);
+  // This copy is the behavior under test.
+  // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+  const SharedPointer<int> p2(p);
   EXPECT_FALSE(p.unique());
   EXPECT_FALSE(p2.unique());
 }

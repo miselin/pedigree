@@ -120,7 +120,7 @@ class HashTable {
   /**
    * Clear the HashTable.
    */
-  void clear() {
+  void clear() noexcept {
     delete[] m_Buckets;
     m_Buckets = nullptr;
     m_nBuckets = 0;
@@ -414,17 +414,17 @@ class HashTable {
     }
   }
 
-  SelfType& operator=(SelfType&& p) {
+  SelfType& operator=(SelfType&& p) noexcept(noexcept(m_Default = static_cast<V&&>(p.m_Default))) {
     if (this == &p)
       return *this;
 
     clear();
 
-    m_Default = pedigree_std::move(p.m_Default);
-    m_nBuckets = pedigree_std::move(p.m_nBuckets);
-    m_nItems = pedigree_std::move(p.m_nItems);
-    m_nMask = pedigree_std::move(p.m_nMask);
-    m_Buckets = pedigree_std::move(p.m_Buckets);
+    m_Default = static_cast<V&&>(p.m_Default);
+    m_nBuckets = p.m_nBuckets;
+    m_nItems = p.m_nItems;
+    m_nMask = p.m_nMask;
+    m_Buckets = p.m_Buckets;
 
     p.m_Buckets = nullptr;
     p.clear();

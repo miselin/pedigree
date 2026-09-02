@@ -59,10 +59,10 @@ class EXPORTED_PUBLIC Scheduler {
   class EXPORTED_PUBLIC ProcessLease {
    public:
     ProcessLease();
-    ProcessLease(ProcessLease&& other);
+    ProcessLease(ProcessLease&& other) noexcept;
     ~ProcessLease();
 
-    ProcessLease& operator=(ProcessLease&& other);
+    ProcessLease& operator=(ProcessLease&& other) noexcept;
 
     Process* get() const {
       return m_pProcess;

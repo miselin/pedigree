@@ -59,10 +59,10 @@ class EXPORTED_PUBLIC String {
   explicit String(const Cord& x);
   String(const String& x);
   explicit String(const StringView& x);
-  String(String&& x);
+  String(String&& x) noexcept;
   virtual ~String();
 
-  String& operator=(String&& x);
+  String& operator=(String&& x) noexcept;
   String& operator=(const Cord& x);
   String& operator=(const String& x);
 #if STRING_DISABLE_EXPENSIVE_COPY_CONSTRUCTION
@@ -190,7 +190,7 @@ class EXPORTED_PUBLIC String {
    */
   void assign(const char* s, size_t len = 0, bool unsafe = false);
   void reserve(size_t size);
-  virtual void clear();
+  virtual void clear() noexcept;
 
   /** Resize the buffer to fit the actual string. */
   void downsize();
@@ -233,7 +233,7 @@ class EXPORTED_PUBLIC String {
   /** Extract the correct string buffer for this string. */
   virtual char* extract() const;
   /** Move another string into this one. */
-  void move(String&& other);
+  void move(String&& other) noexcept;
   /** Pointer to the zero-terminated ASCII string */
   char* m_Data;
   /** The string's length */
@@ -269,7 +269,7 @@ class ConstantString : public String {
     computeHash();
   }
 
-  virtual void clear() override {}
+  virtual void clear() noexcept override {}
 
  private:
   virtual char* extract() const override {

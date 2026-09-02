@@ -27,13 +27,13 @@ class UniqueResource {
  public:
   UniqueResource() : m_Resource(nullptr) {}
 
-  UniqueResource(UniqueResource&& other) : m_Resource(other.release()) {}
+  UniqueResource(UniqueResource&& other) noexcept : m_Resource(other.release()) {}
 
   ~UniqueResource() {
     reset();
   }
 
-  UniqueResource& operator=(UniqueResource&& other) {
+  UniqueResource& operator=(UniqueResource&& other) noexcept {
     if (this != &other) {
       reset();
       m_Resource = other.release();
@@ -63,14 +63,14 @@ class UniqueResource {
   }
 
   /** Transfers ownership to a caller or another lifetime domain. */
-  MUST_USE_RESULT T* release() {
+  MUST_USE_RESULT T* release() noexcept {
     T* resource = m_Resource;
     m_Resource = nullptr;
     return resource;
   }
 
   /** Releases the current resource, then adopts its replacement. */
-  void reset(T* replacement = nullptr) {
+  void reset(T* replacement = nullptr) noexcept {
     if (replacement == m_Resource) {
       return;
     }

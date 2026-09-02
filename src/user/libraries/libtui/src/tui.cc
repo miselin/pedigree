@@ -27,6 +27,7 @@
 #include <unistd.h>
 
 #include <sys/klog.h>
+#include <sys/select.h>
 
 struct TuiLocal {
   Terminal* pTerminal = nullptr;

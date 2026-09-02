@@ -59,7 +59,7 @@ class EXPORTED_PUBLIC WaitQueue {
 
   class EXPORTED_PUBLIC Guard {
    public:
-    Guard(Guard&& other);
+    Guard(Guard&& other) noexcept;
     ~Guard();
 
     /**

@@ -45,7 +45,7 @@ class SharedPointer {
    * When moving out of a SharedPointer, the previous instance becomes
    * invalid and must be re-initialized.
    */
-  SharedPointer(SharedPointer<T>&& other);
+  SharedPointer(SharedPointer<T>&& other) noexcept;
 
   /**
    * Destruction, which automatically frees the pointer if no owners remain.
@@ -91,7 +91,7 @@ class SharedPointer {
   /**
    * Move the other SharedPointer instance into this one.
    */
-  SharedPointer<T>& operator=(SharedPointer<T>&& p);
+  SharedPointer<T>& operator=(SharedPointer<T>&& p) noexcept;
 
   /**
    * Whether or not this pointer is valid.
@@ -129,7 +129,7 @@ class SharedPointer {
   /**
    * Internal do-er to release a reference to the held object.
    */
-  void release();
+  void release() noexcept;
 
   /**
    * Main control structure, shared across all SharedPointers referencing
@@ -150,8 +150,8 @@ SharedPointer<T>::SharedPointer(T* ptr) : m_Control(0) {
 }
 
 template <class T>
-SharedPointer<T>::SharedPointer(SharedPointer<T>&& other) {
-  m_Control = pedigree_std::move(other.m_Control);
+SharedPointer<T>::SharedPointer(SharedPointer<T>&& other) noexcept {
+  m_Control = other.m_Control;
 
   other.m_Control = nullptr;
 }
@@ -222,9 +222,9 @@ SharedPointer<T>& SharedPointer<T>::operator=(const SharedPointer<T>& p) {
 }
 
 template <class T>
-SharedPointer<T>& SharedPointer<T>::operator=(SharedPointer<T>&& p) {
+SharedPointer<T>& SharedPointer<T>::operator=(SharedPointer<T>&& p) noexcept {
   release();
-  m_Control = pedigree_std::move(p.m_Control);
+  m_Control = p.m_Control;
   p.m_Control = nullptr;
 
   return *this;
@@ -257,7 +257,7 @@ SharedPointer<T> SharedPointer<T>::allocate(Args... args) {
 }
 
 template <class T>
-void SharedPointer<T>::release() {
+void SharedPointer<T>::release() noexcept {
   if (!m_Control)
     return;
 
