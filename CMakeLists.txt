@@ -684,7 +684,7 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             ${CMAKE_SOURCE_DIR}/images/base/etc/shadow
             libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS}
             pedigree-c-sdk
-            ${PEDIGREE_C_SDK_HEADER}
+            ${PEDIGREE_C_SDK_HEADERS}
             ${PEDIGREE_C_SDK_LIBRARY}
             ${PEDIGREE_KEYMAPS_TARGETS} ${PEDIGREE_KEYMAPS}
             host-ext2img

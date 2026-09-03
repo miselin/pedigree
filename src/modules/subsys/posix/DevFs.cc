@@ -38,9 +38,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "modules/system/console/Console.h"
-
-// <sys/fb.h> in userspace
-#include "musl/fb.h"
+#include <pedigree/fb.h>
 
 /// \todo these come from somewhere - expose them properly
 #define ALT_KEY (1ULL << 60)
@@ -116,7 +114,7 @@ File* PtmxFile::open() {
   ConsoleMasterFile* pMaster =
       new ConsoleMasterFile(terminal, masterName, m_pPtsDirectory->getFilesystem());
   ConsoleSlaveFile* pSlave =
-      new ConsoleSlaveFile(terminal, slaveName, m_pPtsDirectory->getFilesystem());
+      new ConsoleSlaveFile(terminal, slaveName, m_pPtsDirectory->getFilesystem(), m_pPtsDirectory);
 
   pMaster->setOther(pSlave);
   pSlave->setOther(pMaster);

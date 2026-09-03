@@ -44,6 +44,15 @@ constexpr uint64_t RestorableRflags = 0x50DD5;
 constexpr uint64_t SafeUserRflags = 0x202;
 constexpr uint64_t SupportedUcontextFlags = 0x6;
 constexpr uintptr_t MaximumCanonicalUserAddress = 0x00007FFFFFFFFFFF;
+constexpr uint16_t IretUserCodeSegment = 0x1B;
+constexpr uint16_t SysretUserCodeSegment = 0x2B;
+constexpr uint16_t UserStackSegment = 0x23;
+
+bool userCodeSegment(uint16_t selector) {
+  // Initial userspace entry uses IRET, while every subsequent syscall return
+  // derives the second valid code selector from IA32_STAR.
+  return selector == IretUserCodeSegment || selector == SysretUserCodeSegment;
+}
 
 uintptr_t alignDown(uintptr_t value, uintptr_t alignment) {
   return value & ~(alignment - 1);
@@ -167,9 +176,10 @@ LinuxAmd64Signal::DeliveryResult LinuxAmd64Signal::deliverSynchronous(
     return NotApplicable;
   }
 
-  if (signal <= 0 || signal > 64 || state.kernelMode() || state.getCodeSegment() != 0x1B ||
-      state.getStackSegment() != 0x23 || !(disposition.flags & SA_RESTORER) ||
-      !userExecutable(disposition.handler) || !userExecutable(disposition.restorer)) {
+  if (signal <= 0 || signal > 64 || state.kernelMode() ||
+      !userCodeSegment(state.getCodeSegment()) || state.getStackSegment() != UserStackSegment ||
+      !(disposition.flags & SA_RESTORER) || !userExecutable(disposition.handler) ||
+      !userExecutable(disposition.restorer)) {
     return Failed;
   }
 
@@ -280,9 +290,9 @@ void LinuxAmd64Signal::sigreturn(SyscallState& state) {
   MemoryCopy(&frame, reinterpret_cast<const void*>(frameAddress), sizeof(frame));
   const Sigcontext& context = frame.ucontext.mcontext;
 
-  if ((frame.ucontext.flags & ~SupportedUcontextFlags) || context.cs != 0x1B ||
-      context.ss != 0x23 || !userBounds(context.rip, 1) || !userBounds(context.rsp, 1) ||
-      !context.fpstate || (context.fpstate & 0x3F) ||
+  if ((frame.ucontext.flags & ~SupportedUcontextFlags) || !userCodeSegment(context.cs) ||
+      context.ss != UserStackSegment || !userBounds(context.rip, 1) ||
+      !userBounds(context.rsp, 1) || !context.fpstate || (context.fpstate & 0x3F) ||
       !userRegion(context.fpstate, sizeof(Fpstate), PosixSubsystem::SafeRead)) {
     badFrame();
     return;

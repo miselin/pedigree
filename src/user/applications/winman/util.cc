@@ -25,7 +25,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <sys/fb.h>
+#include <pedigree/fb.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 

@@ -113,10 +113,27 @@ fi
 if [ ! -f "$upstream_snapshot/clone.s" ]; then
     cp src/thread/x86_64/clone.s "$upstream_snapshot/clone.s"
 fi
+if [ ! -f "$upstream_snapshot/restore.s" ]; then
+    cp src/signal/x86_64/restore.s "$upstream_snapshot/restore.s"
+fi
+if [ ! -f "$upstream_snapshot/vfork.s" ]; then
+    cp src/process/x86_64/vfork.s "$upstream_snapshot/vfork.s"
+fi
+if [ ! -f "$upstream_snapshot/__set_thread_area.s" ]; then
+    cp src/thread/x86_64/__set_thread_area.s \
+        "$upstream_snapshot/__set_thread_area.s"
+fi
+if [ ! -f "$upstream_snapshot/__unmapself.s" ]; then
+    cp src/thread/x86_64/__unmapself.s "$upstream_snapshot/__unmapself.s"
+fi
 
+config_include_dir=${PEDIGREE_CONFIG_INCLUDE_DIR:-$SRCDIR/build}
 rm -f src/internal/pedigree-musl.c
 case "$ARCH_TARGET" in
     HOSTED)
+        pedigree_cppflags="-I$SRCDIR/src/modules/subsys/posix/syscalls"
+        pedigree_cppflags="$pedigree_cppflags -I$SRCDIR/src/system/include"
+        pedigree_cppflags="$pedigree_cppflags -I$config_include_dir -DHOSTED=1"
         cp "$SRCDIR/src/modules/subsys/posix/musl/glue-musl.c" \
             src/internal/pedigree-musl.c
         cp "$SRCDIR/src/modules/subsys/posix/musl/clone-hosted-amd64.musl-s" \
@@ -125,13 +142,25 @@ case "$ARCH_TARGET" in
             arch/x86_64/syscall_arch.h
         cp "$SRCDIR/src/modules/subsys/posix/musl/syscall_cp-amd64.musl-s" \
             src/thread/x86_64/syscall_cp.s
+        # These upstream trampolines issue raw Linux syscalls. Hosted builds
+        # select musl's C fallbacks so every call stays behind the bridge.
+        rm -f src/signal/x86_64/restore.s
+        rm -f src/process/x86_64/vfork.s
+        rm -f src/thread/x86_64/{__unmapself,__set_thread_area}.s
         # Hosted page geometry is supplied through AT_PAGESZ at runtime.
         : >arch/x86_64/bits/limits.h
         ;;
     X64)
+        pedigree_cppflags=
         cp "$upstream_snapshot/clone.s" src/thread/x86_64/clone.s
         cp "$upstream_snapshot/syscall_arch.h" arch/x86_64/syscall_arch.h
         cp "$upstream_snapshot/syscall_cp.s" src/thread/x86_64/syscall_cp.s
+        cp "$upstream_snapshot/restore.s" src/signal/x86_64/restore.s
+        cp "$upstream_snapshot/vfork.s" src/process/x86_64/vfork.s
+        cp "$upstream_snapshot/__set_thread_area.s" \
+            src/thread/x86_64/__set_thread_area.s
+        cp "$upstream_snapshot/__unmapself.s" \
+            src/thread/x86_64/__unmapself.s
         printf '#define PAGESIZE 4096\n' >arch/x86_64/bits/limits.h
         ;;
     *)
@@ -139,22 +168,6 @@ case "$ARCH_TARGET" in
         exit 1
         ;;
 esac
-
-# Remove default signal restore (but we should add one of our own).
-rm -f src/signal/x86_64/restore.s
-
-# No vfork()
-rm -f src/process/x86_64/vfork.s
-
-# Keep the target-specific clone trampoline. The generic C fallback only
-# returns -ENOSYS.
-rm -f src/thread/x86_64/{__unmapself,__set_thread_area}.s
-
-# Custom ttyname that doesn't use /proc
-cp "$SRCDIR/src/modules/subsys/posix/musl/ttyname.c" src/unistd/ttyname_r.c
-
-# Copy custom target headers.
-cp "$SRCDIR/src/modules/subsys/posix/musl/fb.h" include/sys/
 
 rm -rf build
 mkdir -p build
@@ -204,8 +217,7 @@ case "${PEDIGREE_DTRELR:-OFF}" in
         ;;
 esac
 
-config_include_dir=${PEDIGREE_CONFIG_INCLUDE_DIR:-$SRCDIR/build}
-CPPFLAGS="-I$SRCDIR/src/modules/subsys/posix/syscalls -I$SRCDIR/src/system/include -I$config_include_dir -D$ARCH_TARGET=1" \
+CPPFLAGS="$pedigree_cppflags" \
 CFLAGS="-O2 -g3 -ggdb -fno-omit-frame-pointer -fPIC" CROSS_COMPILE="$cross_compile_prefix" \
 LDFLAGS="$musl_ldflags" \
 ../configure --target=$COMPILER_TARGET --prefix=/usr \
@@ -240,6 +252,30 @@ syscall_cp_disassembly=$(
         "$staged_target/usr/lib/libc.so" 2>>musl.log
 ) || die
 syscall_cp_syscalls=$(printf '%s\n' "$syscall_cp_disassembly" | grep -c '[[:space:]]syscall')
+restore_disassembly=$(
+    "$objdump_tool" -d --disassemble=__restore_rt \
+        "$staged_target/usr/lib/libc.so" 2>>musl.log
+) || die
+restore_syscalls=$(printf '%s\n' "$restore_disassembly" | grep -c '[[:space:]]syscall')
+vfork_disassembly=$(
+    "$objdump_tool" -d --disassemble=vfork \
+        "$staged_target/usr/lib/libc.so" 2>>musl.log
+) || die
+vfork_syscalls=$(printf '%s\n' "$vfork_disassembly" | grep -c '[[:space:]]syscall')
+set_thread_area_disassembly=$(
+    "$objdump_tool" -d --disassemble=__set_thread_area \
+        "$staged_target/usr/lib/libc.so" 2>>musl.log
+) || die
+set_thread_area_syscalls=$(
+    printf '%s\n' "$set_thread_area_disassembly" | grep -c '[[:space:]]syscall'
+)
+unmapself_disassembly=$(
+    "$objdump_tool" -d --disassemble=__unmapself \
+        "$staged_target/usr/lib/libc.so" 2>>musl.log
+) || die
+unmapself_syscalls=$(
+    printf '%s\n' "$unmapself_disassembly" | grep -c '[[:space:]]syscall'
+)
 case "$ARCH_TARGET" in
     HOSTED)
         if [ "$clone_syscalls" -ne 0 ] || \
@@ -260,6 +296,18 @@ case "$ARCH_TARGET" in
             printf '%s\n' "$syscall_cp_disassembly" >>musl.log
             die
         fi
+        if [ "$restore_syscalls" -ne 0 ] || \
+            [ "$vfork_syscalls" -ne 0 ] || \
+            [ "$set_thread_area_syscalls" -ne 0 ] || \
+            [ "$unmapself_syscalls" -ne 0 ]; then
+            echo "Hosted musl process, thread, and signal trampolines contain raw syscalls." \
+                >>musl.log
+            printf '%s\n' "$restore_disassembly" >>musl.log
+            printf '%s\n' "$vfork_disassembly" >>musl.log
+            printf '%s\n' "$set_thread_area_disassembly" >>musl.log
+            printf '%s\n' "$unmapself_disassembly" >>musl.log
+            die
+        fi
         ;;
     X64)
         if [ "$clone_syscalls" -lt 2 ]; then
@@ -274,6 +322,18 @@ case "$ARCH_TARGET" in
             echo "Native musl cancellation did not use the raw Linux syscall ABI." \
                 >>musl.log
             printf '%s\n' "$syscall_cp_disassembly" >>musl.log
+            die
+        fi
+        if [ "$restore_syscalls" -lt 1 ] || \
+            [ "$vfork_syscalls" -lt 1 ] || \
+            [ "$set_thread_area_syscalls" -lt 1 ] || \
+            [ "$unmapself_syscalls" -lt 2 ]; then
+            echo "Native musl did not retain its upstream process, thread, and signal trampolines." \
+                >>musl.log
+            printf '%s\n' "$restore_disassembly" >>musl.log
+            printf '%s\n' "$vfork_disassembly" >>musl.log
+            printf '%s\n' "$set_thread_area_disassembly" >>musl.log
+            printf '%s\n' "$unmapself_disassembly" >>musl.log
             die
         fi
         ;;

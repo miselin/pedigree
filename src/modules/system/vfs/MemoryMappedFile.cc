@@ -174,7 +174,7 @@ void AnonymousMemoryMap::setPermissions(MemoryMappedObject::Permissions perms) {
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
 
   if (perms == MemoryMappedObject::None) {
-    unmap();
+    unmapUnlocked();
   } else {
     // Adjust any existing mappings in this object.
     for (List<void*>::Iterator it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {

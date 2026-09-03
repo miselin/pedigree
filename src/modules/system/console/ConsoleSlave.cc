@@ -29,7 +29,11 @@ class Filesystem;
 extern const char defaultControl[MAX_CONTROL_CHAR];
 
 ConsoleSlaveFile::ConsoleSlaveFile(size_t consoleNumber, String consoleName, Filesystem* pFs)
-    : ConsoleFile(consoleNumber, consoleName, pFs) {}
+    : ConsoleSlaveFile(consoleNumber, consoleName, pFs, nullptr) {}
+
+ConsoleSlaveFile::ConsoleSlaveFile(size_t consoleNumber, String consoleName, Filesystem* pFs,
+                                   File* pParent)
+    : ConsoleFile(consoleNumber, consoleName, pFs, pParent) {}
 
 uint64_t ConsoleSlaveFile::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                         bool bCanBlock) {

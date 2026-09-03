@@ -803,6 +803,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
 target_include_directories(posix PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/include
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls)
 target_compile_definitions(posix PRIVATE
@@ -887,7 +888,8 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     set(PEDIGREE_SUBSYSTEM_LIBS PARENT_SCOPE)
 else ()
     set(PEDIGREE_C_SDK_ROOT "${CMAKE_BINARY_DIR}/pedigree-c-sdk")
-    set(PEDIGREE_C_SDK_HEADER
+    set(PEDIGREE_C_SDK_HEADERS
+        "${PEDIGREE_C_SDK_ROOT}/usr/include/pedigree/fb.h"
         "${PEDIGREE_C_SDK_ROOT}/usr/include/pedigree/log.h")
     set(PEDIGREE_C_SDK_LIBRARY
         "${PEDIGREE_C_SDK_ROOT}/usr/lib/libpedigree-c.so")
@@ -896,20 +898,24 @@ else ()
             "${PEDIGREE_C_SDK_ROOT}/usr/include/pedigree"
             "${PEDIGREE_C_SDK_ROOT}/usr/lib"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/include/pedigree/fb.h"
+            "${PEDIGREE_C_SDK_ROOT}/usr/include/pedigree/fb.h"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/include/pedigree/log.h"
-            "${PEDIGREE_C_SDK_HEADER}"
+            "${PEDIGREE_C_SDK_ROOT}/usr/include/pedigree/log.h"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:pedigree-c-user>
             "${PEDIGREE_C_SDK_LIBRARY}"
         DEPENDS
             pedigree-c-user
+            ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/include/pedigree/fb.h
             ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/include/pedigree/log.h
         BYPRODUCTS
-            "${PEDIGREE_C_SDK_HEADER}"
+            ${PEDIGREE_C_SDK_HEADERS}
             "${PEDIGREE_C_SDK_LIBRARY}"
         VERBATIM)
     set(PEDIGREE_C_SDK_ROOT "${PEDIGREE_C_SDK_ROOT}" PARENT_SCOPE)
-    set(PEDIGREE_C_SDK_HEADER "${PEDIGREE_C_SDK_HEADER}" PARENT_SCOPE)
+    set(PEDIGREE_C_SDK_HEADERS "${PEDIGREE_C_SDK_HEADERS}" PARENT_SCOPE)
     set(PEDIGREE_C_SDK_LIBRARY "${PEDIGREE_C_SDK_LIBRARY}" PARENT_SCOPE)
     set(PEDIGREE_SUBSYSTEM_LIBS $<TARGET_FILE:native-user> PARENT_SCOPE)
 endif ()
@@ -981,12 +987,10 @@ set(PEDIGREE_MUSL_PORT_INPUTS
     ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-sdk-manifest-v1.schema.json
     ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-1.2.6-cve-2026-40200-qsort.patch
     ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-1.2.6-cve-2026-6042-iconv.patch
-    ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/fb.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/ttyname.c
-    ${PEDIGREE_MUSL_CONFIG_DIR}/config.h)
+    ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh)
 if (PEDIGREE_MUSL_ARCH_TARGET STREQUAL "HOSTED")
     list(APPEND PEDIGREE_MUSL_PORT_INPUTS
+        ${PEDIGREE_MUSL_CONFIG_DIR}/config.h
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/clone-hosted-amd64.musl-s
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/glue-musl.c
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_arch.h
@@ -1201,6 +1205,17 @@ add_custom_target(libc ALL
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}
     VERBATIM)
 add_dependencies(pedigree_musl_headers libc)
+
+if (BUILD_TESTING AND Python3_EXECUTABLE AND
+    PEDIGREE_MUSL_ARCH_TARGET STREQUAL "X64")
+    add_test(
+        NAME musl-source-purity-tests
+        COMMAND ${CMAKE_COMMAND} -E env
+            PEDIGREE_MUSL_ARCHIVE=${MUSL_ARCHIVE}
+            PEDIGREE_MUSL_SOURCE=${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}
+            ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_musl_source_purity.py -v)
+endif ()
 
 set(PEDIGREE_KERNEL_MODULES ${PEDIGREE_KERNEL_MODULES} PARENT_SCOPE)
 set(PEDIGREE_KERNEL_MODULE_TARGETS ${PEDIGREE_KERNEL_MODULE_TARGETS} PARENT_SCOPE)

@@ -70,6 +70,16 @@ adding or implementing a Linux-compatible syscall does not require rebuilding
 libc unless its public API also changes. Hosted builds retain a separate bridge
 because a raw syscall there would enter the host operating system.
 
+The native target does not replace or remove any musl source files and does not
+inject Pedigree headers or target macros while compiling it. Its source tree is
+the verified upstream archive plus the maintained upstream security backports.
+Pedigree-specific headers are provided by the separate platform SDK.
+
+Linux syscall 58 currently uses Pedigree's existing fork implementation. This
+preserves the previous safe compatibility behavior while allowing the upstream
+musl `vfork` entry point to be used, but does not yet provide Linux's shared-VM,
+parent-blocking `vfork` semantics.
+
 The POSIX module owns the amd64 Linux-number table used by this boundary; it no
 longer imports musl's private `bits/syscall.h` definitions.
 
@@ -206,7 +216,8 @@ consumers should use the manifest's `usr/include` and `usr/lib` paths.
 
 Pedigree-specific APIs are staged separately from libc. In particular,
 `pedigree_log` is provided by `libpedigree-c` and declared by
-`<pedigree/log.h>`; neither is patched into musl. This keeps the platform API
+`<pedigree/log.h>`, while the framebuffer device ABI is declared by
+`<pedigree/fb.h>`. Neither is patched into musl. This keeps the platform API
 available to native packages without making it part of the libc provider.
 
 This makes musl a package-shaped build product, but it is not yet safe to

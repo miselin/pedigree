@@ -26,8 +26,8 @@
 #include <unistd.h>
 
 #include "pedigree_fb.h"
+#include <pedigree/fb.h>
 #include <pedigree/log.h>
-#include <sys/fb.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 

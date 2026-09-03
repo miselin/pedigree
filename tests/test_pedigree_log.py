@@ -69,7 +69,7 @@ class PedigreeLogBoundaryTests(unittest.TestCase):
         self.assertIn("add_custom_target(pedigree-c-sdk", modules_cmake)
         self.assertIn("usr/include/pedigree/log.h", modules_cmake)
         self.assertIn("libpedigree-c.so", modules_cmake)
-        self.assertIn("PEDIGREE_C_SDK_HEADER", modules_cmake)
+        self.assertIn("PEDIGREE_C_SDK_HEADERS", modules_cmake)
         self.assertIn("PEDIGREE_C_SDK_LIBRARY", modules_cmake)
         self.assertNotIn(
             'if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")\n'
@@ -85,8 +85,31 @@ class PedigreeLogBoundaryTests(unittest.TestCase):
         root_cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         self.assertIn("TARGET pedigree-c-sdk", root_cmake)
         self.assertIn("${PEDIGREE_C_SDK_ROOT}", root_cmake)
-        self.assertIn("${PEDIGREE_C_SDK_HEADER}", root_cmake)
+        self.assertIn("${PEDIGREE_C_SDK_HEADERS}", root_cmake)
         self.assertIn("${PEDIGREE_C_SDK_LIBRARY}", root_cmake)
+
+    def test_framebuffer_api_lives_in_the_platform_sdk(self):
+        header = PEDIGREE_C / "include/pedigree/fb.h"
+        modules_cmake = (ROOT / "src/modules/CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertTrue(header.exists())
+        self.assertFalse((MUSL / "fb.h").exists())
+        self.assertIn("usr/include/pedigree/fb.h", modules_cmake)
+        self.assertNotIn("subsys/posix/musl/fb.h", modules_cmake)
+
+        old_includes = []
+        for source_root in (ROOT / "src/modules", USER):
+            for source in source_root.rglob("*"):
+                if source.suffix not in {".c", ".cc", ".cpp", ".h", ".hpp"}:
+                    continue
+                if "<sys/fb.h>" in source.read_text(
+                    encoding="utf-8", errors="replace"
+                ):
+                    old_includes.append(source.relative_to(ROOT).as_posix())
+
+        self.assertEqual(old_includes, [])
 
 
 if __name__ == "__main__":

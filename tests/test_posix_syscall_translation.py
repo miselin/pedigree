@@ -35,14 +35,18 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         )
 
         # Snapshot of the previous translate.h resolved against musl 1.2.6's
-        # x86_64 bits/syscall.h. This locks both sides of all 148 mappings.
-        self.assertEqual(len(mapping), 148)
+        # x86_64 bits/syscall.h, plus Pedigree's explicit vfork compatibility
+        # route. This locks both sides of all 149 mappings.
+        self.assertEqual(len(mapping), 149)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "e412a8b17e1b5680351f462b876d434a7221513e351a876a42da56f7286c5874",
+            "b032194ece6aa8aa6dab025f05f01517ba18f1a4adb3bd6d65ec54c81fc40398",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))
+
+    def test_vfork_keeps_the_existing_safe_fork_behavior(self):
+        self.assertIn(("vfork", 58, "POSIX_FORK"), load_mapping())
 
     @unittest.skipUnless(CC, "requires a native C compiler")
     def test_every_owned_number_translates_without_libc_headers(self):

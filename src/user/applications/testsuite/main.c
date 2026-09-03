@@ -23,6 +23,7 @@
 
 extern void test_mprotect();
 extern void test_fs();
+extern void test_process();
 
 static jmp_buf buf;
 
@@ -42,6 +43,7 @@ int main(int argc, char* argv[]) {
 
   // Add calls to test functions here...
   test_mprotect();
+  test_process();
   test_fs();
 
   printf("Tests complete!\n");

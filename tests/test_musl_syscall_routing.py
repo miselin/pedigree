@@ -17,7 +17,15 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn('cp "$upstream_snapshot/syscall_arch.h"', x64_branch)
         self.assertIn('cp "$upstream_snapshot/syscall_cp.s"', x64_branch)
         self.assertIn('cp "$upstream_snapshot/clone.s"', x64_branch)
+        self.assertIn('cp "$upstream_snapshot/restore.s"', x64_branch)
+        self.assertIn('cp "$upstream_snapshot/vfork.s"', x64_branch)
+        self.assertIn(
+            'cp "$upstream_snapshot/__set_thread_area.s"', x64_branch
+        )
+        self.assertIn('cp "$upstream_snapshot/__unmapself.s"', x64_branch)
         self.assertNotIn("pedigree_translate_syscall", x64_branch)
+        self.assertNotIn("musl/ttyname.c", build_script)
+        self.assertNotIn("musl/fb.h", build_script)
         self.assertFalse((MUSL / "clone-amd64.musl-s").exists())
 
         glue = (MUSL / "glue-musl.c").read_text(encoding="utf-8")
@@ -54,6 +62,14 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         )[0]
         self.assertIn("syscall_arch.h", hosted_branch)
         self.assertIn("syscall_cp-amd64.musl-s", hosted_branch)
+        self.assertIn('pedigree_cppflags="-I$SRCDIR/', hosted_branch)
+        self.assertIn("-DHOSTED=1", hosted_branch)
+        self.assertIn("rm -f src/signal/x86_64/restore.s", hosted_branch)
+        self.assertIn("rm -f src/process/x86_64/vfork.s", hosted_branch)
+        self.assertIn(
+            "rm -f src/thread/x86_64/{__unmapself,__set_thread_area}.s",
+            hosted_branch,
+        )
 
         modules_cmake = (ROOT / "src/modules/CMakeLists.txt").read_text(
             encoding="utf-8"
@@ -63,7 +79,68 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         )[1].split("else ()", 1)[0]
         self.assertIn("processor/Syscalls.h", hosted_inputs)
 
+    def test_native_musl_trampoline_syscalls_are_mapped(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(munmap, 11, POSIX_MUNMAP)",
+            mappings,
+        )
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(rt_sigreturn, 15, PEDIGREE_SIGRET)",
+            mappings,
+        )
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(exit, 60, POSIX_EXIT)",
+            mappings,
+        )
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(vfork, 58, POSIX_FORK)",
+            mappings,
+        )
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(arch_prctl, 158, POSIX_ARCH_PRCTL)",
+            mappings,
+        )
+
+        build_script = (ROOT / "scripts/build-musl-amd64.sh").read_text(
+            encoding="utf-8"
+        )
+        for symbol in (
+            "__restore_rt",
+            "vfork",
+            "__set_thread_area",
+            "__unmapself",
+        ):
+            with self.subTest(symbol=symbol):
+                self.assertIn(f"--disassemble={symbol}", build_script)
+
+    def test_signal_return_accepts_iret_and_sysret_user_selectors(self):
+        signal_source = (
+            ROOT / "src/modules/subsys/posix/linux-amd64-signal.cc"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("IretUserCodeSegment = 0x1B", signal_source)
+        self.assertIn("SysretUserCodeSegment = 0x2B", signal_source)
+        self.assertEqual(signal_source.count("userCodeSegment("), 3)
+
     def test_musl_build_config_is_independent_of_kernel_options(self):
+        build_script = (ROOT / "scripts/build-musl-amd64.sh").read_text(
+            encoding="utf-8"
+        )
+        source_selection = build_script.split('case "$ARCH_TARGET" in', 1)[
+            1
+        ].split("esac", 1)[0]
+        x64_branch = source_selection.split("    X64)", 1)[1].split(
+            "    *)", 1
+        )[0]
+        self.assertIn("pedigree_cppflags=", x64_branch)
+        self.assertNotIn("PEDIGREE_CONFIG_INCLUDE_DIR", x64_branch)
+        self.assertNotIn("-DX64", x64_branch)
+
         modules_cmake = (ROOT / "src/modules/CMakeLists.txt").read_text(
             encoding="utf-8"
         )

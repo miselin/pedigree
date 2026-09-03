@@ -123,15 +123,19 @@ int main() {
   pedigree_log(LOG_INFO, "TEST 2");
   printf("Locking with deadlock\n");
   pthread_mutex_t deadlock_mutex;
-  errno = 0;
-  pthread_mutex_init(&deadlock_mutex, 0);
+  pthread_mutexattr_t deadlock_attr;
+  pthread_mutexattr_init(&deadlock_attr);
+  pthread_mutexattr_settype(&deadlock_attr, PTHREAD_MUTEX_ERRORCHECK);
+  pthread_mutex_init(&deadlock_mutex, &deadlock_attr);
+  pthread_mutexattr_destroy(&deadlock_attr);
   i = pthread_mutex_lock(&deadlock_mutex);
-  printf("First lock: %d (%s)\n", i, strerror(errno));
+  printf("First lock: %d (%s)\n", i, strerror(i));
   i = pthread_mutex_lock(&deadlock_mutex);
-  if (errno != EDEADLK)
+  if (i != EDEADLK)
     printf("Didn't get EDEADLK!\n");
-  printf("Second lock: %d (%s)\n", i, strerror(errno));
+  printf("Second lock: %d (%s)\n", i, strerror(i));
   pthread_mutex_unlock(&deadlock_mutex);
+  pthread_mutex_destroy(&deadlock_mutex);
 
   // Creating the list content...
   for (i = 0; i < LOOPS; i++)

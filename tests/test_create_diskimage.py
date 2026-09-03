@@ -55,6 +55,7 @@ class DiskImageLayoutTests(unittest.TestCase):
                 musl / "usr/lib" / "libc.so": "libc",
                 musl / "usr/include" / "stdio.h": "header",
                 musl / "usr/share/pedigree/libc/manifest.json": "{}\n",
+                pedigree_c_sdk / "usr/include/pedigree/fb.h": "header",
                 pedigree_c_sdk / "usr/include/pedigree/log.h": "header",
                 pedigree_c_sdk / "usr/lib/libpedigree-c.so": "library",
             }
@@ -106,6 +107,12 @@ class DiskImageLayoutTests(unittest.TestCase):
                 "symlink /usr/lib/ld-musl-x86_64.so.1 libc.so", commands
             )
             self.assertTrue(any(command.endswith(" /usr/include/stdio.h") for command in commands))
+            self.assertTrue(
+                any(
+                    command.endswith(" /usr/include/pedigree/fb.h")
+                    for command in commands
+                )
+            )
             self.assertTrue(
                 any(command.endswith(" /usr/include/pedigree/log.h") for command in commands)
             )

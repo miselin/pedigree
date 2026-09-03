@@ -35,8 +35,8 @@
 #include <unistd.h>
 #include <utmp.h>
 
+#include <pedigree/fb.h>
 #include <pedigree/log.h>
-#include <sys/fb.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/stat.h>

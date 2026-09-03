@@ -39,7 +39,10 @@ class Filesystem;
 extern const char defaultControl[MAX_CONTROL_CHAR];
 
 ConsoleFile::ConsoleFile(size_t consoleNumber, String consoleName, Filesystem* pFs)
-    : File(consoleName, 0, 0, 0, 0xdeadbeef, pFs, 0, 0),
+    : ConsoleFile(consoleNumber, consoleName, pFs, nullptr) {}
+
+ConsoleFile::ConsoleFile(size_t consoleNumber, String consoleName, Filesystem* pFs, File* pParent)
+    : File(consoleName, 0, 0, 0, 0xdeadbeef, pFs, 0, pParent),
       m_pOther(0),
       m_Flags(DEFAULT_FLAGS),
       m_Rows(25),

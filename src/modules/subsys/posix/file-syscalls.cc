@@ -782,6 +782,54 @@ int posix_readlink(const char* path, char* buf, unsigned int bufsize) {
   return posix_readlinkat(AT_FDCWD, path, buf, bufsize);
 }
 
+static bool parseProcSelfFdPath(const String& path, size_t& fd) {
+  static const char prefix[] = "/proc/self/fd/";
+  const size_t prefixLength = sizeof(prefix) - 1;
+  if (path.length() <= prefixLength || StringCompareN(path.cstr(), prefix, prefixLength)) {
+    return false;
+  }
+
+  const size_t maximum = ~static_cast<size_t>(0);
+  size_t result = 0;
+  for (size_t i = prefixLength; i < path.length(); ++i) {
+    const char value = path[i];
+    if (value < '0' || value > '9') {
+      return false;
+    }
+
+    const size_t digit = static_cast<size_t>(value - '0');
+    if (result > (maximum - digit) / 10) {
+      return false;
+    }
+    result = (result * 10) + digit;
+  }
+
+  fd = result;
+  return true;
+}
+
+static int readProcSelfFdTarget(size_t fd, char* buf, size_t bufsiz) {
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  DescriptorLease descriptor;
+  if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor) || !descriptor->file) {
+    // Linux exposes a closed descriptor as a missing procfs entry, not EBADF.
+    SYSCALL_ERROR(DoesNotExist);
+    return -1;
+  }
+
+  if (!bufsiz) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  String target;
+  descriptor->file->getFullPath(target);
+  const size_t copied = target.length() < bufsiz ? target.length() : bufsiz;
+  StringCopyN(buf, target.cstr(), copied);
+  return static_cast<int>(copied);
+}
+
 int posix_realpath(const char* path, char* buf, size_t bufsize) {
   F_NOTICE("realpath");
 
@@ -2849,6 +2897,11 @@ int posix_readlinkat(int dirfd, const char* pathname, char* buf, size_t bufsiz) 
 
   String realPath;
   normalisePath(realPath, pathnameCopy.cstr());
+
+  size_t procFd = 0;
+  if (parseProcSelfFdPath(realPath, procFd)) {
+    return readProcSelfFdTarget(procFd, buf, bufsiz);
+  }
 
   File* f = findFileWithAbiFallbacks(realPath, cwd);
   if (!f) {

@@ -21,7 +21,7 @@
 #define _WINMAN_UTIL_H
 
 #ifndef TARGET_LINUX
-#include <sys/fb.h>
+#include <pedigree/fb.h>
 #else
 #include <SDL/SDL.h>
 #endif

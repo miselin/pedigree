@@ -55,6 +55,7 @@ class ConsoleFile : public File {
 
  public:
   ConsoleFile(size_t consoleNumber, String consoleName, Filesystem* pFs);
+  ConsoleFile(size_t consoleNumber, String consoleName, Filesystem* pFs, File* pParent);
   virtual ~ConsoleFile() {}
 
   virtual bool isMaster() = 0;
@@ -217,6 +218,7 @@ class EXPORTED_PUBLIC ConsoleMasterFile : public ConsoleFile {
 class EXPORTED_PUBLIC ConsoleSlaveFile : public ConsoleFile {
  public:
   ConsoleSlaveFile(size_t consoleNumber, String consoleName, Filesystem* pFs);
+  ConsoleSlaveFile(size_t consoleNumber, String consoleName, Filesystem* pFs, File* pParent);
   virtual ~ConsoleSlaveFile() {}
 
   virtual uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
