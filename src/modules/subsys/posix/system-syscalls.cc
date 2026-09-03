@@ -85,6 +85,27 @@
 #define LINUX_GRND_NONBLOCK 0x1
 #define LINUX_GRND_RANDOM 0x2
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+namespace {
+using CloneBeforeStartHook = void (*)(Thread*, size_t, void*);
+
+CloneBeforeStartHook g_CloneBeforeStartHook = nullptr;
+void* g_CloneBeforeStartHookContext = nullptr;
+}  // namespace
+
+extern "C" EXPORTED_PUBLIC void posixSetCloneBeforeStartHookForTest(CloneBeforeStartHook hook,
+                                                                    void* context) {
+  if (hook) {
+    __atomic_store_n(&g_CloneBeforeStartHookContext, context, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_CloneBeforeStartHook, hook, __ATOMIC_RELEASE);
+  } else {
+    __atomic_store_n(&g_CloneBeforeStartHook, static_cast<CloneBeforeStartHook>(nullptr),
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&g_CloneBeforeStartHookContext, static_cast<void*>(nullptr), __ATOMIC_RELEASE);
+  }
+}
+#endif
+
 struct cap_header {
   uint32_t version;
   int pid;
@@ -314,26 +335,37 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     Thread* pThread = new Thread(pParentProcess, clonedState, true);
     pThread->setName("posix clone() thread");
     pThread->setTlsBase(newtls);
-    pThread->detach();
     if (flags & CLONE_CHILD_CLEARTID) {
       pThread->setClearChildTid(reinterpret_cast<uintptr_t>(ctid));
     }
 
+    // startDetached() may complete terminal cancellation and release the
+    // Thread before returning. Publish and retain only the stable numeric ID.
+    const size_t threadId = pThread->getId();
+
     // Update the child ID before letting the child run
     if (flags & CLONE_CHILD_SETTID) {
-      *ctid = pThread->getId();
+      *ctid = threadId;
     }
     if (flags & CLONE_PARENT_SETTID) {
-      *ptid = pThread->getId();
+      *ptid = threadId;
     }
 
-    if (!pThread->start()) {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    void* hookContext = __atomic_load_n(&g_CloneBeforeStartHookContext, __ATOMIC_ACQUIRE);
+    CloneBeforeStartHook hook = __atomic_load_n(&g_CloneBeforeStartHook, __ATOMIC_ACQUIRE);
+    if (hook) {
+      hook(pThread, threadId, hookContext);
+    }
+#endif
+
+    if (!pThread->startDetached()) {
       FATAL("clone(): delayed thread could not be started.");
     }
 
     // Parent gets the new thread ID.
-    SC_NOTICE(" -> " << pThread->getId() << " [new thread]");
-    return pThread->getId();
+    SC_NOTICE(" -> " << threadId << " [new thread]");
+    return threadId;
   }
 
   // No child stack means CoW the existing one, but if one is specified we

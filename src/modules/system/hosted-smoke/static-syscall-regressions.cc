@@ -25,6 +25,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/errors.h"
 #include "pedigree/kernel/linker/KernelElf.h"
+#include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
@@ -36,10 +37,14 @@
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include <sched.h>
+
 #include "modules/subsys/posix/syscalls/posixSyscallNumbers.h"
 
 extern void system_reset();
 extern "C" bool posixDuplicateInitRollbackPreservesProcessForTest(Process* processIdentity);
+extern "C" void posixSetCloneBeforeStartHookForTest(void (*hook)(Thread*, size_t, void*),
+                                                    void* context);
 
 namespace {
 constexpr size_t HostedAttempts = 10000;
@@ -1939,6 +1944,501 @@ bool cloneStateDropsParentErrnoDestination() {
   return true;
 }
 
+enum CloneVmBeforeStartAction {
+  CancelChildBeforeStart,
+  WaitForProcessExit,
+};
+
+struct CloneVmExitRaceContext {
+  explicit CloneVmExitRaceContext(CloneVmBeforeStartAction action)
+      : process(nullptr),
+        caller(nullptr),
+        terminator(nullptr),
+        child(nullptr),
+        action(action),
+        beforeStart(0, true),
+        parentTid(-1),
+        childTid(-1),
+        observedTid(0),
+        childTls(0),
+        callerEntered(0),
+        callerReturned(0),
+        terminatorEntered(0),
+        terminatorReturned(0),
+        hookCalls(0),
+        tidsReady(0),
+        terminationElectionCalls(0),
+        ownershipWindowReleased(0),
+        ownershipCancellationObserved(0),
+        ownershipStartObserved(0),
+        controlledHookRelease(0),
+        electionTimedOut(0),
+        schedulerPredicateInstalled(0),
+        schedulerPredicateInstallFailed(0),
+        schedulerPredicateReleased(0),
+        cloneResult(static_cast<size_t>(-1)),
+        childCancellationRequested(0),
+        childCancellationReapable(0),
+        terminatorStarted(0),
+        terminalCancellation(0),
+        unexpectedHookRelease(0),
+        hookTimedOut(0),
+        rescueCancellation(0),
+        processDestructions(0),
+        subsystemDestructions(0) {}
+
+  Process* process;
+  Thread* caller;
+  Thread* terminator;
+  Atomic<Thread*> child;
+  CloneVmBeforeStartAction action;
+  Semaphore beforeStart;
+  int parentTid;
+  int childTid;
+  size_t observedTid;
+  alignas(uintptr_t) uintptr_t childTls;
+  Atomic<size_t> callerEntered;
+  Atomic<size_t> callerReturned;
+  Atomic<size_t> terminatorEntered;
+  Atomic<size_t> terminatorReturned;
+  Atomic<size_t> hookCalls;
+  Atomic<size_t> tidsReady;
+  Atomic<size_t> terminationElectionCalls;
+  Atomic<size_t> ownershipWindowReleased;
+  Atomic<size_t> ownershipCancellationObserved;
+  Atomic<size_t> ownershipStartObserved;
+  Atomic<size_t> controlledHookRelease;
+  Atomic<size_t> electionTimedOut;
+  Atomic<size_t> schedulerPredicateInstalled;
+  Atomic<size_t> schedulerPredicateInstallFailed;
+  Atomic<size_t> schedulerPredicateReleased;
+  Atomic<size_t> cloneResult;
+  Atomic<size_t> childCancellationRequested;
+  Atomic<size_t> childCancellationReapable;
+  Atomic<size_t> terminatorStarted;
+  Atomic<size_t> terminalCancellation;
+  Atomic<size_t> unexpectedHookRelease;
+  Atomic<size_t> hookTimedOut;
+  Atomic<size_t> rescueCancellation;
+  Atomic<size_t> processDestructions;
+  Atomic<size_t> subsystemDestructions;
+  alignas(16) uint8_t childStack[4096];
+};
+
+CloneVmExitRaceContext* g_CloneVmExitRaceContext = nullptr;
+
+class CloneVmExitRaceProcess final : public PosixProcess {
+ public:
+  CloneVmExitRaceProcess(Process* parent, Atomic<size_t>& destructions)
+      : PosixProcess(parent), m_Destructions(destructions) {}
+
+  ~CloneVmExitRaceProcess() override {
+    m_Destructions += 1;
+  }
+
+ private:
+  Atomic<size_t>& m_Destructions;
+};
+
+class CloneVmExitRaceSubsystem final : public PosixSubsystem {
+ public:
+  explicit CloneVmExitRaceSubsystem(Atomic<size_t>& destructions)
+      : PosixSubsystem(), m_Destructions(destructions) {}
+
+  ~CloneVmExitRaceSubsystem() override {
+    m_Destructions += 1;
+  }
+
+ private:
+  Atomic<size_t>& m_Destructions;
+};
+
+int terminateCloneVmProcess(void* parameter) {
+  CloneVmExitRaceContext* context = reinterpret_cast<CloneVmExitRaceContext*>(parameter);
+  context->terminatorEntered += 1;
+  SyscallManager::instance().syscall(posix, POSIX_EXIT_GROUP, 0);
+  context->terminatorReturned += 1;
+  return 1;
+}
+
+bool cloneVmChildReady(void* parameter) {
+  CloneVmExitRaceContext* context = reinterpret_cast<CloneVmExitRaceContext*>(parameter);
+  if (!context || !context->schedulerPredicateReleased) {
+    return false;
+  }
+  Thread* child = context->child.value();
+  return child && child->getUnwindState() == Thread::TerminateThread;
+}
+
+void terminateCloneVmBeforeStart(Thread* child, size_t threadId, void* parameter) {
+  CloneVmExitRaceContext* context = reinterpret_cast<CloneVmExitRaceContext*>(parameter);
+  if (!context || !child || child->getParent() != context->process) {
+    return;
+  }
+  context->child = child;
+  context->observedTid = threadId;
+  if (child->getId() == threadId && context->parentTid == static_cast<int>(threadId) &&
+      context->childTid == static_cast<int>(threadId) &&
+      context->childTls == reinterpret_cast<uintptr_t>(&context->childTls)) {
+    context->tidsReady += 1;
+  }
+  context->hookCalls += 1;
+
+  if (context->action == WaitForProcessExit) {
+    if (child->setSchedulerReadyPredicate(cloneVmChildReady, context)) {
+      context->schedulerPredicateInstalled += 1;
+    } else {
+      context->schedulerPredicateInstallFailed += 1;
+      context->rescueCancellation = 1;
+    }
+  }
+
+  bool cancelChild = context->action == CancelChildBeforeStart || context->rescueCancellation;
+  if (!cancelChild) {
+    const bool released = context->beforeStart.acquire(1, 5, 0);
+    cancelChild = context->rescueCancellation;
+    if (!cancelChild) {
+      if (released && context->ownershipWindowReleased) {
+        context->controlledHookRelease += 1;
+        return;
+      }
+      Thread* current = Processor::information().getCurrentThread();
+      if (!released && current && current->getUnwindState() == Thread::TerminateThread) {
+        context->terminalCancellation += 1;
+      } else {
+        context->unexpectedHookRelease += 1;
+        if (!released) {
+          context->hookTimedOut += 1;
+        }
+      }
+      return;
+    }
+  }
+
+  child->setUnwindState(Thread::TerminateThread);
+  context->schedulerPredicateReleased = 1;
+  context->childCancellationRequested += 1;
+  for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+    if (child->isReapableForHostedTest()) {
+      context->childCancellationReapable += 1;
+      if (context->schedulerPredicateInstallFailed) {
+        context->child = nullptr;
+      }
+      return;
+    }
+    Scheduler::instance().yield();
+  }
+  context->hookTimedOut += 1;
+  if (context->schedulerPredicateInstallFailed) {
+    context->child = nullptr;
+  }
+}
+
+void observeCloneVmTerminationElection(Process* process, Thread* owner) {
+  CloneVmExitRaceContext* context = __atomic_load_n(&g_CloneVmExitRaceContext, __ATOMIC_ACQUIRE);
+  if (!context || process != context->process || owner != context->terminator) {
+    return;
+  }
+  if (context->schedulerPredicateInstallFailed) {
+    return;
+  }
+
+  context->terminationElectionCalls += 1;
+  context->ownershipWindowReleased = 1;
+  context->beforeStart.release();
+  for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+    Thread* child = context->child.value();
+    if (child && context->callerReturned) {
+      if (child->getUnwindState() == Thread::TerminateThread &&
+          !child->wasStartPublishedForHostedTest()) {
+        context->ownershipCancellationObserved += 1;
+      } else {
+        context->ownershipStartObserved += 1;
+      }
+      context->schedulerPredicateReleased = 1;
+      return;
+    }
+    Scheduler::instance().yield();
+  }
+  context->electionTimedOut += 1;
+  context->schedulerPredicateReleased = 1;
+}
+
+void clearCloneVmHooks() {
+  posixSetCloneBeforeStartHookForTest(nullptr, nullptr);
+  Process::setTerminationElectionHook(nullptr);
+  __atomic_store_n(&g_CloneVmExitRaceContext, static_cast<CloneVmExitRaceContext*>(nullptr),
+                   __ATOMIC_RELEASE);
+}
+
+int cloneVmWhileProcessExits(void* parameter) {
+  CloneVmExitRaceContext* context = reinterpret_cast<CloneVmExitRaceContext*>(parameter);
+  context->callerEntered += 1;
+  context->cloneResult = SyscallManager::instance().syscall(
+      posix, POSIX_CLONE, CLONE_VM | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID,
+      reinterpret_cast<uintptr_t>(context->childStack + sizeof(context->childStack)),
+      reinterpret_cast<uintptr_t>(&context->parentTid),
+      reinterpret_cast<uintptr_t>(&context->childTid),
+      reinterpret_cast<uintptr_t>(&context->childTls));
+  context->callerReturned += 1;
+  return 1;
+}
+
+bool waitForCloneVmHookPause(CloneVmExitRaceContext* context) {
+  for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    if (context->hookCalls == static_cast<size_t>(1) && context->caller->getWaitDebugInfo(info) &&
+        info.queue && info.queued && info.channelOwner == &context->beforeStart &&
+        context->caller->getStatus() == Thread::Sleeping) {
+      return true;
+    }
+    if (context->unexpectedHookRelease || context->hookTimedOut || context->callerReturned) {
+      return false;
+    }
+    Scheduler::instance().yield();
+  }
+  return false;
+}
+
+bool waitForCloneVmThreadReapable(Thread* thread) {
+  for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+    if (thread->isReapableForHostedTest()) {
+      return true;
+    }
+    Scheduler::instance().yield();
+  }
+  return false;
+}
+
+bool waitForCloneVmThreadCount(Process* process, size_t count) {
+  for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+    if (process->getNumThreads() == count) {
+      return true;
+    }
+    Scheduler::instance().yield();
+  }
+  return false;
+}
+
+NORETURN void fatalCloneVmFixture(const char* detail) {
+  clearCloneVmHooks();
+  FATAL("HOSTED-SYSCALL-TEST: clone fixture could not retire safely: " << detail);
+  panic(detail);
+}
+
+bool cloneVmDetachedCancellationReturnsCachedTid(Process* kernelProcess) {
+  CloneVmExitRaceContext* context = new CloneVmExitRaceContext(CancelChildBeforeStart);
+  CloneVmExitRaceProcess* process =
+      new CloneVmExitRaceProcess(kernelProcess, context->processDestructions);
+  process->setSubsystem(new CloneVmExitRaceSubsystem(context->subsystemDestructions));
+  process->description() = "hosted clone detached-cancellation fixture";
+
+  context->process = process;
+  context->caller =
+      new Thread(process, cloneVmWhileProcessExits, context, nullptr, false, true, true);
+  context->caller->setName("hosted clone detached-cancellation caller");
+  process->publish();
+
+  posixSetCloneBeforeStartHookForTest(terminateCloneVmBeforeStart, context);
+  const bool callerStarted = context->caller->start();
+  bool callerReapable = callerStarted && waitForCloneVmThreadReapable(context->caller);
+  if (!callerReapable) {
+    context->rescueCancellation = 1;
+    context->caller->setUnwindState(Thread::TerminateThread);
+    context->beforeStart.release();
+    callerReapable = waitForCloneVmThreadReapable(context->caller);
+  }
+  if (!callerReapable) {
+    fatalCloneVmFixture("detached-cancellation caller remained live after rescue");
+  }
+  clearCloneVmHooks();
+
+  const bool childDeletedBeforeReturn = waitForCloneVmThreadCount(process, 1);
+  bool passed = callerStarted && callerReapable && childDeletedBeforeReturn &&
+                process->getState() == Process::Active && context->callerEntered == 1 &&
+                context->callerReturned == 1 && context->hookCalls == 1 &&
+                context->tidsReady == 1 && context->childCancellationRequested == 1 &&
+                context->childCancellationReapable == 1 && !context->hookTimedOut &&
+                !context->unexpectedHookRelease && context->observedTid &&
+                context->cloneResult == context->observedTid &&
+                context->parentTid == static_cast<int>(context->observedTid) &&
+                context->childTid == static_cast<int>(context->observedTid);
+
+  if (!childDeletedBeforeReturn) {
+    fatalCloneVmFixture("detached child remained live after its creator retired");
+  }
+  if (!context->caller->joinForCompletion()) {
+    fatalCloneVmFixture("detached-cancellation caller could not be joined");
+  }
+  if (!waitForCloneVmThreadCount(process, 0)) {
+    fatalCloneVmFixture("detached-cancellation process retained a live thread");
+  }
+
+  delete process;
+  passed = passed && context->processDestructions == 1 && context->subsystemDestructions == 1;
+  delete context;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL clone-vm-detached-cached-tid: "
+        "POSIX clone did not return the cached ID after detached cancellation");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS clone-vm-detached-cached-tid");
+  return true;
+}
+
+bool cloneVmTerminalStartCancellation(Process* kernelProcess) {
+  CloneVmExitRaceContext* context = new CloneVmExitRaceContext(WaitForProcessExit);
+  CloneVmExitRaceProcess* process =
+      new CloneVmExitRaceProcess(kernelProcess, context->processDestructions);
+  process->setSubsystem(new CloneVmExitRaceSubsystem(context->subsystemDestructions));
+  process->description() = "hosted clone-vs-exit fixture";
+
+  context->process = process;
+  context->caller =
+      new Thread(process, cloneVmWhileProcessExits, context, nullptr, false, true, true);
+  context->caller->setName("hosted clone-vs-exit caller");
+  context->terminator =
+      new Thread(process, terminateCloneVmProcess, context, nullptr, false, true, true);
+  context->terminator->setName("hosted clone-vs-exit terminator");
+  process->publish();
+
+  __atomic_store_n(&g_CloneVmExitRaceContext, context, __ATOMIC_RELEASE);
+  Process::setTerminationElectionHook(observeCloneVmTerminationElection);
+  posixSetCloneBeforeStartHookForTest(terminateCloneVmBeforeStart, context);
+  const bool callerStarted = context->caller->start();
+  const bool callerPaused = callerStarted && waitForCloneVmHookPause(context);
+  Thread* pausedExpectedChild = context->child.value();
+  Process::ThreadLease pausedChild;
+  const bool pausedChildPinned = callerPaused && pausedExpectedChild &&
+                                 process->acquireThread(pausedChild, pausedExpectedChild) &&
+                                 pausedChild->getId() == context->observedTid;
+  const bool terminatorStarted = context->terminator->start();
+  if (terminatorStarted) {
+    context->terminatorStarted += 1;
+  } else {
+    context->rescueCancellation = 1;
+    Thread* rescueExpectedChild = context->child.value();
+    bool publishedChildSafe = !rescueExpectedChild;
+    if (pausedChildPinned) {
+      pausedChild->setUnwindState(Thread::TerminateThread);
+      context->schedulerPredicateReleased = 1;
+      publishedChildSafe = true;
+    } else if (rescueExpectedChild) {
+      Process::ThreadLease rescueChild;
+      if (process->acquireThread(rescueChild, rescueExpectedChild)) {
+        rescueChild->setUnwindState(Thread::TerminateThread);
+        context->schedulerPredicateReleased = 1;
+        publishedChildSafe = true;
+      } else {
+        for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+          if (process->getNumThreads() == 2) {
+            context->child = nullptr;
+            publishedChildSafe = true;
+            break;
+          }
+          Scheduler::instance().yield();
+        }
+      }
+    }
+    if (!publishedChildSafe) {
+      pausedChild.reset();
+      fatalCloneVmFixture("published child could not be cancelled for start-failure rescue");
+    }
+    pausedChild.reset();
+    context->terminator->setUnwindState(Thread::TerminateThread);
+    context->caller->setUnwindState(Thread::TerminateThread);
+    context->beforeStart.release();
+  }
+  pausedChild.reset();
+
+  bool terminated = false;
+  for (size_t attempt = 0; attempt < HostedAttempts && terminatorStarted; ++attempt) {
+    if (process->isTerminationReapableForHostedTest()) {
+      terminated = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+  if (terminatorStarted && !terminated) {
+    context->beforeStart.release();
+    for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+      if (process->isTerminationReapableForHostedTest()) {
+        terminated = true;
+        break;
+      }
+      Scheduler::instance().yield();
+    }
+  }
+
+  if (!terminatorStarted) {
+    const bool callerReapable = waitForCloneVmThreadReapable(context->caller);
+    const bool terminatorReapable = waitForCloneVmThreadReapable(context->terminator);
+    if (!callerReapable || !terminatorReapable) {
+      fatalCloneVmFixture("start-failure rescue left a worker live");
+    }
+    clearCloneVmHooks();
+    if (!context->caller->joinForCompletion() || !context->terminator->joinForCompletion()) {
+      fatalCloneVmFixture("start-failure rescue could not join both workers");
+    }
+    if (!waitForCloneVmThreadCount(process, 0)) {
+      fatalCloneVmFixture("start-failure rescue retained a cloned child");
+    }
+    delete process;
+    const bool destroyed = context->processDestructions == 1 && context->subsystemDestructions == 1;
+    delete context;
+    if (!destroyed) {
+      FATAL("HOSTED-SYSCALL-TEST: clone start-failure rescue did not destroy exact owners");
+    }
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL clone-vm-terminal-start-cancellation: "
+        "the exit worker did not start");
+    return false;
+  }
+  if (!terminated) {
+    fatalCloneVmFixture("process-exit cancellation did not become reapable");
+  }
+  clearCloneVmHooks();
+
+  Thread* retiredChild = context->child.value();
+  const bool retired = terminated && process->getState() == Process::Terminated &&
+                       process->getNumThreads() == 3 &&
+                       context->caller->getStatus() == Thread::AwaitingJoin &&
+                       context->terminator->getStatus() == Thread::AwaitingJoin && retiredChild &&
+                       retiredChild->getStatus() == Thread::AwaitingJoin &&
+                       !retiredChild->wasStartPublishedForHostedTest();
+  bool passed =
+      callerPaused && retired && context->callerEntered == 1 && context->callerReturned == 1 &&
+      context->terminatorEntered == 1 && !context->terminatorReturned && context->hookCalls == 1 &&
+      context->tidsReady == 1 && context->terminationElectionCalls == 1 &&
+      context->ownershipWindowReleased == 1 && context->ownershipCancellationObserved == 1 &&
+      !context->ownershipStartObserved && context->controlledHookRelease == 1 &&
+      !context->electionTimedOut && context->schedulerPredicateInstalled == 1 &&
+      !context->schedulerPredicateInstallFailed && context->schedulerPredicateReleased == 1 &&
+      context->terminatorStarted == 1 && !context->terminalCancellation &&
+      !context->unexpectedHookRelease && !context->hookTimedOut && context->observedTid &&
+      context->cloneResult == context->observedTid &&
+      context->parentTid == static_cast<int>(context->observedTid) &&
+      context->childTid == static_cast<int>(context->observedTid);
+
+  passed = passed && pausedChildPinned;
+  delete process;
+  passed = passed && context->processDestructions == 1 && context->subsystemDestructions == 1;
+  delete context;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL clone-vm-terminal-start-cancellation: "
+        "terminal cancellation did not retire the published clone exactly once");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS clone-vm-terminal-start-cancellation");
+  return true;
+}
+
 bool failedPinnedModuleRejectsUnload() {
   Module module;
   module.name.assign("hosted-failed-pinned-probe");
@@ -2331,6 +2831,16 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN clone-errno-lifetime");
   if (!cloneStateDropsParentErrnoDestination()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN clone-vm-detached-cached-tid");
+  if (!cloneVmDetachedCancellationReturnsCachedTid(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN clone-vm-terminal-start-cancellation");
+  if (!cloneVmTerminalStartCancellation(kernelProcess)) {
     return false;
   }
 

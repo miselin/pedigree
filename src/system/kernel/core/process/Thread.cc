@@ -69,6 +69,8 @@ void Thread::StackDiscardScope::disarm() {
 namespace {
 Thread::StateTransitionHook g_StateTransitionHook = nullptr;
 Thread::JoinOperationHook g_JoinOperationHook = nullptr;
+Thread::ExternalLeaseReleaseHook g_ExternalLeaseReleaseHook = nullptr;
+Thread* g_ExternalLeaseReleaseTarget = nullptr;
 Thread::TlsResetHook g_TlsResetHook = nullptr;
 Thread* g_TlsResetTarget = nullptr;
 using EventAdmissionHook = void (*)(Thread*);
@@ -588,12 +590,14 @@ bool Thread::startDetached() {
   }
 
   bool claimed = false;
+  bool processExitOwned = false;
   {
     RecursingLockGuard<Spinlock> processGuard(parent->m_Lock);
     auto guard = m_JoinWaiters.acquire();
     if (!m_bJoinClaimed && !m_bDetachedRetirementClaimed) {
       m_bDetached = true;
       m_bDetachedRetirementClaimed = true;
+      processExitOwned = m_bProcessExitOwned;
       claimed = true;
     }
   }
@@ -603,8 +607,11 @@ bool Thread::startDetached() {
     return false;
   }
 
+  if (processExitOwned) {
+    setUnwindState(Thread::TerminateThread);
+  }
   const bool started = start();
-  const bool accepted = started || getUnwindState() == Thread::TerminateThread;
+  const bool accepted = started || processExitOwned || getUnwindState() == Thread::TerminateThread;
   if (!accepted) {
     setUnwindState(Thread::TerminateThread);
   }
@@ -1192,6 +1199,12 @@ void Thread::setJoinOperationHook(JoinOperationHook hook) {
   __atomic_store_n(&g_JoinOperationHook, hook, __ATOMIC_RELEASE);
 }
 
+void Thread::setExternalLeaseReleaseHookForHostedTest(Thread* target,
+                                                      ExternalLeaseReleaseHook hook) {
+  __atomic_store_n(&g_ExternalLeaseReleaseTarget, target, __ATOMIC_RELEASE);
+  __atomic_store_n(&g_ExternalLeaseReleaseHook, hook, __ATOMIC_RELEASE);
+}
+
 void Thread::setTlsResetHookForHostedTest(Thread* target, TlsResetHook hook) {
   __atomic_store_n(&g_TlsResetTarget, target, __ATOMIC_RELEASE);
   __atomic_store_n(&g_TlsResetHook, hook, __ATOMIC_RELEASE);
@@ -1200,6 +1213,11 @@ void Thread::setTlsResetHookForHostedTest(Thread* target, TlsResetHook hook) {
 bool Thread::isReapableForHostedTest() {
   auto guard = m_JoinWaiters.acquire();
   return m_bReapable;
+}
+
+bool Thread::wasStartPublishedForHostedTest() {
+  LockGuard<Spinlock> guard(m_Lock);
+  return m_bStartRequested || m_Status == Ready || m_Status == Running;
 }
 
 bool Thread::waitUntilReapableForHostedTest() {
@@ -1866,6 +1884,7 @@ bool Thread::beginExternalLease() {
 
 void Thread::endExternalLease() {
   bool wake = false;
+  bool finalRelease = false;
   bool finishDetachedRetirement = false;
   {
     LockGuard<Spinlock> guard(m_ExternalLeaseLock);
@@ -1874,19 +1893,40 @@ void Thread::endExternalLease() {
     }
 
     --m_nExternalLeases;
-    finishDetachedRetirement = !m_nExternalLeases && m_bExternalLeaseAdmissionClosed;
+    finalRelease = !m_nExternalLeases;
+    finishDetachedRetirement = finalRelease && m_bExternalLeaseAdmissionClosed;
     if (finishDetachedRetirement) {
       m_bExternalLeaseReleaseInProgress = true;
     } else {
-      wake = !m_nExternalLeases;
+      // Open admission means no drainer can have enrolled yet.
+      wake = false;
     }
   }
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  Thread* hookTarget = __atomic_load_n(&g_ExternalLeaseReleaseTarget, __ATOMIC_ACQUIRE);
+  if (finalRelease && hookTarget == this) {
+    ExternalLeaseReleaseHook hook = __atomic_load_n(&g_ExternalLeaseReleaseHook, __ATOMIC_ACQUIRE);
+    if (hook) {
+      hook(this, ExternalLeaseFinalReleaseUnlocked);
+    }
+  }
+#endif
+
   if (wake) {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    ExternalLeaseReleaseHook hook = __atomic_load_n(&g_ExternalLeaseReleaseHook, __ATOMIC_ACQUIRE);
+    if (hookTarget == this && hook) {
+      hook(this, ExternalLeaseBeforeWaiterWake);
+    }
+#endif
     m_ExternalLeaseWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
   }
 
   if (!finishDetachedRetirement) {
+    // A drainer closes admission under m_ExternalLeaseLock before testing
+    // this count. An open final release therefore has nobody to wake, and
+    // must not touch this Thread after the predicate lock is released.
     return;
   }
 

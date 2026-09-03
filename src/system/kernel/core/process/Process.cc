@@ -52,6 +52,8 @@ Process* Process::m_pInitProcess = 0;
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 Process::TerminationElectionHook Process::m_TerminationElectionHook = nullptr;
+Process::ExternalLeaseReleaseHook Process::m_ExternalLeaseReleaseHook = nullptr;
+Process* Process::m_ExternalLeaseReleaseTarget = nullptr;
 Process::OrphanPublicationHook Process::m_OrphanPublicationHook = nullptr;
 #endif
 
@@ -228,6 +230,7 @@ Process::Process(DeferredPublication)
       m_ExternalLeaseWaiters(),
       m_nExternalLeases(0),
       m_bExternalLeaseAdmissionClosed(false),
+      m_bExternalLeaseReleaseInProgress(false),
       m_bUnreportedSuspend(false),
       m_bUnreportedResume(false),
       m_State(Active),
@@ -296,6 +299,7 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
       m_ExternalLeaseWaiters(),
       m_nExternalLeases(0),
       m_bExternalLeaseAdmissionClosed(false),
+      m_bExternalLeaseReleaseInProgress(false),
       m_bUnreportedSuspend(false),
       m_bUnreportedResume(false),
       m_State(Active),
@@ -640,6 +644,8 @@ bool Process::beginExternalLease() {
 
 void Process::endExternalLease() {
   bool wake = false;
+  bool finalRelease = false;
+  bool finishClosedRelease = false;
   {
     LockGuard<Spinlock> guard(m_ExternalLeaseLock);
     if (!m_nExternalLeases) {
@@ -647,13 +653,55 @@ void Process::endExternalLease() {
     }
 
     --m_nExternalLeases;
-    wake = !m_nExternalLeases;
+    finalRelease = !m_nExternalLeases;
+    finishClosedRelease = finalRelease && m_bExternalLeaseAdmissionClosed;
+    wake = finishClosedRelease;
+    if (finishClosedRelease) {
+      m_bExternalLeaseReleaseInProgress = true;
+    }
   }
 
-  // WaitQueue wakeup may enter Scheduler::threadStatusChanged. Never retain
-  // the predicate lock (or its outer scheduler lock) across that call.
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  Process* hookTarget = __atomic_load_n(&m_ExternalLeaseReleaseTarget, __ATOMIC_ACQUIRE);
+  if (finalRelease && hookTarget == this) {
+    ExternalLeaseReleaseHook hook = __atomic_load_n(&m_ExternalLeaseReleaseHook, __ATOMIC_ACQUIRE);
+    if (hook) {
+      hook(this, ExternalLeaseFinalReleaseUnlocked);
+    }
+  }
+#endif
+
+  if (!finishClosedRelease) {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    ExternalLeaseReleaseHook hook = __atomic_load_n(&m_ExternalLeaseReleaseHook, __ATOMIC_ACQUIRE);
+    if (wake && hookTarget == this && hook) {
+      hook(this, ExternalLeaseBeforeWaiterWake);
+    }
+#endif
+    if (wake) {
+      m_ExternalLeaseWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+    }
+
+    // A drainer closes admission under m_ExternalLeaseLock before testing
+    // this count. An open final release therefore has nobody to wake, and
+    // must not touch this Process after the predicate lock is released.
+    return;
+  }
+
+  auto waiterGuard = m_ExternalLeaseWaiters.acquire();
+  {
+    LockGuard<Spinlock> guard(m_ExternalLeaseLock);
+    m_bExternalLeaseReleaseInProgress = false;
+  }
+
   if (wake) {
-    m_ExternalLeaseWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    ExternalLeaseReleaseHook hook = __atomic_load_n(&m_ExternalLeaseReleaseHook, __ATOMIC_ACQUIRE);
+    if (hookTarget == this && hook) {
+      hook(this, ExternalLeaseBeforeWaiterWake);
+    }
+#endif
+    waiterGuard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
   }
 }
 
@@ -669,7 +717,7 @@ void Process::drainExternalLeases() {
     {
       LockGuard<Spinlock> stateGuard(m_ExternalLeaseLock);
       m_bExternalLeaseAdmissionClosed = true;
-      if (!m_nExternalLeases) {
+      if (!m_nExternalLeases && !m_bExternalLeaseReleaseInProgress) {
         return;
       }
     }
@@ -1160,6 +1208,17 @@ void Process::kill() {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 void Process::setTerminationElectionHook(TerminationElectionHook hook) {
   m_TerminationElectionHook = hook;
+}
+
+void Process::setExternalLeaseReleaseHookForHostedTest(Process* target,
+                                                       ExternalLeaseReleaseHook hook) {
+  __atomic_store_n(&m_ExternalLeaseReleaseTarget, target, __ATOMIC_RELEASE);
+  __atomic_store_n(&m_ExternalLeaseReleaseHook, hook, __ATOMIC_RELEASE);
+}
+
+bool Process::isTerminationReapableForHostedTest() {
+  auto guard = m_TerminationWaiters.acquire();
+  return m_bTerminationReapable;
 }
 
 void Process::setOrphanPublicationHook(OrphanPublicationHook hook) {

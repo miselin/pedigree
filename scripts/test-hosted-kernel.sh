@@ -448,6 +448,8 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS posix-teardown-contention" \
         "HOSTED-SYSCALL-TEST: PASS socket-zero-result-signal" \
         "HOSTED-SYSCALL-TEST: PASS clone-errno-lifetime" \
+        "HOSTED-SYSCALL-TEST: PASS clone-vm-detached-cached-tid" \
+        "HOSTED-SYSCALL-TEST: PASS clone-vm-terminal-start-cancellation" \
         "HOSTED-SYSCALL-TEST: PASS filesystem-unload-policy-metadata" \
         "HOSTED-SYSCALL-TEST: PASS runtime-pinned-cleanup" \
         "HOSTED-SYSCALL-TEST: PASS module-shutdown-retention-policy" \

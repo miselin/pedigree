@@ -270,6 +270,14 @@ class EXPORTED_PUBLIC Thread {
    */
   bool start();
 
+  /**
+   * Publishes a delayed worker as detached while retaining its final-use
+   * claim. A terminal cancellation which already owns the thread is accepted
+   * as successful publication. Success may destroy this Thread before the
+   * call returns, so callers must not access it afterward.
+   */
+  bool startDetached();
+
   bool setSchedulerReadyPredicate(SchedulerReadyPredicate predicate, void* context);
 
   /** Retrieves the exit status of the Thread. */
@@ -434,9 +442,14 @@ class EXPORTED_PUBLIC Thread {
     StatePushAfterPublish,
     StatePopAfterPublish,
   };
+  enum ExternalLeaseReleasePhase {
+    ExternalLeaseFinalReleaseUnlocked,
+    ExternalLeaseBeforeWaiterWake,
+  };
   using StateTransitionHook = void (*)(StateTransitionWindow window, Thread* thread,
                                        size_t previousLevel, size_t nextLevel);
   using JoinOperationHook = void (*)(Thread* target, Process* parent);
+  using ExternalLeaseReleaseHook = void (*)(Thread* target, ExternalLeaseReleasePhase phase);
   using DeferredScopeLockHook = void (*)();
 
   /** Installs a deterministic observer around state-level publication. */
@@ -445,8 +458,15 @@ class EXPORTED_PUBLIC Thread {
   /** Pauses an admitted join after reapability but before final deletion. */
   static void setJoinOperationHook(JoinOperationHook hook);
 
+  /** Observes final external-lease release phases in deterministic hosted tests. */
+  static void setExternalLeaseReleaseHookForHostedTest(Thread* target,
+                                                       ExternalLeaseReleaseHook hook);
+
   /** Exposes scheduler handoff completion to deterministic hosted tests. */
   bool isReapableForHostedTest();
+
+  /** Reports whether delayed-start publication reached runnable state. */
+  bool wasStartPublishedForHostedTest();
 
   /** Waits for scheduler handoff without claiming or deleting the target. */
   bool waitUntilReapableForHostedTest();
@@ -676,9 +696,6 @@ class EXPORTED_PUBLIC Thread {
   /** Kernel-owned start cleanup; unloadable code must use AdmittedThread. */
   Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
          bool semiUser, bool bDontPickCore, bool delayedStart, ThreadStartCleanup startCleanup);
-
-  /** Publishes a delayed worker as detached while retaining its final-use claim. */
-  bool startDetached();
 
   /** Copy-constructor */
   Thread(const Thread&);

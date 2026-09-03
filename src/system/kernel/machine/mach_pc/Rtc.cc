@@ -124,7 +124,7 @@ Rtc::CmosTransactionGuard::~CmosTransactionGuard() {
 }
 
 static void* currentAlarmDispatchOwner() {
-  return static_cast<void*>(&Processor::information());
+  return RtcAlarmQueue::dispatchOwnerForContext(Processor::information());
 }
 
 void Rtc::addAlarm(Event* pEvent, size_t alarmSecs, size_t alarmUsecs) {

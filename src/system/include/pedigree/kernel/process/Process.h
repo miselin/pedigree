@@ -425,6 +425,17 @@ class EXPORTED_PUBLIC Process {
   using TerminationElectionHook = void (*)(Process*, Thread*);
   static void setTerminationElectionHook(TerminationElectionHook hook);
 
+  enum ExternalLeaseReleasePhase {
+    ExternalLeaseFinalReleaseUnlocked,
+    ExternalLeaseBeforeWaiterWake,
+  };
+  using ExternalLeaseReleaseHook = void (*)(Process*, ExternalLeaseReleasePhase);
+  static void setExternalLeaseReleaseHookForHostedTest(Process* target,
+                                                       ExternalLeaseReleaseHook hook);
+
+  /** Exposes terminal-reapability publication to deterministic hosted tests. */
+  bool isTerminationReapableForHostedTest();
+
   enum class OrphanPublicationPhase {
     Preparing,
     Published,
@@ -660,6 +671,9 @@ class EXPORTED_PUBLIC Process {
   /** Whether scheduler removal has closed Process lease admission. */
   bool m_bExternalLeaseAdmissionClosed;
 
+  /** Whether a closed final release is completing its waiter handoff. */
+  bool m_bExternalLeaseReleaseInProgress;
+
   /** Whether we have suspended but not reported it. */
   bool m_bUnreportedSuspend;
 
@@ -811,6 +825,8 @@ class EXPORTED_PUBLIC Process {
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   static TerminationElectionHook m_TerminationElectionHook;
+  static ExternalLeaseReleaseHook m_ExternalLeaseReleaseHook;
+  static Process* m_ExternalLeaseReleaseTarget;
   static OrphanPublicationHook m_OrphanPublicationHook;
 #endif
 };

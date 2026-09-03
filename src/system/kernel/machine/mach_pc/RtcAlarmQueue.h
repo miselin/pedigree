@@ -22,6 +22,13 @@
  */
 class RtcAlarmQueue {
  public:
+  /** Distinguish preemptible workers which happen to run on the same CPU. */
+  template <typename Context>
+  static void* dispatchOwnerForContext(Context& context) {
+    auto* thread = context.getCurrentThread();
+    return thread ? static_cast<void*>(thread) : static_cast<void*>(&context);
+  }
+
   class Record {
    public:
     Record()

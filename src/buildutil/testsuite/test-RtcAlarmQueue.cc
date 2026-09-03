@@ -14,7 +14,51 @@ namespace {
 void* pointer(size_t value) {
   return reinterpret_cast<void*>(value);
 }
+
+class SameProcessorContext {
+ public:
+  SameProcessorContext() : m_Thread(nullptr) {}
+
+  void setCurrentThread(void* thread) {
+    m_Thread = thread;
+  }
+
+  void* getCurrentThread() const {
+    return m_Thread;
+  }
+
+ private:
+  void* m_Thread;
+};
 }  // namespace
+
+TEST(RtcAlarmQueue, SameProcessorDifferentThreadsDrainCommittedDispatch) {
+  RtcAlarmQueue queue;
+  RtcAlarmQueue::Record alarm;
+  SameProcessorContext processor;
+  void* event = pointer(0x1000);
+
+  processor.setCurrentThread(pointer(0x3000));
+  void* dispatchOwner = RtcAlarmQueue::dispatchOwnerForContext(processor);
+  alarm.prepare(event, 10, pointer(0x2000));
+  queue.add(&alarm);
+  EXPECT_EQ(queue.claimDue(10, dispatchOwner), &alarm);
+
+  processor.setCurrentThread(pointer(0x4000));
+  void* removalOwner = RtcAlarmQueue::dispatchOwnerForContext(processor);
+  EXPECT_NE(removalOwner, dispatchOwner);
+  const RtcAlarmQueue::Removal removal = queue.removeFirst(event, removalOwner);
+  EXPECT_EQ(removal.disposition, RtcAlarmQueue::RemovalDisposition::RemoteInFlight);
+  EXPECT_TRUE(queue.hasRemoteInFlight(event, removalOwner));
+
+  queue.completeDispatch(&alarm);
+  EXPECT_FALSE(queue.hasRemoteInFlight(event, removalOwner));
+  EXPECT_EQ(queue.activeCount(), 0U);
+  EXPECT_EQ(queue.freeCount(), 1U);
+
+  processor.setCurrentThread(nullptr);
+  EXPECT_EQ(RtcAlarmQueue::dispatchOwnerForContext(processor), &processor);
+}
 
 TEST(RtcAlarmQueue, RemoteRemovalDrainsCommittedDispatch) {
   RtcAlarmQueue queue;
