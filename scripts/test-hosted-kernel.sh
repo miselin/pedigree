@@ -5,6 +5,11 @@
 
 set -Eeuo pipefail
 
+if [[ $(uname -s) != Linux || $(uname -m) != x86_64 ]]; then
+    echo "The legacy hosted kernel harness requires a native x86-64 Linux host." >&2
+    exit 2
+fi
+
 script_dir=$(cd -P -- "$(dirname -- "$0")/.." && pwd -P)
 
 usage()

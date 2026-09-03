@@ -27,7 +27,7 @@ regression suite.
 | Layer | What it proves | Closure gate |
 | --- | --- | --- |
 | Native tests | PIC state transitions, RTC elapsed-time aggregation, alarm ownership, and time conversion | Includes `PicContentionActions.CurrentRtcThreadedEntrySurvivesControllerOwner` |
-| Linux hosted kernel | Real kernel threads, signals, scheduler return tails, split-handler lifecycle and orphan drain, hard-context guards, unregister drains, and interrupt-manager mutation contention | `HOSTED-IRQ-CLOSURE: PASS all` |
+| Native Linux hosted kernel | Real kernel threads, signals, scheduler return tails, split-handler lifecycle and orphan drain, hard-context guards, unregister drains, and interrupt-manager mutation contention | `HOSTED-IRQ-CLOSURE: PASS all` |
 | QEMU UP | PC RTC calibration, PIC path, interrupt enable, and at least one second of IRQ8-backed clock progress | `up` with `--require-rtc-progress` |
 | QEMU SMP | The same PC/RTC path while four processors start and remain live long enough for IRQ8-backed clock progress | `smp` with `--require-rtc-progress` |
 
@@ -36,15 +36,16 @@ RTC. QEMU owns those hardware-shaped checks and the real SMP check.
 
 ## Reproduce
 
-Run the hosted closure lane from macOS or x86-64 Linux:
+Run the hosted closure lane directly on an x86-64 Linux host:
 
 ```sh
 scripts/verify-irq-closure.sh
 ```
 
-On macOS this uses the local `pedigree-hosted-build:latest` image. Complete
-configure, build, test, and runtime logs are retained in
-`build-verify/irq-closure`.
+There is no Docker fallback on macOS. Use `./verify.sh` there for the maintained
+native and Darwin-hosted checks. Complete Linux configure, build, test, and
+runtime logs are retained in `build-verify/irq-closure`; its build utilities
+are compiled and executed on that same Linux host.
 
 Run the hardware-shaped checkpoints against a current ISO:
 

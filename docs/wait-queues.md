@@ -140,9 +140,10 @@ Useful adversarial windows include:
 - object teardown after work is queued but before the worker consumes it.
 
 The maintained `./verify.sh` contract runs native tests normally and under
-AddressSanitizer. The retained x86-64 Linux hosted harness is experimental and
-is not a required local gate. A regression that exists only there must be
-reported as hosted-only coverage, not as part of the maintained green claim.
+AddressSanitizer. The retained native x86-64 Linux hosted harness is
+experimental and is not a required local gate. A regression that exists only
+there must be reported as hosted-only coverage, not as part of the maintained
+green claim.
 
 ## Static and build-time gates
 
@@ -155,8 +156,9 @@ run those lanes separately when a change touches either boundary.
 
 The retained Linux hosted kernel can still be useful for scheduler
 publication, signal and timeout interruption, lock ordering, request
-lifecycle, callback drains, and module loading. It is an experimental lane,
-not the canonical local verifier.
+lifecycle, callback drains, and module loading. It runs only on a native
+x86-64 Linux host; it is an experimental lane, not the canonical local
+verifier.
 
 QEMU or hardware remains necessary for:
 

@@ -4,6 +4,11 @@
 
 set -Eeuo pipefail
 
+if [[ $(uname -s) != Linux || $(uname -m) != x86_64 ]]; then
+    echo "The hosted IRQ closure kernel requires a native x86-64 Linux host." >&2
+    exit 2
+fi
+
 if (( $# != 3 )); then
     echo "usage: scripts/test-hosted-irq-closure.sh KERNEL CONFIGDB LOG" >&2
     exit 2
@@ -15,10 +20,6 @@ configdb=$(realpath "$2")
 log_file=$3
 timeout_seconds=${PEDIGREE_HOSTED_IRQ_TIMEOUT_SECONDS:-30}
 
-if [[ $(uname -s) != Linux || $(uname -m) != x86_64 ]]; then
-    echo "The hosted IRQ closure kernel requires x86-64 Linux." >&2
-    exit 2
-fi
 if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
     echo "PEDIGREE_HOSTED_IRQ_TIMEOUT_SECONDS must be a positive integer." >&2
     exit 2

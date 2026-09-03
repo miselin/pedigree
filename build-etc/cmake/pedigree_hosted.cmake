@@ -1,5 +1,11 @@
-# Legacy x86-64 Linux hosted target. This is intentionally not selected by the
-# maintained native validation entrypoints.
+# Legacy x86-64 Linux hosted target. It runs against the real host Linux ABI;
+# containerized and cross-host configurations are intentionally unsupported.
+if (NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" OR
+    NOT CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+    message(FATAL_ERROR
+        "The Linux hosted target requires a native x86-64 Linux host")
+endif ()
+
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_VERSION 1)
 

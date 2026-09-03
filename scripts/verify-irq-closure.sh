@@ -6,33 +6,10 @@ set -Eeuo pipefail
 
 repository=$(cd -P -- "$(dirname -- "$0")/.." && pwd -P)
 build_root=${PEDIGREE_IRQ_CLOSURE_BUILD_ROOT:-"$repository/build-verify/irq-closure"}
-docker_image=${PEDIGREE_HOSTED_DOCKER_IMAGE:-pedigree-hosted-build:latest}
-
-if [[ $(uname -s) == Darwin ]]; then
-    for command in docker id; do
-        if ! command -v "$command" >/dev/null 2>&1; then
-            echo "Required command is unavailable: $command" >&2
-            exit 1
-        fi
-    done
-    if ! docker run --rm --platform linux/amd64 "$docker_image" true \
-        >/dev/null 2>&1; then
-        echo "Hosted build image is unavailable: $docker_image" >&2
-        echo "Build it with: docker build -t $docker_image -f build-etc/docker/hosted.Dockerfile ." >&2
-        exit 1
-    fi
-    exec docker run --rm --init --platform linux/amd64 \
-        --user "$(id -u):$(id -g)" \
-        --volume "$repository:$repository" \
-        --workdir "$repository" \
-        -e PEDIGREE_IRQ_CLOSURE_BUILD_ROOT="$build_root" \
-        -e PEDIGREE_VERIFY_JOBS="${PEDIGREE_VERIFY_JOBS:-}" \
-        -e PEDIGREE_HOSTED_IRQ_TIMEOUT_SECONDS="${PEDIGREE_HOSTED_IRQ_TIMEOUT_SECONDS:-}" \
-        "$docker_image" "$repository/scripts/verify-irq-closure.sh"
-fi
 
 if [[ $(uname -s) != Linux || $(uname -m) != x86_64 ]]; then
-    echo "IRQ closure verification requires x86-64 Linux or Docker on macOS." >&2
+    echo "IRQ closure verification requires a native x86-64 Linux host." >&2
+    echo "Use ./verify.sh for the maintained validation on this host." >&2
     exit 2
 fi
 for command in cmake ctest grep python3; do

@@ -437,7 +437,7 @@ set(KERNEL_SRCS
 if (PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS)
     if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" OR PEDIGREE_HOSTED_DARWIN)
         message(FATAL_ERROR
-            "PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS requires the Linux hosted target")
+            "PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS requires the native Linux hosted target")
     endif ()
     if (NOT PEDIGREE_HOSTED_SMOKE_TESTS)
         message(FATAL_ERROR
@@ -548,8 +548,7 @@ if (NOT PEDIGREE_HOSTED_DARWIN)
     target_link_libraries(kernel PRIVATE gcc)
 endif ()
 
-# The closure kernel runs directly from a Docker bind mount. Keep that
-# diagnostic artifact intact instead of rewriting it in place with strip.
+# Keep the closure kernel's diagnostic symbols in its runnable artifact.
 # Other Linux kernels split debug info out of their module binary as usual.
 if (NOT PEDIGREE_HOSTED_DARWIN AND NOT PEDIGREE_HOSTED_IRQ_CLOSURE_TESTS)
     add_custom_command(TARGET kernel POST_BUILD

@@ -117,11 +117,10 @@ static void installHostedSignalStack(stack_t& stack) {
 
   if (result < 0 && errno == EINVAL && (stack.ss_flags & SS_AUTODISARM) &&
       hostedSignalStackMode() == HostedSignalStackMode::Unprobed) {
-    // Docker Desktop's amd64 execution layer can reject AUTODISARM even
-    // when its Linux VM kernel supports it. Pedigree already installs the
-    // selected Thread/state stack at every context handoff, including via
-    // the scratch stack when the suspended stack is still active. That is
-    // the explicit equivalent needed to keep nested frames disjoint.
+    // Some Linux hosts reject AUTODISARM. Pedigree already installs the
+    // selected Thread/state stack at every context handoff, including via the
+    // scratch stack when the suspended stack is still active. That is the
+    // explicit equivalent needed to keep nested frames disjoint.
     stack.ss_flags &= ~SS_AUTODISARM;
     result = sigaltstack(&stack, nullptr);
     if (result < 0 && errno == EPERM) {

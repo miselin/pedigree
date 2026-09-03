@@ -28,7 +28,7 @@ tree are reference material, not an assertion that their target still builds.
 | Native test support libraries and unit tests | Maintained and automated | Built and tested on the development host by `./verify.sh`. |
 | Native AddressSanitizer lane | Maintained and automated | The test support libraries and unit tests are built with ASan and must pass without sanitizer findings. |
 | x86-64 Darwin hosted core | Maintained on Apple silicon macOS | Builds a Mach-O kernel and focused Pedigree ELF module, executes the core wait/timer/lifetime/page-fault suite through Rosetta, and requires clean unload and return to the host. |
-| x86-64 Linux hosted kernel | Experimental, non-canonical | The source remains available, but its Docker-backed build and smoke ladder are not required by the maintained entrypoints. |
+| x86-64 Linux hosted kernel | Experimental, non-canonical | The source remains available for direct execution on native x86-64 Linux. There is no containerized cross-host route, and its smoke ladder is not required by the maintained entrypoints. |
 | x86-64 PC kernel and userspace | Active restoration target | The CMake target and x86-64 source remain in scope, but the current verification contract does not prove a fresh toolchain bootstrap, ISO, userspace image, or QEMU boot. |
 | ARM, MIPS, and PowerPC | Historical | Build and boot support was removed from the active fork. Any remaining source or documentation is museum material. |
 | Old SCons, Buildbot, Travis, PUP, CDI, and Freenode workflows | Historical | They describe the upstream project at earlier points in its life and are not current build or support instructions. |
@@ -88,11 +88,13 @@ Keep the whole run directory when reporting a failure. A terminal scrollback,
 an existing build directory, or one passing test executable is not equivalent
 to a green verification run.
 
-## Retained Linux hosted smoke ladder
+## Retained native-Linux hosted smoke ladder
 
 The Linux hosted sources and their old smoke harness are retained as
 non-canonical development material. The maintained entrypoints do not build or
-run this ladder, and it is not part of the definition of green.
+run this ladder, and it is not part of the definition of green. Its build and
+runtime helpers deliberately reject macOS and non-x86-64 hosts: run them only
+on a real x86-64 Linux system. They do not invoke or support Docker.
 
 The hosted stage advances through six separately logged checkpoints:
 
@@ -165,8 +167,8 @@ The Darwin lifecycle intentionally avoids the historical root filesystem,
 full module set, services, musl, and userspace. Its module covers the core
 wait, request-queue, lifetime, process-exit, page-fault, timer, primitive, and
 signal-interruption regressions. Async scheduler-signal context switching is
-not yet part of this bounded lane; the retained Linux scheduler suite depends
-on host behavior that does not have Darwin parity yet.
+not yet part of this bounded lane; the retained native-Linux scheduler suite
+depends on host behavior that does not have Darwin parity yet.
 
 `./easy_build_hosted.sh` is useful for development, but `./verify.sh` is the
 release of record because it saves a timestamped result and metadata.
@@ -204,7 +206,7 @@ focused experiments, not as fork-wide green.
   behavior.
 - The focused Darwin hosted lane does not exercise async scheduler-signal
   context switching. That remains a parity gap between Darwin and the retained
-  Linux hosted runtime.
+  native-Linux hosted runtime.
 - Hosted AddressSanitizer instrumentation is experimental. Its fiber,
   signal-stack, and context-switch boundaries are not fully annotated, so it is
   outside the canonical native validation; the native ASan lane remains required.
