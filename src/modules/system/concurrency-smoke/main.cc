@@ -26,6 +26,7 @@
 extern bool runNetworkFilterConcurrencyRegressions();
 extern bool runAnonymousMemoryRegionRegression();
 extern bool runSlamAllocatorConcurrencyRegression();
+extern bool runTextIoFlipLifetimeRegression();
 extern bool runTlbShootdownConcurrencyRegression();
 extern bool runVfsCallbackLifetimeRegressions();
 
@@ -554,6 +555,9 @@ bool entry() {
   if (!runSlamAllocatorConcurrencyRegression()) {
     FATAL("QEMU SLAM allocator concurrency regression failed");
   }
+  if (!runTextIoFlipLifetimeRegression()) {
+    FATAL("QEMU TextIO flip-worker lifetime regression failed");
+  }
   if (!runVfsCallbackLifetimeRegressions()) {
     FATAL("QEMU VFS callback lifetime regression failed");
   }
@@ -617,4 +621,4 @@ bool entry() {
 void exit() {}
 }  // namespace
 
-MODULE_INFO("concurrency-smoke", &entry, &exit, "vfs", "rawfs");
+MODULE_INFO("concurrency-smoke", &entry, &exit, "console", "vfs", "rawfs");

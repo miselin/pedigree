@@ -24,6 +24,7 @@
 #include "pedigree/kernel/machine/Machine.h"
 #include "pedigree/kernel/machine/Vga.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -84,7 +85,7 @@ TextIO::TextIO(String str, size_t inode, Filesystem* pParentFS, File* pParent)
       m_bActive(false),
       m_Lock(),
       m_FlipWake(0),
-      m_pFlipThread(nullptr),
+      m_FlipThread(),
       m_bOwnsConsole(false),
       m_InputMode(TextIO::Standard) {
   size_t backbufferSize = BACKBUFFER_STRIDE * BACKBUFFER_ROWS * sizeof(VgaCell);
@@ -118,28 +119,20 @@ TextIO::~TextIO() {
   // Join to the flip thread now that we're terminating.
   m_bInitialised = false;
   m_FlipWake.release();
-  if (m_pFlipThread) {
-    m_pFlipThread->joinForCompletion();
-    m_pFlipThread = nullptr;
-  }
+  m_FlipThread.join();
 
   m_pBackbuffer = 0;
   m_Backbuffer.free();
 }
 
 bool TextIO::initialise(bool bClear) {
-  Thread* oldFlipThread = nullptr;
   if (m_bInitialised) {
     {
       LockGuard<Mutex> guard(m_Lock);
       m_bInitialised = false;
       m_FlipWake.release();
-      oldFlipThread = m_pFlipThread;
-      m_pFlipThread = nullptr;
     }
-    if (oldFlipThread) {
-      oldFlipThread->joinForCompletion();
-    }
+    m_FlipThread.join();
   }
 
   LockGuard<Mutex> guard(m_Lock);
@@ -199,9 +192,10 @@ bool TextIO::initialise(bool bClear) {
   if (m_bInitialised) {
     while (m_FlipWake.tryAcquire()) {
     }
-    Process* parent = Processor::information().getCurrentThread()->getParent();
-    m_pFlipThread = new Thread(parent, startFlipThread, this);
-    m_pFlipThread->setName("TextIO flip thread");
+    Thread* flipThread =
+        new Thread(Scheduler::instance().getKernelProcess(), startFlipThread, this);
+    m_FlipThread.adopt(flipThread);
+    m_FlipThread->setName("TextIO flip thread");
   }
 
   return m_bInitialised;

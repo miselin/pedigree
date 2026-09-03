@@ -24,6 +24,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/InputManager.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
@@ -33,7 +34,6 @@
 #include "modules/system/vfs/File.h"
 
 class Filesystem;
-class Thread;
 class Vga;
 
 #define MAX_TEXTIO_PARAMS 16
@@ -286,7 +286,7 @@ class EXPORTED_PUBLIC TextIO : public File {
    * Running flip thread for things like the cursor blinking.
    */
   Semaphore m_FlipWake;
-  Thread* m_pFlipThread;
+  OwnedThread m_FlipThread;
 
   /**
    * Does this terminal own the output to the Vga instance?

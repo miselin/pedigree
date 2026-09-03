@@ -398,6 +398,7 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/main.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/memory-region-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/slam-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/textio-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/concurrency-smoke/tlb-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/network-filter-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/vfs-callback-regressions.cc
