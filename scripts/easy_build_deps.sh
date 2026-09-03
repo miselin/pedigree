@@ -79,26 +79,29 @@ if [ ! -e "$script_dir/.easy_os" ]; then
             echo "Installing packages with apt-get, please wait..."
             [ $nosudo = 0 ] && sudo apt-get install $confirm libmpfr-dev \
                 libmpc-dev libgmp-dev sqlite3 texinfo genisoimage u-boot-tools \
-                nasm python3-requests autoconf automake cmake bison flex lcov
+                nasm python3-requests autoconf automake cmake bison flex lcov \
+                zlib1g-dev
             ;;
         ubuntu)
             echo "Installing packages with apt-get, please wait..."
             [ $nosudo = 0 ] && sudo apt-get install $confirm libmpfr-dev \
                 libmpc-dev libgmp-dev sqlite3 texinfo genisoimage e2fsprogs \
                 u-boot-tools nasm python3-requests autoconf automake cmake \
-                bison flex lcov
+                bison flex lcov zlib1g-dev
             ;;
         opensuse)
             echo "Installing packages with zypper, please wait..."
             set +e
             sudo zypper install mpfr-devel mpc-devel gmp3-devel sqlite3 \
-                texinfo cmake bison flex autoconf automake nasm genisoimage
+                texinfo cmake bison flex autoconf automake nasm genisoimage \
+                zlib-devel
             set -e
             ;;
         fedora|redhat|centos|rhel)
             echo "Installing packages with YUM, please wait..."
             sudo yum install $confirm mpfr-devel gmp-devel libmpc-devel \
-                sqlite texinfo cmake bison flex autoconf automake nasm genisoimage
+                sqlite texinfo cmake bison flex autoconf automake nasm \
+                genisoimage zlib-devel
             ;;
         osx|mac)
             if type port >/dev/null 2>&1; then
@@ -144,6 +147,7 @@ if [ ! -e "$script_dir/.easy_os" ]; then
             echo " - Python"
             echo " - GCC & binutils"
             echo " - libgmp, libmpc, libmpfr"
+            echo " - zlib development headers"
             echo " - mkisofs/genisoimage"
             echo " - sqlite"
             echo " - patch"
@@ -158,7 +162,7 @@ if [ ! -e "$script_dir/.easy_os" ]; then
         arch)
             echo "Installing packages with pacman, please wait..."
             sudo pacman -S gcc binutils gmp libmpc mpfr sqlite texinfo cmake \
-                bison flex autoconf automake nasm wget cdrtools mtools tar
+                bison flex autoconf automake nasm wget cdrtools mtools tar zlib
             ;;
         *)
             echo "Operating system '$os' is not supported yet."
@@ -166,6 +170,7 @@ if [ ! -e "$script_dir/.easy_os" ]; then
             echo " - Python"
             echo " - GCC & binutils"
             echo " - libgmp, libmpc, libmpfr"
+            echo " - zlib development headers"
             echo " - mkisofs/genisoimage"
             echo " - sqlite"
             echo " - mtools"

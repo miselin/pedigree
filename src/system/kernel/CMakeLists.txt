@@ -1,4 +1,10 @@
 
+# Hosted kernels use the build host's libc ABI; the freestanding kernel must
+# use the libc headers produced for the Pedigree target.
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    link_libraries(pedigree_musl_headers)
+endif ()
+
 set(PEDIGREE_VERBOSE_KERNEL FALSE CACHE BOOL "Enable verbose logging throughout the kernel.")
 set(PEDIGREE_DEBUG_ALLOCATOR FALSE CACHE BOOL "Replace SLAM with a debug allocator which never re-uses allocations (it is highly recommended to only use this on 64-bit targets).")
 
@@ -19,13 +25,20 @@ if (PEDIGREE_LINKERSCRIPT)
     set(ARCH_KERNEL_LINKSCRIPT "-Wl,-T${PEDIGREE_LINKERSCRIPT}")
 endif ()
 
+set(PEDIGREE_KERNEL_SYSROOT_FLAGS)
+if (CMAKE_SYSROOT)
+    set(PEDIGREE_KERNEL_SYSROOT_FLAGS "--sysroot=${CMAKE_SYSROOT}")
+endif ()
+
 if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     set(GENERIC_KERNEL_FLAGS ${GENERIC_KERNEL_FLAGS}
-        "-fno-builtin" "-nostdlib" "-ffreestanding"  "--sysroot=${CMAKE_SYSROOT}")
+        "-fno-builtin" "-nostdlib" "-ffreestanding"
+        ${PEDIGREE_KERNEL_SYSROOT_FLAGS})
     set(GENERIC_KERNEL_CFLAGS ${GENERIC_KERNEL_CFLAGS})
     set(GENERIC_KERNEL_CXXFLAGS ${GENERIC_KERNEL_CXXFLAGS})
     set(GENERIC_KERNEL_LINKFLAGS ${GENERIC_KERNEL_LINKFLAGS}
-        "-nostdlib" "-nostartfiles" "-Wl,--discard-all" "-static-libgcc" "--sysroot=${CMAKE_SYSROOT}")
+        "-nostdlib" "-nostartfiles" "-Wl,--discard-all" "-static-libgcc"
+        ${PEDIGREE_KERNEL_SYSROOT_FLAGS})
 endif ()
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")

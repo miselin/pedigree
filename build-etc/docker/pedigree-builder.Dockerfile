@@ -36,27 +36,17 @@ RUN apt-get update \
 WORKDIR /src
 COPY . .
 
-# Build the native exporters needed while configuring the freestanding target.
-RUN cmake -S . -B build/host -G Ninja \
-        -DCMAKE_BUILD_TYPE=Debug \
-        -DPEDIGREE_BUILDUTILS_ASAN=OFF \
-        -DPEDIGREE_BUILDUTILS_PROFILE=Speed \
-    && cmake --build build/host \
-        --target headerify ext2img keymap memorytracer \
-        --parallel "$(nproc)"
-
 # The final compiler is staged around the target libc: first build a compiler
 # without headers, use it to build musl, then finish GCC with libstdc++ support.
 RUN python3 scripts/bootstrap_toolchain.py \
         x86_64-pedigree /opt/pedigree \
         --source-root /src \
-        --sysroot /opt/pedigree/sysroot \
+        --sysroot /opt/pedigree/musl-sdk/usr \
         --jobs "$(nproc)"
 
 RUN cmake -S . -B build/toolchain -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/src/build-etc/cmake/pedigree_amd64.cmake \
         -DPEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree \
-        -DIMPORT_EXECUTABLES=/src/build/host/HostUtilities.cmake \
         -DPEDIGREE_BUILD_USER_DIR=OFF \
         -DPEDIGREE_WITH_INIT=OFF \
         -DPEDIGREE_WARNINGS=ON \
@@ -64,14 +54,13 @@ RUN cmake -S . -B build/toolchain -G Ninja \
         --target libc \
         --parallel "$(nproc)"
 
-# Keep the final image self-contained. bootstrap_toolchain.py deliberately uses
-# sysroot links, so place the sysroot at the fixed path used by the image.
-RUN mkdir -p /opt/pedigree/sysroot \
-    && cp -a build/toolchain/musl/. /opt/pedigree/sysroot/ \
+# Keep the complete, relocatable SDK in the final image. The compiler consumes
+# its usr prefix while the manifest remains rooted at the package directory.
+RUN cp -a build/toolchain/musl /opt/pedigree/musl-sdk \
     && python3 scripts/bootstrap_toolchain.py \
         x86_64-pedigree /opt/pedigree \
         --source-root /src \
-        --sysroot /opt/pedigree/sysroot \
+        --sysroot /opt/pedigree/musl-sdk/usr \
         --libcpp \
         --jobs "$(nproc)"
 

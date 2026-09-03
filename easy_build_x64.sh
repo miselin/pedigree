@@ -64,24 +64,26 @@ $script_dir/run_pup.sh sync
 # Needed for libc
 $script_dir/run_pup.sh install ncurses
 
-# Build Pedigree.
-HOST_TOOLS_PROFILE=${PEDIGREE_HOST_TOOLS_PROFILE:-Speed}
-mkdir -p build-host && cd build-host
-cmake -DPEDIGREE_BUILDUTILS_PROFILE="$HOST_TOOLS_PROFILE" ..
-make
-cd ..
+refresh_cmake_metadata=false
+if [ -f build/CMakeCache.txt ]; then
+    if ! grep -Fqx \
+        "PEDIGREE_TOOLCHAIN_ROOT:PATH=$COMPILER_DIR" build/CMakeCache.txt; then
+        refresh_cmake_metadata=true
+    elif ! grep -Fqs 'set(CMAKE_SYSTEM_NAME "Pedigree")' \
+        build/CMakeFiles/*/CMakeSystem.cmake 2>/dev/null; then
+        refresh_cmake_metadata=true
+    fi
+fi
 
-if [ -f build/CMakeCache.txt ] && \
-    ! grep -Fqx "PEDIGREE_TOOLCHAIN_ROOT:PATH=$COMPILER_DIR" build/CMakeCache.txt; then
-    # Compiler identities and their companion tools are immutable CMake cache
-    # facts. Preserve build outputs, but regenerate that metadata on an upgrade.
+if [ "$refresh_cmake_metadata" = true ]; then
+    # Compiler and target-platform identities are immutable CMake cache facts.
+    # Preserve build outputs, but regenerate that metadata when either changes.
     cmake -E rm -f build/CMakeCache.txt
     cmake -E remove_directory build/CMakeFiles
 fi
 mkdir -p build && cd build
 cmake -DCMAKE_TOOLCHAIN_FILE=${script_dir}/build-etc/cmake/pedigree_amd64.cmake \
-    -DPEDIGREE_TOOLCHAIN_ROOT="$COMPILER_DIR" \
-    -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake ..
+    -DPEDIGREE_TOOLCHAIN_ROOT="$COMPILER_DIR" ..
 
 # Build libc/libm
 make libc

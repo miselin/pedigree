@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pedigree-project.org/schemas/musl-sdk-manifest-v1.schema.json",
+  "title": "Pedigree musl SDK manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "component",
+    "target",
+    "layout",
+    "provenance"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pedigree.musl-sdk"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "port_revision"],
+      "properties": {
+        "name": {
+          "const": "musl"
+        },
+        "version": {
+          "$ref": "#/$defs/portableIdentifier"
+        },
+        "port_revision": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["architecture", "abi", "profile", "page_size", "dt_relr"],
+      "properties": {
+        "architecture": {
+          "const": "x86_64"
+        },
+        "abi": {
+          "$ref": "#/$defs/portableIdentifier"
+        },
+        "profile": {
+          "enum": ["target", "hosted"]
+        },
+        "page_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "dt_relr": {
+          "type": "boolean"
+        }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "include_directory",
+        "library_directory",
+        "dynamic_loader",
+        "dynamic_loader_target"
+      ],
+      "properties": {
+        "name": {
+          "const": "fhs-usr-v1"
+        },
+        "include_directory": {
+          "const": "usr/include"
+        },
+        "library_directory": {
+          "const": "usr/lib"
+        },
+        "dynamic_loader": {
+          "const": "usr/lib/ld-musl-x86_64.so.1"
+        },
+        "dynamic_loader_target": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "pattern": "^/"
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "upstream_sha256",
+        "pedigree_revision",
+        "build_id",
+        "compiler_target",
+        "compiler_version"
+      ],
+      "properties": {
+        "upstream_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "pedigree_revision": {
+          "$ref": "#/$defs/portableIdentifier"
+        },
+        "build_id": {
+          "$ref": "#/$defs/portableIdentifier"
+        },
+        "compiler_target": {
+          "$ref": "#/$defs/portableIdentifier"
+        },
+        "compiler_version": {
+          "$ref": "#/$defs/portableIdentifier"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "portableIdentifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:+-]+$"
+    }
+  }
+}

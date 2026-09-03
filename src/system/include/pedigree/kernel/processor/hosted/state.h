@@ -341,19 +341,30 @@ size_t HostedSyscallState::getSyscallNumber() const {
   return number;
 }
 uintptr_t HostedSyscallState::getSyscallParameter(size_t n) const {
-  if (n == 0)
-    return p1;
-  if (n == 1)
-    return p2;
-  if (n == 2)
-    return p3;
-  if (n == 3)
-    return p4;
-  if (n == 4)
-    return p5;
-  if (n == 5)
-    return p6;
-  return 0;
+  switch (n) {
+    // Native Pedigree services use slots 0-5. The Linux-compatible service
+    // uses slots 6-11 to match X64SyscallState's register-ABI redirection.
+    case 0:
+    case 6:
+      return p1;
+    case 1:
+    case 7:
+      return p2;
+    case 2:
+    case 8:
+      return p3;
+    case 3:
+    case 9:
+      return p4;
+    case 4:
+    case 10:
+      return p5;
+    case 5:
+    case 11:
+      return p6;
+    default:
+      return 0;
+  }
 }
 void HostedSyscallState::setSyscallReturnValue(uintptr_t val) {
   result = val;

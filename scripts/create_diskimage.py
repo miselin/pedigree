@@ -219,8 +219,7 @@ def build_file_list(all_sources):
             ("/.bashrc", "/root/.bashrc"),
         ),
     )
-    add_copy_tree(copies, os.path.join(musldir, "lib"), "/usr/lib")
-    add_copy_tree(copies, os.path.join(musldir, "include"), "/usr/include")
+    add_copy_tree(copies, os.path.join(musldir, "usr"), "/usr")
 
     # Add translations.
     for lang in ("en_US", "de_DE"):
@@ -313,7 +312,12 @@ def build_file_list(all_sources):
             if dirname not in safe_dirs:
                 safe_mkdirs_cmdlist(cmdlist, dirname, safe_dirs)
 
-            if os.path.isfile(host_path):
+            if os.path.islink(host_path):
+                link_target = os.readlink(host_path)
+                if link_target.startswith("/"):
+                    link_target = translate_target_path(link_target)
+                cmdlist.append("symlink %s %s" % (target_path, link_target))
+            elif os.path.isfile(host_path):
                 add_file_to_cmdlist(cmdlist, host_path, target_path)
             else:
                 raise Exception(

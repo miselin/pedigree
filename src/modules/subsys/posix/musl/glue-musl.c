@@ -17,49 +17,28 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-// From musl
 #include <errno.h>
 #include <stdio.h>
-#include <bits/syscall.h>
 #include <stdarg.h>
 
-// From the Pedigree source tree (syscall stubs). References musl errno.
-#include <pedigree/kernel/processor/Syscalls.h>
 #include <posix-syscall.h>
 #include <posixSyscallNumbers.h>
-#include <translate.h>
 
-#define STUBBED(which) do { \
-    char buf[32]; \
-    snprintf(buf, 32, "linux=%ld", which); \
-    syscall1(POSIX_STUBBED, (long)(buf)); \
-} while(0)
+#if HOSTED
+// Hosted userspace cannot issue raw syscalls without entering the host OS.
+#include <pedigree/kernel/processor/Syscalls.h>
 
 long pedigree_translate_syscall(long which, long a1, long a2, long a3, long a4,
                                 long a5, long a6)
 {
-    // Linux SYS_exit retires only the calling thread. Translating it to the
-    // legacy Pedigree exit syscall would lose that distinction.
-    if (posix_translate_syscall(which) == -1)
+    long err = 0;
+    long r = syscall6_for_service_err(
+        linuxCompat, which, a1, a2, a3, a4, a5, a6, &err);
+    if (err)
     {
-        STUBBED(which);
-        return -ENOSYS;
+        return -err;
     }
-    else
-    {
-        long err = 0;
-        long r = syscall6_for_service_err(
-            linuxCompat, which, a1, a2, a3, a4, a5, a6, &err);
-#if HOSTED
-        if (err)
-        {
-            return -err;
-        }
-#endif
-        // Keep the original Linux number so the kernel performs the
-        // translation while retaining the Linux ABI identity.
-        return r;
-    }
+    return r;
 }
 
 __attribute__((noreturn, visibility("hidden")))
@@ -68,6 +47,7 @@ void pedigree_musl_thread_exit(long status)
     syscall1(POSIX_PTHREAD_RETURN, status);
     __builtin_trap();
 }
+#endif
 
 // Extension that provides write access to the kernel log.
 int klog(int prio, const char *fmt, ...)

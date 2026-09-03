@@ -127,7 +127,7 @@ class Bootstrapper:
         self.sysroot = (
             args.sysroot.resolve()
             if args.sysroot
-            else self.source_root / "build/musl"
+            else self.source_root / "build/musl/usr"
         )
         self.dry_run = args.dry_run
         self.make = ["make", f"-j{args.jobs}"]

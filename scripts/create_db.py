@@ -17,17 +17,32 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 '''
 
+import argparse
 import os
 import re
 import subprocess
-import sys
 import tempfile
+
+try:
+    from shutil import which as find_executable
+except ImportError:
+    from distutils.spawn import find_executable
 
 
 def main():
     """Generates a sqlite3 DB from the given .sql files."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--sqlite',
+        default='auto',
+        help='sqlite3 executable to use, or embedded to use Python sqlite3',
+    )
+    parser.add_argument('output')
+    parser.add_argument('schemas', nargs='+')
+    arguments = parser.parse_args()
+
     all_sql = ''
-    for filename in sys.argv[2:]:
+    for filename in arguments.schemas:
         with open(filename, 'rb') as f:
             all_sql += f.read().decode('utf-8')
 
@@ -38,19 +53,28 @@ def main():
 
     all_sql = re.sub('create table .*?;', '', all_sql, flags=re.M | re.S | re.I)
 
-    if os.path.isfile(sys.argv[1]):
-        os.unlink(sys.argv[1])
+    if os.path.isfile(arguments.output):
+        os.unlink(arguments.output)
 
-    with tempfile.NamedTemporaryFile() as f:
-        f.write(b'begin;')
-        f.write(tables.encode('utf-8'))
-        f.write(all_sql.encode('utf-8'))
-        f.write(b'commit;')
-        f.flush()
+    sql = 'begin;' + tables + all_sql + 'commit;'
+    sqlite_executable = arguments.sqlite
+    if sqlite_executable == 'auto':
+        sqlite_executable = find_executable('sqlite3')
 
-        f.seek(0)
+    if sqlite_executable and sqlite_executable != 'embedded':
+        with tempfile.TemporaryFile() as script:
+            script.write(sql.encode('utf-8'))
+            script.seek(0)
+            subprocess.check_call([sqlite_executable, arguments.output], stdin=script)
+        return
 
-        subprocess.check_call('sqlite3 %s' % (sys.argv[1],), stdin=f, shell=True)
+    import sqlite3
+
+    connection = sqlite3.connect(arguments.output)
+    try:
+        connection.executescript(sql)
+    finally:
+        connection.close()
 
 
 if __name__ == '__main__':

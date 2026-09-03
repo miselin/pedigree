@@ -41,6 +41,18 @@ darwin_hosted_build_dir="$build_root/darwin-hosted"
 darwin_hosted_page16k_build_dir="$build_root/darwin-hosted-page16k"
 toolchain_root=${PEDIGREE_TOOLCHAIN_ROOT:-"$script_dir/compilers/dir"}
 host_tools_profile=${PEDIGREE_HOST_TOOLS_PROFILE:-Speed}
+musl_options=()
+if [[ -n "${PEDIGREE_MUSL_ARCHIVE:-}" ]]; then
+    musl_archive=$PEDIGREE_MUSL_ARCHIVE
+    if [[ "$musl_archive" != /* ]]; then
+        musl_archive="$script_dir/$musl_archive"
+    fi
+    if [[ ! -f "$musl_archive" ]]; then
+        echo "PEDIGREE_MUSL_ARCHIVE is unavailable: $musl_archive" >&2
+        exit 1
+    fi
+    musl_options=(-DPEDIGREE_MUSL_ARCHIVE="$musl_archive")
+fi
 cmake_options=(
     -DCMAKE_BUILD_TYPE=Debug
     -DPEDIGREE_BUILDUTILS_PROFILE=Debug
@@ -63,7 +75,7 @@ run_native_lane()
     local build_dir=$2
     local page_size=$3
     local use_asan=$4
-    local targets=(testsuite)
+    local targets=(testsuite pedigree-configdb pedigree-initrd-builder)
 
     echo
     echo "Configuring $label."
@@ -107,7 +119,8 @@ run_host_tools_lane()
     grep -q "^#define PEDIGREE_TARGET_PAGE_SIZE 4096$" \
         "$build_dir/config.h"
     cmake --build "$build_dir" "${parallel_args[@]}" \
-        --target headerify ext2img keymap memorytracer
+        --target headerify ext2img keymap memorytracer \
+            pedigree-configdb pedigree-initrd-builder
 }
 
 run_darwin_lane()
@@ -120,8 +133,10 @@ run_darwin_lane()
     echo "Configuring $label."
     cmake -S "$script_dir" -B "$build_dir" \
         -DCMAKE_TOOLCHAIN_FILE="$script_dir/build-etc/cmake/pedigree_hosted_darwin.cmake" \
+        -DPEDIGREE_HOST_TOOLS_MODE=IMPORTED \
         -DIMPORT_EXECUTABLES="$host_tools_build_dir/HostUtilities.cmake" \
         -DPEDIGREE_TOOLCHAIN_ROOT="$toolchain_root" \
+        "${musl_options[@]}" \
         -DCMAKE_BUILD_TYPE=Debug \
         -DPEDIGREE_BUILD_USER_DIR=OFF \
         -DPEDIGREE_HOSTED_DYNAMIC_MODULES=ON \

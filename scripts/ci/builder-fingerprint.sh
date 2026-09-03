@@ -6,19 +6,29 @@ files=$(git ls-files -- \
     .github/workflows/builder-image.yml \
     .dockerignore \
     build-etc/docker/pedigree-builder.Dockerfile \
+    build-etc/cmake/GenerateVdsoHeader.cmake \
+    'build-etc/cmake/*MuslSdkManifest.cmake' \
+    build-etc/cmake/PedigreeHostTools.cmake \
     build-etc/cmake/pedigree_amd64.cmake \
+    build-etc/cmake/pedigree_amd64_target.cmake \
+    build-etc/cmake/Platform/Pedigree* \
     build-etc/toolchain \
     'compilers/pedigree-*.patch' \
     CMakeLists.txt \
     scripts/bootstrap_toolchain.py \
     scripts/build-musl-amd64.sh \
     scripts/ci/builder-fingerprint.sh \
+    src/buildutil/artifact-generators \
+    src/buildutil/bootstrap \
+    src/buildutil/CMakeLists.txt \
+    src/buildutil/configdb \
     src/modules/CMakeLists.txt \
     src/modules/subsys/posix/musl \
     src/modules/subsys/posix/syscalls \
     src/system/include/pedigree/kernel/config.h.in \
     src/system/include/pedigree/kernel/processor/hosted/syscall-stubs.h \
     src/system/include/pedigree/kernel/processor/syscall-stubs.h \
+    src/system/include/pedigree/kernel/processor/x64/syscall-stubs.h \
     src/system/kernel/CMakeLists.txt | sort)
 test -n "$files"
 

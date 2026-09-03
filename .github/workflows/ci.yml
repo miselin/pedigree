@@ -61,7 +61,8 @@ jobs:
             libbenchmark-dev \
             libssl-dev \
             nasm \
-            ninja-build
+            ninja-build \
+            zlib1g-dev
 
       - name: Show LLVM tool versions
         run: |
@@ -77,7 +78,10 @@ jobs:
             -DPEDIGREE_BUILDUTILS_PROFILE=Speed
 
       - name: Build buildutil testsuite
-        run: cmake --build build/host --target testsuite --parallel
+        run: >-
+          cmake --build build/host
+          --target testsuite pedigree-configdb pedigree-initrd-builder
+          --parallel
 
       - name: Run clang-tidy across buildutil
         run: scripts/clang-tidy.sh host build/host -j 2 -quiet -hide-progress
@@ -208,21 +212,11 @@ jobs:
             --workdir /workspace \
             "$BUILDER_IMAGE" \
             bash -euo pipefail -c '
-              cmake -S . -B build/host -G Ninja \
-                -DCMAKE_BUILD_TYPE=Debug \
-                -DPEDIGREE_WARNINGS=ON \
-                -DPEDIGREE_BUILDUTILS_ASAN=OFF \
-                -DPEDIGREE_BUILDUTILS_PROFILE=Speed
-              cmake --build build/host \
-                --target headerify ext2img keymap memorytracer \
-                --parallel
-
               # The ignored images/local SDK is not present in the builder, so
               # userspace tidy remains an explicit local runner mode.
               cmake -S . -B build/cross -G Ninja \
                 -DCMAKE_TOOLCHAIN_FILE=/workspace/build-etc/cmake/pedigree_amd64.cmake \
                 -DPEDIGREE_TOOLCHAIN_ROOT=/opt/pedigree \
-                -DIMPORT_EXECUTABLES=/workspace/build/host/HostUtilities.cmake \
                 -DPEDIGREE_BUILD_USER_DIR=OFF \
                 -DPEDIGREE_WARNINGS=ON
               cmake --build build/cross \

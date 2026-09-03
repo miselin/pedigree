@@ -95,13 +95,11 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
   uint64_t syscallNumber = state.getSyscallNumber();
   const bool linuxAbi = state.getSyscallService() == linuxCompat;
 
-#ifdef SYS_umount2
-  if (linuxAbi && syscallNumber == SYS_umount2) {
+  if (linuxAbi && syscallNumber == PedigreeLinuxAmd64Syscall_umount2) {
     // Pedigree has no Linux mount namespace to detach from. Treating an
     // absent Linux mount as already detached keeps legacy init usable.
     return 0;
   }
-#endif
 
   uintptr_t base = 0;
   if (linuxAbi) {

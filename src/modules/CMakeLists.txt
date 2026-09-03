@@ -1,5 +1,8 @@
-# Modules use Pedigree's headers and syscall ABI even when linked statically
-# into the hosted kernel.
+include(PedigreeMuslLink)
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    link_libraries(pedigree_musl_headers)
+endif ()
+
 set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
 set(CMAKE_CXX_COMPILER ${PEDIGREE_CXX_COMPILER})
 if (NOT PEDIGREE_MODULE_OBJCOPY)
@@ -41,9 +44,11 @@ set(PEDIGREE_POSIX_NOEFAULT FALSE CACHE BOOL "Disable checks for EFAULT conditio
 
 set(PEDIGREE_PCAP TRUE CACHE BOOL "Build the pcap kernel module which writes a pcap log to a serial port.")
 
-set(MUSL_NAME "musl-1.2.6")
+set(MUSL_VERSION "1.2.6")
+set(MUSL_NAME "musl-${MUSL_VERSION}")
 set(MUSL_FILENAME "${MUSL_NAME}.tar.gz")
 set(MUSL_SHA256 "d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a")
+set(PEDIGREE_MUSL_PORT_REVISION 1)
 
 add_definitions(-DIN_PEDIGREE_KERNEL)
 
@@ -63,14 +68,17 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "X64" OR PEDIGREE_ARCH_TARGET STREQUAL "HOSTED
 
     add_definitions(-DUSE_PIC_SYSCALLS)
 
-    set(MUSL_LIBNAME ${CMAKE_BINARY_DIR}/musl/lib/ld-musl-x86_64.so.1)
+    set(MUSL_LIBNAME
+        ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/ld-musl-x86_64.so.1)
 else ()
     message(SEND_ERROR "PEDIGREE_ARCH_TARGET is missing a target-specific flag section in the modules CMakeLists.txt")
 endif ()
 
-if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND PEDIGREE_TOOLCHAIN_ROOT)
     set(ARCH_MODULE_FLAGS ${ARCH_MODULE_FLAGS} "--sysroot=${PEDIGREE_TOOLCHAIN_ROOT}/x86_64-pedigree")
     set(ARCH_MODULE_LINKFLAGS ${ARCH_MODULE_LINKFLAGS} "--sysroot=${PEDIGREE_TOOLCHAIN_ROOT}/x86_64-pedigree")
+endif ()
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     if (PEDIGREE_HOSTED_ASAN)
         list(APPEND ARCH_MODULE_FLAGS "-fsanitize=address")
         list(APPEND ARCH_MODULE_LINKFLAGS "-fsanitize=address")
@@ -112,8 +120,15 @@ endif ()
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/system/lwip/include)
 
-# TODO: adjust so musl paths only get added for -user targets
-link_directories(${CMAKE_BINARY_DIR}/musl/lib)
+# TODO: adjust so libc paths only get added for -user targets
+if (PEDIGREE_SELF_HOSTED)
+    link_directories(
+        ${PEDIGREE_MUSL_PREFIX_ROOT}/lib
+        ${PEDIGREE_NATIVE_RUNTIME_LIBRARY_DIRS}
+        /usr/lib)
+else ()
+    link_directories(${PEDIGREE_MUSL_PREFIX_ROOT}/lib)
+endif ()
 
 set(CDI_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/drivers/common/cdi/include
@@ -749,10 +764,14 @@ target_link_libraries(vdso PRIVATE gcc
 add_dependencies(vdso libc)
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
-    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/genvdso.py
-        $<TARGET_FILE:vdso> ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
-        ${PEDIGREE_TARGET_PAGE_SIZE}
-    DEPENDS vdso)
+    COMMAND ${CMAKE_COMMAND}
+        "-DINPUT=$<TARGET_FILE:vdso>"
+        "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/vdso.h"
+        "-DPAGE_SIZE=${PEDIGREE_TARGET_PAGE_SIZE}"
+        -P ${CMAKE_SOURCE_DIR}/build-etc/cmake/GenerateVdsoHeader.cmake
+    DEPENDS vdso
+        ${CMAKE_SOURCE_DIR}/build-etc/cmake/GenerateVdsoHeader.cmake
+    VERBATIM)
 add_custom_target(vdso-header DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/vdso.h)
 
 pedigree_module(posix "" ""
@@ -823,6 +842,7 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     target_link_options(native-user PRIVATE
         -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
         -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})
+    pedigree_use_musl_sdk_startfiles(native-user)
     if (PEDIGREE_DTRELR_ENABLED)
         target_link_options(native-user PRIVATE -Wl,-z,pack-relative-relocs)
     endif ()
@@ -844,6 +864,7 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     target_link_options(pedigree-c-user PRIVATE
         -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
         -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})
+    pedigree_use_musl_sdk_startfiles(pedigree-c-user)
     if (PEDIGREE_DTRELR_ENABLED)
         target_link_options(pedigree-c-user PRIVATE -Wl,-z,pack-relative-relocs)
     endif ()
@@ -859,23 +880,152 @@ endif ()
 if (PEDIGREE_STATIC_DRIVERS)
     add_library(staticmodules OBJECT Module.cc)
 else ()
-    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
-        COMMAND ${CMAKE_COMMAND} -E tar "czf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar -- ${PEDIGREE_KERNEL_MODULES}
-        DEPENDS ${PEDIGREE_KERNEL_MODULE_TARGETS})
-    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp
-        COMMAND ${CMAKE_COMMAND} -E tar "cf" ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp -- ${PEDIGREE_KERNEL_MODULES}
-        DEPENDS ${PEDIGREE_KERNEL_MODULE_TARGETS})
-    add_custom_target(initrd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp)
+    set(PEDIGREE_INITRD_ENTRIES)
+    foreach (module_target IN LISTS PEDIGREE_KERNEL_MODULE_TARGETS)
+        list(APPEND PEDIGREE_INITRD_ENTRIES
+            "$<TARGET_FILE_NAME:${module_target}>=$<TARGET_FILE:${module_target}>")
+    endforeach ()
+
+    if (PEDIGREE_SELF_HOSTED)
+        set(_PEDIGREE_INITRD_COMMAND
+            $<TARGET_FILE:pedigree-initrd-builder>)
+        set(_PEDIGREE_INITRD_DEPENDENCIES pedigree-initrd-builder)
+    elseif (TARGET host-pedigree-initrd-builder)
+        set(_PEDIGREE_INITRD_COMMAND
+            $<TARGET_FILE:host-pedigree-initrd-builder>)
+        set(_PEDIGREE_INITRD_DEPENDENCIES
+            host-pedigree-initrd-builder)
+    else ()
+        message(FATAL_ERROR "No initrd generator is available.")
+    endif ()
+
+    add_custom_command(
+        OUTPUT
+            ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
+            ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp
+            ${CMAKE_CURRENT_BINARY_DIR}/initrd.manifest
+        COMMAND ${_PEDIGREE_INITRD_COMMAND}
+            --output ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
+            --uncompressed ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp
+            --manifest ${CMAKE_CURRENT_BINARY_DIR}/initrd.manifest
+            ${PEDIGREE_INITRD_ENTRIES}
+        DEPENDS
+            ${PEDIGREE_KERNEL_MODULE_TARGETS}
+            ${_PEDIGREE_INITRD_DEPENDENCIES}
+        VERBATIM)
+    add_custom_target(initrd ALL DEPENDS
+        ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
+        ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar.uncomp
+        ${CMAKE_CURRENT_BINARY_DIR}/initrd.manifest)
 endif ()
 
-set(MUSL_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME}")
+set(PEDIGREE_MUSL_ARCHIVE
+    "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_FILENAME}" CACHE FILEPATH
+    "Local musl source archive used to build Pedigree's libc.")
+get_filename_component(MUSL_ARCHIVE "${PEDIGREE_MUSL_ARCHIVE}" ABSOLUTE
+    BASE_DIR "${CMAKE_SOURCE_DIR}")
+set(PEDIGREE_MUSL_CONFIG_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/musl-config")
+file(MAKE_DIRECTORY "${PEDIGREE_MUSL_CONFIG_DIR}")
+if (PEDIGREE_MUSL_ARCH_TARGET STREQUAL "HOSTED")
+    set(PEDIGREE_MUSL_CONFIG_HOSTED 1)
+    set(PEDIGREE_MUSL_CONFIG_X64 0)
+else ()
+    set(PEDIGREE_MUSL_CONFIG_HOSTED 0)
+    set(PEDIGREE_MUSL_CONFIG_X64 1)
+endif ()
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/config.h.in
+    ${PEDIGREE_MUSL_CONFIG_DIR}/config.h)
+set(PEDIGREE_MUSL_PORT_INPUTS
+    ${CMAKE_SOURCE_DIR}/build-etc/cmake/GenerateMuslSdkManifest.cmake
+    ${CMAKE_SOURCE_DIR}/build-etc/cmake/PedigreeMuslSdkManifest.cmake
+    ${CMAKE_SOURCE_DIR}/build-etc/cmake/ValidateMuslSdkManifest.cmake
+    ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-sdk-manifest-v1.schema.json
+    ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-1.2.6-cve-2026-40200-qsort.patch
+    ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-1.2.6-cve-2026-6042-iconv.patch
+    ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/fb.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/glue-musl.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/klog.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/ttyname.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posix-syscall.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posixSyscallNumbers.h
+    ${PEDIGREE_MUSL_CONFIG_DIR}/config.h
+    ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/syscall-stubs.h)
+if (PEDIGREE_MUSL_ARCH_TARGET STREQUAL "HOSTED")
+    list(APPEND PEDIGREE_MUSL_PORT_INPUTS
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/clone-hosted-amd64.musl-s
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_arch.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_cp-${PEDIGREE_MUSLARCH}.musl-s
+        ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/Syscalls.h
+        ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/hosted/syscall-stubs.h)
+else ()
+    list(APPEND PEDIGREE_MUSL_PORT_INPUTS
+        ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/x64/syscall-stubs.h)
+endif ()
+
+set(_PEDIGREE_MUSL_PORT_HASH_INPUT "")
+foreach (_PEDIGREE_MUSL_PORT_INPUT IN LISTS PEDIGREE_MUSL_PORT_INPUTS)
+    file(SHA256 "${_PEDIGREE_MUSL_PORT_INPUT}"
+        _PEDIGREE_MUSL_PORT_INPUT_HASH)
+    string(APPEND _PEDIGREE_MUSL_PORT_HASH_INPUT
+        "${_PEDIGREE_MUSL_PORT_INPUT_HASH}\n")
+endforeach ()
+string(SHA256 PEDIGREE_MUSL_REVISION
+    "${_PEDIGREE_MUSL_PORT_HASH_INPUT}")
+
+execute_process(
+    COMMAND "${PEDIGREE_C_COMPILER}" -dumpmachine
+    RESULT_VARIABLE _PEDIGREE_MUSL_COMPILER_TARGET_RESULT
+    OUTPUT_VARIABLE PEDIGREE_MUSL_COMPILER_TARGET
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+execute_process(
+    COMMAND "${PEDIGREE_C_COMPILER}" -dumpfullversion -dumpversion
+    RESULT_VARIABLE _PEDIGREE_MUSL_COMPILER_VERSION_RESULT
+    OUTPUT_VARIABLE PEDIGREE_MUSL_COMPILER_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if (NOT _PEDIGREE_MUSL_COMPILER_TARGET_RESULT EQUAL 0 OR
+    NOT _PEDIGREE_MUSL_COMPILER_VERSION_RESULT EQUAL 0 OR
+    NOT PEDIGREE_MUSL_COMPILER_TARGET OR NOT PEDIGREE_MUSL_COMPILER_VERSION)
+    message(FATAL_ERROR
+        "Could not identify the compiler used to build the musl SDK: "
+        "${PEDIGREE_C_COMPILER}")
+endif ()
+
+if (PEDIGREE_MUSL_ARCH_TARGET STREQUAL "HOSTED")
+    set(PEDIGREE_MUSL_PROFILE hosted)
+else ()
+    set(PEDIGREE_MUSL_PROFILE target)
+endif ()
+set(PEDIGREE_MUSL_ABI pedigree-linux-amd64-v1)
+string(CONCAT _PEDIGREE_MUSL_BUILD_ID_INPUT
+    "${MUSL_VERSION}\n${MUSL_SHA256}\n${PEDIGREE_MUSL_PORT_REVISION}\n"
+    "${PEDIGREE_MUSL_REVISION}\n${PEDIGREE_MUSL_ARCH_TARGET}\n"
+    "${PEDIGREE_MUSL_ABI}\n${PEDIGREE_TARGET_PAGE_SIZE}\n"
+    "${PEDIGREE_DTRELR_ENABLED}\n${PEDIGREE_MUSL_COMPILER_TARGET}\n"
+    "${PEDIGREE_MUSL_COMPILER_VERSION}\n")
+string(SHA256 PEDIGREE_MUSL_BUILD_ID
+    "${_PEDIGREE_MUSL_BUILD_ID_INPUT}")
+set(PEDIGREE_MUSL_MANIFEST
+    ${PEDIGREE_MUSL_SDK_ROOT}/usr/share/pedigree/libc/manifest.json)
+
 set(MUSL_DOWNLOAD "${MUSL_ARCHIVE}.download")
 set(MUSL_DTRELR_STATE "${CMAKE_CURRENT_BINARY_DIR}/musl-dtrelr.state")
 set(MUSL_PAGE_SIZE_STATE "${CMAKE_CURRENT_BINARY_DIR}/musl-page-size.state")
+set(MUSL_PORT_STATE "${CMAKE_CURRENT_BINARY_DIR}/musl-port.state")
+set(MUSL_DERIVATION_STATE
+    "${CMAKE_CURRENT_BINARY_DIR}/musl-derivation.state")
 file(GENERATE OUTPUT "${MUSL_DTRELR_STATE}"
     CONTENT "PEDIGREE_DTRELR=$<BOOL:${PEDIGREE_DTRELR_ENABLED}>\n")
 file(GENERATE OUTPUT "${MUSL_PAGE_SIZE_STATE}"
     CONTENT "PEDIGREE_TARGET_PAGE_SIZE=${PEDIGREE_TARGET_PAGE_SIZE}\n")
+file(GENERATE OUTPUT "${MUSL_PORT_STATE}"
+    CONTENT "PEDIGREE_MUSL_PORT_REVISION=${PEDIGREE_MUSL_PORT_REVISION}\n")
+file(GENERATE OUTPUT "${MUSL_DERIVATION_STATE}"
+    CONTENT "PEDIGREE_MUSL_BUILD_ID=${PEDIGREE_MUSL_BUILD_ID}\n")
 
 if (EXISTS "${MUSL_ARCHIVE}")
     file(SHA256 "${MUSL_ARCHIVE}" MUSL_ACTUAL_SHA256)
@@ -884,6 +1034,13 @@ if (EXISTS "${MUSL_ARCHIVE}")
             "Cached musl archive has SHA256 ${MUSL_ACTUAL_SHA256}; expected ${MUSL_SHA256}: ${MUSL_ARCHIVE}")
     endif ()
 else ()
+    if (PEDIGREE_SELF_HOSTED)
+        message(FATAL_ERROR
+            "Self-hosted builds do not download dependencies during configure. "
+            "Provide the verified musl archive with "
+            "-DPEDIGREE_MUSL_ARCHIVE=/path/to/${MUSL_FILENAME}")
+    endif ()
+
     file(REMOVE "${MUSL_DOWNLOAD}")
     file(DOWNLOAD
         "https://www.musl-libc.org/releases/${MUSL_FILENAME}"
@@ -907,71 +1064,110 @@ else ()
     file(RENAME "${MUSL_DOWNLOAD}" "${MUSL_ARCHIVE}")
 endif ()
 
+# The SDK provenance is computed while CMake configures. Make every input that
+# contributes to it part of CMake's own regeneration graph so an incremental
+# build cannot rebuild libc with stale manifest data.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${MUSL_ARCHIVE}"
+    "${PEDIGREE_C_COMPILER}"
+    ${PEDIGREE_MUSL_PORT_INPUTS})
+
 add_custom_command(
     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}"
     COMMAND ${CMAKE_COMMAND} -E tar xzf "${MUSL_ARCHIVE}"
     COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure"
-    DEPENDS "${MUSL_ARCHIVE}"
+    DEPENDS
+        "${MUSL_ARCHIVE}"
+        "${MUSL_PORT_STATE}"
+        ${PEDIGREE_MUSL_PORT_INPUTS}
 )
 add_custom_target(musl_extract ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure")
 
-# Build libc
-add_custom_command(
-    OUTPUT
-    ${CMAKE_BINARY_DIR}/musl/lib/libc.so
-    ${MUSL_LIBNAME}
-    ${CMAKE_BINARY_DIR}/musl/lib/crt1.o
-    ${CMAKE_BINARY_DIR}/musl/lib/crti.o
-    ${CMAKE_BINARY_DIR}/musl/lib/crtn.o
-    ${CMAKE_BINARY_DIR}/musl/lib/rcrt1.o
-    ${CMAKE_BINARY_DIR}/musl/lib/Scrt1.o
-    ${CMAKE_BINARY_DIR}/musl/lib/libc.a
-    ${CMAKE_BINARY_DIR}/musl/lib/libcrypt.a
-    ${CMAKE_BINARY_DIR}/musl/lib/libdl.a
-    ${CMAKE_BINARY_DIR}/musl/lib/libm.a
-    ${CMAKE_BINARY_DIR}/musl/lib/librt.a
-    ${CMAKE_BINARY_DIR}/musl/lib/libpthread.a
-    ${CMAKE_BINARY_DIR}/musl/lib/libresolv.a
-    ${CMAKE_BINARY_DIR}/musl/lib/libutil.a
-    ${CMAKE_BINARY_DIR}/musl/lib/libxnet.a
-    COMMAND
+set(PEDIGREE_MUSL_TOOL_ENV)
+if (PEDIGREE_SELF_HOSTED)
+    # A compiler hosted on Pedigree is already targeting Pedigree, so native
+    # tool names are sufficient even when no target-prefixed aliases exist.
+    list(APPEND PEDIGREE_MUSL_TOOL_ENV
+        PEDIGREE_USE_PATH_TOOLCHAIN=1
+        PEDIGREE_CROSS_COMPILE_PREFIX=
+        "PEDIGREE_NATIVE_TOOL_ROOT=${PEDIGREE_NATIVE_TOOL_ROOT}")
+    if (CMAKE_OBJDUMP AND NOT CMAKE_OBJDUMP MATCHES "-NOTFOUND$")
+        list(APPEND PEDIGREE_MUSL_TOOL_ENV PEDIGREE_OBJDUMP=${CMAKE_OBJDUMP})
+    endif ()
+    if (CMAKE_READELF AND NOT CMAKE_READELF MATCHES "-NOTFOUND$")
+        list(APPEND PEDIGREE_MUSL_TOOL_ENV PEDIGREE_READELF=${CMAKE_READELF})
+    endif ()
+endif ()
+
+set(_PEDIGREE_MUSL_BUILD_COMMAND
     ${CMAKE_COMMAND} -E env
     CC=${PEDIGREE_C_COMPILER} LD=${CMAKE_C_COMPILER}
     COMPILER_TARGET=${PEDIGREE_COMPILER_TARGET}
     PEDIGREE_DTRELR=$<BOOL:${PEDIGREE_DTRELR_ENABLED}>
     PEDIGREE_TARGET_PAGE_SIZE=${PEDIGREE_TARGET_PAGE_SIZE}
-    PEDIGREE_CONFIG_INCLUDE_DIR=${CMAKE_BINARY_DIR}
+    PEDIGREE_CONFIG_INCLUDE_DIR=${PEDIGREE_MUSL_CONFIG_DIR}
     PEDIGREE_TOOLCHAIN_ROOT=${PEDIGREE_TOOLCHAIN_ROOT}
+    CMAKE_COMMAND=${CMAKE_COMMAND}
+    MUSL_VERSION=${MUSL_VERSION}
+    MUSL_UPSTREAM_SHA256=${MUSL_SHA256}
+    PEDIGREE_MUSL_PORT_REVISION=${PEDIGREE_MUSL_PORT_REVISION}
+    PEDIGREE_MUSL_REVISION=${PEDIGREE_MUSL_REVISION}
+    PEDIGREE_MUSL_BUILD_ID=${PEDIGREE_MUSL_BUILD_ID}
+    PEDIGREE_MUSL_ABI=${PEDIGREE_MUSL_ABI}
+    PEDIGREE_MUSL_PROFILE=${PEDIGREE_MUSL_PROFILE}
+    PEDIGREE_MUSL_COMPILER_TARGET=${PEDIGREE_MUSL_COMPILER_TARGET}
+    PEDIGREE_MUSL_COMPILER_VERSION=${PEDIGREE_MUSL_COMPILER_VERSION}
+    PEDIGREE_MUSL_MANIFEST_GENERATOR=${CMAKE_SOURCE_DIR}/build-etc/cmake/GenerateMuslSdkManifest.cmake
+    PEDIGREE_MUSL_MANIFEST_VALIDATOR=${CMAKE_SOURCE_DIR}/build-etc/cmake/ValidateMuslSdkManifest.cmake
+    ${PEDIGREE_MUSL_TOOL_ENV}
     SRCDIR=${CMAKE_SOURCE_DIR}
-    TARGETDIR=${CMAKE_BINARY_DIR}/musl
+    TARGETDIR=${PEDIGREE_MUSL_SDK_ROOT}
     ARCH_TARGET=${PEDIGREE_MUSL_ARCH_TARGET}
-    ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
+    ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh)
+
+# Build libc. The target also invokes this command after checking the primary
+# output; the script exits immediately for a complete matching SDK and repairs
+# missing secondary package files otherwise.
+add_custom_command(
+    OUTPUT
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libc.so
+    ${MUSL_LIBNAME}
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/crt1.o
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/crti.o
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/crtn.o
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/rcrt1.o
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/Scrt1.o
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libc.a
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libcrypt.a
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libdl.a
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libm.a
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/librt.a
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libpthread.a
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libresolv.a
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libutil.a
+    ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libxnet.a
+    ${PEDIGREE_MUSL_MANIFEST}
+    COMMAND ${_PEDIGREE_MUSL_BUILD_COMMAND}
     DEPENDS
     ${CMAKE_TOOLCHAIN_FILE}
     ${MUSL_DTRELR_STATE}
     ${MUSL_PAGE_SIZE_STATE}
-    ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-1.2.6-cve-2026-40200-qsort.patch
-    ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-1.2.6-cve-2026-6042-iconv.patch
-    ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/clone-${PEDIGREE_MUSLARCH}.musl-s
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/clone-hosted-amd64.musl-s
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/fb.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/glue-musl.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/klog.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_arch.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_cp-${PEDIGREE_MUSLARCH}.musl-s
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/ttyname.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posix-syscall.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posixSyscallNumbers.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/translate.h
-    ${CMAKE_BINARY_DIR}/config.h
-    ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/syscall-stubs.h
-    ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/hosted/syscall-stubs.h
+    ${MUSL_PORT_STATE}
+    ${MUSL_DERIVATION_STATE}
+    ${PEDIGREE_MUSL_PORT_INPUTS}
     ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}/configure
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}
 )
 
-add_custom_target(libc ALL DEPENDS ${CMAKE_BINARY_DIR}/musl/lib/libc.so)
+add_custom_target(libc ALL
+    COMMAND ${_PEDIGREE_MUSL_BUILD_COMMAND}
+    DEPENDS ${PEDIGREE_MUSL_PREFIX_ROOT}/lib/libc.so
+    COMMENT "Validating the musl SDK"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${MUSL_NAME}
+    VERBATIM)
+add_dependencies(pedigree_musl_headers libc)
 
 set(PEDIGREE_KERNEL_MODULES ${PEDIGREE_KERNEL_MODULES} PARENT_SCOPE)
 set(PEDIGREE_KERNEL_MODULE_TARGETS ${PEDIGREE_KERNEL_MODULE_TARGETS} PARENT_SCOPE)

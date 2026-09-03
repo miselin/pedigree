@@ -56,12 +56,13 @@ stage also builds an x86-64 hosted kernel and focused dynamic module, executes
 them through Rosetta, and requires the bounded core regression suite and clean
 shutdown markers.
 
-Git, CMake 3.21 or newer, CTest, and a native C23/C++23 compiler with
-AddressSanitizer and `-ftrivial-auto-var-init=pattern`/`zero` are the canonical
-prerequisites. Docker is not used, and verification does not update submodules
-or invoke the legacy host package installer. The macOS hosted lane also
-requires Rosetta, NASM, and the GCC 15.3 x86-64 Pedigree cross-toolchain, either
-activated as `compilers/dir` or selected with `PEDIGREE_TOOLCHAIN_ROOT`.
+Git, CMake 3.21 or newer, CTest, zlib development headers and library, and a
+native C23/C++23 compiler with AddressSanitizer and
+`-ftrivial-auto-var-init=pattern`/`zero` are the canonical prerequisites.
+Docker is not used, and verification does not update submodules or invoke the
+legacy host package installer. The macOS hosted lane also requires Rosetta,
+NASM, and the GCC 15.3 x86-64 Pedigree cross-toolchain, either activated as
+`compilers/dir` or selected with `PEDIGREE_TOOLCHAIN_ROOT`.
 
 Each run writes durable output below:
 

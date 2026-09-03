@@ -73,7 +73,7 @@ run_logged "$build_root/host-configure.log" \
     -DPEDIGREE_WARNINGS=ON -DPEDIGREE_BUILDUTILS_ASAN=OFF
 run_logged "$build_root/host-build.log" \
     cmake --build "$host_build" "${parallel_args[@]}" \
-    --target testsuite headerify
+    --target testsuite headerify pedigree-configdb pedigree-initrd-builder
 run_logged "$build_root/host-tests.log" \
     ctest --test-dir "$host_build" --output-on-failure --no-tests=error
 
@@ -81,6 +81,7 @@ echo "Configuring the Linux-hosted IRQ closure kernel."
 run_logged "$build_root/linux-hosted-configure.log" \
     cmake -S "$repository" -B "$kernel_build" \
     -DCMAKE_TOOLCHAIN_FILE="$repository/build-etc/cmake/pedigree_hosted.cmake" \
+    -DPEDIGREE_HOST_TOOLS_MODE=IMPORTED \
     -DIMPORT_EXECUTABLES="$host_build/HostUtilities.cmake" \
     -DPEDIGREE_BUILD_USER_DIR=OFF \
     -DPEDIGREE_HOSTED_DYNAMIC_MODULES=ON \

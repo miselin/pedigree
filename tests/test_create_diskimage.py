@@ -50,12 +50,15 @@ class DiskImageLayoutTests(unittest.TestCase):
                 base / "etc" / "passwd": "root:x:0:0:Root User:/root:/bin/bash\n",
                 base / "etc" / "group": "administrators:x:0:root\n",
                 base / "etc" / "shadow": "root:root:0:0:99999:7:::\n",
-                musl / "lib" / "crt1.o": "crt",
-                musl / "include" / "stdio.h": "header",
+                musl / "usr/lib" / "crt1.o": "crt",
+                musl / "usr/lib" / "libc.so": "libc",
+                musl / "usr/include" / "stdio.h": "header",
+                musl / "usr/share/pedigree/libc/manifest.json": "{}\n",
             }
             for path, content in files.items():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content)
+            (musl / "usr/lib/ld-musl-x86_64.so.1").symlink_to("libc.so")
 
             for lang in ("en_US", "de_DE"):
                 (binary / "src" / "po" / lang).mkdir(parents=True)
@@ -94,6 +97,17 @@ class DiskImageLayoutTests(unittest.TestCase):
             self.assertIn("chmod /etc/shadow 600", commands)
             self.assertTrue(any(command.endswith(" /root/.profile") for command in commands))
             self.assertTrue(any(command.endswith(" /var/cache/pup/packages.pupdb") for command in commands))
+            self.assertTrue(any(command.endswith(" /usr/lib/crt1.o") for command in commands))
+            self.assertIn(
+                "symlink /usr/lib/ld-musl-x86_64.so.1 libc.so", commands
+            )
+            self.assertTrue(any(command.endswith(" /usr/include/stdio.h") for command in commands))
+            self.assertTrue(
+                any(
+                    command.endswith(" /usr/share/pedigree/libc/manifest.json")
+                    for command in commands
+                )
+            )
             self.assertFalse(any(" /applications" in command for command in commands))
             self.assertFalse(any(" /libraries" in command for command in commands))
 

@@ -61,8 +61,7 @@ add_definitions(
     -DTARGET_HAS_NO_ATOMICS=0 -DSYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH=1
     -DPEDIGREE_HOSTED_DARWIN=1 -D_XOPEN_SOURCE=700 -D_DARWIN_C_SOURCE=1)
 
-add_compile_options(
-    -include
+set(PEDIGREE_HOSTED_DARWIN_ABI_HEADER
     ${PEDIGREE_SOURCE_ROOT}/src/system/include/pedigree/kernel/processor/hosted/DarwinAbi.h)
 
 set(LIBRT "")

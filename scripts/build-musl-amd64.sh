@@ -1,8 +1,21 @@
 #!/bin/bash
 
-# Fix executable path as cross-tools are most likely not present in PATH.
-toolchain_root=${PEDIGREE_TOOLCHAIN_ROOT:-$SRCDIR/compilers/dir}
-export PATH="$toolchain_root/bin:$PATH"
+# Cross builds use the provisioned toolchain. A Pedigree-native build can use
+# the compiler and binutils already installed in PATH.
+if [ "${PEDIGREE_USE_PATH_TOOLCHAIN:-0}" != 1 ]; then
+    toolchain_root=${PEDIGREE_TOOLCHAIN_ROOT:-$SRCDIR/compilers/dir}
+    export PATH="$toolchain_root/bin:$PATH"
+elif [ -n "${PEDIGREE_NATIVE_TOOL_ROOT:-}" ]; then
+    export PATH="$PEDIGREE_NATIVE_TOOL_ROOT/bin:$PATH"
+fi
+
+if [ "${PEDIGREE_CROSS_COMPILE_PREFIX+x}" = x ]; then
+    cross_compile_prefix=$PEDIGREE_CROSS_COMPILE_PREFIX
+else
+    cross_compile_prefix="$COMPILER_TARGET-"
+fi
+objdump_tool=${PEDIGREE_OBJDUMP:-${cross_compile_prefix}objdump}
+readelf_tool=${PEDIGREE_READELF:-${cross_compile_prefix}readelf}
 
 build_lock="$(pwd -P)/.pedigree-build-musl.lock"
 stage_root=
@@ -43,6 +56,34 @@ if ! mkdir "$build_lock" 2>/dev/null; then
 fi
 lock_held=1
 
+case "$TARGETDIR" in
+    /*/)
+        TARGETDIR=${TARGETDIR%/}
+        ;;
+    /*)
+        ;;
+    *)
+        echo "musl TARGETDIR must be an absolute path: $TARGETDIR" >&2
+        exit 1
+        ;;
+esac
+
+if [ "$TARGETDIR" = / ]; then
+    echo "Refusing to install musl over the filesystem root." >&2
+    exit 1
+fi
+
+# The libc target invokes this script on every build so damage to any SDK
+# member is repaired even when CMake's primary output remains present.
+if [ -d "$TARGETDIR" ] && \
+    "$CMAKE_COMMAND" \
+        "-DMANIFEST=$TARGETDIR/usr/share/pedigree/libc/manifest.json" \
+        "-DSDK_ROOT=$TARGETDIR" \
+        "-DEXPECTED_BUILD_ID=$PEDIGREE_MUSL_BUILD_ID" \
+        -P "$PEDIGREE_MUSL_MANIFEST_VALIDATOR" >/dev/null 2>&1; then
+    exit 0
+fi
+
 apply_source_patch()
 {
     source_patch=$1
@@ -61,17 +102,36 @@ apply_source_patch \
 apply_source_patch \
     "$SRCDIR/build-etc/toolchain/musl-1.2.6-cve-2026-6042-iconv.patch" || exit 1
 
-cp "$SRCDIR/src/modules/subsys/posix/musl/glue-musl.c" src/internal/pedigree-musl.c
-cp "$SRCDIR/src/modules/subsys/posix/musl/syscall_arch.h" arch/x86_64/syscall_arch.h
+upstream_snapshot=.pedigree-upstream/x86_64
+mkdir -p "$upstream_snapshot"
+if [ ! -f "$upstream_snapshot/syscall_arch.h" ]; then
+    cp arch/x86_64/syscall_arch.h "$upstream_snapshot/syscall_arch.h"
+fi
+if [ ! -f "$upstream_snapshot/syscall_cp.s" ]; then
+    cp src/thread/x86_64/syscall_cp.s "$upstream_snapshot/syscall_cp.s"
+fi
+if [ ! -f "$upstream_snapshot/clone.s" ]; then
+    cp src/thread/x86_64/clone.s "$upstream_snapshot/clone.s"
+fi
+
+cp "$SRCDIR/src/modules/subsys/posix/musl/glue-musl.c" \
+    src/internal/pedigree-musl.c
 
 case "$ARCH_TARGET" in
     HOSTED)
-        clone_source=clone-hosted-amd64.musl-s
+        cp "$SRCDIR/src/modules/subsys/posix/musl/clone-hosted-amd64.musl-s" \
+            src/thread/x86_64/clone.s
+        cp "$SRCDIR/src/modules/subsys/posix/musl/syscall_arch.h" \
+            arch/x86_64/syscall_arch.h
+        cp "$SRCDIR/src/modules/subsys/posix/musl/syscall_cp-amd64.musl-s" \
+            src/thread/x86_64/syscall_cp.s
         # Hosted page geometry is supplied through AT_PAGESZ at runtime.
         : >arch/x86_64/bits/limits.h
         ;;
     X64)
-        clone_source=clone-amd64.musl-s
+        cp "$upstream_snapshot/clone.s" src/thread/x86_64/clone.s
+        cp "$upstream_snapshot/syscall_arch.h" arch/x86_64/syscall_arch.h
+        cp "$upstream_snapshot/syscall_cp.s" src/thread/x86_64/syscall_cp.s
         printf '#define PAGESIZE 4096\n' >arch/x86_64/bits/limits.h
         ;;
     *)
@@ -79,8 +139,6 @@ case "$ARCH_TARGET" in
         exit 1
         ;;
 esac
-cp "$SRCDIR/src/modules/subsys/posix/musl/$clone_source" \
-    src/thread/x86_64/clone.s
 
 # Remove default signal restore (but we should add one of our own).
 rm -f src/signal/x86_64/restore.s
@@ -91,9 +149,6 @@ rm -f src/process/x86_64/vfork.s
 # Keep the target-specific clone trampoline. The generic C fallback only
 # returns -ENOSYS.
 rm -f src/thread/x86_64/{__unmapself,__set_thread_area}.s
-
-# Custom syscall_cp to use Pedigree's syscall mechanism.
-cp "$SRCDIR/src/modules/subsys/posix/musl/syscall_cp-amd64.musl-s" src/thread/x86_64/syscall_cp.s
 
 # Custom ttyname that doesn't use /proc
 cp "$SRCDIR/src/modules/subsys/posix/musl/ttyname.c" src/unistd/ttyname_r.c
@@ -107,25 +162,6 @@ mkdir -p build
 cd build
 
 date >musl.log 2>&1
-
-case "$TARGETDIR" in
-    /*/)
-        TARGETDIR=${TARGETDIR%/}
-        ;;
-    /*)
-        ;;
-    *)
-        echo "musl TARGETDIR must be an absolute path: $TARGETDIR" >>musl.log
-        cat musl.log >&2
-        exit 1
-        ;;
-esac
-
-if [ "$TARGETDIR" = / ]; then
-    echo "Refusing to install musl over the filesystem root." >>musl.log
-    cat musl.log >&2
-    exit 1
-fi
 
 target_parent=$(dirname "$TARGETDIR")
 target_name=$(basename "$TARGETDIR")
@@ -142,7 +178,7 @@ stage_root=$(mktemp -d "$target_parent/.${target_name}.musl-install.XXXXXX") || 
     cat musl.log >&2
     exit 1
 }
-staged_target="$stage_root$TARGETDIR"
+staged_target="$stage_root/root"
 
 die()
 {
@@ -171,22 +207,40 @@ esac
 
 config_include_dir=${PEDIGREE_CONFIG_INCLUDE_DIR:-$SRCDIR/build}
 CPPFLAGS="-I$SRCDIR/src/modules/subsys/posix/syscalls -I$SRCDIR/src/system/include -I$config_include_dir -D$ARCH_TARGET=1" \
-CFLAGS="-O2 -g3 -ggdb -fno-omit-frame-pointer -fPIC" CROSS_COMPILE="$COMPILER_TARGET-" \
+CFLAGS="-O2 -g3 -ggdb -fno-omit-frame-pointer -fPIC" CROSS_COMPILE="$cross_compile_prefix" \
 LDFLAGS="$musl_ldflags" \
-../configure --target=$COMPILER_TARGET --prefix="$TARGETDIR" \
-    --syslibdir="$TARGETDIR/lib" --enable-shared \
+../configure --target=$COMPILER_TARGET --prefix=/usr \
+    --syslibdir=/usr/lib --enable-shared \
     >>musl.log 2>&1 || die
 
 make >>musl.log 2>&1 || die
-make install DESTDIR="$stage_root" >>musl.log 2>&1 || die
+make install DESTDIR="$staged_target" >>musl.log 2>&1 || die
+
+loader="$staged_target/usr/lib/ld-musl-x86_64.so.1"
+if [ ! -L "$loader" ]; then
+    echo "The staged musl loader is not a symlink: $loader" >>musl.log
+    die
+fi
+rm "$loader" >>musl.log 2>&1 || die
+ln -s libc.so "$loader" >>musl.log 2>&1 || die
+
+# Existing compiler installations can still point at build/musl/{include,lib}.
+# Keep those projections until all consumers use the versioned SDK provider.
+ln -s usr/include "$staged_target/include" >>musl.log 2>&1 || die
+ln -s usr/lib "$staged_target/lib" >>musl.log 2>&1 || die
 
 # Refuse to install a libc that silently selected the generic -ENOSYS fallback
 # or the wrong target's trampoline.
 clone_disassembly=$(
-    "$COMPILER_TARGET-objdump" -d --disassemble=__clone \
-        "$staged_target/lib/libc.so" 2>>musl.log
+    "$objdump_tool" -d --disassemble=__clone \
+        "$staged_target/usr/lib/libc.so" 2>>musl.log
 ) || die
 clone_syscalls=$(printf '%s\n' "$clone_disassembly" | grep -c '[[:space:]]syscall')
+syscall_cp_disassembly=$(
+    "$objdump_tool" -d --disassemble=__syscall_cp_asm \
+        "$staged_target/usr/lib/libc.so" 2>>musl.log
+) || die
+syscall_cp_syscalls=$(printf '%s\n' "$syscall_cp_disassembly" | grep -c '[[:space:]]syscall')
 case "$ARCH_TARGET" in
     HOSTED)
         if [ "$clone_syscalls" -ne 0 ] || \
@@ -199,6 +253,14 @@ case "$ARCH_TARGET" in
             printf '%s\n' "$clone_disassembly" >>musl.log
             die
         fi
+        if [ "$syscall_cp_syscalls" -ne 0 ] || \
+            ! printf '%s\n' "$syscall_cp_disassembly" | \
+                grep -q 'pedigree_translate_syscall'; then
+            echo "Hosted musl cancellation did not retain its syscall bridge." \
+                >>musl.log
+            printf '%s\n' "$syscall_cp_disassembly" >>musl.log
+            die
+        fi
         ;;
     X64)
         if [ "$clone_syscalls" -lt 2 ]; then
@@ -207,18 +269,44 @@ case "$ARCH_TARGET" in
             printf '%s\n' "$clone_disassembly" >>musl.log
             die
         fi
+        if [ "$syscall_cp_syscalls" -lt 1 ] || \
+            printf '%s\n' "$syscall_cp_disassembly" | \
+                grep -q 'pedigree_translate_syscall'; then
+            echo "Native musl cancellation did not use the raw Linux syscall ABI." \
+                >>musl.log
+            printf '%s\n' "$syscall_cp_disassembly" >>musl.log
+            die
+        fi
         ;;
 esac
 
 if [ "$musl_dtrelr" -eq 1 ] && \
-    ! "$COMPILER_TARGET-readelf" -d "$staged_target/lib/libc.so" 2>>musl.log | \
+    ! "$readelf_tool" -d "$staged_target/usr/lib/libc.so" 2>>musl.log | \
         grep -q '(RELR)'; then
     echo "DT_RELR was requested but the staged libc does not contain it." >>musl.log
     die
 fi
 
-# Replace the complete sysroot only after validating it. Replacing the tree,
-# instead of installing over it, also removes files left by older musl builds.
+"$CMAKE_COMMAND" \
+    "-DSDK_ROOT=$staged_target" \
+    "-DOUTPUT=$staged_target/usr/share/pedigree/libc/manifest.json" \
+    "-DMUSL_VERSION=$MUSL_VERSION" \
+    "-DPORT_REVISION=$PEDIGREE_MUSL_PORT_REVISION" \
+    -DARCHITECTURE=x86_64 \
+    "-DABI=$PEDIGREE_MUSL_ABI" \
+    -DLAYOUT=fhs-usr-v1 \
+    "-DPROFILE=$PEDIGREE_MUSL_PROFILE" \
+    "-DPAGE_SIZE=$PEDIGREE_TARGET_PAGE_SIZE" \
+    "-DDT_RELR=$PEDIGREE_DTRELR" \
+    "-DUPSTREAM_SHA256=$MUSL_UPSTREAM_SHA256" \
+    "-DPEDIGREE_REVISION=$PEDIGREE_MUSL_REVISION" \
+    "-DBUILD_ID=$PEDIGREE_MUSL_BUILD_ID" \
+    "-DCOMPILER_TARGET=$PEDIGREE_MUSL_COMPILER_TARGET" \
+    "-DCOMPILER_VERSION=$PEDIGREE_MUSL_COMPILER_VERSION" \
+    -P "$PEDIGREE_MUSL_MANIFEST_GENERATOR" >>musl.log 2>&1 || die
+
+# Replace the complete SDK only after validating it. Replacing the tree,
+# instead of installing over it, also removes files left by older builds.
 previous_target="$stage_root/previous"
 had_previous=0
 publication_started=1

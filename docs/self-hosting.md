@@ -1,0 +1,225 @@
+# Building Pedigree on Pedigree
+
+The self-host build profile is an experimental first step toward working on a
+Pedigree checkout from within Pedigree. It builds the amd64 kernel, dynamic
+modules and initrd, configuration database, musl libc, and in-tree user
+applications and libraries. It deliberately does not build an HDD image or
+ISO, and it never installs files into `/boot`. Static-driver builds and
+compiled distribution keymaps are also excluded from this initial profile.
+
+Cross and native builds consume the same amd64 target profile, so kernel and
+userspace ABI settings do not depend on where the compiler is running.
+
+This profile has not yet been verified on a running Pedigree system. The CMake
+graph can be exercised from existing cross-build environments, but a successful
+native build remains the acceptance test.
+
+## Bootstrap boundary
+
+The first native build still starts with tools and packages installed by an
+external seed. It does not rebuild or install its own CMake, compiler, binutils,
+NASM, shell, or package dependencies. The selected native GCC must report
+`x86_64-pedigree` from `gcc -dumpmachine`; an ordinary Linux compiler is not a
+substitute.
+
+That seed must be modern enough for the current source: the maintained
+toolchain is GCC 15.3.0, binutils 2.46.1, and NASM 3.02, and the root build
+requires C/C++23 plus both `-ftrivial-auto-var-init` modes. The GCC 8.3 files
+in the historical `images/local` snapshot are not a usable self-host seed.
+
+Once those tools are available, this slice can rebuild:
+
+- the Pedigree kernel and its GRUB-compatible `kernel-mini64` wrapper;
+- kernel modules and the deterministic initrd containing them;
+- the configuration database;
+- musl libc from a supplied source archive; and
+- the user applications and libraries defined in this checkout.
+
+That is enough to shorten the edit-build-test loop on Pedigree, while compiler
+and package self-bootstrap remain later milestones.
+
+## Prerequisites
+
+- A populated Pedigree source checkout, including required submodules.
+- CMake 3.21 or newer.
+- A Pedigree-hosted GCC/G++ toolchain targeting `x86_64-pedigree`, plus the
+  matching `ar`, `gcc-ar`, `gcc-ranlib`, `ld`, `nm`, `objcopy`, `objdump`,
+  `ranlib`, `readelf`, and `strip` tools. The selected toolchain must also
+  provide its matching `libgcc` and `libstdc++` runtimes.
+- NASM, Bash, GNU Make, `patch`, and standard POSIX command-line utilities.
+  Python, a separate `sqlite3` command, `tar`, `gzip`, and hashing utilities are
+  not required by `boot-artifacts`; the native build compiles its generators
+  from this checkout.
+- zlib development headers and library. The native initrd builder links zlib
+  directly, so no `gzip` executable is needed.
+- Development headers and libraries needed by the in-tree user applications,
+  installed under `/usr`. These currently include libpng, Mesa/OSMesa,
+  gettext/libintl, dialog, GLib, Pango, Cairo, FreeType, HarfBuzz, Fontconfig,
+  and libffi, plus their dependencies.
+- A local `musl-1.2.6.tar.gz`. Native configuration verifies its expected SHA-256
+  and does not download it.
+
+Python remains useful for host-side regression tests and cross-build image
+packaging, but neither is part of this native artifact profile.
+
+## Libc and syscall boundary
+
+Native amd64 musl uses its upstream Linux register ABI directly. Pedigree's
+service-zero syscall entry translates that number inside the POSIX module, so
+adding or implementing a Linux-compatible syscall does not require rebuilding
+libc unless its public API also changes. Hosted builds retain a separate bridge
+because a raw syscall there would enter the host operating system.
+
+The POSIX module owns the amd64 Linux-number table used by this boundary; it no
+longer imports musl's private `bits/syscall.h` definitions.
+
+## Cross-build host tools
+
+An ordinary cross build now has one user-facing build tree:
+
+```sh
+cmake -S . -B build \
+    -DCMAKE_TOOLCHAIN_FILE=build-etc/cmake/pedigree_amd64.cmake \
+    -DPEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-toolchain
+cmake --build build
+```
+
+For the same kernel, initrd, and applications boundary used by self-hosting,
+disable host-side tests and distribution packaging and build the aggregate
+explicitly:
+
+```sh
+cmake -S . -B build-boot \
+    -DCMAKE_TOOLCHAIN_FILE=build-etc/cmake/pedigree_amd64.cmake \
+    -DPEDIGREE_TOOLCHAIN_ROOT=/path/to/pedigree-toolchain \
+    -DBUILD_TESTING=OFF \
+    -DPEDIGREE_BUILD_HDD_IMAGE=OFF \
+    -DPEDIGREE_BUILD_ISO=OFF \
+    -DPEDIGREE_BUILD_KEYMAPS=OFF \
+    -DPEDIGREE_BUILD_TRANSLATIONS=OFF
+cmake --build build-boot --target boot-artifacts
+```
+
+That reduced cross-build path does not discover Python. Supply
+`PEDIGREE_MUSL_ARCHIVE` as well when the musl archive is not already present
+in the build tree.
+
+The target tree owns incremental native sub-builds under `build/host-tools`.
+It builds the small configuration-database and initrd generators when they are
+needed, and adds the image utilities only when the requested products require
+them. Changes to those sources or their CMake files are picked up by the next
+`cmake --build build`; there is no sibling tree to refresh or export to import.
+
+There are still separate CMake compiler caches internally. CMake binds one
+compiler and platform model to each generated tree, so the target compiler
+cannot safely build tools that must run on Linux or macOS. Owning the native
+sub-build from the target tree preserves that boundary while giving the normal
+cross-build workflow one configure command, one build command, and one target
+graph.
+
+The nested build discovers a native `cc`; it only requires a native C++
+compiler when image or keymap tools are enabled. Override
+`PEDIGREE_BUILD_HOST_C_COMPILER` or `PEDIGREE_BUILD_HOST_CXX_COMPILER` when the
+default host compiler is not appropriate. Its caches and executable staging
+directories are keyed by that compiler identity, so switching compilers does
+not reuse incompatible native outputs.
+
+The self-host profile does not need that split: its compiler produces Pedigree
+executables that can run in the same environment, so it builds the generators
+directly as target-tree targets.
+
+`PEDIGREE_HOST_TOOLS_MODE=IMPORTED` remains available for specialized build
+matrices that deliberately share one native tool build across multiple target
+trees. That mode is explicit:
+
+```sh
+cmake -S . -B build-host -DPEDIGREE_BUILD_ROLE=HOST_TOOLS
+cmake --build build-host --target \
+    pedigree-distribution-tools pedigree-configdb pedigree-initrd-builder
+cmake -S . -B build \
+    -DCMAKE_TOOLCHAIN_FILE=build-etc/cmake/pedigree_amd64.cmake \
+    -DPEDIGREE_HOST_TOOLS_MODE=IMPORTED \
+    -DIMPORT_EXECUTABLES="$PWD/build-host/HostUtilities.cmake"
+```
+
+## First build
+
+Transfer the musl archive onto Pedigree, then run from the checkout:
+
+```sh
+PEDIGREE_MUSL_ARCHIVE=/path/to/musl-1.2.6.tar.gz \
+    ./easy_build_selfhost.sh
+```
+
+The default build directory is `build-selfhost`, and the default parallelism is
+one job. Useful overrides are:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PEDIGREE_BUILD_DIR` | `build-selfhost` | Build directory, relative to the checkout unless absolute |
+| `PEDIGREE_BUILD_JOBS` | `1` | Parallel build jobs |
+| `PEDIGREE_BUILD_TYPE` | `Debug` | CMake build type |
+| `PEDIGREE_NATIVE_TOOL_ROOT` | `/usr` | Prefix containing the native toolchain |
+| `PEDIGREE_CMAKE` | `cmake` | CMake executable or absolute path |
+| `PEDIGREE_CMAKE_GENERATOR` | CMake default | Optional generator name |
+
+After configuration, repeat just the build with:
+
+```sh
+cmake --build build-selfhost --target boot-artifacts --parallel 1
+```
+
+Use a new build directory when changing toolchain roots; compiler identities are
+cached by CMake.
+
+## Outputs
+
+With the default build directory, the primary products are:
+
+- `build-selfhost/src/system/kernel/kernel-mini64` — boot kernel;
+- `build-selfhost/src/modules/initrd.tar` — compressed module initrd;
+- `build-selfhost/src/modules/initrd.manifest` — deterministic initrd contents;
+- `build-selfhost/config.db` — boot configuration database; and
+- `build-selfhost/src/user/` — built user applications and libraries;
+- `build-selfhost/musl/usr/` — package-shaped libc SDK payload; and
+- `build-selfhost/musl/usr/share/pedigree/libc/manifest.json` — libc ABI,
+  layout, toolchain, and source-derivation identity.
+
+`boot-artifacts` is an aggregate build target, not an installer or staging
+directory. Copying a tested kernel, initrd, and configuration database into a
+boot environment is intentionally a separate, manual step for now.
+
+The initrd builder uses zlib at its highest compression level and writes
+deterministic gzip metadata. Cross builds compile the utility for their host,
+while Pedigree builds compile it directly; neither path needs a `gzip` command.
+The configuration database follows the same boundary with the in-tree C
+generator. The Python implementations remain regression oracles, not
+base-artifact dependencies.
+
+musl is configured for its installed `/usr` paths and staged without writing
+to the running system. The loader link in the SDK is relative and valid after
+the payload is installed. Temporary `musl/include` and `musl/lib` links retain
+compatibility with compiler installations created before the SDK layout; new
+consumers should use the manifest's `usr/include` and `usr/lib` paths.
+
+This makes musl a package-shaped build product, but it is not yet safe to
+replace on a running system through PUP. Atomic activation, file ownership,
+rollback, and removal of obsolete files need to be defined before libc updates
+become live package operations. The SDK manifest is the compatibility boundary
+for that future installer work.
+
+## Building other packages
+
+The Pedigree platform modules currently live in this checkout. Until they are
+installed with CMake, native CMake package builds must make them available
+explicitly, for example:
+
+```sh
+CC=/path/to/native/bin/gcc CXX=/path/to/native/bin/g++ \
+    cmake -S package-source -B package-build \
+    -DCMAKE_MODULE_PATH=/path/to/pedigree/build-etc/cmake
+```
+
+This supplies CMake's Pedigree platform description; each package still owns
+its normal dependency and installation requirements. Installing these modules
+with the native CMake port is a later bootstrap step.

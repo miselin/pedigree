@@ -68,6 +68,9 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src/system/include
 )
 
+add_subdirectory(configdb)
+add_subdirectory(bootstrap)
+
 set(KERNEL_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Device.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/DeviceHashTree.cc
@@ -317,15 +320,22 @@ add_executable(headerify headerify/main.cc)
 
 if (BUILDUTILS_PROFILE_FLAGS)
     foreach (target kernel utility vfs ext2 ramfs partition debugger config posix
-             keymap ext2img instrument memorytracer headerify)
+             keymap ext2img instrument memorytracer headerify
+             pedigree-configdb pedigree-initrd-builder)
         target_compile_options(${target} PRIVATE ${BUILDUTILS_PROFILE_FLAGS})
     endforeach ()
 endif ()
 
 export(
     TARGETS keymap ext2img instrument memorytracer testsuite headerify
+        pedigree-configdb pedigree-initrd-builder
     FILE ${CMAKE_BINARY_DIR}/HostUtilities.cmake NAMESPACE host-
 )
+
+add_custom_target(pedigree-distribution-tools DEPENDS
+    keymap
+    headerify
+    ext2img)
 
 if (BENCHMARK_LIBRARY)
     set(BENCHMARK_SRCS

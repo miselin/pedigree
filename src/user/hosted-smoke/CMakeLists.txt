@@ -1,7 +1,7 @@
 set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
 
-link_directories(${CMAKE_BINARY_DIR}/musl/lib)
-include_directories(${CMAKE_BINARY_DIR}/musl/include)
+link_directories(${PEDIGREE_MUSL_PREFIX_ROOT}/lib)
+include_directories(${PEDIGREE_MUSL_PREFIX_ROOT}/include)
 
 function(hosted_smoke_app target output source)
     add_executable(${target} ${source})

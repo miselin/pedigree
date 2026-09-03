@@ -7,7 +7,7 @@ CompileFlags:
   # sysroot's libc and libstdc++ search paths from --sysroot alone.
   Add:
     - -idirafter
-    - ../../musl/include
+    - ../../musl/usr/include
     - -isystem
     - ../../../compilers/dir/include/c++/15.3.0
     - -isystem

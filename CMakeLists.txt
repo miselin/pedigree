@@ -19,6 +19,50 @@ project(Pedigree)
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
 
+# Select products independently of whether CMake happens to be using a
+# toolchain file. A native Pedigree build is a target build even though CMake
+# correctly reports that it is not cross-compiling.
+set(PEDIGREE_BUILD_ROLE "AUTO" CACHE STRING
+    "Products to build: AUTO, HOST_TOOLS, or TARGET.")
+set_property(CACHE PEDIGREE_BUILD_ROLE PROPERTY STRINGS
+    AUTO HOST_TOOLS TARGET)
+string(TOUPPER "${PEDIGREE_BUILD_ROLE}" _PEDIGREE_REQUESTED_BUILD_ROLE)
+if (NOT _PEDIGREE_REQUESTED_BUILD_ROLE MATCHES
+    "^(AUTO|HOST_TOOLS|TARGET)$")
+    message(FATAL_ERROR
+        "PEDIGREE_BUILD_ROLE must be AUTO, HOST_TOOLS, or TARGET.")
+endif ()
+
+string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" _PEDIGREE_HOST_SYSTEM_NAME)
+if (_PEDIGREE_REQUESTED_BUILD_ROLE STREQUAL "AUTO")
+    if (_PEDIGREE_HOST_SYSTEM_NAME STREQUAL "pedigree" OR
+        CMAKE_CROSSCOMPILING)
+        set(PEDIGREE_EFFECTIVE_BUILD_ROLE TARGET)
+    else ()
+        set(PEDIGREE_EFFECTIVE_BUILD_ROLE HOST_TOOLS)
+    endif ()
+else ()
+    set(PEDIGREE_EFFECTIVE_BUILD_ROLE
+        "${_PEDIGREE_REQUESTED_BUILD_ROLE}")
+endif ()
+
+set(PEDIGREE_SELF_HOSTED FALSE)
+if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET" AND
+    _PEDIGREE_HOST_SYSTEM_NAME STREQUAL "pedigree")
+    set(PEDIGREE_SELF_HOSTED TRUE)
+endif ()
+
+if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET" AND
+    NOT PEDIGREE_ARCH_TARGET)
+    message(FATAL_ERROR
+        "The TARGET build role requires a Pedigree target toolchain file. "
+        "On Pedigree, run easy_build_selfhost.sh.")
+endif ()
+
+message(STATUS
+    "Pedigree build role: ${PEDIGREE_EFFECTIVE_BUILD_ROLE} "
+    "(requested ${PEDIGREE_BUILD_ROLE}, host ${CMAKE_HOST_SYSTEM_NAME})")
+
 check_c_compiler_flag(
     "-ftrivial-auto-var-init=pattern"
     PEDIGREE_C_HAS_TRIVIAL_AUTO_VAR_INIT_PATTERN)
@@ -50,27 +94,6 @@ if (NOT CMAKE_CXX_COMPILER_VERSION)
     set(CMAKE_C_COMPILER_VERSION 15.3.0)
     set(CMAKE_CXX_COMPILER_VERSION 15.3.0)
 endif ()
-
-include(CTest)
-enable_testing()
-
-include(FindGettext)
-
-find_package(BISON)
-find_package(FLEX)
-find_package(PythonInterp 3 REQUIRED)
-find_program(MKISOFS NAMES mkisofs genisoimage xorriso)
-
-add_test(
-    NAME lifetime-escape-audit
-    COMMAND ${PYTHON_EXECUTABLE}
-        ${CMAKE_SOURCE_DIR}/scripts/audit-lifetime-escapes.py
-        --root ${CMAKE_SOURCE_DIR}
-        --inventory ${CMAKE_SOURCE_DIR}/docs/lifetime-escape-inventory.json)
-add_test(
-    NAME target-page-assumption-audit
-    COMMAND ${PYTHON_EXECUTABLE}
-        ${CMAKE_SOURCE_DIR}/scripts/check-target-page-assumptions.py)
 
 find_library(LIBRT rt)
 
@@ -163,6 +186,58 @@ set(PEDIGREE_LIVECD FALSE CACHE BOOL "Build a live CD version of the ISO image, 
 set(PEDIGREE_IMAGESDIR "${CMAKE_SOURCE_DIR}/images/local" CACHE PATH "Directory containing the directory tree to build disk images from.")
 set(PEDIGREE_GO_CANARY "" CACHE FILEPATH "Prebuilt pedigree/amd64 Go canary to install as /usr/bin/go-canary.")
 
+set(_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT OFF)
+if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET" AND
+    NOT PEDIGREE_SELF_HOSTED)
+    set(_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT ON)
+endif ()
+option(PEDIGREE_BUILD_KEYMAPS
+    "Compile keyboard layouts for distribution images."
+    ${_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT})
+option(PEDIGREE_BUILD_TRANSLATIONS
+    "Compile message catalogs for distribution images."
+    ${_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT})
+
+set(_PEDIGREE_HDD_IMAGE_DEFAULT
+    ${_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT})
+set(_PEDIGREE_ISO_DEFAULT OFF)
+if (_PEDIGREE_DISTRIBUTION_ARTIFACTS_DEFAULT AND
+    PEDIGREE_TARGET_LIVECD)
+    set(_PEDIGREE_ISO_DEFAULT ON)
+endif ()
+option(PEDIGREE_BUILD_HDD_IMAGE
+    "Build a bootable hard disk image."
+    ${_PEDIGREE_HDD_IMAGE_DEFAULT})
+option(PEDIGREE_BUILD_ISO
+    "Build a bootable ISO image."
+    ${_PEDIGREE_ISO_DEFAULT})
+
+if (PEDIGREE_SELF_HOSTED AND
+    (PEDIGREE_BUILD_HDD_IMAGE OR PEDIGREE_BUILD_ISO))
+    message(FATAL_ERROR
+        "HDD and ISO packaging are not supported by the Pedigree-native "
+        "build profile. Build boot-artifacts and deploy them separately.")
+endif ()
+if (PEDIGREE_SELF_HOSTED AND PEDIGREE_STATIC_DRIVERS)
+    message(FATAL_ERROR
+        "Static-driver builds are not supported by the Pedigree-native "
+        "profile yet. Use the default dynamic modules and initrd.")
+endif ()
+if (PEDIGREE_SELF_HOSTED AND PEDIGREE_BUILD_KEYMAPS)
+    message(FATAL_ERROR
+        "Compiled distribution keymaps are not supported by the "
+        "Pedigree-native profile yet. Use the checked-in keymap sources "
+        "with PEDIGREE_BUILD_KEYMAPS=OFF.")
+endif ()
+
+set(_PEDIGREE_REGENERATE_KEYMAP_SOURCES_DEFAULT ON)
+if (PEDIGREE_SELF_HOSTED)
+    set(_PEDIGREE_REGENERATE_KEYMAP_SOURCES_DEFAULT OFF)
+endif ()
+option(PEDIGREE_REGENERATE_KEYMAP_SOURCES
+    "Regenerate the checked-in keymap parser and lexer with Bison and Flex."
+    ${_PEDIGREE_REGENERATE_KEYMAP_SOURCES_DEFAULT})
+
 # All nasm on x86-based systems
 enable_language(ASM_NASM ASM)
 
@@ -229,49 +304,132 @@ set(GENERIC_CXXFLAGS ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS}
 # normal project header, so keep the build directory on the include path.
 include_directories(${CMAKE_CURRENT_BINARY_DIR} src src/system/include)
 
-# Always do this regardless of cross-compile state
-BISON_TARGET(KeymapParser
-    ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/parser.y
-    ${CMAKE_BINARY_DIR}/keymap-parser.c)
-FLEX_TARGET(KeymapScanner
-    ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/lexer.l
-    ${CMAKE_BINARY_DIR}/keymap-lexer.c)
-ADD_FLEX_BISON_DEPENDENCY(KeymapScanner KeymapParser)
+# The Darwin ABI shim includes the generated config header. Apply it only to
+# project targets, after compiler identification has finished, so a fresh
+# toolchain probe does not depend on a not-yet-generated build file.
+if (PEDIGREE_HOSTED_DARWIN)
+    add_compile_options(-include ${PEDIGREE_HOSTED_DARWIN_ABI_HEADER})
+endif ()
 
-# Build flex/bison files into a static library for use in targets that need it
-add_library(libkeymap STATIC
-    ${BISON_KeymapParser_OUTPUTS}
-    ${FLEX_KeymapScanner_OUTPUTS})
-target_include_directories(libkeymap PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/user/applications/keymap)
-if(CMAKE_CROSSCOMPILING)
-    add_dependencies(libkeymap libc)
-endif()
+if (NOT PEDIGREE_SELF_HOSTED)
+    include(CTest)
+    enable_testing()
+endif ()
 
-if(CMAKE_CROSSCOMPILING)
+set(_PEDIGREE_NEEDS_PYTHON FALSE)
+if (NOT PEDIGREE_SELF_HOSTED AND
+    (BUILD_TESTING OR PEDIGREE_BUILD_HDD_IMAGE))
+    set(_PEDIGREE_NEEDS_PYTHON TRUE)
+endif ()
+if (_PEDIGREE_NEEDS_PYTHON)
+    if (NOT Python3_EXECUTABLE AND EXISTS "${PYTHON_EXECUTABLE}")
+        set(Python3_EXECUTABLE "${PYTHON_EXECUTABLE}")
+    endif ()
+    find_package(Python3 3 REQUIRED COMPONENTS Interpreter)
+    set(PYTHON_EXECUTABLE "${Python3_EXECUTABLE}")
+endif ()
+
+if (NOT PEDIGREE_SELF_HOSTED AND BUILD_TESTING)
+    add_test(
+        NAME lifetime-escape-audit
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/scripts/audit-lifetime-escapes.py
+            --root ${CMAKE_SOURCE_DIR}
+            --inventory
+                ${CMAKE_SOURCE_DIR}/docs/lifetime-escape-inventory.json)
+    add_test(
+        NAME target-page-assumption-audit
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/scripts/check-target-page-assumptions.py)
+    add_test(
+        NAME cmake-toolchain-tests
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_cmake_toolchains.py -v)
+    add_test(
+        NAME create-db-tests
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_create_db.py -v)
+    add_test(
+        NAME create-initrd-tests
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_create_initrd.py -v)
+    add_test(
+        NAME musl-syscall-routing-tests
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_musl_syscall_routing.py -v)
+    add_test(
+        NAME posix-syscall-translation-tests
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_posix_syscall_translation.py -v)
+    add_test(
+        NAME musl-sdk-manifest-tests
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_musl_sdk_manifest.py -v)
+    add_test(
+        NAME musl-startfile-tests
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_musl_startfiles.py -v)
+endif ()
+
+# Pedigree-ABI code must compile against the libc produced by this build rather
+# than whichever headers happen to be installed with the compiler or running
+# system. Consumers opt into this interface so host-side generators remain on
+# the build host's libc ABI.
+if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
+    set(PEDIGREE_MUSL_SDK_ROOT "${CMAKE_BINARY_DIR}/musl")
+    set(PEDIGREE_MUSL_PREFIX_ROOT "${PEDIGREE_MUSL_SDK_ROOT}/usr")
+    include(PedigreeMuslLink)
+    pedigree_define_musl_sdk_headers()
+endif ()
+
+# These tools execute on the build machine. Native Pedigree target builds add
+# them directly; ordinary host builds receive them through src/buildutil.
+if (PEDIGREE_SELF_HOSTED)
+    add_subdirectory(src/buildutil/configdb)
+    add_subdirectory(src/buildutil/bootstrap)
+endif ()
+
+# The keymap compiler and user application share this parser. Native Pedigree
+# builds consume the checked-in generated sources by default so the initial
+# bootstrap does not require Bison or Flex.
+set(_PEDIGREE_NEEDS_LIBKEYMAP FALSE)
+if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "HOST_TOOLS" OR
+    PEDIGREE_BUILD_USER_DIR)
+    set(_PEDIGREE_NEEDS_LIBKEYMAP TRUE)
+endif ()
+if (_PEDIGREE_NEEDS_LIBKEYMAP)
+    if (PEDIGREE_REGENERATE_KEYMAP_SOURCES)
+        find_package(BISON REQUIRED)
+        find_package(FLEX REQUIRED)
+        BISON_TARGET(KeymapParser
+            ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/parser.y
+            ${CMAKE_BINARY_DIR}/keymap-parser.c)
+        FLEX_TARGET(KeymapScanner
+            ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/lexer.l
+            ${CMAKE_BINARY_DIR}/keymap-lexer.c)
+        ADD_FLEX_BISON_DEPENDENCY(KeymapScanner KeymapParser)
+        set(_PEDIGREE_KEYMAP_PARSER_SOURCES
+            ${BISON_KeymapParser_OUTPUTS}
+            ${FLEX_KeymapScanner_OUTPUTS})
+    else ()
+        set(_PEDIGREE_KEYMAP_PARSER_SOURCES
+            ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/parser.c
+            ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/lexer.c)
+    endif ()
+
+    add_library(libkeymap STATIC ${_PEDIGREE_KEYMAP_PARSER_SOURCES})
+    target_include_directories(libkeymap PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/user/applications/keymap)
+    if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
+        add_dependencies(libkeymap libc)
+        if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+            target_link_libraries(libkeymap PRIVATE pedigree_musl_headers)
+        endif ()
+    endif ()
+endif ()
+
+if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
     set(POSITION_INDEPENDENT_CODE FALSE)
-
-    set(IMPORT_EXECUTABLES "IMPORTFILE-NOTFOUND" CACHE FILEPATH "Path to an exports file from a native build to be able to find build and test utilities.")
-    include(${IMPORT_EXECUTABLES})
-
-    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/keymaps)
-
-    # Builds a keymap.
-    function(pedigree_keymap name source)
-        add_custom_command(OUTPUT
-            ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc
-            COMMAND
-            $<TARGET_FILE:host-keymap> compile ${source} &&
-            rm ${source}.h &&
-            mv ${source}.kmc ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc
-            DEPENDS ${source})
-        add_custom_target(keymap-${name} ALL DEPENDS ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc)
-
-        list(APPEND PEDIGREE_KEYMAPS ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc)
-        list(APPEND PEDIGREE_KEYMAPS_TARGETS keymap-${name})
-        set(PEDIGREE_KEYMAPS ${PEDIGREE_KEYMAPS} PARENT_SCOPE)
-        set(PEDIGREE_KEYMAPS_TARGETS ${PEDIGREE_KEYMAPS_TARGETS} PARENT_SCOPE)
-    endfunction()
 
     # Don't affect build utilities with kernel optimization flag choices.
     if (PEDIGREE_OPTIMIZE)
@@ -293,25 +451,131 @@ if(CMAKE_CROSSCOMPILING)
         endif ()
     endif ()
 
+    # Host utilities execute on the build machine. Cross builds own a nested
+    # native build by default; specialized multi-configuration workflows can
+    # still provide a shared export explicitly.
+    set(PEDIGREE_HOST_TOOLS_MODE "NESTED" CACHE STRING
+        "Host utility provider for target builds: NESTED or IMPORTED.")
+    set_property(CACHE PEDIGREE_HOST_TOOLS_MODE PROPERTY STRINGS
+        NESTED IMPORTED)
+    string(TOUPPER "${PEDIGREE_HOST_TOOLS_MODE}"
+        PEDIGREE_HOST_TOOLS_MODE)
+    if (NOT PEDIGREE_HOST_TOOLS_MODE MATCHES "^(NESTED|IMPORTED)$")
+        message(FATAL_ERROR
+            "PEDIGREE_HOST_TOOLS_MODE must be NESTED or IMPORTED.")
+    endif ()
+
+    set(_PEDIGREE_REQUIRED_HOST_UTILITIES)
+    if (NOT PEDIGREE_SELF_HOSTED)
+        list(APPEND _PEDIGREE_REQUIRED_HOST_UTILITIES
+            host-pedigree-configdb)
+    endif ()
+    if (NOT PEDIGREE_SELF_HOSTED AND NOT PEDIGREE_STATIC_DRIVERS)
+        list(APPEND _PEDIGREE_REQUIRED_HOST_UTILITIES
+            host-pedigree-initrd-builder)
+    endif ()
+    if (PEDIGREE_BUILD_KEYMAPS AND PEDIGREE_BUILD_USER_DIR)
+        list(APPEND _PEDIGREE_REQUIRED_HOST_UTILITIES host-keymap)
+    endif ()
+    if (PEDIGREE_STATIC_DRIVERS)
+        list(APPEND _PEDIGREE_REQUIRED_HOST_UTILITIES host-headerify)
+    endif ()
+    if (PEDIGREE_BUILD_HDD_IMAGE)
+        list(APPEND _PEDIGREE_REQUIRED_HOST_UTILITIES host-ext2img)
+    endif ()
+    list(REMOVE_DUPLICATES _PEDIGREE_REQUIRED_HOST_UTILITIES)
+
+    if (_PEDIGREE_REQUIRED_HOST_UTILITIES AND
+        PEDIGREE_HOST_TOOLS_MODE STREQUAL "NESTED")
+        include(PedigreeHostTools)
+        pedigree_add_nested_host_tools(
+            REQUIRED_TARGETS ${_PEDIGREE_REQUIRED_HOST_UTILITIES})
+    elseif (_PEDIGREE_REQUIRED_HOST_UTILITIES)
+        set(IMPORT_EXECUTABLES "IMPORTFILE-NOTFOUND" CACHE FILEPATH
+            "Exports file from a host-tools build.")
+        if (NOT EXISTS "${IMPORT_EXECUTABLES}")
+            message(FATAL_ERROR
+                "The selected products require host utilities "
+                "(${_PEDIGREE_REQUIRED_HOST_UTILITIES}). Set "
+                "IMPORT_EXECUTABLES to HostUtilities.cmake from a "
+                "HOST_TOOLS build.")
+        endif ()
+        include("${IMPORT_EXECUTABLES}")
+
+        foreach (_PEDIGREE_HOST_UTILITY IN LISTS
+                 _PEDIGREE_REQUIRED_HOST_UTILITIES)
+            if (NOT TARGET ${_PEDIGREE_HOST_UTILITY})
+                message(FATAL_ERROR
+                    "${IMPORT_EXECUTABLES} does not define required target "
+                    "${_PEDIGREE_HOST_UTILITY}. Reconfigure and rebuild the "
+                    "HOST_TOOLS tree, or use "
+                    "-DPEDIGREE_HOST_TOOLS_MODE=NESTED.")
+            endif ()
+        endforeach ()
+    endif ()
+
+    if (PEDIGREE_BUILD_KEYMAPS)
+        file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/keymaps)
+
+        function(pedigree_keymap name source)
+            add_custom_command(OUTPUT
+                ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc
+                COMMAND $<TARGET_FILE:host-keymap> compile ${source}
+                COMMAND ${CMAKE_COMMAND} -E rm -f ${source}.h
+                COMMAND ${CMAKE_COMMAND} -E rename ${source}.kmc
+                    ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc
+                DEPENDS host-keymap ${source}
+                VERBATIM)
+            add_custom_target(keymap-${name} ALL DEPENDS
+                ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc)
+
+            list(APPEND PEDIGREE_KEYMAPS
+                ${CMAKE_BINARY_DIR}/keymaps/${name}.kmc)
+            list(APPEND PEDIGREE_KEYMAPS_TARGETS keymap-${name})
+            set(PEDIGREE_KEYMAPS ${PEDIGREE_KEYMAPS} PARENT_SCOPE)
+            set(PEDIGREE_KEYMAPS_TARGETS
+                ${PEDIGREE_KEYMAPS_TARGETS} PARENT_SCOPE)
+        endfunction()
+    else ()
+        function(pedigree_keymap name source)
+        endfunction()
+    endif ()
+
     # Copy over all our definitions.
     configure_file(
         ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/config.h.in
         ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
-    # cross-compiled variant is definitely not running on a linux host
+    # Target artifacts do not use the build host's utility ABI.
     add_definitions(-DUTILITY_LINUX=0 -DPEDIGREE_BENCHMARK=0)
 
-    # Build config database.
+    # Build the configuration database with an executable that matches the
+    # platform on which the build itself is running.
+    if (PEDIGREE_SELF_HOSTED)
+        set(_PEDIGREE_CONFIG_DB_COMMAND
+            $<TARGET_FILE:pedigree-configdb>
+            ${CMAKE_CURRENT_BINARY_DIR}/config.db)
+        set(_PEDIGREE_CONFIG_DB_DEPENDENCIES pedigree-configdb)
+    elseif (TARGET host-pedigree-configdb)
+        set(_PEDIGREE_CONFIG_DB_COMMAND
+            $<TARGET_FILE:host-pedigree-configdb>
+            ${CMAKE_CURRENT_BINARY_DIR}/config.db)
+        set(_PEDIGREE_CONFIG_DB_DEPENDENCIES host-pedigree-configdb)
+    else ()
+        message(FATAL_ERROR
+            "No configuration database generator is available.")
+    endif ()
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/config.db
-        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_db.py
-        ${CMAKE_CURRENT_BINARY_DIR}/config.db
+        COMMAND ${_PEDIGREE_CONFIG_DB_COMMAND}
         ${CMAKE_SOURCE_DIR}/src/system/kernel/schema
         ${CMAKE_SOURCE_DIR}/src/modules/drivers/x86/vbe/schema
         ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema
         DEPENDS
         ${CMAKE_SOURCE_DIR}/src/system/kernel/schema
         ${CMAKE_SOURCE_DIR}/src/modules/drivers/x86/vbe/schema
-        ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema)
+        ${CMAKE_SOURCE_DIR}/src/modules/system/splash/schema
+        ${_PEDIGREE_CONFIG_DB_DEPENDENCIES}
+        VERBATIM)
     add_custom_target(configdb ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/config.db)
 
     # Embed config database in a header for static driver builds
@@ -322,13 +586,16 @@ if(CMAKE_CROSSCOMPILING)
             -i ${CMAKE_CURRENT_BINARY_DIR}/config.db
             -o ${CMAKE_BINARY_DIR}/embedconfigdb.c
             -v embeddedConfigDb
-            DEPENDS configdb)
+            DEPENDS configdb host-headerify)
         add_custom_target(embedconfigdb ALL DEPENDS ${CMAKE_BINARY_DIR}/embedconfigdb.c)
     endif ()
 
     add_subdirectory(src/modules)
     add_subdirectory(src/system/kernel)
-    add_subdirectory(src/po)
+    if (PEDIGREE_BUILD_TRANSLATIONS)
+        find_package(Gettext REQUIRED)
+        add_subdirectory(src/po)
+    endif ()
 
     if (PEDIGREE_BUILD_USER_DIR)
         add_subdirectory(src/user)
@@ -361,40 +628,72 @@ if(CMAKE_CROSSCOMPILING)
         list(APPEND PEDIGREE_APPS_TARGETS go-canary-image)
     endif ()
 
-    # Build hard disk image ready for a live CD or imaging.
-    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hdd.img
-        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
-        ${CMAKE_CURRENT_BINARY_DIR}/hdd.img  # => target image
-        $<TARGET_FILE:host-ext2img>  # => ext2img binary
-        ${PEDIGREE_IMAGESDIR}  # => image tree directory
-        ${CMAKE_SOURCE_DIR}  # => base source directory
-        ${CMAKE_SOURCE_DIR}/images/base  # => image base directory
-        ${KERNEL_FILENAME}  # => kernel
-        $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:${CMAKE_BINARY_DIR}/src/modules/initrd.tar>  # => initrd
-        $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:__noinitrd__>
-        ${CMAKE_CURRENT_BINARY_DIR}/config.db  # => config DB
-        ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst  # => grub list
-        ${CMAKE_BINARY_DIR}/musl  # => musl build directory
-        ${CMAKE_BINARY_DIR}  # => build directory
-        ${PEDIGREE_KERNEL_MODULES}  # => other files to inject to image
-        ${PEDIGREE_APPS}
-        ${PEDIGREE_LIBS}
-        ${PEDIGREE_SUBSYSTEM_LIBS}
-        DEPENDS
-        kernel kernelfinal
-        $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:initrd>
-        ${PEDIGREE_KERNEL_MODULE_TARGETS}
-        configdb ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
-        ${CMAKE_SOURCE_DIR}/images/base/etc/passwd
-        ${CMAKE_SOURCE_DIR}/images/base/etc/group
-        ${CMAKE_SOURCE_DIR}/images/base/etc/shadow
-        libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS}
-        ${PEDIGREE_KEYMAPS_TARGETS} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
-        )
-    add_custom_target(hddimage ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
+    # This is the portable self-hosting product boundary. Packaging it into a
+    # disk image, ISO, or an installed /boot tree is a separate operation.
+    set(_PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES
+        kernel kernelfinal configdb ${PEDIGREE_APPS_TARGETS}
+        ${PEDIGREE_LIBS_TARGETS})
+    if (NOT PEDIGREE_STATIC_DRIVERS)
+        list(APPEND _PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES initrd)
+    endif ()
+    if (PEDIGREE_BUILD_USER_DIR)
+        list(APPEND _PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES libc)
+    endif ()
+    list(REMOVE_DUPLICATES _PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES)
+    add_custom_target(boot-artifacts DEPENDS
+        ${_PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES})
+
+    if (PEDIGREE_BUILD_HDD_IMAGE)
+        # Build hard disk image ready for a live CD or imaging.
+        add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hdd.img
+            COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
+            ${CMAKE_CURRENT_BINARY_DIR}/hdd.img  # => target image
+            $<TARGET_FILE:host-ext2img>  # => ext2img binary
+            ${PEDIGREE_IMAGESDIR}  # => image tree directory
+            ${CMAKE_SOURCE_DIR}  # => base source directory
+            ${CMAKE_SOURCE_DIR}/images/base  # => image base directory
+            ${KERNEL_FILENAME}  # => kernel
+            $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:${CMAKE_BINARY_DIR}/src/modules/initrd.tar>  # => initrd
+            $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:__noinitrd__>
+            ${CMAKE_CURRENT_BINARY_DIR}/config.db  # => config DB
+            ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst  # => grub list
+            ${PEDIGREE_MUSL_SDK_ROOT}  # => musl SDK root
+            ${CMAKE_BINARY_DIR}  # => build directory
+            ${PEDIGREE_KERNEL_MODULES}  # => other files to inject to image
+            ${PEDIGREE_APPS}
+            ${PEDIGREE_LIBS}
+            ${PEDIGREE_SUBSYSTEM_LIBS}
+            DEPENDS
+            kernel kernelfinal
+            $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:initrd>
+            ${KERNEL_FILENAME}
+            $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:${CMAKE_BINARY_DIR}/src/modules/initrd.tar>
+            ${PEDIGREE_KERNEL_MODULE_TARGETS}
+            configdb ${CMAKE_CURRENT_BINARY_DIR}/config.db
+            ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
+            ${CMAKE_SOURCE_DIR}/images/base/etc/passwd
+            ${CMAKE_SOURCE_DIR}/images/base/etc/group
+            ${CMAKE_SOURCE_DIR}/images/base/etc/shadow
+            libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS}
+            ${PEDIGREE_KEYMAPS_TARGETS} ${PEDIGREE_KEYMAPS}
+            host-ext2img
+            ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py)
+        add_custom_target(hddimage ALL DEPENDS
+            ${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
+    endif ()
 
     # Build ISO file for live CD.
-    if (PEDIGREE_TARGET_LIVECD)
+    if (PEDIGREE_BUILD_ISO)
+        if (NOT PEDIGREE_TARGET_LIVECD)
+            message(FATAL_ERROR
+                "PEDIGREE_BUILD_ISO is not supported by this target profile.")
+        endif ()
+        if (PEDIGREE_LIVECD AND NOT PEDIGREE_BUILD_HDD_IMAGE)
+            message(FATAL_ERROR
+                "PEDIGREE_LIVECD requires PEDIGREE_BUILD_HDD_IMAGE.")
+        endif ()
+        find_program(MKISOFS NAMES mkisofs genisoimage xorriso REQUIRED)
+
         if (GRUB)
             set(STAGE2_FILENAME "stage2_eltorito-${PEDIGREE_ARCHDIR}")
             file(COPY ${CMAKE_SOURCE_DIR}/images/grub/${STAGE2_FILENAME}
@@ -427,6 +726,9 @@ if(CMAKE_CROSSCOMPILING)
             .pedigree-root=${CMAKE_CURRENT_BINARY_DIR}/config.db
             ${ISO_EXTRAFILES}
             DEPENDS kernel kernelfinal initrd configdb ${PEDIGREE_KERNEL_MODULE_TARGETS}
+            ${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64
+            ${CMAKE_BINARY_DIR}/src/modules/initrd.tar
+            ${CMAKE_CURRENT_BINARY_DIR}/config.db
             ${ISO_EXTRADEPENDS})
         add_custom_target(livecd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso)
     endif ()
@@ -448,6 +750,13 @@ else ()
         ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/config.h.in
         ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
+    # This bundled GoogleTest revision still probes with FindPythonInterp,
+    # which CMake 3.27 removed. Its optional Python tests can use the
+    # interpreter already selected above without invoking the legacy module.
+    set(CMAKE_DISABLE_FIND_PACKAGE_PythonInterp TRUE)
+    set(PYTHONINTERP_FOUND "${Python3_Interpreter_FOUND}")
     add_subdirectory(external/googletest)
+    unset(CMAKE_DISABLE_FIND_PACKAGE_PythonInterp)
+    unset(PYTHONINTERP_FOUND)
     add_subdirectory(src/buildutil)
 endif ()

@@ -18,6 +18,21 @@ MANIFEST = ROOT / "build-etc/toolchain/pedigree-cross-toolchain.json"
 
 
 class BootstrapToolchainContractTests(unittest.TestCase):
+    def test_default_sysroot_uses_the_package_shaped_musl_sdk(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            bootstrapper = Bootstrapper(
+                parse_args(
+                    [
+                        "x86_64-pedigree",
+                        str(Path(tempdir) / "compiler"),
+                        "--source-root",
+                        str(ROOT),
+                    ]
+                )
+            )
+
+            self.assertEqual(bootstrapper.sysroot, ROOT / "build/musl/usr")
+
     def test_manifest_preserves_pinned_toolchain_inputs(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
@@ -481,6 +496,7 @@ class BootstrapToolchainContractTests(unittest.TestCase):
         self.assertIn(
             'PEDIGREE_TOOLCHAIN_ROOT:PATH=$COMPILER_DIR', contents
         )
+        self.assertIn('set(CMAKE_SYSTEM_NAME "Pedigree")', contents)
         self.assertIn("cmake -E rm -f build/CMakeCache.txt", contents)
         self.assertIn("cmake -E remove_directory build/CMakeFiles", contents)
 

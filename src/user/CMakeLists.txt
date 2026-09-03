@@ -1,21 +1,48 @@
 # Use the Pedigree compiler regardless of the system target
+include(PedigreeMuslLink)
+if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
+    link_libraries(pedigree_musl_headers)
+endif ()
+
 set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
 set(CMAKE_CXX_COMPILER ${PEDIGREE_CXX_COMPILER})
 
-link_directories(
-    ${CMAKE_BINARY_DIR}/musl/lib
-    ${PEDIGREE_TOOLCHAIN_ROOT}/${PEDIGREE_COMPILER_TARGET}/lib
-    ${CMAKE_SOURCE_DIR}/images/local/libraries)
+if (PEDIGREE_SELF_HOSTED)
+    set(PEDIGREE_USER_LIBRARY_DIRS
+        ${PEDIGREE_MUSL_PREFIX_ROOT}/lib
+        ${PEDIGREE_NATIVE_RUNTIME_LIBRARY_DIRS}
+        /usr/lib)
+    set(PEDIGREE_USER_INCLUDE_DIRS
+        ${PEDIGREE_MUSL_PREFIX_ROOT}/include
+        ${CMAKE_SOURCE_DIR}/src/modules/subsys/native/include
+        /usr/lib/glib-2.0/include
+        /usr/include/glib-2.0
+        /usr/include/pango-1.0
+        /usr/include/cairo
+        /usr/include/freetype2)
+    set(PEDIGREE_USER_RPATH_LINK_DIRS
+        ${PEDIGREE_NATIVE_RUNTIME_LIBRARY_DIRS}
+        /usr/lib)
+    list(JOIN PEDIGREE_USER_RPATH_LINK_DIRS ":" PEDIGREE_USER_RPATH_LINK)
+else ()
+    set(PEDIGREE_USER_LIBRARY_DIRS
+        ${PEDIGREE_MUSL_PREFIX_ROOT}/lib
+        ${PEDIGREE_TOOLCHAIN_ROOT}/${PEDIGREE_COMPILER_TARGET}/lib
+        ${CMAKE_SOURCE_DIR}/images/local/libraries)
+    set(PEDIGREE_USER_INCLUDE_DIRS
+        ${PEDIGREE_MUSL_PREFIX_ROOT}/include
+        ${CMAKE_SOURCE_DIR}/src/modules/subsys/native/include
+        ${CMAKE_SOURCE_DIR}/images/local/include
+        ${CMAKE_SOURCE_DIR}/images/local/libraries/glib-2.0/include
+        ${CMAKE_SOURCE_DIR}/images/local/include/glib-2.0
+        ${CMAKE_SOURCE_DIR}/images/local/include/pango-1.0
+        ${CMAKE_SOURCE_DIR}/images/local/include/cairo
+        ${CMAKE_SOURCE_DIR}/images/local/include/freetype2)
+    set(PEDIGREE_USER_RPATH_LINK ${CMAKE_SOURCE_DIR}/images/local/libraries)
+endif ()
 
-include_directories(
-    ${CMAKE_BINARY_DIR}/musl/include
-    ${CMAKE_SOURCE_DIR}/src/modules/subsys/native/include
-    ${CMAKE_SOURCE_DIR}/images/local/include
-    ${CMAKE_SOURCE_DIR}/images/local/libraries/glib-2.0/include
-    ${CMAKE_SOURCE_DIR}/images/local/include/glib-2.0
-    ${CMAKE_SOURCE_DIR}/images/local/include/pango-1.0
-    ${CMAKE_SOURCE_DIR}/images/local/include/cairo
-    ${CMAKE_SOURCE_DIR}/images/local/include/freetype2)
+link_directories(${PEDIGREE_USER_LIBRARY_DIRS})
+include_directories(${PEDIGREE_USER_INCLUDE_DIRS})
 
 function(pedigree_app name posix native pedigreec libs)
     add_executable(app-${name} ${ARGN})
@@ -32,10 +59,11 @@ function(pedigree_app name posix native pedigreec libs)
     # runtime these will be found by the dynamic linker automatically.
     target_link_libraries(app-${name} PRIVATE
         ${TARGET_LIBS} gcc
-        -Wl,-rpath-link=${CMAKE_SOURCE_DIR}/images/local/libraries)
+        -Wl,-rpath-link=${PEDIGREE_USER_RPATH_LINK})
     target_link_options(app-${name} PRIVATE
         -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
         -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})
+    pedigree_use_musl_sdk_startfiles(app-${name})
     if (PEDIGREE_DTRELR_ENABLED)
         target_link_options(app-${name} PRIVATE -Wl,-z,pack-relative-relocs)
     endif ()
@@ -58,6 +86,7 @@ function(pedigree_lib name libs)
     target_link_options(lib${name} PRIVATE
         -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
         -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})
+    pedigree_use_musl_sdk_startfiles(lib${name})
     if (PEDIGREE_DTRELR_ENABLED)
         target_link_options(lib${name} PRIVATE -Wl,-z,pack-relative-relocs)
     endif ()
@@ -140,9 +169,14 @@ pedigree_app(winman ON ON OFF "libui;libfb;png;cairo;${PANGO_LIBS};freetype;stdc
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/winman.cc)
 pedigree_app(which ON OFF OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/which/main.cc)
 
-pedigree_keymap(KeymapDeDe ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapDeDe)
-pedigree_keymap(KeymapEnUk ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapEnUk)
-pedigree_keymap(KeymapEnUs ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapEnUs)
+if (PEDIGREE_BUILD_KEYMAPS)
+    pedigree_keymap(KeymapDeDe ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapDeDe)
+    pedigree_keymap(KeymapEnUk ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapEnUk)
+    pedigree_keymap(KeymapEnUs ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapEnUs)
+endif ()
+
+add_custom_target(user-apps
+    DEPENDS ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS})
 
 # Push lib and app list into parent scope.
 set(PEDIGREE_APPS ${PEDIGREE_APPS} PARENT_SCOPE)
