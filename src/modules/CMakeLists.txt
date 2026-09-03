@@ -857,10 +857,22 @@ pedigree_module(pedigree-c "" ""
 target_include_directories(native PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c)
 
-if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
-    add_library(pedigree-c-user SHARED
-        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-c-syscalls.c)
+set(PEDIGREE_C_USER_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-c-syscalls.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/pedigree-log.c)
+if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+    add_library(pedigree-c-user OBJECT ${PEDIGREE_C_USER_SOURCES})
+else ()
+    add_library(pedigree-c-user SHARED ${PEDIGREE_C_USER_SOURCES})
     set_target_properties(pedigree-c-user PROPERTIES OUTPUT_NAME "pedigree-c")
+endif ()
+if (PEDIGREE_HOSTED_DARWIN)
+    set_target_properties(pedigree-c-user PROPERTIES OSX_ARCHITECTURES "")
+endif ()
+target_include_directories(pedigree-c-user
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/include)
+if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     target_link_options(pedigree-c-user PRIVATE
         -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
         -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})
@@ -868,13 +880,38 @@ if (NOT PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
     if (PEDIGREE_DTRELR_ENABLED)
         target_link_options(pedigree-c-user PRIVATE -Wl,-z,pack-relative-relocs)
     endif ()
-    add_dependencies(pedigree-c-user libc)
 endif ()
+add_dependencies(pedigree-c-user libc)
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
-    set(PEDIGREE_SUBSYSTEM_LIBS)
+    set(PEDIGREE_SUBSYSTEM_LIBS PARENT_SCOPE)
 else ()
-    set(PEDIGREE_SUBSYSTEM_LIBS $<TARGET_FILE:native-user> $<TARGET_FILE:pedigree-c-user> PARENT_SCOPE)
+    set(PEDIGREE_C_SDK_ROOT "${CMAKE_BINARY_DIR}/pedigree-c-sdk")
+    set(PEDIGREE_C_SDK_HEADER
+        "${PEDIGREE_C_SDK_ROOT}/usr/include/pedigree/log.h")
+    set(PEDIGREE_C_SDK_LIBRARY
+        "${PEDIGREE_C_SDK_ROOT}/usr/lib/libpedigree-c.so")
+    add_custom_target(pedigree-c-sdk
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${PEDIGREE_C_SDK_ROOT}/usr/include/pedigree"
+            "${PEDIGREE_C_SDK_ROOT}/usr/lib"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/include/pedigree/log.h"
+            "${PEDIGREE_C_SDK_HEADER}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:pedigree-c-user>
+            "${PEDIGREE_C_SDK_LIBRARY}"
+        DEPENDS
+            pedigree-c-user
+            ${CMAKE_CURRENT_SOURCE_DIR}/subsys/pedigree-c/include/pedigree/log.h
+        BYPRODUCTS
+            "${PEDIGREE_C_SDK_HEADER}"
+            "${PEDIGREE_C_SDK_LIBRARY}"
+        VERBATIM)
+    set(PEDIGREE_C_SDK_ROOT "${PEDIGREE_C_SDK_ROOT}" PARENT_SCOPE)
+    set(PEDIGREE_C_SDK_HEADER "${PEDIGREE_C_SDK_HEADER}" PARENT_SCOPE)
+    set(PEDIGREE_C_SDK_LIBRARY "${PEDIGREE_C_SDK_LIBRARY}" PARENT_SCOPE)
+    set(PEDIGREE_SUBSYSTEM_LIBS $<TARGET_FILE:native-user> PARENT_SCOPE)
 endif ()
 
 if (PEDIGREE_STATIC_DRIVERS)
@@ -946,23 +983,19 @@ set(PEDIGREE_MUSL_PORT_INPUTS
     ${CMAKE_SOURCE_DIR}/build-etc/toolchain/musl-1.2.6-cve-2026-6042-iconv.patch
     ${CMAKE_SOURCE_DIR}/scripts/build-musl-${PEDIGREE_MUSLARCH}.sh
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/fb.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/glue-musl.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/klog.h
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/ttyname.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posix-syscall.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posixSyscallNumbers.h
-    ${PEDIGREE_MUSL_CONFIG_DIR}/config.h
-    ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/syscall-stubs.h)
+    ${PEDIGREE_MUSL_CONFIG_DIR}/config.h)
 if (PEDIGREE_MUSL_ARCH_TARGET STREQUAL "HOSTED")
     list(APPEND PEDIGREE_MUSL_PORT_INPUTS
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/clone-hosted-amd64.musl-s
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/glue-musl.c
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_arch.h
         ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/musl/syscall_cp-${PEDIGREE_MUSLARCH}.musl-s
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posix-syscall.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/syscalls/posixSyscallNumbers.h
         ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/Syscalls.h
+        ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/syscall-stubs.h
         ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/hosted/syscall-stubs.h)
-else ()
-    list(APPEND PEDIGREE_MUSL_PORT_INPUTS
-        ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/processor/x64/syscall-stubs.h)
 endif ()
 
 set(_PEDIGREE_MUSL_PORT_HASH_INPUT "")

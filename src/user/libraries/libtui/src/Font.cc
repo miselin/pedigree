@@ -27,7 +27,7 @@
 #include <setjmp.h>
 #include <string.h>
 
-#include <sys/klog.h>
+#include <pedigree/log.h>
 #include FT_FREETYPE_H
 
 #include <cairo/cairo-ft.h>
@@ -59,14 +59,14 @@ Font::Font(cairo_t* pCairo, size_t requestedSize, const char* pFilename, bool bC
       PANGO_SCALE;
   m_Baseline = pango_font_metrics_get_ascent(metrics) / PANGO_SCALE;
 
-  klog(LOG_INFO, "metrics: %dx%d", m_CellWidth, m_CellHeight);
+  pedigree_log(LOG_INFO, "metrics: %zux%zu", m_CellWidth, m_CellHeight);
 
   pango_font_metrics_unref(metrics);
 
   /// \todo UTF-32 endianness
   m_FontLibraries->m_Iconv = iconv_open("UTF-8", "UTF-32LE");
   if (m_FontLibraries->m_Iconv == (iconv_t)-1) {
-    klog(LOG_WARNING, "TUI: Font instance couldn't create iconv (%s)", strerror(errno));
+    pedigree_log(LOG_WARNING, "TUI: Font instance couldn't create iconv (%s)", strerror(errno));
   }
 
   for (uint32_t c = 32; c < 127; ++c) {
@@ -93,7 +93,7 @@ size_t Font::render(PedigreeGraphics::Framebuffer* pFb, uint32_t c, size_t x, si
   // Cache the character, if not already.
   const char* convertOut = precache(c);
   if (!convertOut) {
-    klog(LOG_WARNING, "TUI: Character '%x' was not able to be precached?", c);
+    pedigree_log(LOG_WARNING, "TUI: Character '%x' was not able to be precached?", c);
     return 0;
   }
 
@@ -161,7 +161,7 @@ size_t Font::render(const char* s, size_t x, size_t y, uint32_t f, uint32_t b, b
 
 const char* Font::precache(uint32_t c) {
   if (m_FontLibraries->m_Iconv == (iconv_t)-1) {
-    klog(LOG_WARNING, "TUI: Font instance with bad iconv.");
+    pedigree_log(LOG_WARNING, "TUI: Font instance with bad iconv.");
     return 0;
   }
 
@@ -181,7 +181,7 @@ const char* Font::precache(uint32_t c) {
     size_t res = iconv(m_FontLibraries->m_Iconv, &utf32_c, &utf32_len, &out_c, &out_len);
 
     if (res == ((size_t)-1)) {
-      klog(LOG_WARNING, "TUI: Font::render couldn't convert input UTF-32 %x", c);
+      pedigree_log(LOG_WARNING, "TUI: Font::render couldn't convert input UTF-32 %x", c);
       delete[] out;
     } else {
       m_ConversionCache[c] = out;

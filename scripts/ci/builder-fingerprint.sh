@@ -28,7 +28,6 @@ files=$(git ls-files -- \
     src/system/include/pedigree/kernel/config.h.in \
     src/system/include/pedigree/kernel/processor/hosted/syscall-stubs.h \
     src/system/include/pedigree/kernel/processor/syscall-stubs.h \
-    src/system/include/pedigree/kernel/processor/x64/syscall-stubs.h \
     src/system/kernel/CMakeLists.txt | sort)
 test -n "$files"
 

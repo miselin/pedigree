@@ -35,9 +35,9 @@
 #include <unistd.h>
 #include <utmp.h>
 
+#include <pedigree/log.h>
 #include <sys/fb.h>
 #include <sys/ioctl.h>
-#include <sys/klog.h>
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -64,7 +64,7 @@ void sigint(int sig) {
 }
 
 int main(int argc, char** argv) {
-  klog(LOG_INFO, "ttyterm: starting up...");
+  pedigree_log(LOG_INFO, "ttyterm: starting up...");
 
   // Create ourselves a lock file so we don't end up getting run twice.
   int fd = open("/run/ttyterm.lck", O_WRONLY | O_EXCL | O_CREAT);
@@ -82,13 +82,13 @@ int main(int argc, char** argv) {
   int fb = open("/dev/fb", O_RDWR);
   if (fb >= 0) {
     /// \todo error handling?
-    klog(LOG_INFO, "ttyterm: forcing text mode");
+    pedigree_log(LOG_INFO, "ttyterm: forcing text mode");
     pedigree_fb_modeset mode = {0, 0, 0};
     int rc = ioctl(fb, PEDIGREE_FB_SETMODE, &mode);
     close(fb);
 
     if (rc < 0) {
-      klog(LOG_INFO, "ttyterm: couldn't force text mode, exiting");
+      pedigree_log(LOG_INFO, "ttyterm: couldn't force text mode, exiting");
       return 1;
     }
   }
@@ -96,14 +96,14 @@ int main(int argc, char** argv) {
   // Get a PTY and the main TTY.
   int tty = open("/dev/textui", O_RDWR);
   if (tty < 0) {
-    klog(LOG_ALERT, "ttyterm: couldn't open /dev/textui: %s", strerror(errno));
+    pedigree_log(LOG_ALERT, "ttyterm: couldn't open /dev/textui: %s", strerror(errno));
     return 1;
   }
 
   g_MasterPty = posix_openpt(O_RDWR);
   if (g_MasterPty < 0) {
     close(tty);
-    klog(LOG_ALERT, "ttyterm: couldn't get a pseudo-terminal to use: %s", strerror(errno));
+    pedigree_log(LOG_ALERT, "ttyterm: couldn't get a pseudo-terminal to use: %s", strerror(errno));
     return 1;
   }
 
@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
   // Start up child process.
   g_RunningPid = fork();
   if (g_RunningPid == -1) {
-    klog(LOG_ALERT, "ttyterm: couldn't fork: %s", strerror(errno));
+    pedigree_log(LOG_ALERT, "ttyterm: couldn't fork: %s", strerror(errno));
     return EXIT_FAILURE;
   } else if (g_RunningPid == 0) {
     close(0);
@@ -135,12 +135,12 @@ int main(int argc, char** argv) {
     // Open the slave ready for the child.
     int slave = open(slavename, O_RDWR);
     if (slave < 0) {
-      klog(LOG_ALERT, "ttyterm: couldn't open pty slave: %s", strerror(errno));
+      pedigree_log(LOG_ALERT, "ttyterm: couldn't open pty slave: %s", strerror(errno));
       exit(1);
     }
 
     if (dup2(slave, STDIN_FILENO) < 0) {
-      klog(LOG_ALERT, "ttyterm: couldn't attach pty slave to stdin: %s", strerror(errno));
+      pedigree_log(LOG_ALERT, "ttyterm: couldn't attach pty slave to stdin: %s", strerror(errno));
       exit(1);
     }
     dup2(slave, 1);
@@ -173,10 +173,11 @@ int main(int argc, char** argv) {
     // Enable autowrap before loading the login process.
     write(slave, "\e[?7h", 5);
 
-    klog(LOG_INFO, "Starting up '" FIRST_PROGRAM "' on pty %s", slavename);
+    pedigree_log(LOG_INFO, "Starting up '" FIRST_PROGRAM "' on pty %s", slavename);
     execl(FIRST_PROGRAM, FIRST_PROGRAM, 0);
-    klog(LOG_ALERT, "Launching " FIRST_PROGRAM " failed (next line is the error in errno...)");
-    klog(LOG_ALERT, strerror(errno));
+    pedigree_log(LOG_ALERT,
+                 "Launching " FIRST_PROGRAM " failed (next line is the error in errno...)");
+    pedigree_log(LOG_ALERT, "%s", strerror(errno));
     exit(1);
   }
 

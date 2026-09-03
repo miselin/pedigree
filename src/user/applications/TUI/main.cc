@@ -34,7 +34,7 @@
 #include <tui.h>
 #include <unistd.h>
 
-#include <sys/klog.h>
+#include <pedigree/log.h>
 #include <sys/stat.h>
 
 class PedigreeTerminalEmulator : public Widget {
@@ -69,7 +69,7 @@ static Tui* g_Tui = nullptr;
 static PedigreeTerminalEmulator* g_pEmu = nullptr;
 
 void sigint(int) {
-  klog(LOG_NOTICE, "TUI received SIGINT, oops!");
+  pedigree_log(LOG_NOTICE, "TUI received SIGINT, oops!");
 }
 
 bool callback(WidgetMessages message, size_t msgSize, const void* msgData) {
@@ -79,15 +79,15 @@ bool callback(WidgetMessages message, size_t msgSize, const void* msgData) {
 
   switch (message) {
     case Reposition: {
-      klog(LOG_INFO, "-- REPOSITION --");
+      pedigree_log(LOG_INFO, "-- REPOSITION --");
       const PedigreeGraphics::Rect* rt = reinterpret_cast<const PedigreeGraphics::Rect*>(msgData);
-      klog(LOG_INFO, " -> handling...");
+      pedigree_log(LOG_INFO, " -> handling...");
       g_pEmu->handleReposition(*rt);
-      klog(LOG_INFO, " -> registering the mode change");
+      pedigree_log(LOG_INFO, " -> registering the mode change");
       g_Tui->resize(rt->getW(), rt->getH());
-      klog(LOG_INFO, " -> creating new framebuffer");
+      pedigree_log(LOG_INFO, " -> creating new framebuffer");
       g_Tui->recreateSurfaces(g_pEmu->getRawFramebuffer());
-      klog(LOG_INFO, " -> reposition complete!");
+      pedigree_log(LOG_INFO, " -> reposition complete!");
     } break;
     case KeyUp:
       g_Tui->keyInput(*reinterpret_cast<const uint64_t*>(msgData));
@@ -103,11 +103,11 @@ bool callback(WidgetMessages message, size_t msgSize, const void* msgData) {
       // Ignore.
       break;
     case Terminate:
-      klog(LOG_INFO, "TUI: termination request");
+      pedigree_log(LOG_INFO, "TUI: termination request");
       g_Tui->stop();
       break;
     default:
-      klog(LOG_INFO, "TUI: unhandled callback");
+      pedigree_log(LOG_INFO, "TUI: unhandled callback");
   }
 
   return true;
@@ -118,7 +118,7 @@ int main(int argc, char* argv[]) {
   openlog("tui", LOG_PID, LOG_USER);
 #endif
 
-  klog(LOG_INFO, "I am %d", getpid());
+  pedigree_log(LOG_INFO, "I am %d", getpid());
 
   char endpoint[256];
   sprintf(endpoint, "tui.%d", getpid());
@@ -128,14 +128,14 @@ int main(int argc, char* argv[]) {
   g_pEmu = new PedigreeTerminalEmulator();
   g_Tui = new Tui(g_pEmu);
 
-  klog(LOG_INFO, "TUI: constructing widget '%s'...", endpoint);
+  pedigree_log(LOG_INFO, "TUI: constructing widget '%s'...", endpoint);
   if (!g_pEmu->construct(endpoint, "Pedigree xterm Emulator", callback, rt)) {
-    klog(LOG_ERR, "tui: couldn't construct widget");
+    pedigree_log(LOG_ERR, "tui: couldn't construct widget");
     delete g_Tui;
     delete g_pEmu;
     return 1;
   }
-  klog(LOG_INFO, "TUI: widget constructed!");
+  pedigree_log(LOG_INFO, "TUI: widget constructed!");
 
   signal(SIGINT, sigint);
 

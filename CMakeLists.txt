@@ -369,6 +369,10 @@ if (NOT PEDIGREE_SELF_HOSTED AND BUILD_TESTING)
         NAME musl-startfile-tests
         COMMAND ${PYTHON_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/test_musl_startfiles.py -v)
+    add_test(
+        NAME pedigree-log-boundary-tests
+        COMMAND ${PYTHON_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_pedigree_log.py -v)
 endif ()
 
 # Pedigree-ABI code must compile against the libc produced by this build rather
@@ -638,6 +642,9 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
     endif ()
     if (PEDIGREE_BUILD_USER_DIR)
         list(APPEND _PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES libc)
+        if (TARGET pedigree-c-sdk)
+            list(APPEND _PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES pedigree-c-sdk)
+        endif ()
     endif ()
     list(REMOVE_DUPLICATES _PEDIGREE_BOOT_ARTIFACT_DEPENDENCIES)
     add_custom_target(boot-artifacts DEPENDS
@@ -658,6 +665,7 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             ${CMAKE_CURRENT_BINARY_DIR}/config.db  # => config DB
             ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst  # => grub list
             ${PEDIGREE_MUSL_SDK_ROOT}  # => musl SDK root
+            ${PEDIGREE_C_SDK_ROOT}  # => Pedigree C SDK root
             ${CMAKE_BINARY_DIR}  # => build directory
             ${PEDIGREE_KERNEL_MODULES}  # => other files to inject to image
             ${PEDIGREE_APPS}
@@ -675,6 +683,9 @@ if (PEDIGREE_EFFECTIVE_BUILD_ROLE STREQUAL "TARGET")
             ${CMAKE_SOURCE_DIR}/images/base/etc/group
             ${CMAKE_SOURCE_DIR}/images/base/etc/shadow
             libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS}
+            pedigree-c-sdk
+            ${PEDIGREE_C_SDK_HEADER}
+            ${PEDIGREE_C_SDK_LIBRARY}
             ${PEDIGREE_KEYMAPS_TARGETS} ${PEDIGREE_KEYMAPS}
             host-ext2img
             ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py)

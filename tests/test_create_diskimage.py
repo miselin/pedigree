@@ -39,6 +39,7 @@ class DiskImageLayoutTests(unittest.TestCase):
             images = root / "images"
             base = root / "base"
             musl = root / "musl"
+            pedigree_c_sdk = root / "pedigree-c-sdk"
             binary = root / "build"
 
             files = {
@@ -54,6 +55,8 @@ class DiskImageLayoutTests(unittest.TestCase):
                 musl / "usr/lib" / "libc.so": "libc",
                 musl / "usr/include" / "stdio.h": "header",
                 musl / "usr/share/pedigree/libc/manifest.json": "{}\n",
+                pedigree_c_sdk / "usr/include/pedigree/log.h": "header",
+                pedigree_c_sdk / "usr/lib/libpedigree-c.so": "library",
             }
             for path, content in files.items():
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +85,7 @@ class DiskImageLayoutTests(unittest.TestCase):
                     str(configdb),
                     str(grub),
                     str(musl),
+                    str(pedigree_c_sdk),
                     str(binary),
                 ]
             )
@@ -102,6 +106,12 @@ class DiskImageLayoutTests(unittest.TestCase):
                 "symlink /usr/lib/ld-musl-x86_64.so.1 libc.so", commands
             )
             self.assertTrue(any(command.endswith(" /usr/include/stdio.h") for command in commands))
+            self.assertTrue(
+                any(command.endswith(" /usr/include/pedigree/log.h") for command in commands)
+            )
+            self.assertTrue(
+                any(command.endswith(" /usr/lib/libpedigree-c.so") for command in commands)
+            )
             self.assertTrue(
                 any(
                     command.endswith(" /usr/share/pedigree/libc/manifest.json")

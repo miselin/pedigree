@@ -106,8 +106,8 @@ endfunction()
 
 # libraries
 
-pedigree_lib(fb "" ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libfb/src/fb.cc)
-pedigree_lib(tui "libui"
+pedigree_lib(fb "pedigree-c-user" ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libfb/src/fb.cc)
+pedigree_lib(tui "libui;pedigree-c-user"
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/environment.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/Font.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/Png.cc
@@ -150,7 +150,7 @@ pedigree_app(modunload ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/mod
 pedigree_app(mount ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/mount/main.c)
 pedigree_app(net-test ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/net-test/net-test.c)
 pedigree_app(nyancat ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/nyancat/nyancat.c)
-pedigree_app(preloadd ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/preloadd/main.c)
+pedigree_app(preloadd ON OFF OFF "pedigree-c-user" ${CMAKE_CURRENT_SOURCE_DIR}/applications/preloadd/main.c)
 pedigree_app(reboot ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/reboot/main.c)
 pedigree_app(sudo ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/sudo/main.c)
 pedigree_app(syscall-test ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/syscall-test/syscall-test.c)
@@ -158,7 +158,7 @@ pedigree_app(testsuite ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/fs.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/mprotect.c)
-pedigree_app(thread-test ON OFF OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/thread-test/main.cc)
+pedigree_app(thread-test ON OFF OFF "pedigree-c-user;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/thread-test/main.cc)
 pedigree_app(tour ON OFF OFF "intl;dialog;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/tour/main.cc)
 pedigree_app(ttyterm ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ttyterm/ttyterm.cc)
 pedigree_app(uitest ON ON OFF "libui;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/uitest/main.cc)

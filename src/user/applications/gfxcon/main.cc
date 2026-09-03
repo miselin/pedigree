@@ -33,7 +33,6 @@
 #include <unistd.h>
 
 #include <pedigree_fb.h>
-#include <sys/klog.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 

@@ -26,9 +26,9 @@
 #include <unistd.h>
 
 #include "pedigree_fb.h"
+#include <pedigree/log.h>
 #include <sys/fb.h>
 #include <sys/ioctl.h>
-#include <sys/klog.h>
 #include <sys/mman.h>
 
 Framebuffer::Framebuffer()
@@ -58,7 +58,7 @@ bool Framebuffer::initialise() {
   // Grab a framebuffer to use.
   m_Fb = open("/dev/fb", O_RDWR);
   if (m_Fb < 0) {
-    klog(LOG_INFO, "libfb: no framebuffer device");
+    pedigree_log(LOG_INFO, "libfb: no framebuffer device");
     fprintf(stderr, "libfb: couldn't open framebuffer device");
     return false;
   }
@@ -103,7 +103,7 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp) 
     /// \note Mode set logic will try and find a mode in a lower colour
     /// depth
     ///       if the desired one cannot be set.
-    klog(LOG_INFO, "libfb: can't set the desired mode");
+    pedigree_log(LOG_INFO, "libfb: can't set the desired mode");
     fprintf(stderr, "libfb: could not set desired mode (%zux%zu) in any colour depth.\n",
             mode.width, mode.height);
     return EXIT_FAILURE;
@@ -112,7 +112,7 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp) 
   pedigree_fb_mode set_mode;
   result = ioctl(m_Fb, PEDIGREE_FB_GETMODE, &set_mode);
   if (result < 0) {
-    klog(LOG_INFO, "libfb: can't get mode info");
+    pedigree_log(LOG_INFO, "libfb: can't get mode info");
     fprintf(stderr, "libfb: could not get mode information after setting mode.\n");
 
     // Back to text.
@@ -144,15 +144,15 @@ int Framebuffer::enterMode(size_t desiredW, size_t desiredH, size_t desiredBpp) 
   int stride = cairo_format_stride_for_width(m_Format, set_mode.width);
 
   // Map the framebuffer in to our address space.
-  klog(LOG_INFO, "Mapping /dev/fb in (sz=%x)...", stride * set_mode.height);
+  pedigree_log(LOG_INFO, "Mapping /dev/fb in (sz=%zx)...", stride * set_mode.height);
   m_pFramebuffer = mmap(0, stride * set_mode.height, PROT_READ | PROT_WRITE, MAP_SHARED, m_Fb, 0);
-  klog(LOG_INFO, "Got %p...", m_pFramebuffer);
+  pedigree_log(LOG_INFO, "Got %p...", m_pFramebuffer);
 
   if (m_pFramebuffer == MAP_FAILED) {
-    klog(LOG_CRIT, "libfb: couldn't map framebuffer into address space");
+    pedigree_log(LOG_CRIT, "libfb: couldn't map framebuffer into address space");
     return EXIT_FAILURE;
   } else {
-    klog(LOG_INFO, "libfb: mapped framebuffer at %p", m_pFramebuffer);
+    pedigree_log(LOG_INFO, "libfb: mapped framebuffer at %p", m_pFramebuffer);
   }
 
   m_FramebufferSize = stride * set_mode.height;

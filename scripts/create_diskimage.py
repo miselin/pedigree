@@ -177,9 +177,10 @@ def build_file_list(all_sources):
         configdb,
         grublst,
         musldir,
+        pedigree_c_sdk_dir,
         binarydir,
-    ) = all_sources[:9]
-    additional_sources = all_sources[9:]
+    ) = all_sources[:10]
+    additional_sources = all_sources[10:]
 
     users, groups = build_user_map(baseimagesdir)
 
@@ -220,6 +221,7 @@ def build_file_list(all_sources):
         ),
     )
     add_copy_tree(copies, os.path.join(musldir, "usr"), "/usr")
+    add_copy_tree(copies, os.path.join(pedigree_c_sdk_dir, "usr"), "/usr")
 
     # Add translations.
     for lang in ("en_US", "de_DE"):

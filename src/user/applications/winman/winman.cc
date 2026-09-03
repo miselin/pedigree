@@ -43,9 +43,9 @@
 #include <cairo/cairo.h>
 #include <netinet/in.h>
 #include <pango/pangocairo.h>
+#include <pedigree/log.h>
 #include <pedigree_fb.h>
 #include <sys/ioctl.h>
-#include <sys/klog.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -125,7 +125,7 @@ bool g_bAlive = true;
 void startClient() {
   pid_t pid = fork();
   if (pid == -1) {
-    klog(LOG_CRIT, "winman: fork failed: %s\n", strerror(errno));
+    pedigree_log(LOG_CRIT, "winman: fork failed: %s\n", strerror(errno));
   } else if (pid == 0) {
     // Forked. Close all of our existing handles, we don't really want the
     // client to inherit them.
@@ -151,7 +151,7 @@ void fps() {
   } else if (now.tv_sec - start_time >= 5) {
     float seconds = now.tv_sec - start_time;
     float fps = frames / seconds;
-    klog(LOG_INFO, "%d frames in %3.1f seconds = %6.3f FPS", frames, seconds, fps);
+    pedigree_log(LOG_INFO, "%d frames in %3.1f seconds = %6.3f FPS", frames, seconds, fps);
     start_time = now.tv_sec;
     frames = 0;
   }
@@ -224,7 +224,7 @@ void handleDestroy(Window* pWindow) {
   if (!newFocus) {
     // assertion may be taking place before we remove the final window
     // from g_Windows - hence the <= 1.
-    klog(LOG_INFO, "winman: no new focus window, terminating");
+    pedigree_log(LOG_INFO, "winman: no new focus window, terminating");
     assert(g_Windows->size() <= 1);
     g_bAlive = false;
   }
@@ -345,7 +345,7 @@ void handleMessage(char* messageData, struct sockaddr* src, socklen_t slen) {
       g_PendingWindows.insert(pWindow);
     }
   } else {
-    klog(LOG_INFO, "winman: unhandled message type");
+    pedigree_log(LOG_INFO, "winman: unhandled message type");
   }
 }
 
@@ -489,7 +489,7 @@ enum ActualKey {
  * as the "pending windows" list).
  */
 void queueInputCallback(Input::InputNotification& note) {
-  klog(LOG_INFO, "winman: system input (type=%d)", note.type);
+  pedigree_log(LOG_INFO, "winman: system input (type=%d)", note.type);
   static bool bResize = false;
 
   bool bHandled = false;
@@ -519,7 +519,8 @@ void queueInputCallback(Input::InputNotification& note) {
     if ((c & ALT_KEY) && (g_pFocusWindow != 0)) {
       bool bShift = (c & SHIFT_KEY);
 
-      klog(LOG_INFO, "ALT-%d [%x%x] %c", (uint32_t)c, (uint32_t)(c >> 32ULL), (uint32_t)c, (char)c);
+      pedigree_log(LOG_INFO, "ALT-%u [%x%x] %c", (uint32_t)c, (uint32_t)(c >> 32ULL), (uint32_t)c,
+                   (char)c);
 
       c &= 0xFFFFFFFFULL;
       Container* focusParent = g_pFocusWindow->getParent();
@@ -527,7 +528,7 @@ void queueInputCallback(Input::InputNotification& note) {
       WObject* sibling = 0;
       if (bShift) {
         if (c == 'R') {
-          klog(LOG_INFO, "winman: retiling");
+          pedigree_log(LOG_INFO, "winman: retiling");
           g_pRootContainer->retile();
           bHandled = true;
         } else if (c == 'Q') {
@@ -535,9 +536,9 @@ void queueInputCallback(Input::InputNotification& note) {
           bool bSafe = true;
           if (focusParent == g_pRootContainer) {
             if (focusParent->getChildCount() == 1) {
-              klog(LOG_INFO,
-                   "winman: can't (yet) terminate only "
-                   "child of root container!");
+              pedigree_log(LOG_INFO,
+                           "winman: can't (yet) terminate only "
+                           "child of root container!");
               bSafe = false;
             }
           }
@@ -698,8 +699,8 @@ void queueInputCallback(Input::InputNotification& note) {
     if (g_CursorY >= g_nHeight)
       g_CursorY = g_nHeight - 1;
 
-    klog(LOG_INFO, "Cursor update %zd, %zd [rel %zd %zd]", g_CursorX, g_CursorY,
-         note.data.pointy.relx, note.data.pointy.rely);
+    pedigree_log(LOG_INFO, "Cursor update %zd, %zd [rel %zd %zd]", g_CursorX, g_CursorY,
+                 note.data.pointy.relx, note.data.pointy.rely);
 
     // Trigger a render.
     g_bCursorUpdate = true;
@@ -760,31 +761,31 @@ void systemInputCallback(Input::InputNotification& note) {
 }
 
 void sigchld(int s) {
-  klog(LOG_INFO, "SIGCHLD");
+  pedigree_log(LOG_INFO, "SIGCHLD");
   int status = 0;
   pid_t pid = waitpid(-1, &status, WNOHANG);
   if (pid <= 0) {
-    klog(LOG_ALERT, "SIGCHLD handler called but no children to reap.");
+    pedigree_log(LOG_ALERT, "SIGCHLD handler called but no children to reap.");
     return;
   }
 
   if (WIFEXITED(status)) {
     int exit_status = WEXITSTATUS(status);
-    klog(LOG_INFO, "Child %d exited with status %d.", pid, exit_status);
+    pedigree_log(LOG_INFO, "Child %d exited with status %d.", pid, exit_status);
   } else if (WIFSIGNALED(status)) {
     int term_signal = WTERMSIG(status);
-    klog(LOG_INFO, "Child %d terminated with signal %d.", pid, term_signal);
+    pedigree_log(LOG_INFO, "Child %d terminated with signal %d.", pid, term_signal);
   } else {
-    klog(LOG_INFO, "Child %d terminated for an unknown reason.", pid);
+    pedigree_log(LOG_INFO, "Child %d terminated for an unknown reason.", pid);
   }
 
   // Now, we don't know what resources it held.
   for (std::map<uint64_t, Window*>::iterator it = g_Windows->begin(); it != g_Windows->end();) {
     uint64_t handle = it->first;
     pid_t window_pid = (handle >> 32ULL) & 0xFFFFFFFFU;
-    klog(LOG_INFO, "%d vs %d", window_pid, pid);
+    pedigree_log(LOG_INFO, "%d vs %d", window_pid, pid);
     if (window_pid == pid) {
-      klog(LOG_INFO, "Found a child window for the terminated child.");
+      pedigree_log(LOG_INFO, "Found a child window for the terminated child.");
       handleDestroy(it->second);
       delete it->second;
 
@@ -838,7 +839,7 @@ int main(int argc, char* argv[]) {
   openlog("winman", LOG_PID, LOG_USER);
 #endif
 
-  klog(LOG_INFO, "winman: starting up...");
+  pedigree_log(LOG_INFO, "winman: starting up...");
   fprintf(stderr, "I am PID %d\n", getpid());
 
   // Create ourselves a lock file so we don't end up getting run twice.
@@ -933,7 +934,7 @@ int main(int argc, char* argv[]) {
   g_nWidth = pFramebuffer->getWidth();
   g_nHeight = pFramebuffer->getHeight();
 
-  klog(LOG_INFO, "Actual mode is %ux%u", g_nWidth, g_nHeight);
+  pedigree_log(LOG_INFO, "Actual mode is %zdx%zd", g_nWidth, g_nHeight);
 
   cairo_format_t format = pFramebuffer->getFormat();
 
@@ -949,13 +950,13 @@ int main(int argc, char* argv[]) {
   FT_Face ft_face;
   int e = FT_Init_FreeType(&font_library);
   if (e) {
-    klog(LOG_CRIT, "error: couldn't initialise Freetype");
+    pedigree_log(LOG_CRIT, "error: couldn't initialise Freetype");
     return 0;
   }
 
   e = FT_New_Face(font_library, DEJAVU_FONT, 0, &ft_face);
   if (e) {
-    klog(LOG_CRIT, "winman: error: couldn't load required font");
+    pedigree_log(LOG_CRIT, "winman: error: couldn't load required font");
     return 0;
   }
 
@@ -986,7 +987,7 @@ int main(int argc, char* argv[]) {
 
   infoPanel(cr);
 
-  klog(LOG_INFO, "winman: entering main loop pid=%d", getpid());
+  pedigree_log(LOG_INFO, "winman: entering main loop pid=%d", getpid());
 
   g_Windows = new std::map<uint64_t, Window*>();
 
@@ -1124,7 +1125,7 @@ int main(int argc, char* argv[]) {
   }
 
   /// \todo Clean up?
-  klog(LOG_INFO, "winman terminating");
+  pedigree_log(LOG_INFO, "winman terminating");
 
   // Clean up wallpaper, if one exists.
   if (wallpaper) {

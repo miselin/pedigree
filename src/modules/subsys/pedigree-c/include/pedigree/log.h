@@ -17,32 +17,20 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <errno.h>
+#ifndef PEDIGREE_LOG_H
+#define PEDIGREE_LOG_H
 
-#include <posix-syscall.h>
-#include <posixSyscallNumbers.h>
+#include <syslog.h>
 
-#if HOSTED
-// Hosted userspace cannot issue raw syscalls without entering the host OS.
-#include <pedigree/kernel/processor/Syscalls.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-long pedigree_translate_syscall(long which, long a1, long a2, long a3, long a4,
-                                long a5, long a6)
-{
-    long err = 0;
-    long r = syscall6_for_service_err(
-        linuxCompat, which, a1, a2, a3, a4, a5, a6, &err);
-    if (err)
-    {
-        return -err;
-    }
-    return r;
+/** Write a message to the Pedigree kernel log. */
+int pedigree_log(int priority, const char* format, ...) __attribute__((format(printf, 2, 3)));
+
+#ifdef __cplusplus
 }
+#endif
 
-__attribute__((noreturn, visibility("hidden")))
-void pedigree_musl_thread_exit(long status)
-{
-    syscall1(POSIX_PTHREAD_RETURN, status);
-    __builtin_trap();
-}
 #endif

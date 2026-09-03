@@ -24,7 +24,8 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         hosted_bridge = glue.split("#if HOSTED", 1)[1].split("#endif", 1)[0]
         self.assertIn("long pedigree_translate_syscall", hosted_bridge)
         self.assertNotIn("posix_translate_syscall", hosted_bridge)
-        self.assertIn("int klog", glue.split("#endif", 1)[1])
+        self.assertNotRegex(glue, r"\bklog\s*\(")
+        self.assertNotIn("POSIX_SYSLOG", glue)
 
     def test_hosted_musl_keeps_its_explicit_syscall_bridge(self):
         syscall_arch = (MUSL / "syscall_arch.h").read_text(encoding="utf-8")
@@ -80,7 +81,7 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         builder_fingerprint = (
             ROOT / "scripts/ci/builder-fingerprint.sh"
         ).read_text(encoding="utf-8")
-        self.assertIn(
+        self.assertNotIn(
             "src/system/include/pedigree/kernel/processor/x64/syscall-stubs.h",
             builder_fingerprint,
         )

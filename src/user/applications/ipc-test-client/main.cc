@@ -21,7 +21,7 @@
 
 #include <stdio.h>
 
-#include <sys/klog.h>
+#include <pedigree/log.h>
 
 using namespace PedigreeIpc;
 
@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
   IpcMessage* pMessage = new IpcMessage();
 
   if (!pMessage)
-    klog(LOG_ERR, "operator new returned null");
+    pedigree_log(LOG_ERR, "operator new returned null");
 
   if (!pMessage->initialise()) {
     printf("Message couldn't be initialised.\n");

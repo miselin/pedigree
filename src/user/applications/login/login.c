@@ -37,8 +37,8 @@
 #include <utmp.h>
 #include <utmpx.h>
 
+#include <pedigree/log.h>
 #include <sys/ioctl.h>
-#include <sys/klog.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -60,7 +60,7 @@ void sigint(int sig) {
   } else {
     // Do not kill us! CTRL-C does not do anything while the login prompt
     // is active
-    klog(LOG_NOTICE, "SIGINT ignored");
+    pedigree_log(LOG_NOTICE, "SIGINT ignored");
   }
 }
 
@@ -149,12 +149,12 @@ int main(int argc, char** argv) {
     // is impossible to get out. Everything else I've tried does not work...
     int fd = open("/dev/tty", O_RDONLY);
     if (fd < 0) {
-      klog(LOG_ERR, "Opening /dev/tty failed: %s", strerror(errno));
+      pedigree_log(LOG_ERR, "Opening /dev/tty failed: %s", strerror(errno));
       return 1;
     }
     if (fd != STDIN_FILENO) {
       if (dup2(fd, STDIN_FILENO) < 0) {
-        klog(LOG_ERR, "Replacing stdin failed: %s", strerror(errno));
+        pedigree_log(LOG_ERR, "Replacing stdin failed: %s", strerror(errno));
         close(fd);
         return 1;
       }

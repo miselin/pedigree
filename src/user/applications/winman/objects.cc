@@ -24,7 +24,7 @@
 #include "util.h"
 #include "winman.h"
 #include <pango/pangocairo.h>
-#include <sys/klog.h>
+#include <pedigree/log.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 
@@ -100,20 +100,21 @@ void Window::refreshContext() {
   if (!m_bRefresh) {
     // Not refreshing context currently.
     m_bPendingDecoration = true;
-    klog(LOG_DEBUG, "not refreshing context, marking for redecoration");
+    pedigree_log(LOG_DEBUG, "not refreshing context, marking for redecoration");
     return;
   }
 
   if ((me.getW() < WINDOW_CLIENT_LOST_W) || (me.getH() < WINDOW_CLIENT_LOST_H)) {
     // We have some basic requirements for window sizes.
-    klog(LOG_DEBUG, "extents %ux%u are too small for a new context", me.getW(), me.getH());
+    pedigree_log(LOG_DEBUG, "extents %zux%zu are too small for a new context", me.getW(),
+                 me.getH());
     return;
   }
 
-  klog(LOG_DEBUG, "destroying old framebuffer...");
+  pedigree_log(LOG_DEBUG, "destroying old framebuffer...");
   delete m_Framebuffer;
   m_Framebuffer = 0;
-  klog(LOG_DEBUG, "destroying old framebuffer complete");
+  pedigree_log(LOG_DEBUG, "destroying old framebuffer complete");
 
   // Size of the IPC region we need to allocate.
   size_t regionWidth = me.getW() - WINDOW_CLIENT_LOST_W;
@@ -123,7 +124,8 @@ void Window::refreshContext() {
   m_Framebuffer = new SharedBuffer(regionSize);
   memset(m_Framebuffer->getBuffer(), 0, regionSize);
 
-  klog(LOG_DEBUG, "new framebuffer created: %zd bytes @%p", regionSize, m_Framebuffer->getBuffer());
+  pedigree_log(LOG_DEBUG, "new framebuffer created: %zu bytes @%p", regionSize,
+               m_Framebuffer->getBuffer());
 
   m_nRegionWidth = regionWidth;
   m_nRegionHeight = regionHeight;
@@ -368,7 +370,7 @@ void Window::resize(ssize_t horizDistance, ssize_t vertDistance, WObject* pChild
 
 void Container::retile() {
   if (m_Children.size() == 0) {
-    klog(LOG_INFO, "winman: no children in container, no retile");
+    pedigree_log(LOG_INFO, "winman: no children in container, no retile");
     return;
   }
 
@@ -435,7 +437,7 @@ void Container::resize(ssize_t horizDistance, ssize_t vertDistance, WObject* pCh
     }
 
     if (!bResize)
-      klog(LOG_INFO, "winman: didn't find children for resize???");
+      pedigree_log(LOG_INFO, "winman: didn't find children for resize???");
   } else {
     reposition(me.getX(), me.getY(), currentWidth + horizDistance, currentHeight + vertDistance);
 

@@ -3,13 +3,22 @@ set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
 link_directories(${PEDIGREE_MUSL_PREFIX_ROOT}/lib)
 include_directories(${PEDIGREE_MUSL_PREFIX_ROOT}/include)
 
+if (PEDIGREE_HOSTED_DARWIN)
+    # These programs are Pedigree ELF even though the hosted kernel is Mach-O.
+    set(CMAKE_EXECUTABLE_CREATE_C_FLAGS "")
+    set(CMAKE_C_LINK_FLAGS "")
+endif ()
+
 function(hosted_smoke_app target output source)
     add_executable(${target} ${source})
     set_target_properties(${target} PROPERTIES
         OUTPUT_NAME ${output}
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/src/user)
+    if (APPLE)
+        set_target_properties(${target} PROPERTIES OSX_ARCHITECTURES "")
+    endif ()
     target_compile_options(${target} PRIVATE -fPIE)
-    target_link_libraries(${target} PRIVATE gcc -pie)
+    target_link_libraries(${target} PRIVATE pedigree-c-user gcc -pie)
     target_link_options(${target} PRIVATE
         -Wl,-z,max-page-size=${PEDIGREE_TARGET_PAGE_SIZE}
         -Wl,-z,common-page-size=${PEDIGREE_TARGET_PAGE_SIZE})

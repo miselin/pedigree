@@ -27,7 +27,6 @@
 
 #include <sys/fb.h>
 #include <sys/ioctl.h>
-#include <sys/klog.h>
 #include <sys/mman.h>
 
 SharedBuffer::SharedBuffer(size_t size) : m_pFramebuffer(0) {

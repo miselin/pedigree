@@ -26,7 +26,7 @@
 #include <tui.h>
 #include <unistd.h>
 
-#include <sys/klog.h>
+#include <pedigree/log.h>
 #include <sys/select.h>
 
 struct TuiLocal {
@@ -70,7 +70,7 @@ bool Tui::initialise(size_t width, size_t height) {
   m_LocalData->nHeight = height;
 
   if (!m_LocalData->pCairo) {
-    klog(LOG_ALERT, "TUI: cairo instance is not yet valid!");
+    pedigree_log(LOG_ALERT, "TUI: cairo instance is not yet valid!");
     return false;
   }
 
@@ -86,7 +86,7 @@ bool Tui::initialise(size_t width, size_t height) {
   if (!m_LocalData->pNormalFont) {
     m_LocalData->pNormalFont = new Font(m_LocalData->pCairo, 14, "DejaVu Sans Mono 10", true, 0);
     if (!m_LocalData->pNormalFont) {
-      klog(LOG_EMERG, "Error: Normal font not loaded!");
+      pedigree_log(LOG_EMERG, "Error: Normal font not loaded!");
       return false;
     }
   }
@@ -94,7 +94,7 @@ bool Tui::initialise(size_t width, size_t height) {
   if (!m_LocalData->pBoldFont) {
     m_LocalData->pBoldFont = new Font(m_LocalData->pCairo, 14, "DejaVu Sans Mono Bold 10", true, 0);
     if (!m_LocalData->pBoldFont) {
-      klog(LOG_EMERG, "Error: Bold font not loaded!");
+      pedigree_log(LOG_EMERG, "Error: Bold font not loaded!");
       return false;
     }
   }
@@ -124,7 +124,7 @@ bool Tui::initialise(size_t width, size_t height) {
   rect.point(m_LocalData->nWidth, m_LocalData->nHeight);
 
   if (!m_LocalData->pTerminal) {
-    klog(LOG_ALERT, "TUI: couldn't start up a terminal - failing gracefully...");
+    pedigree_log(LOG_ALERT, "TUI: couldn't start up a terminal - failing gracefully...");
     m_LocalData->pBoldFont->render("There are no pseudo-terminals available.", 5, 5, 0xFFFFFF,
                                    0x000000, false);
     m_LocalData->pBoldFont->render("Press any key to close this window.", 5,
@@ -288,7 +288,7 @@ void Tui::run() {
     }
   }
 
-  klog(LOG_INFO, "TUI shutting down cleanly.");
+  pedigree_log(LOG_INFO, "TUI shutting down cleanly.");
 }
 
 void Tui::stop() {

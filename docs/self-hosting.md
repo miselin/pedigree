@@ -183,7 +183,9 @@ With the default build directory, the primary products are:
 - `build-selfhost/src/user/` — built user applications and libraries;
 - `build-selfhost/musl/usr/` — package-shaped libc SDK payload; and
 - `build-selfhost/musl/usr/share/pedigree/libc/manifest.json` — libc ABI,
-  layout, toolchain, and source-derivation identity.
+  layout, toolchain, and source-derivation identity; and
+- `build-selfhost/pedigree-c-sdk/usr/` — Pedigree-specific userspace library
+  and public headers.
 
 `boot-artifacts` is an aggregate build target, not an installer or staging
 directory. Copying a tested kernel, initrd, and configuration database into a
@@ -201,6 +203,11 @@ to the running system. The loader link in the SDK is relative and valid after
 the payload is installed. Temporary `musl/include` and `musl/lib` links retain
 compatibility with compiler installations created before the SDK layout; new
 consumers should use the manifest's `usr/include` and `usr/lib` paths.
+
+Pedigree-specific APIs are staged separately from libc. In particular,
+`pedigree_log` is provided by `libpedigree-c` and declared by
+`<pedigree/log.h>`; neither is patched into musl. This keeps the platform API
+available to native packages without making it part of the libc provider.
 
 This makes musl a package-shaped build product, but it is not yet safe to
 replace on a running system through PUP. Atomic activation, file ownership,

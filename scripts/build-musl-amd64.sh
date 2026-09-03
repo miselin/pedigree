@@ -114,11 +114,11 @@ if [ ! -f "$upstream_snapshot/clone.s" ]; then
     cp src/thread/x86_64/clone.s "$upstream_snapshot/clone.s"
 fi
 
-cp "$SRCDIR/src/modules/subsys/posix/musl/glue-musl.c" \
-    src/internal/pedigree-musl.c
-
+rm -f src/internal/pedigree-musl.c
 case "$ARCH_TARGET" in
     HOSTED)
+        cp "$SRCDIR/src/modules/subsys/posix/musl/glue-musl.c" \
+            src/internal/pedigree-musl.c
         cp "$SRCDIR/src/modules/subsys/posix/musl/clone-hosted-amd64.musl-s" \
             src/thread/x86_64/clone.s
         cp "$SRCDIR/src/modules/subsys/posix/musl/syscall_arch.h" \
@@ -153,9 +153,8 @@ rm -f src/thread/x86_64/{__unmapself,__set_thread_area}.s
 # Custom ttyname that doesn't use /proc
 cp "$SRCDIR/src/modules/subsys/posix/musl/ttyname.c" src/unistd/ttyname_r.c
 
-# Copy custom headers.
+# Copy custom target headers.
 cp "$SRCDIR/src/modules/subsys/posix/musl/fb.h" include/sys/
-cp "$SRCDIR/src/modules/subsys/posix/musl/klog.h" include/sys/
 
 rm -rf build
 mkdir -p build

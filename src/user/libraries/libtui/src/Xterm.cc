@@ -24,7 +24,7 @@
 
 #include "Font.h"
 #include "Terminal.h"
-#include <sys/klog.h>
+#include <pedigree/log.h>
 
 #define XTERM_BOLD 0x1
 #define XTERM_UNDERLINE 0x2
@@ -81,12 +81,12 @@ static void getXtermColorFromDb(const char* colorName, uint8_t& color) {
 
   // Did the query fail?
   if (!pResult) {
-    klog(LOG_ALERT, "TUI: Error looking up '%s' colour.", colorName);
+    pedigree_log(LOG_ALERT, "TUI: Error looking up '%s' colour.", colorName);
     return;
   }
   if (!pResult->succeeded()) {
-    klog(LOG_ALERT, "TUI: Error looking up '%s' colour: %s\n", colorName,
-         pResult->errorMessage().c_str());
+    pedigree_log(LOG_ALERT, "TUI: Error looking up '%s' colour: %s\n", colorName,
+                 pResult->errorMessage().c_str());
     delete pResult;
     return;
   }
@@ -333,7 +333,7 @@ bool Xterm::setFlagsForUtf32(uint32_t utf32) {
 
 void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG_EXTRA
-  klog(LOG_INFO, "XTerm::write(%c/%x)", (char)utf32, utf32);
+  pedigree_log(LOG_INFO, "XTerm::write(%c/%x)", (char)utf32, utf32);
 #endif
 
   // Special cases, for controls that require readahead.
@@ -625,7 +625,7 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
         if (m_Flags & RightAngle) {
           /// \todo Changes how title modes are set...
         } else if (m_Cmd.cur_param > 1) {
-          klog(LOG_INFO, "XTERM: highlight mouse tracking is not supported.");
+          pedigree_log(LOG_INFO, "XTERM: highlight mouse tracking is not supported.");
         } else {
           size_t nScrollLines = (m_Cmd.params[0]) ? m_Cmd.params[0] : 1;
           m_pWindows[m_ActiveBuffer]->scrollUp(nScrollLines, rect);
@@ -650,9 +650,9 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
 
       case 'c':
         if (m_Cmd.params[0]) {
-          klog(LOG_INFO,
-               "XTERM: Device Attributes command with "
-               "non-zero parameter");
+          pedigree_log(LOG_INFO,
+                       "XTERM: Device Attributes command with "
+                       "non-zero parameter");
         } else if (m_Flags & RightAngle) {
           // Secondary Device Attributes
           const char* attribs = "\e[?85;95;0c";
@@ -725,10 +725,10 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
                 break;
               case 40:
                 /// \todo Do something about this.
-                klog(LOG_INFO, "(Dis)Allowing 80->132 mode.");
+                pedigree_log(LOG_INFO, "(Dis)Allowing 80->132 mode.");
                 break;
               case 45:
-                klog(LOG_INFO, "Reverse-wraparound mode.");
+                pedigree_log(LOG_INFO, "Reverse-wraparound mode.");
                 break;
               case 67:
                 modesToChange |= AppKeypad;
@@ -759,7 +759,7 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
                 }
                 break;
               default:
-                klog(LOG_INFO, "XTERM: unknown DEC Private Mode %d", m_Cmd.params[i]);
+                pedigree_log(LOG_INFO, "XTERM: unknown DEC Private Mode %d", m_Cmd.params[i]);
                 break;
             }
           }
@@ -773,7 +773,7 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
                 modesToChange |= LineFeedNewLine;
                 break;
               default:
-                klog(LOG_INFO, "XTERM: unknown standard mode %d", m_Cmd.params[i]);
+                pedigree_log(LOG_INFO, "XTERM: unknown standard mode %d", m_Cmd.params[i]);
                 break;
             }
           }
@@ -935,7 +935,7 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
 
             default:
               // Do nothing.
-              klog(LOG_INFO, "XTERM: unknown character attribute %d", m_Cmd.params[i]);
+              pedigree_log(LOG_INFO, "XTERM: unknown character attribute %d", m_Cmd.params[i]);
               break;
           }
         }
@@ -975,7 +975,7 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
             } break;
 
             default:
-              klog(LOG_INFO, "XTERM: unknown device status request %d", m_Cmd.params[0]);
+              pedigree_log(LOG_INFO, "XTERM: unknown device status request %d", m_Cmd.params[0]);
               break;
           }
         }
@@ -1074,12 +1074,12 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
         break;
 
       case '3':
-        klog(LOG_ALERT, "XTERM: double-height lines not supported");
+        pedigree_log(LOG_ALERT, "XTERM: double-height lines not supported");
         m_Flags = 0;
         break;
 
       case '4':
-        klog(LOG_ALERT, "XTERM: double-height lines not supported");
+        pedigree_log(LOG_ALERT, "XTERM: double-height lines not supported");
         m_Flags = 0;
         break;
 
@@ -1089,7 +1089,7 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
         break;
 
       case '6':
-        klog(LOG_ALERT, "XTERM: double-width lines not supported");
+        pedigree_log(LOG_ALERT, "XTERM: double-width lines not supported");
         m_Flags = 0;
         break;
 
@@ -1255,7 +1255,7 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
 
       default:
         if (!seenFlag) {
-          klog(LOG_INFO, "XTERM: unknown ESCAPE control '%c'", utf32);
+          pedigree_log(LOG_INFO, "XTERM: unknown ESCAPE control '%c'", (char)utf32);
           m_Flags = 0;
         }
         break;
@@ -1266,14 +1266,14 @@ void Xterm::write(uint32_t utf32, DirtyRectangle& rect) {
       case '\007':
       case 0x9C:
         if (!m_OsCtl.has_param) {
-          klog(LOG_INFO, "XTERM: not enough parameters for OS control");
+          pedigree_log(LOG_INFO, "XTERM: not enough parameters for OS control");
         } else {
           if (m_OsCtl.params[0] == "0" || m_OsCtl.params[0] == "1" || m_OsCtl.params[0] == "2") {
             if (m_pWidget) {
               m_pWidget->setTitle(m_OsCtl.params[1]);
             }
           } else {
-            klog(LOG_INFO, "XTERM: unhandled OS control '%s'", m_OsCtl.params[0].c_str());
+            pedigree_log(LOG_INFO, "XTERM: unhandled OS control '%s'", m_OsCtl.params[0].c_str());
           }
         }
         m_Flags = 0;
@@ -1330,7 +1330,7 @@ Xterm::Window::Window(size_t nRows, size_t nCols, PedigreeGraphics::Framebuffer*
       m_bLineRender(false),
       m_pParentXterm(parent) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::Window() dimensions %zdx%zd", nCols, nRows);
+  pedigree_log(LOG_INFO, "Xterm::Window::Window() dimensions %zux%zu", nCols, nRows);
 #endif
 
   if (m_Width > m_Stride)
@@ -1377,7 +1377,7 @@ Xterm::Window::~Window() {
 
 void Xterm::Window::showCursor(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::showCursor");
+  pedigree_log(LOG_INFO, "Xterm::Window::showCursor");
 #endif
 
   render(rect, m_bCursorFilled ? XTERM_INVERSE : XTERM_BORDER);
@@ -1385,7 +1385,7 @@ void Xterm::Window::showCursor(DirtyRectangle& rect) {
 
 void Xterm::Window::hideCursor(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::hideCursor");
+  pedigree_log(LOG_INFO, "Xterm::Window::hideCursor");
 #endif
 
   render(rect);
@@ -1393,7 +1393,7 @@ void Xterm::Window::hideCursor(DirtyRectangle& rect) {
 
 void Xterm::Window::resize(size_t nWidth, size_t nHeight, bool bActive) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::resize(%zd, %zd)", nWidth, nHeight);
+  pedigree_log(LOG_INFO, "Xterm::Window::resize(%zu, %zu)", nWidth, nHeight);
 #endif
 
   m_pFramebuffer = 0;
@@ -1402,7 +1402,7 @@ void Xterm::Window::resize(size_t nWidth, size_t nHeight, bool bActive) {
   size_t rows = nHeight / m_pParentXterm->m_pNormalFont->getHeight();
 
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, " -> cols %zd, %zd", nWidth, nHeight);
+  pedigree_log(LOG_INFO, " -> cols %zu, %zu", nWidth, nHeight);
 #endif
 
   if (bActive && m_Bg && m_pParentXterm->m_pCairo) {
@@ -1487,7 +1487,7 @@ void Xterm::Window::setScrollRegion(int start, int end) {
     end = m_Height - 1;
 
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::setScrollRegion(%d, %d)", start, end);
+  pedigree_log(LOG_INFO, "Xterm::Window::setScrollRegion(%d, %d)", start, end);
 #endif
 
   m_ScrollStart = start;
@@ -1523,7 +1523,7 @@ uint8_t Xterm::Window::getFlags() {
 
 void Xterm::Window::setMargins(size_t left, size_t right) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::setMargins(%zd, %zd)", left, right);
+  pedigree_log(LOG_INFO, "Xterm::Window::setMargins(%zu, %zu)", left, right);
 #endif
 
   if (left > m_Stride)
@@ -1593,7 +1593,7 @@ Xterm::Window::TermChar Xterm::Window::getChar(size_t x, size_t y) {
 
 void Xterm::Window::cursorDown(size_t n, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorDown(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorDown(%zu)", n);
 #endif
 
   m_CursorY += n;
@@ -1602,7 +1602,7 @@ void Xterm::Window::cursorDown(size_t n, DirtyRectangle& rect) {
 
 void Xterm::Window::cursorUp(size_t n, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorUp(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorUp(%zu)", n);
 #endif
 
   m_CursorY -= n;
@@ -1611,7 +1611,7 @@ void Xterm::Window::cursorUp(size_t n, DirtyRectangle& rect) {
 
 void Xterm::Window::cursorUpWithinMargin(size_t n, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorUpWithinMargin(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorUpWithinMargin(%zu)", n);
 #endif
 
   m_CursorY -= n;
@@ -1621,7 +1621,7 @@ void Xterm::Window::cursorUpWithinMargin(size_t n, DirtyRectangle& rect) {
 
 void Xterm::Window::cursorLeftWithinMargin(size_t n, DirtyRectangle&) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorLeftWithinMargin(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorLeftWithinMargin(%zu)", n);
 #endif
 
   m_CursorX -= n;
@@ -1632,7 +1632,7 @@ void Xterm::Window::cursorLeftWithinMargin(size_t n, DirtyRectangle&) {
 
 void Xterm::Window::cursorRightWithinMargin(size_t n, DirtyRectangle&) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorRightWithinMargin(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorRightWithinMargin(%zu)", n);
 #endif
 
   m_CursorX += n;
@@ -1643,7 +1643,7 @@ void Xterm::Window::cursorRightWithinMargin(size_t n, DirtyRectangle&) {
 
 void Xterm::Window::cursorDownWithinMargin(size_t n, DirtyRectangle&) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorDownWithinMargin(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorDownWithinMargin(%zu)", n);
 #endif
 
   m_CursorY += n;
@@ -1654,7 +1654,7 @@ void Xterm::Window::cursorDownWithinMargin(size_t n, DirtyRectangle&) {
 
 void Xterm::Window::backspace(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::backspace()");
+  pedigree_log(LOG_INFO, "Xterm::Window::backspace()");
 #endif
 
   if (m_CursorX == m_RightMargin)
@@ -1738,7 +1738,7 @@ void Xterm::Window::render(DirtyRectangle& rect, size_t flags, size_t x, size_t 
 
 void Xterm::Window::scrollRegionUp(size_t numRows, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::scrollRegionUp(%zd)", numRows);
+  pedigree_log(LOG_INFO, "Xterm::Window::scrollRegionUp(%zu)", numRows);
 #endif
 
   size_t targetY = m_ScrollStart;
@@ -1811,7 +1811,7 @@ void Xterm::Window::scrollRegionUp(size_t numRows, DirtyRectangle& rect) {
 
 void Xterm::Window::scrollRegionDown(size_t numRows, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::scrollRegionDown(%zd)", numRows);
+  pedigree_log(LOG_INFO, "Xterm::Window::scrollRegionDown(%zu)", numRows);
 #endif
 
   size_t targetY = m_ScrollStart + numRows;
@@ -1884,7 +1884,7 @@ void Xterm::Window::scrollRegionDown(size_t numRows, DirtyRectangle& rect) {
 
 void Xterm::Window::setCursorRelOrigin(size_t x, size_t y, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::setCursorRelOrigin(%zd, %zd)", x, y);
+  pedigree_log(LOG_INFO, "Xterm::Window::setCursorRelOrigin(%zu, %zu)", x, y);
 #endif
 
   x += m_LeftMargin;
@@ -1894,7 +1894,7 @@ void Xterm::Window::setCursorRelOrigin(size_t x, size_t y, DirtyRectangle& rect)
 
 void Xterm::Window::setCursor(size_t x, size_t y, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::setCursor(%zd, %zd)", x, y);
+  pedigree_log(LOG_INFO, "Xterm::Window::setCursor(%zu, %zu)", x, y);
 #endif
 
   m_CursorX = x;
@@ -1903,14 +1903,14 @@ void Xterm::Window::setCursor(size_t x, size_t y, DirtyRectangle& rect) {
 
 void Xterm::Window::setCursorX(size_t x, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::setCursorX(%zd)", x);
+  pedigree_log(LOG_INFO, "Xterm::Window::setCursorX(%zu)", x);
 #endif
 
   setCursor(x, m_CursorY, rect);
 }
 void Xterm::Window::setCursorY(size_t y, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::setCursorY(%zd)", y);
+  pedigree_log(LOG_INFO, "Xterm::Window::setCursorY(%zu)", y);
 #endif
 
   setCursor(m_CursorX, y, rect);
@@ -1939,7 +1939,7 @@ ssize_t Xterm::Window::getCursorYRelOrigin() const {
 
 void Xterm::Window::cursorToOrigin() {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorToOrigin()");
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorToOrigin()");
 #endif
 
   m_CursorX = m_LeftMargin;
@@ -1948,7 +1948,7 @@ void Xterm::Window::cursorToOrigin() {
 
 void Xterm::Window::cursorLeft(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorLeft()");
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorLeft()");
 #endif
 
   if (m_CursorX > m_LeftMargin)
@@ -1957,7 +1957,7 @@ void Xterm::Window::cursorLeft(DirtyRectangle& rect) {
 
 void Xterm::Window::cursorLeftNum(size_t n, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorLeftNum(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorLeftNum(%zu)", n);
 #endif
 
   m_CursorX -= n;
@@ -1968,7 +1968,7 @@ void Xterm::Window::cursorLeftNum(size_t n, DirtyRectangle& rect) {
 
 void Xterm::Window::cursorDownAndLeftToMargin(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorDownAndLeftToMargin()");
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorDownAndLeftToMargin()");
 #endif
 
   cursorDown(1, rect);
@@ -1977,7 +1977,7 @@ void Xterm::Window::cursorDownAndLeftToMargin(DirtyRectangle& rect) {
 
 void Xterm::Window::cursorLeftToMargin(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorLeftToMargin()");
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorLeftToMargin()");
 #endif
 
   m_CursorX = m_LeftMargin;
@@ -1985,7 +1985,7 @@ void Xterm::Window::cursorLeftToMargin(DirtyRectangle& rect) {
 
 void Xterm::Window::cursorTab(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorTab()");
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorTab()");
 #endif
 
   bool tabStopFound = false;
@@ -2005,7 +2005,7 @@ void Xterm::Window::cursorTab(DirtyRectangle& rect) {
 
 void Xterm::Window::cursorTabBack(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::cursorTabBack()");
+  pedigree_log(LOG_INFO, "Xterm::Window::cursorTabBack()");
 #endif
 
   bool tabStopFound = false;
@@ -2025,7 +2025,7 @@ void Xterm::Window::cursorTabBack(DirtyRectangle& rect) {
 
 void Xterm::Window::fillChar(uint32_t utf32, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::fillChar(%c)", (char)utf32);
+  pedigree_log(LOG_INFO, "Xterm::Window::fillChar(%c)", (char)utf32);
 #endif
 
   for (ssize_t y = m_ScrollStart; y < m_ScrollEnd; ++y) {
@@ -2040,7 +2040,8 @@ void Xterm::Window::fillChar(uint32_t utf32, DirtyRectangle& rect) {
 
 void Xterm::Window::addChar(uint32_t utf32, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG_EXTRA
-  klog(LOG_INFO, "Xterm::Window::addChar(%c) [@ %zd, %zd]", (char)utf32, m_CursorX, m_CursorY);
+  pedigree_log(LOG_INFO, "Xterm::Window::addChar(%c) [@ %zd, %zd]", (char)utf32, m_CursorX,
+               m_CursorY);
 #endif
 
   if (utf32 >= ' ') {
@@ -2065,7 +2066,7 @@ void Xterm::Window::addChar(uint32_t utf32, DirtyRectangle& rect) {
 
 void Xterm::Window::scrollUp(size_t n, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::scrollUp(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::scrollUp(%zu)", n);
 #endif
 
   scrollRegionDown(n, rect);
@@ -2073,7 +2074,7 @@ void Xterm::Window::scrollUp(size_t n, DirtyRectangle& rect) {
 
 void Xterm::Window::scrollDown(size_t n, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::scrollDown(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::scrollDown(%zu)", n);
 #endif
 
   scrollRegionUp(n, rect);
@@ -2081,7 +2082,7 @@ void Xterm::Window::scrollDown(size_t n, DirtyRectangle& rect) {
 
 void Xterm::Window::eraseScreen(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::eraseScreen()");
+  pedigree_log(LOG_INFO, "Xterm::Window::eraseScreen()");
 #endif
 
   cairo_save(m_pParentXterm->m_pCairo);
@@ -2122,7 +2123,7 @@ void Xterm::Window::eraseScreen(DirtyRectangle& rect) {
 
 void Xterm::Window::eraseEOL(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::eraseEOL()");
+  pedigree_log(LOG_INFO, "Xterm::Window::eraseEOL()");
 #endif
 
   size_t l = (m_CursorX * m_pParentXterm->m_pNormalFont->getWidth());
@@ -2166,7 +2167,7 @@ void Xterm::Window::eraseEOL(DirtyRectangle& rect) {
 
 void Xterm::Window::eraseSOL(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::eraseSOL()");
+  pedigree_log(LOG_INFO, "Xterm::Window::eraseSOL()");
 #endif
 
   cairo_save(m_pParentXterm->m_pCairo);
@@ -2203,7 +2204,7 @@ void Xterm::Window::eraseSOL(DirtyRectangle& rect) {
 
 void Xterm::Window::eraseLine(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::eraseLine()");
+  pedigree_log(LOG_INFO, "Xterm::Window::eraseLine()");
 #endif
 
   cairo_save(m_pParentXterm->m_pCairo);
@@ -2239,7 +2240,7 @@ void Xterm::Window::eraseLine(DirtyRectangle& rect) {
 
 void Xterm::Window::eraseChars(size_t n, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::eraseChars(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::eraseChars(%zu)", n);
 #endif
 
   // Again, one fillRect should do it.
@@ -2286,7 +2287,7 @@ void Xterm::Window::eraseChars(size_t n, DirtyRectangle& rect) {
 
 void Xterm::Window::eraseUp(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::eraseUp()");
+  pedigree_log(LOG_INFO, "Xterm::Window::eraseUp()");
 #endif
 
   // Erase to the start of the line first. Essentially, we're erasing from the
@@ -2330,7 +2331,7 @@ void Xterm::Window::eraseUp(DirtyRectangle& rect) {
 
 void Xterm::Window::eraseDown(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::eraseDown()");
+  pedigree_log(LOG_INFO, "Xterm::Window::eraseDown()");
 #endif
 
   // Erase to the end of the line first. Essentially, we're erasing from the
@@ -2379,7 +2380,7 @@ void Xterm::Window::eraseDown(DirtyRectangle& rect) {
 
 void Xterm::Window::deleteCharacters(size_t n, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::deleteCharacters(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::deleteCharacters(%zu)", n);
 #endif
 
   // Start of the delete region
@@ -2436,7 +2437,7 @@ void Xterm::Window::deleteCharacters(size_t n, DirtyRectangle& rect) {
 
 void Xterm::Window::insertCharacters(size_t n, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::insertCharacters(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::insertCharacters(%zu)", n);
 #endif
 
   // Start of the insertion region
@@ -2496,7 +2497,7 @@ void Xterm::Window::insertCharacters(size_t n, DirtyRectangle& rect) {
 
 void Xterm::Window::insertLines(size_t n, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::insertLines(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::insertLines(%zu)", n);
 #endif
 
   if (m_CursorY + (ssize_t)n >= m_ScrollEnd)
@@ -2510,7 +2511,7 @@ void Xterm::Window::insertLines(size_t n, DirtyRectangle& rect) {
 
 void Xterm::Window::deleteLines(size_t n, DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::deleteLines(%zd)", n);
+  pedigree_log(LOG_INFO, "Xterm::Window::deleteLines(%zu)", n);
 #endif
 
   if (m_CursorY + (ssize_t)n >= m_ScrollEnd)
@@ -2521,7 +2522,7 @@ void Xterm::Window::deleteLines(size_t n, DirtyRectangle& rect) {
 }
 
 void Xterm::Window::lineRender(uint32_t utf32, DirtyRectangle& rect) {
-  klog(LOG_NOTICE, "line render: %c", utf32);
+  pedigree_log(LOG_NOTICE, "line render: %c", (char)utf32);
 
   size_t left = m_OffsetLeft + (m_LeftMargin * m_pParentXterm->m_pNormalFont->getWidth()) +
                 (m_CursorX * m_pParentXterm->m_pNormalFont->getWidth());
@@ -2802,7 +2803,7 @@ void Xterm::Window::checkScroll(DirtyRectangle& rect) {
 
 void Xterm::Window::invert(DirtyRectangle& rect) {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::invert()");
+  pedigree_log(LOG_INFO, "Xterm::Window::invert()");
 #endif
 
   // Invert the entire screen, if using default colours.
@@ -2823,7 +2824,7 @@ void Xterm::Window::invert(DirtyRectangle& rect) {
 
 void Xterm::Window::setTabStop() {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::setTabStop() [@%zd]", m_CursorX);
+  pedigree_log(LOG_INFO, "Xterm::Window::setTabStop() [@%zd]", m_CursorX);
 #endif
 
   m_pParentXterm->m_TabStops[m_CursorX] = '|';
@@ -2831,7 +2832,7 @@ void Xterm::Window::setTabStop() {
 
 void Xterm::Window::clearTabStop() {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::clearTabStop() [@%zd]", m_CursorX);
+  pedigree_log(LOG_INFO, "Xterm::Window::clearTabStop() [@%zd]", m_CursorX);
 #endif
 
   m_pParentXterm->m_TabStops[m_CursorX] = 0;
@@ -2839,7 +2840,7 @@ void Xterm::Window::clearTabStop() {
 
 void Xterm::Window::clearAllTabStops() {
 #ifdef XTERM_DEBUG
-  klog(LOG_INFO, "Xterm::Window::clearAllTabStops()");
+  pedigree_log(LOG_INFO, "Xterm::Window::clearAllTabStops()");
 #endif
 
   memset(m_pParentXterm->m_TabStops, 0, m_Stride);

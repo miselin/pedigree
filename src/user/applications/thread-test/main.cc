@@ -24,7 +24,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <sys/klog.h>
+#include <pedigree/log.h>
 #include <sys/time.h>
 
 #define LOOPS 1024  // 10000000
@@ -90,7 +90,7 @@ int main() {
 #endif
 
   // syslog used to split up debug logs.
-  klog(LOG_INFO, "TEST 0");
+  pedigree_log(LOG_INFO, "TEST 0");
 
   printf("Locking without any contention...\n");
   pthread_mutex_t contention_mutex;
@@ -100,7 +100,7 @@ int main() {
   pthread_mutex_unlock(&contention_mutex);
   printf("Released!\n");
 
-  klog(LOG_INFO, "TEST 1");
+  pedigree_log(LOG_INFO, "TEST 1");
 
   printf("Creating a recursive lock!\n");
   pthread_mutex_t recursive;
@@ -120,7 +120,7 @@ int main() {
   pthread_mutex_lock(&recursive);
   printf("OK!\n");
 
-  klog(LOG_INFO, "TEST 2");
+  pedigree_log(LOG_INFO, "TEST 2");
   printf("Locking with deadlock\n");
   pthread_mutex_t deadlock_mutex;
   errno = 0;
@@ -140,13 +140,13 @@ int main() {
   // Measuring time before starting the threads...
   gettimeofday(&tv1, NULL);
 
-  klog(LOG_INFO, "TEST 3");
+  pedigree_log(LOG_INFO, "TEST 3");
   pthread_create(&thr1, NULL, consumer, (void*)1);
   pthread_create(&thr2, NULL, consumer, (void*)2);
 
   pthread_join(thr1, NULL);
   pthread_join(thr2, NULL);
-  klog(LOG_INFO, "TEST 4");
+  pedigree_log(LOG_INFO, "TEST 4");
 
   // Measuring time after threads finished...
   gettimeofday(&tv2, NULL);

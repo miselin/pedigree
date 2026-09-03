@@ -22,7 +22,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
-#include <sys/klog.h>
+#include <pedigree/log.h>
 
 using namespace PedigreeIpc;
 
@@ -38,18 +38,19 @@ int main(int argc, char* argv[]) {
     createEndpoint("ipc-test");
     IpcEndpoint* pEndpoint = getEndpoint("ipc-test");
 
-    klog(LOG_NOTICE, "IPC Test: Server started and entering message loop.");
+    pedigree_log(LOG_NOTICE, "IPC Test: Server started and entering message loop.");
 
     while (true) {
       // Wait for an incoming message.
       IpcMessage* pRecv = 0;
       if (!recv(pEndpoint, &pRecv, false)) {
-        klog(LOG_WARNING, "IPC Test: Server failed to receive a message.");
+        pedigree_log(LOG_WARNING, "IPC Test: Server failed to receive a message.");
         continue;
       }
 
       // Log it.
-      klog(LOG_NOTICE, "IPC Test: Server got message '%s'.", pRecv->getBuffer());
+      pedigree_log(LOG_NOTICE, "IPC Test: Server got message '%s'.",
+                   static_cast<const char*>(pRecv->getBuffer()));
       delete pRecv;
 
       // Send a response.
@@ -57,15 +58,16 @@ int main(int argc, char* argv[]) {
       pResponse->initialise();
       char* pBuffer = reinterpret_cast<char*>(pResponse->getBuffer());
       if (!pBuffer) {
-        klog(LOG_WARNING, "IPC Test: Server message creation failed.");
+        pedigree_log(LOG_WARNING, "IPC Test: Server message creation failed.");
         continue;
       } else
-        klog(LOG_NOTICE, "IPC Test: Server is writing into message %x", pBuffer);
+        pedigree_log(LOG_NOTICE, "IPC Test: Server is writing into message %p",
+                     static_cast<void*>(pBuffer));
 
       sprintf(pBuffer, "Server received message successfully!\n");
 
       if (!send(pEndpoint, pResponse, false))
-        klog(LOG_WARNING, "IPC Test: Server failed to send a response.");
+        pedigree_log(LOG_WARNING, "IPC Test: Server failed to send a response.");
 
       // Clean up.
       delete pResponse;

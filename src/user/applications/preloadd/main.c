@@ -27,7 +27,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <sys/klog.h>
+#include <pedigree/log.h>
 #include <sys/stat.h>
 
 const char* g_FilesToPreload[] = {
@@ -58,11 +58,11 @@ const char* g_FilesToPreload[] = {
 int main(int argc, char** argv) {
   pid_t f = fork();
   if (f != 0) {
-    klog(LOG_INFO, "preloadd: forked, daemon is pid %d...", f);
+    pedigree_log(LOG_INFO, "preloadd: forked, daemon is pid %d...", f);
     return 0;
   }
 
-  klog(LOG_INFO, "preloadd: daemon starting...");
+  pedigree_log(LOG_INFO, "preloadd: daemon starting...");
 
   size_t n = 0;
   const char* s = g_FilesToPreload[n++];
@@ -71,14 +71,14 @@ int main(int argc, char** argv) {
     struct stat st;
     int e = stat(s, &st);
     if (e == 0) {
-      klog(LOG_INFO, "preloadd: preloading %s...", s);
+      pedigree_log(LOG_INFO, "preloadd: preloading %s...", s);
       FILE* fp = fopen(s, "rb");
       for (off_t off = 0; off < st.st_size; off += BLOCK_READ_SIZE)
         fread(buf, BLOCK_READ_SIZE, 1, fp);
       fclose(fp);
-      klog(LOG_INFO, "preloadd: preloading %s complete!", s);
+      pedigree_log(LOG_INFO, "preloadd: preloading %s complete!", s);
     } else {
-      klog(LOG_INFO, "preloadd: %s probably does not exist", s);
+      pedigree_log(LOG_INFO, "preloadd: %s probably does not exist", s);
     }
     s = g_FilesToPreload[n++];
   } while (s);

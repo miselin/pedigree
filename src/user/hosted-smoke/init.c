@@ -7,14 +7,14 @@
 
 #include <errno.h>
 
-#include <sys/klog.h>
+#include <pedigree/log.h>
 #include <sys/reboot.h>
 
 int main(void) {
-  klog(LOG_INFO, "HOSTED-SMOKE: init launched");
+  pedigree_log(LOG_INFO, "HOSTED-SMOKE: init launched");
 
   if (reboot(0) != 0) {
-    klog(LOG_ERR, "HOSTED-SMOKE: shutdown request failed: %d", errno);
+    pedigree_log(LOG_ERR, "HOSTED-SMOKE: shutdown request failed: %d", errno);
     return 1;
   }
 

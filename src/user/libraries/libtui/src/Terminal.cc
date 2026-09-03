@@ -32,8 +32,8 @@
 
 #include "environment.h"
 #include <cairo/cairo.h>
+#include <pedigree/log.h>
 #include <sys/ioctl.h>
-#include <sys/klog.h>
 #include <sys/wait.h>
 
 extern PedigreeGraphics::Framebuffer* g_pFramebuffer;
@@ -88,7 +88,7 @@ Terminal::Terminal(char* pName, size_t nWidth, size_t nHeight, size_t offsetLeft
 bool Terminal::initialise() {
   m_MasterPty = posix_openpt(O_RDWR | O_NOCTTY);
   if (m_MasterPty < 0) {
-    klog(LOG_INFO, "TUI: Couldn't create terminal: %s", strerror(errno));
+    pedigree_log(LOG_INFO, "TUI: Couldn't create terminal: %s", strerror(errno));
     return false;
   }
 
@@ -109,7 +109,7 @@ bool Terminal::initialise() {
   // Fire up a shell session.
   int pid = m_Pid = fork();
   if (pid == -1) {
-    klog(LOG_INFO, "TUI: Couldn't fork: %s", strerror(errno));
+    pedigree_log(LOG_INFO, "TUI: Couldn't fork: %s", strerror(errno));
     DirtyRectangle rect;
     write("Couldn't fork: ", rect);
     write(strerror(errno), rect);
@@ -131,12 +131,12 @@ bool Terminal::initialise() {
     open(slavename, O_WRONLY);
 
     if (n < 0) {
-      klog(LOG_INFO, "opening %s failed", slavename);
-      klog(LOG_INFO, "opening stdin failed %d %s", errno, strerror(errno));
+      pedigree_log(LOG_INFO, "opening %s failed", slavename);
+      pedigree_log(LOG_INFO, "opening stdin failed %d %s", errno, strerror(errno));
     }
 
     // Mark opened slave as our ctty.
-    klog(LOG_INFO, "Trying to set CTTY");
+    pedigree_log(LOG_INFO, "Trying to set CTTY");
     ioctl(1, TIOCSCTTY, 0);
 
     // Set ourselves as the terminal's foreground process group.
@@ -154,7 +154,7 @@ bool Terminal::initialise() {
       prog = getenv("SHELL");
       if (!prog) {
         // Fall back to bash
-        klog(LOG_WARNING, "$SHELL unset, falling back to /bin/bash");
+        pedigree_log(LOG_WARNING, "$SHELL unset, falling back to /bin/bash");
         prog = "/bin/bash";
       }
     }
@@ -178,8 +178,8 @@ bool Terminal::initialise() {
 
     // Launch the shell now.
     execl(prog, prog, NULL);
-    klog(LOG_ALERT, "Launching shell failed (next line is the error in errno...)");
-    klog(LOG_ALERT, "error: %s", strerror(errno));
+    pedigree_log(LOG_ALERT, "Launching shell failed (next line is the error in errno...)");
+    pedigree_log(LOG_ALERT, "error: %s", strerror(errno));
 
     DirtyRectangle rect;
     write("Couldn't load shell for this terminal... ", rect);
@@ -256,7 +256,7 @@ void Terminal::write(const char* pStr, DirtyRectangle& rect) {
 
   bool bWasAlreadyRunning = m_WriteInProgress;
   m_WriteInProgress = true;
-  // klog(LOG_NOTICE, "Beginning write...");
+  // pedigree_log(LOG_NOTICE, "Beginning write...");
   while (!m_Cancel && (*pStr || m_WriteBufferLen)) {
     // Fill the buffer.
     while (*pStr && !m_Cancel) {
@@ -313,7 +313,7 @@ void Terminal::write(const char* pStr, DirtyRectangle& rect) {
     m_pXterm->write(static_cast<uint8_t>(utf32 & 0xFF));
 #endif
   }
-  // klog(LOG_NOTICE, "Completed write [%scancelled]...", m_Cancel ? "" : "not
+  // pedigree_log(LOG_NOTICE, "Completed write [%scancelled]...", m_Cancel ? "" : "not
   // ");
 
   if (!bWasAlreadyRunning) {
@@ -345,7 +345,7 @@ void Terminal::addToQueue(char c, bool bFlush) {
         memmove(m_pQueue, &m_pQueue[result], missing);
       m_Len = missing;
     } else {
-      klog(LOG_ALERT, "Terminal::addToQueue flush failed");
+      pedigree_log(LOG_ALERT, "Terminal::addToQueue flush failed");
     }
   }
 }

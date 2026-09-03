@@ -17,20 +17,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _KLOG_H
-#define _KLOG_H
+#include "pedigree/kernel/compiler.h"
 
-#include <syslog.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <stdio.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "modules/subsys/posix/syscalls/posix-syscall.h"
+#include "modules/subsys/posix/syscalls/posixSyscallNumbers.h"
+#include <pedigree/log.h>
 
-// Write a message to the Pedigree kernel log.
-int klog (int prio, const char *fmt, ...);
+EXPORTED_PUBLIC int pedigree_log(int priority, const char* format, ...) {
+  char message[1024];
+  va_list arguments;
+  va_start(arguments, format);
+  int result = vsnprintf(message, sizeof(message), format, arguments);
+  va_end(arguments);
 
-#ifdef __cplusplus
+  if (result < 0) {
+    return result;
+  }
+
+  return (int)syscall2(POSIX_SYSLOG, (long)message, priority);
 }
-#endif
-
-#endif

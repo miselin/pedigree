@@ -33,7 +33,7 @@
 #include <utmp.h>
 #include <utmpx.h>
 
-#include <sys/klog.h>
+#include <pedigree/log.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -52,19 +52,19 @@ static pid_t start(const char* proc) {
   pid_t f = fork();
   if (f == -1) {
     int fork_errno = errno;
-    klog(LOG_ALERT, "init: fork failed for %s: errno=%d (%s)", proc, fork_errno,
-         strerror(fork_errno));
+    pedigree_log(LOG_ALERT, "init: fork failed for %s: errno=%d (%s)", proc, fork_errno,
+                 strerror(fork_errno));
     exit(fork_errno);
   }
   if (f == 0) {
-    klog(LOG_INFO, "init: starting %s...", proc);
+    pedigree_log(LOG_INFO, "init: starting %s...", proc);
     execl(proc, proc, 0);
     int exec_errno = errno;
-    klog(LOG_ALERT, "init: loading %s failed: errno=%d (%s)", proc, exec_errno,
-         strerror(exec_errno));
+    pedigree_log(LOG_ALERT, "init: loading %s failed: errno=%d (%s)", proc, exec_errno,
+                 strerror(exec_errno));
     exit(exec_errno);
   }
-  klog(LOG_INFO, "init: fork succeeded for %s: child=%d", proc, f);
+  pedigree_log(LOG_INFO, "init: fork succeeded for %s: child=%d", proc, f);
 
   // Avoid calling basename() on the given parameter, as basename is
   // non-const.
@@ -97,9 +97,9 @@ static void runScripts() {
 
   int count = scandir("/etc/init.d", &namelist, 0, alphasort);
   if (count < 0) {
-    klog(LOG_CRIT, "could not scan /etc/init.d: %s", strerror(errno));
+    pedigree_log(LOG_CRIT, "could not scan /etc/init.d: %s", strerror(errno));
   } else {
-    klog(LOG_INFO, "init: %d init script entries found", count);
+    pedigree_log(LOG_INFO, "init: %d init script entries found", count);
     for (int i = 0; i < count; ++i) {
       char script[PATH_MAX];
       snprintf(script, PATH_MAX, "/etc/init.d/%s", namelist[i]->d_name);
@@ -116,13 +116,13 @@ static void runScripts() {
       if (r == 0) {
         if (S_ISREG(st.st_mode) && (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))) {
           // OK - we can run this.
-          klog(LOG_INFO, "init: running %s", script);
+          pedigree_log(LOG_INFO, "init: running %s", script);
           startAndWait(script);
         } else {
-          klog(LOG_INFO, "init: not running %s (not a file, or not executable)", script);
+          pedigree_log(LOG_INFO, "init: not running %s (not a file, or not executable)", script);
         }
       } else {
-        klog(LOG_INFO, "init: cannot stat %s (broken symlink?)", script);
+        pedigree_log(LOG_INFO, "init: cannot stat %s (broken symlink?)", script);
       }
     }
 
@@ -131,7 +131,7 @@ static void runScripts() {
 }
 
 int main(int argc, char** argv) {
-  klog(LOG_INFO, "init: starting...");
+  pedigree_log(LOG_INFO, "init: starting...");
 
   // Make sure we have a utmp file.
   int fd = open(UTMP_FILE, O_CREAT | O_RDWR, 0664);
@@ -162,25 +162,25 @@ int main(int argc, char** argv) {
 
   if (HOSTED) {
     // Reboot the system instead of starting up.
-    klog(LOG_INFO, "init: hosted build, triggering a reboot");
+    pedigree_log(LOG_INFO, "init: hosted build, triggering a reboot");
     pedigree_reboot();
   } else {
     runScripts();
   }
 
   // Done, enter PID reaping loop.
-  klog(LOG_INFO, "init: complete!");
+  pedigree_log(LOG_INFO, "init: complete!");
   while (1) {
     /// \todo Do we want to eventually recognise that we have no more
     ///       children, and terminate/shutdown/restart?
     int status = 0;
     pid_t changer = waitpid(-1, &status, g_Running == 0 ? WNOHANG : 0);
     if (changer > 0) {
-      klog(LOG_INFO, "init: child %d exited with status %d", changer, WEXITSTATUS(status));
+      pedigree_log(LOG_INFO, "init: child %d exited with status %d", changer, WEXITSTATUS(status));
     } else if (!g_Running) {
-      klog(LOG_INFO,
-           "init: no more children and have been asked to "
-           "terminate, terminating...");
+      pedigree_log(LOG_INFO,
+                   "init: no more children and have been asked to "
+                   "terminate, terminating...");
       break;
     } else {
       continue;

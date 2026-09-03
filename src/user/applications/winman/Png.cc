@@ -21,26 +21,26 @@
 
 #include <unistd.h>
 
-#include <sys/klog.h>
+#include <pedigree/log.h>
 
 Png::Png(const char* filename)
     : m_PngPtr(0), m_InfoPtr(0), m_nWidth(0), m_nHeight(0), m_pRowPointers(0), m_pBitmap(0) {
   // Open the file.
   FILE* stream = fopen(filename, "rb");
   if (!stream) {
-    klog(LOG_ALERT, "PNG file failed to open");
+    pedigree_log(LOG_ALERT, "PNG file failed to open");
     return;
   }
 
   // Read in some of the signature bytes.
   char buf[4];
   if (fread(buf, 1, 4, stream) != 4) {
-    klog(LOG_ALERT, "PNG file failed to read ident");
+    pedigree_log(LOG_ALERT, "PNG file failed to read ident");
     fclose(stream);
     return;
   }
   if (png_sig_cmp(reinterpret_cast<png_byte*>(buf), 0, 4) != 0) {
-    klog(LOG_ALERT, "PNG file failed IDENT check");
+    pedigree_log(LOG_ALERT, "PNG file failed IDENT check");
     fclose(stream);
     return;
   }
@@ -48,14 +48,14 @@ Png::Png(const char* filename)
   m_PngPtr = png_create_read_struct(PNG_LIBPNG_VER_STRING, 0, 0, 0);
 
   if (m_PngPtr == 0) {
-    klog(LOG_ALERT, "PNG file failed to initialise");
+    pedigree_log(LOG_ALERT, "PNG file failed to initialise");
     fclose(stream);
     return;
   }
 
   m_InfoPtr = png_create_info_struct(m_PngPtr);
   if (m_InfoPtr == 0) {
-    klog(LOG_ALERT, "PNG info failed to initialise");
+    pedigree_log(LOG_ALERT, "PNG info failed to initialise");
     png_destroy_read_struct(&m_PngPtr, NULL, NULL);
     fclose(stream);
     return;
@@ -85,14 +85,14 @@ Png::Png(const char* filename)
   m_nHeight = h;
 
   if (bit_depth != 8) {
-    klog(LOG_ALERT, "PNG - invalid bit depth");
+    pedigree_log(LOG_ALERT, "PNG - invalid bit depth");
     m_nWidth = m_nHeight = 0;
     m_pRowPointers = 0;
     png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, NULL);
     return;
   }
   if (color_type != PNG_COLOR_TYPE_RGB) {
-    klog(LOG_ALERT, "PNG - invalid colour type: %d", color_type);
+    pedigree_log(LOG_ALERT, "PNG - invalid colour type: %d", color_type);
     m_nWidth = m_nHeight = 0;
     m_pRowPointers = 0;
     png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, NULL);
@@ -101,7 +101,7 @@ Png::Png(const char* filename)
 
   m_pBitmap = (uint32_t*)malloc(sizeof(uint32_t) * w * h);
   if (!m_pBitmap) {
-    klog(LOG_ALERT, "PNG bitmap allocation failed");
+    pedigree_log(LOG_ALERT, "PNG bitmap allocation failed");
     m_nWidth = m_nHeight = 0;
     m_pRowPointers = 0;
     png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, NULL);
@@ -119,7 +119,7 @@ Png::Png(const char* filename)
   png_destroy_read_struct(&m_PngPtr, &m_InfoPtr, NULL);
   m_pRowPointers = 0;
 
-  klog(LOG_INFO, "PNG loaded %zd %zd", m_nWidth, m_nHeight);
+  pedigree_log(LOG_INFO, "PNG loaded %zu %zu", m_nWidth, m_nHeight);
 }
 
 Png::~Png() {

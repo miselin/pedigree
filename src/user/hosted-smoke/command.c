@@ -5,6 +5,8 @@
  * purpose with or without fee is hereby granted.
  */
 
+#define _GNU_SOURCE
+
 #include <errno.h>
 #include <pthread.h>
 #include <sched.h>
@@ -14,7 +16,7 @@
 #include <unistd.h>
 
 #include <arpa/inet.h>
-#include <sys/klog.h>
+#include <pedigree/log.h>
 #include <sys/reboot.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
@@ -109,7 +111,7 @@ static int run_compute_preemption_test(void) {
     pthread_join(threads[0], 0);
     return 2;
   }
-  klog(LOG_INFO, "HOSTED-SMOKE: PASS pthread-clone-state-switch");
+  pedigree_log(LOG_INFO, "HOSTED-SMOKE: PASS pthread-clone-state-switch");
 
   const uint64_t started = monotonic_nanoseconds();
   const int sleep_result = usleep(compute_probe_sleep_us);
@@ -125,13 +127,13 @@ static int run_compute_preemption_test(void) {
                              __atomic_load_n(&probe.counters[0], __ATOMIC_ACQUIRE) &&
                              __atomic_load_n(&probe.counters[1], __ATOMIC_ACQUIRE);
   if (child_contract) {
-    klog(LOG_INFO, "HOSTED-SMOKE: PASS pthread-child-tls-args-syscall");
+    pedigree_log(LOG_INFO, "HOSTED-SMOKE: PASS pthread-child-tls-args-syscall");
   }
 
   const int first_join = pthread_join(threads[0], 0);
   const int second_join = pthread_join(threads[1], 0);
   if (!first_join && !second_join) {
-    klog(LOG_INFO, "HOSTED-SMOKE: PASS pthread-clear-tid-join");
+    pedigree_log(LOG_INFO, "HOSTED-SMOKE: PASS pthread-clear-tid-join");
   }
   if (sleep_result || first_join || second_join || !child_contract ||
       __atomic_load_n(&probe.fallback, __ATOMIC_ACQUIRE) ||
@@ -355,38 +357,39 @@ static int run_loopback_test(void) {
 int main(int argc, char** argv) {
   const char* stage = argc > 1 ? argv[1] : "shutdown";
 
-  klog(LOG_INFO, "HOSTED-SMOKE: simple userspace command ran");
+  pedigree_log(LOG_INFO, "HOSTED-SMOKE: simple userspace command ran");
   if (!strcmp(stage, "command")) {
     const int preemption_result = run_compute_preemption_test();
     if (preemption_result) {
-      klog(LOG_ERR, "HOSTED-SMOKE: FAIL userspace-compute-preemption: %d", preemption_result);
+      pedigree_log(LOG_ERR, "HOSTED-SMOKE: FAIL userspace-compute-preemption: %d",
+                   preemption_result);
     } else {
-      klog(LOG_INFO, "HOSTED-SMOKE: PASS userspace-compute-preemption");
+      pedigree_log(LOG_INFO, "HOSTED-SMOKE: PASS userspace-compute-preemption");
     }
 
     const int detached_result = run_detached_clear_tid_test();
     if (detached_result) {
-      klog(LOG_ERR, "HOSTED-SMOKE: FAIL pthread-clear-tid-detached: %d", detached_result);
+      pedigree_log(LOG_ERR, "HOSTED-SMOKE: FAIL pthread-clear-tid-detached: %d", detached_result);
     } else {
-      klog(LOG_INFO, "HOSTED-SMOKE: PASS pthread-clear-tid-detached");
+      pedigree_log(LOG_INFO, "HOSTED-SMOKE: PASS pthread-clear-tid-detached");
     }
 
     const int loopback_result = run_loopback_test();
     if (loopback_result) {
-      klog(LOG_ERR,
-           "HOSTED-SMOKE: FAIL posix-lwip-loopback-roundtrip: %d "
-           "(errno %d)",
-           loopback_result, errno);
+      pedigree_log(LOG_ERR,
+                   "HOSTED-SMOKE: FAIL posix-lwip-loopback-roundtrip: %d "
+                   "(errno %d)",
+                   loopback_result, errno);
     } else {
-      klog(LOG_INFO, "HOSTED-SMOKE: PASS posix-lwip-loopback-roundtrip");
+      pedigree_log(LOG_INFO, "HOSTED-SMOKE: PASS posix-lwip-loopback-roundtrip");
     }
   }
   if (!strcmp(stage, "shutdown")) {
-    klog(LOG_INFO, "HOSTED-SMOKE: requesting clean shutdown");
+    pedigree_log(LOG_INFO, "HOSTED-SMOKE: requesting clean shutdown");
   }
 
   if (reboot(0) != 0) {
-    klog(LOG_ERR, "HOSTED-SMOKE: shutdown request failed: %d", errno);
+    pedigree_log(LOG_ERR, "HOSTED-SMOKE: shutdown request failed: %d", errno);
     return 1;
   }
 
