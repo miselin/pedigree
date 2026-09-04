@@ -523,6 +523,10 @@ void orphanPublicationHook(Process* process, Process::OrphanPublicationPhase pha
   if (phase == Process::OrphanPublicationPhase::Preparing) {
     context->preparingCalls += 1;
     context->ownerInPublication = 1;
+    if (process->getState() != Process::Terminated ||
+        process->isTerminationReapableForHostedTest()) {
+      context->hookFailures += 1;
+    }
     Process::ReaperClaim duplicate = process->tryClaimReaper();
     if (duplicate) {
       context->hookFailures += 1;
@@ -619,7 +623,7 @@ bool orphanPublicationInterleaving(Process* kernelProcess) {
                       context->cleanupCalls == 1 && context->duplicateClaimsRejected == 1,
                   "orphan destruction was not exactly once and post-reapable");
   passed &= check(context->hookFailures == 0,
-                  "orphan publication retained its Process lock or disabled interrupts");
+                  "orphan publication violated its status, stack, lock, or interrupt ordering");
   delete context;
 
   if (passed) {

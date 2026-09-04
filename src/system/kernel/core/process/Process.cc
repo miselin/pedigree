@@ -1297,11 +1297,11 @@ bool Process::quiesceTermination() {
   }
 }
 
-void Process::finishTermination() {
-  finishTermination(false);
+void Process::finishTermination(bool notifyParent) {
+  finishTermination(false, notifyParent);
 }
 
-void Process::finishTermination(bool abandonStack) {
+void Process::finishTermination(bool abandonStack, bool notifyParent) {
   Thread* pCurrentThread = Processor::information().getCurrentThread();
   {
     LockGuard<Spinlock> guard(m_Lock);
@@ -1317,6 +1317,10 @@ void Process::finishTermination(bool abandonStack) {
   // Derived cleanup may acquire blocking locks without coupling them to the
   // Process lock.
   processTerminated();
+
+  // Wait status must be visible before an ordinary parent notification can
+  // dispatch a handler which immediately calls waitpid(WNOHANG).
+  publishTerminationStatus(notifyParent);
 
   // Add to the zombie queue if the process is an orphan.
   if (!getParent()) {
@@ -1395,7 +1399,7 @@ void Process::kill() {
   if (!quiesceTermination()) {
     FATAL("Process::kill failed to claim teardown for pid " << Dec << m_Id << ".");
   }
-  finishTermination(true);
+  finishTermination(true, false);
 }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -1662,7 +1666,61 @@ bool Process::terminatingThreadReapable(Thread* pThread, bool& wakeOwner) {
   return false;
 }
 
-void Process::publishTermination() {
+void Process::publishTerminationStatus(bool notifyParent) {
+  bool published = false;
+  while (!published) {
+    Process* pParent = getParent();
+    if (pParent) {
+      Scheduler::ProcessLease parent;
+      if (!Scheduler::instance().acquireProcess(parent, pParent)) {
+        if (getParent() != pParent) {
+          continue;
+        }
+        FATAL(
+            "Process::publishTerminationStatus retained an unpinned "
+            "parent.");
+      }
+
+      // Pin the notification target before taking the child-state guard. Event
+      // allocation and delivery happen after that guard is dropped.
+      Process::ThreadLease parentThread;
+      const bool parentThreadAcquired =
+          notifyParent && parent->acquireThread(parentThread, static_cast<size_t>(0));
+      bool parentAcceptsSignal = false;
+      {
+        auto guard = parent->m_ChildStateWaiters.acquire();
+        if (getParent() != pParent) {
+          continue;
+        }
+
+        const ProcessState parentState = parent->getState();
+        parentAcceptsSignal = parentState == Active || parentState == Suspended;
+        {
+          auto suspensionGuard = m_SuspensionWaiters.acquire();
+          m_PendingChildTransition = ChildTransition();
+          if (!transitionState(Terminating, Terminated)) {
+            FATAL("Process state was not Terminating while publishing pid " << Dec << m_Id << ".");
+          }
+        }
+        guard.wakeAll();
+        published = true;
+      }
+
+      if (parentThreadAcquired && parentAcceptsSignal && parent->getSubsystem()) {
+        parent->getSubsystem()->threadException(parentThread.get(), Subsystem::Child);
+      }
+    } else {
+      auto suspensionGuard = m_SuspensionWaiters.acquire();
+      m_PendingChildTransition = ChildTransition();
+      if (!transitionState(Terminating, Terminated)) {
+        FATAL("Process state was not Terminating while publishing pid " << Dec << m_Id << ".");
+      }
+      published = true;
+    }
+  }
+}
+
+void Process::publishTerminationReapable() {
   {
     RecursingLockGuard<Spinlock> processGuard(m_Lock);
     if (m_nTerminationParticipants) {
@@ -1678,40 +1736,10 @@ void Process::publishTermination() {
                                                           << m_Id << " switched off-stack.");
       }
     }
-  }
-
-  bool published = false;
-  while (!published) {
-    Process* pParent = getParent();
-    if (pParent) {
-      Scheduler::ProcessLease parent;
-      if (!Scheduler::instance().acquireProcess(parent, pParent)) {
-        if (getParent() != pParent) {
-          continue;
-        }
-        FATAL(
-            "Process::publishTermination retained an unpinned "
-            "parent.");
-      }
-      auto guard = parent->m_ChildStateWaiters.acquire();
-      if (getParent() != pParent) {
-        continue;
-      }
-
-      auto suspensionGuard = m_SuspensionWaiters.acquire();
-      m_PendingChildTransition = ChildTransition();
-      if (!transitionState(Terminating, Terminated)) {
-        FATAL("Process state was not Terminating while publishing pid " << Dec << m_Id << ".");
-      }
-      guard.wakeAll();
-      published = true;
-    } else {
-      auto suspensionGuard = m_SuspensionWaiters.acquire();
-      m_PendingChildTransition = ChildTransition();
-      if (!transitionState(Terminating, Terminated)) {
-        FATAL("Process state was not Terminating while publishing pid " << Dec << m_Id << ".");
-      }
-      published = true;
+    const ProcessState state = getState();
+    if (state != Terminated && state != Reaped) {
+      FATAL("Process off-stack completion observed unpublished wait status for pid " << Dec << m_Id
+                                                                                     << ".");
     }
   }
 

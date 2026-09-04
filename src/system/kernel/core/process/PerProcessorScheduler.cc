@@ -1095,7 +1095,7 @@ void PerProcessorScheduler::deleteThread(Thread* pThread) {
 
   // This is the final Process access: publication can wake a reaper that
   // destroys both the Process and its retained, reapable Thread objects.
-  pProcess->publishTermination();
+  pProcess->publishTerminationReapable();
 }
 
 void PerProcessorScheduler::removeThread(Thread* pThread) {

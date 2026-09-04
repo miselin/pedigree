@@ -24,6 +24,11 @@ extern void fail(void) __attribute__((noreturn));
 static volatile sig_atomic_t signalHandled = 0;
 static int signalReportFd = -1;
 static const char* execSignalProgram = 0;
+static volatile sig_atomic_t sigchldExpectedChild = -1;
+static volatile sig_atomic_t sigchldHandlerCalls = 0;
+static volatile sig_atomic_t sigchldHandlerSignal = 0;
+static volatile sig_atomic_t sigchldWaitResult = -1;
+static volatile sig_atomic_t sigchldWaitStatus = 0;
 
 static void handleSignal(int signalNumber) {
   if (signalNumber == SIGUSR1) {
@@ -42,6 +47,19 @@ static void handleExecSignal(int signalNumber) {
   char* const arguments[] = {(char*)execSignalProgram, (char*)"--exec-signal-child", 0};
   execv(execSignalProgram, arguments);
   _exit(124);
+}
+
+static void handleSigchld(int signalNumber) {
+  int savedErrno = errno;
+  if (!sigchldHandlerCalls) {
+    int statusCode = 0;
+    sigchldHandlerSignal = signalNumber;
+    pid_t expectedChild = (pid_t)sigchldExpectedChild;
+    sigchldWaitResult = expectedChild > 0 ? waitpid(expectedChild, &statusCode, WNOHANG) : -1;
+    sigchldWaitStatus = statusCode;
+  }
+  ++sigchldHandlerCalls;
+  errno = savedErrno;
 }
 
 static void status(const char* message) {
@@ -135,6 +153,116 @@ static void test_default_signal_termination(void) {
       WTERMSIG(statusCode) != SIGUSR1)
     fail();
 
+  status("OK");
+}
+
+static void test_sigchld_wait_status(void) {
+  status("Testing SIGCHLD wait status publication...");
+
+  sigset_t sigchldSet;
+  sigset_t originalMask;
+  if (sigemptyset(&sigchldSet) || sigaddset(&sigchldSet, SIGCHLD) ||
+      sigprocmask(SIG_BLOCK, &sigchldSet, &originalMask))
+    fail();
+
+  struct sigaction action = {0};
+  struct sigaction previousAction = {0};
+  action.sa_handler = handleSigchld;
+  if (sigemptyset(&action.sa_mask) || sigaction(SIGCHLD, &action, &previousAction)) {
+    sigprocmask(SIG_SETMASK, &originalMask, 0);
+    fail();
+  }
+
+  int gate[2];
+  if (pipe(gate)) {
+    sigaction(SIGCHLD, &previousAction, 0);
+    sigprocmask(SIG_SETMASK, &originalMask, 0);
+    fail();
+  }
+
+  sigchldExpectedChild = -1;
+  sigchldHandlerCalls = 0;
+  sigchldHandlerSignal = 0;
+  sigchldWaitResult = -1;
+  sigchldWaitStatus = 0;
+
+  pid_t child = fork();
+  if (!child) {
+    close(gate[1]);
+    char token = 0;
+    ssize_t received;
+    do {
+      received = read(gate[0], &token, sizeof(token));
+    } while (received < 0 && errno == EINTR);
+    close(gate[0]);
+    _exit(received == sizeof(token) && token == 'x' ? 37 : 125);
+  }
+
+  int failed = child < 0;
+  close(gate[0]);
+  sigchldExpectedChild = child;
+
+  sigset_t deliveryMask = originalMask;
+  if (sigdelset(&deliveryMask, SIGCHLD) || sigprocmask(SIG_SETMASK, &deliveryMask, 0))
+    failed = 1;
+
+  if (child > 0) {
+    const char token = 'x';
+    ssize_t written;
+    do {
+      written = write(gate[1], &token, sizeof(token));
+    } while (written < 0 && errno == EINTR);
+    if (written != sizeof(token))
+      failed = 1;
+  }
+  close(gate[1]);
+
+  if (child > 0) {
+    for (size_t attempt = 0; attempt < 1000 && !sigchldHandlerCalls; ++attempt)
+      sched_yield();
+  }
+
+  if (sigprocmask(SIG_BLOCK, &sigchldSet, 0))
+    failed = 1;
+
+  int handlerStatus = (int)sigchldWaitStatus;
+  if (child <= 0 || sigchldHandlerCalls != 1 || sigchldHandlerSignal != SIGCHLD ||
+      (pid_t)sigchldWaitResult != child || !WIFEXITED(handlerStatus) ||
+      WEXITSTATUS(handlerStatus) != 37) {
+    failed = 1;
+    if (child > 0 && (pid_t)sigchldWaitResult != child) {
+      int rescueStatus = 0;
+      pid_t rescued = 0;
+      for (size_t attempt = 0; attempt < 1000 && !rescued; ++attempt) {
+        errno = 0;
+        rescued = waitpid(child, &rescueStatus, WNOHANG);
+        if (rescued < 0 && errno == EINTR)
+          rescued = 0;
+        if (!rescued)
+          sched_yield();
+      }
+      if (!rescued) {
+        do {
+          rescued = waitpid(child, &rescueStatus, 0);
+        } while (rescued < 0 && errno == EINTR);
+      }
+      if (rescued != child && (rescued >= 0 || errno != ECHILD))
+        failed = 1;
+    }
+  }
+
+  struct sigaction ignoredAction = {0};
+  ignoredAction.sa_handler = SIG_IGN;
+  if (sigemptyset(&ignoredAction.sa_mask) || sigaction(SIGCHLD, &ignoredAction, 0))
+    failed = 1;
+  sigchldExpectedChild = -1;
+  if (sigaction(SIGCHLD, &previousAction, 0))
+    failed = 1;
+  if (sigprocmask(SIG_SETMASK, &originalMask, 0))
+    failed = 1;
+
+  if (failed)
+    fail();
   status("OK");
 }
 
@@ -516,6 +644,7 @@ void test_process(const char* program) {
   test_vfork();
   test_signal_return();
   test_default_signal_termination();
+  test_sigchld_wait_status();
   test_exec_signal_state(program);
   test_exec_failure_boundary();
   test_wait_stop_continue();

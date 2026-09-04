@@ -640,50 +640,13 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
     p->leaveProcessGroup();
   }
 
-  // Pin both objects before dropping the parent/child guard. Notification can
-  // allocate an Event, so it must not run while that spinlock is held.
-  while (true) {
-    Process* expectedParent = pProcess->getParent();
-    if (!expectedParent) {
-      break;
-    }
-
-    Scheduler::ProcessLease parentLease;
-    if (!Scheduler::instance().acquireProcess(parentLease, expectedParent)) {
-      if (pProcess->getParent() != expectedParent) {
-        continue;
-      }
-      break;
-    }
-
-    Process::ThreadLease parentThread;
-    const bool parentThreadAcquired =
-        parentLease->acquireThread(parentThread, static_cast<size_t>(0));
-    bool relationshipValid = false;
-    bool parentAcceptsSignal = false;
-    {
-      auto childGuard = parentLease->acquireChildStateWait();
-      relationshipValid = pProcess->getParent() == parentLease.get();
-      const Process::ProcessState parentState = parentLease->getState();
-      parentAcceptsSignal = parentState == Process::Active || parentState == Process::Suspended;
-    }
-
-    if (!relationshipValid) {
-      continue;
-    }
-    if (parentThreadAcquired && parentAcceptsSignal && parentLease->getSubsystem()) {
-      parentLease->getSubsystem()->threadException(parentThread.get(), Child);
-    }
-    break;
-  }
-
   // Clean up the descriptor table
   freeMultipleFds();
 
   // Tell some interesting info
   NOTICE("at exit for pid " << Dec << pProcess->getId() << "...");
 
-  pProcess->finishTermination();
+  pProcess->finishTermination(true);
 
   // Should NEVER get here.
   FATAL("PosixSubsystem::exit() running after Process teardown!");

@@ -10,14 +10,17 @@
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/utilities/ZombieQueue.h"
 
 #include <signal.h>
 
 #include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/signal-syscalls.h"
+#include "modules/subsys/posix/system-syscalls.h"
 #include <sys/wait.h>
 
 namespace {
@@ -42,6 +45,66 @@ struct TransitionSeederContext {
   Atomic<size_t> done;
   Atomic<size_t> resumes;
 };
+
+struct SigchldVisibilityContext {
+  SigchldVisibilityContext()
+      : child(nullptr),
+        childId(0),
+        parentReady(0),
+        releaseParent(0),
+        handlerCalls(0),
+        handlerFailures(0),
+        handlerSawTerminated(0),
+        handlerSawOwnerOnStack(0),
+        waitResult(0),
+        waitStatus(0) {}
+
+  PosixProcess* child;
+  size_t childId;
+  Atomic<size_t> parentReady;
+  Atomic<size_t> releaseParent;
+  Atomic<size_t> handlerCalls;
+  Atomic<size_t> handlerFailures;
+  Atomic<size_t> handlerSawTerminated;
+  Atomic<size_t> handlerSawOwnerOnStack;
+  Atomic<size_t> waitResult;
+  Atomic<size_t> waitStatus;
+};
+
+SigchldVisibilityContext* g_SigchldVisibilityContext = nullptr;
+
+void hostedSigchldHandler(size_t argument) {
+  SigchldVisibilityContext* context =
+      __atomic_load_n(&g_SigchldVisibilityContext, __ATOMIC_ACQUIRE);
+  if (!context) {
+    return;
+  }
+
+  const uint8_t* serializedEvent = reinterpret_cast<const uint8_t*>(argument);
+  if (!serializedEvent || serializedEvent[0] != SIGCHLD || !context->child) {
+    context->handlerFailures += 1;
+    context->handlerCalls += 1;
+    return;
+  }
+
+  context->handlerSawTerminated = context->child->getState() == Process::Terminated ? 1 : 0;
+  context->handlerSawOwnerOnStack = context->child->isTerminationReapableForHostedTest() ? 0 : 1;
+
+  const int status = context->child->getExitStatus();
+  const int result = posix_waitpid(static_cast<int>(context->childId), nullptr, WNOHANG);
+  context->waitResult = static_cast<size_t>(result);
+  context->waitStatus = static_cast<size_t>(status);
+  context->handlerCalls += 1;
+}
+
+int sigchldParentTarget(void* parameter) {
+  SigchldVisibilityContext* context = reinterpret_cast<SigchldVisibilityContext*>(parameter);
+  context->parentReady += 1;
+  while (!context->handlerCalls && !context->releaseParent) {
+    Scheduler::instance().yield();
+  }
+  return 0;
+}
 
 int resumeSuspendedProcess(void* parameter) {
   TransitionSeederContext* context = reinterpret_cast<TransitionSeederContext*>(parameter);
@@ -153,6 +216,132 @@ bool runExitStatusFixture(Process* kernelProcess, int code, Subsystem::ExitCause
   }
   return passed;
 }
+
+bool sigchldWaitStatusVisible(Process* kernelProcess) {
+  constexpr int ExitCode = 37;
+  SigchldVisibilityContext context;
+
+  PosixProcess* parent = new PosixProcess(kernelProcess);
+  PosixSubsystem* parentSubsystem = new PosixSubsystem;
+  parent->setSubsystem(parentSubsystem);
+
+  PosixSubsystem::SignalHandler* handler = new PosixSubsystem::SignalHandler;
+  handler->type = 0;
+  handler->pEvent = new SignalEvent(reinterpret_cast<uintptr_t>(&hostedSigchldHandler), SIGCHLD);
+  parentSubsystem->setSignalHandler(SIGCHLD, handler);
+
+  Thread* parentThread =
+      new Thread(parent, sigchldParentTarget, &context, nullptr, false, true, true);
+  parentThread->setName("hosted SIGCHLD wait-status target");
+  parent->publish();
+
+  __atomic_store_n(&g_SigchldVisibilityContext, &context, __ATOMIC_RELEASE);
+  bool parentStarted = parentThread->start();
+  for (size_t attempt = 0; parentStarted && attempt < HostedAttempts && !context.parentReady;
+       ++attempt) {
+    Scheduler::instance().yield();
+  }
+  if (!parentStarted || context.parentReady != 1) {
+    context.releaseParent += 1;
+    if (parentStarted) {
+      parentThread->joinForCompletion();
+    } else {
+      delete parentThread;
+    }
+    __atomic_store_n(&g_SigchldVisibilityContext, static_cast<SigchldVisibilityContext*>(nullptr),
+                     __ATOMIC_RELEASE);
+    delete parent;
+    return false;
+  }
+
+  ExitStatusContext childExit(ExitCode, Subsystem::ExitCause::Normal);
+  PosixProcess* child = new PosixProcess(parent);
+  child->setSubsystem(new PosixSubsystem);
+  Thread* childThread =
+      new Thread(child, deferredPosixExit, &childExit, nullptr, false, true, true);
+  childThread->setName("hosted SIGCHLD wait-status child");
+  child->publish();
+  context.child = child;
+  context.childId = child->getId();
+
+  Scheduler::ProcessLease childLease;
+  const bool childLeased = Scheduler::instance().acquireProcess(childLease, child);
+  const bool childStarted = childLeased && childThread->start();
+  if (!childStarted) {
+    delete childThread;
+    childLease.reset();
+    delete child;
+    context.child = nullptr;
+    context.releaseParent += 1;
+    parentThread->joinForCompletion();
+    __atomic_store_n(&g_SigchldVisibilityContext, static_cast<SigchldVisibilityContext*>(nullptr),
+                     __ATOMIC_RELEASE);
+    delete parent;
+    return false;
+  }
+
+  for (size_t attempt = 0; childStarted && attempt < HostedAttempts && !context.handlerCalls;
+       ++attempt) {
+    Scheduler::instance().yield();
+  }
+
+  bool reapable = false;
+  for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+    if (child->isTerminationReapableForHostedTest()) {
+      reapable = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+  if (!reapable) {
+    childThread->joinForCompletion();
+    reapable = child->isTerminationReapableForHostedTest();
+  }
+  if (!reapable) {
+    FATAL("SIGCHLD wait-status fixture retained an on-stack child");
+  }
+
+  const int waitStatus = static_cast<int>(static_cast<size_t>(context.waitStatus));
+  bool passed = context.handlerCalls == 1 && context.handlerFailures == 0 &&
+                context.handlerSawTerminated == 1 && context.handlerSawOwnerOnStack == 1 &&
+                context.waitResult == context.childId && WIFEXITED(waitStatus) &&
+                WEXITSTATUS(waitStatus) == ExitCode && reapable &&
+                child->getState() == Process::Reaped;
+
+  Process::ReaperClaim rescueReaper;
+  bool reaperPublished = child->getState() == Process::Reaped;
+  if (!reaperPublished && child->getState() == Process::Terminated) {
+    auto guard = parent->acquireChildStateWait();
+    if (child->getState() == Process::Terminated) {
+      child->reap();
+      rescueReaper = child->tryClaimReaper();
+    }
+  }
+  if (rescueReaper) {
+    rescueReaper.publish();
+    reaperPublished = true;
+  }
+  if (!reaperPublished) {
+    FATAL("SIGCHLD wait-status fixture could not publish child destruction");
+  }
+
+  context.releaseParent += 1;
+  const bool parentJoined = parentStarted && parentThread->joinForCompletion();
+  __atomic_store_n(&g_SigchldVisibilityContext, static_cast<SigchldVisibilityContext*>(nullptr),
+                   __ATOMIC_RELEASE);
+
+  Process* childIdentity = child;
+  childLease.reset();
+  Scheduler::instance().waitUntilProcessRemoved(childIdentity);
+  passed &= ZombieQueue::instance().drain();
+  passed &= parentJoined;
+  delete parent;
+
+  if (passed) {
+    NOTICE("HOSTED-SYSCALL-TEST: PASS sigchld-wait-status-visible");
+  }
+  return passed;
+}
 }  // namespace
 
 bool runHostedPosixExitStatusRegressions(Process* kernelProcess) {
@@ -160,11 +349,12 @@ bool runHostedPosixExitStatusRegressions(Process* kernelProcess) {
       runExitStatusFixture(kernelProcess, NormalExitCode, Subsystem::ExitCause::Normal, 0x7F, true);
   const bool signalPassed =
       runExitStatusFixture(kernelProcess, SIGUSR1, Subsystem::ExitCause::Signal, 0xFF, false);
+  const bool sigchldPassed = sigchldWaitStatusVisible(kernelProcess);
 
-  if (!normalPassed || !signalPassed) {
+  if (!normalPassed || !signalPassed || !sigchldPassed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL posix-exit-status: "
-        "normal or signal termination did not publish a compatible wait status");
+        "termination status or SIGCHLD publication was not wait-compatible");
     return false;
   }
 

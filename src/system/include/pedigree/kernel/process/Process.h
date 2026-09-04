@@ -217,8 +217,8 @@ class EXPORTED_PUBLIC Process {
     Active,
     Suspended,
     Terminating,
-    Terminated,
-    Reaped,  /// Reaped means the process has had a status retrieved.
+    Terminated,  /// Terminal wait status is visible; the owner may still be on-stack.
+    Reaped,      /// Reaped means the process has had a status retrieved.
   };
 
   /** Default constructor. */
@@ -330,7 +330,7 @@ class EXPORTED_PUBLIC Process {
   bool quiesceTermination();
 
   /** Completes an elected teardown and retires the current thread. */
-  void finishTermination() NORETURN;
+  void finishTermination(bool notifyParent = false) NORETURN;
 
   /** Claims the sole deferred-destruction publication for this Process. */
   ReaperClaim tryClaimReaper();
@@ -608,7 +608,7 @@ class EXPORTED_PUBLIC Process {
   void enableTimeAccountingReports();
 
  private:
-  void finishTermination(bool abandonStack) NORETURN;
+  void finishTermination(bool abandonStack, bool notifyParent) NORETURN;
 
   Process(const Process&);
   Process& operator=(const Process&);
@@ -798,8 +798,11 @@ class EXPORTED_PUBLIC Process {
    */
   bool terminatingThreadReapable(Thread* pThread, bool& wakeOwner);
 
-  /** Publishes termination after the final participant is reapable. */
-  void publishTermination();
+  /** Publishes terminal wait status while the elected owner is still live. */
+  void publishTerminationStatus(bool notifyParent);
+
+  /** Publishes the scheduler's final off-stack destruction barrier. */
+  void publishTerminationReapable();
 
   /** Publishes a previously claimed deferred destruction exactly once. */
   void publishReaperClaim();
