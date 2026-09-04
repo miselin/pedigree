@@ -456,25 +456,56 @@ VirtualAddressSpace* HostedVirtualAddressSpace::clone(bool copyOnWrite) {
     pNew->m_numKnownMaps = m_numKnownMaps;
     pNew->m_nLastUnmap = m_nLastUnmap;
 
-    // Readjust flags on the new mappings if needed.
+    VirtualAddressSpace& kernelSpace = getKernelAddressSpace();
+    const bool sourceIsCurrent = this == &Processor::information().getVirtualAddressSpace();
+
+    // Readjust flags on both sides of a private userspace clone. Kernel and
+    // explicitly shared mappings remain shared. clone(false) leaves existing
+    // flags intact, so only an already-writable page becomes a writable alias.
     for (size_t i = 0; i < pNew->m_KnownMapsSize; ++i) {
-      mapping_t* mapping = &pNew->m_pKnownMaps[i];
-      if (!mapping->active)
+      mapping_t* sourceMapping = &m_pKnownMaps[i];
+      mapping_t* cloneMapping = &pNew->m_pKnownMaps[i];
+      if (!cloneMapping->active)
         continue;
 
-      PhysicalMemoryManager::instance().pin(mapping->paddr);
-
-      if (mapping->flags & Shared) {
+      // Kernel mappings are process-global in the hosted build and are
+      // already found through getKernelAddressSpace(). Keeping duplicate
+      // entries here would pin pages that revertToKernelAddressSpace
+      // intentionally does not release.
+      const bool kernelOwnedMapping = this == &kernelSpace || (cloneMapping->flags & KernelMode) ||
+                                      kernelSpace.isMapped(cloneMapping->vaddr);
+      if (kernelOwnedMapping) {
+        cloneMapping->active = false;
+        --pNew->m_numKnownMaps;
         continue;
       }
 
-      if (!(mapping->flags & CopyOnWrite))
-        PhysicalMemoryManager::instance().pin(mapping->paddr);
+      PhysicalMemoryManager::instance().pin(cloneMapping->paddr);
 
-      if (mapping->flags & Write) {
-        mapping->flags |= CopyOnWrite;
+      if (cloneMapping->flags & Shared) {
+        continue;
       }
-      mapping->flags &= ~Write;
+
+      if (!(cloneMapping->flags & CopyOnWrite))
+        PhysicalMemoryManager::instance().pin(cloneMapping->paddr);
+
+      const bool privateUserMapping = cloneMapping->vaddr < KERNEL_SPACE_START;
+      if (!copyOnWrite || !privateUserMapping || !(cloneMapping->flags & Write)) {
+        continue;
+      }
+
+      const size_t cloneFlags = (cloneMapping->flags | CopyOnWrite) & ~Write;
+      if (sourceIsCurrent && mprotect(sourceMapping->vaddr, PhysicalMemoryManager::getPageSize(),
+                                      toFlags(cloneFlags, true)) != 0) {
+        FATAL(
+            "HostedVirtualAddressSpace::clone failed to protect source "
+            "mapping at "
+            << Hex << reinterpret_cast<uintptr_t>(sourceMapping->vaddr) << " (errno " << Dec
+            << errno << ")");
+      }
+
+      sourceMapping->flags = cloneFlags;
+      cloneMapping->flags = cloneFlags;
     }
   }
 

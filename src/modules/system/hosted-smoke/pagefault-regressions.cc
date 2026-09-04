@@ -8,6 +8,7 @@
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
@@ -827,6 +828,153 @@ bool concurrentCopyOnWriteResolution() {
   return passed;
 }
 
+bool hostedAddressSpaceCloneSemantics() {
+  constexpr const char* Test = "pagefault-hosted-clone-cow";
+  VirtualAddressSpace& originalSpace = Processor::information().getVirtualAddressSpace();
+  PhysicalMemoryManager& physicalMemory = PhysicalMemoryManager::instance();
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  void* address = reinterpret_cast<void*>(originalSpace.getDynamicStart() + (24 * pageSize));
+  while (originalSpace.isMapped(address)) {
+    address = adjust_pointer(address, pageSize);
+  }
+
+  Process* kernelProcess = Scheduler::instance().getKernelProcess();
+  Process* sourceProcess = new Process(kernelProcess, true);
+  VirtualAddressSpace* source = sourceProcess->getAddressSpace();
+  VirtualAddressSpace* child = nullptr;
+  Process* childProcess = nullptr;
+  const physical_uintptr_t original = physicalMemory.allocatePage();
+  bool passed = true;
+
+  if (!source->map(original, address, VirtualAddressSpace::Write)) {
+    physicalMemory.freePage(original);
+    delete sourceProcess;
+    return check(false, "the private-clone fixture could not be mapped", Test);
+  }
+
+  Processor::switchAddressSpace(*source);
+  volatile uint8_t* bytes = reinterpret_cast<volatile uint8_t*>(address);
+  bytes[0] = 0x31;
+  bytes[pageSize - 1] = 0x7A;
+  childProcess = new Process(sourceProcess, true);
+  child = childProcess->getAddressSpace();
+
+  physical_uintptr_t sourceBeforePhysical = 0;
+  physical_uintptr_t childBeforePhysical = 0;
+  size_t sourceBeforeFlags = 0;
+  size_t childBeforeFlags = 0;
+  source->getMapping(address, sourceBeforePhysical, sourceBeforeFlags);
+  child->getMapping(address, childBeforePhysical, childBeforeFlags);
+  const size_t sharedReferences = PhysicalMemoryManager::pageReferenceCountForTest(original);
+
+  passed &= check(sourceBeforePhysical == original && childBeforePhysical == original &&
+                      (sourceBeforeFlags & VirtualAddressSpace::CopyOnWrite) &&
+                      !(sourceBeforeFlags & VirtualAddressSpace::Write) &&
+                      (childBeforeFlags & VirtualAddressSpace::CopyOnWrite) &&
+                      !(childBeforeFlags & VirtualAddressSpace::Write),
+                  "a private clone did not downgrade both mappings", Test);
+  passed &= check(sharedReferences == 2, "the private clone did not retain both page owners", Test);
+
+  const bool sourceResolved = source->handleCopyOnWriteFault(address, false);
+  if (sourceResolved) {
+    bytes[0] = 0xA5;
+  }
+  physical_uintptr_t sourceAfterPhysical = 0;
+  size_t sourceAfterFlags = 0;
+  source->getMapping(address, sourceAfterPhysical, sourceAfterFlags);
+  passed &= check(sourceResolved && sourceAfterPhysical != original &&
+                      (sourceAfterFlags & VirtualAddressSpace::Write) &&
+                      !(sourceAfterFlags & VirtualAddressSpace::CopyOnWrite) && bytes[0] == 0xA5 &&
+                      bytes[pageSize - 1] == 0x7A &&
+                      PhysicalMemoryManager::pageReferenceCountForTest(original) == 1,
+                  "the parent write did not split from the child page", Test);
+
+  Processor::switchAddressSpace(*child);
+  passed &= check(bytes[0] == 0x31 && bytes[pageSize - 1] == 0x7A,
+                  "the parent write changed the child view", Test);
+  const bool childResolved = child->handleCopyOnWriteFault(address, false);
+  if (childResolved) {
+    bytes[0] = 0x5C;
+  }
+
+  physical_uintptr_t childAfterPhysical = 0;
+  size_t childAfterFlags = 0;
+  child->getMapping(address, childAfterPhysical, childAfterFlags);
+  passed &= check(childResolved && childAfterPhysical != original &&
+                      childAfterPhysical != sourceAfterPhysical &&
+                      (childAfterFlags & VirtualAddressSpace::Write) &&
+                      !(childAfterFlags & VirtualAddressSpace::CopyOnWrite) && bytes[0] == 0x5C &&
+                      bytes[pageSize - 1] == 0x7A &&
+                      PhysicalMemoryManager::pageReferenceCountForTest(original) == 0,
+                  "the child write did not publish an independent page", Test);
+
+  Processor::switchAddressSpace(*source);
+  passed &= check(bytes[0] == 0xA5 && bytes[pageSize - 1] == 0x7A,
+                  "the child write changed the parent view", Test);
+
+  Processor::switchAddressSpace(originalSpace);
+  delete childProcess;
+  delete sourceProcess;
+  passed &= check(PhysicalMemoryManager::pageReferenceCountForTest(original) == 0 &&
+                      PhysicalMemoryManager::pageReferenceCountForTest(sourceAfterPhysical) == 0 &&
+                      PhysicalMemoryManager::pageReferenceCountForTest(childAfterPhysical) == 0,
+                  "the private clone leaked a physical page", Test);
+
+  constexpr const char* WritableAliasTest = "pagefault-hosted-clone-writable-alias";
+  sourceProcess = new Process(kernelProcess, true);
+  source = sourceProcess->getAddressSpace();
+  child = nullptr;
+  childProcess = nullptr;
+  const physical_uintptr_t sharedPhysical = physicalMemory.allocatePage();
+  if (!source->map(sharedPhysical, address, VirtualAddressSpace::Write)) {
+    physicalMemory.freePage(sharedPhysical);
+    delete sourceProcess;
+    return check(false, "the writable-alias fixture could not be mapped", WritableAliasTest) &&
+           passed;
+  }
+
+  Processor::switchAddressSpace(*source);
+  bytes[0] = 0x12;
+  childProcess = new Process(sourceProcess, false);
+  child = childProcess->getAddressSpace();
+
+  physical_uintptr_t sourceSharedPhysical = 0;
+  physical_uintptr_t childSharedPhysical = 0;
+  size_t sourceSharedFlags = 0;
+  size_t childSharedFlags = 0;
+  source->getMapping(address, sourceSharedPhysical, sourceSharedFlags);
+  child->getMapping(address, childSharedPhysical, childSharedFlags);
+  passed &=
+      check(sourceSharedPhysical == sharedPhysical && childSharedPhysical == sharedPhysical &&
+                (sourceSharedFlags & VirtualAddressSpace::Write) &&
+                !(sourceSharedFlags & VirtualAddressSpace::CopyOnWrite) &&
+                (childSharedFlags & VirtualAddressSpace::Write) &&
+                !(childSharedFlags & VirtualAddressSpace::CopyOnWrite) &&
+                PhysicalMemoryManager::pageReferenceCountForTest(sharedPhysical) == 2,
+            "clone(false) changed a fresh writable mapping's alias semantics", WritableAliasTest);
+
+  bytes[0] = 0x48;
+  Processor::switchAddressSpace(*child);
+  passed &= check(bytes[0] == 0x48, "the child did not observe the parent's aliased write",
+                  WritableAliasTest);
+  bytes[0] = 0x84;
+  Processor::switchAddressSpace(*source);
+  passed &= check(bytes[0] == 0x84, "the parent did not observe the child's aliased write",
+                  WritableAliasTest);
+
+  Processor::switchAddressSpace(originalSpace);
+  delete childProcess;
+  delete sourceProcess;
+  passed &= check(PhysicalMemoryManager::pageReferenceCountForTest(sharedPhysical) == 0,
+                  "the writable alias leaked its physical page", WritableAliasTest);
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS pagefault-hosted-clone-cow");
+    NOTICE("HOSTED-WAIT-TEST: PASS pagefault-hosted-clone-writable-alias");
+  }
+  return passed;
+}
+
 struct AbandonedDispatchContext;
 AbandonedDispatchContext* g_AbandonedDispatchContext = nullptr;
 
@@ -977,6 +1125,7 @@ bool runHostedPageFaultRegressions() {
   passed &= nestedDispatchRemoval();
   passed &= handlerLifetimeBarrier();
   passed &= concurrentCopyOnWriteResolution();
+  passed &= hostedAddressSpaceCloneSemantics();
   passed &= abandonedDispatchCleanup();
   return passed;
 }
