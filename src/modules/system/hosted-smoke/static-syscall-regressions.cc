@@ -58,6 +58,7 @@ extern bool runHostedPpollRegressions(Process* process);
 extern bool runHostedPselectRegressions(Process* process);
 extern bool runHostedScalarIoRegressions(Process* process);
 extern bool runHostedUsercopyRegressions(Process* process);
+extern bool runHostedVectorIoRegressions(Process* process);
 
 namespace {
 constexpr size_t HostedAttempts = 10000;
@@ -2401,10 +2402,9 @@ bool descriptorVectorIoSerialization(Process* kernelProcess) {
                 vectorJoined && aliasJoined && vectorContext.returned == 1 &&
                 vectorContext.result == 2 && vectorContext.error == 0 &&
                 aliasContext.returned == 1 && aliasContext.result == 1 && aliasContext.error == 0 &&
-                original.writeCount() == 3 && original.writeOffset(0) == 0 &&
-                original.writeOffset(1) == 1 && original.writeOffset(2) == 2 &&
-                original.writeValue(0) == 'a' && original.writeValue(1) == 'b' &&
-                original.writeValue(2) == 'c' && original.getSize() == 3 &&
+                original.writeCount() == 2 && original.writeOffset(0) == 0 &&
+                original.writeOffset(1) == 2 && original.writeValue(0) == 'a' &&
+                original.writeValue(1) == 'c' && original.getSize() == 3 &&
                 replacement.writeOffset() == ~static_cast<uint64_t>(0);
 
   DescriptorLease closingAlias;
@@ -4787,6 +4787,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN scalar-io-user-buffer-lifetime");
   if (!runHostedScalarIoRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN vector-io-user-buffer-lifetime");
+  if (!runHostedVectorIoRegressions(kernelProcess)) {
     return false;
   }
 
