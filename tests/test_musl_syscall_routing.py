@@ -177,17 +177,27 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         manager = (
             ROOT / "src/modules/subsys/posix/PosixSyscallManager.cc"
         ).read_text(encoding="utf-8")
+        declarations = (
+            ROOT / "src/modules/subsys/posix/file-syscalls.h"
+        ).read_text(encoding="utf-8")
 
-        self.assertIn(
+        expected_mappings = (
             "PEDIGREE_LINUX_AMD64_SYSCALL(pread64, 17, POSIX_PREAD64)",
-            mappings,
-        )
-        self.assertIn(
             "PEDIGREE_LINUX_AMD64_SYSCALL(pwrite64, 18, POSIX_PWRITE64)",
-            mappings,
+            "PEDIGREE_LINUX_AMD64_SYSCALL(preadv, 295, POSIX_PREADV)",
+            "PEDIGREE_LINUX_AMD64_SYSCALL(pwritev, 296, POSIX_PWRITEV)",
+            "PEDIGREE_LINUX_AMD64_SYSCALL(preadv2, 327, POSIX_PREADV2)",
+            "PEDIGREE_LINUX_AMD64_SYSCALL(pwritev2, 328, POSIX_PWRITEV2)",
         )
+        for mapping in expected_mappings:
+            with self.subTest(mapping=mapping):
+                self.assertIn(mapping, mappings)
         self.assertIn("#define POSIX_PREAD64 290", numbers)
         self.assertIn("#define POSIX_PWRITE64 291", numbers)
+        self.assertIn("#define POSIX_PREADV 296", numbers)
+        self.assertIn("#define POSIX_PWRITEV 297", numbers)
+        self.assertIn("#define POSIX_PREADV2 298", numbers)
+        self.assertIn("#define POSIX_PWRITEV2 299", numbers)
 
         pread = manager.split("case POSIX_PREAD64:", 1)[1].split(
             "case ", 1
@@ -206,6 +216,59 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn("reinterpret_cast<const char*>(p2)", pwrite)
         self.assertIn("static_cast<size_t>(p3)", pwrite)
         self.assertIn("static_cast<off_t>(p4)", pwrite)
+
+        self.assertIn("off_t linuxAmd64VectorOffset", manager)
+        self.assertIn("static_cast<uint64_t>(high) << 32U", manager)
+        self.assertIn("static_cast<uint64_t>(low) & 0xFFFFFFFFULL", manager)
+        for syscall in ("PREADV", "PWRITEV", "PREADV2", "PWRITEV2"):
+            dispatch = manager.split(f"case POSIX_{syscall}:", 1)[1].split(
+                "case ", 1
+            )[0]
+            self.assertIn(f"return posix_{syscall.lower()}", dispatch)
+            self.assertIn("linuxAmd64VectorOffset(p4, p5)", dispatch)
+            if syscall.endswith("2"):
+                self.assertIn("static_cast<int>(p6)", dispatch)
+
+        for declaration in (
+            "ssize_t posix_preadv(int fd, const struct iovec* iov, int iovcnt, off_t offset);",
+            "ssize_t posix_pwritev(int fd, const struct iovec* iov, int iovcnt, off_t offset);",
+            "ssize_t posix_preadv2(int fd, const struct iovec* iov, int iovcnt, off_t offset, int flags);",
+            "ssize_t posix_pwritev2(int fd, const struct iovec* iov, int iovcnt, off_t offset, int flags);",
+        ):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, declarations)
+
+    def test_bundled_musl_positional_vectors_use_the_split_linux_abi(self):
+        source_root = ROOT / "build/src/modules/musl-1.2.6"
+        archive_path = ROOT / "build/src/modules/musl-1.2.6.tar.gz"
+
+        def load_source(relative_path):
+            source_path = source_root / relative_path
+            if source_path.exists():
+                return source_path.read_text(encoding="utf-8")
+            if not archive_path.exists():
+                self.skipTest("the configured musl source archive is not present")
+            with tarfile.open(archive_path, "r:gz") as archive:
+                member = archive.extractfile(f"musl-1.2.6/{relative_path}")
+                self.assertIsNotNone(member)
+                return member.read().decode("utf-8")
+
+        preadv = load_source("src/unistd/preadv.c")
+        pwritev = load_source("src/unistd/pwritev.c")
+        preadv2 = load_source("src/linux/preadv2.c")
+        pwritev2 = load_source("src/linux/pwritev2.c")
+
+        for source in (preadv, pwritev, preadv2, pwritev2):
+            self.assertIn("(long)(ofs), (long)(ofs>>32)", source)
+        self.assertIn("syscall_cp(SYS_preadv, fd, iov, count", preadv)
+        self.assertIn("__syscall_cp(SYS_pwritev2, fd, iov, count", pwritev)
+        self.assertIn("RWF_NOAPPEND", pwritev)
+        self.assertIn("fcntl(fd, F_GETFL) & O_APPEND", pwritev)
+        self.assertIn("syscall_cp(SYS_pwritev, fd, iov, count", pwritev)
+        self.assertIn("if (ofs==-1) return readv(fd, iov, count);", preadv2)
+        self.assertIn("syscall_cp(SYS_preadv2, fd, iov, count", preadv2)
+        self.assertIn("if (ofs==-1) return writev(fd, iov, count);", pwritev2)
+        self.assertIn("syscall_cp(SYS_pwritev2, fd, iov, count", pwritev2)
 
     def test_linux_resource_compatibility_syscalls_are_mapped_and_dispatched(self):
         mappings = (

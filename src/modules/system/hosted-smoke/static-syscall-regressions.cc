@@ -62,6 +62,7 @@ extern bool runHostedMmapPlacementRegressions(Process* process);
 extern bool runHostedPosixExitStatusRegressions(Process* process);
 extern bool runHostedPpollRegressions(Process* process);
 extern bool runHostedPositionalIoRegressions(Process* process);
+extern bool runHostedPositionalVectorIoRegressions(Process* process);
 extern bool runHostedPselectRegressions(Process* process);
 extern bool runHostedResourceSyscallRegressions(Process* process);
 extern bool runHostedRtSigsuspendRegressions(Process* process);
@@ -4887,6 +4888,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN positional-io-semantics");
   if (!runHostedPositionalIoRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN positional-vector-io-semantics");
+  if (!runHostedPositionalVectorIoRegressions(kernelProcess)) {
     return false;
   }
 

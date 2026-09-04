@@ -459,6 +459,7 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS dup3-atomic-replacement" \
         "HOSTED-SYSCALL-TEST: PASS advisory-lock-fail-closed" \
         "HOSTED-SYSCALL-TEST: PASS positional-io-semantics" \
+        "HOSTED-SYSCALL-TEST: PASS positional-vector-io-semantics" \
         "HOSTED-SYSCALL-TEST: PASS resource-syscall-semantics" \
         "HOSTED-SYSCALL-TEST: PASS faccessat2-semantics" \
         "HOSTED-SYSCALL-TEST: PASS select-projection-timeout" \

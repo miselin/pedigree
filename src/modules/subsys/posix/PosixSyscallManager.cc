@@ -48,6 +48,14 @@
 #include "syscalls/translate.h"
 #include "system-syscalls.h"
 
+namespace {
+off_t linuxAmd64VectorOffset(uintptr_t low, uintptr_t high) {
+  const uint64_t bits =
+      (static_cast<uint64_t>(high) << 32U) | (static_cast<uint64_t>(low) & 0xFFFFFFFFULL);
+  return static_cast<off_t>(bits);
+}
+}  // namespace
+
 PosixSyscallManager::PosixSyscallManager() {}
 
 PosixSyscallManager::~PosixSyscallManager() {}
@@ -162,6 +170,20 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_PWRITE64:
       return posix_pwrite64(static_cast<int>(p1), reinterpret_cast<const char*>(p2),
                             static_cast<size_t>(p3), static_cast<off_t>(p4));
+    case POSIX_PREADV:
+      return posix_preadv(static_cast<int>(p1), reinterpret_cast<const struct iovec*>(p2),
+                          static_cast<int>(p3), linuxAmd64VectorOffset(p4, p5));
+    case POSIX_PWRITEV:
+      return posix_pwritev(static_cast<int>(p1), reinterpret_cast<const struct iovec*>(p2),
+                           static_cast<int>(p3), linuxAmd64VectorOffset(p4, p5));
+    case POSIX_PREADV2:
+      return posix_preadv2(static_cast<int>(p1), reinterpret_cast<const struct iovec*>(p2),
+                           static_cast<int>(p3), linuxAmd64VectorOffset(p4, p5),
+                           static_cast<int>(p6));
+    case POSIX_PWRITEV2:
+      return posix_pwritev2(static_cast<int>(p1), reinterpret_cast<const struct iovec*>(p2),
+                            static_cast<int>(p3), linuxAmd64VectorOffset(p4, p5),
+                            static_cast<int>(p6));
     case POSIX_CLOSE:
       return posix_close(p1);
     case POSIX_SBRK:

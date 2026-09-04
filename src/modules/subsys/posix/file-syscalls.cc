@@ -1291,7 +1291,7 @@ static bool scatterEventFdValue(const struct iovec* vectors, int vectorCount, ui
   return copied == sizeof(value);
 }
 
-int posix_writev(int fd, const struct iovec* iov, int iovcnt) {
+static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppressAppend) {
   F_NOTICE("writev(" << fd << ", <iov>, " << iovcnt << ")");
 
   UniqueArray<struct iovec> vectorOwner;
@@ -1463,7 +1463,11 @@ int posix_writev(int fd, const struct iovec* iov, int iovcnt) {
   if (descriptor->file->isSeekable()) {
     {
       FileDescriptor::PositionGuard position = descriptor->lockPosition();
-      result = writeVector(&position, position.statusFlags());
+      int statusFlags = position.statusFlags();
+      if (suppressAppend) {
+        statusFlags &= ~O_APPEND;
+      }
+      result = writeVector(&position, statusFlags);
     }
   } else {
     // A blocking nonseekable write must not hold the OFD metadata mutex needed
@@ -1475,6 +1479,10 @@ int posix_writev(int fd, const struct iovec* iov, int iovcnt) {
     subsystem->threadException(thread, Subsystem::Pipe);
   }
   return result;
+}
+
+int posix_writev(int fd, const struct iovec* iov, int iovcnt) {
+  return posixWritev(fd, iov, iovcnt, false);
 }
 
 int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
@@ -1682,6 +1690,288 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
   // See the matching writev path: a blocking nonseekable read must not
   // monopolize the OFD metadata mutex needed by its peer.
   return readVector(nullptr, descriptor->getStatusFlags());
+}
+
+namespace {
+constexpr int LinuxRwfNoAppend = 0x20;
+
+ssize_t positionalReadVector(int fd, const struct iovec* iov, int iovcnt, off_t offset) {
+  UniqueArray<struct iovec> vectorOwner;
+  size_t totalLength = 0;
+  if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength)) {
+    return -1;
+  }
+  if (!positionalIoRangeIsValid(offset, totalLength)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  Thread* thread = Processor::information().getCurrentThread();
+  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(thread->getParent()->getSubsystem());
+  if (!subsystem) {
+    return -1;
+  }
+
+  DescriptorLease descriptor;
+  if (!subsystem->acquireFileDescriptor(fd, descriptor)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (!descriptor->file || !descriptor->file->isSeekable()) {
+    SYSCALL_ERROR(IllegalSeek);
+    return -1;
+  }
+
+  const int statusFlags = descriptor->getStatusFlags();
+  if ((statusFlags & O_ACCMODE) == O_WRONLY) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (descriptor->file->isDirectory()) {
+    SYSCALL_ERROR(IsADirectory);
+    return -1;
+  }
+  if (!iovcnt || !totalLength) {
+    return 0;
+  }
+
+  struct iovec* vectors = vectorOwner.get();
+  const size_t bounceCapacity =
+      totalLength < ScalarIoBounceCapacity ? totalLength : ScalarIoBounceCapacity;
+  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+  const bool canBlock = !(statusFlags & O_NONBLOCK);
+  const uint64_t startingOffset = static_cast<uint64_t>(offset);
+  size_t totalRead = 0;
+
+  thread->clearInterruption();
+  for (int i = 0; i < iovcnt; ++i) {
+    size_t vectorOffset = 0;
+    while (vectorOffset < vectors[i].iov_len) {
+      if (totalRead && thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+        thread->clearInterruption();
+        return static_cast<ssize_t>(totalRead);
+      }
+
+      const size_t remaining = vectors[i].iov_len - vectorOffset;
+      const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+      void* userDestination =
+          reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(vectors[i].iov_base) + vectorOffset);
+      if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(userDestination), requested,
+                                           1, PosixSubsystem::SafeWrite)) {
+        thread->clearInterruption();
+        if (totalRead) {
+          return static_cast<ssize_t>(totalRead);
+        }
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+
+      if (thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+        thread->clearInterruption();
+        if (totalRead) {
+          return static_cast<ssize_t>(totalRead);
+        }
+        SYSCALL_ERROR(Interrupted);
+        return -1;
+      }
+
+      const uint64_t amount =
+          descriptor->file->read(startingOffset + totalRead, requested,
+                                 reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
+      const bool signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+      if (!amount) {
+        thread->clearInterruption();
+        if (!totalRead && signalInterrupted) {
+          SYSCALL_ERROR(Interrupted);
+          return -1;
+        }
+        return static_cast<ssize_t>(totalRead);
+      }
+
+      if (!PosixSubsystem::copyToUser(userDestination, bounce.get(), amount)) {
+        thread->clearInterruption();
+        if (totalRead) {
+          return static_cast<ssize_t>(totalRead);
+        }
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+
+      totalRead += static_cast<size_t>(amount);
+      vectorOffset += static_cast<size_t>(amount);
+      if (amount < requested || signalInterrupted ||
+          thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+        thread->clearInterruption();
+        return static_cast<ssize_t>(totalRead);
+      }
+    }
+  }
+
+  thread->clearInterruption();
+  return static_cast<ssize_t>(totalRead);
+}
+
+ssize_t positionalWriteVector(int fd, const struct iovec* iov, int iovcnt, off_t offset,
+                              bool honorAppend) {
+  UniqueArray<struct iovec> vectorOwner;
+  size_t totalLength = 0;
+  if (!snapshotIoVectors(iov, iovcnt, true, vectorOwner, totalLength)) {
+    return -1;
+  }
+  if (!positionalIoRangeIsValid(offset, totalLength)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  Thread* thread = Processor::information().getCurrentThread();
+  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(thread->getParent()->getSubsystem());
+  if (!subsystem) {
+    return -1;
+  }
+
+  DescriptorLease descriptor;
+  if (!subsystem->acquireFileDescriptor(fd, descriptor)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (!descriptor->file || !descriptor->file->isSeekable()) {
+    SYSCALL_ERROR(IllegalSeek);
+    return -1;
+  }
+
+  const int statusFlags = descriptor->getStatusFlags();
+  if ((statusFlags & O_ACCMODE) == O_RDONLY) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (descriptor->file->isDirectory()) {
+    SYSCALL_ERROR(IsADirectory);
+    return -1;
+  }
+  if (!iovcnt || !totalLength) {
+    return 0;
+  }
+
+  struct iovec* vectors = vectorOwner.get();
+  const size_t bounceCapacity =
+      totalLength < ScalarIoBounceCapacity ? totalLength : ScalarIoBounceCapacity;
+  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+  const bool canBlock = !(statusFlags & O_NONBLOCK);
+  const uint64_t startingOffset = static_cast<uint64_t>(offset);
+  const bool append = honorAppend && (statusFlags & O_APPEND);
+  File::WriteGuard writeGuard = descriptor->file->lockWrites();
+  size_t totalWritten = 0;
+  int vectorIndex = 0;
+  size_t vectorOffset = 0;
+
+  thread->clearInterruption();
+  while (totalWritten < totalLength) {
+    if (totalWritten && thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+      thread->clearInterruption();
+      return static_cast<ssize_t>(totalWritten);
+    }
+
+    const size_t remaining = totalLength - totalWritten;
+    const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+    size_t gathered = 0;
+    while (gathered < requested) {
+      while (vectorIndex < iovcnt && vectorOffset == vectors[vectorIndex].iov_len) {
+        ++vectorIndex;
+        vectorOffset = 0;
+      }
+      assert(vectorIndex < iovcnt);
+
+      const size_t vectorRemaining = vectors[vectorIndex].iov_len - vectorOffset;
+      const size_t fragment =
+          vectorRemaining < requested - gathered ? vectorRemaining : requested - gathered;
+      const void* userSource = reinterpret_cast<const void*>(
+          reinterpret_cast<uintptr_t>(vectors[vectorIndex].iov_base) + vectorOffset);
+      if (!PosixSubsystem::copyFromUser(bounce.get() + gathered, userSource, fragment)) {
+        thread->clearInterruption();
+        if (totalWritten) {
+          return static_cast<ssize_t>(totalWritten);
+        }
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      gathered += fragment;
+      vectorOffset += fragment;
+    }
+
+    if (thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+      thread->clearInterruption();
+      if (totalWritten) {
+        return static_cast<ssize_t>(totalWritten);
+      }
+      SYSCALL_ERROR(Interrupted);
+      return -1;
+    }
+
+    uint64_t location = startingOffset + totalWritten;
+    const uint64_t amount =
+        append ? writeGuard.append(requested, reinterpret_cast<uintptr_t>(bounce.get()), location,
+                                   canBlock)
+               : writeGuard.write(location, requested, reinterpret_cast<uintptr_t>(bounce.get()),
+                                  canBlock);
+    const bool signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+    if (!amount) {
+      thread->clearInterruption();
+      if (!totalWritten && signalInterrupted) {
+        SYSCALL_ERROR(Interrupted);
+        return -1;
+      }
+      if (!canBlock) {
+        SYSCALL_ERROR(NoMoreProcesses);
+        return -1;
+      }
+      return static_cast<ssize_t>(totalWritten);
+    }
+
+    totalWritten += static_cast<size_t>(amount);
+    if (amount < requested || signalInterrupted ||
+        thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+      thread->clearInterruption();
+      return static_cast<ssize_t>(totalWritten);
+    }
+  }
+
+  thread->clearInterruption();
+  return static_cast<ssize_t>(totalWritten);
+}
+}  // namespace
+
+ssize_t posix_preadv(int fd, const struct iovec* iov, int iovcnt, off_t offset) {
+  F_NOTICE("preadv(" << fd << ", <iov>, " << iovcnt << ", " << offset << ")");
+  return positionalReadVector(fd, iov, iovcnt, offset);
+}
+
+ssize_t posix_pwritev(int fd, const struct iovec* iov, int iovcnt, off_t offset) {
+  F_NOTICE("pwritev(" << fd << ", <iov>, " << iovcnt << ", " << offset << ")");
+  return positionalWriteVector(fd, iov, iovcnt, offset, false);
+}
+
+ssize_t posix_preadv2(int fd, const struct iovec* iov, int iovcnt, off_t offset, int flags) {
+  F_NOTICE("preadv2(" << fd << ", <iov>, " << iovcnt << ", " << offset << ", " << flags << ")");
+  if (flags) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return -1;
+  }
+  if (offset == -1) {
+    return posix_readv(fd, iov, iovcnt);
+  }
+  return positionalReadVector(fd, iov, iovcnt, offset);
+}
+
+ssize_t posix_pwritev2(int fd, const struct iovec* iov, int iovcnt, off_t offset, int flags) {
+  F_NOTICE("pwritev2(" << fd << ", <iov>, " << iovcnt << ", " << offset << ", " << flags << ")");
+  if (flags & ~LinuxRwfNoAppend) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return -1;
+  }
+  if (offset == -1) {
+    return posixWritev(fd, iov, iovcnt, flags & LinuxRwfNoAppend);
+  }
+  return positionalWriteVector(fd, iov, iovcnt, offset, !(flags & LinuxRwfNoAppend));
 }
 
 off_t posix_lseek(int file, off_t ptr, int dir) {

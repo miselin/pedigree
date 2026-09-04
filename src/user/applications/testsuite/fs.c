@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 /*
  * Copyright (c) 2008-2014, Pedigree Developers
  *
@@ -29,6 +31,7 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 
 #ifndef AT_EMPTY_PATH
 #define AT_EMPTY_PATH 0x1000
@@ -106,6 +109,94 @@ static void test_positional_io(void) {
     fail();
 
   if (close(readOnly) || close(writeOnly) || close(fd) || unlink("/testing/positional-io"))
+    fail();
+  OK;
+}
+
+static void test_positional_vector_io(void) {
+  static const char initial[] = "abcdefghij";
+  static const char expected[] = "aXRS123hijQ";
+  char first[3] = {0};
+  char second[2] = {0};
+  char buffer[sizeof(expected)] = {0};
+  struct iovec read_vectors[2] = {
+      {first, 2},
+      {second, 1},
+  };
+  struct iovec xyz_vectors[2] = {
+      {(void*)"XY", 2},
+      {(void*)"Z", 1},
+  };
+  struct iovec numeric_vectors[2] = {
+      {(void*)"12", 2},
+      {(void*)"3", 1},
+  };
+  struct iovec one_vector = {(void*)"Q", 1};
+
+  status("Testing positional vector file I/O... ");
+  int fd = open("/testing/positional-vector-io", O_RDWR | O_CREAT | O_TRUNC | O_APPEND, 0666);
+  if (fd < 0 || write(fd, initial, sizeof(initial) - 1) != (ssize_t)(sizeof(initial) - 1) ||
+      lseek(fd, 3, SEEK_SET) != 3)
+    fail();
+
+  if (preadv(fd, read_vectors, 2, 6) != 3 || memcmp(first, "gh", 2) || second[0] != 'i' ||
+      lseek(fd, 0, SEEK_CUR) != 3)
+    fail();
+
+  // musl routes pwritev through pwritev2(RWF_NOAPPEND), which must override
+  // the description's O_APPEND without changing its current offset.
+  if (pwritev(fd, xyz_vectors, 2, 1) != 3 || lseek(fd, 0, SEEK_CUR) != 3)
+    fail();
+  if (syscall(SYS_pwritev, fd, numeric_vectors, 2, 4L, 0L) != 3 || lseek(fd, 0, SEEK_CUR) != 3)
+    fail();
+
+  // A raw pwritev2 flags=0 request retains Linux O_APPEND behavior; the
+  // RWF_NOAPPEND form below then writes at the explicit position.
+  if (syscall(SYS_pwritev2, fd, &one_vector, 1, 2L, 0L, 0) != 1 || lseek(fd, 0, SEEK_CUR) != 3)
+    fail();
+  one_vector.iov_base = (void*)"R";
+  if (syscall(SYS_pwritev2, fd, &one_vector, 1, 2L, 0L, RWF_NOAPPEND) != 1 ||
+      lseek(fd, 0, SEEK_CUR) != 3)
+    fail();
+
+  one_vector.iov_base = (void*)"S";
+  if (syscall(SYS_pwritev2, fd, &one_vector, 1, -1L, -1L, RWF_NOAPPEND) != 1 ||
+      lseek(fd, 0, SEEK_CUR) != 4)
+    fail();
+
+  memset(first, 0, sizeof(first));
+  struct iovec current_read = {first, 2};
+  if (syscall(SYS_preadv2, fd, &current_read, 1, -1L, -1L, 0) != 2 || memcmp(first, "12", 2) ||
+      lseek(fd, 0, SEEK_CUR) != 6)
+    fail();
+
+  memset(buffer, 0, sizeof(buffer));
+  if (preadv(fd, &(struct iovec){buffer, sizeof(expected) - 1}, 1, 0) !=
+          (ssize_t)(sizeof(expected) - 1) ||
+      memcmp(buffer, expected, sizeof(expected) - 1) || lseek(fd, 0, SEEK_CUR) != 6)
+    fail();
+
+  errno = 0;
+  if (syscall(SYS_preadv, fd, &current_read, 1, -1L, -1L) != -1 || errno != EINVAL)
+    fail();
+  errno = 0;
+  if (syscall(SYS_preadv2, fd, &current_read, 1, 0L, 0L, RWF_NOWAIT) != -1 || errno != EOPNOTSUPP)
+    fail();
+  errno = 0;
+  if (syscall(SYS_pwritev2, fd, &one_vector, 1, 0L, 0L, RWF_NOWAIT) != -1 || errno != EOPNOTSUPP)
+    fail();
+
+  int pipefd[2];
+  if (pipe(pipefd))
+    fail();
+  errno = 0;
+  if (preadv(pipefd[0], &current_read, 1, 0) != -1 || errno != ESPIPE)
+    fail();
+  errno = 0;
+  if (pwritev(pipefd[1], &one_vector, 1, 0) != -1 || errno != ESPIPE)
+    fail();
+
+  if (close(pipefd[0]) || close(pipefd[1]) || close(fd) || unlink("/testing/positional-vector-io"))
     fail();
   OK;
 }
@@ -288,6 +379,7 @@ void test_fs() {
   OK;
 
   test_positional_io();
+  test_positional_vector_io();
   test_advisory_locks();
   test_faccessat2();
 
