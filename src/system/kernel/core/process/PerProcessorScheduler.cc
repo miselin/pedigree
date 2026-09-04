@@ -64,13 +64,22 @@ PerProcessorScheduler::PerProcessorScheduler()
       m_StopNewThreadWorker(false),
       m_NewThreadWorker(),
       m_TimeAccountingState(),
+      m_DeferredThreadReapStub(),
+      m_DeferredThreadReaps(m_DeferredThreadReapStub),
+      m_nDeferredThreadReaps(0),
+      m_DeferredThreadReapPublicationState(DeferredReapPublicationClosed),
       m_StopTimeAccountingWorker(0),
       m_TimeAccountingWorker(),
       m_IrqWorkDoorbell(0),
-      m_pIdleThread(0) {}
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+      m_nDeferredThreadReapCompletions(0),
+#endif
+      m_pIdleThread(0) {
+}
 
 PerProcessorScheduler::~PerProcessorScheduler() {
-  stopTimeAccountingWorker();
+  // The add worker can retire a never-started detached Thread while draining.
+  // Keep ordinary destruction admission open until that producer is joined.
   stopNewThreadWorker();
 
   SchedulerTimer* pTimer = Machine::instance().getSchedulerTimer();
@@ -80,6 +89,10 @@ PerProcessorScheduler::~PerProcessorScheduler() {
   if (!pTimer->removeHandler(this)) {
     FATAL("Per-processor scheduler lost timer-handler ownership.");
   }
+
+  // With timer-driven scheduling quiesced, close publication, drain accepted
+  // targets, and finally join the ordinary destruction worker.
+  stopTimeAccountingWorker();
 }
 
 void PerProcessorScheduler::startTimeAccountingWorker(Process* pParent) {
@@ -97,6 +110,10 @@ void PerProcessorScheduler::startTimeAccountingWorker(Process* pParent) {
   if (!worker->start()) {
     FATAL("Time accounting worker could not be started.");
   }
+
+  while (!m_DeferredThreadReapPublicationState.compareAndSwap(DeferredReapPublicationClosed, 0)) {
+    Scheduler::instance().yield();
+  }
 }
 
 void PerProcessorScheduler::stopTimeAccountingWorker() {
@@ -104,10 +121,21 @@ void PerProcessorScheduler::stopTimeAccountingWorker() {
     return;
   }
 
+  // Close allocation-free producers before allowing the worker to exit. The
+  // low bits cover a publisher which observed open admission just before this
+  // transition.
+  m_DeferredThreadReapPublicationState |= DeferredReapPublicationClosed;
+  while (m_DeferredThreadReapPublicationState.value() & DeferredReapPublicationCountMask) {
+    Scheduler::instance().yield();
+  }
+
   m_StopTimeAccountingWorker = 1;
   ringIrqWorkDoorbell();
   serviceIrqWorkDoorbell();
   m_TimeAccountingWorker.join();
+  if (m_nDeferredThreadReaps.value()) {
+    FATAL("Deferred Thread reap worker stopped with pending targets.");
+  }
 }
 
 int PerProcessorScheduler::timeAccountingWorkerEntry(void* instance) {
@@ -116,7 +144,9 @@ int PerProcessorScheduler::timeAccountingWorkerEntry(void* instance) {
 
 bool PerProcessorScheduler::timeAccountingWorkerReady(void* instance) {
   PerProcessorScheduler* scheduler = reinterpret_cast<PerProcessorScheduler*>(instance);
-  return scheduler->m_TimeAccountingState.ready(scheduler->m_StopTimeAccountingWorker.value() != 0);
+  return scheduler->m_TimeAccountingState.ready(scheduler->m_StopTimeAccountingWorker.value() !=
+                                                0) ||
+         scheduler->m_nDeferredThreadReaps.value();
 }
 
 int PerProcessorScheduler::runTimeAccountingWorker() {
@@ -125,8 +155,10 @@ int PerProcessorScheduler::runTimeAccountingWorker() {
     const size_t target = m_TimeAccountingState.beginBatch();
     Scheduler::instance().drainDeferredTimeAccounting();
     m_TimeAccountingState.finishBatch(target);
+    drainDeferredThreadReaps();
 
-    if (m_StopTimeAccountingWorker.value() && m_TimeAccountingState.caughtUp()) {
+    if (m_StopTimeAccountingWorker.value() && m_TimeAccountingState.caughtUp() &&
+        !m_nDeferredThreadReaps.value()) {
       break;
     }
 
@@ -136,6 +168,59 @@ int PerProcessorScheduler::runTimeAccountingWorker() {
   }
 
   return 0;
+}
+
+void PerProcessorScheduler::publishDeferredThreadReap(Thread* thread) {
+  const size_t admission = (m_DeferredThreadReapPublicationState += 1);
+  if (admission & DeferredReapPublicationClosed) {
+    m_DeferredThreadReapPublicationState -= 1;
+    FATAL_NOLOCK("Deferred Thread reap publication reached a stopped worker.");
+  }
+
+  DeferredThreadReapNode& node = thread->m_DeferredReapNode;
+  if (node.thread != thread) {
+    FATAL_NOLOCK("Deferred Thread reap node has invalid ownership.");
+  }
+
+  // Make the worker eligible before the node is consumable. A transient pop
+  // simply leaves the nonzero count visible for its next scheduling turn.
+  m_nDeferredThreadReaps += 1;
+  m_DeferredThreadReaps.push(node);
+  ringIrqWorkDoorbell();
+  m_DeferredThreadReapPublicationState -= 1;
+}
+
+bool PerProcessorScheduler::drainDeferredThreadReaps() {
+  using PopResult =
+      IntrusiveMpscQueue<DeferredThreadReapNode, &DeferredThreadReapNode::next>::PopResult;
+
+  while (true) {
+    DeferredThreadReapNode* node = nullptr;
+    const PopResult result = m_DeferredThreadReaps.pop(node);
+    if (result == PopResult::Empty) {
+      return true;
+    }
+    if (result == PopResult::Transient) {
+      return false;
+    }
+    if (!node || !node->thread) {
+      FATAL("Deferred Thread reap queue returned an invalid target.");
+    }
+
+    Thread* thread = node->thread;
+    Process* process = thread->getParent();
+    if (Processor::executionContext() != ExecutionContext::WaitableThread ||
+        !Processor::getInterrupts()) {
+      FATAL("Deferred Thread reap worker is not at an IRQ-enabled WaitableThread boundary.");
+    }
+
+    delete thread;
+    process->m_DeferredThreadReaps.leave();
+    m_nDeferredThreadReaps -= 1;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    m_nDeferredThreadReapCompletions += 1;
+#endif
+  }
 }
 
 struct newThreadData {
@@ -304,6 +389,11 @@ void PerProcessorScheduler::initialise(Thread* pThread) {
   Processor::information().setKernelStack(reinterpret_cast<uintptr_t>(pThread->getKernelStack()));
   Processor::setTlsBase(pThread->getTlsBase());
 
+  startNewThreadWorker(pThread->getParent());
+  startTimeAccountingWorker(pThread->getParent());
+
+  // Do not publish timer-driven exit producers until their allocation-free
+  // retirement consumer is live and accepting work.
   SchedulerTimer* pTimer = Machine::instance().getSchedulerTimer();
   if (!pTimer) {
     panic("No scheduler timer present.");
@@ -311,9 +401,6 @@ void PerProcessorScheduler::initialise(Thread* pThread) {
   if (!pTimer->registerHandler(this)) {
     FATAL("Per-processor scheduler timer handler is already owned.");
   }
-
-  startNewThreadWorker(pThread->getParent());
-  startTimeAccountingWorker(pThread->getParent());
 }
 
 void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEvents) {
@@ -1103,7 +1190,9 @@ void PerProcessorScheduler::deleteThread(Thread* pThread) {
     completesProcessExit = pProcess->terminatingThreadReapable(pThread, wakeExitOwner);
 
     if (deleteTarget) {
-      delete pThread;
+      if (!pProcess->m_DeferredThreadReaps.tryEnter()) {
+        FATAL_NOLOCK("Thread retirement raced closed Process admission.");
+      }
     }
   }
 
@@ -1112,6 +1201,14 @@ void PerProcessorScheduler::deleteThread(Thread* pThread) {
   // prevents a resumed owner from acquiring the queue under an outer lock.
   if (wakeExitOwner) {
     pProcess->m_TerminationWaiters.wakeAll();
+  }
+
+  if (deleteTarget) {
+    PerProcessorScheduler& scheduler = Processor::information().getScheduler();
+    if (pThread->getScheduler() && pThread->getScheduler() != &scheduler) {
+      FATAL_NOLOCK("Thread retirement reached a non-owning scheduler.");
+    }
+    scheduler.publishDeferredThreadReap(pThread);
   }
 
   if (!completesProcessExit) {
@@ -1425,6 +1522,29 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
   Process* kernelProcess = Processor::information().getCurrentThread()->getParent();
   bool passed = true;
 
+  HostedNewThreadContext reapContext;
+  const size_t reapBaseline = m_nDeferredThreadReapCompletions.value();
+  Thread* reapTarget = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &reapContext, nullptr,
+                                  false, true, true, hostedNewThreadStartCleanup);
+  reapTarget->setName("hosted deferred Thread reap target");
+  const bool reapStarted = reapTarget->startDetached();
+  bool reapCompleted = false;
+  for (size_t attempt = 0; attempt < Attempts; ++attempt) {
+    if (m_nDeferredThreadReapCompletions.value() == reapBaseline + 1) {
+      reapCompleted = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+  const bool reapPassed =
+      check(reapStarted && reapCompleted && reapContext.calls == 1 && reapContext.cleanups == 0 &&
+                !m_nDeferredThreadReaps.value(),
+            "detached Thread was not destroyed by the ordinary maintenance worker");
+  passed &= reapPassed;
+  if (reapPassed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS perprocessor-deferred-thread-reap");
+  }
+
   HostedNewThreadContext delayedContext;
   Thread* delayed = new Thread(kernelProcess, hostedNewThreadWorkerEntry, &delayedContext, nullptr,
                                false, true, true, hostedNewThreadStartCleanup);
@@ -1467,8 +1587,26 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
                                 nullptr, false, true, true, hostedNewThreadStartCleanup);
   teardown->setName("hosted add-worker teardown target");
   const bool teardownParked = waitUntilParked(teardown);
+
+  HostedNewThreadContext detachedTeardownContext;
+  const size_t detachedReapBaseline = m_nDeferredThreadReapCompletions.value();
+  Thread* detachedTeardown =
+      new Thread(kernelProcess, hostedNewThreadWorkerEntry, &detachedTeardownContext, nullptr,
+                 false, true, true, hostedNewThreadStartCleanup);
+  detachedTeardown->setName("hosted detached add-worker teardown target");
+  const bool detachedTeardownParked = waitUntilParked(detachedTeardown);
+  const bool detachedTeardownClaimed = detachedTeardown->detach();
+
   stopNewThreadWorker();
   const bool teardownJoined = teardown->joinForCompletion();
+  bool detachedTeardownReaped = false;
+  for (size_t attempt = 0; attempt < Attempts; ++attempt) {
+    if (m_nDeferredThreadReapCompletions.value() == detachedReapBaseline + 1) {
+      detachedTeardownReaped = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
 
   m_NewThreadDataLock.acquire();
   const bool teardownDrained = !m_NewThreadAdmissionOpen && m_StopNewThreadWorker &&
@@ -1485,7 +1623,10 @@ bool PerProcessorScheduler::runHostedNewThreadWorkerRegressions() {
 
   const bool teardownPassed =
       check(teardownParked && teardownJoined && teardownContext.calls == 0 &&
-                teardownContext.cleanups == 1 && teardownDrained && workerJoined,
+                teardownContext.cleanups == 1 && detachedTeardownParked &&
+                detachedTeardownClaimed && detachedTeardownReaped &&
+                detachedTeardownContext.calls == 0 && detachedTeardownContext.cleanups == 1 &&
+                !m_nDeferredThreadReaps.value() && teardownDrained && workerJoined,
             "owned add worker did not drain and join with pending parked work");
   passed &= teardownPassed;
   if (teardownPassed) {

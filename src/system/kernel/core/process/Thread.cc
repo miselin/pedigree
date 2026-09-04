@@ -158,6 +158,13 @@ static_assert(MAX_NESTED_EVENTS > HostedPreallocatedUserStateLevel,
               "Hosted return-tail state levels exceed the Thread nesting limit");
 #endif
 
+void requireThreadDestructionContext() {
+  if (Processor::executionContext() != ExecutionContext::WaitableThread ||
+      !Processor::getInterrupts()) {
+    FATAL_NOLOCK("Thread destruction requires an IRQ-enabled WaitableThread boundary.");
+  }
+}
+
 class CpuTimeSample {
  public:
   CpuTimeSample()
@@ -190,7 +197,7 @@ Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, v
 Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, void* pStack,
                bool semiUser, bool bDontPickCore, bool delayedStart,
                ThreadStartCleanup startCleanup)
-    : m_pParent(pParent) {
+    : m_pParent(pParent), m_DeferredReapNode(this) {
   if (pParent == 0) {
     FATAL("Thread::Thread(): Parent process was NULL!");
   }
@@ -266,7 +273,9 @@ Thread::Thread(Process* pParent, ThreadStartFunc pStartFunction, void* pParam, v
 }
 
 Thread::Thread(Process* pParent)
-    : m_pParent(pParent), m_pScheduler(&Processor::information().getScheduler()) {
+    : m_pParent(pParent),
+      m_DeferredReapNode(this),
+      m_pScheduler(&Processor::information().getScheduler()) {
   if (pParent == 0) {
     FATAL("Thread::Thread(): Parent process was NULL!");
   }
@@ -280,7 +289,8 @@ Thread::Thread(Process* pParent)
   Scheduler::instance().addThread(this, *m_pScheduler);
 }
 
-Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart) : m_pParent(pParent) {
+Thread::Thread(Process* pParent, SyscallState& state, bool delayedStart)
+    : m_pParent(pParent), m_DeferredReapNode(this) {
   if (pParent == 0) {
     FATAL("Thread::Thread(): Parent process was NULL!");
   }
@@ -672,13 +682,16 @@ bool Thread::startDetached() {
 
   if (deleteNow) {
     closeExternalLeaseAdmissionAndDrain();
-    RecursingLockGuard<Spinlock> processGuard(parent->m_Lock);
     {
-      auto guard = m_JoinWaiters.acquire();
-      deleteNow =
-          m_bDetached && m_bReapable && !m_bProcessExitOwned && m_bDetachedRetirementClaimed;
+      RecursingLockGuard<Spinlock> processGuard(parent->m_Lock);
+      {
+        auto guard = m_JoinWaiters.acquire();
+        deleteNow =
+            m_bDetached && m_bReapable && !m_bProcessExitOwned && m_bDetachedRetirementClaimed;
+      }
     }
     if (deleteNow) {
+      requireThreadDestructionContext();
       delete this;
     }
   }
@@ -2298,8 +2311,8 @@ bool Thread::joinInternal(bool completion) {
     // Existing inspectors finish before the target can be deleted.
     closeExternalLeaseAdmissionAndDrain();
 
-    // Serialise the final ownership check and deletion with Process::kill.
-    // Process exit retains every participant until Process destruction.
+    // Serialise the final ownership decision with Process::kill. The active
+    // join operation pins the parent while deletion runs after this lock.
     bool processOwnsTarget = false;
     {
       RecursingLockGuard<Spinlock> processGuard(pParent->m_Lock);
@@ -2318,13 +2331,11 @@ bool Thread::joinInternal(bool completion) {
       // below deletes it. From here, ordinary code owns the claim release.
       discardScope.disarm();
       discard.claimed = false;
+    }
 
-      if (!processOwnsTarget) {
-        // markReapable() runs only after the scheduler has switched
-        // away from this stack. Holding the Process lock keeps its
-        // thread vector stable.
-        delete this;
-      }
+    if (!processOwnsTarget) {
+      requireThreadDestructionContext();
+      delete this;
     }
 
     pParent->endThreadJoin();
@@ -2418,10 +2429,11 @@ void Thread::endExternalLease() {
       // a completion waiter.
       m_ExternalLeaseWaiters.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
     }
+  }
 
-    if (deleteNow) {
-      delete this;
-    }
+  if (deleteNow) {
+    requireThreadDestructionContext();
+    delete this;
   }
 }
 
@@ -2500,13 +2512,16 @@ bool Thread::detach() {
 
   if (deleteNow) {
     closeExternalLeaseAdmissionAndDrain();
-    RecursingLockGuard<Spinlock> processGuard(pParent->m_Lock);
     {
-      auto guard = m_JoinWaiters.acquire();
-      deleteNow = deleteNow && m_bDetached && m_bReapable && !m_bProcessExitOwned &&
-                  m_bDetachedRetirementClaimed;
+      RecursingLockGuard<Spinlock> processGuard(pParent->m_Lock);
+      {
+        auto guard = m_JoinWaiters.acquire();
+        deleteNow = deleteNow && m_bDetached && m_bReapable && !m_bProcessExitOwned &&
+                    m_bDetachedRetirementClaimed;
+      }
     }
     if (deleteNow) {
+      requireThreadDestructionContext();
       delete this;
     }
   }

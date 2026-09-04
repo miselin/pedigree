@@ -23,12 +23,14 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/SchedulerTimerHandler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/DeferredThreadReap.h"
 #include "pedigree/kernel/process/DeferredTimeAccounting.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OwnedThread.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/IntrusiveMpscQueue.h"
 #include "pedigree/kernel/utilities/List.h"
 
 #include <config.h>
@@ -212,6 +214,8 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   static int timeAccountingWorkerEntry(void* instance);
   static bool timeAccountingWorkerReady(void* instance);
   int runTimeAccountingWorker();
+  void publishDeferredThreadReap(Thread* thread);
+  bool drainDeferredThreadReaps();
 
   /** The current SchedulingAlgorithm */
   SchedulingAlgorithm* m_pSchedulingAlgorithm;
@@ -225,9 +229,21 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   bool m_StopNewThreadWorker;
   OwnedThread m_NewThreadWorker;
   DeferredTimeAccountingWorkerState m_TimeAccountingState;
+  DeferredThreadReapNode m_DeferredThreadReapStub;
+  IntrusiveMpscQueue<DeferredThreadReapNode, &DeferredThreadReapNode::next> m_DeferredThreadReaps;
+  Atomic<size_t> m_nDeferredThreadReaps;
+  Atomic<size_t> m_DeferredThreadReapPublicationState;
   Atomic<size_t> m_StopTimeAccountingWorker;
   OwnedThread m_TimeAccountingWorker;
   Atomic<size_t> m_IrqWorkDoorbell;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  Atomic<size_t> m_nDeferredThreadReapCompletions;
+#endif
+
+  static constexpr size_t DeferredReapPublicationClosed = static_cast<size_t>(1)
+                                                          << ((sizeof(size_t) * 8) - 1);
+  static constexpr size_t DeferredReapPublicationCountMask = ~DeferredReapPublicationClosed;
 
   static int processorAddThread(void* instance);
 

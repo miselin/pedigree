@@ -878,6 +878,9 @@ class EXPORTED_PUBLIC Process {
   /** Prevents time-report callbacks from crossing process teardown. */
   OperationBarrier m_TimeAccountingReports;
 
+  /** Pins the Process while an off-stack Thread awaits ordinary destruction. */
+  OperationBarrier m_DeferredThreadReaps;
+
   /** Stock kernel processes do not need timer-report worker publications. */
   bool m_bTimeAccountingReportsEnabled;
 

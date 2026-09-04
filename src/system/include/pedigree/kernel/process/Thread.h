@@ -24,6 +24,7 @@
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/process/DeferredScope.h"
+#include "pedigree/kernel/process/DeferredThreadReap.h"
 #include "pedigree/kernel/process/DeferredTimeAccounting.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/ExecutionContext.h"
@@ -948,6 +949,9 @@ class EXPORTED_PUBLIC Thread {
 
   /** Our parent process. */
   Process* m_pParent = nullptr;
+
+  /** Allocation-free publication storage for scheduler-side retirement. */
+  DeferredThreadReapNode m_DeferredReapNode;
 
   /** Per-thread baselines avoid cross-CPU corruption within one Process. */
   ThreadTimeAccounting m_TimeAccounting;

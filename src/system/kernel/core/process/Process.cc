@@ -680,6 +680,11 @@ Process::~Process() {
   TerminationDeferral terminationDeferral;
   prepareForDestruction();
 
+  // A scheduler callback can publish a reapable detached Thread immediately
+  // before process termination observes it. Keep the Process and its address
+  // space alive until the ordinary retirement worker has removed that Thread.
+  m_DeferredThreadReaps.closeAndWait();
+
   // A joiner releases this lease only after it has stopped using both the
   // target Thread and this Process. Closing admission first makes the drain
   // a one-way lifetime barrier.
