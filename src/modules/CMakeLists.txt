@@ -394,6 +394,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pselect-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/scalar-io-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/static-syscall-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/time-syscall-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/usercopy-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/vector-io-regressions.cc)
 endif ()

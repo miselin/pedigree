@@ -1731,29 +1731,58 @@ int posix_iopl(int level) {
 #undef SC_NOTICE
 #define SC_NOTICE(x)
 
+namespace {
+constexpr Time::Timestamp MaximumLinuxTimerNanoseconds = 0x7FFFFFFFFFFFFFFFULL;
+
+IntervalTimer* selectIntervalTimer(PosixProcess* process, int which) {
+  switch (which) {
+    case ITIMER_REAL:
+      return &process->getRealIntervalTimer();
+    case ITIMER_VIRTUAL:
+      return &process->getVirtualIntervalTimer();
+    case ITIMER_PROF:
+      return &process->getProfileIntervalTimer();
+    default:
+      return nullptr;
+  }
+}
+
+bool validIntervalTimeval(const struct timeval& value) {
+  return value.tv_sec >= 0 && value.tv_usec >= 0 && value.tv_usec < 1000000;
+}
+
+Time::Timestamp intervalTimevalToNanoseconds(const struct timeval& value) {
+  const Time::Timestamp microseconds =
+      static_cast<Time::Timestamp>(value.tv_usec) * Time::Multiplier::Microsecond;
+  const Time::Timestamp seconds = static_cast<Time::Timestamp>(value.tv_sec);
+  if (seconds >= MaximumLinuxTimerNanoseconds / Time::Multiplier::Second) {
+    return MaximumLinuxTimerNanoseconds;
+  }
+  return seconds * Time::Multiplier::Second + microseconds;
+}
+
+struct itimerval intervalTimerToUser(Time::Timestamp interval, Time::Timestamp value) {
+  struct itimerval result = {};
+  result.it_interval.tv_sec = interval / Time::Multiplier::Second;
+  result.it_interval.tv_usec =
+      (interval % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+  result.it_value.tv_sec = value / Time::Multiplier::Second;
+  result.it_value.tv_usec = (value % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+  return result;
+}
+}  // namespace
+
 int posix_getitimer(int which, struct itimerval* curr_value) {
   SC_NOTICE("posix_getitimer(" << which << ", " << curr_value << ")");
 
   Thread* currentThread = Processor::information().getCurrentThread();
   PosixProcess* pProcess = static_cast<PosixProcess*>(currentThread->getParent());
 
-  /// \todo check address for safety
-
   Time::Timestamp interval = 0;
   Time::Timestamp value = 0;
 
-  IntervalTimer* itimer = &pProcess->getRealIntervalTimer();
-  if (which == ITIMER_REAL) {
-    SC_NOTICE(" -> ITIMER_REAL");
-  } else if (which == ITIMER_VIRTUAL) {
-    SC_NOTICE(" -> ITIMER_VIRTUAL");
-
-    itimer = &pProcess->getVirtualIntervalTimer();
-  } else if (which == ITIMER_PROF) {
-    SC_NOTICE(" -> ITIMER_VIRTUAL");
-
-    itimer = &pProcess->getProfileIntervalTimer();
-  } else {
+  IntervalTimer* itimer = selectIntervalTimer(pProcess, which);
+  if (!itimer) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -1763,56 +1792,48 @@ int posix_getitimer(int which, struct itimerval* curr_value) {
   }
   itimer->getIntervalAndValue(interval, value);
 
-  curr_value->it_interval.tv_sec = interval / Time::Multiplier::Second;
-  curr_value->it_interval.tv_usec =
-      (interval % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+  const struct itimerval result = intervalTimerToUser(interval, value);
+  if (!PosixSubsystem::copyToUser(curr_value, &result, sizeof(result))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
 
-  curr_value->it_value.tv_sec = value / Time::Multiplier::Second;
-  curr_value->it_value.tv_usec = (value % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
-
-  SC_NOTICE(" -> period = " << Dec << curr_value->it_interval.tv_sec << "s "
-                            << curr_value->it_interval.tv_usec << "us");
-  SC_NOTICE(" -> value = " << Dec << curr_value->it_value.tv_sec << "s "
-                           << curr_value->it_value.tv_usec << "us");
+  SC_NOTICE(" -> period = " << Dec << result.it_interval.tv_sec << "s "
+                            << result.it_interval.tv_usec << "us");
+  SC_NOTICE(" -> value = " << Dec << result.it_value.tv_sec << "s " << result.it_value.tv_usec
+                           << "us");
 
   return 0;
 }
 
 int posix_setitimer(int which, const struct itimerval* new_value, struct itimerval* old_value) {
   SC_NOTICE("posix_setitimer(" << which << ", " << new_value << ", " << old_value << ")");
-  SC_NOTICE(" -> period = " << Dec << new_value->it_interval.tv_sec << "s "
-                            << new_value->it_interval.tv_usec << "us");
-  SC_NOTICE(" -> value = " << Dec << new_value->it_value.tv_sec << "s "
-                           << new_value->it_value.tv_usec << "us");
 
-  /// \todo check addresses for safety
+  struct itimerval requested = {};
+  if (new_value && !PosixSubsystem::copyFromUser(&requested, new_value, sizeof(requested))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  if (!validIntervalTimeval(requested.it_interval) || !validIntervalTimeval(requested.it_value)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  SC_NOTICE(" -> period = " << Dec << requested.it_interval.tv_sec << "s "
+                            << requested.it_interval.tv_usec << "us");
+  SC_NOTICE(" -> value = " << Dec << requested.it_value.tv_sec << "s " << requested.it_value.tv_usec
+                           << "us");
 
   Thread* currentThread = Processor::information().getCurrentThread();
   PosixProcess* pProcess = static_cast<PosixProcess*>(currentThread->getParent());
 
-  Time::Timestamp interval = 0;
-  Time::Timestamp value = 0;
-
+  const Time::Timestamp interval = intervalTimevalToNanoseconds(requested.it_interval);
+  const Time::Timestamp value = intervalTimevalToNanoseconds(requested.it_value);
   Time::Timestamp prevInterval = 0;
   Time::Timestamp prevValue = 0;
 
-  interval = (new_value->it_interval.tv_sec * Time::Multiplier::Second) +
-             (new_value->it_interval.tv_usec * Time::Multiplier::Microsecond);
-  value = (new_value->it_value.tv_sec * Time::Multiplier::Second) +
-          (new_value->it_value.tv_usec * Time::Multiplier::Microsecond);
-
-  IntervalTimer* itimer = &pProcess->getRealIntervalTimer();
-  if (which == ITIMER_REAL) {
-    SC_NOTICE(" -> ITIMER_REAL");
-  } else if (which == ITIMER_VIRTUAL) {
-    SC_NOTICE(" -> ITIMER_VIRTUAL");
-
-    itimer = &pProcess->getVirtualIntervalTimer();
-  } else if (which == ITIMER_PROF) {
-    SC_NOTICE(" -> ITIMER_VIRTUAL");
-
-    itimer = &pProcess->getProfileIntervalTimer();
-  } else {
+  IntervalTimer* itimer = selectIntervalTimer(pProcess, which);
+  if (!itimer) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -1823,13 +1844,11 @@ int posix_setitimer(int which, const struct itimerval* new_value, struct itimerv
   itimer->setIntervalAndValue(interval, value, &prevInterval, &prevValue);
 
   if (old_value) {
-    old_value->it_interval.tv_sec = prevInterval / Time::Multiplier::Second;
-    old_value->it_interval.tv_usec =
-        (prevInterval % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
-
-    old_value->it_value.tv_sec = prevValue / Time::Multiplier::Second;
-    old_value->it_value.tv_usec =
-        (prevValue % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+    const struct itimerval previous = intervalTimerToUser(prevInterval, prevValue);
+    if (!PosixSubsystem::copyToUser(old_value, &previous, sizeof(previous))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
   }
 
   return 0;

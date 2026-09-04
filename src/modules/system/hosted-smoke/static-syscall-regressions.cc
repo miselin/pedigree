@@ -57,6 +57,7 @@ extern bool runHostedEventFdRegressions(Process* process);
 extern bool runHostedPpollRegressions(Process* process);
 extern bool runHostedPselectRegressions(Process* process);
 extern bool runHostedScalarIoRegressions(Process* process);
+extern bool runHostedTimeSyscallRegressions(Process* process);
 extern bool runHostedUsercopyRegressions(Process* process);
 extern bool runHostedVectorIoRegressions(Process* process);
 
@@ -4711,6 +4712,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN usercopy");
   if (!runHostedUsercopyRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN interval-timer-usercopy");
+  if (!runHostedTimeSyscallRegressions(kernelProcess)) {
     return false;
   }
 
