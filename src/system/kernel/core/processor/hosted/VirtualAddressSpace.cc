@@ -239,6 +239,115 @@ void HostedVirtualAddressSpace::getMapping(void* virtualAddress, physical_uintpt
   panic("HostedVirtualAddressSpace::getMapping - function misused");
 }
 
+bool HostedVirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, bool userMode) {
+  virtualAddress = page_align(virtualAddress);
+
+  if (this != &getKernelAddressSpace() && getKernelAddressSpace().isMapped(virtualAddress)) {
+    return getKernelAddressSpace().handleCopyOnWriteFault(virtualAddress, userMode);
+  }
+
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    mapping_t* mapping = nullptr;
+    for (size_t i = 0; i < m_KnownMapsSize; ++i) {
+      if (m_pKnownMaps[i].active && m_pKnownMaps[i].vaddr == virtualAddress) {
+        mapping = &m_pKnownMaps[i];
+        break;
+      }
+    }
+
+    if (!mapping) {
+      return false;
+    }
+    if (userMode && (mapping->flags & KernelMode)) {
+      return false;
+    }
+    if ((mapping->flags & Write) && !(mapping->flags & CopyOnWrite)) {
+      return true;
+    }
+    if (!(mapping->flags & CopyOnWrite) || (mapping->flags & Swapped)) {
+      return false;
+    }
+  }
+
+  PhysicalMemoryManager& physicalMemory = PhysicalMemoryManager::instance();
+  const physical_uintptr_t replacement = physicalMemory.allocatePage();
+  if (!replacement) {
+    return false;
+  }
+
+#if PEDIGREE_HOSTED_SMOKE_TESTS
+  copyOnWritePreCommitForTest(virtualAddress);
+#endif
+
+  bool retireReplacement = true;
+  bool resolved = false;
+  bool publicationFailed = false;
+  physical_uintptr_t oldPhysical = 0;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    mapping_t* mapping = nullptr;
+    for (size_t i = 0; i < m_KnownMapsSize; ++i) {
+      if (m_pKnownMaps[i].active && m_pKnownMaps[i].vaddr == virtualAddress) {
+        mapping = &m_pKnownMaps[i];
+        break;
+      }
+    }
+
+    if (mapping && userMode && (mapping->flags & KernelMode)) {
+      resolved = false;
+    } else if (mapping && (mapping->flags & Write) && !(mapping->flags & CopyOnWrite)) {
+      resolved = true;
+    } else if (mapping && (mapping->flags & CopyOnWrite) && !(mapping->flags & Swapped)) {
+      const size_t pageSize = PhysicalMemoryManager::getPageSize();
+      void* sourceAlias =
+          mmap(nullptr, pageSize, PROT_READ, MAP_SHARED,
+               HostedPhysicalMemoryManager::instance().getBackingFile(), mapping->paddr);
+      if (sourceAlias != MAP_FAILED) {
+        void* replacementAlias =
+            mmap(nullptr, pageSize, PROT_READ | PROT_WRITE, MAP_SHARED,
+                 HostedPhysicalMemoryManager::instance().getBackingFile(), replacement);
+        if (replacementAlias != MAP_FAILED) {
+          MemoryCopy(replacementAlias, sourceAlias, pageSize);
+
+          const size_t replacementFlags =
+              (mapping->flags | VirtualAddressSpace::Write) & ~VirtualAddressSpace::CopyOnWrite;
+          void* published = mmap(
+              virtualAddress, pageSize, toFlags(replacementFlags, true), MAP_FIXED | MAP_SHARED,
+              HostedPhysicalMemoryManager::instance().getBackingFile(), replacement);
+          if (published == virtualAddress) {
+            oldPhysical = mapping->paddr;
+            mapping->paddr = replacement;
+            mapping->flags = replacementFlags;
+            retireReplacement = false;
+            resolved = true;
+          } else {
+            ERROR("HostedVirtualAddressSpace::handleCopyOnWriteFault failed to publish at "
+                  << Hex << reinterpret_cast<uintptr_t>(virtualAddress) << " (errno " << Dec
+                  << errno << ")");
+            publicationFailed = true;
+          }
+          munmap(replacementAlias, pageSize);
+        }
+        munmap(sourceAlias, pageSize);
+      }
+    }
+  }
+
+  if (publicationFailed) {
+    physicalMemory.freePage(replacement);
+    panic("Hosted copy-on-write publication lost the original host mapping");
+  }
+
+  if (retireReplacement) {
+    physicalMemory.freePage(replacement);
+  }
+  if (oldPhysical) {
+    physicalMemory.freePage(oldPhysical);
+  }
+  return resolved;
+}
+
 bool HostedVirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value) {
   if (!address || (address % alignof(uint32_t)) || address < getUserStart() ||
       address >= getKernelStart() || address > getKernelStart() - sizeof(value)) {

@@ -86,6 +86,7 @@ class HostedVirtualAddressSpace : public VirtualAddressSpace {
 
   virtual bool map(physical_uintptr_t physAddress, void* virtualAddress, size_t flags);
   virtual void getMapping(void* virtualAddress, physical_uintptr_t& physAddress, size_t& flags);
+  virtual bool handleCopyOnWriteFault(void* virtualAddress, bool userMode);
   virtual bool tryWriteUser32(uintptr_t address, uint32_t value);
   virtual void setFlags(void* virtualAddress, size_t newFlags);
   virtual void unmap(void* virtualAddress);

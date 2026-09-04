@@ -26,7 +26,6 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
-#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/state.h"
 
@@ -44,9 +43,6 @@ extern "C" void __asan_report_error(void* pc, void* bp, void* sp, void* addr, in
 
 #include <signal.h>
 #include <ucontext.h>
-
-#undef SUPERDEBUG
-#define SUPERDEBUG 1
 
 PageFaultHandler PageFaultHandler::m_Instance;
 
@@ -71,10 +67,17 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
   state.setStackPointer(HostedPlatform::stackPointer(ctx));
   state.setBasePointer(HostedPlatform::basePointer(ctx));
 
-  bool isWrite = code == SEGV_ACCERR;
+  bool isWrite = false;
   uintptr_t errorCode = code;
   bool wasPresent = code == SEGV_ACCERR;
-#ifdef REG_ERR
+#if defined(__APPLE__) && defined(__aarch64__)
+  isWrite = (ctx->uc_mcontext->__es.__esr & (1U << 6U)) != 0;
+  errorCode = (wasPresent ? 0x1 : 0) | (isWrite ? 0x2 : 0);
+#elif defined(__APPLE__) && defined(__x86_64__)
+  errorCode = ctx->uc_mcontext->__es.__err;
+  isWrite = (errorCode & 0x2) != 0;
+  wasPresent = (errorCode & 0x1) != 0;
+#elif defined(REG_ERR)
   // SIGSEGV's si_code only distinguishes missing pages from protection
   // faults. The processor error code retains the read/write distinction.
   isWrite = (ctx->uc_mcontext.gregs[REG_ERR] & 0x2) != 0;
@@ -83,61 +86,9 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
 #endif
 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-  if (va.isMapped(reinterpret_cast<void*>(page))) {
-    physical_uintptr_t phys;
-    size_t flags;
-    va.getMapping(reinterpret_cast<void*>(page), phys, flags);
-    if (flags & VirtualAddressSpace::CopyOnWrite) {
-#if SUPERDEBUG
-      NOTICE_NOLOCK(Processor::information().getCurrentThread()->getParent()->getId()
-                    << " PageFaultHandler: copy-on-write for v=" << page);
-#endif
-
-      Process* pProcess = Processor::information().getCurrentThread()->getParent();
-      size_t pageSz = PhysicalMemoryManager::instance().getPageSize();
-
-      // Get a temporary page in which we can store the current mapping
-      // for copy.
-      uintptr_t tempAddr = 0;
-      pProcess->getSpaceAllocator().allocate(pageSz, tempAddr);
-
-      // Map temporary page to the old page.
-      if (!va.map(phys, reinterpret_cast<void*>(tempAddr), VirtualAddressSpace::KernelMode)) {
-        FATAL_NOLOCK("PageFaultHandler: CoW temporary map() failed");
-        return;
-      }
-
-      // OK, we can now unmap the old page - we hold a valid temporary
-      // mapping.
-      va.unmap(reinterpret_cast<void*>(page));
-
-      // Allocate new page for the new memory region.
-      physical_uintptr_t p = PhysicalMemoryManager::instance().allocatePage();
-      if (!p) {
-        FATAL_NOLOCK("PageFaultHandler: CoW OOM'd!");
-        return;
-      }
-
-      // Map in the new page, making sure to mark it not CoW.
-      flags |= VirtualAddressSpace::Write;
-      flags &= ~VirtualAddressSpace::CopyOnWrite;
-      if (!va.map(p, reinterpret_cast<void*>(page), flags)) {
-        FATAL_NOLOCK("PageFaultHandler: CoW new map() failed.");
-        return;
-      }
-
-      // Perform the actual copy.
-      MemoryCopy(reinterpret_cast<uint8_t*>(page), reinterpret_cast<uint8_t*>(tempAddr), pageSz);
-
-      // Release temporary page.
-      va.unmap(reinterpret_cast<void*>(tempAddr));
-      pProcess->getSpaceAllocator().free(tempAddr, pageSz);
-
-      // Clean up old reference to memory (may free the page, if we were
-      // the last one to reference the CoW page)
-      PhysicalMemoryManager::instance().freePage(phys);
-      return;
-    }
+  if (wasPresent && isWrite &&
+      va.handleCopyOnWriteFault(reinterpret_cast<void*>(page), !state.kernelMode())) {
+    return;
   }
 
   if (page < reinterpret_cast<uintptr_t>(KERNEL_SPACE_START)) {

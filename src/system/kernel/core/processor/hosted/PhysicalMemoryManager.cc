@@ -184,6 +184,31 @@ void HostedPhysicalMemoryManager::pin(physical_uintptr_t page) {
   }
 }
 
+#if PEDIGREE_HOSTED_SMOKE_TESTS
+size_t PhysicalMemoryManager::pageReferenceCountForTest(physical_uintptr_t page) {
+  return HostedPhysicalMemoryManager::instance().pageReferenceCountForTestImpl(page);
+}
+
+size_t HostedPhysicalMemoryManager::pageReferenceCountForTestImpl(physical_uintptr_t page) {
+  RecursingLockGuard<Spinlock> guard(m_Lock);
+
+  if (page >= HOSTED_PHYSICAL_MEMORY_SIZE) {
+    return 0;
+  }
+
+  const PageHashable index(page);
+  const MetadataTable::LookupResult result = m_PageMetadata.lookup(index);
+  if (result.hasValue() && result.value().active) {
+    return result.value().refcount;
+  }
+
+  const physical_uintptr_t bitmapPage = page / getPageSize();
+  const size_t bitmapIndex = bitmapPage / 32;
+  const size_t bitmapBit = bitmapPage % 32;
+  return (g_PageBitmap[bitmapIndex] & (1U << bitmapBit)) ? 1 : 0;
+}
+#endif
+
 bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t cPages,
                                                  size_t pageConstraints, size_t Flags,
                                                  physical_uintptr_t start) {

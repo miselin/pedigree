@@ -40,6 +40,7 @@
 class HostedPhysicalMemoryManager : public PhysicalMemoryManager {
   friend class CacheManager;
   friend class Cache;
+  friend class PhysicalMemoryManager;
   /** For getBackingFile() */
   friend class HostedVirtualAddressSpace;
 
@@ -86,6 +87,10 @@ class HostedPhysicalMemoryManager : public PhysicalMemoryManager {
   inline int getBackingFile() const {
     return m_BackingFile;
   }
+
+#if PEDIGREE_HOSTED_SMOKE_TESTS
+  size_t pageReferenceCountForTestImpl(physical_uintptr_t page);
+#endif
 
   void unmapRegion(MemoryRegion* pRegion);
 

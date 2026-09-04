@@ -11,8 +11,11 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
+#include "pedigree/kernel/utilities/utility.h"
 
 namespace {
 bool check(bool condition, const char* detail, const char* test = "pagefault-handler-lifetime") {
@@ -663,6 +666,167 @@ bool handlerLifetimeBarrier() {
   return passed;
 }
 
+struct CopyOnWriteRaceContext {
+  CopyOnWriteRaceContext(VirtualAddressSpace* addressSpace, void* address)
+      : addressSpace(addressSpace),
+        address(address),
+        arrivals(0),
+        release(0),
+        successes(0),
+        failures(0) {}
+
+  VirtualAddressSpace* addressSpace;
+  void* address;
+  Atomic<size_t> arrivals;
+  Atomic<size_t> release;
+  Atomic<size_t> successes;
+  Atomic<size_t> failures;
+};
+
+CopyOnWriteRaceContext* g_CopyOnWriteRaceContext = nullptr;
+
+void copyOnWritePreCommit(void* address) {
+  CopyOnWriteRaceContext* context = g_CopyOnWriteRaceContext;
+  if (!context || context->address != address) {
+    return;
+  }
+
+  context->arrivals += 1;
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (!context->release && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+  if (!context->release) {
+    context->failures += 1;
+  }
+}
+
+int resolveCopyOnWrite(void* parameter) {
+  CopyOnWriteRaceContext* context = reinterpret_cast<CopyOnWriteRaceContext*>(parameter);
+  if (context->addressSpace->handleCopyOnWriteFault(context->address, true)) {
+    context->successes += 1;
+    return 0;
+  }
+
+  context->failures += 1;
+  return 1;
+}
+
+bool concurrentCopyOnWriteResolution() {
+  constexpr const char* Test = "pagefault-cow-atomic-publish";
+  VirtualAddressSpace& addressSpace = Processor::information().getVirtualAddressSpace();
+  PhysicalMemoryManager& physicalMemory = PhysicalMemoryManager::instance();
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+
+  void* address = reinterpret_cast<void*>(addressSpace.getDynamicStart() + (16 * pageSize));
+  while (addressSpace.isMapped(address)) {
+    address = adjust_pointer(address, pageSize);
+  }
+
+  const physical_uintptr_t original = physicalMemory.allocatePage();
+  physicalMemory.pin(original);
+  physicalMemory.pin(original);
+  if (!addressSpace.map(original, address, VirtualAddressSpace::Write)) {
+    physicalMemory.freePage(original);
+    physicalMemory.freePage(original);
+    return check(false, "the copy-on-write fixture could not be mapped", Test);
+  }
+
+  uint8_t* bytes = reinterpret_cast<uint8_t*>(address);
+  for (size_t i = 0; i < pageSize; ++i) {
+    bytes[i] = static_cast<uint8_t>((i * 37U + 11U) & 0xFFU);
+  }
+  addressSpace.setFlags(address, VirtualAddressSpace::CopyOnWrite);
+
+  CopyOnWriteRaceContext context(&addressSpace, address);
+  Thread* first = new Thread(Scheduler::instance().getKernelProcess(), resolveCopyOnWrite, &context,
+                             nullptr, false, true, true);
+  Thread* second = new Thread(Scheduler::instance().getKernelProcess(), resolveCopyOnWrite,
+                              &context, nullptr, false, true, true);
+  first->setName("hosted first copy-on-write resolver");
+  second->setName("hosted second copy-on-write resolver");
+
+  g_CopyOnWriteRaceContext = &context;
+  VirtualAddressSpace::setCopyOnWritePreCommitHookForTest(copyOnWritePreCommit);
+  const bool firstStarted = first->start();
+  const bool secondStarted = second->start();
+
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (context.arrivals != static_cast<size_t>(2) && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+
+  physical_uintptr_t preCommitPhysical = 0;
+  size_t preCommitFlags = 0;
+  addressSpace.getMapping(address, preCommitPhysical, preCommitFlags);
+  const size_t preCommitReferences = PhysicalMemoryManager::pageReferenceCountForTest(original);
+  context.release = 1;
+
+  const bool firstJoined = firstStarted && first->joinForCompletion();
+  const bool secondJoined = secondStarted && second->joinForCompletion();
+  VirtualAddressSpace::setCopyOnWritePreCommitHookForTest(nullptr);
+  g_CopyOnWriteRaceContext = nullptr;
+
+  physical_uintptr_t finalPhysical = 0;
+  size_t finalFlags = 0;
+  addressSpace.getMapping(address, finalPhysical, finalFlags);
+  bool contentPreserved = true;
+  for (size_t i = 0; i < pageSize; ++i) {
+    const uint8_t expected = static_cast<uint8_t>((i * 37U + 11U) & 0xFFU);
+    if (bytes[i] != expected) {
+      contentPreserved = false;
+      break;
+    }
+  }
+
+  const size_t oldReferencesAfter = PhysicalMemoryManager::pageReferenceCountForTest(original);
+  const size_t replacementReferences =
+      PhysicalMemoryManager::pageReferenceCountForTest(finalPhysical);
+
+  bool passed = true;
+  passed &= check(firstStarted && secondStarted && context.arrivals == 2,
+                  "both resolvers did not reach the pre-commit window", Test);
+  passed &=
+      check(preCommitPhysical == original && (preCommitFlags & VirtualAddressSpace::CopyOnWrite) &&
+                !(preCommitFlags & VirtualAddressSpace::Write),
+            "a replacement became visible before race revalidation", Test);
+  passed &= check(preCommitReferences == 2,
+                  "the pre-commit window changed the shared-page references", Test);
+  passed &= check(firstJoined && secondJoined && context.successes == 2 && context.failures == 0,
+                  "the winner or stale-fault resolver did not complete", Test);
+  passed &= check(finalPhysical != original && (finalFlags & VirtualAddressSpace::Write) &&
+                      !(finalFlags & VirtualAddressSpace::CopyOnWrite),
+                  "the winning replacement was not published writable", Test);
+  passed &= check(contentPreserved, "the replacement exposed incomplete page contents", Test);
+  passed &= check(oldReferencesAfter == 1 && replacementReferences == 1,
+                  "the race did not retire exactly one shared-page reference", Test);
+
+  addressSpace.setFlags(address, VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
+  const bool userPrivilegeRejected = !addressSpace.handleCopyOnWriteFault(address, true);
+  physical_uintptr_t privilegedPhysical = 0;
+  size_t privilegedFlags = 0;
+  addressSpace.getMapping(address, privilegedPhysical, privilegedFlags);
+  passed &= check(userPrivilegeRejected && privilegedPhysical == finalPhysical &&
+                      (privilegedFlags & VirtualAddressSpace::KernelMode) &&
+                      (privilegedFlags & VirtualAddressSpace::Write) &&
+                      !(privilegedFlags & VirtualAddressSpace::CopyOnWrite),
+                  "a user fault accepted a supervisor-only writable mapping as stale", Test);
+
+  addressSpace.unmap(address);
+  physicalMemory.freePage(finalPhysical);
+  physicalMemory.freePage(original);
+  const size_t finalOldReferences = PhysicalMemoryManager::pageReferenceCountForTest(original);
+  const size_t finalReplacementReferences =
+      PhysicalMemoryManager::pageReferenceCountForTest(finalPhysical);
+  passed &= check(finalOldReferences == 0 && finalReplacementReferences == 0,
+                  "the test mappings did not release both physical pages", Test);
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS pagefault-cow-atomic-publish");
+  }
+  return passed;
+}
+
 struct AbandonedDispatchContext;
 AbandonedDispatchContext* g_AbandonedDispatchContext = nullptr;
 
@@ -812,6 +976,7 @@ bool runHostedPageFaultRegressions() {
   passed &= atomicReopenPreservesSelfRemoval();
   passed &= nestedDispatchRemoval();
   passed &= handlerLifetimeBarrier();
+  passed &= concurrentCopyOnWriteResolution();
   passed &= abandonedDispatchCleanup();
   return passed;
 }

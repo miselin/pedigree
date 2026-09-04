@@ -122,6 +122,18 @@ class VirtualAddressSpace {
                           size_t& flags) = 0;
 
   /**
+   * Resolve a write-protection fault on a copy-on-write mapping.
+   *
+   * The replacement page is initialised before it becomes visible. Concurrent
+   * callers revalidate the mapping and treat an already-writable replacement
+   * as a successfully handled stale fault when the faulting privilege level
+   * may access it.
+   *
+   * \param[in] userMode true when the faulting access came from user mode.
+   */
+  virtual bool handleCopyOnWriteFault(void* virtualAddress, bool userMode) = 0;
+
+  /**
    * Stores one 32-bit value through a resident userspace mapping without
    * switching into this address space. Implementations reject mappings that
    * could fault or change backing storage while the write is in progress.
@@ -131,6 +143,14 @@ class VirtualAddressSpace {
     (void)value;
     return false;
   }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  using CopyOnWritePreCommitHook = void (*)(void*);
+
+  /** Installs a deterministic observer between allocation and revalidation. */
+  static EXPORTED_PUBLIC void setCopyOnWritePreCommitHookForTest(CopyOnWritePreCommitHook hook);
+#endif
+
   /** Set the flags of the page at a specific virtual address.
    *\note The page must have been mapped with VirtualAddressSpace::map() and
    *the page must still be mapped or marked as swapped out. \param[in]
@@ -299,6 +319,10 @@ class VirtualAddressSpace {
   /** The constructor does nothing */
   inline VirtualAddressSpace(void* Heap) : m_Heap(Heap), m_HeapEnd(Heap) {}
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  static void copyOnWritePreCommitForTest(void* virtualAddress);
+#endif
+
  private:
   /** The default constructor */
   VirtualAddressSpace();
@@ -308,6 +332,10 @@ class VirtualAddressSpace {
   /** The copy-constructor
    *\note Not implemented */
   VirtualAddressSpace& operator=(const VirtualAddressSpace&);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  static CopyOnWritePreCommitHook m_CopyOnWritePreCommitHook;
+#endif
 
   /** Reverts the heap expansion, that was begun with expandHeap
    *\param[in] virtualAddress current heap address

@@ -511,6 +511,81 @@ void X64VirtualAddressSpace::getMapping(void* virtualAddress, physical_uintptr_t
   flags = fromFlags(PAGE_GET_FLAGS(pageTableEntry), true);
 }
 
+bool X64VirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, bool userMode) {
+  virtualAddress = page_align(virtualAddress);
+
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    uint64_t* pageTableEntry = nullptr;
+    if (!getPageTableEntry(virtualAddress, pageTableEntry)) {
+      return false;
+    }
+
+    const uint64_t pageFlags = *pageTableEntry;
+    if (userMode && !(pageFlags & PAGE_USER)) {
+      return false;
+    }
+    if ((pageFlags & PAGE_PRESENT) && (pageFlags & PAGE_WRITE) &&
+        !(pageFlags & PAGE_COPY_ON_WRITE)) {
+      return true;
+    }
+    if (!(pageFlags & PAGE_PRESENT) || !(pageFlags & PAGE_COPY_ON_WRITE) ||
+        (pageFlags & PAGE_SWAPPED)) {
+      return false;
+    }
+  }
+
+  PhysicalMemoryManager& physicalMemory = PhysicalMemoryManager::instance();
+  const physical_uintptr_t replacement = physicalMemory.allocatePage();
+  if (!replacement) {
+    return false;
+  }
+
+  bool retireReplacement = true;
+  bool resolved = false;
+  physical_uintptr_t oldPhysical = 0;
+  {
+    X64MappingMutationScope mutation;
+    mutation.lock(m_Lock);
+
+    uint64_t* pageTableEntry = nullptr;
+    if (getPageTableEntry(virtualAddress, pageTableEntry)) {
+      const uint64_t pageFlags = *pageTableEntry;
+      if (userMode && !(pageFlags & PAGE_USER)) {
+        resolved = false;
+      } else if ((pageFlags & PAGE_PRESENT) && (pageFlags & PAGE_WRITE) &&
+                 !(pageFlags & PAGE_COPY_ON_WRITE)) {
+        resolved = true;
+      } else if ((pageFlags & PAGE_PRESENT) && (pageFlags & PAGE_COPY_ON_WRITE) &&
+                 !(pageFlags & PAGE_SWAPPED)) {
+        oldPhysical = PAGE_GET_PHYSICAL_ADDRESS(pageTableEntry);
+        MemoryCopy(reinterpret_cast<void*>(physicalAddress(replacement)),
+                   reinterpret_cast<void*>(physicalAddress(oldPhysical)),
+                   PhysicalMemoryManager::getPageSize());
+
+        uint64_t replacementFlags = PAGE_GET_FLAGS(pageTableEntry);
+        replacementFlags |= PAGE_WRITE;
+        replacementFlags &= ~PAGE_COPY_ON_WRITE;
+        __atomic_store_n(pageTableEntry, replacement | replacementFlags, __ATOMIC_RELEASE);
+        if (!invalidateMapping(virtualAddress, mutation)) {
+          mutation.panicInvalidationFailure();
+        }
+
+        retireReplacement = false;
+        resolved = true;
+      }
+    }
+  }
+
+  if (retireReplacement) {
+    physicalMemory.freePage(replacement);
+  }
+  if (oldPhysical) {
+    physicalMemory.freePage(oldPhysical);
+  }
+  return resolved;
+}
+
 bool X64VirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value) {
   if (!address || (address % alignof(uint32_t)) || address < getUserStart() ||
       address >= getKernelStart() || address > getKernelStart() - sizeof(value)) {

@@ -626,6 +626,8 @@ assert_marker \
 assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-handler-waitqueue-drain"
 assert_marker \
+    "$populated_log" "HOSTED-WAIT-TEST: PASS pagefault-cow-atomic-publish"
+assert_marker \
     "$populated_log" "HOSTED-WAIT-TEST: PASS cdi-irq-wait-contract"
 assert_marker "$populated_log" "HOSTED-WAIT-TEST: PASS input-callback-lifetime"
 assert_marker \

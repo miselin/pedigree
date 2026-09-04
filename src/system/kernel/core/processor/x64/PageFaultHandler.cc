@@ -25,7 +25,6 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
-#include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
@@ -44,6 +43,8 @@ PageFaultHandler PageFaultHandler::m_Instance;
 #define PFE_USER_MODE 0x04
 #define PFE_RESERVED_BIT 0x08
 #define PFE_INSTRUCTION_FETCH 0x10
+#define PFE_PROTECTION_KEY 0x20
+#define PFE_SHADOW_STACK 0x40
 
 bool PageFaultHandler::initialise() {
   InterruptManager& IntManager = InterruptManager::instance();
@@ -58,57 +59,14 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
 
   uintptr_t page = cr2 & ~(PhysicalMemoryManager::instance().getPageSize() - 1);
 
-  // Check for copy-on-write.
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-  if (va.isMapped(reinterpret_cast<void*>(page))) {
-    physical_uintptr_t phys;
-    size_t flags;
-    va.getMapping(reinterpret_cast<void*>(page), phys, flags);
-    if (flags & VirtualAddressSpace::CopyOnWrite) {
-#if SUPERDEBUG
-      NOTICE_NOLOCK(Processor::information().getCurrentThread()->getParent()->getId()
-                    << " PageFaultHandler: copy-on-write for v=" << Hex << page);
-#endif
-
-      MemoryRegion tmpRegion("CoW Temporary Page");
-      if (!PhysicalMemoryManager::instance().allocateRegion(
-              tmpRegion, 1,
-              PhysicalMemoryManager::force | PhysicalMemoryManager::continuous |
-                  PhysicalMemoryManager::anonymous,
-              VirtualAddressSpace::KernelMode, phys)) {
-        FATAL("PageFaultHandler: CoW temporary map() failed @" << Hex << page);
-        return;
-      }
-
-      // Remap faulting page
-      va.unmap(reinterpret_cast<void*>(page));
-      physical_uintptr_t p = PhysicalMemoryManager::instance().allocatePage();
-      if (!p) {
-        FATAL("PageFaultHandler: CoW OOM'd!");
-        return;
-      }
-
-      flags |= VirtualAddressSpace::Write;
-      flags &= ~VirtualAddressSpace::CopyOnWrite;
-      if (!va.map(p, reinterpret_cast<void*>(page), flags)) {
-        FATAL("PageFaultHandler: CoW new map() failed.");
-        return;
-      }
-
-      // Perform the actual copy.
-      MemoryCopy(reinterpret_cast<uint8_t*>(page),
-                 reinterpret_cast<uint8_t*>(tmpRegion.virtualAddress()),
-                 PhysicalMemoryManager::getPageSize());
-
-      // Done with the memory region now - ready to release any additional
-      // references too
-      tmpRegion.free();
-
-      // Clean up old reference to memory (may free the page, if we were
-      // the last one to reference the CoW page)
-      PhysicalMemoryManager::instance().freePage(phys);
-      return;
-    }
+  const bool copyOnWriteFault =
+      (code & (PFE_PAGE_PRESENT | PFE_ATTEMPTED_WRITE)) ==
+          (PFE_PAGE_PRESENT | PFE_ATTEMPTED_WRITE) &&
+      !(code & (PFE_RESERVED_BIT | PFE_INSTRUCTION_FETCH | PFE_PROTECTION_KEY | PFE_SHADOW_STACK));
+  if (copyOnWriteFault &&
+      va.handleCopyOnWriteFault(reinterpret_cast<void*>(page), (code & PFE_USER_MODE) != 0)) {
+    return;
   }
 
   /// \todo probably can just skip checking for traps across the entire kernel

@@ -24,6 +24,22 @@
 
 physical_uintptr_t VirtualAddressSpace::m_ZeroPage = 0;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+VirtualAddressSpace::CopyOnWritePreCommitHook VirtualAddressSpace::m_CopyOnWritePreCommitHook =
+    nullptr;
+
+void VirtualAddressSpace::setCopyOnWritePreCommitHookForTest(CopyOnWritePreCommitHook hook) {
+  __atomic_store_n(&m_CopyOnWritePreCommitHook, hook, __ATOMIC_RELEASE);
+}
+
+void VirtualAddressSpace::copyOnWritePreCommitForTest(void* virtualAddress) {
+  CopyOnWritePreCommitHook hook = __atomic_load_n(&m_CopyOnWritePreCommitHook, __ATOMIC_ACQUIRE);
+  if (hook) {
+    hook(virtualAddress);
+  }
+}
+#endif
+
 void* VirtualAddressSpace::expandHeap(ssize_t incr, size_t flags) {
   PhysicalMemoryManager& PMemoryManager = PhysicalMemoryManager::instance();
   if (!m_ZeroPage) {

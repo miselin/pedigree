@@ -93,6 +93,11 @@ class EXPORTED_PUBLIC PhysicalMemoryManager {
    */
   virtual void pin(physical_uintptr_t page) = 0;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  /** Returns the number of remaining freePage calls for a hosted test page. */
+  static EXPORTED_PUBLIC size_t pageReferenceCountForTest(physical_uintptr_t page);
+#endif
+
   /** Allocate a memory-region with specific constraints the pages need to
    *fullfill. \param[in] Region reference to the MemoryRegion object
    *\param[in] cPages the number of pages to allocate for the MemoryRegion
