@@ -4715,7 +4715,7 @@ bool runRegressions() {
     return false;
   }
 
-  NOTICE("HOSTED-SYSCALL-TEST: BEGIN interval-timer-usercopy");
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN time-syscall-usercopy");
   if (!runHostedTimeSyscallRegressions(kernelProcess)) {
     return false;
   }

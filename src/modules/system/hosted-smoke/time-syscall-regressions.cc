@@ -31,6 +31,9 @@ static_assert(static_cast<suseconds_t>(-1) < 0);
 static_assert(sizeof(struct timeval) == 16);
 static_assert(offsetof(struct timeval, tv_sec) == 0);
 static_assert(offsetof(struct timeval, tv_usec) == 8);
+static_assert(sizeof(struct timezone) == 8);
+static_assert(offsetof(struct timezone, tz_minuteswest) == 0);
+static_assert(offsetof(struct timezone, tz_dsttime) == 4);
 static_assert(sizeof(struct itimerval) == 32);
 static_assert(offsetof(struct itimerval, it_interval) == 0);
 static_assert(offsetof(struct itimerval, it_value) == 16);
@@ -116,8 +119,56 @@ int exerciseTimeSyscalls(void* parameter) {
   struct itimerval* pageEdge =
       reinterpret_cast<struct itimerval*>(address + pageSize - (sizeof(struct itimerval) / 2));
   struct itimerval* readOnly = reinterpret_cast<struct itimerval*>(address + (pageSize * 2) + 64);
+  struct timeval* wallClock = reinterpret_cast<struct timeval*>(address + 768);
+  struct timezone* timezoneOutput = reinterpret_cast<struct timezone*>(address + 832);
+  time_t* secondsOutput = reinterpret_cast<time_t*>(address + 896);
   const uintptr_t kernelStart = Processor::information().getVirtualAddressSpace().getKernelStart();
   struct itimerval* bad = reinterpret_cast<struct itimerval*>(kernelStart);
+
+  struct timeval observedWallClock = {};
+  struct timezone observedTimezone = {};
+  thread->setErrno(PreservedErrno);
+  passed &= posix_gettimeofday(nullptr, nullptr) == 0 && thread->getErrno() == PreservedErrno;
+  thread->setErrno(PreservedErrno);
+  passed &=
+      posix_gettimeofday(wallClock, timezoneOutput) == 0 && thread->getErrno() == PreservedErrno &&
+      PosixSubsystem::copyFromUser(&observedWallClock, wallClock, sizeof(observedWallClock)) &&
+      PosixSubsystem::copyFromUser(&observedTimezone, timezoneOutput, sizeof(observedTimezone)) &&
+      observedWallClock.tv_sec >= 0 && observedWallClock.tv_usec >= 0 &&
+      observedWallClock.tv_usec < 1000000 && observedTimezone.tz_minuteswest == 0 &&
+      observedTimezone.tz_dsttime == 0;
+
+  time_t observedSeconds = static_cast<time_t>(-1);
+  thread->setErrno(PreservedErrno);
+  const time_t returnedSeconds = posix_time(secondsOutput);
+  passed &=
+      returnedSeconds != static_cast<time_t>(-1) && thread->getErrno() == PreservedErrno &&
+      PosixSubsystem::copyFromUser(&observedSeconds, secondsOutput, sizeof(observedSeconds)) &&
+      observedSeconds == returnedSeconds;
+  thread->setErrno(PreservedErrno);
+  passed &= posix_time(nullptr) != static_cast<time_t>(-1) && thread->getErrno() == PreservedErrno;
+
+  const struct timezone timezoneSentinel = {37, 1};
+  passed &= PosixSubsystem::copyToUser(timezoneOutput, &timezoneSentinel, sizeof(timezoneSentinel));
+  thread->setErrno(0);
+  passed &=
+      posix_gettimeofday(reinterpret_cast<struct timeval*>(kernelStart), timezoneOutput) == -1 &&
+      thread->getErrno() == Error::BadAddress &&
+      PosixSubsystem::copyFromUser(&observedTimezone, timezoneOutput, sizeof(observedTimezone)) &&
+      observedTimezone.tz_minuteswest == timezoneSentinel.tz_minuteswest &&
+      observedTimezone.tz_dsttime == timezoneSentinel.tz_dsttime;
+  thread->setErrno(0);
+  passed &= posix_gettimeofday(nullptr, reinterpret_cast<struct timezone*>(kernelStart)) == -1 &&
+            thread->getErrno() == Error::BadAddress;
+  thread->setErrno(0);
+  passed &= posix_time(reinterpret_cast<time_t*>(kernelStart)) == static_cast<time_t>(-1) &&
+            thread->getErrno() == Error::BadAddress;
+  thread->setErrno(0);
+  passed &=
+      posix_settimeofday(nullptr, nullptr) == -1 && thread->getErrno() == Error::Unimplemented;
+  thread->setErrno(0);
+  passed &= posix_settimeofday(reinterpret_cast<struct timeval*>(kernelStart), nullptr) == -1 &&
+            thread->getErrno() == Error::Unimplemented;
 
   const int selectors[] = {ITIMER_REAL, ITIMER_VIRTUAL, ITIMER_PROF};
   for (size_t i = 0; passed && i < sizeof(selectors) / sizeof(selectors[0]); ++i) {
@@ -301,10 +352,10 @@ bool runHostedTimeSyscallRegressions(Process* kernelProcess) {
 
   if (!passed) {
     ERROR(
-        "HOSTED-SYSCALL-TEST: FAIL interval-timer-usercopy: "
-        "Linux ordering, canonical timeval, saturation, or usercopy behavior regressed");
+        "HOSTED-SYSCALL-TEST: FAIL time-syscall-usercopy: "
+        "wall-clock or interval-timer usercopy behavior regressed");
     return false;
   }
-  NOTICE("HOSTED-SYSCALL-TEST: PASS interval-timer-usercopy");
+  NOTICE("HOSTED-SYSCALL-TEST: PASS time-syscall-usercopy");
   return true;
 }

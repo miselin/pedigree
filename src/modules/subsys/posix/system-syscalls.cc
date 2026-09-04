@@ -701,52 +701,43 @@ int posix_getppid() {
 }
 
 int posix_gettimeofday(timeval* tv, struct timezone* tz) {
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(tv), sizeof(timeval),
-                                    PosixSubsystem::SafeWrite)) {
-    SC_NOTICE("gettimeofday -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
   SC_NOTICE("gettimeofday");
 
-  Timer* pTimer = Machine::instance().getTimer();
+  const Time::Timestamp nanoseconds = Time::getTimeNanoseconds();
+  if (tv) {
+    struct timeval result = {};
+    result.tv_sec = nanoseconds / Time::Multiplier::Second;
+    result.tv_usec = (nanoseconds % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+    if (!PosixSubsystem::copyToUser(tv, &result, sizeof(result))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+  }
 
-  // UNIX timestamp + remaining time portion, in microseconds.
-  tv->tv_sec = pTimer->getUnixTimestamp();
-  tv->tv_usec = pTimer->getNanosecond() / 1000U;
+  if (tz) {
+    const struct timezone result = {};
+    if (!PosixSubsystem::copyToUser(tz, &result, sizeof(result))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+  }
 
   return 0;
 }
 
 int posix_settimeofday(const timeval* tv, const struct timezone* tz) {
   SC_NOTICE("settimeofday");
-
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(tv), sizeof(timeval),
-                                    PosixSubsystem::SafeRead)) {
-    SC_NOTICE(" -> invalid address");
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-
-  /// \todo support this
-
-  return 0;
+  SYSCALL_ERROR(Unimplemented);
+  return -1;
 }
 
 time_t posix_time(time_t* tval) {
   SC_NOTICE("time");
 
-  if (tval && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(tval), sizeof(time_t),
-                                            PosixSubsystem::SafeWrite)) {
-    SC_NOTICE(" -> invalid address");
+  time_t result = Time::getTime();
+  if (tval && !PosixSubsystem::copyToUser(tval, &result, sizeof(result))) {
     SYSCALL_ERROR(BadAddress);
     return -1;
-  }
-
-  time_t result = Time::getTime();
-  if (tval) {
-    *tval = result;
   }
 
   return result;
