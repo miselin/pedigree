@@ -24,6 +24,8 @@
 
 extern void test_mprotect();
 extern void test_fs();
+extern int exec_shebang_child(int argc, char* argv[]);
+extern void test_exec_shebang(const char* program);
 extern int process_exec_signal_child(void);
 extern void test_process(const char* program);
 
@@ -38,6 +40,8 @@ void fail() {
 int main(int argc, char* argv[]) {
   if (argc == 2 && !strcmp(argv[1], "--exec-signal-child"))
     return process_exec_signal_child();
+  if (argc > 1 && !strncmp(argv[1], "--exec-shebang-", sizeof("--exec-shebang-") - 1))
+    return exec_shebang_child(argc, argv);
 
   if (setjmp(buf) == 1) {
     printf("FAILED\n");
@@ -48,6 +52,7 @@ int main(int argc, char* argv[]) {
 
   // Add calls to test functions here...
   test_mprotect();
+  test_exec_shebang(argv[0]);
   test_process(argv[0]);
   test_fs();
 

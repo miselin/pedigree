@@ -1570,80 +1570,71 @@ bool PosixSubsystem::invoke(const char* name, Vector<String>& argv, Vector<Strin
   return invoke(name, argv, env, &state);
 }
 
-bool PosixSubsystem::parseShebang(File* pFile, File*& pOutFile, Directory::ChildLease& outLease,
-                                  Vector<String>& argv) {
+bool PosixSubsystem::parseShebang(File* pFile, String& interpreter, String& optionalArgument,
+                                  bool& hasOptionalArgument) {
   PS_NOTICE("Attempting to parse shebang in " << pFile->getFullPath());
 
-  // Try and read the shebang, if any.
-  /// \todo this loop could terminate MUCH faster
-  String fileContents;
-  bool bSearchDone = false;
-  size_t offset = 0;
-  while (!bSearchDone) {
-    char buff[129];
-    size_t nRead = pFile->read(offset, 128, reinterpret_cast<uintptr_t>(buff));
-    buff[nRead] = 0;
-    offset += nRead;
+  static constexpr size_t ShebangBufferSize = 256;
+  char contents[ShebangBufferSize];
+  const size_t bytesRead = pFile->read(0, sizeof(contents), reinterpret_cast<uintptr_t>(contents));
 
-    if (nRead) {
-      // Truncate at the newline if one is found (and then stop
-      // iterating).
-      char* newline = const_cast<char*>(StringFind(buff, '\n'));
-      if (newline) {
-        bSearchDone = true;
-        *newline = 0;
-      }
-      fileContents += String(buff);
-    }
+  interpreter.clear();
+  optionalArgument.clear();
+  hasOptionalArgument = false;
 
-    if (nRead < 128) {
-      bSearchDone = true;
-      break;
-    }
-  }
-
-  // Is this even a shebang line?
-  if (!fileContents.startswith("#!")) {
+  if (bytesRead < 2 || contents[0] != '#' || contents[1] != '!') {
     PS_NOTICE("no shebang found");
     return true;
   }
 
-  // Strip the shebang.
-  fileContents.lchomp();
-  fileContents.lchomp();
-
-  // OK, we have a shebang line. We need to tokenize.
-  Vector<String> additionalArgv = fileContents.tokenise(' ');
-  if (!additionalArgv.count()) {
-    // Not a true shebang line.
-    PS_NOTICE("split didn't find anything");
-    return true;
+  size_t lineEnd = bytesRead;
+  bool terminated = bytesRead < sizeof(contents);
+  for (size_t i = 2; i < bytesRead; ++i) {
+    if (contents[i] == '\n' || !contents[i]) {
+      lineEnd = i;
+      terminated = true;
+      break;
+    }
   }
 
-  // Normalise path to ensure we have the correct path to invoke.
-  String invokePath;
-  String newTarget = *additionalArgv.begin();
-  if (normalisePath(invokePath, static_cast<const char*>(newTarget))) {
-    // rewrote, update argv[0] accordingly.
-    newTarget = invokePath;
+  const size_t boundedLineEnd = lineEnd;
+  while (lineEnd > 2 && (contents[lineEnd - 1] == ' ' || contents[lineEnd - 1] == '\t')) {
+    --lineEnd;
   }
 
-  // Can we load the new program?
-  File* pNewTarget = findFileRetained(newTarget, outLease, nullptr);
-  if (!pNewTarget) {
-    // No, we cannot.
-    PS_NOTICE("target not found");
-    SYSCALL_ERROR(DoesNotExist);
+  size_t interpreterBegin = 2;
+  while (interpreterBegin < lineEnd &&
+         (contents[interpreterBegin] == ' ' || contents[interpreterBegin] == '\t')) {
+    ++interpreterBegin;
+  }
+  if (interpreterBegin == lineEnd) {
+    PS_NOTICE("empty shebang interpreter");
+    SYSCALL_ERROR(ExecFormatError);
     return false;
   }
 
-  // OK, we can now insert to argv - we do so backwards so it's just a simple
-  // pushFront.
-  while (additionalArgv.count()) {
-    argv.pushFront(additionalArgv.popBack());
+  size_t interpreterEnd = interpreterBegin;
+  while (interpreterEnd < lineEnd && contents[interpreterEnd] != ' ' &&
+         contents[interpreterEnd] != '\t') {
+    ++interpreterEnd;
+  }
+  if (interpreterEnd == lineEnd && lineEnd == boundedLineEnd && !terminated) {
+    PS_NOTICE("truncated shebang interpreter");
+    SYSCALL_ERROR(ExecFormatError);
+    return false;
   }
 
-  pOutFile = pNewTarget;
+  interpreter.assign(contents + interpreterBegin, interpreterEnd - interpreterBegin, true);
+
+  size_t argumentBegin = interpreterEnd;
+  while (argumentBegin < lineEnd &&
+         (contents[argumentBegin] == ' ' || contents[argumentBegin] == '\t')) {
+    ++argumentBegin;
+  }
+  if (argumentBegin < lineEnd) {
+    optionalArgument.assign(contents + argumentBegin, lineEnd - argumentBegin, true);
+    hasOptionalArgument = true;
+  }
 
   return true;
 }
@@ -1741,47 +1732,79 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   }
 
   uint8_t validateBuffer[128];
-  size_t nBytes = originalFile->read(0, 128, reinterpret_cast<uintptr_t>(validateBuffer));
-
-  Directory::ChildLease shebangLease;
   Elf validElf;
-  if (!validElf.validate(validateBuffer, nBytes)) {
+  String candidateName(originalName);
+  static constexpr size_t MaximumShebangRewrites = 4;
+  size_t shebangRewrites = 0;
+  size_t nBytes = 0;
+  while (true) {
+    // Execute permission checks precede all format reads for every candidate,
+    // including nested shebang interpreters.
+    if (!VFS::checkAccess(originalFile, false, false, true)) {
+      return false;
+    }
+
+    nBytes =
+        originalFile->read(0, sizeof(validateBuffer), reinterpret_cast<uintptr_t>(validateBuffer));
+    if (validElf.validate(validateBuffer, nBytes)) {
+      break;
+    }
+
     PS_NOTICE("PosixSubsystem::invoke: '" << originalFile->getName()
                                           << "' is not an ELF binary, looking for shebang...");
 
-    File* shebangFile = 0;
-    if (!parseShebang(originalFile, shebangFile, shebangLease, argv)) {
+    String shebangInterpreter;
+    String shebangArgument;
+    bool hasShebangArgument = false;
+    if (!parseShebang(originalFile, shebangInterpreter, shebangArgument, hasShebangArgument)) {
       PS_NOTICE("PosixSubsystem::invoke: failed to parse shebang line in '"
                 << originalFile->getName() << "'");
       return false;
     }
 
-    // Switch to the real target if we must; parseShebang adjusts argv for
-    // us.
-    if (!shebangFile) {
+    if (!shebangInterpreter.length()) {
       SYSCALL_ERROR(ExecFormatError);
       return false;
     }
+
+    if (shebangRewrites == MaximumShebangRewrites) {
+      SYSCALL_ERROR(LoopExists);
+      return false;
+    }
+    ++shebangRewrites;
+
+    String resolvedInterpreter(shebangInterpreter);
+    String normalisedInterpreter;
+    if (normalisePath(normalisedInterpreter, resolvedInterpreter.cstr())) {
+      resolvedInterpreter = normalisedInterpreter;
+    }
+
+    Directory::ChildLease nextLease;
+    File* shebangFile = findFileRetained(resolvedInterpreter, nextLease, nullptr);
+    if (!shebangFile) {
+      PS_NOTICE("PosixSubsystem::invoke: could not find shebang interpreter '"
+                << resolvedInterpreter << "'");
+      SYSCALL_ERROR(DoesNotExist);
+      return false;
+    }
+
+    shebangFile = traverseForInvoke(shebangFile, nextLease);
+    if (!shebangFile) {
+      return false;
+    }
+
+    if (argv.count()) {
+      argv.popFront();
+    }
+    argv.pushFront(candidateName);
+    if (hasShebangArgument) {
+      argv.pushFront(shebangArgument);
+    }
+    argv.pushFront(shebangInterpreter);
 
     originalFile = shebangFile;
-
-    // Handle symlinks in shebang target.
-    originalFile = traverseForInvoke(originalFile, shebangLease);
-    if (!originalFile) {
-      return false;
-    }
-
-    nBytes = originalFile->read(0, 128, reinterpret_cast<uintptr_t>(validateBuffer));
-    if (!validElf.validate(validateBuffer, nBytes)) {
-      SYSCALL_ERROR(ExecFormatError);
-      return false;
-    }
-  }
-
-  // Can we read & execute the given target?
-  if (!VFS::checkAccess(originalFile, true, false, true)) {
-    // checkAccess does a SYSCALL_ERROR for us.
-    return false;
+    candidateName = shebangInterpreter;
+    originalTargetLease.swap(nextLease);
   }
 
   Directory::ChildLease interpreterLease;

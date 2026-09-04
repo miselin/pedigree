@@ -623,9 +623,9 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   bool invoke(File* originalFile, const String& originalName, Vector<String>& argv,
               Vector<String>& env, SyscallState* state);
 
-  /** Parse a file for a possible shebang line. */
-  bool parseShebang(File* pFile, File*& outFile, Directory::ChildLease& outLease,
-                    Vector<String>& argv);
+  /** Parse a bounded shebang line, if present. */
+  bool parseShebang(File* pFile, String& interpreter, String& optionalArgument,
+                    bool& hasOptionalArgument);
 
   /** Signal handlers */
   Tree<size_t, SignalHandler*> m_SignalHandlers;
