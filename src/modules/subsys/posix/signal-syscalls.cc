@@ -633,15 +633,26 @@ int posix_sigprocmask(int how, const void* set, void* oset, size_t sigsetSize, b
 size_t posix_alarm(uint32_t seconds) {
   SG_NOTICE("alarm(" << seconds << ")");
 
-  // Create the pending signal and pass it in
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-  PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
-  if (!pSubsystem) {
-    ERROR("posix_alarm: no subsystem");
-    return -1;
+  Thread* currentThread = Processor::information().getCurrentThread();
+  Process* process = currentThread ? currentThread->getParent() : nullptr;
+  if (!process || process->getType() != Process::Posix) {
+    ERROR("posix_alarm: no POSIX process");
+    return 0;
   }
 
-  return pSubsystem->setAlarm(seconds);
+  PosixProcess* posixProcess = static_cast<PosixProcess*>(process);
+  Time::Timestamp previousValue = 0;
+  posixProcess->getRealIntervalTimer().setIntervalAndValue(
+      0, static_cast<Time::Timestamp>(seconds) * Time::Multiplier::Second, nullptr, &previousValue);
+
+  Time::Timestamp previousSeconds = previousValue / Time::Multiplier::Second;
+  const Time::Timestamp subsecond = previousValue % Time::Multiplier::Second;
+  // A live alarm must not look disarmed, while longer remainders use Linux's
+  // historical half-second rounding rule.
+  if ((!previousSeconds && subsecond) || subsecond >= (Time::Multiplier::Second / 2)) {
+    ++previousSeconds;
+  }
+  return static_cast<uint32_t>(previousSeconds);
 }
 
 int posix_sleep(uint32_t seconds) {

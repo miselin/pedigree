@@ -313,10 +313,6 @@ void PosixProcess::reportTimesUpdated(Time::Timestamp userTotal, Time::Timestamp
 
 void PosixProcess::processTerminated() {
   // Cancel all timers.
-  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(getSubsystem());
-  if (subsystem) {
-    subsystem->cancelAlarm();
-  }
   m_RealIntervalTimer.disarm();
   m_VirtualIntervalTimer.disarm();
   m_ProfileIntervalTimer.disarm();

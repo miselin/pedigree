@@ -49,6 +49,15 @@ struct TimeSyscallContext {
   Atomic<size_t> returned;
 };
 
+struct AlarmThreadContext {
+  explicit AlarmThreadContext(uint32_t seconds)
+      : seconds(seconds), result(~static_cast<size_t>(0)), returned(0) {}
+
+  uint32_t seconds;
+  Atomic<size_t> result;
+  Atomic<size_t> returned;
+};
+
 struct itimerval timerValue(time_t intervalSeconds, suseconds_t intervalMicroseconds,
                             time_t valueSeconds = 0, suseconds_t valueMicroseconds = 0) {
   struct itimerval result = {};
@@ -83,6 +92,13 @@ bool runningTimerMatches(const struct itimerval& observed, const struct itimerva
          observed.it_value.tv_sec >= 0 && observed.it_value.tv_usec >= 0 &&
          observed.it_value.tv_usec < 1000000 && positive &&
          timeNotGreater(observed.it_value, requested.it_value);
+}
+
+int armAlarmAndExit(void* parameter) {
+  AlarmThreadContext* context = reinterpret_cast<AlarmThreadContext*>(parameter);
+  context->result = posix_alarm(context->seconds);
+  context->returned += 1;
+  return 0;
 }
 
 int exerciseTimeSyscalls(void* parameter) {
@@ -293,6 +309,65 @@ int exerciseTimeSyscalls(void* parameter) {
             PosixSubsystem::copyFromUser(&observed, output, sizeof(observed)) &&
             runningTimerMatches(observed, lateFaultRequest);
 
+  const struct itimerval alarmReplacementBaseline = timerValue(23, 232323, 600, 999999);
+  const struct itimerval alarmRequest = timerValue(0, 0, 120, 0);
+  passed &= PosixSubsystem::copyToUser(input, &alarmReplacementBaseline,
+                                       sizeof(alarmReplacementBaseline)) &&
+            posix_setitimer(ITIMER_REAL, input, nullptr) == 0;
+  thread->setErrno(PreservedErrno);
+  passed &= posix_alarm(120) == 601 && thread->getErrno() == PreservedErrno &&
+            posix_getitimer(ITIMER_REAL, output) == 0 &&
+            PosixSubsystem::copyFromUser(&observed, output, sizeof(observed)) &&
+            runningTimerMatches(observed, alarmRequest);
+
+  const struct itimerval setitimerReplacement = timerValue(5, 555555, 500, 999999);
+  struct itimerval previousAlarm = {};
+  passed &=
+      PosixSubsystem::copyToUser(input, &setitimerReplacement, sizeof(setitimerReplacement)) &&
+      posix_setitimer(ITIMER_REAL, input, alias) == 0 &&
+      PosixSubsystem::copyFromUser(&previousAlarm, alias, sizeof(previousAlarm)) &&
+      runningTimerMatches(previousAlarm, alarmRequest) &&
+      posix_getitimer(ITIMER_REAL, output) == 0 &&
+      PosixSubsystem::copyFromUser(&observed, output, sizeof(observed)) &&
+      runningTimerMatches(observed, setitimerReplacement);
+
+  thread->setErrno(PreservedErrno);
+  passed &= posix_alarm(0) == 501 && thread->getErrno() == PreservedErrno &&
+            posix_getitimer(ITIMER_REAL, output) == 0 &&
+            PosixSubsystem::copyFromUser(&observed, output, sizeof(observed)) &&
+            timerIsDisarmed(observed);
+
+  const struct itimerval belowHalfSecond = timerValue(0, 0, 400, 250000);
+  passed &= PosixSubsystem::copyToUser(input, &belowHalfSecond, sizeof(belowHalfSecond)) &&
+            posix_setitimer(ITIMER_REAL, input, nullptr) == 0 && posix_alarm(0) == 400;
+
+  const struct itimerval subsecondAlarm = timerValue(0, 0, 0, 999999);
+  passed &= PosixSubsystem::copyToUser(input, &subsecondAlarm, sizeof(subsecondAlarm)) &&
+            posix_setitimer(ITIMER_REAL, input, nullptr) == 0 && posix_alarm(0) == 1 &&
+            posix_getitimer(ITIMER_REAL, output) == 0 &&
+            PosixSubsystem::copyFromUser(&observed, output, sizeof(observed)) &&
+            timerIsDisarmed(observed);
+
+  AlarmThreadContext alarmThreadContext(300);
+  Thread* alarmThread =
+      new Thread(process, armAlarmAndExit, &alarmThreadContext, nullptr, false, true, true);
+  alarmThread->setName("hosted transient alarm caller");
+  const bool alarmThreadStarted = alarmThread->start();
+  const bool alarmThreadJoined = alarmThreadStarted && alarmThread->joinForCompletion();
+  if (!alarmThreadStarted) {
+    delete alarmThread;
+  }
+  passed &= alarmThreadStarted && alarmThreadJoined && alarmThreadContext.returned == 1 &&
+            alarmThreadContext.result == 0 && posix_getitimer(ITIMER_REAL, output) == 0 &&
+            PosixSubsystem::copyFromUser(&observed, output, sizeof(observed)) &&
+            runningTimerMatches(observed, timerValue(0, 0, 300, 0)) && posix_alarm(0) > 0 &&
+            posix_getitimer(ITIMER_REAL, output) == 0 &&
+            PosixSubsystem::copyFromUser(&observed, output, sizeof(observed)) &&
+            timerIsDisarmed(observed);
+
+  passed &= PosixSubsystem::copyToUser(input, &lateFaultRequest, sizeof(lateFaultRequest)) &&
+            posix_setitimer(ITIMER_REAL, input, nullptr) == 0;
+
   const bool middleRemoved =
       mapping && MemoryMapManager::instance().remove(address + pageSize, pageSize) == 1;
   passed &= middleRemoved;
@@ -353,7 +428,7 @@ bool runHostedTimeSyscallRegressions(Process* kernelProcess) {
   if (!passed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL time-syscall-usercopy: "
-        "wall-clock or interval-timer usercopy behavior regressed");
+        "wall-clock, interval-timer, or alarm behavior regressed");
     return false;
   }
   NOTICE("HOSTED-SYSCALL-TEST: PASS time-syscall-usercopy");

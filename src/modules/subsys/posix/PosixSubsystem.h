@@ -189,9 +189,6 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
       : Subsystem(Posix),
         m_SignalHandlers(),
         m_SignalHandlersLock(),
-        m_AlarmLock(false),
-        m_pAlarmEvent(nullptr),
-        m_pAlarmThread(nullptr),
         m_FdMap(),
         m_NextFd(0),
         m_FdLock(),
@@ -214,9 +211,6 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
       : Subsystem(type),
         m_SignalHandlers(),
         m_SignalHandlersLock(),
-        m_AlarmLock(false),
-        m_pAlarmEvent(nullptr),
-        m_pAlarmThread(nullptr),
         m_FdMap(),
         m_NextFd(0),
         m_FdLock(),
@@ -373,15 +367,6 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   /** Resolves and queues a signal atomically with disposition replacement. */
   SignalDeliveryResult queueSignalDelivery(Thread* target, size_t sig, uint32_t* flags = nullptr);
-
-  /**
-   * Replaces the process alarm. The timer references a stable relay Event,
-   * not the currently installed SIGALRM disposition.
-   */
-  size_t setAlarm(size_t seconds);
-
-  /** Cancels the process alarm before its target thread can be destroyed. */
-  void cancelAlarm();
 
   /** Gets a signal handler */
   SignalHandler* getSignalHandler(size_t sig) {
@@ -641,15 +626,6 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   /** A lock for access to the signal handlers tree */
   UnlikelyLock m_SignalHandlersLock;
-
-  /** Serialises alarm replacement with process and thread teardown. */
-  Spinlock m_AlarmLock;
-
-  /** Stable timer-owned relay that resolves SIGALRM when delivered. */
-  Event* m_pAlarmEvent;
-
-  /** Thread whose lifetime is currently referenced by the timer alarm. */
-  Thread* m_pAlarmThread;
 
   /**
    * The file descriptor map. Maps number to pointers, the type of which is

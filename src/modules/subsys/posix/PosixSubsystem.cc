@@ -19,18 +19,14 @@
 
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
-#include "pedigree/kernel/process/RelayEvent.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
 
 #include <PosixSubsystem.h>
-#define MACHINE_FORWARD_DECL_ONLY
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/linker/Elf.h"
-#include "pedigree/kernel/machine/Machine.h"
-#include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
@@ -81,19 +77,6 @@ extern void pedigree_init_pthreads();
 namespace {
 bool defaultSignalActionIsIgnore(size_t signal) {
   return signal == SIGCHLD || signal == SIGURG || signal == SIGWINCH;
-}
-
-void posixAlarmEventHandler(Thread* thread) {
-  if (!thread || thread->getParent()->getType() != Process::Posix) {
-    return;
-  }
-
-  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(thread->getParent()->getSubsystem());
-  if (!subsystem) {
-    return;
-  }
-
-  subsystem->queueSignalDelivery(thread, SIGALRM);
 }
 }  // namespace
 
@@ -158,9 +141,6 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
     : Subsystem(s),
       m_SignalHandlers(),
       m_SignalHandlersLock(),
-      m_AlarmLock(false),
-      m_pAlarmEvent(nullptr),
-      m_pAlarmThread(nullptr),
       m_FdMap(),
       m_NextFd(s.m_NextFd),
       m_FdLock(),
@@ -209,12 +189,6 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
 
 PosixSubsystem::~PosixSubsystem() {
   assert(--m_FreeCount == 0);
-
-  cancelAlarm();
-  if (m_pAlarmEvent) {
-    m_pAlarmEvent->retire();
-    m_pAlarmEvent = nullptr;
-  }
 
   acquire();
 
@@ -1003,37 +977,6 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
   return result;
 }
 
-size_t PosixSubsystem::setAlarm(size_t seconds) {
-  LockGuard<Spinlock> guard(m_AlarmLock);
-  if (!m_pAlarmEvent) {
-    m_pAlarmEvent = new RelayEvent(&posixAlarmEventHandler, 0x414C4152);
-  }
-
-  Timer* timer = Machine::instance().getTimer();
-  if (!timer) {
-    return 0;
-  }
-
-  size_t remaining = timer->removeAlarm(m_pAlarmEvent, false);
-  m_pAlarmThread = nullptr;
-  if (seconds) {
-    timer->addAlarm(m_pAlarmEvent, seconds);
-    m_pAlarmThread = Processor::information().getCurrentThread();
-  }
-  return remaining;
-}
-
-void PosixSubsystem::cancelAlarm() {
-  LockGuard<Spinlock> guard(m_AlarmLock);
-  if (m_pAlarmEvent) {
-    Timer* timer = Machine::instance().getTimer();
-    if (timer) {
-      timer->removeAlarm(m_pAlarmEvent);
-    }
-  }
-  m_pAlarmThread = nullptr;
-}
-
 /**
  * Note: POSIX  requires open()/accept()/etc to be safe during a signal
  * handler, which requires us to not allow signals during these file descriptor
@@ -1333,22 +1276,6 @@ void PosixSubsystem::threadExiting(Thread* pThread) {
 }
 
 void PosixSubsystem::threadRemoved(Thread* pThread) {
-  Event* alarmEvent = nullptr;
-  {
-    LockGuard<Spinlock> guard(m_AlarmLock);
-    alarmEvent = m_pAlarmEvent;
-    if (m_pAlarmThread == pThread) {
-      Timer* timer = Machine::instance().getTimer();
-      if (timer && alarmEvent) {
-        timer->removeAlarm(alarmEvent);
-      }
-      m_pAlarmThread = nullptr;
-    }
-  }
-  if (alarmEvent) {
-    pThread->cullEvent(alarmEvent);
-  }
-
   for (Tree<size_t, PosixThread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); it++) {
     PosixThread* thread = it.value();
     if (thread->pThread != pThread)
