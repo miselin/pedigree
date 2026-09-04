@@ -157,6 +157,10 @@ class EXPORTED_PUBLIC VFS {
   /** Checks if the current user can access the given file. */
   static bool checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute);
 
+  /** Checks access using an explicit, immutable credential snapshot. */
+  static bool checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute, int64_t userId,
+                          int64_t groupId, const Vector<int64_t>& supplementalGroups);
+
   /** \brief Track a File object that exists.
    * It is necessary to keep track of File objects, or at least those that
    * are stored in Directory caches and Filesystem objects, such that they

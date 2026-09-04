@@ -212,6 +212,39 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         )[0]
         self.assertIn("return posix_membarrier", membarrier)
 
+    def test_linux_faccessat2_is_mapped_and_dispatched_with_flags(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+        numbers = (
+            ROOT / "src/modules/subsys/posix/syscalls/posixSyscallNumbers.h"
+        ).read_text(encoding="utf-8")
+        manager = (
+            ROOT / "src/modules/subsys/posix/PosixSyscallManager.cc"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(faccessat2, 439, POSIX_FACCESSAT2)",
+            mappings,
+        )
+        self.assertIn("#define POSIX_FACCESSAT2 294", numbers)
+
+        faccessat = manager.split("case POSIX_FACCESSAT:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn(
+            "return posix_faccessat(p1, reinterpret_cast<const char*>(p2), p3, 0)",
+            faccessat,
+        )
+
+        faccessat2 = manager.split("case POSIX_FACCESSAT2:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn("return posix_faccessat", faccessat2)
+        self.assertIn("reinterpret_cast<const char*>(p2)", faccessat2)
+        self.assertIn("p3, p4", faccessat2)
+
     def test_linux_epoll_pwait_uses_a_guarded_temporary_mask(self):
         source = (
             ROOT / "src/modules/subsys/posix/epoll-syscalls.cc"

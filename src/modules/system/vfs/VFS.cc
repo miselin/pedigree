@@ -861,9 +861,6 @@ bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute) {
 
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
 
-  int64_t fuid = pFile->getUid();
-  int64_t fgid = pFile->getGid();
-
   int64_t processUid = pProcess->getEffectiveUserId();
   if (processUid < 0) {
     processUid = pProcess->getUserId();
@@ -874,7 +871,26 @@ bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute) {
     processGid = pProcess->getGroupId();
   }
 
+  Vector<int64_t> supplementalGroups;
+  pProcess->getSupplementalGroupIds(supplementalGroups);
+  return checkAccess(pFile, bRead, bWrite, bExecute, processUid, processGid, supplementalGroups);
+#endif
+}
+
+bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute, int64_t processUid,
+                      int64_t processGid, const Vector<int64_t>& supplementalGroups) {
+#ifdef VFS_STANDALONE
+  // We don't check permissions on standalone builds of the VFS.
+  return true;
+#else
+  if (!pFile) {
+    // The error for a null file is not EPERM or EACCESS.
+    return true;
+  }
+
   uint32_t check = 0;
+  const int64_t fuid = pFile->getUid();
+  const int64_t fgid = pFile->getGid();
   uint32_t permissions = pFile->getPermissions();
   uint32_t needed = (bRead ? FILE_UR : 0) | (bWrite ? FILE_UW : 0) | (bExecute ? FILE_UX : 0);
 
@@ -888,9 +904,6 @@ bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute) {
     bool inFileGroup = fgid == processGid;
 
     if (!inFileGroup) {
-      Vector<int64_t> supplementalGroups;
-      pProcess->getSupplementalGroupIds(supplementalGroups);
-
       for (auto it : supplementalGroups) {
         if (it == fgid) {
           inFileGroup = true;

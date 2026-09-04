@@ -4141,10 +4141,10 @@ int posix_fchmodat(int dirfd, const char* pathname, mode_t mode, int flags) {
 int posix_faccessat(int dirfd, const char* pathname, int mode, int flags) {
   F_NOTICE("faccessat");
 
-  DescriptorLease dirDescriptor;
-  Process::FileContextLease cwdLease;
-  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease);
-  if (!cwd) {
+  constexpr int validModes = R_OK | W_OK | X_OK;
+  constexpr int validFlags = AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH;
+  if ((mode & ~validModes) || (flags & ~validFlags)) {
+    SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
@@ -4156,19 +4156,53 @@ int posix_faccessat(int dirfd, const char* pathname, int mode, int flags) {
 
   F_NOTICE("faccessat(" << dirfd << ", " << pathnameCopy << ", " << mode << ", " << flags << ")");
 
-  String realPath;
-  normalisePath(realPath, pathnameCopy.cstr());
+  if (!pathnameCopy.length() && !(flags & AT_EMPTY_PATH)) {
+    SYSCALL_ERROR(DoesNotExist);
+    return -1;
+  }
 
-  // Grab the file
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  if (!subsystem) {
+    ERROR("No subsystem for this process!");
+    return -1;
+  }
+
+  DescriptorLease dirDescriptor;
+  Process::FileContextLease cwdLease;
   Directory::ChildLease fileLease;
-  File* file = findFileWithAbiFallbacks(realPath, fileLease, cwd);
+  File* file = nullptr;
+
+  if (!pathnameCopy.length()) {
+    file = check_dirfd(dirfd, dirDescriptor, cwdLease, AT_EMPTY_PATH);
+  } else {
+    File* cwd = nullptr;
+    if (pathnameCopy[0] == '/') {
+      // The kernel must ignore dirfd for absolute paths. A retained cwd is
+      // still passed as the ABI lookup anchor; absolute lookup selects root.
+      cwd = process->acquireCwd(cwdLease);
+      if (!cwd) {
+        SYSCALL_ERROR(DoesNotExist);
+        return -1;
+      }
+    } else {
+      cwd = check_dirfd(dirfd, dirDescriptor, cwdLease);
+    }
+    if (!cwd) {
+      return -1;
+    }
+
+    String realPath;
+    normalisePath(realPath, pathnameCopy.cstr());
+    file = findFileWithAbiFallbacks(realPath, fileLease, cwd);
+  }
 
   if ((flags & AT_SYMLINK_NOFOLLOW) == 0) {
     file = traverseSymlink(file, fileLease);
   }
 
   if (!file) {
-    F_NOTICE("  -> '" << realPath << "' does not exist");
+    F_NOTICE("  -> '" << pathnameCopy << "' does not exist");
     SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
@@ -4179,7 +4213,23 @@ int posix_faccessat(int dirfd, const char* pathname, int mode, int flags) {
     return 0;
   }
 
-  if (!VFS::checkAccess(file, mode & R_OK, mode & W_OK, mode & X_OK)) {
+  int64_t userId = process->getUserId();
+  int64_t groupId = process->getGroupId();
+  if (flags & AT_EACCESS) {
+    userId = process->getEffectiveUserId();
+    groupId = process->getEffectiveGroupId();
+    if (userId < 0) {
+      userId = process->getUserId();
+    }
+    if (groupId < 0) {
+      groupId = process->getGroupId();
+    }
+  }
+  Vector<int64_t> supplementalGroups;
+  process->getSupplementalGroupIds(supplementalGroups);
+
+  if (!VFS::checkAccess(file, mode & R_OK, mode & W_OK, mode & X_OK, userId, groupId,
+                        supplementalGroups)) {
     // checkAccess does a SYSCALL_ERROR for us.
     F_NOTICE("  -> not ok");
     return -1;

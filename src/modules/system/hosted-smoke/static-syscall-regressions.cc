@@ -53,6 +53,7 @@ extern "C" void posixSetCloneBeforeStartHookForTest(void (*hook)(Thread*, size_t
                                                     void* context);
 extern "C" unsigned int posixSelectProjectionForTest(short revents, bool checkRead, bool checkWrite,
                                                      bool checkExceptional);
+extern bool runHostedAccessSyscallRegressions(Process* process);
 extern bool runHostedAdvisoryLockRegressions(Process* process);
 extern bool runHostedEventFdRegressions(Process* process);
 extern bool runHostedMmapPlacementRegressions(Process* process);
@@ -4767,6 +4768,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN resource-syscall-semantics");
   if (!runHostedResourceSyscallRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN faccessat2-semantics");
+  if (!runHostedAccessSyscallRegressions(kernelProcess)) {
     return false;
   }
 

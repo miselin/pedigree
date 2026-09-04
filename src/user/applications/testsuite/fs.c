@@ -30,6 +30,10 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 
+#ifndef AT_EMPTY_PATH
+#define AT_EMPTY_PATH 0x1000
+#endif
+
 extern void fail(void) __attribute__((noreturn));
 
 static void status(const char* s) {
@@ -180,6 +184,82 @@ static void test_advisory_locks(void) {
   OK;
 }
 
+static void expect_access_failure(int result, int expected_error) {
+  if (result != -1 || errno != expected_error)
+    fail();
+}
+
+static void test_faccessat2(void) {
+  static const char path[] = "/testing/access-semantics";
+  static const char link_path[] = "/testing/access-link";
+
+  status("Testing faccessat2 semantics... ");
+  int fd = open(path, O_RDONLY | O_CREAT | O_TRUNC, 0400);
+  int dirfd = open("/testing", O_RDONLY | O_DIRECTORY);
+  if (fd < 0 || dirfd < 0)
+    fail();
+  if (chmod(path, 0400))
+    fail();
+
+  if (syscall(SYS_faccessat2, -1, path, F_OK, 0) ||
+      syscall(SYS_faccessat2, dirfd, "access-semantics", F_OK, 0))
+    fail();
+  errno = 0;
+  expect_access_failure(syscall(SYS_faccessat2, -1, "access-semantics", F_OK, 0), EBADF);
+  errno = 0;
+  expect_access_failure(syscall(SYS_faccessat2, fd, "access-semantics", F_OK, 0), ENOTDIR);
+  errno = 0;
+  expect_access_failure(syscall(SYS_faccessat2, -1, "/testing/access-missing", F_OK, 0), ENOENT);
+
+  errno = 0;
+  expect_access_failure(syscall(SYS_faccessat2, AT_FDCWD, path, 8, 0), EINVAL);
+  errno = 0;
+  expect_access_failure(syscall(SYS_faccessat2, AT_FDCWD, path, F_OK, 0x40000000), EINVAL);
+  errno = 0;
+  expect_access_failure(syscall(SYS_faccessat2, AT_FDCWD, (const char*)UINTPTR_MAX, F_OK, 0),
+                        EFAULT);
+
+  errno = 0;
+  expect_access_failure(syscall(SYS_faccessat2, fd, "", F_OK, 0), ENOENT);
+  if (syscall(SYS_faccessat2, fd, "", F_OK, AT_EMPTY_PATH))
+    fail();
+  if (syscall(SYS_faccessat2, AT_FDCWD, "", F_OK, AT_EMPTY_PATH))
+    fail();
+  errno = 0;
+  expect_access_failure(syscall(SYS_faccessat2, -1, "", F_OK, AT_EMPTY_PATH), EBADF);
+
+  unlink(link_path);
+  if (symlink(path, link_path))
+    fail();
+
+  const uid_t original_real = getuid();
+  const uid_t original_effective = geteuid();
+  const uid_t alternate_real = original_effective == 123 ? 124 : 123;
+  if (syscall(SYS_setresuid, alternate_real, original_effective, (uid_t)-1))
+    fail();
+
+  errno = 0;
+  expect_access_failure(access(path, R_OK), EACCES);
+  errno = 0;
+  expect_access_failure(syscall(SYS_faccessat2, AT_FDCWD, path, R_OK, 0), EACCES);
+  if (syscall(SYS_faccessat2, AT_FDCWD, path, R_OK, AT_EACCESS))
+    fail();
+  errno = 0;
+  expect_access_failure(syscall(SYS_faccessat2, AT_FDCWD, path, X_OK, AT_EACCESS), EACCES);
+
+  errno = 0;
+  expect_access_failure(syscall(SYS_faccessat2, AT_FDCWD, link_path, R_OK, 0), EACCES);
+  if (syscall(SYS_faccessat2, AT_FDCWD, link_path, R_OK, AT_SYMLINK_NOFOLLOW) ||
+      syscall(SYS_faccessat2, AT_FDCWD, link_path, R_OK, AT_EACCESS))
+    fail();
+
+  if (syscall(SYS_setresuid, original_real, original_effective, (uid_t)-1))
+    fail();
+  if (close(dirfd) || close(fd) || unlink(link_path) || unlink(path))
+    fail();
+  OK;
+}
+
 void test_fs() {
   int fd = -1;
   int rc = 0;
@@ -209,6 +289,7 @@ void test_fs() {
 
   test_positional_io();
   test_advisory_locks();
+  test_faccessat2();
 
   // Create some files of varying sizes and destroy them.
   status("Testing file creation... ");

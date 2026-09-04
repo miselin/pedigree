@@ -38,12 +38,12 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         # x86_64 bits/syscall.h, plus Pedigree's explicit vfork compatibility
         # route, the five epoll entry points, both eventfd entry points, and
         # ppoll, pselect6, clock_getres, clock_nanosleep, tkill, tgkill, and
-        # rt_sigsuspend, pread64, pwrite64, prlimit64, and membarrier. This
-        # locks both sides of all 167 mappings.
-        self.assertEqual(len(mapping), 167)
+        # rt_sigsuspend, pread64, pwrite64, prlimit64, membarrier, and
+        # faccessat2. This locks both sides of all 168 mappings.
+        self.assertEqual(len(mapping), 168)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "0101ba28547b962b64bbf3d5206d9256581ad23ccccf2d1b5fd8586698ed3b2c",
+            "b74849530fd74be8ba9e65d04a0b4e9035d8082554b0dd2d4e7c5779969b035d",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))
