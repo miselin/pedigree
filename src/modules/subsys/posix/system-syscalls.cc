@@ -100,6 +100,34 @@ class CloneInterruptScope {
  private:
   bool m_Previous;
 };
+
+enum class CloneRoute { Process, Thread, Invalid };
+
+CloneRoute cloneRoute(unsigned long flags) {
+  constexpr unsigned long ExitSignalMask = 0xff;
+  constexpr unsigned long SpawnFlags = CLONE_VM | CLONE_VFORK | SIGCHLD;
+  constexpr unsigned long ThreadRequired =
+      CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD;
+  constexpr unsigned long ThreadAllowed = ThreadRequired | CLONE_SYSVSEM | CLONE_SETTLS |
+                                          CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID |
+                                          CLONE_DETACHED | CLONE_CHILD_SETTID;
+
+  if (flags & CLONE_THREAD) {
+    if ((flags & ExitSignalMask) || (flags & ThreadRequired) != ThreadRequired ||
+        (flags & ~ThreadAllowed)) {
+      return CloneRoute::Invalid;
+    }
+    return CloneRoute::Thread;
+  }
+
+  // The private-CoW process path can faithfully provide fork-like clone and
+  // musl's pipe-synchronised posix_spawn trampoline. Other sharing and
+  // namespace combinations must not silently receive fork semantics.
+  if (flags == 0 || flags == SIGCHLD || flags == SpawnFlags) {
+    return CloneRoute::Process;
+  }
+  return CloneRoute::Invalid;
+}
 }  // namespace
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -120,6 +148,19 @@ extern "C" EXPORTED_PUBLIC void posixSetCloneBeforeStartHookForTest(CloneBeforeS
                      __ATOMIC_RELEASE);
     __atomic_store_n(&g_CloneBeforeStartHookContext, static_cast<void*>(nullptr), __ATOMIC_RELEASE);
   }
+}
+
+extern "C" EXPORTED_PUBLIC int posixCloneRouteForTest(unsigned long flags) {
+  switch (cloneRoute(flags)) {
+    case CloneRoute::Process:
+      return 0;
+    case CloneRoute::Thread:
+      return 1;
+    case CloneRoute::Invalid:
+      return -1;
+  }
+
+  return -1;
 }
 #endif
 
@@ -328,7 +369,14 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     if (flags & CLONE_IO) SC_NOTICE("\t\t-> CLONE_IO");
 #endif
 
-  if ((flags & CLONE_VM) == CLONE_VM) {
+  const CloneRoute route = cloneRoute(flags);
+  if (route == CloneRoute::Invalid) {
+    SYSCALL_ERROR(InvalidArgument);
+    SC_NOTICE(" -> EINVAL (unsupported or inconsistent clone flags)");
+    return -1;
+  }
+
+  if (route == CloneRoute::Thread) {
     // clone vm doesn't actually copy the address space, it shares it
 
     // New child's stack. Must be valid as we're sharing the address space.
@@ -385,10 +433,25 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     return threadId;
   }
 
+  if (flags & CLONE_VM) {
+    // Pedigree cannot safely share one address space between distinct
+    // processes yet. A private CoW child preserves process identity for
+    // posix_spawn without exposing the parent to the child's exec or exit.
+    SC_NOTICE(" -> normalizing process CLONE_VM to a private address space");
+  }
+
   // No child stack means CoW the existing one, but if one is specified we
   // should use it instead!
   if (child_stack) {
     clonedState.setStackPointer(reinterpret_cast<uintptr_t>(child_stack));
+  }
+
+  Process* pParentProcess = Processor::information().getCurrentThread()->getParent();
+  PosixSubsystem* pParentSubsystem = static_cast<PosixSubsystem*>(pParentProcess->getSubsystem());
+  if (!pParentSubsystem) {
+    ERROR("No subsystem for the parent process!");
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
   }
 
   // Inhibit signals to the parent
@@ -396,23 +459,18 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     Processor::information().getCurrentThread()->inhibitEvent(sig, true);
 
   // Create a new process.
-  Process* pParentProcess = Processor::information().getCurrentThread()->getParent();
   PosixProcess* pProcess = new PosixProcess(pParentProcess);
   if (!pProcess) {
+    for (int sig = 0; sig < 32; sig++)
+      Processor::information().getCurrentThread()->inhibitEvent(sig, false);
     SYSCALL_ERROR(OutOfMemory);
     SC_NOTICE(" -> ENOMEM");
     return -1;
   }
 
-  PosixSubsystem* pParentSubsystem = static_cast<PosixSubsystem*>(pParentProcess->getSubsystem());
   PosixSubsystem* pSubsystem = new PosixSubsystem(*pParentSubsystem);
-  if (!pSubsystem || !pParentSubsystem) {
-    ERROR("No subsystem for one or both of the processes!");
-
-    if (pSubsystem)
-      delete pSubsystem;
-    if (pParentSubsystem)
-      delete pParentSubsystem;
+  if (!pSubsystem) {
+    ERROR("Could not create a subsystem for the child process!");
     delete pProcess;
 
     SYSCALL_ERROR(OutOfMemory);

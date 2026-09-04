@@ -55,6 +55,7 @@ extern "C" unsigned int posixSelectProjectionForTest(short revents, bool checkRe
                                                      bool checkExceptional);
 extern bool runHostedAccessSyscallRegressions(Process* process);
 extern bool runHostedAdvisoryLockRegressions(Process* process);
+extern bool runHostedCloneRoutingRegressions(Process* process);
 extern bool runHostedEventFdRegressions(Process* process);
 extern bool runHostedMmapPlacementRegressions(Process* process);
 extern bool runHostedPosixExitStatusRegressions(Process* process);
@@ -3890,8 +3891,9 @@ bool cloneStateDropsParentErrnoDestination() {
 
 bool cloneVmNullStackPreservesInterrupts() {
   const bool interruptsWereEnabled = Processor::getInterrupts();
-  const uintptr_t result =
-      SyscallManager::instance().syscall(posix, POSIX_CLONE, CLONE_VM, 0, 0, 0, 0);
+  const uintptr_t result = SyscallManager::instance().syscall(
+      posix, POSIX_CLONE, CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD, 0, 0, 0,
+      0);
   const bool interruptsStillEnabled = Processor::getInterrupts();
   if (interruptsStillEnabled != interruptsWereEnabled) {
     Processor::setInterrupts(interruptsWereEnabled);
@@ -4145,7 +4147,9 @@ int cloneVmWhileProcessExits(void* parameter) {
   const bool interruptsWereEnabled = Processor::getInterrupts();
   context->callerInterruptsBefore = interruptsWereEnabled ? 1 : 0;
   context->cloneResult = SyscallManager::instance().syscall(
-      posix, POSIX_CLONE, CLONE_VM | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID,
+      posix, POSIX_CLONE,
+      CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SETTLS |
+          CLONE_PARENT_SETTID | CLONE_CHILD_SETTID,
       reinterpret_cast<uintptr_t>(context->childStack + sizeof(context->childStack)),
       reinterpret_cast<uintptr_t>(&context->parentTid),
       reinterpret_cast<uintptr_t>(&context->childTid),
@@ -4965,6 +4969,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN clone-errno-lifetime");
   if (!cloneStateDropsParentErrnoDestination()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN clone-process-routing");
+  if (!runHostedCloneRoutingRegressions(kernelProcess)) {
     return false;
   }
 

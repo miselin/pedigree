@@ -12,6 +12,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
+#include <spawn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -390,6 +391,40 @@ static void test_vfork(void) {
 
   int statusCode = 0;
   if (waitpid(child, &statusCode, 0) != child || !WIFEXITED(statusCode) || WEXITSTATUS(statusCode))
+    fail();
+
+  status("OK");
+}
+
+void test_posix_spawn(const char* program) {
+  status("Testing posix_spawn process isolation...");
+
+  const pid_t parent = getpid();
+  pid_t child = -1;
+  char* const arguments[] = {(char*)program, (char*)"--exec-shebang-unexpected-child", 0};
+  char* const environment[] = {0};
+  if (posix_spawn(&child, program, 0, 0, arguments, environment) || child <= 0 || child == parent ||
+      getpid() != parent)
+    fail();
+
+  int statusCode = 0;
+  if (waitpid_bounded(child, &statusCode, 0) != child || !WIFEXITED(statusCode) ||
+      WEXITSTATUS(statusCode) != 120 || getpid() != parent)
+    fail();
+
+  errno = 0;
+  if (waitpid(child, &statusCode, WNOHANG) != -1 || errno != ECHILD)
+    fail();
+
+  pid_t missingChild = -1;
+  char* const missingArguments[] = {(char*)"/posix-spawn-missing", 0};
+  if (posix_spawn(&missingChild, missingArguments[0], 0, 0, missingArguments, environment) !=
+          ENOENT ||
+      getpid() != parent)
+    fail();
+
+  errno = 0;
+  if (waitpid(-1, &statusCode, WNOHANG) != -1 || errno != ECHILD)
     fail();
 
   status("OK");
@@ -1291,6 +1326,7 @@ void test_process(const char* program) {
   printf("Testing process compatibility...\n");
   test_proc_self_fd();
   test_vfork();
+  test_posix_spawn(program);
   test_resource_compatibility();
   test_futex_requeue();
   test_cond_broadcast();

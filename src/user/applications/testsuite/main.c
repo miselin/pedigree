@@ -29,6 +29,7 @@ extern int exec_shebang_child(int argc, char* argv[]);
 extern void test_exec_shebang(const char* program);
 extern int process_exec_signal_child(void);
 extern void test_process(const char* program);
+extern void test_posix_spawn(const char* program);
 extern void test_scm_rights(void);
 
 static jmp_buf buf;
@@ -52,6 +53,10 @@ int main(int argc, char* argv[]) {
 
   if (argc == 2 && !strcmp(argv[1], "--scm-rights")) {
     test_scm_rights();
+    return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--posix-spawn")) {
+    test_posix_spawn(argv[0]);
     return 0;
   }
 
