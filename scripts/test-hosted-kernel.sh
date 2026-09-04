@@ -440,6 +440,7 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-NETWORK-TEST: PASS receive-generation-aba"
     for checkpoint in \
         "HOSTED-SYSCALL-TEST: PASS usercopy" \
+        "HOSTED-SYSCALL-TEST: PASS mmap-placement" \
         "HOSTED-SYSCALL-TEST: PASS directory-retained-lookup-atomicity" \
         "HOSTED-SYSCALL-TEST: PASS directory-retained-lookup-lifecycle" \
         "HOSTED-SYSCALL-TEST: PASS vfs-established-alias-serialization" \

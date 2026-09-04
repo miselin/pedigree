@@ -397,6 +397,18 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   friend class PosixSubsystem;
 
  public:
+  enum class Placement {
+    Hint,
+    FixedReplace,
+    FixedNoReplace,
+  };
+
+  enum class MapStatus {
+    Success,
+    NoMemory,
+    AddressInUse,
+  };
+
   /** Singleton instance */
   static MemoryMapManager& instance() {
     return m_Instance;
@@ -418,11 +430,19 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
                               MemoryMappedObject::Permissions perms, size_t offset = 0,
                               bool bCopyOnWrite = true);
 
+  MemoryMappedObject* mapFile(File* pFile, uintptr_t& address, size_t length,
+                              MemoryMappedObject::Permissions perms, size_t offset,
+                              bool bCopyOnWrite, Placement placement, MapStatus* status);
+
   /**
    * Create a new anonymous memory mapping.
    */
   MemoryMappedObject* mapAnon(uintptr_t& address, size_t length,
                               MemoryMappedObject::Permissions perms);
+
+  MemoryMappedObject* mapAnon(uintptr_t& address, size_t length,
+                              MemoryMappedObject::Permissions perms, Placement placement,
+                              MapStatus* status);
 
   /**
    * Registers the current address space's mappings with the target
@@ -550,7 +570,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   bool tryEnterOperation();
   void leaveOperation();
 
-  bool sanitiseAddress(uintptr_t& address, size_t length);
+  MapStatus sanitiseAddress(uintptr_t& address, size_t length, Placement placement);
 
   enum Ops {
     Sync,

@@ -927,6 +927,14 @@ MemoryMapManager::~MemoryMapManager() {
 MemoryMappedObject* MemoryMapManager::mapFile(File* pFile, uintptr_t& address, size_t length,
                                               MemoryMappedObject::Permissions perms, size_t offset,
                                               bool bCopyOnWrite) {
+  return mapFile(pFile, address, length, perms, offset, bCopyOnWrite, Placement::FixedReplace,
+                 nullptr);
+}
+
+MemoryMappedObject* MemoryMapManager::mapFile(File* pFile, uintptr_t& address, size_t length,
+                                              MemoryMappedObject::Permissions perms, size_t offset,
+                                              bool bCopyOnWrite, Placement placement,
+                                              MapStatus* status) {
   OperationGuard operation(*this);
 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
@@ -935,16 +943,27 @@ MemoryMappedObject* MemoryMapManager::mapFile(File* pFile, uintptr_t& address, s
   // Make sure the size is page aligned. (we'll fill any space that is past
   // the end of the extent with zeroes).
   size_t actualLength = length;
+  if (length > ~static_cast<size_t>(0) - (pageSz - 1)) {
+    if (status) {
+      *status = MapStatus::NoMemory;
+    }
+    return 0;
+  }
   if (length & (pageSz - 1)) {
-    length += pageSz;
-    length &= ~(pageSz - 1);
+    length = (length + pageSz - 1) & ~(pageSz - 1);
   }
 
-  if (!sanitiseAddress(address, length))
+  const MapStatus placementStatus = sanitiseAddress(address, length, placement);
+  if (status) {
+    *status = placementStatus;
+  }
+  if (placementStatus != MapStatus::Success) {
     return 0;
+  }
 
-  // Override any existing mappings that might exist.
-  remove(address, length);
+  if (placement == Placement::FixedReplace) {
+    remove(address, length);
+  }
 
 #ifdef DEBUG_MMOBJECTS
   NOTICE("MemoryMapManager::mapFile: " << address << " length " << actualLength << " for "
@@ -967,6 +986,12 @@ MemoryMappedObject* MemoryMapManager::mapFile(File* pFile, uintptr_t& address, s
 
 MemoryMappedObject* MemoryMapManager::mapAnon(uintptr_t& address, size_t length,
                                               MemoryMappedObject::Permissions perms) {
+  return mapAnon(address, length, perms, Placement::FixedReplace, nullptr);
+}
+
+MemoryMappedObject* MemoryMapManager::mapAnon(uintptr_t& address, size_t length,
+                                              MemoryMappedObject::Permissions perms,
+                                              Placement placement, MapStatus* status) {
   OperationGuard operation(*this);
 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
@@ -974,16 +999,27 @@ MemoryMappedObject* MemoryMapManager::mapAnon(uintptr_t& address, size_t length,
 
   // Make sure the size is page aligned. (we'll fill any space that is past
   // the end of the extent with zeroes).
+  if (length > ~static_cast<size_t>(0) - (pageSz - 1)) {
+    if (status) {
+      *status = MapStatus::NoMemory;
+    }
+    return 0;
+  }
   if (length & (pageSz - 1)) {
-    length += pageSz;
-    length &= ~(pageSz - 1);
+    length = (length + pageSz - 1) & ~(pageSz - 1);
   }
 
-  if (!sanitiseAddress(address, length))
+  const MapStatus placementStatus = sanitiseAddress(address, length, placement);
+  if (status) {
+    *status = placementStatus;
+  }
+  if (placementStatus != MapStatus::Success) {
     return 0;
+  }
 
-  // Override any existing mappings that might exist.
-  remove(address, length);
+  if (placement == Placement::FixedReplace) {
+    remove(address, length);
+  }
 
 #ifdef DEBUG_MMOBJECTS
   NOTICE("MemoryMapManager::mapAnon: " << address << " length " << length);
@@ -1485,28 +1521,93 @@ bool MemoryMapManager::trap(InterruptState& state, uintptr_t address, bool bIsWr
   return false;
 }
 
-bool MemoryMapManager::sanitiseAddress(uintptr_t& address, size_t length) {
+MemoryMapManager::MapStatus MemoryMapManager::sanitiseAddress(uintptr_t& address, size_t length,
+                                                              Placement placement) {
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
+  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
   size_t pageSz = PhysicalMemoryManager::getPageSize();
 
-  // Can we get some space for this mapping?
-  if (address == 0) {
-    if (!pProcess->getDynamicSpaceAllocator().allocate(length + pageSz, address))
-      if (!pProcess->getSpaceAllocator().allocate(length + pageSz, address))
-        return false;
+  if (length > ~static_cast<size_t>(0) - pageSz ||
+      (address && address > ~static_cast<uintptr_t>(0) - length)) {
+    return MapStatus::NoMemory;
+  }
+
+  auto allocateAnywhere = [&]() -> bool {
+    if (!pProcess->getDynamicSpaceAllocator().allocate(length + pageSz, address) &&
+        !pProcess->getSpaceAllocator().allocate(length + pageSz, address)) {
+      return false;
+    }
 
     if (address & (pageSz - 1)) {
       address = (address + pageSz) & ~(pageSz - 1);
     }
-  } else {
-    // If this fails, we generally assume a reservation has been made.
-    /// \todo rework APIs a lot.
-    /// \todo allocateSpecific in the dynamic space allocator if address is
-    ///       within that range.
-    pProcess->getSpaceAllocator().allocateSpecific(address, length);
+    return true;
+  };
+
+  auto allocateSpecific = [&]() -> bool {
+    const uintptr_t end = address + length;
+    const uintptr_t dynamicStart = va.getDynamicStart();
+    const uintptr_t dynamicEnd = va.getDynamicEnd();
+    if (dynamicStart && address >= dynamicStart && end <= dynamicEnd) {
+      return pProcess->getDynamicSpaceAllocator().allocateSpecific(address, length);
+    }
+    if (address >= va.getUserStart() && end <= va.getUserReservedStart()) {
+      return pProcess->getSpaceAllocator().allocateSpecific(address, length);
+    }
+    return false;
+  };
+
+  auto reserveFreeSubranges = [&](MemoryAllocator& allocator) {
+    const uintptr_t requestedEnd = address + length;
+    while (true) {
+      bool reserved = false;
+      for (size_t i = 0; i < allocator.size(); ++i) {
+        MemoryAllocator::Range range(0, 0);
+        if (!allocator.getRange(i, range)) {
+          continue;
+        }
+
+        const uintptr_t rangeEnd = range.length > ~static_cast<uintptr_t>(0) - range.address
+                                       ? ~static_cast<uintptr_t>(0)
+                                       : range.address + range.length;
+        const uintptr_t overlapStart = address > range.address ? address : range.address;
+        const uintptr_t overlapEnd = requestedEnd < rangeEnd ? requestedEnd : rangeEnd;
+        if (overlapStart < overlapEnd &&
+            allocator.allocateSpecific(overlapStart, overlapEnd - overlapStart)) {
+          reserved = true;
+          break;
+        }
+      }
+      if (!reserved) {
+        return;
+      }
+    }
+  };
+
+  if (address == 0) {
+    return allocateAnywhere() ? MapStatus::Success : MapStatus::NoMemory;
   }
 
-  return true;
+  if (allocateSpecific()) {
+    return MapStatus::Success;
+  }
+
+  if (placement == Placement::Hint) {
+    address = 0;
+    return allocateAnywhere() ? MapStatus::Success : MapStatus::NoMemory;
+  }
+  if (placement == Placement::FixedNoReplace) {
+    return MapStatus::AddressInUse;
+  }
+
+  // Preserve reservations already covered by the replaced mapping while
+  // claiming any previously-free parts of a larger fixed range.
+  reserveFreeSubranges(pProcess->getDynamicSpaceAllocator());
+  reserveFreeSubranges(pProcess->getSpaceAllocator());
+
+  // Fixed mappings may target a range which an internal caller reserved
+  // before asking the memory-map manager to publish the object.
+  return MapStatus::Success;
 }
 
 bool MemoryMapManager::compact() {

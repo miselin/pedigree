@@ -2484,34 +2484,44 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
     return MAP_FAILED;
   }
 
-  // The return address
-  void* finalAddress = 0;
-
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-  size_t pageSz = PhysicalMemoryManager::getPageSize();
+  const size_t pageSz = PhysicalMemoryManager::getPageSize();
+  const uintptr_t pageMask = pageSz - 1;
+  const bool fixedNoReplace = flags & MAP_FIXED_NOREPLACE;
+  const bool fixed = fixedNoReplace || (flags & MAP_FIXED);
+  const MemoryMapManager::Placement placement =
+      fixedNoReplace
+          ? MemoryMapManager::Placement::FixedNoReplace
+          : (fixed ? MemoryMapManager::Placement::FixedReplace : MemoryMapManager::Placement::Hint);
 
-  // Sanitise input.
-  uintptr_t sanityAddress = reinterpret_cast<uintptr_t>(addr);
-  if (sanityAddress) {
-    if ((sanityAddress < va.getUserStart()) || (sanityAddress >= va.getKernelStart())) {
-      if (flags & MAP_FIXED) {
-        // Invalid input and MAP_FIXED, this is an error.
-        SYSCALL_ERROR(InvalidArgument);
-        F_NOTICE("  -> mmap given invalid fixed address");
-        return MAP_FAILED;
-      } else {
-        // Invalid input - but not MAP_FIXED, so we can ignore addr.
-        sanityAddress = 0;
-      }
-    }
-  }
-
-  // Verify the passed length
-  if (!len || (sanityAddress & (pageSz - 1)) ||
-      (!(flags & MAP_ANON) && (off < 0 || (static_cast<uint64_t>(off) & (pageSz - 1))))) {
+  // Verify the passed length and file offset before rounding either input.
+  if (!len || len > ~static_cast<size_t>(0) - pageMask ||
+      (!(flags & MAP_ANON) && (off < 0 || (static_cast<uint64_t>(off) & pageMask)))) {
     SYSCALL_ERROR(InvalidArgument);
     return MAP_FAILED;
   }
+  const size_t roundedLength = (len + pageMask) & ~pageMask;
+
+  // Sanitise input.
+  uintptr_t sanityAddress = reinterpret_cast<uintptr_t>(addr);
+  if (fixed) {
+    if ((sanityAddress & pageMask) || sanityAddress < va.getUserStart() ||
+        sanityAddress >= va.getKernelStart() ||
+        roundedLength > va.getKernelStart() - sanityAddress) {
+      SYSCALL_ERROR(InvalidArgument);
+      F_NOTICE("  -> mmap given invalid fixed address");
+      return MAP_FAILED;
+    }
+  } else if (sanityAddress) {
+    sanityAddress &= ~pageMask;
+    if (sanityAddress < va.getUserStart() || sanityAddress >= va.getKernelStart() ||
+        roundedLength > va.getKernelStart() - sanityAddress) {
+      // Invalid non-fixed hints do not make the mapping fail.
+      sanityAddress = 0;
+    }
+  }
+
+  MemoryMapManager::MapStatus mapStatus = MemoryMapManager::MapStatus::NoMemory;
 
   // Create permission set.
   MemoryMappedObject::Permissions perms;
@@ -2533,17 +2543,21 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
       return MAP_FAILED;
     }
 
-    MemoryMappedObject* pObject = MemoryMapManager::instance().mapAnon(sanityAddress, len, perms);
+    MemoryMappedObject* pObject =
+        MemoryMapManager::instance().mapAnon(sanityAddress, len, perms, placement, &mapStatus);
     if (!pObject) {
-      /// \todo Better error?
-      SYSCALL_ERROR(OutOfMemory);
+      if (mapStatus == MemoryMapManager::MapStatus::AddressInUse) {
+        SYSCALL_ERROR(FileExists);
+      } else {
+        SYSCALL_ERROR(OutOfMemory);
+      }
       F_NOTICE("  -> failed (mapAnon)!");
       return MAP_FAILED;
     }
 
     F_NOTICE("  -> " << sanityAddress);
 
-    finalAddress = reinterpret_cast<void*>(sanityAddress);
+    return reinterpret_cast<void*>(sanityAddress);
   } else {
     // Valid file passed?
     DescriptorLease f;
@@ -2575,25 +2589,23 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
 
     F_NOTICE("mmap: file name is " << fileToMap->getFullPath());
 
-    // Grab the MemoryMappedFile for it. This will automagically handle
-    // MAP_FIXED mappings too
     bool bCopyOnWrite = (flags & MAP_SHARED) == 0;
-    MemoryMappedObject* pFile = MemoryMapManager::instance().mapFile(fileToMap, sanityAddress, len,
-                                                                     perms, off, bCopyOnWrite);
+    MemoryMappedObject* pFile = MemoryMapManager::instance().mapFile(
+        fileToMap, sanityAddress, len, perms, off, bCopyOnWrite, placement, &mapStatus);
     if (!pFile) {
-      /// \todo Better error?
-      SYSCALL_ERROR(OutOfMemory);
+      if (mapStatus == MemoryMapManager::MapStatus::AddressInUse) {
+        SYSCALL_ERROR(FileExists);
+      } else {
+        SYSCALL_ERROR(OutOfMemory);
+      }
       F_NOTICE("  -> failed (mapFile)!");
       return MAP_FAILED;
     }
 
     F_NOTICE("  -> " << sanityAddress);
 
-    finalAddress = reinterpret_cast<void*>(sanityAddress);
+    return reinterpret_cast<void*>(sanityAddress);
   }
-
-  // Complete
-  return finalAddress;
 }
 
 int posix_msync(void* p, size_t len, int flags) {

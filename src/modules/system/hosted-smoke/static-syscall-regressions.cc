@@ -54,6 +54,7 @@ extern "C" void posixSetCloneBeforeStartHookForTest(void (*hook)(Thread*, size_t
 extern "C" unsigned int posixSelectProjectionForTest(short revents, bool checkRead, bool checkWrite,
                                                      bool checkExceptional);
 extern bool runHostedEventFdRegressions(Process* process);
+extern bool runHostedMmapPlacementRegressions(Process* process);
 extern bool runHostedPosixExitStatusRegressions(Process* process);
 extern bool runHostedPpollRegressions(Process* process);
 extern bool runHostedPselectRegressions(Process* process);
@@ -4748,6 +4749,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN usercopy");
   if (!runHostedUsercopyRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN mmap-placement");
+  if (!runHostedMmapPlacementRegressions(kernelProcess)) {
     return false;
   }
 

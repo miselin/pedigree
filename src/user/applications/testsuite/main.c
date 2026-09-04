@@ -23,6 +23,7 @@
 #include <unistd.h>
 
 extern void test_mprotect();
+extern void test_mmap();
 extern void test_fs();
 extern int exec_shebang_child(int argc, char* argv[]);
 extern void test_exec_shebang(const char* program);
@@ -51,6 +52,7 @@ int main(int argc, char* argv[]) {
   printf("Running tests...\n");
 
   // Add calls to test functions here...
+  test_mmap();
   test_mprotect();
   test_exec_shebang(argv[0]);
   test_process(argv[0]);
