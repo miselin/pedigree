@@ -25,6 +25,7 @@
 extern void test_mprotect();
 extern void test_mmap();
 extern void test_fs();
+extern void test_dup3(void);
 extern int exec_shebang_child(int argc, char* argv[]);
 extern void test_exec_shebang(const char* program);
 extern int process_exec_signal_child(void);
@@ -59,6 +60,10 @@ int main(int argc, char* argv[]) {
     test_posix_spawn(argv[0]);
     return 0;
   }
+  if (argc == 2 && !strcmp(argv[1], "--dup3")) {
+    test_dup3();
+    return 0;
+  }
 
   printf("Running tests...\n");
 
@@ -67,6 +72,7 @@ int main(int argc, char* argv[]) {
   test_mprotect();
   test_exec_shebang(argv[0]);
   test_process(argv[0]);
+  test_dup3();
   test_scm_rights();
   test_fs();
 

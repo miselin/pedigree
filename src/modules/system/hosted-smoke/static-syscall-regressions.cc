@@ -56,6 +56,7 @@ extern "C" unsigned int posixSelectProjectionForTest(short revents, bool checkRe
 extern bool runHostedAccessSyscallRegressions(Process* process);
 extern bool runHostedAdvisoryLockRegressions(Process* process);
 extern bool runHostedCloneRoutingRegressions(Process* process);
+extern bool runHostedDup3Regressions(Process* process);
 extern bool runHostedEventFdRegressions(Process* process);
 extern bool runHostedMmapPlacementRegressions(Process* process);
 extern bool runHostedPosixExitStatusRegressions(Process* process);
@@ -4904,6 +4905,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-dup-contract");
   if (!descriptorDupContract(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN dup3-atomic-replacement");
+  if (!runHostedDup3Regressions(kernelProcess)) {
     return false;
   }
 

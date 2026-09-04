@@ -39,11 +39,11 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         # route, the five epoll entry points, both eventfd entry points, and
         # ppoll, pselect6, clock_getres, clock_nanosleep, tkill, tgkill, and
         # rt_sigsuspend, pread64, pwrite64, prlimit64, membarrier, and
-        # faccessat2. This locks both sides of all 168 mappings.
-        self.assertEqual(len(mapping), 168)
+        # faccessat2, and dup3. This locks both sides of all 169 mappings.
+        self.assertEqual(len(mapping), 169)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "b74849530fd74be8ba9e65d04a0b4e9035d8082554b0dd2d4e7c5779969b035d",
+            "002d36a62bb8cdbf07f9f4b2f357e7329be3c5763d300bfc93772ded6d1339b9",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))

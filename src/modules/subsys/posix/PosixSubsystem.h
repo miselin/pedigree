@@ -172,6 +172,8 @@ class ProcessGroupManager {
 /** Defines the compatibility layer for the POSIX Subsystem */
 class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
  public:
+  enum class DescriptorDuplicationResult { Success, BadSource, TargetBusy };
+
   /** Sanitise flags. */
   static const size_t SafeRegion = 0x0;  // Region check is always done.
   static const size_t SafeRead = 0x1;
@@ -420,6 +422,17 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   /** Inserts a file descriptor */
   void addFileDescriptor(size_t fd, FileDescriptor* pFd);
+
+  /**
+   * Atomically replaces target with a duplicate of source.
+   *
+   * The source lookup, anonymous-target owner publication, and table swap
+   * share one descriptor-table critical section. A concurrent final close
+   * therefore cannot close eventfd admission between lookup and duplication,
+   * and target is never observable as an unallocated descriptor.
+   */
+  DescriptorDuplicationResult duplicateFileDescriptor(size_t source, size_t target,
+                                                      bool closeOnExec);
 
   /**
    * Allocates and publishes a descriptor while returning a pin for that exact

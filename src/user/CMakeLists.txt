@@ -156,6 +156,7 @@ pedigree_app(sudo ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/sudo/mai
 pedigree_app(syscall-test ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/syscall-test/syscall-test.c)
 pedigree_app(testsuite ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/dup3.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/exec.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/fs.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/mmap.c

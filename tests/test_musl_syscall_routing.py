@@ -136,6 +136,36 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             with self.subTest(mapping=mapping):
                 self.assertIn(mapping, mappings)
 
+    def test_linux_dup3_is_mapped_and_dispatched(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+        numbers = (
+            ROOT / "src/modules/subsys/posix/syscalls/posixSyscallNumbers.h"
+        ).read_text(encoding="utf-8")
+        manager = (
+            ROOT / "src/modules/subsys/posix/PosixSyscallManager.cc"
+        ).read_text(encoding="utf-8")
+        declarations = (
+            ROOT / "src/modules/subsys/posix/file-syscalls.h"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(dup3, 292, POSIX_DUP3)",
+            mappings,
+        )
+        self.assertIn("#define POSIX_DUP3 295", numbers)
+        self.assertRegex(
+            manager,
+            r"case POSIX_DUP3:\s+return posix_dup3\(static_cast<int>\(p1\), "
+            r"static_cast<int>\(p2\), static_cast<int>\(p3\)\);",
+        )
+        self.assertIn(
+            "int posix_dup3(int oldfd, int newfd, int flags);",
+            declarations,
+        )
+
     def test_linux_positional_io_syscalls_are_mapped_and_dispatched(self):
         mappings = (
             ROOT

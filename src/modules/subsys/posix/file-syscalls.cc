@@ -2567,6 +2567,41 @@ int posix_dup2(int fd1, int fd2) {
   return fd2;
 }
 
+int posix_dup3(int oldfd, int newfd, int flags) {
+  F_NOTICE("dup3(" << oldfd << ", " << newfd << ", " << flags << ")");
+
+  if (flags & ~O_CLOEXEC || oldfd == newfd) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  constexpr int MaximumFileDescriptors = 16384;
+  if (newfd < 0 || newfd >= MaximumFileDescriptors) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  if (!subsystem) {
+    ERROR("No subsystem for this process!");
+    return -1;
+  }
+
+  const PosixSubsystem::DescriptorDuplicationResult result = subsystem->duplicateFileDescriptor(
+      static_cast<size_t>(oldfd), static_cast<size_t>(newfd), flags & O_CLOEXEC);
+  if (result == PosixSubsystem::DescriptorDuplicationResult::TargetBusy) {
+    SYSCALL_ERROR(DeviceBusy);
+    return -1;
+  }
+  if (result != PosixSubsystem::DescriptorDuplicationResult::Success) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
+  return newfd;
+}
+
 int posix_mkdir(const char* name, int mode) {
   return posix_mkdirat(AT_FDCWD, name, mode);
 }

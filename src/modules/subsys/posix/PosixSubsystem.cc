@@ -45,6 +45,7 @@
 
 #include "FileDescriptor.h"
 #include "PosixProcess.h"
+#include "eventfd-syscalls.h"
 #include "file-syscalls.h"
 #include "linux-amd64-signal.h"
 #include "logging.h"
@@ -1313,6 +1314,58 @@ void PosixSubsystem::addFileDescriptor(size_t fd, FileDescriptor* pFd) {
     retiring->unpublish();
   }
   retiring.reset();
+}
+
+PosixSubsystem::DescriptorDuplicationResult PosixSubsystem::duplicateFileDescriptor(
+    size_t sourceFd, size_t targetFd, bool closeOnExec) {
+  SharedPointer<FileDescriptor> source;
+  SharedPointer<FileDescriptor> currentTarget;
+  SharedPointer<FileDescriptor> replacement;
+  SharedPointer<FileDescriptor> retiring;
+  DescriptorDuplicationResult result = DescriptorDuplicationResult::BadSource;
+
+  {
+    Uninterruptible throughout;
+
+    m_FdLock.acquire();
+    source = m_FdMap.lookup(sourceFd);
+    if (source) {
+      currentTarget = m_FdMap.lookup(targetFd);
+      if (!currentTarget && m_FdBitmap.test(targetFd)) {
+        // getFd reserves a number before its creator publishes the table
+        // entry. Linux reports EBUSY rather than allowing dup3 to steal that
+        // in-flight allocation.
+        result = DescriptorDuplicationResult::TargetBusy;
+      } else {
+        replacement.reset(new FileDescriptor(*source));
+
+        // FileDescriptor's copy path only nests OFD/eventfd owner-admission
+        // locks, neither of which enters the descriptor table. Keeping
+        // m_FdLock held makes final-close admission and publication atomic.
+        if (!source->getEventFdImpl() || replacement->eventFdPublished()) {
+          replacement->fd = targetFd;
+          replacement->fdflags = closeOnExec ? FD_CLOEXEC : 0;
+          m_FdMap.take(targetFd, retiring);
+          if (targetFd >= m_NextFd) {
+            m_NextFd = targetFd + 1;
+          }
+          m_FdBitmap.set(targetFd);
+          m_FdMap.insert(targetFd, replacement);
+          result = DescriptorDuplicationResult::Success;
+        }
+      }
+    }
+    m_FdLock.release();
+  }
+
+  source.reset();
+  currentTarget.reset();
+  if (retiring) {
+    retiring->unpublish();
+  }
+  retiring.reset();
+  replacement.reset();
+  return result;
 }
 
 size_t PosixSubsystem::installFileDescriptor(FileDescriptor* descriptor, DescriptorLease& lease,
