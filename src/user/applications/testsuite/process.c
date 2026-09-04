@@ -340,57 +340,14 @@ static void test_exec_signal_state(const char* program) {
   status("OK");
 }
 
-static int write_exec_fixture(const char* path, int missingInterpreter) {
-  unsigned char image[512] = {0};
-  Elf64_Ehdr header = {0};
-  Elf64_Phdr programHeaders[2] = {0};
-  const char missingPath[] = "/__pedigree_missing_exec_interpreter__";
-  const size_t programHeaderCount = missingInterpreter ? 2 : 1;
-  const size_t interpreterOffset = sizeof(header) + sizeof(programHeaders);
-
-  memcpy(header.e_ident, ELFMAG, SELFMAG);
-  header.e_ident[EI_CLASS] = ELFCLASS64;
-  header.e_ident[EI_DATA] = ELFDATA2LSB;
-  header.e_ident[EI_VERSION] = EV_CURRENT;
-  header.e_type = ET_EXEC;
-  header.e_machine = EM_X86_64;
-  header.e_version = EV_CURRENT;
-  header.e_entry = missingInterpreter ? 0x400000 : 0;
-  header.e_phoff = sizeof(header);
-  header.e_ehsize = sizeof(header);
-  header.e_phentsize = sizeof(programHeaders[0]);
-  header.e_phnum = programHeaderCount;
-
-  programHeaders[0].p_type = PT_LOAD;
-  programHeaders[0].p_flags = PF_R | PF_X;
-  programHeaders[0].p_offset = 0;
-  programHeaders[0].p_vaddr = missingInterpreter ? 0x400000 : 0;
-  programHeaders[0].p_paddr = programHeaders[0].p_vaddr;
-  programHeaders[0].p_filesz = sizeof(image);
-  programHeaders[0].p_memsz = sizeof(image);
-  programHeaders[0].p_align = 4096;
-
-  if (missingInterpreter) {
-    programHeaders[1].p_type = PT_INTERP;
-    programHeaders[1].p_flags = PF_R;
-    programHeaders[1].p_offset = interpreterOffset;
-    programHeaders[1].p_filesz = sizeof(missingPath);
-    programHeaders[1].p_memsz = sizeof(missingPath);
-    programHeaders[1].p_align = 1;
-  }
-
-  memcpy(image, &header, sizeof(header));
-  memcpy(image + sizeof(header), programHeaders, programHeaderCount * sizeof(programHeaders[0]));
-  if (missingInterpreter)
-    memcpy(image + interpreterOffset, missingPath, sizeof(missingPath));
-
+static int write_exec_image(const char* path, const unsigned char* image, size_t imageSize) {
   int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0700);
   if (fd < 0)
     return -1;
 
   size_t written = 0;
-  while (written < sizeof(image)) {
-    ssize_t result = write(fd, image + written, sizeof(image) - written);
+  while (written < imageSize) {
+    ssize_t result = write(fd, image + written, imageSize - written);
     if (result < 0 && errno == EINTR)
       continue;
     if (result <= 0) {
@@ -408,56 +365,207 @@ static int write_exec_fixture(const char* path, int missingInterpreter) {
   return 0;
 }
 
-static void test_exec_failure_boundary(void) {
-  status("Testing exec failure boundary...");
+static int write_exec_fixture(const char* path, uintptr_t loadAddress, const char* interpreter,
+                              int duplicateInterpreter) {
+  unsigned char image[512] = {0};
+  Elf64_Ehdr header = {0};
+  Elf64_Phdr programHeaders[3] = {0};
+  const size_t programHeaderCount = 1 + (interpreter ? 1 : 0) + duplicateInterpreter;
+  const size_t interpreterOffset = sizeof(header) + sizeof(programHeaders);
+  const size_t interpreterSize = interpreter ? strlen(interpreter) + 1 : 0;
 
-  char missingInterpreter[PATH_MAX];
-  char invalidLoad[PATH_MAX];
-  snprintf(missingInterpreter, sizeof(missingInterpreter), "/tmp/exec-missing-interpreter-%d",
-           getpid());
-  snprintf(invalidLoad, sizeof(invalidLoad), "/tmp/exec-invalid-load-%d", getpid());
+  if (interpreterSize > sizeof(image) - interpreterOffset)
+    return -1;
 
-  if (write_exec_fixture(missingInterpreter, 1))
-    fail();
+  memcpy(header.e_ident, ELFMAG, SELFMAG);
+  header.e_ident[EI_CLASS] = ELFCLASS64;
+  header.e_ident[EI_DATA] = ELFDATA2LSB;
+  header.e_ident[EI_VERSION] = EV_CURRENT;
+  header.e_type = ET_EXEC;
+  header.e_machine = EM_X86_64;
+  header.e_version = EV_CURRENT;
+  header.e_entry = loadAddress;
+  header.e_phoff = sizeof(header);
+  header.e_ehsize = sizeof(header);
+  header.e_phentsize = sizeof(programHeaders[0]);
+  header.e_phnum = programHeaderCount;
 
+  programHeaders[0].p_type = PT_LOAD;
+  programHeaders[0].p_flags = PF_R | PF_X;
+  programHeaders[0].p_offset = 0;
+  programHeaders[0].p_vaddr = loadAddress;
+  programHeaders[0].p_paddr = programHeaders[0].p_vaddr;
+  programHeaders[0].p_filesz = sizeof(image);
+  programHeaders[0].p_memsz = sizeof(image);
+  programHeaders[0].p_align = 4096;
+
+  if (interpreter) {
+    programHeaders[1].p_type = PT_INTERP;
+    programHeaders[1].p_flags = PF_R;
+    programHeaders[1].p_offset = interpreterOffset;
+    programHeaders[1].p_filesz = interpreterSize;
+    programHeaders[1].p_memsz = interpreterSize;
+    programHeaders[1].p_align = 1;
+
+    if (duplicateInterpreter)
+      programHeaders[2] = programHeaders[1];
+  }
+
+  memcpy(image, &header, sizeof(header));
+  memcpy(image + sizeof(header), programHeaders, programHeaderCount * sizeof(programHeaders[0]));
+  if (interpreter)
+    memcpy(image + interpreterOffset, interpreter, interpreterSize);
+
+  return write_exec_image(path, image, sizeof(image));
+}
+
+static int write_partial_bss_fixture(const char* path) {
+  static const size_t imageSize = 4096;
+  static const size_t fileSize = 0x200;
+  static const size_t memorySize = 0x300;
+  static const size_t entryOffset = 0x180;
+  static const size_t probeOffset = 0x380;
+  static const uintptr_t loadAddress = 0x400000;
+  static const unsigned char code[] = {
+      0x0f, 0xb6, 0x3d, 0xf9, 0x01, 0x00, 0x00,  // movzbl probe(%rip), %edi
+      0xb8, 0xe7, 0x00, 0x00, 0x00,              // mov $231, %eax
+      0x0f, 0x05,                                // syscall
+  };
+
+  unsigned char image[imageSize];
+  memset(image, 0, sizeof(image));
+  Elf64_Ehdr* header = (Elf64_Ehdr*)image;
+  Elf64_Phdr* programHeader = (Elf64_Phdr*)(image + sizeof(*header));
+
+  memcpy(header->e_ident, ELFMAG, SELFMAG);
+  header->e_ident[EI_CLASS] = ELFCLASS64;
+  header->e_ident[EI_DATA] = ELFDATA2LSB;
+  header->e_ident[EI_VERSION] = EV_CURRENT;
+  header->e_type = ET_EXEC;
+  header->e_machine = EM_X86_64;
+  header->e_version = EV_CURRENT;
+  header->e_entry = loadAddress + entryOffset;
+  header->e_phoff = sizeof(*header);
+  header->e_ehsize = sizeof(*header);
+  header->e_phentsize = sizeof(*programHeader);
+  header->e_phnum = 1;
+
+  programHeader->p_type = PT_LOAD;
+  programHeader->p_flags = PF_R | PF_X;
+  programHeader->p_offset = 0;
+  programHeader->p_vaddr = loadAddress;
+  programHeader->p_paddr = loadAddress;
+  programHeader->p_filesz = fileSize;
+  programHeader->p_memsz = memorySize;
+  programHeader->p_align = 4096;
+
+  memcpy(image + entryOffset, code, sizeof(code));
+  image[probeOffset] = 73;
+  return write_exec_image(path, image, sizeof(image));
+}
+
+static void expect_exec_failure(const char* path, int expectedErrno, int failureBase) {
   pid_t child = fork();
   if (child < 0)
     fail();
   if (!child) {
-    char* const arguments[] = {missingInterpreter, 0};
+    char* const arguments[] = {(char*)path, 0};
     errno = 0;
-    if (execv(missingInterpreter, arguments) != -1 || errno != ENOENT)
-      _exit(120);
+    if (execv(path, arguments) != -1 || errno != expectedErrno)
+      _exit(failureBase);
 
     struct sigaction action = {0};
     action.sa_handler = handleSignal;
     signalHandled = 0;
     if (sigemptyset(&action.sa_mask) || sigaction(SIGUSR1, &action, 0) || raise(SIGUSR1) ||
         !signalHandled)
-      _exit(121);
+      _exit(failureBase + 1);
     _exit(0);
   }
 
   int statusCode = 0;
-  if (waitpid(child, &statusCode, 0) != child || unlink(missingInterpreter) ||
-      !WIFEXITED(statusCode) || WEXITSTATUS(statusCode))
+  if (waitpid(child, &statusCode, 0) != child || !WIFEXITED(statusCode) || WEXITSTATUS(statusCode))
+    fail();
+}
+
+static void test_exec_partial_page_bss(void) {
+  status("Testing exec partial-page BSS zeroing...");
+
+  char path[PATH_MAX];
+  snprintf(path, sizeof(path), "/tmp/exec-partial-bss-%d", getpid());
+  if (write_partial_bss_fixture(path))
     fail();
 
-  if (write_exec_fixture(invalidLoad, 0))
-    fail();
-
-  child = fork();
+  pid_t child = fork();
   if (child < 0)
     fail();
   if (!child) {
-    char* const arguments[] = {invalidLoad, 0};
-    execv(invalidLoad, arguments);
-    _exit(122);
+    char* const arguments[] = {path, 0};
+    execv(path, arguments);
+    _exit(120);
   }
 
-  statusCode = 0;
-  if (waitpid(child, &statusCode, 0) != child || unlink(invalidLoad) || !WIFSIGNALED(statusCode) ||
-      WTERMSIG(statusCode) != SIGSEGV)
+  int statusCode = 0;
+  if (waitpid(child, &statusCode, 0) != child || unlink(path) || !WIFEXITED(statusCode) ||
+      WEXITSTATUS(statusCode))
+    fail();
+
+  status("OK");
+}
+
+static void test_exec_failure_boundary(void) {
+  status("Testing exec failure boundary...");
+
+  char missingInterpreter[PATH_MAX];
+  char invalidLoad[PATH_MAX];
+  char malformedInterpreter[PATH_MAX];
+  char malformedInterpreterTarget[PATH_MAX];
+  char duplicateInterpreter[PATH_MAX];
+  char missingInterpreterTarget[PATH_MAX];
+  snprintf(missingInterpreter, sizeof(missingInterpreter), "/tmp/exec-missing-interpreter-%d",
+           getpid());
+  snprintf(invalidLoad, sizeof(invalidLoad), "/tmp/exec-invalid-load-%d", getpid());
+  snprintf(malformedInterpreter, sizeof(malformedInterpreter), "/tmp/exec-malformed-interp-%d",
+           getpid());
+  snprintf(malformedInterpreterTarget, sizeof(malformedInterpreterTarget),
+           "/tmp/exec-malformed-interp-target-%d", getpid());
+  snprintf(duplicateInterpreter, sizeof(duplicateInterpreter), "/tmp/exec-duplicate-interp-%d",
+           getpid());
+  snprintf(missingInterpreterTarget, sizeof(missingInterpreterTarget),
+           "/tmp/exec-missing-interp-target-%d", getpid());
+
+  unlink(missingInterpreterTarget);
+  if (write_exec_fixture(missingInterpreter, 0x400000, missingInterpreterTarget, 0))
+    fail();
+  expect_exec_failure(missingInterpreter, ENOENT, 120);
+  if (unlink(missingInterpreter))
+    fail();
+
+  if (write_exec_fixture(invalidLoad, 0, 0, 0))
+    fail();
+  expect_exec_failure(invalidLoad, ENOEXEC, 122);
+  if (unlink(invalidLoad))
+    fail();
+
+  static const char malformedContents[] = "not an ELF interpreter";
+  int malformedFd = open(malformedInterpreterTarget, O_CREAT | O_TRUNC | O_WRONLY, 0700);
+  if (malformedFd < 0)
+    fail();
+  if (write(malformedFd, malformedContents, sizeof(malformedContents)) !=
+          sizeof(malformedContents) ||
+      close(malformedFd))
+    fail();
+  if (chmod(malformedInterpreterTarget, 0700) ||
+      write_exec_fixture(malformedInterpreter, 0x400000, malformedInterpreterTarget, 0))
+    fail();
+  expect_exec_failure(malformedInterpreter, ELIBBAD, 124);
+  if (unlink(malformedInterpreter) || unlink(malformedInterpreterTarget))
+    fail();
+
+  if (write_exec_fixture(duplicateInterpreter, 0x400000, missingInterpreterTarget, 1))
+    fail();
+  expect_exec_failure(duplicateInterpreter, EINVAL, 126);
+  if (unlink(duplicateInterpreter))
     fail();
 
   status("OK");
@@ -646,6 +754,7 @@ void test_process(const char* program) {
   test_default_signal_termination();
   test_sigchld_wait_status();
   test_exec_signal_state(program);
+  test_exec_partial_page_bss();
   test_exec_failure_boundary();
   test_wait_stop_continue();
   test_thread_signal_syscalls();

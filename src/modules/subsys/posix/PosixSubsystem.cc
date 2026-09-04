@@ -33,6 +33,7 @@
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/RadixTree.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
@@ -74,6 +75,15 @@ ProcessGroupManager ProcessGroupManager::m_Instance;
 extern void pedigree_init_sigret();
 extern void pedigree_init_pthreads();
 
+struct PosixSubsystem::ExecutableImage {
+  File* file = nullptr;
+  size_t fileSize = 0;
+  Elf::ExecutableMetadata metadata{};
+  UniqueArray<uint8_t> programHeaders;
+  uintptr_t programHeaderAddress = 0;
+  String interpreter;
+};
+
 namespace {
 bool defaultSignalActionIsIgnore(size_t signal) {
   return signal == SIGCHLD || signal == SIGURG || signal == SIGWINCH;
@@ -87,6 +97,16 @@ void stampDefaultStopDelivery(Process* process, size_t signal,
                               const PosixSubsystem::SignalHandler* handler, SignalEvent* delivery) {
   if (process && handler && handler->type == 1 && delivery && defaultSignalActionIsStop(signal)) {
     delivery->setContinuationEpoch(process->getContinuationEpoch());
+  }
+}
+
+void setExecutableValidationError(Elf::ExecutableValidationResult result, bool isInterpreter) {
+  if (isInterpreter) {
+    SYSCALL_ERROR(BadSharedLibrary);
+  } else if (result == Elf::ExecutableValidationResult::MultipleInterpreters) {
+    SYSCALL_ERROR(InvalidArgument);
+  } else {
+    SYSCALL_ERROR(ExecFormatError);
   }
 }
 }  // namespace
@@ -1345,146 +1365,210 @@ bool PosixSubsystem::checkAccess(const DescriptorLease& pFileDescriptor, bool bR
   return VFS::checkAccess(pFileDescriptor->file, bRead, bWrite, bExecute);
 }
 
-bool PosixSubsystem::loadElf(File* pFile, uintptr_t mappedAddress, uintptr_t& newAddress,
-                             uintptr_t& finalAddress, bool& relocated) {
-  PS_NOTICE("PosixSubsystem::loadElf(" << pFile->getName() << ")");
+bool PosixSubsystem::prepareExecutable(File* pFile, ExecutableImage& image, bool isInterpreter) {
+  image.file = pFile;
+  image.fileSize = pFile->getSize();
 
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-
-  // Grab the file header to check magic and find program headers.
-  Elf::ElfHeader_t* pHeader = reinterpret_cast<Elf::ElfHeader_t*>(mappedAddress);
-  if ((pHeader->ident[1] != 'E') || (pHeader->ident[2] != 'L') || (pHeader->ident[3] != 'F') ||
-      (pHeader->ident[0] != 127)) {
+  uint8_t header[sizeof(Elf::ElfHeader_t)];
+  if (pFile->read(0, sizeof(header), reinterpret_cast<uintptr_t>(header)) != sizeof(header)) {
+    setExecutableValidationError(Elf::ExecutableValidationResult::Malformed, isInterpreter);
     return false;
   }
 
-  size_t phnum = pHeader->phnum;
-  Elf::ElfProgramHeader_t* phdrs =
-      reinterpret_cast<Elf::ElfProgramHeader_t*>(mappedAddress + pHeader->phoff);
+  Elf::ExecutableValidationResult result =
+      Elf::validateExecutableHeader(header, sizeof(header), image.fileSize, image.metadata);
+  if (result != Elf::ExecutableValidationResult::Valid) {
+    setExecutableValidationError(result, isInterpreter);
+    return false;
+  }
 
-  // Find full memory size that we need to map in.
-  uintptr_t startAddress = ~0U;
-  uintptr_t unalignedStartAddress = 0;
-  uintptr_t endAddress = 0;
-  for (size_t i = 0; i < phnum; ++i) {
-    if (phdrs[i].type != PT_LOAD) {
+  image.programHeaders = UniqueArray<uint8_t>::allocate(image.metadata.programHeaderSize);
+  if (!image.programHeaders) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  if (pFile->read(image.metadata.programHeaderOffset, image.metadata.programHeaderSize,
+                  reinterpret_cast<uintptr_t>(image.programHeaders.get())) !=
+      image.metadata.programHeaderSize) {
+    setExecutableValidationError(Elf::ExecutableValidationResult::Malformed, isInterpreter);
+    return false;
+  }
+
+  result = Elf::validateExecutableProgramHeaders(
+      image.programHeaders.get(), image.metadata.programHeaderSize, image.fileSize, image.metadata);
+  if (result != Elf::ExecutableValidationResult::Valid) {
+    setExecutableValidationError(result, isInterpreter);
+    return false;
+  }
+
+  VirtualAddressSpace& addressSpace = Processor::information().getVirtualAddressSpace();
+  if (image.metadata.type == ET_EXEC &&
+      (image.metadata.loadStart < addressSpace.getUserStart() ||
+       image.metadata.loadEnd > addressSpace.getUserReservedStart())) {
+    setExecutableValidationError(Elf::ExecutableValidationResult::UnsupportedLayout, isInterpreter);
+    return false;
+  }
+
+  bool foundProgramHeaders = false;
+  for (size_t i = 0; i < image.metadata.programHeaderCount; ++i) {
+    Elf::ElfProgramHeader_t programHeader;
+    MemoryCopy(&programHeader, image.programHeaders.get() + (i * sizeof(Elf::ElfProgramHeader_t)),
+               sizeof(programHeader));
+    if (programHeader.type != PT_LOAD ||
+        image.metadata.programHeaderOffset < programHeader.offset) {
       continue;
     }
 
-    if (phdrs[i].vaddr < startAddress) {
-      startAddress = phdrs[i].vaddr;
+    const size_t offsetInSegment = image.metadata.programHeaderOffset - programHeader.offset;
+    if (offsetInSegment > programHeader.filesz ||
+        image.metadata.programHeaderSize > programHeader.filesz - offsetInSegment ||
+        programHeader.vaddr > ~uintptr_t{0} - offsetInSegment) {
+      continue;
     }
 
-    uintptr_t maybeEndAddress = phdrs[i].vaddr + phdrs[i].memsz;
-    if (maybeEndAddress > endAddress) {
-      endAddress = maybeEndAddress;
+    image.programHeaderAddress = programHeader.vaddr + offsetInSegment;
+    foundProgramHeaders = true;
+    break;
+  }
+  if (!foundProgramHeaders) {
+    setExecutableValidationError(Elf::ExecutableValidationResult::UnsupportedLayout, isInterpreter);
+    return false;
+  }
+
+  if (!image.metadata.hasInterpreter) {
+    return true;
+  }
+
+  UniqueArray<uint8_t> interpreter = UniqueArray<uint8_t>::allocate(image.metadata.interpreterSize);
+  if (!interpreter) {
+    SYSCALL_ERROR(OutOfMemory);
+    return false;
+  }
+  if (pFile->read(image.metadata.interpreterOffset, image.metadata.interpreterSize,
+                  reinterpret_cast<uintptr_t>(interpreter.get())) !=
+      image.metadata.interpreterSize) {
+    setExecutableValidationError(Elf::ExecutableValidationResult::Malformed, isInterpreter);
+    return false;
+  }
+
+  result = Elf::validateExecutableInterpreter(interpreter.get(), image.metadata.interpreterSize,
+                                              image.metadata);
+  if (result != Elf::ExecutableValidationResult::Valid) {
+    setExecutableValidationError(result, isInterpreter);
+    return false;
+  }
+  for (size_t i = 0; i + 1 < image.metadata.interpreterSize; ++i) {
+    if (!interpreter.get()[i]) {
+      setExecutableValidationError(Elf::ExecutableValidationResult::Malformed, isInterpreter);
+      return false;
     }
   }
 
-  // Align to page boundaries.
-  size_t pageSz = PhysicalMemoryManager::getPageSize();
-  unalignedStartAddress = startAddress;
-  startAddress &= ~(pageSz - 1);
-  if (endAddress & (pageSz - 1)) {
-    endAddress = (endAddress + pageSz) & ~(pageSz - 1);
+  image.interpreter.assign(reinterpret_cast<const char*>(interpreter.get()),
+                           image.metadata.interpreterSize - 1, true);
+  return true;
+}
+
+bool PosixSubsystem::loadElf(const ExecutableImage& image, uintptr_t& loadBias) {
+  PS_NOTICE("PosixSubsystem::loadElf(" << image.file->getName() << ")");
+
+  Elf::ExecutableMetadata metadata = image.metadata;
+  if (Elf::validateExecutableProgramHeaders(image.programHeaders.get(),
+                                            image.metadata.programHeaderSize, image.fileSize,
+                                            metadata) != Elf::ExecutableValidationResult::Valid) {
+    return false;
   }
 
-  // OK, we can allocate space for the file now.
-  bool bRelocated = false;
-  if (pHeader->type == ET_REL || pHeader->type == ET_DYN) {
-    if (!pProcess->getDynamicSpaceAllocator().allocate(endAddress - startAddress, newAddress))
-      if (!pProcess->getSpaceAllocator().allocate(endAddress - startAddress, newAddress))
-        return false;
-
-    bRelocated = true;
-    unalignedStartAddress = newAddress + (startAddress & (pageSz - 1));
-    startAddress = newAddress;
-
-    newAddress = unalignedStartAddress;
-
-    relocated = true;
+  Process* pProcess = Processor::information().getCurrentThread()->getParent();
+  const size_t allocationSize = metadata.loadEnd - metadata.loadStart;
+  if (metadata.type == ET_DYN) {
+    uintptr_t allocation = 0;
+    if (!pProcess->getDynamicSpaceAllocator().allocate(allocationSize, allocation) &&
+        !pProcess->getSpaceAllocator().allocate(allocationSize, allocation)) {
+      return false;
+    }
+    loadBias = allocation - metadata.loadStart;
   } else {
-    if (!pProcess->getDynamicSpaceAllocator().allocateSpecific(startAddress,
-                                                               endAddress - startAddress))
-      if (!pProcess->getSpaceAllocator().allocateSpecific(startAddress, endAddress - startAddress))
-        return false;
-
-    newAddress = unalignedStartAddress;
+    if (!pProcess->getSpaceAllocator().allocateSpecific(metadata.loadStart, allocationSize)) {
+      return false;
+    }
+    loadBias = 0;
   }
 
-  finalAddress = startAddress + (endAddress - startAddress);
-
-  // Can now do another pass, mapping in as needed.
-  for (size_t i = 0; i < phnum; ++i) {
-    if (phdrs[i].type != PT_LOAD) {
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const uintptr_t pageMask = pageSize - 1;
+  for (size_t i = 0; i < metadata.programHeaderCount; ++i) {
+    Elf::ElfProgramHeader_t programHeader;
+    MemoryCopy(&programHeader, image.programHeaders.get() + (i * sizeof(Elf::ElfProgramHeader_t)),
+               sizeof(programHeader));
+    if (programHeader.type != PT_LOAD || !programHeader.memsz) {
       continue;
     }
 
-    uintptr_t base = phdrs[i].vaddr;
-    if (bRelocated) {
-      base += startAddress;
+    if (programHeader.vaddr > ~uintptr_t{0} - loadBias) {
+      return false;
     }
-    uintptr_t unalignedBase = base;
-    if (base & (pageSz - 1)) {
-      base &= ~(pageSz - 1);
+    const uintptr_t segmentAddress = loadBias + programHeader.vaddr;
+    const uintptr_t pageOffset = segmentAddress & pageMask;
+    if (programHeader.memsz > ~size_t{0} - pageOffset) {
+      return false;
     }
+    size_t length = programHeader.memsz + pageOffset;
+    if (length > ~size_t{0} - pageMask) {
+      return false;
+    }
+    length = (length + pageMask) & ~pageMask;
 
-    uintptr_t offset = phdrs[i].offset;
-    if (offset & (pageSz - 1)) {
-      offset &= ~(pageSz - 1);
-    }
-
-    // if we don't add the unaligned part to the length, we can map only
-    // enough to cover the aligned page even though the alignment may lead
-    // to the region covering two pages...
-    size_t length = phdrs[i].memsz + (unalignedBase & (pageSz - 1));
-    if (length & (pageSz - 1)) {
-      length = (length + pageSz) & ~(pageSz - 1);
-    }
-
-    // Map.
+    uintptr_t base = segmentAddress & ~pageMask;
+    const size_t fileOffset = programHeader.offset & ~pageMask;
     MemoryMappedObject::Permissions perms = MemoryMappedObject::Read;
-    if (phdrs[i].flags & PF_X) {
+    if (programHeader.flags & PF_X) {
       perms |= MemoryMappedObject::Exec;
     }
-    if (phdrs[i].flags & PF_R) {
-      perms |= MemoryMappedObject::Read;
-    }
-    if (phdrs[i].flags & PF_W) {
+    if (programHeader.flags & PF_W) {
       perms |= MemoryMappedObject::Write;
     }
 
-    PS_NOTICE(pFile->getName() << " PHDR[" << i << "]: @" << Hex << base << " -> "
-                               << base + length);
-    MemoryMappedObject* pObject =
-        MemoryMapManager::instance().mapFile(pFile, base, length, perms, offset);
-    if (!pObject) {
+    const uintptr_t fileEnd = segmentAddress + programHeader.filesz;
+    const bool hasPartialBssPage =
+        programHeader.memsz > programHeader.filesz && (fileEnd & pageMask) != 0;
+    MemoryMappedObject::Permissions mappingPerms = perms;
+    if (hasPartialBssPage) {
+      mappingPerms |= MemoryMappedObject::Write;
+    }
+
+    PS_NOTICE(image.file->getName()
+              << " PHDR[" << i << "]: @" << Hex << base << " -> " << base + length);
+    if (!MemoryMapManager::instance().mapFile(image.file, base, length, mappingPerms, fileOffset,
+                                              true)) {
       ERROR("PosixSubsystem::loadElf: failed to map PT_LOAD section");
       return false;
     }
 
-    if (phdrs[i].memsz > phdrs[i].filesz) {
-      uintptr_t end = unalignedBase + phdrs[i].memsz;
-      uintptr_t zeroStart = unalignedBase + phdrs[i].filesz;
-      if (zeroStart & (pageSz - 1)) {
-        size_t numBytes = pageSz - (zeroStart & (pageSz - 1));
-        if ((zeroStart + numBytes) > end) {
-          numBytes = end - zeroStart;
-        }
+    if (programHeader.memsz > programHeader.filesz) {
+      const uintptr_t end = segmentAddress + programHeader.memsz;
+      uintptr_t zeroStart = segmentAddress + programHeader.filesz;
+      if (hasPartialBssPage) {
+        const size_t numBytes = pageSize - (zeroStart & pageMask);
         ByteSet(reinterpret_cast<void*>(zeroStart), 0, numBytes);
         zeroStart += numBytes;
       }
 
       if (zeroStart < end) {
-        MemoryMappedObject* pAnonymousRegion =
-            MemoryMapManager::instance().mapAnon(zeroStart, end - zeroStart, perms);
-        if (!pAnonymousRegion) {
+        uintptr_t anonymousAddress = zeroStart;
+        if (!MemoryMapManager::instance().mapAnon(anonymousAddress, end - zeroStart,
+                                                  mappingPerms)) {
           ERROR(
               "PosixSubsystem::loadElf: failed to map anonymous "
               "pages for filesz/memsz mismatch");
           return false;
         }
       }
+    }
+
+    if (hasPartialBssPage && !MemoryMapManager::instance().setPermissions(base, length, perms)) {
+      ERROR("PosixSubsystem::loadElf: failed to restore PT_LOAD permissions");
+      return false;
     }
   }
 
@@ -1731,12 +1815,10 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     return false;
   }
 
-  uint8_t validateBuffer[128];
-  Elf validElf;
+  uint8_t magic[4];
   String candidateName(originalName);
   static constexpr size_t MaximumShebangRewrites = 4;
   size_t shebangRewrites = 0;
-  size_t nBytes = 0;
   while (true) {
     // Execute permission checks precede all format reads for every candidate,
     // including nested shebang interpreters.
@@ -1744,9 +1826,10 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       return false;
     }
 
-    nBytes =
-        originalFile->read(0, sizeof(validateBuffer), reinterpret_cast<uintptr_t>(validateBuffer));
-    if (validElf.validate(validateBuffer, nBytes)) {
+    const size_t bytesRead =
+        originalFile->read(0, sizeof(magic), reinterpret_cast<uintptr_t>(magic));
+    if (bytesRead == sizeof(magic) && magic[0] == 0x7f && magic[1] == 'E' && magic[2] == 'L' &&
+        magic[3] == 'F') {
       break;
     }
 
@@ -1815,10 +1898,15 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   // userspace transition has been scheduled.
   Uninterruptible execCriticalSection;
 
-  // Determine if the target uses an interpreter or not.
-  String interpreter("");
-  DynamicLinker interpreterProbe;
-  if (interpreterProbe.checkInterpreter(originalFile, interpreter)) {
+  ExecutableImage originalImage;
+  if (!prepareExecutable(originalFile, originalImage, false)) {
+    return false;
+  }
+
+  ExecutableImage interpreterImage;
+  if (originalImage.metadata.hasInterpreter) {
+    String interpreter(originalImage.interpreter);
+
     // Existing binaries and PUP packages may still name the interpreter
     // using Pedigree's pre-FHS layout.
     String normalisedInterpreter;
@@ -1834,20 +1922,29 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       return false;
     }
 
-    if (!VFS::checkAccess(interpreterFile, true, false, true)) {
+    if (!VFS::checkAccess(interpreterFile, false, false, true)) {
       return false;
     }
 
-    Elf validInterpreter;
-    nBytes = interpreterFile->read(0, 128, reinterpret_cast<uintptr_t>(validateBuffer));
-    if (!validInterpreter.validate(validateBuffer, nBytes)) {
-      SYSCALL_ERROR(ExecFormatError);
+    if (!prepareExecutable(interpreterFile, interpreterImage, true)) {
+      return false;
+    }
+    if (interpreterImage.metadata.hasInterpreter) {
+      SYSCALL_ERROR(BadSharedLibrary);
       return false;
     }
   } else {
     // Static binaries enter at their own entry point. Loading the target
     // again as its own interpreter would reserve every PT_LOAD range twice.
     interpreterFile = 0;
+  }
+
+  if (interpreterFile && originalImage.metadata.type == ET_EXEC &&
+      interpreterImage.metadata.type == ET_EXEC &&
+      originalImage.metadata.loadStart < interpreterImage.metadata.loadEnd &&
+      interpreterImage.metadata.loadStart < originalImage.metadata.loadEnd) {
+    SYSCALL_ERROR(BadSharedLibrary);
+    return false;
   }
 
   // Wipe out old address space.
@@ -1887,73 +1984,28 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     return false;
   };
 
-  // Map in the two ELF files so we can load them into the address space.
-  uintptr_t originalBase = 0, interpreterBase = 0;
-  MemoryMappedObject::Permissions perms =
-      MemoryMappedObject::Read | MemoryMappedObject::Write | MemoryMappedObject::Exec;
-  MemoryMappedObject* pOriginal = MemoryMapManager::instance().mapFile(
-      originalFile, originalBase, originalFile->getSize(), perms);
-  if (!pOriginal) {
-    PS_NOTICE("PosixSubsystem::invoke: failed to map target");
+  // Load the target application first.
+  uintptr_t originalLoadBias = 0;
+  if (!loadElf(originalImage, originalLoadBias)) {
+    PS_NOTICE("PosixSubsystem::invoke: failed to load target");
     return failAfterCommit(Error::OutOfMemory);
   }
 
-  MemoryMappedObject* pInterpreter = 0;
-  if (interpreterFile) {
-    pInterpreter = MemoryMapManager::instance().mapFile(interpreterFile, interpreterBase,
-                                                        interpreterFile->getSize(), perms);
-    if (!pInterpreter) {
-      PS_NOTICE("PosixSubsystem::invoke: failed to map interpreter");
-      MemoryMapManager::instance().unmap(pOriginal);
-      return failAfterCommit(Error::OutOfMemory);
-    }
-  }
-
-  // Load the target application first.
-  uintptr_t originalLoadedAddress = 0;
-  uintptr_t originalFinalAddress = 0;
-  bool originalRelocated = false;
-  if (!loadElf(originalFile, originalBase, originalLoadedAddress, originalFinalAddress,
-               originalRelocated)) {
-    /// \todo cleanup
-    PS_NOTICE("PosixSubsystem::invoke: failed to load target");
-    return failAfterCommit(Error::ExecFormatError);
-  }
-
   // Now load the interpreter.
-  uintptr_t interpreterLoadedAddress = 0;
-  uintptr_t interpreterFinalAddress = 0;
-  bool interpreterRelocated = false;
-  if (interpreterFile && !loadElf(interpreterFile, interpreterBase, interpreterLoadedAddress,
-                                  interpreterFinalAddress, interpreterRelocated)) {
-    /// \todo cleanup
+  uintptr_t interpreterLoadBias = 0;
+  if (interpreterFile && !loadElf(interpreterImage, interpreterLoadBias)) {
     PS_NOTICE("PosixSubsystem::invoke: failed to load interpreter");
-    return failAfterCommit(Error::ExecFormatError);
+    return failAfterCommit(Error::OutOfMemory);
   }
 
-  // Extract entry points.
-  uintptr_t originalEntryPoint = 0, interpreterEntryPoint = 0;
-  if (!Elf::extractEntryPoint(reinterpret_cast<uint8_t*>(originalBase), originalFile->getSize(),
-                              originalEntryPoint) ||
-      (interpreterFile &&
-       !Elf::extractEntryPoint(reinterpret_cast<uint8_t*>(interpreterBase),
-                               interpreterFile->getSize(), interpreterEntryPoint))) {
-    PS_NOTICE("PosixSubsystem::invoke: failed to extract an ELF entry point");
-    return failAfterCommit(Error::ExecFormatError);
-  }
-
-  if (originalRelocated) {
-    originalEntryPoint += originalLoadedAddress;
-  }
-  if (interpreterRelocated) {
-    interpreterEntryPoint += interpreterLoadedAddress;
+  const uintptr_t originalEntryPoint = originalLoadBias + originalImage.metadata.entryPoint;
+  uintptr_t interpreterEntryPoint = 0;
+  if (interpreterFile) {
+    interpreterEntryPoint = interpreterLoadBias + interpreterImage.metadata.entryPoint;
   }
   if (!interpreterFile) {
     interpreterEntryPoint = originalEntryPoint;
   }
-
-  // Pull out the ELF header information for the original image.
-  Elf::ElfHeader_t* originalHeader = reinterpret_cast<Elf::ElfHeader_t*>(originalBase);
 
   // Past point of no return, so set up the process for the new image.
   pProcess->description() = originalName;
@@ -2091,12 +2143,12 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 #endif
 
   // ELF parts in the aux vector.
-  STACK_PUSH2(loaderStack, originalEntryPoint, 9);                    // AT_ENTRY
-  STACK_PUSH2(loaderStack, interpreterLoadedAddress, 7);              // AT_BASE
-  STACK_PUSH2(loaderStack, PhysicalMemoryManager::getPageSize(), 6);  // AT_PAGESZ
-  STACK_PUSH2(loaderStack, originalHeader->phnum, 5);                 // AT_PHNUM
-  STACK_PUSH2(loaderStack, originalHeader->phentsize, 4);             // AT_PHENT
-  STACK_PUSH2(loaderStack, originalLoadedAddress + originalHeader->phoff,
+  STACK_PUSH2(loaderStack, originalEntryPoint, 9);                         // AT_ENTRY
+  STACK_PUSH2(loaderStack, interpreterLoadBias, 7);                        // AT_BASE
+  STACK_PUSH2(loaderStack, PhysicalMemoryManager::getPageSize(), 6);       // AT_PAGESZ
+  STACK_PUSH2(loaderStack, originalImage.metadata.programHeaderCount, 5);  // AT_PHNUM
+  STACK_PUSH2(loaderStack, sizeof(Elf::ElfProgramHeader_t), 4);            // AT_PHENT
+  STACK_PUSH2(loaderStack, originalLoadBias + originalImage.programHeaderAddress,
               3);  // AT_PHDR
 
   // env
@@ -2115,14 +2167,6 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
   // argc
   STACK_PUSH(loaderStack, argc);
-
-  // We can now unmap both original objects as they've been loaded and
-  // consumed.
-  if (pInterpreter) {
-    MemoryMapManager::instance().unmap(pInterpreter);
-  }
-  MemoryMapManager::instance().unmap(pOriginal);
-  pInterpreter = pOriginal = 0;
 
   // pedigree_init_pthreads();
 

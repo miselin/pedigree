@@ -610,12 +610,16 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   }
 
  private:
+  struct ExecutableImage;
+
   virtual void threadExiting(Thread* pThread);
   virtual void threadRemoved(Thread* pThread);
 
-  /** Load an ELF's PT_LOAD sections into the address space. */
-  bool loadElf(File* pFile, uintptr_t mappedAddress, uintptr_t& newAddress, uintptr_t& finalAddress,
-               bool& relocated);
+  /** Validate and retain the bounded metadata needed to load an executable. */
+  bool prepareExecutable(File* pFile, ExecutableImage& image, bool isInterpreter);
+
+  /** Load a validated ELF's PT_LOAD sections into the address space. */
+  bool loadElf(const ExecutableImage& image, uintptr_t& loadBias);
 
   bool invoke(const char* name, Vector<String>& argv, Vector<String>& env, SyscallState* state);
 
