@@ -40,6 +40,11 @@ uint64_t ConsoleMasterFile::readBytewise(uint64_t location, uint64_t size, uintp
       return 0;
     }
 
+    dataChanged();
+    if (m_pOther) {
+      m_pOther->dataChanged();
+    }
+
     return outputLineDiscipline(reinterpret_cast<char*>(buffer), nBytes, size, m_pOther->m_Flags);
   }
 
@@ -72,6 +77,13 @@ uint64_t ConsoleMasterFile::readBytewise(uint64_t location, uint64_t size, uintp
     // After the first iteration, disallow any further blocking so we read
     // the remainder of the buffer then terminate quickly.
     bCanBlock = false;
+  }
+
+  if (totalBytes) {
+    dataChanged();
+    if (m_pOther) {
+      m_pOther->dataChanged();
+    }
   }
 
   return totalBytes;

@@ -42,6 +42,11 @@ uint64_t ConsoleSlaveFile::readBytewise(uint64_t location, uint64_t size, uintpt
     return 0;
   }
 
+  dataChanged();
+  if (m_pOther) {
+    m_pOther->dataChanged();
+  }
+
   size_t endSize = processInput(reinterpret_cast<char*>(buffer), nBytes);
 
   return endSize;

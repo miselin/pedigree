@@ -68,15 +68,41 @@ ConsoleFile::ConsoleFile(size_t consoleNumber, String consoleName, Filesystem* p
 
 int ConsoleFile::select(bool bWriting, int timeout) {
   if (bWriting) {
-    return m_Buffer.canWrite(timeout > 0) ? 1 : 0;
+    Buffer<char>& destination = m_pOther ? m_pOther->m_Buffer : m_Buffer;
+    return destination.canWrite(timeout > 0) ? 1 : 0;
   } else {
     return m_Buffer.canRead(timeout > 0) ? 1 : 0;
   }
 }
 
+ReadyMask ConsoleFile::queryReady(bool reading, bool writing) {
+  ReadyMask ready = ReadyNone;
+  if (reading && m_Buffer.canRead(false)) {
+    ready |= ReadyRead;
+  }
+  if (writing) {
+    Buffer<char>& destination = m_pOther ? m_pOther->m_Buffer : m_Buffer;
+    if (destination.canWrite(false)) {
+      ready |= ReadyWrite;
+    }
+  }
+  return ready;
+}
+
+ReadinessGenerations ConsoleFile::readinessGenerations() {
+  ReadinessGenerations generations;
+  generations.read = m_Buffer.readableGeneration();
+  Buffer<char>& destination = m_pOther ? m_pOther->m_Buffer : m_Buffer;
+  generations.write = destination.writableGeneration();
+  return generations;
+}
+
 void ConsoleFile::inject(char* buf, size_t len, bool canBlock) {
   m_Buffer.write(buf, len, canBlock);
   dataChanged();
+  if (m_pOther) {
+    m_pOther->dataChanged();
+  }
 }
 
 size_t ConsoleFile::outputLineDiscipline(char* buf, size_t len, size_t maxSz, size_t flags) {

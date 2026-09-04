@@ -64,6 +64,13 @@ class ConsoleFile : public File {
     return false;
   }
 
+  ReadyMask queryReady(bool reading, bool writing) override;
+  ReadinessGenerations readinessGenerations() override;
+
+  bool supportsReadinessNotifications() const override {
+    return true;
+  }
+
   void setEvent(Event* e) {
     if (isMaster())
       m_pOther->m_pEvent = e;
@@ -267,6 +274,14 @@ class EXPORTED_PUBLIC ConsolePhysicalFile : public ConsoleFile {
   }
 
   virtual int select(bool bWriting, int timeout);
+
+  ReadyMask queryReady(bool reading, bool writing) override {
+    return File::queryReady(reading, writing);
+  }
+
+  bool supportsReadinessNotifications() const override {
+    return false;
+  }
 
  private:
   File* m_pTerminal;
