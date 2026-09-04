@@ -140,6 +140,9 @@ class EXPORTED_PUBLIC FileDescriptor {
   /** Associate a socket implementation with this open file description. */
   void setNetworkImpl(const SharedPointer<NetworkSyscalls>& implementation);
 
+  /** Whether this descriptor retained socket ownership during clone admission. */
+  bool networkPublished() const;
+
   /** Associate an eventfd counter with this open file description. */
   void setEventFdImpl(const SharedPointer<EventFd>& implementation);
 
@@ -193,6 +196,8 @@ class EXPORTED_PUBLIC FileDescriptor {
   /** State and serialization shared by aliases of one open file. */
   OpenFileDescriptionLease m_OpenFile;
 
+  /** Whether this object still owns one published socket alias. */
+  bool m_NetworkPublished;
   /** Eventfd table ownership is released before in-flight syscall pins drain. */
   bool m_EventFdPublished;
 };

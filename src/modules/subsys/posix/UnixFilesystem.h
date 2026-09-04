@@ -20,6 +20,8 @@
 #ifndef _UNIX_FILESYSTEM_H
 #define _UNIX_FILESYSTEM_H
 
+#include "pedigree/kernel/LockGuard.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/RingBuffer.h"
@@ -34,6 +36,12 @@
 class Mutex;
 class FileDescriptor;
 class UnixSocket;
+
+#if defined(PEDIGREE_EXTERNAL_SOURCE)
+using UnixStreamSerializationGate = Mutex;
+#else
+using UnixStreamSerializationGate = Semaphore;
+#endif
 
 /** Descriptor ownership attached to one in-flight socket record. */
 class SocketRights {
@@ -69,6 +77,11 @@ class SocketRights {
 #define MAX_UNIX_DGRAM_BACKLOG 65536
 #define MAX_UNIX_STREAM_QUEUE 65536
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+using UnixStreamControlLockHook = void (*)();
+void setUnixStreamControlLockHookForTest(UnixStreamControlLockHook hook);
+#endif
+
 /**
  * Shared storage for a connected streaming socket pair.
  *
@@ -89,13 +102,14 @@ class UnixSocketConnection {
     ~Stream();
 
     size_t write(const uint8_t* buffer, size_t count, bool block,
-                 const SharedPointer<SocketRights>& rights = SharedPointer<SocketRights>());
+                 const SharedPointer<SocketRights>& rights = SharedPointer<SocketRights>(),
+                 bool* interrupted = nullptr);
     size_t writeVectors(const struct iovec* vectors, size_t vectorCount, bool block,
-                        const SharedPointer<SocketRights>& rights);
+                        const SharedPointer<SocketRights>& rights, bool* interrupted = nullptr);
     size_t read(uint8_t* buffer, size_t count, bool block,
-                SharedPointer<SocketRights>* rights = nullptr);
+                SharedPointer<SocketRights>* rights = nullptr, bool* interrupted = nullptr);
     size_t readVectors(struct iovec* vectors, size_t vectorCount, bool block,
-                       SharedPointer<SocketRights>* rights);
+                       SharedPointer<SocketRights>* rights, bool* interrupted = nullptr);
 
     bool canWrite(bool block);
     bool canRead(bool block);
@@ -113,6 +127,16 @@ class UnixSocketConnection {
     }
 
    private:
+    class ControlGuard {
+     public:
+      explicit ControlGuard(Stream& stream);
+      ~ControlGuard();
+
+     private:
+      Stream& m_Stream;
+      LockGuard<Mutex> m_Guard;
+    };
+
     struct Control {
       Control(uint64_t offset, const SharedPointer<SocketRights>& newRights)
           : byteOffset(offset), rights(newRights) {}
@@ -122,11 +146,13 @@ class UnixSocketConnection {
     };
 
     void discardControls();
+    void discardControlsIfRequested();
 
     Buffer<uint8_t, true> m_Bytes;
-    Mutex m_SendLock;
-    Mutex m_ReceiveLock;
+    UnixStreamSerializationGate m_SendLock;
+    UnixStreamSerializationGate m_ReceiveLock;
     Mutex m_ControlLock;
+    Atomic<bool> m_DiscardControlsRequested;
     List<Control*> m_Controls;
     uint64_t m_BytesWritten;
     uint64_t m_BytesRead;
@@ -236,15 +262,15 @@ class UnixSocket : public File {
 
   /** Write one ordered stream record with optional descriptor ownership. */
   uint64_t sendStream(uint64_t size, uintptr_t buffer, bool bCanBlock,
-                      const SharedPointer<SocketRights>& rights);
+                      const SharedPointer<SocketRights>& rights, bool* interrupted = nullptr);
   uint64_t sendStream(const struct iovec* vectors, size_t vectorCount, bool bCanBlock,
-                      const SharedPointer<SocketRights>& rights);
+                      const SharedPointer<SocketRights>& rights, bool* interrupted = nullptr);
 
   /** Read stream bytes and optionally detach the first crossed control record. */
   uint64_t receiveStream(uint64_t size, uintptr_t buffer, bool bCanBlock,
-                         SharedPointer<SocketRights>* rights);
+                         SharedPointer<SocketRights>* rights, bool* interrupted = nullptr);
   uint64_t receiveStream(struct iovec* vectors, size_t vectorCount, bool bCanBlock,
-                         SharedPointer<SocketRights>* rights);
+                         SharedPointer<SocketRights>* rights, bool* interrupted = nullptr);
 
   virtual int select(bool bWriting = false, int timeout = 0);
 

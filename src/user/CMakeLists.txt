@@ -165,7 +165,8 @@ pedigree_app(testsuite ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/process.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/resource.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/scm-rights.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/scm-rights-stream.c)
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/scm-rights-stream.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/unix-stream-interruption.c)
 pedigree_app(thread-test ON OFF OFF "pedigree-c-user;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/thread-test/main.cc)
 pedigree_app(tour ON OFF OFF "intl;dialog;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/tour/main.cc)
 pedigree_app(ttyterm ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ttyterm/ttyterm.cc)

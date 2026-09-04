@@ -21,6 +21,7 @@
 #define NET_SYSCALLS_H
 
 #include "pedigree/kernel/Atomic.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/Readiness.h"
@@ -61,13 +62,20 @@ class Event;
 bool finishInterruptibleSocketCall(Thread* thread, ssize_t result);
 bool finishInterruptibleSocketCall(Thread* thread, bool result) = delete;
 
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+using UnixEndpointMutationLockHook = void (*)();
+using UnixEndpointReadinessLeaseHook = void (*)();
+void setUnixEndpointMutationLockHookForTest(UnixEndpointMutationLockHook hook);
+void setUnixEndpointReadinessLeaseHookForTest(UnixEndpointReadinessLeaseHook hook);
+#endif
+
 ssize_t posix_send_descriptor(const DescriptorLease& descriptor, const void* buffer,
                               size_t bufferLength, int flags);
 ssize_t posix_recv_descriptor(const DescriptorLease& descriptor, void* buffer, size_t bufferLength,
                               int flags);
-ssize_t posix_sendmsg_descriptor(const DescriptorLease& descriptor, const struct msghdr* message,
-                                 const SharedPointer<SocketRights>& rights =
-                                     SharedPointer<SocketRights>());
+ssize_t posix_sendmsg_descriptor(
+    const DescriptorLease& descriptor, const struct msghdr* message,
+    const SharedPointer<SocketRights>& rights = SharedPointer<SocketRights>());
 ssize_t posix_recvmsg_descriptor(const DescriptorLease& descriptor, struct msghdr* message,
                                  SharedPointer<SocketRights>* rights = nullptr);
 
@@ -109,6 +117,13 @@ class NetworkSyscalls : public ReadinessSource {
   /** Return a level-triggered snapshot for the requested I/O directions. */
   virtual ReadyMask queryReady(bool reading, bool writing);
 
+  /** Track descriptor owners independently of in-flight syscall leases. */
+  MUST_USE_RESULT bool addDescriptorOwner();
+  void removeDescriptorOwner();
+
+  /** Keep an AF_UNIX wrapper alive while deferred final-close work drains. */
+  void retainDescriptorLifetime(const SharedPointer<NetworkSyscalls>& lifetime);
+
   /**
    * Retire the transport after the final descriptor alias closes.
    *
@@ -144,6 +159,9 @@ class NetworkSyscalls : public ReadinessSource {
 
   bool hasLastDescriptorClosed() const;
 
+  SharedPointer<NetworkSyscalls> acquireDescriptorLifetime() const;
+  SharedPointer<NetworkSyscalls> releaseDescriptorLifetime();
+
   int m_Domain;
   int m_Type;
   int m_Protocol;
@@ -155,7 +173,10 @@ class NetworkSyscalls : public ReadinessSource {
 
  private:
   mutable Mutex m_LifecycleLock;
+  size_t m_DescriptorOwners;
+  bool m_DescriptorAdmissionOpen;
   bool m_LastDescriptorClosed;
+  SharedPointer<NetworkSyscalls> m_DescriptorLifetime;
 };
 
 class LwipSocketSyscalls : public NetworkSyscalls {
@@ -279,6 +300,47 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   static Tree<UnixSocket*, UnixSocket*> m_PendingListeners;
   static Mutex m_SyscallObjectsLock;
 
+  class EndpointMutationGuard {
+   public:
+    explicit EndpointMutationGuard(UnixSocketSyscalls& socket);
+    ~EndpointMutationGuard();
+
+   private:
+    UnixSocketSyscalls& m_Socket;
+    LockGuard<Mutex> m_Guard;
+  };
+
+  class EndpointMutationPairGuard {
+   public:
+    EndpointMutationPairGuard(UnixSocketSyscalls& first, UnixSocketSyscalls& second);
+    ~EndpointMutationPairGuard();
+
+   private:
+    UnixSocketSyscalls& m_First;
+    UnixSocketSyscalls& m_Second;
+    LockGuard<Mutex> m_FirstGuard;
+    LockGuard<Mutex> m_SecondGuard;
+  };
+
+  class EndpointReadinessGuard {
+   public:
+    EndpointReadinessGuard();
+    explicit EndpointReadinessGuard(UnixSocketSyscalls& socket);
+    ~EndpointReadinessGuard();
+
+    MUST_USE_RESULT bool acquire(UnixSocketSyscalls& socket);
+
+    explicit operator bool() const {
+      return m_Acquired;
+    }
+
+   private:
+    UnixSocketSyscalls* m_Socket;
+    SharedPointer<NetworkSyscalls> m_Lifetime;
+    OperationBarrier::Lease m_Lease;
+    bool m_Acquired;
+  };
+
   void registerSocket(UnixSocket* socket);
   void registerPeer(UnixSocket* socket, UnixSocket* peer, UnixSocket* listener = nullptr);
   void unregisterPeer(UnixSocket* socket, UnixSocket* peer);
@@ -289,6 +351,7 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   SharedPointer<UnixSocketGeneration> acquireLocalEndpoint() const;
   void replaceLocalEndpoint(UnixSocket* socket, bool tracked, bool removeNamespace,
                             const String* localPath = nullptr);
+  void tryCompleteEndpointClose();
 
   UnixSocket::SocketType getSocketType() const;
 
@@ -296,8 +359,14 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   mutable Mutex m_EndpointStateLock;
   /** Serializes bind/connect mutations without covering blocking I/O. */
   Mutex m_EndpointMutationLock;
+  Atomic<bool> m_EndpointMutationReleaseInProgress;
+  Atomic<bool> m_EndpointClosePending;
+  Atomic<bool> m_EndpointRetired;
+  Atomic<bool> m_EndpointCloseFinalized;
   SharedPointer<UnixSocketGeneration> m_LocalEndpoint;
   SharedPointer<UnixSocketReference> m_RemoteEndpoint;
+  SharedPointer<UnixSocketGeneration> m_ClosingLocalEndpoint;
+  SharedPointer<UnixSocketReference> m_ClosingRemoteEndpoint;
 
   String m_LocalPath;
   String m_RemotePath;

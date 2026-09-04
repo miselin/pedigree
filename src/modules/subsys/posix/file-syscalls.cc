@@ -2507,7 +2507,8 @@ int posix_dup(int fd) {
 
   // Copy the descriptor
   FileDescriptor* f2 = new FileDescriptor(*f);
-  if (f->getEventFdImpl() && !f2->eventFdPublished()) {
+  if ((f->networkImpl && !f2->networkPublished()) ||
+      (f->getEventFdImpl() && !f2->eventFdPublished())) {
     delete f2;
     pSubsystem->freeFd(newFd);
     SYSCALL_ERROR(BadFileDescriptor);
@@ -2554,7 +2555,8 @@ int posix_dup2(int fd1, int fd2) {
   // we might accidentally trigger an EOF condition on a pipe! (if the write
   // refcount drops to zero)...
   FileDescriptor* f2 = new FileDescriptor(*f);
-  if (f->getEventFdImpl() && !f2->eventFdPublished()) {
+  if ((f->networkImpl && !f2->networkPublished()) ||
+      (f->getEventFdImpl() && !f2->eventFdPublished())) {
     delete f2;
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
@@ -2664,7 +2666,8 @@ int posix_fcntl(int fd, int cmd, void* arg) {
 
       const size_t fd2 = pSubsystem->getFd(static_cast<size_t>(minimum));
       FileDescriptor* f2 = new FileDescriptor(*f);
-      if (f->getEventFdImpl() && !f2->eventFdPublished()) {
+      if ((f->networkImpl && !f2->networkPublished()) ||
+          (f->getEventFdImpl() && !f2->eventFdPublished())) {
         delete f2;
         pSubsystem->freeFd(fd2);
         SYSCALL_ERROR(BadFileDescriptor);

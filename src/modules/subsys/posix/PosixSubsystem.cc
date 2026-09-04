@@ -1151,6 +1151,7 @@ bool PosixSubsystem::copyDescriptors(PosixSubsystem* pSubsystem) {
       size_t newFd = it.key();
 
       SharedPointer<FileDescriptor> pNewFd(new FileDescriptor(*pFd));
+      assert(!pFd->networkImpl || pNewFd->networkPublished());
 
       // Perform the same action as addFileDescriptor. We need to
       // duplicate here because we currently hold the FD lock, which will
@@ -1339,10 +1340,11 @@ PosixSubsystem::DescriptorDuplicationResult PosixSubsystem::duplicateFileDescrip
       } else {
         replacement.reset(new FileDescriptor(*source));
 
-        // FileDescriptor's copy path only nests OFD/eventfd owner-admission
+        // FileDescriptor's copy path only nests OFD/socket/eventfd owner-admission
         // locks, neither of which enters the descriptor table. Keeping
         // m_FdLock held makes final-close admission and publication atomic.
-        if (!source->getEventFdImpl() || replacement->eventFdPublished()) {
+        if ((!source->networkImpl || replacement->networkPublished()) &&
+            (!source->getEventFdImpl() || replacement->eventFdPublished())) {
           replacement->fd = targetFd;
           replacement->fdflags = closeOnExec ? FD_CLOEXEC : 0;
           m_FdMap.take(targetFd, retiring);

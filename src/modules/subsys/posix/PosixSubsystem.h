@@ -428,8 +428,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
    *
    * The source lookup, anonymous-target owner publication, and table swap
    * share one descriptor-table critical section. A concurrent final close
-   * therefore cannot close eventfd admission between lookup and duplication,
-   * and target is never observable as an unallocated descriptor.
+   * therefore cannot close socket/eventfd admission between lookup and
+   * duplication, and target is never observable as an unallocated descriptor.
    */
   DescriptorDuplicationResult duplicateFileDescriptor(size_t source, size_t target,
                                                       bool closeOnExec);

@@ -173,6 +173,7 @@ FileDescriptor::FileDescriptor()
       ioevent(nullptr),
       fdflags(0),
       m_OpenFile(new OpenFileDescription(nullptr, 0, 0)),
+      m_NetworkPublished(false),
       m_EventFdPublished(false) {}
 
 /// Parameterised constructor
@@ -186,6 +187,7 @@ FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, 
       ioevent(nullptr),
       fdflags(fdFlags | ((flFlags & O_CLOEXEC) ? FD_CLOEXEC : 0)),
       m_OpenFile(new OpenFileDescription(newFile, newOffset, flFlags & ~O_CLOEXEC)),
+      m_NetworkPublished(false),
       m_EventFdPublished(false) {
   /// \todo need a copy constructor for networkImpl
   if (file) {
@@ -205,9 +207,13 @@ FileDescriptor::FileDescriptor(FileDescriptor& desc)
       ioevent(nullptr),
       fdflags(desc.fdflags),
       m_OpenFile(desc.m_OpenFile),
+      m_NetworkPublished(false),
       m_EventFdPublished(false) {
   m_OpenFile->addDescriptorOwner();
   m_OpenFile->ensureVfsLease();
+  if (networkImpl) {
+    m_NetworkPublished = networkImpl->addDescriptorOwner();
+  }
   SharedPointer<EventFd> eventFd = m_OpenFile->getEventFdImpl();
   if (eventFd) {
     m_EventFdPublished = eventFd->addDescriptorOwner();
@@ -235,6 +241,7 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
       ioevent(nullptr),
       fdflags(0),
       m_OpenFile(nullptr),
+      m_NetworkPublished(false),
       m_EventFdPublished(false) {
   if (!desc) {
     m_OpenFile.reset(new OpenFileDescription(nullptr, 0, 0));
@@ -249,6 +256,9 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
   m_OpenFile = desc->m_OpenFile;
   m_OpenFile->addDescriptorOwner();
   m_OpenFile->ensureVfsLease();
+  if (networkImpl) {
+    m_NetworkPublished = networkImpl->addDescriptorOwner();
+  }
   SharedPointer<EventFd> eventFd = m_OpenFile->getEventFdImpl();
   if (eventFd) {
     m_EventFdPublished = eventFd->addDescriptorOwner();
@@ -345,6 +355,17 @@ void FileDescriptor::setNetworkImpl(const SharedPointer<NetworkSyscalls>& implem
   if (networkImpl) {
     networkImpl->setBlocking(!(m_OpenFile->statusFlags & O_NONBLOCK));
   }
+  if (implementation) {
+    m_NetworkPublished = implementation->addDescriptorOwner();
+    assert(m_NetworkPublished);
+    if (m_NetworkPublished) {
+      implementation->retainDescriptorLifetime(implementation);
+    }
+  }
+}
+
+bool FileDescriptor::networkPublished() const {
+  return m_NetworkPublished;
 }
 
 void FileDescriptor::setEventFdImpl(const SharedPointer<EventFd>& implementation) {
@@ -369,14 +390,19 @@ bool FileDescriptor::eventFdPublished() const {
 }
 
 void FileDescriptor::unpublish() {
-  if (!m_EventFdPublished) {
-    return;
+  if (m_NetworkPublished) {
+    m_NetworkPublished = false;
+    if (networkImpl) {
+      networkImpl->removeDescriptorOwner();
+    }
   }
 
-  m_EventFdPublished = false;
-  SharedPointer<EventFd> eventFd = m_OpenFile->getEventFdImpl();
-  if (eventFd) {
-    eventFd->removeDescriptorOwner();
+  if (m_EventFdPublished) {
+    m_EventFdPublished = false;
+    SharedPointer<EventFd> eventFd = m_OpenFile->getEventFdImpl();
+    if (eventFd) {
+      eventFd->removeDescriptorOwner();
+    }
   }
 }
 

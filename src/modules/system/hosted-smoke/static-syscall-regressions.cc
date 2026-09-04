@@ -71,6 +71,7 @@ extern bool runHostedScmStreamRegressions(Process* process);
 extern bool runHostedSleepClockSyscallRegressions(Process* process);
 extern bool runHostedThreadSignalSyscallRegressions(Process* process);
 extern bool runHostedTimeSyscallRegressions(Process* process);
+extern bool runHostedUnixStreamInterruptionRegressions(Process* process);
 extern bool runHostedUsercopyRegressions(Process* process);
 extern bool runHostedVectorIoRegressions(Process* process);
 
@@ -4971,6 +4972,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN scm-rights-stream");
   if (!runHostedScmStreamRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN unix-stream-interruption");
+  if (!runHostedUnixStreamInterruptionRegressions(kernelProcess)) {
     return false;
   }
 

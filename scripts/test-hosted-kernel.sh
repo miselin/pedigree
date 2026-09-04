@@ -469,6 +469,7 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS eventfd-counter-readiness-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS poll-close-reuse-cleanup" \
         "HOSTED-SYSCALL-TEST: PASS posix-teardown-contention" \
+        "HOSTED-SYSCALL-TEST: PASS unix-stream-interruption" \
         "HOSTED-SYSCALL-TEST: PASS socket-zero-result-signal" \
         "HOSTED-SYSCALL-TEST: PASS unix-bind-replacement-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS scm-rights-datagram" \

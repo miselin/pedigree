@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
@@ -197,7 +198,8 @@ bool parseSocketRights(const struct msghdr& message, SharedPointer<SocketRights>
     }
 
     FileDescriptor* transferred = new FileDescriptor(*descriptor);
-    if (descriptor->getEventFdImpl() && !transferred->eventFdPublished()) {
+    if ((descriptor->networkImpl && !transferred->networkPublished()) ||
+        (descriptor->getEventFdImpl() && !transferred->eventFdPublished())) {
       delete transferred;
       rights.reset();
       SYSCALL_ERROR(BadFileDescriptor);
@@ -1220,8 +1222,8 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
 
     for (; publishedCount < disclosedCount; ++publishedCount) {
       FileDescriptor* received = new FileDescriptor(*rights->descriptor(publishedCount));
-      if (rights->descriptor(publishedCount)->getEventFdImpl() &&
-          !received->eventFdPublished()) {
+      if ((rights->descriptor(publishedCount)->networkImpl && !received->networkPublished()) ||
+          (rights->descriptor(publishedCount)->getEventFdImpl() && !received->eventFdPublished())) {
         delete received;
         rollback();
         SYSCALL_ERROR(BadFileDescriptor);
@@ -1250,8 +1252,7 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
       header.cmsg_level = SOL_SOCKET;
       header.cmsg_type = SCM_RIGHTS;
       MemoryCopy(control.get(), &header, sizeof(header));
-      MemoryCopy(control.get() + CMSG_LEN(0), installedFds.get(),
-                 disclosedCount * sizeof(int));
+      MemoryCopy(control.get() + CMSG_LEN(0), installedFds.get(), disclosedCount * sizeof(int));
     }
 
     if (userName) {
@@ -1300,7 +1301,10 @@ NetworkSyscalls::NetworkSyscalls(int domain, int type, int protocol)
       m_Blocking(true),
       m_ReadinessNotifications(),
       m_LifecycleLock(),
-      m_LastDescriptorClosed(false) {}
+      m_DescriptorOwners(0),
+      m_DescriptorAdmissionOpen(true),
+      m_LastDescriptorClosed(false),
+      m_DescriptorLifetime() {}
 
 NetworkSyscalls::~NetworkSyscalls() {
   lastDescriptorClosed();
@@ -1378,6 +1382,62 @@ ReadyMask NetworkSyscalls::queryReady(bool reading, bool writing) {
   return ReadyInvalid;
 }
 
+bool NetworkSyscalls::addDescriptorOwner() {
+  ConstexprLockGuard<Mutex, THREADS> guard(m_LifecycleLock);
+  if (!m_DescriptorAdmissionOpen) {
+    return false;
+  }
+
+  ++m_DescriptorOwners;
+  return true;
+}
+
+void NetworkSyscalls::removeDescriptorOwner() {
+  bool closeEndpoint = false;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_LifecycleLock);
+    assert(m_DescriptorOwners);
+    --m_DescriptorOwners;
+    if (!m_DescriptorOwners) {
+      m_DescriptorAdmissionOpen = false;
+      // AF_UNIX blocking operations use generation-held stream storage, so
+      // retiring the table-visible endpoint wakes them safely. lwIP calls may
+      // still be using the netconn through a syscall lease and retire when
+      // that final object reference drains instead.
+      closeEndpoint = m_Domain == AF_UNIX;
+    }
+  }
+
+  if (closeEndpoint) {
+    lastDescriptorClosed();
+  }
+}
+
+void NetworkSyscalls::retainDescriptorLifetime(const SharedPointer<NetworkSyscalls>& lifetime) {
+  if (m_Domain != AF_UNIX || !lifetime) {
+    return;
+  }
+
+  ConstexprLockGuard<Mutex, THREADS> guard(m_LifecycleLock);
+  if (!m_DescriptorLifetime) {
+    m_DescriptorLifetime = lifetime;
+  }
+}
+
+SharedPointer<NetworkSyscalls> NetworkSyscalls::acquireDescriptorLifetime() const {
+  ConstexprLockGuard<Mutex, THREADS> guard(m_LifecycleLock);
+  return m_DescriptorLifetime;
+}
+
+SharedPointer<NetworkSyscalls> NetworkSyscalls::releaseDescriptorLifetime() {
+  SharedPointer<NetworkSyscalls> lifetime;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_LifecycleLock);
+    lifetime = pedigree_std::move(m_DescriptorLifetime);
+  }
+  return lifetime;
+}
+
 void NetworkSyscalls::lastDescriptorClosed() {
   if (!beginDescriptorClose()) {
     return;
@@ -1413,6 +1473,7 @@ bool NetworkSyscalls::beginDescriptorClose() {
     return false;
   }
 
+  m_DescriptorAdmissionOpen = false;
   m_LastDescriptorClosed = true;
   return true;
 }
@@ -2547,14 +2608,127 @@ class UnixSocketGeneration {
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 using UnixEndpointReceiveLeaseHook = void (*)();
 static UnixEndpointReceiveLeaseHook g_UnixEndpointReceiveLeaseHook = nullptr;
+static UnixEndpointMutationLockHook g_UnixEndpointMutationLockHook = nullptr;
+static UnixEndpointReadinessLeaseHook g_UnixEndpointReadinessLeaseHook = nullptr;
+
+void invokeUnixEndpointMutationLockHook() {
+  UnixEndpointMutationLockHook hook =
+      __atomic_exchange_n(&g_UnixEndpointMutationLockHook,
+                          static_cast<UnixEndpointMutationLockHook>(nullptr), __ATOMIC_ACQ_REL);
+  if (hook) {
+    hook();
+  }
+}
+
+void invokeUnixEndpointReadinessLeaseHook() {
+  UnixEndpointReadinessLeaseHook hook =
+      __atomic_exchange_n(&g_UnixEndpointReadinessLeaseHook,
+                          static_cast<UnixEndpointReadinessLeaseHook>(nullptr), __ATOMIC_ACQ_REL);
+  if (hook) {
+    hook();
+  }
+}
 #endif
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void setUnixEndpointMutationLockHookForTest(UnixEndpointMutationLockHook hook) {
+  __atomic_store_n(&g_UnixEndpointMutationLockHook, hook, __ATOMIC_RELEASE);
+}
+
+void setUnixEndpointReadinessLeaseHookForTest(UnixEndpointReadinessLeaseHook hook) {
+  __atomic_store_n(&g_UnixEndpointReadinessLeaseHook, hook, __ATOMIC_RELEASE);
+}
+#endif
+
+UnixSocketSyscalls::EndpointMutationGuard::EndpointMutationGuard(UnixSocketSyscalls& socket)
+    : m_Socket(socket), m_Guard(socket.m_EndpointMutationLock) {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  invokeUnixEndpointMutationLockHook();
+#endif
+}
+
+UnixSocketSyscalls::EndpointMutationGuard::~EndpointMutationGuard() {
+  m_Socket.m_EndpointMutationReleaseInProgress = true;
+  m_Socket.m_EndpointMutationLock.release();
+  m_Guard.disown();
+  m_Socket.m_EndpointMutationReleaseInProgress = false;
+  m_Socket.tryCompleteEndpointClose();
+}
+
+UnixSocketSyscalls::EndpointMutationPairGuard::EndpointMutationPairGuard(UnixSocketSyscalls& first,
+                                                                         UnixSocketSyscalls& second)
+    : m_First(first),
+      m_Second(second),
+      m_FirstGuard(first.m_EndpointMutationLock),
+      m_SecondGuard(second.m_EndpointMutationLock) {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  invokeUnixEndpointMutationLockHook();
+#endif
+}
+
+UnixSocketSyscalls::EndpointMutationPairGuard::~EndpointMutationPairGuard() {
+  m_First.m_EndpointMutationReleaseInProgress = true;
+  m_Second.m_EndpointMutationReleaseInProgress = true;
+
+  m_Second.m_EndpointMutationLock.release();
+  m_SecondGuard.disown();
+  m_First.m_EndpointMutationLock.release();
+  m_FirstGuard.disown();
+
+  m_First.m_EndpointMutationReleaseInProgress = false;
+  m_Second.m_EndpointMutationReleaseInProgress = false;
+  m_First.tryCompleteEndpointClose();
+  m_Second.tryCompleteEndpointClose();
+}
+
+UnixSocketSyscalls::EndpointReadinessGuard::EndpointReadinessGuard()
+    : m_Socket(nullptr), m_Lifetime(), m_Lease(), m_Acquired(false) {}
+
+UnixSocketSyscalls::EndpointReadinessGuard::EndpointReadinessGuard(UnixSocketSyscalls& socket)
+    : EndpointReadinessGuard() {
+  const bool acquired = acquire(socket);
+  (void)acquired;
+}
+
+bool UnixSocketSyscalls::EndpointReadinessGuard::acquire(UnixSocketSyscalls& socket) {
+  assert(!m_Acquired);
+  m_Socket = &socket;
+  m_Lifetime = socket.acquireDescriptorLifetime();
+  m_Acquired = socket.m_ReadinessNotifications.tryAcquire(m_Lease);
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  if (m_Acquired) {
+    invokeUnixEndpointReadinessLeaseHook();
+  }
+#endif
+  if (!m_Acquired) {
+    m_Lifetime.reset();
+    m_Socket = nullptr;
+  }
+  return m_Acquired;
+}
+
+UnixSocketSyscalls::EndpointReadinessGuard::~EndpointReadinessGuard() {
+  if (!m_Acquired) {
+    return;
+  }
+
+  m_Acquired = false;
+  m_Lease = OperationBarrier::Lease();
+  m_Socket->tryCompleteEndpointClose();
+}
 
 UnixSocketSyscalls::UnixSocketSyscalls(int domain, int type, int protocol)
     : NetworkSyscalls(domain, type, protocol),
       m_EndpointStateLock(),
       m_EndpointMutationLock(),
+      m_EndpointMutationReleaseInProgress(false),
+      m_EndpointClosePending(false),
+      m_EndpointRetired(false),
+      m_EndpointCloseFinalized(false),
       m_LocalEndpoint(),
       m_RemoteEndpoint(),
+      m_ClosingLocalEndpoint(),
+      m_ClosingRemoteEndpoint(),
       m_LocalPath(),
       m_RemotePath() {}
 
@@ -2658,11 +2832,11 @@ void UnixSocketSyscalls::notifySocket(UnixSocket* socket, ReadyMask mask) {
   }
 
   UnixSocketSyscalls* target = nullptr;
-  OperationBarrier::Lease notification;
+  EndpointReadinessGuard notification;
   {
-    ConstexprLockGuard<Mutex, THREADS> guard(m_SyscallObjectsLock);
+    ConstexprLockGuard<Mutex, THREADS> registryGuard(m_SyscallObjectsLock);
     target = m_SyscallObjects.lookup(socket);
-    if (!target || !target->m_ReadinessNotifications.tryAcquire(notification)) {
+    if (!target || !notification.acquire(*target)) {
       return;
     }
   }
@@ -2712,38 +2886,81 @@ void UnixSocketSyscalls::replaceLocalEndpoint(UnixSocket* socket, bool tracked,
 }
 
 void UnixSocketSyscalls::lastDescriptorClosed() {
-  if (!beginDescriptorClose()) {
+  const bool firstClose = beginDescriptorClose();
+  if (firstClose) {
+    // Admission and notification delivery close immediately. Endpoint
+    // retirement may need to wait for a mutation scope or for the current
+    // readiness callback/query to release its own activity lease.
+    m_EndpointClosePending = true;
+    m_ReadinessNotifications.close();
+  } else if (!m_EndpointClosePending) {
     return;
   }
 
-  SharedPointer<UnixSocketGeneration> local;
-  SharedPointer<UnixSocketReference> remote;
-  {
-    LockGuard<Mutex> mutationGuard(m_EndpointMutationLock);
-    {
-      ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
-      local = pedigree_std::move(m_LocalEndpoint);
-      remote = pedigree_std::move(m_RemoteEndpoint);
-      m_LocalPath.clear();
-      m_RemotePath.clear();
+#if THREADS
+  if (m_EndpointMutationLock.isOwnedByCurrentThread()) {
+    return;
+  }
+#endif
+  tryCompleteEndpointClose();
+}
+
+void UnixSocketSyscalls::tryCompleteEndpointClose() {
+  if (!m_EndpointClosePending || m_EndpointCloseFinalized || m_EndpointMutationReleaseInProgress) {
+    return;
+  }
+
+  // A published descriptor keeps one cycle solely for this deferred path.
+  // The local copy prevents the last readiness lease from deleting this
+  // wrapper while it completes the close after returning from a handler.
+  SharedPointer<NetworkSyscalls> completionLifetime = acquireDescriptorLifetime();
+
+  if (!m_EndpointRetired) {
+    TerminationDeferral terminationDeferral;
+    if (!m_EndpointMutationLock.tryAcquire()) {
+      return;
     }
 
-    if (local) {
-      // Wake blocked reads and accepts. Their generation references keep the
-      // retired object alive until those operations have observed closure.
-      local->retire();
+    // Another completion attempt can retire the endpoint after the first
+    // unlocked check and before this nonblocking acquisition.
+    if (!m_EndpointRetired) {
+      m_EndpointMutationReleaseInProgress = true;
+      {
+        ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+        m_ClosingLocalEndpoint = pedigree_std::move(m_LocalEndpoint);
+        m_ClosingRemoteEndpoint = pedigree_std::move(m_RemoteEndpoint);
+        m_LocalPath.clear();
+        m_RemotePath.clear();
+      }
+
+      if (m_ClosingLocalEndpoint) {
+        // Wake blocked reads and accepts. Their generation references keep the
+        // retired object alive until those operations have observed closure.
+        m_ClosingLocalEndpoint->retire();
+      }
+
+      m_EndpointRetired = true;
     }
+    m_EndpointMutationLock.release();
+    m_EndpointMutationReleaseInProgress = false;
   }
-  m_ReadinessNotifications.closeAndWait();
+
+  if (!m_EndpointRetired || !m_ReadinessNotifications.isClosedAndDrained() ||
+      !m_EndpointCloseFinalized.compareAndSwap(false, true)) {
+    return;
+  }
 
   N_NOTICE("UnixSocketSyscalls::~UnixSocketSyscalls");
-  local.reset();
-  remote.reset();
+  m_ClosingLocalEndpoint.reset();
+  m_ClosingRemoteEndpoint.reset();
   closeReadiness(ReadyInvalid | ReadyHangup);
+  m_EndpointClosePending = false;
+
+  SharedPointer<NetworkSyscalls> publishedLifetime = releaseDescriptorLifetime();
 }
 
 bool UnixSocketSyscalls::create() {
-  LockGuard<Mutex> mutationGuard(m_EndpointMutationLock);
+  EndpointMutationGuard mutationGuard(*this);
   if (hasLastDescriptorClosed()) {
     SYSCALL_ERROR(BadFileDescriptor);
     return false;
@@ -2768,7 +2985,7 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
     return -1;
   }
 
-  LockGuard<Mutex> mutationGuard(m_EndpointMutationLock);
+  EndpointMutationGuard mutationGuard(*this);
   if (hasLastDescriptorClosed()) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
@@ -2959,6 +3176,7 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
 
   uint64_t numWritten = 0;
   bool completedWrite = false;
+  bool interrupted = false;
   if (getType() == SOCK_DGRAM) {
     size_t datagramLength = 0;
     for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
@@ -2975,8 +3193,7 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
       datagram = UniqueArray<uint8_t>::allocate(datagramLength);
       size_t offset = 0;
       for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
-        if (!PosixSubsystem::copyFromUser(datagram.get() + offset,
-                                          msghdr->msg_iov[i].iov_base,
+        if (!PosixSubsystem::copyFromUser(datagram.get() + offset, msghdr->msg_iov[i].iov_base,
                                           msghdr->msg_iov[i].iov_len)) {
           SYSCALL_ERROR(BadAddress);
           return -1;
@@ -2986,13 +3203,13 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
       buffer = datagram.get();
     }
 
-    completedWrite = remote->sendDatagram(
-        datagramLength, reinterpret_cast<uintptr_t>(buffer), isBlocking(),
-        reinterpret_cast<uintptr_t>(localPath.cstr()), rights);
+    completedWrite =
+        remote->sendDatagram(datagramLength, reinterpret_cast<uintptr_t>(buffer), isBlocking(),
+                             reinterpret_cast<uintptr_t>(localPath.cstr()), rights);
     numWritten = completedWrite ? datagramLength : 0;
   } else {
     numWritten = localSocket->sendStream(msghdr->msg_iov, static_cast<size_t>(msghdr->msg_iovlen),
-                                         isBlocking(), rights);
+                                         isBlocking(), rights, &interrupted);
     completedWrite = numWritten;
   }
   if (completedWrite) {
@@ -3003,6 +3220,12 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
     }
   }
   if (!completedWrite) {
+    if (interrupted) {
+      SYSCALL_ERROR(Interrupted);
+      N_NOTICE(" -> -1 (EINTR)");
+      return -1;
+    }
+
     if (getType() == SOCK_STREAM && localSocket->getState() == UnixSocket::Closed) {
       SYSCALL_ERROR(BrokenPipe);
       N_NOTICE(" -> -1 (EPIPE)");
@@ -3044,6 +3267,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
   uint64_t numRead = 0;
   uint64_t datagramLength = 0;
   bool consumedDatagram = false;
+  bool interrupted = false;
   if (getType() == SOCK_DGRAM) {
     size_t datagramCapacity = 0;
     for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
@@ -3062,9 +3286,9 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
     }
 
     SharedPointer<SocketRights> receivedRights;
-    consumedDatagram = localSocket->receiveDatagram(
-        datagramCapacity, reinterpret_cast<uintptr_t>(buffer), isBlocking(), remote,
-        receivedRights, numRead, datagramLength);
+    consumedDatagram =
+        localSocket->receiveDatagram(datagramCapacity, reinterpret_cast<uintptr_t>(buffer),
+                                     isBlocking(), remote, receivedRights, numRead, datagramLength);
     if (rights) {
       *rights = receivedRights;
     }
@@ -3087,7 +3311,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
     }
   } else {
     numRead = localSocket->receiveStream(msghdr->msg_iov, static_cast<size_t>(msghdr->msg_iovlen),
-                                         isBlocking(), rights);
+                                         isBlocking(), rights, &interrupted);
   }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -3134,6 +3358,12 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
   }
 #endif
   if (!numRead && !consumedDatagram) {
+    if (interrupted) {
+      SYSCALL_ERROR(Interrupted);
+      N_NOTICE(" -> -1 (EINTR)");
+      return -1;
+    }
+
     if (getType() == SOCK_STREAM && localSocket->getState() == UnixSocket::Closed) {
       N_NOTICE(" -> 0 (EOF)");
       return 0;
@@ -3191,7 +3421,7 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
     return 0;
   }
 
-  LockGuard<Mutex> mutationGuard(m_EndpointMutationLock);
+  EndpointMutationGuard mutationGuard(*this);
   if (hasLastDescriptorClosed()) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
@@ -3485,8 +3715,8 @@ bool UnixSocketSyscalls::canPoll() const {
 ReadyMask UnixSocketSyscalls::queryReady(bool reading, bool writing) {
   // Endpoint generations are released at final descriptor close, while the
   // NetworkSyscalls wrapper can remain retained by an epoll watch.
-  OperationBarrier::Lease query;
-  if (!m_ReadinessNotifications.tryAcquire(query)) {
+  EndpointReadinessGuard query(*this);
+  if (!query) {
     return ReadyInvalid | ReadyHangup;
   }
 
@@ -3531,8 +3761,8 @@ ReadyMask UnixSocketSyscalls::queryReady(bool reading, bool writing) {
 }
 
 ReadinessGenerations UnixSocketSyscalls::readinessGenerations() {
-  OperationBarrier::Lease query;
-  if (!m_ReadinessNotifications.tryAcquire(query) || hasLastDescriptorClosed()) {
+  EndpointReadinessGuard query(*this);
+  if (!query || hasLastDescriptorClosed()) {
     return ReadinessGenerations();
   }
 
@@ -3614,15 +3844,15 @@ bool UnixSocketSyscalls::pairWith(UnixSocketSyscalls* other) {
     return false;
   }
 
-  Mutex* firstMutation = &m_EndpointMutationLock;
-  Mutex* secondMutation = &other->m_EndpointMutationLock;
-  if (reinterpret_cast<uintptr_t>(firstMutation) > reinterpret_cast<uintptr_t>(secondMutation)) {
-    Mutex* temporary = firstMutation;
+  UnixSocketSyscalls* firstMutation = this;
+  UnixSocketSyscalls* secondMutation = other;
+  if (reinterpret_cast<uintptr_t>(&firstMutation->m_EndpointMutationLock) >
+      reinterpret_cast<uintptr_t>(&secondMutation->m_EndpointMutationLock)) {
+    UnixSocketSyscalls* temporary = firstMutation;
     firstMutation = secondMutation;
     secondMutation = temporary;
   }
-  LockGuard<Mutex> firstGuard(*firstMutation);
-  LockGuard<Mutex> secondGuard(*secondMutation);
+  EndpointMutationPairGuard mutationGuard(*firstMutation, *secondMutation);
 
   if (hasLastDescriptorClosed() || other->hasLastDescriptorClosed()) {
     return false;

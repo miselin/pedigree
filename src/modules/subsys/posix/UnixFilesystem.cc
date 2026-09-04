@@ -88,29 +88,149 @@ size_t SocketRights::inFlightForTest() {
 }
 #endif
 
+namespace {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+UnixStreamControlLockHook g_UnixStreamControlLockHook = nullptr;
+
+void invokeUnixStreamControlLockHook() {
+  UnixStreamControlLockHook hook =
+      __atomic_exchange_n(&g_UnixStreamControlLockHook,
+                          static_cast<UnixStreamControlLockHook>(nullptr), __ATOMIC_ACQ_REL);
+  if (hook) {
+    hook();
+  }
+}
+#endif
+
+bool currentThreadWasInterrupted() {
+#if defined(PEDIGREE_EXTERNAL_SOURCE)
+  return false;
+#else
+  Thread* thread = Processor::information().getCurrentThread();
+  return thread && thread->getInterruptionReason() == Thread::InterruptedBySignal;
+#endif
+}
+
+void captureStreamInterruption(bool block, bool* interrupted) {
+  if (block && interrupted && currentThreadWasInterrupted()) {
+    *interrupted = true;
+  }
+}
+
+enum class StreamSerializationWait {
+  Nonblocking,
+  Interruptible,
+};
+
+class StreamSerializationGuard {
+ public:
+#if defined(PEDIGREE_EXTERNAL_SOURCE)
+  StreamSerializationGuard(UnixStreamSerializationGate& mutex, StreamSerializationWait)
+      : m_Mutex(mutex), m_Acquired(m_Mutex.acquire()) {}
+#else
+  StreamSerializationGuard(Semaphore& semaphore, StreamSerializationWait wait)
+      : m_TerminationDeferral(true), m_Semaphore(semaphore), m_Acquired(false) {
+    if (wait == StreamSerializationWait::Nonblocking) {
+      m_Acquired = m_Semaphore.tryAcquire();
+    } else {
+      Semaphore::SemaphoreError error = Semaphore::NoError;
+      m_Acquired = m_Semaphore.acquireWithError(1, 0, 0, error);
+    }
+
+    if (!m_Acquired) {
+      m_TerminationDeferral = TerminationDeferral(false);
+    }
+  }
+#endif
+
+  ~StreamSerializationGuard() {
+    if (m_Acquired) {
+#if defined(PEDIGREE_EXTERNAL_SOURCE)
+      m_Mutex.release();
+#else
+      m_Semaphore.release();
+#endif
+    }
+  }
+
+  explicit operator bool() const {
+    return m_Acquired;
+  }
+
+ private:
+#if defined(PEDIGREE_EXTERNAL_SOURCE)
+  UnixStreamSerializationGate& m_Mutex;
+#else
+  TerminationDeferral m_TerminationDeferral;
+  Semaphore& m_Semaphore;
+#endif
+  bool m_Acquired;
+};
+}  // namespace
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void setUnixStreamControlLockHookForTest(UnixStreamControlLockHook hook) {
+  __atomic_store_n(&g_UnixStreamControlLockHook, hook, __ATOMIC_RELEASE);
+}
+#endif
+
+UnixSocketConnection::Stream::ControlGuard::ControlGuard(Stream& stream)
+    : m_Stream(stream), m_Guard(stream.m_ControlLock) {
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  invokeUnixStreamControlLockHook();
+#endif
+}
+
+UnixSocketConnection::Stream::ControlGuard::~ControlGuard() {
+  m_Stream.discardControlsIfRequested();
+  m_Stream.m_ControlLock.release();
+  m_Guard.disown();
+
+  // A handler can run after the final check above but before the unlock. If
+  // it requested a drain in that window, finish it after releasing the lock;
+  // any later handler observes an unowned mutex and drains synchronously.
+  if (m_Stream.m_DiscardControlsRequested) {
+    ControlGuard cleanupGuard(m_Stream);
+  }
+}
+
 UnixSocketConnection::Stream::Stream()
     : m_Bytes(MAX_UNIX_STREAM_QUEUE),
+#if defined(PEDIGREE_EXTERNAL_SOURCE)
       m_SendLock(),
       m_ReceiveLock(),
+#else
+      m_SendLock(1, true),
+      m_ReceiveLock(1, true),
+#endif
       m_ControlLock(),
+      m_DiscardControlsRequested(false),
       m_Controls(),
       m_BytesWritten(0),
-      m_BytesRead(0) {}
+      m_BytesRead(0) {
+}
 
 UnixSocketConnection::Stream::~Stream() {
   LockGuard<Mutex> guard(m_ControlLock);
   discardControls();
+  m_DiscardControlsRequested = false;
 }
 
 size_t UnixSocketConnection::Stream::write(const uint8_t* buffer, size_t count, bool block,
-                                           const SharedPointer<SocketRights>& rights) {
+                                           const SharedPointer<SocketRights>& rights,
+                                           bool* interrupted) {
   struct iovec vector = {const_cast<uint8_t*>(buffer), count};
-  return writeVectors(&vector, 1, block, rights);
+  return writeVectors(&vector, 1, block, rights, interrupted);
 }
 
 size_t UnixSocketConnection::Stream::writeVectors(const struct iovec* vectors, size_t vectorCount,
                                                   bool block,
-                                                  const SharedPointer<SocketRights>& rights) {
+                                                  const SharedPointer<SocketRights>& rights,
+                                                  bool* interrupted) {
+  if (interrupted) {
+    *interrupted = false;
+  }
+
   size_t firstVector = 0;
   while (firstVector < vectorCount && !vectors[firstVector].iov_len) {
     ++firstVector;
@@ -120,19 +240,27 @@ size_t UnixSocketConnection::Stream::writeVectors(const struct iovec* vectors, s
   }
 
   Control* pendingControl = rights ? new Control(0, rights) : nullptr;
-  LockGuard<Mutex> sendGuard(m_SendLock);
+  StreamSerializationGuard sendGuard(m_SendLock, block ? StreamSerializationWait::Interruptible
+                                                       : StreamSerializationWait::Nonblocking);
+  if (!sendGuard) {
+    captureStreamInterruption(block, interrupted);
+    delete pendingControl;
+    return 0;
+  }
   size_t written = 0;
   size_t firstOffset = 0;
 
   if (pendingControl) {
     if (!m_Bytes.canWrite(block)) {
+      captureStreamInterruption(block, interrupted);
       delete pendingControl;
       return 0;
     }
 
-    LockGuard<Mutex> controlGuard(m_ControlLock);
+    ControlGuard controlGuard(*this);
     const uint8_t* first = reinterpret_cast<const uint8_t*>(vectors[firstVector].iov_base);
     if (m_Bytes.write(first, 1, block) != 1) {
+      captureStreamInterruption(block, interrupted);
       delete pendingControl;
       return 0;
     }
@@ -154,11 +282,12 @@ size_t UnixSocketConnection::Stream::writeVectors(const struct iovec* vectors, s
 
     const size_t tail = m_Bytes.write(buffer + offset, count - offset, block);
     if (tail) {
-      LockGuard<Mutex> controlGuard(m_ControlLock);
+      ControlGuard controlGuard(*this);
       m_BytesWritten += tail;
       written += tail;
     }
     if (tail < count - offset) {
+      captureStreamInterruption(block, interrupted);
       break;
     }
   }
@@ -167,18 +296,28 @@ size_t UnixSocketConnection::Stream::writeVectors(const struct iovec* vectors, s
 }
 
 size_t UnixSocketConnection::Stream::read(uint8_t* buffer, size_t count, bool block,
-                                          SharedPointer<SocketRights>* rights) {
+                                          SharedPointer<SocketRights>* rights, bool* interrupted) {
   struct iovec vector = {buffer, count};
-  return readVectors(&vector, 1, block, rights);
+  return readVectors(&vector, 1, block, rights, interrupted);
 }
 
 size_t UnixSocketConnection::Stream::readVectors(struct iovec* vectors, size_t vectorCount,
-                                                 bool block, SharedPointer<SocketRights>* rights) {
+                                                 bool block, SharedPointer<SocketRights>* rights,
+                                                 bool* interrupted) {
+  if (interrupted) {
+    *interrupted = false;
+  }
   if (rights) {
     rights->reset();
   }
 
-  LockGuard<Mutex> receiveGuard(m_ReceiveLock);
+  StreamSerializationGuard receiveGuard(m_ReceiveLock, block
+                                                           ? StreamSerializationWait::Interruptible
+                                                           : StreamSerializationWait::Nonblocking);
+  if (!receiveGuard) {
+    captureStreamInterruption(block, interrupted);
+    return 0;
+  }
   size_t totalRead = 0;
   bool canBlock = block;
   for (size_t i = 0; i < vectorCount; ++i) {
@@ -189,10 +328,11 @@ size_t UnixSocketConnection::Stream::readVectors(struct iovec* vectors, size_t v
     }
 
     if (!m_Bytes.canRead(canBlock)) {
+      captureStreamInterruption(canBlock, interrupted);
       break;
     }
 
-    LockGuard<Mutex> controlGuard(m_ControlLock);
+    ControlGuard controlGuard(*this);
     while (m_Controls.count()) {
       Control* stale = *m_Controls.begin();
       if (stale->byteOffset >= m_BytesRead) {
@@ -211,6 +351,9 @@ size_t UnixSocketConnection::Stream::readVectors(struct iovec* vectors, size_t v
     }
 
     const size_t bytesRead = m_Bytes.read(buffer, amount, canBlock);
+    if (bytesRead < amount) {
+      captureStreamInterruption(canBlock, interrupted);
+    }
     m_BytesRead += bytesRead;
     bool consumedControl = false;
     while (bytesRead && m_Controls.count()) {
@@ -260,15 +403,23 @@ void UnixSocketConnection::Stream::disableWrites() {
 }
 
 void UnixSocketConnection::Stream::disableReads() {
-  // Closing the receiver must reject new sends before queued descriptor
-  // ownership is drained; otherwise a late marker could outlive both ends.
+  // Reject new control-bearing writes first. A marker already being committed
+  // holds m_ControlLock across its byte write and list insertion, so draining
+  // under that lock closes the race without waiting on a gate that a suspended
+  // signal-handler caller may itself own.
   disableWrites();
   m_Bytes.disableReads();
 
-  LockGuard<Mutex> sendGuard(m_SendLock);
-  LockGuard<Mutex> receiveGuard(m_ReceiveLock);
-  LockGuard<Mutex> controlGuard(m_ControlLock);
+#if !defined(PEDIGREE_EXTERNAL_SOURCE)
+  if (m_ControlLock.isOwnedByCurrentThread()) {
+    m_DiscardControlsRequested = true;
+    return;
+  }
+#endif
+
+  ControlGuard controlGuard(*this);
   discardControls();
+  m_DiscardControlsRequested = false;
 }
 
 void UnixSocketConnection::Stream::monitor(Semaphore* waiter) {
@@ -290,6 +441,12 @@ void UnixSocketConnection::Stream::cullMonitorTargets(Event* event) {
 void UnixSocketConnection::Stream::discardControls() {
   while (m_Controls.count()) {
     delete m_Controls.popFront();
+  }
+}
+
+void UnixSocketConnection::Stream::discardControlsIfRequested() {
+  while (m_DiscardControlsRequested.compareAndSwap(true, false)) {
+    discardControls();
   }
 }
 
@@ -405,13 +562,16 @@ uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, S
 }
 
 uint64_t UnixSocket::receiveStream(uint64_t size, uintptr_t buffer, bool bCanBlock,
-                                   SharedPointer<SocketRights>* rights) {
+                                   SharedPointer<SocketRights>* rights, bool* interrupted) {
   struct iovec vector = {reinterpret_cast<void*>(buffer), size};
-  return receiveStream(&vector, 1, bCanBlock, rights);
+  return receiveStream(&vector, 1, bCanBlock, rights, interrupted);
 }
 
 uint64_t UnixSocket::receiveStream(struct iovec* vectors, size_t vectorCount, bool bCanBlock,
-                                   SharedPointer<SocketRights>* rights) {
+                                   SharedPointer<SocketRights>* rights, bool* interrupted) {
+  if (interrupted) {
+    *interrupted = false;
+  }
   if (rights) {
     rights->reset();
   }
@@ -429,7 +589,7 @@ uint64_t UnixSocket::receiveStream(struct iovec* vectors, size_t vectorCount, bo
   }
 
   return incomingStream(connection)
-      ->readVectors(vectors, vectorCount, state == Active && bCanBlock, rights);
+      ->readVectors(vectors, vectorCount, state == Active && bCanBlock, rights, interrupted);
 }
 
 bool UnixSocket::receiveDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, String& from,
@@ -485,13 +645,16 @@ uint64_t UnixSocket::writeBytewise(uint64_t location, uint64_t size, uintptr_t b
 }
 
 uint64_t UnixSocket::sendStream(uint64_t size, uintptr_t buffer, bool bCanBlock,
-                                const SharedPointer<SocketRights>& rights) {
+                                const SharedPointer<SocketRights>& rights, bool* interrupted) {
   struct iovec vector = {reinterpret_cast<void*>(buffer), size};
-  return sendStream(&vector, 1, bCanBlock, rights);
+  return sendStream(&vector, 1, bCanBlock, rights, interrupted);
 }
 
 uint64_t UnixSocket::sendStream(const struct iovec* vectors, size_t vectorCount, bool bCanBlock,
-                                const SharedPointer<SocketRights>& rights) {
+                                const SharedPointer<SocketRights>& rights, bool* interrupted) {
+  if (interrupted) {
+    *interrupted = false;
+  }
   SharedPointer<UnixSocketConnection> connection;
   SocketState state;
   {
@@ -505,7 +668,8 @@ uint64_t UnixSocket::sendStream(const struct iovec* vectors, size_t vectorCount,
     return 0;
   }
 
-  return outgoingStream(connection)->writeVectors(vectors, vectorCount, bCanBlock, rights);
+  return outgoingStream(connection)
+      ->writeVectors(vectors, vectorCount, bCanBlock, rights, interrupted);
 }
 
 bool UnixSocket::sendDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, uintptr_t source,
