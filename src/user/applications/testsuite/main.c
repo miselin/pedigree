@@ -69,6 +69,10 @@ int main(int argc, char* argv[]) {
     test_dup3();
     return 0;
   }
+  if (argc == 2 && !strcmp(argv[1], "--mmap")) {
+    test_mmap();
+    return 0;
+  }
 
   printf("Running tests...\n");
 

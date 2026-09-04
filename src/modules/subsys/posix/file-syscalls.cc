@@ -2949,12 +2949,18 @@ int posix_munmap(void* addr, size_t len) {
 
   const uintptr_t address = reinterpret_cast<uintptr_t>(addr);
   const size_t pageSz = PhysicalMemoryManager::getPageSize();
-  if (!len || (address & (pageSz - 1))) {
+  const size_t pageMask = pageSz - 1;
+  if (!len || (address & pageMask) || len > ~static_cast<size_t>(0) - pageMask) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  const size_t roundedLength = (len + pageMask) & ~pageMask;
+  if (address > ~static_cast<uintptr_t>(0) - roundedLength) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
-  MemoryMapManager::instance().remove(address, len);
+  MemoryMapManager::instance().removeAndRelease(address, roundedLength);
 
   return 0;
 }

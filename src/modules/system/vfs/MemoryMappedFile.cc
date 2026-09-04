@@ -1063,6 +1063,14 @@ void MemoryMapManager::clone(Process* pProcess) {
 }
 
 size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
+  return removeInternal(base, length, false);
+}
+
+size_t MemoryMapManager::removeAndRelease(uintptr_t base, size_t length) {
+  return removeInternal(base, length, true);
+}
+
+size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool releaseReservations) {
   OperationGuard operation(*this);
 
 #ifdef DEBUG_MMOBJECTS
@@ -1071,12 +1079,20 @@ size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
   size_t pageSz = PhysicalMemoryManager::getPageSize();
+  Process* process = Processor::information().getCurrentThread()->getParent();
 
   size_t nAffected = 0;
 
+  if (!length || length > ~static_cast<size_t>(0) - (pageSz - 1)) {
+    return 0;
+  }
   if (length & (pageSz - 1)) {
     length += pageSz;
     length &= ~(pageSz - 1);
+  }
+
+  if (base > ~static_cast<uintptr_t>(0) - length) {
+    return 0;
   }
 
   uintptr_t removeEnd = base + length;
@@ -1107,6 +1123,12 @@ size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
       objAlignEnd &= ~(pageSz - 1);
     }
 
+    // Capture the owned intersection before split/remove rewrites the object.
+    // Holes have no object and must not be inserted into the allocator again.
+    const uintptr_t releasedStart = base > pObject->address() ? base : pObject->address();
+    const uintptr_t releasedEnd = removeEnd < objAlignEnd ? removeEnd : objAlignEnd;
+    bool affected = false;
+
     // Avoid?
     if (pObject->address() == removeEnd) {
       ++it;
@@ -1119,6 +1141,7 @@ size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
       NOTICE("MemoryMapManager::remove() - a direct removal");
 #endif
       bool bAll = pObject->remove(length);
+      affected = true;
       if (bAll) {
         it = pMmObjectList->erase(it);
         delete pObject;
@@ -1133,6 +1156,7 @@ size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
 #endif
       MemoryMappedObject* pNewObject = pObject->split(base);
       bool bAll = pNewObject->remove(removeEnd - base);
+      affected = true;
       if (!bAll) {
         // Remainder not fully removed - add to housekeeping.
         pMmObjectList->pushBack(pNewObject);
@@ -1150,6 +1174,7 @@ size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
 #endif
       // Outright unmap.
       pObject->unmap();
+      affected = true;
 
       it = pMmObjectList->erase(it);
       delete pObject;
@@ -1165,6 +1190,7 @@ size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
       MemoryMappedObject* pNewObject = pObject->split(removeEnd);
 
       pObject->unmap();
+      affected = true;
 
       it = pMmObjectList->erase(it);
       delete pObject;
@@ -1181,6 +1207,7 @@ size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
       MemoryMappedObject* pNewObject = pObject->split(base);
       pNewObject->unmap();
       delete pNewObject;
+      affected = true;
     }
 
     // Nothing!
@@ -1192,6 +1219,10 @@ size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
       continue;
     }
 
+    if (releaseReservations && affected && releasedStart < releasedEnd) {
+      releaseReservation(process, va, releasedStart, releasedEnd - releasedStart);
+    }
+
     if (!bErased) {
       ++it;
     }
@@ -1200,6 +1231,28 @@ size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
   }
 
   return nAffected;
+}
+
+void MemoryMapManager::releaseReservation(Process* process, VirtualAddressSpace& addressSpace,
+                                          uintptr_t base, size_t length) {
+  const uintptr_t end = base + length;
+
+  auto releaseIntersection = [base, end](MemoryAllocator& allocator, uintptr_t regionStart,
+                                         uintptr_t regionEnd) {
+    const uintptr_t releaseStart = base > regionStart ? base : regionStart;
+    const uintptr_t releaseEnd = end < regionEnd ? end : regionEnd;
+    if (releaseStart < releaseEnd) {
+      allocator.free(releaseStart, releaseEnd - releaseStart);
+    }
+  };
+
+  const uintptr_t dynamicStart = addressSpace.getDynamicStart();
+  const uintptr_t dynamicEnd = addressSpace.getDynamicEnd();
+  if (dynamicStart && dynamicStart < dynamicEnd) {
+    releaseIntersection(process->getDynamicSpaceAllocator(), dynamicStart, dynamicEnd);
+  }
+  releaseIntersection(process->getSpaceAllocator(), addressSpace.getUserStart(),
+                      addressSpace.getUserReservedStart());
 }
 
 size_t MemoryMapManager::setPermissions(uintptr_t base, size_t length,
@@ -1533,13 +1586,27 @@ MemoryMapManager::MapStatus MemoryMapManager::sanitiseAddress(uintptr_t& address
   }
 
   auto allocateAnywhere = [&]() -> bool {
-    if (!pProcess->getDynamicSpaceAllocator().allocate(length + pageSz, address) &&
-        !pProcess->getSpaceAllocator().allocate(length + pageSz, address)) {
+    const size_t allocationLength = length + pageSz - 1;
+    uintptr_t allocationBase = 0;
+    MemoryAllocator* allocator = &pProcess->getDynamicSpaceAllocator();
+    bool allocated = allocator->allocate(allocationLength, allocationBase);
+    if (!allocated) {
+      allocator = &pProcess->getSpaceAllocator();
+      allocated = allocator->allocate(allocationLength, allocationBase);
+    }
+    if (!allocated) {
       return false;
     }
 
-    if (address & (pageSz - 1)) {
-      address = (address + pageSz) & ~(pageSz - 1);
+    address = (allocationBase + pageSz - 1) & ~(pageSz - 1);
+    const size_t prefixLength = address - allocationBase;
+    if (prefixLength) {
+      allocator->free(allocationBase, prefixLength);
+    }
+    const uintptr_t allocationEnd = allocationBase + allocationLength;
+    const uintptr_t mappingEnd = address + length;
+    if (mappingEnd < allocationEnd) {
+      allocator->free(mappingEnd, allocationEnd - mappingEnd);
     }
     return true;
   };

@@ -463,6 +463,15 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   size_t remove(uintptr_t base, size_t length);
 
   /**
+   * Removes mappings and returns their virtual-address reservations to the
+   * current process. Unmapped holes in the requested range are left alone.
+   *
+   * This is the munmap path. MAP_FIXED replacement uses remove() so that the
+   * replacement inherits the reservations of the mappings it displaces.
+   */
+  size_t removeAndRelease(uintptr_t base, size_t length);
+
+  /**
    * Adjusts permissions across the given range, crossing object
    * boundaries if necessary.
    *
@@ -569,6 +578,10 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   void enterOperation();
   bool tryEnterOperation();
   void leaveOperation();
+
+  size_t removeInternal(uintptr_t base, size_t length, bool releaseReservations);
+  void releaseReservation(Process* process, VirtualAddressSpace& addressSpace, uintptr_t base,
+                          size_t length);
 
   MapStatus sanitiseAddress(uintptr_t& address, size_t length, Placement placement);
 

@@ -13,6 +13,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
 
 #include <stddef.h>
@@ -31,16 +32,24 @@ struct PlacementContext {
   PlacementContext()
       : hintFallback(false),
         noReplaceCollision(false),
+        failedPlacementPreserved(false),
         fixedReplacement(false),
         fixedSpanReserved(false),
+        exactReservation(false),
+        partialReclamation(false),
+        overlappingReclamation(false),
         inputValidation(false),
         noReplaceAtomic(false),
         returned(0) {}
 
   bool hintFallback;
   bool noReplaceCollision;
+  bool failedPlacementPreserved;
   bool fixedReplacement;
   bool fixedSpanReserved;
+  bool exactReservation;
+  bool partialReclamation;
+  bool overlappingReclamation;
   bool inputValidation;
   bool noReplaceAtomic;
   Atomic<size_t> returned;
@@ -66,6 +75,24 @@ struct RacerContext {
   Atomic<size_t> returned;
 };
 
+struct UnmapRaceContext {
+  UnmapRaceContext() : begin(0, false) {}
+
+  Semaphore begin;
+};
+
+struct UnmapRacerContext {
+  UnmapRacerContext(UnmapRaceContext* race, uintptr_t address, size_t length)
+      : race(race), address(address), length(length), result(-1), error(0), returned(0) {}
+
+  UnmapRaceContext* race;
+  uintptr_t address;
+  size_t length;
+  int result;
+  int error;
+  Atomic<size_t> returned;
+};
+
 bool findFreeDynamicRange(Process* process, size_t pageSize, size_t length, uintptr_t& address) {
   MemoryAllocator& allocator = process->getDynamicSpaceAllocator();
   const uintptr_t mask = pageSize - 1;
@@ -83,6 +110,36 @@ bool findFreeDynamicRange(Process* process, size_t pageSize, size_t length, uint
     }
   }
   return false;
+}
+
+MemoryAllocator* allocatorFor(Process* process, uintptr_t address, size_t length) {
+  VirtualAddressSpace* addressSpace = process->getAddressSpace();
+  const uintptr_t end = address + length;
+  if (addressSpace->getDynamicStart() && address >= addressSpace->getDynamicStart() &&
+      end <= addressSpace->getDynamicEnd()) {
+    return &process->getDynamicSpaceAllocator();
+  }
+  if (address >= addressSpace->getUserStart() && end <= addressSpace->getUserReservedStart()) {
+    return &process->getSpaceAllocator();
+  }
+  return nullptr;
+}
+
+bool reservationHeld(MemoryAllocator& allocator, uintptr_t address, size_t length) {
+  if (!allocator.allocateSpecific(address, length)) {
+    return true;
+  }
+  allocator.free(address, length);
+  return false;
+}
+
+bool reservationAvailableExactlyOnce(MemoryAllocator& allocator, uintptr_t address, size_t length) {
+  const bool first = allocator.allocateSpecific(address, length);
+  const bool second = first && allocator.allocateSpecific(address, length);
+  if (first) {
+    allocator.free(address, length);
+  }
+  return first && !second;
 }
 
 int noReplaceRacer(void* parameter) {
@@ -148,6 +205,113 @@ bool runNoReplaceRace(Process* process, size_t pageSize) {
   return passed;
 }
 
+int unmapRacer(void* parameter) {
+  UnmapRacerContext* context = reinterpret_cast<UnmapRacerContext*>(parameter);
+  Thread* thread = Processor::information().getCurrentThread();
+  if (!context->race->begin.acquire()) {
+    context->returned += 1;
+    return 1;
+  }
+
+  thread->setErrno(PreservedErrno);
+  context->result = posix_munmap(reinterpret_cast<void*>(context->address), context->length);
+  context->error = thread->getErrno();
+  context->returned += 1;
+  return context->result ? 1 : 0;
+}
+
+bool runOverlappingUnmapRace(Process* process, size_t pageSize) {
+  const size_t mappingLength = pageSize * 3;
+  void* mapping =
+      posix_mmap(nullptr, mappingLength, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+  if (mapping == MAP_FAILED) {
+    return false;
+  }
+
+  const uintptr_t address = reinterpret_cast<uintptr_t>(mapping);
+  MemoryAllocator* allocator = allocatorFor(process, address, mappingLength);
+  if (!allocator) {
+    posix_munmap(mapping, mappingLength);
+    return false;
+  }
+
+  UnmapRaceContext race;
+  UnmapRacerContext first(&race, address, pageSize * 2);
+  UnmapRacerContext second(&race, address + pageSize, pageSize * 2);
+  Thread* firstThread = new Thread(process, unmapRacer, &first, nullptr, false, true, true);
+  Thread* secondThread = new Thread(process, unmapRacer, &second, nullptr, false, true, true);
+  firstThread->setName("hosted munmap overlap racer 1");
+  secondThread->setName("hosted munmap overlap racer 2");
+
+  const bool firstStarted = firstThread->start();
+  const bool secondStarted = secondThread->start();
+  race.begin.release(2);
+  const bool firstJoined = firstStarted && firstThread->joinForCompletion();
+  const bool secondJoined = secondStarted && secondThread->joinForCompletion();
+  if (!firstStarted) {
+    delete firstThread;
+  }
+  if (!secondStarted) {
+    delete secondThread;
+  }
+
+  const bool releasedExactlyOnce =
+      reservationAvailableExactlyOnce(*allocator, address, mappingLength);
+  const bool passed = firstStarted && secondStarted && firstJoined && secondJoined &&
+                      first.returned == 1 && second.returned == 1 && !first.result &&
+                      !second.result && first.error == PreservedErrno &&
+                      second.error == PreservedErrno && releasedExactlyOnce;
+  if (!releasedExactlyOnce) {
+    posix_munmap(mapping, mappingLength);
+  }
+  return passed;
+}
+
+bool anonymousReservationReclamation(Process* process, size_t pageSize) {
+  const size_t mappingLength = pageSize * 3;
+  void* mapping =
+      posix_mmap(nullptr, mappingLength, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+  if (mapping == MAP_FAILED) {
+    return false;
+  }
+
+  const uintptr_t address = reinterpret_cast<uintptr_t>(mapping);
+  MemoryAllocator* allocator = allocatorFor(process, address, mappingLength + pageSize);
+  if (!allocator) {
+    posix_munmap(mapping, mappingLength);
+    return false;
+  }
+
+  const bool adjacentAvailable = allocator->allocateSpecific(address + mappingLength, pageSize);
+  if (adjacentAvailable) {
+    allocator->free(address + mappingLength, pageSize);
+  }
+
+  const uintptr_t middle = address + pageSize;
+  const bool middleUnmapped = !posix_munmap(reinterpret_cast<void*>(middle), pageSize);
+  const bool prefixHeld = reservationHeld(*allocator, address, pageSize);
+  const bool suffixHeld = reservationHeld(*allocator, address + (pageSize * 2), pageSize);
+  const bool middleAvailable = allocator->allocateSpecific(middle, pageSize);
+  if (middleAvailable) {
+    allocator->free(middle, pageSize);
+  }
+
+  void* middleMapping =
+      posix_mmap(reinterpret_cast<void*>(middle), pageSize, PROT_READ | PROT_WRITE,
+                 MAP_PRIVATE | MAP_ANON | MAP_FIXED_NOREPLACE, -1, 0);
+  const bool middleReused = middleMapping == reinterpret_cast<void*>(middle);
+
+  const bool remainderUnmapped = !posix_munmap(mapping, mappingLength);
+  const bool releasedExactlyOnce =
+      reservationAvailableExactlyOnce(*allocator, address, mappingLength);
+  if (!releasedExactlyOnce) {
+    posix_munmap(mapping, mappingLength);
+  }
+
+  return adjacentAvailable && middleUnmapped && prefixHeld && suffixHeld && middleAvailable &&
+         middleReused && remainderUnmapped && releasedExactlyOnce;
+}
+
 bool fixedReplacementReservesHoles(Process* process, size_t pageSize) {
   const size_t replacementLength = pageSize * 3;
   uintptr_t address = 0;
@@ -166,12 +330,16 @@ bool fixedReplacementReservesHoles(Process* process, size_t pageSize) {
       replacement == reinterpret_cast<void*>(address) &&
       !process->getDynamicSpaceAllocator().allocateSpecific(address + pageSize, pageSize * 2);
 
+  bool releasedExactlyOnce = false;
   if (replacement != MAP_FAILED) {
-    posix_munmap(replacement, replacementLength);
+    if (!posix_munmap(replacement, replacementLength)) {
+      releasedExactlyOnce = reservationAvailableExactlyOnce(process->getDynamicSpaceAllocator(),
+                                                            address, replacementLength);
+    }
   } else if (initial != MAP_FAILED) {
     posix_munmap(initial, pageSize);
   }
-  return holesUnavailable;
+  return holesUnavailable && releasedExactlyOnce;
 }
 
 int exerciseMmapPlacement(void* parameter) {
@@ -206,6 +374,12 @@ int exerciseMmapPlacement(void* parameter) {
   context->noReplaceCollision = originalMapped && noReplace == MAP_FAILED &&
                                 thread->getErrno() == Error::FileExists &&
                                 *reinterpret_cast<volatile uint8_t*>(original) == OriginalSentinel;
+  MemoryAllocator* originalAllocator =
+      originalMapped ? allocatorFor(process, reinterpret_cast<uintptr_t>(original), pageSize)
+                     : nullptr;
+  context->failedPlacementPreserved =
+      context->noReplaceCollision && originalAllocator &&
+      reservationHeld(*originalAllocator, reinterpret_cast<uintptr_t>(original), pageSize);
 
   thread->setErrno(0);
   const void* invalidFixed = posix_mmap(nullptr, pageSize, PROT_READ | PROT_WRITE,
@@ -215,8 +389,15 @@ int exerciseMmapPlacement(void* parameter) {
   thread->setErrno(0);
   const void* overflowLength = posix_mmap(nullptr, ~static_cast<size_t>(0), PROT_READ | PROT_WRITE,
                                           MAP_PRIVATE | MAP_ANON, -1, 0);
-  context->inputValidation = nullFixedRejected && overflowLength == MAP_FAILED &&
-                             thread->getErrno() == Error::InvalidArgument;
+  const bool overflowMmapRejected =
+      overflowLength == MAP_FAILED && thread->getErrno() == Error::InvalidArgument;
+  thread->setErrno(0);
+  const int overflowUnmap = originalMapped ? posix_munmap(original, ~static_cast<size_t>(0)) : 0;
+  const bool overflowUnmapRejected =
+      originalMapped && overflowUnmap == -1 && thread->getErrno() == Error::InvalidArgument &&
+      *reinterpret_cast<volatile uint8_t*>(original) == OriginalSentinel && originalAllocator &&
+      reservationHeld(*originalAllocator, reinterpret_cast<uintptr_t>(original), pageSize);
+  context->inputValidation = nullFixedRejected && overflowMmapRejected && overflowUnmapRejected;
 
   thread->setErrno(PreservedErrno);
   void* replacement = originalMapped ? posix_mmap(original, pageSize, PROT_READ | PROT_WRITE,
@@ -230,20 +411,30 @@ int exerciseMmapPlacement(void* parameter) {
   }
 
   context->fixedSpanReserved = fixedReplacementReservesHoles(process, pageSize);
+  context->partialReclamation = anonymousReservationReclamation(process, pageSize);
+  context->overlappingReclamation = runOverlappingUnmapRace(process, pageSize);
   context->noReplaceAtomic = runNoReplaceRace(process, pageSize);
 
   if (hinted != MAP_FAILED) {
     posix_munmap(hinted, pageSize);
   }
   if (replacement != MAP_FAILED) {
-    posix_munmap(replacement, pageSize);
+    const uintptr_t replacementAddress = reinterpret_cast<uintptr_t>(replacement);
+    MemoryAllocator* replacementAllocator = allocatorFor(process, replacementAddress, pageSize);
+    const bool unmapped = !posix_munmap(replacement, pageSize);
+    context->exactReservation =
+        replacementAllocator && unmapped &&
+        reservationAvailableExactlyOnce(*replacementAllocator, replacementAddress, pageSize);
   } else if (originalMapped) {
     posix_munmap(original, pageSize);
   }
 
   context->returned += 1;
-  return context->hintFallback && context->noReplaceCollision && context->fixedReplacement &&
-                 context->fixedSpanReserved && context->inputValidation && context->noReplaceAtomic
+  return context->hintFallback && context->noReplaceCollision &&
+                 context->failedPlacementPreserved && context->fixedReplacement &&
+                 context->fixedSpanReserved && context->exactReservation &&
+                 context->partialReclamation && context->overlappingReclamation &&
+                 context->inputValidation && context->noReplaceAtomic
              ? 0
              : 1;
 }
@@ -262,16 +453,23 @@ bool runHostedMmapPlacementRegressions(Process* kernelProcess) {
   if (!started) {
     delete worker;
   }
-  const bool passed = started && joined && context.returned == 1 && context.hintFallback &&
-                      context.noReplaceCollision && context.fixedReplacement &&
-                      context.fixedSpanReserved && context.inputValidation &&
-                      context.noReplaceAtomic;
+  const bool passed =
+      started && joined && context.returned == 1 && context.hintFallback &&
+      context.noReplaceCollision && context.failedPlacementPreserved && context.fixedReplacement &&
+      context.fixedSpanReserved && context.exactReservation && context.partialReclamation &&
+      context.overlappingReclamation && context.inputValidation && context.noReplaceAtomic;
   delete process;
 
   if (!passed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL mmap-placement: "
-        "hint fallback, fixed replacement, no-replace, or input validation regressed");
+        "hint="
+        << context.hintFallback << " no-replace=" << context.noReplaceCollision
+        << " failed-preserved=" << context.failedPlacementPreserved << " replacement="
+        << context.fixedReplacement << " fixed-span=" << context.fixedSpanReserved
+        << " exact=" << context.exactReservation << " partial=" << context.partialReclamation
+        << " overlap=" << context.overlappingReclamation << " validation="
+        << context.inputValidation << " no-replace-race=" << context.noReplaceAtomic);
     return false;
   }
   NOTICE("HOSTED-SYSCALL-TEST: PASS mmap-placement");
