@@ -1568,9 +1568,19 @@ bool processSuspendResume() {
   Process* process = Scheduler::instance().getKernelProcess();
   bool passed = true;
 
-  // Discard any earlier lifecycle observations before testing exact flags.
-  process->hasSuspended();
-  process->hasResumed();
+  Process::ChildTransition discarded;
+  while (process->takePendingChildTransition(true, true, discarded)) {
+  }
+
+  auto consumeContinued = [process]() {
+    Process::ChildTransition transition;
+    const bool stopWasNotSelected = !process->takePendingChildTransition(true, false, transition);
+    const bool continuedSelected = process->takePendingChildTransition(false, true, transition) &&
+                                   transition.kind == Process::ChildTransitionKind::Continued &&
+                                   !transition.stopSignal;
+    const bool consumedExactlyOnce = !process->takePendingChildTransition(true, true, transition);
+    return stopWasNotSelected && continuedSelected && consumedExactlyOnce;
+  };
 
   ProcessSuspendContext blocking(process, ProcessSuspendContext::ObserveBlock);
   Thread* resumer = new Thread(process, resumeBlockedProcess, &blocking, nullptr, false, true);
@@ -1588,11 +1598,10 @@ bool processSuspendResume() {
       check(blocking.hookCalls == 1 && blocking.hookFailures == 0 && blocking.phase == 2 &&
                 blocking.resumes == 1,
             "process-suspend-resume", "the ordinary suspend did not block and resume exactly once");
-  const bool blockingSuspended = process->hasSuspended();
-  const bool blockingResumed = process->hasResumed();
+  const bool blockingTransition = consumeContinued();
   passed &=
-      check(process->getState() == Process::Active && blockingSuspended && blockingResumed,
-            "process-suspend-resume", "ordinary suspend/resume state or reporting flags were lost");
+      check(process->getState() == Process::Active && blockingTransition, "process-suspend-resume",
+            "ordinary resume did not replace and exclusively report the pending stop");
 
   ProcessSuspendContext immediate(process, ProcessSuspendContext::ResumeBeforeBlock);
   g_ProcessSuspendContext = &immediate;
@@ -1603,10 +1612,10 @@ bool processSuspendResume() {
 
   passed &= check(immediate.hookCalls == 1 && immediate.hookFailures == 0 && immediate.resumes == 1,
                   "process-suspend-resume", "resume in the publication window was not retained");
-  const bool immediateSuspended = process->hasSuspended();
-  const bool immediateResumed = process->hasResumed();
-  passed &= check(process->getState() == Process::Active && immediateSuspended && immediateResumed,
-                  "process-suspend-resume", "pre-block resume state or reporting flags were lost");
+  const bool immediateTransition = consumeContinued();
+  passed &=
+      check(process->getState() == Process::Active && immediateTransition, "process-suspend-resume",
+            "pre-block resume did not replace and exclusively report the pending stop");
 
   ProcessSuspendContext eventThenResume(process, ProcessSuspendContext::EventThenResume);
   g_ProcessSuspendContext = &eventThenResume;
@@ -1619,11 +1628,10 @@ bool processSuspendResume() {
       check(eventThenResume.hookCalls == 2 && eventThenResume.hookFailures == 0 &&
                 eventThenResume.eventWakes == 1 && eventThenResume.resumes == 1,
             "process-suspend-resume", "an event wake bypassed the Suspended predicate recheck");
-  const bool eventSuspended = process->hasSuspended();
-  const bool eventResumed = process->hasResumed();
+  const bool eventTransition = consumeContinued();
   passed &=
-      check(process->getState() == Process::Active && eventSuspended && eventResumed,
-            "process-suspend-resume", "event/recheck resume state or reporting flags were lost");
+      check(process->getState() == Process::Active && eventTransition, "process-suspend-resume",
+            "event/recheck resume did not replace and exclusively report the pending stop");
 
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS process-suspend-resume");

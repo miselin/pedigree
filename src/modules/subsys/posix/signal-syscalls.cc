@@ -72,7 +72,7 @@ static int queueThreadSignal(Process* process, Thread* thread, int sig, bool& qu
   static void name(int s) {                                                      \
     Process* pParent = Processor::information().getCurrentThread()->getParent(); \
     NOTICE("SUSPEND [pid=" << pParent->getId() << ", signal " << s << "]");      \
-    pParent->suspend();                                                          \
+    pParent->suspend(s);                                                         \
   }
 #define SIGNAL_HANDLER_RESUME(name)                                     \
   static void name(int s) {                                             \

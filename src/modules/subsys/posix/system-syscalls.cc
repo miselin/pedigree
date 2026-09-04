@@ -610,17 +610,18 @@ int posix_waitpid(const int pid, int* status, int options) {
           break;
         }
 
-        if ((options & WUNTRACED) && pProcess->hasSuspended()) {
-          resultStatus = pProcess->getExitStatus();
+        Process::ChildTransition transition;
+        if (pProcess->takePendingChildTransition(options & WUNTRACED, options & WCONTINUED,
+                                                 transition)) {
+          if (transition.kind == Process::ChildTransitionKind::Stopped) {
+            resultStatus = ((transition.stopSignal & 0xFF) << 8) | 0x7F;
+            SC_NOTICE("waitpid: " << Dec << resultPid << " stopped by " << transition.stopSignal
+                                  << ".");
+          } else {
+            resultStatus = 0xFFFF;
+            SC_NOTICE("waitpid: " << Dec << resultPid << " continued.");
+          }
           hasResult = true;
-          SC_NOTICE("waitpid: " << Dec << resultPid << " suspended.");
-          break;
-        }
-
-        if ((options & WCONTINUED) && pProcess->hasResumed()) {
-          resultStatus = pProcess->getExitStatus();
-          hasResult = true;
-          SC_NOTICE("waitpid: " << Dec << resultPid << " resumed.");
           break;
         }
 

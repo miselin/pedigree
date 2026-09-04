@@ -295,6 +295,19 @@ class EXPORTED_PUBLIC Process {
     return m_ExitStatus;
   }
 
+  enum class ChildTransitionKind {
+    None,
+    Stopped,
+    Continued,
+  };
+
+  struct ChildTransition {
+    ChildTransition() : kind(ChildTransitionKind::None), stopSignal(0) {}
+
+    ChildTransitionKind kind;
+    int stopSignal;
+  };
+
   /**
    * Marks the process as reaped.
    *
@@ -325,7 +338,7 @@ class EXPORTED_PUBLIC Process {
   /** Performs the complete election, quiesce, and teardown sequence. */
   void kill() NORETURN;
   /** Suspends the process. */
-  void suspend();
+  void suspend(int stopSignal = 0);
   /** Resumes the process from suspend. */
   void resume();
 
@@ -447,16 +460,12 @@ class EXPORTED_PUBLIC Process {
    */
   bool waitUntilTerminationReapableForTerminalCoordinator();
 
-  bool hasSuspended() {
-    bool bRet = m_bUnreportedSuspend;
-    m_bUnreportedSuspend = false;
-    return bRet;
-  }
-  bool hasResumed() {
-    bool bRet = m_bUnreportedResume;
-    m_bUnreportedResume = false;
-    return bRet;
-  }
+  /**
+   * Consumes a selected pending child transition without discarding an
+   * unrequested transition. The caller holds the parent's child-state guard.
+   */
+  bool takePendingChildTransition(bool includeStopped, bool includeContinued,
+                                  ChildTransition& transition);
 
   ProcessState getState() const {
     return __atomic_load_n(&m_State, __ATOMIC_ACQUIRE);
@@ -649,9 +658,7 @@ class EXPORTED_PUBLIC Process {
    * Our virtual address space.
    */
   VirtualAddressSpace* m_pAddressSpace;
-  /**
-   * Process exit status.
-   */
+  /** Terminal process exit status. */
   int m_ExitStatus;
   /**
    * Current working directory.
@@ -723,11 +730,8 @@ class EXPORTED_PUBLIC Process {
   /** Whether a closed final release is completing its waiter handoff. */
   bool m_bExternalLeaseReleaseInProgress;
 
-  /** Whether we have suspended but not reported it. */
-  bool m_bUnreportedSuspend;
-
-  /** Whether we have resumed but not reported it. */
-  bool m_bUnreportedResume;
+  /** Latest stop/continue transition not yet selected by a parent wait. */
+  ChildTransition m_PendingChildTransition;
 
   /** Our current state. */
   ProcessState m_State;

@@ -32,6 +32,35 @@ struct ExitStatusContext {
   Atomic<size_t> entered;
 };
 
+struct TransitionSeederContext {
+  explicit TransitionSeederContext(Process* process)
+      : process(process), ready(0), go(0), done(0), resumes(0) {}
+
+  Process* process;
+  Atomic<size_t> ready;
+  Atomic<size_t> go;
+  Atomic<size_t> done;
+  Atomic<size_t> resumes;
+};
+
+int resumeSuspendedProcess(void* parameter) {
+  TransitionSeederContext* context = reinterpret_cast<TransitionSeederContext*>(parameter);
+  context->ready += 1;
+  while (!context->go) {
+    Scheduler::instance().yield();
+  }
+
+  while (!context->done) {
+    if (context->process->isSuspended()) {
+      context->process->resume();
+      context->resumes += 1;
+      return 0;
+    }
+    Scheduler::instance().yield();
+  }
+  return 1;
+}
+
 int deferredPosixExit(void* parameter) {
   ExitStatusContext* context = reinterpret_cast<ExitStatusContext*>(parameter);
   context->entered += 1;
@@ -62,14 +91,38 @@ bool waitForTermination(Process* process) {
 }
 
 bool runExitStatusFixture(Process* kernelProcess, int code, Subsystem::ExitCause cause,
-                          int previousStatus) {
+                          int previousStatus, bool seedTransientStatus) {
   ExitStatusContext* context = new ExitStatusContext(code, cause);
   PosixProcess* process = new PosixProcess(kernelProcess);
   process->setSubsystem(new PosixSubsystem);
   process->setExitStatus(previousStatus);
+  process->publish();
+
+  bool transientSeeded = !seedTransientStatus;
+  if (seedTransientStatus) {
+    TransitionSeederContext transitionContext(process);
+    Thread* resumer = new Thread(kernelProcess, resumeSuspendedProcess, &transitionContext, nullptr,
+                                 false, true, true);
+    resumer->setName("hosted POSIX exit-status transition seeder");
+    if (resumer->start()) {
+      for (size_t attempt = 0; attempt < HostedAttempts && !transitionContext.ready; ++attempt) {
+        Scheduler::instance().yield();
+      }
+      if (transitionContext.ready) {
+        transitionContext.go += 1;
+        process->suspend(SIGTSTP);
+      }
+      transitionContext.done += 1;
+      transitionContext.go += 1;
+      transientSeeded = resumer->joinForCompletion() && transitionContext.ready == 1 &&
+                        transitionContext.resumes == 1;
+    } else {
+      delete resumer;
+    }
+  }
+
   Thread* thread = new Thread(process, deferredPosixExit, context, nullptr, false, true, true);
   thread->setName("hosted POSIX exit-status fixture");
-  process->publish();
 
   const bool started = thread->start();
   if (!started) {
@@ -85,7 +138,14 @@ bool runExitStatusFixture(Process* kernelProcess, int code, Subsystem::ExitCause
   const bool statusValid =
       status == expectedStatus && (normal ? (WIFEXITED(status) && WEXITSTATUS(status) == code)
                                           : (WIFSIGNALED(status) && WTERMSIG(status) == code));
-  const bool passed = reapable && context->entered == 1 && statusValid;
+  Process::ChildTransition transition;
+  bool transientCleared = false;
+  {
+    auto guard = kernelProcess->acquireChildStateWait();
+    transientCleared = !process->takePendingChildTransition(true, true, transition);
+  }
+  const bool passed =
+      reapable && context->entered == 1 && transientSeeded && transientCleared && statusValid;
 
   if (reapable) {
     delete process;
@@ -97,9 +157,9 @@ bool runExitStatusFixture(Process* kernelProcess, int code, Subsystem::ExitCause
 
 bool runHostedPosixExitStatusRegressions(Process* kernelProcess) {
   const bool normalPassed =
-      runExitStatusFixture(kernelProcess, NormalExitCode, Subsystem::ExitCause::Normal, 0x7F);
+      runExitStatusFixture(kernelProcess, NormalExitCode, Subsystem::ExitCause::Normal, 0x7F, true);
   const bool signalPassed =
-      runExitStatusFixture(kernelProcess, SIGUSR1, Subsystem::ExitCause::Signal, 0xFF);
+      runExitStatusFixture(kernelProcess, SIGUSR1, Subsystem::ExitCause::Signal, 0xFF, false);
 
   if (!normalPassed || !signalPassed) {
     ERROR(

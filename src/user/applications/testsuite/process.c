@@ -121,6 +121,47 @@ static void test_default_signal_termination(void) {
   status("OK");
 }
 
+static void test_wait_stop_continue(void) {
+  status("Testing stopped and continued wait status...");
+
+  int gate[2];
+  if (pipe(gate))
+    fail();
+
+  pid_t child = fork();
+  if (child < 0)
+    fail();
+  if (!child) {
+    close(gate[1]);
+    if (raise(SIGSTOP))
+      _exit(125);
+
+    char token;
+    if (read(gate[0], &token, sizeof(token)) != sizeof(token))
+      _exit(126);
+    close(gate[0]);
+    _exit(0);
+  }
+
+  close(gate[0]);
+  int statusCode = 0;
+  if (waitpid(child, &statusCode, WUNTRACED) != child || !WIFSTOPPED(statusCode) ||
+      WSTOPSIG(statusCode) != SIGSTOP)
+    fail();
+
+  if (kill(child, SIGCONT) || waitpid(child, &statusCode, WCONTINUED) != child ||
+      !WIFCONTINUED(statusCode))
+    fail();
+
+  const char token = 'x';
+  if (write(gate[1], &token, sizeof(token)) != sizeof(token) || close(gate[1]))
+    fail();
+  if (waitpid(child, &statusCode, 0) != child || !WIFEXITED(statusCode) || WEXITSTATUS(statusCode))
+    fail();
+
+  status("OK");
+}
+
 static void test_thread_signal_syscalls(void) {
   status("Testing thread-directed signal syscalls...");
 
@@ -224,6 +265,7 @@ void test_process(void) {
   test_vfork();
   test_signal_return();
   test_default_signal_termination();
+  test_wait_stop_continue();
   test_thread_signal_syscalls();
   test_sigsuspend();
 }

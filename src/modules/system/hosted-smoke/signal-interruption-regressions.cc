@@ -394,8 +394,19 @@ bool signalContinueResumes(PosixProcess* process, PosixSubsystem* subsystem, int
   if (!started) {
     delete target;
   }
+  Process::ChildTransition transition;
+  bool continuedReported = false;
+  bool reportedExactlyOnce = false;
+  Process* parent = process->getParent();
+  if (parent) {
+    auto guard = parent->acquireChildStateWait();
+    continuedReported = process->takePendingChildTransition(true, true, transition) &&
+                        transition.kind == Process::ChildTransitionKind::Continued &&
+                        !transition.stopSignal;
+    reportedExactlyOnce = !process->takePendingChildTransition(true, true, transition);
+  }
   return started && context.entered == 1 && suspended && continuedBySignal && joined &&
-         context.returned == 1 && process->hasSuspended() && process->hasResumed();
+         context.returned == 1 && continuedReported && reportedExactlyOnce;
 }
 
 bool signalContinueStillResumes(Process* kernelProcess) {

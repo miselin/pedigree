@@ -269,8 +269,7 @@ Process::Process(DeferredPublication)
       m_nExternalLeases(0),
       m_bExternalLeaseAdmissionClosed(false),
       m_bExternalLeaseReleaseInProgress(false),
-      m_bUnreportedSuspend(false),
-      m_bUnreportedResume(false),
+      m_PendingChildTransition(),
       m_State(Active),
       m_bDestroying(false),
       m_bPublished(false),
@@ -341,8 +340,7 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
       m_nExternalLeases(0),
       m_bExternalLeaseAdmissionClosed(false),
       m_bExternalLeaseReleaseInProgress(false),
-      m_bUnreportedSuspend(false),
-      m_bUnreportedResume(false),
+      m_PendingChildTransition(),
       m_State(Active),
       m_bDestroying(false),
       m_bPublished(false),
@@ -1421,7 +1419,7 @@ void Process::setOrphanPublicationHook(OrphanPublicationHook hook) {
 }
 #endif
 
-void Process::suspend() {
+void Process::suspend(int stopSignal) {
   bool published = false;
   bool enteredSuspended = false;
   while (!published) {
@@ -1441,8 +1439,8 @@ void Process::suspend() {
 
       auto suspensionGuard = m_SuspensionWaiters.acquire();
       if (transitionState(Active, Suspended)) {
-        m_bUnreportedSuspend = true;
-        m_ExitStatus = 0x7F;
+        m_PendingChildTransition.kind = ChildTransitionKind::Stopped;
+        m_PendingChildTransition.stopSignal = stopSignal;
         enteredSuspended = true;
         guard.wakeAll();
       }
@@ -1450,8 +1448,8 @@ void Process::suspend() {
     } else {
       auto suspensionGuard = m_SuspensionWaiters.acquire();
       if (transitionState(Active, Suspended)) {
-        m_bUnreportedSuspend = true;
-        m_ExitStatus = 0x7F;
+        m_PendingChildTransition.kind = ChildTransitionKind::Stopped;
+        m_PendingChildTransition.stopSignal = stopSignal;
         enteredSuspended = true;
       }
       published = true;
@@ -1515,8 +1513,8 @@ void Process::resume() {
 
       auto suspensionGuard = m_SuspensionWaiters.acquire();
       if (transitionState(Suspended, Active)) {
-        m_bUnreportedResume = true;
-        m_ExitStatus = 0xFF;
+        m_PendingChildTransition.kind = ChildTransitionKind::Continued;
+        m_PendingChildTransition.stopSignal = 0;
         suspensionGuard.wakeAll();
         guard.wakeAll();
       }
@@ -1524,13 +1522,28 @@ void Process::resume() {
     } else {
       auto suspensionGuard = m_SuspensionWaiters.acquire();
       if (transitionState(Suspended, Active)) {
-        m_bUnreportedResume = true;
-        m_ExitStatus = 0xFF;
+        m_PendingChildTransition.kind = ChildTransitionKind::Continued;
+        m_PendingChildTransition.stopSignal = 0;
         suspensionGuard.wakeAll();
       }
       published = true;
     }
   }
+}
+
+bool Process::takePendingChildTransition(bool includeStopped, bool includeContinued,
+                                         ChildTransition& transition) {
+  auto suspensionGuard = m_SuspensionWaiters.acquire();
+  const bool selected =
+      (includeStopped && m_PendingChildTransition.kind == ChildTransitionKind::Stopped) ||
+      (includeContinued && m_PendingChildTransition.kind == ChildTransitionKind::Continued);
+  if (!selected) {
+    return false;
+  }
+
+  transition = m_PendingChildTransition;
+  m_PendingChildTransition = ChildTransition();
+  return true;
 }
 
 int64_t Process::getUserId() const {
@@ -1668,12 +1681,16 @@ void Process::publishTermination() {
         continue;
       }
 
+      auto suspensionGuard = m_SuspensionWaiters.acquire();
+      m_PendingChildTransition = ChildTransition();
       if (!transitionState(Terminating, Terminated)) {
         FATAL("Process state was not Terminating while publishing pid " << Dec << m_Id << ".");
       }
       guard.wakeAll();
       published = true;
     } else {
+      auto suspensionGuard = m_SuspensionWaiters.acquire();
+      m_PendingChildTransition = ChildTransition();
       if (!transitionState(Terminating, Terminated)) {
         FATAL("Process state was not Terminating while publishing pid " << Dec << m_Id << ".");
       }
