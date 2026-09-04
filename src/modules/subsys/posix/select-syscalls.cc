@@ -19,17 +19,26 @@
 
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
+#include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/time/Time.h"
 
 #include <PosixSubsystem.h>
-#include <limits.h>
+#include <signal.h>
 
 #include "net-syscalls.h"
 #include "poll-syscalls.h"
 #include "select-syscalls.h"
+#include <sys/time.h>
 
 namespace {
+constexpr int MaximumSelectDescriptors = 16384;
+constexpr size_t SelectWordBits = sizeof(uintptr_t) * 8;
+constexpr size_t LinuxKernelSigsetSize = sizeof(uint64_t);
+constexpr uint64_t UnblockableSignals =
+    (static_cast<uint64_t>(1) << (SIGKILL - 1)) | (static_cast<uint64_t>(1) << (SIGSTOP - 1));
 constexpr short SelectReadReady = POLLIN | POLLRDNORM | POLLRDBAND | POLLHUP | POLLERR;
 constexpr short SelectWriteReady = POLLOUT | POLLWRNORM | POLLWRBAND | POLLERR;
 constexpr short SelectExceptionalReady = POLLPRI;
@@ -54,17 +63,292 @@ SelectProjection projectSelectReadiness(short revents, bool checkRead, bool chec
   return result;
 }
 
-int selectTimeoutMilliseconds(const timeval& timeout) {
-  const int microsecondsMs = static_cast<int>((timeout.tv_usec + 999) / 1000);
-  if (timeout.tv_sec > INT_MAX / 1000) {
-    return INT_MAX;
+size_t selectBitmapBytes(int nfds) {
+  if (!nfds) {
+    return 0;
+  }
+  return ((static_cast<size_t>(nfds) + SelectWordBits - 1) / SelectWordBits) * sizeof(uintptr_t);
+}
+
+bool selectBitIsSet(const uintptr_t* bitmap, size_t descriptor) {
+  return bitmap[descriptor / SelectWordBits] &
+         (static_cast<uintptr_t>(1) << (descriptor % SelectWordBits));
+}
+
+void setSelectBit(uintptr_t* bitmap, size_t descriptor) {
+  bitmap[descriptor / SelectWordBits] |= static_cast<uintptr_t>(1) << (descriptor % SelectWordBits);
+}
+
+struct SelectBitmaps {
+  explicit SelectBitmaps(size_t bitmapBytes)
+      : storage(nullptr),
+        readInput(nullptr),
+        writeInput(nullptr),
+        errorInput(nullptr),
+        readResult(nullptr),
+        writeResult(nullptr),
+        errorResult(nullptr),
+        wordCount(bitmapBytes / sizeof(uintptr_t)) {
+    if (!wordCount) {
+      return;
+    }
+
+    storage = new uintptr_t[wordCount * 6];
+    readInput = storage;
+    writeInput = readInput + wordCount;
+    errorInput = writeInput + wordCount;
+    readResult = errorInput + wordCount;
+    writeResult = readResult + wordCount;
+    errorResult = writeResult + wordCount;
+    for (size_t i = 0; i < wordCount * 6; ++i) {
+      storage[i] = 0;
+    }
   }
 
-  const int secondsMs = static_cast<int>(timeout.tv_sec) * 1000;
-  if (secondsMs > INT_MAX - microsecondsMs) {
-    return INT_MAX;
+  ~SelectBitmaps() {
+    delete[] storage;
   }
-  return secondsMs + microsecondsMs;
+
+  uintptr_t* storage;
+  uintptr_t* readInput;
+  uintptr_t* writeInput;
+  uintptr_t* errorInput;
+  uintptr_t* readResult;
+  uintptr_t* writeResult;
+  uintptr_t* errorResult;
+  size_t wordCount;
+};
+
+bool importSelectTimeval(timeval* userTimeout, PollDeadline& deadline) {
+  if (!userTimeout) {
+    deadline = posix_poll_deadline(nullptr);
+    return true;
+  }
+
+  timeval snapshot = {0, 0};
+  if (!PosixSubsystem::copyFromUser(&snapshot, userTimeout, sizeof(snapshot))) {
+    SYSCALL_ERROR(BadAddress);
+    return false;
+  }
+  if (snapshot.tv_sec < 0 || snapshot.tv_usec < 0) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+
+  const uint64_t microseconds = static_cast<uint64_t>(snapshot.tv_usec);
+  const uint64_t additionalSeconds = microseconds / 1000000;
+  const uint64_t seconds = static_cast<uint64_t>(snapshot.tv_sec);
+  const uint64_t maximumSeconds = static_cast<uint64_t>(INT64_MAX);
+  LinuxKernelTimespec normalized = {0, 0};
+  if (seconds > maximumSeconds - additionalSeconds) {
+    normalized.tv_sec = INT64_MAX;
+    normalized.tv_nsec = static_cast<int64_t>(Time::Multiplier::Second - 1);
+  } else {
+    normalized.tv_sec = static_cast<int64_t>(seconds + additionalSeconds);
+    normalized.tv_nsec = static_cast<int64_t>(microseconds % 1000000) *
+                         static_cast<int64_t>(Time::Multiplier::Microsecond);
+  }
+  deadline = posix_poll_deadline(&normalized);
+  return true;
+}
+
+bool importPselectTimespec(LinuxKernelTimespec* userTimeout, PollDeadline& deadline) {
+  if (!userTimeout) {
+    deadline = posix_poll_deadline(nullptr);
+    return true;
+  }
+
+  LinuxKernelTimespec snapshot = {0, 0};
+  if (!PosixSubsystem::copyFromUser(&snapshot, userTimeout, sizeof(snapshot))) {
+    SYSCALL_ERROR(BadAddress);
+    return false;
+  }
+  if (snapshot.tv_sec < 0 || snapshot.tv_nsec < 0 ||
+      snapshot.tv_nsec >= static_cast<int64_t>(Time::Multiplier::Second)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  deadline = posix_poll_deadline(&snapshot);
+  return true;
+}
+
+LinuxKernelTimespec selectTimeoutRemainder(const PollDeadline& deadline) {
+  LinuxKernelTimespec remaining = {0, 0};
+  if (deadline.type != PollDeadlineType::Finite) {
+    return remaining;
+  }
+
+  const Time::Timestamp now = Time::getTicks();
+  if (now < deadline.expires) {
+    const Time::Timestamp nanoseconds = deadline.expires - now;
+    remaining.tv_sec = static_cast<int64_t>(nanoseconds / Time::Multiplier::Second);
+    remaining.tv_nsec = static_cast<int64_t>(nanoseconds % Time::Multiplier::Second);
+  }
+  return remaining;
+}
+
+void copySelectTimevalRemainder(timeval* userTimeout, const PollDeadline& deadline) {
+  if (!userTimeout || deadline.type != PollDeadlineType::Finite) {
+    return;
+  }
+
+  const LinuxKernelTimespec nanoseconds = selectTimeoutRemainder(deadline);
+  timeval remaining = {
+      static_cast<time_t>(nanoseconds.tv_sec),
+      static_cast<suseconds_t>(nanoseconds.tv_nsec / Time::Multiplier::Microsecond),
+  };
+  PosixSubsystem::copyToUser(userTimeout, &remaining, sizeof(remaining));
+}
+
+void copyPselectTimespecRemainder(LinuxKernelTimespec* userTimeout, const PollDeadline& deadline) {
+  if (!userTimeout || deadline.type != PollDeadlineType::Finite) {
+    return;
+  }
+
+  const LinuxKernelTimespec remaining = selectTimeoutRemainder(deadline);
+  PosixSubsystem::copyToUser(userTimeout, &remaining, sizeof(remaining));
+}
+
+bool importPselectSignalArgument(const LinuxPselectSigsetArgument* userArgument,
+                                 LinuxPselectSigsetArgument& snapshot) {
+  snapshot = {0, 0};
+  if (!userArgument) {
+    return true;
+  }
+  if (!PosixSubsystem::copyFromUser(&snapshot, userArgument, sizeof(snapshot))) {
+    SYSCALL_ERROR(BadAddress);
+    return false;
+  }
+  return true;
+}
+
+bool importPselectSignalMask(const LinuxPselectSigsetArgument& argument, bool& hasTemporaryMask,
+                             uint64_t& temporaryMask) {
+  hasTemporaryMask = false;
+  temporaryMask = 0;
+  if (!argument.signalMask) {
+    return true;
+  }
+  if (argument.signalMaskSize != LinuxKernelSigsetSize) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  if (!PosixSubsystem::copyFromUser(&temporaryMask,
+                                    reinterpret_cast<const void*>(argument.signalMask),
+                                    LinuxKernelSigsetSize)) {
+    SYSCALL_ERROR(BadAddress);
+    return false;
+  }
+  temporaryMask &= ~UnblockableSignals;
+  hasTemporaryMask = true;
+  return true;
+}
+
+int selectWithDeadline(int nfds, fd_set* readfds, fd_set* writefds, fd_set* errorfds,
+                       const PollDeadline& deadline) {
+  if (nfds < 0 || nfds > MaximumSelectDescriptors) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  const size_t bitmapBytes = selectBitmapBytes(nfds);
+  SelectBitmaps bitmaps(bitmapBytes);
+  const bool copiedInputs =
+      (!readfds || PosixSubsystem::copyFromUser(bitmaps.readInput, readfds, bitmapBytes)) &&
+      (!writefds || PosixSubsystem::copyFromUser(bitmaps.writeInput, writefds, bitmapBytes)) &&
+      (!errorfds || PosixSubsystem::copyFromUser(bitmaps.errorInput, errorfds, bitmapBytes));
+  if (!copiedInputs) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+
+  size_t selectedCount = 0;
+  for (int descriptor = 0; descriptor < nfds; ++descriptor) {
+    const size_t index = static_cast<size_t>(descriptor);
+    if ((readfds && selectBitIsSet(bitmaps.readInput, index)) ||
+        (writefds && selectBitIsSet(bitmaps.writeInput, index)) ||
+        (errorfds && selectBitIsSet(bitmaps.errorInput, index))) {
+      ++selectedCount;
+    }
+  }
+
+  struct pollfd* descriptors = selectedCount ? new struct pollfd[selectedCount] : nullptr;
+  size_t pollIndex = 0;
+  for (int descriptor = 0; descriptor < nfds; ++descriptor) {
+    const size_t index = static_cast<size_t>(descriptor);
+    const bool checkRead = readfds && selectBitIsSet(bitmaps.readInput, index);
+    const bool checkWrite = writefds && selectBitIsSet(bitmaps.writeInput, index);
+    const bool checkError = errorfds && selectBitIsSet(bitmaps.errorInput, index);
+    if (!(checkRead || checkWrite || checkError)) {
+      continue;
+    }
+
+    descriptors[pollIndex].fd = descriptor;
+    descriptors[pollIndex].events = 0;
+    if (checkRead) {
+      descriptors[pollIndex].events |= POLLIN;
+    }
+    if (checkWrite) {
+      descriptors[pollIndex].events |= POLLOUT;
+    }
+    if (checkError) {
+      descriptors[pollIndex].events |= POLLPRI;
+    }
+    descriptors[pollIndex].revents = 0;
+    ++pollIndex;
+  }
+
+  int result = posix_poll_safe(descriptors, static_cast<unsigned int>(selectedCount), deadline);
+  if (result >= 0) {
+    for (size_t i = 0; i < selectedCount; ++i) {
+      if (descriptors[i].revents & POLLNVAL) {
+        SYSCALL_ERROR(BadFileDescriptor);
+        result = -1;
+        break;
+      }
+    }
+  }
+
+  int readyCount = 0;
+  pollIndex = 0;
+  for (int descriptor = 0; result >= 0 && descriptor < nfds; ++descriptor) {
+    const size_t index = static_cast<size_t>(descriptor);
+    const bool checkRead = readfds && selectBitIsSet(bitmaps.readInput, index);
+    const bool checkWrite = writefds && selectBitIsSet(bitmaps.writeInput, index);
+    const bool checkError = errorfds && selectBitIsSet(bitmaps.errorInput, index);
+    if (!(checkRead || checkWrite || checkError)) {
+      continue;
+    }
+
+    const SelectProjection projection =
+        projectSelectReadiness(descriptors[pollIndex].revents, checkRead, checkWrite, checkError);
+    if (projection.read) {
+      setSelectBit(bitmaps.readResult, index);
+    }
+    if (projection.write) {
+      setSelectBit(bitmaps.writeResult, index);
+    }
+    if (projection.exceptional) {
+      setSelectBit(bitmaps.errorResult, index);
+    }
+    readyCount += projection.count;
+    ++pollIndex;
+  }
+
+  delete[] descriptors;
+  if (result < 0) {
+    return result;
+  }
+
+  const bool copiedResults =
+      (!readfds || PosixSubsystem::copyToUser(readfds, bitmaps.readResult, bitmapBytes)) &&
+      (!writefds || PosixSubsystem::copyToUser(writefds, bitmaps.writeResult, bitmapBytes)) &&
+      (!errorfds || PosixSubsystem::copyToUser(errorfds, bitmaps.errorResult, bitmapBytes));
+  if (!copiedResults) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  return readyCount;
 }
 }  // namespace
 
@@ -80,164 +364,58 @@ extern "C" EXPORTED_PUBLIC unsigned int posixSelectProjectionForTest(short reven
          (static_cast<unsigned int>(projection.count) << 8);
 }
 
-extern "C" EXPORTED_PUBLIC int posixSelectTimeoutMillisecondsForTest(timeval timeout) {
-  return selectTimeoutMilliseconds(timeout);
-}
 #endif
 
 int posix_select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* errorfds, timeval* timeout) {
   POLL_NOTICE("select(" << nfds << ", " << readfds << ", " << writefds << ", " << errorfds << ", "
                         << timeout << ")");
-  if (nfds < 0 || nfds > FD_SETSIZE) {
-    SYSCALL_ERROR(InvalidArgument);
+  PollDeadline deadline = {PollDeadlineType::Infinite, 0};
+  if (!importSelectTimeval(timeout, deadline)) {
     return -1;
   }
 
-  fd_set readSnapshot;
-  fd_set writeSnapshot;
-  fd_set errorSnapshot;
-  timeval timeoutSnapshot;
-  fd_set* reads = readfds ? &readSnapshot : nullptr;
-  fd_set* writes = writefds ? &writeSnapshot : nullptr;
-  fd_set* errors = errorfds ? &errorSnapshot : nullptr;
+  const int result = selectWithDeadline(nfds, readfds, writefds, errorfds, deadline);
+  copySelectTimevalRemainder(timeout, deadline);
+  POLL_NOTICE(" -> select via poll returns " << result);
+  return result;
+}
 
-  const bool copiedInputs =
-      (!readfds || PosixSubsystem::copyFromUser(reads, readfds, sizeof(fd_set))) &&
-      (!writefds || PosixSubsystem::copyFromUser(writes, writefds, sizeof(fd_set))) &&
-      (!errorfds || PosixSubsystem::copyFromUser(errors, errorfds, sizeof(fd_set))) &&
-      (!timeout || PosixSubsystem::copyFromUser(&timeoutSnapshot, timeout, sizeof(timeval)));
-  if (!copiedInputs) {
-    SYSCALL_ERROR(BadAddress);
+int posix_pselect6(int nfds, fd_set* readfds, fd_set* writefds, fd_set* errorfds,
+                   LinuxKernelTimespec* timeout, const LinuxPselectSigsetArgument* signalArgument) {
+  LinuxPselectSigsetArgument signalArgumentSnapshot = {0, 0};
+  if (!importPselectSignalArgument(signalArgument, signalArgumentSnapshot)) {
     return -1;
   }
 
-  if (timeout && (timeoutSnapshot.tv_sec < 0 || timeoutSnapshot.tv_usec < 0 ||
-                  timeoutSnapshot.tv_usec >= 1000000)) {
-    SYSCALL_ERROR(InvalidArgument);
+  PollDeadline deadline = {PollDeadlineType::Infinite, 0};
+  if (!importPselectTimespec(timeout, deadline)) {
     return -1;
   }
 
-  // Count the actual number of fds we have.
-  size_t trueFdCount = 0;
-  for (int i = 0; i < nfds; ++i) {
-    if ((reads && FD_ISSET(i, reads)) || (writes && FD_ISSET(i, writes)) ||
-        (errors && FD_ISSET(i, errors))) {
-      POLL_NOTICE("fd " << i << " is acceptable");
-      ++trueFdCount;
-    }
+  bool hasTemporaryMask = false;
+  uint64_t temporaryMask = 0;
+  if (!importPselectSignalMask(signalArgumentSnapshot, hasTemporaryMask, temporaryMask)) {
+    return -1;
   }
 
-  // Set up pollfds
-  struct pollfd* fds = new struct pollfd[trueFdCount];
-  size_t j = 0;
-  for (int i = 0; i < nfds; ++i) {
-    bool checkRead = reads && FD_ISSET(i, reads);
-    bool checkWrite = writes && FD_ISSET(i, writes);
-    bool checkError = errors && FD_ISSET(i, errors);
-
-    if (!(checkRead || checkWrite || checkError)) {
-      continue;
+  int result = 0;
+  if (hasTemporaryMask) {
+    Thread* thread = Processor::information().getCurrentThread();
+    if (!thread) {
+      FATAL("pselect6 has no current Thread.");
     }
 
-    POLL_NOTICE("registering fd " << i << " in slot " << j);
-
-    fds[j].fd = i;
-    fds[j].events = 0;
-    if (checkRead)
-      fds[j].events |= POLLIN;
-    if (checkWrite)
-      fds[j].events |= POLLOUT;
-    if (checkError)
-      fds[j].events |= POLLPRI;
-    fds[j].revents = 0;
-
-    ++j;
+    Thread::TemporarySignalMask signalWait(*thread, temporaryMask);
+    result = selectWithDeadline(nfds, readfds, writefds, errorfds, deadline);
+    const bool signalInterrupted = signalWait.finish();
+    if (!result && signalInterrupted) {
+      SYSCALL_ERROR(Interrupted);
+      result = -1;
+    }
+  } else {
+    result = selectWithDeadline(nfds, readfds, writefds, errorfds, deadline);
   }
 
-  // Default to infinite wait, but handle immediate wait or a specific timeout
-  // too.
-  int timeoutMs = -1;
-  if (timeout) {
-    timeoutMs = selectTimeoutMilliseconds(timeoutSnapshot);
-  }
-
-  // Go!
-  POLL_NOTICE(" -> redirecting select() to poll() with " << trueFdCount << " actual fds");
-  int r = posix_poll_safe(fds, trueFdCount, timeoutMs);
-
-  if (r >= 0) {
-    for (size_t i = 0; i < trueFdCount; ++i) {
-      if (fds[i].revents & POLLNVAL) {
-        SYSCALL_ERROR(BadFileDescriptor);
-        r = -1;
-        break;
-      }
-    }
-  }
-
-  // Fill fd_sets as needed. select() returns the number of result bits, not
-  // poll()'s number of descriptors with at least one result.
-  int readyCount = 0;
-  j = 0;
-  for (int i = 0; r >= 0 && i < nfds; ++i) {
-    /// \todo this could be done MUCH better
-    bool checkRead = reads && FD_ISSET(i, reads);
-    bool checkWrite = writes && FD_ISSET(i, writes);
-    bool checkError = errors && FD_ISSET(i, errors);
-
-    if (!(checkRead || checkWrite || checkError)) {
-      continue;
-    }
-
-    const SelectProjection projection =
-        projectSelectReadiness(fds[j].revents, checkRead, checkWrite, checkError);
-
-    if (checkRead) {
-      if (projection.read) {
-        FD_SET(i, reads);
-      } else {
-        FD_CLR(i, reads);
-      }
-    }
-
-    if (checkWrite) {
-      if (projection.write) {
-        FD_SET(i, writes);
-      } else {
-        FD_CLR(i, writes);
-      }
-    }
-
-    if (checkError) {
-      if (projection.exceptional) {
-        FD_SET(i, errors);
-      } else {
-        FD_CLR(i, errors);
-      }
-    }
-
-    readyCount += projection.count;
-    ++j;
-  }
-
-  delete[] fds;
-
-  if (r >= 0) {
-    r = readyCount;
-  }
-
-  if (r >= 0) {
-    const bool copiedResults =
-        (!readfds || PosixSubsystem::copyToUser(readfds, reads, sizeof(fd_set))) &&
-        (!writefds || PosixSubsystem::copyToUser(writefds, writes, sizeof(fd_set))) &&
-        (!errorfds || PosixSubsystem::copyToUser(errorfds, errors, sizeof(fd_set))) &&
-        (!timeout || PosixSubsystem::copyToUser(timeout, &timeoutSnapshot, sizeof(timeval)));
-    if (!copiedResults) {
-      SYSCALL_ERROR(BadAddress);
-      r = -1;
-    }
-  }
-
-  POLL_NOTICE(" -> select via poll returns " << r);
-  return r;
+  copyPselectTimespecRemainder(timeout, deadline);
+  return result;
 }

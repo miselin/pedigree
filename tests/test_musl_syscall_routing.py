@@ -300,6 +300,142 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn("syscall_cp(SYS_ppoll, fds, n,", source)
         self.assertIn("mask, _NSIG/8", source)
 
+    def test_linux_pselect6_uses_the_six_argument_raw_abi(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+        manager = (
+            ROOT / "src/modules/subsys/posix/PosixSyscallManager.cc"
+        ).read_text(encoding="utf-8")
+        numbers = (
+            ROOT / "src/modules/subsys/posix/syscalls/posixSyscallNumbers.h"
+        ).read_text(encoding="utf-8")
+        wait_abi = (
+            ROOT / "src/modules/subsys/posix/linux-wait-abi.h"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(pselect6, 270, POSIX_PSELECT6)",
+            mappings,
+        )
+        self.assertIn("#define POSIX_PSELECT6 284", numbers)
+        self.assertIn("case POSIX_PSELECT6:", manager)
+        dispatch = manager.split("case POSIX_PSELECT6:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn("return posix_pselect6", dispatch)
+        self.assertIn("static_cast<int>(p1)", dispatch)
+        for parameter in ("p2", "p3", "p4"):
+            self.assertIn(f"reinterpret_cast<fd_set*>({parameter})", dispatch)
+        self.assertIn("reinterpret_cast<LinuxKernelTimespec*>(p5)", dispatch)
+        self.assertIn(
+            "reinterpret_cast<const LinuxPselectSigsetArgument*>(p6)",
+            dispatch,
+        )
+
+        self.assertRegex(
+            wait_abi,
+            re.compile(
+                r"struct LinuxPselectSigsetArgument\s*\{\s*"
+                r"uintptr_t signalMask;\s*size_t signalMaskSize;\s*\};",
+                re.DOTALL,
+            ),
+        )
+        self.assertIn(
+            "static_assert(sizeof(LinuxPselectSigsetArgument) == 16",
+            wait_abi,
+        )
+
+        select_source = (
+            ROOT / "src/modules/subsys/posix/select-syscalls.cc"
+        ).read_text(encoding="utf-8")
+        entry = select_source.split("int posix_pselect6", 1)[1]
+        outer_argument = entry.index("importPselectSignalArgument")
+        timeout = entry.index("importPselectTimespec")
+        pointed_mask = entry.index("importPselectSignalMask")
+        arm_mask = entry.index("Thread::TemporarySignalMask signalWait")
+        wait = entry.index("selectWithDeadline", arm_mask)
+        restore_mask = entry.index("signalWait.finish()", wait)
+        timeout_copyout = entry.index(
+            "copyPselectTimespecRemainder", restore_mask
+        )
+        self.assertLess(outer_argument, timeout)
+        self.assertLess(timeout, pointed_mask)
+        self.assertLess(pointed_mask, arm_mask)
+        self.assertLess(arm_mask, wait)
+        self.assertLess(wait, restore_mask)
+        self.assertLess(restore_mask, timeout_copyout)
+
+        select_helper = select_source.split("int selectWithDeadline", 1)[
+            1
+        ].split("}  // namespace", 1)[0]
+        input_copy = select_helper.index("PosixSubsystem::copyFromUser")
+        poll = select_helper.index("posix_poll_safe")
+        read_output = select_helper.index(
+            "PosixSubsystem::copyToUser(readfds", poll
+        )
+        write_output = select_helper.index(
+            "PosixSubsystem::copyToUser(writefds", read_output
+        )
+        error_output = select_helper.index(
+            "PosixSubsystem::copyToUser(errorfds", write_output
+        )
+        self.assertLess(input_copy, poll)
+        self.assertLess(poll, read_output)
+        self.assertLess(read_output, write_output)
+        self.assertLess(write_output, error_output)
+        self.assertIn("const size_t bitmapBytes = selectBitmapBytes(nfds)", select_helper)
+        self.assertNotIn("sizeof(fd_set)", select_helper)
+
+        argument_import = select_source.split(
+            "bool importPselectSignalArgument", 1
+        )[1].split("bool importPselectSignalMask", 1)[0]
+        mask_import = select_source.split(
+            "bool importPselectSignalMask", 1
+        )[1].split("int selectWithDeadline", 1)[0]
+        self.assertIn("copyFromUser(&snapshot, userArgument", argument_import)
+        self.assertLess(
+            mask_import.index("if (!argument.signalMask)"),
+            mask_import.index("argument.signalMaskSize != LinuxKernelSigsetSize"),
+        )
+        self.assertIn("temporaryMask &= ~UnblockableSignals", mask_import)
+
+    def test_bundled_musl_pselect_uses_the_six_argument_argpack(self):
+        modules_cmake = (
+            ROOT / "src/modules/CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        self.assertIn('set(MUSL_VERSION "1.2.6")', modules_cmake)
+
+        source_path = (
+            ROOT
+            / "build/src/modules/musl-1.2.6/src/select/pselect.c"
+        )
+        if source_path.exists():
+            source = source_path.read_text(encoding="utf-8")
+        else:
+            archive_path = ROOT / "build/src/modules/musl-1.2.6.tar.gz"
+            if not archive_path.exists():
+                self.skipTest("the configured musl source archive is not present")
+            with tarfile.open(archive_path, "r:gz") as archive:
+                member = archive.extractfile(
+                    "musl-1.2.6/src/select/pselect.c"
+                )
+                self.assertIsNotNone(member)
+                source = member.read().decode("utf-8")
+
+        self.assertIn("syscall_arg_t data[2]", source)
+        self.assertIn("{ (uintptr_t)mask, _NSIG/8 }", source)
+        self.assertIn("syscall_cp(SYS_pselect6, n, rfds, wfds, efds,", source)
+        self.assertRegex(
+            source,
+            re.compile(
+                r"syscall_cp\(SYS_pselect6, n, rfds, wfds, efds,\s*"
+                r"ts \? .*? : 0, data\);",
+                re.DOTALL,
+            ),
+        )
+
     def test_linux_eventfd_syscalls_are_mapped(self):
         mappings = (
             ROOT

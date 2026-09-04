@@ -293,5 +293,6 @@
 #define POSIX_EVENTFD 281
 #define POSIX_EVENTFD2 282
 #define POSIX_PPOLL 283
+#define POSIX_PSELECT6 284
 
 #endif

@@ -313,6 +313,11 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_ppoll(reinterpret_cast<pollfd*>(p1), static_cast<unsigned int>(p2),
                          reinterpret_cast<LinuxKernelTimespec*>(p3),
                          reinterpret_cast<const uint64_t*>(p4), static_cast<size_t>(p5));
+    case POSIX_PSELECT6:
+      return posix_pselect6(static_cast<int>(p1), reinterpret_cast<fd_set*>(p2),
+                            reinterpret_cast<fd_set*>(p3), reinterpret_cast<fd_set*>(p4),
+                            reinterpret_cast<LinuxKernelTimespec*>(p5),
+                            reinterpret_cast<const LinuxPselectSigsetArgument*>(p6));
     case POSIX_EPOLL_CREATE:
       return posix_epoll_create(static_cast<int>(p1));
     case POSIX_EPOLL_CREATE1:

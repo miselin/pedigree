@@ -53,9 +53,9 @@ extern "C" void posixSetCloneBeforeStartHookForTest(void (*hook)(Thread*, size_t
                                                     void* context);
 extern "C" unsigned int posixSelectProjectionForTest(short revents, bool checkRead, bool checkWrite,
                                                      bool checkExceptional);
-extern "C" int posixSelectTimeoutMillisecondsForTest(timeval timeout);
 extern bool runHostedEventFdRegressions(Process* process);
 extern bool runHostedPpollRegressions(Process* process);
+extern bool runHostedPselectRegressions(Process* process);
 extern bool runHostedScalarIoRegressions(Process* process);
 extern bool runHostedUsercopyRegressions(Process* process);
 
@@ -2573,7 +2573,7 @@ struct PollCloseReuseContext {
   Atomic<size_t> returned;
 };
 
-bool selectProjectionAndTimeoutContract() {
+bool selectProjectionContract() {
   constexpr unsigned int ReadResult = 1U;
   constexpr unsigned int WriteResult = 1U << 1;
   constexpr unsigned int ExceptionalResult = 1U << 2;
@@ -2588,46 +2588,20 @@ bool selectProjectionAndTimeoutContract() {
       posixSelectProjectionForTest(POLLIN | POLLOUT | POLLPRI, true, true, true);
   const unsigned int writeOnlyError = posixSelectProjectionForTest(POLLERR, false, true, false);
 
-  const timeval zero = {0, 0};
-  const timeval oneMicrosecond = {0, 1};
-  const timeval oneMillisecond = {0, 1000};
-  const timeval justOverOneMillisecond = {0, 1001};
-  const timeval almostOneSecond = {0, 999999};
-  const timeval exactMaximum = {
-      INT_MAX / 1000,
-      (INT_MAX % 1000) * 1000,
-  };
-  const timeval saturatingBoundary = {
-      INT_MAX / 1000,
-      ((INT_MAX % 1000) + 1) * 1000,
-  };
-  const timeval saturatingSeconds = {
-      static_cast<time_t>(INT_MAX / 1000) + 1,
-      0,
-  };
-
   const bool projectionsPassed =
       hangup == (OneReady | ReadResult) && error == (TwoReady | ReadResult | WriteResult) &&
       priority == (OneReady | ExceptionalResult) &&
       all == (ThreeReady | ReadResult | WriteResult | ExceptionalResult) &&
       writeOnlyError == (OneReady | WriteResult);
-  const bool timeoutPassed = posixSelectTimeoutMillisecondsForTest(zero) == 0 &&
-                             posixSelectTimeoutMillisecondsForTest(oneMicrosecond) == 1 &&
-                             posixSelectTimeoutMillisecondsForTest(oneMillisecond) == 1 &&
-                             posixSelectTimeoutMillisecondsForTest(justOverOneMillisecond) == 2 &&
-                             posixSelectTimeoutMillisecondsForTest(almostOneSecond) == 1000 &&
-                             posixSelectTimeoutMillisecondsForTest(exactMaximum) == INT_MAX &&
-                             posixSelectTimeoutMillisecondsForTest(saturatingBoundary) == INT_MAX &&
-                             posixSelectTimeoutMillisecondsForTest(saturatingSeconds) == INT_MAX;
 
-  if (!projectionsPassed || !timeoutPassed) {
+  if (!projectionsPassed) {
     ERROR(
-        "HOSTED-SYSCALL-TEST: FAIL select-projection-timeout: "
-        "readiness projection, return-bit counting, or timeout rounding was incorrect");
+        "HOSTED-SYSCALL-TEST: FAIL select-projection: "
+        "readiness projection or return-bit counting was incorrect");
     return false;
   }
 
-  NOTICE("HOSTED-SYSCALL-TEST: PASS select-projection-timeout");
+  NOTICE("HOSTED-SYSCALL-TEST: PASS select-projection");
   return true;
 }
 
@@ -4821,6 +4795,11 @@ bool runRegressions() {
     return false;
   }
 
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN pselect-linux-abi");
+  if (!runHostedPselectRegressions(kernelProcess)) {
+    return false;
+  }
+
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-dup-contract");
   if (!descriptorDupContract(kernelProcess)) {
     return false;
@@ -4831,8 +4810,8 @@ bool runRegressions() {
     return false;
   }
 
-  NOTICE("HOSTED-SYSCALL-TEST: BEGIN select-projection-timeout");
-  if (!selectProjectionAndTimeoutContract()) {
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN select-projection");
+  if (!selectProjectionContract()) {
     return false;
   }
 

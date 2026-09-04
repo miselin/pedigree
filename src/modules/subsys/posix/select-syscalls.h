@@ -24,6 +24,7 @@
 #include "pedigree/kernel/process/eventNumbers.h"
 
 #include "file-syscalls.h"
+#include "linux-wait-abi.h"
 
 /** Event class for passing to File::monitor. */
 class SelectEvent : public Event {
@@ -57,5 +58,7 @@ class SelectEvent : public Event {
 };
 
 int posix_select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* errorfds, timeval* timeout);
+int posix_pselect6(int nfds, fd_set* readfds, fd_set* writefds, fd_set* errorfds,
+                   LinuxKernelTimespec* timeout, const LinuxPselectSigsetArgument* signalArgument);
 
 #endif
