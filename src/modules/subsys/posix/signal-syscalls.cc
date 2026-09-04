@@ -1148,9 +1148,7 @@ void pedigree_init_sigret() {
         VirtualAddressSpace::Shared | VirtualAddressSpace::Execute);
   }
 
-  // Install default signal handlers
   Thread* pThread = Processor::information().getCurrentThread();
-  pThread->getAlternateSignalStack() = Thread::AlternateSignalStack();
   Process* pProcess = pThread->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
   if (!pSubsystem) {
@@ -1158,6 +1156,21 @@ void pedigree_init_sigret() {
     pProcess->setSubsystem(pSubsystem);
     pSubsystem->setProcess(pProcess);
   }
+
+  pedigree_reset_signals_for_exec(pThread);
+}
+
+void pedigree_reset_signals_for_exec(Thread* pThread) {
+  if (!pThread || !pThread->getParent()) {
+    FATAL("Cannot reset exec signal state without a process thread.");
+  }
+
+  PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pThread->getParent()->getSubsystem());
+  if (!pSubsystem) {
+    FATAL("Cannot reset exec signal state without a POSIX subsystem.");
+  }
+
+  PosixSubsystem::SignalHandler* replacements[32] = {};
 
   for (size_t i = 0; i < 32; i++) {
     // Set all dispositions back to default, except if an ignore
@@ -1186,8 +1199,11 @@ void pedigree_init_sigret() {
         new SignalEvent(newHandler, i, ~0UL, 0, true, false, Event::HandlerPrivilege::Kernel,
                         SignalEvent::DeliveryDisposition::DefaultAction);
 
-    pSubsystem->setSignalHandler(i, sigHandler);
+    replacements[i] = sigHandler;
   }
+
+  pSubsystem->resetSignalHandlersForExec(pThread, replacements);
+  pThread->prepareSignalStateForExec();
 
   SG_NOTICE("Creating initial set of signal handlers is complete");
 }

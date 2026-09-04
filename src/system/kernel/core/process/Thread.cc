@@ -1644,6 +1644,40 @@ void Thread::setSignalMask(uint64_t mask) {
   m_StateLevels[m_nStateLevel].m_SignalMask = mask;
 }
 
+void Thread::prepareSignalStateForExec() {
+  const size_t execStateLevel = getStateLevel();
+  uint64_t effectiveSignalMask = 0;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    if (m_nStateLevel != execStateLevel) {
+      FATAL("Thread state changed during exec signal preparation.");
+    }
+    effectiveSignalMask = m_StateLevels[execStateLevel].m_SignalMask;
+  }
+
+  // JumpToUserspace collapses nested states but deliberately retains level
+  // zero. Every lower physical stack is nevertheless abandoned by exec, so
+  // retire records from deepest to shallowest before their storage vanishes.
+  // The exec Uninterruptible lives at execStateLevel and remains armed here.
+  for (size_t level = execStateLevel; level > 0; --level) {
+    retireDeferredScopes(false, level - 1);
+  }
+
+  LockGuard<Spinlock> guard(m_Lock);
+  if (m_nStateLevel != execStateLevel) {
+    FATAL("Thread state changed during exec signal preparation.");
+  }
+
+  StateLevel& base = m_StateLevels[0];
+  base.m_SignalMask = effectiveSignalMask;
+  base.m_SavedSignalMask = 0;
+  base.m_TemporarySignalMaskActive = false;
+  base.m_TemporarySignalWaitInterrupted = false;
+  base.m_InterruptionReason = NotInterrupted;
+  base.m_bDispatchingWaitEvent = false;
+  m_AlternateSignalStack = AlternateSignalStack();
+}
+
 size_t Thread::beginTemporarySignalMask(uint64_t signalMask) {
   if (this != Processor::information().getCurrentThread()) {
     FATAL("Temporary signal mask armed for a non-current Thread.");
@@ -1782,6 +1816,75 @@ void Thread::cullSignalEvent(size_t signalNumber) {
   for (auto it : deregisterEvents) {
     it->completeDelivery(this);
   }
+}
+
+bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement) {
+  if (!replacement || !replacement->isSignalEvent() || replacement->getNumber() != signalNumber) {
+    return false;
+  }
+
+  Event::SendLease eventSendLease = replacement->beginSend();
+  if (!eventSendLease) {
+    return false;
+  }
+
+  {
+    auto senderGuard = m_EventSenderDrainWaiters.acquire();
+    LockGuard<Spinlock> guard(m_Lock);
+    if (m_bShutdown || m_Status == Zombie) {
+      return false;
+    }
+    ++m_EventSendersInFlight;
+  }
+
+  const bool eventRegistered = replacement->registerThread(this);
+  Event* previous = nullptr;
+  if (eventRegistered) {
+    auto eventWaitGuard = m_EventWaiters.acquire();
+    LockGuard<Spinlock> guard(m_Lock);
+    if (!m_bShutdown && m_Status != Zombie) {
+      for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
+        if ((*it)->isSignalEvent() && (*it)->getNumber() == signalNumber) {
+          previous = *it;
+          *it = replacement;
+          break;
+        }
+      }
+    }
+  }
+
+  if (eventRegistered && !previous) {
+    replacement->deregisterThread(this);
+  }
+  if (previous) {
+    previous->completeDelivery(this);
+  }
+
+  {
+    auto senderGuard = m_EventSenderDrainWaiters.acquire();
+    bool drained = false;
+    {
+      LockGuard<Spinlock> guard(m_Lock);
+      assert(m_EventSendersInFlight);
+      drained = !--m_EventSendersInFlight;
+    }
+    if (drained) {
+      senderGuard.wakeAll(WaitQueue::WakeReason::Signalled, WaitQueue::Channel(this));
+    }
+  }
+
+  return previous != nullptr;
+}
+
+bool Thread::hasSignalEvent(size_t signalNumber) {
+  LockGuard<Spinlock> guard(m_Lock);
+
+  for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
+    if ((*it)->isSignalEvent() && (*it)->getNumber() == signalNumber) {
+      return true;
+    }
+  }
+  return false;
 }
 
 Event::Delivery Thread::getNextEvent() {

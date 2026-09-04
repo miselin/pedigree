@@ -19,11 +19,13 @@
 
 #include <setjmp.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 
 extern void test_mprotect();
 extern void test_fs();
-extern void test_process();
+extern int process_exec_signal_child(void);
+extern void test_process(const char* program);
 
 static jmp_buf buf;
 
@@ -34,6 +36,9 @@ void fail() {
 }
 
 int main(int argc, char* argv[]) {
+  if (argc == 2 && !strcmp(argv[1], "--exec-signal-child"))
+    return process_exec_signal_child();
+
   if (setjmp(buf) == 1) {
     printf("FAILED\n");
     return 1;
@@ -43,7 +48,7 @@ int main(int argc, char* argv[]) {
 
   // Add calls to test functions here...
   test_mprotect();
-  test_process();
+  test_process(argv[0]);
   test_fs();
 
   printf("Tests complete!\n");

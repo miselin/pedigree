@@ -54,5 +54,6 @@ int pedigree_unwind_signal();
 int posix_sigaltstack(const stack_t* stack, stack_t* oldstack);
 
 void pedigree_init_sigret();
+void pedigree_reset_signals_for_exec(Thread* thread);
 
 #endif

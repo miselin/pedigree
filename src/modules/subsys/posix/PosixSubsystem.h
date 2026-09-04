@@ -362,6 +362,12 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   /** Sets a signal handler */
   void setSignalHandler(size_t sig, SignalHandler* handler);
 
+  /**
+   * Installs a complete exec-time disposition table and rebinds pending
+   * deliveries to it. Takes ownership of every entry in \p handlers.
+   */
+  void resetSignalHandlersForExec(Thread* thread, SignalHandler* const handlers[32]);
+
   /** Copies a signal disposition while holding the disposition table lock. */
   bool getSignalDisposition(size_t sig, SignalDisposition& disposition);
 

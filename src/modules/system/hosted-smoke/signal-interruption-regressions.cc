@@ -14,6 +14,7 @@
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
@@ -26,6 +27,7 @@
 
 #include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
+#include "modules/subsys/posix/signal-syscalls.h"
 #endif
 
 namespace {
@@ -217,6 +219,23 @@ int dormantSignalThread(void*) {
   return 0;
 }
 
+struct ExecSignalResetContext {
+  ExecSignalResetContext() : entered(0), returned(0) {}
+
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+};
+
+int deliverExecResetSignal(void* parameter) {
+  ExecSignalResetContext* context = reinterpret_cast<ExecSignalResetContext*>(parameter);
+  Thread* current = Processor::information().getCurrentThread();
+  context->entered += 1;
+  current->setSignalMask(0);
+  current->getScheduler()->checkEventState(0);
+  context->returned += 1;
+  return 0;
+}
+
 struct IgnoredContinueContext {
   IgnoredContinueContext(Process* process, bool blockSignal)
       : process(process), blockSignal(blockSignal), entered(0), returned(0) {}
@@ -362,6 +381,82 @@ bool ignoredDispositionDiscardsPendingSignals(Process* kernelProcess) {
   const bool passed =
       check(explicitIgnore && defaultIgnore && g_SignalHandlerCalls == 0,
             "a pending caught signal survived transition to an ignored disposition");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool execSignalResetRebindsPending(Process* kernelProcess) {
+  constexpr const char* Test = "exec-signal-reset-rebinds-pending";
+  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  process->publish();
+
+  PosixSubsystem::SignalHandler* caught = new PosixSubsystem::SignalHandler;
+  caught->sigMask = static_cast<uint64_t>(1) << (SIGUSR1 - 1);
+  caught->flags = SA_RESTART;
+  caught->restorer = 0x12345678;
+  caught->type = 0;
+  caught->pEvent = new SignalEvent(reinterpret_cast<uintptr_t>(&hostedSignalHandler), SIGCHLD);
+  subsystem->setSignalHandler(SIGCHLD, caught);
+
+  PosixSubsystem::SignalHandler* ignored = new PosixSubsystem::SignalHandler;
+  ignored->sigMask = static_cast<uint64_t>(1) << (SIGCHLD - 1);
+  ignored->flags = SA_RESTART;
+  ignored->restorer = 0x87654321;
+  ignored->type = 2;
+  ignored->pEvent = new SignalEvent(reinterpret_cast<uintptr_t>(&hostedSignalHandler), SIGUSR2);
+  subsystem->setSignalHandler(SIGUSR2, ignored);
+
+  ExecSignalResetContext context;
+  Thread* target =
+      new Thread(process, deliverExecResetSignal, &context, nullptr, false, true, true);
+  target->setName("hosted exec signal reset target");
+  target->setSignalMask(static_cast<uint64_t>(1) << (SIGCHLD - 1));
+  Thread::AlternateSignalStack& alternate = target->getAlternateSignalStack();
+  alternate.base = 0x100000;
+  alternate.size = 0x4000;
+  alternate.enabled = true;
+  alternate.inUse = true;
+
+  g_SignalHandlerCalls = 0;
+  const PosixSubsystem::SignalDeliveryResult queued =
+      subsystem->queueSignalDelivery(target, SIGCHLD);
+  const bool initiallyPending =
+      queued == PosixSubsystem::SignalDeliveryResult::Queued && target->hasSignalEvent(SIGCHLD);
+
+  pedigree_reset_signals_for_exec(target);
+
+  PosixSubsystem::SignalDisposition resetCaught;
+  PosixSubsystem::SignalDisposition resetIgnored;
+  const bool caughtReset = subsystem->getSignalDisposition(SIGCHLD, resetCaught) &&
+                           resetCaught.type == 1 && !resetCaught.signalMask && !resetCaught.flags &&
+                           !resetCaught.restorer &&
+                           resetCaught.handler != reinterpret_cast<uintptr_t>(&hostedSignalHandler);
+  const bool ignoreRetained =
+      subsystem->getSignalDisposition(SIGUSR2, resetIgnored) && resetIgnored.type == 2 &&
+      !resetIgnored.signalMask && !resetIgnored.flags && !resetIgnored.restorer &&
+      resetIgnored.handler != reinterpret_cast<uintptr_t>(&hostedSignalHandler);
+  const bool pendingRebound = target->hasSignalEvent(SIGCHLD);
+  const bool alternateReset =
+      !alternate.base && !alternate.size && !alternate.enabled && !alternate.inUse;
+
+  const bool started = target->start();
+  const bool joined = started && target->joinForCompletion();
+  if (!started) {
+    target->cullSignalEvent(SIGCHLD);
+    delete target;
+  }
+
+  const bool passed = check(initiallyPending && caughtReset && ignoreRetained && pendingRebound &&
+                                alternateReset && started && joined && context.entered == 1 &&
+                                context.returned == 1 && g_SignalHandlerCalls == 0,
+                            "exec discarded a pending signal, retained old handler metadata, or "
+                            "left the alternate stack enabled");
   delete process;
 
   if (passed) {
@@ -649,6 +744,73 @@ bool stoppedProcessDefersSignalsUntilContinue(Process* kernelProcess) {
   return passed;
 }
 #endif
+
+bool execPreservesNestedSignalMask(Thread* thread) {
+  constexpr const char* Test = "exec-preserves-nested-signal-mask";
+  constexpr uint64_t TemporaryMask = static_cast<uint64_t>(1) << (HostedSignalNumber + 1);
+  constexpr uint64_t NestedTemporaryMask = static_cast<uint64_t>(1) << (HostedSignalNumber + 2);
+  constexpr uint64_t EffectiveMask = (static_cast<uint64_t>(1) << (HostedSignalNumber - 1)) |
+                                     (static_cast<uint64_t>(1) << (HostedSignalNumber + 3));
+  const uint64_t originalMask = thread->getSignalMask();
+  const Thread::InterruptionReason originalInterruption = thread->getInterruptionReason();
+  const Thread::AlternateSignalStack originalAlternate = thread->getAlternateSignalStack();
+  const size_t originalLevel = thread->getStateLevel();
+
+  bool baseTemporaryMaskActive = false;
+  bool nestedTemporaryMaskActive = false;
+  bool firstPushed = false;
+  bool secondPushed = false;
+  bool execScopePreserved = false;
+  bool execScopeReleased = false;
+  if (!originalLevel) {
+    Thread::TemporarySignalMask baseTemporaryMask(*thread, TemporaryMask);
+    baseTemporaryMaskActive = thread->hasActiveTemporarySignalMask();
+    firstPushed = thread->pushState() != nullptr;
+    if (firstPushed) {
+      {
+        Thread::TemporarySignalMask nestedTemporaryMask(*thread, NestedTemporaryMask);
+        nestedTemporaryMaskActive = thread->hasActiveTemporarySignalMask();
+        secondPushed = thread->pushState() != nullptr;
+        if (secondPushed) {
+          thread->setSignalMask(EffectiveMask);
+          Thread::AlternateSignalStack& alternate = thread->getAlternateSignalStack();
+          alternate.base = 0x200000;
+          alternate.size = 0x8000;
+          alternate.enabled = true;
+          alternate.inUse = true;
+          {
+            Uninterruptible execScope;
+            thread->prepareSignalStateForExec();
+            execScopePreserved = thread->eventsDeferred();
+          }
+          execScopeReleased = !thread->eventsDeferred();
+          thread->abandonCurrentState(false);
+        }
+      }
+      if (thread->getStateLevel() > originalLevel) {
+        thread->abandonCurrentState(false);
+      }
+    }
+  }
+
+  const Thread::AlternateSignalStack resetAlternate = thread->getAlternateSignalStack();
+  const bool passed = check(
+      baseTemporaryMaskActive && nestedTemporaryMaskActive && firstPushed && secondPushed &&
+          execScopePreserved && execScopeReleased && thread->getStateLevel() == originalLevel &&
+          thread->getSignalMask() == EffectiveMask && !resetAlternate.base &&
+          !resetAlternate.size && !resetAlternate.enabled && !resetAlternate.inUse &&
+          !thread->hasActiveTemporarySignalMask() &&
+          thread->getInterruptionReason() == Thread::NotInterrupted,
+      "exec lost the active handler mask or retained an outer temporary-mask scope");
+
+  thread->setSignalMask(originalMask);
+  thread->setInterruptionReason(originalInterruption);
+  thread->getAlternateSignalStack() = originalAlternate;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
 
 bool invalidUserHandlerDeliveryFailsClosed(Thread* thread) {
   constexpr const char* Test = "invalid-user-handler-delivery";
@@ -1382,10 +1544,11 @@ bool prequeuedDelaySignalInterruption(Thread* thread) {
 bool runHostedSignalInterruptionRegressions(Thread* thread) {
   const bool passed =
       eventHandlerPrivilege() && signalCullPreservesNumberCollision(thread) &&
-      invalidUserHandlerDeliveryFailsClosed(thread) &&
+      execPreservesNestedSignalMask(thread) && invalidUserHandlerDeliveryFailsClosed(thread) &&
 #if !defined(PEDIGREE_HOSTED_CORE_SMOKE)
       ignoredSignalDoesNotInterruptWait(thread->getParent()) &&
       ignoredDispositionDiscardsPendingSignals(thread->getParent()) &&
+      execSignalResetRebindsPending(thread->getParent()) &&
       signalContinueStillResumes(thread->getParent()) &&
       opposingJobControlSignalsCancelAcrossThreads(thread->getParent()) &&
       stoppedProcessDefersSignalsUntilContinue(thread->getParent()) &&

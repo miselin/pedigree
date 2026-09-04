@@ -916,6 +916,47 @@ void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler* handler) {
   }
 }
 
+void PosixSubsystem::resetSignalHandlersForExec(Thread* thread, SignalHandler* const handlers[32]) {
+  if (!thread || thread->getParent() != m_pProcess || m_pProcess->getNumThreads() != 1) {
+    FATAL("Exec signal reset requires the sole surviving process thread.");
+  }
+
+  for (size_t signal = 0; signal < 32; ++signal) {
+    if (!handlers[signal] || !handlers[signal]->pEvent ||
+        handlers[signal]->pEvent->getNumber() != signal) {
+      FATAL("Exec signal reset received an incomplete disposition table.");
+    }
+  }
+
+  SignalHandler* removals[32] = {};
+  m_SignalHandlersLock.acquire();
+
+  for (size_t signal = 0; signal < 32; ++signal) {
+    SignalHandler* replacement = handlers[signal];
+    replacement->sig = signal;
+
+    removals[signal] = m_SignalHandlers.lookup(signal);
+    if (removals[signal]) {
+      m_SignalHandlers.remove(signal);
+    }
+    m_SignalHandlers.insert(signal, replacement);
+
+    if (thread->hasSignalEvent(signal)) {
+      Event* pendingReplacement = replacement->pEvent->cloneForDelivery();
+      if (!thread->replaceSignalEvent(signal, pendingReplacement)) {
+        delete pendingReplacement;
+        FATAL("Exec signal reset could not rebind a pending signal.");
+      }
+    }
+  }
+
+  m_SignalHandlersLock.release();
+
+  for (SignalHandler* removal : removals) {
+    delete removal;
+  }
+}
+
 bool PosixSubsystem::getSignalDisposition(size_t sig, SignalDisposition& disposition) {
   if (sig >= 32) {
     return false;
@@ -1760,9 +1801,10 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   Directory::ChildLease interpreterLease;
   File* interpreterFile = 0;
 
-  // Inhibit all signals from coming in while we trash the address space...
-  for (int sig = 0; sig < 32; sig++)
-    Processor::information().getCurrentThread()->inhibitEvent(sig, true);
+  // A failed validation path must restore both event and termination
+  // delivery, while a successful exec keeps both deferred until the new
+  // userspace transition has been scheduled.
+  Uninterruptible execCriticalSection;
 
   // Determine if the target uses an interpreter or not.
   String interpreter("");
@@ -2071,11 +2113,6 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     SchedulerState s;
     ByteSet(&s, 0, sizeof(s));
     pThread->state() = s;
-
-    // Allow signals again now that everything's loaded
-    for (int sig = 0; sig < 32; sig++) {
-      Processor::information().getCurrentThread()->inhibitEvent(sig, false);
-    }
 
     if (!SyscallManager::instance().requestUserJump(interpreterEntryPoint,
                                                     reinterpret_cast<uintptr_t>(loaderStack))) {

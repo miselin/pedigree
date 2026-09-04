@@ -22,6 +22,7 @@ extern void fail(void) __attribute__((noreturn));
 
 static volatile sig_atomic_t signalHandled = 0;
 static int signalReportFd = -1;
+static const char* execSignalProgram = 0;
 
 static void handleSignal(int signalNumber) {
   if (signalNumber == SIGUSR1) {
@@ -31,6 +32,15 @@ static void handleSignal(int signalNumber) {
       (void)write(signalReportFd, &token, sizeof(token));
     }
   }
+}
+
+static void handleExecSignal(int signalNumber) {
+  if (signalNumber != SIGUSR1 || !execSignalProgram || kill(getpid(), SIGTERM))
+    _exit(123);
+
+  char* const arguments[] = {(char*)execSignalProgram, (char*)"--exec-signal-child", 0};
+  execv(execSignalProgram, arguments);
+  _exit(124);
 }
 
 static void status(const char* message) {
@@ -122,6 +132,80 @@ static void test_default_signal_termination(void) {
   int statusCode = 0;
   if (waitpid(child, &statusCode, 0) != child || !WIFSIGNALED(statusCode) ||
       WTERMSIG(statusCode) != SIGUSR1)
+    fail();
+
+  status("OK");
+}
+
+int process_exec_signal_child(void) {
+  struct sigaction action = {0};
+  if (sigaction(SIGUSR1, 0, &action) || action.sa_handler != SIG_DFL ||
+      sigaction(SIGTERM, 0, &action) || action.sa_handler != SIG_DFL ||
+      sigaction(SIGUSR2, 0, &action) || action.sa_handler != SIG_IGN ||
+      (action.sa_flags & SA_RESTART) || sigismember(&action.sa_mask, SIGCHLD) != 0)
+    return 125;
+
+  stack_t alternate = {0};
+  if (sigaltstack(0, &alternate) || !(alternate.ss_flags & SS_DISABLE))
+    return 126;
+
+  sigset_t currentMask;
+  if (sigprocmask(SIG_SETMASK, 0, &currentMask) || sigismember(&currentMask, SIGUSR1) != 1 ||
+      sigismember(&currentMask, SIGTERM) != 1)
+    return 127;
+
+  sigset_t terminate;
+  if (sigemptyset(&terminate) || sigaddset(&terminate, SIGTERM) ||
+      sigprocmask(SIG_UNBLOCK, &terminate, 0))
+    return 128;
+
+  for (size_t attempt = 0; attempt < 1000; ++attempt)
+    sched_yield();
+  return 129;
+}
+
+static void test_exec_signal_state(const char* program) {
+  status("Testing exec signal state replacement...");
+
+  pid_t child = fork();
+  if (child < 0)
+    fail();
+  if (!child) {
+    char alternateMemory[SIGSTKSZ];
+    stack_t alternate = {0};
+    alternate.ss_sp = alternateMemory;
+    alternate.ss_size = sizeof(alternateMemory);
+    if (sigaltstack(&alternate, 0))
+      _exit(120);
+
+    struct sigaction ignored = {0};
+    ignored.sa_handler = SIG_IGN;
+    ignored.sa_flags = SA_RESTART;
+    if (sigemptyset(&ignored.sa_mask) || sigaddset(&ignored.sa_mask, SIGCHLD) ||
+        sigaction(SIGUSR2, &ignored, 0))
+      _exit(121);
+
+    struct sigaction pending = {0};
+    pending.sa_handler = handleSignal;
+    if (sigemptyset(&pending.sa_mask) || sigaction(SIGTERM, &pending, 0))
+      _exit(122);
+
+    struct sigaction invoke = {0};
+    invoke.sa_handler = handleExecSignal;
+    invoke.sa_flags = SA_ONSTACK;
+    if (sigemptyset(&invoke.sa_mask) || sigaddset(&invoke.sa_mask, SIGTERM) ||
+        sigaction(SIGUSR1, &invoke, 0))
+      _exit(123);
+
+    execSignalProgram = program;
+    if (raise(SIGUSR1))
+      _exit(124);
+    _exit(125);
+  }
+
+  int statusCode = 0;
+  if (waitpid(child, &statusCode, 0) != child || !WIFSIGNALED(statusCode) ||
+      WTERMSIG(statusCode) != SIGTERM)
     fail();
 
   status("OK");
@@ -302,12 +386,13 @@ static void test_sigsuspend(void) {
   status("OK");
 }
 
-void test_process(void) {
+void test_process(const char* program) {
   printf("Testing process compatibility...\n");
   test_proc_self_fd();
   test_vfork();
   test_signal_return();
   test_default_signal_termination();
+  test_exec_signal_state(program);
   test_wait_stop_continue();
   test_thread_signal_syscalls();
   test_sigsuspend();

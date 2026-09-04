@@ -544,6 +544,9 @@ class EXPORTED_PUBLIC Thread {
   /** Sets the POSIX signal mask for the current event nesting level. */
   void setSignalMask(uint64_t mask);
 
+  /** Carries the effective signal state into a replacement process image. */
+  void prepareSignalStateForExec();
+
   /** True only while the current state owns an interrupted temporary signal wait. */
   bool hasTemporarySignalWaitInterruption();
 
@@ -575,6 +578,16 @@ class EXPORTED_PUBLIC Thread {
 
   /** Removes only signal events matching \p signalNumber from the queue. */
   void cullSignalEvent(size_t signalNumber);
+
+  /**
+   * Replaces one queued signal delivery without making it transiently
+   * deliverable. On success the Thread owns \p replacement; otherwise the
+   * caller retains ownership.
+   */
+  bool replaceSignalEvent(size_t signalNumber, Event* replacement);
+
+  /** Determines if a signal event is currently in the event queue. */
+  bool hasSignalEvent(size_t signalNumber);
 
   bool hasEvents();
 
