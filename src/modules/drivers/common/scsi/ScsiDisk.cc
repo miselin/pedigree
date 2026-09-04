@@ -740,9 +740,10 @@ uint64_t ScsiDisk::doRead(uint64_t location) {
     pCommand = new ScsiCommands::ReadTocCommand(getNativeBlockSize());
     uint8_t* toc = new uint8_t[getNativeBlockSize()];
     PointerGuard<uint8_t> tmpBuffGuard(toc, true);
-    bOk = sendCommand(pCommand, reinterpret_cast<uintptr_t>(toc), getNativeBlockSize());
+    const bool tocOk =
+        sendCommand(pCommand, reinterpret_cast<uintptr_t>(toc), getNativeBlockSize());
     delete pCommand;
-    if (!bOk) {
+    if (!tocOk) {
       WARNING(
           "ScsiDisk::doRead - could not find data track (READ TOC "
           "failed)");

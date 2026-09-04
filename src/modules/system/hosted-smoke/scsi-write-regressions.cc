@@ -42,6 +42,7 @@ constexpr uint64_t RetireFirstInterior = RetireFirstExtent + PageBytes;
 constexpr uint64_t NonoverlapReadLocation = 28 * PageBytes;
 constexpr uint64_t RecheckReadLocation = 32 * PageBytes;
 constexpr uint64_t LookupPauseLocation = 36 * PageBytes;
+constexpr uint8_t CdDvdPeripheral = 0x05;
 
 enum class WriteMode { Initialising, FailAll, PassWrite12, UnitNotReady };
 enum class RequestEvent : uint8_t { Read = 1, Direct = 2 };
@@ -49,7 +50,7 @@ enum class RequestEvent : uint8_t { Read = 1, Direct = 2 };
 class ScriptedScsiController final : public ScsiController {
  public:
   explicit ScriptedScsiController(size_t capacityBytes = 64 * PageBytes,
-                                  size_t nativeBlockBytes = 512)
+                                  size_t nativeBlockBytes = 512, bool optical = false)
       : ScsiController(),
         m_Mode(WriteMode::Initialising),
         m_WriteOpcodes(),
@@ -67,10 +68,13 @@ class ScriptedScsiController final : public ScsiController {
         m_ReadRelease(0, false),
         m_ReadRequestCount(0),
         m_ReadCommandCount(0),
+        m_ReadTocCount(0),
+        m_LastReadOpcode(0),
         m_RequestEvents(),
         m_RequestEventCount(0),
         m_CapacityBytes(capacityBytes),
         m_NativeBlockBytes(nativeBlockBytes),
+        m_Optical(optical),
         m_LastReadBytes(0),
         m_LastWriteBytes(0),
         m_Valid(true) {}
@@ -100,6 +104,7 @@ class ScriptedScsiController final : public ScsiController {
         }
         auto* inquiry = reinterpret_cast<ScsiDisk::Inquiry*>(pRespBuffer);
         ByteSet(inquiry, 0, sizeof(*inquiry));
+        inquiry->Peripheral = m_Optical ? CdDvdPeripheral : 0;
         return true;
       }
       case 0x25: {
@@ -113,6 +118,23 @@ class ScriptedScsiController final : public ScsiController {
         capacity->LBA =
             HOST_TO_BIG32(static_cast<uint32_t>((m_CapacityBytes / m_NativeBlockBytes) - 1));
         capacity->BlockSize = HOST_TO_BIG32(static_cast<uint32_t>(m_NativeBlockBytes));
+        return true;
+      }
+      case 0x43: {
+        if (!m_Optical || bWrite || !pRespBuffer || nRespBytes != m_NativeBlockBytes ||
+            nCommandSize != 10) {
+          m_Valid = false;
+          return false;
+        }
+
+        auto* toc = reinterpret_cast<uint8_t*>(pRespBuffer);
+        ByteSet(toc, 0, nRespBytes);
+        toc[1] = 10;  // Header plus one eight-byte track descriptor.
+        toc[2] = 1;
+        toc[3] = 1;
+        toc[5] = 0x14;  // ADR=1, data track.
+        toc[6] = 1;
+        m_ReadTocCount += 1;
         return true;
       }
       case 0x28:
@@ -144,6 +166,8 @@ class ScriptedScsiController final : public ScsiController {
   void beginRequestTrace() {
     m_ReadRequestCount = 0;
     m_ReadCommandCount = 0;
+    m_ReadTocCount = 0;
+    m_LastReadOpcode = 0;
     m_RequestEventCount = 0;
     m_LastReadBytes = 0;
   }
@@ -187,6 +211,14 @@ class ScriptedScsiController final : public ScsiController {
 
   size_t readCommandCount() const {
     return m_ReadCommandCount.value();
+  }
+
+  size_t readTocCount() const {
+    return m_ReadTocCount.value();
+  }
+
+  uint8_t lastReadOpcode() const {
+    return m_LastReadOpcode;
   }
 
   size_t directRequestCount() const {
@@ -284,6 +316,7 @@ class ScriptedScsiController final : public ScsiController {
 
     ByteSet(reinterpret_cast<void*>(response), 0x3c, responseBytes);
     m_LastReadBytes = responseBytes;
+    m_LastReadOpcode = opcode;
     m_ReadCommandCount += 1;
     return true;
   }
@@ -328,10 +361,13 @@ class ScriptedScsiController final : public ScsiController {
   Semaphore m_ReadRelease;
   Atomic<size_t> m_ReadRequestCount;
   Atomic<size_t> m_ReadCommandCount;
+  Atomic<size_t> m_ReadTocCount;
+  uint8_t m_LastReadOpcode;
   RequestEvent m_RequestEvents[16];
   size_t m_RequestEventCount;
   size_t m_CapacityBytes;
   size_t m_NativeBlockBytes;
+  bool m_Optical;
   size_t m_LastReadBytes;
   size_t m_LastWriteBytes;
   bool m_Valid;
@@ -1357,6 +1393,42 @@ bool scsiTerminalCachePage() {
   return passed;
 }
 
+bool scsiOpticalReadAfterToc() {
+  constexpr size_t OpticalBlockBytes = 2048;
+  constexpr uint64_t VolumeDescriptorLocation = 16 * OpticalBlockBytes;
+
+  ScriptedScsiController controller(64 * PageBytes, OpticalBlockBytes, true);
+  HostedScsiDisk disk;
+  const bool ready = disk.initialise(&controller, 0);
+  controller.beginRequestTrace();
+  const BufferView view = ready ? disk.read(VolumeDescriptorLocation) : BufferView();
+
+  bool payloadValid = view && view.size() == PageBytes;
+  const uint8_t* payload = payloadValid ? reinterpret_cast<const uint8_t*>(view.data()) : nullptr;
+  for (size_t i = 0; payload && i < view.size(); ++i) {
+    if (payload[i] != 0x3c) {
+      payloadValid = false;
+      break;
+    }
+  }
+  if (view) {
+    disk.unpin(VolumeDescriptorLocation);
+  }
+
+  const bool passed = ready && payloadValid && controller.readTocCount() == 1 &&
+                      controller.readRequestCount() == 1 && controller.readCommandCount() == 1 &&
+                      controller.lastReadOpcode() == 0x28 &&
+                      controller.lastReadBytes() == PageBytes;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS scsi-optical-read-after-toc");
+  } else {
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL scsi-optical-read-after-toc: successful READ TOC suppressed "
+        "the media READ(10) or published an empty cache page");
+  }
+  return passed;
+}
+
 bool scsiRejectsNativeBlocksLargerThanCachePages() {
   ScriptedScsiController controller(64 * PageBytes, 2 * PageBytes);
   HostedScsiDisk disk;
@@ -1381,7 +1453,8 @@ EXPORTED_PUBLIC bool runHostedScsiWriteRegressions() {
   const bool readRetireAdmission = scsiReadRetireAdmission(fixture);
   const bool retireReadRecheck = scsiRetireReadRecheck(fixture);
   const bool terminalPage = scsiTerminalCachePage();
+  const bool opticalRead = scsiOpticalReadAfterToc();
   const bool largerNativeRejected = scsiRejectsNativeBlocksLargerThanCachePages();
   return ataOwnership && scsiResult && directResult && directOwnership && readRetireAdmission &&
-         retireReadRecheck && terminalPage && largerNativeRejected;
+         retireReadRecheck && terminalPage && opticalRead && largerNativeRejected;
 }
