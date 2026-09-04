@@ -1249,7 +1249,8 @@ void PerProcessorScheduler::commitUserReturnTerminalState() {
     if (!subsystem) {
       FATAL("Return-to-user process exit has no owning subsystem.");
     }
-    subsystem->exit(thread->takeDeferredProcessExitCode());
+    const Thread::DeferredProcessExit request = thread->takeDeferredProcessExit();
+    subsystem->exit(request.code, request.cause);
     FATAL("Subsystem::exit returned to a user-return boundary.");
   }
 }

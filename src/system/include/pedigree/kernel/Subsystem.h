@@ -49,6 +49,9 @@ class EXPORTED_PUBLIC Subsystem {
   /** Reason for kill() */
   enum KillReason { Interrupted = 0, Terminated = 1, Unknown = 255 };
 
+  /** How a process reached its terminal state. */
+  enum class ExitCause { Normal, Signal };
+
   /** Type of exception.
    * This is passed to the subsystem when a Thread throws an exception,
    * which allows subsystem-specific behaviour to be performed.
@@ -98,7 +101,7 @@ class EXPORTED_PUBLIC Subsystem {
   virtual void release();
 
   /** Need to exit this process. */
-  virtual void exit(int code) = 0;
+  virtual void exit(int code, ExitCause cause = ExitCause::Normal) = 0;
 
   /**
    * A thread (or process, depending on implementation) needs to be killed!

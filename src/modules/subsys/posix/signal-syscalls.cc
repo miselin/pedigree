@@ -52,20 +52,20 @@ static int doThreadKill(Thread* p, int sig);
 
 /// \todo These are ok initially, but it'll all have to change at some point
 
-#define SIGNAL_HANDLER_EXIT(name, errcode)                                  \
-  static void name(int) {                                                   \
-    Processor::information().getCurrentThread()->deferProcessExit(errcode); \
+#define SIGNAL_HANDLER_EXIT(name, errcode)                                 \
+  static void name(int) {                                                  \
+    Processor::information().getCurrentThread()->deferSignalExit(errcode); \
   }
 #define SIGNAL_HANDLER_EMPTY(name) \
   static void name(int s) {        \
     NOTICE("EMPTY handler.");      \
   }
-#define SIGNAL_HANDLER_EXITMSG(name, errcode, msg)                          \
-  static void name(int) {                                                   \
-    Processor::setInterrupts(true);                                         \
-    posix_write(1, msg, StringLength(msg), true);                           \
-    Scheduler::instance().yield();                                          \
-    Processor::information().getCurrentThread()->deferProcessExit(errcode); \
+#define SIGNAL_HANDLER_EXITMSG(name, errcode, msg)                         \
+  static void name(int) {                                                  \
+    Processor::setInterrupts(true);                                        \
+    posix_write(1, msg, StringLength(msg), true);                          \
+    Scheduler::instance().yield();                                         \
+    Processor::information().getCurrentThread()->deferSignalExit(errcode); \
   }
 #define SIGNAL_HANDLER_SUSPEND(name)                                             \
   static void name(int s) {                                                      \
@@ -97,50 +97,59 @@ SIGNAL_HANDLER_EXIT(sigkill, SIGKILL)
 SIGNAL_HANDLER_EXIT(sigpipe, SIGPIPE)
 SIGNAL_HANDLER_EXIT(sigquit, SIGQUIT)
 SIGNAL_HANDLER_EXITMSG(sigsegv, SIGSEGV, SSIGSEGV)
+SIGNAL_HANDLER_EXIT(sigstkflt, SIGSTKFLT)
 SIGNAL_HANDLER_SUSPEND(sigstop)
 SIGNAL_HANDLER_EXIT(sigterm, SIGTERM)
+SIGNAL_HANDLER_EXIT(sigtrap, SIGTRAP)
 SIGNAL_HANDLER_SUSPEND(sigtstp)  // terminal stop
 SIGNAL_HANDLER_SUSPEND(sigttin)  // background process attempts read
 SIGNAL_HANDLER_SUSPEND(sigttou)  // background process attempts write
-SIGNAL_HANDLER_EMPTY(sigusr1)
-SIGNAL_HANDLER_EMPTY(sigusr2)
+SIGNAL_HANDLER_EXIT(sigusr1, SIGUSR1)
+SIGNAL_HANDLER_EXIT(sigusr2, SIGUSR2)
 SIGNAL_HANDLER_EMPTY(sigurg)  // high bandwdith data available at a sockeet
+SIGNAL_HANDLER_EXIT(sigxcpu, SIGXCPU)
+SIGNAL_HANDLER_EXIT(sigxfsz, SIGXFSZ)
+SIGNAL_HANDLER_EXIT(sigvtalrm, SIGVTALRM)
+SIGNAL_HANDLER_EXIT(sigprof, SIGPROF)
+SIGNAL_HANDLER_EXIT(sigio, SIGIO)
+SIGNAL_HANDLER_EXIT(sigpwr, SIGPWR)
+SIGNAL_HANDLER_EXIT(sigsys, SIGSYS)
 
 SIGNAL_HANDLER_EMPTY(sigign);
 
 static _sig_func_ptr default_sig_handlers[32] = {
-    sigign,   // 0
-    sighup,   // SIGHUP
-    sigint,   // SIGINT
-    sigquit,  // SIGQUIT
-    sigill,   // SIGILL
-    sigign,   // SIGTRAP
-    sigabrt,  // SIGABRT
-    sigbus,   // SIGBUS
-    sigfpe,   // SIGFPE
-    sigkill,  // SIGKILL
-    sigusr1,  // SIGUSR1
-    sigsegv,  // SIGSEGV
-    sigusr2,  // SIGUSR2
-    sigpipe,  // SIGPIPE
-    sigalrm,  // SIGALRM
-    sigterm,  // SIGTERM
-    sigign,   // SIGSTKFLT
-    sigchld,  // SIGCHLD
-    sigcont,  // SIGCONT
-    sigstop,  // SIGSTOP
-    sigtstp,  // SIGTSTP
-    sigttin,  // SIGTTIN
-    sigttou,  // SIGTTOU
-    sigurg,   // SIGURG
-    sigign,   // SIGXCPU
-    sigign,   // SIGXFSZ
-    sigign,   // SIGVTALRM
-    sigign,   // SIGWINCH
-    sigign,   // SIGIO
-    sigign,   // SIGPOLL
-    sigign,   // SIGPWR
-    sigign,   // SIGSYS
+    sigign,     // 0
+    sighup,     // SIGHUP
+    sigint,     // SIGINT
+    sigquit,    // SIGQUIT
+    sigill,     // SIGILL
+    sigtrap,    // SIGTRAP
+    sigabrt,    // SIGABRT
+    sigbus,     // SIGBUS
+    sigfpe,     // SIGFPE
+    sigkill,    // SIGKILL
+    sigusr1,    // SIGUSR1
+    sigsegv,    // SIGSEGV
+    sigusr2,    // SIGUSR2
+    sigpipe,    // SIGPIPE
+    sigalrm,    // SIGALRM
+    sigterm,    // SIGTERM
+    sigstkflt,  // SIGSTKFLT
+    sigchld,    // SIGCHLD
+    sigcont,    // SIGCONT
+    sigstop,    // SIGSTOP
+    sigtstp,    // SIGTSTP
+    sigttin,    // SIGTTIN
+    sigttou,    // SIGTTOU
+    sigurg,     // SIGURG
+    sigxcpu,    // SIGXCPU
+    sigxfsz,    // SIGXFSZ
+    sigvtalrm,  // SIGVTALRM
+    sigprof,    // SIGPROF
+    sigign,     // SIGWINCH
+    sigio,      // SIGIO/SIGPOLL
+    sigpwr,     // SIGPWR
+    sigsys,     // SIGSYS
 };
 
 static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sigaction* oact) {

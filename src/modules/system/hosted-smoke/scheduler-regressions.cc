@@ -440,12 +440,12 @@ class SchedulerExitSubsystem : public Subsystem {
   explicit SchedulerExitSubsystem(SchedulerExitContext& context)
       : Subsystem(None), m_Context(context) {}
 
-  void exit(int code) override {
+  void exit(int code, ExitCause cause) override {
     Thread* current = Processor::information().getCurrentThread();
     if (code != DeferredTimerExitCode || current != m_Context.target || m_Context.eventCalls != 1 ||
         !Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
         current->getHostedSignalDepth() ||
-        current->currentTimeAccountingMode() != CpuTimeMode::Kernel) {
+        current->currentTimeAccountingMode() != CpuTimeMode::Kernel || cause != ExitCause::Normal) {
       m_Context.failures += 1;
     }
     m_Context.exitCalls += 1;

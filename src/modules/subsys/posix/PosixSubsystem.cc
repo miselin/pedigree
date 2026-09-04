@@ -584,7 +584,7 @@ PosixSubsystem::UserStringResult PosixSubsystem::copyUserString(const char* user
   return UserStringTooLong;
 }
 
-void PosixSubsystem::exit(int code) {
+void PosixSubsystem::exit(int code, ExitCause cause) {
   if (!Processor::getInterrupts() || Processor::inDeviceHardIrq()) {
     FATAL_NOLOCK(
         "PosixSubsystem::exit requires an IRQ-enabled thread "
@@ -602,10 +602,11 @@ void PosixSubsystem::exit(int code) {
     Processor::information().getScheduler().commitCurrentThreadExit();
   }
 
-  if (pProcess->getExitStatus() == 0 ||     // Normal exit.
-      pProcess->getExitStatus() == 0x7F ||  // Suspended.
-      pProcess->getExitStatus() == 0xFF)    // Continued.
+  if (cause == ExitCause::Signal) {
+    pProcess->setExitStatus(code & 0x7F);
+  } else {
     pProcess->setExitStatus((code & 0xFF) << 8);
+  }
   if (code) {
     pThread->unexpectedExit();
   }
@@ -828,7 +829,7 @@ void PosixSubsystem::threadException(Thread* pThread, ExceptionType eType, Inter
         // The raw exception frame still owns interrupt accounting and
         // handler cleanup. Preserve the fatal status and let the
         // return-to-user tail enter process teardown after it unwinds.
-        pThread->deferProcessExit(128 + SIGSEGV);
+        pThread->deferSignalExit(SIGSEGV);
         return;
       }
     }

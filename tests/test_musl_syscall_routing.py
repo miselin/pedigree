@@ -579,6 +579,12 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         signal_source = (
             ROOT / "src/modules/subsys/posix/linux-amd64-signal.cc"
         ).read_text(encoding="utf-8")
+        bad_frame = signal_source.split("void badFrame()", 1)[1].split(
+            "}", 1
+        )[0]
+        self.assertIn("deferSignalExit(SIGSEGV)", bad_frame)
+        self.assertNotIn("requestProcessExit", bad_frame)
+
         delivery = signal_source.split(
             "LinuxAmd64Signal::DeliveryResult LinuxAmd64Signal::deliverSynchronous",
             1,

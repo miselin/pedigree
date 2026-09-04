@@ -99,9 +99,30 @@ static void test_signal_return(void) {
   status("OK");
 }
 
+static void test_default_signal_termination(void) {
+  status("Testing default signal termination status...");
+
+  pid_t child = fork();
+  if (child < 0)
+    fail();
+  if (!child) {
+    if (signal(SIGUSR1, SIG_DFL) == SIG_ERR || kill(getpid(), SIGUSR1))
+      _exit(126);
+    _exit(127);
+  }
+
+  int statusCode = 0;
+  if (waitpid(child, &statusCode, 0) != child || !WIFSIGNALED(statusCode) ||
+      WTERMSIG(statusCode) != SIGUSR1)
+    fail();
+
+  status("OK");
+}
+
 void test_process(void) {
   printf("Testing process compatibility...\n");
   test_proc_self_fd();
   test_vfork();
   test_signal_return();
+  test_default_signal_termination();
 }

@@ -154,9 +154,7 @@ uintptr_t signalAddress(Subsystem::ExceptionType exception, const InterruptState
 }
 
 void badFrame() {
-  if (!SyscallManager::instance().requestProcessExit(128 + SIGSEGV)) {
-    FATAL("Invalid signal frame exit was not dispatched.");
-  }
+  Processor::information().getCurrentThread()->deferSignalExit(SIGSEGV);
 }
 }  // namespace
 

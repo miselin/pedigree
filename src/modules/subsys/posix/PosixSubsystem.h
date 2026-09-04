@@ -376,7 +376,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
     return ret;
   }
 
-  void exit(int code) NORETURN;
+  void exit(int code, ExitCause cause = ExitCause::Normal) NORETURN;
 
   /** Copies file descriptors from another subsystem */
   bool copyDescriptors(PosixSubsystem* pSubsystem);

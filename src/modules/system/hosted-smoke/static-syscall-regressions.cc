@@ -54,6 +54,7 @@ extern "C" void posixSetCloneBeforeStartHookForTest(void (*hook)(Thread*, size_t
 extern "C" unsigned int posixSelectProjectionForTest(short revents, bool checkRead, bool checkWrite,
                                                      bool checkExceptional);
 extern bool runHostedEventFdRegressions(Process* process);
+extern bool runHostedPosixExitStatusRegressions(Process* process);
 extern bool runHostedPpollRegressions(Process* process);
 extern bool runHostedPselectRegressions(Process* process);
 extern bool runHostedScalarIoRegressions(Process* process);
@@ -4723,6 +4724,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN sleep-clock-usercopy");
   if (!runHostedSleepClockSyscallRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN posix-exit-status");
+  if (!runHostedPosixExitStatusRegressions(kernelProcess)) {
     return false;
   }
 

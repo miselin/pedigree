@@ -20,6 +20,7 @@
 #ifndef THREAD_H
 #define THREAD_H
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/AtomicStateCleanup.h"
 #include "pedigree/kernel/process/DeferredScope.h"
@@ -381,8 +382,16 @@ class EXPORTED_PUBLIC Thread {
   /** Defers process exit, including its status, to a safe thread boundary. */
   void deferProcessExit(int code);
 
-  /** Claims the status attached to a deferred process exit. */
-  int takeDeferredProcessExitCode();
+  /** Defers signal-caused process exit to a safe thread boundary. */
+  void deferSignalExit(int signal);
+
+  struct DeferredProcessExit {
+    int code;
+    Subsystem::ExitCause cause;
+  };
+
+  /** Claims the status and cause attached to a deferred process exit. */
+  DeferredProcessExit takeDeferredProcessExit();
 
   /**
    * Publishes a synchronous userspace exception without taking locks or
@@ -972,6 +981,9 @@ class EXPORTED_PUBLIC Thread {
 
   /** Status preserved while Exit crosses nested/event/IRQ boundaries. */
   int m_DeferredProcessExitCode = 0;
+
+  /** Whether the deferred process exit was caused by a signal. */
+  bool m_bDeferredProcessExitBySignal = false;
 
   /** Empty, publishing, or pending state for the preallocated exception. */
   size_t m_DeferredSubsystemExceptionState = 0;

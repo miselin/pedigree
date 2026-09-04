@@ -51,6 +51,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
   bool exitCurrentProcess = false;
   bool rebootSystem = false;
   int processExitCode = 0;
+  Subsystem::ExitCause processExitCause = Subsystem::ExitCause::Normal;
   {
     TimeTracker tracker(0, true);
 #if TIME_SYSCALLS
@@ -154,7 +155,9 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
         if (unwindState == Thread::Exit) {
           NOTICE("Unwind state exit, in interrupt handler");
           exitCurrentProcess = true;
-          processExitCode = pThread->takeDeferredProcessExitCode();
+          const Thread::DeferredProcessExit request = pThread->takeDeferredProcessExit();
+          processExitCode = request.code;
+          processExitCause = request.cause;
         }
       }
     }
@@ -180,7 +183,8 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     return;
   }
   if (exitCurrentProcess) {
-    Processor::information().getCurrentThread()->getParent()->getSubsystem()->exit(processExitCode);
+    Processor::information().getCurrentThread()->getParent()->getSubsystem()->exit(
+        processExitCode, processExitCause);
   }
   if (commitThreadExit) {
     Processor::information().getScheduler().commitCurrentThreadExit();

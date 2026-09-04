@@ -857,7 +857,8 @@ void Thread::threadExited() {
     if (!subsystem) {
       FATAL("Kernel thread root reached process exit without a subsystem.");
     }
-    subsystem->exit(thread->takeDeferredProcessExitCode());
+    const DeferredProcessExit request = thread->takeDeferredProcessExit();
+    subsystem->exit(request.code, request.cause);
     FATAL("Subsystem::exit returned to a kernel thread root.");
   }
 
@@ -2751,12 +2752,26 @@ Thread::UnwindType Thread::getUnwindState() {
 }
 
 void Thread::deferProcessExit(int code) {
+  // A Thread stages its own request. Publishing Exit is the release that
+  // makes both fields visible to the boundary's acquire load.
   __atomic_store_n(&m_DeferredProcessExitCode, code, __ATOMIC_RELEASE);
+  __atomic_store_n(&m_bDeferredProcessExitBySignal, false, __ATOMIC_RELEASE);
   setUnwindState(Exit);
 }
 
-int Thread::takeDeferredProcessExitCode() {
-  return __atomic_exchange_n(&m_DeferredProcessExitCode, 0, __ATOMIC_ACQ_REL);
+void Thread::deferSignalExit(int signal) {
+  __atomic_store_n(&m_DeferredProcessExitCode, signal, __ATOMIC_RELEASE);
+  __atomic_store_n(&m_bDeferredProcessExitBySignal, true, __ATOMIC_RELEASE);
+  setUnwindState(Exit);
+}
+
+Thread::DeferredProcessExit Thread::takeDeferredProcessExit() {
+  DeferredProcessExit request = {
+      __atomic_exchange_n(&m_DeferredProcessExitCode, 0, __ATOMIC_ACQ_REL),
+      __atomic_exchange_n(&m_bDeferredProcessExitBySignal, false, __ATOMIC_ACQ_REL)
+          ? Subsystem::ExitCause::Signal
+          : Subsystem::ExitCause::Normal};
+  return request;
 }
 
 bool Thread::deferSubsystemException(size_t type, uintptr_t faultAddress, uintptr_t errorCode) {
