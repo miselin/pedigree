@@ -80,6 +80,11 @@
 #define ARCH_SET_FS 0x1002
 #define ARCH_GET_FS 0x1003
 
+// Linux prctl operations used by musl's current-thread naming helpers.
+#define LINUX_PR_SET_NAME 15
+#define LINUX_PR_GET_NAME 16
+#define LINUX_TASK_NAME_LENGTH 16
+
 // capget/capset
 #define _LINUX_CAPABILITY_VERSION_1 0x19980330
 
@@ -1470,7 +1475,42 @@ int posix_uname(struct utsname* n) {
 int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {
   NOTICE("prctl(" << Hex << option << ", " << arg2 << ", " << arg3 << ", " << arg4 << ", " << arg5
                   << ")");
-  return 0;
+
+  Thread* thread = Processor::information().getCurrentThread();
+  if (option == LINUX_PR_SET_NAME) {
+    String requested;
+    const PosixSubsystem::UserStringResult result = PosixSubsystem::copyUserString(
+        reinterpret_cast<const char*>(arg2), requested, LINUX_TASK_NAME_LENGTH);
+    if (result == PosixSubsystem::UserStringBadAddress) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+
+    // Linux task names are a 16-byte field including the terminator. Direct
+    // prctl callers are truncated; pthread_setname_np applies its own ERANGE.
+    const size_t length = requested.length() < (LINUX_TASK_NAME_LENGTH - 1)
+                              ? requested.length()
+                              : (LINUX_TASK_NAME_LENGTH - 1);
+    thread->setName(String(requested.cstr(), length, true));
+    return 0;
+  }
+
+  if (option == LINUX_PR_GET_NAME) {
+    char name[LINUX_TASK_NAME_LENGTH] = {};
+    const String& current = thread->getName();
+    const size_t length = current.length() < (LINUX_TASK_NAME_LENGTH - 1)
+                              ? current.length()
+                              : (LINUX_TASK_NAME_LENGTH - 1);
+    MemoryCopy(name, current.cstr(), length);
+    if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(arg2), name, sizeof(name))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    return 0;
+  }
+
+  SYSCALL_ERROR(InvalidArgument);
+  return -1;
 }
 
 int posix_arch_prctl(int code, unsigned long addr) {

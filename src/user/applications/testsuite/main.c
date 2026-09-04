@@ -24,6 +24,7 @@
 
 extern void test_mprotect();
 extern void test_mmap();
+extern void test_prctl(void);
 extern void test_fs();
 extern void test_dup3(void);
 extern int exec_shebang_child(int argc, char* argv[]);
@@ -73,12 +74,17 @@ int main(int argc, char* argv[]) {
     test_mmap();
     return 0;
   }
+  if (argc == 2 && !strcmp(argv[1], "--prctl")) {
+    test_prctl();
+    return 0;
+  }
 
   printf("Running tests...\n");
 
   // Add calls to test functions here...
   test_mmap();
   test_mprotect();
+  test_prctl();
   test_exec_shebang(argv[0]);
   test_process(argv[0]);
   test_dup3();

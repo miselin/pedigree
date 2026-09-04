@@ -19,6 +19,7 @@
 #include "modules/subsys/posix/linux-resource-abi.h"
 #include "modules/subsys/posix/system-syscalls.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include <sys/prctl.h>
 #include <sys/resource.h>
 
 namespace {
@@ -125,6 +126,28 @@ int resourceSyscallWorker(void* parameter) {
   thread->setErrno(0);
   passed &= posix_membarrier(0, 1, 0) == -1 && thread->getErrno() == Error::InvalidArgument;
 
+  char* requestedName = reinterpret_cast<char*>(address + 256);
+  char* returnedName = reinterpret_cast<char*>(address + 320);
+  StringCopy(requestedName, "0123456789abcdef-long");
+  ByteSet(returnedName, 0xA5, 16);
+  const String originalName = thread->getName();
+  thread->setErrno(PreservedErrno);
+  passed &= posix_prctl(PR_SET_NAME, reinterpret_cast<uint64_t>(requestedName), 0, 0, 0) == 0 &&
+            thread->getName().compare("0123456789abcde") && thread->getErrno() == PreservedErrno;
+  thread->setErrno(PreservedErrno);
+  passed &= posix_prctl(PR_GET_NAME, reinterpret_cast<uint64_t>(returnedName), 0, 0, 0) == 0 &&
+            !MemoryCompare(returnedName, "0123456789abcde", 15) && !returnedName[15] &&
+            thread->getErrno() == PreservedErrno;
+  thread->setErrno(0);
+  passed &= posix_prctl(-1, 0, 0, 0, 0) == -1 && thread->getErrno() == Error::InvalidArgument;
+  thread->setErrno(0);
+  passed &= posix_prctl(PR_SET_NAME, kernelStart, 0, 0, 0) == -1 &&
+            thread->getErrno() == Error::BadAddress && thread->getName().compare("0123456789abcde");
+  thread->setErrno(0);
+  passed &= posix_prctl(PR_GET_NAME, kernelStart, 0, 0, 0) == -1 &&
+            thread->getErrno() == Error::BadAddress;
+  thread->setName(originalName);
+
   MemoryMapManager::instance().remove(address, pageSize);
   context->process->getSpaceAllocator().free(address, pageSize);
   context->passed = passed;
@@ -154,7 +177,7 @@ bool resourceSyscallSemantics(Process* kernelProcess) {
   if (!passed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL resource-syscall-semantics: "
-        "query, fail-closed mutation, usercopy, or membarrier capability regressed");
+        "query, fail-closed mutation, usercopy, membarrier, or prctl names regressed");
     return false;
   }
 

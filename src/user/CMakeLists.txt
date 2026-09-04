@@ -161,6 +161,7 @@ pedigree_app(testsuite ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/fs.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/mmap.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/mprotect.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/prctl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/process.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/scm-rights.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/scm-rights-stream.c)
