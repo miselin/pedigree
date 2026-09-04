@@ -17,9 +17,11 @@
 
 #include <arpa/inet.h>
 #include <pedigree/log.h>
+#include <sys/epoll.h>
 #include <sys/reboot.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 
 struct loopback_server {
   int listener;
@@ -354,6 +356,150 @@ static int run_loopback_test(void) {
   return 0;
 }
 
+static int run_udp_message_test(void) {
+  int result = 0;
+  int server = -1;
+  int client = -1;
+  int epoll_descriptor = -1;
+  struct sockaddr_in server_address;
+  struct sockaddr_in client_address;
+  socklen_t server_address_length = sizeof(server_address);
+  socklen_t client_address_length = sizeof(client_address);
+
+  memset(&server_address, 0, sizeof(server_address));
+  server_address.sin_family = AF_INET;
+  server_address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  server = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+  if (server < 0 || bind(server, (struct sockaddr*)&server_address, sizeof(server_address)) ||
+      getsockname(server, (struct sockaddr*)&server_address, &server_address_length) ||
+      server_address_length != sizeof(server_address) || !server_address.sin_port) {
+    result = 40;
+    goto out;
+  }
+
+  memset(&client_address, 0, sizeof(client_address));
+  client_address.sin_family = AF_INET;
+  client_address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  client = socket(AF_INET, SOCK_DGRAM, 0);
+  if (client < 0 || bind(client, (struct sockaddr*)&client_address, sizeof(client_address)) ||
+      getsockname(client, (struct sockaddr*)&client_address, &client_address_length) ||
+      client_address_length != sizeof(client_address) || !client_address.sin_port) {
+    result = 41;
+    goto out;
+  }
+
+  epoll_descriptor = epoll_create1(EPOLL_CLOEXEC);
+  struct epoll_event watch;
+  memset(&watch, 0, sizeof(watch));
+  watch.events = EPOLLIN | EPOLLET;
+  watch.data.fd = server;
+  if (epoll_descriptor < 0 || epoll_ctl(epoll_descriptor, EPOLL_CTL_ADD, server, &watch)) {
+    result = 42;
+    goto out;
+  }
+
+  const uint8_t first_prefix[] = {0x10, 0x11};
+  const uint8_t first_suffix[] = {0x12, 0x13, 0x14, 0x15};
+  struct iovec outgoing_vectors[2] = {
+      {(void*)first_prefix, sizeof(first_prefix)},
+      {(void*)first_suffix, sizeof(first_suffix)},
+  };
+  struct msghdr outgoing;
+  memset(&outgoing, 0, sizeof(outgoing));
+  outgoing.msg_name = &server_address;
+  outgoing.msg_namelen = server_address_length;
+  outgoing.msg_iov = outgoing_vectors;
+  outgoing.msg_iovlen = 2;
+  if (sendmsg(client, &outgoing, 0) != (ssize_t)(sizeof(first_prefix) + sizeof(first_suffix))) {
+    result = 43;
+    goto out;
+  }
+
+  struct epoll_event ready;
+  memset(&ready, 0, sizeof(ready));
+  if (epoll_wait(epoll_descriptor, &ready, 1, 1000) != 1 || !(ready.events & EPOLLIN) ||
+      ready.data.fd != server) {
+    result = 44;
+    goto out;
+  }
+
+  uint8_t first_received[3] = {0};
+  struct iovec incoming_vectors[2] = {
+      {&first_received[0], 2},
+      {&first_received[2], 1},
+  };
+  struct sockaddr_in first_source;
+  memset(&first_source, 0, sizeof(first_source));
+  struct msghdr incoming;
+  memset(&incoming, 0, sizeof(incoming));
+  incoming.msg_name = &first_source;
+  incoming.msg_namelen = sizeof(first_source);
+  incoming.msg_iov = incoming_vectors;
+  incoming.msg_iovlen = 2;
+  if (recvmsg(server, &incoming, 0) != (ssize_t)sizeof(first_received) ||
+      memcmp(first_received, first_prefix, sizeof(first_prefix)) || first_received[2] != 0x12 ||
+      !(incoming.msg_flags & MSG_TRUNC) || incoming.msg_namelen != sizeof(first_source) ||
+      first_source.sin_family != AF_INET || first_source.sin_port != client_address.sin_port ||
+      first_source.sin_addr.s_addr != client_address.sin_addr.s_addr) {
+    result = 45;
+    goto out;
+  }
+
+  uint8_t extra = 0;
+  errno = 0;
+  if (recvfrom(server, &extra, sizeof(extra), 0, 0, 0) != -1 || errno != EAGAIN ||
+      epoll_wait(epoll_descriptor, &ready, 1, 0) != 0) {
+    result = 46;
+    goto out;
+  }
+
+  const uint8_t second_payload[] = {0x20, 0x21, 0x22, 0x23, 0x24};
+  if (sendto(client, second_payload, sizeof(second_payload), 0, (struct sockaddr*)&server_address,
+             server_address_length) != (ssize_t)sizeof(second_payload)) {
+    result = 47;
+    goto out;
+  }
+  memset(&ready, 0, sizeof(ready));
+  if (epoll_wait(epoll_descriptor, &ready, 1, 1000) != 1 || !(ready.events & EPOLLIN) ||
+      ready.data.fd != server) {
+    result = 48;
+    goto out;
+  }
+
+  uint8_t second_received[2] = {0};
+  struct sockaddr_in second_source;
+  memset(&second_source, 0, sizeof(second_source));
+  socklen_t second_source_length = sizeof(second_source);
+  if (recvfrom(server, second_received, sizeof(second_received), MSG_TRUNC,
+               (struct sockaddr*)&second_source,
+               &second_source_length) != (ssize_t)sizeof(second_payload) ||
+      memcmp(second_received, second_payload, sizeof(second_received)) ||
+      second_source_length != sizeof(second_source) || second_source.sin_family != AF_INET ||
+      second_source.sin_port != client_address.sin_port ||
+      second_source.sin_addr.s_addr != client_address.sin_addr.s_addr) {
+    result = 49;
+    goto out;
+  }
+
+  errno = 0;
+  if (recvfrom(server, &extra, sizeof(extra), 0, 0, 0) != -1 || errno != EAGAIN ||
+      epoll_wait(epoll_descriptor, &ready, 1, 0) != 0) {
+    result = 50;
+  }
+
+out:
+  if (epoll_descriptor >= 0) {
+    close(epoll_descriptor);
+  }
+  if (client >= 0) {
+    close(client);
+  }
+  if (server >= 0) {
+    close(server);
+  }
+  return result;
+}
+
 int main(int argc, char** argv) {
   const char* stage = argc > 1 ? argv[1] : "shutdown";
 
@@ -382,6 +528,16 @@ int main(int argc, char** argv) {
                    loopback_result, errno);
     } else {
       pedigree_log(LOG_INFO, "HOSTED-SMOKE: PASS posix-lwip-loopback-roundtrip");
+    }
+
+    const int udp_result = run_udp_message_test();
+    if (udp_result) {
+      pedigree_log(LOG_ERR,
+                   "HOSTED-SMOKE: FAIL posix-lwip-udp-message-semantics: %d "
+                   "(errno %d)",
+                   udp_result, errno);
+    } else {
+      pedigree_log(LOG_INFO, "HOSTED-SMOKE: PASS posix-lwip-udp-message-semantics");
     }
   }
   if (!strcmp(stage, "shutdown")) {

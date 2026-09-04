@@ -89,6 +89,11 @@ bool validateSocketMessageFlags(int flags, bool sending) {
 #else
   (void)sending;
 #endif
+#ifdef MSG_TRUNC
+  if (!sending) {
+    supported |= MSG_TRUNC;
+  }
+#endif
 
   if (flags & ~supported) {
     SYSCALL_ERROR(OperationNotSupported);
@@ -486,12 +491,20 @@ ssize_t posix_sendto(int sock, const void* buff, size_t bufflen, int flags,
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-  if (address && (addrlen < sizeof(sa_family_t) ||
-                  !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), addrlen,
-                                                PosixSubsystem::SafeRead))) {
-    N_NOTICE("sendto -> invalid destination address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
+  struct sockaddr_storage destination = {};
+  const struct sockaddr_storage* destinationAddress = nullptr;
+  if (address) {
+    if (addrlen < sizeof(sa_family_t) || addrlen > sizeof(destination)) {
+      N_NOTICE("sendto -> invalid destination address length");
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    if (!PosixSubsystem::copyFromUser(&destination, address, addrlen)) {
+      N_NOTICE("sendto -> invalid destination address");
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    destinationAddress = &destination;
   }
 
   N_NOTICE("sendto(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ", " << address
@@ -512,7 +525,7 @@ ssize_t posix_sendto(int sock, const void* buff, size_t bufflen, int flags,
   }
 
   Thread* thread = beginInterruptibleSocketCall();
-  const ssize_t result = f->networkImpl->sendto(buff, bufflen, flags, address, addrlen);
+  const ssize_t result = f->networkImpl->sendto(buff, bufflen, flags, destinationAddress, addrlen);
   return finishInterruptibleSocketCall(thread, result) ? result : -1;
 }
 
@@ -578,16 +591,33 @@ ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
     return -1;
   }
 
-  if (!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen,
-                                     PosixSubsystem::SafeWrite) &&
-        ((!address) ||
-         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(addrlen), sizeof(socklen_t),
-                                      PosixSubsystem::SafeWrite)))) {
-    N_NOTICE(
-        "recvfrom -> invalid address for receive buffer or addrlen "
-        "parameter");
+  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen,
+                                    PosixSubsystem::SafeWrite)) {
+    N_NOTICE("recvfrom -> invalid receive buffer");
     SYSCALL_ERROR(InvalidArgument);
     return -1;
+  }
+
+  struct sockaddr_storage source = {};
+  struct sockaddr_storage* sourceAddress = nullptr;
+  socklen_t sourceCapacity = 0;
+  if (address) {
+    if (!PosixSubsystem::copyFromUser(&sourceCapacity, addrlen, sizeof(sourceCapacity))) {
+      N_NOTICE("recvfrom -> invalid source address length");
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+
+    const size_t checkedCapacity =
+        sourceCapacity < sizeof(source) ? sourceCapacity : sizeof(source);
+    if (checkedCapacity &&
+        !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), checkedCapacity,
+                                      PosixSubsystem::SafeWrite)) {
+      N_NOTICE("recvfrom -> invalid source address buffer");
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    sourceAddress = &source;
   }
 
   N_NOTICE("recvfrom(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ", "
@@ -600,9 +630,26 @@ ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
   }
 
   Thread* thread = beginInterruptibleSocketCall();
-  ssize_t n = f->networkImpl->recvfrom(buff, bufflen, flags, address, addrlen);
+  socklen_t sourceLength = sourceCapacity;
+  ssize_t n = f->networkImpl->recvfrom(buff, bufflen, flags, sourceAddress,
+                                       sourceAddress ? &sourceLength : nullptr);
   if (!finishInterruptibleSocketCall(thread, n)) {
     return -1;
+  }
+
+  if (n >= 0 && sourceAddress) {
+    size_t copyLength = sourceLength;
+    if (copyLength > sourceCapacity) {
+      copyLength = sourceCapacity;
+    }
+    if (copyLength > sizeof(source)) {
+      copyLength = sizeof(source);
+    }
+    if ((copyLength && !PosixSubsystem::copyToUser(address, &source, copyLength)) ||
+        !PosixSubsystem::copyToUser(addrlen, &sourceLength, sizeof(sourceLength))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
   }
 
   EMIT_IF(LOG_SEND_RECV_BUFFERS) {
@@ -1361,14 +1408,38 @@ int LwipSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
 
 ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
   err_t err;
+  const bool tcp = NETCONNTYPE_GROUP(m_Socket->type) == NETCONN_TCP;
+  ip_addr_t destination = {};
+  uint16_t destinationPort = 0;
+  bool hasDestination = false;
 
   if (msghdr->msg_name) {
-    /// \todo need to build this - but netconn_sendto() requires a netbuf
-    SYSCALL_ERROR(Unimplemented);
-    return -1;
+    // Preserve the existing connected-stream behavior while enabling the
+    // destination-bearing datagram path.
+    if (tcp) {
+      SYSCALL_ERROR(Unimplemented);
+      return -1;
+    }
+    if (m_Domain != AF_INET) {
+      SYSCALL_ERROR(OperationNotSupported);
+      return -1;
+    }
+    if (msghdr->msg_namelen < sizeof(struct sockaddr_in)) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+
+    const struct sockaddr_storage* address =
+        reinterpret_cast<const struct sockaddr_storage*>(msghdr->msg_name);
+    err = sockaddrToIpaddr(address, destinationPort, &destination, false);
+    if (err != ERR_OK) {
+      lwipToSyscallError(err);
+      return -1;
+    }
+    hasDestination = true;
   }
 
-  if (NETCONNTYPE_GROUP(m_Socket->type) == NETCONN_TCP) {
+  if (tcp) {
     bool hasPayload = false;
     for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
       if (msghdr->msg_iov[i].iov_len) {
@@ -1396,7 +1467,7 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
   size_t bytesWritten = 0;
   bool ok = true;
 
-  if (NETCONNTYPE_GROUP(m_Socket->type) == NETCONN_TCP) {
+  if (tcp) {
     for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
       void* buffer = msghdr->msg_iov[i].iov_base;
       size_t bufferlen = msghdr->msg_iov[i].iov_len;
@@ -1451,8 +1522,8 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
       }
     }
 
-    /// \todo implement sendto
-    err = netconn_send(m_Socket, buffer.get());
+    err = hasDestination ? netconn_sendto(m_Socket, buffer.get(), &destination, destinationPort)
+                         : netconn_send(m_Socket, buffer.get());
     if (err != ERR_OK) {
       lwipToSyscallError(err);
       ok = false;
@@ -1476,10 +1547,24 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
   // across lwIP calls because its callback takes that lock.
   ConstexprLockGuard<Mutex, THREADS> receiveGuard(m_ReceiveLock);
 
-  if (msghdr->msg_name) {
-    /// \todo need to build this - extract from the pbuf
+  const bool tcp = NETCONNTYPE_GROUP(netconn_type(m_Socket)) == NETCONN_TCP;
+  const int inputFlags = msghdr->msg_flags;
+  if ((inputFlags & MSG_TRUNC) && (tcp || m_Type != SOCK_DGRAM)) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return -1;
+  }
+  if (msghdr->msg_name && tcp) {
+    // Source address reporting for streams is unchanged by the UDP slice.
     SYSCALL_ERROR(Unimplemented);
     return -1;
+  }
+  if (msghdr->msg_name && m_Domain != AF_INET) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return -1;
+  }
+  msghdr->msg_flags = 0;
+  if (!msghdr->msg_name) {
+    msghdr->msg_namelen = 0;
   }
 
   // No data to read right now.
@@ -1520,7 +1605,7 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
 
     // No partial data present from a previous read. Read new data from
     // the socket.
-    if (NETCONNTYPE_GROUP(netconn_type(m_Socket)) == NETCONN_TCP) {
+    if (tcp) {
       err = netconn_recv_tcp_pbuf(m_Socket, &pb);
     } else {
       err = netconn_recv(m_Socket, &buf);
@@ -1577,19 +1662,36 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
     }
   }
 
+  const size_t packetLength = m_Metadata.pb->tot_len;
+  if (!tcp && msghdr->msg_name) {
+    const ip_addr_t* sourceAddress = netbuf_fromaddr(m_Metadata.buf);
+    const uint16_t sourcePort = netbuf_fromport(m_Metadata.buf);
+    struct sockaddr_in source = {};
+    source.sin_family = AF_INET;
+    source.sin_port = HOST_TO_BIG16(sourcePort);
+    source.sin_addr.s_addr = ip_addr_get_ip4_u32(sourceAddress);
+
+    const size_t addressCapacity = msghdr->msg_namelen;
+    const size_t addressLength =
+        addressCapacity < sizeof(source) ? addressCapacity : sizeof(source);
+    if (addressLength) {
+      MemoryCopy(msghdr->msg_name, &source, addressLength);
+    }
+    msghdr->msg_namelen = sizeof(source);
+  }
+
   size_t totalLen = 0;
   size_t readOffset = m_Metadata.offset;
   for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
     void* buffer = msghdr->msg_iov[i].iov_base;
     size_t bufferlen = msghdr->msg_iov[i].iov_len;
 
-    // now we read some things.
-    size_t finalPos = readOffset + bufferlen;
-    if (finalPos > m_Metadata.pb->tot_len) {
-      bufferlen = m_Metadata.pb->tot_len - readOffset;
-      if (!bufferlen) {
-        break;  // finished reading!
-      }
+    const size_t available = packetLength - readOffset;
+    if (bufferlen > available) {
+      bufferlen = available;
+    }
+    if (!bufferlen) {
+      break;
     }
 
     pbuf_copy_partial(m_Metadata.pb, buffer, bufferlen, readOffset);
@@ -1597,8 +1699,9 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
     readOffset += bufferlen;
   }
 
-  // partial read?
-  if (readOffset < m_Metadata.pb->tot_len) {
+  // TCP retains unread bytes as a stream cursor. Datagram reads consume one
+  // whole packet and report that the caller's scatter buffer was too short.
+  if (tcp && readOffset < packetLength) {
     ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
     m_Metadata.offset = readOffset;
   } else {
@@ -1614,6 +1717,10 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
       m_Metadata.partialRead = false;
     }
 
+    if (!tcp && readOffset < packetLength) {
+      msghdr->msg_flags |= MSG_TRUNC;
+    }
+
     if (completedBuffer) {
       netbuf_delete(completedBuffer);
     } else if (completedPacket) {
@@ -1627,6 +1734,9 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
   notifyReadiness(ReadyRead);
 
   N_NOTICE(" -> " << totalLen);
+  if (!tcp && (inputFlags & MSG_TRUNC) && totalLen < packetLength) {
+    return packetLength;
+  }
   return totalLen;
 }
 
@@ -2701,6 +2811,13 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
 }
 
 ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
+#ifdef MSG_TRUNC
+  if (msghdr->msg_flags & MSG_TRUNC) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return -1;
+  }
+#endif
+
   SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
   if (!local) {
     SYSCALL_ERROR(BadFileDescriptor);

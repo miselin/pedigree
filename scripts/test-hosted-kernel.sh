@@ -756,6 +756,8 @@ assert_marker \
     "$command_log" "HOSTED-SMOKE: PASS userspace-compute-preemption"
 assert_marker \
     "$command_log" "HOSTED-SMOKE: PASS posix-lwip-loopback-roundtrip"
+assert_marker \
+    "$command_log" "HOSTED-SMOKE: PASS posix-lwip-udp-message-semantics"
 reject_marker "$command_log" "HOSTED-SMOKE: requesting clean shutdown"
 assert_lifecycle "$command_log"
 
