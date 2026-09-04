@@ -237,6 +237,7 @@ bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t cP
     Region.m_VirtualAddress = reinterpret_cast<void*>(vAddress);
     Region.m_PhysicalAddress = start;
     Region.m_Size = cPages * PhysicalMemoryManager::getPageSize();
+    Region.m_bPageBacked = false;
     Region.setAnonymous(pageConstraints & PhysicalMemoryManager::anonymous);
     // Add to the list of memory-regions
     PhysicalMemoryManager::m_MemoryRegions.pushBack(&Region);
@@ -250,24 +251,36 @@ bool HostedPhysicalMemoryManager::allocateRegion(MemoryRegion& Region, size_t cP
       return false;
     }
 
-    uint32_t start = 0;
-    VirtualAddressSpace& virtualAddressSpace = Processor::information().getVirtualAddressSpace();
+    const bool virtualOnlyRegion = pageConstraints & virtualOnly;
+    if (!virtualOnlyRegion) {
+      VirtualAddressSpace& virtualAddressSpace = Processor::information().getVirtualAddressSpace();
 
-    // Map the physical memory into the allocated space
-    for (size_t i = 0; i < cPages; i++) {
-      physical_uintptr_t page = m_PageStack.allocate(pageConstraints);
-      if (virtualAddressSpace.map(
-              page, reinterpret_cast<void*>(vAddress + i * PhysicalMemoryManager::getPageSize()),
-              Flags) == false) {
-        WARNING("AllocateRegion: VirtualAddressSpace::map failed.");
-        return false;
+      // Map the physical memory into the allocated space.
+      for (size_t i = 0; i < cPages; i++) {
+        physical_uintptr_t page = allocatePage(pageConstraints & addressConstraints);
+        if (virtualAddressSpace.map(page, reinterpret_cast<void*>(vAddress + i * getPageSize()),
+                                    Flags) == false) {
+          freePage(page);
+          for (size_t mapped = 0; mapped < i; ++mapped) {
+            void* mappedAddress = reinterpret_cast<void*>(vAddress + mapped * getPageSize());
+            physical_uintptr_t mappedPage = 0;
+            size_t mappedFlags = 0;
+            virtualAddressSpace.getMapping(mappedAddress, mappedPage, mappedFlags);
+            virtualAddressSpace.unmap(mappedAddress);
+            freePage(mappedPage);
+          }
+          m_MemoryRegions.free(vAddress, cPages * getPageSize());
+          WARNING("AllocateRegion: VirtualAddressSpace::map failed.");
+          return false;
+        }
       }
     }
 
     // Set the memory-region's members
     Region.m_VirtualAddress = reinterpret_cast<void*>(vAddress);
-    Region.m_PhysicalAddress = start;
+    Region.m_PhysicalAddress = 0;
     Region.m_Size = cPages * PhysicalMemoryManager::getPageSize();
+    Region.m_bPageBacked = true;
     Region.setAnonymous(pageConstraints & PhysicalMemoryManager::anonymous);
 
     // Add to the list of memory-regions
@@ -386,26 +399,25 @@ void HostedPhysicalMemoryManager::unmapRegion(MemoryRegion* pRegion) {
       physical_uintptr_t phys = pRegion->physicalAddress();
       VirtualAddressSpace& virtualAddressSpace = VirtualAddressSpace::getKernelAddressSpace();
 
-      if (pRegion->getNonRamMemory()) {
+      if (pRegion->m_bPageBacked) {
+        // Non-contiguous and lazy virtual-only regions own individual pages,
+        // not one physical range beginning at m_PhysicalAddress.
+      } else if (pRegion->getNonRamMemory()) {
         if (!pRegion->getForced())
           m_PhysicalRanges.free(phys, pRegion->size());
       }
 
       for (size_t i = 0; i < cPages; i++) {
         void* vAddr = reinterpret_cast<void*>(start + i * PhysicalMemoryManager::getPageSize());
-        if (!virtualAddressSpace.isMapped(vAddr)) {
-          FATAL(
-              "Algorithmic error in "
-              "PhysicalMemoryManager::unmapRegion");
-        }
+        if (!virtualAddressSpace.isMapped(vAddr))
+          continue;  // Can happen with virtualOnly mappings.
         physical_uintptr_t pAddr;
         size_t flags;
         virtualAddressSpace.getMapping(vAddr, pAddr, flags);
 
-        if (!pRegion->getNonRamMemory() && pAddr > 0x1000000)
-          m_PageStack.free(pAddr, getPageSize());
-
         virtualAddressSpace.unmap(vAddr);
+        if (!pRegion->getNonRamMemory() && pRegion->m_bPageBacked)
+          freePage(pAddr);
       }
       m_MemoryRegions.free(start, pRegion->size());
       PhysicalMemoryManager::m_MemoryRegions.erase(it);
