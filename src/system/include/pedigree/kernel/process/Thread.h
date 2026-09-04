@@ -284,6 +284,19 @@ class EXPORTED_PUBLIC Thread {
   /** Current accounting owner; never used to classify interrupt origin. */
   CpuTimeMode currentTimeAccountingMode() const;
 
+  /** Gets CPU time charged specifically to this Thread. */
+  Time::Timestamp getUserTime() const {
+    return __atomic_load_n(&m_UserTime, __ATOMIC_ACQUIRE);
+  }
+  Time::Timestamp getKernelTime() const {
+    return __atomic_load_n(&m_KernelTime, __ATOMIC_ACQUIRE);
+  }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  /** Publishes a deterministic per-thread accounting batch without sampling a clock. */
+  void publishTimeAccountingForHostedTest(Time::Timestamp user, Time::Timestamp system);
+#endif
+
   void setParent(Process* p) {
     m_pParent = p;
   }
@@ -787,6 +800,9 @@ class EXPORTED_PUBLIC Thread {
   /** Assignment operator */
   Thread& operator=(const Thread&);
 
+  /** Adds one elapsed interval to this Thread and its Process aggregate. */
+  void publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed);
+
   /** Cleans up the given state level. */
   void cleanStateLevel(size_t level);
 
@@ -955,6 +971,10 @@ class EXPORTED_PUBLIC Thread {
 
   /** Per-thread baselines avoid cross-CPU corruption within one Process. */
   ThreadTimeAccounting m_TimeAccounting;
+
+  /** CPU time charged to this Thread, split by user and kernel mode. */
+  Time::Timestamp m_UserTime = 0;
+  Time::Timestamp m_KernelTime = 0;
 
   /** Mode owning time since the most recent accounting baseline. */
   size_t m_CurrentTimeAccountingMode = static_cast<size_t>(CpuTimeMode::Kernel);

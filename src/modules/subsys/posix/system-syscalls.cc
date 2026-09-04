@@ -77,6 +77,9 @@
 #include <sys/wait.h>
 
 #if X64 && !HOSTED
+static_assert(RUSAGE_SELF == 0, "musl RUSAGE_SELF selector changed");
+static_assert(RUSAGE_CHILDREN == -1, "musl RUSAGE_CHILDREN selector changed");
+static_assert(RUSAGE_THREAD == 1, "musl RUSAGE_THREAD selector changed");
 static_assert(offsetof(struct rusage, __reserved) == sizeof(LinuxRusage64),
               "musl rusage prefix no longer matches the Linux amd64 syscall ABI");
 static_assert(sizeof(struct rusage) == sizeof(LinuxRusage64) + 16 * sizeof(long),
@@ -856,16 +859,18 @@ clock_t posix_times(struct tms* tm) {
 int posix_getrusage(int who, struct rusage* r) {
   SC_NOTICE("getrusage who=" << who);
 
-  if (who != RUSAGE_SELF) {
-    SC_NOTICE("posix_getrusage -> non-RUSAGE_SELF not supported");
+  if (who != RUSAGE_SELF && who != RUSAGE_THREAD) {
+    SC_NOTICE("posix_getrusage -> unsupported selector");
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-
-  Time::Timestamp user = pProcess->getUserTime();
-  Time::Timestamp kernel = pProcess->getKernelTime();
+  Thread* currentThread = Processor::information().getCurrentThread();
+  Process* pProcess = currentThread->getParent();
+  const Time::Timestamp user =
+      who == RUSAGE_THREAD ? currentThread->getUserTime() : pProcess->getUserTime();
+  const Time::Timestamp kernel =
+      who == RUSAGE_THREAD ? currentThread->getKernelTime() : pProcess->getKernelTime();
 
   struct rusage result = {};
   result.ru_utime.tv_sec = user / Time::Multiplier::Second;
@@ -885,15 +890,18 @@ int posix_getrusage(int who, struct rusage* r) {
 int posix_linux_getrusage(int who, LinuxRusage64* r) {
   SC_NOTICE("Linux getrusage who=" << who);
 
-  if (who != RUSAGE_SELF) {
-    SC_NOTICE("posix_linux_getrusage -> non-RUSAGE_SELF not supported");
+  if (who != RUSAGE_SELF && who != RUSAGE_THREAD) {
+    SC_NOTICE("posix_linux_getrusage -> unsupported selector");
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
-  Process* pProcess = Processor::information().getCurrentThread()->getParent();
-  const Time::Timestamp user = pProcess->getUserTime();
-  const Time::Timestamp kernel = pProcess->getKernelTime();
+  Thread* currentThread = Processor::information().getCurrentThread();
+  Process* pProcess = currentThread->getParent();
+  const Time::Timestamp user =
+      who == RUSAGE_THREAD ? currentThread->getUserTime() : pProcess->getUserTime();
+  const Time::Timestamp kernel =
+      who == RUSAGE_THREAD ? currentThread->getKernelTime() : pProcess->getKernelTime();
 
   LinuxRusage64 result = {};
   result.userSeconds = user / Time::Multiplier::Second;

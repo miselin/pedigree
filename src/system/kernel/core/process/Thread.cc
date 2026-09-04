@@ -356,7 +356,7 @@ void Thread::trackTime(CpuTimeMode mode) {
   const Time::Timestamp elapsed =
       m_TimeAccounting.elapsed(mode, sample.timestamp, sample.processor);
   if (elapsed) {
-    m_pParent->publishTimeAccounting(mode, elapsed);
+    publishTimeAccounting(mode, elapsed);
   }
 }
 
@@ -367,7 +367,7 @@ void Thread::transitionTime(CpuTimeMode from, CpuTimeMode to) {
   m_TimeAccounting.record(to, sample.timestamp, sample.processor);
   __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
   if (elapsed) {
-    m_pParent->publishTimeAccounting(from, elapsed);
+    publishTimeAccounting(from, elapsed);
   }
 }
 
@@ -381,9 +381,22 @@ void Thread::transitionTimeAtInterruptReturn(CpuTimeMode from, CpuTimeMode to) {
   m_TimeAccounting.record(to, timestamp, processor);
   __atomic_store_n(&m_CurrentTimeAccountingMode, static_cast<size_t>(to), __ATOMIC_RELEASE);
   if (elapsed) {
-    m_pParent->publishTimeAccounting(from, elapsed);
+    publishTimeAccounting(from, elapsed);
   }
 }
+
+void Thread::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
+  Time::Timestamp* total = mode == CpuTimeMode::User ? &m_UserTime : &m_KernelTime;
+  __atomic_fetch_add(total, elapsed, __ATOMIC_RELAXED);
+  m_pParent->publishTimeAccounting(mode, elapsed);
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+void Thread::publishTimeAccountingForHostedTest(Time::Timestamp user, Time::Timestamp system) {
+  publishTimeAccounting(CpuTimeMode::User, user);
+  publishTimeAccounting(CpuTimeMode::Kernel, system);
+}
+#endif
 
 CpuTimeMode Thread::currentTimeAccountingMode() const {
   return static_cast<CpuTimeMode>(__atomic_load_n(&m_CurrentTimeAccountingMode, __ATOMIC_ACQUIRE));

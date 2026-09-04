@@ -28,6 +28,9 @@ struct linux_rusage_packet {
 };
 
 _Static_assert(sizeof(struct linux_rusage_abi) == 144, "Linux amd64 rusage ABI changed");
+_Static_assert(RUSAGE_SELF == 0, "musl RUSAGE_SELF selector changed");
+_Static_assert(RUSAGE_CHILDREN == -1, "musl RUSAGE_CHILDREN selector changed");
+_Static_assert(RUSAGE_THREAD == 1, "musl RUSAGE_THREAD selector changed");
 _Static_assert(offsetof(struct rusage, __reserved) == sizeof(struct linux_rusage_abi),
                "musl rusage prefix no longer matches the Linux syscall ABI");
 _Static_assert(sizeof(struct rusage) == sizeof(struct linux_rusage_abi) + 16 * sizeof(long),
@@ -62,6 +65,37 @@ void test_resource_accounting(void) {
       packet.usage.slots[1] < 0 || packet.usage.slots[1] >= 1000000 || packet.usage.slots[2] < 0 ||
       packet.usage.slots[3] < 0 || packet.usage.slots[3] >= 1000000)
     fail();
+  for (size_t i = 0; i < sizeof(packet.canary); ++i) {
+    if (packet.canary[i] != 0xA5)
+      fail();
+  }
+
+  struct rusage thread_usage;
+  memset(&thread_usage, 0xA5, sizeof(thread_usage));
+  if (getrusage(RUSAGE_THREAD, &thread_usage) || thread_usage.ru_utime.tv_sec < 0 ||
+      thread_usage.ru_utime.tv_usec < 0 || thread_usage.ru_utime.tv_usec >= 1000000 ||
+      thread_usage.ru_stime.tv_sec < 0 || thread_usage.ru_stime.tv_usec < 0 ||
+      thread_usage.ru_stime.tv_usec >= 1000000)
+    fail();
+  for (size_t i = offsetof(struct rusage, ru_maxrss); i < offsetof(struct rusage, __reserved);
+       ++i) {
+    if (((unsigned char*)&thread_usage)[i])
+      fail();
+  }
+  for (size_t i = offsetof(struct rusage, __reserved); i < sizeof(thread_usage); ++i) {
+    if (((unsigned char*)&thread_usage)[i] != 0xA5)
+      fail();
+  }
+
+  memset(&packet, 0xA5, sizeof(packet));
+  if (syscall(SYS_getrusage, RUSAGE_THREAD, packet.usage.slots) || packet.usage.slots[0] < 0 ||
+      packet.usage.slots[1] < 0 || packet.usage.slots[1] >= 1000000 || packet.usage.slots[2] < 0 ||
+      packet.usage.slots[3] < 0 || packet.usage.slots[3] >= 1000000)
+    fail();
+  for (size_t i = 4; i < 18; ++i) {
+    if (packet.usage.slots[i])
+      fail();
+  }
   for (size_t i = 0; i < sizeof(packet.canary); ++i) {
     if (packet.canary[i] != 0xA5)
       fail();
