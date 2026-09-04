@@ -24,6 +24,7 @@
 #include "modules/subsys/posix/IoEvent.h"
 #include "modules/subsys/posix/epoll-syscalls.h"
 #include "modules/subsys/posix/eventfd-syscalls.h"
+#include "modules/subsys/posix/inotify-syscalls.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
@@ -95,6 +96,7 @@ FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t
       file(newFile),
       networkImpl(nullptr),
       eventFdImpl(nullptr),
+      inotifyImpl(nullptr),
       offset(initialOffset),
       statusFlags(initialStatusFlags),
       descriptorOwners(1),
@@ -123,6 +125,11 @@ SharedPointer<EventFd> FileDescriptor::OpenFileDescription::getEventFdImpl() con
   return eventFdImpl;
 }
 
+SharedPointer<InotifyInstance> FileDescriptor::OpenFileDescription::getInotifyImpl() const {
+  LockGuard<Mutex> guard(lock);
+  return inotifyImpl;
+}
+
 size_t FileDescriptor::OpenFileDescription::descriptorOwnerCount() const {
   LockGuard<Mutex> guard(lock);
   return descriptorOwners;
@@ -138,6 +145,7 @@ void FileDescriptor::OpenFileDescription::removeDescriptorOwner() {
   bool closeEndpoint = false;
   int flags = 0;
   SharedPointer<NetworkSyscalls> closingNetwork;
+  SharedPointer<InotifyInstance> closingInotify;
   {
     LockGuard<Mutex> guard(lock);
     assert(descriptorOwners);
@@ -146,12 +154,20 @@ void FileDescriptor::OpenFileDescription::removeDescriptorOwner() {
     flags = statusFlags;
     if (closeEndpoint) {
       closingNetwork = networkImpl;
+      closingInotify = inotifyImpl;
     }
   }
   if (closeEndpoint) {
     decreaseFileReferences(file, flags);
+    if (file) {
+      file->publishEvent((flags & O_ACCMODE) == O_RDONLY ? FileEvents::CloseNoWrite
+                                                         : FileEvents::CloseWrite);
+    }
     if (closingNetwork) {
       closingNetwork->lastDescriptorClosed();
+    }
+    if (closingInotify) {
+      closingInotify->lastDescriptorClosed();
     }
   }
 }
@@ -387,6 +403,16 @@ SharedPointer<EventFd> FileDescriptor::getEventFdImpl() const {
 
 bool FileDescriptor::eventFdPublished() const {
   return m_EventFdPublished;
+}
+
+void FileDescriptor::setInotifyImpl(const SharedPointer<InotifyInstance>& implementation) {
+  LockGuard<Mutex> guard(m_OpenFile->lock);
+  assert(!m_OpenFile->inotifyImpl);
+  m_OpenFile->inotifyImpl = implementation;
+}
+
+SharedPointer<InotifyInstance> FileDescriptor::getInotifyImpl() const {
+  return m_OpenFile->getInotifyImpl();
 }
 
 void FileDescriptor::unpublish() {

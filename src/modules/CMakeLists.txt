@@ -400,6 +400,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/dup3-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/eventfd-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/exit-status-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/inotify-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/mmap-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ppoll-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/positional-io-regressions.cc
@@ -605,6 +606,7 @@ pedigree_module(users "" ""
 pedigree_module(vfs "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Directory.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/File.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/FileEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/Filesystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/LockedFile.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/vfs/MemoryMappedFile.cc
@@ -810,6 +812,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/FileDescriptor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/IoEvent.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/inotify-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/linux-amd64-signal.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/net-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pipe-syscalls.cc

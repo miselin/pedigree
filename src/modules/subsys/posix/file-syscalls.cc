@@ -50,6 +50,7 @@
 #include "console-syscalls.h"
 #include "eventfd-syscalls.h"
 #include "file-syscalls.h"
+#include "inotify-syscalls.h"
 #include "modules/subsys/posix/IoEvent.h"
 #include "modules/system/console/Console.h"
 #include "modules/system/ramfs/RamFs.h"
@@ -611,6 +612,14 @@ int posix_read(int fd, char* ptr, int len) {
     return result;
   }
 
+  SharedPointer<InotifyInstance> inotify = pFd->getInotifyImpl();
+  if (inotify) {
+    const size_t length = static_cast<size_t>(len);
+    const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
+    pFd.reset();
+    return inotify->readEventsToUser(reinterpret_cast<uint8_t*>(ptr), length, canBlock);
+  }
+
   if (pFd->networkImpl) {
     // Need to redirect to socket implementation.
     if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ptr), static_cast<size_t>(len),
@@ -793,6 +802,11 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
     pFd.reset();
     return eventFd->writeValue(value, canBlock);
+  }
+
+  if (pFd->getInotifyImpl()) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
   }
 
   if (pFd->networkImpl) {
@@ -3893,8 +3907,10 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
   }
 
   FileDescriptor* f = new FileDescriptor(file, 0, fd, 0, flags);
-  if (f)
+  if (f) {
     pSubsystem->addFileDescriptor(fd, f);
+    file->publishEvent(FileEvents::Open);
+  }
 
   F_NOTICE("    -> " << fd);
 

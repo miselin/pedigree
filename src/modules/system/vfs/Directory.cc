@@ -632,11 +632,11 @@ void Directory::finishNameReservation(NameReservation& reservation, LookupStatus
 bool Directory::addResidentDirectoryEntry(NameReservation& reservation, File* pTarget,
                                           bool ephemeral) {
   assert(pTarget != nullptr);
-  return addResidentDirectoryEntry(reservation, new DirectoryEntry(pTarget), ephemeral);
+  return addResidentDirectoryEntry(reservation, new DirectoryEntry(pTarget), ephemeral, pTarget);
 }
 
 bool Directory::addResidentDirectoryEntry(NameReservation& reservation, DirectoryEntry* entry,
-                                          bool ephemeral) {
+                                          bool ephemeral, File* createdTarget) {
   assert(reservation.m_pDirectory == this);
   assert(entry != nullptr);
 
@@ -659,6 +659,9 @@ bool Directory::addResidentDirectoryEntry(NameReservation& reservation, Director
   }
 
   if (inserted) {
+    if (createdTarget) {
+      publishEvent(FileEvents::Created, reservation.m_Name.view(), createdTarget->isDirectory());
+    }
     reservation.complete(LookupStatus::Found);
   } else {
     delete entry;

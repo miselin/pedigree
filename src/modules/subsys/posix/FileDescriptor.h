@@ -34,6 +34,7 @@ class IoEvent;
 class NetworkSyscalls;
 class EpollInstance;
 class EventFd;
+class InotifyInstance;
 
 /** Abstraction of a file descriptor, which defines an open file
  * and related flags.
@@ -53,6 +54,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     File* getFile() const;
     SharedPointer<NetworkSyscalls> getNetworkImpl() const;
     SharedPointer<EventFd> getEventFdImpl() const;
+    SharedPointer<InotifyInstance> getInotifyImpl() const;
     size_t descriptorOwnerCount() const;
 
    private:
@@ -69,6 +71,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     File* file;
     SharedPointer<NetworkSyscalls> networkImpl;
     SharedPointer<EventFd> eventFdImpl;
+    SharedPointer<InotifyInstance> inotifyImpl;
     uint64_t offset;
     int statusFlags;
     size_t descriptorOwners;
@@ -151,6 +154,12 @@ class EXPORTED_PUBLIC FileDescriptor {
 
   /** Whether this descriptor still owns a published eventfd alias. */
   bool eventFdPublished() const;
+
+  /** Associate an inotify queue with this open file description. */
+  void setInotifyImpl(const SharedPointer<InotifyInstance>& implementation);
+
+  /** Retain the inotify queue behind this descriptor, if any. */
+  SharedPointer<InotifyInstance> getInotifyImpl() const;
 
   /** Notify anonymous targets that this descriptor left its descriptor table. */
   void unpublish();

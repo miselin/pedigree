@@ -127,6 +127,7 @@ File::File(const String& name, Time::Timestamp accessedTime, Time::Timestamp mod
 }
 
 File::~File() {
+  closeFileEvents();
   closeReadiness();
 
   {
@@ -274,13 +275,21 @@ File::WriteGuard::WriteGuard(File& file) : m_File(file), m_Guard(file.m_WriteLoc
 
 uint64_t File::WriteGuard::write(uint64_t location, uint64_t size, uintptr_t buffer,
                                  bool bCanBlock) {
-  return m_File.writeUnlocked(location, size, buffer, bCanBlock);
+  const uint64_t written = m_File.writeUnlocked(location, size, buffer, bCanBlock);
+  if (written) {
+    m_File.publishEvent(FileEvents::Modify);
+  }
+  return written;
 }
 
 uint64_t File::WriteGuard::append(uint64_t size, uintptr_t buffer, uint64_t& location,
                                   bool bCanBlock) {
   location = m_File.getSize();
-  return m_File.writeUnlocked(location, size, buffer, bCanBlock);
+  const uint64_t written = m_File.writeUnlocked(location, size, buffer, bCanBlock);
+  if (written) {
+    m_File.publishEvent(FileEvents::Modify);
+  }
+  return written;
 }
 
 physical_uintptr_t File::getPhysicalPage(size_t offset) {
@@ -436,6 +445,7 @@ Time::Timestamp File::getCreationTime() {
 void File::setCreationTime(Time::Timestamp t) {
   m_CreationTime = t;
   fileAttributeChanged();
+  publishEvent(FileEvents::Attributes);
 }
 
 Time::Timestamp File::getAccessedTime() {
@@ -445,6 +455,7 @@ Time::Timestamp File::getAccessedTime() {
 void File::setAccessedTime(Time::Timestamp t) {
   m_AccessedTime = t;
   fileAttributeChanged();
+  publishEvent(FileEvents::Attributes);
 }
 
 Time::Timestamp File::getModifiedTime() {
@@ -454,6 +465,7 @@ Time::Timestamp File::getModifiedTime() {
 void File::setModifiedTime(Time::Timestamp t) {
   m_ModifiedTime = t;
   fileAttributeChanged();
+  publishEvent(FileEvents::Attributes);
 }
 
 const String& File::getName() const {
@@ -514,6 +526,23 @@ void File::setFilesystem(Filesystem* pFs) {
 
 void File::fileAttributeChanged() {}
 
+void File::publishEvent(FileEventMask mask, const StringView& name, bool targetIsDirectory) {
+  const FileEvent event(mask, name, targetIsDirectory);
+  if (mask & FileEvents::DeletedSelf) {
+    notifyFinalFileEvent(event);
+  } else {
+    notifyFileEvent(event);
+  }
+
+  constexpr FileEventMask ChildEvents = FileEvents::Access | FileEvents::Modify |
+                                        FileEvents::Attributes | FileEvents::CloseWrite |
+                                        FileEvents::CloseNoWrite | FileEvents::Open;
+  File* parent = getParent();
+  if (!name.length() && parent && (mask & ChildEvents)) {
+    parent->notifyFileEvent(FileEvent(mask, m_Name.view(), isDirectory()));
+  }
+}
+
 void File::increaseRefCount(bool bIsWriter) {
   if (bIsWriter)
     m_nWriters++;
@@ -543,6 +572,7 @@ bool File::isStableVfsRoot() const {
 void File::setPermissions(uint32_t perms) {
   m_Permissions = perms;
   fileAttributeChanged();
+  publishEvent(FileEvents::Attributes);
 }
 
 uint32_t File::getPermissions() const {
@@ -552,6 +582,7 @@ uint32_t File::getPermissions() const {
 void File::setUid(size_t uid) {
   m_Uid = uid;
   fileAttributeChanged();
+  publishEvent(FileEvents::Attributes);
 }
 
 size_t File::getUid() const {
@@ -561,6 +592,7 @@ size_t File::getUid() const {
 void File::setGid(size_t gid) {
   m_Gid = gid;
   fileAttributeChanged();
+  publishEvent(FileEvents::Attributes);
 }
 
 size_t File::getGid() const {

@@ -26,13 +26,13 @@
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/eventfd-syscalls.h"
+#include "modules/subsys/posix/inotify-syscalls.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/system/vfs/File.h"
 
 namespace {
 constexpr int MaximumEpollBatch = 16384;
-constexpr int LinuxMaximumEpollEvents =
-    INT_MAX / static_cast<int>(sizeof(LinuxEpollEvent));
+constexpr int LinuxMaximumEpollEvents = INT_MAX / static_cast<int>(sizeof(LinuxEpollEvent));
 constexpr size_t LinuxKernelSigsetSize = sizeof(uint64_t);
 constexpr uint64_t UnblockableSignals =
     (static_cast<uint64_t>(1) << (SIGKILL - 1)) | (static_cast<uint64_t>(1) << (SIGSTOP - 1));
@@ -50,13 +50,15 @@ constexpr uint32_t UnsupportedModes =
 struct EpollWatch {
   EpollWatch(int watchedFd, const FileDescriptor::OpenFileDescriptionLease& openFile,
              File* watchedFile, const SharedPointer<NetworkSyscalls>& watchedNetwork,
-             const SharedPointer<EventFd>& watchedEventFd, bool readable, bool writable,
+             const SharedPointer<EventFd>& watchedEventFd,
+             const SharedPointer<InotifyInstance>& watchedInotify, bool readable, bool writable,
              const LinuxEpollEvent& event)
       : fd(watchedFd),
         description(openFile),
         file(watchedFile),
         network(watchedNetwork),
         eventFd(watchedEventFd),
+        inotify(watchedInotify),
         canRead(readable),
         canWrite(writable),
         events(event.events),
@@ -73,6 +75,7 @@ struct EpollWatch {
   File* file;
   SharedPointer<NetworkSyscalls> network;
   SharedPointer<EventFd> eventFd;
+  SharedPointer<InotifyInstance> inotify;
   bool canRead;
   bool canWrite;
   uint32_t events;
@@ -91,6 +94,9 @@ ReadinessSource* watchSource(const EpollWatch& watch) {
   }
   if (watch.network) {
     return watch.network.get();
+  }
+  if (watch.inotify) {
+    return watch.inotify.get();
   }
   return watch.eventFd.get();
 }
@@ -132,6 +138,9 @@ ReadyMask queryWatch(const EpollWatch& watch) {
   }
   if (watch.eventFd) {
     return watch.eventFd->queryReady();
+  }
+  if (watch.inotify) {
+    return watch.inotify->queryReady();
   }
   return ReadyInvalid;
 }
@@ -345,7 +354,8 @@ int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* e
   File* file = description->getFile();
   SharedPointer<NetworkSyscalls> network = description->getNetworkImpl();
   SharedPointer<EventFd> eventFd = description->getEventFdImpl();
-  if (!file && !network && !eventFd) {
+  SharedPointer<InotifyInstance> inotify = description->getInotifyImpl();
+  if (!file && !network && !eventFd && !inotify) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }
@@ -415,10 +425,10 @@ int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* e
   }
 
   const int accessMode = descriptor->getStatusFlags() & O_ACCMODE;
-  const bool canRead = network || eventFd || accessMode != O_WRONLY;
+  const bool canRead = network || eventFd || inotify || accessMode != O_WRONLY;
   const bool canWrite = network || eventFd || accessMode != O_RDONLY;
-  EpollWatch* watch =
-      new EpollWatch(targetFd, description, file, network, eventFd, canRead, canWrite, *event);
+  EpollWatch* watch = new EpollWatch(targetFd, description, file, network, eventFd, inotify,
+                                     canRead, canWrite, *event);
 
   // Subscription precedes publication, so the first subsequent wait cannot
   // miss a readiness transition between registration and its initial scan.
@@ -648,8 +658,7 @@ int epollWait(int epollFd, LinuxEpollEvent* events, int maxEvents, int timeoutMi
   // Linux permits a much larger maxevents value than we want to allocate in
   // one contiguous kernel buffer. Returning a smaller ready batch is valid;
   // the rotating scan cursor exposes the remainder on subsequent waits.
-  const int eventCapacity =
-      maxEvents < MaximumEpollBatch ? maxEvents : MaximumEpollBatch;
+  const int eventCapacity = maxEvents < MaximumEpollBatch ? maxEvents : MaximumEpollBatch;
 
   SharedPointer<EpollInstance> instance;
   if (!acquireEpoll(epollFd, instance)) {

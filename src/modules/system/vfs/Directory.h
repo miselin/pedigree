@@ -420,7 +420,7 @@ class EXPORTED_PUBLIC Directory : public File {
   void finishNameReservation(NameReservation& reservation, LookupStatus result);
   bool addResidentDirectoryEntry(NameReservation& reservation, File* pTarget, bool ephemeral);
   bool addResidentDirectoryEntry(NameReservation& reservation, DirectoryEntry* entry,
-                                 bool ephemeral);
+                                 bool ephemeral, File* createdTarget = nullptr);
   void tombstoneResidentLocked(const HashedStringView& name);
   File* cachedFileLocked(const HashedStringView& name) const;
   static EntryType entryType(File* file);

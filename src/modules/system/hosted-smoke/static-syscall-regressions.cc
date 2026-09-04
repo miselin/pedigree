@@ -59,6 +59,7 @@ extern bool runHostedChildResourceRegressions(Process* process);
 extern bool runHostedCloneRoutingRegressions(Process* process);
 extern bool runHostedDup3Regressions(Process* process);
 extern bool runHostedEventFdRegressions(Process* process);
+extern bool runHostedInotifyRegressions(Process* process);
 extern bool runHostedMmapPlacementRegressions(Process* process);
 extern bool runHostedPosixExitStatusRegressions(Process* process);
 extern bool runHostedPpollRegressions(Process* process);
@@ -4959,6 +4960,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN eventfd-counter-readiness-lifetime");
   if (!runHostedEventFdRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN inotify-vfs-epoll-lifetime");
+  if (!runHostedInotifyRegressions(kernelProcess)) {
     return false;
   }
 

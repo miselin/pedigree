@@ -244,6 +244,7 @@ bool Ext2Directory::addEntry(const String& filename, File* pFile, size_t type) {
   if (!special) {
     const bool published = addCachedDirectoryEntry(reservation, pFile);
     assert(published);
+    publishEvent(FileEvents::Created, filename.view(), pFile->isDirectory());
     reservation.complete(LookupStatus::Found);
   }
 

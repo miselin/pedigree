@@ -336,6 +336,7 @@ bool FatDirectory::addEntry(String filename, File* pFile, size_t type) {
       if (!special) {
         const bool published = addCachedDirectoryEntry(reservation, pFile);
         assert(published);
+        publishEvent(FileEvents::Created, pFile->getName().view(), pFile->isDirectory());
         reservation.complete(LookupStatus::Found);
       }
 

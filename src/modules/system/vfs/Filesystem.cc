@@ -340,6 +340,17 @@ bool Filesystem::removeChild(File* parent, const String& filename, File* expecte
   Directory* directory = Directory::fromFile(parent);
   LockGuard<Mutex> namespaceGuard(directory->namespaceMutationLock());
 
+  auto publishRemoval = [&](File* target) {
+    // Publish the detached state before terminal event delivery. The event
+    // source then linearizes subscription closure with its final snapshot.
+    target->retainDetachedParent();
+    directory->publishEvent(FileEvents::Removed, filename.view(), target->isDirectory());
+    // TODO: FileEventSource currently follows a VFS namespace node. Linux
+    // retires an inode watch only after its final link/open lifecycle; open
+    // unlink and hard-link aliases need a shared inode-identity event source.
+    target->publishEvent(FileEvents::DeletedSelf);
+  };
+
   Directory::ChildLease target;
   const Directory::LookupStatus lookup = directory->lookupChild(HashedStringView(filename), target);
   if (lookup != Directory::LookupStatus::Found) {
@@ -374,7 +385,7 @@ bool Filesystem::removeChild(File* parent, const String& filename, File* expecte
     // held. Backing drivers recheck emptiness after acquiring this lock.
     if (directory->removeEphemeralFileLocked(HashedStringView(filename), target.get())) {
       childDirectory->markDetached();
-      target.get()->retainDetachedParent();
+      publishRemoval(target.get());
       return true;
     }
   }
@@ -383,7 +394,7 @@ bool Filesystem::removeChild(File* parent, const String& filename, File* expecte
   // filesystem whose directory they appear in. Classification and removal
   // share the same namespace critical section as backing removal.
   if (directory->removeEphemeralFileLocked(HashedStringView(filename), target.get())) {
-    target.get()->retainDetachedParent();
+    publishRemoval(target.get());
     return true;
   }
 
@@ -391,7 +402,7 @@ bool Filesystem::removeChild(File* parent, const String& filename, File* expecte
     return false;
   }
 
-  target.get()->retainDetachedParent();
+  publishRemoval(target.get());
   return true;
 }
 

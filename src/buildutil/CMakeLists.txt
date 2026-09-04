@@ -168,6 +168,7 @@ endif ()
 add_library(vfs
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Directory.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/File.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/FileEvent.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Filesystem.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/Symlink.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/vfs/VFS.cc

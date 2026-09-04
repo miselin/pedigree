@@ -36,6 +36,7 @@
 #include "epoll-syscalls.h"
 #include "eventfd-syscalls.h"
 #include "file-syscalls.h"
+#include "inotify-syscalls.h"
 #include "linux-amd64-signal.h"
 #include "logging.h"
 #include "net-syscalls.h"
@@ -373,6 +374,15 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_eventfd(static_cast<unsigned int>(p1));
     case POSIX_EVENTFD2:
       return posix_eventfd2(static_cast<unsigned int>(p1), static_cast<int>(p2));
+    case POSIX_INOTIFY_INIT:
+      return posix_inotify_init();
+    case POSIX_INOTIFY_INIT1:
+      return posix_inotify_init1(static_cast<int>(p1));
+    case POSIX_INOTIFY_ADD_WATCH:
+      return posix_inotify_add_watch(static_cast<int>(p1), reinterpret_cast<const char*>(p2),
+                                     static_cast<uint32_t>(p3));
+    case POSIX_INOTIFY_RM_WATCH:
+      return posix_inotify_rm_watch(static_cast<int>(p1), static_cast<int>(p2));
     case POSIX_RENAME:
       return posix_rename(reinterpret_cast<const char*>(p1), reinterpret_cast<const char*>(p2));
     case POSIX_GETCWD:

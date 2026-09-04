@@ -36,6 +36,8 @@
 
 #include <config.h>
 
+#include "FileEvent.h"
+
 class Filesystem;
 class Thread;
 
@@ -66,7 +68,7 @@ class Thread;
 
 /** A File is a regular file - it is also the superclass of Directory, Symlink
     and Pipe. */
-class EXPORTED_PUBLIC File : public ReadinessSource {
+class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   friend class Filesystem;
 #if defined(PEDIGREE_BUILDUTILS)
   friend class Ext2FillCacheTestPeer;
@@ -212,6 +214,10 @@ class EXPORTED_PUBLIC File : public ReadinessSource {
   void setFilesystem(Filesystem* pFs);
 
   virtual void fileAttributeChanged();
+
+  /** Publish a completed VFS operation to payload event subscribers. */
+  void publishEvent(FileEventMask mask, const StringView& name = StringView(),
+                    bool targetIsDirectory = false);
 
   virtual void increaseRefCount(bool bIsWriter);
   virtual void decreaseRefCount(bool bIsWriter);
