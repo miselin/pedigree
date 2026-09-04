@@ -163,6 +163,7 @@ pedigree_app(testsuite ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/mprotect.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/prctl.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/process.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/resource.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/scm-rights.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/scm-rights-stream.c)
 pedigree_app(thread-test ON OFF OFF "pedigree-c-user;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/thread-test/main.cc)

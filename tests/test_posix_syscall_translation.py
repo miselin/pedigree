@@ -39,17 +39,21 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         # route, the five epoll entry points, both eventfd entry points, and
         # ppoll, pselect6, clock_getres, clock_nanosleep, tkill, tgkill, and
         # rt_sigsuspend, pread64, pwrite64, prlimit64, membarrier, and
-        # faccessat2, and dup3. This locks both sides of all 169 mappings.
-        self.assertEqual(len(mapping), 169)
+        # faccessat2, dup3, and getrusage. This locks both sides of all 170
+        # mappings.
+        self.assertEqual(len(mapping), 170)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "002d36a62bb8cdbf07f9f4b2f357e7329be3c5763d300bfc93772ded6d1339b9",
+            "cdc25cef4874135f2195eada4814b7734ef05c59a83b3ab5153f31816a92d76f",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))
 
     def test_vfork_keeps_the_existing_safe_fork_behavior(self):
         self.assertIn(("vfork", 58, "POSIX_FORK"), load_mapping())
+
+    def test_getrusage_uses_the_existing_resource_accounting_handler(self):
+        self.assertIn(("getrusage", 98, "POSIX_GETRUSAGE"), load_mapping())
 
     @unittest.skipUnless(CC, "requires a native C compiler")
     def test_every_owned_number_translates_without_libc_headers(self):

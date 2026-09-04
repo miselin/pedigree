@@ -497,6 +497,9 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_TIMES:
       return posix_times(reinterpret_cast<struct tms*>(p1));
     case POSIX_GETRUSAGE:
+      if (linuxAbi) {
+        return posix_linux_getrusage(p1, reinterpret_cast<LinuxRusage64*>(p2));
+      }
       return posix_getrusage(p1, reinterpret_cast<struct rusage*>(p2));
     case POSIX_SETSOCKOPT:
       return posix_setsockopt(p1, p2, p3, reinterpret_cast<const void*>(p4), p5);

@@ -76,6 +76,13 @@
 #include <sys/utsname.h>
 #include <sys/wait.h>
 
+#if X64 && !HOSTED
+static_assert(offsetof(struct rusage, __reserved) == sizeof(LinuxRusage64),
+              "musl rusage prefix no longer matches the Linux amd64 syscall ABI");
+static_assert(sizeof(struct rusage) == sizeof(LinuxRusage64) + 16 * sizeof(long),
+              "musl rusage reserve changed");
+#endif
+
 // arch_prctl
 #define ARCH_SET_FS 0x1002
 #define ARCH_GET_FS 0x1003
@@ -827,40 +834,31 @@ time_t posix_time(time_t* tval) {
 }
 
 clock_t posix_times(struct tms* tm) {
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(tm), sizeof(struct tms),
-                                    PosixSubsystem::SafeWrite)) {
-    SC_NOTICE("posix_times -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
   SC_NOTICE("times");
 
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
+  constexpr Time::Timestamp nanosecondsPerClockTick = Time::Multiplier::Second / 100;
 
-  ByteSet(tm, 0, sizeof(struct tms));
-  tm->tms_utime = pProcess->getUserTime();
-  tm->tms_stime = pProcess->getKernelTime();
+  struct tms result = {};
+  result.tms_utime = pProcess->getUserTime() / nanosecondsPerClockTick;
+  result.tms_stime = pProcess->getKernelTime() / nanosecondsPerClockTick;
+  if (tm && !PosixSubsystem::copyToUser(tm, &result, sizeof(result))) {
+    SC_NOTICE("posix_times -> invalid address");
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
 
   SC_NOTICE("times: u=" << pProcess->getUserTime() << ", s=" << pProcess->getKernelTime());
 
-  return Time::getTimeNanoseconds() - pProcess->getStartTime();
+  return Time::getTicks() / nanosecondsPerClockTick;
 }
 
 int posix_getrusage(int who, struct rusage* r) {
   SC_NOTICE("getrusage who=" << who);
 
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(r), sizeof(struct rusage),
-                                    PosixSubsystem::SafeWrite)) {
-    SC_NOTICE("posix_getrusage -> invalid address");
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-
   if (who != RUSAGE_SELF) {
     SC_NOTICE("posix_getrusage -> non-RUSAGE_SELF not supported");
     SYSCALL_ERROR(InvalidArgument);
-    ByteSet(r, 0, sizeof(struct rusage));
     return -1;
   }
 
@@ -869,11 +867,45 @@ int posix_getrusage(int who, struct rusage* r) {
   Time::Timestamp user = pProcess->getUserTime();
   Time::Timestamp kernel = pProcess->getKernelTime();
 
-  ByteSet(r, 0, sizeof(struct rusage));
-  r->ru_utime.tv_sec = user / Time::Multiplier::Second;
-  r->ru_utime.tv_usec = (user % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
-  r->ru_stime.tv_sec = kernel / Time::Multiplier::Second;
-  r->ru_stime.tv_usec = (kernel % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+  struct rusage result = {};
+  result.ru_utime.tv_sec = user / Time::Multiplier::Second;
+  result.ru_utime.tv_usec = (user % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+  result.ru_stime.tv_sec = kernel / Time::Multiplier::Second;
+  result.ru_stime.tv_usec = (kernel % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+
+  if (!PosixSubsystem::copyToUser(r, &result, sizeof(result))) {
+    SC_NOTICE("posix_getrusage -> invalid address");
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+
+  return 0;
+}
+
+int posix_linux_getrusage(int who, LinuxRusage64* r) {
+  SC_NOTICE("Linux getrusage who=" << who);
+
+  if (who != RUSAGE_SELF) {
+    SC_NOTICE("posix_linux_getrusage -> non-RUSAGE_SELF not supported");
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  Process* pProcess = Processor::information().getCurrentThread()->getParent();
+  const Time::Timestamp user = pProcess->getUserTime();
+  const Time::Timestamp kernel = pProcess->getKernelTime();
+
+  LinuxRusage64 result = {};
+  result.userSeconds = user / Time::Multiplier::Second;
+  result.userMicroseconds = (user % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+  result.systemSeconds = kernel / Time::Multiplier::Second;
+  result.systemMicroseconds = (kernel % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+
+  if (!PosixSubsystem::copyToUser(r, &result, sizeof(result))) {
+    SC_NOTICE("posix_linux_getrusage -> invalid address");
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
 
   return 0;
 }

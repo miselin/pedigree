@@ -21,6 +21,7 @@
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include <sys/prctl.h>
 #include <sys/resource.h>
+#include <sys/times.h>
 
 namespace {
 constexpr int PreservedErrno = 173;
@@ -59,6 +60,10 @@ int resourceSyscallWorker(void* parameter) {
 
   struct rlimit* nativeLimit = reinterpret_cast<struct rlimit*>(address + 64);
   LinuxRlimit64* linuxLimit = reinterpret_cast<LinuxRlimit64*>(address + 128);
+  struct tms* processTimes = reinterpret_cast<struct tms*>(address + 384);
+  struct rusage* usage = reinterpret_cast<struct rusage*>(address + 512);
+  LinuxRusage64* linuxUsage = reinterpret_cast<LinuxRusage64*>(address + 1024);
+  uint8_t* linuxUsageCanary = reinterpret_cast<uint8_t*>(linuxUsage + 1);
   const uintptr_t kernelStart = Processor::information().getVirtualAddressSpace().getKernelStart();
   struct rlimit* badNative = reinterpret_cast<struct rlimit*>(kernelStart);
   LinuxRlimit64* badLinux = reinterpret_cast<LinuxRlimit64*>(kernelStart);
@@ -126,6 +131,84 @@ int resourceSyscallWorker(void* parameter) {
   thread->setErrno(0);
   passed &= posix_membarrier(0, 1, 0) == -1 && thread->getErrno() == Error::InvalidArgument;
 
+  constexpr Time::Timestamp clockTick = Time::Multiplier::Second / 100;
+  context->process->publishTimeAccountingForHostedTest(235 * clockTick, 127 * clockTick);
+  Time::Timestamp expectedUser = context->process->getUserTime();
+  Time::Timestamp expectedKernel = context->process->getKernelTime();
+  const clock_t elapsedBefore = Time::getTicks() / clockTick;
+  thread->setErrno(PreservedErrno);
+  const clock_t elapsed = posix_times(processTimes);
+  const clock_t elapsedAfter = Time::getTicks() / clockTick;
+  passed &= elapsed >= elapsedBefore && elapsed <= elapsedAfter &&
+            processTimes->tms_utime == static_cast<clock_t>(expectedUser / clockTick) &&
+            processTimes->tms_stime == static_cast<clock_t>(expectedKernel / clockTick) &&
+            !processTimes->tms_cutime && !processTimes->tms_cstime &&
+            thread->getErrno() == PreservedErrno;
+  thread->setErrno(PreservedErrno);
+  passed &= posix_times(nullptr) >= 0 && thread->getErrno() == PreservedErrno;
+  thread->setErrno(0);
+  passed &= posix_times(reinterpret_cast<struct tms*>(kernelStart)) == -1 &&
+            thread->getErrno() == Error::BadAddress;
+
+  expectedUser = context->process->getUserTime();
+  expectedKernel = context->process->getKernelTime();
+  ByteSet(usage, 0xA5, sizeof(*usage));
+  thread->setErrno(PreservedErrno);
+  passed &=
+      posix_getrusage(RUSAGE_SELF, usage) == 0 &&
+      usage->ru_utime.tv_sec == static_cast<time_t>(expectedUser / Time::Multiplier::Second) &&
+      usage->ru_utime.tv_usec ==
+          static_cast<suseconds_t>((expectedUser % Time::Multiplier::Second) /
+                                   Time::Multiplier::Microsecond) &&
+      usage->ru_stime.tv_sec == static_cast<time_t>(expectedKernel / Time::Multiplier::Second) &&
+      usage->ru_stime.tv_usec ==
+          static_cast<suseconds_t>((expectedKernel % Time::Multiplier::Second) /
+                                   Time::Multiplier::Microsecond) &&
+      thread->getErrno() == PreservedErrno;
+  for (size_t i = sizeof(LinuxRusage64); i < sizeof(*usage); ++i) {
+    passed &= !reinterpret_cast<uint8_t*>(usage)[i];
+  }
+  struct rusage untouched = {};
+  ByteSet(&untouched, 0xA5, sizeof(untouched));
+  MemoryCopy(usage, &untouched, sizeof(untouched));
+  thread->setErrno(0);
+  passed &= posix_getrusage(RUSAGE_CHILDREN, usage) == -1 &&
+            thread->getErrno() == Error::InvalidArgument &&
+            !MemoryCompare(usage, &untouched, sizeof(untouched));
+  thread->setErrno(0);
+  passed &= posix_getrusage(RUSAGE_SELF, reinterpret_cast<struct rusage*>(kernelStart)) == -1 &&
+            thread->getErrno() == Error::BadAddress;
+
+  ByteSet(linuxUsage, 0xA5, sizeof(*linuxUsage) + 32);
+  thread->setErrno(PreservedErrno);
+  passed &=
+      posix_linux_getrusage(RUSAGE_SELF, linuxUsage) == 0 &&
+      linuxUsage->userSeconds == static_cast<int64_t>(expectedUser / Time::Multiplier::Second) &&
+      linuxUsage->userMicroseconds ==
+          static_cast<int64_t>((expectedUser % Time::Multiplier::Second) /
+                               Time::Multiplier::Microsecond) &&
+      linuxUsage->systemSeconds ==
+          static_cast<int64_t>(expectedKernel / Time::Multiplier::Second) &&
+      linuxUsage->systemMicroseconds ==
+          static_cast<int64_t>((expectedKernel % Time::Multiplier::Second) /
+                               Time::Multiplier::Microsecond) &&
+      !linuxUsage->maximumResidentSetSize && !linuxUsage->involuntaryContextSwitches &&
+      thread->getErrno() == PreservedErrno;
+  for (size_t i = 0; i < 32; ++i) {
+    passed &= linuxUsageCanary[i] == 0xA5;
+  }
+  ByteSet(linuxUsage, 0xA5, sizeof(*linuxUsage) + 32);
+  thread->setErrno(0);
+  passed &= posix_linux_getrusage(RUSAGE_CHILDREN, linuxUsage) == -1 &&
+            thread->getErrno() == Error::InvalidArgument;
+  for (size_t i = 0; i < sizeof(*linuxUsage) + 32; ++i) {
+    passed &= reinterpret_cast<uint8_t*>(linuxUsage)[i] == 0xA5;
+  }
+  thread->setErrno(0);
+  passed &=
+      posix_linux_getrusage(RUSAGE_SELF, reinterpret_cast<LinuxRusage64*>(kernelStart)) == -1 &&
+      thread->getErrno() == Error::BadAddress;
+
   char* requestedName = reinterpret_cast<char*>(address + 256);
   char* returnedName = reinterpret_cast<char*>(address + 320);
   StringCopy(requestedName, "0123456789abcdef-long");
@@ -177,7 +260,7 @@ bool resourceSyscallSemantics(Process* kernelProcess) {
   if (!passed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL resource-syscall-semantics: "
-        "query, fail-closed mutation, usercopy, membarrier, or prctl names regressed");
+        "limits, accounting, fail-closed mutation, usercopy, membarrier, or prctl names regressed");
     return false;
   }
 

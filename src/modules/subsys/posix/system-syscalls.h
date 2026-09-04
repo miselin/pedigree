@@ -31,6 +31,7 @@
 struct group;
 struct LinuxKernelTimespec;
 struct LinuxRlimit64;
+struct LinuxRusage64;
 struct passwd;
 struct timespec;
 
@@ -50,6 +51,7 @@ int posix_settimeofday(const timeval* tv, const struct timezone* tz);
 time_t posix_time(time_t* tval);
 clock_t posix_times(struct tms* tm);
 int posix_getrusage(int who, struct rusage* r);
+int posix_linux_getrusage(int who, LinuxRusage64* r);
 ssize_t posix_getrandom(void* buffer, size_t length, unsigned int flags);
 
 int posix_getpwent(passwd* pw, int n, char* str);
