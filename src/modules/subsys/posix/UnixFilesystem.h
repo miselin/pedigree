@@ -104,7 +104,7 @@ class UnixFilesystem : public Filesystem {
   virtual bool createSymlink(File* parent, const String& filename, const String& value) {
     return false;
   }
-  virtual bool remove(File* parent, File* file);
+  virtual bool removeNode(File* parent, const String& filename, File* file);
 
  private:
   File* m_pRoot;
@@ -147,6 +147,10 @@ class UnixSocket : public File {
 
   virtual bool isSocket() const {
     return true;
+  }
+
+  virtual bool isSeekable() const {
+    return false;
   }
 
   // Bind this socket to another socket.
@@ -263,7 +267,8 @@ class UnixDirectory : public Directory {
   virtual ~UnixDirectory();
 
   bool addEntry(const String& filename, File* pFile);
-  bool removeEntry(File* pFile);
+  bool removeEntry(const String& filename, File* pFile);
+  bool removeFromParent(UnixDirectory* parent, const String& filename);
 
   virtual void cacheDirectoryContents();
 

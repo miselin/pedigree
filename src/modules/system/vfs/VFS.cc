@@ -274,7 +274,8 @@ bool VFS::unregisterFilesystem(Filesystem* pFs, bool canDelete) {
     }
 
     if (detach) {
-      File* point = find(info->path);
+      Directory::ChildLease pointLease;
+      File* point = findRetained(info->path, pointLease);
       if (point && point->isDirectory()) {
         Directory::fromFile(point)->setReparsePoint(nullptr);
       }
@@ -395,6 +396,14 @@ File* VFS::find(const String& path, File* pStartNode) {
 
   // NOTICE("find: " << path << " -> " << pResult);
   return pResult;
+}
+
+File* VFS::findRetained(const String& path, Directory::ChildLease& result, File* pStartNode) {
+  pStartNode = resolveStartNode(path, pStartNode);
+  if (!pStartNode) {
+    return nullptr;
+  }
+  return pStartNode->getFilesystem()->findRetained(path.view(), result, pStartNode);
 }
 
 void VFS::addProbeCallback(Filesystem::ProbeCallback callback) {
@@ -832,8 +841,12 @@ bool VFS::createLink(const String& path, File* target, File* pStartNode) {
 }
 
 bool VFS::remove(const String& path, File* pStartNode) {
+  return remove(path, pStartNode, nullptr);
+}
+
+bool VFS::remove(const String& path, File* pStartNode, File* expected) {
   pStartNode = resolveStartNode(path, pStartNode);
-  return pStartNode && pStartNode->getFilesystem()->remove(path, pStartNode);
+  return pStartNode && pStartNode->getFilesystem()->remove(path, pStartNode, expected);
 }
 
 bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute) {
@@ -1015,14 +1028,18 @@ bool VFS::attachFilesystem(Filesystem* pRootFs, Filesystem* pFs, const String& p
     return pFs == pRootFs;
   }
 
-  if (!find(String("/media"))) {
+  Directory::ChildLease mediaLease;
+  if (!findRetained(String("/media"), mediaLease)) {
     createDirectory(String("/media"), 0755);
   }
-  if (!find(path)) {
+
+  Directory::ChildLease pointLease;
+  File* point = findRetained(path, pointLease);
+  if (!point) {
     createDirectory(path, 0755);
+    point = findRetained(path, pointLease);
   }
 
-  File* point = find(path);
   if (!point || !point->isDirectory()) {
     ERROR("VFS: cannot attach filesystem at " << path);
     return false;

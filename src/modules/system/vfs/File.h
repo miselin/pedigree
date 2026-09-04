@@ -179,6 +179,9 @@ class EXPORTED_PUBLIC File {
   /** Returns true if the File is actually a socket. */
   virtual bool isSocket() const;
 
+  /** Whether ordinary reads and writes consume a persistent byte offset. */
+  virtual bool isSeekable() const;
+
   uintptr_t getInode() const;
   virtual void setInode(uintptr_t inode);
 
@@ -189,6 +192,20 @@ class EXPORTED_PUBLIC File {
 
   virtual void increaseRefCount(bool bIsWriter);
   virtual void decreaseRefCount(bool bIsWriter);
+
+  /**
+   * Attempts to retain this File through its existing VFS ownership record.
+   * Untracked filesystem roots remain borrowed and return false. Virtual
+   * dispatch lets kernel-owned contexts use the loadable VFS lifetime model
+   * without creating a kernel-to-module link dependency.
+   */
+  virtual bool retainVfsReference();
+
+  /** Releases a reference acquired by retainVfsReference(). */
+  virtual void releaseVfsReference();
+
+  /** Whether this untracked File is the externally owned filesystem root. */
+  virtual bool isStableVfsRoot() const;
 
   void setPermissions(uint32_t perms);
   uint32_t getPermissions() const;
@@ -359,6 +376,9 @@ class EXPORTED_PUBLIC File {
   /** Set GID without raising fileAttributeChanged. */
   void setGidOnly(size_t gid);
 
+  /** Keep the former parent alive after this node leaves its namespace. */
+  void retainDetachedParent();
+
   String m_Name;
   Time::Timestamp m_AccessedTime;
   Time::Timestamp m_ModifiedTime;
@@ -369,6 +389,10 @@ class EXPORTED_PUBLIC File {
   size_t m_Size;
 
   File* m_pParent;
+
+  /** Pins a former tracked parent for this detached node's remaining life. */
+  File* m_pDetachedParent;
+  bool m_bDetachedParentHandled;
 
   size_t m_nWriters, m_nReaders;
 

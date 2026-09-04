@@ -36,6 +36,7 @@
 #include "modules/system/config/Config.h"
 #include "modules/system/users/User.h"
 #include "modules/system/users/UserManager.h"
+#include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/Symlink.h"
@@ -177,16 +178,27 @@ void pedigree_config_get_error_message(size_t resultIdx, char* buf, int buflen) 
 // Load a module
 void pedigree_module_load(char* _file) {
   // Attempt to find the file, first!
-  File* file = VFS::instance().find(
-      String(_file), Processor::information().getCurrentThread()->getParent()->getCwd());
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  Process::FileContextLease cwdLease;
+  File* cwd = process->acquireCwd(cwdLease);
+  Directory::ChildLease fileLease;
+  Directory::ChildLease targetLease;
+  File* file = VFS::instance().findRetained(String(_file), fileLease, cwd);
   if (!file) {
     // Error - not found.
     SYSCALL_ERROR(DoesNotExist);
     return;
   }
 
-  while (file->isSymlink())
-    file = Symlink::fromFile(file)->followLink();
+  while (file->isSymlink()) {
+    targetLease.reset();
+    file = Symlink::fromFile(file)->followLinkRetained(targetLease);
+    fileLease.swap(targetLease);
+    if (!file) {
+      SYSCALL_ERROR(DoesNotExist);
+      return;
+    }
+  }
 
   if (file->isDirectory()) {
     // Error - is directory.

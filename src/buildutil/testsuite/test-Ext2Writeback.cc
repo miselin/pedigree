@@ -14,9 +14,11 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include "modules/drivers/common/partition/Partition.h"
+#include "modules/system/ext2/Ext2Directory.h"
 #include "modules/system/ext2/Ext2File.h"
 #include "modules/system/ext2/Ext2Filesystem.h"
 #include "modules/system/ext2/ext2.h"
@@ -26,6 +28,13 @@ class Ext2WritebackTestPeer {
  public:
   static void configure(Ext2Filesystem& filesystem, Disk* disk, uint32_t blockSize) {
     filesystem.m_pDisk = disk;
+    filesystem.m_BlockSize = blockSize;
+  }
+
+  static void configureDirectory(Ext2Filesystem& filesystem, Disk* disk, Superblock* superblock,
+                                 uint32_t blockSize) {
+    filesystem.m_pDisk = disk;
+    filesystem.m_pSuperblock = superblock;
     filesystem.m_BlockSize = blockSize;
   }
 
@@ -50,6 +59,26 @@ class Ext2WritebackTestPeer {
 
   static bool releaseInode(Ext2Filesystem& filesystem, uint32_t inode) {
     return filesystem.releaseInode(inode);
+  }
+
+  static uint32_t findFreeBlock(Ext2Filesystem& filesystem, uint32_t inode) {
+    return filesystem.findFreeBlock(inode);
+  }
+
+  static uint32_t findFreeInode(Ext2Filesystem& filesystem) {
+    return filesystem.findFreeInode();
+  }
+
+  static Inode* getInode(Ext2Filesystem& filesystem, uint32_t inode) {
+    return filesystem.getInode(inode);
+  }
+
+  static bool createFile(Ext2Filesystem& filesystem, File* parent, const String& name) {
+    return filesystem.createFile(parent, name, 0644);
+  }
+
+  static bool createDirectory(Ext2Filesystem& filesystem, File* parent, const String& name) {
+    return filesystem.createDirectory(parent, name, 0755);
   }
 
   static void configureGrowth(Ext2Filesystem& filesystem, Disk* disk, Superblock* superblock,
@@ -299,6 +328,212 @@ TEST(Ext2Growth, BatchesIndirectMappingAndInodeWrites) {
   EXPECT_EQ(
       static_cast<size_t>(std::count(disk.writes.begin(), disk.writes.end(), indirectLocation)),
       2U);
+}
+
+TEST(Ext2Growth, SerializesGlobalBitmapAllocation) {
+  constexpr size_t kWorkerCount = 8;
+
+  GrowthDisk disk;
+  Superblock superblock = {};
+  superblock.s_first_data_block = HOST_TO_LITTLE32(0);
+  superblock.s_blocks_per_group = HOST_TO_LITTLE32(GrowthDisk::kBlockCount);
+  superblock.s_inodes_per_group = HOST_TO_LITTLE32(64);
+  superblock.s_free_blocks_count = HOST_TO_LITTLE32(GrowthDisk::kBlockCount - 16);
+  superblock.s_free_inodes_count = HOST_TO_LITTLE32(53);
+
+  GroupDesc groupDescriptor = {};
+  groupDescriptor.bg_block_bitmap = HOST_TO_LITTLE32(2);
+  groupDescriptor.bg_inode_bitmap = HOST_TO_LITTLE32(3);
+  groupDescriptor.bg_inode_table = HOST_TO_LITTLE32(4);
+  groupDescriptor.bg_free_blocks_count = HOST_TO_LITTLE16(GrowthDisk::kBlockCount - 16);
+  groupDescriptor.bg_free_inodes_count = HOST_TO_LITTLE16(53);
+
+  std::fill(disk.getBlock(2), disk.getBlock(2) + 2, 0xFF);
+  std::fill(disk.getBlock(3), disk.getBlock(3) + 1, 0xFF);
+
+  Ext2Filesystem filesystem;
+  Ext2WritebackTestPeer::configureGrowth(filesystem, &disk, &superblock, &groupDescriptor);
+
+  std::array<uint32_t, kWorkerCount> blocks = {};
+  std::array<std::thread, kWorkerCount> workers;
+  for (size_t i = 0; i < kWorkerCount; ++i) {
+    workers[i] =
+        std::thread([&, i] { blocks[i] = Ext2WritebackTestPeer::findFreeBlock(filesystem, 1); });
+  }
+  for (auto& worker : workers)
+    worker.join();
+
+  std::sort(blocks.begin(), blocks.end());
+  EXPECT_EQ(blocks.front(), 16U);
+  EXPECT_EQ(blocks.back(), 16U + kWorkerCount - 1);
+  EXPECT_EQ(std::unique(blocks.begin(), blocks.end()), blocks.end());
+
+  std::array<uint32_t, kWorkerCount> inodes = {};
+  for (size_t i = 0; i < kWorkerCount; ++i) {
+    workers[i] =
+        std::thread([&, i] { inodes[i] = Ext2WritebackTestPeer::findFreeInode(filesystem); });
+  }
+  for (auto& worker : workers)
+    worker.join();
+
+  std::sort(inodes.begin(), inodes.end());
+  EXPECT_EQ(inodes.front(), 9U);
+  EXPECT_EQ(inodes.back(), 9U + kWorkerCount - 1);
+  EXPECT_EQ(std::unique(inodes.begin(), inodes.end()), inodes.end());
+
+  std::array<Inode*, kWorkerCount> inodePointers = {};
+  for (size_t i = 0; i < kWorkerCount; ++i) {
+    workers[i] =
+        std::thread([&, i] { inodePointers[i] = Ext2WritebackTestPeer::getInode(filesystem, 1); });
+  }
+  for (auto& worker : workers)
+    worker.join();
+
+  EXPECT_NE(inodePointers.front(), nullptr);
+  EXPECT_TRUE(std::all_of(inodePointers.begin(), inodePointers.end(),
+                          [&](Inode* inode) { return inode == inodePointers.front(); }));
+}
+
+TEST(Ext2Directory, RejectsRecordsCrossingFilesystemBlocks) {
+  constexpr uint32_t kFirstDirectoryBlock = 16;
+
+  GrowthDisk disk;
+  Superblock superblock = {};
+  superblock.s_inodes_count = HOST_TO_LITTLE32(32);
+
+  Ext2Filesystem filesystem;
+  Ext2WritebackTestPeer::configureDirectory(filesystem, &disk, &superblock, kBlockSize);
+
+  Inode inode = {};
+  inode.i_mode = HOST_TO_LITTLE16(EXT2_S_IFDIR);
+  inode.i_size = HOST_TO_LITTLE32(2 * kBlockSize);
+  inode.i_blocks = HOST_TO_LITTLE32((2 * kBlockSize) / 512);
+  inode.i_block[0] = HOST_TO_LITTLE32(kFirstDirectoryBlock);
+  inode.i_block[1] = HOST_TO_LITTLE32(kFirstDirectoryBlock + 1);
+
+  Dir* entry = reinterpret_cast<Dir*>(disk.getBlock(kFirstDirectoryBlock));
+  entry->d_inode = HOST_TO_LITTLE32(2);
+  entry->d_reclen = HOST_TO_LITTLE16(kBlockSize + 4);
+  entry->d_namelen = 1;
+  entry->d_file_type = EXT2_FILE;
+  entry->d_name[0] = 'x';
+
+  Ext2Directory directory(String("malformed"), 2, &inode, &filesystem, nullptr);
+  uint64_t cookie = 2;
+  auto accept = [](void*, const Directory::DirectoryEntryView&) -> bool { return true; };
+  EXPECT_EQ(directory.enumerate(cookie, accept, nullptr), Directory::ReadStatus::IoError);
+}
+
+TEST(Ext2Directory, DuplicateCreateReleasesReservedInode) {
+  constexpr uint32_t kInodeBitmapBlock = 3;
+  constexpr uint32_t kInodeTableBlock = 4;
+  constexpr uint32_t kDirectoryBlock = 16;
+  constexpr uint32_t kInitialFreeInodes = 29;
+  constexpr char kDuplicateName[] = "duplicate";
+
+  GrowthDisk disk;
+  Superblock superblock = {};
+  superblock.s_rev_level = HOST_TO_LITTLE32(1);
+  superblock.s_feature_incompat = HOST_TO_LITTLE32(2);
+  superblock.s_blocks_per_group = HOST_TO_LITTLE32(GrowthDisk::kBlockCount);
+  superblock.s_inodes_count = HOST_TO_LITTLE32(32);
+  superblock.s_inodes_per_group = HOST_TO_LITTLE32(32);
+  superblock.s_free_inodes_count = HOST_TO_LITTLE32(kInitialFreeInodes);
+
+  GroupDesc groupDescriptor = {};
+  groupDescriptor.bg_block_bitmap = HOST_TO_LITTLE32(2);
+  groupDescriptor.bg_inode_bitmap = HOST_TO_LITTLE32(kInodeBitmapBlock);
+  groupDescriptor.bg_inode_table = HOST_TO_LITTLE32(kInodeTableBlock);
+  groupDescriptor.bg_free_inodes_count = HOST_TO_LITTLE16(kInitialFreeInodes);
+
+  uint8_t* inodeBitmap = disk.getBlock(kInodeBitmapBlock);
+  inodeBitmap[0] = 0x07;
+
+  Ext2Filesystem filesystem;
+  Ext2WritebackTestPeer::configureGrowth(filesystem, &disk, &superblock, &groupDescriptor);
+
+  Inode* parentInode = Ext2WritebackTestPeer::getInode(filesystem, 2);
+  ASSERT_NE(parentInode, nullptr);
+  parentInode->i_mode = HOST_TO_LITTLE16(EXT2_S_IFDIR | 0755);
+  parentInode->i_size = HOST_TO_LITTLE32(kBlockSize);
+  parentInode->i_blocks = HOST_TO_LITTLE32(kBlockSize / 512);
+  parentInode->i_block[0] = HOST_TO_LITTLE32(kDirectoryBlock);
+
+  Dir* entry = reinterpret_cast<Dir*>(disk.getBlock(kDirectoryBlock));
+  entry->d_inode = HOST_TO_LITTLE32(3);
+  entry->d_reclen = HOST_TO_LITTLE16(kBlockSize);
+  entry->d_namelen = sizeof(kDuplicateName) - 1;
+  entry->d_file_type = EXT2_FILE;
+  MemoryCopy(entry->d_name, kDuplicateName, sizeof(kDuplicateName) - 1);
+
+  Ext2Directory parent(String("parent"), 2, parentInode, &filesystem, nullptr);
+  EXPECT_FALSE(Ext2WritebackTestPeer::createFile(filesystem, &parent, String(kDuplicateName)));
+  EXPECT_EQ(inodeBitmap[0] & 0x08, 0);
+  EXPECT_EQ(LITTLE_TO_HOST32(superblock.s_free_inodes_count), kInitialFreeInodes);
+  EXPECT_EQ(LITTLE_TO_HOST16(groupDescriptor.bg_free_inodes_count), kInitialFreeInodes);
+}
+
+TEST(Ext2Directory, DuplicateDirectoryCreateReleasesReservedStorage) {
+  constexpr uint32_t kBlockBitmapBlock = 2;
+  constexpr uint32_t kInodeBitmapBlock = 3;
+  constexpr uint32_t kInodeTableBlock = 4;
+  constexpr uint32_t kParentDirectoryBlock = 15;
+  constexpr uint32_t kFirstFreeBlock = 16;
+  constexpr uint32_t kInitialFreeBlocks = GrowthDisk::kBlockCount - kFirstFreeBlock;
+  constexpr uint32_t kInitialFreeInodes = 29;
+  constexpr uint16_t kParentLinks = 2;
+  constexpr char kDuplicateName[] = "duplicate-directory";
+
+  GrowthDisk disk;
+  Superblock superblock = {};
+  superblock.s_rev_level = HOST_TO_LITTLE32(1);
+  superblock.s_feature_incompat = HOST_TO_LITTLE32(2);
+  superblock.s_first_data_block = HOST_TO_LITTLE32(0);
+  superblock.s_blocks_per_group = HOST_TO_LITTLE32(GrowthDisk::kBlockCount);
+  superblock.s_inodes_count = HOST_TO_LITTLE32(32);
+  superblock.s_inodes_per_group = HOST_TO_LITTLE32(32);
+  superblock.s_free_blocks_count = HOST_TO_LITTLE32(kInitialFreeBlocks);
+  superblock.s_free_inodes_count = HOST_TO_LITTLE32(kInitialFreeInodes);
+
+  GroupDesc groupDescriptor = {};
+  groupDescriptor.bg_block_bitmap = HOST_TO_LITTLE32(kBlockBitmapBlock);
+  groupDescriptor.bg_inode_bitmap = HOST_TO_LITTLE32(kInodeBitmapBlock);
+  groupDescriptor.bg_inode_table = HOST_TO_LITTLE32(kInodeTableBlock);
+  groupDescriptor.bg_free_blocks_count = HOST_TO_LITTLE16(kInitialFreeBlocks);
+  groupDescriptor.bg_free_inodes_count = HOST_TO_LITTLE16(kInitialFreeInodes);
+
+  uint8_t* blockBitmap = disk.getBlock(kBlockBitmapBlock);
+  std::fill(blockBitmap, blockBitmap + (kFirstFreeBlock / 8), 0xFF);
+  uint8_t* inodeBitmap = disk.getBlock(kInodeBitmapBlock);
+  inodeBitmap[0] = 0x07;
+
+  Ext2Filesystem filesystem;
+  Ext2WritebackTestPeer::configureGrowth(filesystem, &disk, &superblock, &groupDescriptor);
+
+  Inode* parentInode = Ext2WritebackTestPeer::getInode(filesystem, 2);
+  ASSERT_NE(parentInode, nullptr);
+  parentInode->i_mode = HOST_TO_LITTLE16(EXT2_S_IFDIR | 0755);
+  parentInode->i_links_count = HOST_TO_LITTLE16(kParentLinks);
+  parentInode->i_size = HOST_TO_LITTLE32(kBlockSize);
+  parentInode->i_blocks = HOST_TO_LITTLE32(kBlockSize / 512);
+  parentInode->i_block[0] = HOST_TO_LITTLE32(kParentDirectoryBlock);
+
+  Dir* entry = reinterpret_cast<Dir*>(disk.getBlock(kParentDirectoryBlock));
+  entry->d_inode = HOST_TO_LITTLE32(3);
+  entry->d_reclen = HOST_TO_LITTLE16(kBlockSize);
+  entry->d_namelen = sizeof(kDuplicateName) - 1;
+  entry->d_file_type = EXT2_DIRECTORY;
+  MemoryCopy(entry->d_name, kDuplicateName, sizeof(kDuplicateName) - 1);
+
+  Ext2Directory parent(String("parent"), 2, parentInode, &filesystem, nullptr);
+  EXPECT_FALSE(Ext2WritebackTestPeer::createDirectory(filesystem, &parent, String(kDuplicateName)));
+  EXPECT_EQ(inodeBitmap[0] & 0x08, 0);
+  EXPECT_EQ(blockBitmap[kFirstFreeBlock / 8] & (1U << (kFirstFreeBlock % 8)), 0U);
+  EXPECT_EQ(LITTLE_TO_HOST16(parentInode->i_links_count), kParentLinks);
+  EXPECT_EQ(LITTLE_TO_HOST32(superblock.s_free_blocks_count), kInitialFreeBlocks);
+  EXPECT_EQ(LITTLE_TO_HOST16(groupDescriptor.bg_free_blocks_count), kInitialFreeBlocks);
+  EXPECT_EQ(LITTLE_TO_HOST32(superblock.s_free_inodes_count), kInitialFreeInodes);
+  EXPECT_EQ(LITTLE_TO_HOST16(groupDescriptor.bg_free_inodes_count), kInitialFreeInodes);
 }
 
 TEST(Ext2Writeback, ReleaseInodeFinishesOnTargetTableBlock) {

@@ -20,6 +20,7 @@
 #ifndef EXT2_DIRECTORY_H
 #define EXT2_DIRECTORY_H
 
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 
@@ -31,6 +32,8 @@ struct Inode;
 
 /** A File is a file, a directory or a symlink. */
 class Ext2Directory : public Directory, public Ext2Node {
+  friend class Ext2Filesystem;
+
  private:
   /** Copy constructors are hidden - unused! */
   Ext2Directory(const Ext2Directory& file);
@@ -45,9 +48,6 @@ class Ext2Directory : public Directory, public Ext2Node {
 
   void truncate() {}
 
-  /** Reads directory contents into File* cache. */
-  virtual void cacheDirectoryContents();
-
   /** Adds a directory entry. */
   virtual bool addEntry(const String& filename, File* pFile, size_t type);
   /** Removes a directory entry. */
@@ -57,7 +57,27 @@ class Ext2Directory : public Directory, public Ext2Node {
   void fileAttributeChanged();
 
  private:
-  virtual File* convertToFile(const DirectoryEntryMetadata& meta);
+  struct ParsedEntry {
+    uint32_t inode;
+    uint16_t recordLength;
+    uint16_t nameLength;
+    uint8_t fileType;
+    char name[256];
+  };
+
+  virtual LookupStatus resolveChild(const StringView& name, File*& child);
+  virtual LookupStatus resolveChildAt(uint64_t cookie, const StringView& name, File*& child);
+  virtual ReadStatus readDirectory(uint64_t& cookie, DirectoryEntryEmitter emitter, void* context);
+
+  bool readBytes(uint64_t offset, size_t length, void* buffer);
+  ReadStatus readEntry(uint64_t offset, ParsedEntry& entry);
+  LookupStatus resolveEntry(const ParsedEntry& entry, const StringView& name, File*& child);
+  LookupStatus resolveChildLocked(const StringView& name, File*& child);
+  bool removeEntryLocked(const String& filename, Ext2Node* pFile);
+  bool removeFromParent(Ext2Directory* parent, const String& filename);
+
+  Mutex m_DirectoryLock;
+  bool m_Removed;
 };
 
 #endif

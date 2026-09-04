@@ -260,7 +260,7 @@ class DevFs : public Filesystem {
   virtual bool createSymlink(File* parent, const String& filename, const String& value) {
     return false;
   }
-  virtual bool remove(File* parent, File* file) {
+  virtual bool removeNode(File*, const String&, File*) {
     return false;
   }
 

@@ -77,6 +77,8 @@ File::File()
       m_pFilesystem(0),
       m_Size(0),
       m_pParent(0),
+      m_pDetachedParent(0),
+      m_bDetachedParentHandled(false),
       m_nWriters(0),
       m_nReaders(0),
       m_Uid(0),
@@ -100,6 +102,8 @@ File::File(const String& name, Time::Timestamp accessedTime, Time::Timestamp mod
       m_pFilesystem(pFs),
       m_Size(size),
       m_pParent(pParent),
+      m_pDetachedParent(0),
+      m_bDetachedParentHandled(false),
       m_nWriters(0),
       m_nReaders(0),
       m_Uid(0),
@@ -121,11 +125,18 @@ File::File(const String& name, Time::Timestamp accessedTime, Time::Timestamp mod
 }
 
 File::~File() {
-  LockGuard<Mutex> guard(m_Lock);
-  for (auto target : m_MonitorTargets) {
-    delete target;
+  {
+    LockGuard<Mutex> guard(m_Lock);
+    for (auto target : m_MonitorTargets) {
+      delete target;
+    }
+    m_MonitorTargets.clear();
   }
-  m_MonitorTargets.clear();
+
+  // Releasing the parent can run its destructor, so no File lock may be held.
+  if (m_pDetachedParent) {
+    VFS::instance().untrackFile(m_pDetachedParent);
+  }
 }
 
 uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
@@ -450,6 +461,10 @@ bool File::isSocket() const {
   return false;
 }
 
+bool File::isSeekable() const {
+  return true;
+}
+
 uintptr_t File::getInode() const {
   return m_Inode;
 }
@@ -482,6 +497,18 @@ void File::decreaseRefCount(bool bIsWriter) {
     m_nReaders--;
 }
 
+bool File::retainVfsReference() {
+  return VFS::instance().retainTrackedFile(this);
+}
+
+void File::releaseVfsReference() {
+  VFS::instance().untrackFile(this);
+}
+
+bool File::isStableVfsRoot() const {
+  return m_pFilesystem && m_pFilesystem->getRoot() == this;
+}
+
 void File::setPermissions(uint32_t perms) {
   m_Permissions = perms;
   fileAttributeChanged();
@@ -510,7 +537,31 @@ size_t File::getGid() const {
 }
 
 File* File::getParent() const {
-  return m_pParent;
+  return __atomic_load_n(&m_pParent, __ATOMIC_ACQUIRE);
+}
+
+void File::retainDetachedParent() {
+  if (__atomic_exchange_n(&m_bDetachedParentHandled, true, __ATOMIC_ACQ_REL)) {
+    return;
+  }
+
+  File* parent = getParent();
+  if (!parent) {
+    return;
+  }
+
+  File* root = m_pFilesystem ? m_pFilesystem->getRoot() : nullptr;
+  if (parent == root) {
+    return;
+  }
+
+  if (VFS::instance().retainTrackedFile(parent)) {
+    m_pDetachedParent = parent;
+    return;
+  }
+
+  // A failed retain for any non-root parent means it is being retired.
+  __atomic_store_n(&m_pParent, nullptr, __ATOMIC_RELEASE);
 }
 
 int File::select(bool bWriting, int timeout) {

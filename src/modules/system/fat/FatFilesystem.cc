@@ -66,11 +66,16 @@ FatFilesystem::FatFilesystem()
       m_FatSector(0),
       m_RootDir(),
       m_BlockSize(0),
+      m_ClusterCount(0),
       m_pFatCache(0),
       m_FatLock(),
+#if THREADS || defined(STANDALONE_MUTEXES)
+      m_AllocationLock(),
+#endif
       m_pRoot(0),
       m_FatCache(),
-      m_FreeClusterHint() {}
+      m_FreeClusterHint() {
+}
 
 FatFilesystem::~FatFilesystem() {
   if (m_pRoot)
@@ -158,6 +163,7 @@ bool FatFilesystem::initialise(Disk* pDisk) {
     return false;
   }
   uint32_t clusterCount = totDataSec / m_Superblock.BPB_SecPerClus;
+  m_ClusterCount = clusterCount;
 
   // TODO: magic numbers here, perhaps #define MAXCLUS_{12|16|32} would work
   // better for readability
@@ -247,7 +253,7 @@ void FatFilesystem::cacheVolumeLabel() {
   //
   // In order to do so we check the entire root directory.
 
-  uint32_t sz = m_BlockSize;
+  uint32_t sz = m_Type == FAT32 ? m_BlockSize : m_RootDirCount * m_Superblock.BPB_BytsPerSec;
 
   uint32_t clus = 0;
   if (m_Type == FAT32)
@@ -256,6 +262,10 @@ void FatFilesystem::cacheVolumeLabel() {
   String volid;
 
   uint8_t* buffer = reinterpret_cast<uint8_t*>(readDirectoryPortion(clus));
+  if (!buffer) {
+    ERROR("FAT: unable to read the root directory while finding its volume label");
+    return;
+  }
 
   size_t i;
   bool endOfDir = false;
@@ -269,7 +279,8 @@ void FatFilesystem::cacheVolumeLabel() {
       }
 
       if (ent->DIR_Attr & ATTR_VOLUME_ID) {
-        volid = convertFilenameFrom(String(reinterpret_cast<const char*>(ent->DIR_Name)));
+        const String shortName(reinterpret_cast<const char*>(ent->DIR_Name), 11, true);
+        volid = convertFilenameFrom(shortName);
         delete[] buffer;
         m_VolumeLabel = volid;
         return;
@@ -292,7 +303,8 @@ void FatFilesystem::cacheVolumeLabel() {
       break;
 
     // continue by reading in this cluster
-    readCluster(clus, reinterpret_cast<uintptr_t>(buffer));
+    if (!readCluster(clus, reinterpret_cast<uintptr_t>(buffer)))
+      break;
   }
 
   delete[] buffer;
@@ -416,7 +428,11 @@ uint64_t FatFilesystem::read(File* pFile, uint64_t location, uint64_t size, uint
 
 /////////////////////////////////////////////////////////////////////////////
 
-uint32_t FatFilesystem::findFreeCluster(bool bLock) {
+uint32_t FatFilesystem::findFreeCluster() {
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> guard(m_AllocationLock);
+#endif
+
   size_t j;
   uint32_t clus;
   uint32_t totalSectors = m_Superblock.BPB_TotSec32;
@@ -435,8 +451,10 @@ uint32_t FatFilesystem::findFreeCluster(bool bLock) {
     clus = getClusterEntry(j, false);
     if ((clus & mask) == 0) {
       /// \todo For FAT32, update the FSInfo structure
-      setClusterEntry(j, eofValue(),
-                      false);  // default to it being EOF - ie, pin the cluster
+      // Reserve the cluster before releasing m_AllocationLock. A caller may
+      // take other filesystem locks after this function returns.
+      if (!setClusterEntry(j, eofValue(), false))
+        return 0;
 
       // All done!
       m_FreeClusterHint = j + 1;
@@ -631,8 +649,21 @@ void FatFilesystem::updateFileSize(File* pFile, int64_t sizeChange) {
   if (sizeChange == 0)
     return;
 
-  uint32_t dirClus = static_cast<FatFile*>(pFile)->getDirCluster();
-  uint32_t dirOffset = static_cast<FatFile*>(pFile)->getDirOffset();
+  uint32_t dirClus = 0;
+  uint32_t dirOffset = 0;
+  if (pFile->isDirectory()) {
+    FatDirectory* directory = static_cast<FatDirectory*>(pFile);
+    dirClus = directory->getDirCluster();
+    dirOffset = directory->getDirOffset();
+  } else if (pFile->isSymlink()) {
+    FatSymlink* symlink = static_cast<FatSymlink*>(pFile);
+    dirClus = symlink->getDirCluster();
+    dirOffset = symlink->getDirOffset();
+  } else {
+    FatFile* file = static_cast<FatFile*>(pFile);
+    dirClus = file->getDirCluster();
+    dirOffset = file->getDirOffset();
+  }
 
   Dir* p = getDirectoryEntry(dirClus, dirOffset);
   if (!p)
@@ -648,8 +679,21 @@ void FatFilesystem::setCluster(File* pFile, uint32_t clus) {
   if (clus == 0)
     return;
 
-  uint32_t dirClus = static_cast<FatFile*>(pFile)->getDirCluster();
-  uint32_t dirOffset = static_cast<FatFile*>(pFile)->getDirOffset();
+  uint32_t dirClus = 0;
+  uint32_t dirOffset = 0;
+  if (pFile->isDirectory()) {
+    FatDirectory* directory = static_cast<FatDirectory*>(pFile);
+    dirClus = directory->getDirCluster();
+    dirOffset = directory->getDirOffset();
+  } else if (pFile->isSymlink()) {
+    FatSymlink* symlink = static_cast<FatSymlink*>(pFile);
+    dirClus = symlink->getDirCluster();
+    dirOffset = symlink->getDirOffset();
+  } else {
+    FatFile* file = static_cast<FatFile*>(pFile);
+    dirClus = file->getDirCluster();
+    dirOffset = file->getDirOffset();
+  }
 
   Dir* p = getDirectoryEntry(dirClus, dirOffset);
   if (!p)
@@ -662,29 +706,36 @@ void FatFilesystem::setCluster(File* pFile, uint32_t clus) {
 }
 
 void* FatFilesystem::readDirectoryPortion(uint32_t clus) const {
-  uint32_t dirClus = clus;
-  uint8_t* dirBuffer = 0;
+  if (clus == 0 && m_Type == FAT32)
+    return nullptr;
 
-  if (dirClus == 0) {
-    if (m_Type != FAT32) {
-      uint32_t sec = m_RootDir.sector;
-      uint32_t sz = m_RootDirCount * m_Superblock.BPB_BytsPerSec;
-
-      dirBuffer = new uint8_t[sz];
-      readSectorBlock(sec, sz, reinterpret_cast<uintptr_t>(dirBuffer));
-    } else
-      return 0;
-  } else {
-    dirBuffer = new uint8_t[m_BlockSize];
-    readCluster(dirClus, reinterpret_cast<uintptr_t>(dirBuffer));
+  const size_t size = clus == 0 ? m_RootDirCount * m_Superblock.BPB_BytsPerSec : m_BlockSize;
+  uint8_t* dirBuffer = new uint8_t[size];
+  if (!readDirectoryPortion(clus, reinterpret_cast<uintptr_t>(dirBuffer))) {
+    delete[] dirBuffer;
+    return nullptr;
   }
 
-  return reinterpret_cast<void*>(dirBuffer);
+  return dirBuffer;
 }
 
-void FatFilesystem::writeDirectoryPortion(uint32_t clus, void* p) {
+bool FatFilesystem::readDirectoryPortion(uint32_t clus, uintptr_t buffer) const {
+  if (!buffer)
+    return false;
+
+  if (clus == 0) {
+    if (m_Type == FAT32)
+      return false;
+    const uint32_t size = m_RootDirCount * m_Superblock.BPB_BytsPerSec;
+    return readSectorBlock(m_RootDir.sector, size, buffer);
+  }
+
+  return readCluster(clus, buffer);
+}
+
+bool FatFilesystem::writeDirectoryPortion(uint32_t clus, void* p) {
   if (!p)
-    return;
+    return false;
   bool secMethod = false;
   uint32_t sz = m_BlockSize;
   uint32_t sec = m_RootDir.sector;
@@ -693,16 +744,19 @@ void FatFilesystem::writeDirectoryPortion(uint32_t clus, void* p) {
       sz = m_RootDirCount * m_Superblock.BPB_BytsPerSec;
       secMethod = true;
     } else
-      return;
+      return false;
   }
 
   if (secMethod)
-    writeSectorBlock(sec, sz, reinterpret_cast<uintptr_t>(p));
-  else
-    writeCluster(clus, reinterpret_cast<uintptr_t>(p));
+    return writeSectorBlock(sec, sz, reinterpret_cast<uintptr_t>(p));
+  return writeCluster(clus, reinterpret_cast<uintptr_t>(p));
 }
 
 Dir* FatFilesystem::getDirectoryEntry(uint32_t clus, uint32_t offset) const {
+  const size_t size = clus == 0 ? m_RootDirCount * m_Superblock.BPB_BytsPerSec : m_BlockSize;
+  if (offset > size || (size - offset) < sizeof(Dir))
+    return nullptr;
+
   uint8_t* dirBuffer = reinterpret_cast<uint8_t*>(readDirectoryPortion(clus));
   if (!dirBuffer)
     return 0;
@@ -716,22 +770,27 @@ Dir* FatFilesystem::getDirectoryEntry(uint32_t clus, uint32_t offset) const {
   return ret;
 }
 
-void FatFilesystem::writeDirectoryEntry(Dir* dir, uint32_t clus, uint32_t offset) {
+bool FatFilesystem::writeDirectoryEntry(Dir* dir, uint32_t clus, uint32_t offset) {
   // don't bother reading and writing if the cluster is zero or if there's no
   // entry to write
   if (dir == 0)
-    return;
+    return false;
+
+  const size_t size = clus == 0 ? m_RootDirCount * m_Superblock.BPB_BytsPerSec : m_BlockSize;
+  if (offset > size || (size - offset) < sizeof(Dir))
+    return false;
 
   uint8_t* dirBuffer = reinterpret_cast<uint8_t*>(readDirectoryPortion(clus));
   if (!dirBuffer)
-    return;
+    return false;
 
   Dir* ent = reinterpret_cast<Dir*>(&dirBuffer[offset]);
   MemoryCopy(ent, dir, sizeof(Dir));
 
-  writeDirectoryPortion(clus, dirBuffer);
+  const bool success = writeDirectoryPortion(clus, dirBuffer);
 
   delete[] dirBuffer;
+  return success;
 }
 
 void FatFilesystem::fileAttributeChanged(File* pFile) {}
@@ -1100,8 +1159,7 @@ String FatFilesystem::convertFilenameTo(String fn) const {
 }
 
 String FatFilesystem::convertFilenameFrom(String filename) const {
-  static NormalStaticString ret;
-  ret.clear();
+  NormalStaticString ret;
 
   size_t i;
   for (i = 0; i < 8; i++) {
@@ -1243,7 +1301,7 @@ void FatFilesystem::extend(File* pFile, size_t size) {
 }
 
 File* FatFilesystem::createFile(File* parentDir, const String& filename, uint32_t mask,
-                                bool bDirectory, uint32_t dirClus) {
+                                bool bDirectory, uint32_t dirClus, bool publish) {
   // Validate input
   if (!parentDir->isDirectory()) {
     return 0;
@@ -1270,15 +1328,21 @@ File* FatFilesystem::createFile(File* parentDir, const String& filename, uint32_
     uint32_t clus = dirClus;
     do {
       // Write zero cluster.
-      writeCluster(clus, reinterpret_cast<uintptr_t>(buffer));
+      if (!writeCluster(clus, reinterpret_cast<uintptr_t>(buffer))) {
+        delete[] buffer;
+        delete pFile;
+        return nullptr;
+      }
       clus = getClusterEntry(clus);
     } while (!isEof(clus));
+    delete[] buffer;
   } else {
     // Deviation from the spec here: Because the 'inode' is used for fstat,
     // we can't leave it at zero or else all newly created files without
     // data will look the same!
     uint32_t clus = findFreeCluster();
-    setClusterEntry(clus, eofValue());
+    if (!clus)
+      return nullptr;
     pFile = new FatFile(filename, 0, 0, 0, clus, this, 0,
                         0xdeadbeef,  // Sentinel values that'll throw an error if they're
                                      // used
@@ -1286,10 +1350,14 @@ File* FatFilesystem::createFile(File* parentDir, const String& filename, uint32_
                         parentDir);
   }
 
-  FatDirectory* parent = static_cast<FatDirectory*>(Directory::fromFile(parentDir));
-  if (!parent->addEntry(filename, pFile, (bDirectory ? 1 : 0))) {
-    delete pFile;
-    return 0;
+  if (publish) {
+    FatDirectory* parent = static_cast<FatDirectory*>(Directory::fromFile(parentDir));
+    if (!parent->addEntry(filename, pFile, (bDirectory ? 1 : 0))) {
+      if (!bDirectory)
+        releaseClusterChain(pFile->getInode());
+      delete pFile;
+      return 0;
+    }
   }
 
   return pFile;
@@ -1302,38 +1370,32 @@ bool FatFilesystem::createFile(File* parent, const String& filename, uint32_t ma
 
 bool FatFilesystem::createDirectory(File* parent, const String& filename, uint32_t mask) {
   // Allocate a cluster for the directory itself
-  uint32_t clus = findFreeCluster(true);
+  uint32_t clus = findFreeCluster();
   if (!clus)
     return false;
 
-  File* f = createFile(parent, filename, mask, true, clus);
+  File* f = createFile(parent, filename, mask, true, clus, false);
   if (!f) {
     setClusterEntry(clus, 0);
     return false;
   }
 
   FatDirectory* fatDir = static_cast<FatDirectory*>(f);
-  setClusterEntry(clus, eofValue());
-  fatDir->setInode(clus);
-  setCluster(f, clus);
-
-  File* dot = createFile(f, String("."), 0, true, clus);
-  File* dotdot = createFile(f, String(".."), 0, true, parent->getInode());
-
-  if (!dot || !dotdot) {
-    // If either is valid, remove it from the directory, then remove
-    // ourselves
-    if (dot)
-      remove(f, dot);
-    if (dotdot)
-      remove(f, dotdot);
-    remove(parent, f);
+  FatFileInfo info = {};
+  FatDirectory dot(String("."), clus, this, f, info);
+  FatDirectory dotdot(String(".."), parent->getInode(), this, f, info);
+  if (!fatDir->addEntry(String("."), &dot, 1) || !fatDir->addEntry(String(".."), &dotdot, 1)) {
+    releaseClusterChain(clus);
     delete f;
     return false;
   }
 
-  setCluster(dot, dot->getInode());
-  setCluster(dotdot, dotdot->getInode());
+  FatDirectory* fatParent = static_cast<FatDirectory*>(Directory::fromFile(parent));
+  if (!fatParent->addEntry(filename, f, 1)) {
+    releaseClusterChain(clus);
+    delete f;
+    return false;
+  }
 
   return true;
 }
@@ -1353,56 +1415,98 @@ bool FatFilesystem::createSymlink(File* parent, const String& filename, const St
   // we can't leave it at zero or else all newly created files without
   // data will look the same!
   uint32_t clus = findFreeCluster();
-  setClusterEntry(clus, eofValue());
+  if (!clus)
+    return false;
   File* pFile =
       new FatSymlink(filename, 0, 0, 0, clus, this, 0,
                      0xdeadbeef,  // Sentinel values that'll throw an error if they're used
                      0xbeefdead,  // before being set to correct values.
                      parent);
 
+  // Finish the target before making the namespace entry visible.
+  if (value.length() && pFile->write(0, value.length(),
+                                     reinterpret_cast<uintptr_t>(
+                                         static_cast<const char*>(value))) != value.length()) {
+    releaseClusterChain(clus);
+    delete pFile;
+    return false;
+  }
+
   String symlinkFilename = filename;
   symlinkFilename += FatDirectory::symlinkSuffix();
 
   FatDirectory* fatParent = static_cast<FatDirectory*>(Directory::fromFile(parent));
   if (!fatParent->addEntry(symlinkFilename, pFile, 0)) {
+    releaseClusterChain(clus);
     delete pFile;
-    return 0;
+    return false;
   }
 
-  // Write symlink target.
-  pFile->write(0, value.length(), reinterpret_cast<uintptr_t>(static_cast<const char*>(value)));
-
-  return pFile;
+  return true;
 }
 
-bool FatFilesystem::remove(File* parent, File* file) {
-  FatDirectory* parentDir = static_cast<FatDirectory*>(Directory::fromFile(parent));
-  uint32_t clus = file->getInode();
+bool FatFilesystem::releaseClusterChain(uint32_t clus) {
+  if (!clus)
+    return true;
 
-  // Firstly, remove from the directory itself
-  if (!parentDir->removeEntry(file))
-    return false;
-
-  // LockGuard<Mutex> guard(m_FatLock);
-
-  // Then, clean up the cluster chain
-  if (clus != 0) {
-    uint32_t prev = 0;
-    while (true) {
-      prev = clus;
-      clus = getClusterEntry(clus, false);
-      setClusterEntry(prev, 0, false);
-
-      if (clus == 0) {
-        ERROR("Found a zero cluster during FatFilesystem::remove...");
-        break;
-      }
-
-      if (isEof(clus))
-        break;
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> guard(m_AllocationLock);
+#endif
+  size_t visited = 0;
+  while (true) {
+    if (clus < 2 || clus >= (m_ClusterCount + 2) || visited++ >= m_ClusterCount) {
+      ERROR("Invalid or cyclic FAT cluster chain during release");
+      return false;
     }
+
+    const uint32_t current = clus;
+    clus = getClusterEntry(clus, false);
+    if (!clus) {
+      ERROR("Found a free cluster in an allocated FAT chain");
+      return false;
+    }
+    setClusterEntry(current, 0, false);
+    if (isEof(clus))
+      return true;
+  }
+}
+
+bool FatFilesystem::removeNode(File* parent, const String& filename, File* file) {
+  FatDirectory* parentDir = static_cast<FatDirectory*>(Directory::fromFile(parent));
+
+  if (file->isDirectory()) {
+    FatDirectory* child = static_cast<FatDirectory*>(file);
+    if (child == parentDir) {
+      SYSCALL_ERROR(InvalidArgument);
+      return false;
+    }
+    LockGuard<Mutex> namespaceGuard(child->namespaceMutationLock());
+    bool empty = false;
+    const Directory::ReadStatus status = child->isEmpty(empty);
+    if (status != Directory::ReadStatus::Complete) {
+      SYSCALL_ERROR(IoError);
+      return false;
+    }
+    if (!empty) {
+      SYSCALL_ERROR(NotEmpty);
+      return false;
+    }
+
+    LockGuard<Mutex> childGuard(child->m_Lock);
+    if (child->isDetached() || !parentDir->removeEntry(filename, file))
+      return false;
+    child->markDetached();
+    if (!releaseClusterChain(file->getInode())) {
+      ERROR("FAT directory was unlinked, but its cluster chain could not be fully reclaimed");
+    }
+    return true;
   }
 
+  if (!parentDir->removeEntry(filename, file))
+    return false;
+  if (!releaseClusterChain(file->getInode())) {
+    ERROR("FAT file was unlinked, but its cluster chain could not be fully reclaimed");
+  }
   return true;
 }
 

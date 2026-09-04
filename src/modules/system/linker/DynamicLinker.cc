@@ -186,7 +186,8 @@ bool DynamicLinker::loadProgram(File* pFile, bool bDryRun, bool bInterpreter,
     String filename;
     filename += "/usr/lib/";
     filename += *it;
-    File* pDependencyFile = VFS::instance().find(filename);
+    Directory::ChildLease dependencyLease;
+    File* pDependencyFile = VFS::instance().findRetained(filename, dependencyLease);
     if (!pDependencyFile) {
       ERROR("DynamicLinker: Dependency `" << filename << "' not found!");
       if (!bDryRun) {
@@ -196,8 +197,11 @@ bool DynamicLinker::loadProgram(File* pFile, bool bDryRun, bool bInterpreter,
         delete programElf;
       return false;
     }
-    while (pDependencyFile && pDependencyFile->isSymlink())
-      pDependencyFile = Symlink::fromFile(pDependencyFile)->followLink();
+    while (pDependencyFile && pDependencyFile->isSymlink()) {
+      Directory::ChildLease targetLease;
+      pDependencyFile = Symlink::fromFile(pDependencyFile)->followLinkRetained(targetLease);
+      dependencyLease.swap(targetLease);
+    }
     if (!pDependencyFile || !loadObject(pDependencyFile, bDryRun)) {
       ERROR("DynamicLinker: Dependency `" << filename << "' failed to load!");
       if (!bDryRun) {
@@ -277,7 +281,8 @@ bool DynamicLinker::loadObject(File* pFile, bool bDryRun) {
     String filename;
     filename += "/usr/lib/";
     filename += *it;
-    File* _pFile = VFS::instance().find(filename);
+    Directory::ChildLease dependencyLease;
+    File* _pFile = VFS::instance().findRetained(filename, dependencyLease);
     if (!_pFile) {
       ERROR("DynamicLinker: Dependency `" << filename << "' not found!");
       if (!bDryRun) {
@@ -289,8 +294,11 @@ bool DynamicLinker::loadObject(File* pFile, bool bDryRun) {
       delete pElf;
       return false;
     }
-    while (_pFile && _pFile->isSymlink())
-      _pFile = Symlink::fromFile(_pFile)->followLink();
+    while (_pFile && _pFile->isSymlink()) {
+      Directory::ChildLease targetLease;
+      _pFile = Symlink::fromFile(_pFile)->followLinkRetained(targetLease);
+      dependencyLease.swap(targetLease);
+    }
     if (!_pFile || !loadObject(_pFile, bDryRun)) {
       ERROR("DynamicLinker: Dependency `" << filename << "' failed to load!");
       if (!bDryRun) {

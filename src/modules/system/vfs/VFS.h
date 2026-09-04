@@ -116,6 +116,9 @@ class EXPORTED_PUBLIC VFS {
   /** Attempts to obtain a File for a specific path. */
   File* find(const String& path, File* pStartNode = 0);
 
+  /** Find a File while retaining its VFS lifetime in result. */
+  File* findRetained(const String& path, Directory::ChildLease& result, File* pStartNode = nullptr);
+
   /** Attempts to create a file. */
   bool createFile(const String& path, uint32_t mask, File* pStartNode = 0);
 
@@ -131,6 +134,9 @@ class EXPORTED_PUBLIC VFS {
   /** Attempts to remove a file/directory/symlink. WILL FAIL IF DIRECTORY NOT
    * EMPTY */
   bool remove(const String& path, File* pStartNode = 0);
+
+  /** Remove a path only if its terminal entry still has the expected identity. */
+  bool remove(const String& path, File* pStartNode, File* expected);
 
   /** Adds a filesystem probe callback - this is called when a device is
    * mounted. Duplicate registration is idempotent and revives an entry closed

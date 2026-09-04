@@ -77,6 +77,10 @@ class EXPORTED_PUBLIC Pipe : public File {
   /** FIFOs are not anonymous (have a name). */
   virtual bool isFifo() const;
 
+  virtual bool isSeekable() const {
+    return false;
+  }
+
   virtual void increaseRefCount(bool bIsWriter);
 
   /** Override decreaseRefCount so we can tell when all writers have hung up

@@ -47,6 +47,7 @@
 
 #include "modules/system/users/Group.h"
 #include "modules/system/users/User.h"
+#include "modules/system/vfs/File.h"
 
 Process* Process::m_pInitProcess = 0;
 
@@ -66,6 +67,7 @@ bool canAdoptChildren(Process* pProcess, Process* pExcluded = 0) {
   const Process::ProcessState state = pProcess->getState();
   return state == Process::Active || state == Process::Suspended;
 }
+
 }  // namespace
 
 Process::ThreadLease::ThreadLease()
@@ -198,6 +200,40 @@ void Process::ThreadLease::reset() {
   m_TerminationDeferral = TerminationDeferral(false);
 }
 
+Process::FileContextLease::FileContextLease()
+    : m_pFile(nullptr), m_bVfsReference(false), m_TerminationDeferral(true) {}
+
+Process::FileContextLease::~FileContextLease() {
+  reset();
+}
+
+void Process::FileContextLease::reset() {
+  File* file = m_pFile;
+  const bool release = m_bVfsReference;
+  m_pFile = nullptr;
+  m_bVfsReference = false;
+  if (release) {
+    file->releaseVfsReference();
+  }
+}
+
+void Process::FileContextLease::adopt(File* file, bool vfsReference) {
+  if (m_pFile) {
+    FATAL("Process FileContextLease adopted over an active reference");
+  }
+  m_pFile = file;
+  m_bVfsReference = vfsReference;
+}
+
+void Process::FileContextLease::swap(FileContextLease& other) {
+  File* file = m_pFile;
+  const bool vfsReference = m_bVfsReference;
+  m_pFile = other.m_pFile;
+  m_bVfsReference = other.m_bVfsReference;
+  other.m_pFile = file;
+  other.m_bVfsReference = vfsReference;
+}
+
 Process::Process() : Process(DeferredPublication()) {
   publish();
 }
@@ -210,7 +246,9 @@ Process::Process(DeferredPublication)
       m_pParent(0),
       m_pAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
       m_ExitStatus(0),
+      m_FilesystemContextLock(),
       m_Cwd(0),
+      m_bCwdVfsReference(false),
       m_Ctty(0),
       m_SpaceAllocator(false),
       m_DynamicSpaceAllocator(false),
@@ -252,6 +290,7 @@ Process::Process(DeferredPublication)
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
       m_pRootFile(0),
+      m_bRootFileVfsReference(false),
       m_bSharedAddressSpace(false) {
   resetCounts();
   m_Metadata.startTime = Time::getTimeNanoseconds();
@@ -279,7 +318,9 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
       m_pParent(pParent),
       m_pAddressSpace(0),
       m_ExitStatus(0),
-      m_Cwd(pParent->m_Cwd),
+      m_FilesystemContextLock(),
+      m_Cwd(0),
+      m_bCwdVfsReference(false),
       m_Ctty(pParent->m_Ctty),
       m_SpaceAllocator(pParent->m_SpaceAllocator),
       m_DynamicSpaceAllocator(pParent->m_DynamicSpaceAllocator),
@@ -320,8 +361,28 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
       m_DeferredTimeAccounting(),
       m_TimeAccountingReports(),
       m_bTimeAccountingReportsEnabled(false),
-      m_pRootFile(pParent->m_pRootFile),
+      m_pRootFile(0),
+      m_bRootFileVfsReference(false),
       m_bSharedAddressSpace(!bCopyOnWrite) {
+  {
+    TerminationDeferral filesystemContextDeferral;
+    LockGuard<Mutex> guard(pParent->m_FilesystemContextLock);
+    m_Cwd = pParent->m_Cwd;
+    m_pRootFile = pParent->m_pRootFile;
+    if (m_Cwd && pParent->m_bCwdVfsReference) {
+      m_bCwdVfsReference = m_Cwd->retainVfsReference();
+      if (!m_bCwdVfsReference) {
+        FATAL("Process failed to inherit its parent's tracked cwd");
+      }
+    }
+    if (m_pRootFile && pParent->m_bRootFileVfsReference) {
+      m_bRootFileVfsReference = m_pRootFile->retainVfsReference();
+      if (!m_bRootFileVfsReference) {
+        FATAL("Process failed to inherit its parent's tracked root file");
+      }
+    }
+  }
+
   // Resource counters describe the inherited address space, but forked CPU
   // time and process age start at zero for the child. Individual atomic
   // loads avoid racing a whole-struct copy with the running parent.
@@ -339,6 +400,92 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
     str += "<C>";  // C for cloned (i.e. shared address space)
   } else {
     str += "<F>";  // F for forked.
+  }
+}
+
+File* Process::getCwd() {
+  return __atomic_load_n(&m_Cwd, __ATOMIC_ACQUIRE);
+}
+
+File* Process::acquireCwd(FileContextLease& lease) const {
+  FileContextLease replacement;
+  {
+    LockGuard<Mutex> guard(m_FilesystemContextLock);
+    File* file = m_Cwd;
+    bool retained = false;
+    if (file && m_bCwdVfsReference) {
+      retained = file->retainVfsReference();
+      if (!retained) {
+        FATAL("Process lost its tracked cwd ownership");
+      }
+    }
+    replacement.adopt(file, retained);
+  }
+  lease.swap(replacement);
+  return lease.get();
+}
+
+void Process::setCwd(File* file) {
+  TerminationDeferral filesystemContextDeferral;
+  File* previous = nullptr;
+  bool releasePrevious = false;
+  {
+    LockGuard<Mutex> guard(m_FilesystemContextLock);
+    const bool retained = file && file->retainVfsReference();
+    if (file && !retained && !file->isStableVfsRoot()) {
+      FATAL("Process cannot publish an untracked cwd that is not a filesystem root");
+    }
+    previous = m_Cwd;
+    releasePrevious = m_bCwdVfsReference;
+    __atomic_store_n(&m_Cwd, file, __ATOMIC_RELEASE);
+    m_bCwdVfsReference = retained;
+  }
+
+  if (releasePrevious) {
+    previous->releaseVfsReference();
+  }
+}
+
+File* Process::getRootFile() const {
+  return __atomic_load_n(&m_pRootFile, __ATOMIC_ACQUIRE);
+}
+
+File* Process::acquireRootFile(FileContextLease& lease) const {
+  FileContextLease replacement;
+  {
+    LockGuard<Mutex> guard(m_FilesystemContextLock);
+    File* file = m_pRootFile;
+    bool retained = false;
+    if (file && m_bRootFileVfsReference) {
+      retained = file->retainVfsReference();
+      if (!retained) {
+        FATAL("Process lost its tracked root-file ownership");
+      }
+    }
+    replacement.adopt(file, retained);
+  }
+  lease.swap(replacement);
+  return lease.get();
+}
+
+void Process::setRootFile(File* file) {
+  TerminationDeferral filesystemContextDeferral;
+  File* previous = nullptr;
+  bool releasePrevious = false;
+  {
+    LockGuard<Mutex> guard(m_FilesystemContextLock);
+    const bool retained = file && file->retainVfsReference();
+    if (file && !retained && !file->isStableVfsRoot()) {
+      FATAL("Process cannot publish an untracked root that is not a filesystem root");
+    }
+    previous = m_pRootFile;
+    releasePrevious = m_bRootFileVfsReference;
+    __atomic_store_n(&m_pRootFile, file, __ATOMIC_RELEASE);
+    m_bRootFileVfsReference = retained;
+  }
+
+  if (releasePrevious) {
+    previous->releaseVfsReference();
   }
 }
 
@@ -593,6 +740,28 @@ Process::~Process() {
 
   if (m_pSubsystem)
     delete m_pSubsystem;
+
+  File* cwd = nullptr;
+  File* rootFile = nullptr;
+  bool releaseCwd = false;
+  bool releaseRootFile = false;
+  {
+    LockGuard<Mutex> guard(m_FilesystemContextLock);
+    cwd = m_Cwd;
+    rootFile = m_pRootFile;
+    releaseCwd = m_bCwdVfsReference;
+    releaseRootFile = m_bRootFileVfsReference;
+    m_Cwd = nullptr;
+    m_pRootFile = nullptr;
+    m_bCwdVfsReference = false;
+    m_bRootFileVfsReference = false;
+  }
+  if (releaseCwd) {
+    cwd->releaseVfsReference();
+  }
+  if (releaseRootFile) {
+    rootFile->releaseVfsReference();
+  }
 
   VirtualAddressSpace& VAddressSpace = Processor::information().getVirtualAddressSpace();
 
@@ -1089,7 +1258,6 @@ bool Process::quiesceTermination() {
     m_Lock.acquire();
     const size_t participants = m_nTerminationParticipants;
     m_Lock.release();
-
     if (participants == 0) {
       FATAL("Process exit owner disappeared before teardown for pid " << Dec << m_Id << ".");
     }

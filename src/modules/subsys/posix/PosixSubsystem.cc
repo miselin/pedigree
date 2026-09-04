@@ -1376,9 +1376,13 @@ bool PosixSubsystem::loadElf(File* pFile, uintptr_t mappedAddress, uintptr_t& ne
 }
 
 File* PosixSubsystem::findFile(const String& path, File* workingDir) {
+  Process::FileContextLease workingDirLease;
   if (workingDir == nullptr) {
     assert(m_pProcess);
-    workingDir = m_pProcess->getCwd();
+    workingDir = m_pProcess->acquireCwd(workingDirLease);
+    if (!workingDir) {
+      return nullptr;
+    }
   }
 
   bool mountAwareAbi = getAbi() != PosixSubsystem::LinuxAbi;
@@ -1392,13 +1396,34 @@ File* PosixSubsystem::findFile(const String& path, File* workingDir) {
     return VFS::instance().find(path, workingDir);
   }
 
-  // fall back to root filesystem
-  if (!m_pRootFs) {
-    m_pRootFs = VFS::instance().getRootFilesystem();
+  // fall back to the current root filesystem
+  Filesystem* rootFs = VFS::instance().getRootFilesystem();
+  if (rootFs) {
+    return VFS::instance().find(path, rootFs->getRoot());
   }
 
-  if (m_pRootFs) {
-    return VFS::instance().find(path, m_pRootFs->getRoot());
+  return nullptr;
+}
+
+File* PosixSubsystem::findFileRetained(const String& path, Directory::ChildLease& result,
+                                       File* workingDir) {
+  Process::FileContextLease workingDirLease;
+  if (workingDir == nullptr) {
+    assert(m_pProcess);
+    workingDir = m_pProcess->acquireCwd(workingDirLease);
+    if (!workingDir) {
+      return nullptr;
+    }
+  }
+
+  const bool mountAwareAbi = getAbi() != PosixSubsystem::LinuxAbi;
+  if (mountAwareAbi || (path[0] != '/')) {
+    return VFS::instance().findRetained(path, result, workingDir);
+  }
+
+  Filesystem* rootFs = VFS::instance().getRootFilesystem();
+  if (rootFs) {
+    return VFS::instance().findRetained(path, result, rootFs->getRoot());
   }
 
   return nullptr;
@@ -1429,7 +1454,8 @@ bool PosixSubsystem::invoke(const char* name, Vector<String>& argv, Vector<Strin
   return invoke(name, argv, env, &state);
 }
 
-bool PosixSubsystem::parseShebang(File* pFile, File*& pOutFile, Vector<String>& argv) {
+bool PosixSubsystem::parseShebang(File* pFile, File*& pOutFile, Directory::ChildLease& outLease,
+                                  Vector<String>& argv) {
   PS_NOTICE("Attempting to parse shebang in " << pFile->getFullPath());
 
   // Try and read the shebang, if any.
@@ -1487,7 +1513,7 @@ bool PosixSubsystem::parseShebang(File* pFile, File*& pOutFile, Vector<String>& 
   }
 
   // Can we load the new program?
-  File* pNewTarget = findFileWithAbiFallbacks(newTarget);
+  File* pNewTarget = findFileRetained(newTarget, outLease, nullptr);
   if (!pNewTarget) {
     // No, we cannot.
     PS_NOTICE("target not found");
@@ -1506,10 +1532,20 @@ bool PosixSubsystem::parseShebang(File* pFile, File*& pOutFile, Vector<String>& 
   return true;
 }
 
-static File* traverseForInvoke(File* pFile) {
+static File* traverseForInvoke(File* pFile, Directory::ChildLease& lease) {
   // Do symlink traversal.
+  Tree<File*, File*> loopDetect;
   while (pFile && pFile->isSymlink()) {
-    pFile = Symlink::fromFile(pFile)->followLink();
+    Directory::ChildLease nextLease;
+    pFile = Symlink::fromFile(pFile)->followLinkRetained(nextLease);
+    if (pFile) {
+      lease.swap(nextLease);
+      if (loopDetect.lookup(pFile)) {
+        SYSCALL_ERROR(LoopExists);
+        return nullptr;
+      }
+      loopDetect.insert(pFile, pFile);
+    }
   }
   if (!pFile) {
     PS_NOTICE("PosixSubsystem::invoke: symlink traversal failed");
@@ -1533,7 +1569,8 @@ bool PosixSubsystem::invoke(const char* name, Vector<String>& argv, Vector<Strin
   String originalName(name);
 
   // Try and find the target file we want to invoke.
-  File* originalFile = findFileWithAbiFallbacks(originalName);
+  Directory::ChildLease originalLease;
+  File* originalFile = findFileRetained(originalName, originalLease, nullptr);
   if (!originalFile) {
     PS_NOTICE("PosixSubsystem::invoke: could not find file '" << originalName << "'");
     SYSCALL_ERROR(DoesNotExist);
@@ -1580,7 +1617,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     return false;
   }
 
-  originalFile = traverseForInvoke(originalFile);
+  Directory::ChildLease originalTargetLease;
+  originalFile = traverseForInvoke(originalFile, originalTargetLease);
   if (!originalFile) {
     // traverseForInvoke does a SYSCALL_ERROR for us
     return false;
@@ -1589,13 +1627,14 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   uint8_t validateBuffer[128];
   size_t nBytes = originalFile->read(0, 128, reinterpret_cast<uintptr_t>(validateBuffer));
 
+  Directory::ChildLease shebangLease;
   Elf* validElf = new Elf();
   if (!validElf->validate(validateBuffer, nBytes)) {
     PS_NOTICE("PosixSubsystem::invoke: '" << originalFile->getName()
                                           << "' is not an ELF binary, looking for shebang...");
 
     File* shebangFile = 0;
-    if (!parseShebang(originalFile, shebangFile, argv)) {
+    if (!parseShebang(originalFile, shebangFile, shebangLease, argv)) {
       PS_NOTICE("PosixSubsystem::invoke: failed to parse shebang line in '"
                 << originalFile->getName() << "'");
       return false;
@@ -1607,7 +1646,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       originalFile = shebangFile;
 
       // Handle symlinks in shebang target.
-      originalFile = traverseForInvoke(originalFile);
+      originalFile = traverseForInvoke(originalFile, shebangLease);
       if (!originalFile) {
         return false;
       }
@@ -1620,6 +1659,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     return -1;
   }
 
+  Directory::ChildLease interpreterLease;
   File* interpreterFile = 0;
 
   // Inhibit all signals from coming in while we trash the address space...
@@ -1639,8 +1679,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     }
 
     // Ensure we can actually find the interpreter.
-    interpreterFile = findFileWithAbiFallbacks(interpreter);
-    interpreterFile = traverseForInvoke(interpreterFile);
+    interpreterFile = findFileRetained(interpreter, interpreterLease, nullptr);
+    interpreterFile = traverseForInvoke(interpreterFile, interpreterLease);
     if (!interpreterFile) {
       PS_NOTICE("PosixSubsystem::invoke: could not find interpreter '" << interpreter << "'");
       SYSCALL_ERROR(ExecFormatError);

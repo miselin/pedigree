@@ -88,26 +88,26 @@ RadixTree<LockedFile*> g_PosixGlobalLockedFiles;
 /// Default constructor
 FileDescriptor::FileDescriptor()
     : file(0),
-      offset(0),
       fd(0xFFFFFFFF),
       lockedFile(0),
       networkImpl(nullptr),
       ioevent(nullptr),
       fdflags(0),
       flflags(0),
+      m_Position(new OpenFilePosition(0)),
       m_bVfsLease(false) {}
 
 /// Parameterised constructor
 FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, int fdFlags,
                                int flFlags, LockedFile* lf)
     : file(newFile),
-      offset(newOffset),
       fd(newFd),
       lockedFile(lf),
       networkImpl(nullptr),
       ioevent(nullptr),
       fdflags(fdFlags),
       flflags(flFlags),
+      m_Position(new OpenFilePosition(newOffset)),
       m_bVfsLease(newFile && VFS::instance().retainTrackedFile(newFile)) {
   /// \todo need a copy constructor for networkImpl
   if (file) {
@@ -121,13 +121,13 @@ FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, 
 /// Copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor& desc)
     : file(desc.file),
-      offset(desc.offset),
       fd(desc.fd),
       lockedFile(0),
       networkImpl(desc.networkImpl),
       ioevent(nullptr),
       fdflags(desc.fdflags),
       flflags(desc.flflags),
+      m_Position(desc.m_Position),
       m_bVfsLease(file && VFS::instance().retainTrackedFile(file)) {
   if (file) {
 #if ENABLE_LOCKED_FILES
@@ -146,22 +146,22 @@ FileDescriptor::FileDescriptor(FileDescriptor& desc)
 /// Pointer copy constructor
 FileDescriptor::FileDescriptor(FileDescriptor* desc)
     : file(0),
-      offset(0),
       fd(0),
       lockedFile(0),
       ioevent(nullptr),
       fdflags(0),
       flflags(0),
+      m_Position(new OpenFilePosition(0)),
       m_bVfsLease(false) {
   if (!desc)
     return;
 
   file = desc->file;
-  offset = desc->offset;
   fd = desc->fd;
   fdflags = desc->fdflags;
   flflags = desc->flflags;
   networkImpl = desc->networkImpl;
+  m_Position = desc->m_Position;
   m_bVfsLease = file && VFS::instance().retainTrackedFile(file);
   if (file) {
 #if ENABLE_LOCKED_FILES
@@ -235,4 +235,61 @@ void FileDescriptor::addStatusFlag(int newFlag) {
 
 int FileDescriptor::getStatusFlags() const {
   return flflags;
+}
+
+FileDescriptor::PositionGuard::PositionGuard(const SharedPointer<OpenFilePosition>& position)
+    : m_Position(position), m_Guard(m_Position->lock) {}
+
+uint64_t FileDescriptor::PositionGuard::offset() const {
+  return m_Position->offset;
+}
+
+void FileDescriptor::PositionGuard::setOffset(uint64_t offset) {
+  m_Position->offset = offset;
+}
+
+void FileDescriptor::PositionGuard::advanceOffset(uint64_t amount) {
+  m_Position->offset += amount;
+}
+
+FileDescriptor::PositionGuard FileDescriptor::lockPosition() const {
+  return PositionGuard(m_Position);
+}
+
+uint64_t FileDescriptor::getOffset() const {
+  PositionGuard position = lockPosition();
+  return position.offset();
+}
+
+void FileDescriptor::setOffset(uint64_t offset) {
+  PositionGuard position = lockPosition();
+  position.setOffset(offset);
+}
+
+uint64_t FileDescriptor::read(uint64_t size, uintptr_t buffer, bool canBlock) {
+  if (!file) {
+    return 0;
+  }
+  if (!file->isSeekable()) {
+    return file->read(0, size, buffer, canBlock);
+  }
+
+  PositionGuard position = lockPosition();
+  uint64_t amount = file->read(position.offset(), size, buffer, canBlock);
+  position.advanceOffset(amount);
+  return amount;
+}
+
+uint64_t FileDescriptor::write(uint64_t size, uintptr_t buffer, bool canBlock) {
+  if (!file) {
+    return 0;
+  }
+  if (!file->isSeekable()) {
+    return file->write(0, size, buffer, canBlock);
+  }
+
+  PositionGuard position = lockPosition();
+  uint64_t amount = file->write(position.offset(), size, buffer, canBlock);
+  position.advanceOffset(amount);
+  return amount;
 }

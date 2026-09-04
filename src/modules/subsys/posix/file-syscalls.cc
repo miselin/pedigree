@@ -88,8 +88,6 @@ extern DevFs* g_pDevFs;
 
 #define CHECK_FLAG(a, b) (((a) & (b)) == (b))
 
-#define GET_CWD() (Processor::information().getCurrentThread()->getParent()->getCwd())
-
 static PosixProcess* getPosixProcess() {
   Process* pStockProcess = Processor::information().getCurrentThread()->getParent();
   if (pStockProcess->getType() != Process::Posix) {
@@ -114,38 +112,40 @@ static bool copyUserString(const char* userString, String& copy) {
   return true;
 }
 
-File* findFileWithAbiFallbacks(const String& name, File* cwd) {
+File* findFileWithAbiFallbacks(const String& name, Directory::ChildLease& result, File* cwd) {
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
-  return pSubsystem->findFile(name, cwd);
+  return pSubsystem->findFileRetained(name, result, cwd);
 }
 
-static File* traverseSymlink(File* file) {
+static File* traverseSymlink(File* file, Directory::ChildLease& currentLease) {
   /// \todo detect inability to access at each intermediate step.
   if (!file) {
     SYSCALL_ERROR(DoesNotExist);
-    return 0;
+    return nullptr;
   }
 
   Tree<File*, File*> loopDetect;
   while (file->isSymlink()) {
-    file = Symlink::fromFile(file)->followLink();
+    Directory::ChildLease nextLease;
+    file = Symlink::fromFile(file)->followLinkRetained(nextLease);
     if (!file) {
       SYSCALL_ERROR(DoesNotExist);
-      return 0;
+      return nullptr;
     }
 
+    currentLease.swap(nextLease);
     if (loopDetect.lookup(file)) {
       SYSCALL_ERROR(LoopExists);
-      return 0;
-    } else
-      loopDetect.insert(file, file);
+      return nullptr;
+    }
+    loopDetect.insert(file, file);
   }
 
   return file;
 }
 
-static bool doChdir(File* dir) {
+static bool doChdir(File* dir, Directory::ChildLease& lease) {
   if (!dir) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
@@ -153,7 +153,7 @@ static bool doChdir(File* dir) {
 
   File* target = dir;
   if (target->isSymlink()) {
-    target = traverseSymlink(dir);
+    target = traverseSymlink(dir, lease);
     if (!target) {
       F_NOTICE("Symlink traversal failed.");
       return false;
@@ -170,18 +170,19 @@ static bool doChdir(File* dir) {
     return false;
   }
 
-  Processor::information().getCurrentThread()->getParent()->setCwd(dir);
+  Processor::information().getCurrentThread()->getParent()->setCwd(target);
   return true;
 }
 
 static bool doStat(const char* name, File* pFile, struct stat* st, bool traverse = true) {
   static ConstantString nullName = MakeConstantString("null");
+  Directory::ChildLease targetLease;
 
   if (traverse) {
-    pFile = traverseSymlink(pFile);
+    pFile = traverseSymlink(pFile, targetLease);
     if (!pFile) {
       F_NOTICE("    -> Symlink traversal failed");
-      return -1;
+      return false;
     }
   }
 
@@ -587,7 +588,7 @@ int posix_read(int fd, char* ptr, int len) {
   uint64_t nRead = 0;
   if (ptr && len) {
     pThread->clearInterruption();
-    nRead = pFd->file->read(pFd->offset, len, reinterpret_cast<uintptr_t>(ptr), canBlock);
+    nRead = pFd->read(len, reinterpret_cast<uintptr_t>(ptr), canBlock);
     const bool signalInterrupted = pThread->getInterruptionReason() == Thread::InterruptedBySignal;
     pThread->clearInterruption();
     if ((!nRead) && signalInterrupted) {
@@ -595,7 +596,6 @@ int posix_read(int fd, char* ptr, int len) {
       F_NOTICE(" -> interrupted");
       return -1;
     }
-    pFd->offset += nRead;
   }
 
   if (ptr && nRead) {
@@ -653,7 +653,7 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
   uint64_t nWritten = 0;
   if (ptr && len) {
     pThread->clearInterruption();
-    nWritten = pFd->file->write(pFd->offset, len, reinterpret_cast<uintptr_t>(ptr));
+    nWritten = pFd->write(len, reinterpret_cast<uintptr_t>(ptr));
     const bool signalInterrupted = pThread->getInterruptionReason() == Thread::InterruptedBySignal;
     pThread->clearInterruption();
     if ((!nWritten) && signalInterrupted) {
@@ -661,7 +661,6 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
       F_NOTICE(" -> interrupted");
       return -1;
     }
-    pFd->offset += nWritten;
   }
 
   F_NOTICE("  -> write returns " << nWritten);
@@ -758,20 +757,26 @@ off_t posix_lseek(int file, off_t ptr, int dir) {
     return -1;
   }
 
+  if (!pFd->file->isSeekable()) {
+    SYSCALL_ERROR(IllegalSeek);
+    return -1;
+  }
+
+  FileDescriptor::PositionGuard position = pFd->lockPosition();
   size_t fileSize = pFd->file->getSize();
   switch (dir) {
     case SEEK_SET:
-      pFd->offset = ptr;
+      position.setOffset(ptr);
       break;
     case SEEK_CUR:
-      pFd->offset += ptr;
+      position.advanceOffset(ptr);
       break;
     case SEEK_END:
-      pFd->offset = fileSize + ptr;
+      position.setOffset(fileSize + ptr);
       break;
   }
 
-  return static_cast<int>(pFd->offset);
+  return static_cast<off_t>(position.offset());
 }
 
 int posix_link(char* target, char* link) {
@@ -848,13 +853,17 @@ int posix_realpath(const char* path, char* buf, size_t bufsize) {
   String realPath;
   normalisePath(realPath, pathCopy.cstr());
   F_NOTICE("  -> traversing " << realPath);
-  File* f = findFileWithAbiFallbacks(realPath, GET_CWD());
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  Process::FileContextLease cwdLease;
+  File* cwd = process->acquireCwd(cwdLease);
+  Directory::ChildLease fileLease;
+  File* f = findFileWithAbiFallbacks(realPath, fileLease, cwd);
   if (!f) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
 
-  f = traverseSymlink(f);
+  f = traverseSymlink(f, fileLease);
   if (!f) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
@@ -901,7 +910,13 @@ int posix_getcwd(char* buf, size_t maxlen) {
 
   F_NOTICE("getcwd(" << maxlen << ")");
 
-  File* curr = GET_CWD();
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  Process::FileContextLease cwdLease;
+  File* curr = process->acquireCwd(cwdLease);
+  if (!curr) {
+    SYSCALL_ERROR(DoesNotExist);
+    return -1;
+  }
 
   String str;
   curr->getFullPath(str);
@@ -934,8 +949,9 @@ int posix_lstat(char* name, struct stat* st) {
   return posix_fstatat(AT_FDCWD, name, st, AT_SYMLINK_NOFOLLOW);
 }
 
-static int getdents_common(int fd, size_t (*set_dent)(File*, void*, size_t, size_t), void* buffer,
-                           int count) {
+static int getdents_common(int fd,
+                           size_t (*set_dent)(const Directory::DirectoryEntryView&, void*, size_t),
+                           void* buffer, int count) {
   // Lookup this process.
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -965,36 +981,73 @@ static int getdents_common(int fd, size_t (*set_dent)(File*, void*, size_t, size
 
   // Navigate the directory tree.
   Directory* pDirectory = Directory::fromFile(pFd->file);
-  size_t truePosition = pFd->offset;
-  int offset = 0;
-  for (; truePosition < pDirectory->getNumChildren() && offset < count; ++truePosition) {
-    File* pFile = pDirectory->getChild(truePosition);
-    if (!pFile)
-      break;
+  struct Context {
+    size_t (*setDent)(const Directory::DirectoryEntryView&, void*, size_t);
+    void* buffer;
+    size_t available;
+    size_t written;
+    bool rejected;
+  } context = {set_dent, buffer, static_cast<size_t>(count), 0, false};
 
-    F_NOTICE(" -> " << pFile->getName());
-    size_t reclen = set_dent(pFile, buffer, count - offset, truePosition + 1);
-    if (reclen == 0) {
-      // no more room
-      break;
+  auto emitter = [](void* opaque, const Directory::DirectoryEntryView& entry) -> bool {
+    Context* context = reinterpret_cast<Context*>(opaque);
+    F_NOTICE(" -> " << entry.name.toString());
+    size_t reclen = context->setDent(entry, context->buffer, context->available - context->written);
+    if (!reclen) {
+      context->rejected = true;
+      return false;
     }
+    context->buffer = adjust_pointer(context->buffer, reclen);
+    context->written += reclen;
+    return true;
+  };
 
-    buffer = adjust_pointer(buffer, reclen);
-    offset += reclen;
+  FileDescriptor::PositionGuard position = pFd->lockPosition();
+  uint64_t cookie = position.offset();
+  Directory::ReadStatus status = pDirectory->enumerate(cookie, emitter, &context);
+  position.setOffset(cookie);
+
+  if (status == Directory::ReadStatus::IoError && !context.written) {
+    SYSCALL_ERROR(IoError);
+    return -1;
+  }
+  if (status == Directory::ReadStatus::Stopped && context.rejected && !context.written) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
   }
 
-  size_t totalCount = truePosition - pFd->offset;
-  pFd->offset = truePosition;
-
-  F_NOTICE(" -> " << offset);
-  return offset;
+  F_NOTICE(" -> " << context.written);
+  return context.written;
 }
 
-static size_t getdents_helper(File* file, void* buffer, size_t avail, size_t next_pos) {
+static char getdentsType(Directory::EntryType type) {
+  switch (type) {
+    case Directory::EntryType::Directory:
+      return DT_DIR;
+    case Directory::EntryType::Symlink:
+      return DT_LNK;
+    case Directory::EntryType::Fifo:
+      return DT_FIFO;
+    case Directory::EntryType::Socket:
+      return DT_SOCK;
+    case Directory::EntryType::CharacterDevice:
+      return DT_CHR;
+    case Directory::EntryType::BlockDevice:
+      return DT_BLK;
+    case Directory::EntryType::Regular:
+      return DT_REG;
+    case Directory::EntryType::Unknown:
+    default:
+      return DT_UNKNOWN;
+  }
+}
+
+static size_t getdents_helper(const Directory::DirectoryEntryView& file, void* buffer,
+                              size_t avail) {
   struct linux_dirent* entry = reinterpret_cast<struct linux_dirent*>(buffer);
   char* char_buffer = reinterpret_cast<char*>(buffer);
 
-  size_t filenameLength = file->getName().length();
+  size_t filenameLength = file.name.length();
   // dirent struct, filename, null terminator, and d_type
   size_t reclen = sizeof(struct linux_dirent) + filenameLength + 2;
   // do we have room for this record?
@@ -1004,34 +1057,26 @@ static size_t getdents_helper(File* file, void* buffer, size_t avail, size_t nex
   }
 
   entry->d_reclen = reclen;
-  entry->d_off = next_pos;  /// \todo not quite correct
+  entry->d_off = file.nextCookie;
 
-  entry->d_ino = file->getInode();
+  entry->d_ino = file.inode;
   if (!entry->d_ino) {
     entry->d_ino = ~0U;
   }
 
-  StringCopy(entry->d_name, static_cast<const char*>(file->getName()));
+  MemoryCopy(entry->d_name, file.name.str(), filenameLength);
+  entry->d_name[filenameLength] = 0;
   char_buffer[reclen - 2] = 0;
-
-  char d_type = DT_UNKNOWN;
-  if (file->isSymlink() || file->isPipe()) {
-    d_type = DT_LNK;
-  } else if (file->isDirectory()) {
-    d_type = DT_DIR;
-  } else {
-    /// \todo also need to consider character devices
-    d_type = DT_REG;
-  }
-  char_buffer[reclen - 1] = d_type;
+  char_buffer[reclen - 1] = getdentsType(file.type);
 
   return reclen;
 }
 
-static size_t getdents64_helper(File* file, void* buffer, size_t avail, size_t next_pos) {
+static size_t getdents64_helper(const Directory::DirectoryEntryView& file, void* buffer,
+                                size_t avail) {
   struct dirent* entry = reinterpret_cast<struct dirent*>(buffer);
 
-  size_t filenameLength = file->getName().length();
+  size_t filenameLength = file.name.length();
   size_t reclen = offsetof(struct dirent, d_name) + filenameLength + 1;  // needs null terminator
   // do we have room for this record?
   if (avail < reclen) {
@@ -1040,30 +1085,26 @@ static size_t getdents64_helper(File* file, void* buffer, size_t avail, size_t n
   }
 
   entry->d_reclen = reclen;
-  entry->d_off = next_pos;
+  entry->d_off = file.nextCookie;
 
-  entry->d_ino = file->getInode();
+  entry->d_ino = file.inode;
   if (!entry->d_ino) {
     entry->d_ino = ~0U;
   }
 
-  StringCopy(entry->d_name, static_cast<const char*>(file->getName()));
+  MemoryCopy(entry->d_name, file.name.str(), filenameLength);
   entry->d_name[filenameLength] = 0;
-
-  if (file->isSymlink() || file->isPipe()) {
-    entry->d_type = DT_LNK;
-  } else if (file->isDirectory()) {
-    entry->d_type = DT_DIR;
-  } else {
-    /// \todo also need to consider character devices
-    entry->d_type = DT_REG;
-  }
+  entry->d_type = getdentsType(file.type);
 
   return reclen;
 }
 
 int posix_getdents(int fd, struct linux_dirent* ents, int count) {
   F_NOTICE("getdents(" << fd << ")");
+  if (count < 0) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ents), count,
                                     PosixSubsystem::SafeWrite)) {
     F_NOTICE("getdents -> invalid address");
@@ -1076,6 +1117,10 @@ int posix_getdents(int fd, struct linux_dirent* ents, int count) {
 
 int posix_getdents64(int fd, struct dirent* ents, int count) {
   F_NOTICE("getdents64(" << fd << ")");
+  if (count < 0) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ents), count,
                                     PosixSubsystem::SafeWrite)) {
     F_NOTICE("getdents64 -> invalid address");
@@ -1477,14 +1522,18 @@ int posix_chdir(const char* path) {
   String realPath;
   normalisePath(realPath, pathCopy.cstr());
 
-  File* dir = findFileWithAbiFallbacks(realPath, GET_CWD());
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  Process::FileContextLease cwdLease;
+  File* cwd = process->acquireCwd(cwdLease);
+  Directory::ChildLease dirLease;
+  File* dir = findFileWithAbiFallbacks(realPath, dirLease, cwd);
   if (!dir) {
     F_NOTICE("Does not exist.");
     SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
 
-  return doChdir(dir) ? 0 : -1;
+  return doChdir(dir, dirLease) ? 0 : -1;
 }
 
 int posix_dup(int fd) {
@@ -2033,7 +2082,8 @@ int posix_fchdir(int fd) {
   }
 
   File* file = pFd->file;
-  return doChdir(file) ? 0 : -1;
+  Directory::ChildLease targetLease;
+  return doChdir(file, targetLease) ? 0 : -1;
 }
 
 static int statvfs_doer(Filesystem* pFs, struct statvfs* buf) {
@@ -2106,14 +2156,18 @@ int posix_statvfs(const char* path, struct statvfs* buf) {
   String realPath;
   normalisePath(realPath, pathCopy.cstr());
 
-  File* file = findFileWithAbiFallbacks(realPath, GET_CWD());
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  Process::FileContextLease cwdLease;
+  File* cwd = process->acquireCwd(cwdLease);
+  Directory::ChildLease fileLease;
+  File* file = findFileWithAbiFallbacks(realPath, fileLease, cwd);
   if (!file) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
 
   // Symlink traversal
-  file = traverseSymlink(file);
+  file = traverseSymlink(file, fileLease);
   if (!file)
     return -1;
 
@@ -2138,14 +2192,18 @@ int posix_utime(const char* path, const struct utimbuf* times) {
   String realPath;
   normalisePath(realPath, pathCopy.cstr());
 
-  File* file = findFileWithAbiFallbacks(realPath, GET_CWD());
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  Process::FileContextLease cwdLease;
+  File* cwd = process->acquireCwd(cwdLease);
+  Directory::ChildLease fileLease;
+  File* file = findFileWithAbiFallbacks(realPath, fileLease, cwd);
   if (!file) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
 
   // Symlink traversal
-  file = traverseSymlink(file);
+  file = traverseSymlink(file, fileLease);
   if (!file)
     return -1;
 
@@ -2185,14 +2243,18 @@ int posix_chroot(const char* path) {
   String realPath;
   normalisePath(realPath, pathCopy.cstr());
 
-  File* file = findFileWithAbiFallbacks(realPath, GET_CWD());
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  Process::FileContextLease cwdLease;
+  File* cwd = process->acquireCwd(cwdLease);
+  Directory::ChildLease fileLease;
+  File* file = findFileWithAbiFallbacks(realPath, fileLease, cwd);
   if (!file) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
 
   // Symlink traversal
-  file = traverseSymlink(file);
+  file = traverseSymlink(file, fileLease);
   if (!file)
     return -1;
 
@@ -2214,7 +2276,8 @@ int posix_flock(int fd, int operation) {
   return 0;
 }
 
-static File* check_dirfd(int dirfd, DescriptorLease& descriptor, int flags = 0) {
+static File* check_dirfd(int dirfd, DescriptorLease& descriptor,
+                         Process::FileContextLease& cwdLease, int flags = 0) {
   // Lookup this process.
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -2223,7 +2286,7 @@ static File* check_dirfd(int dirfd, DescriptorLease& descriptor, int flags = 0) 
     return 0;
   }
 
-  File* cwd = GET_CWD();
+  File* cwd = pProcess->acquireCwd(cwdLease);
   if (dirfd != AT_FDCWD) {
     if (!pSubsystem->acquireFileDescriptor(dirfd, descriptor)) {
       F_NOTICE("  -> dirfd is a bad fd");
@@ -2250,7 +2313,8 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
   F_NOTICE("openat");
 
   DescriptorLease dirDescriptor;
-  File* cwd = check_dirfd(dirfd, dirDescriptor);
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease);
   if (!cwd) {
     return -1;
   }
@@ -2293,6 +2357,7 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
 
   size_t fd = pSubsystem->getFd();
 
+  Directory::ChildLease fileLease;
   File* file = 0;
 
   bool onDevFs = false;
@@ -2317,7 +2382,7 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
 
   if (!file) {
     // Find file.
-    file = findFileWithAbiFallbacks(nameToOpen, cwd);
+    file = findFileWithAbiFallbacks(nameToOpen, fileLease, cwd);
   }
 
   bool bCreated = false;
@@ -2332,7 +2397,7 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
         return -1;
       }
 
-      file = findFileWithAbiFallbacks(nameToOpen, cwd);
+      file = findFileWithAbiFallbacks(nameToOpen, fileLease, cwd);
       if (!file) {
         F_NOTICE("  -> File does not exist (O_CREAT failed)");
         SYSCALL_ERROR(DoesNotExist);
@@ -2357,7 +2422,7 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
     return -1;
   }
 
-  file = traverseSymlink(file);
+  file = traverseSymlink(file, fileLease);
 
   if (!file) {
     SYSCALL_ERROR(DoesNotExist);
@@ -2477,7 +2542,8 @@ int posix_mkdirat(int dirfd, const char* pathname, mode_t mode) {
   F_NOTICE("mkdirat");
 
   DescriptorLease dirDescriptor;
-  File* cwd = check_dirfd(dirfd, dirDescriptor);
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease);
   if (!cwd) {
     return -1;
   }
@@ -2506,7 +2572,8 @@ int posix_fchownat(int dirfd, const char* pathname, uid_t owner, gid_t group, in
   F_NOTICE("fchownat");
 
   DescriptorLease dirDescriptor;
-  File* cwd = check_dirfd(dirfd, dirDescriptor, flags);
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease, flags);
   if (!cwd) {
     return -1;
   }
@@ -2529,6 +2596,7 @@ int posix_fchownat(int dirfd, const char* pathname, uid_t owner, gid_t group, in
   F_NOTICE("fchownat(" << dirfd << ", " << pathnameCopy << ", " << owner << ", " << group << ", "
                        << flags << ")");
 
+  Directory::ChildLease fileLease;
   File* file = 0;
   DescriptorLease targetDescriptor;
 
@@ -2563,7 +2631,7 @@ int posix_fchownat(int dirfd, const char* pathname, uid_t owner, gid_t group, in
 
     file = targetDescriptor->file;
   } else {
-    file = findFileWithAbiFallbacks(realPath, cwd);
+    file = findFileWithAbiFallbacks(realPath, fileLease, cwd);
     if (!file) {
       SYSCALL_ERROR(DoesNotExist);
       return -1;
@@ -2578,7 +2646,7 @@ int posix_fchownat(int dirfd, const char* pathname, uid_t owner, gid_t group, in
 
   // Symlink traversal
   if ((flags & AT_SYMLINK_NOFOLLOW) == 0) {
-    file = traverseSymlink(file);
+    file = traverseSymlink(file, fileLease);
   }
 
   if (!file) {
@@ -2593,7 +2661,8 @@ int posix_futimesat(int dirfd, const char* pathname, const struct timeval* times
   F_NOTICE("futimesat");
 
   DescriptorLease dirDescriptor;
-  File* cwd = check_dirfd(dirfd, dirDescriptor);
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease);
   if (!cwd) {
     return -1;
   }
@@ -2616,14 +2685,15 @@ int posix_futimesat(int dirfd, const char* pathname, const struct timeval* times
   String realPath;
   normalisePath(realPath, pathnameCopy.cstr());
 
-  File* file = findFileWithAbiFallbacks(realPath, cwd);
+  Directory::ChildLease fileLease;
+  File* file = findFileWithAbiFallbacks(realPath, fileLease, cwd);
   if (!file) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
 
   // Symlink traversal
-  file = traverseSymlink(file);
+  file = traverseSymlink(file, fileLease);
   if (!file)
     return -1;
 
@@ -2657,7 +2727,8 @@ int posix_unlinkat(int dirfd, const char* pathname, int flags) {
   F_NOTICE("unlinkat");
 
   DescriptorLease dirDescriptor;
-  File* cwd = check_dirfd(dirfd, dirDescriptor);
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease);
   if (!cwd) {
     return -1;
   }
@@ -2674,7 +2745,8 @@ int posix_unlinkat(int dirfd, const char* pathname, int flags) {
   normalisePath(realPath, pathnameCopy.cstr());
 
   LockGuard<Mutex> unixNamespaceGuard(UnixFilesystem::namespaceLock());
-  File* pFile = findFileWithAbiFallbacks(realPath, cwd);
+  Directory::ChildLease fileLease;
+  File* pFile = findFileWithAbiFallbacks(realPath, fileLease, cwd);
   if (!pFile) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
@@ -2685,7 +2757,7 @@ int posix_unlinkat(int dirfd, const char* pathname, int flags) {
   }
 
   // remove() checks permissions to ensure we can delete the file.
-  if (VFS::instance().remove(realPath, GET_CWD())) {
+  if (VFS::instance().remove(realPath, cwd, pFile)) {
     return 0;
   } else {
     return -1;
@@ -2696,13 +2768,15 @@ int posix_renameat(int olddirfd, const char* oldpath, int newdirfd, const char* 
   F_NOTICE("renameat");
 
   DescriptorLease oldDirDescriptor;
-  File* oldcwd = check_dirfd(olddirfd, oldDirDescriptor);
+  Process::FileContextLease oldCwdLease;
+  File* oldcwd = check_dirfd(olddirfd, oldDirDescriptor, oldCwdLease);
   if (!oldcwd) {
     return -1;
   }
 
   DescriptorLease newDirDescriptor;
-  File* newcwd = check_dirfd(newdirfd, newDirDescriptor);
+  Process::FileContextLease newCwdLease;
+  File* newcwd = check_dirfd(newdirfd, newDirDescriptor, newCwdLease);
   if (!newcwd) {
     return -1;
   }
@@ -2722,8 +2796,11 @@ int posix_renameat(int olddirfd, const char* oldpath, int newdirfd, const char* 
   normalisePath(realSource, oldpathCopy.cstr());
   normalisePath(realDestination, newpathCopy.cstr());
 
-  File* src = findFileWithAbiFallbacks(realSource, oldcwd);
-  File* dest = findFileWithAbiFallbacks(realDestination, newcwd);
+  Directory::ChildLease srcEntryLease;
+  Directory::ChildLease destLease;
+  File* srcEntry = findFileWithAbiFallbacks(realSource, srcEntryLease, oldcwd);
+  File* src = srcEntry;
+  File* dest = findFileWithAbiFallbacks(realDestination, destLease, newcwd);
 
   if (!src) {
     SYSCALL_ERROR(DoesNotExist);
@@ -2731,7 +2808,8 @@ int posix_renameat(int olddirfd, const char* oldpath, int newdirfd, const char* 
   }
 
   // traverse symlink
-  src = traverseSymlink(src);
+  Directory::ChildLease srcTargetLease;
+  src = traverseSymlink(src, srcTargetLease);
   if (!src) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
@@ -2739,7 +2817,7 @@ int posix_renameat(int olddirfd, const char* oldpath, int newdirfd, const char* 
 
   if (dest) {
     // traverse symlink
-    dest = traverseSymlink(dest);
+    dest = traverseSymlink(dest, destLease);
     if (!dest) {
       SYSCALL_ERROR(DoesNotExist);
       return -1;
@@ -2754,7 +2832,7 @@ int posix_renameat(int olddirfd, const char* oldpath, int newdirfd, const char* 
     }
   } else {
     VFS::instance().createFile(realDestination, 0777, newcwd);
-    dest = findFileWithAbiFallbacks(realDestination, newcwd);
+    dest = findFileWithAbiFallbacks(realDestination, destLease, newcwd);
     if (!dest) {
       // Failed to create the file?
       return -1;
@@ -2766,23 +2844,25 @@ int posix_renameat(int olddirfd, const char* oldpath, int newdirfd, const char* 
   src->read(0, src->getSize(), reinterpret_cast<uintptr_t>(buf));
   dest->truncate();
   dest->write(0, src->getSize(), reinterpret_cast<uintptr_t>(buf));
-  VFS::instance().remove(realSource, oldcwd);
+  const bool removed = VFS::instance().remove(realSource, oldcwd, srcEntry);
   delete[] buf;
 
-  return 0;
+  return removed ? 0 : -1;
 }
 
 int posix_linkat(int olddirfd, const char* oldpath, int newdirfd, const char* newpath, int flags) {
   F_NOTICE("linkat");
 
   DescriptorLease oldDirDescriptor;
-  File* oldcwd = check_dirfd(olddirfd, oldDirDescriptor, flags);
+  Process::FileContextLease oldCwdLease;
+  File* oldcwd = check_dirfd(olddirfd, oldDirDescriptor, oldCwdLease, flags);
   if (!oldcwd) {
     return -1;
   }
 
   DescriptorLease newDirDescriptor;
-  File* newcwd = check_dirfd(newdirfd, newDirDescriptor);
+  Process::FileContextLease newCwdLease;
+  File* newcwd = check_dirfd(newdirfd, newDirDescriptor, newCwdLease);
   if (!newcwd) {
     return -1;
   }
@@ -2812,6 +2892,7 @@ int posix_linkat(int olddirfd, const char* oldpath, int newdirfd, const char* ne
   normalisePath(realLink, newpathCopy.cstr());
 
   File* pTarget = 0;
+  Directory::ChildLease targetLease;
   DescriptorLease targetDescriptor;
   if ((flags & AT_EMPTY_PATH) && oldpathCopy.length() == 0) {
     if (!pSubsystem->acquireFileDescriptor(olddirfd, targetDescriptor)) {
@@ -2822,11 +2903,11 @@ int posix_linkat(int olddirfd, const char* oldpath, int newdirfd, const char* ne
 
     pTarget = targetDescriptor->file;
   } else {
-    pTarget = findFileWithAbiFallbacks(realTarget, oldcwd);
+    pTarget = findFileWithAbiFallbacks(realTarget, targetLease, oldcwd);
   }
 
   if (flags & AT_SYMLINK_FOLLOW) {
-    pTarget = traverseSymlink(pTarget);
+    pTarget = traverseSymlink(pTarget, targetLease);
   }
 
   if (!pTarget) {
@@ -2850,7 +2931,8 @@ int posix_symlinkat(const char* oldpath, int newdirfd, const char* newpath) {
   F_NOTICE("symlinkat");
 
   DescriptorLease dirDescriptor;
-  File* cwd = check_dirfd(newdirfd, dirDescriptor);
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(newdirfd, dirDescriptor, cwdLease);
   if (!cwd) {
     return -1;
   }
@@ -2876,7 +2958,8 @@ int posix_readlinkat(int dirfd, const char* pathname, char* buf, size_t bufsiz) 
   F_NOTICE("readlinkat");
 
   DescriptorLease dirDescriptor;
-  File* cwd = check_dirfd(dirfd, dirDescriptor);
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease);
   if (!cwd) {
     return -1;
   }
@@ -2903,7 +2986,8 @@ int posix_readlinkat(int dirfd, const char* pathname, char* buf, size_t bufsiz) 
     return readProcSelfFdTarget(procFd, buf, bufsiz);
   }
 
-  File* f = findFileWithAbiFallbacks(realPath, cwd);
+  Directory::ChildLease fileLease;
+  File* f = findFileWithAbiFallbacks(realPath, fileLease, cwd);
   if (!f) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
@@ -2929,7 +3013,8 @@ int posix_fchmodat(int dirfd, const char* pathname, mode_t mode, int flags) {
   F_NOTICE("fchmodat");
 
   DescriptorLease dirDescriptor;
-  File* cwd = check_dirfd(dirfd, dirDescriptor, flags);
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease, flags);
   if (!cwd) {
     return -1;
   }
@@ -2976,6 +3061,7 @@ int posix_fchmodat(int dirfd, const char* pathname, mode_t mode, int flags) {
   }
 
   // AT_EMPTY_PATH only takes effect if the pathname is actually empty
+  Directory::ChildLease fileLease;
   File* file = 0;
   DescriptorLease targetDescriptor;
   if ((flags & AT_EMPTY_PATH) && pathnameCopy.length() == 0) {
@@ -2987,7 +3073,7 @@ int posix_fchmodat(int dirfd, const char* pathname, mode_t mode, int flags) {
 
     file = targetDescriptor->file;
   } else {
-    file = findFileWithAbiFallbacks(realPath, GET_CWD());
+    file = findFileWithAbiFallbacks(realPath, fileLease, cwd);
     if (!file) {
       SYSCALL_ERROR(DoesNotExist);
       return -1;
@@ -3002,7 +3088,7 @@ int posix_fchmodat(int dirfd, const char* pathname, mode_t mode, int flags) {
 
   // Symlink traversal
   if ((flags & AT_SYMLINK_NOFOLLOW) == 0) {
-    file = traverseSymlink(file);
+    file = traverseSymlink(file, fileLease);
   }
 
   if (!file) {
@@ -3017,7 +3103,8 @@ int posix_faccessat(int dirfd, const char* pathname, int mode, int flags) {
   F_NOTICE("faccessat");
 
   DescriptorLease dirDescriptor;
-  File* cwd = check_dirfd(dirfd, dirDescriptor);
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease);
   if (!cwd) {
     return -1;
   }
@@ -3034,10 +3121,11 @@ int posix_faccessat(int dirfd, const char* pathname, int mode, int flags) {
   normalisePath(realPath, pathnameCopy.cstr());
 
   // Grab the file
-  File* file = findFileWithAbiFallbacks(realPath, cwd);
+  Directory::ChildLease fileLease;
+  File* file = findFileWithAbiFallbacks(realPath, fileLease, cwd);
 
   if ((flags & AT_SYMLINK_NOFOLLOW) == 0) {
-    file = traverseSymlink(file);
+    file = traverseSymlink(file, fileLease);
   }
 
   if (!file) {
@@ -3066,7 +3154,8 @@ int posix_fstatat(int dirfd, const char* pathname, struct stat* buf, int flags) 
   F_NOTICE("fstatat");
 
   DescriptorLease dirDescriptor;
-  File* cwd = check_dirfd(dirfd, dirDescriptor, flags);
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease, flags);
   if (!cwd) {
     F_NOTICE(" -> current working directory could not be determined");
     return -1;
@@ -3101,6 +3190,7 @@ int posix_fstatat(int dirfd, const char* pathname, struct stat* buf, int flags) 
   }
 
   // AT_EMPTY_PATH only takes effect if the pathname is actually empty
+  Directory::ChildLease fileLease;
   File* file = 0;
   DescriptorLease targetDescriptor;
   if ((flags & AT_EMPTY_PATH) && pathnameCopy.length() == 0) {
@@ -3117,7 +3207,7 @@ int posix_fstatat(int dirfd, const char* pathname, struct stat* buf, int flags) 
 
     F_NOTICE(" -> finding file with real path " << realPath << " in " << cwd->getFullPath());
 
-    file = findFileWithAbiFallbacks(realPath, cwd);
+    file = findFileWithAbiFallbacks(realPath, fileLease, cwd);
     if (!file) {
       SYSCALL_ERROR(DoesNotExist);
       F_NOTICE(" -> unable to find '" << realPath << "' here");
@@ -3126,7 +3216,7 @@ int posix_fstatat(int dirfd, const char* pathname, struct stat* buf, int flags) 
   }
 
   if ((flags & AT_SYMLINK_NOFOLLOW) == 0) {
-    file = traverseSymlink(file);
+    file = traverseSymlink(file, fileLease);
   }
 
   if (!file) {
@@ -3134,7 +3224,7 @@ int posix_fstatat(int dirfd, const char* pathname, struct stat* buf, int flags) 
     return -1;
   }
 
-  if (!doStat(0, file, buf)) {
+  if (!doStat(0, file, buf, false)) {
     return -1;
   }
 
@@ -3172,7 +3262,11 @@ int posix_mknod(const char* pathname, mode_t mode, dev_t dev) {
 
   F_NOTICE("mknod(" << pathnameCopy << ", " << mode << ", " << dev << ")");
 
-  File* targetFile = findFileWithAbiFallbacks(pathnameCopy, GET_CWD());
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  Process::FileContextLease cwdLease;
+  File* cwd = process->acquireCwd(cwdLease);
+  Directory::ChildLease targetLease;
+  File* targetFile = findFileWithAbiFallbacks(pathnameCopy, targetLease, cwd);
   if (targetFile) {
     F_NOTICE(" -> already exists");
     SYSCALL_ERROR(FileExists);
@@ -3193,15 +3287,16 @@ int posix_mknod(const char* pathname, mode_t mode, dev_t dev) {
   PointerGuard<const char> guard2(baseName, true);
 
   // support mknod("foo") as well as mknod("/path/to/foo")
-  File* parentFile = GET_CWD();
+  Directory::ChildLease parentLease;
+  File* parentFile = cwd;
   if (parentDirectory) {
     String parentPath;
     normalisePath(parentPath, parentDirectory, nullptr);
     F_NOTICE("finding parent directory " << parentDirectory << "...");
     F_NOTICE(" -> " << parentPath << "...");
-    parentFile = findFileWithAbiFallbacks(parentPath, GET_CWD());
+    parentFile = findFileWithAbiFallbacks(parentPath, parentLease, cwd);
 
-    parentFile = traverseSymlink(parentFile);
+    parentFile = traverseSymlink(parentFile, parentLease);
     if (!parentFile) {
       // traverseSymlink sets error for us
       F_NOTICE(" -> symlink traversal failed");
@@ -3222,7 +3317,18 @@ int posix_mknod(const char* pathname, mode_t mode, dev_t dev) {
   if ((mode & S_IFIFO) == S_IFIFO) {
     // Need to create a FIFO (i.e. named pipe).
     Pipe* pipe = new Pipe(String(baseName), 0, 0, 0, 0, parentDir->getFilesystem(), 0, parentDir);
-    parentDir->addEphemeralFile(pipe);
+    const Directory::AddStatus status = parentDir->addEphemeralFile(pipe);
+    if (status != Directory::AddStatus::Added) {
+      delete pipe;
+      if (status == Directory::AddStatus::IoError) {
+        SYSCALL_ERROR(IoError);
+      } else if (status == Directory::AddStatus::Detached) {
+        SYSCALL_ERROR(DoesNotExist);
+      } else {
+        SYSCALL_ERROR(FileExists);
+      }
+      return -1;
+    }
 
     F_NOTICE(" -> fifo/pipe '" << baseName << "' created!");
     F_NOTICE(" -> full path is " << pipe->getFullPath(true));
@@ -3305,7 +3411,11 @@ int posix_statfs(const char* path, struct statfs* buf) {
   String normalisedPath;
   normalisePath(normalisedPath, pathCopy.cstr());
   F_NOTICE(" -> actually performing statfs on " << normalisedPath);
-  File* file = findFileWithAbiFallbacks(normalisedPath, GET_CWD());
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  Process::FileContextLease cwdLease;
+  File* cwd = process->acquireCwd(cwdLease);
+  Directory::ChildLease fileLease;
+  File* file = findFileWithAbiFallbacks(normalisedPath, fileLease, cwd);
 
   return do_statfs(file, buf);
 }
@@ -3351,19 +3461,22 @@ int posix_mount(const char* src, const char* tgt, const char* fs, size_t flags, 
 
     String targetNormalised;
     normalisePath(targetNormalised, target.cstr());
-    File* targetFile = findFileWithAbiFallbacks(targetNormalised, nullptr);
+    Directory::ChildLease targetLease;
+    File* targetFile = findFileWithAbiFallbacks(targetNormalised, targetLease, nullptr);
     if (!targetFile) {
       const char* parents[] = {"/sys", "/sys/fs", nullptr};
       for (const char** parent = parents; *parent; ++parent) {
-        if (!VFS::instance().find(String(*parent))) {
+        Directory::ChildLease parentLease;
+        if (!VFS::instance().findRetained(String(*parent), parentLease)) {
           VFS::instance().createDirectory(String(*parent), 0755);
         }
       }
 
-      if (!VFS::instance().find(targetNormalised)) {
+      Directory::ChildLease existingLease;
+      if (!VFS::instance().findRetained(targetNormalised, existingLease)) {
         VFS::instance().createDirectory(targetNormalised, 0755);
       }
-      targetFile = findFileWithAbiFallbacks(targetNormalised, nullptr);
+      targetFile = findFileWithAbiFallbacks(targetNormalised, targetLease, nullptr);
     }
 
     if (!targetFile || !targetFile->isDirectory()) {
@@ -3386,8 +3499,13 @@ int posix_mount(const char* src, const char* tgt, const char* fs, size_t flags, 
       };
       for (const SelinuxFile& file : files) {
         g_pSelinuxFs->Filesystem::createFile(String(file.name), file.mode, g_pSelinuxFs->getRoot());
-        File* virtualFile = Directory::fromFile(g_pSelinuxFs->getRoot())
-                                ->lookup(HashedStringView(String(file.name)));
+        Directory::ChildLease virtualLease;
+        File* virtualFile = nullptr;
+        if (Directory::fromFile(g_pSelinuxFs->getRoot())
+                ->lookupChild(HashedStringView(String(file.name)), virtualLease) ==
+            Directory::LookupStatus::Found) {
+          virtualFile = virtualLease.get();
+        }
         if (virtualFile && file.contents[0]) {
           virtualFile->write(0, StringLength(file.contents),
                              reinterpret_cast<uintptr_t>(file.contents));
@@ -3402,7 +3520,8 @@ int posix_mount(const char* src, const char* tgt, const char* fs, size_t flags, 
   // Is the target a valid directory?
   String targetNormalised;
   normalisePath(targetNormalised, target.cstr());
-  File* targetFile = findFileWithAbiFallbacks(targetNormalised, nullptr);
+  Directory::ChildLease targetLease;
+  File* targetFile = findFileWithAbiFallbacks(targetNormalised, targetLease, nullptr);
   if (!targetFile) {
     F_NOTICE(" -> target does not exist");
     SYSCALL_ERROR(DoesNotExist);

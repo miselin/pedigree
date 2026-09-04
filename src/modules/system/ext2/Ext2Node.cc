@@ -117,12 +117,16 @@ void Ext2Node::trackBlock(uint32_t block, bool writeInode) {
   }
 }
 
-void Ext2Node::wipe() {
+void Ext2Node::wipe(bool allocationLockHeld) {
   for (size_t i = 0; i < m_Blocks.count(); ++i) {
     if (!ensureBlockLoaded(i) || !m_Blocks[i]) {
       continue;
     }
-    m_pExt2Fs->releaseBlock(m_Blocks[i]);
+    if (allocationLockHeld) {
+      m_pExt2Fs->releaseBlockLocked(m_Blocks[i]);
+    } else {
+      m_pExt2Fs->releaseBlock(m_Blocks[i]);
+    }
   }
   m_Blocks.clear();
 

@@ -125,6 +125,7 @@ class FatFilesystemHarness : public FatFilesystem {
     m_pDisk = disk;
     m_Type = FAT16;
     m_BlockSize = 512;
+    m_ClusterCount = 254;
     m_DataAreaStart = 8;
     m_FatSector = 4;
     m_Superblock.BPB_BytsPerSec = 512;
@@ -132,8 +133,8 @@ class FatFilesystemHarness : public FatFilesystem {
     m_FatCache.insert(0, fatTable);
   }
 
-  bool removeForTest(File* parent, File* file) {
-    return remove(parent, file);
+  bool removeForTest(File* parent, const String& name, File* file) {
+    return remove(name.view(), parent, file);
   }
 };
 
@@ -175,6 +176,10 @@ class RemovalDirectory final : public Directory {
   bool contains(const String& alias) const {
     return lookup(HashedStringView(alias)) != nullptr;
   }
+
+  bool retire(const String& alias, File* file) {
+    return removeDirectoryEntry(HashedStringView(alias), file);
+  }
 };
 
 class RemovalFilesystem final : public Filesystem {
@@ -209,17 +214,13 @@ class RemovalFilesystem final : public Filesystem {
     return m_Label;
   }
 
-  bool remove(File* parent, File* file) override {
+  bool removeNode(File* parent, const String& filename, File* file) override {
     ++m_RemoveCalls;
     if (m_RemoveCalls == 2 && m_Destructions != 1) {
       m_SecondObservedPriorRetirement = false;
     }
 
-    if (m_SelfRemoving) {
-      const String& alias = file == m_First ? m_FirstAlias : m_SecondAlias;
-      Directory::fromFile(parent)->remove(HashedStringView(alias));
-    }
-    return true;
+    return static_cast<RemovalDirectory*>(parent)->retire(filename, file);
   }
 
   bool secondObservedPriorRetirement() const {
@@ -266,19 +267,23 @@ class RemovalFilesystem final : public Filesystem {
 
 class RemovalFatDirectory final : public FatDirectory {
  public:
-  RemovalFatDirectory(FatFilesystem* filesystem, FatFileInfo& info)
+  RemovalFatDirectory(FatFilesystem* filesystem, FatFileInfo& info,
+                      bool clearInodeAfterRemove = true)
       : FatDirectory(String("fat-removal-root"), 3, filesystem, nullptr, info),
         m_Alias("fat-cache-alias"),
+        m_ClearInodeAfterRemove(clearInodeAfterRemove),
         m_RemoveCalls(0) {}
 
   void publish(File* file) {
     addDirectoryEntry(m_Alias, file);
   }
 
-  bool removeEntry(File* file) override {
+  bool removeEntry(const String& filename, File* file) override {
     ++m_RemoveCalls;
-    Directory::remove(HashedStringView(m_Alias));
-    file->setInode(0);
+    removeDirectoryEntry(HashedStringView(filename), file);
+    if (m_ClearInodeAfterRemove) {
+      file->setInode(0);
+    }
     return true;
   }
 
@@ -290,12 +295,17 @@ class RemovalFatDirectory final : public FatDirectory {
     return lookup(HashedStringView(m_Alias)) != nullptr;
   }
 
+  const String& alias() const {
+    return m_Alias;
+  }
+
   size_t removeCalls() const {
     return m_RemoveCalls;
   }
 
  private:
   String m_Alias;
+  bool m_ClearInodeAfterRemove;
   size_t m_RemoveCalls;
 };
 
@@ -434,7 +444,7 @@ bool fatRemoveRetirementOrder() {
   parent.publish(child);
 
   const bool retained = VFS::instance().retainTrackedFile(child);
-  const bool removed = retained && filesystem.removeForTest(&parent, child);
+  const bool removed = retained && filesystem.removeForTest(&parent, parent.alias(), child);
   const bool operationPassed =
       removed && parent.removeCalls() == 1 && !destructions && !parent.containsAlias() &&
       fatTable[1] == 0 && disk.m_ReadCount == 1 && disk.m_WriteCount == 1 &&
@@ -463,6 +473,47 @@ bool fatRemoveRetirementOrder() {
   }
   return passed;
 }
+
+bool fatRemoveCommitsBeforeClusterReclaim() {
+  TrackingDisk disk;
+  uint32_t fatTable[256] = {};
+
+  FatFilesystemHarness filesystem;
+  filesystem.configureRemoval(&disk, reinterpret_cast<uintptr_t>(fatTable));
+
+  FatFileInfo info = {};
+  RemovalFatDirectory parent(&filesystem, info, false);
+  size_t destructions = 0;
+  RetainedFatFile* child = new RetainedFatFile(&filesystem, &parent, destructions);
+  parent.publish(child);
+
+  const bool retained = VFS::instance().retainTrackedFile(child);
+  const bool removed = retained && filesystem.removeForTest(&parent, parent.alias(), child);
+  const bool operationPassed = removed && parent.removeCalls() == 1 && !destructions &&
+                               !parent.containsAlias() && fatTable[1] == 0;
+
+  bool retainedLeaseWasFinal = false;
+  if (retained) {
+    retainedLeaseWasFinal = VFS::instance().untrackFile(child, false);
+    if (retainedLeaseWasFinal) {
+      delete child;
+    } else if (parent.containsAlias()) {
+      parent.removeAlias();
+    }
+  } else {
+    parent.removeAlias();
+  }
+
+  const bool passed = operationPassed && retainedLeaseWasFinal && destructions == 1;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS fat-remove-commits-before-cluster-reclaim");
+  } else {
+    ERROR(
+        "HOSTED-WAIT-TEST: FAIL fat-remove-commits-before-cluster-reclaim: "
+        "a failed cluster reclaim made a completed namespace removal fail");
+  }
+  return passed;
+}
 }  // namespace
 
 EXPORTED_PUBLIC bool runHostedFatSectorRegressions() {
@@ -471,5 +522,6 @@ EXPORTED_PUBLIC bool runHostedFatSectorRegressions() {
   passed &= fatShortReadPublication();
   passed &= directoryEmptyRemovalOwnership();
   passed &= fatRemoveRetirementOrder();
+  passed &= fatRemoveCommitsBeforeClusterReclaim();
   return passed;
 }

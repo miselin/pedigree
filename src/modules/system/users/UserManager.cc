@@ -39,7 +39,8 @@ UserManager::UserManager() : m_Users(), m_Groups() {}
 UserManager::~UserManager() {}
 
 static bool readAccountFile(const char* path, String& contents) {
-  File* pFile = VFS::instance().find(String(path));
+  Directory::ChildLease fileLease;
+  File* pFile = VFS::instance().findRetained(String(path), fileLease);
   if (!pFile || pFile->isDirectory()) {
     ERROR("USERS: Unable to read " << path);
     return false;

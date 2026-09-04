@@ -58,7 +58,7 @@ class Iso9660Filesystem : public Filesystem {
   virtual bool createFile(File* parent, const String& filename, uint32_t mask);
   virtual bool createDirectory(File* parent, const String& filename, uint32_t mask);
   virtual bool createSymlink(File* parent, const String& filename, const String& value);
-  virtual bool remove(File* parent, File* file);
+  virtual bool removeNode(File* parent, const String& filename, File* file);
 
   virtual Disk* getDisk() {
     return m_pDisk;

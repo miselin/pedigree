@@ -121,8 +121,6 @@ struct cap_data {
 // Syscalls pertaining to system operations.
 //
 
-#define GET_CWD() (Processor::information().getCurrentThread()->getParent()->getCwd())
-
 static PosixProcess* getPosixProcess() {
   // Not a POSIX process
   Process* pStockProcess = Processor::information().getCurrentThread()->getParent();

@@ -18,6 +18,7 @@
  */
 
 #include "Ext2Filesystem.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/TargetInfo.h"
 #include "pedigree/kernel/compiler.h"
@@ -72,8 +73,9 @@ Ext2Filesystem::Ext2Filesystem()
       m_BlockSize(0),
       m_InodeSize(0),
       m_nGroupDescriptors(0),
-#if THREADS
+#if THREADS || defined(STANDALONE_MUTEXES)
       m_WriteLock(),
+      m_InodeTableLoadLock(),
 #endif
       m_pRoot(0) {
 }
@@ -352,6 +354,9 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
 
   Ext2Directory* pE2Parent = reinterpret_cast<Ext2Directory*>(parent);
   Ext2Node* pNewNode = 0;
+  Ext2Directory* pNewDirectory = nullptr;
+  bool dotEntryCreated = false;
+  bool dotDotEntryCreated = false;
 
   // Create the new File object.
   File* pFile = 0;
@@ -366,20 +371,28 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
       Ext2Directory* pE2Dir = new Ext2Directory(filename, inode_num, newInode, this, parent);
       pFile = pE2Dir;
       pNewNode = pE2Dir;
+      pNewDirectory = pE2Dir;
 
       // If we already have an inode, assume we already have dot/dotdot
       // entries and so don't need to make them.
       if (!inodeOverride) {
-        Inode* parentInode = getInode(pE2Parent->getInodeNumber());
-
-        // Create dot and dotdot entries.
-        Ext2Directory* pDot = new Ext2Directory(String("."), inode_num, newInode, this, pE2Dir);
-        Ext2Directory* pDotDot =
-            new Ext2Directory(String(".."), pE2Parent->getInodeNumber(), parentInode, this, pE2Dir);
-
-        // Add created dot/dotdot entries to the new directory.
-        pE2Dir->addEntry(String("."), pDot, EXT2_S_IFDIR);
-        pE2Dir->addEntry(String(".."), pDotDot, EXT2_S_IFDIR);
+        // Dot entries are backing metadata, not separate VFS objects. Avoid
+        // manufacturing a second directory object and mutex for this inode.
+        dotEntryCreated = pE2Dir->addEntry(String("."), pE2Dir, EXT2_S_IFDIR);
+        if (dotEntryCreated) {
+          dotDotEntryCreated = pE2Dir->addEntry(String(".."), pE2Parent, EXT2_S_IFDIR);
+        }
+        if (!dotEntryCreated || !dotDotEntryCreated) {
+          if (dotEntryCreated && !pE2Dir->removeEntry(String("."), pE2Dir)) {
+            ERROR("EXT2: Failed to unwind a new directory's self link");
+            releaseInode(inode_num, pE2Dir);
+          } else if (!dotEntryCreated) {
+            releaseInode(inode_num, pE2Dir);
+          }
+          delete pE2Dir;
+          SYSCALL_ERROR(IoError);
+          return false;
+        }
       }
       break;
     }
@@ -402,7 +415,21 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
   // Add to the parent directory.
   if (!pE2Parent->addEntry(filename, pFile, type)) {
     ERROR("EXT2: Internal error adding directory entry.");
-    SYSCALL_ERROR(IoError);
+    if (!inodeOverride) {
+      if (pNewDirectory && dotDotEntryCreated &&
+          !pNewDirectory->removeEntry(String(".."), pE2Parent)) {
+        ERROR("EXT2: Failed to unwind a new directory's parent link");
+        releaseInode(pE2Parent->getInodeNumber(), pE2Parent);
+      }
+      if (pNewDirectory && dotEntryCreated) {
+        if (!pNewDirectory->removeEntry(String("."), pNewDirectory)) {
+          ERROR("EXT2: Failed to unwind a new directory's self link");
+          releaseInode(inode_num, pNewNode);
+        }
+      } else {
+        releaseInode(inode_num, pNewNode);
+      }
+    }
     delete pFile;
     return false;
   }
@@ -417,6 +444,9 @@ bool Ext2Filesystem::createNode(File* parent, const String& filename, uint32_t m
 
   // Update directory count in the group descriptor.
   if (type == EXT2_S_IFDIR) {
+#if THREADS || defined(STANDALONE_MUTEXES)
+    LockGuard<Mutex> guard(m_WriteLock);
+#endif
     uint32_t group = (inode_num - 1) / LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
     GroupDesc* pDesc = m_pGroupDescriptors[group];
 
@@ -482,7 +512,7 @@ bool Ext2Filesystem::createLink(File* parent, const String& filename, File* targ
   return createNode(parent, filename, mask, String(""), type, pNode->getInodeNumber());
 }
 
-bool Ext2Filesystem::remove(File* parent, File* file) {
+bool Ext2Filesystem::removeNode(File* parent, const String& filename, File* file) {
   // Quick sanity check.
   if (!parent->isDirectory()) {
     SYSCALL_ERROR(IoError);
@@ -490,28 +520,31 @@ bool Ext2Filesystem::remove(File* parent, File* file) {
   }
 
   Ext2Node* pNode = 0;
-  String filename;
   if (file->isDirectory()) {
     Ext2Directory* pDirectory = static_cast<Ext2Directory*>(file);
     pNode = pDirectory;
-    filename = pDirectory->getName();
   } else if (file->isSymlink()) {
     Ext2Symlink* pSymlink = static_cast<Ext2Symlink*>(file);
     pNode = pSymlink;
-    filename = pSymlink->getName();
   } else {
     Ext2File* pFile = static_cast<Ext2File*>(file);
     pNode = pFile;
-    filename = pFile->getName();
   }
 
   NOTICE("REMOVE: " << filename);
 
   Ext2Directory* pE2Parent = reinterpret_cast<Ext2Directory*>(parent);
-  bool result = pE2Parent->removeEntry(filename, pNode);
+  const bool ordinaryDirectory =
+      file->isDirectory() && !(filename.compare(".") || filename.compare(".."));
+  bool result = ordinaryDirectory
+                    ? static_cast<Ext2Directory*>(file)->removeFromParent(pE2Parent, filename)
+                    : pE2Parent->removeEntry(filename, pNode);
 
   // Update the group descriptor directory count to reflect the deletion.
-  if (result && file->isDirectory() && !(filename.compare(".") || filename.compare(".."))) {
+  if (result && ordinaryDirectory) {
+#if THREADS || defined(STANDALONE_MUTEXES)
+    LockGuard<Mutex> guard(m_WriteLock);
+#endif
     uint32_t inode_num = pNode->getInodeNumber();
 
     uint32_t group = (inode_num - 1) / LITTLE_TO_HOST32(m_pSuperblock->s_inodes_per_group);
@@ -586,6 +619,10 @@ uint32_t Ext2Filesystem::findFreeBlock(uint32_t inode) {
 }
 
 bool Ext2Filesystem::findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_t>& blocks) {
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> guard(m_WriteLock);
+#endif
+
   // Inode zero is invalid, so make sure we are getting local blocks.
   --inode;
 
@@ -729,6 +766,10 @@ size_t Ext2Filesystem::findFreeBlocksInGroup(uint32_t group, size_t maxCount,
 }
 
 uint32_t Ext2Filesystem::findFreeInode() {
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> guard(m_WriteLock);
+#endif
+
   for (uint32_t group = 0; group < m_nGroupDescriptors; group++) {
     // Any free inodes here?
     GroupDesc* pDesc = m_pGroupDescriptors[group];
@@ -805,6 +846,14 @@ uint32_t Ext2Filesystem::findFreeInode() {
 }
 
 void Ext2Filesystem::releaseBlock(uint32_t block) {
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> guard(m_WriteLock);
+#endif
+
+  releaseBlockLocked(block);
+}
+
+void Ext2Filesystem::releaseBlockLocked(uint32_t block) {
   // In some ext2 filesystems, this is zero so we don't need to do this. But
   // for those that do, not doing this messes up the bit offsets below.
   block -= LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block);
@@ -856,7 +905,11 @@ void Ext2Filesystem::releaseBlock(uint32_t block) {
   writeBlock(gdBlock + groupBlock);
 }
 
-bool Ext2Filesystem::releaseInode(uint32_t inodeNumber) {
+bool Ext2Filesystem::releaseInode(uint32_t inodeNumber, Ext2Node* retiringNode) {
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> guard(m_WriteLock);
+#endif
+
   Inode* pInode = getInode(inodeNumber);
   const uint32_t inodeIndex = inodeNumber - 1;  // Inode zero is undefined, so it's not used.
 
@@ -868,6 +921,13 @@ bool Ext2Filesystem::releaseInode(uint32_t inodeNumber) {
 
   // Do we need to free this inode?
   if (bRemove) {
+    // Keep the allocation bit set until all old data has been retired. This
+    // prevents a concurrent creator from reusing the inode before wipe()
+    // finishes zeroing it.
+    if (retiringNode) {
+      retiringNode->wipe(true);
+    }
+
     // Set dtime on inode.
     pInode->i_dtime = HOST_TO_LITTLE32(getUnixTimestamp());
 
@@ -1047,6 +1107,10 @@ bool Ext2Filesystem::ensureFreeInodeBitmapLoaded(size_t group) {
 }
 
 bool Ext2Filesystem::ensureInodeTableLoaded(size_t group) {
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> guard(m_InodeTableLoadLock);
+#endif
+
   assert(group < m_nGroupDescriptors);
   Vector<size_t>& list = m_pInodeTables[group];
 
@@ -1091,6 +1155,10 @@ bool Ext2Filesystem::ensureInodeTableLoaded(size_t group) {
 }
 
 void Ext2Filesystem::increaseInodeRefcount(uint32_t inode) {
+#if THREADS || defined(STANDALONE_MUTEXES)
+  LockGuard<Mutex> guard(m_WriteLock);
+#endif
+
   Inode* pInode = getInode(inode);
   if (!pInode)
     return;

@@ -493,6 +493,12 @@ int imageChecksums(const char* image, size_t part = 0) {
     return 0;
   }
 
+  struct UnmountGuard {
+    ~UnmountGuard() {
+      unmount();
+    }
+  } unmountGuard;
+
 #if HAVE_OPENSSL
 
   std::vector<File*> files;
@@ -504,13 +510,65 @@ int imageChecksums(const char* image, size_t part = 0) {
     File* pFile = *it;
     if (pFile->isDirectory()) {
       Directory* pDirectory = Directory::fromFile(pFile);
-      for (size_t i = 0; i < pDirectory->getNumChildren(); ++i) {
-        File* pChild = pDirectory->getChild(i);
-        if (pChild->getName() == String(".") || pChild->getName() == String("..")) {
+      uint64_t cookie = 0;
+      while (true) {
+        struct Entry {
+          Entry()
+              : name(),
+                type(Directory::EntryType::Unknown),
+                currentCookie(0),
+                nextCookie(0),
+                found(false) {}
+
+          String name;
+          Directory::EntryType type;
+          uint64_t currentCookie;
+          uint64_t nextCookie;
+          bool found;
+        } entry;
+        auto emitter = [](void* opaque, const Directory::DirectoryEntryView& record) -> bool {
+          Entry* entry = reinterpret_cast<Entry*>(opaque);
+          entry->name = record.name.toString();
+          entry->type = record.type;
+          entry->currentCookie = record.currentCookie;
+          entry->nextCookie = record.nextCookie;
+          entry->found = true;
+          return false;
+        };
+
+        Directory::ReadStatus status = pDirectory->enumerate(cookie, emitter, &entry);
+        if (!entry.found) {
+          if (status != Directory::ReadStatus::Complete) {
+            std::cerr << "failed to enumerate directory while computing checksums" << std::endl;
+            return 0;
+          }
+          break;
+        }
+
+        cookie = entry.nextCookie;
+        if (entry.name == String(".") || entry.name == String("..")) {
+          continue;
+        }
+        if (entry.type != Directory::EntryType::Unknown &&
+            entry.type != Directory::EntryType::Regular &&
+            entry.type != Directory::EntryType::Directory &&
+            entry.type != Directory::EntryType::Symlink) {
           continue;
         }
 
-        files.push_back(pChild);
+        Directory::ChildLease child;
+        Directory::LookupStatus lookup =
+            pDirectory->lookupChildAt(entry.currentCookie, HashedStringView(entry.name), child);
+        if (lookup == Directory::LookupStatus::NotFound &&
+            entry.type == Directory::EntryType::Unknown) {
+          continue;
+        }
+        if (lookup != Directory::LookupStatus::Found) {
+          std::cerr << "failed to resolve '" << static_cast<const char*>(entry.name)
+                    << "' while computing checksums" << std::endl;
+          return 0;
+        }
+        files.push_back(child.get());
       }
 
       // Pushing to the vector invalidates our iterator, so renew it.

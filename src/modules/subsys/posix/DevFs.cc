@@ -364,9 +364,6 @@ DevFsDirectory::~DevFsDirectory() = default;
 DevFs::~DevFs() {
   InputManager::instance().removeCallback(terminalSwitchHandler, this);
 
-  EMIT_IF(X86_COMMON) {
-    delete m_pPsAuxFile;
-  }
   delete m_VtManager;
   delete m_pTty;
   m_pRoot->emptyCache();

@@ -18,18 +18,20 @@
  */
 
 #include "Symlink.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "Filesystem.h"
+#include "VFS.h"
 
-Symlink::Symlink() : File(), m_pCachedSymlink(0) {}
+Symlink::Symlink() : File(), m_sTarget(), m_TargetLock() {}
 
 Symlink::Symlink(const String& name, Time::Timestamp accessedTime, Time::Timestamp modifiedTime,
                  Time::Timestamp creationTime, uintptr_t inode, Filesystem* pFs, size_t size,
                  File* pParent)
     : File(name, accessedTime, modifiedTime, creationTime, inode, pFs, size, pParent),
-      m_pCachedSymlink(0),
-      m_sTarget() {}
+      m_sTarget(),
+      m_TargetLock() {}
 
 Symlink::~Symlink() {}
 
@@ -40,41 +42,47 @@ void Symlink::initialise(bool bForce) {
   size_t sz = getSize();
   if (sz > 0x1000)
     sz = 0x1000;
+  if (!sz) {
+    m_sTarget.clear();
+    return;
+  }
 
   // Read symlink target.
   char* pBuffer = new char[sz];
-  read(0ULL, sz, reinterpret_cast<uintptr_t>(pBuffer));
-  pBuffer[sz] = '\0';
+  const size_t bytesRead = read(0ULL, sz, reinterpret_cast<uintptr_t>(pBuffer));
 
   // Convert to String object, wipe out whitespace.
-  m_sTarget.assign(pBuffer, sz);
+  m_sTarget.assign(pBuffer, bytesRead);
   m_sTarget.rstrip();
-
-  // Wipe out cached symlink if we're being forced to re-init.
-  if (bForce)
-    m_pCachedSymlink = 0;
+  delete[] pBuffer;
 }
 
-File* Symlink::followLink() {
-  if (m_pCachedSymlink)
-    return m_pCachedSymlink;
+File* Symlink::followLinkRetained(Directory::ChildLease& result) {
+  Directory::ChildLease parentLease;
+  File* parent = getParent();
+  if (parent && VFS::instance().retainTrackedFile(parent)) {
+    parentLease.adopt(parent);
+  } else if (parent && parent != m_pFilesystem->getRoot()) {
+    return nullptr;
+  }
 
-  initialise();
-
-  m_pCachedSymlink = m_pFilesystem->find(m_sTarget, m_pParent);
-  return m_pCachedSymlink;
+  String target;
+  {
+    LockGuard<Mutex> guard(m_TargetLock);
+    initialise();
+    target = m_sTarget;
+  }
+  return m_pFilesystem->findRetained(target.view(), result, parent);
 }
 
 int Symlink::followLink(char* pBuffer, size_t bufLen) {
+  LockGuard<Mutex> guard(m_TargetLock);
   initialise();
 
   if (m_sTarget.length() < bufLen)
     bufLen = m_sTarget.length();
 
   StringCopyN(pBuffer, static_cast<const char*>(m_sTarget), bufLen);
-
-  if (bufLen < m_sTarget.length())
-    pBuffer[bufLen] = '\0';
 
   return bufLen;
 }

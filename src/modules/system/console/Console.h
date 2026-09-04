@@ -60,6 +60,10 @@ class ConsoleFile : public File {
 
   virtual bool isMaster() = 0;
 
+  virtual bool isSeekable() const {
+    return false;
+  }
+
   void setEvent(Event* e) {
     if (isMaster())
       m_pOther->m_pEvent = e;
@@ -364,7 +368,7 @@ class EXPORTED_PUBLIC ConsoleManager : public Filesystem {
   virtual bool createSymlink(File* parent, const String& filename, const String& value) {
     return false;
   }
-  virtual bool remove(File* parent, File* file) {
+  virtual bool removeNode(File*, const String&, File*) {
     return false;
   }
 

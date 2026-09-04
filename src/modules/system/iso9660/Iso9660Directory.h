@@ -50,103 +50,6 @@ class Iso9660Directory : public Directory {
         m_Dir(dirRec) {}
   virtual ~Iso9660Directory();
 
-  virtual void cacheDirectoryContents() {
-    if (!m_pFs) {
-      ERROR("ISO9660: m_pFs is null!");
-      return;
-    }
-
-    // Grab our parent (will always be a directory)
-    Iso9660Directory* pParentDir = reinterpret_cast<Iso9660Directory*>(m_pParent);
-    if (pParentDir == 0) {
-      // Root directory, . and .. should redirect to this directory
-      Iso9660Directory* dot = new Iso9660Directory(String("."), m_Inode, m_pFs, m_pParent, m_Dir,
-                                                   m_AccessedTime, m_ModifiedTime, m_CreationTime);
-      Iso9660Directory* dotdot =
-          new Iso9660Directory(String(".."), m_Inode, m_pFs, m_pParent, m_Dir, m_AccessedTime,
-                               m_ModifiedTime, m_CreationTime);
-      addDirectoryEntry(String("."), dot);
-      addDirectoryEntry(String(".."), dotdot);
-    } else {
-      // Non-root, . and .. should point to the correct locations
-      Iso9660Directory* dot = new Iso9660Directory(String("."), m_Inode, m_pFs, m_pParent, m_Dir,
-                                                   m_AccessedTime, m_ModifiedTime, m_CreationTime);
-      addDirectoryEntry(String("."), dot);
-
-      Iso9660Directory* dotdot = new Iso9660Directory(
-          String(".."), pParentDir->getInode(), pParentDir->m_pFs, pParentDir->getParent(),
-          pParentDir->getDirRecord(), pParentDir->getAccessedTime(), pParentDir->getModifiedTime(),
-          pParentDir->getCreationTime());
-      addDirectoryEntry(String(".."), dotdot);
-    }
-
-    // How big is the directory?
-    constexpr size_t blockSize = 2048;
-    size_t dirSize = LITTLE_TO_HOST32(m_Dir.DataLen_LE);
-    size_t dirLoc = LITTLE_TO_HOST32(m_Dir.ExtentLocation_LE);
-
-    // Read the directory, block by block
-    size_t numBlocks = (dirSize > blockSize) ? dirSize / blockSize : 1;
-    size_t i;
-    for (i = 0; i < numBlocks; i++) {
-      // Read the block
-      const uint64_t diskLocation = (dirLoc + i) * blockSize;
-      alignas(Iso9660DirRecord) uint8_t blockBytes[blockSize];
-      if (!m_pFs->readSector(diskLocation, blockBytes)) {
-        break;
-      }
-      const BufferView block(blockBytes, sizeof(blockBytes));
-
-      // Complete, so start reading entries
-      size_t offset = 0;
-      bool bLastHit = false;
-      while (offset < blockSize) {
-        if (sizeof(Iso9660DirRecord) > (blockSize - offset)) {
-          break;
-        }
-        Iso9660DirRecord* record = block.as<Iso9660DirRecord>(offset);
-
-        if (record->RecLen == 0) {
-          bLastHit = true;
-          break;
-        }
-        if (record->RecLen < sizeof(*record) || record->RecLen > (blockSize - offset) ||
-            record->FileIdentLen > (record->RecLen - sizeof(*record))) {
-          break;
-        }
-        uint8_t* fileIdent = block.as<uint8_t>(offset + sizeof(*record));
-        offset += record->RecLen;
-
-        if (record->FileFlags & (1 << 0))
-          continue;
-        else if (record->FileFlags & (1 << 1) && record->FileIdentLen == 1) {
-          if (fileIdent[0] == 0 || fileIdent[0] == 1)
-            continue;
-        }
-
-        String fileName = m_pFs->parseName(*record);
-
-        // Grab the UNIX timestamp
-        Time::Timestamp unixTime = m_pFs->timeToUnix(record->Time);
-        if (record->FileFlags & (1 << 1)) {
-          Iso9660Directory* dir =
-              new Iso9660Directory(fileName, 0, m_pFs, this, *record, unixTime, unixTime, unixTime);
-          addDirectoryEntry(fileName, dir);
-        } else {
-          Iso9660File* file = new Iso9660File(fileName, unixTime, unixTime, unixTime, 0, m_pFs,
-                                              LITTLE_TO_HOST32(record->DataLen_LE), *record, this);
-          addDirectoryEntry(fileName, file);
-        }
-      }
-
-      // Last in the block, but are there still blocks to read?
-      if (bLastHit && ((i + 1) == numBlocks))
-        break;
-    }
-
-    markCachePopulated();
-  }
-
   virtual bool addEntry(String filename, File* pFile, size_t type) {
     return false;
   }
@@ -161,7 +64,38 @@ class Iso9660Directory : public Directory {
     return m_Dir;
   }
 
+ protected:
+  LookupStatus resolveChild(const StringView& name, File*& child) override;
+  LookupStatus resolveChildAt(uint64_t cookie, const StringView& name, File*& child) override;
+  ReadStatus readDirectory(uint64_t& cookie, DirectoryEntryEmitter emitter, void* context) override;
+
  private:
+  struct ScannedEntry {
+    const String* name;
+    Iso9660DirRecord* record;
+    uint64_t currentCookie;
+    uint64_t nextCookie;
+  };
+
+  using ScannedEntryEmitter = bool (*)(void*, const ScannedEntry&);
+
+  struct ResolveContext {
+    Iso9660Directory* directory;
+    StringView name;
+    File* child;
+    uint64_t expectedCookie;
+    bool checkCookie;
+  };
+
+  struct ReadContext {
+    DirectoryEntryEmitter emitter;
+    void* context;
+  };
+
+  ReadStatus scanDirectory(uint64_t& cookie, ScannedEntryEmitter emitter, void* context);
+  static bool resolveEntry(void* context, const ScannedEntry& entry);
+  static bool emitEntry(void* context, const ScannedEntry& entry);
+
   // Filesystem object
   Iso9660Filesystem* m_pFs;
 

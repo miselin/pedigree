@@ -18,6 +18,7 @@
  */
 
 #include "Filesystem.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -37,22 +38,65 @@ Filesystem::Filesystem() : m_bReadOnly(false), m_pDisk(0) {}
 
 Filesystem::~Filesystem() = default;
 
-File* Filesystem::getTrueRoot() {
-  EMIT_IF(THREADS) {
-    Process* pProcess = Processor::information().getCurrentThread()->getParent();
-    File* maybeRoot = pProcess->getRootFile();
-    if (maybeRoot)
-      return maybeRoot;
+namespace {
+class TrueRootLease {
+ public:
+  explicit TrueRootLease(Filesystem* filesystem)
+#if !defined(VFS_STANDALONE) && THREADS
+      : m_ProcessLease(), m_pRoot(filesystem->getRoot()) {
+    Process* process = Processor::information().getCurrentThread()->getParent();
+    File* processRoot = process->acquireRootFile(m_ProcessLease);
+    if (processRoot) {
+      m_pRoot = processRoot;
+    }
   }
-  return getRoot();
+#else
+      : m_pRoot(filesystem->getRoot()) {
+  }
+#endif
+
+  File* get() const {
+    return m_pRoot;
+  }
+
+ private:
+#if !defined(VFS_STANDALONE) && THREADS
+  Process::FileContextLease m_ProcessLease;
+#endif
+  File* m_pRoot;
+};
+
+bool targetAbsentForCreate(File* parent, const String& filename) {
+  if (!filename.length() || filename == "." || filename == "..") {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  if (!parent->isDirectory()) {
+    SYSCALL_ERROR(NotADirectory);
+    return false;
+  }
+
+  Directory::ChildLease existing;
+  const Directory::LookupStatus status =
+      Directory::fromFile(parent)->lookupChild(HashedStringView(filename), existing);
+  if (status == Directory::LookupStatus::NotFound) {
+    return true;
+  }
+  if (status == Directory::LookupStatus::IoError) {
+    SYSCALL_ERROR(IoError);
+  } else {
+    SYSCALL_ERROR(FileExists);
+  }
+  return false;
 }
+}  // namespace
 
 File* Filesystem::find(const StringView& path) {
-  return findNode(getTrueRoot(), path);
+  return findNode(nullptr, path);
 }
 
 File* Filesystem::find(const String& path) {
-  return findNode(getTrueRoot(), path.view());
+  return findNode(nullptr, path.view());
 }
 
 File* Filesystem::find(const StringView& path, File* pStartNode) {
@@ -65,24 +109,49 @@ File* Filesystem::find(const String& path, File* pStartNode) {
   return find(path.view(), pStartNode);
 }
 
-bool Filesystem::createFile(const StringView& path, uint32_t mask, File* pStartNode) {
-  if (!pStartNode)
-    pStartNode = getTrueRoot();
-  File* pFile = findNode(pStartNode, path);
+File* Filesystem::findRetained(const StringView& path, Directory::ChildLease& result,
+                               File* pStartNode) {
+  TrueRootLease rootLease(this);
+  File* trueRoot = rootLease.get();
+  if (!pStartNode) {
+    pStartNode = trueRoot;
+  }
 
-  if (pFile) {
-    SYSCALL_ERROR(FileExists);
-    return false;
+  File* retained = nullptr;
+  File* found = findNode(pStartNode, path, pStartNode, trueRoot, &retained);
+  if (!found) {
+    return nullptr;
+  }
+
+  Directory::ChildLease replacement;
+  if (retained) {
+    replacement.adopt(retained);
+  }
+  result.swap(replacement);
+  return found;
+}
+
+bool Filesystem::createFile(const StringView& path, uint32_t mask, File* pStartNode) {
+  TrueRootLease startLease(this);
+  if (!pStartNode) {
+    pStartNode = startLease.get();
   }
 
   String filename;
-  File* pParent = findParent(path, pStartNode, filename);
+  Directory::ChildLease parentLease;
+  File* retainedParent = nullptr;
+  File* pParent = findParent(path, pStartNode, filename, &retainedParent);
+  if (retainedParent)
+    parentLease.adopt(retainedParent);
 
   // Check the parent existed.
   if (!pParent) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
+
+  if (!targetAbsentForCreate(pParent, filename))
+    return false;
 
   // Are we allowed to make the file?
   if (!VFS::checkAccess(pParent, false, true, true)) {
@@ -98,23 +167,26 @@ bool Filesystem::createFile(const StringView& path, uint32_t mask, File* pStartN
 }
 
 bool Filesystem::createDirectory(const StringView& path, uint32_t mask, File* pStartNode) {
-  if (!pStartNode)
-    pStartNode = getTrueRoot();
-  File* pFile = findNode(pStartNode, path);
-
-  if (pFile) {
-    SYSCALL_ERROR(FileExists);
-    return false;
+  TrueRootLease startLease(this);
+  if (!pStartNode) {
+    pStartNode = startLease.get();
   }
 
   String filename;
-  File* pParent = findParent(path, pStartNode, filename);
+  Directory::ChildLease parentLease;
+  File* retainedParent = nullptr;
+  File* pParent = findParent(path, pStartNode, filename, &retainedParent);
+  if (retainedParent)
+    parentLease.adopt(retainedParent);
 
   // Check the parent existed.
   if (!pParent) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
+
+  if (!targetAbsentForCreate(pParent, filename))
+    return false;
 
   // Are we allowed to make the file?
   if (!VFS::checkAccess(pParent, false, true, true)) {
@@ -130,23 +202,26 @@ bool Filesystem::createDirectory(const StringView& path, uint32_t mask, File* pS
 }
 
 bool Filesystem::createSymlink(const StringView& path, const String& value, File* pStartNode) {
-  if (!pStartNode)
-    pStartNode = getTrueRoot();
-  File* pFile = findNode(pStartNode, path);
-
-  if (pFile) {
-    SYSCALL_ERROR(FileExists);
-    return false;
+  TrueRootLease startLease(this);
+  if (!pStartNode) {
+    pStartNode = startLease.get();
   }
 
   String filename;
-  File* pParent = findParent(path, pStartNode, filename);
+  Directory::ChildLease parentLease;
+  File* retainedParent = nullptr;
+  File* pParent = findParent(path, pStartNode, filename, &retainedParent);
+  if (retainedParent)
+    parentLease.adopt(retainedParent);
 
   // Check the parent existed.
   if (!pParent) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
+
+  if (!targetAbsentForCreate(pParent, filename))
+    return false;
 
   // Are we allowed to make the file?
   if (!VFS::checkAccess(pParent, false, true, true)) {
@@ -158,29 +233,30 @@ bool Filesystem::createSymlink(const StringView& path, const String& value, File
   Filesystem* pFs = pParent->getFilesystem();
 
   // Now make the symlink.
-  pFs->createSymlink(pParent, filename, value);
-
-  return true;
+  return pFs->createSymlink(pParent, filename, value);
 }
 
 bool Filesystem::createLink(const StringView& path, File* target, File* pStartNode) {
-  if (!pStartNode)
-    pStartNode = getTrueRoot();
-  File* pFile = findNode(pStartNode, path);
-
-  if (pFile) {
-    SYSCALL_ERROR(FileExists);
-    return false;
+  TrueRootLease startLease(this);
+  if (!pStartNode) {
+    pStartNode = startLease.get();
   }
 
   String filename;
-  File* pParent = findParent(path, pStartNode, filename);
+  Directory::ChildLease parentLease;
+  File* retainedParent = nullptr;
+  File* pParent = findParent(path, pStartNode, filename, &retainedParent);
+  if (retainedParent)
+    parentLease.adopt(retainedParent);
 
   // Check the parent existed.
   if (!pParent) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
+
+  if (!targetAbsentForCreate(pParent, filename))
+    return false;
 
   // Are we allowed to make the file?
   if (!VFS::checkAccess(pParent, false, true, true)) {
@@ -198,28 +274,37 @@ bool Filesystem::createLink(const StringView& path, File* target, File* pStartNo
   Filesystem* pFs = pParent->getFilesystem();
 
   // Now make the symlink.
-  pFs->createLink(pParent, filename, target);
-
-  return true;
+  return pFs->createLink(pParent, filename, target);
 }
 
 bool Filesystem::remove(const StringView& path, File* pStartNode) {
-  if (!pStartNode)
-    pStartNode = getTrueRoot();
+  return remove(path, pStartNode, nullptr);
+}
 
-  File* pFile = findNode(pStartNode, path);
+bool Filesystem::remove(const StringView& path, File* pStartNode, File* expected) {
+  TrueRootLease startLease(this);
+  if (!pStartNode) {
+    pStartNode = startLease.get();
+  }
 
-  if (!pFile) {
+  String filename;
+  Directory::ChildLease parentLease;
+  File* retainedParent = nullptr;
+  File* pParent = findParent(path, pStartNode, filename, &retainedParent);
+  if (retainedParent)
+    parentLease.adopt(retainedParent);
+
+  // Check the parent existed.
+  if (!pParent) {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
 
-  String filename;
-  File* pParent = findParent(path, pStartNode, filename);
-
-  // Check the parent existed.
-  if (!pParent) {
-    FATAL("Filesystem::remove: Massive algorithmic error.");
+  // Dot entries are traversal operators, not removable directory entries.
+  // In-memory filesystems may represent them explicitly, so reject them
+  // before lookup rather than relying on individual drivers to do so.
+  if (!filename.length() || filename == "." || filename == "..") {
+    SYSCALL_ERROR(InvalidArgument);
     return false;
   }
 
@@ -228,59 +313,113 @@ bool Filesystem::remove(const StringView& path, File* pStartNode) {
     return false;
   }
 
-  Directory* pDParent = Directory::fromFile(pParent);
-  if (!pDParent) {
-    FATAL("Filesystem::remove: Massive algorithmic error (2)");
-    return false;
-  }
-
   // May need to create on a different filesytem (if the traversal crossed
   // over to a different fs)
   Filesystem* pFs = pParent->getFilesystem();
+  return pFs->removeChild(pParent, filename, expected);
+}
 
-  if (pFile->isDirectory()) {
-    Directory* removalDir = Directory::fromFile(pFile);
-    if (removalDir->getNumChildren()) {
-      if (removalDir->getNumChildren() > 2) {
-        // There's definitely more than just . and .. here.
-        SYSCALL_ERROR(NotEmpty);
-        return false;
-      }
+bool Filesystem::remove(File* parent, File* file) {
+  if (!file) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+  return removeChild(parent, file->getName(), file);
+}
 
-      // Are the entries only ., ..?
-      for (auto it : removalDir->getCache()) {
-        const String& name = (*it)->getName();
-        if (!(name.compare(".", 1) || name.compare("..", 2))) {
-          SYSCALL_ERROR(NotEmpty);
-          return false;
-        }
-      }
+bool Filesystem::removeChild(File* parent, const String& filename, File* expected) {
+  if (!parent || !parent->isDirectory()) {
+    SYSCALL_ERROR(NotADirectory);
+    return false;
+  }
+  if (!filename.length() || filename == "." || filename == "..") {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
 
-      // Clean out the . and .. entries
-      if (!removalDir->empty()) {
-        // ?????
-        SYSCALL_ERROR(IoError);
-        return false;
-      }
+  Directory* directory = Directory::fromFile(parent);
+  LockGuard<Mutex> namespaceGuard(directory->namespaceMutationLock());
+
+  Directory::ChildLease target;
+  const Directory::LookupStatus lookup = directory->lookupChild(HashedStringView(filename), target);
+  if (lookup != Directory::LookupStatus::Found) {
+    if (lookup == Directory::LookupStatus::IoError) {
+      SYSCALL_ERROR(IoError);
+    } else {
+      SYSCALL_ERROR(DoesNotExist);
+    }
+    return false;
+  }
+  if (expected && target.get() != expected) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+
+  if (target.get()->isDirectory()) {
+    Directory* childDirectory = Directory::fromFile(target.get());
+    LockGuard<Mutex> childNamespaceGuard(childDirectory->namespaceMutationLock());
+    bool empty = false;
+    const Directory::ReadStatus status = childDirectory->isEmpty(empty);
+    if (status != Directory::ReadStatus::Complete) {
+      SYSCALL_ERROR(IoError);
+      return false;
+    }
+    if (!empty) {
+      SYSCALL_ERROR(NotEmpty);
+      return false;
+    }
+
+    // Ephemeral directories never reach a filesystem driver, so the VFS
+    // must complete their detachment while both namespace boundaries are
+    // held. Backing drivers recheck emptiness after acquiring this lock.
+    if (directory->removeEphemeralFileLocked(HashedStringView(filename), target.get())) {
+      childDirectory->markDetached();
+      target.get()->retainDetachedParent();
+      return true;
     }
   }
 
-  // Remove the file from disk & parent directory cache.
-  bool bRemoved = pFs->remove(pParent, pFile);
-  if (bRemoved) {
-    pDParent->remove(filename);
+  // Ephemeral overlays belong to the VFS namespace, not to the backing
+  // filesystem whose directory they appear in. Classification and removal
+  // share the same namespace critical section as backing removal.
+  if (directory->removeEphemeralFileLocked(HashedStringView(filename), target.get())) {
+    target.get()->retainDetachedParent();
+    return true;
   }
-  return bRemoved;
+
+  if (!removeNode(parent, filename, target.get())) {
+    return false;
+  }
+
+  target.get()->retainDetachedParent();
+  return true;
 }
 
 File* Filesystem::findNode(File* pNode, StringView path) {
+  TrueRootLease rootLease(this);
+  File* trueRoot = rootLease.get();
+  if (!pNode) {
+    pNode = trueRoot;
+  }
+  return findNode(pNode, path, pNode, trueRoot, nullptr);
+}
+
+File* Filesystem::findNode(File* pNode, StringView path, File* stableStart, File* trueRoot,
+                           File** retainedResult) {
   if (UNLIKELY(path.length() == 0)) {
+    if (retainedResult && !*retainedResult) {
+      if (VFS::instance().retainTrackedFile(pNode)) {
+        *retainedResult = pNode;
+      } else if (pNode != stableStart && pNode != trueRoot) {
+        return nullptr;
+      }
+    }
     return pNode;
   }
 
   // If the pathname has a leading slash, cd to root and remove it.
   else if (path[0] == '/') {
-    pNode = getTrueRoot();
+    pNode = trueRoot;
     path = path.substring(1, path.length());
   }
 
@@ -310,13 +449,19 @@ File* Filesystem::findNode(File* pNode, StringView path) {
 
   // If 'path' is zero-lengthed, ignore and recurse.
   if (currentComponent.length() == 0) {
-    return findNode(pNode, restOfPath);
+    return findNode(pNode, restOfPath, stableStart, trueRoot, retainedResult);
   }
 
   // Firstly, if the current node is a symlink, follow it.
   /// \todo do we need to do permissions checks at each intermediate step?
+  Directory::ChildLease followedLease;
   while (pNode->isSymlink()) {
-    pNode = Symlink::fromFile(pNode)->followLink();
+    Directory::ChildLease nextLease;
+    pNode = Symlink::fromFile(pNode)->followLinkRetained(nextLease);
+    if (!pNode) {
+      return nullptr;
+    }
+    followedLease.swap(nextLease);
   }
 
   // Next, if the current node isn't a directory, die.
@@ -327,12 +472,13 @@ File* Filesystem::findNode(File* pNode, StringView path) {
 
   bool dot = currentComponent == ".";
   bool dotdot = currentComponent == "..";
+  File* parent = pNode->getParent();
 
   // '.' section, or '..' with no parent, or '..' and we're at the root.
-  if (dot || (dotdot && pNode->m_pParent == 0) || (dotdot && pNode == getTrueRoot())) {
-    return findNode(pNode, restOfPath);
+  if (dot || (dotdot && !parent) || (dotdot && pNode == trueRoot)) {
+    return findNode(pNode, restOfPath, stableStart, trueRoot, retainedResult);
   } else if (dotdot) {
-    return findNode(pNode->m_pParent, restOfPath);
+    return findNode(parent, restOfPath, stableStart, trueRoot, retainedResult);
   }
 
   Directory* pDir = Directory::fromFile(pNode);
@@ -358,24 +504,25 @@ File* Filesystem::findNode(File* pNode, StringView path) {
     return 0;
   }
 
-  // Cache lookup.
-  File* pFile;
-  if (!pDir->isCachePopulated()) {
-    // Directory contents not cached - cache them now.
-    pDir->cacheDirectoryContents();
+  Directory::ChildLease child;
+  Directory::LookupStatus lookup = pDir->lookupChild(HashedStringView(currentComponent), child);
+  if (lookup == Directory::LookupStatus::Found) {
+    return findNode(child.get(), restOfPath, stableStart, trueRoot, retainedResult);
   }
-
-  pFile = pDir->lookup(currentComponent);
-  if (pFile) {
-    // Cache lookup succeeded, recurse and return.
-    return findNode(pFile, restOfPath);
-  } else {
-    // Cache lookup failed, does not exist.
-    return 0;
+  if (lookup == Directory::LookupStatus::IoError) {
+    SYSCALL_ERROR(IoError);
   }
+  return nullptr;
 }
 
-File* Filesystem::findParent(StringView path, File* pStartNode, String& filename) {
+File* Filesystem::findParent(StringView path, File* pStartNode, String& filename,
+                             File** retainedParent) {
+  if (retainedParent) {
+    *retainedParent = nullptr;
+  }
+  TrueRootLease rootLease(this);
+  File* trueRoot = rootLease.get();
+
   // If the final character of the string is '/', this log falls apart. So,
   // check for that and chomp it. But, we also need to not do that for e.g.
   // path == '/'.
@@ -398,11 +545,21 @@ File* Filesystem::findParent(StringView path, File* pStartNode, String& filename
   if (lastSlash == -1) {
     filename = path.toString();
     parentNode = pStartNode;
+    if (retainedParent && VFS::instance().retainTrackedFile(parentNode)) {
+      *retainedParent = parentNode;
+    }
   } else {
     // Else split the filename off from the rest of the path and follow it.
     filename = path.substring(path.nextCharacter(lastSlash), path.length()).toString();
     path = path.substring(0, lastSlash);
-    parentNode = findNode(pStartNode, path);
+    if (lastSlash == 0) {
+      parentNode = trueRoot;
+      if (retainedParent && VFS::instance().retainTrackedFile(parentNode)) {
+        *retainedParent = parentNode;
+      }
+    } else {
+      parentNode = findNode(pStartNode, path, pStartNode, trueRoot, retainedParent);
+    }
   }
 
   // Handle immediate parent node being a reparse point.
@@ -410,6 +567,13 @@ File* Filesystem::findParent(StringView path, File* pStartNode, String& filename
     if (parentNode->isDirectory()) {
       File* reparseNode = Directory::fromFile(parentNode)->getReparsePoint();
       if (reparseNode) {
+        if (retainedParent && *retainedParent) {
+          VFS::instance().untrackFile(*retainedParent);
+          *retainedParent = nullptr;
+        }
+        if (retainedParent && VFS::instance().retainTrackedFile(reparseNode)) {
+          *retainedParent = reparseNode;
+        }
         parentNode = reparseNode;
       }
     }

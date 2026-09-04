@@ -26,7 +26,7 @@
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/String.h"
 
-#include "File.h"
+#include "Directory.h"
 
 /** A symbolic link node. */
 class EXPORTED_PUBLIC Symlink : public File {
@@ -66,13 +66,14 @@ class EXPORTED_PUBLIC Symlink : public File {
      contents in the given buffer. \return Number of bytes copied. */
   int followLink(char* pBuffer, size_t bufLen);
 
-  /** Reads the contents of the file as a symbolic link and follows. */
-  File* followLink();
+  /** Follow the link while retaining the resolved target's VFS lifetime. */
+  File* followLinkRetained(Directory::ChildLease& result);
 
  protected:
-  File* m_pCachedSymlink;
-
   String m_sTarget;
+
+  /** Serialises lazy target loading. */
+  Mutex m_TargetLock;
 
   /** Read the symlink target. Allows this to be done lazily. */
   void initialise(bool bForce = false);

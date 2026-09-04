@@ -23,6 +23,7 @@
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/new"
 
 #include "modules/Module.h"
@@ -99,7 +100,7 @@ void RamFile::unpinBlock(uint64_t location) {
 }
 
 RamDir::RamDir(const String& name, size_t inode, class Filesystem* pFs, File* pParent)
-    : Directory(name, 0, 0, 0, inode, pFs, 0, pParent) {
+    : Directory(name, 0, 0, 0, inode, pFs, 0, pParent), m_DirectoryLock() {
   // Full permissions.
   setPermissions(0777);
 }
@@ -107,17 +108,36 @@ RamDir::RamDir(const String& name, size_t inode, class Filesystem* pFs, File* pP
 RamDir::~RamDir() {};
 
 bool RamDir::addEntry(String filename, File* pFile) {
-  addDirectoryEntry(filename, pFile);
-  return true;
+  return addDirectoryEntry(filename, pFile);
 }
 
-bool RamDir::removeEntry(File* pFile) {
-  RamFile* pRamFile = static_cast<RamFile*>(pFile);
-  if (!pRamFile->canWrite())
+bool RamDir::removeEntry(const String& filename, File* pFile) {
+  LockGuard<Mutex> guard(m_DirectoryLock);
+  if (!pFile->isDirectory() && !static_cast<RamFile*>(pFile)->canWrite())
     return false;
 
-  // Remove from cache.
-  remove(pFile->getName());
+  return removeDirectoryEntry(filename, pFile);
+}
+
+bool RamDir::removeFromParent(RamDir* parent, const String& filename) {
+  if (parent == this) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  LockGuard<Mutex> namespaceGuard(namespaceMutationLock());
+  LockGuard<Mutex> guard(m_DirectoryLock);
+  bool empty = false;
+  if (isEmpty(empty) != ReadStatus::Complete) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+  if (!empty) {
+    SYSCALL_ERROR(NotEmpty);
+    return false;
+  }
+  if (!parent->removeEntry(filename, this))
+    return false;
+  markDetached();
   return true;
 }
 
@@ -141,7 +161,11 @@ bool RamFs::createFile(File* parent, const String& filename, uint32_t mask) {
   File* f = new RamFile(filename, 0, this, parent);
 
   RamDir* p = static_cast<RamDir*>(parent);
-  return p->addEntry(filename, f);
+  if (!p->addEntry(filename, f)) {
+    delete f;
+    return false;
+  }
+  return true;
 }
 
 bool RamFs::createDirectory(File* parent, const String& filename, uint32_t mask) {
@@ -151,19 +175,23 @@ bool RamFs::createDirectory(File* parent, const String& filename, uint32_t mask)
   RamDir* pDir = new RamDir(filename, 0, this, parent);
 
   RamDir* pParent = static_cast<RamDir*>(parent);
-  return pParent->addEntry(filename, pDir);
+  if (!pParent->addEntry(filename, pDir)) {
+    delete pDir;
+    return false;
+  }
+  return true;
 }
 
 bool RamFs::createSymlink(File* parent, const String& filename, const String& value) {
   return false;
 }
 
-bool RamFs::remove(File* parent, File* file) {
-  if (file->isDirectory())
-    return false;
-
+bool RamFs::removeNode(File* parent, const String& filename, File* file) {
   RamDir* p = static_cast<RamDir*>(parent);
-  return p->removeEntry(file);
+  if (file->isDirectory()) {
+    return static_cast<RamDir*>(file)->removeFromParent(p, filename);
+  }
+  return p->removeEntry(filename, file);
 }
 
 static bool entry() {

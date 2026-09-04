@@ -41,15 +41,17 @@ String WideToMultiByteStr(uint8_t* in, size_t inLen, size_t maxLen) {
   NormalStaticString ret;
   ret.clear();
 
-  while ((*in || in[1]) && (inLen > 0) && (maxLen > 0)) {
+  while (inLen > 0 && maxLen > 0 && (*in || in[1])) {
     uint16_t c = (*in << 8) | in[1];
     if (c > 0x7f) {
       /// \todo Handle UTF
-    } else
+    } else {
       ret.append(static_cast<char>(c));
+      --maxLen;
+    }
 
     in += 2;
-    inLen--;
+    --inLen;
   }
   ret.append('\0');
 
@@ -136,10 +138,10 @@ bool Iso9660Filesystem::initialise(Disk* pDisk) {
   }
 
   // Grab the volume label, properly trimmed
-  char* volLabel = new char[32];
+  char volLabel[33] = {};
   MemoryCopy(volLabel, m_PrimaryVolDesc.VolIdent, 32);
   if (m_JolietLevel) {
-    String volLabelString = WideToMultiByteStr(reinterpret_cast<uint8_t*>(volLabel), 32, 32);
+    String volLabelString = WideToMultiByteStr(reinterpret_cast<uint8_t*>(volLabel), 16, 32);
     NormalStaticString str;
     str.append(volLabelString);
 
@@ -150,12 +152,10 @@ bool Iso9660Filesystem::initialise(Disk* pDisk) {
     str = str.left(i + 1);
     m_VolumeLabel = String(str);
   } else {
-    for (size_t i = 31; static_cast<int32_t>(i) >= 0; i--) {
-      if (volLabel[i] != ' ') {
-        volLabel[i + 1] = 0;
-        break;
-      }
-    }
+    size_t labelLength = 32;
+    while (labelLength && volLabel[labelLength - 1] == ' ')
+      --labelLength;
+    volLabel[labelLength] = 0;
     m_VolumeLabel = String(volLabel);
   }
 
@@ -166,8 +166,6 @@ bool Iso9660Filesystem::initialise(Disk* pDisk) {
     str.append(reinterpret_cast<uintptr_t>(this), 16);
     m_VolumeLabel.assign(str, str.length(), true);
   }
-
-  delete[] volLabel;
 
   m_RootDir = reinterpret_cast<Iso9660DirRecord*>(m_PrimaryVolDesc.RootDirRecord);
   m_pRoot = fileFromDirRecord(*m_RootDir, 1, 0, true);
@@ -250,7 +248,7 @@ bool Iso9660Filesystem::createSymlink(File* parent, const String& filename, cons
   return false;
 }
 
-bool Iso9660Filesystem::remove(File* parent, File* file) {
+bool Iso9660Filesystem::removeNode(File*, const String&, File*) {
   return false;
 }
 

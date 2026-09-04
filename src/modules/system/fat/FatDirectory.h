@@ -31,6 +31,8 @@ class File;
 
 /** A File is a file, a directory or a symlink. */
 class FatDirectory : public Directory {
+  friend class FatFilesystem;
+
  private:
   /** Copy constructors are hidden - unused! */
   FatDirectory(const FatDirectory& file);
@@ -51,7 +53,7 @@ class FatDirectory : public Directory {
   /** Adds a directory entry. */
   virtual bool addEntry(String filename, File* pFile, size_t type);
   /** Removes a directory entry. */
-  virtual bool removeEntry(File* pFile);
+  virtual bool removeEntry(const String& filename, File* pFile);
 
   /** Updates inode attributes. */
   void fileAttributeChanged();
@@ -78,6 +80,23 @@ class FatDirectory : public Directory {
   }
 
  private:
+  struct ScannedEntry {
+    String name;
+    Dir entry;
+    uint32_t directoryCluster;
+    uint32_t directoryOffset;
+    Directory::EntryType type;
+  };
+
+  using ScanEmitter = bool (*)(void*, const ScannedEntry&, uint64_t, uint64_t);
+
+  LookupStatus resolveChild(const StringView& name, File*& child) override;
+  LookupStatus resolveChildAt(uint64_t cookie, const StringView& name, File*& child) override;
+  ReadStatus readDirectory(uint64_t& cookie, DirectoryEntryEmitter emitter, void* context) override;
+
+  ReadStatus scanDirectory(uint64_t& cookie, ScanEmitter emitter, void* context);
+  File* materialize(const ScannedEntry& entry);
+
   uint32_t m_DirClus;
   uint32_t m_DirOffset;
 

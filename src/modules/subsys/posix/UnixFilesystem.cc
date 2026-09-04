@@ -23,6 +23,7 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/syscallError.h"
 
 #include "modules/subsys/posix/logging.h"
 #include "modules/system/vfs/VFS.h"
@@ -627,14 +628,33 @@ UnixDirectory::UnixDirectory(const String& name, Filesystem* pFs, File* pParent)
 UnixDirectory::~UnixDirectory() {}
 
 bool UnixDirectory::addEntry(const String& filename, File* pFile) {
-  LockGuard<Mutex> guard(m_Lock);
-  addDirectoryEntry(filename, pFile);
-  return true;
+  return addDirectoryEntry(filename, pFile);
 }
 
-bool UnixDirectory::removeEntry(File* pFile) {
+bool UnixDirectory::removeEntry(const String& filename, File* pFile) {
   LockGuard<Mutex> guard(m_Lock);
-  remove(pFile->getName().view());
+  return removeDirectoryEntry(filename.view(), pFile);
+}
+
+bool UnixDirectory::removeFromParent(UnixDirectory* parent, const String& filename) {
+  if (parent == this) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  LockGuard<Mutex> namespaceGuard(namespaceMutationLock());
+  LockGuard<Mutex> guard(m_Lock);
+  bool empty = false;
+  if (isEmpty(empty) != ReadStatus::Complete) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+  if (!empty) {
+    SYSCALL_ERROR(NotEmpty);
+    return false;
+  }
+  if (!parent->removeEntry(filename, this))
+    return false;
+  markDetached();
   return true;
 }
 
@@ -644,8 +664,6 @@ void UnixDirectory::cacheDirectoryContents() {
 
 UnixFilesystem::UnixFilesystem() : Filesystem(), m_pRoot(0) {
   UnixDirectory* pRoot = new UnixDirectory(String(""), this, 0);
-  pRoot->addEntry(String("."), pRoot);
-  pRoot->addEntry(String(".."), pRoot);
 
   m_pRoot = pRoot;
   VFS::instance().trackFile(m_pRoot);
@@ -691,9 +709,6 @@ bool UnixFilesystem::createDirectory(File* parent, const String& filename, uint3
     return false;
   }
 
-  pChild->addEntry(String("."), pChild);
-  pChild->addEntry(String(".."), pParent);
-
   // give owner/group full permission to the directory by default
   pChild->setPermissions(FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR |
                          FILE_OX);
@@ -701,7 +716,10 @@ bool UnixFilesystem::createDirectory(File* parent, const String& filename, uint3
   return true;
 }
 
-bool UnixFilesystem::remove(File* parent, File* file) {
+bool UnixFilesystem::removeNode(File* parent, const String& filename, File* file) {
   UnixDirectory* pParent = static_cast<UnixDirectory*>(Directory::fromFile(parent));
-  return pParent->removeEntry(file);
+  if (file->isDirectory()) {
+    return static_cast<UnixDirectory*>(file)->removeFromParent(pParent, filename);
+  }
+  return pParent->removeEntry(filename, file);
 }

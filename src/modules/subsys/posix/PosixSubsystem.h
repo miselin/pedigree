@@ -38,6 +38,7 @@
 
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/logging.h"
+#include "modules/system/vfs/Directory.h"
 
 class File;
 class Filesystem;
@@ -578,6 +579,10 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   virtual File* findFile(const String& path, File* workingDir);
 
+  /** Find a file while retaining its VFS lifetime in result. */
+  virtual File* findFileRetained(const String& path, Directory::ChildLease& result,
+                                 File* workingDir);
+
   /** Retrieves the currently-active ABI for the subsystem. */
   Abi getAbi() const {
     return m_Abi;
@@ -603,7 +608,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
               Vector<String>& env, SyscallState* state);
 
   /** Parse a file for a possible shebang line. */
-  bool parseShebang(File* pFile, File*& outFile, Vector<String>& argv);
+  bool parseShebang(File* pFile, File*& outFile, Directory::ChildLease& outLease,
+                    Vector<String>& argv);
 
   /** Signal handlers */
   Tree<size_t, SignalHandler*> m_SignalHandlers;
@@ -677,9 +683,6 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
    * Safety spinlock for mutual exclusion in acquire().
    */
   Spinlock m_Lock;
-
-  /** Cached lookup of the root filesystem. */
-  Filesystem* m_pRootFs = nullptr;
 };
 
 #endif

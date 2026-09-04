@@ -32,15 +32,24 @@
 
 FileDisk::FileDisk(String file, AccessType mode)
     : m_pFile(0),
+      m_bVfsReference(false),
       m_Mode(mode),
       m_Cache(),
       m_MemRegion("FileDisk"),
       m_ReqMutex(),
       m_nAlignPoints(0) {
-  m_pFile = VFS::instance().find(file);
+  Directory::ChildLease fileLease;
+  m_pFile = VFS::instance().findRetained(file, fileLease);
   if (!m_pFile)
     WARNING("FileDisk: '" << file << "' doesn't exist...");
   else {
+    m_bVfsReference = m_pFile->retainVfsReference();
+    if (!m_bVfsReference) {
+      WARNING("FileDisk: '" << file << "' cannot be retained...");
+      m_pFile = nullptr;
+      return;
+    }
+
     m_pFile->increaseRefCount(false);
 
     // Chat to the partition service and let it pick up that we're around
@@ -73,6 +82,11 @@ FileDisk::~FileDisk() {
   m_Cache.shutdown();
   if (m_pFile) {
     m_pFile->decreaseRefCount(false);
+    if (m_bVfsReference) {
+      m_pFile->releaseVfsReference();
+      m_bVfsReference = false;
+    }
+    m_pFile = nullptr;
   }
 }
 

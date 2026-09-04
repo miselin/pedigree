@@ -24,6 +24,8 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 
+#include "Directory.h"
+
 class Disk;
 class File;
 class StringView;
@@ -34,6 +36,8 @@ class StringView;
  * Thanks to gr00ber at #osdev for the inspiration for the caching algorithms.
  */
 class EXPORTED_PUBLIC Filesystem {
+  friend class Directory;
+
   /** VFS can access nAliases */
   friend class VFS;
 
@@ -68,6 +72,13 @@ class EXPORTED_PUBLIC Filesystem {
   virtual File* find(const StringView& path, File* pStartNode);
   virtual File* find(const String& path, File* pStartNode);
 
+  /**
+   * Find a node and retain its VFS lifetime for the lexical lifetime of
+   * result. Filesystem-owned roots are returned without a lease.
+   */
+  File* findRetained(const StringView& path, Directory::ChildLease& result,
+                     File* pStartNode = nullptr);
+
   /** Returns the root filesystem node. */
   virtual File* getRoot() const = 0;
 
@@ -93,6 +104,9 @@ class EXPORTED_PUBLIC Filesystem {
       is unspecified. */
   bool remove(const StringView& path, File* pStartNode = 0);
 
+  /** Remove a path only if its terminal entry still has the expected identity. */
+  bool remove(const StringView& path, File* pStartNode, File* expected);
+
   /** Returns the disk in use */
   Disk* getDisk() {
     return m_pDisk;
@@ -108,9 +122,8 @@ class EXPORTED_PUBLIC Filesystem {
     return true;
   }
 
-  /** Remove a file given a parent and file, assuming path parsing already
-   * completed. */
-  virtual bool remove(File* parent, File* file) = 0;
+  /** Remove the file only if it is still the given child of parent. */
+  bool remove(File* parent, File* file);
 
  protected:
   /** createFile calls this after it has parsed the string path. */
@@ -121,25 +134,37 @@ class EXPORTED_PUBLIC Filesystem {
   virtual bool createSymlink(File* parent, const String& filename, const String& value) = 0;
   /** createLink calls this after it has parsed the string path. */
   virtual bool createLink(File* parent, const String& filename, File* target);
+  /**
+   * Remove a backing node while the VFS holds the parent's namespace lock.
+   * A successful implementation must retire the parent's cached entry before
+   * returning and must recheck directory emptiness while holding the child's
+   * namespace lock.
+   */
+  virtual bool removeNode(File* parent, const String& filename, File* file) = 0;
   /** is this entire filesystem read-only?  */
   bool m_bReadOnly;
   /** Disk device(if any). */
   Disk* m_pDisk;
 
  private:
-  /** Get the true root of the filesystem, considering potential jails. */
-  File* getTrueRoot();
+  /** Resolve and remove one child at a namespace-locked linearization point. */
+  bool removeChild(File* parent, const String& filename, File* expected);
 
   /** Internal function to find a node - Returns 0 on failure or the node.
       \param pNode The node to start parsing 'path' from.
       \param path  The path from pNode to the destination node. */
   File* findNode(File* pNode, StringView path);
 
+  /** Traverse while retaining the terminal tracked node for a mutation. */
+  File* findNode(File* pNode, StringView path, File* stableStart, File* trueRoot,
+                 File** retainedResult);
+
   /** Internal function to find a node's parent directory.
       \param path The path from pStartNode to the original file.
       \param pStartNode The node to start parsing 'path' from.
       \param[out] filename The child file's name. */
-  File* findParent(StringView path, File* pStartNode, String& filename);
+  File* findParent(StringView path, File* pStartNode, String& filename,
+                   File** retainedParent = nullptr);
 
   /** Copy constructor.
       \note NOT implemented. */

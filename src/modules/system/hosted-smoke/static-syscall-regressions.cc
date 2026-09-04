@@ -37,6 +37,7 @@
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#include <fcntl.h>
 #include <sched.h>
 
 #include "modules/subsys/posix/syscalls/posixSyscallNumbers.h"
@@ -190,7 +191,7 @@ class RetainedLookupFilesystem final : public Filesystem {
     return false;
   }
 
-  bool remove(File* parent, File* file) override {
+  bool removeNode(File* parent, const String&, File* file) override {
     return m_RemoveHook ? m_RemoveHook(parent, file, m_RemoveHookContext) : false;
   }
 
@@ -242,8 +243,16 @@ class RetainedLookupDirectory final : public Directory {
     addDirectoryEntry(name, file);
   }
 
+  bool removePublished(const String& name, File* expected) {
+    return removeDirectoryEntry(HashedStringView(name), expected);
+  }
+
+  const void* namespaceLockAddress() {
+    return static_cast<const void*>(&namespaceMutationLock());
+  }
+
   bool publishEphemeral(File* file) {
-    return addEphemeralFile(file);
+    return addEphemeralFile(file) == AddStatus::Added;
   }
 
   void publishLazy(const String& name, File* file, Atomic<size_t>& conversions,
@@ -864,107 +873,129 @@ bool directoryRetainedFailedLazyLookup() {
          conversions == static_cast<size_t>(2) && seedWasFinal && mutantExtrasDrained;
 }
 
-struct DirectoryEmptyAbaContext {
-  DirectoryEmptyAbaContext(RetainedLookupDirectory* directory, const String& alias,
-                           RetainedLookupFile* oldChild, Atomic<size_t>& oldDestructions,
-                           RetainedLookupFile* replacement)
+struct DirectoryMutationSerializationContext {
+  DirectoryMutationSerializationContext(RetainedLookupDirectory* directory, const String& alias,
+                                        RetainedLookupFile* oldChild,
+                                        Atomic<size_t>& oldDestructions,
+                                        RetainedLookupFile* replacement)
       : directory(directory),
         alias(alias),
         oldChild(oldChild),
         oldDestructions(oldDestructions),
         replacement(replacement),
+        publisher(nullptr),
+        publishStart(0),
+        publishAttempted(0),
+        publishReturned(0),
         callbacks(0),
         firstSawOld(false),
         oldStayedAliveAfterAliasRemoval(false),
-        secondSawReplacement(false),
-        replacementPublished(false),
-        firstReplacementEmergency(false),
-        secondReplacementEmergency(false) {}
+        publisherBlocked(false) {}
 
   RetainedLookupDirectory* directory;
   String alias;
   RetainedLookupFile* oldChild;
   Atomic<size_t>& oldDestructions;
   RetainedLookupFile* replacement;
+  Thread* publisher;
+  Semaphore publishStart;
+  Atomic<size_t> publishAttempted;
+  Atomic<size_t> publishReturned;
   size_t callbacks;
   bool firstSawOld;
   bool oldStayedAliveAfterAliasRemoval;
-  bool secondSawReplacement;
-  bool replacementPublished;
-  bool firstReplacementEmergency;
-  bool secondReplacementEmergency;
+  bool publisherBlocked;
 };
 
-bool directoryEmptyAbaRemove(File* parent, File* file, void* opaque) {
-  DirectoryEmptyAbaContext* context = reinterpret_cast<DirectoryEmptyAbaContext*>(opaque);
-  ++context->callbacks;
-  if (context->callbacks == 1) {
-    context->firstSawOld = parent == context->directory && file == context->oldChild;
-    if (!context->firstSawOld) {
-      return false;
-    }
-
-    context->directory->remove(HashedStringView(context->alias));
-    context->oldStayedAliveAfterAliasRemoval = context->oldDestructions == static_cast<size_t>(0);
-    if (!context->oldStayedAliveAfterAliasRemoval) {
-      return false;
-    }
-    context->directory->publish(context->alias, context->replacement);
-    context->replacementPublished = true;
-    context->firstReplacementEmergency = VFS::instance().retainTrackedFile(context->replacement);
-    context->secondReplacementEmergency = context->firstReplacementEmergency &&
-                                          VFS::instance().retainTrackedFile(context->replacement);
-    return context->secondReplacementEmergency;
+int publishDuringDirectoryRemoval(void* opaque) {
+  DirectoryMutationSerializationContext* context =
+      reinterpret_cast<DirectoryMutationSerializationContext*>(opaque);
+  if (!context->publishStart.acquireForCompletion()) {
+    return 1;
   }
-
-  context->secondSawReplacement =
-      context->callbacks == 2 && parent == context->directory && file == context->replacement;
-  return false;
+  context->publishAttempted += 1;
+  context->directory->publish(context->alias, context->replacement);
+  context->publishReturned += 1;
+  return 0;
 }
 
-bool directoryEmptyPreservesSameKeyReplacement() {
+bool serializeDirectoryMutationRemove(File* parent, File* file, void* opaque) {
+  DirectoryMutationSerializationContext* context =
+      reinterpret_cast<DirectoryMutationSerializationContext*>(opaque);
+  ++context->callbacks;
+  context->firstSawOld =
+      context->callbacks == 1 && parent == context->directory && file == context->oldChild;
+  if (!context->firstSawOld ||
+      !context->directory->removePublished(context->alias, context->oldChild)) {
+    return false;
+  }
+
+  context->oldStayedAliveAfterAliasRemoval = context->oldDestructions == static_cast<size_t>(0);
+  context->publishStart.release();
+  for (size_t attempt = 0; attempt < HostedAttempts; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    if (context->publishAttempted == static_cast<size_t>(1) &&
+        context->publisher->getWaitDebugInfo(info) && info.queue && info.queued &&
+        info.channelOwner == context->directory->namespaceLockAddress() &&
+        context->publisher->getStatus() == Thread::Sleeping) {
+      context->publisherBlocked = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+  return context->oldStayedAliveAfterAliasRemoval && context->publisherBlocked;
+}
+
+bool directoryMutationSerializesSameKeyReplacement(Process* kernelProcess) {
   RetainedLookupFilesystem filesystem;
-  RetainedLookupDirectory directory(String("retained-empty-aba-root"), &filesystem);
+  RetainedLookupDirectory directory(String("retained-mutation-root"), &filesystem);
   filesystem.setRoot(&directory);
   Atomic<size_t> oldDestructions(0);
   Atomic<size_t> replacementDestructions(0);
-  const String alias("retained-empty-aba-alias");
-  RetainedLookupFile* oldChild = new RetainedLookupFile(String("retained-empty-aba-old"),
+  const String alias("retained-mutation-alias");
+  RetainedLookupFile* oldChild = new RetainedLookupFile(String("retained-mutation-old"),
                                                         &filesystem, &directory, oldDestructions);
   RetainedLookupFile* replacement = new RetainedLookupFile(
-      String("retained-empty-aba-replacement"), &filesystem, &directory, replacementDestructions);
+      String("retained-mutation-replacement"), &filesystem, &directory, replacementDestructions);
   directory.publish(alias, oldChild);
 
-  DirectoryEmptyAbaContext context(&directory, alias, oldChild, oldDestructions, replacement);
-  filesystem.setRemoveHook(directoryEmptyAbaRemove, &context);
-  const bool emptyRejected = !directory.empty();
-  filesystem.setRemoveHook(nullptr, nullptr);
+  DirectoryMutationSerializationContext context(&directory, alias, oldChild, oldDestructions,
+                                                replacement);
+  Thread* publisher = new Thread(kernelProcess, publishDuringDirectoryRemoval, &context, nullptr,
+                                 false, true, true);
+  publisher->setName("hosted directory mutation publisher");
+  context.publisher = publisher;
+  const bool publisherStarted = publisher->start();
 
-  const bool replacementStayedAlive = !replacementDestructions;
+  filesystem.setRemoveHook(serializeDirectoryMutationRemove, &context);
+  const bool removed = publisherStarted && filesystem.remove(&directory, oldChild);
+  filesystem.setRemoveHook(nullptr, nullptr);
+  if (!removed) {
+    context.publishStart.release();
+  }
+  const bool publisherJoined = publisherStarted && publisher->joinForCompletion();
+  if (!publisherStarted) {
+    delete publisher;
+  }
+
   Directory::ChildLease retainedReplacement;
   const bool replacementVisible =
-      context.secondReplacementEmergency &&
       directory.lookupRetained(HashedStringView(alias), retainedReplacement) &&
       retainedReplacement.get() == replacement;
 
   directory.remove(HashedStringView(alias));
   retainedReplacement.reset();
-  size_t oldCleanupReleases = 0;
   if (!oldDestructions) {
-    oldCleanupReleases = drainTrackedFileOwners(oldChild, oldDestructions);
+    drainTrackedFileOwners(oldChild, oldDestructions);
   }
-  size_t replacementCleanupReleases = 0;
-  if (context.replacementPublished) {
-    replacementCleanupReleases = drainTrackedFileOwners(replacement, replacementDestructions);
-  } else if (!replacementDestructions) {
+  if (!replacementDestructions) {
     delete replacement;
   }
 
-  return emptyRejected && context.callbacks == 2 && context.firstSawOld &&
-         context.oldStayedAliveAfterAliasRemoval && context.secondSawReplacement &&
-         context.replacementPublished && context.firstReplacementEmergency &&
-         context.secondReplacementEmergency && replacementStayedAlive && replacementVisible &&
-         oldCleanupReleases == 0 && replacementCleanupReleases == 2 &&
+  return publisherStarted && removed && publisherJoined && context.callbacks == 1 &&
+         context.firstSawOld && context.oldStayedAliveAfterAliasRemoval &&
+         context.publisherBlocked && context.publishAttempted == static_cast<size_t>(1) &&
+         context.publishReturned == static_cast<size_t>(1) && replacementVisible &&
          oldDestructions == static_cast<size_t>(1) &&
          replacementDestructions == static_cast<size_t>(1);
 }
@@ -1018,9 +1049,9 @@ bool directoryRetainedLookupLifecycle(Process* kernelProcess) {
   const bool disjoint = directoryRetainedLookupDisjoint(kernelProcess);
   const bool deletion = directoryRetainedLookupDeletion();
   const bool replacement = directoryRetainedLookupReplacement(kernelProcess);
-  const bool emptyAba = directoryEmptyPreservesSameKeyReplacement();
+  const bool mutationSerialization = directoryMutationSerializesSameKeyReplacement(kernelProcess);
   const bool duplicateEphemeral = directoryRetainedDuplicateEphemeral();
-  if (!disjoint || !deletion || !replacement || !emptyAba || !duplicateEphemeral) {
+  if (!disjoint || !deletion || !replacement || !mutationSerialization || !duplicateEphemeral) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL directory-retained-lookup-lifecycle: "
         "directory locks were global or child destruction ran while locked");
@@ -1231,6 +1262,68 @@ bool establishedFileAliasLifetime() {
   }
 
   NOTICE("HOSTED-SYSCALL-TEST: PASS file-established-alias-lifetime");
+  return true;
+}
+
+bool processFilesystemContextLifetime(Process* kernelProcess) {
+  Atomic<size_t> cwdDestructions(0);
+  Atomic<size_t> rootDestructions(0);
+  Atomic<size_t> borrowedCwdDestructions(0);
+  Atomic<size_t> borrowedRootDestructions(0);
+  RetainedLookupFilesystem borrowedCwdFilesystem;
+  RetainedLookupFilesystem borrowedRootFilesystem;
+  EstablishedAliasFileProbe* cwd = new EstablishedAliasFileProbe(cwdDestructions);
+  EstablishedAliasFileProbe* root = new EstablishedAliasFileProbe(rootDestructions);
+  EstablishedAliasFileProbe* borrowedCwd = new EstablishedAliasFileProbe(borrowedCwdDestructions);
+  EstablishedAliasFileProbe* borrowedRoot = new EstablishedAliasFileProbe(borrowedRootDestructions);
+  borrowedCwd->setFilesystem(&borrowedCwdFilesystem);
+  borrowedRoot->setFilesystem(&borrowedRootFilesystem);
+  borrowedCwdFilesystem.setRoot(borrowedCwd);
+  borrowedRootFilesystem.setRoot(borrowedRoot);
+  VFS::instance().trackFile(cwd);
+  VFS::instance().trackFile(root);
+
+  Process* parent = new Process(kernelProcess);
+  parent->setCwd(cwd);
+  parent->setRootFile(root);
+  Process::FileContextLease cwdSnapshot;
+  Process::FileContextLease rootSnapshot;
+  File* retainedCwd = parent->acquireCwd(cwdSnapshot);
+  File* retainedRoot = parent->acquireRootFile(rootSnapshot);
+  Process* child = new Process(parent);
+
+  const bool cwdNamespaceWasFinal = VFS::instance().untrackFile(cwd, false);
+  const bool rootNamespaceWasFinal = VFS::instance().untrackFile(root, false);
+  parent->setCwd(borrowedCwd);
+  parent->setRootFile(borrowedRoot);
+  const bool borrowedCwdWasPublished = VFS::instance().untrackFile(borrowedCwd, false);
+  const bool borrowedRootWasPublished = VFS::instance().untrackFile(borrowedRoot, false);
+
+  delete child;
+  const bool snapshotsHeldAcrossReplacement =
+      retainedCwd == cwd && retainedRoot == root && !cwdDestructions && !rootDestructions;
+  cwdSnapshot.reset();
+  rootSnapshot.reset();
+  const bool inheritedReferencesReleased =
+      cwdDestructions == static_cast<size_t>(1) && rootDestructions == static_cast<size_t>(1);
+  delete parent;
+  const bool borrowedReferencesSurvived = !borrowedCwdDestructions && !borrowedRootDestructions;
+  delete borrowedCwd;
+  delete borrowedRoot;
+
+  const bool passed = !cwdNamespaceWasFinal && !rootNamespaceWasFinal && !borrowedCwdWasPublished &&
+                      !borrowedRootWasPublished && snapshotsHeldAcrossReplacement &&
+                      inheritedReferencesReleased && borrowedReferencesSurvived &&
+                      borrowedCwdDestructions == static_cast<size_t>(1) &&
+                      borrowedRootDestructions == static_cast<size_t>(1);
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL process-filesystem-context-lifetime: "
+        "fork, replacement, or destruction mismanaged a cwd/root VFS owner");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS process-filesystem-context-lifetime");
   return true;
 }
 
@@ -1639,7 +1732,7 @@ bool descriptorCloseGeneration(Process* kernelProcess) {
   Atomic<size_t> replacementDestructions(0);
   DescriptorRetirementProbe* oldDescriptor = new DescriptorRetirementProbe(oldDestructions);
   oldDescriptor->fd = DescriptorNumber;
-  oldDescriptor->offset = 1;
+  oldDescriptor->setOffset(1);
   subsystem->addFileDescriptor(DescriptorNumber, oldDescriptor);
 
   DescriptorLease oldLease;
@@ -1647,7 +1740,7 @@ bool descriptorCloseGeneration(Process* kernelProcess) {
 
   DescriptorRetirementProbe* replacement = new DescriptorRetirementProbe(replacementDestructions);
   replacement->fd = DescriptorNumber;
-  replacement->offset = 2;
+  replacement->setOffset(2);
   subsystem->addFileDescriptor(DescriptorNumber, replacement);
 
   // An in-flight close of the old generation must not remove a descriptor
@@ -1657,7 +1750,7 @@ bool descriptorCloseGeneration(Process* kernelProcess) {
 
   DescriptorLease replacementLease;
   passed = passed && subsystem->acquireFileDescriptor(DescriptorNumber, replacementLease) &&
-           replacementLease->offset == 2;
+           replacementLease->getOffset() == 2;
 
   oldLease.reset();
   passed = passed && oldDestructions == 1 && replacementDestructions == 0;
@@ -1680,6 +1773,139 @@ bool descriptorCloseGeneration(Process* kernelProcess) {
   }
 
   NOTICE("HOSTED-SYSCALL-TEST: PASS descriptor-close-generation");
+  return true;
+}
+
+struct DescriptorPositionContext {
+  explicit DescriptorPositionContext(FileDescriptor* descriptor)
+      : descriptor(descriptor), entered(0), acquired(0), observed(0) {}
+
+  FileDescriptor* descriptor;
+  Atomic<size_t> entered;
+  Atomic<size_t> acquired;
+  Atomic<size_t> observed;
+};
+
+class DescriptorPositionFile final : public File {
+ public:
+  explicit DescriptorPositionFile(bool seekable)
+      : File(String("position-policy"), 0, 0, 0, 1, nullptr, 0, nullptr),
+        m_Seekable(seekable),
+        m_ReadOffset(~static_cast<uint64_t>(0)),
+        m_WriteOffset(~static_cast<uint64_t>(0)) {}
+
+  bool isSeekable() const override {
+    return m_Seekable;
+  }
+
+  uint64_t readOffset() const {
+    return m_ReadOffset;
+  }
+
+  uint64_t writeOffset() const {
+    return m_WriteOffset;
+  }
+
+ protected:
+  bool isBytewise() const override {
+    return true;
+  }
+
+  uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t, bool) override {
+    m_ReadOffset = location;
+    return size;
+  }
+
+  uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t, bool) override {
+    m_WriteOffset = location;
+    return size;
+  }
+
+ private:
+  bool m_Seekable;
+  uint64_t m_ReadOffset;
+  uint64_t m_WriteOffset;
+};
+
+bool descriptorPositionPolicy() {
+  char byte = 0;
+  DescriptorPositionFile seekable(true);
+  FileDescriptor positioned(&seekable, 40, 0, 0, O_RDWR);
+  const bool positionedPassed = positioned.read(1, reinterpret_cast<uintptr_t>(&byte)) == 1 &&
+                                positioned.write(1, reinterpret_cast<uintptr_t>(&byte)) == 1 &&
+                                seekable.readOffset() == 40 && seekable.writeOffset() == 41 &&
+                                positioned.getOffset() == 42;
+
+  DescriptorPositionFile sequential(false);
+  FileDescriptor unpositioned(&sequential, 40, 0, 0, O_RDWR);
+  const bool unpositionedPassed = unpositioned.read(1, reinterpret_cast<uintptr_t>(&byte)) == 1 &&
+                                  unpositioned.write(1, reinterpret_cast<uintptr_t>(&byte)) == 1 &&
+                                  sequential.readOffset() == 0 && sequential.writeOffset() == 0 &&
+                                  unpositioned.getOffset() == 40;
+
+  if (!positionedPassed || !unpositionedPassed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL descriptor-position-policy: "
+        "non-seekable I/O consumed a file position");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS descriptor-position-policy");
+  return true;
+}
+
+int advanceDescriptorPosition(void* parameter) {
+  DescriptorPositionContext* context = reinterpret_cast<DescriptorPositionContext*>(parameter);
+  context->entered += 1;
+  FileDescriptor::PositionGuard position = context->descriptor->lockPosition();
+  context->observed = position.offset();
+  position.advanceOffset(1);
+  context->acquired += 1;
+  return 0;
+}
+
+bool descriptorPositionAliasSerialization(Process* kernelProcess) {
+  FileDescriptor source;
+  source.setOffset(40);
+  FileDescriptor alias(source);
+  DescriptorPositionContext context(&alias);
+
+  Thread* worker =
+      new Thread(kernelProcess, advanceDescriptorPosition, &context, nullptr, false, true, true);
+  worker->setName("hosted descriptor position alias");
+
+  bool started = false;
+  bool queued = false;
+  {
+    FileDescriptor::PositionGuard position = source.lockPosition();
+    started = worker->start();
+    for (size_t attempt = 0; attempt < HostedAttempts && started; ++attempt) {
+      Thread::WaitDebugInfo info = {};
+      uintptr_t debugAddress = 0;
+      if (context.entered && !context.acquired && worker->getWaitDebugInfo(info) && info.queued &&
+          worker->getDebugState(debugAddress) == Thread::SemWait) {
+        queued = true;
+        break;
+      }
+      Scheduler::instance().yield();
+    }
+    position.setOffset(41);
+  }
+
+  const bool joined = started && worker->joinForCompletion();
+  if (!started) {
+    delete worker;
+  }
+  const bool passed = started && queued && joined && context.acquired == 1 &&
+                      context.observed == 41 && source.getOffset() == 42 && alias.getOffset() == 42;
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL descriptor-position-alias-serialization: "
+        "duplicated descriptors did not serialize access to their shared offset");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS descriptor-position-alias-serialization");
   return true;
 }
 
@@ -1718,7 +1944,7 @@ bool pollCloseReuseCleanup(Process* kernelProcess) {
   SharedPointer<NetworkSyscalls> aNetworkKeepalive(aNetwork);
   DescriptorRetirementProbe* aDescriptor = new DescriptorRetirementProbe(aDescriptorDestructions);
   aDescriptor->fd = DescriptorNumber;
-  aDescriptor->offset = 1;
+  aDescriptor->setOffset(1);
   aDescriptor->networkImpl = aNetworkKeepalive;
   subsystem->addFileDescriptor(DescriptorNumber, aDescriptor);
 
@@ -1731,7 +1957,7 @@ bool pollCloseReuseCleanup(Process* kernelProcess) {
   SharedPointer<NetworkSyscalls> bNetworkKeepalive(bNetwork);
   DescriptorRetirementProbe* bDescriptor = new DescriptorRetirementProbe(bDescriptorDestructions);
   bDescriptor->fd = DescriptorNumber;
-  bDescriptor->offset = 2;
+  bDescriptor->setOffset(2);
   bDescriptor->networkImpl = bNetworkKeepalive;
 
   PollCloseReuseContext context(DescriptorNumber);
@@ -2789,6 +3015,9 @@ bool runRegressions() {
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN file-established-alias-lifetime");
   establishedAliasPassed &= establishedFileAliasLifetime();
 
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN process-filesystem-context-lifetime");
+  establishedAliasPassed &= processFilesystemContextLifetime(kernelProcess);
+
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN mmap-established-alias-lifetime");
   establishedAliasPassed &= establishedMappingAliasLifetime();
 
@@ -2811,6 +3040,16 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-close-generation");
   if (!descriptorCloseGeneration(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-position-alias-serialization");
+  if (!descriptorPositionAliasSerialization(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-position-policy");
+  if (!descriptorPositionPolicy()) {
     return false;
   }
 

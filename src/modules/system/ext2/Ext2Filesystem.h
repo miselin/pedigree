@@ -28,6 +28,7 @@
 #include "modules/system/vfs/Filesystem.h"
 
 class Disk;
+class Ext2Node;
 class File;
 struct GroupDesc;
 struct Inode;
@@ -62,7 +63,7 @@ class Ext2Filesystem : public Filesystem {
   virtual bool createDirectory(File* parent, const String& filename, uint32_t mask);
   virtual bool createSymlink(File* parent, const String& filename, const String& value);
   virtual bool createLink(File* parent, const String& filename, File* target);
-  virtual bool remove(File* parent, File* file);
+  virtual bool removeNode(File* parent, const String& filename, File* file);
 
  private:
   virtual bool createNode(File* parent, const String& filename, uint32_t mask, const String& value,
@@ -90,7 +91,7 @@ class Ext2Filesystem : public Filesystem {
   void releaseBlock(uint32_t block);
   /** Releases the given inode, returns true if the inode had no more links.
    */
-  bool releaseInode(uint32_t inode);
+  bool releaseInode(uint32_t inode, Ext2Node* retiringNode = nullptr);
 
   Inode* getInode(uint32_t num);
   void writeInode(uint32_t num);
@@ -98,6 +99,8 @@ class Ext2Filesystem : public Filesystem {
   bool ensureFreeBlockBitmapLoaded(size_t group);
   bool ensureFreeInodeBitmapLoaded(size_t group);
   bool ensureInodeTableLoaded(size_t group);
+
+  void releaseBlockLocked(uint32_t block);
 
   bool checkOptionalFeature(size_t feature);
   bool checkRequiredFeature(size_t feature);
@@ -129,10 +132,14 @@ class Ext2Filesystem : public Filesystem {
   /** Number of group descriptors. */
   size_t m_nGroupDescriptors;
 
-#if THREADS
+#if THREADS || defined(STANDALONE_MUTEXES)
   /** Write lock - we're finding some inodes and updating the superblock and
-   * block group structures. */
+   * block group structures. Filesystem-global metadata is the innermost lock:
+   * do not acquire a directory or node lock while holding it. */
   Mutex m_WriteLock;
+
+  /** Protects first publication of a lazily loaded inode table. */
+  Mutex m_InodeTableLoadLock;
 #endif
 
   /** The root filesystem node. */

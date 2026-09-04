@@ -64,7 +64,7 @@ class FatFilesystem : public Filesystem {
   virtual bool createFile(File* parent, const String& filename, uint32_t mask);
   virtual bool createDirectory(File* parent, const String& filename, uint32_t mask);
   virtual bool createSymlink(File* parent, const String& filename, const String& value);
-  virtual bool remove(File* parent, File* file);
+  virtual bool removeNode(File* parent, const String& filename, File* file);
 
   FatFilesystem(const FatFilesystem&);
   void operator=(const FatFilesystem&);
@@ -102,10 +102,8 @@ class FatFilesystem : public Filesystem {
   /** Converts a string from 8.3 format */
   String convertFilenameFrom(String filename) const;
 
-  /** Finds a free cluster - bLock determines if we should enforce locking,
-   * defaults to false because findFreeCluster is generally called within a
-   * function that has already locked the FAT */
-  uint32_t findFreeCluster(bool bLock = false);
+  /** Finds and reserves a free cluster. */
+  uint32_t findFreeCluster();
 
   /** Updates the size of a file on disk */
   void updateFileSize(File* pFile, int64_t sizeChange);
@@ -117,18 +115,24 @@ class FatFilesystem : public Filesystem {
    * (which needs to be freed */
   void* readDirectoryPortion(uint32_t clus) const;
 
+  /** Reads part of a directory into a caller-provided buffer. */
+  bool readDirectoryPortion(uint32_t clus, uintptr_t buffer) const;
+
   /** Writes part of a directory from a buffer */
-  void writeDirectoryPortion(uint32_t clus, void* p);
+  bool writeDirectoryPortion(uint32_t clus, void* p);
 
   /** Creates a file - actual doer for the public createFile */
   File* createFile(File* parentDir, const String& filename, uint32_t mask, bool bDirectory = false,
-                   uint32_t dirClus = 0);
+                   uint32_t dirClus = 0, bool publish = true);
+
+  /** Releases a validated cluster chain as one allocation transaction. */
+  bool releaseClusterChain(uint32_t clus);
 
   /** Reads a directory entry from disk */
   Dir* getDirectoryEntry(uint32_t clus, uint32_t offset) const;
 
   /** Writes a directry entry to disk */
-  void writeDirectoryEntry(Dir* dir, uint32_t clus, uint32_t offset);
+  bool writeDirectoryEntry(Dir* dir, uint32_t clus, uint32_t offset);
 
   /** Is a given cluster *VALUE* EOF? */
   bool isEof(uint32_t cluster) const {
@@ -226,12 +230,20 @@ class FatFilesystem : public Filesystem {
   /** Size of a block (in this case, a cluster) */
   uint32_t m_BlockSize;
 
+  /** Number of addressable data clusters. */
+  uint32_t m_ClusterCount;
+
   /** FAT cache */
   uint8_t* m_pFatCache;
 
   /** FAT lock */
   // Mutex m_FatLock;
   UnlikelyLock m_FatLock;
+
+#if THREADS || defined(STANDALONE_MUTEXES)
+  /** Serialises the scan-and-reserve transaction across the whole volume. */
+  Mutex m_AllocationLock;
+#endif
 
   /** Root filesystem node. */
   File* m_pRoot;

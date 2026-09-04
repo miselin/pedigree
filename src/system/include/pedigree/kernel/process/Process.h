@@ -24,6 +24,7 @@
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/DeferredTimeAccounting.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/OperationBarrier.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
@@ -127,6 +128,46 @@ class EXPORTED_PUBLIC Process {
 
     Process* m_pProcess;
     Thread* m_pThread;
+    TerminationDeferral m_TerminationDeferral;
+  };
+
+  /**
+   * Pins a tracked cwd/root File while a caller traverses from it. Filesystem
+   * roots which are deliberately untracked remain borrowed and externally
+   * stable. Leases are thread-affine and must remain lexical.
+   */
+  class EXPORTED_PUBLIC FileContextLease {
+   public:
+    FileContextLease();
+    ~FileContextLease();
+
+    File* get() const {
+      return m_pFile;
+    }
+
+    File* operator->() const {
+      return m_pFile;
+    }
+
+    explicit operator bool() const {
+      return m_pFile != nullptr;
+    }
+
+    void reset();
+
+   private:
+    friend class Process;
+
+    FileContextLease(const FileContextLease&) = delete;
+    FileContextLease& operator=(const FileContextLease&) = delete;
+    FileContextLease(FileContextLease&&) = delete;
+    FileContextLease& operator=(FileContextLease&&) = delete;
+
+    void adopt(File* file, bool vfsReference);
+    void swap(FileContextLease& other);
+
+    File* m_pFile;
+    bool m_bVfsReference;
     TerminationDeferral m_TerminationDeferral;
   };
 
@@ -287,14 +328,14 @@ class EXPORTED_PUBLIC Process {
     return __atomic_load_n(&m_pParent, __ATOMIC_ACQUIRE);
   }
 
-  /** Returns the current working directory. */
-  File* getCwd() {
-    return m_Cwd;
-  }
+  /** Returns the borrowed current working directory. */
+  File* getCwd();
+
+  /** Atomically snapshots the current working directory for traversal. */
+  MUST_USE_RESULT File* acquireCwd(FileContextLease& lease) const;
+
   /** Sets the current working directory. */
-  void setCwd(File* f) {
-    m_Cwd = f;
-  }
+  void setCwd(File* f);
 
   /** Returns the current controlling terminal. */
   File* getCtty() {
@@ -494,14 +535,13 @@ class EXPORTED_PUBLIC Process {
   }
 
   /** Set this process' root. */
-  void setRootFile(File* pFile) {
-    m_pRootFile = pFile;
-  }
+  void setRootFile(File* pFile);
 
-  /** Get this process' root. */
-  File* getRootFile() const {
-    return m_pRootFile;
-  }
+  /** Get this process' borrowed root. */
+  File* getRootFile() const;
+
+  /** Atomically snapshots the process root for traversal. */
+  MUST_USE_RESULT File* acquireRootFile(FileContextLease& lease) const;
 
   /**
    * Get whether this process has a shared address space with its parent.
@@ -610,7 +650,10 @@ class EXPORTED_PUBLIC Process {
   /**
    * Current working directory.
    */
+  mutable Mutex m_FilesystemContextLock;
   File* m_Cwd;
+  /** Whether m_Cwd owns an existing VFS tracking reference. */
+  bool m_bCwdVfsReference;
   /**
    * Current controlling terminal.
    */
@@ -816,6 +859,9 @@ class EXPORTED_PUBLIC Process {
 
   /** Root directory for this process. NULL == system-wide default. */
   File* m_pRootFile;
+
+  /** Whether m_pRootFile owns an existing VFS tracking reference. */
+  bool m_bRootFileVfsReference;
 
   /** Is our address space shared with the parent? */
   bool m_bSharedAddressSpace;

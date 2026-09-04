@@ -55,7 +55,7 @@ class Ext2Node {
   void updateMetadata(uint16_t uid, uint16_t gid, uint32_t perms);
 
   /** Wipes the node of data - frees all blocks. */
-  void wipe();
+  void wipe(bool allocationLockHeld = false);
 
   void extend(size_t newSize);
   void extend(size_t newSize, uint64_t location, uint64_t size);

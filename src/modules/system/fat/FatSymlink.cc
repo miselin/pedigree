@@ -18,6 +18,7 @@
  */
 
 #include "FatSymlink.h"
+#include "pedigree/kernel/LockGuard.h"
 
 #include "FatFilesystem.h"
 #include "modules/system/vfs/File.h"
@@ -41,6 +42,7 @@ uint64_t FatSymlink::readBytewise(uint64_t location, uint64_t size, uintptr_t bu
 
 uint64_t FatSymlink::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                    bool bCanBlock) {
+  LockGuard<Mutex> guard(m_TargetLock);
   FatFilesystem* pFs = static_cast<FatFilesystem*>(m_pFilesystem);
   uint64_t ret = pFs->write(this, location, size, buffer);
 

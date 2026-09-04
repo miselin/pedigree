@@ -74,10 +74,17 @@ using NetbufOwner = UniqueResource<struct netbuf, NetbufReleaser>;
 }  // namespace
 
 static File* findTrackedUnixSocket(const String& pathname) {
-  LockGuard<Mutex> guard(UnixFilesystem::namespaceLock());
-  File* file = VFS::instance().find(pathname);
-  if (file) {
-    VFS::instance().trackFile(file);
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  Process::FileContextLease cwdLease;
+  File* cwd = process->acquireCwd(cwdLease);
+  if (!cwd) {
+    return nullptr;
+  }
+
+  Directory::ChildLease fileLease;
+  File* file = VFS::instance().findRetained(pathname, fileLease, cwd);
+  if (file && !file->retainVfsReference()) {
+    return nullptr;
   }
   return file;
 }
@@ -87,8 +94,7 @@ static void releaseTrackedUnixSocket(File* file) {
     return;
   }
 
-  LockGuard<Mutex> guard(UnixFilesystem::namespaceLock());
-  VFS::instance().untrackFile(file);
+  file->releaseVfsReference();
 }
 
 static Thread* beginInterruptibleSocketCall() {
@@ -1629,14 +1635,11 @@ UnixSocketSyscalls::~UnixSocketSyscalls() {
     m_Socket = nullptr;
     socket->unbind();
     if (m_LocalPath.length()) {
-      LockGuard<Mutex> guard(UnixFilesystem::namespaceLock());
       if (socket->getName().length() && socket->getParent()) {
         Directory* parent = Directory::fromFile(socket->getParent());
-        if (parent->lookup(socket->getName().view()) == socket) {
-          parent->remove(socket->getName().view());
-        }
+        parent->getFilesystem()->remove(parent, socket);
       }
-      VFS::instance().untrackFile(socket);
+      socket->releaseVfsReference();
     } else {
       delete socket;
     }
@@ -1917,13 +1920,20 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
 
   N_NOTICE(" -> unix bind: '" << adjusted_pathname << "'");
 
-  File* cwd = VFS::instance().find(String("."));
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  Process::FileContextLease cwdLease;
+  File* cwd = process->acquireCwd(cwdLease);
+  if (!cwd) {
+    SYSCALL_ERROR(DoesNotExist);
+    return -1;
+  }
   if (adjusted_pathname.endswith('/')) {
     // uh, that's a directory
     SYSCALL_ERROR(IsADirectory);
     return -1;
   }
 
+  Directory::ChildLease parentLease;
   File* parentDirectory = cwd;
 
   const char* pDirname = DirectoryName(static_cast<const char*>(adjusted_pathname));
@@ -1939,7 +1949,7 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
 
     N_NOTICE(" -> dirname=" << dirname);
 
-    parentDirectory = VFS::instance().find(dirname);
+    parentDirectory = VFS::instance().findRetained(dirname, parentLease, cwd);
     if (!parentDirectory) {
       N_NOTICE(" -> parent directory '" << dirname << "' doesn't exist");
       SYSCALL_ERROR(DoesNotExist);
@@ -1957,20 +1967,19 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
   /// \todo does this actually create a findable file?
   UnixSocket* socket = new UnixSocket(basename, parentDirectory->getFilesystem(), parentDirectory,
                                       nullptr, getSocketType());
-  bool added = false;
-  {
-    LockGuard<Mutex> guard(UnixFilesystem::namespaceLock());
-    added = pDir->addEphemeralFile(socket);
-    if (added) {
-      // The directory and this open socket each own one VFS reference.
-      // Keeping both changes atomic prevents unlink from observing the
-      // pathname before the descriptor has pinned its endpoint.
-      VFS::instance().trackFile(socket);
+  // Establish the descriptor's ownership before publishing the pathname.
+  // addEphemeralFile adds the directory's separate ownership on success.
+  VFS::instance().trackFile(socket);
+  Directory::AddStatus addStatus = pDir->addEphemeralFile(socket);
+  if (addStatus != Directory::AddStatus::Added) {
+    socket->releaseVfsReference();
+    if (addStatus == Directory::AddStatus::IoError) {
+      SYSCALL_ERROR(IoError);
+    } else if (addStatus == Directory::AddStatus::Detached) {
+      SYSCALL_ERROR(DoesNotExist);
+    } else {
+      SYSCALL_ERROR(AddressInUse);
     }
-  }
-  if (!added) {
-    delete socket;
-    SYSCALL_ERROR(AddressInUse);
     return -1;
   }
   N_NOTICE(" -> basename=" << basename);

@@ -88,6 +88,9 @@ class EXPORTED_PUBLIC FileDisk : public Disk {
   /// File we're using as a disk
   File* m_pFile;
 
+  /// Whether this disk owns a persistent VFS reference to m_pFile.
+  bool m_bVfsReference;
+
   /// Access mode
   AccessType m_Mode;
 

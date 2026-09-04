@@ -124,10 +124,6 @@ class TestFilesystem final : public Filesystem {
     return m_Label;
   }
 
-  bool remove(File*, File*) override {
-    return false;
-  }
-
  protected:
   bool createFile(File*, const String&, uint32_t) override {
     return false;
@@ -138,6 +134,10 @@ class TestFilesystem final : public Filesystem {
   }
 
   bool createSymlink(File*, const String&, const String&) override {
+    return false;
+  }
+
+  bool removeNode(File*, const String&, File*) override {
     return false;
   }
 

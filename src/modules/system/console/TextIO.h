@@ -137,6 +137,10 @@ class EXPORTED_PUBLIC TextIO : public File {
                                  bool bCanBlock = true);
   virtual int select(bool bWriting = false, int timeout = 0);
 
+  virtual bool isSeekable() const {
+    return false;
+  }
+
   virtual void flipThread();
 
   static void inputCallback(InputManager::InputNotification& in);

@@ -18,6 +18,7 @@
  */
 
 #include "Ext2Directory.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/stddef.h"
 #include "pedigree/kernel/syscallError.h"
@@ -40,7 +41,9 @@ Ext2Directory::Ext2Directory(const String& name, uintptr_t inode_num, Inode* ino
                 LITTLE_TO_HOST32(inode->i_ctime), inode_num, static_cast<Filesystem*>(pFs),
                 LITTLE_TO_HOST32(inode->i_size),  /// \todo Deal with >4GB files here.
                 pParent),
-      Ext2Node(inode_num, inode, pFs) {
+      Ext2Node(inode_num, inode, pFs),
+      m_DirectoryLock(),
+      m_Removed(false) {
   uint32_t mode = LITTLE_TO_HOST32(inode->i_mode);
   setPermissionsOnly(modeToPermissions(mode));
   setUidOnly(LITTLE_TO_HOST16(inode->i_uid));
@@ -50,22 +53,52 @@ Ext2Directory::Ext2Directory(const String& name, uintptr_t inode_num, Inode* ino
 Ext2Directory::~Ext2Directory() {}
 
 bool Ext2Directory::addEntry(const String& filename, File* pFile, size_t type) {
-  // Make sure we're already cached before we add an entry.
-  cacheDirectoryContents();
+  if (!filename.length() || filename.length() > 255) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+
+  NameReservation reservation;
+  if (!reserveDirectoryEntry(HashedStringView(filename), reservation)) {
+    SYSCALL_ERROR(FileExists);
+    return false;
+  }
+
+  LockGuard<Mutex> guard(m_DirectoryLock);
+  if (m_Removed) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+
+  uint64_t existingOffset = 0;
+  while (existingOffset < m_nSize) {
+    ParsedEntry entry;
+    if (readEntry(existingOffset, entry) != ReadStatus::Complete) {
+      SYSCALL_ERROR(IoError);
+      return false;
+    }
+    if (entry.inode && filename.length() == entry.nameLength &&
+        !StringCompareN(filename.cstr(), entry.name, entry.nameLength)) {
+      SYSCALL_ERROR(FileExists);
+      return false;
+    }
+    existingOffset += entry.recordLength;
+  }
 
   // Calculate the size of our Dir* entry.
-  size_t length = 4 +                /* 32-bit inode number */
-                  2 +                /* 16-bit record length */
-                  1 +                /* 8-bit name length */
-                  1 +                /* 8-bit file type */
-                  filename.length(); /* Don't leave space for NULL-terminator, not needed. */
+  size_t length = offsetof(Dir, d_name) + filename.length();
+  if (length % 4) {
+    length += 4 - (length % 4);
+  }
 
   bool bFound = false;
 
   uint32_t i;
   Dir* pDir = 0;
-  Dir* pLastDir = 0;
   Dir* pBlockEnd = 0;
+  Dir* pSplitDir = 0;
+  uint16_t splitLength = 0;
+  uint16_t splitRemainder = 0;
   for (i = 0; i < m_Blocks.count(); i++) {
     if (!ensureBlockLoaded(i)) {
       return false;
@@ -74,40 +107,52 @@ bool Ext2Directory::addEntry(const String& filename, File* pFile, size_t type) {
     if (!buffer) {
       return false;
     }
-    pLastDir = pDir;
     pDir = reinterpret_cast<Dir*>(buffer);
     pBlockEnd = adjust_pointer(pDir, m_pExt2Fs->m_BlockSize);
     while (pDir < pBlockEnd) {
+      const size_t remaining = pointer_diff(pDir, pBlockEnd);
+      if (remaining < offsetof(Dir, d_name)) {
+        m_pExt2Fs->unpinBlock(m_Blocks[i]);
+        SYSCALL_ERROR(IoError);
+        return false;
+      }
+
+      uint16_t entryReclen = LITTLE_TO_HOST16(pDir->d_reclen);
+      if (entryReclen < offsetof(Dir, d_name) || entryReclen > remaining || (entryReclen % 4)) {
+        m_pExt2Fs->unpinBlock(m_Blocks[i]);
+        SYSCALL_ERROR(IoError);
+        return false;
+      }
+
       // What's the minimum length of this directory entry?
-      size_t thisReclen = 4 + 2 + 1 + 1 + pDir->d_namelen;
+      size_t currentNameLength = pDir->d_namelen;
+      if (!m_pExt2Fs->checkRequiredFeature(2)) {
+        currentNameLength |= static_cast<size_t>(pDir->d_file_type) << 8;
+      }
+      if (currentNameLength > 255 || currentNameLength > entryReclen - offsetof(Dir, d_name)) {
+        m_pExt2Fs->unpinBlock(m_Blocks[i]);
+        SYSCALL_ERROR(IoError);
+        return false;
+      }
+      size_t thisReclen = offsetof(Dir, d_name) + currentNameLength;
       // Align to 4-byte boundary.
       if (thisReclen % 4) {
         thisReclen += 4 - (thisReclen % 4);
       }
 
       // Valid directory entry?
-      uint16_t entryReclen = LITTLE_TO_HOST16(pDir->d_reclen);
       if (pDir->d_inode > 0) {
         // Is there enough space to add this dirent?
         /// \todo Ensure 4-byte alignment.
         if (entryReclen - thisReclen >= length) {
           bFound = true;
-          // Save the current reclen.
-          uint16_t oldReclen = entryReclen;
-          // Adjust the current record's reclen field to the minimum.
-          pDir->d_reclen = HOST_TO_LITTLE16(thisReclen);
-          // Move to the new directory entry location.
+          pSplitDir = pDir;
+          splitLength = thisReclen;
+          splitRemainder = entryReclen - thisReclen;
           pDir = adjust_pointer(pDir, thisReclen);
-          // New record length.
-          uint16_t newReclen = oldReclen - thisReclen;
-          // Set the new record length.
-          pDir->d_reclen = HOST_TO_LITTLE16(newReclen);
           break;
         }
-      } else if (entryReclen == 0) {
-        // No more entries to follow.
-        break;
-      } else if (entryReclen - thisReclen >= length) {
+      } else if (entryReclen >= length) {
         // We can use this unused entry - we fit into it.
         // The record length does not need to be adjusted.
         bFound = true;
@@ -115,7 +160,6 @@ bool Ext2Directory::addEntry(const String& filename, File* pFile, size_t type) {
       }
 
       // Next.
-      pLastDir = pDir;
       pDir = adjust_pointer(pDir, entryReclen);
     }
     if (bFound)
@@ -134,8 +178,8 @@ bool Ext2Directory::addEntry(const String& filename, File* pFile, size_t type) {
     if (!addBlock(block))
       return false;
     i = m_Blocks.count() - 1;
-
-    m_Size = m_Blocks.count() * m_pExt2Fs->m_BlockSize;
+    m_nSize = m_Blocks.count() * m_pExt2Fs->m_BlockSize;
+    m_Size = m_nSize;
     fileAttributeChanged();
 
     /// \todo Previous directory entry might need its reclen updated to
@@ -155,6 +199,13 @@ bool Ext2Directory::addEntry(const String& filename, File* pFile, size_t type) {
     pDir->d_reclen = HOST_TO_LITTLE16(m_pExt2Fs->m_BlockSize);
 
     /// \todo Update our i_size for our directory.
+  }
+
+  const bool special = filename.compare(".") || filename.compare("..");
+
+  if (pSplitDir) {
+    pSplitDir->d_reclen = HOST_TO_LITTLE16(splitLength);
+    pDir->d_reclen = HOST_TO_LITTLE16(splitRemainder);
   }
 
   // Set the directory contents.
@@ -183,15 +234,18 @@ bool Ext2Directory::addEntry(const String& filename, File* pFile, size_t type) {
     pDir->d_file_type = 0;
   }
 
-  pDir->d_namelen = filename.length();
+  pDir->d_namelen = static_cast<uint8_t>(filename.length());
   MemoryCopy(pDir->d_name, static_cast<const char*>(filename), filename.length());
-
-  // We're all good - add the directory to our cache.
-  addDirectoryEntry(filename, pFile);
 
   // Trigger write back to disk.
   m_pExt2Fs->writeBlock(m_Blocks[i]);
   m_pExt2Fs->unpinBlock(m_Blocks[i]);
+
+  if (!special) {
+    const bool published = addCachedDirectoryEntry(reservation, pFile);
+    assert(published);
+    reservation.complete(LookupStatus::Found);
+  }
 
   m_Size = m_nSize;
 
@@ -199,13 +253,18 @@ bool Ext2Directory::addEntry(const String& filename, File* pFile, size_t type) {
 }
 
 bool Ext2Directory::removeEntry(const String& filename, Ext2Node* pFile) {
+  LockGuard<Mutex> guard(m_DirectoryLock);
+  return removeEntryLocked(filename, pFile);
+}
+
+bool Ext2Directory::removeEntryLocked(const String& filename, Ext2Node* pFile) {
   // Find this file in the directory.
   size_t fileInode = pFile->getInodeNumber();
 
   bool bFound = false;
 
   uint32_t i;
-  Dir *pDir, *pLastDir = 0;
+  Dir* pDir;
   for (i = 0; i < m_Blocks.count(); i++) {
     if (!ensureBlockLoaded(i)) {
       return false;
@@ -215,13 +274,37 @@ bool Ext2Directory::removeEntry(const String& filename, Ext2Node* pFile) {
       return false;
     }
     pDir = reinterpret_cast<Dir*>(buffer);
-    pLastDir = 0;
     while (reinterpret_cast<uintptr_t>(pDir) < buffer + m_pExt2Fs->m_BlockSize) {
+      const uintptr_t current = reinterpret_cast<uintptr_t>(pDir);
+      const size_t remaining = buffer + m_pExt2Fs->m_BlockSize - current;
+      if (remaining < offsetof(Dir, d_name)) {
+        m_pExt2Fs->unpinBlock(m_Blocks[i]);
+        SYSCALL_ERROR(IoError);
+        return false;
+      }
+
+      const uint16_t recordLength = LITTLE_TO_HOST16(pDir->d_reclen);
+      if (recordLength < offsetof(Dir, d_name) || recordLength > remaining || (recordLength % 4)) {
+        m_pExt2Fs->unpinBlock(m_Blocks[i]);
+        SYSCALL_ERROR(IoError);
+        return false;
+      }
+
+      size_t nameLength = pDir->d_namelen;
+      if (!m_pExt2Fs->checkRequiredFeature(2)) {
+        nameLength |= static_cast<size_t>(pDir->d_file_type) << 8;
+      }
+      if (nameLength > 255 || nameLength > recordLength - offsetof(Dir, d_name)) {
+        m_pExt2Fs->unpinBlock(m_Blocks[i]);
+        SYSCALL_ERROR(IoError);
+        return false;
+      }
+
       if (LITTLE_TO_HOST32(pDir->d_inode) == fileInode) {
-        if (pDir->d_namelen == filename.length()) {
-          if (!StringCompareN(pDir->d_name, static_cast<const char*>(filename), pDir->d_namelen)) {
+        if (nameLength == filename.length()) {
+          if (!StringCompareN(pDir->d_name, static_cast<const char*>(filename), nameLength)) {
             // Wipe out the directory entry.
-            uint16_t old_reclen = LITTLE_TO_HOST16(pDir->d_reclen);
+            uint16_t old_reclen = recordLength;
             ByteSet(pDir, 0, old_reclen);
 
             /// \todo Okay, this is not quite enough. The previous
@@ -237,13 +320,9 @@ bool Ext2Directory::removeEntry(const String& filename, Ext2Node* pFile) {
             break;
           }
         }
-      } else if (!pDir->d_reclen) {
-        // No more entries.
-        break;
       }
 
-      pDir = reinterpret_cast<Dir*>(reinterpret_cast<uintptr_t>(pDir) +
-                                    LITTLE_TO_HOST16(pDir->d_reclen));
+      pDir = reinterpret_cast<Dir*>(reinterpret_cast<uintptr_t>(pDir) + recordLength);
     }
 
     m_pExt2Fs->unpinBlock(m_Blocks[i]);
@@ -254,163 +333,13 @@ bool Ext2Directory::removeEntry(const String& filename, Ext2Node* pFile) {
   m_Size = m_nSize;
 
   if (bFound) {
-    if (m_pExt2Fs->releaseInode(fileInode)) {
-      // Remove all blocks for the file, inode has hit zero refcount.
-      pFile->wipe();
-    }
+    m_pExt2Fs->releaseInode(fileInode, pFile);
+    invalidateDirectoryEntry(HashedStringView(filename));
     return true;
   } else {
     SYSCALL_ERROR(DoesNotExist);
     return false;
   }
-}
-
-void Ext2Directory::cacheDirectoryContents() {
-  if (isCachePopulated()) {
-    return;
-  }
-
-  uint32_t i;
-  Dir* pDir;
-  size_t blockOffset = 0;
-  for (i = 0; i < m_Blocks.count(); i++) {
-    if (!ensureBlockLoaded(i)) {
-      ERROR("Ext2: failed to resolve directory block " << i);
-      return;
-    }
-
-    // Grab the block and pin it while we parse it.
-    uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[i]);
-    if (!buffer) {
-      ERROR("Ext2: failed to read directory block " << m_Blocks[i]);
-      return;
-    }
-    uintptr_t endOfBlock = buffer + m_pExt2Fs->m_BlockSize;
-
-    // add offset in case we crossed a block boundary previously
-    pDir = reinterpret_cast<Dir*>(buffer + blockOffset);
-    if (blockOffset > 0) {
-      blockOffset = 0;
-    }
-
-    // if true, the
-    bool dirStraddles = false;
-
-    while (reinterpret_cast<uintptr_t>(pDir) < endOfBlock) {
-      size_t reclen = LITTLE_TO_HOST16(pDir->d_reclen);
-
-      Dir* pNextDir = adjust_pointer(pDir, reclen);
-      if (pDir->d_inode == 0) {
-        if (pDir == pNextDir) {
-          // No further iteration possible (null entry).
-          break;
-        }
-
-        // Oops, not a valid entry (possibly deleted file). Skip.
-        pDir = pNextDir;
-        continue;
-      } else if (pNextDir > reinterpret_cast<Dir*>(endOfBlock)) {
-        // If the directory entry crosses a block boundary, we need to
-        // do a bit of surgery to create a contiguous Dir object
-
-        blockOffset = pointer_diff(reinterpret_cast<Dir*>(endOfBlock), pNextDir);
-
-        size_t bytesThisBlock = pointer_diff(pDir, reinterpret_cast<Dir*>(endOfBlock));
-
-        char* rec = new char[reclen];
-        MemoryCopy(rec, pDir, bytesThisBlock);
-
-        if ((i + 1) >= m_Blocks.count()) {
-          delete[] rec;
-          ERROR("Ext2: directory entry extends past its final block");
-          break;
-        }
-
-        uintptr_t nextBlock = m_pExt2Fs->readBlock(m_Blocks[i + 1]);
-        if (!nextBlock) {
-          delete[] rec;
-          ERROR("Ext2: failed to read a straddled directory entry");
-          break;
-        }
-        MemoryCopy(rec + bytesThisBlock, reinterpret_cast<const void*>(nextBlock),
-                   reclen - bytesThisBlock);
-        m_pExt2Fs->unpinBlock(m_Blocks[i + 1]);
-
-        pDir = reinterpret_cast<Dir*>(rec);
-        dirStraddles = true;
-      }
-
-      // we only need inode + file type fields, to save memory
-      size_t copylen = offsetof(Dir, d_name);
-
-      DirectoryEntryMetadata meta;
-      meta.pDirectory = this;
-      meta.opaque = pedigree_std::move(UniqueArray<char>::allocate(copylen));
-      MemoryCopy(meta.opaque.get(), pDir, copylen);
-
-      size_t namelen = pDir->d_namelen;
-
-      // Can we get the file type from the directory entry?
-      size_t fileType = EXT2_UNKNOWN;
-      bool ok = true;
-      if (m_pExt2Fs->checkRequiredFeature(2)) {
-        // Yep! Use that here.
-        fileType = pDir->d_file_type;
-        switch (fileType) {
-          case EXT2_FILE:
-          case EXT2_DIRECTORY:
-          case EXT2_SYMLINK:
-            break;
-          default:
-            ERROR("EXT2: Directory entry has unsupported file type: " << pDir->d_file_type);
-            ok = false;
-            break;
-        }
-      } else {
-        // No! Need to read the inode.
-        uint32_t inodeNum = LITTLE_TO_HOST32(pDir->d_inode);
-        Inode* inode = m_pExt2Fs->getInode(inodeNum);
-
-        // Acceptable file type?
-        size_t inode_ftype = inode->i_mode & 0xF000;
-        switch (inode_ftype) {
-          case EXT2_S_IFLNK:
-          case EXT2_S_IFREG:
-          case EXT2_S_IFDIR:
-            break;
-          default:
-            ERROR("EXT2: Inode has unsupported file type: " << inode_ftype << ".");
-            ok = false;
-            break;
-        }
-
-        // In this case, the file type entry is the top 8 bits of the
-        // filename length.
-        namelen |= pDir->d_file_type << 8;
-      }
-
-      if (ok) {
-        String filename(pDir->d_name, namelen);
-        meta.filename = filename;  // copy into the metadata structure
-        addDirectoryEntry(filename, pedigree_std::move(meta));
-      }
-
-      // If we're crossing a block boundary, we created a temporary Dir.
-      // Clean it up now.
-      if (dirStraddles) {
-        dirStraddles = false;
-        delete[] reinterpret_cast<char*>(pDir);
-      }
-
-      // Next.
-      pDir = pNextDir;
-    }
-
-    // Done with this block now; nothing remains that points to it.
-    m_pExt2Fs->unpinBlock(m_Blocks[i]);
-  }
-
-  markCachePopulated();
 }
 
 void Ext2Directory::fileAttributeChanged() {
@@ -420,53 +349,325 @@ void Ext2Directory::fileAttributeChanged() {
                                                permissionsToMode(getPermissions()));
 }
 
-File* Ext2Directory::convertToFile(const DirectoryEntryMetadata& meta) {
-  Dir* pDir = reinterpret_cast<Dir*>(meta.opaque.get());
+bool Ext2Directory::readBytes(uint64_t offset, size_t length, void* output) {
+  if (offset > m_nSize || length > (m_nSize - offset)) {
+    return false;
+  }
 
-  uint32_t inodeNum = LITTLE_TO_HOST32(pDir->d_inode);
-  Inode* inode = m_pExt2Fs->getInode(inodeNum);
+  uint8_t* destination = reinterpret_cast<uint8_t*>(output);
+  while (length) {
+    const size_t block = offset / m_pExt2Fs->m_BlockSize;
+    const size_t blockOffset = offset % m_pExt2Fs->m_BlockSize;
+    if (block >= m_Blocks.count() || !ensureBlockLoaded(block)) {
+      return false;
+    }
 
-  // Can we get the file type from the directory entry?
-  size_t fileType = EXT2_UNKNOWN;
-  if (m_pExt2Fs->checkRequiredFeature(2)) {
-    // Directory entry holds file type.
-    fileType = pDir->d_file_type;
-  } else {
-    // Inode holds file type.
-    size_t inode_ftype = inode->i_mode & 0xF000;
-    switch (inode_ftype) {
-      case EXT2_S_IFLNK:
-        fileType = EXT2_SYMLINK;
-        break;
+    const uintptr_t buffer = m_pExt2Fs->readBlock(m_Blocks[block]);
+    if (!buffer) {
+      return false;
+    }
+
+    size_t available = m_pExt2Fs->m_BlockSize - blockOffset;
+    if (available > length) {
+      available = length;
+    }
+    MemoryCopy(destination, reinterpret_cast<const void*>(buffer + blockOffset), available);
+    m_pExt2Fs->unpinBlock(m_Blocks[block]);
+
+    destination += available;
+    offset += available;
+    length -= available;
+  }
+
+  return true;
+}
+
+Directory::ReadStatus Ext2Directory::readEntry(uint64_t offset, ParsedEntry& entry) {
+  if (!m_pExt2Fs->m_BlockSize) {
+    return ReadStatus::IoError;
+  }
+
+  Dir header;
+  if (!readBytes(offset, offsetof(Dir, d_name), &header)) {
+    return ReadStatus::IoError;
+  }
+
+  entry.inode = LITTLE_TO_HOST32(header.d_inode);
+  entry.recordLength = LITTLE_TO_HOST16(header.d_reclen);
+  entry.nameLength = header.d_namelen;
+  entry.fileType = header.d_file_type;
+  if (!m_pExt2Fs->checkRequiredFeature(2)) {
+    entry.nameLength |= static_cast<uint16_t>(header.d_file_type) << 8;
+    entry.fileType = EXT2_UNKNOWN;
+  }
+
+  const size_t bytesRemainingInBlock = m_pExt2Fs->m_BlockSize - (offset % m_pExt2Fs->m_BlockSize);
+  if (entry.recordLength < offsetof(Dir, d_name) || (entry.recordLength % 4) ||
+      entry.recordLength > (m_nSize - offset) || entry.recordLength > bytesRemainingInBlock ||
+      entry.nameLength > 255 || entry.nameLength > entry.recordLength - offsetof(Dir, d_name)) {
+    return ReadStatus::IoError;
+  }
+
+  if (!entry.inode) {
+    entry.name[0] = 0;
+    return ReadStatus::Complete;
+  }
+
+  const uint32_t inodeCount = LITTLE_TO_HOST32(m_pExt2Fs->m_pSuperblock->s_inodes_count);
+  if (!entry.nameLength || entry.inode > inodeCount || entry.fileType >= EXT2_MAX ||
+      !readBytes(offset + offsetof(Dir, d_name), entry.nameLength, entry.name)) {
+    return ReadStatus::IoError;
+  }
+  entry.name[entry.nameLength] = 0;
+  return ReadStatus::Complete;
+}
+
+Directory::LookupStatus Ext2Directory::resolveEntry(const ParsedEntry& entry,
+                                                    const StringView& name, File*& child) {
+  child = nullptr;
+  if (!entry.inode || !name.compare(entry.name, entry.nameLength)) {
+    return LookupStatus::NotFound;
+  }
+
+  Inode* inode = m_pExt2Fs->getInode(entry.inode);
+  if (!inode) {
+    return LookupStatus::IoError;
+  }
+
+  uint8_t fileType = entry.fileType;
+  if (!m_pExt2Fs->checkRequiredFeature(2) || fileType == EXT2_UNKNOWN) {
+    switch (LITTLE_TO_HOST16(inode->i_mode) & 0xF000) {
       case EXT2_S_IFREG:
         fileType = EXT2_FILE;
         break;
       case EXT2_S_IFDIR:
         fileType = EXT2_DIRECTORY;
         break;
-      default:
-        // this should have been validated previously
-        FATAL("Bad inode file type in Ext2Directory::convertToFile");
+      case EXT2_S_IFLNK:
+        fileType = EXT2_SYMLINK;
         break;
+      case EXT2_S_IFCHR:
+      case EXT2_S_IFBLK:
+      case EXT2_S_IFIFO:
+      case EXT2_S_IFSOCK:
+        return LookupStatus::NotFound;
+      default:
+        return LookupStatus::IoError;
     }
   }
 
-  File* pFile = 0;
+  const String filename(entry.name, entry.nameLength);
   switch (fileType) {
     case EXT2_FILE:
-      pFile = new Ext2File(meta.filename, inodeNum, inode, m_pExt2Fs, this);
+      child = new Ext2File(filename, entry.inode, inode, m_pExt2Fs, this);
       break;
     case EXT2_DIRECTORY:
-      pFile = new Ext2Directory(meta.filename, inodeNum, inode, m_pExt2Fs, this);
+      child = new Ext2Directory(filename, entry.inode, inode, m_pExt2Fs, this);
       break;
     case EXT2_SYMLINK:
-      pFile = new Ext2Symlink(meta.filename, inodeNum, inode, m_pExt2Fs, this);
+      child = new Ext2Symlink(filename, entry.inode, inode, m_pExt2Fs, this);
       break;
+    case EXT2_CHAR_DEV:
+    case EXT2_BLOCK_DEV:
+    case EXT2_FIFO:
+    case EXT2_SOCKET:
+      return LookupStatus::NotFound;
     default:
-      // this should have been validated previously
-      FATAL("Bad file type in Ext2Directory::convertToFile");
-      break;
+      return LookupStatus::IoError;
   }
 
-  return pFile;
+  return LookupStatus::Found;
+}
+
+Directory::LookupStatus Ext2Directory::resolveChildLocked(const StringView& name, File*& child) {
+  child = nullptr;
+  uint64_t offset = 0;
+  while (offset < m_nSize) {
+    ParsedEntry entry;
+    if (readEntry(offset, entry) != ReadStatus::Complete) {
+      return LookupStatus::IoError;
+    }
+    if (entry.inode && name.compare(entry.name, entry.nameLength)) {
+      return resolveEntry(entry, name, child);
+    }
+    offset += entry.recordLength;
+  }
+  return LookupStatus::NotFound;
+}
+
+Directory::LookupStatus Ext2Directory::resolveChild(const StringView& name, File*& child) {
+  child = nullptr;
+  if (name.compare(".", 1) || name.compare("..", 2)) {
+    return LookupStatus::NotFound;
+  }
+
+  LockGuard<Mutex> guard(m_DirectoryLock);
+  if (m_Removed) {
+    return LookupStatus::NotFound;
+  }
+  return resolveChildLocked(name, child);
+}
+
+Directory::LookupStatus Ext2Directory::resolveChildAt(uint64_t cookie, const StringView& name,
+                                                      File*& child) {
+  child = nullptr;
+  if (name.compare(".", 1) || name.compare("..", 2)) {
+    return LookupStatus::NotFound;
+  }
+
+  LockGuard<Mutex> guard(m_DirectoryLock);
+  if (m_Removed) {
+    return LookupStatus::NotFound;
+  }
+  if (cookie < m_nSize) {
+    ParsedEntry entry;
+    if (readEntry(cookie, entry) == ReadStatus::Complete && entry.inode &&
+        name.compare(entry.name, entry.nameLength)) {
+      return resolveEntry(entry, name, child);
+    }
+  }
+
+  // A directory mutation may make a previously returned cookie stale. Fall
+  // back to a name lookup rather than turning that race into a false miss.
+  return resolveChildLocked(name, child);
+}
+
+Directory::ReadStatus Ext2Directory::readDirectory(uint64_t& cookie, DirectoryEntryEmitter emitter,
+                                                   void* context) {
+  LockGuard<Mutex> guard(m_DirectoryLock);
+  if (m_Removed) {
+    return ReadStatus::Complete;
+  }
+  if (cookie > m_nSize) {
+    return ReadStatus::IoError;
+  }
+
+  while (cookie < m_nSize) {
+    ParsedEntry parsed;
+    if (readEntry(cookie, parsed) != ReadStatus::Complete) {
+      return ReadStatus::IoError;
+    }
+
+    const uint64_t currentCookie = cookie;
+    const uint64_t nextCookie = currentCookie + parsed.recordLength;
+    if (!parsed.inode) {
+      cookie = nextCookie;
+      continue;
+    }
+
+    EntryType type = EntryType::Unknown;
+    switch (parsed.fileType) {
+      case EXT2_UNKNOWN:
+        type = EntryType::Unknown;
+        break;
+      case EXT2_FILE:
+        type = EntryType::Regular;
+        break;
+      case EXT2_DIRECTORY:
+        type = EntryType::Directory;
+        break;
+      case EXT2_SYMLINK:
+        type = EntryType::Symlink;
+        break;
+      case EXT2_CHAR_DEV:
+        type = EntryType::CharacterDevice;
+        break;
+      case EXT2_BLOCK_DEV:
+        type = EntryType::BlockDevice;
+        break;
+      case EXT2_FIFO:
+        type = EntryType::Fifo;
+        break;
+      case EXT2_SOCKET:
+        type = EntryType::Socket;
+        break;
+      default:
+        return ReadStatus::IoError;
+    }
+
+    DirectoryEntryView entry = {StringView(parsed.name, parsed.nameLength), parsed.inode, type,
+                                currentCookie, nextCookie};
+    if (!emitter(context, entry)) {
+      return ReadStatus::Stopped;
+    }
+    cookie = nextCookie;
+  }
+
+  return ReadStatus::Complete;
+}
+
+bool Ext2Directory::removeFromParent(Ext2Directory* parent, const String& filename) {
+  if (parent == this) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  LockGuard<Mutex> namespaceGuard(namespaceMutationLock());
+  bool empty = false;
+  if (isEmpty(empty) != ReadStatus::Complete) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+  if (!empty) {
+    SYSCALL_ERROR(NotEmpty);
+    return false;
+  }
+
+  LockGuard<Mutex> guard(m_DirectoryLock);
+  if (m_Removed) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+
+  bool foundDot = false;
+  bool foundDotDot = false;
+  uint64_t offset = 0;
+  while (offset < m_nSize) {
+    ParsedEntry entry;
+    if (readEntry(offset, entry) != ReadStatus::Complete) {
+      SYSCALL_ERROR(IoError);
+      return false;
+    }
+
+    if (entry.inode) {
+      const StringView name(entry.name, entry.nameLength);
+      if (name.compare(".", 1)) {
+        foundDot = entry.inode == getInodeNumber();
+        if (!foundDot) {
+          SYSCALL_ERROR(IoError);
+          return false;
+        }
+      } else if (name.compare("..", 2)) {
+        foundDotDot = entry.inode == parent->getInodeNumber();
+        if (!foundDotDot) {
+          SYSCALL_ERROR(IoError);
+          return false;
+        }
+      } else {
+        SYSCALL_ERROR(NotEmpty);
+        return false;
+      }
+    }
+    offset += entry.recordLength;
+  }
+
+  if (!foundDot || !foundDotDot) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+
+  LockGuard<Mutex> parentGuard(parent->m_DirectoryLock);
+  if (!parent->removeEntryLocked(filename, this)) {
+    return false;
+  }
+  m_Removed = true;
+  markDetached();
+  if (!removeEntryLocked(String(".."), parent)) {
+    ERROR("Ext2 directory was unlinked, but its parent link could not be retired");
+    return true;
+  }
+  if (!removeEntryLocked(String("."), this)) {
+    ERROR("Ext2 directory was unlinked, but its inode could not be retired");
+  }
+
+  return true;
 }

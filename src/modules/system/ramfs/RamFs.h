@@ -75,7 +75,12 @@ class EXPORTED_PUBLIC RamDir : public Directory {
 
   virtual bool addEntry(String filename, File* pFile);
 
-  virtual bool removeEntry(File* pFile);
+  virtual bool removeEntry(const String& filename, File* pFile);
+
+  bool removeFromParent(RamDir* parent, const String& filename);
+
+ private:
+  Mutex m_DirectoryLock;
 };
 
 /** Defines a filesystem that is completely in RAM. */
@@ -105,7 +110,7 @@ class EXPORTED_PUBLIC RamFs : public Filesystem {
   virtual bool createFile(File* parent, const String& filename, uint32_t mask);
   virtual bool createDirectory(File* parent, const String& filename, uint32_t mask);
   virtual bool createSymlink(File* parent, const String& filename, const String& value);
-  virtual bool remove(File* parent, File* file);
+  virtual bool removeNode(File* parent, const String& filename, File* file);
 
   RamFs(const RamFs&);
   void operator=(const RamFs&);
