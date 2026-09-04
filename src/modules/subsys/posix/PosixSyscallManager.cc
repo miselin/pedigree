@@ -194,7 +194,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_execve(reinterpret_cast<const char*>(p1), reinterpret_cast<const char**>(p2),
                           reinterpret_cast<const char**>(p3), state);
     case POSIX_WAITPID:
-      return posix_waitpid(p1, reinterpret_cast<int*>(p2), p3);
+      return posix_waitpid(p1, reinterpret_cast<int*>(p2), p3,
+                           linuxAbi ? reinterpret_cast<LinuxRusage64*>(p4) : nullptr);
     case POSIX_EXIT:
       NOTICE("POSIX exit request: pid="
              << Processor::information().getCurrentThread()->getParent()->getId()

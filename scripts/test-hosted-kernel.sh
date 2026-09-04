@@ -461,6 +461,7 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS positional-io-semantics" \
         "HOSTED-SYSCALL-TEST: PASS positional-vector-io-semantics" \
         "HOSTED-SYSCALL-TEST: PASS resource-syscall-semantics" \
+        "HOSTED-SYSCALL-TEST: PASS child-resource-accounting" \
         "HOSTED-SYSCALL-TEST: PASS faccessat2-semantics" \
         "HOSTED-SYSCALL-TEST: PASS select-projection-timeout" \
         "HOSTED-SYSCALL-TEST: PASS pipe-poll-readiness" \

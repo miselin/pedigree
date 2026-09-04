@@ -55,6 +55,7 @@ extern "C" unsigned int posixSelectProjectionForTest(short revents, bool checkRe
                                                      bool checkExceptional);
 extern bool runHostedAccessSyscallRegressions(Process* process);
 extern bool runHostedAdvisoryLockRegressions(Process* process);
+extern bool runHostedChildResourceRegressions(Process* process);
 extern bool runHostedCloneRoutingRegressions(Process* process);
 extern bool runHostedDup3Regressions(Process* process);
 extern bool runHostedEventFdRegressions(Process* process);
@@ -4777,6 +4778,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN resource-syscall-semantics");
   if (!runHostedResourceSyscallRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN child-resource-accounting");
+  if (!runHostedChildResourceRegressions(kernelProcess)) {
     return false;
   }
 

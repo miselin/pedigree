@@ -642,11 +642,17 @@ static bool waitpidEligibleChild(PosixProcess* pParent, bool parentHasGroup, siz
   return static_cast<int64_t>(candidateGroupId) == -static_cast<int64_t>(pid);
 }
 
-int posix_waitpid(const int pid, int* status, int options) {
+int posix_waitpid(const int pid, int* status, int options, LinuxRusage64* usage) {
   if (status && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(status), sizeof(int),
                                               PosixSubsystem::SafeWrite)) {
     SC_NOTICE("waitpid -> invalid address");
     SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  if (usage && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(usage), sizeof(*usage),
+                                             PosixSubsystem::SafeWrite)) {
+    SC_NOTICE("wait4 -> invalid rusage address");
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
@@ -668,7 +674,10 @@ int posix_waitpid(const int pid, int* status, int options) {
     Process::ReaperClaim reaper;
     int resultPid = -1;
     int resultStatus = 0;
+    Time::Timestamp resultUser = 0;
+    Time::Timestamp resultKernel = 0;
     bool hasResult = false;
+    Process* reapedProcess = nullptr;
 
     {
       // This guard is both the concurrent-reaper lock and the atomic
@@ -697,6 +706,10 @@ int posix_waitpid(const int pid, int* status, int options) {
           resultStatus = pProcess->getExitStatus();
           pProcess->reap();
           reaper = pProcess->tryClaimReaper();
+          if (!reaper) {
+            FATAL("waitpid lost sole reaper ownership for pid " << Dec << resultPid << ".");
+          }
+          reapedProcess = pProcess;
           hasResult = true;
           SC_NOTICE("waitpid: " << Dec << resultPid << " reaped [" << resultStatus << "]");
           break;
@@ -713,6 +726,8 @@ int posix_waitpid(const int pid, int* status, int options) {
             resultStatus = 0xFFFF;
             SC_NOTICE("waitpid: " << Dec << resultPid << " continued.");
           }
+          resultUser = pProcess->getUserTime() + pProcess->getReapedChildrenUserTime();
+          resultKernel = pProcess->getKernelTime() + pProcess->getReapedChildrenKernelTime();
           hasResult = true;
           break;
         }
@@ -748,14 +763,44 @@ int posix_waitpid(const int pid, int* status, int options) {
     }
 
     if (hasResult) {
-      if (status) {
-        *status = resultStatus;
+      bool copied = true;
+      LinuxRusage64 resultUsage = {};
+      if (reaper) {
+        // Terminated is published before the exiting thread's final scheduler
+        // accounting. ReaperClaim keeps the child alive while this barrier
+        // makes both its self and descendant totals final.
+        if (!reapedProcess->waitUntilTerminationReapable()) {
+          FATAL("waitpid attempted to reap its own terminating process");
+        }
+
+        pThisProcess->accountReapedChild(reapedProcess, resultUser, resultKernel);
+      }
+
+      if (usage) {
+        resultUsage.userSeconds = resultUser / Time::Multiplier::Second;
+        resultUsage.userMicroseconds =
+            (resultUser % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+        resultUsage.systemSeconds = resultKernel / Time::Multiplier::Second;
+        resultUsage.systemMicroseconds =
+            (resultKernel % Time::Multiplier::Second) / Time::Multiplier::Microsecond;
+      }
+
+      if (status && !PosixSubsystem::copyToUser(status, &resultStatus, sizeof(resultStatus))) {
+        copied = false;
+      }
+      if (usage && !PosixSubsystem::copyToUser(usage, &resultUsage, sizeof(resultUsage))) {
+        copied = false;
       }
 
       // The claim's termination deferral keeps this stack—and its sole
       // destruction ownership—alive after the parent guard is dropped.
       if (reaper) {
         reaper.publish();
+      }
+
+      if (!copied) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
       }
 
       return resultPid;
@@ -845,6 +890,8 @@ clock_t posix_times(struct tms* tm) {
   struct tms result = {};
   result.tms_utime = pProcess->getUserTime() / nanosecondsPerClockTick;
   result.tms_stime = pProcess->getKernelTime() / nanosecondsPerClockTick;
+  result.tms_cutime = pProcess->getReapedChildrenUserTime() / nanosecondsPerClockTick;
+  result.tms_cstime = pProcess->getReapedChildrenKernelTime() / nanosecondsPerClockTick;
   if (tm && !PosixSubsystem::copyToUser(tm, &result, sizeof(result))) {
     SC_NOTICE("posix_times -> invalid address");
     SYSCALL_ERROR(BadAddress);
@@ -859,7 +906,7 @@ clock_t posix_times(struct tms* tm) {
 int posix_getrusage(int who, struct rusage* r) {
   SC_NOTICE("getrusage who=" << who);
 
-  if (who != RUSAGE_SELF && who != RUSAGE_THREAD) {
+  if (who != RUSAGE_SELF && who != RUSAGE_CHILDREN && who != RUSAGE_THREAD) {
     SC_NOTICE("posix_getrusage -> unsupported selector");
     SYSCALL_ERROR(InvalidArgument);
     return -1;
@@ -867,10 +914,12 @@ int posix_getrusage(int who, struct rusage* r) {
 
   Thread* currentThread = Processor::information().getCurrentThread();
   Process* pProcess = currentThread->getParent();
-  const Time::Timestamp user =
-      who == RUSAGE_THREAD ? currentThread->getUserTime() : pProcess->getUserTime();
-  const Time::Timestamp kernel =
-      who == RUSAGE_THREAD ? currentThread->getKernelTime() : pProcess->getKernelTime();
+  const Time::Timestamp user = who == RUSAGE_THREAD     ? currentThread->getUserTime()
+                               : who == RUSAGE_CHILDREN ? pProcess->getReapedChildrenUserTime()
+                                                        : pProcess->getUserTime();
+  const Time::Timestamp kernel = who == RUSAGE_THREAD     ? currentThread->getKernelTime()
+                                 : who == RUSAGE_CHILDREN ? pProcess->getReapedChildrenKernelTime()
+                                                          : pProcess->getKernelTime();
 
   struct rusage result = {};
   result.ru_utime.tv_sec = user / Time::Multiplier::Second;
@@ -890,7 +939,7 @@ int posix_getrusage(int who, struct rusage* r) {
 int posix_linux_getrusage(int who, LinuxRusage64* r) {
   SC_NOTICE("Linux getrusage who=" << who);
 
-  if (who != RUSAGE_SELF && who != RUSAGE_THREAD) {
+  if (who != RUSAGE_SELF && who != RUSAGE_CHILDREN && who != RUSAGE_THREAD) {
     SC_NOTICE("posix_linux_getrusage -> unsupported selector");
     SYSCALL_ERROR(InvalidArgument);
     return -1;
@@ -898,10 +947,12 @@ int posix_linux_getrusage(int who, LinuxRusage64* r) {
 
   Thread* currentThread = Processor::information().getCurrentThread();
   Process* pProcess = currentThread->getParent();
-  const Time::Timestamp user =
-      who == RUSAGE_THREAD ? currentThread->getUserTime() : pProcess->getUserTime();
-  const Time::Timestamp kernel =
-      who == RUSAGE_THREAD ? currentThread->getKernelTime() : pProcess->getKernelTime();
+  const Time::Timestamp user = who == RUSAGE_THREAD     ? currentThread->getUserTime()
+                               : who == RUSAGE_CHILDREN ? pProcess->getReapedChildrenUserTime()
+                                                        : pProcess->getUserTime();
+  const Time::Timestamp kernel = who == RUSAGE_THREAD     ? currentThread->getKernelTime()
+                                 : who == RUSAGE_CHILDREN ? pProcess->getReapedChildrenKernelTime()
+                                                          : pProcess->getKernelTime();
 
   LinuxRusage64 result = {};
   result.userSeconds = user / Time::Multiplier::Second;

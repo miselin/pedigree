@@ -91,7 +91,7 @@ void hostedSigchldHandler(size_t argument) {
   context->handlerSawOwnerOnStack = context->child->isTerminationReapableForHostedTest() ? 0 : 1;
 
   const int status = context->child->getExitStatus();
-  const int result = posix_waitpid(static_cast<int>(context->childId), nullptr, WNOHANG);
+  const int result = posix_waitpid(static_cast<int>(context->childId), nullptr, WNOHANG, nullptr);
   context->waitResult = static_cast<size_t>(result);
   context->waitStatus = static_cast<size_t>(status);
   context->handlerCalls += 1;

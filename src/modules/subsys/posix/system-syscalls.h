@@ -42,7 +42,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
                  unsigned long newtls);
 int posix_fork(SyscallState& state);
 int posix_execve(const char* name, const char** argv, const char** env, SyscallState& state);
-int posix_waitpid(const int pid, int* status, int options);
+int posix_waitpid(const int pid, int* status, int options, LinuxRusage64* usage);
 int posix_getpid();
 int posix_getppid();
 

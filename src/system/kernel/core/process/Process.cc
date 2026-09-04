@@ -503,6 +503,18 @@ void Process::publishTimeAccounting(CpuTimeMode mode, Time::Timestamp elapsed) {
   publishTimeAccountingBatch(user, system);
 }
 
+void Process::accountReapedChild(const Process* child, Time::Timestamp& user,
+                                 Time::Timestamp& kernel) {
+  if (!child || child == this || child->getState() != Reaped) {
+    FATAL("Process child CPU accounting requires sole ownership of a reaped child");
+  }
+
+  user = child->getUserTime() + child->getReapedChildrenUserTime();
+  kernel = child->getKernelTime() + child->getReapedChildrenKernelTime();
+  __atomic_fetch_add(&m_Metadata.reapedChildrenUserTime, user, __ATOMIC_RELAXED);
+  __atomic_fetch_add(&m_Metadata.reapedChildrenKernelTime, kernel, __ATOMIC_RELAXED);
+}
+
 void Process::publishTimeAccountingBatch(Time::Timestamp user, Time::Timestamp system) {
   if (!__atomic_load_n(&m_bTimeAccountingReportsEnabled, __ATOMIC_ACQUIRE)) {
     return;

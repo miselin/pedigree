@@ -198,10 +198,13 @@ int resourceSyscallWorker(void* parameter) {
   struct rusage untouched = {};
   ByteSet(&untouched, 0xA5, sizeof(untouched));
   MemoryCopy(usage, &untouched, sizeof(untouched));
-  thread->setErrno(0);
-  passed &= posix_getrusage(RUSAGE_CHILDREN, usage) == -1 &&
-            thread->getErrno() == Error::InvalidArgument &&
-            !MemoryCompare(usage, &untouched, sizeof(untouched));
+  thread->setErrno(PreservedErrno);
+  passed &= posix_getrusage(RUSAGE_CHILDREN, usage) == 0 && !usage->ru_utime.tv_sec &&
+            !usage->ru_utime.tv_usec && !usage->ru_stime.tv_sec && !usage->ru_stime.tv_usec &&
+            thread->getErrno() == PreservedErrno;
+  for (size_t i = offsetof(struct rusage, ru_maxrss); i < sizeof(*usage); ++i) {
+    passed &= !reinterpret_cast<uint8_t*>(usage)[i];
+  }
   thread->setErrno(0);
   passed &= posix_getrusage(RUSAGE_SELF, reinterpret_cast<struct rusage*>(kernelStart)) == -1 &&
             thread->getErrno() == Error::BadAddress;
@@ -254,11 +257,15 @@ int resourceSyscallWorker(void* parameter) {
     passed &= linuxUsageCanary[i] == 0xA5;
   }
   ByteSet(linuxUsage, 0xA5, sizeof(*linuxUsage) + 32);
-  thread->setErrno(0);
-  passed &= posix_linux_getrusage(RUSAGE_CHILDREN, linuxUsage) == -1 &&
-            thread->getErrno() == Error::InvalidArgument;
-  for (size_t i = 0; i < sizeof(*linuxUsage) + 32; ++i) {
-    passed &= reinterpret_cast<uint8_t*>(linuxUsage)[i] == 0xA5;
+  thread->setErrno(PreservedErrno);
+  passed &= posix_linux_getrusage(RUSAGE_CHILDREN, linuxUsage) == 0 && !linuxUsage->userSeconds &&
+            !linuxUsage->userMicroseconds && !linuxUsage->systemSeconds &&
+            !linuxUsage->systemMicroseconds && thread->getErrno() == PreservedErrno;
+  for (size_t i = 0; i < sizeof(*linuxUsage); ++i) {
+    passed &= !reinterpret_cast<uint8_t*>(linuxUsage)[i];
+  }
+  for (size_t i = 0; i < 32; ++i) {
+    passed &= linuxUsageCanary[i] == 0xA5;
   }
   thread->setErrno(0);
   passed &=

@@ -536,6 +536,20 @@ class EXPORTED_PUBLIC Process {
   Time::Timestamp getKernelTime() const {
     return __atomic_load_n(&m_Metadata.kernelTime, __ATOMIC_ACQUIRE);
   }
+  Time::Timestamp getReapedChildrenUserTime() const {
+    return __atomic_load_n(&m_Metadata.reapedChildrenUserTime, __ATOMIC_ACQUIRE);
+  }
+  Time::Timestamp getReapedChildrenKernelTime() const {
+    return __atomic_load_n(&m_Metadata.reapedChildrenKernelTime, __ATOMIC_ACQUIRE);
+  }
+
+  /**
+   * Adds a reaped child's final self and descendant CPU totals to this
+   * process. The caller must own the child's sole reaper claim and wait until
+   * it is termination-reapable before calling this exactly once.
+   */
+  void accountReapedChild(const Process* child, Time::Timestamp& user, Time::Timestamp& kernel);
+
   Time::Timestamp getStartTime() const {
     return __atomic_load_n(&m_Metadata.startTime, __ATOMIC_ACQUIRE);
   }
@@ -851,6 +865,8 @@ class EXPORTED_PUBLIC Process {
           sharedPages(0),
           userTime(0),
           kernelTime(0),
+          reapedChildrenUserTime(0),
+          reapedChildrenKernelTime(0),
           startTime(0) {}
 
     /// Bytes used in the kernel heap by this process.
@@ -867,6 +883,10 @@ class EXPORTED_PUBLIC Process {
     Time::Timestamp userTime;
     /// Time spent in the kernel as this process.
     Time::Timestamp kernelTime;
+    /// Time spent in userspace by children this process has reaped.
+    Time::Timestamp reapedChildrenUserTime;
+    /// Time spent in the kernel by children this process has reaped.
+    Time::Timestamp reapedChildrenKernelTime;
 
     /// Time at which process started.
     Time::Timestamp startTime;
