@@ -299,7 +299,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
     SignalHandler(const SignalHandler& s)
         : sig(s.sig),
-          pEvent(new SignalEvent(*(s.pEvent))),
+          pEvent(s.pEvent ? s.pEvent->cloneForDisposition() : nullptr),
           sigMask(s.sigMask),
           flags(s.flags),
           restorer(s.restorer),
@@ -321,7 +321,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
       }
 
       sig = s.sig;
-      pEvent = new SignalEvent(*(s.pEvent));
+      pEvent = s.pEvent ? s.pEvent->cloneForDisposition() : nullptr;
       sigMask = s.sigMask;
       flags = s.flags;
       restorer = s.restorer;
@@ -374,7 +374,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   bool getSignalDisposition(size_t sig, SignalDisposition& disposition);
 
   /** Resolves and queues a signal atomically with disposition replacement. */
-  SignalDeliveryResult queueSignalDelivery(Thread* target, size_t sig, uint32_t* flags = nullptr);
+  SignalDeliveryResult queueSignalDelivery(Thread* target, size_t sig, uint32_t* flags = nullptr,
+                                           int32_t signalCode = 0);
 
   /** Gets a signal handler */
   SignalHandler* getSignalHandler(size_t sig) {

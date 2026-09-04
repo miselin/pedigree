@@ -34,16 +34,35 @@ SignalEvent::SignalEvent(uintptr_t handlerAddress, size_t signalNum, size_t spec
       m_DeferSignal(deferSignal),
       m_Disposition(disposition),
       m_UseAlternateUserStack(useAlternateUserStack),
-      m_ContinuationEpoch(continuationEpoch) {}
+      m_ContinuationEpoch(continuationEpoch),
+      m_SignalCode(0),
+      m_SenderProcess(0),
+      m_SenderUser(0) {}
+
+SignalEvent::SignalEvent(const SignalEvent& other) : SignalEvent(other, other.m_bIsDeletable) {}
+
+SignalEvent::SignalEvent(const SignalEvent& other, bool isDeletable)
+    : Event(other.m_HandlerAddress, isDeletable, other.m_NestingLevel, other.m_HandlerPrivilege),
+      m_SignalNumber(other.m_SignalNumber),
+      m_SignalMask(other.m_SignalMask),
+      m_DeferSignal(other.m_DeferSignal),
+      m_Disposition(other.m_Disposition),
+      m_UseAlternateUserStack(other.m_UseAlternateUserStack),
+      m_ContinuationEpoch(other.m_ContinuationEpoch),
+      m_SignalCode(other.m_SignalCode),
+      m_SenderProcess(other.m_SenderProcess),
+      m_SenderUser(other.m_SenderUser) {}
 
 Event* SignalEvent::cloneForDelivery() {
   if (isDeletable()) {
     return this;
   }
 
-  return new SignalEvent(m_HandlerAddress, m_SignalNumber, m_NestingLevel, m_SignalMask,
-                         m_DeferSignal, true, m_HandlerPrivilege, m_Disposition,
-                         m_UseAlternateUserStack, m_ContinuationEpoch);
+  return new SignalEvent(*this, true);
+}
+
+SignalEvent* SignalEvent::cloneForDisposition() {
+  return new SignalEvent(*this, false);
 }
 
 /// \todo There may be a need for serialization in the future...

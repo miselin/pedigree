@@ -22,6 +22,7 @@
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/WaitQueue.h"
+#include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/new"
@@ -51,6 +52,13 @@ class EXPORTED_PUBLIC Event {
   enum class HandlerPrivilege {
     Kernel,
     User,
+  };
+
+  /** Result of an Event which consumes an exact return-to-user context. */
+  enum class UserReturnDelivery {
+    NotApplicable,
+    Delivered,
+    Failed,
   };
 
   /** Pins Event storage across one Thread::sendEvent admission attempt. */
@@ -240,6 +248,21 @@ class EXPORTED_PUBLIC Event {
   /** Returns whether a userspace handler prefers the thread's signal stack. */
   virtual bool prefersAlternateUserStack() const {
     return false;
+  }
+
+  /** Returns true when this event cannot run without the raw user context. */
+  virtual bool requiresExactUserReturnState() const {
+    return false;
+  }
+
+  /** Delivers this event by editing an interrupt return frame in place. */
+  virtual UserReturnDelivery deliverAtUserReturn(InterruptState&) {
+    return UserReturnDelivery::NotApplicable;
+  }
+
+  /** Delivers this event by editing a syscall return frame in place. */
+  virtual UserReturnDelivery deliverAtUserReturn(SyscallState&) {
+    return UserReturnDelivery::NotApplicable;
   }
 
   /** Returns whether this event can run before a suspended process resumes. */

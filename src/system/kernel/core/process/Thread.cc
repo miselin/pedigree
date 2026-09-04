@@ -2082,6 +2082,8 @@ bool Thread::eventIsDeliverableUnlocked(Event* event, EventSelection selection) 
   const bool signalInhibited =
       event->isSignalEvent() && eventNumber > 0 && eventNumber <= 64 &&
       (m_StateLevels[m_nStateLevel].m_SignalMask & (static_cast<uint64_t>(1) << (eventNumber - 1)));
+  const bool exactUserReturnUnavailable =
+      selection == EventSelection::WithoutExactUserReturn && event->requiresExactUserReturnState();
   bool processBlocksEvent = false;
   if (selection == EventSelection::StoppedProcessKernel) {
     // This policy is selected only after the caller has observed Suspended
@@ -2099,9 +2101,45 @@ bool Thread::eventIsDeliverableUnlocked(Event* event, EventSelection selection) 
         (processState == Process::Suspended && !event->isDeliverableWhileProcessSuspended());
   }
   return !m_StateLevels[m_nStateLevel].m_InhibitMask->test(eventNumber) && !signalInhibited &&
-         !processBlocksEvent &&
+         !exactUserReturnUnavailable && !processBlocksEvent &&
          (event->getSpecificNestingLevel() == ~0UL ||
           event->getSpecificNestingLevel() == m_nStateLevel);
+}
+
+void Thread::markDeferredUserReturnSignalInterruption() {
+  auto eventWaitGuard = m_EventWaiters.acquire();
+  LockGuard<Spinlock> guard(m_Lock);
+
+  bool caughtSignalDeferred = false;
+  for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
+    Event* event = *it;
+    if (event->isSignalEvent() && event->requiresExactUserReturnState() &&
+        eventIsDeliverableUnlocked(event, EventSelection::AnyDeliverable)) {
+      caughtSignalDeferred = true;
+      break;
+    }
+  }
+  if (!caughtSignalDeferred) {
+    return;
+  }
+
+  StateLevel& current = m_StateLevels[m_nStateLevel];
+  if (current.m_bDispatchingWaitEvent) {
+    current.m_InterruptionReason = InterruptedBySignal;
+  }
+
+  // Unlike the generic event trampoline, this path does not push a state
+  // level. Include the current level when locating a temporary-mask owner.
+  for (size_t level = m_nStateLevel + 1; level > 0; --level) {
+    StateLevel& owner = m_StateLevels[level - 1];
+    if (!owner.m_TemporarySignalMaskActive) {
+      continue;
+    }
+
+    owner.m_InterruptionReason = InterruptedBySignal;
+    owner.m_TemporarySignalWaitInterrupted = true;
+    break;
+  }
 }
 
 bool Thread::hasEventsUnlocked(EventSelection selection) {

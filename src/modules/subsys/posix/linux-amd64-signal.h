@@ -30,6 +30,35 @@ namespace LinuxAmd64Signal {
 enum DeliveryResult { NotApplicable, Delivered, Failed };
 
 #if X64
+class AsyncEvent final : public SignalEvent {
+ public:
+  AsyncEvent(uintptr_t handler, size_t signal, uint64_t signalMask, bool deferSignal,
+             uint32_t flags, uintptr_t restorer, bool useAlternateStack, bool isDeletable = false);
+
+  bool requiresExactUserReturnState() const override {
+    return true;
+  }
+
+  Event::UserReturnDelivery deliverAtUserReturn(InterruptState& state) override;
+  Event::UserReturnDelivery deliverAtUserReturn(SyscallState& state) override;
+  Event* cloneForDelivery() override;
+  SignalEvent* cloneForDisposition() override;
+
+  uint32_t getFlags() const {
+    return m_Flags;
+  }
+
+  uintptr_t getRestorer() const {
+    return m_Restorer;
+  }
+
+ private:
+  AsyncEvent(const AsyncEvent& other, bool isDeletable);
+
+  uint32_t m_Flags;
+  uintptr_t m_Restorer;
+};
+
 DeliveryResult deliverSynchronous(Thread* thread, int signal,
                                   const PosixSubsystem::SignalDisposition& disposition,
                                   Subsystem::ExceptionType exception, InterruptState& state,

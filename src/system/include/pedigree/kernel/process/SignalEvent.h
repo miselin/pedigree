@@ -37,6 +37,8 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
               DeliveryDisposition disposition = DeliveryDisposition::CaughtHandler,
               bool useAlternateUserStack = false, size_t continuationEpoch = 0);
 
+  SignalEvent(const SignalEvent& other);
+
   virtual size_t serialize(uint8_t* pBuffer);
   static bool unserialize(uint8_t* pBuffer, Event& event);
 
@@ -55,6 +57,36 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
 
   virtual Event* cloneForDelivery();
 
+  /** Copies a stable signal-disposition event without slicing subclasses. */
+  virtual SignalEvent* cloneForDisposition();
+
+  /** Records the origin fields exposed through Linux siginfo_t. */
+  void setSignalOrigin(int32_t signalCode, int32_t senderProcess, uint32_t senderUser) {
+    m_SignalCode = signalCode;
+    m_SenderProcess = senderProcess;
+    m_SenderUser = senderUser;
+  }
+
+  int32_t getSignalCode() const {
+    return m_SignalCode;
+  }
+
+  int32_t getSenderProcess() const {
+    return m_SenderProcess;
+  }
+
+  uint32_t getSenderUser() const {
+    return m_SenderUser;
+  }
+
+  uint64_t getDeliverySignalMask() const {
+    return m_SignalMask;
+  }
+
+  bool defersDeliveredSignal() const {
+    return m_DeferSignal;
+  }
+
   /** Stamps the process continuation generation captured for this delivery. */
   void setContinuationEpoch(size_t continuationEpoch) {
     m_ContinuationEpoch = continuationEpoch;
@@ -63,6 +95,9 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
   virtual size_t getNumber() {
     return m_SignalNumber;
   }
+
+ protected:
+  SignalEvent(const SignalEvent& other, bool isDeletable);
 
  private:
   /** This keeps track of the actual signal this SignalEvent is linked to */
@@ -82,6 +117,11 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
 
   /** Process continuation generation captured when this signal was queued. */
   size_t m_ContinuationEpoch;
+
+  /** Linux-compatible signal origin metadata. */
+  int32_t m_SignalCode;
+  int32_t m_SenderProcess;
+  uint32_t m_SenderUser;
 };
 
 #endif

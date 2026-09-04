@@ -42,6 +42,8 @@ Atomic<size_t> g_NestedWaitReturned(0);
 Atomic<size_t> g_NestedSignalHandlerCalls(0);
 Atomic<size_t> g_NestedSignalHandlerLevel(0);
 Atomic<size_t> g_DefaultActionHandlerCalls(0);
+Atomic<size_t> g_ExactUserReturnCalls(0);
+Atomic<size_t> g_ExactUserReturnSawInterrupts(0);
 
 void hostedSignalHandler(size_t) {
   g_SignalHandlerCalls += 1;
@@ -113,6 +115,27 @@ class SignalNumberCollisionEvent : public Event {
 
   size_t getNumber() override {
     return HostedSignalNumber;
+  }
+};
+
+class HostedDeferredUserReturnSignalEvent : public SignalEvent {
+ public:
+  using SignalEvent::deliverAtUserReturn;
+
+  HostedDeferredUserReturnSignalEvent()
+      : SignalEvent(reinterpret_cast<uintptr_t>(&hostedSignalHandler), HostedSignalNumber, ~0UL, 0,
+                    true, false, Event::HandlerPrivilege::User) {}
+
+  bool requiresExactUserReturnState() const override {
+    return true;
+  }
+
+  UserReturnDelivery deliverAtUserReturn(SyscallState&) override {
+    g_ExactUserReturnCalls += 1;
+    if (Processor::getInterrupts()) {
+      g_ExactUserReturnSawInterrupts += 1;
+    }
+    return UserReturnDelivery::Delivered;
   }
 };
 
@@ -206,6 +229,42 @@ bool pendingSignalRunsAtSyscallReturn(Thread* thread) {
       check(queued && !terminalWhileBlocked && stayedPending && !terminalAfterUnblock && delivered &&
                 thread->getStateLevel() == originalLevel,
             "a newly unblocked signal did not run at the syscall return boundary");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool exactUserReturnSignalDefersWithoutContext(Thread* thread) {
+  constexpr const char* Test = "exact-user-return-signal-deferral";
+  const size_t originalLevel = thread->getStateLevel();
+  thread->clearInterruption();
+  g_SignalHandlerCalls = 0;
+  g_ExactUserReturnCalls = 0;
+  g_ExactUserReturnSawInterrupts = 0;
+
+  HostedDeferredUserReturnSignalEvent event;
+  const bool queued = thread->sendEvent(&event);
+  const bool delayed = queued ? Time::delay(5 * Time::Multiplier::Second) : true;
+  const Thread::InterruptionReason reason = thread->getInterruptionReason();
+  const bool stayedPending = thread->hasEvent(&event);
+  thread->clearInterruption();
+
+  SyscallState state = {};
+  const bool interruptsBeforeDelivery = Processor::getInterrupts();
+  const bool terminal = stayedPending ? thread->getScheduler()->serviceUserReturnWork(state) : true;
+  const bool deliveredAtExactBoundary = !thread->hasEvent(&event) && g_ExactUserReturnCalls == 1 &&
+                                        g_ExactUserReturnSawInterrupts == 1 &&
+                                        Processor::getInterrupts() == interruptsBeforeDelivery;
+  if (!deliveredAtExactBoundary) {
+    thread->cullEvent(&event);
+  }
+
+  const bool passed =
+      check(queued && !delayed && reason == Thread::InterruptedBySignal && stayedPending &&
+                !terminal && deliveredAtExactBoundary && !g_SignalHandlerCalls &&
+                thread->getStateLevel() == originalLevel,
+            "an exact-context signal ran from a wait boundary or was not delivered IRQ-enabled");
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
   }
@@ -2021,7 +2080,8 @@ bool prequeuedDelaySignalInterruption(Thread* thread) {
 bool runHostedSignalInterruptionRegressions(Thread* thread) {
   const bool passed =
       eventHandlerPrivilege() && signalCullPreservesNumberCollision(thread) &&
-      pendingSignalRunsAtSyscallReturn(thread) && execPreservesNestedSignalMask(thread) &&
+      pendingSignalRunsAtSyscallReturn(thread) &&
+      exactUserReturnSignalDefersWithoutContext(thread) && execPreservesNestedSignalMask(thread) &&
       invalidUserHandlerDeliveryFailsClosed(thread) &&
 #if !defined(PEDIGREE_HOSTED_CORE_SMOKE)
       ignoredSignalDoesNotInterruptWait(thread->getParent()) &&

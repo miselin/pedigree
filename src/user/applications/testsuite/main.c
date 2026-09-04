@@ -32,6 +32,7 @@ extern void test_epoll_pty(void);
 extern int exec_shebang_child(int argc, char* argv[]);
 extern void test_exec_shebang(const char* program);
 extern int process_exec_signal_child(void);
+extern void test_linux_signal_frame(void);
 extern void test_process(const char* program);
 extern void test_posix_spawn(const char* program);
 extern void test_scm_rights(void);
@@ -91,6 +92,10 @@ int main(int argc, char* argv[]) {
   }
   if (argc == 2 && !strcmp(argv[1], "--resource")) {
     test_resource_accounting();
+    return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--signal-frame")) {
+    test_linux_signal_frame();
     return 0;
   }
 

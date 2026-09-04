@@ -145,6 +145,13 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
           InterruptState* returnState = InterruptState::construct(action.state, true);
           returnState->setStackPointer(userStack);
           returnState->setFlags(userFlags);
+          // rt_sigreturn restores the old mask before committing this frame.
+          // Service newly unblocked signals against that exact restored image
+          // so none escape briefly to userspace or wait for another syscall.
+          userReturnTerminal = scheduler.serviceUserReturnWork(*returnState);
+          if (userReturnTerminal) {
+            break;
+          }
           tracker.finish();
           Processor::setInterrupts(false);
           Processor::information().getCurrentThread()->transitionTime(CpuTimeMode::Kernel,

@@ -814,6 +814,7 @@ class EXPORTED_PUBLIC Thread {
 
   enum class EventSelection {
     AnyDeliverable,
+    WithoutExactUserReturn,
     KernelDeliverable,
     StoppedProcessKernel,
   };
@@ -825,6 +826,9 @@ class EXPORTED_PUBLIC Thread {
   /** Checks for an event that can run while m_Lock is already held. */
   bool hasEventsUnlocked(EventSelection selection = EventSelection::AnyDeliverable);
   bool hasDeliverableEventsUnlocked(EventSelection selection = EventSelection::AnyDeliverable);
+
+  /** Marks a caught signal deferred until an exact user-return boundary. */
+  void markDeferredUserReturnSignalInterruption();
 
   /** Rechecks queued events after the parent process becomes runnable. */
   void wakeForDeliverableEvents();

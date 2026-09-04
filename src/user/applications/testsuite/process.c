@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 /*
  * Copyright (c) 2026, Pedigree Developers
  *
@@ -33,6 +35,13 @@ static volatile sig_atomic_t sigchldHandlerCalls = 0;
 static volatile sig_atomic_t sigchldHandlerSignal = 0;
 static volatile sig_atomic_t sigchldWaitResult = -1;
 static volatile sig_atomic_t sigchldWaitStatus = 0;
+static volatile sig_atomic_t signalFrameValid = 0;
+static volatile sig_atomic_t signalFrameCalls = 0;
+static volatile sig_atomic_t signalFrameExpectedPid = 0;
+static volatile sig_atomic_t signalFrameExpectedTid = 0;
+static volatile sig_atomic_t signalFrameExpectedUid = 0;
+
+enum { signalFrameResumeValue = 0x13579BDF };
 
 enum {
   processStopGateAttempts = 20000,
@@ -82,6 +91,22 @@ static void handleSignal(int signalNumber) {
       (void)write(signalReportFd, &token, sizeof(token));
     }
   }
+}
+
+static void handleLinuxSignalFrame(int signalNumber, siginfo_t* info, void* contextPointer) {
+  ucontext_t* context = contextPointer;
+  ++signalFrameCalls;
+  if (signalNumber != SIGUSR1 || !info || !context || info->si_signo != SIGUSR1 || info->si_errno ||
+      info->si_code != SI_TKILL || info->si_pid != signalFrameExpectedPid ||
+      info->si_uid != (unsigned)signalFrameExpectedUid) {
+    signalFrameValid = 0;
+    return;
+  }
+
+  if (signalFrameCalls == 1 && syscall(SYS_tkill, signalFrameExpectedTid, SIGUSR1)) {
+    signalFrameValid = 0;
+  }
+  context->uc_mcontext.gregs[REG_RAX] = signalFrameResumeValue;
 }
 
 static void handleExecSignal(int signalNumber) {
@@ -524,6 +549,34 @@ static void test_signal_return(void) {
   action.sa_handler = handleSignal;
   if (sigemptyset(&action.sa_mask) || sigaction(SIGUSR1, &action, 0) || kill(getpid(), SIGUSR1) ||
       !signalHandled || signal(SIGUSR1, SIG_DFL) == SIG_ERR)
+    fail();
+
+  status("OK");
+}
+
+void test_linux_signal_frame(void) {
+  status("Testing Linux amd64 asynchronous signal frame...");
+
+  struct sigaction action = {0};
+  struct sigaction previousAction = {0};
+  action.sa_sigaction = handleLinuxSignalFrame;
+  action.sa_flags = SA_SIGINFO;
+  if (sigemptyset(&action.sa_mask) || sigaction(SIGUSR1, &action, &previousAction))
+    fail();
+
+  const long tid = syscall(SYS_gettid);
+  signalFrameExpectedPid = getpid();
+  signalFrameExpectedTid = tid;
+  signalFrameExpectedUid = getuid();
+  signalFrameValid = 1;
+  signalFrameCalls = 0;
+  const long resumed = tid > 0 ? syscall(SYS_tkill, tid, SIGUSR1) : -1;
+
+  // The first handler queues a masked second SIGUSR1. rt_sigreturn must
+  // restore the mask and deliver it before the original syscall resumes.
+  if (!signalFrameValid || signalFrameCalls != 2 || resumed != signalFrameResumeValue)
+    fail();
+  if (sigaction(SIGUSR1, &previousAction, 0))
     fail();
 
   status("OK");
@@ -1331,6 +1384,7 @@ void test_process(const char* program) {
   test_futex_requeue();
   test_cond_broadcast();
   test_signal_return();
+  test_linux_signal_frame();
   test_default_signal_termination();
   test_sigchld_wait_status();
   test_exec_signal_state(program);

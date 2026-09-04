@@ -190,6 +190,10 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   /** Dispatches one event using an exact scheduler-owned selection policy. */
   void checkEventState(uintptr_t userStack, Thread::EventSelection selection);
 
+  /** Dispatches one event with an optional raw return-to-user context. */
+  void checkEventState(uintptr_t userStack, Thread::EventSelection selection,
+                       InterruptState* interruptState, SyscallState* syscallState);
+
   /** Copy-constructor
    *  \note Not implemented - singleton class. */
   PerProcessorScheduler(const PerProcessorScheduler&);

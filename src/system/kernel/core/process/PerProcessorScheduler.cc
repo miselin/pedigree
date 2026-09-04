@@ -563,10 +563,16 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
 }
 
 void PerProcessorScheduler::checkEventState(uintptr_t userStack) {
-  checkEventState(userStack, Thread::EventSelection::AnyDeliverable);
+  checkEventState(userStack, Thread::EventSelection::WithoutExactUserReturn);
 }
 
 void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSelection selection) {
+  checkEventState(userStack, selection, nullptr, nullptr);
+}
+
+void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSelection selection,
+                                            InterruptState* interruptState,
+                                            SyscallState* syscallState) {
   bool bWasInterrupts = Processor::getInterrupts();
   Processor::setInterrupts(false);
 
@@ -590,9 +596,42 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSe
     return;
   }
 
+  if (selection == Thread::EventSelection::WithoutExactUserReturn) {
+    pThread->markDeferredUserReturnSignalInterruption();
+  }
+
   Event::Delivery eventDelivery = pThread->getNextEvent(selection);
   Event* pEvent = eventDelivery.get();
   if (!eventDelivery) {
+    Processor::setInterrupts(bWasInterrupts);
+    return;
+  }
+
+  if (pEvent->requiresExactUserReturnState()) {
+    Event::UserReturnDelivery result = Event::UserReturnDelivery::NotApplicable;
+    if (interruptState || syscallState) {
+      if (!bWasInterrupts) {
+        FATAL_NOLOCK("Exact user-return event delivery requires an IRQ-enabled thread boundary.");
+      }
+
+      // Signal-frame construction uses the guarded user-copy path, which may
+      // wait for a VM operation already in flight. The Delivery lease pins the
+      // event while the raw return frame stays on this thread's kernel stack.
+      Processor::setInterrupts(true);
+      if (interruptState) {
+        result = pEvent->deliverAtUserReturn(*interruptState);
+      } else {
+        result = pEvent->deliverAtUserReturn(*syscallState);
+      }
+      Processor::setInterrupts(false);
+    }
+
+    if (result == Event::UserReturnDelivery::NotApplicable) {
+      // Keep the delivery pending until an architecture return tail supplies
+      // the exact user register image it needs.
+      pThread->sendEvent(pEvent);
+    }
+    eventDelivery.reset();
     Processor::setInterrupts(bWasInterrupts);
     return;
   }
@@ -1395,7 +1434,7 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state) {
   if (serviceProcessStopAtUserReturn()) {
     return true;
   }
-  checkEventState(state.getStackPointer());
+  checkEventState(state.getStackPointer(), Thread::EventSelection::AnyDeliverable, &state, nullptr);
   return serviceProcessStopAtUserReturn();
 }
 
@@ -1403,7 +1442,7 @@ bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state) {
   if (serviceProcessStopAtUserReturn()) {
     return true;
   }
-  checkEventState(state.getStackPointer());
+  checkEventState(state.getStackPointer(), Thread::EventSelection::AnyDeliverable, nullptr, &state);
   return serviceProcessStopAtUserReturn();
 }
 

@@ -150,6 +150,40 @@ processor_register_t X64SyscallState::getRegister(size_t index) const {
     return m_RFlagsR11;
   return 0;
 }
+void X64SyscallState::setRegister(size_t index, uintptr_t value) {
+  if (index == 0)
+    m_Rax = value;
+  if (index == 1)
+    m_Rbx = value;
+  if (index == 2)
+    m_Rdx = value;
+  if (index == 3)
+    m_Rdi = value;
+  if (index == 4)
+    m_Rsi = value;
+  if (index == 5)
+    m_Rbp = value;
+  if (index == 6)
+    m_R8 = value;
+  if (index == 7)
+    m_R9 = value;
+  if (index == 8)
+    m_R10 = value;
+  if (index == 9)
+    m_R12 = value;
+  if (index == 10)
+    m_R13 = value;
+  if (index == 11)
+    m_R14 = value;
+  if (index == 12)
+    m_R15 = value;
+  if (index == 13)
+    m_Rsp = value;
+  if (index == 14)
+    m_RipRcx = value;
+  if (index == 15)
+    m_RFlagsR11 = value;
+}
 const char* X64SyscallState::getRegisterName(size_t index) const {
   return X64SyscallStateRegisterName[index];
 }

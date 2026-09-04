@@ -975,7 +975,8 @@ bool PosixSubsystem::getSignalDisposition(size_t sig, SignalDisposition& disposi
 }
 
 PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread* target, size_t sig,
-                                                                         uint32_t* flags) {
+                                                                         uint32_t* flags,
+                                                                         int32_t signalCode) {
   if (flags) {
     *flags = 0;
   }
@@ -1033,6 +1034,18 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
     result = SignalDeliveryResult::Ignored;
   } else if (handler && handler->pEvent) {
     delivery = static_cast<SignalEvent*>(handler->pEvent->cloneForDelivery());
+    Thread* sender = Processor::information().getCurrentThread();
+    Process* senderProcess = sender ? sender->getParent() : nullptr;
+    int32_t senderPid = 0;
+    uint32_t senderUid = 0;
+    if (senderProcess && senderProcess->getType() == Process::Posix) {
+      senderPid = static_cast<int32_t>(senderProcess->getId());
+      const int64_t uid = senderProcess->getUserId();
+      if (uid >= 0) {
+        senderUid = static_cast<uint32_t>(uid);
+      }
+    }
+    delivery->setSignalOrigin(signalCode, senderPid, senderUid);
     stampDefaultStopDelivery(process, sig, handler, delivery);
     if (flags) {
       *flags = handler->flags;

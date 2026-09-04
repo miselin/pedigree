@@ -208,7 +208,9 @@ class X64SyscallState {
   /** Get a specific register
    *\param[in] index the index of the register (from 0 to getRegisterCount() -
    *1) \return the value of the register */
-  processor_register_t getRegister(size_t index) const;
+  EXPORTED_PUBLIC processor_register_t getRegister(size_t index) const;
+  /** Set a specific register in the syscall return image. */
+  EXPORTED_PUBLIC void setRegister(size_t index, uintptr_t value);
   /** Get the name of a specific register
    *\param[in] index the index of the register (from 0 to getRegisterCount() -
    *1) \return the name of the register */

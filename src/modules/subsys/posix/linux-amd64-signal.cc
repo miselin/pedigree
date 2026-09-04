@@ -130,6 +130,32 @@ void populateSigcontext(Sigcontext& context, const InterruptState& state, uint64
   context.fpstate = fpstate;
 }
 
+void populateSigcontext(Sigcontext& context, const SyscallState& state, uint64_t oldMask,
+                        uintptr_t fpstate) {
+  context.rax = state.getRegister(0);
+  context.rbx = state.getRegister(1);
+  context.rcx = state.getInstructionPointer();
+  context.rdx = state.getRegister(2);
+  context.rdi = state.getRegister(3);
+  context.rsi = state.getRegister(4);
+  context.rbp = state.getRegister(5);
+  context.r8 = state.getRegister(6);
+  context.r9 = state.getRegister(7);
+  context.r10 = state.getRegister(8);
+  context.r11 = state.getFlags();
+  context.r12 = state.getRegister(9);
+  context.r13 = state.getRegister(10);
+  context.r14 = state.getRegister(11);
+  context.r15 = state.getRegister(12);
+  context.rsp = state.getStackPointer();
+  context.rip = state.getInstructionPointer();
+  context.rflags = state.getFlags();
+  context.cs = SysretUserCodeSegment;
+  context.ss = UserStackSegment;
+  context.oldMask = oldMask;
+  context.fpstate = fpstate;
+}
+
 int signalCode(Subsystem::ExceptionType exception, uintptr_t errorCode) {
   switch (exception) {
     case Subsystem::PageFault:
@@ -156,7 +182,184 @@ uintptr_t signalAddress(Subsystem::ExceptionType exception, const InterruptState
 void badFrame() {
   Processor::information().getCurrentThread()->deferSignalExit(SIGSEGV);
 }
+
+struct AsyncHandlerState {
+  uintptr_t frameAddress;
+  uintptr_t infoAddress;
+  uintptr_t ucontextAddress;
+  uintptr_t handlerAddress;
+  uint64_t flags;
+};
+
+bool buildAsyncFrame(Thread* thread, LinuxAmd64Signal::AsyncEvent& event, Sigcontext& context,
+                     AsyncHandlerState& handlerState) {
+  const int signal = static_cast<int>(event.getNumber());
+  if (!thread || thread != Processor::information().getCurrentThread() || signal <= 0 ||
+      signal > 64 || !userCodeSegment(context.cs) || context.ss != UserStackSegment ||
+      !(event.getFlags() & SA_RESTORER) || !userExecutable(event.getHandlerAddress()) ||
+      !userExecutable(event.getRestorer())) {
+    return false;
+  }
+
+  const uintptr_t originalStack = context.rsp;
+  if (!userBounds(originalStack, 1)) {
+    return false;
+  }
+
+  Thread::AlternateSignalStack& alternate = thread->getAlternateSignalStack();
+  const bool wasOnAlternate = onAlternateStack(originalStack, alternate);
+  const bool enterAlternate =
+      (event.getFlags() & SA_ONSTACK) && alternate.enabled && !wasOnAlternate;
+
+  uintptr_t stackTop = 0;
+  if (enterAlternate) {
+    if (!alternate.base || alternate.size > (~static_cast<uintptr_t>(0) - alternate.base)) {
+      return false;
+    }
+    stackTop = alternate.base + alternate.size;
+  } else {
+    if (originalStack < 128) {
+      return false;
+    }
+    stackTop = originalStack - 128;
+  }
+
+  if (stackTop < sizeof(Fpstate)) {
+    return false;
+  }
+  const uintptr_t fpstateAddress = alignDown(stackTop - sizeof(Fpstate), 64);
+  if (fpstateAddress < sizeof(RtSigframe) + 8) {
+    return false;
+  }
+  const uintptr_t frameAddress = alignDown(fpstateAddress - sizeof(RtSigframe), 16) - 8;
+
+  if (!userRegion(frameAddress, sizeof(RtSigframe), PosixSubsystem::SafeWrite) ||
+      !userRegion(fpstateAddress, sizeof(Fpstate), PosixSubsystem::SafeWrite)) {
+    return false;
+  }
+  if (enterAlternate || wasOnAlternate) {
+    const uintptr_t alternateEnd = alternate.base + alternate.size;
+    if (frameAddress < alternate.base || fpstateAddress + sizeof(Fpstate) > alternateEnd) {
+      return false;
+    }
+  }
+
+  RtSigframe frame = {};
+  Fpstate savedFpstate = {};
+  if (!NMFaultHandler::saveCurrentThreadFpuState(&savedFpstate, true)) {
+    return false;
+  }
+  Fpstate fpstate = savedFpstate;
+  ByteSet(fpstate.reserved3, 0, sizeof(fpstate.reserved3));
+
+  const uint64_t oldMask = thread->getSignalMask();
+  frame.restorer = event.getRestorer();
+  frame.ucontext.flags = SupportedUcontextFlags;
+  if (alternate.enabled) {
+    frame.ucontext.stack.stackPointer = alternate.base;
+    frame.ucontext.stack.size = alternate.size;
+    frame.ucontext.stack.flags = wasOnAlternate ? SS_ONSTACK : 0;
+  } else {
+    frame.ucontext.stack.flags = SS_DISABLE;
+  }
+  context.oldMask = oldMask;
+  context.fpstate = fpstateAddress;
+  frame.ucontext.mcontext = context;
+  frame.ucontext.signalMask = oldMask;
+
+  setSiginfo32(frame.info, 0, signal);
+  setSiginfo32(frame.info, 4, 0);
+  setSiginfo32(frame.info, 8, event.getSignalCode());
+  setSiginfo32(frame.info, 16, event.getSenderProcess());
+  setSiginfo32(frame.info, 20, static_cast<int32_t>(event.getSenderUser()));
+
+  if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(fpstateAddress), &fpstate,
+                                  sizeof(fpstate)) ||
+      !PosixSubsystem::copyToUser(reinterpret_cast<void*>(frameAddress), &frame, sizeof(frame))) {
+    if (!NMFaultHandler::restoreCurrentThreadFpuState(&savedFpstate)) {
+      FATAL("Could not restore FPU state after a failed signal-frame copy.");
+    }
+    return false;
+  }
+
+  uint64_t handlerMask = oldMask | event.getDeliverySignalMask();
+  if (event.defersDeliveredSignal()) {
+    handlerMask |= static_cast<uint64_t>(1) << (signal - 1);
+  }
+  thread->setSignalMask(handlerMask & ~UnblockableSignals);
+  alternate.inUse = wasOnAlternate || enterAlternate;
+
+  handlerState.frameAddress = frameAddress;
+  handlerState.infoAddress = frameAddress + __builtin_offsetof(RtSigframe, info);
+  handlerState.ucontextAddress = frameAddress + __builtin_offsetof(RtSigframe, ucontext);
+  handlerState.handlerAddress = event.getHandlerAddress();
+  handlerState.flags = (context.rflags & ~HandlerFlagsToClear) | SafeUserRflags;
+  return true;
+}
 }  // namespace
+
+LinuxAmd64Signal::AsyncEvent::AsyncEvent(uintptr_t handler, size_t signal, uint64_t signalMask,
+                                         bool deferSignal, uint32_t flags, uintptr_t restorer,
+                                         bool useAlternateStack, bool isDeletable)
+    : SignalEvent(handler, signal, ~0UL, signalMask, deferSignal, isDeletable,
+                  Event::HandlerPrivilege::User, DeliveryDisposition::CaughtHandler,
+                  useAlternateStack),
+      m_Flags(flags),
+      m_Restorer(restorer) {}
+
+LinuxAmd64Signal::AsyncEvent::AsyncEvent(const AsyncEvent& other, bool isDeletable)
+    : SignalEvent(other, isDeletable), m_Flags(other.m_Flags), m_Restorer(other.m_Restorer) {}
+
+Event* LinuxAmd64Signal::AsyncEvent::cloneForDelivery() {
+  if (isDeletable()) {
+    return this;
+  }
+  return new AsyncEvent(*this, true);
+}
+
+SignalEvent* LinuxAmd64Signal::AsyncEvent::cloneForDisposition() {
+  return new AsyncEvent(*this, false);
+}
+
+Event::UserReturnDelivery LinuxAmd64Signal::AsyncEvent::deliverAtUserReturn(InterruptState& state) {
+  Sigcontext context = {};
+  populateSigcontext(context, state, 0, 0, state.getErrorCode(), 0);
+  AsyncHandlerState handlerState = {};
+  Thread* thread = Processor::information().getCurrentThread();
+  if (!buildAsyncFrame(thread, *this, context, handlerState)) {
+    badFrame();
+    return Event::UserReturnDelivery::Failed;
+  }
+
+  state.setRegister(0, 0);
+  state.setRegister(4, getNumber());
+  state.setRegister(5, handlerState.infoAddress);
+  state.setRegister(3, handlerState.ucontextAddress);
+  state.setInstructionPointer(handlerState.handlerAddress);
+  state.setStackPointer(handlerState.frameAddress);
+  state.setFlags(handlerState.flags);
+  return Event::UserReturnDelivery::Delivered;
+}
+
+Event::UserReturnDelivery LinuxAmd64Signal::AsyncEvent::deliverAtUserReturn(SyscallState& state) {
+  Sigcontext context = {};
+  populateSigcontext(context, state, 0, 0);
+  AsyncHandlerState handlerState = {};
+  Thread* thread = Processor::information().getCurrentThread();
+  if (!buildAsyncFrame(thread, *this, context, handlerState)) {
+    badFrame();
+    return Event::UserReturnDelivery::Failed;
+  }
+
+  state.setRegister(0, 0);
+  state.setRegister(3, getNumber());
+  state.setRegister(4, handlerState.infoAddress);
+  state.setRegister(2, handlerState.ucontextAddress);
+  state.setInstructionPointer(handlerState.handlerAddress);
+  state.setStackPointer(handlerState.frameAddress);
+  state.setFlags(handlerState.flags);
+  return Event::UserReturnDelivery::Delivered;
+}
 
 LinuxAmd64Signal::DeliveryResult LinuxAmd64Signal::deliverSynchronous(
     Thread* thread, int signal, const PosixSubsystem::SignalDisposition& disposition,

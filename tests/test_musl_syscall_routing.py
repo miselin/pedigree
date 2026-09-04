@@ -928,7 +928,7 @@ class MuslSyscallRoutingTests(unittest.TestCase):
 
         self.assertIn("IretUserCodeSegment = 0x1B", signal_source)
         self.assertIn("SysretUserCodeSegment = 0x2B", signal_source)
-        self.assertEqual(signal_source.count("userCodeSegment("), 3)
+        self.assertEqual(signal_source.count("userCodeSegment("), 4)
 
     def test_linux_signal_frames_use_guarded_user_copies(self):
         signal_source = (

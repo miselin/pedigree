@@ -26,6 +26,7 @@
 
 #include "file-syscalls.h"
 #include "linux-amd64-signal-abi.h"
+#include "linux-amd64-signal.h"
 #include "linux-wait-abi.h"
 #include "pthread-syscalls.h"
 #include "signal-syscalls.h"
@@ -222,13 +223,23 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
     sigHandler->type = handlerType;
     MemoryCopy(&sigHandler->sigMask, &act->sa_mask, sizeof(sigHandler->sigMask));
 
-    sigHandler->pEvent = new SignalEvent(
-        newHandler, static_cast<size_t>(sig), ~0UL, sigHandler->sigMask,
-        !(sigHandler->flags & SA_NODEFER), false,
-        handlerType == 0 ? Event::HandlerPrivilege::User : Event::HandlerPrivilege::Kernel,
-        handlerType == 0 ? SignalEvent::DeliveryDisposition::CaughtHandler
-                         : SignalEvent::DeliveryDisposition::DefaultAction,
-        handlerType == 0 && (sigHandler->flags & SA_ONSTACK));
+#if X64
+    if (handlerType == 0 && pSubsystem->getAbi() == PosixSubsystem::LinuxAbi) {
+      sigHandler->pEvent = new LinuxAmd64Signal::AsyncEvent(
+          newHandler, static_cast<size_t>(sig), sigHandler->sigMask,
+          !(sigHandler->flags & SA_NODEFER), sigHandler->flags, sigHandler->restorer,
+          sigHandler->flags & SA_ONSTACK);
+    } else
+#endif
+    {
+      sigHandler->pEvent = new SignalEvent(
+          newHandler, static_cast<size_t>(sig), ~0UL, sigHandler->sigMask,
+          !(sigHandler->flags & SA_NODEFER), false,
+          handlerType == 0 ? Event::HandlerPrivilege::User : Event::HandlerPrivilege::Kernel,
+          handlerType == 0 ? SignalEvent::DeliveryDisposition::CaughtHandler
+                           : SignalEvent::DeliveryDisposition::DefaultAction,
+          handlerType == 0 && (sigHandler->flags & SA_ONSTACK));
+    }
     SG_NOTICE("Creating the event (" << reinterpret_cast<uintptr_t>(sigHandler->pEvent) << ").");
     pSubsystem->setSignalHandler(sig, sigHandler);
   } else if (!oact) {
@@ -430,7 +441,7 @@ static int queueThreadSignal(Process* process, Thread* thread, int sig) {
   }
 
   const PosixSubsystem::SignalDeliveryResult result =
-      subsystem->queueSignalDelivery(thread, static_cast<size_t>(sig));
+      subsystem->queueSignalDelivery(thread, static_cast<size_t>(sig), nullptr, -6);
   if (result == PosixSubsystem::SignalDeliveryResult::Unavailable) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
