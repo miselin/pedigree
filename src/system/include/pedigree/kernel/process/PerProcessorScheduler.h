@@ -122,6 +122,20 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
   /** Reschedules once from ordinary thread context during lifecycle work. */
   void serviceIrqWorkDoorbell();
 
+  enum class ProcessStopGateMode {
+    StopOnly,
+    DirectUserTransition,
+  };
+
+  /**
+   * Waits until the current Process permits another userspace transition.
+   * Direct transitions also drain kernel Events which cannot use the ordinary
+   * user-stack-aware return service.
+   * Returns true when terminal Thread work wins while waiting.
+   */
+  MUST_USE_RESULT bool serviceProcessStopAtUserReturn(
+      ProcessStopGateMode mode = ProcessStopGateMode::StopOnly);
+
   /**
    * Delivers pending Events and terminal work immediately before a user
    * return, after the raw interrupt frame has released its C++ scopes.
@@ -170,6 +184,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
 
   /** Runs a raw-frame exception through its subsystem in ordinary context. */
   void serviceDeferredSubsystemException(InterruptState& state);
+
+  /** Dispatches one event using an exact scheduler-owned selection policy. */
+  void checkEventState(uintptr_t userStack, Thread::EventSelection selection);
 
   /** Copy-constructor
    *  \note Not implemented - singleton class. */

@@ -18,7 +18,6 @@
  */
 
 #include "pedigree/kernel/Log.h"
-#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
@@ -49,7 +48,7 @@ extern char sigret_stub_end;
 
 static int doProcessKill(Process* p, int sig);
 static int doThreadKill(Thread* p, int sig);
-static int queueThreadSignal(Process* process, Thread* thread, int sig, bool& queued);
+static int queueThreadSignal(Process* process, Thread* thread, int sig);
 
 /// \todo These are ok initially, but it'll all have to change at some point
 
@@ -337,7 +336,7 @@ uintptr_t posix_signal(int sig, void* func) {
   return 0;
 }
 
-int posix_raise(int sig, SyscallState& State) {
+int posix_raise(int sig) {
   SG_NOTICE("raise");
 
   // Create the pending signal and pass it in
@@ -349,22 +348,12 @@ int posix_raise(int sig, SyscallState& State) {
     return -1;
   }
 
-  PosixSubsystem::SignalDeliveryResult delivery = PosixSubsystem::SignalDeliveryResult::Unavailable;
-  const bool bWasInterrupts = Processor::getInterrupts();
   {
-    // A scheduler pass with no userspace stack can still select a fallback
-    // stack and consume this event. Defer delivery across the IRQ-enabled
-    // disposition lock, then close that window before selecting SA_ONSTACK.
+    // The common syscall return boundary owns delivery after the callback's
+    // handler lease and terminal deferral have retired.
     Uninterruptible whileQueueing;
-    delivery = pSubsystem->queueSignalDelivery(pThread, sig);
-    Processor::setInterrupts(false);
+    (void)pSubsystem->queueSignalDelivery(pThread, sig);
   }
-
-  // Jump to the signal handler
-  if (delivery == PosixSubsystem::SignalDeliveryResult::Queued) {
-    Processor::information().getScheduler().checkEventState(State.getStackPointer());
-  }
-  Processor::setInterrupts(bWasInterrupts);
 
   // All done
   return 0;
@@ -429,8 +418,7 @@ static bool canSignalProcess(const PosixProcess* caller, const PosixProcess* tar
   return sig == SIGCONT && callerSession && callerSession == target->getSession();
 }
 
-static int queueThreadSignal(Process* process, Thread* thread, int sig, bool& queued) {
-  queued = false;
+static int queueThreadSignal(Process* process, Thread* thread, int sig) {
   if (!sig) {
     return 0;
   }
@@ -450,7 +438,6 @@ static int queueThreadSignal(Process* process, Thread* thread, int sig, bool& qu
 
   // A concurrently exiting task can reject the event after a successful
   // lookup. Linux reports that race as a successful signal send.
-  queued = result == PosixSubsystem::SignalDeliveryResult::Queued;
   return 0;
 }
 
@@ -479,14 +466,9 @@ int posix_tkill(int tid, int sig) {
     return -1;
   }
 
-  bool queued = false;
-  const int result = queueThreadSignal(process.get(), thread.get(), sig, queued);
-  const bool dispatchCurrent = queued && current == thread.get();
+  const int result = queueThreadSignal(process.get(), thread.get(), sig);
   thread.reset();
   process.reset();
-  if (dispatchCurrent) {
-    Processor::information().getScheduler().checkEventState(0);
-  }
   return result;
 }
 
@@ -527,14 +509,9 @@ int posix_tgkill(int tgid, int tid, int sig) {
     return -1;
   }
 
-  bool queued = false;
-  const int result = queueThreadSignal(process.get(), thread.get(), sig, queued);
-  const bool dispatchCurrent = queued && current == thread.get();
+  const int result = queueThreadSignal(process.get(), thread.get(), sig);
   thread.reset();
   process.reset();
-  if (dispatchCurrent) {
-    Processor::information().getScheduler().checkEventState(0);
-  }
   return result;
 }
 
@@ -663,10 +640,6 @@ int posix_kill(int pid, int sig) {
     SG_NOTICE("performing kill of " << pThisProcess->getId() << "...");
     NOTICE("sending self #" << Dec << pThisProcess->getId() << " signal #" << sig);
     doProcessKill(pThisProcess, sig);
-
-    // If it was us, try to handle the signal *now*, or else we're going to
-    // end up who-knows-where on return.
-    Processor::information().getScheduler().checkEventState(0);
   }
 
   return 0;

@@ -2016,7 +2016,7 @@ bool Thread::hasSignalEvent(size_t signalNumber) {
   return false;
 }
 
-Event::Delivery Thread::getNextEvent() {
+Event::Delivery Thread::getNextEvent(EventSelection selection) {
   Event* pResult = nullptr;
 
   {
@@ -2033,7 +2033,7 @@ Event::Delivery Thread::getNextEvent() {
         continue;
       }
 
-      if (!eventIsDeliverableUnlocked(e)) {
+      if (!eventIsDeliverableUnlocked(e, selection)) {
         m_EventQueue.pushBack(e);
       } else {
         pResult = e;
@@ -2051,22 +2051,36 @@ bool Thread::hasEvents() {
   return hasEventsUnlocked();
 }
 
-bool Thread::eventIsDeliverableUnlocked(Event* event) {
+bool Thread::eventIsDeliverableUnlocked(Event* event, EventSelection selection) {
   const size_t eventNumber = event->getNumber();
   const bool signalInhibited =
       event->isSignalEvent() && eventNumber > 0 && eventNumber <= 64 &&
       (m_StateLevels[m_nStateLevel].m_SignalMask & (static_cast<uint64_t>(1) << (eventNumber - 1)));
-  const bool processSuspendsEvent =
-      m_pParent && m_pParent->isSuspended() && !event->isDeliverableWhileProcessSuspended();
+  bool processBlocksEvent = false;
+  if (selection == EventSelection::StoppedProcessKernel) {
+    // This policy is selected only after the caller has observed Suspended
+    // under the event-wait handshake. Do not re-read Process state here: a
+    // concurrent resume must not broaden this dequeue to a user handler.
+    processBlocksEvent = event->getHandlerPrivilege() != Event::HandlerPrivilege::Kernel ||
+                         !event->isDeliverableWhileProcessSuspended();
+  } else {
+    const Process::ProcessState processState = m_pParent ? m_pParent->getState() : Process::Active;
+    processBlocksEvent =
+        (selection == EventSelection::KernelDeliverable &&
+         event->getHandlerPrivilege() != Event::HandlerPrivilege::Kernel) ||
+        (processState != Process::Active &&
+         event->getHandlerPrivilege() == Event::HandlerPrivilege::User) ||
+        (processState == Process::Suspended && !event->isDeliverableWhileProcessSuspended());
+  }
   return !m_StateLevels[m_nStateLevel].m_InhibitMask->test(eventNumber) && !signalInhibited &&
-         !processSuspendsEvent &&
+         !processBlocksEvent &&
          (event->getSpecificNestingLevel() == ~0UL ||
           event->getSpecificNestingLevel() == m_nStateLevel);
 }
 
-bool Thread::hasEventsUnlocked() {
+bool Thread::hasEventsUnlocked(EventSelection selection) {
   for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
-    if (eventIsDeliverableUnlocked(*it)) {
+    if (eventIsDeliverableUnlocked(*it, selection)) {
       return true;
     }
   }
@@ -2074,8 +2088,8 @@ bool Thread::hasEventsUnlocked() {
   return false;
 }
 
-bool Thread::hasDeliverableEventsUnlocked() {
-  return !__atomic_load_n(&m_EventDeferralDepth, __ATOMIC_ACQUIRE) && hasEventsUnlocked();
+bool Thread::hasDeliverableEventsUnlocked(EventSelection selection) {
+  return !__atomic_load_n(&m_EventDeferralDepth, __ATOMIC_ACQUIRE) && hasEventsUnlocked(selection);
 }
 
 void Thread::wakeForDeliverableEvents() {

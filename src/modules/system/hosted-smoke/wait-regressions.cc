@@ -23,6 +23,7 @@
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/process/WaitQueue.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/time/Time.h"
@@ -462,6 +463,84 @@ struct ProcessSuspendContext {
 
 ProcessSuspendContext* g_ProcessSuspendContext = nullptr;
 
+struct ProcessStopReturnGateContext {
+  ProcessStopReturnGateContext()
+      : release(0), entered(0), returned(0), crossings(0), terminalReturns(0), failures(0) {}
+
+  Semaphore release;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+  Atomic<size_t> crossings;
+  Atomic<size_t> terminalReturns;
+  Atomic<size_t> failures;
+};
+
+struct ProcessStopOwnerContext {
+  explicit ProcessStopOwnerContext(Process* process) : process(process), entered(0), returned(0) {}
+
+  Process* process;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+};
+
+Atomic<size_t> g_StoppedUserHandlerCalls(0);
+
+void stoppedUserReturnHandler(size_t) {
+  g_StoppedUserHandlerCalls += 1;
+}
+
+class StoppedUserReturnEvent : public Event {
+ public:
+  StoppedUserReturnEvent()
+      : Event(reinterpret_cast<uintptr_t>(&stoppedUserReturnHandler), false, ~0UL,
+              HandlerPrivilege::User) {}
+
+  size_t serialize(uint8_t*) override {
+    return 0;
+  }
+
+  size_t getNumber() override {
+    return 0x53545550;
+  }
+};
+
+void stopCurrentProcessFromEvent(size_t) {
+  Thread* current = Processor::information().getCurrentThread();
+  current->getParent()->suspend();
+}
+
+class StopCurrentProcessEvent : public Event {
+ public:
+  StopCurrentProcessEvent()
+      : Event(reinterpret_cast<uintptr_t>(&stopCurrentProcessFromEvent), false, ~0UL,
+              HandlerPrivilege::Kernel) {}
+
+  size_t serialize(uint8_t*) override {
+    return 0;
+  }
+
+  size_t getNumber() override {
+    return 0x53544f50;
+  }
+};
+
+struct PrequeuedStopOwnerContext {
+  explicit PrequeuedStopOwnerContext(Process* process)
+      : process(process),
+        entered(0),
+        eventsQueued(0),
+        returned(0),
+        terminalReturns(0),
+        failures(0) {}
+
+  Process* process;
+  Atomic<size_t> entered;
+  Atomic<size_t> eventsQueued;
+  Atomic<size_t> returned;
+  Atomic<size_t> terminalReturns;
+  Atomic<size_t> failures;
+};
+
 Atomic<size_t> g_ImmediateThreadExits(0);
 
 struct JoinPropagationContext {
@@ -818,7 +897,8 @@ void processSuspendHook(WaitQueue* queue, Thread* thread, const WaitQueue::Chann
 
   context->hookCalls += 1;
   context->waiter = thread;
-  if (!queue || channel.owner || channel.value) {
+  if (!queue || channel.owner != context->process ||
+      channel.value != static_cast<uintptr_t>(Thread::ProcessWait)) {
     context->hookFailures += 1;
   }
 
@@ -942,6 +1022,135 @@ int resumeBlockedProcess(void* parameter) {
     context->hookFailures += 1;
     return 1;
   }
+  return 0;
+}
+
+int waitAtProcessStopReturnGate(void* parameter) {
+  ProcessStopReturnGateContext* context =
+      reinterpret_cast<ProcessStopReturnGateContext*>(parameter);
+  Thread* current = Processor::information().getCurrentThread();
+  context->entered += 1;
+  if (!context->release.acquire()) {
+    context->failures += 1;
+    context->returned += 1;
+    return 0;
+  }
+
+  if (current->getScheduler()->serviceProcessStopAtUserReturn()) {
+    context->terminalReturns += 1;
+  } else {
+    context->crossings += 1;
+  }
+  context->returned += 1;
+  return 0;
+}
+
+int waitAtProcessStopReturnGateWithDeferredEvents(void* parameter) {
+  ProcessStopReturnGateContext* context =
+      reinterpret_cast<ProcessStopReturnGateContext*>(parameter);
+  Thread* current = Processor::information().getCurrentThread();
+  context->entered += 1;
+  {
+    Uninterruptible deferPrequeuedEvent;
+    if (!context->release.acquire()) {
+      context->failures += 1;
+      context->returned += 1;
+      return 0;
+    }
+  }
+
+  if (current->getScheduler()->serviceProcessStopAtUserReturn()) {
+    context->terminalReturns += 1;
+  } else {
+    context->crossings += 1;
+  }
+  context->returned += 1;
+  return 0;
+}
+
+void terminateStoppedReturnGatePeer(size_t) {
+  Processor::information().getCurrentThread()->setUnwindState(Thread::TerminateThread);
+}
+
+int stopOwnerWithPrequeuedTerminalEvent(void* parameter) {
+  PrequeuedStopOwnerContext* context = reinterpret_cast<PrequeuedStopOwnerContext*>(parameter);
+  Thread* current = Processor::information().getCurrentThread();
+  StopCurrentProcessEvent stopEvent;
+  SignalEvent terminalEvent(reinterpret_cast<uintptr_t>(&terminateStoppedReturnGatePeer), 9, ~0UL,
+                            0, true, false, Event::HandlerPrivilege::Kernel,
+                            SignalEvent::DeliveryDisposition::DefaultAction);
+
+  context->entered += 1;
+  bool stopQueued = false;
+  bool terminalQueued = false;
+  {
+    Uninterruptible deferPrequeuedEvents;
+    stopQueued = current->sendEvent(&stopEvent);
+    terminalQueued = stopQueued && current->sendEvent(&terminalEvent);
+    if (!stopQueued || !terminalQueued) {
+      if (stopQueued) {
+        current->cullEvent(&stopEvent);
+      }
+      if (terminalQueued) {
+        current->cullEvent(&terminalEvent);
+      }
+    }
+  }
+
+  if (!stopQueued || !terminalQueued) {
+    context->failures += 1;
+    context->returned += 1;
+    return 1;
+  }
+  context->eventsQueued += 1;
+
+  current->getScheduler()->checkEventState(0);
+  if (current->getUnwindState() == Thread::TerminateThread && context->process->isSuspended()) {
+    context->terminalReturns += 1;
+  } else {
+    context->failures += 1;
+  }
+  context->returned += 1;
+  return 0;
+}
+
+int activeDirectTransitionWithPrequeuedTerminalEvent(void* parameter) {
+  PrequeuedStopOwnerContext* context = reinterpret_cast<PrequeuedStopOwnerContext*>(parameter);
+  Thread* current = Processor::information().getCurrentThread();
+  SignalEvent terminalEvent(reinterpret_cast<uintptr_t>(&terminateStoppedReturnGatePeer), 9, ~0UL,
+                            0, true, false, Event::HandlerPrivilege::Kernel,
+                            SignalEvent::DeliveryDisposition::DefaultAction);
+
+  context->entered += 1;
+  bool terminalQueued = false;
+  {
+    Uninterruptible deferPrequeuedEvent;
+    terminalQueued = current->sendEvent(&terminalEvent);
+  }
+  if (!terminalQueued) {
+    context->failures += 1;
+    context->returned += 1;
+    return 1;
+  }
+  context->eventsQueued += 1;
+
+  const bool terminal = current->getScheduler()->serviceProcessStopAtUserReturn(
+      PerProcessorScheduler::ProcessStopGateMode::DirectUserTransition);
+  if (terminal && current->getUnwindState() == Thread::TerminateThread &&
+      context->process->getState() == Process::Active) {
+    context->terminalReturns += 1;
+  } else {
+    context->failures += 1;
+  }
+  context->returned += 1;
+  return 0;
+}
+
+int ownProcessStop(void* parameter) {
+  ProcessStopOwnerContext* context = reinterpret_cast<ProcessStopOwnerContext*>(parameter);
+  context->entered += 1;
+  context->process->suspend();
+  context->returned += 1;
   return 0;
 }
 
@@ -1640,6 +1849,382 @@ bool processSuspendResume() {
   return passed;
 }
 
+bool processStopGatesPeerReturns() {
+  constexpr const char* Test = "process-stop-gates-peer-returns";
+  Process* kernelProcess = Scheduler::instance().getKernelProcess();
+  Process* process = new Process(kernelProcess);
+
+  ProcessStopReturnGateContext gateContext;
+  Thread* first =
+      new Thread(process, waitAtProcessStopReturnGate, &gateContext, nullptr, false, true, true);
+  first->setName("hosted stopped return-gate peer one");
+  Thread* second =
+      new Thread(process, waitAtProcessStopReturnGate, &gateContext, nullptr, false, true, true);
+  second->setName("hosted stopped return-gate peer two");
+
+  ProcessStopOwnerContext ownerContext(process);
+  Thread* owner = new Thread(process, ownProcessStop, &ownerContext, nullptr, false, true, true);
+  owner->setName("hosted process-stop owner");
+
+  const bool firstStarted = first->start();
+  const bool secondStarted = second->start();
+  const bool peersWaiting = firstStarted && secondStarted &&
+                            waitForDebugState(first, Thread::SemWait) &&
+                            waitForDebugState(second, Thread::SemWait) && gateContext.entered == 2;
+  const bool ownerStarted = peersWaiting && owner->start();
+  const Time::Timestamp stopDeadline = Time::getTicks() + (2 * Time::Multiplier::Second);
+  while (ownerStarted && !process->isSuspended() && !ownerContext.returned &&
+         Time::getTicks() < stopDeadline) {
+    Scheduler::instance().yield();
+  }
+  const bool suspended = process->isSuspended();
+  const bool ownerWaiting = suspended && waitForDebugState(owner, Thread::ProcessWait);
+
+  gateContext.release.release(2);
+  const bool firstGated = suspended && waitForDebugState(first, Thread::ProcessWait);
+  const bool secondGated = suspended && waitForDebugState(second, Thread::ProcessWait);
+  for (size_t attempt = 0; attempt < 32; ++attempt) {
+    Scheduler::instance().yield();
+  }
+  const bool bothHeld = firstGated && secondGated && !gateContext.returned &&
+                        !gateContext.crossings && !gateContext.terminalReturns;
+
+  bool resumed = false;
+  if (process->isSuspended()) {
+    process->resume();
+    resumed = process->getState() == Process::Active;
+  } else if (ownerStarted && !ownerContext.returned) {
+    owner->setUnwindState(Thread::TerminateThread);
+  }
+
+  const bool ownerJoined = ownerStarted && owner->joinForCompletion();
+  // Joining the owner closes a setup-time CAS race before the cleanup resume.
+  if (process->isSuspended()) {
+    process->resume();
+  }
+  const bool firstJoined = firstStarted && first->joinForCompletion();
+  const bool secondJoined = secondStarted && second->joinForCompletion();
+  if (!firstStarted) {
+    delete first;
+  }
+  if (!secondStarted) {
+    delete second;
+  }
+  if (!ownerStarted) {
+    delete owner;
+  }
+
+  const bool passed = check(
+      firstStarted && secondStarted && peersWaiting && ownerStarted && suspended && ownerWaiting &&
+          bothHeld && resumed && firstJoined && secondJoined && ownerJoined &&
+          gateContext.returned == 2 && gateContext.crossings == 2 && !gateContext.terminalReturns &&
+          !gateContext.failures && ownerContext.entered == 1 && ownerContext.returned == 1,
+      Test,
+      "a running process peer crossed its user-return gate while stopped or failed to resume");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool stoppedProcessDefersUserReturnEvent() {
+  constexpr const char* Test = "stopped-process-defers-user-return-event";
+  Process* kernelProcess = Scheduler::instance().getKernelProcess();
+  Process* process = new Process(kernelProcess);
+
+  ProcessStopReturnGateContext gateContext;
+  Thread* peer =
+      new Thread(process, waitAtProcessStopReturnGate, &gateContext, nullptr, false, true, true);
+  peer->setName("hosted stopped user-event return-gate peer");
+  ProcessStopOwnerContext ownerContext(process);
+  Thread* owner = new Thread(process, ownProcessStop, &ownerContext, nullptr, false, true, true);
+  owner->setName("hosted user-event process-stop owner");
+
+  g_StoppedUserHandlerCalls = 0;
+  const bool peerStarted = peer->start();
+  const bool peerWaiting =
+      peerStarted && waitForDebugState(peer, Thread::SemWait) && gateContext.entered == 1;
+  const bool ownerStarted = peerWaiting && owner->start();
+  const Time::Timestamp stopDeadline = Time::getTicks() + (2 * Time::Multiplier::Second);
+  while (ownerStarted && !process->isSuspended() && !ownerContext.returned &&
+         Time::getTicks() < stopDeadline) {
+    Scheduler::instance().yield();
+  }
+  const bool suspended = process->isSuspended();
+  const bool ownerWaiting = suspended && waitForDebugState(owner, Thread::ProcessWait);
+
+  StoppedUserReturnEvent userEvent;
+  const bool eventQueued = ownerWaiting && peer->sendEvent(&userEvent);
+  const bool remainedOnOriginalWait =
+      eventQueued && waitForDebugState(peer, Thread::SemWait) && peer->hasEvent(&userEvent);
+  gateContext.release.release();
+  const bool peerGated = remainedOnOriginalWait && waitForDebugState(peer, Thread::ProcessWait);
+  for (size_t attempt = 0; attempt < 32; ++attempt) {
+    Scheduler::instance().yield();
+  }
+  const bool heldWhileStopped = peerGated && process->isSuspended() && !gateContext.returned &&
+                                peer->hasEvent(&userEvent) && !g_StoppedUserHandlerCalls;
+
+  bool resumed = false;
+  if (process->isSuspended()) {
+    process->resume();
+    resumed = process->getState() == Process::Active;
+  } else if (ownerStarted && !ownerContext.returned) {
+    owner->setUnwindState(Thread::TerminateThread);
+  }
+  const bool peerJoined = peerStarted && peer->joinForCompletion();
+  const bool ownerJoined = ownerStarted && owner->joinForCompletion();
+  if (!peerStarted) {
+    delete peer;
+  }
+  if (!ownerStarted) {
+    delete owner;
+  }
+
+  const bool passed = check(
+      peerStarted && peerWaiting && ownerStarted && suspended && ownerWaiting && eventQueued &&
+          remainedOnOriginalWait && heldWhileStopped && resumed && peerJoined && ownerJoined &&
+          gateContext.returned == 1 && gateContext.crossings == 1 && !gateContext.terminalReturns &&
+          !gateContext.failures && !g_StoppedUserHandlerCalls && ownerContext.entered == 1 &&
+          ownerContext.returned == 1,
+      Test, "a stopped process entered or consumed a userspace event before resume");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool terminalUnwindEscapesProcessStopGate() {
+  constexpr const char* Test = "terminal-unwind-escapes-process-stop-gate";
+  Process* kernelProcess = Scheduler::instance().getKernelProcess();
+  Process* process = new Process(kernelProcess);
+
+  ProcessStopReturnGateContext gateContext;
+  Thread* peer =
+      new Thread(process, waitAtProcessStopReturnGate, &gateContext, nullptr, false, true, true);
+  peer->setName("hosted terminal stopped return-gate peer");
+  ProcessStopOwnerContext ownerContext(process);
+  Thread* owner = new Thread(process, ownProcessStop, &ownerContext, nullptr, false, true, true);
+  owner->setName("hosted terminal process-stop owner");
+
+  const bool peerStarted = peer->start();
+  const bool peerWaiting =
+      peerStarted && waitForDebugState(peer, Thread::SemWait) && gateContext.entered == 1;
+  const bool ownerStarted = peerWaiting && owner->start();
+  const Time::Timestamp stopDeadline = Time::getTicks() + (2 * Time::Multiplier::Second);
+  while (ownerStarted && !process->isSuspended() && !ownerContext.returned &&
+         Time::getTicks() < stopDeadline) {
+    Scheduler::instance().yield();
+  }
+  const bool suspended = process->isSuspended();
+  const bool ownerWaiting = suspended && waitForDebugState(owner, Thread::ProcessWait);
+
+  gateContext.release.release();
+  const bool peerGated = suspended && waitForDebugState(peer, Thread::ProcessWait);
+  if (peerGated) {
+    peer->setUnwindState(Thread::TerminateThread);
+  }
+  const Time::Timestamp terminalDeadline = Time::getTicks() + (2 * Time::Multiplier::Second);
+  while (peerGated && !gateContext.returned && Time::getTicks() < terminalDeadline) {
+    Scheduler::instance().yield();
+  }
+  const bool returnedWhileStopped =
+      peerGated && gateContext.returned == 1 && process->isSuspended();
+  const bool terminalWon = returnedWhileStopped && gateContext.terminalReturns == 1 &&
+                           !gateContext.crossings && !gateContext.failures;
+
+  if (!gateContext.returned && peerStarted) {
+    peer->setUnwindState(Thread::TerminateThread);
+  }
+  if (process->isSuspended()) {
+    process->resume();
+  } else if (ownerStarted && !ownerContext.returned) {
+    owner->setUnwindState(Thread::TerminateThread);
+  }
+
+  const bool peerJoined = peerStarted && peer->joinForCompletion();
+  const bool ownerJoined = ownerStarted && owner->joinForCompletion();
+  if (!peerStarted) {
+    delete peer;
+  }
+  if (!ownerStarted) {
+    delete owner;
+  }
+  if (process->isSuspended()) {
+    process->resume();
+  }
+
+  const bool passed =
+      check(peerStarted && peerWaiting && ownerStarted && suspended && ownerWaiting && peerGated &&
+                returnedWhileStopped && terminalWon && peerJoined && ownerJoined &&
+                gateContext.entered == 1 && gateContext.returned == 1 &&
+                ownerContext.entered == 1 && ownerContext.returned == 1,
+            Test, "terminal unwind did not escape a stopped process gate before resume");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool prequeuedTerminalEventEscapesProcessStopGate() {
+  constexpr const char* Test = "prequeued-terminal-event-before-resume";
+  Process* kernelProcess = Scheduler::instance().getKernelProcess();
+  Process* process = new Process(kernelProcess);
+
+  ProcessStopReturnGateContext gateContext;
+  Thread* peer = new Thread(process, waitAtProcessStopReturnGateWithDeferredEvents, &gateContext,
+                            nullptr, false, true, true);
+  peer->setName("hosted prequeued-terminal stopped return-gate peer");
+  ProcessStopOwnerContext ownerContext(process);
+  Thread* owner = new Thread(process, ownProcessStop, &ownerContext, nullptr, false, true, true);
+  owner->setName("hosted prequeued-terminal process-stop owner");
+
+  const bool peerStarted = peer->start();
+  const bool peerWaiting =
+      peerStarted && waitForDebugState(peer, Thread::SemWait) && gateContext.entered == 1;
+  const bool ownerStarted = peerWaiting && owner->start();
+  const Time::Timestamp stopDeadline = Time::getTicks() + (2 * Time::Multiplier::Second);
+  while (ownerStarted && !process->isSuspended() && !ownerContext.returned &&
+         Time::getTicks() < stopDeadline) {
+    Scheduler::instance().yield();
+  }
+  const bool suspended = process->isSuspended();
+  const bool ownerWaiting = suspended && waitForDebugState(owner, Thread::ProcessWait);
+
+  SignalEvent terminalEvent(reinterpret_cast<uintptr_t>(&terminateStoppedReturnGatePeer), 9, ~0UL,
+                            0, true, false, Event::HandlerPrivilege::Kernel,
+                            SignalEvent::DeliveryDisposition::DefaultAction);
+  const bool terminalQueued = ownerWaiting && peer->sendEvent(&terminalEvent);
+  const bool remainedPrequeued =
+      terminalQueued && waitForDebugState(peer, Thread::SemWait) && !gateContext.returned;
+
+  gateContext.release.release();
+  const Time::Timestamp terminalDeadline = Time::getTicks() + (2 * Time::Multiplier::Second);
+  while (remainedPrequeued && !gateContext.returned && Time::getTicks() < terminalDeadline) {
+    Scheduler::instance().yield();
+  }
+  const bool returnedWhileStopped = remainedPrequeued && gateContext.returned == 1 &&
+                                    process->isSuspended() && !ownerContext.returned;
+  const bool terminalWon = returnedWhileStopped && gateContext.terminalReturns == 1 &&
+                           !gateContext.crossings && !gateContext.failures;
+
+  if (!gateContext.returned && peerStarted) {
+    peer->setUnwindState(Thread::TerminateThread);
+  }
+  const bool peerJoined = peerStarted && peer->joinForCompletion();
+  if (process->isSuspended()) {
+    process->resume();
+  } else if (ownerStarted && !ownerContext.returned) {
+    owner->setUnwindState(Thread::TerminateThread);
+  }
+  const bool ownerJoined = ownerStarted && owner->joinForCompletion();
+  if (!peerStarted) {
+    delete peer;
+  }
+  if (!ownerStarted) {
+    delete owner;
+  }
+
+  const bool passed =
+      check(peerStarted && peerWaiting && ownerStarted && suspended && ownerWaiting &&
+                terminalQueued && remainedPrequeued && terminalWon && peerJoined && ownerJoined &&
+                gateContext.entered == 1 && gateContext.returned == 1 &&
+                ownerContext.entered == 1 && ownerContext.returned == 1,
+            Test, "a terminal event queued before gate enrollment was lost behind process stop");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool prequeuedTerminalEventEscapesStopOwnerGate() {
+  constexpr const char* Test = "prequeued-terminal-event-before-stop-owner-wait";
+  Process* kernelProcess = Scheduler::instance().getKernelProcess();
+  Process* process = new Process(kernelProcess);
+
+  PrequeuedStopOwnerContext context(process);
+  Thread* owner = new Thread(process, stopOwnerWithPrequeuedTerminalEvent, &context, nullptr, false,
+                             true, true);
+  owner->setName("hosted prequeued-terminal process-stop owner");
+
+  const bool started = owner->start();
+  const Time::Timestamp terminalDeadline = Time::getTicks() + (2 * Time::Multiplier::Second);
+  while (started && !context.returned && Time::getTicks() < terminalDeadline) {
+    Scheduler::instance().yield();
+  }
+  const bool returnedWhileStopped = started && context.returned == 1 && process->isSuspended();
+  const bool terminalWon = returnedWhileStopped && context.entered == 1 &&
+                           context.eventsQueued == 1 && context.terminalReturns == 1 &&
+                           !context.failures;
+
+  if (!context.returned && started) {
+    owner->setUnwindState(Thread::TerminateThread);
+  }
+  const bool joined = started && owner->joinForCompletion();
+  if (process->isSuspended()) {
+    process->resume();
+  }
+  if (!started) {
+    delete owner;
+  }
+
+  const bool passed =
+      check(started && terminalWon && joined, Test,
+            "a terminal event queued before the stop owner enrolled was lost behind process stop");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool activeDirectTransitionDrainsKernelEvent() {
+  constexpr const char* Test = "active-direct-transition-drains-kernel-event";
+  Process* kernelProcess = Scheduler::instance().getKernelProcess();
+  Process* process = new Process(kernelProcess);
+
+  PrequeuedStopOwnerContext context(process);
+  Thread* thread = new Thread(process, activeDirectTransitionWithPrequeuedTerminalEvent, &context,
+                              nullptr, false, true, true);
+  thread->setName("hosted active direct-transition terminal gate");
+
+  const bool started = thread->start();
+  const Time::Timestamp terminalDeadline = Time::getTicks() + (2 * Time::Multiplier::Second);
+  while (started && !context.returned && Time::getTicks() < terminalDeadline) {
+    Scheduler::instance().yield();
+  }
+  const bool terminalWon = started && context.returned == 1 && context.entered == 1 &&
+                           context.eventsQueued == 1 && context.terminalReturns == 1 &&
+                           !context.failures && process->getState() == Process::Active;
+
+  if (!context.returned && started) {
+    thread->setUnwindState(Thread::TerminateThread);
+  }
+  const bool joined = started && thread->joinForCompletion();
+  if (!started) {
+    delete thread;
+  }
+
+  const bool passed =
+      check(terminalWon && joined, Test,
+            "an active direct userspace transition bypassed a queued kernel terminal event");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
 bool prequeuedEventDispatch() {
   Thread* thread = g_ImmediateWaiter;
   if (!check(thread != nullptr, "prequeued-event",
@@ -1952,10 +2537,14 @@ bool runHostedWaitRegressions() {
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedSyscallRegressions() &&
 #endif
-      ordinaryBlockAndWake() && processSuspendResume() && immediateExitJoinLifecycle() &&
-      joinPublicationAndDetachExclusion() && terminalJoinPropagation() &&
-      prequeuedEventDispatch() && stateLevelPublication() && stateCleanupOrder() &&
-      execStackOwnership() && activeEventDeliveryLease() && eventQueueShutdown();
+      ordinaryBlockAndWake() && processSuspendResume() && processStopGatesPeerReturns() &&
+      stoppedProcessDefersUserReturnEvent() && terminalUnwindEscapesProcessStopGate() &&
+      prequeuedTerminalEventEscapesProcessStopGate() &&
+      prequeuedTerminalEventEscapesStopOwnerGate() && activeDirectTransitionDrainsKernelEvent() &&
+      immediateExitJoinLifecycle() && joinPublicationAndDetachExclusion() &&
+      terminalJoinPropagation() && prequeuedEventDispatch() && stateLevelPublication() &&
+      stateCleanupOrder() && execStackOwnership() && activeEventDeliveryLease() &&
+      eventQueueShutdown();
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS all");
   } else {

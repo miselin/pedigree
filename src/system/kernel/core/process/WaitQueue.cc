@@ -96,7 +96,7 @@ WaitQueue::WakeReason WaitQueue::Guard::wait(const Channel& channel, size_t debu
   }
   assert(m_OwnsLock);
   Thread::StackDiscardScope discardScope(onStackDiscard, stackDiscardContext);
-  return m_Queue->wait(*this, nullptr, channel, debugState, debugAddress, false);
+  return m_Queue->wait(*this, nullptr, channel, debugState, debugAddress, false, true);
 }
 
 WaitQueue::WakeReason WaitQueue::Guard::waitForCompletion(const Channel& channel, size_t debugState,
@@ -106,7 +106,18 @@ WaitQueue::WakeReason WaitQueue::Guard::waitForCompletion(const Channel& channel
     return WakeReason::Spurious;
   }
   assert(m_OwnsLock);
-  return m_Queue->wait(*this, nullptr, channel, debugState, debugAddress, true);
+  return m_Queue->wait(*this, nullptr, channel, debugState, debugAddress, true, true);
+}
+
+WaitQueue::WakeReason WaitQueue::Guard::waitWithoutEventDispatch(const Channel& channel,
+                                                                 size_t debugState,
+                                                                 uintptr_t debugAddress) {
+  assert(m_Queue);
+  if (!m_OwnsLock) {
+    return WakeReason::Spurious;
+  }
+  assert(m_OwnsLock);
+  return m_Queue->wait(*this, nullptr, channel, debugState, debugAddress, false, false);
 }
 
 WaitQueue::WakeReason WaitQueue::Guard::waitAndUnlock(Mutex& mutex, const Channel& channel,
@@ -119,7 +130,7 @@ WaitQueue::WakeReason WaitQueue::Guard::waitAndUnlock(Mutex& mutex, const Channe
   }
   assert(m_OwnsLock);
   Thread::StackDiscardScope discardScope(onStackDiscard, stackDiscardContext);
-  return m_Queue->wait(*this, &mutex, channel, debugState, debugAddress, false);
+  return m_Queue->wait(*this, &mutex, channel, debugState, debugAddress, false, true);
 }
 
 WaitQueue::WakeReason WaitQueue::Guard::waitAndUnlockForCompletion(Mutex& mutex,
@@ -131,7 +142,7 @@ WaitQueue::WakeReason WaitQueue::Guard::waitAndUnlockForCompletion(Mutex& mutex,
     return WakeReason::Spurious;
   }
   assert(m_OwnsLock);
-  return m_Queue->wait(*this, &mutex, channel, debugState, debugAddress, true);
+  return m_Queue->wait(*this, &mutex, channel, debugState, debugAddress, true, true);
 }
 
 bool WaitQueue::Guard::wakeOne(WakeReason reason, const Channel& channel) {
@@ -164,8 +175,8 @@ WaitQueue::~WaitQueue() {
 }
 
 WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel& channel,
-                                      size_t debugState, uintptr_t debugAddress,
-                                      bool deferTerminal) {
+                                      size_t debugState, uintptr_t debugAddress, bool deferTerminal,
+                                      bool dispatchEvents) {
   if (mutex && !mutex->isOwnedByCurrentThread()) {
     FATAL(
         "WaitQueue::waitAndUnlock requires current-thread mutex "
@@ -259,7 +270,7 @@ WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel&
   // An ordinary wake and an event publication can race. Once the outer wait
   // record is retired, dispatch any event which is now deliverable regardless
   // of which wake reason won.
-  if (terminalState == Thread::Continue || deferTerminal) {
+  if (dispatchEvents && (terminalState == Thread::Continue || deferTerminal)) {
     thread->m_StateLevels[stateLevel].m_bDispatchingWaitEvent = true;
     Processor::information().getScheduler().checkEventState(0);
     thread->m_StateLevels[stateLevel].m_bDispatchingWaitEvent = false;

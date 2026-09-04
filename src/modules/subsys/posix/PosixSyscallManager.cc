@@ -296,7 +296,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_SIGNAL:
       return posix_signal(static_cast<int>(p1), reinterpret_cast<void*>(p2));
     case POSIX_RAISE:
-      return posix_raise(static_cast<int>(p1), state);
+      return posix_raise(static_cast<int>(p1));
     case POSIX_KILL:
       return posix_kill(static_cast<int>(p1), static_cast<int>(p2));
     case POSIX_TKILL:

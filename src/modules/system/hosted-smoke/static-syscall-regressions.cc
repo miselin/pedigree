@@ -3882,6 +3882,26 @@ bool cloneStateDropsParentErrnoDestination() {
   return true;
 }
 
+bool cloneVmNullStackPreservesInterrupts() {
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  const uintptr_t result =
+      SyscallManager::instance().syscall(posix, POSIX_CLONE, CLONE_VM, 0, 0, 0, 0);
+  const bool interruptsStillEnabled = Processor::getInterrupts();
+  if (interruptsStillEnabled != interruptsWereEnabled) {
+    Processor::setInterrupts(interruptsWereEnabled);
+  }
+
+  if (!interruptsWereEnabled || !interruptsStillEnabled || result != static_cast<uintptr_t>(-1)) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL clone-vm-null-stack-interrupts: "
+        "the invalid clone path did not preserve its enabled IRQ state");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS clone-vm-null-stack-interrupts");
+  return true;
+}
+
 enum CloneVmBeforeStartAction {
   CancelChildBeforeStart,
   WaitForProcessExit,
@@ -3901,6 +3921,8 @@ struct CloneVmExitRaceContext {
         childTls(0),
         callerEntered(0),
         callerReturned(0),
+        callerInterruptsBefore(0),
+        callerInterruptsAfter(0),
         terminatorEntered(0),
         terminatorReturned(0),
         hookCalls(0),
@@ -3937,6 +3959,8 @@ struct CloneVmExitRaceContext {
   alignas(uintptr_t) uintptr_t childTls;
   Atomic<size_t> callerEntered;
   Atomic<size_t> callerReturned;
+  Atomic<size_t> callerInterruptsBefore;
+  Atomic<size_t> callerInterruptsAfter;
   Atomic<size_t> terminatorEntered;
   Atomic<size_t> terminatorReturned;
   Atomic<size_t> hookCalls;
@@ -4112,12 +4136,18 @@ void clearCloneVmHooks() {
 int cloneVmWhileProcessExits(void* parameter) {
   CloneVmExitRaceContext* context = reinterpret_cast<CloneVmExitRaceContext*>(parameter);
   context->callerEntered += 1;
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  context->callerInterruptsBefore = interruptsWereEnabled ? 1 : 0;
   context->cloneResult = SyscallManager::instance().syscall(
       posix, POSIX_CLONE, CLONE_VM | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID,
       reinterpret_cast<uintptr_t>(context->childStack + sizeof(context->childStack)),
       reinterpret_cast<uintptr_t>(&context->parentTid),
       reinterpret_cast<uintptr_t>(&context->childTid),
       reinterpret_cast<uintptr_t>(&context->childTls));
+  context->callerInterruptsAfter = Processor::getInterrupts() ? 1 : 0;
+  if (Processor::getInterrupts() != interruptsWereEnabled) {
+    Processor::setInterrupts(interruptsWereEnabled);
+  }
   context->callerReturned += 1;
   return 1;
 }
@@ -4194,7 +4224,8 @@ bool cloneVmDetachedCancellationReturnsCachedTid(Process* kernelProcess) {
   const bool childDeletedBeforeReturn = waitForCloneVmThreadCount(process, 1);
   bool passed = callerStarted && callerReapable && childDeletedBeforeReturn &&
                 process->getState() == Process::Active && context->callerEntered == 1 &&
-                context->callerReturned == 1 && context->hookCalls == 1 &&
+                context->callerReturned == 1 && context->callerInterruptsBefore == 1 &&
+                context->callerInterruptsAfter == 1 && context->hookCalls == 1 &&
                 context->tidsReady == 1 && context->childCancellationRequested == 1 &&
                 context->childCancellationReapable == 1 && !context->hookTimedOut &&
                 !context->unexpectedHookRelease && context->observedTid &&
@@ -4349,6 +4380,7 @@ bool cloneVmTerminalStartCancellation(Process* kernelProcess) {
                        !retiredChild->wasStartPublishedForHostedTest();
   bool passed =
       callerPaused && retired && context->callerEntered == 1 && context->callerReturned == 1 &&
+      context->callerInterruptsBefore == 1 && context->callerInterruptsAfter == 1 &&
       context->terminatorEntered == 1 && !context->terminatorReturned && context->hookCalls == 1 &&
       context->tidsReady == 1 && context->terminationElectionCalls == 1 &&
       context->ownershipWindowReleased == 1 && context->ownershipCancellationObserved == 1 &&
@@ -4897,6 +4929,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN clone-errno-lifetime");
   if (!cloneStateDropsParentErrnoDestination()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN clone-vm-null-stack-interrupts");
+  if (!cloneVmNullStackPreservesInterrupts()) {
     return false;
   }
 

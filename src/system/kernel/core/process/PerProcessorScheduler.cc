@@ -476,6 +476,10 @@ void PerProcessorScheduler::schedule(Thread::Status nextStatus, bool dispatchEve
 }
 
 void PerProcessorScheduler::checkEventState(uintptr_t userStack) {
+  checkEventState(userStack, Thread::EventSelection::AnyDeliverable);
+}
+
+void PerProcessorScheduler::checkEventState(uintptr_t userStack, Thread::EventSelection selection) {
   bool bWasInterrupts = Processor::getInterrupts();
   Processor::setInterrupts(false);
 
@@ -499,7 +503,7 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack) {
     return;
   }
 
-  Event::Delivery eventDelivery = pThread->getNextEvent();
+  Event::Delivery eventDelivery = pThread->getNextEvent(selection);
   Event* pEvent = eventDelivery.get();
   if (!eventDelivery) {
     Processor::setInterrupts(bWasInterrupts);
@@ -1200,58 +1204,111 @@ void PerProcessorScheduler::serviceIrqWorkDoorbell() {
   }
 }
 
-bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state) {
+bool PerProcessorScheduler::serviceProcessStopAtUserReturn(ProcessStopGateMode mode) {
   if (!Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
       Processor::executionContext() != ExecutionContext::WaitableThread) {
     FATAL_NOLOCK(
-        "Return-to-user work requires an IRQ-enabled thread "
+        "Return-to-user stop work requires an IRQ-enabled thread "
         "boundary.");
   }
 
   Thread* current = Processor::information().getCurrentThread();
   if (current && current->currentTimeAccountingMode() != CpuTimeMode::Kernel) {
-    FATAL_NOLOCK("Return-to-user work escaped Kernel accounting mode");
+    FATAL_NOLOCK("Return-to-user stop work escaped Kernel accounting mode");
+  }
+  if (!current) {
+    return false;
   }
 
-  // Terminal requests win over later work. The architecture caller owns the
-  // final commit after its return-tail scopes and accounting have retired.
-  if (current && !current->isTerminationDeferred() &&
-      current->getUnwindState() != Thread::Continue) {
+  Process* process = current->getParent();
+  if (!process) {
+    return current->getUnwindState() != Thread::Continue;
+  }
+
+  while (true) {
+    bool dispatchKernelEvent = false;
+    Thread::EventSelection selection = Thread::EventSelection::StoppedProcessKernel;
+    WaitQueue::WakeReason reason = WaitQueue::WakeReason::Spurious;
+    {
+      // Signal publication and resume both use this queue, making the
+      // predicate check and waiter publication one atomic handshake.
+      auto guard = current->m_EventWaiters.acquire();
+      {
+        LockGuard<Spinlock> threadGuard(current->m_Lock);
+        if (current->getUnwindState() != Thread::Continue) {
+          return true;
+        }
+
+        const Process::ProcessState state = process->getState();
+        if (state == Process::Active) {
+          selection = Thread::EventSelection::KernelDeliverable;
+          dispatchKernelEvent = mode == ProcessStopGateMode::DirectUserTransition &&
+                                current->hasDeliverableEventsUnlocked(selection);
+          if (!dispatchKernelEvent) {
+            return false;
+          }
+        }
+        if (state == Process::Terminated || state == Process::Reaped) {
+          FATAL_NOLOCK("A live Thread reached userspace after its Process terminated");
+        }
+
+        // SIGKILL and other kernel events that explicitly permit stopped
+        // delivery must run before this thread can wait indefinitely.
+        if (state == Process::Suspended) {
+          selection = Thread::EventSelection::StoppedProcessKernel;
+          dispatchKernelEvent = current->hasDeliverableEventsUnlocked(selection);
+        }
+      }
+
+      if (!dispatchKernelEvent) {
+        // A Terminating peer can observe the Process transition just before
+        // beginTermination publishes that peer's unwind state. Its terminal
+        // wake releases this same wait.
+        reason = guard.waitWithoutEventDispatch(
+            WaitQueue::Channel(process, static_cast<uintptr_t>(Thread::ProcessWait)),
+            Thread::ProcessWait, reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
+      }
+    }
+
+    if (dispatchKernelEvent) {
+      // Direct transitions have no reusable user stack. A selection-specific
+      // dequeue prevents a racing resume from broadening stopped delivery.
+      checkEventState(0, selection);
+      continue;
+    }
+    if (reason == WaitQueue::WakeReason::Terminating ||
+        reason == WaitQueue::WakeReason::Unwinding) {
+      return true;
+    }
+  }
+}
+
+bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state) {
+  // Terminal requests and process stops win over later work. The architecture
+  // caller owns the final commit after its return-tail scopes and accounting
+  // have retired.
+  if (serviceProcessStopAtUserReturn()) {
     return true;
   }
   serviceDeferredSubsystemException(state);
-  current = Processor::information().getCurrentThread();
+  Thread* current = Processor::information().getCurrentThread();
   if (current && !current->isTerminationDeferred() &&
       current->getUnwindState() != Thread::Continue) {
     return true;
   }
+  if (serviceProcessStopAtUserReturn()) {
+    return true;
+  }
   checkEventState(state.getStackPointer());
-  current = Processor::information().getCurrentThread();
-  return current && !current->isTerminationDeferred() &&
-         current->getUnwindState() != Thread::Continue;
+  return serviceProcessStopAtUserReturn();
 }
 
 bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state) {
-  if (!Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
-      Processor::executionContext() != ExecutionContext::WaitableThread) {
-    FATAL_NOLOCK(
-        "Return-to-user work requires an IRQ-enabled thread "
-        "boundary.");
-  }
-
-  Thread* current = Processor::information().getCurrentThread();
-  if (current && current->currentTimeAccountingMode() != CpuTimeMode::Kernel) {
-    FATAL_NOLOCK("Return-to-user work escaped Kernel accounting mode");
-  }
-
-  if (current && !current->isTerminationDeferred() &&
-      current->getUnwindState() != Thread::Continue) {
+  if (serviceProcessStopAtUserReturn()) {
     return true;
   }
   checkEventState(state.getStackPointer());
-  current = Processor::information().getCurrentThread();
-  return current && !current->isTerminationDeferred() &&
-         current->getUnwindState() != Thread::Continue;
+  return serviceProcessStopAtUserReturn();
 }
 
 void PerProcessorScheduler::serviceDeferredSubsystemException(InterruptState& state) {

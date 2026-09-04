@@ -43,7 +43,7 @@ int posix_linux_amd64_sigaction(int sig, const LinuxAmd64KernelSigaction* act,
 
 int posix_sigaction(int sig, const struct sigaction* act, struct sigaction* oact);
 uintptr_t posix_signal(int sig, void* func);
-int posix_raise(int sig, SyscallState& State);
+int posix_raise(int sig);
 int posix_kill(int pid, int sig);
 int posix_tkill(int tid, int sig);
 int posix_tgkill(int tgid, int tid, int sig);

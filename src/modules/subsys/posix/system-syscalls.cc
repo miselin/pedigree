@@ -85,6 +85,22 @@
 #define LINUX_GRND_NONBLOCK 0x1
 #define LINUX_GRND_RANDOM 0x2
 
+namespace {
+class CloneInterruptScope {
+ public:
+  CloneInterruptScope() : m_Previous(Processor::getInterrupts()) {
+    Processor::setInterrupts(false);
+  }
+
+  ~CloneInterruptScope() {
+    Processor::setInterrupts(m_Previous);
+  }
+
+ private:
+  bool m_Previous;
+};
+}  // namespace
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 namespace {
 using CloneBeforeStartHook = void (*)(Thread*, size_t, void*);
@@ -270,7 +286,9 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   SC_NOTICE("clone(" << Hex << flags << ", " << child_stack << ", " << ptid << ", " << ctid << ", "
                      << newtls << ")");
 
-  Processor::setInterrupts(false);
+  // Cloning switches address spaces while assembling the child image, but
+  // the syscall return path still needs the caller's IRQ state restored.
+  CloneInterruptScope interrupts;
 
   // Must clone state as we make modifications for the new thread here.
   SyscallState clonedState = posix_copy_clone_state(state);

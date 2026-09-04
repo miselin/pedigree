@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <pthread.h>
 #include <sched.h>
 #include <signal.h>
 #include <stdio.h>
@@ -29,6 +30,23 @@ static volatile sig_atomic_t sigchldHandlerCalls = 0;
 static volatile sig_atomic_t sigchldHandlerSignal = 0;
 static volatile sig_atomic_t sigchldWaitResult = -1;
 static volatile sig_atomic_t sigchldWaitStatus = 0;
+
+enum {
+  processStopGateAttempts = 20000,
+  processStopGateQuietYields = 512,
+};
+
+struct processStopGateProbe {
+  int heartbeatFd;
+  volatile int ready[2];
+  volatile int stop;
+  volatile int failure;
+};
+
+struct processStopGateWorker {
+  struct processStopGateProbe* probe;
+  int index;
+};
 
 static void handleSignal(int signalNumber) {
   if (signalNumber == SIGUSR1) {
@@ -65,6 +83,43 @@ static void handleSigchld(int signalNumber) {
 static void status(const char* message) {
   puts(message);
   fflush(stdout);
+}
+
+static pid_t waitpid_bounded(pid_t child, int* statusCode, int options) {
+  for (size_t attempt = 0; attempt < processStopGateAttempts; ++attempt) {
+    pid_t result = waitpid(child, statusCode, options | WNOHANG);
+    if (result == child)
+      return result;
+    if (result < 0) {
+      if (errno == EINTR)
+        continue;
+      return result;
+    }
+    sched_yield();
+  }
+  return 0;
+}
+
+static void* run_process_stop_gate_worker(void* parameter) {
+  struct processStopGateWorker* worker = parameter;
+  struct processStopGateProbe* probe = worker->probe;
+  const char token = (char)('a' + worker->index);
+  volatile unsigned long spin = (unsigned long)(worker->index + 1);
+  __atomic_store_n(&probe->ready[worker->index], 1, __ATOMIC_RELEASE);
+
+  while (!__atomic_load_n(&probe->stop, __ATOMIC_ACQUIRE)) {
+    for (size_t i = 0; i < 4096; ++i)
+      spin = (spin * 33) ^ i;
+
+    ssize_t written = write(probe->heartbeatFd, &token, sizeof(token));
+    if (written == sizeof(token) ||
+        (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)))
+      continue;
+    __atomic_store_n(&probe->failure, 1, __ATOMIC_RELEASE);
+    break;
+  }
+
+  return 0;
 }
 
 static void test_proc_self_fd(void) {
@@ -649,6 +704,189 @@ static void test_wait_stop_continue(void) {
   status("OK");
 }
 
+static int wait_for_process_stop_gate_quiet(int heartbeatFd) {
+  size_t quietYields = 0;
+  for (size_t attempt = 0; attempt < processStopGateAttempts; ++attempt) {
+    char heartbeats[128];
+    errno = 0;
+    ssize_t received = read(heartbeatFd, heartbeats, sizeof(heartbeats));
+    if (received > 0) {
+      quietYields = 0;
+    } else if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      if (++quietYields == processStopGateQuietYields)
+        return 0;
+    } else if (received < 0 && errno == EINTR) {
+      continue;
+    } else {
+      return -1;
+    }
+    sched_yield();
+  }
+  return -1;
+}
+
+static int wait_for_process_stop_gate_heartbeat(int heartbeatFd) {
+  for (size_t attempt = 0; attempt < processStopGateAttempts; ++attempt) {
+    char heartbeat;
+    errno = 0;
+    ssize_t received = read(heartbeatFd, &heartbeat, sizeof(heartbeat));
+    if (received == sizeof(heartbeat))
+      return 0;
+    if (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+      return -1;
+    if (!received)
+      return -1;
+    sched_yield();
+  }
+  return -1;
+}
+
+static void test_multithreaded_process_stop_gate(void) {
+  status("Testing multithreaded process stop gate...");
+
+  int heartbeat[2];
+  int release[2];
+  if (pipe(heartbeat) || pipe(release))
+    fail();
+
+  pid_t child = fork();
+  if (child < 0)
+    fail();
+  if (!child) {
+    close(heartbeat[0]);
+    close(release[1]);
+
+    int flags = fcntl(heartbeat[1], F_GETFL);
+    if (flags < 0 || fcntl(heartbeat[1], F_SETFL, flags | O_NONBLOCK) < 0)
+      _exit(120);
+
+    struct processStopGateProbe probe = {
+        .heartbeatFd = heartbeat[1],
+        .ready = {0, 0},
+        .stop = 0,
+        .failure = 0,
+    };
+    struct processStopGateWorker workers[2] = {
+        {&probe, 0},
+        {&probe, 1},
+    };
+    pthread_t threads[2];
+    if (pthread_create(&threads[0], 0, run_process_stop_gate_worker, &workers[0]))
+      _exit(121);
+    if (pthread_create(&threads[1], 0, run_process_stop_gate_worker, &workers[1])) {
+      __atomic_store_n(&probe.stop, 1, __ATOMIC_RELEASE);
+      pthread_join(threads[0], 0);
+      _exit(122);
+    }
+
+    size_t attempt = 0;
+    while ((!__atomic_load_n(&probe.ready[0], __ATOMIC_ACQUIRE) ||
+            !__atomic_load_n(&probe.ready[1], __ATOMIC_ACQUIRE)) &&
+           attempt++ < processStopGateAttempts) {
+      sched_yield();
+    }
+    if (!__atomic_load_n(&probe.ready[0], __ATOMIC_ACQUIRE) ||
+        !__atomic_load_n(&probe.ready[1], __ATOMIC_ACQUIRE) || raise(SIGSTOP)) {
+      __atomic_store_n(&probe.stop, 1, __ATOMIC_RELEASE);
+      pthread_join(threads[0], 0);
+      pthread_join(threads[1], 0);
+      _exit(123);
+    }
+
+    char token = 0;
+    ssize_t received;
+    do {
+      received = read(release[0], &token, sizeof(token));
+    } while (received < 0 && errno == EINTR);
+    __atomic_store_n(&probe.stop, 1, __ATOMIC_RELEASE);
+    const int firstJoin = pthread_join(threads[0], 0);
+    const int secondJoin = pthread_join(threads[1], 0);
+    close(release[0]);
+    close(heartbeat[1]);
+    _exit(received == sizeof(token) && token == 'x' && !firstJoin && !secondJoin &&
+                  !__atomic_load_n(&probe.failure, __ATOMIC_ACQUIRE)
+              ? 0
+              : 124);
+  }
+
+  close(heartbeat[1]);
+  close(release[0]);
+  int failed = 0;
+  int flags = fcntl(heartbeat[0], F_GETFL);
+  if (flags < 0 || fcntl(heartbeat[0], F_SETFL, flags | O_NONBLOCK) < 0)
+    failed = 1;
+
+  int statusCode = 0;
+  pid_t waited = waitpid_bounded(child, &statusCode, WUNTRACED);
+  if (waited != child || !WIFSTOPPED(statusCode) || WSTOPSIG(statusCode) != SIGSTOP)
+    failed = 1;
+
+  if (!failed && wait_for_process_stop_gate_quiet(heartbeat[0]))
+    failed = 1;
+
+  if (!failed &&
+      (kill(child, SIGCONT) || waitpid_bounded(child, &statusCode, WCONTINUED) != child ||
+       !WIFCONTINUED(statusCode) || wait_for_process_stop_gate_heartbeat(heartbeat[0]))) {
+    failed = 1;
+  }
+
+  const char token = 'x';
+  if (!failed && write(release[1], &token, sizeof(token)) != sizeof(token))
+    failed = 1;
+  close(release[1]);
+
+  waited = waitpid_bounded(child, &statusCode, 0);
+  if (waited != child || !WIFEXITED(statusCode) || WEXITSTATUS(statusCode))
+    failed = 1;
+
+  if (waited != child) {
+    (void)kill(child, SIGCONT);
+    (void)kill(child, SIGKILL);
+    (void)waitpid_bounded(child, &statusCode, 0);
+  }
+  close(heartbeat[0]);
+
+  if (failed)
+    fail();
+  status("OK");
+}
+
+static void test_stopped_process_sigkill(void) {
+  status("Testing SIGKILL of stopped process...");
+
+  pid_t child = fork();
+  if (child < 0)
+    fail();
+  if (!child) {
+    if (raise(SIGSTOP))
+      _exit(125);
+    _exit(126);
+  }
+
+  int failed = 0;
+  int statusCode = 0;
+  pid_t waited = waitpid_bounded(child, &statusCode, WUNTRACED);
+  if (waited != child || !WIFSTOPPED(statusCode) || WSTOPSIG(statusCode) != SIGSTOP)
+    failed = 1;
+
+  if (!failed && kill(child, SIGKILL))
+    failed = 1;
+
+  waited = waitpid_bounded(child, &statusCode, 0);
+  if (waited != child || !WIFSIGNALED(statusCode) || WTERMSIG(statusCode) != SIGKILL)
+    failed = 1;
+
+  if (waited != child) {
+    (void)kill(child, SIGKILL);
+    (void)kill(child, SIGCONT);
+    (void)waitpid_bounded(child, &statusCode, 0);
+  }
+
+  if (failed)
+    fail();
+  status("OK");
+}
+
 static void test_thread_signal_syscalls(void) {
   status("Testing thread-directed signal syscalls...");
 
@@ -757,6 +995,8 @@ void test_process(const char* program) {
   test_exec_partial_page_bss();
   test_exec_failure_boundary();
   test_wait_stop_continue();
+  test_multithreaded_process_stop_gate();
+  test_stopped_process_sigkill();
   test_thread_signal_syscalls();
   test_sigsuspend();
 }

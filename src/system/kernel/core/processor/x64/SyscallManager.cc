@@ -66,15 +66,9 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
     Processor::setInterrupts(true);
 
     size_t serviceNumber = syscallState.getSyscallService();
-
-    if (UNLIKELY(serviceNumber >= serviceEnd)) {
-      // TODO: We should return an error here
-      return;
-    }
-
     bool handled = false;
     PostSyscallAction action;
-    {
+    if (LIKELY(serviceNumber < serviceEnd)) {
       // The lease must retire before the deferral allows a pending terminal
       // request to consume this thread's stack.
       TerminationDeferral callbackDeferral;
@@ -100,7 +94,24 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
       }
     }
 
-    if (handled) {
+    PerProcessorScheduler& scheduler = Processor::information().getScheduler();
+    if (!handled) {
+      // Even an invalid service or a temporarily missing handler came from a
+      // real userspace frame and must not bypass pending return work.
+      userReturnTerminal = scheduler.serviceUserReturnWork(syscallState);
+    } else {
+      const bool directUserTransition =
+          action.kind == ReturnFromEvent || action.kind == PopEventState ||
+          action.kind == RestoreProcessorState || action.kind == JumpToUserspace;
+      if (directUserTransition) {
+        userReturnTerminal = scheduler.serviceProcessStopAtUserReturn(
+            PerProcessorScheduler::ProcessStopGateMode::DirectUserTransition);
+        Thread* current = Processor::information().getCurrentThread();
+        if (current && current->getUnwindState() != Thread::Continue) {
+          userReturnTerminal = true;
+        }
+      }
+
       switch (action.kind) {
         case TerminateCurrentThread:
           commitThreadExit = true;
@@ -110,12 +121,21 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
           processExitCode = static_cast<int>(action.value);
           break;
         case ReturnFromEvent:
+          if (userReturnTerminal) {
+            break;
+          }
           tracker.finish();
-          Processor::information().getScheduler().eventHandlerReturned();
+          scheduler.eventHandlerReturned();
+          break;
         case PopEventState:
-          Processor::information().getCurrentThread()->abandonCurrentState(false);
+          if (!userReturnTerminal) {
+            Processor::information().getCurrentThread()->abandonCurrentState(false);
+          }
           break;
         case RestoreProcessorState: {
+          if (userReturnTerminal) {
+            break;
+          }
           // Linux rt_sigreturn replaces the current user register
           // image; it does not own a Pedigree event state to pop.
           const uintptr_t userStack = action.state.rsp;
@@ -132,6 +152,9 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
           Processor::contextSwitch(returnState);
         }
         case JumpToUserspace: {
+          if (userReturnTerminal) {
+            break;
+          }
           tracker.finish();
           Processor::setInterrupts(false);
           Thread* current = Processor::information().getCurrentThread();
@@ -144,25 +167,24 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
           rebootSystem = true;
           break;
         case NoPostSyscallAction:
-          userReturnTerminal =
-              Processor::information().getScheduler().serviceUserReturnWork(syscallState);
+          userReturnTerminal = scheduler.serviceUserReturnWork(syscallState);
           break;
       }
+    }
 
-      if (!exitCurrentProcess && !rebootSystem) {
-        Thread* pThread = Processor::information().getCurrentThread();
-        const Thread::UnwindType unwindState = pThread->getUnwindState();
-        if (userReturnTerminal || unwindState != Thread::Continue) {
-          if (unwindState == Thread::TerminateThread) {
-            commitThreadExit = true;
-          }
-          if (unwindState == Thread::Exit) {
-            NOTICE("Unwind state exit at syscall return");
-            exitCurrentProcess = true;
-            const Thread::DeferredProcessExit request = pThread->takeDeferredProcessExit();
-            processExitCode = request.code;
-            processExitCause = request.cause;
-          }
+    if (!exitCurrentProcess && !rebootSystem) {
+      Thread* pThread = Processor::information().getCurrentThread();
+      const Thread::UnwindType unwindState = pThread->getUnwindState();
+      if (userReturnTerminal || unwindState != Thread::Continue) {
+        if (unwindState == Thread::TerminateThread) {
+          commitThreadExit = true;
+        }
+        if (unwindState == Thread::Exit) {
+          NOTICE("Unwind state exit at syscall return");
+          exitCurrentProcess = true;
+          const Thread::DeferredProcessExit request = pThread->takeDeferredProcessExit();
+          processExitCode = request.code;
+          processExitCause = request.cause;
         }
       }
     }

@@ -105,10 +105,14 @@ class EXPORTED_PUBLIC WaitQueue {
 
    private:
     friend class WaitQueue;
+    friend class PerProcessorScheduler;
 
     explicit Guard(WaitQueue& queue);
     NOT_COPYABLE_OR_ASSIGNABLE(Guard);
 
+    /** Leaves event selection to the caller after its wait predicate recheck. */
+    MUST_USE_RESULT WakeReason waitWithoutEventDispatch(const Channel& channel, size_t debugState,
+                                                        uintptr_t debugAddress);
     void queueSchedulerNotification(Waiter* waiter);
     void release();
 
@@ -183,7 +187,7 @@ class EXPORTED_PUBLIC WaitQueue {
   };
 
   WakeReason wait(Guard& guard, Mutex* mutex, const Channel& channel, size_t debugState,
-                  uintptr_t debugAddress, bool deferTerminal);
+                  uintptr_t debugAddress, bool deferTerminal, bool dispatchEvents);
   bool wakeOneLocked(Guard& guard, WakeReason reason, const Channel& channel);
   size_t wakeAllLocked(Guard& guard, WakeReason reason, const Channel& channel);
   bool completeWaiter(Guard& guard, Waiter* waiter, WakeReason reason);

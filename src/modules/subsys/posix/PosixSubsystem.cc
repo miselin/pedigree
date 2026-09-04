@@ -2171,10 +2171,6 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   // pedigree_init_pthreads();
 
   Processor::setInterrupts(true);
-  Thread* currentThread = Processor::information().getCurrentThread();
-  if (currentThread && currentThread->getParent() == pProcess) {
-    currentThread->recordTime(CpuTimeMode::User);
-  }
 
   if (!state) {
     // Publish the user Thread only after its initial stack has an owner.

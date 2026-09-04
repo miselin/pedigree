@@ -1495,6 +1495,19 @@ void Process::suspendInternal(int stopSignal, bool checkContinuationEpoch,
     }
   }
 
+  Thread* current = Processor::information().getCurrentThread();
+  if (current && current->getParent() == this) {
+    // The stop-owning thread uses the same event-publication handshake as
+    // return-bound peers. This retains a terminal event queued after the
+    // Suspended transition but before the owner publishes its wait.
+    if (current->getScheduler()->serviceProcessStopAtUserReturn()) {
+      return;
+    }
+    return;
+  }
+
+  // Kernel callers may synchronously suspend another Process. Preserve that
+  // control-plane wait without applying the caller's own event policy.
   while (true) {
     auto guard = m_SuspensionWaiters.acquire();
     if (getState() != Suspended) {
@@ -1561,12 +1574,16 @@ void Process::resume() {
     return;
   }
 
-  // An event queued before the Active transition was deliberately not allowed
-  // to wake a stopped thread. A fresh eligibility pass also covers threads
-  // blocked somewhere other than the process suspension wait queue.
+  // Wake return-boundary gates through the queue shared with event
+  // publication, then recheck events that became eligible at Active.
   for (size_t i = getNumThreads(); i > 0; --i) {
     ThreadLease thread;
     if (acquireThread(thread, i - 1)) {
+      {
+        auto eventGuard = thread->m_EventWaiters.acquire();
+        eventGuard.wakeAll(WaitQueue::WakeReason::Signalled,
+                           WaitQueue::Channel(this, static_cast<uintptr_t>(Thread::ProcessWait)));
+      }
       thread->wakeForDeliverableEvents();
     }
   }

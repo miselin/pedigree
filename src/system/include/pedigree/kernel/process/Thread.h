@@ -795,18 +795,26 @@ class EXPORTED_PUBLIC Thread {
                             WaitQueue::StackDiscardCleanup onStackDiscard,
                             void* stackDiscardContext);
 
+  enum class EventSelection {
+    AnyDeliverable,
+    KernelDeliverable,
+    StoppedProcessKernel,
+  };
+
   /** Checks one event against masks and process state while m_Lock is held. */
-  bool eventIsDeliverableUnlocked(Event* event);
+  bool eventIsDeliverableUnlocked(Event* event,
+                                  EventSelection selection = EventSelection::AnyDeliverable);
 
   /** Checks for an event that can run while m_Lock is already held. */
-  bool hasEventsUnlocked();
-  bool hasDeliverableEventsUnlocked();
+  bool hasEventsUnlocked(EventSelection selection = EventSelection::AnyDeliverable);
+  bool hasDeliverableEventsUnlocked(EventSelection selection = EventSelection::AnyDeliverable);
 
   /** Rechecks queued events after the parent process becomes runnable. */
   void wakeForDeliverableEvents();
 
   /** Scheduler-only dequeue that retains the Event delivery registration. */
-  MUST_USE_RESULT Event::Delivery getNextEvent();
+  MUST_USE_RESULT Event::Delivery getNextEvent(
+      EventSelection selection = EventSelection::AnyDeliverable);
 
   /** Scheduler-only status transition primitive. */
   void setStatus(Status s);
