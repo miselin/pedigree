@@ -196,7 +196,10 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
   else {
     Thread* pThread = Processor::information().getCurrentThread();
     pThread->clearInterruption();
-    const bool completionWait = deferTerminal || !m_bCanInterrupt;
+    // Explicit completion waits always finish. A non-interruptible ownership
+    // wait does so only while its caller has deferred terminal teardown.
+    const bool completionWait =
+        deferTerminal || (!m_bCanInterrupt && pThread->isTerminationDeferred());
 
     // If we have a timeout, create the event and register it.
     Event* pEvent = 0;
