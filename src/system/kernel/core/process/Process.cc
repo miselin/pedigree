@@ -1496,6 +1496,7 @@ void Process::suspend(int stopSignal) {
 
 void Process::resume() {
   bool published = false;
+  bool resumed = false;
   while (!published) {
     Process* pParent = getParent();
     if (pParent) {
@@ -1515,6 +1516,7 @@ void Process::resume() {
       if (transitionState(Suspended, Active)) {
         m_PendingChildTransition.kind = ChildTransitionKind::Continued;
         m_PendingChildTransition.stopSignal = 0;
+        resumed = true;
         suspensionGuard.wakeAll();
         guard.wakeAll();
       }
@@ -1524,9 +1526,24 @@ void Process::resume() {
       if (transitionState(Suspended, Active)) {
         m_PendingChildTransition.kind = ChildTransitionKind::Continued;
         m_PendingChildTransition.stopSignal = 0;
+        resumed = true;
         suspensionGuard.wakeAll();
       }
       published = true;
+    }
+  }
+
+  if (!resumed) {
+    return;
+  }
+
+  // An event queued before the Active transition was deliberately not allowed
+  // to wake a stopped thread. A fresh eligibility pass also covers threads
+  // blocked somewhere other than the process suspension wait queue.
+  for (size_t i = getNumThreads(); i > 0; --i) {
+    ThreadLease thread;
+    if (acquireThread(thread, i - 1)) {
+      thread->wakeForDeliverableEvents();
     }
   }
 }

@@ -1801,12 +1801,7 @@ Event::Delivery Thread::getNextEvent() {
         continue;
       }
 
-      size_t eventNumber = e->getNumber();
-      bool signalInhibited = e->isSignalEvent() && eventNumber > 0 && eventNumber <= 64 &&
-                             (m_StateLevels[m_nStateLevel].m_SignalMask &
-                              (static_cast<uint64_t>(1) << (eventNumber - 1)));
-      if (m_StateLevels[m_nStateLevel].m_InhibitMask->test(eventNumber) || signalInhibited ||
-          (e->getSpecificNestingLevel() != ~0UL && e->getSpecificNestingLevel() != m_nStateLevel)) {
+      if (!eventIsDeliverableUnlocked(e)) {
         m_EventQueue.pushBack(e);
       } else {
         pResult = e;
@@ -1824,16 +1819,22 @@ bool Thread::hasEvents() {
   return hasEventsUnlocked();
 }
 
+bool Thread::eventIsDeliverableUnlocked(Event* event) {
+  const size_t eventNumber = event->getNumber();
+  const bool signalInhibited =
+      event->isSignalEvent() && eventNumber > 0 && eventNumber <= 64 &&
+      (m_StateLevels[m_nStateLevel].m_SignalMask & (static_cast<uint64_t>(1) << (eventNumber - 1)));
+  const bool processSuspendsEvent =
+      m_pParent && m_pParent->isSuspended() && !event->isDeliverableWhileProcessSuspended();
+  return !m_StateLevels[m_nStateLevel].m_InhibitMask->test(eventNumber) && !signalInhibited &&
+         !processSuspendsEvent &&
+         (event->getSpecificNestingLevel() == ~0UL ||
+          event->getSpecificNestingLevel() == m_nStateLevel);
+}
+
 bool Thread::hasEventsUnlocked() {
   for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end(); ++it) {
-    Event* event = *it;
-    size_t eventNumber = event->getNumber();
-    bool signalInhibited = event->isSignalEvent() && eventNumber > 0 && eventNumber <= 64 &&
-                           (m_StateLevels[m_nStateLevel].m_SignalMask &
-                            (static_cast<uint64_t>(1) << (eventNumber - 1)));
-    if (!m_StateLevels[m_nStateLevel].m_InhibitMask->test(eventNumber) && !signalInhibited &&
-        (event->getSpecificNestingLevel() == ~0UL ||
-         event->getSpecificNestingLevel() == m_nStateLevel)) {
+    if (eventIsDeliverableUnlocked(*it)) {
       return true;
     }
   }
@@ -1843,6 +1844,23 @@ bool Thread::hasEventsUnlocked() {
 
 bool Thread::hasDeliverableEventsUnlocked() {
   return !__atomic_load_n(&m_EventDeferralDepth, __ATOMIC_ACQUIRE) && hasEventsUnlocked();
+}
+
+void Thread::wakeForDeliverableEvents() {
+  bool wakeThread = false;
+  PerProcessorScheduler* readyScheduler = nullptr;
+  {
+    auto eventWaitGuard = m_EventWaiters.acquire();
+    LockGuard<Spinlock> guard(m_Lock);
+    if (!m_bShutdown && m_Status != Zombie && hasDeliverableEventsUnlocked()) {
+      wakeThread = interruptWaitUnlocked(WaitQueue::WakeReason::Event, readyScheduler);
+    }
+  }
+
+  if (wakeThread) {
+    assert(readyScheduler);
+    readyScheduler->publishReadyFromWait(this);
+  }
 }
 
 bool Thread::hasEvent(Event* pEvent) {

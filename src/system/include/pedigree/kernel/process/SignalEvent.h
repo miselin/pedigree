@@ -43,6 +43,11 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
     return true;
   }
 
+  virtual bool isDeliverableWhileProcessSuspended() const {
+    // Signal 9 is SIGKILL on every ABI which uses SignalEvent.
+    return m_SignalNumber == 9;
+  }
+
   virtual Event* cloneForDelivery();
 
   virtual size_t getNumber() {

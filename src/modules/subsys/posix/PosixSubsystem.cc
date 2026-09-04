@@ -854,12 +854,6 @@ void PosixSubsystem::sendSignal(Thread* pThread, int signal, bool yield) {
   }
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
 
-  // SIGCONT's continuation effect is independent of whether the signal is
-  // blocked, caught, or ignored. Handler delivery is resolved afterwards.
-  if (signal == SIGCONT) {
-    pProcess->resume();
-  }
-
   const SignalDeliveryResult result = pSubsystem->queueSignalDelivery(pThread, signal);
   if (result == SignalDeliveryResult::Unavailable) {
     ERROR("Unknown signal in sendSignal - POSIX subsystem");
@@ -948,11 +942,48 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
     *flags = 0;
   }
 
-  m_SignalHandlersLock.enter();
+  m_SignalHandlersLock.acquire();
 
   if (!target || !target->getParent() || target->getParent()->getSubsystem() != this || sig >= 32) {
-    m_SignalHandlersLock.leave();
+    m_SignalHandlersLock.release();
     return SignalDeliveryResult::Unavailable;
+  }
+
+  constexpr size_t StopSignals[] = {SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU};
+  const size_t* signalsToDiscard = nullptr;
+  size_t signalsToDiscardCount = 0;
+  size_t continueSignal = SIGCONT;
+  if (sig == SIGCONT) {
+    signalsToDiscard = StopSignals;
+    signalsToDiscardCount = sizeof(StopSignals) / sizeof(StopSignals[0]);
+  } else {
+    for (size_t stopSignal : StopSignals) {
+      if (sig == stopSignal) {
+        signalsToDiscard = &continueSignal;
+        signalsToDiscardCount = 1;
+        break;
+      }
+    }
+  }
+
+  Process* process = target->getParent();
+  if (signalsToDiscard) {
+    // Pending stop and continue signals are mutually exclusive across the
+    // whole process, including thread-directed signals.
+    for (size_t i = process->getNumThreads(); i > 0; --i) {
+      Process::ThreadLease thread;
+      if (process->acquireThread(thread, i - 1)) {
+        for (size_t n = 0; n < signalsToDiscardCount; ++n) {
+          thread->cullSignalEvent(signalsToDiscard[n]);
+        }
+      }
+    }
+  }
+
+  // Continuation is a generation-time effect even when SIGCONT is blocked or
+  // ignored. Publish Active before a caught handler can enter the event queue.
+  if (sig == SIGCONT) {
+    process->resume();
   }
 
   SignalHandler* handler = m_SignalHandlers.lookup(sig);
@@ -971,7 +1002,7 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
         target->sendEvent(delivery) ? SignalDeliveryResult::Queued : SignalDeliveryResult::Rejected;
   }
 
-  m_SignalHandlersLock.leave();
+  m_SignalHandlersLock.release();
   if (delivery && result == SignalDeliveryResult::Rejected) {
     delete delivery;
   }

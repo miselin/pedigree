@@ -237,6 +237,11 @@ class EXPORTED_PUBLIC Event {
     return false;
   }
 
+  /** Returns whether this event can run before a suspended process resumes. */
+  virtual bool isDeliverableWhileProcessSuspended() const {
+    return true;
+  }
+
   /**
    * Returns the instance to enqueue for one delivery. Most events enqueue
    * themselves; signal dispositions return an independently owned snapshot.

@@ -194,11 +194,27 @@ bool signalCullPreservesNumberCollision(Thread* thread) {
 }
 
 #if !defined(PEDIGREE_HOSTED_CORE_SMOKE)
-void installSignalDisposition(PosixSubsystem& subsystem, size_t signal, int type) {
+Atomic<size_t> g_ContinueHandlerCalls(0);
+Atomic<size_t> g_ContinueHandlerObservedActive(0);
+
+void hostedContinueHandler(size_t) {
+  Thread* current = Processor::information().getCurrentThread();
+  if (current && current->getParent()->getState() == Process::Active) {
+    g_ContinueHandlerObservedActive += 1;
+  }
+  g_ContinueHandlerCalls += 1;
+}
+
+void installSignalDisposition(PosixSubsystem& subsystem, size_t signal, int type,
+                              void (*handlerAddress)(size_t) = &hostedSignalHandler) {
   PosixSubsystem::SignalHandler* handler = new PosixSubsystem::SignalHandler;
   handler->type = type;
-  handler->pEvent = new SignalEvent(reinterpret_cast<uintptr_t>(&hostedSignalHandler), signal);
+  handler->pEvent = new SignalEvent(reinterpret_cast<uintptr_t>(handlerAddress), signal);
   subsystem.setSignalHandler(signal, handler);
+}
+
+int dormantSignalThread(void*) {
+  return 0;
 }
 
 struct IgnoredContinueContext {
@@ -422,6 +438,209 @@ bool signalContinueStillResumes(Process* kernelProcess) {
   const bool passed =
       check(ignored && caughtAndBlocked && g_SignalHandlerCalls == 0,
             "an ignored or blocked SIGCONT required handler delivery to resume its target");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool opposingJobControlSignalsCancelAcrossThreads(Process* kernelProcess) {
+  constexpr const char* Test = "opposing-job-control-signals-cancel";
+  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  process->publish();
+
+  constexpr size_t StopSignals[] = {SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU};
+  constexpr uint64_t JobControlMask =
+      (static_cast<uint64_t>(1) << (SIGCONT - 1)) | (static_cast<uint64_t>(1) << (SIGSTOP - 1)) |
+      (static_cast<uint64_t>(1) << (SIGTSTP - 1)) | (static_cast<uint64_t>(1) << (SIGTTIN - 1)) |
+      (static_cast<uint64_t>(1) << (SIGTTOU - 1));
+  installSignalDisposition(*subsystem, SIGCONT, 0);
+  for (size_t stopSignal : StopSignals) {
+    installSignalDisposition(*subsystem, stopSignal, 0);
+  }
+
+  Thread* first = new Thread(process, dormantSignalThread, nullptr, nullptr, false, true, true);
+  Thread* second = new Thread(process, dormantSignalThread, nullptr, nullptr, false, true, true);
+  first->setSignalMask(JobControlMask);
+  second->setSignalMask(JobControlMask);
+
+  const bool continueQueued = subsystem->queueSignalDelivery(first, SIGCONT) ==
+                                  PosixSubsystem::SignalDeliveryResult::Queued &&
+                              first->hasEvent(SIGCONT);
+  const bool stopQueued = continueQueued && subsystem->queueSignalDelivery(second, SIGTSTP) ==
+                                                PosixSubsystem::SignalDeliveryResult::Queued;
+  const bool stopCancelledContinue =
+      stopQueued && !first->hasEvent(SIGCONT) && second->hasEvent(SIGTSTP);
+
+  bool everyStopQueued = stopCancelledContinue;
+  for (size_t i = 0; i < sizeof(StopSignals) / sizeof(StopSignals[0]); ++i) {
+    Thread* target = i % 2 ? second : first;
+    everyStopQueued &= subsystem->queueSignalDelivery(target, StopSignals[i]) ==
+                       PosixSubsystem::SignalDeliveryResult::Queued;
+  }
+  const bool blockedContinueQueued =
+      everyStopQueued && subsystem->queueSignalDelivery(first, SIGCONT) ==
+                             PosixSubsystem::SignalDeliveryResult::Queued;
+  bool continueCancelledEveryStop = blockedContinueQueued && first->hasEvent(SIGCONT);
+  for (size_t stopSignal : StopSignals) {
+    continueCancelledEveryStop &= !first->hasEvent(stopSignal) && !second->hasEvent(stopSignal);
+  }
+
+  installSignalDisposition(*subsystem, SIGCONT, 2);
+  bool ignoredSetupQueued = continueCancelledEveryStop;
+  for (size_t i = 0; i < sizeof(StopSignals) / sizeof(StopSignals[0]); ++i) {
+    Thread* target = i % 2 ? first : second;
+    ignoredSetupQueued &= subsystem->queueSignalDelivery(target, StopSignals[i]) ==
+                          PosixSubsystem::SignalDeliveryResult::Queued;
+  }
+  const bool ignoredContinue =
+      ignoredSetupQueued && subsystem->queueSignalDelivery(second, SIGCONT) ==
+                                PosixSubsystem::SignalDeliveryResult::Ignored;
+  bool ignoredContinueCancelledEveryStop =
+      ignoredContinue && !first->hasEvent(SIGCONT) && !second->hasEvent(SIGCONT);
+  for (size_t stopSignal : StopSignals) {
+    ignoredContinueCancelledEveryStop &=
+        !first->hasEvent(stopSignal) && !second->hasEvent(stopSignal);
+  }
+
+  Process::ChildTransition transition;
+  bool redundantResumeWasSilent = false;
+  {
+    auto guard = kernelProcess->acquireChildStateWait();
+    redundantResumeWasSilent = !process->takePendingChildTransition(true, true, transition);
+  }
+
+  const bool firstStarted = first->start();
+  const bool secondStarted = second->start();
+  const bool firstJoined = firstStarted && first->joinForCompletion();
+  const bool secondJoined = secondStarted && second->joinForCompletion();
+  if (!firstStarted) {
+    delete first;
+  }
+  if (!secondStarted) {
+    delete second;
+  }
+
+  const bool passed = check(
+      stopCancelledContinue && continueCancelledEveryStop && ignoredContinueCancelledEveryStop &&
+          redundantResumeWasSilent && firstStarted && secondStarted && firstJoined && secondJoined,
+      "a process retained mutually exclusive pending stop and continue signals");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+struct CaughtContinueContext {
+  explicit CaughtContinueContext(Process* process)
+      : process(process), finish(0), entered(0), resumed(0) {}
+
+  Process* process;
+  Semaphore finish;
+  Atomic<size_t> entered;
+  Atomic<size_t> resumed;
+};
+
+int suspendForCaughtContinue(void* parameter) {
+  CaughtContinueContext* context = reinterpret_cast<CaughtContinueContext*>(parameter);
+  context->entered += 1;
+  context->process->suspend();
+  context->resumed += 1;
+  (void)context->finish.acquire();
+  return 0;
+}
+
+bool stoppedProcessDefersSignalsUntilContinue(Process* kernelProcess) {
+  constexpr const char* Test = "stopped-process-defers-signals";
+  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  process->publish();
+  installSignalDisposition(*subsystem, SIGUSR1, 0);
+  installSignalDisposition(*subsystem, SIGCONT, 0, &hostedContinueHandler);
+
+  IgnoredSignalWaitContext ordinaryContext;
+  Thread* ordinary =
+      new Thread(process, waitThroughIgnoredSignal, &ordinaryContext, nullptr, false, true, true);
+  ordinary->setName("hosted stopped ordinary-signal target");
+  const bool ordinaryStarted = ordinary->start();
+  const bool ordinaryWaiting = ordinaryStarted && waitUntilQueued(ordinary, Thread::SemWait);
+
+  CaughtContinueContext continueContext(process);
+  Thread* continuer =
+      new Thread(process, suspendForCaughtContinue, &continueContext, nullptr, false, true, true);
+  continuer->setName("hosted caught SIGCONT target");
+  const bool continuerStarted = ordinaryWaiting && continuer->start();
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (continuerStarted && !process->isSuspended() && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+  const bool suspended = process->isSuspended();
+
+  g_SignalHandlerCalls = 0;
+  g_ContinueHandlerCalls = 0;
+  g_ContinueHandlerObservedActive = 0;
+  const PosixSubsystem::SignalDeliveryResult ordinaryResult =
+      suspended ? subsystem->queueSignalDelivery(ordinary, SIGUSR1)
+                : PosixSubsystem::SignalDeliveryResult::Unavailable;
+  for (size_t attempt = 0; attempt < 32 && !ordinaryContext.returned; ++attempt) {
+    Scheduler::instance().yield();
+  }
+  Thread::WaitDebugInfo wait = {};
+  const bool ordinaryStayedPending =
+      ordinaryResult == PosixSubsystem::SignalDeliveryResult::Queued &&
+      ordinary->hasEvent(SIGUSR1) && !ordinaryContext.returned && !g_SignalHandlerCalls &&
+      ordinary->getWaitDebugInfo(wait) && wait.queued && process->isSuspended();
+
+  const PosixSubsystem::SignalDeliveryResult continueResult =
+      ordinaryStayedPending ? subsystem->queueSignalDelivery(continuer, SIGCONT)
+                            : PosixSubsystem::SignalDeliveryResult::Unavailable;
+  const bool continuedBySignal = process->getState() == Process::Active;
+  const Time::Timestamp deliveryDeadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while ((!ordinaryContext.returned || !g_ContinueHandlerCalls) &&
+         Time::getTicks() < deliveryDeadline) {
+    Scheduler::instance().yield();
+  }
+  const bool deliveredByContinue = ordinaryContext.returned && g_ContinueHandlerCalls;
+
+  if (continuerStarted && !suspended) {
+    continuer->setUnwindState(Thread::TerminateThread);
+  }
+  if (!ordinaryContext.returned) {
+    ordinaryContext.gate.release();
+  }
+  continueContext.finish.release();
+  process->resume();
+  const bool ordinaryJoined = ordinaryStarted && ordinary->joinForCompletion();
+  const bool continuerJoined = continuerStarted && continuer->joinForCompletion();
+  // A timeout can race just ahead of the worker's Active -> Suspended CAS.
+  // Termination makes that late wait return; this second resume cleans the
+  // process state after the worker is guaranteed off-stack.
+  process->resume();
+  if (!ordinaryStarted) {
+    delete ordinary;
+  }
+  if (!continuerStarted) {
+    delete continuer;
+  }
+
+  const bool passed = check(
+      ordinaryStarted && ordinaryWaiting && continuerStarted && suspended &&
+          ordinaryStayedPending && continueResult == PosixSubsystem::SignalDeliveryResult::Queued &&
+          continuedBySignal && deliveredByContinue && ordinaryJoined && continuerJoined &&
+          ordinaryContext.entered == 1 && ordinaryContext.returned == 1 &&
+          ordinaryContext.acquired == 0 && ordinaryContext.error == Semaphore::Interrupted &&
+          ordinaryContext.interruption == Thread::InterruptedBySignal &&
+          continueContext.entered == 1 && continueContext.resumed == 1 &&
+          g_SignalHandlerCalls == 1 && g_ContinueHandlerCalls == 1 &&
+          g_ContinueHandlerObservedActive == 1,
+      "a stopped signal escaped early, remained stranded, or ran SIGCONT before Active");
   delete process;
 
   if (passed) {
@@ -1168,6 +1387,8 @@ bool runHostedSignalInterruptionRegressions(Thread* thread) {
       ignoredSignalDoesNotInterruptWait(thread->getParent()) &&
       ignoredDispositionDiscardsPendingSignals(thread->getParent()) &&
       signalContinueStillResumes(thread->getParent()) &&
+      opposingJobControlSignalsCancelAcrossThreads(thread->getParent()) &&
+      stoppedProcessDefersSignalsUntilContinue(thread->getParent()) &&
 #endif
       temporarySignalMaskNestedPrequeued(thread) && temporarySignalMaskAcrossMutex(thread) &&
       temporarySignalMaskIgnoresDefaultAction(thread) &&

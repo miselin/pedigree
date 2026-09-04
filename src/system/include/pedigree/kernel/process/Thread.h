@@ -763,9 +763,15 @@ class EXPORTED_PUBLIC Thread {
                             WaitQueue::StackDiscardCleanup onStackDiscard,
                             void* stackDiscardContext);
 
+  /** Checks one event against masks and process state while m_Lock is held. */
+  bool eventIsDeliverableUnlocked(Event* event);
+
   /** Checks for an event that can run while m_Lock is already held. */
   bool hasEventsUnlocked();
   bool hasDeliverableEventsUnlocked();
+
+  /** Rechecks queued events after the parent process becomes runnable. */
+  void wakeForDeliverableEvents();
 
   /** Scheduler-only dequeue that retains the Event delivery registration. */
   MUST_USE_RESULT Event::Delivery getNextEvent();

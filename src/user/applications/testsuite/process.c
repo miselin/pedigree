@@ -21,10 +21,16 @@
 extern void fail(void) __attribute__((noreturn));
 
 static volatile sig_atomic_t signalHandled = 0;
+static int signalReportFd = -1;
 
 static void handleSignal(int signalNumber) {
-  if (signalNumber == SIGUSR1)
+  if (signalNumber == SIGUSR1) {
     signalHandled = 1;
+    if (signalReportFd >= 0) {
+      const char token = 's';
+      (void)write(signalReportFd, &token, sizeof(token));
+    }
+  }
 }
 
 static void status(const char* message) {
@@ -125,7 +131,8 @@ static void test_wait_stop_continue(void) {
   status("Testing stopped and continued wait status...");
 
   int gate[2];
-  if (pipe(gate))
+  int signalReport[2];
+  if (pipe(gate) || pipe(signalReport))
     fail();
 
   pid_t child = fork();
@@ -133,8 +140,18 @@ static void test_wait_stop_continue(void) {
     fail();
   if (!child) {
     close(gate[1]);
-    if (raise(SIGSTOP))
+    close(signalReport[0]);
+    signalReportFd = signalReport[1];
+    signalHandled = 0;
+    struct sigaction action = {0};
+    action.sa_handler = handleSignal;
+    if (sigemptyset(&action.sa_mask) || sigaction(SIGUSR1, &action, 0) || raise(SIGSTOP))
       _exit(125);
+
+    signalReportFd = -1;
+    close(signalReport[1]);
+    if (!signalHandled)
+      _exit(124);
 
     char token;
     if (read(gate[0], &token, sizeof(token)) != sizeof(token))
@@ -144,13 +161,39 @@ static void test_wait_stop_continue(void) {
   }
 
   close(gate[0]);
+  close(signalReport[1]);
+  int reportFlags = fcntl(signalReport[0], F_GETFL);
+  if (reportFlags < 0 || fcntl(signalReport[0], F_SETFL, reportFlags | O_NONBLOCK) < 0)
+    fail();
   int statusCode = 0;
   if (waitpid(child, &statusCode, WUNTRACED) != child || !WIFSTOPPED(statusCode) ||
       WSTOPSIG(statusCode) != SIGSTOP)
     fail();
 
+  if (kill(child, SIGUSR1))
+    fail();
+  char signalToken = 0;
+  for (size_t attempt = 0; attempt < 1000; ++attempt) {
+    errno = 0;
+    ssize_t received = read(signalReport[0], &signalToken, sizeof(signalToken));
+    if (received >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK))
+      fail();
+    sched_yield();
+  }
+
   if (kill(child, SIGCONT) || waitpid(child, &statusCode, WCONTINUED) != child ||
       !WIFCONTINUED(statusCode))
+    fail();
+
+  ssize_t received = -1;
+  for (size_t attempt = 0; attempt < 1000 && received < 0; ++attempt) {
+    errno = 0;
+    received = read(signalReport[0], &signalToken, sizeof(signalToken));
+    if (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
+      fail();
+    sched_yield();
+  }
+  if (received != sizeof(signalToken) || signalToken != 's' || close(signalReport[0]))
     fail();
 
   const char token = 'x';

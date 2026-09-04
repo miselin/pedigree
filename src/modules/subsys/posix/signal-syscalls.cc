@@ -74,12 +74,6 @@ static int queueThreadSignal(Process* process, Thread* thread, int sig, bool& qu
     NOTICE("SUSPEND [pid=" << pParent->getId() << ", signal " << s << "]");      \
     pParent->suspend(s);                                                         \
   }
-#define SIGNAL_HANDLER_RESUME(name)                                     \
-  static void name(int s) {                                             \
-    NOTICE("RESUME [signal " << s << "]");                              \
-    Processor::information().getCurrentThread()->getParent()->resume(); \
-  }
-
 static char SSIGILL[] = "Illegal instruction.\n";
 static char SSIGSEGV[] = "Segmentation fault.\n";
 static char SSIGBUS[] = "Bus error.\n";
@@ -89,7 +83,7 @@ SIGNAL_HANDLER_EXITMSG(sigabrt, SIGABRT, SSIGABRT)
 SIGNAL_HANDLER_EXIT(sigalrm, SIGALRM)
 SIGNAL_HANDLER_EXITMSG(sigbus, SIGBUS, SSIGBUS)
 SIGNAL_HANDLER_EMPTY(sigchld)
-SIGNAL_HANDLER_RESUME(sigcont)
+static void sigcont(int) {}
 SIGNAL_HANDLER_EXIT(sigfpe, SIGFPE)  // floating point exception signal
 SIGNAL_HANDLER_EXIT(sighup, SIGHUP)
 SIGNAL_HANDLER_EXITMSG(sigill, SIGILL, SSIGILL)
@@ -346,10 +340,6 @@ int posix_raise(int sig, SyscallState& State) {
     return -1;
   }
 
-  if (sig == SIGCONT) {
-    pProcess->resume();
-  }
-
   uint32_t signalFlags = 0;
   PosixSubsystem::SignalDeliveryResult delivery = PosixSubsystem::SignalDeliveryResult::Unavailable;
   const bool bWasInterrupts = Processor::getInterrupts();
@@ -404,24 +394,12 @@ int pedigree_unwind_signal() {
 }
 
 static int doThreadKill(Thread* p, int sig) {
-  // Are we allowed to do this?
-  if (p->getParent()->isSuspended()) {
-    if (!(sig == SIGKILL || sig == SIGCONT)) {
-      WARNING(
-          "kill: can't send anything other than SIGKILL or SIGCONT "
-          "to a suspended process.");
-      return -1;
-    }
-  }
-
   // Build the pending signal and pass it in
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(p->getParent()->getSubsystem());
   if (!pSubsystem) {
     ERROR("posix_kill: no subsystem on process " << p->getParent()->getId());
     return -1;
   }
-  // sendSignal applies SIGCONT's unconditional continuation side effect
-  // before resolving whether handler delivery is ignored or blocked.
   pSubsystem->sendSignal(p, sig, false);
 
   return 0;
@@ -464,10 +442,6 @@ static int queueThreadSignal(Process* process, Thread* thread, int sig, bool& qu
   if (!subsystem) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
-  }
-
-  if (sig == SIGCONT) {
-    process->resume();
   }
 
   const PosixSubsystem::SignalDeliveryResult result =
