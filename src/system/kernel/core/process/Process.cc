@@ -977,6 +977,33 @@ bool Process::acquireThread(ThreadLease& lease, size_t n) {
   return true;
 }
 
+bool Process::acquireThreadById(ThreadLease& lease, size_t id) {
+  Thread* thread = nullptr;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); ++it) {
+      if (*it && (*it)->getId() == id) {
+        thread = *it;
+        break;
+      }
+    }
+    if (!thread || !beginExternalLease()) {
+      thread = nullptr;
+    } else if (!thread->beginExternalLease()) {
+      endExternalLease();
+      thread = nullptr;
+    }
+  }
+
+  if (!thread) {
+    lease.reset();
+    return false;
+  }
+
+  lease = ThreadLease(this, thread);
+  return true;
+}
+
 bool Process::acquireThread(ThreadLease& lease, Thread* expected) {
   if (!expected) {
     lease.reset();

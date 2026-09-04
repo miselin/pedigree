@@ -707,6 +707,38 @@ bool closedFinalProcessLeaseHandoff(Process* kernelProcess) {
   return passed;
 }
 
+bool threadLeaseIdLookup(Process* kernelProcess) {
+  Atomic<size_t> destroyed(0);
+  Thread* first = new ObservedThread(kernelProcess, immediateExit, &destroyed, true);
+  Thread* second = new ObservedThread(kernelProcess, immediateExit, &destroyed, true);
+  first->setName("hosted ThreadLease ID first target");
+  second->setName("hosted ThreadLease ID second target");
+
+  Process::ThreadLease lease;
+  const bool firstAcquired = kernelProcess->acquireThreadById(lease, first->getId());
+  bool passed = check(firstAcquired && lease.get() == first,
+                      "exact thread ID lookup did not acquire its target");
+
+  const bool secondAcquired = kernelProcess->acquireThreadById(lease, second->getId());
+  passed &= check(secondAcquired && lease.get() == second,
+                  "exact thread ID lookup did not replace an active lease");
+
+  const bool missingAcquired = kernelProcess->acquireThreadById(lease, ~static_cast<size_t>(0));
+  passed &=
+      check(!missingAcquired && !lease, "missing thread ID lookup did not reset an active lease");
+
+  first->start();
+  second->start();
+  const bool firstJoined = first->joinForCompletion();
+  const bool secondJoined = second->joinForCompletion();
+  passed &= check(firstJoined && secondJoined && destroyed == 2,
+                  "thread ID lookup fixtures did not retire cleanly");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS thread-lease-id-lookup");
+  }
+  return passed;
+}
+
 bool threadLeaseBarrier(Process* kernelProcess) {
   Atomic<size_t> destroyed(0);
   Thread* target = new ObservedThread(kernelProcess, immediateExit, &destroyed, true);
@@ -715,9 +747,9 @@ bool threadLeaseBarrier(Process* kernelProcess) {
   // Pin the target before making it runnable so the test controls the
   // retirement window instead of racing the immediate-exit trampoline.
   Process::ThreadLease lease;
-  const bool leaseAcquired = kernelProcess->acquireThread(lease, target);
+  const bool leaseAcquired = kernelProcess->acquireThreadById(lease, target->getId());
   bool passed =
-      check(leaseAcquired && static_cast<bool>(lease), "could not acquire the thread lease");
+      check(leaseAcquired && lease.get() == target, "could not acquire the thread lease by ID");
   if (!lease) {
     target->start();
     target->joinForCompletion();
@@ -730,7 +762,7 @@ bool threadLeaseBarrier(Process* kernelProcess) {
   bool retirementClosed = false;
   for (size_t attempt = 0; attempt < Attempts; ++attempt) {
     Process::ThreadLease lateLease;
-    if (!kernelProcess->acquireThread(lateLease, target)) {
+    if (!kernelProcess->acquireThreadById(lateLease, target->getId())) {
       retirementClosed = true;
       break;
     }
@@ -825,8 +857,8 @@ bool runHostedLifetimeLeaseRegressions() {
       admittedThreadPreStartCancellation() && admittedThreadTerminalReleaseOrder() &&
       ownedThreadTerminalJoin(kernelProcess) && processLeaseBarrier(kernelProcess) &&
       openFinalProcessLeaseRelease(kernelProcess) &&
-      closedFinalProcessLeaseHandoff(kernelProcess) && threadLeaseBarrier(kernelProcess) &&
-      openFinalThreadLeaseRelease(kernelProcess);
+      closedFinalProcessLeaseHandoff(kernelProcess) && threadLeaseIdLookup(kernelProcess) &&
+      threadLeaseBarrier(kernelProcess) && openFinalThreadLeaseRelease(kernelProcess);
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS lifetime-leases");
   }

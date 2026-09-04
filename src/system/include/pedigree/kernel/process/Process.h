@@ -253,6 +253,12 @@ class EXPORTED_PUBLIC Process {
   MUST_USE_RESULT bool acquireThread(ThreadLease& lease, size_t n);
 
   /**
+   * Pins the thread whose process-local identifier is \p id into \p lease.
+   * Any previous lease is released; failure leaves \p lease empty.
+   */
+  MUST_USE_RESULT bool acquireThreadById(ThreadLease& lease, size_t id);
+
+  /**
    * Pins an expected Thread into \p lease if this Process still owns it.
    * Any previous lease is released; failure leaves \p lease empty.
    */
