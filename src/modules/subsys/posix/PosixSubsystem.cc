@@ -1767,8 +1767,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   size_t nBytes = originalFile->read(0, 128, reinterpret_cast<uintptr_t>(validateBuffer));
 
   Directory::ChildLease shebangLease;
-  Elf* validElf = new Elf();
-  if (!validElf->validate(validateBuffer, nBytes)) {
+  Elf validElf;
+  if (!validElf.validate(validateBuffer, nBytes)) {
     PS_NOTICE("PosixSubsystem::invoke: '" << originalFile->getName()
                                           << "' is not an ELF binary, looking for shebang...");
 
@@ -1781,21 +1781,30 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
     // Switch to the real target if we must; parseShebang adjusts argv for
     // us.
-    if (shebangFile) {
-      originalFile = shebangFile;
+    if (!shebangFile) {
+      SYSCALL_ERROR(ExecFormatError);
+      return false;
+    }
 
-      // Handle symlinks in shebang target.
-      originalFile = traverseForInvoke(originalFile, shebangLease);
-      if (!originalFile) {
-        return false;
-      }
+    originalFile = shebangFile;
+
+    // Handle symlinks in shebang target.
+    originalFile = traverseForInvoke(originalFile, shebangLease);
+    if (!originalFile) {
+      return false;
+    }
+
+    nBytes = originalFile->read(0, 128, reinterpret_cast<uintptr_t>(validateBuffer));
+    if (!validElf.validate(validateBuffer, nBytes)) {
+      SYSCALL_ERROR(ExecFormatError);
+      return false;
     }
   }
 
   // Can we read & execute the given target?
   if (!VFS::checkAccess(originalFile, true, false, true)) {
     // checkAccess does a SYSCALL_ERROR for us.
-    return -1;
+    return false;
   }
 
   Directory::ChildLease interpreterLease;
@@ -1808,9 +1817,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
   // Determine if the target uses an interpreter or not.
   String interpreter("");
-  DynamicLinker* pLinker = new DynamicLinker();
-  pProcess->setLinker(pLinker);
-  if (pLinker->checkInterpreter(originalFile, interpreter)) {
+  DynamicLinker interpreterProbe;
+  if (interpreterProbe.checkInterpreter(originalFile, interpreter)) {
     // Existing binaries and PUP packages may still name the interpreter
     // using Pedigree's pre-FHS layout.
     String normalisedInterpreter;
@@ -1823,6 +1831,16 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     interpreterFile = traverseForInvoke(interpreterFile, interpreterLease);
     if (!interpreterFile) {
       PS_NOTICE("PosixSubsystem::invoke: could not find interpreter '" << interpreter << "'");
+      return false;
+    }
+
+    if (!VFS::checkAccess(interpreterFile, true, false, true)) {
+      return false;
+    }
+
+    Elf validInterpreter;
+    nBytes = interpreterFile->read(0, 128, reinterpret_cast<uintptr_t>(validateBuffer));
+    if (!validInterpreter.validate(validateBuffer, nBytes)) {
       SYSCALL_ERROR(ExecFormatError);
       return false;
     }
@@ -1832,16 +1850,14 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     interpreterFile = 0;
   }
 
-  // No longer need the DynamicLinker instance.
-  delete pLinker;
-  pLinker = 0;
-  pProcess->setLinker(pLinker);
-
   // Wipe out old address space.
   // Earlier failures preserve the registration. From this irreversible
   // point onward its target belongs to the discarded image.
   pThread->setClearChildTid(0);
+  DynamicLinker* oldLinker = pProcess->getLinker();
+  pProcess->setLinker(nullptr);
   MemoryMapManager::instance().unmapAll();
+  delete oldLinker;
 
   // We now need to clean up the process' address space.
   pProcess->getSpaceAllocator().clear();
@@ -1856,6 +1872,16 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   }
   pProcess->getAddressSpace()->revertToKernelAddressSpace();
 
+  // Pending signal deliveries must no longer refer to handlers in the old
+  // image before any post-commit operation can fail and unwind this call.
+  pedigree_init_sigret();
+
+  auto failAfterCommit = [pThread](Error::PosixError error) {
+    syscallError(error);
+    pThread->deferSignalExit(SIGSEGV);
+    return false;
+  };
+
   // Map in the two ELF files so we can load them into the address space.
   uintptr_t originalBase = 0, interpreterBase = 0;
   MemoryMappedObject::Permissions perms =
@@ -1864,8 +1890,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       originalFile, originalBase, originalFile->getSize(), perms);
   if (!pOriginal) {
     PS_NOTICE("PosixSubsystem::invoke: failed to map target");
-    SYSCALL_ERROR(OutOfMemory);
-    return false;
+    return failAfterCommit(Error::OutOfMemory);
   }
 
   MemoryMappedObject* pInterpreter = 0;
@@ -1875,8 +1900,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     if (!pInterpreter) {
       PS_NOTICE("PosixSubsystem::invoke: failed to map interpreter");
       MemoryMapManager::instance().unmap(pOriginal);
-      SYSCALL_ERROR(OutOfMemory);
-      return false;
+      return failAfterCommit(Error::OutOfMemory);
     }
   }
 
@@ -1888,8 +1912,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
                originalRelocated)) {
     /// \todo cleanup
     PS_NOTICE("PosixSubsystem::invoke: failed to load target");
-    SYSCALL_ERROR(ExecFormatError);
-    return false;
+    return failAfterCommit(Error::ExecFormatError);
   }
 
   // Now load the interpreter.
@@ -1900,17 +1923,18 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
                                   interpreterFinalAddress, interpreterRelocated)) {
     /// \todo cleanup
     PS_NOTICE("PosixSubsystem::invoke: failed to load interpreter");
-    SYSCALL_ERROR(ExecFormatError);
-    return false;
+    return failAfterCommit(Error::ExecFormatError);
   }
 
   // Extract entry points.
   uintptr_t originalEntryPoint = 0, interpreterEntryPoint = 0;
-  Elf::extractEntryPoint(reinterpret_cast<uint8_t*>(originalBase), originalFile->getSize(),
-                         originalEntryPoint);
-  if (interpreterFile) {
-    Elf::extractEntryPoint(reinterpret_cast<uint8_t*>(interpreterBase), interpreterFile->getSize(),
-                           interpreterEntryPoint);
+  if (!Elf::extractEntryPoint(reinterpret_cast<uint8_t*>(originalBase), originalFile->getSize(),
+                              originalEntryPoint) ||
+      (interpreterFile &&
+       !Elf::extractEntryPoint(reinterpret_cast<uint8_t*>(interpreterBase),
+                               interpreterFile->getSize(), interpreterEntryPoint))) {
+    PS_NOTICE("PosixSubsystem::invoke: failed to extract an ELF entry point");
+    return failAfterCommit(Error::ExecFormatError);
   }
 
   if (originalRelocated) {
@@ -1979,8 +2003,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
       Processor::information().getVirtualAddressSpace().allocateStack();
   if (!stack || !stack->getTop()) {
     ERROR("PosixSubsystem::invoke: failed to allocate initial user stack");
-    SYSCALL_ERROR(OutOfMemory);
-    return false;
+    return failAfterCommit(Error::OutOfMemory);
   }
   uintptr_t* loaderStack = reinterpret_cast<uintptr_t*>(stack->getTop());
 
@@ -2090,8 +2113,6 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   MemoryMapManager::instance().unmap(pOriginal);
   pInterpreter = pOriginal = 0;
 
-  // Initialise the sigret if not already done for this process
-  pedigree_init_sigret();
   // pedigree_init_pthreads();
 
   Processor::setInterrupts(true);
@@ -2116,7 +2137,8 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
 
     if (!SyscallManager::instance().requestUserJump(interpreterEntryPoint,
                                                     reinterpret_cast<uintptr_t>(loaderStack))) {
-      FATAL("exec userspace jump was not dispatched.");
+      ERROR("PosixSubsystem::invoke: exec userspace jump was not dispatched");
+      return failAfterCommit(Error::IoError);
     }
     return true;
   }
