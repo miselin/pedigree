@@ -408,6 +408,15 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
                              reinterpret_cast<struct timespec*>(p2));
     case POSIX_CLOCK_GETTIME:
       return posix_clock_gettime(p1, reinterpret_cast<struct timespec*>(p2));
+    case POSIX_CLOCK_GETRES:
+      if (linuxAbi) {
+        return posix_clock_getres(p1, reinterpret_cast<LinuxKernelTimespec*>(p2));
+      }
+      return posix_clock_getres_native(p1, reinterpret_cast<struct timespec*>(p2));
+    case POSIX_CLOCK_NANOSLEEP:
+      return posix_clock_nanosleep(p1, static_cast<int>(p2),
+                                   reinterpret_cast<const LinuxKernelTimespec*>(p3),
+                                   reinterpret_cast<LinuxKernelTimespec*>(p4));
 
     case POSIX_GETEUID:
       return posix_geteuid();

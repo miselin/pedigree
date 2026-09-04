@@ -1480,16 +1480,7 @@ int nanosleep(const struct timespec* rqtp, struct timespec* rmtp) {
 }
 
 int clock_getres(clockid_t clock_id, struct timespec* res) {
-  if (!res) {
-    errno = EINVAL;
-    return -1;
-  }
-
-  // Nanosecond resolution.
-  res->tv_nsec = 1;
-  res->tv_sec = 0;
-
-  return 0;
+  return syscall2(POSIX_CLOCK_GETRES, clock_id, (long)res);
 }
 
 int setreuid(uid_t ruid, uid_t euid) {

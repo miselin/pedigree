@@ -19,6 +19,9 @@ struct LinuxKernelTimespec {
 
 static_assert(sizeof(LinuxKernelTimespec) == 16,
               "Linux amd64 kernel timespec must remain 16 bytes.");
+static_assert(offsetof(LinuxKernelTimespec, tv_sec) == 0 &&
+                  offsetof(LinuxKernelTimespec, tv_nsec) == 8,
+              "Linux amd64 kernel timespec fields must remain ABI-aligned.");
 
 struct LinuxPselectSigsetArgument {
   uintptr_t signalMask;

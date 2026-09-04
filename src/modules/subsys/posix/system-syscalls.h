@@ -29,6 +29,7 @@
 
 // Forward-declare types.
 struct group;
+struct LinuxKernelTimespec;
 struct passwd;
 struct timespec;
 
@@ -66,6 +67,10 @@ int posix_sleep(uint32_t seconds);
 int posix_usleep(size_t useconds);
 int posix_nanosleep(const struct timespec* rqtp, struct timespec* rmtp);
 int posix_clock_gettime(clockid_t clock_id, struct timespec* tp);
+int posix_clock_getres_native(clockid_t clock_id, struct timespec* resolution);
+int posix_clock_getres(clockid_t clock_id, LinuxKernelTimespec* resolution);
+int posix_clock_nanosleep(clockid_t clock_id, int flags, const LinuxKernelTimespec* request,
+                          LinuxKernelTimespec* remainder);
 
 int pedigree_sigret();
 

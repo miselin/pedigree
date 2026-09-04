@@ -222,6 +222,8 @@ class MuslSyscallRoutingTests(unittest.TestCase):
                 re.DOTALL,
             ),
         )
+        self.assertIn("offsetof(LinuxKernelTimespec, tv_sec) == 0", wait_abi)
+        self.assertIn("offsetof(LinuxKernelTimespec, tv_nsec) == 8", wait_abi)
         self.assertIn(
             "static_assert(sizeof(LinuxKernelTimespec) == 16", wait_abi
         )
@@ -450,6 +452,119 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             "PEDIGREE_LINUX_AMD64_SYSCALL(eventfd2, 290, POSIX_EVENTFD2)",
             mappings,
         )
+
+    def test_linux_clock_wait_syscalls_use_the_amd64_time_abi(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+        numbers = (
+            ROOT / "src/modules/subsys/posix/syscalls/posixSyscallNumbers.h"
+        ).read_text(encoding="utf-8")
+        manager = (
+            ROOT / "src/modules/subsys/posix/PosixSyscallManager.cc"
+        ).read_text(encoding="utf-8")
+        wait_abi = (
+            ROOT / "src/modules/subsys/posix/linux-wait-abi.h"
+        ).read_text(encoding="utf-8")
+        source = (
+            ROOT / "src/modules/subsys/posix/signal-syscalls.cc"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(clock_getres, 229, POSIX_CLOCK_GETRES)",
+            mappings,
+        )
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(clock_nanosleep, 230, POSIX_CLOCK_NANOSLEEP)",
+            mappings,
+        )
+        self.assertIn("#define POSIX_CLOCK_GETRES 285", numbers)
+        self.assertIn("#define POSIX_CLOCK_NANOSLEEP 286", numbers)
+        self.assertRegex(
+            wait_abi,
+            re.compile(
+                r"struct LinuxKernelTimespec\s*\{\s*"
+                r"int64_t tv_sec;\s*int64_t tv_nsec;\s*\};",
+                re.DOTALL,
+            ),
+        )
+
+        getres_dispatch = manager.split("case POSIX_CLOCK_GETRES:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn("return posix_clock_getres", getres_dispatch)
+        self.assertIn("if (linuxAbi)", getres_dispatch)
+        self.assertIn("reinterpret_cast<LinuxKernelTimespec*>(p2)", getres_dispatch)
+        self.assertIn("return posix_clock_getres_native", getres_dispatch)
+        self.assertIn("reinterpret_cast<struct timespec*>(p2)", getres_dispatch)
+
+        nanosleep_dispatch = manager.split(
+            "case POSIX_CLOCK_NANOSLEEP:", 1
+        )[1].split("case ", 1)[0]
+        self.assertIn("return posix_clock_nanosleep", nanosleep_dispatch)
+        self.assertIn("static_cast<int>(p2)", nanosleep_dispatch)
+        self.assertIn(
+            "reinterpret_cast<const LinuxKernelTimespec*>(p3)",
+            nanosleep_dispatch,
+        )
+        self.assertIn(
+            "reinterpret_cast<LinuxKernelTimespec*>(p4)", nanosleep_dispatch
+        )
+
+        native_getres = source.split("int posix_clock_getres_native", 1)[1].split(
+            "int posix_clock_getres(clockid_t", 1
+        )[0]
+        self.assertIn("const struct timespec result = {0, 1}", native_getres)
+
+        getres = source.split("int posix_clock_getres(clockid_t", 1)[1].split(
+            "int posix_clock_nanosleep", 1
+        )[0]
+        self.assertLess(
+            getres.index("supportedSleepClock"),
+            getres.index("if (!resolution)"),
+        )
+        self.assertIn("const LinuxKernelTimespec result = {0, 1}", getres)
+
+        nanosleep = source.split("int posix_clock_nanosleep", 1)[1].split(
+            "int posix_sigaltstack", 1
+        )[0]
+        self.assertLess(
+            nanosleep.index("supportedSleepClock"),
+            nanosleep.index("copyFromUser(&requested"),
+        )
+        self.assertIn("flags & TIMER_ABSTIME", nanosleep)
+        self.assertIn("if (!absolute && remainder)", nanosleep)
+
+        glue = (ROOT / "src/modules/subsys/posix/glue.c").read_text(
+            encoding="utf-8"
+        )
+        clock_getres = glue.split("int clock_getres", 1)[1].split("}", 1)[0]
+        self.assertIn("syscall2(POSIX_CLOCK_GETRES", clock_getres)
+
+    def test_bundled_musl_clock_waits_use_raw_linux_syscalls(self):
+        source_root = ROOT / "build/src/modules/musl-1.2.6"
+        archive_path = ROOT / "build/src/modules/musl-1.2.6.tar.gz"
+
+        def load_source(relative_path):
+            source_path = source_root / relative_path
+            if source_path.exists():
+                return source_path.read_text(encoding="utf-8")
+            if not archive_path.exists():
+                self.skipTest("the configured musl source archive is not present")
+            with tarfile.open(archive_path, "r:gz") as archive:
+                member = archive.extractfile(f"musl-1.2.6/{relative_path}")
+                self.assertIsNotNone(member)
+                return member.read().decode("utf-8")
+
+        getres = load_source("src/time/clock_getres.c")
+        nanosleep = load_source("src/time/clock_nanosleep.c")
+        self.assertIn("syscall(SYS_clock_getres, clk, ts)", getres)
+        self.assertIn(
+            "__syscall_cp(SYS_clock_nanosleep, clk, flags, req, rem)",
+            nanosleep,
+        )
+        self.assertIn("if (clk == CLOCK_REALTIME && !flags)", nanosleep)
 
     def test_signal_return_accepts_iret_and_sysret_user_selectors(self):
         signal_source = (
