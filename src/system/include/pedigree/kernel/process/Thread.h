@@ -227,6 +227,16 @@ class EXPORTED_PUBLIC Thread {
 
   void setStateUserStack(VirtualAddressSpace::Stack* st);
 
+  /**
+   * Drops descriptors for user stacks whose mappings were removed by exec.
+   * The discarded image has already been unmapped, so this must not ask the
+   * address space to free those virtual ranges again.
+   */
+  void discardUserStackMetadataForExec();
+
+  /** Gives the replacement image's initial stack to this Thread's base state. */
+  void adoptInitialUserStackForExec(VirtualAddressSpace::Stack* stack);
+
   /** Returns the state nesting level. */
   size_t getStateLevel() const;
 
@@ -528,6 +538,9 @@ class EXPORTED_PUBLIC Thread {
 
   /** Exercises LIFO, checkpoint, and per-level abandoned-state cleanup. */
   bool runHostedStateCleanupRegression();
+
+  /** Exercises exec-time user-stack metadata replacement from a nested state. */
+  bool runHostedExecStackOwnershipRegression();
 
   /** Simulates an interrupted legacy scope writer for IRQ regressions. */
   void withDeferredScopeLockForTest(DeferredScopeLockHook hook);

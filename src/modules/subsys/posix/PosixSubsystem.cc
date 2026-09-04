@@ -1872,6 +1872,11 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   }
   pProcess->getAddressSpace()->revertToKernelAddressSpace();
 
+  // The old mappings are gone, but Thread state levels still own their Stack
+  // descriptors. Drop only that metadata: freeStack could otherwise unmap a
+  // replacement mapping which reuses an old stack address.
+  pThread->discardUserStackMetadataForExec();
+
   // Pending signal deliveries must no longer refer to handlers in the old
   // image before any post-commit operation can fail and unwind this call.
   pedigree_init_sigret();
@@ -2002,8 +2007,12 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   VirtualAddressSpace::Stack* stack =
       Processor::information().getVirtualAddressSpace().allocateStack();
   if (!stack || !stack->getTop()) {
+    delete stack;
     ERROR("PosixSubsystem::invoke: failed to allocate initial user stack");
     return failAfterCommit(Error::OutOfMemory);
+  }
+  if (state) {
+    pThread->adoptInitialUserStackForExec(stack);
   }
   uintptr_t* loaderStack = reinterpret_cast<uintptr_t*>(stack->getTop());
 
@@ -2095,12 +2104,14 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   for (size_t i = 0; i < envc; ++i) {
     STACK_PUSH(loaderStack, reinterpret_cast<uintptr_t>(envs[i]));
   }
+  delete[] envs;
 
   // argv
   STACK_PUSH(loaderStack, 0);  // argv[N]
   for (ssize_t i = argc - 1; i >= 0; --i) {
     STACK_PUSH(loaderStack, reinterpret_cast<uintptr_t>(argvs[i]));
   }
+  delete[] argvs;
 
   // argc
   STACK_PUSH(loaderStack, argc);
@@ -2122,11 +2133,15 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   }
 
   if (!state) {
-    // Just create a new thread, this is not a full replace.
-    Thread* pNewThread = new Thread(
-        pProcess, reinterpret_cast<Thread::ThreadStartFunc>(interpreterEntryPoint), 0, loaderStack);
+    // Publish the user Thread only after its initial stack has an owner.
+    Thread* pNewThread =
+        new Thread(pProcess, reinterpret_cast<Thread::ThreadStartFunc>(interpreterEntryPoint), 0,
+                   loaderStack, false, false, true);
+    pNewThread->adoptInitialUserStackForExec(stack);
     pNewThread->setName("ld.so thread");
-    pNewThread->detach();
+    if (!pNewThread->startDetached()) {
+      FATAL("PosixSubsystem::invoke: initial user Thread could not be started.");
+    }
 
     return true;
   } else {

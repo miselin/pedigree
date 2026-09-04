@@ -1687,6 +1687,22 @@ bool stateCleanupOrder() {
   return passed;
 }
 
+bool execStackOwnership() {
+  Thread* thread = g_ImmediateWaiter;
+  if (!check(thread != nullptr, "exec-stack-ownership",
+             "the suite did not capture its current thread")) {
+    return false;
+  }
+
+  const bool passed =
+      check(thread->runHostedExecStackOwnershipRegression(), "exec-stack-ownership",
+            "exec did not discard stale nested stack metadata or adopt the replacement at base");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS exec-stack-ownership");
+  }
+  return passed;
+}
+
 bool activeEventDeliveryLease() {
   Thread* thread = g_ImmediateWaiter;
   if (!check(thread != nullptr, "event-delivery-lease",
@@ -1937,7 +1953,7 @@ bool runHostedWaitRegressions() {
       ordinaryBlockAndWake() && processSuspendResume() && immediateExitJoinLifecycle() &&
       joinPublicationAndDetachExclusion() && terminalJoinPropagation() &&
       prequeuedEventDispatch() && stateLevelPublication() && stateCleanupOrder() &&
-      activeEventDeliveryLease() && eventQueueShutdown();
+      execStackOwnership() && activeEventDeliveryLease() && eventQueueShutdown();
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS all");
   } else {

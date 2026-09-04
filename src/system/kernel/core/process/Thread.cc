@@ -839,6 +839,55 @@ void Thread::setStateUserStack(VirtualAddressSpace::Stack* st) {
   m_StateLevels[m_nStateLevel].m_pUserStack = st;
 }
 
+void Thread::discardUserStackMetadataForExec() {
+  if (Processor::information().getCurrentThread() != this) {
+    FATAL("Exec attempted to discard another Thread's user stacks.");
+  }
+
+  VirtualAddressSpace::Stack* discarded[MAX_NESTED_EVENTS] = {};
+  size_t discardedCount = 0;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
+      VirtualAddressSpace::Stack* stack = m_StateLevels[level].m_pUserStack;
+      m_StateLevels[level].m_pUserStack = nullptr;
+      if (!stack) {
+        continue;
+      }
+
+      bool alreadyDiscarded = false;
+      for (size_t i = 0; i < discardedCount; ++i) {
+        if (discarded[i] == stack) {
+          alreadyDiscarded = true;
+          break;
+        }
+      }
+      if (!alreadyDiscarded) {
+        discarded[discardedCount++] = stack;
+      }
+    }
+  }
+
+  // revertToKernelAddressSpace has already retired the mappings. Calling
+  // freeStack here could unmap the replacement image if it reuses an old
+  // stack address; only the descriptor itself remains ours to release.
+  for (size_t i = 0; i < discardedCount; ++i) {
+    delete discarded[i];
+  }
+}
+
+void Thread::adoptInitialUserStackForExec(VirtualAddressSpace::Stack* stack) {
+  if (!stack) {
+    FATAL("Cannot adopt an empty exec user stack.");
+  }
+
+  LockGuard<Spinlock> guard(m_Lock);
+  if (m_StateLevels[0].m_pUserStack) {
+    FATAL("Exec attempted to replace an owned base user stack.");
+  }
+  m_StateLevels[0].m_pUserStack = stack;
+}
+
 size_t Thread::getStateLevel() const {
   return __atomic_load_n(&m_nStateLevel, __ATOMIC_ACQUIRE);
 }
@@ -1439,6 +1488,57 @@ bool Thread::runHostedStateCleanupRegression() {
   return cleanupDoesNotDeferTermination && checkpointPassed && normalPassed &&
          temporaryMaskCleanupPassed && levelPassed && explicitTerminationDefers &&
          explicitTerminationRetired && order.count == 3;
+}
+
+bool Thread::runHostedExecStackOwnershipRegression() {
+  if (Processor::information().getCurrentThread() != this || getStateLevel() != 0) {
+    return false;
+  }
+
+  for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
+    if (m_StateLevels[level].m_pUserStack) {
+      return false;
+    }
+  }
+
+  constexpr size_t FakeStackSize = 4 * 4096;
+  VirtualAddressSpace::Stack* oldBase =
+      new VirtualAddressSpace::Stack(reinterpret_cast<void*>(0x100000), FakeStackSize);
+  VirtualAddressSpace::Stack* oldNested =
+      new VirtualAddressSpace::Stack(reinterpret_cast<void*>(0x200000), FakeStackSize);
+  m_StateLevels[0].m_pUserStack = oldBase;
+
+  if (!pushState()) {
+    m_StateLevels[0].m_pUserStack = nullptr;
+    delete oldBase;
+    delete oldNested;
+    return false;
+  }
+
+  const size_t nestedLevel = getStateLevel();
+  m_StateLevels[nestedLevel].m_pUserStack = oldNested;
+  // Exercise defensive duplicate handling in an otherwise unused level.
+  m_StateLevels[MAX_NESTED_EVENTS - 1].m_pUserStack = oldBase;
+
+  discardUserStackMetadataForExec();
+  bool allOldMetadataDiscarded = true;
+  for (size_t level = 0; level < MAX_NESTED_EVENTS; ++level) {
+    allOldMetadataDiscarded &= m_StateLevels[level].m_pUserStack == nullptr;
+  }
+
+  VirtualAddressSpace::Stack* replacement =
+      new VirtualAddressSpace::Stack(reinterpret_cast<void*>(0x300000), FakeStackSize);
+  adoptInitialUserStackForExec(replacement);
+  const bool replacementOwnedByBase = m_StateLevels[0].m_pUserStack == replacement &&
+                                      m_StateLevels[nestedLevel].m_pUserStack == nullptr;
+
+  // This regression uses synthetic descriptors with no mappings; detach the
+  // replacement before ordinary state cleanup asks the address space to free it.
+  m_StateLevels[0].m_pUserStack = nullptr;
+  delete replacement;
+  popState();
+
+  return allOldMetadataDiscarded && replacementOwnedByBase && getStateLevel() == 0;
 }
 
 void Thread::withDeferredScopeLockForTest(DeferredScopeLockHook hook) {
