@@ -5,6 +5,7 @@
  * purpose with or without fee is hereby granted.
  */
 
+#include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -211,6 +212,129 @@ static void test_exec_signal_state(const char* program) {
   status("OK");
 }
 
+static int write_exec_fixture(const char* path, int missingInterpreter) {
+  unsigned char image[512] = {0};
+  Elf64_Ehdr header = {0};
+  Elf64_Phdr programHeaders[2] = {0};
+  const char missingPath[] = "/__pedigree_missing_exec_interpreter__";
+  const size_t programHeaderCount = missingInterpreter ? 2 : 1;
+  const size_t interpreterOffset = sizeof(header) + sizeof(programHeaders);
+
+  memcpy(header.e_ident, ELFMAG, SELFMAG);
+  header.e_ident[EI_CLASS] = ELFCLASS64;
+  header.e_ident[EI_DATA] = ELFDATA2LSB;
+  header.e_ident[EI_VERSION] = EV_CURRENT;
+  header.e_type = ET_EXEC;
+  header.e_machine = EM_X86_64;
+  header.e_version = EV_CURRENT;
+  header.e_entry = missingInterpreter ? 0x400000 : 0;
+  header.e_phoff = sizeof(header);
+  header.e_ehsize = sizeof(header);
+  header.e_phentsize = sizeof(programHeaders[0]);
+  header.e_phnum = programHeaderCount;
+
+  programHeaders[0].p_type = PT_LOAD;
+  programHeaders[0].p_flags = PF_R | PF_X;
+  programHeaders[0].p_offset = 0;
+  programHeaders[0].p_vaddr = missingInterpreter ? 0x400000 : 0;
+  programHeaders[0].p_paddr = programHeaders[0].p_vaddr;
+  programHeaders[0].p_filesz = sizeof(image);
+  programHeaders[0].p_memsz = sizeof(image);
+  programHeaders[0].p_align = 4096;
+
+  if (missingInterpreter) {
+    programHeaders[1].p_type = PT_INTERP;
+    programHeaders[1].p_flags = PF_R;
+    programHeaders[1].p_offset = interpreterOffset;
+    programHeaders[1].p_filesz = sizeof(missingPath);
+    programHeaders[1].p_memsz = sizeof(missingPath);
+    programHeaders[1].p_align = 1;
+  }
+
+  memcpy(image, &header, sizeof(header));
+  memcpy(image + sizeof(header), programHeaders, programHeaderCount * sizeof(programHeaders[0]));
+  if (missingInterpreter)
+    memcpy(image + interpreterOffset, missingPath, sizeof(missingPath));
+
+  int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0700);
+  if (fd < 0)
+    return -1;
+
+  size_t written = 0;
+  while (written < sizeof(image)) {
+    ssize_t result = write(fd, image + written, sizeof(image) - written);
+    if (result < 0 && errno == EINTR)
+      continue;
+    if (result <= 0) {
+      close(fd);
+      unlink(path);
+      return -1;
+    }
+    written += result;
+  }
+
+  if (close(fd) || chmod(path, 0700)) {
+    unlink(path);
+    return -1;
+  }
+  return 0;
+}
+
+static void test_exec_failure_boundary(void) {
+  status("Testing exec failure boundary...");
+
+  char missingInterpreter[PATH_MAX];
+  char invalidLoad[PATH_MAX];
+  snprintf(missingInterpreter, sizeof(missingInterpreter), "/tmp/exec-missing-interpreter-%d",
+           getpid());
+  snprintf(invalidLoad, sizeof(invalidLoad), "/tmp/exec-invalid-load-%d", getpid());
+
+  if (write_exec_fixture(missingInterpreter, 1))
+    fail();
+
+  pid_t child = fork();
+  if (child < 0)
+    fail();
+  if (!child) {
+    char* const arguments[] = {missingInterpreter, 0};
+    errno = 0;
+    if (execv(missingInterpreter, arguments) != -1 || errno != ENOENT)
+      _exit(120);
+
+    struct sigaction action = {0};
+    action.sa_handler = handleSignal;
+    signalHandled = 0;
+    if (sigemptyset(&action.sa_mask) || sigaction(SIGUSR1, &action, 0) || raise(SIGUSR1) ||
+        !signalHandled)
+      _exit(121);
+    _exit(0);
+  }
+
+  int statusCode = 0;
+  if (waitpid(child, &statusCode, 0) != child || unlink(missingInterpreter) ||
+      !WIFEXITED(statusCode) || WEXITSTATUS(statusCode))
+    fail();
+
+  if (write_exec_fixture(invalidLoad, 0))
+    fail();
+
+  child = fork();
+  if (child < 0)
+    fail();
+  if (!child) {
+    char* const arguments[] = {invalidLoad, 0};
+    execv(invalidLoad, arguments);
+    _exit(122);
+  }
+
+  statusCode = 0;
+  if (waitpid(child, &statusCode, 0) != child || unlink(invalidLoad) || !WIFSIGNALED(statusCode) ||
+      WTERMSIG(statusCode) != SIGSEGV)
+    fail();
+
+  status("OK");
+}
+
 static void test_wait_stop_continue(void) {
   status("Testing stopped and continued wait status...");
 
@@ -393,6 +517,7 @@ void test_process(const char* program) {
   test_signal_return();
   test_default_signal_termination();
   test_exec_signal_state(program);
+  test_exec_failure_boundary();
   test_wait_stop_continue();
   test_thread_signal_syscalls();
   test_sigsuspend();
