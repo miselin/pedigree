@@ -64,6 +64,7 @@ extern bool runHostedPselectRegressions(Process* process);
 extern bool runHostedResourceSyscallRegressions(Process* process);
 extern bool runHostedRtSigsuspendRegressions(Process* process);
 extern bool runHostedScalarIoRegressions(Process* process);
+extern bool runHostedScmRightsRegressions(Process* process);
 extern bool runHostedSleepClockSyscallRegressions(Process* process);
 extern bool runHostedThreadSignalSyscallRegressions(Process* process);
 extern bool runHostedTimeSyscallRegressions(Process* process);
@@ -1579,11 +1580,11 @@ class PollGenerationProbe : public NetworkSyscalls {
     return -1;
   }
 
-  ssize_t sendto_msg(const struct msghdr*) override {
+  ssize_t sendto_msg(const struct msghdr*, const SharedPointer<SocketRights>&) override {
     return -1;
   }
 
-  ssize_t recvfrom_msg(struct msghdr*) override {
+  ssize_t recvfrom_msg(struct msghdr*, SharedPointer<SocketRights>*) override {
     return -1;
   }
 
@@ -4949,6 +4950,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN unix-bind-replacement-lifetime");
   if (!runHostedUnixEndpointLifetimeRegression(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN scm-rights-datagram");
+  if (!runHostedScmRightsRegressions(kernelProcess)) {
     return false;
   }
 

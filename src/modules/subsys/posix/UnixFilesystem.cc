@@ -25,12 +25,68 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/syscallError.h"
 
+#include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/logging.h"
 #include "modules/system/vfs/VFS.h"
 
 String UnixFilesystem::m_VolumeLabel("unix");
 Mutex UnixFilesystem::m_NamespaceLock;
 Mutex UnixSocket::m_ConnectionLock;
+Mutex SocketRights::m_InFlightLock;
+size_t SocketRights::m_InFlight = 0;
+
+SocketRights::SocketRights(size_t reservation)
+    : m_Descriptors(reservation), m_Reservation(reservation) {}
+
+SocketRights::~SocketRights() {
+  for (auto descriptor : m_Descriptors) {
+    delete descriptor;
+  }
+  m_Descriptors.clear(true);
+
+  LockGuard<Mutex> guard(m_InFlightLock);
+  assert(m_InFlight >= m_Reservation);
+  m_InFlight -= m_Reservation;
+}
+
+bool SocketRights::create(size_t descriptorCount, SharedPointer<SocketRights>& rights) {
+  rights.reset();
+  if (!descriptorCount || descriptorCount > MaximumDescriptors) {
+    return false;
+  }
+
+  {
+    LockGuard<Mutex> guard(m_InFlightLock);
+    if (descriptorCount > MaximumInFlight - m_InFlight) {
+      return false;
+    }
+    m_InFlight += descriptorCount;
+  }
+
+  rights.reset(new SocketRights(descriptorCount));
+  return true;
+}
+
+void SocketRights::append(FileDescriptor* descriptor) {
+  assert(descriptor);
+  assert(m_Descriptors.count() < m_Reservation);
+  m_Descriptors.pushBack(descriptor);
+}
+
+size_t SocketRights::count() const {
+  return m_Descriptors.count();
+}
+
+FileDescriptor* SocketRights::descriptor(size_t index) const {
+  return m_Descriptors[index];
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+size_t SocketRights::inFlightForTest() {
+  LockGuard<Mutex> guard(m_InFlightLock);
+  return m_InFlight;
+}
+#endif
 
 UnixSocketConnection::UnixSocketConnection()
     : m_FirstStream(MAX_UNIX_STREAM_QUEUE),
@@ -149,39 +205,52 @@ uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, S
         ->read(reinterpret_cast<uint8_t*>(buffer), size, state == Active && bCanBlock);
   }
 
+  SharedPointer<SocketRights> rights;
+  uint64_t bytesRead = 0;
+  uint64_t datagramLength = 0;
+  receiveDatagram(size, buffer, bCanBlock, from, rights, bytesRead, datagramLength);
+  return bytesRead;
+}
+
+bool UnixSocket::receiveDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, String& from,
+                                 SharedPointer<SocketRights>& rights, uint64_t& bytesRead,
+                                 uint64_t& datagramLength) {
+  rights.reset();
+  bytesRead = 0;
+  datagramLength = 0;
+
   {
     LockGuard<Mutex> guard(m_ConnectionLock);
-    if (m_State == Closed) {
-      return 0;
+    if (m_State == Closed || m_Type != Datagram) {
+      return false;
     }
   }
 
   if (bCanBlock) {
     if (!select(false, 1)) {
-      return 0;  // Interrupted
+      return false;
     }
   } else if (!select(false, 0)) {
-    // No data available.
-    return 0;
+    return false;
   }
 
-  struct buf* b = nullptr;
+  struct buf* datagram = nullptr;
   DatagramBuffer::Error error = DatagramBuffer::NoError;
-  if (!m_Datagrams.read(b, error)) {
-    // TODO: set an error
-    return 0;
+  if (!m_Datagrams.read(datagram, error)) {
+    return false;
   }
-  if (size > b->len)
-    size = b->len;
-  MemoryCopy(reinterpret_cast<void*>(buffer), b->pBuffer, size);
-  if (b->remotePath) {
-    from.assign(b->remotePath, b->remotePathLen);
-    delete[] b->remotePath;
-  }
-  delete[] b->pBuffer;
-  delete b;
 
-  return size;
+  datagramLength = datagram->len;
+  bytesRead = size < datagramLength ? size : datagramLength;
+  if (bytesRead) {
+    MemoryCopy(reinterpret_cast<void*>(buffer), datagram->pBuffer, bytesRead);
+  }
+  if (datagram->remotePath) {
+    from.assign(datagram->remotePath, datagram->remotePathLen);
+  }
+  rights = datagram->rights;
+  destroyDatagram(datagram);
+  return true;
 }
 
 uint64_t UnixSocket::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
@@ -203,36 +272,56 @@ uint64_t UnixSocket::writeBytewise(uint64_t location, uint64_t size, uintptr_t b
     return outgoingStream(connection)->write(reinterpret_cast<uint8_t*>(buffer), size, bCanBlock);
   }
 
+  SharedPointer<SocketRights> rights;
+  return sendDatagram(size, buffer, bCanBlock, location, rights) ? size : 0;
+}
+
+bool UnixSocket::sendDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, uintptr_t source,
+                              const SharedPointer<SocketRights>& rights) {
+  if (m_Type != Datagram) {
+    return false;
+  }
+
   if (bCanBlock) {
     if (!select(true, 1)) {
-      return 0;  // Interrupted
+      return false;
     }
   } else if (!select(true, 0)) {
-    // No data available.
-    return 0;
+    return false;
   }
 
   struct buf* b = new struct buf;
   b->pBuffer = new char[size];
-  MemoryCopy(b->pBuffer, reinterpret_cast<void*>(buffer), size);
+  if (size) {
+    MemoryCopy(b->pBuffer, reinterpret_cast<void*>(buffer), size);
+  }
   b->len = size;
   b->remotePath = 0;
-  if (location) {
+  b->remotePathLen = 0;
+  b->rights = rights;
+  if (source) {
     b->remotePath = new char[255];
-    StringCopyN(b->remotePath, reinterpret_cast<char*>(location), 255);
+    StringCopyN(b->remotePath, reinterpret_cast<char*>(source), 255);
     b->remotePathLen = StringLength(b->remotePath);
   }
   const DatagramBuffer::Error error = m_Datagrams.write(b);
   if (error != DatagramBuffer::NoError) {
-    delete[] b->remotePath;
-    delete[] b->pBuffer;
-    delete b;
-    return 0;
+    destroyDatagram(b);
+    return false;
   }
 
   dataChanged();
+  return true;
+}
 
-  return size;
+void UnixSocket::destroyDatagram(struct buf* datagram) {
+  if (!datagram) {
+    return;
+  }
+
+  delete[] datagram->remotePath;
+  delete[] datagram->pBuffer;
+  delete datagram;
 }
 
 bool UnixSocket::bind(UnixSocket* other, bool block) {
@@ -286,6 +375,10 @@ void UnixSocket::unbind() {
 
   if (m_Type == Datagram) {
     m_Datagrams.close();
+    struct buf* datagram = nullptr;
+    while (m_Datagrams.takeAfterClose(datagram)) {
+      destroyDatagram(datagram);
+    }
   }
 
   if (connection) {

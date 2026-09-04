@@ -1315,6 +1315,39 @@ void PosixSubsystem::addFileDescriptor(size_t fd, FileDescriptor* pFd) {
   retiring.reset();
 }
 
+size_t PosixSubsystem::installFileDescriptor(FileDescriptor* descriptor, DescriptorLease& lease,
+                                             size_t minimum) {
+  SharedPointer<FileDescriptor> published(descriptor);
+  lease.reset();
+
+  Uninterruptible throughout;
+  m_FdLock.acquire();
+
+  const bool advancesGlobalHint = minimum <= m_LastFd;
+  const size_t firstCandidate = minimum > m_LastFd ? minimum : m_LastFd;
+  size_t fd = minimum > m_NextFd ? minimum : m_NextFd;
+  for (size_t candidate = firstCandidate; candidate < m_NextFd; ++candidate) {
+    if (!m_FdBitmap.test(candidate)) {
+      fd = candidate;
+      if (advancesGlobalHint) {
+        m_LastFd = candidate;
+      }
+      break;
+    }
+  }
+
+  if (fd >= m_NextFd) {
+    m_NextFd = fd + 1;
+  }
+  descriptor->fd = fd;
+  m_FdBitmap.set(fd);
+  m_FdMap.insert(fd, published);
+  lease.retain(published);
+
+  m_FdLock.release();
+  return fd;
+}
+
 void PosixSubsystem::threadExiting(Thread* pThread) {
   if (!pThread) {
     return;

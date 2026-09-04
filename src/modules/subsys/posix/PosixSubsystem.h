@@ -422,6 +422,14 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   void addFileDescriptor(size_t fd, FileDescriptor* pFd);
 
   /**
+   * Allocates and publishes a descriptor while returning a pin for that exact
+   * table generation. This lets multi-descriptor operations roll back safely
+   * if a later userspace copyout fails.
+   */
+  size_t installFileDescriptor(FileDescriptor* descriptor, DescriptorLease& lease,
+                               size_t minimum = 0);
+
+  /**
    * POSIX Semaphore or Mutex
    *
    * It's up to the programmer to use this right.

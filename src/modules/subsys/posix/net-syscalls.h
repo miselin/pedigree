@@ -65,8 +65,11 @@ ssize_t posix_send_descriptor(const DescriptorLease& descriptor, const void* buf
                               size_t bufferLength, int flags);
 ssize_t posix_recv_descriptor(const DescriptorLease& descriptor, void* buffer, size_t bufferLength,
                               int flags);
-ssize_t posix_sendmsg_descriptor(const DescriptorLease& descriptor, const struct msghdr* message);
-ssize_t posix_recvmsg_descriptor(const DescriptorLease& descriptor, struct msghdr* message);
+ssize_t posix_sendmsg_descriptor(const DescriptorLease& descriptor, const struct msghdr* message,
+                                 const SharedPointer<SocketRights>& rights =
+                                     SharedPointer<SocketRights>());
+ssize_t posix_recvmsg_descriptor(const DescriptorLease& descriptor, struct msghdr* message,
+                                 SharedPointer<SocketRights>* rights = nullptr);
 
 class NetworkSyscalls : public ReadinessSource {
  public:
@@ -78,8 +81,9 @@ class NetworkSyscalls : public ReadinessSource {
   virtual bool create();
   virtual int connect(const struct sockaddr_storage* address, socklen_t addrlen) = 0;
 
-  virtual ssize_t sendto_msg(const struct msghdr* msghdr) = 0;
-  virtual ssize_t recvfrom_msg(struct msghdr* msghdr) = 0;
+  virtual ssize_t sendto_msg(const struct msghdr* msghdr,
+                             const SharedPointer<SocketRights>& rights) = 0;
+  virtual ssize_t recvfrom_msg(struct msghdr* msghdr, SharedPointer<SocketRights>* rights) = 0;
 
   virtual ssize_t sendto(const void* buffer, size_t bufferlen, int flags,
                          const struct sockaddr_storage* address, socklen_t addrlen);
@@ -163,8 +167,9 @@ class LwipSocketSyscalls : public NetworkSyscalls {
   virtual bool create();
   virtual int connect(const struct sockaddr_storage* address, socklen_t addrlen);
 
-  virtual ssize_t sendto_msg(const struct msghdr* msghdr);
-  virtual ssize_t recvfrom_msg(struct msghdr* msghdr);
+  virtual ssize_t sendto_msg(const struct msghdr* msghdr,
+                             const SharedPointer<SocketRights>& rights);
+  virtual ssize_t recvfrom_msg(struct msghdr* msghdr, SharedPointer<SocketRights>* rights);
 
   virtual int listen(int backlog);
   virtual int bind(const struct sockaddr_storage* address, socklen_t addrlen);
@@ -232,8 +237,9 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   virtual bool create();
   virtual int connect(const struct sockaddr_storage* address, socklen_t addrlen);
 
-  virtual ssize_t sendto_msg(const struct msghdr* msghdr);
-  virtual ssize_t recvfrom_msg(struct msghdr* msghdr);
+  virtual ssize_t sendto_msg(const struct msghdr* msghdr,
+                             const SharedPointer<SocketRights>& rights);
+  virtual ssize_t recvfrom_msg(struct msghdr* msghdr, SharedPointer<SocketRights>* rights);
 
   virtual int listen(int backlog);
   virtual int bind(const struct sockaddr_storage* address, socklen_t addrlen);

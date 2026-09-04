@@ -23,6 +23,7 @@
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/RingBuffer.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
+#include "pedigree/kernel/utilities/Vector.h"
 
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
@@ -30,7 +31,39 @@
 #include <sys/socket.h>
 
 class Mutex;
+class FileDescriptor;
 class UnixSocket;
+
+/** Descriptor ownership attached to one in-flight socket record. */
+class SocketRights {
+ public:
+  enum : size_t { MaximumDescriptors = 253, MaximumInFlight = 16384 };
+
+  ~SocketRights();
+
+  /** Reserve the global in-flight budget for one SCM_RIGHTS record. */
+  static bool create(size_t descriptorCount, SharedPointer<SocketRights>& rights);
+
+  void append(FileDescriptor* descriptor);
+  size_t count() const;
+  FileDescriptor* descriptor(size_t index) const;
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  static size_t inFlightForTest();
+#endif
+
+ private:
+  explicit SocketRights(size_t reservation);
+
+  SocketRights(const SocketRights&) = delete;
+  SocketRights& operator=(const SocketRights&) = delete;
+
+  Vector<FileDescriptor*> m_Descriptors;
+  size_t m_Reservation;
+
+  static Mutex m_InFlightLock;
+  static size_t m_InFlight;
+};
 
 #define MAX_UNIX_DGRAM_BACKLOG 65536
 #define MAX_UNIX_STREAM_QUEUE 65536
@@ -143,6 +176,15 @@ class UnixSocket : public File {
 
   uint64_t recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, String& from);
 
+  /** Queue one indivisible datagram and its optional descriptor ownership. */
+  bool sendDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, uintptr_t source,
+                    const SharedPointer<SocketRights>& rights);
+
+  /** Remove one datagram, preserving its full length and ancillary ownership. */
+  bool receiveDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, String& from,
+                       SharedPointer<SocketRights>& rights, uint64_t& bytesRead,
+                       uint64_t& datagramLength);
+
   virtual int select(bool bWriting = false, int timeout = 0);
 
   virtual bool isSocket() const {
@@ -229,7 +271,10 @@ class UnixSocket : public File {
     uint64_t len;
     char* remotePath;  // Path of the socket that dumped data here, if any.
     size_t remotePathLen;
+    SharedPointer<SocketRights> rights;
   };
+
+  static void destroyDatagram(struct buf* datagram);
 
   SocketType m_Type;
   SocketState m_State;

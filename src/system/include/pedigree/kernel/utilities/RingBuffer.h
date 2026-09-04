@@ -151,6 +151,24 @@ class EXPORTED_PUBLIC RingBuffer {
     m_Lock.release();
   }
 
+  /**
+   * Remove one object after close() has drained all admitted operations.
+   *
+   * Pointer queues use this to retire payload ownership which the generic
+   * container cannot infer. No producer or consumer can race this path once
+   * close() has returned.
+   */
+  MUST_USE_RESULT bool takeAfterClose(T& out) {
+    out = T();
+    LockGuard<Mutex> guard(m_Lock);
+    if (!m_Closing || m_ActiveOperations || !ringCountLocked()) {
+      return false;
+    }
+
+    out = popFrontLocked();
+    return true;
+  }
+
   /// write - write a byte to the ring buffer.
   Error write(const T& obj, Time::Timestamp& timeout) {
     ActiveOperation operation(*this);

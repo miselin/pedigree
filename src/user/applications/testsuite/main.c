@@ -29,6 +29,7 @@ extern int exec_shebang_child(int argc, char* argv[]);
 extern void test_exec_shebang(const char* program);
 extern int process_exec_signal_child(void);
 extern void test_process(const char* program);
+extern void test_scm_rights(void);
 
 static jmp_buf buf;
 
@@ -49,6 +50,11 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  if (argc == 2 && !strcmp(argv[1], "--scm-rights")) {
+    test_scm_rights();
+    return 0;
+  }
+
   printf("Running tests...\n");
 
   // Add calls to test functions here...
@@ -56,6 +62,7 @@ int main(int argc, char* argv[]) {
   test_mprotect();
   test_exec_shebang(argv[0]);
   test_process(argv[0]);
+  test_scm_rights();
   test_fs();
 
   printf("Tests complete!\n");

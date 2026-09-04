@@ -68,6 +68,7 @@ enum PosixError {
   NoMoreBuffers = 105,         // ENOBUFS
   IsConnected = 106,           // EISCONN
   NotConnected = 107,          // ENOTCONN
+  TooManyReferences = 109,     // ETOOMANYREFS
   TimedOut = 110,              // ETIMEDOUT
   ConnectionRefused = 111,     // ECONNREFUSED
   HostUnreachable = 113,       // EHOSTUNREACH

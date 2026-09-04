@@ -34,6 +34,7 @@
 #include <limits.h>
 #include <stddef.h>
 
+#include "eventfd-syscalls.h"
 #include "file-syscalls.h"
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
@@ -94,11 +95,119 @@ bool validateSocketMessageFlags(int flags, bool sending) {
     supported |= MSG_TRUNC;
   }
 #endif
+#ifdef MSG_CMSG_CLOEXEC
+  if (!sending) {
+    supported |= MSG_CMSG_CLOEXEC;
+  }
+#endif
 
   if (flags & ~supported) {
     SYSCALL_ERROR(OperationNotSupported);
     return false;
   }
+  return true;
+}
+
+constexpr size_t MaximumControlBytes = CMSG_SPACE(SocketRights::MaximumDescriptors * sizeof(int));
+
+bool parseSocketRights(const struct msghdr& message, SharedPointer<SocketRights>& rights) {
+  rights.reset();
+  const size_t controlLength = static_cast<size_t>(message.msg_controllen);
+  if (!controlLength) {
+    return true;
+  }
+  if (!message.msg_control) {
+    SYSCALL_ERROR(BadAddress);
+    return false;
+  }
+  if (controlLength > MaximumControlBytes) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+
+  UniqueArray<uint8_t> control = UniqueArray<uint8_t>::allocate(controlLength);
+  if (!PosixSubsystem::copyFromUser(control.get(), message.msg_control, controlLength)) {
+    SYSCALL_ERROR(BadAddress);
+    return false;
+  }
+
+  constexpr size_t HeaderLength = CMSG_LEN(0);
+  if (controlLength < HeaderLength) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+
+  struct cmsghdr header = {};
+  MemoryCopy(&header, control.get(), sizeof(header));
+  const size_t recordLength = static_cast<size_t>(header.cmsg_len);
+  if (recordLength < HeaderLength || recordLength > controlLength) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  if (header.cmsg_level != SOL_SOCKET || header.cmsg_type != SCM_RIGHTS) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return false;
+  }
+
+  const size_t alignedRecordLength = CMSG_ALIGN(recordLength);
+  if ((controlLength != recordLength && controlLength != alignedRecordLength) ||
+      alignedRecordLength < recordLength) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+
+  const size_t descriptorBytes = recordLength - HeaderLength;
+  if (!descriptorBytes || (descriptorBytes % sizeof(int))) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  const size_t descriptorCount = descriptorBytes / sizeof(int);
+  if (descriptorCount > SocketRights::MaximumDescriptors) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+
+  if (!SocketRights::create(descriptorCount, rights)) {
+    SYSCALL_ERROR(TooManyReferences);
+    return false;
+  }
+
+  PosixSubsystem* subsystem = getSubsystem();
+  if (!subsystem) {
+    rights.reset();
+    SYSCALL_ERROR(BadFileDescriptor);
+    return false;
+  }
+
+  const uint8_t* descriptorData = control.get() + HeaderLength;
+  for (size_t i = 0; i < descriptorCount; ++i) {
+    int fd = -1;
+    MemoryCopy(&fd, descriptorData + (i * sizeof(fd)), sizeof(fd));
+    DescriptorLease descriptor;
+    if (fd < 0 || !subsystem->acquireFileDescriptor(static_cast<size_t>(fd), descriptor)) {
+      rights.reset();
+      SYSCALL_ERROR(BadFileDescriptor);
+      return false;
+    }
+    if (descriptor->epollImpl ||
+        (descriptor->networkImpl && descriptor->networkImpl->getDomain() == AF_UNIX)) {
+      rights.reset();
+      SYSCALL_ERROR(OperationNotSupported);
+      return false;
+    }
+
+    FileDescriptor* transferred = new FileDescriptor(*descriptor);
+    if (descriptor->getEventFdImpl() && !transferred->eventFdPublished()) {
+      delete transferred;
+      rights.reset();
+      SYSCALL_ERROR(BadFileDescriptor);
+      return false;
+    }
+    transferred->fd = ~static_cast<size_t>(0);
+    transferred->setFlags(0);
+    rights->append(transferred);
+  }
+
   return true;
 }
 }  // namespace
@@ -467,13 +576,14 @@ ssize_t posix_send_descriptor(const DescriptorLease& f, const void* buff, size_t
   return finishInterruptibleSocketCall(thread, result) ? result : -1;
 }
 
-ssize_t posix_sendmsg_descriptor(const DescriptorLease& f, const struct msghdr* message) {
+ssize_t posix_sendmsg_descriptor(const DescriptorLease& f, const struct msghdr* message,
+                                 const SharedPointer<SocketRights>& rights) {
   if (!isSaneSocket(f)) {
     return -1;
   }
 
   Thread* thread = beginInterruptibleSocketCall();
-  const ssize_t result = f->networkImpl->sendto_msg(message);
+  const ssize_t result = f->networkImpl->sendto_msg(message, rights);
   return finishInterruptibleSocketCall(thread, result) ? result : -1;
 }
 
@@ -573,13 +683,14 @@ ssize_t posix_recv_descriptor(const DescriptorLease& f, void* buff, size_t buffl
   return n;
 }
 
-ssize_t posix_recvmsg_descriptor(const DescriptorLease& f, struct msghdr* message) {
+ssize_t posix_recvmsg_descriptor(const DescriptorLease& f, struct msghdr* message,
+                                 SharedPointer<SocketRights>* rights) {
   if (!isSaneSocket(f)) {
     return -1;
   }
 
   Thread* thread = beginInterruptibleSocketCall();
-  const ssize_t result = f->networkImpl->recvfrom_msg(message);
+  const ssize_t result = f->networkImpl->recvfrom_msg(message, rights);
   return finishInterruptibleSocketCall(thread, result) ? result : -1;
 }
 
@@ -913,10 +1024,8 @@ ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags) {
     return -1;
   }
 
-  if (message.msg_controllen) {
-    // SCM_RIGHTS and other control messages need explicit descriptor and
-    // credential lifetime handling; dropping them would report false success.
-    SYSCALL_ERROR(OperationNotSupported);
+  SharedPointer<SocketRights> rights;
+  if (!parseSocketRights(message, rights)) {
     return -1;
   }
 
@@ -974,8 +1083,13 @@ ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags) {
   if (!isSaneSocket(f)) {
     return -1;
   }
+  if (rights &&
+      (f->networkImpl->getDomain() != AF_UNIX || f->networkImpl->getType() != SOCK_DGRAM)) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return -1;
+  }
 
-  const ssize_t n = posix_sendmsg_descriptor(f, &message);
+  const ssize_t n = posix_sendmsg_descriptor(f, &message, rights);
   N_NOTICE(" -> " << n);
   return n;
 }
@@ -988,7 +1102,9 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
   }
 
   struct msghdr message = {};
-  if (!PosixSubsystem::copyFromUser(&message, msg, sizeof(message))) {
+  if (!PosixSubsystem::copyFromUser(&message, msg, sizeof(message)) ||
+      !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(msg), sizeof(message),
+                                    PosixSubsystem::SafeWrite)) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
@@ -1028,6 +1144,8 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
 
   void* userName = message.msg_name;
   const size_t userNameCapacity = message.msg_namelen;
+  void* userControl = message.msg_control;
+  const size_t userControlCapacity = static_cast<size_t>(message.msg_controllen);
   struct sockaddr_storage address = {};
   if (userName) {
     const size_t checkedCapacity =
@@ -1040,6 +1158,19 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
     message.msg_name = &address;
     message.msg_namelen = checkedCapacity;
   }
+  if (userControlCapacity) {
+    if (!userControl) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    const size_t checkedCapacity =
+        userControlCapacity < MaximumControlBytes ? userControlCapacity : MaximumControlBytes;
+    if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(userControl), checkedCapacity,
+                                      PosixSubsystem::SafeWrite)) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+  }
   message.msg_iov = vectors;
   message.msg_control = nullptr;
   message.msg_controllen = 0;
@@ -1051,10 +1182,72 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
     return -1;
   }
 
-  const ssize_t n = posix_recvmsg_descriptor(f, &message);
+  SharedPointer<SocketRights> rights;
+  const ssize_t n = posix_recvmsg_descriptor(f, &message, &rights);
 
   if (n >= 0) {
     struct msghdr result = originalMessage;
+    const size_t rightsCount = rights ? rights->count() : 0;
+    size_t disclosedCount = 0;
+    if (rightsCount && userControl && userControlCapacity >= CMSG_LEN(sizeof(int))) {
+      disclosedCount = (userControlCapacity - CMSG_LEN(0)) / sizeof(int);
+      if (disclosedCount > rightsCount) {
+        disclosedCount = rightsCount;
+      }
+    }
+
+    UniqueArray<int> installedFds;
+    UniqueArray<DescriptorLease> installedLeases;
+    if (disclosedCount) {
+      installedFds = UniqueArray<int>::allocate(disclosedCount);
+      installedLeases = UniqueArray<DescriptorLease>::allocate(disclosedCount);
+    }
+
+    PosixSubsystem* subsystem = getSubsystem();
+    size_t publishedCount = 0;
+    auto rollback = [&]() {
+      for (size_t i = 0; i < publishedCount; ++i) {
+        subsystem->closeFileDescriptor(static_cast<size_t>(installedFds.get()[i]),
+                                       installedLeases.get()[i]);
+        installedLeases.get()[i].reset();
+      }
+    };
+
+    for (; publishedCount < disclosedCount; ++publishedCount) {
+      FileDescriptor* received = new FileDescriptor(*rights->descriptor(publishedCount));
+      if (rights->descriptor(publishedCount)->getEventFdImpl() &&
+          !received->eventFdPublished()) {
+        delete received;
+        rollback();
+        SYSCALL_ERROR(BadFileDescriptor);
+        return -1;
+      }
+      int descriptorFlags = 0;
+#ifdef MSG_CMSG_CLOEXEC
+      descriptorFlags = (flags & MSG_CMSG_CLOEXEC) ? FD_CLOEXEC : 0;
+#endif
+      received->setFlags(descriptorFlags);
+      const size_t fd =
+          subsystem->installFileDescriptor(received, installedLeases.get()[publishedCount]);
+      installedFds.get()[publishedCount] = static_cast<int>(fd);
+    }
+
+    size_t controlBytes = 0;
+    UniqueArray<uint8_t> control;
+    if (disclosedCount) {
+      const size_t fullSpace = CMSG_SPACE(disclosedCount * sizeof(int));
+      controlBytes = userControlCapacity < fullSpace ? userControlCapacity : fullSpace;
+      control = UniqueArray<uint8_t>::allocate(controlBytes);
+      ByteSet(control.get(), 0, controlBytes);
+
+      struct cmsghdr header = {};
+      header.cmsg_len = CMSG_LEN(disclosedCount * sizeof(int));
+      header.cmsg_level = SOL_SOCKET;
+      header.cmsg_type = SCM_RIGHTS;
+      MemoryCopy(control.get(), &header, sizeof(header));
+      MemoryCopy(control.get() + CMSG_LEN(0), installedFds.get(),
+                 disclosedCount * sizeof(int));
+    }
 
     if (userName) {
       size_t nameBytes = message.msg_namelen;
@@ -1065,15 +1258,28 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
         nameBytes = sizeof(address);
       }
       if (nameBytes && !PosixSubsystem::copyToUser(userName, &address, nameBytes)) {
+        rollback();
         SYSCALL_ERROR(BadAddress);
         return -1;
       }
     }
 
+    if (controlBytes && !PosixSubsystem::copyToUser(userControl, control.get(), controlBytes)) {
+      rollback();
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+
     result.msg_namelen = message.msg_namelen;
-    result.msg_controllen = 0;
+    result.msg_controllen = controlBytes;
     result.msg_flags = message.msg_flags;
+#ifdef MSG_CTRUNC
+    if (disclosedCount < rightsCount) {
+      result.msg_flags |= MSG_CTRUNC;
+    }
+#endif
     if (!PosixSubsystem::copyToUser(msg, &result, sizeof(result))) {
+      rollback();
       SYSCALL_ERROR(BadAddress);
       return -1;
     }
@@ -1114,7 +1320,8 @@ ssize_t NetworkSyscalls::sendto(const void* buffer, size_t bufferlen, int flags,
   msg.msg_controllen = 0;
   msg.msg_flags = flags;
 
-  return sendto_msg(&msg);
+  SharedPointer<SocketRights> rights;
+  return sendto_msg(&msg, rights);
 }
 
 ssize_t NetworkSyscalls::recvfrom(void* buffer, size_t bufferlen, int flags,
@@ -1132,7 +1339,7 @@ ssize_t NetworkSyscalls::recvfrom(void* buffer, size_t bufferlen, int flags,
   msg.msg_controllen = 0;
   msg.msg_flags = flags;
 
-  ssize_t result = recvfrom_msg(&msg);
+  ssize_t result = recvfrom_msg(&msg, nullptr);
   if (result >= 0) {
     // Copy result address length if needed.
     if (addrlen) {
@@ -1406,7 +1613,13 @@ int LwipSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
   return 0;
 }
 
-ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
+ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
+                                       const SharedPointer<SocketRights>& rights) {
+  if (rights) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return -1;
+  }
+
   err_t err;
   const bool tcp = NETCONNTYPE_GROUP(m_Socket->type) == NETCONN_TCP;
   ip_addr_t destination = {};
@@ -1541,7 +1754,12 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
   return bytesWritten;
 }
 
-ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
+ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
+                                         SharedPointer<SocketRights>* rights) {
+  if (rights) {
+    rights->reset();
+  }
+
   // A duplicated descriptor shares the receive cursor and retained packet.
   // Serialize the whole receive operation, but never hold the metadata lock
   // across lwIP calls because its callback takes that lock.
@@ -2642,8 +2860,14 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
   return 0;
 }
 
-ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
+ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
+                                       const SharedPointer<SocketRights>& rights) {
   N_NOTICE("UnixSocketSyscalls::sendto_msg");
+
+  if (rights && getType() != SOCK_DGRAM) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return -1;
+  }
 
   SharedPointer<UnixSocketGeneration> local;
   SharedPointer<UnixSocketReference> remoteReference;
@@ -2747,22 +2971,25 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
 
     UniqueArray<uint8_t> datagram;
     const void* buffer = nullptr;
-    if (msghdr->msg_iovlen == 1) {
-      buffer = msghdr->msg_iov[0].iov_base;
-    } else if (datagramLength) {
+    if (datagramLength) {
       datagram = UniqueArray<uint8_t>::allocate(datagramLength);
       size_t offset = 0;
       for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
-        MemoryCopy(datagram.get() + offset, msghdr->msg_iov[i].iov_base,
-                   msghdr->msg_iov[i].iov_len);
+        if (!PosixSubsystem::copyFromUser(datagram.get() + offset,
+                                          msghdr->msg_iov[i].iov_base,
+                                          msghdr->msg_iov[i].iov_len)) {
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
         offset += msghdr->msg_iov[i].iov_len;
       }
       buffer = datagram.get();
     }
 
-    numWritten = remote->write(reinterpret_cast<uintptr_t>(localPath.cstr()), datagramLength,
-                               reinterpret_cast<uintptr_t>(buffer), isBlocking());
-    completedWrite = numWritten || !datagramLength;
+    completedWrite = remote->sendDatagram(
+        datagramLength, reinterpret_cast<uintptr_t>(buffer), isBlocking(),
+        reinterpret_cast<uintptr_t>(localPath.cstr()), rights);
+    numWritten = completedWrite ? datagramLength : 0;
   } else {
     for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
       void* buffer = msghdr->msg_iov[i].iov_base;
@@ -2810,9 +3037,15 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
   return numWritten;
 }
 
-ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
+ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
+                                         SharedPointer<SocketRights>* rights) {
+  if (rights) {
+    rights->reset();
+  }
+
+  const int inputFlags = msghdr->msg_flags;
 #ifdef MSG_TRUNC
-  if (msghdr->msg_flags & MSG_TRUNC) {
+  if ((inputFlags & MSG_TRUNC) && getType() != SOCK_DGRAM) {
     SYSCALL_ERROR(OperationNotSupported);
     return -1;
   }
@@ -2827,6 +3060,8 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
 
   String remote;
   uint64_t numRead = 0;
+  uint64_t datagramLength = 0;
+  bool consumedDatagram = false;
   if (getType() == SOCK_DGRAM) {
     size_t datagramCapacity = 0;
     for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
@@ -2839,22 +3074,32 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
 
     UniqueArray<uint8_t> datagram;
     void* buffer = nullptr;
-    if (msghdr->msg_iovlen == 1) {
-      buffer = msghdr->msg_iov[0].iov_base;
-    } else if (datagramCapacity) {
+    if (datagramCapacity) {
       datagram = UniqueArray<uint8_t>::allocate(datagramCapacity);
       buffer = datagram.get();
     }
 
-    numRead = localSocket->recvfrom(datagramCapacity, reinterpret_cast<uintptr_t>(buffer),
-                                    isBlocking(), remote);
-    if (numRead && msghdr->msg_iovlen != 1) {
+    SharedPointer<SocketRights> receivedRights;
+    consumedDatagram = localSocket->receiveDatagram(
+        datagramCapacity, reinterpret_cast<uintptr_t>(buffer), isBlocking(), remote,
+        receivedRights, numRead, datagramLength);
+    if (rights) {
+      *rights = receivedRights;
+    }
+    if (consumedDatagram && numRead) {
       size_t offset = 0;
       for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen) && offset < numRead; ++i) {
         const size_t remaining = static_cast<size_t>(numRead) - offset;
         const size_t amount =
             msghdr->msg_iov[i].iov_len < remaining ? msghdr->msg_iov[i].iov_len : remaining;
-        MemoryCopy(msghdr->msg_iov[i].iov_base, datagram.get() + offset, amount);
+        if (!PosixSubsystem::copyToUser(msghdr->msg_iov[i].iov_base, datagram.get() + offset,
+                                        amount)) {
+          if (rights) {
+            rights->reset();
+          }
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
         offset += amount;
       }
     }
@@ -2900,7 +3145,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
     notifyPeer(localSocket, ReadyWrite);
   }
 
-  if (numRead && msghdr->msg_name) {
+  if ((numRead || consumedDatagram) && msghdr->msg_name) {
     struct sockaddr_un* un = reinterpret_cast<struct sockaddr_un*>(msghdr->msg_name);
     const size_t pathOffset = offsetof(struct sockaddr_un, sun_path);
     const size_t capacity = msghdr->msg_namelen;
@@ -2919,9 +3164,13 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
     msghdr->msg_namelen = sizeof(sa_family_t) + remote.length() + (remote.length() ? 1 : 0);
   }
 
-  /// \todo get info from the socket about things like truncated buffer
   msghdr->msg_flags = 0;
-  if (!numRead) {
+#ifdef MSG_TRUNC
+  if (consumedDatagram && numRead < datagramLength) {
+    msghdr->msg_flags |= MSG_TRUNC;
+  }
+#endif
+  if (!numRead && !consumedDatagram) {
     if (getType() == SOCK_STREAM && localSocket->getState() == UnixSocket::Closed) {
       N_NOTICE(" -> 0 (EOF)");
       return 0;
@@ -2933,6 +3182,13 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
       return -1;
     }
   }
+
+#ifdef MSG_TRUNC
+  if (consumedDatagram && (inputFlags & MSG_TRUNC)) {
+    N_NOTICE(" -> " << datagramLength);
+    return datagramLength;
+  }
+#endif
   N_NOTICE(" -> " << numRead);
   return numRead;
 }
@@ -3508,7 +3764,7 @@ int blockedUnixEndpointReceive(void* parameter) {
   message.msg_iovlen = 1;
 
   context->entered += 1;
-  context->result = context->socket->recvfrom_msg(&message);
+  context->result = context->socket->recvfrom_msg(&message, nullptr);
   context->returned += 1;
   return 0;
 }
