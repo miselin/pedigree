@@ -78,6 +78,17 @@ namespace {
 bool defaultSignalActionIsIgnore(size_t signal) {
   return signal == SIGCHLD || signal == SIGURG || signal == SIGWINCH;
 }
+
+bool defaultSignalActionIsStop(size_t signal) {
+  return signal == SIGSTOP || signal == SIGTSTP || signal == SIGTTIN || signal == SIGTTOU;
+}
+
+void stampDefaultStopDelivery(Process* process, size_t signal,
+                              const PosixSubsystem::SignalHandler* handler, SignalEvent* delivery) {
+  if (process && handler && handler->type == 1 && delivery && defaultSignalActionIsStop(signal)) {
+    delivery->setContinuationEpoch(process->getContinuationEpoch());
+  }
+}
 }  // namespace
 
 ProcessGroupManager::ProcessGroupManager() : m_GroupIds(), m_Groups(), m_GroupLock(false) {
@@ -905,7 +916,9 @@ void PosixSubsystem::resetSignalHandlersForExec(Thread* thread, SignalHandler* c
     m_SignalHandlers.insert(signal, replacement);
 
     if (thread->hasSignalEvent(signal)) {
-      Event* pendingReplacement = replacement->pEvent->cloneForDelivery();
+      SignalEvent* pendingReplacement =
+          static_cast<SignalEvent*>(replacement->pEvent->cloneForDelivery());
+      stampDefaultStopDelivery(m_pProcess, signal, replacement, pendingReplacement);
       if (!thread->replaceSignalEvent(signal, pendingReplacement)) {
         delete pendingReplacement;
         FATAL("Exec signal reset could not rebind a pending signal.");
@@ -999,6 +1012,7 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
     result = SignalDeliveryResult::Ignored;
   } else if (handler && handler->pEvent) {
     delivery = static_cast<SignalEvent*>(handler->pEvent->cloneForDelivery());
+    stampDefaultStopDelivery(process, sig, handler, delivery);
     if (flags) {
       *flags = handler->flags;
     }

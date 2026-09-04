@@ -26,12 +26,14 @@
 
 SignalEvent::SignalEvent(uintptr_t handlerAddress, size_t signalNum, size_t specificNestingLevel,
                          uint64_t signalMask, bool deferSignal, bool isDeletable,
-                         HandlerPrivilege handlerPrivilege, DeliveryDisposition disposition)
+                         HandlerPrivilege handlerPrivilege, DeliveryDisposition disposition,
+                         size_t continuationEpoch)
     : Event(handlerAddress, isDeletable, specificNestingLevel, handlerPrivilege),
       m_SignalNumber(signalNum),
       m_SignalMask(signalMask),
       m_DeferSignal(deferSignal),
-      m_Disposition(disposition) {}
+      m_Disposition(disposition),
+      m_ContinuationEpoch(continuationEpoch) {}
 
 Event* SignalEvent::cloneForDelivery() {
   if (isDeletable()) {
@@ -39,13 +41,15 @@ Event* SignalEvent::cloneForDelivery() {
   }
 
   return new SignalEvent(m_HandlerAddress, m_SignalNumber, m_NestingLevel, m_SignalMask,
-                         m_DeferSignal, true, m_HandlerPrivilege, m_Disposition);
+                         m_DeferSignal, true, m_HandlerPrivilege, m_Disposition,
+                         m_ContinuationEpoch);
 }
 
 /// \todo There may be a need for serialization in the future...
 size_t SignalEvent::serialize(uint8_t* pBuffer) {
   Thread* pThread = Processor::information().getCurrentThread();
   if (pThread) {
+    pThread->setCurrentSignalDelivery(m_SignalNumber, m_ContinuationEpoch);
     if (m_Disposition == DeliveryDisposition::CaughtHandler) {
       pThread->markSignalInterruptedWait();
     }

@@ -741,6 +741,8 @@ SchedulerState* Thread::pushState() {
   m_StateLevels[nextLevel].m_SavedSignalMask = 0;
   m_StateLevels[nextLevel].m_TemporarySignalMaskActive = false;
   m_StateLevels[nextLevel].m_TemporarySignalWaitInterrupted = false;
+  m_StateLevels[nextLevel].m_DispatchedSignalNumber = 0;
+  m_StateLevels[nextLevel].m_DispatchedSignalContinuationEpoch = 0;
   m_StateLevels[nextLevel].m_ExecutionContext = m_StateLevels[previousLevel].m_ExecutionContext;
   m_StateLevels[nextLevel].m_pRequestQueueCallback =
       m_StateLevels[previousLevel].m_pRequestQueueCallback;
@@ -1744,6 +1746,25 @@ void Thread::setSignalMask(uint64_t mask) {
   m_StateLevels[m_nStateLevel].m_SignalMask = mask;
 }
 
+void Thread::setCurrentSignalDelivery(size_t signalNumber, size_t continuationEpoch) {
+  LockGuard<Spinlock> guard(m_Lock);
+  StateLevel& state = m_StateLevels[m_nStateLevel];
+  state.m_DispatchedSignalNumber = signalNumber;
+  state.m_DispatchedSignalContinuationEpoch = continuationEpoch;
+}
+
+bool Thread::getCurrentSignalDelivery(size_t& signalNumber, size_t& continuationEpoch) {
+  LockGuard<Spinlock> guard(m_Lock);
+  const StateLevel& state = m_StateLevels[m_nStateLevel];
+  if (!state.m_DispatchedSignalNumber) {
+    return false;
+  }
+
+  signalNumber = state.m_DispatchedSignalNumber;
+  continuationEpoch = state.m_DispatchedSignalContinuationEpoch;
+  return true;
+}
+
 void Thread::prepareSignalStateForExec() {
   const size_t execStateLevel = getStateLevel();
   uint64_t effectiveSignalMask = 0;
@@ -1773,6 +1794,8 @@ void Thread::prepareSignalStateForExec() {
   base.m_SavedSignalMask = 0;
   base.m_TemporarySignalMaskActive = false;
   base.m_TemporarySignalWaitInterrupted = false;
+  base.m_DispatchedSignalNumber = 0;
+  base.m_DispatchedSignalContinuationEpoch = 0;
   base.m_InterruptionReason = NotInterrupted;
   base.m_bDispatchingWaitEvent = false;
   m_AlternateSignalStack = AlternateSignalStack();
@@ -2482,6 +2505,8 @@ Thread::StateLevel::StateLevel()
       m_SavedSignalMask(0),
       m_TemporarySignalMaskActive(false),
       m_TemporarySignalWaitInterrupted(false),
+      m_DispatchedSignalNumber(0),
+      m_DispatchedSignalContinuationEpoch(0),
       m_Errno(0),
       m_InterruptionReason(NotInterrupted),
       m_bDispatchingWaitEvent(false),
@@ -2512,6 +2537,8 @@ Thread::StateLevel::StateLevel(const Thread::StateLevel& s)
       m_SavedSignalMask(0),
       m_TemporarySignalMaskActive(false),
       m_TemporarySignalWaitInterrupted(false),
+      m_DispatchedSignalNumber(0),
+      m_DispatchedSignalContinuationEpoch(0),
       m_Errno(s.m_Errno),
       m_InterruptionReason(s.m_InterruptionReason),
       m_bDispatchingWaitEvent(false),
@@ -2534,6 +2561,8 @@ Thread::StateLevel& Thread::StateLevel::operator=(const Thread::StateLevel& s) {
   m_SavedSignalMask = 0;
   m_TemporarySignalMaskActive = false;
   m_TemporarySignalWaitInterrupted = false;
+  m_DispatchedSignalNumber = 0;
+  m_DispatchedSignalContinuationEpoch = 0;
   m_Errno = s.m_Errno;
   m_InterruptionReason = s.m_InterruptionReason;
   m_bDispatchingWaitEvent = false;
@@ -2985,6 +3014,8 @@ void Thread::cleanStateLevel(size_t level) {
   m_StateLevels[level].m_InhibitMask.reset();
   m_StateLevels[level].m_SavedSignalMask = 0;
   m_StateLevels[level].m_TemporarySignalWaitInterrupted = false;
+  m_StateLevels[level].m_DispatchedSignalNumber = 0;
+  m_StateLevels[level].m_DispatchedSignalContinuationEpoch = 0;
   m_StateLevels[level].m_ExecutionContext.reset();
   m_StateLevels[level].m_pRequestQueueCallback = nullptr;
   m_StateLevels[level].m_bTerminalWaitCancelledBeforeBlock = false;

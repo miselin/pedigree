@@ -557,6 +557,12 @@ class EXPORTED_PUBLIC Thread {
   /** Sets the POSIX signal mask for the current event nesting level. */
   void setSignalMask(uint64_t mask);
 
+  /** Records trusted metadata for the signal dispatched at the current level. */
+  void setCurrentSignalDelivery(size_t signalNumber, size_t continuationEpoch);
+
+  /** Retrieves trusted metadata for the signal dispatched at the current level. */
+  bool getCurrentSignalDelivery(size_t& signalNumber, size_t& continuationEpoch);
+
   /** Carries the effective signal state into a replacement process image. */
   void prepareSignalStateForExec();
 
@@ -889,6 +895,10 @@ class EXPORTED_PUBLIC Thread {
     uint64_t m_SavedSignalMask;
     bool m_TemporarySignalMaskActive;
     bool m_TemporarySignalWaitInterrupted;
+
+    /** Kernel-owned metadata for the signal dispatched at this level. */
+    size_t m_DispatchedSignalNumber;
+    size_t m_DispatchedSignalContinuationEpoch;
 
     /** Syscall-local state isolated from nested event handlers. */
     size_t m_Errno;

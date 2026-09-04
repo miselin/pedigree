@@ -339,8 +339,13 @@ class EXPORTED_PUBLIC Process {
   void kill() NORETURN;
   /** Suspends the process. */
   void suspend(int stopSignal = 0);
+  /** Suspends only if no continuation has occurred since the stop was queued. */
+  void suspendIfContinuationEpoch(int stopSignal, size_t continuationEpoch);
   /** Resumes the process from suspend. */
   void resume();
+
+  /** Snapshots the generation invalidated by every process continuation. */
+  size_t getContinuationEpoch();
 
   /** Returns the parent process. */
   Process* getParent() {
@@ -703,6 +708,9 @@ class EXPORTED_PUBLIC Process {
   /** Predicate queue for the process stopped/running state. */
   WaitQueue m_SuspensionWaiters;
 
+  /** Invalidates default-stop deliveries which predate a continuation. */
+  size_t m_ContinuationEpoch;
+
   /** Lifetime barrier for Thread::join operations using this process. */
   WaitQueue m_ThreadJoinWaiters;
 
@@ -742,6 +750,9 @@ class EXPORTED_PUBLIC Process {
    * terminal lifecycle transition.
    */
   bool transitionState(ProcessState expected, ProcessState desired);
+
+  /** Shared implementation for unconditional and generation-checked stops. */
+  void suspendInternal(int stopSignal, bool checkContinuationEpoch, size_t continuationEpoch);
 
   /** Advances Active or Suspended to Terminating without downgrading. */
   void transitionToTerminating();

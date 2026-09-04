@@ -261,6 +261,7 @@ Process::Process(DeferredPublication)
       m_ChildStateWaiters(),
       m_TerminationWaiters(),
       m_SuspensionWaiters(),
+      m_ContinuationEpoch(0),
       m_ThreadJoinWaiters(),
       m_nThreadJoinOperations(0),
       m_bThreadJoinAdmissionClosed(false),
@@ -332,6 +333,7 @@ Process::Process(DeferredPublication, Process* pParent, bool bCopyOnWrite)
       m_ChildStateWaiters(),
       m_TerminationWaiters(),
       m_SuspensionWaiters(),
+      m_ContinuationEpoch(0),
       m_ThreadJoinWaiters(),
       m_nThreadJoinOperations(0),
       m_bThreadJoinAdmissionClosed(false),
@@ -1424,6 +1426,15 @@ void Process::setOrphanPublicationHook(OrphanPublicationHook hook) {
 #endif
 
 void Process::suspend(int stopSignal) {
+  suspendInternal(stopSignal, false, 0);
+}
+
+void Process::suspendIfContinuationEpoch(int stopSignal, size_t continuationEpoch) {
+  suspendInternal(stopSignal, true, continuationEpoch);
+}
+
+void Process::suspendInternal(int stopSignal, bool checkContinuationEpoch,
+                              size_t continuationEpoch) {
   bool published = false;
   bool enteredSuspended = false;
   while (!published) {
@@ -1442,7 +1453,8 @@ void Process::suspend(int stopSignal) {
       }
 
       auto suspensionGuard = m_SuspensionWaiters.acquire();
-      if (transitionState(Active, Suspended)) {
+      const bool epochMatches = !checkContinuationEpoch || continuationEpoch == m_ContinuationEpoch;
+      if (epochMatches && transitionState(Active, Suspended)) {
         m_PendingChildTransition.kind = ChildTransitionKind::Stopped;
         m_PendingChildTransition.stopSignal = stopSignal;
         enteredSuspended = true;
@@ -1451,7 +1463,8 @@ void Process::suspend(int stopSignal) {
       published = true;
     } else {
       auto suspensionGuard = m_SuspensionWaiters.acquire();
-      if (transitionState(Active, Suspended)) {
+      const bool epochMatches = !checkContinuationEpoch || continuationEpoch == m_ContinuationEpoch;
+      if (epochMatches && transitionState(Active, Suspended)) {
         m_PendingChildTransition.kind = ChildTransitionKind::Stopped;
         m_PendingChildTransition.stopSignal = stopSignal;
         enteredSuspended = true;
@@ -1498,6 +1511,11 @@ void Process::suspend(int stopSignal) {
   }
 }
 
+size_t Process::getContinuationEpoch() {
+  auto suspensionGuard = m_SuspensionWaiters.acquire();
+  return m_ContinuationEpoch;
+}
+
 void Process::resume() {
   bool published = false;
   bool resumed = false;
@@ -1517,6 +1535,7 @@ void Process::resume() {
       }
 
       auto suspensionGuard = m_SuspensionWaiters.acquire();
+      ++m_ContinuationEpoch;
       if (transitionState(Suspended, Active)) {
         m_PendingChildTransition.kind = ChildTransitionKind::Continued;
         m_PendingChildTransition.stopSignal = 0;
@@ -1527,6 +1546,7 @@ void Process::resume() {
       published = true;
     } else {
       auto suspensionGuard = m_SuspensionWaiters.acquire();
+      ++m_ContinuationEpoch;
       if (transitionState(Suspended, Active)) {
         m_PendingChildTransition.kind = ChildTransitionKind::Continued;
         m_PendingChildTransition.stopSignal = 0;

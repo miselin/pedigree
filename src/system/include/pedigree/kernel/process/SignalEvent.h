@@ -34,7 +34,8 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
   SignalEvent(uintptr_t handlerAddress, size_t signalNum, size_t specificNestingLevel = ~0UL,
               uint64_t signalMask = 0, bool deferSignal = true, bool isDeletable = false,
               HandlerPrivilege handlerPrivilege = HandlerPrivilege::Kernel,
-              DeliveryDisposition disposition = DeliveryDisposition::CaughtHandler);
+              DeliveryDisposition disposition = DeliveryDisposition::CaughtHandler,
+              size_t continuationEpoch = 0);
 
   virtual size_t serialize(uint8_t* pBuffer);
   static bool unserialize(uint8_t* pBuffer, Event& event);
@@ -49,6 +50,11 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
   }
 
   virtual Event* cloneForDelivery();
+
+  /** Stamps the process continuation generation captured for this delivery. */
+  void setContinuationEpoch(size_t continuationEpoch) {
+    m_ContinuationEpoch = continuationEpoch;
+  }
 
   virtual size_t getNumber() {
     return m_SignalNumber;
@@ -66,6 +72,9 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
 
   /** Whether this delivery represents a caught signal handler. */
   DeliveryDisposition m_Disposition;
+
+  /** Process continuation generation captured when this signal was queued. */
+  size_t m_ContinuationEpoch;
 };
 
 #endif

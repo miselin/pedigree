@@ -68,12 +68,6 @@ static int queueThreadSignal(Process* process, Thread* thread, int sig, bool& qu
     Scheduler::instance().yield();                                         \
     Processor::information().getCurrentThread()->deferSignalExit(errcode); \
   }
-#define SIGNAL_HANDLER_SUSPEND(name)                                             \
-  static void name(int s) {                                                      \
-    Process* pParent = Processor::information().getCurrentThread()->getParent(); \
-    NOTICE("SUSPEND [pid=" << pParent->getId() << ", signal " << s << "]");      \
-    pParent->suspend(s);                                                         \
-  }
 static char SSIGILL[] = "Illegal instruction.\n";
 static char SSIGSEGV[] = "Segmentation fault.\n";
 static char SSIGBUS[] = "Bus error.\n";
@@ -93,12 +87,8 @@ SIGNAL_HANDLER_EXIT(sigpipe, SIGPIPE)
 SIGNAL_HANDLER_EXIT(sigquit, SIGQUIT)
 SIGNAL_HANDLER_EXITMSG(sigsegv, SIGSEGV, SSIGSEGV)
 SIGNAL_HANDLER_EXIT(sigstkflt, SIGSTKFLT)
-SIGNAL_HANDLER_SUSPEND(sigstop)
 SIGNAL_HANDLER_EXIT(sigterm, SIGTERM)
 SIGNAL_HANDLER_EXIT(sigtrap, SIGTRAP)
-SIGNAL_HANDLER_SUSPEND(sigtstp)  // terminal stop
-SIGNAL_HANDLER_SUSPEND(sigttin)  // background process attempts read
-SIGNAL_HANDLER_SUSPEND(sigttou)  // background process attempts write
 SIGNAL_HANDLER_EXIT(sigusr1, SIGUSR1)
 SIGNAL_HANDLER_EXIT(sigusr2, SIGUSR2)
 SIGNAL_HANDLER_EMPTY(sigurg)  // high bandwdith data available at a sockeet
@@ -111,6 +101,24 @@ SIGNAL_HANDLER_EXIT(sigpwr, SIGPWR)
 SIGNAL_HANDLER_EXIT(sigsys, SIGSYS)
 
 SIGNAL_HANDLER_EMPTY(sigign);
+
+static void suspendForDefaultSignal(int) {
+  Thread* thread = Processor::information().getCurrentThread();
+  size_t signal = 0;
+  size_t continuationEpoch = 0;
+  if (!thread || !thread->getCurrentSignalDelivery(signal, continuationEpoch)) {
+    ERROR("Default stop handler did not receive trusted signal metadata.");
+    return;
+  }
+  if (signal != SIGSTOP && signal != SIGTSTP && signal != SIGTTIN && signal != SIGTTOU) {
+    ERROR("Default stop handler received non-stop signal " << Dec << signal << ".");
+    return;
+  }
+
+  Process* process = thread->getParent();
+  NOTICE("SUSPEND [pid=" << process->getId() << ", signal " << signal << "]");
+  process->suspendIfContinuationEpoch(static_cast<int>(signal), continuationEpoch);
+}
 
 static _sig_func_ptr default_sig_handlers[32] = {
     sigign,     // 0
@@ -132,10 +140,10 @@ static _sig_func_ptr default_sig_handlers[32] = {
     sigstkflt,  // SIGSTKFLT
     sigchld,    // SIGCHLD
     sigcont,    // SIGCONT
-    sigstop,    // SIGSTOP
-    sigtstp,    // SIGTSTP
-    sigttin,    // SIGTTIN
-    sigttou,    // SIGTTOU
+    suspendForDefaultSignal,  // SIGSTOP
+    suspendForDefaultSignal,  // SIGTSTP
+    suspendForDefaultSignal,  // SIGTTIN
+    suspendForDefaultSignal,  // SIGTTOU
     sigurg,     // SIGURG
     sigxcpu,    // SIGXCPU
     sigxfsz,    // SIGXFSZ

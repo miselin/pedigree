@@ -199,6 +199,105 @@ bool signalCullPreservesNumberCollision(Thread* thread) {
 Atomic<size_t> g_ContinueHandlerCalls(0);
 Atomic<size_t> g_ContinueHandlerObservedActive(0);
 
+struct DefaultStopContext {
+  DefaultStopContext() : entered(0), returned(0) {}
+
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+};
+
+struct StopEpochHookContext {
+  enum Mode {
+    ContinueOnce,
+    ContinueThenFreshStop,
+  };
+
+  StopEpochHookContext(PosixSubsystem* subsystem, Thread* staleTarget, Thread* freshTarget,
+                       Mode mode)
+      : subsystem(subsystem),
+        staleTarget(staleTarget),
+        freshTarget(freshTarget),
+        mode(mode),
+        hookCalls(0),
+        failures(0),
+        continuations(0),
+        freshStopQueued(0),
+        freshStarted(0),
+        freshSuspended(0),
+        cancelled(0),
+        hookCompleted(0),
+        epochBefore(0),
+        epochAfter(0) {}
+
+  PosixSubsystem* subsystem;
+  Thread* staleTarget;
+  Thread* freshTarget;
+  Mode mode;
+  Atomic<size_t> hookCalls;
+  Atomic<size_t> failures;
+  Atomic<size_t> continuations;
+  Atomic<size_t> freshStopQueued;
+  Atomic<size_t> freshStarted;
+  Atomic<size_t> freshSuspended;
+  Atomic<size_t> cancelled;
+  Atomic<size_t> hookCompleted;
+  Atomic<size_t> epochBefore;
+  Atomic<size_t> epochAfter;
+};
+
+StopEpochHookContext* g_StopEpochHookContext = nullptr;
+
+void continueAfterStopDequeue(Thread::StateTransitionWindow window, Thread* thread, size_t,
+                              size_t) {
+  StopEpochHookContext* context = __atomic_load_n(&g_StopEpochHookContext, __ATOMIC_ACQUIRE);
+  if (!context || window != Thread::StatePushBeforePublish || thread != context->staleTarget) {
+    return;
+  }
+
+  Thread::setStateTransitionHook(nullptr);
+  context->hookCalls += 1;
+  Process* process = thread->getParent();
+  if (!context->cancelled) {
+    context->epochBefore = process->getContinuationEpoch();
+
+    const size_t continuationCount =
+        context->mode == StopEpochHookContext::ContinueThenFreshStop ? 2 : 1;
+    for (size_t i = 0; i < continuationCount && !context->cancelled; ++i) {
+      if (context->subsystem->queueSignalDelivery(thread, SIGCONT) ==
+          PosixSubsystem::SignalDeliveryResult::Ignored) {
+        context->continuations += 1;
+      } else {
+        context->failures += 1;
+      }
+    }
+    context->epochAfter = process->getContinuationEpoch();
+  }
+
+  if (context->freshTarget && !context->cancelled) {
+    if (context->subsystem->queueSignalDelivery(context->freshTarget, SIGSTOP) ==
+        PosixSubsystem::SignalDeliveryResult::Queued) {
+      context->freshStopQueued += 1;
+      if (!context->cancelled && context->freshTarget->start()) {
+        context->freshStarted += 1;
+        const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+        while (!context->cancelled && !process->isSuspended() && Time::getTicks() < deadline) {
+          Scheduler::instance().yield();
+        }
+        if (process->isSuspended()) {
+          context->freshSuspended += 1;
+        } else if (!context->cancelled) {
+          context->failures += 1;
+        }
+      } else if (!context->cancelled) {
+        context->failures += 1;
+      }
+    } else {
+      context->failures += 1;
+    }
+  }
+  context->hookCompleted += 1;
+}
+
 void hostedContinueHandler(size_t) {
   Thread* current = Processor::information().getCurrentThread();
   if (current && current->getParent()->getState() == Process::Active) {
@@ -216,6 +315,14 @@ void installSignalDisposition(PosixSubsystem& subsystem, size_t signal, int type
 }
 
 int dormantSignalThread(void*) {
+  return 0;
+}
+
+int waitForDefaultStop(void* parameter) {
+  DefaultStopContext* context = reinterpret_cast<DefaultStopContext*>(parameter);
+  context->entered += 1;
+  Processor::information().getCurrentThread()->waitForEvent();
+  context->returned += 1;
   return 0;
 }
 
@@ -457,6 +564,335 @@ bool execSignalResetRebindsPending(Process* kernelProcess) {
                                 context.returned == 1 && g_SignalHandlerCalls == 0,
                             "exec discarded a pending signal, retained old handler metadata, or "
                             "left the alternate stack enabled");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool takeJobControlTransition(Process* process, Process::ChildTransition& transition) {
+  Process* parent = process->getParent();
+  if (!parent) {
+    return false;
+  }
+
+  auto guard = parent->acquireChildStateWait();
+  return process->takePendingChildTransition(true, true, transition);
+}
+
+bool defaultStopControl(Process* kernelProcess) {
+  constexpr const char* Test = "default-stop-control";
+  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  process->publish();
+
+  DefaultStopContext context;
+  Thread* target = new Thread(process, waitForDefaultStop, &context, nullptr, false, true, true);
+  target->setName("hosted default stop control");
+  pedigree_reset_signals_for_exec(target);
+
+  const bool queued = subsystem->queueSignalDelivery(target, SIGTSTP) ==
+                      PosixSubsystem::SignalDeliveryResult::Queued;
+  const bool started = queued && target->start();
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (started && !process->isSuspended() && !context.returned && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+
+  const bool suspended = process->isSuspended();
+  Process::ChildTransition stoppedTransition;
+  const bool stoppedReported = suspended && takeJobControlTransition(process, stoppedTransition) &&
+                               stoppedTransition.kind == Process::ChildTransitionKind::Stopped &&
+                               stoppedTransition.stopSignal == SIGTSTP;
+
+  PosixSubsystem::SignalDeliveryResult continueResult =
+      PosixSubsystem::SignalDeliveryResult::Unavailable;
+  if (suspended) {
+    continueResult = subsystem->queueSignalDelivery(target, SIGCONT);
+    if (process->isSuspended()) {
+      process->resume();
+    }
+  } else if (started && !context.returned) {
+    target->setUnwindState(Thread::TerminateThread);
+  }
+
+  const bool joined = started && target->joinForCompletion();
+  if (!started) {
+    target->cullSignalEvent(SIGTSTP);
+    delete target;
+  }
+
+  Process::ChildTransition continuedTransition;
+  const bool continuedReported =
+      takeJobControlTransition(process, continuedTransition) &&
+      continuedTransition.kind == Process::ChildTransitionKind::Continued &&
+      !continuedTransition.stopSignal;
+  const bool passed =
+      check(queued && started && suspended && stoppedReported &&
+                continueResult == PosixSubsystem::SignalDeliveryResult::Queued && joined &&
+                context.entered == 1 && context.returned == 1 && continuedReported,
+            "a fresh default stop did not suspend, preserve its signal number, or continue");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool staleDefaultStopRejectedAfterContinue(Process* kernelProcess) {
+  constexpr const char* Test = "stale-default-stop-after-continue";
+  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  process->publish();
+
+  DefaultStopContext context;
+  Thread* target = new Thread(process, waitForDefaultStop, &context, nullptr, false, true, true);
+  target->setName("hosted stale default stop target");
+  pedigree_reset_signals_for_exec(target);
+  installSignalDisposition(*subsystem, SIGCONT, 2);
+
+  const bool queued = subsystem->queueSignalDelivery(target, SIGSTOP) ==
+                      PosixSubsystem::SignalDeliveryResult::Queued;
+  StopEpochHookContext hookContext(subsystem, target, nullptr, StopEpochHookContext::ContinueOnce);
+  __atomic_store_n(&g_StopEpochHookContext, &hookContext, __ATOMIC_RELEASE);
+  Thread::setStateTransitionHook(continueAfterStopDequeue);
+  const bool started = queued && target->start();
+
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (started && !context.returned && !process->isSuspended() && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+  Thread::setStateTransitionHook(nullptr);
+  __atomic_store_n(&g_StopEpochHookContext, static_cast<StopEpochHookContext*>(nullptr),
+                   __ATOMIC_RELEASE);
+
+  Process::ChildTransition unexpectedTransition;
+  const bool publishedStop = takeJobControlTransition(process, unexpectedTransition);
+  const bool returnedWithoutStop = context.returned == 1 && process->getState() == Process::Active;
+  if (process->isSuspended()) {
+    process->resume();
+  } else if (started && !context.returned) {
+    target->setUnwindState(Thread::TerminateThread);
+  }
+
+  const bool joined = started && target->joinForCompletion();
+  if (!started) {
+    target->cullSignalEvent(SIGSTOP);
+    delete target;
+  }
+
+  const bool passed =
+      check(queued && started && hookContext.hookCalls == 1 && !hookContext.failures &&
+                hookContext.hookCompleted == 1 && hookContext.continuations == 1 &&
+                hookContext.epochAfter == (hookContext.epochBefore + 1) && returnedWithoutStop &&
+                !publishedStop && joined && context.entered == 1,
+            "a dequeued default stop survived a later SIGCONT generation");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool staleDefaultStopRejectedAcrossAba(Process* kernelProcess) {
+  constexpr const char* Test = "stale-default-stop-aba";
+  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  process->publish();
+
+  DefaultStopContext staleContext;
+  Thread* staleTarget =
+      new Thread(process, waitForDefaultStop, &staleContext, nullptr, false, true, true);
+  staleTarget->setName("hosted ABA stale stop target");
+  pedigree_reset_signals_for_exec(staleTarget);
+  installSignalDisposition(*subsystem, SIGCONT, 2);
+
+  DefaultStopContext freshContext;
+  Thread* freshTarget =
+      new Thread(process, waitForDefaultStop, &freshContext, nullptr, false, true, true);
+  freshTarget->setName("hosted ABA fresh stop target");
+
+  const bool staleQueued = subsystem->queueSignalDelivery(staleTarget, SIGSTOP) ==
+                           PosixSubsystem::SignalDeliveryResult::Queued;
+  StopEpochHookContext hookContext(subsystem, staleTarget, freshTarget,
+                                   StopEpochHookContext::ContinueThenFreshStop);
+  __atomic_store_n(&g_StopEpochHookContext, &hookContext, __ATOMIC_RELEASE);
+  Thread::setStateTransitionHook(continueAfterStopDequeue);
+  const bool staleStarted = staleQueued && staleTarget->start();
+
+  const Time::Timestamp hookDeadline = Time::getTicks() + (1 * Time::Multiplier::Second);
+  while (staleStarted && !hookContext.hookCompleted && Time::getTicks() < hookDeadline) {
+    Scheduler::instance().yield();
+  }
+  const bool hookTimedOut = staleStarted && !hookContext.hookCompleted;
+  if (hookTimedOut) {
+    hookContext.cancelled += 1;
+  }
+  Thread::setStateTransitionHook(nullptr);
+  __atomic_store_n(&g_StopEpochHookContext, static_cast<StopEpochHookContext*>(nullptr),
+                   __ATOMIC_RELEASE);
+
+  if (hookTimedOut) {
+    if (!staleContext.returned) {
+      staleTarget->setUnwindState(Thread::TerminateThread);
+    }
+    if (process->isSuspended()) {
+      process->resume();
+    }
+    const bool staleJoined = staleTarget->joinForCompletion();
+
+    // Joining the hook owner is the lifetime barrier for its stack context.
+    const bool freshStarted = hookContext.freshStarted == 1;
+    if (freshStarted && !freshContext.returned) {
+      freshTarget->setUnwindState(Thread::TerminateThread);
+    }
+    if (process->isSuspended()) {
+      process->resume();
+    }
+    const bool freshJoined = freshStarted && freshTarget->joinForCompletion();
+    if (!freshStarted) {
+      freshTarget->cullSignalEvent(SIGSTOP);
+      delete freshTarget;
+    }
+    if (process->isSuspended()) {
+      process->resume();
+    }
+
+    const bool cleaned = staleJoined && (!freshStarted || freshJoined);
+    check(false, cleaned ? "the ABA dequeue hook timed out"
+                         : "the ABA dequeue hook timed out and thread cleanup failed");
+    delete process;
+    return false;
+  }
+
+  const bool freshStarted = hookContext.freshStarted == 1;
+  const bool freshSuspended = hookContext.freshSuspended == 1 && process->isSuspended();
+  const bool staleJoinedStop = freshSuspended && waitUntilQueued(staleTarget, Thread::ProcessWait);
+  const bool freshJoinedStop = freshSuspended && waitUntilQueued(freshTarget, Thread::ProcessWait);
+  const bool bothStoppedBeforeContinue = !staleContext.returned && !freshContext.returned;
+  Process::ChildTransition freshTransition;
+  const bool freshStopReported = freshSuspended &&
+                                 takeJobControlTransition(process, freshTransition) &&
+                                 freshTransition.kind == Process::ChildTransitionKind::Stopped &&
+                                 freshTransition.stopSignal == SIGSTOP;
+  PosixSubsystem::SignalDeliveryResult continueResult =
+      PosixSubsystem::SignalDeliveryResult::Unavailable;
+  if (freshSuspended) {
+    continueResult = subsystem->queueSignalDelivery(freshTarget, SIGCONT);
+    if (process->isSuspended()) {
+      process->resume();
+    }
+  } else {
+    if (staleStarted && !staleContext.returned) {
+      staleTarget->setUnwindState(Thread::TerminateThread);
+    }
+    if (freshStarted && !freshContext.returned) {
+      freshTarget->setUnwindState(Thread::TerminateThread);
+    }
+  }
+  const bool staleJoined = staleStarted && staleTarget->joinForCompletion();
+  const bool freshJoined = freshStarted && freshTarget->joinForCompletion();
+  if (!staleStarted) {
+    staleTarget->cullSignalEvent(SIGSTOP);
+    delete staleTarget;
+  }
+  if (!freshStarted) {
+    freshTarget->cullSignalEvent(SIGSTOP);
+    delete freshTarget;
+  }
+
+  Process::ChildTransition continuedTransition;
+  const bool continuedReported =
+      takeJobControlTransition(process, continuedTransition) &&
+      continuedTransition.kind == Process::ChildTransitionKind::Continued;
+  const bool finalEpochAdvanced = process->getContinuationEpoch() == (hookContext.epochBefore + 3);
+  const bool passed =
+      check(staleQueued && staleStarted && hookContext.hookCalls == 1 && !hookContext.failures &&
+                hookContext.hookCompleted == 1 && hookContext.continuations == 2 &&
+                hookContext.freshStopQueued == 1 &&
+                hookContext.epochAfter == (hookContext.epochBefore + 2) && finalEpochAdvanced &&
+                staleJoined && freshStarted && freshSuspended && staleJoinedStop &&
+                freshJoinedStop && bothStoppedBeforeContinue && freshStopReported &&
+                continueResult == PosixSubsystem::SignalDeliveryResult::Ignored && freshJoined &&
+                staleContext.entered == 1 && staleContext.returned == 1 &&
+                freshContext.entered == 1 && freshContext.returned == 1 && continuedReported,
+            "a stale stop escaped or invalidated a newer process stop generation");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool execSignalResetRestampsPendingStop(Process* kernelProcess) {
+  constexpr const char* Test = "exec-signal-reset-restamps-pending-stop";
+  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  process->publish();
+
+  DefaultStopContext context;
+  Thread* target = new Thread(process, waitForDefaultStop, &context, nullptr, false, true, true);
+  target->setName("hosted exec rebound default stop target");
+  pedigree_reset_signals_for_exec(target);
+  installSignalDisposition(*subsystem, SIGCONT, 2);
+
+  const size_t epochBefore = process->getContinuationEpoch();
+  const bool continuedWhileActive = subsystem->queueSignalDelivery(target, SIGCONT) ==
+                                    PosixSubsystem::SignalDeliveryResult::Ignored;
+  const bool queued = continuedWhileActive && subsystem->queueSignalDelivery(target, SIGSTOP) ==
+                                                  PosixSubsystem::SignalDeliveryResult::Queued;
+  const bool pendingBeforeReset = queued && target->hasSignalEvent(SIGSTOP);
+  if (pendingBeforeReset) {
+    pedigree_reset_signals_for_exec(target);
+  }
+  const bool pendingAfterReset = pendingBeforeReset && target->hasSignalEvent(SIGSTOP);
+  const bool started = pendingAfterReset && target->start();
+
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (started && !process->isSuspended() && !context.returned && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+
+  const bool suspended = process->isSuspended();
+  Process::ChildTransition stoppedTransition;
+  const bool stoppedReported = suspended && takeJobControlTransition(process, stoppedTransition) &&
+                               stoppedTransition.kind == Process::ChildTransitionKind::Stopped &&
+                               stoppedTransition.stopSignal == SIGSTOP;
+  PosixSubsystem::SignalDeliveryResult continueResult =
+      PosixSubsystem::SignalDeliveryResult::Unavailable;
+  if (suspended) {
+    continueResult = subsystem->queueSignalDelivery(target, SIGCONT);
+    if (process->isSuspended()) {
+      process->resume();
+    }
+  } else if (started && !context.returned) {
+    target->setUnwindState(Thread::TerminateThread);
+  }
+
+  const bool joined = started && target->joinForCompletion();
+  if (!started) {
+    target->cullSignalEvent(SIGSTOP);
+    delete target;
+  }
+  Process::ChildTransition continuedTransition;
+  const bool continuedReported =
+      takeJobControlTransition(process, continuedTransition) &&
+      continuedTransition.kind == Process::ChildTransitionKind::Continued;
+  const bool passed = check(
+      continuedWhileActive && process->getContinuationEpoch() == (epochBefore + 2) && queued &&
+          pendingBeforeReset && pendingAfterReset && started && suspended && stoppedReported &&
+          continueResult == PosixSubsystem::SignalDeliveryResult::Ignored && joined &&
+          context.entered == 1 && context.returned == 1 && continuedReported,
+      "exec rebound a pending default stop with a stale continuation generation");
   delete process;
 
   if (passed) {
@@ -1549,6 +1985,10 @@ bool runHostedSignalInterruptionRegressions(Thread* thread) {
       ignoredSignalDoesNotInterruptWait(thread->getParent()) &&
       ignoredDispositionDiscardsPendingSignals(thread->getParent()) &&
       execSignalResetRebindsPending(thread->getParent()) &&
+      defaultStopControl(thread->getParent()) &&
+      staleDefaultStopRejectedAfterContinue(thread->getParent()) &&
+      staleDefaultStopRejectedAcrossAba(thread->getParent()) &&
+      execSignalResetRestampsPendingStop(thread->getParent()) &&
       signalContinueStillResumes(thread->getParent()) &&
       opposingJobControlSignalsCancelAcrossThreads(thread->getParent()) &&
       stoppedProcessDefersSignalsUntilContinue(thread->getParent()) &&
