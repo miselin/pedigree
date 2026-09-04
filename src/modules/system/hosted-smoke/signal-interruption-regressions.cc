@@ -26,10 +26,49 @@ constexpr size_t HostedSignalNumber = 10;
 
 Atomic<size_t> g_SignalHandlerCalls(0);
 Atomic<size_t> g_MonitorEventDestructions(0);
+Atomic<size_t> g_NestedWaitHandlerCalls(0);
+Atomic<size_t> g_NestedWaitHandlerLevel(0);
+Atomic<size_t> g_NestedWaitReturned(0);
+Atomic<size_t> g_NestedSignalHandlerCalls(0);
+Atomic<size_t> g_NestedSignalHandlerLevel(0);
 
 void hostedSignalHandler(size_t) {
   g_SignalHandlerCalls += 1;
 }
+
+void hostedNestedSignalHandler(size_t) {
+  Thread* thread = Processor::information().getCurrentThread();
+  g_NestedSignalHandlerCalls += 1;
+  g_NestedSignalHandlerLevel = thread ? thread->getStateLevel() : 0;
+}
+
+void hostedNestedWaitHandler(size_t) {
+  Thread* thread = Processor::information().getCurrentThread();
+  if (!thread) {
+    return;
+  }
+
+  const size_t stateLevel = thread->getStateLevel();
+  g_NestedWaitHandlerCalls += 1;
+  g_NestedWaitHandlerLevel = stateLevel;
+  thread->waitForEvent();
+  if (thread->getStateLevel() == stateLevel) {
+    g_NestedWaitReturned += 1;
+  }
+}
+
+class HostedNestedWaitEvent : public Event {
+ public:
+  HostedNestedWaitEvent() : Event(reinterpret_cast<uintptr_t>(&hostedNestedWaitHandler), false) {}
+
+  size_t serialize(uint8_t*) override {
+    return 0;
+  }
+
+  size_t getNumber() override {
+    return 0x4e535457;
+  }
+};
 
 class HostedMonitorEvent : public Event {
  public:
@@ -143,6 +182,17 @@ struct SignalContext {
   Atomic<size_t> released;
 };
 
+struct TemporaryMaskMutexContext {
+  TemporaryMaskMutexContext()
+      : mutex(), holderReady(0), releaseHolder(0), holderAcquired(0), holderReturned(0) {}
+
+  Mutex mutex;
+  Semaphore holderReady;
+  Semaphore releaseHolder;
+  Atomic<size_t> holderAcquired;
+  Atomic<size_t> holderReturned;
+};
+
 struct SemaphoreWakeCollisionContext {
   SemaphoreWakeCollisionContext()
       : semaphore(0),
@@ -230,6 +280,23 @@ int interruptPublishedWait(void* parameter) {
   return 0;
 }
 
+int holdTemporaryMaskMutex(void* parameter) {
+  TemporaryMaskMutexContext* context = reinterpret_cast<TemporaryMaskMutexContext*>(parameter);
+  const bool acquired = context->mutex.acquire();
+  if (acquired) {
+    context->holderAcquired += 1;
+  }
+  context->holderReady.release();
+
+  bool released = false;
+  if (acquired) {
+    released = context->releaseHolder.acquireForCompletion();
+    context->mutex.release();
+  }
+  context->holderReturned += 1;
+  return acquired && released ? 0 : 1;
+}
+
 int waitForSemaphoreWakeCollision(void* parameter) {
   SemaphoreWakeCollisionContext* context =
       reinterpret_cast<SemaphoreWakeCollisionContext*>(parameter);
@@ -303,6 +370,139 @@ Thread* startInterrupter(SignalContext& context) {
                               &context, nullptr, false, true);
   thread->setName("hosted signal interrupter");
   return thread;
+}
+
+bool temporarySignalMaskNestedPrequeued(Thread* thread) {
+  constexpr const char* Test = "temporary-signal-mask-nested-prequeued";
+  constexpr uint64_t SignalBit = static_cast<uint64_t>(1) << (HostedSignalNumber - 1);
+  const uint64_t originalMask = thread->getSignalMask();
+  const uint64_t blockedMask = originalMask | SignalBit;
+  const uint64_t temporaryMask = blockedMask & ~SignalBit;
+  const size_t initialStateLevel = thread->getStateLevel();
+
+  thread->setSignalMask(blockedMask);
+  thread->clearInterruption();
+  g_NestedWaitHandlerCalls = 0;
+  g_NestedWaitHandlerLevel = 0;
+  g_NestedWaitReturned = 0;
+  g_NestedSignalHandlerCalls = 0;
+  g_NestedSignalHandlerLevel = 0;
+
+  HostedNestedWaitEvent outerEvent;
+  SignalEvent signalEvent(reinterpret_cast<uintptr_t>(&hostedNestedSignalHandler),
+                          HostedSignalNumber);
+  const bool outerQueued = thread->sendEvent(&outerEvent);
+  const bool signalQueued = outerQueued && thread->sendEvent(&signalEvent);
+
+  bool activeMaskObserved = false;
+  bool nestedStateRestored = false;
+  bool interrupted = false;
+  bool exactMaskRestored = false;
+  bool interruptionConsumed = false;
+  if (outerQueued && signalQueued) {
+    Thread::TemporarySignalMask signalWait(*thread, temporaryMask);
+    activeMaskObserved = thread->getSignalMask() == temporaryMask;
+    thread->waitForEvent();
+    nestedStateRestored = thread->getStateLevel() == initialStateLevel;
+    interrupted = signalWait.finish();
+    exactMaskRestored = thread->getSignalMask() == blockedMask;
+    interruptionConsumed = thread->getInterruptionReason() == Thread::NotInterrupted;
+  }
+
+  const bool queuesDrained = !thread->hasEvent(&outerEvent) && !thread->hasEvent(&signalEvent);
+  if (thread->hasEvent(&outerEvent)) {
+    thread->cullEvent(&outerEvent);
+  }
+  if (thread->hasEvent(&signalEvent)) {
+    thread->cullEvent(&signalEvent);
+  }
+  thread->setSignalMask(originalMask);
+  thread->clearInterruption();
+
+  const bool passed = check(
+      outerQueued && signalQueued && activeMaskObserved && nestedStateRestored && interrupted &&
+          exactMaskRestored && interruptionConsumed && queuesDrained &&
+          g_NestedWaitHandlerCalls == 1 && g_NestedWaitHandlerLevel == (initialStateLevel + 1) &&
+          g_NestedWaitReturned == 1 && g_NestedSignalHandlerCalls == 1 &&
+          g_NestedSignalHandlerLevel == (initialStateLevel + 2),
+      "a nested prequeued signal missed its owning temporary mask or exact restoration");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool temporarySignalMaskAcrossMutex(Thread* thread) {
+  constexpr const char* Test = "temporary-signal-mask-across-mutex";
+  constexpr uint64_t SignalBit = static_cast<uint64_t>(1) << (HostedSignalNumber - 1);
+  const uint64_t originalMask = thread->getSignalMask();
+  const uint64_t blockedMask = originalMask | SignalBit;
+  const uint64_t temporaryMask = blockedMask & ~SignalBit;
+
+  thread->setSignalMask(blockedMask);
+  thread->clearInterruption();
+  g_SignalHandlerCalls = 0;
+
+  TemporaryMaskMutexContext context;
+  Thread* holder = new Thread(Scheduler::instance().getKernelProcess(), holdTemporaryMaskMutex,
+                              &context, nullptr, false, true, true);
+  holder->setName("hosted temporary signal-mask mutex holder");
+  const bool holderStarted = holder->start();
+  const bool holderReady = holderStarted && context.holderReady.acquireForCompletion();
+
+  bool activeMaskObserved = false;
+  bool mutexAcquired = false;
+  bool stickyAfterMutex = false;
+  bool interruptibleWaitReturned = false;
+  Semaphore::SemaphoreError waitError = Semaphore::NoError;
+  bool interrupted = false;
+  bool exactMaskRestored = false;
+  bool interruptionConsumed = false;
+  bool interrupterJoined = false;
+  SignalContext signalContext(thread, Thread::SemWait, &context.releaseHolder);
+  if (holderReady && context.holderAcquired == 1) {
+    Thread::TemporarySignalMask signalWait(*thread, temporaryMask);
+    activeMaskObserved = thread->getSignalMask() == temporaryMask;
+    Thread* interrupter = startInterrupter(signalContext);
+
+    mutexAcquired = context.mutex.acquire();
+    stickyAfterMutex = thread->hasTemporarySignalWaitInterruption();
+    if (mutexAcquired) {
+      context.mutex.release();
+    }
+
+    if (stickyAfterMutex) {
+      Semaphore interruptible(0);
+      interruptibleWaitReturned = !interruptible.acquireWithError(1, 0, 0, waitError);
+    }
+
+    interrupted = signalWait.finish();
+    exactMaskRestored = thread->getSignalMask() == blockedMask;
+    interruptionConsumed = thread->getInterruptionReason() == Thread::NotInterrupted;
+    interrupterJoined = interrupter->join();
+  } else {
+    context.releaseHolder.release();
+  }
+
+  const bool holderJoined = holderStarted && holder->join();
+  if (!holderStarted) {
+    delete holder;
+  }
+  thread->setSignalMask(originalMask);
+  thread->clearInterruption();
+
+  const bool passed = check(
+      holderStarted && holderReady && context.holderAcquired == 1 && context.holderReturned == 1 &&
+          activeMaskObserved && mutexAcquired && stickyAfterMutex && interruptibleWaitReturned &&
+          waitError == Semaphore::Interrupted && interrupted && exactMaskRestored &&
+          interruptionConsumed && interrupterJoined && holderJoined &&
+          signalContext.published == 1 && signalContext.sent == 1 && signalContext.released == 1 &&
+          g_SignalHandlerCalls == 1,
+      "a non-interruptible Mutex lost or consumed its armed temporary-wait signal");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
 }
 
 bool conditionVariableSignalInterruption(Thread* thread) {
@@ -600,14 +800,15 @@ bool prequeuedDelaySignalInterruption(Thread* thread) {
 }  // namespace
 
 bool runHostedSignalInterruptionRegressions(Thread* thread) {
-  const bool passed = eventHandlerPrivilege() && invalidUserHandlerDeliveryFailsClosed(thread) &&
-                      conditionVariableSignalInterruption(thread) &&
-                      bufferSignalInterruption(thread) && semaphoreSignalInterruption(thread) &&
-                      semaphoreSignalAfterOrdinaryWake() && conditionSignalAfterOrdinaryWake() &&
-                      completionSemaphoreSignalDeferral(thread) &&
-                      ringBufferSignalInterruption(thread) && ringBufferMonitorCull(thread) &&
-                      ringBufferMonitorRetirement(thread) && ringBufferMonitorDestructor(thread) &&
-                      delaySignalInterruption(thread) && prequeuedDelaySignalInterruption(thread);
+  const bool passed =
+      eventHandlerPrivilege() && invalidUserHandlerDeliveryFailsClosed(thread) &&
+      temporarySignalMaskNestedPrequeued(thread) && temporarySignalMaskAcrossMutex(thread) &&
+      conditionVariableSignalInterruption(thread) && bufferSignalInterruption(thread) &&
+      semaphoreSignalInterruption(thread) && semaphoreSignalAfterOrdinaryWake() &&
+      conditionSignalAfterOrdinaryWake() && completionSemaphoreSignalDeferral(thread) &&
+      ringBufferSignalInterruption(thread) && ringBufferMonitorCull(thread) &&
+      ringBufferMonitorRetirement(thread) && ringBufferMonitorDestructor(thread) &&
+      delaySignalInterruption(thread) && prequeuedDelaySignalInterruption(thread);
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS signal-interruption");
   }

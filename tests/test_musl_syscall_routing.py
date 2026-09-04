@@ -135,6 +135,58 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             with self.subTest(mapping=mapping):
                 self.assertIn(mapping, mappings)
 
+    def test_linux_epoll_pwait_uses_a_guarded_temporary_mask(self):
+        source = (
+            ROOT / "src/modules/subsys/posix/epoll-syscalls.cc"
+        ).read_text(encoding="utf-8")
+        helper, pwait = source.split("int posix_epoll_pwait", 1)
+        helper = helper.rsplit("int epollWait", 1)[1]
+        instance_wait = source.split("int EpollInstance::wait", 1)[1].split(
+            "int posix_epoll_create1", 1
+        )[0]
+
+        self.assertIn(
+            "LinuxKernelSigsetSize = sizeof(uint64_t)", source
+        )
+        self.assertIn("SIGKILL - 1", source)
+        self.assertIn("SIGSTOP - 1", source)
+        self.assertIn("Thread::TemporarySignalMask signalWait", helper)
+        self.assertLess(
+            helper.index("signalWait.finish()"),
+            helper.index("PosixSubsystem::copyToUser"),
+        )
+        self.assertIn("if (!result && signalInterrupted)", helper)
+        final_rescan = instance_wait.rindex(
+            "ready = collectEvents(events, maxEvents, true)"
+        )
+        self.assertLess(
+            final_rescan,
+            instance_wait.index("SYSCALL_ERROR(Interrupted)", final_rescan),
+        )
+        self.assertIn("if (!signalMask)", pwait)
+        self.assertLess(
+            pwait.index("if (!signalMask)"),
+            pwait.index("signalMaskSize != LinuxKernelSigsetSize"),
+        )
+        null_branch = pwait.split("if (!signalMask)", 1)[1].split("}", 1)[0]
+        self.assertIn(
+            "return epollWait(epollFd, events, maxEvents, "
+            "timeoutMilliseconds, nullptr)",
+            null_branch,
+        )
+        self.assertNotIn("signalMaskSize", null_branch)
+        self.assertIn("PosixSubsystem::copyFromUser", pwait)
+        self.assertRegex(
+            pwait,
+            re.compile(
+                r"if \(!PosixSubsystem::copyFromUser\(.*?"
+                r"SYSCALL_ERROR\(BadAddress\)",
+                re.DOTALL,
+            ),
+        )
+        self.assertIn("temporarySignalMask &= ~UnblockableSignals", pwait)
+        self.assertNotIn("OperationNotSupported", pwait)
+
     def test_linux_eventfd_syscalls_are_mapped(self):
         mappings = (
             ROOT

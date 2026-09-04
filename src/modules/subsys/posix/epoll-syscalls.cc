@@ -11,6 +11,7 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Semaphore.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/List.h"
@@ -20,6 +21,7 @@
 #include <config.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
@@ -31,6 +33,9 @@ namespace {
 constexpr int MaximumEpollBatch = 16384;
 constexpr int LinuxMaximumEpollEvents =
     INT_MAX / static_cast<int>(sizeof(LinuxEpollEvent));
+constexpr size_t LinuxKernelSigsetSize = sizeof(uint64_t);
+constexpr uint64_t UnblockableSignals =
+    (static_cast<uint64_t>(1) << (SIGKILL - 1)) | (static_cast<uint64_t>(1) << (SIGSTOP - 1));
 
 constexpr uint32_t ReadEvents = LinuxEpoll::In | LinuxEpoll::ReadNormal | LinuxEpoll::ReadBand;
 constexpr uint32_t WriteEvents = LinuxEpoll::Out | LinuxEpoll::WriteNormal | LinuxEpoll::WriteBand;
@@ -632,7 +637,9 @@ int posix_epoll_ctl(int epollFd, int operation, int targetFd, const LinuxEpollEv
   return instance->control(operation, targetFd, kernelEvent);
 }
 
-int posix_epoll_wait(int epollFd, LinuxEpollEvent* events, int maxEvents, int timeoutMilliseconds) {
+namespace {
+int epollWait(int epollFd, LinuxEpollEvent* events, int maxEvents, int timeoutMilliseconds,
+              const uint64_t* temporarySignalMask) {
   if (maxEvents <= 0 || maxEvents > LinuxMaximumEpollEvents) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
@@ -658,7 +665,25 @@ int posix_epoll_wait(int epollFd, LinuxEpollEvent* events, int maxEvents, int ti
   }
 
   LinuxEpollEvent* snapshot = new LinuxEpollEvent[eventCapacity];
-  const int result = instance->wait(snapshot, eventCapacity, timeoutMilliseconds);
+  int result = 0;
+  bool signalInterrupted = false;
+  if (temporarySignalMask) {
+    Thread* thread = Processor::information().getCurrentThread();
+    if (!thread) {
+      FATAL("epoll_pwait has no current Thread.");
+    }
+
+    Thread::TemporarySignalMask signalWait(*thread, *temporarySignalMask);
+    result = instance->wait(snapshot, eventCapacity, timeoutMilliseconds);
+    signalInterrupted = signalWait.finish();
+  } else {
+    result = instance->wait(snapshot, eventCapacity, timeoutMilliseconds);
+  }
+
+  if (!result && signalInterrupted) {
+    SYSCALL_ERROR(Interrupted);
+    result = -1;
+  }
   if (result <= 0) {
     delete[] snapshot;
     return result;
@@ -672,14 +697,27 @@ int posix_epoll_wait(int epollFd, LinuxEpollEvent* events, int maxEvents, int ti
   }
   return result;
 }
+}  // namespace
+
+int posix_epoll_wait(int epollFd, LinuxEpollEvent* events, int maxEvents, int timeoutMilliseconds) {
+  return epollWait(epollFd, events, maxEvents, timeoutMilliseconds, nullptr);
+}
 
 int posix_epoll_pwait(int epollFd, LinuxEpollEvent* events, int maxEvents, int timeoutMilliseconds,
                       const void* signalMask, size_t signalMaskSize) {
-  (void)signalMaskSize;
-  if (signalMask) {
-    // Atomic temporary signal-mask replacement is intentionally not faked.
-    SYSCALL_ERROR(OperationNotSupported);
+  if (!signalMask) {
+    return epollWait(epollFd, events, maxEvents, timeoutMilliseconds, nullptr);
+  }
+  if (signalMaskSize != LinuxKernelSigsetSize) {
+    SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-  return posix_epoll_wait(epollFd, events, maxEvents, timeoutMilliseconds);
+
+  uint64_t temporarySignalMask = 0;
+  if (!PosixSubsystem::copyFromUser(&temporarySignalMask, signalMask, LinuxKernelSigsetSize)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  temporarySignalMask &= ~UnblockableSignals;
+  return epollWait(epollFd, events, maxEvents, timeoutMilliseconds, &temporarySignalMask);
 }

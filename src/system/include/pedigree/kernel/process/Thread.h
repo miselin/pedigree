@@ -96,6 +96,25 @@ class EXPORTED_PUBLIC Thread {
     DeferredScopeRecord m_Record;
   };
 
+  /** Temporarily replaces this state level's signal mask for one blocking wait. */
+  class EXPORTED_PUBLIC TemporarySignalMask {
+   public:
+    TemporarySignalMask(Thread& thread, uint64_t signalMask);
+    ~TemporarySignalMask();
+
+    /** Restores the owning state level and reports whether a signal interrupted the wait. */
+    bool finish();
+
+   private:
+    NOT_COPYABLE_OR_ASSIGNABLE(TemporarySignalMask);
+
+    static void discard(void* context);
+
+    Thread* m_pThread;
+    size_t m_StateLevel;
+    DeferredScopeRecord m_Record;
+  };
+
   /** The state that a thread can possibly have. */
   enum Status {
     Created,
@@ -504,6 +523,12 @@ class EXPORTED_PUBLIC Thread {
   /** Sets the POSIX signal mask for the current event nesting level. */
   void setSignalMask(uint64_t mask);
 
+  /** True only while the current state owns an interrupted temporary signal wait. */
+  bool hasTemporarySignalWaitInterruption();
+
+  /** Retains an armed temporary-wait signal, or atomically clears stale interruption state. */
+  bool retainTemporarySignalWaitInterruptionOrClear();
+
   struct AlternateSignalStack {
     AlternateSignalStack() : base(0), size(0), enabled(false), inUse(false) {}
 
@@ -705,6 +730,9 @@ class EXPORTED_PUBLIC Thread {
   /** Cleans up the given state level. */
   void cleanStateLevel(size_t level);
 
+  size_t beginTemporarySignalMask(uint64_t signalMask);
+  bool finishTemporarySignalMask(size_t stateLevel);
+
   /** Checks for an event that can run while m_Lock is already held. */
   bool hasEventsUnlocked();
   bool hasDeliverableEventsUnlocked();
@@ -794,6 +822,11 @@ class EXPORTED_PUBLIC Thread {
 
     /** POSIX signals blocked at this event nesting level. */
     uint64_t m_SignalMask;
+
+    /** Original mask and interruption state for an armed signal-aware wait. */
+    uint64_t m_SavedSignalMask;
+    bool m_TemporarySignalMaskActive;
+    bool m_TemporarySignalWaitInterrupted;
 
     /** Syscall-local state isolated from nested event handlers. */
     size_t m_Errno;

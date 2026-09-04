@@ -195,7 +195,10 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
   }
   else {
     Thread* pThread = Processor::information().getCurrentThread();
-    pThread->clearInterruption();
+    const bool retainedSignalInterruption = pThread->retainTemporarySignalWaitInterruptionOrClear();
+    if (retainedSignalInterruption && m_bCanInterrupt) {
+      return SemaphoreResult::withError(Interrupted);
+    }
     // Explicit completion waits always finish. A non-interruptible ownership
     // wait does so only while its caller has deferred terminal teardown.
     const bool completionWait =
@@ -242,6 +245,15 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
         return result;
       }
 
+      // The handler may have completed after the entry check but before this
+      // wait queue was published. The second resource check above preserves
+      // resource/readiness precedence; this state-level predicate closes the
+      // remaining delivered-signal-before-enrolment window.
+      if (m_bCanInterrupt && pThread->hasTemporarySignalWaitInterruption()) {
+        finishSemaphoreTimeout(timeoutDiscard);
+        return SemaphoreResult::withError(Interrupted);
+      }
+
       WaitQueue::WakeReason wakeReason =
           completionWait
               ? guard.waitForCompletion(WaitQueue::Channel(this), Thread::SemWait,
@@ -271,7 +283,7 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
           // unrelated interruptible wait. The interruption marker
           // also matters when an ordinary release won waiter.reason
           // just before the event was dispatched.
-          pThread->clearInterruption();
+          pThread->retainTemporarySignalWaitInterruptionOrClear();
           continue;
         } else {
           result = SemaphoreResult::withError(Interrupted);

@@ -65,6 +65,48 @@ void Thread::StackDiscardScope::disarm() {
   }
 }
 
+Thread::TemporarySignalMask::TemporarySignalMask(Thread& thread, uint64_t signalMask)
+    : m_pThread(&thread), m_StateLevel(0), m_Record() {
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  m_StateLevel = thread.beginTemporarySignalMask(signalMask);
+  thread.armStateCleanup(m_Record, &TemporarySignalMask::discard, this);
+  Processor::setInterrupts(interruptsWereEnabled);
+}
+
+Thread::TemporarySignalMask::~TemporarySignalMask() {
+  if (m_pThread) {
+    finish();
+  }
+}
+
+bool Thread::TemporarySignalMask::finish() {
+  if (!m_pThread) {
+    FATAL("Temporary signal mask restored more than once.");
+  }
+
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  const bool interrupted = m_pThread->finishTemporarySignalMask(m_StateLevel);
+  m_pThread->disarmStateCleanup(m_Record);
+  m_pThread = nullptr;
+  Processor::setInterrupts(interruptsWereEnabled);
+  return interrupted;
+}
+
+void Thread::TemporarySignalMask::discard(void* context) {
+  TemporarySignalMask* scope = reinterpret_cast<TemporarySignalMask*>(context);
+  if (!scope || !scope->m_pThread) {
+    FATAL("Invalid temporary signal mask discard.");
+  }
+
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  scope->m_pThread->finishTemporarySignalMask(scope->m_StateLevel);
+  scope->m_pThread = nullptr;
+  Processor::setInterrupts(interruptsWereEnabled);
+}
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 namespace {
 Thread::StateTransitionHook g_StateTransitionHook = nullptr;
@@ -694,6 +736,9 @@ SchedulerState* Thread::pushState() {
 #endif
   m_StateLevels[nextLevel].m_InterruptionReason = NotInterrupted;
   m_StateLevels[nextLevel].m_bDispatchingWaitEvent = false;
+  m_StateLevels[nextLevel].m_SavedSignalMask = 0;
+  m_StateLevels[nextLevel].m_TemporarySignalMaskActive = false;
+  m_StateLevels[nextLevel].m_TemporarySignalWaitInterrupted = false;
   m_StateLevels[nextLevel].m_ExecutionContext = m_StateLevels[previousLevel].m_ExecutionContext;
   m_StateLevels[nextLevel].m_pRequestQueueCallback =
       m_StateLevels[previousLevel].m_pRequestQueueCallback;
@@ -1322,6 +1367,19 @@ bool Thread::runHostedStateCleanupRegression() {
   disarmStateCleanup(normalRecord);
   const bool normalPassed = order.count == 2 && !normalRecord.armed;
 
+  const uint64_t originalSignalMask = getSignalMask();
+  const uint64_t temporarySignalMask = originalSignalMask ^ (static_cast<uint64_t>(1) << 7);
+  const size_t temporaryMaskCheckpoint = stateCleanupCheckpoint();
+  bool temporaryMaskActive = false;
+  {
+    TemporarySignalMask signalMask(*this, temporarySignalMask);
+    temporaryMaskActive = getSignalMask() == temporarySignalMask;
+    retireDeferredScopesAfter(temporaryMaskCheckpoint);
+  }
+  const bool temporaryMaskCleanupPassed = temporaryMaskActive &&
+                                          getSignalMask() == originalSignalMask &&
+                                          !hasTemporarySignalWaitInterruption();
+
   armStateCleanup(baseRecord, hostedStateCleanupCallback, &baseItem);
   const bool pushed = pushState() != nullptr;
   if (pushed) {
@@ -1337,8 +1395,9 @@ bool Thread::runHostedStateCleanupRegression() {
   unregisterDeferredScope(terminationRecord);
   const bool explicitTerminationRetired = !isTerminationDeferred() && !terminationRecord.armed;
 
-  return cleanupDoesNotDeferTermination && checkpointPassed && normalPassed && levelPassed &&
-         explicitTerminationDefers && explicitTerminationRetired && order.count == 3;
+  return cleanupDoesNotDeferTermination && checkpointPassed && normalPassed &&
+         temporaryMaskCleanupPassed && levelPassed && explicitTerminationDefers &&
+         explicitTerminationRetired && order.count == 3;
 }
 
 void Thread::withDeferredScopeLockForTest(DeferredScopeLockHook hook) {
@@ -1542,6 +1601,75 @@ uint64_t Thread::getSignalMask() {
 void Thread::setSignalMask(uint64_t mask) {
   LockGuard<Spinlock> guard(m_Lock);
   m_StateLevels[m_nStateLevel].m_SignalMask = mask;
+}
+
+size_t Thread::beginTemporarySignalMask(uint64_t signalMask) {
+  if (this != Processor::information().getCurrentThread()) {
+    FATAL("Temporary signal mask armed for a non-current Thread.");
+  }
+
+  LockGuard<Spinlock> guard(m_Lock);
+  const size_t stateLevel = m_nStateLevel;
+  if (stateLevel >= MAX_NESTED_EVENTS) {
+    FATAL("Temporary signal mask armed on an invalid Thread state level.");
+  }
+
+  StateLevel& state = m_StateLevels[stateLevel];
+  if (state.m_TemporarySignalMaskActive) {
+    FATAL("Thread state already owns a temporary signal mask.");
+  }
+
+  state.m_SavedSignalMask = state.m_SignalMask;
+  state.m_SignalMask = signalMask;
+  state.m_InterruptionReason = NotInterrupted;
+  state.m_TemporarySignalWaitInterrupted = false;
+  state.m_TemporarySignalMaskActive = true;
+  return stateLevel;
+}
+
+bool Thread::finishTemporarySignalMask(size_t stateLevel) {
+  LockGuard<Spinlock> guard(m_Lock);
+  if (stateLevel >= MAX_NESTED_EVENTS) {
+    FATAL("Temporary signal mask restored from an invalid Thread state level.");
+  }
+
+  StateLevel& state = m_StateLevels[stateLevel];
+  if (!state.m_TemporarySignalMaskActive) {
+    FATAL("Thread state has no temporary signal mask to restore.");
+  }
+
+  const bool interrupted = state.m_TemporarySignalWaitInterrupted;
+  state.m_SignalMask = state.m_SavedSignalMask;
+  state.m_SavedSignalMask = 0;
+  state.m_TemporarySignalMaskActive = false;
+  state.m_TemporarySignalWaitInterrupted = false;
+  if (interrupted && state.m_InterruptionReason == InterruptedBySignal) {
+    state.m_InterruptionReason = NotInterrupted;
+  }
+  return interrupted;
+}
+
+bool Thread::hasTemporarySignalWaitInterruption() {
+  LockGuard<Spinlock> guard(m_Lock);
+  const StateLevel& state = m_StateLevels[m_nStateLevel];
+  return state.m_TemporarySignalMaskActive && state.m_TemporarySignalWaitInterrupted &&
+         state.m_InterruptionReason == InterruptedBySignal;
+}
+
+bool Thread::retainTemporarySignalWaitInterruptionOrClear() {
+  const bool interruptsWereEnabled = Processor::getInterrupts();
+  Processor::setInterrupts(false);
+  m_Lock.acquire();
+  StateLevel& state = m_StateLevels[m_nStateLevel];
+  const bool retained = state.m_TemporarySignalMaskActive &&
+                        state.m_TemporarySignalWaitInterrupted &&
+                        state.m_InterruptionReason == InterruptedBySignal;
+  if (!retained) {
+    state.m_InterruptionReason = NotInterrupted;
+  }
+  m_Lock.release();
+  Processor::setInterrupts(interruptsWereEnabled);
+  return retained;
 }
 
 void Thread::cullEvent(Event* pEvent) {
@@ -2062,6 +2190,9 @@ Thread::StateLevel::StateLevel()
       m_pAuxillaryStack(0),
       m_InhibitMask(),
       m_SignalMask(0),
+      m_SavedSignalMask(0),
+      m_TemporarySignalMaskActive(false),
+      m_TemporarySignalWaitInterrupted(false),
       m_Errno(0),
       m_InterruptionReason(NotInterrupted),
       m_bDispatchingWaitEvent(false),
@@ -2089,6 +2220,9 @@ Thread::StateLevel::StateLevel(const Thread::StateLevel& s)
       m_pAuxillaryStack(s.m_pAuxillaryStack),
       m_InhibitMask(),
       m_SignalMask(s.m_SignalMask),
+      m_SavedSignalMask(0),
+      m_TemporarySignalMaskActive(false),
+      m_TemporarySignalWaitInterrupted(false),
       m_Errno(s.m_Errno),
       m_InterruptionReason(s.m_InterruptionReason),
       m_bDispatchingWaitEvent(false),
@@ -2108,6 +2242,9 @@ Thread::StateLevel& Thread::StateLevel::operator=(const Thread::StateLevel& s) {
   m_State = new SchedulerState(*(s.m_State));
   m_InhibitMask = SharedPointer<ExtensibleBitmap>::allocate(*(s.m_InhibitMask));
   m_SignalMask = s.m_SignalMask;
+  m_SavedSignalMask = 0;
+  m_TemporarySignalMaskActive = false;
+  m_TemporarySignalWaitInterrupted = false;
   m_Errno = s.m_Errno;
   m_InterruptionReason = s.m_InterruptionReason;
   m_bDispatchingWaitEvent = false;
@@ -2127,6 +2264,7 @@ void Thread::markTimeoutInterruptedWait() {
 }
 
 void Thread::markSignalInterruptedWait() {
+  LockGuard<Spinlock> guard(m_Lock);
   if (!m_nStateLevel) {
     return;
   }
@@ -2134,6 +2272,21 @@ void Thread::markSignalInterruptedWait() {
   StateLevel& interrupted = m_StateLevels[m_nStateLevel - 1];
   if (interrupted.m_bDispatchingWaitEvent) {
     interrupted.m_InterruptionReason = InterruptedBySignal;
+  }
+
+  // A non-signal kernel handler can nest between the blocking syscall and the
+  // signal handler. The inherited effective mask still belongs to the nearest
+  // armed ancestor, so retain the interruption there rather than on every
+  // suspended temporary wait.
+  for (size_t level = m_nStateLevel; level > 0; --level) {
+    StateLevel& owner = m_StateLevels[level - 1];
+    if (!owner.m_TemporarySignalMaskActive) {
+      continue;
+    }
+
+    owner.m_InterruptionReason = InterruptedBySignal;
+    owner.m_TemporarySignalWaitInterrupted = true;
+    break;
   }
 }
 
@@ -2510,6 +2663,9 @@ void Thread::cleanStateLevel(size_t level) {
   if (__atomic_load_n(&m_pDeferredScopes[level], __ATOMIC_ACQUIRE)) {
     FATAL("Thread state stack freed with an armed cleanup record.");
   }
+  if (m_StateLevels[level].m_TemporarySignalMaskActive) {
+    FATAL("Thread state stack freed with an active temporary signal mask.");
+  }
 
 #if HOSTED
   if (__atomic_load_n(&m_StateLevels[level].m_HostedSignalDepth, __ATOMIC_ACQUIRE)) {
@@ -2537,6 +2693,8 @@ void Thread::cleanStateLevel(size_t level) {
   }
 
   m_StateLevels[level].m_InhibitMask.reset();
+  m_StateLevels[level].m_SavedSignalMask = 0;
+  m_StateLevels[level].m_TemporarySignalWaitInterrupted = false;
   m_StateLevels[level].m_ExecutionContext.reset();
   m_StateLevels[level].m_pRequestQueueCallback = nullptr;
   m_StateLevels[level].m_bTerminalWaitCancelledBeforeBlock = false;
