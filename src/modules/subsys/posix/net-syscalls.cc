@@ -1084,8 +1084,13 @@ ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags) {
     return -1;
   }
   if (rights &&
-      (f->networkImpl->getDomain() != AF_UNIX || f->networkImpl->getType() != SOCK_DGRAM)) {
+      (f->networkImpl->getDomain() != AF_UNIX ||
+       (f->networkImpl->getType() != SOCK_DGRAM && f->networkImpl->getType() != SOCK_STREAM))) {
     SYSCALL_ERROR(OperationNotSupported);
+    return -1;
+  }
+  if (rights && f->networkImpl->getType() == SOCK_STREAM && !totalLength) {
+    SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
@@ -2864,11 +2869,6 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
                                        const SharedPointer<SocketRights>& rights) {
   N_NOTICE("UnixSocketSyscalls::sendto_msg");
 
-  if (rights && getType() != SOCK_DGRAM) {
-    SYSCALL_ERROR(OperationNotSupported);
-    return -1;
-  }
-
   SharedPointer<UnixSocketGeneration> local;
   SharedPointer<UnixSocketReference> remoteReference;
   String localPath;
@@ -2991,26 +2991,8 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
         reinterpret_cast<uintptr_t>(localPath.cstr()), rights);
     numWritten = completedWrite ? datagramLength : 0;
   } else {
-    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
-      void* buffer = msghdr->msg_iov[i].iov_base;
-      size_t bufferlen = msghdr->msg_iov[i].iov_len;
-      if (!bufferlen) {
-        continue;
-      }
-
-      uint64_t thisWrite = remote->write(reinterpret_cast<uintptr_t>(localPath.cstr()), bufferlen,
-                                         reinterpret_cast<uintptr_t>(buffer), isBlocking());
-
-      if (!thisWrite) {
-        // eof or some other similar condition
-        break;
-      }
-
-      numWritten += thisWrite;
-      if (thisWrite < bufferlen) {
-        break;
-      }
-    }
+    numWritten = localSocket->sendStream(msghdr->msg_iov, static_cast<size_t>(msghdr->msg_iovlen),
+                                         isBlocking(), rights);
     completedWrite = numWritten;
   }
   if (completedWrite) {
@@ -3104,27 +3086,8 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
       }
     }
   } else {
-    bool canBlock = isBlocking();
-    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
-      void* buffer = msghdr->msg_iov[i].iov_base;
-      size_t bufferlen = msghdr->msg_iov[i].iov_len;
-      if (!bufferlen) {
-        continue;
-      }
-
-      uint64_t thisRead =
-          localSocket->recvfrom(bufferlen, reinterpret_cast<uintptr_t>(buffer), canBlock, remote);
-      if (!thisRead) {
-        // eof or some other similar condition
-        break;
-      }
-
-      numRead += thisRead;
-      if (thisRead < bufferlen) {
-        break;
-      }
-      canBlock = false;
-    }
+    numRead = localSocket->receiveStream(msghdr->msg_iov, static_cast<size_t>(msghdr->msg_iovlen),
+                                         isBlocking(), rights);
   }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS

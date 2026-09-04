@@ -67,6 +67,7 @@ extern bool runHostedResourceSyscallRegressions(Process* process);
 extern bool runHostedRtSigsuspendRegressions(Process* process);
 extern bool runHostedScalarIoRegressions(Process* process);
 extern bool runHostedScmRightsRegressions(Process* process);
+extern bool runHostedScmStreamRegressions(Process* process);
 extern bool runHostedSleepClockSyscallRegressions(Process* process);
 extern bool runHostedThreadSignalSyscallRegressions(Process* process);
 extern bool runHostedTimeSyscallRegressions(Process* process);
@@ -4965,6 +4966,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN scm-rights-datagram");
   if (!runHostedScmRightsRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN scm-rights-stream");
+  if (!runHostedScmStreamRegressions(kernelProcess)) {
     return false;
   }
 

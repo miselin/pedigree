@@ -174,7 +174,7 @@ void test_scm_rights(void) {
   stream = socket(AF_UNIX, SOCK_STREAM, 0);
   errno = 0;
   if (stream < 0 || send_rights(stream, 0, 0, &unsupportedPipe[0], 1, 'f') != -1 ||
-      errno != EOPNOTSUPP)
+      errno != ENOTCONN)
     fail();
 
   char malformedPayload = 'm';

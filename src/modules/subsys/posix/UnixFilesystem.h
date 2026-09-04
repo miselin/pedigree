@@ -21,6 +21,7 @@
 #define _UNIX_FILESYSTEM_H
 
 #include "pedigree/kernel/utilities/Buffer.h"
+#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/RingBuffer.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -81,7 +82,55 @@ class UnixSocketConnection {
   UnixSocketConnection();
 
  private:
-  typedef Buffer<uint8_t, true> Stream;
+  /** One ordered byte/control direction in a connected stream socket pair. */
+  class Stream {
+   public:
+    Stream();
+    ~Stream();
+
+    size_t write(const uint8_t* buffer, size_t count, bool block,
+                 const SharedPointer<SocketRights>& rights = SharedPointer<SocketRights>());
+    size_t writeVectors(const struct iovec* vectors, size_t vectorCount, bool block,
+                        const SharedPointer<SocketRights>& rights);
+    size_t read(uint8_t* buffer, size_t count, bool block,
+                SharedPointer<SocketRights>* rights = nullptr);
+    size_t readVectors(struct iovec* vectors, size_t vectorCount, bool block,
+                       SharedPointer<SocketRights>* rights);
+
+    bool canWrite(bool block);
+    bool canRead(bool block);
+    uint64_t readableGeneration() const;
+    uint64_t writableGeneration() const;
+    void disableWrites();
+    void disableReads();
+    void monitor(Semaphore* waiter);
+    void monitor(Thread* thread, Event* event);
+    void cullMonitorTargets(Semaphore* waiter);
+    void cullMonitorTargets(Event* event);
+
+    Buffer<uint8_t, true>& buffer() {
+      return m_Bytes;
+    }
+
+   private:
+    struct Control {
+      Control(uint64_t offset, const SharedPointer<SocketRights>& newRights)
+          : byteOffset(offset), rights(newRights) {}
+
+      uint64_t byteOffset;
+      SharedPointer<SocketRights> rights;
+    };
+
+    void discardControls();
+
+    Buffer<uint8_t, true> m_Bytes;
+    Mutex m_SendLock;
+    Mutex m_ReceiveLock;
+    Mutex m_ControlLock;
+    List<Control*> m_Controls;
+    uint64_t m_BytesWritten;
+    uint64_t m_BytesRead;
+  };
 
   Stream m_FirstStream;
   Stream m_SecondStream;
@@ -184,6 +233,18 @@ class UnixSocket : public File {
   bool receiveDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, String& from,
                        SharedPointer<SocketRights>& rights, uint64_t& bytesRead,
                        uint64_t& datagramLength);
+
+  /** Write one ordered stream record with optional descriptor ownership. */
+  uint64_t sendStream(uint64_t size, uintptr_t buffer, bool bCanBlock,
+                      const SharedPointer<SocketRights>& rights);
+  uint64_t sendStream(const struct iovec* vectors, size_t vectorCount, bool bCanBlock,
+                      const SharedPointer<SocketRights>& rights);
+
+  /** Read stream bytes and optionally detach the first crossed control record. */
+  uint64_t receiveStream(uint64_t size, uintptr_t buffer, bool bCanBlock,
+                         SharedPointer<SocketRights>* rights);
+  uint64_t receiveStream(struct iovec* vectors, size_t vectorCount, bool bCanBlock,
+                         SharedPointer<SocketRights>* rights);
 
   virtual int select(bool bWriting = false, int timeout = 0);
 

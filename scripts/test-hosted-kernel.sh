@@ -472,6 +472,7 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS socket-zero-result-signal" \
         "HOSTED-SYSCALL-TEST: PASS unix-bind-replacement-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS scm-rights-datagram" \
+        "HOSTED-SYSCALL-TEST: PASS scm-rights-stream" \
         "HOSTED-SYSCALL-TEST: PASS clone-errno-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS clone-process-routing" \
         "HOSTED-SYSCALL-TEST: PASS clone-vm-detached-cached-tid" \

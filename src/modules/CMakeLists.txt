@@ -407,6 +407,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/rt-sigsuspend-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/scalar-io-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/scm-rights-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/scm-stream-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/sleep-clock-syscall-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/static-syscall-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/thread-signal-syscall-regressions.cc

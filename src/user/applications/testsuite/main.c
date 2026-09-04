@@ -32,6 +32,7 @@ extern int process_exec_signal_child(void);
 extern void test_process(const char* program);
 extern void test_posix_spawn(const char* program);
 extern void test_scm_rights(void);
+extern void test_scm_rights_stream(void);
 
 static jmp_buf buf;
 
@@ -56,6 +57,10 @@ int main(int argc, char* argv[]) {
     test_scm_rights();
     return 0;
   }
+  if (argc == 2 && !strcmp(argv[1], "--scm-rights-stream")) {
+    test_scm_rights_stream();
+    return 0;
+  }
   if (argc == 2 && !strcmp(argv[1], "--posix-spawn")) {
     test_posix_spawn(argv[0]);
     return 0;
@@ -74,6 +79,7 @@ int main(int argc, char* argv[]) {
   test_process(argv[0]);
   test_dup3();
   test_scm_rights();
+  test_scm_rights_stream();
   test_fs();
 
   printf("Tests complete!\n");

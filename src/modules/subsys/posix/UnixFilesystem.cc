@@ -88,9 +88,214 @@ size_t SocketRights::inFlightForTest() {
 }
 #endif
 
+UnixSocketConnection::Stream::Stream()
+    : m_Bytes(MAX_UNIX_STREAM_QUEUE),
+      m_SendLock(),
+      m_ReceiveLock(),
+      m_ControlLock(),
+      m_Controls(),
+      m_BytesWritten(0),
+      m_BytesRead(0) {}
+
+UnixSocketConnection::Stream::~Stream() {
+  LockGuard<Mutex> guard(m_ControlLock);
+  discardControls();
+}
+
+size_t UnixSocketConnection::Stream::write(const uint8_t* buffer, size_t count, bool block,
+                                           const SharedPointer<SocketRights>& rights) {
+  struct iovec vector = {const_cast<uint8_t*>(buffer), count};
+  return writeVectors(&vector, 1, block, rights);
+}
+
+size_t UnixSocketConnection::Stream::writeVectors(const struct iovec* vectors, size_t vectorCount,
+                                                  bool block,
+                                                  const SharedPointer<SocketRights>& rights) {
+  size_t firstVector = 0;
+  while (firstVector < vectorCount && !vectors[firstVector].iov_len) {
+    ++firstVector;
+  }
+  if (firstVector == vectorCount) {
+    return 0;
+  }
+
+  Control* pendingControl = rights ? new Control(0, rights) : nullptr;
+  LockGuard<Mutex> sendGuard(m_SendLock);
+  size_t written = 0;
+  size_t firstOffset = 0;
+
+  if (pendingControl) {
+    if (!m_Bytes.canWrite(block)) {
+      delete pendingControl;
+      return 0;
+    }
+
+    LockGuard<Mutex> controlGuard(m_ControlLock);
+    const uint8_t* first = reinterpret_cast<const uint8_t*>(vectors[firstVector].iov_base);
+    if (m_Bytes.write(first, 1, block) != 1) {
+      delete pendingControl;
+      return 0;
+    }
+
+    pendingControl->byteOffset = m_BytesWritten;
+    m_Controls.pushBack(pendingControl);
+    ++m_BytesWritten;
+    ++written;
+    firstOffset = 1;
+  }
+
+  for (size_t i = firstVector; i < vectorCount; ++i) {
+    const uint8_t* buffer = reinterpret_cast<const uint8_t*>(vectors[i].iov_base);
+    const size_t count = vectors[i].iov_len;
+    const size_t offset = i == firstVector ? firstOffset : 0;
+    if (offset >= count) {
+      continue;
+    }
+
+    const size_t tail = m_Bytes.write(buffer + offset, count - offset, block);
+    if (tail) {
+      LockGuard<Mutex> controlGuard(m_ControlLock);
+      m_BytesWritten += tail;
+      written += tail;
+    }
+    if (tail < count - offset) {
+      break;
+    }
+  }
+
+  return written;
+}
+
+size_t UnixSocketConnection::Stream::read(uint8_t* buffer, size_t count, bool block,
+                                          SharedPointer<SocketRights>* rights) {
+  struct iovec vector = {buffer, count};
+  return readVectors(&vector, 1, block, rights);
+}
+
+size_t UnixSocketConnection::Stream::readVectors(struct iovec* vectors, size_t vectorCount,
+                                                 bool block, SharedPointer<SocketRights>* rights) {
+  if (rights) {
+    rights->reset();
+  }
+
+  LockGuard<Mutex> receiveGuard(m_ReceiveLock);
+  size_t totalRead = 0;
+  bool canBlock = block;
+  for (size_t i = 0; i < vectorCount; ++i) {
+    uint8_t* buffer = reinterpret_cast<uint8_t*>(vectors[i].iov_base);
+    size_t count = vectors[i].iov_len;
+    if (!count) {
+      continue;
+    }
+
+    if (!m_Bytes.canRead(canBlock)) {
+      break;
+    }
+
+    LockGuard<Mutex> controlGuard(m_ControlLock);
+    while (m_Controls.count()) {
+      Control* stale = *m_Controls.begin();
+      if (stale->byteOffset >= m_BytesRead) {
+        break;
+      }
+      delete m_Controls.popFront();
+    }
+
+    size_t amount = count;
+    if (rights && m_Controls.count()) {
+      Control* next = *m_Controls.begin();
+      const uint64_t distance = next->byteOffset - m_BytesRead;
+      if (distance < amount) {
+        amount = static_cast<size_t>(distance + 1);
+      }
+    }
+
+    const size_t bytesRead = m_Bytes.read(buffer, amount, canBlock);
+    m_BytesRead += bytesRead;
+    bool consumedControl = false;
+    while (bytesRead && m_Controls.count()) {
+      Control* crossed = *m_Controls.begin();
+      if (crossed->byteOffset >= m_BytesRead) {
+        break;
+      }
+      crossed = m_Controls.popFront();
+      if (rights) {
+        *rights = crossed->rights;
+        consumedControl = true;
+      }
+      delete crossed;
+      if (rights) {
+        break;
+      }
+    }
+
+    totalRead += bytesRead;
+    canBlock = false;
+    if (consumedControl || bytesRead < amount) {
+      break;
+    }
+  }
+
+  return totalRead;
+}
+
+bool UnixSocketConnection::Stream::canWrite(bool block) {
+  return m_Bytes.canWrite(block);
+}
+
+bool UnixSocketConnection::Stream::canRead(bool block) {
+  return m_Bytes.canRead(block);
+}
+
+uint64_t UnixSocketConnection::Stream::readableGeneration() const {
+  return m_Bytes.readableGeneration();
+}
+
+uint64_t UnixSocketConnection::Stream::writableGeneration() const {
+  return m_Bytes.writableGeneration();
+}
+
+void UnixSocketConnection::Stream::disableWrites() {
+  m_Bytes.disableWrites();
+}
+
+void UnixSocketConnection::Stream::disableReads() {
+  // Closing the receiver must reject new sends before queued descriptor
+  // ownership is drained; otherwise a late marker could outlive both ends.
+  disableWrites();
+  m_Bytes.disableReads();
+
+  LockGuard<Mutex> sendGuard(m_SendLock);
+  LockGuard<Mutex> receiveGuard(m_ReceiveLock);
+  LockGuard<Mutex> controlGuard(m_ControlLock);
+  discardControls();
+}
+
+void UnixSocketConnection::Stream::monitor(Semaphore* waiter) {
+  m_Bytes.monitor(waiter);
+}
+
+void UnixSocketConnection::Stream::monitor(Thread* thread, Event* event) {
+  m_Bytes.monitor(thread, event);
+}
+
+void UnixSocketConnection::Stream::cullMonitorTargets(Semaphore* waiter) {
+  m_Bytes.cullMonitorTargets(waiter);
+}
+
+void UnixSocketConnection::Stream::cullMonitorTargets(Event* event) {
+  m_Bytes.cullMonitorTargets(event);
+}
+
+void UnixSocketConnection::Stream::discardControls() {
+  while (m_Controls.count()) {
+    delete m_Controls.popFront();
+  }
+}
+
 UnixSocketConnection::UnixSocketConnection()
-    : m_FirstStream(MAX_UNIX_STREAM_QUEUE),
-      m_SecondStream(MAX_UNIX_STREAM_QUEUE),
+    : m_FirstStream(),
+      m_SecondStream(),
       m_Active(false),
       m_Failed(false),
       m_Closed{false, false},
@@ -188,21 +393,8 @@ uint64_t UnixSocket::readBytewise(uint64_t location, uint64_t size, uintptr_t bu
 
 uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, String& from) {
   if (m_Type == Streaming) {
-    SharedPointer<UnixSocketConnection> connection;
-    SocketState state;
-    {
-      LockGuard<Mutex> guard(m_ConnectionLock);
-      state = getStateLocked();
-      connection = m_Connection;
-    }
-
-    if (!connection || (state != Active && state != Closed)) {
-      return 0;
-    }
-
     from = String();
-    return incomingStream(connection)
-        ->read(reinterpret_cast<uint8_t*>(buffer), size, state == Active && bCanBlock);
+    return receiveStream(size, buffer, bCanBlock, nullptr);
   }
 
   SharedPointer<SocketRights> rights;
@@ -210,6 +402,34 @@ uint64_t UnixSocket::recvfrom(uint64_t size, uintptr_t buffer, bool bCanBlock, S
   uint64_t datagramLength = 0;
   receiveDatagram(size, buffer, bCanBlock, from, rights, bytesRead, datagramLength);
   return bytesRead;
+}
+
+uint64_t UnixSocket::receiveStream(uint64_t size, uintptr_t buffer, bool bCanBlock,
+                                   SharedPointer<SocketRights>* rights) {
+  struct iovec vector = {reinterpret_cast<void*>(buffer), size};
+  return receiveStream(&vector, 1, bCanBlock, rights);
+}
+
+uint64_t UnixSocket::receiveStream(struct iovec* vectors, size_t vectorCount, bool bCanBlock,
+                                   SharedPointer<SocketRights>* rights) {
+  if (rights) {
+    rights->reset();
+  }
+
+  SharedPointer<UnixSocketConnection> connection;
+  SocketState state;
+  {
+    LockGuard<Mutex> guard(m_ConnectionLock);
+    state = getStateLocked();
+    connection = m_Connection;
+  }
+
+  if (m_Type != Streaming || !connection || (state != Active && state != Closed)) {
+    return 0;
+  }
+
+  return incomingStream(connection)
+      ->readVectors(vectors, vectorCount, state == Active && bCanBlock, rights);
 }
 
 bool UnixSocket::receiveDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, String& from,
@@ -256,24 +476,36 @@ bool UnixSocket::receiveDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock
 uint64_t UnixSocket::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                    bool bCanBlock) {
   if (m_Type == Streaming) {
-    SharedPointer<UnixSocketConnection> connection;
-    SocketState state;
-    {
-      LockGuard<Mutex> guard(m_ConnectionLock);
-      state = getStateLocked();
-      connection = m_Connection;
-    }
-
-    if (!connection || state != Active) {
-      N_NOTICE("UnixSocket::write => closed or not connected");
-      return 0;
-    }
-
-    return outgoingStream(connection)->write(reinterpret_cast<uint8_t*>(buffer), size, bCanBlock);
+    SharedPointer<SocketRights> rights;
+    return sendStream(size, buffer, bCanBlock, rights);
   }
 
   SharedPointer<SocketRights> rights;
   return sendDatagram(size, buffer, bCanBlock, location, rights) ? size : 0;
+}
+
+uint64_t UnixSocket::sendStream(uint64_t size, uintptr_t buffer, bool bCanBlock,
+                                const SharedPointer<SocketRights>& rights) {
+  struct iovec vector = {reinterpret_cast<void*>(buffer), size};
+  return sendStream(&vector, 1, bCanBlock, rights);
+}
+
+uint64_t UnixSocket::sendStream(const struct iovec* vectors, size_t vectorCount, bool bCanBlock,
+                                const SharedPointer<SocketRights>& rights) {
+  SharedPointer<UnixSocketConnection> connection;
+  SocketState state;
+  {
+    LockGuard<Mutex> guard(m_ConnectionLock);
+    state = getStateLocked();
+    connection = m_Connection;
+  }
+
+  if (m_Type != Streaming || !connection || state != Active) {
+    N_NOTICE("UnixSocket::write => closed or not connected");
+    return 0;
+  }
+
+  return outgoingStream(connection)->writeVectors(vectors, vectorCount, bCanBlock, rights);
 }
 
 bool UnixSocket::sendDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, uintptr_t source,
@@ -388,8 +620,8 @@ void UnixSocket::unbind() {
         side ? &connection->m_FirstStream : &connection->m_SecondStream;
     incoming->disableReads();
     outgoing->disableWrites();
-    incoming->notifyMonitors();
-    outgoing->notifyMonitors();
+    incoming->buffer().notifyMonitors();
+    outgoing->buffer().notifyMonitors();
   }
 
   m_Stream.disableWrites();
@@ -422,8 +654,8 @@ void UnixSocket::acknowledgeBind() {
     connection->m_Creds[m_ConnectionSide ? 1 : 0] = m_Creds;
   }
 
-  connection->m_FirstStream.notifyMonitors();
-  connection->m_SecondStream.notifyMonitors();
+  connection->m_FirstStream.buffer().notifyMonitors();
+  connection->m_SecondStream.buffer().notifyMonitors();
 }
 
 bool UnixSocket::addSocket(UnixSocket* socket) {
@@ -448,8 +680,8 @@ bool UnixSocket::addSocket(UnixSocket* socket) {
   // listener teardown so a failed enqueue remains caller-owned.
   uint8_t c = 0;
   if (m_Stream.write(&c, 1, false) == 1) {
-    connection->m_FirstStream.notifyMonitors();
-    connection->m_SecondStream.notifyMonitors();
+    connection->m_FirstStream.buffer().notifyMonitors();
+    connection->m_SecondStream.buffer().notifyMonitors();
     return true;
   }
 
@@ -504,11 +736,25 @@ void UnixSocket::addWaiter(Semaphore* waiter, bool read, bool write) {
     return;
   }
 
-  UnixSocketConnection::Stream* incoming =
-      connection ? (side ? &connection->m_SecondStream : &connection->m_FirstStream) : &m_Stream;
-  UnixSocketConnection::Stream* outgoing =
-      connection ? (side ? &connection->m_FirstStream : &connection->m_SecondStream) : &m_Stream;
   const bool monitorRead = read || (!read && !write);
+  if (!connection) {
+    if (monitorRead || write) {
+      m_Stream.monitor(waiter);
+    }
+    {
+      LockGuard<Mutex> guard(m_ConnectionLock);
+      closed = getStateLocked() == Closed;
+    }
+    if (closed) {
+      m_Stream.notifyMonitors();
+    }
+    return;
+  }
+
+  UnixSocketConnection::Stream* incoming =
+      side ? &connection->m_SecondStream : &connection->m_FirstStream;
+  UnixSocketConnection::Stream* outgoing =
+      side ? &connection->m_FirstStream : &connection->m_SecondStream;
   if (monitorRead) {
     incoming->monitor(waiter);
   }
@@ -524,10 +770,10 @@ void UnixSocket::addWaiter(Semaphore* waiter, bool read, bool write) {
     // Repair close-before-enrollment without nesting buffer operations
     // under m_ConnectionLock. A concurrent notifier clears these targets.
     if (monitorRead) {
-      incoming->notifyMonitors();
+      incoming->buffer().notifyMonitors();
     }
     if (write && (!monitorRead || outgoing != incoming)) {
-      outgoing->notifyMonitors();
+      outgoing->buffer().notifyMonitors();
     }
   }
 }
@@ -575,8 +821,20 @@ void UnixSocket::addWaiter(Thread* thread, Event* event) {
     return;
   }
 
-  UnixSocketConnection::Stream* first = connection ? &connection->m_FirstStream : &m_Stream;
-  UnixSocketConnection::Stream* second = connection ? &connection->m_SecondStream : &m_Stream;
+  if (!connection) {
+    m_Stream.monitor(thread, event);
+    {
+      LockGuard<Mutex> guard(m_ConnectionLock);
+      closed = getStateLocked() == Closed;
+    }
+    if (closed) {
+      m_Stream.notifyMonitors();
+    }
+    return;
+  }
+
+  UnixSocketConnection::Stream* first = &connection->m_FirstStream;
+  UnixSocketConnection::Stream* second = &connection->m_SecondStream;
   first->monitor(thread, event);
   if (second != first) {
     second->monitor(thread, event);
@@ -589,9 +847,9 @@ void UnixSocket::addWaiter(Thread* thread, Event* event) {
   if (closed) {
     // Repair close-before-enrollment; notifyMonitors is idempotent with a
     // concurrent unbind notifier because it consumes registered targets.
-    first->notifyMonitors();
+    first->buffer().notifyMonitors();
     if (second != first) {
-      second->notifyMonitors();
+      second->buffer().notifyMonitors();
     }
   }
 }
@@ -709,8 +967,8 @@ void UnixSocket::failConnection() {
   connection->m_FirstStream.disableReads();
   connection->m_SecondStream.disableWrites();
   connection->m_SecondStream.disableReads();
-  connection->m_FirstStream.notifyMonitors();
-  connection->m_SecondStream.notifyMonitors();
+  connection->m_FirstStream.buffer().notifyMonitors();
+  connection->m_SecondStream.buffer().notifyMonitors();
 }
 
 struct ucred UnixSocket::getPeerCredentials() const {
