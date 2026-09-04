@@ -12,6 +12,7 @@
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/UnixFilesystem.h"
 #include "modules/subsys/posix/epoll-syscalls.h"
+#include "modules/subsys/posix/eventfd-syscalls.h"
 #include "modules/subsys/posix/file-syscalls.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/subsys/posix/poll-syscalls.h"
@@ -53,15 +54,20 @@ extern "C" void posixSetCloneBeforeStartHookForTest(void (*hook)(Thread*, size_t
 extern "C" unsigned int posixSelectProjectionForTest(short revents, bool checkRead, bool checkWrite,
                                                      bool checkExceptional);
 extern "C" int posixSelectTimeoutMillisecondsForTest(timeval timeout);
+extern bool runHostedEventFdRegressions(Process* process);
 extern bool runHostedUsercopyRegressions(Process* process);
 
 namespace {
 constexpr size_t HostedAttempts = 10000;
 constexpr int PollCloseReuseTimeoutMilliseconds = 5000;
 constexpr uint64_t EpollInitialData = 0x1111222233334444ULL;
+constexpr uint64_t EpollLevelData = 0x3333444455556666ULL;
 constexpr uint64_t EpollOneShotData = 0x5555666677778888ULL;
 constexpr uint64_t EpollRearmedData = 0x9999AAAABBBBCCCCULL;
 constexpr uint64_t EpollAliasData = 0xDDDDEEEEFFFF0001ULL;
+constexpr uint64_t EpollEventFdData = 0x123456789ABCDEF0ULL;
+constexpr uint64_t EpollReorderedData = 0x0DDBA11C0FFEE123ULL;
+constexpr uint64_t EpollFifoData = 0xF1F0C105ED6E0001ULL;
 size_t g_RuntimePinnedLifecycleCalls = 0;
 
 struct TerminalBlockedHandlerContext {
@@ -2701,16 +2707,30 @@ struct EpollReadinessContext {
         createdCloseResult(false),
         duplicateAddResult(-2),
         duplicateAddError(0),
-        edgeModifyResult(-2),
-        edgeModifyError(0),
+        exclusiveModifyResult(-2),
+        exclusiveModifyError(0),
         firstWaitResult(-2),
         firstWaitEvents(0),
         firstWaitData(0),
         repeatedWaitResult(-2),
         repeatedWaitEvents(0),
         repeatedWaitData(0),
+        sameReadyWriteResult(-2),
+        sameReadyWaitResult(-2),
         firstDrainResult(-2),
         drainedWaitResult(-2),
+        transitionWriteResult(-2),
+        transitionWaitResult(-2),
+        transitionWaitEvents(0),
+        transitionWaitData(0),
+        transitionDrainResult(-2),
+        levelModifyResult(-2),
+        levelWriteResult(-2),
+        levelWaitResult(-2),
+        levelWaitEvents(0),
+        levelWaitData(0),
+        levelRepeatedWaitResult(-2),
+        levelDrainResult(-2),
         oneShotModifyResult(-2),
         oneShotWriteResult(-2),
         oneShotWaitResult(-2),
@@ -2726,6 +2746,20 @@ struct EpollReadinessContext {
         postDeleteWriteResult(-2),
         postDeleteWaitResult(-2),
         postDeleteDrainResult(-2),
+        eventFd(-2),
+        eventFdAddResult(-2),
+        eventFdFirstWriteResult(-2),
+        eventFdFirstWaitResult(-2),
+        eventFdFirstWaitEvents(0),
+        eventFdFirstWaitData(0),
+        eventFdSecondWriteResult(-2),
+        eventFdSecondWaitResult(-2),
+        eventFdSecondWaitEvents(0),
+        eventFdSecondWaitData(0),
+        eventFdReadResult(-2),
+        eventFdReadValue(0),
+        eventFdDeleteResult(-2),
+        eventFdCloseResult(false),
         aliasAddResult(-2),
         originalCloseResult(false),
         ownersAfterOriginalClose(static_cast<size_t>(-1)),
@@ -2759,16 +2793,30 @@ struct EpollReadinessContext {
   bool createdCloseResult;
   int duplicateAddResult;
   int duplicateAddError;
-  int edgeModifyResult;
-  int edgeModifyError;
+  int exclusiveModifyResult;
+  int exclusiveModifyError;
   int firstWaitResult;
   uint32_t firstWaitEvents;
   uint64_t firstWaitData;
   int repeatedWaitResult;
   uint32_t repeatedWaitEvents;
   uint64_t repeatedWaitData;
+  int sameReadyWriteResult;
+  int sameReadyWaitResult;
   int firstDrainResult;
   int drainedWaitResult;
+  int transitionWriteResult;
+  int transitionWaitResult;
+  uint32_t transitionWaitEvents;
+  uint64_t transitionWaitData;
+  int transitionDrainResult;
+  int levelModifyResult;
+  int levelWriteResult;
+  int levelWaitResult;
+  uint32_t levelWaitEvents;
+  uint64_t levelWaitData;
+  int levelRepeatedWaitResult;
+  int levelDrainResult;
   int oneShotModifyResult;
   int oneShotWriteResult;
   int oneShotWaitResult;
@@ -2784,6 +2832,20 @@ struct EpollReadinessContext {
   int postDeleteWriteResult;
   int postDeleteWaitResult;
   int postDeleteDrainResult;
+  int eventFd;
+  int eventFdAddResult;
+  int eventFdFirstWriteResult;
+  int eventFdFirstWaitResult;
+  uint32_t eventFdFirstWaitEvents;
+  uint64_t eventFdFirstWaitData;
+  int eventFdSecondWriteResult;
+  int eventFdSecondWaitResult;
+  uint32_t eventFdSecondWaitEvents;
+  uint64_t eventFdSecondWaitData;
+  int eventFdReadResult;
+  uint64_t eventFdReadValue;
+  int eventFdDeleteResult;
+  bool eventFdCloseResult;
   int aliasAddResult;
   bool originalCloseResult;
   size_t ownersAfterOriginalClose;
@@ -2797,6 +2859,207 @@ struct EpollReadinessContext {
   int prunedWaitResult;
   size_t descriptionRefsAfterPrune;
 };
+
+class ReorderedReadinessFile final : public File {
+ public:
+  ReorderedReadinessFile()
+      : File(), m_ReadinessLock(), m_Readable(true), m_Writable(true), m_Generations() {
+    m_Generations.read = 1;
+    m_Generations.write = 1;
+  }
+
+  ReadyMask queryReady(bool reading, bool writing) override {
+    LockGuard<Mutex> guard(m_ReadinessLock);
+    ReadyMask ready = ReadyNone;
+    if (reading && m_Readable) {
+      ready |= ReadyRead;
+    }
+    if (writing && m_Writable) {
+      ready |= ReadyWrite;
+    }
+    return ready;
+  }
+
+  ReadinessGenerations readinessGenerations() override {
+    LockGuard<Mutex> guard(m_ReadinessLock);
+    return m_Generations;
+  }
+
+  bool supportsReadinessNotifications() const override {
+    return true;
+  }
+
+  void setReady(bool readable, bool writable) {
+    LockGuard<Mutex> guard(m_ReadinessLock);
+    if (!m_Readable && readable) {
+      ++m_Generations.read;
+    }
+    if (!m_Writable && writable) {
+      ++m_Generations.write;
+    }
+    m_Readable = readable;
+    m_Writable = writable;
+  }
+
+  void publishReadiness() {
+    dataChanged();
+  }
+
+ private:
+  Mutex m_ReadinessLock;
+  bool m_Readable;
+  bool m_Writable;
+  ReadinessGenerations m_Generations;
+};
+
+struct ReorderedEpollContext {
+  ReorderedEpollContext(const SharedPointer<EpollInstance>& instance, size_t fd,
+                        ReorderedReadinessFile* file)
+      : instance(instance),
+        fd(fd),
+        file(file),
+        initialComplete(0, false),
+        drainMutated(0, false),
+        publishDrain(0, false),
+        collectFinal(0, false),
+        initialWaitResult(-2),
+        initialWaitEvents(0),
+        initialWaitData(0),
+        finalWaitResult(-2),
+        finalWaitEvents(0),
+        finalWaitData(0),
+        addResult(-2),
+        deleteResult(-2),
+        waiterReturned(0),
+        drainReturned(0) {}
+
+  SharedPointer<EpollInstance> instance;
+  size_t fd;
+  ReorderedReadinessFile* file;
+  Semaphore initialComplete;
+  Semaphore drainMutated;
+  Semaphore publishDrain;
+  Semaphore collectFinal;
+  int initialWaitResult;
+  uint32_t initialWaitEvents;
+  uint64_t initialWaitData;
+  int finalWaitResult;
+  uint32_t finalWaitEvents;
+  uint64_t finalWaitData;
+  int addResult;
+  int deleteResult;
+  Atomic<size_t> waiterReturned;
+  Atomic<size_t> drainReturned;
+};
+
+int waitAcrossReorderedReadiness(void* parameter) {
+  ReorderedEpollContext* context = reinterpret_cast<ReorderedEpollContext*>(parameter);
+  LinuxEpollEvent event = {LinuxEpoll::In | LinuxEpoll::Out | LinuxEpoll::EdgeTriggered,
+                           EpollReorderedData};
+  context->addResult =
+      context->instance->control(LinuxEpoll::ControlAdd, static_cast<int>(context->fd), &event);
+
+  LinuxEpollEvent result = {};
+  context->initialWaitResult = context->instance->wait(&result, 1, 0);
+  context->initialWaitEvents = result.events;
+  context->initialWaitData = result.data;
+  context->initialComplete.release();
+
+  if (context->collectFinal.acquireForCompletion()) {
+    result = {};
+    context->finalWaitResult = context->instance->wait(&result, 1, 0);
+    context->finalWaitEvents = result.events;
+    context->finalWaitData = result.data;
+    context->deleteResult = context->instance->control(LinuxEpoll::ControlDelete,
+                                                       static_cast<int>(context->fd), nullptr);
+  }
+
+  context->waiterReturned += 1;
+  return 0;
+}
+
+int publishDelayedDrain(void* parameter) {
+  ReorderedEpollContext* context = reinterpret_cast<ReorderedEpollContext*>(parameter);
+  context->file->setReady(false, false);
+  context->drainMutated.release();
+  if (context->publishDrain.acquireForCompletion()) {
+    context->file->publishReadiness();
+  }
+  context->drainReturned += 1;
+  return 0;
+}
+
+class ReorderedFifo final : public Pipe {
+ public:
+  ReorderedFifo() : Pipe(String("hosted-reordered-fifo"), 0, 0, 0, 0, nullptr, 0, nullptr, false) {}
+
+  void reopenReaderWithoutPublishing() {
+    LockGuard<Mutex> guard(m_Lock);
+    m_Buffer.enableReads();
+    ++m_nReaders;
+    m_ReaderCondition.broadcast();
+  }
+
+  void publishReopen() {
+    dataChanged();
+  }
+};
+
+struct ReorderedFifoEpollContext {
+  ReorderedFifoEpollContext(const SharedPointer<EpollInstance>& instance, size_t fd)
+      : instance(instance),
+        fd(fd),
+        initialComplete(0, false),
+        collectFinal(0, false),
+        addResult(-2),
+        initialWaitResult(-2),
+        initialWaitEvents(0),
+        initialWaitData(0),
+        finalWaitResult(-2),
+        finalWaitEvents(0),
+        finalWaitData(0),
+        deleteResult(-2),
+        returned(0) {}
+
+  SharedPointer<EpollInstance> instance;
+  size_t fd;
+  Semaphore initialComplete;
+  Semaphore collectFinal;
+  int addResult;
+  int initialWaitResult;
+  uint32_t initialWaitEvents;
+  uint64_t initialWaitData;
+  int finalWaitResult;
+  uint32_t finalWaitEvents;
+  uint64_t finalWaitData;
+  int deleteResult;
+  Atomic<size_t> returned;
+};
+
+int waitAcrossReorderedFifoReopen(void* parameter) {
+  ReorderedFifoEpollContext* context = reinterpret_cast<ReorderedFifoEpollContext*>(parameter);
+  LinuxEpollEvent interest = {LinuxEpoll::Out | LinuxEpoll::EdgeTriggered, EpollFifoData};
+  context->addResult =
+      context->instance->control(LinuxEpoll::ControlAdd, static_cast<int>(context->fd), &interest);
+
+  LinuxEpollEvent event = {};
+  context->initialWaitResult = context->instance->wait(&event, 1, 0);
+  context->initialWaitEvents = event.events;
+  context->initialWaitData = event.data;
+  context->initialComplete.release();
+
+  if (context->collectFinal.acquireForCompletion()) {
+    event = {};
+    context->finalWaitResult = context->instance->wait(&event, 1, 0);
+    context->finalWaitEvents = event.events;
+    context->finalWaitData = event.data;
+    context->deleteResult = context->instance->control(LinuxEpoll::ControlDelete,
+                                                       static_cast<int>(context->fd), nullptr);
+  }
+
+  context->returned += 1;
+  return 0;
+}
 
 int pollPipeReadiness(void* parameter) {
   PipePollReadinessContext* context = reinterpret_cast<PipePollReadinessContext*>(parameter);
@@ -2936,7 +3199,8 @@ int exerciseEpollReadiness(void* parameter) {
   LinuxEpollEvent events[2] = {};
   char byte = 1;
 
-  LinuxEpollEvent interest = {LinuxEpoll::In, EpollInitialData};
+  LinuxEpollEvent interest = {LinuxEpoll::In | LinuxEpoll::ReadNormal | LinuxEpoll::EdgeTriggered,
+                              EpollInitialData};
   context->addResult =
       context->instance->control(LinuxEpoll::ControlAdd, context->readFd, &interest);
 
@@ -2964,11 +3228,11 @@ int exerciseEpollReadiness(void* parameter) {
       context->instance->control(LinuxEpoll::ControlAdd, context->readFd, &interest);
   context->duplicateAddError = thread->getErrno();
 
-  LinuxEpollEvent edgeTriggered = {LinuxEpoll::In | LinuxEpoll::EdgeTriggered, EpollInitialData};
+  LinuxEpollEvent exclusive = {LinuxEpoll::In | LinuxEpoll::Exclusive, EpollInitialData};
   thread->setErrno(0);
-  context->edgeModifyResult =
-      context->instance->control(LinuxEpoll::ControlModify, context->readFd, &edgeTriggered);
-  context->edgeModifyError = thread->getErrno();
+  context->exclusiveModifyResult =
+      context->instance->control(LinuxEpoll::ControlModify, context->readFd, &exclusive);
+  context->exclusiveModifyError = thread->getErrno();
 
   context->waitEntered += 1;
   context->waitEntryGate.release();
@@ -2980,10 +3244,32 @@ int exerciseEpollReadiness(void* parameter) {
   context->repeatedWaitResult = context->instance->wait(events, 2, 0);
   context->repeatedWaitEvents = events[0].events;
   context->repeatedWaitData = events[0].data;
-  context->firstDrainResult = posix_read(context->readFd, &byte, 1);
+  context->sameReadyWriteResult = posix_write(context->writeFd, &byte, 1, false);
+  context->sameReadyWaitResult = context->instance->wait(events, 2, 0);
+  char edgeBytes[2] = {};
+  context->firstDrainResult = posix_read(context->readFd, edgeBytes, sizeof(edgeBytes));
   context->drainedWaitResult = context->instance->wait(events, 2, 0);
 
-  LinuxEpollEvent oneShot = {LinuxEpoll::In | LinuxEpoll::OneShot, EpollOneShotData};
+  context->transitionWriteResult = posix_write(context->writeFd, &byte, 1, false);
+  events[0] = {};
+  context->transitionWaitResult = context->instance->wait(events, 2, 0);
+  context->transitionWaitEvents = events[0].events;
+  context->transitionWaitData = events[0].data;
+  context->transitionDrainResult = posix_read(context->readFd, &byte, 1);
+
+  LinuxEpollEvent level = {LinuxEpoll::In, EpollLevelData};
+  context->levelModifyResult =
+      context->instance->control(LinuxEpoll::ControlModify, context->readFd, &level);
+  context->levelWriteResult = posix_write(context->writeFd, &byte, 1, false);
+  events[0] = {};
+  context->levelWaitResult = context->instance->wait(events, 2, 0);
+  context->levelWaitEvents = events[0].events;
+  context->levelWaitData = events[0].data;
+  context->levelRepeatedWaitResult = context->instance->wait(events, 2, 0);
+  context->levelDrainResult = posix_read(context->readFd, &byte, 1);
+
+  LinuxEpollEvent oneShot = {LinuxEpoll::In | LinuxEpoll::EdgeTriggered | LinuxEpoll::OneShot,
+                             EpollOneShotData};
   context->oneShotModifyResult =
       context->instance->control(LinuxEpoll::ControlModify, context->readFd, &oneShot);
   context->oneShotWriteResult = posix_write(context->writeFd, &byte, 1, false);
@@ -2993,7 +3279,8 @@ int exerciseEpollReadiness(void* parameter) {
   context->oneShotWaitData = events[0].data;
   context->oneShotSuppressedResult = context->instance->wait(events, 2, 0);
 
-  LinuxEpollEvent rearmed = {LinuxEpoll::In | LinuxEpoll::OneShot, EpollRearmedData};
+  LinuxEpollEvent rearmed = {LinuxEpoll::In | LinuxEpoll::EdgeTriggered | LinuxEpoll::OneShot,
+                             EpollRearmedData};
   context->rearmResult =
       context->instance->control(LinuxEpoll::ControlModify, context->readFd, &rearmed);
   events[0] = {};
@@ -3007,6 +3294,43 @@ int exerciseEpollReadiness(void* parameter) {
   context->postDeleteWriteResult = posix_write(context->writeFd, &byte, 1, false);
   context->postDeleteWaitResult = context->instance->wait(events, 2, 0);
   context->postDeleteDrainResult = posix_read(context->readFd, &byte, 1);
+
+  context->eventFd = posix_eventfd2(0, LinuxEventFd::NonBlock);
+  LinuxEpollEvent eventFdInterest = {LinuxEpoll::In | LinuxEpoll::EdgeTriggered, EpollEventFdData};
+  if (context->eventFd >= 0) {
+    context->eventFdAddResult =
+        context->instance->control(LinuxEpoll::ControlAdd, context->eventFd, &eventFdInterest);
+    uint64_t eventValue = 1;
+    context->eventFdFirstWriteResult = posix_write(
+        context->eventFd, reinterpret_cast<char*>(&eventValue), sizeof(eventValue), false);
+    events[0] = {};
+    context->eventFdFirstWaitResult = context->instance->wait(events, 2, 0);
+    context->eventFdFirstWaitEvents = events[0].events;
+    context->eventFdFirstWaitData = events[0].data;
+
+    // libuv deliberately leaves its Linux async eventfd readable. A second
+    // producer write must therefore generate another edge without a read in
+    // between, even though the counter's readable level never went false.
+    context->eventFdSecondWriteResult = posix_write(
+        context->eventFd, reinterpret_cast<char*>(&eventValue), sizeof(eventValue), false);
+    events[0] = {};
+    context->eventFdSecondWaitResult = context->instance->wait(events, 2, 0);
+    context->eventFdSecondWaitEvents = events[0].events;
+    context->eventFdSecondWaitData = events[0].data;
+    context->eventFdReadResult =
+        posix_read(context->eventFd, reinterpret_cast<char*>(&context->eventFdReadValue),
+                   sizeof(context->eventFdReadValue));
+    context->eventFdDeleteResult =
+        context->instance->control(LinuxEpoll::ControlDelete, context->eventFd, nullptr);
+
+    DescriptorLease closingEventFd;
+    const bool eventFdAcquired = context->subsystem->acquireFileDescriptor(
+        static_cast<size_t>(context->eventFd), closingEventFd);
+    context->eventFdCloseResult =
+        eventFdAcquired && context->subsystem->closeFileDescriptor(
+                               static_cast<size_t>(context->eventFd), closingEventFd);
+    closingEventFd.reset();
+  }
 
   LinuxEpollEvent aliasLifetime = {LinuxEpoll::In, EpollAliasData};
   context->aliasAddResult =
@@ -3092,19 +3416,28 @@ bool epollLevelOneShotAndOfdLifetime(Process* kernelProcess) {
     delete worker;
   }
 
-  const bool levelPassed =
+  const bool edgePassed =
       waitBlocked && wakeWriteResult == 1 && context.firstWaitResult == 1 &&
-      context.firstWaitEvents == LinuxEpoll::In && context.firstWaitData == EpollInitialData &&
-      context.repeatedWaitResult == 1 && context.repeatedWaitEvents == LinuxEpoll::In &&
-      context.repeatedWaitData == EpollInitialData && context.firstDrainResult == 1 &&
-      context.drainedWaitResult == 0;
+      context.firstWaitEvents == (LinuxEpoll::In | LinuxEpoll::ReadNormal) &&
+      context.firstWaitData == EpollInitialData && context.repeatedWaitResult == 0 &&
+      context.sameReadyWriteResult == 1 && context.sameReadyWaitResult == 0 &&
+      context.firstDrainResult == 2 && context.drainedWaitResult == 0 &&
+      context.transitionWriteResult == 1 && context.transitionWaitResult == 1 &&
+      context.transitionWaitEvents == (LinuxEpoll::In | LinuxEpoll::ReadNormal) &&
+      context.transitionWaitData == EpollInitialData && context.transitionDrainResult == 1;
+  const bool levelPassed = context.levelModifyResult == 0 && context.levelWriteResult == 1 &&
+                           context.levelWaitResult == 1 &&
+                           context.levelWaitEvents == LinuxEpoll::In &&
+                           context.levelWaitData == EpollLevelData &&
+                           context.levelRepeatedWaitResult == 1 && context.levelDrainResult == 1;
   const bool controlPassed =
       context.addResult == 0 && context.regularAddResult == -1 &&
       context.regularAddError == Error::NotEnoughPermissions && context.createdFd >= 0 &&
       context.createdDescriptorAcquired && context.createdStatusFlags == O_RDWR &&
       context.createdDescriptorFlags == FD_CLOEXEC && context.createdCloseResult &&
       context.duplicateAddResult == -1 && context.duplicateAddError == Error::FileExists &&
-      context.edgeModifyResult == -1 && context.edgeModifyError == Error::OperationNotSupported &&
+      context.exclusiveModifyResult == -1 &&
+      context.exclusiveModifyError == Error::OperationNotSupported &&
       context.oneShotModifyResult == 0 && context.oneShotWriteResult == 1 &&
       context.oneShotWaitResult == 1 && context.oneShotWaitEvents == LinuxEpoll::In &&
       context.oneShotWaitData == EpollOneShotData && context.oneShotSuppressedResult == 0 &&
@@ -3120,8 +3453,20 @@ bool epollLevelOneShotAndOfdLifetime(Process* kernelProcess) {
       context.aliasWaitData == EpollAliasData && context.aliasDrainResult == 1 &&
       context.aliasCloseResult && context.ownersAfterAliasClose == 0 &&
       context.prunedWaitResult == 0 && context.descriptionRefsAfterPrune == 1;
+  const bool eventFdPassed =
+      context.eventFd >= 0 && context.eventFdAddResult == 0 &&
+      context.eventFdFirstWriteResult == static_cast<int>(sizeof(uint64_t)) &&
+      context.eventFdFirstWaitResult == 1 && context.eventFdFirstWaitEvents == LinuxEpoll::In &&
+      context.eventFdFirstWaitData == EpollEventFdData &&
+      context.eventFdSecondWriteResult == static_cast<int>(sizeof(uint64_t)) &&
+      context.eventFdSecondWaitResult == 1 && context.eventFdSecondWaitEvents == LinuxEpoll::In &&
+      context.eventFdSecondWaitData == EpollEventFdData &&
+      context.eventFdReadResult == static_cast<int>(sizeof(uint64_t)) &&
+      context.eventFdReadValue == 2 && context.eventFdDeleteResult == 0 &&
+      context.eventFdCloseResult;
   bool passed = started && waitEntered && joined && context.waitEntered == 1 &&
-                context.returned == 1 && levelPassed && controlPassed && lifetimePassed;
+                context.returned == 1 && edgePassed && levelPassed && controlPassed &&
+                lifetimePassed && eventFdPassed;
 
   DescriptorLease closingWriter;
   const bool writerAcquired = subsystem->acquireFileDescriptor(WriteDescriptor, closingWriter);
@@ -3139,12 +3484,170 @@ bool epollLevelOneShotAndOfdLifetime(Process* kernelProcess) {
   if (!passed) {
     ERROR(
         "HOSTED-SYSCALL-TEST: FAIL epoll-level-oneshot-ofd-lifetime: "
-        "target admission, descriptor flags, level delivery, one-shot rearm, control errors, or "
-        "OFD retirement was incorrect");
+        "target admission, descriptor flags, edge and level delivery, one-shot rearm, control "
+        "errors, eventfd generations, or OFD retirement was incorrect");
     return false;
   }
 
   NOTICE("HOSTED-SYSCALL-TEST: PASS epoll-level-oneshot-ofd-lifetime");
+  return true;
+}
+
+bool epollReorderedTransitionPublication(Process* kernelProcess) {
+  constexpr size_t DescriptorNumber = 51;
+  Process* process = new Process(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+
+  ReorderedReadinessFile* source = new ReorderedReadinessFile;
+  FileDescriptor* descriptor =
+      new FileDescriptor(source, 0, DescriptorNumber, 0, O_RDWR | O_NONBLOCK);
+  subsystem->addFileDescriptor(DescriptorNumber, descriptor);
+
+  SharedPointer<EpollInstance> instance(new EpollInstance);
+  ReorderedEpollContext context(instance, DescriptorNumber, source);
+  Thread* waiter =
+      new Thread(process, waitAcrossReorderedReadiness, &context, nullptr, false, true, true);
+  waiter->setName("hosted reordered epoll waiter");
+  const bool waiterStarted = waiter->start();
+  const bool initialComplete = waiterStarted && context.initialComplete.acquireForCompletion();
+
+  Thread* drain = nullptr;
+  bool drainStarted = false;
+  bool drainMutated = false;
+  if (initialComplete) {
+    drain = new Thread(process, publishDelayedDrain, &context, nullptr, false, true, true);
+    drain->setName("hosted delayed epoll drain publisher");
+    drainStarted = drain->start();
+    drainMutated = drainStarted && context.drainMutated.acquireForCompletion();
+  }
+
+  // The refill callback deliberately overtakes the callback for the drain.
+  // Both callbacks therefore sample the final readable level; only the
+  // source-side generation proves that a reusable edge occurred between them.
+  if (drainMutated) {
+    source->setReady(true, true);
+    source->publishReadiness();
+  }
+  context.publishDrain.release();
+  const bool drainJoined = drainStarted && drain->joinForCompletion();
+  if (drain && !drainStarted) {
+    delete drain;
+  }
+
+  context.collectFinal.release();
+  const bool waiterJoined = waiterStarted && waiter->joinForCompletion();
+  if (!waiterStarted) {
+    delete waiter;
+  }
+
+  const bool transitionPassed =
+      context.addResult == 0 && context.initialWaitResult == 1 &&
+      context.initialWaitEvents == (LinuxEpoll::In | LinuxEpoll::Out) &&
+      context.initialWaitData == EpollReorderedData && context.finalWaitResult == 1 &&
+      context.finalWaitEvents == (LinuxEpoll::In | LinuxEpoll::Out) &&
+      context.finalWaitData == EpollReorderedData && context.deleteResult == 0 &&
+      source->readinessGenerations().read == 2 && source->readinessGenerations().write == 2;
+  bool passed = waiterStarted && initialComplete && drainStarted && drainMutated && drainJoined &&
+                waiterJoined && context.waiterReturned == 1 && context.drainReturned == 1 &&
+                transitionPassed;
+
+  DescriptorLease closing;
+  const bool descriptorAcquired = subsystem->acquireFileDescriptor(DescriptorNumber, closing);
+  const bool descriptorClosed =
+      descriptorAcquired && subsystem->closeFileDescriptor(DescriptorNumber, closing);
+  closing.reset();
+  passed = passed && descriptorClosed;
+
+  instance.reset();
+  context.instance.reset();
+  delete process;
+  delete source;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL epoll-reordered-transition-publication: "
+        "a refill edge was lost when its callback overtook the drain callback");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS epoll-reordered-transition-publication");
+  return true;
+}
+
+bool epollPersistentFifoReopenReclose(Process* kernelProcess) {
+  constexpr size_t DescriptorNumber = 52;
+  Process* process = new Process(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+
+  ReorderedFifo* fifo = new ReorderedFifo;
+  FileDescriptor* writer = new FileDescriptor(fifo, 0, DescriptorNumber, 0, O_WRONLY | O_NONBLOCK);
+  subsystem->addFileDescriptor(DescriptorNumber, writer);
+
+  fifo->increaseRefCount(false);
+  char fill[PIPE_BUF_MAX] = {};
+  const int fillResult = writer->write(sizeof(fill), reinterpret_cast<uintptr_t>(fill));
+  fifo->decreaseRefCount(false);
+
+  SharedPointer<EpollInstance> instance(new EpollInstance);
+  ReorderedFifoEpollContext context(instance, DescriptorNumber);
+  Thread* waiter =
+      new Thread(process, waitAcrossReorderedFifoReopen, &context, nullptr, false, true, true);
+  waiter->setName("hosted reordered FIFO epoll waiter");
+  const bool waiterStarted = waiter->start();
+  const bool initialComplete = waiterStarted && context.initialComplete.acquireForCompletion();
+
+  const ReadinessGenerations initialGenerations = fifo->readinessGenerations();
+  bool reopenMadeNotReady = false;
+  if (initialComplete) {
+    // Delay the notification for the falling reader-reopen transition. The
+    // re-close publishes first, so both callbacks sample the final OUT|ERR
+    // level and the Pipe generation is the only evidence of the OUT rise.
+    fifo->reopenReaderWithoutPublishing();
+    reopenMadeNotReady = fifo->queryReady(false, true) == ReadyNone;
+    fifo->decreaseRefCount(false);
+    fifo->publishReopen();
+  }
+  const ReadinessGenerations finalGenerations = fifo->readinessGenerations();
+
+  context.collectFinal.release();
+  const bool waiterJoined = waiterStarted && waiter->joinForCompletion();
+  if (!waiterStarted) {
+    delete waiter;
+  }
+
+  const uint32_t expectedEvents = LinuxEpoll::Out | LinuxEpoll::Error;
+  const bool edgePassed =
+      fillResult == PIPE_BUF_MAX && context.addResult == 0 && context.initialWaitResult == 1 &&
+      context.initialWaitEvents == expectedEvents && context.initialWaitData == EpollFifoData &&
+      reopenMadeNotReady && context.finalWaitResult == 1 &&
+      context.finalWaitEvents == expectedEvents && context.finalWaitData == EpollFifoData &&
+      context.deleteResult == 0 && finalGenerations.write != initialGenerations.write &&
+      finalGenerations.error != initialGenerations.error;
+  bool passed =
+      waiterStarted && initialComplete && waiterJoined && context.returned == 1 && edgePassed;
+
+  DescriptorLease closing;
+  const bool descriptorAcquired = subsystem->acquireFileDescriptor(DescriptorNumber, closing);
+  const bool descriptorClosed =
+      descriptorAcquired && subsystem->closeFileDescriptor(DescriptorNumber, closing);
+  closing.reset();
+  passed = passed && descriptorClosed;
+
+  instance.reset();
+  context.instance.reset();
+  delete process;
+  delete fifo;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL epoll-persistent-fifo-reopen-reclose: "
+        "a full FIFO lost EPOLLOUT when reader re-close overtook reopen publication");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS epoll-persistent-fifo-reopen-reclose");
   return true;
 }
 
@@ -4328,6 +4831,21 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN epoll-level-oneshot-ofd-lifetime");
   if (!epollLevelOneShotAndOfdLifetime(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN epoll-reordered-transition-publication");
+  if (!epollReorderedTransitionPublication(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN epoll-persistent-fifo-reopen-reclose");
+  if (!epollPersistentFifoReopenReclose(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN eventfd-counter-readiness-lifetime");
+  if (!runHostedEventFdRegressions(kernelProcess)) {
     return false;
   }
 

@@ -174,6 +174,10 @@ ReadinessSource::~ReadinessSource() {
   closeReadiness();
 }
 
+ReadinessGenerations ReadinessSource::readinessGenerations() {
+  return ReadinessGenerations();
+}
+
 bool ReadinessSource::subscribeReadiness(ReadyMask interest,
                                          const SharedPointer<ReadinessObserver>& observer,
                                          ReadinessSubscription& subscription) {

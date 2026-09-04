@@ -23,6 +23,7 @@
 
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
+#include "modules/subsys/posix/eventfd-syscalls.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/system/vfs/File.h"
 
@@ -36,36 +37,58 @@ constexpr uint32_t WriteEvents = LinuxEpoll::Out | LinuxEpoll::WriteNormal | Lin
 constexpr uint32_t RequestedEvents =
     ReadEvents | WriteEvents | LinuxEpoll::Priority | LinuxEpoll::ReadHangup;
 constexpr uint32_t AlwaysReturnedEvents = LinuxEpoll::Error | LinuxEpoll::Hangup;
-constexpr uint32_t SupportedEvents = RequestedEvents | AlwaysReturnedEvents | LinuxEpoll::OneShot;
+constexpr uint32_t SupportedEvents =
+    RequestedEvents | AlwaysReturnedEvents | LinuxEpoll::OneShot | LinuxEpoll::EdgeTriggered;
 constexpr uint32_t UnsupportedModes =
-    LinuxEpoll::EdgeTriggered | LinuxEpoll::Exclusive | LinuxEpoll::Wakeup | LinuxEpoll::Message;
+    LinuxEpoll::Exclusive | LinuxEpoll::Wakeup | LinuxEpoll::Message;
 
 struct EpollWatch {
   EpollWatch(int watchedFd, const FileDescriptor::OpenFileDescriptionLease& openFile,
-             File* watchedFile, const SharedPointer<NetworkSyscalls>& watchedNetwork, bool readable,
-             bool writable, const LinuxEpollEvent& event)
+             File* watchedFile, const SharedPointer<NetworkSyscalls>& watchedNetwork,
+             const SharedPointer<EventFd>& watchedEventFd, bool readable, bool writable,
+             const LinuxEpollEvent& event)
       : fd(watchedFd),
         description(openFile),
         file(watchedFile),
         network(watchedNetwork),
+        eventFd(watchedEventFd),
         canRead(readable),
         canWrite(writable),
         events(event.events),
         data(event.data),
         armed(true),
+        observedEvents(0),
+        pendingEvents(0),
+        observedWriteGeneration(watchedEventFd ? watchedEventFd->writeGeneration() : 0),
+        observedGenerations(),
         subscription() {}
 
   int fd;
   FileDescriptor::OpenFileDescriptionLease description;
   File* file;
   SharedPointer<NetworkSyscalls> network;
+  SharedPointer<EventFd> eventFd;
   bool canRead;
   bool canWrite;
   uint32_t events;
   uint64_t data;
   bool armed;
+  uint32_t observedEvents;
+  uint32_t pendingEvents;
+  uint64_t observedWriteGeneration;
+  ReadinessGenerations observedGenerations;
   ReadinessSubscription subscription;
 };
+
+ReadinessSource* watchSource(const EpollWatch& watch) {
+  if (watch.file) {
+    return watch.file;
+  }
+  if (watch.network) {
+    return watch.network.get();
+  }
+  return watch.eventFd.get();
+}
 
 uint32_t eventsFor(ReadyMask ready, uint32_t requested) {
   uint32_t result = 0;
@@ -102,7 +125,61 @@ ReadyMask queryWatch(const EpollWatch& watch) {
   if (watch.network) {
     return watch.network->queryReady(reading, writing);
   }
+  if (watch.eventFd) {
+    return watch.eventFd->queryReady();
+  }
   return ReadyInvalid;
+}
+
+uint32_t sampleWatch(EpollWatch& watch) {
+  const uint32_t readyEvents = eventsFor(queryWatch(watch), watch.events);
+  if (watch.events & LinuxEpoll::EdgeTriggered) {
+    ReadinessSource* source = watchSource(watch);
+    const ReadinessGenerations generations =
+        source ? source->readinessGenerations() : ReadinessGenerations();
+    const uint64_t writeGeneration = watch.eventFd ? watch.eventFd->writeGeneration() : 0;
+    // Keep edges which have not yet been consumed, but do not return a stale
+    // edge after another thread has made that predicate false. Source-owned
+    // generations preserve a false-to-true transition even when the producer's
+    // callback overtakes the delayed notification for the preceding drain.
+    watch.pendingEvents &= readyEvents;
+    watch.pendingEvents |= readyEvents & ~watch.observedEvents;
+    if (generations.read != watch.observedGenerations.read) {
+      watch.pendingEvents |= readyEvents & (LinuxEpoll::In | LinuxEpoll::ReadNormal);
+    }
+    if (generations.write != watch.observedGenerations.write) {
+      watch.pendingEvents |= readyEvents & WriteEvents;
+    }
+    if (generations.priority != watch.observedGenerations.priority) {
+      watch.pendingEvents |= readyEvents & (LinuxEpoll::Priority | LinuxEpoll::ReadBand);
+    }
+    if (generations.error != watch.observedGenerations.error) {
+      watch.pendingEvents |= readyEvents & LinuxEpoll::Error;
+    }
+    if (generations.hangup != watch.observedGenerations.hangup) {
+      watch.pendingEvents |= readyEvents & LinuxEpoll::Hangup;
+    }
+    if (generations.readHangup != watch.observedGenerations.readHangup) {
+      watch.pendingEvents |= readyEvents & LinuxEpoll::ReadHangup;
+    }
+    if (watch.eventFd && writeGeneration != watch.observedWriteGeneration) {
+      // eventfd is a counter rather than a byte stream. Linux's async-event
+      // users can deliberately leave it readable and treat every successful
+      // producer write as a new edge.
+      watch.pendingEvents |= readyEvents & ReadEvents;
+    }
+    watch.observedEvents = readyEvents;
+    watch.observedWriteGeneration = writeGeneration;
+    watch.observedGenerations = generations;
+  }
+  return readyEvents;
+}
+
+uint32_t reportableEvents(const EpollWatch& watch, uint32_t readyEvents) {
+  if (watch.events & LinuxEpoll::EdgeTriggered) {
+    return watch.pendingEvents;
+  }
+  return readyEvents;
 }
 
 void retireWatch(EpollWatch* watch) {
@@ -199,10 +276,28 @@ void EpollInstance::wakeWaiter() {
 }
 
 void EpollInstance::sourceReadinessChanged(ReadyMask) {
-  // A notification is only a hint. wait() and queryReady() always rescan the
-  // underlying level before reporting an event.
-  wakeWaiter();
-  notifyReadiness(ReadyRead);
+  bool reportable = false;
+  {
+    LockGuard<Mutex> guard(m_State->lock);
+    for (EpollWatch* watch : m_State->watches) {
+      if (!watch->description->descriptorOwnerCount()) {
+        continue;
+      }
+
+      const uint32_t readyEvents = sampleWatch(*watch);
+      if (watch->armed && reportableEvents(*watch, readyEvents)) {
+        reportable = true;
+      }
+    }
+  }
+
+  // Notifications are change hints rather than payloads. Source generations
+  // make reordered callbacks safe; a waiter still performs an authoritative
+  // rescan before returning anything to userspace.
+  if (reportable) {
+    wakeWaiter();
+    notifyReadiness(ReadyRead);
+  }
 }
 
 int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* event) {
@@ -244,7 +339,8 @@ int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* e
   FileDescriptor::OpenFileDescriptionLease description = descriptor->acquireOpenFileDescription();
   File* file = description->getFile();
   SharedPointer<NetworkSyscalls> network = description->getNetworkImpl();
-  if (!file && !network) {
+  SharedPointer<EventFd> eventFd = description->getEventFdImpl();
+  if (!file && !network && !eventFd) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }
@@ -289,6 +385,14 @@ int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* e
           watch->events = event->events;
           watch->data = event->data;
           watch->armed = true;
+          // MOD both rearms EPOLLONESHOT and republishes an already-ready
+          // level for EPOLLET, matching Linux's re-poll-on-modify behavior.
+          watch->observedEvents = 0;
+          watch->pendingEvents = 0;
+          watch->observedWriteGeneration = watch->eventFd ? watch->eventFd->writeGeneration() : 0;
+          ReadinessSource* source = watchSource(*watch);
+          watch->observedGenerations =
+              source ? source->readinessGenerations() : ReadinessGenerations();
           found = true;
           break;
         }
@@ -306,15 +410,14 @@ int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* e
   }
 
   const int accessMode = descriptor->getStatusFlags() & O_ACCMODE;
-  const bool canRead = network || accessMode != O_WRONLY;
-  const bool canWrite = network || accessMode != O_RDONLY;
+  const bool canRead = network || eventFd || accessMode != O_WRONLY;
+  const bool canWrite = network || eventFd || accessMode != O_RDONLY;
   EpollWatch* watch =
-      new EpollWatch(targetFd, description, file, network, canRead, canWrite, *event);
+      new EpollWatch(targetFd, description, file, network, eventFd, canRead, canWrite, *event);
 
   // Subscription precedes publication, so the first subsequent wait cannot
   // miss a readiness transition between registration and its initial scan.
-  ReadinessSource* source =
-      file ? static_cast<ReadinessSource*>(file) : static_cast<ReadinessSource*>(network.get());
+  ReadinessSource* source = watchSource(*watch);
   // Keep the subscription broad: EPOLL_CTL_MOD may change the interest mask
   // without replacing the target registration.
   if (!source->subscribeReadiness(ReadyAll, m_State->observer, watch->subscription)) {
@@ -372,21 +475,26 @@ int EpollInstance::collectEvents(LinuxEpollEvent* events, int maxEvents, bool co
         continue;
       }
 
-      const ReadyMask ready = queryWatch(*watch);
+      const uint32_t readyEvents = sampleWatch(*watch);
       if (!watch->description->descriptorOwnerCount()) {
         retiring.pushBack(watch);
         continue;
       }
 
-      const uint32_t readyEvents = eventsFor(ready, watch->events);
-      if (readyEvents) {
+      const uint32_t returnedEvents = reportableEvents(*watch, readyEvents);
+      if (returnedEvents) {
         if (events) {
-          events[count].events = readyEvents;
+          events[count].events = returnedEvents;
           events[count].data = watch->data;
         }
         ++count;
-        if (consumeOneShot && (watch->events & LinuxEpoll::OneShot)) {
-          watch->armed = false;
+        if (consumeOneShot) {
+          if (watch->events & LinuxEpoll::EdgeTriggered) {
+            watch->pendingEvents &= ~returnedEvents;
+          }
+          if (watch->events & LinuxEpoll::OneShot) {
+            watch->armed = false;
+          }
         }
       }
 

@@ -48,6 +48,7 @@
 #include <utime.h>
 
 #include "console-syscalls.h"
+#include "eventfd-syscalls.h"
 #include "file-syscalls.h"
 #include "modules/subsys/posix/IoEvent.h"
 #include "modules/system/console/Console.h"
@@ -563,6 +564,27 @@ int posix_read(int fd, char* ptr, int len) {
     return -1;
   }
 
+  SharedPointer<EventFd> eventFd = pFd->getEventFdImpl();
+  if (eventFd) {
+    if (len < static_cast<int>(sizeof(uint64_t))) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+
+    const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
+    pFd.reset();
+    uint64_t value = 0;
+    const int result = eventFd->readValue(value, canBlock);
+    if (result < 0) {
+      return result;
+    }
+    if (!PosixSubsystem::copyToUser(ptr, &value, sizeof(value))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    return result;
+  }
+
   if (pFd->networkImpl) {
     // Need to redirect to socket implementation.
     return posix_recv_descriptor(pFd, ptr, len, 0);
@@ -651,6 +673,26 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     // Error - no such file descriptor.
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
+  }
+
+  SharedPointer<EventFd> eventFd = pFd->getEventFdImpl();
+  if (eventFd) {
+    if (len != static_cast<int>(sizeof(uint64_t))) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+
+    uint64_t value = 0;
+    if (nocheck) {
+      ForwardMemoryCopy(&value, ptr, sizeof(value));
+    } else if (!PosixSubsystem::copyFromUser(&value, ptr, sizeof(value))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+
+    const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
+    pFd.reset();
+    return eventFd->writeValue(value, canBlock);
   }
 
   if (pFd->networkImpl) {
@@ -814,6 +856,23 @@ static int readFileVectorElement(Thread* thread, const DescriptorLease& descript
   return static_cast<int>(amount);
 }
 
+static bool scatterEventFdValue(const struct iovec* vectors, int vectorCount, uint64_t value) {
+  size_t copied = 0;
+  const uint8_t* source = reinterpret_cast<const uint8_t*>(&value);
+  for (int i = 0; i < vectorCount && copied < sizeof(value); ++i) {
+    size_t fragment = vectors[i].iov_len;
+    if (fragment > sizeof(value) - copied) {
+      fragment = sizeof(value) - copied;
+    }
+    if (fragment && !PosixSubsystem::copyToUser(vectors[i].iov_base, source + copied, fragment)) {
+      SYSCALL_ERROR(BadAddress);
+      return false;
+    }
+    copied += fragment;
+  }
+  return copied == sizeof(value);
+}
+
 int posix_writev(int fd, const struct iovec* iov, int iovcnt) {
   F_NOTICE("writev(" << fd << ", <iov>, " << iovcnt << ")");
 
@@ -838,6 +897,39 @@ int posix_writev(int fd, const struct iovec* iov, int iovcnt) {
   if (!iovcnt) {
     return 0;
   }
+  if (!totalLength) {
+    return 0;
+  }
+
+  SharedPointer<EventFd> eventFd = descriptor->getEventFdImpl();
+  if (eventFd) {
+    const bool canBlock = !(descriptor->getStatusFlags() & O_NONBLOCK);
+    descriptor.reset();
+
+    int totalWritten = 0;
+    for (int i = 0; i < iovcnt; ++i) {
+      if (!vectors[i].iov_len) {
+        continue;
+      }
+      if (vectors[i].iov_len != sizeof(uint64_t)) {
+        SYSCALL_ERROR(InvalidArgument);
+        return totalWritten ? totalWritten : -1;
+      }
+
+      uint64_t value = 0;
+      if (!PosixSubsystem::copyFromUser(&value, vectors[i].iov_base, sizeof(value))) {
+        SYSCALL_ERROR(BadAddress);
+        return totalWritten ? totalWritten : -1;
+      }
+
+      const int written = eventFd->writeValue(value, canBlock);
+      if (written < 0) {
+        return totalWritten ? totalWritten : written;
+      }
+      totalWritten += written;
+    }
+    return totalWritten;
+  }
 
   if (descriptor->networkImpl) {
     struct msghdr message = {};
@@ -849,10 +941,6 @@ int posix_writev(int fd, const struct iovec* iov, int iovcnt) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-  if (!totalLength) {
-    return 0;
-  }
-
   auto writeVector = [&](FileDescriptor::PositionGuard* position, int statusFlags) -> int {
     const bool pipeLike = descriptor->file->isPipe() || descriptor->file->isFifo();
     if (pipeLike && totalLength <= PIPE_BUF_MAX) {
@@ -935,6 +1023,23 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
   }
   if (!totalLength) {
     return 0;
+  }
+
+  SharedPointer<EventFd> eventFd = descriptor->getEventFdImpl();
+  if (eventFd) {
+    if (totalLength < sizeof(uint64_t)) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+
+    const bool canBlock = !(descriptor->getStatusFlags() & O_NONBLOCK);
+    descriptor.reset();
+    uint64_t value = 0;
+    const int result = eventFd->readValue(value, canBlock);
+    if (result < 0) {
+      return result;
+    }
+    return scatterEventFdValue(vectors, iovcnt, value) ? result : -1;
   }
 
   if (descriptor->networkImpl) {
@@ -1840,6 +1945,12 @@ int posix_dup(int fd) {
 
   // Copy the descriptor
   FileDescriptor* f2 = new FileDescriptor(*f);
+  if (f->getEventFdImpl() && !f2->eventFdPublished()) {
+    delete f2;
+    pSubsystem->freeFd(newFd);
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
   // According to the spec, CLOEXEC is cleared on DUP.
   f2->fdflags &= ~FD_CLOEXEC;
   f2->fd = newFd;
@@ -1881,6 +1992,11 @@ int posix_dup2(int fd1, int fd2) {
   // we might accidentally trigger an EOF condition on a pipe! (if the write
   // refcount drops to zero)...
   FileDescriptor* f2 = new FileDescriptor(*f);
+  if (f->getEventFdImpl() && !f2->eventFdPublished()) {
+    delete f2;
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
   // According to the spec, CLOEXEC is cleared on DUP.
   f2->fdflags &= ~FD_CLOEXEC;
   f2->fd = fd2;
@@ -1951,6 +2067,12 @@ int posix_fcntl(int fd, int cmd, void* arg) {
 
       const size_t fd2 = pSubsystem->getFd(static_cast<size_t>(minimum));
       FileDescriptor* f2 = new FileDescriptor(*f);
+      if (f->getEventFdImpl() && !f2->eventFdPublished()) {
+        delete f2;
+        pSubsystem->freeFd(fd2);
+        SYSCALL_ERROR(BadFileDescriptor);
+        return -1;
+      }
 #ifdef F_DUPFD_CLOEXEC
       if (cmd == F_DUPFD_CLOEXEC) {
         f2->fdflags |= FD_CLOEXEC;

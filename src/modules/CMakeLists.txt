@@ -389,6 +389,7 @@ endif ()
 if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     NOT PEDIGREE_HOSTED_DYNAMIC_MODULES AND PEDIGREE_HOSTED_SMOKE_TESTS)
     pedigree_module(hosted-syscall-smoke "" ""
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/eventfd-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/static-syscall-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/usercopy-regressions.cc)
 endif ()
@@ -780,6 +781,7 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/console-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/DevFs.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/epoll-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/eventfd-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/FileDescriptor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/IoEvent.cc

@@ -49,6 +49,9 @@ Pipe::Pipe()
       m_bIsEOF(false),
       m_Buffer(PIPE_BUF_MAX),
       m_ReaderCondition(),
+      m_WriteGeneration(0),
+      m_ErrorGeneration(0),
+      m_HangupGeneration(0),
       m_nLifetimePins(0),
       m_bRetirementQueued(false) {
 #if VERBOSE_KERNEL
@@ -64,6 +67,9 @@ Pipe::Pipe(const String& name, Time::Timestamp accessedTime, Time::Timestamp mod
       m_bIsEOF(false),
       m_Buffer(PIPE_BUF_MAX),
       m_ReaderCondition(),
+      m_WriteGeneration(0),
+      m_ErrorGeneration(0),
+      m_HangupGeneration(0),
       m_nLifetimePins(0),
       m_bRetirementQueued(false) {
 #if VERBOSE_KERNEL
@@ -114,6 +120,16 @@ ReadyMask Pipe::queryReady(bool reading, bool writing) {
   }
 
   return ready;
+}
+
+ReadinessGenerations Pipe::readinessGenerations() {
+  LockGuard<Mutex> guard(m_Lock);
+  ReadinessGenerations generations;
+  generations.read = m_Buffer.readableGeneration();
+  generations.write = m_Buffer.writableGeneration() + m_WriteGeneration;
+  generations.error = m_ErrorGeneration;
+  generations.hangup = m_HangupGeneration;
+  return generations;
 }
 
 uint64_t Pipe::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
@@ -205,14 +221,20 @@ void Pipe::decreaseRefCount(bool bIsWriter) {
     if (bIsWriter) {
       m_nWriters--;
       if (m_nWriters == 0) {
+        ++m_HangupGeneration;
         // Wakes up readers waiting as they won't be able to be woken
         // by new bytes being written anymore.
         m_Buffer.disableWrites();
         bDataChanged = true;
       }
     } else {
+      const bool wasReadyForWrite = !m_nReaders || m_Buffer.canWrite(false);
       m_nReaders--;
       if (m_nReaders == 0) {
+        if (!wasReadyForWrite) {
+          ++m_WriteGeneration;
+        }
+        ++m_ErrorGeneration;
         // Wake up any writers that were waiting for space - no more
         // readers (EOF condition, pipe other end has left).
         m_Buffer.disableReads();

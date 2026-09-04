@@ -32,6 +32,7 @@
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/epoll-syscalls.h"
+#include "modules/subsys/posix/eventfd-syscalls.h"
 #include "modules/system/vfs/File.h"
 #include "net-syscalls.h"
 #include "poll-syscalls.h"
@@ -106,6 +107,10 @@ short queryDescriptorPoll(const FileDescriptor& descriptor, short events) {
   if (descriptor.epollImpl) {
     return readyMaskToPoll(descriptor.epollImpl->queryReady(), events);
   }
+  SharedPointer<EventFd> eventFd = descriptor.getEventFdImpl();
+  if (eventFd) {
+    return readyMaskToPoll(eventFd->queryReady(), events);
+  }
   if (descriptor.file) {
     const int accessMode = descriptor.getStatusFlags() & O_ACCMODE;
     const bool canRead = accessMode != O_WRONLY;
@@ -125,6 +130,10 @@ short queryDescriptorPoll(const FileDescriptor& descriptor, short events) {
 ReadinessSource* descriptorReadinessSource(const FileDescriptor& descriptor) {
   if (descriptor.epollImpl) {
     return descriptor.epollImpl.get();
+  }
+  SharedPointer<EventFd> eventFd = descriptor.getEventFdImpl();
+  if (eventFd) {
+    return eventFd.get();
   }
   if (descriptor.file) {
     return descriptor.file;

@@ -182,6 +182,7 @@ class LwipSocketSyscalls : public NetworkSyscalls {
   virtual bool poll(bool& read, bool& write, bool& error, Semaphore* waiter);
   virtual void unPoll(Semaphore* waiter);
   virtual ReadyMask queryReady(bool reading, bool writing);
+  ReadinessGenerations readinessGenerations() override;
   virtual void lastDescriptorClosed();
 
   virtual void setBlocking(bool blocking);
@@ -193,6 +194,8 @@ class LwipSocketSyscalls : public NetworkSyscalls {
   static void netconnCallback(struct netconn* conn, enum netconn_evt evt, uint16_t len);
   static void lwipToSyscallError(err_t err);
   void registerSocket();
+  ReadyMask readinessLevelLocked() const;
+  void recordReadinessRisesLocked(ReadyMask previous);
 
   struct netconn* m_Socket;
   Mutex m_ReceiveLock;
@@ -208,6 +211,7 @@ class LwipSocketSyscalls : public NetworkSyscalls {
     bool writeClosed;
     bool listening;
     bool partialRead;
+    bool receivingQueuedData;
 
     Mutex lock;
     List<Semaphore*> semaphores;
@@ -215,6 +219,7 @@ class LwipSocketSyscalls : public NetworkSyscalls {
     size_t offset;
     struct pbuf* pb;
     struct netbuf* buf;
+    ReadinessGenerations generations;
   } m_Metadata;
 };
 
@@ -246,6 +251,7 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   virtual bool poll(bool& read, bool& write, bool& error, Semaphore* waiter);
   virtual void unPoll(Semaphore* waiter);
   virtual ReadyMask queryReady(bool reading, bool writing);
+  ReadinessGenerations readinessGenerations() override;
   virtual void lastDescriptorClosed();
 
   virtual bool monitor(Thread* pThread, Event* pEvent);

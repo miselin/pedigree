@@ -27,6 +27,18 @@ enum ReadyFlag : ReadyMask {
              ReadyInvalid,
 };
 
+/** Monotonic source-side sequences for readiness predicates with reusable levels. */
+struct ReadinessGenerations {
+  ReadinessGenerations() : read(0), priority(0), write(0), error(0), hangup(0), readHangup(0) {}
+
+  uint64_t read;
+  uint64_t priority;
+  uint64_t write;
+  uint64_t error;
+  uint64_t hangup;
+  uint64_t readHangup;
+};
+
 class ReadinessState;
 class ReadinessTarget;
 
@@ -83,6 +95,15 @@ class EXPORTED_PUBLIC ReadinessSource {
   MUST_USE_RESULT bool subscribeReadiness(ReadyMask interest,
                                           const SharedPointer<ReadinessObserver>& observer,
                                           ReadinessSubscription& subscription);
+
+  /**
+   * Return source-serialized rising-edge sequences where available.
+   *
+   * A source increments the corresponding sequence while holding the same
+   * lock which changes its readiness predicate. Consumers can then recover a
+   * drain/refill transition even if the two callback deliveries are reordered.
+   */
+  virtual ReadinessGenerations readinessGenerations();
 
  protected:
   /** Notify interested observers that the supplied predicates may have changed. */

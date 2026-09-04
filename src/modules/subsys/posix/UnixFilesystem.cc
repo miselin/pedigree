@@ -564,6 +564,38 @@ bool UnixSocket::wasConnected() const {
   return m_Connection && m_Connection->m_Active && !m_Connection->m_Failed;
 }
 
+ReadinessGenerations UnixSocket::readinessGenerations() {
+  ReadinessGenerations generations;
+  if (m_Type == Datagram) {
+    generations.read = m_Datagrams.readableGeneration();
+    return generations;
+  }
+
+  SharedPointer<UnixSocketConnection> connection;
+  SocketState state;
+  bool side = false;
+  {
+    LockGuard<Mutex> guard(m_ConnectionLock);
+    state = getStateLocked();
+    connection = m_Connection;
+    side = m_ConnectionSide;
+  }
+
+  if (state == Listening || !connection) {
+    generations.read = m_Stream.readableGeneration();
+    generations.write = m_Stream.writableGeneration();
+    return generations;
+  }
+
+  UnixSocketConnection::Stream* incoming =
+      side ? &connection->m_SecondStream : &connection->m_FirstStream;
+  UnixSocketConnection::Stream* outgoing =
+      side ? &connection->m_FirstStream : &connection->m_SecondStream;
+  generations.read = incoming->readableGeneration();
+  generations.write = outgoing->writableGeneration();
+  return generations;
+}
+
 void UnixSocket::failConnection() {
   SharedPointer<UnixSocketConnection> connection;
   {

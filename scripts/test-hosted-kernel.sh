@@ -458,6 +458,9 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS select-projection-timeout" \
         "HOSTED-SYSCALL-TEST: PASS pipe-poll-readiness" \
         "HOSTED-SYSCALL-TEST: PASS epoll-level-oneshot-ofd-lifetime" \
+        "HOSTED-SYSCALL-TEST: PASS epoll-reordered-transition-publication" \
+        "HOSTED-SYSCALL-TEST: PASS epoll-persistent-fifo-reopen-reclose" \
+        "HOSTED-SYSCALL-TEST: PASS eventfd-counter-readiness-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS poll-close-reuse-cleanup" \
         "HOSTED-SYSCALL-TEST: PASS posix-teardown-contention" \
         "HOSTED-SYSCALL-TEST: PASS socket-zero-result-signal" \

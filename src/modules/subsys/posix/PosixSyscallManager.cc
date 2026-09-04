@@ -34,6 +34,7 @@
 #include "PosixSyscallManager.h"
 #include "console-syscalls.h"
 #include "epoll-syscalls.h"
+#include "eventfd-syscalls.h"
 #include "file-syscalls.h"
 #include "linux-amd64-signal.h"
 #include "logging.h"
@@ -322,6 +323,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_epoll_pwait(static_cast<int>(p1), reinterpret_cast<LinuxEpollEvent*>(p2),
                                static_cast<int>(p3), static_cast<int>(p4),
                                reinterpret_cast<const void*>(p5), static_cast<size_t>(p6));
+    case POSIX_EVENTFD:
+      return posix_eventfd(static_cast<unsigned int>(p1));
+    case POSIX_EVENTFD2:
+      return posix_eventfd2(static_cast<unsigned int>(p1), static_cast<int>(p2));
     case POSIX_RENAME:
       return posix_rename(reinterpret_cast<const char*>(p1), reinterpret_cast<const char*>(p2));
     case POSIX_GETCWD:

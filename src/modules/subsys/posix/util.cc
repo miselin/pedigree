@@ -58,6 +58,9 @@ void addDescriptor(int fd, FileDescriptor* f) {
     retiring = pedigree_std::move(g_Descriptors[fd]);
     g_Descriptors[fd] = pedigree_std::move(replacement);
   }
+  if (retiring) {
+    retiring->unpublish();
+  }
   retiring.reset();
 }
 
@@ -73,6 +76,9 @@ bool removeDescriptor(int fd, const DescriptorLease& descriptor) {
     retiring = pedigree_std::move(g_Descriptors[fd]);
   }
 
+  if (retiring) {
+    retiring->unpublish();
+  }
   retiring.reset();
   return true;
 }

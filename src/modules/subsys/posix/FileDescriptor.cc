@@ -23,6 +23,7 @@
 
 #include "modules/subsys/posix/IoEvent.h"
 #include "modules/subsys/posix/epoll-syscalls.h"
+#include "modules/subsys/posix/eventfd-syscalls.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
@@ -93,6 +94,7 @@ FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t
     : lock(),
       file(newFile),
       networkImpl(nullptr),
+      eventFdImpl(nullptr),
       offset(initialOffset),
       statusFlags(initialStatusFlags),
       descriptorOwners(1),
@@ -114,6 +116,11 @@ File* FileDescriptor::OpenFileDescription::getFile() const {
 SharedPointer<NetworkSyscalls> FileDescriptor::OpenFileDescription::getNetworkImpl() const {
   LockGuard<Mutex> guard(lock);
   return networkImpl;
+}
+
+SharedPointer<EventFd> FileDescriptor::OpenFileDescription::getEventFdImpl() const {
+  LockGuard<Mutex> guard(lock);
+  return eventFdImpl;
 }
 
 size_t FileDescriptor::OpenFileDescription::descriptorOwnerCount() const {
@@ -165,7 +172,8 @@ FileDescriptor::FileDescriptor()
       epollImpl(nullptr),
       ioevent(nullptr),
       fdflags(0),
-      m_OpenFile(new OpenFileDescription(nullptr, 0, 0)) {}
+      m_OpenFile(new OpenFileDescription(nullptr, 0, 0)),
+      m_EventFdPublished(false) {}
 
 /// Parameterised constructor
 FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, int fdFlags,
@@ -177,7 +185,8 @@ FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, 
       epollImpl(nullptr),
       ioevent(nullptr),
       fdflags(fdFlags | ((flFlags & O_CLOEXEC) ? FD_CLOEXEC : 0)),
-      m_OpenFile(new OpenFileDescription(newFile, newOffset, flFlags & ~O_CLOEXEC)) {
+      m_OpenFile(new OpenFileDescription(newFile, newOffset, flFlags & ~O_CLOEXEC)),
+      m_EventFdPublished(false) {
   /// \todo need a copy constructor for networkImpl
   if (file) {
 #if ENABLE_LOCKED_FILES
@@ -195,9 +204,14 @@ FileDescriptor::FileDescriptor(FileDescriptor& desc)
       epollImpl(desc.epollImpl),
       ioevent(nullptr),
       fdflags(desc.fdflags),
-      m_OpenFile(desc.m_OpenFile) {
+      m_OpenFile(desc.m_OpenFile),
+      m_EventFdPublished(false) {
   m_OpenFile->addDescriptorOwner();
   m_OpenFile->ensureVfsLease();
+  SharedPointer<EventFd> eventFd = m_OpenFile->getEventFdImpl();
+  if (eventFd) {
+    m_EventFdPublished = eventFd->addDescriptorOwner();
+  }
   if (file) {
 #if ENABLE_LOCKED_FILES
     lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
@@ -220,7 +234,8 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
       epollImpl(nullptr),
       ioevent(nullptr),
       fdflags(0),
-      m_OpenFile(nullptr) {
+      m_OpenFile(nullptr),
+      m_EventFdPublished(false) {
   if (!desc) {
     m_OpenFile.reset(new OpenFileDescription(nullptr, 0, 0));
     return;
@@ -234,6 +249,10 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
   m_OpenFile = desc->m_OpenFile;
   m_OpenFile->addDescriptorOwner();
   m_OpenFile->ensureVfsLease();
+  SharedPointer<EventFd> eventFd = m_OpenFile->getEventFdImpl();
+  if (eventFd) {
+    m_EventFdPublished = eventFd->addDescriptorOwner();
+  }
   if (file) {
 #if ENABLE_LOCKED_FILES
     lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
@@ -249,6 +268,7 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
 
 /// Destructor - decreases file reference count
 FileDescriptor::~FileDescriptor() {
+  unpublish();
 #if THREADS
   retireIoEvent(file, networkImpl, ioevent);
 #endif
@@ -324,6 +344,39 @@ void FileDescriptor::setNetworkImpl(const SharedPointer<NetworkSyscalls>& implem
   m_OpenFile->networkImpl = implementation;
   if (networkImpl) {
     networkImpl->setBlocking(!(m_OpenFile->statusFlags & O_NONBLOCK));
+  }
+}
+
+void FileDescriptor::setEventFdImpl(const SharedPointer<EventFd>& implementation) {
+  {
+    LockGuard<Mutex> guard(m_OpenFile->lock);
+    assert(!m_OpenFile->eventFdImpl);
+    m_OpenFile->eventFdImpl = implementation;
+  }
+
+  if (implementation) {
+    m_EventFdPublished = implementation->addDescriptorOwner();
+    assert(m_EventFdPublished);
+  }
+}
+
+SharedPointer<EventFd> FileDescriptor::getEventFdImpl() const {
+  return m_OpenFile->getEventFdImpl();
+}
+
+bool FileDescriptor::eventFdPublished() const {
+  return m_EventFdPublished;
+}
+
+void FileDescriptor::unpublish() {
+  if (!m_EventFdPublished) {
+    return;
+  }
+
+  m_EventFdPublished = false;
+  SharedPointer<EventFd> eventFd = m_OpenFile->getEventFdImpl();
+  if (eventFd) {
+    eventFd->removeDescriptorOwner();
   }
 }
 

@@ -33,6 +33,7 @@ class UnixSocket;
 class IoEvent;
 class NetworkSyscalls;
 class EpollInstance;
+class EventFd;
 
 /** Abstraction of a file descriptor, which defines an open file
  * and related flags.
@@ -51,6 +52,7 @@ class EXPORTED_PUBLIC FileDescriptor {
 
     File* getFile() const;
     SharedPointer<NetworkSyscalls> getNetworkImpl() const;
+    SharedPointer<EventFd> getEventFdImpl() const;
     size_t descriptorOwnerCount() const;
 
    private:
@@ -66,6 +68,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     mutable Mutex lock;
     File* file;
     SharedPointer<NetworkSyscalls> networkImpl;
+    SharedPointer<EventFd> eventFdImpl;
     uint64_t offset;
     int statusFlags;
     size_t descriptorOwners;
@@ -137,6 +140,18 @@ class EXPORTED_PUBLIC FileDescriptor {
   /** Associate a socket implementation with this open file description. */
   void setNetworkImpl(const SharedPointer<NetworkSyscalls>& implementation);
 
+  /** Associate an eventfd counter with this open file description. */
+  void setEventFdImpl(const SharedPointer<EventFd>& implementation);
+
+  /** Retain the eventfd counter behind this descriptor, if any. */
+  SharedPointer<EventFd> getEventFdImpl() const;
+
+  /** Whether this descriptor still owns a published eventfd alias. */
+  bool eventFdPublished() const;
+
+  /** Notify anonymous targets that this descriptor left its descriptor table. */
+  void unpublish();
+
   /** Lock and access the offset shared by this open-file description. */
   PositionGuard lockPosition() const;
 
@@ -177,6 +192,9 @@ class EXPORTED_PUBLIC FileDescriptor {
  private:
   /** State and serialization shared by aliases of one open file. */
   OpenFileDescriptionLease m_OpenFile;
+
+  /** Eventfd table ownership is released before in-flight syscall pins drain. */
+  bool m_EventFdPublished;
 };
 
 #endif

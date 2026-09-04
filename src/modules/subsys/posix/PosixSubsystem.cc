@@ -1084,6 +1084,9 @@ void PosixSubsystem::freeFd(size_t fdNum) {
 
   // File/socket/event retirement can block and can re-enter unrelated
   // registries. It must happen after the descriptor-table lock is gone.
+  if (retiring) {
+    retiring->unpublish();
+  }
   retiring.reset();
 }
 
@@ -1131,6 +1134,9 @@ bool PosixSubsystem::copyDescriptors(PosixSubsystem* pSubsystem) {
     m_FdLock.release();
   }
 
+  for (auto& descriptor : retiring) {
+    descriptor->unpublish();
+  }
   retiring.clear(true);
   return true;
 }
@@ -1193,6 +1199,9 @@ void PosixSubsystem::freeMultipleFds(bool bOnlyCloExec, size_t iFirst, size_t iL
     m_FdLock.release();
   }
 
+  for (auto& descriptor : retiring) {
+    descriptor->unpublish();
+  }
   retiring.clear(true);
 }
 
@@ -1238,6 +1247,9 @@ bool PosixSubsystem::closeFileDescriptor(size_t fd, const DescriptorLease& descr
   }
 
   current.reset();
+  if (retiring) {
+    retiring->unpublish();
+  }
   retiring.reset();
   return removed;
 }
@@ -1263,6 +1275,9 @@ void PosixSubsystem::addFileDescriptor(size_t fd, FileDescriptor* pFd) {
     m_FdLock.release();
   }
 
+  if (retiring) {
+    retiring->unpublish();
+  }
   retiring.reset();
 }
 

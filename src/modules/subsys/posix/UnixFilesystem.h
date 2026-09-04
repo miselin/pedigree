@@ -193,6 +193,9 @@ class UnixSocket : public File {
   // since closed.
   bool wasConnected() const;
 
+  /** Rising-edge sequences for the endpoint's reusable I/O predicates. */
+  ReadinessGenerations readinessGenerations() override;
+
   // Mark a queued connection as failed and wake all poll/read/write waiters.
   void failConnection();
 

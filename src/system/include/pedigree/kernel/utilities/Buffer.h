@@ -19,6 +19,7 @@
 
 #ifndef KERNEL_UTILITIES_BUFFER_H
 #define KERNEL_UTILITIES_BUFFER_H
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Event.h"
@@ -127,6 +128,10 @@ class EXPORTED_PUBLIC Buffer {
    * Check if the buffer can be read from.
    */
   bool canRead(bool block);
+
+  /** Rising-edge sequences updated atomically with the protected predicates. */
+  uint64_t readableGeneration() const;
+  uint64_t writableGeneration() const;
 
   /**
    * Wipes the buffer.
@@ -258,6 +263,8 @@ class EXPORTED_PUBLIC Buffer {
 
   size_t m_BufferSize;
   size_t m_DataSize;
+  Atomic<uint64_t> m_ReadableGeneration;
+  Atomic<uint64_t> m_WritableGeneration;
 
   Mutex m_Lock;
 

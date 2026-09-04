@@ -41,6 +41,8 @@ template <class T, bool allowShortOperation>
 Buffer<T, allowShortOperation>::Buffer(size_t bufferSize)
     : m_BufferSize(bufferSize),
       m_DataSize(0),
+      m_ReadableGeneration(0),
+      m_WritableGeneration(0),
       m_Lock(),
       m_WriteCondition(),
       m_ReadCondition(),
@@ -354,7 +356,11 @@ size_t Buffer<T, allowShortOperation>::read(T* buffer, size_t count, bool block)
       buffer += countToRead;
     }
 
+    const bool wasFull = m_DataSize >= m_BufferSize;
     m_DataSize -= numberCopied;
+    if (wasFull && m_DataSize < m_BufferSize) {
+      m_WritableGeneration += 1;
+    }
     countSoFar += numberCopied;
     count -= numberCopied;
 
@@ -422,6 +428,9 @@ bool Buffer<T, allowShortOperation>::enableWrites() {
   LockGuard<Mutex> guard(m_Lock);
   bool previous = m_bCanWrite;
   m_bCanWrite = true;
+  if (!previous && m_DataSize < m_BufferSize) {
+    m_WritableGeneration += 1;
+  }
   return previous;
 }
 
@@ -435,6 +444,9 @@ bool Buffer<T, allowShortOperation>::enableReads() {
   LockGuard<Mutex> guard(m_Lock);
   bool previous = m_bCanRead;
   m_bCanRead = true;
+  if (!previous && m_DataSize) {
+    m_ReadableGeneration += 1;
+  }
   return previous;
 }
 
@@ -528,6 +540,16 @@ bool Buffer<T, allowShortOperation>::canRead(bool block) {
 }
 
 template <class T, bool allowShortOperation>
+uint64_t Buffer<T, allowShortOperation>::readableGeneration() const {
+  return m_ReadableGeneration.value();
+}
+
+template <class T, bool allowShortOperation>
+uint64_t Buffer<T, allowShortOperation>::writableGeneration() const {
+  return m_WritableGeneration.value();
+}
+
+template <class T, bool allowShortOperation>
 void Buffer<T, allowShortOperation>::wipe() {
   ActiveOperation operation(*this);
   if (!operation) {
@@ -536,12 +558,17 @@ void Buffer<T, allowShortOperation>::wipe() {
 
   LockGuard<Mutex> guard(m_Lock);
 
+  const bool wasFull = m_DataSize >= m_BufferSize;
+
   // Wipe out every segment we own.
   for (auto pSegment : m_Segments) {
     delete pSegment;
   }
   m_Segments.clear();
   m_DataSize = 0;
+  if (wasFull && m_BufferSize) {
+    m_WritableGeneration += 1;
+  }
 
   // Notify writers that might have been waiting for space.
   m_WriteCondition.signal();
@@ -678,6 +705,7 @@ void Buffer<T, allowShortOperation>::notifyMonitorsLocked() {
 
 template <class T, bool allowShortOperation>
 size_t Buffer<T, allowShortOperation>::writeLocked(const T* buffer, size_t count) {
+  const bool wasReadable = m_bCanRead && m_DataSize;
   size_t countSoFar = 0;
   while (count) {
     size_t numberCopied = 0;
@@ -714,6 +742,10 @@ size_t Buffer<T, allowShortOperation>::writeLocked(const T* buffer, size_t count
     m_DataSize += numberCopied;
     buffer += numberCopied;
     count -= numberCopied;
+  }
+
+  if (!wasReadable && m_bCanRead && m_DataSize) {
+    m_ReadableGeneration += 1;
   }
 
   return countSoFar;

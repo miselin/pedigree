@@ -1196,6 +1196,7 @@ void LwipSocketSyscalls::lastDescriptorClosed() {
     ConstexprLockGuard<Mutex, THREADS> receiveGuard(m_ReceiveLock);
     {
       ConstexprLockGuard<Mutex, THREADS> metadataGuard(m_Metadata.lock);
+      const ReadyMask previous = readinessLevelLocked();
       m_Metadata.closed = true;
       m_Metadata.peerClosed = true;
       m_Metadata.writeClosed = true;
@@ -1205,6 +1206,8 @@ void LwipSocketSyscalls::lastDescriptorClosed() {
       m_Metadata.buf = nullptr;
       m_Metadata.offset = 0;
       m_Metadata.partialRead = false;
+      m_Metadata.receivingQueuedData = false;
+      recordReadinessRisesLocked(previous);
     }
   }
 
@@ -1238,8 +1241,10 @@ void LwipSocketSyscalls::registerSocket() {
       // before exposing it so early request data remains readable.
       if (m_Socket->socket < 0) {
         ConstexprLockGuard<Mutex, THREADS> metadataGuard(m_Metadata.lock);
+        const ReadyMask previous = readinessLevelLocked();
         m_Metadata.recv += -1 - m_Socket->socket;
         m_Socket->socket = 0;
+        recordReadinessRisesLocked(previous);
       }
       m_SyscallObjects.insert(m_Socket, this);
     }
@@ -1306,7 +1311,9 @@ bool LwipSocketSyscalls::create() {
 
   if (NETCONNTYPE_GROUP(m_Socket->type) != NETCONN_TCP) {
     ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+    const ReadyMask previous = readinessLevelLocked();
     m_Metadata.send = 1;
+    recordReadinessRisesLocked(previous);
   }
 
   registerSocket();
@@ -1343,7 +1350,9 @@ int LwipSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
   /// \todo for accept() we need to do this too
   if (NETCONNTYPE_GROUP(m_Socket->type) != NETCONN_TCP) {
     ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+    const ReadyMask previous = readinessLevelLocked();
     m_Metadata.send = 1;
+    recordReadinessRisesLocked(previous);
   }
 
   N_NOTICE(" -> ok!");
@@ -1501,6 +1510,14 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
     struct pbuf* pb = nullptr;
     struct netbuf* buf = nullptr;
 
+    {
+      ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+      // RCV- is delivered synchronously from netconn_recv. Preserve the
+      // already-readable level until the dequeued packet is installed as the
+      // partial buffer, so epoll cannot observe an internal handoff as a drain.
+      m_Metadata.receivingQueuedData = m_Metadata.recv != 0;
+    }
+
     // No partial data present from a previous read. Read new data from
     // the socket.
     if (NETCONNTYPE_GROUP(netconn_type(m_Socket)) == NETCONN_TCP) {
@@ -1514,16 +1531,24 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
         ReadyMask changed = ReadyRead | ReadyReadHangup;
         {
           ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+          const ReadyMask previous = readinessLevelLocked();
+          m_Metadata.receivingQueuedData = false;
           m_Metadata.closed = true;
           m_Metadata.peerClosed = true;
           if (m_Metadata.writeClosed) {
             changed |= ReadyHangup;
           }
+          recordReadinessRisesLocked(previous);
         }
         notifyReadiness(changed);
         return 0;
       }
 
+      {
+        ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+        m_Metadata.receivingQueuedData = false;
+      }
+      notifyReadiness(ReadyRead);
       N_NOTICE(" -> lwIP error");
       lwipToSyscallError(err);
       return -1;
@@ -1533,6 +1558,11 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
       pb = buf->p;
     }
     if (!pb) {
+      {
+        ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+        m_Metadata.receivingQueuedData = false;
+      }
+      notifyReadiness(ReadyRead);
       SYSCALL_ERROR(IoError);
       return -1;
     }
@@ -1543,6 +1573,7 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
       m_Metadata.pb = pb;
       m_Metadata.buf = buf;
       m_Metadata.partialRead = true;
+      m_Metadata.receivingQueuedData = false;
     }
   }
 
@@ -1567,11 +1598,9 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
   }
 
   // partial read?
-  bool partialReadRemains = false;
   if (readOffset < m_Metadata.pb->tot_len) {
     ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
     m_Metadata.offset = readOffset;
-    partialReadRemains = true;
   } else {
     struct pbuf* completedPacket = nullptr;
     struct netbuf* completedBuffer = nullptr;
@@ -1592,9 +1621,10 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
     }
   }
 
-  if (partialReadRemains) {
-    notifyReadiness(ReadyRead);
-  }
+  // Publish both sides of the readable predicate. Edge-triggered epoll must
+  // observe a fully drained packet before a later arrival can raise another
+  // edge; partial packets remain readable when the observer rechecks.
+  notifyReadiness(ReadyRead);
 
   N_NOTICE(" -> " << totalLen);
   return totalLen;
@@ -1661,7 +1691,9 @@ int LwipSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addr
   obj->m_Socket = new_conn;
   {
     ConstexprLockGuard<Mutex, THREADS> guard(obj->m_Metadata.lock);
+    const ReadyMask previous = obj->readinessLevelLocked();
     obj->m_Metadata.send = 1;
+    obj->recordReadinessRisesLocked(previous);
   }
   obj->create();
 
@@ -1700,6 +1732,7 @@ int LwipSocketSyscalls::shutdown(int how) {
   ReadyMask changed = ReadyNone;
   {
     ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+    const ReadyMask previous = readinessLevelLocked();
     if (rx) {
       m_Metadata.closed = true;
       changed |= ReadyRead | ReadyReadHangup;
@@ -1711,6 +1744,7 @@ int LwipSocketSyscalls::shutdown(int how) {
     if ((m_Metadata.closed || m_Metadata.peerClosed) && m_Metadata.writeClosed) {
       changed |= ReadyHangup;
     }
+    recordReadinessRisesLocked(previous);
   }
   notifyReadiness(changed);
 
@@ -1823,13 +1857,19 @@ int LwipSocketSyscalls::getsockopt(int level, int optname, void* optvalue, sockl
   }
 
   int value = 0;
+  bool clearedError = false;
   if (level == SOL_SOCKET) {
     if (optname == SO_TYPE) {
       value = m_Type;
     } else if (optname == SO_ERROR) {
-      ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
-      value = lwipErrorNumber(m_Metadata.error);
-      m_Metadata.error = ERR_OK;
+      {
+        ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+        const ReadyMask previous = readinessLevelLocked();
+        value = lwipErrorNumber(m_Metadata.error);
+        clearedError = m_Metadata.error != ERR_OK;
+        m_Metadata.error = ERR_OK;
+        recordReadinessRisesLocked(previous);
+      }
     } else {
       const uint8_t option = lwipSocketOption(optname);
       if (!option) {
@@ -1863,11 +1903,55 @@ int LwipSocketSyscalls::getsockopt(int level, int optname, void* optvalue, sockl
 
   *reinterpret_cast<int*>(optvalue) = value;
   *optlen = sizeof(int);
+  if (clearedError) {
+    notifyReadiness(ReadyError | ReadyWrite);
+  }
   return 0;
 }
 
 bool LwipSocketSyscalls::canPoll() const {
   return true;
+}
+
+ReadyMask LwipSocketSyscalls::readinessLevelLocked() const {
+  ReadyMask ready = ReadyNone;
+  if (m_Metadata.recv || m_Metadata.partialRead || m_Metadata.receivingQueuedData ||
+      m_Metadata.closed || m_Metadata.peerClosed) {
+    ready |= ReadyRead;
+  }
+  if (m_Metadata.send && m_Metadata.error == ERR_OK) {
+    ready |= ReadyWrite;
+  }
+  if (m_Metadata.closed || m_Metadata.peerClosed) {
+    ready |= ReadyReadHangup;
+  }
+  if ((m_Metadata.closed || m_Metadata.peerClosed) && m_Metadata.writeClosed) {
+    ready |= ReadyHangup;
+  }
+  if (m_Metadata.error != ERR_OK) {
+    ready |= ReadyError;
+  }
+
+  return ready;
+}
+
+void LwipSocketSyscalls::recordReadinessRisesLocked(ReadyMask previous) {
+  const ReadyMask current = readinessLevelLocked();
+  if (!(previous & ReadyRead) && (current & ReadyRead)) {
+    ++m_Metadata.generations.read;
+  }
+  if (!(previous & ReadyWrite) && (current & ReadyWrite)) {
+    ++m_Metadata.generations.write;
+  }
+  if (!(previous & ReadyError) && (current & ReadyError)) {
+    ++m_Metadata.generations.error;
+  }
+  if (!(previous & ReadyHangup) && (current & ReadyHangup)) {
+    ++m_Metadata.generations.hangup;
+  }
+  if (!(previous & ReadyReadHangup) && (current & ReadyReadHangup)) {
+    ++m_Metadata.generations.readHangup;
+  }
 }
 
 ReadyMask LwipSocketSyscalls::queryReady(bool reading, bool writing) {
@@ -1882,27 +1966,25 @@ ReadyMask LwipSocketSyscalls::queryReady(bool reading, bool writing) {
     return ReadyInvalid | ReadyHangup;
   }
 
-  ReadyMask ready = ReadyNone;
   ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
-
-  if (reading &&
-      (m_Metadata.recv || m_Metadata.partialRead || m_Metadata.closed || m_Metadata.peerClosed)) {
-    ready |= ReadyRead;
+  ReadyMask ready = readinessLevelLocked();
+  if (!reading) {
+    ready &= ~ReadyRead;
   }
-  if (writing && m_Metadata.send && m_Metadata.error == ERR_OK) {
-    ready |= ReadyWrite;
+  if (!writing) {
+    ready &= ~ReadyWrite;
   }
-  if (m_Metadata.closed || m_Metadata.peerClosed) {
-    ready |= ReadyReadHangup;
-  }
-  if ((m_Metadata.closed || m_Metadata.peerClosed) && m_Metadata.writeClosed) {
-    ready |= ReadyHangup;
-  }
-  if (m_Metadata.error != ERR_OK) {
-    ready |= ReadyError;
-  }
-
   return ready;
+}
+
+ReadinessGenerations LwipSocketSyscalls::readinessGenerations() {
+  OperationBarrier::Lease query;
+  if (!m_ReadinessNotifications.tryAcquire(query) || hasLastDescriptorClosed()) {
+    return ReadinessGenerations();
+  }
+
+  ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+  return m_Metadata.generations;
 }
 
 bool LwipSocketSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* waiter) {
@@ -1975,6 +2057,7 @@ void LwipSocketSyscalls::netconnCallback(struct netconn* conn, enum netconn_evt 
   ReadyMask changed = ReadyNone;
   {
     ConstexprLockGuard<Mutex, THREADS> guard(obj->m_Metadata.lock);
+    const ReadyMask previous = obj->readinessLevelLocked();
 
     switch (evt) {
       case NETCONN_EVT_RCVPLUS:
@@ -2017,6 +2100,8 @@ void LwipSocketSyscalls::netconnCallback(struct netconn* conn, enum netconn_evt 
         N_NOTICE("Unknown netconn callback error.");
     }
 
+    obj->recordReadinessRisesLocked(previous);
+
     /// \todo need a way to do this with lwip when threads are off
     EMIT_IF(THREADS) {
       for (auto& it : obj->m_Metadata.semaphores) {
@@ -2045,11 +2130,13 @@ LwipSocketSyscalls::LwipMetadata::LwipMetadata()
       writeClosed(false),
       listening(false),
       partialRead(false),
+      receivingQueuedData(false),
       lock(),
       semaphores(),
       offset(0),
       pb(nullptr),
-      buf(nullptr) {}
+      buf(nullptr),
+      generations() {}
 
 enum class UnixSocketReferenceOwnership { Heap, Vfs };
 
@@ -2686,6 +2773,10 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
   }
 #endif
 
+  // The receive attempt has established the socket's new readable level,
+  // including a successful zero-length datagram and a drain to empty.
+  notifyReadiness(ReadyRead);
+
   if (numRead && getType() == SOCK_STREAM) {
     // Consuming the incoming stream frees capacity in the peer's outgoing
     // stream. The peer rechecks the precise level before reporting POLLOUT.
@@ -3101,6 +3192,16 @@ ReadyMask UnixSocketSyscalls::queryReady(bool reading, bool writing) {
   }
 
   return ready;
+}
+
+ReadinessGenerations UnixSocketSyscalls::readinessGenerations() {
+  OperationBarrier::Lease query;
+  if (!m_ReadinessNotifications.tryAcquire(query) || hasLastDescriptorClosed()) {
+    return ReadinessGenerations();
+  }
+
+  SharedPointer<UnixSocketGeneration> endpoint = acquireLocalEndpoint();
+  return endpoint ? endpoint->get()->readinessGenerations() : ReadinessGenerations();
 }
 
 bool UnixSocketSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* waiter) {

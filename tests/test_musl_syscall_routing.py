@@ -135,6 +135,21 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             with self.subTest(mapping=mapping):
                 self.assertIn(mapping, mappings)
 
+    def test_linux_eventfd_syscalls_are_mapped(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(eventfd, 284, POSIX_EVENTFD)",
+            mappings,
+        )
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(eventfd2, 290, POSIX_EVENTFD2)",
+            mappings,
+        )
+
     def test_signal_return_accepts_iret_and_sysret_user_selectors(self):
         signal_source = (
             ROOT / "src/modules/subsys/posix/linux-amd64-signal.cc"

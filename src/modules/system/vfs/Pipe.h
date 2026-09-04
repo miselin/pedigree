@@ -66,6 +66,7 @@ class EXPORTED_PUBLIC Pipe : public File {
   virtual int select(bool bWriting = false, int timeout = 0);
 
   ReadyMask queryReady(bool reading, bool writing) override;
+  ReadinessGenerations readinessGenerations() override;
 
   bool supportsReadinessNotifications() const override {
     return true;
@@ -126,6 +127,10 @@ class EXPORTED_PUBLIC Pipe : public File {
 
   /** Writers waiting for the protected m_nReaders predicate. */
   ConditionVariable m_ReaderCondition;
+
+  uint64_t m_WriteGeneration;
+  uint64_t m_ErrorGeneration;
+  uint64_t m_HangupGeneration;
 
   /** OFD lifetime pins which do not count as live reader/writer endpoints. */
   size_t m_nLifetimePins;

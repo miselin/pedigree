@@ -19,6 +19,7 @@
 
 #ifndef RINGBUFFER_H
 #define RINGBUFFER_H
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
@@ -114,6 +115,8 @@ class EXPORTED_PUBLIC RingBuffer {
         m_RingRead(0),
         m_RingWrite(0),
         m_RingCount(0),
+        m_ReadableGeneration(0),
+        m_WritableGeneration(0),
         m_Lock(),
         m_DrainCondition(),
         m_Closing(false),
@@ -412,6 +415,15 @@ class EXPORTED_PUBLIC RingBuffer {
     return !m_Closing && !m_WriteClosed && ringCountLocked() < m_RingSize;
   }
 
+  /** Rising-edge sequences updated under the same lock as the ring count. */
+  uint64_t readableGeneration() const {
+    return m_ReadableGeneration.value();
+  }
+
+  uint64_t writableGeneration() const {
+    return m_WritableGeneration.value();
+  }
+
   /// waitFor - block until the given condition is true (readable/writeable)
   MUST_USE_RESULT bool waitFor(RingBufferWait::WaitType wait, Time::Timestamp& timeout,
                                Error& error) {
@@ -617,6 +629,7 @@ class EXPORTED_PUBLIC RingBuffer {
 
   void pushBackLocked(const T& obj) {
     assert(ringCountLocked() < m_RingSize);
+    const bool wasEmpty = !ringCountLocked();
     if (preallocatedSize) {
       m_PreallocatedRing[m_RingWrite] = obj;
       m_RingWrite = (m_RingWrite + 1) % m_RingSize;
@@ -624,17 +637,29 @@ class EXPORTED_PUBLIC RingBuffer {
     } else {
       m_Ring.pushBack(obj);
     }
+    if (wasEmpty) {
+      m_ReadableGeneration += 1;
+    }
   }
 
   T popFrontLocked() {
     assert(ringCountLocked());
+    const bool wasFull = ringCountLocked() >= m_RingSize;
     if (preallocatedSize) {
-      T obj = m_PreallocatedRing[m_RingRead];
+      T result = m_PreallocatedRing[m_RingRead];
       m_RingRead = (m_RingRead + 1) % m_RingSize;
       --m_RingCount;
-      return obj;
+      if (wasFull) {
+        m_WritableGeneration += 1;
+      }
+      return result;
     }
-    return m_Ring.popFront();
+
+    T result = m_Ring.popFront();
+    if (wasFull) {
+      m_WritableGeneration += 1;
+    }
+    return result;
   }
 
   /// Trigger event for threads waiting on us.
@@ -712,6 +737,8 @@ class EXPORTED_PUBLIC RingBuffer {
   size_t m_RingRead;
   size_t m_RingWrite;
   size_t m_RingCount;
+  Atomic<uint64_t> m_ReadableGeneration;
+  Atomic<uint64_t> m_WritableGeneration;
 
   Mutex m_Lock;
 
