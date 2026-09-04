@@ -26,6 +26,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 
@@ -105,6 +106,80 @@ static void test_positional_io(void) {
   OK;
 }
 
+static void expect_lock_failure(int result, int expectedError) {
+  if (result != -1 || errno != expectedError)
+    fail();
+}
+
+static void test_advisory_locks(void) {
+  struct flock lock = {
+      .l_type = F_WRLCK,
+      .l_whence = SEEK_SET,
+      .l_start = 0,
+      .l_len = 0,
+      .l_pid = 123,
+  };
+
+  status("Testing advisory lock failure behavior... ");
+  int fd = open("/testing/advisory-locks", O_RDWR | O_CREAT | O_TRUNC, 0666);
+  if (fd < 0)
+    fail();
+
+  errno = 0;
+  expect_lock_failure(fcntl(fd, F_GETLK, &lock), ENOSYS);
+  if (lock.l_type != F_WRLCK || lock.l_whence != SEEK_SET || lock.l_start != 0 || lock.l_len != 0 ||
+      lock.l_pid != 123)
+    fail();
+  errno = 0;
+  expect_lock_failure(fcntl(fd, F_SETLK, &lock), ENOSYS);
+  errno = 0;
+  expect_lock_failure(fcntl(fd, F_SETLKW, &lock), ENOSYS);
+
+  errno = 0;
+  expect_lock_failure(fcntl(-1, F_GETLK, &lock), EBADF);
+  errno = 0;
+  expect_lock_failure(fcntl(-1, F_SETLK, &lock), EBADF);
+  errno = 0;
+  expect_lock_failure(fcntl(-1, F_SETLKW, &lock), EBADF);
+
+  errno = 0;
+  expect_lock_failure(flock(fd, LOCK_SH), ENOSYS);
+  errno = 0;
+  expect_lock_failure(flock(fd, LOCK_EX | LOCK_NB), ENOSYS);
+  errno = 0;
+  expect_lock_failure(flock(fd, LOCK_UN), ENOSYS);
+  errno = 0;
+  expect_lock_failure(flock(fd, LOCK_SH | LOCK_EX), EINVAL);
+  errno = 0;
+  expect_lock_failure(flock(-1, LOCK_SH | LOCK_EX), EINVAL);
+  errno = 0;
+  expect_lock_failure(flock(-1, LOCK_EX), EBADF);
+
+  errno = 0;
+  expect_lock_failure(lockf(fd, F_TEST, 0), ENOSYS);
+  errno = 0;
+  expect_lock_failure(lockf(fd, F_ULOCK, 0), ENOSYS);
+  errno = 0;
+  expect_lock_failure(lockf(fd, F_TLOCK, 0), ENOSYS);
+  errno = 0;
+  expect_lock_failure(lockf(fd, F_LOCK, 0), ENOSYS);
+  errno = 0;
+  expect_lock_failure(lockf(fd, -1, 0), EINVAL);
+
+  errno = 0;
+  expect_lock_failure(lockf(-1, F_TEST, 0), EBADF);
+  errno = 0;
+  expect_lock_failure(lockf(-1, F_ULOCK, 0), EBADF);
+  errno = 0;
+  expect_lock_failure(lockf(-1, F_TLOCK, 0), EBADF);
+  errno = 0;
+  expect_lock_failure(lockf(-1, F_LOCK, 0), EBADF);
+
+  if (close(fd) || unlink("/testing/advisory-locks"))
+    fail();
+  OK;
+}
+
 void test_fs() {
   int fd = -1;
   int rc = 0;
@@ -133,6 +208,7 @@ void test_fs() {
   OK;
 
   test_positional_io();
+  test_advisory_locks();
 
   // Create some files of varying sizes and destroy them.
   status("Testing file creation... ");

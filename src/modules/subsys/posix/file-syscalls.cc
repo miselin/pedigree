@@ -65,6 +65,7 @@
 #include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"
 #include "pipe-syscalls.h"
+#include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -2666,9 +2667,9 @@ int posix_fcntl(int fd, int cmd, void* arg) {
     case F_GETLK:   // Get record-locking information
     case F_SETLK:   // Set or clear a record lock (without blocking
     case F_SETLKW:  // Set or clear a record lock (with blocking)
-      F_NOTICE("  -> fcntl locks (stubbed)");
-      /// \note advisory locking disabled for now
-      return 0;
+      F_NOTICE("  -> advisory record locking is not implemented");
+      SYSCALL_ERROR(Unimplemented);
+      return -1;
     case F_GETOWN:
       F_NOTICE("  -> F_GETOWN (stubbed)");
       return 0;
@@ -3275,8 +3276,29 @@ int posix_chroot(const char* path) {
 
 int posix_flock(int fd, int operation) {
   F_NOTICE("flock(" << fd << ", " << operation << ")");
-  F_NOTICE(" -> flock is a no-op stub");
-  return 0;
+
+  const int lockType = operation & ~LOCK_NB;
+  if (lockType != LOCK_SH && lockType != LOCK_EX && lockType != LOCK_UN) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  if (!subsystem) {
+    ERROR("No subsystem for this process!");
+    return -1;
+  }
+
+  DescriptorLease descriptor;
+  if (!subsystem->acquireFileDescriptor(fd, descriptor)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
+  F_NOTICE(" -> advisory whole-file locking is not implemented");
+  SYSCALL_ERROR(Unimplemented);
+  return -1;
 }
 
 static File* check_dirfd(int dirfd, DescriptorLease& descriptor,

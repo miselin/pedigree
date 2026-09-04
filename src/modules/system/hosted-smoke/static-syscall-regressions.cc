@@ -53,6 +53,7 @@ extern "C" void posixSetCloneBeforeStartHookForTest(void (*hook)(Thread*, size_t
                                                     void* context);
 extern "C" unsigned int posixSelectProjectionForTest(short revents, bool checkRead, bool checkWrite,
                                                      bool checkExceptional);
+extern bool runHostedAdvisoryLockRegressions(Process* process);
 extern bool runHostedEventFdRegressions(Process* process);
 extern bool runHostedMmapPlacementRegressions(Process* process);
 extern bool runHostedPosixExitStatusRegressions(Process* process);
@@ -4851,6 +4852,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-vector-io-serialization");
   if (!descriptorVectorIoSerialization(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN advisory-lock-fail-closed");
+  if (!runHostedAdvisoryLockRegressions(kernelProcess)) {
     return false;
   }
 
