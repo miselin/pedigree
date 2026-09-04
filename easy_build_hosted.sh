@@ -128,23 +128,29 @@ run_darwin_lane()
     local label=$1
     local build_dir=$2
     local page_size=$3
+    local configure_options=(
+        -DCMAKE_TOOLCHAIN_FILE="$script_dir/build-etc/cmake/pedigree_hosted_darwin.cmake"
+        -DPEDIGREE_HOST_TOOLS_MODE=IMPORTED
+        -DIMPORT_EXECUTABLES="$host_tools_build_dir/HostUtilities.cmake"
+        -DPEDIGREE_TOOLCHAIN_ROOT="$toolchain_root"
+        -DCMAKE_BUILD_TYPE=Debug
+        -DPEDIGREE_BUILD_USER_DIR=OFF
+        -DPEDIGREE_HOSTED_DYNAMIC_MODULES=ON
+        -DPEDIGREE_HOSTED_SMOKE_TESTS=ON
+        -DPEDIGREE_HOSTED_SYSTEM_MALLOC=ON
+        -DPEDIGREE_TARGET_PAGE_SIZE="$page_size"
+        -DPEDIGREE_WARNINGS=ON
+        -DPEDIGREE_WITH_INIT=OFF
+    )
+
+    if (( ${#musl_options[@]} )); then
+        configure_options+=("${musl_options[@]}")
+    fi
 
     echo
     echo "Configuring $label."
     cmake -S "$script_dir" -B "$build_dir" \
-        -DCMAKE_TOOLCHAIN_FILE="$script_dir/build-etc/cmake/pedigree_hosted_darwin.cmake" \
-        -DPEDIGREE_HOST_TOOLS_MODE=IMPORTED \
-        -DIMPORT_EXECUTABLES="$host_tools_build_dir/HostUtilities.cmake" \
-        -DPEDIGREE_TOOLCHAIN_ROOT="$toolchain_root" \
-        "${musl_options[@]}" \
-        -DCMAKE_BUILD_TYPE=Debug \
-        -DPEDIGREE_BUILD_USER_DIR=OFF \
-        -DPEDIGREE_HOSTED_DYNAMIC_MODULES=ON \
-        -DPEDIGREE_HOSTED_SMOKE_TESTS=ON \
-        -DPEDIGREE_HOSTED_SYSTEM_MALLOC=ON \
-        -DPEDIGREE_TARGET_PAGE_SIZE="$page_size" \
-        -DPEDIGREE_WARNINGS=ON \
-        -DPEDIGREE_WITH_INIT=OFF
+        "${configure_options[@]}"
     grep -q "^#define PEDIGREE_TARGET_PAGE_SIZE $page_size$" \
         "$build_dir/config.h"
     grep -q "ALIGN($page_size)" "$build_dir/src/modules/link.ld"
