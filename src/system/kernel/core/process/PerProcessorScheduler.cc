@@ -776,7 +776,6 @@ void PerProcessorScheduler::eventHandlerReturned() {
 
   Thread* pThread = Processor::information().getCurrentThread();
   pThread->abandonCurrentState(false);
-  pThread->transitionTime(CpuTimeMode::Kernel, CpuTimeMode::User);
 
   Processor::restoreState(pThread->state());
   // Not reached.

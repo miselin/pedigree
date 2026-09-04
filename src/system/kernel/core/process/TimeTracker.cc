@@ -66,3 +66,18 @@ void TimeTracker::finish() {
   thread->transitionTime(KernelTimeTransition::handler(),
                          KernelTimeTransition::resumed(m_bFromUserspace));
 }
+
+void TimeTracker::finishInKernel() {
+  Thread* thread = m_pThread;
+  if (!m_pProcess || !thread)
+    return;
+
+  // Make completion idempotent before touching state so a no-return caller
+  // can explicitly finish without the destructor double-charging later.
+  m_pProcess = nullptr;
+  m_pThread = nullptr;
+
+  // Event return restores a saved kernel frame before the outer architecture
+  // tail makes the eventual Kernel -> User transition.
+  thread->transitionTime(KernelTimeTransition::handler(), KernelTimeTransition::handler());
+}

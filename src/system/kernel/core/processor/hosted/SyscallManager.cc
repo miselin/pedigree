@@ -111,7 +111,7 @@ void HostedSyscallManager::syscall(SyscallState& syscallState) {
           if (userReturnTerminal) {
             break;
           }
-          tracker.finish();
+          tracker.finishInKernel();
           scheduler.eventHandlerReturned();
           break;
         case PopEventState:

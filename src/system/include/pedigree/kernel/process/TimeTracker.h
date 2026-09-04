@@ -37,6 +37,9 @@ class TimeTracker {
   /** Completes accounting before a no-return architectural transition. */
   void finish();
 
+  /** Completes accounting before restoring a saved kernel continuation. */
+  void finishInKernel();
+
  private:
   Process* m_pProcess;
   Thread* m_pThread;
