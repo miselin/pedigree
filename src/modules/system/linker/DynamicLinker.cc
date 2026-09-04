@@ -18,12 +18,15 @@
  */
 
 #include "DynamicLinker.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/linker/SymbolTable.h"
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/KernelCoreSyscallManager.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -40,6 +43,51 @@
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
 
+namespace {
+class DemandPageStagingMapping {
+ public:
+  explicit DemandPageStagingMapping(physical_uintptr_t page)
+      : m_Region("Dynamic Linker Demand Page"), m_Mapped(false) {
+    PhysicalMemoryManager& memory = PhysicalMemoryManager::instance();
+    if (!memory.allocateRegion(
+            m_Region, 1, PhysicalMemoryManager::virtualOnly | PhysicalMemoryManager::anonymous,
+            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) {
+      return;
+    }
+
+    VirtualAddressSpace& kernelSpace = VirtualAddressSpace::getKernelAddressSpace();
+    m_Mapped = kernelSpace.map(page, m_Region.virtualAddress(),
+                               VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
+    if (!m_Mapped) {
+      m_Region.free();
+    }
+  }
+
+  ~DemandPageStagingMapping() {
+    if (m_Mapped) {
+      VirtualAddressSpace::getKernelAddressSpace().unmap(m_Region.virtualAddress());
+    }
+    m_Region.free();
+  }
+
+  bool valid() const {
+    return m_Mapped;
+  }
+
+  uintptr_t address() const {
+    return reinterpret_cast<uintptr_t>(m_Region.virtualAddress());
+  }
+
+ private:
+  NOT_COPYABLE_OR_ASSIGNABLE(DemandPageStagingMapping);
+
+  MemoryRegion m_Region;
+  bool m_Mapped;
+};
+
+Mutex g_DemandPagePublishLock;
+}  // namespace
+
 DLTrapHandler DLTrapHandler::m_Instance;
 
 #if defined(PEDIGREE_HOSTED_PAGE_CONTENT_REGRESSIONS) && \
@@ -50,8 +98,21 @@ extern bool runHostedPageContentRegressions();
 #if defined(PEDIGREE_HOSTED_PAGE_CONTENT_REGRESSIONS)
 namespace {
 physical_uintptr_t (*g_DemandPageAllocationHook)() = nullptr;
+void (*g_DemandPageReadyHook)(uintptr_t) = nullptr;
+void (*g_DemandPageFreeHook)(physical_uintptr_t) = nullptr;
 }
 #endif
+
+namespace {
+void releaseDemandPage(physical_uintptr_t page) {
+#if defined(PEDIGREE_HOSTED_PAGE_CONTENT_REGRESSIONS)
+  if (g_DemandPageFreeHook) {
+    g_DemandPageFreeHook(page);
+  }
+#endif
+  PhysicalMemoryManager::instance().freePage(page);
+}
+}  // namespace
 
 uintptr_t DynamicLinker::resolvePlt(SyscallState& state) {
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
@@ -329,6 +390,14 @@ bool DynamicLinker::loadObject(File* pFile, bool bDryRun) {
 void DynamicLinker::setDemandPageAllocationHookForTest(physical_uintptr_t (*hook)()) {
   g_DemandPageAllocationHook = hook;
 }
+
+void DynamicLinker::setDemandPageReadyHookForTest(void (*hook)(uintptr_t)) {
+  g_DemandPageReadyHook = hook;
+}
+
+void DynamicLinker::setDemandPageFreeHookForTest(void (*hook)(physical_uintptr_t)) {
+  g_DemandPageFreeHook = hook;
+}
 #endif
 
 bool DynamicLinker::loadDemandPage(Elf* pElf, uintptr_t buffer, size_t size, uintptr_t offset,
@@ -348,21 +417,53 @@ bool DynamicLinker::loadDemandPage(Elf* pElf, uintptr_t buffer, size_t size, uin
     return false;
   }
 
-  // Map it into the address space.
-  if (!va.map(p, reinterpret_cast<void*>(v),
-              VirtualAddressSpace::Write | VirtualAddressSpace::Execute)) {
-    WARNING("IMAGE: map() failed in ElfImage::trap(): vaddr: " << v);
-    PhysicalMemoryManager::instance().freePage(p);
+  bool loaded = false;
+  {
+    DemandPageStagingMapping staging(p);
+    if (!staging.valid()) {
+      WARNING("IMAGE: could not create a kernel staging mapping for vaddr: " << v);
+      releaseDemandPage(p);
+      return false;
+    }
+
+    ByteSet(reinterpret_cast<void*>(staging.address()), 0, pageSize);
+
+    // Keep all logical relocation addresses in the process address space, but
+    // direct writes to the private staging alias until the page is complete.
+    loaded = pElf->load(reinterpret_cast<uint8_t*>(buffer), size, offset, pSymbols, v, v + pageSize,
+                        true, staging.address());
+    if (loaded) {
+      // Relocations can modify executable bytes after segment population, so
+      // publish only after cache maintenance covers the completed page.
+      Processor::flushDCacheAndInvalidateICache(staging.address(), staging.address() + pageSize);
+    }
+  }
+
+  if (!loaded) {
+    WARNING("LINKER: load() failed in DynamicLinker::trap()");
+    releaseDemandPage(p);
     return false;
   }
 
-  ByteSet(reinterpret_cast<void*>(v), 0, pageSize);
+#if defined(PEDIGREE_HOSTED_PAGE_CONTENT_REGRESSIONS)
+  if (g_DemandPageReadyHook) {
+    g_DemandPageReadyHook(v);
+  }
+#endif
 
-  // Now that it's mapped, load the ELF region.
-  if (!pElf->load(reinterpret_cast<uint8_t*>(buffer), size, offset, pSymbols, v, v + pageSize)) {
-    WARNING("LINKER: load() failed in DynamicLinker::trap()");
-    va.unmap(reinterpret_cast<void*>(v));
-    PhysicalMemoryManager::instance().freePage(p);
+  // Hosted map() uses MAP_FIXED and therefore cannot itself arbitrate two
+  // publishers. Keep the recheck and map in one short cross-host critical
+  // section so a completed page has exactly one winner.
+  LockGuard<Mutex> publishGuard(g_DemandPagePublishLock);
+  if (va.isMapped(reinterpret_cast<void*>(v))) {
+    releaseDemandPage(p);
+    return true;
+  }
+
+  if (!va.map(p, reinterpret_cast<void*>(v),
+              VirtualAddressSpace::Write | VirtualAddressSpace::Execute)) {
+    releaseDemandPage(p);
+    WARNING("IMAGE: map() failed in ElfImage::trap(): vaddr: " << v);
     return false;
   }
 
@@ -425,6 +526,10 @@ DLTrapHandler::~DLTrapHandler() {
 
 bool DLTrapHandler::trap(InterruptState& state, uintptr_t address, bool bIsWrite,
                          bool bWasPresent) {
+  if (bWasPresent) {
+    return false;
+  }
+
   DynamicLinker* pL = Processor::information().getCurrentThread()->getParent()->getLinker();
   if (!pL)
     return false;

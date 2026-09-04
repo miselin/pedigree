@@ -1138,7 +1138,7 @@ bool Elf::allocate(uint8_t* pBuffer, size_t length, uintptr_t& loadBase, SymbolT
 }
 
 bool Elf::load(uint8_t* pBuffer, size_t length, uintptr_t loadBase, SymbolTable* pSymtab,
-               uintptr_t nStart, uintptr_t nEnd, bool relocate) {
+               uintptr_t nStart, uintptr_t nEnd, bool relocate, uintptr_t destinationBase) {
   NOTICE("LOAD @" << Hex << loadBase);
   for (size_t i = 0; i < m_nProgramHeaders; i++) {
     if (m_pProgramHeaders[i].type == PT_LOAD) {
@@ -1161,12 +1161,17 @@ bool Elf::load(uint8_t* pBuffer, size_t length, uintptr_t loadBase, SymbolTable*
                             ? (nEnd - sectionStart)
                             : (loadAddr + m_pProgramHeaders[i].memsz - sectionStart);
 
+      const uintptr_t destination =
+          destinationBase ? destinationBase + (sectionStart - nStart) : sectionStart;
+
       // Copy segment data from the file.
-      MemoryCopy(reinterpret_cast<uint8_t*>(sectionStart), &pBuffer[offset], filesz);
+      MemoryCopy(reinterpret_cast<uint8_t*>(destination), &pBuffer[offset], filesz);
 
-      ByteSet(reinterpret_cast<uint8_t*>(sectionStart + filesz), 0, memsz - filesz);
+      ByteSet(reinterpret_cast<uint8_t*>(destination + filesz), 0, memsz - filesz);
 
-      Processor::flushDCacheAndInvalidateICache(loadAddr, loadAddr + m_pProgramHeaders[i].filesz);
+      if (!destinationBase) {
+        Processor::flushDCacheAndInvalidateICache(destination, destination + memsz);
+      }
     }
   }
 
@@ -1182,7 +1187,11 @@ bool Elf::load(uint8_t* pBuffer, size_t length, uintptr_t loadBase, SymbolTable*
          pRel++) {
       if ((pRel->offset + loadBase < nStart) || (pRel->offset + loadBase >= nEnd))
         continue;
-      if (!applyRelocation(*pRel, 0, pSymtab, loadBase))
+      const uintptr_t logicalAddress = pRel->offset + loadBase;
+      const uintptr_t destinationAddress =
+          destinationBase ? destinationBase + (logicalAddress - nStart) : logicalAddress;
+      if (!applyRelocation(*pRel, 0, pSymtab, loadBase, SymbolTable::LocalFirst, destinationAddress,
+                           destinationBase ? destinationBase + (nEnd - nStart) : 0))
         return false;
     }
   }
@@ -1193,7 +1202,11 @@ bool Elf::load(uint8_t* pBuffer, size_t length, uintptr_t loadBase, SymbolTable*
          pRel < (m_pRelaTable + (m_nRelaTableSize / sizeof(ElfRela_t))); pRel++) {
       if ((pRel->offset + loadBase < nStart) || (pRel->offset + loadBase >= nEnd))
         continue;
-      if (!applyRelocation(*pRel, 0, pSymtab, loadBase))
+      const uintptr_t logicalAddress = pRel->offset + loadBase;
+      const uintptr_t destinationAddress =
+          destinationBase ? destinationBase + (logicalAddress - nStart) : logicalAddress;
+      if (!applyRelocation(*pRel, 0, pSymtab, loadBase, SymbolTable::LocalFirst, destinationAddress,
+                           destinationBase ? destinationBase + (nEnd - nStart) : 0))
         return false;
     }
   }
@@ -1206,7 +1219,11 @@ bool Elf::load(uint8_t* pBuffer, size_t length, uintptr_t loadBase, SymbolTable*
     for (size_t i = 0; i < m_nPltSize / sizeof(ElfRel_t); i++, pRel++) {
       if ((pRel->offset + loadBase < nStart) || (pRel->offset + loadBase >= nEnd))
         continue;
-      uintptr_t* address = reinterpret_cast<uintptr_t*>(loadBase + pRel->offset);
+      const uintptr_t logicalAddress = loadBase + pRel->offset;
+      if (destinationBase && nEnd - logicalAddress < sizeof(uintptr_t))
+        return false;
+      uintptr_t* address = reinterpret_cast<uintptr_t*>(
+          destinationBase ? destinationBase + (logicalAddress - nStart) : logicalAddress);
       *address += loadBase;
     }
   }
@@ -1216,7 +1233,11 @@ bool Elf::load(uint8_t* pBuffer, size_t length, uintptr_t loadBase, SymbolTable*
     for (size_t i = 0; i < m_nPltSize / sizeof(ElfRela_t); i++, pRel++) {
       if ((pRel->offset + loadBase < nStart) || (pRel->offset + loadBase >= nEnd))
         continue;
-      uintptr_t* address = reinterpret_cast<uintptr_t*>(loadBase + pRel->offset);
+      const uintptr_t logicalAddress = loadBase + pRel->offset;
+      if (destinationBase && nEnd - logicalAddress < sizeof(uintptr_t))
+        return false;
+      uintptr_t* address = reinterpret_cast<uintptr_t*>(
+          destinationBase ? destinationBase + (logicalAddress - nStart) : logicalAddress);
       *address += loadBase;
     }
   }

@@ -95,6 +95,8 @@ class EXPORTED_PUBLIC DynamicLinker {
   }
 
   static void setDemandPageAllocationHookForTest(physical_uintptr_t (*hook)());
+  static void setDemandPageReadyHookForTest(void (*hook)(uintptr_t));
+  static void setDemandPageFreeHookForTest(void (*hook)(physical_uintptr_t));
 #endif
 
  private:

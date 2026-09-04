@@ -295,9 +295,12 @@ class EXPORTED_PUBLIC Elf {
    * This allows for lazy loading. \note PLT relocations are not performed
    * here - they are defined in a different section to the standard REL and
    * RELA entries, so must be done specifically (via applySpecificRelocation).
+   * destinationBase can redirect writes for nStart to a private staging
+   * mapping without changing the logical addresses used by relocations.
    */
   bool load(uint8_t* pBuffer, size_t length, uintptr_t loadBase, SymbolTable* pSymtab = 0,
-            uintptr_t nStart = 0, uintptr_t nEnd = ~0, bool relocate = true);
+            uintptr_t nStart = 0, uintptr_t nEnd = ~0, bool relocate = true,
+            uintptr_t destinationBase = 0);
 
   /** Extracts only the entry point from an ELF file at the given buffer. */
   static bool extractEntryPoint(uint8_t* pBuffer, size_t length, uintptr_t& entry);
@@ -523,8 +526,8 @@ typedef ElfSymbol_t Elf32Symbol_t;
    * Lookup policy. \note Defined in core/processor/.../Elf.cc
    */
   bool applyRelocation(ElfRel_t rel, ElfSectionHeader_t* pSh, SymbolTable* pSymtab = 0,
-                       uintptr_t loadBase = 0,
-                       SymbolTable::Policy policy = SymbolTable::LocalFirst);
+                       uintptr_t loadBase = 0, SymbolTable::Policy policy = SymbolTable::LocalFirst,
+                       uintptr_t destinationAddress = 0, uintptr_t destinationEnd = 0);
 
   /**
    * Applies one relocation. This overload performs a relocation with addend
@@ -535,8 +538,8 @@ typedef ElfSymbol_t Elf32Symbol_t;
    * \note Defined in core/processor/.../Elf.cc
    */
   bool applyRelocation(ElfRela_t rela, ElfSectionHeader_t* pSh, SymbolTable* pSymtab = 0,
-                       uintptr_t loadBase = 0,
-                       SymbolTable::Policy policy = SymbolTable::LocalFirst);
+                       uintptr_t loadBase = 0, SymbolTable::Policy policy = SymbolTable::LocalFirst,
+                       uintptr_t destinationAddress = 0, uintptr_t destinationEnd = 0);
 
   /** Rebase all dynamic section pointers to the m_LoadBase value. */
   void rebaseDynamic();

@@ -59,12 +59,14 @@ static bool checkPc32Displacement(uint64_t S, uint64_t A, uint64_t P, uint64_t& 
 }
 
 bool Elf::applyRelocation(ElfRel_t rel, ElfSectionHeader_t* pSh, SymbolTable* pSymtab,
-                          uintptr_t loadBase, SymbolTable::Policy policy) {
+                          uintptr_t loadBase, SymbolTable::Policy policy,
+                          uintptr_t destinationAddress, uintptr_t destinationEnd) {
   return false;
 }
 
 bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t* pSh, SymbolTable* pSymtab,
-                          uintptr_t loadBase, SymbolTable::Policy policy) {
+                          uintptr_t loadBase, SymbolTable::Policy policy,
+                          uintptr_t destinationAddress, uintptr_t destinationEnd) {
   // Section not loaded?
   if (pSh && pSh->addr == 0)
     return true;  // Not a fatal error.
@@ -169,11 +171,19 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t* pSh, SymbolTable* p
   // Base address
   uint64_t B = loadBase;
 
-  uint64_t* pResult = reinterpret_cast<uint64_t*>(address);
-  uint64_t result = *pResult;
-  uint64_t tmp = 0;
-
   uint8_t r_type = R_TYPE(rel.info);
+  const bool writes32 = r_type == R_X86_64_PC32 || r_type == R_X86_64_32 || r_type == R_X86_64_32S;
+  const size_t resultSize = writes32 ? sizeof(uint32_t) : sizeof(uint64_t);
+  const uintptr_t resultAddress = destinationAddress ? destinationAddress : address;
+  if (destinationEnd &&
+      (resultAddress > destinationEnd || destinationEnd - resultAddress < resultSize)) {
+    ERROR("Relocation crosses the demand-page staging boundary");
+    return false;
+  }
+
+  uint64_t result = writes32 ? *reinterpret_cast<uint32_t*>(resultAddress)
+                             : *reinterpret_cast<uint64_t*>(resultAddress);
+  uint64_t tmp = 0;
 
   switch (r_type) {
     case R_X86_64_NONE:
@@ -182,7 +192,7 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t* pSh, SymbolTable* p
       result = S + A;
       break;
     case R_X86_64_PC32:
-      result = (result & 0xFFFFFFFF00000000) | ((S + A - P) & 0xFFFFFFFF);
+      result = (S + A - P) & 0xFFFFFFFF;
       break;
     case R_X86_64_PC64:
       result = (S + A) - P;
@@ -217,7 +227,7 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t* pSh, SymbolTable* p
         }
       }
 
-      result = (result & 0xFFFFFFFF00000000) | (tmp & 0xFFFFFFFFUL);
+      result = tmp & 0xFFFFFFFFUL;
       break;
       break;
     default:
@@ -226,6 +236,9 @@ bool Elf::applyRelocation(ElfRela_t rel, ElfSectionHeader_t* pSh, SymbolTable* p
   }
 
   // Write back the result.
-  *pResult = result;
+  if (writes32)
+    *reinterpret_cast<uint32_t*>(resultAddress) = static_cast<uint32_t>(result);
+  else
+    *reinterpret_cast<uint64_t*>(resultAddress) = result;
   return true;
 }

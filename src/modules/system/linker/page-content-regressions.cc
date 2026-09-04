@@ -5,6 +5,7 @@
  * purpose with or without fee is hereby granted.
  */
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/linker/Elf.h"
 #include "pedigree/kernel/process/Process.h"
@@ -43,7 +44,84 @@ class DemandPageElf final : public Elf {
     m_pProgramHeaders[0].filesz = fileSize;
     m_pProgramHeaders[0].memsz = memorySize;
   }
+
+  void addRelocations(uintptr_t relativeOffset, uintptr_t relativeAddend, uintptr_t narrowOffset,
+                      uintptr_t narrowSymbol, uintptr_t narrowAddend) {
+    m_pRelaTable = new ElfRela_t[2];
+    ByteSet(m_pRelaTable, 0, sizeof(ElfRela_t) * 2);
+    m_pRelaTable[0].offset = relativeOffset;
+    m_pRelaTable[0].info = 8;  // R_X86_64_RELATIVE
+    m_pRelaTable[0].addend = relativeAddend;
+    m_pRelaTable[1].offset = narrowOffset;
+    m_pRelaTable[1].info = (static_cast<Elf_Xword>(1) << 32) | 10;  // R_X86_64_32
+    m_pRelaTable[1].addend = narrowAddend;
+    m_nRelaTableSize = sizeof(ElfRela_t) * 2;
+
+    m_pDynamicSymbolTable = new ElfSymbol_t[2];
+    ByteSet(m_pDynamicSymbolTable, 0, sizeof(ElfSymbol_t) * 2);
+    m_pDynamicSymbolTable[1].info = ST_INFO(STB_LOCAL, STT_SECTION);
+    m_pDynamicSymbolTable[1].shndx = 1;
+    m_nDynamicSymbolTableSize = sizeof(ElfSymbol_t) * 2;
+
+    m_pSectionHeaders = new ElfSectionHeader_t[2];
+    ByteSet(m_pSectionHeaders, 0, sizeof(ElfSectionHeader_t) * 2);
+    m_pSectionHeaders[1].addr = narrowSymbol;
+    m_nSectionHeaders = 2;
+  }
 };
+
+Atomic<size_t> g_DemandPageAllocationCalls(0);
+Atomic<size_t> g_DemandPageReadyCalls(0);
+Atomic<size_t> g_DemandPageFreeCalls(0);
+Atomic<size_t> g_DemandPageFreeMask(0);
+Atomic<bool> g_DemandPageReadyWaitFailed(false);
+physical_uintptr_t g_DemandPageAllocations[2] = {};
+Semaphore* g_DemandPageFirstReady = nullptr;
+Semaphore* g_DemandPageResumeFirst = nullptr;
+
+physical_uintptr_t allocateControlledDemandPage() {
+  const size_t call = g_DemandPageAllocationCalls += 1;
+  return call <= 2 ? g_DemandPageAllocations[call - 1] : 0;
+}
+
+void pauseFirstReadyDemandPage(uintptr_t) {
+  const size_t call = g_DemandPageReadyCalls += 1;
+  if (call == 1 && g_DemandPageFirstReady && g_DemandPageResumeFirst) {
+    g_DemandPageFirstReady->release();
+    if (!g_DemandPageResumeFirst->acquireForCompletion()) {
+      g_DemandPageReadyWaitFailed = true;
+    }
+  }
+}
+
+void observeFreedDemandPage(physical_uintptr_t page) {
+  g_DemandPageFreeCalls += 1;
+  for (size_t i = 0; i < 2; ++i) {
+    if (page == g_DemandPageAllocations[i]) {
+      g_DemandPageFreeMask |= static_cast<size_t>(1) << i;
+    }
+  }
+}
+
+struct DemandPageLoadContext {
+  DemandPageLoadContext(Elf* elf, uintptr_t buffer, size_t size, uintptr_t address)
+      : elf(elf), buffer(buffer), size(size), address(address), completed(false), result(false) {}
+
+  Elf* elf;
+  uintptr_t buffer;
+  size_t size;
+  uintptr_t address;
+  bool completed;
+  bool result;
+};
+
+int demandPageLoadWorker(void* parameter) {
+  DemandPageLoadContext* context = reinterpret_cast<DemandPageLoadContext*>(parameter);
+  context->result = DynamicLinker::loadDemandPageForTest(
+      context->elf, context->buffer, context->size, context->address, nullptr, context->address);
+  context->completed = true;
+  return context->result ? 0 : 1;
+}
 
 class SentinelFile final : public File {
  public:
@@ -300,6 +378,181 @@ bool memoryMappedFilePublishesAfterInitialise() {
   return true;
 }
 
+bool dynamicDemandPagePublishesOnce() {
+  constexpr size_t FileSize = 64;
+  constexpr uintptr_t RelocationOffset = 16;
+  constexpr uintptr_t RelocationAddend = 0x1234;
+  constexpr uintptr_t NarrowRelocationSymbol = 0x10203040;
+  constexpr uintptr_t NarrowRelocationAddend = 0x55;
+
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  if (pageSize <= FileSize) {
+    return fail("dynamic-demand-page-publish", "target page is too small for the fixture");
+  }
+  const uintptr_t NarrowRelocationOffset = pageSize - sizeof(uint32_t);
+
+  Thread* current = Processor::information().getCurrentThread();
+  Process* process = current ? current->getParent() : nullptr;
+  if (!process) {
+    return fail("dynamic-demand-page-publish", "no current process");
+  }
+
+  uintptr_t address = 0;
+  if (!process->getSpaceAllocator().allocate(pageSize, address)) {
+    return fail("dynamic-demand-page-publish", "could not reserve a target page");
+  }
+
+  PhysicalMemoryManager& memory = PhysicalMemoryManager::instance();
+  g_DemandPageAllocations[0] = memory.allocatePage();
+  g_DemandPageAllocations[1] = memory.allocatePage();
+  if (!g_DemandPageAllocations[0] || !g_DemandPageAllocations[1]) {
+    if (g_DemandPageAllocations[0]) {
+      memory.freePage(g_DemandPageAllocations[0]);
+    }
+    if (g_DemandPageAllocations[1]) {
+      memory.freePage(g_DemandPageAllocations[1]);
+    }
+    process->getSpaceAllocator().free(address, pageSize);
+    return fail("dynamic-demand-page-publish", "could not allocate controlled pages");
+  }
+
+  uint8_t fileData[FileSize];
+  for (size_t i = 0; i < FileSize; ++i) {
+    fileData[i] = static_cast<uint8_t>((i * 5) + 1);
+  }
+
+  DemandPageElf elf(FileSize, pageSize);
+  elf.addRelocations(RelocationOffset, RelocationAddend, NarrowRelocationOffset,
+                     NarrowRelocationSymbol, NarrowRelocationAddend);
+
+  Semaphore firstReady(0);
+  Semaphore resumeFirst(0);
+  g_DemandPageFirstReady = &firstReady;
+  g_DemandPageResumeFirst = &resumeFirst;
+  g_DemandPageAllocationCalls = 0;
+  g_DemandPageReadyCalls = 0;
+  g_DemandPageFreeCalls = 0;
+  g_DemandPageFreeMask = 0;
+  g_DemandPageReadyWaitFailed = false;
+  DynamicLinker::setDemandPageAllocationHookForTest(allocateControlledDemandPage);
+  DynamicLinker::setDemandPageReadyHookForTest(pauseFirstReadyDemandPage);
+  DynamicLinker::setDemandPageFreeHookForTest(observeFreedDemandPage);
+
+  DemandPageLoadContext firstContext(&elf, reinterpret_cast<uintptr_t>(fileData), sizeof(fileData),
+                                     address);
+  Thread* first =
+      new Thread(process, demandPageLoadWorker, &firstContext, nullptr, false, true, true);
+  first->setName("hosted linker first page publisher");
+  const bool firstStarted = first->start();
+  const bool firstReachedReady = firstStarted && firstReady.acquireForCompletion(1, 2);
+
+  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
+  const bool absentWhileFirstReady =
+      firstReachedReady && !va.isMapped(reinterpret_cast<void*>(address));
+
+  DemandPageLoadContext secondContext(&elf, reinterpret_cast<uintptr_t>(fileData), sizeof(fileData),
+                                      address);
+  Thread* second = nullptr;
+  bool secondStarted = false;
+  bool secondJoined = false;
+  physical_uintptr_t pageAfterSecond = 0;
+  if (firstReachedReady) {
+    second = new Thread(process, demandPageLoadWorker, &secondContext, nullptr, false, true, true);
+    second->setName("hosted linker second page publisher");
+    secondStarted = second->start();
+    secondJoined = secondStarted && second->joinForCompletion();
+    if (!secondStarted) {
+      delete second;
+    }
+    if (va.isMapped(reinterpret_cast<void*>(address))) {
+      size_t flags = 0;
+      va.getMapping(reinterpret_cast<void*>(address), pageAfterSecond, flags);
+    }
+  }
+
+  resumeFirst.release();
+  const bool firstJoined = firstStarted && first->joinForCompletion();
+  if (!firstStarted) {
+    delete first;
+  }
+
+  DynamicLinker::setDemandPageReadyHookForTest(nullptr);
+  DynamicLinker::setDemandPageAllocationHookForTest(nullptr);
+  DynamicLinker::setDemandPageFreeHookForTest(nullptr);
+  g_DemandPageFirstReady = nullptr;
+  g_DemandPageResumeFirst = nullptr;
+
+  const bool mapped = va.isMapped(reinterpret_cast<void*>(address));
+  physical_uintptr_t finalPage = 0;
+  size_t finalFlags = 0;
+  if (mapped) {
+    va.getMapping(reinterpret_cast<void*>(address), finalPage, finalFlags);
+  }
+
+  bool dataIntact = mapped;
+  bool tailZero = mapped;
+  bool relocationCorrect = mapped;
+  bool narrowRelocationCorrect = mapped;
+  if (mapped) {
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(address);
+    for (size_t i = 0; i < FileSize; ++i) {
+      if (i >= RelocationOffset && i < RelocationOffset + sizeof(uint64_t)) {
+        continue;
+      }
+      if (i >= NarrowRelocationOffset && i < NarrowRelocationOffset + sizeof(uint32_t)) {
+        continue;
+      }
+      if (bytes[i] != fileData[i]) {
+        dataIntact = false;
+        break;
+      }
+    }
+    for (size_t i = FileSize; i < pageSize; ++i) {
+      if (i >= NarrowRelocationOffset && i < NarrowRelocationOffset + sizeof(uint32_t)) {
+        continue;
+      }
+      if (bytes[i]) {
+        tailZero = false;
+        break;
+      }
+    }
+    relocationCorrect = *reinterpret_cast<const uint64_t*>(address + RelocationOffset) ==
+                        address + RelocationAddend;
+    narrowRelocationCorrect =
+        *reinterpret_cast<const uint32_t*>(address + NarrowRelocationOffset) ==
+        NarrowRelocationSymbol + NarrowRelocationAddend;
+  }
+
+  if (mapped) {
+    va.unmap(reinterpret_cast<void*>(address));
+    memory.freePage(finalPage);
+  }
+  for (size_t i = 0; i < 2; ++i) {
+    const bool wasPublished = mapped && finalPage == g_DemandPageAllocations[i];
+    const bool wasFreed = (g_DemandPageFreeMask & (static_cast<size_t>(1) << i)) != 0;
+    if (!wasPublished && !wasFreed) {
+      memory.freePage(g_DemandPageAllocations[i]);
+    }
+  }
+  process->getSpaceAllocator().free(address, pageSize);
+
+  const bool passed =
+      firstStarted && firstReachedReady && absentWhileFirstReady && secondStarted && secondJoined &&
+      secondContext.completed && secondContext.result && firstJoined && firstContext.completed &&
+      firstContext.result && g_DemandPageAllocationCalls == 2 && g_DemandPageReadyCalls == 2 &&
+      mapped && pageAfterSecond == g_DemandPageAllocations[1] && finalPage == pageAfterSecond &&
+      g_DemandPageFreeCalls == 1 && g_DemandPageFreeMask == 1 && !g_DemandPageReadyWaitFailed &&
+      dataIntact && tailZero && relocationCorrect && narrowRelocationCorrect;
+  if (!passed) {
+    return fail(
+        "dynamic-demand-page-publish",
+        "a staging page was published early, overwritten by a loser, or relocated via its alias");
+  }
+
+  NOTICE("HOSTED-PAGE-CONTENT-TEST: PASS dynamic-demand-page-publish");
+  return true;
+}
+
 bool memoryMapFaultReplay() {
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   uintptr_t address = 0;
@@ -454,6 +707,6 @@ bool runHostedPageContentRegressions() {
   }
 
   NOTICE("HOSTED-PAGE-CONTENT-TEST: PASS dynamic-demand-page-zero-fill");
-  return memoryMappedFileEofZeroFill() && memoryMappedFilePublishesAfterInitialise() &&
-         memoryMapFaultReplay();
+  return dynamicDemandPagePublishesOnce() && memoryMappedFileEofZeroFill() &&
+         memoryMappedFilePublishesAfterInitialise() && memoryMapFaultReplay();
 }

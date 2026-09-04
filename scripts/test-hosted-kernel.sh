@@ -487,6 +487,7 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS posix-terminal-blocked-handler-fixture-published" \
         "HOSTED-SYSCALL-TEST: PASS posix-terminal-blocked-handler-released-by-process-exit" \
         "HOSTED-PAGE-CONTENT-TEST: PASS dynamic-demand-page-zero-fill" \
+        "HOSTED-PAGE-CONTENT-TEST: PASS dynamic-demand-page-publish" \
         "HOSTED-PAGE-CONTENT-TEST: PASS mmap-eof-zero-fill" \
         "HOSTED-PAGE-CONTENT-TEST: PASS mmap-publish-after-init" \
         "HOSTED-PAGE-CONTENT-TEST: PASS mmap-fault-replay"

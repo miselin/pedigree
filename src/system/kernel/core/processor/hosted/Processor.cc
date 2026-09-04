@@ -695,7 +695,8 @@ void ProcessorBase::flushDCacheAndInvalidateICache(uintptr_t startAddr, uintptr_
     sys_icache_invalidate(start, size);
   }
 #else
-  for (size_t i = 0; i < endAddr; ++i) {
+  const size_t length = endAddr > startAddr ? endAddr - startAddr : 0;
+  for (size_t i = 0; i < length; ++i) {
     __asm__ __volatile__("clflush (%0)" ::"a"(startAddr + i));
   }
 #endif
