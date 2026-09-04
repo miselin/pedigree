@@ -88,6 +88,7 @@ File::File()
       m_bDirect(false),
       m_FillCache(),
       m_FillCacheLock(),
+      m_WriteLock(),
       m_Lock(),
       m_MonitorTargets() {}
 
@@ -113,6 +114,7 @@ File::File(const String& name, Time::Timestamp accessedTime, Time::Timestamp mod
       m_bDirect(false),
       m_FillCache(),
       m_FillCacheLock(),
+      m_WriteLock(),
       m_Lock(),
       m_MonitorTargets() {
   size_t maxBlock = size / getBlockSize();
@@ -125,6 +127,8 @@ File::File(const String& name, Time::Timestamp accessedTime, Time::Timestamp mod
 }
 
 File::~File() {
+  closeReadiness();
+
   {
     LockGuard<Mutex> guard(m_Lock);
     for (auto target : m_MonitorTargets) {
@@ -190,6 +194,11 @@ uint64_t File::read(uint64_t location, uint64_t size, uintptr_t buffer, bool bCa
 }
 
 uint64_t File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
+  WriteGuard guard = lockWrites();
+  return guard.write(location, size, buffer, bCanBlock);
+}
+
+uint64_t File::writeUnlocked(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
   if (!size || location > (~static_cast<uint64_t>(0) - size)) {
     return 0;
   }
@@ -250,6 +259,28 @@ uint64_t File::write(uint64_t location, uint64_t size, uintptr_t buffer, bool bC
     fileAttributeChanged();
   }
   return n;
+}
+
+uint64_t File::append(uint64_t size, uintptr_t buffer, uint64_t& location, bool bCanBlock) {
+  WriteGuard guard = lockWrites();
+  return guard.append(size, buffer, location, bCanBlock);
+}
+
+File::WriteGuard File::lockWrites() {
+  return WriteGuard(*this);
+}
+
+File::WriteGuard::WriteGuard(File& file) : m_File(file), m_Guard(file.m_WriteLock) {}
+
+uint64_t File::WriteGuard::write(uint64_t location, uint64_t size, uintptr_t buffer,
+                                 bool bCanBlock) {
+  return m_File.writeUnlocked(location, size, buffer, bCanBlock);
+}
+
+uint64_t File::WriteGuard::append(uint64_t size, uintptr_t buffer, uint64_t& location,
+                                  bool bCanBlock) {
+  location = m_File.getSize();
+  return m_File.writeUnlocked(location, size, buffer, bCanBlock);
 }
 
 physical_uintptr_t File::getPhysicalPage(size_t offset) {
@@ -568,6 +599,21 @@ int File::select(bool bWriting, int timeout) {
   return 1;
 }
 
+ReadyMask File::queryReady(bool reading, bool writing) {
+  ReadyMask ready = ReadyNone;
+  if (reading && select(false, 0)) {
+    ready |= ReadyRead;
+  }
+  if (writing && select(true, 0)) {
+    ready |= ReadyWrite;
+  }
+  return ready;
+}
+
+bool File::supportsReadinessNotifications() const {
+  return false;
+}
+
 bool File::supports(const size_t command) const {
   return false;
 }
@@ -692,6 +738,10 @@ void File::dataChanged() {
       Scheduler::instance().yield();
     }
   }
+
+  // Readiness observers only receive a change hint and re-query the source.
+  // Keep callbacks outside the File lock and the legacy Event registry.
+  notifyReadiness(ReadyAll);
 }
 
 void File::monitor(Thread* pThread, Event* pEvent) {

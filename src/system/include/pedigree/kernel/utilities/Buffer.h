@@ -62,6 +62,13 @@ class EXPORTED_PUBLIC Buffer {
   size_t write(const T* buffer, size_t count, bool block = true);
 
   /**
+   * Writes the complete input as one indivisible operation. If the input fits
+   * in the buffer but there is not enough room yet, a blocking caller waits
+   * before publishing any of it.
+   */
+  size_t writeAtomic(const T* buffer, size_t count, bool block = true);
+
+  /**
    * Writes the complete input without waiting for lock ownership or space.
    * Returns false without changing the buffer when the whole input cannot be
    * accepted immediately. An empty input is a successful no-op.

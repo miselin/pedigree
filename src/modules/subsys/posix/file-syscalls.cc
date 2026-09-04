@@ -31,7 +31,9 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/utilities/PointerGuard.h"
+#include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/Tree.h"
+#include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 #include <FileDescriptor.h>
@@ -41,6 +43,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <termios.h>
 #include <utime.h>
 
@@ -565,19 +568,25 @@ int posix_read(int fd, char* ptr, int len) {
     return posix_recv_descriptor(pFd, ptr, len, 0);
   }
 
+  if (!pFd->file) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
   if (pFd->file->isDirectory()) {
     SYSCALL_ERROR(IsADirectory);
     return -1;
   }
 
   // Are we allowed to block?
-  bool canBlock = !((pFd->flflags & O_NONBLOCK) == O_NONBLOCK);
+  bool canBlock = !((pFd->getStatusFlags() & O_NONBLOCK) == O_NONBLOCK);
 
   // Handle async descriptor that is not ready for reading.
   // File::read has no mechanism for presenting such an error, other than
   // returning 0. However, a read() returning 0 is an EOF condition.
   if (!canBlock) {
-    if (!pFd->file->select(false, 0)) {
+    const ReadyMask ready = pFd->file->queryReady(true, false);
+    if (!(ready & (ReadyRead | ReadyError | ReadyHangup))) {
       SYSCALL_ERROR(NoMoreProcesses);
       F_NOTICE(" -> async and nothing available to read");
       return -1;
@@ -649,11 +658,17 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     return posix_send_descriptor(pFd, ptr, len, 0);
   }
 
+  if (!pFd->file) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
   // Copy to kernel.
   uint64_t nWritten = 0;
+  const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
   if (ptr && len) {
     pThread->clearInterruption();
-    nWritten = pFd->write(len, reinterpret_cast<uintptr_t>(ptr));
+    nWritten = pFd->write(len, reinterpret_cast<uintptr_t>(ptr), canBlock);
     const bool signalInterrupted = pThread->getInterruptionReason() == Thread::InterruptedBySignal;
     pThread->clearInterruption();
     if ((!nWritten) && signalInterrupted) {
@@ -665,9 +680,18 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
 
   F_NOTICE("  -> write returns " << nWritten);
 
+  const bool pipeLike = pFd->file->isPipe() || pFd->file->isFifo();
+
+  // A nonblocking write with a live peer ran out of buffer space.
+  if (!canBlock && !nWritten && len > 0 &&
+      (!pipeLike || Pipe::fromFile(pFd->file)->getReaderCount())) {
+    SYSCALL_ERROR(NoMoreProcesses);
+    return -1;
+  }
+
   // Handle broken pipe (write of zero bytes to a pipe).
   // Note: don't send SIGPIPE if we actually tried a zero-length write.
-  if (pFd->file->isPipe() && (nWritten == 0 && len > 0)) {
+  if (pipeLike && (nWritten == 0 && len > 0)) {
     F_NOTICE("  -> write to a broken pipe");
     SYSCALL_ERROR(BrokenPipe);
     pSubsystem->threadException(pThread, Subsystem::Pipe);
@@ -677,66 +701,320 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
   return static_cast<int>(nWritten);
 }
 
-int posix_writev(int fd, const struct iovec* iov, int iovcnt) {
-  F_NOTICE("writev(" << fd << ", <iov>, " << iovcnt << ")");
-
-  /// \todo check iov
-
-  if (iovcnt <= 0) {
+static bool snapshotIoVectors(const struct iovec* userVectors, int vectorCount, bool writeOperation,
+                              UniqueArray<struct iovec>& vectorOwner, size_t& totalLength) {
+  constexpr int MaximumIoVectors = 1024;
+  if (vectorCount < 0 || vectorCount > MaximumIoVectors) {
     SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+
+  totalLength = 0;
+  if (!vectorCount) {
+    return true;
+  }
+
+  vectorOwner = UniqueArray<struct iovec>::allocate(static_cast<size_t>(vectorCount));
+  struct iovec* vectors = vectorOwner.get();
+  if (!PosixSubsystem::copyFromUser(vectors, userVectors, static_cast<size_t>(vectorCount),
+                                    sizeof(struct iovec))) {
+    SYSCALL_ERROR(BadAddress);
+    return false;
+  }
+
+  const size_t access = writeOperation ? PosixSubsystem::SafeRead : PosixSubsystem::SafeWrite;
+  for (int i = 0; i < vectorCount; ++i) {
+    if (vectors[i].iov_len > static_cast<size_t>(INT_MAX) - totalLength) {
+      SYSCALL_ERROR(InvalidArgument);
+      return false;
+    }
+    if (vectors[i].iov_len &&
+        !PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(vectors[i].iov_base),
+                                         vectors[i].iov_len, 1, access)) {
+      SYSCALL_ERROR(BadAddress);
+      return false;
+    }
+    totalLength += vectors[i].iov_len;
+  }
+  return true;
+}
+
+static int writeFileVectorElement(PosixSubsystem* subsystem, Thread* thread,
+                                  const DescriptorLease& descriptor,
+                                  FileDescriptor::PositionGuard* position, int statusFlags,
+                                  File::WriteGuard& writeGuard, const void* buffer, size_t length) {
+  File* file = descriptor->file;
+  const bool canBlock = !(statusFlags & O_NONBLOCK);
+
+  thread->clearInterruption();
+  uint64_t written = 0;
+  if (file->isSeekable()) {
+    assert(position);
+    uint64_t location = position->offset();
+    written =
+        (statusFlags & O_APPEND)
+            ? writeGuard.append(length, reinterpret_cast<uintptr_t>(buffer), location, canBlock)
+            : writeGuard.write(location, length, reinterpret_cast<uintptr_t>(buffer), canBlock);
+    if (written) {
+      position->setOffset(location + written);
+    }
+  } else {
+    written = writeGuard.write(0, length, reinterpret_cast<uintptr_t>(buffer), canBlock);
+  }
+
+  const bool interrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+  thread->clearInterruption();
+  if (!written && interrupted) {
+    SYSCALL_ERROR(Interrupted);
     return -1;
   }
 
-  int totalWritten = 0;
-  for (int i = 0; i < iovcnt; ++i) {
-    F_NOTICE("writev: iov[" << i << "] is @ " << iov[i].iov_base << ", " << iov[i].iov_len
-                            << " bytes.");
+  const bool pipeLike = file->isPipe() || file->isFifo();
+  if (!canBlock && !written && length && (!pipeLike || Pipe::fromFile(file)->getReaderCount())) {
+    SYSCALL_ERROR(NoMoreProcesses);
+    return -1;
+  }
+  if (pipeLike && !written && length) {
+    SYSCALL_ERROR(BrokenPipe);
+    subsystem->threadException(thread, Subsystem::Pipe);
+    return -1;
+  }
+  return static_cast<int>(written);
+}
 
-    if (!iov[i].iov_len)
-      continue;
-
-    int r = posix_write(fd, reinterpret_cast<char*>(iov[i].iov_base), iov[i].iov_len, false);
-    if (r < 0) {
-      /// \todo fd should not be seeked any further, even if past writes
-      /// succeeded
-      return r;
+static int readFileVectorElement(Thread* thread, const DescriptorLease& descriptor,
+                                 FileDescriptor::PositionGuard* position, int statusFlags,
+                                 void* buffer, size_t length) {
+  File* file = descriptor->file;
+  const bool canBlock = !(statusFlags & O_NONBLOCK);
+  if (!canBlock) {
+    const ReadyMask ready = file->queryReady(true, false);
+    if (!(ready & (ReadyRead | ReadyError | ReadyHangup))) {
+      SYSCALL_ERROR(NoMoreProcesses);
+      return -1;
     }
-
-    totalWritten += r;
   }
 
-  return totalWritten;
+  thread->clearInterruption();
+  uint64_t amount = 0;
+  if (file->isSeekable()) {
+    assert(position);
+    amount = file->read(position->offset(), length, reinterpret_cast<uintptr_t>(buffer), canBlock);
+    position->advanceOffset(amount);
+  } else {
+    amount = file->read(0, length, reinterpret_cast<uintptr_t>(buffer), canBlock);
+  }
+
+  const bool interrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+  thread->clearInterruption();
+  if (!amount && interrupted) {
+    SYSCALL_ERROR(Interrupted);
+    return -1;
+  }
+  return static_cast<int>(amount);
+}
+
+int posix_writev(int fd, const struct iovec* iov, int iovcnt) {
+  F_NOTICE("writev(" << fd << ", <iov>, " << iovcnt << ")");
+
+  UniqueArray<struct iovec> vectorOwner;
+  size_t totalLength = 0;
+  if (!snapshotIoVectors(iov, iovcnt, true, vectorOwner, totalLength)) {
+    return -1;
+  }
+  struct iovec* vectors = vectorOwner.get();
+
+  Thread* thread = Processor::information().getCurrentThread();
+  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(thread->getParent()->getSubsystem());
+  if (!subsystem) {
+    return -1;
+  }
+
+  DescriptorLease descriptor;
+  if (!subsystem->acquireFileDescriptor(fd, descriptor)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (!iovcnt) {
+    return 0;
+  }
+
+  if (descriptor->networkImpl) {
+    struct msghdr message = {};
+    message.msg_iov = vectors;
+    message.msg_iovlen = static_cast<size_t>(iovcnt);
+    return static_cast<int>(posix_sendmsg_descriptor(descriptor, &message));
+  }
+  if (!descriptor->file) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  if (!totalLength) {
+    return 0;
+  }
+
+  auto writeVector = [&](FileDescriptor::PositionGuard* position, int statusFlags) -> int {
+    const bool pipeLike = descriptor->file->isPipe() || descriptor->file->isFifo();
+    if (pipeLike && totalLength <= PIPE_BUF_MAX) {
+      UniqueArray<uint8_t> aggregate = UniqueArray<uint8_t>::allocate(totalLength);
+      size_t offset = 0;
+      for (int i = 0; i < iovcnt; ++i) {
+        if (vectors[i].iov_len &&
+            !PosixSubsystem::copyFromUser(aggregate.get() + offset, vectors[i].iov_base,
+                                          vectors[i].iov_len)) {
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
+        offset += vectors[i].iov_len;
+      }
+      File::WriteGuard writeGuard = descriptor->file->lockWrites();
+      return totalLength
+                 ? writeFileVectorElement(subsystem, thread, descriptor, position, statusFlags,
+                                          writeGuard, aggregate.get(), totalLength)
+                 : 0;
+    }
+
+    File::WriteGuard writeGuard = descriptor->file->lockWrites();
+    int totalWritten = 0;
+    for (int i = 0; i < iovcnt; ++i) {
+      F_NOTICE("writev: iov[" << i << "] is @ " << vectors[i].iov_base << ", " << vectors[i].iov_len
+                              << " bytes.");
+
+      if (!vectors[i].iov_len) {
+        continue;
+      }
+
+      const int r = writeFileVectorElement(subsystem, thread, descriptor, position, statusFlags,
+                                           writeGuard, vectors[i].iov_base, vectors[i].iov_len);
+      if (r < 0) {
+        return totalWritten ? totalWritten : r;
+      }
+
+      totalWritten += r;
+      if (static_cast<size_t>(r) < vectors[i].iov_len) {
+        break;
+      }
+    }
+
+    return totalWritten;
+  };
+
+  if (descriptor->file->isSeekable()) {
+    FileDescriptor::PositionGuard position = descriptor->lockPosition();
+    return writeVector(&position, position.statusFlags());
+  }
+
+  // A blocking nonseekable write must not hold the OFD metadata mutex needed
+  // by a reader using the same O_RDWR description.
+  return writeVector(nullptr, descriptor->getStatusFlags());
 }
 
 int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
   F_NOTICE("readv(" << fd << ", <iov>, " << iovcnt << ")");
 
-  /// \todo check iov
+  UniqueArray<struct iovec> vectorOwner;
+  size_t totalLength = 0;
+  if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength)) {
+    return -1;
+  }
+  struct iovec* vectors = vectorOwner.get();
 
-  if (iovcnt <= 0) {
-    SYSCALL_ERROR(InvalidArgument);
+  Thread* thread = Processor::information().getCurrentThread();
+  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(thread->getParent()->getSubsystem());
+  if (!subsystem) {
     return -1;
   }
 
-  int totalRead = 0;
-  for (int i = 0; i < iovcnt; ++i) {
-    F_NOTICE("readv: iov[" << i << "] is @ " << iov[i].iov_base << ", " << iov[i].iov_len
-                           << " bytes.");
-
-    if (!iov[i].iov_len)
-      continue;
-
-    int r = posix_read(fd, reinterpret_cast<char*>(iov[i].iov_base), iov[i].iov_len);
-    if (r < 0) {
-      /// \todo fd should not be seeked any further, even if past writes
-      /// succeeded
-      return r;
-    }
-
-    totalRead += r;
+  DescriptorLease descriptor;
+  if (!subsystem->acquireFileDescriptor(fd, descriptor)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (!iovcnt) {
+    return 0;
+  }
+  if (!totalLength) {
+    return 0;
   }
 
-  return totalRead;
+  if (descriptor->networkImpl) {
+    struct msghdr message = {};
+    message.msg_iov = vectors;
+    message.msg_iovlen = static_cast<size_t>(iovcnt);
+    return static_cast<int>(posix_recvmsg_descriptor(descriptor, &message));
+  }
+  if (!descriptor->file) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  if (descriptor->file->isDirectory()) {
+    SYSCALL_ERROR(IsADirectory);
+    return -1;
+  }
+
+  auto readVector = [&](FileDescriptor::PositionGuard* position, int statusFlags) -> int {
+    const bool pipeLike = descriptor->file->isPipe() || descriptor->file->isFifo();
+    if (pipeLike && totalLength) {
+      const size_t readCapacity = totalLength < PIPE_BUF_MAX ? totalLength : PIPE_BUF_MAX;
+      UniqueArray<uint8_t> aggregate = UniqueArray<uint8_t>::allocate(readCapacity);
+      const int amount = readFileVectorElement(thread, descriptor, position, statusFlags,
+                                               aggregate.get(), readCapacity);
+      if (amount <= 0) {
+        return amount;
+      }
+
+      size_t copied = 0;
+      for (int i = 0; i < iovcnt && copied < static_cast<size_t>(amount); ++i) {
+        size_t fragment = vectors[i].iov_len;
+        if (fragment > static_cast<size_t>(amount) - copied) {
+          fragment = static_cast<size_t>(amount) - copied;
+        }
+        if (fragment &&
+            !PosixSubsystem::copyToUser(vectors[i].iov_base, aggregate.get() + copied, fragment)) {
+          SYSCALL_ERROR(BadAddress);
+          return copied ? static_cast<int>(copied) : -1;
+        }
+        copied += fragment;
+      }
+      return static_cast<int>(copied);
+    }
+
+    int totalRead = 0;
+    for (int i = 0; i < iovcnt; ++i) {
+      F_NOTICE("readv: iov[" << i << "] is @ " << vectors[i].iov_base << ", " << vectors[i].iov_len
+                             << " bytes.");
+
+      if (!vectors[i].iov_len) {
+        continue;
+      }
+
+      // Once a nonseekable source has produced data, do not turn the next
+      // vector element into a second blocking operation. One readv returns
+      // the partial count when the source's current data has been consumed.
+      const int elementFlags = (!position && totalRead) ? statusFlags | O_NONBLOCK : statusFlags;
+      const int r = readFileVectorElement(thread, descriptor, position, elementFlags,
+                                          vectors[i].iov_base, vectors[i].iov_len);
+      if (r < 0) {
+        return totalRead ? totalRead : r;
+      }
+
+      totalRead += r;
+      if (static_cast<size_t>(r) < vectors[i].iov_len) {
+        break;
+      }
+    }
+
+    return totalRead;
+  };
+
+  if (descriptor->file->isSeekable()) {
+    FileDescriptor::PositionGuard position = descriptor->lockPosition();
+    return readVector(&position, position.statusFlags());
+  }
+
+  // See the matching writev path: a blocking nonseekable read must not
+  // monopolize the OFD metadata mutex needed by its peer.
+  return readVector(nullptr, descriptor->getStatusFlags());
 }
 
 off_t posix_lseek(int file, off_t ptr, int dir) {
@@ -754,6 +1032,11 @@ off_t posix_lseek(int file, off_t ptr, int dir) {
   if (!pSubsystem->acquireFileDescriptor(file, pFd)) {
     // Error - no such file descriptor.
     SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
+  if (!pFd->file) {
+    SYSCALL_ERROR(IllegalSeek);
     return -1;
   }
 
@@ -1408,13 +1691,13 @@ int posix_ioctl(int fd, size_t command, void* buf) {
         int a = *reinterpret_cast<int*>(buf);
         if (a) {
           F_NOTICE("  -> set non-blocking");
-          f->flflags |= O_NONBLOCK;
+          f->addStatusFlag(O_NONBLOCK);
         } else {
           F_NOTICE("  -> set blocking");
-          f->flflags &= ~O_NONBLOCK;
+          f->removeStatusFlag(O_NONBLOCK);
         }
       } else
-        f->flflags &= ~O_NONBLOCK;
+        f->removeStatusFlag(O_NONBLOCK);
 
       return 0;
     }
@@ -1557,6 +1840,9 @@ int posix_dup(int fd) {
 
   // Copy the descriptor
   FileDescriptor* f2 = new FileDescriptor(*f);
+  // According to the spec, CLOEXEC is cleared on DUP.
+  f2->fdflags &= ~FD_CLOEXEC;
+  f2->fd = newFd;
   pSubsystem->addFileDescriptor(newFd, f2);
 
   return static_cast<int>(newFd);
@@ -1565,13 +1851,11 @@ int posix_dup(int fd) {
 int posix_dup2(int fd1, int fd2) {
   F_NOTICE("dup2(" << fd1 << ", " << fd2 << ")");
 
-  if (fd2 < 0) {
+  constexpr int MaximumFileDescriptors = 16384;
+  if (fd2 < 0 || fd2 >= MaximumFileDescriptors) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;  // EBADF
   }
-
-  if (fd1 == fd2)
-    return fd2;
 
   // grab the file descriptor pointer for the passed descriptor
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
@@ -1587,6 +1871,10 @@ int posix_dup2(int fd1, int fd2) {
     return -1;
   }
 
+  // POSIX still requires the source to be valid when both numbers match.
+  if (fd1 == fd2)
+    return fd2;
+
   // Copy the descriptor.
   //
   // This will also increase the refcount *before* we close the original, else
@@ -1595,6 +1883,7 @@ int posix_dup2(int fd1, int fd2) {
   FileDescriptor* f2 = new FileDescriptor(*f);
   // According to the spec, CLOEXEC is cleared on DUP.
   f2->fdflags &= ~FD_CLOEXEC;
+  f2->fd = fd2;
   pSubsystem->addFileDescriptor(fd2, f2);
 
   return fd2;
@@ -1649,30 +1938,32 @@ int posix_fcntl(int fd, int cmd, void* arg) {
   }
 
   switch (cmd) {
-    case F_DUPFD:
-
-      if (arg) {
-        size_t fd2 = reinterpret_cast<size_t>(arg);
-
-        // Copy the descriptor (addFileDescriptor automatically frees
-        // the old one, if needed)
-        FileDescriptor* f2 = new FileDescriptor(*f);
-        // According to the spec, CLOEXEC is cleared on DUP.
-        f2->fdflags &= ~FD_CLOEXEC;
-        pSubsystem->addFileDescriptor(fd2, f2);
-
-        return static_cast<int>(fd2);
-      } else {
-        size_t fd2 = pSubsystem->getFd();
-
-        // copy the descriptor
-        FileDescriptor* f2 = new FileDescriptor(*f);
-        // According to the spec, CLOEXEC is cleared on DUP.
-        f2->fdflags &= ~FD_CLOEXEC;
-        pSubsystem->addFileDescriptor(fd2, f2);
-
-        return static_cast<int>(fd2);
+#ifdef F_DUPFD_CLOEXEC
+    case F_DUPFD_CLOEXEC:
+#endif
+    case F_DUPFD: {
+      constexpr intptr_t MaximumFileDescriptors = 16384;
+      const intptr_t minimum = reinterpret_cast<intptr_t>(arg);
+      if (minimum < 0 || minimum >= MaximumFileDescriptors) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
       }
+
+      const size_t fd2 = pSubsystem->getFd(static_cast<size_t>(minimum));
+      FileDescriptor* f2 = new FileDescriptor(*f);
+#ifdef F_DUPFD_CLOEXEC
+      if (cmd == F_DUPFD_CLOEXEC) {
+        f2->fdflags |= FD_CLOEXEC;
+      } else
+#endif
+      {
+        f2->fdflags &= ~FD_CLOEXEC;
+      }
+      f2->fd = fd2;
+      pSubsystem->addFileDescriptor(fd2, f2);
+
+      return static_cast<int>(fd2);
+    }
 
     case F_GETFD:
       F_NOTICE("  -> get fd flags");
@@ -1682,12 +1973,12 @@ int posix_fcntl(int fd, int cmd, void* arg) {
       f->fdflags = reinterpret_cast<size_t>(arg);
       return 0;
     case F_GETFL:
-      F_NOTICE("  -> get flags " << f->flflags);
-      return f->flflags;
+      F_NOTICE("  -> get flags " << f->getStatusFlags());
+      return f->getStatusFlags();
     case F_SETFL:
       F_NOTICE("  -> set flags " << arg);
-      f->setStatusFlags(reinterpret_cast<size_t>(arg) & (O_APPEND | O_NONBLOCK | O_CLOEXEC));
-      F_NOTICE("  -> new flags " << f->flflags);
+      f->setStatusFlags(reinterpret_cast<size_t>(arg));
+      F_NOTICE("  -> new flags " << f->getStatusFlags());
       return 0;
     case F_GETLK:   // Get record-locking information
     case F_SETLK:   // Set or clear a record lock (without blocking
@@ -1810,6 +2101,10 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
 
     // Grab the file to map in
     File* fileToMap = f->file;
+    if (!fileToMap) {
+      SYSCALL_ERROR(NoSuchDevice);
+      return MAP_FAILED;
+    }
 
     // Check file permissions required to read the backing object and to
     // update it for shared writable mappings. PROT_EXEC describes the
@@ -1955,6 +2250,10 @@ int posix_ftruncate(int a, off_t b) {
     return -1;
   }
   File* pFile = pFd->file;
+  if (!pFile) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
 
   // If we are to simply truncate, do so
   if (b == 0) {
@@ -2002,6 +2301,10 @@ int posix_fsync(int fd) {
     return -1;
   }
   File* pFile = pFd->file;
+  if (!pFile) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
   pFile->sync();
 
   return 0;
@@ -2134,6 +2437,11 @@ int posix_fstatvfs(int fd, struct statvfs* buf) {
   }
 
   File* file = pFd->file;
+
+  if (!file) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
 
   return statvfs_doer(file->getFilesystem(), buf);
 }
@@ -2295,6 +2603,11 @@ static File* check_dirfd(int dirfd, DescriptorLease& descriptor,
     }
 
     File* file = descriptor->file;
+    if (!file) {
+      F_NOTICE("  -> dirfd has no filesystem object");
+      SYSCALL_ERROR(BadFileDescriptor);
+      return 0;
+    }
     if ((flags & AT_EMPTY_PATH) == 0) {
       if (!file->isDirectory()) {
         F_NOTICE("  -> dirfd is not a directory");
@@ -2528,8 +2841,7 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
     }
   }
 
-  FileDescriptor* f =
-      new FileDescriptor(file, (flags & O_APPEND) ? file->getSize() : 0, fd, 0, flags);
+  FileDescriptor* f = new FileDescriptor(file, 0, fd, 0, flags);
   if (f)
     pSubsystem->addFileDescriptor(fd, f);
 
@@ -2636,6 +2948,11 @@ int posix_fchownat(int dirfd, const char* pathname, uid_t owner, gid_t group, in
       SYSCALL_ERROR(DoesNotExist);
       return -1;
     }
+  }
+
+  if (!file) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
   }
 
   // Read-only filesystem?
@@ -3078,6 +3395,11 @@ int posix_fchmodat(int dirfd, const char* pathname, mode_t mode, int flags) {
       SYSCALL_ERROR(DoesNotExist);
       return -1;
     }
+  }
+
+  if (!file) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
   }
 
   // Read-only filesystem?

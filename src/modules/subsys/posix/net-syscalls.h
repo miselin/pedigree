@@ -20,7 +20,10 @@
 #ifndef NET_SYSCALLS_H
 #define NET_SYSCALLS_H
 
+#include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/OperationBarrier.h"
+#include "pedigree/kernel/process/Readiness.h"
 #include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
@@ -44,6 +47,9 @@ class Semaphore;
 class FileDescriptor;
 class DescriptorLease;
 class UnixSocket;
+class UnixSocketGeneration;
+class UnixSocketReference;
+class Process;
 class Thread;
 class Event;
 
@@ -59,8 +65,10 @@ ssize_t posix_send_descriptor(const DescriptorLease& descriptor, const void* buf
                               size_t bufferLength, int flags);
 ssize_t posix_recv_descriptor(const DescriptorLease& descriptor, void* buffer, size_t bufferLength,
                               int flags);
+ssize_t posix_sendmsg_descriptor(const DescriptorLease& descriptor, const struct msghdr* message);
+ssize_t posix_recvmsg_descriptor(const DescriptorLease& descriptor, struct msghdr* message);
 
-class NetworkSyscalls {
+class NetworkSyscalls : public ReadinessSource {
  public:
   NetworkSyscalls(int domain, int type, int protocol);
   virtual ~NetworkSyscalls();
@@ -94,6 +102,17 @@ class NetworkSyscalls {
   virtual bool poll(bool& read, bool& write, bool& error, Semaphore* waiter);
   virtual void unPoll(Semaphore* waiter);
 
+  /** Return a level-triggered snapshot for the requested I/O directions. */
+  virtual ReadyMask queryReady(bool reading, bool writing);
+
+  /**
+   * Retire the transport after the final descriptor alias closes.
+   *
+   * Readiness users may retain this wrapper after the transport is gone, so
+   * implementations leave queryReady() returning a stable terminal state.
+   */
+  virtual void lastDescriptorClosed();
+
   virtual bool monitor(Thread* pThread, Event* pEvent);
   virtual bool unmonitor(Event* pEvent);
 
@@ -116,11 +135,23 @@ class NetworkSyscalls {
   virtual void setBlocking(bool blocking);
 
  protected:
+  /** Wins the one transition into lastDescriptorClosed(). */
+  bool beginDescriptorClose();
+
+  bool hasLastDescriptorClosed() const;
+
   int m_Domain;
   int m_Type;
   int m_Protocol;
 
-  bool m_Blocking;
+  Atomic<bool> m_Blocking;
+
+  /** Pins transport state across readiness queries and external notifications. */
+  OperationBarrier m_ReadinessNotifications;
+
+ private:
+  mutable Mutex m_LifecycleLock;
+  bool m_LastDescriptorClosed;
 };
 
 class LwipSocketSyscalls : public NetworkSyscalls {
@@ -150,6 +181,8 @@ class LwipSocketSyscalls : public NetworkSyscalls {
   virtual bool canPoll() const;
   virtual bool poll(bool& read, bool& write, bool& error, Semaphore* waiter);
   virtual void unPoll(Semaphore* waiter);
+  virtual ReadyMask queryReady(bool reading, bool writing);
+  virtual void lastDescriptorClosed();
 
   virtual void setBlocking(bool blocking);
 
@@ -162,6 +195,7 @@ class LwipSocketSyscalls : public NetworkSyscalls {
   void registerSocket();
 
   struct netconn* m_Socket;
+  Mutex m_ReceiveLock;
 
   struct LwipMetadata {
     LwipMetadata();
@@ -170,6 +204,10 @@ class LwipSocketSyscalls : public NetworkSyscalls {
     ssize_t send;
     err_t error;
     bool closed;
+    bool peerClosed;
+    bool writeClosed;
+    bool listening;
+    bool partialRead;
 
     Mutex lock;
     List<Semaphore*> semaphores;
@@ -207,6 +245,8 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   virtual bool canPoll() const;
   virtual bool poll(bool& read, bool& write, bool& error, Semaphore* waiter);
   virtual void unPoll(Semaphore* waiter);
+  virtual ReadyMask queryReady(bool reading, bool writing);
+  virtual void lastDescriptorClosed();
 
   virtual bool monitor(Thread* pThread, Event* pEvent);
   virtual bool unmonitor(Event* pEvent);
@@ -216,16 +256,36 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   bool pairWith(UnixSocketSyscalls* other);
 
  private:
-  // Not safe to copy or assign - we assume we own m_Socket
+  friend class UnixSocketGeneration;
+  friend bool runHostedUnixEndpointLifetimeRegression(Process* process);
+
+  // Endpoint generations and their ownership must not be duplicated implicitly.
   NOT_COPYABLE_OR_ASSIGNABLE(UnixSocketSyscalls);
 
-  UnixSocket* getRemote() const;
+  static Tree<UnixSocket*, UnixSocketSyscalls*> m_SyscallObjects;
+  static Tree<UnixSocket*, UnixSocket*> m_Peers;
+  static Tree<UnixSocket*, UnixSocket*> m_PendingListeners;
+  static Mutex m_SyscallObjectsLock;
+
+  void registerSocket(UnixSocket* socket);
+  void registerPeer(UnixSocket* socket, UnixSocket* peer, UnixSocket* listener = nullptr);
+  void unregisterPeer(UnixSocket* socket, UnixSocket* peer);
+  static void unregisterSocket(UnixSocket* socket, List<UnixSocket*>& peers);
+  void notifyPeer(UnixSocket* socket, ReadyMask mask);
+  static void notifySocket(UnixSocket* socket, ReadyMask mask);
+
+  SharedPointer<UnixSocketGeneration> acquireLocalEndpoint() const;
+  void replaceLocalEndpoint(UnixSocket* socket, bool tracked, bool removeNamespace,
+                            const String* localPath = nullptr);
 
   UnixSocket::SocketType getSocketType() const;
 
-  UnixSocket* m_Socket;
-  UnixSocket* m_Remote;  // other side of the unix socket
-  bool m_RemoteTracked;
+  /** Serializes generation snapshots with endpoint and path publication. */
+  mutable Mutex m_EndpointStateLock;
+  /** Serializes bind/connect mutations without covering blocking I/O. */
+  Mutex m_EndpointMutationLock;
+  SharedPointer<UnixSocketGeneration> m_LocalEndpoint;
+  SharedPointer<UnixSocketReference> m_RemoteEndpoint;
 
   String m_LocalPath;
   String m_RemotePath;
@@ -262,5 +322,9 @@ int posix_sethostname(const char* name, size_t len);
 
 ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags);
 ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags);
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+bool runHostedUnixEndpointLifetimeRegression(Process* process);
+#endif
 
 #endif

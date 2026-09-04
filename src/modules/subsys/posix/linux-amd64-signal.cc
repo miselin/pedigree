@@ -82,15 +82,7 @@ bool userRegion(uintptr_t address, size_t extent, size_t access) {
 }
 
 bool userExecutable(uintptr_t address) {
-  if (!userRegion(address, 1, PosixSubsystem::SafeRead)) {
-    return false;
-  }
-
-  VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-  physical_uintptr_t physical = 0;
-  size_t flags = 0;
-  va.getMapping(reinterpret_cast<void*>(address), physical, flags);
-  return !(flags & VirtualAddressSpace::KernelMode) && (flags & VirtualAddressSpace::Execute);
+  return userRegion(address, 1, PosixSubsystem::SafeExecute);
 }
 
 bool onAlternateStack(uintptr_t stackPointer, const Thread::AlternateSignalStack& stack) {

@@ -26,10 +26,12 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
+#include "pedigree/kernel/utilities/Pointers.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/UniqueResource.h"
 
 #include <fcntl.h>
+#include <limits.h>
 #include <stddef.h>
 
 #include "file-syscalls.h"
@@ -60,6 +62,10 @@
 
 Tree<struct netconn*, LwipSocketSyscalls*> LwipSocketSyscalls::m_SyscallObjects;
 Mutex LwipSocketSyscalls::m_SyscallObjectsLock;
+Tree<UnixSocket*, UnixSocketSyscalls*> UnixSocketSyscalls::m_SyscallObjects;
+Tree<UnixSocket*, UnixSocket*> UnixSocketSyscalls::m_Peers;
+Tree<UnixSocket*, UnixSocket*> UnixSocketSyscalls::m_PendingListeners;
+Mutex UnixSocketSyscalls::m_SyscallObjectsLock;
 
 extern UnixFilesystem* g_pUnixFilesystem;
 
@@ -71,6 +77,25 @@ struct NetbufReleaser {
 };
 
 using NetbufOwner = UniqueResource<struct netbuf, NetbufReleaser>;
+
+bool validateSocketMessageFlags(int flags, bool sending) {
+  int supported = 0;
+#ifdef MSG_NOSIGNAL
+  if (sending) {
+    // Socket writes do not currently raise SIGPIPE, so suppression requires
+    // no additional backend action.
+    supported |= MSG_NOSIGNAL;
+  }
+#else
+  (void)sending;
+#endif
+
+  if (flags & ~supported) {
+    SYSCALL_ERROR(OperationNotSupported);
+    return false;
+  }
+  return true;
+}
 }  // namespace
 
 static File* findTrackedUnixSocket(const String& pathname) {
@@ -282,7 +307,7 @@ int posix_socket(int domain, int type, int protocol) {
   }
 
   FileDescriptor* f = new FileDescriptor;
-  f->networkImpl = syscalls;
+  f->setNetworkImpl(SharedPointer<NetworkSyscalls>(syscalls));
   f->fd = fd;
   setSocketDescriptorFlags(f, flags);
   addDescriptor(fd, f);
@@ -346,9 +371,9 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2]) {
   size_t fdA = getAvailableDescriptor();
   size_t fdB = getAvailableDescriptor();
 
-  fA->networkImpl = syscallsA;
+  fA->setNetworkImpl(SharedPointer<NetworkSyscalls>(syscallsA));
   fA->fd = fdA;
-  fB->networkImpl = syscallsB;
+  fB->setNetworkImpl(SharedPointer<NetworkSyscalls>(syscallsB));
   fB->fd = fdB;
 
   setSocketDescriptorFlags(fA, flags);
@@ -425,6 +450,9 @@ ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags) {
 
 ssize_t posix_send_descriptor(const DescriptorLease& f, const void* buff, size_t bufflen,
                               int flags) {
+  if (!validateSocketMessageFlags(flags, true)) {
+    return -1;
+  }
   if (!isSaneSocket(f)) {
     return -1;
   }
@@ -434,9 +462,23 @@ ssize_t posix_send_descriptor(const DescriptorLease& f, const void* buff, size_t
   return finishInterruptibleSocketCall(thread, result) ? result : -1;
 }
 
+ssize_t posix_sendmsg_descriptor(const DescriptorLease& f, const struct msghdr* message) {
+  if (!isSaneSocket(f)) {
+    return -1;
+  }
+
+  Thread* thread = beginInterruptibleSocketCall();
+  const ssize_t result = f->networkImpl->sendto_msg(message);
+  return finishInterruptibleSocketCall(thread, result) ? result : -1;
+}
+
 ssize_t posix_sendto(int sock, const void* buff, size_t bufflen, int flags,
                      struct sockaddr_storage* address, socklen_t addrlen) {
   N_NOTICE("sendto");
+
+  if (!validateSocketMessageFlags(flags, true)) {
+    return -1;
+  }
 
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen,
                                     PosixSubsystem::SafeRead)) {
@@ -503,6 +545,9 @@ ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags) {
 }
 
 ssize_t posix_recv_descriptor(const DescriptorLease& f, void* buff, size_t bufflen, int flags) {
+  if (!validateSocketMessageFlags(flags, false)) {
+    return -1;
+  }
   if (!isSaneSocket(f)) {
     return -1;
   }
@@ -515,9 +560,23 @@ ssize_t posix_recv_descriptor(const DescriptorLease& f, void* buff, size_t buffl
   return n;
 }
 
+ssize_t posix_recvmsg_descriptor(const DescriptorLease& f, struct msghdr* message) {
+  if (!isSaneSocket(f)) {
+    return -1;
+  }
+
+  Thread* thread = beginInterruptibleSocketCall();
+  const ssize_t result = f->networkImpl->recvfrom_msg(message);
+  return finishInterruptibleSocketCall(thread, result) ? result : -1;
+}
+
 ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
                        struct sockaddr_storage* address, socklen_t* addrlen) {
   N_NOTICE("recvfrom");
+
+  if (!validateSocketMessageFlags(flags, false)) {
+    return -1;
+  }
 
   if (!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen,
                                      PosixSubsystem::SafeWrite) &&
@@ -797,7 +856,71 @@ int posix_sethostname(const char* name, size_t len) {
 ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags) {
   N_NOTICE("sendmsg(" << sockfd << ", " << msg << ", " << flags << ")");
 
-  /// \todo check address
+  if (!validateSocketMessageFlags(flags, true)) {
+    return -1;
+  }
+
+  struct msghdr message = {};
+  if (!PosixSubsystem::copyFromUser(&message, msg, sizeof(message))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+
+  if (message.msg_controllen) {
+    // SCM_RIGHTS and other control messages need explicit descriptor and
+    // credential lifetime handling; dropping them would report false success.
+    SYSCALL_ERROR(OperationNotSupported);
+    return -1;
+  }
+
+  constexpr size_t MaximumIoVectors = 1024;
+  const size_t vectorCount = static_cast<size_t>(message.msg_iovlen);
+  if (vectorCount > MaximumIoVectors) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  UniqueArray<struct iovec> vectorOwner;
+  if (vectorCount) {
+    vectorOwner = UniqueArray<struct iovec>::allocate(vectorCount);
+  }
+  struct iovec* vectors = vectorOwner.get();
+  if (vectorCount &&
+      !PosixSubsystem::copyFromUser(vectors, message.msg_iov, vectorCount, sizeof(*vectors))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  constexpr size_t MaximumIoBytes = static_cast<size_t>(SSIZE_MAX);
+  size_t totalLength = 0;
+  for (size_t i = 0; i < vectorCount; ++i) {
+    if (vectors[i].iov_len > MaximumIoBytes - totalLength) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(vectors[i].iov_base),
+                                         vectors[i].iov_len, 1, PosixSubsystem::SafeRead)) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    totalLength += vectors[i].iov_len;
+  }
+
+  struct sockaddr_storage address = {};
+  if (message.msg_name) {
+    if (message.msg_namelen > sizeof(address)) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    if (!PosixSubsystem::copyFromUser(&address, message.msg_name, message.msg_namelen)) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    message.msg_name = &address;
+  }
+  message.msg_iov = vectors;
+  message.msg_control = nullptr;
+  message.msg_controllen = 0;
+  message.msg_flags = flags;
 
   DescriptorLease f;
   acquireDescriptor(sockfd, f);
@@ -805,11 +928,7 @@ ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags) {
     return -1;
   }
 
-  Thread* thread = beginInterruptibleSocketCall();
-  ssize_t n = f->networkImpl->sendto_msg(msg);
-  if (!finishInterruptibleSocketCall(thread, n)) {
-    return -1;
-  }
+  const ssize_t n = posix_sendmsg_descriptor(f, &message);
   N_NOTICE(" -> " << n);
   return n;
 }
@@ -817,7 +936,67 @@ ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags) {
 ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
   N_NOTICE("recvmsg(" << sockfd << ", " << msg << ", " << flags << ")");
 
-  /// \todo check address
+  if (!validateSocketMessageFlags(flags, false)) {
+    return -1;
+  }
+
+  struct msghdr message = {};
+  if (!PosixSubsystem::copyFromUser(&message, msg, sizeof(message))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  const struct msghdr originalMessage = message;
+
+  constexpr size_t MaximumIoVectors = 1024;
+  const size_t vectorCount = static_cast<size_t>(message.msg_iovlen);
+  if (vectorCount > MaximumIoVectors) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  UniqueArray<struct iovec> vectorOwner;
+  if (vectorCount) {
+    vectorOwner = UniqueArray<struct iovec>::allocate(vectorCount);
+  }
+  struct iovec* vectors = vectorOwner.get();
+  if (vectorCount &&
+      !PosixSubsystem::copyFromUser(vectors, message.msg_iov, vectorCount, sizeof(*vectors))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  constexpr size_t MaximumIoBytes = static_cast<size_t>(SSIZE_MAX);
+  size_t totalLength = 0;
+  for (size_t i = 0; i < vectorCount; ++i) {
+    if (vectors[i].iov_len > MaximumIoBytes - totalLength) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(vectors[i].iov_base),
+                                         vectors[i].iov_len, 1, PosixSubsystem::SafeWrite)) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    totalLength += vectors[i].iov_len;
+  }
+
+  void* userName = message.msg_name;
+  const size_t userNameCapacity = message.msg_namelen;
+  struct sockaddr_storage address = {};
+  if (userName) {
+    const size_t checkedCapacity =
+        userNameCapacity < sizeof(address) ? userNameCapacity : sizeof(address);
+    if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(userName), checkedCapacity,
+                                      PosixSubsystem::SafeWrite)) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    message.msg_name = &address;
+    message.msg_namelen = checkedCapacity;
+  }
+  message.msg_iov = vectors;
+  message.msg_control = nullptr;
+  message.msg_controllen = 0;
+  message.msg_flags = flags;
 
   DescriptorLease f;
   acquireDescriptor(sockfd, f);
@@ -825,19 +1004,49 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
     return -1;
   }
 
-  Thread* thread = beginInterruptibleSocketCall();
-  ssize_t n = f->networkImpl->recvfrom_msg(msg);
-  if (!finishInterruptibleSocketCall(thread, n)) {
-    return -1;
+  const ssize_t n = posix_recvmsg_descriptor(f, &message);
+
+  if (n >= 0) {
+    struct msghdr result = originalMessage;
+
+    if (userName) {
+      size_t nameBytes = message.msg_namelen;
+      if (nameBytes > userNameCapacity) {
+        nameBytes = userNameCapacity;
+      }
+      if (nameBytes > sizeof(address)) {
+        nameBytes = sizeof(address);
+      }
+      if (nameBytes && !PosixSubsystem::copyToUser(userName, &address, nameBytes)) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+    }
+
+    result.msg_namelen = message.msg_namelen;
+    result.msg_controllen = 0;
+    result.msg_flags = message.msg_flags;
+    if (!PosixSubsystem::copyToUser(msg, &result, sizeof(result))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
   }
   N_NOTICE(" -> " << n);
   return n;
 }
 
 NetworkSyscalls::NetworkSyscalls(int domain, int type, int protocol)
-    : m_Domain(domain), m_Type(type), m_Protocol(protocol), m_Blocking(true) {}
+    : m_Domain(domain),
+      m_Type(type),
+      m_Protocol(protocol),
+      m_Blocking(true),
+      m_ReadinessNotifications(),
+      m_LifecycleLock(),
+      m_LastDescriptorClosed(false) {}
 
-NetworkSyscalls::~NetworkSyscalls() {}
+NetworkSyscalls::~NetworkSyscalls() {
+  lastDescriptorClosed();
+}
 
 bool NetworkSyscalls::create() {
   return true;
@@ -904,6 +1113,21 @@ bool NetworkSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* wait
 
 void NetworkSyscalls::unPoll(Semaphore* waiter) {}
 
+ReadyMask NetworkSyscalls::queryReady(bool reading, bool writing) {
+  (void)reading;
+  (void)writing;
+  return ReadyInvalid;
+}
+
+void NetworkSyscalls::lastDescriptorClosed() {
+  if (!beginDescriptorClose()) {
+    return;
+  }
+
+  m_ReadinessNotifications.closeAndWait();
+  closeReadiness(ReadyInvalid | ReadyHangup);
+}
+
 bool NetworkSyscalls::monitor(Thread* pThread, Event* pEvent) {
   return false;
 }
@@ -913,7 +1137,7 @@ bool NetworkSyscalls::unmonitor(Event* pEvent) {
 }
 
 void NetworkSyscalls::associate(FileDescriptor* fd) {
-  m_Blocking = !fd || !(fd->flflags & O_NONBLOCK);
+  m_Blocking = !fd || !(fd->getStatusFlags() & O_NONBLOCK);
 }
 
 bool NetworkSyscalls::isBlocking() const {
@@ -924,21 +1148,77 @@ void NetworkSyscalls::setBlocking(bool blocking) {
   m_Blocking = blocking;
 }
 
+bool NetworkSyscalls::beginDescriptorClose() {
+  ConstexprLockGuard<Mutex, THREADS> guard(m_LifecycleLock);
+  if (m_LastDescriptorClosed) {
+    return false;
+  }
+
+  m_LastDescriptorClosed = true;
+  return true;
+}
+
+bool NetworkSyscalls::hasLastDescriptorClosed() const {
+  ConstexprLockGuard<Mutex, THREADS> guard(m_LifecycleLock);
+  return m_LastDescriptorClosed;
+}
+
 LwipSocketSyscalls::LwipSocketSyscalls(int domain, int type, int protocol)
-    : NetworkSyscalls(domain, type, protocol), m_Socket(nullptr), m_Metadata() {}
+    : NetworkSyscalls(domain, type, protocol), m_Socket(nullptr), m_ReceiveLock(), m_Metadata() {}
 
 LwipSocketSyscalls::~LwipSocketSyscalls() {
-  if (m_Socket) {
+  lastDescriptorClosed();
+}
+
+void LwipSocketSyscalls::lastDescriptorClosed() {
+  if (!beginDescriptorClose()) {
+    return;
+  }
+
+  struct netconn* socket = m_Socket;
+  if (socket) {
     LOCK_TCPIP_CORE();
     {
       ConstexprLockGuard<Mutex, THREADS> guard(m_SyscallObjectsLock);
-      m_SyscallObjects.remove(m_Socket);
+      m_SyscallObjects.remove(socket);
     }
     UNLOCK_TCPIP_CORE();
-
-    netconn_delete(m_Socket);
-    m_Socket = nullptr;
   }
+
+  // A callback which acquired admission before the map removal may still be
+  // finishing its metadata update. Drain it before publishing terminal state
+  // or releasing the netconn.
+  m_ReadinessNotifications.closeAndWait();
+
+  struct pbuf* partialPacket = nullptr;
+  struct netbuf* partialBuffer = nullptr;
+  {
+    ConstexprLockGuard<Mutex, THREADS> receiveGuard(m_ReceiveLock);
+    {
+      ConstexprLockGuard<Mutex, THREADS> metadataGuard(m_Metadata.lock);
+      m_Metadata.closed = true;
+      m_Metadata.peerClosed = true;
+      m_Metadata.writeClosed = true;
+      partialPacket = m_Metadata.pb;
+      partialBuffer = m_Metadata.buf;
+      m_Metadata.pb = nullptr;
+      m_Metadata.buf = nullptr;
+      m_Metadata.offset = 0;
+      m_Metadata.partialRead = false;
+    }
+  }
+
+  m_Socket = nullptr;
+  if (partialBuffer) {
+    netbuf_delete(partialBuffer);
+  } else if (partialPacket) {
+    pbuf_free(partialPacket);
+  }
+  if (socket) {
+    netconn_delete(socket);
+  }
+
+  closeReadiness(ReadyInvalid | ReadyHangup);
 }
 
 void LwipSocketSyscalls::setBlocking(bool blocking) {
@@ -957,6 +1237,7 @@ void LwipSocketSyscalls::registerSocket() {
       // connection has no userspace descriptor. Transfer those events
       // before exposing it so early request data remains readable.
       if (m_Socket->socket < 0) {
+        ConstexprLockGuard<Mutex, THREADS> metadataGuard(m_Metadata.lock);
         m_Metadata.recv += -1 - m_Socket->socket;
         m_Socket->socket = 0;
       }
@@ -1024,6 +1305,7 @@ bool LwipSocketSyscalls::create() {
   }
 
   if (NETCONNTYPE_GROUP(m_Socket->type) != NETCONN_TCP) {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
     m_Metadata.send = 1;
   }
 
@@ -1060,6 +1342,7 @@ int LwipSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
   // need to allow writing immediately for non-tcp sockets
   /// \todo for accept() we need to do this too
   if (NETCONNTYPE_GROUP(m_Socket->type) != NETCONN_TCP) {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
     m_Metadata.send = 1;
   }
 
@@ -1076,8 +1359,26 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
     return -1;
   }
 
+  if (NETCONNTYPE_GROUP(m_Socket->type) == NETCONN_TCP) {
+    bool hasPayload = false;
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
+      if (msghdr->msg_iov[i].iov_len) {
+        hasPayload = true;
+        break;
+      }
+    }
+    if (!hasPayload) {
+      return 0;
+    }
+  }
+
   // Can we send without blocking?
-  if (!isBlocking() && !m_Metadata.send) {
+  bool sendAvailable = false;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+    sendAvailable = m_Metadata.send != 0;
+  }
+  if (!isBlocking() && !sendAvailable) {
     N_NOTICE(" -> send queue full, would block");
     SYSCALL_ERROR(NoMoreProcesses);
     return -1;
@@ -1090,6 +1391,9 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
     for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
       void* buffer = msghdr->msg_iov[i].iov_base;
       size_t bufferlen = msghdr->msg_iov[i].iov_len;
+      if (!bufferlen) {
+        continue;
+      }
 
       size_t thisBytesWritten = 0;
       err = netconn_write_partly(m_Socket, buffer, bufferlen, NETCONN_COPY | NETCONN_MORE,
@@ -1101,6 +1405,9 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
       }
 
       bytesWritten += thisBytesWritten;
+      if (thisBytesWritten < bufferlen) {
+        break;
+      }
     }
   } else {
     NetbufOwner buffer = NetbufOwner::adopt(netbuf_new());
@@ -1155,6 +1462,11 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
 }
 
 ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
+  // A duplicated descriptor shares the receive cursor and retained packet.
+  // Serialize the whole receive operation, but never hold the metadata lock
+  // across lwIP calls because its callback takes that lock.
+  ConstexprLockGuard<Mutex, THREADS> receiveGuard(m_ReceiveLock);
+
   if (msghdr->msg_name) {
     /// \todo need to build this - extract from the pbuf
     SYSCALL_ERROR(Unimplemented);
@@ -1169,7 +1481,7 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
       if (m_Metadata.closed) {
         return 0;
       }
-      noData = !(m_Metadata.recv || m_Metadata.pb);
+      noData = !(m_Metadata.recv || m_Metadata.partialRead);
     }
 
     if (noData) {
@@ -1199,8 +1511,16 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
 
     if (err != ERR_OK) {
       if (err == ERR_CLSD) {
-        ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
-        m_Metadata.closed = true;
+        ReadyMask changed = ReadyRead | ReadyReadHangup;
+        {
+          ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+          m_Metadata.closed = true;
+          m_Metadata.peerClosed = true;
+          if (m_Metadata.writeClosed) {
+            changed |= ReadyHangup;
+          }
+        }
+        notifyReadiness(changed);
         return 0;
       }
 
@@ -1217,44 +1537,63 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
       return -1;
     }
 
-    m_Metadata.offset = 0;
-    m_Metadata.pb = pb;
-    m_Metadata.buf = buf;
+    {
+      ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+      m_Metadata.offset = 0;
+      m_Metadata.pb = pb;
+      m_Metadata.buf = buf;
+      m_Metadata.partialRead = true;
+    }
   }
 
   size_t totalLen = 0;
+  size_t readOffset = m_Metadata.offset;
   for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
     void* buffer = msghdr->msg_iov[i].iov_base;
     size_t bufferlen = msghdr->msg_iov[i].iov_len;
 
     // now we read some things.
-    size_t finalPos = m_Metadata.offset + bufferlen;
+    size_t finalPos = readOffset + bufferlen;
     if (finalPos > m_Metadata.pb->tot_len) {
-      bufferlen = m_Metadata.pb->tot_len - m_Metadata.offset;
+      bufferlen = m_Metadata.pb->tot_len - readOffset;
       if (!bufferlen) {
         break;  // finished reading!
       }
     }
 
-    pbuf_copy_partial(m_Metadata.pb, buffer, bufferlen, m_Metadata.offset);
+    pbuf_copy_partial(m_Metadata.pb, buffer, bufferlen, readOffset);
     totalLen += bufferlen;
+    readOffset += bufferlen;
   }
 
   // partial read?
-  if ((m_Metadata.offset + totalLen) < m_Metadata.pb->tot_len) {
-    m_Metadata.offset += totalLen;
+  bool partialReadRemains = false;
+  if (readOffset < m_Metadata.pb->tot_len) {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+    m_Metadata.offset = readOffset;
+    partialReadRemains = true;
   } else {
-    if (m_Metadata.buf == nullptr) {
-      pbuf_free(m_Metadata.pb);
-    } else {
-      // will indirectly clean up m_Metadata.pb as it's a member of the
-      // netbuf
-      netbuf_free(m_Metadata.buf);
+    struct pbuf* completedPacket = nullptr;
+    struct netbuf* completedBuffer = nullptr;
+    {
+      ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+      completedPacket = m_Metadata.pb;
+      completedBuffer = m_Metadata.buf;
+      m_Metadata.pb = nullptr;
+      m_Metadata.buf = nullptr;
+      m_Metadata.offset = 0;
+      m_Metadata.partialRead = false;
     }
 
-    m_Metadata.pb = nullptr;
-    m_Metadata.buf = nullptr;
-    m_Metadata.offset = 0;
+    if (completedBuffer) {
+      netbuf_delete(completedBuffer);
+    } else if (completedPacket) {
+      pbuf_free(completedPacket);
+    }
+  }
+
+  if (partialReadRemains) {
+    notifyReadiness(ReadyRead);
   }
 
   N_NOTICE(" -> " << totalLen);
@@ -1267,6 +1606,11 @@ int LwipSocketSyscalls::listen(int backlog) {
     N_NOTICE(" -> lwIP error");
     lwipToSyscallError(err);
     return -1;
+  }
+
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+    m_Metadata.listening = true;
   }
 
   return 0;
@@ -1315,12 +1659,15 @@ int LwipSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addr
 
   LwipSocketSyscalls* obj = new LwipSocketSyscalls(m_Domain, m_Type, m_Protocol);
   obj->m_Socket = new_conn;
-  obj->m_Metadata.send = 1;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(obj->m_Metadata.lock);
+    obj->m_Metadata.send = 1;
+  }
   obj->create();
 
   size_t fd = getAvailableDescriptor();
   FileDescriptor* desc = new FileDescriptor;
-  desc->networkImpl = obj;
+  desc->setNetworkImpl(SharedPointer<NetworkSyscalls>(obj));
   desc->fd = fd;
   setSocketDescriptorFlags(desc, flags);
 
@@ -1337,8 +1684,11 @@ int LwipSocketSyscalls::shutdown(int how) {
     rx = tx = 1;
   } else if (how == SHUT_RD) {
     rx = 1;
-  } else {
+  } else if (how == SHUT_WR) {
     tx = 1;
+  } else {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
   }
 
   err_t err = netconn_shutdown(m_Socket, rx, tx);
@@ -1346,6 +1696,23 @@ int LwipSocketSyscalls::shutdown(int how) {
     lwipToSyscallError(err);
     return -1;
   }
+
+  ReadyMask changed = ReadyNone;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+    if (rx) {
+      m_Metadata.closed = true;
+      changed |= ReadyRead | ReadyReadHangup;
+    }
+    if (tx) {
+      m_Metadata.writeClosed = true;
+      changed |= ReadyWrite;
+    }
+    if ((m_Metadata.closed || m_Metadata.peerClosed) && m_Metadata.writeClosed) {
+      changed |= ReadyHangup;
+    }
+  }
+  notifyReadiness(changed);
 
   return 0;
 }
@@ -1503,6 +1870,41 @@ bool LwipSocketSyscalls::canPoll() const {
   return true;
 }
 
+ReadyMask LwipSocketSyscalls::queryReady(bool reading, bool writing) {
+  // An epoll watch can outlive the last descriptor alias. Admit the complete
+  // snapshot before touching transport state so close waits for this query.
+  OperationBarrier::Lease query;
+  if (!m_ReadinessNotifications.tryAcquire(query)) {
+    return ReadyInvalid | ReadyHangup;
+  }
+
+  if (hasLastDescriptorClosed()) {
+    return ReadyInvalid | ReadyHangup;
+  }
+
+  ReadyMask ready = ReadyNone;
+  ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
+
+  if (reading &&
+      (m_Metadata.recv || m_Metadata.partialRead || m_Metadata.closed || m_Metadata.peerClosed)) {
+    ready |= ReadyRead;
+  }
+  if (writing && m_Metadata.send && m_Metadata.error == ERR_OK) {
+    ready |= ReadyWrite;
+  }
+  if (m_Metadata.closed || m_Metadata.peerClosed) {
+    ready |= ReadyReadHangup;
+  }
+  if ((m_Metadata.closed || m_Metadata.peerClosed) && m_Metadata.writeClosed) {
+    ready |= ReadyHangup;
+  }
+  if (m_Metadata.error != ERR_OK) {
+    ready |= ReadyError;
+  }
+
+  return ready;
+}
+
 bool LwipSocketSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* waiter) {
   bool ok = false;
 
@@ -1519,7 +1921,7 @@ bool LwipSocketSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* w
   }
 
   if (read) {
-    read = m_Metadata.recv || m_Metadata.pb || m_Metadata.closed;
+    read = m_Metadata.recv || m_Metadata.partialRead || m_Metadata.closed || m_Metadata.peerClosed;
     ok = ok || read;
   }
 
@@ -1550,56 +1952,81 @@ void LwipSocketSyscalls::unPoll(Semaphore* waiter) {
 }
 
 void LwipSocketSyscalls::netconnCallback(struct netconn* conn, enum netconn_evt evt, u16_t len) {
-  ConstexprLockGuard<Mutex, THREADS> objectsGuard(m_SyscallObjectsLock);
-  LwipSocketSyscalls* obj = m_SyscallObjects.lookup(conn);
-  if (!obj) {
-    // Accepted netconns can receive data before accept() has associated a
-    // Pedigree descriptor. lwIP initializes socket to -1 for this exact
-    // handoff and invokes this callback while holding its core lock.
-    if (conn && conn->socket < 0 && evt == NETCONN_EVT_RCVPLUS) {
-      --conn->socket;
+  LwipSocketSyscalls* obj = nullptr;
+  OperationBarrier::Lease notification;
+  {
+    ConstexprLockGuard<Mutex, THREADS> objectsGuard(m_SyscallObjectsLock);
+    obj = m_SyscallObjects.lookup(conn);
+    if (!obj) {
+      // Accepted netconns can receive data before accept() has associated a
+      // Pedigree descriptor. lwIP initializes socket to -1 for this exact
+      // handoff and invokes this callback while holding its core lock.
+      if (conn && conn->socket < 0 && evt == NETCONN_EVT_RCVPLUS) {
+        --conn->socket;
+      }
+      return;
     }
-    return;
-  }
 
-  ConstexprLockGuard<Mutex, THREADS> guard(obj->m_Metadata.lock);
-
-  switch (evt) {
-    case NETCONN_EVT_RCVPLUS:
-      N_NOTICE("RCV+");
-      ++(obj->m_Metadata.recv);
-      break;
-    case NETCONN_EVT_RCVMINUS:
-      N_NOTICE("RCV-");
-      if (obj->m_Metadata.recv) {
-        --(obj->m_Metadata.recv);
-      }
-      break;
-    case NETCONN_EVT_SENDPLUS:
-      N_NOTICE("SND+");
-      obj->m_Metadata.send = 1;
-      break;
-    case NETCONN_EVT_SENDMINUS:
-      N_NOTICE("SND-");
-      obj->m_Metadata.send = 0;
-      break;
-    case NETCONN_EVT_ERROR:
-      N_NOTICE("ERR");
-      obj->m_Metadata.error = netconn_err(conn);
-      if (obj->m_Metadata.error == ERR_OK) {
-        obj->m_Metadata.error = ERR_IF;
-      }
-      break;
-    default:
-      N_NOTICE("Unknown netconn callback error.");
-  }
-
-  /// \todo need a way to do this with lwip when threads are off
-  EMIT_IF(THREADS) {
-    for (auto& it : obj->m_Metadata.semaphores) {
-      it->release();
+    if (!obj->m_ReadinessNotifications.tryAcquire(notification)) {
+      return;
     }
   }
+
+  ReadyMask changed = ReadyNone;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(obj->m_Metadata.lock);
+
+    switch (evt) {
+      case NETCONN_EVT_RCVPLUS:
+        N_NOTICE("RCV+");
+        ++(obj->m_Metadata.recv);
+        changed |= ReadyRead;
+        if (NETCONNTYPE_GROUP(conn->type) == NETCONN_TCP && !len && !obj->m_Metadata.listening) {
+          obj->m_Metadata.peerClosed = true;
+          changed |= ReadyReadHangup;
+          if (obj->m_Metadata.writeClosed) {
+            changed |= ReadyHangup;
+          }
+        }
+        break;
+      case NETCONN_EVT_RCVMINUS:
+        N_NOTICE("RCV-");
+        if (obj->m_Metadata.recv) {
+          --(obj->m_Metadata.recv);
+        }
+        break;
+      case NETCONN_EVT_SENDPLUS:
+        N_NOTICE("SND+");
+        obj->m_Metadata.send = 1;
+        changed |= ReadyWrite;
+        break;
+      case NETCONN_EVT_SENDMINUS:
+        N_NOTICE("SND-");
+        obj->m_Metadata.send = 0;
+        changed |= ReadyWrite;
+        break;
+      case NETCONN_EVT_ERROR:
+        N_NOTICE("ERR");
+        obj->m_Metadata.error = netconn_err(conn);
+        if (obj->m_Metadata.error == ERR_OK) {
+          obj->m_Metadata.error = ERR_IF;
+        }
+        changed |= ReadyError;
+        break;
+      default:
+        N_NOTICE("Unknown netconn callback error.");
+    }
+
+    /// \todo need a way to do this with lwip when threads are off
+    EMIT_IF(THREADS) {
+      for (auto& it : obj->m_Metadata.semaphores) {
+        it->release();
+      }
+    }
+  }
+
+  // Observers can re-enter queryReady(), which takes m_Metadata.lock.
+  obj->notifyReadiness(changed);
 }
 
 void LwipSocketSyscalls::lwipToSyscallError(err_t err) {
@@ -1614,52 +2041,303 @@ LwipSocketSyscalls::LwipMetadata::LwipMetadata()
       send(0),
       error(ERR_OK),
       closed(false),
+      peerClosed(false),
+      writeClosed(false),
+      listening(false),
+      partialRead(false),
       lock(),
       semaphores(),
       offset(0),
       pb(nullptr),
       buf(nullptr) {}
 
+enum class UnixSocketReferenceOwnership { Heap, Vfs };
+
+class UnixSocketReference {
+ public:
+  UnixSocketReference(UnixSocket* socket, UnixSocketReferenceOwnership ownership)
+      : m_Socket(socket), m_Ownership(ownership) {}
+
+  ~UnixSocketReference() {
+    if (!m_Socket) {
+      return;
+    }
+
+    if (m_Ownership == UnixSocketReferenceOwnership::Vfs) {
+      releaseTrackedUnixSocket(m_Socket);
+    } else {
+      delete m_Socket;
+    }
+  }
+
+  UnixSocket* get() const {
+    return m_Socket;
+  }
+
+ private:
+  UnixSocket* m_Socket;
+  UnixSocketReferenceOwnership m_Ownership;
+};
+
+class UnixSocketGeneration {
+ public:
+  UnixSocketGeneration(const SharedPointer<UnixSocketReference>& reference, bool removeNamespace)
+      : m_Reference(reference), m_RemoveNamespace(removeNamespace), m_Retired(false) {}
+
+  ~UnixSocketGeneration() {
+    retire();
+
+    UnixSocket* socket = get();
+    List<UnixSocket*> peers;
+    UnixSocketSyscalls::unregisterSocket(socket, peers);
+    for (auto peer : peers) {
+      UnixSocketSyscalls::notifySocket(
+          peer, ReadyRead | ReadyWrite | ReadyError | ReadyReadHangup | ReadyHangup);
+    }
+
+    if (m_RemoveNamespace && socket && socket->getName().length() && socket->getParent()) {
+      Directory* parent = Directory::fromFile(socket->getParent());
+      parent->getFilesystem()->remove(parent, socket);
+    }
+  }
+
+  UnixSocket* get() const {
+    return m_Reference ? m_Reference->get() : nullptr;
+  }
+
+  SharedPointer<UnixSocketReference> reference() const {
+    return m_Reference;
+  }
+
+  void retire() {
+    if (m_Retired.compareAndSwap(false, true)) {
+      UnixSocket* socket = get();
+      if (socket) {
+        socket->unbind();
+      }
+    }
+  }
+
+ private:
+  SharedPointer<UnixSocketReference> m_Reference;
+  bool m_RemoveNamespace;
+  Atomic<bool> m_Retired;
+};
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+using UnixEndpointReceiveLeaseHook = void (*)();
+static UnixEndpointReceiveLeaseHook g_UnixEndpointReceiveLeaseHook = nullptr;
+#endif
+
 UnixSocketSyscalls::UnixSocketSyscalls(int domain, int type, int protocol)
     : NetworkSyscalls(domain, type, protocol),
-      m_Socket(nullptr),
-      m_Remote(nullptr),
-      m_RemoteTracked(false),
+      m_EndpointStateLock(),
+      m_EndpointMutationLock(),
+      m_LocalEndpoint(),
+      m_RemoteEndpoint(),
       m_LocalPath(),
       m_RemotePath() {}
 
 UnixSocketSyscalls::~UnixSocketSyscalls() {
-  N_NOTICE("UnixSocketSyscalls::~UnixSocketSyscalls");
-  if (m_Socket) {
-    UnixSocket* socket = m_Socket;
-    m_Socket = nullptr;
-    socket->unbind();
-    if (m_LocalPath.length()) {
-      if (socket->getName().length() && socket->getParent()) {
-        Directory* parent = Directory::fromFile(socket->getParent());
-        parent->getFilesystem()->remove(parent, socket);
-      }
-      socket->releaseVfsReference();
-    } else {
-      delete socket;
-    }
+  lastDescriptorClosed();
+}
+
+void UnixSocketSyscalls::registerSocket(UnixSocket* socket) {
+  if (!socket) {
+    return;
   }
 
-  if (m_RemoteTracked) {
-    UnixSocket* remote = m_Remote;
-    m_Remote = nullptr;
-    m_RemoteTracked = false;
-    releaseTrackedUnixSocket(remote);
+  ConstexprLockGuard<Mutex, THREADS> guard(m_SyscallObjectsLock);
+  UnixSocketSyscalls* current = m_SyscallObjects.lookup(socket);
+  if (!current) {
+    m_SyscallObjects.insert(socket, this);
+  } else if (current != this) {
+    FATAL("A Unix socket has multiple NetworkSyscalls owners.");
+  }
+
+  // Accepted sockets are registered after leaving the listener queue.
+  m_PendingListeners.remove(socket);
+}
+
+void UnixSocketSyscalls::registerPeer(UnixSocket* socket, UnixSocket* peer, UnixSocket* listener) {
+  if (!socket || !peer) {
+    return;
+  }
+
+  ConstexprLockGuard<Mutex, THREADS> guard(m_SyscallObjectsLock);
+  m_Peers.insert(socket, peer);
+  m_Peers.insert(peer, socket);
+  if (listener) {
+    m_PendingListeners.insert(peer, listener);
   }
 }
 
+void UnixSocketSyscalls::unregisterPeer(UnixSocket* socket, UnixSocket* peer) {
+  if (!socket || !peer) {
+    return;
+  }
+
+  ConstexprLockGuard<Mutex, THREADS> guard(m_SyscallObjectsLock);
+  if (m_Peers.lookup(socket) == peer) {
+    m_Peers.remove(socket);
+  }
+  if (m_Peers.lookup(peer) == socket) {
+    m_Peers.remove(peer);
+  }
+  m_PendingListeners.remove(peer);
+}
+
+void UnixSocketSyscalls::unregisterSocket(UnixSocket* socket, List<UnixSocket*>& peers) {
+  if (!socket) {
+    return;
+  }
+
+  List<UnixSocket*> pendingEndpoints;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_SyscallObjectsLock);
+    m_SyscallObjects.remove(socket);
+
+    UnixSocket* peer = m_Peers.lookup(socket);
+    if (peer) {
+      peers.pushBack(peer);
+      m_Peers.remove(socket);
+      if (m_Peers.lookup(peer) == socket) {
+        m_Peers.remove(peer);
+      }
+      m_PendingListeners.remove(peer);
+    }
+    m_PendingListeners.remove(socket);
+
+    // A closing listener owns queued endpoints which do not have syscall
+    // wrappers yet. Preserve their client endpoint keys until after unbind()
+    // has changed the shared connection state, then notify those clients.
+    for (Tree<UnixSocket*, UnixSocket*>::Iterator it = m_PendingListeners.begin();
+         it != m_PendingListeners.end(); ++it) {
+      if (it.value() == socket) {
+        pendingEndpoints.pushBack(it.key());
+      }
+    }
+
+    for (auto pending : pendingEndpoints) {
+      UnixSocket* pendingPeer = m_Peers.lookup(pending);
+      if (pendingPeer) {
+        peers.pushBack(pendingPeer);
+        m_Peers.remove(pending);
+        if (m_Peers.lookup(pendingPeer) == pending) {
+          m_Peers.remove(pendingPeer);
+        }
+      }
+      m_PendingListeners.remove(pending);
+    }
+  }
+}
+
+void UnixSocketSyscalls::notifySocket(UnixSocket* socket, ReadyMask mask) {
+  if (!socket || !mask) {
+    return;
+  }
+
+  UnixSocketSyscalls* target = nullptr;
+  OperationBarrier::Lease notification;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_SyscallObjectsLock);
+    target = m_SyscallObjects.lookup(socket);
+    if (!target || !target->m_ReadinessNotifications.tryAcquire(notification)) {
+      return;
+    }
+  }
+
+  // queryReady() may take UnixSocket's connection or buffer locks.
+  target->notifyReadiness(mask);
+}
+
+void UnixSocketSyscalls::notifyPeer(UnixSocket* socket, ReadyMask mask) {
+  UnixSocket* peer = nullptr;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_SyscallObjectsLock);
+    if (socket) {
+      peer = m_Peers.lookup(socket);
+    }
+  }
+
+  notifySocket(peer, mask);
+}
+
+SharedPointer<UnixSocketGeneration> UnixSocketSyscalls::acquireLocalEndpoint() const {
+  ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+  return m_LocalEndpoint;
+}
+
+void UnixSocketSyscalls::replaceLocalEndpoint(UnixSocket* socket, bool tracked,
+                                              bool removeNamespace, const String* localPath) {
+  SharedPointer<UnixSocketReference> reference(new UnixSocketReference(
+      socket, tracked ? UnixSocketReferenceOwnership::Vfs : UnixSocketReferenceOwnership::Heap));
+  SharedPointer<UnixSocketGeneration> replacement(
+      new UnixSocketGeneration(reference, removeNamespace));
+  SharedPointer<UnixSocketGeneration> previous;
+
+  registerSocket(socket);
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+    previous = pedigree_std::move(m_LocalEndpoint);
+    m_LocalEndpoint = pedigree_std::move(replacement);
+    if (localPath) {
+      m_LocalPath = *localPath;
+    }
+  }
+
+  if (previous) {
+    previous->retire();
+  }
+}
+
+void UnixSocketSyscalls::lastDescriptorClosed() {
+  if (!beginDescriptorClose()) {
+    return;
+  }
+
+  SharedPointer<UnixSocketGeneration> local;
+  SharedPointer<UnixSocketReference> remote;
+  {
+    LockGuard<Mutex> mutationGuard(m_EndpointMutationLock);
+    {
+      ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+      local = pedigree_std::move(m_LocalEndpoint);
+      remote = pedigree_std::move(m_RemoteEndpoint);
+      m_LocalPath.clear();
+      m_RemotePath.clear();
+    }
+
+    if (local) {
+      // Wake blocked reads and accepts. Their generation references keep the
+      // retired object alive until those operations have observed closure.
+      local->retire();
+    }
+  }
+  m_ReadinessNotifications.closeAndWait();
+
+  N_NOTICE("UnixSocketSyscalls::~UnixSocketSyscalls");
+  local.reset();
+  remote.reset();
+  closeReadiness(ReadyInvalid | ReadyHangup);
+}
+
 bool UnixSocketSyscalls::create() {
-  if (m_Socket) {
+  LockGuard<Mutex> mutationGuard(m_EndpointMutationLock);
+  if (hasLastDescriptorClosed()) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return false;
+  }
+
+  SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
+  if (local) {
+    registerSocket(local->get());
     return true;
   }
 
   // Create an unnamed unix socket by default.
-  m_Socket = new UnixSocket(String(), g_pUnixFilesystem, nullptr, nullptr, getSocketType());
+  replaceLocalEndpoint(
+      new UnixSocket(String(), g_pUnixFilesystem, nullptr, nullptr, getSocketType()), false, false);
 
   return true;
 }
@@ -1669,6 +2347,18 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
   if (!unixSocketPath(address, addrlen, pathname, false)) {
     return -1;
   }
+
+  LockGuard<Mutex> mutationGuard(m_EndpointMutationLock);
+  if (hasLastDescriptorClosed()) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
+  if (!local) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  UnixSocket* localSocket = local->get();
 
   N_NOTICE(" -> unix connect: '" << pathname << "'");
 
@@ -1704,19 +2394,23 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
     // Pair first so accept can never observe an endpoint before its peer
     // exists. addSocket activates and queues the connection atomically;
     // accept only transfers ownership of the queued endpoint.
-    if (!m_Socket->bind(remote, false)) {
+    if (!localSocket->bind(remote, false)) {
       delete remote;
       SYSCALL_ERROR(IsConnected);
       releaseTrackedUnixSocket(target);
       return -1;
     }
+    registerPeer(localSocket, remote, target);
     if (!target->addSocket(remote)) {
+      unregisterPeer(localSocket, remote);
       remote->failConnection();
       delete remote;
       SYSCALL_ERROR(ConnectionRefused);
       releaseTrackedUnixSocket(target);
       return -1;
     }
+    notifySocket(target, ReadyRead);
+    notifyReadiness(ReadyWrite);
     N_NOTICE(" -> stream connected and queued");
   } else {
     if (target->getType() != UnixSocket::Datagram) {
@@ -1727,14 +2421,21 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
     N_NOTICE(" -> dgram");
   }
 
-  if (m_RemoteTracked) {
-    releaseTrackedUnixSocket(m_Remote);
+  SharedPointer<UnixSocketReference> previousRemote;
+  SharedPointer<UnixSocketReference> targetReference(
+      new UnixSocketReference(target, UnixSocketReferenceOwnership::Vfs));
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+    previousRemote = pedigree_std::move(m_RemoteEndpoint);
+    m_RemoteEndpoint = pedigree_std::move(targetReference);
+    m_RemotePath = pathname;
   }
-  m_Remote = target;
-  m_RemoteTracked = true;
-  m_RemotePath = pedigree_std::move(pathname);
 
-  N_NOTICE(" -> remote is now " << m_RemotePath);
+  if (getType() != SOCK_STREAM) {
+    notifyReadiness(ReadyWrite);
+  }
+
+  N_NOTICE(" -> remote is now " << pathname);
 
   if (getType() == SOCK_STREAM && !isBlocking()) {
     SYSCALL_ERROR(InProgress);
@@ -1747,16 +2448,38 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
 ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
   N_NOTICE("UnixSocketSyscalls::sendto_msg");
 
-  UnixSocket* remote = getRemote();
-  UnixSocket* temporaryRemote = nullptr;
+  SharedPointer<UnixSocketGeneration> local;
+  SharedPointer<UnixSocketReference> remoteReference;
+  String localPath;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+    local = m_LocalEndpoint;
+    remoteReference = m_RemoteEndpoint;
+    localPath = m_LocalPath;
+  }
+  if (!local) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
+  UnixSocket* localSocket = local->get();
+  if (getType() == SOCK_STREAM) {
+    if (localSocket->wasConnected()) {
+      remoteReference = local->reference();
+    } else {
+      remoteReference.reset();
+    }
+  }
+
+  UnixSocket* remote = remoteReference ? remoteReference->get() : nullptr;
   if (getType() == SOCK_STREAM && !remote) {
-    const bool closed = m_Socket && m_Socket->getState() == UnixSocket::Closed;
+    const bool closed = localSocket->getState() == UnixSocket::Closed;
     N_NOTICE(" -> " << (closed ? "closed" : "not connected"));
     syscallError(closed ? Error::BrokenPipe : Error::NotConnected);
     return -1;
   }
 
-  if (!m_Remote && getType() != SOCK_STREAM) {
+  if (!remote && getType() != SOCK_STREAM) {
     if (!msghdr->msg_name) {
       /// \todo needs some sort of errno here
       N_NOTICE(" -> sendto on unconnected socket with no address");
@@ -1786,39 +2509,95 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
       return -1;
     }
 
-    remote = static_cast<UnixSocket*>(file);
-    temporaryRemote = remote;
+    remoteReference.reset(
+        new UnixSocketReference(static_cast<UnixSocket*>(file), UnixSocketReferenceOwnership::Vfs));
+    remote = remoteReference->get();
   }
 
   if (getType() != SOCK_STREAM && (!remote || remote->getType() != UnixSocket::Datagram ||
                                    remote->getState() == UnixSocket::Closed)) {
-    releaseTrackedUnixSocket(temporaryRemote);
     syscallError(remote && remote->getType() != UnixSocket::Datagram ? Error::ProtocolWrongType
                                                                      : Error::ConnectionRefused);
     return -1;
   }
 
+  if (getType() == SOCK_STREAM) {
+    bool hasPayload = false;
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
+      if (msghdr->msg_iov[i].iov_len) {
+        hasPayload = true;
+        break;
+      }
+    }
+    if (!hasPayload) {
+      return 0;
+    }
+  }
+
   N_NOTICE(" -> transmitting!");
 
   uint64_t numWritten = 0;
-  for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
-    void* buffer = msghdr->msg_iov[i].iov_base;
-    size_t bufferlen = msghdr->msg_iov[i].iov_len;
-
-    uint64_t thisWrite =
-        remote->write(reinterpret_cast<uintptr_t>(static_cast<const char*>(m_LocalPath)), bufferlen,
-                      reinterpret_cast<uintptr_t>(buffer), isBlocking());
-
-    if (!thisWrite) {
-      // eof or some other similar condition
-      break;
+  bool completedWrite = false;
+  if (getType() == SOCK_DGRAM) {
+    size_t datagramLength = 0;
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
+      if (msghdr->msg_iov[i].iov_len > static_cast<size_t>(SSIZE_MAX) - datagramLength) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      datagramLength += msghdr->msg_iov[i].iov_len;
     }
 
-    numWritten += thisWrite;
+    UniqueArray<uint8_t> datagram;
+    const void* buffer = nullptr;
+    if (msghdr->msg_iovlen == 1) {
+      buffer = msghdr->msg_iov[0].iov_base;
+    } else if (datagramLength) {
+      datagram = UniqueArray<uint8_t>::allocate(datagramLength);
+      size_t offset = 0;
+      for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
+        MemoryCopy(datagram.get() + offset, msghdr->msg_iov[i].iov_base,
+                   msghdr->msg_iov[i].iov_len);
+        offset += msghdr->msg_iov[i].iov_len;
+      }
+      buffer = datagram.get();
+    }
+
+    numWritten = remote->write(reinterpret_cast<uintptr_t>(localPath.cstr()), datagramLength,
+                               reinterpret_cast<uintptr_t>(buffer), isBlocking());
+    completedWrite = numWritten || !datagramLength;
+  } else {
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
+      void* buffer = msghdr->msg_iov[i].iov_base;
+      size_t bufferlen = msghdr->msg_iov[i].iov_len;
+      if (!bufferlen) {
+        continue;
+      }
+
+      uint64_t thisWrite = remote->write(reinterpret_cast<uintptr_t>(localPath.cstr()), bufferlen,
+                                         reinterpret_cast<uintptr_t>(buffer), isBlocking());
+
+      if (!thisWrite) {
+        // eof or some other similar condition
+        break;
+      }
+
+      numWritten += thisWrite;
+      if (thisWrite < bufferlen) {
+        break;
+      }
+    }
+    completedWrite = numWritten;
   }
-  releaseTrackedUnixSocket(temporaryRemote);
-  if (!numWritten) {
-    if (getType() == SOCK_STREAM && m_Socket->getState() == UnixSocket::Closed) {
+  if (completedWrite) {
+    if (getType() == SOCK_STREAM) {
+      notifyPeer(localSocket, ReadyRead);
+    } else {
+      notifySocket(remote, ReadyRead);
+    }
+  }
+  if (!completedWrite) {
+    if (getType() == SOCK_STREAM && localSocket->getState() == UnixSocket::Closed) {
       SYSCALL_ERROR(BrokenPipe);
       N_NOTICE(" -> -1 (EPIPE)");
       return -1;
@@ -1835,20 +2614,82 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr) {
 }
 
 ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
+  SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
+  if (!local) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  UnixSocket* localSocket = local->get();
+
   String remote;
   uint64_t numRead = 0;
-  for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
-    void* buffer = msghdr->msg_iov[i].iov_base;
-    size_t bufferlen = msghdr->msg_iov[i].iov_len;
-
-    uint64_t thisRead =
-        m_Socket->recvfrom(bufferlen, reinterpret_cast<uintptr_t>(buffer), isBlocking(), remote);
-    if (!thisRead) {
-      // eof or some other similar condition
-      break;
+  if (getType() == SOCK_DGRAM) {
+    size_t datagramCapacity = 0;
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
+      if (msghdr->msg_iov[i].iov_len > static_cast<size_t>(SSIZE_MAX) - datagramCapacity) {
+        SYSCALL_ERROR(InvalidArgument);
+        return -1;
+      }
+      datagramCapacity += msghdr->msg_iov[i].iov_len;
     }
 
-    numRead += thisRead;
+    UniqueArray<uint8_t> datagram;
+    void* buffer = nullptr;
+    if (msghdr->msg_iovlen == 1) {
+      buffer = msghdr->msg_iov[0].iov_base;
+    } else if (datagramCapacity) {
+      datagram = UniqueArray<uint8_t>::allocate(datagramCapacity);
+      buffer = datagram.get();
+    }
+
+    numRead = localSocket->recvfrom(datagramCapacity, reinterpret_cast<uintptr_t>(buffer),
+                                    isBlocking(), remote);
+    if (numRead && msghdr->msg_iovlen != 1) {
+      size_t offset = 0;
+      for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen) && offset < numRead; ++i) {
+        const size_t remaining = static_cast<size_t>(numRead) - offset;
+        const size_t amount =
+            msghdr->msg_iov[i].iov_len < remaining ? msghdr->msg_iov[i].iov_len : remaining;
+        MemoryCopy(msghdr->msg_iov[i].iov_base, datagram.get() + offset, amount);
+        offset += amount;
+      }
+    }
+  } else {
+    bool canBlock = isBlocking();
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
+      void* buffer = msghdr->msg_iov[i].iov_base;
+      size_t bufferlen = msghdr->msg_iov[i].iov_len;
+      if (!bufferlen) {
+        continue;
+      }
+
+      uint64_t thisRead =
+          localSocket->recvfrom(bufferlen, reinterpret_cast<uintptr_t>(buffer), canBlock, remote);
+      if (!thisRead) {
+        // eof or some other similar condition
+        break;
+      }
+
+      numRead += thisRead;
+      if (thisRead < bufferlen) {
+        break;
+      }
+      canBlock = false;
+    }
+  }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+  UnixEndpointReceiveLeaseHook leaseHook =
+      __atomic_load_n(&g_UnixEndpointReceiveLeaseHook, __ATOMIC_ACQUIRE);
+  if (leaseHook) {
+    leaseHook();
+  }
+#endif
+
+  if (numRead && getType() == SOCK_STREAM) {
+    // Consuming the incoming stream frees capacity in the peer's outgoing
+    // stream. The peer rechecks the precise level before reporting POLLOUT.
+    notifyPeer(localSocket, ReadyWrite);
   }
 
   if (numRead && msghdr->msg_name) {
@@ -1873,7 +2714,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
   /// \todo get info from the socket about things like truncated buffer
   msghdr->msg_flags = 0;
   if (!numRead) {
-    if (getType() == SOCK_STREAM && m_Socket->getState() == UnixSocket::Closed) {
+    if (getType() == SOCK_STREAM && localSocket->getState() == UnixSocket::Closed) {
       N_NOTICE(" -> 0 (EOF)");
       return 0;
     }
@@ -1891,14 +2732,21 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr) {
 int UnixSocketSyscalls::listen(int backlog) {
   (void)backlog;
 
-  if (m_Socket->getType() != UnixSocket::Streaming) {
+  SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
+  if (!local) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  UnixSocket* localSocket = local->get();
+
+  if (localSocket->getType() != UnixSocket::Streaming) {
     SYSCALL_ERROR(OperationNotSupported);
     return -1;
   }
 
   /// \todo bind to an unnamed socket if we aren't already bound
 
-  if (!m_Socket->markListening()) {
+  if (!localSocket->markListening()) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -1907,8 +2755,6 @@ int UnixSocketSyscalls::listen(int backlog) {
 }
 
 int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t addrlen) {
-  /// \todo unbind existing socket if one exists.
-
   String adjusted_pathname;
   if (!unixSocketPath(address, addrlen, adjusted_pathname, true)) {
     return -1;
@@ -1916,6 +2762,23 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
   if (!adjusted_pathname.length()) {
     /// \todo re-bind an unnamed address if we are bound already
     return 0;
+  }
+
+  LockGuard<Mutex> mutationGuard(m_EndpointMutationLock);
+  if (hasLastDescriptorClosed()) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+    if (!m_LocalEndpoint) {
+      SYSCALL_ERROR(BadFileDescriptor);
+      return -1;
+    }
+    if (m_LocalPath.length()) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
   }
 
   N_NOTICE(" -> unix bind: '" << adjusted_pathname << "'");
@@ -1984,21 +2847,30 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
   }
   N_NOTICE(" -> basename=" << basename);
 
-  // bind() then connect().
-  if (!m_LocalPath.length()) {
-    // just an unnamed socket, safe to delete.
-    delete m_Socket;
-  }
-
-  m_Socket = socket;
-  m_LocalPath = pedigree_std::move(adjusted_pathname);
+  // Readers and acceptors retain the old generation outside the state lock.
+  // Retiring it wakes those operations; destruction waits for their local
+  // SharedPointer copies to leave scope.
+  replaceLocalEndpoint(socket, true, true, &adjusted_pathname);
+  notifyReadiness(ReadyWrite);
 
   return 0;
 }
 
 int UnixSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags) {
   N_NOTICE("unix accept");
-  UnixSocket* remote = m_Socket->getSocket(isBlocking());
+  SharedPointer<UnixSocketGeneration> local;
+  String localPath;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+    local = m_LocalEndpoint;
+    localPath = m_LocalPath;
+  }
+  if (!local) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
+  UnixSocket* remote = local->get()->getSocket(isBlocking());
   if (!remote) {
     N_NOTICE("accept() failed");
     SYSCALL_ERROR(NoMoreProcesses);
@@ -2024,15 +2896,12 @@ int UnixSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addr
     sun->sun_family = AF_UNIX;
 
     UnixSocketSyscalls* obj = new UnixSocketSyscalls(m_Domain, m_Type, m_Protocol);
-    obj->m_Socket = remote;
-    obj->m_Remote = nullptr;
-    obj->m_LocalPath = m_LocalPath;
-    obj->m_RemotePath = String();
+    obj->replaceLocalEndpoint(remote, false, false, &localPath);
     obj->create();
 
     size_t fd = getAvailableDescriptor();
     FileDescriptor* desc = new FileDescriptor;
-    desc->networkImpl = obj;
+    desc->setNetworkImpl(SharedPointer<NetworkSyscalls>(obj));
     desc->fd = fd;
     setSocketDescriptorFlags(desc, flags);
 
@@ -2053,28 +2922,48 @@ int UnixSocketSyscalls::shutdown(int how) {
 
 int UnixSocketSyscalls::getpeername(struct sockaddr_storage* address, socklen_t* address_len) {
   N_NOTICE("UNIX getpeername");
-  if (!m_Socket->wasConnected()) {
+  SharedPointer<UnixSocketGeneration> local;
+  String remotePath;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+    local = m_LocalEndpoint;
+    remotePath = m_RemotePath;
+  }
+  if (!local) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (!local->get()->wasConnected()) {
     SYSCALL_ERROR(NotConnected);
     return -1;
   }
 
   struct sockaddr_un* sun = reinterpret_cast<struct sockaddr_un*>(address);
   sun->sun_family = AF_UNIX;
-  StringCopy(sun->sun_path, m_RemotePath.cstr());
-  *address_len = sizeof(sa_family_t) + m_RemotePath.length() + (m_RemotePath.length() ? 1 : 0);
+  StringCopy(sun->sun_path, remotePath.cstr());
+  *address_len = sizeof(sa_family_t) + remotePath.length() + (remotePath.length() ? 1 : 0);
 
-  N_NOTICE(" -> " << m_RemotePath);
+  N_NOTICE(" -> " << remotePath);
   return 0;
 }
 
 int UnixSocketSyscalls::getsockname(struct sockaddr_storage* address, socklen_t* address_len) {
   N_NOTICE("UNIX getsockname");
+  String localPath;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+    if (!m_LocalEndpoint) {
+      SYSCALL_ERROR(BadFileDescriptor);
+      return -1;
+    }
+    localPath = m_LocalPath;
+  }
   struct sockaddr_un* sun = reinterpret_cast<struct sockaddr_un*>(address);
   sun->sun_family = AF_UNIX;
-  StringCopy(sun->sun_path, m_LocalPath.cstr());
-  *address_len = sizeof(sa_family_t) + m_LocalPath.length() + (m_LocalPath.length() ? 1 : 0);
+  StringCopy(sun->sun_path, localPath.cstr());
+  *address_len = sizeof(sa_family_t) + localPath.length() + (localPath.length() ? 1 : 0);
 
-  N_NOTICE(" -> " << m_LocalPath);
+  N_NOTICE(" -> " << localPath);
   return 0;
 }
 
@@ -2105,8 +2994,14 @@ int UnixSocketSyscalls::getsockopt(int level, int optname, void* optvalue, sockl
 
       int value = getType();
       if (optname == SO_ERROR) {
-        const UnixSocket::SocketState state = m_Socket->getState();
-        if (m_Socket->wasConnected()) {
+        SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
+        if (!local) {
+          SYSCALL_ERROR(BadFileDescriptor);
+          return -1;
+        }
+        UnixSocket* localSocket = local->get();
+        const UnixSocket::SocketState state = localSocket->getState();
+        if (localSocket->wasConnected()) {
           value = 0;
         } else if (state == UnixSocket::Connecting) {
           value = Error::InProgress;
@@ -2122,7 +3017,13 @@ int UnixSocketSyscalls::getsockopt(int level, int optname, void* optvalue, sockl
       return 0;
     } else if (optname == SO_PEERCRED) {
       N_NOTICE(" -> SO_PEERCRED");
-      if (!m_Socket->wasConnected()) {
+      SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
+      if (!local) {
+        SYSCALL_ERROR(BadFileDescriptor);
+        return -1;
+      }
+      UnixSocket* localSocket = local->get();
+      if (!localSocket->wasConnected()) {
         SYSCALL_ERROR(NotConnected);
         return -1;
       }
@@ -2133,7 +3034,7 @@ int UnixSocketSyscalls::getsockopt(int level, int optname, void* optvalue, sockl
 
       // get credentials of other side of this socket
       struct ucred* targetCreds = reinterpret_cast<struct ucred*>(optvalue);
-      struct ucred sourceCreds = m_Socket->getPeerCredentials();
+      struct ucred sourceCreds = localSocket->getPeerCredentials();
 
       N_NOTICE(" --> pid=" << Dec << sourceCreds.pid);
       N_NOTICE(" --> uid=" << Dec << sourceCreds.uid);
@@ -2151,11 +3052,60 @@ int UnixSocketSyscalls::getsockopt(int level, int optname, void* optvalue, sockl
 }
 
 bool UnixSocketSyscalls::canPoll() const {
-  return m_Socket != nullptr;
+  return static_cast<bool>(acquireLocalEndpoint());
+}
+
+ReadyMask UnixSocketSyscalls::queryReady(bool reading, bool writing) {
+  // Endpoint generations are released at final descriptor close, while the
+  // NetworkSyscalls wrapper can remain retained by an epoll watch.
+  OperationBarrier::Lease query;
+  if (!m_ReadinessNotifications.tryAcquire(query)) {
+    return ReadyInvalid | ReadyHangup;
+  }
+
+  if (hasLastDescriptorClosed()) {
+    return ReadyInvalid | ReadyHangup;
+  }
+
+  SharedPointer<UnixSocketGeneration> endpoint = acquireLocalEndpoint();
+  if (!endpoint) {
+    return ReadyInvalid;
+  }
+  UnixSocket* local = endpoint->get();
+
+  const UnixSocket::SocketState state = local->getState();
+  if (state == UnixSocket::Closed) {
+    ReadyMask ready = ReadyHangup;
+    if (reading) {
+      ready |= ReadyRead | ReadyReadHangup;
+    }
+    if (!local->wasConnected()) {
+      ready |= ReadyError;
+    }
+    return ready;
+  }
+
+  ReadyMask ready = ReadyNone;
+  if (reading && local->select(false, 0)) {
+    ready |= ReadyRead;
+  }
+
+  if (writing) {
+    if (getType() == SOCK_DGRAM) {
+      // Datagram POLLOUT describes the local send path. A later sendto may
+      // still race a particular destination becoming full.
+      ready |= ReadyWrite;
+    } else if (local->select(true, 0)) {
+      ready |= ReadyWrite;
+    }
+  }
+
+  return ready;
 }
 
 bool UnixSocketSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* waiter) {
-  UnixSocket* local = m_Socket;
+  SharedPointer<UnixSocketGeneration> endpoint = acquireLocalEndpoint();
+  UnixSocket* local = endpoint ? endpoint->get() : nullptr;
   const bool checkRead = read;
   const bool checkWrite = write;
   read = false;
@@ -2196,49 +3146,83 @@ bool UnixSocketSyscalls::poll(bool& read, bool& write, bool& error, Semaphore* w
 }
 
 void UnixSocketSyscalls::unPoll(Semaphore* waiter) {
-  if (m_Socket) {
-    m_Socket->removeWaiter(waiter);
+  SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
+  if (local) {
+    local->get()->removeWaiter(waiter);
   }
 }
 
 bool UnixSocketSyscalls::monitor(Thread* pThread, Event* pEvent) {
-  if (!m_Socket) {
+  SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
+  if (!local) {
     return false;
   }
 
-  m_Socket->addWaiter(pThread, pEvent);
+  local->get()->addWaiter(pThread, pEvent);
   return true;
 }
 
 bool UnixSocketSyscalls::unmonitor(Event* pEvent) {
-  if (!m_Socket) {
+  SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
+  if (!local) {
     return false;
   }
 
-  m_Socket->removeWaiter(pEvent);
+  local->get()->removeWaiter(pEvent);
   return true;
 }
 
 bool UnixSocketSyscalls::pairWith(UnixSocketSyscalls* other) {
-  if (!m_Socket->bind(other->m_Socket)) {
+  if (!other || other == this) {
     return false;
   }
 
-  // make sure both sides can use the socket
-  other->m_Socket->acknowledgeBind();
+  Mutex* firstMutation = &m_EndpointMutationLock;
+  Mutex* secondMutation = &other->m_EndpointMutationLock;
+  if (reinterpret_cast<uintptr_t>(firstMutation) > reinterpret_cast<uintptr_t>(secondMutation)) {
+    Mutex* temporary = firstMutation;
+    firstMutation = secondMutation;
+    secondMutation = temporary;
+  }
+  LockGuard<Mutex> firstGuard(*firstMutation);
+  LockGuard<Mutex> secondGuard(*secondMutation);
 
-  m_Remote = other->m_Socket;
-  other->m_Remote = m_Socket;
-  return true;
-}
-
-UnixSocket* UnixSocketSyscalls::getRemote() const {
-  UnixSocket* remote = m_Remote;
-  if (getType() == SOCK_STREAM) {
-    remote = m_Socket && m_Socket->wasConnected() ? m_Socket : nullptr;
+  if (hasLastDescriptorClosed() || other->hasLastDescriptorClosed()) {
+    return false;
   }
 
-  return remote;
+  SharedPointer<UnixSocketGeneration> local = acquireLocalEndpoint();
+  SharedPointer<UnixSocketGeneration> otherLocal = other->acquireLocalEndpoint();
+  if (!local || !otherLocal) {
+    return false;
+  }
+
+  UnixSocket* localSocket = local->get();
+  UnixSocket* otherSocket = otherLocal->get();
+  if (!localSocket->bind(otherSocket)) {
+    return false;
+  }
+
+  registerPeer(localSocket, otherSocket);
+
+  // make sure both sides can use the socket
+  otherSocket->acknowledgeBind();
+
+  SharedPointer<UnixSocketReference> previousRemote;
+  SharedPointer<UnixSocketReference> otherPreviousRemote;
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(m_EndpointStateLock);
+    previousRemote = pedigree_std::move(m_RemoteEndpoint);
+    m_RemoteEndpoint = otherLocal->reference();
+  }
+  {
+    ConstexprLockGuard<Mutex, THREADS> guard(other->m_EndpointStateLock);
+    otherPreviousRemote = pedigree_std::move(other->m_RemoteEndpoint);
+    other->m_RemoteEndpoint = local->reference();
+  }
+  notifyReadiness(ReadyWrite);
+  other->notifyReadiness(ReadyWrite);
+  return true;
 }
 
 UnixSocket::SocketType UnixSocketSyscalls::getSocketType() const {
@@ -2248,3 +3232,131 @@ UnixSocket::SocketType UnixSocketSyscalls::getSocketType() const {
 
   return UnixSocket::Datagram;
 }
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+namespace {
+class UnixEndpointLifetimeProbe : public UnixSocket {
+ public:
+  explicit UnixEndpointLifetimeProbe(Atomic<size_t>& destructions)
+      : UnixSocket(String(), nullptr, nullptr, nullptr, UnixSocket::Datagram),
+        m_Destructions(destructions) {}
+
+  ~UnixEndpointLifetimeProbe() override {
+    m_Destructions += 1;
+  }
+
+ private:
+  Atomic<size_t>& m_Destructions;
+};
+
+struct UnixEndpointReplacementContext {
+  explicit UnixEndpointReplacementContext(UnixSocketSyscalls* socket)
+      : socket(socket),
+        receiver(nullptr),
+        continueReceive(0, false),
+        entered(0),
+        leaseHeld(0),
+        returned(0),
+        result(-2) {}
+
+  UnixSocketSyscalls* socket;
+  Thread* receiver;
+  Semaphore continueReceive;
+  Atomic<size_t> entered;
+  Atomic<size_t> leaseHeld;
+  Atomic<size_t> returned;
+  Atomic<ssize_t> result;
+};
+
+UnixEndpointReplacementContext* g_UnixEndpointReplacementContext = nullptr;
+
+void holdRetiredUnixEndpointLease() {
+  UnixEndpointReplacementContext* context = g_UnixEndpointReplacementContext;
+  if (!context || Processor::information().getCurrentThread() != context->receiver) {
+    return;
+  }
+
+  context->leaseHeld += 1;
+  context->continueReceive.acquire();
+}
+
+int blockedUnixEndpointReceive(void* parameter) {
+  UnixEndpointReplacementContext* context =
+      reinterpret_cast<UnixEndpointReplacementContext*>(parameter);
+  char byte = 0;
+  struct iovec vector = {&byte, sizeof(byte)};
+  struct msghdr message = {};
+  message.msg_iov = &vector;
+  message.msg_iovlen = 1;
+
+  context->entered += 1;
+  context->result = context->socket->recvfrom_msg(&message);
+  context->returned += 1;
+  return 0;
+}
+}  // namespace
+
+bool runHostedUnixEndpointLifetimeRegression(Process* process) {
+  constexpr size_t Attempts = 10000;
+  Atomic<size_t> destructions(0);
+  UnixSocketSyscalls socket(AF_UNIX, SOCK_DGRAM, 0);
+  socket.replaceLocalEndpoint(new UnixEndpointLifetimeProbe(destructions), false, false);
+
+  UnixEndpointReplacementContext context(&socket);
+  Thread* receiver =
+      new Thread(process, blockedUnixEndpointReceive, &context, nullptr, false, true, true);
+  receiver->setName("hosted Unix endpoint generation receive");
+  context.receiver = receiver;
+  g_UnixEndpointReplacementContext = &context;
+  __atomic_store_n(&g_UnixEndpointReceiveLeaseHook, &holdRetiredUnixEndpointLease,
+                   __ATOMIC_RELEASE);
+  const bool started = receiver->start();
+
+  bool blocked = false;
+  for (size_t attempt = 0; attempt < Attempts && started; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    uintptr_t debugAddress = 0;
+    if (context.entered == 1 && !context.returned && receiver->getWaitDebugInfo(info) &&
+        info.queue && info.queued && receiver->getDebugState(debugAddress) == Thread::SemWait) {
+      blocked = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+
+  String replacementPath("hosted-replacement");
+  socket.replaceLocalEndpoint(new UnixEndpointLifetimeProbe(destructions), false, false,
+                              &replacementPath);
+  bool leaseHeld = false;
+  for (size_t attempt = 0; attempt < Attempts && started; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    if (context.leaseHeld == 1 && receiver->getWaitDebugInfo(info) && info.queue && info.queued &&
+        info.channelOwner == &context.continueReceive) {
+      leaseHeld = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+  const bool retainedWhileInUse = leaseHeld && destructions == 0;
+  context.continueReceive.release();
+  const bool joined = started && receiver->join();
+  __atomic_store_n(&g_UnixEndpointReceiveLeaseHook, nullptr, __ATOMIC_RELEASE);
+  g_UnixEndpointReplacementContext = nullptr;
+
+  bool passed = started && blocked && retainedWhileInUse && joined && context.returned == 1 &&
+                context.result == 0 && destructions == 1 &&
+                (socket.queryReady(true, true) & ReadyWrite);
+  socket.lastDescriptorClosed();
+  passed = passed && destructions == 2;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL unix-bind-replacement-lifetime: "
+        "endpoint replacement freed a blocked receive generation or failed to wake it");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS unix-bind-replacement-lifetime");
+  return true;
+}
+#endif

@@ -11,13 +11,16 @@
 #include "modules/subsys/posix/PosixProcess.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/UnixFilesystem.h"
+#include "modules/subsys/posix/epoll-syscalls.h"
 #include "modules/subsys/posix/file-syscalls.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/subsys/posix/poll-syscalls.h"
+#include "modules/subsys/posix/select-syscalls.h"
 #include "modules/subsys/posix/system-syscalls.h"
 #include "modules/system/vfs/Directory.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/MemoryMappedFile.h"
+#include "modules/system/vfs/Pipe.h"
 #include "modules/system/vfs/VFS.h"
 #undef PEDIGREE_INIT_SIGRET
 #undef PEDIGREE_SIGRET
@@ -38,6 +41,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include <fcntl.h>
+#include <limits.h>
 #include <sched.h>
 
 #include "modules/subsys/posix/syscalls/posixSyscallNumbers.h"
@@ -46,10 +50,18 @@ extern void system_reset();
 extern "C" bool posixDuplicateInitRollbackPreservesProcessForTest(Process* processIdentity);
 extern "C" void posixSetCloneBeforeStartHookForTest(void (*hook)(Thread*, size_t, void*),
                                                     void* context);
+extern "C" unsigned int posixSelectProjectionForTest(short revents, bool checkRead, bool checkWrite,
+                                                     bool checkExceptional);
+extern "C" int posixSelectTimeoutMillisecondsForTest(timeval timeout);
+extern bool runHostedUsercopyRegressions(Process* process);
 
 namespace {
 constexpr size_t HostedAttempts = 10000;
 constexpr int PollCloseReuseTimeoutMilliseconds = 5000;
+constexpr uint64_t EpollInitialData = 0x1111222233334444ULL;
+constexpr uint64_t EpollOneShotData = 0x5555666677778888ULL;
+constexpr uint64_t EpollRearmedData = 0x9999AAAABBBBCCCCULL;
+constexpr uint64_t EpollAliasData = 0xDDDDEEEEFFFF0001ULL;
 size_t g_RuntimePinnedLifecycleCalls = 0;
 
 struct TerminalBlockedHandlerContext {
@@ -1532,14 +1544,13 @@ bool posixPathLookupLifetime(Process* kernelProcess) {
 
 class PollGenerationProbe : public NetworkSyscalls {
  public:
-  PollGenerationProbe(Atomic<size_t>& registrations, Atomic<size_t>& unpolls,
+  PollGenerationProbe(Atomic<size_t>& queries, Atomic<size_t>& notifications,
                       Atomic<size_t>& destructions)
       : NetworkSyscalls(AF_UNSPEC, SOCK_STREAM, 0),
-        m_Registrations(registrations),
-        m_Unpolls(unpolls),
+        m_Queries(queries),
+        m_Notifications(notifications),
         m_Destructions(destructions),
-        m_Ready(0),
-        m_Waiter(nullptr) {}
+        m_Ready(0) {}
 
   ~PollGenerationProbe() override {
     m_Destructions += 1;
@@ -1585,47 +1596,29 @@ class PollGenerationProbe : public NetworkSyscalls {
     return -1;
   }
 
-  bool canPoll() const override {
-    return true;
-  }
-
-  bool poll(bool& read, bool& write, bool& error, Semaphore* waiter) override {
-    const bool readable = read && m_Ready;
-    read = readable;
-    write = false;
-    error = false;
-    if (waiter && !readable) {
-      m_Waiter = waiter;
-      m_Registrations += 1;
+  ReadyMask queryReady(bool reading, bool writing) override {
+    m_Queries += 1;
+    ReadyMask ready = ReadyNone;
+    if (reading && m_Ready) {
+      ready |= ReadyRead;
     }
-    return readable;
-  }
-
-  void unPoll(Semaphore* waiter) override {
-    m_Unpolls += 1;
-    if (m_Waiter == waiter) {
-      m_Waiter = nullptr;
+    if (writing) {
+      ready |= ReadyWrite;
     }
+    return ready;
   }
 
   void makeReadable() {
     m_Ready = 1;
-    Semaphore* waiter = m_Waiter;
-    if (waiter) {
-      waiter->release();
-    }
-  }
-
-  const void* waiterAddress() const {
-    return m_Waiter;
+    m_Notifications += 1;
+    notifyReadiness(ReadyRead);
   }
 
  private:
-  Atomic<size_t>& m_Registrations;
-  Atomic<size_t>& m_Unpolls;
+  Atomic<size_t>& m_Queries;
+  Atomic<size_t>& m_Notifications;
   Atomic<size_t>& m_Destructions;
   Atomic<size_t> m_Ready;
-  Atomic<Semaphore*> m_Waiter;
 };
 
 struct DescriptorCloseContext {
@@ -1792,7 +1785,9 @@ class DescriptorPositionFile final : public File {
       : File(String("position-policy"), 0, 0, 0, 1, nullptr, 0, nullptr),
         m_Seekable(seekable),
         m_ReadOffset(~static_cast<uint64_t>(0)),
-        m_WriteOffset(~static_cast<uint64_t>(0)) {}
+        m_WriteOffset(~static_cast<uint64_t>(0)),
+        m_ReadCanBlock(true),
+        m_WriteCanBlock(true) {}
 
   bool isSeekable() const override {
     return m_Seekable;
@@ -1806,18 +1801,28 @@ class DescriptorPositionFile final : public File {
     return m_WriteOffset;
   }
 
+  bool readCanBlock() const {
+    return m_ReadCanBlock;
+  }
+
+  bool writeCanBlock() const {
+    return m_WriteCanBlock;
+  }
+
  protected:
   bool isBytewise() const override {
     return true;
   }
 
-  uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t, bool) override {
+  uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t, bool canBlock) override {
     m_ReadOffset = location;
+    m_ReadCanBlock = canBlock;
     return size;
   }
 
-  uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t, bool) override {
+  uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t, bool canBlock) override {
     m_WriteOffset = location;
+    m_WriteCanBlock = canBlock;
     return size;
   }
 
@@ -1825,7 +1830,329 @@ class DescriptorPositionFile final : public File {
   bool m_Seekable;
   uint64_t m_ReadOffset;
   uint64_t m_WriteOffset;
+  bool m_ReadCanBlock;
+  bool m_WriteCanBlock;
 };
+
+class DescriptorAppendFile final : public File {
+ public:
+  DescriptorAppendFile()
+      : File(String("append-policy"), 0, 0, 0, 1, nullptr, 10, nullptr),
+        m_WriteCount(0),
+        m_WriteOffsets{0, 0, 0} {}
+
+  uint64_t writeOffset(size_t index) const {
+    return m_WriteOffsets[index];
+  }
+
+  size_t writeCount() const {
+    return m_WriteCount;
+  }
+
+ protected:
+  bool isBytewise() const override {
+    return true;
+  }
+
+  uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t, bool) override {
+    if (m_WriteCount < 3) {
+      m_WriteOffsets[m_WriteCount] = location;
+    }
+    ++m_WriteCount;
+    if (location + size > getSize()) {
+      setSize(location + size);
+    }
+    return size;
+  }
+
+ private:
+  size_t m_WriteCount;
+  uint64_t m_WriteOffsets[3];
+};
+
+class ConcurrentDescriptorAppendFile final : public File {
+ public:
+  ConcurrentDescriptorAppendFile()
+      : File(String("concurrent-append-policy"), 0, 0, 0, 1, nullptr, 10, nullptr),
+        m_FirstWriteEntered(0, false),
+        m_ReleaseFirstWrite(0, false),
+        m_WriteCount(0),
+        m_WriteOffsets{0, 0} {}
+
+  bool waitForFirstWrite() {
+    return m_FirstWriteEntered.acquireForCompletion();
+  }
+
+  void releaseFirstWrite() {
+    m_ReleaseFirstWrite.release();
+  }
+
+  size_t writeCount() const {
+    return m_WriteCount;
+  }
+
+  uint64_t writeOffset(size_t index) const {
+    return m_WriteOffsets[index];
+  }
+
+ protected:
+  bool isBytewise() const override {
+    return true;
+  }
+
+  uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t, bool) override {
+    const size_t slot = (m_WriteCount += 1) - 1;
+    if (slot < 2) {
+      m_WriteOffsets[slot] = location;
+    }
+    if (!slot) {
+      m_FirstWriteEntered.release();
+      if (!m_ReleaseFirstWrite.acquireForCompletion()) {
+        return 0;
+      }
+    }
+    if (location + size > getSize()) {
+      setSize(location + size);
+    }
+    return size;
+  }
+
+ private:
+  Semaphore m_FirstWriteEntered;
+  Semaphore m_ReleaseFirstWrite;
+  Atomic<size_t> m_WriteCount;
+  uint64_t m_WriteOffsets[2];
+};
+
+struct ConcurrentDescriptorAppendContext {
+  explicit ConcurrentDescriptorAppendContext(FileDescriptor* descriptor)
+      : descriptor(descriptor), entered(0), returned(0), result(0) {}
+
+  FileDescriptor* descriptor;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+  Atomic<uint64_t> result;
+};
+
+int appendThroughDescriptor(void* parameter) {
+  ConcurrentDescriptorAppendContext* context =
+      reinterpret_cast<ConcurrentDescriptorAppendContext*>(parameter);
+  char byte = 0;
+  context->entered += 1;
+  context->result = context->descriptor->write(1, reinterpret_cast<uintptr_t>(&byte));
+  context->returned += 1;
+  return context->result == 1 ? 0 : 1;
+}
+
+bool concurrentDescriptorAppendSerialization(Process* kernelProcess, bool positionedSecond) {
+  ConcurrentDescriptorAppendFile file;
+  FileDescriptor first(&file, 0, 0, 0, O_WRONLY | O_APPEND);
+  FileDescriptor second(&file, positionedSecond ? 20 : 0, 0, 0,
+                        positionedSecond ? O_WRONLY : O_WRONLY | O_APPEND);
+  ConcurrentDescriptorAppendContext firstContext(&first);
+  ConcurrentDescriptorAppendContext secondContext(&second);
+
+  Thread* firstWorker =
+      new Thread(kernelProcess, appendThroughDescriptor, &firstContext, nullptr, false, true, true);
+  Thread* secondWorker = new Thread(kernelProcess, appendThroughDescriptor, &secondContext, nullptr,
+                                    false, true, true);
+  firstWorker->setName("hosted first independent append");
+  if (positionedSecond) {
+    secondWorker->setName("hosted positioned append race");
+  } else {
+    secondWorker->setName("hosted second independent append");
+  }
+
+  const bool firstStarted = firstWorker->start();
+  const bool firstEntered = firstStarted && file.waitForFirstWrite();
+  const bool secondStarted = firstEntered && secondWorker->start();
+  bool secondBlocked = false;
+  for (size_t attempt = 0; attempt < HostedAttempts && secondStarted; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    uintptr_t debugAddress = 0;
+    if (secondContext.entered && !secondContext.returned && file.writeCount() == 1 &&
+        secondWorker->getWaitDebugInfo(info) && info.queued &&
+        secondWorker->getDebugState(debugAddress) == Thread::SemWait) {
+      secondBlocked = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+
+  file.releaseFirstWrite();
+  const bool firstJoined = firstStarted && firstWorker->joinForCompletion();
+  const bool secondJoined = secondStarted && secondWorker->joinForCompletion();
+  if (!firstStarted) {
+    delete firstWorker;
+  }
+  if (!secondStarted) {
+    delete secondWorker;
+  }
+
+  const bool separateDescriptions =
+      first.acquireOpenFileDescription().get() != second.acquireOpenFileDescription().get();
+  const uint64_t expectedSecondOffset = positionedSecond ? 20 : 11;
+  const uint64_t expectedSize = positionedSecond ? 21 : 12;
+  const uint64_t expectedSecondPosition = positionedSecond ? 21 : 12;
+  return firstStarted && firstEntered && secondStarted && secondBlocked && firstJoined &&
+         secondJoined && firstContext.returned == 1 && secondContext.returned == 1 &&
+         firstContext.result == 1 && secondContext.result == 1 && separateDescriptions &&
+         file.writeCount() == 2 && file.writeOffset(0) == 10 &&
+         file.writeOffset(1) == expectedSecondOffset && file.getSize() == expectedSize &&
+         first.getOffset() == 11 && second.getOffset() == expectedSecondPosition;
+}
+
+bool independentDescriptorAppendSerialization(Process* kernelProcess) {
+  return concurrentDescriptorAppendSerialization(kernelProcess, false) &&
+         concurrentDescriptorAppendSerialization(kernelProcess, true);
+}
+
+bool descriptorOpenFileDescriptionState() {
+  DescriptorPositionFile file(true);
+  FileDescriptor source(&file, 0, 19, 0, O_RDWR | O_CLOEXEC);
+  FileDescriptor alias(source);
+  alias.setFlags(0);
+  FileDescriptor::OpenFileDescriptionLease sourceDescription = source.acquireOpenFileDescription();
+  FileDescriptor::OpenFileDescriptionLease aliasDescription = alias.acquireOpenFileDescription();
+
+  source.addStatusFlag(O_NONBLOCK | O_CLOEXEC);
+  bool passed = source.getFlags() == FD_CLOEXEC && alias.getFlags() == 0 &&
+                source.getStatusFlags() == (O_RDWR | O_NONBLOCK) &&
+                alias.getStatusFlags() == (O_RDWR | O_NONBLOCK) &&
+                sourceDescription == aliasDescription && sourceDescription->getFile() == &file &&
+                !sourceDescription->getNetworkImpl() &&
+                sourceDescription->descriptorOwnerCount() == 2;
+
+  {
+    FileDescriptor third(alias);
+    passed = passed && sourceDescription->descriptorOwnerCount() == 3;
+  }
+  passed = passed && sourceDescription->descriptorOwnerCount() == 2;
+
+  alias.setStatusFlags(O_APPEND | O_CLOEXEC);
+  passed = passed && source.getStatusFlags() == (O_RDWR | O_APPEND) &&
+           alias.getStatusFlags() == (O_RDWR | O_APPEND) && source.getFlags() == FD_CLOEXEC &&
+           alias.getFlags() == 0;
+
+  source.removeStatusFlag(O_APPEND);
+  passed = passed && source.getStatusFlags() == O_RDWR && alias.getStatusFlags() == O_RDWR;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL descriptor-open-file-description-state: "
+        "status flags were descriptor-local, access mode was lost, or CLOEXEC entered shared "
+        "state");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS descriptor-open-file-description-state");
+  return true;
+}
+
+bool descriptorOpenFileDescriptionLifetime() {
+  Atomic<size_t> fileDestructions(0);
+  EstablishedAliasFileProbe* file = new EstablishedAliasFileProbe(fileDestructions);
+  VFS::instance().trackFile(file);
+  FileDescriptor* descriptor = new FileDescriptor(file, 0, 0, 0, O_RDWR);
+  const bool baselineWasFinal = VFS::instance().untrackFile(file, false);
+  FileDescriptor::OpenFileDescriptionLease fileDescription =
+      descriptor->acquireOpenFileDescription();
+
+  delete descriptor;
+  bool passed = !baselineWasFinal && !fileDestructions &&
+                fileDescription->descriptorOwnerCount() == 0 && fileDescription->getFile() == file;
+  fileDescription.reset();
+  passed = passed && fileDestructions == 1;
+  repairAliasFileProbe(file, fileDestructions);
+
+  Atomic<size_t> registrations(0);
+  Atomic<size_t> unpolls(0);
+  Atomic<size_t> networkDestructions(0);
+  FileDescriptor* socketDescriptor = new FileDescriptor;
+  SharedPointer<NetworkSyscalls> network(
+      new PollGenerationProbe(registrations, unpolls, networkDestructions));
+  socketDescriptor->setNetworkImpl(network);
+  network.reset();
+  FileDescriptor::OpenFileDescriptionLease socketDescription =
+      socketDescriptor->acquireOpenFileDescription();
+
+  delete socketDescriptor;
+  passed = passed && !networkDestructions && socketDescription->descriptorOwnerCount() == 0 &&
+           socketDescription->getNetworkImpl();
+  socketDescription.reset();
+  passed = passed && networkDestructions == 1;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL descriptor-open-file-description-lifetime: "
+        "an OFD lease did not retain its target independently of descriptor aliases");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS descriptor-open-file-description-lifetime");
+  return true;
+}
+
+bool descriptorAppendPolicy(Process* kernelProcess) {
+  char byte = 0;
+  DescriptorAppendFile file;
+  FileDescriptor source(&file, 2, 0, 0, O_WRONLY | O_APPEND);
+  FileDescriptor alias(source);
+
+  const bool firstWrite = source.write(3, reinterpret_cast<uintptr_t>(&byte)) == 3;
+  source.setOffset(1);
+  const bool secondWrite = alias.write(2, reinterpret_cast<uintptr_t>(&byte)) == 2;
+
+  alias.setStatusFlags(0);
+  source.setOffset(5);
+  const bool positionedWrite = source.write(1, reinterpret_cast<uintptr_t>(&byte)) == 1;
+
+  const bool independentSerialization = independentDescriptorAppendSerialization(kernelProcess);
+  const bool passed = firstWrite && secondWrite && positionedWrite && independentSerialization &&
+                      file.writeCount() == 3 && file.writeOffset(0) == 10 &&
+                      file.writeOffset(1) == 13 && file.writeOffset(2) == 5 &&
+                      file.getSize() == 15 && source.getOffset() == 6 && alias.getOffset() == 6 &&
+                      source.getStatusFlags() == O_WRONLY;
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL descriptor-append-policy: "
+        "append did not serialize EOF selection across open descriptions or update the shared "
+        "offset");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS descriptor-append-policy");
+  return true;
+}
+
+bool descriptorNonblockingPolicy() {
+  char byte = 0;
+  DescriptorPositionFile sequential(false);
+  FileDescriptor source(&sequential, 0, 0, 0, O_RDWR | O_NONBLOCK);
+  FileDescriptor alias(source);
+
+  const bool nonblockingRead = source.read(1, reinterpret_cast<uintptr_t>(&byte)) == 1;
+  const bool nonblockingWrite = source.write(1, reinterpret_cast<uintptr_t>(&byte)) == 1;
+  bool passed = nonblockingRead && nonblockingWrite && !sequential.readCanBlock() &&
+                !sequential.writeCanBlock();
+
+  alias.removeStatusFlag(O_NONBLOCK);
+  const bool blockingRead = source.read(1, reinterpret_cast<uintptr_t>(&byte)) == 1;
+  const bool blockingWrite = source.write(1, reinterpret_cast<uintptr_t>(&byte)) == 1;
+  passed = passed && blockingRead && blockingWrite && sequential.readCanBlock() &&
+           sequential.writeCanBlock() && source.getStatusFlags() == O_RDWR &&
+           alias.getStatusFlags() == O_RDWR;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL descriptor-nonblocking-policy: "
+        "O_NONBLOCK did not reach file I/O or did not propagate across aliases");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS descriptor-nonblocking-policy");
+  return true;
+}
 
 bool descriptorPositionPolicy() {
   char byte = 0;
@@ -1909,6 +2236,325 @@ bool descriptorPositionAliasSerialization(Process* kernelProcess) {
   return true;
 }
 
+class VectorWriteFile final : public File {
+ public:
+  VectorWriteFile()
+      : File(String("vector-write-policy"), 0, 0, 0, 1, nullptr, 0, nullptr),
+        m_FirstWriteEntered(0, false),
+        m_ReleaseFirstWrite(0, false),
+        m_WriteCount(0),
+        m_WriteOffsets{0, 0, 0},
+        m_WriteValues{0, 0, 0} {}
+
+  bool waitForFirstWrite() {
+    return m_FirstWriteEntered.acquireForCompletion();
+  }
+
+  void releaseFirstWrite() {
+    m_ReleaseFirstWrite.release();
+  }
+
+  size_t writeCount() const {
+    return m_WriteCount;
+  }
+
+  uint64_t writeOffset(size_t index) const {
+    return m_WriteOffsets[index];
+  }
+
+  char writeValue(size_t index) const {
+    return m_WriteValues[index];
+  }
+
+ protected:
+  bool isBytewise() const override {
+    return true;
+  }
+
+  uint64_t writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool) override {
+    const size_t slot = (m_WriteCount += 1) - 1;
+    if (slot < 3) {
+      m_WriteOffsets[slot] = location;
+      m_WriteValues[slot] = size ? *reinterpret_cast<const char*>(buffer) : 0;
+    }
+    if (!slot) {
+      m_FirstWriteEntered.release();
+      if (!m_ReleaseFirstWrite.acquireForCompletion()) {
+        return 0;
+      }
+    }
+    if (location + size > getSize()) {
+      setSize(location + size);
+    }
+    return size;
+  }
+
+ private:
+  Semaphore m_FirstWriteEntered;
+  Semaphore m_ReleaseFirstWrite;
+  Atomic<size_t> m_WriteCount;
+  uint64_t m_WriteOffsets[3];
+  char m_WriteValues[3];
+};
+
+struct VectorWriteContext {
+  explicit VectorWriteContext(size_t descriptor)
+      : descriptor(descriptor), result(-2), error(0), returned(0) {}
+
+  size_t descriptor;
+  int result;
+  int error;
+  Atomic<size_t> returned;
+};
+
+int writeThroughVector(void* parameter) {
+  VectorWriteContext* context = reinterpret_cast<VectorWriteContext*>(parameter);
+  Thread* thread = Processor::information().getCurrentThread();
+  char bytes[2] = {'a', 'b'};
+  struct iovec vectors[2] = {{&bytes[0], 1}, {&bytes[1], 1}};
+  thread->setErrno(0);
+  context->result = posix_writev(static_cast<int>(context->descriptor), vectors, 2);
+  context->error = thread->getErrno();
+  context->returned += 1;
+  return 0;
+}
+
+int writeThroughAlias(void* parameter) {
+  VectorWriteContext* context = reinterpret_cast<VectorWriteContext*>(parameter);
+  Thread* thread = Processor::information().getCurrentThread();
+  char byte = 'c';
+  thread->setErrno(0);
+  context->result = posix_write(static_cast<int>(context->descriptor), &byte, 1, false);
+  context->error = thread->getErrno();
+  context->returned += 1;
+  return 0;
+}
+
+bool descriptorVectorIoSerialization(Process* kernelProcess) {
+  constexpr size_t SourceDescriptor = 74;
+  constexpr size_t AliasDescriptor = 75;
+  Process* process = new Process(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+
+  VectorWriteFile original;
+  DescriptorPositionFile replacement(true);
+  FileDescriptor* source = new FileDescriptor(&original, 0, SourceDescriptor, 0, O_WRONLY);
+  FileDescriptor* alias = new FileDescriptor(*source);
+  alias->fd = AliasDescriptor;
+  subsystem->addFileDescriptor(SourceDescriptor, source);
+  subsystem->addFileDescriptor(AliasDescriptor, alias);
+
+  VectorWriteContext vectorContext(SourceDescriptor);
+  VectorWriteContext aliasContext(AliasDescriptor);
+  Thread* vectorWorker =
+      new Thread(process, writeThroughVector, &vectorContext, nullptr, false, true, true);
+  Thread* aliasWorker =
+      new Thread(process, writeThroughAlias, &aliasContext, nullptr, false, true, true);
+  vectorWorker->setName("hosted vector write generation");
+  aliasWorker->setName("hosted vector write alias");
+
+  const bool vectorStarted = vectorWorker->start();
+  const bool firstEntered = vectorStarted && original.waitForFirstWrite();
+  const bool aliasStarted = firstEntered && aliasWorker->start();
+  bool aliasBlocked = false;
+  for (size_t attempt = 0; attempt < HostedAttempts && aliasStarted; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    uintptr_t debugAddress = 0;
+    if (!aliasContext.returned && original.writeCount() == 1 &&
+        aliasWorker->getWaitDebugInfo(info) && info.queued &&
+        aliasWorker->getDebugState(debugAddress) == Thread::SemWait) {
+      aliasBlocked = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+
+  DescriptorLease closingSource;
+  const bool sourceAcquired = subsystem->acquireFileDescriptor(SourceDescriptor, closingSource);
+  const bool sourceClosed =
+      sourceAcquired && subsystem->closeFileDescriptor(SourceDescriptor, closingSource);
+  closingSource.reset();
+  FileDescriptor* replacementDescriptor =
+      new FileDescriptor(&replacement, 0, SourceDescriptor, 0, O_WRONLY);
+  subsystem->addFileDescriptor(SourceDescriptor, replacementDescriptor);
+
+  original.releaseFirstWrite();
+  const bool vectorJoined = vectorStarted && vectorWorker->joinForCompletion();
+  const bool aliasJoined = aliasStarted && aliasWorker->joinForCompletion();
+  if (!vectorStarted) {
+    delete vectorWorker;
+  }
+  if (!aliasStarted) {
+    delete aliasWorker;
+  }
+
+  bool passed = vectorStarted && firstEntered && aliasStarted && aliasBlocked && sourceClosed &&
+                vectorJoined && aliasJoined && vectorContext.returned == 1 &&
+                vectorContext.result == 2 && vectorContext.error == 0 &&
+                aliasContext.returned == 1 && aliasContext.result == 1 && aliasContext.error == 0 &&
+                original.writeCount() == 3 && original.writeOffset(0) == 0 &&
+                original.writeOffset(1) == 1 && original.writeOffset(2) == 2 &&
+                original.writeValue(0) == 'a' && original.writeValue(1) == 'b' &&
+                original.writeValue(2) == 'c' && original.getSize() == 3 &&
+                replacement.writeOffset() == ~static_cast<uint64_t>(0);
+
+  DescriptorLease closingAlias;
+  const bool aliasAcquired = subsystem->acquireFileDescriptor(AliasDescriptor, closingAlias);
+  const bool aliasClosed =
+      aliasAcquired && subsystem->closeFileDescriptor(AliasDescriptor, closingAlias);
+  closingAlias.reset();
+  DescriptorLease closingReplacement;
+  const bool replacementAcquired =
+      subsystem->acquireFileDescriptor(SourceDescriptor, closingReplacement);
+  const bool replacementClosed =
+      replacementAcquired && subsystem->closeFileDescriptor(SourceDescriptor, closingReplacement);
+  closingReplacement.reset();
+  passed = passed && aliasClosed && replacementClosed;
+  delete process;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL descriptor-vector-io-serialization: "
+        "writev switched descriptor generations or released the shared offset between vectors");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS descriptor-vector-io-serialization");
+  return true;
+}
+
+struct DescriptorDupContractContext {
+  DescriptorDupContractContext(PosixSubsystem* subsystem, size_t sourceFd, size_t occupiedFd,
+                               size_t minimum,
+                               const FileDescriptor::OpenFileDescriptionLease& sourceDescription,
+                               const FileDescriptor::OpenFileDescriptionLease& occupiedDescription)
+      : subsystem(subsystem),
+        sourceFd(sourceFd),
+        occupiedFd(occupiedFd),
+        minimum(minimum),
+        sourceDescription(sourceDescription),
+        occupiedDescription(occupiedDescription),
+        duplicateResult(-2),
+        duplicateError(0),
+        occupiedIntact(false),
+        duplicateAliasesSource(false),
+        duplicateFlags(-1),
+        duplicateClosed(false),
+        ordinaryAllocation(static_cast<size_t>(-1)),
+        sameInvalidResult(-2),
+        sameInvalidError(0),
+        returned(0) {}
+
+  PosixSubsystem* subsystem;
+  size_t sourceFd;
+  size_t occupiedFd;
+  size_t minimum;
+  FileDescriptor::OpenFileDescriptionLease sourceDescription;
+  FileDescriptor::OpenFileDescriptionLease occupiedDescription;
+  int duplicateResult;
+  int duplicateError;
+  bool occupiedIntact;
+  bool duplicateAliasesSource;
+  int duplicateFlags;
+  bool duplicateClosed;
+  size_t ordinaryAllocation;
+  int sameInvalidResult;
+  int sameInvalidError;
+  Atomic<size_t> returned;
+};
+
+int exerciseDescriptorDupContract(void* parameter) {
+  DescriptorDupContractContext* context =
+      reinterpret_cast<DescriptorDupContractContext*>(parameter);
+  Thread* thread = Processor::information().getCurrentThread();
+
+  thread->setErrno(0);
+  context->duplicateResult = posix_fcntl(static_cast<int>(context->sourceFd), F_DUPFD,
+                                         reinterpret_cast<void*>(context->minimum));
+  context->duplicateError = thread->getErrno();
+
+  DescriptorLease occupied;
+  if (context->subsystem->acquireFileDescriptor(context->occupiedFd, occupied)) {
+    context->occupiedIntact =
+        occupied->acquireOpenFileDescription().get() == context->occupiedDescription.get();
+  }
+  occupied.reset();
+
+  DescriptorLease duplicate;
+  if (context->duplicateResult >= 0 &&
+      context->subsystem->acquireFileDescriptor(context->duplicateResult, duplicate)) {
+    context->duplicateAliasesSource =
+        duplicate->acquireOpenFileDescription().get() == context->sourceDescription.get();
+    context->duplicateFlags = duplicate->getFlags();
+    context->duplicateClosed = context->subsystem->closeFileDescriptor(
+        static_cast<size_t>(context->duplicateResult), duplicate);
+  }
+  duplicate.reset();
+
+  context->ordinaryAllocation = context->subsystem->getFd();
+
+  constexpr int InvalidDescriptor = 80;
+  thread->setErrno(0);
+  context->sameInvalidResult = posix_dup2(InvalidDescriptor, InvalidDescriptor);
+  context->sameInvalidError = thread->getErrno();
+  context->returned += 1;
+  return 0;
+}
+
+bool descriptorDupContract(Process* kernelProcess) {
+  constexpr size_t SourceDescriptor = 70;
+  constexpr size_t MinimumDescriptor = 72;
+  constexpr size_t ExpectedDescriptor = 73;
+
+  Process* process = new Process(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  File* sourceFile = new File;
+  File* occupiedFile = new File;
+  FileDescriptor* source =
+      new FileDescriptor(sourceFile, 0, SourceDescriptor, FD_CLOEXEC, O_RDONLY);
+  FileDescriptor* occupied = new FileDescriptor(occupiedFile, 0, MinimumDescriptor, 0, O_RDONLY);
+  subsystem->addFileDescriptor(SourceDescriptor, source);
+  subsystem->addFileDescriptor(MinimumDescriptor, occupied);
+
+  DescriptorDupContractContext context(subsystem, SourceDescriptor, MinimumDescriptor,
+                                       MinimumDescriptor, source->acquireOpenFileDescription(),
+                                       occupied->acquireOpenFileDescription());
+  Thread* worker =
+      new Thread(process, exerciseDescriptorDupContract, &context, nullptr, false, true, true);
+  worker->setName("hosted descriptor duplication contract");
+  const bool started = worker->start();
+  const bool joined = started && worker->joinForCompletion();
+  if (!started) {
+    delete worker;
+  }
+
+  const bool passed =
+      started && joined && context.returned == 1 &&
+      context.duplicateResult == static_cast<int>(ExpectedDescriptor) &&
+      context.duplicateError == 0 && context.occupiedIntact && context.duplicateAliasesSource &&
+      context.duplicateFlags == 0 && context.duplicateClosed && context.ordinaryAllocation == 0 &&
+      context.sameInvalidResult == -1 && context.sameInvalidError == Error::BadFileDescriptor;
+
+  delete process;
+  context.sourceDescription.reset();
+  context.occupiedDescription.reset();
+  delete sourceFile;
+  delete occupiedFile;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL descriptor-dup-contract: "
+        "F_DUPFD replaced an occupied descriptor, hid a lower hole, or dup2 accepted an invalid "
+        "same-fd source");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS descriptor-dup-contract");
+  return true;
+}
+
 struct PollCloseReuseContext {
   explicit PollCloseReuseContext(size_t fd)
       : descriptor{static_cast<int>(fd), POLLIN, 0}, result(-2), entered(0), returned(0) {}
@@ -1918,6 +2564,589 @@ struct PollCloseReuseContext {
   Atomic<size_t> entered;
   Atomic<size_t> returned;
 };
+
+bool selectProjectionAndTimeoutContract() {
+  constexpr unsigned int ReadResult = 1U;
+  constexpr unsigned int WriteResult = 1U << 1;
+  constexpr unsigned int ExceptionalResult = 1U << 2;
+  constexpr unsigned int OneReady = 1U << 8;
+  constexpr unsigned int TwoReady = 2U << 8;
+  constexpr unsigned int ThreeReady = 3U << 8;
+
+  const unsigned int hangup = posixSelectProjectionForTest(POLLHUP, true, true, true);
+  const unsigned int error = posixSelectProjectionForTest(POLLERR, true, true, true);
+  const unsigned int priority = posixSelectProjectionForTest(POLLPRI, true, true, true);
+  const unsigned int all =
+      posixSelectProjectionForTest(POLLIN | POLLOUT | POLLPRI, true, true, true);
+  const unsigned int writeOnlyError = posixSelectProjectionForTest(POLLERR, false, true, false);
+
+  const timeval zero = {0, 0};
+  const timeval oneMicrosecond = {0, 1};
+  const timeval oneMillisecond = {0, 1000};
+  const timeval justOverOneMillisecond = {0, 1001};
+  const timeval almostOneSecond = {0, 999999};
+  const timeval exactMaximum = {
+      INT_MAX / 1000,
+      (INT_MAX % 1000) * 1000,
+  };
+  const timeval saturatingBoundary = {
+      INT_MAX / 1000,
+      ((INT_MAX % 1000) + 1) * 1000,
+  };
+  const timeval saturatingSeconds = {
+      static_cast<time_t>(INT_MAX / 1000) + 1,
+      0,
+  };
+
+  const bool projectionsPassed =
+      hangup == (OneReady | ReadResult) && error == (TwoReady | ReadResult | WriteResult) &&
+      priority == (OneReady | ExceptionalResult) &&
+      all == (ThreeReady | ReadResult | WriteResult | ExceptionalResult) &&
+      writeOnlyError == (OneReady | WriteResult);
+  const bool timeoutPassed = posixSelectTimeoutMillisecondsForTest(zero) == 0 &&
+                             posixSelectTimeoutMillisecondsForTest(oneMicrosecond) == 1 &&
+                             posixSelectTimeoutMillisecondsForTest(oneMillisecond) == 1 &&
+                             posixSelectTimeoutMillisecondsForTest(justOverOneMillisecond) == 2 &&
+                             posixSelectTimeoutMillisecondsForTest(almostOneSecond) == 1000 &&
+                             posixSelectTimeoutMillisecondsForTest(exactMaximum) == INT_MAX &&
+                             posixSelectTimeoutMillisecondsForTest(saturatingBoundary) == INT_MAX &&
+                             posixSelectTimeoutMillisecondsForTest(saturatingSeconds) == INT_MAX;
+
+  if (!projectionsPassed || !timeoutPassed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL select-projection-timeout: "
+        "readiness projection, return-bit counting, or timeout rounding was incorrect");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS select-projection-timeout");
+  return true;
+}
+
+struct PipePollReadinessContext {
+  PipePollReadinessContext(size_t readFd, size_t writeFd)
+      : readFd(readFd),
+        writeFd(writeFd),
+        pollEntryGate(0, false),
+        firstPhaseGate(0, false),
+        eofGate(0, false),
+        pollEntered(0),
+        firstPhaseReturned(0),
+        returned(0),
+        emptyReadResult(-2),
+        emptyReadError(0),
+        firstPollResult(-2),
+        firstPollEvents(0),
+        firstReadResult(-2),
+        fillWriteResult(-2),
+        fullWriteResult(-2),
+        fullWriteError(0),
+        atomicSetupDrainResult(-2),
+        atomicVectorResult(-2),
+        atomicVectorError(0),
+        drainResult(-2),
+        overBoundaryWriteResult(-2),
+        overBoundaryDrainResult(-2),
+        eofPollResult(-2),
+        eofPollEvents(0),
+        eofReadResult(-2) {}
+
+  size_t readFd;
+  size_t writeFd;
+  Semaphore pollEntryGate;
+  Semaphore firstPhaseGate;
+  Semaphore eofGate;
+  Atomic<size_t> pollEntered;
+  Atomic<size_t> firstPhaseReturned;
+  Atomic<size_t> returned;
+  int emptyReadResult;
+  int emptyReadError;
+  int firstPollResult;
+  short firstPollEvents;
+  int firstReadResult;
+  int fillWriteResult;
+  int fullWriteResult;
+  int fullWriteError;
+  int atomicSetupDrainResult;
+  int atomicVectorResult;
+  int atomicVectorError;
+  int drainResult;
+  int overBoundaryWriteResult;
+  int overBoundaryDrainResult;
+  int eofPollResult;
+  short eofPollEvents;
+  int eofReadResult;
+};
+
+struct EpollReadinessContext {
+  EpollReadinessContext(PosixSubsystem* subsystem, const SharedPointer<EpollInstance>& instance,
+                        size_t readFd, size_t writeFd, size_t aliasFd, size_t regularFd)
+      : subsystem(subsystem),
+        instance(instance),
+        readDescription(),
+        readFd(readFd),
+        writeFd(writeFd),
+        aliasFd(aliasFd),
+        regularFd(regularFd),
+        waitEntryGate(0, false),
+        waitEntered(0),
+        returned(0),
+        addResult(-2),
+        regularAddResult(-2),
+        regularAddError(0),
+        createdFd(-2),
+        createdDescriptorAcquired(false),
+        createdStatusFlags(-1),
+        createdDescriptorFlags(-1),
+        createdCloseResult(false),
+        duplicateAddResult(-2),
+        duplicateAddError(0),
+        edgeModifyResult(-2),
+        edgeModifyError(0),
+        firstWaitResult(-2),
+        firstWaitEvents(0),
+        firstWaitData(0),
+        repeatedWaitResult(-2),
+        repeatedWaitEvents(0),
+        repeatedWaitData(0),
+        firstDrainResult(-2),
+        drainedWaitResult(-2),
+        oneShotModifyResult(-2),
+        oneShotWriteResult(-2),
+        oneShotWaitResult(-2),
+        oneShotWaitEvents(0),
+        oneShotWaitData(0),
+        oneShotSuppressedResult(-2),
+        rearmResult(-2),
+        rearmedWaitResult(-2),
+        rearmedWaitEvents(0),
+        rearmedWaitData(0),
+        oneShotDrainResult(-2),
+        deleteResult(-2),
+        postDeleteWriteResult(-2),
+        postDeleteWaitResult(-2),
+        postDeleteDrainResult(-2),
+        aliasAddResult(-2),
+        originalCloseResult(false),
+        ownersAfterOriginalClose(static_cast<size_t>(-1)),
+        aliasWriteResult(-2),
+        aliasWaitResult(-2),
+        aliasWaitEvents(0),
+        aliasWaitData(0),
+        aliasDrainResult(-2),
+        aliasCloseResult(false),
+        ownersAfterAliasClose(static_cast<size_t>(-1)),
+        prunedWaitResult(-2),
+        descriptionRefsAfterPrune(static_cast<size_t>(-1)) {}
+
+  PosixSubsystem* subsystem;
+  SharedPointer<EpollInstance> instance;
+  FileDescriptor::OpenFileDescriptionLease readDescription;
+  size_t readFd;
+  size_t writeFd;
+  size_t aliasFd;
+  size_t regularFd;
+  Semaphore waitEntryGate;
+  Atomic<size_t> waitEntered;
+  Atomic<size_t> returned;
+  int addResult;
+  int regularAddResult;
+  int regularAddError;
+  int createdFd;
+  bool createdDescriptorAcquired;
+  int createdStatusFlags;
+  int createdDescriptorFlags;
+  bool createdCloseResult;
+  int duplicateAddResult;
+  int duplicateAddError;
+  int edgeModifyResult;
+  int edgeModifyError;
+  int firstWaitResult;
+  uint32_t firstWaitEvents;
+  uint64_t firstWaitData;
+  int repeatedWaitResult;
+  uint32_t repeatedWaitEvents;
+  uint64_t repeatedWaitData;
+  int firstDrainResult;
+  int drainedWaitResult;
+  int oneShotModifyResult;
+  int oneShotWriteResult;
+  int oneShotWaitResult;
+  uint32_t oneShotWaitEvents;
+  uint64_t oneShotWaitData;
+  int oneShotSuppressedResult;
+  int rearmResult;
+  int rearmedWaitResult;
+  uint32_t rearmedWaitEvents;
+  uint64_t rearmedWaitData;
+  int oneShotDrainResult;
+  int deleteResult;
+  int postDeleteWriteResult;
+  int postDeleteWaitResult;
+  int postDeleteDrainResult;
+  int aliasAddResult;
+  bool originalCloseResult;
+  size_t ownersAfterOriginalClose;
+  int aliasWriteResult;
+  int aliasWaitResult;
+  uint32_t aliasWaitEvents;
+  uint64_t aliasWaitData;
+  int aliasDrainResult;
+  bool aliasCloseResult;
+  size_t ownersAfterAliasClose;
+  int prunedWaitResult;
+  size_t descriptionRefsAfterPrune;
+};
+
+int pollPipeReadiness(void* parameter) {
+  PipePollReadinessContext* context = reinterpret_cast<PipePollReadinessContext*>(parameter);
+  Thread* thread = Processor::information().getCurrentThread();
+  char byte = 0;
+
+  thread->setErrno(0);
+  context->emptyReadResult = posix_read(context->readFd, &byte, 1);
+  context->emptyReadError = thread->getErrno();
+
+  struct pollfd readable = {static_cast<int>(context->readFd), POLLIN, 0};
+  context->pollEntered += 1;
+  context->pollEntryGate.release();
+  context->firstPollResult = posix_poll_safe(&readable, 1, PollCloseReuseTimeoutMilliseconds);
+  context->firstPollEvents = readable.revents;
+  context->firstReadResult = posix_read(context->readFd, &byte, 1);
+
+  char fill[PIPE_BUF_MAX] = {};
+  context->fillWriteResult = posix_write(context->writeFd, fill, sizeof(fill), false);
+  thread->setErrno(0);
+  context->fullWriteResult = posix_write(context->writeFd, &byte, 1, false);
+  context->fullWriteError = thread->getErrno();
+  context->atomicSetupDrainResult = posix_read(context->readFd, &byte, 1);
+  char vectorBytes[2] = {1, 2};
+  struct iovec vectors[2] = {{&vectorBytes[0], 1}, {&vectorBytes[1], 1}};
+  thread->setErrno(0);
+  context->atomicVectorResult = posix_writev(context->writeFd, vectors, 2);
+  context->atomicVectorError = thread->getErrno();
+  context->drainResult = posix_read(context->readFd, fill, sizeof(fill));
+  char overBoundary[PIPE_BUF_MAX + 1] = {};
+  context->overBoundaryWriteResult =
+      posix_write(context->writeFd, overBoundary, sizeof(overBoundary), false);
+  context->overBoundaryDrainResult = posix_read(context->readFd, fill, sizeof(fill));
+  context->firstPhaseReturned += 1;
+  context->firstPhaseGate.release();
+
+  if (!context->eofGate.acquireForCompletion()) {
+    context->returned += 1;
+    return 1;
+  }
+
+  struct pollfd eof = {static_cast<int>(context->readFd), POLLIN, 0};
+  context->eofPollResult = posix_poll_safe(&eof, 1, PollCloseReuseTimeoutMilliseconds);
+  context->eofPollEvents = eof.revents;
+  context->eofReadResult = posix_read(context->readFd, &byte, 1);
+  context->returned += 1;
+  return 0;
+}
+
+bool pipePollReadiness(Process* kernelProcess) {
+  constexpr size_t ReadDescriptor = 45;
+  constexpr size_t WriteDescriptor = 46;
+  Process* process = new Process(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+
+  Pipe* pipe = new Pipe(String(""), 0, 0, 0, 0, nullptr, 0, nullptr, true);
+  FileDescriptor* reader = new FileDescriptor(pipe, 0, ReadDescriptor, 0, O_RDONLY | O_NONBLOCK);
+  FileDescriptor* writer = new FileDescriptor(pipe, 0, WriteDescriptor, 0, O_WRONLY | O_NONBLOCK);
+  subsystem->addFileDescriptor(ReadDescriptor, reader);
+  subsystem->addFileDescriptor(WriteDescriptor, writer);
+
+  PipePollReadinessContext context(ReadDescriptor, WriteDescriptor);
+  Thread* worker = new Thread(process, pollPipeReadiness, &context, nullptr, false, true, true);
+  worker->setName("hosted pipe poll readiness worker");
+  const bool started = worker->start();
+
+  const bool pollEntered = started && context.pollEntryGate.acquireForCompletion();
+  bool pollBlocked = false;
+  for (size_t attempt = 0; attempt < HostedAttempts && pollEntered; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    if (worker->getWaitDebugInfo(info) && info.queue && info.queued &&
+        worker->getStatus() == Thread::Sleeping) {
+      pollBlocked = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+
+  char byte = 1;
+  const bool initialWrite =
+      pollBlocked && writer->write(1, reinterpret_cast<uintptr_t>(&byte)) == 1;
+  const bool firstPhaseCompleted = started && context.firstPhaseGate.acquireForCompletion();
+
+  DescriptorLease closingWriter;
+  const bool writerAcquired = subsystem->acquireFileDescriptor(WriteDescriptor, closingWriter);
+  const bool writerClosed =
+      writerAcquired && subsystem->closeFileDescriptor(WriteDescriptor, closingWriter);
+  closingWriter.reset();
+  context.eofGate.release();
+
+  const bool joined = started && worker->joinForCompletion();
+  if (!started) {
+    delete worker;
+  }
+
+  const bool nonblockingPassed =
+      context.emptyReadResult == -1 && context.emptyReadError == Error::NoMoreProcesses &&
+      context.fillWriteResult == PIPE_BUF_MAX && context.fullWriteResult == -1 &&
+      context.fullWriteError == Error::NoMoreProcesses && context.atomicSetupDrainResult == 1 &&
+      context.atomicVectorResult == -1 && context.atomicVectorError == Error::NoMoreProcesses &&
+      context.drainResult == PIPE_BUF_MAX - 1 && context.overBoundaryWriteResult == PIPE_BUF_MAX &&
+      context.overBoundaryDrainResult == PIPE_BUF_MAX && context.eofReadResult == 0;
+  const bool readinessPassed =
+      initialWrite && context.firstPollResult == 1 && (context.firstPollEvents & POLLIN) &&
+      !(context.firstPollEvents & POLLHUP) && context.firstReadResult == 1 &&
+      context.eofPollResult == 1 && (context.eofPollEvents & POLLHUP);
+  bool passed = started && pollBlocked && firstPhaseCompleted && joined && writerClosed &&
+                context.firstPhaseReturned == 1 && context.returned == 1 && nonblockingPassed &&
+                readinessPassed;
+
+  FileDescriptor::OpenFileDescriptionLease readerDescription = reader->acquireOpenFileDescription();
+  DescriptorLease closingReader;
+  const bool readerAcquired = subsystem->acquireFileDescriptor(ReadDescriptor, closingReader);
+  const bool readerClosed =
+      readerAcquired && subsystem->closeFileDescriptor(ReadDescriptor, closingReader);
+  closingReader.reset();
+  passed = passed && readerClosed && readerDescription->descriptorOwnerCount() == 0 &&
+           readerDescription->getFile() == pipe && pipe->getReaderCount() == 0;
+  readerDescription.reset();
+  delete process;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL pipe-poll-readiness: "
+        "POLLIN wakeup, EOF hangup, or atomic nonblocking pipe I/O was incorrect");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS pipe-poll-readiness");
+  return true;
+}
+
+int exerciseEpollReadiness(void* parameter) {
+  EpollReadinessContext* context = reinterpret_cast<EpollReadinessContext*>(parameter);
+  Thread* thread = Processor::information().getCurrentThread();
+  LinuxEpollEvent events[2] = {};
+  char byte = 1;
+
+  LinuxEpollEvent interest = {LinuxEpoll::In, EpollInitialData};
+  context->addResult =
+      context->instance->control(LinuxEpoll::ControlAdd, context->readFd, &interest);
+
+  thread->setErrno(0);
+  context->regularAddResult =
+      context->instance->control(LinuxEpoll::ControlAdd, context->regularFd, &interest);
+  context->regularAddError = thread->getErrno();
+
+  context->createdFd = posix_epoll_create1(LinuxEpoll::CloseOnExec);
+  DescriptorLease createdDescriptor;
+  if (context->createdFd >= 0) {
+    context->createdDescriptorAcquired = context->subsystem->acquireFileDescriptor(
+        static_cast<size_t>(context->createdFd), createdDescriptor);
+    if (context->createdDescriptorAcquired) {
+      context->createdStatusFlags = createdDescriptor->getStatusFlags();
+      context->createdDescriptorFlags = createdDescriptor->getFlags();
+      context->createdCloseResult = context->subsystem->closeFileDescriptor(
+          static_cast<size_t>(context->createdFd), createdDescriptor);
+    }
+  }
+  createdDescriptor.reset();
+
+  thread->setErrno(0);
+  context->duplicateAddResult =
+      context->instance->control(LinuxEpoll::ControlAdd, context->readFd, &interest);
+  context->duplicateAddError = thread->getErrno();
+
+  LinuxEpollEvent edgeTriggered = {LinuxEpoll::In | LinuxEpoll::EdgeTriggered, EpollInitialData};
+  thread->setErrno(0);
+  context->edgeModifyResult =
+      context->instance->control(LinuxEpoll::ControlModify, context->readFd, &edgeTriggered);
+  context->edgeModifyError = thread->getErrno();
+
+  context->waitEntered += 1;
+  context->waitEntryGate.release();
+  context->firstWaitResult = context->instance->wait(events, 2, 5000);
+  context->firstWaitEvents = events[0].events;
+  context->firstWaitData = events[0].data;
+
+  events[0] = {};
+  context->repeatedWaitResult = context->instance->wait(events, 2, 0);
+  context->repeatedWaitEvents = events[0].events;
+  context->repeatedWaitData = events[0].data;
+  context->firstDrainResult = posix_read(context->readFd, &byte, 1);
+  context->drainedWaitResult = context->instance->wait(events, 2, 0);
+
+  LinuxEpollEvent oneShot = {LinuxEpoll::In | LinuxEpoll::OneShot, EpollOneShotData};
+  context->oneShotModifyResult =
+      context->instance->control(LinuxEpoll::ControlModify, context->readFd, &oneShot);
+  context->oneShotWriteResult = posix_write(context->writeFd, &byte, 1, false);
+  events[0] = {};
+  context->oneShotWaitResult = context->instance->wait(events, 2, 0);
+  context->oneShotWaitEvents = events[0].events;
+  context->oneShotWaitData = events[0].data;
+  context->oneShotSuppressedResult = context->instance->wait(events, 2, 0);
+
+  LinuxEpollEvent rearmed = {LinuxEpoll::In | LinuxEpoll::OneShot, EpollRearmedData};
+  context->rearmResult =
+      context->instance->control(LinuxEpoll::ControlModify, context->readFd, &rearmed);
+  events[0] = {};
+  context->rearmedWaitResult = context->instance->wait(events, 2, 0);
+  context->rearmedWaitEvents = events[0].events;
+  context->rearmedWaitData = events[0].data;
+  context->oneShotDrainResult = posix_read(context->readFd, &byte, 1);
+
+  context->deleteResult =
+      context->instance->control(LinuxEpoll::ControlDelete, context->readFd, nullptr);
+  context->postDeleteWriteResult = posix_write(context->writeFd, &byte, 1, false);
+  context->postDeleteWaitResult = context->instance->wait(events, 2, 0);
+  context->postDeleteDrainResult = posix_read(context->readFd, &byte, 1);
+
+  LinuxEpollEvent aliasLifetime = {LinuxEpoll::In, EpollAliasData};
+  context->aliasAddResult =
+      context->instance->control(LinuxEpoll::ControlAdd, context->readFd, &aliasLifetime);
+
+  DescriptorLease closingOriginal;
+  const bool originalAcquired =
+      context->subsystem->acquireFileDescriptor(context->readFd, closingOriginal);
+  context->originalCloseResult =
+      originalAcquired && context->subsystem->closeFileDescriptor(context->readFd, closingOriginal);
+  closingOriginal.reset();
+  context->ownersAfterOriginalClose = context->readDescription->descriptorOwnerCount();
+
+  context->aliasWriteResult = posix_write(context->writeFd, &byte, 1, false);
+  events[0] = {};
+  context->aliasWaitResult = context->instance->wait(events, 2, 0);
+  context->aliasWaitEvents = events[0].events;
+  context->aliasWaitData = events[0].data;
+  context->aliasDrainResult = posix_read(context->aliasFd, &byte, 1);
+
+  DescriptorLease closingAlias;
+  const bool aliasAcquired =
+      context->subsystem->acquireFileDescriptor(context->aliasFd, closingAlias);
+  context->aliasCloseResult =
+      aliasAcquired && context->subsystem->closeFileDescriptor(context->aliasFd, closingAlias);
+  closingAlias.reset();
+  context->ownersAfterAliasClose = context->readDescription->descriptorOwnerCount();
+  context->prunedWaitResult = context->instance->wait(events, 2, 0);
+  context->descriptionRefsAfterPrune = context->readDescription.refcount();
+
+  context->returned += 1;
+  return 0;
+}
+
+bool epollLevelOneShotAndOfdLifetime(Process* kernelProcess) {
+  constexpr size_t ReadDescriptor = 47;
+  constexpr size_t WriteDescriptor = 48;
+  constexpr size_t AliasDescriptor = 49;
+  constexpr size_t RegularDescriptor = 50;
+
+  Process* process = new Process(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+
+  Pipe* pipe = new Pipe(String(""), 0, 0, 0, 0, nullptr, 0, nullptr, true);
+  FileDescriptor* reader = new FileDescriptor(pipe, 0, ReadDescriptor, 0, O_RDONLY | O_NONBLOCK);
+  FileDescriptor* writer = new FileDescriptor(pipe, 0, WriteDescriptor, 0, O_WRONLY | O_NONBLOCK);
+  FileDescriptor* alias = new FileDescriptor(*reader);
+  alias->fd = AliasDescriptor;
+  File* regularFile = new File;
+  FileDescriptor* regular = new FileDescriptor(regularFile, 0, RegularDescriptor, 0, O_RDONLY);
+  subsystem->addFileDescriptor(ReadDescriptor, reader);
+  subsystem->addFileDescriptor(WriteDescriptor, writer);
+  subsystem->addFileDescriptor(AliasDescriptor, alias);
+  subsystem->addFileDescriptor(RegularDescriptor, regular);
+
+  SharedPointer<EpollInstance> instance(new EpollInstance);
+  EpollReadinessContext context(subsystem, instance, ReadDescriptor, WriteDescriptor,
+                                AliasDescriptor, RegularDescriptor);
+  context.readDescription = reader->acquireOpenFileDescription();
+
+  Thread* worker =
+      new Thread(process, exerciseEpollReadiness, &context, nullptr, false, true, true);
+  worker->setName("hosted epoll readiness worker");
+  const bool started = worker->start();
+  const bool waitEntered = started && context.waitEntryGate.acquireForCompletion();
+
+  bool waitBlocked = false;
+  for (size_t attempt = 0; attempt < HostedAttempts && waitEntered; ++attempt) {
+    Thread::WaitDebugInfo info = {};
+    if (worker->getWaitDebugInfo(info) && info.queue && info.queued &&
+        worker->getStatus() == Thread::Sleeping) {
+      waitBlocked = true;
+      break;
+    }
+    Scheduler::instance().yield();
+  }
+
+  char byte = 1;
+  const int wakeWriteResult = writer->write(1, reinterpret_cast<uintptr_t>(&byte));
+  const bool joined = started && worker->joinForCompletion();
+  if (!started) {
+    delete worker;
+  }
+
+  const bool levelPassed =
+      waitBlocked && wakeWriteResult == 1 && context.firstWaitResult == 1 &&
+      context.firstWaitEvents == LinuxEpoll::In && context.firstWaitData == EpollInitialData &&
+      context.repeatedWaitResult == 1 && context.repeatedWaitEvents == LinuxEpoll::In &&
+      context.repeatedWaitData == EpollInitialData && context.firstDrainResult == 1 &&
+      context.drainedWaitResult == 0;
+  const bool controlPassed =
+      context.addResult == 0 && context.regularAddResult == -1 &&
+      context.regularAddError == Error::NotEnoughPermissions && context.createdFd >= 0 &&
+      context.createdDescriptorAcquired && context.createdStatusFlags == O_RDWR &&
+      context.createdDescriptorFlags == FD_CLOEXEC && context.createdCloseResult &&
+      context.duplicateAddResult == -1 && context.duplicateAddError == Error::FileExists &&
+      context.edgeModifyResult == -1 && context.edgeModifyError == Error::OperationNotSupported &&
+      context.oneShotModifyResult == 0 && context.oneShotWriteResult == 1 &&
+      context.oneShotWaitResult == 1 && context.oneShotWaitEvents == LinuxEpoll::In &&
+      context.oneShotWaitData == EpollOneShotData && context.oneShotSuppressedResult == 0 &&
+      context.rearmResult == 0 && context.rearmedWaitResult == 1 &&
+      context.rearmedWaitEvents == LinuxEpoll::In && context.rearmedWaitData == EpollRearmedData &&
+      context.oneShotDrainResult == 1 && context.deleteResult == 0 &&
+      context.postDeleteWriteResult == 1 && context.postDeleteWaitResult == 0 &&
+      context.postDeleteDrainResult == 1;
+  const bool lifetimePassed =
+      context.aliasAddResult == 0 && context.originalCloseResult &&
+      context.ownersAfterOriginalClose == 1 && context.aliasWriteResult == 1 &&
+      context.aliasWaitResult == 1 && context.aliasWaitEvents == LinuxEpoll::In &&
+      context.aliasWaitData == EpollAliasData && context.aliasDrainResult == 1 &&
+      context.aliasCloseResult && context.ownersAfterAliasClose == 0 &&
+      context.prunedWaitResult == 0 && context.descriptionRefsAfterPrune == 1;
+  bool passed = started && waitEntered && joined && context.waitEntered == 1 &&
+                context.returned == 1 && levelPassed && controlPassed && lifetimePassed;
+
+  DescriptorLease closingWriter;
+  const bool writerAcquired = subsystem->acquireFileDescriptor(WriteDescriptor, closingWriter);
+  const bool writerClosed =
+      writerAcquired && subsystem->closeFileDescriptor(WriteDescriptor, closingWriter);
+  closingWriter.reset();
+  passed = passed && writerClosed;
+
+  instance.reset();
+  context.instance.reset();
+  context.readDescription.reset();
+  delete process;
+  delete regularFile;
+
+  if (!passed) {
+    ERROR(
+        "HOSTED-SYSCALL-TEST: FAIL epoll-level-oneshot-ofd-lifetime: "
+        "target admission, descriptor flags, level delivery, one-shot rearm, control errors, or "
+        "OFD retirement was incorrect");
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: PASS epoll-level-oneshot-ofd-lifetime");
+  return true;
+}
 
 int pollAcrossCloseReuse(void* parameter) {
   PollCloseReuseContext* context = reinterpret_cast<PollCloseReuseContext*>(parameter);
@@ -1935,30 +3164,30 @@ bool pollCloseReuseCleanup(Process* kernelProcess) {
   PosixSubsystem* subsystem = new PosixSubsystem;
   process->setSubsystem(subsystem);
 
-  Atomic<size_t> aRegistrations(0);
-  Atomic<size_t> aUnpolls(0);
+  Atomic<size_t> aQueries(0);
+  Atomic<size_t> aNotifications(0);
   Atomic<size_t> aNetworkDestructions(0);
   Atomic<size_t> aDescriptorDestructions(0);
   PollGenerationProbe* aNetwork =
-      new PollGenerationProbe(aRegistrations, aUnpolls, aNetworkDestructions);
+      new PollGenerationProbe(aQueries, aNotifications, aNetworkDestructions);
   SharedPointer<NetworkSyscalls> aNetworkKeepalive(aNetwork);
   DescriptorRetirementProbe* aDescriptor = new DescriptorRetirementProbe(aDescriptorDestructions);
   aDescriptor->fd = DescriptorNumber;
   aDescriptor->setOffset(1);
-  aDescriptor->networkImpl = aNetworkKeepalive;
+  aDescriptor->setNetworkImpl(aNetworkKeepalive);
   subsystem->addFileDescriptor(DescriptorNumber, aDescriptor);
 
-  Atomic<size_t> bRegistrations(0);
-  Atomic<size_t> bUnpolls(0);
+  Atomic<size_t> bQueries(0);
+  Atomic<size_t> bNotifications(0);
   Atomic<size_t> bNetworkDestructions(0);
   Atomic<size_t> bDescriptorDestructions(0);
   PollGenerationProbe* bNetwork =
-      new PollGenerationProbe(bRegistrations, bUnpolls, bNetworkDestructions);
+      new PollGenerationProbe(bQueries, bNotifications, bNetworkDestructions);
   SharedPointer<NetworkSyscalls> bNetworkKeepalive(bNetwork);
   DescriptorRetirementProbe* bDescriptor = new DescriptorRetirementProbe(bDescriptorDestructions);
   bDescriptor->fd = DescriptorNumber;
   bDescriptor->setOffset(2);
-  bDescriptor->networkImpl = bNetworkKeepalive;
+  bDescriptor->setNetworkImpl(bNetworkKeepalive);
 
   PollCloseReuseContext context(DescriptorNumber);
   Thread* worker = new Thread(process, pollAcrossCloseReuse, &context, nullptr, false, true, true);
@@ -1970,20 +3199,19 @@ bool pollCloseReuseCleanup(Process* kernelProcess) {
   bool blockedOnA = false;
   for (size_t attempt = 0; attempt < HostedAttempts && started; ++attempt) {
     Thread::WaitDebugInfo info = {};
-    if (context.entered && aRegistrations && worker->getWaitDebugInfo(info) && info.queue &&
-        info.queued && info.channelOwner == aNetwork->waiterAddress() &&
-        worker->getStatus() == Thread::Sleeping) {
+    if (context.entered && aQueries >= 2 && worker->getWaitDebugInfo(info) && info.queue &&
+        info.queued && worker->getStatus() == Thread::Sleeping) {
       blockedOnA = true;
       break;
     }
     Scheduler::instance().yield();
   }
 
-  bool passed = started && blockedOnA && aRegistrations == 1;
+  bool passed = started && blockedOnA && aQueries >= 2;
   NOTICE(
       "HOSTED-SYSCALL-TEST: PHASE poll-close-reuse-cleanup "
       "waiter-published-a blocked="
-      << blockedOnA << " registrations=" << aRegistrations.value());
+      << blockedOnA << " queries=" << aQueries.value());
   DescriptorLease closingA;
   const bool acquiredA = subsystem->acquireFileDescriptor(DescriptorNumber, closingA);
   const bool closedA = acquiredA && subsystem->closeFileDescriptor(DescriptorNumber, closingA);
@@ -1994,7 +3222,7 @@ bool pollCloseReuseCleanup(Process* kernelProcess) {
       "HOSTED-SYSCALL-TEST: PHASE poll-close-reuse-cleanup "
       "closed-a-published-b");
 
-  if (aRegistrations) {
+  if (aQueries >= 2) {
     aNetwork->makeReadable();
   } else {
     // Failure cleanup: if the worker did not pin A, allow any lookup of B
@@ -2012,8 +3240,8 @@ bool pollCloseReuseCleanup(Process* kernelProcess) {
       << joined << " returned=" << context.returned.value()
       << " result=" << context.result.value());
   passed = passed && joined && context.returned == 1 && context.result == 1 &&
-           (context.descriptor.revents & POLLIN) && aUnpolls == 1 && bUnpolls == 0 &&
-           bRegistrations == 0 && aDescriptorDestructions == 1 && aNetworkDestructions == 0;
+           (context.descriptor.revents & POLLIN) && aNotifications == 1 && bNotifications == 0 &&
+           bQueries == 0 && aDescriptorDestructions == 1 && aNetworkDestructions == 0;
   aNetworkKeepalive.reset();
   passed = passed && aNetworkDestructions == 1;
 
@@ -3002,6 +4230,11 @@ bool runRegressions() {
     return false;
   }
 
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN usercopy");
+  if (!runHostedUsercopyRegressions(kernelProcess)) {
+    return false;
+  }
+
   bool establishedAliasPassed = true;
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN directory-retained-lookup-atomicity");
   establishedAliasPassed &= directoryRetainedLookupAtomicity(kernelProcess);
@@ -3043,13 +4276,58 @@ bool runRegressions() {
     return false;
   }
 
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-open-file-description-state");
+  if (!descriptorOpenFileDescriptionState()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-open-file-description-lifetime");
+  if (!descriptorOpenFileDescriptionLifetime()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-append-policy");
+  if (!descriptorAppendPolicy(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-nonblocking-policy");
+  if (!descriptorNonblockingPolicy()) {
+    return false;
+  }
+
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-position-alias-serialization");
   if (!descriptorPositionAliasSerialization(kernelProcess)) {
     return false;
   }
 
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-vector-io-serialization");
+  if (!descriptorVectorIoSerialization(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-dup-contract");
+  if (!descriptorDupContract(kernelProcess)) {
+    return false;
+  }
+
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN descriptor-position-policy");
   if (!descriptorPositionPolicy()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN select-projection-timeout");
+  if (!selectProjectionAndTimeoutContract()) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN pipe-poll-readiness");
+  if (!pipePollReadiness(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN epoll-level-oneshot-ofd-lifetime");
+  if (!epollLevelOneShotAndOfdLifetime(kernelProcess)) {
     return false;
   }
 
@@ -3060,6 +4338,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN posix-teardown-contention");
   if (!posixTeardownContention(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN unix-bind-replacement-lifetime");
+  if (!runHostedUnixEndpointLifetimeRegression(kernelProcess)) {
     return false;
   }
 

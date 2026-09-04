@@ -47,6 +47,12 @@ class Thread;
    unserialized. */
 class EXPORTED_PUBLIC Event {
  public:
+  /** Privilege level at which the event handler is allowed to execute. */
+  enum class HandlerPrivilege {
+    Kernel,
+    User,
+  };
+
   /** Pins Event storage across one Thread::sendEvent admission attempt. */
   class SendLease {
    public:
@@ -153,10 +159,12 @@ class EXPORTED_PUBLIC Event {
      for creating objects without worrying about destroying them. \param
      specificNestingLevel Is the event pinned to a specific nesting level? If
      this value is not ~0UL, then the event will only be fired if the current
-     nesting level is \p specificNestingLevel . \note As can be surmised,
+     nesting level is \p specificNestingLevel . \param handlerPrivilege The
+     privilege level at which the handler may execute. \note As can be surmised,
      handlerAddress is NOT reentrant. If you use this Event in multiple
             threads concurrently, you CANNOT change the handler address. */
-  Event(uintptr_t handlerAddress, bool isDeletable, size_t specificNestingLevel = ~0UL);
+  Event(uintptr_t handlerAddress, bool isDeletable, size_t specificNestingLevel = ~0UL,
+        HandlerPrivilege handlerPrivilege = HandlerPrivilege::Kernel);
   virtual ~Event();
 
   /** Retrieves the main trampoline memory address. */
@@ -216,6 +224,14 @@ class EXPORTED_PUBLIC Event {
     return m_HandlerAddress;
   }
 
+  /** Returns the privilege level at which the handler may execute. */
+  HandlerPrivilege getHandlerPrivilege() const {
+    return m_HandlerPrivilege;
+  }
+
+  /** Returns whether page-table flags permit this handler's privilege. */
+  bool isValidHandlerMapping(size_t mappingFlags) const;
+
   /** Returns true if this event is subject to the thread's signal mask. */
   virtual bool isSignalEvent() const {
     return false;
@@ -273,6 +289,9 @@ class EXPORTED_PUBLIC Event {
  protected:
   /** Handler address. */
   uintptr_t m_HandlerAddress;
+
+  /** Privilege level at which the handler may execute. */
+  HandlerPrivilege m_HandlerPrivilege;
 
   /** Can the object be deleted after map? */
   bool m_bIsDeletable;

@@ -296,6 +296,15 @@ void WaitQueue::Guard::release() {
   }
 }
 
+WaitQueue::WakeReason WaitQueue::Guard::waitForCompletion(const Channel& channel, size_t debugState,
+                                                          uintptr_t debugAddress) {
+  (void)channel;
+  (void)debugState;
+  (void)debugAddress;
+  release();
+  return WakeReason::Signalled;
+}
+
 size_t WaitQueue::Guard::wakeAll(WakeReason reason, const Channel& channel) {
   (void)reason;
   (void)channel;

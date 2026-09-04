@@ -204,6 +204,54 @@ size_t Buffer<T, allowShortOperation>::write(const T* buffer, size_t count, bool
 }
 
 template <class T, bool allowShortOperation>
+size_t Buffer<T, allowShortOperation>::writeAtomic(const T* buffer, size_t count, bool block) {
+  ActiveOperation operation(*this);
+  if (!operation || count > m_BufferSize) {
+    return 0;
+  }
+
+  if (!block) {
+    if (!m_Lock.tryAcquire()) {
+      return 0;
+    }
+  } else {
+    m_Lock.acquire();
+  }
+
+  size_t written = 0;
+  while (m_bCanWrite && m_bCanRead) {
+    if (count <= (m_BufferSize - m_DataSize)) {
+      written = writeLocked(buffer, count);
+      if (written) {
+        m_ReadCondition.signal();
+      }
+      break;
+    }
+
+    if (!block || !m_bCanRead) {
+      break;
+    }
+
+    ConditionVariable::Error error = ConditionVariable::NoError;
+    if (!m_WriteCondition.wait(m_Lock, error)) {
+#if THREADS
+      preserveConditionInterruption(error);
+#endif
+      if (ConditionVariable::mutexAcquired(error)) {
+        m_Lock.release();
+      }
+      return 0;
+    }
+  }
+
+  m_Lock.release();
+  if (written) {
+    notifyMonitors();
+  }
+  return written;
+}
+
+template <class T, bool allowShortOperation>
 bool Buffer<T, allowShortOperation>::tryWrite(const T* buffer, size_t count) {
   TerminationDeferral terminationDeferral;
   if (!m_Lock.tryAcquire()) {

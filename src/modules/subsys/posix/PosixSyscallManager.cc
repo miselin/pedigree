@@ -33,6 +33,7 @@
 
 #include "PosixSyscallManager.h"
 #include "console-syscalls.h"
+#include "epoll-syscalls.h"
 #include "file-syscalls.h"
 #include "linux-amd64-signal.h"
 #include "logging.h"
@@ -307,6 +308,20 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_POLL:
       return posix_poll(reinterpret_cast<pollfd*>(p1), static_cast<unsigned int>(p2),
                         static_cast<int>(p3));
+    case POSIX_EPOLL_CREATE:
+      return posix_epoll_create(static_cast<int>(p1));
+    case POSIX_EPOLL_CREATE1:
+      return posix_epoll_create1(static_cast<int>(p1));
+    case POSIX_EPOLL_CTL:
+      return posix_epoll_ctl(static_cast<int>(p1), static_cast<int>(p2), static_cast<int>(p3),
+                             reinterpret_cast<const LinuxEpollEvent*>(p4));
+    case POSIX_EPOLL_WAIT:
+      return posix_epoll_wait(static_cast<int>(p1), reinterpret_cast<LinuxEpollEvent*>(p2),
+                              static_cast<int>(p3), static_cast<int>(p4));
+    case POSIX_EPOLL_PWAIT:
+      return posix_epoll_pwait(static_cast<int>(p1), reinterpret_cast<LinuxEpollEvent*>(p2),
+                               static_cast<int>(p3), static_cast<int>(p4),
+                               reinterpret_cast<const void*>(p5), static_cast<size_t>(p6));
     case POSIX_RENAME:
       return posix_rename(reinterpret_cast<const char*>(p1), reinterpret_cast<const char*>(p2));
     case POSIX_GETCWD:

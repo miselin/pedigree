@@ -36,11 +36,12 @@ class PosixSyscallTranslationTests(unittest.TestCase):
 
         # Snapshot of the previous translate.h resolved against musl 1.2.6's
         # x86_64 bits/syscall.h, plus Pedigree's explicit vfork compatibility
-        # route. This locks both sides of all 149 mappings.
-        self.assertEqual(len(mapping), 149)
+        # route and the five epoll entry points. This locks both sides of all
+        # 154 mappings.
+        self.assertEqual(len(mapping), 154)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "b032194ece6aa8aa6dab025f05f01517ba18f1a4adb3bd6d65ec54c81fc40398",
+            "7b7087a1ab0271d224506f80acc47fe912ea4da01ef82890e3d0f583e4444a41",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))

@@ -19,9 +19,11 @@
 
 #ifndef FILE_H
 #define FILE_H
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Event.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Readiness.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Cache.h"
@@ -64,7 +66,7 @@ class Thread;
 
 /** A File is a regular file - it is also the superclass of Directory, Symlink
     and Pipe. */
-class EXPORTED_PUBLIC File {
+class EXPORTED_PUBLIC File : public ReadinessSource {
   friend class Filesystem;
 #if defined(PEDIGREE_BUILDUTILS)
   friend class Ext2FillCacheTestPeer;
@@ -72,6 +74,21 @@ class EXPORTED_PUBLIC File {
 #endif
 
  public:
+  /** Holds this file's write transaction lock across one or more fragments. */
+  class WriteGuard {
+   public:
+    uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock = true);
+    uint64_t append(uint64_t size, uintptr_t buffer, uint64_t& location, bool bCanBlock = true);
+
+   private:
+    friend class File;
+
+    explicit WriteGuard(File& file);
+
+    File& m_File;
+    LockGuard<Mutex> m_Guard;
+  };
+
   /** Constructor, creates an invalid file. */
   File();
 
@@ -100,6 +117,12 @@ class EXPORTED_PUBLIC File {
    */
   virtual uint64_t write(uint64_t location, uint64_t size, uintptr_t buffer,
                          bool bCanBlock = true) final;
+
+  /** Atomically selects EOF and performs one append write. */
+  uint64_t append(uint64_t size, uintptr_t buffer, uint64_t& location, bool bCanBlock = true);
+
+  /** Begin a multi-fragment write which must not interleave with another writer. */
+  WriteGuard lockWrites();
 
   /** Get the physical address for the given offset into the file.
    * Returns (physical_uintptr_t) ~0 if the offset isn't in the cache.
@@ -224,6 +247,12 @@ class EXPORTED_PUBLIC File {
    *       so be sure to override if that's not right
    */
   virtual int select(bool bWriting = false, int timeout = 0);
+
+  /** Return the current readiness state for this open endpoint. */
+  virtual ReadyMask queryReady(bool reading, bool writing);
+
+  /** Whether readiness transitions are reported through ReadinessSource. */
+  virtual bool supportsReadinessNotifications() const;
 
   /**
    * Causes the event pEvent to be dispatched to pThread when activity occurs
@@ -436,6 +465,9 @@ class EXPORTED_PUBLIC File {
   Cache m_FillCache;
   Mutex m_FillCacheLock;
 
+  /** Serializes file mutation, including append EOF selection, across open descriptions. */
+  Mutex m_WriteLock;
+
   Mutex m_Lock;
 
   struct MonitorTarget {
@@ -449,6 +481,9 @@ class EXPORTED_PUBLIC File {
   List<MonitorTarget*> m_MonitorTargets;
 
  private:
+  /** Performs a write while m_WriteLock is already held. */
+  uint64_t writeUnlocked(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock);
+
   /** Retrieve a page from our cache. */
   uintptr_t getCachedPage(size_t block, bool locked = true);
 

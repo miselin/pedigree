@@ -118,6 +118,23 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             with self.subTest(symbol=symbol):
                 self.assertIn(f"--disassemble={symbol}", build_script)
 
+    def test_linux_epoll_syscalls_are_mapped(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+
+        expected = (
+            "PEDIGREE_LINUX_AMD64_SYSCALL(epoll_create, 213, POSIX_EPOLL_CREATE)",
+            "PEDIGREE_LINUX_AMD64_SYSCALL(epoll_wait, 232, POSIX_EPOLL_WAIT)",
+            "PEDIGREE_LINUX_AMD64_SYSCALL(epoll_ctl, 233, POSIX_EPOLL_CTL)",
+            "PEDIGREE_LINUX_AMD64_SYSCALL(epoll_pwait, 281, POSIX_EPOLL_PWAIT)",
+            "PEDIGREE_LINUX_AMD64_SYSCALL(epoll_create1, 291, POSIX_EPOLL_CREATE1)",
+        )
+        for mapping in expected:
+            with self.subTest(mapping=mapping):
+                self.assertIn(mapping, mappings)
+
     def test_signal_return_accepts_iret_and_sysret_user_selectors(self):
         signal_source = (
             ROOT / "src/modules/subsys/posix/linux-amd64-signal.cc"

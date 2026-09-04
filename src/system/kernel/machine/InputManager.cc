@@ -555,7 +555,9 @@ void InputManager::setCallbackPinHook(CallbackPinHook hook) {
 
 InputEvent::InputEvent(InputManager::InputNotification* pNote, uintptr_t param,
                        uintptr_t handlerAddress)
-    : Event(handlerAddress, true, 0), m_Notification(), m_nParam(param) {
+    : Event(handlerAddress, true, 0, Event::HandlerPrivilege::User),
+      m_Notification(),
+      m_nParam(param) {
   m_Notification = *pNote;
 }
 

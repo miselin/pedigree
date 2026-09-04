@@ -25,8 +25,9 @@
 #include "pedigree/kernel/processor/types.h"
 
 SignalEvent::SignalEvent(uintptr_t handlerAddress, size_t signalNum, size_t specificNestingLevel,
-                         uint64_t signalMask, bool deferSignal, bool isDeletable)
-    : Event(handlerAddress, isDeletable, specificNestingLevel),
+                         uint64_t signalMask, bool deferSignal, bool isDeletable,
+                         HandlerPrivilege handlerPrivilege)
+    : Event(handlerAddress, isDeletable, specificNestingLevel, handlerPrivilege),
       m_SignalNumber(signalNum),
       m_SignalMask(signalMask),
       m_DeferSignal(deferSignal) {}
@@ -37,7 +38,7 @@ Event* SignalEvent::cloneForDelivery() {
   }
 
   return new SignalEvent(m_HandlerAddress, m_SignalNumber, m_NestingLevel, m_SignalMask,
-                         m_DeferSignal, true);
+                         m_DeferSignal, true, m_HandlerPrivilege);
 }
 
 /// \todo There may be a need for serialization in the future...

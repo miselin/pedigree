@@ -508,15 +508,37 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack) {
 
   uintptr_t handlerAddress = pEvent->getHandlerAddress();
 
-  // Simple heuristic for whether to launch the event handler in kernel or
-  // user mode - is the handler address mapped kernel or user mode?
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-  EMIT_IF(!HOSTED) {
-    if (!va.isMapped(reinterpret_cast<void*>(handlerAddress))) {
-      ERROR_NOLOCK("checkEventState: Handler address " << Hex << handlerAddress << " not mapped!");
-      Processor::setInterrupts(bWasInterrupts);
-      return;
+  physical_uintptr_t page = 0;
+  size_t flags = 0;
+  bool mappingAvailable = true;
+#if HOSTED
+  if (pEvent->getHandlerPrivilege() == Event::HandlerPrivilege::Kernel) {
+    flags = VirtualAddressSpace::KernelMode;
+  } else {
+    mappingAvailable = va.isMapped(reinterpret_cast<void*>(handlerAddress));
+    if (mappingAvailable) {
+      va.getMapping(reinterpret_cast<void*>(handlerAddress), page, flags);
     }
+  }
+#else
+  mappingAvailable = va.isMapped(reinterpret_cast<void*>(handlerAddress));
+  if (mappingAvailable) {
+    va.getMapping(reinterpret_cast<void*>(handlerAddress), page, flags);
+  }
+#endif
+
+  const bool userHandler = pEvent->getHandlerPrivilege() == Event::HandlerPrivilege::User;
+  const bool userAddress =
+      !userHandler ||
+      (handlerAddress >= va.getUserStart() && handlerAddress < va.getKernelStart() &&
+       va.isAddressValid(reinterpret_cast<void*>(handlerAddress)));
+  if (!mappingAvailable || !userAddress || !pEvent->isValidHandlerMapping(flags)) {
+    ERROR_NOLOCK("checkEventState: Handler address "
+                 << Hex << handlerAddress << " does not match its declared "
+                 << (userHandler ? "user" : "kernel") << " privilege.");
+    Processor::setInterrupts(bWasInterrupts);
+    return;
   }
 
   SchedulerState* oldState = pThread->pushState();
@@ -528,45 +550,37 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack) {
     return;
   }
 
-  physical_uintptr_t page;
-  size_t flags;
-  EMIT_IF(HOSTED) {
-    flags = VirtualAddressSpace::KernelMode;
-  }
-  else {
-    va.getMapping(reinterpret_cast<void*>(handlerAddress), page, flags);
-    if (!(flags & VirtualAddressSpace::KernelMode)) {
-      if (userStack != 0)
-        va.getMapping(reinterpret_cast<void*>(userStack - pageSz), page, flags);
-      if (userStack == 0 || (flags & VirtualAddressSpace::KernelMode)) {
-        VirtualAddressSpace::Stack* stateStack = pThread->getStateUserStack();
-        if (!stateStack) {
+  if (userHandler) {
+    bool usableUserStack = false;
+    if (userStack >= pageSz) {
+      const uintptr_t stackPage = userStack - pageSz;
+      if (stackPage >= va.getUserStart() && stackPage < va.getKernelStart() &&
+          va.isAddressValid(reinterpret_cast<void*>(stackPage)) &&
+          va.isMapped(reinterpret_cast<void*>(stackPage))) {
+        va.getMapping(reinterpret_cast<void*>(stackPage), page, flags);
+        usableUserStack = !(flags & VirtualAddressSpace::KernelMode);
+      }
+    }
+
+    if (!usableUserStack) {
+      VirtualAddressSpace::Stack* stateStack = pThread->getStateUserStack();
+      if (!stateStack) {
+        stateStack = va.allocateStack();
+        pThread->setStateUserStack(stateStack);
+      } else {
+        // Verify that the stack is mapped
+        if (!va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz))) {
+          /// \todo This is a quickfix for a bigger problem. I imagine
+          ///       it has something to do with calling execve
+          ///       directly without fork, meaning the memory is
+          ///       cleaned up but the state level stack information
+          ///       is *not*.
           stateStack = va.allocateStack();
           pThread->setStateUserStack(stateStack);
-        } else {
-          // Verify that the stack is mapped
-          if (!va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz))) {
-            /// \todo This is a quickfix for a bigger problem. I imagine
-            ///       it has something to do with calling execve
-            ///       directly without fork, meaning the memory is
-            ///       cleaned up but the state level stack information
-            ///       is *not*.
-            stateStack = va.allocateStack();
-            pThread->setStateUserStack(stateStack);
-          }
-        }
-
-        userStack = reinterpret_cast<uintptr_t>(stateStack->getTop());
-      } else {
-        va.getMapping(reinterpret_cast<void*>(userStack), page, flags);
-        if (flags & VirtualAddressSpace::KernelMode) {
-          NOTICE_NOLOCK("User stack for event in checkEventState is the kernel's!");
-          pThread->sendEvent(pEvent);
-          pThread->popState(!HOSTED);
-          Processor::setInterrupts(bWasInterrupts);
-          return;
         }
       }
+
+      userStack = reinterpret_cast<uintptr_t>(stateStack->getTop());
     }
   }
 
@@ -589,7 +603,7 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack) {
   }
 
   const bool deletableEvent = pEvent->isDeletable();
-  if (!deletableEvent && (flags & VirtualAddressSpace::KernelMode)) {
+  if (!deletableEvent && !userHandler) {
     eventDelivery.beginDispatch();
   }
   pEvent->serialize(reinterpret_cast<uint8_t*>(addr));
@@ -609,7 +623,7 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack) {
     }
   }
 
-  if (flags & VirtualAddressSpace::KernelMode) {
+  if (!userHandler) {
     // Setup must be atomic, but the callback is ordinary thread work. In
     // particular, a return-to-user interrupt tail enters here only after
     // raw handler/accounting scopes have unwound and with IRQs enabled.

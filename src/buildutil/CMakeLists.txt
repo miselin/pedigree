@@ -80,6 +80,7 @@ set(KERNEL_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/IoBase.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Event.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/OperationBarrier.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Readiness.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/RelayEvent.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Semaphore.cc)
 add_library(kernel ${KERNEL_SRCS})
@@ -247,6 +248,7 @@ set(TESTSUITE_SRCS
     testsuite/test-memory.cc
     testsuite/test-Result.cc
     testsuite/test-RangeList.cc
+    testsuite/test-Readiness.cc
     testsuite/test-RtcAlarmQueue.cc
     testsuite/test-RtcTimeAccounting.cc
     testsuite/test-IrqDiagnosticRenderer.cc

@@ -44,7 +44,13 @@ ZombiePipe::~ZombiePipe() {
 }
 
 Pipe::Pipe()
-    : File(), m_bIsAnonymous(true), m_bIsEOF(false), m_Buffer(PIPE_BUF_MAX), m_ReaderCondition() {
+    : File(),
+      m_bIsAnonymous(true),
+      m_bIsEOF(false),
+      m_Buffer(PIPE_BUF_MAX),
+      m_ReaderCondition(),
+      m_nLifetimePins(0),
+      m_bRetirementQueued(false) {
 #if VERBOSE_KERNEL
   NOTICE("Pipe: new anonymous pipe " << reinterpret_cast<uintptr_t>(this));
 #endif
@@ -57,7 +63,9 @@ Pipe::Pipe(const String& name, Time::Timestamp accessedTime, Time::Timestamp mod
       m_bIsAnonymous(bIsAnonymous),
       m_bIsEOF(false),
       m_Buffer(PIPE_BUF_MAX),
-      m_ReaderCondition() {
+      m_ReaderCondition(),
+      m_nLifetimePins(0),
+      m_bRetirementQueued(false) {
 #if VERBOSE_KERNEL
   NOTICE("Pipe: new " << (bIsAnonymous ? "anonymous" : "named") << " pipe " << Hex << this);
 #endif
@@ -80,6 +88,34 @@ int Pipe::select(bool bWriting, int timeout) {
   }
 }
 
+ReadyMask Pipe::queryReady(bool reading, bool writing) {
+  LockGuard<Mutex> guard(m_Lock);
+  ReadyMask ready = ReadyNone;
+
+  if (!m_nWriters) {
+    ready |= ReadyHangup;
+  }
+  if (!m_nReaders) {
+    ready |= ReadyError;
+  }
+
+  if (reading) {
+    if (m_Buffer.canRead(false)) {
+      ready |= ReadyRead;
+    }
+  }
+
+  if (writing) {
+    // A closed read end is immediately writable from poll/epoll's point of
+    // view even though the subsequent write fails with EPIPE/SIGPIPE.
+    if (!m_nReaders || m_Buffer.canWrite(false)) {
+      ready |= ReadyWrite;
+    }
+  }
+
+  return ready;
+}
+
 uint64_t Pipe::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
   // Need to read what's left in the pipe then EOF if there's no more readers!
   {
@@ -90,7 +126,11 @@ uint64_t Pipe::readBytewise(uint64_t location, uint64_t size, uintptr_t buffer, 
   }
 
   uint8_t* pBuf = reinterpret_cast<uint8_t*>(buffer);
-  return m_Buffer.read(pBuf, size, bCanBlock);
+  const uint64_t result = m_Buffer.read(pBuf, size, bCanBlock);
+  if (result) {
+    dataChanged();
+  }
+  return result;
 }
 
 uint64_t Pipe::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer, bool bCanBlock) {
@@ -103,7 +143,8 @@ uint64_t Pipe::writeBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
   }
 
   uint8_t* pBuf = reinterpret_cast<uint8_t*>(buffer);
-  uint64_t result = m_Buffer.write(pBuf, size, bCanBlock);
+  uint64_t result = size <= PIPE_BUF_MAX ? m_Buffer.writeAtomic(pBuf, size, bCanBlock)
+                                         : m_Buffer.write(pBuf, size, bCanBlock);
   if (result) {
     dataChanged();
   }
@@ -120,24 +161,28 @@ bool Pipe::isFifo() const {
 }
 
 void Pipe::increaseRefCount(bool bIsWriter) {
-  LockGuard<Mutex> guard(m_Lock);
+  {
+    LockGuard<Mutex> guard(m_Lock);
 
-  if (bIsWriter) {
-    // Enable writes if they were previously disabled.
-    if (!m_Buffer.enableWrites()) {
-      // Writes were disabled previously (EOF), so wipe the pipe.
-      m_Buffer.wipe();
+    if (bIsWriter) {
+      // Enable writes if they were previously disabled.
+      if (!m_Buffer.enableWrites()) {
+        // Writes were disabled previously (EOF), so wipe the pipe.
+        m_Buffer.wipe();
+      }
+      m_nWriters++;
+    } else {
+      // A reader is now present so we can enable reads if they weren't.
+      m_Buffer.enableReads();
+      m_nReaders++;
+
+      // The predicate is "at least one reader", so one arrival satisfies
+      // every writer currently blocked in open().
+      m_ReaderCondition.broadcast();
     }
-    m_nWriters++;
-  } else {
-    // A reader is now present so we can enable reads if they weren't.
-    m_Buffer.enableReads();
-    m_nReaders++;
-
-    // The predicate is "at least one reader", so one arrival satisfies
-    // every writer currently blocked in open().
-    m_ReaderCondition.broadcast();
   }
+
+  dataChanged();
 }
 
 void Pipe::decreaseRefCount(bool bIsWriter) {
@@ -147,6 +192,7 @@ void Pipe::decreaseRefCount(bool bIsWriter) {
   // refcount between the decrement and the check for zero may mean the pipe
   // is added to the ZombieQueue twice, which causes a double free.
   bool bDataChanged = false;
+  bool queueRetirement = false;
   {
     LockGuard<Mutex> guard(m_Lock);
 
@@ -174,22 +220,69 @@ void Pipe::decreaseRefCount(bool bIsWriter) {
       }
     }
 
-    if (m_nReaders == 0 && m_nWriters == 0) {
-      // If we're anonymous, die completely.
-      if (m_bIsAnonymous) {
-        size_t pid = Processor::information().getCurrentThread()->getParent()->getId();
-#if VERBOSE_KERNEL
-        NOTICE("Adding pipe [" << pid << "] " << this << " to ZombieQueue");
-#endif
-        ZombieQueue::instance().addObject(new ZombiePipe(this));
-        bDataChanged = false;
-      }
+    queueRetirement = shouldQueueRetirementLocked();
+    if (queueRetirement) {
+      bDataChanged = false;
     }
+  }
+
+  if (queueRetirement) {
+    size_t pid = Processor::information().getCurrentThread()->getParent()->getId();
+#if VERBOSE_KERNEL
+    NOTICE("Adding pipe [" << pid << "] " << this << " to ZombieQueue");
+#endif
+    ZombieQueue::instance().addObject(new ZombiePipe(this));
+    return;
   }
 
   if (bDataChanged) {
     dataChanged();
   }
+}
+
+bool Pipe::retainVfsReference() {
+  if (!m_bIsAnonymous) {
+    return File::retainVfsReference();
+  }
+
+  LockGuard<Mutex> guard(m_Lock);
+  if (m_bRetirementQueued) {
+    return false;
+  }
+  ++m_nLifetimePins;
+  return true;
+}
+
+void Pipe::releaseVfsReference() {
+  if (!m_bIsAnonymous) {
+    File::releaseVfsReference();
+    return;
+  }
+
+  bool queueRetirement = false;
+  {
+    LockGuard<Mutex> guard(m_Lock);
+    assert(m_nLifetimePins);
+    --m_nLifetimePins;
+    queueRetirement = shouldQueueRetirementLocked();
+  }
+
+  if (queueRetirement) {
+    size_t pid = Processor::information().getCurrentThread()->getParent()->getId();
+#if VERBOSE_KERNEL
+    NOTICE("Adding pipe [" << pid << "] " << this << " to ZombieQueue");
+#endif
+    ZombieQueue::instance().addObject(new ZombiePipe(this));
+  }
+}
+
+bool Pipe::shouldQueueRetirementLocked() {
+  if (!m_bIsAnonymous || m_bRetirementQueued || m_nLifetimePins || m_nReaders || m_nWriters) {
+    return false;
+  }
+
+  m_bRetirementQueued = true;
+  return true;
 }
 
 size_t Pipe::getReaderCount() {

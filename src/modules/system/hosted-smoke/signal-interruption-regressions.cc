@@ -9,12 +9,14 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/SignalEvent.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/RingBuffer.h"
@@ -67,6 +69,61 @@ bool waitUntilQueued(Thread* thread, size_t debugState) {
     Scheduler::instance().yield();
   }
   return false;
+}
+
+bool eventHandlerPrivilege() {
+  constexpr const char* Test = "event-handler-privilege";
+  SignalEvent kernelEvent(reinterpret_cast<uintptr_t>(&hostedSignalHandler), HostedSignalNumber);
+  SignalEvent userEvent(reinterpret_cast<uintptr_t>(&hostedSignalHandler), HostedSignalNumber, ~0UL,
+                        0, true, false, Event::HandlerPrivilege::User);
+  Event* delivery = userEvent.cloneForDelivery();
+
+  const bool passed =
+      check(kernelEvent.getHandlerPrivilege() == Event::HandlerPrivilege::Kernel,
+            "the compatible Event constructor did not default to kernel privilege") &&
+      check(kernelEvent.isValidHandlerMapping(VirtualAddressSpace::KernelMode),
+            "a kernel event rejected a kernel mapping") &&
+      check(!kernelEvent.isValidHandlerMapping(VirtualAddressSpace::Execute),
+            "a kernel event accepted a userspace mapping") &&
+      check(userEvent.getHandlerPrivilege() == Event::HandlerPrivilege::User,
+            "a user event lost its explicit privilege") &&
+      check(userEvent.isValidHandlerMapping(VirtualAddressSpace::Execute),
+            "a user event rejected an executable userspace mapping") &&
+      check(!userEvent.isValidHandlerMapping(0),
+            "a user event accepted a non-executable mapping") &&
+      check(!userEvent.isValidHandlerMapping(VirtualAddressSpace::KernelMode |
+                                             VirtualAddressSpace::Execute),
+            "a user event accepted a kernel mapping") &&
+      check(delivery && delivery->getHandlerPrivilege() == Event::HandlerPrivilege::User,
+            "a signal delivery snapshot lost its user privilege");
+
+  delete delivery;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool invalidUserHandlerDeliveryFailsClosed(Thread* thread) {
+  constexpr const char* Test = "invalid-user-handler-delivery";
+  g_SignalHandlerCalls = 0;
+
+  SignalEvent* event =
+      new SignalEvent(reinterpret_cast<uintptr_t>(&hostedSignalHandler), HostedSignalNumber, ~0UL,
+                      0, true, true, Event::HandlerPrivilege::User);
+  const bool queued = thread->sendEvent(event);
+  if (!queued) {
+    delete event;
+  } else {
+    thread->getScheduler()->checkEventState(0);
+  }
+
+  const bool passed = check(queued && !g_SignalHandlerCalls && !thread->getStateLevel(),
+                            "an unmapped user handler executed or retained scheduler state");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
 }
 
 struct SignalContext {
@@ -543,7 +600,8 @@ bool prequeuedDelaySignalInterruption(Thread* thread) {
 }  // namespace
 
 bool runHostedSignalInterruptionRegressions(Thread* thread) {
-  const bool passed = conditionVariableSignalInterruption(thread) &&
+  const bool passed = eventHandlerPrivilege() && invalidUserHandlerDeliveryFailsClosed(thread) &&
+                      conditionVariableSignalInterruption(thread) &&
                       bufferSignalInterruption(thread) && semaphoreSignalInterruption(thread) &&
                       semaphoreSignalAfterOrdinaryWake() && conditionSignalAfterOrdinaryWake() &&
                       completionSemaphoreSignalDeferral(thread) &&

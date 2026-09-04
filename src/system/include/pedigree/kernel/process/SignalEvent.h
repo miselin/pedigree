@@ -27,7 +27,8 @@
 class EXPORTED_PUBLIC SignalEvent : public Event {
  public:
   SignalEvent(uintptr_t handlerAddress, size_t signalNum, size_t specificNestingLevel = ~0UL,
-              uint64_t signalMask = 0, bool deferSignal = true, bool isDeletable = false);
+              uint64_t signalMask = 0, bool deferSignal = true, bool isDeletable = false,
+              HandlerPrivilege handlerPrivilege = HandlerPrivilege::Kernel);
 
   virtual size_t serialize(uint8_t* pBuffer);
   static bool unserialize(uint8_t* pBuffer, Event& event);

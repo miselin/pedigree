@@ -31,8 +31,10 @@
 #include "pedigree/kernel/utilities/Iterator.h"
 #include "pedigree/kernel/utilities/utility.h"
 
-Event::Event(uintptr_t handlerAddress, bool isDeletable, size_t specificNestingLevel)
+Event::Event(uintptr_t handlerAddress, bool isDeletable, size_t specificNestingLevel,
+             HandlerPrivilege handlerPrivilege)
     : m_HandlerAddress(handlerAddress),
+      m_HandlerPrivilege(handlerPrivilege),
       m_bIsDeletable(isDeletable),
       m_NestingLevel(specificNestingLevel),
       m_Magic(EVENT_MAGIC),
@@ -224,6 +226,15 @@ bool Event::isDeletable() {
   return m_bIsDeletable;
 }
 
+bool Event::isValidHandlerMapping(size_t mappingFlags) const {
+  if (m_HandlerPrivilege == HandlerPrivilege::User) {
+    return !(mappingFlags & VirtualAddressSpace::KernelMode) &&
+           (mappingFlags & VirtualAddressSpace::Execute);
+  }
+
+  return mappingFlags & VirtualAddressSpace::KernelMode;
+}
+
 bool Event::unserialize(uint8_t* pBuffer, Event& event) {
   ERROR("Event::unserialize is abstract, should never be called.");
   return false;
@@ -236,7 +247,8 @@ size_t Event::getEventType(uint8_t* pBuffer) {
 }
 
 Event::Event(const Event& other)
-    : Event(other.m_HandlerAddress, other.m_bIsDeletable, other.m_NestingLevel) {
+    : Event(other.m_HandlerAddress, other.m_bIsDeletable, other.m_NestingLevel,
+            other.m_HandlerPrivilege) {
   ConstexprLockGuard<Spinlock, THREADS> guard(m_Lock);
   m_Threads.clear();
 }
@@ -255,6 +267,7 @@ Event& Event::operator=(const Event& other) {
   }
 
   m_HandlerAddress = other.m_HandlerAddress;
+  m_HandlerPrivilege = other.m_HandlerPrivilege;
   m_bIsDeletable = other.m_bIsDeletable;
   m_NestingLevel = other.m_NestingLevel;
   m_DeleteWhenUnused = false;

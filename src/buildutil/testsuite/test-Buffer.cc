@@ -82,6 +82,22 @@ TEST(PedigreeBuffer, TryWriteIsAllOrNothing) {
   EXPECT_EQ(result[1], 'e');
 }
 
+TEST(PedigreeBuffer, AtomicWriteDoesNotPublishAPrefix) {
+  Buffer<char> buffer(4);
+  const char prefix[] = {'a', 'b', 'c'};
+  const char atomic[] = {'d', 'e'};
+
+  EXPECT_EQ(buffer.write(prefix, sizeof(prefix), false), sizeof(prefix));
+  EXPECT_EQ(buffer.writeAtomic(atomic, sizeof(atomic), false), 0U);
+  EXPECT_EQ(buffer.getDataSize(), sizeof(prefix));
+
+  char result[4] = {};
+  EXPECT_EQ(buffer.read(result, sizeof(result), false), sizeof(prefix));
+  EXPECT_EQ(result[0], 'a');
+  EXPECT_EQ(result[1], 'b');
+  EXPECT_EQ(result[2], 'c');
+}
+
 TEST(PedigreeBuffer, ReadTooMany) {
   Buffer<char> buffer(8);
 

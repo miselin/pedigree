@@ -439,6 +439,7 @@ if [ "$wait_regressions_only" = "0" ] ||
         "$empty_log" \
         "HOSTED-NETWORK-TEST: PASS receive-generation-aba"
     for checkpoint in \
+        "HOSTED-SYSCALL-TEST: PASS usercopy" \
         "HOSTED-SYSCALL-TEST: PASS directory-retained-lookup-atomicity" \
         "HOSTED-SYSCALL-TEST: PASS directory-retained-lookup-lifecycle" \
         "HOSTED-SYSCALL-TEST: PASS vfs-established-alias-serialization" \
@@ -449,9 +450,18 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS mmap-split-alias-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS posix-path-lookup-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS descriptor-close-generation" \
+        "HOSTED-SYSCALL-TEST: PASS descriptor-open-file-description-state" \
+        "HOSTED-SYSCALL-TEST: PASS descriptor-open-file-description-lifetime" \
+        "HOSTED-SYSCALL-TEST: PASS descriptor-append-policy" \
+        "HOSTED-SYSCALL-TEST: PASS descriptor-nonblocking-policy" \
+        "HOSTED-SYSCALL-TEST: PASS descriptor-vector-io-serialization" \
+        "HOSTED-SYSCALL-TEST: PASS select-projection-timeout" \
+        "HOSTED-SYSCALL-TEST: PASS pipe-poll-readiness" \
+        "HOSTED-SYSCALL-TEST: PASS epoll-level-oneshot-ofd-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS poll-close-reuse-cleanup" \
         "HOSTED-SYSCALL-TEST: PASS posix-teardown-contention" \
         "HOSTED-SYSCALL-TEST: PASS socket-zero-result-signal" \
+        "HOSTED-SYSCALL-TEST: PASS unix-bind-replacement-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS clone-errno-lifetime" \
         "HOSTED-SYSCALL-TEST: PASS clone-vm-detached-cached-tid" \
         "HOSTED-SYSCALL-TEST: PASS clone-vm-terminal-start-cancellation" \

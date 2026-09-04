@@ -288,6 +288,7 @@ set(KERNEL_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/PerProcessorScheduler.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Process.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/ProcessorThreadAllocator.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Readiness.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/RoundRobin.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/RoundRobinCoreAllocator.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/core/process/Scheduler.cc

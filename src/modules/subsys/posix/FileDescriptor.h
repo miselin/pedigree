@@ -31,28 +31,63 @@ class File;
 class LockedFile;
 class UnixSocket;
 class IoEvent;
+class NetworkSyscalls;
+class EpollInstance;
 
 /** Abstraction of a file descriptor, which defines an open file
  * and related flags.
  */
 class EXPORTED_PUBLIC FileDescriptor {
- private:
-  struct OpenFilePosition;
-
  public:
+  class PositionGuard;
+
+  /**
+   * Shared state for one open file description. A lease keeps its file or
+   * socket target alive independently of any numeric descriptor.
+   */
+  class OpenFileDescription {
+   public:
+    ~OpenFileDescription();
+
+    File* getFile() const;
+    SharedPointer<NetworkSyscalls> getNetworkImpl() const;
+    size_t descriptorOwnerCount() const;
+
+   private:
+    friend class FileDescriptor;
+    friend class PositionGuard;
+
+    OpenFileDescription(File* file, uint64_t initialOffset, int initialStatusFlags);
+
+    void addDescriptorOwner();
+    void removeDescriptorOwner();
+    void ensureVfsLease();
+
+    mutable Mutex lock;
+    File* file;
+    SharedPointer<NetworkSyscalls> networkImpl;
+    uint64_t offset;
+    int statusFlags;
+    size_t descriptorOwners;
+    bool vfsLease;
+  };
+
+  using OpenFileDescriptionLease = SharedPointer<OpenFileDescription>;
+
   /** A serialized view of the offset shared by duplicated descriptors. */
   class PositionGuard {
    public:
     uint64_t offset() const;
+    int statusFlags() const;
     void setOffset(uint64_t offset);
     void advanceOffset(uint64_t amount);
 
    private:
     friend class FileDescriptor;
 
-    explicit PositionGuard(const SharedPointer<OpenFilePosition>& position);
+    explicit PositionGuard(const SharedPointer<OpenFileDescription>& description);
 
-    SharedPointer<OpenFilePosition> m_Position;
+    SharedPointer<OpenFileDescription> m_Description;
     LockGuard<Mutex> m_Guard;
   };
 
@@ -90,8 +125,17 @@ class EXPORTED_PUBLIC FileDescriptor {
   /// Helper to add a single flag to the status flags.
   void addStatusFlag(int newFlag);
 
+  /// Helper to remove a single flag from the status flags.
+  void removeStatusFlag(int flag);
+
   /// Get current status flags.
   int getStatusFlags() const;
+
+  /** Retain and identify the open file description behind this descriptor. */
+  OpenFileDescriptionLease acquireOpenFileDescription() const;
+
+  /** Associate a socket implementation with this open file description. */
+  void setNetworkImpl(const SharedPointer<NetworkSyscalls>& implementation);
 
   /** Lock and access the offset shared by this open-file description. */
   PositionGuard lockPosition() const;
@@ -118,7 +162,10 @@ class EXPORTED_PUBLIC FileDescriptor {
   LockedFile* lockedFile;
 
   /// Network syscall implementation for this descriptor (if it's a socket).
-  SharedPointer<class NetworkSyscalls> networkImpl;
+  SharedPointer<NetworkSyscalls> networkImpl;
+
+  /// Epoll implementation for this descriptor (if it is an epoll object).
+  SharedPointer<EpollInstance> epollImpl;
 
   /// IO event for reporting changes to files
   IoEvent* ioevent;
@@ -127,22 +174,9 @@ class EXPORTED_PUBLIC FileDescriptor {
   /// File descriptor flags (fcntl)
   int fdflags;
 
-  /// File status flags (fcntl)
-  int flflags;
-
  private:
-  struct OpenFilePosition {
-    explicit OpenFilePosition(uint64_t initialOffset) : lock(), offset(initialOffset) {}
-
-    Mutex lock;
-    uint64_t offset;
-  };
-
-  /** Offset and serialization shared by aliases of one open file. */
-  SharedPointer<OpenFilePosition> m_Position;
-
-  /** Whether this descriptor retained an established VFS File owner. */
-  bool m_bVfsLease;
+  /** State and serialization shared by aliases of one open file. */
+  OpenFileDescriptionLease m_OpenFile;
 };
 
 #endif

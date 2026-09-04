@@ -30,7 +30,7 @@
 
 #include "File.h"
 
-#define PIPE_BUF_MAX 2048
+#define PIPE_BUF_MAX 4096
 
 /** A first-in-first-out buffer node. */
 class EXPORTED_PUBLIC Pipe : public File {
@@ -65,6 +65,12 @@ class EXPORTED_PUBLIC Pipe : public File {
   /** select() */
   virtual int select(bool bWriting = false, int timeout = 0);
 
+  ReadyMask queryReady(bool reading, bool writing) override;
+
+  bool supportsReadinessNotifications() const override {
+    return true;
+  }
+
   /** Reads from the file. */
   virtual uint64_t readBytewise(uint64_t location, uint64_t size, uintptr_t buffer,
                                 bool bCanBlock = true);
@@ -86,6 +92,12 @@ class EXPORTED_PUBLIC Pipe : public File {
   /** Override decreaseRefCount so we can tell when all writers have hung up
       (and also when all readers have hung up so we can die). */
   virtual void decreaseRefCount(bool bIsWriter);
+
+  /** Pin anonymous pipe storage independently of reader/writer presence. */
+  bool retainVfsReference() override;
+
+  /** Release a storage pin, retiring an unused anonymous pipe if needed. */
+  void releaseVfsReference() override;
 
   /** Returns a locked diagnostic snapshot of the current reader count. */
   size_t getReaderCount();
@@ -114,6 +126,14 @@ class EXPORTED_PUBLIC Pipe : public File {
 
   /** Writers waiting for the protected m_nReaders predicate. */
   ConditionVariable m_ReaderCondition;
+
+  /** OFD lifetime pins which do not count as live reader/writer endpoints. */
+  size_t m_nLifetimePins;
+
+  /** Ensures anonymous retirement is queued exactly once. */
+  bool m_bRetirementQueued;
+
+  bool shouldQueueRetirementLocked();
 
   virtual bool isBytewise() const {
     return true;

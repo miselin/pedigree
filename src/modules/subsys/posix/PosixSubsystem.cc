@@ -388,7 +388,9 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags) {
 
   // Check the complete address range.
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-  if ((addr < va.getUserStart()) || (addr >= va.getKernelStart()) || (end >= va.getKernelStart())) {
+  if ((addr < va.getUserStart()) || (addr >= va.getKernelStart()) || (end >= va.getKernelStart()) ||
+      !va.isAddressValid(reinterpret_cast<void*>(addr)) ||
+      !va.isAddressValid(reinterpret_cast<void*>(end))) {
 #if VERBOSE_KERNEL
     PS_NOTICE("  -> outside of user address area.");
 #endif
@@ -401,6 +403,9 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags) {
   }
   if (flags & SafeWrite) {
     mmapPermissions |= MemoryMappedObject::Write;
+  }
+  if (flags & SafeExecute) {
+    mmapPermissions |= MemoryMappedObject::Exec;
   }
 
   // Demand-paged mappings may not have PTEs yet. Accept them only when
@@ -427,17 +432,31 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags) {
       return false;
     }
 
-    if (flags & SafeWrite) {
-      size_t vFlags = 0;
-      physical_uintptr_t phys = 0;
-      va.getMapping(pAddr, phys, vFlags);
+    size_t vFlags = 0;
+    physical_uintptr_t phys = 0;
+    va.getMapping(pAddr, phys, vFlags);
 
+    if (vFlags & VirtualAddressSpace::KernelMode) {
+#if VERBOSE_KERNEL
+      PS_NOTICE("  -> not userspace-accessible.");
+#endif
+      return false;
+    }
+
+    if (flags & SafeWrite) {
       if (!(vFlags & (VirtualAddressSpace::Write | VirtualAddressSpace::CopyOnWrite))) {
 #if VERBOSE_KERNEL
         PS_NOTICE("  -> not writeable.");
 #endif
         return false;
       }
+    }
+
+    if ((flags & SafeExecute) && !(vFlags & VirtualAddressSpace::Execute)) {
+#if VERBOSE_KERNEL
+      PS_NOTICE("  -> not executable.");
+#endif
+      return false;
     }
 
     if (page == finalPage) {
@@ -452,6 +471,81 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags) {
   return true;
 }
 
+bool PosixSubsystem::checkedUserBufferSize(size_t count, size_t elementSize, size_t& extent) {
+  extent = 0;
+  if (!count || !elementSize) {
+    return true;
+  }
+
+  if (count > (~static_cast<size_t>(0) / elementSize)) {
+    return false;
+  }
+
+  extent = count * elementSize;
+  return true;
+}
+
+bool PosixSubsystem::checkUserBuffer(uintptr_t addr, size_t count, size_t elementSize, size_t flags,
+                                     size_t* extent) {
+  if (extent) {
+    *extent = 0;
+  }
+
+  size_t byteExtent = 0;
+  if (!checkedUserBufferSize(count, elementSize, byteExtent)) {
+    return false;
+  }
+
+  if (extent) {
+    *extent = byteExtent;
+  }
+  return checkAddress(addr, byteExtent, flags);
+}
+
+bool PosixSubsystem::copyFromUser(void* destination, const void* source, size_t count,
+                                  size_t elementSize) {
+  size_t extent = 0;
+  if (!checkedUserBufferSize(count, elementSize, extent)) {
+    return false;
+  }
+  if (!extent) {
+    return true;
+  }
+  if (!destination || !source) {
+    return false;
+  }
+
+  MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
+  if (!checkAddress(reinterpret_cast<uintptr_t>(source), extent, SafeRead)) {
+    return false;
+  }
+
+  MemoryCopy(destination, source, extent);
+  return true;
+}
+
+bool PosixSubsystem::copyToUser(void* destination, const void* source, size_t count,
+                                size_t elementSize) {
+  size_t extent = 0;
+  if (!checkedUserBufferSize(count, elementSize, extent)) {
+    return false;
+  }
+  if (!extent) {
+    return true;
+  }
+  if (!destination || !source) {
+    return false;
+  }
+
+  MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
+  if (!checkAddress(reinterpret_cast<uintptr_t>(destination), extent, SafeWrite)) {
+    return false;
+  }
+
+  MemoryCopy(destination, source, extent);
+  return true;
+}
+
 PosixSubsystem::UserStringResult PosixSubsystem::copyUserString(const char* userString,
                                                                 String& copy, size_t maxLength) {
   copy.clear();
@@ -463,6 +557,8 @@ PosixSubsystem::UserStringResult PosixSubsystem::copyUserString(const char* user
   if (!maxLength) {
     return UserStringTooLong;
   }
+
+  MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
 
   const size_t pageSize = PhysicalMemoryManager::getPageSize();
   const size_t chunkSize = 256;
@@ -923,16 +1019,22 @@ void PosixSubsystem::cancelAlarm() {
  * calls. They cannot re-enter as they take process-specific locks.
  */
 
-size_t PosixSubsystem::getFd() {
+size_t PosixSubsystem::getFd(size_t minimum) {
   Uninterruptible throughout;
 
   // Enter critical section for writing.
   m_FdLock.acquire();
 
   // Try to recycle if possible
-  for (size_t i = m_LastFd; i < m_NextFd; i++) {
+  const bool advancesGlobalHint = minimum <= m_LastFd;
+  const size_t firstCandidate = minimum > m_LastFd ? minimum : m_LastFd;
+  for (size_t i = firstCandidate; i < m_NextFd; i++) {
     if (!(m_FdBitmap.test(i))) {
-      m_LastFd = i;
+      // A constrained F_DUPFD search must not hide lower holes from the
+      // ordinary lowest-descriptor allocator.
+      if (advancesGlobalHint) {
+        m_LastFd = i;
+      }
       m_FdBitmap.set(i);
       m_FdLock.release();
       return i;
@@ -940,9 +1042,10 @@ size_t PosixSubsystem::getFd() {
   }
 
   // Otherwise, allocate
-  // m_NextFd will always contain the highest allocated fd
-  m_FdBitmap.set(m_NextFd);
-  size_t ret = m_NextFd++;
+  // m_NextFd will always be one beyond the highest allocated fd.
+  const size_t ret = minimum > m_NextFd ? minimum : m_NextFd;
+  m_FdBitmap.set(ret);
+  m_NextFd = ret + 1;
   m_FdLock.release();
   return ret;
 }

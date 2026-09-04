@@ -157,7 +157,34 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
   }
   sig %= 32;
 
-  // store the old signal handler information if we can
+  uintptr_t newHandler = 0;
+  int handlerType = 1;
+  if (act) {
+    newHandler = reinterpret_cast<uintptr_t>(act->sa_handler);
+    if (newHandler == 0) {
+      SG_NOTICE(" + SIG_DFL");
+      newHandler = reinterpret_cast<uintptr_t>(default_sig_handlers[sig]);
+      handlerType = 1;
+    } else if (newHandler == 1) {
+      SG_NOTICE(" + SIG_IGN");
+      newHandler = reinterpret_cast<uintptr_t>(sigign);
+      handlerType = 2;
+    } else if (newHandler == static_cast<uintptr_t>(-1)) {
+      SG_NOTICE(" + Invalid");
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    } else {
+      handlerType = 0;
+      if (!PosixSubsystem::checkAddress(newHandler, 1, PosixSubsystem::SafeExecute)) {
+        SG_NOTICE(" + Handler is not executable userspace memory");
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+    }
+  }
+
+  // Store the old signal handler information only after the replacement has
+  // passed validation.
   if (oact) {
     PosixSubsystem::SignalDisposition oldDisposition;
     ByteSet(oact, 0, sizeof(struct sigaction));
@@ -174,34 +201,18 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
     }
   }
 
-  // and if needed, fill in the new signal handler
+  // Publish the validated replacement disposition.
   if (act) {
     PosixSubsystem::SignalHandler* sigHandler = new PosixSubsystem::SignalHandler;
     sigHandler->flags = act->sa_flags;
     sigHandler->restorer = reinterpret_cast<uintptr_t>(act->sa_restorer);
+    sigHandler->type = handlerType;
     MemoryCopy(&sigHandler->sigMask, &act->sa_mask, sizeof(sigHandler->sigMask));
 
-    uintptr_t newHandler = reinterpret_cast<uintptr_t>(act->sa_handler);
-    if (newHandler == 0) {
-      SG_NOTICE(" + SIG_DFL");
-      newHandler = reinterpret_cast<uintptr_t>(default_sig_handlers[sig]);
-      sigHandler->type = 1;
-    } else if (newHandler == 1) {
-      SG_NOTICE(" + SIG_IGN");
-      newHandler = reinterpret_cast<uintptr_t>(sigign);
-      sigHandler->type = 2;
-    } else if (static_cast<int>(newHandler) == -1) {
-      SG_NOTICE(" + Invalid");
-      delete sigHandler;
-      SYSCALL_ERROR(InvalidArgument);
-      return -1;
-    } else {
-      // SG_NOTICE(" + <handler has been provided>");
-      sigHandler->type = 0;
-    }
-
-    sigHandler->pEvent = new SignalEvent(newHandler, static_cast<size_t>(sig), ~0UL,
-                                         sigHandler->sigMask, !(sigHandler->flags & SA_NODEFER));
+    sigHandler->pEvent = new SignalEvent(
+        newHandler, static_cast<size_t>(sig), ~0UL, sigHandler->sigMask,
+        !(sigHandler->flags & SA_NODEFER), false,
+        handlerType == 0 ? Event::HandlerPrivilege::User : Event::HandlerPrivilege::Kernel);
     SG_NOTICE("Creating the event (" << reinterpret_cast<uintptr_t>(sigHandler->pEvent) << ").");
     pSubsystem->setSignalHandler(sig, sigHandler);
   } else if (!oact) {
@@ -215,16 +226,21 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
 int posix_sigaction(int sig, const struct sigaction* act, struct sigaction* oact) {
   SG_NOTICE("sigaction(" << Dec << sig << Hex << ", " << reinterpret_cast<uintptr_t>(act) << ", "
                          << reinterpret_cast<uintptr_t>(oact) << ")");
-  if ((act && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(act),
-                                            sizeof(struct sigaction), PosixSubsystem::SafeRead)) ||
-      (oact &&
-       !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(oact), sizeof(struct sigaction),
-                                     PosixSubsystem::SafeWrite))) {
-    SYSCALL_ERROR(InvalidArgument);
+  struct sigaction requested = {};
+  if ((act && !PosixSubsystem::copyFromUser(&requested, act, sizeof(requested))) ||
+      (oact && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(oact), sizeof(*oact),
+                                             PosixSubsystem::SafeWrite))) {
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
-  return posix_sigaction_impl(sig, act, oact);
+  struct sigaction previous = {};
+  int result = posix_sigaction_impl(sig, act ? &requested : nullptr, oact ? &previous : nullptr);
+  if ((result == 0) && oact && !PosixSubsystem::copyToUser(oact, &previous, sizeof(previous))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  return result;
 }
 
 #if BITS_64
@@ -246,13 +262,12 @@ int posix_linux_amd64_sigaction(int sig, const LinuxAmd64KernelSigaction* act,
   SG_NOTICE("linux-amd64 sigaction(" << Dec << sig << Hex << ", "
                                      << reinterpret_cast<uintptr_t>(act) << ", "
                                      << reinterpret_cast<uintptr_t>(oact) << ")");
-  if ((act && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(act),
-                                            sizeof(LinuxAmd64KernelSigaction),
-                                            PosixSubsystem::SafeRead)) ||
+  LinuxAmd64KernelSigaction linuxAct = {};
+  if ((act && !PosixSubsystem::copyFromUser(&linuxAct, act, sizeof(linuxAct))) ||
       (oact && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(oact),
                                              sizeof(LinuxAmd64KernelSigaction),
                                              PosixSubsystem::SafeWrite))) {
-    SYSCALL_ERROR(InvalidArgument);
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
@@ -261,7 +276,11 @@ int posix_linux_amd64_sigaction(int sig, const LinuxAmd64KernelSigaction* act,
     // their default disposition keeps Linux runtimes from treating the
     // smaller native signal namespace as an exec-time failure.
     if (oact) {
-      ByteSet(oact, 0, sizeof(*oact));
+      LinuxAmd64KernelSigaction ignored = {};
+      if (!PosixSubsystem::copyToUser(oact, &ignored, sizeof(ignored))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
     }
     return 0;
   }
@@ -269,9 +288,6 @@ int posix_linux_amd64_sigaction(int sig, const LinuxAmd64KernelSigaction* act,
   struct sigaction nativeAct = {};
   const struct sigaction* nativeActPtr = nullptr;
   if (act) {
-    LinuxAmd64KernelSigaction linuxAct;
-    MemoryCopy(&linuxAct, act, sizeof(linuxAct));
-
     nativeAct.sa_handler =
         reinterpret_cast<void (*)(int)>(static_cast<uintptr_t>(linuxAct.handler));
     nativeAct.sa_flags = static_cast<int>(linuxAct.flags);
@@ -289,7 +305,10 @@ int posix_linux_amd64_sigaction(int sig, const LinuxAmd64KernelSigaction* act,
     linuxOld.flags = static_cast<uint64_t>(static_cast<uint32_t>(nativeOld.sa_flags));
     linuxOld.restorer = reinterpret_cast<uintptr_t>(nativeOld.sa_restorer);
     MemoryCopy(&linuxOld.mask, &nativeOld.sa_mask, sizeof(linuxOld.mask));
-    MemoryCopy(oact, &linuxOld, sizeof(linuxOld));
+    if (!PosixSubsystem::copyToUser(oact, &linuxOld, sizeof(linuxOld))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
   }
 
   return result;
@@ -406,8 +425,36 @@ static int doProcessKill(Process* p, int sig) {
   return p->acquireThread(target, static_cast<size_t>(0)) ? doThreadKill(target.get(), sig) : -1;
 }
 
+static bool canSignalProcess(const PosixProcess* caller, const PosixProcess* target, int sig) {
+  const int64_t callerReal = caller->getUserId();
+  const int64_t callerEffective = caller->getEffectiveUserId();
+  if (callerEffective == 0) {
+    return true;
+  }
+
+  const int64_t targetReal = target->getUserId();
+  const int64_t targetSaved = target->getSavedUserId();
+  const bool realMatches = callerReal >= 0 && (callerReal == targetReal ||
+                                               (targetSaved >= 0 && callerReal == targetSaved));
+  const bool effectiveMatches =
+      callerEffective >= 0 &&
+      (callerEffective == targetReal || (targetSaved >= 0 && callerEffective == targetSaved));
+  if (realMatches || effectiveMatches) {
+    return true;
+  }
+
+  PosixSession* callerSession = caller->getSession();
+  return sig == SIGCONT && callerSession && callerSession == target->getSession();
+}
+
 int posix_kill(int pid, int sig) {
   SG_NOTICE("kill(" << pid << ", " << sig << ")");
+
+  if (sig < 0 ||
+      sig >= static_cast<int>(sizeof(default_sig_handlers) / sizeof(default_sig_handlers[0]))) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
 
   List<size_t> processList;
 
@@ -418,6 +465,7 @@ int posix_kill(int pid, int sig) {
   const bool thisHasGroup = pThisProcess->getProcessGroupId(thisGroupId);
 
   bool bKillingSelf = false;
+  bool foundTarget = false;
 
   // Check for the process(es) we are about to kill.
   size_t i = 0;
@@ -434,49 +482,69 @@ int posix_kill(int pid, int sig) {
 
     if (primaryThread->getStatus() == Thread::Zombie) {
       // Oops, process already been terminated.
-      if (static_cast<int>(pProcess->getId()) == pid)
+      if (static_cast<int>(pProcess->getId()) == pid) {
         break;
-      else
+      } else {
         continue;
-    } else if ((pid <= 0) && (pProcess->getType() == Process::Posix)) {
-      PosixProcess* pPosixProcess = static_cast<PosixProcess*>(pProcess);
+      }
+    }
+
+    if (pProcess->getType() != Process::Posix) {
+      continue;
+    }
+
+    PosixProcess* pPosixProcess = static_cast<PosixProcess*>(pProcess);
+    bool selected = false;
+    if (pid > 0) {
+      selected = static_cast<int>(pProcess->getId()) == pid;
+    } else {
       size_t groupId = 0;
       const bool hasGroup = pPosixProcess->getProcessGroupId(groupId);
       if (pid == 0) {
         // Any process in the same process group as the caller.
-        if (!hasGroup || !thisHasGroup)
-          continue;
-        if (groupId != thisGroupId)
-          continue;
-
-        SC_NOTICE(" -> killing process " << pProcess->getId() << " in group [" << groupId << "]");
+        selected = hasGroup && thisHasGroup && groupId == thisGroupId;
+        if (selected) {
+          SC_NOTICE(" -> selecting process " << pProcess->getId() << " in group [" << groupId
+                                             << "]");
+        }
       } else if (pid == -1) {
         // Kill all processes we have permission to kill (limit to only
         // direct children for now)
-        if (pProcess->getParent() != pThisProcess)
-          continue;
-      } else if (!hasGroup || groupId != static_cast<size_t>(-static_cast<int64_t>(pid))) {
+        selected = pProcess->getParent() == pThisProcess;
+      } else {
         // Absolute group ID reference
-        continue;
+        selected = hasGroup && groupId == static_cast<size_t>(-static_cast<int64_t>(pid));
       }
-    } else if ((pid > 0) && (static_cast<int>(pProcess->getId()) != pid))
-      continue;
-    else if (pProcess->getType() != Process::Posix)
-      continue;
-    else if (pid <= 0) {
-      // process group option failed to fully succeed, don't kill
+    }
+
+    if (!selected) {
       continue;
     }
 
-    // Okay, the process is good.
+    foundTarget = true;
+    if (!canSignalProcess(pThisProcess, pPosixProcess, sig)) {
+      continue;
+    }
+
     processList.pushBack(pProcess->getId());
   }
 
   // No process(es) found?
   if (processList.count() == 0) {
-    SYSCALL_ERROR(NoSuchProcess);
-    SG_NOTICE("  -> no such process");
+    if (foundTarget) {
+      SYSCALL_ERROR(NotEnoughPermissions);
+      SG_NOTICE("  -> target exists, but permission was denied");
+    } else {
+      SYSCALL_ERROR(NoSuchProcess);
+      SG_NOTICE("  -> no such process");
+    }
     return -1;
+  }
+
+  // Signal zero performs the same target and permission checks without
+  // allocating, queueing, or dispatching an event.
+  if (!sig) {
+    return 0;
   }
 
   // Go ahead and kill each process.
@@ -526,28 +594,29 @@ int posix_sigprocmask(int how, const void* set, void* oset, size_t sigsetSize, b
   }
 
   const size_t userSigsetSize = linuxCompat ? KernelSigsetSize : sizeof(sigset_t);
-  if ((set && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(set), userSigsetSize,
-                                            PosixSubsystem::SafeRead)) ||
-      (oset && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(oset), userSigsetSize,
-                                             PosixSubsystem::SafeWrite))) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-
+  sigset_t requestedSet = {};
   uint64_t requestedMask = 0;
   if (set) {
+    if (!PosixSubsystem::copyFromUser(&requestedSet, set, userSigsetSize)) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
     if (how != SIG_BLOCK && how != SIG_UNBLOCK && how != SIG_SETMASK) {
       SYSCALL_ERROR(InvalidArgument);
       return -1;
     }
-    MemoryCopy(&requestedMask, set, KernelSigsetSize);
+    MemoryCopy(&requestedMask, &requestedSet, KernelSigsetSize);
   }
 
   Thread* pThread = Processor::information().getCurrentThread();
   uint64_t oldMask = pThread->getSignalMask();
   if (oset) {
-    ByteSet(oset, 0, userSigsetSize);
-    MemoryCopy(oset, &oldMask, KernelSigsetSize);
+    sigset_t previousSet = {};
+    MemoryCopy(&previousSet, &oldMask, KernelSigsetSize);
+    if (!PosixSubsystem::copyToUser(oset, &previousSet, userSigsetSize)) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
   }
 
   if (set) {
@@ -677,17 +746,12 @@ int posix_clock_gettime(clockid_t clock_id, struct timespec* tp) {
 }
 
 int posix_sigaltstack(const stack_t* stack, stack_t* oldstack) {
-  if ((stack && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(stack), sizeof(stack_t),
-                                              PosixSubsystem::SafeRead)) ||
-      (oldstack && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(oldstack),
-                                                 sizeof(stack_t), PosixSubsystem::SafeWrite))) {
+  stack_t requested = {};
+  if (stack && !PosixSubsystem::copyFromUser(&requested, stack, sizeof(requested))) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
-
-  stack_t requested = {};
   if (stack) {
-    MemoryCopy(&requested, stack, sizeof(requested));
     if (requested.ss_flags & ~SS_DISABLE) {
       SYSCALL_ERROR(InvalidArgument);
       return -1;
@@ -724,7 +788,10 @@ int posix_sigaltstack(const stack_t* stack, stack_t* oldstack) {
     } else {
       previous.ss_flags = SS_DISABLE;
     }
-    MemoryCopy(oldstack, &previous, sizeof(previous));
+    if (!PosixSubsystem::copyToUser(oldstack, &previous, sizeof(previous))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
   }
 
   if (stack) {

@@ -176,6 +176,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   static const size_t SafeRegion = 0x0;  // Region check is always done.
   static const size_t SafeRead = 0x1;
   static const size_t SafeWrite = 0x2;
+  static const size_t SafeExecute = 0x4;
 
   /** ABI mode. */
   enum Abi {
@@ -254,6 +255,31 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
    *       not able to crash the kernel.
    */
   static bool checkAddress(uintptr_t addr, size_t extent, size_t flags);
+
+  /**
+   * Calculate the byte extent of a userspace array without wrapping.
+   *
+   * Zero-sized arrays have a zero byte extent. This makes them safe to pass
+   * through the copy helpers without special-casing a null userspace pointer.
+   */
+  static bool checkedUserBufferSize(size_t count, size_t elementSize, size_t& extent);
+
+  /** Validate a userspace array after checking its size calculation. */
+  static bool checkUserBuffer(uintptr_t addr, size_t count, size_t elementSize, size_t flags,
+                              size_t* extent = nullptr);
+
+  /**
+   * Snapshot a userspace array into kernel-owned memory.
+   *
+   * Mapping teardown is excluded for the duration of validation and copying,
+   * so callers can safely release all userspace references before blocking.
+   */
+  static bool copyFromUser(void* destination, const void* source, size_t count,
+                           size_t elementSize = 1);
+
+  /** Copy a kernel-owned array to userspace under the mapping lifecycle gate. */
+  static bool copyToUser(void* destination, const void* source, size_t count,
+                         size_t elementSize = 1);
 
   enum UserStringResult { UserStringSuccess, UserStringBadAddress, UserStringTooLong };
 
@@ -371,8 +397,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   /** Copies file descriptors from another subsystem */
   bool copyDescriptors(PosixSubsystem* pSubsystem);
 
-  /** Returns the first available file descriptor. */
-  size_t getFd();
+  /** Returns the first available file descriptor at or above minimum. */
+  size_t getFd(size_t minimum = 0);
 
   /** Sets the given file descriptor as "in use". */
   void allocateFd(size_t fdNum);

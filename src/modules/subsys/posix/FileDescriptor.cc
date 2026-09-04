@@ -22,6 +22,7 @@
 #include <fcntl.h>
 
 #include "modules/subsys/posix/IoEvent.h"
+#include "modules/subsys/posix/epoll-syscalls.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
@@ -29,6 +30,8 @@
 #define ENABLE_LOCKED_FILES 0
 
 namespace {
+constexpr int MutableStatusFlags = O_APPEND | O_NONBLOCK;
+
 bool isReadWrite(int flags) {
   return (flags & O_ACCMODE) == O_RDWR;
 }
@@ -85,17 +88,84 @@ void retireIoEvent(File* file, SharedPointer<NetworkSyscalls>& networkImpl, IoEv
 RadixTree<LockedFile*> g_PosixGlobalLockedFiles;
 #endif
 
+FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t initialOffset,
+                                                         int initialStatusFlags)
+    : lock(),
+      file(newFile),
+      networkImpl(nullptr),
+      offset(initialOffset),
+      statusFlags(initialStatusFlags),
+      descriptorOwners(1),
+      vfsLease(newFile && newFile->retainVfsReference()) {
+  increaseFileReferences(file, statusFlags);
+}
+
+FileDescriptor::OpenFileDescription::~OpenFileDescription() {
+  assert(!descriptorOwners);
+  if (vfsLease) {
+    file->releaseVfsReference();
+  }
+}
+
+File* FileDescriptor::OpenFileDescription::getFile() const {
+  return file;
+}
+
+SharedPointer<NetworkSyscalls> FileDescriptor::OpenFileDescription::getNetworkImpl() const {
+  LockGuard<Mutex> guard(lock);
+  return networkImpl;
+}
+
+size_t FileDescriptor::OpenFileDescription::descriptorOwnerCount() const {
+  LockGuard<Mutex> guard(lock);
+  return descriptorOwners;
+}
+
+void FileDescriptor::OpenFileDescription::addDescriptorOwner() {
+  LockGuard<Mutex> guard(lock);
+  assert(descriptorOwners);
+  ++descriptorOwners;
+}
+
+void FileDescriptor::OpenFileDescription::removeDescriptorOwner() {
+  bool closeEndpoint = false;
+  int flags = 0;
+  SharedPointer<NetworkSyscalls> closingNetwork;
+  {
+    LockGuard<Mutex> guard(lock);
+    assert(descriptorOwners);
+    --descriptorOwners;
+    closeEndpoint = descriptorOwners == 0;
+    flags = statusFlags;
+    if (closeEndpoint) {
+      closingNetwork = networkImpl;
+    }
+  }
+  if (closeEndpoint) {
+    decreaseFileReferences(file, flags);
+    if (closingNetwork) {
+      closingNetwork->lastDescriptorClosed();
+    }
+  }
+}
+
+void FileDescriptor::OpenFileDescription::ensureVfsLease() {
+  LockGuard<Mutex> guard(lock);
+  if (!vfsLease && file) {
+    vfsLease = file->retainVfsReference();
+  }
+}
+
 /// Default constructor
 FileDescriptor::FileDescriptor()
     : file(0),
       fd(0xFFFFFFFF),
       lockedFile(0),
       networkImpl(nullptr),
+      epollImpl(nullptr),
       ioevent(nullptr),
       fdflags(0),
-      flflags(0),
-      m_Position(new OpenFilePosition(0)),
-      m_bVfsLease(false) {}
+      m_OpenFile(new OpenFileDescription(nullptr, 0, 0)) {}
 
 /// Parameterised constructor
 FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, int fdFlags,
@@ -104,17 +174,15 @@ FileDescriptor::FileDescriptor(File* newFile, uint64_t newOffset, size_t newFd, 
       fd(newFd),
       lockedFile(lf),
       networkImpl(nullptr),
+      epollImpl(nullptr),
       ioevent(nullptr),
-      fdflags(fdFlags),
-      flflags(flFlags),
-      m_Position(new OpenFilePosition(newOffset)),
-      m_bVfsLease(newFile && VFS::instance().retainTrackedFile(newFile)) {
+      fdflags(fdFlags | ((flFlags & O_CLOEXEC) ? FD_CLOEXEC : 0)),
+      m_OpenFile(new OpenFileDescription(newFile, newOffset, flFlags & ~O_CLOEXEC)) {
   /// \todo need a copy constructor for networkImpl
   if (file) {
 #if ENABLE_LOCKED_FILES
     lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
 #endif
-    increaseFileReferences(file, flflags);
   }
 }
 
@@ -124,16 +192,16 @@ FileDescriptor::FileDescriptor(FileDescriptor& desc)
       fd(desc.fd),
       lockedFile(0),
       networkImpl(desc.networkImpl),
+      epollImpl(desc.epollImpl),
       ioevent(nullptr),
       fdflags(desc.fdflags),
-      flflags(desc.flflags),
-      m_Position(desc.m_Position),
-      m_bVfsLease(file && VFS::instance().retainTrackedFile(file)) {
+      m_OpenFile(desc.m_OpenFile) {
+  m_OpenFile->addDescriptorOwner();
+  m_OpenFile->ensureVfsLease();
   if (file) {
 #if ENABLE_LOCKED_FILES
     lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
 #endif
-    increaseFileReferences(file, flflags);
   }
 
 #if THREADS
@@ -148,26 +216,28 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
     : file(0),
       fd(0),
       lockedFile(0),
+      networkImpl(nullptr),
+      epollImpl(nullptr),
       ioevent(nullptr),
       fdflags(0),
-      flflags(0),
-      m_Position(new OpenFilePosition(0)),
-      m_bVfsLease(false) {
-  if (!desc)
+      m_OpenFile(nullptr) {
+  if (!desc) {
+    m_OpenFile.reset(new OpenFileDescription(nullptr, 0, 0));
     return;
+  }
 
   file = desc->file;
   fd = desc->fd;
   fdflags = desc->fdflags;
-  flflags = desc->flflags;
   networkImpl = desc->networkImpl;
-  m_Position = desc->m_Position;
-  m_bVfsLease = file && VFS::instance().retainTrackedFile(file);
+  epollImpl = desc->epollImpl;
+  m_OpenFile = desc->m_OpenFile;
+  m_OpenFile->addDescriptorOwner();
+  m_OpenFile->ensureVfsLease();
   if (file) {
 #if ENABLE_LOCKED_FILES
     lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
 #endif
-    increaseFileReferences(file, flflags);
   }
 
 #if THREADS
@@ -192,13 +262,9 @@ FileDescriptor::~FileDescriptor() {
       delete lockedFile;
     }
 #endif
-    decreaseFileReferences(file, flflags);
   }
 
-  if (m_bVfsLease) {
-    m_bVfsLease = false;
-    VFS::instance().untrackFile(file);
-  }
+  m_OpenFile->removeDescriptorOwner();
 
   /// \note sockets are cleaned up by their reference count hitting zero
   /// (SharedPointer)
@@ -217,43 +283,71 @@ int FileDescriptor::getFlags() const {
 }
 
 void FileDescriptor::setStatusFlags(int newFlags) {
-  flflags = newFlags;
+  LockGuard<Mutex> guard(m_OpenFile->lock);
+  m_OpenFile->statusFlags =
+      (m_OpenFile->statusFlags & ~MutableStatusFlags) | (newFlags & MutableStatusFlags);
 
-  if (networkImpl) {
-    /// \todo this blocks *all* operations on the socket. However, we
-    /// should only be blocking operations associated with *this descriptor*
-    /// on the socket!
-    /// maybe pass in a FileDescriptor to recvfrom et al?
-    bool nonblock = (flflags & O_NONBLOCK) == O_NONBLOCK;
-    networkImpl->setBlocking(!nonblock);
+  if (m_OpenFile->networkImpl) {
+    bool nonblock = (m_OpenFile->statusFlags & O_NONBLOCK) == O_NONBLOCK;
+    m_OpenFile->networkImpl->setBlocking(!nonblock);
   }
 }
 
 void FileDescriptor::addStatusFlag(int newFlag) {
-  setFlags(flflags | newFlag);
+  LockGuard<Mutex> guard(m_OpenFile->lock);
+  m_OpenFile->statusFlags |= newFlag & MutableStatusFlags;
+  if (m_OpenFile->networkImpl) {
+    m_OpenFile->networkImpl->setBlocking(!(m_OpenFile->statusFlags & O_NONBLOCK));
+  }
+}
+
+void FileDescriptor::removeStatusFlag(int flag) {
+  LockGuard<Mutex> guard(m_OpenFile->lock);
+  m_OpenFile->statusFlags &= ~(flag & MutableStatusFlags);
+  if (m_OpenFile->networkImpl) {
+    m_OpenFile->networkImpl->setBlocking(!(m_OpenFile->statusFlags & O_NONBLOCK));
+  }
 }
 
 int FileDescriptor::getStatusFlags() const {
-  return flflags;
+  LockGuard<Mutex> guard(m_OpenFile->lock);
+  return m_OpenFile->statusFlags;
 }
 
-FileDescriptor::PositionGuard::PositionGuard(const SharedPointer<OpenFilePosition>& position)
-    : m_Position(position), m_Guard(m_Position->lock) {}
+FileDescriptor::OpenFileDescriptionLease FileDescriptor::acquireOpenFileDescription() const {
+  return m_OpenFile;
+}
+
+void FileDescriptor::setNetworkImpl(const SharedPointer<NetworkSyscalls>& implementation) {
+  LockGuard<Mutex> guard(m_OpenFile->lock);
+  networkImpl = implementation;
+  m_OpenFile->networkImpl = implementation;
+  if (networkImpl) {
+    networkImpl->setBlocking(!(m_OpenFile->statusFlags & O_NONBLOCK));
+  }
+}
+
+FileDescriptor::PositionGuard::PositionGuard(const SharedPointer<OpenFileDescription>& description)
+    : m_Description(description), m_Guard(m_Description->lock) {}
 
 uint64_t FileDescriptor::PositionGuard::offset() const {
-  return m_Position->offset;
+  return m_Description->offset;
+}
+
+int FileDescriptor::PositionGuard::statusFlags() const {
+  return m_Description->statusFlags;
 }
 
 void FileDescriptor::PositionGuard::setOffset(uint64_t offset) {
-  m_Position->offset = offset;
+  m_Description->offset = offset;
 }
 
 void FileDescriptor::PositionGuard::advanceOffset(uint64_t amount) {
-  m_Position->offset += amount;
+  m_Description->offset += amount;
 }
 
 FileDescriptor::PositionGuard FileDescriptor::lockPosition() const {
-  return PositionGuard(m_Position);
+  return PositionGuard(m_OpenFile);
 }
 
 uint64_t FileDescriptor::getOffset() const {
@@ -271,12 +365,13 @@ uint64_t FileDescriptor::read(uint64_t size, uintptr_t buffer, bool canBlock) {
     return 0;
   }
   if (!file->isSeekable()) {
-    return file->read(0, size, buffer, canBlock);
+    return file->read(0, size, buffer, canBlock && !(getStatusFlags() & O_NONBLOCK));
   }
 
-  PositionGuard position = lockPosition();
-  uint64_t amount = file->read(position.offset(), size, buffer, canBlock);
-  position.advanceOffset(amount);
+  LockGuard<Mutex> guard(m_OpenFile->lock);
+  const bool shouldBlock = canBlock && !(m_OpenFile->statusFlags & O_NONBLOCK);
+  uint64_t amount = file->read(m_OpenFile->offset, size, buffer, shouldBlock);
+  m_OpenFile->offset += amount;
   return amount;
 }
 
@@ -285,11 +380,17 @@ uint64_t FileDescriptor::write(uint64_t size, uintptr_t buffer, bool canBlock) {
     return 0;
   }
   if (!file->isSeekable()) {
-    return file->write(0, size, buffer, canBlock);
+    return file->write(0, size, buffer, canBlock && !(getStatusFlags() & O_NONBLOCK));
   }
 
-  PositionGuard position = lockPosition();
-  uint64_t amount = file->write(position.offset(), size, buffer, canBlock);
-  position.advanceOffset(amount);
+  LockGuard<Mutex> guard(m_OpenFile->lock);
+  const bool shouldBlock = canBlock && !(m_OpenFile->statusFlags & O_NONBLOCK);
+  uint64_t location = m_OpenFile->offset;
+  const uint64_t amount = (m_OpenFile->statusFlags & O_APPEND)
+                              ? file->append(size, buffer, location, shouldBlock)
+                              : file->write(location, size, buffer, shouldBlock);
+  if (amount) {
+    m_OpenFile->offset = location + amount;
+  }
   return amount;
 }
