@@ -59,6 +59,7 @@ extern bool runHostedPpollRegressions(Process* process);
 extern bool runHostedPselectRegressions(Process* process);
 extern bool runHostedScalarIoRegressions(Process* process);
 extern bool runHostedSleepClockSyscallRegressions(Process* process);
+extern bool runHostedThreadSignalSyscallRegressions(Process* process);
 extern bool runHostedTimeSyscallRegressions(Process* process);
 extern bool runHostedUsercopyRegressions(Process* process);
 extern bool runHostedVectorIoRegressions(Process* process);
@@ -4729,6 +4730,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN posix-exit-status");
   if (!runHostedPosixExitStatusRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN thread-signal-syscalls");
+  if (!runHostedThreadSignalSyscallRegressions(kernelProcess)) {
     return false;
   }
 

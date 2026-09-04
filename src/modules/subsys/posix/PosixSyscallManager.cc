@@ -299,6 +299,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_raise(static_cast<int>(p1), state);
     case POSIX_KILL:
       return posix_kill(static_cast<int>(p1), static_cast<int>(p2));
+    case POSIX_TKILL:
+      return posix_tkill(static_cast<int>(p1), static_cast<int>(p2));
+    case POSIX_TGKILL:
+      return posix_tgkill(static_cast<int>(p1), static_cast<int>(p2), static_cast<int>(p3));
     case POSIX_SIGPROCMASK:
       return posix_sigprocmask(static_cast<int>(p1), reinterpret_cast<const void*>(p2),
                                reinterpret_cast<void*>(p3), p4, linuxAbi);

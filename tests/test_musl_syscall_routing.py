@@ -566,6 +566,90 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         )
         self.assertIn("if (clk == CLOCK_REALTIME && !flags)", nanosleep)
 
+    def test_linux_thread_signal_syscalls_are_mapped_and_dispatched(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+        numbers = (
+            ROOT / "src/modules/subsys/posix/syscalls/posixSyscallNumbers.h"
+        ).read_text(encoding="utf-8")
+        manager = (
+            ROOT / "src/modules/subsys/posix/PosixSyscallManager.cc"
+        ).read_text(encoding="utf-8")
+        source = (
+            ROOT / "src/modules/subsys/posix/signal-syscalls.cc"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(tkill, 200, POSIX_TKILL)",
+            mappings,
+        )
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(tgkill, 234, POSIX_TGKILL)",
+            mappings,
+        )
+        self.assertIn("#define POSIX_TKILL 287", numbers)
+        self.assertIn("#define POSIX_TGKILL 288", numbers)
+
+        tkill_dispatch = manager.split("case POSIX_TKILL:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn("return posix_tkill", tkill_dispatch)
+        self.assertIn("static_cast<int>(p1)", tkill_dispatch)
+        self.assertIn("static_cast<int>(p2)", tkill_dispatch)
+        tgkill_dispatch = manager.split("case POSIX_TGKILL:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn("return posix_tgkill", tgkill_dispatch)
+        for parameter in ("p1", "p2", "p3"):
+            self.assertIn(f"static_cast<int>({parameter})", tgkill_dispatch)
+
+        tkill = source.split("int posix_tkill", 1)[1].split(
+            "int posix_tgkill", 1
+        )[0]
+        self.assertLess(
+            tkill.index("acquireThreadById"),
+            tkill.index("sig < 0"),
+        )
+        self.assertNotIn("doThreadKill", tkill)
+        tgkill = source.split("int posix_tgkill", 1)[1].split(
+            "int posix_kill", 1
+        )[0]
+        self.assertLess(
+            tgkill.index("acquireThreadById"),
+            tgkill.index("sig < 0"),
+        )
+        self.assertIn("callerProcess != process.get()", tgkill)
+        self.assertIn("canSignalProcess(caller, target, sig)", tgkill)
+        self.assertNotIn("doThreadKill", tgkill)
+
+        delivery = source.split("static int queueThreadSignal", 2)[2].split(
+            "int posix_tkill", 1
+        )[0]
+        self.assertIn("SignalDeliveryResult::Unavailable", delivery)
+        self.assertNotIn("SignalDeliveryResult::Rejected", delivery)
+
+    def test_bundled_musl_raise_and_pthread_kill_use_tkill(self):
+        source_root = ROOT / "build/src/modules/musl-1.2.6"
+        archive_path = ROOT / "build/src/modules/musl-1.2.6.tar.gz"
+
+        def load_source(relative_path):
+            source_path = source_root / relative_path
+            if source_path.exists():
+                return source_path.read_text(encoding="utf-8")
+            if not archive_path.exists():
+                self.skipTest("the configured musl source archive is not present")
+            with tarfile.open(archive_path, "r:gz") as archive:
+                member = archive.extractfile(f"musl-1.2.6/{relative_path}")
+                self.assertIsNotNone(member)
+                return member.read().decode("utf-8")
+
+        raise_source = load_source("src/signal/raise.c")
+        pthread_kill_source = load_source("src/thread/pthread_kill.c")
+        self.assertIn("syscall(SYS_tkill", raise_source)
+        self.assertIn("__syscall(SYS_tkill", pthread_kill_source)
+
     def test_signal_return_accepts_iret_and_sysret_user_selectors(self):
         signal_source = (
             ROOT / "src/modules/subsys/posix/linux-amd64-signal.cc"

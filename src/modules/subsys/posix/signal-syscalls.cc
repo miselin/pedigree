@@ -49,6 +49,7 @@ extern char sigret_stub_end;
 
 static int doProcessKill(Process* p, int sig);
 static int doThreadKill(Thread* p, int sig);
+static int queueThreadSignal(Process* process, Thread* thread, int sig, bool& queued);
 
 /// \todo These are ok initially, but it'll all have to change at some point
 
@@ -449,6 +450,119 @@ static bool canSignalProcess(const PosixProcess* caller, const PosixProcess* tar
 
   PosixSession* callerSession = caller->getSession();
   return sig == SIGCONT && callerSession && callerSession == target->getSession();
+}
+
+static int queueThreadSignal(Process* process, Thread* thread, int sig, bool& queued) {
+  queued = false;
+  if (!sig) {
+    return 0;
+  }
+
+  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  if (!subsystem) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  if (sig == SIGCONT) {
+    process->resume();
+  }
+
+  const PosixSubsystem::SignalDeliveryResult result =
+      subsystem->queueSignalDelivery(thread, static_cast<size_t>(sig));
+  if (result == PosixSubsystem::SignalDeliveryResult::Unavailable) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  // A concurrently exiting task can reject the event after a successful
+  // lookup. Linux reports that race as a successful signal send.
+  queued = result == PosixSubsystem::SignalDeliveryResult::Queued;
+  return 0;
+}
+
+int posix_tkill(int tid, int sig) {
+  SG_NOTICE("tkill(" << tid << ", " << sig << ")");
+
+  if (tid <= 0) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  Thread* current = Processor::information().getCurrentThread();
+  Process* caller = current ? current->getParent() : nullptr;
+  Scheduler::ProcessLease process;
+  Process::ThreadLease thread;
+  if (!caller || !Scheduler::instance().acquireProcess(process, caller) ||
+      process->getType() != Process::Posix ||
+      !process->acquireThreadById(thread, static_cast<size_t>(tid))) {
+    SYSCALL_ERROR(NoSuchProcess);
+    return -1;
+  }
+
+  if (sig < 0 ||
+      sig >= static_cast<int>(sizeof(default_sig_handlers) / sizeof(default_sig_handlers[0]))) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  bool queued = false;
+  const int result = queueThreadSignal(process.get(), thread.get(), sig, queued);
+  const bool dispatchCurrent = queued && current == thread.get();
+  thread.reset();
+  process.reset();
+  if (dispatchCurrent) {
+    Processor::information().getScheduler().checkEventState(0);
+  }
+  return result;
+}
+
+int posix_tgkill(int tgid, int tid, int sig) {
+  SG_NOTICE("tgkill(" << tgid << ", " << tid << ", " << sig << ")");
+
+  if (tgid <= 0 || tid <= 0) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  Scheduler::ProcessLease process;
+  Process::ThreadLease thread;
+  if (!Scheduler::instance().acquireProcessById(process, static_cast<size_t>(tgid)) ||
+      process->getType() != Process::Posix ||
+      !process->acquireThreadById(thread, static_cast<size_t>(tid))) {
+    SYSCALL_ERROR(NoSuchProcess);
+    return -1;
+  }
+
+  if (sig < 0 ||
+      sig >= static_cast<int>(sizeof(default_sig_handlers) / sizeof(default_sig_handlers[0]))) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  Thread* current = Processor::information().getCurrentThread();
+  Process* callerProcess = current ? current->getParent() : nullptr;
+  if (!callerProcess || callerProcess->getType() != Process::Posix) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return -1;
+  }
+
+  PosixProcess* caller = static_cast<PosixProcess*>(callerProcess);
+  PosixProcess* target = static_cast<PosixProcess*>(process.get());
+  if (callerProcess != process.get() && !canSignalProcess(caller, target, sig)) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return -1;
+  }
+
+  bool queued = false;
+  const int result = queueThreadSignal(process.get(), thread.get(), sig, queued);
+  const bool dispatchCurrent = queued && current == thread.get();
+  thread.reset();
+  process.reset();
+  if (dispatchCurrent) {
+    Processor::information().getScheduler().checkEventState(0);
+  }
+  return result;
 }
 
 int posix_kill(int pid, int sig) {

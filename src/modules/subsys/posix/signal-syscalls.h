@@ -45,6 +45,8 @@ int posix_sigaction(int sig, const struct sigaction* act, struct sigaction* oact
 uintptr_t posix_signal(int sig, void* func);
 int posix_raise(int sig, SyscallState& State);
 int posix_kill(int pid, int sig);
+int posix_tkill(int tid, int sig);
+int posix_tgkill(int tgid, int tid, int sig);
 int posix_sigprocmask(int how, const void* set, void* oset, size_t sigsetSize, bool linuxCompat);
 int pedigree_unwind_signal();
 
