@@ -538,12 +538,23 @@ int posix_open(const char* name, int flags, int mode) {
   return posix_openat(AT_FDCWD, name, flags, mode);
 }
 
+namespace {
+constexpr size_t ScalarIoBounceCapacity = PIPE_BUF_MAX + 1;
+
+bool scalarIoRangeDoesNotWrap(const void* buffer, size_t length) {
+  if (!length) {
+    return true;
+  }
+
+  const uintptr_t address = reinterpret_cast<uintptr_t>(buffer);
+  return address && length - 1 <= (~static_cast<uintptr_t>(0) - address);
+}
+}  // namespace
+
 int posix_read(int fd, char* ptr, int len) {
   F_NOTICE("read(" << Dec << fd << Hex << ", " << reinterpret_cast<uintptr_t>(ptr) << ", " << len
                    << ")");
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ptr), len,
-                                    PosixSubsystem::SafeWrite)) {
-    F_NOTICE("  -> invalid address");
+  if (len < 0) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -570,6 +581,11 @@ int posix_read(int fd, char* ptr, int len) {
       SYSCALL_ERROR(InvalidArgument);
       return -1;
     }
+    if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(ptr), sizeof(uint64_t), 1,
+                                         PosixSubsystem::SafeWrite)) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
 
     const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
     pFd.reset();
@@ -587,6 +603,12 @@ int posix_read(int fd, char* ptr, int len) {
 
   if (pFd->networkImpl) {
     // Need to redirect to socket implementation.
+    if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ptr), static_cast<size_t>(len),
+                                      PosixSubsystem::SafeWrite)) {
+      F_NOTICE("  -> invalid address");
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
     return posix_recv_descriptor(pFd, ptr, len, 0);
   }
 
@@ -600,63 +622,131 @@ int posix_read(int fd, char* ptr, int len) {
     return -1;
   }
 
-  // Are we allowed to block?
-  bool canBlock = !((pFd->getStatusFlags() & O_NONBLOCK) == O_NONBLOCK);
+  if (!len) {
+    return 0;
+  }
 
-  // Handle async descriptor that is not ready for reading.
-  // File::read has no mechanism for presenting such an error, other than
-  // returning 0. However, a read() returning 0 is an EOF condition.
-  if (!canBlock) {
-    const ReadyMask ready = pFd->file->queryReady(true, false);
-    if (!(ready & (ReadyRead | ReadyError | ReadyHangup))) {
-      SYSCALL_ERROR(NoMoreProcesses);
-      F_NOTICE(" -> async and nothing available to read");
-      return -1;
+  const size_t length = static_cast<size_t>(len);
+  if (!scalarIoRangeDoesNotWrap(ptr, length)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  const size_t bounceCapacity = length < ScalarIoBounceCapacity ? length : ScalarIoBounceCapacity;
+  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+
+  auto readFile = [&](FileDescriptor::PositionGuard* position, int statusFlags) -> int {
+    const bool canBlock = !(statusFlags & O_NONBLOCK);
+    size_t totalRead = 0;
+
+    while (totalRead < length) {
+      if (totalRead && pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
+        break;
+      }
+
+      const size_t remaining = length - totalRead;
+      const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+      char* userDestination = reinterpret_cast<char*>(reinterpret_cast<uintptr_t>(ptr) + totalRead);
+
+      // Avoid consuming data for an address which is already known to be
+      // unusable. copyToUser repeats this check after a blocking operation.
+      if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(userDestination), requested,
+                                           1, PosixSubsystem::SafeWrite)) {
+        if (totalRead) {
+          pThread->clearInterruption();
+          return static_cast<int>(totalRead);
+        }
+        pThread->clearInterruption();
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+
+      // A nonseekable operation may block once, but must not block again
+      // after it has already made progress during this syscall.
+      const bool operationCanBlock = canBlock && (position || !totalRead);
+      if (!operationCanBlock) {
+        const ReadyMask ready = pFd->file->queryReady(true, false);
+        if (!(ready & (ReadyRead | ReadyError | ReadyHangup))) {
+          if (totalRead) {
+            break;
+          }
+          pThread->clearInterruption();
+          SYSCALL_ERROR(NoMoreProcesses);
+          F_NOTICE(" -> async and nothing available to read");
+          return -1;
+        }
+      }
+
+      if (pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
+        if (totalRead) {
+          break;
+        }
+        pThread->clearInterruption();
+        SYSCALL_ERROR(Interrupted);
+        return -1;
+      }
+
+      uint64_t amount = 0;
+      if (position) {
+        amount = pFd->file->read(position->offset(), requested,
+                                 reinterpret_cast<uintptr_t>(bounce.get()), operationCanBlock);
+      } else {
+        amount = pFd->file->read(0, requested, reinterpret_cast<uintptr_t>(bounce.get()),
+                                 operationCanBlock);
+      }
+      const bool signalInterrupted =
+          pThread->getInterruptionReason() == Thread::InterruptedBySignal;
+
+      if (!amount) {
+        if (!totalRead && signalInterrupted) {
+          pThread->clearInterruption();
+          SYSCALL_ERROR(Interrupted);
+          F_NOTICE(" -> interrupted");
+          return -1;
+        }
+        break;
+      }
+
+      if (!PosixSubsystem::copyToUser(userDestination, bounce.get(), amount)) {
+        if (totalRead) {
+          pThread->clearInterruption();
+          return static_cast<int>(totalRead);
+        }
+        pThread->clearInterruption();
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+
+      if (position) {
+        position->advanceOffset(amount);
+      }
+      totalRead += amount;
+      if (amount < requested || signalInterrupted ||
+          pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
+        break;
+      }
     }
-  }
 
-  // Prepare to handle EINTR.
-  uint64_t nRead = 0;
-  if (ptr && len) {
     pThread->clearInterruption();
-    nRead = pFd->read(len, reinterpret_cast<uintptr_t>(ptr), canBlock);
-    const bool signalInterrupted = pThread->getInterruptionReason() == Thread::InterruptedBySignal;
-    pThread->clearInterruption();
-    if ((!nRead) && signalInterrupted) {
-      SYSCALL_ERROR(Interrupted);
-      F_NOTICE(" -> interrupted");
-      return -1;
-    }
+    F_NOTICE("    -> " << Dec << totalRead << Hex);
+    return static_cast<int>(totalRead);
+  };
+
+  pThread->clearInterruption();
+  if (pFd->file->isSeekable()) {
+    FileDescriptor::PositionGuard position = pFd->lockPosition();
+    return readFile(&position, position.statusFlags());
   }
 
-  if (ptr && nRead) {
-    // Need to use unsafe for String::assign so StringLength doesn't get
-    // called, as this does not always end up zero-terminated.
-    String debug;
-    debug.assign(ptr, nRead, true);
-    F_NOTICE(" -> read: '" << debug << "'");
-  }
-
-  F_NOTICE("    -> " << Dec << nRead << Hex);
-
-  return static_cast<int>(nRead);
+  // A blocking nonseekable read must not hold the OFD metadata mutex needed
+  // by a writer using the same O_RDWR description.
+  return readFile(nullptr, pFd->getStatusFlags());
 }
 
 int posix_write(int fd, char* ptr, int len, bool nocheck) {
   F_NOTICE("write(" << fd << ", " << reinterpret_cast<uintptr_t>(ptr) << ", " << len << ")");
-  if (!nocheck && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ptr), len,
-                                                PosixSubsystem::SafeRead)) {
-    F_NOTICE("  -> invalid address");
+  if (len < 0) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
-  }
-
-  if (ptr && len > 0) {
-    // Need to use unsafe for String::assign so StringLength doesn't get
-    // called, as this does not always end up zero-terminated.
-    String debug;
-    debug.assign(ptr, len - 1, true);
-    F_NOTICE("write(" << fd << ", " << debug << ", " << len << ")");
   }
 
   // Lookup this process.
@@ -697,6 +787,13 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
 
   if (pFd->networkImpl) {
     // Need to redirect to socket implementation.
+    if (!nocheck &&
+        !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ptr), static_cast<size_t>(len),
+                                      PosixSubsystem::SafeRead)) {
+      F_NOTICE("  -> invalid address");
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
     return posix_send_descriptor(pFd, ptr, len, 0);
   }
 
@@ -705,42 +802,135 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     return -1;
   }
 
-  // Copy to kernel.
-  uint64_t nWritten = 0;
-  const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
-  if (ptr && len) {
-    pThread->clearInterruption();
-    nWritten = pFd->write(len, reinterpret_cast<uintptr_t>(ptr), canBlock);
-    const bool signalInterrupted = pThread->getInterruptionReason() == Thread::InterruptedBySignal;
-    pThread->clearInterruption();
-    if ((!nWritten) && signalInterrupted) {
-      SYSCALL_ERROR(Interrupted);
-      F_NOTICE(" -> interrupted");
-      return -1;
-    }
+  if (!len) {
+    return 0;
   }
-
-  F_NOTICE("  -> write returns " << nWritten);
 
   const bool pipeLike = pFd->file->isPipe() || pFd->file->isFifo();
-
-  // A nonblocking write with a live peer ran out of buffer space.
-  if (!canBlock && !nWritten && len > 0 &&
-      (!pipeLike || Pipe::fromFile(pFd->file)->getReaderCount())) {
-    SYSCALL_ERROR(NoMoreProcesses);
+  const size_t length = static_cast<size_t>(len);
+  if (!scalarIoRangeDoesNotWrap(ptr, length)) {
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
+  const size_t bounceCapacity = length < ScalarIoBounceCapacity ? length : ScalarIoBounceCapacity;
+  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+  bool deliverPipeSignal = false;
 
-  // Handle broken pipe (write of zero bytes to a pipe).
-  // Note: don't send SIGPIPE if we actually tried a zero-length write.
-  if (pipeLike && (nWritten == 0 && len > 0)) {
-    F_NOTICE("  -> write to a broken pipe");
-    SYSCALL_ERROR(BrokenPipe);
+  auto writeFile = [&](FileDescriptor::PositionGuard* position, int statusFlags) -> int {
+    const bool canBlock = !(statusFlags & O_NONBLOCK);
+    File::WriteGuard writeGuard = pFd->file->lockWrites();
+    size_t totalWritten = 0;
+
+    while (totalWritten < length) {
+      if (totalWritten && pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
+        break;
+      }
+
+      const size_t remaining = length - totalWritten;
+      const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+      const char* userSource =
+          reinterpret_cast<const char*>(reinterpret_cast<uintptr_t>(ptr) + totalWritten);
+
+      if (nocheck) {
+        ForwardMemoryCopy(bounce.get(), userSource, requested);
+      } else if (!PosixSubsystem::copyFromUser(bounce.get(), userSource, requested)) {
+        if (totalWritten) {
+          pThread->clearInterruption();
+          return static_cast<int>(totalWritten);
+        }
+        pThread->clearInterruption();
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+
+      if (pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
+        if (totalWritten) {
+          break;
+        }
+        pThread->clearInterruption();
+        SYSCALL_ERROR(Interrupted);
+        return -1;
+      }
+
+      uint64_t amount = 0;
+      if (position) {
+        uint64_t location = position->offset();
+        amount = (statusFlags & O_APPEND)
+                     ? writeGuard.append(requested, reinterpret_cast<uintptr_t>(bounce.get()),
+                                         location, canBlock)
+                     : writeGuard.write(location, requested,
+                                        reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
+        if (amount) {
+          position->setOffset(location + amount);
+        }
+      } else {
+        amount =
+            writeGuard.write(0, requested, reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
+      }
+      const bool signalInterrupted =
+          pThread->getInterruptionReason() == Thread::InterruptedBySignal;
+
+      if (!amount) {
+        if (totalWritten) {
+          break;
+        }
+        if (signalInterrupted) {
+          pThread->clearInterruption();
+          SYSCALL_ERROR(Interrupted);
+          F_NOTICE(" -> interrupted");
+          return -1;
+        }
+        if (pipeLike && !Pipe::fromFile(pFd->file)->getReaderCount()) {
+          pThread->clearInterruption();
+          F_NOTICE("  -> write to a broken pipe");
+          SYSCALL_ERROR(BrokenPipe);
+          deliverPipeSignal = true;
+          return -1;
+        }
+        if (!canBlock) {
+          pThread->clearInterruption();
+          SYSCALL_ERROR(NoMoreProcesses);
+          return -1;
+        }
+        if (pipeLike) {
+          pThread->clearInterruption();
+          F_NOTICE("  -> write to a broken pipe");
+          SYSCALL_ERROR(BrokenPipe);
+          deliverPipeSignal = true;
+          return -1;
+        }
+        break;
+      }
+
+      totalWritten += amount;
+      if (amount < requested || signalInterrupted ||
+          pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
+        break;
+      }
+    }
+
+    pThread->clearInterruption();
+    F_NOTICE("  -> write returns " << totalWritten);
+    return static_cast<int>(totalWritten);
+  };
+
+  pThread->clearInterruption();
+  int result = 0;
+  if (pFd->file->isSeekable()) {
+    {
+      FileDescriptor::PositionGuard position = pFd->lockPosition();
+      result = writeFile(&position, position.statusFlags());
+    }
+  } else {
+    // See the matching read path: a blocking nonseekable write must not
+    // monopolize the OFD metadata mutex needed by its peer.
+    result = writeFile(nullptr, pFd->getStatusFlags());
+  }
+
+  if (deliverPipeSignal) {
     pSubsystem->threadException(pThread, Subsystem::Pipe);
-    return -1;
   }
-
-  return static_cast<int>(nWritten);
+  return result;
 }
 
 static bool snapshotIoVectors(const struct iovec* userVectors, int vectorCount, bool writeOperation,
