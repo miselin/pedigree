@@ -743,6 +743,7 @@ SchedulerState* Thread::pushState() {
   m_StateLevels[nextLevel].m_TemporarySignalWaitInterrupted = false;
   m_StateLevels[nextLevel].m_DispatchedSignalNumber = 0;
   m_StateLevels[nextLevel].m_DispatchedSignalContinuationEpoch = 0;
+  m_StateLevels[nextLevel].m_bOwnsAlternateSignalStack = false;
   m_StateLevels[nextLevel].m_ExecutionContext = m_StateLevels[previousLevel].m_ExecutionContext;
   m_StateLevels[nextLevel].m_pRequestQueueCallback =
       m_StateLevels[previousLevel].m_pRequestQueueCallback;
@@ -799,6 +800,10 @@ void Thread::popState(bool clean) {
     LockGuard<Spinlock> guard(m_Lock);
     if (m_nStateLevel != origStateLevel) {
       FATAL("Thread state level changed during pop publication.");
+    }
+    if (m_StateLevels[origStateLevel].m_bOwnsAlternateSignalStack) {
+      m_AlternateSignalStack.inUse = false;
+      m_StateLevels[origStateLevel].m_bOwnsAlternateSignalStack = false;
     }
     __atomic_store_n(&m_nStateLevel, nextLevel, __ATOMIC_RELEASE);
   }
@@ -1796,6 +1801,7 @@ void Thread::prepareSignalStateForExec() {
   base.m_TemporarySignalWaitInterrupted = false;
   base.m_DispatchedSignalNumber = 0;
   base.m_DispatchedSignalContinuationEpoch = 0;
+  base.m_bOwnsAlternateSignalStack = false;
   base.m_InterruptionReason = NotInterrupted;
   base.m_bDispatchingWaitEvent = false;
   m_AlternateSignalStack = AlternateSignalStack();
@@ -2507,6 +2513,7 @@ Thread::StateLevel::StateLevel()
       m_TemporarySignalWaitInterrupted(false),
       m_DispatchedSignalNumber(0),
       m_DispatchedSignalContinuationEpoch(0),
+      m_bOwnsAlternateSignalStack(false),
       m_Errno(0),
       m_InterruptionReason(NotInterrupted),
       m_bDispatchingWaitEvent(false),
@@ -2539,6 +2546,7 @@ Thread::StateLevel::StateLevel(const Thread::StateLevel& s)
       m_TemporarySignalWaitInterrupted(false),
       m_DispatchedSignalNumber(0),
       m_DispatchedSignalContinuationEpoch(0),
+      m_bOwnsAlternateSignalStack(false),
       m_Errno(s.m_Errno),
       m_InterruptionReason(s.m_InterruptionReason),
       m_bDispatchingWaitEvent(false),
@@ -2563,6 +2571,7 @@ Thread::StateLevel& Thread::StateLevel::operator=(const Thread::StateLevel& s) {
   m_TemporarySignalWaitInterrupted = false;
   m_DispatchedSignalNumber = 0;
   m_DispatchedSignalContinuationEpoch = 0;
+  m_bOwnsAlternateSignalStack = false;
   m_Errno = s.m_Errno;
   m_InterruptionReason = s.m_InterruptionReason;
   m_bDispatchingWaitEvent = false;
@@ -3016,6 +3025,7 @@ void Thread::cleanStateLevel(size_t level) {
   m_StateLevels[level].m_TemporarySignalWaitInterrupted = false;
   m_StateLevels[level].m_DispatchedSignalNumber = 0;
   m_StateLevels[level].m_DispatchedSignalContinuationEpoch = 0;
+  m_StateLevels[level].m_bOwnsAlternateSignalStack = false;
   m_StateLevels[level].m_ExecutionContext.reset();
   m_StateLevels[level].m_pRequestQueueCallback = nullptr;
   m_StateLevels[level].m_bTerminalWaitCancelledBeforeBlock = false;

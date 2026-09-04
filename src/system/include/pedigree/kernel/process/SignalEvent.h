@@ -35,13 +35,17 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
               uint64_t signalMask = 0, bool deferSignal = true, bool isDeletable = false,
               HandlerPrivilege handlerPrivilege = HandlerPrivilege::Kernel,
               DeliveryDisposition disposition = DeliveryDisposition::CaughtHandler,
-              size_t continuationEpoch = 0);
+              bool useAlternateUserStack = false, size_t continuationEpoch = 0);
 
   virtual size_t serialize(uint8_t* pBuffer);
   static bool unserialize(uint8_t* pBuffer, Event& event);
 
   virtual bool isSignalEvent() const {
     return true;
+  }
+
+  virtual bool prefersAlternateUserStack() const {
+    return m_UseAlternateUserStack;
   }
 
   virtual bool isDeliverableWhileProcessSuspended() const {
@@ -72,6 +76,9 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
 
   /** Whether this delivery represents a caught signal handler. */
   DeliveryDisposition m_Disposition;
+
+  /** Whether this delivery should enter an available alternate signal stack. */
+  bool m_UseAlternateUserStack;
 
   /** Process continuation generation captured when this signal was queued. */
   size_t m_ContinuationEpoch;

@@ -228,7 +228,8 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
         !(sigHandler->flags & SA_NODEFER), false,
         handlerType == 0 ? Event::HandlerPrivilege::User : Event::HandlerPrivilege::Kernel,
         handlerType == 0 ? SignalEvent::DeliveryDisposition::CaughtHandler
-                         : SignalEvent::DeliveryDisposition::DefaultAction);
+                         : SignalEvent::DeliveryDisposition::DefaultAction,
+        handlerType == 0 && (sigHandler->flags & SA_ONSTACK));
     SG_NOTICE("Creating the event (" << reinterpret_cast<uintptr_t>(sigHandler->pEvent) << ").");
     pSubsystem->setSignalHandler(sig, sigHandler);
   } else if (!oact) {
@@ -348,7 +349,6 @@ int posix_raise(int sig, SyscallState& State) {
     return -1;
   }
 
-  uint32_t signalFlags = 0;
   PosixSubsystem::SignalDeliveryResult delivery = PosixSubsystem::SignalDeliveryResult::Unavailable;
   const bool bWasInterrupts = Processor::getInterrupts();
   {
@@ -356,24 +356,13 @@ int posix_raise(int sig, SyscallState& State) {
     // stack and consume this event. Defer delivery across the IRQ-enabled
     // disposition lock, then close that window before selecting SA_ONSTACK.
     Uninterruptible whileQueueing;
-    delivery = pSubsystem->queueSignalDelivery(pThread, sig, &signalFlags);
+    delivery = pSubsystem->queueSignalDelivery(pThread, sig);
     Processor::setInterrupts(false);
-  }
-  const bool signalQueued = delivery == PosixSubsystem::SignalDeliveryResult::Queued;
-
-  uintptr_t stackPointer = State.getStackPointer();
-  Thread::AlternateSignalStack& currStack = pThread->getAlternateSignalStack();
-  bool useAlternateStack =
-      signalQueued && (signalFlags & SA_ONSTACK) && currStack.enabled && !currStack.inUse;
-  if (useAlternateStack) {
-    stackPointer = (currStack.base + currStack.size) & ~static_cast<uintptr_t>(0xF);
-    currStack.inUse = true;
   }
 
   // Jump to the signal handler
-  Processor::information().getScheduler().checkEventState(stackPointer);
-  if (useAlternateStack) {
-    currStack.inUse = false;
+  if (delivery == PosixSubsystem::SignalDeliveryResult::Queued) {
+    Processor::information().getScheduler().checkEventState(State.getStackPointer());
   }
   Processor::setInterrupts(bWasInterrupts);
 

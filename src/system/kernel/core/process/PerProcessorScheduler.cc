@@ -541,6 +541,18 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack) {
     return;
   }
 
+  bool alternateStackCandidate = false;
+  uintptr_t alternateStackTop = 0;
+  if (userHandler && pEvent->prefersAlternateUserStack()) {
+    Thread::AlternateSignalStack& alternate = pThread->m_AlternateSignalStack;
+    if (alternate.enabled && !alternate.inUse && alternate.base &&
+        alternate.size <= (~static_cast<uintptr_t>(0) - alternate.base)) {
+      alternateStackTop =
+          (alternate.base + alternate.size) & ~static_cast<uintptr_t>(0xF);
+      alternateStackCandidate = true;
+    }
+  }
+
   SchedulerState* oldState = pThread->pushState();
   if (!oldState) {
     // Keep the event pending until an outer handler unwinds and makes a
@@ -551,6 +563,10 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack) {
   }
 
   if (userHandler) {
+    if (alternateStackCandidate) {
+      userStack = alternateStackTop;
+    }
+
     bool usableUserStack = false;
     if (userStack >= pageSz) {
       const uintptr_t stackPage = userStack - pageSz;
@@ -560,6 +576,11 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack) {
         va.getMapping(reinterpret_cast<void*>(stackPage), page, flags);
         usableUserStack = !(flags & VirtualAddressSpace::KernelMode);
       }
+    }
+
+    if (usableUserStack && alternateStackCandidate) {
+      pThread->m_AlternateSignalStack.inUse = true;
+      pThread->m_StateLevels[pThread->m_nStateLevel].m_bOwnsAlternateSignalStack = true;
     }
 
     if (!usableUserStack) {
@@ -1200,6 +1221,29 @@ bool PerProcessorScheduler::serviceUserReturnWork(InterruptState& state) {
   }
   serviceDeferredSubsystemException(state);
   current = Processor::information().getCurrentThread();
+  if (current && !current->isTerminationDeferred() &&
+      current->getUnwindState() != Thread::Continue) {
+    return true;
+  }
+  checkEventState(state.getStackPointer());
+  current = Processor::information().getCurrentThread();
+  return current && !current->isTerminationDeferred() &&
+         current->getUnwindState() != Thread::Continue;
+}
+
+bool PerProcessorScheduler::serviceUserReturnWork(SyscallState& state) {
+  if (!Processor::getInterrupts() || Processor::inDeviceHardIrq() ||
+      Processor::executionContext() != ExecutionContext::WaitableThread) {
+    FATAL_NOLOCK(
+        "Return-to-user work requires an IRQ-enabled thread "
+        "boundary.");
+  }
+
+  Thread* current = Processor::information().getCurrentThread();
+  if (current && current->currentTimeAccountingMode() != CpuTimeMode::Kernel) {
+    FATAL_NOLOCK("Return-to-user work escaped Kernel accounting mode");
+  }
+
   if (current && !current->isTerminationDeferred() &&
       current->getUnwindState() != Thread::Continue) {
     return true;

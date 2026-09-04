@@ -50,6 +50,7 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
   bool commitThreadExit = false;
   bool exitCurrentProcess = false;
   bool rebootSystem = false;
+  bool userReturnTerminal = false;
   int processExitCode = 0;
   Subsystem::ExitCause processExitCause = Subsystem::ExitCause::Normal;
   {
@@ -143,21 +144,25 @@ void X64SyscallManager::syscall(SyscallState& syscallState) {
           rebootSystem = true;
           break;
         case NoPostSyscallAction:
+          userReturnTerminal =
+              Processor::information().getScheduler().serviceUserReturnWork(syscallState);
           break;
       }
 
       if (!exitCurrentProcess && !rebootSystem) {
         Thread* pThread = Processor::information().getCurrentThread();
         const Thread::UnwindType unwindState = pThread->getUnwindState();
-        if (unwindState == Thread::TerminateThread) {
-          commitThreadExit = true;
-        }
-        if (unwindState == Thread::Exit) {
-          NOTICE("Unwind state exit, in interrupt handler");
-          exitCurrentProcess = true;
-          const Thread::DeferredProcessExit request = pThread->takeDeferredProcessExit();
-          processExitCode = request.code;
-          processExitCause = request.cause;
+        if (userReturnTerminal || unwindState != Thread::Continue) {
+          if (unwindState == Thread::TerminateThread) {
+            commitThreadExit = true;
+          }
+          if (unwindState == Thread::Exit) {
+            NOTICE("Unwind state exit at syscall return");
+            exitCurrentProcess = true;
+            const Thread::DeferredProcessExit request = pThread->takeDeferredProcessExit();
+            processExitCode = request.code;
+            processExitCause = request.cause;
+          }
         }
       }
     }

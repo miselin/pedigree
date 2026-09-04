@@ -18,6 +18,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/RingBuffer.h"
@@ -144,6 +145,10 @@ bool eventHandlerPrivilege() {
   SignalEvent userEvent(reinterpret_cast<uintptr_t>(&hostedSignalHandler), HostedSignalNumber, ~0UL,
                         0, true, false, Event::HandlerPrivilege::User);
   Event* delivery = userEvent.cloneForDelivery();
+  SignalEvent alternateEvent(
+      reinterpret_cast<uintptr_t>(&hostedSignalHandler), HostedSignalNumber, ~0UL, 0, true, false,
+      Event::HandlerPrivilege::User, SignalEvent::DeliveryDisposition::CaughtHandler, true);
+  Event* alternateDelivery = alternateEvent.cloneForDelivery();
 
   const bool passed =
       check(kernelEvent.getHandlerPrivilege() == Event::HandlerPrivilege::Kernel,
@@ -162,9 +167,45 @@ bool eventHandlerPrivilege() {
                                              VirtualAddressSpace::Execute),
             "a user event accepted a kernel mapping") &&
       check(delivery && delivery->getHandlerPrivilege() == Event::HandlerPrivilege::User,
-            "a signal delivery snapshot lost its user privilege");
+            "a signal delivery snapshot lost its user privilege") &&
+      check(alternateEvent.prefersAlternateUserStack() && alternateDelivery &&
+                alternateDelivery->prefersAlternateUserStack(),
+            "a signal delivery snapshot lost its alternate-stack preference");
 
   delete delivery;
+  delete alternateDelivery;
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool pendingSignalRunsAtSyscallReturn(Thread* thread) {
+  constexpr const char* Test = "pending-signal-at-syscall-return";
+  constexpr uint64_t SignalBit = static_cast<uint64_t>(1) << (HostedSignalNumber - 1);
+  const uint64_t originalMask = thread->getSignalMask();
+  const size_t originalLevel = thread->getStateLevel();
+  g_SignalHandlerCalls = 0;
+
+  thread->setSignalMask(originalMask | SignalBit);
+  SignalEvent event(reinterpret_cast<uintptr_t>(&hostedSignalHandler), HostedSignalNumber);
+  const bool queued = thread->sendEvent(&event);
+
+  SyscallState state = {};
+  const bool terminalWhileBlocked =
+      thread->getScheduler()->serviceUserReturnWork(state);
+  const bool stayedPending = thread->hasEvent(&event) && g_SignalHandlerCalls == 0;
+
+  thread->setSignalMask(originalMask & ~SignalBit);
+  const bool terminalAfterUnblock =
+      thread->getScheduler()->serviceUserReturnWork(state);
+  const bool delivered = !thread->hasEvent(&event) && g_SignalHandlerCalls == 1;
+
+  thread->setSignalMask(originalMask);
+  const bool passed =
+      check(queued && !terminalWhileBlocked && stayedPending && !terminalAfterUnblock && delivered &&
+                thread->getStateLevel() == originalLevel,
+            "a newly unblocked signal did not run at the syscall return boundary");
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
   }
@@ -1980,7 +2021,8 @@ bool prequeuedDelaySignalInterruption(Thread* thread) {
 bool runHostedSignalInterruptionRegressions(Thread* thread) {
   const bool passed =
       eventHandlerPrivilege() && signalCullPreservesNumberCollision(thread) &&
-      execPreservesNestedSignalMask(thread) && invalidUserHandlerDeliveryFailsClosed(thread) &&
+      pendingSignalRunsAtSyscallReturn(thread) && execPreservesNestedSignalMask(thread) &&
+      invalidUserHandlerDeliveryFailsClosed(thread) &&
 #if !defined(PEDIGREE_HOSTED_CORE_SMOKE)
       ignoredSignalDoesNotInterruptWait(thread->getParent()) &&
       ignoredDispositionDiscardsPendingSignals(thread->getParent()) &&

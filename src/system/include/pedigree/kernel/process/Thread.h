@@ -900,6 +900,9 @@ class EXPORTED_PUBLIC Thread {
     size_t m_DispatchedSignalNumber;
     size_t m_DispatchedSignalContinuationEpoch;
 
+    /** This event level owns the thread's active alternate signal stack. */
+    bool m_bOwnsAlternateSignalStack;
+
     /** Syscall-local state isolated from nested event handlers. */
     size_t m_Errno;
     InterruptionReason m_InterruptionReason;

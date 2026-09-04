@@ -128,6 +128,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public SchedulerTimerHandler {
    */
   MUST_USE_RESULT bool serviceUserReturnWork(InterruptState& state);
 
+  /** Delivers pending Events immediately before returning from a syscall. */
+  MUST_USE_RESULT bool serviceUserReturnWork(SyscallState& state);
+
   /** Commits terminal state after architecture return-tail cleanup is done. */
   void commitUserReturnTerminalState();
 
