@@ -679,32 +679,83 @@ int posix_usleep(size_t useconds) {
   return 0;
 }
 
+namespace {
+constexpr Time::Timestamp MaximumLinuxSleepNanoseconds = 0x7FFFFFFFFFFFFFFFULL;
+
+bool validRelativeTimespec(const struct timespec& value) {
+  return value.tv_sec >= 0 && value.tv_nsec >= 0 && value.tv_nsec < 1000000000;
+}
+
+Time::Timestamp relativeTimespecToNanoseconds(const struct timespec& value) {
+  const Time::Timestamp seconds = static_cast<Time::Timestamp>(value.tv_sec);
+  if (seconds >= (MaximumLinuxSleepNanoseconds / Time::Multiplier::Second)) {
+    return MaximumLinuxSleepNanoseconds;
+  }
+
+  const Time::Timestamp wholeSeconds = seconds * Time::Multiplier::Second;
+  const Time::Timestamp nanoseconds = static_cast<Time::Timestamp>(value.tv_nsec);
+  return wholeSeconds + nanoseconds;
+}
+
+Time::Timestamp nanosleepAlarmDuration(Time::Timestamp requested) {
+  const Time::Timestamp remainder = requested % Time::Multiplier::Microsecond;
+  if (!remainder) {
+    return requested;
+  }
+
+  // The machine timer accepts whole microseconds. Round up so a partial
+  // microsecond request cannot expire before its requested duration.
+  return requested + (Time::Multiplier::Microsecond - remainder);
+}
+}  // namespace
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+extern "C" EXPORTED_PUBLIC Time::Timestamp posixNanosleepAlarmDurationForTest(time_t seconds,
+                                                                              long nanoseconds) {
+  const struct timespec requested = {seconds, nanoseconds};
+  return nanosleepAlarmDuration(relativeTimespecToNanoseconds(requested));
+}
+#endif
+
 int posix_nanosleep(const struct timespec* rqtp, struct timespec* rmtp) {
-  if ((!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(rqtp), sizeof(struct timespec),
-                                     PosixSubsystem::SafeRead)) ||
-      (rmtp && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(rmtp),
-                                             sizeof(struct timespec), PosixSubsystem::SafeWrite))) {
+  struct timespec requested = {};
+  if (!PosixSubsystem::copyFromUser(&requested, rqtp, sizeof(requested))) {
     SG_NOTICE("nanosleep -> invalid address");
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  if (!validRelativeTimespec(requested)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
-  SG_NOTICE("nanosleep(" << Dec << rqtp->tv_sec << ":" << rqtp->tv_nsec << Hex << ") - "
+  SG_NOTICE("nanosleep(" << Dec << requested.tv_sec << ":" << requested.tv_nsec << Hex << ") - "
                          << Machine::instance().getTimer()->getTickCount() << ".");
 
-  Time::Timestamp ts = (rqtp->tv_sec * Time::Multiplier::Second) + rqtp->tv_nsec;
+  const Time::Timestamp ts = relativeTimespecToNanoseconds(requested);
+  if (!ts) {
+    return 0;
+  }
+
   const Time::Timestamp start = Time::getTicks();
-  const bool completed = Time::delay(ts);
+  const bool completed = Time::delay(nanosleepAlarmDuration(ts));
 
   Thread* thread = Processor::information().getCurrentThread();
   if (!completed && thread->getInterruptionReason() == Thread::InterruptedBySignal) {
     const Time::Timestamp elapsed = Time::getTicks() - start;
-    const Time::Timestamp remaining = elapsed < ts ? ts - elapsed : 0;
-    if (rmtp) {
-      rmtp->tv_sec = remaining / Time::Multiplier::Second;
-      rmtp->tv_nsec = remaining % Time::Multiplier::Second;
+    if (elapsed >= ts) {
+      thread->clearInterruption();
+      return 0;
     }
+
+    const Time::Timestamp remaining = ts - elapsed;
+    const struct timespec result = {static_cast<time_t>(remaining / Time::Multiplier::Second),
+                                    static_cast<long>(remaining % Time::Multiplier::Second)};
     thread->clearInterruption();
+    if (rmtp && !PosixSubsystem::copyToUser(rmtp, &result, sizeof(result))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
     SYSCALL_ERROR(Interrupted);
     return -1;
   }
@@ -714,12 +765,6 @@ int posix_nanosleep(const struct timespec* rqtp, struct timespec* rmtp) {
 
 int posix_clock_gettime(clockid_t clock_id, struct timespec* tp) {
   SG_NOTICE("clock_gettime(" << Dec << clock_id << Hex << ")");
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(tp), sizeof(struct timespec),
-                                    PosixSubsystem::SafeWrite)) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-
   Time::Timestamp nanoseconds = 0;
   switch (clock_id) {
     case CLOCK_REALTIME:
@@ -733,8 +778,12 @@ int posix_clock_gettime(clockid_t clock_id, struct timespec* tp) {
       return -1;
   }
 
-  tp->tv_sec = static_cast<time_t>(nanoseconds / Time::Multiplier::Second);
-  tp->tv_nsec = static_cast<long>(nanoseconds % Time::Multiplier::Second);
+  const struct timespec result = {static_cast<time_t>(nanoseconds / Time::Multiplier::Second),
+                                  static_cast<long>(nanoseconds % Time::Multiplier::Second)};
+  if (!PosixSubsystem::copyToUser(tp, &result, sizeof(result))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
 
   return 0;
 }
