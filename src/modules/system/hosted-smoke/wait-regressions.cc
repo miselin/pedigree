@@ -30,6 +30,7 @@
 
 bool runHostedRequestQueueRegressions();
 bool runHostedAtaPioRegressions();
+bool runHostedElfValidationRegressions();
 bool runHostedLifetimeLeaseRegressions();
 bool runHostedMutexRegressions();
 bool runHostedPageFaultRegressions();
@@ -1898,6 +1899,7 @@ bool runHostedWaitRegressions() {
   NOTICE("HOSTED-WAIT-TEST: BEGIN");
 
   const bool passed =
+      runHostedElfValidationRegressions() &&
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedPs2ControllerRegressions() &&
 #endif

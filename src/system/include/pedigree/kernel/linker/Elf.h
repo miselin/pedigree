@@ -208,6 +208,31 @@ class EXPORTED_PUBLIC Elf {
   struct ElfSymbol_t;
 
  public:
+  enum class ExecutableValidationResult {
+    Valid,
+    Malformed,
+    WrongArchitecture,
+    UnsupportedType,
+    UnsupportedLayout,
+    MultipleInterpreters,
+  };
+
+  struct ExecutableMetadata {
+    Elf_Half type;
+    uintptr_t entryPoint;
+    size_t programHeaderOffset;
+    size_t programHeaderCount;
+    size_t programHeaderSize;
+    uintptr_t loadStart;
+    uintptr_t loadEnd;
+    size_t interpreterOffset;
+    size_t interpreterSize;
+    bool hasInterpreter;
+  };
+
+  static constexpr size_t MaximumProgramHeaderTableSize = 65536;
+  static constexpr size_t MaximumInterpreterSize = 4096;
+
   /** Default constructor - loads no data. */
   Elf();
 
@@ -219,6 +244,22 @@ class EXPORTED_PUBLIC Elf {
 
   /** Validates the ELF object at the given location. */
   bool validate(uint8_t* pBuffer, size_t length);
+
+  /** Validates an executable ELF header and reports the bounded metadata
+   * required to read its program header table. */
+  static ExecutableValidationResult validateExecutableHeader(const uint8_t* pBuffer, size_t length,
+                                                             size_t fileSize,
+                                                             ExecutableMetadata& metadata);
+
+  /** Validates an executable's program headers and reports its load and
+   * interpreter metadata. The buffer begins at programHeaderOffset. */
+  static ExecutableValidationResult validateExecutableProgramHeaders(const uint8_t* pBuffer,
+                                                                     size_t length, size_t fileSize,
+                                                                     ExecutableMetadata& metadata);
+
+  /** Validates the bounded PT_INTERP contents described by metadata. */
+  static ExecutableValidationResult validateExecutableInterpreter(
+      const uint8_t* pBuffer, size_t length, const ExecutableMetadata& metadata);
 
   /** Constructs an Elf object, and assumes the given pointer to be
    * to a contiguous region of memory containing an ELF object. */

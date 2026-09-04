@@ -336,6 +336,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     if (PEDIGREE_HOSTED_DARWIN)
         pedigree_module(hosted-core-smoke "" ""
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/core-main.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/elf-validation-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ata-pio-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/lifetime-lease-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/mutex-regressions.cc
@@ -353,6 +354,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
     else ()
     pedigree_module(hosted-smoke "" ""
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/elf-validation-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ata-pio-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/cache-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/input-regressions.cc
