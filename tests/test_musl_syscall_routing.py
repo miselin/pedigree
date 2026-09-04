@@ -159,6 +159,60 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn("SysretUserCodeSegment = 0x2B", signal_source)
         self.assertEqual(signal_source.count("userCodeSegment("), 3)
 
+    def test_linux_signal_frames_use_guarded_user_copies(self):
+        signal_source = (
+            ROOT / "src/modules/subsys/posix/linux-amd64-signal.cc"
+        ).read_text(encoding="utf-8")
+        delivery = signal_source.split(
+            "LinuxAmd64Signal::DeliveryResult LinuxAmd64Signal::deliverSynchronous",
+            1,
+        )[1]
+        delivery, sigreturn = delivery.split(
+            "void LinuxAmd64Signal::sigreturn", 1
+        )
+
+        self.assertIn(
+            "saveCurrentThreadFpuState(&savedFpstate, true)", delivery
+        )
+        self.assertIn("Fpstate fpstate = savedFpstate;", delivery)
+        self.assertIn("ByteSet(fpstate.reserved3", delivery)
+        self.assertNotIn("ByteSet(savedFpstate.reserved3", delivery)
+        self.assertIn(
+            "restoreCurrentThreadFpuState(&savedFpstate)", delivery
+        )
+        self.assertNotIn("restoreCurrentThreadFpuState(&fpstate)", delivery)
+
+        self.assertEqual(delivery.count("PosixSubsystem::copyToUser"), 2)
+        fpstate_copy = delivery.index(
+            "copyToUser(reinterpret_cast<void*>(fpstateAddress)"
+        )
+        frame_copy = delivery.index(
+            "copyToUser(reinterpret_cast<void*>(frameAddress)"
+        )
+        self.assertLess(fpstate_copy, frame_copy)
+        for mutation in (
+            "thread->setSignalMask(handlerMask",
+            "alternate.inUse =",
+            "state.setRegister(",
+            "state.setInstructionPointer(",
+            "state.setStackPointer(",
+            "state.setFlags(",
+        ):
+            with self.subTest(mutation=mutation):
+                self.assertLess(frame_copy, delivery.index(mutation))
+        self.assertNotIn(
+            "MemoryCopy(reinterpret_cast<void*>(frameAddress)", delivery
+        )
+        self.assertNotIn(
+            "MemoryCopy(reinterpret_cast<void*>(fpstateAddress)", delivery
+        )
+
+        self.assertEqual(sigreturn.count("PosixSubsystem::copyFromUser"), 2)
+        self.assertIn("userRegion(frameAddress, sizeof(RtSigframe)", sigreturn)
+        self.assertIn("userRegion(context.fpstate, sizeof(Fpstate)", sigreturn)
+        self.assertNotIn("MemoryCopy(&frame,", sigreturn)
+        self.assertNotIn("MemoryCopy(&fpstate,", sigreturn)
+
     def test_musl_build_config_is_independent_of_kernel_options(self):
         build_script = (ROOT / "scripts/build-musl-amd64.sh").read_text(
             encoding="utf-8"

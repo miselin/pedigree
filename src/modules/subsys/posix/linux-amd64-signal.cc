@@ -219,10 +219,11 @@ LinuxAmd64Signal::DeliveryResult LinuxAmd64Signal::deliverSynchronous(
   }
 
   RtSigframe frame = {};
-  Fpstate fpstate = {};
-  if (!NMFaultHandler::saveCurrentThreadFpuState(&fpstate, true)) {
+  Fpstate savedFpstate = {};
+  if (!NMFaultHandler::saveCurrentThreadFpuState(&savedFpstate, true)) {
     return Failed;
   }
+  Fpstate fpstate = savedFpstate;
   ByteSet(fpstate.reserved3, 0, sizeof(fpstate.reserved3));
 
   uint64_t oldMask = thread->getSignalMask();
@@ -246,8 +247,14 @@ LinuxAmd64Signal::DeliveryResult LinuxAmd64Signal::deliverSynchronous(
   setSiginfo64(frame.info, 16, signalAddress(exception, state, faultAddress));
   setSiginfo32(frame.info, 24, static_cast<int32_t>(state.getInterruptNumber()));
 
-  MemoryCopy(reinterpret_cast<void*>(frameAddress), &frame, sizeof(frame));
-  MemoryCopy(reinterpret_cast<void*>(fpstateAddress), &fpstate, sizeof(fpstate));
+  if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(fpstateAddress), &fpstate,
+                                  sizeof(fpstate)) ||
+      !PosixSubsystem::copyToUser(reinterpret_cast<void*>(frameAddress), &frame, sizeof(frame))) {
+    if (!NMFaultHandler::restoreCurrentThreadFpuState(&savedFpstate)) {
+      FATAL("Could not restore FPU state after a failed signal-frame copy.");
+    }
+    return Failed;
+  }
 
   uint64_t handlerMask = oldMask | disposition.signalMask;
   if (!(disposition.flags & SA_NODEFER)) {
@@ -279,7 +286,11 @@ void LinuxAmd64Signal::sigreturn(SyscallState& state) {
   }
 
   RtSigframe frame = {};
-  MemoryCopy(&frame, reinterpret_cast<const void*>(frameAddress), sizeof(frame));
+  if (!PosixSubsystem::copyFromUser(&frame, reinterpret_cast<const void*>(frameAddress),
+                                    sizeof(frame))) {
+    badFrame();
+    return;
+  }
   const Sigcontext& context = frame.ucontext.mcontext;
 
   if ((frame.ucontext.flags & ~SupportedUcontextFlags) || !userCodeSegment(context.cs) ||
@@ -312,7 +323,11 @@ void LinuxAmd64Signal::sigreturn(SyscallState& state) {
   }
 
   Fpstate fpstate = {};
-  MemoryCopy(&fpstate, reinterpret_cast<const void*>(context.fpstate), sizeof(fpstate));
+  if (!PosixSubsystem::copyFromUser(&fpstate, reinterpret_cast<const void*>(context.fpstate),
+                                    sizeof(fpstate))) {
+    badFrame();
+    return;
+  }
   for (size_t i = 0; i < 12; ++i) {
     if (fpstate.reserved3[i]) {
       badFrame();
