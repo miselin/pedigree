@@ -55,6 +55,7 @@ extern "C" unsigned int posixSelectProjectionForTest(short revents, bool checkRe
                                                      bool checkExceptional);
 extern "C" int posixSelectTimeoutMillisecondsForTest(timeval timeout);
 extern bool runHostedEventFdRegressions(Process* process);
+extern bool runHostedPpollRegressions(Process* process);
 extern bool runHostedScalarIoRegressions(Process* process);
 extern bool runHostedUsercopyRegressions(Process* process);
 
@@ -4812,6 +4813,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN scalar-io-user-buffer-lifetime");
   if (!runHostedScalarIoRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN ppoll-linux-abi");
+  if (!runHostedPpollRegressions(kernelProcess)) {
     return false;
   }
 

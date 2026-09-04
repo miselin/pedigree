@@ -22,12 +22,14 @@
 #include "pedigree/kernel/process/Readiness.h"
 #include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/process/TerminationDeferral.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/time/Time.h"
 
 #include <fcntl.h>
+#include <signal.h>
 
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/PosixSubsystem.h"
@@ -37,10 +39,77 @@
 #include "net-syscalls.h"
 #include "poll-syscalls.h"
 
-enum TimeoutType { ReturnImmediately, SpecificTimeout, InfiniteTimeout };
-
 namespace {
 constexpr unsigned int MaxPollDescriptors = 16384;
+constexpr size_t LinuxKernelSigsetSize = sizeof(uint64_t);
+constexpr uint64_t UnblockableSignals =
+    (static_cast<uint64_t>(1) << (SIGKILL - 1)) | (static_cast<uint64_t>(1) << (SIGSTOP - 1));
+
+PollDeadline pollDeadlineAfter(Time::Timestamp duration) {
+  if (!duration) {
+    return {PollDeadlineType::Immediate, 0};
+  }
+
+  const Time::Timestamp now = Time::getTicks();
+  const Time::Timestamp maximum = Time::Infinity - 1;
+  const Time::Timestamp expires =
+      now >= maximum || duration > maximum - now ? maximum : now + duration;
+  return {PollDeadlineType::Finite, expires};
+}
+
+PollDeadline pollDeadlineFromMilliseconds(int timeout) {
+  if (timeout < 0) {
+    return {PollDeadlineType::Infinite, 0};
+  }
+
+  return pollDeadlineAfter(static_cast<Time::Timestamp>(timeout) * Time::Multiplier::Millisecond);
+}
+
+PollDeadline pollDeadlineFromTimespec(const LinuxKernelTimespec& timeout) {
+  const Time::Timestamp maximum = Time::Infinity - 1;
+  Time::Timestamp duration = maximum;
+  if (static_cast<uint64_t>(timeout.tv_sec) <= maximum / Time::Multiplier::Second) {
+    duration = static_cast<Time::Timestamp>(timeout.tv_sec) * Time::Multiplier::Second;
+    const Time::Timestamp nanoseconds = static_cast<Time::Timestamp>(timeout.tv_nsec);
+    duration = nanoseconds > maximum - duration ? maximum : duration + nanoseconds;
+  }
+  return pollDeadlineAfter(duration);
+}
+
+bool deadlineSemaphoreTimeout(const PollDeadline& deadline, size_t& seconds, size_t& microseconds) {
+  seconds = 0;
+  microseconds = 0;
+  if (deadline.type == PollDeadlineType::Infinite) {
+    return true;
+  }
+  if (deadline.type == PollDeadlineType::Immediate) {
+    return false;
+  }
+
+  const Time::Timestamp now = Time::getTicks();
+  if (now >= deadline.expires) {
+    return false;
+  }
+
+  const Time::Timestamp remaining = deadline.expires - now;
+  const Time::Timestamp remainingMicroseconds =
+      (remaining / Time::Multiplier::Microsecond) +
+      ((remaining % Time::Multiplier::Microsecond) ? 1 : 0);
+  const Time::Timestamp microsecondsPerSecond =
+      Time::Multiplier::Second / Time::Multiplier::Microsecond;
+  const Time::Timestamp wholeSeconds = remainingMicroseconds / microsecondsPerSecond;
+  const size_t maximumSeconds = ~static_cast<size_t>(0);
+  if (wholeSeconds > maximumSeconds) {
+    // A shorter saturated chunk is safe: the absolute deadline is checked
+    // again after this timer wakes.
+    seconds = maximumSeconds;
+    microseconds = 0;
+  } else {
+    seconds = static_cast<size_t>(wholeSeconds);
+    microseconds = static_cast<size_t>(remainingMicroseconds % microsecondsPerSecond);
+  }
+  return true;
+}
 
 class PollReadinessObserver final : public ReadinessObserver {
  public:
@@ -181,6 +250,17 @@ void removePollRegistrations(void* context) {
   delete[] descriptors;
   cleanup->semaphore->reset();
 }
+
+bool copyPollReventsToUser(struct pollfd* userFds, const struct pollfd* snapshot, size_t nfds) {
+  // fd and events remain concurrent user-owned input fields.
+  for (size_t i = 0; i < nfds; ++i) {
+    if (!PosixSubsystem::copyToUser(&userFds[i].revents, &snapshot[i].revents,
+                                    sizeof(snapshot[i].revents))) {
+      return false;
+    }
+  }
+  return true;
+}
 }  // namespace
 
 /** poll: determine if a set of file descriptors are writable/readable.
@@ -214,7 +294,7 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout) {
 
   // posix_poll_safe has retired every registration before it returns, so no
   // callback can retain a pointer into this snapshot during copyout.
-  const bool copied = PosixSubsystem::copyToUser(fds, snapshot, nfds, sizeof(struct pollfd));
+  const bool copied = copyPollReventsToUser(fds, snapshot, nfds);
   delete[] snapshot;
   if (!copied) {
     POLL_NOTICE(" -> result address became invalid");
@@ -225,43 +305,33 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout) {
   return result;
 }
 
-int posix_poll_safe(struct pollfd* fds, unsigned int nfds, int timeout) {
-  POLL_NOTICE("poll_safe(" << Dec << nfds << ", " << timeout << Hex << ")");
+namespace {
+bool refreshPollDescriptors(struct pollfd* fds, size_t nfds, DescriptorLease* descriptors) {
+  bool ready = false;
+  for (size_t i = 0; i < nfds; ++i) {
+    struct pollfd* me = &fds[i];
+    DescriptorLease& descriptor = descriptors[i];
+    if (descriptor) {
+      me->revents |= queryDescriptorPoll(*descriptor, me->events);
+    }
+    ready |= me->revents != 0;
+  }
+  return ready;
+}
 
+int pollWithDeadline(struct pollfd* fds, unsigned int nfds, const PollDeadline& deadline) {
   // Readiness registrations retain the observer and semaphore used by this
   // call. A terminal request may wake the wait, but cleanup must unregister
   // every target before the syscall stack can be consumed.
   TerminationDeferral registrationLifetime;
 
-  // Investigate the timeout parameter.
-  TimeoutType timeoutType;
-  size_t timeoutSecs = timeout / 1000;
-  size_t timeoutUSecs = (timeout % 1000) * 1000;
-  if (timeout < 0) {
-    timeoutType = InfiniteTimeout;
-
-    // Fix timeout to be truly infinite
-    // (negative timeout may divide incorrectly)
-    timeoutSecs = 0;
-    timeoutUSecs = 0;
-  } else if (timeout == 0) {
-    timeoutType = ReturnImmediately;
-  } else {
-    timeoutType = SpecificTimeout;
-  }
-  const Time::Timestamp deadline =
-      timeoutType == SpecificTimeout
-          ? Time::getTicks() + static_cast<Time::Timestamp>(timeout) * Time::Multiplier::Millisecond
-          : 0;
-
   Thread* pThread = nullptr;
-
+  bool returnImmediately = deadline.type == PollDeadlineType::Immediate;
   EMIT_IF(!THREADS) {
-    // can't time out without threads
-    timeoutType = ReturnImmediately;
+    // No scheduler is available to complete a blocking wait.
+    returnImmediately = true;
   }
   else {
-    // Grab the subsystem for this process
     pThread = Processor::information().getCurrentThread();
     Process* pProcess = pThread->getParent();
     PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -271,15 +341,10 @@ int posix_poll_safe(struct pollfd* fds, unsigned int nfds, int timeout) {
     }
   }
 
-  bool bError = false;
-  bool bWillReturnImmediately = (timeoutType == ReturnImmediately);
-
   SharedPointer<Semaphore> pSem = nullptr;
   SharedPointer<ReadinessObserver> readinessObserver;
   ReadinessSubscription* readinessSubscriptions = nullptr;
-
   EMIT_IF(THREADS) {
-    // Can be interrupted while waiting for sem - EINTR.
     pSem.reset(new Semaphore(0, true));
     readinessObserver.reset(new PollReadinessObserver(pSem));
     readinessSubscriptions = new ReadinessSubscription[nfds];
@@ -294,142 +359,258 @@ int posix_poll_safe(struct pollfd* fds, unsigned int nfds, int timeout) {
       &pSem, &readinessObserver, &readinessSubscriptions, &descriptors, nfds, true};
   Thread::StackDiscardScope discardScope(THREADS ? &removePollRegistrations : nullptr, &cleanup);
 
-  for (unsigned int i = 0; i < nfds; i++) {
-    // Grab the pollfd structure.
+  for (unsigned int i = 0; i < nfds; ++i) {
     struct pollfd* me = &fds[i];
     me->revents = 0;
     if (me->fd < 0) {
       continue;
     }
 
-    // valid fd?
     const bool acquired = acquireDescriptor(me->fd, descriptors[i]);
-    DescriptorLease& pFd = descriptors[i];
+    DescriptorLease& descriptor = descriptors[i];
     if (!acquired) {
-      // Error - no such file descriptor.
       POLL_NOTICE("poll: no such file descriptor (" << Dec << me->fd << ")");
       me->revents |= POLLNVAL;
-      bWillReturnImmediately = true;
+      returnImmediately = true;
       continue;
     }
 
-    ReadinessSource* readinessSource = descriptorReadinessSource(*pFd);
+    ReadinessSource* readinessSource = descriptorReadinessSource(*descriptor);
     if (!readinessSource) {
       me->revents |= POLLNVAL;
-      bWillReturnImmediately = true;
+      returnImmediately = true;
       continue;
     }
 
-    me->revents |= queryDescriptorPoll(*pFd, me->events);
+    me->revents |= queryDescriptorPoll(*descriptor, me->events);
     if (me->revents) {
-      bWillReturnImmediately = true;
+      returnImmediately = true;
     }
 
     EMIT_IF(THREADS) {
-      if (!bWillReturnImmediately) {
+      if (!returnImmediately) {
         const ReadyMask interest = pollInterest(me->events);
         if (!readinessSource->subscribeReadiness(interest, readinessObserver,
                                                  readinessSubscriptions[i])) {
           me->revents |= POLLNVAL;
-          bWillReturnImmediately = true;
+          returnImmediately = true;
         } else {
           // Subscription precedes the second snapshot, closing the only
           // transition window in which a level could otherwise be missed.
-          me->revents |= queryDescriptorPoll(*pFd, me->events);
+          me->revents |= queryDescriptorPoll(*descriptor, me->events);
           if (me->revents) {
-            bWillReturnImmediately = true;
+            returnImmediately = true;
           }
         }
       }
     }
   }
 
+  bool waited = false;
+  bool interrupted = false;
+  bool timedOut = deadline.type == PollDeadlineType::Immediate;
   EMIT_IF(THREADS) {
-    // Grunt work is done, now time to cleanup.
-    while (!bWillReturnImmediately && !bError) {
+    while (!returnImmediately) {
       POLL_NOTICE("    -> no fds ready yet, poll will block");
 
-      // We got here because there is a specific or infinite timeout and
-      // no FD was ready immediately.
-      //
-      // Every subscribed source raises this semaphore when its predicate may
-      // have changed. The exact level is always recomputed after the wake.
-      size_t waitSecs = timeoutSecs;
-      size_t waitUSecs = timeoutUSecs;
-      if (timeoutType == SpecificTimeout) {
-        const Time::Timestamp now = Time::getTicks();
-        if (now >= deadline) {
-          break;
-        }
-
-        const Time::Timestamp remaining = deadline - now;
-        waitSecs = remaining / Time::Multiplier::Second;
-        waitUSecs = (remaining % Time::Multiplier::Second + Time::Multiplier::Microsecond - 1) /
-                    Time::Multiplier::Microsecond;
-        if (waitUSecs >= 1000000) {
-          ++waitSecs;
-          waitUSecs = 0;
-        }
+      size_t waitSecs = 0;
+      size_t waitUSecs = 0;
+      if (!deadlineSemaphoreTimeout(deadline, waitSecs, waitUSecs)) {
+        timedOut = true;
+        break;
       }
 
       Semaphore::SemaphoreError error = Semaphore::NoError;
-      bool acquired = pSem->acquireWithError(1, waitSecs, waitUSecs, error);
-
-      // Did we actually get the semaphore or did we timeout?
+      waited = true;
+      const bool acquired = pSem->acquireWithError(1, waitSecs, waitUSecs, error);
       if (acquired) {
-        // We were signalled, so one more FD ready.
-        // While the semaphore is nonzero, more FDs are ready.
         while (pSem->tryAcquire())
           ;
+      }
 
-        bool ok = false;
-        for (size_t i = 0; i < nfds; ++i) {
-          struct pollfd* me = &fds[i];
-          DescriptorLease& pFd = descriptors[i];
-          if (!pFd) {
-            continue;
-          }
+      // Recompute the predicate after every wake outcome. A readiness change
+      // racing a timeout or signal owns the result even if the semaphore
+      // reported the other event first.
+      if (refreshPollDescriptors(fds, nfds, descriptors)) {
+        break;
+      }
 
-          me->revents |= queryDescriptorPoll(*pFd, me->events);
-          if (me->revents) {
-            ok = true;
-          }
-        }
-
-        if (ok) {
-          break;
-        }
-      } else {
+      if (!acquired) {
         if (error == Semaphore::TimedOut) {
-          // timed out, not an error
           POLL_NOTICE(" -> poll interrupted by timeout");
+          timedOut = true;
         } else {
-          // generic interrupt
           POLL_NOTICE(" -> poll interrupted by external event");
-          SYSCALL_ERROR(Interrupted);
-          bError = true;
+          interrupted = true;
         }
+        break;
+      }
 
+      if (pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
+        interrupted = true;
         break;
       }
     }
   }
 
-  // Prepare return value (number of fds with events).
-  size_t nRet = 0;
+  // One last level snapshot closes a change racing the terminal decision.
+  refreshPollDescriptors(fds, nfds, descriptors);
+  if (waited && pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
+    interrupted = true;
+  }
+
+  size_t readyCount = 0;
   for (size_t i = 0; i < nfds; ++i) {
     POLL_NOTICE("    -> pollfd[" << i << "]: fd=" << fds[i].fd << ", events=" << fds[i].events
                                  << ", revents=" << fds[i].revents);
-
     if (fds[i].revents != 0) {
-      ++nRet;
+      ++readyCount;
     }
   }
 
-  POLL_NOTICE("    -> " << Dec << ((bError) ? -1 : (int)nRet) << Hex);
-  POLL_NOTICE("    -> nRet is " << nRet << ", error is " << bError);
+  int result = static_cast<int>(readyCount);
+  if (!readyCount && interrupted) {
+    SYSCALL_ERROR(Interrupted);
+    result = -1;
+  } else if (readyCount && interrupted &&
+             pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
+    // The handler ran, but readiness won this syscall's terminal collision.
+    pThread->clearInterruption();
+  }
 
-  const int result = bError ? -1 : static_cast<int>(nRet);
+  POLL_NOTICE("    -> " << Dec << result << Hex);
+  POLL_NOTICE("    -> ready is " << readyCount << ", interrupted is " << interrupted
+                                 << ", timed out is " << timedOut);
+
   removePollRegistrations(&cleanup);
   return result;
+}
+
+void copyPpollTimeoutRemainder(LinuxKernelTimespec* userTimeout, const PollDeadline& deadline) {
+  if (deadline.type != PollDeadlineType::Finite) {
+    return;
+  }
+
+  LinuxKernelTimespec remaining = {0, 0};
+  const Time::Timestamp now = Time::getTicks();
+  if (now < deadline.expires) {
+    const Time::Timestamp nanoseconds = deadline.expires - now;
+    remaining.tv_sec = static_cast<int64_t>(nanoseconds / Time::Multiplier::Second);
+    remaining.tv_nsec = static_cast<int64_t>(nanoseconds % Time::Multiplier::Second);
+  }
+
+  // Linux treats timeout writeback as advisory: a late output fault does not
+  // replace the poll result or a descriptor-copy EFAULT.
+  PosixSubsystem::copyToUser(userTimeout, &remaining, sizeof(remaining));
+}
+
+bool finishPpoll(Thread::TemporarySignalMask* temporarySignalMask, LinuxKernelTimespec* userTimeout,
+                 const PollDeadline& deadline) {
+  const bool signalInterrupted = temporarySignalMask && temporarySignalMask->finish();
+  if (userTimeout) {
+    copyPpollTimeoutRemainder(userTimeout, deadline);
+  }
+  return signalInterrupted;
+}
+
+int ppollWithDeadline(struct pollfd* fds, unsigned int nfds, LinuxKernelTimespec* timeout,
+                      const PollDeadline& deadline,
+                      Thread::TemporarySignalMask* temporarySignalMask) {
+  if (nfds > MaxPollDescriptors) {
+    finishPpoll(temporarySignalMask, timeout, deadline);
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  size_t extent = 0;
+  if (!PosixSubsystem::checkedUserBufferSize(nfds, sizeof(struct pollfd), extent)) {
+    finishPpoll(temporarySignalMask, timeout, deadline);
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  struct pollfd* snapshot = nfds ? new struct pollfd[nfds] : nullptr;
+  if (!PosixSubsystem::copyFromUser(snapshot, fds, nfds, sizeof(struct pollfd))) {
+    delete[] snapshot;
+    finishPpoll(temporarySignalMask, timeout, deadline);
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+
+  int result = pollWithDeadline(snapshot, nfds, deadline);
+  // Linux publishes revents while the temporary mask still governs signal
+  // delivery. Timeout writeback happens only after the caller's mask is
+  // restored.
+  const bool copiedResults = copyPollReventsToUser(fds, snapshot, nfds);
+  const bool signalInterrupted = finishPpoll(temporarySignalMask, timeout, deadline);
+  if (!result && signalInterrupted) {
+    SYSCALL_ERROR(Interrupted);
+    result = -1;
+  }
+
+  delete[] snapshot;
+
+  if (!copiedResults) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  return result;
+}
+}  // namespace
+
+PollDeadline posix_poll_deadline(const LinuxKernelTimespec* timeout) {
+  if (!timeout) {
+    return {PollDeadlineType::Infinite, 0};
+  }
+  return pollDeadlineFromTimespec(*timeout);
+}
+
+int posix_poll_safe(struct pollfd* fds, unsigned int nfds, const PollDeadline& deadline) {
+  POLL_NOTICE("poll_safe_deadline(" << Dec << nfds << Hex << ")");
+  return pollWithDeadline(fds, nfds, deadline);
+}
+
+int posix_poll_safe(struct pollfd* fds, unsigned int nfds, int timeout) {
+  POLL_NOTICE("poll_safe(" << Dec << nfds << ", " << timeout << Hex << ")");
+  return pollWithDeadline(fds, nfds, pollDeadlineFromMilliseconds(timeout));
+}
+
+int posix_ppoll(struct pollfd* fds, unsigned int nfds, LinuxKernelTimespec* timeout,
+                const uint64_t* signalMask, size_t signalMaskSize) {
+  LinuxKernelTimespec timeoutSnapshot = {0, 0};
+  const LinuxKernelTimespec* timeoutValue = nullptr;
+  if (timeout) {
+    if (!PosixSubsystem::copyFromUser(&timeoutSnapshot, timeout, sizeof(timeoutSnapshot))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    if (timeoutSnapshot.tv_sec < 0 || timeoutSnapshot.tv_nsec < 0 ||
+        timeoutSnapshot.tv_nsec >= static_cast<int64_t>(Time::Multiplier::Second)) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    timeoutValue = &timeoutSnapshot;
+  }
+  const PollDeadline deadline = posix_poll_deadline(timeoutValue);
+
+  uint64_t temporarySignalMask = 0;
+  if (signalMask) {
+    if (signalMaskSize != LinuxKernelSigsetSize) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    if (!PosixSubsystem::copyFromUser(&temporarySignalMask, signalMask, LinuxKernelSigsetSize)) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    temporarySignalMask &= ~UnblockableSignals;
+    Thread* thread = Processor::information().getCurrentThread();
+    if (!thread) {
+      FATAL("ppoll has no current Thread.");
+    }
+
+    Thread::TemporarySignalMask signalWait(*thread, temporarySignalMask);
+    return ppollWithDeadline(fds, nfds, timeout, deadline, &signalWait);
+  }
+
+  return ppollWithDeadline(fds, nfds, timeout, deadline, nullptr);
 }

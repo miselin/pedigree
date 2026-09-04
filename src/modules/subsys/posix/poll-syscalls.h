@@ -21,10 +21,30 @@
 #define POLL_SYSCALLS_H
 
 #include <poll.h>  // for pollfd
+#include <stddef.h>
+#include <stdint.h>
+
+#include "linux-wait-abi.h"
+
+enum class PollDeadlineType { Immediate, Finite, Infinite };
+
+struct PollDeadline {
+  PollDeadlineType type;
+  uint64_t expires;
+};
 
 int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout);
 
+int posix_ppoll(struct pollfd* fds, unsigned int nfds, LinuxKernelTimespec* timeout,
+                const uint64_t* signalMask, size_t signalMaskSize);
+
+/** Create one absolute monotonic deadline from a validated relative timeout. */
+PollDeadline posix_poll_deadline(const LinuxKernelTimespec* timeout);
+
 /** Like posix_poll, but doesn't check for safe memory regions. */
 int posix_poll_safe(struct pollfd* fds, unsigned int nfds, int timeout);
+
+/** Like posix_poll_safe, using an exact absolute monotonic deadline. */
+int posix_poll_safe(struct pollfd* fds, unsigned int nfds, const PollDeadline& deadline);
 
 #endif

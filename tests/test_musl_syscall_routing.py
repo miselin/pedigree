@@ -1,4 +1,5 @@
 import re
+import tarfile
 import unittest
 from pathlib import Path
 
@@ -186,6 +187,118 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         )
         self.assertIn("temporarySignalMask &= ~UnblockableSignals", pwait)
         self.assertNotIn("OperationNotSupported", pwait)
+
+    def test_linux_ppoll_uses_the_linux_wait_abi_and_dispatches(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+        manager = (
+            ROOT / "src/modules/subsys/posix/PosixSyscallManager.cc"
+        ).read_text(encoding="utf-8")
+        wait_abi = (
+            ROOT / "src/modules/subsys/posix/linux-wait-abi.h"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(ppoll, 271, POSIX_PPOLL)",
+            mappings,
+        )
+        self.assertIn("case POSIX_PPOLL:", manager)
+        dispatch = manager.split("case POSIX_PPOLL:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn("return posix_ppoll", dispatch)
+        self.assertIn("static_cast<unsigned int>(p2)", dispatch)
+        self.assertIn("reinterpret_cast<LinuxKernelTimespec*>(p3)", dispatch)
+        self.assertIn("reinterpret_cast<const uint64_t*>(p4)", dispatch)
+        self.assertIn("static_cast<size_t>(p5)", dispatch)
+
+        self.assertRegex(
+            wait_abi,
+            re.compile(
+                r"struct LinuxKernelTimespec\s*\{\s*"
+                r"int64_t tv_sec;\s*int64_t tv_nsec;\s*\};",
+                re.DOTALL,
+            ),
+        )
+        self.assertIn(
+            "static_assert(sizeof(LinuxKernelTimespec) == 16", wait_abi
+        )
+
+        poll_source = (
+            ROOT / "src/modules/subsys/posix/poll-syscalls.cc"
+        ).read_text(encoding="utf-8")
+        ppoll = poll_source.split("int posix_ppoll", 1)[1]
+        self.assertLess(
+            ppoll.index("copyFromUser(&timeoutSnapshot"),
+            ppoll.index("Thread::TemporarySignalMask signalWait"),
+        )
+        self.assertLess(
+            ppoll.index("copyFromUser(&temporarySignalMask"),
+            ppoll.index("Thread::TemporarySignalMask signalWait"),
+        )
+        self.assertLess(
+            ppoll.index("Thread::TemporarySignalMask signalWait"),
+            ppoll.index("return ppollWithDeadline"),
+        )
+
+        finish = poll_source.split("bool finishPpoll", 1)[1].split(
+            "int ppollWithDeadline", 1
+        )[0]
+        self.assertLess(
+            finish.index("temporarySignalMask->finish()"),
+            finish.index("copyPpollTimeoutRemainder"),
+        )
+        helper = poll_source.split("int ppollWithDeadline", 1)[1].split(
+            "}  // namespace", 1
+        )[0]
+        terminal = helper.split("int result = pollWithDeadline", 1)[1]
+        self.assertLess(
+            terminal.index("copyPollReventsToUser"),
+            terminal.index("finishPpoll("),
+        )
+
+        copyout = poll_source.split("bool copyPollReventsToUser", 1)[1].split(
+            "}  // namespace", 1
+        )[0]
+        self.assertIn("&userFds[i].revents", copyout)
+        self.assertIn("sizeof(snapshot[i].revents)", copyout)
+        self.assertNotIn("sizeof(struct pollfd)", copyout)
+        poll_entry = poll_source.split("int posix_poll(", 1)[1].split(
+            "namespace {", 1
+        )[0]
+        self.assertIn("copyPollReventsToUser(fds, snapshot, nfds)", poll_entry)
+        self.assertIn("copyPollReventsToUser(fds, snapshot, nfds)", helper)
+
+    def test_bundled_musl_ppoll_uses_the_five_argument_raw_abi(self):
+        modules_cmake = (
+            ROOT / "src/modules/CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        self.assertIn('set(MUSL_VERSION "1.2.6")', modules_cmake)
+
+        source_path = (
+            ROOT
+            / "build/src/modules/musl-1.2.6/src/select/ppoll.c"
+        )
+        if source_path.exists():
+            source = source_path.read_text(encoding="utf-8")
+        else:
+            archive_path = (
+                ROOT / "build/src/modules/musl-1.2.6.tar.gz"
+            )
+            if not archive_path.exists():
+                self.skipTest("the configured musl source archive is not present")
+            with tarfile.open(archive_path, "r:gz") as archive:
+                member = archive.extractfile(
+                    "musl-1.2.6/src/select/ppoll.c"
+                )
+                self.assertIsNotNone(member)
+                source = member.read().decode("utf-8")
+
+        self.assertIn("int ppoll(struct pollfd *fds, nfds_t n", source)
+        self.assertIn("syscall_cp(SYS_ppoll, fds, n,", source)
+        self.assertIn("mask, _NSIG/8", source)
 
     def test_linux_eventfd_syscalls_are_mapped(self):
         mappings = (

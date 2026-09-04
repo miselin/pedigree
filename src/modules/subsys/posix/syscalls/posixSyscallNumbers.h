@@ -292,5 +292,6 @@
 #define POSIX_EPOLL_PWAIT 280
 #define POSIX_EVENTFD 281
 #define POSIX_EVENTFD2 282
+#define POSIX_PPOLL 283
 
 #endif
