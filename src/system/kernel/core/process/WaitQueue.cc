@@ -165,6 +165,16 @@ size_t WaitQueue::Guard::wakeAll(WakeReason reason, const Channel& channel) {
   return m_Queue->wakeAllLocked(*this, reason, channel);
 }
 
+size_t WaitQueue::Guard::wakeAndRequeue(const Channel& source, size_t wakeCount,
+                                        const Channel& destination, size_t requeueCount) {
+  assert(m_Queue);
+  if (!m_OwnsLock) {
+    return 0;
+  }
+  assert(m_OwnsLock);
+  return m_Queue->wakeAndRequeueLocked(*this, source, wakeCount, destination, requeueCount);
+}
+
 WaitQueue::WaitQueue()
     : m_Lock(false), m_pFirstWaiter(nullptr), m_pLastWaiter(nullptr), m_WaiterCount(0) {}
 
@@ -343,6 +353,48 @@ size_t WaitQueue::wakeAllLocked(Guard& guard, WakeReason reason, const Channel& 
   }
 
   return count;
+}
+
+size_t WaitQueue::wakeAndRequeueLocked(Guard& guard, const Channel& source, size_t wakeCount,
+                                       const Channel& destination, size_t requeueCount) {
+  assert(source.owner == destination.owner);
+  if (source.owner != destination.owner) {
+    return 0;
+  }
+
+  size_t woken = 0;
+  size_t requeued = 0;
+  for (Waiter* waiter = m_pFirstWaiter; waiter; waiter = waiter->next) {
+    if (!(waiter->channel == source) || waiter->loadReason() != WakeReason::Waiting) {
+      continue;
+    }
+
+    if (woken < wakeCount) {
+      if (completeWaiter(guard, waiter, WakeReason::Signalled)) {
+        ++woken;
+      }
+      continue;
+    }
+
+    if (requeued < requeueCount) {
+      Thread* thread = waiter->thread;
+      bool moved = false;
+      thread->m_Lock.acquire();
+      if (thread->m_StateLevels[waiter->stateLevel].m_Waiter.loadQueue() == this &&
+          waiter->loadReason() == WakeReason::Waiting && waiter->channel == source) {
+        // The owner remains immutable after queue publication, while the
+        // value is also read by lockless debugger snapshots.
+        __atomic_store_n(&waiter->channel.value, destination.value, __ATOMIC_RELEASE);
+        moved = true;
+      }
+      thread->m_Lock.release();
+      if (moved) {
+        ++requeued;
+      }
+    }
+  }
+
+  return woken + requeued;
 }
 
 bool WaitQueue::completeWaiter(Guard& guard, Waiter* waiter, WakeReason reason) {

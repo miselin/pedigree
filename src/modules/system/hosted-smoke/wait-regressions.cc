@@ -1174,6 +1174,40 @@ struct BlockingContext {
 
 BlockingContext* g_BlockingContext = nullptr;
 
+struct RequeueWaitContext {
+  RequeueWaitContext()
+      : source(&queue, 0x46555458),
+        destination(&queue, 0x4d555445),
+        entered(0),
+        returned(0),
+        signalled(0),
+        terminated(0) {}
+
+  WaitQueue queue;
+  WaitQueue::Channel source;
+  WaitQueue::Channel destination;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+  Atomic<size_t> signalled;
+  Atomic<size_t> terminated;
+};
+
+int waitForRequeue(void* parameter) {
+  RequeueWaitContext* context = reinterpret_cast<RequeueWaitContext*>(parameter);
+  context->entered += 1;
+
+  auto guard = context->queue.acquire();
+  const WaitQueue::WakeReason reason = guard.wait(
+      context->source, Thread::FutexWait, reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
+  if (reason == WaitQueue::WakeReason::Signalled) {
+    context->signalled += 1;
+  } else if (reason == WaitQueue::WakeReason::Terminating) {
+    context->terminated += 1;
+  }
+  context->returned += 1;
+  return 0;
+}
+
 void blockingHook(WaitQueue* queue, Thread* thread, const WaitQueue::Channel& channel,
                   size_t debugState) {
   BlockingContext* context = __atomic_load_n(&g_BlockingContext, __ATOMIC_ACQUIRE);
@@ -1770,6 +1804,87 @@ bool ordinaryBlockAndWake() {
 
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS ordinary-block-wake");
+  }
+  return passed;
+}
+
+bool waitQueueWakeAndRequeue() {
+  constexpr const char* Test = "waitqueue-wake-and-requeue";
+  RequeueWaitContext context;
+  Thread* waiters[3] = {};
+
+  bool enrolled = true;
+  for (size_t i = 0; i < 3; ++i) {
+    waiters[i] = new Thread(Scheduler::instance().getKernelProcess(), waitForRequeue, &context,
+                            nullptr, false, true);
+    waiters[i]->setName("hosted WaitQueue requeue waiter");
+  }
+  for (Thread* waiter : waiters) {
+    enrolled &= waitForDebugState(waiter, Thread::FutexWait);
+  }
+
+  size_t moved = 0;
+  bool sourceReachedMovedWaiter = true;
+  size_t destinationWoken = 0;
+  if (enrolled) {
+    auto guard = context.queue.acquire();
+    moved = guard.wakeAndRequeue(context.source, 1, context.destination, 2);
+    sourceReachedMovedWaiter = guard.wakeOne(WaitQueue::WakeReason::Signalled, context.source);
+    destinationWoken = guard.wakeAll(WaitQueue::WakeReason::Signalled, context.destination);
+  }
+
+  if (!enrolled || moved != 3 || sourceReachedMovedWaiter || destinationWoken != 2) {
+    for (Thread* waiter : waiters) {
+      waiter->setUnwindState(Thread::TerminateThread);
+    }
+  }
+
+  bool joined = true;
+  for (Thread* waiter : waiters) {
+    joined &= waiter->joinForCompletion();
+  }
+
+  bool passed = true;
+  passed &= check(enrolled, Test, "the source waiters did not all publish");
+  passed &= check(moved == 3, Test, "wake-and-requeue did not select all three waiters");
+  passed &= check(!sourceReachedMovedWaiter, Test,
+                  "the source channel reached a completed or requeued waiter");
+  passed &= check(destinationWoken == 2, Test,
+                  "the destination did not wake exactly the two requeued waiters");
+  passed &= check(joined && context.entered == 3 && context.returned == 3 &&
+                      context.signalled == 3 && context.terminated == 0,
+                  Test, "the requeued waiters did not all return as signalled");
+  passed &=
+      check(context.queue.waiterCount() == 0, Test, "completed requeued waiters remained linked");
+
+  RequeueWaitContext cancellation;
+  Thread* cancelled = new Thread(Scheduler::instance().getKernelProcess(), waitForRequeue,
+                                 &cancellation, nullptr, false, true);
+  cancelled->setName("hosted WaitQueue cancelled requeue waiter");
+  const bool cancellationEnrolled = waitForDebugState(cancelled, Thread::FutexWait);
+  size_t cancellationMoved = 0;
+  if (cancellationEnrolled) {
+    auto guard = cancellation.queue.acquire();
+    cancellationMoved = guard.wakeAndRequeue(cancellation.source, 0, cancellation.destination, 1);
+  }
+
+  Thread::WaitDebugInfo wait = {};
+  const bool destinationPublished = cancelled->getWaitDebugInfo(wait) &&
+                                    wait.queue == &cancellation.queue && wait.queued &&
+                                    wait.reason == WaitQueue::WakeReason::Waiting &&
+                                    wait.channelOwner == cancellation.destination.owner &&
+                                    wait.channelValue == cancellation.destination.value;
+  cancelled->setUnwindState(Thread::TerminateThread);
+  const bool cancellationJoined = cancelled->joinForCompletion();
+
+  passed &= check(cancellationEnrolled && cancellationMoved == 1 && destinationPublished, Test,
+                  "the cancellation waiter was not requeued to the destination");
+  passed &= check(cancellationJoined && cancellation.returned == 1 && cancellation.signalled == 0 &&
+                      cancellation.terminated == 1 && cancellation.queue.waiterCount() == 0,
+                  Test, "cancelling a requeued waiter did not unlink it safely");
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS waitqueue-wake-and-requeue");
   }
   return passed;
 }
@@ -2537,9 +2652,9 @@ bool runHostedWaitRegressions() {
 #if !PEDIGREE_HOSTED_CORE_SMOKE
       runHostedSyscallRegressions() &&
 #endif
-      ordinaryBlockAndWake() && processSuspendResume() && processStopGatesPeerReturns() &&
-      stoppedProcessDefersUserReturnEvent() && terminalUnwindEscapesProcessStopGate() &&
-      prequeuedTerminalEventEscapesProcessStopGate() &&
+      ordinaryBlockAndWake() && waitQueueWakeAndRequeue() && processSuspendResume() &&
+      processStopGatesPeerReturns() && stoppedProcessDefersUserReturnEvent() &&
+      terminalUnwindEscapesProcessStopGate() && prequeuedTerminalEventEscapesProcessStopGate() &&
       prequeuedTerminalEventEscapesStopOwnerGate() && activeDirectTransitionDrainsKernelEvent() &&
       immediateExitJoinLifecycle() && joinPublicationAndDetachExclusion() &&
       terminalJoinPropagation() && prequeuedEventDispatch() && stateLevelPublication() &&

@@ -24,6 +24,8 @@
 #include "pedigree/kernel/syscallError.h"
 #include "pedigree/kernel/time/Time.h"
 
+#include <limits.h>
+
 #include "PosixSubsystem.h"
 #include <pthread-syscalls.h>
 
@@ -104,7 +106,7 @@ int posix_futex_wake(Process* process, int* uaddr, int count) {
   return woken;
 }
 
-int posix_futex(int* uaddr, int futex_op, int val, const struct timespec* timeout) {
+int posix_futex(int* uaddr, int futex_op, int val, uintptr_t argument4, int* uaddr2, int val3) {
   Thread* pThread = Processor::information().getCurrentThread();
   Process* pProcess = pThread->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -113,7 +115,8 @@ int posix_futex(int* uaddr, int futex_op, int val, const struct timespec* timeou
     return -1;
   }
 
-  PT_NOTICE("futex(" << Hex << uaddr << ", " << futex_op << ", " << val << ", " << timeout << ")");
+  PT_NOTICE("futex(" << Hex << uaddr << ", " << futex_op << ", " << val << ", " << argument4 << ", "
+                     << uaddr2 << ", " << val3 << ")");
 
   if (futex_op & FUTEX_CLOCK_REALTIME) {
     PT_NOTICE(" -> realtime futex waits are not yet supported");
@@ -142,22 +145,23 @@ int posix_futex(int* uaddr, int futex_op, int val, const struct timespec* timeou
     case FUTEX_WAIT: {
       PT_NOTICE(" -> FUTEX_WAIT");
 
-      if (timeout && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(timeout),
-                                                   sizeof(*timeout), PosixSubsystem::SafeRead)) {
+      const struct timespec* userTimeout = reinterpret_cast<const struct timespec*>(argument4);
+      struct timespec timeout = {};
+      if (userTimeout && !PosixSubsystem::copyFromUser(&timeout, userTimeout, sizeof(timeout))) {
         SYSCALL_ERROR(BadAddress);
         return -1;
       }
 
       Time::Timestamp timeoutNanoseconds = Time::Infinity;
-      if (timeout) {
-        if (timeout->tv_sec < 0 || timeout->tv_nsec < 0 ||
-            timeout->tv_nsec >= static_cast<decltype(timeout->tv_nsec)>(Time::Multiplier::Second)) {
+      if (userTimeout) {
+        if (timeout.tv_sec < 0 || timeout.tv_nsec < 0 ||
+            timeout.tv_nsec >= static_cast<decltype(timeout.tv_nsec)>(Time::Multiplier::Second)) {
           SYSCALL_ERROR(InvalidArgument);
           return -1;
         }
 
-        const Time::Timestamp nanoseconds = static_cast<Time::Timestamp>(timeout->tv_nsec);
-        const Time::Timestamp seconds = static_cast<Time::Timestamp>(timeout->tv_sec);
+        const Time::Timestamp nanoseconds = static_cast<Time::Timestamp>(timeout.tv_nsec);
+        const Time::Timestamp seconds = static_cast<Time::Timestamp>(timeout.tv_sec);
         if (seconds > (Time::Infinity - nanoseconds) / Time::Multiplier::Second) {
           SYSCALL_ERROR(InvalidArgument);
           return -1;
@@ -175,7 +179,7 @@ int posix_futex(int* uaddr, int futex_op, int val, const struct timespec* timeou
       } else {
         pThread->clearInterruption();
         void* pAlarm = nullptr;
-        if (timeout) {
+        if (userTimeout) {
           pAlarm = Time::addAlarm(timeoutNanoseconds);
         }
         FutexDiscard discard = {pAlarm};
@@ -192,7 +196,7 @@ int posix_futex(int* uaddr, int futex_op, int val, const struct timespec* timeou
         pThread->clearInterruption();
 
         if (wakeReason != WaitQueue::WakeReason::Signalled) {
-          if (timeout && interruption == Thread::InterruptedByTimeout) {
+          if (userTimeout && interruption == Thread::InterruptedByTimeout) {
             SYSCALL_ERROR(TimedOut);
           } else {
             SYSCALL_ERROR(Interrupted);
@@ -215,6 +219,37 @@ int posix_futex(int* uaddr, int futex_op, int val, const struct timespec* timeou
       const int woken = posix_futex_wake(pProcess, uaddr, val);
       PT_NOTICE(" -> woke " << Dec << woken << " threads.");
       r = woken;
+      break;
+    }
+
+    case FUTEX_REQUEUE: {
+      PT_NOTICE(" -> FUTEX_REQUEUE");
+
+      const uint32_t rawRequeueCount = static_cast<uint32_t>(argument4);
+      if (val < 0 || rawRequeueCount > static_cast<uint32_t>(INT_MAX)) {
+        SYSCALL_ERROR(InvalidArgument);
+        r = -1;
+        break;
+      }
+      const int requeueCount = static_cast<int>(rawRequeueCount);
+      if (reinterpret_cast<uintptr_t>(uaddr2) % alignof(int)) {
+        SYSCALL_ERROR(InvalidArgument);
+        r = -1;
+        break;
+      }
+      if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(uaddr2), sizeof(*uaddr2),
+                                        PosixSubsystem::SafeRead)) {
+        SYSCALL_ERROR(BadAddress);
+        r = -1;
+        break;
+      }
+
+      const FutexKey destinationKey(pProcess, uaddr2);
+      auto guard = g_FutexWaiters.acquire();
+      r = static_cast<int>(guard.wakeAndRequeue(futexChannel(key), static_cast<size_t>(val),
+                                                futexChannel(destinationKey),
+                                                static_cast<size_t>(requeueCount)));
+      PT_NOTICE(" -> affected " << Dec << r << " threads.");
       break;
     }
 

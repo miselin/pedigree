@@ -2665,7 +2665,7 @@ bool Thread::getWaitDebugInfo(WaitDebugInfo& info) {
 
   info.queue = queue;
   info.channelOwner = waiter.channel.owner;
-  info.channelValue = waiter.channel.value;
+  info.channelValue = __atomic_load_n(&waiter.channel.value, __ATOMIC_ACQUIRE);
   info.reason = waiter.loadReason();
   info.stateLevel = waiter.stateLevel;
   info.queued = waiter.isQueued();

@@ -39,7 +39,7 @@ int posix_pedigree_thread_wait_for(void* waiter);
 int posix_pedigree_thread_trigger(void* waiter);
 void posix_pedigree_destroy_waiter(void* waiter);
 
-int posix_futex(int* uaddr, int futex_op, int val, const struct timespec* timeout);
+int posix_futex(int* uaddr, int futex_op, int val, uintptr_t argument4, int* uaddr2, int val3);
 int posix_futex_wake(Process* process, int* uaddr, int count);
 
 pid_t posix_gettid();

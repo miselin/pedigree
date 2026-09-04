@@ -12,6 +12,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -34,6 +35,13 @@ static volatile sig_atomic_t sigchldWaitStatus = 0;
 enum {
   processStopGateAttempts = 20000,
   processStopGateQuietYields = 512,
+  futexRequeueAttempts = 100000,
+  futexWait = 0,
+  futexWake = 1,
+  futexRequeue = 3,
+  futexPrivate = 128,
+  futexRequeueWaiters = 3,
+  condBroadcastWaiters = 4,
 };
 
 struct processStopGateProbe {
@@ -46,6 +54,22 @@ struct processStopGateProbe {
 struct processStopGateWorker {
   struct processStopGateProbe* probe;
   int index;
+};
+
+struct futexRequeueProbe {
+  int source;
+  int destination;
+  volatile int ready;
+  volatile int woke;
+  volatile int failure;
+};
+
+struct condBroadcastProbe {
+  pthread_mutex_t mutex;
+  pthread_cond_t condition;
+  volatile int ready;
+  int release;
+  volatile int woke;
 };
 
 static void handleSignal(int signalNumber) {
@@ -98,6 +122,197 @@ static pid_t waitpid_bounded(pid_t child, int* statusCode, int options) {
     sched_yield();
   }
   return 0;
+}
+
+static int wait_for_atomic_value(volatile int* value, int expected) {
+  for (size_t attempt = 0; attempt < futexRequeueAttempts; ++attempt) {
+    if (__atomic_load_n(value, __ATOMIC_ACQUIRE) == expected)
+      return 0;
+    sched_yield();
+  }
+  return -1;
+}
+
+static void* run_futex_requeue_waiter(void* parameter) {
+  struct futexRequeueProbe* probe = parameter;
+  __atomic_add_fetch(&probe->ready, 1, __ATOMIC_RELEASE);
+
+  for (;;) {
+    errno = 0;
+    long result = syscall(SYS_futex, &probe->source, futexWait | futexPrivate, 0, 0, 0, 0);
+    if (!result)
+      break;
+    if (errno == EINTR)
+      continue;
+    __atomic_store_n(&probe->failure, 1, __ATOMIC_RELEASE);
+    return 0;
+  }
+
+  __atomic_add_fetch(&probe->woke, 1, __ATOMIC_RELEASE);
+  return 0;
+}
+
+static int run_raw_futex_requeue_child(void) {
+  struct futexRequeueProbe probe = {0};
+  pthread_t waiters[futexRequeueWaiters];
+
+  for (size_t i = 0; i < futexRequeueWaiters; ++i) {
+    if (pthread_create(&waiters[i], 0, run_futex_requeue_waiter, &probe))
+      return 10;
+  }
+  if (wait_for_atomic_value(&probe.ready, futexRequeueWaiters))
+    return 11;
+
+  // Accumulate every waiter on the destination. This closes the publication
+  // race without relying on delays or scheduler timing.
+  int staged = 0;
+  for (size_t attempt = 0; attempt < futexRequeueAttempts && staged < futexRequeueWaiters;
+       ++attempt) {
+    long result = syscall(SYS_futex, &probe.source, futexRequeue | futexPrivate, 0,
+                          futexRequeueWaiters - staged, &probe.destination, 0);
+    if (result < 0)
+      return 12;
+    staged += (int)result;
+    if (staged < futexRequeueWaiters)
+      sched_yield();
+  }
+  if (staged != futexRequeueWaiters)
+    return 13;
+
+  if (syscall(SYS_futex, &probe.destination, futexRequeue | futexPrivate, 0, futexRequeueWaiters,
+              &probe.source, 0) != futexRequeueWaiters)
+    return 14;
+
+  // Plain FUTEX_REQUEUE permits equal keys and counts each selected waiter,
+  // even though retagging it to the same key is a no-op.
+  if (syscall(SYS_futex, &probe.source, futexRequeue | futexPrivate, 0, futexRequeueWaiters,
+              &probe.source, 0) != futexRequeueWaiters)
+    return 15;
+
+#if UINTPTR_MAX > UINT32_MAX
+  const uintptr_t extendedRequeueCount = ((uintptr_t)1 << 32) | 1;
+  if (syscall(SYS_futex, &probe.source, futexRequeue | futexPrivate, 0, extendedRequeueCount,
+              &probe.destination, 0) != 1 ||
+      syscall(SYS_futex, &probe.destination, futexRequeue | futexPrivate, 0, 1, &probe.source, 0) !=
+          1)
+    return 16;
+#endif
+
+  errno = 0;
+  if (syscall(SYS_futex, (char*)&probe.source + 1, futexRequeue | futexPrivate, 0, 0,
+              &probe.destination, 0) != -1 ||
+      errno != EINVAL)
+    return 17;
+  errno = 0;
+  if (syscall(SYS_futex, &probe.source, futexRequeue | futexPrivate, 0, 0,
+              (char*)&probe.destination + 1, 0) != -1 ||
+      errno != EINVAL)
+    return 18;
+  errno = 0;
+  if (syscall(SYS_futex, &probe.source, futexRequeue | futexPrivate, -1, 0, &probe.destination,
+              0) != -1 ||
+      errno != EINVAL)
+    return 19;
+  errno = 0;
+  if (syscall(SYS_futex, &probe.source, futexRequeue | futexPrivate, 0, -1, &probe.destination,
+              0) != -1 ||
+      errno != EINVAL)
+    return 20;
+  errno = 0;
+  if (syscall(SYS_futex, &probe.source, futexRequeue | futexPrivate, 0, 0, 0, 0) != -1 ||
+      errno != EFAULT)
+    return 21;
+
+  if (syscall(SYS_futex, &probe.source, futexRequeue | futexPrivate, 1, 2, &probe.destination, 0) !=
+      futexRequeueWaiters)
+    return 22;
+  if (syscall(SYS_futex, &probe.source, futexWake | futexPrivate, INT_MAX, 0, 0, 0) != 0)
+    return 23;
+  if (syscall(SYS_futex, &probe.destination, futexWake | futexPrivate, INT_MAX, 0, 0, 0) != 2)
+    return 24;
+
+  for (size_t i = 0; i < futexRequeueWaiters; ++i) {
+    if (pthread_join(waiters[i], 0))
+      return 25;
+  }
+  if (__atomic_load_n(&probe.failure, __ATOMIC_ACQUIRE) ||
+      __atomic_load_n(&probe.woke, __ATOMIC_ACQUIRE) != futexRequeueWaiters)
+    return 26;
+  return 0;
+}
+
+static void* run_cond_broadcast_waiter(void* parameter) {
+  struct condBroadcastProbe* probe = parameter;
+  if (pthread_mutex_lock(&probe->mutex))
+    return (void*)1;
+  __atomic_add_fetch(&probe->ready, 1, __ATOMIC_RELEASE);
+  while (!probe->release) {
+    if (pthread_cond_wait(&probe->condition, &probe->mutex)) {
+      pthread_mutex_unlock(&probe->mutex);
+      return (void*)1;
+    }
+  }
+  __atomic_add_fetch(&probe->woke, 1, __ATOMIC_RELEASE);
+  if (pthread_mutex_unlock(&probe->mutex))
+    return (void*)1;
+  return 0;
+}
+
+static int run_cond_broadcast_child(void) {
+  struct condBroadcastProbe probe = {
+      .mutex = PTHREAD_MUTEX_INITIALIZER,
+      .condition = PTHREAD_COND_INITIALIZER,
+      .ready = 0,
+      .release = 0,
+      .woke = 0,
+  };
+  pthread_t waiters[condBroadcastWaiters];
+
+  for (size_t i = 0; i < condBroadcastWaiters; ++i) {
+    if (pthread_create(&waiters[i], 0, run_cond_broadcast_waiter, &probe))
+      return 30;
+  }
+  if (wait_for_atomic_value(&probe.ready, condBroadcastWaiters) || pthread_mutex_lock(&probe.mutex))
+    return 31;
+
+  // Every waiter registered itself with the condition variable before it
+  // released this mutex. Give that stable cohort time to enter the barrier
+  // futexes which musl will hand off with FUTEX_REQUEUE.
+  for (size_t i = 0; i < 128; ++i)
+    sched_yield();
+  probe.release = 1;
+  if (pthread_cond_broadcast(&probe.condition) || pthread_mutex_unlock(&probe.mutex))
+    return 32;
+
+  for (size_t i = 0; i < condBroadcastWaiters; ++i) {
+    void* result = 0;
+    if (pthread_join(waiters[i], &result) || result)
+      return 33;
+  }
+  if (__atomic_load_n(&probe.woke, __ATOMIC_ACQUIRE) != condBroadcastWaiters ||
+      pthread_cond_destroy(&probe.condition) || pthread_mutex_destroy(&probe.mutex))
+    return 34;
+  return 0;
+}
+
+static void run_bounded_thread_child(int (*childTest)(void)) {
+  pid_t child = fork();
+  if (child < 0)
+    fail();
+  if (!child) {
+    alarm(10);
+    _exit(childTest());
+  }
+
+  int statusCode = 0;
+  pid_t waited;
+  do {
+    waited = waitpid(child, &statusCode, 0);
+  } while (waited < 0 && errno == EINTR);
+  if (waited != child)
+    fail();
+  if (!WIFEXITED(statusCode) || WEXITSTATUS(statusCode))
+    fail();
 }
 
 static void* run_process_stop_gate_worker(void* parameter) {
@@ -176,6 +391,18 @@ static void test_vfork(void) {
   if (waitpid(child, &statusCode, 0) != child || !WIFEXITED(statusCode) || WEXITSTATUS(statusCode))
     fail();
 
+  status("OK");
+}
+
+static void test_futex_requeue(void) {
+  status("Testing raw futex requeue semantics...");
+  run_bounded_thread_child(run_raw_futex_requeue_child);
+  status("OK");
+}
+
+static void test_cond_broadcast(void) {
+  status("Testing pthread condition broadcast requeue...");
+  run_bounded_thread_child(run_cond_broadcast_child);
   status("OK");
 }
 
@@ -988,6 +1215,8 @@ void test_process(const char* program) {
   printf("Testing process compatibility...\n");
   test_proc_self_fd();
   test_vfork();
+  test_futex_requeue();
+  test_cond_broadcast();
   test_signal_return();
   test_default_signal_termination();
   test_sigchld_wait_status();

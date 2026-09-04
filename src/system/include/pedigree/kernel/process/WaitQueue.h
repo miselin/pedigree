@@ -103,6 +103,10 @@ class EXPORTED_PUBLIC WaitQueue {
     bool wakeOne(WakeReason reason = WakeReason::Signalled, const Channel& channel = Channel());
     size_t wakeAll(WakeReason reason = WakeReason::Signalled, const Channel& channel = Channel());
 
+    /** Retains the published channel owner so lockless diagnostics stay coherent. */
+    size_t wakeAndRequeue(const Channel& source, size_t wakeCount, const Channel& destination,
+                          size_t requeueCount);
+
    private:
     friend class WaitQueue;
     friend class PerProcessorScheduler;
@@ -190,6 +194,8 @@ class EXPORTED_PUBLIC WaitQueue {
                   uintptr_t debugAddress, bool deferTerminal, bool dispatchEvents);
   bool wakeOneLocked(Guard& guard, WakeReason reason, const Channel& channel);
   size_t wakeAllLocked(Guard& guard, WakeReason reason, const Channel& channel);
+  size_t wakeAndRequeueLocked(Guard& guard, const Channel& source, size_t wakeCount,
+                              const Channel& destination, size_t requeueCount);
   bool completeWaiter(Guard& guard, Waiter* waiter, WakeReason reason);
   static void publishReady(Waiter* waiter);
   void removeWaiterLocked(Waiter* waiter);

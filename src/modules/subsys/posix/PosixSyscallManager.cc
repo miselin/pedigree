@@ -544,8 +544,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return 0;
 
     case POSIX_FUTEX:
-      return posix_futex(reinterpret_cast<int*>(p1), static_cast<int>(p2), static_cast<int>(p3),
-                         reinterpret_cast<const struct timespec*>(p4));
+      return posix_futex(reinterpret_cast<int*>(p1), static_cast<int>(p2), static_cast<int>(p3), p4,
+                         reinterpret_cast<int*>(p5), static_cast<int>(p6));
     case POSIX_UNAME:
       return posix_uname(reinterpret_cast<struct utsname*>(p1));
     case POSIX_ARCH_PRCTL:
