@@ -42,6 +42,7 @@
 #include "pedigree/kernel/utilities/utility.h"
 
 #include "file-syscalls.h"
+#include "linux-resource-abi.h"
 #include "modules/system/linker/DynamicLinker.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/Symlink.h"
@@ -1498,75 +1499,158 @@ int posix_getgroups(size_t size, gid_t* list) {
   return groups.count();
 }
 
-int posix_getrlimit(int resource, struct rlimit* rlim) {
-  /// \todo check access on rlim
-  SC_NOTICE("getrlimit(" << Dec << resource << ")");
-
+namespace {
+bool getRlimitValue(int resource, struct rlimit& result) {
+  result = {};
   switch (resource) {
     case RLIMIT_CPU:
+      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
       break;
     case RLIMIT_FSIZE:
-      rlim->rlim_cur = rlim->rlim_max = RLIM_INFINITY;
+      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
       break;
     case RLIMIT_DATA:
-      rlim->rlim_cur = rlim->rlim_max = RLIM_INFINITY;
+      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
       break;
     case RLIMIT_STACK:
-      rlim->rlim_cur = rlim->rlim_max = RLIM_INFINITY;
+      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
       break;
     case RLIMIT_CORE:
-      rlim->rlim_cur = 0;
-      rlim->rlim_max = RLIM_INFINITY;
+      result.rlim_cur = 0;
+      result.rlim_max = RLIM_INFINITY;
       break;
     case RLIMIT_RSS:
-      rlim->rlim_cur = rlim->rlim_max = 1ULL << 48ULL;
+      result.rlim_cur = result.rlim_max = 1ULL << 48ULL;
       break;
     case RLIMIT_NPROC:
-      rlim->rlim_cur = rlim->rlim_max = RLIM_INFINITY;
+      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
       break;
     case RLIMIT_NOFILE:
-      rlim->rlim_cur = rlim->rlim_max = 16384;
+      result.rlim_cur = result.rlim_max = 16384;
       break;
     case RLIMIT_MEMLOCK:
-      rlim->rlim_cur = rlim->rlim_max = 1ULL << 24ULL;
+      result.rlim_cur = result.rlim_max = 1ULL << 24ULL;
       break;
     case RLIMIT_AS:
-      rlim->rlim_cur = rlim->rlim_max = 1ULL << 48ULL;
+      result.rlim_cur = result.rlim_max = 1ULL << 48ULL;
       break;
     case RLIMIT_LOCKS:
-      rlim->rlim_cur = rlim->rlim_max = 1024;
+      result.rlim_cur = result.rlim_max = 1024;
       break;
     case RLIMIT_SIGPENDING:
-      rlim->rlim_cur = rlim->rlim_max = 16;
+      result.rlim_cur = result.rlim_max = 16;
       break;
     case RLIMIT_MSGQUEUE:
-      rlim->rlim_cur = rlim->rlim_max = 0x100000;
+      result.rlim_cur = result.rlim_max = 0x100000;
       break;
     case RLIMIT_NICE:
-      rlim->rlim_cur = rlim->rlim_max = 1;
+      result.rlim_cur = result.rlim_max = 1;
       break;
     case RLIMIT_RTPRIO:
-      SYSCALL_ERROR(InvalidArgument);
-      SC_NOTICE(" -> RTPRIO not supported");
-      return -1;
+      result.rlim_cur = result.rlim_max = 0;
+      break;
+#ifdef RLIMIT_RTTIME
+    case RLIMIT_RTTIME:
+      result.rlim_cur = result.rlim_max = RLIM_INFINITY;
+      break;
+#endif
     default:
       SYSCALL_ERROR(InvalidArgument);
-      SC_NOTICE(" -> unknown resource!");
-      return -1;
+      return false;
   }
 
-  SC_NOTICE(" -> cur = " << rlim->rlim_cur);
-  SC_NOTICE(" -> max = " << rlim->rlim_max);
+  return true;
+}
+}  // namespace
+
+int posix_getrlimit(int resource, struct rlimit* rlim) {
+  SC_NOTICE("getrlimit(" << Dec << resource << ")");
+
+  struct rlimit result = {};
+  if (!getRlimitValue(resource, result)) {
+    SC_NOTICE(" -> unsupported resource");
+    return -1;
+  }
+
+  if (!PosixSubsystem::copyToUser(rlim, &result, sizeof(result))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+
+  SC_NOTICE(" -> cur = " << result.rlim_cur);
+  SC_NOTICE(" -> max = " << result.rlim_max);
   return 0;
 }
 
 int posix_setrlimit(int resource, const struct rlimit* rlim) {
-  /// \todo check access on rlim
   SC_NOTICE("setrlimit(" << Dec << resource << ")");
 
-  /// \todo write setrlimit
+  struct rlimit current = {};
+  if (!getRlimitValue(resource, current)) {
+    return -1;
+  }
+
+  (void)rlim;
+  SYSCALL_ERROR(Unimplemented);
+  return -1;
+}
+
+int posix_prlimit64(int pid, int resource, const LinuxRlimit64* newLimit, LinuxRlimit64* oldLimit) {
+  SC_NOTICE("prlimit64(" << Dec << pid << ", " << resource << ")");
+
+  Process* current = Processor::information().getCurrentThread()->getParent();
+  Scheduler::ProcessLease targetLease;
+  if (pid < 0) {
+    SYSCALL_ERROR(NoSuchProcess);
+    return -1;
+  }
+  if (pid && static_cast<size_t>(pid) != current->getId()) {
+    if (!Scheduler::instance().acquireProcessById(targetLease, static_cast<size_t>(pid)) ||
+        targetLease->getType() != Process::Posix) {
+      SYSCALL_ERROR(NoSuchProcess);
+      return -1;
+    }
+    // Reported limits are not stored per-process yet, so returning the
+    // caller's synthetic values for another process would be misleading.
+    SYSCALL_ERROR(Unimplemented);
+    return -1;
+  }
+
+  struct rlimit currentLimit = {};
+  if (!getRlimitValue(resource, currentLimit)) {
+    return -1;
+  }
+
+  // Limits are not yet stored or enforced per-process. Refuse mutation instead
+  // of claiming success while still supporting the query used by modern libc.
+  if (newLimit) {
+    SYSCALL_ERROR(Unimplemented);
+    return -1;
+  }
+
+  if (oldLimit) {
+    const LinuxRlimit64 result = {static_cast<uint64_t>(currentLimit.rlim_cur),
+                                  static_cast<uint64_t>(currentLimit.rlim_max)};
+    if (!PosixSubsystem::copyToUser(oldLimit, &result, sizeof(result))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+  }
 
   return 0;
+}
+
+int posix_membarrier(int command, unsigned int flags, int cpuId) {
+  SC_NOTICE("membarrier(" << Dec << command << ", " << flags << ", " << cpuId << ")");
+
+  // A zero query result truthfully advertises that no membarrier commands are
+  // available. Callers can then select their ordinary synchronization path.
+  if (command == 0 && flags == 0) {
+    return 0;
+  }
+
+  SYSCALL_ERROR(InvalidArgument);
+  return -1;
 }
 
 int posix_getpriority(int which, int who) {

@@ -17,6 +17,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -389,6 +390,81 @@ static void test_vfork(void) {
 
   int statusCode = 0;
   if (waitpid(child, &statusCode, 0) != child || !WIFEXITED(statusCode) || WEXITSTATUS(statusCode))
+    fail();
+
+  status("OK");
+}
+
+static void test_resource_compatibility(void) {
+  status("Testing Linux resource compatibility syscalls...");
+
+  struct rlimit limit = {0};
+  if (getrlimit(RLIMIT_CPU, &limit) || limit.rlim_cur != RLIM_INFINITY ||
+      limit.rlim_max != RLIM_INFINITY)
+    fail();
+
+  if (getrlimit(RLIMIT_RTPRIO, &limit) || limit.rlim_cur != 0 || limit.rlim_max != 0)
+    fail();
+
+  if (getrlimit(RLIMIT_RTTIME, &limit) || limit.rlim_cur != RLIM_INFINITY ||
+      limit.rlim_max != RLIM_INFINITY)
+    fail();
+
+  memset(&limit, 0, sizeof(limit));
+  if (syscall(SYS_prlimit64, 0, RLIMIT_NOFILE, 0, &limit) || limit.rlim_cur != 16384 ||
+      limit.rlim_max != 16384)
+    fail();
+
+  memset(&limit, 0, sizeof(limit));
+  if (syscall(SYS_prlimit64, getpid(), RLIMIT_NOFILE, 0, &limit) || limit.rlim_cur != 16384 ||
+      limit.rlim_max != 16384)
+    fail();
+
+  if (syscall(SYS_prlimit64, 0, RLIMIT_NOFILE, 0, 0))
+    fail();
+
+  errno = 0;
+  if (syscall(SYS_prlimit64, 0, RLIMIT_NOFILE, 0, (void*)UINTPTR_MAX) != -1 || errno != EFAULT)
+    fail();
+
+  errno = 0;
+  if (syscall(SYS_prlimit64, 0, RLIMIT_NOFILE, (void*)UINTPTR_MAX, 0) != -1 || errno != ENOSYS)
+    fail();
+
+  errno = 0;
+  if (syscall(SYS_prlimit64, 0, RLIMIT_NOFILE, &limit, 0) != -1 || errno != ENOSYS)
+    fail();
+
+  errno = 0;
+  if (syscall(SYS_prlimit64, -1, RLIMIT_NOFILE, 0, &limit) != -1 || errno != ESRCH)
+    fail();
+
+  errno = 0;
+  if (syscall(SYS_prlimit64, 0, -1, 0, &limit) != -1 || errno != EINVAL)
+    fail();
+
+  errno = 0;
+  if (syscall(SYS_setrlimit, RLIMIT_NOFILE, (void*)UINTPTR_MAX) != -1 || errno != ENOSYS)
+    fail();
+
+  errno = 0;
+  if (syscall(SYS_setrlimit, RLIMIT_NOFILE, &limit) != -1 || errno != ENOSYS)
+    fail();
+
+  memset(&limit, 0, sizeof(limit));
+  if (syscall(SYS_getrlimit, RLIMIT_NOFILE, &limit) || limit.rlim_cur != 16384 ||
+      limit.rlim_max != 16384)
+    fail();
+
+  if (syscall(SYS_membarrier, 0, 0, 0) != 0)
+    fail();
+
+  errno = 0;
+  if (syscall(SYS_membarrier, 1, 0, 0) != -1 || errno != EINVAL)
+    fail();
+
+  errno = 0;
+  if (syscall(SYS_membarrier, 0, 1, 0) != -1 || errno != EINVAL)
     fail();
 
   status("OK");
@@ -1215,6 +1291,7 @@ void test_process(const char* program) {
   printf("Testing process compatibility...\n");
   test_proc_self_fd();
   test_vfork();
+  test_resource_compatibility();
   test_futex_requeue();
   test_cond_broadcast();
   test_signal_return();

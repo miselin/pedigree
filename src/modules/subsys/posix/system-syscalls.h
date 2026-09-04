@@ -30,6 +30,7 @@
 // Forward-declare types.
 struct group;
 struct LinuxKernelTimespec;
+struct LinuxRlimit64;
 struct passwd;
 struct timespec;
 
@@ -103,6 +104,8 @@ int posix_getgroups(size_t size, gid_t* list);
 
 int posix_getrlimit(int resource, struct rlimit* rlim);
 int posix_setrlimit(int resource, const struct rlimit* rlim);
+int posix_prlimit64(int pid, int resource, const LinuxRlimit64* newLimit, LinuxRlimit64* oldLimit);
+int posix_membarrier(int command, unsigned int flags, int cpuId);
 int posix_getpriority(int which, int who);
 int posix_setpriority(int which, int who, int prio);
 

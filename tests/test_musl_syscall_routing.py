@@ -177,6 +177,41 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn("static_cast<size_t>(p3)", pwrite)
         self.assertIn("static_cast<off_t>(p4)", pwrite)
 
+    def test_linux_resource_compatibility_syscalls_are_mapped_and_dispatched(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+        numbers = (
+            ROOT / "src/modules/subsys/posix/syscalls/posixSyscallNumbers.h"
+        ).read_text(encoding="utf-8")
+        manager = (
+            ROOT / "src/modules/subsys/posix/PosixSyscallManager.cc"
+        ).read_text(encoding="utf-8")
+
+        expected_mappings = (
+            "PEDIGREE_LINUX_AMD64_SYSCALL(prlimit64, 302, POSIX_PRLIMIT64)",
+            "PEDIGREE_LINUX_AMD64_SYSCALL(membarrier, 324, POSIX_MEMBARRIER)",
+        )
+        for mapping in expected_mappings:
+            with self.subTest(mapping=mapping):
+                self.assertIn(mapping, mappings)
+
+        self.assertIn("#define POSIX_PRLIMIT64 292", numbers)
+        self.assertIn("#define POSIX_MEMBARRIER 293", numbers)
+
+        prlimit = manager.split("case POSIX_PRLIMIT64:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn("return posix_prlimit64", prlimit)
+        self.assertIn("reinterpret_cast<const LinuxRlimit64*>(p3)", prlimit)
+        self.assertIn("reinterpret_cast<LinuxRlimit64*>(p4)", prlimit)
+
+        membarrier = manager.split("case POSIX_MEMBARRIER:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn("return posix_membarrier", membarrier)
+
     def test_linux_epoll_pwait_uses_a_guarded_temporary_mask(self):
         source = (
             ROOT / "src/modules/subsys/posix/epoll-syscalls.cc"

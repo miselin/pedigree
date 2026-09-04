@@ -666,6 +666,13 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
                                 reinterpret_cast<const struct timezone*>(p2));
     case POSIX_SETRLIMIT:
       return posix_setrlimit(p1, reinterpret_cast<const struct rlimit*>(p2));
+    case POSIX_PRLIMIT64:
+      return posix_prlimit64(static_cast<int>(p1), static_cast<int>(p2),
+                             reinterpret_cast<const LinuxRlimit64*>(p3),
+                             reinterpret_cast<LinuxRlimit64*>(p4));
+    case POSIX_MEMBARRIER:
+      return posix_membarrier(static_cast<int>(p1), static_cast<unsigned int>(p2),
+                              static_cast<int>(p3));
     case POSIX_TIME:
       return posix_time(reinterpret_cast<time_t*>(p1));
     case POSIX_GETITIMER:

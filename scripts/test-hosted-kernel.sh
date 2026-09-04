@@ -458,6 +458,7 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS descriptor-vector-io-serialization" \
         "HOSTED-SYSCALL-TEST: PASS advisory-lock-fail-closed" \
         "HOSTED-SYSCALL-TEST: PASS positional-io-semantics" \
+        "HOSTED-SYSCALL-TEST: PASS resource-syscall-semantics" \
         "HOSTED-SYSCALL-TEST: PASS select-projection-timeout" \
         "HOSTED-SYSCALL-TEST: PASS pipe-poll-readiness" \
         "HOSTED-SYSCALL-TEST: PASS epoll-level-oneshot-ofd-lifetime" \
