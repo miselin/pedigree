@@ -38,11 +38,12 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         # x86_64 bits/syscall.h, plus Pedigree's explicit vfork compatibility
         # route, the five epoll entry points, both eventfd entry points, and
         # ppoll, pselect6, clock_getres, clock_nanosleep, tkill, tgkill, and
-        # rt_sigsuspend. This locks both sides of all 163 mappings.
-        self.assertEqual(len(mapping), 163)
+        # rt_sigsuspend, pread64, and pwrite64. This locks both sides of all
+        # 165 mappings.
+        self.assertEqual(len(mapping), 165)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "daba055039ec1144a55d6e78cf7e6412951395596fd44160cba68b0bdbde14da",
+            "8eb7f6d66e1e4951e17bfac75cfb16622a099b5164212bb2d110ce91d75059aa",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))
@@ -65,7 +66,7 @@ class PosixSyscallTranslationTests(unittest.TestCase):
             #undef PEDIGREE_LINUX_AMD64_SYSCALL
 
               if (posix_translate_syscall(-1) != -1) return 2;
-              if (posix_translate_syscall(17) != -1) return 3;
+              if (posix_translate_syscall(25) != -1) return 3;
               return 0;
             }
             """

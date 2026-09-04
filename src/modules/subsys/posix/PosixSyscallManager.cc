@@ -156,6 +156,12 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_write(p1, reinterpret_cast<char*>(p2), p3);
     case POSIX_READ:
       return posix_read(p1, reinterpret_cast<char*>(p2), p3);
+    case POSIX_PREAD64:
+      return posix_pread64(static_cast<int>(p1), reinterpret_cast<char*>(p2),
+                           static_cast<size_t>(p3), static_cast<off_t>(p4));
+    case POSIX_PWRITE64:
+      return posix_pwrite64(static_cast<int>(p1), reinterpret_cast<const char*>(p2),
+                            static_cast<size_t>(p3), static_cast<off_t>(p4));
     case POSIX_CLOSE:
       return posix_close(p1);
     case POSIX_SBRK:

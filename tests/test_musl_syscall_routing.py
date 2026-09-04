@@ -136,6 +136,47 @@ class MuslSyscallRoutingTests(unittest.TestCase):
             with self.subTest(mapping=mapping):
                 self.assertIn(mapping, mappings)
 
+    def test_linux_positional_io_syscalls_are_mapped_and_dispatched(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+        numbers = (
+            ROOT / "src/modules/subsys/posix/syscalls/posixSyscallNumbers.h"
+        ).read_text(encoding="utf-8")
+        manager = (
+            ROOT / "src/modules/subsys/posix/PosixSyscallManager.cc"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(pread64, 17, POSIX_PREAD64)",
+            mappings,
+        )
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(pwrite64, 18, POSIX_PWRITE64)",
+            mappings,
+        )
+        self.assertIn("#define POSIX_PREAD64 290", numbers)
+        self.assertIn("#define POSIX_PWRITE64 291", numbers)
+
+        pread = manager.split("case POSIX_PREAD64:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn("return posix_pread64", pread)
+        self.assertIn("static_cast<int>(p1)", pread)
+        self.assertIn("reinterpret_cast<char*>(p2)", pread)
+        self.assertIn("static_cast<size_t>(p3)", pread)
+        self.assertIn("static_cast<off_t>(p4)", pread)
+
+        pwrite = manager.split("case POSIX_PWRITE64:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn("return posix_pwrite64", pwrite)
+        self.assertIn("static_cast<int>(p1)", pwrite)
+        self.assertIn("reinterpret_cast<const char*>(p2)", pwrite)
+        self.assertIn("static_cast<size_t>(p3)", pwrite)
+        self.assertIn("static_cast<off_t>(p4)", pwrite)
+
     def test_linux_epoll_pwait_uses_a_guarded_temporary_mask(self):
         source = (
             ROOT / "src/modules/subsys/posix/epoll-syscalls.cc"

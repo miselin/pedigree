@@ -456,6 +456,7 @@ if [ "$wait_regressions_only" = "0" ] ||
         "HOSTED-SYSCALL-TEST: PASS descriptor-append-policy" \
         "HOSTED-SYSCALL-TEST: PASS descriptor-nonblocking-policy" \
         "HOSTED-SYSCALL-TEST: PASS descriptor-vector-io-serialization" \
+        "HOSTED-SYSCALL-TEST: PASS positional-io-semantics" \
         "HOSTED-SYSCALL-TEST: PASS select-projection-timeout" \
         "HOSTED-SYSCALL-TEST: PASS pipe-poll-readiness" \
         "HOSTED-SYSCALL-TEST: PASS epoll-level-oneshot-ofd-lifetime" \

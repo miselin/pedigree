@@ -23,9 +23,11 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include <sys/stat.h>
+#include <sys/syscall.h>
 
 extern void fail(void) __attribute__((noreturn));
 
@@ -35,6 +37,73 @@ static void status(const char* s) {
 }
 
 #define OK status("OK\n")
+
+static void test_positional_io(void) {
+  static const char initial[] = "abcdefghij";
+  static const char replacement[] = "XYZ";
+  static const char expected[] = "aXYZefghij";
+  char buffer[sizeof(initial)] = {0};
+
+  status("Testing positional file I/O... ");
+  int fd = open("/testing/positional-io", O_RDWR | O_CREAT | O_TRUNC | O_APPEND, 0666);
+  if (fd < 0 || write(fd, initial, sizeof(initial) - 1) != (ssize_t)(sizeof(initial) - 1) ||
+      lseek(fd, 3, SEEK_SET) != 3)
+    fail();
+
+  if (syscall(SYS_pread64, fd, buffer, 3, 6) != 3 || memcmp(buffer, "ghi", 3) ||
+      lseek(fd, 0, SEEK_CUR) != 3)
+    fail();
+  if (syscall(SYS_pwrite64, fd, replacement, sizeof(replacement) - 1, 1) !=
+          (ssize_t)(sizeof(replacement) - 1) ||
+      lseek(fd, 0, SEEK_CUR) != 3)
+    fail();
+
+  memset(buffer, 0, sizeof(buffer));
+  if (syscall(SYS_pread64, fd, buffer, sizeof(expected) - 1, 0) !=
+          (ssize_t)(sizeof(expected) - 1) ||
+      memcmp(buffer, expected, sizeof(expected) - 1))
+    fail();
+
+  errno = 0;
+  if (syscall(SYS_pread64, fd, buffer, 1, (off_t)-1) != -1 || errno != EINVAL)
+    fail();
+  errno = 0;
+  if (syscall(SYS_pwrite64, fd, buffer, 2, INT64_MAX) != -1 || errno != EINVAL)
+    fail();
+  errno = 0;
+  if (syscall(SYS_pread64, fd, buffer, (size_t)INT64_MAX + 1, 0) != -1 || errno != EINVAL)
+    fail();
+  errno = 0;
+  if (syscall(SYS_pwrite64, fd, (const void*)UINTPTR_MAX, 2, 0) != -1 || errno != EFAULT)
+    fail();
+
+  int pipefd[2];
+  if (pipe(pipefd))
+    fail();
+  errno = 0;
+  if (syscall(SYS_pread64, pipefd[0], buffer, 1, 0) != -1 || errno != ESPIPE)
+    fail();
+  errno = 0;
+  if (syscall(SYS_pwrite64, pipefd[1], buffer, 1, 0) != -1 || errno != ESPIPE)
+    fail();
+  if (close(pipefd[0]) || close(pipefd[1]))
+    fail();
+
+  int readOnly = open("/testing/positional-io", O_RDONLY);
+  int writeOnly = open("/testing/positional-io", O_WRONLY);
+  if (readOnly < 0 || writeOnly < 0)
+    fail();
+  errno = 0;
+  if (syscall(SYS_pwrite64, readOnly, buffer, 1, 0) != -1 || errno != EBADF)
+    fail();
+  errno = 0;
+  if (syscall(SYS_pread64, writeOnly, buffer, 1, 0) != -1 || errno != EBADF)
+    fail();
+
+  if (close(readOnly) || close(writeOnly) || close(fd) || unlink("/testing/positional-io"))
+    fail();
+  OK;
+}
 
 void test_fs() {
   int fd = -1;
@@ -62,6 +131,8 @@ void test_fs() {
   if (rc)
     fail();
   OK;
+
+  test_positional_io();
 
   // Create some files of varying sizes and destroy them.
   status("Testing file creation... ");

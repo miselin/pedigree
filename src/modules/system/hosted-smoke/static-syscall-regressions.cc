@@ -57,6 +57,7 @@ extern bool runHostedEventFdRegressions(Process* process);
 extern bool runHostedMmapPlacementRegressions(Process* process);
 extern bool runHostedPosixExitStatusRegressions(Process* process);
 extern bool runHostedPpollRegressions(Process* process);
+extern bool runHostedPositionalIoRegressions(Process* process);
 extern bool runHostedPselectRegressions(Process* process);
 extern bool runHostedRtSigsuspendRegressions(Process* process);
 extern bool runHostedScalarIoRegressions(Process* process);
@@ -4855,6 +4856,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN scalar-io-user-buffer-lifetime");
   if (!runHostedScalarIoRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN positional-io-semantics");
+  if (!runHostedPositionalIoRegressions(kernelProcess)) {
     return false;
   }
 

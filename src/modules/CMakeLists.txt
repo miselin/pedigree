@@ -395,6 +395,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/exit-status-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/mmap-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ppoll-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/positional-io-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pselect-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/rt-sigsuspend-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/scalar-io-regressions.cc

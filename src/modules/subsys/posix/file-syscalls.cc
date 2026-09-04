@@ -549,6 +549,15 @@ bool scalarIoRangeDoesNotWrap(const void* buffer, size_t length) {
   const uintptr_t address = reinterpret_cast<uintptr_t>(buffer);
   return address && length - 1 <= (~static_cast<uintptr_t>(0) - address);
 }
+
+bool positionalIoRangeIsValid(off_t offset, size_t length) {
+  if (offset < 0 || length > static_cast<size_t>(SSIZE_MAX)) {
+    return false;
+  }
+
+  const uint64_t location = static_cast<uint64_t>(offset);
+  return static_cast<uint64_t>(length) <= static_cast<uint64_t>(INT64_MAX) - location;
+}
 }  // namespace
 
 int posix_read(int fd, char* ptr, int len) {
@@ -931,6 +940,224 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
     pSubsystem->threadException(pThread, Subsystem::Pipe);
   }
   return result;
+}
+
+ssize_t posix_pread64(int fd, char* ptr, size_t len, off_t offset) {
+  F_NOTICE("pread64(" << Dec << fd << Hex << ", " << reinterpret_cast<uintptr_t>(ptr) << ", " << len
+                      << ", " << offset << ")");
+  if (!positionalIoRangeIsValid(offset, len)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  Thread* thread = Processor::information().getCurrentThread();
+  Process* process = thread->getParent();
+  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  if (!subsystem) {
+    ERROR("No subsystem for this process!");
+    return -1;
+  }
+
+  DescriptorLease descriptor;
+  if (!subsystem->acquireFileDescriptor(fd, descriptor)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
+  if (!descriptor->file || !descriptor->file->isSeekable()) {
+    SYSCALL_ERROR(IllegalSeek);
+    return -1;
+  }
+  const int statusFlags = descriptor->getStatusFlags();
+  if ((statusFlags & O_ACCMODE) == O_WRONLY) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (descriptor->file->isDirectory()) {
+    SYSCALL_ERROR(IsADirectory);
+    return -1;
+  }
+  if (!len) {
+    return 0;
+  }
+  if (!scalarIoRangeDoesNotWrap(ptr, len)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+
+  const size_t bounceCapacity = len < ScalarIoBounceCapacity ? len : ScalarIoBounceCapacity;
+  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+  const bool canBlock = !(statusFlags & O_NONBLOCK);
+  const uint64_t startingOffset = static_cast<uint64_t>(offset);
+  size_t totalRead = 0;
+
+  thread->clearInterruption();
+  while (totalRead < len) {
+    if (totalRead && thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+      break;
+    }
+
+    const size_t remaining = len - totalRead;
+    const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+    char* userDestination = reinterpret_cast<char*>(reinterpret_cast<uintptr_t>(ptr) + totalRead);
+    if (!PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(userDestination), requested, 1,
+                                         PosixSubsystem::SafeWrite)) {
+      if (totalRead) {
+        thread->clearInterruption();
+        return static_cast<ssize_t>(totalRead);
+      }
+      thread->clearInterruption();
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+
+    if (thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+      if (totalRead) {
+        break;
+      }
+      thread->clearInterruption();
+      SYSCALL_ERROR(Interrupted);
+      return -1;
+    }
+
+    const uint64_t amount = descriptor->file->read(
+        startingOffset + totalRead, requested, reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
+    const bool signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+    if (!amount) {
+      if (!totalRead && signalInterrupted) {
+        thread->clearInterruption();
+        SYSCALL_ERROR(Interrupted);
+        return -1;
+      }
+      break;
+    }
+
+    if (!PosixSubsystem::copyToUser(userDestination, bounce.get(), amount)) {
+      if (totalRead) {
+        thread->clearInterruption();
+        return static_cast<ssize_t>(totalRead);
+      }
+      thread->clearInterruption();
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+
+    totalRead += amount;
+    if (amount < requested || signalInterrupted ||
+        thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+      break;
+    }
+  }
+
+  thread->clearInterruption();
+  return static_cast<ssize_t>(totalRead);
+}
+
+ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
+  F_NOTICE("pwrite64(" << Dec << fd << Hex << ", " << reinterpret_cast<uintptr_t>(ptr) << ", "
+                       << len << ", " << offset << ")");
+  if (!positionalIoRangeIsValid(offset, len)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  Thread* thread = Processor::information().getCurrentThread();
+  Process* process = thread->getParent();
+  PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
+  if (!subsystem) {
+    ERROR("No subsystem for this process!");
+    return -1;
+  }
+
+  DescriptorLease descriptor;
+  if (!subsystem->acquireFileDescriptor(fd, descriptor)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
+  if (!descriptor->file || !descriptor->file->isSeekable()) {
+    SYSCALL_ERROR(IllegalSeek);
+    return -1;
+  }
+  const int statusFlags = descriptor->getStatusFlags();
+  if ((statusFlags & O_ACCMODE) == O_RDONLY) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (descriptor->file->isDirectory()) {
+    SYSCALL_ERROR(IsADirectory);
+    return -1;
+  }
+  if (!len) {
+    return 0;
+  }
+  if (!scalarIoRangeDoesNotWrap(ptr, len)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+
+  const size_t bounceCapacity = len < ScalarIoBounceCapacity ? len : ScalarIoBounceCapacity;
+  UniqueArray<uint8_t> bounce = UniqueArray<uint8_t>::allocate(bounceCapacity);
+  const bool canBlock = !(statusFlags & O_NONBLOCK);
+  const uint64_t startingOffset = static_cast<uint64_t>(offset);
+  File::WriteGuard writeGuard = descriptor->file->lockWrites();
+  size_t totalWritten = 0;
+
+  thread->clearInterruption();
+  while (totalWritten < len) {
+    if (totalWritten && thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+      break;
+    }
+
+    const size_t remaining = len - totalWritten;
+    const size_t requested = remaining < bounceCapacity ? remaining : bounceCapacity;
+    const char* userSource =
+        reinterpret_cast<const char*>(reinterpret_cast<uintptr_t>(ptr) + totalWritten);
+    if (!PosixSubsystem::copyFromUser(bounce.get(), userSource, requested)) {
+      if (totalWritten) {
+        thread->clearInterruption();
+        return static_cast<ssize_t>(totalWritten);
+      }
+      thread->clearInterruption();
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+
+    if (thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+      if (totalWritten) {
+        break;
+      }
+      thread->clearInterruption();
+      SYSCALL_ERROR(Interrupted);
+      return -1;
+    }
+
+    const uint64_t amount = writeGuard.write(startingOffset + totalWritten, requested,
+                                             reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
+    const bool signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+    if (!amount) {
+      if (!totalWritten && signalInterrupted) {
+        thread->clearInterruption();
+        SYSCALL_ERROR(Interrupted);
+        return -1;
+      }
+      if (!canBlock) {
+        thread->clearInterruption();
+        SYSCALL_ERROR(NoMoreProcesses);
+        return -1;
+      }
+      break;
+    }
+
+    totalWritten += amount;
+    if (amount < requested || signalInterrupted ||
+        thread->getInterruptionReason() == Thread::InterruptedBySignal) {
+      break;
+    }
+  }
+
+  thread->clearInterruption();
+  return static_cast<ssize_t>(totalWritten);
 }
 
 static bool snapshotIoVectors(const struct iovec* userVectors, int vectorCount, bool writeOperation,
