@@ -400,8 +400,10 @@ void Buffer<T, allowShortOperation>::disableWrites() {
   LockGuard<Mutex> guard(m_Lock);
   m_bCanWrite = false;
 
-  // All pending readers need to now return.
+  // Readers may be waiting for data, while writers may already be waiting
+  // for space. Both predicates have changed permanently for this direction.
   m_ReadCondition.broadcast();
+  m_WriteCondition.broadcast();
 }
 
 template <class T, bool allowShortOperation>
@@ -414,7 +416,9 @@ void Buffer<T, allowShortOperation>::disableReads() {
   LockGuard<Mutex> guard(m_Lock);
   m_bCanRead = false;
 
-  // All pending writers need to now return.
+  // Writers may be waiting for space, while readers may already be waiting
+  // for data. Both predicates have changed permanently for this direction.
+  m_ReadCondition.broadcast();
   m_WriteCondition.broadcast();
 }
 
@@ -488,8 +492,8 @@ bool Buffer<T, allowShortOperation>::canWrite(bool block) {
     return false;
   }
 
-  // We can get woken here if we stop being able to write.
-  while (m_bCanWrite && m_DataSize >= m_BufferSize) {
+  // A full buffer can only become writable while reads remain possible.
+  while (m_bCanWrite && m_bCanRead && m_DataSize >= m_BufferSize) {
     ConditionVariable::Error error = ConditionVariable::NoError;
     if (!m_WriteCondition.wait(m_Lock, error)) {
 #if THREADS
@@ -502,7 +506,7 @@ bool Buffer<T, allowShortOperation>::canWrite(bool block) {
     }
   }
 
-  return m_bCanWrite;
+  return m_bCanWrite && m_DataSize < m_BufferSize;
 }
 
 template <class T, bool allowShortOperation>
@@ -522,8 +526,8 @@ bool Buffer<T, allowShortOperation>::canRead(bool block) {
     return false;
   }
 
-  // We can get woken here if we stop being able to read.
-  while (m_bCanRead && !m_DataSize) {
+  // An empty buffer can only become readable while writes remain possible.
+  while (m_bCanRead && m_bCanWrite && !m_DataSize) {
     ConditionVariable::Error error = ConditionVariable::NoError;
     if (!m_ReadCondition.wait(m_Lock, error)) {
 #if THREADS
@@ -536,7 +540,7 @@ bool Buffer<T, allowShortOperation>::canRead(bool block) {
     }
   }
 
-  return m_bCanRead;
+  return m_bCanRead && m_DataSize > 0;
 }
 
 template <class T, bool allowShortOperation>

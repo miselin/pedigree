@@ -84,13 +84,13 @@ class EXPORTED_PUBLIC Buffer {
 
   /**
    * Disable further writes to the buffer.
-   * This will wake up all readers waiting on a writer.
+   * This wakes all operations whose wait predicate can no longer succeed.
    */
   void disableWrites();
 
   /**
    * Disable further reads from the buffer.
-   * This will wake up all writers waiting on reader.
+   * This wakes all operations whose wait predicate can no longer succeed.
    */
   void disableReads();
 

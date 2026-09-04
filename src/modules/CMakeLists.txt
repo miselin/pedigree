@@ -338,6 +338,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/core-main.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/elf-validation-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ata-pio-regressions.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/buffer-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/lifetime-lease-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/mutex-regressions.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/pagefault-regressions.cc
@@ -356,6 +357,7 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/main.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/linker/elf-validation-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/ata-pio-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/buffer-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/cache-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/input-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/interrupt-manager-regressions.cc

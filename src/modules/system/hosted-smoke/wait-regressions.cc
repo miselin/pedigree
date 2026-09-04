@@ -31,6 +31,7 @@
 
 bool runHostedRequestQueueRegressions();
 bool runHostedAtaPioRegressions();
+bool runHostedBufferRegressions();
 bool runHostedElfValidationRegressions();
 bool runHostedLifetimeLeaseRegressions();
 bool runHostedMutexRegressions();
@@ -2606,7 +2607,8 @@ bool runHostedWaitRegressions() {
       wakeBeforeBlock() && semaphoreReleaseBeforeBlock() && terminalCancellationReturns() &&
       publishedWaitDiscardCleanup() && terminalCancelBeforeBlock() &&
       nestedTerminalShutdownBeforeBlock() && conditionVariableSignalBeforeBlock() &&
-      runHostedRingBufferRegressions() && runHostedAtaPioRegressions() &&
+      runHostedRingBufferRegressions() && runHostedBufferRegressions() &&
+      runHostedAtaPioRegressions() &&
       Scheduler::instance()
           .getBootstrapProcessorScheduler()
           ->runHostedNewThreadWorkerRegressions() &&
