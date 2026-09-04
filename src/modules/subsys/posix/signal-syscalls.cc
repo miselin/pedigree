@@ -224,7 +224,9 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
     sigHandler->pEvent = new SignalEvent(
         newHandler, static_cast<size_t>(sig), ~0UL, sigHandler->sigMask,
         !(sigHandler->flags & SA_NODEFER), false,
-        handlerType == 0 ? Event::HandlerPrivilege::User : Event::HandlerPrivilege::Kernel);
+        handlerType == 0 ? Event::HandlerPrivilege::User : Event::HandlerPrivilege::Kernel,
+        handlerType == 0 ? SignalEvent::DeliveryDisposition::CaughtHandler
+                         : SignalEvent::DeliveryDisposition::DefaultAction);
     SG_NOTICE("Creating the event (" << reinterpret_cast<uintptr_t>(sigHandler->pEvent) << ").");
     pSubsystem->setSignalHandler(sig, sigHandler);
   } else if (!oact) {
@@ -754,6 +756,38 @@ int posix_sigprocmask(int how, const void* set, void* oset, size_t sigsetSize, b
   return 0;
 }
 
+int posix_rt_sigsuspend(const uint64_t* signalMask, size_t signalMaskSize) {
+  constexpr size_t KernelSigsetSize = sizeof(uint64_t);
+  constexpr uint64_t UnblockableSignals =
+      (static_cast<uint64_t>(1) << (SIGKILL - 1)) | (static_cast<uint64_t>(1) << (SIGSTOP - 1));
+
+  if (signalMaskSize != KernelSigsetSize) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
+  uint64_t temporaryMask = 0;
+  if (!PosixSubsystem::copyFromUser(&temporaryMask, signalMask, KernelSigsetSize)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  temporaryMask &= ~UnblockableSignals;
+
+  Thread* thread = Processor::information().getCurrentThread();
+  if (!thread) {
+    FATAL("rt_sigsuspend has no current Thread.");
+  }
+
+  Thread::TemporarySignalMask signalWait(*thread, temporaryMask);
+  while (thread->getUnwindState() == Thread::Continue &&
+         !thread->waitForEventOrSignalInterruption()) {
+  }
+  signalWait.finish();
+
+  SYSCALL_ERROR(Interrupted);
+  return -1;
+}
+
 size_t posix_alarm(uint32_t seconds) {
   SG_NOTICE("alarm(" << seconds << ")");
 
@@ -1174,7 +1208,9 @@ void pedigree_init_sigret() {
                                ? reinterpret_cast<uintptr_t>(default_sig_handlers[i])
                                : reinterpret_cast<uintptr_t>(sigign);
 
-    sigHandler->pEvent = new SignalEvent(newHandler, i);
+    sigHandler->pEvent =
+        new SignalEvent(newHandler, i, ~0UL, 0, true, false, Event::HandlerPrivilege::Kernel,
+                        SignalEvent::DeliveryDisposition::DefaultAction);
 
     pSubsystem->setSignalHandler(i, sigHandler);
   }

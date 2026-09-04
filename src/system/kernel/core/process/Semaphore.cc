@@ -264,6 +264,14 @@ Semaphore::SemaphoreResult Semaphore::acquireWithResult(size_t n, size_t timeout
       // Event delivery can follow an ordinary wake which already won
       // waiter.reason. The per-wait marker remains authoritative.
       const Thread::InterruptionReason interruption = pThread->getInterruptionReason();
+      if (wakeReason == WaitQueue::WakeReason::Event && interruption == Thread::NotInterrupted &&
+          pThread->hasActiveTemporarySignalMask() &&
+          pThread->getUnwindState() == Thread::Continue) {
+        // Default signal actions and unrelated kernel callbacks do not
+        // terminate a signal-aware wait. A caught handler sets the explicit
+        // signal marker before control returns here.
+        continue;
+      }
       if ((wakeReason == WaitQueue::WakeReason::Event ||
            wakeReason == WaitQueue::WakeReason::Unwinding ||
            wakeReason == WaitQueue::WakeReason::Terminating ||

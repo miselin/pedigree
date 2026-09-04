@@ -38,6 +38,7 @@ Atomic<size_t> g_NestedWaitHandlerLevel(0);
 Atomic<size_t> g_NestedWaitReturned(0);
 Atomic<size_t> g_NestedSignalHandlerCalls(0);
 Atomic<size_t> g_NestedSignalHandlerLevel(0);
+Atomic<size_t> g_DefaultActionHandlerCalls(0);
 
 void hostedSignalHandler(size_t) {
   g_SignalHandlerCalls += 1;
@@ -62,6 +63,10 @@ void hostedNestedWaitHandler(size_t) {
   if (thread->getStateLevel() == stateLevel) {
     g_NestedWaitReturned += 1;
   }
+}
+
+void hostedDefaultActionHandler(size_t) {
+  g_DefaultActionHandlerCalls += 1;
 }
 
 class HostedNestedWaitEvent : public Event {
@@ -454,6 +459,17 @@ struct SignalContext {
   Atomic<size_t> released;
 };
 
+struct DefaultActionSemaphoreContext {
+  DefaultActionSemaphoreContext(Thread* target, Semaphore* gate)
+      : target(target), gate(gate), published(0), sent(0), released(0) {}
+
+  Thread* target;
+  Semaphore* gate;
+  Atomic<size_t> published;
+  Atomic<size_t> sent;
+  Atomic<size_t> released;
+};
+
 struct TemporaryMaskMutexContext {
   TemporaryMaskMutexContext()
       : mutex(), holderReady(0), releaseHolder(0), holderAcquired(0), holderReturned(0) {}
@@ -644,6 +660,31 @@ Thread* startInterrupter(SignalContext& context) {
   return thread;
 }
 
+int publishDefaultActionDuringSemaphoreWait(void* parameter) {
+  DefaultActionSemaphoreContext* context =
+      reinterpret_cast<DefaultActionSemaphoreContext*>(parameter);
+  if (waitUntilQueued(context->target, Thread::SemWait)) {
+    context->published += 1;
+  }
+
+  SignalEvent* event = new SignalEvent(
+      reinterpret_cast<uintptr_t>(&hostedDefaultActionHandler), HostedSignalNumber, ~0UL, 0, true,
+      true, Event::HandlerPrivilege::Kernel, SignalEvent::DeliveryDisposition::DefaultAction);
+  if (context->target->sendEvent(event)) {
+    context->sent += 1;
+  } else {
+    delete event;
+  }
+
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (!g_DefaultActionHandlerCalls && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+  context->gate->release();
+  context->released += 1;
+  return 0;
+}
+
 bool temporarySignalMaskNestedPrequeued(Thread* thread) {
   constexpr const char* Test = "temporary-signal-mask-nested-prequeued";
   constexpr uint64_t SignalBit = static_cast<uint64_t>(1) << (HostedSignalNumber - 1);
@@ -771,6 +812,43 @@ bool temporarySignalMaskAcrossMutex(Thread* thread) {
           signalContext.published == 1 && signalContext.sent == 1 && signalContext.released == 1 &&
           g_SignalHandlerCalls == 1,
       "a non-interruptible Mutex lost or consumed its armed temporary-wait signal");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool temporarySignalMaskIgnoresDefaultAction(Thread* thread) {
+  constexpr const char* Test = "temporary-signal-mask-default-action";
+  const uint64_t originalMask = thread->getSignalMask();
+  thread->clearInterruption();
+  g_DefaultActionHandlerCalls = 0;
+
+  Semaphore gate(0);
+  DefaultActionSemaphoreContext context(thread, &gate);
+  Thread* publisher =
+      new Thread(Scheduler::instance().getKernelProcess(), publishDefaultActionDuringSemaphoreWait,
+                 &context, nullptr, false, true);
+  publisher->setName("hosted default-action signal publisher");
+
+  Semaphore::SemaphoreError error = Semaphore::NoError;
+  bool acquired = false;
+  bool interrupted = true;
+  {
+    Thread::TemporarySignalMask signalWait(*thread, originalMask);
+    acquired = gate.acquireWithError(1, 0, 0, error);
+    interrupted = signalWait.finish();
+  }
+  const bool joined = publisher->join();
+  const bool interruptionConsumed = thread->getInterruptionReason() == Thread::NotInterrupted;
+  thread->setSignalMask(originalMask);
+  thread->clearInterruption();
+
+  const bool passed =
+      check(acquired && error == Semaphore::NoError && !interrupted && joined &&
+                interruptionConsumed && context.published == 1 && context.sent == 1 &&
+                context.released == 1 && g_DefaultActionHandlerCalls == 1,
+            "a default signal action terminated a temporary-mask Semaphore wait");
   if (passed) {
     NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
   }
@@ -1081,6 +1159,7 @@ bool runHostedSignalInterruptionRegressions(Thread* thread) {
       signalContinueStillResumes(thread->getParent()) &&
 #endif
       temporarySignalMaskNestedPrequeued(thread) && temporarySignalMaskAcrossMutex(thread) &&
+      temporarySignalMaskIgnoresDefaultAction(thread) &&
       conditionVariableSignalInterruption(thread) && bufferSignalInterruption(thread) &&
       semaphoreSignalInterruption(thread) && semaphoreSignalAfterOrdinaryWake() &&
       conditionSignalAfterOrdinaryWake() && completionSemaphoreSignalDeferral(thread) &&

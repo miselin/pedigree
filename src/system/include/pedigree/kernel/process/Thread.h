@@ -464,6 +464,13 @@ class EXPORTED_PUBLIC Thread {
   void waitForEvent(WaitQueue::StackDiscardCleanup onStackDiscard = nullptr,
                     void* stackDiscardContext = nullptr);
 
+  /**
+   * Blocks for one event unless an armed temporary signal wait was already
+   * interrupted. Returns whether a caught signal interrupted that wait.
+   */
+  bool waitForEventOrSignalInterruption(WaitQueue::StackDiscardCleanup onStackDiscard = nullptr,
+                                        void* stackDiscardContext = nullptr);
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   enum StateTransitionWindow {
     StatePushBeforePublish,
@@ -479,6 +486,7 @@ class EXPORTED_PUBLIC Thread {
   using JoinOperationHook = void (*)(Thread* target, Process* parent);
   using ExternalLeaseReleaseHook = void (*)(Thread* target, ExternalLeaseReleasePhase phase);
   using DeferredScopeLockHook = void (*)();
+  using SignalWaitPreEnrolmentHook = void (*)(Thread* target);
 
   /** Installs a deterministic observer around state-level publication. */
   static void setStateTransitionHook(StateTransitionHook hook);
@@ -489,6 +497,10 @@ class EXPORTED_PUBLIC Thread {
   /** Observes final external-lease release phases in deterministic hosted tests. */
   static void setExternalLeaseReleaseHookForHostedTest(Thread* target,
                                                        ExternalLeaseReleaseHook hook);
+
+  /** Pauses or injects work immediately before signal-wait enrolment. */
+  static void setSignalWaitPreEnrolmentHookForHostedTest(Thread* target,
+                                                         SignalWaitPreEnrolmentHook hook);
 
   /** Exposes scheduler handoff completion to deterministic hosted tests. */
   bool isReapableForHostedTest();
@@ -534,6 +546,9 @@ class EXPORTED_PUBLIC Thread {
 
   /** True only while the current state owns an interrupted temporary signal wait. */
   bool hasTemporarySignalWaitInterruption();
+
+  /** True while the current state owns a temporary signal mask. */
+  bool hasActiveTemporarySignalMask();
 
   /** Retains an armed temporary-wait signal, or atomically clears stale interruption state. */
   bool retainTemporarySignalWaitInterruptionOrClear();
@@ -744,6 +759,9 @@ class EXPORTED_PUBLIC Thread {
 
   size_t beginTemporarySignalMask(uint64_t signalMask);
   bool finishTemporarySignalMask(size_t stateLevel);
+  bool waitForEventInternal(bool stopOnSignalInterruption,
+                            WaitQueue::StackDiscardCleanup onStackDiscard,
+                            void* stackDiscardContext);
 
   /** Checks for an event that can run while m_Lock is already held. */
   bool hasEventsUnlocked();

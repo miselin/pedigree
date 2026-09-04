@@ -48,6 +48,7 @@ int posix_kill(int pid, int sig);
 int posix_tkill(int tid, int sig);
 int posix_tgkill(int tgid, int tid, int sig);
 int posix_sigprocmask(int how, const void* set, void* oset, size_t sigsetSize, bool linuxCompat);
+int posix_rt_sigsuspend(const uint64_t* signalMask, size_t signalMaskSize);
 int pedigree_unwind_signal();
 
 int posix_sigaltstack(const stack_t* stack, stack_t* oldstack);

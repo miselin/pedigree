@@ -57,6 +57,7 @@ extern bool runHostedEventFdRegressions(Process* process);
 extern bool runHostedPosixExitStatusRegressions(Process* process);
 extern bool runHostedPpollRegressions(Process* process);
 extern bool runHostedPselectRegressions(Process* process);
+extern bool runHostedRtSigsuspendRegressions(Process* process);
 extern bool runHostedScalarIoRegressions(Process* process);
 extern bool runHostedSleepClockSyscallRegressions(Process* process);
 extern bool runHostedThreadSignalSyscallRegressions(Process* process);
@@ -4735,6 +4736,11 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN thread-signal-syscalls");
   if (!runHostedThreadSignalSyscallRegressions(kernelProcess)) {
+    return false;
+  }
+
+  NOTICE("HOSTED-SYSCALL-TEST: BEGIN rt-sigsuspend");
+  if (!runHostedRtSigsuspendRegressions(kernelProcess)) {
     return false;
   }
 

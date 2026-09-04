@@ -113,6 +113,8 @@ Thread::StateTransitionHook g_StateTransitionHook = nullptr;
 Thread::JoinOperationHook g_JoinOperationHook = nullptr;
 Thread::ExternalLeaseReleaseHook g_ExternalLeaseReleaseHook = nullptr;
 Thread* g_ExternalLeaseReleaseTarget = nullptr;
+Thread::SignalWaitPreEnrolmentHook g_SignalWaitPreEnrolmentHook = nullptr;
+Thread* g_SignalWaitPreEnrolmentTarget = nullptr;
 Thread::TlsResetHook g_TlsResetHook = nullptr;
 Thread* g_TlsResetTarget = nullptr;
 using EventAdmissionHook = void (*)(Thread*);
@@ -1012,24 +1014,56 @@ bool Thread::sendEvent(Event* pEvent) {
 
 void Thread::waitForEvent(WaitQueue::StackDiscardCleanup onStackDiscard,
                           void* stackDiscardContext) {
+  waitForEventInternal(false, onStackDiscard, stackDiscardContext);
+}
+
+bool Thread::waitForEventOrSignalInterruption(WaitQueue::StackDiscardCleanup onStackDiscard,
+                                              void* stackDiscardContext) {
+  return waitForEventInternal(true, onStackDiscard, stackDiscardContext);
+}
+
+bool Thread::waitForEventInternal(bool stopOnSignalInterruption,
+                                  WaitQueue::StackDiscardCleanup onStackDiscard,
+                                  void* stackDiscardContext) {
   StackDiscardScope discardScope(onStackDiscard, stackDiscardContext);
   while (true) {
     if (getUnwindState() != Continue) {
-      return;
+      return false;
     }
 
     bool ready = false;
+    bool signalInterrupted = false;
     WaitQueue::WakeReason reason = WaitQueue::WakeReason::Spurious;
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+    if (stopOnSignalInterruption) {
+      SignalWaitPreEnrolmentHook hook =
+          __atomic_load_n(&g_SignalWaitPreEnrolmentHook, __ATOMIC_ACQUIRE);
+      Thread* hookTarget = __atomic_load_n(&g_SignalWaitPreEnrolmentTarget, __ATOMIC_ACQUIRE);
+      if (hook && hookTarget == this) {
+        hook(this);
+      }
+    }
+#endif
     {
       auto guard = m_EventWaiters.acquire();
 
       m_Lock.acquire();
       ready = hasDeliverableEventsUnlocked();
+      if (stopOnSignalInterruption) {
+        const StateLevel& state = m_StateLevels[m_nStateLevel];
+        signalInterrupted = state.m_TemporarySignalMaskActive &&
+                            state.m_TemporarySignalWaitInterrupted &&
+                            state.m_InterruptionReason == InterruptedBySignal;
+      }
       m_Lock.release();
-      if (!ready) {
+      if (!ready && !signalInterrupted) {
         reason = guard.wait(WaitQueue::Channel(), Thread::EventWait,
                             reinterpret_cast<uintptr_t>(__builtin_return_address(0)));
       }
+    }
+
+    if (signalInterrupted) {
+      return true;
     }
 
     if (ready && getUnwindState() == Continue) {
@@ -1040,12 +1074,12 @@ void Thread::waitForEvent(WaitQueue::StackDiscardCleanup onStackDiscard,
       m_StateLevels[stateLevel].m_bDispatchingWaitEvent = true;
       Processor::information().getScheduler().checkEventState(0);
       m_StateLevels[stateLevel].m_bDispatchingWaitEvent = false;
-      return;
+      return stopOnSignalInterruption && hasTemporarySignalWaitInterruption();
     }
 
     if (reason == WaitQueue::WakeReason::Event || reason == WaitQueue::WakeReason::Terminating ||
         reason == WaitQueue::WakeReason::Unwinding) {
-      return;
+      return stopOnSignalInterruption && hasTemporarySignalWaitInterruption();
     }
   }
 }
@@ -1249,6 +1283,12 @@ void Thread::setExternalLeaseReleaseHookForHostedTest(Thread* target,
                                                       ExternalLeaseReleaseHook hook) {
   __atomic_store_n(&g_ExternalLeaseReleaseTarget, target, __ATOMIC_RELEASE);
   __atomic_store_n(&g_ExternalLeaseReleaseHook, hook, __ATOMIC_RELEASE);
+}
+
+void Thread::setSignalWaitPreEnrolmentHookForHostedTest(Thread* target,
+                                                        SignalWaitPreEnrolmentHook hook) {
+  __atomic_store_n(&g_SignalWaitPreEnrolmentTarget, target, __ATOMIC_RELEASE);
+  __atomic_store_n(&g_SignalWaitPreEnrolmentHook, hook, __ATOMIC_RELEASE);
 }
 
 void Thread::setTlsResetHookForHostedTest(Thread* target, TlsResetHook hook) {
@@ -1655,6 +1695,11 @@ bool Thread::hasTemporarySignalWaitInterruption() {
   const StateLevel& state = m_StateLevels[m_nStateLevel];
   return state.m_TemporarySignalMaskActive && state.m_TemporarySignalWaitInterrupted &&
          state.m_InterruptionReason == InterruptedBySignal;
+}
+
+bool Thread::hasActiveTemporarySignalMask() {
+  LockGuard<Spinlock> guard(m_Lock);
+  return m_StateLevels[m_nStateLevel].m_TemporarySignalMaskActive;
 }
 
 bool Thread::retainTemporarySignalWaitInterruptionOrClear() {
@@ -2287,6 +2332,7 @@ void Thread::markTimeoutInterruptedWait() {
 }
 
 void Thread::markSignalInterruptedWait() {
+  auto eventWaitGuard = m_EventWaiters.acquire();
   LockGuard<Spinlock> guard(m_Lock);
   if (!m_nStateLevel) {
     return;

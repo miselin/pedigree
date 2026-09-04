@@ -26,9 +26,15 @@
 
 class EXPORTED_PUBLIC SignalEvent : public Event {
  public:
+  enum class DeliveryDisposition {
+    DefaultAction,
+    CaughtHandler,
+  };
+
   SignalEvent(uintptr_t handlerAddress, size_t signalNum, size_t specificNestingLevel = ~0UL,
               uint64_t signalMask = 0, bool deferSignal = true, bool isDeletable = false,
-              HandlerPrivilege handlerPrivilege = HandlerPrivilege::Kernel);
+              HandlerPrivilege handlerPrivilege = HandlerPrivilege::Kernel,
+              DeliveryDisposition disposition = DeliveryDisposition::CaughtHandler);
 
   virtual size_t serialize(uint8_t* pBuffer);
   static bool unserialize(uint8_t* pBuffer, Event& event);
@@ -52,6 +58,9 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
 
   /** Whether the delivered signal itself is blocked while the handler runs. */
   bool m_DeferSignal;
+
+  /** Whether this delivery represents a caught signal handler. */
+  DeliveryDisposition m_Disposition;
 };
 
 #endif

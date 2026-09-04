@@ -650,6 +650,75 @@ class MuslSyscallRoutingTests(unittest.TestCase):
         self.assertIn("syscall(SYS_tkill", raise_source)
         self.assertIn("__syscall(SYS_tkill", pthread_kill_source)
 
+    def test_linux_rt_sigsuspend_uses_the_raw_two_argument_abi(self):
+        mappings = (
+            ROOT
+            / "src/modules/subsys/posix/syscalls/linuxSyscallMappings-amd64.h"
+        ).read_text(encoding="utf-8")
+        numbers = (
+            ROOT / "src/modules/subsys/posix/syscalls/posixSyscallNumbers.h"
+        ).read_text(encoding="utf-8")
+        manager = (
+            ROOT / "src/modules/subsys/posix/PosixSyscallManager.cc"
+        ).read_text(encoding="utf-8")
+        source = (
+            ROOT / "src/modules/subsys/posix/signal-syscalls.cc"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PEDIGREE_LINUX_AMD64_SYSCALL(rt_sigsuspend, 130, "
+            "POSIX_RT_SIGSUSPEND)",
+            mappings,
+        )
+        self.assertIn("#define POSIX_RT_SIGSUSPEND 289", numbers)
+        dispatch = manager.split("case POSIX_RT_SIGSUSPEND:", 1)[1].split(
+            "case ", 1
+        )[0]
+        self.assertIn("return posix_rt_sigsuspend", dispatch)
+        self.assertIn("reinterpret_cast<const uint64_t*>(p1)", dispatch)
+        self.assertIn("static_cast<size_t>(p2)", dispatch)
+
+        entry = source.split("int posix_rt_sigsuspend", 1)[1].split(
+            "size_t posix_alarm", 1
+        )[0]
+        size_check = entry.index("signalMaskSize != KernelSigsetSize")
+        guarded_copy = entry.index("PosixSubsystem::copyFromUser")
+        arm_mask = entry.index("Thread::TemporarySignalMask signalWait")
+        wait = entry.index("thread->waitForEventOrSignalInterruption()")
+        finish = entry.index("signalWait.finish()")
+        interrupted = entry.index("SYSCALL_ERROR(Interrupted)")
+        self.assertLess(size_check, guarded_copy)
+        self.assertLess(guarded_copy, arm_mask)
+        self.assertLess(arm_mask, wait)
+        self.assertLess(wait, finish)
+        self.assertLess(finish, interrupted)
+        self.assertIn("SIGKILL - 1", entry)
+        self.assertIn("SIGSTOP - 1", entry)
+        self.assertIn("temporaryMask &= ~UnblockableSignals", entry)
+        self.assertIn("!thread->waitForEventOrSignalInterruption()", entry)
+        self.assertIn("getUnwindState() == Thread::Continue", entry)
+
+        source_root = ROOT / "build/src/modules/musl-1.2.6"
+        archive_path = ROOT / "build/src/modules/musl-1.2.6.tar.gz"
+        source_path = source_root / "src/signal/sigsuspend.c"
+        if source_path.exists():
+            musl_source = source_path.read_text(encoding="utf-8")
+        elif archive_path.exists():
+            with tarfile.open(archive_path, "r:gz") as archive:
+                member = archive.extractfile(
+                    "musl-1.2.6/src/signal/sigsuspend.c"
+                )
+                self.assertIsNotNone(member)
+                musl_source = member.read().decode("utf-8")
+        else:
+            self.skipTest("the configured musl source archive is not present")
+
+        self.assertIn("int sigsuspend(const sigset_t *mask)", musl_source)
+        self.assertIn(
+            "return syscall_cp(SYS_rt_sigsuspend, mask, _NSIG/8);",
+            musl_source,
+        )
+
     def test_signal_return_accepts_iret_and_sysret_user_selectors(self):
         signal_source = (
             ROOT / "src/modules/subsys/posix/linux-amd64-signal.cc"

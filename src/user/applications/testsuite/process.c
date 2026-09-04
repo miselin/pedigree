@@ -125,8 +125,9 @@ static void test_thread_signal_syscalls(void) {
   status("Testing thread-directed signal syscalls...");
 
   struct sigaction action = {0};
+  struct sigaction previousAction = {0};
   action.sa_handler = handleSignal;
-  if (sigemptyset(&action.sa_mask) || sigaction(SIGUSR1, &action, 0))
+  if (sigemptyset(&action.sa_mask) || sigaction(SIGUSR1, &action, &previousAction))
     fail();
 
   long tid = syscall(SYS_gettid);
@@ -175,8 +176,45 @@ static void test_thread_signal_syscalls(void) {
   if (syscall(SYS_tgkill, INT_MAX, tid, 32) != -1 || errno != ESRCH)
     fail();
 
-  if (signal(SIGUSR1, SIG_DFL) == SIG_ERR)
+  if (sigaction(SIGUSR1, &previousAction, 0))
     fail();
+  status("OK");
+}
+
+static void test_sigsuspend(void) {
+  status("Testing sigsuspend temporary mask...");
+
+  struct sigaction action = {0};
+  struct sigaction previousAction = {0};
+  action.sa_handler = handleSignal;
+  if (sigemptyset(&action.sa_mask) || sigaction(SIGUSR1, &action, &previousAction))
+    fail();
+
+  sigset_t blocked;
+  sigset_t original;
+  sigset_t temporary;
+  if (sigemptyset(&blocked) || sigaddset(&blocked, SIGUSR1) ||
+      sigprocmask(SIG_BLOCK, &blocked, &original))
+    fail();
+  temporary = original;
+  if (sigdelset(&temporary, SIGUSR1))
+    fail();
+
+  signalHandled = 0;
+  if (kill(getpid(), SIGUSR1))
+    fail();
+  errno = 0;
+  const int result = sigsuspend(&temporary);
+  const int suspendError = errno;
+
+  sigset_t restored;
+  if (sigprocmask(SIG_SETMASK, 0, &restored) || sigprocmask(SIG_SETMASK, &original, 0) ||
+      sigaction(SIGUSR1, &previousAction, 0))
+    fail();
+  if (result != -1 || suspendError != EINTR || !signalHandled ||
+      sigismember(&restored, SIGUSR1) != 1)
+    fail();
+
   status("OK");
 }
 
@@ -187,4 +225,5 @@ void test_process(void) {
   test_signal_return();
   test_default_signal_termination();
   test_thread_signal_syscalls();
+  test_sigsuspend();
 }

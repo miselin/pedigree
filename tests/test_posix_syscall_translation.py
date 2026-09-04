@@ -37,12 +37,12 @@ class PosixSyscallTranslationTests(unittest.TestCase):
         # Snapshot of the previous translate.h resolved against musl 1.2.6's
         # x86_64 bits/syscall.h, plus Pedigree's explicit vfork compatibility
         # route, the five epoll entry points, both eventfd entry points, and
-        # ppoll, pselect6, clock_getres, clock_nanosleep, tkill, and tgkill.
-        # This locks both sides of all 162 mappings.
-        self.assertEqual(len(mapping), 162)
+        # ppoll, pselect6, clock_getres, clock_nanosleep, tkill, tgkill, and
+        # rt_sigsuspend. This locks both sides of all 163 mappings.
+        self.assertEqual(len(mapping), 163)
         self.assertEqual(
             hashlib.sha256(serialized.encode()).hexdigest(),
-            "332c18d8501103a3379e0c42edad4dee5dc5c78b68a77ee49fa2b43bfbf6f12f",
+            "daba055039ec1144a55d6e78cf7e6412951395596fd44160cba68b0bdbde14da",
         )
         self.assertEqual(len({name for name, _, _ in mapping}), len(mapping))
         self.assertEqual(len({number for _, number, _ in mapping}), len(mapping))

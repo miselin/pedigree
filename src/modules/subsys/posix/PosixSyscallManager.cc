@@ -306,6 +306,8 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_SIGPROCMASK:
       return posix_sigprocmask(static_cast<int>(p1), reinterpret_cast<const void*>(p2),
                                reinterpret_cast<void*>(p3), p4, linuxAbi);
+    case POSIX_RT_SIGSUSPEND:
+      return posix_rt_sigsuspend(reinterpret_cast<const uint64_t*>(p1), static_cast<size_t>(p2));
     case POSIX_ALARM:
       return posix_alarm(p1);
     case POSIX_SLEEP:

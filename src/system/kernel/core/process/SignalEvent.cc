@@ -26,11 +26,12 @@
 
 SignalEvent::SignalEvent(uintptr_t handlerAddress, size_t signalNum, size_t specificNestingLevel,
                          uint64_t signalMask, bool deferSignal, bool isDeletable,
-                         HandlerPrivilege handlerPrivilege)
+                         HandlerPrivilege handlerPrivilege, DeliveryDisposition disposition)
     : Event(handlerAddress, isDeletable, specificNestingLevel, handlerPrivilege),
       m_SignalNumber(signalNum),
       m_SignalMask(signalMask),
-      m_DeferSignal(deferSignal) {}
+      m_DeferSignal(deferSignal),
+      m_Disposition(disposition) {}
 
 Event* SignalEvent::cloneForDelivery() {
   if (isDeletable()) {
@@ -38,14 +39,16 @@ Event* SignalEvent::cloneForDelivery() {
   }
 
   return new SignalEvent(m_HandlerAddress, m_SignalNumber, m_NestingLevel, m_SignalMask,
-                         m_DeferSignal, true, m_HandlerPrivilege);
+                         m_DeferSignal, true, m_HandlerPrivilege, m_Disposition);
 }
 
 /// \todo There may be a need for serialization in the future...
 size_t SignalEvent::serialize(uint8_t* pBuffer) {
   Thread* pThread = Processor::information().getCurrentThread();
   if (pThread) {
-    pThread->markSignalInterruptedWait();
+    if (m_Disposition == DeliveryDisposition::CaughtHandler) {
+      pThread->markSignalInterruptedWait();
+    }
 
     constexpr uint64_t UnblockableSignals =
         (static_cast<uint64_t>(1) << (9 - 1)) | (static_cast<uint64_t>(1) << (19 - 1));
