@@ -41,9 +41,12 @@ class EXPORTED_PUBLIC MemoryTrapHandler {
   /** Trap event handler.
       \param address The address of the trap.
       \param bIsWrite True if the trap was caused by a write, false if by a
-     read. \return True if the trap was handled successfully (and the handler
-     can return), or false if another handler needs to be tried. */
-  virtual bool trap(InterruptState& state, uintptr_t address, bool bIsWrite) = 0;
+     read.
+      \param bWasPresent True if the processor reported a protection fault,
+     false if the page was absent when the access occurred.
+      \return True if the trap was handled successfully (and the handler can
+     return), or false if another handler needs to be tried. */
+  virtual bool trap(InterruptState& state, uintptr_t address, bool bIsWrite, bool bWasPresent) = 0;
 };
 
 /** The x86 Page Fault Exception handler. */
@@ -116,7 +119,7 @@ class PageFaultHandler : private InterruptHandler {
    * Note not implemented.  */
   PageFaultHandler(const PageFaultHandler&);
 
-  bool dispatchHandlers(InterruptState& state, uintptr_t address, bool bIsWrite,
+  bool dispatchHandlers(InterruptState& state, uintptr_t address, bool bIsWrite, bool bWasPresent,
                         MemoryTrapHandler* pOnlyHandler = nullptr);
 
   static const size_t MaxMemoryTrapHandlers = 16;

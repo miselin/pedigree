@@ -114,7 +114,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
   /// \todo probably can just skip checking for traps across the entire kernel
   /// address space?
   if (!va.memIsInKernelHeap(reinterpret_cast<void*>(page))) {
-    if (dispatchHandlers(state, cr2, code & PFE_ATTEMPTED_WRITE)) {
+    if (dispatchHandlers(state, cr2, code & PFE_ATTEMPTED_WRITE, code & PFE_PAGE_PRESENT)) {
       return;
     }
   }

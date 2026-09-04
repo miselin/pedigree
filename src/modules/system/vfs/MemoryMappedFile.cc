@@ -26,6 +26,7 @@
 #include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/process/Uninterruptible.h"
+#include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
@@ -59,6 +60,49 @@ class AddressSpaceRestorer {
   VirtualAddressSpace& m_AddressSpace;
 };
 
+class TemporaryPhysicalMapping {
+ public:
+  TemporaryPhysicalMapping(physical_uintptr_t page, const char* name)
+      : m_Region(name), m_Mapped(false) {
+    PhysicalMemoryManager& memory = PhysicalMemoryManager::instance();
+    if (!memory.allocateRegion(
+            m_Region, 1, PhysicalMemoryManager::virtualOnly | PhysicalMemoryManager::anonymous,
+            VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write)) {
+      return;
+    }
+
+    VirtualAddressSpace& kernelSpace = VirtualAddressSpace::getKernelAddressSpace();
+    m_Mapped = kernelSpace.map(page, m_Region.virtualAddress(),
+                               VirtualAddressSpace::KernelMode | VirtualAddressSpace::Write);
+    if (!m_Mapped) {
+      m_Region.free();
+    }
+  }
+
+  ~TemporaryPhysicalMapping() {
+    if (m_Mapped) {
+      // A virtual-only MemoryRegion owns pages left mapped inside it. Remove
+      // this alias first so releasing the reservation does not free the page.
+      VirtualAddressSpace::getKernelAddressSpace().unmap(m_Region.virtualAddress());
+    }
+    m_Region.free();
+  }
+
+  bool valid() const {
+    return m_Mapped;
+  }
+
+  void* address() const {
+    return m_Region.virtualAddress();
+  }
+
+ private:
+  NOT_COPYABLE_OR_ASSIGNABLE(TemporaryPhysicalMapping);
+
+  MemoryRegion m_Region;
+  bool m_Mapped;
+};
+
 void* currentOperationOwner() {
   ProcessorInformation& information = Processor::information();
   Thread* thread = information.getCurrentThread();
@@ -75,12 +119,21 @@ AnonymousMemoryMap::AnonymousMemoryMap(uintptr_t address, size_t length,
 
   if (m_Zero == 0) {
     m_Zero = PhysicalMemoryManager::instance().allocatePage();
-    PhysicalMemoryManager::instance().pin(m_Zero);
+    if (!m_Zero) {
+      FATAL("AnonymousMemoryMap: could not allocate the shared zero page");
+      return;
+    }
 
-    VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
-    va.map(m_Zero, reinterpret_cast<void*>(address), VirtualAddressSpace::Write);
-    ByteSet(reinterpret_cast<void*>(address), 0, PhysicalMemoryManager::getPageSize());
-    va.unmap(reinterpret_cast<void*>(address));
+    TemporaryPhysicalMapping temporary(m_Zero, "Anonymous Shared Zero Page");
+    if (!temporary.valid()) {
+      PhysicalMemoryManager::instance().freePage(m_Zero);
+      m_Zero = 0;
+      FATAL("AnonymousMemoryMap: could not map the shared zero page");
+      return;
+    }
+
+    ByteSet(temporary.address(), 0, PhysicalMemoryManager::getPageSize());
+    PhysicalMemoryManager::instance().pin(m_Zero);
   }
 }
 
@@ -253,27 +306,54 @@ bool AnonymousMemoryMap::trap(uintptr_t address, bool bWrite) {
       return false;
     }
     PhysicalMemoryManager::instance().pin(m_Zero);
-    if (!va.map(m_Zero, reinterpret_cast<void*>(address), VirtualAddressSpace::Shared | extraFlags))
+    if (!va.map(m_Zero, reinterpret_cast<void*>(address),
+                VirtualAddressSpace::Shared | extraFlags)) {
       ERROR("map() failed for AnonymousMemoryMap::trap() - read @" << Hex << address);
+      PhysicalMemoryManager::instance().freePage(m_Zero);
+      return false;
+    }
 
     m_Mappings.pushBack(reinterpret_cast<void*>(address));
   } else {
-    // Clean up existing page, if any.
+    // "Copy" on write... but not really :)
+    physical_uintptr_t newPage = PhysicalMemoryManager::instance().allocatePage();
+    if (!newPage) {
+      ERROR("allocatePage() failed in AnonymousMemoryMap::trap() - write");
+      return false;
+    }
+
+    {
+      TemporaryPhysicalMapping temporary(newPage, "Anonymous Page Initialisation");
+      if (!temporary.valid()) {
+        ERROR("temporary map failed in AnonymousMemoryMap::trap() - write");
+        PhysicalMemoryManager::instance().freePage(newPage);
+        return false;
+      }
+      ByteSet(temporary.address(), 0, pageSz);
+    }
+
+    // Publish only after the page is fully initialised. Other processors can
+    // use a present userspace mapping without entering this trap handler.
     if (va.isMapped(reinterpret_cast<void*>(address))) {
       va.unmap(reinterpret_cast<void*>(address));
 
       // Drop the refcount on the zero page.
       PhysicalMemoryManager::instance().freePage(m_Zero);
-    } else {
-      // Write to unpaged - make sure we track this mapping.
-      m_Mappings.pushBack(reinterpret_cast<void*>(address));
+    }
+    for (List<void*>::Iterator it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {
+      if (*it == reinterpret_cast<void*>(address)) {
+        m_Mappings.erase(it);
+        break;
+      }
     }
 
-    // "Copy" on write... but not really :)
-    physical_uintptr_t newPage = PhysicalMemoryManager::instance().allocatePage();
-    if (!va.map(newPage, reinterpret_cast<void*>(address), VirtualAddressSpace::Write | extraFlags))
+    if (!va.map(newPage, reinterpret_cast<void*>(address),
+                VirtualAddressSpace::Write | extraFlags)) {
       ERROR("map() failed in AnonymousMemoryMap::trap() - write");
-    ByteSet(reinterpret_cast<void*>(address), 0, PhysicalMemoryManager::getPageSize());
+      PhysicalMemoryManager::instance().freePage(newPage);
+      return false;
+    }
+    m_Mappings.pushBack(reinterpret_cast<void*>(address));
   }
 
   return true;
@@ -656,12 +736,40 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite) {
     bool r = va.map(phys, reinterpret_cast<void*>(address), flags | extraFlags);
     if (!r) {
       ERROR("map() failed in MemoryMappedFile::trap (no-copy)");
+      m_pBacking->returnPhysicalPage(fileOffset);
       return false;
     }
 
     trackMapping(address, ~0);
   } else {
-    // Ditch an existing mapping, if needed.
+    // Prepare the private page before exposing it to userspace.
+    physical_uintptr_t newPhys = PhysicalMemoryManager::instance().allocatePage();
+    if (!newPhys) {
+      ERROR("allocatePage() failed in MemoryMappedFile::trap (copy)");
+      return false;
+    }
+
+    size_t nBytes = m_Length - mappingOffset;
+    if (nBytes > pageSz)
+      nBytes = pageSz;
+
+    {
+      TemporaryPhysicalMapping temporary(newPhys, "Mapped File Page Initialisation");
+      if (!temporary.valid()) {
+        ERROR("temporary map failed in MemoryMappedFile::trap (copy)");
+        PhysicalMemoryManager::instance().freePage(newPhys);
+        return false;
+      }
+
+      uintptr_t temporaryAddress = reinterpret_cast<uintptr_t>(temporary.address());
+      size_t nRead = m_pBacking->read(fileOffset, nBytes, temporaryAddress);
+      if (nRead < pageSz) {
+        // Couldn't quite read in a page - zero out what's left.
+        ByteSet(reinterpret_cast<void*>(temporaryAddress + nRead), 0, pageSz - nRead);
+      }
+    }
+
+    // Ditch an existing mapping only once its replacement is ready.
     if (va.isMapped(reinterpret_cast<void*>(address))) {
       va.unmap(reinterpret_cast<void*>(address));
 
@@ -670,23 +778,12 @@ bool MemoryMappedFile::trap(uintptr_t address, bool bWrite) {
       untrackMapping(address);
     }
 
-    // Okay, map in the new page, and copy across the backing file data.
-    physical_uintptr_t newPhys = PhysicalMemoryManager::instance().allocatePage();
     bool r =
         va.map(newPhys, reinterpret_cast<void*>(address), VirtualAddressSpace::Write | extraFlags);
     if (!r) {
       ERROR("map() failed in MemoryMappedFile::trap (copy)");
+      PhysicalMemoryManager::instance().freePage(newPhys);
       return false;
-    }
-
-    size_t nBytes = m_Length - mappingOffset;
-    if (nBytes > pageSz)
-      nBytes = pageSz;
-
-    size_t nRead = m_pBacking->read(fileOffset, nBytes, address);
-    if (nRead < pageSz) {
-      // Couldn't quite read in a page - zero out what's left.
-      ByteSet(reinterpret_cast<void*>(address + nRead), 0, pageSz - nRead);
     }
 
     trackMapping(address, newPhys);
@@ -1515,7 +1612,18 @@ void MemoryMapManager::unmapAll() {
   unmapAllUnlocked();
 }
 
-bool MemoryMapManager::trap(InterruptState& state, uintptr_t address, bool bIsWrite) {
+bool MemoryMapManager::trap(InterruptState& state, uintptr_t address, bool bIsWrite,
+                            bool bWasPresent) {
+  return handleTrap(address, bIsWrite, bWasPresent);
+}
+
+#if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
+bool MemoryMapManager::trapForHostedTest(uintptr_t address, bool bIsWrite, bool bWasPresent) {
+  return handleTrap(address, bIsWrite, bWasPresent);
+}
+#endif
+
+bool MemoryMapManager::handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent) {
   // Can't take an event while we're trapping, as the event would otherwise
   // be in a minefield (can't touch *any* trap pages in userspace).
   Uninterruptible while_trapping;
@@ -1529,6 +1637,7 @@ bool MemoryMapManager::trap(InterruptState& state, uintptr_t address, bool bIsWr
 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
   size_t pageSz = PhysicalMemoryManager::getPageSize();
+  const uintptr_t pageAddress = address & ~(pageSz - 1);
 
   m_Lock.acquire();
 #ifdef DEBUG_MMOBJECTS
@@ -1545,12 +1654,13 @@ bool MemoryMapManager::trap(InterruptState& state, uintptr_t address, bool bIsWr
   NOTICE_NOLOCK("trap: lookup complete " << reinterpret_cast<uintptr_t>(pMmObjectList));
 #endif
 
+  MemoryMappedObject* pObject = nullptr;
   for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin(); it != pMmObjectList->end();
        it++) {
-    MemoryMappedObject* pObject = *it;
+    MemoryMappedObject* candidate = *it;
 #ifdef DEBUG_MMOBJECTS
-    NOTICE_NOLOCK("mmobj=" << reinterpret_cast<uintptr_t>(pObject));
-    if (!pObject) {
+    NOTICE_NOLOCK("mmobj=" << reinterpret_cast<uintptr_t>(candidate));
+    if (!candidate) {
       NOTICE_NOLOCK("bad mmobj, should create a real #PF and backtrace");
       break;
     }
@@ -1560,18 +1670,39 @@ bool MemoryMapManager::trap(InterruptState& state, uintptr_t address, bool bIsWr
     // a mapping ends midway through a page and a trap happens after this.
     // Because we map in terms of pages, but store unaligned 'actual'
     // lengths (for proper page zeroing etc), this is necessary.
-    if (pObject->matches(address & ~(pageSz - 1))) {
-      m_Lock.release();
-      return pObject->trap(address, bIsWrite);
+    if (candidate->matches(pageAddress)) {
+      pObject = candidate;
+      break;
     }
   }
 
-#ifdef DEBUG_MMOBJECTS
-  ERROR("MemoryMapManager::trap() could not find an object for " << address);
-#endif
   m_Lock.release();
+  if (!pObject) {
+#ifdef DEBUG_MMOBJECTS
+    ERROR("MemoryMapManager::trap() could not find an object for " << address);
+#endif
+    return false;
+  }
 
-  return false;
+  // The original fault bits remain authoritative after waiting for the
+  // lifecycle gate. A mapping visible here was completed by another operation
+  // on this object, so retry and let the processor re-evaluate permissions.
+  if (va.isMapped(reinterpret_cast<void*>(pageAddress))) {
+    if (!bWasPresent) {
+      return true;
+    }
+
+    if (bIsWrite) {
+      physical_uintptr_t physicalAddress = 0;
+      size_t flags = 0;
+      va.getMapping(reinterpret_cast<void*>(pageAddress), physicalAddress, flags);
+      if (flags & (VirtualAddressSpace::Write | VirtualAddressSpace::CopyOnWrite)) {
+        return true;
+      }
+    }
+  }
+
+  return pObject->trap(address, bIsWrite);
 }
 
 MemoryMapManager::MapStatus MemoryMapManager::sanitiseAddress(uintptr_t& address, size_t length,

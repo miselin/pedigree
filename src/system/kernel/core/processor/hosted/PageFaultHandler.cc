@@ -73,11 +73,13 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
 
   bool isWrite = code == SEGV_ACCERR;
   uintptr_t errorCode = code;
+  bool wasPresent = code == SEGV_ACCERR;
 #ifdef REG_ERR
   // SIGSEGV's si_code only distinguishes missing pages from protection
   // faults. The processor error code retains the read/write distinction.
   isWrite = (ctx->uc_mcontext.gregs[REG_ERR] & 0x2) != 0;
   errorCode = ctx->uc_mcontext.gregs[REG_ERR];
+  wasPresent = (errorCode & 0x1) != 0;
 #endif
 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
@@ -139,7 +141,7 @@ void PageFaultHandler::interrupt(size_t interruptNumber, InterruptState& state) 
   }
 
   if (page < reinterpret_cast<uintptr_t>(KERNEL_SPACE_START)) {
-    if (dispatchHandlers(state, page, isWrite)) {
+    if (dispatchHandlers(state, page, isWrite, wasPresent)) {
       return;
     }
   }

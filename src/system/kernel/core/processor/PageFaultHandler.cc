@@ -376,7 +376,7 @@ bool PageFaultHandler::unregisterHandler(MemoryTrapHandler* pHandler) {
 }
 
 bool PageFaultHandler::dispatchHandlers(InterruptState& state, uintptr_t address, bool bIsWrite,
-                                        MemoryTrapHandler* pOnlyHandler) {
+                                        bool bWasPresent, MemoryTrapHandler* pOnlyHandler) {
   for (size_t i = 0; i < MaxMemoryTrapHandlers; ++i) {
     HandlerSlot& slot = m_Handlers[i];
     const size_t publication = __atomic_load_n(&slot.publication, __ATOMIC_SEQ_CST);
@@ -429,7 +429,7 @@ bool PageFaultHandler::dispatchHandlers(InterruptState& state, uintptr_t address
     }
 #endif
 
-    const bool handled = handler->trap(state, address, bIsWrite);
+    const bool handled = handler->trap(state, address, bIsWrite, bWasPresent);
     unpublishDispatch(&dispatchCleanup);
     if (thread) {
       thread->disarmAtomicStateCleanup(dispatchCleanup.cleanup);
@@ -466,7 +466,7 @@ void PageFaultHandler::withMutationLockForTest(MutationLockHook hook) {
 
 bool PageFaultHandler::dispatchHandlerForTest(MemoryTrapHandler* pHandler) {
   InterruptState state;
-  return dispatchHandlers(state, 0, false, pHandler);
+  return dispatchHandlers(state, 0, false, false, pHandler);
 }
 
 size_t PageFaultHandler::activeDispatchCountForTest(MemoryTrapHandler* pHandler) {

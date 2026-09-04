@@ -33,7 +33,7 @@ class RegistryDispatchHandler : public MemoryTrapHandler {
  public:
   explicit RegistryDispatchHandler(RegistryDispatchContext& context) : m_Context(context) {}
 
-  bool trap(InterruptState&, uintptr_t, bool) override;
+  bool trap(InterruptState&, uintptr_t, bool, bool) override;
 
  private:
   RegistryDispatchContext& m_Context;
@@ -66,7 +66,7 @@ struct RegistryDispatchContext {
   Atomic<size_t> unregisterSucceeded;
 };
 
-bool RegistryDispatchHandler::trap(InterruptState&, uintptr_t, bool) {
+bool RegistryDispatchHandler::trap(InterruptState&, uintptr_t, bool, bool) {
   m_Context.calls += 1;
   if (m_Context.writerRequested.compareAndSwap(1, 2)) {
     m_Context.registry->withMutationLockForTest(dispatchWhileWriterLocked);
@@ -180,7 +180,7 @@ class AtomicReopenHandler : public MemoryTrapHandler {
  public:
   explicit AtomicReopenHandler(AtomicReopenContext& context) : m_Context(context) {}
 
-  bool trap(InterruptState&, uintptr_t, bool) override;
+  bool trap(InterruptState&, uintptr_t, bool, bool) override;
 
  private:
   AtomicReopenContext& m_Context;
@@ -213,7 +213,7 @@ struct AtomicReopenContext {
   Atomic<size_t> failures;
 };
 
-bool AtomicReopenHandler::trap(InterruptState&, uintptr_t, bool) {
+bool AtomicReopenHandler::trap(InterruptState&, uintptr_t, bool, bool) {
   m_Context.handlerCalls += 1;
   if (m_Context.phase != static_cast<size_t>(2)) {
     m_Context.failures += 1;
@@ -340,7 +340,7 @@ class OuterNestedHandler : public MemoryTrapHandler {
  public:
   explicit OuterNestedHandler(NestedDispatchContext& context) : m_Context(context) {}
 
-  bool trap(InterruptState&, uintptr_t, bool) override;
+  bool trap(InterruptState&, uintptr_t, bool, bool) override;
 
  private:
   NestedDispatchContext& m_Context;
@@ -350,7 +350,7 @@ class InnerNestedHandler : public MemoryTrapHandler {
  public:
   explicit InnerNestedHandler(NestedDispatchContext& context) : m_Context(context) {}
 
-  bool trap(InterruptState&, uintptr_t, bool) override;
+  bool trap(InterruptState&, uintptr_t, bool, bool) override;
 
  private:
   NestedDispatchContext& m_Context;
@@ -384,7 +384,7 @@ struct NestedDispatchContext {
   size_t selfRemovalRejected;
 };
 
-bool OuterNestedHandler::trap(InterruptState&, uintptr_t, bool) {
+bool OuterNestedHandler::trap(InterruptState&, uintptr_t, bool, bool) {
   m_Context.record(1);
   if (m_Context.registry->dispatchHandlerForTest(&m_Context.inner)) {
     ++m_Context.innerDispatches;
@@ -393,7 +393,7 @@ bool OuterNestedHandler::trap(InterruptState&, uintptr_t, bool) {
   return true;
 }
 
-bool InnerNestedHandler::trap(InterruptState&, uintptr_t, bool) {
+bool InnerNestedHandler::trap(InterruptState&, uintptr_t, bool, bool) {
   m_Context.record(2);
   if (!m_Context.registry->unregisterHandler(this)) {
     ++m_Context.selfRemovalRejected;
@@ -440,7 +440,7 @@ class LifetimeHandler : public MemoryTrapHandler {
  public:
   explicit LifetimeHandler(HandlerLifetimeContext& context) : m_Context(context) {}
 
-  bool trap(InterruptState&, uintptr_t, bool) override;
+  bool trap(InterruptState&, uintptr_t, bool, bool) override;
 
  private:
   HandlerLifetimeContext& m_Context;
@@ -483,7 +483,7 @@ struct HandlerLifetimeContext {
   Atomic<size_t> failures;
 };
 
-bool LifetimeHandler::trap(InterruptState&, uintptr_t, bool) {
+bool LifetimeHandler::trap(InterruptState&, uintptr_t, bool, bool) {
   m_Context.handlerCalls += 1;
   if (m_Context.unregisterReturned) {
     m_Context.callbacksAfterReturn += 1;
@@ -508,7 +508,7 @@ class SelfRemovingHandler : public MemoryTrapHandler {
   explicit SelfRemovingHandler(PageFaultHandler* registry)
       : m_Registry(registry), calls(0), rejectionSeen(0) {}
 
-  bool trap(InterruptState&, uintptr_t, bool) override {
+  bool trap(InterruptState&, uintptr_t, bool, bool) override {
     calls += 1;
     if (!m_Registry->unregisterHandler(this)) {
       rejectionSeen += 1;
@@ -670,7 +670,7 @@ class AbandonedDispatchHandler : public MemoryTrapHandler {
  public:
   explicit AbandonedDispatchHandler(AbandonedDispatchContext& context) : m_Context(context) {}
 
-  bool trap(InterruptState&, uintptr_t, bool) override;
+  bool trap(InterruptState&, uintptr_t, bool, bool) override;
 
  private:
   AbandonedDispatchContext& m_Context;
@@ -705,7 +705,7 @@ struct AbandonedDispatchContext {
   Atomic<size_t> failures;
 };
 
-bool AbandonedDispatchHandler::trap(InterruptState&, uintptr_t, bool) {
+bool AbandonedDispatchHandler::trap(InterruptState&, uintptr_t, bool, bool) {
   m_Context.handlerCalls += 1;
   return true;
 }

@@ -418,6 +418,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   /** Deterministic contention control for the hosted teardown regression. */
   void acquireLifecycleGateForHostedTest();
   void releaseLifecycleGateForHostedTest();
+  bool trapForHostedTest(uintptr_t address, bool bIsWrite, bool bWasPresent);
   const void* lifecycleGateAddressForHostedTest() const {
     return static_cast<const Semaphore*>(&m_LifecycleLock);
   }
@@ -516,7 +517,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   /**
    * Trap handler, called when a fault takes place.
    */
-  virtual bool trap(InterruptState& state, uintptr_t address, bool bIsWrite);
+  virtual bool trap(InterruptState& state, uintptr_t address, bool bIsWrite, bool bWasPresent);
 
   /**
    * Trigger a compact in all address spaces.
@@ -582,6 +583,7 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
   size_t removeInternal(uintptr_t base, size_t length, bool releaseReservations);
   void releaseReservation(Process* process, VirtualAddressSpace& addressSpace, uintptr_t base,
                           size_t length);
+  bool handleTrap(uintptr_t address, bool bIsWrite, bool bWasPresent);
 
   MapStatus sanitiseAddress(uintptr_t& address, size_t length, Placement placement);
 

@@ -141,7 +141,7 @@ class DLTrapHandler : public MemoryTrapHandler {
   //
   // MemoryTrapHandler interface.
   //
-  virtual bool trap(InterruptState& state, uintptr_t address, bool bIsWrite);
+  virtual bool trap(InterruptState& state, uintptr_t address, bool bIsWrite, bool bWasPresent);
 
  private:
   /** Private constructor - does nothing. */

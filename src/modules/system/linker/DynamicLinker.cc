@@ -423,7 +423,8 @@ DLTrapHandler::~DLTrapHandler() {
   assert(unregistered);
 }
 
-bool DLTrapHandler::trap(InterruptState& state, uintptr_t address, bool bIsWrite) {
+bool DLTrapHandler::trap(InterruptState& state, uintptr_t address, bool bIsWrite,
+                         bool bWasPresent) {
   DynamicLinker* pL = Processor::information().getCurrentThread()->getParent()->getLinker();
   if (!pL)
     return false;
