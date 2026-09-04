@@ -1716,6 +1716,28 @@ void Thread::cullEvent(size_t eventNumber) {
   }
 }
 
+void Thread::cullSignalEvent(size_t signalNumber) {
+  Vector<Event*> deregisterEvents;
+
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+
+    for (List<Event*>::Iterator it = m_EventQueue.begin(); it != m_EventQueue.end();) {
+      if ((*it)->isSignalEvent() && (*it)->getNumber() == signalNumber) {
+        Event* pEvent = *it;
+        it = m_EventQueue.erase(it);
+        deregisterEvents.pushBack(pEvent);
+      } else {
+        ++it;
+      }
+    }
+  }
+
+  for (auto it : deregisterEvents) {
+    it->completeDelivery(this);
+  }
+}
+
 Event::Delivery Thread::getNextEvent() {
   Event* pResult = nullptr;
 

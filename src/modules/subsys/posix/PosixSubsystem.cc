@@ -79,6 +79,10 @@ extern void pedigree_init_sigret();
 extern void pedigree_init_pthreads();
 
 namespace {
+bool defaultSignalActionIsIgnore(size_t signal) {
+  return signal == SIGCHLD || signal == SIGURG || signal == SIGWINCH;
+}
+
 void posixAlarmEventHandler(Thread* thread) {
   if (!thread || thread->getParent()->getType() != Process::Posix) {
     return;
@@ -89,10 +93,7 @@ void posixAlarmEventHandler(Thread* thread) {
     return;
   }
 
-  SignalEvent* delivery = subsystem->createSignalDelivery(SIGALRM);
-  if (delivery && !thread->sendEvent(delivery)) {
-    delete delivery;
-  }
+  subsystem->queueSignalDelivery(thread, SIGALRM);
 }
 }  // namespace
 
@@ -737,15 +738,8 @@ bool PosixSubsystem::kill(KillReason killReason, Thread* pThread) {
       break;
   }
 
-  SignalEvent* event = pSubsystem->createSignalDelivery(signal);
-  if (event) {
+  if (pSubsystem->queueSignalDelivery(pThread, signal) == SignalDeliveryResult::Queued) {
     PS_NOTICE("PosixSubsystem - killing " << pThread->getParent()->getId());
-
-    // Send the kill event
-    /// \todo we probably want to avoid allocating a new stack..
-    if (!pThread->sendEvent(event)) {
-      delete event;
-    }
 
     // Allow the event to run
     Processor::setInterrupts(true);
@@ -885,26 +879,27 @@ void PosixSubsystem::sendSignal(Thread* pThread, int signal, bool yield) {
   }
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
 
-  SignalEvent* event = pSubsystem->createSignalDelivery(signal);
-  if (!event) {
+  // SIGCONT's continuation effect is independent of whether the signal is
+  // blocked, caught, or ignored. Handler delivery is resolved afterwards.
+  if (signal == SIGCONT) {
+    pProcess->resume();
+  }
+
+  const SignalDeliveryResult result = pSubsystem->queueSignalDelivery(pThread, signal);
+  if (result == SignalDeliveryResult::Unavailable) {
     ERROR("Unknown signal in sendSignal - POSIX subsystem");
   }
 
-  // If we're good to go, send the signal.
-  if (event) {
-    if (!pThread->sendEvent(event)) {
-      delete event;
-    } else if (yield) {
-      Thread* pCurrentThread = Processor::information().getCurrentThread();
-      if (pCurrentThread == pThread) {
-        // Attempt to execute the new event immediately.
-        Processor::information().getScheduler().checkEventState(0);
-      } else {
-        // Yield so the event can fire.
-        Scheduler::instance().yield();
-      }
+  if (result == SignalDeliveryResult::Queued && yield) {
+    Thread* pCurrentThread = Processor::information().getCurrentThread();
+    if (pCurrentThread == pThread) {
+      // Attempt to execute the new event immediately.
+      Processor::information().getScheduler().checkEventState(0);
+    } else {
+      // Yield so the event can fire.
+      Scheduler::instance().yield();
     }
-  } else {
+  } else if (result == SignalDeliveryResult::Rejected) {
     // PS_NOTICE("No event configured for signal #" << signal << ", silently
     // dropping!");
     NOTICE("No event configured for signal #" << signal << ", silently dropping!");
@@ -928,6 +923,19 @@ void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler* handler) {
     handler->sig = sig;
 
     m_SignalHandlers.insert(sig, handler);
+
+    const bool discardPending =
+        handler->type == 2 || (handler->type == 1 && defaultSignalActionIsIgnore(sig));
+    if (discardPending && m_pProcess) {
+      // Descending indices remain exhaustive when an exiting thread is
+      // removed and shifts the remaining vector entries to the left.
+      for (size_t i = m_pProcess->getNumThreads(); i > 0; --i) {
+        Process::ThreadLease thread;
+        if (m_pProcess->acquireThread(thread, i - 1)) {
+          thread->cullSignalEvent(sig);
+        }
+      }
+    }
   }
 
   m_SignalHandlersLock.release();
@@ -959,27 +967,40 @@ bool PosixSubsystem::getSignalDisposition(size_t sig, SignalDisposition& disposi
   return handler != nullptr;
 }
 
-SignalEvent* PosixSubsystem::createSignalDelivery(size_t sig, uint32_t* flags) {
+PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread* target, size_t sig,
+                                                                         uint32_t* flags) {
   if (flags) {
     *flags = 0;
-  }
-  if (sig >= 32) {
-    return nullptr;
   }
 
   m_SignalHandlersLock.enter();
 
+  if (!target || !target->getParent() || target->getParent()->getSubsystem() != this || sig >= 32) {
+    m_SignalHandlersLock.leave();
+    return SignalDeliveryResult::Unavailable;
+  }
+
   SignalHandler* handler = m_SignalHandlers.lookup(sig);
   SignalEvent* delivery = nullptr;
-  if (handler && handler->pEvent) {
+  const bool suppressDelivery =
+      handler && (handler->type == 2 || (handler->type == 1 && defaultSignalActionIsIgnore(sig)));
+  SignalDeliveryResult result = SignalDeliveryResult::Unavailable;
+  if (suppressDelivery) {
+    result = SignalDeliveryResult::Ignored;
+  } else if (handler && handler->pEvent) {
     delivery = static_cast<SignalEvent*>(handler->pEvent->cloneForDelivery());
     if (flags) {
       *flags = handler->flags;
     }
+    result =
+        target->sendEvent(delivery) ? SignalDeliveryResult::Queued : SignalDeliveryResult::Rejected;
   }
 
   m_SignalHandlersLock.leave();
-  return delivery;
+  if (delivery && result == SignalDeliveryResult::Rejected) {
+    delete delivery;
+  }
+  return result;
 }
 
 size_t PosixSubsystem::setAlarm(size_t seconds) {

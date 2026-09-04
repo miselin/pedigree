@@ -549,6 +549,9 @@ class EXPORTED_PUBLIC Thread {
    * if found. */
   void cullEvent(size_t eventNumber);
 
+  /** Removes only signal events matching \p signalNumber from the queue. */
+  void cullSignalEvent(size_t signalNumber);
+
   bool hasEvents();
 
   /** Determines if the given event is currently in the event queue. */

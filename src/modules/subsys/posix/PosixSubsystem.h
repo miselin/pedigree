@@ -363,17 +363,16 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
     int type;
   };
 
+  enum class SignalDeliveryResult { Unavailable, Ignored, Rejected, Queued };
+
   /** Sets a signal handler */
   void setSignalHandler(size_t sig, SignalHandler* handler);
 
   /** Copies a signal disposition while holding the disposition table lock. */
   bool getSignalDisposition(size_t sig, SignalDisposition& disposition);
 
-  /**
-   * Creates an independently owned event using the current disposition.
-   * The caller transfers ownership to Thread::sendEvent on success.
-   */
-  SignalEvent* createSignalDelivery(size_t sig, uint32_t* flags = nullptr);
+  /** Resolves and queues a signal atomically with disposition replacement. */
+  SignalDeliveryResult queueSignalDelivery(Thread* target, size_t sig, uint32_t* flags = nullptr);
 
   /**
    * Replaces the process alarm. The timer references a stable relay Event,

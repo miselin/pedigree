@@ -21,6 +21,13 @@
 #include "pedigree/kernel/utilities/Buffer.h"
 #include "pedigree/kernel/utilities/RingBuffer.h"
 
+#if !defined(PEDIGREE_HOSTED_CORE_SMOKE)
+#include <signal.h>
+
+#include "modules/subsys/posix/PosixProcess.h"
+#include "modules/subsys/posix/PosixSubsystem.h"
+#endif
+
 namespace {
 constexpr size_t HostedSignalNumber = 10;
 
@@ -87,6 +94,20 @@ class HostedMonitorEvent : public Event {
   }
 };
 
+class SignalNumberCollisionEvent : public Event {
+ public:
+  SignalNumberCollisionEvent()
+      : Event(reinterpret_cast<uintptr_t>(&hostedSignalHandler), false, MAX_NESTED_EVENTS) {}
+
+  size_t serialize(uint8_t*) override {
+    return 0;
+  }
+
+  size_t getNumber() override {
+    return HostedSignalNumber;
+  }
+};
+
 bool check(bool condition, const char* detail) {
   if (condition) {
     return true;
@@ -142,6 +163,257 @@ bool eventHandlerPrivilege() {
   }
   return passed;
 }
+
+bool signalCullPreservesNumberCollision(Thread* thread) {
+  constexpr const char* Test = "signal-cull-number-collision";
+  constexpr uint64_t SignalBit = static_cast<uint64_t>(1) << (HostedSignalNumber - 1);
+  const uint64_t originalMask = thread->getSignalMask();
+  thread->setSignalMask(originalMask | SignalBit);
+
+  SignalNumberCollisionEvent collision;
+  SignalEvent signal(reinterpret_cast<uintptr_t>(&hostedSignalHandler), HostedSignalNumber);
+  const bool collisionQueued = thread->sendEvent(&collision);
+  const bool signalQueued = collisionQueued && thread->sendEvent(&signal);
+  thread->cullSignalEvent(HostedSignalNumber);
+  const bool preservedCollision = thread->hasEvent(&collision) && !thread->hasEvent(&signal);
+  thread->cullEvent(&collision);
+  thread->setSignalMask(originalMask);
+
+  const bool passed =
+      check(collisionQueued && signalQueued && preservedCollision,
+            "signal culling removed a non-signal event with the same numeric identifier");
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+#if !defined(PEDIGREE_HOSTED_CORE_SMOKE)
+void installSignalDisposition(PosixSubsystem& subsystem, size_t signal, int type) {
+  PosixSubsystem::SignalHandler* handler = new PosixSubsystem::SignalHandler;
+  handler->type = type;
+  handler->pEvent = new SignalEvent(reinterpret_cast<uintptr_t>(&hostedSignalHandler), signal);
+  subsystem.setSignalHandler(signal, handler);
+}
+
+struct IgnoredContinueContext {
+  IgnoredContinueContext(Process* process, bool blockSignal)
+      : process(process), blockSignal(blockSignal), entered(0), returned(0) {}
+
+  Process* process;
+  bool blockSignal;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+};
+
+struct IgnoredSignalWaitContext {
+  explicit IgnoredSignalWaitContext(size_t blockedSignal = 0)
+      : gate(0),
+        blockedSignal(blockedSignal),
+        entered(0),
+        returned(0),
+        acquired(0),
+        error(Semaphore::NoError),
+        interruption(Thread::NotInterrupted) {}
+
+  Semaphore gate;
+  size_t blockedSignal;
+  Atomic<size_t> entered;
+  Atomic<size_t> returned;
+  Atomic<size_t> acquired;
+  Atomic<size_t> error;
+  Atomic<size_t> interruption;
+};
+
+int waitThroughIgnoredSignal(void* parameter) {
+  IgnoredSignalWaitContext* context = reinterpret_cast<IgnoredSignalWaitContext*>(parameter);
+  Thread* current = Processor::information().getCurrentThread();
+  const uint64_t originalMask = current->getSignalMask();
+  if (context->blockedSignal) {
+    current->setSignalMask(originalMask |
+                           (static_cast<uint64_t>(1) << (context->blockedSignal - 1)));
+  }
+  context->entered += 1;
+  Semaphore::SemaphoreError error = Semaphore::NoError;
+  context->acquired = context->gate.acquireWithError(1, 0, 0, error) ? 1 : 0;
+  context->error = static_cast<size_t>(error);
+  if (context->blockedSignal) {
+    current->setSignalMask(originalMask);
+    current->getScheduler()->checkEventState(0);
+  }
+  context->interruption = static_cast<size_t>(current->getInterruptionReason());
+  current->clearInterruption();
+  context->returned += 1;
+  return 0;
+}
+
+bool ignoredSignalDoesNotWakeWait(PosixProcess* process, PosixSubsystem* subsystem, size_t signal,
+                                  int type) {
+  installSignalDisposition(*subsystem, signal, type);
+  PosixSubsystem::SignalDisposition disposition;
+  const bool queryPreserved =
+      subsystem->getSignalDisposition(signal, disposition) && disposition.type == type;
+  IgnoredSignalWaitContext context;
+  Thread* target =
+      new Thread(process, waitThroughIgnoredSignal, &context, nullptr, false, true, true);
+  target->setName("hosted ignored signal waiter");
+  const bool started = target->start();
+  const bool queued = started && waitUntilQueued(target, Thread::SemWait);
+
+  if (queued) {
+    subsystem->sendSignal(target, static_cast<int>(signal), false);
+  }
+  for (size_t attempt = 0; attempt < 32 && !context.returned; ++attempt) {
+    Scheduler::instance().yield();
+  }
+  Thread::WaitDebugInfo wait = {};
+  const bool stayedQueued = queued && !context.returned && target->getWaitDebugInfo(wait) &&
+                            wait.queued && !target->hasEvents();
+
+  context.gate.release();
+  const bool joined = started && target->joinForCompletion();
+  if (!started) {
+    delete target;
+  }
+  return queryPreserved && started && queued && stayedQueued && joined && context.entered == 1 &&
+         context.returned == 1 && context.acquired == 1 && context.error == Semaphore::NoError &&
+         context.interruption == Thread::NotInterrupted;
+}
+
+bool ignoredSignalDoesNotInterruptWait(Process* kernelProcess) {
+  constexpr const char* Test = "ignored-signal-does-not-interrupt";
+  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  process->publish();
+
+  g_SignalHandlerCalls = 0;
+  const bool explicitIgnore = ignoredSignalDoesNotWakeWait(process, subsystem, SIGUSR1, 2);
+  const bool defaultIgnore = ignoredSignalDoesNotWakeWait(process, subsystem, SIGCHLD, 1);
+  const bool passed = check(explicitIgnore && defaultIgnore && g_SignalHandlerCalls == 0,
+                            "an explicit or default ignored signal woke an interruptible wait");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+bool pendingSignalDiscarded(PosixProcess* process, PosixSubsystem* subsystem, size_t signal,
+                            int ignoredType) {
+  installSignalDisposition(*subsystem, signal, 0);
+  IgnoredSignalWaitContext context(signal);
+  Thread* target =
+      new Thread(process, waitThroughIgnoredSignal, &context, nullptr, false, true, true);
+  target->setName("hosted pending signal discard target");
+  const bool started = target->start();
+  const bool waiting = started && waitUntilQueued(target, Thread::SemWait);
+
+  const PosixSubsystem::SignalDeliveryResult queued =
+      waiting ? subsystem->queueSignalDelivery(target, signal)
+              : PosixSubsystem::SignalDeliveryResult::Rejected;
+  const bool observedPending =
+      queued == PosixSubsystem::SignalDeliveryResult::Queued && target->hasEvent(signal);
+  installSignalDisposition(*subsystem, signal, ignoredType);
+  const bool discarded = observedPending && !target->hasEvent(signal);
+
+  context.gate.release();
+  const bool joined = started && target->joinForCompletion();
+  if (!started) {
+    delete target;
+  }
+  return waiting && observedPending && discarded && joined && context.entered == 1 &&
+         context.returned == 1 && context.acquired == 1 && context.error == Semaphore::NoError &&
+         context.interruption == Thread::NotInterrupted;
+}
+
+bool ignoredDispositionDiscardsPendingSignals(Process* kernelProcess) {
+  constexpr const char* Test = "ignored-disposition-discards-pending";
+  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  process->publish();
+
+  g_SignalHandlerCalls = 0;
+  const bool explicitIgnore = pendingSignalDiscarded(process, subsystem, SIGUSR1, 2);
+  const bool defaultIgnore = pendingSignalDiscarded(process, subsystem, SIGCHLD, 1);
+  const bool passed =
+      check(explicitIgnore && defaultIgnore && g_SignalHandlerCalls == 0,
+            "a pending caught signal survived transition to an ignored disposition");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+
+int suspendForIgnoredContinue(void* parameter) {
+  IgnoredContinueContext* context = reinterpret_cast<IgnoredContinueContext*>(parameter);
+  if (context->blockSignal) {
+    Processor::information().getCurrentThread()->setSignalMask(static_cast<uint64_t>(1)
+                                                               << (SIGCONT - 1));
+  }
+  context->entered += 1;
+  context->process->suspend();
+  context->returned += 1;
+  return 0;
+}
+
+bool signalContinueResumes(PosixProcess* process, PosixSubsystem* subsystem, int type,
+                           bool blockSignal) {
+  installSignalDisposition(*subsystem, SIGCONT, type);
+  IgnoredContinueContext context(process, blockSignal);
+  Thread* target =
+      new Thread(process, suspendForIgnoredContinue, &context, nullptr, false, true, true);
+  target->setName("hosted SIGCONT target");
+  const bool started = target->start();
+
+  const Time::Timestamp deadline = Time::getTicks() + (500 * Time::Multiplier::Millisecond);
+  while (started && !process->isSuspended() && Time::getTicks() < deadline) {
+    Scheduler::instance().yield();
+  }
+  const bool suspended = process->isSuspended();
+
+  g_SignalHandlerCalls = 0;
+  if (suspended) {
+    subsystem->sendSignal(target, SIGCONT, false);
+  }
+  const bool continuedBySignal = process->getState() == Process::Active;
+  if (!continuedBySignal) {
+    process->resume();
+  }
+
+  const bool joined = started && target->joinForCompletion();
+  if (!started) {
+    delete target;
+  }
+  return started && context.entered == 1 && suspended && continuedBySignal && joined &&
+         context.returned == 1 && process->hasSuspended() && process->hasResumed();
+}
+
+bool signalContinueStillResumes(Process* kernelProcess) {
+  constexpr const char* Test = "sigcont-resumes-before-disposition";
+  PosixProcess* process = new PosixProcess(kernelProcess);
+  PosixSubsystem* subsystem = new PosixSubsystem;
+  process->setSubsystem(subsystem);
+  process->publish();
+
+  g_SignalHandlerCalls = 0;
+  const bool ignored = signalContinueResumes(process, subsystem, 2, false);
+  const bool caughtAndBlocked = signalContinueResumes(process, subsystem, 0, true);
+  const bool passed =
+      check(ignored && caughtAndBlocked && g_SignalHandlerCalls == 0,
+            "an ignored or blocked SIGCONT required handler delivery to resume its target");
+  delete process;
+
+  if (passed) {
+    NOTICE("HOSTED-WAIT-TEST: PASS " << Test);
+  }
+  return passed;
+}
+#endif
 
 bool invalidUserHandlerDeliveryFailsClosed(Thread* thread) {
   constexpr const char* Test = "invalid-user-handler-delivery";
@@ -801,7 +1073,13 @@ bool prequeuedDelaySignalInterruption(Thread* thread) {
 
 bool runHostedSignalInterruptionRegressions(Thread* thread) {
   const bool passed =
-      eventHandlerPrivilege() && invalidUserHandlerDeliveryFailsClosed(thread) &&
+      eventHandlerPrivilege() && signalCullPreservesNumberCollision(thread) &&
+      invalidUserHandlerDeliveryFailsClosed(thread) &&
+#if !defined(PEDIGREE_HOSTED_CORE_SMOKE)
+      ignoredSignalDoesNotInterruptWait(thread->getParent()) &&
+      ignoredDispositionDiscardsPendingSignals(thread->getParent()) &&
+      signalContinueStillResumes(thread->getParent()) &&
+#endif
       temporarySignalMaskNestedPrequeued(thread) && temporarySignalMaskAcrossMutex(thread) &&
       conditionVariableSignalInterruption(thread) && bufferSignalInterruption(thread) &&
       semaphoreSignalInterruption(thread) && semaphoreSignalAfterOrdinaryWake() &&

@@ -20,6 +20,7 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/Uninterruptible.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/syscallError.h"
@@ -332,22 +333,22 @@ int posix_raise(int sig, SyscallState& State) {
     return -1;
   }
 
-  uint32_t signalFlags = 0;
-  SignalEvent* signalEvent = pSubsystem->createSignalDelivery(sig, &signalFlags);
-
-  // Firing and checking the event state needs to be done without any
-  // interrupts getting in the way.
-  bool bWasInterrupts = Processor::getInterrupts();
-  Processor::setInterrupts(false);
-
-  // Fire the event, and wait for it to complete
-  bool signalQueued = false;
-  if (signalEvent) {
-    signalQueued = pThread->sendEvent(signalEvent);
-    if (!signalQueued) {
-      delete signalEvent;
-    }
+  if (sig == SIGCONT) {
+    pProcess->resume();
   }
+
+  uint32_t signalFlags = 0;
+  PosixSubsystem::SignalDeliveryResult delivery = PosixSubsystem::SignalDeliveryResult::Unavailable;
+  const bool bWasInterrupts = Processor::getInterrupts();
+  {
+    // A scheduler pass with no userspace stack can still select a fallback
+    // stack and consume this event. Defer delivery across the IRQ-enabled
+    // disposition lock, then close that window before selecting SA_ONSTACK.
+    Uninterruptible whileQueueing;
+    delivery = pSubsystem->queueSignalDelivery(pThread, sig, &signalFlags);
+    Processor::setInterrupts(false);
+  }
+  const bool signalQueued = delivery == PosixSubsystem::SignalDeliveryResult::Queued;
 
   uintptr_t stackPointer = State.getStackPointer();
   Thread::AlternateSignalStack& currStack = pThread->getAlternateSignalStack();
@@ -406,16 +407,9 @@ static int doThreadKill(Thread* p, int sig) {
     ERROR("posix_kill: no subsystem on process " << p->getParent()->getId());
     return -1;
   }
-  SignalEvent* signalEvent = pSubsystem->createSignalDelivery(sig);
-  if (signalEvent) {
-    // Fire the event
-    if (!p->sendEvent(signalEvent)) {
-      delete signalEvent;
-    }
-
-    // sendEvent() wakes an active WaitQueue atomically. No scheduler status
-    // transition is needed here, including for a stopped process.
-  }
+  // sendSignal applies SIGCONT's unconditional continuation side effect
+  // before resolving whether handler delivery is ignored or blocked.
+  pSubsystem->sendSignal(p, sig, false);
 
   return 0;
 }
