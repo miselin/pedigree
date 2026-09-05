@@ -501,13 +501,13 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   }
 
   // Inhibit signals to the parent
-  for (size_t sig = 0; sig < 32; sig++)
+  for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
     Processor::information().getCurrentThread()->inhibitEvent(sig, true);
 
   // Create a new process.
   PosixProcess* pProcess = new PosixProcess(pParentProcess);
   if (!pProcess) {
-    for (size_t sig = 0; sig < 32; sig++)
+    for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
       Processor::information().getCurrentThread()->inhibitEvent(sig, false);
     SYSCALL_ERROR(OutOfMemory);
     SC_NOTICE(" -> ENOMEM");
@@ -522,7 +522,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     SYSCALL_ERROR(OutOfMemory);
 
     // Allow signals again, something went wrong
-    for (size_t sig = 0; sig < 32; sig++)
+    for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
       Processor::information().getCurrentThread()->inhibitEvent(sig, false);
     SC_NOTICE(" -> ENOMEM");
     return -1;
@@ -559,7 +559,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   clonedState.setSyscallReturnValue(0);
 
   // Allow signals to the parent again
-  for (size_t sig = 0; sig < 32; sig++)
+  for (size_t sig = 0; sig < PosixSubsystem::SignalDispositionCount; sig++)
     Processor::information().getCurrentThread()->inhibitEvent(sig, false);
 
   // Set ctid in the new address space if we are required to.

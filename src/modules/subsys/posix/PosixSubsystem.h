@@ -182,6 +182,14 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
   static const size_t SafeWrite = 0x2;
   static const size_t SafeExecute = 0x4;
 
+  /**
+   * Bundled musl reserves these signals for its timer, cancellation, and
+   * synchronous-call machinery. Signals above this range are not supported.
+   */
+  static constexpr size_t LinuxPrivateSignalFirst = 32;
+  static constexpr size_t MaximumSupportedSignal = 34;
+  static constexpr size_t SignalDispositionCount = MaximumSupportedSignal + 1;
+
   /** ABI mode. */
   enum Abi {
     PosixAbi = 0,
@@ -372,7 +380,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
    * Installs a complete exec-time disposition table and rebinds pending
    * deliveries to it. Takes ownership of every entry in \p handlers.
    */
-  void resetSignalHandlersForExec(Thread* thread, SignalHandler* const handlers[32]);
+  void resetSignalHandlersForExec(Thread* thread,
+                                  SignalHandler* const handlers[SignalDispositionCount]);
 
   /** Copies a signal disposition while holding the disposition table lock. */
   bool getSignalDisposition(size_t sig, SignalDisposition& disposition);
@@ -383,8 +392,11 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   /** Gets a signal handler */
   SignalHandler* getSignalHandler(size_t sig) {
+    if (sig > MaximumSupportedSignal) {
+      return nullptr;
+    }
     m_SignalHandlersLock.enter();
-    SignalHandler* ret = m_SignalHandlers.lookup(sig % 32);
+    SignalHandler* ret = m_SignalHandlers.lookup(sig);
     m_SignalHandlersLock.leave();
     return ret;
   }

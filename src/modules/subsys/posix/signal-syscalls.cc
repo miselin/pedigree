@@ -99,6 +99,9 @@ SIGNAL_HANDLER_EXIT(sigprof, SIGPROF)
 SIGNAL_HANDLER_EXIT(sigio, SIGIO)
 SIGNAL_HANDLER_EXIT(sigpwr, SIGPWR)
 SIGNAL_HANDLER_EXIT(sigsys, SIGSYS)
+SIGNAL_HANDLER_EXIT(sigtimer, 32)
+SIGNAL_HANDLER_EXIT(sigcancel, 33)
+SIGNAL_HANDLER_EXIT(sigsynccall, 34)
 
 SIGNAL_HANDLER_EMPTY(sigign);
 
@@ -120,7 +123,7 @@ static void suspendForDefaultSignal(int) {
   process->suspendIfContinuationEpoch(static_cast<int>(signal), continuationEpoch);
 }
 
-static _sig_func_ptr default_sig_handlers[32] = {
+static _sig_func_ptr default_sig_handlers[PosixSubsystem::SignalDispositionCount] = {
     sigign,     // 0
     sighup,     // SIGHUP
     sigint,     // SIGINT
@@ -153,9 +156,13 @@ static _sig_func_ptr default_sig_handlers[32] = {
     sigio,      // SIGIO/SIGPOLL
     sigpwr,     // SIGPWR
     sigsys,     // SIGSYS
+    sigtimer,   // musl SIGTIMER
+    sigcancel,  // musl SIGCANCEL
+    sigsynccall,  // musl SIGSYNCCALL
 };
 
-static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sigaction* oact) {
+static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sigaction* oact,
+                                bool allowLinuxPrivateSignals) {
   Thread* pThread = Processor::information().getCurrentThread();
   Process* pProcess = pThread->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -165,11 +172,13 @@ static int posix_sigaction_impl(int sig, const struct sigaction* act, struct sig
   }
 
   // sanity and safety checks
-  if ((sig <= 0) || (sig >= 32) || (sig == SIGKILL || sig == SIGSTOP)) {
+  if ((sig <= 0) || (sig > static_cast<int>(PosixSubsystem::MaximumSupportedSignal)) ||
+      (!allowLinuxPrivateSignals &&
+       sig >= static_cast<int>(PosixSubsystem::LinuxPrivateSignalFirst)) ||
+      (sig == SIGKILL || sig == SIGSTOP)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-  sig %= 32;
 
   uintptr_t newHandler = 0;
   int handlerType = 1;
@@ -262,7 +271,8 @@ int posix_sigaction(int sig, const struct sigaction* act, struct sigaction* oact
   }
 
   struct sigaction previous = {};
-  int result = posix_sigaction_impl(sig, act ? &requested : nullptr, oact ? &previous : nullptr);
+  int result =
+      posix_sigaction_impl(sig, act ? &requested : nullptr, oact ? &previous : nullptr, false);
   if ((result == 0) && oact && !PosixSubsystem::copyToUser(oact, &previous, sizeof(previous))) {
     SYSCALL_ERROR(BadAddress);
     return -1;
@@ -298,20 +308,6 @@ int posix_linux_amd64_sigaction(int sig, const LinuxAmd64KernelSigaction* act,
     return -1;
   }
 
-  if ((sig >= 32) && (sig <= 64)) {
-    // Pedigree does not deliver Linux real-time signals yet. Reporting
-    // their default disposition keeps Linux runtimes from treating the
-    // smaller native signal namespace as an exec-time failure.
-    if (oact) {
-      LinuxAmd64KernelSigaction ignored = {};
-      if (!PosixSubsystem::copyToUser(oact, &ignored, sizeof(ignored))) {
-        SYSCALL_ERROR(BadAddress);
-        return -1;
-      }
-    }
-    return 0;
-  }
-
   struct sigaction nativeAct = {};
   const struct sigaction* nativeActPtr = nullptr;
   if (act) {
@@ -325,7 +321,7 @@ int posix_linux_amd64_sigaction(int sig, const LinuxAmd64KernelSigaction* act,
 
   struct sigaction nativeOld = {};
   struct sigaction* nativeOldPtr = oact ? &nativeOld : nullptr;
-  int result = posix_sigaction_impl(sig, nativeActPtr, nativeOldPtr);
+  int result = posix_sigaction_impl(sig, nativeActPtr, nativeOldPtr, true);
   if ((result == 0) && oact) {
     LinuxAmd64KernelSigaction linuxOld = {};
     linuxOld.handler = reinterpret_cast<uintptr_t>(nativeOld.sa_handler);
@@ -471,8 +467,7 @@ int posix_tkill(int tid, int sig, bool linuxAbi) {
     return -1;
   }
 
-  if (sig < 0 ||
-      sig >= static_cast<int>(sizeof(default_sig_handlers) / sizeof(default_sig_handlers[0]))) {
+  if (sig < 0 || sig > static_cast<int>(PosixSubsystem::MaximumSupportedSignal)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -505,8 +500,7 @@ int posix_tgkill(int tgid, int tid, int sig, bool linuxAbi) {
     return -1;
   }
 
-  if (sig < 0 ||
-      sig >= static_cast<int>(sizeof(default_sig_handlers) / sizeof(default_sig_handlers[0]))) {
+  if (sig < 0 || sig > static_cast<int>(PosixSubsystem::MaximumSupportedSignal)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -534,8 +528,9 @@ int posix_tgkill(int tgid, int tid, int sig, bool linuxAbi) {
 int posix_kill(int pid, int sig) {
   SG_NOTICE("kill(" << pid << ", " << sig << ")");
 
-  if (sig < 0 ||
-      sig >= static_cast<int>(sizeof(default_sig_handlers) / sizeof(default_sig_handlers[0]))) {
+  // Signals 32..34 are supported only for bundled musl's thread-directed
+  // runtime protocols in this slice.
+  if (sig < 0 || sig >= static_cast<int>(PosixSubsystem::LinuxPrivateSignalFirst)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
@@ -1156,9 +1151,9 @@ void pedigree_reset_signals_for_exec(Thread* pThread) {
     FATAL("Cannot reset exec signal state without a POSIX subsystem.");
   }
 
-  PosixSubsystem::SignalHandler* replacements[32] = {};
+  PosixSubsystem::SignalHandler* replacements[PosixSubsystem::SignalDispositionCount] = {};
 
-  for (size_t i = 0; i < 32; i++) {
+  for (size_t i = 0; i < PosixSubsystem::SignalDispositionCount; i++) {
     // Set all dispositions back to default, except if an ignore
     // disposition was present (SIG_IGN does in fact carry through an exec)
     int signalDisposition = 1;

@@ -1321,16 +1321,16 @@ static void test_thread_signal_syscalls(void) {
   if (syscall(SYS_tgkill, getpid(), 0, 0) != -1 || errno != EINVAL)
     fail();
   errno = 0;
-  if (syscall(SYS_tkill, INT_MAX, 32) != -1 || errno != ESRCH)
+  if (syscall(SYS_tkill, INT_MAX, 35) != -1 || errno != ESRCH)
     fail();
   errno = 0;
-  if (syscall(SYS_tkill, tid, 32) != -1 || errno != EINVAL)
+  if (syscall(SYS_tkill, tid, 35) != -1 || errno != EINVAL)
     fail();
   errno = 0;
-  if (syscall(SYS_tgkill, getpid(), INT_MAX, 32) != -1 || errno != ESRCH)
+  if (syscall(SYS_tgkill, getpid(), INT_MAX, 35) != -1 || errno != ESRCH)
     fail();
   errno = 0;
-  if (syscall(SYS_tgkill, INT_MAX, tid, 32) != -1 || errno != ESRCH)
+  if (syscall(SYS_tgkill, INT_MAX, tid, 35) != -1 || errno != ESRCH)
     fail();
 
   if (sigaction(SIGUSR1, &previousAction, 0))

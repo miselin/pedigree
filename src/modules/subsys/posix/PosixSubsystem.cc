@@ -902,11 +902,16 @@ void PosixSubsystem::sendSignal(Thread* pThread, int signal, bool yield) {
 }
 
 void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler* handler) {
+  if (sig > MaximumSupportedSignal) {
+    delete handler;
+    ERROR("Cannot install unsupported signal disposition " << Dec << sig << ".");
+    return;
+  }
+
   m_SignalHandlersLock.acquire();
 
   SignalHandler* removal = nullptr;
 
-  sig %= 32;
   if (handler) {
     removal = m_SignalHandlers.lookup(sig);
     if (removal) {
@@ -942,22 +947,23 @@ void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler* handler) {
   }
 }
 
-void PosixSubsystem::resetSignalHandlersForExec(Thread* thread, SignalHandler* const handlers[32]) {
+void PosixSubsystem::resetSignalHandlersForExec(
+    Thread* thread, SignalHandler* const handlers[SignalDispositionCount]) {
   if (!thread || thread->getParent() != m_pProcess || m_pProcess->getNumThreads() != 1) {
     FATAL("Exec signal reset requires the sole surviving process thread.");
   }
 
-  for (size_t signal = 0; signal < 32; ++signal) {
+  for (size_t signal = 0; signal < SignalDispositionCount; ++signal) {
     if (!handlers[signal] || !handlers[signal]->pEvent ||
         handlers[signal]->pEvent->getNumber() != signal) {
       FATAL("Exec signal reset received an incomplete disposition table.");
     }
   }
 
-  SignalHandler* removals[32] = {};
+  SignalHandler* removals[SignalDispositionCount] = {};
   m_SignalHandlersLock.acquire();
 
-  for (size_t signal = 0; signal < 32; ++signal) {
+  for (size_t signal = 0; signal < SignalDispositionCount; ++signal) {
     SignalHandler* replacement = handlers[signal];
     replacement->sig = signal;
 
@@ -986,7 +992,7 @@ void PosixSubsystem::resetSignalHandlersForExec(Thread* thread, SignalHandler* c
 }
 
 bool PosixSubsystem::getSignalDisposition(size_t sig, SignalDisposition& disposition) {
-  if (sig >= 32) {
+  if (sig > MaximumSupportedSignal) {
     return false;
   }
 
@@ -1014,7 +1020,8 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
 
   m_SignalHandlersLock.acquire();
 
-  if (!target || !target->getParent() || target->getParent()->getSubsystem() != this || sig >= 32) {
+  if (!target || !target->getParent() || target->getParent()->getSubsystem() != this ||
+      sig > MaximumSupportedSignal) {
     m_SignalHandlersLock.release();
     return SignalDeliveryResult::Unavailable;
   }

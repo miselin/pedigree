@@ -23,6 +23,10 @@
 
 namespace {
 constexpr size_t HostedAttempts = 10000;
+constexpr size_t MuslTimerSignal = 32;
+constexpr size_t MuslCancelSignal = 33;
+constexpr size_t MuslSyncCallSignal = 34;
+constexpr size_t FirstUnsupportedSignal = 35;
 
 void threadSignalHandler(size_t) {}
 
@@ -93,16 +97,31 @@ int runThreadSignalCalls(void* parameter) {
   context->sameTarget->cullSignalEvent(SIGUSR1);
   context->sameTarget->setSignalMask(originalMask);
 
+  context->sameTarget->setSignalMask(originalMask |
+                                     (static_cast<uint64_t>(1) << (MuslTimerSignal - 1)));
+  current->setErrno(0);
+  passed &= expectResult(current, posix_tkill(context->sameTarget->getId(), MuslTimerSignal), 0, 0);
+  passed &= context->sameTarget->hasEvent(MuslTimerSignal);
+  context->sameTarget->cullSignalEvent(MuslTimerSignal);
+  context->sameTarget->setSignalMask(originalMask);
+
+  current->setErrno(0);
+  passed &=
+      expectResult(current, posix_tkill(context->sameTarget->getId(), MuslCancelSignal), 0, 0);
+  passed &= context->sameTarget->hasEvent(MuslCancelSignal);
+  context->sameTarget->cullSignalEvent(MuslCancelSignal);
+
   current->setErrno(0);
   passed &= expectResult(current, posix_tkill(0, 0), -1, Error::InvalidArgument);
   current->setErrno(0);
   passed &= expectResult(current, posix_tkill(-1, 0), -1, Error::InvalidArgument);
   current->setErrno(0);
-  passed &= expectResult(current, posix_tkill(context->remoteTarget->getId(), 32), -1,
-                         Error::NoSuchProcess);
+  passed &=
+      expectResult(current, posix_tkill(context->remoteTarget->getId(), FirstUnsupportedSignal), -1,
+                   Error::NoSuchProcess);
   current->setErrno(0);
-  passed &= expectResult(current, posix_tkill(context->sameTarget->getId(), 32), -1,
-                         Error::InvalidArgument);
+  passed &= expectResult(current, posix_tkill(context->sameTarget->getId(), FirstUnsupportedSignal),
+                         -1, Error::InvalidArgument);
 
   current->setErrno(0);
   passed &=
@@ -127,15 +146,30 @@ int runThreadSignalCalls(void* parameter) {
   passed &= !context->remoteTarget->hasEvent(SIGUSR2);
 
   current->setErrno(0);
-  passed &= expectResult(current, posix_tgkill(context->targetProcess->getId(), INT_MAX, 32), -1,
-                         Error::NoSuchProcess);
-  current->setErrno(0);
-  passed &= expectResult(current, posix_tgkill(INT_MAX, context->remoteTarget->getId(), 32), -1,
-                         Error::NoSuchProcess);
+  passed &= expectResult(current,
+                         posix_tgkill(context->targetProcess->getId(),
+                                      context->remoteTarget->getId(), MuslSyncCallSignal),
+                         0, 0);
+  passed &= context->remoteTarget->hasEvent(MuslSyncCallSignal);
+  context->remoteTarget->cullSignalEvent(MuslSyncCallSignal);
+
   current->setErrno(0);
   passed &= expectResult(
-      current, posix_tgkill(context->targetProcess->getId(), context->remoteTarget->getId(), 32),
-      -1, Error::InvalidArgument);
+      current, posix_tgkill(context->targetProcess->getId(), INT_MAX, FirstUnsupportedSignal), -1,
+      Error::NoSuchProcess);
+  current->setErrno(0);
+  passed &= expectResult(
+      current, posix_tgkill(INT_MAX, context->remoteTarget->getId(), FirstUnsupportedSignal), -1,
+      Error::NoSuchProcess);
+  current->setErrno(0);
+  passed &= expectResult(current,
+                         posix_tgkill(context->targetProcess->getId(),
+                                      context->remoteTarget->getId(), FirstUnsupportedSignal),
+                         -1, Error::InvalidArgument);
+
+  current->setErrno(0);
+  passed &= expectResult(current, posix_kill(caller->getId(), MuslCancelSignal), -1,
+                         Error::InvalidArgument);
 
   current->setErrno(0);
   passed &= expectResult(
@@ -181,12 +215,15 @@ bool runHostedThreadSignalSyscallRegressions(Process* kernelProcess) {
   PosixSubsystem* callerSubsystem = static_cast<PosixSubsystem*>(caller->getSubsystem());
   installDisposition(callerSubsystem, SIGUSR1, 0);
   installDisposition(callerSubsystem, SIGUSR2, 2);
+  installDisposition(callerSubsystem, MuslTimerSignal, 0);
+  installDisposition(callerSubsystem, MuslCancelSignal, 0);
   Thread* sameTarget = new Thread(caller, dormantThread, nullptr, nullptr, false, true, true);
 
   PosixProcess* target = makeProcess(kernelProcess, 1000);
   PosixSubsystem* targetSubsystem = static_cast<PosixSubsystem*>(target->getSubsystem());
   installDisposition(targetSubsystem, SIGUSR1, 0);
   installDisposition(targetSubsystem, SIGUSR2, 2);
+  installDisposition(targetSubsystem, MuslSyncCallSignal, 0);
   new Thread(target, dormantThread, nullptr, nullptr, false, true, true);
   new Thread(target, dormantThread, nullptr, nullptr, false, true, true);
   Thread* remoteTarget = new Thread(target, dormantThread, nullptr, nullptr, false, true, true);
