@@ -20,10 +20,36 @@
 #ifndef EXT2_NODE_H
 #define EXT2_NODE_H
 
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/Vector.h"
 
+#include "modules/system/vfs/File.h"
+
 struct Inode;
+class Ext2File;
+class Ext2Filesystem;
+
+struct Ext2InodeState {
+  Ext2InodeState(Inode* inode, Ext2Filesystem* filesystem);
+  void reloadMappings(Inode* inode, Ext2Filesystem* filesystem);
+  void loadMappings(Ext2Filesystem* filesystem, uint32_t block, unsigned depth, size_t first,
+                    size_t span);
+  Vector<uint32_t> blocks;
+  uint32_t metadataBlocks;
+  uint32_t allocatedDataBlocks;
+  size_t size;
+  Mutex dataLock;
+  Mutex writeLock;
+  Mutex writebackLock;
+  size_t pageLoans;
+  size_t references;
+  bool orphan;
+  uintptr_t futexIdentity;
+  Vector<Ext2File*> files;
+  File::CacheState* cache = nullptr;
+  Ext2File* writebackOwner = nullptr;
+};
 
 /** A node in an ext2 filesystem. */
 class Ext2Node {
@@ -51,11 +77,11 @@ class Ext2Node {
   /** Updates inode attributes. */
   void fileAttributeChanged(size_t size, size_t atime, size_t mtime, size_t ctime);
 
-  /** Updates inode metadata. */
-  void updateMetadata(uint16_t uid, uint16_t gid, uint32_t perms);
+  File::Attributes inodeAttributes() const;
+  void updateInodeAttributes(const File::Attributes& attributes, uint32_t mask);
 
   /** Wipes the node of data - frees all blocks. */
-  void wipe(bool allocationLockHeld = false);
+  bool wipe(bool allocationLockHeld = false);
 
   void extend(size_t newSize);
   void extend(size_t newSize, uint64_t location, uint64_t size);
@@ -71,6 +97,18 @@ class Ext2Node {
   void sync(size_t offset, bool async);
 
  protected:
+  bool resizeData(size_t size);
+  bool trimToBlocks(size_t keep, bool allocationLockHeld = false);
+  bool zeroRange(size_t start, size_t end);
+  struct MappingPage {
+    uint32_t block;
+    uintptr_t buffer;
+    size_t first;
+    size_t span;
+    unsigned depth;
+  };
+  bool collectMappingPages(uint32_t block, unsigned depth, size_t first, size_t span,
+                           Vector<MappingPage>& pages);
   /**
    * Ensures the inode is at least 'size' big.
    * Set onlyBlocks to true to not change the actual data size, which can be
@@ -89,19 +127,22 @@ class Ext2Node {
   bool getBlockNumberBiindirect(uint32_t inode_block, size_t nBlocks, size_t nBlock);
   bool getBlockNumberTriindirect(uint32_t inode_block, size_t nBlocks, size_t nBlock);
 
-  bool setBlockNumber(size_t blockNum, uint32_t blockValue);
+  bool setBlockNumber(size_t blockNum, uint32_t blockValue,
+                      Vector<uint32_t>* pendingWrites = nullptr);
+  bool ensureWritableRange(size_t location, size_t length);
 
   uint32_t modeToPermissions(uint32_t mode) const;
   uint32_t permissionsToMode(uint32_t permissions) const;
 
+  Ext2InodeState* m_State;
   Inode* m_pInode;
   uint32_t m_InodeNumber;
   class Ext2Filesystem* m_pExt2Fs;
 
-  Vector<uint32_t> m_Blocks;
-  uint32_t m_nMetadataBlocks;
+  Vector<uint32_t>& m_Blocks;
+  uint32_t& m_nMetadataBlocks;
 
-  size_t m_nSize;
+  size_t& m_nSize;
 };
 
 #endif

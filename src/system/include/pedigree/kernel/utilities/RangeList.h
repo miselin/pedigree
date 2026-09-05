@@ -117,10 +117,8 @@ class EXPORTED_PUBLIC RangeList {
 
 /** Copy constructor - performs deep copy. */
 template <typename T, bool Reversed>
-RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed>& other) {
-  // Need to clean up all our existing ranges.
-  clear();
-
+RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed>& other)
+    : m_List(), m_bPreferUsed(other.m_bPreferUsed) {
   for (ConstIterator it = other.m_List.begin(); it != other.m_List.end(); ++it) {
     Range* pRange = new Range((*it)->address, (*it)->length);
     m_List.pushBack(pRange);
@@ -129,8 +127,12 @@ RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed>& other) {
 
 template <typename T, bool Reversed>
 RangeList<T, Reversed>& RangeList<T, Reversed>::operator=(const RangeList& other) {
+  if (this == &other) {
+    return *this;
+  }
   // Need to clean up all our existing ranges.
   clear();
+  m_bPreferUsed = other.m_bPreferUsed;
 
   for (ConstIterator it = other.m_List.begin(); it != other.m_List.end(); ++it) {
     Range* pRange = new Range((*it)->address, (*it)->length);
@@ -324,28 +326,25 @@ void RangeList<T, Reversed>::sweep() {
     return;
   }
 
-  for (size_t i = 0; i < (m_List.count() - 1);) {
-    // Can we merge? (note: preincrement modifies the iterator)
+  // Storage order preserves allocation preferences; adjacent addresses need
+  // not be neighboring entries. Keep the first entry's position when merging.
+  for (size_t i = 0; i < m_List.count(); ++i) {
     Range* cur = m_List[i];
-    Range* next = m_List[i + 1];
-
-    uintptr_t cur_address = cur->address;
-    uintptr_t next_address = next->address;
-    size_t cur_len = cur->length;
-    size_t next_len = next->length;
-
-    if ((cur_address + cur_len) == next_address) {
-      // Merge.
-      cur->length += next_len;
+    for (size_t j = i + 1; j < m_List.count();) {
+      Range* next = m_List[j];
+      if (cur->address + cur->length == next->address) {
+        cur->length += next->length;
+      } else if (next->address + next->length == cur->address) {
+        cur->address = next->address;
+        cur->length += next->length;
+      } else {
+        ++j;
+        continue;
+      }
       delete next;
-      m_List.erase(i + 1);
-    } else if ((next_address + next_len) == cur_address) {
-      cur->address -= next_len;
-      cur->length += next_len;
-      delete next;
-      m_List.erase(i + 1);
-    } else {
-      ++i;
+      m_List.erase(j);
+      // The enlarged range can now reach an entry we passed earlier.
+      j = i + 1;
     }
   }
 }

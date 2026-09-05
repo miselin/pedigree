@@ -88,8 +88,8 @@ void* HostedVirtualAddressSpace::getEndOfHeap() {
 }
 
 bool HostedVirtualAddressSpace::isAddressValid(void* virtualAddress) {
-  if (reinterpret_cast<uint64_t>(virtualAddress) < 0x0008000000000000ULL ||
-      reinterpret_cast<uint64_t>(virtualAddress) >= 0xFFF8000000000000ULL)
+  if (reinterpret_cast<uint64_t>(virtualAddress) < 0x0000800000000000ULL ||
+      reinterpret_cast<uint64_t>(virtualAddress) >= 0xFFFF800000000000ULL)
     return true;
   return false;
 }
@@ -259,7 +259,8 @@ bool HostedVirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, boo
     if (!mapping) {
       return false;
     }
-    if (userMode && (mapping->flags & KernelMode)) {
+    if ((userMode && (mapping->flags & KernelMode)) ||
+        (mapping->flags & (NoAccess | WriteProtected))) {
       return false;
     }
     if ((mapping->flags & Write) && !(mapping->flags & CopyOnWrite)) {
@@ -294,7 +295,8 @@ bool HostedVirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, boo
       }
     }
 
-    if (mapping && userMode && (mapping->flags & KernelMode)) {
+    if (mapping && ((userMode && (mapping->flags & KernelMode)) ||
+                    (mapping->flags & (NoAccess | WriteProtected)))) {
       resolved = false;
     } else if (mapping && (mapping->flags & Write) && !(mapping->flags & CopyOnWrite)) {
       resolved = true;
@@ -311,7 +313,9 @@ bool HostedVirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, boo
           MemoryCopy(replacementAlias, sourceAlias, pageSize);
 
           const size_t replacementFlags =
-              (mapping->flags | VirtualAddressSpace::Write) & ~VirtualAddressSpace::CopyOnWrite;
+              (mapping->flags | VirtualAddressSpace::Write) &
+              ~(VirtualAddressSpace::CopyOnWrite | VirtualAddressSpace::Borrowed |
+                VirtualAddressSpace::Shared);
           void* published = mmap(
               virtualAddress, pageSize, toFlags(replacementFlags, true), MAP_FIXED | MAP_SHARED,
               HostedPhysicalMemoryManager::instance().getBackingFile(), replacement);
@@ -348,6 +352,81 @@ bool HostedVirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, boo
   return resolved;
 }
 
+bool HostedVirtualAddressSpace::tryReadUser32(uintptr_t address, uint32_t& value) {
+  uintptr_t word = 0;
+  if (!tryAccessUserWord(address, sizeof(value), word, nullptr)) {
+    return false;
+  }
+  value = static_cast<uint32_t>(word);
+  return true;
+}
+
+bool HostedVirtualAddressSpace::tryReadUserPointer(uintptr_t address, uintptr_t& value) {
+  return tryAccessUserWord(address, sizeof(value), value, nullptr);
+}
+
+bool HostedVirtualAddressSpace::tryCompareExchangeUser32(uintptr_t address, uint32_t& expected,
+                                                         uint32_t desired, bool& exchanged) {
+  const uint32_t original = expected;
+  uintptr_t observed = expected;
+  const uintptr_t replacement = desired;
+  exchanged = false;
+  if (!tryAccessUserWord(address, sizeof(expected), observed, &replacement)) {
+    return false;
+  }
+  expected = static_cast<uint32_t>(observed);
+  exchanged = expected == original;
+  return true;
+}
+
+bool HostedVirtualAddressSpace::tryAccessUserWord(uintptr_t address, size_t width, uintptr_t& value,
+                                                  const uintptr_t* replacement) {
+  if (!address || (address % width) || address < getUserStart() || address >= getKernelStart() ||
+      address > getKernelStart() - width) {
+    return false;
+  }
+
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t pageOffset = address & (pageSize - 1);
+  if (pageOffset > pageSize - width) {
+    return false;
+  }
+
+  LockGuard<Spinlock> guard(m_Lock);
+  const uintptr_t pageAddress = address - pageOffset;
+  for (size_t i = 0; i < m_KnownMapsSize; ++i) {
+    const mapping_t& mapping = m_pKnownMaps[i];
+    if (!mapping.active || mapping.vaddr != reinterpret_cast<void*>(pageAddress)) {
+      continue;
+    }
+    if ((mapping.flags & (KernelMode | Swapped | NoAccess)) ||
+        (replacement &&
+         (!(mapping.flags & Write) || (mapping.flags & (CopyOnWrite | WriteProtected))))) {
+      return false;
+    }
+
+    void* alias = mmap(nullptr, pageSize, PROT_READ | (replacement ? PROT_WRITE : 0), MAP_SHARED,
+                       HostedPhysicalMemoryManager::instance().getBackingFile(), mapping.paddr);
+    if (alias == MAP_FAILED) {
+      return false;
+    }
+    void* target = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(alias) + pageOffset);
+    if (replacement) {
+      uint32_t expected = static_cast<uint32_t>(value);
+      __atomic_compare_exchange_n(reinterpret_cast<uint32_t*>(target), &expected,
+                                  static_cast<uint32_t>(*replacement), false, __ATOMIC_ACQ_REL,
+                                  __ATOMIC_ACQUIRE);
+      value = expected;
+    } else if (width == sizeof(uint32_t)) {
+      value = __atomic_load_n(reinterpret_cast<uint32_t*>(target), __ATOMIC_ACQUIRE);
+    } else {
+      value = __atomic_load_n(reinterpret_cast<uintptr_t*>(target), __ATOMIC_ACQUIRE);
+    }
+    return munmap(alias, pageSize) == 0;
+  }
+  return false;
+}
+
 bool HostedVirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value) {
   if (!address || (address % alignof(uint32_t)) || address < getUserStart() ||
       address >= getKernelStart() || address > getKernelStart() - sizeof(value)) {
@@ -368,8 +447,8 @@ bool HostedVirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value
       continue;
     }
 
-    if (!(mapping.flags & Write) || (mapping.flags & KernelMode) || (mapping.flags & CopyOnWrite) ||
-        (mapping.flags & Swapped)) {
+    if (!(mapping.flags & Write) ||
+        (mapping.flags & (KernelMode | CopyOnWrite | Swapped | NoAccess | WriteProtected))) {
       return false;
     }
 
@@ -442,6 +521,37 @@ void HostedVirtualAddressSpace::unmap(void* virtualAddress) {
   }
 }
 
+bool HostedVirtualAddressSpace::detachMapping(void* virtualAddress, physical_uintptr_t& physical,
+                                              size_t& flags, size_t requiredFlags) {
+  LockGuard<Spinlock> guard(m_Lock);
+  virtualAddress = page_align(virtualAddress);
+  physical = 0;
+  flags = 0;
+  if (this != &getKernelAddressSpace() && getKernelAddressSpace().isMapped(virtualAddress)) {
+    return getKernelAddressSpace().detachMapping(virtualAddress, physical, flags, requiredFlags);
+  }
+  for (size_t i = 0; i < m_KnownMapsSize; ++i) {
+    mapping_t& mapping = m_pKnownMaps[i];
+    if (!mapping.active || mapping.vaddr != virtualAddress) {
+      continue;
+    }
+    physical = mapping.paddr;
+    flags = mapping.flags;
+    if ((flags & requiredFlags) != requiredFlags) {
+      return false;
+    }
+    if ((this == &Processor::information().getVirtualAddressSpace() ||
+         this == &getKernelAddressSpace()) &&
+        munmap(virtualAddress, PhysicalMemoryManager::getPageSize()) != 0) {
+      FATAL("HostedVirtualAddressSpace::detachMapping failed with errno " << Dec << errno);
+    }
+    mapping.active = false;
+    m_nLastUnmap = i;
+    return true;
+  }
+  return false;
+}
+
 VirtualAddressSpace* HostedVirtualAddressSpace::clone(bool copyOnWrite) {
   HostedVirtualAddressSpace* pNew =
       static_cast<HostedVirtualAddressSpace*>(VirtualAddressSpace::create());
@@ -480,6 +590,9 @@ VirtualAddressSpace* HostedVirtualAddressSpace::clone(bool copyOnWrite) {
         continue;
       }
 
+      if (cloneMapping->flags & Borrowed) {
+        continue;
+      }
       PhysicalMemoryManager::instance().pin(cloneMapping->paddr);
 
       if (cloneMapping->flags & Shared) {
@@ -490,11 +603,14 @@ VirtualAddressSpace* HostedVirtualAddressSpace::clone(bool copyOnWrite) {
         PhysicalMemoryManager::instance().pin(cloneMapping->paddr);
 
       const bool privateUserMapping = cloneMapping->vaddr < KERNEL_SPACE_START;
-      if (!copyOnWrite || !privateUserMapping || !(cloneMapping->flags & Write)) {
+      if (!copyOnWrite || !privateUserMapping) {
         continue;
       }
 
-      const size_t cloneFlags = (cloneMapping->flags | CopyOnWrite) & ~Write;
+      size_t cloneFlags = (cloneMapping->flags | CopyOnWrite) & ~Write;
+      if (!(cloneMapping->flags & (Write | CopyOnWrite))) {
+        cloneFlags |= WriteProtected;
+      }
       if (sourceIsCurrent && mprotect(sourceMapping->vaddr, PhysicalMemoryManager::getPageSize(),
                                       toFlags(cloneFlags, true)) != 0) {
         FATAL(
@@ -549,7 +665,7 @@ void HostedVirtualAddressSpace::revertToKernelAddressSpace() {
       }
 
       // Clean up references to physical memory as needed.
-      if ((m_pKnownMaps[i].flags & (Shared | Swapped)) == 0)
+      if ((m_pKnownMaps[i].flags & (Shared | Swapped | Borrowed)) == 0)
         PhysicalMemoryManager::instance().freePage(m_pKnownMaps[i].paddr);
 
       m_pKnownMaps[i].active = false;
@@ -688,8 +804,11 @@ HostedVirtualAddressSpace::HostedVirtualAddressSpace(void* Heap, void* VirtualSt
       m_nLastUnmap(0) {}
 
 uint64_t HostedVirtualAddressSpace::toFlags(size_t flags, bool bFinal) {
+  if (flags & NoAccess) {
+    return PROT_NONE;
+  }
   uint64_t Flags = 0;
-  if (flags & Write)
+  if ((flags & Write) && !(flags & WriteProtected))
     Flags |= PROT_WRITE;
   if (flags & Swapped)
     Flags |= PROT_NONE;

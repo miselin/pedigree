@@ -206,6 +206,103 @@ TEST(PedigreeTree, ConstIteration) {
   EXPECT_EQ(it, readOnly.end());
 }
 
+TEST(PedigreeTree, LowerBoundEmptyPreservesOutputs) {
+  const Tree<int, int> x;
+  int key = 91;
+  int value = 92;
+  EXPECT_FALSE(x.lowerBound(0, key, value));
+  EXPECT_EQ(key, 91);
+  EXPECT_EQ(value, 92);
+}
+
+TEST(PedigreeTree, LowerBoundOrdering) {
+  Tree<int, int> x;
+  const int inserted[] = {40, 10, 70, 20, 60, 30, 50};
+  for (int key : inserted) {
+    x.insert(key, key == 40 ? 0 : key + 100);
+  }
+  const Tree<int, int>& readOnly = x;
+  const int queries[] = {-1, 10, 11, 20, 35, 40, 69, 70};
+  const int expected[] = {10, 10, 20, 20, 40, 40, 70, 70};
+  for (size_t i = 0; i < sizeof(queries) / sizeof(queries[0]); ++i) {
+    int key = -1;
+    int value = -1;
+    ASSERT_TRUE(readOnly.lowerBound(queries[i], key, value));
+    EXPECT_EQ(key, expected[i]);
+    EXPECT_EQ(value, expected[i] == 40 ? 0 : expected[i] + 100);
+  }
+
+  int key = 91;
+  int value = 92;
+  EXPECT_FALSE(readOnly.lowerBound(71, key, value));
+  EXPECT_EQ(key, 91);
+  EXPECT_EQ(value, 92);
+}
+
+TEST(PedigreeTree, LowerBoundPreservesKeyRequirements) {
+  struct Key {
+    int number;
+    bool operator==(const Key& other) const {
+      return number == other.number;
+    }
+    bool operator>(const Key& other) const {
+      return number > other.number;
+    }
+  };
+  Tree<Key, int> x;
+  x.insert(Key{3}, 30);
+  x.insert(Key{1}, 10);
+  x.insert(Key{5}, 50);
+  Key key{91};
+  int value = 92;
+  ASSERT_TRUE(x.lowerBound(Key{2}, key, value));
+  EXPECT_EQ(key.number, 3);
+  EXPECT_EQ(value, 30);
+}
+
+TEST(PedigreeTree, LowerBoundCursorSurvivesRemoval) {
+  Tree<int, int> x;
+  for (int i = 0; i < 64; ++i) {
+    const int index = i * 37 % 64;
+    x.insert(index * 4096, index + 100);
+  }
+
+  int cursor = 0;
+  int key = -1;
+  int value = -1;
+  int visited = 0;
+  size_t retained = 0;
+  while (x.lowerBound(cursor, key, value)) {
+    ASSERT_LT(visited, 64);
+    ASSERT_EQ(key, visited * 4096);
+    EXPECT_EQ(value, visited + 100);
+    cursor = key + 1;
+    if (visited < 16 || visited % 3 == 0) {
+      ++retained;
+    } else {
+      x.remove(key);
+    }
+    ++visited;
+  }
+  EXPECT_EQ(visited, 64);
+  EXPECT_EQ(x.count(), retained);
+  for (int i = 0; i < 64; ++i) {
+    EXPECT_EQ(x.contains(i * 4096), i < 16 || i % 3 == 0);
+  }
+
+  cursor = 0;
+  size_t removed = 0;
+  while (x.lowerBound(cursor, key, value)) {
+    ASSERT_LT(removed, retained);
+    cursor = key + 1;
+    x.remove(key);
+    EXPECT_EQ(value, key / 4096 + 100);
+    ++removed;
+  }
+  EXPECT_EQ(removed, retained);
+  EXPECT_EQ(x.count(), 0U);
+}
+
 TEST(PedigreeTree, InsertMove) {
   Tree<int, SharedPointer<int>> x;
   auto y = SharedPointer<int>::allocate();

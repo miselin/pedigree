@@ -152,7 +152,11 @@ bool Scheduler::threadInSchedule(Thread* pThread) {
 }
 
 size_t Scheduler::reserveProcessId() {
-  return (m_NextPid += 1) - 1;  // little dance for Atomic
+  const size_t id = (m_NextPid += 1) - 1;
+  // Linux robust owner words reserve the upper two bits. IDs are never
+  // recycled, so exhaustion cannot silently alias an older owner.
+  assert(id < 0x3FFFFFFF);
+  return id;
 }
 
 void Scheduler::releaseProcessLease(Process* process) {
@@ -298,6 +302,40 @@ bool Scheduler::acquireProcessById(ProcessLease& lease, size_t id) {
   m_SchedulerLock.release();
   lease = ProcessLease(pResult);
   return pResult != nullptr;
+}
+
+bool Scheduler::acquireThreadByTaskId(Process::ThreadLease& lease, size_t id) {
+  lease.reset();
+  size_t afterId = 0;
+  while (afterId < id) {
+    Process* candidate = nullptr;
+    m_SchedulerLock.acquire(SCHEDULER_HAS_RECURSIVE_SPINLOCKS, SCHEDULER_HAS_SAFE_SPINLOCKS);
+    for (List<Process*>::Iterator it = m_Processes.begin(); it != m_Processes.end(); ++it) {
+      Process* process = *it;
+      const size_t processId = process->getId();
+      if (processId > afterId && processId <= id &&
+          (!candidate || processId < candidate->getId())) {
+        candidate = process;
+      }
+    }
+    if (candidate) {
+      afterId = candidate->getId();
+      if (!candidate->beginExternalLease()) {
+        candidate = nullptr;
+      }
+    } else {
+      afterId = id;
+    }
+    m_SchedulerLock.release();
+
+    // A numeric cursor cannot skip a surviving process when a preceding
+    // process disappears. Its lease bridges the two independent locks.
+    ProcessLease process(candidate);
+    if (process && process->acquireThreadByTaskId(lease, id)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void Scheduler::waitUntilProcessRemoved(Process* expected) {

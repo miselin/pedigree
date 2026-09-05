@@ -163,6 +163,7 @@ int signalCode(Subsystem::ExceptionType exception, uintptr_t errorCode) {
     case Subsystem::InvalidOpcode:
       return ILL_ILLOPC;
     case Subsystem::GeneralProtectionFault:
+    case Subsystem::FileMappingFault:
       return BUS_ADRERR;
     case Subsystem::DivideByZero:
       return FPE_INTDIV;
@@ -176,7 +177,9 @@ int signalCode(Subsystem::ExceptionType exception, uintptr_t errorCode) {
 
 uintptr_t signalAddress(Subsystem::ExceptionType exception, const InterruptState& state,
                         uintptr_t faultAddress) {
-  return exception == Subsystem::PageFault ? faultAddress : state.getInstructionPointer();
+  return exception == Subsystem::PageFault || exception == Subsystem::FileMappingFault
+             ? faultAddress
+             : state.getInstructionPointer();
 }
 
 void badFrame() {
@@ -438,8 +441,10 @@ LinuxAmd64Signal::DeliveryResult LinuxAmd64Signal::deliverSynchronous(
     frame.ucontext.stack.flags = SS_DISABLE;
   }
   populateSigcontext(frame.ucontext.mcontext, state, oldMask,
-                     exception == Subsystem::PageFault ? faultAddress : 0, errorCode,
-                     fpstateAddress);
+                     exception == Subsystem::PageFault || exception == Subsystem::FileMappingFault
+                         ? faultAddress
+                         : 0,
+                     errorCode, fpstateAddress);
   frame.ucontext.signalMask = oldMask;
 
   setSiginfo32(frame.info, 0, signal);

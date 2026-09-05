@@ -218,7 +218,8 @@ static bool doStat(const char* name, File* pFile, struct stat* st, bool traverse
   // Clear any cruft in the stat structure before we fill it.
   ByteSet(st, 0, sizeof(*st));
 
-  uint32_t permissions = pFile->getPermissions();
+  const File::Attributes attributes = pFile->getAttributes();
+  uint32_t permissions = attributes.permissions;
   if (permissions & FILE_UR)
     mode |= S_IRUSR;
   if (permissions & FILE_UW)
@@ -243,25 +244,24 @@ static bool doStat(const char* name, File* pFile, struct stat* st, bool traverse
 
   Filesystem* pFs = pFile->getFilesystem();
 
-  /// \todo expose number of links and number of blocks from Files
   st->st_dev = static_cast<short>(reinterpret_cast<uintptr_t>(pFile->getFilesystem()));
   F_NOTICE("    -> " << st->st_dev);
   st->st_ino = pFile->getInode();
   F_NOTICE("    -> " << st->st_ino);
   st->st_mode = mode;
-  st->st_nlink = 1;
-  st->st_uid = pFile->getUid();
-  st->st_gid = pFile->getGid();
+  st->st_nlink = attributes.links;
+  st->st_uid = attributes.uid;
+  st->st_gid = attributes.gid;
   F_NOTICE("    -> uid=" << Dec << st->st_uid);
   F_NOTICE("    -> gid=" << Dec << st->st_gid);
   st->st_rdev = 0;
-  st->st_size = pFile->getSize();
+  st->st_size = attributes.size;
   F_NOTICE("    -> " << st->st_size);
-  st->st_atime = pFile->getAccessedTime();
-  st->st_mtime = pFile->getModifiedTime();
-  st->st_ctime = pFile->getCreationTime();
+  st->st_atime = attributes.accessed;
+  st->st_mtime = attributes.modified;
+  st->st_ctime = attributes.changed;
   st->st_blksize = pFile->getBlockSize();
-  st->st_blocks = (st->st_size / 512) + ((st->st_size % 512) ? 1 : 0);
+  st->st_blocks = attributes.blocks;
 
   // Special fixups
   if (pFs == g_pDevFs) {
@@ -408,6 +408,13 @@ static struct Remapping {
 static RamFs* g_pSelinuxFs = nullptr;
 
 bool normalisePath(String& nameToOpen, const char* name, bool* onDevFs) {
+  if (!name || !name[0]) {
+    nameToOpen.clear();
+    if (onDevFs) {
+      *onDevFs = false;
+    }
+    return true;
+  }
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
   // Compatibility mappings apply consistently while old PUP packages are
@@ -826,7 +833,7 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
       SYSCALL_ERROR(BadAddress);
       return -1;
     }
-    return posix_send_descriptor(pFd, ptr, len, 0);
+    return posix_send_descriptor(pFd, ptr, len, 0, nocheck);
   }
 
   if (!pFd->file) {
@@ -884,6 +891,7 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
         return -1;
       }
 
+      pThread->setErrno(0);
       uint64_t amount = 0;
       if (position) {
         uint64_t location = position->offset();
@@ -901,15 +909,22 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
       }
       const bool signalInterrupted =
           pThread->getInterruptionReason() == Thread::InterruptedBySignal;
+      const size_t backendError = pThread->getErrno();
 
       if (!amount) {
         if (totalWritten) {
+          pThread->setErrno(0);
           break;
         }
         if (signalInterrupted) {
           pThread->clearInterruption();
           SYSCALL_ERROR(Interrupted);
           F_NOTICE(" -> interrupted");
+          return -1;
+        }
+        if (backendError) {
+          pThread->clearInterruption();
+          deliverPipeSignal = pipeLike && backendError == Error::BrokenPipe;
           return -1;
         }
         if (pipeLike && !Pipe::fromFile(pFd->file)->getReaderCount()) {
@@ -934,6 +949,7 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
         break;
       }
 
+      pThread->setErrno(0);
       totalWritten += amount;
       if (amount < requested || signalInterrupted ||
           pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
@@ -1155,13 +1171,23 @@ ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
       return -1;
     }
 
+    thread->setErrno(0);
     const uint64_t amount = writeGuard.write(startingOffset + totalWritten, requested,
                                              reinterpret_cast<uintptr_t>(bounce.get()), canBlock);
     const bool signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+    const size_t backendError = thread->getErrno();
     if (!amount) {
       if (!totalWritten && signalInterrupted) {
         thread->clearInterruption();
         SYSCALL_ERROR(Interrupted);
+        return -1;
+      }
+      if (totalWritten) {
+        thread->setErrno(0);
+        break;
+      }
+      if (backendError) {
+        thread->clearInterruption();
         return -1;
       }
       if (!canBlock) {
@@ -1172,6 +1198,7 @@ ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
       break;
     }
 
+    thread->setErrno(0);
     totalWritten += amount;
     if (amount < requested || signalInterrupted ||
         thread->getInterruptionReason() == Thread::InterruptedBySignal) {
@@ -1229,6 +1256,7 @@ static int writeFileVectorElement(Thread* thread, const DescriptorLease& descrip
   File* file = descriptor->file;
   const bool canBlock = !(statusFlags & O_NONBLOCK);
 
+  thread->setErrno(0);
   uint64_t written = 0;
   if (file->isSeekable()) {
     assert(position);
@@ -1245,13 +1273,24 @@ static int writeFileVectorElement(Thread* thread, const DescriptorLease& descrip
   }
 
   signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+  const size_t backendError = thread->getErrno();
   thread->clearInterruption();
   if (!written && signalInterrupted) {
     if (reportError) {
       SYSCALL_ERROR(Interrupted);
+    } else {
+      thread->setErrno(0);
     }
     return -1;
   }
+  if (!written && backendError) {
+    deliverPipeSignal = (file->isPipe() || file->isFifo()) && backendError == Error::BrokenPipe;
+    if (!reportError) {
+      thread->setErrno(0);
+    }
+    return -1;
+  }
+  thread->setErrno(0);
 
   const bool pipeLike = file->isPipe() || file->isFifo();
   if (!canBlock && !written && length && (!pipeLike || Pipe::fromFile(file)->getReaderCount())) {
@@ -1937,6 +1976,7 @@ ssize_t positionalWriteVector(int fd, const struct iovec* iov, int iovcnt, off_t
       return -1;
     }
 
+    thread->setErrno(0);
     uint64_t location = startingOffset + totalWritten;
     const uint64_t amount =
         append ? writeGuard.append(requested, reinterpret_cast<uintptr_t>(bounce.get()), location,
@@ -1944,10 +1984,18 @@ ssize_t positionalWriteVector(int fd, const struct iovec* iov, int iovcnt, off_t
                : writeGuard.write(location, requested, reinterpret_cast<uintptr_t>(bounce.get()),
                                   canBlock);
     const bool signalInterrupted = thread->getInterruptionReason() == Thread::InterruptedBySignal;
+    const size_t backendError = thread->getErrno();
     if (!amount) {
       thread->clearInterruption();
       if (!totalWritten && signalInterrupted) {
         SYSCALL_ERROR(Interrupted);
+        return -1;
+      }
+      if (totalWritten) {
+        thread->setErrno(0);
+        return static_cast<ssize_t>(totalWritten);
+      }
+      if (backendError) {
         return -1;
       }
       if (!canBlock) {
@@ -1957,6 +2005,7 @@ ssize_t positionalWriteVector(int fd, const struct iovec* iov, int iovcnt, off_t
       return static_cast<ssize_t>(totalWritten);
     }
 
+    thread->setErrno(0);
     totalWritten += static_cast<size_t>(amount);
     if (amount < requested || signalInterrupted ||
         thread->getInterruptionReason() == Thread::InterruptedBySignal) {
@@ -2101,7 +2150,10 @@ static int readProcSelfFdTarget(size_t fd, char* buf, size_t bufsiz) {
   String target;
   descriptor->file->getFullPath(target);
   const size_t copied = target.length() < bufsiz ? target.length() : bufsiz;
-  StringCopyN(buf, target.cstr(), copied);
+  if (!PosixSubsystem::copyToUser(buf, target.cstr(), copied)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
   return static_cast<int>(copied);
 }
 
@@ -2146,14 +2198,17 @@ int posix_realpath(const char* path, char* buf, size_t bufsize) {
 
   String actualPath;
   f->getFullPath(actualPath);
-  if (actualPath.length() > (bufsize - 1)) {
+  if (actualPath.length() >= bufsize) {
     SYSCALL_ERROR(NameTooLong);
     return -1;
   }
 
   // File is good, copy it now.
   F_NOTICE("  -> returning " << actualPath);
-  StringCopyN(buf, static_cast<const char*>(actualPath), bufsize);
+  if (!PosixSubsystem::copyToUser(buf, actualPath.cstr(), actualPath.length() + 1)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
 
   return 0;
 }
@@ -2171,13 +2226,6 @@ int posix_rename(const char* source, const char* dst) {
 }
 
 int posix_getcwd(char* buf, size_t maxlen) {
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), maxlen,
-                                    PosixSubsystem::SafeWrite)) {
-    F_NOTICE("getcwd -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
   F_NOTICE("getcwd(" << maxlen << ")");
 
   Process* process = Processor::information().getCurrentThread()->getParent();
@@ -2192,12 +2240,15 @@ int posix_getcwd(char* buf, size_t maxlen) {
   curr->getFullPath(str);
 
   size_t maxLength = str.length();
-  if (maxLength > maxlen) {
+  if (maxLength >= maxlen) {
     // Too long.
     SYSCALL_ERROR(BadRange);
     return -1;
   }
-  StringCopyN(buf, static_cast<const char*>(str), maxLength);
+  if (!PosixSubsystem::copyToUser(buf, str.cstr(), maxLength + 1)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
 
   F_NOTICE(" -> " << str);
 
@@ -2249,6 +2300,13 @@ static int getdents_common(int fd,
     return 0;
   }
 
+  const size_t capacity = static_cast<size_t>(count) < 65536 ? count : 65536;
+  UniqueArray<uint8_t> entries = UniqueArray<uint8_t>::allocate(capacity);
+  if (!entries) {
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
+
   // Navigate the directory tree.
   Directory* pDirectory = Directory::fromFile(pFd->file);
   struct Context {
@@ -2257,7 +2315,7 @@ static int getdents_common(int fd,
     size_t available;
     size_t written;
     bool rejected;
-  } context = {set_dent, buffer, static_cast<size_t>(count), 0, false};
+  } context = {set_dent, entries.get(), capacity, 0, false};
 
   auto emitter = [](void* opaque, const Directory::DirectoryEntryView& entry) -> bool {
     Context* context = reinterpret_cast<Context*>(opaque);
@@ -2275,7 +2333,6 @@ static int getdents_common(int fd,
   FileDescriptor::PositionGuard position = pFd->lockPosition();
   uint64_t cookie = position.offset();
   Directory::ReadStatus status = pDirectory->enumerate(cookie, emitter, &context);
-  position.setOffset(cookie);
 
   if (status == Directory::ReadStatus::IoError && !context.written) {
     SYSCALL_ERROR(IoError);
@@ -2285,6 +2342,11 @@ static int getdents_common(int fd,
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
+  if (!PosixSubsystem::copyToUser(buffer, entries.get(), context.written)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  position.setOffset(cookie);
 
   F_NOTICE(" -> " << context.written);
   return context.written;
@@ -2319,13 +2381,15 @@ static size_t getdents_helper(const Directory::DirectoryEntryView& file, void* b
 
   size_t filenameLength = file.name.length();
   // dirent struct, filename, null terminator, and d_type
-  size_t reclen = sizeof(struct linux_dirent) + filenameLength + 2;
+  size_t reclen = (offsetof(struct linux_dirent, d_name) + filenameLength + 2 + sizeof(long) - 1) &
+                  ~(sizeof(long) - 1);
   // do we have room for this record?
   if (avail < reclen) {
     // need to call again with more space available
     return 0;
   }
 
+  ByteSet(entry, 0, reclen);
   entry->d_reclen = reclen;
   entry->d_off = file.nextCookie;
 
@@ -2347,13 +2411,15 @@ static size_t getdents64_helper(const Directory::DirectoryEntryView& file, void*
   struct dirent* entry = reinterpret_cast<struct dirent*>(buffer);
 
   size_t filenameLength = file.name.length();
-  size_t reclen = offsetof(struct dirent, d_name) + filenameLength + 1;  // needs null terminator
+  size_t reclen = (offsetof(struct dirent, d_name) + filenameLength + 1 + sizeof(uint64_t) - 1) &
+                  ~(sizeof(uint64_t) - 1);
   // do we have room for this record?
   if (avail < reclen) {
     // need to call again with more space available
     return 0;
   }
 
+  ByteSet(entry, 0, reclen);
   entry->d_reclen = reclen;
   entry->d_off = file.nextCookie;
 
@@ -2378,7 +2444,7 @@ int posix_getdents(int fd, struct linux_dirent* ents, int count) {
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ents), count,
                                     PosixSubsystem::SafeWrite)) {
     F_NOTICE("getdents -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
@@ -2394,11 +2460,29 @@ int posix_getdents64(int fd, struct dirent* ents, int count) {
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(ents), count,
                                     PosixSubsystem::SafeWrite)) {
     F_NOTICE("getdents64 -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
   return getdents_common(fd, getdents64_helper, ents, count);
+}
+
+template <typename T>
+static bool copyIoctlInput(const void* buffer, T& value) {
+  if (!PosixSubsystem::copyFromUser(&value, buffer, sizeof(value))) {
+    SYSCALL_ERROR(BadAddress);
+    return false;
+  }
+  return true;
+}
+
+template <typename T>
+static int copyIoctlResult(void* buffer, const T& value) {
+  if (!PosixSubsystem::copyToUser(buffer, &value, sizeof(value))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  return 0;
 }
 
 int posix_ioctl(int fd, size_t command, void* buf) {
@@ -2426,8 +2510,6 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     return -1;
   }
 
-  /// \todo Sanitise buf, if it has meaning for the command.
-
   if (f->file->supports(command)) {
     return f->file->command(command, buf);
   }
@@ -2436,8 +2518,8 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     // KDGETLED
     case 0x4B31: {
       F_NOTICE(" -> KDGETLED, arg=" << buf);
-      char* cbuf = reinterpret_cast<char*>(buf);
-      *cbuf = Machine::instance().getKeyboard()->getLedState();
+      const char state = Machine::instance().getKeyboard()->getLedState();
+      return copyIoctlResult(buf, state);
     }
       return 0;
 
@@ -2454,8 +2536,7 @@ int posix_ioctl(int fd, size_t command, void* buf) {
       F_NOTICE(" -> KDGKBTYPE");
       if (ConsoleManager::instance().isConsole(f->file)) {
         // US 101
-        *reinterpret_cast<int*>(buf) = 0x02;
-        return 0;
+        return copyIoctlResult(buf, static_cast<unsigned char>(0x02));
       } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;
@@ -2476,14 +2557,10 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     // KDGETMODE
     case 0x4b3b: {
       F_NOTICE(" -> KDGETMODE");
-      switch (g_pDevFs->getTerminalManager().getSystemMode()) {
-        case VirtualTerminalManager::Graphics:
-          *reinterpret_cast<int*>(buf) = 1;
-          break;
-        case VirtualTerminalManager::Text:
-          *reinterpret_cast<int*>(buf) = 0;
-          break;
-      }
+      const int mode =
+          g_pDevFs->getTerminalManager().getSystemMode() == VirtualTerminalManager::Graphics ? 1
+                                                                                             : 0;
+      return copyIoctlResult(buf, mode);
     }
       return 0;
 
@@ -2523,7 +2600,11 @@ int posix_ioctl(int fd, size_t command, void* buf) {
       F_NOTICE(" -> KDGKBENT, arg=" << buf);
       POSIX_VERBOSE_LOG("io", " -> KDGKBENT, arg=" << buf);
 
-      struct kbentry* kbent = reinterpret_cast<struct kbentry*>(buf);
+      struct kbentry entryCopy = {};
+      if (!copyIoctlInput(buf, entryCopy)) {
+        return -1;
+      }
+      struct kbentry* kbent = &entryCopy;
       bool shift = kbent->kb_table & 0x1;
       bool altgr = kbent->kb_table & 0x2;
       bool ctrl = kbent->kb_table & 0x4;
@@ -2546,6 +2627,7 @@ int posix_ioctl(int fd, size_t command, void* buf) {
       POSIX_VERBOSE_LOG("io", " -> val for table #" << Dec << kbent->kb_table << " #" << Hex
                                                     << kbent->kb_index << " is now "
                                                     << kbent->kb_value << "!");
+      return copyIoctlResult(buf, entryCopy);
     }
       return 0;
 
@@ -2599,8 +2681,7 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     case TIOCGPGRP: {
       if (ConsoleManager::instance().isConsole(f->file)) {
         pid_t pgrp = posix_tcgetpgrp(fd);
-        *reinterpret_cast<pid_t*>(buf) = pgrp;
-        return 0;
+        return pgrp < 0 ? -1 : copyIoctlResult(buf, pgrp);
       } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;
@@ -2609,7 +2690,8 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
     case TIOCSPGRP: {
       if (ConsoleManager::instance().isConsole(f->file)) {
-        return posix_tcsetpgrp(fd, *reinterpret_cast<pid_t*>(buf));
+        pid_t pgrp = 0;
+        return copyIoctlInput(buf, pgrp) ? posix_tcsetpgrp(fd, pgrp) : -1;
       } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;
@@ -2628,7 +2710,9 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     case TIOCGWINSZ: {
       if (ConsoleManager::instance().isConsole(f->file)) {
         F_NOTICE(" -> TIOCGWINSZ");
-        return console_getwinsize(f->file, reinterpret_cast<struct winsize*>(buf));
+        struct winsize value = {};
+        const int result = console_getwinsize(f->file, &value);
+        return result < 0 ? result : copyIoctlResult(buf, value);
       } else {
         SYSCALL_ERROR(NotAConsole);
         return -1;
@@ -2637,7 +2721,11 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
     case TIOCSWINSZ: {
       if (ConsoleManager::instance().isConsole(f->file)) {
-        const struct winsize* ws = reinterpret_cast<const struct winsize*>(buf);
+        struct winsize value = {};
+        if (!copyIoctlInput(buf, value)) {
+          return -1;
+        }
+        const struct winsize* ws = &value;
         F_NOTICE(" -> TIOCSWINSZ " << Dec << ws->ws_col << "x" << ws->ws_row << Hex);
         return console_setwinsize(f->file, ws);
       } else {
@@ -2675,18 +2763,17 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
     case FIONBIO: {
       F_NOTICE(" -> FIONBIO");
-      // set/unset non-blocking
-      if (buf) {
-        int a = *reinterpret_cast<int*>(buf);
-        if (a) {
-          F_NOTICE("  -> set non-blocking");
-          f->addStatusFlag(O_NONBLOCK);
-        } else {
-          F_NOTICE("  -> set blocking");
-          f->removeStatusFlag(O_NONBLOCK);
-        }
-      } else
+      int enabled = 0;
+      if (!copyIoctlInput(buf, enabled)) {
+        return -1;
+      }
+      if (enabled) {
+        F_NOTICE("  -> set non-blocking");
+        f->addStatusFlag(O_NONBLOCK);
+      } else {
+        F_NOTICE("  -> set blocking");
         f->removeStatusFlag(O_NONBLOCK);
+      }
 
       return 0;
     }
@@ -2695,17 +2782,9 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     case 0x5600: {
       F_NOTICE(" -> VT_OPENQRY (stubbed)");
 
-      int* ibuf = reinterpret_cast<int*>(buf);
-
       size_t newTty = g_pDevFs->getTerminalManager().openInactive();
-      if (newTty != ~0U) {
-        NOTICE("VT_OPENQRY => " << newTty);
-        *ibuf = newTty + 1;
-      } else {
-        *ibuf = -1;
-      }
-
-      return 0;
+      const int result = newTty != ~0U ? static_cast<int>(newTty + 1) : -1;
+      return copyIoctlResult(buf, result);
     }
 
     // VT_GETMODE
@@ -2716,8 +2795,7 @@ int posix_ioctl(int fd, size_t command, void* buf) {
       /// descriptor
       size_t currentTty = g_pDevFs->getTerminalManager().getCurrentTerminalNumber();
 
-      struct vt_mode* mode = reinterpret_cast<struct vt_mode*>(buf);
-      *mode = g_pDevFs->getTerminalManager().getTerminalMode(currentTty);
+      return copyIoctlResult(buf, g_pDevFs->getTerminalManager().getTerminalMode(currentTty));
     }
       return 0;
 
@@ -2725,12 +2803,15 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     case 0x5602: {
       F_NOTICE(" -> VT_SETMODE (stubbed)");
 
-      const struct vt_mode* mode = reinterpret_cast<const struct vt_mode*>(buf);
+      struct vt_mode mode = {};
+      if (!copyIoctlInput(buf, mode)) {
+        return -1;
+      }
 
       /// \todo this should actually use the tty number of the file
       /// descriptor
       size_t currentTty = g_pDevFs->getTerminalManager().getCurrentTerminalNumber();
-      g_pDevFs->getTerminalManager().setTerminalMode(currentTty, *mode);
+      g_pDevFs->getTerminalManager().setTerminalMode(currentTty, mode);
     }
       return 0;
 
@@ -2738,8 +2819,7 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     case 0x5603: {
       F_NOTICE(" -> VT_GETSTATE (stubbed)");
 
-      struct vt_stat* stat = reinterpret_cast<struct vt_stat*>(buf);
-      *stat = g_pDevFs->getTerminalManager().getState();
+      return copyIoctlResult(buf, g_pDevFs->getTerminalManager().getState());
     }
       return 0;
 
@@ -3083,12 +3163,19 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
           : (fixed ? MemoryMapManager::Placement::FixedReplace : MemoryMapManager::Placement::Hint);
 
   // Verify the passed length and file offset before rounding either input.
-  if (!len || len > ~static_cast<size_t>(0) - pageMask ||
+  const int mappingType = flags & (MAP_PRIVATE | MAP_SHARED);
+  if ((prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) ||
+      (mappingType != MAP_PRIVATE && mappingType != MAP_SHARED) || !len ||
+      len > ~static_cast<size_t>(0) - pageMask ||
       (!(flags & MAP_ANON) && (off < 0 || (static_cast<uint64_t>(off) & pageMask)))) {
     SYSCALL_ERROR(InvalidArgument);
     return MAP_FAILED;
   }
   const size_t roundedLength = (len + pageMask) & ~pageMask;
+  if (!(flags & MAP_ANON) && static_cast<uint64_t>(off) > ~static_cast<size_t>(0) - roundedLength) {
+    SYSCALL_ERROR(InvalidArgument);
+    return MAP_FAILED;
+  }
 
   // Sanitise input.
   uintptr_t sanityAddress = reinterpret_cast<uintptr_t>(addr);
@@ -3154,32 +3241,39 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
       return MAP_FAILED;
     }
 
-    /// \todo check flags on the file descriptor (e.g. O_RDONLY shouldn't be
-    /// opened writeable)
-
     // Grab the file to map in
     File* fileToMap = f->file;
-    if (!fileToMap) {
+    if (!fileToMap || fileToMap->isDirectory()) {
       SYSCALL_ERROR(NoSuchDevice);
       return MAP_FAILED;
     }
 
-    // Check file permissions required to read the backing object and to
-    // update it for shared writable mappings. PROT_EXEC describes the
-    // resulting memory mapping, not the inode's execute bit: Linux
-    // routinely maps 0644 shared libraries with executable segments.
-    // The execute bit is checked when launching a file in invoke().
-    if (!VFS::checkAccess(fileToMap, prot & PROT_READ, (prot & PROT_WRITE) && (flags & MAP_SHARED),
-                          false)) {
-      F_NOTICE("  -> mmap on " << fileToMap->getFullPath() << " failed due to permissions.");
+    const int descriptorFlags = f->getStatusFlags();
+    const int accessMode = descriptorFlags & O_ACCMODE;
+    if (descriptorFlags & O_PATH) {
+      SYSCALL_ERROR(BadFileDescriptor);
       return MAP_FAILED;
+    }
+    if (accessMode == O_WRONLY) {
+      SYSCALL_ERROR(PermissionDenied);
+      return MAP_FAILED;
+    }
+    MemoryMappedObject::Permissions maximumPerms =
+        MemoryMappedObject::Read | MemoryMappedObject::Write | MemoryMappedObject::Exec;
+    if ((flags & MAP_SHARED) && accessMode != O_RDWR) {
+      maximumPerms &= ~MemoryMappedObject::Write;
+      if (prot & PROT_WRITE) {
+        SYSCALL_ERROR(PermissionDenied);
+        return MAP_FAILED;
+      }
     }
 
     F_NOTICE("mmap: file name is " << fileToMap->getFullPath());
 
     bool bCopyOnWrite = (flags & MAP_SHARED) == 0;
-    MemoryMappedObject* pFile = MemoryMapManager::instance().mapFile(
-        fileToMap, sanityAddress, len, perms, off, bCopyOnWrite, placement, &mapStatus);
+    MemoryMappedObject* pFile =
+        MemoryMapManager::instance().mapFile(fileToMap, sanityAddress, roundedLength, perms, off,
+                                             bCopyOnWrite, placement, &mapStatus, maximumPerms);
     if (!pFile) {
       if (mapStatus == MemoryMapManager::MapStatus::AddressInUse) {
         SYSCALL_ERROR(FileExists);
@@ -3197,75 +3291,56 @@ void* posix_mmap(void* addr, size_t len, int prot, int flags, int fd, off_t off)
 }
 
 int posix_msync(void* p, size_t len, int flags) {
-  F_NOTICE("msync");
-  F_NOTICE("  -> addr=" << p << ", len=" << len << ", flags=" << Hex << flags);
-
-  uintptr_t addr = reinterpret_cast<uintptr_t>(p);
-  size_t pageSz = PhysicalMemoryManager::getPageSize();
-
-  // Verify the passed length
-  if (!len || (addr & (pageSz - 1))) {
+  const uintptr_t address = reinterpret_cast<uintptr_t>(p);
+  const size_t pageMask = PhysicalMemoryManager::getPageSize() - 1;
+  if ((address & pageMask) || (flags & ~(MS_ASYNC | MS_INVALIDATE | MS_SYNC)) ||
+      ((flags & MS_ASYNC) && (flags & MS_SYNC))) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-
-  if ((flags & ~(MS_ASYNC | MS_INVALIDATE | MS_SYNC)) != 0) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
+  if (!len) {
+    return 0;
   }
-
-  // Make sure there's at least one object we'll touch.
-  if (!MemoryMapManager::instance().contains(addr, len)) {
+  if (len > ~static_cast<size_t>(0) - pageMask ||
+      ((len + pageMask) & ~pageMask) > ~static_cast<uintptr_t>(0) - address ||
+      !MemoryMapManager::instance().sync(address, len, flags & MS_ASYNC)) {
     SYSCALL_ERROR(OutOfMemory);
     return -1;
   }
-
-  if (flags & MS_INVALIDATE) {
-    MemoryMapManager::instance().invalidate(addr, len);
-  } else {
-    MemoryMapManager::instance().sync(addr, len, flags & MS_ASYNC);
-  }
-
   return 0;
 }
 
 int posix_mprotect(void* p, size_t len, int prot) {
-  F_NOTICE("mprotect");
-  F_NOTICE("  -> addr=" << p << ", len=" << len << ", prot=" << Hex << prot);
-
-  uintptr_t addr = reinterpret_cast<uintptr_t>(p);
-  size_t pageSz = PhysicalMemoryManager::getPageSize();
-
-  // Verify the passed length
-  if (!len || (addr & (pageSz - 1))) {
+  const uintptr_t address = reinterpret_cast<uintptr_t>(p);
+  const size_t pageMask = PhysicalMemoryManager::getPageSize() - 1;
+  if ((address & pageMask) || (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-
-  // Make sure there's at least one object we'll touch.
-  if (!MemoryMapManager::instance().contains(addr, len)) {
-    SYSCALL_ERROR(OutOfMemory);
+  if (!len) {
+    return 0;
+  }
+  MemoryMappedObject::Permissions permissions = MemoryMappedObject::None;
+  if (prot != PROT_NONE) {
+    permissions = MemoryMappedObject::Read;
+    if (prot & PROT_WRITE) {
+      permissions |= MemoryMappedObject::Write;
+    }
+    if (prot & PROT_EXEC) {
+      permissions |= MemoryMappedObject::Exec;
+    }
+  }
+  MemoryMapManager::ProtectStatus status;
+  if (!MemoryMapManager::instance().setPermissions(address, len, permissions, &status)) {
+    if (status == MemoryMapManager::ProtectStatus::AccessDenied) {
+      SYSCALL_ERROR(PermissionDenied);
+    } else if (status == MemoryMapManager::ProtectStatus::Unsupported) {
+      SYSCALL_ERROR(OperationNotSupported);
+    } else {
+      SYSCALL_ERROR(OutOfMemory);
+    }
     return -1;
   }
-
-  // Create permission set.
-  MemoryMappedObject::Permissions perms;
-  if (prot == PROT_NONE) {
-    perms = MemoryMappedObject::None;
-  } else {
-    // Everything implies a readable memory region.
-    perms = MemoryMappedObject::Read;
-    if (prot & PROT_WRITE)
-      perms |= MemoryMappedObject::Write;
-    if (prot & PROT_EXEC)
-      perms |= MemoryMappedObject::Exec;
-  }
-
-  /// \todo EACCESS, which needs us to be able to get the File for a given
-  ///       mapping (if one exists).
-
-  MemoryMapManager::instance().setPermissions(addr, len, perms);
-
   return 0;
 }
 
@@ -3297,6 +3372,11 @@ int posix_access(const char* name, int amode) {
 int posix_ftruncate(int a, off_t b) {
   F_NOTICE("ftruncate(" << a << ", " << b << ")");
 
+  if (b < 0) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+
   // Grab the File pointer for this file
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -3316,33 +3396,11 @@ int posix_ftruncate(int a, off_t b) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-
-  // If we are to simply truncate, do so
-  if (b == 0) {
-    pFile->truncate();
-    return 0;
-  } else if (static_cast<size_t>(b) == pFile->getSize())
-    return 0;
-  // If we need to reduce the file size, do so
-  else if (static_cast<size_t>(b) < pFile->getSize()) {
-    pFile->setSize(b);
-    return 0;
+  if ((pFd->getStatusFlags() & O_ACCMODE) == O_RDONLY) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
   }
-  // Otherwise, extend the file
-  else {
-    size_t currSize = pFile->getSize();
-    size_t numExtraBytes = b - currSize;
-    NOTICE("Extending by " << numExtraBytes << " bytes");
-    uint8_t* nullBuffer = new uint8_t[numExtraBytes];
-    NOTICE("Got the buffer");
-    ByteSet(nullBuffer, 0, numExtraBytes);
-    NOTICE("Zeroed the buffer");
-    pFile->write(currSize, numExtraBytes, reinterpret_cast<uintptr_t>(nullBuffer));
-    NOTICE("Deleting the buffer");
-    delete[] nullBuffer;
-    NOTICE("Complete");
-    return 0;
-  }
+  return pFile->resize(static_cast<size_t>(b)) ? 0 : -1;
 }
 
 int posix_fsync(int fd) {
@@ -3378,7 +3436,7 @@ EXPORTED_PUBLIC int pedigree_get_mount(char* mount_buf, char* info_buf, size_t n
         PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(info_buf), PATH_MAX,
                                      PosixSubsystem::SafeWrite))) {
     F_NOTICE("pedigree_get_mount -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
@@ -3401,8 +3459,11 @@ EXPORTED_PUBLIC int pedigree_get_mount(char* mount_buf, char* info_buf, size_t n
         info.assign("no disk", 8);
       }
 
-      StringCopy(mount_buf, static_cast<const char*>(mount.path));
-      StringCopy(info_buf, static_cast<const char*>(info));
+      if (!PosixSubsystem::copyToUser(mount_buf, mount.path.cstr(), mount.path.length() + 1) ||
+          !PosixSubsystem::copyToUser(info_buf, info.cstr(), info.length() + 1)) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
 
       return 0;
     }
@@ -3451,12 +3512,14 @@ int posix_fchdir(int fd) {
   return doChdir(file, targetLease) ? 0 : -1;
 }
 
-static int statvfs_doer(Filesystem* pFs, struct statvfs* buf) {
+static int statvfs_doer(Filesystem* pFs, struct statvfs* userBuffer) {
   if (!pFs) {
     SYSCALL_ERROR(DoesNotExist);
     return -1;
   }
 
+  struct statvfs value = {};
+  struct statvfs* buf = &value;
   /// \todo Get all this data from the Filesystem object
   buf->f_bsize = 4096;
   buf->f_frsize = 512;
@@ -3470,6 +3533,10 @@ static int statvfs_doer(Filesystem* pFs, struct statvfs* buf) {
   buf->f_flag = (pFs->isReadOnly() ? ST_RDONLY : 0) | ST_NOSUID;  // No suid in pedigree yet.
   buf->f_namemax = 0;
 
+  if (!PosixSubsystem::copyToUser(userBuffer, &value, sizeof(value))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
   return 0;
 }
 
@@ -3477,7 +3544,7 @@ int posix_fstatvfs(int fd, struct statvfs* buf) {
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), sizeof(struct statvfs),
                                     PosixSubsystem::SafeWrite)) {
     F_NOTICE("fstatvfs -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
@@ -3550,8 +3617,8 @@ int posix_utime(const char* path, const struct utimbuf* times) {
     F_NOTICE("utimes -> invalid address");
     return -1;
   }
-  if (times && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(times),
-                                             sizeof(struct utimbuf), PosixSubsystem::SafeRead)) {
+  struct utimbuf snapshot = {};
+  if (times && !PosixSubsystem::copyFromUser(&snapshot, times, sizeof(snapshot))) {
     F_NOTICE("utimes -> invalid address");
     SYSCALL_ERROR(BadAddress);
     return -1;
@@ -3585,8 +3652,8 @@ int posix_utime(const char* path, const struct utimbuf* times) {
   Time::Timestamp accessTime;
   Time::Timestamp modifyTime;
   if (times) {
-    accessTime = times->actime * Time::Multiplier::Second;
-    modifyTime = times->modtime * Time::Multiplier::Second;
+    accessTime = snapshot.actime * Time::Multiplier::Second;
+    modifyTime = snapshot.modtime * Time::Multiplier::Second;
   } else {
     accessTime = modifyTime = Time::getTime();
   }
@@ -3891,10 +3958,13 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
   }
 
   // Permissions were OK.
-  if ((flags & O_TRUNC) && ((flags & O_CREAT) || (flags & O_WRONLY) || (flags & O_RDWR))) {
+  if ((flags & O_TRUNC) && !file->isDirectory() && !file->isPipe() && !file->isFifo() &&
+      file->getFilesystem() != g_pDevFs && !ConsoleManager::instance().isConsole(file)) {
     F_NOTICE("  -> {O_TRUNC}");
-    // truncate the file
-    file->truncate();
+    if (!file->resize(0)) {
+      pSubsystem->freeFd(fd);
+      return -1;
+    }
   }
 
   // Final checks.
@@ -4073,9 +4143,8 @@ int posix_futimesat(int dirfd, const char* pathname, const struct timeval* times
     F_NOTICE("utimes -> invalid address");
     return -1;
   }
-  if (times &&
-      !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(times), sizeof(struct timeval) * 2,
-                                    PosixSubsystem::SafeRead)) {
+  struct timeval snapshot[2] = {};
+  if (times && !PosixSubsystem::copyFromUser(snapshot, times, sizeof(snapshot))) {
     F_NOTICE("utimes -> invalid address");
     SYSCALL_ERROR(BadAddress);
     return -1;
@@ -4106,8 +4175,8 @@ int posix_futimesat(int dirfd, const char* pathname, const struct timeval* times
   Time::Timestamp accessTime;
   Time::Timestamp modifyTime;
   if (times) {
-    struct timeval access = times[0];
-    struct timeval modify = times[1];
+    const struct timeval& access = snapshot[0];
+    const struct timeval& modify = snapshot[1];
 
     accessTime = access.tv_sec * Time::Multiplier::Second;
     accessTime += access.tv_usec * Time::Multiplier::Microsecond;
@@ -4168,24 +4237,25 @@ int posix_unlinkat(int dirfd, const char* pathname, int flags) {
 int posix_renameat(int olddirfd, const char* oldpath, int newdirfd, const char* newpath) {
   F_NOTICE("renameat");
 
+  String oldpathCopy;
+  String newpathCopy;
+  if (!copyUserString(oldpath, oldpathCopy) || !copyUserString(newpath, newpathCopy)) {
+    return -1;
+  }
+
   DescriptorLease oldDirDescriptor;
   Process::FileContextLease oldCwdLease;
-  File* oldcwd = check_dirfd(olddirfd, oldDirDescriptor, oldCwdLease);
+  File* oldcwd = check_dirfd(oldpathCopy.length() && oldpathCopy[0] == '/' ? AT_FDCWD : olddirfd,
+                             oldDirDescriptor, oldCwdLease);
   if (!oldcwd) {
     return -1;
   }
 
   DescriptorLease newDirDescriptor;
   Process::FileContextLease newCwdLease;
-  File* newcwd = check_dirfd(newdirfd, newDirDescriptor, newCwdLease);
+  File* newcwd = check_dirfd(newpathCopy.length() && newpathCopy[0] == '/' ? AT_FDCWD : newdirfd,
+                             newDirDescriptor, newCwdLease);
   if (!newcwd) {
-    return -1;
-  }
-
-  String oldpathCopy;
-  String newpathCopy;
-  if (!copyUserString(oldpath, oldpathCopy) || !copyUserString(newpath, newpathCopy)) {
-    F_NOTICE("rename -> invalid address");
     return -1;
   }
 
@@ -4197,58 +4267,8 @@ int posix_renameat(int olddirfd, const char* oldpath, int newdirfd, const char* 
   normalisePath(realSource, oldpathCopy.cstr());
   normalisePath(realDestination, newpathCopy.cstr());
 
-  Directory::ChildLease srcEntryLease;
-  Directory::ChildLease destLease;
-  File* srcEntry = findFileWithAbiFallbacks(realSource, srcEntryLease, oldcwd);
-  File* src = srcEntry;
-  File* dest = findFileWithAbiFallbacks(realDestination, destLease, newcwd);
-
-  if (!src) {
-    SYSCALL_ERROR(DoesNotExist);
-    return -1;
-  }
-
-  // traverse symlink
-  Directory::ChildLease srcTargetLease;
-  src = traverseSymlink(src, srcTargetLease);
-  if (!src) {
-    SYSCALL_ERROR(DoesNotExist);
-    return -1;
-  }
-
-  if (dest) {
-    // traverse symlink
-    dest = traverseSymlink(dest, destLease);
-    if (!dest) {
-      SYSCALL_ERROR(DoesNotExist);
-      return -1;
-    }
-
-    if (dest->isDirectory() && !src->isDirectory()) {
-      SYSCALL_ERROR(FileExists);
-      return -1;
-    } else if (!dest->isDirectory() && src->isDirectory()) {
-      SYSCALL_ERROR(NotADirectory);
-      return -1;
-    }
-  } else {
-    VFS::instance().createFile(realDestination, 0777, newcwd);
-    dest = findFileWithAbiFallbacks(realDestination, destLease, newcwd);
-    if (!dest) {
-      // Failed to create the file?
-      return -1;
-    }
-  }
-
-  // Gay algorithm.
-  uint8_t* buf = new uint8_t[src->getSize()];
-  src->read(0, src->getSize(), reinterpret_cast<uintptr_t>(buf));
-  dest->truncate();
-  dest->write(0, src->getSize(), reinterpret_cast<uintptr_t>(buf));
-  const bool removed = VFS::instance().remove(realSource, oldcwd, srcEntry);
-  delete[] buf;
-
-  return removed ? 0 : -1;
+  LockGuard<Mutex> unixNamespaceGuard(UnixFilesystem::namespaceLock());
+  return VFS::instance().rename(realSource, oldcwd, realDestination, newcwd) ? 0 : -1;
 }
 
 int posix_linkat(int olddirfd, const char* oldpath, int newdirfd, const char* newpath, int flags) {
@@ -4377,7 +4397,8 @@ int posix_readlinkat(int dirfd, const char* pathname, char* buf, size_t bufsiz) 
     return -1;
   }
 
-  F_NOTICE("readlinkat(" << dirfd << ", " << pathnameCopy << ", " << buf << ", " << bufsiz << ")");
+  F_NOTICE("readlinkat(" << dirfd << ", " << pathnameCopy << ", "
+                         << reinterpret_cast<uintptr_t>(buf) << ", " << bufsiz << ")");
 
   String realPath;
   normalisePath(realPath, pathnameCopy.cstr());
@@ -4402,12 +4423,25 @@ int posix_readlinkat(int dirfd, const char* pathname, char* buf, size_t bufsiz) 
   if (buf == 0)
     return -1;
 
-  HugeStaticString str;
-  HugeStaticString tmp;
-  str.clear();
-  tmp.clear();
-
-  return Symlink::fromFile(f)->followLink(buf, bufsiz);
+  if (!bufsiz) {
+    return 0;
+  }
+  // Symlink target loading is bounded to one PATH_MAX-sized buffer.
+  const size_t capacity = bufsiz < PATH_MAX ? bufsiz : PATH_MAX;
+  UniqueArray<char> target = UniqueArray<char>::allocate(capacity);
+  if (!target) {
+    SYSCALL_ERROR(OutOfMemory);
+    return -1;
+  }
+  const int length = Symlink::fromFile(f)->followLink(target.get(), capacity);
+  if (length < 0) {
+    return length;
+  }
+  if (!PosixSubsystem::copyToUser(buf, target.get(), static_cast<size_t>(length))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  return length;
 }
 
 int posix_fchmodat(int dirfd, const char* pathname, mode_t mode, int flags) {
@@ -4680,7 +4714,12 @@ int posix_fstatat(int dirfd, const char* pathname, struct stat* buf, int flags) 
     return -1;
   }
 
-  if (!doStat(0, file, buf, false)) {
+  struct stat snapshot = {};
+  if (!doStat(0, file, &snapshot, false)) {
+    return -1;
+  }
+  if (!PosixSubsystem::copyToUser(buf, &snapshot, sizeof(snapshot))) {
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
@@ -4797,11 +4836,11 @@ int posix_mknod(const char* pathname, mode_t mode, dev_t dev) {
   return 0;
 }
 
-static int do_statfs(File* file, struct statfs* buf) {
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), sizeof(struct statfs),
+static int do_statfs(File* file, struct statfs* userBuffer) {
+  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(userBuffer), sizeof(struct statfs),
                                     PosixSubsystem::SafeWrite)) {
-    F_NOTICE(" -> invalid address for buf [" << buf << "]");
-    SYSCALL_ERROR(InvalidArgument);
+    F_NOTICE(" -> invalid address for buf [" << userBuffer << "]");
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
@@ -4813,6 +4852,8 @@ static int do_statfs(File* file, struct statfs* buf) {
 
   Filesystem* pFs = file->getFilesystem();
 
+  struct statfs value = {};
+  struct statfs* buf = &value;
   /// \todo this is all terrible
   bool bFilled = false;
   if (pFs == g_pDevFs) {
@@ -4850,6 +4891,10 @@ static int do_statfs(File* file, struct statfs* buf) {
     buf->f_frsize = 0;
   }
 
+  if (!PosixSubsystem::copyToUser(userBuffer, &value, sizeof(value))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
   F_NOTICE(" -> ok");
   return 0;
 }

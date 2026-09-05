@@ -83,6 +83,12 @@ Ext2Filesystem::Ext2Filesystem()
 Ext2Filesystem::~Ext2Filesystem() {
   delete m_pRoot;
 
+  for (auto it = m_InodeStates.begin(); it != m_InodeStates.end(); ++it) {
+    assert(!it.value()->references);
+    delete it.value();
+  }
+  m_InodeStates.clear();
+
   if (m_pDisk && m_pSuperblock) {
     if (m_pGroupDescriptors) {
       for (size_t group = 0; group < m_nGroupDescriptors; ++group) {
@@ -644,7 +650,12 @@ bool Ext2Filesystem::findFreeBlocks(uint32_t inode, size_t count, Vector<uint32_
     count -= findFreeBlocksInGroup(group, count, blocks);
   }
 
-  /// \todo should release blocks if we failed to allocate enough blocks.
+  if (count) {
+    for (uint32_t block : blocks) {
+      releaseBlockLocked(block);
+    }
+    blocks.clear();
+  }
   return count == 0;
 }
 
@@ -905,11 +916,65 @@ void Ext2Filesystem::releaseBlockLocked(uint32_t block) {
   writeBlock(gdBlock + groupBlock);
 }
 
+Ext2InodeState* Ext2Filesystem::acquireInodeState(uint32_t inode, Inode* metadata) {
+  LockGuard<Mutex> guard(m_InodeStateLock);
+  Ext2InodeState* state = m_InodeStates.lookup(inode);
+  if (state) {
+    if (!state->references) {
+      state->reloadMappings(metadata, this);
+    }
+    ++state->references;
+    return state;
+  }
+  state = new Ext2InodeState(metadata, this);
+  m_InodeStates.insert(inode, state);
+  return state;
+}
+
+void Ext2Filesystem::releaseInodeState(uint32_t inode, Ext2InodeState* state, Ext2Node* lastNode) {
+  LockGuard<Mutex> stateGuard(m_InodeStateLock);
+  assert(state == m_InodeStates.lookup(inode) && state->references);
+  if (--state->references) {
+    return;
+  }
+  if (!state->orphan) {
+    assert(!state->pageLoans && !state->files.count());
+    // Keep the nonreusable futex identity through the linked inode lifetime,
+    // but reload potentially large block maps when an alias next opens it.
+    state->blocks.clear(true);
+    state->files.clear(true);
+    state->metadataBlocks = 0;
+    return;
+  }
+  m_InodeStates.remove(inode);
+  if (state->orphan) {
+#if THREADS || defined(STANDALONE_MUTEXES)
+    LockGuard<Mutex> guard(m_WriteLock);
+#endif
+    retireInodeLocked(inode, lastNode);
+  }
+  delete state;
+}
+
 bool Ext2Filesystem::releaseInode(uint32_t inodeNumber, Ext2Node* retiringNode) {
+  LockGuard<Mutex> stateGuard(m_InodeStateLock);
+  Ext2InodeState* state = m_InodeStates.lookup(inodeNumber);
+  LockGuard<Mutex> metadataGuard(state ? state->writebackLock : m_InodeStateLock, state != nullptr);
 #if THREADS || defined(STANDALONE_MUTEXES)
   LockGuard<Mutex> guard(m_WriteLock);
 #endif
+  const bool remove = decreaseInodeRefcount(inodeNumber);
+  if (remove) {
+    if (state) {
+      state->orphan = true;
+    } else {
+      retireInodeLocked(inodeNumber, retiringNode);
+    }
+  }
+  return remove;
+}
 
+void Ext2Filesystem::retireInodeLocked(uint32_t inodeNumber, Ext2Node* retiringNode) {
   Inode* pInode = getInode(inodeNumber);
   const uint32_t inodeIndex = inodeNumber - 1;  // Inode zero is undefined, so it's not used.
 
@@ -917,22 +982,20 @@ bool Ext2Filesystem::releaseInode(uint32_t inodeNumber, Ext2Node* retiringNode) 
   uint32_t group = inodeIndex / inodesPerGroup;
   uint32_t index = inodeIndex % inodesPerGroup;
 
-  bool bRemove = decreaseInodeRefcount(inodeNumber);
-
-  // Do we need to free this inode?
-  if (bRemove) {
+  {
     // Keep the allocation bit set until all old data has been retired. This
     // prevents a concurrent creator from reusing the inode before wipe()
     // finishes zeroing it.
-    if (retiringNode) {
-      retiringNode->wipe(true);
+    if (retiringNode && !retiringNode->wipe(true)) {
+      ERROR("Ext2: retaining an orphan inode whose blocks could not be retired");
+      return;
     }
 
     // Set dtime on inode.
     pInode->i_dtime = HOST_TO_LITTLE32(getUnixTimestamp());
 
     if (!ensureFreeInodeBitmapLoaded(group)) {
-      return false;
+      return;
     }
 
     // Free inode.
@@ -965,7 +1028,6 @@ bool Ext2Filesystem::releaseInode(uint32_t inodeNumber, Ext2Node* retiringNode) 
   }
 
   writeInode(inodeNumber);
-  return bRemove;
 }
 
 Inode* Ext2Filesystem::getInode(uint32_t inode) {
@@ -1155,6 +1217,9 @@ bool Ext2Filesystem::ensureInodeTableLoaded(size_t group) {
 }
 
 void Ext2Filesystem::increaseInodeRefcount(uint32_t inode) {
+  LockGuard<Mutex> stateGuard(m_InodeStateLock);
+  Ext2InodeState* state = m_InodeStates.lookup(inode);
+  LockGuard<Mutex> metadataGuard(state ? state->writebackLock : m_InodeStateLock, state != nullptr);
 #if THREADS || defined(STANDALONE_MUTEXES)
   LockGuard<Mutex> guard(m_WriteLock);
 #endif
@@ -1163,8 +1228,11 @@ void Ext2Filesystem::increaseInodeRefcount(uint32_t inode) {
   if (!pInode)
     return;
 
-  uint32_t current_count = LITTLE_TO_HOST32(pInode->i_links_count);
-  pInode->i_links_count = HOST_TO_LITTLE32(current_count + 1);
+  uint32_t current_count = LITTLE_TO_HOST16(pInode->i_links_count);
+  pInode->i_links_count = HOST_TO_LITTLE16(current_count + 1);
+  if (state) {
+    state->orphan = false;
+  }
 
   writeInode(inode);
 }
@@ -1174,10 +1242,10 @@ bool Ext2Filesystem::decreaseInodeRefcount(uint32_t inode) {
   if (!pInode)
     return true;  // No inode found - but didn't decrement to zero.
 
-  uint32_t current_count = LITTLE_TO_HOST32(pInode->i_links_count);
+  uint32_t current_count = LITTLE_TO_HOST16(pInode->i_links_count);
   bool bRemove = current_count <= 1;
   if (current_count)
-    pInode->i_links_count = HOST_TO_LITTLE32(current_count - 1);
+    pInode->i_links_count = HOST_TO_LITTLE16(current_count - 1);
 
   writeInode(inode);
   return bRemove;

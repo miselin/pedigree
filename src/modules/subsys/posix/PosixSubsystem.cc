@@ -86,6 +86,27 @@ struct PosixSubsystem::ExecutableImage {
 };
 
 namespace {
+bool prepareUserCopy(uintptr_t address, size_t extent, bool write) {
+#if POSIX_NO_EFAULT
+  return true;
+#else
+  if (!PosixSubsystem::checkAddress(address, extent,
+                                    write ? PosixSubsystem::SafeWrite : PosixSubsystem::SafeRead)) {
+    return false;
+  }
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const uintptr_t lastPage = (address + extent - 1) & ~(pageSize - 1);
+  for (uintptr_t page = address & ~(pageSize - 1);; page += pageSize) {
+    if (!MemoryMapManager::instance().faultIn(page, write)) {
+      return false;
+    }
+    if (page == lastPage) {
+      return true;
+    }
+  }
+#endif
+}
+
 bool defaultSignalActionIsIgnore(size_t signal) {
   return signal == SIGCHLD || signal == SIGURG || signal == SIGWINCH;
 }
@@ -404,6 +425,8 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags) {
     return false;
   }
 
+  // Keep fallback PTE inspection stable even for callers that only validate.
+  MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
   MemoryMappedObject::Permissions mmapPermissions = MemoryMappedObject::None;
   if (flags & SafeRead) {
     mmapPermissions |= MemoryMappedObject::Read;
@@ -443,7 +466,7 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags) {
     physical_uintptr_t phys = 0;
     va.getMapping(pAddr, phys, vFlags);
 
-    if (vFlags & VirtualAddressSpace::KernelMode) {
+    if (vFlags & (VirtualAddressSpace::KernelMode | VirtualAddressSpace::NoAccess)) {
 #if VERBOSE_KERNEL
       PS_NOTICE("  -> not userspace-accessible.");
 #endif
@@ -451,7 +474,8 @@ bool PosixSubsystem::checkAddress(uintptr_t addr, size_t extent, size_t flags) {
     }
 
     if (flags & SafeWrite) {
-      if (!(vFlags & (VirtualAddressSpace::Write | VirtualAddressSpace::CopyOnWrite))) {
+      if ((vFlags & VirtualAddressSpace::WriteProtected) ||
+          !(vFlags & (VirtualAddressSpace::Write | VirtualAddressSpace::CopyOnWrite))) {
 #if VERBOSE_KERNEL
         PS_NOTICE("  -> not writeable.");
 #endif
@@ -523,7 +547,7 @@ bool PosixSubsystem::copyFromUser(void* destination, const void* source, size_t 
   }
 
   MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
-  if (!checkAddress(reinterpret_cast<uintptr_t>(source), extent, SafeRead)) {
+  if (!prepareUserCopy(reinterpret_cast<uintptr_t>(source), extent, false)) {
     return false;
   }
 
@@ -545,7 +569,7 @@ bool PosixSubsystem::copyToUser(void* destination, const void* source, size_t co
   }
 
   MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
-  if (!checkAddress(reinterpret_cast<uintptr_t>(destination), extent, SafeWrite)) {
+  if (!prepareUserCopy(reinterpret_cast<uintptr_t>(destination), extent, true)) {
     return false;
   }
 
@@ -584,7 +608,7 @@ PosixSubsystem::UserStringResult PosixSubsystem::copyUserString(const char* user
       length = pageRemaining;
     }
 
-    if (!checkAddress(current, length, SafeRead)) {
+    if (!prepareUserCopy(current, length, false)) {
       return UserStringBadAddress;
     }
 
@@ -662,6 +686,10 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
 
   // We're the lowest in the stack, so we can proceed with the exit function.
 
+  // Peer shutdown has consumed their registrations. The final owner must
+  // retire its user-memory exit state before process teardown removes it.
+  threadExiting(pThread);
+
   delete pProcess->getLinker();
 
   MemoryMapManager::instance().unmapAll();
@@ -736,6 +764,9 @@ void PosixSubsystem::threadException(Thread* pThread, ExceptionType eType, Inter
       PS_NOTICE("    (Page fault)");
       // Send SIGSEGV
       signal = SIGSEGV;
+      break;
+    case FileMappingFault:
+      signal = SIGBUS;
       break;
     case InvalidOpcode:
       PS_NOTICE("    (Invalid opcode)");
@@ -1421,6 +1452,8 @@ void PosixSubsystem::threadExiting(Thread* pThread) {
     return;
   }
 
+  posix_robust_list_exit(pThread);
+
   const uintptr_t address = pThread->takeClearChildTid();
   if (!address) {
     return;
@@ -1431,17 +1464,14 @@ void PosixSubsystem::threadExiting(Thread* pThread) {
     return;
   }
 
-  VirtualAddressSpace* addressSpace = process->getAddressSpace();
-  const bool cleared = addressSpace && addressSpace->tryWriteUser32(address, 0);
+  const bool cleared = posix_clear_child_tid(process, address);
   if (!cleared) {
-    PS_NOTICE(
-        "clear-child-TID skipped a non-resident, read-only, kernel, or "
-        "copy-on-write target at "
-        << Hex << address << " for tid " << Dec << pThread->getId());
+    PS_NOTICE("clear-child-TID could not access target at " << Hex << address << " for tid " << Dec
+                                                            << pThread->getId());
   }
 
   // The registration is already consumed. Wake even if the restricted
-  // no-fault store could not reach the word, so no waiter is stranded in the
+  // validated store could not reach the word, so no waiter is stranded in the
   // kernel after an invalid registration or concurrent unmap.
   posix_futex_wake(process, reinterpret_cast<int*>(address), 1);
 }
@@ -1991,6 +2021,26 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     originalTargetLease.swap(nextLease);
   }
 
+  // Recheck after shebang rewriting, which adds kernel-owned arguments.
+  // The budget includes the vectors and AT_EXECFN's copied string.
+  size_t argumentBytes = 2 * sizeof(uintptr_t);
+  if (originalName.length() >= MaximumExecArgumentBytes - argumentBytes) {
+    SYSCALL_ERROR(TooBig);
+    return false;
+  }
+  argumentBytes += originalName.length() + 1;
+  Vector<String>* argumentLists[] = {&argv, &env};
+  for (Vector<String>* list : argumentLists) {
+    for (size_t i = 0; i < list->count(); ++i) {
+      const size_t remaining = MaximumExecArgumentBytes - argumentBytes;
+      if (remaining <= sizeof(uintptr_t) || (*list)[i].length() >= remaining - sizeof(uintptr_t)) {
+        SYSCALL_ERROR(TooBig);
+        return false;
+      }
+      argumentBytes += sizeof(uintptr_t) + (*list)[i].length() + 1;
+    }
+  }
+
   Directory::ChildLease interpreterLease;
   File* interpreterFile = 0;
 
@@ -2052,6 +2102,7 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
   // Earlier failures preserve the registration. From this irreversible
   // point onward its target belongs to the discarded image.
   pThread->setClearChildTid(0);
+  posix_robust_list_exit(pThread);
   DynamicLinker* oldLinker = pProcess->getLinker();
   pProcess->setLinker(nullptr);
   MemoryMapManager::instance().unmapAll();
@@ -2163,6 +2214,12 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     delete stack;
     ERROR("PosixSubsystem::invoke: failed to allocate initial user stack");
     return failAfterCommit(Error::OutOfMemory);
+  }
+  // Auxiliary vectors, fixed strings, argc, and alignment consume fewer
+  // than 512 bytes in addition to the already bounded argument payload.
+  if (stack->getSize() < argumentBytes + 512) {
+    Processor::information().getVirtualAddressSpace().freeStack(stack);
+    return failAfterCommit(Error::TooBig);
   }
   if (state) {
     pThread->adoptInitialUserStackForExec(stack);

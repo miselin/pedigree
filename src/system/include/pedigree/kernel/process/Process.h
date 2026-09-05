@@ -258,6 +258,8 @@ class EXPORTED_PUBLIC Process {
    */
   MUST_USE_RESULT bool acquireThreadById(ThreadLease& lease, size_t id);
 
+  MUST_USE_RESULT bool acquireThreadByTaskId(ThreadLease& lease, size_t id);
+
   /**
    * Pins an expected Thread into \p lease if this Process still owns it.
    * Any previous lease is released; failure leaves \p lease empty.
@@ -315,6 +317,9 @@ class EXPORTED_PUBLIC Process {
    * concurrent wait operation can claim the status.
    */
   void reap();
+
+  /** Reserves process teardown if this is the final requested thread exit. */
+  bool prepareThreadExit();
 
   /**
    * Atomically elects the current thread to own process exit and requests

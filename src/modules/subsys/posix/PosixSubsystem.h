@@ -92,6 +92,7 @@ class DescriptorLease {
   friend class PosixSubsystem;
   friend bool acquireDescriptor(int fd, DescriptorLease& descriptor);
   friend bool removeDescriptor(int fd, const DescriptorLease& descriptor);
+  friend size_t installDescriptor(FileDescriptor* descriptor, DescriptorLease& lease);
 
   void retain(const SharedPointer<FileDescriptor>& descriptor) {
     m_Descriptor = descriptor;
@@ -103,6 +104,7 @@ class DescriptorLease {
 extern PosixSubsystem* getSubsystem();
 extern bool acquireDescriptor(int fd, DescriptorLease& descriptor);
 extern void addDescriptor(int fd, FileDescriptor* f);
+extern size_t installDescriptor(FileDescriptor* descriptor, DescriptorLease& lease);
 extern bool removeDescriptor(int fd, const DescriptorLease& descriptor);
 extern size_t getAvailableDescriptor();
 
@@ -259,6 +261,8 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
    * through the copy helpers without special-casing a null userspace pointer.
    */
   static bool checkedUserBufferSize(size_t count, size_t elementSize, size_t& extent);
+
+  static constexpr size_t MaximumExecArgumentBytes = 131072;
 
   /** Validate a userspace array after checking its size calculation. */
   static bool checkUserBuffer(uintptr_t addr, size_t count, size_t elementSize, size_t flags,

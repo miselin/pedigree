@@ -195,6 +195,31 @@ class EXPORTED_PUBLIC Tree {
     return failed;
   }
 
+  /** Copies the least key greater than or equal to the query and its value.
+   * Copied results let callers resume after mutations without retaining an
+   * invalidated iterator. Returns false without changing outputs if absent. */
+  bool lowerBound(const K& key, K& foundKey, E& foundValue) const {
+    const Node* n = root;
+    const Node* bound = nullptr;
+    while (n) {
+      if (n->key == key) {
+        bound = n;
+        break;
+      } else if (n->key > key) {
+        bound = n;
+        n = n->leftChild;
+      } else {
+        n = n->rightChild;
+      }
+    }
+    if (!bound)
+      return false;
+
+    foundKey = bound->key;
+    foundValue = bound->element;
+    return true;
+  }
+
   /** Reports whether a given key exists in the tree.
    *\return true if the key exists, false otherwise. */
   bool contains(const K& key) const {

@@ -60,6 +60,9 @@ extern bool runHostedCloneRoutingRegressions(Process* process);
 extern bool runHostedDup3Regressions(Process* process);
 extern bool runHostedEventFdRegressions(Process* process);
 extern bool runHostedFileContractRegressions(Process* process);
+extern bool runHostedFutexRobustRegressions(Process* process);
+extern bool runHostedSystemUsercopyRegressions(Process* process);
+extern bool runHostedVmPermissionRegressions();
 extern bool runHostedProcessQueryRegressions(Process* process);
 extern bool runHostedTermiosSyscallRegressions(Process* process);
 extern bool runHostedInotifyRegressions(Process* process);
@@ -1606,7 +1609,7 @@ class PollGenerationProbe : public NetworkSyscalls {
     return -1;
   }
 
-  int accept(struct sockaddr_storage*, socklen_t*, int) override {
+  int accept(struct sockaddr_storage*, socklen_t*, int, DescriptorLease*) override {
     return -1;
   }
 
@@ -3924,6 +3927,13 @@ enum CloneVmBeforeStartAction {
   WaitForProcessExit,
 };
 
+struct CloneVmUserFixture {
+  int parentTid;
+  int childTid;
+  uintptr_t childTls;
+  alignas(16) uint8_t childStack[4096];
+};
+
 struct CloneVmExitRaceContext {
   explicit CloneVmExitRaceContext(CloneVmBeforeStartAction action)
       : process(nullptr),
@@ -3932,10 +3942,10 @@ struct CloneVmExitRaceContext {
         child(nullptr),
         action(action),
         beforeStart(0, true),
+        userAddress(0),
         parentTid(-1),
         childTid(-1),
         observedTid(0),
-        childTls(0),
         callerEntered(0),
         callerReturned(0),
         callerInterruptsBefore(0),
@@ -3970,10 +3980,10 @@ struct CloneVmExitRaceContext {
   Atomic<Thread*> child;
   CloneVmBeforeStartAction action;
   Semaphore beforeStart;
+  uintptr_t userAddress;
   int parentTid;
   int childTid;
   size_t observedTid;
-  alignas(uintptr_t) uintptr_t childTls;
   Atomic<size_t> callerEntered;
   Atomic<size_t> callerReturned;
   Atomic<size_t> callerInterruptsBefore;
@@ -4001,7 +4011,6 @@ struct CloneVmExitRaceContext {
   Atomic<size_t> rescueCancellation;
   Atomic<size_t> processDestructions;
   Atomic<size_t> subsystemDestructions;
-  alignas(16) uint8_t childStack[4096];
 };
 
 CloneVmExitRaceContext* g_CloneVmExitRaceContext = nullptr;
@@ -4056,9 +4065,16 @@ void terminateCloneVmBeforeStart(Thread* child, size_t threadId, void* parameter
   }
   context->child = child;
   context->observedTid = threadId;
-  if (child->getId() == threadId && context->parentTid == static_cast<int>(threadId) &&
+  auto* user = reinterpret_cast<CloneVmUserFixture*>(context->userAddress);
+  uintptr_t tlsValue = 0;
+  const bool copied = PosixSubsystem::copyFromUser(&context->parentTid, &user->parentTid,
+                                                   sizeof(context->parentTid)) &&
+                      PosixSubsystem::copyFromUser(&context->childTid, &user->childTid,
+                                                   sizeof(context->childTid)) &&
+                      PosixSubsystem::copyFromUser(&tlsValue, &user->childTls, sizeof(tlsValue));
+  if (copied && child->getId() == threadId && context->parentTid == static_cast<int>(threadId) &&
       context->childTid == static_cast<int>(threadId) &&
-      context->childTls == reinterpret_cast<uintptr_t>(&context->childTls)) {
+      tlsValue == reinterpret_cast<uintptr_t>(&user->childTls)) {
     context->tidsReady += 1;
   }
   context->hookCalls += 1;
@@ -4153,22 +4169,58 @@ void clearCloneVmHooks() {
 int cloneVmWhileProcessExits(void* parameter) {
   CloneVmExitRaceContext* context = reinterpret_cast<CloneVmExitRaceContext*>(parameter);
   context->callerEntered += 1;
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t length = (sizeof(CloneVmUserFixture) + pageSize - 1) & ~(pageSize - 1);
+  uintptr_t address = 0;
+  if (!context->process->getSpaceAllocator().allocate(length, address)) {
+    context->callerReturned += 1;
+    return 1;
+  }
+  uintptr_t mappedAddress = address;
+  MemoryMappedObject* mapping = MemoryMapManager::instance().mapAnon(
+      mappedAddress, length, MemoryMappedObject::Read | MemoryMappedObject::Write);
+  if (!mapping || mappedAddress != address) {
+    if (mapping) {
+      MemoryMapManager::instance().remove(mappedAddress, length);
+    }
+    context->process->getSpaceAllocator().free(address, length);
+    context->callerReturned += 1;
+    return 1;
+  }
+  context->userAddress = address;
+  auto* user = reinterpret_cast<CloneVmUserFixture*>(address);
+  const CloneVmUserFixture initial = {-1, -1, 0, {}};
+  if (!PosixSubsystem::copyToUser(user, &initial, sizeof(initial))) {
+    context->callerReturned += 1;
+    return 1;
+  }
   const bool interruptsWereEnabled = Processor::getInterrupts();
   context->callerInterruptsBefore = interruptsWereEnabled ? 1 : 0;
   context->cloneResult = SyscallManager::instance().syscall(
       posix, POSIX_CLONE,
       CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SETTLS |
           CLONE_PARENT_SETTID | CLONE_CHILD_SETTID,
-      reinterpret_cast<uintptr_t>(context->childStack + sizeof(context->childStack)),
-      reinterpret_cast<uintptr_t>(&context->parentTid),
-      reinterpret_cast<uintptr_t>(&context->childTid),
-      reinterpret_cast<uintptr_t>(&context->childTls));
+      reinterpret_cast<uintptr_t>(user->childStack + sizeof(user->childStack)),
+      reinterpret_cast<uintptr_t>(&user->parentTid), reinterpret_cast<uintptr_t>(&user->childTid),
+      reinterpret_cast<uintptr_t>(&user->childTls));
   context->callerInterruptsAfter = Processor::getInterrupts() ? 1 : 0;
   if (Processor::getInterrupts() != interruptsWereEnabled) {
     Processor::setInterrupts(interruptsWereEnabled);
   }
   context->callerReturned += 1;
   return 1;
+}
+
+int cleanupCloneVmUserFixture(void* parameter) {
+  CloneVmExitRaceContext* context = reinterpret_cast<CloneVmExitRaceContext*>(parameter);
+  if (context->userAddress) {
+    const size_t pageSize = PhysicalMemoryManager::getPageSize();
+    const size_t length = (sizeof(CloneVmUserFixture) + pageSize - 1) & ~(pageSize - 1);
+    MemoryMapManager::instance().remove(context->userAddress, length);
+    context->process->getSpaceAllocator().free(context->userAddress, length);
+    context->userAddress = 0;
+  }
+  return 0;
 }
 
 bool waitForCloneVmHookPause(CloneVmExitRaceContext* context) {
@@ -4260,6 +4312,10 @@ bool cloneVmDetachedCancellationReturnsCachedTid(Process* kernelProcess) {
   }
   if (!waitForCloneVmThreadCount(process, 0)) {
     fatalCloneVmFixture("detached-cancellation process retained a live thread");
+  }
+  Thread* cleanup = new Thread(process, cleanupCloneVmUserFixture, context, nullptr, false, true);
+  if (!cleanup->joinForCompletion()) {
+    fatalCloneVmFixture("detached-cancellation user mapping cleanup could not be joined");
   }
 
   delete process;
@@ -4373,6 +4429,10 @@ bool cloneVmTerminalStartCancellation(Process* kernelProcess) {
     }
     if (!waitForCloneVmThreadCount(process, 0)) {
       fatalCloneVmFixture("start-failure rescue retained a cloned child");
+    }
+    Thread* cleanup = new Thread(process, cleanupCloneVmUserFixture, context, nullptr, false, true);
+    if (!cleanup->joinForCompletion()) {
+      fatalCloneVmFixture("start-failure user mapping cleanup could not be joined");
     }
     delete process;
     const bool destroyed = context->processDestructions == 1 && context->subsystemDestructions == 1;
@@ -4795,7 +4855,9 @@ bool runRegressions() {
     return false;
   }
 
-  if (!runHostedFileContractRegressions(kernelProcess) ||
+  if (!runHostedVmPermissionRegressions() || !runHostedSystemUsercopyRegressions(kernelProcess) ||
+      !runHostedFutexRobustRegressions(kernelProcess) ||
+      !runHostedFileContractRegressions(kernelProcess) ||
       !runHostedProcessQueryRegressions(kernelProcess) ||
       !runHostedTermiosSyscallRegressions(kernelProcess)) {
     return false;

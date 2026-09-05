@@ -144,6 +144,37 @@ class MountTestFilesystem final : public Filesystem {
   std::atomic<size_t>* m_ReentryMounts;
 };
 
+class PausedRenameFilesystem final : public RamFs {
+ public:
+  bool waitForBackend() {
+    std::unique_lock<std::mutex> lock(m_Mutex);
+    return m_Condition.wait_for(lock, std::chrono::seconds(1), [this] { return m_Entered; });
+  }
+
+  void releaseBackend(bool commit) {
+    std::lock_guard<std::mutex> lock(m_Mutex);
+    m_Commit = commit;
+    m_Released = true;
+    m_Condition.notify_all();
+  }
+
+ protected:
+  bool renameNode(Directory*, const String&, File*, Directory*, const String&, File*) override {
+    std::unique_lock<std::mutex> lock(m_Mutex);
+    m_Entered = true;
+    m_Condition.notify_all();
+    m_Condition.wait(lock, [this] { return m_Released; });
+    return m_Commit;
+  }
+
+ private:
+  std::mutex m_Mutex;
+  std::condition_variable m_Condition;
+  bool m_Entered = false;
+  bool m_Released = false;
+  bool m_Commit = false;
+};
+
 class SparseTestFile final : public File {
  public:
   SparseTestFile(const String& name, File* parent, std::atomic<size_t>& destructions)
@@ -867,6 +898,75 @@ TEST(VFS, ResidentPublicationWaitsForActiveResolver) {
   EXPECT_EQ(resolved, nullptr);
   EXPECT_EQ(directory.constructions(), 0U);
   EXPECT_EQ(directory.destructions(), 0U);
+}
+
+TEST(VFS, ConcurrentRenameLookupsObserveCommittedOrUnchangedIdentities) {
+  for (bool commit : {false, true}) {
+    SCOPED_TRACE(commit ? "committed rename" : "failed rename");
+    PausedRenameFilesystem filesystem;
+    ASSERT_TRUE(filesystem.initialise(nullptr));
+    Filesystem& interface = filesystem;
+    Directory* root = Directory::fromFile(filesystem.getRoot());
+    ASSERT_TRUE(interface.createFile(StringView("source"), 0600, root));
+    ASSERT_TRUE(interface.createFile(StringView("destination"), 0600, root));
+    Directory::ChildLease originalSource;
+    Directory::ChildLease originalDestination;
+    ASSERT_EQ(root->lookupChild(HashedStringView("source"), originalSource),
+              Directory::LookupStatus::Found);
+    ASSERT_EQ(root->lookupChild(HashedStringView("destination"), originalDestination),
+              Directory::LookupStatus::Found);
+
+    bool renamed = false;
+    std::thread writer([&] {
+      renamed = interface.rename(StringView("source"), root, StringView("destination"), root);
+    });
+    const bool backendEntered = filesystem.waitForBackend();
+    std::atomic<bool> sourceDone(false);
+    std::atomic<bool> destinationDone(false);
+    Directory::LookupStatus sourceStatus = Directory::LookupStatus::Retry;
+    Directory::LookupStatus destinationStatus = Directory::LookupStatus::Retry;
+    File* observedSource = nullptr;
+    File* observedDestination = nullptr;
+    std::thread sourceReader([&] {
+      Directory::ChildLease source;
+      sourceStatus = root->lookupChild(HashedStringView("source"), source);
+      observedSource = source.get();
+      sourceDone.store(true);
+    });
+    std::thread destinationReader([&] {
+      Directory::ChildLease destination;
+      destinationStatus = root->lookupChild(HashedStringView("destination"), destination);
+      observedDestination = destination.get();
+      destinationDone.store(true);
+    });
+
+    bool readersWaiting = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (root->inFlightUsersForHostedTest(HashedStringView("source")) >= 2 &&
+          root->inFlightUsersForHostedTest(HashedStringView("destination")) >= 2) {
+        readersWaiting = true;
+        break;
+      }
+      std::this_thread::yield();
+    }
+    const bool completedBeforePublication = sourceDone.load() || destinationDone.load();
+    filesystem.releaseBackend(commit);
+    writer.join();
+    sourceReader.join();
+    destinationReader.join();
+
+    EXPECT_TRUE(backendEntered);
+    EXPECT_TRUE(readersWaiting);
+    EXPECT_FALSE(completedBeforePublication);
+    EXPECT_EQ(renamed, commit);
+    EXPECT_EQ(sourceStatus,
+              commit ? Directory::LookupStatus::NotFound : Directory::LookupStatus::Found);
+    EXPECT_EQ(observedSource, commit ? nullptr : originalSource.get());
+    EXPECT_EQ(destinationStatus, Directory::LookupStatus::Found);
+    EXPECT_EQ(observedDestination, commit ? originalSource.get() : originalDestination.get());
+    EXPECT_EQ(originalSource.get()->getName(), String(commit ? "destination" : "source"));
+  }
 }
 
 TEST(VFS, EnumerationStreamsDotsBackingAndResidentOverlayWithStableResumeCookies) {

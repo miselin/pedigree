@@ -452,7 +452,7 @@ static int queueThreadSignal(Process* process, Thread* thread, int sig) {
   return 0;
 }
 
-int posix_tkill(int tid, int sig) {
+int posix_tkill(int tid, int sig, bool linuxAbi) {
   SG_NOTICE("tkill(" << tid << ", " << sig << ")");
 
   if (tid <= 0) {
@@ -462,11 +462,11 @@ int posix_tkill(int tid, int sig) {
 
   Thread* current = Processor::information().getCurrentThread();
   Process* caller = current ? current->getParent() : nullptr;
-  Scheduler::ProcessLease process;
   Process::ThreadLease thread;
-  if (!caller || !Scheduler::instance().acquireProcess(process, caller) ||
-      process->getType() != Process::Posix ||
-      !process->acquireThreadById(thread, static_cast<size_t>(tid))) {
+  if (!caller ||
+      !(linuxAbi ? Scheduler::instance().acquireThreadByTaskId(thread, tid)
+                 : caller->acquireThreadById(thread, tid)) ||
+      thread->getParent()->getType() != Process::Posix) {
     SYSCALL_ERROR(NoSuchProcess);
     return -1;
   }
@@ -477,13 +477,17 @@ int posix_tkill(int tid, int sig) {
     return -1;
   }
 
-  const int result = queueThreadSignal(process.get(), thread.get(), sig);
-  thread.reset();
-  process.reset();
-  return result;
+  Process* target = thread->getParent();
+  if (caller->getType() != Process::Posix ||
+      (caller != target && !canSignalProcess(static_cast<PosixProcess*>(caller),
+                                             static_cast<PosixProcess*>(target), sig))) {
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return -1;
+  }
+  return queueThreadSignal(target, thread.get(), sig);
 }
 
-int posix_tgkill(int tgid, int tid, int sig) {
+int posix_tgkill(int tgid, int tid, int sig, bool linuxAbi) {
   SG_NOTICE("tgkill(" << tgid << ", " << tid << ", " << sig << ")");
 
   if (tgid <= 0 || tid <= 0) {
@@ -495,7 +499,8 @@ int posix_tgkill(int tgid, int tid, int sig) {
   Process::ThreadLease thread;
   if (!Scheduler::instance().acquireProcessById(process, static_cast<size_t>(tgid)) ||
       process->getType() != Process::Posix ||
-      !process->acquireThreadById(thread, static_cast<size_t>(tid))) {
+      !(linuxAbi ? process->acquireThreadByTaskId(thread, static_cast<size_t>(tid))
+                 : process->acquireThreadById(thread, static_cast<size_t>(tid)))) {
     SYSCALL_ERROR(NoSuchProcess);
     return -1;
   }

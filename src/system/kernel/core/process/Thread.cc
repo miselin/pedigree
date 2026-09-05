@@ -569,6 +569,21 @@ void Thread::setClearChildTid(uintptr_t address) {
   __atomic_store_n(&m_ClearChildTid, address, __ATOMIC_RELEASE);
 }
 
+void Thread::setRobustList(uintptr_t address, size_t ownerId) {
+  LockGuard<Spinlock> guard(m_Lock);
+  if (!m_bShutdown) {
+    m_RobustListOwnerId = ownerId;
+    __atomic_store_n(&m_RobustList, address, __ATOMIC_RELEASE);
+  }
+}
+
+uintptr_t Thread::takeRobustList(size_t& ownerId) {
+  LockGuard<Spinlock> guard(m_Lock);
+  ownerId = m_RobustListOwnerId;
+  m_RobustListOwnerId = 0;
+  return __atomic_exchange_n(&m_RobustList, uintptr_t(0), __ATOMIC_ACQ_REL);
+}
+
 void Thread::forceToStartupProcessor() {
   if (m_pScheduler == Scheduler::instance().getBootstrapProcessorScheduler()) {
     // No need to move - we already think we're associated with the right
@@ -2207,7 +2222,7 @@ uintptr_t Thread::getTlsBase() {
   // spaces than the process that creates them (for whatever reason). Because
   // this is usually only called right after the address space switch in
   // PerProcessorScheduler, the address space is set properly.
-  if (!m_pTlsBase) {
+  if (!m_pTlsBase && !m_bTlsBaseOverride) {
     // Get ourselves some space.
     uintptr_t base = 0;
     if (m_pParent->getAddressSpace()->getDynamicStart())
@@ -2280,12 +2295,6 @@ void Thread::setTlsBase(uintptr_t base) {
   if (Processor::information().getCurrentThread() == this) {
     Processor::setTlsBase(getTlsBase());
   }
-
-  // base[0] == base (for e.g. %fs:0 to get the address of %fs).
-  // See the "ELF Handling For Thread-Local Storage" document for this
-  // requirement (IA-32 section).
-  uintptr_t* pBase = reinterpret_cast<uintptr_t*>(base);
-  *pBase = base;
 }
 
 bool Thread::join() {
@@ -2715,8 +2724,12 @@ bool Thread::getWaitDebugInfo(WaitDebugInfo& info) {
   }
 
   info.queue = queue;
-  info.channelOwner = waiter.channel.owner;
-  info.channelValue = __atomic_load_n(&waiter.channel.value, __ATOMIC_ACQUIRE);
+  WaitQueue::Channel channel;
+  if (!waiter.snapshotChannel(channel)) {
+    return false;
+  }
+  info.channelOwner = channel.owner;
+  info.channelValue = channel.value;
   info.reason = waiter.loadReason();
   info.stateLevel = waiter.stateLevel;
   info.queued = waiter.isQueued();

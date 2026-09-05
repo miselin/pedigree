@@ -224,20 +224,17 @@ ssize_t posix_getrandom(void* buffer, size_t length, unsigned int flags) {
     return -1;
   }
 
-  if (length && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buffer), length,
-                                              PosixSubsystem::SafeWrite)) {
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-
-  const size_t produced = hardware_random_bytes(buffer, length);
-  if (length && !produced) {
-    // Do not silently turn the deterministic legacy PRNG into a
-    // cryptographic API on machines without a usable hardware source.
+  uint8_t snapshot[256];
+  const size_t requested = length < sizeof(snapshot) ? length : sizeof(snapshot);
+  const size_t produced = hardware_random_bytes(snapshot, requested);
+  if (requested && !produced) {
     SYSCALL_ERROR(NoMoreProcesses);
     return -1;
   }
-
+  if (!PosixSubsystem::copyToUser(buffer, snapshot, produced)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
   return static_cast<ssize_t>(produced);
 }
 
@@ -339,7 +336,7 @@ SyscallState posix_copy_clone_state(const SyscallState& state) {
 }
 
 long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, int* ptid, int* ctid,
-                 unsigned long newtls) {
+                 unsigned long newtls, bool linuxAbi) {
   SC_NOTICE("clone(" << Hex << flags << ", " << child_stack << ", " << ptid << ", " << ctid << ", "
                      << newtls << ")");
 
@@ -409,26 +406,60 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     // pretty much just a thread
     Process* pParentProcess = Processor::information().getCurrentThread()->getParent();
 
-    // Create a new thread for the new process. Make sure it's
-    // delayed-start so we can ensure the new thread ID gets written to the
-    // right places in memory.
-    Thread* pThread = new Thread(pParentProcess, clonedState, true);
-    pThread->setName("posix clone() thread");
-    pThread->setTlsBase(newtls);
-    if (flags & CLONE_CHILD_CLEARTID) {
-      pThread->setClearChildTid(reinterpret_cast<uintptr_t>(ctid));
-    }
+    Thread* pThread = nullptr;
+    size_t threadId = 0;
+    bool copiedIds = false;
+    {
+      MemoryMapManager& mappings = MemoryMapManager::instance();
+      MemoryMapManager::OperationGuard mappingGuard(mappings);
+      auto writableId = [&](int* address) {
+        const uintptr_t target = reinterpret_cast<uintptr_t>(address);
+        return PosixSubsystem::checkAddress(target, sizeof(int), PosixSubsystem::SafeWrite) &&
+               mappings.faultIn(target, true) && mappings.faultIn(target + sizeof(int) - 1, true);
+      };
+      if (((flags & CLONE_CHILD_SETTID) && !writableId(ctid)) ||
+          ((flags & CLONE_PARENT_SETTID) && !writableId(ptid))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      const bool setTls = !linuxAbi || (flags & CLONE_SETTLS);
+      if (setTls && (newtls >= pParentProcess->getAddressSpace()->getKernelStart()
+#if X64
+                     || newtls >= 0x0000800000000000ULL
+#endif
+                     )) {
+        SYSCALL_ERROR(NotEnoughPermissions);
+        return -1;
+      }
+      // The native ABI initializes its TLS self pointer. Linux supplies an
+      // opaque FS base and owns initialization of any memory it points to.
+      if (!linuxAbi &&
+          !PosixSubsystem::copyToUser(reinterpret_cast<void*>(newtls), &newtls, sizeof(newtls))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
 
-    // startDetached() may complete terminal cancellation and release the
-    // Thread before returning. Publish and retain only the stable numeric ID.
-    const size_t threadId = pThread->getId();
-
-    // Update the child ID before letting the child run
-    if (flags & CLONE_CHILD_SETTID) {
-      *ctid = threadId;
+      pThread = new Thread(pParentProcess, clonedState, true);
+      pThread->setName("posix clone() thread");
+      if (setTls) {
+        pThread->setTlsBase(newtls);
+      }
+      threadId = linuxAbi ? pThread->getTaskId() : pThread->getId();
+      const int id = static_cast<int>(threadId);
+      copiedIds =
+          (!(flags & CLONE_CHILD_SETTID) || PosixSubsystem::copyToUser(ctid, &id, sizeof(id))) &&
+          (!(flags & CLONE_PARENT_SETTID) || PosixSubsystem::copyToUser(ptid, &id, sizeof(id)));
+      if (copiedIds && (flags & CLONE_CHILD_CLEARTID)) {
+        pThread->setClearChildTid(reinterpret_cast<uintptr_t>(ctid));
+      }
     }
-    if (flags & CLONE_PARENT_SETTID) {
-      *ptid = threadId;
+    if (!copiedIds) {
+      // The existing delayed-start cancellation path owns retirement. A
+      // published Thread cannot be deleted directly on this error path.
+      pThread->setUnwindState(Thread::TerminateThread);
+      pThread->startDetached();
+      SYSCALL_ERROR(BadAddress);
+      return -1;
     }
 
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
@@ -470,13 +501,13 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   }
 
   // Inhibit signals to the parent
-  for (int sig = 0; sig < 32; sig++)
+  for (size_t sig = 0; sig < 32; sig++)
     Processor::information().getCurrentThread()->inhibitEvent(sig, true);
 
   // Create a new process.
   PosixProcess* pProcess = new PosixProcess(pParentProcess);
   if (!pProcess) {
-    for (int sig = 0; sig < 32; sig++)
+    for (size_t sig = 0; sig < 32; sig++)
       Processor::information().getCurrentThread()->inhibitEvent(sig, false);
     SYSCALL_ERROR(OutOfMemory);
     SC_NOTICE(" -> ENOMEM");
@@ -491,7 +522,7 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
     SYSCALL_ERROR(OutOfMemory);
 
     // Allow signals again, something went wrong
-    for (int sig = 0; sig < 32; sig++)
+    for (size_t sig = 0; sig < 32; sig++)
       Processor::information().getCurrentThread()->inhibitEvent(sig, false);
     SC_NOTICE(" -> ENOMEM");
     return -1;
@@ -528,16 +559,26 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
   clonedState.setSyscallReturnValue(0);
 
   // Allow signals to the parent again
-  for (int sig = 0; sig < 32; sig++)
+  for (size_t sig = 0; sig < 32; sig++)
     Processor::information().getCurrentThread()->inhibitEvent(sig, false);
 
   // Set ctid in the new address space if we are required to.
   if (flags & CLONE_CHILD_SETTID) {
     VirtualAddressSpace& curr = Processor::information().getVirtualAddressSpace();
     VirtualAddressSpace* va = pProcess->getAddressSpace();
-    Processor::switchAddressSpace(*va);
-    *ctid = pProcess->getId();
-    Processor::switchAddressSpace(curr);
+    const int childId = static_cast<int>(pProcess->getId());
+    bool copied = false;
+    {
+      MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
+      Processor::switchAddressSpace(*va);
+      copied = PosixSubsystem::copyToUser(ctid, &childId, sizeof(childId));
+      Processor::switchAddressSpace(curr);
+    }
+    if (!copied) {
+      delete pProcess;
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
   }
 
   // Create a new thread for the new process.
@@ -570,7 +611,6 @@ int posix_fork(SyscallState& state) {
 }
 
 int posix_execve(const char* name, const char** argv, const char** env, SyscallState& state) {
-  /// \todo Check argv/env??
   String nameCopy;
   if (!copyUserString(name, nameCopy)) {
     SC_NOTICE("execve -> invalid address");
@@ -579,12 +619,6 @@ int posix_execve(const char* name, const char** argv, const char** env, SyscallS
 
   SC_NOTICE("execve(\"" << nameCopy << "\")");
 
-  // Bad arguments?
-  if (argv == 0 || env == 0) {
-    SYSCALL_ERROR(ExecFormatError);
-    return -1;
-  }
-
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
   if (!pSubsystem) {
@@ -592,13 +626,52 @@ int posix_execve(const char* name, const char** argv, const char** env, SyscallS
     return -1;
   }
 
-  // Build argv and env lists.
   Vector<String> listArgv, listEnv;
-  for (const char** arg = argv; *arg != 0; ++arg) {
-    listArgv.pushBack(String(*arg));
-  }
-  for (const char** e = env; *e != 0; ++e) {
-    listEnv.pushBack(String(*e));
+  {
+    MemoryMapManager::OperationGuard mappingGuard(MemoryMapManager::instance());
+    size_t remaining = PosixSubsystem::MaximumExecArgumentBytes - 2 * sizeof(uintptr_t);
+    if (nameCopy.length() >= remaining) {
+      SYSCALL_ERROR(TooBig);
+      return -1;
+    }
+    remaining -= nameCopy.length() + 1;
+    auto snapshot = [&](const char** pointers, Vector<String>& output) {
+      uintptr_t cursor = reinterpret_cast<uintptr_t>(pointers);
+      while (cursor) {
+        const char* argument = nullptr;
+        if (!PosixSubsystem::copyFromUser(&argument, reinterpret_cast<void*>(cursor),
+                                          sizeof(argument))) {
+          SYSCALL_ERROR(BadAddress);
+          return false;
+        }
+        if (!argument) {
+          return true;
+        }
+        if (remaining <= sizeof(uintptr_t)) {
+          SYSCALL_ERROR(TooBig);
+          return false;
+        }
+        remaining -= sizeof(uintptr_t);
+        String value;
+        const auto result = PosixSubsystem::copyUserString(argument, value, remaining);
+        if (result != PosixSubsystem::UserStringSuccess) {
+          syscallError(result == PosixSubsystem::UserStringBadAddress ? Error::BadAddress
+                                                                      : Error::TooBig);
+          return false;
+        }
+        remaining -= value.length() + 1;
+        output.pushBack(value);
+        if (cursor > ~uintptr_t(0) - sizeof(uintptr_t)) {
+          SYSCALL_ERROR(BadAddress);
+          return false;
+        }
+        cursor += sizeof(uintptr_t);
+      }
+      return true;
+    };
+    if (!snapshot(argv, listArgv) || !snapshot(env, listEnv)) {
+      return -1;
+    }
   }
 
   // Normalise path to ensure we have the correct path to invoke.
@@ -980,180 +1053,112 @@ int posix_linux_getrusage(int who, LinuxRusage64* r) {
   return 0;
 }
 
-static char* store_str_to(char* str, char* strend, String s) {
-  int i = 0;
-  while (s[i] && str != strend)
-    *str++ = s[i++];
-  *str++ = '\0';
-
-  return str;
-}
-
-int posix_getpwent(passwd* pw, int n, char* str) {
-  /// \todo 'str' is not very nice here, can we do this better?
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pw), sizeof(passwd),
-                                    PosixSubsystem::SafeWrite)) {
-    SC_NOTICE("getpwent -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
+namespace {
+int copyPasswd(User* user, passwd* output, char* userStrings) {
+  if (!user) {
     return -1;
   }
-
-  SC_NOTICE("getpwent(" << Dec << n << Hex << ")");
-
-  // Grab the given user.
-  User* pUser = UserManager::instance().getUser(n);
-  if (!pUser)
-    return -1;
-
-  char* strend = str + 256;  // If we get here, we've gone off the end of str.
-
-  pw->pw_name = str;
-  str = store_str_to(str, strend, pUser->getUsername());
-
-  pw->pw_passwd = str;
-  *str++ = '\0';
-
-  pw->pw_uid = pUser->getId();
-  pw->pw_gid = pUser->getDefaultGroup()->getId();
-  str = store_str_to(str, strend, pUser->getFullName());
-
-  pw->pw_gecos = str;
-  *str++ = '\0';
-  pw->pw_dir = str;
-  str = store_str_to(str, strend, pUser->getHome());
-
-  pw->pw_shell = str;
-  store_str_to(str, strend, pUser->getShell());
-
-  return 0;
-}
-
-int posix_getpwnam(passwd* pw, const char* name, char* str) {
-  /// \todo Again, str is not very nice here.
-  String nameCopy;
-  if (!copyUserString(name, nameCopy)) {
-    SC_NOTICE("getpwname -> invalid address");
-    return -1;
+  // The native glue supplies one 256-byte buffer for all passwd strings.
+  char strings[256] = {};
+  passwd result = {};
+  size_t used = 0;
+  const uintptr_t base = reinterpret_cast<uintptr_t>(userStrings);
+  const String empty;
+  const String* values[] = {&user->getUsername(), &empty, &user->getFullName(), &user->getHome(),
+                            &user->getShell()};
+  char** fields[] = {&result.pw_name, &result.pw_passwd, &result.pw_gecos, &result.pw_dir,
+                     &result.pw_shell};
+  for (size_t i = 0; i < 5; ++i) {
+    const size_t length = values[i]->length();
+    if (length >= sizeof(strings) - used) {
+      SYSCALL_ERROR(BadRange);
+      return -1;
+    }
+    *fields[i] = reinterpret_cast<char*>(base + used);
+    MemoryCopy(strings + used, values[i]->cstr(), length + 1);
+    used += length + 1;
   }
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(pw), sizeof(passwd),
-                                    PosixSubsystem::SafeWrite)) {
-    SC_NOTICE("getpwname -> invalid address");
+  result.pw_uid = user->getId();
+  result.pw_gid = user->getDefaultGroup()->getId();
+  if (!PosixSubsystem::copyToUser(userStrings, strings, used) ||
+      !PosixSubsystem::copyToUser(output, &result, sizeof(result))) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
-
-  SC_NOTICE("getpwname(" << nameCopy << ")");
-
-  // Grab the given user.
-  User* pUser = UserManager::instance().getUser(nameCopy);
-  if (!pUser)
-    return -1;
-
-  char* strend = str + 256;  // If we get here, we've gone off the end of str.
-
-  pw->pw_name = str;
-  str = store_str_to(str, strend, pUser->getUsername());
-
-  pw->pw_passwd = str;
-  *str++ = '\0';
-
-  pw->pw_uid = pUser->getId();
-  pw->pw_gid = pUser->getDefaultGroup()->getId();
-  str = store_str_to(str, strend, pUser->getFullName());
-
-  pw->pw_gecos = str;
-  *str++ = '\0';
-
-  pw->pw_dir = str;
-  str = store_str_to(str, strend, pUser->getHome());
-
-  pw->pw_shell = str;
-  store_str_to(str, strend, pUser->getShell());
-
   return 0;
+}
+
+int copyGroup(Group* group, struct group* output) {
+  if (!group) {
+    return -1;
+  }
+  struct group result = {};
+  if (!PosixSubsystem::copyFromUser(&result, output, sizeof(result))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  // The native getgr* glue allocates 256 bytes for the caller-owned name.
+  const String& name = group->getName();
+  if (name.length() >= 256) {
+    SYSCALL_ERROR(BadRange);
+    return -1;
+  }
+  result.gr_gid = group->getId();
+  if (!PosixSubsystem::copyToUser(result.gr_name, name.cstr(), name.length() + 1) ||
+      !PosixSubsystem::copyToUser(output, &result, sizeof(result))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  return 0;
+}
+}  // namespace
+
+int posix_getpwent(passwd* pw, int n, char* str) {
+  return copyPasswd(UserManager::instance().getUser(n), pw, str);
+}
+
+int posix_getpwnam(passwd* pw, const char* name, char* str) {
+  String nameCopy;
+  if (!copyUserString(name, nameCopy)) {
+    return -1;
+  }
+  return copyPasswd(UserManager::instance().getUser(nameCopy), pw, str);
 }
 
 int posix_getgrnam(const char* name, struct group* out) {
   String nameCopy;
   if (!copyUserString(name, nameCopy)) {
-    SC_NOTICE("getgrnam -> invalid address");
     return -1;
   }
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(out), sizeof(struct group),
-                                    PosixSubsystem::SafeWrite)) {
-    SC_NOTICE("getgrnam -> invalid address");
-    SYSCALL_ERROR(BadAddress);
-    return -1;
-  }
-
-  SC_NOTICE("getgrnam(" << nameCopy << ")");
-
-  Group* pGroup = UserManager::instance().getGroup(nameCopy);
-  if (!pGroup) {
-    // No error needs to be set if not found.
-    return -1;
-  }
-
-  /// \todo this ignores the members field
-  StringCopy(out->gr_name, static_cast<const char*>(pGroup->getName()));
-  out->gr_gid = pGroup->getId();
-
-  return 0;
+  return copyGroup(UserManager::instance().getGroup(nameCopy), out);
 }
 
 int posix_getgrgid(gid_t id, struct group* out) {
-  if (!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(out), sizeof(struct group),
-                                     PosixSubsystem::SafeWrite))) {
-    SC_NOTICE("getgrgid( -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  SC_NOTICE("getgrgid(" << id << ")");
-
-  Group* pGroup = UserManager::instance().getGroup(id);
-  if (!pGroup) {
-    // No error needs to be set if not found.
-    return -1;
-  }
-
-  /// \todo this ignores the members field
-  StringCopy(out->gr_name, static_cast<const char*>(pGroup->getName()));
-  out->gr_gid = pGroup->getId();
-
-  return 0;
+  return copyGroup(UserManager::instance().getGroup(id), out);
 }
 
 uid_t posix_getuid() {
   SC_NOTICE("getuid");
 
-  uid_t uid = -1;
-  posix_getresuid(&uid, nullptr, nullptr);
-  return uid;
+  return Processor::information().getCurrentThread()->getParent()->getUserId();
 }
 
 gid_t posix_getgid() {
   SC_NOTICE("getgid");
 
-  gid_t gid = -1;
-  posix_getresgid(&gid, nullptr, nullptr);
-  return gid;
+  return Processor::information().getCurrentThread()->getParent()->getGroupId();
 }
 
 uid_t posix_geteuid() {
   SC_NOTICE("geteuid");
 
-  uid_t euid = -1;
-  posix_getresuid(nullptr, &euid, nullptr);
-  return euid;
+  return Processor::information().getCurrentThread()->getParent()->getEffectiveUserId();
 }
 
 gid_t posix_getegid() {
   SC_NOTICE("getegid");
 
-  uid_t egid = -1;
-  posix_getresgid(nullptr, &egid, nullptr);
-  return egid;
+  return Processor::information().getCurrentThread()->getParent()->getEffectiveGroupId();
 }
 
 int posix_setuid(uid_t uid) {
@@ -1548,29 +1553,30 @@ EXPORTED_PUBLIC int pedigree_reboot() {
 }
 
 int posix_uname(struct utsname* n) {
-  if (!n) {
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
+  struct utsname result = {};
 
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
 
-  StringCopy(n->sysname, "Pedigree");
+  StringCopy(result.sysname, "Pedigree");
 
   if (pSubsystem->getAbi() == PosixSubsystem::LinuxAbi) {
     // Lie a bit to Linux ABI callers.
-    StringCopy(n->release, "2.6.32-generic");
-    StringCopy(n->version, g_pBuildRevision);
+    StringCopy(result.release, "2.6.32-generic");
+    StringCopy(result.version, g_pBuildRevision);
   } else {
-    StringCopy(n->release, g_pBuildRevision);
-    StringCopy(n->version, "Foster");
+    StringCopy(result.release, g_pBuildRevision);
+    StringCopy(result.version, "Foster");
   }
 
-  StringCopy(n->machine, g_pBuildTarget);
+  StringCopy(result.machine, g_pBuildTarget);
 
   /// \todo: better handle node name
-  StringCopy(n->nodename, "pedigree");
+  StringCopy(result.nodename, "pedigree");
+  if (!PosixSubsystem::copyToUser(n, &result, sizeof(result))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
   return 0;
 }
 
@@ -1616,22 +1622,33 @@ int posix_prctl(int option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_
 }
 
 int posix_arch_prctl(int code, unsigned long addr) {
-  unsigned long* pAddr = reinterpret_cast<unsigned long*>(addr);
-
+  Thread* current = Processor::information().getCurrentThread();
   switch (code) {
     case ARCH_SET_FS:
-      Processor::information().getCurrentThread()->setTlsBase(addr);
+      if (addr >= current->getParent()->getAddressSpace()->getKernelStart()
+#if X64
+          || addr >= 0x0000800000000000ULL
+#endif
+      ) {
+        SYSCALL_ERROR(NotEnoughPermissions);
+        return -1;
+      }
+      current->setTlsBase(addr);
       break;
 
-    case ARCH_GET_FS:
-      *pAddr = Processor::information().getCurrentThread()->getTlsBase();
+    case ARCH_GET_FS: {
+      const unsigned long base = current->getTlsBase();
+      if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(addr), &base, sizeof(base))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
       break;
+    }
 
     default:
       SYSCALL_ERROR(InvalidArgument);
       return -1;
   }
-
   return 0;
 }
 
@@ -1646,56 +1663,57 @@ int posix_pause() {
 
 int posix_setgroups(size_t size, const gid_t* list) {
   SC_NOTICE("setgroups(" << size << ", " << list << ")");
-
-  /// \todo check permissions
-
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t),
-                                    PosixSubsystem::SafeRead)) {
-    SC_NOTICE(" -> invalid address");
-    SYSCALL_ERROR(BadAddress);
+  if (size > NGROUPS_MAX) {
+    SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
+  gid_t snapshot[NGROUPS_MAX] = {};
+  if (!PosixSubsystem::copyFromUser(snapshot, list, size, sizeof(gid_t))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
   PosixProcess* pProcess = getPosixProcess();
   if (!pProcess) {
-    /// \todo errno
     return -1;
   }
 
   Vector<int64_t> newGroups;
   for (size_t i = 0; i < size; ++i) {
-    newGroups.pushBack(list[i]);
+    newGroups.pushBack(snapshot[i]);
   }
-
   pProcess->setSupplementalGroupIds(newGroups);
-
   return 0;
 }
 
 int posix_getgroups(size_t size, gid_t* list) {
   SC_NOTICE("getgroups(" << size << ", " << list << ")");
-
-  if (size && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(list), size * sizeof(gid_t),
-                                            PosixSubsystem::SafeWrite)) {
-    SC_NOTICE("getgroups -> invalid address");
+  if (size > INT_MAX) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  PosixProcess* pProcess = getPosixProcess();
+  if (!pProcess) {
+    return -1;
+  }
+  Vector<int64_t> groups;
+  pProcess->getSupplementalGroupIds(groups);
+  if (!size) {
+    return groups.count();
+  }
+  if (size < groups.count()) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  Vector<gid_t> snapshot;
+  for (size_t i = 0; i < groups.count(); ++i) {
+    snapshot.pushBack(static_cast<gid_t>(groups[i]));
+  }
+  if (!PosixSubsystem::copyToUser(list, snapshot.count() ? &snapshot[0] : nullptr, snapshot.count(),
+                                  sizeof(gid_t))) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
-
-  PosixProcess* pProcess = getPosixProcess();
-  if (!pProcess) {
-    /// \todo errno
-    return -1;
-  }
-
-  Vector<int64_t> groups;
-  pProcess->getSupplementalGroupIds(groups);
-
-  for (size_t i = 0; i < size && i < groups.count(); ++i) {
-    list[i] = groups[i];
-  }
-
-  SC_NOTICE(" -> " << groups.count());
   return groups.count();
 }
 
@@ -1971,90 +1989,81 @@ int posix_setresgid(gid_t rgid, gid_t egid, gid_t sgid) {
 }
 
 int posix_getresuid(uid_t* ruid, uid_t* euid, uid_t* suid) {
-  SC_NOTICE("getresuid");
-
-  Process* pStockProcess = Processor::information().getCurrentThread()->getParent();
-
-  if (ruid) {
-    *ruid = pStockProcess->getUserId();
-    SC_NOTICE(" -> uid=" << *ruid);
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  const uid_t real = process->getUserId();
+  const uid_t effective = process->getEffectiveUserId();
+  PosixProcess* posix = getPosixProcess();
+  const uid_t saved = posix ? posix->getSavedUserId() : 0;
+  if ((ruid && !PosixSubsystem::copyToUser(ruid, &real, sizeof(real))) ||
+      (euid && !PosixSubsystem::copyToUser(euid, &effective, sizeof(effective))) ||
+      (suid && posix && !PosixSubsystem::copyToUser(suid, &saved, sizeof(saved)))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
   }
-
-  if (euid) {
-    *euid = pStockProcess->getEffectiveUserId();
-    SC_NOTICE(" -> euid=" << *euid);
-  }
-
-  if (suid) {
-    PosixProcess* pProcess = getPosixProcess();
-    if (pProcess) {
-      *suid = pProcess->getSavedUserId();
-      SC_NOTICE(" -> suid=" << *suid);
-    }
-  }
-
   return 0;
 }
 
 int posix_getresgid(gid_t* rgid, gid_t* egid, gid_t* sgid) {
-  SC_NOTICE("getresgid");
-
-  Process* pStockProcess = Processor::information().getCurrentThread()->getParent();
-
-  if (rgid) {
-    *rgid = pStockProcess->getGroupId();
-    SC_NOTICE(" -> gid=" << *rgid);
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  const gid_t real = process->getGroupId();
+  const gid_t effective = process->getEffectiveGroupId();
+  PosixProcess* posix = getPosixProcess();
+  const gid_t saved = posix ? posix->getSavedGroupId() : 0;
+  if ((rgid && !PosixSubsystem::copyToUser(rgid, &real, sizeof(real))) ||
+      (egid && !PosixSubsystem::copyToUser(egid, &effective, sizeof(effective))) ||
+      (sgid && posix && !PosixSubsystem::copyToUser(sgid, &saved, sizeof(saved)))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
   }
-
-  if (egid) {
-    *egid = pStockProcess->getEffectiveGroupId();
-    SC_NOTICE(" -> egid=" << *egid);
-  }
-
-  if (sgid) {
-    PosixProcess* pProcess = getPosixProcess();
-    if (pProcess) {
-      *sgid = pProcess->getSavedGroupId();
-      SC_NOTICE(" -> sgid=" << *sgid);
-    }
-  }
-
   return 0;
 }
 
-int posix_get_robust_list(int pid, struct robust_list_head** head_ptr, size_t* len_ptr) {
+int posix_get_robust_list(int pid, struct robust_list_head** head_ptr, size_t* len_ptr,
+                          bool linuxAbi) {
   SC_NOTICE("get_robust_list");
+  Thread* current = Processor::information().getCurrentThread();
+  Thread* target = current;
+  Process::ThreadLease targetLease;
+  const size_t currentId = linuxAbi ? current->getTaskId() : current->getId();
+  if (pid < 0 || (pid && static_cast<size_t>(pid) != currentId &&
+                  !(linuxAbi ? Scheduler::instance().acquireThreadByTaskId(targetLease, pid)
+                             : current->getParent()->acquireThreadById(targetLease, pid)))) {
+    SYSCALL_ERROR(NoSuchProcess);
+    return -1;
+  }
+  if (targetLease) {
+    target = targetLease.get();
+  }
+  if (target->getParent() != current->getParent()) {
+    // Cross-process inspection needs a ptrace access policy which the
+    // subsystem does not yet implement.
+    SYSCALL_ERROR(NotEnoughPermissions);
+    return -1;
+  }
 
-  if (!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(head_ptr), sizeof(void*),
-                                     PosixSubsystem::SafeWrite) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(len_ptr), sizeof(size_t),
-                                     PosixSubsystem::SafeWrite))) {
-    SC_NOTICE(" -> invalid address");
+  auto* head = reinterpret_cast<struct robust_list_head*>(target->getRobustList());
+  const size_t length = 3 * sizeof(uintptr_t);
+  if (!PosixSubsystem::copyToUser(head_ptr, &head, sizeof(head)) ||
+      !PosixSubsystem::copyToUser(len_ptr, &length, sizeof(length))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  return 0;
+}
+
+int posix_set_robust_list(struct robust_list_head* head, size_t len, bool linuxAbi) {
+  SC_NOTICE("set_robust_list");
+
+  if (len != 3 * sizeof(uintptr_t)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
-  PosixProcess* pProcess =
-      static_cast<PosixProcess*>(Processor::information().getCurrentThread()->getParent());
-
-  auto data = pProcess->getRobustList();
-  *head_ptr = reinterpret_cast<struct robust_list_head*>(data.head);
-  *len_ptr = data.head_len;
-
-  return 0;
-}
-
-int posix_set_robust_list(struct robust_list_head* head, size_t len) {
-  SC_NOTICE("set_robust_list");
-
-  PosixProcess* pProcess =
-      static_cast<PosixProcess*>(Processor::information().getCurrentThread()->getParent());
-
-  PosixProcess::RobustListData data;
-  data.head = head;
-  data.head_len = len;
-
-  pProcess->setRobustList(data);
+  // The list is mutable userspace state. Linux registers its address without
+  // touching it; exit processing must bound and validate each later access.
+  Thread* current = Processor::information().getCurrentThread();
+  current->setRobustList(reinterpret_cast<uintptr_t>(head),
+                         linuxAbi ? current->getTaskId() : current->getId());
 
   return 0;
 }
@@ -2199,53 +2208,53 @@ int posix_setitimer(int which, const struct itimerval* new_value, struct itimerv
 }
 
 int posix_capget(void* hdrp, void* datap) {
-  PosixProcess* pProcess = getPosixProcess();
-  if (!pProcess) {
-    /// \todo errno
+  if (!getPosixProcess()) {
     return -1;
   }
-
-  struct cap_header* header = reinterpret_cast<struct cap_header*>(hdrp);
-  struct cap_data* data = reinterpret_cast<struct cap_data*>(datap);
-
-  if (!header) {
+  cap_header header = {};
+  if (!PosixSubsystem::copyFromUser(&header, hdrp, sizeof(header))) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
-
-  if (header->version != _LINUX_CAPABILITY_VERSION_1) {
-    // require capability version 1
-    header->version = _LINUX_CAPABILITY_VERSION_1;
+  if (header.version != _LINUX_CAPABILITY_VERSION_1) {
+    const uint32_t version = _LINUX_CAPABILITY_VERSION_1;
+    if (!PosixSubsystem::copyToUser(hdrp, &version, sizeof(version))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-
-  if (data) {
-    /// \todo don't give away every capability like this
-    data->effective = 0xFFFFFFFF;
-    data->permitted = 0xFFFFFFFF;
-    data->inheritable = 0xFFFFFFFF;
+  if (datap) {
+    const cap_data data = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF};
+    if (!PosixSubsystem::copyToUser(datap, &data, sizeof(data))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
   }
-
   return 0;
 }
 
 int posix_capset(void* hdrp, const void* datap) {
-  struct cap_header* header = reinterpret_cast<struct cap_header*>(hdrp);
-  const struct cap_data* data = reinterpret_cast<const struct cap_data*>(datap);
-
-  if (!header) {
+  cap_header header = {};
+  if (!PosixSubsystem::copyFromUser(&header, hdrp, sizeof(header))) {
     SYSCALL_ERROR(BadAddress);
     return -1;
   }
-
-  if (header->version != _LINUX_CAPABILITY_VERSION_1) {
-    header->version = _LINUX_CAPABILITY_VERSION_1;
+  if (header.version != _LINUX_CAPABILITY_VERSION_1) {
+    const uint32_t version = _LINUX_CAPABILITY_VERSION_1;
+    if (!PosixSubsystem::copyToUser(hdrp, &version, sizeof(version))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-
-  // no-op - capget says all capabilities are given, and the posix subsystem
-  // doesn't use them yet
+  cap_data data = {};
+  if (!PosixSubsystem::copyFromUser(&data, datap, sizeof(data))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  // Capability policy remains the existing all-granted no-op contract.
   return 0;
 }

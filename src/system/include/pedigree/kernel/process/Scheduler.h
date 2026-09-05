@@ -134,6 +134,9 @@ class EXPORTED_PUBLIC Scheduler {
    */
   MUST_USE_RESULT bool acquireProcessById(ProcessLease& lease, size_t id);
 
+  /** Pins a Linux task without nesting scheduler and process enumeration locks. */
+  MUST_USE_RESULT bool acquireThreadByTaskId(Process::ThreadLease& lease, size_t id);
+
   /**
    * Pins an expected pointer only if it is still in enumeration.
    *

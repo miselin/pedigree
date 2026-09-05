@@ -25,6 +25,8 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/syscallError.h"
 
+#include <errno.h>
+
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/logging.h"
 #include "modules/system/vfs/VFS.h"
@@ -673,37 +675,57 @@ uint64_t UnixSocket::sendStream(const struct iovec* vectors, size_t vectorCount,
 }
 
 bool UnixSocket::sendDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, uintptr_t source,
-                              const SharedPointer<SocketRights>& rights) {
-  if (m_Type != Datagram) {
-    return false;
+                              const SharedPointer<SocketRights>& rights, int* error) {
+  if (error) {
+    *error = 0;
   }
-
-  if (bCanBlock) {
-    if (!select(true, 1)) {
-      return false;
+  auto fail = [error](int value) {
+    if (error) {
+      *error = value;
     }
-  } else if (!select(true, 0)) {
     return false;
+  };
+  if (m_Type != Datagram) {
+    return fail(EPROTOTYPE);
+  }
+  if (getState() == Closed) {
+    return fail(ECONNREFUSED);
   }
 
-  struct buf* b = new struct buf;
-  b->pBuffer = new char[size];
+  struct buf* b = new buf();
+  if (!b) {
+    return fail(ENOMEM);
+  }
   if (size) {
+    b->pBuffer = new char[size];
+    if (!b->pBuffer) {
+      destroyDatagram(b);
+      return fail(ENOMEM);
+    }
     MemoryCopy(b->pBuffer, reinterpret_cast<void*>(buffer), size);
   }
   b->len = size;
-  b->remotePath = 0;
-  b->remotePathLen = 0;
   b->rights = rights;
   if (source) {
-    b->remotePath = new char[255];
-    StringCopyN(b->remotePath, reinterpret_cast<char*>(source), 255);
-    b->remotePathLen = StringLength(b->remotePath);
+    b->remotePathLen = StringLength(reinterpret_cast<const char*>(source));
+    b->remotePath = new char[b->remotePathLen + 1];
+    if (!b->remotePath) {
+      destroyDatagram(b);
+      return fail(ENOMEM);
+    }
+    MemoryCopy(b->remotePath, reinterpret_cast<const void*>(source), b->remotePathLen + 1);
   }
-  const DatagramBuffer::Error error = m_Datagrams.write(b);
-  if (error != DatagramBuffer::NoError) {
+  // Admission and queue capacity must be checked by the same write operation.
+  const DatagramBuffer::Error result = bCanBlock ? m_Datagrams.write(b) : m_Datagrams.tryWrite(b);
+  if (result != DatagramBuffer::NoError) {
     destroyDatagram(b);
-    return false;
+    if (result == DatagramBuffer::Closed) {
+      return fail(ECONNREFUSED);
+    }
+    if (result == DatagramBuffer::Interrupted || result == DatagramBuffer::ThreadTerminating) {
+      return fail(EINTR);
+    }
+    return fail(EAGAIN);
   }
 
   dataChanged();

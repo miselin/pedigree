@@ -39,7 +39,7 @@ uintptr_t posix_brk(uintptr_t theBreak);
 long posix_sbrk(int delta);
 SyscallState posix_copy_clone_state(const SyscallState& state);
 long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, int* ptid, int* ctid,
-                 unsigned long newtls);
+                 unsigned long newtls, bool linuxAbi = false);
 int posix_fork(SyscallState& state);
 int posix_execve(const char* name, const char** argv, const char** env, SyscallState& state);
 int posix_waitpid(const int pid, int* status, int options, LinuxRusage64* usage);
@@ -119,8 +119,9 @@ int posix_setresgid(gid_t rgid, gid_t egid, gid_t sgid);
 int posix_getresuid(uid_t* ruid, uid_t* euid, uid_t* suid);
 int posix_getresgid(gid_t* rgid, gid_t* egid, gid_t* sgid);
 
-int posix_get_robust_list(int pid, struct robust_list_head** head_ptr, size_t* len_ptr);
-int posix_set_robust_list(struct robust_list_head* head, size_t len);
+int posix_get_robust_list(int pid, struct robust_list_head** head_ptr, size_t* len_ptr,
+                        bool linuxAbi = false);
+int posix_set_robust_list(struct robust_list_head* head, size_t len, bool linuxAbi = false);
 
 int posix_ioperm(unsigned long from, unsigned long num, int turn_on);
 int posix_iopl(int level);

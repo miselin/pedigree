@@ -128,6 +128,7 @@ class EXPORTED_PUBLIC Directory : public File {
 
    private:
     friend class Directory;
+    friend class Filesystem;
 
     NameReservation(const NameReservation&) = delete;
     NameReservation& operator=(const NameReservation&) = delete;
@@ -137,6 +138,7 @@ class EXPORTED_PUBLIC Directory : public File {
     Directory* m_pDirectory;
     String m_Name;
     void* m_pToken;
+    bool m_OwnsNamespaceLock;
 #if THREADS && !defined(STANDALONE_MUTEXES)
     TerminationDeferral m_TerminationDeferral;
 #endif
@@ -412,6 +414,10 @@ class EXPORTED_PUBLIC Directory : public File {
   virtual File* convertToFile(const DirectoryEntryMetadata& meta);
 
  private:
+  /** Reserve an existing or absent name while the caller owns the namespace lock. */
+  bool reserveRenameEntry(const String& name, NameReservation& reservation);
+  void moveReservedEntry(NameReservation& sourceReservation, Directory* destination,
+                         NameReservation& destinationReservation, File* source);
   // Keep cookies non-negative when exposed through POSIX's signed off_t.
   static constexpr uint64_t ResidentCookie = static_cast<uint64_t>(1) << 62;
 

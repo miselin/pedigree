@@ -36,6 +36,8 @@
 
 Filesystem::Filesystem() : m_bReadOnly(false), m_pDisk(0) {}
 
+Mutex Filesystem::m_StructureLock;
+
 Filesystem::~Filesystem() = default;
 
 namespace {
@@ -327,7 +329,218 @@ bool Filesystem::remove(File* parent, File* file) {
   return removeChild(parent, file->getName(), file);
 }
 
+bool Filesystem::rename(const StringView& oldPath, File* oldStart, const StringView& newPath,
+                        File* newStart) {
+  if (!oldPath.length() || !newPath.length()) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+  LockGuard<Mutex> structureGuard(m_StructureLock);
+  TrueRootLease rootLease(this);
+  if (!oldStart) {
+    oldStart = rootLease.get();
+  }
+  if (!newStart) {
+    newStart = rootLease.get();
+  }
+
+  String oldName;
+  String newName;
+  Directory::ChildLease oldParentLease;
+  Directory::ChildLease newParentLease;
+  File* retained = nullptr;
+  File* oldParentFile = findParent(oldPath, oldStart, oldName, &retained);
+  if (retained) {
+    oldParentLease.adopt(retained);
+  }
+  retained = nullptr;
+  File* newParentFile = findParent(newPath, newStart, newName, &retained);
+  if (retained) {
+    newParentLease.adopt(retained);
+  }
+  if (!oldParentFile || !newParentFile) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+  if (!oldParentFile->isDirectory() || !newParentFile->isDirectory()) {
+    SYSCALL_ERROR(NotADirectory);
+    return false;
+  }
+  if (!oldName.length() || !newName.length() || oldName == "." || oldName == ".." ||
+      newName == "." || newName == "..") {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  Filesystem* filesystem = oldParentFile->getFilesystem();
+  if (filesystem != newParentFile->getFilesystem()) {
+    SYSCALL_ERROR(CrossDeviceLink);
+    return false;
+  }
+  if (filesystem->isReadOnly()) {
+    SYSCALL_ERROR(ReadOnlyFilesystem);
+    return false;
+  }
+  if (!VFS::checkAccess(oldParentFile, false, true, true) ||
+      !VFS::checkAccess(newParentFile, false, true, true)) {
+    return false;
+  }
+
+  Directory* oldParent = Directory::fromFile(oldParentFile);
+  Directory* newParent = Directory::fromFile(newParentFile);
+  const bool oldFirst =
+      reinterpret_cast<uintptr_t>(oldParent) < reinterpret_cast<uintptr_t>(newParent);
+  Directory* first = oldFirst ? oldParent : newParent;
+  Directory* second = oldFirst ? newParent : oldParent;
+  LockGuard<Mutex> firstGuard(first->namespaceMutationLock());
+  LockGuard<Mutex> secondGuard(second->namespaceMutationLock(), second != first);
+  if (oldParent->isDetached() || newParent->isDetached()) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+
+  Directory::ChildLease sourceLease;
+  Directory::ChildLease replacedLease;
+  const auto sourceStatus = oldParent->lookupChild(HashedStringView(oldName), sourceLease);
+  if (sourceStatus != Directory::LookupStatus::Found) {
+    syscallError(sourceStatus == Directory::LookupStatus::IoError ? Error::IoError
+                                                                  : Error::DoesNotExist);
+    return false;
+  }
+  File* source = sourceLease.get();
+  if (oldParent == newParent && oldName == newName) {
+    return true;
+  }
+  const auto replacedStatus = newParent->lookupChild(HashedStringView(newName), replacedLease);
+  if (replacedStatus == Directory::LookupStatus::IoError) {
+    SYSCALL_ERROR(IoError);
+    return false;
+  }
+  File* replaced = replacedLease.get();
+  if (source->getFilesystem() != filesystem ||
+      (replaced && replaced->getFilesystem() != filesystem)) {
+    SYSCALL_ERROR(CrossDeviceLink);
+    return false;
+  }
+  if (replaced &&
+      (source == replaced || (source->getInode() && source->getInode() == replaced->getInode()))) {
+    return true;
+  }
+  if ((oldPath[oldPath.length() - 1] == '/' && !source->isDirectory()) ||
+      (newPath[newPath.length() - 1] == '/' && !source->isDirectory())) {
+    SYSCALL_ERROR(NotADirectory);
+    return false;
+  }
+  if (replaced && replaced->isDirectory() != source->isDirectory()) {
+    syscallError(replaced->isDirectory() ? Error::IsADirectory : Error::NotADirectory);
+    return false;
+  }
+  Directory* sourceDirectory = source->isDirectory() ? Directory::fromFile(source) : nullptr;
+  Directory* replacedDirectory =
+      replaced && replaced->isDirectory() ? Directory::fromFile(replaced) : nullptr;
+  if ((sourceDirectory && sourceDirectory->getReparsePoint()) ||
+      (replacedDirectory && replacedDirectory->getReparsePoint())) {
+    SYSCALL_ERROR(DeviceBusy);
+    return false;
+  }
+  if (sourceDirectory) {
+    File* ancestor = newParent;
+    File::ParentLease ancestorLease;
+    while (ancestor) {
+      if (ancestor == source) {
+        SYSCALL_ERROR(InvalidArgument);
+        return false;
+      }
+      File::ParentLease next;
+      String unused;
+      ancestor->getNamespace(next, unused);
+      ancestorLease.swap(next);
+      ancestor = ancestorLease.get();
+    }
+  }
+  if (replacedDirectory == oldParent || replacedDirectory == newParent) {
+    SYSCALL_ERROR(NotEmpty);
+    return false;
+  }
+
+  LockGuard<Mutex> sourceGuard(sourceDirectory ? sourceDirectory->namespaceMutationLock()
+                                               : oldParent->namespaceMutationLock(),
+                               sourceDirectory != nullptr);
+  LockGuard<Mutex> replacedGuard(replacedDirectory ? replacedDirectory->namespaceMutationLock()
+                                                   : oldParent->namespaceMutationLock(),
+                                 replacedDirectory != nullptr);
+  if (replacedDirectory) {
+    bool empty = false;
+    if (replacedDirectory->isEmpty(empty) != Directory::ReadStatus::Complete) {
+      SYSCALL_ERROR(IoError);
+      return false;
+    }
+    if (!empty) {
+      SYSCALL_ERROR(NotEmpty);
+      return false;
+    }
+  }
+
+  Directory::NameReservation oldReservation;
+  Directory::NameReservation newReservation;
+  if (!oldParent->reserveRenameEntry(oldName, oldReservation) ||
+      !newParent->reserveRenameEntry(newName, newReservation)) {
+    SYSCALL_ERROR(DoesNotExist);
+    return false;
+  }
+  bool sourceEphemeral = false;
+  bool replacedEphemeral = false;
+  {
+    LockGuard<Mutex> guard(oldParent->m_CacheLock);
+    sourceEphemeral = oldParent->m_EphemeralEntries.lookup(oldName).hasValue();
+  }
+  if (replaced) {
+    LockGuard<Mutex> guard(newParent->m_CacheLock);
+    replacedEphemeral = newParent->m_EphemeralEntries.lookup(newName).hasValue();
+  }
+  if (sourceEphemeral) {
+    if (newName.length() > 255) {
+      SYSCALL_ERROR(NameTooLong);
+      return false;
+    }
+    if (sourceDirectory) {
+      SYSCALL_ERROR(OperationNotSupported);
+      return false;
+    }
+    // Overlay names have no backing record. Remove a backing victim before
+    // the non-fallible namespace publication, keeping both names reserved.
+    if (replaced && !replacedEphemeral && !filesystem->removeNode(newParent, newName, replaced)) {
+      return false;
+    }
+  } else if (!filesystem->renameNode(oldParent, oldName, source, newParent, newName,
+                                     replacedEphemeral ? nullptr : replaced)) {
+    return false;
+  }
+  if (replaced) {
+    replaced->retainDetachedParent();
+    if (replacedDirectory) {
+      replacedDirectory->markDetached();
+    }
+  }
+  source->moveNamespace(newName, newParent);
+  if (sourceDirectory) {
+    __atomic_store_n(&sourceDirectory->m_ParentInode, newParent->getInode(), __ATOMIC_RELEASE);
+  }
+  oldParent->moveReservedEntry(oldReservation, newParent, newReservation, source);
+  oldReservation.complete(Directory::LookupStatus::NotFound);
+  newReservation.complete(Directory::LookupStatus::Found);
+  if (replaced) {
+    replaced->publishEvent(FileEvents::DeletedSelf);
+  }
+  return true;
+}
+
+bool Filesystem::renameNode(Directory*, const String&, File*, Directory*, const String&, File*) {
+  SYSCALL_ERROR(OperationNotSupported);
+  return false;
+}
+
 bool Filesystem::removeChild(File* parent, const String& filename, File* expected) {
+  LockGuard<Mutex> structureGuard(m_StructureLock);
   if (!parent || !parent->isDirectory()) {
     SYSCALL_ERROR(NotADirectory);
     return false;
@@ -483,7 +696,12 @@ File* Filesystem::findNode(File* pNode, StringView path, File* stableStart, File
 
   bool dot = currentComponent == ".";
   bool dotdot = currentComponent == "..";
-  File* parent = pNode->getParent();
+  File::ParentLease parentLease;
+  String unusedName;
+  if (dotdot) {
+    pNode->getNamespace(parentLease, unusedName);
+  }
+  File* parent = parentLease.get();
 
   // '.' section, or '..' with no parent, or '..' and we're at the root.
   if (dot || (dotdot && !parent) || (dotdot && pNode == trueRoot)) {

@@ -58,13 +58,10 @@ void Symlink::initialise(bool bForce) {
 }
 
 File* Symlink::followLinkRetained(Directory::ChildLease& result) {
-  Directory::ChildLease parentLease;
-  File* parent = getParent();
-  if (parent && VFS::instance().retainTrackedFile(parent)) {
-    parentLease.adopt(parent);
-  } else if (parent && parent != m_pFilesystem->getRoot()) {
-    return nullptr;
-  }
+  ParentLease parentLease;
+  String unusedName;
+  getNamespace(parentLease, unusedName);
+  File* parent = parentLease.get();
 
   String target;
   {

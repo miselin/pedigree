@@ -70,7 +70,8 @@ void Directory::ChildLease::adopt(File* file) {
 Directory::NameReservation::NameReservation()
     : m_pDirectory(nullptr),
       m_Name(),
-      m_pToken(nullptr)
+      m_pToken(nullptr),
+      m_OwnsNamespaceLock(false)
 #if THREADS && !defined(STANDALONE_MUTEXES)
       ,
       m_TerminationDeferral(true)
@@ -227,7 +228,9 @@ Directory::ReadStatus Directory::enumerate(uint64_t& cookie, DirectoryEntryEmitt
   }
 
   if (cookie == 1) {
-    DirectoryEntryView dotdot = {StringView(".."), m_ParentInode, EntryType::Directory, 1, 2};
+    DirectoryEntryView dotdot = {StringView(".."),
+                                 __atomic_load_n(&m_ParentInode, __ATOMIC_ACQUIRE),
+                                 EntryType::Directory, 1, 2};
     if (!emitter(context, dotdot)) {
       return ReadStatus::Stopped;
     }
@@ -346,7 +349,12 @@ Directory::LookupStatus Directory::lookupChildAt(uint64_t cookie, const HashedSt
       return LookupStatus::NotFound;
     }
 
-    File* file = dot ? const_cast<Directory*>(this) : getParent();
+    ParentLease parent;
+    String unused;
+    if (dotdot) {
+      getNamespace(parent, unused);
+    }
+    File* file = dot ? const_cast<Directory*>(this) : parent.get();
     if (!file) {
       file = const_cast<Directory*>(this);
     }
@@ -364,7 +372,8 @@ Directory::LookupStatus Directory::lookupChildAt(uint64_t cookie, const HashedSt
     {
       LockGuard<Mutex> guard(m_CacheLock);
       const size_t slot = static_cast<size_t>(cookie & ~ResidentCookie);
-      if (slot >= m_ResidentOrder.count() || m_ResidentOrder[slot] != name) {
+      if (m_InFlightLookups.lookup(name).hasValue() || slot >= m_ResidentOrder.count() ||
+          m_ResidentOrder[slot] != name) {
         stale = true;
       } else {
         DirectoryEntryCache::LookupResult resident = m_ResidentEntries.lookup(name);
@@ -589,6 +598,7 @@ bool Directory::reserveDirectoryEntry(const HashedStringView& name, NameReservat
         reservation.m_pDirectory = this;
         reservation.m_Name = ownedName;
         reservation.m_pToken = lookup;
+        reservation.m_OwnsNamespaceLock = true;
         return true;
       }
 
@@ -606,6 +616,7 @@ bool Directory::reserveDirectoryEntry(const HashedStringView& name, NameReservat
 }
 
 void Directory::finishNameReservation(NameReservation& reservation, LookupStatus result) {
+  const bool ownsNamespaceLock = reservation.m_OwnsNamespaceLock;
   InFlightLookup* retiredLookup = nullptr;
   {
     LockGuard<Mutex> guard(m_CacheLock);
@@ -624,9 +635,109 @@ void Directory::finishNameReservation(NameReservation& reservation, LookupStatus
     reservation.m_pDirectory = nullptr;
     reservation.m_Name.clear();
     reservation.m_pToken = nullptr;
+    reservation.m_OwnsNamespaceLock = false;
   }
   delete retiredLookup;
-  m_NamespaceMutationLock.release();
+  if (ownsNamespaceLock) {
+    m_NamespaceMutationLock.release();
+  }
+}
+
+bool Directory::reserveRenameEntry(const String& name, NameReservation& reservation) {
+  assert(!reservation);
+  while (true) {
+    InFlightLookup* retired = nullptr;
+    {
+      LockGuard<Mutex> guard(m_CacheLock);
+      if (isDetached()) {
+        return false;
+      }
+      auto pending = m_InFlightLookups.lookup(name);
+      if (!pending.hasValue()) {
+        InFlightLookup* lookup = new InFlightLookup;
+        const bool inserted = m_InFlightLookups.insert(name, lookup);
+        assert(inserted);
+        reservation.m_pDirectory = this;
+        reservation.m_Name = name;
+        reservation.m_pToken = lookup;
+        return true;
+      }
+      InFlightLookup* lookup = pending.value();
+      ++lookup->users;
+      while (!lookup->complete) {
+        lookup->changed.waitForCompletion(m_CacheLock);
+      }
+      if (!--lookup->users) {
+        retired = lookup;
+      }
+    }
+    delete retired;
+  }
+}
+
+void Directory::moveReservedEntry(NameReservation& sourceReservation, Directory* destination,
+                                  NameReservation& destinationReservation, File* source) {
+  assert(sourceReservation.m_pDirectory == this);
+  assert(destinationReservation.m_pDirectory == destination);
+  const String& oldName = sourceReservation.m_Name;
+  const String& newName = destinationReservation.m_Name;
+  DirectoryEntry* moved = nullptr;
+  DirectoryEntry* retired = nullptr;
+  bool resident = false;
+  bool ephemeral = false;
+  {
+    LockGuard<Mutex> guard(m_CacheLock);
+    auto residentEntry = m_ResidentEntries.lookup(oldName);
+    resident = residentEntry.hasValue();
+    if (resident) {
+      moved = residentEntry.value();
+    } else {
+      auto cachedEntry = m_Cache.lookup(oldName);
+      assert(cachedEntry.hasValue());
+      moved = cachedEntry.value();
+    }
+    assert(moved->get() == source);
+    ephemeral = m_EphemeralEntries.lookup(oldName).hasValue();
+    if (resident) {
+      tombstoneResidentLocked(HashedStringView(oldName));
+      m_ResidentEntries.remove(oldName);
+      m_EphemeralEntries.remove(oldName);
+    } else {
+      m_Cache.remove(oldName);
+    }
+    m_CacheGenerations.remove(oldName);
+  }
+  {
+    LockGuard<Mutex> guard(destination->m_CacheLock);
+    auto existing = destination->m_ResidentEntries.lookup(newName);
+    if (existing.hasValue()) {
+      retired = existing.value();
+      destination->tombstoneResidentLocked(HashedStringView(newName));
+      destination->m_ResidentEntries.remove(newName);
+    } else {
+      auto cachedEntry = destination->m_Cache.lookup(newName);
+      if (cachedEntry.hasValue()) {
+        retired = cachedEntry.value();
+        destination->m_Cache.remove(newName);
+      }
+    }
+    destination->m_EphemeralEntries.remove(newName);
+    destination->m_CacheGenerations.remove(newName);
+    if (resident) {
+      const bool inserted = destination->m_ResidentEntries.insert(newName, moved);
+      assert(inserted);
+      destination->m_CacheGenerations.insert(newName, destination->m_ResidentOrder.count() + 1);
+      destination->m_ResidentOrder.pushBack(newName);
+      if (ephemeral) {
+        destination->m_EphemeralEntries.insert(newName, true);
+      }
+    } else {
+      const bool inserted = destination->m_Cache.insert(newName, moved);
+      assert(inserted);
+      destination->m_CacheGenerations.insert(newName, destination->nextCacheGeneration());
+    }
+  }
+  delete retired;
 }
 
 bool Directory::addResidentDirectoryEntry(NameReservation& reservation, File* pTarget,
@@ -871,6 +982,7 @@ void Directory::markDetached() {
 }
 
 void Directory::emptyCache() {
+  LockGuard<Mutex> namespaceGuard(m_NamespaceMutationLock);
   Vector<DirectoryEntry*> entries;
   {
     LockGuard<Mutex> guard(m_CacheLock);
@@ -879,6 +991,11 @@ void Directory::emptyCache() {
     }
     for (auto it : m_ResidentEntries) {
       entries.pushBack(it);
+    }
+    for (DirectoryEntry* entry : entries) {
+      if (entry->active()) {
+        entry->get()->retainDetachedParent();
+      }
     }
 
     m_Cache.clear();

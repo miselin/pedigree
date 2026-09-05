@@ -939,7 +939,9 @@ size_t Process::addThread(Thread* pThread) {
     ++m_nTerminationParticipants;
   }
   m_Threads.pushBack(pThread);
-  return m_NextTid += 1;
+  const size_t localId = m_NextTid += 1;
+  pThread->m_TaskId = localId == 1 ? m_Id : Scheduler::instance().reserveProcessId();
+  return localId;
 }
 
 void Process::threadExiting(Thread* pThread) {
@@ -1000,6 +1002,33 @@ bool Process::acquireThreadById(ThreadLease& lease, size_t id) {
     LockGuard<Spinlock> guard(m_Lock);
     for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); ++it) {
       if (*it && (*it)->getId() == id) {
+        thread = *it;
+        break;
+      }
+    }
+    if (!thread || !beginExternalLease()) {
+      thread = nullptr;
+    } else if (!thread->beginExternalLease()) {
+      endExternalLease();
+      thread = nullptr;
+    }
+  }
+
+  if (!thread) {
+    lease.reset();
+    return false;
+  }
+
+  lease = ThreadLease(this, thread);
+  return true;
+}
+
+bool Process::acquireThreadByTaskId(ThreadLease& lease, size_t id) {
+  Thread* thread = nullptr;
+  {
+    LockGuard<Spinlock> guard(m_Lock);
+    for (Vector<Thread*>::Iterator it = m_Threads.begin(); it != m_Threads.end(); ++it) {
+      if (*it && (*it)->getTaskId() == id) {
         thread = *it;
         break;
       }
@@ -1134,6 +1163,37 @@ void Process::reap() {
 void Process::markTerminating() {
   closeDeferredTimeAccounting();
   transitionToTerminating();
+}
+
+bool Process::prepareThreadExit() {
+  Thread* current = Processor::information().getCurrentThread();
+  if (!current || current->getParent() != this) {
+    FATAL("Thread exit intent must come from the current process.");
+  }
+
+  LockGuard<Spinlock> guard(m_Lock);
+  current->m_bThreadExitRequested = true;
+  if (m_bTerminalOwnerReserved || m_bTerminationRendezvousStarted || getState() == Terminating) {
+    return false;
+  }
+
+  for (Thread* thread : m_Threads) {
+    if (thread == current || thread->m_bThreadExitRequested ||
+        thread->getUnwindState() == Thread::TerminateThread) {
+      continue;
+    }
+    auto exitGuard = thread->m_JoinWaiters.acquire();
+    if (!thread->m_bExitStarted && !thread->m_bReapable) {
+      return false;
+    }
+  }
+
+  // Reserve the running owner before dropping the lock. Concurrent exits
+  // cannot elect another owner, and late clone publication joins termination.
+  m_bTerminalOwnerReserved = true;
+  m_pReservedTerminalOwner = current;
+  transitionToTerminating();
+  return true;
 }
 
 bool Process::beginTermination() {

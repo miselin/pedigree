@@ -89,6 +89,16 @@ size_t getAvailableDescriptor() {
   g_Descriptors.resize(descriptor + 1);
   return descriptor;
 }
+
+size_t installDescriptor(FileDescriptor* descriptor, DescriptorLease& lease) {
+  SharedPointer<FileDescriptor> published(descriptor);
+  std::lock_guard<std::mutex> guard(g_DescriptorsLock);
+  const size_t fd = g_Descriptors.size();
+  descriptor->fd = fd;
+  g_Descriptors.push_back(published);
+  lease.retain(published);
+  return fd;
+}
 #else
 /// \todo move these into a common area, this code is duplicated EVERYWHERE
 PosixSubsystem* getSubsystem() {
@@ -124,5 +134,9 @@ bool removeDescriptor(int fd, const DescriptorLease& descriptor) {
 size_t getAvailableDescriptor() {
   PosixSubsystem* pSubsystem = getSubsystem();
   return pSubsystem->getFd();
+}
+
+size_t installDescriptor(FileDescriptor* descriptor, DescriptorLease& lease) {
+  return getSubsystem()->installFileDescriptor(descriptor, lease);
 }
 #endif

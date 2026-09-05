@@ -30,6 +30,7 @@ namespace {
 constexpr size_t ReadDescriptor = 110;
 constexpr size_t WriteDescriptor = 111;
 constexpr size_t ReadWriteDescriptor = 112;
+constexpr size_t NonBlockingWriteDescriptor = 113;
 constexpr size_t LargeFileSize = (static_cast<size_t>(1) << 33) + 513;
 constexpr uintptr_t LargeInode = (static_cast<uintptr_t>(1) << 33) + 0x5678;
 
@@ -47,6 +48,8 @@ class ContractFile final : public File {
 
   size_t readCalls;
   size_t writeCalls;
+  size_t backendError = 0;
+  uint64_t maximumWrite = ~static_cast<uint64_t>(0);
 
  protected:
   bool isBytewise() const override {
@@ -67,6 +70,12 @@ class ContractFile final : public File {
 
   uint64_t writeBytewise(uint64_t offset, uint64_t size, uintptr_t buffer, bool) override {
     ++writeCalls;
+    if (backendError) {
+      Processor::information().getCurrentThread()->setErrno(backendError);
+    }
+    if (size > maximumWrite) {
+      size = maximumWrite;
+    }
     if (offset >= sizeof(m_Bytes)) {
       return 0;
     }
@@ -83,13 +92,20 @@ class ContractFile final : public File {
 
 struct ContractContext {
   explicit ContractContext(ContractFile* target)
-      : file(target), denied(false), allowed(false), open(false), metadata(false), returned(0) {}
+      : file(target),
+        denied(false),
+        allowed(false),
+        open(false),
+        metadata(false),
+        writeErrors(false),
+        returned(0) {}
 
   ContractFile* file;
   bool denied;
   bool allowed;
   bool open;
   bool metadata;
+  bool writeErrors;
   Atomic<size_t> returned;
 };
 
@@ -191,6 +207,43 @@ int contractWorker(void* parameter) {
   }
   context->metadata = metadata;
 
+  bool writeErrors = true;
+  context->file->backendError = Error::NoSpaceLeftOnDevice;
+  context->file->maximumWrite = 0;
+  vector->iov_len = 1;
+  const size_t writeDescriptors[] = {WriteDescriptor, NonBlockingWriteDescriptor};
+  for (size_t descriptor : writeDescriptors) {
+    writeErrors &=
+        posix_write(descriptor, data, 1) == -1 && thread->getErrno() == Error::NoSpaceLeftOnDevice;
+    writeErrors &= posix_pwrite64(descriptor, data, 1, 0) == -1 &&
+                   thread->getErrno() == Error::NoSpaceLeftOnDevice;
+    writeErrors &= posix_writev(descriptor, vector, 1) == -1 &&
+                   thread->getErrno() == Error::NoSpaceLeftOnDevice;
+    writeErrors &= posix_pwritev(descriptor, vector, 1, 0) == -1 &&
+                   thread->getErrno() == Error::NoSpaceLeftOnDevice;
+  }
+  context->file->backendError = 0;
+  context->file->maximumWrite = ~static_cast<uint64_t>(0);
+  thread->setErrno(Error::IoError);
+  writeErrors &= posix_write(WriteDescriptor, data, 1) == 1 && thread->getErrno() == 0;
+  thread->setErrno(Error::IoError);
+  writeErrors &= posix_pwrite64(WriteDescriptor, data, 1, 0) == 1 && thread->getErrno() == 0;
+  thread->setErrno(Error::IoError);
+  writeErrors &= posix_writev(WriteDescriptor, vector, 1) == 1 && thread->getErrno() == 0;
+  thread->setErrno(Error::IoError);
+  writeErrors &= posix_pwritev(WriteDescriptor, vector, 1, 0) == 1 && thread->getErrno() == 0;
+
+  context->file->backendError = Error::IoError;
+  context->file->maximumWrite = 1;
+  vector->iov_len = 2;
+  writeErrors &= posix_write(WriteDescriptor, data, 2) == 1 && thread->getErrno() == 0;
+  writeErrors &= posix_pwrite64(WriteDescriptor, data, 2, 0) == 1 && thread->getErrno() == 0;
+  writeErrors &= posix_writev(WriteDescriptor, vector, 1) == 1 && thread->getErrno() == 0;
+  writeErrors &= posix_pwritev(WriteDescriptor, vector, 1, 0) == 1 && thread->getErrno() == 0;
+  context->file->backendError = 0;
+  context->file->maximumWrite = ~static_cast<uint64_t>(0);
+  context->writeErrors = writeErrors;
+
   MemoryMapManager::instance().remove(address, pageSize);
   process->getSpaceAllocator().free(address, pageSize);
   context->returned += 1;
@@ -231,6 +284,9 @@ bool runHostedFileContractRegressions(Process* kernelProcess) {
                                new FileDescriptor(file, 0, WriteDescriptor, 0, O_WRONLY));
   subsystem->addFileDescriptor(ReadWriteDescriptor,
                                new FileDescriptor(file, 0, ReadWriteDescriptor, 0, O_RDWR));
+  subsystem->addFileDescriptor(
+      NonBlockingWriteDescriptor,
+      new FileDescriptor(file, 0, NonBlockingWriteDescriptor, 0, O_WRONLY | O_NONBLOCK));
 
   ContractContext context(file);
   Thread* worker = new Thread(process, contractWorker, &context, nullptr, false, true, true);
@@ -241,7 +297,7 @@ bool runHostedFileContractRegressions(Process* kernelProcess) {
     delete worker;
   }
   bool passed = started && joined && context.returned == 1 && context.denied && context.allowed &&
-                context.open && context.metadata;
+                context.open && context.metadata && context.writeErrors;
   subsystem->freeMultipleFds();
   process->setCwd(nullptr);
   delete process;
@@ -252,7 +308,7 @@ bool runHostedFileContractRegressions(Process* kernelProcess) {
   if (!passed) {
     ERROR("HOSTED-SYSCALL-TEST: FAIL file-contracts: denied="
           << context.denied << ", allowed=" << context.allowed << ", open=" << context.open
-          << ", metadata=" << context.metadata);
+          << ", metadata=" << context.metadata << ", writeErrors=" << context.writeErrors);
     return false;
   }
   NOTICE("HOSTED-SYSCALL-TEST: PASS file-contracts");

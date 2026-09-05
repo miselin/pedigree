@@ -325,13 +325,6 @@ int posix_tcsetattr(int fd, int optional_actions, struct termios* p) {
 }
 
 int console_getwinsize(File* file, struct winsize* buf) {
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), sizeof(struct winsize),
-                                    PosixSubsystem::SafeWrite)) {
-    NOTICE("getwinsize -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
   if (!ConsoleManager::instance().isConsole(file)) {
     // Error - not a TTY.
     return -1;
@@ -341,13 +334,6 @@ int console_getwinsize(File* file, struct winsize* buf) {
 }
 
 int console_setwinsize(File* file, const struct winsize* buf) {
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), sizeof(struct winsize),
-                                    PosixSubsystem::SafeRead)) {
-    NOTICE("setwinsize -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
   if (!ConsoleManager::instance().isConsole(file)) {
     // Error - not a TTY.
     return -1;
@@ -369,13 +355,6 @@ int console_flush(File* file, void* what) {
 }
 
 int console_ptsname(int fd, char* buf) {
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), PATH_MAX,
-                                    PosixSubsystem::SafeWrite)) {
-    NOTICE("ptsname -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
   // Lookup this process.
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -404,18 +383,16 @@ int console_ptsname(int fd, char* buf) {
     return -1;
   }
 
-  StringFormat(buf, "/dev/%s", static_cast<const char*>(slave->getName()));
+  String path("/dev/");
+  path += slave->getName();
+  if (!PosixSubsystem::copyToUser(buf, path.cstr(), path.length() + 1)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
   return 0;
 }
 
 int console_ttyname(int fd, char* buf) {
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), PATH_MAX,
-                                    PosixSubsystem::SafeWrite)) {
-    NOTICE("ttyname -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
   // Lookup this process.
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -438,7 +415,12 @@ int console_ttyname(int fd, char* buf) {
   }
 
   File* tty = pFd->file;
-  StringFormat(buf, "/dev/pts/%s", static_cast<const char*>(tty->getName()));
+  String path("/dev/pts/");
+  path += tty->getName();
+  if (!PosixSubsystem::copyToUser(buf, path.cstr(), path.length() + 1)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
   return 0;
 }
 

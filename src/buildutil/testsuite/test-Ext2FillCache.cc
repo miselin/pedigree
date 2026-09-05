@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "Ext2FillCacheTestDisk.h"
@@ -34,23 +35,29 @@ class Ext2FillCacheTestPeer {
   }
 
   static uintptr_t lookupFillPage(File& file, size_t offset) {
-    return file.m_FillCache.lookup(offset);
+    uintptr_t page = file.cacheState().fill.lookup(offset);
+    if (page) {
+      // This native fixture borrows the cache without a virtual address
+      // space. Account for the loan normally acquired by getPhysicalPage().
+      __atomic_add_fetch(&file.physicalPageLoans(), 1, __ATOMIC_RELEASE);
+    }
+    return page;
   }
 
   static void releaseFillPage(File& file, size_t offset) {
-    file.m_FillCache.release(offset);
+    file.returnPhysicalPage(offset);
   }
 
   static bool fillPageExists(File& file, size_t offset) {
-    return file.m_FillCache.exists(offset, TargetInfo::getPageSize());
+    return file.cacheState().fill.exists(offset, TargetInfo::getPageSize());
   }
 
   static bool evictFillPage(File& file, size_t offset) {
-    return file.m_FillCache.evict(offset);
+    return file.cacheState().fill.evict(offset);
   }
 
   static void triggerFillChecksum(File& file, size_t offset) {
-    file.m_FillCache.triggerChecksum(offset);
+    file.cacheState().fill.triggerChecksum(offset);
   }
 
   static void setDataCacheSentinel(File& file, size_t block, uintptr_t value) {
@@ -271,6 +278,49 @@ TEST_P(Ext2FillCacheWriteback, AsynchronousMappedSyncCopiesAllBlocksWithoutFlush
 
   Ext2FillCacheTestPeer::triggerFillChecksum(file, kTargetPage);
   EXPECT_TRUE(Ext2FillCacheTestPeer::evictFillPage(file, kTargetPage));
+}
+
+TEST_P(Ext2FillCacheWriteback, HardlinkAliasesSharePagesAndTransferWritebackOwnership) {
+  const uint32_t blockSize = GetParam();
+  const std::vector<uint32_t> blocks = makeBlocks(blockSize, TargetLayout::CoResident);
+  FillCacheDisk disk;
+  std::vector<uint8_t> expected;
+  initialiseBlocks(disk, blocks, blockSize, expected);
+  Ext2Filesystem filesystem;
+  Ext2FillCacheTestPeer::configure(filesystem, &disk, blockSize);
+  Inode inode = makeSubpageInode(disk, blockSize, blocks);
+  auto first = std::make_unique<Ext2File>(String("first"), 3, &inode, &filesystem);
+  Ext2File second(String("second"), 3, &inode, &filesystem);
+  Ext2FillCacheTestPeer::forceFillCache(*first);
+  Ext2FillCacheTestPeer::forceFillCache(second);
+  uint8_t value = 0;
+  ASSERT_EQ(first->read(kTargetPage, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  ASSERT_EQ(second.read(kTargetPage, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  FillPageReference retained(second, kTargetPage);
+  ASSERT_NE(retained.get(), 0U);
+  {
+    FillPageReference original(*first, kTargetPage);
+    ASSERT_EQ(original.get(), retained.get());
+    reinterpret_cast<uint8_t*>(original.get())[23] = 0x7d;
+  }
+  ASSERT_EQ(second.read(kTargetPage + 23, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  EXPECT_EQ(value, 0x7d);
+  value = 0x9e;
+  ASSERT_EQ(first->write(kTargetPage + 29, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  EXPECT_EQ(reinterpret_cast<uint8_t*>(retained.get())[29], 0x9e);
+  expected[23] = 0x7d;
+  expected[29] = 0x9e;
+  first.reset();
+  reinterpret_cast<uint8_t*>(retained.get())[31] = 0x4a;
+  expected[31] = 0x4a;
+  second.sync();
+  expectTargetBytes(disk, blocks, blockSize, expected, true);
+  retained.syncAndReturn(kTargetPage, false);
+  expectTargetBytes(disk, blocks, blockSize, expected, true);
+  Ext2FillCacheTestPeer::triggerFillChecksum(second, kTargetPage);
+  EXPECT_TRUE(Ext2FillCacheTestPeer::evictFillPage(second, kTargetPage));
+  EXPECT_TRUE(disk.hasNoPins());
+  EXPECT_FALSE(disk.unbalancedUnpin);
 }
 
 TEST_P(Ext2FillCacheWriteback, SynchronousMappedSyncCopiesThenFlushesEveryPhysicalBlock) {

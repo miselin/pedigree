@@ -70,6 +70,12 @@ class VirtualAddressSpace {
   static const size_t Dirty = 0x1000;
   /** Clear the dirty flag set by the above. */
   static const size_t ClearDirty = 0x2000;
+  /** Retain the physical page while denying every access. */
+  static const size_t NoAccess = 0x4000;
+  /** A read-only protection must not be bypassed by resolving copy-on-write. */
+  static const size_t WriteProtected = 0x8000;
+  /** The backing object, rather than this address space, owns the physical page. */
+  static const size_t Borrowed = 0x10000;
 
   /** Get the kernel virtual address space
    *\return reference to the kernel virtual address space */
@@ -87,8 +93,8 @@ class VirtualAddressSpace {
    *\return true, if the address is valid, false otherwise */
   virtual bool isAddressValid(void* virtualAddress) = 0;
   /** Checks whether a mapping the the specific virtual address exists. Pages
-   *marked as swapped out are not considered mapped. \note This function must
-   *be valid on all the valid addresses within the virtual address space.
+   *marked as swapped out are not considered mapped; retained NoAccess pages are. \note This
+   * function must be valid on all the valid addresses within the virtual address space.
    *\param[in] virtualAddress the virtual address
    *\return true, if a mapping exists, false otherwise */
   virtual bool isMapped(void* virtualAddress) = 0;
@@ -144,6 +150,29 @@ class VirtualAddressSpace {
     return false;
   }
 
+  /** Atomic, no-fault accesses through a resident userspace mapping. */
+  virtual bool tryReadUser32(uintptr_t address, uint32_t& value) {
+    (void)address;
+    (void)value;
+    return false;
+  }
+
+  virtual bool tryReadUserPointer(uintptr_t address, uintptr_t& value) {
+    (void)address;
+    (void)value;
+    return false;
+  }
+
+  /** A successful access may still report a failed comparison. */
+  virtual bool tryCompareExchangeUser32(uintptr_t address, uint32_t& expected, uint32_t desired,
+                                        bool& exchanged) {
+    (void)address;
+    (void)expected;
+    (void)desired;
+    exchanged = false;
+    return false;
+  }
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
   using CopyOnWritePreCommitHook = void (*)(void*);
 
@@ -161,6 +190,15 @@ class VirtualAddressSpace {
    *VirtualAddressSpace::map() and that is still mapped or marked as swapped
    *out. \param[in] virtualAddress the virtual address */
   virtual void unmap(void* virtualAddress) = 0;
+
+  /** Atomically snapshot and detach a resident mapping. A flags mismatch leaves
+   * the mapping intact, but still returns its physical address and flags. */
+  virtual bool detachMapping(void* virtualAddress, physical_uintptr_t& physical, size_t& flags,
+                             size_t requiredFlags = 0) {
+    physical = 0;
+    flags = 0;
+    return false;
+  }
 
   /** Allocates a single stack for a thread. Will use the default kernel
    * thread size. */

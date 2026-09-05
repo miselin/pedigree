@@ -344,10 +344,18 @@ bool Ext2Directory::removeEntryLocked(const String& filename, Ext2Node* pFile) {
 }
 
 void Ext2Directory::fileAttributeChanged() {
-  static_cast<Ext2Node*>(this)->fileAttributeChanged(m_Size, m_AccessedTime, m_ModifiedTime,
-                                                     m_CreationTime);
-  static_cast<Ext2Node*>(this)->updateMetadata(getUid(), getGid(),
-                                               permissionsToMode(getPermissions()));
+  LockGuard<Mutex> guard(m_State->writebackLock);
+  Ext2Node::fileAttributeChanged(m_Size, LITTLE_TO_HOST32(m_pInode->i_atime),
+                                 LITTLE_TO_HOST32(m_pInode->i_mtime),
+                                 LITTLE_TO_HOST32(m_pInode->i_ctime));
+}
+
+File::Attributes Ext2Directory::getAttributes() const {
+  return inodeAttributes();
+}
+
+void Ext2Directory::updateAttributes(const Attributes& attributes, uint32_t mask) {
+  updateInodeAttributes(attributes, mask);
 }
 
 bool Ext2Directory::readBytes(uint64_t offset, size_t length, void* output) {

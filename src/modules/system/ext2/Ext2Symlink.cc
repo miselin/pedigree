@@ -18,6 +18,7 @@
  */
 
 #include "Ext2Symlink.h"
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/utility.h"
@@ -97,8 +98,16 @@ void Ext2Symlink::truncate() {
 }
 
 void Ext2Symlink::fileAttributeChanged() {
-  static_cast<Ext2Node*>(this)->fileAttributeChanged(m_Size, m_AccessedTime, m_ModifiedTime,
-                                                     m_CreationTime);
-  static_cast<Ext2Node*>(this)->updateMetadata(getUid(), getGid(),
-                                               permissionsToMode(getPermissions()));
+  LockGuard<Mutex> guard(m_State->writebackLock);
+  Ext2Node::fileAttributeChanged(m_Size, LITTLE_TO_HOST32(m_pInode->i_atime),
+                                 LITTLE_TO_HOST32(m_pInode->i_mtime),
+                                 LITTLE_TO_HOST32(m_pInode->i_ctime));
+}
+
+File::Attributes Ext2Symlink::getAttributes() const {
+  return inodeAttributes();
+}
+
+void Ext2Symlink::updateAttributes(const Attributes& attributes, uint32_t mask) {
+  updateInodeAttributes(attributes, mask);
 }

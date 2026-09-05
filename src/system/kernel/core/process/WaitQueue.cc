@@ -212,7 +212,7 @@ WaitQueue::WakeReason WaitQueue::wait(Guard& guard, Mutex* mutex, const Channel&
   waiter.thread = thread;
   waiter.scheduler = thread->m_pScheduler;
   assert(waiter.scheduler);
-  waiter.channel = channel;
+  waiter.storeChannel(channel);
   waiter.stateLevel = stateLevel;
   waiter.storeReason(WakeReason::Waiting);
   waiter.setQueued(false);
@@ -357,11 +357,6 @@ size_t WaitQueue::wakeAllLocked(Guard& guard, WakeReason reason, const Channel& 
 
 size_t WaitQueue::wakeAndRequeueLocked(Guard& guard, const Channel& source, size_t wakeCount,
                                        const Channel& destination, size_t requeueCount) {
-  assert(source.owner == destination.owner);
-  if (source.owner != destination.owner) {
-    return 0;
-  }
-
   size_t woken = 0;
   size_t requeued = 0;
   for (Waiter* waiter = m_pFirstWaiter; waiter; waiter = waiter->next) {
@@ -382,9 +377,9 @@ size_t WaitQueue::wakeAndRequeueLocked(Guard& guard, const Channel& source, size
       thread->m_Lock.acquire();
       if (thread->m_StateLevels[waiter->stateLevel].m_Waiter.loadQueue() == this &&
           waiter->loadReason() == WakeReason::Waiting && waiter->channel == source) {
-        // The owner remains immutable after queue publication, while the
-        // value is also read by lockless debugger snapshots.
-        __atomic_store_n(&waiter->channel.value, destination.value, __ATOMIC_RELEASE);
+        // Queue-before-thread is the same lock order used by wake and
+        // cancellation. Diagnostics reject a channel being replaced.
+        waiter->storeChannel(destination);
         moved = true;
       }
       thread->m_Lock.release();

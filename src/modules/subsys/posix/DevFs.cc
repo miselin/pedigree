@@ -18,6 +18,7 @@
  */
 
 #include "DevFs.h"
+#include "PosixSubsystem.h"
 
 #include "modules/system/vfs/Pipe.h"
 #include "modules/system/vfs/VFS.h"
@@ -228,7 +229,12 @@ int FramebufferFile::command(const size_t command, void* buffer) {
 
   switch (command) {
     case PEDIGREE_FB_SETMODE: {
-      pedigree_fb_modeset* arg = reinterpret_cast<pedigree_fb_modeset*>(buffer);
+      pedigree_fb_modeset value = {};
+      if (!PosixSubsystem::copyFromUser(&value, buffer, sizeof(value))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      const pedigree_fb_modeset* arg = &value;
       size_t desiredWidth = arg->width;
       size_t desiredHeight = arg->height;
       size_t desiredDepth = arg->depth;
@@ -293,7 +299,8 @@ int FramebufferFile::command(const size_t command, void* buffer) {
       return bSet ? 0 : -1;
     }
     case PEDIGREE_FB_GETMODE: {
-      pedigree_fb_mode* arg = reinterpret_cast<pedigree_fb_mode*>(buffer);
+      pedigree_fb_mode value = {};
+      pedigree_fb_mode* arg = &value;
       if (m_bTextMode) {
         ByteSet(arg, 0, sizeof(*arg));
       } else {
@@ -303,15 +310,23 @@ int FramebufferFile::command(const size_t command, void* buffer) {
         arg->bytes_per_pixel = pFramebuffer->getBytesPerPixel();
         arg->format = pFramebuffer->getFormat();
       }
-
+      if (!PosixSubsystem::copyToUser(buffer, &value, sizeof(value))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
       return 0;
     }
     case PEDIGREE_FB_REDRAW: {
-      pedigree_fb_rect* arg = reinterpret_cast<pedigree_fb_rect*>(buffer);
-      if (!arg) {
+      if (!buffer) {
         // Redraw all.
         pFramebuffer->redraw(0, 0, pFramebuffer->getWidth(), pFramebuffer->getHeight(), true);
       } else {
+        pedigree_fb_rect value = {};
+        if (!PosixSubsystem::copyFromUser(&value, buffer, sizeof(value))) {
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
+        const pedigree_fb_rect* arg = &value;
         pFramebuffer->redraw(arg->x, arg->y, arg->w, arg->h, true);
       }
 

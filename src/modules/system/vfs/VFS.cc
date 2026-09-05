@@ -849,6 +849,13 @@ bool VFS::remove(const String& path, File* pStartNode, File* expected) {
   return pStartNode && pStartNode->getFilesystem()->remove(path, pStartNode, expected);
 }
 
+bool VFS::rename(const String& oldPath, File* oldStart, const String& newPath, File* newStart) {
+  oldStart = resolveStartNode(oldPath, oldStart);
+  newStart = resolveStartNode(newPath, newStart);
+  return oldStart && newStart &&
+         oldStart->getFilesystem()->rename(oldPath.view(), oldStart, newPath.view(), newStart);
+}
+
 bool VFS::checkAccess(File* pFile, bool bRead, bool bWrite, bool bExecute) {
 #ifdef VFS_STANDALONE
   // We don't check permissions on standalone builds of the VFS.

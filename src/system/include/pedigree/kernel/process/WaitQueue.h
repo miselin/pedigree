@@ -103,7 +103,7 @@ class EXPORTED_PUBLIC WaitQueue {
     bool wakeOne(WakeReason reason = WakeReason::Signalled, const Channel& channel = Channel());
     size_t wakeAll(WakeReason reason = WakeReason::Signalled, const Channel& channel = Channel());
 
-    /** Retains the published channel owner so lockless diagnostics stay coherent. */
+    /** Moves waiters under the queue lock, preserving coherent debug snapshots. */
     size_t wakeAndRequeue(const Channel& source, size_t wakeCount, const Channel& destination,
                           size_t requeueCount);
 
@@ -177,12 +177,30 @@ class EXPORTED_PUBLIC WaitQueue {
     PerProcessorScheduler* scheduler = nullptr;
     WaitQueue* queue = nullptr;
     Channel channel;
+    size_t channelGeneration = 0;
+
+    void storeChannel(const Channel& value) {
+      __atomic_add_fetch(&channelGeneration, static_cast<size_t>(1), __ATOMIC_ACQ_REL);
+      __atomic_store_n(&channel.owner, value.owner, __ATOMIC_RELAXED);
+      __atomic_store_n(&channel.value, value.value, __ATOMIC_RELAXED);
+      __atomic_add_fetch(&channelGeneration, static_cast<size_t>(1), __ATOMIC_RELEASE);
+    }
+
+    bool snapshotChannel(Channel& value) const {
+      const size_t generation = __atomic_load_n(&channelGeneration, __ATOMIC_ACQUIRE);
+      if (generation & 1) {
+        return false;
+      }
+      value.owner = __atomic_load_n(&channel.owner, __ATOMIC_RELAXED);
+      value.value = __atomic_load_n(&channel.value, __ATOMIC_RELAXED);
+      __atomic_thread_fence(__ATOMIC_ACQUIRE);
+      return __atomic_load_n(&channelGeneration, __ATOMIC_RELAXED) == generation;
+    }
     size_t stateLevel = 0;
     size_t reason = static_cast<size_t>(WakeReason::Waiting);
     bool queued = false;
 
-    // Kept inert so Waiter and Thread::StateLevel retain their exported
-    // binary layout.
+    // Legacy callback fields stay inert; lexical scopes own stack cleanup.
     StackDiscardCleanup legacyOnAbandon = nullptr;
     void* legacyAbandonContext = nullptr;
     Waiter* previous = nullptr;

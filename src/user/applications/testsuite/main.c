@@ -27,6 +27,10 @@ extern void test_mmap();
 extern void test_prctl(void);
 extern void test_resource_accounting(void);
 extern void test_syscall_contracts(void);
+extern void test_vm_contracts(void);
+extern void test_usercopy_contracts(void);
+extern void test_futex_contracts(const char* program);
+extern void test_fs_mutation_contracts(void);
 extern void test_fs();
 extern void test_dup3(void);
 extern void test_epoll_pty(void);
@@ -65,6 +69,22 @@ int main(int argc, char* argv[]) {
   }
   if (argc == 2 && !strcmp(argv[1], "--syscall-contracts")) {
     test_syscall_contracts();
+    return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--vm-contracts")) {
+    test_vm_contracts();
+    return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--usercopy-contracts")) {
+    test_usercopy_contracts();
+    return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--futex-contracts")) {
+    test_futex_contracts(argv[0]);
+    return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--fs-mutation-contracts")) {
+    test_fs_mutation_contracts();
     return 0;
   }
   if (argc == 2 && !strcmp(argv[1], "--scm-rights-stream")) {
@@ -112,6 +132,10 @@ int main(int argc, char* argv[]) {
   test_prctl();
   test_resource_accounting();
   test_syscall_contracts();
+  test_vm_contracts();
+  test_usercopy_contracts();
+  test_futex_contracts(argv[0]);
+  test_fs_mutation_contracts();
   test_exec_shebang(argv[0]);
   test_process(argv[0]);
   test_dup3();

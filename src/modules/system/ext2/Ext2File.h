@@ -48,6 +48,11 @@ class Ext2File : public File, public Ext2Node {
   virtual void extend(size_t newSize, uint64_t location, uint64_t size);
 
   virtual void truncate();
+  virtual size_t getSize();
+  virtual uintptr_t futexIdentity();
+  virtual bool tryBeginMappingRelease();
+  virtual Attributes getAttributes() const;
+  virtual bool prepareSharedMapping(size_t offset, size_t length);
 
   /** Updates inode attributes. */
   void fileAttributeChanged();
@@ -64,7 +69,20 @@ class Ext2File : public File, public Ext2Node {
   virtual size_t getBlockSize() const;
 
  protected:
+  virtual CacheState& cacheState();
+  virtual bool useFillCache() const;
+  virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
+  virtual bool prepareWrite(uint64_t location, uint64_t size);
+  virtual bool resizeFile(size_t size);
+  virtual Mutex& writeSerializationLock();
+  virtual Mutex& dataMutationLock();
+  virtual size_t& physicalPageLoans();
   virtual void writeBlocks(uint64_t location, uintptr_t addr, size_t length);
+
+ private:
+  static void sharedFillCallback(CacheConstants::CallbackCause cause, uintptr_t location,
+                                 uintptr_t page, void* state);
+  void writeBlocksLocked(uint64_t location, uintptr_t address, size_t length);
 };
 
 #endif

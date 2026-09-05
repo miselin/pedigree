@@ -40,9 +40,12 @@ int posix_pedigree_thread_trigger(void* waiter);
 void posix_pedigree_destroy_waiter(void* waiter);
 
 int posix_futex(int* uaddr, int futex_op, int val, uintptr_t argument4, int* uaddr2, int val3);
-int posix_futex_wake(Process* process, int* uaddr, int count);
+int posix_futex_wake(Process* process, int* uaddr, int count, bool privateFutex = true);
 
-pid_t posix_gettid();
-pid_t posix_set_tid_address(int* tidptr);
+void posix_robust_list_exit(Thread* thread);
+bool posix_clear_child_tid(Process* process, uintptr_t address);
+
+pid_t posix_gettid(bool linuxAbi = false);
+pid_t posix_set_tid_address(int* tidptr, bool linuxAbi = false);
 
 #endif

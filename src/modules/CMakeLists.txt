@@ -309,6 +309,8 @@ pedigree_module(ext2 "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2File.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Filesystem.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Node.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Resize.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Rename.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/ext2/Ext2Symlink.cc)
 
 set(FAT_REGRESSION_SOURCES)
@@ -400,6 +402,9 @@ if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED" AND
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/dup3-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/eventfd-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/file-contract-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/futex-robust-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/system-usercopy-regressions.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/vm-permission-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/exit-status-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/inotify-regressions.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/system/hosted-smoke/mmap-regressions.cc

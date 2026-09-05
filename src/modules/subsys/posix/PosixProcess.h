@@ -143,12 +143,6 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
     NoGroup
   };
 
-  /** Information about a robust list. */
-  struct RobustListData {
-    void* head;
-    size_t head_len;
-  };
-
   PosixProcess();
 
   /** Copy constructor. */
@@ -177,9 +171,6 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
 
   void setMask(uint32_t mask);
   uint32_t getMask() const;
-
-  const RobustListData& getRobustList() const;
-  void setRobustList(const RobustListData& data);
 
   IntervalTimer& getRealIntervalTimer();
   IntervalTimer& getVirtualIntervalTimer();
@@ -217,7 +208,6 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   ProcessGroup* m_pProcessGroup;
   Membership m_GroupMembership;
   uint32_t m_Mask;
-  RobustListData m_RobustListData;
 
   IntervalTimer m_RealIntervalTimer;
   IntervalTimer m_VirtualIntervalTimer;
@@ -230,6 +220,7 @@ class EXPORTED_PUBLIC PosixProcess : public Process {
   int64_t m_Suid;
   int64_t m_Sgid;
   Vector<int64_t> m_SupplementalIds;
+  mutable Spinlock m_SupplementalIdsLock;
   bool m_bRegistered;
 };
 

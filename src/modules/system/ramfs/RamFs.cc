@@ -50,12 +50,42 @@ RamFile::~RamFile() {
 }
 
 void RamFile::truncate() {
-  if (canWrite()) {
-    LockGuard<Mutex> guard(m_FileBlocksLock);
-    // Empty the cache.
-    m_FileBlocks.empty();
-    setSize(0);
+  resize(0);
+}
+
+bool RamFile::resizeFile(size_t size) {
+  if (!canWrite()) {
+    SYSCALL_ERROR(PermissionDenied);
+    return false;
   }
+  LockGuard<Mutex> guard(m_FileBlocksLock);
+  const size_t oldSize = getSize();
+  const size_t blockSize = getBlockSize();
+  for (size_t i = 0; i < m_BlockOffsets.count();) {
+    const uint64_t offset = m_BlockOffsets[i];
+    const uintptr_t buffer = m_FileBlocks.lookup(offset);
+    if (size < oldSize && offset >= size) {
+      if (buffer) {
+        m_FileBlocks.release(offset);
+        m_FileBlocks.release(offset);
+        m_FileBlocks.evict(offset);
+      }
+      m_BlockOffsets[i] = m_BlockOffsets[m_BlockOffsets.count() - 1];
+      m_BlockOffsets.popBack();
+      continue;
+    }
+    const size_t boundary = size < oldSize ? size : oldSize;
+    if (buffer) {
+      if (offset <= boundary && boundary - offset < blockSize) {
+        const size_t within = boundary - offset;
+        ByteSet(reinterpret_cast<void*>(buffer + within), 0, blockSize - within);
+      }
+      m_FileBlocks.release(offset);
+    }
+    ++i;
+  }
+  setSize(size);
+  return true;
 }
 
 bool RamFile::canWrite() {
@@ -83,7 +113,8 @@ uintptr_t RamFile::readBlock(uint64_t location) {
       return 0;
     }
     if (!didExist) {
-      /// \todo Kind of irrelevant here?
+      ByteSet(reinterpret_cast<void*>(buffer), 0, getBlockSize());
+      m_BlockOffsets.pushBack(location);
       m_FileBlocks.markNoLongerEditing(location);
     }
     buffer = m_FileBlocks.lookup(location);
@@ -192,6 +223,17 @@ bool RamFs::removeNode(File* parent, const String& filename, File* file) {
     return static_cast<RamDir*>(file)->removeFromParent(p, filename);
   }
   return p->removeEntry(filename, file);
+}
+
+bool RamFs::renameNode(Directory*, const String&, File* source, Directory*, const String&,
+                       File* replaced) {
+  if (m_bProcessOwners &&
+      ((!source->isDirectory() && !static_cast<RamFile*>(source)->canWrite()) ||
+       (replaced && !replaced->isDirectory() && !static_cast<RamFile*>(replaced)->canWrite()))) {
+    SYSCALL_ERROR(PermissionDenied);
+    return false;
+  }
+  return true;
 }
 
 static bool entry() {

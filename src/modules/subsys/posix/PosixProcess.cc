@@ -54,7 +54,6 @@ PosixProcess::PosixProcess()
       m_pProcessGroup(0),
       m_GroupMembership(NoGroup),
       m_Mask(0),
-      m_RobustListData(),
       m_RealIntervalTimer(this, IntervalTimer::Hardware),
       m_VirtualIntervalTimer(this, IntervalTimer::Virtual),
       m_ProfileIntervalTimer(this, IntervalTimer::Profile),
@@ -76,7 +75,6 @@ PosixProcess::PosixProcess(Process* pParent, bool bCopyOnWrite)
       m_pProcessGroup(0),
       m_GroupMembership(NoGroup),
       m_Mask(0),
-      m_RobustListData(),
       m_RealIntervalTimer(this, IntervalTimer::Hardware),
       m_VirtualIntervalTimer(this, IntervalTimer::Virtual),
       m_ProfileIntervalTimer(this, IntervalTimer::Profile),
@@ -258,14 +256,6 @@ void PosixProcess::setMask(uint32_t mask) {
 
 uint32_t PosixProcess::getMask() const {
   return m_Mask;
-}
-
-const PosixProcess::RobustListData& PosixProcess::getRobustList() const {
-  return m_RobustListData;
-}
-
-void PosixProcess::setRobustList(const RobustListData& data) {
-  m_RobustListData = data;
 }
 
 void PosixProcess::registerProcess() {
@@ -557,6 +547,7 @@ int64_t PosixProcess::getEffectiveGroupId() const {
 }
 
 void PosixProcess::getSupplementalGroupIds(Vector<int64_t>& vec) const {
+  LockGuard<Spinlock> guard(m_SupplementalIdsLock);
   for (auto it : m_SupplementalIds) {
     vec.pushBack(it);
   }
@@ -579,6 +570,7 @@ void PosixProcess::setEffectiveGroupId(int64_t id) {
 }
 
 void PosixProcess::setSupplementalGroupIds(const Vector<int64_t>& vec) {
+  LockGuard<Spinlock> guard(m_SupplementalIdsLock);
   m_SupplementalIds.clear();
   m_SupplementalIds.reserve(vec.size(), false);
 

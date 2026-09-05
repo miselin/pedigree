@@ -179,6 +179,8 @@ add_library(ext2
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2File.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Filesystem.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Node.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Resize.cc
+    ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Rename.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/ext2/Ext2Symlink.cc
 )
 

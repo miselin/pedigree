@@ -71,6 +71,7 @@ class EXPORTED_PUBLIC Subsystem {
     Quit = 11,
     Child = 12,  // Child pause/continue/quit.
     Pipe = 13,   // Pipe broken.
+    FileMappingFault = 14,
     Other = 255
   };
 

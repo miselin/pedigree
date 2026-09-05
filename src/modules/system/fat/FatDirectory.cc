@@ -166,7 +166,9 @@ bool FatDirectory::addEntry(String filename, File* pFile, size_t type) {
   struct ExistingEntryContext {
     StringView name;
     bool found;
-  } existing = {pFile->getName().view(), false};
+  };
+  const String entryName = pFile->getName();
+  ExistingEntryContext existing = {entryName.view(), false};
   auto findExisting = [](void* opaque, const ScannedEntry& entry, uint64_t, uint64_t) -> bool {
     ExistingEntryContext* context = reinterpret_cast<ExistingEntryContext*>(opaque);
     if (entry.name == context->name) {

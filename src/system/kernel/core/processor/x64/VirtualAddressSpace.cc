@@ -47,6 +47,10 @@
 #define PAGE_SWAPPED 0x200
 #define PAGE_COPY_ON_WRITE 0x400
 #define PAGE_SHARED 0x800
+// Software bits outside the physical address and protection-key fields.
+#define PAGE_BORROWED (1ULL << 56)
+#define PAGE_NO_ACCESS (1ULL << 57)
+#define PAGE_WRITE_PROTECTED (1ULL << 58)
 #define PAGE_NX 0x8000000000000000
 #define PAGE_WRITE_THROUGH (PAGE_PAT | PAGE_WRITE_COMBINE)
 
@@ -60,9 +64,9 @@
 
 #define TABLE_ENTRY(table, index) (&physicalAddress(reinterpret_cast<uint64_t*>(table))[index])
 
-#define PAGE_GET_FLAGS(x) (*x & 0x8000000000000FFFULL)
-#define PAGE_SET_FLAGS(x, f) *x = (*x & ~0x8000000000000FFFULL) | f
-#define PAGE_GET_PHYSICAL_ADDRESS(x) (*x & ~0x8000000000000FFFULL)
+#define PAGE_GET_FLAGS(x) (*x & 0x8700000000000FFFULL)
+#define PAGE_SET_FLAGS(x, f) *x = (*x & ~0x8700000000000FFFULL) | f
+#define PAGE_GET_PHYSICAL_ADDRESS(x) (*x & ~0x8700000000000FFFULL)
 
 // Defined in boot-standalone.s
 extern void* pml4;
@@ -287,8 +291,8 @@ void* X64VirtualAddressSpace::getEndOfHeap() {
 }
 
 bool X64VirtualAddressSpace::isAddressValid(void* virtualAddress) {
-  if (reinterpret_cast<uint64_t>(virtualAddress) < 0x0008000000000000ULL ||
-      reinterpret_cast<uint64_t>(virtualAddress) >= 0xFFF8000000000000ULL) {
+  if (reinterpret_cast<uint64_t>(virtualAddress) < 0x0000800000000000ULL ||
+      reinterpret_cast<uint64_t>(virtualAddress) >= 0xFFFF800000000000ULL) {
     return true;
   }
   return false;
@@ -328,7 +332,7 @@ bool X64VirtualAddressSpace::isMapped(void* virtualAddress) {
       TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryEntry), pageTableIndex);
 
   // Is a page present?
-  return ((*pageTableEntry & PAGE_PRESENT) == PAGE_PRESENT);
+  return (*pageTableEntry & (PAGE_PRESENT | PAGE_NO_ACCESS)) != 0;
 }
 
 bool X64VirtualAddressSpace::map(physical_uintptr_t physAddress, void* virtualAddress,
@@ -450,7 +454,7 @@ bool X64VirtualAddressSpace::mapUnlocked(physical_uintptr_t physAddress, void* v
       TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryEntry), pageTableIndex);
 
   // Is a page already present?
-  if ((*pageTableEntry & PAGE_PRESENT) == PAGE_PRESENT) {
+  if (*pageTableEntry & (PAGE_PRESENT | PAGE_NO_ACCESS)) {
     return false;
   }
 
@@ -522,7 +526,8 @@ bool X64VirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, bool u
     }
 
     const uint64_t pageFlags = *pageTableEntry;
-    if (userMode && !(pageFlags & PAGE_USER)) {
+    if ((userMode && !(pageFlags & PAGE_USER)) ||
+        (pageFlags & (PAGE_NO_ACCESS | PAGE_WRITE_PROTECTED))) {
       return false;
     }
     if ((pageFlags & PAGE_PRESENT) && (pageFlags & PAGE_WRITE) &&
@@ -551,7 +556,8 @@ bool X64VirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, bool u
     uint64_t* pageTableEntry = nullptr;
     if (getPageTableEntry(virtualAddress, pageTableEntry)) {
       const uint64_t pageFlags = *pageTableEntry;
-      if (userMode && !(pageFlags & PAGE_USER)) {
+      if ((userMode && !(pageFlags & PAGE_USER)) ||
+          (pageFlags & (PAGE_NO_ACCESS | PAGE_WRITE_PROTECTED))) {
         resolved = false;
       } else if ((pageFlags & PAGE_PRESENT) && (pageFlags & PAGE_WRITE) &&
                  !(pageFlags & PAGE_COPY_ON_WRITE)) {
@@ -565,7 +571,7 @@ bool X64VirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, bool u
 
         uint64_t replacementFlags = PAGE_GET_FLAGS(pageTableEntry);
         replacementFlags |= PAGE_WRITE;
-        replacementFlags &= ~PAGE_COPY_ON_WRITE;
+        replacementFlags &= ~(PAGE_COPY_ON_WRITE | PAGE_BORROWED | PAGE_SHARED);
         __atomic_store_n(pageTableEntry, replacement | replacementFlags, __ATOMIC_RELEASE);
         if (!invalidateMapping(virtualAddress, mutation)) {
           mutation.panicInvalidationFailure();
@@ -586,9 +592,81 @@ bool X64VirtualAddressSpace::handleCopyOnWriteFault(void* virtualAddress, bool u
   return resolved;
 }
 
+bool X64VirtualAddressSpace::tryReadUser32(uintptr_t address, uint32_t& value) {
+  uintptr_t word = 0;
+  if (!tryAccessUserWord(address, sizeof(value), word, nullptr)) {
+    return false;
+  }
+  value = static_cast<uint32_t>(word);
+  return true;
+}
+
+bool X64VirtualAddressSpace::tryReadUserPointer(uintptr_t address, uintptr_t& value) {
+  return tryAccessUserWord(address, sizeof(value), value, nullptr);
+}
+
+bool X64VirtualAddressSpace::tryCompareExchangeUser32(uintptr_t address, uint32_t& expected,
+                                                      uint32_t desired, bool& exchanged) {
+  const uint32_t original = expected;
+  uintptr_t observed = expected;
+  const uintptr_t replacement = desired;
+  exchanged = false;
+  if (!tryAccessUserWord(address, sizeof(expected), observed, &replacement)) {
+    return false;
+  }
+  expected = static_cast<uint32_t>(observed);
+  exchanged = expected == original;
+  return true;
+}
+
+bool X64VirtualAddressSpace::tryAccessUserWord(uintptr_t address, size_t width, uintptr_t& value,
+                                               const uintptr_t* replacement) {
+  if (!address || (address % width) || address < getUserStart() ||
+      address >= 0x0000800000000000ULL || address >= getKernelStart() ||
+      address > getKernelStart() - width) {
+    return false;
+  }
+
+  const size_t pageSize = PhysicalMemoryManager::getPageSize();
+  const size_t pageOffset = address & (pageSize - 1);
+  if (pageOffset > pageSize - width) {
+    return false;
+  }
+
+  LockGuard<Spinlock> guard(m_Lock);
+  uint64_t* pageTableEntry = nullptr;
+  if (!getPageTableEntry(reinterpret_cast<void*>(address), pageTableEntry)) {
+    return false;
+  }
+
+  const uint64_t pageFlags = *pageTableEntry;
+  if (!(pageFlags & PAGE_PRESENT) || !(pageFlags & PAGE_USER) ||
+      (pageFlags & (PAGE_SWAPPED | PAGE_NO_ACCESS)) ||
+      (replacement &&
+       (!(pageFlags & PAGE_WRITE) || (pageFlags & (PAGE_COPY_ON_WRITE | PAGE_WRITE_PROTECTED))))) {
+    return false;
+  }
+
+  void* target = reinterpret_cast<void*>(
+      physicalAddress(PAGE_GET_PHYSICAL_ADDRESS(pageTableEntry) + pageOffset));
+  if (replacement) {
+    uint32_t expected = static_cast<uint32_t>(value);
+    __atomic_compare_exchange_n(reinterpret_cast<uint32_t*>(target), &expected,
+                                static_cast<uint32_t>(*replacement), false, __ATOMIC_ACQ_REL,
+                                __ATOMIC_ACQUIRE);
+    value = expected;
+  } else if (width == sizeof(uint32_t)) {
+    value = __atomic_load_n(reinterpret_cast<uint32_t*>(target), __ATOMIC_ACQUIRE);
+  } else {
+    value = __atomic_load_n(reinterpret_cast<uintptr_t*>(target), __ATOMIC_ACQUIRE);
+  }
+  return true;
+}
+
 bool X64VirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value) {
   if (!address || (address % alignof(uint32_t)) || address < getUserStart() ||
-      address >= getKernelStart() || address > getKernelStart() - sizeof(value)) {
+      address >= 0x0000800000000000ULL || address >= getKernelStart() ||
+      address > getKernelStart() - sizeof(value)) {
     return false;
   }
 
@@ -606,7 +684,7 @@ bool X64VirtualAddressSpace::tryWriteUser32(uintptr_t address, uint32_t value) {
 
   const uint64_t pageFlags = *pageTableEntry;
   if (!(pageFlags & PAGE_PRESENT) || !(pageFlags & PAGE_USER) || !(pageFlags & PAGE_WRITE) ||
-      (pageFlags & PAGE_COPY_ON_WRITE) || (pageFlags & PAGE_SWAPPED)) {
+      (pageFlags & (PAGE_COPY_ON_WRITE | PAGE_SWAPPED | PAGE_NO_ACCESS | PAGE_WRITE_PROTECTED))) {
     return false;
   }
 
@@ -645,6 +723,27 @@ void X64VirtualAddressSpace::unmap(void* virtualAddress) {
     }
     mutation.panicWithoutRestoringInterrupts("VirtualAddressSpace::unmap(): function misused");
   }
+}
+
+bool X64VirtualAddressSpace::detachMapping(void* virtualAddress, physical_uintptr_t& physical,
+                                           size_t& flags, size_t requiredFlags) {
+  X64MappingMutationScope mutation;
+  mutation.lock(m_Lock);
+  physical = 0;
+  flags = 0;
+  uint64_t* entry = nullptr;
+  if (!getPageTableEntry(virtualAddress, entry)) {
+    return false;
+  }
+  physical = PAGE_GET_PHYSICAL_ADDRESS(entry);
+  flags = fromFlags(PAGE_GET_FLAGS(entry), true);
+  if ((flags & requiredFlags) != requiredFlags) {
+    return false;
+  }
+  if (!unmapUnlocked(virtualAddress, mutation)) {
+    mutation.panicInvalidationFailure();
+  }
+  return true;
 }
 
 bool X64VirtualAddressSpace::unmapUnlocked(void* virtualAddress, X64MappingMutationScope& mutation,
@@ -721,7 +820,7 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
 
           for (uint64_t l = 0; l < 512; l++) {
             uint64_t* ptEntry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pdEntry), l);
-            if ((*ptEntry & PAGE_PRESENT) != PAGE_PRESENT)
+            if (!(*ptEntry & (PAGE_PRESENT | PAGE_NO_ACCESS)))
               continue;
 
             uint64_t flags = PAGE_GET_FLAGS(ptEntry);
@@ -737,7 +836,9 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
               // reference on it. Otherwise, if one of the two
               // address spaces frees the page, the other may still
               // refer to the bad page (and eventually double-free).
-              PhysicalMemoryManager::instance().pin(physicalAddress);
+              if (!(flags & PAGE_BORROWED)) {
+                PhysicalMemoryManager::instance().pin(physicalAddress);
+              }
 
               // Handle shared mappings - don't copy the original
               // page.
@@ -753,7 +854,10 @@ VirtualAddressSpace* X64VirtualAddressSpace::clone(bool copyOnWrite) {
             // copy-on-write. This implies read-only (so we #PF for copy
             // on write).
             bool bWasCopyOnWrite = (flags & PAGE_COPY_ON_WRITE);
-            if (copyOnWrite && (flags & PAGE_WRITE)) {
+            if (copyOnWrite) {
+              if (!(flags & (PAGE_WRITE | PAGE_COPY_ON_WRITE))) {
+                flags |= PAGE_WRITE_PROTECTED;
+              }
               flags |= PAGE_COPY_ON_WRITE;
               flags &= ~PAGE_WRITE;
             }
@@ -858,7 +962,7 @@ void X64VirtualAddressSpace::revertToKernelAddressSpace() {
 
         for (uint64_t l = 0; l < 512; l++) {
           uint64_t* ptEntry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pdEntry), l);
-          if ((*ptEntry & PAGE_PRESENT) != PAGE_PRESENT)
+          if (!(*ptEntry & (PAGE_PRESENT | PAGE_NO_ACCESS)))
             continue;
 
           void* virtualAddress = reinterpret_cast<void*>(
@@ -873,7 +977,8 @@ void X64VirtualAddressSpace::revertToKernelAddressSpace() {
           /// \todo When swap system comes along, we want to remove
           /// this page
           ///       from swap!
-          const bool releasePhysicalPage = (flags & (PAGE_SHARED | PAGE_SWAPPED)) == 0;
+          const bool releasePhysicalPage =
+              (flags & (PAGE_SHARED | PAGE_SWAPPED | PAGE_BORROWED)) == 0;
 
           // Free the page.
           trackPages(-1, 0, 0);
@@ -1188,7 +1293,7 @@ bool X64VirtualAddressSpace::getPageTableEntry(void* virtualAddress,
 
   // Is a page present?
   if ((*pageTableEntry & PAGE_PRESENT) != PAGE_PRESENT &&
-      (*pageTableEntry & PAGE_SWAPPED) != PAGE_SWAPPED)
+      (*pageTableEntry & PAGE_SWAPPED) != PAGE_SWAPPED && !(*pageTableEntry & PAGE_NO_ACCESS))
     return false;
 
   return true;
@@ -1228,7 +1333,7 @@ size_t X64VirtualAddressSpace::detachEmptyTables(void* virtualAddress,
 
   for (size_t i = 0; i < 0x200; ++i) {
     uint64_t* entry = TABLE_ENTRY(PAGE_GET_PHYSICAL_ADDRESS(pageDirectoryEntry), i);
-    if ((*entry & PAGE_PRESENT) == PAGE_PRESENT || (*entry & PAGE_SWAPPED) == PAGE_SWAPPED) {
+    if (*entry & (PAGE_PRESENT | PAGE_SWAPPED | PAGE_NO_ACCESS)) {
       return 0;
     }
   }
@@ -1285,6 +1390,17 @@ uint64_t X64VirtualAddressSpace::toFlags(size_t flags, bool bFinal) const {
     Flags |= PAGE_SWAPPED;
   else
     Flags |= PAGE_PRESENT;
+  if (flags & Borrowed) {
+    Flags |= PAGE_BORROWED;
+  }
+  if (flags & NoAccess) {
+    Flags &= ~PAGE_PRESENT;
+    Flags |= PAGE_NO_ACCESS;
+  }
+  if (flags & WriteProtected) {
+    Flags &= ~PAGE_WRITE;
+    Flags |= PAGE_WRITE_PROTECTED;
+  }
   if ((flags & CopyOnWrite) == CopyOnWrite)
     Flags |= PAGE_COPY_ON_WRITE;
   if ((flags & Shared) == Shared)
@@ -1316,6 +1432,12 @@ size_t X64VirtualAddressSpace::fromFlags(uint64_t Flags, bool bFinal) const {
     flags |= Execute;
   if ((Flags & PAGE_SWAPPED) == PAGE_SWAPPED)
     flags |= Swapped;
+  if (Flags & PAGE_BORROWED)
+    flags |= Borrowed;
+  if (Flags & PAGE_NO_ACCESS)
+    flags |= NoAccess;
+  if (Flags & PAGE_WRITE_PROTECTED)
+    flags |= WriteProtected;
   if ((Flags & PAGE_COPY_ON_WRITE) == PAGE_COPY_ON_WRITE)
     flags |= CopyOnWrite;
   if ((Flags & PAGE_SHARED) == PAGE_SHARED)
@@ -1348,8 +1470,9 @@ bool X64VirtualAddressSpace::conditionalTableEntryAllocation(uint64_t* tableEntr
 
     // Add the WRITE and USER flags so that these can be controlled
     // on a page-granularity level.
-    flags &= ~(PAGE_GLOBAL | PAGE_NX | PAGE_SWAPPED | PAGE_COPY_ON_WRITE);
-    flags |= PAGE_WRITE | PAGE_USER;
+    flags &= ~(PAGE_GLOBAL | PAGE_NX | PAGE_SWAPPED | PAGE_COPY_ON_WRITE | PAGE_NO_ACCESS |
+               PAGE_WRITE_PROTECTED | PAGE_BORROWED);
+    flags |= PAGE_WRITE | PAGE_USER | PAGE_PRESENT;
 
     // Map the page.
     *tableEntry = page | flags;
@@ -1374,8 +1497,9 @@ bool X64VirtualAddressSpace::conditionalTableEntryMapping(uint64_t* tableEntry,
     // Map the page. Add the WRITE and USER flags so that these can be
     // controlled on a page-granularity level.
     *tableEntry =
-        physAddress | ((flags & ~(PAGE_GLOBAL | PAGE_NX | PAGE_SWAPPED | PAGE_COPY_ON_WRITE)) |
-                       PAGE_WRITE | PAGE_USER);
+        physAddress | ((flags & ~(PAGE_GLOBAL | PAGE_NX | PAGE_SWAPPED | PAGE_COPY_ON_WRITE |
+                                  PAGE_NO_ACCESS | PAGE_WRITE_PROTECTED | PAGE_BORROWED)) |
+                       PAGE_WRITE | PAGE_USER | PAGE_PRESENT);
 
     // Zero the page directory pointer table
     ByteSet(physicalAddress(reinterpret_cast<void*>(physAddress)), 0,

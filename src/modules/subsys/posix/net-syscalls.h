@@ -70,12 +70,13 @@ void setUnixEndpointReadinessLeaseHookForTest(UnixEndpointReadinessLeaseHook hoo
 #endif
 
 ssize_t posix_send_descriptor(const DescriptorLease& descriptor, const void* buffer,
-                              size_t bufferLength, int flags);
+                              size_t bufferLength, int flags, bool kernelBuffer = false);
 ssize_t posix_recv_descriptor(const DescriptorLease& descriptor, void* buffer, size_t bufferLength,
                               int flags);
 ssize_t posix_sendmsg_descriptor(
     const DescriptorLease& descriptor, const struct msghdr* message,
-    const SharedPointer<SocketRights>& rights = SharedPointer<SocketRights>());
+    const SharedPointer<SocketRights>& rights = SharedPointer<SocketRights>(),
+    bool kernelBuffer = false);
 ssize_t posix_recvmsg_descriptor(const DescriptorLease& descriptor, struct msghdr* message,
                                  SharedPointer<SocketRights>* rights = nullptr);
 
@@ -100,7 +101,8 @@ class NetworkSyscalls : public ReadinessSource {
 
   virtual int listen(int backlog) = 0;
   virtual int bind(const struct sockaddr_storage* address, socklen_t addrlen) = 0;
-  virtual int accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags) = 0;
+  virtual int accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags,
+                     DescriptorLease* accepted = nullptr) = 0;
 
   virtual int shutdown(int how);
 
@@ -194,7 +196,8 @@ class LwipSocketSyscalls : public NetworkSyscalls {
 
   virtual int listen(int backlog);
   virtual int bind(const struct sockaddr_storage* address, socklen_t addrlen);
-  virtual int accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags);
+  virtual int accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags,
+                     DescriptorLease* accepted = nullptr);
 
   virtual int shutdown(int how);
 
@@ -264,7 +267,8 @@ class UnixSocketSyscalls : public NetworkSyscalls {
 
   virtual int listen(int backlog);
   virtual int bind(const struct sockaddr_storage* address, socklen_t addrlen);
-  virtual int accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags);
+  virtual int accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags,
+                     DescriptorLease* accepted = nullptr);
 
   virtual int shutdown(int how);
 
@@ -349,8 +353,7 @@ class UnixSocketSyscalls : public NetworkSyscalls {
   static void notifySocket(UnixSocket* socket, ReadyMask mask);
 
   SharedPointer<UnixSocketGeneration> acquireLocalEndpoint() const;
-  void replaceLocalEndpoint(UnixSocket* socket, bool tracked, bool removeNamespace,
-                            const String* localPath = nullptr);
+  void replaceLocalEndpoint(UnixSocket* socket, bool tracked, const String* localPath = nullptr);
   void tryCompleteEndpointClose();
 
   UnixSocket::SocketType getSocketType() const;

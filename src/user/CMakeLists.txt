@@ -159,6 +159,12 @@ pedigree_app(syscall-test ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications
 pedigree_app(testsuite ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/syscall-contracts.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/vm-contracts.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/usercopy-contracts.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/socket-path-contracts.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/futex-contracts.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/robust-memory-contracts.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/fs-mutation-contracts.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/dup3.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/epoll-pty.c
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/testsuite/exec.c

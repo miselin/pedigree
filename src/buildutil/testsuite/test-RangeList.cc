@@ -116,6 +116,45 @@ TEST(PedigreeRangeList, AllocateSpecificWorks) {
   EXPECT_EQ(addr, 512);
 }
 
+TEST(PedigreeRangeList, AllocateSpecificMergesUnorderedFreeFragments) {
+  RangeList<int64_t> list;
+  list.free(0, 64);
+  list.free(640, 64);
+  list.free(128, 64);
+  list.free(64, 64);
+
+  ASSERT_EQ(list.size(), 3U);
+  EXPECT_TRUE(list.allocateSpecific(0, 192));
+  EXPECT_FALSE(list.allocateSpecific(0, 192));
+  EXPECT_TRUE(list.allocateSpecific(640, 64));
+  EXPECT_EQ(list.size(), 0U);
+}
+
+TEST(PedigreeRangeList, AllocateMergesLateBridge) {
+  RangeList<int64_t> list;
+  list.free(0, 64, false);
+  list.free(128, 64, false);
+  list.free(64, 64, false);
+
+  int64_t address = -1;
+  EXPECT_TRUE(list.allocate(192, address));
+  EXPECT_EQ(address, 0);
+  EXPECT_FALSE(list.allocate(1, address));
+}
+
+TEST(PedigreeRangeList, SweepRetainsOrderOfUnrelatedRanges) {
+  RangeList<int64_t> list;
+  list.free(128, 64, false);
+  list.free(640, 64, false);
+  list.free(0, 64, false);
+  list.free(64, 64, false);
+
+  list.sweep();
+  ASSERT_EQ(list.size(), 2U);
+  EXPECT_EQ(rangeAt(list, 0), RangeList<int64_t>::Range(0, 192));
+  EXPECT_EQ(rangeAt(list, 1), RangeList<int64_t>::Range(640, 64));
+}
+
 TEST(PedigreeRangeList, AllocateSpecificFailsAlreadyAllocated) {
   RangeList<int64_t> list;
   list.free(0, 1024);
@@ -221,4 +260,36 @@ TEST(PedigreeRangeList, Copy) {
   EXPECT_EQ(rangeAt(list3, 0), RangeList<int64_t>::Range(0, 64));
   EXPECT_EQ(rangeAt(list3, 1), RangeList<int64_t>::Range(64, 64));
   EXPECT_EQ(rangeAt(list3, 2), RangeList<int64_t>::Range(128, 64));
+}
+
+TEST(PedigreeRangeList, CopiesPreserveReusePreference) {
+  for (bool preferUsed : {false, true}) {
+    RangeList<int64_t> source(preferUsed);
+    source.free(0, 64);
+    RangeList<int64_t> copied(source);
+    RangeList<int64_t> assigned(!preferUsed);
+    assigned.free(1024, 64);
+    assigned = source;
+    copied.free(256, 64);
+    assigned.free(256, 64);
+    int64_t address = -1;
+    const int64_t expected = preferUsed ? 256 : 0;
+    EXPECT_TRUE(copied.allocate(64, address));
+    EXPECT_EQ(address, expected);
+    EXPECT_TRUE(assigned.allocate(64, address));
+    EXPECT_EQ(address, expected);
+    EXPECT_EQ(source.size(), 1U);
+    EXPECT_EQ(rangeAt(source, 0), RangeList<int64_t>::Range(0, 64));
+  }
+}
+
+TEST(PedigreeRangeList, SelfAssignmentPreservesFreeRanges) {
+  RangeList<int64_t> list(true);
+  list.free(0, 64);
+  list.free(256, 64);
+  const RangeList<int64_t>& same = list;
+  list = same;
+  EXPECT_EQ(list.size(), 2U);
+  EXPECT_TRUE(list.allocateSpecific(0, 64));
+  EXPECT_TRUE(list.allocateSpecific(256, 64));
 }

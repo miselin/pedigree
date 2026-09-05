@@ -106,8 +106,14 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
   virtual void getMapping(void* virtualAddress, physical_uintptr_t& physAddress, size_t& flags);
   virtual bool handleCopyOnWriteFault(void* virtualAddress, bool userMode);
   virtual bool tryWriteUser32(uintptr_t address, uint32_t value);
+  virtual bool tryReadUser32(uintptr_t address, uint32_t& value);
+  virtual bool tryReadUserPointer(uintptr_t address, uintptr_t& value);
+  virtual bool tryCompareExchangeUser32(uintptr_t address, uint32_t& expected, uint32_t desired,
+                                         bool& exchanged);
   virtual void setFlags(void* virtualAddress, size_t newFlags);
   virtual void unmap(void* virtualAddress);
+  virtual bool detachMapping(void* virtualAddress, physical_uintptr_t& physical, size_t& flags,
+                             size_t requiredFlags = 0);
   virtual Stack* allocateStack();
   virtual Stack* allocateStack(size_t stackSz);
   virtual void freeStack(Stack* pStack);
@@ -225,6 +231,8 @@ class X64VirtualAddressSpace : public VirtualAddressSpace {
   }
 
  private:
+  bool tryAccessUserWord(uintptr_t address, size_t width, uintptr_t& value,
+                         const uintptr_t* replacement);
   /** The default constructor */
   X64VirtualAddressSpace();
   /** The constructor for already present paging structures

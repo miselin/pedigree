@@ -266,6 +266,14 @@ class EXPORTED_PUBLIC Thread {
     return __atomic_exchange_n(&m_ClearChildTid, static_cast<uintptr_t>(0), __ATOMIC_ACQ_REL);
   }
 
+  void setRobustList(uintptr_t address, size_t ownerId);
+
+  uintptr_t getRobustList() const {
+    return __atomic_load_n(&m_RobustList, __ATOMIC_ACQUIRE);
+  }
+
+  uintptr_t takeRobustList(size_t& ownerId);
+
   /** Records this Thread's monotonic entry baseline for one CPU-time mode. */
   void recordTime(CpuTimeMode mode);
 
@@ -338,6 +346,11 @@ class EXPORTED_PUBLIC Thread {
   /** Returns the Thread's ID. */
   size_t getId() {
     return m_Id;
+  }
+
+  /** Linux task IDs share the PID namespace; internal slots remain local. */
+  size_t getTaskId() const {
+    return m_TaskId;
   }
 
   /** Returns the last error that occurred (errno). */
@@ -663,7 +676,7 @@ class EXPORTED_PUBLIC Thread {
   /**
    * Set the TLS base for this thread. Once set, it must be cleaned up by
    * the caller when the thread terminates, which makes this primarily useful
-   * for userspace TLS segments.
+   * for userspace TLS segments. This does not access the supplied memory.
    */
   void setTlsBase(uintptr_t base);
 
@@ -990,6 +1003,7 @@ class EXPORTED_PUBLIC Thread {
 
   /** Our thread ID. */
   size_t m_Id = 0;
+  size_t m_TaskId = 0;
 
   /** Address to supplement the DebugState information */
   uintptr_t m_DebugStateAddress = 0;
@@ -1099,6 +1113,10 @@ class EXPORTED_PUBLIC Thread {
   /** Userspace TID word cleared by the subsystem during exit publication. */
   uintptr_t m_ClearChildTid = 0;
 
+  /** The Linux robust-list head is registered independently by each thread. */
+  uintptr_t m_RobustList = 0;
+  size_t m_RobustListOwnerId = 0;
+
   /** The add worker may publish a delayed thread after this request. */
   bool m_bStartRequested = false;
 
@@ -1110,6 +1128,9 @@ class EXPORTED_PUBLIC Thread {
 
   /** Exactly one path owns detached Thread destruction. */
   bool m_bDetachedRetirementClaimed = false;
+
+  /** One-way syscall exit intent, protected by the parent Process lock. */
+  bool m_bThreadExitRequested = false;
 
   /** Thread shutdown has started, but its stack may still be in use. */
   bool m_bExitStarted = false;

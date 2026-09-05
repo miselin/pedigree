@@ -126,8 +126,13 @@ class MemoryMappedObject {
   static const int Exec = 0x4;
 
   /** Constructor - bring up common metadata. */
-  MemoryMappedObject(uintptr_t address, bool bCopyOnWrite, size_t length, Permissions perms)
-      : m_bCopyOnWrite(bCopyOnWrite), m_Address(address), m_Length(length), m_Permissions(perms) {}
+  MemoryMappedObject(uintptr_t address, bool bCopyOnWrite, size_t length, Permissions perms,
+                     Permissions maximumPerms = Read | Write | Exec)
+      : m_bCopyOnWrite(bCopyOnWrite),
+        m_Address(address),
+        m_Length(length),
+        m_Permissions(perms),
+        m_MaximumPermissions(maximumPerms) {}
 
   virtual ~MemoryMappedObject();
 
@@ -164,20 +169,33 @@ class MemoryMappedObject {
   /**
    * Sets permissions on this object.
    *
-   * This may trigger unmaps if the new permissions.
+   * Resident pages retain their contents and ownership.
    */
   virtual void setPermissions(Permissions perms) = 0;
+
+  virtual bool preparePermissions(uintptr_t base, size_t length, Permissions perms) {
+    return true;
+  }
 
   /**
    * Sync back the given page to a backing store, if one exists.
    */
   virtual void sync(uintptr_t at, bool async) {}
 
-  /**
-   * If the given page is dirty (and this is a CoW mapping),
-   * restore it to the file's actual content.
-   */
+  /** Invalidate cached state without discarding private modifications. */
   virtual void invalidate(uintptr_t at) {}
+
+  virtual bool sharedBacking(uintptr_t at, uintptr_t& identity, size_t& offset) const {
+    return false;
+  }
+
+  virtual bool usesBacking(uintptr_t identity) const {
+    return false;
+  }
+  virtual bool beyondBackingEnd(uintptr_t at) const {
+    return false;
+  }
+  virtual void discardFilePages(VirtualAddressSpace& space, size_t end, bool borrowedOnly) {}
 
   /**
    * Unmaps existing mappings in this object from the address space.
@@ -231,6 +249,10 @@ class MemoryMappedObject {
     return m_Permissions;
   }
 
+  Permissions maximumPermissions() const {
+    return m_MaximumPermissions;
+  }
+
  protected:
   /**
    * Is this a Copy-on-Write mapping?
@@ -267,6 +289,7 @@ class MemoryMappedObject {
    * 'Exec' only works on systems that support this (eg, x86_64).
    */
   Permissions m_Permissions;
+  Permissions m_MaximumPermissions;
 };
 
 /**
@@ -316,7 +339,8 @@ class AnonymousMemoryMap : public MemoryMappedObject {
 class MemoryMappedFile : public MemoryMappedObject {
  public:
   MemoryMappedFile(uintptr_t address, size_t length, size_t offset, File* backing,
-                   bool bCopyOnWrite, Permissions perms);
+                   bool bCopyOnWrite, Permissions perms,
+                   Permissions maximumPerms = Read | Write | Exec);
 
   virtual ~MemoryMappedFile();
 
@@ -328,6 +352,11 @@ class MemoryMappedFile : public MemoryMappedObject {
 
   virtual void sync(uintptr_t at, bool async);
   virtual void invalidate(uintptr_t at);
+  virtual bool sharedBacking(uintptr_t at, uintptr_t& identity, size_t& offset) const;
+  virtual bool usesBacking(uintptr_t identity) const;
+  virtual bool beyondBackingEnd(uintptr_t at) const;
+  virtual void discardFilePages(VirtualAddressSpace& space, size_t end, bool borrowedOnly);
+  virtual bool preparePermissions(uintptr_t base, size_t length, Permissions perms);
 
   virtual void unmap();
 
@@ -431,9 +460,12 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
                               MemoryMappedObject::Permissions perms, size_t offset = 0,
                               bool bCopyOnWrite = true);
 
-  MemoryMappedObject* mapFile(File* pFile, uintptr_t& address, size_t length,
-                              MemoryMappedObject::Permissions perms, size_t offset,
-                              bool bCopyOnWrite, Placement placement, MapStatus* status);
+  MemoryMappedObject* mapFile(
+      File* pFile, uintptr_t& address, size_t length, MemoryMappedObject::Permissions perms,
+      size_t offset, bool bCopyOnWrite, Placement placement, MapStatus* status,
+      MemoryMappedObject::Permissions maximumPerms = MemoryMappedObject::Read |
+                                                     MemoryMappedObject::Write |
+                                                     MemoryMappedObject::Exec);
 
   /**
    * Create a new anonymous memory mapping.
@@ -478,7 +510,10 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
    *
    * \return number of objects affected by this call.
    */
-  size_t setPermissions(uintptr_t base, size_t length, MemoryMappedObject::Permissions perms);
+  enum class ProtectStatus { Success, Unmapped, AccessDenied, InvalidRange, Unsupported, NoMemory };
+
+  size_t setPermissions(uintptr_t base, size_t length, MemoryMappedObject::Permissions perms,
+                        ProtectStatus* status = nullptr);
 
   /**
    * Returns true if at least one memory mapped object is in the range
@@ -492,16 +527,22 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
    */
   bool allows(uintptr_t base, size_t length, MemoryMappedObject::Permissions permissions);
 
+  bool sharedBacking(Process* process, uintptr_t address, uintptr_t& identity, size_t& offset);
+
+  bool faultIn(uintptr_t address, bool write);
+
+  /** Caller holds writer, operation, then backing-data locks across both phases
+   * and the fallible backend resize between them. */
+  bool prepareFileResize(File* file);
+  void finishFileResize(File* file, size_t newSize);
+
   /**
    * Syncs memory mapped objects within the given range back to
    * their backing store, if they have one.
    */
-  void sync(uintptr_t base, size_t length, bool async);
+  bool sync(uintptr_t base, size_t length, bool async);
 
-  /**
-   * Takes any pages that differ from the backing file (ie, copied
-   * on write) and restores them to point to the backing file.
-   */
+  /** Invalidates backing-cache state where required by the mapping. */
   void invalidate(uintptr_t base, size_t length);
 
   /**
@@ -552,17 +593,22 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
    */
   void releaseLock();
 
- private:
+ public:
   /**
    * A terminal-safe, same-thread recursive gate for manager operations.
    *
    * The gate keeps object lists and object lifetimes stable while allowing
    * the short cache Spinlock to be released before invoking an object.
+   * Try-only acquisition excludes recursive entry for pressure recovery.
    */
   class OperationGuard {
    public:
-    explicit OperationGuard(MemoryMapManager& manager);
+    explicit OperationGuard(MemoryMapManager& manager, bool tryOnly = false);
     ~OperationGuard();
+
+    explicit operator bool() const {
+      return m_Acquired;
+    }
 
    private:
     NOT_COPYABLE_OR_ASSIGNABLE(OperationGuard);
@@ -570,8 +616,10 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
     Uninterruptible m_EventDeferral;
     TerminationDeferral m_TerminationDeferral;
     MemoryMapManager& m_Manager;
+    bool m_Acquired;
   };
 
+ private:
   /** Default and only constructor. Registers with PageFaultHandler. */
   MemoryMapManager();
   ~MemoryMapManager();

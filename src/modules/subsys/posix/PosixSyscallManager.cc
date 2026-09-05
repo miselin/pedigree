@@ -211,10 +211,13 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       NOTICE("POSIX exit request: pid="
              << Processor::information().getCurrentThread()->getParent()->getId()
              << " code=" << p1);
-      // If not Linux mode, we exit the entire process. If Linux, just
-      // the current thread (as glibc uses exit_group for "all process").
       if (linuxAbi) {
-        if (!SyscallManager::instance().requestThreadExit()) {
+        Process* process = Processor::information().getCurrentThread()->getParent();
+        const bool lastThread = process->prepareThreadExit();
+        const bool requested =
+            lastThread ? SyscallManager::instance().requestProcessExit(static_cast<int>(p1))
+                       : SyscallManager::instance().requestThreadExit();
+        if (!requested) {
           FATAL("POSIX thread exit was not dispatched.");
         }
       } else if (!SyscallManager::instance().requestProcessExit(static_cast<int>(p1))) {
@@ -344,9 +347,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_KILL:
       return posix_kill(static_cast<int>(p1), static_cast<int>(p2));
     case POSIX_TKILL:
-      return posix_tkill(static_cast<int>(p1), static_cast<int>(p2));
+      return posix_tkill(static_cast<int>(p1), static_cast<int>(p2), linuxAbi);
     case POSIX_TGKILL:
-      return posix_tgkill(static_cast<int>(p1), static_cast<int>(p2), static_cast<int>(p3));
+      return posix_tgkill(static_cast<int>(p1), static_cast<int>(p2), static_cast<int>(p3),
+                          linuxAbi);
     case POSIX_SIGPROCMASK:
       return posix_sigprocmask(static_cast<int>(p1), reinterpret_cast<const void*>(p2),
                                reinterpret_cast<void*>(p3), p4, linuxAbi);
@@ -576,9 +580,9 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_getdents(static_cast<int>(p1), reinterpret_cast<struct linux_dirent*>(p2),
                             static_cast<int>(p3));
     case POSIX_GETTID:
-      return posix_gettid();
+      return posix_gettid(linuxAbi);
     case POSIX_SET_TID_ADDRESS:
-      return posix_set_tid_address(reinterpret_cast<int*>(p1));
+      return posix_set_tid_address(reinterpret_cast<int*>(p1), linuxAbi);
     case POSIX_BRK:
       return posix_brk(p1);
 
@@ -596,6 +600,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return VirtualAddressSpace::getKernelAddressSpace().getGlobalInfoBlock();
 
     case POSIX_SET_TLS_AREA:
+      if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(p1), &p1, sizeof(p1))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
       Processor::information().getCurrentThread()->setTlsBase(p1);
       return 0;
 
@@ -608,7 +616,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_arch_prctl(p1, p2);
     case POSIX_CLONE: {
       return posix_clone(state, p1, reinterpret_cast<void*>(p2), reinterpret_cast<int*>(p3),
-                         reinterpret_cast<int*>(p4), p5);
+                         reinterpret_cast<int*>(p4), p5, linuxAbi);
     }
     case POSIX_PAUSE:
       return posix_pause();
@@ -697,10 +705,10 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_CREAT:
       return posix_open(reinterpret_cast<const char*>(p1), O_WRONLY | O_CREAT | O_TRUNC, p2);
     case POSIX_SET_ROBUST_LIST:
-      return posix_set_robust_list(reinterpret_cast<struct robust_list_head*>(p1), p2);
+      return posix_set_robust_list(reinterpret_cast<struct robust_list_head*>(p1), p2, linuxAbi);
     case POSIX_GET_ROBUST_LIST:
       return posix_get_robust_list(p1, reinterpret_cast<struct robust_list_head**>(p2),
-                                   reinterpret_cast<size_t*>(p3));
+                                   reinterpret_cast<size_t*>(p3), linuxAbi);
     case POSIX_GETGROUPS:
       return posix_getgroups(p1, reinterpret_cast<gid_t*>(p2));
     case POSIX_MOUNT: {

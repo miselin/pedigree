@@ -213,6 +213,9 @@ class UnixFilesystem : public Filesystem {
     return false;
   }
   virtual bool removeNode(File* parent, const String& filename, File* file);
+  virtual bool renameNode(Directory*, const String&, File*, Directory*, const String&, File*) {
+    return true;
+  }
 
  private:
   File* m_pRoot;
@@ -253,7 +256,7 @@ class UnixSocket : public File {
 
   /** Queue one indivisible datagram and its optional descriptor ownership. */
   bool sendDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, uintptr_t source,
-                    const SharedPointer<SocketRights>& rights);
+                    const SharedPointer<SocketRights>& rights, int* error = nullptr);
 
   /** Remove one datagram, preserving its full length and ancillary ownership. */
   bool receiveDatagram(uint64_t size, uintptr_t buffer, bool bCanBlock, String& from,

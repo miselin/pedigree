@@ -22,6 +22,7 @@
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
+#include "pedigree/kernel/utilities/Tree.h"
 
 #include <config.h>
 
@@ -29,6 +30,7 @@
 
 class Disk;
 class Ext2Node;
+struct Ext2InodeState;
 class File;
 struct GroupDesc;
 struct Inode;
@@ -44,6 +46,7 @@ class Ext2Filesystem : public Filesystem {
   friend class Ext2Node;
   friend class Ext2Directory;
   friend class Ext2Symlink;
+  friend struct Ext2InodeState;
 
  public:
   Ext2Filesystem();
@@ -64,8 +67,15 @@ class Ext2Filesystem : public Filesystem {
   virtual bool createSymlink(File* parent, const String& filename, const String& value);
   virtual bool createLink(File* parent, const String& filename, File* target);
   virtual bool removeNode(File* parent, const String& filename, File* file);
+  virtual bool renameNode(Directory* oldParent, const String& oldName, File* source,
+                          Directory* newParent, const String& newName, File* replaced);
 
  private:
+  Ext2InodeState* acquireInodeState(uint32_t inode, Inode* metadata);
+  void releaseInodeState(uint32_t inode, Ext2InodeState* state, Ext2Node* lastNode);
+  void retireInodeLocked(uint32_t inode, Ext2Node* lastNode);
+  Mutex m_InodeStateLock;
+  Tree<uint32_t, Ext2InodeState*> m_InodeStates;
   virtual bool createNode(File* parent, const String& filename, uint32_t mask, const String& value,
                           size_t type, uint32_t inodeOverride = 0);
 

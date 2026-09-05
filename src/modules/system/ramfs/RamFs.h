@@ -48,6 +48,7 @@ class EXPORTED_PUBLIC RamFile : public File {
   bool canWrite();
 
  protected:
+  virtual bool resizeFile(size_t size);
   virtual uintptr_t readBlock(uint64_t location);
 
   virtual bool pinBlock(uint64_t location);
@@ -57,6 +58,7 @@ class EXPORTED_PUBLIC RamFile : public File {
  private:
   Cache m_FileBlocks;
   Mutex m_FileBlocksLock;
+  Vector<uint64_t> m_BlockOffsets;
 
   size_t m_nOwnerPid;
 };
@@ -111,6 +113,8 @@ class EXPORTED_PUBLIC RamFs : public Filesystem {
   virtual bool createDirectory(File* parent, const String& filename, uint32_t mask);
   virtual bool createSymlink(File* parent, const String& filename, const String& value);
   virtual bool removeNode(File* parent, const String& filename, File* file);
+  virtual bool renameNode(Directory* oldParent, const String& oldName, File* source,
+                          Directory* newParent, const String& newName, File* replaced);
 
   RamFs(const RamFs&);
   void operator=(const RamFs&);

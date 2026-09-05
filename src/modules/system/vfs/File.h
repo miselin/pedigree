@@ -70,12 +70,32 @@ class Thread;
     and Pipe. */
 class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   friend class Filesystem;
+  friend class Directory;
 #if defined(PEDIGREE_BUILDUTILS)
   friend class Ext2FillCacheTestPeer;
   friend class Ext2WritebackTestPeer;
 #endif
 
  public:
+  class ParentLease {
+   public:
+    ParentLease();
+    ~ParentLease();
+    File* get() const {
+      return m_Parent;
+    }
+    void swap(ParentLease& other);
+
+   private:
+    friend class File;
+    NOT_COPYABLE_OR_ASSIGNABLE(ParentLease);
+    File* m_Parent;
+    bool m_Retained;
+#if THREADS && !defined(STANDALONE_MUTEXES)
+    TerminationDeferral m_TerminationDeferral;
+#endif
+  };
+
   /** Holds this file's write transaction lock across one or more fragments. */
   class WriteGuard {
    public:
@@ -137,6 +157,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
    * from the file cache again.
    */
   virtual void returnPhysicalPage(size_t offset);
+  /** Memory-pressure compaction must never wait on a backing mutation. */
+  virtual bool tryBeginMappingRelease();
+  void endMappingRelease();
 
   /**
    * Syncs a mapped page before releasing its backing-cache reference.
@@ -172,10 +195,35 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Sets the time the file was last modified. */
   void setModifiedTime(Time::Timestamp t);
 
+  struct Attributes {
+    Time::Timestamp accessed = 0;
+    Time::Timestamp modified = 0;
+    Time::Timestamp changed = 0;
+    size_t uid = 0;
+    size_t gid = 0;
+    uint32_t permissions = 0;
+    size_t size = 0;
+    size_t links = 1;
+    uint64_t blocks = 0;
+  };
+
+  enum AttributeMask : uint32_t {
+    AccessTime = 1U << 0,
+    ModifyTime = 1U << 1,
+    ChangeTime = 1U << 2,
+    Owner = 1U << 3,
+    Group = 1U << 4,
+    Permissions = 1U << 5
+  };
+
+  virtual Attributes getAttributes() const;
+
+  /** Prepare backing storage before a writable shared mapping is published. */
+  virtual bool prepareSharedMapping(size_t offset, size_t length);
+
   /** Returns the name of the file. */
-  const String& getName() const;
+  String getName() const;
   void getName(String& s) const;
-  // File names cannot be changed.
 
   /** Obtains the full path of the File in the root namespace. */
   virtual void getFullPath(String& result, bool bWithMount = true);
@@ -186,7 +234,10 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Delete all data from the file. */
   virtual void truncate();
 
-  size_t getSize();
+  /** Resize a regular file without changing any open description's position. */
+  bool resize(size_t size);
+
+  virtual size_t getSize();
   void setSize(size_t sz);
 
   /** Returns true if the File is actually a symlink. */
@@ -209,6 +260,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
 
   uintptr_t getInode() const;
   virtual void setInode(uintptr_t inode);
+
+  /** Stable backing token; aliases of one backing object must share it. */
+  virtual uintptr_t futexIdentity();
 
   Filesystem* getFilesystem() const;
   void setFilesystem(Filesystem* pFs);
@@ -246,6 +300,9 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   size_t getGid() const;
 
   File* getParent() const;
+
+  /** Snapshot a name and retain its parent across concurrent namespace moves. */
+  void getNamespace(ParentLease& parent, String& name) const;
 
   /** Similar to POSIX's select() function
    * \return 1 if ready for reading/writing, 0 otherwise
@@ -300,6 +357,14 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   virtual File* open();
 
  protected:
+  virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
+  virtual bool prepareWrite(uint64_t location, uint64_t size);
+  virtual bool resizeFile(size_t size);
+  virtual Mutex& writeSerializationLock();
+  virtual Mutex& dataMutationLock();
+  virtual size_t& physicalPageLoans();
+  /** Caller owns the data mutation lock and has excluded physical-page loans. */
+  void clearDataCache();
   /**
    * File subclasses can define this and return true if they require read()
    * calls to perform actual data reads, and false if readBlock() is
@@ -370,7 +435,7 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   bool syncFillCache(size_t offset, bool async);
 
   /** Whether this file currently uses native-page fill caching. */
-  bool useFillCache() const;
+  virtual bool useFillCache() const;
 
   /**
    * Pins the given page.
@@ -414,16 +479,20 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /** Keep the former parent alive after this node leaves its namespace. */
   void retainDetachedParent();
 
+  void moveNamespace(const String& name, File* parent);
+
   String m_Name;
   Time::Timestamp m_AccessedTime;
   Time::Timestamp m_ModifiedTime;
   Time::Timestamp m_CreationTime;
   uintptr_t m_Inode;
+  uintptr_t m_FutexIdentity = 0;
 
   class Filesystem* m_pFilesystem;
   size_t m_Size;
 
   File* m_pParent;
+  mutable Mutex m_MetadataLock;
 
   /** Pins a former tracked parent for this detached node's remaining life. */
   File* m_pDetachedParent;
@@ -435,6 +504,7 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   size_t m_Gid;
   uint32_t m_Permissions;
 
+ public:
   class DataCacheKey {
    public:
     DataCacheKey() = default;
@@ -453,26 +523,27 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
     size_t m_Block = ~static_cast<size_t>(0);
   };
 
-  HashTable<DataCacheKey, uintptr_t> m_DataCache;
+  struct CacheState {
+    CacheState();
+    HashTable<DataCacheKey, uintptr_t> data;
+    Mutex indexLock;
+    Cache fill;
+    Mutex fillLock;
+  };
+
+ protected:
+  virtual CacheState& cacheState();
+  CacheState m_CacheState;
 
   bool m_bDirect;
 #if defined(PEDIGREE_BUILDUTILS)
   bool m_bForceFillCache = false;
 #endif
 
-  /**
-   * This cache is necessary to handle filesystems with block sizes that are
-   * smaller than the native page size. For these filesystems, to perform
-   * memory maps we read native page size blocks into this cache, and then
-   * return pages from it directly. This is expected to somewhat increase
-   * memory usage and reduce performance on non-natively-sized block sizes,
-   * but that's an acceptable compromise.
-   */
-  Cache m_FillCache;
-  Mutex m_FillCacheLock;
-
   /** Serializes file mutation, including append EOF selection, across open descriptions. */
   Mutex m_WriteLock;
+  Mutex m_DataMutationLock;
+  size_t m_PhysicalPageLoans = 0;
 
   Mutex m_Lock;
 
@@ -499,7 +570,7 @@ class EXPORTED_PUBLIC File : public ReadinessSource, public FileEventSource {
   /**
    * Reads the given cache block and returns one per-use reference.
    *
-   * m_DataCache is a weak identity index; it does not own this reference.
+   * The block index does not own this reference.
    */
   uintptr_t readIntoCache(uintptr_t block);
 

@@ -107,6 +107,9 @@ class EXPORTED_PUBLIC Filesystem {
   /** Remove a path only if its terminal entry still has the expected identity. */
   bool remove(const StringView& path, File* pStartNode, File* expected);
 
+  /** Move one terminal namespace entry without following its symlink target. */
+  bool rename(const StringView& oldPath, File* oldStart, const StringView& newPath, File* newStart);
+
   /** Returns the disk in use */
   Disk* getDisk() {
     return m_pDisk;
@@ -141,12 +144,21 @@ class EXPORTED_PUBLIC Filesystem {
    * namespace lock.
    */
   virtual bool removeNode(File* parent, const String& filename, File* file) = 0;
+  /**
+   * Change backing entries while the VFS reserves both names and owns their
+   * namespace locks. Do not call ordinary lookup/add/remove APIs here. Failure
+   * must leave both names unchanged; the VFS publishes cache changes on success.
+   */
+  virtual bool renameNode(Directory* oldParent, const String& oldName, File* source,
+                          Directory* newParent, const String& newName, File* replaced);
   /** is this entire filesystem read-only?  */
   bool m_bReadOnly;
   /** Disk device(if any). */
   Disk* m_pDisk;
 
  private:
+  /** Serializes changes to directory ancestry against removal. */
+  static Mutex m_StructureLock;
   /** Resolve and remove one child at a namespace-locked linearization point. */
   bool removeChild(File* parent, const String& filename, File* expected);
 

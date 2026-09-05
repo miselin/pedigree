@@ -31,6 +31,7 @@
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/UniqueResource.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stddef.h>
@@ -59,9 +60,6 @@
 #include <netinet/in.h>
 #include <sys/un.h>
 
-// Set to 1 to also log the contents of send() and recv() buffers ala strace
-#define LOG_SEND_RECV_BUFFERS 0
-
 Tree<struct netconn*, LwipSocketSyscalls*> LwipSocketSyscalls::m_SyscallObjects;
 Mutex LwipSocketSyscalls::m_SyscallObjectsLock;
 Tree<UnixSocket*, UnixSocketSyscalls*> UnixSocketSyscalls::m_SyscallObjects;
@@ -79,6 +77,101 @@ struct NetbufReleaser {
 };
 
 using NetbufOwner = UniqueResource<struct netbuf, NetbufReleaser>;
+
+class SocketPayload {
+ public:
+  bool prepare(const struct msghdr& message, int type, int domain, bool sending,
+               bool kernelBuffer = false) {
+    size_t requested = 0;
+    for (size_t i = 0; i < static_cast<size_t>(message.msg_iovlen); ++i) {
+      if (message.msg_iov[i].iov_len > static_cast<size_t>(SSIZE_MAX) - requested) {
+        SYSCALL_ERROR(InvalidArgument);
+        return false;
+      }
+      requested += message.msg_iov[i].iov_len;
+    }
+    size_t capacity = requested;
+    // Streams may make a short transfer. Datagrams must remain indivisible.
+    if (type == SOCK_STREAM && capacity > 65536) {
+      capacity = 65536;
+    } else if (domain == AF_INET && type == SOCK_DGRAM && capacity > 65535) {
+      if (sending) {
+        syscallError(EMSGSIZE);
+        return false;
+      }
+      capacity = 65535;
+    }
+    if (capacity) {
+      m_Bytes = UniqueArray<uint8_t>::allocate(capacity);
+      if (!m_Bytes) {
+        SYSCALL_ERROR(OutOfMemory);
+        return false;
+      }
+    }
+    m_Vector = {m_Bytes.get(), capacity};
+    if (!sending) {
+      return true;
+    }
+    size_t copied = 0;
+    for (size_t i = 0; i < static_cast<size_t>(message.msg_iovlen) && copied < capacity; ++i) {
+      const size_t amount = message.msg_iov[i].iov_len < capacity - copied
+                                ? message.msg_iov[i].iov_len
+                                : capacity - copied;
+      if (kernelBuffer) {
+        MemoryCopy(m_Bytes.get() + copied, message.msg_iov[i].iov_base, amount);
+      } else if (!PosixSubsystem::copyFromUser(m_Bytes.get() + copied, message.msg_iov[i].iov_base,
+                                               amount)) {
+        SYSCALL_ERROR(BadAddress);
+        return false;
+      }
+      copied += amount;
+    }
+    return true;
+  }
+
+  void attach(struct msghdr& message) {
+    message.msg_iov = &m_Vector;
+    message.msg_iovlen = 1;
+  }
+
+  bool copyReceived(const struct msghdr& target, size_t received) {
+    // MSG_TRUNC can report the packet length beyond the copied payload.
+    const size_t length = received < m_Vector.iov_len ? received : m_Vector.iov_len;
+    size_t copied = 0;
+    for (size_t i = 0; i < static_cast<size_t>(target.msg_iovlen) && copied < length; ++i) {
+      const size_t amount =
+          target.msg_iov[i].iov_len < length - copied ? target.msg_iov[i].iov_len : length - copied;
+      if (!PosixSubsystem::copyToUser(target.msg_iov[i].iov_base, m_Bytes.get() + copied, amount)) {
+        SYSCALL_ERROR(BadAddress);
+        return false;
+      }
+      copied += amount;
+    }
+    return true;
+  }
+
+ private:
+  UniqueArray<uint8_t> m_Bytes;
+  struct iovec m_Vector = {};
+};
+
+bool copySocketAddress(const struct sockaddr_storage* address, socklen_t length,
+                       struct sockaddr_storage& result) {
+  if (length < sizeof(sa_family_t) || length > sizeof(result)) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  if (!PosixSubsystem::copyFromUser(&result, address, length)) {
+    SYSCALL_ERROR(BadAddress);
+    return false;
+  }
+  if ((result.ss_family == AF_INET && length < sizeof(struct sockaddr_in)) ||
+      (result.ss_family == AF_INET6 && length < sizeof(struct sockaddr_in6))) {
+    SYSCALL_ERROR(InvalidArgument);
+    return false;
+  }
+  return true;
+}
 
 bool validateSocketMessageFlags(int flags, bool sending) {
   int supported = 0;
@@ -267,22 +360,16 @@ bool finishInterruptibleSocketCall(Thread* thread, ssize_t result) {
 #endif
 }
 
-/// Pass is_create = true to indicate that the operation is permitted to
-// operate if the socket does not yet have valid members (i.e. before a bind).
-static bool isSaneSocket(const DescriptorLease& f, bool is_create = false) {
+static bool isSaneSocket(const DescriptorLease& f) {
   if (!f) {
     N_NOTICE(" -> isSaneSocket: descriptor is null");
     SYSCALL_ERROR(BadFileDescriptor);
     return false;
   }
 
-  if (is_create) {
-    return true;
-  }
-
   if (!f->networkImpl) {
     N_NOTICE(" -> isSaneSocket: no network implementation found");
-    SYSCALL_ERROR(BadFileDescriptor);
+    syscallError(ENOTSOCK);
     return false;
   }
 
@@ -340,6 +427,10 @@ static bool unixSocketPath(const struct sockaddr_storage* address, socklen_t add
   ByteSet(boundedPath, 0, sizeof(boundedPath));
   MemoryCopy(boundedPath, un->sun_path, pathLength);
   normalisePath(path, boundedPath);
+  if (path.length() >= sizeof(un->sun_path)) {
+    SYSCALL_ERROR(NameTooLong);
+    return false;
+  }
   return true;
 }
 
@@ -396,15 +487,6 @@ int posix_socket(int domain, int type, int protocol) {
   if (!splitSocketType(type, socketType, flags)) {
     return -1;
   }
-
-  size_t fd = getAvailableDescriptor();
-
-  netconn_type connType = NETCONN_INVALID;
-
-  File* file = nullptr;
-  struct netconn* conn = nullptr;
-  bool valid = true;
-
   NetworkSyscalls* syscalls;
 
   if (domain == AF_UNIX) {
@@ -419,14 +501,15 @@ int posix_socket(int domain, int type, int protocol) {
   }
 
   if (!syscalls->create()) {
+    delete syscalls;
     return -1;
   }
 
   FileDescriptor* f = new FileDescriptor;
   f->setNetworkImpl(SharedPointer<NetworkSyscalls>(syscalls));
-  f->fd = fd;
   setSocketDescriptorFlags(f, flags);
-  addDescriptor(fd, f);
+  DescriptorLease installed;
+  const size_t fd = installDescriptor(f, installed);
   syscalls->associate(f);
 
   N_NOTICE("  -> " << Dec << fd << Hex);
@@ -444,8 +527,8 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2]) {
   }
 
   if (domain != AF_UNIX) {
-    /// \todo syscall error for EAFNOSUPPORT
     N_NOTICE(" -> bad domain");
+    syscallError(EAFNOSUPPORT);
     return -1;
   }
 
@@ -454,7 +537,7 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2]) {
   if (!splitSocketType(type, socketType, flags)) {
     return -1;
   }
-  if (socketType != SOCK_STREAM && socketType != SOCK_DGRAM) {
+  if (socketType != SOCK_STREAM) {
     SYSCALL_ERROR(OperationNotSupported);
     return -1;
   }
@@ -484,38 +567,38 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2]) {
   FileDescriptor* fA = new FileDescriptor;
   FileDescriptor* fB = new FileDescriptor;
 
-  size_t fdA = getAvailableDescriptor();
-  size_t fdB = getAvailableDescriptor();
 
   fA->setNetworkImpl(SharedPointer<NetworkSyscalls>(syscallsA));
-  fA->fd = fdA;
   fB->setNetworkImpl(SharedPointer<NetworkSyscalls>(syscallsB));
-  fB->fd = fdB;
 
   setSocketDescriptorFlags(fA, flags);
   setSocketDescriptorFlags(fB, flags);
 
-  addDescriptor(fdA, fA);
-  addDescriptor(fdB, fB);
+  DescriptorLease installedA;
+  DescriptorLease installedB;
+  const size_t fdA = installDescriptor(fA, installedA);
+  const size_t fdB = installDescriptor(fB, installedB);
 
   syscallsA->associate(fA);
   syscallsB->associate(fB);
 
-  sv[0] = static_cast<int>(fdA);
-  sv[1] = static_cast<int>(fdB);
+  const int result[2] = {static_cast<int>(fdA), static_cast<int>(fdB)};
+  if (!PosixSubsystem::copyToUser(sv, result, sizeof(result))) {
+    removeDescriptor(result[0], installedA);
+    removeDescriptor(result[1], installedB);
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
 
-  N_NOTICE(" -> " << sv[0] << ", " << sv[1]);
+  N_NOTICE(" -> " << result[0] << ", " << result[1]);
   return 0;
 }
 
 int posix_connect(int sock, const struct sockaddr_storage* address, socklen_t addrlen) {
   N_NOTICE("connect");
 
-  if (!address || addrlen < sizeof(sa_family_t) ||
-      !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), addrlen,
-                                    PosixSubsystem::SafeRead)) {
-    N_NOTICE("connect -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
+  struct sockaddr_storage snapshot = {};
+  if (!copySocketAddress(address, addrlen, snapshot)) {
     return -1;
   }
 
@@ -524,18 +607,18 @@ int posix_connect(int sock, const struct sockaddr_storage* address, socklen_t ad
 
   DescriptorLease f;
   acquireDescriptor(sock, f);
-  if (!isSaneSocket(f, true)) {
+  if (!isSaneSocket(f)) {
     return -1;
   }
 
-  if (address->ss_family != f->networkImpl->getDomain()) {
-    // EAFNOSUPPORT
+  if (snapshot.ss_family != f->networkImpl->getDomain()) {
+    syscallError(EAFNOSUPPORT);
     N_NOTICE(" -> incorrect address family passed to connect()");
     return -1;
   }
 
   Thread* thread = beginInterruptibleSocketCall();
-  const int result = f->networkImpl->connect(address, addrlen);
+  const int result = f->networkImpl->connect(&snapshot, addrlen);
   return finishInterruptibleSocketCall(thread, static_cast<ssize_t>(result)) ? result : -1;
 }
 
@@ -545,27 +628,20 @@ ssize_t posix_send(int sock, const void* buff, size_t bufflen, int flags) {
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen,
                                     PosixSubsystem::SafeRead)) {
     N_NOTICE("send -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
   N_NOTICE("send(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ")");
 
-  EMIT_IF(LOG_SEND_RECV_BUFFERS) {
-    if (buff && bufflen) {
-      String debug;
-      debug.assign(reinterpret_cast<const char*>(buff), bufflen, true);
-      N_NOTICE(" -> sending: '" << debug << "'");
-    }
-  }
 
   DescriptorLease f;
   acquireDescriptor(sock, f);
   return posix_send_descriptor(f, buff, bufflen, flags);
 }
 
-ssize_t posix_send_descriptor(const DescriptorLease& f, const void* buff, size_t bufflen,
-                              int flags) {
+ssize_t posix_send_descriptor(const DescriptorLease& f, const void* buff, size_t bufflen, int flags,
+                              bool kernelBuffer) {
   if (!validateSocketMessageFlags(flags, true)) {
     return -1;
   }
@@ -573,19 +649,29 @@ ssize_t posix_send_descriptor(const DescriptorLease& f, const void* buff, size_t
     return -1;
   }
 
-  Thread* thread = beginInterruptibleSocketCall();
-  const ssize_t result = f->networkImpl->sendto(buff, bufflen, flags, nullptr, 0);
-  return finishInterruptibleSocketCall(thread, result) ? result : -1;
+  struct iovec vector = {const_cast<void*>(buff), bufflen};
+  struct msghdr message = {};
+  message.msg_iov = &vector;
+  message.msg_iovlen = 1;
+  message.msg_flags = flags;
+  return posix_sendmsg_descriptor(f, &message, SharedPointer<SocketRights>(), kernelBuffer);
 }
 
 ssize_t posix_sendmsg_descriptor(const DescriptorLease& f, const struct msghdr* message,
-                                 const SharedPointer<SocketRights>& rights) {
+                                 const SharedPointer<SocketRights>& rights, bool kernelBuffer) {
   if (!isSaneSocket(f)) {
     return -1;
   }
 
+  SocketPayload payload;
+  if (!payload.prepare(*message, f->networkImpl->getType(), f->networkImpl->getDomain(), true,
+                       kernelBuffer)) {
+    return -1;
+  }
+  struct msghdr snapshot = *message;
+  payload.attach(snapshot);
   Thread* thread = beginInterruptibleSocketCall();
-  const ssize_t result = f->networkImpl->sendto_msg(message, rights);
+  const ssize_t result = f->networkImpl->sendto_msg(&snapshot, rights);
   return finishInterruptibleSocketCall(thread, result) ? result : -1;
 }
 
@@ -600,7 +686,7 @@ ssize_t posix_sendto(int sock, const void* buff, size_t bufflen, int flags,
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen,
                                     PosixSubsystem::SafeRead)) {
     N_NOTICE("sendto -> invalid address for transmission buffer");
-    SYSCALL_ERROR(InvalidArgument);
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
   struct sockaddr_storage destination = {};
@@ -622,13 +708,6 @@ ssize_t posix_sendto(int sock, const void* buff, size_t bufflen, int flags,
   N_NOTICE("sendto(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ", " << address
                      << ", " << addrlen << ")");
 
-  EMIT_IF(LOG_SEND_RECV_BUFFERS) {
-    if (buff && bufflen) {
-      String debug;
-      debug.assign(reinterpret_cast<const char*>(buff), bufflen, true);
-      N_NOTICE(" -> sending: '" << debug << "'");
-    }
-  }
 
   DescriptorLease f;
   acquireDescriptor(sock, f);
@@ -636,9 +715,14 @@ ssize_t posix_sendto(int sock, const void* buff, size_t bufflen, int flags,
     return -1;
   }
 
-  Thread* thread = beginInterruptibleSocketCall();
-  const ssize_t result = f->networkImpl->sendto(buff, bufflen, flags, destinationAddress, addrlen);
-  return finishInterruptibleSocketCall(thread, result) ? result : -1;
+  struct iovec vector = {const_cast<void*>(buff), bufflen};
+  struct msghdr message = {};
+  message.msg_name = const_cast<struct sockaddr_storage*>(destinationAddress);
+  message.msg_namelen = addrlen;
+  message.msg_iov = &vector;
+  message.msg_iovlen = 1;
+  message.msg_flags = flags;
+  return posix_sendmsg_descriptor(f, &message);
 }
 
 ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags) {
@@ -647,7 +731,7 @@ ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags) {
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen,
                                     PosixSubsystem::SafeWrite)) {
     N_NOTICE("recv -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
@@ -657,13 +741,6 @@ ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags) {
   acquireDescriptor(sock, f);
   ssize_t n = posix_recv_descriptor(f, buff, bufflen, flags);
 
-  EMIT_IF(LOG_SEND_RECV_BUFFERS) {
-    if (buff && n > 0) {
-      String debug;
-      debug.assign(reinterpret_cast<const char*>(buff), n, true);
-      N_NOTICE(" -> received: '" << debug << "'");
-    }
-  }
 
   N_NOTICE(" -> " << n);
   return n;
@@ -677,12 +754,12 @@ ssize_t posix_recv_descriptor(const DescriptorLease& f, void* buff, size_t buffl
     return -1;
   }
 
-  Thread* thread = beginInterruptibleSocketCall();
-  ssize_t n = f->networkImpl->recvfrom(buff, bufflen, flags, nullptr, nullptr);
-  if (!finishInterruptibleSocketCall(thread, n)) {
-    return -1;
-  }
-  return n;
+  struct iovec vector = {buff, bufflen};
+  struct msghdr message = {};
+  message.msg_iov = &vector;
+  message.msg_iovlen = 1;
+  message.msg_flags = flags;
+  return posix_recvmsg_descriptor(f, &message);
 }
 
 ssize_t posix_recvmsg_descriptor(const DescriptorLease& f, struct msghdr* message,
@@ -691,9 +768,25 @@ ssize_t posix_recvmsg_descriptor(const DescriptorLease& f, struct msghdr* messag
     return -1;
   }
 
+  SocketPayload payload;
+  if (!payload.prepare(*message, f->networkImpl->getType(), f->networkImpl->getDomain(), false)) {
+    return -1;
+  }
+  struct msghdr snapshot = *message;
+  payload.attach(snapshot);
   Thread* thread = beginInterruptibleSocketCall();
-  const ssize_t result = f->networkImpl->recvfrom_msg(message, rights);
-  return finishInterruptibleSocketCall(thread, result) ? result : -1;
+  const ssize_t result = f->networkImpl->recvfrom_msg(&snapshot, rights);
+  if (!finishInterruptibleSocketCall(thread, result) ||
+      (result >= 0 && !payload.copyReceived(*message, static_cast<size_t>(result)))) {
+    if (rights) {
+      rights->reset();
+    }
+    return -1;
+  }
+  message->msg_namelen = snapshot.msg_namelen;
+  message->msg_controllen = snapshot.msg_controllen;
+  message->msg_flags = snapshot.msg_flags;
+  return result;
 }
 
 ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
@@ -707,7 +800,7 @@ ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
   if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buff), bufflen,
                                     PosixSubsystem::SafeWrite)) {
     N_NOTICE("recvfrom -> invalid receive buffer");
-    SYSCALL_ERROR(InvalidArgument);
+    SYSCALL_ERROR(BadAddress);
     return -1;
   }
 
@@ -718,6 +811,10 @@ ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
     if (!PosixSubsystem::copyFromUser(&sourceCapacity, addrlen, sizeof(sourceCapacity))) {
       N_NOTICE("recvfrom -> invalid source address length");
       SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    if (sourceCapacity > static_cast<socklen_t>(INT_MAX)) {
+      SYSCALL_ERROR(InvalidArgument);
       return -1;
     }
 
@@ -742,13 +839,15 @@ ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
     return -1;
   }
 
-  Thread* thread = beginInterruptibleSocketCall();
-  socklen_t sourceLength = sourceCapacity;
-  ssize_t n = f->networkImpl->recvfrom(buff, bufflen, flags, sourceAddress,
-                                       sourceAddress ? &sourceLength : nullptr);
-  if (!finishInterruptibleSocketCall(thread, n)) {
-    return -1;
-  }
+  struct iovec vector = {buff, bufflen};
+  struct msghdr message = {};
+  message.msg_iov = &vector;
+  message.msg_iovlen = 1;
+  message.msg_flags = flags;
+  message.msg_name = sourceAddress;
+  message.msg_namelen = sourceAddress ? sizeof(source) : 0;
+  ssize_t n = posix_recvmsg_descriptor(f, &message);
+  const socklen_t sourceLength = message.msg_namelen;
 
   if (n >= 0 && sourceAddress) {
     size_t copyLength = sourceLength;
@@ -765,13 +864,6 @@ ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
     }
   }
 
-  EMIT_IF(LOG_SEND_RECV_BUFFERS) {
-    if (buff && n > 0) {
-      String debug;
-      debug.assign(reinterpret_cast<const char*>(buff), n, true);
-      N_NOTICE(" -> received: '" << debug << "'");
-    }
-  }
 
   N_NOTICE(" -> " << n);
   return n;
@@ -780,11 +872,8 @@ ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
 int posix_bind(int sock, const struct sockaddr_storage* address, socklen_t addrlen) {
   N_NOTICE("bind");
 
-  if (!address || addrlen < sizeof(sa_family_t) ||
-      !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address), addrlen,
-                                    PosixSubsystem::SafeRead)) {
-    N_NOTICE("bind -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
+  struct sockaddr_storage snapshot = {};
+  if (!copySocketAddress(address, addrlen, snapshot)) {
     return -1;
   }
 
@@ -792,16 +881,16 @@ int posix_bind(int sock, const struct sockaddr_storage* address, socklen_t addrl
 
   DescriptorLease f;
   acquireDescriptor(sock, f);
-  if (!isSaneSocket(f, true)) {
+  if (!isSaneSocket(f)) {
     return -1;
   }
 
-  if (f->networkImpl->getDomain() != address->ss_family) {
-    // EAFNOSUPPORT
+  if (f->networkImpl->getDomain() != snapshot.ss_family) {
+    syscallError(EAFNOSUPPORT);
     return -1;
   }
 
-  return f->networkImpl->bind(address, addrlen);
+  return f->networkImpl->bind(&snapshot, addrlen);
 }
 
 int posix_listen(int sock, int backlog) {
@@ -839,14 +928,18 @@ int posix_accept4(int sock, struct sockaddr_storage* address, socklen_t* addrlen
   socklen_t addressCapacity = 0;
   const bool returnAddress = address != nullptr;
   if (returnAddress) {
-    if (!addrlen || !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(addrlen),
-                                                  sizeof(socklen_t), PosixSubsystem::SafeWrite)) {
+    if (!PosixSubsystem::copyFromUser(&addressCapacity, addrlen, sizeof(addressCapacity)) ||
+        !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(addrlen), sizeof(socklen_t),
+                                      PosixSubsystem::SafeWrite)) {
       N_NOTICE("accept4 -> invalid address length");
       SYSCALL_ERROR(BadAddress);
       return -1;
     }
+    if (addressCapacity > static_cast<socklen_t>(INT_MAX)) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
 
-    addressCapacity = *addrlen;
     const size_t writableLength = addressCapacity < sizeof(acceptedAddress)
                                       ? static_cast<size_t>(addressCapacity)
                                       : sizeof(acceptedAddress);
@@ -873,7 +966,8 @@ int posix_accept4(int sock, struct sockaddr_storage* address, socklen_t* addrlen
   }
 
   Thread* thread = beginInterruptibleSocketCall();
-  int r = f->networkImpl->accept(&acceptedAddress, &acceptedLength, flags);
+  DescriptorLease accepted;
+  int r = f->networkImpl->accept(&acceptedAddress, &acceptedLength, flags, &accepted);
   if (!finishInterruptibleSocketCall(thread, static_cast<ssize_t>(r))) {
     return -1;
   }
@@ -881,10 +975,13 @@ int posix_accept4(int sock, struct sockaddr_storage* address, socklen_t* addrlen
     const size_t copyLength = addressCapacity < acceptedLength
                                   ? static_cast<size_t>(addressCapacity)
                                   : static_cast<size_t>(acceptedLength);
-    if (copyLength) {
-      MemoryCopy(address, &acceptedAddress, copyLength);
+    if (acceptedLength > sizeof(acceptedAddress) ||
+        !PosixSubsystem::copyToUser(address, &acceptedAddress, copyLength) ||
+        !PosixSubsystem::copyToUser(addrlen, &acceptedLength, sizeof(acceptedLength))) {
+      removeDescriptor(r, accepted);
+      SYSCALL_ERROR(BadAddress);
+      return -1;
     }
-    *addrlen = acceptedLength;
   }
   N_NOTICE(" -> " << Dec << r);
   return r;
@@ -951,64 +1048,72 @@ int posix_getsockname(int socket, struct sockaddr_storage* address, socklen_t* a
 }
 
 int posix_setsockopt(int sock, int level, int optname, const void* optvalue, socklen_t optlen) {
-  N_NOTICE("setsockopt(" << sock << ", " << level << ", " << optname << ", " << optvalue << ", "
-                         << optlen << ")");
-
-  if (!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optvalue), optlen,
-                                     PosixSubsystem::SafeRead))) {
-    N_NOTICE("setsockopt -> invalid address");
+  if (optlen < sizeof(int)) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-
+  int value = 0;
+  if (!PosixSubsystem::copyFromUser(&value, optvalue, sizeof(value))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
   DescriptorLease f;
   acquireDescriptor(sock, f);
   if (!isSaneSocket(f)) {
     return -1;
   }
-
-  return f->networkImpl->setsockopt(level, optname, optvalue, optlen);
+  return f->networkImpl->setsockopt(level, optname, &value, sizeof(value));
 }
 
 int posix_getsockopt(int sock, int level, int optname, void* optvalue, socklen_t* optlen) {
-  N_NOTICE("getsockopt(" << sock << ", " << level << ", " << optname << ")");
-
-  // Check optlen first, then use it to check optvalue.
-  if (!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optlen), sizeof(socklen_t),
-                                     PosixSubsystem::SafeRead) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optlen), sizeof(socklen_t),
-                                     PosixSubsystem::SafeWrite))) {
-    N_NOTICE("getsockopt -> invalid address");
+  socklen_t capacity = 0;
+  if (!PosixSubsystem::copyFromUser(&capacity, optlen, sizeof(capacity))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  if (capacity > INT_MAX) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-  if (!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(optvalue), *optlen,
-                                     PosixSubsystem::SafeWrite))) {
-    N_NOTICE("getsockopt -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
+  union {
+    int scalar;
+    struct ucred credentials;
+  } value = {};
+  socklen_t length = sizeof(value);
   DescriptorLease f;
   acquireDescriptor(sock, f);
   if (!isSaneSocket(f)) {
     return -1;
   }
-
-  return f->networkImpl->getsockopt(level, optname, optvalue, optlen);
+  if (f->networkImpl->getsockopt(level, optname, &value, &length) < 0) {
+    return -1;
+  }
+  if (length > sizeof(value)) {
+    SYSCALL_ERROR(IoError);
+    return -1;
+  }
+  const socklen_t copied = capacity < length ? capacity : length;
+  if (!PosixSubsystem::copyToUser(optvalue, &value, copied) ||
+      !PosixSubsystem::copyToUser(optlen, &copied, sizeof(copied))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  return 0;
 }
 
 int posix_sethostname(const char* name, size_t len) {
   N_NOTICE("sethostname");
 
-  if (!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(name), len,
-                                     PosixSubsystem::SafeRead))) {
-    N_NOTICE(" -> invalid address");
+  if (len > 64) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-
-  N_NOTICE("sethostname(" << String(name, len) << ")");
+  char hostname[65] = {};
+  if (!PosixSubsystem::copyFromUser(hostname, name, len)) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  N_NOTICE("sethostname(" << hostname << ")");
 
   /// \todo integrate this
 
@@ -2045,7 +2150,11 @@ int LwipSocketSyscalls::listen(int backlog) {
 int LwipSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t addrlen) {
   uint16_t port = 0;
   ip_addr_t ipaddr;
-  sockaddrToIpaddr(address, port, &ipaddr);
+  err_t conversion = sockaddrToIpaddr(address, port, &ipaddr);
+  if (conversion != ERR_OK) {
+    lwipToSyscallError(conversion);
+    return -1;
+  }
 
   err_t err = netconn_bind(m_Socket, &ipaddr, port);
   if (err != ERR_OK) {
@@ -2057,7 +2166,8 @@ int LwipSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
   return 0;
 }
 
-int LwipSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags) {
+int LwipSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags,
+                               DescriptorLease* accepted) {
   struct netconn* new_conn;
   err_t err = netconn_accept(m_Socket, &new_conn);
   if (err != ERR_OK) {
@@ -2093,13 +2203,17 @@ int LwipSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addr
   }
   obj->create();
 
-  size_t fd = getAvailableDescriptor();
   FileDescriptor* desc = new FileDescriptor;
   desc->setNetworkImpl(SharedPointer<NetworkSyscalls>(obj));
-  desc->fd = fd;
   setSocketDescriptorFlags(desc, flags);
 
-  addDescriptor(fd, desc);
+  DescriptorLease installed;
+
+  const size_t fd = installDescriptor(desc, installed);
+
+  if (accepted) {
+    *accepted = pedigree_std::move(installed);
+  }
   obj->associate(desc);
 
   return static_cast<int>(fd);
@@ -2564,8 +2678,8 @@ class UnixSocketReference {
 
 class UnixSocketGeneration {
  public:
-  UnixSocketGeneration(const SharedPointer<UnixSocketReference>& reference, bool removeNamespace)
-      : m_Reference(reference), m_RemoveNamespace(removeNamespace), m_Retired(false) {}
+  explicit UnixSocketGeneration(const SharedPointer<UnixSocketReference>& reference)
+      : m_Reference(reference), m_Retired(false) {}
 
   ~UnixSocketGeneration() {
     retire();
@@ -2578,10 +2692,8 @@ class UnixSocketGeneration {
           peer, ReadyRead | ReadyWrite | ReadyError | ReadyReadHangup | ReadyHangup);
     }
 
-    if (m_RemoveNamespace && socket && socket->getName().length() && socket->getParent()) {
-      Directory* parent = Directory::fromFile(socket->getParent());
-      parent->getFilesystem()->remove(parent, socket);
-    }
+    // The directory owns a bound pathname until unlink, independently of the
+    // descriptor's endpoint lifetime. A closed endpoint remains unconnectable.
   }
 
   UnixSocket* get() const {
@@ -2603,7 +2715,6 @@ class UnixSocketGeneration {
 
  private:
   SharedPointer<UnixSocketReference> m_Reference;
-  bool m_RemoveNamespace;
   Atomic<bool> m_Retired;
 };
 
@@ -2865,11 +2976,10 @@ SharedPointer<UnixSocketGeneration> UnixSocketSyscalls::acquireLocalEndpoint() c
 }
 
 void UnixSocketSyscalls::replaceLocalEndpoint(UnixSocket* socket, bool tracked,
-                                              bool removeNamespace, const String* localPath) {
+                                              const String* localPath) {
   SharedPointer<UnixSocketReference> reference(new UnixSocketReference(
       socket, tracked ? UnixSocketReferenceOwnership::Vfs : UnixSocketReferenceOwnership::Heap));
-  SharedPointer<UnixSocketGeneration> replacement(
-      new UnixSocketGeneration(reference, removeNamespace));
+  SharedPointer<UnixSocketGeneration> replacement(new UnixSocketGeneration(reference));
   SharedPointer<UnixSocketGeneration> previous;
 
   registerSocket(socket);
@@ -2976,7 +3086,7 @@ bool UnixSocketSyscalls::create() {
 
   // Create an unnamed unix socket by default.
   replaceLocalEndpoint(
-      new UnixSocket(String(), g_pUnixFilesystem, nullptr, nullptr, getSocketType()), false, false);
+      new UnixSocket(String(), g_pUnixFilesystem, nullptr, nullptr, getSocketType()), false);
 
   return true;
 }
@@ -3057,6 +3167,11 @@ int UnixSocketSyscalls::connect(const struct sockaddr_storage* address, socklen_
       releaseTrackedUnixSocket(target);
       return -1;
     }
+    if (target->getState() == UnixSocket::Closed) {
+      SYSCALL_ERROR(ConnectionRefused);
+      releaseTrackedUnixSocket(target);
+      return -1;
+    }
     N_NOTICE(" -> dgram");
   }
 
@@ -3119,9 +3234,9 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
     return -1;
   }
 
-  if (!remote && getType() != SOCK_STREAM) {
+  if (getType() != SOCK_STREAM && (msghdr->msg_name || !remote)) {
     if (!msghdr->msg_name) {
-      /// \todo needs some sort of errno here
+      syscallError(EDESTADDRREQ);
       N_NOTICE(" -> sendto on unconnected socket with no address");
       return -1;
     }
@@ -3179,6 +3294,7 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
   uint64_t numWritten = 0;
   bool completedWrite = false;
   bool interrupted = false;
+  int datagramError = 0;
   if (getType() == SOCK_DGRAM) {
     size_t datagramLength = 0;
     for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
@@ -3193,13 +3309,14 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
     const void* buffer = nullptr;
     if (datagramLength) {
       datagram = UniqueArray<uint8_t>::allocate(datagramLength);
+      if (!datagram) {
+        SYSCALL_ERROR(OutOfMemory);
+        return -1;
+      }
       size_t offset = 0;
       for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i) {
-        if (!PosixSubsystem::copyFromUser(datagram.get() + offset, msghdr->msg_iov[i].iov_base,
-                                          msghdr->msg_iov[i].iov_len)) {
-          SYSCALL_ERROR(BadAddress);
-          return -1;
-        }
+        MemoryCopy(datagram.get() + offset, msghdr->msg_iov[i].iov_base,
+                   msghdr->msg_iov[i].iov_len);
         offset += msghdr->msg_iov[i].iov_len;
       }
       buffer = datagram.get();
@@ -3207,7 +3324,7 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
 
     completedWrite =
         remote->sendDatagram(datagramLength, reinterpret_cast<uintptr_t>(buffer), isBlocking(),
-                             reinterpret_cast<uintptr_t>(localPath.cstr()), rights);
+                             reinterpret_cast<uintptr_t>(localPath.cstr()), rights, &datagramError);
     numWritten = completedWrite ? datagramLength : 0;
   } else {
     numWritten = localSocket->sendStream(msghdr->msg_iov, static_cast<size_t>(msghdr->msg_iovlen),
@@ -3222,6 +3339,10 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr* msghdr,
     }
   }
   if (!completedWrite) {
+    if (datagramError) {
+      syscallError(datagramError);
+      return -1;
+    }
     if (interrupted) {
       SYSCALL_ERROR(Interrupted);
       N_NOTICE(" -> -1 (EINTR)");
@@ -3284,6 +3405,10 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
     void* buffer = nullptr;
     if (datagramCapacity) {
       datagram = UniqueArray<uint8_t>::allocate(datagramCapacity);
+      if (!datagram) {
+        SYSCALL_ERROR(OutOfMemory);
+        return -1;
+      }
       buffer = datagram.get();
     }
 
@@ -3300,14 +3425,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr* msghdr,
         const size_t remaining = static_cast<size_t>(numRead) - offset;
         const size_t amount =
             msghdr->msg_iov[i].iov_len < remaining ? msghdr->msg_iov[i].iov_len : remaining;
-        if (!PosixSubsystem::copyToUser(msghdr->msg_iov[i].iov_base, datagram.get() + offset,
-                                        amount)) {
-          if (rights) {
-            rights->reset();
-          }
-          SYSCALL_ERROR(BadAddress);
-          return -1;
-        }
+        MemoryCopy(msghdr->msg_iov[i].iov_base, datagram.get() + offset, amount);
         offset += amount;
       }
     }
@@ -3485,8 +3603,20 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
   }
 
   Directory* pDir = Directory::fromFile(parentDirectory);
+  Directory::ChildLease mountedParentLease;
+  if (Directory* mounted = pDir->getReparsePoint()) {
+    // Looking up the parent itself stops at a mountpoint. Child lookup
+    // follows its reparse target, so bind must publish into that target too.
+    File* mountedParent =
+        mounted->getFilesystem()->findRetained(StringView(), mountedParentLease, mounted);
+    if (!mountedParent) {
+      SYSCALL_ERROR(DoesNotExist);
+      return -1;
+    }
+    parentDirectory = mountedParent;
+    pDir = Directory::fromFile(parentDirectory);
+  }
 
-  /// \todo does this actually create a findable file?
   UnixSocket* socket = new UnixSocket(basename, parentDirectory->getFilesystem(), parentDirectory,
                                       nullptr, getSocketType());
   // Establish the descriptor's ownership before publishing the pathname.
@@ -3509,13 +3639,14 @@ int UnixSocketSyscalls::bind(const struct sockaddr_storage* address, socklen_t a
   // Readers and acceptors retain the old generation outside the state lock.
   // Retiring it wakes those operations; destruction waits for their local
   // SharedPointer copies to leave scope.
-  replaceLocalEndpoint(socket, true, true, &adjusted_pathname);
+  replaceLocalEndpoint(socket, true, &adjusted_pathname);
   notifyReadiness(ReadyWrite);
 
   return 0;
 }
 
-int UnixSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags) {
+int UnixSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addrlen, int flags,
+                               DescriptorLease* accepted) {
   N_NOTICE("unix accept");
   SharedPointer<UnixSocketGeneration> local;
   String localPath;
@@ -3555,16 +3686,20 @@ int UnixSocketSyscalls::accept(struct sockaddr_storage* address, socklen_t* addr
     sun->sun_family = AF_UNIX;
 
     UnixSocketSyscalls* obj = new UnixSocketSyscalls(m_Domain, m_Type, m_Protocol);
-    obj->replaceLocalEndpoint(remote, false, false, &localPath);
+    obj->replaceLocalEndpoint(remote, false, &localPath);
     obj->create();
 
-    size_t fd = getAvailableDescriptor();
     FileDescriptor* desc = new FileDescriptor;
     desc->setNetworkImpl(SharedPointer<NetworkSyscalls>(obj));
-    desc->fd = fd;
     setSocketDescriptorFlags(desc, flags);
 
-    addDescriptor(fd, desc);
+    DescriptorLease installed;
+
+    const size_t fd = installDescriptor(desc, installed);
+
+    if (accepted) {
+      *accepted = pedigree_std::move(installed);
+    }
     obj->associate(desc);
 
     return static_cast<int>(fd);
@@ -3969,7 +4104,7 @@ bool runHostedUnixEndpointLifetimeRegression(Process* process) {
   constexpr size_t Attempts = 10000;
   Atomic<size_t> destructions(0);
   UnixSocketSyscalls socket(AF_UNIX, SOCK_DGRAM, 0);
-  socket.replaceLocalEndpoint(new UnixEndpointLifetimeProbe(destructions), false, false);
+  socket.replaceLocalEndpoint(new UnixEndpointLifetimeProbe(destructions), false);
 
   UnixEndpointReplacementContext context(&socket);
   Thread* receiver =
@@ -3994,8 +4129,7 @@ bool runHostedUnixEndpointLifetimeRegression(Process* process) {
   }
 
   String replacementPath("hosted-replacement");
-  socket.replaceLocalEndpoint(new UnixEndpointLifetimeProbe(destructions), false, false,
-                              &replacementPath);
+  socket.replaceLocalEndpoint(new UnixEndpointLifetimeProbe(destructions), false, &replacementPath);
   bool leaseHeld = false;
   for (size_t attempt = 0; attempt < Attempts && started; ++attempt) {
     Thread::WaitDebugInfo info = {};

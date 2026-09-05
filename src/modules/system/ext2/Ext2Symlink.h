@@ -50,6 +50,10 @@ class Ext2Symlink : public Symlink, public Ext2Node {
 
   /** Updates inode attributes. */
   void fileAttributeChanged();
+  virtual Attributes getAttributes() const;
+
+ protected:
+  virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
 };
 
 #endif

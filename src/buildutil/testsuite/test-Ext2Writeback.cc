@@ -61,6 +61,10 @@ class Ext2WritebackTestPeer {
     return filesystem.releaseInode(inode);
   }
 
+  static void linkInode(Ext2Filesystem& filesystem, uint32_t inode) {
+    filesystem.increaseInodeRefcount(inode);
+  }
+
   static uint32_t findFreeBlock(Ext2Filesystem& filesystem, uint32_t inode) {
     return filesystem.findFreeBlock(inode);
   }
@@ -71,6 +75,10 @@ class Ext2WritebackTestPeer {
 
   static Inode* getInode(Ext2Filesystem& filesystem, uint32_t inode) {
     return filesystem.getInode(inode);
+  }
+
+  static Ext2InodeState* retainedState(Ext2Filesystem& filesystem, uint32_t inode) {
+    return filesystem.m_InodeStates.lookup(inode);
   }
 
   static bool createFile(Ext2Filesystem& filesystem, File* parent, const String& name) {
@@ -197,6 +205,24 @@ class GrowthDisk final : public Disk {
   std::vector<uint64_t> writes;
 };
 
+struct MutableInodeFixture {
+  MutableInodeFixture() {
+    superblock.s_blocks_per_group = HOST_TO_LITTLE32(GrowthDisk::kBlockCount);
+    superblock.s_inodes_per_group = HOST_TO_LITTLE32(32);
+    superblock.s_free_blocks_count = HOST_TO_LITTLE32(GrowthDisk::kBlockCount - 16);
+    group.bg_block_bitmap = HOST_TO_LITTLE32(2);
+    group.bg_inode_bitmap = HOST_TO_LITTLE32(3);
+    group.bg_inode_table = HOST_TO_LITTLE32(4);
+    group.bg_free_blocks_count = HOST_TO_LITTLE16(GrowthDisk::kBlockCount - 16);
+    std::fill(disk.getBlock(2), disk.getBlock(2) + 2, 0xff);
+    Ext2WritebackTestPeer::configureGrowth(filesystem, &disk, &superblock, &group);
+  }
+  GrowthDisk disk;
+  Superblock superblock = {};
+  GroupDesc group = {};
+  Ext2Filesystem filesystem;
+};
+
 class OrderedSyncFile final : public File {
  public:
   using File::sync;
@@ -277,6 +303,135 @@ TEST(Ext2Writeback, KeepsNativeBlockWritePath) {
             std::vector<uint64_t>({static_cast<uint64_t>(kPhysicalBlock) * kBlockSize}));
 }
 
+TEST(Ext2Writeback, ReleasesClosedBlockMapsWithoutRecyclingIdentity) {
+  constexpr uint32_t kPhysicalBlock = 127;
+  GrowthDisk disk;
+  disk.getBlock(kPhysicalBlock)[0] = 0xA7;
+  Ext2Filesystem filesystem;
+  Ext2WritebackTestPeer::configure(filesystem, &disk, kBlockSize);
+  Inode inode = makeInode(kPhysicalBlock, kPhysicalBlock + 1);
+  inode.i_links_count = HOST_TO_LITTLE16(1);
+  uintptr_t identity = 0;
+  {
+    Ext2File file(String("first-alias"), 3, &inode, &filesystem);
+    identity = file.futexIdentity();
+    uint8_t value = 0;
+    ASSERT_EQ(file.read(0, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+    EXPECT_EQ(value, 0xA7);
+  }
+
+  Ext2InodeState* state = Ext2WritebackTestPeer::retainedState(filesystem, 3);
+  ASSERT_NE(state, nullptr);
+  EXPECT_EQ(state->references, 0U);
+  EXPECT_EQ(state->blocks.size(), 0U);
+  EXPECT_EQ(state->files.size(), 0U);
+  EXPECT_NE(identity, 0U);
+  EXPECT_EQ(state->futexIdentity, identity);
+
+  {
+    Ext2File reopened(String("second-alias"), 3, &inode, &filesystem);
+    EXPECT_EQ(reopened.futexIdentity(), identity);
+    EXPECT_EQ(reopened.getSize(), 3 * kBlockSize);
+    EXPECT_EQ(state->blocks.count(), 3U);
+    uint8_t value = 0;
+    ASSERT_EQ(reopened.read(0, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+    EXPECT_EQ(value, 0xA7);
+  }
+  EXPECT_EQ(state->references, 0U);
+  EXPECT_EQ(state->blocks.size(), 0U);
+}
+
+TEST(Ext2Metadata, HardlinkAliasesObserveMaskedUpdatesAndLinkCounts) {
+  MutableInodeFixture fixture;
+  Inode* inode = Ext2WritebackTestPeer::getInode(fixture.filesystem, 3);
+  ASSERT_NE(inode, nullptr);
+  inode->i_mode = HOST_TO_LITTLE16(EXT2_S_IFREG | 0600);
+  inode->i_links_count = HOST_TO_LITTLE16(2);
+  inode->i_uid = HOST_TO_LITTLE16(111);
+  inode->i_gid = HOST_TO_LITTLE16(222);
+  Ext2File first(String("first"), 3, inode, &fixture.filesystem);
+  Ext2File second(String("second"), 3, inode, &fixture.filesystem);
+  constexpr uint32_t permissions = FILE_UR | FILE_UW | FILE_GR | FILE_STICKY;
+  first.setPermissions(permissions);
+  second.setUid(333);
+  first.setModifiedTime(77);
+  second.setGid(444);
+  first.setAccessedTime(66);
+  second.setCreationTime(55);
+  for (File* alias : {static_cast<File*>(&first), static_cast<File*>(&second)}) {
+    const File::Attributes attributes = alias->getAttributes();
+    EXPECT_EQ(attributes.permissions, permissions);
+    EXPECT_EQ(attributes.uid, 333U);
+    EXPECT_EQ(attributes.gid, 444U);
+    EXPECT_EQ(attributes.modified, 77U);
+    EXPECT_EQ(attributes.accessed, 66U);
+    EXPECT_EQ(attributes.changed, 55U);
+    EXPECT_EQ(attributes.links, 2U);
+  }
+  Ext2WritebackTestPeer::linkInode(fixture.filesystem, 3);
+  EXPECT_EQ(first.getAttributes().links, 3U);
+  EXPECT_FALSE(Ext2WritebackTestPeer::releaseInode(fixture.filesystem, 3));
+  EXPECT_EQ(second.getAttributes().links, 2U);
+  EXPECT_EQ(LITTLE_TO_HOST16(inode->i_mode), EXT2_S_IFREG | 01640);
+}
+
+TEST(Ext2Growth, SparseWritesMaterializeDirectAndMissingIndirectPaths) {
+  MutableInodeFixture fixture;
+  Inode* inode = Ext2WritebackTestPeer::getInode(fixture.filesystem, 3);
+  ASSERT_NE(inode, nullptr);
+  const size_t indices[] = {3, 14, 12 + kBlockSize / sizeof(uint32_t) + 1};
+  const size_t extent = (indices[2] + 1) * kBlockSize;
+  inode->i_mode = HOST_TO_LITTLE16(EXT2_S_IFREG | 0600);
+  inode->i_links_count = HOST_TO_LITTLE16(1);
+  inode->i_size = HOST_TO_LITTLE32(extent);
+  {
+    Ext2File file(String("sparse"), 3, inode, &fixture.filesystem);
+    for (size_t index : indices) {
+      uint8_t value = 0xff;
+      ASSERT_EQ(file.read(index * kBlockSize + 17, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+      EXPECT_EQ(value, 0U);
+    }
+    EXPECT_EQ(file.getAttributes().blocks, 0U);
+    for (size_t index : indices) {
+      const uint8_t value = 0x6b;
+      ASSERT_EQ(file.write(index * kBlockSize + 17, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+    }
+    EXPECT_EQ(file.getAttributes().blocks, 6U * (kBlockSize / 512));
+    EXPECT_EQ(file.getSize(), extent);
+  }
+  Ext2File reopened(String("sparse-alias"), 3, inode, &fixture.filesystem);
+  for (size_t index : indices) {
+    uint8_t values[3] = {};
+    ASSERT_EQ(reopened.read(index * kBlockSize + 16, 3, reinterpret_cast<uintptr_t>(values)), 3U);
+    EXPECT_EQ(values[0], 0U);
+    EXPECT_EQ(values[1], 0x6b);
+    EXPECT_EQ(values[2], 0U);
+  }
+  EXPECT_EQ(reopened.getAttributes().blocks, 6U * (kBlockSize / 512));
+  ASSERT_TRUE(reopened.prepareSharedMapping(7 * kBlockSize, kBlockSize));
+  EXPECT_EQ(reopened.getAttributes().blocks, 7U * (kBlockSize / 512));
+}
+
+TEST(Ext2Growth, SparseAllocationFailurePreservesHoleAndSize) {
+  MutableInodeFixture fixture;
+  fixture.superblock.s_free_blocks_count = 0;
+  fixture.group.bg_free_blocks_count = 0;
+  Inode* inode = Ext2WritebackTestPeer::getInode(fixture.filesystem, 3);
+  ASSERT_NE(inode, nullptr);
+  inode->i_mode = HOST_TO_LITTLE16(EXT2_S_IFREG | 0600);
+  inode->i_links_count = HOST_TO_LITTLE16(1);
+  inode->i_size = HOST_TO_LITTLE32(2 * kBlockSize);
+  Ext2File file(String("full-device"), 3, inode, &fixture.filesystem);
+  const uint8_t source = 0x6b;
+  EXPECT_EQ(file.write(17, 1, reinterpret_cast<uintptr_t>(&source)), 0U);
+  EXPECT_FALSE(file.prepareSharedMapping(kBlockSize, kBlockSize));
+  uint8_t value = 0xff;
+  ASSERT_EQ(file.read(17, 1, reinterpret_cast<uintptr_t>(&value)), 1U);
+  EXPECT_EQ(value, 0U);
+  EXPECT_EQ(file.getSize(), 2 * kBlockSize);
+  EXPECT_EQ(file.getAttributes().blocks, 0U);
+}
+
 TEST(Ext2Growth, BatchesIndirectMappingAndInodeWrites) {
   GrowthDisk disk;
   Superblock superblock = {};
@@ -324,10 +479,10 @@ TEST(Ext2Growth, BatchesIndirectMappingAndInodeWrites) {
   EXPECT_EQ(
       static_cast<size_t>(std::count(disk.writes.begin(), disk.writes.end(), inodeTableLocation)),
       1U);
-  // One write initializes the indirect block; the second publishes its entries.
+  // The prepared block publishes its zeroed tail and complete entries together.
   EXPECT_EQ(
       static_cast<size_t>(std::count(disk.writes.begin(), disk.writes.end(), indirectLocation)),
-      2U);
+      1U);
 }
 
 TEST(Ext2Growth, SerializesGlobalBitmapAllocation) {
@@ -581,7 +736,10 @@ TEST(Ext2Writeback, ReleaseInodeFinishesOnTargetTableBlock) {
   EXPECT_NE(inodeBitmap[targetIndex / 8] & targetMask, 0);
   EXPECT_EQ(LITTLE_TO_HOST32(superblock.s_free_inodes_count), kFreeInodes);
   EXPECT_EQ(LITTLE_TO_HOST16(groupDescriptor.bg_free_inodes_count), kGroupFreeInodes);
-  EXPECT_EQ(std::count(disk.writes.begin(), disk.writes.end(), targetTableLocation), 2);
+  EXPECT_GE(std::count(disk.writes.begin(), disk.writes.end(), targetTableLocation), 1);
+  EXPECT_EQ(std::count(disk.writes.begin(), disk.writes.end(),
+                       static_cast<uint64_t>(kInodeBitmapBlock) * kBlockSize),
+            0);
   EXPECT_EQ(std::count(disk.writes.begin(), disk.writes.end(), previousTableLocation), 0);
   ASSERT_FALSE(disk.writes.empty());
   EXPECT_EQ(disk.writes.back(), targetTableLocation);
@@ -593,7 +751,10 @@ TEST(Ext2Writeback, ReleaseInodeFinishesOnTargetTableBlock) {
   EXPECT_EQ(LITTLE_TO_HOST32(superblock.s_free_inodes_count), kFreeInodes + 1);
   EXPECT_EQ(LITTLE_TO_HOST16(groupDescriptor.bg_free_inodes_count), kGroupFreeInodes + 1);
 
-  EXPECT_EQ(std::count(disk.writes.begin(), disk.writes.end(), targetTableLocation), 2);
+  EXPECT_GE(std::count(disk.writes.begin(), disk.writes.end(), targetTableLocation), 1);
+  EXPECT_GE(std::count(disk.writes.begin(), disk.writes.end(),
+                       static_cast<uint64_t>(kInodeBitmapBlock) * kBlockSize),
+            1);
   EXPECT_EQ(std::count(disk.writes.begin(), disk.writes.end(), previousTableLocation), 0);
   ASSERT_FALSE(disk.writes.empty());
   EXPECT_NE(disk.writes.back(), previousTableLocation);

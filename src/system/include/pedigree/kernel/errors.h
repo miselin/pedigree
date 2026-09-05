@@ -51,6 +51,7 @@ enum PosixError {
   NoSpaceLeftOnDevice = 28,    // ENOSPC
   IllegalSeek = 29,            // ESPIPE  (??)
   ReadOnlyFilesystem = 30,     // EROFS
+  TooManyLinks = 31,           // EMLINK
   BrokenPipe = 32,             // EPIPE
   BadRange = 34,               // ERANGE
   Deadlock = 35,               // EDEADLK

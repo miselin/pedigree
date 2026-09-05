@@ -177,7 +177,8 @@ class InotifyRoutingTests(unittest.TestCase):
 
         self.assertIn("public ReadinessSource, public FileEventSource", file_header)
         self.assertIn("publishEvent(FileEvents::Modify)", file_source)
-        self.assertIn("parent->notifyFileEvent", file_source)
+        self.assertIn("getNamespace(parent, childName)", file_source)
+        self.assertIn("parent.get()->notifyFileEvent", file_source)
         self.assertIn("publishEvent(FileEvents::Created", directory)
         self.assertIn("directory->publishEvent(FileEvents::Removed", filesystem)
         self.assertIn("target->publishEvent(FileEvents::DeletedSelf)", filesystem)

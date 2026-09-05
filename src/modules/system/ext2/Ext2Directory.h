@@ -29,12 +29,27 @@
 
 class File;
 struct Inode;
+struct Dir;
 
 /** A File is a file, a directory or a symlink. */
 class Ext2Directory : public Directory, public Ext2Node {
   friend class Ext2Filesystem;
 
  private:
+  struct RenameRecord {
+    RenameRecord();
+    ~RenameRecord();
+    Ext2Directory* owner;
+    uint32_t block;
+    uintptr_t buffer;
+    size_t offset;
+    Dir* entry;
+    Dir* split;
+    uint16_t splitLength;
+    uint16_t length;
+  };
+  bool prepareRenameRecord(const String& name, uint32_t inode, RenameRecord& record);
+  bool prepareRenameSpace(const String& name, RenameRecord& record, const RenameRecord* source);
   /** Copy constructors are hidden - unused! */
   Ext2Directory(const Ext2Directory& file);
   Ext2Directory& operator=(const Ext2Directory&);
@@ -55,6 +70,10 @@ class Ext2Directory : public Directory, public Ext2Node {
 
   /** Updates inode attributes. */
   void fileAttributeChanged();
+  virtual Attributes getAttributes() const;
+
+ protected:
+  virtual void updateAttributes(const Attributes& attributes, uint32_t mask);
 
  private:
   struct ParsedEntry {
