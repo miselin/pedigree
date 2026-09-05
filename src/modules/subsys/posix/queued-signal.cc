@@ -217,6 +217,7 @@ void posix_signal_reset_timer(Process* process, const SharedPointer<PosixTimerSi
   auto* owner = subsystem(process);
   if (!owner || !token)
     return;
+  PendingSignalNotification notification(owner->pendingSignalContext());
   LockGuard<Mutex> pendingGuard(owner->pendingSignalLock());
   {
     LockGuard<Spinlock> guard(token->m_Lock);
@@ -226,13 +227,14 @@ void posix_signal_reset_timer(Process* process, const SharedPointer<PosixTimerSi
     token->m_Pending = false;
   }
   cancelSource(process, token.get());
-  owner->pendingSignalChanged().broadcast();
+  owner->pendingSignalContext()->recordChange();
 }
 void posix_signal_cancel_timer(Process* process,
                                const SharedPointer<PosixTimerSignalToken>& token) {
   auto* owner = subsystem(process);
   if (!owner || !token)
     return;
+  PendingSignalNotification notification(owner->pendingSignalContext());
   LockGuard<Mutex> pendingGuard(owner->pendingSignalLock());
   {
     LockGuard<Spinlock> guard(token->m_Lock);
@@ -243,7 +245,7 @@ void posix_signal_cancel_timer(Process* process,
   }
   cancelSource(process, token.get());
   token->m_Reservation.reset();
-  owner->pendingSignalChanged().broadcast();
+  owner->pendingSignalContext()->recordChange();
 }
 
 int posix_rt_sigpending(uint64_t* signals, size_t size) {
@@ -299,6 +301,7 @@ int posix_rt_sigtimedwait(const uint64_t* signals, LinuxQueuedSiginfo* info,
   Thread* current = Processor::information().getCurrentThread();
   Process* process = current->getParent();
   auto* owner = subsystem(process);
+  PendingSignalNotification notification(owner->pendingSignalContext());
   LockGuard<Mutex> guard(owner->pendingSignalLock());
   current->setSynchronousSignalMask(mask);
   struct Enrollment {
@@ -308,56 +311,17 @@ int posix_rt_sigtimedwait(const uint64_t* signals, LinuxQueuedSiginfo* info,
     }
   } enrollment{current};
   while (true) {
-    Process::ThreadLease selected;
-    uint64_t available = 0, firstSequence = ~uint64_t(0);
-    for (size_t i = process->getNumThreads(); i > 0; --i) {
-      Process::ThreadLease thread;
-      if (!process->acquireThread(thread, i - 1))
-        continue;
-      uint64_t candidate = thread->pendingSignalMask(thread.get() != current) & mask;
-      const uint64_t sequence =
-          candidate
-              ? thread->pendingSignalOrder(__builtin_ctzll(candidate) + 1, thread.get() != current)
-              : ~uint64_t(0);
-      if (candidate && (!available || __builtin_ctzll(candidate) < __builtin_ctzll(available) ||
-                        (__builtin_ctzll(candidate) == __builtin_ctzll(available) &&
-                         sequence < firstSequence))) {
-        firstSequence = sequence;
-        available = candidate & (~candidate + 1);
-        selected = pedigree_std::move(thread);
-      }
-    }
-    if (selected) {
-      Event::Delivery delivery =
-          selected->reservePendingSignal(available, selected.get() != current, firstSequence);
-      if (!delivery)
-        continue;
-      auto* signal = static_cast<SignalEvent*>(delivery.get());
-      LinuxQueuedSiginfo result = {};
-      const int32_t number = signal->getNumber();
-      field(result, 0, number);
-      field(result, 8, signal->getSignalCode());
-      field(result, 16, signal->getSenderProcess());
-      field(result, 20, signal->getSenderUser());
-      field(result, 24, signal->getSignalValue());
-      int32_t timerId = 0, overrun = 0;
-      signal->timerInfo(timerId, overrun);
-      if (signal->getSignalCode() == -2) {
-        field(result, 16, timerId);
-        field(result, 20, overrun);
-      }
+    PendingSignalReservation reservation;
+    if (reservation.reserve(current, mask)) {
+      const PendingSignalRecord record = reservation.record();
+      LinuxQueuedSiginfo result;
+      posix_signal_record_siginfo(record, result);
       if (info && !PosixSubsystem::copyToUser(info, &result, sizeof(result))) {
         SYSCALL_ERROR(BadAddress);
-        if (!selected->restorePendingSignal(delivery)) {
-          // An exiting owner cannot retain a process-directed signal. Move
-          // its registered delivery to the still-live synchronous consumer.
-          if (signal->isProcessDirected())
-            current->sendEvent(signal);
-        }
         return -1;
       }
-      signal->completeSignalDelivery(overrun);
-      return number;
+      reservation.commit(record.overrun);
+      return record.number;
     }
     if (!remaining) {
       SYSCALL_ERROR(NoMoreProcesses);

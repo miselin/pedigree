@@ -15,9 +15,11 @@
 #include <time.h>
 
 #include "PosixSubsystem.h"
+#include "clock-syscalls.h"
 #include "linux-wait-abi.h"
 #include "mqueue-syscalls.h"
 #include "system-syscalls.h"
+#include "timerfd-syscalls.h"
 
 #define SG_NOTICE(x)
 
@@ -25,6 +27,7 @@ namespace {
 constexpr Time::Timestamp MaximumLinuxSleepNanoseconds = 0x7FFFFFFFFFFFFFFFULL;
 Mutex clockChangeLock;
 ConditionVariable clockChanged;
+uint64_t clockChangeGeneration = 0;
 
 bool supportedSleepClock(clockid_t clockId) {
   return clockId == CLOCK_REALTIME || clockId == CLOCK_MONOTONIC;
@@ -133,6 +136,16 @@ bool waitForClockSleep(clockid_t clockId, bool absolute, Time::Timestamp request
 }
 }  // namespace
 
+PosixClockSnapshot posix_clock_snapshot() {
+  LockGuard<Mutex> guard(clockChangeLock);
+  return {clockChangeGeneration, Time::getTimeNanoseconds(), Time::getTicks()};
+}
+
+uint64_t posix_clock_change_generation() {
+  LockGuard<Mutex> guard(clockChangeLock);
+  return clockChangeGeneration;
+}
+
 #if HOSTED && PEDIGREE_HOSTED_SMOKE_TESTS
 extern "C" EXPORTED_PUBLIC Time::Timestamp posixNanosleepAlarmDurationForTest(time_t seconds,
                                                                               long nanoseconds) {
@@ -221,15 +234,18 @@ int posix_clock_settime(clockid_t clockId, const LinuxKernelTimespec* value) {
   }
   const Time::Timestamp target =
       static_cast<uint64_t>(requested.tv_sec) * Time::Multiplier::Second + requested.tv_nsec;
+  uint64_t generation;
   {
     LockGuard<Mutex> guard(clockChangeLock);
     if (!Time::setTimeNanoseconds(target)) {
       SYSCALL_ERROR(InvalidArgument);
       return -1;
     }
+    generation = ++clockChangeGeneration;
     clockChanged.broadcast();
   }
   posix_mqueue_clock_changed();
+  posix_timerfd_clock_changed(generation);
   return 0;
 }
 

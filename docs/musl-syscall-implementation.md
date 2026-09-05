@@ -6,6 +6,8 @@ no successful valid implementation. The [inventory](musl-syscall-implementation.
 tracks all 113. A mapping alone does not close an item; its scope and public musl
 contract evidence must be recorded.
 
+Current checkpoint: 32 of 113 backlog entries implemented; 81 remain.
+
 Work proceeds by families, starting with IPC, then timers and signal integration,
 VM and descriptor-backed objects, file operations, and process/resource features.
 Simple queries and aliases follow the larger ownership and blocking contracts.
@@ -17,6 +19,50 @@ state belongs in POSIX. Shared kernel/VFS changes should express a reusable
 lifetime or behavior contract that cannot be implemented correctly inside the
 subsystem. Public-wrapper guest tests use fresh headless images, disposable
 disks, per-suite exit statuses, and one/four-CPU runs for concurrent behavior.
+
+## Signal and timer descriptors
+
+This pass adds `signalfd`, `signalfd4`, `timerfd_create`, `timerfd_settime`, and
+`timerfd_gettime`. The guest application is `event-descriptor-contract-test`,
+with optional `signalfd`, `timerfd`, and `clock` family arguments.
+
+Signal descriptors consume the caller's pending signals without changing its
+signal mask. Standard signals coalesce; realtime signals retain ordered values.
+They share masks across dup, fork, and SCM_RIGHTS. Reads report complete 128-byte
+records; failed scalar or vectored copies leave the failing record pending.
+SIGCHLD exit records include trusted child identity and status, and timer signals
+carry timer identity, payload, and overrun. Legacy child stop/continue delivery
+still lacks typed status metadata; fault-specific siginfo fields are not populated.
+
+Poll observes its calling thread. Epoll retains registration with the process's
+signal context, samples the waiting thread's private queue, and survives the
+registering thread's exit. An inherited epoll registration does not observe the
+child's new signal context; the child must create its own registration.
+
+Timer descriptors support CLOCK_REALTIME and CLOCK_MONOTONIC, relative/absolute
+deadlines, periodic expiration counts, and realtime CANCEL_ON_SET. Realtime
+changes wake absolute timers immediately; relative deadlines remain monotonic.
+Expiration counts and settings belong to the shared open description and survive
+fork, descriptor passing, and exec unless the descriptor has CLOEXEC. A failed
+readv copy preserves the counter. Disarming retains the configured interval.
+There are at most 256 live timer descriptions (ENFILE on exhaustion); alarm and
+CPU clock variants are unsupported.
+
+Both descriptor types support ordinary fd flags, FIONBIO, anonymous-inode fstat
+metadata, noop lseek, and `/proc/self/fd` readlink names. Closing the final
+descriptor wakes a blocked reader with EBADF. This explicit local close contract
+differs from Linux's ability to retain an in-flight read after the numeric fd is
+closed.
+
+Verification: 37 native routing/ABI checks passed, and the sleep/clock and
+thread/signal hosted regression units compiled against the final headers. Fresh
+headless one-CPU and four-CPU guests passed all three new families plus 14 existing
+suites, with individual exit statuses and final markers. Artifacts are under
+`/private/tmp/pedigree-eventfd-expansion-20260905/`; `verification.json` records the
+ISO identity and final logs. Initial guest failures exposed missing EBADF and
+partial-read errno clearing; those failures and their repairs are retained.
+The descriptor-passing fixtures use Unix streams because datagram socketpair
+remains an existing networking limitation.
 
 ## IPC pass
 

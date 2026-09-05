@@ -55,7 +55,10 @@ SignalEvent::SignalEvent(const SignalEvent& other, bool isDeletable)
       m_SignalCode(other.m_SignalCode),
       m_SenderProcess(other.m_SenderProcess),
       m_SenderUser(other.m_SenderUser),
-      m_SignalValue(other.m_SignalValue) {}
+      m_SignalValue(other.m_SignalValue),
+      m_ChildStatus(other.m_ChildStatus),
+      m_ChildUserTime(other.m_ChildUserTime),
+      m_ChildSystemTime(other.m_ChildSystemTime) {}
 
 SignalEvent::~SignalEvent() {
   if (m_DeliveryState) {

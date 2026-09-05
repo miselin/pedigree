@@ -77,6 +77,7 @@ enum PosixError {
   HostUnreachable = 113,       // EHOSTUNREACH
   Already = 114,               // EALREADY
   InProgress = 115,            // EINPROGRESS
+  Cancelled = 125,             // ECANCELED
 };
 }
 

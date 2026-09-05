@@ -40,6 +40,8 @@
 #include "modules/system/vfs/File.h"
 #include "net-syscalls.h"
 #include "poll-syscalls.h"
+#include "signalfd-syscalls.h"
+#include "timerfd-syscalls.h"
 
 namespace {
 constexpr unsigned int MaxPollDescriptors = 16384;
@@ -174,7 +176,15 @@ short readyMaskToPoll(ReadyMask ready, short events) {
   return result;
 }
 
-short queryDescriptorPoll(const FileDescriptor& descriptor, short events) {
+short queryDescriptorPoll(const FileDescriptor& descriptor, short events,
+                          SignalFdView* signalView) {
+  if (signalView) {
+    return readyMaskToPoll(signalView->queryReady(), events);
+  }
+  auto timerFd = descriptor.getTimerFdImpl();
+  if (timerFd) {
+    return readyMaskToPoll(timerFd->queryReady(), events);
+  }
   if (descriptor.epollImpl) {
     return readyMaskToPoll(descriptor.epollImpl->queryReady(), events);
   }
@@ -206,7 +216,15 @@ short queryDescriptorPoll(const FileDescriptor& descriptor, short events) {
   return 0;
 }
 
-ReadinessSource* descriptorReadinessSource(const FileDescriptor& descriptor) {
+ReadinessSource* descriptorReadinessSource(const FileDescriptor& descriptor,
+                                           SignalFdView* signalView) {
+  if (signalView) {
+    return signalView;
+  }
+  auto timerFd = descriptor.getTimerFdImpl();
+  if (timerFd) {
+    return timerFd.get();
+  }
   if (descriptor.epollImpl) {
     return descriptor.epollImpl.get();
   }
@@ -236,6 +254,7 @@ struct PollCleanupContext {
   SharedPointer<ReadinessObserver>* readinessObserver;
   ReadinessSubscription** readinessSubscriptions;
   DescriptorLease** descriptors;
+  SharedPointer<SignalFdView>** signalViews;
   size_t descriptorCount;
   bool active;
 };
@@ -262,6 +281,9 @@ void removePollRegistrations(void* context) {
   cleanup->active = false;
 
   removeReadinessSubscriptions(*cleanup);
+  auto* signalViews = *cleanup->signalViews;
+  *cleanup->signalViews = nullptr;
+  delete[] signalViews;
 
   DescriptorLease* descriptors = *cleanup->descriptors;
   *cleanup->descriptors = nullptr;
@@ -324,13 +346,14 @@ int posix_poll(struct pollfd* fds, unsigned int nfds, int timeout) {
 }
 
 namespace {
-bool refreshPollDescriptors(struct pollfd* fds, size_t nfds, DescriptorLease* descriptors) {
+bool refreshPollDescriptors(struct pollfd* fds, size_t nfds, DescriptorLease* descriptors,
+                            SharedPointer<SignalFdView>* signalViews) {
   bool ready = false;
   for (size_t i = 0; i < nfds; ++i) {
     struct pollfd* me = &fds[i];
     DescriptorLease& descriptor = descriptors[i];
     if (descriptor) {
-      me->revents |= queryDescriptorPoll(*descriptor, me->events);
+      me->revents |= queryDescriptorPoll(*descriptor, me->events, signalViews[i].get());
     }
     ready |= me->revents != 0;
   }
@@ -373,8 +396,9 @@ int pollWithDeadline(struct pollfd* fds, unsigned int nfds, const PollDeadline& 
   // the numeric fd during wakeup or cleanup could target a reused descriptor
   // and leave a registration pointing into this stack behind.
   DescriptorLease* descriptors = new DescriptorLease[nfds];
+  auto* signalViews = new SharedPointer<SignalFdView>[nfds];
   PollCleanupContext cleanup = {
-      &pSem, &readinessObserver, &readinessSubscriptions, &descriptors, nfds, true};
+      &pSem, &readinessObserver, &readinessSubscriptions, &descriptors, &signalViews, nfds, true};
   Thread::StackDiscardScope discardScope(THREADS ? &removePollRegistrations : nullptr, &cleanup);
 
   for (unsigned int i = 0; i < nfds; ++i) {
@@ -393,14 +417,18 @@ int pollWithDeadline(struct pollfd* fds, unsigned int nfds, const PollDeadline& 
       continue;
     }
 
-    ReadinessSource* readinessSource = descriptorReadinessSource(*descriptor);
+    auto signalFd = descriptor->getSignalFdImpl();
+    if (signalFd) {
+      signalViews[i] = signalFd->bindCaller();
+    }
+    ReadinessSource* readinessSource = descriptorReadinessSource(*descriptor, signalViews[i].get());
     if (!readinessSource) {
       me->revents |= POLLNVAL;
       returnImmediately = true;
       continue;
     }
 
-    me->revents |= queryDescriptorPoll(*descriptor, me->events);
+    me->revents |= queryDescriptorPoll(*descriptor, me->events, signalViews[i].get());
     if (me->revents) {
       returnImmediately = true;
     }
@@ -415,7 +443,7 @@ int pollWithDeadline(struct pollfd* fds, unsigned int nfds, const PollDeadline& 
         } else {
           // Subscription precedes the second snapshot, closing the only
           // transition window in which a level could otherwise be missed.
-          me->revents |= queryDescriptorPoll(*descriptor, me->events);
+          me->revents |= queryDescriptorPoll(*descriptor, me->events, signalViews[i].get());
           if (me->revents) {
             returnImmediately = true;
           }
@@ -449,7 +477,7 @@ int pollWithDeadline(struct pollfd* fds, unsigned int nfds, const PollDeadline& 
       // Recompute the predicate after every wake outcome. A readiness change
       // racing a timeout or signal owns the result even if the semaphore
       // reported the other event first.
-      if (refreshPollDescriptors(fds, nfds, descriptors)) {
+      if (refreshPollDescriptors(fds, nfds, descriptors, signalViews)) {
         break;
       }
 
@@ -472,7 +500,7 @@ int pollWithDeadline(struct pollfd* fds, unsigned int nfds, const PollDeadline& 
   }
 
   // One last level snapshot closes a change racing the terminal decision.
-  refreshPollDescriptors(fds, nfds, descriptors);
+  refreshPollDescriptors(fds, nfds, descriptors, signalViews);
   if (waited && pThread->getInterruptionReason() == Thread::InterruptedBySignal) {
     interrupted = true;
   }

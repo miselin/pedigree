@@ -30,6 +30,8 @@
 #include "modules/subsys/posix/mqueue-syscalls.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/system/vfs/File.h"
+#include "signalfd-syscalls.h"
+#include "timerfd-syscalls.h"
 
 namespace {
 constexpr int MaximumEpollBatch = 16384;
@@ -53,7 +55,9 @@ struct EpollWatch {
              File* watchedFile, const SharedPointer<NetworkSyscalls>& watchedNetwork,
              const SharedPointer<EventFd>& watchedEventFd,
              const SharedPointer<InotifyInstance>& watchedInotify,
-             const SharedPointer<PosixMessageQueue>& watchedMqueue, bool readable, bool writable,
+             const SharedPointer<PosixMessageQueue>& watchedMqueue,
+             const SharedPointer<TimerFd>& watchedTimerFd,
+             const SharedPointer<SignalFdView>& watchedSignalView, bool readable, bool writable,
              const LinuxEpollEvent& event)
       : fd(watchedFd),
         description(openFile),
@@ -62,6 +66,8 @@ struct EpollWatch {
         eventFd(watchedEventFd),
         inotify(watchedInotify),
         mqueue(watchedMqueue),
+        timerFd(watchedTimerFd),
+        signalView(watchedSignalView),
         canRead(readable),
         canWrite(writable),
         events(event.events),
@@ -80,6 +86,8 @@ struct EpollWatch {
   SharedPointer<EventFd> eventFd;
   SharedPointer<InotifyInstance> inotify;
   SharedPointer<PosixMessageQueue> mqueue;
+  SharedPointer<TimerFd> timerFd;
+  SharedPointer<SignalFdView> signalView;
   bool canRead;
   bool canWrite;
   uint32_t events;
@@ -93,6 +101,12 @@ struct EpollWatch {
 };
 
 ReadinessSource* watchSource(const EpollWatch& watch) {
+  if (watch.timerFd) {
+    return watch.timerFd.get();
+  }
+  if (watch.signalView) {
+    return watch.signalView.get();
+  }
   if (watch.file) {
     return watch.file;
   }
@@ -135,6 +149,12 @@ uint32_t eventsFor(ReadyMask ready, uint32_t requested) {
 }
 
 ReadyMask queryWatch(const EpollWatch& watch) {
+  if (watch.timerFd) {
+    return watch.timerFd->queryReady();
+  }
+  if (watch.signalView) {
+    return watch.signalView->queryCallerReady();
+  }
   const bool reading = watch.canRead && (watch.events & (ReadEvents | LinuxEpoll::ReadHangup));
   const bool writing = watch.canWrite && (watch.events & WriteEvents);
   if (watch.file) {
@@ -160,7 +180,8 @@ uint32_t sampleWatch(EpollWatch& watch) {
   if (watch.events & LinuxEpoll::EdgeTriggered) {
     ReadinessSource* source = watchSource(watch);
     const ReadinessGenerations generations =
-        source ? source->readinessGenerations() : ReadinessGenerations();
+        watch.signalView ? watch.signalView->callerReadinessGenerations()
+                         : (source ? source->readinessGenerations() : ReadinessGenerations());
     const uint64_t writeGeneration = watch.eventFd ? watch.eventFd->writeGeneration() : 0;
     // Keep edges which have not yet been consumed, but do not return a stale
     // edge after another thread has made that predicate false. Source-owned
@@ -308,6 +329,13 @@ void EpollInstance::sourceReadinessChanged(ReadyMask) {
         continue;
       }
 
+      if (watch->signalView) {
+        // Signal callbacks run in the producer's context. The waiting thread
+        // must sample its own private queue, including after the registrar exits.
+        reportable |= watch->armed;
+        continue;
+      }
+
       const uint32_t readyEvents = sampleWatch(*watch);
       if (watch->armed && reportableEvents(*watch, readyEvents)) {
         reportable = true;
@@ -366,7 +394,9 @@ int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* e
   SharedPointer<EventFd> eventFd = description->getEventFdImpl();
   SharedPointer<InotifyInstance> inotify = description->getInotifyImpl();
   SharedPointer<PosixMessageQueue> mqueue = description->getMqueueImpl();
-  if (!file && !network && !eventFd && !inotify && !mqueue) {
+  auto timerFd = description->getTimerFdImpl();
+  auto signalFd = description->getSignalFdImpl();
+  if (!file && !network && !eventFd && !inotify && !mqueue && !timerFd && !signalFd) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }
@@ -418,7 +448,9 @@ int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* e
           watch->observedWriteGeneration = watch->eventFd ? watch->eventFd->writeGeneration() : 0;
           ReadinessSource* source = watchSource(*watch);
           watch->observedGenerations =
-              source ? source->readinessGenerations() : ReadinessGenerations();
+              watch->signalView
+                  ? watch->signalView->callerReadinessGenerations()
+                  : (source ? source->readinessGenerations() : ReadinessGenerations());
           found = true;
           break;
         }
@@ -435,11 +467,20 @@ int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* e
     return 0;
   }
 
+  SharedPointer<SignalFdView> signalView;
+  if (signalFd) {
+    signalView = signalFd->bindCaller();
+    if (!signalView) {
+      SYSCALL_ERROR(BadFileDescriptor);
+      return -1;
+    }
+  }
+
   const int accessMode = descriptor->getStatusFlags() & O_ACCMODE;
   const bool canRead = network || eventFd || inotify || mqueue || accessMode != O_WRONLY;
   const bool canWrite = network || eventFd || mqueue || accessMode != O_RDONLY;
   EpollWatch* watch = new EpollWatch(targetFd, description, file, network, eventFd, inotify, mqueue,
-                                     canRead, canWrite, *event);
+                                     timerFd, signalView, canRead, canWrite, *event);
 
   // Subscription precedes publication, so the first subsequent wait cannot
   // miss a readiness transition between registration and its initial scan.

@@ -51,11 +51,13 @@
 #include "queued-signal.h"
 #include "select-syscalls.h"
 #include "signal-syscalls.h"
+#include "signalfd-syscalls.h"
 #include "syscalls/translate.h"
 #include "system-syscalls.h"
 #include "sysv-message-syscalls.h"
 #include "sysv-semaphore-syscalls.h"
 #include "sysv-shm-syscalls.h"
+#include "timerfd-syscalls.h"
 
 namespace {
 off_t linuxAmd64VectorOffset(uintptr_t low, uintptr_t high) {
@@ -430,6 +432,18 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_CLOCK_SETTIME:
       return posix_clock_settime(static_cast<clockid_t>(p1),
                                  reinterpret_cast<const LinuxKernelTimespec*>(p2));
+    case POSIX_SIGNALFD:
+      return posix_signalfd(static_cast<int>(p1), reinterpret_cast<const uint64_t*>(p2), p3);
+    case POSIX_SIGNALFD4:
+      return posix_signalfd4(static_cast<int>(p1), reinterpret_cast<const uint64_t*>(p2), p3,
+                             static_cast<int>(p4));
+    case POSIX_TIMERFD_CREATE:
+      return posix_timerfd_create(static_cast<int>(p1), static_cast<int>(p2));
+    case POSIX_TIMERFD_SETTIME:
+      return posix_timerfd_settime(static_cast<int>(p1), static_cast<int>(p2),
+                                   reinterpret_cast<const void*>(p3), reinterpret_cast<void*>(p4));
+    case POSIX_TIMERFD_GETTIME:
+      return posix_timerfd_gettime(static_cast<int>(p1), reinterpret_cast<void*>(p2));
 
     case POSIX_SEMGET:
       return posix_semget(static_cast<int>(p1), static_cast<int>(p2), static_cast<int>(p3));

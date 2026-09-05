@@ -39,6 +39,7 @@
 
 #include "modules/subsys/posix/FileDescriptor.h"
 #include "modules/subsys/posix/logging.h"
+#include "modules/subsys/posix/queued-signal.h"
 #include "modules/system/vfs/Directory.h"
 
 class File;
@@ -394,11 +395,18 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
       bool processDirected = false, uint64_t signalValue = 0,
       const SharedPointer<SignalEventState>& state = SharedPointer<SignalEventState>());
 
+  void setProcess(Process* process) override {
+    Subsystem::setProcess(process);
+    m_PendingSignals->attach(m_pProcess);
+  }
+  SharedPointer<PendingSignalContext> pendingSignalContext() {
+    return m_PendingSignals;
+  }
   Mutex& pendingSignalLock() {
-    return m_PendingSignalLock;
+    return m_PendingSignals->lock;
   }
   ConditionVariable& pendingSignalChanged() {
-    return m_PendingSignalChanged;
+    return m_PendingSignals->changed;
   }
 
   void retireDescriptor(FileDescriptor* descriptor);
@@ -689,8 +697,7 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   /** A lock for access to the signal handlers tree */
   UnlikelyLock m_SignalHandlersLock;
-  Mutex m_PendingSignalLock;
-  ConditionVariable m_PendingSignalChanged;
+  SharedPointer<PendingSignalContext> m_PendingSignals{new PendingSignalContext};
 
   /**
    * The file descriptor map. Maps number to pointers, the type of which is

@@ -3,7 +3,13 @@
 #define POSIX_QUEUED_SIGNAL_H
 
 #include "pedigree/kernel/Spinlock.h"
+#include "pedigree/kernel/process/ConditionVariable.h"
+#include "pedigree/kernel/process/Event.h"
+#include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/process/Process.h"
+#include "pedigree/kernel/process/Readiness.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/List.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 
 class Process;
@@ -17,6 +23,83 @@ struct alignas(8) LinuxQueuedSiginfo {
   uint8_t bytes[128];
 };
 static_assert(sizeof(LinuxQueuedSiginfo) == 128, "Linux amd64 siginfo layout");
+
+struct PendingSignalRecord {
+  int32_t number = 0, code = 0, pid = 0;
+  uint32_t uid = 0;
+  uint64_t value = 0;
+  int32_t timerId = 0, overrun = 0, status = 0;
+  uint64_t userTime = 0, systemTime = 0;
+};
+
+class PendingSignalBinding {
+ public:
+  Thread* thread = nullptr;
+  bool alive = true;
+  uint64_t generations[64] = {};
+};
+
+/** Durable notification state; bindings never retain a Process or Thread lease. */
+class PendingSignalContext final : public ReadinessSource {
+ public:
+  void attach(Process* process);
+  void close();
+  void retireThread(Thread* thread);
+  SharedPointer<PendingSignalBinding> bind(Thread* thread);
+  ReadyMask query(const SharedPointer<PendingSignalBinding>& binding, uint64_t mask,
+                  ReadinessGenerations* generations = nullptr);
+  void recordChange(size_t signal = 0, Thread* target = nullptr, bool processDirected = false);
+  void publish();
+  void wake();
+  uint64_t version() const {
+    return __atomic_load_n(&m_Version, __ATOMIC_ACQUIRE);
+  }
+  Mutex lock;
+  ConditionVariable changed;
+
+ private:
+  Process* m_Process = nullptr;
+  bool m_Closed = false;
+  uint64_t m_Version = 0;
+  uint64_t m_ProcessGenerations[64] = {};
+  List<SharedPointer<PendingSignalBinding>, 0> m_Bindings;
+};
+
+/** Declare before the pending lock guard so callbacks run only after unlock. */
+class PendingSignalNotification {
+ public:
+  explicit PendingSignalNotification(const SharedPointer<PendingSignalContext>& context)
+      : m_Context(context), m_Version(context->version()) {}
+  ~PendingSignalNotification() {
+    if (m_Context->version() != m_Version)
+      m_Context->publish();
+  }
+
+ private:
+  SharedPointer<PendingSignalContext> m_Context;
+  uint64_t m_Version;
+};
+
+/** Caller holds its process pending lock until commit or rollback completes. */
+class PendingSignalReservation {
+ public:
+  PendingSignalReservation() = default;
+  ~PendingSignalReservation();
+  bool reserve(Thread* caller, uint64_t mask);
+  PendingSignalRecord record() const;
+  void commit(int32_t overrun);
+  void rollback();
+
+ private:
+  PendingSignalReservation(const PendingSignalReservation&) = delete;
+  PendingSignalReservation& operator=(const PendingSignalReservation&) = delete;
+  Thread* m_Caller = nullptr;
+  Process::ThreadLease m_Selected;
+  Event::Delivery m_Delivery;
+};
+
+bool posix_matching_pending(Thread* caller, uint64_t mask);
+void posix_signal_record_siginfo(const PendingSignalRecord&, LinuxQueuedSiginfo&);
 
 class PosixTimerSignalToken {
  public:

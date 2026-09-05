@@ -83,12 +83,12 @@ linux_number,syscall,family,status,scope_and_verification
 277,sync_file_range,Extended file interfaces,pending,
 278,vmsplice,Extended file interfaces,pending,
 280,utimensat,Core file and process interfaces,pending,
-282,signalfd,Additional event and network interfaces,pending,
-283,timerfd_create,Additional event and network interfaces,pending,
+282,signalfd,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+283,timerfd_create,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 285,fallocate,Core file and process interfaces,pending,
-286,timerfd_settime,Additional event and network interfaces,pending,
-287,timerfd_gettime,Additional event and network interfaces,pending,
-289,signalfd4,Additional event and network interfaces,pending,
+286,timerfd_settime,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+287,timerfd_gettime,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
+289,signalfd4,Additional event and network interfaces,implemented,Signal/timer descriptor pass; public musl contracts passed in 1CPU and 4CPU guests; bounds and limitations in companion document
 299,recvmmsg,Additional event and network interfaces,pending,
 300,fanotify_init,Extended file interfaces,pending,
 301,fanotify_mark,Extended file interfaces,pending,

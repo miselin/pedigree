@@ -367,6 +367,10 @@ bool buildAsyncFrame(Thread* thread, LinuxAmd64Signal::AsyncEvent& event, Sigcon
   if (event.getSignalCode() == -2) {
     setSiginfo32(frame.info, 16, timerId);
     setSiginfo32(frame.info, 20, overrun);
+  } else if (signal == SIGCHLD && event.getSignalCode() > 0 && event.getSignalCode() <= 6) {
+    setSiginfo32(frame.info, 24, event.childStatus());
+    setSiginfo64(frame.info, 32, event.childUserTime());
+    setSiginfo64(frame.info, 40, event.childSystemTime());
   }
 
   if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(fpstateAddress), &fpstate,

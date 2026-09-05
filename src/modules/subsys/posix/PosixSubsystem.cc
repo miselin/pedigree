@@ -59,6 +59,8 @@
 #include "pthread-syscalls.h"
 #include "queued-signal.h"
 #include "signal-syscalls.h"
+#include "signalfd-syscalls.h"
+#include "timerfd-syscalls.h"
 #include "system-syscalls.h"
 #include "sysv-semaphore-syscalls.h"
 
@@ -260,6 +262,7 @@ PosixSubsystem::PosixSubsystem(PosixSubsystem& s)
 }
 
 PosixSubsystem::~PosixSubsystem() {
+  m_PendingSignals->close();
   assert(--m_FreeCount == 0);
 
   acquire();
@@ -707,6 +710,7 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
 
   // Peer shutdown has consumed their registrations. The final owner must
   // retire its user-memory exit state before process teardown removes it.
+  m_PendingSignals->close();
   posix_timer_process_exit(pProcess);
   pThread->notifySubsystemExit();
 
@@ -935,7 +939,8 @@ void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler* handler) {
     return;
   }
 
-  LockGuard<Mutex> pendingGuard(m_PendingSignalLock);
+  PendingSignalNotification notification(m_PendingSignals);
+  LockGuard<Mutex> pendingGuard(m_PendingSignals->lock);
   m_SignalHandlersLock.acquire();
 
   SignalHandler* removal = nullptr;
@@ -972,6 +977,7 @@ void PosixSubsystem::setSignalHandler(size_t sig, SignalHandler* handler) {
     }
   }
 
+  m_PendingSignals->recordChange();
   m_SignalHandlersLock.release();
 
   // Complete the destruction of the handler (waiting for deletion) with no
@@ -994,7 +1000,8 @@ void PosixSubsystem::resetSignalHandlersForExec(
     }
   }
 
-  LockGuard<Mutex> pendingGuard(m_PendingSignalLock);
+  PendingSignalNotification notification(m_PendingSignals);
+  LockGuard<Mutex> pendingGuard(m_PendingSignals->lock);
   SignalHandler* removals[SignalDispositionCount] = {};
   m_SignalHandlersLock.acquire();
 
@@ -1013,6 +1020,7 @@ void PosixSubsystem::resetSignalHandlersForExec(
     }
   }
 
+  m_PendingSignals->recordChange();
   m_SignalHandlersLock.release();
 
   for (SignalHandler* removal : removals) {
@@ -1069,7 +1077,8 @@ bool PosixSubsystem::getSignalDisposition(size_t sig, SignalDisposition& disposi
 PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(
     Thread* target, size_t sig, uint32_t* flags, int32_t signalCode, bool processDirected,
     uint64_t signalValue, const SharedPointer<SignalEventState>& state) {
-  LockGuard<Mutex> pendingGuard(m_PendingSignalLock);
+  PendingSignalNotification notification(m_PendingSignals);
+  LockGuard<Mutex> pendingGuard(m_PendingSignals->lock);
   if (flags) {
     *flags = 0;
   }
@@ -1207,6 +1216,14 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(
     static uint64_t nextSignalSequence = 0;
     delivery->setQueueSequence(__atomic_add_fetch(&nextSignalSequence, 1, __ATOMIC_RELAXED));
     delivery->setDeliveryState(deliveryState);
+    if (sig == SIGCHLD && signalCode == 0 && senderProcess &&
+        senderProcess->getParent() == process && senderProcess->getState() == Process::Terminated) {
+      const int status = senderProcess->getExitStatus();
+      signalCode = (status & 0x7f) ? ((status & 0x80) ? 3 : 2) : 1;
+      delivery->setChildStatus((status & 0x7f) ? (status & 0x7f) : ((status >> 8) & 0xff),
+                               senderProcess->getUserTime() / (Time::Multiplier::Second / 100),
+                               senderProcess->getKernelTime() / (Time::Multiplier::Second / 100));
+    }
     delivery->setSignalOrigin(signalCode, senderPid, senderUid);
     delivery->setSignalValue(signalValue);
     delivery->setProcessDirected(processDirected);
@@ -1230,7 +1247,8 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(
   }
 
   m_SignalHandlersLock.release();
-  m_PendingSignalChanged.broadcast();
+  m_PendingSignals->recordChange(result == SignalDeliveryResult::Queued ? sig : 0, target,
+                                 processDirected);
   if (delivery && result == SignalDeliveryResult::Rejected) {
     delivery->rejectSignalDelivery();
     delete delivery;
@@ -1534,7 +1552,9 @@ PosixSubsystem::DescriptorDuplicationResult PosixSubsystem::duplicateFileDescrip
         // locks, neither of which enters the descriptor table. Keeping
         // m_FdLock held makes final-close admission and publication atomic.
         if ((!source->networkImpl || replacement->networkPublished()) &&
-            (!source->getEventFdImpl() || replacement->eventFdPublished())) {
+            (!source->getEventFdImpl() || replacement->eventFdPublished()) &&
+            (!source->getSignalFdImpl() || replacement->signalFdPublished()) &&
+            (!source->getTimerFdImpl() || replacement->timerFdPublished())) {
           replacement->fd = targetFd;
           replacement->fdflags = closeOnExec ? FD_CLOEXEC : 0;
           m_FdMap.take(targetFd, retiring);
@@ -1594,7 +1614,8 @@ size_t PosixSubsystem::installFileDescriptor(FileDescriptor* descriptor, Descrip
 }
 
 void PosixSubsystem::prepareThreadsForExec(Thread* owner) {
-  LockGuard<Mutex> pendingGuard(m_PendingSignalLock);
+  PendingSignalNotification notification(m_PendingSignals);
+  LockGuard<Mutex> pendingGuard(m_PendingSignals->lock);
   LockGuard<UnlikelyLock> guard(m_SignalHandlersLock);
   for (size_t i = m_pProcess->getNumThreads(); i > 0; --i) {
     Process::ThreadLease source;
@@ -1603,14 +1624,17 @@ void PosixSubsystem::prepareThreadsForExec(Thread* owner) {
       FATAL("Exec owner rejected a pending process signal.");
     }
   }
+  m_PendingSignals->recordChange();
 }
 
 void PosixSubsystem::preserveProcessSignalsForThreadExit(Thread* thread) {
-  LockGuard<Mutex> pendingGuard(m_PendingSignalLock);
+  PendingSignalNotification notification(m_PendingSignals);
+  LockGuard<Mutex> pendingGuard(m_PendingSignals->lock);
   LockGuard<UnlikelyLock> guard(m_SignalHandlersLock);
   Process::ThreadLease target;
   while (m_pProcess->acquireProcessSignalThread(target)) {
     if (thread->transferProcessSignalsTo(*target.get())) {
+      m_PendingSignals->recordChange();
       return;
     }
   }
@@ -1629,6 +1653,7 @@ void PosixSubsystem::threadExiting(Thread* pThread) {
     return;
   }
 
+  m_PendingSignals->retireThread(pThread);
   posix_timer_thread_exit(pThread);
   posix_sem_thread_exit(pThread);
   posix_robust_list_exit(pThread);

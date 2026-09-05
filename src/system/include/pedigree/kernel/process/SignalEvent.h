@@ -53,6 +53,20 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
   SignalEvent(const SignalEvent& other);
   ~SignalEvent() override;
 
+  void setChildStatus(int32_t status, uint64_t userTime, uint64_t systemTime) {
+    m_ChildStatus = status;
+    m_ChildUserTime = userTime;
+    m_ChildSystemTime = systemTime;
+  }
+  int32_t childStatus() const {
+    return m_ChildStatus;
+  }
+  uint64_t childUserTime() const {
+    return m_ChildUserTime;
+  }
+  uint64_t childSystemTime() const {
+    return m_ChildSystemTime;
+  }
   uint64_t rebindGeneration() const {
     return m_RebindGeneration;
   }
@@ -206,6 +220,8 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
   SharedPointer<SignalEventState> m_DeliveryState;
   uint64_t m_RebindGeneration = 0;
   uint64_t m_QueueSequence = 0;
+  int32_t m_ChildStatus = 0;
+  uint64_t m_ChildUserTime = 0, m_ChildSystemTime = 0;
 };
 
 #endif

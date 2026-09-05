@@ -66,6 +66,8 @@
 #include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"
 #include "pipe-syscalls.h"
+#include "signalfd-syscalls.h"
+#include "timerfd-syscalls.h"
 #include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -597,6 +599,15 @@ int posix_read(int fd, char* ptr, int len) {
     return -1;
   }
 
+  auto timerFd = pFd->getTimerFdImpl();
+  auto signalFd = pFd->getSignalFdImpl();
+  if (timerFd || signalFd) {
+    const bool canBlock = !(pFd->getStatusFlags() & O_NONBLOCK);
+    pFd.reset();
+    return timerFd ? timerFd->readToUser(ptr, len, canBlock)
+                   : signalFd->readToUser(ptr, len, canBlock);
+  }
+
   SharedPointer<EventFd> eventFd = pFd->getEventFdImpl();
   if (eventFd) {
     if (len < static_cast<int>(sizeof(uint64_t))) {
@@ -796,6 +807,11 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
   }
   if (pFd->file && (pFd->getStatusFlags() & O_ACCMODE) == O_RDONLY) {
     SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+
+  if (pFd->getTimerFdImpl() || pFd->getSignalFdImpl()) {
+    SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
 
@@ -1211,7 +1227,8 @@ ssize_t posix_pwrite64(int fd, const char* ptr, size_t len, off_t offset) {
 }
 
 static bool snapshotIoVectors(const struct iovec* userVectors, int vectorCount, bool writeOperation,
-                              UniqueArray<struct iovec>& vectorOwner, size_t& totalLength) {
+                              UniqueArray<struct iovec>& vectorOwner, size_t& totalLength,
+                              bool validatePayload = true) {
   constexpr int MaximumIoVectors = 1024;
   if (vectorCount < 0 || vectorCount > MaximumIoVectors) {
     SYSCALL_ERROR(InvalidArgument);
@@ -1237,7 +1254,7 @@ static bool snapshotIoVectors(const struct iovec* userVectors, int vectorCount, 
       SYSCALL_ERROR(InvalidArgument);
       return false;
     }
-    if (vectors[i].iov_len &&
+    if (vectors[i].iov_len && validatePayload &&
         !PosixSubsystem::checkUserBuffer(reinterpret_cast<uintptr_t>(vectors[i].iov_base),
                                          vectors[i].iov_len, 1, access)) {
       SYSCALL_ERROR(BadAddress);
@@ -1382,6 +1399,11 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
   }
   if (!totalLength) {
     return 0;
+  }
+
+  if (descriptor->getTimerFdImpl() || descriptor->getSignalFdImpl()) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
   }
 
   SharedPointer<EventFd> eventFd = descriptor->getEventFdImpl();
@@ -1553,13 +1575,6 @@ int posix_writev(int fd, const struct iovec* iov, int iovcnt) {
 int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
   F_NOTICE("readv(" << fd << ", <iov>, " << iovcnt << ")");
 
-  UniqueArray<struct iovec> vectorOwner;
-  size_t totalLength = 0;
-  if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength)) {
-    return -1;
-  }
-  struct iovec* vectors = vectorOwner.get();
-
   Thread* thread = Processor::information().getCurrentThread();
   PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(thread->getParent()->getSubsystem());
   if (!subsystem) {
@@ -1575,11 +1590,66 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
+  auto timerFd = descriptor->getTimerFdImpl();
+  auto signalFd = descriptor->getSignalFdImpl();
+  UniqueArray<struct iovec> vectorOwner;
+  size_t totalLength = 0;
+  // Record readers validate each destination at commit time. A later fault
+  // must not suppress complete records copied before it.
+  if (!snapshotIoVectors(iov, iovcnt, false, vectorOwner, totalLength, !timerFd && !signalFd)) {
+    return -1;
+  }
+  struct iovec* vectors = vectorOwner.get();
   if (!iovcnt) {
     return 0;
   }
   if (!totalLength) {
     return 0;
+  }
+
+  if (timerFd || signalFd) {
+    const bool canBlock = !(descriptor->getStatusFlags() & O_NONBLOCK);
+    descriptor.reset();
+    struct Scatter {
+      struct iovec* vectors;
+      int count;
+      int index = 0;
+      size_t offset = 0;
+    } scatter{vectors, iovcnt};
+    auto copy = [](void* context, const void* data, size_t size) -> bool {
+      auto& cursor = *static_cast<Scatter*>(context);
+      auto* bytes = static_cast<const uint8_t*>(data);
+      while (size) {
+        while (cursor.index < cursor.count &&
+               cursor.offset == cursor.vectors[cursor.index].iov_len) {
+          ++cursor.index;
+          cursor.offset = 0;
+        }
+        if (cursor.index == cursor.count) {
+          SYSCALL_ERROR(BadAddress);
+          return false;
+        }
+        const struct iovec& vector = cursor.vectors[cursor.index];
+        const size_t available = vector.iov_len - cursor.offset;
+        const size_t amount = size < available ? size : available;
+        const uintptr_t base = reinterpret_cast<uintptr_t>(vector.iov_base);
+        if (cursor.offset > ~uintptr_t(0) - base) {
+          SYSCALL_ERROR(BadAddress);
+          return false;
+        }
+        void* destination = reinterpret_cast<void*>(base + cursor.offset);
+        if (!PosixSubsystem::copyToUser(destination, bytes, amount)) {
+          SYSCALL_ERROR(BadAddress);
+          return false;
+        }
+        cursor.offset += amount;
+        bytes += amount;
+        size -= amount;
+      }
+      return true;
+    };
+    return timerFd ? timerFd->readWithCopy(totalLength, canBlock, copy, &scatter)
+                   : signalFd->readWithCopy(totalLength, canBlock, copy, &scatter);
   }
 
   SharedPointer<EventFd> eventFd = descriptor->getEventFdImpl();
@@ -2071,6 +2141,15 @@ off_t posix_lseek(int file, off_t ptr, int dir) {
     return -1;
   }
 
+  if (pFd->getTimerFdImpl() || pFd->getSignalFdImpl()) {
+    if (dir < SEEK_SET || dir > 4) {
+      SYSCALL_ERROR(InvalidArgument);
+      return -1;
+    }
+    // Linux assigns these anonymous objects noop_llseek: offsets stay zero.
+    return 0;
+  }
+
   if (!pFd->file) {
     SYSCALL_ERROR(IllegalSeek);
     return -1;
@@ -2136,7 +2215,7 @@ static int readProcSelfFdTarget(size_t fd, char* buf, size_t bufsiz) {
   Process* process = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* subsystem = static_cast<PosixSubsystem*>(process->getSubsystem());
   DescriptorLease descriptor;
-  if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor) || !descriptor->file) {
+  if (!subsystem || !subsystem->acquireFileDescriptor(fd, descriptor)) {
     // Linux exposes a closed descriptor as a missing procfs entry, not EBADF.
     SYSCALL_ERROR(DoesNotExist);
     return -1;
@@ -2148,7 +2227,16 @@ static int readProcSelfFdTarget(size_t fd, char* buf, size_t bufsiz) {
   }
 
   String target;
-  descriptor->file->getFullPath(target);
+  if (descriptor->getTimerFdImpl()) {
+    target.assign("anon_inode:[timerfd]");
+  } else if (descriptor->getSignalFdImpl()) {
+    target.assign("anon_inode:[signalfd]");
+  } else if (descriptor->file) {
+    descriptor->file->getFullPath(target);
+  } else {
+    SYSCALL_ERROR(DoesNotExist);
+    return -1;
+  }
   const size_t copied = target.length() < bufsiz ? target.length() : bufsiz;
   if (!PosixSubsystem::copyToUser(buf, target.cstr(), copied)) {
     SYSCALL_ERROR(BadAddress);
@@ -2504,6 +2592,27 @@ int posix_ioctl(int fd, size_t command, void* buf) {
     return -1;
   }
 
+  if (command == FIONBIO) {
+    int enabled = 0;
+    if (!copyIoctlInput(buf, enabled)) {
+      return -1;
+    }
+    if (enabled) {
+      f->addStatusFlag(O_NONBLOCK);
+    } else {
+      f->removeStatusFlag(O_NONBLOCK);
+    }
+    return 0;
+  }
+  if (f->getTimerFdImpl() || f->getSignalFdImpl()) {
+    if (command == FIOCLEX || command == FIONCLEX) {
+      f->fdflags = command == FIOCLEX ? f->fdflags | FD_CLOEXEC : f->fdflags & ~FD_CLOEXEC;
+      return 0;
+    }
+    SYSCALL_ERROR(NotAConsole);
+    return -1;
+  }
+
   if (!f->file) {
     F_NOTICE("  -> fd " << fd << " is not supposed to be ioctl'd");
     SYSCALL_ERROR(InvalidArgument);
@@ -2761,23 +2870,6 @@ int posix_ioctl(int fd, size_t command, void* buf) {
       }
     }
 
-    case FIONBIO: {
-      F_NOTICE(" -> FIONBIO");
-      int enabled = 0;
-      if (!copyIoctlInput(buf, enabled)) {
-        return -1;
-      }
-      if (enabled) {
-        F_NOTICE("  -> set non-blocking");
-        f->addStatusFlag(O_NONBLOCK);
-      } else {
-        F_NOTICE("  -> set blocking");
-        f->removeStatusFlag(O_NONBLOCK);
-      }
-
-      return 0;
-    }
-
     // VT_OPENQRY
     case 0x5600: {
       F_NOTICE(" -> VT_OPENQRY (stubbed)");
@@ -2910,7 +3002,9 @@ int posix_dup(int fd) {
   // Copy the descriptor
   FileDescriptor* f2 = new FileDescriptor(*f);
   if ((f->networkImpl && !f2->networkPublished()) ||
-      (f->getEventFdImpl() && !f2->eventFdPublished())) {
+      (f->getEventFdImpl() && !f2->eventFdPublished()) ||
+      (f->getTimerFdImpl() && !f2->timerFdPublished()) ||
+      (f->getSignalFdImpl() && !f2->signalFdPublished())) {
     delete f2;
     pSubsystem->freeFd(newFd);
     SYSCALL_ERROR(BadFileDescriptor);
@@ -2958,7 +3052,9 @@ int posix_dup2(int fd1, int fd2) {
   // refcount drops to zero)...
   FileDescriptor* f2 = new FileDescriptor(*f);
   if ((f->networkImpl && !f2->networkPublished()) ||
-      (f->getEventFdImpl() && !f2->eventFdPublished())) {
+      (f->getEventFdImpl() && !f2->eventFdPublished()) ||
+      (f->getTimerFdImpl() && !f2->timerFdPublished()) ||
+      (f->getSignalFdImpl() && !f2->signalFdPublished())) {
     delete f2;
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
@@ -3069,7 +3165,9 @@ int posix_fcntl(int fd, int cmd, void* arg) {
       const size_t fd2 = pSubsystem->getFd(static_cast<size_t>(minimum));
       FileDescriptor* f2 = new FileDescriptor(*f);
       if ((f->networkImpl && !f2->networkPublished()) ||
-          (f->getEventFdImpl() && !f2->eventFdPublished())) {
+          (f->getEventFdImpl() && !f2->eventFdPublished()) ||
+          (f->getTimerFdImpl() && !f2->timerFdPublished()) ||
+          (f->getSignalFdImpl() && !f2->signalFdPublished())) {
         delete f2;
         pSubsystem->freeFd(fd2);
         SYSCALL_ERROR(BadFileDescriptor);
@@ -4657,14 +4755,6 @@ int posix_faccessat(int dirfd, const char* pathname, int mode, int flags) {
 int posix_fstatat(int dirfd, const char* pathname, struct stat* buf, int flags) {
   F_NOTICE("fstatat");
 
-  DescriptorLease dirDescriptor;
-  Process::FileContextLease cwdLease;
-  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease, flags);
-  if (!cwd) {
-    F_NOTICE(" -> current working directory could not be determined");
-    return -1;
-  }
-
   if (!buf || !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(buf), sizeof(struct stat),
                                             PosixSubsystem::SafeWrite)) {
     F_NOTICE("fstat -> invalid address");
@@ -4678,6 +4768,38 @@ int posix_fstatat(int dirfd, const char* pathname, struct stat* buf, int flags) 
       F_NOTICE("fstat -> invalid address");
       return -1;
     }
+  }
+
+  if ((flags & AT_EMPTY_PATH) && !pathnameCopy.length() && dirfd != AT_FDCWD) {
+    DescriptorLease descriptor;
+    if (!acquireDescriptor(dirfd, descriptor)) {
+      SYSCALL_ERROR(BadFileDescriptor);
+      return -1;
+    }
+    if (descriptor->getTimerFdImpl() || descriptor->getSignalFdImpl()) {
+      // Linux's anonymous descriptor types share a pseudo inode, without a
+      // regular-file type or data extent. Keep its identity independent of
+      // kernel addresses and outside the VFS's existing short device ids.
+      struct stat snapshot = {};
+      snapshot.st_dev = 0x10000;
+      snapshot.st_ino = 1;
+      snapshot.st_mode = 0600;
+      snapshot.st_nlink = 1;
+      snapshot.st_blksize = PhysicalMemoryManager::getPageSize();
+      if (!PosixSubsystem::copyToUser(buf, &snapshot, sizeof(snapshot))) {
+        SYSCALL_ERROR(BadAddress);
+        return -1;
+      }
+      return 0;
+    }
+  }
+
+  DescriptorLease dirDescriptor;
+  Process::FileContextLease cwdLease;
+  File* cwd = check_dirfd(dirfd, dirDescriptor, cwdLease, flags);
+  if (!cwd) {
+    F_NOTICE(" -> current working directory could not be determined");
+    return -1;
   }
 
   F_NOTICE("fstatat(" << dirfd << ", " << (pathname ? pathnameCopy.cstr() : "(n/a)") << ", " << buf

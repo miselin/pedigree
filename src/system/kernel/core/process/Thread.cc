@@ -2128,6 +2128,8 @@ bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement, int pro
           newSignal->setSignalValue(oldSignal->getSignalValue());
           oldSignal->transferDeliveryStateTo(*newSignal);
           newSignal->setQueueSequence(oldSignal->queueSequence());
+          newSignal->setChildStatus(oldSignal->childStatus(), oldSignal->childUserTime(),
+                                    oldSignal->childSystemTime());
           newSignal->setRebindGeneration(rebindGeneration);
           *it = replacement;
           break;

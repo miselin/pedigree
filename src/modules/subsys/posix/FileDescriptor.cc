@@ -26,6 +26,8 @@
 #include "modules/subsys/posix/eventfd-syscalls.h"
 #include "modules/subsys/posix/inotify-syscalls.h"
 #include "modules/subsys/posix/mqueue-syscalls.h"
+#include "modules/subsys/posix/signalfd-syscalls.h"
+#include "modules/subsys/posix/timerfd-syscalls.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
@@ -125,6 +127,16 @@ SharedPointer<NetworkSyscalls> FileDescriptor::OpenFileDescription::getNetworkIm
 SharedPointer<EventFd> FileDescriptor::OpenFileDescription::getEventFdImpl() const {
   LockGuard<Mutex> guard(lock);
   return eventFdImpl;
+}
+
+SharedPointer<TimerFd> FileDescriptor::OpenFileDescription::getTimerFdImpl() const {
+  LockGuard<Mutex> guard(lock);
+  return timerFdImpl;
+}
+
+SharedPointer<SignalFd> FileDescriptor::OpenFileDescription::getSignalFdImpl() const {
+  LockGuard<Mutex> guard(lock);
+  return signalFdImpl;
 }
 
 SharedPointer<InotifyInstance> FileDescriptor::OpenFileDescription::getInotifyImpl() const {
@@ -236,6 +248,14 @@ FileDescriptor::FileDescriptor(FileDescriptor& desc)
   if (eventFd) {
     m_EventFdPublished = eventFd->addDescriptorOwner();
   }
+  auto timerFd = m_OpenFile->getTimerFdImpl();
+  if (timerFd) {
+    m_TimerFdPublished = timerFd->addDescriptorOwner();
+  }
+  auto signalFd = m_OpenFile->getSignalFdImpl();
+  if (signalFd) {
+    m_SignalFdPublished = signalFd->addDescriptorOwner();
+  }
   if (file) {
 #if ENABLE_LOCKED_FILES
     lockedFile = g_PosixGlobalLockedFiles.lookup(file->getFullPath());
@@ -280,6 +300,14 @@ FileDescriptor::FileDescriptor(FileDescriptor* desc)
   SharedPointer<EventFd> eventFd = m_OpenFile->getEventFdImpl();
   if (eventFd) {
     m_EventFdPublished = eventFd->addDescriptorOwner();
+  }
+  auto timerFd = m_OpenFile->getTimerFdImpl();
+  if (timerFd) {
+    m_TimerFdPublished = timerFd->addDescriptorOwner();
+  }
+  auto signalFd = m_OpenFile->getSignalFdImpl();
+  if (signalFd) {
+    m_SignalFdPublished = signalFd->addDescriptorOwner();
   }
   if (file) {
 #if ENABLE_LOCKED_FILES
@@ -407,6 +435,46 @@ bool FileDescriptor::eventFdPublished() const {
   return m_EventFdPublished;
 }
 
+void FileDescriptor::setTimerFdImpl(const SharedPointer<TimerFd>& implementation) {
+  {
+    LockGuard<Mutex> guard(m_OpenFile->lock);
+    assert(!m_OpenFile->timerFdImpl);
+    m_OpenFile->timerFdImpl = implementation;
+  }
+  if (implementation) {
+    m_TimerFdPublished = implementation->addDescriptorOwner();
+    assert(m_TimerFdPublished);
+  }
+}
+
+SharedPointer<TimerFd> FileDescriptor::getTimerFdImpl() const {
+  return m_OpenFile->getTimerFdImpl();
+}
+
+bool FileDescriptor::timerFdPublished() const {
+  return m_TimerFdPublished;
+}
+
+void FileDescriptor::setSignalFdImpl(const SharedPointer<SignalFd>& implementation) {
+  {
+    LockGuard<Mutex> guard(m_OpenFile->lock);
+    assert(!m_OpenFile->signalFdImpl);
+    m_OpenFile->signalFdImpl = implementation;
+  }
+  if (implementation) {
+    m_SignalFdPublished = implementation->addDescriptorOwner();
+    assert(m_SignalFdPublished);
+  }
+}
+
+SharedPointer<SignalFd> FileDescriptor::getSignalFdImpl() const {
+  return m_OpenFile->getSignalFdImpl();
+}
+
+bool FileDescriptor::signalFdPublished() const {
+  return m_SignalFdPublished;
+}
+
 void FileDescriptor::setInotifyImpl(const SharedPointer<InotifyInstance>& implementation) {
   LockGuard<Mutex> guard(m_OpenFile->lock);
   assert(!m_OpenFile->inotifyImpl);
@@ -433,6 +501,20 @@ SharedPointer<PosixMessageQueue> FileDescriptor::getMqueueImpl() const {
 }
 
 void FileDescriptor::unpublish() {
+  if (m_TimerFdPublished) {
+    m_TimerFdPublished = false;
+    auto timerFd = m_OpenFile->getTimerFdImpl();
+    if (timerFd) {
+      timerFd->removeDescriptorOwner();
+    }
+  }
+  if (m_SignalFdPublished) {
+    m_SignalFdPublished = false;
+    auto signalFd = m_OpenFile->getSignalFdImpl();
+    if (signalFd) {
+      signalFd->removeDescriptorOwner();
+    }
+  }
   if (m_NetworkPublished) {
     m_NetworkPublished = false;
     if (networkImpl) {

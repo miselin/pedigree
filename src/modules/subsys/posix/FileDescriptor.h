@@ -34,6 +34,8 @@ class IoEvent;
 class NetworkSyscalls;
 class EpollInstance;
 class EventFd;
+class TimerFd;
+class SignalFd;
 class InotifyInstance;
 class PosixMessageQueue;
 
@@ -55,6 +57,8 @@ class EXPORTED_PUBLIC FileDescriptor {
     File* getFile() const;
     SharedPointer<NetworkSyscalls> getNetworkImpl() const;
     SharedPointer<EventFd> getEventFdImpl() const;
+    SharedPointer<TimerFd> getTimerFdImpl() const;
+    SharedPointer<SignalFd> getSignalFdImpl() const;
     SharedPointer<InotifyInstance> getInotifyImpl() const;
     SharedPointer<PosixMessageQueue> getMqueueImpl() const;
     size_t descriptorOwnerCount() const;
@@ -73,6 +77,8 @@ class EXPORTED_PUBLIC FileDescriptor {
     File* file;
     SharedPointer<NetworkSyscalls> networkImpl;
     SharedPointer<EventFd> eventFdImpl;
+    SharedPointer<TimerFd> timerFdImpl;
+    SharedPointer<SignalFd> signalFdImpl;
     SharedPointer<InotifyInstance> inotifyImpl;
     SharedPointer<PosixMessageQueue> mqueueImpl;
     uint64_t offset;
@@ -158,6 +164,14 @@ class EXPORTED_PUBLIC FileDescriptor {
   /** Whether this descriptor still owns a published eventfd alias. */
   bool eventFdPublished() const;
 
+  void setTimerFdImpl(const SharedPointer<TimerFd>& implementation);
+  SharedPointer<TimerFd> getTimerFdImpl() const;
+  bool timerFdPublished() const;
+
+  void setSignalFdImpl(const SharedPointer<SignalFd>& implementation);
+  SharedPointer<SignalFd> getSignalFdImpl() const;
+  bool signalFdPublished() const;
+
   /** Associate an inotify queue with this open file description. */
   void setInotifyImpl(const SharedPointer<InotifyInstance>& implementation);
 
@@ -215,6 +229,8 @@ class EXPORTED_PUBLIC FileDescriptor {
   bool m_NetworkPublished;
   /** Eventfd table ownership is released before in-flight syscall pins drain. */
   bool m_EventFdPublished;
+  bool m_TimerFdPublished = false;
+  bool m_SignalFdPublished = false;
 };
 
 #endif

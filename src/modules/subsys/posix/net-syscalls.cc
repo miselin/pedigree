@@ -50,6 +50,8 @@
 #include "modules/system/vfs/VFS.h"
 #include "mqueue-netlink.h"
 #include "net-syscalls.h"
+#include "signalfd-syscalls.h"
+#include "timerfd-syscalls.h"
 
 #ifndef UTILITY_LINUX
 #include <netdb.h>
@@ -301,7 +303,9 @@ bool parseSocketRights(const struct msghdr& message, SharedPointer<SocketRights>
 
     FileDescriptor* transferred = new FileDescriptor(*descriptor);
     if ((descriptor->networkImpl && !transferred->networkPublished()) ||
-        (descriptor->getEventFdImpl() && !transferred->eventFdPublished())) {
+        (descriptor->getEventFdImpl() && !transferred->eventFdPublished()) ||
+        (descriptor->getTimerFdImpl() && !transferred->timerFdPublished()) ||
+        (descriptor->getSignalFdImpl() && !transferred->signalFdPublished())) {
       delete transferred;
       rights.reset();
       SYSCALL_ERROR(BadFileDescriptor);
@@ -1333,7 +1337,10 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
     for (; publishedCount < disclosedCount; ++publishedCount) {
       FileDescriptor* received = new FileDescriptor(*rights->descriptor(publishedCount));
       if ((rights->descriptor(publishedCount)->networkImpl && !received->networkPublished()) ||
-          (rights->descriptor(publishedCount)->getEventFdImpl() && !received->eventFdPublished())) {
+          (rights->descriptor(publishedCount)->getEventFdImpl() && !received->eventFdPublished()) ||
+          (rights->descriptor(publishedCount)->getTimerFdImpl() && !received->timerFdPublished()) ||
+          (rights->descriptor(publishedCount)->getSignalFdImpl() &&
+           !received->signalFdPublished())) {
         delete received;
         rollback();
         SYSCALL_ERROR(BadFileDescriptor);
