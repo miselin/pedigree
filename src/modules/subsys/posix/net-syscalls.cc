@@ -902,19 +902,17 @@ int posix_shutdown(int socket, int how) {
   return f->networkImpl->shutdown(how);
 }
 
-int posix_getpeername(int socket, struct sockaddr_storage* address, socklen_t* address_len) {
-  N_NOTICE("getpeername");
-
-  if (!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address),
-                                     sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address_len), sizeof(socklen_t),
-                                     PosixSubsystem::SafeWrite))) {
-    N_NOTICE("getpeername -> invalid address");
+namespace {
+int socketName(int socket, struct sockaddr_storage* address, socklen_t* addressLength, bool peer) {
+  socklen_t capacity = 0;
+  if (!PosixSubsystem::copyFromUser(&capacity, addressLength, sizeof(capacity))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  if (capacity > INT_MAX) {
     SYSCALL_ERROR(InvalidArgument);
     return -1;
   }
-
-  N_NOTICE("getpeername(" << socket << ", " << address << ", " << address_len << ")");
 
   DescriptorLease f;
   acquireDescriptor(socket, f);
@@ -922,30 +920,34 @@ int posix_getpeername(int socket, struct sockaddr_storage* address, socklen_t* a
     return -1;
   }
 
-  return f->networkImpl->getpeername(address, address_len);
+  struct sockaddr_storage result = {};
+  socklen_t length = sizeof(result);
+  const int status = peer ? f->networkImpl->getpeername(&result, &length)
+                          : f->networkImpl->getsockname(&result, &length);
+  if (status < 0) {
+    return -1;
+  }
+  if (length > sizeof(result)) {
+    SYSCALL_ERROR(IoError);
+    return -1;
+  }
+
+  const size_t copied = capacity < length ? capacity : length;
+  if (!PosixSubsystem::copyToUser(address, &result, copied) ||
+      !PosixSubsystem::copyToUser(addressLength, &length, sizeof(length))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+  return 0;
+}
+}  // namespace
+
+int posix_getpeername(int socket, struct sockaddr_storage* address, socklen_t* address_len) {
+  return socketName(socket, address, address_len, true);
 }
 
 int posix_getsockname(int socket, struct sockaddr_storage* address, socklen_t* address_len) {
-  N_NOTICE("getsockname");
-
-  if (!(PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address),
-                                     sizeof(struct sockaddr_storage), PosixSubsystem::SafeWrite) &&
-        PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(address_len), sizeof(socklen_t),
-                                     PosixSubsystem::SafeWrite))) {
-    N_NOTICE("getsockname -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  N_NOTICE("getsockname(" << socket << ", " << address << ", " << address_len << ")");
-
-  DescriptorLease f;
-  acquireDescriptor(socket, f);
-  if (!isSaneSocket(f)) {
-    return -1;
-  }
-
-  return f->networkImpl->getsockname(address, address_len);
+  return socketName(socket, address, address_len, false);
 }
 
 int posix_setsockopt(int sock, int level, int optname, const void* optvalue, socklen_t optlen) {

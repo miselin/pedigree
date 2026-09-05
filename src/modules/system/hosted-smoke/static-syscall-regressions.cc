@@ -59,6 +59,9 @@ extern bool runHostedChildResourceRegressions(Process* process);
 extern bool runHostedCloneRoutingRegressions(Process* process);
 extern bool runHostedDup3Regressions(Process* process);
 extern bool runHostedEventFdRegressions(Process* process);
+extern bool runHostedFileContractRegressions(Process* process);
+extern bool runHostedProcessQueryRegressions(Process* process);
+extern bool runHostedTermiosSyscallRegressions(Process* process);
 extern bool runHostedInotifyRegressions(Process* process);
 extern bool runHostedMmapPlacementRegressions(Process* process);
 extern bool runHostedPosixExitStatusRegressions(Process* process);
@@ -4789,6 +4792,12 @@ bool runRegressions() {
 
   NOTICE("HOSTED-SYSCALL-TEST: BEGIN faccessat2-semantics");
   if (!runHostedAccessSyscallRegressions(kernelProcess)) {
+    return false;
+  }
+
+  if (!runHostedFileContractRegressions(kernelProcess) ||
+      !runHostedProcessQueryRegressions(kernelProcess) ||
+      !runHostedTermiosSyscallRegressions(kernelProcess)) {
     return false;
   }
 

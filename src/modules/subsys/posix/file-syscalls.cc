@@ -201,10 +201,10 @@ static bool doStat(const char* name, File* pFile, struct stat* st, bool traverse
   } else if (pFile->isDirectory()) {
     F_NOTICE("    -> S_IFDIR");
     mode = S_IFDIR;
-  } else if (pFile->isSymlink() || pFile->isPipe()) {
+  } else if (pFile->isSymlink()) {
     F_NOTICE("    -> S_IFLNK");
     mode = S_IFLNK;
-  } else if (pFile->isFifo()) {
+  } else if (pFile->isPipe() || pFile->isFifo()) {
     F_NOTICE("    -> S_FIFO");
     mode = S_IFIFO;
   } else if (pFile->isSocket()) {
@@ -246,7 +246,7 @@ static bool doStat(const char* name, File* pFile, struct stat* st, bool traverse
   /// \todo expose number of links and number of blocks from Files
   st->st_dev = static_cast<short>(reinterpret_cast<uintptr_t>(pFile->getFilesystem()));
   F_NOTICE("    -> " << st->st_dev);
-  st->st_ino = static_cast<short>(pFile->getInode());
+  st->st_ino = pFile->getInode();
   F_NOTICE("    -> " << st->st_ino);
   st->st_mode = mode;
   st->st_nlink = 1;
@@ -255,13 +255,13 @@ static bool doStat(const char* name, File* pFile, struct stat* st, bool traverse
   F_NOTICE("    -> uid=" << Dec << st->st_uid);
   F_NOTICE("    -> gid=" << Dec << st->st_gid);
   st->st_rdev = 0;
-  st->st_size = static_cast<int>(pFile->getSize());
+  st->st_size = pFile->getSize();
   F_NOTICE("    -> " << st->st_size);
   st->st_atime = pFile->getAccessedTime();
   st->st_mtime = pFile->getModifiedTime();
   st->st_ctime = pFile->getCreationTime();
-  st->st_blksize = static_cast<int>(pFile->getBlockSize());
-  st->st_blocks = (st->st_size / st->st_blksize) + ((st->st_size % st->st_blksize) ? 1 : 0);
+  st->st_blksize = pFile->getBlockSize();
+  st->st_blocks = (st->st_size / 512) + ((st->st_size % 512) ? 1 : 0);
 
   // Special fixups
   if (pFs == g_pDevFs) {
@@ -585,6 +585,10 @@ int posix_read(int fd, char* ptr, int len) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
+  if (pFd->file && (pFd->getStatusFlags() & O_ACCMODE) == O_WRONLY) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
 
   SharedPointer<EventFd> eventFd = pFd->getEventFdImpl();
   if (eventFd) {
@@ -780,6 +784,10 @@ int posix_write(int fd, char* ptr, int len, bool nocheck) {
   DescriptorLease pFd;
   if (!pSubsystem->acquireFileDescriptor(fd, pFd)) {
     // Error - no such file descriptor.
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (pFd->file && (pFd->getStatusFlags() & O_ACCMODE) == O_RDONLY) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -1326,6 +1334,10 @@ static int posixWritev(int fd, const struct iovec* iov, int iovcnt, bool suppres
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
+  if (descriptor->file && (descriptor->getStatusFlags() & O_ACCMODE) == O_RDONLY) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
   if (!iovcnt) {
     return 0;
   }
@@ -1517,6 +1529,10 @@ int posix_readv(int fd, const struct iovec* iov, int iovcnt) {
 
   DescriptorLease descriptor;
   if (!subsystem->acquireFileDescriptor(fd, descriptor)) {
+    SYSCALL_ERROR(BadFileDescriptor);
+    return -1;
+  }
+  if (descriptor->file && (descriptor->getStatusFlags() & O_ACCMODE) == O_WRONLY) {
     SYSCALL_ERROR(BadFileDescriptor);
     return -1;
   }
@@ -2642,11 +2658,13 @@ int posix_ioctl(int fd, size_t command, void* buf) {
 
     case TIOCGPTN: {
       F_NOTICE(" -> TIOCGPTN");
-      unsigned int* out = reinterpret_cast<unsigned int*>(buf);
       unsigned int result = console_getptn(fd);
       if (result < ~0U) {
         F_NOTICE(" -> ok, returning " << result);
-        *out = result;
+        if (!PosixSubsystem::copyToUser(buf, &result, sizeof(result))) {
+          SYSCALL_ERROR(BadAddress);
+          return -1;
+        }
         return 0;
       } else {
         // console_getptn will set the syscall error
@@ -3824,8 +3842,7 @@ int posix_openat(int dirfd, const char* pathname, int flags, mode_t mode) {
     return -1;
   }
 
-  // O_RDONLY is zero.
-  bool checkRead = (flags == O_RDONLY) || (flags & O_RDWR);
+  const bool checkRead = (flags & O_ACCMODE) != O_WRONLY;
 
   // Handle side effects.
   File* newFile = file->open();

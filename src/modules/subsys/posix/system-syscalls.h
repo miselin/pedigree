@@ -108,7 +108,7 @@ int posix_getrlimit(int resource, struct rlimit* rlim);
 int posix_setrlimit(int resource, const struct rlimit* rlim);
 int posix_prlimit64(int pid, int resource, const LinuxRlimit64* newLimit, LinuxRlimit64* oldLimit);
 int posix_membarrier(int command, unsigned int flags, int cpuId);
-int posix_getpriority(int which, int who);
+int posix_getpriority(int which, int who, bool linuxAbi = false);
 int posix_setpriority(int which, int who, int prio);
 
 int posix_setreuid(uid_t ruid, uid_t euid);

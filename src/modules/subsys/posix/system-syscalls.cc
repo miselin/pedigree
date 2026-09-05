@@ -643,6 +643,17 @@ static bool waitpidEligibleChild(PosixProcess* pParent, bool parentHasGroup, siz
 }
 
 int posix_waitpid(const int pid, int* status, int options, LinuxRusage64* usage) {
+  Thread* currentThread = Processor::information().getCurrentThread();
+  currentThread->retainTemporarySignalWaitInterruptionOrClear();
+  struct InterruptionScope {
+    Thread* thread;
+    ~InterruptionScope() {
+      // Consume this syscall's marker without removing pending signal events
+      // or an enclosing temporary-mask wait's interruption ownership.
+      thread->retainTemporarySignalWaitInterruptionOrClear();
+    }
+  } interruptionScope{currentThread};
+
   if (status && !PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(status), sizeof(int),
                                               PosixSubsystem::SafeWrite)) {
     SC_NOTICE("waitpid -> invalid address");
@@ -659,8 +670,7 @@ int posix_waitpid(const int pid, int* status, int options, LinuxRusage64* usage)
   SC_NOTICE("waitpid(" << pid << " [" << Dec << pid << Hex << "], " << options << ")");
 
   // Metadata about the calling process.
-  PosixProcess* pThisProcess =
-      static_cast<PosixProcess*>(Processor::information().getCurrentThread()->getParent());
+  PosixProcess* pThisProcess = static_cast<PosixProcess*>(currentThread->getParent());
 
   const bool bBlock = (options & WNOHANG) != WNOHANG;
   if (bBlock) {
@@ -747,10 +757,11 @@ int posix_waitpid(const int pid, int* status, int options, LinuxRusage64* usage)
           return 0;
         }
 
-        // Event delivery historically only prompted another rescan
-        // (not EINTR). Forced unwind/termination must leave the
-        // persistent WaitQueue record and return.
-        if (previousWake == WaitQueue::WakeReason::Unwinding ||
+        // Exact-user-return handlers remain pending until this syscall exits.
+        // A child status found above still takes precedence over interruption.
+        const bool signalInterrupted =
+            currentThread->getInterruptionReason() == Thread::InterruptedBySignal;
+        if (signalInterrupted || previousWake == WaitQueue::WakeReason::Unwinding ||
             previousWake == WaitQueue::WakeReason::Terminating) {
           SYSCALL_ERROR(Interrupted);
           SC_NOTICE("waitpid: interrupted");
@@ -1842,11 +1853,61 @@ int posix_membarrier(int command, unsigned int flags, int cpuId) {
   return -1;
 }
 
-int posix_getpriority(int which, int who) {
-  /// \todo better expose priorities
+int posix_getpriority(int which, int who, bool linuxAbi) {
   SC_NOTICE("getpriority(" << which << ", " << Dec << who << ")");
-  SYSCALL_ERROR(NoError);  // clear errno if not already
-  return 0;
+  if (which != PRIO_PROCESS && which != PRIO_PGRP && which != PRIO_USER) {
+    SYSCALL_ERROR(InvalidArgument);
+    return -1;
+  }
+  if (who < 0) {
+    SYSCALL_ERROR(NoSuchProcess);
+    return -1;
+  }
+
+  PosixProcess* caller = getPosixProcess();
+  if (!caller) {
+    SYSCALL_ERROR(NoSuchProcess);
+    return -1;
+  }
+
+  // POSIX nice values are not mutable yet. Linux returns 20 minus nice,
+  // while the native POSIX service exposes the public value directly.
+  const int priority = linuxAbi ? 20 : 0;
+  if (which == PRIO_PROCESS) {
+    if (!who || static_cast<size_t>(who) == caller->getId()) {
+      return priority;
+    }
+    Scheduler::ProcessLease candidate;
+    if (Scheduler::instance().acquireProcessById(candidate, static_cast<size_t>(who)) &&
+        candidate->getType() == Process::Posix && candidate->getState() != Process::Reaped) {
+      return priority;
+    }
+    SYSCALL_ERROR(NoSuchProcess);
+    return -1;
+  }
+
+  if (which == PRIO_USER) {
+    if (!who || static_cast<int64_t>(who) == caller->getUserId()) {
+      return priority;
+    }
+    // The scheduler has no stable process snapshot for another user's set.
+    // Index-based scans can miss a live match when an earlier process exits.
+    SYSCALL_ERROR(Unimplemented);
+    return -1;
+  }
+
+  size_t callerGroup = 0;
+  const bool hasCallerGroup = caller->getProcessGroupId(callerGroup);
+  if (hasCallerGroup && (!who || static_cast<size_t>(who) == callerGroup)) {
+    return priority;
+  }
+  if (who) {
+    SYSCALL_ERROR(Unimplemented);
+    return -1;
+  }
+
+  SYSCALL_ERROR(NoSuchProcess);
+  return -1;
 }
 
 int posix_setpriority(int which, int who, int prio) {

@@ -30,6 +30,7 @@
 #include <PosixProcess.h>
 #include <PosixSubsystem.h>
 #include <limits.h>
+#include <stddef.h>
 #include <termios.h>
 
 #include "console-syscalls.h"
@@ -51,6 +52,19 @@ struct termios_compatible {
   speed_t __c_ispeed;
   speed_t __c_ospeed;
 };
+
+// TCGETS/TCSETS exchange the Linux kernel prefix, not musl's larger termios.
+struct LinuxAmd64Termios {
+  uint32_t c_iflag;
+  uint32_t c_oflag;
+  uint32_t c_cflag;
+  uint32_t c_lflag;
+  uint8_t c_line;
+  uint8_t c_cc[19];
+};
+
+static_assert(sizeof(LinuxAmd64Termios) == 36, "Linux amd64 termios extent");
+static_assert(offsetof(LinuxAmd64Termios, c_cc) == 17, "Linux amd64 control characters");
 
 class PosixTerminalEvent : public Event {
  public:
@@ -130,13 +144,6 @@ static void terminalEventHandler(uintptr_t serializeBuffer) {
 }
 
 int posix_tcgetattr(int fd, struct termios* p) {
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(p), sizeof(struct termios),
-                                    PosixSubsystem::SafeWrite)) {
-    F_NOTICE("tcgetattr -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
   F_NOTICE("posix_tcgetattr(" << fd << ")");
 
   // Lookup this process.
@@ -162,8 +169,8 @@ int posix_tcgetattr(int fd, struct termios* p) {
     return -1;
   }
 
-  /// \todo we need to fall back to this (e.g. if we're in Linux mode)
-  struct termios_compatible* pc = reinterpret_cast<struct termios_compatible*>(p);
+  termios_compatible attributes = {};
+  termios_compatible* pc = &attributes;
 
   size_t flags;
   ConsoleManager::instance().getAttributes(pFd->file, &flags);
@@ -193,12 +200,29 @@ int posix_tcgetattr(int fd, struct termios* p) {
   for (size_t i = 0; i < NCCS_COMPATIBLE; ++i)
     pc->c_cc[i] = controlChars[i];
 
-  // "line discipline", not relevant and only on the non-compat version
-  // pc->c_line = 0;
-
   // ispeed/ospeed
   pc->__c_ispeed = 115200;
   pc->__c_ospeed = 115200;
+
+  bool copied;
+  if (pSubsystem->getAbi() == PosixSubsystem::LinuxAbi) {
+    LinuxAmd64Termios result = {};
+    result.c_iflag = pc->c_iflag;
+    result.c_oflag = pc->c_oflag;
+    result.c_cflag = pc->c_cflag;
+    result.c_lflag = pc->c_lflag;
+    for (size_t i = 0; i < sizeof(result.c_cc); ++i) {
+      result.c_cc[i] = pc->c_cc[i];
+    }
+    copied = PosixSubsystem::copyToUser(p, &result, sizeof(result));
+  } else {
+    // Retain the historical direct-POSIX payload for non-Linux callers.
+    copied = PosixSubsystem::copyToUser(p, &attributes, sizeof(attributes));
+  }
+  if (!copied) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
 
   F_NOTICE("posix_tcgetattr returns");
   F_NOTICE(" -> {c_iflag=" << pc->c_iflag << ", c_oflag=" << pc->c_oflag
@@ -209,22 +233,6 @@ int posix_tcgetattr(int fd, struct termios* p) {
 }
 
 int posix_tcsetattr(int fd, int optional_actions, struct termios* p) {
-  if (!PosixSubsystem::checkAddress(reinterpret_cast<uintptr_t>(p), sizeof(struct termios),
-                                    PosixSubsystem::SafeRead)) {
-    F_NOTICE("tcsetattr -> invalid address");
-    SYSCALL_ERROR(InvalidArgument);
-    return -1;
-  }
-
-  /// \todo we need to fall back to this (e.g. if we're in Linux mode)
-  struct termios_compatible* pc = reinterpret_cast<struct termios_compatible*>(p);
-
-  F_NOTICE("posix_tcsetattr(" << fd << ", " << optional_actions << ")");
-  F_NOTICE(" -> {c_iflag=" << pc->c_iflag << ", c_oflag=" << pc->c_oflag
-                           << ", c_lflag=" << pc->c_lflag << "}");
-  F_NOTICE(" -> {c_cflag=" << pc->c_cflag << "}");
-  F_NOTICE(" -> {c_ispeed=" << pc->__c_ispeed << ", c_ospeed=" << pc->__c_ospeed << "}");
-
   // Lookup this process.
   Process* pProcess = Processor::information().getCurrentThread()->getParent();
   PosixSubsystem* pSubsystem = static_cast<PosixSubsystem*>(pProcess->getSubsystem());
@@ -232,6 +240,33 @@ int posix_tcsetattr(int fd, int optional_actions, struct termios* p) {
     ERROR("No subsystem for one or both of the processes!");
     return -1;
   }
+
+  termios_compatible attributes = {};
+  termios_compatible* pc = &attributes;
+  size_t controlCount = NCCS_COMPATIBLE;
+  if (pSubsystem->getAbi() == PosixSubsystem::LinuxAbi) {
+    LinuxAmd64Termios input = {};
+    if (!PosixSubsystem::copyFromUser(&input, p, sizeof(input))) {
+      SYSCALL_ERROR(BadAddress);
+      return -1;
+    }
+    pc->c_iflag = input.c_iflag;
+    pc->c_oflag = input.c_oflag;
+    pc->c_cflag = input.c_cflag;
+    pc->c_lflag = input.c_lflag;
+    controlCount = sizeof(input.c_cc);
+    for (size_t i = 0; i < controlCount; ++i) {
+      pc->c_cc[i] = input.c_cc[i];
+    }
+  } else if (!PosixSubsystem::copyFromUser(&attributes, p, sizeof(attributes))) {
+    SYSCALL_ERROR(BadAddress);
+    return -1;
+  }
+
+  F_NOTICE("posix_tcsetattr(" << fd << ", " << optional_actions << ")");
+  F_NOTICE(" -> {c_iflag=" << pc->c_iflag << ", c_oflag=" << pc->c_oflag
+                           << ", c_lflag=" << pc->c_lflag << "}");
+  F_NOTICE(" -> {c_cflag=" << pc->c_cflag << "}");
 
   DescriptorLease pFd;
   if (!pSubsystem->acquireFileDescriptor(fd, pFd)) {
@@ -282,7 +317,7 @@ int posix_tcsetattr(int fd, int optional_actions, struct termios* p) {
   ConsoleManager::instance().setAttributes(pFd->file, flags);
 
   char controlChars[MAX_CONTROL_CHAR] = {0};
-  for (size_t i = 0; i < NCCS_COMPATIBLE; ++i)
+  for (size_t i = 0; i < controlCount; ++i)
     controlChars[i] = pc->c_cc[i];
   ConsoleManager::instance().setControlChars(pFd->file, controlChars);
 

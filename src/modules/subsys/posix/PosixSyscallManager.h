@@ -20,6 +20,7 @@
 #ifndef POSIX_SYSCALL_MANAGER_H
 #define POSIX_SYSCALL_MANAGER_H
 
+#include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/processor/SyscallHandler.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
 #include "pedigree/kernel/processor/types.h"
@@ -53,6 +54,7 @@ class PosixSyscallManager : public SyscallHandler {
   PosixSyscallManager& operator=(const PosixSyscallManager&);
   /** Records seen unknown syscalls so we don't spam logs. */
   Tree<uint64_t, bool> m_SeenUnknownSyscalls;
+  Mutex m_UnknownSyscallsLock;
   SyscallManager::Registration m_LinuxRegistration;
   SyscallManager::Registration m_PosixRegistration;
 };

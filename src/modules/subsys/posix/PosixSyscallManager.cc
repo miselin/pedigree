@@ -17,10 +17,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/debugger/Backtrace.h"
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/process/Scheduler.h"
+#include "pedigree/kernel/process/TerminationDeferral.h"
 #include "pedigree/kernel/processor/PageFaultHandler.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/SyscallManager.h"
@@ -125,10 +127,18 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     long which = posix_translate_syscall(syscallNumber);
     if (which < 0) {
       uint64_t key = (static_cast<uint64_t>(pProcess->getId()) << 32ULL) | syscallNumber;
-      if (!m_SeenUnknownSyscalls.lookup(key)) {
+      bool firstOccurrence = false;
+      {
+        TerminationDeferral terminationDeferral;
+        LockGuard<Mutex> guard(m_UnknownSyscallsLock);
+        firstOccurrence = !m_SeenUnknownSyscalls.lookup(key);
+        if (firstOccurrence) {
+          m_SeenUnknownSyscalls.insert(key, true);
+        }
+      }
+      if (firstOccurrence) {
         ERROR("POSIX: unknown Linux syscall " << syscallNumber << " by pid=" << pProcess->getId()
                                               << ", translation failed!");
-        m_SeenUnknownSyscalls.insert(key, true);
       }
       SYSCALL_ERROR(Unimplemented);
       return -1;
@@ -232,7 +242,9 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_TCSETATTR:
       return posix_tcsetattr(p1, p2, reinterpret_cast<struct termios*>(p3));
     case POSIX_IOCTL:
-      return posix_ioctl(p1, p2, reinterpret_cast<void*>(p3));
+      // musl's signed int request can be sign-extended into the syscall slot.
+      return posix_ioctl(p1, linuxAbi ? static_cast<uint32_t>(p2) : p2,
+                         reinterpret_cast<void*>(p3));
     case POSIX_STAT:
       return posix_stat(reinterpret_cast<const char*>(p1), reinterpret_cast<struct stat*>(p2));
     case POSIX_FSTAT:
@@ -644,7 +656,7 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
     case POSIX_GETRLIMIT:
       return posix_getrlimit(p1, reinterpret_cast<struct rlimit*>(p2));
     case POSIX_GETPRIORITY:
-      return posix_getpriority(p1, p2);
+      return posix_getpriority(p1, p2, linuxAbi);
     case POSIX_SETPRIORITY:
       return posix_setpriority(p1, p2, p3);
     case POSIX_GETXATTR:

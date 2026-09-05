@@ -32,7 +32,8 @@ uint64_t ConsoleMasterFile::readBytewise(uint64_t location, uint64_t size, uintp
                                          bool bCanBlock) {
   // Check for NL->CRNL conversion which requires special logic.
   size_t slaveFlags = m_pOther->m_Flags;
-  if (!(slaveFlags & ConsoleManager::OMapNLToCRNL)) {
+  if (!(slaveFlags & ConsoleManager::OPostProcess) ||
+      !(slaveFlags & ConsoleManager::OMapNLToCRNL)) {
     // Easy read/write - output line discipline will not need to do any
     // conversions that involve expansion.
     uint64_t nBytes = m_Buffer.read(reinterpret_cast<char*>(buffer), size, bCanBlock);

@@ -39,6 +39,8 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/new"
 
+#include <fcntl.h>
+
 class File;
 
 static Thread* g_pStage2Thread = 0;
@@ -177,8 +179,8 @@ static bool init() {
   pProcess->setSubsystem(pSubsystem);
 
   // add an empty stdout, stdin
-  FileDescriptor* stdinDescriptor = new FileDescriptor(pNull, 0, 0, 0, 0);
-  FileDescriptor* stdoutDescriptor = new FileDescriptor(pNull, 0, 1, 0, 0);
+  FileDescriptor* stdinDescriptor = new FileDescriptor(pNull, 0, 0, 0, O_RDONLY);
+  FileDescriptor* stdoutDescriptor = new FileDescriptor(pNull, 0, 1, 0, O_WRONLY);
 
   pSubsystem->addFileDescriptor(0, stdinDescriptor);
   pSubsystem->addFileDescriptor(1, stdoutDescriptor);

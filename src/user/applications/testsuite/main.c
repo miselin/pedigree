@@ -26,6 +26,7 @@ extern void test_mprotect();
 extern void test_mmap();
 extern void test_prctl(void);
 extern void test_resource_accounting(void);
+extern void test_syscall_contracts(void);
 extern void test_fs();
 extern void test_dup3(void);
 extern void test_epoll_pty(void);
@@ -60,6 +61,10 @@ int main(int argc, char* argv[]) {
 
   if (argc == 2 && !strcmp(argv[1], "--scm-rights")) {
     test_scm_rights();
+    return 0;
+  }
+  if (argc == 2 && !strcmp(argv[1], "--syscall-contracts")) {
+    test_syscall_contracts();
     return 0;
   }
   if (argc == 2 && !strcmp(argv[1], "--scm-rights-stream")) {
@@ -106,6 +111,7 @@ int main(int argc, char* argv[]) {
   test_mprotect();
   test_prctl();
   test_resource_accounting();
+  test_syscall_contracts();
   test_exec_shebang(argv[0]);
   test_process(argv[0]);
   test_dup3();
