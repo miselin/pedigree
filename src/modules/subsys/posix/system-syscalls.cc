@@ -52,6 +52,7 @@
 #include "pthread-syscalls.h"
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
+#include "sysv-semaphore-syscalls.h"
 
 #define MACHINE_FORWARD_DECL_ONLY
 #include "pedigree/kernel/Subsystem.h"
@@ -104,8 +105,8 @@ static_assert(sizeof(struct rusage) == sizeof(LinuxRusage64) + 16 * sizeof(long)
 namespace {
 class CloneInterruptScope {
  public:
-  CloneInterruptScope() : m_Previous(Processor::getInterrupts()) {
-    Processor::setInterrupts(false);
+  explicit CloneInterruptScope(bool enabled = false) : m_Previous(Processor::getInterrupts()) {
+    Processor::setInterrupts(enabled);
   }
 
   ~CloneInterruptScope() {
@@ -449,13 +450,23 @@ long posix_clone(SyscallState& state, unsigned long flags, void* child_stack, in
         pThread->setTlsBase(newtls);
       }
       threadId = linuxAbi ? pThread->getTaskId() : pThread->getId();
-      const int id = static_cast<int>(threadId);
-      copiedIds =
-          (!(flags & CLONE_CHILD_SETTID) || PosixSubsystem::copyToUser(ctid, &id, sizeof(id))) &&
-          (!(flags & CLONE_PARENT_SETTID) || PosixSubsystem::copyToUser(ptid, &id, sizeof(id)));
-      if (copiedIds && (flags & CLONE_CHILD_CLEARTID)) {
-        pThread->setClearChildTid(reinterpret_cast<uintptr_t>(ctid));
+    }
+    {
+      CloneInterruptScope enabled(true);
+      if (!posix_sem_clone(Processor::information().getCurrentThread(), pThread,
+                           flags & CLONE_SYSVSEM)) {
+        pThread->setUnwindState(Thread::TerminateThread);
+        pThread->startDetached();
+        SYSCALL_ERROR(OutOfMemory);
+        return -1;
       }
+    }
+    const int id = static_cast<int>(threadId);
+    copiedIds =
+        (!(flags & CLONE_CHILD_SETTID) || PosixSubsystem::copyToUser(ctid, &id, sizeof(id))) &&
+        (!(flags & CLONE_PARENT_SETTID) || PosixSubsystem::copyToUser(ptid, &id, sizeof(id)));
+    if (copiedIds && (flags & CLONE_CHILD_CLEARTID)) {
+      pThread->setClearChildTid(reinterpret_cast<uintptr_t>(ctid));
     }
     if (!copiedIds) {
       // The existing delayed-start cancellation path owns retirement. A

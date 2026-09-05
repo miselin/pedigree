@@ -165,7 +165,7 @@ class ProcFsDirectory : public Directory {
 /** This class provides /dev */
 class ProcFs : public Filesystem {
  public:
-  ProcFs() : m_pRoot(0) {}
+  ProcFs() : m_pRoot(0), m_NextInode(0) {}
 
   virtual ~ProcFs();
 
@@ -205,9 +205,7 @@ class ProcFs : public Filesystem {
 
   ProcFsDirectory* m_pRoot;
 
-  Tree<size_t, ProcFsDirectory*> m_pProcessDirectories;
-
-  size_t m_NextInode;
+  Atomic<size_t> m_NextInode;
 
   String m_PciDevices;
 };

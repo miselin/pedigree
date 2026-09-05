@@ -153,6 +153,12 @@ pedigree_app(mount ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/mount/m
 pedigree_app(net-test ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/net-test/net-test.c)
 pedigree_app(nyancat ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/nyancat/nyancat.c)
 pedigree_app(preloadd ON OFF OFF "pedigree-c-user" ${CMAKE_CURRENT_SOURCE_DIR}/applications/preloadd/main.c)
+pedigree_app(ipc-contract-test ON OFF OFF ""
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-contract-test/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-contract-test/messages.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-contract-test/semaphores.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-contract-test/mqueues.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-contract-test/shared-memory.c)
 pedigree_app(private-signal-test ON OFF OFF ""
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/private-signal-test/main.c)
 pedigree_app(reboot ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/reboot/main.c)

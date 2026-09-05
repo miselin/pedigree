@@ -48,6 +48,7 @@
 #include "modules/system/lwip/include/lwip/tcpip.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
+#include "mqueue-netlink.h"
 #include "net-syscalls.h"
 
 #ifndef UTILITY_LINUX
@@ -94,6 +95,8 @@ class SocketPayload {
     // Streams may make a short transfer. Datagrams must remain indivisible.
     if (type == SOCK_STREAM && capacity > 65536) {
       capacity = 65536;
+    } else if (domain == 16 && !sending && capacity > 32) {
+      capacity = 32;
     } else if (domain == AF_INET && type == SOCK_DGRAM && capacity > 65535) {
       if (sending) {
         syscallError(EMSGSIZE);
@@ -173,16 +176,22 @@ bool copySocketAddress(const struct sockaddr_storage* address, socklen_t length,
   return true;
 }
 
-bool validateSocketMessageFlags(int flags, bool sending) {
+bool validateSocketMessageFlags(int flags, bool sending, int domain = 0) {
   int supported = 0;
 #ifdef MSG_NOSIGNAL
-  if (sending) {
+  if (sending || domain == 16) {
     // Socket writes do not currently raise SIGPIPE, so suppression requires
     // no additional backend action.
     supported |= MSG_NOSIGNAL;
   }
 #else
   (void)sending;
+#endif
+#ifdef MSG_WAITALL
+  if (!sending && domain == 16) {
+    // musl receives its fixed-size SIGEV_THREAD cookie with MSG_WAITALL.
+    supported |= MSG_WAITALL;
+  }
 #endif
 #ifdef MSG_TRUNC
   if (!sending) {
@@ -495,6 +504,8 @@ int posix_socket(int domain, int type, int protocol) {
       return -1;
     }
     syscalls = new UnixSocketSyscalls(domain, socketType, protocol);
+  } else if (domain == 16) {
+    syscalls = new MqueueNetlinkSocket(socketType, protocol);
   } else {
     /// \todo handle non-lwIP domains
     syscalls = new LwipSocketSyscalls(domain, socketType, protocol);
@@ -747,10 +758,10 @@ ssize_t posix_recv(int sock, void* buff, size_t bufflen, int flags) {
 }
 
 ssize_t posix_recv_descriptor(const DescriptorLease& f, void* buff, size_t bufflen, int flags) {
-  if (!validateSocketMessageFlags(flags, false)) {
+  if (!isSaneSocket(f)) {
     return -1;
   }
-  if (!isSaneSocket(f)) {
+  if (!validateSocketMessageFlags(flags, false, f->networkImpl->getDomain())) {
     return -1;
   }
 
@@ -793,7 +804,9 @@ ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
                        struct sockaddr_storage* address, socklen_t* addrlen) {
   N_NOTICE("recvfrom");
 
-  if (!validateSocketMessageFlags(flags, false)) {
+  DescriptorLease f;
+  acquireDescriptor(sock, f);
+  if (!isSaneSocket(f) || !validateSocketMessageFlags(flags, false, f->networkImpl->getDomain())) {
     return -1;
   }
 
@@ -832,12 +845,6 @@ ssize_t posix_recvfrom(int sock, void* buff, size_t bufflen, int flags,
 
   N_NOTICE("recvfrom(" << sock << ", " << buff << ", " << bufflen << ", " << flags << ", "
                        << address << ", " << addrlen);
-
-  DescriptorLease f;
-  acquireDescriptor(sock, f);
-  if (!isSaneSocket(f)) {
-    return -1;
-  }
 
   struct iovec vector = {buff, bufflen};
   struct msghdr message = {};
@@ -1211,7 +1218,9 @@ ssize_t posix_sendmsg(int sockfd, const struct msghdr* msg, int flags) {
 ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
   N_NOTICE("recvmsg(" << sockfd << ", " << msg << ", " << flags << ")");
 
-  if (!validateSocketMessageFlags(flags, false)) {
+  DescriptorLease f;
+  acquireDescriptor(sockfd, f);
+  if (!isSaneSocket(f) || !validateSocketMessageFlags(flags, false, f->networkImpl->getDomain())) {
     return -1;
   }
 
@@ -1289,12 +1298,6 @@ ssize_t posix_recvmsg(int sockfd, struct msghdr* msg, int flags) {
   message.msg_control = nullptr;
   message.msg_controllen = 0;
   message.msg_flags = flags;
-
-  DescriptorLease f;
-  acquireDescriptor(sockfd, f);
-  if (!isSaneSocket(f)) {
-    return -1;
-  }
 
   SharedPointer<SocketRights> rights;
   const ssize_t n = posix_recvmsg_descriptor(f, &message, &rights);
@@ -1511,7 +1514,7 @@ void NetworkSyscalls::removeDescriptorOwner() {
       // retiring the table-visible endpoint wakes them safely. lwIP calls may
       // still be using the netconn through a syscall lease and retire when
       // that final object reference drains instead.
-      closeEndpoint = m_Domain == AF_UNIX;
+      closeEndpoint = m_Domain == AF_UNIX || m_Domain == 16;
     }
   }
 

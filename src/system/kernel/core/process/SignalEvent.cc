@@ -38,7 +38,8 @@ SignalEvent::SignalEvent(uintptr_t handlerAddress, size_t signalNum, size_t spec
       m_ContinuationEpoch(continuationEpoch),
       m_SignalCode(0),
       m_SenderProcess(0),
-      m_SenderUser(0) {}
+      m_SenderUser(0),
+      m_SignalValue(0) {}
 
 SignalEvent::SignalEvent(const SignalEvent& other) : SignalEvent(other, other.m_bIsDeletable) {}
 
@@ -53,7 +54,8 @@ SignalEvent::SignalEvent(const SignalEvent& other, bool isDeletable)
       m_ContinuationEpoch(other.m_ContinuationEpoch),
       m_SignalCode(other.m_SignalCode),
       m_SenderProcess(other.m_SenderProcess),
-      m_SenderUser(other.m_SenderUser) {}
+      m_SenderUser(other.m_SenderUser),
+      m_SignalValue(other.m_SignalValue) {}
 
 Event* SignalEvent::cloneForDelivery() {
   if (isDeletable()) {

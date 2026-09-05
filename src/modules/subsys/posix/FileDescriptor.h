@@ -35,6 +35,7 @@ class NetworkSyscalls;
 class EpollInstance;
 class EventFd;
 class InotifyInstance;
+class PosixMessageQueue;
 
 /** Abstraction of a file descriptor, which defines an open file
  * and related flags.
@@ -55,6 +56,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     SharedPointer<NetworkSyscalls> getNetworkImpl() const;
     SharedPointer<EventFd> getEventFdImpl() const;
     SharedPointer<InotifyInstance> getInotifyImpl() const;
+    SharedPointer<PosixMessageQueue> getMqueueImpl() const;
     size_t descriptorOwnerCount() const;
 
    private:
@@ -72,6 +74,7 @@ class EXPORTED_PUBLIC FileDescriptor {
     SharedPointer<NetworkSyscalls> networkImpl;
     SharedPointer<EventFd> eventFdImpl;
     SharedPointer<InotifyInstance> inotifyImpl;
+    SharedPointer<PosixMessageQueue> mqueueImpl;
     uint64_t offset;
     int statusFlags;
     size_t descriptorOwners;
@@ -160,6 +163,9 @@ class EXPORTED_PUBLIC FileDescriptor {
 
   /** Retain the inotify queue behind this descriptor, if any. */
   SharedPointer<InotifyInstance> getInotifyImpl() const;
+
+  void setMqueueImpl(const SharedPointer<PosixMessageQueue>& implementation);
+  SharedPointer<PosixMessageQueue> getMqueueImpl() const;
 
   /** Notify anonymous targets that this descriptor left its descriptor table. */
   void unpublish();

@@ -59,6 +59,8 @@ enum PosixError {
   Unimplemented = 38,          // ENOSYS
   NotEmpty = 39,               // ENOTEMPTY
   LoopExists = 40,             // ELOOP
+  NoMessage = 42,              // ENOMSG
+  IdentifierRemoved = 43,      // EIDRM
   BadSharedLibrary = 80,       // ELIBBAD
   ProtocolWrongType = 91,      // EPROTOTYPE
   ProtocolNotAvailable = 92,   // ENOPROTOOPT

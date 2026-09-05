@@ -389,7 +389,10 @@ class EXPORTED_PUBLIC PosixSubsystem : public Subsystem {
 
   /** Resolves and queues a signal atomically with disposition replacement. */
   SignalDeliveryResult queueSignalDelivery(Thread* target, size_t sig, uint32_t* flags = nullptr,
-                                           int32_t signalCode = 0, bool processDirected = false);
+                                           int32_t signalCode = 0, bool processDirected = false,
+                                           uint64_t signalValue = 0);
+
+  void retireDescriptor(FileDescriptor* descriptor);
 
   /** Gets a signal handler */
   SignalHandler* getSignalHandler(size_t sig) {

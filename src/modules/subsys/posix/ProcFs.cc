@@ -481,11 +481,12 @@ bool ProcFs::initialise(Disk* pDisk) {
 }
 
 size_t ProcFs::getNextInode() {
-  return m_NextInode++;
+  return (m_NextInode += 1) - 1;
 }
 
 void ProcFs::revertInode() {
-  --m_NextInode;
+  // Concurrent allocations may already have published later inode numbers.
+  // A failed creation leaves a gap rather than reusing a live inode.
 }
 
 void ProcFs::addProcess(PosixProcess* proc) {
@@ -505,7 +506,7 @@ void ProcFs::addProcess(PosixProcess* proc) {
     procDir->setGid(proc->getGroup()->getId());
   }
 
-  m_pProcessDirectories.insert(pid, procDir);
+  // Directory owns publication and lifetime, including concurrent exit and lookup.
   m_pRoot->addEntry(procDir->getName(), procDir);
 
   /// \todo add some info to the directory...
@@ -517,9 +518,5 @@ void ProcFs::removeProcess(PosixProcess* proc) {
   String s;
   s.Format("%d", pid);
 
-  /// \todo should also remove all the files/directories in the directory
-  /// \bug leaks all files/directories in the directory
-
   m_pRoot->remove(s);
-  m_pProcessDirectories.remove(pid);
 }

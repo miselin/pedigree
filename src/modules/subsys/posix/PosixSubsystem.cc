@@ -54,9 +54,11 @@
 #include "modules/system/vfs/MemoryMappedFile.h"
 #include "modules/system/vfs/Symlink.h"
 #include "modules/system/vfs/VFS.h"
+#include "mqueue-syscalls.h"
 #include "pthread-syscalls.h"
 #include "signal-syscalls.h"
 #include "system-syscalls.h"
+#include "sysv-semaphore-syscalls.h"
 
 extern char __posix_compat_vsyscall_base;
 
@@ -713,6 +715,8 @@ void PosixSubsystem::exit(int code, ExitCause cause) {
     p->leaveProcessGroup();
   }
 
+  posix_mqueue_process_exit(pProcess->getId());
+
   // Clean up the descriptor table
   freeMultipleFds();
 
@@ -1058,7 +1062,8 @@ bool PosixSubsystem::getSignalDisposition(size_t sig, SignalDisposition& disposi
 PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread* target, size_t sig,
                                                                          uint32_t* flags,
                                                                          int32_t signalCode,
-                                                                         bool processDirected) {
+                                                                         bool processDirected,
+                                                                         uint64_t signalValue) {
   if (flags) {
     *flags = 0;
   }
@@ -1139,6 +1144,7 @@ PosixSubsystem::SignalDeliveryResult PosixSubsystem::queueSignalDelivery(Thread*
       }
     }
     delivery->setSignalOrigin(signalCode, senderPid, senderUid);
+    delivery->setSignalValue(signalValue);
     delivery->setProcessDirected(processDirected);
     stampStopDelivery(process, sig, delivery);
     if (flags) {
@@ -1238,7 +1244,7 @@ void PosixSubsystem::freeFd(size_t fdNum) {
   // File/socket/event retirement can block and can re-enter unrelated
   // registries. It must happen after the descriptor-table lock is gone.
   if (retiring) {
-    retiring->unpublish();
+    retireDescriptor(retiring.get());
   }
   retiring.reset();
 }
@@ -1289,7 +1295,7 @@ bool PosixSubsystem::copyDescriptors(PosixSubsystem* pSubsystem) {
   }
 
   for (auto& descriptor : retiring) {
-    descriptor->unpublish();
+    retireDescriptor(descriptor.get());
   }
   retiring.clear(true);
   return true;
@@ -1354,7 +1360,7 @@ void PosixSubsystem::freeMultipleFds(bool bOnlyCloExec, size_t iFirst, size_t iL
   }
 
   for (auto& descriptor : retiring) {
-    descriptor->unpublish();
+    retireDescriptor(descriptor.get());
   }
   retiring.clear(true);
 }
@@ -1402,7 +1408,7 @@ bool PosixSubsystem::closeFileDescriptor(size_t fd, const DescriptorLease& descr
 
   current.reset();
   if (retiring) {
-    retiring->unpublish();
+    retireDescriptor(retiring.get());
   }
   retiring.reset();
   return removed;
@@ -1430,7 +1436,7 @@ void PosixSubsystem::addFileDescriptor(size_t fd, FileDescriptor* pFd) {
   }
 
   if (retiring) {
-    retiring->unpublish();
+    retireDescriptor(retiring.get());
   }
   retiring.reset();
 }
@@ -1481,7 +1487,7 @@ PosixSubsystem::DescriptorDuplicationResult PosixSubsystem::duplicateFileDescrip
   source.reset();
   currentTarget.reset();
   if (retiring) {
-    retiring->unpublish();
+    retireDescriptor(retiring.get());
   }
   retiring.reset();
   replacement.reset();
@@ -1542,11 +1548,20 @@ void PosixSubsystem::preserveProcessSignalsForThreadExit(Thread* thread) {
   }
 }
 
+void PosixSubsystem::retireDescriptor(FileDescriptor* descriptor) {
+  SharedPointer<PosixMessageQueue> queue = descriptor->getMqueueImpl();
+  if (queue && m_pProcess) {
+    posix_mqueue_close(queue.get(), m_pProcess->getId());
+  }
+  descriptor->unpublish();
+}
+
 void PosixSubsystem::threadExiting(Thread* pThread) {
   if (!pThread) {
     return;
   }
 
+  posix_sem_thread_exit(pThread);
   posix_robust_list_exit(pThread);
 
   const uintptr_t address = pThread->takeClearChildTid();
@@ -2198,6 +2213,10 @@ bool PosixSubsystem::invoke(File* originalFile, const String& originalName, Vect
     SYSCALL_ERROR(Interrupted);
     return false;
   }
+
+  // A descriptor can survive exec after clearing FD_CLOEXEC, but its old
+  // image's notification registration must not target the replacement image.
+  posix_mqueue_process_exit(pProcess->getId());
 
   // Wipe out old address space.
   // Earlier failures preserve the registration. From this irreversible

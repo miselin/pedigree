@@ -36,6 +36,7 @@
 #include "modules/subsys/posix/epoll-syscalls.h"
 #include "modules/subsys/posix/eventfd-syscalls.h"
 #include "modules/subsys/posix/inotify-syscalls.h"
+#include "modules/subsys/posix/mqueue-syscalls.h"
 #include "modules/system/vfs/File.h"
 #include "net-syscalls.h"
 #include "poll-syscalls.h"
@@ -185,6 +186,10 @@ short queryDescriptorPoll(const FileDescriptor& descriptor, short events) {
   if (inotify) {
     return readyMaskToPoll(inotify->queryReady(), events);
   }
+  SharedPointer<PosixMessageQueue> mqueue = descriptor.getMqueueImpl();
+  if (mqueue) {
+    return readyMaskToPoll(mqueue->queryReady(), events);
+  }
   if (descriptor.file) {
     const int accessMode = descriptor.getStatusFlags() & O_ACCMODE;
     const bool canRead = accessMode != O_WRONLY;
@@ -212,6 +217,10 @@ ReadinessSource* descriptorReadinessSource(const FileDescriptor& descriptor) {
   SharedPointer<InotifyInstance> inotify = descriptor.getInotifyImpl();
   if (inotify) {
     return inotify.get();
+  }
+  SharedPointer<PosixMessageQueue> mqueue = descriptor.getMqueueImpl();
+  if (mqueue) {
+    return mqueue.get();
   }
   if (descriptor.file) {
     return descriptor.file;

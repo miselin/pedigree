@@ -29,6 +29,7 @@
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/List.h"
+#include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Tree.h"
 #include "pedigree/kernel/utilities/new"
@@ -38,6 +39,14 @@
 class File;
 class Process;
 class VirtualAddressSpace;
+
+/** One logical mapping attachment, retained by every surviving fragment. */
+class MappingAttachment {
+ public:
+  virtual ~MappingAttachment() {}
+  virtual uintptr_t baseAddress() const = 0;
+  virtual SharedPointer<MappingAttachment> clone(Process* target) = 0;
+};
 
 /** \addtogroup vfs
     @{ */
@@ -132,7 +141,8 @@ class MemoryMappedObject {
         m_Address(address),
         m_Length(length),
         m_Permissions(perms),
-        m_MaximumPermissions(maximumPerms) {}
+        m_MaximumPermissions(maximumPerms),
+        m_Attachment() {}
 
   virtual ~MemoryMappedObject();
 
@@ -292,6 +302,7 @@ class MemoryMappedObject {
    */
   Permissions m_Permissions;
   Permissions m_MaximumPermissions;
+  SharedPointer<MappingAttachment> m_Attachment;
 };
 
 /**
@@ -340,9 +351,10 @@ class AnonymousMemoryMap : public MemoryMappedObject {
  */
 class MemoryMappedFile : public MemoryMappedObject {
  public:
-  MemoryMappedFile(uintptr_t address, size_t length, size_t offset, File* backing,
-                   bool bCopyOnWrite, Permissions perms,
-                   Permissions maximumPerms = Read | Write | Exec);
+  MemoryMappedFile(
+      uintptr_t address, size_t length, size_t offset, File* backing, bool bCopyOnWrite,
+      Permissions perms, Permissions maximumPerms = Read | Write | Exec,
+      const SharedPointer<MappingAttachment>& attachment = SharedPointer<MappingAttachment>());
 
   virtual ~MemoryMappedFile();
 
@@ -467,7 +479,8 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
       size_t offset, bool bCopyOnWrite, Placement placement, MapStatus* status,
       MemoryMappedObject::Permissions maximumPerms = MemoryMappedObject::Read |
                                                      MemoryMappedObject::Write |
-                                                     MemoryMappedObject::Exec);
+                                                     MemoryMappedObject::Exec,
+      const SharedPointer<MappingAttachment>& attachment = SharedPointer<MappingAttachment>());
 
   /**
    * Create a new anonymous memory mapping.
@@ -505,6 +518,12 @@ class EXPORTED_PUBLIC MemoryMapManager : public MemoryTrapHandler, public Memory
    * replacement inherits the reservations of the mappings it displaces.
    */
   size_t removeAndRelease(uintptr_t base, size_t length);
+
+  /** Find a logical attachment even when its first fragment was unmapped. */
+  SharedPointer<MappingAttachment> findAttachment(uintptr_t base);
+
+  /** Remove only this attachment's fragments, preserving replacement mappings. */
+  size_t removeAttachment(const SharedPointer<MappingAttachment>& attachment);
 
   /**
    * Adjusts permissions across the given range, crossing object

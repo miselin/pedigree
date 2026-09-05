@@ -27,6 +27,7 @@
 #include "modules/subsys/posix/PosixSubsystem.h"
 #include "modules/subsys/posix/eventfd-syscalls.h"
 #include "modules/subsys/posix/inotify-syscalls.h"
+#include "modules/subsys/posix/mqueue-syscalls.h"
 #include "modules/subsys/posix/net-syscalls.h"
 #include "modules/system/vfs/File.h"
 
@@ -51,7 +52,8 @@ struct EpollWatch {
   EpollWatch(int watchedFd, const FileDescriptor::OpenFileDescriptionLease& openFile,
              File* watchedFile, const SharedPointer<NetworkSyscalls>& watchedNetwork,
              const SharedPointer<EventFd>& watchedEventFd,
-             const SharedPointer<InotifyInstance>& watchedInotify, bool readable, bool writable,
+             const SharedPointer<InotifyInstance>& watchedInotify,
+             const SharedPointer<PosixMessageQueue>& watchedMqueue, bool readable, bool writable,
              const LinuxEpollEvent& event)
       : fd(watchedFd),
         description(openFile),
@@ -59,6 +61,7 @@ struct EpollWatch {
         network(watchedNetwork),
         eventFd(watchedEventFd),
         inotify(watchedInotify),
+        mqueue(watchedMqueue),
         canRead(readable),
         canWrite(writable),
         events(event.events),
@@ -76,6 +79,7 @@ struct EpollWatch {
   SharedPointer<NetworkSyscalls> network;
   SharedPointer<EventFd> eventFd;
   SharedPointer<InotifyInstance> inotify;
+  SharedPointer<PosixMessageQueue> mqueue;
   bool canRead;
   bool canWrite;
   uint32_t events;
@@ -97,6 +101,9 @@ ReadinessSource* watchSource(const EpollWatch& watch) {
   }
   if (watch.inotify) {
     return watch.inotify.get();
+  }
+  if (watch.mqueue) {
+    return watch.mqueue.get();
   }
   return watch.eventFd.get();
 }
@@ -141,6 +148,9 @@ ReadyMask queryWatch(const EpollWatch& watch) {
   }
   if (watch.inotify) {
     return watch.inotify->queryReady();
+  }
+  if (watch.mqueue) {
+    return watch.mqueue->queryReady();
   }
   return ReadyInvalid;
 }
@@ -355,7 +365,8 @@ int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* e
   SharedPointer<NetworkSyscalls> network = description->getNetworkImpl();
   SharedPointer<EventFd> eventFd = description->getEventFdImpl();
   SharedPointer<InotifyInstance> inotify = description->getInotifyImpl();
-  if (!file && !network && !eventFd && !inotify) {
+  SharedPointer<PosixMessageQueue> mqueue = description->getMqueueImpl();
+  if (!file && !network && !eventFd && !inotify && !mqueue) {
     SYSCALL_ERROR(NotEnoughPermissions);
     return -1;
   }
@@ -425,9 +436,9 @@ int EpollInstance::control(int operation, int targetFd, const LinuxEpollEvent* e
   }
 
   const int accessMode = descriptor->getStatusFlags() & O_ACCMODE;
-  const bool canRead = network || eventFd || inotify || accessMode != O_WRONLY;
-  const bool canWrite = network || eventFd || accessMode != O_RDONLY;
-  EpollWatch* watch = new EpollWatch(targetFd, description, file, network, eventFd, inotify,
+  const bool canRead = network || eventFd || inotify || mqueue || accessMode != O_WRONLY;
+  const bool canWrite = network || eventFd || mqueue || accessMode != O_RDONLY;
+  EpollWatch* watch = new EpollWatch(targetFd, description, file, network, eventFd, inotify, mqueue,
                                      canRead, canWrite, *event);
 
   // Subscription precedes publication, so the first subsequent wait cannot

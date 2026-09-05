@@ -2113,6 +2113,7 @@ bool Thread::replaceSignalEvent(size_t signalNumber, Event* replacement, int pro
           newSignal->setSignalOrigin(oldSignal->getSignalCode(), oldSignal->getSenderProcess(),
                                      oldSignal->getSenderUser());
           newSignal->setContinuationEpoch(oldSignal->getContinuationEpoch());
+          newSignal->setSignalValue(oldSignal->getSignalValue());
           *it = replacement;
           break;
         }

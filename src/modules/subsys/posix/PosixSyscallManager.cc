@@ -41,6 +41,7 @@
 #include "inotify-syscalls.h"
 #include "linux-amd64-signal.h"
 #include "logging.h"
+#include "mqueue-syscalls.h"
 #include "net-syscalls.h"
 #include "pipe-syscalls.h"
 #include "poll-syscalls.h"
@@ -50,6 +51,9 @@
 #include "signal-syscalls.h"
 #include "syscalls/translate.h"
 #include "system-syscalls.h"
+#include "sysv-message-syscalls.h"
+#include "sysv-semaphore-syscalls.h"
+#include "sysv-shm-syscalls.h"
 
 namespace {
 off_t linuxAmd64VectorOffset(uintptr_t low, uintptr_t high) {
@@ -390,6 +394,54 @@ uintptr_t PosixSyscallManager::syscall(SyscallState& state) {
       return posix_eventfd(static_cast<unsigned int>(p1));
     case POSIX_EVENTFD2:
       return posix_eventfd2(static_cast<unsigned int>(p1), static_cast<int>(p2));
+    case POSIX_SHMGET:
+      return posix_shmget(static_cast<int32_t>(p1), p2, static_cast<int>(p3));
+    case POSIX_SHMAT:
+      return reinterpret_cast<uintptr_t>(posix_shmat(
+          static_cast<int>(p1), reinterpret_cast<const void*>(p2), static_cast<int>(p3)));
+    case POSIX_SHMDT:
+      return posix_shmdt(reinterpret_cast<const void*>(p1));
+    case POSIX_SHMCTL:
+      return posix_shmctl(static_cast<int>(p1), static_cast<int>(p2), reinterpret_cast<void*>(p3));
+
+    case POSIX_SEMGET:
+      return posix_semget(static_cast<int>(p1), static_cast<int>(p2), static_cast<int>(p3));
+    case POSIX_SEMOP:
+      return posix_semop(static_cast<int>(p1), reinterpret_cast<const void*>(p2), p3);
+    case POSIX_SEMCTL:
+      return posix_semctl(static_cast<int>(p1), static_cast<int>(p2), static_cast<int>(p3), p4);
+    case POSIX_SEMTIMEDOP:
+      return posix_semtimedop(static_cast<int>(p1), reinterpret_cast<const void*>(p2), p3,
+                              reinterpret_cast<const void*>(p4));
+    case POSIX_MSGGET:
+      return posix_msgget(static_cast<int32_t>(p1), static_cast<int>(p2));
+    case POSIX_MSGSND:
+      return posix_msgsnd(static_cast<int>(p1), reinterpret_cast<const void*>(p2), p3,
+                          static_cast<int>(p4));
+    case POSIX_MSGRCV:
+      return posix_msgrcv(static_cast<int>(p1), reinterpret_cast<void*>(p2), p3,
+                          static_cast<int64_t>(p4), static_cast<int>(p5));
+    case POSIX_MSGCTL:
+      return posix_msgctl(static_cast<int>(p1), static_cast<int>(p2), reinterpret_cast<void*>(p3));
+    case POSIX_MQ_OPEN:
+      return posix_mq_open(reinterpret_cast<const char*>(p1), static_cast<int>(p2),
+                           static_cast<unsigned>(p3), reinterpret_cast<const LinuxMqAttr*>(p4));
+    case POSIX_MQ_UNLINK:
+      return posix_mq_unlink(reinterpret_cast<const char*>(p1));
+    case POSIX_MQ_TIMEDSEND:
+      return posix_mq_timedsend(static_cast<int>(p1), reinterpret_cast<const char*>(p2), p3,
+                                static_cast<unsigned>(p4),
+                                reinterpret_cast<const LinuxMqTimespec*>(p5));
+    case POSIX_MQ_TIMEDRECEIVE:
+      return posix_mq_timedreceive(static_cast<int>(p1), reinterpret_cast<char*>(p2), p3,
+                                   reinterpret_cast<unsigned*>(p4),
+                                   reinterpret_cast<const LinuxMqTimespec*>(p5));
+    case POSIX_MQ_NOTIFY:
+      return posix_mq_notify(static_cast<int>(p1), reinterpret_cast<const LinuxMqSigevent*>(p2));
+    case POSIX_MQ_GETSETATTR:
+      return posix_mq_getsetattr(static_cast<int>(p1), reinterpret_cast<const LinuxMqAttr*>(p2),
+                                 reinterpret_cast<LinuxMqAttr*>(p3));
+
     case POSIX_INOTIFY_INIT:
       return posix_inotify_init();
     case POSIX_INOTIFY_INIT1:

@@ -218,6 +218,8 @@ bool restartableSyscall(const SyscallState& state) {
     case PedigreeLinuxAmd64Syscall_recvfrom:
     case PedigreeLinuxAmd64Syscall_sendmsg:
     case PedigreeLinuxAmd64Syscall_recvmsg:
+    case PedigreeLinuxAmd64Syscall_mq_timedsend:
+    case PedigreeLinuxAmd64Syscall_mq_timedreceive:
       return true;
     case PedigreeLinuxAmd64Syscall_futex:
       // Replaying a relative timeout would extend the caller's deadline.
@@ -357,6 +359,7 @@ bool buildAsyncFrame(Thread* thread, LinuxAmd64Signal::AsyncEvent& event, Sigcon
   setSiginfo32(frame.info, 8, event.getSignalCode());
   setSiginfo32(frame.info, 16, event.getSenderProcess());
   setSiginfo32(frame.info, 20, static_cast<int32_t>(event.getSenderUser()));
+  setSiginfo64(frame.info, 24, event.getSignalValue());
 
   if (!PosixSubsystem::copyToUser(reinterpret_cast<void*>(fpstateAddress), &fpstate,
                                   sizeof(fpstate)) ||

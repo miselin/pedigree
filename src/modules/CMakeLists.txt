@@ -821,6 +821,12 @@ pedigree_module(posix "" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/file-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/IoEvent.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/inotify-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sysv-semaphore-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sysv-shm-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/sysv-message-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/mqueue-syscalls.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/mqueue-state.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/mqueue-netlink.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/linux-amd64-signal.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/net-syscalls.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/subsys/posix/pipe-syscalls.cc

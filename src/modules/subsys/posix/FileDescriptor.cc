@@ -25,6 +25,7 @@
 #include "modules/subsys/posix/epoll-syscalls.h"
 #include "modules/subsys/posix/eventfd-syscalls.h"
 #include "modules/subsys/posix/inotify-syscalls.h"
+#include "modules/subsys/posix/mqueue-syscalls.h"
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
 #include "net-syscalls.h"  // to get destructor for SharedPointer<NetworkSyscalls>
@@ -97,6 +98,7 @@ FileDescriptor::OpenFileDescription::OpenFileDescription(File* newFile, uint64_t
       networkImpl(nullptr),
       eventFdImpl(nullptr),
       inotifyImpl(nullptr),
+      mqueueImpl(nullptr),
       offset(initialOffset),
       statusFlags(initialStatusFlags),
       descriptorOwners(1),
@@ -413,6 +415,21 @@ void FileDescriptor::setInotifyImpl(const SharedPointer<InotifyInstance>& implem
 
 SharedPointer<InotifyInstance> FileDescriptor::getInotifyImpl() const {
   return m_OpenFile->getInotifyImpl();
+}
+
+SharedPointer<PosixMessageQueue> FileDescriptor::OpenFileDescription::getMqueueImpl() const {
+  LockGuard<Mutex> guard(lock);
+  return mqueueImpl;
+}
+
+void FileDescriptor::setMqueueImpl(const SharedPointer<PosixMessageQueue>& implementation) {
+  LockGuard<Mutex> guard(m_OpenFile->lock);
+  assert(!m_OpenFile->mqueueImpl);
+  m_OpenFile->mqueueImpl = implementation;
+}
+
+SharedPointer<PosixMessageQueue> FileDescriptor::getMqueueImpl() const {
+  return m_OpenFile->getMqueueImpl();
 }
 
 void FileDescriptor::unpublish() {

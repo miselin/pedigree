@@ -83,6 +83,13 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
     return m_SenderProcess;
   }
 
+  void setSignalValue(uint64_t value) {
+    m_SignalValue = value;
+  }
+  uint64_t getSignalValue() const {
+    return m_SignalValue;
+  }
+
   uint32_t getSenderUser() const {
     return m_SenderUser;
   }
@@ -137,6 +144,7 @@ class EXPORTED_PUBLIC SignalEvent : public Event {
   int32_t m_SignalCode;
   int32_t m_SenderProcess;
   uint32_t m_SenderUser;
+  uint64_t m_SignalValue;
 };
 
 #endif

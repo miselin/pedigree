@@ -382,7 +382,8 @@ void AnonymousMemoryMap::unmapUnlocked() {
 
 MemoryMappedFile::MemoryMappedFile(uintptr_t address, size_t length, size_t offset, File* backing,
                                    bool bCopyOnWrite, MemoryMappedObject::Permissions perms,
-                                   MemoryMappedObject::Permissions maximumPerms)
+                                   MemoryMappedObject::Permissions maximumPerms,
+                                   const SharedPointer<MappingAttachment>& attachment)
     : MemoryMappedObject(address, bCopyOnWrite, length, perms, maximumPerms),
       m_pBacking(backing),
       m_Offset(offset),
@@ -390,6 +391,7 @@ MemoryMappedFile::MemoryMappedFile(uintptr_t address, size_t length, size_t offs
       m_Lock(),
       m_bVfsLease(backing && VFS::instance().retainTrackedFile(backing)) {
   assert(m_pBacking);
+  m_Attachment = attachment;
 }
 
 MemoryMappedFile::~MemoryMappedFile() {
@@ -406,7 +408,7 @@ MemoryMappedObject* MemoryMappedFile::clone() {
 
   MemoryMappedFile* pResult =
       new MemoryMappedFile(m_Address, m_Length, m_Offset, m_pBacking, m_bCopyOnWrite, m_Permissions,
-                           m_MaximumPermissions);
+                           m_MaximumPermissions, m_Attachment);
   pResult->m_Mappings = m_Mappings;
 
   for (auto it = m_Mappings.begin(); it != m_Mappings.end(); ++it) {
@@ -445,7 +447,7 @@ MemoryMappedObject* MemoryMappedFile::split(uintptr_t at) {
   // New object.
   MemoryMappedFile* pResult =
       new MemoryMappedFile(at, oldLength - m_Length, m_Offset + m_Length, m_pBacking,
-                           m_bCopyOnWrite, m_Permissions, m_MaximumPermissions);
+                           m_bCopyOnWrite, m_Permissions, m_MaximumPermissions, m_Attachment);
 
   // Fix up mapping metadata.
   for (uintptr_t virt = at; virt < oldEnd; virt += pageSz) {
@@ -983,7 +985,8 @@ MemoryMappedObject* MemoryMapManager::mapFile(File* pFile, uintptr_t& address, s
                                               MemoryMappedObject::Permissions perms, size_t offset,
                                               bool bCopyOnWrite, Placement placement,
                                               MapStatus* status,
-                                              MemoryMappedObject::Permissions maximumPerms) {
+                                              MemoryMappedObject::Permissions maximumPerms,
+                                              const SharedPointer<MappingAttachment>& attachment) {
   OperationGuard operation(*this);
 
   VirtualAddressSpace& va = Processor::information().getVirtualAddressSpace();
@@ -1018,8 +1021,8 @@ MemoryMappedObject* MemoryMapManager::mapFile(File* pFile, uintptr_t& address, s
   NOTICE("MemoryMapManager::mapFile: " << address << " length " << actualLength << " for "
                                        << pFile->getName());
 #endif
-  MemoryMappedFile* pMappedFile =
-      new MemoryMappedFile(address, actualLength, offset, pFile, bCopyOnWrite, perms, maximumPerms);
+  MemoryMappedFile* pMappedFile = new MemoryMappedFile(
+      address, actualLength, offset, pFile, bCopyOnWrite, perms, maximumPerms, attachment);
 
   MmObjectList* pMmObjectList = m_MmObjectLists.lookup(&va);
   if (!pMmObjectList) {
@@ -1103,10 +1106,19 @@ void MemoryMapManager::clone(Process* pProcess) {
     m_MmObjectLists.insert(pOtherVa, pMmObjectList2);
   }
 
+  Tree<MappingAttachment*, SharedPointer<MappingAttachment>> clonedAttachments;
   for (List<MemoryMappedObject*>::Iterator it = pMmObjectList->begin(); it != pMmObjectList->end();
        it++) {
     MemoryMappedObject* obj = *it;
     MemoryMappedObject* pNewObject = obj->clone();
+    if (obj->m_Attachment) {
+      auto attachment = clonedAttachments.lookup(obj->m_Attachment.get());
+      if (!attachment) {
+        attachment = obj->m_Attachment->clone(pProcess);
+        clonedAttachments.insert(obj->m_Attachment.get(), attachment);
+      }
+      pNewObject->m_Attachment = attachment;
+    }
     pMmObjectList2->pushBack(pNewObject);
   }
 }
@@ -1117,6 +1129,51 @@ size_t MemoryMapManager::remove(uintptr_t base, size_t length) {
 
 size_t MemoryMapManager::removeAndRelease(uintptr_t base, size_t length) {
   return removeInternal(base, length, true);
+}
+
+SharedPointer<MappingAttachment> MemoryMapManager::findAttachment(uintptr_t base) {
+  OperationGuard operation(*this);
+  VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
+  MmObjectList* objects = m_MmObjectLists.lookup(&space);
+  MemoryMappedObject* first = nullptr;
+  if (objects) {
+    for (auto it = objects->begin(); it != objects->end(); ++it) {
+      MemoryMappedObject* object = *it;
+      if (object->m_Attachment && object->m_Attachment->baseAddress() == base &&
+          (!first || object->address() < first->address())) {
+        // A newer attachment may reuse the original base of an older suffix.
+        first = object;
+      }
+    }
+  }
+  return first ? first->m_Attachment : SharedPointer<MappingAttachment>();
+}
+
+size_t MemoryMapManager::removeAttachment(const SharedPointer<MappingAttachment>& attachment) {
+  OperationGuard operation(*this);
+  VirtualAddressSpace& space = Processor::information().getVirtualAddressSpace();
+  Process* process = Processor::information().getCurrentThread()->getParent();
+  MmObjectList* objects = m_MmObjectLists.lookup(&space);
+  if (!objects || !attachment) {
+    return 0;
+  }
+  size_t removed = 0;
+  const size_t pageMask = PhysicalMemoryManager::getPageSize() - 1;
+  for (auto it = objects->begin(); it != objects->end();) {
+    MemoryMappedObject* object = *it;
+    if (object->m_Attachment != attachment) {
+      ++it;
+      continue;
+    }
+    const uintptr_t base = object->address();
+    const size_t length = (object->length() + pageMask) & ~pageMask;
+    it = objects->erase(it);
+    object->unmap();
+    delete object;
+    releaseReservation(process, space, base, length);
+    ++removed;
+  }
+  return removed;
 }
 
 size_t MemoryMapManager::removeInternal(uintptr_t base, size_t length, bool releaseReservations) {
